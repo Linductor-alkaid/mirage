@@ -3,6 +3,8 @@
 #include <string>
 
 #include <mirage/desktop/desktop_observation.hpp>
+#include <mirage/desktop/filesystem_provider.hpp>
+#include <mirage/desktop/process_provider.hpp>
 
 namespace mirage::desktop {
 
@@ -31,6 +33,13 @@ public:
     virtual ~DesktopEnvironment() = default;
 
     virtual EnvironmentInfo info() const = 0;
+
+    /// Provider accessors (design doc section 5). A null pointer means the
+    /// provider is not part of this environment and consumers must fail
+    /// closed. The environment owns its providers, so the pointers stay valid
+    /// for the environment's lifetime.
+    virtual FilesystemProvider* filesystem() { return nullptr; }
+    virtual ProcessProvider* process() { return nullptr; }
 };
 
 } // namespace mirage::desktop

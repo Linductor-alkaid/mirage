@@ -12,8 +12,10 @@
 [DEC-001](../decisions/DEC-001-dependency-pinning.md)）；M1 里程碑计划已建立，见
 [M1：Mira Host 与基础 Runtime](m1-mira-host.md)。M1 进行中：`M1-01` 项目初始化、
 `M1-02` Mira Host 生命周期（状态集冻结见
-[DEC-004](../decisions/DEC-004-mira-host-status-set.md)）已完成；下一工作项 `M1-03`
-Desktop Environment 绑定适配器。
+[DEC-004](../decisions/DEC-004-mira-host-status-set.md)）、`M1-03` Desktop Environment
+绑定适配器（绑定与参考 Provider 边界见
+[DEC-008](../decisions/DEC-008-m1-environment-binding-and-reference-providers.md)）
+已完成；下一工作项 `M1-04` Runtime Service 与 Local IPC。
 
 ## 交付边界
 

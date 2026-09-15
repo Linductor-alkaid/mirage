@@ -184,6 +184,15 @@ DesktopEnvironment
 
 这些 Provider 形成统一的环境接口，上层行为不直接包含平台实现信息。
 
+Provider 以访问器形式挂载在 `DesktopEnvironment` 上（`filesystem()` / `process()` 等，
+返回空指针表示该环境不具备对应能力，消费方必须 fail closed）。M1 首版只包含
+FilesystemProvider（只读文本读取）与 ProcessProvider（有界 shell 执行：超时与输出
+预算）；其范围约束、完整取消路径与 Permission 判定由 M1-05 / M1-06 收紧，
+[DEC-008](../decisions/DEC-008-m1-environment-binding-and-reference-providers.md)
+记录了该过渡边界。M1 参考后端是 `platform/linux::LinuxDesktopEnvironment`（实现
+desktop 抽象接口；Adapter 依赖 Core 接口），完整 Linux / Windows Backend 分别在
+M2 / M4 落地。
+
 例如一个语义行为：
 
 ```text
@@ -464,7 +473,12 @@ Mira Host（`runtime/mira_host`）是 pinned `MiraRuntime` 实例的唯一 owner
   无论从 `shutdown()` 还是宿主析构离开，都经过 `request_shutdown → finish_shutdown`。
 - 绑定接口为 `integration/mira` 的 `DesktopEnvironmentBinding`（不暴露 pinned 类型）；
   具体适配器的最终派生类型必须同时实现 pinned 环境契约，宿主在 `start()` 时以运行时
-  cross-cast 恢复该契约，未携带契约的绑定按 `invalid_argument` 失败关闭。
+  cross-cast 恢复该契约，未携带契约的绑定按 `invalid_argument` 失败关闭。M1 的具体
+  适配器是 `integration/mira::MiraEnvironmentBinding`：包装 `DesktopEnvironment`，
+  pinned 感知/输入面按环境真实能力集如实适配（超集 fail closed、输入在任何副作用前
+  拒绝、interrupt 幂等）；Filesystem / Process 经宿主操作面（`begin_operation` /
+  `admit_operation_completion`）以 Mirage Provider 返回值暴露给宿主侧驱动循环
+  （[DEC-008](../decisions/DEC-008-m1-environment-binding-and-reference-providers.md)）。
 - 产品层可见的任务进度是 pinned `TaskState` 的 M1 投影：`Idle`；`Active`（Observing/
   Reasoning/Planning/Acting/Verifying/Recovering）；`Paused`（Pausing/Paused/
   TakeoverSettling/SuspendedForTakeover）；`Cancelling`；终态 `Completed`/`Failed`/
