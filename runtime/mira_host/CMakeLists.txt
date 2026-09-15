@@ -10,5 +10,11 @@ target_include_directories(mirage_mira_host
 target_compile_features(mirage_mira_host PUBLIC cxx_std_20)
 mirage_enable_warnings(mirage_mira_host)
 
-# Pinned Mira core, consumed in-tree from third_party/mira (DEC-001).
-target_link_libraries(mirage_mira_host PUBLIC Mira::core)
+# The public header names the mirage-free binding interface; the pinned Mira
+# contract stays an implementation detail of the host (M1 header boundary).
+target_link_libraries(mirage_mira_host
+    PUBLIC
+        Mirage::integration_mira
+    PRIVATE
+        Mira::core
+)

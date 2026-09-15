@@ -4,13 +4,16 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-09-15
+> 更新日期：2026-09-16
 
 ## 当前状态
 
 项目骨架与依赖接线已初始化（pinned `mira` / `mirador`，见
 [DEC-001](../decisions/DEC-001-dependency-pinning.md)）；M1 里程碑计划已建立，见
-[M1：Mira Host 与基础 Runtime](m1-mira-host.md)。
+[M1：Mira Host 与基础 Runtime](m1-mira-host.md)。M1 进行中：`M1-01` 项目初始化、
+`M1-02` Mira Host 生命周期（状态集冻结见
+[DEC-004](../decisions/DEC-004-mira-host-status-set.md)）已完成；下一工作项 `M1-03`
+Desktop Environment 绑定适配器。
 
 ## 交付边界
 
@@ -81,7 +84,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 
 | 里程碑 | 内容 | 建议发布点 | 状态 | 依赖 |
 | --- | --- | --- | --- | --- |
-| [M1](m1-mira-host.md) | Mira Host、Runtime Service + IPC、Filesystem/Process Provider、CLI | `release-alpha` | Planned | - |
+| [M1](m1-mira-host.md) | Mira Host、Runtime Service + IPC、Filesystem/Process Provider、CLI | `release-alpha` | In Progress | - |
 | M2 | Desktop Environment 核心 Provider + Linux Backend、Semantic Snapshot、Element Reference | `release-beta` | Planned | M1 |
 | M3 | Mirador 集成：OCR / 检测 / 几何 / Visual Cache、Visual Reference | `release-gamma` | Planned | M2 |
 | M4 | Windows Backend（UIA / Win32 / Capture / Input） | `release-delta` | Planned | M2 |
@@ -96,7 +99,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | 编号 | 主题 | 暂定默认值 | 负责人 | 最迟冻结 |
 | --- | --- | --- | --- | --- |
 | DEC-002 | Mira TLS 通道适配器 | 关闭 Mbed TLS 适配器（OpenSSL 适配器可用即构建）；接入真实模型网关前复核 | Mirage 维护者 | M2 |
-| DEC-004（待建） | Mira Host 状态集 | HostStatus 五态；M1 内冻结并写入设计文档 | Mirage 维护者 | M1 |
+| DEC-004 | Mira Host 状态集 | 已定案（[DEC-004](../decisions/DEC-004-mira-host-status-set.md)）：五态 `Stopped/Starting/Running/Stopping/Failed`，M1 冻结并写入设计文档第 11.1 节 | Mirage 维护者 | M1（已冻结） |
 | DEC-005（待建） | DesktopObservation 契约 | 骨架字段集；M2 冻结 schema v1.0 | Mirage 维护者 | M2 |
 | DEC-006 | UI 技术路线与分发打包 | 已定案（[DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md)）：Web 前端 + 嵌入式渲染壳（暂定 CEF）独立进程；`.deb` / Windows `exe` 安装包。壳选型与更新通道为暂定默认值，M3 冻结 | Mirage 维护者 | M3 |
 | DEC-007（待建） | Local IPC 机制 | 未定（候选：Unix domain socket / 命名管道）；M1 内定案 | Mirage 维护者 | M1 |

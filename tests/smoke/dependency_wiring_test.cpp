@@ -2,6 +2,8 @@
 
 #include <mira/version.hpp>
 
+#include <string_view>
+
 #include <mirage/integration/mirador_service.hpp>
 #include <mirage/platform/platform_info.hpp>
 #include <mirage/runtime/mira_host.hpp>
@@ -41,9 +43,13 @@ void mirador_wiring() {
     MIRAGE_CHECK(!mirage::integration::validate_backend_identity(bad_format));
 }
 
-void runtime_and_platform_skeleton() {
-    mirage::runtime::SkeletonMiraHost host;
+void runtime_and_platform_wiring() {
+    // M1-02: the real MiraHost replaces the skeleton; a fresh host must sit
+    // in the frozen initial lifecycle state.
+    mirage::runtime::MiraHost host;
     MIRAGE_CHECK(host.status() == mirage::runtime::HostStatus::Stopped);
+    MIRAGE_CHECK(std::string_view(mirage::runtime::host_status_name(
+                     mirage::runtime::HostStatus::Stopped)) == "stopped");
 
     const mirage::runtime::ServiceInfo service = mirage::runtime::runtime_service_info();
     MIRAGE_CHECK(service.name == "mirage-runtime");
@@ -57,6 +63,6 @@ void runtime_and_platform_skeleton() {
 int main() {
     mira_wiring();
     mirador_wiring();
-    runtime_and_platform_skeleton();
+    runtime_and_platform_wiring();
     return mirage::testing::finish("dependency_wiring");
 }

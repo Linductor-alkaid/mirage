@@ -442,6 +442,38 @@ Mirage 不需要重新定义 Mira 内部的 Agent Harness 数据模型，而需�
 
 例如 Mira 提供的 Task、Workflow、Subagent、Tool Call 和 Trace 信息，可以通过 Runtime Integration 转换为 Mirage UI 可以订阅的事件。
 
+### 11.1 Mira Host 生命周期与状态机（M1 冻结）
+
+Mira Host（`runtime/mira_host`）是 pinned `MiraRuntime` 实例的唯一 owner：宿主负责按
+顺序初始化（`initialize` → 绑定环境打开主会话 `open_session`）与关闭（`request_shutdown`
+→ 等待排空 → `finish_shutdown`），不在 pinned 运行时之外另建并发设施。宿主状态集
+自 M1 起冻结：
+
+| HostStatus | 含义 | 后继状态 |
+| --- | --- | --- |
+| `Stopped` | 初始态与正常终态，未宿主 | `Starting` |
+| `Starting` | `start()` 已接纳，pinned 初始化与会话打开进行中 | `Running`、`Failed` |
+| `Running` | 已绑定环境，可提交任务 | `Stopping`、`Failed` |
+| `Stopping` | `shutdown()` 已接纳，等待排空 | `Stopped`、`Failed` |
+| `Failed` | 终态：初始化、绑定或运行失败 | （无，仅释放资源） |
+
+约束：
+
+- `Stopped` 与 `Failed` 是终态，幂等且不可复活；`start()`/`shutdown()` 在终态上只能
+  失败关闭或重述已记录结果。关闭顺序必须闭合：任何成功初始化的 pinned 运行时实例，
+  无论从 `shutdown()` 还是宿主析构离开，都经过 `request_shutdown → finish_shutdown`。
+- 绑定接口为 `integration/mira` 的 `DesktopEnvironmentBinding`（不暴露 pinned 类型）；
+  具体适配器的最终派生类型必须同时实现 pinned 环境契约，宿主在 `start()` 时以运行时
+  cross-cast 恢复该契约，未携带契约的绑定按 `invalid_argument` 失败关闭。
+- 产品层可见的任务进度是 pinned `TaskState` 的 M1 投影：`Idle`；`Active`（Observing/
+  Reasoning/Planning/Acting/Verifying/Recovering）；`Paused`（Pausing/Paused/
+  TakeoverSettling/SuspendedForTakeover）；`Cancelling`；终态 `Completed`/`Failed`/
+  `Cancelled`；`Unknown`（身份非法或不可表示）。终态幂等由 pinned 契约的转移表保证，
+  迟到的完成或取消以可观察的拒绝呈现，不会复活终态任务。
+- 单 owner 线程驱动宿主控制面（Runtime Service，见第 12 节）；`status()` 可被任意
+  线程观察。pinned 运行时内部的 Executor 编队由 pinned 依赖自管，Mirage 以容量配置
+  约束其准入与排队。
+
 ## 12. 后台运行
 
 桌面 Agent 需要支持长时间任务，因此 Mirage Runtime 应独立于主窗口运行。

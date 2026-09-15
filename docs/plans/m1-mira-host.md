@@ -5,7 +5,7 @@
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：无（项目初始化已随本里程碑工作项完成）
 > 建议发布点：`release-alpha`
-> 更新日期：2026-09-15
+> 更新日期：2026-09-16
 
 ## 目标
 
@@ -36,13 +36,14 @@ Service 与 Local IPC，使 Agent 可以脱离 GUI 生命周期运行（设计�
 - [DEC-001](../decisions/DEC-001-dependency-pinning.md)：依赖以 submodule + 锁文件 pin。
 - [DEC-002](../decisions/DEC-002-build-test-baseline.md)：构建、预设与测试基线。
 - [DEC-003](../decisions/DEC-003-repository-layout.md)：仓库布局与分层依赖方向。
+- [DEC-004](../decisions/DEC-004-mira-host-status-set.md)：Mira Host 状态集（M1 冻结）。
 
 ## 工作项
 
 - [x] `M1-01` 项目初始化：pinned `mira` / `mirador` 子模块与
       `dependencies.lock.json`、CMake 骨架（`CMakePresets.json` 五预设）、设计文档
       第 17 节目录骨架、依赖接线冒烟测试（mira / mirador 真实链接验证）。
-- [ ] `M1-02` Mira Host 实现可运行的宿主生命周期：初始化 / 关闭顺序、HostStatus 状态
+- [x] `M1-02` Mira Host 实现可运行的宿主生命周期：初始化 / 关闭顺序、HostStatus 状态
       机（冻结状态集并写入设计文档）、桌面环境绑定接口，覆盖正常完成、取消与 shutdown
       测试。
 - [ ] `M1-03` Desktop Environment 绑定适配器：经 `integration/mira` 把 Filesystem /
@@ -125,3 +126,38 @@ Service 与 Local IPC，使 Agent 可以脱离 GUI 生命周期运行（设计�
   子模块自动拉取"分支未测（所有子模块已检出，触发需删除后重建，留待 CI 覆盖）；
   asan/ubsan/tsan 目前仅覆盖两个轻量测试，净化器结论覆盖面随 M1 后续工作项扩展。
 - 同步：本验证记录、README 构建（tsan 注意事项）。
+
+2026-09-16：`M1-02` Mira Host 生命周期完成。
+
+- 范围：`runtime/mira_host` 从占位骨架替换为真实宿主——`MiraHost` 以 pimpl 持有 pinned
+  `MiraRuntime`，实现 `start()`（pinned 初始化 → 绑定环境打开主会话）、`submit_task` /
+  `cancel_task` / `complete_task` / `task_view` 与有序 `shutdown()`
+  （`request_shutdown` → 排空等待 → `finish_shutdown`），析构与失败路径复用同一释放
+  顺序；`HostStatus` 五态状态集冻结（`Stopped/Starting/Running/Stopping/Failed`，终态
+  幂等不可复活）并写入设计文档第 11.1 节，登记
+  [DEC-004](../decisions/DEC-004-mira-host-status-set.md)；环境绑定接口
+  `integration/mira::DesktopEnvironmentBinding` 固化为 pinned-free 契约桥（具体适配器
+  经运行时 cross-cast 恢复 pinned 环境契约，未携带契约的绑定 fail closed）。
+  `Mira::core` 降为 `mirage_mira_host` 的 PRIVATE 依赖，公共头保持 pinned-free。
+- 依据：设计文档第 11、12、17 节；`DEC-001`..`004`。
+- 验证（Independent-Verification-Agent，Linux x64，Ubuntu 24.04，GCC 13.3.0，
+  CMake 3.28.3，Ninja，clang-format 18.1.3）：
+  - 新增 `tests/runtime/mira_host_test.cpp`（12 场景 95 断言）：null binding 拒绝、
+    无 pinned 契约 binding fail closed、正常启动-提交-完成-关闭、启动前提交拒绝
+    （invalid_state）、运行中取消（Idle → Cancelled）、终态不复活（complete 后 cancel
+    实测被 pinned 以 InvalidState 拒绝，宿主呈现 `pinned_runtime` 错误）、双 start /
+    空 goal / 非法任务 id / 未知任务 id 负向用例、shutdown 排空（在途任务被 pinned
+    取消后 clean 关闭、关闭后提交拒绝）、`host_status_name` 稳定串；另含 restart
+    对抗场景（干净关闭后原实例不可再宿主，进 `Failed` 且不可复活）。
+  - 冒烟 `dependency_wiring_test` 迁移到真实 `MiraHost`（skeleton 已删除），版本断言
+    保留；因 `Mira::core` 转 PRIVATE，测试目标显式补链接。
+  - 预设矩阵：`debug` / `release` / `asan` / `ubsan` / `tsan` configure+build+ctest
+    3/3 通过、0 skip；`tsan` 按[本机注意事项](../../README.md)以
+    `setarch $(uname -m) -R ctest` 运行（未加 setarch 复现 `unexpected memory
+    mapping`，属已知 ASLR 环境怪癖）。
+  - `mirage-format-check` 通过；公共头边界：`runtime/*/include`、`desktop/*/include`、
+    `platform/include` 对 `mira/`、`mirador/`、`executor/` include 及标识符零命中。
+- 限制：宿主 `Failed` 路径仅能由 pinned 初始化/会话失败触发，真实依赖下无法不改实现
+  地注入任意运行中故障，故障注入用例留待具备注入钩子后补；绑定适配器的真实实现与
+  Agent 可观察的结构化结果属 `M1-03`。
+- 同步：设计文档第 11.1 节、`DEC-004`、总计划里程碑状态、本验证记录。
