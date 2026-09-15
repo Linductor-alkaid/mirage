@@ -657,6 +657,8 @@ mirage/
 
 其中 `runtime/mira_host` 和 `integration/mira` 负责 Mira 的宿主与接口适配；`integration/mirador` 负责视觉请求和结果转换；`desktop` 定义跨平台 Desktop Environment；`platform` 实现具体 OS Backend；`ui` 构成 Mirage 桌面产品。
 
+`ui/` 的实现形态由 [DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md) 固定：采用 Web 前端技术栈（HTML / CSS / TypeScript），经嵌入式渲染壳（暂定 CEF，M3 冻结）承载为独立的桌面应用进程——界面渲染在应用自有窗口中，不是浏览器网页。GUI、Tray 与 CLI 一致，仅经 Local IPC 与 Runtime Service 交互，UI 不进入 C++ 目标依赖图，IPC 契约是两者唯一的耦合面。分发形态为 Linux `.deb` 与 Windows `exe` 安装包；更新通道暂定 Linux 走 apt 仓库、Windows 走签名应用内更新器（暂定默认值，M3 复核）。
+
 ## 18. 开发路线
 
 Mirage 第一阶段应首先建立基础产品骨架和 Mira Host，在 Linux 开发环境中能够启动 Mira Agent、提交任务，并允许 Agent 使用 Filesystem、Process/Shell 等基础 PC 能力。同时建立 Runtime Service 与 IPC，使 Agent 可以脱离 GUI 生命周期运行。
