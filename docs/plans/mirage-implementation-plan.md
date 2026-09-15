@@ -98,7 +98,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | DEC-002 | Mira TLS 通道适配器 | 关闭 Mbed TLS 适配器（OpenSSL 适配器可用即构建）；接入真实模型网关前复核 | Mirage 维护者 | M2 |
 | DEC-004（待建） | Mira Host 状态集 | HostStatus 五态；M1 内冻结并写入设计文档 | Mirage 维护者 | M1 |
 | DEC-005（待建） | DesktopObservation 契约 | 骨架字段集；M2 冻结 schema v1.0 | Mirage 维护者 | M2 |
-| DEC-006（待建） | UI 技术栈 | 未定；M3 前定案 | Mirage 维护者 | M3 |
+| DEC-006 | UI 技术路线与分发打包 | 已定案（[DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md)）：Web 前端 + 嵌入式渲染壳（暂定 CEF）独立进程；`.deb` / Windows `exe` 安装包。壳选型与更新通道为暂定默认值，M3 冻结 | Mirage 维护者 | M3 |
 | DEC-007（待建） | Local IPC 机制 | 未定（候选：Unix domain socket / 命名管道）；M1 内定案 | Mirage 维护者 | M1 |
 
 ## 跨里程碑通用完成定义
