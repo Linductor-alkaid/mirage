@@ -1,0 +1,27 @@
+# Build trees
+build/
+build-*/
+out/
+
+# Generated per-compile databases (keep the source-tree symlink out of git)
+compile_commands.json
+.cache/
+
+# Test / sanitizer artifacts
+Testing/
+*.log
+*.gcda
+*.gcno
+sanitize_log/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Never commit credentials or local secrets
+*.pem
+*.key
+.env

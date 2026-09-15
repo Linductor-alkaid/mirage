@@ -1,0 +1,6 @@
+[submodule "third_party/mira"]
+	path = third_party/mira
+	url = https://github.com/Linductor-alkaid/mira.git
+[submodule "third_party/mirador"]
+	path = third_party/mirador
+	url = https://github.com/Linductor-alkaid/mirador.git

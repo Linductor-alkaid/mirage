@@ -1,0 +1,20 @@
+Checks: >
+  -*,
+  bugprone-*,
+  clang-analyzer-*,
+  concurrency-*,
+  performance-*,
+  portability-*,
+  -bugprone-macro-parentheses,
+  -bugprone-unchecked-optional-access,
+  -bugprone-empty-catch,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -performance-enum-size,
+  -performance-unnecessary-value-param,
+  -bugprone-easily-swappable-parameters,
+  readability-identifier-naming
+WarningsAsErrors: '*'
+HeaderFilterRegex: '.*/(include/mirage|src|apps|tests)/.*'
+CheckOptions:
+  - key: readability-identifier-naming.NamespaceCase
+    value: lower_case

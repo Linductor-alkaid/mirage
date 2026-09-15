@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "project": "mirage",
+  "updated": "2026-09-15",
+  "notes": "Top-level entries are git submodules verified at configure time by cmake/MirageDependencies.cmake. nested_pins entries are verified against the gitlink recorded in the parent repository's HEAD. Audit-only entries (no 'path' verification in parent HEAD) are informational.",
+  "dependencies": [
+    {
+      "name": "mira",
+      "source": "https://github.com/Linductor-alkaid/mira.git",
+      "path": "third_party/mira",
+      "version": "0.1.0",
+      "commit": "255e4cf7f5ef1dd96aa20eab5d7532b830e8f70b",
+      "license": "UNLICENSED (上游仓库未随附 LICENSE 文件；升级审计时先向上游确认)",
+      "consumption": "add_subdirectory；Mirage::core 经由别名 Mira::core 链接",
+      "nested_pins": [
+        {
+          "name": "executor",
+          "source": "https://github.com/Linductor-alkaid/executor.git",
+          "path": "third_party/executor",
+          "version": "0.4.0-100-ge2dc8ca",
+          "commit": "e2dc8ca2243345e2e6cf35b395793a58796457b9",
+          "license": "MIT"
+        },
+        {
+          "name": "mbedtls",
+          "source": "https://github.com/Mbed-TLS/mbedtls.git",
+          "path": "third_party/mbedtls",
+          "version": "v3.6.7",
+          "commit": "068ff080b369adfac81509f9b57b2afabaf82dc5",
+          "license": "Apache-2.0 OR GPL-2.0-or-later (Mira selects Apache-2.0)",
+          "audit_only": [
+            {
+              "name": "mbedtls-framework",
+              "commit": "dde0c4a0e448a0552f18817dcea633bb851fd288"
+            }
+          ]
+        }
+      ],
+      "audit_only": [
+        {
+          "name": "sqlite",
+          "distribution": "vendored",
+          "source": "https://sqlite.org/2026/sqlite-amalgamation-3530400.zip",
+          "version": "3.53.4",
+          "license": "Public Domain",
+          "archive_sha256": "1e71ddf93849c6a6ecf58b827c0692073d2dd7ee40196158068f7b29f422e87d"
+        }
+      ]
+    },
+    {
+      "name": "mirador",
+      "source": "https://github.com/Linductor-alkaid/mirador.git",
+      "path": "third_party/mirador",
+      "version": "v0.1.0-18-gfbcf6c4",
+      "commit": "fbcf6c44072694d79918e1de3552c497d7e6907d",
+      "license": "MIT",
+      "license_file": "third_party/mirador/LICENSE",
+      "consumption": "add_subdirectory；视觉后端契约经由别名 mirador::core 链接",
+      "nested_pins": [
+        {
+          "name": "googletest",
+          "source": "https://github.com/google/googletest.git",
+          "path": "third_party/googletest",
+          "version": "063de7e",
+          "commit": "063de7e9578f82b369302001269680b4b1553359",
+          "license": "BSD-3-Clause",
+          "usage": "test-only (mirador 自身测试；Mirage 测试不链接)"
+        }
+      ]
+    }
+  ]
+}
