@@ -8,7 +8,11 @@
 
 - `contracts/` — 协议 v1 wire 契约的 TypeScript 镜像（消息类型、编解码、framing、
   事件订阅语义）+ mock transport。纯 TS、零运行时依赖；与 C++ 端
-  （`runtime/ipc`）的一致性由共享 golden vectors 测试锁定（`M1.5-01`）。
+  （`runtime/ipc`）的一致性由共享 golden vectors 测试锁定（`M1.5-01`）：事实源
+  [mirage-ipc-protocol-v1.md](../docs/design/mirage-ipc-protocol-v1.md)，向量
+  `../tests/runtime/data/ipc_protocol_golden.json`，两端消费者为
+  `tests/runtime/ipc_protocol_golden_test.cpp` 与 `contracts/test/golden-vectors.test.ts`，
+  任一端漂移即测试失败。
 - `app/` — 前端应用（Vite + TypeScript，vanilla TS 视图层）。组件框架按计划在
   实现评审时定选；Vite/包管理器均为开发期暂定值，不构成 DEC-006 决策 6 的定案。
 - `app/src/theme/` — 三层设计 token 与主题系统（M1.5-08，设计规范 §2）：L1 原始值

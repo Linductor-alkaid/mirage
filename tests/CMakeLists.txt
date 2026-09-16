@@ -87,6 +87,22 @@ set_tests_properties(ipc_protocol_test PROPERTIES
     TIMEOUT 60
 )
 
+add_executable(ipc_protocol_golden_test runtime/ipc_protocol_golden_test.cpp)
+target_compile_features(ipc_protocol_golden_test PUBLIC cxx_std_20)
+mirage_enable_warnings(ipc_protocol_golden_test)
+# mira/json.hpp is a PRIVATE dependency of mirage_ipc (the public protocol
+# surface never leaks the pinned JSON model), so the golden-vector gate links
+# Mira::core explicitly to parse the shared vectors file.
+target_link_libraries(ipc_protocol_golden_test PRIVATE Mirage::ipc Mira::core)
+target_compile_definitions(ipc_protocol_golden_test PRIVATE
+    MIRAGE_GOLDEN_VECTORS_JSON="${CMAKE_SOURCE_DIR}/tests/runtime/data/ipc_protocol_golden.json"
+)
+add_test(NAME ipc_protocol_golden_test COMMAND ipc_protocol_golden_test)
+set_tests_properties(ipc_protocol_golden_test PROPERTIES
+    LABELS "unit;protocol"
+    TIMEOUT 60
+)
+
 add_executable(runtime_service_test runtime/runtime_service_test.cpp)
 target_compile_features(runtime_service_test PUBLIC cxx_std_20)
 mirage_enable_warnings(runtime_service_test)
