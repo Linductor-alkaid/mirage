@@ -16,8 +16,10 @@
 绑定适配器（绑定与参考 Provider 边界见
 [DEC-008](../decisions/DEC-008-m1-environment-binding-and-reference-providers.md)）、
 `M1-04` Runtime Service 与 Local IPC（IPC 机制定案见
-[DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md)）已完成；下一工作项
-`M1-05` Filesystem / Process Provider 收紧。
+[DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md)）、`M1-05`
+Filesystem / Process Provider 收紧（范围/预算/取消语义见
+[DEC-009](../decisions/DEC-009-provider-scope-budget-cancellation.md)）已完成；
+下一工作项 `M1-06` Desktop Permission 框架雏形。
 
 ## 交付边界
 

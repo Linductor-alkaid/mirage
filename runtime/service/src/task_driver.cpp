@@ -122,12 +122,15 @@ void admit_completion(ServiceCore& core, const OperationTicket& ticket) {
 }
 
 /// Executes one step's desktop action on the caller (driver) thread; the
-/// provider is synchronous and bounded by its own budget. Returns the
-/// structured outcome the registry records.
+/// provider is synchronous and bounded by its own budget, and `cancel`
+/// ends an in-flight action cooperatively (M1-05 cancellation path).
+/// `cancelled` reports a cancellation (distinct from a plain step failure,
+/// which settles the task failed).
 void execute_action(ServiceCore& core, const ipc::TaskStep& step,
+                    const mirage::desktop::CancelToken& cancel,
                     std::chrono::milliseconds step_budget, bool& ok,
-                    int& exit_code, std::string& result, bool& truncated,
-                    std::string& error) {
+                    bool& cancelled, int& exit_code, std::string& result,
+                    bool& truncated, std::string& error) {
     auto* environment = core.environment.get();
     if (environment == nullptr) {
         error = "internal: no desktop environment bound";
@@ -139,8 +142,10 @@ void execute_action(ServiceCore& core, const ipc::TaskStep& step,
             error = "filesystem provider unavailable";
             return;
         }
-        const auto outcome = filesystem->read_text_file(step.argument);
+        desktop::FileReadLimits limits;
+        const auto outcome = filesystem->read_text_file(step.argument, limits, cancel);
         if (!outcome.ok) {
+            cancelled = outcome.error.code == "cancelled";
             error = outcome.error.code + ": " + outcome.error.message;
             return;
         }
@@ -159,10 +164,15 @@ void execute_action(ServiceCore& core, const ipc::TaskStep& step,
     }
     desktop::ProcessLimits limits;
     limits.timeout = step_budget;
-    const auto outcome = process->execute(step.argument, limits);
+    const auto outcome = process->execute(step.argument, limits, cancel);
     exit_code = outcome.exit_code;
     if (outcome.output_truncated) {
         truncated = true;
+    }
+    if (outcome.cancelled) {
+        cancelled = true;
+        error = outcome.error.code + ": " + outcome.error.message;
+        return;
     }
     if (!outcome.ok) {
         error = outcome.error.code + ": " + outcome.error.message;
@@ -197,6 +207,7 @@ void run_driver(executor::StopToken stop_token,
     ServiceCore& service = *core;
     try {
         std::size_t index = 0;
+        mirage::desktop::CancelToken cancel;
         for (;;) {
             ipc::TaskStep step;
             std::chrono::milliseconds step_budget = service.step_timeout;
@@ -211,9 +222,10 @@ void run_driver(executor::StopToken stop_token,
                 }
                 step = entry->second.steps[index].spec;
                 step_budget = entry->second.step_timeout;
+                cancel = entry->second.cancel;
             }
 
-            if (stop_token.stop_requested()) {
+            if (stop_token.stop_requested() || cancel.cancelled()) {
                 for_each_step(service, task_id, index,
                               [](StepRecord& pending) {
                                   pending.status = step_status::kSkipped;
@@ -239,12 +251,30 @@ void run_driver(executor::StopToken stop_token,
                       ticket.operation_id, false, -1, {}, false, {});
 
             bool ok = false;
+            bool step_cancelled = false;
             int exit_code = -1;
             std::string result;
             bool truncated = false;
             std::string error;
-            execute_action(service, step, step_budget, ok, exit_code, result,
-                           truncated, error);
+            execute_action(service, step, cancel, step_budget, ok,
+                           step_cancelled, exit_code, result, truncated,
+                           error);
+            if (step_cancelled || cancel.cancelled()) {
+                // The action was interrupted by a task cancellation: the
+                // interrupted step is cancelled (not failed), the pending
+                // ones are skipped, and the pinned cancel — not the driver
+                // — owns the terminal settlement.
+                mark_step(service, task_id, index, step_status::kCancelled,
+                          ticket.operation_id, false, exit_code,
+                          std::move(result), truncated, std::move(error));
+                for_each_step(service, task_id, index + 1,
+                              [](StepRecord& pending) {
+                                  pending.status = step_status::kSkipped;
+                              });
+                admit_completion(service, ticket);
+                mark_driver_done(service, task_id, false, false);
+                return;
+            }
             mark_step(service, task_id, index,
                       ok ? step_status::kOk : step_status::kFailed,
                       ticket.operation_id, ok, exit_code, std::move(result),

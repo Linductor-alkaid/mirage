@@ -6,10 +6,12 @@
 
 #include <csignal>
 #include <cstring>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <string>
 #include <unistd.h>
+#include <vector>
 
 namespace {
 
@@ -29,7 +31,7 @@ extern "C" void on_signal(int) {
 }
 
 void print_usage(std::ostream& out) {
-    out << "Usage: " << kProgramName << " [--socket PATH]\n"
+    out << "Usage: " << kProgramName << " [--socket PATH] [--read-root PATH]...\n"
         << "\n"
         << "Hosts the Mirage background runtime service (design doc section\n"
         << "12): a pinned Mira instance bound to the local desktop\n"
@@ -38,9 +40,11 @@ void print_usage(std::ostream& out) {
         << "SIGINT/SIGTERM.\n"
         << "\n"
         << "Options:\n"
-        << "  --socket PATH   IPC endpoint (default: XDG runtime dir)\n"
-        << "  --version       Print versions\n"
-        << "  --help          Print this help\n";
+        << "  --socket PATH     IPC endpoint (default: XDG runtime dir)\n"
+        << "  --read-root PATH  Filesystem path tasks may read (repeatable;\n"
+        << "                    without one, filesystem reads are denied)\n"
+        << "  --version         Print versions\n"
+        << "  --help            Print this help\n";
 }
 
 void print_version() {
@@ -56,6 +60,7 @@ void print_version() {
 int main(int argc, char** argv) {
     mirage::runtime::ServiceConfig config;
     config.mirage_version = std::string(kVersion);
+    std::vector<std::string> read_roots;
 
     for (int index = 1; index < argc; ++index) {
         const std::string_view argument{argv[index]};
@@ -71,6 +76,10 @@ int main(int argc, char** argv) {
             config.socket_path = argv[++index];
             continue;
         }
+        if (argument == "--read-root" && index + 1 < argc) {
+            read_roots.emplace_back(argv[++index]);
+            continue;
+        }
         std::cerr << kProgramName << ": unknown argument '" << argument
                   << "'\n";
         print_usage(std::cerr);
@@ -78,10 +87,17 @@ int main(int argc, char** argv) {
     }
 
     // The M1 reference topology binds the Linux backend (DEC-008 item 3:
-    // development and test topologies until M1-05/M1-06 tighten the
-    // providers).
+    // development and test topologies until M1-06 completes the permission
+    // gate). The M1-05 read scope is declared here: only paths at or beneath
+    // a --read-root are readable, and an empty scope denies every read.
+    std::vector<std::filesystem::path> read_scope;
+    read_scope.reserve(read_roots.size());
+    for (const std::string& root : read_roots) {
+        read_scope.emplace_back(root);
+    }
     auto environment =
-        std::make_shared<mirage::platform::linux_backend::LinuxDesktopEnvironment>();
+        std::make_shared<mirage::platform::linux_backend::LinuxDesktopEnvironment>(
+            std::move(read_scope));
     auto binding =
         std::make_shared<mirage::integration::MiraEnvironmentBinding>(
             environment);
@@ -113,6 +129,8 @@ int main(int argc, char** argv) {
     }
     std::cout << kProgramName << " serving at " << service.socket_path()
               << '\n'
+              << "filesystem read scope: " << read_roots.size()
+              << " root(s)\n"
               << std::flush;
 
     const mirage::runtime::ServiceRunReport report = service.run();

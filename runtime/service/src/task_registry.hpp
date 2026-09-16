@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include <mirage/desktop/cancellation.hpp>
 #include <mirage/runtime/ipc/protocol.hpp>
 
 namespace mirage::runtime::detail {
@@ -23,6 +24,9 @@ inline constexpr const char* kRunning = "running";
 inline constexpr const char* kOk = "ok";
 inline constexpr const char* kFailed = "failed";
 inline constexpr const char* kSkipped = "skipped";
+/// The step was interrupted by a task cancellation (M1-05 cancellation
+/// path): the desktop action did not finish, but the task did not fail.
+inline constexpr const char* kCancelled = "cancelled";
 } // namespace step_status
 
 struct StepRecord {
@@ -43,6 +47,10 @@ struct TaskRecord {
     /// Wall-clock budget for one process.execute step, already clamped by
     /// the service cap at submit time (DEC-007 item 5).
     std::chrono::milliseconds step_timeout{30000};
+    /// Cooperative cancellation flag the driver hands to every desktop
+    /// action; the task.cancel handler and the ordered teardown request it
+    /// so an in-flight provider operation ends promptly (M1-05).
+    mirage::desktop::CancelToken cancel;
     /// True once the driver settled the task (or gave up on it).
     bool driver_done = false;
     /// Meaningful only once driver_done and the task reached a terminal

@@ -137,7 +137,9 @@ void scenario_execute_rejects_and_interrupt_is_idempotent() {
 
 void scenario_filesystem_provider_reads_and_fails_closed() {
     TempWorkspace workspace;
-    linux_backend::LinuxDesktopEnvironment environment;
+    // M1-05: reads are scoped to the declared roots; the workspace root is
+    // the one readable place in this scenario.
+    linux_backend::LinuxDesktopEnvironment environment({workspace.root()});
     const auto goal_path = workspace.root() / "goal.txt";
     write_text_file(goal_path, "mirage says hello\n");
 
@@ -145,6 +147,8 @@ void scenario_filesystem_provider_reads_and_fails_closed() {
     MIRAGE_CHECK(read.ok);
     MIRAGE_CHECK(read.content == "mirage says hello\n");
 
+    // Negative cases stay inside the scope: they exercise lookup and file
+    // validation, not containment.
     const auto missing = environment.read_text_file(workspace.root() / "missing.txt");
     MIRAGE_CHECK(!missing.ok);
     MIRAGE_CHECK(missing.error.code == "not_found");
@@ -156,6 +160,17 @@ void scenario_filesystem_provider_reads_and_fails_closed() {
     const auto empty_path = environment.read_text_file({});
     MIRAGE_CHECK(!empty_path.ok);
     MIRAGE_CHECK(empty_path.error.code == "invalid_argument");
+
+    // M1-05 fail-closed contract: a default-constructed environment declares
+    // no read roots and must refuse every read with permission_denied, even
+    // for an existing regular file. The refusal reports the requested path,
+    // never any resolved target.
+    linux_backend::LinuxDesktopEnvironment unscoped;
+    const auto denied = unscoped.read_text_file(goal_path);
+    MIRAGE_CHECK(!denied.ok);
+    MIRAGE_CHECK(denied.error.code == "permission_denied");
+    MIRAGE_CHECK(denied.error.message.find(goal_path.string()) != std::string::npos);
+    MIRAGE_CHECK(denied.content.empty());
 }
 
 void scenario_process_provider_captures_streams_and_exit_code() {
@@ -228,7 +243,9 @@ void scenario_end_to_end_task_reads_file_and_executes_shell() {
     const auto goal_path = workspace.root() / "goal.txt";
     write_text_file(goal_path, "structured result payload\n");
 
-    auto environment = std::make_shared<linux_backend::LinuxDesktopEnvironment>();
+    auto environment =
+        std::make_shared<linux_backend::LinuxDesktopEnvironment>(
+            std::vector<std::filesystem::path>{workspace.root()});
     auto binding = std::make_shared<integration::MiraEnvironmentBinding>(environment);
     MiraHost host;
     const auto started = host.start(binding);

@@ -50,18 +50,25 @@ ctest --preset debug
 后台 Runtime Service 经 Local IPC 服务于 CLI / GUI（[DEC-007](docs/decisions/DEC-007-local-ipc-and-runtime-service.md)）：
 
 ```bash
-./build/debug/apps/mirage service start                 # 拉起 mirage-service 并等待就绪
+mkdir -p /tmp/mirage-demo && printf hello-mirage > /tmp/mirage-demo/note.txt
+./build/debug/apps/mirage service start \
+    --read-root /tmp/mirage-demo           # 拉起 mirage-service 并等待就绪
 ./build/debug/apps/mirage service status
 TASK=$(./build/debug/apps/mirage task submit \
     --goal "read a file and run a shell command" \
-    --read /etc/hostname --exec "printf hello-mirage" | cut -d' ' -f2)
+    --read /tmp/mirage-demo/note.txt --exec "printf hello-mirage" | cut -d' ' -f2)
 ./build/debug/apps/mirage task list
 ./build/debug/apps/mirage task inspect "$TASK"
+./build/debug/apps/mirage task cancel "$TASK"   # 运行中任务可随时取消
 ./build/debug/apps/mirage service shutdown
 ```
 
 M1 任务由 Service 内的宿主侧驱动循环按提交的有序 steps（`--read` / `--exec`）确定性
-推进；Provider 收紧前仅限开发与测试拓扑（[DEC-008](docs/decisions/DEC-008-m1-environment-binding-and-reference-providers.md)）。
+推进。文件读取强制 `--read-root` 读范围（未声明时拒绝一切读取，越界/symlink 逃逸
+fail closed），命令执行有长度/时长/输出预算并支持协作取消；范围、预算与取消语义见
+[DEC-009](docs/decisions/DEC-009-provider-scope-budget-cancellation.md)。Permission
+判定（`RULE-05`）落地（M1-06）前仅限开发与测试拓扑
+（[DEC-008](docs/decisions/DEC-008-m1-environment-binding-and-reference-providers.md)）。
 
 ## 开发流程
 

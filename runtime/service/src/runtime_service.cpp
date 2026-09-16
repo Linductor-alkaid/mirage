@@ -191,6 +191,11 @@ struct RuntimeService::Impl {
                            std::move(request->task_id));
             return;
         }
+        if (auto* request = std::get_if<ipc::CancelTaskRequest>(&decoded.body)) {
+            handle_cancel(connection_id, correlation_id,
+                          std::move(request->task_id));
+            return;
+        }
         if (auto* request = std::get_if<ipc::ShutdownRequest>(&decoded.body)) {
             (void)request;
             respond(connection_id, correlation_id, ipc::ShutdownAccepted{});
@@ -351,6 +356,47 @@ struct RuntimeService::Impl {
         respond(connection_id, correlation_id, std::move(inspect));
     }
 
+    /// Serial thread: cooperative task cancellation (M1-05 cancellation
+    /// path). The order matters: the desktop cancel token goes first so an
+    /// in-flight provider action ends at its next observation point, then
+    /// the driver's executor stop token stops between-step progress, and
+    /// the pinned cancel settles the task — the pinned state stays
+    /// authoritative and a terminal task is never revived.
+    void handle_cancel(std::uint64_t connection_id,
+                       std::uint64_t correlation_id, std::string task_id) {
+        bool known = false;
+        {
+            std::lock_guard lock(core->registry.mutex);
+            known = core->registry.tasks.count(task_id) != 0;
+            if (known) {
+                core->registry.tasks.at(task_id).cancel.request_cancel();
+            }
+        }
+        if (!known) {
+            fail(connection_id, correlation_id, "not_found", "unknown task id");
+            return;
+        }
+        {
+            std::lock_guard lock(core->drivers_mutex);
+            if (auto driver = core->drivers.find(task_id);
+                driver != core->drivers.end() && driver->second.handle.valid()) {
+                core->executor.request_task_cancel(driver->second.handle);
+            }
+        }
+        const HostOutcome cancelled = core->host.cancel_task(TaskIdentity{task_id});
+        if (!cancelled.ok) {
+            fail(connection_id, correlation_id, cancelled.error.code,
+                 cancelled.error.message);
+            return;
+        }
+        ipc::TaskCancelled acknowledgement;
+        acknowledgement.task_id = task_id;
+        const TaskViewResult view = core->host.task_view(TaskIdentity{task_id});
+        acknowledgement.progress =
+            view.ok ? progress_name(view.view.progress) : "Unknown";
+        respond(connection_id, correlation_id, std::move(acknowledgement));
+    }
+
     // --- lifecycle ---------------------------------------------------------
 
     void request_loop_stop() {
@@ -396,6 +442,16 @@ struct RuntimeService::Impl {
             ids = core->registry.ids();
         }
         for (const auto& id : ids) {
+            // End in-flight desktop actions promptly: the desktop cancel
+            // tokens break provider calls out of their budgets, the executor
+            // stop tokens stop the drivers between steps.
+            {
+                std::lock_guard lock(core->registry.mutex);
+                if (auto entry = core->registry.tasks.find(id);
+                    entry != core->registry.tasks.end()) {
+                    entry->second.cancel.request_cancel();
+                }
+            }
             auto cancelled = core->executor.submit_on(
                 core->serial, [core = core, &id] {
                     return core->host.cancel_task(

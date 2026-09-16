@@ -48,11 +48,22 @@ struct InspectTaskRequest {
     std::string task_id;
 };
 
+/// Requests cooperative cancellation of a task (M1-05 cancellation path):
+/// the service interrupts the in-flight desktop action, marks the pending
+/// steps cancelled/skipped and lets the pinned runtime settle the task as
+/// Cancelled. Unknown ids are not_found; already terminal tasks surface the
+/// pinned rejection verbatim (code "pinned_runtime", message prefixed
+/// "invalid_state:" — the same passthrough shape as task.submit) instead of
+/// reviving anything.
+struct CancelTaskRequest {
+    std::string task_id;
+};
+
 struct ShutdownRequest {};
 
 using Request =
     std::variant<HelloRequest, SubmitTaskRequest, ListTasksRequest,
-                 InspectTaskRequest, ShutdownRequest>;
+                 InspectTaskRequest, CancelTaskRequest, ShutdownRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -88,7 +99,8 @@ struct TaskList {
 struct StepView {
     int index = 0;
     std::string kind; ///< "filesystem.read" or "process.execute"
-    std::string status; ///< "pending" / "running" / "ok" / "failed" / "skipped"
+    /// "pending" / "running" / "ok" / "failed" / "skipped" / "cancelled"
+    std::string status;
     std::string operation_id;
     bool ok = false;
     int exit_code = -1;         ///< process.execute only; -1 otherwise
@@ -107,10 +119,18 @@ struct InspectTask {
     std::vector<StepView> steps;
 };
 
+/// Acknowledgement of task.cancel with the task's progress as of the
+/// cancellation request (typically "Cancelling" or a terminal state).
+struct TaskCancelled {
+    std::string task_id;
+    std::string progress;
+};
+
 struct ShutdownAccepted {};
 
 using ResponsePayload = std::variant<ServiceIdentity, TaskSubmitted, TaskList,
-                                     InspectTask, ShutdownAccepted>;
+                                     InspectTask, TaskCancelled,
+                                     ShutdownAccepted>;
 
 /// Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc
 /// domain ("protocol_error", "unsupported", "invalid_argument", "not_found",
