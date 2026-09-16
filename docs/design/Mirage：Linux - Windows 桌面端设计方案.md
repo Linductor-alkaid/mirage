@@ -562,6 +562,13 @@ M1 阶段 Local IPC 的落地形态由 [DEC-007](../decisions/DEC-007-local-ipc-
 
 ## 13. Agent Workspace
 
+> **修订（2026-09-16，[DEC-013](../decisions/DEC-013-frontend-ia-harness-first.md)）**：
+> UI 组织口径修订为 **harness 优先的统一壳**——会话（chat）是默认落地页，workflow
+> 是一级导航中的平等入口；下文"采用 Agent Workspace 组织，而不是只围绕聊天历史
+> 组织"的表述不再作为信息架构依据。本节描述的任务内组成（Conversation / 执行状态 /
+> Workflow / Subagent / Tool Call / Trace）继续有效；页面级拓扑、风格规范与组件
+> 规格以[《Mirage 前端设计规范与信息架构》](Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)为准。
+
 Mirage 的桌面 UI 采用 Agent Workspace 组织，而不是只围绕聊天历史组织。
 
 主要界面可以包括：
@@ -773,7 +780,7 @@ mirage/
 
 其中 `runtime/mira_host` 和 `integration/mira` 负责 Mira 的宿主与接口适配；`integration/mirador` 负责视觉请求和结果转换；`desktop` 定义跨平台 Desktop Environment；`platform` 实现具体 OS Backend；`ui` 构成 Mirage 桌面产品。
 
-`ui/` 的实现形态由 [DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md) 固定：采用 Web 前端技术栈（HTML / CSS / TypeScript），经嵌入式渲染壳（暂定 CEF，M3 冻结）承载为独立的桌面应用进程——界面渲染在应用自有窗口中，不是浏览器网页。GUI、Tray 与 CLI 一致，仅经 Local IPC 与 Runtime Service 交互，UI 不进入 C++ 目标依赖图，IPC 契约是两者唯一的耦合面。分发形态为 Linux `.deb` 与 Windows `exe` 安装包；更新通道暂定 Linux 走 apt 仓库、Windows 走签名应用内更新器（暂定默认值，M3 复核）。
+`ui/` 的实现形态由 [DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md) 固定：采用 Web 前端技术栈（HTML / CSS / TypeScript），经嵌入式渲染壳（暂定 CEF，M3 冻结）承载为独立的桌面应用进程——界面渲染在应用自有窗口中，不是浏览器网页。GUI、Tray 与 CLI 一致，仅经 Local IPC 与 Runtime Service 交互，UI 不进入 C++ 目标依赖图，IPC 契约是两者唯一的耦合面。分发形态为 Linux `.deb` 与 Windows `exe` 安装包；更新通道暂定 Linux 走 apt 仓库、Windows 走签名应用内更新器（暂定默认值，M3 复核）。`ui/` 的信息架构、页面拓扑与风格规范由 [DEC-013](../decisions/DEC-013-frontend-ia-harness-first.md) 冻结，见[《Mirage 前端设计规范与信息架构》](Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)；上方目录树中的 `ui/` 视图目录是该规范的实现承载划分，`ui/workspace` 等占位目录与规范页面的映射在实现时于 `ui/README.md` 维护。
 
 ## 18. 开发路线
 
