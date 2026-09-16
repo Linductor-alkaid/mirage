@@ -1,5 +1,6 @@
 #include <mirage/integration/mira_environment_binding.hpp>
 #include <mirage/platform/linux/linux_desktop_environment.hpp>
+#include <mirage/runtime/permission/permission.hpp>
 #include <mirage/runtime/runtime_service.hpp>
 
 #include <fcntl.h>
@@ -32,6 +33,8 @@ extern "C" void on_signal(int) {
 
 void print_usage(std::ostream& out) {
     out << "Usage: " << kProgramName << " [--socket PATH] [--read-root PATH]...\n"
+        << "               [--perm CAPABILITY=allow|confirm|deny]...\n"
+        << "               [--confirm allow|deny]\n"
         << "\n"
         << "Hosts the Mirage background runtime service (design doc section\n"
         << "12): a pinned Mira instance bound to the local desktop\n"
@@ -43,6 +46,13 @@ void print_usage(std::ostream& out) {
         << "  --socket PATH     IPC endpoint (default: XDG runtime dir)\n"
         << "  --read-root PATH  Filesystem path tasks may read (repeatable;\n"
         << "                    without one, filesystem reads are denied)\n"
+        << "  --perm RULE       Desktop permission rule (repeatable; RULE is\n"
+        << "                    CAPABILITY=allow|confirm|deny with CAPABILITY\n"
+        << "                    one of filesystem.read, filesystem.write,\n"
+        << "                    process.execute; DEC-010)\n"
+        << "  --confirm MODE    Outcome of confirmation requests (DEC-010\n"
+        << "                    fail-closed hook; allow|deny, default deny;\n"
+        << "                    the M5 UI replaces this with a real prompt)\n"
         << "  --version         Print versions\n"
         << "  --help            Print this help\n";
 }
@@ -80,16 +90,62 @@ int main(int argc, char** argv) {
             read_roots.emplace_back(argv[++index]);
             continue;
         }
+        if (argument == "--perm" && index + 1 < argc) {
+            const std::string_view rule{argv[++index]};
+            const auto equals = rule.find('=');
+            const auto capability =
+                equals == std::string_view::npos
+                    ? std::nullopt
+                    : mirage::runtime::permission::capability_from_name(
+                          rule.substr(0, equals));
+            const auto mode =
+                equals == std::string_view::npos
+                    ? std::nullopt
+                    : mirage::runtime::permission::rule_from_name(
+                          rule.substr(equals + 1));
+            if (!capability || !mode) {
+                std::cerr << kProgramName
+                          << ": --perm expects "
+                             "CAPABILITY=allow|confirm|deny (got '"
+                          << rule << "')\n";
+                print_usage(std::cerr);
+                return 2;
+            }
+            config.permission_policy.rules[static_cast<std::size_t>(
+                *capability)] = *mode;
+            continue;
+        }
+        if (argument == "--confirm" && index + 1 < argc) {
+            const std::string_view mode{argv[++index]};
+            if (mode == "allow") {
+                config.confirmation =
+                    std::make_shared<
+                        mirage::runtime::permission::AllowAllConfirmation>();
+                continue;
+            }
+            if (mode == "deny") {
+                // The service default is already fail closed (DEC-010);
+                // the explicit flag documents the choice.
+                config.confirmation = nullptr;
+                continue;
+            }
+            std::cerr << kProgramName
+                      << ": --confirm expects allow|deny (got '" << mode
+                      << "')\n";
+            print_usage(std::cerr);
+            return 2;
+        }
         std::cerr << kProgramName << ": unknown argument '" << argument
                   << "'\n";
         print_usage(std::cerr);
         return 2;
     }
 
-    // The M1 reference topology binds the Linux backend (DEC-008 item 3:
-    // development and test topologies until M1-06 completes the permission
-    // gate). The M1-05 read scope is declared here: only paths at or beneath
-    // a --read-root are readable, and an empty scope denies every read.
+    // The M1 reference topology binds the Linux backend (DEC-008 item 3).
+    // The M1-05 read scope is declared here: only paths at or beneath a
+    // --read-root are readable, and an empty scope denies every read. The
+    // M1-06 permission gate (DEC-010) sits in front of every desktop
+    // action with the policy declared via --perm.
     std::vector<std::filesystem::path> read_scope;
     read_scope.reserve(read_roots.size());
     for (const std::string& root : read_roots) {
@@ -130,8 +186,20 @@ int main(int argc, char** argv) {
     std::cout << kProgramName << " serving at " << service.socket_path()
               << '\n'
               << "filesystem read scope: " << read_roots.size()
-              << " root(s)\n"
-              << std::flush;
+              << " root(s)\n";
+    {
+        const auto& rules = config.permission_policy.rules;
+        std::cout << "permission policy:"
+                  << " filesystem.read="
+                  << mirage::runtime::permission::rule_name(rules[0])
+                  << " filesystem.write="
+                  << mirage::runtime::permission::rule_name(rules[1])
+                  << " process.execute="
+                  << mirage::runtime::permission::rule_name(rules[2])
+                  << "; confirmations: "
+                  << (config.confirmation ? "allow" : "deny") << '\n';
+    }
+    std::cout << std::flush;
 
     const mirage::runtime::ServiceRunReport report = service.run();
     if (!report.clean) {

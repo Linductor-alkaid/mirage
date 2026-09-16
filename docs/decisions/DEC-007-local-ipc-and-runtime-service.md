@@ -111,6 +111,12 @@
   传输、帧格式、载荷上限与单连接单请求纪律不变；任务取消的语义（desktop
   cancel token → 驱动停止令牌 → pinned cancel 的顺序、终态幂等）见 DEC-009
   第 4、5 条。
+- 2026-09-16（`M1-06`，[DEC-010](DEC-010-m1-permission-framework.md) 落地）：
+  `task.inspect` 的 `StepView` 新增附加字段 `permission`（稳定决策字符串
+  `allowed` / `confirmed` / `denied` / `confirmation_rejected`，未判定为空），
+  编码端总是写出、解码端缺省为空（向后兼容）。传输、帧格式、其余请求面与
+  单连接单请求纪律不变；权限判定发生在动作副作用前，被拒步不产生
+  operation id。
 
 ## 关联文档和工作项
 

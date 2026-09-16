@@ -11,6 +11,7 @@
 
 #include <mirage/desktop/desktop_environment.hpp>
 #include <mirage/runtime/mira_host.hpp>
+#include <mirage/runtime/permission/permission.hpp>
 
 #include "task_registry.hpp"
 
@@ -33,6 +34,12 @@ struct ServiceCore {
     /// Desktop surface the M1 task drivers act on (mirrors the environment
     /// wrapped by the binding handed to start(); null until then).
     std::shared_ptr<mirage::desktop::DesktopEnvironment> environment;
+
+    /// RULE-05 gate judged before every desktop action (DEC-010); owned
+    /// here so the drivers and future request paths share one policy and
+    /// one confirmation hook.
+    std::shared_ptr<mirage::runtime::permission::PermissionController>
+        permission;
 
     std::string mirage_version;
     std::size_t max_steps_per_task = 64;

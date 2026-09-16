@@ -29,9 +29,10 @@ struct FileReadOutcome {
 /// M1-05 hardening: implementations enforce a configured read scope — reads
 /// outside the scope fail closed with "permission_denied" before any content
 /// is touched — and the FileReadLimits budget caps how much one read may
-/// return. The Desktop Permission gate (RULE-05) lands with M1-06. Methods
-/// are synchronous and bounded by their limits; callers decide the execution
-/// context.
+/// return. The provider itself stays permission-agnostic: callers judge the
+/// filesystem.read capability through the runtime permission gate
+/// (RULE-05, DEC-010) before invoking. Methods are synchronous and bounded
+/// by their limits; callers decide the execution context.
 class FilesystemProvider {
 public:
     virtual ~FilesystemProvider() = default;

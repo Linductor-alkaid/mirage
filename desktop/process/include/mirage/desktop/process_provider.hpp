@@ -50,8 +50,9 @@ struct ProcessOutcome {
 /// bounded: it blocks the calling thread no longer than the declared timeout,
 /// refuses over-budget commands before any process is created, and tears the
 /// whole command process group down before returning, so no descendant
-/// survives the call and no child is left unreaped. The Desktop Permission
-/// gate for process.execute (RULE-05) lands with M1-06.
+/// survives the call and no child is left unreaped. The provider itself
+/// stays permission-agnostic: callers judge the process.execute capability
+/// through the runtime permission gate (RULE-05, DEC-010) before invoking.
 class ProcessProvider {
 public:
     virtual ~ProcessProvider() = default;

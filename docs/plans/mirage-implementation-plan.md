@@ -18,8 +18,10 @@
 `M1-04` Runtime Service 与 Local IPC（IPC 机制定案见
 [DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md)）、`M1-05`
 Filesystem / Process Provider 收紧（范围/预算/取消语义见
-[DEC-009](../decisions/DEC-009-provider-scope-budget-cancellation.md)）已完成；
-下一工作项 `M1-06` Desktop Permission 框架雏形。
+[DEC-009](../decisions/DEC-009-provider-scope-budget-cancellation.md)）、`M1-06`
+Desktop Permission 框架雏形（Capability 判定与确认挂点见
+[DEC-010](../decisions/DEC-010-m1-permission-framework.md)）已完成；
+下一工作项 `M1-07` 持久化骨架。
 
 ## 交付边界
 

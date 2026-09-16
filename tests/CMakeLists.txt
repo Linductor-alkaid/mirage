@@ -118,6 +118,33 @@ set_tests_properties(provider_hardening_test PROPERTIES
     TIMEOUT 120
 )
 
+add_executable(permission_test runtime/permission_test.cpp)
+target_compile_features(permission_test PUBLIC cxx_std_20)
+mirage_enable_warnings(permission_test)
+target_link_libraries(permission_test PRIVATE Mirage::permission)
+add_test(NAME permission_test COMMAND permission_test)
+set_tests_properties(permission_test PROPERTIES
+    LABELS "unit"
+    TIMEOUT 60
+)
+
+add_executable(task_permission_test runtime/task_permission_test.cpp)
+target_compile_features(task_permission_test PUBLIC cxx_std_20)
+mirage_enable_warnings(task_permission_test)
+target_link_libraries(task_permission_test
+    PRIVATE
+        Mirage::runtime_service
+        Mirage::integration_mira
+        Mirage::platform
+        Mirage::desktop
+        Mirage::ipc
+)
+add_test(NAME task_permission_test COMMAND task_permission_test)
+set_tests_properties(task_permission_test PROPERTIES
+    LABELS "integration"
+    TIMEOUT 300
+)
+
 add_executable(task_cancel_test runtime/task_cancel_test.cpp)
 target_compile_features(task_cancel_test PUBLIC cxx_std_20)
 mirage_enable_warnings(task_cancel_test)

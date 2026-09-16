@@ -193,7 +193,9 @@ FilesystemProvider（只读文本读取）与 ProcessProvider（有界 shell 执
 Process 执行在副作用前校验命令长度预算，并经 pinned-free 的 `CancelToken`
 协作取消（运行时层将自己的停止令牌适配到它上面，整组进程收尾后返回
 `cancelled` 结果）。Permission 判定（`RULE-05`）与用户确认挂点由 `M1-06`
-落地，此前该绑定仅限开发与测试拓扑；
+落地为 runtime 层的 Permission Gate（`runtime/permission`，[DEC-010](../decisions/DEC-010-m1-permission-framework.md)）：
+动作在进入 Provider 前按 Capability 策略判定（allow / confirm / deny），
+Provider 自身保持 permission-agnostic，其硬边界不受判定结果影响。
 [DEC-008](../decisions/DEC-008-m1-environment-binding-and-reference-providers.md)
 记录了该过渡边界的演进。M1 参考后端是 `platform/linux::LinuxDesktopEnvironment`（实现
 desktop 抽象接口；Adapter 依赖 Core 接口），完整 Linux / Windows Backend 分别在
@@ -544,7 +546,9 @@ M1 阶段 Local IPC 的落地形态由 [DEC-007](../decisions/DEC-007-local-ipc-
   `service.shutdown`。`task.submit` 携带 goal 与可选有序 steps（M1 桌面能力：
   `filesystem.read` / `process.execute`），由 Service 内的宿主侧驱动循环逐个执行、
   以 `begin_operation` / `admit_operation_completion` 括起进入 pinned 控制面并记录
-  step 的 operation id（Trace 关联）；这是无模型循环阶段的过渡形态，与 DEC-008 的
+  step 的 operation id（Trace 关联）；驱动循环在动作副作用前按 [DEC-010](../decisions/DEC-010-m1-permission-framework.md)
+  的 Permission Gate 判定 Capability 策略，决策以 `permission` 字段记录进
+  `task.inspect` 的 step 视图；这是无模型循环阶段的过渡形态，与 DEC-008 的
   迁移路径一致。
 - **进程形态**：Runtime Service 由 `apps/service`（`mirage-service`）托管，前台运行
   至 `service.shutdown` 或 SIGINT/SIGTERM；`mirage service start` 经 fork + exec
@@ -653,6 +657,15 @@ flowchart LR
 ```
 
 Mirage 将权限判断结果和用户确认结果返回 Mira，并将实际系统行为与 Agent Trace 关联，使用户能够追踪某一次文件修改、命令执行或桌面操作对应的 Agent 行为。
+
+M1 阶段该判定以框架雏形落地（`M1-06`，
+[DEC-010](../decisions/DEC-010-m1-permission-framework.md)）：`runtime/permission`
+提供 pinned-free 的 Capability 词表（`filesystem.read` / `filesystem.write` /
+`process.execute`）、每能力策略（`allow` / `confirm` / `deny`）与同步的用户
+确认挂点（默认 fail closed；确认 UI 属 M5，届时演进为 Local IPC 异步确认面）。
+Runtime Service 的任务驱动器在动作副作用前判定，决策记录进任务步
+Trace；Provider 层的路径范围、预算与取消硬边界（DEC-009）不受判定结果影响、
+始终生效。默认策略保持读取与执行放行、写入拒绝，收紧经显式配置。
 
 ## 16. 本地状态与持久化
 

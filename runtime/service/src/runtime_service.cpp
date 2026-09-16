@@ -70,6 +70,9 @@ struct RuntimeService::Impl {
 
     ServiceConfig config;
     std::string socket_path;
+    /// Fail-closed hook used when the config carries no confirmation
+    /// handler (DEC-010): headless M1 services reject every Confirm rule.
+    permission::DenyAllConfirmation fail_closed_confirmation;
     std::shared_ptr<detail::ServiceCore> core =
         std::make_shared<detail::ServiceCore>();
     /// Non-owning observer of the loop object; the executor's blocking
@@ -99,6 +102,12 @@ struct RuntimeService::Impl {
             std::lock_guard lock(core->registry.mutex);
             core->registry.capacity = config.max_task_records;
         }
+        // One controller for the whole service (DEC-010): the configured
+        // policy plus the configured hook, or the fail-closed default.
+        core->permission = std::make_shared<permission::PermissionController>(
+            config.permission_policy,
+            config.confirmation ? *config.confirmation
+                                : fail_closed_confirmation);
         loop_done_future = loop_done.get_future();
     }
 
@@ -346,6 +355,7 @@ struct RuntimeService::Impl {
             step.kind = ipc::step_kind_name(record.spec.kind);
             step.status = record.status;
             step.operation_id = record.operation_id;
+            step.permission = record.permission;
             step.ok = record.ok;
             step.exit_code = record.exit_code;
             step.result = record.result;

@@ -28,6 +28,7 @@ target_link_libraries(mirage_runtime_service
     PUBLIC
         Mirage::mira_host
         Mirage::ipc
+        Mirage::permission
     PRIVATE
         $<TARGET_FILE:executor::executor>
 )

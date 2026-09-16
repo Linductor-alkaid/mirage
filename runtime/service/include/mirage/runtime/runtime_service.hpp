@@ -8,6 +8,7 @@
 #include <mirage/integration/mira_adapter.hpp>
 #include <mirage/runtime/ipc/protocol.hpp>
 #include <mirage/runtime/mira_host.hpp>
+#include <mirage/runtime/permission/permission.hpp>
 
 namespace mirage::runtime {
 
@@ -47,6 +48,15 @@ struct ServiceConfig {
     /// Upper bound for waiting on one serialized host command (for example
     /// in teardown cancels).
     std::chrono::milliseconds command_wait{4000};
+    /// Desktop permission policy judged before every desktop action
+    /// (RULE-05, DEC-010). Defaults keep the M1 development topology
+    /// working: filesystem.read and process.execute allowed, everything
+    /// else denied.
+    permission::PermissionPolicy permission_policy;
+    /// Confirmation hook for Confirm rules (DEC-010). Null selects the
+    /// fail-closed DenyAllConfirmation; the service only keeps this handle,
+    /// so the pointed-to handler must outlive every run() of this service.
+    std::shared_ptr<permission::ConfirmationHandler> confirmation;
 };
 
 /// Outcome of one service run(). `clean` mirrors the ordered-shutdown

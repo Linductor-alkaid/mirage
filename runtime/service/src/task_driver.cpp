@@ -3,6 +3,7 @@
 #include <mirage/desktop/filesystem_provider.hpp>
 #include <mirage/desktop/process_provider.hpp>
 #include <mirage/runtime/ipc/protocol.hpp>
+#include <mirage/runtime/permission/permission.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -17,6 +18,19 @@ TaskIdentity identity_of(const std::string& task_id) {
     TaskIdentity identity;
     identity.id = task_id;
     return identity;
+}
+
+/// The permission capability a scripted step exercises (DEC-010). The M1
+/// step set cannot express filesystem.write, so that capability is judged
+/// by the framework and tests, not by this driver.
+mirage::runtime::permission::Capability capability_of(ipc::StepKind kind) {
+    switch (kind) {
+    case ipc::StepKind::FilesystemRead:
+        return mirage::runtime::permission::Capability::FilesystemRead;
+    case ipc::StepKind::ProcessExecute:
+        return mirage::runtime::permission::Capability::ProcessExecute;
+    }
+    return mirage::runtime::permission::Capability::FilesystemRead;
 }
 
 /// Serialized host operation: every MiraHost call from the driver goes onto
@@ -60,9 +74,9 @@ void for_each_step(ServiceCore& core, const std::string& task_id,
 }
 
 void mark_step(ServiceCore& core, const std::string& task_id, std::size_t index,
-               const char* status, const std::string& operation_id, bool ok,
-               int exit_code, std::string result, bool truncated,
-               std::string error) {
+               const char* status, const std::string& operation_id,
+               const char* permission, bool ok, int exit_code,
+               std::string result, bool truncated, std::string error) {
     std::lock_guard lock(core.registry.mutex);
     auto entry = core.registry.tasks.find(task_id);
     if (entry == core.registry.tasks.end() ||
@@ -72,11 +86,26 @@ void mark_step(ServiceCore& core, const std::string& task_id, std::size_t index,
     StepRecord& step = entry->second.steps[index];
     step.status = status;
     step.operation_id = operation_id;
+    step.permission = permission;
     step.ok = ok;
     step.exit_code = exit_code;
     step.result = std::move(result);
     step.result_truncated = truncated;
     step.error = std::move(error);
+}
+
+/// Records only the permission outcome of a step that has not been judged
+/// executable yet (the deny path in run_driver); everything else stays as
+/// the pending state the registry was seeded with.
+void mark_step_permission(ServiceCore& core, const std::string& task_id,
+                          std::size_t index, const char* permission) {
+    std::lock_guard lock(core.registry.mutex);
+    auto entry = core.registry.tasks.find(task_id);
+    if (entry == core.registry.tasks.end() ||
+        index >= entry->second.steps.size()) {
+        return;
+    }
+    entry->second.steps[index].permission = permission;
 }
 
 void mark_driver_done(ServiceCore& core, const std::string& task_id,
@@ -111,6 +140,26 @@ bool begin_operation(ServiceCore& core, const std::string& task_id,
     } catch (const std::exception&) {
         return false;
     }
+}
+
+/// Settles the task failed through the pinned runtime (fail-fast, DEC-007
+/// item 5); has_success only when the pinned runtime accepted the
+/// settlement, so a concurrent cancel keeps the terminal say.
+void settle_failed(ServiceCore& core, const std::string& task_id,
+                   const std::string& error) {
+    auto complete = post_host(core, [&core, &task_id, &error] {
+        return core.host.complete_task(identity_of(task_id), false, error);
+    });
+    const bool settled =
+        ready_within(complete, core.command_wait) &&
+        [&] {
+            try {
+                return complete.get().ok;
+            } catch (const std::exception&) {
+                return false;
+            }
+        }();
+    mark_driver_done(core, task_id, settled, false);
 }
 
 void admit_completion(ServiceCore& core, const OperationTicket& ticket) {
@@ -234,6 +283,36 @@ void run_driver(executor::StopToken stop_token,
                 return;
             }
 
+            // RULE-05 gate (DEC-010): the capability is judged before the
+            // pinned operation is admitted and before any provider side
+            // effect, so a denied action never reaches the desktop. A
+            // missing controller denies too (fail closed).
+            mirage::runtime::permission::PermissionRequest request;
+            request.capability = capability_of(step.kind);
+            request.resource = step.argument;
+            request.task_id = task_id;
+            mirage::runtime::permission::PermissionVerdict verdict;
+            if (service.permission != nullptr) {
+                verdict = service.permission->authorize(request);
+            } else {
+                verdict.reason = "permission controller unavailable";
+            }
+            const char* step_permission =
+                mirage::runtime::permission::decision_name(verdict.decision);
+            mark_step_permission(service, task_id, index, step_permission);
+            if (!verdict.allowed) {
+                mark_step(service, task_id, index, step_status::kFailed, {},
+                          step_permission, false, -1, {}, false,
+                          "permission_denied: " + verdict.reason);
+                for_each_step(service, task_id, index + 1,
+                              [](StepRecord& pending) {
+                                  pending.status = step_status::kSkipped;
+                              });
+                settle_failed(service, task_id,
+                              "permission_denied: " + verdict.reason);
+                return;
+            }
+
             OperationTicket ticket;
             if (!begin_operation(service, task_id, ticket)) {
                 // The pinned control plane refused the operation: the task
@@ -248,7 +327,8 @@ void run_driver(executor::StopToken stop_token,
                 return;
             }
             mark_step(service, task_id, index, step_status::kRunning,
-                      ticket.operation_id, false, -1, {}, false, {});
+                      ticket.operation_id, step_permission, false, -1, {},
+                      false, {});
 
             bool ok = false;
             bool step_cancelled = false;
@@ -265,8 +345,9 @@ void run_driver(executor::StopToken stop_token,
                 // ones are skipped, and the pinned cancel — not the driver
                 // — owns the terminal settlement.
                 mark_step(service, task_id, index, step_status::kCancelled,
-                          ticket.operation_id, false, exit_code,
-                          std::move(result), truncated, std::move(error));
+                          ticket.operation_id, step_permission, false,
+                          exit_code, std::move(result), truncated,
+                          std::move(error));
                 for_each_step(service, task_id, index + 1,
                               [](StepRecord& pending) {
                                   pending.status = step_status::kSkipped;
@@ -277,8 +358,8 @@ void run_driver(executor::StopToken stop_token,
             }
             mark_step(service, task_id, index,
                       ok ? step_status::kOk : step_status::kFailed,
-                      ticket.operation_id, ok, exit_code, std::move(result),
-                      truncated, error);
+                      ticket.operation_id, step_permission, ok, exit_code,
+                      std::move(result), truncated, error);
             admit_completion(service, ticket);
 
             if (!ok) {
@@ -288,22 +369,7 @@ void run_driver(executor::StopToken stop_token,
                               [](StepRecord& pending) {
                                   pending.status = step_status::kSkipped;
                               });
-                auto complete = post_host(service, [&service, &task_id, &error] {
-                    return service.host.complete_task(identity_of(task_id),
-                                                      false, error);
-                });
-                const bool settled =
-                    ready_within(complete, service.command_wait) &&
-                    [&] {
-                        try {
-                            return complete.get().ok;
-                        } catch (const std::exception&) {
-                            return false;
-                        }
-                    }();
-                // has_success only when the pinned runtime accepted the
-                // settlement; a concurrent cancel keeps the terminal say.
-                mark_driver_done(service, task_id, settled, false);
+                settle_failed(service, task_id, error);
                 return;
             }
             ++index;

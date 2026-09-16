@@ -83,6 +83,7 @@ mira::JsonValue encode_step_view(const StepView& step) {
     put(object, "kind", step.kind);
     put(object, "status", step.status);
     put(object, "operation_id", step.operation_id);
+    put(object, "permission", step.permission);
     put(object, "ok", step.ok);
     put(object, "exit_code", static_cast<std::int64_t>(step.exit_code));
     put(object, "result", step.result);
@@ -109,6 +110,9 @@ std::optional<StepView> decode_step_view(const mira::JsonValue& value,
     }
     if (auto text = string_member(value, "operation_id")) {
         step.operation_id = std::move(*text);
+    }
+    if (auto text = string_member(value, "permission")) {
+        step.permission = std::move(*text);
     }
     if (const auto* flag = member(value, "ok"); flag != nullptr) {
         if (const auto boolean = flag->as_boolean()) {

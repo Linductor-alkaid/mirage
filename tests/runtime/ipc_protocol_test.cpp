@@ -339,12 +339,13 @@ void scenario_response_round_trips() {
         inspect.has_success = true;
         inspect.success = true;
         inspect.steps.push_back(ipc::StepView{0, "filesystem.read", "ok",
-                                              "aa11bb11aa11bb11aa11bb11aa11bb11", true, -1,
-                                              "file content", false, ""});
+                                              "aa11bb11aa11bb11aa11bb11aa11bb11", "allowed", true,
+                                              -1, "file content", false, ""});
         ipc::StepView executed{1,
                                "process.execute",
                                "ok",
                                "cc22dd22cc22dd22cc22dd22cc22dd22",
+                               "confirmed",
                                true,
                                0,
                                "shell output",
@@ -369,11 +370,13 @@ void scenario_response_round_trips() {
                 MIRAGE_CHECK(view->steps[0].kind == "filesystem.read");
                 MIRAGE_CHECK(view->steps[0].status == "ok");
                 MIRAGE_CHECK(view->steps[0].operation_id == "aa11bb11aa11bb11aa11bb11aa11bb11");
+                MIRAGE_CHECK(view->steps[0].permission == "allowed");
                 MIRAGE_CHECK(view->steps[0].ok);
                 MIRAGE_CHECK(view->steps[0].exit_code == -1);
                 MIRAGE_CHECK(view->steps[0].result == "file content");
                 MIRAGE_CHECK(!view->steps[0].result_truncated);
                 MIRAGE_CHECK(view->steps[1].kind == "process.execute");
+                MIRAGE_CHECK(view->steps[1].permission == "confirmed");
                 MIRAGE_CHECK(view->steps[1].exit_code == 0);
                 MIRAGE_CHECK(view->steps[1].result_truncated);
             }
@@ -389,8 +392,8 @@ void scenario_response_round_trips() {
         inspect.id = "task-2";
         inspect.goal = "still running";
         inspect.progress = "Active";
-        inspect.steps.push_back(
-            ipc::StepView{0, "filesystem.read", "running", "", false, -1, "", false, ""});
+        inspect.steps.push_back(ipc::StepView{0, "filesystem.read", "running",
+                                              "", "", false, -1, "", false, ""});
         response.payload = std::move(inspect);
 
         const ipc::ResponseDecode decoded = ipc::decode_response(ipc::encode_response(response));
@@ -405,6 +408,9 @@ void scenario_response_round_trips() {
             if (!view->steps.empty()) {
                 MIRAGE_CHECK(view->steps[0].status == "running");
                 MIRAGE_CHECK(view->steps[0].operation_id.empty());
+                // A step the gate has not judged yet reports no permission
+                // outcome, and the member survives the round trip as empty.
+                MIRAGE_CHECK(view->steps[0].permission.empty());
             }
         }
     }
@@ -494,6 +500,60 @@ void scenario_step_kind_names() {
                  "filesystem.read");
     MIRAGE_CHECK(std::string(ipc::step_kind_name(ipc::StepKind::ProcessExecute)) ==
                  "process.execute");
+}
+
+void scenario_step_permission_wire_compatibility() {
+    // The encoder always writes the permission member, even for a step the
+    // gate has not judged (DEC-010 wire shape).
+    {
+        ipc::Response response;
+        response.ok = true;
+        response.id = 91;
+        ipc::InspectTask inspect;
+        inspect.id = "task-perm";
+        inspect.goal = "wire shape probe";
+        inspect.progress = "Active";
+        ipc::StepView pending;
+        pending.index = 0;
+        pending.kind = "filesystem.read";
+        pending.status = "pending";
+        inspect.steps.push_back(std::move(pending));
+        response.payload = std::move(inspect);
+
+        const std::string wire = ipc::encode_response(response);
+        MIRAGE_CHECK(wire.find("\"permission\"") != std::string::npos);
+
+        const ipc::ResponseDecode decoded = ipc::decode_response(wire);
+        MIRAGE_CHECK(decoded.ok);
+        const auto *view = std::get_if<ipc::InspectTask>(&decoded.response.payload);
+        MIRAGE_CHECK(view != nullptr);
+        if (view != nullptr && !view->steps.empty()) {
+            MIRAGE_CHECK(view->steps[0].permission.empty());
+        }
+    }
+    // Backward compatibility in the other direction: an inspect produced by
+    // a pre-M1-06 peer carries no permission member at all; the decoder
+    // accepts it and reports the outcome as empty.
+    {
+        const ipc::ResponseDecode decoded = ipc::decode_response(
+            R"({"v":1,"id":92,"ok":true,"task":{"id":"task-old","goal":"legacy",)"
+            R"("progress":"Completed","success":true,"steps":[{)"
+            R"("index":0,"kind":"process.execute","status":"ok",)"
+            R"("operation_id":"aa11bb11aa11bb11aa11bb11aa11bb11","ok":true,)"
+            R"("exit_code":0,"result":"out","result_truncated":false,"error":""}]}})");
+        MIRAGE_CHECK(decoded.ok);
+        const auto *view = std::get_if<ipc::InspectTask>(&decoded.response.payload);
+        MIRAGE_CHECK(view != nullptr);
+        if (view != nullptr) {
+            MIRAGE_CHECK(view->progress == "Completed");
+            MIRAGE_CHECK(view->steps.size() == 1);
+            if (view->steps.size() == 1) {
+                MIRAGE_CHECK(view->steps[0].status == "ok");
+                MIRAGE_CHECK(view->steps[0].permission.empty());
+                MIRAGE_CHECK(view->steps[0].result == "out");
+            }
+        }
+    }
 }
 
 // --- endpoint helpers -------------------------------------------------------
@@ -874,6 +934,8 @@ int main() {
     run_scenario("response_rejects_malformed_payloads",
                  scenario_response_rejects_malformed_payloads);
     run_scenario("step_kind_names", scenario_step_kind_names);
+    run_scenario("step_permission_wire_compatibility",
+                 scenario_step_permission_wire_compatibility);
     run_scenario("socket_directory_components", scenario_socket_directory_components);
     run_scenario("default_socket_path_follows_xdg", scenario_default_socket_path_follows_xdg);
     run_scenario("transport_echo_round_trip", scenario_transport_echo_round_trip);

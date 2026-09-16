@@ -66,8 +66,22 @@ TASK=$(./build/debug/apps/mirage task submit \
 M1 任务由 Service 内的宿主侧驱动循环按提交的有序 steps（`--read` / `--exec`）确定性
 推进。文件读取强制 `--read-root` 读范围（未声明时拒绝一切读取，越界/symlink 逃逸
 fail closed），命令执行有长度/时长/输出预算并支持协作取消；范围、预算与取消语义见
-[DEC-009](docs/decisions/DEC-009-provider-scope-budget-cancellation.md)。Permission
-判定（`RULE-05`）落地（M1-06）前仅限开发与测试拓扑
+[DEC-009](docs/decisions/DEC-009-provider-scope-budget-cancellation.md)。
+
+Desktop Permission 判定（`RULE-05`，[DEC-010](docs/decisions/DEC-010-m1-permission-framework.md)）
+在每一步动作副作用前生效，默认策略为读取与执行放行、写入拒绝。可用
+`service start --perm CAPABILITY=allow|confirm|deny`（可重复）调整，配
+`--confirm allow|deny` 选择确认挂点结果（默认拒绝，确认 UI 属 M5）：
+
+```bash
+./build/debug/apps/mirage service start \
+    --read-root /tmp/mirage-demo \
+    --perm process.execute=confirm --confirm allow
+```
+
+被拒绝的步以 `permission_denied` 结算并在 `task inspect` 中显示
+`perm=denied` / `perm=confirmation_rejected`；放行的步显示 `perm=allowed` /
+`perm=confirmed`。M1 拓扑仍限开发与测试用途
 （[DEC-008](docs/decisions/DEC-008-m1-environment-binding-and-reference-providers.md)）。
 
 ## 开发流程
