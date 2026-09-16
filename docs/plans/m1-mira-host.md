@@ -44,6 +44,10 @@ Service 与 Local IPC，使 Agent 可以脱离 GUI 生命周期运行（设计�
 - [DEC-008](../decisions/DEC-008-m1-environment-binding-and-reference-providers.md)：
   M1 环境绑定与参考 Provider 边界（`M1-04` 附带
   `DesktopEnvironmentBinding::bound_environment()` 访问器）。
+- [DEC-009](../decisions/DEC-009-provider-scope-budget-cancellation.md)：M1 Provider
+  路径范围、执行预算与取消路径（Permission 判定与其叠加而非互替）。
+- [DEC-010](../decisions/DEC-010-m1-permission-framework.md)：M1 Desktop Permission
+  框架雏形（Capability 词表、策略判定、用户确认挂点与 Trace 关联形态）。
 
 ## 工作项
 
@@ -61,7 +65,7 @@ Service 与 Local IPC，使 Agent 可以脱离 GUI 生命周期运行（设计�
 - [x] `M1-05` Filesystem / Process Provider：路径范围约束、命令执行预算与取消路径，
       负向用例覆盖越界访问与拒绝执行（范围/预算/取消语义见
       [DEC-009](../decisions/DEC-009-provider-scope-budget-cancellation.md)）。
-- [ ] `M1-06` Desktop Permission 框架雏形：`filesystem.read` / `filesystem.write` /
+- [x] `M1-06` Desktop Permission 框架雏形：`filesystem.read` / `filesystem.write` /
       `process.execute` Capability 判定与用户确认挂点（确认 UI 可延后到 M5）。
 - [ ] `M1-07` 持久化骨架：Mirage 本地配置与 Runtime Recovery State 的存取（设计文档
       第 16 节中 M1 相关子集）。
@@ -72,6 +76,11 @@ Service 与 Local IPC，使 Agent 可以脱离 GUI 生命周期运行（设计�
   稳定性；若上游契约在 M1 期间变化，按依赖升级流程处理并同步锁文件。
 - ~~Local IPC 机制未定案~~：已定案为 [DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md)
   （2026-09-16，Unix domain socket + 长度前缀 JSON 帧，`apps/service` 进程形态）。
+- `BUG-20260916-001`：`mirage service start` fork 出的服务子进程继承 CLI 的 stdout，
+  当调用方把输出接入管道时（如 `| grep`），管道写端被长生命周期服务持有，读端等不到
+  EOF（M1-06 冒烟中发现，M1-04 遗留，非权限框架引入）。正常 CLI 使用（终端/文件重
+  定向）不受影响；修复方向为 exec 前按守护进程纪律重定向子进程 stdio，随 M5 产品化
+  或独立 fix 工作项处理。
 - Wayland 环境下截图与输入能力受限不阻塞 M1（M1 不依赖屏幕能力）。
 
 ## 测试与退出条件
@@ -355,3 +364,73 @@ Service 与 Local IPC，使 Agent 可以脱离 GUI 生命周期运行（设计�
   沙箱化；Windows 命名管道与 Backend 属 M4。
 - 同步：设计文档第 5、12.1 节、`DEC-007`（变更记录）、`DEC-008`（变更记录）、
   `DEC-009`（新）、总计划里程碑状态、本验证记录、`README` 运行说明。
+
+2026-09-16：`M1-06` Desktop Permission 框架雏形完成。
+
+- 范围：新增 `runtime/permission` 目标（pinned-free 纯 std，设计文档第 17 节
+  `runtime/permission/` 落位）——`Capability` 词表（`filesystem.read` /
+  `filesystem.write` / `process.execute`，稳定字符串名与解析）、每能力
+  `Rule`（`allow`/`confirm`/`deny`）、`PermissionController::authorize()`
+  四态决策（`allowed`/`confirmed`/`denied`/`confirmation_rejected`）与同步
+  用户确认挂点 `ConfirmationHandler`（默认 `DenyAllConfirmation` fail
+  closed，`AllowAllConfirmation` 供开发/测试显式选择）。Runtime Service 每
+  任务驱动步在 pinned 操作准入与任何副作用之前判定（controller 缺位同样
+  fail closed）；决策以稳定字符串记入 StepRecord 并经协议 v1 附加字段
+  `StepView.permission`（DEC-007 变更记录）回传 `task.inspect`；被拒步以
+  `permission_denied` 结算（无 operation id，不进 pinned 控制面）、后续步
+  skipped、任务 fail-fast 结算 Failed。`mirage-service` 新增 `--perm
+  CAPABILITY=allow|confirm|deny`（可重复）与 `--confirm allow|deny`（默认
+  deny），启动时打印生效策略；`mirage service start` 本地预校验并转发两旗
+  标，`task inspect` 显示 `perm=` 决策。默认策略 read=allow / write=deny /
+  execute=allow（保持 M1-05 拓扑行为，收紧经显式配置）。判定语义登记
+  [DEC-010](../decisions/DEC-010-m1-permission-framework.md)；desktop
+  Provider 保持 permission-agnostic，PathScope/预算/取消硬边界不受判定结果
+  影响（与 DEC-009 叠加）。
+- 依据：设计文档第 5、12.1、15、17 节；`DEC-001`..`004`、`DEC-007`..`010`；
+  `RULE-05`。
+- 验证（Independent-Verification-Agent，Linux x64，Ubuntu 24.04，GCC 13.3.0，
+  CMake 3.28.3，Ninja，clang-format 18.1.3）：
+  - 新增 `tests/runtime/permission_test.cpp`（10 场景 59 断言）：三类稳定名
+    与解析负向（空串、残缺、大小写、前后缀污染名均 nullopt）、默认策略恰为
+    Allow/Deny/Allow、Allow/Deny 不触碰挂点（fake handler 计数 0）、Deny
+    reason 稳定含能力名、Confirm 恰好调用一次且两向决策/reason 逐字断言、
+    PermissionRequest 四个 trace 字段原样到达挂点、DenyAll/AllowAll 返回值、
+    策略单槽改写不扰动其他槽。
+  - 新增 `tests/runtime/task_permission_test.cpp`（5 场景 69 断言，真实
+    RuntimeService + IPC）：默认策略 read+exec Completed 且步 `allowed` +
+    32 位 hex operation id + canary 文件实际产生（放行路径真触达桌面）、
+    exec=Deny 步 failed + `permission_denied:` 前缀 + 无 operation id +
+    后续 skipped + 任务 Failed + canary 不存在（fork 前拒绝）+ 停机 clean、
+    read=Confirm 默认拒绝（`confirmation_rejected` + 稳定 reason）、
+    read=Confirm + AllowAll 注入后 `confirmed` + Completed + 内容可观察、
+    write 规则改写不扰动其他规则。
+  - 扩展 `tests/runtime/ipc_protocol_test.cpp`（313 断言，+7）：StepView
+    `permission` 字段 round-trip（`allowed`/`confirmed`/缺省为空）与 legacy
+    无该字段 step 的向后兼容解码。
+  - 预设矩阵：`debug` / `release` / `asan` / `ubsan` configure + build +
+    ctest 均 **11/11 通过、0 skip**；`tsan` 直跑 11/11 复现
+    `unexpected memory mapping`（[本机注意事项](../../README.md)，含纯 std
+    的 permission_test，属 ASLR 环境怪癖），`setarch $(uname -m) -R ctest`
+    11/11 通过、无 race 报告。
+  - `mirage-format-check` 通过；公共头边界：`runtime/permission/include`、
+    `runtime/service/include`、`runtime/ipc/include`、`desktop/*/include`、
+    `platform/include`、`platform/linux/include` 对 `mira/`、`mirador/`、
+    `executor/` include 零命中（唯一例外仍为允许项
+    `mira_environment_binding.hpp`）。
+  - 端到端冒烟（真实进程，经 CLI 转发拉起）：`--perm process.execute=deny`
+    策略行与 `perm=denied` / `error: permission_denied: process.execute
+    denied by policy` 原文符合、canary 未产生；范围内 read `perm=allowed`
+    Completed；`--perm filesystem.read=confirm`（默认拒绝挂点）
+    `perm=confirmation_rejected`；`--confirm allow` 后 `perm=confirmed`
+    Completed；`--perm bogus=allow` 退出码 2 且 fork 前拦截；收尾 0 残留
+    进程、0 残留 socket。
+  - 实现缺陷：未发现（独立验证零实现修改）。
+- 限制：`filesystem.write` 在 M1 无 Provider 可触达，集成层仅验证"策略可配
+  置且不影响其他规则"，write 动作判定链路随 M2 写 Provider 落地时补；确认
+  挂点为同步进程内契约（必须立即返回），产品确认流（持久化待确认请求、UI
+  交互、超时收敛）待 M5 以 Local IPC 异步面落地时另立决策；拒绝步的 trace
+  落在 Mirage 侧步记录，不产生 pinned OperationRecord（DEC-010 备选方案
+  3）；冒烟中发现 `BUG-20260916-001`（`service start` 子进程继承 stdout 致
+  管道读端无 EOF，M1-04 遗留），见"风险与阻塞"；Windows 平台路径属 M4。
+- 同步：设计文档第 5、12.1、15 节、`DEC-010`（新）、`DEC-007`（变更记录）、
+  总计划里程碑状态、本验证记录、`README` 运行说明。

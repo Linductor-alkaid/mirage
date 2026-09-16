@@ -52,7 +52,8 @@ bool parse_common_option(const std::string& name, const std::string& value,
 bool takes_value(const std::string& name) {
     return name == "--socket" || name == "--timeout" || name == "--goal" ||
            name == "--read" || name == "--exec" || name == "--step-timeout" ||
-           name == "--wait" || name == "--read-root";
+           name == "--wait" || name == "--read-root" || name == "--perm" ||
+           name == "--confirm";
 }
 
 /// Splits `--name value` / `--name=value` pairs; returns false on usage
@@ -197,6 +198,8 @@ int command_service_start(int argc, char** argv) {
     GlobalOptions options;
     std::chrono::milliseconds wait{10000};
     std::vector<std::string> read_roots;
+    std::vector<std::string> perm_flags;
+    std::string confirm_mode;
     int index = 3; // skip "task/service" and the subcommand
     std::vector<std::string> extra;
     if (!consume_options(
@@ -208,6 +211,35 @@ int command_service_start(int argc, char** argv) {
                 }
                 if (name == "--read-root") {
                     read_roots.push_back(value);
+                    return true;
+                }
+                if (name == "--perm") {
+                    // Validated here so a typo fails fast instead of
+                    // surfacing as a service startup failure (DEC-010).
+                    const auto equals = value.find('=');
+                    const std::string_view text{value};
+                    if (equals == std::string::npos ||
+                        !mirage::runtime::permission::capability_from_name(
+                            text.substr(0, equals)) ||
+                        !mirage::runtime::permission::rule_from_name(
+                            text.substr(equals + 1))) {
+                        std::cerr << kProgramName
+                                  << ": --perm expects "
+                                     "CAPABILITY=allow|confirm|deny (got '"
+                                  << value << "')\n";
+                        return false;
+                    }
+                    perm_flags.push_back(value);
+                    return true;
+                }
+                if (name == "--confirm") {
+                    if (value != "allow" && value != "deny") {
+                        std::cerr << kProgramName
+                                  << ": --confirm expects allow|deny (got '"
+                                  << value << "')\n";
+                        return false;
+                    }
+                    confirm_mode = value;
                     return true;
                 }
                 return parse_common_option(name, value, options);
@@ -249,6 +281,14 @@ int command_service_start(int argc, char** argv) {
         for (const std::string& root : read_roots) {
             argv_child.push_back(const_cast<char*>("--read-root"));
             argv_child.push_back(const_cast<char*>(root.c_str()));
+        }
+        for (const std::string& perm : perm_flags) {
+            argv_child.push_back(const_cast<char*>("--perm"));
+            argv_child.push_back(const_cast<char*>(perm.c_str()));
+        }
+        if (!confirm_mode.empty()) {
+            argv_child.push_back(const_cast<char*>("--confirm"));
+            argv_child.push_back(const_cast<char*>(confirm_mode.c_str()));
         }
         argv_child.push_back(nullptr);
         ::execv(service_binary.c_str(), argv_child.data());
@@ -458,6 +498,9 @@ int command_task_inspect(int argc, char** argv) {
             if (!step.operation_id.empty()) {
                 std::cout << " (op " << step.operation_id << ')';
             }
+            if (!step.permission.empty()) {
+                std::cout << " perm=" << step.permission;
+            }
             if (step.kind == "process.execute") {
                 std::cout << " exit=" << step.exit_code;
             }
@@ -500,6 +543,8 @@ void print_usage(std::ostream& out) {
         << "  --version                    Print Mirage, Mira core and platform versions\n"
         << "  --help                       Print this help\n"
         << "  service start [--socket P] [--wait S] [--read-root DIR]...\n"
+        << "                [--perm CAP=allow|confirm|deny]...\n"
+        << "                [--confirm allow|deny]\n"
         << "                               Start the background runtime service\n"
         << "  service status [--socket P]  Probe the running service\n"
         << "  service shutdown [--socket P]\n"

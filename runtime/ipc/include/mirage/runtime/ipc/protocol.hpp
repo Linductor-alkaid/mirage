@@ -95,13 +95,18 @@ struct TaskList {
 /// `operation_id` is the pinned OperationRecord identity the driver's
 /// begin_operation returned, tying the step result to the control plane
 /// trace (DEC-007 item 5). Structured results are carried in `result`,
-/// capped by the service; `result_truncated` marks the cap.
+/// capped by the service; `result_truncated` marks the cap. `permission`
+/// is the RULE-05 permission outcome (DEC-010): "allowed" / "confirmed" /
+/// "denied" / "confirmation_rejected" once judged, empty before that; a
+/// denied step carries no operation id because no desktop action was
+/// admitted.
 struct StepView {
     int index = 0;
     std::string kind; ///< "filesystem.read" or "process.execute"
     /// "pending" / "running" / "ok" / "failed" / "skipped" / "cancelled"
     std::string status;
     std::string operation_id;
+    std::string permission;
     bool ok = false;
     int exit_code = -1;         ///< process.execute only; -1 otherwise
     std::string result;         ///< file content or captured output, capped

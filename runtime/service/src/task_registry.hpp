@@ -33,6 +33,11 @@ struct StepRecord {
     ipc::TaskStep spec;
     const char* status = step_status::kPending;
     std::string operation_id;
+    /// Permission outcome for this step (RULE-05, DEC-010): a
+    /// decision_name() string once judged, empty before that. A denied
+    /// step carries no operation id — the action never reached the
+    /// control plane.
+    const char* permission = "";
     bool ok = false;
     int exit_code = -1;
     std::string result;
