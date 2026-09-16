@@ -15,7 +15,8 @@ import type {
 export type Route =
     | { view: 'workspace' }
     | { view: 'tasks' }
-    | { view: 'execution'; taskId: string };
+    | { view: 'execution'; taskId: string }
+    | { view: 'appearance' };
 
 /** The operations views can invoke; the controller (app.ts) implements. */
 export interface AppActions {
@@ -48,6 +49,9 @@ export function parseRoute(hash: string): Route {
     if (path === '/tasks') {
         return { view: 'tasks' };
     }
+    if (path === '/settings/appearance') {
+        return { view: 'appearance' };
+    }
     return { view: 'workspace' };
 }
 
@@ -57,6 +61,8 @@ export function routeToHash(route: Route): string {
             return '#/tasks';
         case 'execution':
             return `#/task/${encodeURIComponent(route.taskId)}`;
+        case 'appearance':
+            return '#/settings/appearance';
         default:
             return '#/workspace';
     }

@@ -210,4 +210,9 @@ export class App {
         const state: AppState = this.store.get();
         render(root, renderShell(state, this.actions));
     }
+
+    /** Re-renders the shell immediately (used by appearance changes). */
+    renderNow(root: HTMLElement): void {
+        this.renderApp(root);
+    }
 }

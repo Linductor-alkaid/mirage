@@ -2,7 +2,7 @@
 /// 点击行进入执行详情。
 
 import type { AppActions, AppState } from '../store.js';
-import { progressLabel } from '../store.js';
+import { taskBadge } from '../components/status-badge.js';
 import { h } from '../dom.js';
 
 export function renderTasks(state: AppState, actions: AppActions): HTMLElement {
@@ -28,7 +28,7 @@ export function renderTasks(state: AppState, actions: AppActions): HTMLElement {
             },
             h('td', { class: 'mono' }, task.id),
             h('td', { class: 'task-goal' }, task.goal),
-            h('td', {}, progressBadge(task.progress)),
+            h('td', {}, taskBadge(task.progress)),
             ));
         }
     }
@@ -48,14 +48,4 @@ export function renderTasks(state: AppState, actions: AppActions): HTMLElement {
         ),
         table,
     );
-}
-
-export function progressBadge(progress: string): HTMLElement {
-    const tone = progress === 'Completed' ? 'ok'
-        : progress === 'Failed' ? 'failed'
-        : progress === 'Cancelled' ? 'cancelled'
-        : progress === 'Cancelling' ? 'cancelling'
-        : progress === 'Active' ? 'running'
-        : 'idle';
-    return h('span', { class: `badge badge-${tone}`, 'data-progress': progress }, progressLabel(progress));
 }
