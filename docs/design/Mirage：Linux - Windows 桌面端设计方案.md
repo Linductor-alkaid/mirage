@@ -560,6 +560,28 @@ M1 阶段 Local IPC 的落地形态由 [DEC-007](../decisions/DEC-007-local-ipc-
   停机）按 desktop cancel token → 驱动停止令牌 → pinned cancel 的顺序传播，
   使在途桌面动作有界中断（`M1-05`，DEC-009）。
 
+### 12.2 IPC 事件订阅（M1.5，DEC-012）
+
+协议 v1 的事件推送面由 [DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)
+定义、随 `M1.5-02` 落地冻结，wire 契约见[《Mirage Local IPC 协议 v1 Wire Schema》](mirage-ipc-protocol-v1.md)第 7 节：
+
+- **订阅面**：`events.subscribe` / `events.unsubscribe`（无参数，订阅粒度为连接，
+  断连即失效）；事件帧 `{"v":1,"seq":N,"event":"<名称>",...}`，`seq` 每连接自 1
+  单调递增；hello 响应以 `events` 能力成员通告（新服务端恒写出，旧服务端缺席，
+  客户端据此降级轮询）。订阅建立后服务端先下发当前 host 状态作为首个事件
+  （seed，seq=1）。
+- **M1.5 事件集**：`task.updated`（任务创建、步进与终态的快照，progress 与
+  `task.inspect` 同源）、`host.status`（宿主五态变化）、`events.overflow`
+  （连接级队列溢出的合成标记，`dropped` 计数）。事件是通知不是可靠投递，
+  `task.list` / `task.inspect` 快照始终是事实源。
+- **承载**：RuntimeService 持有 `executor::comm::Topic<EventPayload>` 作为多订阅
+  广播点，host 状态以 `LatestMailbox` 语义（订阅 seed 取最新值）进入同一发布
+  路径；每连接投递队列为订阅自带的 `MpscChannel`（有界、drop-oldest）。IPC
+  循环每轮先写出响应帧、后写出事件帧（响应优先），溢出以 `events.overflow`
+  显式呈现（`RULE-07`）；断连即销毁订阅并排空队列。任务发布点：任务创建
+  （submit，serial 域）、取消受理（cancel，serial 域）、驱动步进与终态（驱动
+  线程 best-effort 投递到 serial 域，拒绝或超时即丢弃该条通知）。
+
 ## 13. Agent Workspace
 
 > **修订（2026-09-16，[DEC-013](../decisions/DEC-013-frontend-ia-harness-first.md)）**：

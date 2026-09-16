@@ -1,6 +1,7 @@
 # Mirage Local IPC 协议 v1 Wire Schema
 
-> 状态：Accepted（事实源自 `M1.5-01` 起生效；事件帧格式与订阅语义自 `M1.5-02` 落地起冻结）
+> 状态：Accepted（事实源自 `M1.5-01` 起生效；事件帧格式与订阅语义已随 `M1.5-02`
+> 落地冻结，2026-09-17）
 > 日期：2026-09-16
 > 负责人：Mirage 维护者
 > 依据：[DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md)（协议 v1 与传输冻结）、
@@ -148,6 +149,9 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 
 - `events.subscribe` / `events.unsubscribe`：无参数请求，订阅粒度为连接；订阅是连接级
   状态，断连即失效，不跨连接保持。响应均为通用确认形状 `{}`。
+- 订阅建立后，服务端先向该连接下发当前 host 状态作为首个事件（seed，占用
+  `seq=1`），随后事件按发布顺序推送；`events.unsubscribe` 幂等（退订已退连接仍
+  确认）。退订前已写入连接缓冲的事件仍可能到达。
 - hello `events` 能力通告（§6.1）是主探测路径；对新服务端发送订阅前无需重复探测，对
   旧服务端（无 `events` 成员）发送订阅将收到 `protocol_error`，客户端据此降级为
   `task.inspect` 轮询（能力探测失败仅作兜底）。
@@ -196,8 +200,9 @@ TypeScript 消费者 `ui/contracts/test/golden-vectors.test.ts` 读取**同一�
   （`id` / `ok` / `payload` 判别 `kind` / `error`），编码必须逐字节等于 `canonical`，
   解码必须还原。
 - `events[]`：`{name, event, canonical}`——事件信封同上（TypeScript 自 `M1.5-01`
-  消费；C++ 事件编解码落地于 `M1.5-02`，届时消费 `events` / `event_failures` 并解除
-  `hello-capability` 向量的 `encode_pending` 标记，补齐 hello `events` 成员的编码方向）。
+  消费；C++ 事件编解码自 `M1.5-02` 起消费 `events` / `event_failures`，
+  `hello-capability` 向量的 `encode_pending` 标记已随事件编解码落地解除，hello
+  `events` 成员双向断言）。
 - `event_failures[]`：`{name, payload, error}`——非法事件的稳定错误字符串断言。
 - `framing[]`：`{name, payload, frame_hex}`——帧编码逐字节断言（小端长度前缀）；
   `framing_failures[]` 锁定超限/坏头拒绝。
@@ -216,6 +221,13 @@ TypeScript 消费者 `ui/contracts/test/golden-vectors.test.ts` 读取**同一�
 
 ## 10. 变更记录
 
+- 2026-09-17（`M1.5-02`）：事件订阅落地，§7 事件帧格式与订阅语义冻结。§6.1
+  `events` 能力成员与 §7 的 `events.subscribe` / `events.unsubscribe` 进入两端实现
+  （golden vectors：requests 增补两条订阅向量；原 `unknown-op-events-*` 失败向量
+  作为旧服务端行为已过时，替换为对新旧编解码器恒真的 `unknown-op-registry-edit`；
+  `hello-capability` 的 `encode_pending` 解除；vectors `meta.version` 1 → 2）。
+  §7.1 补记订阅 seed 语义（首个事件为当前 host 状态，`seq=1`），与前端 mock 的
+  Enqueue-after-subscribe 行为一致。
 - 2026-09-16（`M1.5-01`）：初版。按 `runtime/ipc` 现状（`protocol.hpp` / `protocol.cpp` /
   `framing.hpp`、`runtime_service.cpp` 错误面）与 DEC-012 事件扩展（Accepted）整理；
   golden vectors 门禁随本变更落地（C++ + TypeScript 双端测试）。

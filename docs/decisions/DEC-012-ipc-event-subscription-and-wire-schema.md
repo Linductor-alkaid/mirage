@@ -1,10 +1,10 @@
 # DEC-012：IPC 事件订阅契约与 wire schema 事实源
 
-> 状态：Accepted（2026-09-16 评审通过，记录见文末变更记录；事件帧格式与订阅语义的
-> 冻结仍以 `M1.5-02` 落地为准）
+> 状态：Accepted（2026-09-16 评审通过，记录见文末变更记录；事件帧格式与订阅语义已随
+> `M1.5-02` 落地冻结，2026-09-17）
 > 日期：2026-09-16
 > 负责人：Mirage 维护者
-> 冻结里程碑：M1.5（wire schema 文档自 `M1.5-01` 起作为契约事实源；事件帧格式与订阅语义自 `M1.5-02` 落地起冻结）
+> 冻结里程碑：M1.5（wire schema 文档自 `M1.5-01` 起作为契约事实源；事件帧格式与订阅语义已随 `M1.5-02` 落地冻结）
 > 替代/被替代：无；本记录是 [DEC-007](DEC-007-local-ipc-and-runtime-service.md) 的**附加扩展**——传输载体、帧格式、载荷上限与单连接单未决请求纪律全部不变
 
 ## 背景与问题
@@ -112,6 +112,20 @@ Service 的唯一耦合面是 Local IPC 契约，UI 与核心因此可以并行�
   tsan）构建与 `ctest` 全绿，M1 测试零回归。
 
 ## 变更记录
+
+- 2026-09-17：`M1.5-02` 落地，事件帧格式与订阅语义按本决策冻结。实现范围：决策 2
+  （`events.subscribe` / `events.unsubscribe`、`event` 信封、hello `events` 能力通告，
+  `runtime/ipc` 编解码 + TypeScript 镜像同步）、决策 3（`task.updated` /
+  `host.status` / `events.overflow` 事件集；订阅建立时先下发当前 host 状态作 seed，
+  与前端 mock 的 Enqueue-after-subscribe 行为一致）、决策 4（一致性模型不变，测试
+  锁定 seq 连续性与 overflow 后 resync 依据）、决策 5（`executor::comm::Topic` +
+  `LatestMailbox` 承载、每连接 drop-oldest 有界队列、响应优先写出、断连清理，
+  见设计文档 §12.2 补记）。Golden vectors `meta.version` 1 → 2（新增订阅 round-trip
+  向量；原 `unknown-op-events-*` 失败向量为旧服务端行为、已过时，替换为
+  `unknown-op-registry-edit`；`hello-capability` `encode_pending` 解除）。
+  顺带修复实现中发现的两个非契约缺陷：驱动 post 到 serial 上下文的 lambda 按值
+  捕获栈上字符串（原按引用捕获在 serial 积压超时后悬垂），`IpcStream::write_some`
+  改用 `send(MSG_NOSIGNAL)`（嵌入方未忽略 SIGPIPE 时断连写出不再杀进程）。
 
 - 2026-09-16：评审通过，状态 Proposed → Accepted（维护者授权评审）。按工程规范第 14
   节六项重点逐项核查：
