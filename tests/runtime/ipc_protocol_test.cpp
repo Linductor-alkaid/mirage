@@ -258,7 +258,7 @@ void scenario_request_rejects_malformed_payloads() {
         R"({"v":1,"id":5,"op":"task.submit","goal":"g","step_timeout_ms":-100})",
         R"({"v":1,"id":5,"op":"task.inspect"})", // missing id
         R"({"v":1,"id":5,"op":"task.inspect","task_id":""})",
-        R"({"v":1,"id":5,"op":"task.cancel"})",  // missing task_id
+        R"({"v":1,"id":5,"op":"task.cancel"})",              // missing task_id
         R"({"v":1,"id":5,"op":"task.cancel","task_id":""})", // empty task_id
         R"({"v":1,"id":5,"op":"task.cancel","task_id":7})",  // task_id type
     };
@@ -341,16 +341,11 @@ void scenario_response_round_trips() {
         inspect.steps.push_back(ipc::StepView{0, "filesystem.read", "ok",
                                               "aa11bb11aa11bb11aa11bb11aa11bb11", "allowed", true,
                                               -1, "file content", false, ""});
-        ipc::StepView executed{1,
-                               "process.execute",
-                               "ok",
-                               "cc22dd22cc22dd22cc22dd22cc22dd22",
-                               "confirmed",
-                               true,
-                               0,
-                               "shell output",
-                               true,
-                               ""};
+        ipc::StepView executed{1,           "process.execute",
+                               "ok",        "cc22dd22cc22dd22cc22dd22cc22dd22",
+                               "confirmed", true,
+                               0,           "shell output",
+                               true,        ""};
         inspect.steps.push_back(executed);
         response.payload = std::move(inspect);
 
@@ -392,8 +387,8 @@ void scenario_response_round_trips() {
         inspect.id = "task-2";
         inspect.goal = "still running";
         inspect.progress = "Active";
-        inspect.steps.push_back(ipc::StepView{0, "filesystem.read", "running",
-                                              "", "", false, -1, "", false, ""});
+        inspect.steps.push_back(
+            ipc::StepView{0, "filesystem.read", "running", "", "", false, -1, "", false, ""});
         response.payload = std::move(inspect);
 
         const ipc::ResponseDecode decoded = ipc::decode_response(ipc::encode_response(response));
@@ -481,11 +476,11 @@ void scenario_response_rejects_malformed_payloads() {
         R"({"v":1,"id":1,"ok":true,"tasks":[{}]})",                 // entry members
         R"({"v":1,"id":1,"ok":true,"task":{"id":"i","goal":"g"}})", // no progress
         R"({"v":1,"id":1,"ok":true,"task":{"id":"i","goal":"g","progress":"Active","success":"yes"}})",
-        R"({"v":1,"id":1,"ok":true,"task_cancelled":"cancelling"})",            // not object
-        R"({"v":1,"id":1,"ok":true,"task_cancelled":{}})",                      // no members
-        R"({"v":1,"id":1,"ok":true,"task_cancelled":{"task_id":""}})",          // empty id
-        R"({"v":1,"id":1,"ok":true,"task_cancelled":{"task_id":"t"}})",         // no progress
-        R"({"v":1,"id":1,"ok":true,"task_cancelled":{"progress":"Cancelling"}})", // no task_id
+        R"({"v":1,"id":1,"ok":true,"task_cancelled":"cancelling"})",                 // not object
+        R"({"v":1,"id":1,"ok":true,"task_cancelled":{}})",                           // no members
+        R"({"v":1,"id":1,"ok":true,"task_cancelled":{"task_id":""}})",               // empty id
+        R"({"v":1,"id":1,"ok":true,"task_cancelled":{"task_id":"t"}})",              // no progress
+        R"({"v":1,"id":1,"ok":true,"task_cancelled":{"progress":"Cancelling"}})",    // no task_id
         R"({"v":1,"id":1,"ok":true,"task_cancelled":{"task_id":"t","progress":3}})", // type
     };
     for (const char *payload : invalid_payloads) {
@@ -500,6 +495,16 @@ void scenario_step_kind_names() {
                  "filesystem.read");
     MIRAGE_CHECK(std::string(ipc::step_kind_name(ipc::StepKind::ProcessExecute)) ==
                  "process.execute");
+
+    // The name parser (M1-07 recovery hydration) is the exact inverse.
+    const auto read_kind = ipc::step_kind_from_name("filesystem.read");
+    MIRAGE_CHECK(read_kind.has_value() && *read_kind == ipc::StepKind::FilesystemRead);
+    const auto execute_kind = ipc::step_kind_from_name("process.execute");
+    MIRAGE_CHECK(execute_kind.has_value() && *execute_kind == ipc::StepKind::ProcessExecute);
+    MIRAGE_CHECK(!ipc::step_kind_from_name("").has_value());
+    MIRAGE_CHECK(!ipc::step_kind_from_name("filesystem.read ").has_value());
+    MIRAGE_CHECK(!ipc::step_kind_from_name("filesystem.write").has_value());
+    MIRAGE_CHECK(!ipc::step_kind_from_name("process.exec").has_value());
 }
 
 void scenario_step_permission_wire_compatibility() {
@@ -934,8 +939,7 @@ int main() {
     run_scenario("response_rejects_malformed_payloads",
                  scenario_response_rejects_malformed_payloads);
     run_scenario("step_kind_names", scenario_step_kind_names);
-    run_scenario("step_permission_wire_compatibility",
-                 scenario_step_permission_wire_compatibility);
+    run_scenario("step_permission_wire_compatibility", scenario_step_permission_wire_compatibility);
     run_scenario("socket_directory_components", scenario_socket_directory_components);
     run_scenario("default_socket_path_follows_xdg", scenario_default_socket_path_follows_xdg);
     run_scenario("transport_echo_round_trip", scenario_transport_echo_round_trip);

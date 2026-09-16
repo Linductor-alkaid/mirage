@@ -55,12 +55,10 @@ void scenario_capability_names_and_parsing() {
     MIRAGE_CHECK(std::string(permission::capability_name(Capability::ProcessExecute)) ==
                  "process.execute");
 
-    MIRAGE_CHECK(permission::capability_from_name("filesystem.read") ==
-                 Capability::FilesystemRead);
+    MIRAGE_CHECK(permission::capability_from_name("filesystem.read") == Capability::FilesystemRead);
     MIRAGE_CHECK(permission::capability_from_name("filesystem.write") ==
                  Capability::FilesystemWrite);
-    MIRAGE_CHECK(permission::capability_from_name("process.execute") ==
-                 Capability::ProcessExecute);
+    MIRAGE_CHECK(permission::capability_from_name("process.execute") == Capability::ProcessExecute);
 
     // Anything else fails closed: empty, partial, oversized, wrong case.
     MIRAGE_CHECK(!permission::capability_from_name("").has_value());
@@ -91,11 +89,11 @@ void scenario_rule_names_and_parsing() {
 
 void scenario_decision_names() {
     MIRAGE_CHECK(std::string(permission::decision_name(Decision::Allowed)) == "allowed");
-    MIRAGE_CHECK(std::string(permission::decision_name(
-                     Decision::AllowedByConfirmation)) == "confirmed");
+    MIRAGE_CHECK(std::string(permission::decision_name(Decision::AllowedByConfirmation)) ==
+                 "confirmed");
     MIRAGE_CHECK(std::string(permission::decision_name(Decision::Denied)) == "denied");
-    MIRAGE_CHECK(std::string(permission::decision_name(
-                     Decision::DeniedByConfirmation)) == "confirmation_rejected");
+    MIRAGE_CHECK(std::string(permission::decision_name(Decision::DeniedByConfirmation)) ==
+                 "confirmation_rejected");
 }
 
 // --- policy ------------------------------------------------------------------
@@ -240,16 +238,13 @@ int main() {
     run_scenario("rule_names_and_parsing", scenario_rule_names_and_parsing);
     run_scenario("decision_names", scenario_decision_names);
     run_scenario("default_policy", scenario_default_policy);
-    run_scenario("allow_never_consults_confirmation",
-                 scenario_allow_never_consults_confirmation);
-    run_scenario("deny_never_consults_confirmation",
-                 scenario_deny_never_consults_confirmation);
+    run_scenario("allow_never_consults_confirmation", scenario_allow_never_consults_confirmation);
+    run_scenario("deny_never_consults_confirmation", scenario_deny_never_consults_confirmation);
     run_scenario("confirm_approved_calls_handler_once",
                  scenario_confirm_approved_calls_handler_once);
     run_scenario("confirm_rejected_calls_handler_once",
                  scenario_confirm_rejected_calls_handler_once);
-    run_scenario("request_reaches_handler_untouched",
-                 scenario_request_reaches_handler_untouched);
+    run_scenario("request_reaches_handler_untouched", scenario_request_reaches_handler_untouched);
     run_scenario("builtin_confirmation_handlers", scenario_builtin_confirmation_handlers);
     return mirage::testing::finish("permission_test");
 }

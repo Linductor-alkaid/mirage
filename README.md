@@ -1,5 +1,7 @@
 # Mirage
 
+[![ci](https://github.com/Linductor-alkaid/mirage/actions/workflows/ci.yml/badge.svg)](https://github.com/Linductor-alkaid/mirage/actions/workflows/ci.yml)
+
 Mirage 是基于 [Mira](https://github.com/Linductor-alkaid/mira) 构建的 Linux / Windows
 桌面端产品：为 Mira Agent Harness 提供完整的 PC 运行环境、桌面交互能力与产品界面，并
 以 [Mirador](https://github.com/Linductor-alkaid/mirador) 作为视觉基础设施处理桌面
@@ -83,6 +85,26 @@ Desktop Permission 判定（`RULE-05`，[DEC-010](docs/decisions/DEC-010-m1-perm
 `perm=denied` / `perm=confirmation_rejected`；放行的步显示 `perm=allowed` /
 `perm=confirmed`。M1 拓扑仍限开发与测试用途
 （[DEC-008](docs/decisions/DEC-008-m1-environment-binding-and-reference-providers.md)）。
+
+### 本地配置与任务恢复状态（M1-07）
+
+Mirage 自有状态经 `runtime/persistence` 落盘
+（[DEC-011](docs/decisions/DEC-011-m1-local-state-persistence.md)，schema v1
+JSON + 原子写入）：
+
+- **任务恢复状态**：`task-recovery.json`，默认在
+  `$XDG_STATE_HOME/mirage/`。任务结算与停机时写入快照，服务重启后历史任务
+  仍可 `task list` / `task inspect` 观察（对已恢复任务 `task cancel` 以
+  `invalid_state` 拒绝）。`service start --state-dir DIR` 换目录，
+  `--no-recovery` 关闭。
+- **本地配置**：`service.json`，默认路径 `$XDG_CONFIG_HOME/mirage/`（M1 仅
+  显式加载）。`service start --config PATH` 以文件为基线，命令行旗标逐项
+  覆盖；文件损坏时启动失败（fail closed），恢复文件损坏时降级运行并告警。
+
+持续集成见 [.github/workflows/ci.yml](.github/workflows/ci.yml)：格式与公共头
+边界检查 + `debug` / `release` / `asan` / `ubsan` / `tsan` 预设矩阵（TSan 在
+runner 上以 `setarch -R` 关闭 ASLR 运行），依赖以 verify-only 模式在
+configure 阶段校验锁定。
 
 ## 开发流程
 

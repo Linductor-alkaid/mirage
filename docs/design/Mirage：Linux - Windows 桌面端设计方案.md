@@ -689,6 +689,28 @@ Mirage Local State
 
 这种划分可以减少 Mirage 与 Mira 数据模型之间的重复。
 
+### 16.1 M1 落地形态（DEC-011）
+
+`M1-07` 落地上表中的两个条目，由 [DEC-011](../decisions/DEC-011-m1-local-state-persistence.md)
+冻结文件布局与格式：
+
+- **本地配置**（Application Settings / Runtime Configuration / Desktop
+  Permissions 的 M1 可配置面）：`service.json`，位于
+  `$XDG_CONFIG_HOME/mirage`（回退 `~/.config/mirage`）。内容为 IPC endpoint
+  覆盖、Filesystem 读范围、逐能力 Permission 规则与确认挂点结果；M1 经
+  `mirage-service --config` 显式加载，旗标逐项覆盖，服务不回写。
+- **Runtime Recovery State**：`task-recovery.json`，位于
+  `$XDG_STATE_HOME/mirage`（回退 `~/.local/state/mirage`）。记录已结算任务
+  （终态、逐步状态、operation id、Permission 决策与结果摘要）；任务结算与有序
+  停机时全量快照，服务启动时注水回注册表，使 `task list` / `task inspect` 跨
+  重启可见。
+
+两文件均为带 `schema` 版本号的 JSON 文档（当前 v1），编码复用 pinned mira 的
+JSON 模型且只出现在 `runtime/persistence` 实现文件内，公共 API 保持
+pinned-free；保存走"临时文件 + fsync + 原子重命名"，目录 `0700`、文件 `0600`，
+并受明确字节预算约束（settings 64 KiB、recovery 4 MiB）。其余条目
+（Workspace Bindings、UI Layout 等）随对应里程碑落地。
+
 ## 17. 推荐代码结构
 
 Mirage 的仓库可以围绕产品集成与桌面能力组织：

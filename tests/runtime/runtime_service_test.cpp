@@ -41,6 +41,10 @@ ServiceConfig make_config(const mirage::testing::TempDir &dir) {
     config.mirage_version = "0.4.0-test";
     config.executor_threads = 2;
     config.step_timeout = std::chrono::milliseconds{10000};
+    // Recovery state stays inside the scenario's temp tree: without this the
+    // service would persist into the user's real XDG state directory and
+    // hydrate foreign history into every later scenario (M1-07).
+    config.recovery_directory = dir.root() / "recovery";
     return config;
 }
 

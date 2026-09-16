@@ -117,6 +117,10 @@
   编码端总是写出、解码端缺省为空（向后兼容）。传输、帧格式、其余请求面与
   单连接单请求纪律不变；权限判定发生在动作副作用前，被拒步不产生
   operation id。
+- 2026-09-16（`M1-07`，[DEC-011](DEC-011-m1-local-state-persistence.md) 落地）：
+  公共 API 新增 `step_kind_from_name` 解析辅助（稳定名 → `StepKind`，与既有
+  `step_kind_name` 对称），供恢复状态注水把持久化的 step 记录映射回
+  `TaskStep` 面。无 wire 变化，传输、帧格式与请求面不变。
 
 ## 关联文档和工作项
 

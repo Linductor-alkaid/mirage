@@ -128,6 +128,34 @@ set_tests_properties(permission_test PROPERTIES
     TIMEOUT 60
 )
 
+add_executable(persistence_test runtime/persistence_test.cpp)
+target_compile_features(persistence_test PUBLIC cxx_std_20)
+mirage_enable_warnings(persistence_test)
+target_link_libraries(persistence_test PRIVATE Mirage::persistence)
+add_test(NAME persistence_test COMMAND persistence_test)
+set_tests_properties(persistence_test PROPERTIES
+    LABELS "unit"
+    TIMEOUT 60
+)
+
+add_executable(recovery_service_test runtime/recovery_service_test.cpp)
+target_compile_features(recovery_service_test PUBLIC cxx_std_20)
+mirage_enable_warnings(recovery_service_test)
+target_link_libraries(recovery_service_test
+    PRIVATE
+        Mirage::runtime_service
+        Mirage::integration_mira
+        Mirage::platform
+        Mirage::desktop
+        Mirage::ipc
+        Mirage::persistence
+)
+add_test(NAME recovery_service_test COMMAND recovery_service_test)
+set_tests_properties(recovery_service_test PROPERTIES
+    LABELS "integration"
+    TIMEOUT 300
+)
+
 add_executable(task_permission_test runtime/task_permission_test.cpp)
 target_compile_features(task_permission_test PUBLIC cxx_std_20)
 mirage_enable_warnings(task_permission_test)

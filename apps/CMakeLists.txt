@@ -28,6 +28,7 @@ target_link_libraries(mirage-service
     PRIVATE
         Mirage::runtime_service
         Mirage::integration_mira
+        Mirage::persistence
         Mirage::platform
 )
 

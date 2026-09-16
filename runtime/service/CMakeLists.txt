@@ -1,4 +1,5 @@
 add_library(mirage_runtime_service STATIC
+    src/recovery_writer.cpp
     src/runtime_service.cpp
     src/service_loop.cpp
     src/task_driver.cpp
@@ -30,5 +31,6 @@ target_link_libraries(mirage_runtime_service
         Mirage::ipc
         Mirage::permission
     PRIVATE
+        Mirage::persistence
         $<TARGET_FILE:executor::executor>
 )

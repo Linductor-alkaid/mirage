@@ -8,48 +8,46 @@
 namespace mirage::runtime::ipc {
 namespace {
 
-constexpr const char* kOpHello = "hello";
-constexpr const char* kOpSubmit = "task.submit";
-constexpr const char* kOpList = "task.list";
-constexpr const char* kOpInspect = "task.inspect";
-constexpr const char* kOpCancel = "task.cancel";
-constexpr const char* kOpShutdown = "service.shutdown";
+constexpr const char *kOpHello = "hello";
+constexpr const char *kOpSubmit = "task.submit";
+constexpr const char *kOpList = "task.list";
+constexpr const char *kOpInspect = "task.inspect";
+constexpr const char *kOpCancel = "task.cancel";
+constexpr const char *kOpShutdown = "service.shutdown";
 
-constexpr const char* kStepRead = "filesystem.read";
-constexpr const char* kStepExecute = "process.execute";
+constexpr const char *kStepRead = "filesystem.read";
+constexpr const char *kStepExecute = "process.execute";
 
 mira::JsonValue make_object() { return mira::JsonValue{mira::JsonValue::Object{}}; }
 
-void put(mira::JsonValue& object, std::string key, mira::JsonValue value) {
+void put(mira::JsonValue &object, std::string key, mira::JsonValue value) {
     object.set(std::move(key), std::move(value));
 }
 
-const mira::JsonValue* member(const mira::JsonValue& object, std::string_view key) {
+const mira::JsonValue *member(const mira::JsonValue &object, std::string_view key) {
     return object.find(key);
 }
 
-std::optional<std::int64_t> integer_member(const mira::JsonValue& object,
-                                           std::string_view key) {
-    const auto* value = member(object, key);
+std::optional<std::int64_t> integer_member(const mira::JsonValue &object, std::string_view key) {
+    const auto *value = member(object, key);
     if (value == nullptr) {
         return std::nullopt;
     }
     return value->as_integer();
 }
 
-std::optional<std::string> string_member(const mira::JsonValue& object,
-                                         std::string_view key) {
-    const auto* value = member(object, key);
+std::optional<std::string> string_member(const mira::JsonValue &object, std::string_view key) {
+    const auto *value = member(object, key);
     if (value == nullptr) {
         return std::nullopt;
     }
-    if (const auto* text = value->as_string(); text != nullptr) {
+    if (const auto *text = value->as_string(); text != nullptr) {
         return *text;
     }
     return std::nullopt;
 }
 
-std::optional<TaskStep> decode_step(const mira::JsonValue& value, std::string& error) {
+std::optional<TaskStep> decode_step(const mira::JsonValue &value, std::string &error) {
     if (!value.is_object()) {
         error = "task.submit steps must be objects";
         return std::nullopt;
@@ -77,7 +75,7 @@ std::optional<TaskStep> decode_step(const mira::JsonValue& value, std::string& e
     return step;
 }
 
-mira::JsonValue encode_step_view(const StepView& step) {
+mira::JsonValue encode_step_view(const StepView &step) {
     auto object = make_object();
     put(object, "index", static_cast<std::int64_t>(step.index));
     put(object, "kind", step.kind);
@@ -92,8 +90,7 @@ mira::JsonValue encode_step_view(const StepView& step) {
     return object;
 }
 
-std::optional<StepView> decode_step_view(const mira::JsonValue& value,
-                                         std::string& error) {
+std::optional<StepView> decode_step_view(const mira::JsonValue &value, std::string &error) {
     if (!value.is_object()) {
         error = "task inspect steps must be objects";
         return std::nullopt;
@@ -114,7 +111,7 @@ std::optional<StepView> decode_step_view(const mira::JsonValue& value,
     if (auto text = string_member(value, "permission")) {
         step.permission = std::move(*text);
     }
-    if (const auto* flag = member(value, "ok"); flag != nullptr) {
+    if (const auto *flag = member(value, "ok"); flag != nullptr) {
         if (const auto boolean = flag->as_boolean()) {
             step.ok = *boolean;
         }
@@ -125,7 +122,7 @@ std::optional<StepView> decode_step_view(const mira::JsonValue& value,
     if (auto text = string_member(value, "result")) {
         step.result = std::move(*text);
     }
-    if (const auto* flag = member(value, "result_truncated"); flag != nullptr) {
+    if (const auto *flag = member(value, "result_truncated"); flag != nullptr) {
         if (const auto boolean = flag->as_boolean()) {
             step.result_truncated = *boolean;
         }
@@ -136,7 +133,7 @@ std::optional<StepView> decode_step_view(const mira::JsonValue& value,
     return step;
 }
 
-mira::JsonValue encode_inspect(const InspectTask& task) {
+mira::JsonValue encode_inspect(const InspectTask &task) {
     auto object = make_object();
     put(object, "id", task.id);
     put(object, "goal", task.goal);
@@ -145,17 +142,17 @@ mira::JsonValue encode_inspect(const InspectTask& task) {
         put(object, "success", task.success);
     }
     mira::JsonValue::Array entries;
-    for (const auto& step : task.steps) {
+    for (const auto &step : task.steps) {
         entries.emplace_back(encode_step_view(step));
     }
     put(object, "steps", mira::JsonValue{std::move(entries)});
     return object;
 }
 
-mira::JsonValue encode_payload(const ResponsePayload& payload) {
+mira::JsonValue encode_payload(const ResponsePayload &payload) {
     auto object = make_object();
     std::visit(
-        [&object](const auto& value) {
+        [&object](const auto &value) {
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, ServiceIdentity>) {
                 put(object, "service", value.name);
@@ -167,7 +164,7 @@ mira::JsonValue encode_payload(const ResponsePayload& payload) {
                 put(object, "task_id", value.task_id);
             } else if constexpr (std::is_same_v<T, TaskList>) {
                 mira::JsonValue::Array entries;
-                for (const auto& task : value.tasks) {
+                for (const auto &task : value.tasks) {
                     auto entry = make_object();
                     put(entry, "id", task.id);
                     put(entry, "goal", task.goal);
@@ -192,16 +189,26 @@ mira::JsonValue encode_payload(const ResponsePayload& payload) {
 
 } // namespace
 
-const char* step_kind_name(StepKind kind) {
+const char *step_kind_name(StepKind kind) {
     return kind == StepKind::FilesystemRead ? kStepRead : kStepExecute;
 }
 
-std::string encode_request(std::uint64_t id, const Request& body) {
+std::optional<StepKind> step_kind_from_name(std::string_view name) {
+    if (name == kStepRead) {
+        return StepKind::FilesystemRead;
+    }
+    if (name == kStepExecute) {
+        return StepKind::ProcessExecute;
+    }
+    return std::nullopt;
+}
+
+std::string encode_request(std::uint64_t id, const Request &body) {
     auto object = make_object();
     put(object, "v", static_cast<std::int64_t>(kProtocolVersion));
     put(object, "id", static_cast<std::int64_t>(id));
     std::visit(
-        [&object](const auto& value) {
+        [&object](const auto &value) {
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, HelloRequest>) {
                 put(object, "op", kOpHello);
@@ -209,7 +216,7 @@ std::string encode_request(std::uint64_t id, const Request& body) {
                 put(object, "op", kOpSubmit);
                 put(object, "goal", value.goal);
                 mira::JsonValue::Array entries;
-                for (const auto& step : value.steps) {
+                for (const auto &step : value.steps) {
                     auto entry = make_object();
                     put(entry, "op", step_kind_name(step.kind));
                     put(entry, "arg", step.argument);
@@ -247,7 +254,7 @@ RequestDecode decode_request(std::string_view payload) {
         result.error = "request payload must be a JSON object";
         return result;
     }
-    const auto& object = parsed.value();
+    const auto &object = parsed.value();
     if (const auto version = integer_member(object, "v");
         !version || *version != kProtocolVersion) {
         result.error = "unsupported protocol version";
@@ -280,12 +287,12 @@ RequestDecode decode_request(std::string_view payload) {
             return result;
         }
         submit.goal = *goal;
-        if (const auto* steps = member(object, "steps"); steps != nullptr) {
+        if (const auto *steps = member(object, "steps"); steps != nullptr) {
             if (!steps->is_array()) {
                 result.error = "task.submit 'steps' must be an array";
                 return result;
             }
-            for (const auto& entry : *steps->as_array()) {
+            for (const auto &entry : *steps->as_array()) {
                 std::string step_error;
                 auto step = decode_step(entry, step_error);
                 if (!step) {
@@ -329,15 +336,15 @@ RequestDecode decode_request(std::string_view payload) {
     return result;
 }
 
-std::string encode_response(const Response& response) {
+std::string encode_response(const Response &response) {
     auto object = make_object();
     put(object, "v", static_cast<std::int64_t>(kProtocolVersion));
     put(object, "id", static_cast<std::int64_t>(response.id));
     put(object, "ok", response.ok);
     if (response.ok) {
         auto payload = encode_payload(response.payload);
-        if (auto* members = payload.as_object(); members != nullptr) {
-            for (auto& entry : *members) {
+        if (auto *members = payload.as_object(); members != nullptr) {
+            for (auto &entry : *members) {
                 object.set(entry.first, std::move(entry.second));
             }
         }
@@ -361,7 +368,7 @@ ResponseDecode decode_response(std::string_view payload) {
         result.error = "response payload must be a JSON object";
         return result;
     }
-    const auto& object = parsed.value();
+    const auto &object = parsed.value();
     if (const auto version = integer_member(object, "v");
         !version || *version != kProtocolVersion) {
         result.error = "unsupported protocol version";
@@ -372,9 +379,9 @@ ResponseDecode decode_response(std::string_view payload) {
         result.error = "response is missing a non-negative 'id'";
         return result;
     }
-    Response& response = result.response;
+    Response &response = result.response;
     response.id = static_cast<std::uint64_t>(*id);
-    const auto* ok = member(object, "ok");
+    const auto *ok = member(object, "ok");
     if (ok == nullptr) {
         result.error = "response is missing 'ok'";
         return result;
@@ -386,7 +393,7 @@ ResponseDecode decode_response(std::string_view payload) {
         return result;
     }
     if (!response.ok) {
-        const auto* error = member(object, "error");
+        const auto *error = member(object, "error");
         if (error == nullptr || !error->is_object()) {
             result.error = "failed response is missing an 'error' object";
             return result;
@@ -401,7 +408,7 @@ ResponseDecode decode_response(std::string_view payload) {
         result.ok = true;
         return result;
     }
-    if (const auto* service = member(object, "service"); service != nullptr) {
+    if (const auto *service = member(object, "service"); service != nullptr) {
         ServiceIdentity identity;
         auto name = string_member(object, "service");
         auto mirage_version = string_member(object, "mirage_version");
@@ -418,20 +425,20 @@ ResponseDecode decode_response(std::string_view payload) {
         identity.host_status = std::move(*host_status);
         identity.protocol = static_cast<int>(*protocol);
         response.payload = std::move(identity);
-    } else if (const auto* task_id = member(object, "task_id"); task_id != nullptr) {
+    } else if (const auto *task_id = member(object, "task_id"); task_id != nullptr) {
         auto id_text = string_member(object, "task_id");
         if (!id_text || id_text->empty()) {
             result.error = "task.submit response requires a non-empty 'task_id'";
             return result;
         }
         response.payload = TaskSubmitted{std::move(*id_text)};
-    } else if (const auto* tasks = member(object, "tasks"); tasks != nullptr) {
+    } else if (const auto *tasks = member(object, "tasks"); tasks != nullptr) {
         if (!tasks->is_array()) {
             result.error = "task.list 'tasks' must be an array";
             return result;
         }
         TaskList list;
-        for (const auto& entry : *tasks->as_array()) {
+        for (const auto &entry : *tasks->as_array()) {
             if (!entry.is_object()) {
                 result.error = "task.list entries must be objects";
                 return result;
@@ -450,7 +457,7 @@ ResponseDecode decode_response(std::string_view payload) {
             list.tasks.push_back(std::move(summary));
         }
         response.payload = std::move(list);
-    } else if (const auto* task = member(object, "task"); task != nullptr) {
+    } else if (const auto *task = member(object, "task"); task != nullptr) {
         if (!task->is_object()) {
             result.error = "task.inspect 'task' must be an object";
             return result;
@@ -466,7 +473,7 @@ ResponseDecode decode_response(std::string_view payload) {
         inspect.id = std::move(*id_text);
         inspect.goal = std::move(*goal);
         inspect.progress = std::move(*progress);
-        if (const auto* success = member(*task, "success"); success != nullptr) {
+        if (const auto *success = member(*task, "success"); success != nullptr) {
             if (const auto boolean = success->as_boolean()) {
                 inspect.has_success = true;
                 inspect.success = *boolean;
@@ -475,12 +482,12 @@ ResponseDecode decode_response(std::string_view payload) {
                 return result;
             }
         }
-        if (const auto* steps = member(*task, "steps"); steps != nullptr) {
+        if (const auto *steps = member(*task, "steps"); steps != nullptr) {
             if (!steps->is_array()) {
                 result.error = "task.inspect 'steps' must be an array";
                 return result;
             }
-            for (const auto& entry : *steps->as_array()) {
+            for (const auto &entry : *steps->as_array()) {
                 std::string step_error;
                 auto step = decode_step_view(entry, step_error);
                 if (!step) {
@@ -491,8 +498,7 @@ ResponseDecode decode_response(std::string_view payload) {
             }
         }
         response.payload = std::move(inspect);
-    } else if (const auto* cancelled = member(object, "task_cancelled");
-               cancelled != nullptr) {
+    } else if (const auto *cancelled = member(object, "task_cancelled"); cancelled != nullptr) {
         if (!cancelled->is_object()) {
             result.error = "task.cancel 'task_cancelled' must be an object";
             return result;
