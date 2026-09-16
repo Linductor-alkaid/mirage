@@ -23,7 +23,10 @@ Desktop Permission 框架雏形（Capability 判定与确认挂点见
 [DEC-010](../decisions/DEC-010-m1-permission-framework.md)）与 `M1-07` 持久化骨架
 （本地配置与 Runtime Recovery State，见
 [DEC-011](../decisions/DEC-011-m1-local-state-persistence.md)）已完成；
-M1 工作项全部完成，正进行里程碑退出条件复核。
+2026-09-16 里程碑退出条件复核通过（5/5，验证记录见
+[M1：Mira Host 与基础 Runtime](m1-mira-host.md)），M1 Completed。下一步为
+M2（Desktop Environment 核心 Provider + Linux Backend、Semantic Snapshot、
+Element Reference），其里程碑计划待建立。
 
 ## 交付边界
 
@@ -94,7 +97,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 
 | 里程碑 | 内容 | 建议发布点 | 状态 | 依赖 |
 | --- | --- | --- | --- | --- |
-| [M1](m1-mira-host.md) | Mira Host、Runtime Service + IPC、Filesystem/Process Provider、CLI | `release-alpha` | In Progress | - |
+| [M1](m1-mira-host.md) | Mira Host、Runtime Service + IPC、Filesystem/Process Provider、CLI | `release-alpha` | Completed | - |
 | M2 | Desktop Environment 核心 Provider + Linux Backend、Semantic Snapshot、Element Reference | `release-beta` | Planned | M1 |
 | M3 | Mirador 集成：OCR / 检测 / 几何 / Visual Cache、Visual Reference | `release-gamma` | Planned | M2 |
 | M4 | Windows Backend（UIA / Win32 / Capture / Input） | `release-delta` | Planned | M2 |

@@ -1,10 +1,10 @@
 # M1：Mira Host 与基础 Runtime
 
-> 状态：In Progress
+> 状态：Completed
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：无（项目初始化已随本里程碑工作项完成）
-> 建议发布点：`release-alpha`
+> 建议发布点：`release-alpha`（tag 待维护者授权后创建）
 > 更新日期：2026-09-16
 
 ## 目标
@@ -85,14 +85,14 @@ Service 与 Local IPC，使 Agent 可以脱离 GUI 生命周期运行（设计�
 
 ## 测试与退出条件
 
-- [ ] `debug`、`release`、`asan`、`ubsan` 预设构建通过，`ctest` 全绿且无 skip。
-- [ ] 依赖锁定校验生效：篡改 `dependencies.lock.json` 中任一 commit 后 configure 必须
+- [x] `debug`、`release`、`asan`、`ubsan` 预设构建通过，`ctest` 全绿且无 skip。
+- [x] 依赖锁定校验生效：篡改 `dependencies.lock.json` 中任一 commit 后 configure 必须
       失败（负向验证，验证后还原）。
-- [ ] Mira Host 生命周期测试：正常启动-提交-完成、提交时拒绝、运行中取消、shutdown
+- [x] Mira Host 生命周期测试：正常启动-提交-完成、提交时拒绝、运行中取消、shutdown
       排空，全部经由可观察结果验证。
-- [ ] 端到端冒烟：CLI 提交一个使用 Filesystem + Shell 的任务，任务在 Service 内完成
+- [x] 端到端冒烟：CLI 提交一个使用 Filesystem + Shell 的任务，任务在 Service 内完成
       并可 `task inspect` 观察到结构化结果与 Trace 关联。
-- [ ] 公开头文件边界检查：`desktop`、`runtime` 目标的公共头不含 mira / mirador /
+- [x] 公开头文件边界检查：`desktop`、`runtime` 目标的公共头不含 mira / mirador /
       executor include（编译测试或脚本断言）。
 
 ## 验证记录
@@ -512,3 +512,52 @@ Service 与 Local IPC，使 Agent 可以脱离 GUI 生命周期运行（设计�
   不落盘（有序停机路径已结算的任务仍被记录）；E2E 冒烟为手动单次执行非 ctest。
 - 同步：设计文档第 16.1 节、`DEC-011`（新）、`DEC-007`（变更记录）、总计划
   里程碑状态、本验证记录、`README` 运行说明与 CI 徽章。
+
+2026-09-16：M1 里程碑退出条件复核通过（Independent-Verification-Agent），里程碑
+Completed。
+
+- 范围：对 5 项退出条件逐项独立取证，未修改任何源码、测试与文档；复核基于
+  HEAD `de467be`，工作树复核前后均干净。
+- 验证（Independent-Verification-Agent，Linux x64，Ubuntu 24.04，内核
+  7.0.0-31-generic，GCC 13.3.0，CMake 3.28.3，Ninja 1.13.2，clang-format 18.1.3）：
+  - 预设矩阵：`debug` / `release` / `asan` / `ubsan` 构建通过，`ctest` 均
+    **13/13 通过、0 skip**；`tsan` 直跑如实复现 `unexpected memory mapping`
+    （[本机注意事项](../../README.md)），`setarch $(uname -m) -R ctest` 13/13
+    通过、无 race 报告（DOD-03，M1 含跨上下文状态）。
+  - 依赖锁定负向验证：篡改 `dependencies.lock.json` 中 mira commit 为 40 个 `a`
+    后，独立二进制目录 configure 以 `Pinned dependency 'mira' commit mismatch`
+    FATAL_ERROR 失败（`cmake/MirageDependencies.cmake`）；`git checkout` 还原后
+    sha256 与篡改前一致（`fcd34b2f…`），工作树恢复干净。
+  - 宿主生命周期四类场景经"场景 → 测试用例 → 可观察断言"映射逐项确认（断言均为
+    公开 API 结果：`HostOutcome` 错误码、`HostStatus`、`TaskProgress`、
+    `ShutdownReport.clean/pending_commands`、IPC `StepView` 字段、文件与进程存活，
+    无内部实现细节断言；全部用例在上述 13/13 中实际通过）：
+    正常启动-提交-完成（`mira_host_test::scenario_start_submit_complete_shutdown`、
+    `runtime_service_test::scenario_task_completes_steps_with_operation_ids`）、
+    提交时拒绝（`scenario_submit_before_start_rejected`、`scenario_invalid_inputs`、
+    `runtime_service_test::scenario_submit_and_inspect_validation`）、运行中取消
+    （`scenario_cancel_running_task`、
+    `task_cancel_test::scenario_cancel_running_task_mid_action`）、shutdown 排空
+    （`scenario_shutdown_drains_pending_task`、
+    `runtime_service_test::scenario_shutdown_with_inflight_task_is_bounded`、
+    `task_cancel_test::scenario_cancel_inflight_then_shutdown_is_bounded_and_clean`）。
+  - 端到端冒烟（真实进程，socket / state / read-root 全部隔离到临时目录，service
+    start 输出按 `BUG-20260916-001` 纪律重定向到文件）：`task submit` 一个 read +
+    exec 两步任务 → `task list` 显示 Completed → `task inspect` 可见结构化结果
+    （文件内容、`exit=0`、stdout 即文件内容）与每步 32 位小写 hex operation id
+    （Trace 关联）及 `perm=allowed` 决策；`service shutdown` 后 socket 文件删除、
+    无 mirage-service 残留进程。
+  - 边界与格式：`mirage-boundary-check` 通过（23 头 0 违规）、
+    `mirage-format-check` 通过；边界脚本非空跑经独立探针证实（/tmp 假头树注入
+    `#include <mira/...>` / `<mirador/...>` / `<executor/...>` 均被正则点名报
+    violation，干净树通过；`cmake/BoundaryCheck.cmake` 扫描 `desktop/*/include`、
+    `runtime/*/include`、`platform`+`platform/*/include`，`integration/` 为设计
+    边界层刻意排除）。
+  - master CI（PR #7 合并后 run 35077231560）：style（format + boundary）与
+    5 预设 build+test 全绿，与本机复核互为印证。
+- 限制：Windows 交叉检查不在本机可验证范围（M4）；`BUG-20260916-001` 复核中实测
+  复现（`service start` 输出经管道接 `head` 挂起；正式冒烟按纪律改文件重定向，
+  正常 CLI 使用不受影响），修复随 M5 产品化或独立 fix 工作项；`mirage service
+  start` 无 `--help` 帮助入口（旗标形态经 README 与 CLI 源码确认，文档层面差异）；
+  `release-alpha` tag 与发布流程待维护者授权（工程规范第 10.5 节）。
+- 同步：本里程碑状态与退出条件勾选、总计划当前状态与里程碑索引。
