@@ -35,31 +35,28 @@ namespace mirage::integration {
 /// loop brackets each action with the host operation surface so the work is
 /// visible in the pinned control plane (DEC-008). When pinned Mira grows a
 /// hosted-environment tool surface, this adapter migrates onto it.
-class MiraEnvironmentBinding final : public DesktopEnvironmentBinding,
-                                     public mira::IEnvironment {
-public:
+class MiraEnvironmentBinding final : public DesktopEnvironmentBinding, public mira::IEnvironment {
+  public:
     /// Takes ownership of one environment reference. Throws
     /// std::invalid_argument when `environment` is null: a binding without an
     /// environment can never host.
     explicit MiraEnvironmentBinding(
         std::shared_ptr<mirage::desktop::DesktopEnvironment> environment);
 
-    const char* binding_name() const override;
+    const char *binding_name() const override;
 
-    std::shared_ptr<mirage::desktop::DesktopEnvironment> bound_environment()
-        const override
-    {
+    std::shared_ptr<mirage::desktop::DesktopEnvironment> bound_environment() const override {
         return environment_;
     }
 
     mira::EnvironmentCapabilities capabilities() const override;
-    mira::Result<mira::Observation> observe(const mira::ObservationRequest& request,
-                                            const mira::OperationContext& context) override;
-    mira::Result<mira::ExecutionReceipt> execute(const mira::InputSequence& input,
-                                                 const mira::OperationContext& context) override;
-    mira::Result<void> interrupt(const mira::OperationContext& context) override;
+    mira::Result<mira::Observation> observe(const mira::ObservationRequest &request,
+                                            const mira::OperationContext &context) override;
+    mira::Result<mira::ExecutionReceipt> execute(const mira::InputSequence &input,
+                                                 const mira::OperationContext &context) override;
+    mira::Result<void> interrupt(const mira::OperationContext &context) override;
 
-private:
+  private:
     std::shared_ptr<mirage::desktop::DesktopEnvironment> environment_;
     mira::ClockDomainId clock_domain_;
     std::string name_;

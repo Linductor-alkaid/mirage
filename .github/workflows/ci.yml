@@ -1,0 +1,82 @@
+# Mirage CI (DEC-002 build-test baseline, project-standards section 7).
+#
+# Every job checks out the pinned submodules and configures in verify-only
+# mode (MIRAGE_FETCH_DEPENDENCIES=OFF): a checkout whose submodule pointers
+# drift from dependencies.lock.json must fail configure, not the build
+# (RULE-06). The preset matrix mirrors the M1 exit conditions; TSan runs
+# under setarch -R because current runner kernels ship ASLR entropy that
+# GCC TSan cannot map (see README).
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  style:
+    name: format & public-header boundaries
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout (with pinned submodules)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format-18
+      - name: Configure (verify-only dependency mode)
+        run: cmake --preset debug -DMIRAGE_FETCH_DEPENDENCIES=OFF
+      - name: Format check
+        run: cmake --build --preset debug --target mirage-format-check
+      - name: Public header boundary check (RULE-01)
+        run: cmake --build --preset debug --target mirage-boundary-check
+
+  build:
+    name: build & test (${{ matrix.preset }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [debug, release, asan, ubsan, tsan]
+    steps:
+      - name: Checkout (with pinned submodules)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Install ccache
+        run: sudo apt-get update && sudo apt-get install -y ccache
+      - name: ccache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/ccache
+          key: >-
+            ccache-${{ matrix.preset }}-${{ runner.os }}-
+            ${{ hashFiles('dependencies.lock.json', 'CMakeLists.txt',
+            'CMakePresets.json', 'cmake/*.cmake') }}
+          restore-keys: ccache-${{ matrix.preset }}-${{ runner.os }}-
+      - name: Configure (verify-only dependency mode)
+        run: >
+          cmake --preset ${{ matrix.preset }}
+          -DMIRAGE_FETCH_DEPENDENCIES=OFF
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+      - name: Test (TSan with disabled ASLR, see README)
+        if: matrix.preset == 'tsan'
+        working-directory: build/tsan
+        run: setarch $(uname -m) -R ctest --output-on-failure
+      - name: Test
+        if: matrix.preset != 'tsan'
+        run: ctest --preset ${{ matrix.preset }} --output-on-failure

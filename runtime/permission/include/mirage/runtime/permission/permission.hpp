@@ -17,7 +17,7 @@ enum class Rule {
 };
 
 /// Stable string form of a rule ("allow" / "confirm" / "deny").
-const char* rule_name(Rule rule);
+const char *rule_name(Rule rule);
 
 /// Parses a stable rule name; nullopt for anything else.
 std::optional<Rule> rule_from_name(std::string_view name);
@@ -56,25 +56,25 @@ struct PermissionRequest {
 /// no interactive context in M1). The M5 product UI replaces this hook with
 /// an async confirmation surface over Local IPC.
 class ConfirmationHandler {
-public:
+  public:
     virtual ~ConfirmationHandler() = default;
 
     /// Returns true when the requested use of the capability is approved,
     /// false when it is rejected.
-    virtual bool confirm(const PermissionRequest& request) = 0;
+    virtual bool confirm(const PermissionRequest &request) = 0;
 };
 
 /// Fail-closed default for headless M1 topologies: every confirmation
 /// request is rejected (DEC-010).
 class DenyAllConfirmation final : public ConfirmationHandler {
-public:
-    bool confirm(const PermissionRequest& request) override;
+  public:
+    bool confirm(const PermissionRequest &request) override;
 };
 
 /// Development/test handler that approves every confirmation request.
 class AllowAllConfirmation final : public ConfirmationHandler {
-public:
-    bool confirm(const PermissionRequest& request) override;
+  public:
+    bool confirm(const PermissionRequest &request) override;
 };
 
 /// What the gate decided for one request.
@@ -91,7 +91,7 @@ enum class Decision {
 
 /// Stable string form of a decision ("allowed" / "confirmed" / "denied" /
 /// "confirmation_rejected"); never null.
-const char* decision_name(Decision decision);
+const char *decision_name(Decision decision);
 
 /// Result of one authorize() call: `allowed` is the executable answer;
 /// `decision` is the full outcome for the trace; `reason` carries a stable,
@@ -108,20 +108,19 @@ struct PermissionVerdict {
 /// boundaries (PathScope, budgets, cancellation), which stay in force
 /// regardless of the verdict (DEC-009, DEC-010).
 class PermissionController {
-public:
+  public:
     /// `confirmation` must outlive this controller.
-    PermissionController(PermissionPolicy policy,
-                         ConfirmationHandler& confirmation);
+    PermissionController(PermissionPolicy policy, ConfirmationHandler &confirmation);
 
     /// Judges one request. A Confirm rule consults the confirmation handler
     /// exactly once; Allow and Deny rules never touch it.
-    PermissionVerdict authorize(const PermissionRequest& request) const;
+    PermissionVerdict authorize(const PermissionRequest &request) const;
 
-    const PermissionPolicy& policy() const { return policy_; }
+    const PermissionPolicy &policy() const { return policy_; }
 
-private:
+  private:
     PermissionPolicy policy_;
-    ConfirmationHandler& confirmation_;
+    ConfirmationHandler &confirmation_;
 };
 
 } // namespace mirage::runtime::permission

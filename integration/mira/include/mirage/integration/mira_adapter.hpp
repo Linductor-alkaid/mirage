@@ -17,18 +17,17 @@ namespace mirage::integration {
 /// it. Dependency direction locked by the build graph: runtime ->
 /// integration -> desktop.
 class DesktopEnvironmentBinding {
-public:
+  public:
     virtual ~DesktopEnvironmentBinding() = default;
 
     /// Stable adapter identity, e.g. "mirage.desktop.linux-v1".
-    virtual const char* binding_name() const = 0;
+    virtual const char *binding_name() const = 0;
 
     /// The desktop surface this binding wraps; the M1 runtime service's
     /// task drivers act on it (DEC-007 item 5). Returns null by default so
     /// bindings without a mirage environment fail closed at their consumers
     /// instead of breaking existing implementations.
-    virtual std::shared_ptr<mirage::desktop::DesktopEnvironment>
-    bound_environment() const {
+    virtual std::shared_ptr<mirage::desktop::DesktopEnvironment> bound_environment() const {
         return nullptr;
     }
 };

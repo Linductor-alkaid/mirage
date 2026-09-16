@@ -8,15 +8,14 @@
 namespace mirage::runtime::ipc {
 
 std::string default_socket_path() {
-    const char* runtime_dir = std::getenv("XDG_RUNTIME_DIR");
+    const char *runtime_dir = std::getenv("XDG_RUNTIME_DIR");
     if (runtime_dir != nullptr && *runtime_dir != '\0') {
         return std::string(runtime_dir) + "/mirage/mirage-service.sock";
     }
-    return "/tmp/mirage-" + std::to_string(static_cast<long>(::getuid())) +
-           "/mirage-service.sock";
+    return "/tmp/mirage-" + std::to_string(static_cast<long>(::getuid())) + "/mirage-service.sock";
 }
 
-std::string socket_directory(const std::string& socket_path) {
+std::string socket_directory(const std::string &socket_path) {
     const auto position = socket_path.rfind('/');
     if (position == std::string::npos) {
         return ".";

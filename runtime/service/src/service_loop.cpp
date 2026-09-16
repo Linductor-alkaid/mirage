@@ -17,8 +17,7 @@ namespace {
 
 /// Per-connection inbound guard: a frame header declares at most
 /// kMaxFrameBytes, so anything beyond header + cap cannot be legitimate.
-constexpr std::size_t kMaxInboundBytes =
-    ipc::kMaxFrameBytes + ipc::kFrameHeaderBytes;
+constexpr std::size_t kMaxInboundBytes = ipc::kMaxFrameBytes + ipc::kFrameHeaderBytes;
 
 std::string error_payload(std::string code, std::string message) {
     ipc::Response response;
@@ -64,9 +63,7 @@ void ServiceLoop::wakeup() noexcept {
     }
 }
 
-void ServiceLoop::register_shutdown_fd(int fd) {
-    shutdown_fd_ = fd;
-}
+void ServiceLoop::register_shutdown_fd(int fd) { shutdown_fd_ = fd; }
 
 void ServiceLoop::stop_serving() {
     stop_serving_.store(true, std::memory_order_release);
@@ -85,8 +82,7 @@ void ServiceLoop::post_response(std::uint64_t connection_id, std::string payload
     }
 }
 
-void ServiceLoop::post_response_and_close(std::uint64_t connection_id,
-                                          std::string payload) {
+void ServiceLoop::post_response_and_close(std::uint64_t connection_id, std::string payload) {
     OutboundMessage message;
     message.connection_id = connection_id;
     message.payload = std::move(payload);
@@ -104,7 +100,7 @@ void ServiceLoop::drain_outbound() {
         if (entry == connections_.end()) {
             continue; // connection already gone; the response dies with it
         }
-        Connection& connection = entry->second;
+        Connection &connection = entry->second;
         if (connection.outbound_sent == connection.outbound.size()) {
             connection.outbound.clear();
             connection.outbound_sent = 0;
@@ -119,16 +115,13 @@ void ServiceLoop::drain_outbound() {
 void ServiceLoop::accept_ready() {
     for (;;) {
         const int fd =
-            ::accept4(dependencies_.listen_fd, nullptr, nullptr,
-                      SOCK_NONBLOCK | SOCK_CLOEXEC);
+            ::accept4(dependencies_.listen_fd, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
         if (fd < 0) {
             return; // EAGAIN: nothing pending; other errors surface as closed
         }
         if (connections_.size() >= dependencies_.max_connections) {
-            const std::string frame =
-                error_payload("unavailable", "connection capacity exceeded");
-            const ssize_t written =
-                ::write(fd, frame.data(), frame.size());
+            const std::string frame = error_payload("unavailable", "connection capacity exceeded");
+            const ssize_t written = ::write(fd, frame.data(), frame.size());
             (void)written; // best effort: nothing accepts this connection
             ::close(fd);
             continue;
@@ -155,16 +148,15 @@ void ServiceLoop::handle_wakeups(bool wake_ready, bool shutdown_ready) {
     }
 }
 
-void ServiceLoop::close_connection(
-    std::map<std::uint64_t, Connection>::iterator entry) {
+void ServiceLoop::close_connection(std::map<std::uint64_t, Connection>::iterator entry) {
     connections_.erase(entry);
 }
 
-bool ServiceLoop::flush_connection(Connection& connection) {
+bool ServiceLoop::flush_connection(Connection &connection) {
     while (connection.outbound_sent < connection.outbound.size()) {
-        const ipc::IoResult result = connection.stream.write_some(
-            connection.outbound.data() + connection.outbound_sent,
-            connection.outbound.size() - connection.outbound_sent);
+        const ipc::IoResult result =
+            connection.stream.write_some(connection.outbound.data() + connection.outbound_sent,
+                                         connection.outbound.size() - connection.outbound_sent);
         switch (result.status) {
         case ipc::IoStatus::Ok:
             connection.outbound_sent += result.bytes;
@@ -179,16 +171,13 @@ bool ServiceLoop::flush_connection(Connection& connection) {
     return true;
 }
 
-void ServiceLoop::close_all() {
-    connections_.clear();
-}
+void ServiceLoop::close_all() { connections_.clear(); }
 
 void ServiceLoop::run(executor::StopToken stop_token) {
     std::vector<pollfd> descriptors;
     std::vector<std::map<std::uint64_t, Connection>::iterator> owners;
 
-    while (!stop_token.stop_requested() &&
-           !stop_serving_.load(std::memory_order_acquire)) {
+    while (!stop_token.stop_requested() && !stop_serving_.load(std::memory_order_acquire)) {
         descriptors.clear();
         owners.clear();
         if (dependencies_.listen_fd >= 0) {
@@ -203,12 +192,10 @@ void ServiceLoop::run(executor::StopToken stop_token) {
             descriptors.push_back({shutdown_fd_, POLLIN, 0});
             owners.push_back(connections_.end());
         }
-        for (auto entry = connections_.begin(); entry != connections_.end();
-             ++entry) {
-            Connection& connection = entry->second;
+        for (auto entry = connections_.begin(); entry != connections_.end(); ++entry) {
+            Connection &connection = entry->second;
             short events = 0;
-            if (!connection.busy &&
-                connection.inbound.size() <= kMaxInboundBytes) {
+            if (!connection.busy && connection.inbound.size() <= kMaxInboundBytes) {
                 events |= POLLIN;
             }
             if (connection.outbound_sent < connection.outbound.size()) {
@@ -221,8 +208,7 @@ void ServiceLoop::run(executor::StopToken stop_token) {
         }
 
         const int ready =
-            ::poll(descriptors.data(), descriptors.size(),
-                   dependencies_.poll_timeout_ms);
+            ::poll(descriptors.data(), descriptors.size(), dependencies_.poll_timeout_ms);
         if (ready < 0) {
             if (errno == EINTR) {
                 continue;
@@ -231,8 +217,7 @@ void ServiceLoop::run(executor::StopToken stop_token) {
         }
 
         std::size_t remaining = static_cast<std::size_t>(ready);
-        for (std::size_t index = 0;
-             index < descriptors.size() && remaining > 0; ++index) {
+        for (std::size_t index = 0; index < descriptors.size() && remaining > 0; ++index) {
             const short revents = descriptors[index].revents;
             if (revents == 0) {
                 continue;
@@ -241,21 +226,17 @@ void ServiceLoop::run(executor::StopToken stop_token) {
             const bool is_connection = owners[index] != connections_.end();
 
             if (!is_connection) {
-                handle_wakeups(/*wake_ready=*/descriptors[index].fd ==
-                                   wake_read_,
-                               /*shutdown_ready=*/descriptors[index].fd ==
-                                   shutdown_fd_);
-                if (descriptors[index].fd == dependencies_.listen_fd &&
-                    (revents & POLLIN) != 0) {
+                handle_wakeups(/*wake_ready=*/descriptors[index].fd == wake_read_,
+                               /*shutdown_ready=*/descriptors[index].fd == shutdown_fd_);
+                if (descriptors[index].fd == dependencies_.listen_fd && (revents & POLLIN) != 0) {
                     accept_ready();
                 }
                 continue;
             }
 
             const std::uint64_t connection_id = owners[index]->first;
-            Connection& connection = owners[index]->second;
-            if ((revents & (POLLERR | POLLHUP | POLLNVAL)) != 0 &&
-                (revents & POLLIN) == 0) {
+            Connection &connection = owners[index]->second;
+            if ((revents & (POLLERR | POLLHUP | POLLNVAL)) != 0 && (revents & POLLIN) == 0) {
                 close_connection(owners[index]);
                 continue;
             }
@@ -266,14 +247,12 @@ void ServiceLoop::run(executor::StopToken stop_token) {
             if ((revents & POLLIN) != 0 && !connection.busy) {
                 char chunk[4096];
                 for (;;) {
-                    const ipc::IoResult result =
-                        connection.stream.read_some(chunk, sizeof(chunk));
+                    const ipc::IoResult result = connection.stream.read_some(chunk, sizeof(chunk));
                     if (result.status == ipc::IoStatus::Ok) {
                         connection.inbound.append(chunk, result.bytes);
                         if (connection.inbound.size() > kMaxInboundBytes) {
                             connection.outbound =
-                                error_payload("protocol_error",
-                                              "inbound exceeds the frame cap");
+                                error_payload("protocol_error", "inbound exceeds the frame cap");
                             connection.outbound_sent = 0;
                             connection.close_after_write = true;
                             // Deliver the error frame, then close.
@@ -301,10 +280,8 @@ void ServiceLoop::run(executor::StopToken stop_token) {
                     if (extraction.status == ipc::FrameExtract::NeedMoreData) {
                         break;
                     }
-                    if (extraction.status ==
-                        ipc::FrameExtract::ProtocolError) {
-                        connection.outbound = error_payload(
-                            "protocol_error", extraction.reason);
+                    if (extraction.status == ipc::FrameExtract::ProtocolError) {
+                        connection.outbound = error_payload("protocol_error", extraction.reason);
                         connection.outbound_sent = 0;
                         connection.close_after_write = true;
                         violation = true;
@@ -314,8 +291,7 @@ void ServiceLoop::run(executor::StopToken stop_token) {
                         // DEC-007: one outstanding request per connection;
                         // a second frame in the same read is pipelining.
                         connection.outbound = error_payload(
-                            "protocol_error",
-                            "pipelined request before the previous response");
+                            "protocol_error", "pipelined request before the previous response");
                         connection.outbound_sent = 0;
                         connection.close_after_write = true;
                         violation = true;
@@ -325,15 +301,13 @@ void ServiceLoop::run(executor::StopToken stop_token) {
                     // The handler serializes through the service's serial
                     // context and posts the response; bounded by the host
                     // command wait, so the loop stays responsive enough.
-                    dependencies_.on_frame(connection_id,
-                                           std::move(extraction.message));
+                    dependencies_.on_frame(connection_id, std::move(extraction.message));
                 }
                 if (transport_failed) {
                     close_connection(owners[index]);
                     continue;
                 }
-                if (peer_closed && !connection.busy &&
-                    !connection.close_after_write &&
+                if (peer_closed && !connection.busy && !connection.close_after_write &&
                     connection.outbound_sent >= connection.outbound.size()) {
                     // Nothing was in flight and nothing will be answered.
                     close_connection(owners[index]);
@@ -367,7 +341,7 @@ void ServiceLoop::run(executor::StopToken stop_token) {
         // Responses produced by handlers during this iteration go out in the
         // same iteration when the socket takes them.
         for (auto entry = connections_.begin(); entry != connections_.end();) {
-            Connection& connection = entry->second;
+            Connection &connection = entry->second;
             if (connection.outbound_sent < connection.outbound.size()) {
                 if (!flush_connection(connection)) {
                     entry = connections_.erase(entry);
@@ -395,7 +369,7 @@ void ServiceLoop::run(executor::StopToken stop_token) {
     // Ordered exit: best-effort delivery of already-produced responses, then
     // close everything. No new requests are read after stop.
     drain_outbound();
-    for (auto& entry : connections_) {
+    for (auto &entry : connections_) {
         (void)flush_connection(entry.second);
     }
     close_all();

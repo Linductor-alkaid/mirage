@@ -1,6 +1,9 @@
 #include <mirage/integration/mira_environment_binding.hpp>
 #include <mirage/platform/linux/linux_desktop_environment.hpp>
 #include <mirage/runtime/permission/permission.hpp>
+#include <mirage/runtime/persistence/paths.hpp>
+#include <mirage/runtime/persistence/settings.hpp>
+#include <mirage/runtime/persistence/store.hpp>
 #include <mirage/runtime/runtime_service.hpp>
 
 #include <fcntl.h>
@@ -10,6 +13,7 @@
 #include <filesystem>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unistd.h>
 #include <vector>
@@ -31,10 +35,11 @@ extern "C" void on_signal(int) {
     }
 }
 
-void print_usage(std::ostream& out) {
+void print_usage(std::ostream &out) {
     out << "Usage: " << kProgramName << " [--socket PATH] [--read-root PATH]...\n"
         << "               [--perm CAPABILITY=allow|confirm|deny]...\n"
         << "               [--confirm allow|deny]\n"
+        << "               [--config PATH] [--state-dir PATH] [--no-recovery]\n"
         << "\n"
         << "Hosts the Mirage background runtime service (design doc section\n"
         << "12): a pinned Mira instance bound to the local desktop\n"
@@ -53,24 +58,49 @@ void print_usage(std::ostream& out) {
         << "  --confirm MODE    Outcome of confirmation requests (DEC-010\n"
         << "                    fail-closed hook; allow|deny, default deny;\n"
         << "                    the M5 UI replaces this with a real prompt)\n"
+        << "  --config PATH     Load a settings file first (DEC-011); flags\n"
+        << "                    below override it item by item\n"
+        << "  --state-dir PATH  Directory of the task recovery file (M1-07,\n"
+        << "                    default: XDG state dir)\n"
+        << "  --no-recovery     Keep the task registry memory-only\n"
         << "  --version         Print versions\n"
         << "  --help            Print this help\n";
 }
 
 void print_version() {
     std::cout << kProgramName << ' ' << kVersion << '\n';
-    const mirage::runtime::MiraCoreVersion core =
-        mirage::runtime::mira_core_version();
-    std::cout << "mira core " << core.major << '.' << core.minor << '.'
-              << core.patch << '\n';
+    const mirage::runtime::MiraCoreVersion core = mirage::runtime::mira_core_version();
+    std::cout << "mira core " << core.major << '.' << core.minor << '.' << core.patch << '\n';
+}
+
+/// Parses CAPABILITY=allow|confirm|deny; nullopt (with a message printed)
+/// on anything else.
+std::optional<std::pair<mirage::runtime::permission::Capability, mirage::runtime::permission::Rule>>
+parse_perm_rule(std::string_view rule) {
+    const auto equals = rule.find('=');
+    if (equals == std::string_view::npos) {
+        return std::nullopt;
+    }
+    const auto capability =
+        mirage::runtime::permission::capability_from_name(rule.substr(0, equals));
+    const auto mode = mirage::runtime::permission::rule_from_name(rule.substr(equals + 1));
+    if (!capability || !mode) {
+        return std::nullopt;
+    }
+    return std::make_pair(*capability, *mode);
 }
 
 } // namespace
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     mirage::runtime::ServiceConfig config;
     config.mirage_version = std::string(kVersion);
     std::vector<std::string> read_roots;
+    std::vector<std::string> perm_flags;
+    std::optional<std::string> flag_socket;
+    std::optional<std::string> flag_confirm;
+    bool read_roots_from_flags = false;
+    std::optional<std::filesystem::path> config_file;
 
     for (int index = 1; index < argc; ++index) {
         const std::string_view argument{argv[index]};
@@ -83,27 +113,29 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (argument == "--socket" && index + 1 < argc) {
-            config.socket_path = argv[++index];
+            flag_socket = argv[++index];
             continue;
         }
         if (argument == "--read-root" && index + 1 < argc) {
             read_roots.emplace_back(argv[++index]);
+            read_roots_from_flags = true;
+            continue;
+        }
+        if (argument == "--config" && index + 1 < argc) {
+            config_file = argv[++index];
+            continue;
+        }
+        if (argument == "--state-dir" && index + 1 < argc) {
+            config.recovery_directory = argv[++index];
+            continue;
+        }
+        if (argument == "--no-recovery") {
+            config.persist_recovery_state = false;
             continue;
         }
         if (argument == "--perm" && index + 1 < argc) {
             const std::string_view rule{argv[++index]};
-            const auto equals = rule.find('=');
-            const auto capability =
-                equals == std::string_view::npos
-                    ? std::nullopt
-                    : mirage::runtime::permission::capability_from_name(
-                          rule.substr(0, equals));
-            const auto mode =
-                equals == std::string_view::npos
-                    ? std::nullopt
-                    : mirage::runtime::permission::rule_from_name(
-                          rule.substr(equals + 1));
-            if (!capability || !mode) {
+            if (!parse_perm_rule(rule)) {
                 std::cerr << kProgramName
                           << ": --perm expects "
                              "CAPABILITY=allow|confirm|deny (got '"
@@ -111,34 +143,96 @@ int main(int argc, char** argv) {
                 print_usage(std::cerr);
                 return 2;
             }
-            config.permission_policy.rules[static_cast<std::size_t>(
-                *capability)] = *mode;
+            perm_flags.emplace_back(rule);
             continue;
         }
         if (argument == "--confirm" && index + 1 < argc) {
             const std::string_view mode{argv[++index]};
-            if (mode == "allow") {
-                config.confirmation =
-                    std::make_shared<
-                        mirage::runtime::permission::AllowAllConfirmation>();
-                continue;
+            if (mode != "allow" && mode != "deny") {
+                std::cerr << kProgramName << ": --confirm expects allow|deny (got '" << mode
+                          << "')\n";
+                print_usage(std::cerr);
+                return 2;
             }
-            if (mode == "deny") {
-                // The service default is already fail closed (DEC-010);
-                // the explicit flag documents the choice.
-                config.confirmation = nullptr;
-                continue;
-            }
-            std::cerr << kProgramName
-                      << ": --confirm expects allow|deny (got '" << mode
-                      << "')\n";
-            print_usage(std::cerr);
-            return 2;
+            flag_confirm = std::string(mode);
+            continue;
         }
-        std::cerr << kProgramName << ": unknown argument '" << argument
-                  << "'\n";
+        std::cerr << kProgramName << ": unknown argument '" << argument << "'\n";
         print_usage(std::cerr);
         return 2;
+    }
+
+    // M1-07 DEC-011 configuration: the settings file (when requested)
+    // provides the baseline, command-line flags override item by item. A
+    // settings file that exists but cannot be trusted fails closed.
+    if (config_file) {
+        const std::filesystem::path parent = config_file->parent_path().empty()
+                                                 ? std::filesystem::path(".")
+                                                 : config_file->parent_path();
+        const mirage::runtime::persistence::LocalStateStore store(
+            parent, config_file->filename().string(),
+            mirage::runtime::persistence::kMaxSettingsFileBytes);
+        const auto loaded = store.load();
+        if (loaded.status == mirage::runtime::persistence::LoadStatus::IoError) {
+            std::cerr << kProgramName << ": cannot read config file '" << config_file->string()
+                      << "': " << loaded.error << '\n';
+            return 1;
+        }
+        if (loaded.status == mirage::runtime::persistence::LoadStatus::TooLarge) {
+            std::cerr << kProgramName << ": config file '" << config_file->string()
+                      << "' exceeds the byte budget\n";
+            return 1;
+        }
+        if (loaded.status == mirage::runtime::persistence::LoadStatus::Loaded) {
+            const auto decoded = mirage::runtime::persistence::decode_settings(loaded.body);
+            if (!decoded.ok) {
+                std::cerr << kProgramName << ": invalid config file '" << config_file->string()
+                          << "': " << decoded.error << '\n';
+                return 1;
+            }
+            const auto &settings = decoded.settings;
+            if (!settings.socket_path.empty()) {
+                config.socket_path = settings.socket_path;
+            }
+            if (!settings.read_roots.empty() && !read_roots_from_flags) {
+                read_roots = settings.read_roots;
+            }
+            const auto apply_rule = [&](const std::optional<std::string> &text,
+                                        mirage::runtime::permission::Capability capability) {
+                if (!text) {
+                    return;
+                }
+                const auto rule = mirage::runtime::permission::rule_from_name(*text);
+                if (rule) {
+                    config.permission_policy.rules[static_cast<std::size_t>(capability)] = *rule;
+                }
+            };
+            apply_rule(settings.filesystem_read_rule,
+                       mirage::runtime::permission::Capability::FilesystemRead);
+            apply_rule(settings.filesystem_write_rule,
+                       mirage::runtime::permission::Capability::FilesystemWrite);
+            apply_rule(settings.process_execute_rule,
+                       mirage::runtime::permission::Capability::ProcessExecute);
+            if (settings.confirmation) {
+                flag_confirm = *settings.confirmation;
+            }
+        }
+    }
+    if (flag_socket) {
+        config.socket_path = *flag_socket;
+    }
+    for (const std::string &rule : perm_flags) {
+        if (const auto parsed = parse_perm_rule(rule)) {
+            config.permission_policy.rules[static_cast<std::size_t>(parsed->first)] =
+                parsed->second;
+        }
+    }
+    if (flag_confirm == "allow") {
+        config.confirmation = std::make_shared<mirage::runtime::permission::AllowAllConfirmation>();
+    } else if (flag_confirm == "deny") {
+        // The service default is already fail closed (DEC-010); the
+        // explicit choice documents itself.
+        config.confirmation = nullptr;
     }
 
     // The M1 reference topology binds the Linux backend (DEC-008 item 3).
@@ -148,15 +242,12 @@ int main(int argc, char** argv) {
     // action with the policy declared via --perm.
     std::vector<std::filesystem::path> read_scope;
     read_scope.reserve(read_roots.size());
-    for (const std::string& root : read_roots) {
+    for (const std::string &root : read_roots) {
         read_scope.emplace_back(root);
     }
-    auto environment =
-        std::make_shared<mirage::platform::linux_backend::LinuxDesktopEnvironment>(
-            std::move(read_scope));
-    auto binding =
-        std::make_shared<mirage::integration::MiraEnvironmentBinding>(
-            environment);
+    auto environment = std::make_shared<mirage::platform::linux_backend::LinuxDesktopEnvironment>(
+        std::move(read_scope));
+    auto binding = std::make_shared<mirage::integration::MiraEnvironmentBinding>(environment);
 
     ::signal(SIGPIPE, SIG_IGN);
     int signal_pipe[2] = {-1, -1};
@@ -178,33 +269,35 @@ int main(int argc, char** argv) {
 
     const mirage::runtime::HostOutcome started = service.start(binding);
     if (!started.ok) {
-        std::cerr << kProgramName << ": start failed ("
-                  << started.error.code << "): " << started.error.message
-                  << '\n';
+        std::cerr << kProgramName << ": start failed (" << started.error.code
+                  << "): " << started.error.message << '\n';
         return 1;
     }
-    std::cout << kProgramName << " serving at " << service.socket_path()
-              << '\n'
-              << "filesystem read scope: " << read_roots.size()
-              << " root(s)\n";
+    std::cout << kProgramName << " serving at " << service.socket_path() << '\n'
+              << "filesystem read scope: " << read_roots.size() << " root(s)\n";
     {
-        const auto& rules = config.permission_policy.rules;
-        std::cout << "permission policy:"
-                  << " filesystem.read="
+        const auto &rules = config.permission_policy.rules;
+        std::cout << "permission policy:" << " filesystem.read="
                   << mirage::runtime::permission::rule_name(rules[0])
-                  << " filesystem.write="
-                  << mirage::runtime::permission::rule_name(rules[1])
-                  << " process.execute="
-                  << mirage::runtime::permission::rule_name(rules[2])
-                  << "; confirmations: "
-                  << (config.confirmation ? "allow" : "deny") << '\n';
+                  << " filesystem.write=" << mirage::runtime::permission::rule_name(rules[1])
+                  << " process.execute=" << mirage::runtime::permission::rule_name(rules[2])
+                  << "; confirmations: " << (config.confirmation ? "allow" : "deny") << '\n';
+    }
+    std::cout << "recovery state: ";
+    if (config.persist_recovery_state) {
+        const std::filesystem::path directory =
+            config.recovery_directory.empty()
+                ? mirage::runtime::persistence::default_state_directory()
+                : config.recovery_directory;
+        std::cout << (directory / "task-recovery.json").string() << '\n';
+    } else {
+        std::cout << "off\n";
     }
     std::cout << std::flush;
 
     const mirage::runtime::ServiceRunReport report = service.run();
     if (!report.clean) {
-        std::cerr << kProgramName << ": shutdown not clean: "
-                  << report.diagnostic << '\n';
+        std::cerr << kProgramName << ": shutdown not clean: " << report.diagnostic << '\n';
         return 1;
     }
     std::cout << kProgramName << " stopped cleanly\n";

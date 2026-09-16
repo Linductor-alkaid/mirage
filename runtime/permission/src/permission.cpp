@@ -2,7 +2,7 @@
 
 namespace mirage::runtime::permission {
 
-const char* rule_name(Rule rule) {
+const char *rule_name(Rule rule) {
     switch (rule) {
     case Rule::Allow:
         return "allow";
@@ -27,15 +27,11 @@ std::optional<Rule> rule_from_name(std::string_view name) {
     return std::nullopt;
 }
 
-bool DenyAllConfirmation::confirm(const PermissionRequest&) {
-    return false;
-}
+bool DenyAllConfirmation::confirm(const PermissionRequest &) { return false; }
 
-bool AllowAllConfirmation::confirm(const PermissionRequest&) {
-    return true;
-}
+bool AllowAllConfirmation::confirm(const PermissionRequest &) { return true; }
 
-const char* decision_name(Decision decision) {
+const char *decision_name(Decision decision) {
     switch (decision) {
     case Decision::Allowed:
         return "allowed";
@@ -50,11 +46,10 @@ const char* decision_name(Decision decision) {
 }
 
 PermissionController::PermissionController(PermissionPolicy policy,
-                                           ConfirmationHandler& confirmation)
+                                           ConfirmationHandler &confirmation)
     : policy_(policy), confirmation_(confirmation) {}
 
-PermissionVerdict PermissionController::authorize(
-    const PermissionRequest& request) const {
+PermissionVerdict PermissionController::authorize(const PermissionRequest &request) const {
     PermissionVerdict verdict;
     switch (policy_.rule_for(request.capability)) {
     case Rule::Allow:
@@ -69,15 +64,13 @@ PermissionVerdict PermissionController::authorize(
             verdict.allowed = false;
             verdict.decision = Decision::DeniedByConfirmation;
             verdict.reason =
-                "confirmation rejected for " +
-                std::string(capability_name(request.capability));
+                "confirmation rejected for " + std::string(capability_name(request.capability));
         }
         return verdict;
     case Rule::Deny:
         verdict.allowed = false;
         verdict.decision = Decision::Denied;
-        verdict.reason = std::string(capability_name(request.capability)) +
-                         " denied by policy";
+        verdict.reason = std::string(capability_name(request.capability)) + " denied by policy";
         return verdict;
     }
     return verdict;

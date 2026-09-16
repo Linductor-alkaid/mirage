@@ -61,9 +61,8 @@ struct CancelTaskRequest {
 
 struct ShutdownRequest {};
 
-using Request =
-    std::variant<HelloRequest, SubmitTaskRequest, ListTasksRequest,
-                 InspectTaskRequest, CancelTaskRequest, ShutdownRequest>;
+using Request = std::variant<HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest,
+                             CancelTaskRequest, ShutdownRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -108,10 +107,10 @@ struct StepView {
     std::string operation_id;
     std::string permission;
     bool ok = false;
-    int exit_code = -1;         ///< process.execute only; -1 otherwise
-    std::string result;         ///< file content or captured output, capped
+    int exit_code = -1; ///< process.execute only; -1 otherwise
+    std::string result; ///< file content or captured output, capped
     bool result_truncated = false;
-    std::string error;          ///< stable failure summary, safe for UI
+    std::string error; ///< stable failure summary, safe for UI
 };
 
 struct InspectTask {
@@ -133,9 +132,8 @@ struct TaskCancelled {
 
 struct ShutdownAccepted {};
 
-using ResponsePayload = std::variant<ServiceIdentity, TaskSubmitted, TaskList,
-                                     InspectTask, TaskCancelled,
-                                     ShutdownAccepted>;
+using ResponsePayload = std::variant<ServiceIdentity, TaskSubmitted, TaskList, InspectTask,
+                                     TaskCancelled, ShutdownAccepted>;
 
 /// Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc
 /// domain ("protocol_error", "unsupported", "invalid_argument", "not_found",
@@ -159,13 +157,13 @@ struct Response {
 
 /// Encodes one request envelope (protocol version + correlation id + body)
 /// as a wire payload (no framing prefix; framing.hpp adds that).
-std::string encode_request(std::uint64_t id, const Request& body);
+std::string encode_request(std::uint64_t id, const Request &body);
 
 struct RequestDecode {
     bool ok = false;
-    std::uint64_t id = 0;   ///< correlation id, meaningful when ok
+    std::uint64_t id = 0; ///< correlation id, meaningful when ok
     Request body = HelloRequest{};
-    std::string error;      ///< stable reason, meaningful when !ok
+    std::string error; ///< stable reason, meaningful when !ok
 };
 
 /// Strict decode of one request payload; any deviation (bad JSON, wrong
@@ -173,7 +171,7 @@ struct RequestDecode {
 RequestDecode decode_request(std::string_view payload);
 
 /// Encodes one response envelope as a wire payload.
-std::string encode_response(const Response& response);
+std::string encode_response(const Response &response);
 
 struct ResponseDecode {
     bool ok = false;
@@ -185,6 +183,11 @@ struct ResponseDecode {
 ResponseDecode decode_response(std::string_view payload);
 
 /// Stable string form of a StepKind ("filesystem.read" / "process.execute").
-const char* step_kind_name(StepKind kind);
+const char *step_kind_name(StepKind kind);
+
+/// Parses a stable StepKind name; nullopt for anything else. Added for the
+/// M1-07 recovery hydration (recovered step records carry the stable name
+/// and must map back onto the TaskStep surface); no wire change.
+std::optional<StepKind> step_kind_from_name(std::string_view name);
 
 } // namespace mirage::runtime::ipc

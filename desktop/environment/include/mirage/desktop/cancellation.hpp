@@ -20,7 +20,7 @@ namespace mirage::desktop {
 /// observe the flag at bounded intervals on their own execution context and
 /// tear their work down cooperatively before reporting a cancelled outcome.
 class CancelToken {
-public:
+  public:
     CancelToken() = default;
 
     void request_cancel() noexcept { state->cancelled.store(true, std::memory_order_release); }

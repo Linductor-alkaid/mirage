@@ -67,7 +67,7 @@ Service 与 Local IPC，使 Agent 可以脱离 GUI 生命周期运行（设计�
       [DEC-009](../decisions/DEC-009-provider-scope-budget-cancellation.md)）。
 - [x] `M1-06` Desktop Permission 框架雏形：`filesystem.read` / `filesystem.write` /
       `process.execute` Capability 判定与用户确认挂点（确认 UI 可延后到 M5）。
-- [ ] `M1-07` 持久化骨架：Mirage 本地配置与 Runtime Recovery State 的存取（设计文档
+- [x] `M1-07` 持久化骨架：Mirage 本地配置与 Runtime Recovery State 的存取（设计文档
       第 16 节中 M1 相关子集）。
 
 ## 风险与阻塞
@@ -434,3 +434,81 @@ Service 与 Local IPC，使 Agent 可以脱离 GUI 生命周期运行（设计�
   管道读端无 EOF，M1-04 遗留），见"风险与阻塞"；Windows 平台路径属 M4。
 - 同步：设计文档第 5、12.1、15 节、`DEC-010`（新）、`DEC-007`（变更记录）、
   总计划里程碑状态、本验证记录、`README` 运行说明。
+
+2026-09-16：`M1-07` 持久化骨架完成。
+
+- 范围：新增 `runtime/persistence` 目标（pinned-free 公共 API，pinned mira JSON
+  只在实现文件，`DEC-011`）——`paths.hpp`（XDG config/state 目录解析，HOME 缺失
+  时回退 passwd 条目）、`store.hpp` + `store_posix.cpp`（"目录 + 单文件 + 字节
+  预算"存取原语：保存走 0600 临时文件 `O_EXCL|O_NOFOLLOW` + fsync + 原子
+  rename + 目录 fsync，缺失父目录链逐级 `mkdir 0700`，读取按预算拒绝不截断，
+  四态 `Loaded/Absent/TooLarge/IoError`）、`settings.hpp`（`LocalSettings`
+  schema v1：socket 覆盖、读范围、逐能力 Permission 规则与确认结果覆盖，严格
+  解码：未知成员/越界枚举/超限拒绝）、`recovery.hpp`（`RecoveryState` schema
+  v1：终态任务记录含逐步状态/operation id/Permission 决策/结果摘要，严格解码
+  词表与数量上限，重复任务 id 拒绝）。Runtime Service 接线：任务驱动所有结算
+  路径经 `mark_driver_done` 记录终态 progress（pinned 视图为权威、不可达时用
+  本方结算意图兜底）并触发恢复快照（注册表锁内快照、writer 互斥锁下写盘）；
+  有序停机在 driver 排空后追加最终快照；启动时 `persist_recovery_state=true`
+  （默认）把上一纪元终态任务注水回注册表（`from_recovery` 标记，`task list` /
+  `task.inspect` 呈现记录内状态，`task.cancel` 以 `invalid_state` 拒绝且不触
+  pinned）；损坏/超预算/越 schema 恢复文件按"响亮降级"处理（stderr 告警后无
+  恢复继续，不删用户文件）。`apps/service` 新增 `--config PATH`（配置文件为
+  基线、旗标逐项覆盖；损坏配置 fail closed 退出码 1）、`--state-dir`、
+  `--no-recovery`；`mirage service start` 转发三旗标。`runtime/ipc` 公共 API
+  新增 `step_kind_from_name`（无 wire 变化，`DEC-007` 变更记录）。随本项修复
+  根 CMake 的 `mirage-format-check`/`mirage-boundary-check` 自定义目标
+  `-DROOT_DIR` 手工转义经 ninja+shell 双层后引号进入值、检查实际空跑的缺陷
+  （修复后格式检查暴露既有 51 文件格式偏差，已统一 clang-format），并新增
+  `mirage-boundary-check` 公共头 pinned-free 边界检查目标（M1 退出条件
+  "编译测试或脚本断言"的脚本化落地）。
+- 依据：设计文档第 16、12.1（新增 16.1）节；`DEC-001`..`004`、`DEC-007`..`011`。
+- 验证（Independent-Verification-Agent，Linux x64，Ubuntu 24.04，GCC 13.3.0，
+  CMake 3.28.3，Ninja，clang-format 18.1.3，两轮）：
+  - 新增 `tests/runtime/persistence_test.cpp`（17 场景 199 断言）：store
+    round-trip/Absent/覆盖写/超预算写盘前拒绝且旧文件完好/TooLarge 不截断/
+    文件充当目录错误路径/0700·0600 权限/白盒注入写中途失败旧文件幸存且无
+    temp 残留；settings 全字段 round-trip 与 13 类严格拒绝（含 65 条
+    read_roots、4097 字节路径边界）；recovery 三任务多步 round-trip、
+    `utc_timestamp_now` 逐字符格式、23 类严格拒绝（词表、重复 id、1025 任务、
+    257 步、1 MiB+1 结果）与 1024/256 边界内通过；XDG 环境变量解析。
+  - 新增 `tests/runtime/recovery_service_test.cpp`（9 场景 199 断言，真实
+    RuntimeService + UDS）：结算快照落盘（progress/成功位/step 逐项比对）、
+    重启注水后 list/inspect 与重启前 step-for-step 相等、对历史任务
+    `task.cancel` → `invalid_state`（"previous service run"）且记录不变、
+    注水与在跑任务共存、损坏文件降级后照常服务且新快照覆盖、
+    `persist_recovery_state=false` 无文件、schema=99 按无恢复继续且回写合法
+    schema、4 MiB+1 超预算文件无恢复启动、recovery 目录为普通文件不影响
+    run().clean、超容量注水丢弃并告警且容量拒绝语义保留。
+  - 既有测试适配：`runtime_service_test` / `task_cancel_test` /
+    `task_permission_test` 的 `make_config` 隔离 `recovery_directory` 到临时
+    目录（消除对真实 `~/.local/state/mirage` 的写入与跨用例注水污染）；
+    `ipc_protocol_test` 补 `step_kind_from_name` 正逆对称与非法名拒绝。
+  - 预设矩阵：`debug` / `release` / `asan` / `ubsan` configure + build +
+    ctest 均 **13/13 通过、0 skip**（asan/ubsan 无报告）；`tsan` 按
+    [本机注意事项](../../README.md)以 `setarch $(uname -m) -R ctest` 13/13
+    通过、无 race 报告。
+  - 公共头边界：`mirage-boundary-check` 通过（23 头 0 违规）；`format-check`
+    通过。
+  - 端到端冒烟（真实进程）：提交 `--read`+`--exec` 任务至 Completed →
+    shutdown 后 `task-recovery.json` 存在且内容与 IPC 视图一致 → 同 socket +
+    state-dir 重启打印 `recovered 1 task(s)` → 历史任务 list/inspect 一致、
+    cancel 历史任务被拒、新任务与历史并存 → `--config` 文件（read_roots +
+    `process.execute=deny`）生效且 `--perm` 旗标可覆盖、`--read-root` 旗标
+    整体覆盖文件读范围 → 非法/超预算配置退出码 1 → `--no-recovery` 横幅
+    `recovery state: off` 且 state 目录不创建。
+  - 第二轮复验：观察项修复（父目录链逐级 0700、不触碰既有目录）后 debug/asan
+    预设 13/13、format-check 通过，多层缺失路径三级目录模式实测 0700、预建
+    兄弟/中间目录模式不被改动；`persistence_test` 同步加固为 203 断言锁定
+    该语义。
+  - 实现缺陷：第一轮独立验证零实现缺陷（1 条注释与父目录模式语义的观察项，
+    第二轮修复后闭环）。
+- 限制：service 侧"空 recovery_directory → 默认 state 目录"回退分支无自动化
+  测试（测试刻意隔离到临时目录防写真实用户目录；XDG 解析已由单元覆盖 + 手动
+  E2E 侧证）；注水器未知 step kind 守卫经公开 decode 不可达，未直接测试；
+  注水任务占用注册表容量槽位（历史任务过多时新任务提交按既有 `invalid_state`
+  容量拒绝语义显式失败，RULE-07，不静默驱逐）；recovery 文件预算 4 MiB 在病态
+  大结果负载下保存失败为显式可见行为（不截断不静默）；进程被强杀时的在途任务
+  不落盘（有序停机路径已结算的任务仍被记录）；E2E 冒烟为手动单次执行非 ctest。
+- 同步：设计文档第 16.1 节、`DEC-011`（新）、`DEC-007`（变更记录）、总计划
+  里程碑状态、本验证记录、`README` 运行说明与 CI 徽章。

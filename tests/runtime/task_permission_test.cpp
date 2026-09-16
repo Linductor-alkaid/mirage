@@ -49,20 +49,22 @@ ServiceConfig make_config(const TempDir &dir) {
     config.mirage_version = "0.5.0-test";
     config.executor_threads = 2;
     config.step_timeout = std::chrono::milliseconds{10000};
+    // Recovery state stays inside the scenario's temp tree (M1-07): the
+    // default XDG state directory must stay untouched and foreign history
+    // must not hydrate into these scenarios.
+    config.recovery_directory = dir.root() / "recovery";
     return config;
 }
 
 /// Fresh binding over a fresh Linux desktop environment per service start;
 /// the filesystem read scope is the test's temp directory.
-std::shared_ptr<integration::MiraEnvironmentBinding>
-make_binding(const TempDir &dir) {
+std::shared_ptr<integration::MiraEnvironmentBinding> make_binding(const TempDir &dir) {
     return std::make_shared<integration::MiraEnvironmentBinding>(
         std::make_shared<linux_backend::LinuxDesktopEnvironment>(
             std::vector<std::filesystem::path>{dir.root()}));
 }
 
-std::optional<std::string> submit_task(ipc::IpcClient &client,
-                                       ipc::SubmitTaskRequest request) {
+std::optional<std::string> submit_task(ipc::IpcClient &client, ipc::SubmitTaskRequest request) {
     const ipc::Response response = client.call(request, kCallBudget);
     const auto *submitted = std::get_if<ipc::TaskSubmitted>(&response.payload);
     if (!response.ok || submitted == nullptr) {
@@ -77,8 +79,7 @@ std::optional<ipc::InspectTask> wait_terminal(const std::string &socket_path,
     ipc::IpcClient client(socket_path);
     const auto deadline = std::chrono::steady_clock::now() + kTaskBudget;
     for (;;) {
-        const ipc::Response response =
-            client.call(ipc::InspectTaskRequest{task_id}, kCallBudget);
+        const ipc::Response response = client.call(ipc::InspectTaskRequest{task_id}, kCallBudget);
         const auto *inspect = std::get_if<ipc::InspectTask>(&response.payload);
         if (inspect != nullptr) {
             if (inspect->progress == "Completed" || inspect->progress == "Failed" ||
@@ -104,8 +105,7 @@ void write_text_file(const std::filesystem::path &path, const std::string &conte
 
 std::string read_text_file(const std::filesystem::path &path) {
     std::ifstream stream(path, std::ios::binary);
-    return std::string(std::istreambuf_iterator<char>(stream),
-                       std::istreambuf_iterator<char>());
+    return std::string(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
 }
 
 // --- scenarios ---------------------------------------------------------------
@@ -164,8 +164,9 @@ void scenario_default_policy_allows_read_and_execute() {
 void scenario_denied_execute_rejects_before_side_effect() {
     TempDir dir;
     ServiceConfig config = make_config(dir);
-    config.permission_policy.rules[static_cast<std::size_t>(
-        permission::Capability::ProcessExecute)] = permission::Rule::Deny;
+    config.permission_policy
+        .rules[static_cast<std::size_t>(permission::Capability::ProcessExecute)] =
+        permission::Rule::Deny;
     RuntimeService service(config);
     MIRAGE_CHECK(service.start(make_binding(dir)).ok);
 
@@ -204,8 +205,7 @@ void scenario_denied_execute_rejects_before_side_effect() {
     MIRAGE_CHECK(denied.permission == "denied");
     MIRAGE_CHECK(denied.operation_id.empty());
     MIRAGE_CHECK(denied.error.rfind("permission_denied: ", 0) == 0);
-    MIRAGE_CHECK(denied.error.find("process.execute denied by policy") !=
-                 std::string::npos);
+    MIRAGE_CHECK(denied.error.find("process.execute denied by policy") != std::string::npos);
     MIRAGE_CHECK(denied.exit_code == -1);
     MIRAGE_CHECK(denied.result.empty());
     MIRAGE_CHECK(!std::filesystem::exists(canary));
@@ -223,8 +223,9 @@ void scenario_denied_execute_rejects_before_side_effect() {
 void scenario_confirm_without_handler_fails_closed() {
     TempDir dir;
     ServiceConfig config = make_config(dir);
-    config.permission_policy.rules[static_cast<std::size_t>(
-        permission::Capability::FilesystemRead)] = permission::Rule::Confirm;
+    config.permission_policy
+        .rules[static_cast<std::size_t>(permission::Capability::FilesystemRead)] =
+        permission::Rule::Confirm;
     // config.confirmation stays null: the service must deny every
     // confirmation request (fail closed, DEC-010).
     RuntimeService service(config);
@@ -261,8 +262,7 @@ void scenario_confirm_without_handler_fails_closed() {
     MIRAGE_CHECK(step.permission == "confirmation_rejected");
     MIRAGE_CHECK(step.operation_id.empty());
     MIRAGE_CHECK(step.error.rfind("permission_denied: ", 0) == 0);
-    MIRAGE_CHECK(step.error.find("confirmation rejected for filesystem.read") !=
-                 std::string::npos);
+    MIRAGE_CHECK(step.error.find("confirmation rejected for filesystem.read") != std::string::npos);
 
     service.request_shutdown();
     MIRAGE_CHECK(service.run().clean);
@@ -271,8 +271,9 @@ void scenario_confirm_without_handler_fails_closed() {
 void scenario_confirm_with_allow_handler_completes() {
     TempDir dir;
     ServiceConfig config = make_config(dir);
-    config.permission_policy.rules[static_cast<std::size_t>(
-        permission::Capability::FilesystemRead)] = permission::Rule::Confirm;
+    config.permission_policy
+        .rules[static_cast<std::size_t>(permission::Capability::FilesystemRead)] =
+        permission::Rule::Confirm;
     config.confirmation = std::make_shared<permission::AllowAllConfirmation>();
     RuntimeService service(config);
     MIRAGE_CHECK(service.start(make_binding(dir)).ok);
@@ -322,8 +323,9 @@ void scenario_filesystem_write_rule_configurable_without_side_effects() {
     // M1 has no write step; flipping the filesystem.write rule (default Deny)
     // must be accepted by the config and must not disturb the other rules'
     // judgments on a read+execute regression task.
-    config.permission_policy.rules[static_cast<std::size_t>(
-        permission::Capability::FilesystemWrite)] = permission::Rule::Allow;
+    config.permission_policy
+        .rules[static_cast<std::size_t>(permission::Capability::FilesystemWrite)] =
+        permission::Rule::Allow;
     RuntimeService service(config);
     MIRAGE_CHECK(service.start(make_binding(dir)).ok);
 

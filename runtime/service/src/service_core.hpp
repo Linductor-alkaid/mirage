@@ -13,6 +13,7 @@
 #include <mirage/runtime/mira_host.hpp>
 #include <mirage/runtime/permission/permission.hpp>
 
+#include "recovery_writer.hpp"
 #include "task_registry.hpp"
 
 namespace mirage::runtime::detail {
@@ -31,6 +32,11 @@ struct ServiceCore {
     MiraHost host;
     TaskRegistry registry;
 
+    /// M1-07 recovery persistence; disabled until enable() puts a store in
+    /// it. persist() is called on every driver settlement and at the end of
+    /// the ordered teardown.
+    RecoveryWriter recovery;
+
     /// Desktop surface the M1 task drivers act on (mirrors the environment
     /// wrapped by the binding handed to start(); null until then).
     std::shared_ptr<mirage::desktop::DesktopEnvironment> environment;
@@ -38,8 +44,7 @@ struct ServiceCore {
     /// RULE-05 gate judged before every desktop action (DEC-010); owned
     /// here so the drivers and future request paths share one policy and
     /// one confirmation hook.
-    std::shared_ptr<mirage::runtime::permission::PermissionController>
-        permission;
+    std::shared_ptr<mirage::runtime::permission::PermissionController> permission;
 
     std::string mirage_version;
     std::size_t max_steps_per_task = 64;
@@ -54,8 +59,8 @@ struct ServiceCore {
     std::map<std::string, executor::TaskSubmission<void>> drivers;
 
     ServiceCore() = default;
-    ServiceCore(const ServiceCore&) = delete;
-    ServiceCore& operator=(const ServiceCore&) = delete;
+    ServiceCore(const ServiceCore &) = delete;
+    ServiceCore &operator=(const ServiceCore &) = delete;
 };
 
 } // namespace mirage::runtime::detail

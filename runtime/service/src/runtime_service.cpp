@@ -4,6 +4,9 @@
 #include <mirage/runtime/ipc/framing.hpp>
 #include <mirage/runtime/ipc/protocol.hpp>
 #include <mirage/runtime/ipc/stream.hpp>
+#include <mirage/runtime/persistence/paths.hpp>
+#include <mirage/runtime/persistence/recovery.hpp>
+#include <mirage/runtime/persistence/store.hpp>
 
 #include "service_core.hpp"
 #include "service_loop.hpp"
@@ -15,6 +18,7 @@
 #include <atomic>
 #include <chrono>
 #include <future>
+#include <iostream>
 #include <memory>
 #include <optional>
 #include <string>
@@ -25,11 +29,11 @@
 namespace mirage::runtime {
 namespace {
 
-constexpr const char* kServiceName = "mirage-runtime";
+constexpr const char *kServiceName = "mirage-runtime";
 constexpr std::size_t kMaxGoalBytes = 8 * 1024;
 constexpr std::size_t kMaxArgumentBytes = 4 * 1024;
 
-const char* progress_name(TaskProgress progress) {
+const char *progress_name(TaskProgress progress) {
     switch (progress) {
     case TaskProgress::Idle:
         return "Idle";
@@ -52,8 +56,7 @@ const char* progress_name(TaskProgress progress) {
 }
 
 bool terminal_progress(TaskProgress progress) {
-    return progress == TaskProgress::Completed ||
-           progress == TaskProgress::Failed ||
+    return progress == TaskProgress::Completed || progress == TaskProgress::Failed ||
            progress == TaskProgress::Cancelled;
 }
 
@@ -73,13 +76,12 @@ struct RuntimeService::Impl {
     /// Fail-closed hook used when the config carries no confirmation
     /// handler (DEC-010): headless M1 services reject every Confirm rule.
     permission::DenyAllConfirmation fail_closed_confirmation;
-    std::shared_ptr<detail::ServiceCore> core =
-        std::make_shared<detail::ServiceCore>();
+    std::shared_ptr<detail::ServiceCore> core = std::make_shared<detail::ServiceCore>();
     /// Non-owning observer of the loop object; the executor's blocking
     /// worker owns the loop itself. Valid from a successful start_worker()
     /// until the lifecycle leaves Running (the run()/destructor path joins
     /// the loop before touching anything else).
-    detail::ServiceLoop* loop = nullptr;
+    detail::ServiceLoop *loop = nullptr;
     ipc::IpcListener listener;
     executor::WorkerHandle loop_worker;
     std::promise<void> loop_done;
@@ -106,17 +108,14 @@ struct RuntimeService::Impl {
         // policy plus the configured hook, or the fail-closed default.
         core->permission = std::make_shared<permission::PermissionController>(
             config.permission_policy,
-            config.confirmation ? *config.confirmation
-                                : fail_closed_confirmation);
+            config.confirmation ? *config.confirmation : fail_closed_confirmation);
         loop_done_future = loop_done.get_future();
     }
 
     ipc::ServiceIdentity identity() const {
         ipc::ServiceIdentity result;
         result.name = kServiceName;
-        result.mirage_version = config.mirage_version.empty()
-                                    ? "unknown"
-                                    : config.mirage_version;
+        result.mirage_version = config.mirage_version.empty() ? "unknown" : config.mirage_version;
         result.mira_core_version = mira_core_version_string();
         result.host_status = host_status_name(core->host.status());
         result.protocol = ipc::kProtocolVersion;
@@ -136,8 +135,8 @@ struct RuntimeService::Impl {
         }
     }
 
-    void fail(std::uint64_t connection_id, std::uint64_t correlation_id,
-              std::string code, std::string message, bool close_after = false) {
+    void fail(std::uint64_t connection_id, std::uint64_t correlation_id, std::string code,
+              std::string message, bool close_after = false) {
         ipc::Response response;
         response.ok = false;
         response.id = correlation_id;
@@ -158,54 +157,49 @@ struct RuntimeService::Impl {
     /// Loop thread: pushes the frame through the service's serial context so
     /// every request (and every host operation it performs) runs serialized
     /// on one thread, and waits for the bounded handler to finish.
-    void handle_frame(std::uint64_t connection_id, const std::string& payload) {
-        auto handled = core->executor.submit_on(
-            core->serial,
-            [this, connection_id, payload] {
-                process_request(connection_id, payload);
-            });
+    void handle_frame(std::uint64_t connection_id, const std::string &payload) {
+        auto handled = core->executor.submit_on(core->serial, [this, connection_id, payload] {
+            process_request(connection_id, payload);
+        });
         try {
             handled.get();
-        } catch (const std::exception&) {
-            fail(connection_id, 0, "internal",
-                 "request was not admitted by the service runtime", true);
+        } catch (const std::exception &) {
+            fail(connection_id, 0, "internal", "request was not admitted by the service runtime",
+                 true);
         }
     }
 
     /// Serial thread: decode and dispatch one request.
-    void process_request(std::uint64_t connection_id,
-                         const std::string& payload) {
+    void process_request(std::uint64_t connection_id, const std::string &payload) {
         ipc::RequestDecode decoded = ipc::decode_request(payload);
         if (!decoded.ok) {
             fail(connection_id, 0, "protocol_error", decoded.error, true);
             return;
         }
         const std::uint64_t correlation_id = decoded.id;
-        if (auto* request = std::get_if<ipc::HelloRequest>(&decoded.body)) {
+        if (auto *request = std::get_if<ipc::HelloRequest>(&decoded.body)) {
             (void)request;
             respond(connection_id, correlation_id, identity());
             return;
         }
-        if (auto* request = std::get_if<ipc::SubmitTaskRequest>(&decoded.body)) {
+        if (auto *request = std::get_if<ipc::SubmitTaskRequest>(&decoded.body)) {
             handle_submit(connection_id, correlation_id, std::move(*request));
             return;
         }
-        if (auto* request = std::get_if<ipc::ListTasksRequest>(&decoded.body)) {
+        if (auto *request = std::get_if<ipc::ListTasksRequest>(&decoded.body)) {
             (void)request;
             handle_list(connection_id, correlation_id);
             return;
         }
-        if (auto* request = std::get_if<ipc::InspectTaskRequest>(&decoded.body)) {
-            handle_inspect(connection_id, correlation_id,
-                           std::move(request->task_id));
+        if (auto *request = std::get_if<ipc::InspectTaskRequest>(&decoded.body)) {
+            handle_inspect(connection_id, correlation_id, std::move(request->task_id));
             return;
         }
-        if (auto* request = std::get_if<ipc::CancelTaskRequest>(&decoded.body)) {
-            handle_cancel(connection_id, correlation_id,
-                          std::move(request->task_id));
+        if (auto *request = std::get_if<ipc::CancelTaskRequest>(&decoded.body)) {
+            handle_cancel(connection_id, correlation_id, std::move(request->task_id));
             return;
         }
-        if (auto* request = std::get_if<ipc::ShutdownRequest>(&decoded.body)) {
+        if (auto *request = std::get_if<ipc::ShutdownRequest>(&decoded.body)) {
             (void)request;
             respond(connection_id, correlation_id, ipc::ShutdownAccepted{});
             // The response above is queued; the loop flushes it on its
@@ -218,12 +212,11 @@ struct RuntimeService::Impl {
         fail(connection_id, correlation_id, "unsupported", "unknown request");
     }
 
-    std::chrono::milliseconds effective_step_timeout(
-        const std::optional<std::chrono::milliseconds>& requested) const {
-        const std::chrono::milliseconds raw =
-            requested.value_or(config.step_timeout);
-        return std::clamp<std::chrono::milliseconds>(
-            raw, std::chrono::milliseconds{1}, config.step_timeout);
+    std::chrono::milliseconds
+    effective_step_timeout(const std::optional<std::chrono::milliseconds> &requested) const {
+        const std::chrono::milliseconds raw = requested.value_or(config.step_timeout);
+        return std::clamp<std::chrono::milliseconds>(raw, std::chrono::milliseconds{1},
+                                                     config.step_timeout);
     }
 
     void handle_submit(std::uint64_t connection_id, std::uint64_t correlation_id,
@@ -240,27 +233,22 @@ struct RuntimeService::Impl {
         }
         if (request.steps.size() > core->max_steps_per_task) {
             fail(connection_id, correlation_id, "invalid_argument",
-                 "task declares more than " +
-                     std::to_string(core->max_steps_per_task) + " steps");
+                 "task declares more than " + std::to_string(core->max_steps_per_task) + " steps");
             return;
         }
-        for (const auto& step : request.steps) {
+        for (const auto &step : request.steps) {
             if (step.argument.size() > kMaxArgumentBytes) {
                 fail(connection_id, correlation_id, "invalid_argument",
-                     "step argument exceeds " +
-                         std::to_string(kMaxArgumentBytes) + " bytes");
+                     "step argument exceeds " + std::to_string(kMaxArgumentBytes) + " bytes");
                 return;
             }
         }
-        const std::chrono::milliseconds step_timeout =
-            effective_step_timeout(request.step_timeout);
+        const std::chrono::milliseconds step_timeout = effective_step_timeout(request.step_timeout);
 
         // On the serial thread: direct host call is the owner discipline.
-        const TaskSubmissionResult submission =
-            core->host.submit_task(request.goal);
+        const TaskSubmissionResult submission = core->host.submit_task(request.goal);
         if (!submission.ok) {
-            fail(connection_id, correlation_id, submission.error.code,
-                 submission.error.message);
+            fail(connection_id, correlation_id, submission.error.code, submission.error.message);
             return;
         }
         {
@@ -270,8 +258,7 @@ struct RuntimeService::Impl {
                 // pinned task is rolled back instead of leaking (RULE-07).
                 core->host.cancel_task(submission.task);
                 fail(connection_id, correlation_id, "invalid_state",
-                     "task registry at capacity (" +
-                         std::to_string(core->registry.capacity) + ")");
+                     "task registry at capacity (" + std::to_string(core->registry.capacity) + ")");
                 return;
             }
             detail::TaskRecord record;
@@ -279,7 +266,7 @@ struct RuntimeService::Impl {
             record.goal = request.goal;
             record.step_timeout = step_timeout;
             record.steps.reserve(request.steps.size());
-            for (const auto& step : request.steps) {
+            for (const auto &step : request.steps) {
                 detail::StepRecord entry;
                 entry.spec = step;
                 record.steps.push_back(std::move(entry));
@@ -292,38 +279,41 @@ struct RuntimeService::Impl {
             });
         {
             std::lock_guard lock(core->drivers_mutex);
-            core->drivers.emplace(submission.task.id,
-                                  std::move(driver_submission));
+            core->drivers.emplace(submission.task.id, std::move(driver_submission));
         }
-        respond(connection_id, correlation_id,
-                ipc::TaskSubmitted{submission.task.id});
+        respond(connection_id, correlation_id, ipc::TaskSubmitted{submission.task.id});
     }
 
     void handle_list(std::uint64_t connection_id, std::uint64_t correlation_id) {
-        std::vector<std::pair<std::string, std::string>> identities;
+        std::vector<std::pair<const detail::TaskRecord *, std::string>> identities;
         {
             std::lock_guard lock(core->registry.mutex);
             identities.reserve(core->registry.tasks.size());
-            for (const auto& entry : core->registry.tasks) {
-                identities.emplace_back(entry.first, entry.second.goal);
+            for (const auto &entry : core->registry.tasks) {
+                identities.emplace_back(&entry.second, entry.first);
             }
         }
         ipc::TaskList list;
         list.tasks.reserve(identities.size());
-        for (const auto& [id, goal] : identities) {
-            const TaskViewResult view = core->host.task_view(TaskIdentity{id});
+        for (const auto &[record, id] : identities) {
             ipc::TaskSummary summary;
             summary.id = id;
-            summary.goal = goal;
-            summary.progress =
-                view.ok ? progress_name(view.view.progress) : "Unknown";
+            summary.goal = record->goal;
+            if (!record->final_progress.empty()) {
+                // Settled (this run or hydrated from the M1-07 recovery
+                // file): the recorded terminal name is the truth.
+                summary.progress = record->final_progress;
+            } else {
+                const TaskViewResult view = core->host.task_view(TaskIdentity{id});
+                summary.progress = view.ok ? progress_name(view.view.progress) : "Unknown";
+            }
             list.tasks.push_back(std::move(summary));
         }
         respond(connection_id, correlation_id, std::move(list));
     }
 
-    void handle_inspect(std::uint64_t connection_id,
-                        std::uint64_t correlation_id, std::string task_id) {
+    void handle_inspect(std::uint64_t connection_id, std::uint64_t correlation_id,
+                        std::string task_id) {
         std::optional<detail::TaskRecord> snapshot;
         {
             std::lock_guard lock(core->registry.mutex);
@@ -333,23 +323,29 @@ struct RuntimeService::Impl {
             }
         }
         if (!snapshot) {
-            fail(connection_id, correlation_id, "not_found",
-                 "unknown task id");
+            fail(connection_id, correlation_id, "not_found", "unknown task id");
             return;
         }
-        const TaskViewResult view = core->host.task_view(TaskIdentity{snapshot->id});
         ipc::InspectTask inspect;
         inspect.id = snapshot->id;
         inspect.goal = snapshot->goal;
-        inspect.progress =
-            view.ok ? progress_name(view.view.progress) : "Unknown";
-        if (view.ok && terminal_progress(view.view.progress)) {
-            inspect.has_success = true;
-            inspect.success = view.view.success;
+        if (!snapshot->final_progress.empty()) {
+            // Settled (this run or hydrated from the M1-07 recovery file):
+            // the recorded terminal name and outcome are the truth.
+            inspect.progress = snapshot->final_progress;
+            inspect.has_success = snapshot->has_success;
+            inspect.success = snapshot->success;
+        } else {
+            const TaskViewResult view = core->host.task_view(TaskIdentity{snapshot->id});
+            inspect.progress = view.ok ? progress_name(view.view.progress) : "Unknown";
+            if (view.ok && terminal_progress(view.view.progress)) {
+                inspect.has_success = true;
+                inspect.success = view.view.success;
+            }
         }
         inspect.steps.reserve(snapshot->steps.size());
         for (std::size_t index = 0; index < snapshot->steps.size(); ++index) {
-            const detail::StepRecord& record = snapshot->steps[index];
+            const detail::StepRecord &record = snapshot->steps[index];
             ipc::StepView step;
             step.index = static_cast<int>(index);
             step.kind = ipc::step_kind_name(record.spec.kind);
@@ -372,18 +368,32 @@ struct RuntimeService::Impl {
     /// the driver's executor stop token stops between-step progress, and
     /// the pinned cancel settles the task — the pinned state stays
     /// authoritative and a terminal task is never revived.
-    void handle_cancel(std::uint64_t connection_id,
-                       std::uint64_t correlation_id, std::string task_id) {
+    void handle_cancel(std::uint64_t connection_id, std::uint64_t correlation_id,
+                       std::string task_id) {
         bool known = false;
+        bool from_recovery = false;
         {
             std::lock_guard lock(core->registry.mutex);
-            known = core->registry.tasks.count(task_id) != 0;
+            auto entry = core->registry.tasks.find(task_id);
+            known = entry != core->registry.tasks.end();
             if (known) {
-                core->registry.tasks.at(task_id).cancel.request_cancel();
+                from_recovery = entry->second.from_recovery;
+                if (!from_recovery) {
+                    entry->second.cancel.request_cancel();
+                }
             }
         }
         if (!known) {
             fail(connection_id, correlation_id, "not_found", "unknown task id");
+            return;
+        }
+        if (from_recovery) {
+            // The task settled in an earlier service era (M1-07); this
+            // service's pinned instance has no counterpart to cancel, and
+            // a terminal task is never revived.
+            fail(connection_id, correlation_id, "invalid_state",
+                 "task belongs to a previous service run and is already "
+                 "settled");
             return;
         }
         {
@@ -395,15 +405,13 @@ struct RuntimeService::Impl {
         }
         const HostOutcome cancelled = core->host.cancel_task(TaskIdentity{task_id});
         if (!cancelled.ok) {
-            fail(connection_id, correlation_id, cancelled.error.code,
-                 cancelled.error.message);
+            fail(connection_id, correlation_id, cancelled.error.code, cancelled.error.message);
             return;
         }
         ipc::TaskCancelled acknowledgement;
         acknowledgement.task_id = task_id;
         const TaskViewResult view = core->host.task_view(TaskIdentity{task_id});
-        acknowledgement.progress =
-            view.ok ? progress_name(view.view.progress) : "Unknown";
+        acknowledgement.progress = view.ok ? progress_name(view.view.progress) : "Unknown";
         respond(connection_id, correlation_id, std::move(acknowledgement));
     }
 
@@ -437,13 +445,13 @@ struct RuntimeService::Impl {
             std::lock_guard lock(core->drivers_mutex);
             handles.reserve(core->drivers.size());
             driver_futures.reserve(core->drivers.size());
-            for (auto& [id, submission] : core->drivers) {
+            for (auto &[id, submission] : core->drivers) {
                 handles.push_back(submission.handle);
                 driver_futures.push_back(std::move(submission.future));
             }
             core->drivers.clear();
         }
-        for (const auto& handle : handles) {
+        for (const auto &handle : handles) {
             core->executor.request_task_cancel(handle);
         }
         std::vector<std::string> ids;
@@ -451,7 +459,7 @@ struct RuntimeService::Impl {
             std::lock_guard lock(core->registry.mutex);
             ids = core->registry.ids();
         }
-        for (const auto& id : ids) {
+        for (const auto &id : ids) {
             // End in-flight desktop actions promptly: the desktop cancel
             // tokens break provider calls out of their budgets, the executor
             // stop tokens stop the drivers between steps.
@@ -462,38 +470,40 @@ struct RuntimeService::Impl {
                     entry->second.cancel.request_cancel();
                 }
             }
-            auto cancelled = core->executor.submit_on(
-                core->serial, [core = core, &id] {
-                    return core->host.cancel_task(
-                        TaskIdentity{id});
-                });
+            auto cancelled = core->executor.submit_on(core->serial, [core = core, &id] {
+                return core->host.cancel_task(TaskIdentity{id});
+            });
             try {
                 if (cancelled.valid() &&
-                    cancelled.wait_for(core->command_wait) ==
-                        std::future_status::ready) {
+                    cancelled.wait_for(core->command_wait) == std::future_status::ready) {
                     cancelled.get();
                 }
-            } catch (const std::exception&) {
+            } catch (const std::exception &) {
                 // Terminal or already cancelled tasks surface pinned
                 // rejections here; the drain below settles the rest.
             }
         }
         core->executor.shutdown(true);
-        for (auto& future : driver_futures) {
+        for (auto &future : driver_futures) {
             try {
                 if (future.valid()) {
                     future.get();
                 }
-            } catch (const std::exception&) {
+            } catch (const std::exception &) {
             }
+        }
+        // M1-07: drivers settled (or gave up on) every task above; the
+        // final snapshot captures the exact terminal state this era leaves
+        // behind, including tasks cancelled by the teardown itself.
+        if (config.persist_recovery_state) {
+            core->recovery.persist(core->registry);
         }
         const ShutdownResult host_shutdown = core->host.shutdown();
         core->serial.shutdown();
         run_report.clean = host_shutdown.ok && host_shutdown.report.clean;
         if (!run_report.clean) {
-            run_report.diagnostic = host_shutdown.ok
-                                        ? host_shutdown.report.diagnostic
-                                        : host_shutdown.error.message;
+            run_report.diagnostic =
+                host_shutdown.ok ? host_shutdown.report.diagnostic : host_shutdown.error.message;
         }
         run_report.host_shutdown = host_shutdown.report;
         lifecycle.store(Lifecycle::Terminal, std::memory_order_release);
@@ -504,8 +514,7 @@ RuntimeService::RuntimeService(ServiceConfig config)
     : impl_(std::make_unique<Impl>(std::move(config))) {}
 
 RuntimeService::~RuntimeService() {
-    if (impl_->lifecycle.load(std::memory_order_acquire) ==
-        Impl::Lifecycle::Running) {
+    if (impl_->lifecycle.load(std::memory_order_acquire) == Impl::Lifecycle::Running) {
         impl_->request_loop_stop();
         impl_->loop_done_future.wait();
         impl_->listener.close();
@@ -513,52 +522,60 @@ RuntimeService::~RuntimeService() {
     }
 }
 
-const std::string& RuntimeService::socket_path() const {
-    return impl_->socket_path;
-}
+const std::string &RuntimeService::socket_path() const { return impl_->socket_path; }
 
-void RuntimeService::request_shutdown() {
-    impl_->request_loop_stop();
-}
+void RuntimeService::request_shutdown() { impl_->request_loop_stop(); }
 
-void RuntimeService::register_shutdown_fd(int fd) {
-    impl_->shutdown_fd = fd;
-}
+void RuntimeService::register_shutdown_fd(int fd) { impl_->shutdown_fd = fd; }
 
-ipc::ServiceIdentity RuntimeService::identity() const {
-    return impl_->identity();
-}
+ipc::ServiceIdentity RuntimeService::identity() const { return impl_->identity(); }
 
-HostOutcome RuntimeService::start(
-    std::shared_ptr<mirage::integration::DesktopEnvironmentBinding> binding) {
+HostOutcome
+RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBinding> binding) {
     HostOutcome outcome;
     if (impl_->lifecycle.load(std::memory_order_acquire) != Impl::Lifecycle::New) {
-        outcome.error = {"invalid_state",
-                         "service already started or terminal"};
+        outcome.error = {"invalid_state", "service already started or terminal"};
         return outcome;
     }
     if (!binding) {
         outcome.error = {"invalid_argument", "binding is null"};
-        impl_->lifecycle.store(Impl::Lifecycle::Terminal,
-                               std::memory_order_release);
+        impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
         return outcome;
     }
     if (impl_->config.step_timeout <= std::chrono::milliseconds::zero() ||
-        impl_->config.max_steps_per_task == 0 ||
-        impl_->config.max_task_records == 0 ||
+        impl_->config.max_steps_per_task == 0 || impl_->config.max_task_records == 0 ||
         impl_->config.max_result_bytes == 0) {
         outcome.error = {"invalid_argument", "service config limits are empty"};
-        impl_->lifecycle.store(Impl::Lifecycle::Terminal,
-                               std::memory_order_release);
+        impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
         return outcome;
     }
+
+    // M1-07 recovery persistence: point the writer at the configured (or
+    // default) state directory, then hydrate the terminal records of the
+    // previous service era into the registry before any new task can be
+    // admitted. A broken recovery file degrades loudly (writer records the
+    // reason on stderr) instead of failing the start.
+    if (impl_->config.persist_recovery_state) {
+        const std::filesystem::path directory = impl_->config.recovery_directory.empty()
+                                                    ? persistence::default_state_directory()
+                                                    : impl_->config.recovery_directory;
+        impl_->core->recovery.enable(
+            persistence::LocalStateStore(directory, "task-recovery.json",
+                                         persistence::kMaxRecoveryFileBytes),
+            impl_->config.mirage_version, impl_->config.max_result_bytes);
+        const std::size_t recovered =
+            impl_->core->recovery.hydrate(impl_->core->registry, impl_->config.max_task_records);
+        if (recovered > 0) {
+            std::cerr << "mirage-service: recovered " << recovered << " task(s) from "
+                      << (directory / "task-recovery.json").string() << '\n';
+        }
+    }
+
     impl_->core->environment = binding->bound_environment();
     if (!impl_->core->environment) {
-        outcome.error = {"invalid_argument",
-                         "binding does not expose a mirage desktop "
-                         "environment; the M1 service cannot drive tasks"};
-        impl_->lifecycle.store(Impl::Lifecycle::Terminal,
-                               std::memory_order_release);
+        outcome.error = {"invalid_argument", "binding does not expose a mirage desktop "
+                                             "environment; the M1 service cannot drive tasks"};
+        impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
         return outcome;
     }
 
@@ -568,10 +585,8 @@ HostOutcome RuntimeService::start(
     }
     const auto initialized = impl_->core->executor.initialize_ex(executor_config);
     if (!initialized.ok) {
-        outcome.error = {"internal", "executor initialization failed: " +
-                                         initialized.message};
-        impl_->lifecycle.store(Impl::Lifecycle::Terminal,
-                               std::memory_order_release);
+        outcome.error = {"internal", "executor initialization failed: " + initialized.message};
+        impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
         return outcome;
     }
 
@@ -579,8 +594,7 @@ HostOutcome RuntimeService::start(
     if (!hosted.ok) {
         impl_->core->executor.shutdown(false);
         outcome.error = hosted.error;
-        impl_->lifecycle.store(Impl::Lifecycle::Terminal,
-                               std::memory_order_release);
+        impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
         return outcome;
     }
 
@@ -590,21 +604,17 @@ HostOutcome RuntimeService::start(
         impl_->core->host.shutdown();
         impl_->core->executor.shutdown(false);
         outcome.error = {"internal", std::move(diagnostic)};
-        impl_->lifecycle.store(Impl::Lifecycle::Terminal,
-                               std::memory_order_release);
+        impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
         return outcome;
     }
 
     detail::ServiceLoop::Dependencies dependencies;
     dependencies.listen_fd = impl_->listener.handle();
     dependencies.max_connections = impl_->config.max_connections;
-    dependencies.on_frame = [raw = impl_.get()](std::uint64_t connection_id,
-                                                std::string payload) {
+    dependencies.on_frame = [raw = impl_.get()](std::uint64_t connection_id, std::string payload) {
         raw->handle_frame(connection_id, payload);
     };
-    dependencies.on_exit = [raw = impl_.get()] {
-        raw->loop_done.set_value();
-    };
+    dependencies.on_exit = [raw = impl_.get()] { raw->loop_done.set_value(); };
     auto owned_loop = std::make_unique<detail::ServiceLoop>(std::move(dependencies));
     if (impl_->shutdown_fd >= 0) {
         owned_loop->register_shutdown_fd(impl_->shutdown_fd);
@@ -623,11 +633,9 @@ HostOutcome RuntimeService::start(
         impl_->listener.close();
         impl_->core->host.shutdown();
         impl_->core->executor.shutdown(false);
-        outcome.error = {"internal",
-                         "blocking worker start failed: " +
-                             impl_->loop_worker.start_result().message};
-        impl_->lifecycle.store(Impl::Lifecycle::Terminal,
-                               std::memory_order_release);
+        outcome.error = {"internal", "blocking worker start failed: " +
+                                         impl_->loop_worker.start_result().message};
+        impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
         return outcome;
     }
     impl_->lifecycle.store(Impl::Lifecycle::Running, std::memory_order_release);
@@ -637,8 +645,7 @@ HostOutcome RuntimeService::start(
 
 ServiceRunReport RuntimeService::run() {
     ServiceRunReport report;
-    if (impl_->lifecycle.load(std::memory_order_acquire) !=
-        Impl::Lifecycle::Running) {
+    if (impl_->lifecycle.load(std::memory_order_acquire) != Impl::Lifecycle::Running) {
         report.diagnostic = "service is not running";
         return report;
     }

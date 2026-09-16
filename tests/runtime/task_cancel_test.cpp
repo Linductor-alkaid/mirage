@@ -57,12 +57,15 @@ ServiceConfig make_config(const TempDir &dir, std::chrono::milliseconds step_tim
     config.mirage_version = "0.5.0-cancel-test";
     config.executor_threads = 2;
     config.step_timeout = step_timeout;
+    // Recovery state stays inside the scenario's temp tree (M1-07): the
+    // default XDG state directory must stay untouched and foreign history
+    // must not hydrate into these scenarios.
+    config.recovery_directory = dir.root() / "recovery";
     return config;
 }
 
 /// Service binding whose read scope is the test's temp directory (M1-05).
-std::shared_ptr<integration::MiraEnvironmentBinding>
-make_binding(const TempDir &dir) {
+std::shared_ptr<integration::MiraEnvironmentBinding> make_binding(const TempDir &dir) {
     return std::make_shared<integration::MiraEnvironmentBinding>(
         std::make_shared<linux_backend::LinuxDesktopEnvironment>(
             std::vector<std::filesystem::path>{dir.root()}));
@@ -90,10 +93,8 @@ std::optional<ipc::InspectTask> inspect_once(const std::string &socket_path,
 
 /// Polls task.inspect until `predicate` holds; std::nullopt on timeout.
 template <typename Predicate>
-std::optional<ipc::InspectTask> wait_for(const std::string &socket_path,
-                                         const std::string &task_id,
-                                         std::chrono::milliseconds budget,
-                                         Predicate predicate) {
+std::optional<ipc::InspectTask> wait_for(const std::string &socket_path, const std::string &task_id,
+                                         std::chrono::milliseconds budget, Predicate predicate) {
     const auto deadline = std::chrono::steady_clock::now() + budget;
     for (;;) {
         const auto view = inspect_once(socket_path, task_id);
@@ -170,10 +171,9 @@ void scenario_cancel_running_task_mid_action() {
     // cancellation must interrupt step 0, skip the rest and create nothing.
     ipc::SubmitTaskRequest request;
     request.goal = "long task cancelled mid action";
-    request.steps.push_back(
-        {ipc::StepKind::ProcessExecute,
-         "echo $$ > '" + pid_file.string() + "'; sleep 30 & echo $! >> '" +
-             pid_file.string() + "'; wait"});
+    request.steps.push_back({ipc::StepKind::ProcessExecute, "echo $$ > '" + pid_file.string() +
+                                                                "'; sleep 30 & echo $! >> '" +
+                                                                pid_file.string() + "'; wait"});
     request.steps.push_back({ipc::StepKind::ProcessExecute, "touch '" + canary.string() + "'"});
     request.steps.push_back({ipc::StepKind::FilesystemRead, readable.string()});
 
@@ -195,14 +195,14 @@ void scenario_cancel_running_task_mid_action() {
         service.run();
         return;
     }
-    const auto live = wait_for(config.socket_path, *task_id, std::chrono::seconds{5},
-                               [&pid_file](const ipc::InspectTask &) {
-                                   return std::filesystem::exists(pid_file);
-                               });
+    const auto live = wait_for(
+        config.socket_path, *task_id, std::chrono::seconds{5},
+        [&pid_file](const ipc::InspectTask &) { return std::filesystem::exists(pid_file); });
     MIRAGE_CHECK(live.has_value());
 
     // Cancel over IPC: acknowledged with the task id and a sensible progress.
-    const ipc::Response cancel_response = client.call(ipc::CancelTaskRequest{*task_id}, kCallBudget);
+    const ipc::Response cancel_response =
+        client.call(ipc::CancelTaskRequest{*task_id}, kCallBudget);
     MIRAGE_CHECK(cancel_response.ok);
     const auto *acknowledged = std::get_if<ipc::TaskCancelled>(&cancel_response.payload);
     MIRAGE_CHECK(acknowledged != nullptr);
@@ -217,14 +217,12 @@ void scenario_cancel_running_task_mid_action() {
     // rest skipped. The pinned progress can flip a poll slice before the
     // driver finishes marking steps, so wait for the full converged shape.
     const auto started = std::chrono::steady_clock::now();
-    const auto done = wait_for(config.socket_path, *task_id, std::chrono::seconds{5},
-                               [](const ipc::InspectTask &view) {
-                                   return view.progress == "Cancelled" &&
-                                          view.steps.size() == 3 &&
-                                          view.steps[0].status == "cancelled" &&
-                                          view.steps[1].status == "skipped" &&
-                                          view.steps[2].status == "skipped";
-                               });
+    const auto done = wait_for(
+        config.socket_path, *task_id, std::chrono::seconds{5}, [](const ipc::InspectTask &view) {
+            return view.progress == "Cancelled" && view.steps.size() == 3 &&
+                   view.steps[0].status == "cancelled" && view.steps[1].status == "skipped" &&
+                   view.steps[2].status == "skipped";
+        });
     const auto convergence = std::chrono::steady_clock::now() - started;
     MIRAGE_CHECK(done.has_value());
     if (!done) {
@@ -250,8 +248,8 @@ void scenario_cancel_running_task_mid_action() {
     MIRAGE_CHECK(pids.size() == 2);
     for (const pid_t pid : pids) {
         if (!process_is_gone(pid, std::chrono::milliseconds{2000})) {
-            std::fprintf(stderr,
-                         "[task_cancel_test] sleep survivor after task.cancel: pid=%d\n", pid);
+            std::fprintf(stderr, "[task_cancel_test] sleep survivor after task.cancel: pid=%d\n",
+                         pid);
         }
         MIRAGE_CHECK(process_is_gone(pid, std::chrono::milliseconds{2000}));
     }
@@ -307,7 +305,8 @@ void scenario_cancel_completed_task_is_invalid_state_and_stays_terminal() {
     // the host surfaces the pinned rejection verbatim (code "pinned_runtime",
     // the pinned invalid_state diagnosis inside the message). Nothing is
     // revived.
-    const ipc::Response cancel_response = client.call(ipc::CancelTaskRequest{*task_id}, kCallBudget);
+    const ipc::Response cancel_response =
+        client.call(ipc::CancelTaskRequest{*task_id}, kCallBudget);
     MIRAGE_CHECK(!cancel_response.ok);
     MIRAGE_CHECK(cancel_response.error.code == "pinned_runtime");
     MIRAGE_CHECK(cancel_response.error.message.find("invalid_state") != std::string::npos);
@@ -345,7 +344,8 @@ void scenario_cancel_inflight_then_shutdown_is_bounded_and_clean() {
     }
     // Let the driver enter the sleep step, then cancel it.
     std::this_thread::sleep_for(std::chrono::milliseconds{300});
-    const ipc::Response cancel_response = client.call(ipc::CancelTaskRequest{*task_id}, kCallBudget);
+    const ipc::Response cancel_response =
+        client.call(ipc::CancelTaskRequest{*task_id}, kCallBudget);
     MIRAGE_CHECK(cancel_response.ok);
 
     const auto done = wait_terminal(config.socket_path, *task_id);
@@ -379,7 +379,8 @@ void run_scenario(const char *name, void (*scenario)()) {
 
 int main() {
     run_scenario("cancel_running_task_mid_action", scenario_cancel_running_task_mid_action);
-    run_scenario("cancel_unknown_task_id_is_not_found", scenario_cancel_unknown_task_id_is_not_found);
+    run_scenario("cancel_unknown_task_id_is_not_found",
+                 scenario_cancel_unknown_task_id_is_not_found);
     run_scenario("cancel_completed_task_is_invalid_state_and_stays_terminal",
                  scenario_cancel_completed_task_is_invalid_state_and_stays_terminal);
     run_scenario("cancel_inflight_then_shutdown_is_bounded_and_clean",

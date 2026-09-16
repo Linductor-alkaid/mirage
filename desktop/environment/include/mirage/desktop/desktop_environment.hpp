@@ -29,7 +29,7 @@ struct EnvironmentInfo {
 /// (platform/windows or platform/linux) and keeps it alive for as long as the
 /// bound Mira instance runs.
 class DesktopEnvironment {
-public:
+  public:
     virtual ~DesktopEnvironment() = default;
 
     virtual EnvironmentInfo info() const = 0;
@@ -38,8 +38,8 @@ public:
     /// provider is not part of this environment and consumers must fail
     /// closed. The environment owns its providers, so the pointers stay valid
     /// for the environment's lifetime.
-    virtual FilesystemProvider* filesystem() { return nullptr; }
-    virtual ProcessProvider* process() { return nullptr; }
+    virtual FilesystemProvider *filesystem() { return nullptr; }
+    virtual ProcessProvider *process() { return nullptr; }
 };
 
 } // namespace mirage::desktop

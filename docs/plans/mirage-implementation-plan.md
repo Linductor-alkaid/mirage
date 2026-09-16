@@ -20,8 +20,10 @@
 Filesystem / Process Provider 收紧（范围/预算/取消语义见
 [DEC-009](../decisions/DEC-009-provider-scope-budget-cancellation.md)）、`M1-06`
 Desktop Permission 框架雏形（Capability 判定与确认挂点见
-[DEC-010](../decisions/DEC-010-m1-permission-framework.md)）已完成；
-下一工作项 `M1-07` 持久化骨架。
+[DEC-010](../decisions/DEC-010-m1-permission-framework.md)）与 `M1-07` 持久化骨架
+（本地配置与 Runtime Recovery State，见
+[DEC-011](../decisions/DEC-011-m1-local-state-persistence.md)）已完成；
+M1 工作项全部完成，正进行里程碑退出条件复核。
 
 ## 交付边界
 

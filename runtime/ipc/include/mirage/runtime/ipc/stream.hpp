@@ -25,25 +25,25 @@ struct IoResult {
 /// The stream is non-blocking: owners drive it from poll loops, so no
 /// operation ever blocks its calling thread.
 class IpcStream {
-public:
+  public:
     IpcStream() = default;
     /// Takes ownership of an already connected, non-blocking socket fd.
     explicit IpcStream(int fd);
     ~IpcStream();
-    IpcStream(IpcStream&& other) noexcept;
-    IpcStream& operator=(IpcStream&& other) noexcept;
-    IpcStream(const IpcStream&) = delete;
-    IpcStream& operator=(const IpcStream&) = delete;
+    IpcStream(IpcStream &&other) noexcept;
+    IpcStream &operator=(IpcStream &&other) noexcept;
+    IpcStream(const IpcStream &) = delete;
+    IpcStream &operator=(const IpcStream &) = delete;
 
     bool valid() const { return fd_ >= 0; }
     /// Pollable handle; meaningful only while valid().
     int handle() const { return fd_; }
     void close();
 
-    IoResult read_some(char* data, std::size_t size);
-    IoResult write_some(const char* data, std::size_t size);
+    IoResult read_some(char *data, std::size_t size);
+    IoResult write_some(const char *data, std::size_t size);
 
-private:
+  private:
     int fd_ = -1;
 };
 
@@ -51,44 +51,41 @@ private:
 /// path cannot be prepared; stale-socket takeover is the caller's decision
 /// (probe with endpoint_has_listener, then retry the bind).
 class IpcListener {
-public:
+  public:
     IpcListener() = default;
     ~IpcListener();
-    IpcListener(IpcListener&& other) noexcept;
-    IpcListener& operator=(IpcListener&& other) noexcept;
-    IpcListener(const IpcListener&) = delete;
-    IpcListener& operator=(IpcListener&) = delete;
+    IpcListener(IpcListener &&other) noexcept;
+    IpcListener &operator=(IpcListener &&other) noexcept;
+    IpcListener(const IpcListener &) = delete;
+    IpcListener &operator=(IpcListener &) = delete;
 
     /// Creates the parent directory (0700), removes a leftover socket only
     /// when nothing is listening behind it, binds and listens. On failure
     /// `diagnostic` explains and the returned listener is invalid.
-    static IpcListener bind(const std::string& socket_path,
-                            std::string& diagnostic);
+    static IpcListener bind(const std::string &socket_path, std::string &diagnostic);
 
     bool valid() const { return fd_ >= 0; }
     int handle() const { return fd_; }
-    const std::string& socket_path() const { return path_; }
+    const std::string &socket_path() const { return path_; }
     void close();
 
     /// Non-blocking accept; an invalid stream with IoStatus::WouldBlock
     /// semantics (valid() == false) means nothing is pending.
-    IpcStream accept(std::string& diagnostic);
+    IpcStream accept(std::string &diagnostic);
 
-private:
+  private:
     int fd_ = -1;
     std::string path_;
 };
 
 /// True when something is accepting connections at `socket_path` (used to
 /// tell a live service from a stale socket file before takeover).
-bool endpoint_has_listener(const std::string& socket_path,
-                           std::chrono::milliseconds probe_timeout);
+bool endpoint_has_listener(const std::string &socket_path, std::chrono::milliseconds probe_timeout);
 
 /// Connects to `socket_path` with a bounded deadline. On failure the
 /// returned stream is invalid and `diagnostic` explains (including the
 /// "no service listening" case the CLI surfaces).
-IpcStream connect_stream(const std::string& socket_path,
-                         std::chrono::milliseconds deadline,
-                         std::string& diagnostic);
+IpcStream connect_stream(const std::string &socket_path, std::chrono::milliseconds deadline,
+                         std::string &diagnostic);
 
 } // namespace mirage::runtime::ipc

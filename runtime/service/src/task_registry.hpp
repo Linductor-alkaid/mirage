@@ -5,8 +5,8 @@
 // the loop/driver building blocks. Pinned executor types are confined to
 // these internal headers and their translation units.
 
-#include <cstddef>
 #include <chrono>
+#include <cstddef>
 #include <map>
 #include <mutex>
 #include <string>
@@ -14,30 +14,31 @@
 
 #include <mirage/desktop/cancellation.hpp>
 #include <mirage/runtime/ipc/protocol.hpp>
+#include <mirage/runtime/mira_host.hpp>
 
 namespace mirage::runtime::detail {
 
 /// Lifecycle of one scripted step inside the service-side driver.
 namespace step_status {
-inline constexpr const char* kPending = "pending";
-inline constexpr const char* kRunning = "running";
-inline constexpr const char* kOk = "ok";
-inline constexpr const char* kFailed = "failed";
-inline constexpr const char* kSkipped = "skipped";
+inline constexpr const char *kPending = "pending";
+inline constexpr const char *kRunning = "running";
+inline constexpr const char *kOk = "ok";
+inline constexpr const char *kFailed = "failed";
+inline constexpr const char *kSkipped = "skipped";
 /// The step was interrupted by a task cancellation (M1-05 cancellation
 /// path): the desktop action did not finish, but the task did not fail.
-inline constexpr const char* kCancelled = "cancelled";
+inline constexpr const char *kCancelled = "cancelled";
 } // namespace step_status
 
 struct StepRecord {
     ipc::TaskStep spec;
-    const char* status = step_status::kPending;
+    const char *status = step_status::kPending;
     std::string operation_id;
     /// Permission outcome for this step (RULE-05, DEC-010): a
     /// decision_name() string once judged, empty before that. A denied
     /// step carries no operation id — the action never reached the
     /// control plane.
-    const char* permission = "";
+    const char *permission = "";
     bool ok = false;
     int exit_code = -1;
     std::string result;
@@ -58,6 +59,16 @@ struct TaskRecord {
     mirage::desktop::CancelToken cancel;
     /// True once the driver settled the task (or gave up on it).
     bool driver_done = false;
+    /// Terminal progress name the task settled under (M1-07): "Completed"
+    /// / "Failed" / "Cancelled" once the driver is done, empty before
+    /// that. Hydrated tasks carry it straight from the recovery file —
+    /// they have no live pinned counterpart, so this field (not the pinned
+    /// runtime) is their progress source of truth.
+    std::string final_progress;
+    /// True only for tasks hydrated from the recovery file (M1-07): they
+    /// have no live pinned counterpart in this service era, so task.cancel
+    /// rejects them outright instead of surfacing a pinned not-found.
+    bool from_recovery = false;
     /// Meaningful only once driver_done and the task reached a terminal
     /// pinned state; false for cancelled/failed settlements.
     bool has_success = false;
@@ -76,7 +87,7 @@ struct TaskRegistry {
     std::vector<std::string> ids() const {
         std::vector<std::string> result;
         result.reserve(tasks.size());
-        for (const auto& entry : tasks) {
+        for (const auto &entry : tasks) {
             result.push_back(entry.first);
         }
         return result;
@@ -84,6 +95,6 @@ struct TaskRegistry {
 };
 
 /// Stable name of a MiraHost task progress state for IPC payloads.
-const char* progress_name(TaskProgress progress);
+const char *progress_name(TaskProgress progress);
 
 } // namespace mirage::runtime::detail

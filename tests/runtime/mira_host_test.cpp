@@ -27,28 +27,27 @@ using mirage::runtime::TaskProgress;
 // mira::IEnvironment; the dual base makes that dynamic_cast succeed.
 class SimulatorBinding final : public mirage::integration::DesktopEnvironmentBinding,
                                public mira::IEnvironment {
-public:
-    SimulatorBinding()
-        : simulator_(mira::adapters::simulator::SimulatorSetup::single_display()) {}
+  public:
+    SimulatorBinding() : simulator_(mira::adapters::simulator::SimulatorSetup::single_display()) {}
 
-    const char* binding_name() const override { return "test.desktop.sim-v1"; }
+    const char *binding_name() const override { return "test.desktop.sim-v1"; }
 
     mira::EnvironmentCapabilities capabilities() const override {
         return simulator_.capabilities();
     }
-    mira::Result<mira::Observation> observe(const mira::ObservationRequest& request,
-                                            const mira::OperationContext& context) override {
+    mira::Result<mira::Observation> observe(const mira::ObservationRequest &request,
+                                            const mira::OperationContext &context) override {
         return simulator_.observe(request, context);
     }
-    mira::Result<mira::ExecutionReceipt> execute(const mira::InputSequence& input,
-                                                 const mira::OperationContext& context) override {
+    mira::Result<mira::ExecutionReceipt> execute(const mira::InputSequence &input,
+                                                 const mira::OperationContext &context) override {
         return simulator_.execute(input, context);
     }
-    mira::Result<void> interrupt(const mira::OperationContext& context) override {
+    mira::Result<void> interrupt(const mira::OperationContext &context) override {
         return simulator_.interrupt(context);
     }
 
-private:
+  private:
     mira::adapters::simulator::SimulatorEnvironment simulator_;
 };
 
@@ -56,11 +55,11 @@ private:
 // contract: the most derived type has no mira::IEnvironment base, so the
 // host's runtime cross-cast must fail and start() must fail closed.
 class ContractFreeBinding final : public mirage::integration::DesktopEnvironmentBinding {
-public:
-    const char* binding_name() const override { return "test.desktop.no-pinned-contract"; }
+  public:
+    const char *binding_name() const override { return "test.desktop.no-pinned-contract"; }
 };
 
-bool is_32_lowercase_hex(const std::string& id) {
+bool is_32_lowercase_hex(const std::string &id) {
     if (id.size() != 32) {
         return false;
     }
@@ -329,19 +328,19 @@ void scenario_destructor_releases_started_runtime() {
 }
 
 void scenario_status_names() {
-    MIRAGE_CHECK(std::string_view(mirage::runtime::host_status_name(HostStatus::Stopped))
-                 == "stopped");
-    MIRAGE_CHECK(std::string_view(mirage::runtime::host_status_name(HostStatus::Starting))
-                 == "starting");
-    MIRAGE_CHECK(std::string_view(mirage::runtime::host_status_name(HostStatus::Running))
-                 == "running");
-    MIRAGE_CHECK(std::string_view(mirage::runtime::host_status_name(HostStatus::Stopping))
-                 == "stopping");
-    MIRAGE_CHECK(std::string_view(mirage::runtime::host_status_name(HostStatus::Failed))
-                 == "failed");
+    MIRAGE_CHECK(std::string_view(mirage::runtime::host_status_name(HostStatus::Stopped)) ==
+                 "stopped");
+    MIRAGE_CHECK(std::string_view(mirage::runtime::host_status_name(HostStatus::Starting)) ==
+                 "starting");
+    MIRAGE_CHECK(std::string_view(mirage::runtime::host_status_name(HostStatus::Running)) ==
+                 "running");
+    MIRAGE_CHECK(std::string_view(mirage::runtime::host_status_name(HostStatus::Stopping)) ==
+                 "stopping");
+    MIRAGE_CHECK(std::string_view(mirage::runtime::host_status_name(HostStatus::Failed)) ==
+                 "failed");
 }
 
-void run_scenario(const char* name, void (*scenario)()) {
+void run_scenario(const char *name, void (*scenario)()) {
     std::fprintf(stderr, "[mira_host_test] scenario: %s\n", name);
     scenario();
 }
@@ -359,8 +358,7 @@ int main() {
     run_scenario("invalid_inputs", scenario_invalid_inputs);
     run_scenario("failed_completion_projection", scenario_failed_completion_projection);
     run_scenario("shutdown_drains_pending_task", scenario_shutdown_drains_pending_task);
-    run_scenario("host_is_not_revived_after_shutdown",
-                 scenario_host_is_not_revived_after_shutdown);
+    run_scenario("host_is_not_revived_after_shutdown", scenario_host_is_not_revived_after_shutdown);
     run_scenario("destructor_releases_started_runtime",
                  scenario_destructor_releases_started_runtime);
     run_scenario("status_names", scenario_status_names);

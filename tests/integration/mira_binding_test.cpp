@@ -29,7 +29,7 @@ using mirage::runtime::TaskProgress;
 
 /// Temporary workspace for provider fixtures; removed on scope exit.
 class TempWorkspace {
-public:
+  public:
     TempWorkspace() {
         std::error_code ec;
         root_ = std::filesystem::temp_directory_path(ec) /
@@ -41,21 +41,21 @@ public:
         std::error_code ec;
         std::filesystem::remove_all(root_, ec);
     }
-    TempWorkspace(const TempWorkspace&) = delete;
-    TempWorkspace& operator=(const TempWorkspace&) = delete;
+    TempWorkspace(const TempWorkspace &) = delete;
+    TempWorkspace &operator=(const TempWorkspace &) = delete;
 
-    [[nodiscard]] const std::filesystem::path& root() const { return root_; }
+    [[nodiscard]] const std::filesystem::path &root() const { return root_; }
 
-private:
+  private:
     std::filesystem::path root_;
 };
 
-void write_text_file(const std::filesystem::path& path, const std::string& content) {
+void write_text_file(const std::filesystem::path &path, const std::string &content) {
     std::ofstream stream(path, std::ios::binary | std::ios::trunc);
     stream << content;
 }
 
-bool is_32_lowercase_hex(const std::string& id) {
+bool is_32_lowercase_hex(const std::string &id) {
     if (id.size() != 32) {
         return false;
     }
@@ -179,8 +179,8 @@ void scenario_process_provider_captures_streams_and_exit_code() {
 
     desktop::ProcessLimits limits;
     limits.timeout = std::chrono::milliseconds{5000};
-    const auto outcome = environment.execute("printf 'out-line'; printf 'err-line' 1>&2; exit 3",
-                                             limits);
+    const auto outcome =
+        environment.execute("printf 'out-line'; printf 'err-line' 1>&2; exit 3", limits);
     MIRAGE_CHECK(outcome.ok);
     MIRAGE_CHECK(outcome.exited_normally);
     MIRAGE_CHECK(outcome.exit_code == 3);
@@ -225,8 +225,8 @@ void scenario_operation_surface_rejects_invalid_identities() {
     MIRAGE_CHECK(malformed.error.code == "invalid_argument");
 
     // Well-formed but unknown task.
-    const auto unknown = host.begin_operation(
-        mirage::runtime::TaskIdentity{"00000000000000000000000000000000"});
+    const auto unknown =
+        host.begin_operation(mirage::runtime::TaskIdentity{"00000000000000000000000000000000"});
     MIRAGE_CHECK(!unknown.ok);
     MIRAGE_CHECK(unknown.error.code == "pinned_runtime");
 
@@ -243,17 +243,15 @@ void scenario_end_to_end_task_reads_file_and_executes_shell() {
     const auto goal_path = workspace.root() / "goal.txt";
     write_text_file(goal_path, "structured result payload\n");
 
-    auto environment =
-        std::make_shared<linux_backend::LinuxDesktopEnvironment>(
-            std::vector<std::filesystem::path>{workspace.root()});
+    auto environment = std::make_shared<linux_backend::LinuxDesktopEnvironment>(
+        std::vector<std::filesystem::path>{workspace.root()});
     auto binding = std::make_shared<integration::MiraEnvironmentBinding>(environment);
     MiraHost host;
     const auto started = host.start(binding);
     MIRAGE_CHECK(started.ok);
     MIRAGE_CHECK(host.status() == HostStatus::Running);
 
-    const auto submission =
-        host.submit_task("read the goal file and run a shell command");
+    const auto submission = host.submit_task("read the goal file and run a shell command");
     MIRAGE_CHECK(submission.ok);
     MIRAGE_CHECK(is_32_lowercase_hex(submission.task.id));
     const mirage::runtime::TaskIdentity task = submission.task;
@@ -327,7 +325,7 @@ void scenario_operation_completion_does_not_revive_cancelled_task() {
     MIRAGE_CHECK(host.shutdown().ok);
 }
 
-void run_scenario(const char* name, void (*scenario)()) {
+void run_scenario(const char *name, void (*scenario)()) {
     std::fprintf(stderr, "[mira_binding_test] scenario: %s\n", name);
     scenario();
 }

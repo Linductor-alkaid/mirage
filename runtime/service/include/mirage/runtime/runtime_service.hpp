@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <filesystem>
 #include <memory>
 #include <string>
 
@@ -57,6 +58,16 @@ struct ServiceConfig {
     /// fail-closed DenyAllConfirmation; the service only keeps this handle,
     /// so the pointed-to handler must outlive every run() of this service.
     std::shared_ptr<permission::ConfirmationHandler> confirmation;
+    /// Directory of the Runtime Recovery State file (design doc section 16,
+    /// DEC-011, file name "task-recovery.json"). Empty selects the
+    /// persistence module's default state directory.
+    std::filesystem::path recovery_directory;
+    /// Persist terminal task records across service restarts (M1-07). The
+    /// file is written on every task settlement and at the end of the
+    /// ordered teardown, and terminal records are hydrated back into the
+    /// registry on start(). Tests that assert exact task-set contents
+    /// should point recovery_directory at a fresh temp directory.
+    bool persist_recovery_state = true;
 };
 
 /// Outcome of one service run(). `clean` mirrors the ordered-shutdown
@@ -86,14 +97,14 @@ struct ServiceRunReport {
 /// instance is terminal, like a shut-down MiraHost: a restart needs a new
 /// instance.
 class RuntimeService {
-public:
+  public:
     explicit RuntimeService(ServiceConfig config = {});
     ~RuntimeService();
-    RuntimeService(const RuntimeService&) = delete;
-    RuntimeService& operator=(const RuntimeService&) = delete;
+    RuntimeService(const RuntimeService &) = delete;
+    RuntimeService &operator=(const RuntimeService &) = delete;
 
     /// Resolved IPC endpoint; valid after construction.
-    const std::string& socket_path() const;
+    const std::string &socket_path() const;
 
     /// Prepares the executor, binds the desktop environment through the
     /// hosted Mira instance, opens the IPC listener and begins serving.
@@ -119,7 +130,7 @@ public:
     /// Identity reported by hello requests.
     ipc::ServiceIdentity identity() const;
 
-private:
+  private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

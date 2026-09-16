@@ -49,7 +49,7 @@ enum class HostStatus {
 
 /// Stable identifier of a HostStatus for logs and IPC payloads; never
 /// translated, so the product layer can match on it.
-const char* host_status_name(HostStatus status);
+const char *host_status_name(HostStatus status);
 
 /// Error surfaced by host operations. `code` is a stable identifier from the
 /// mirage.host domain ("invalid_state", "invalid_argument", "not_found",
@@ -166,11 +166,11 @@ struct ShutdownResult {
 /// threads; all asynchronous work happens inside the pinned runtime's own
 /// executor fabric.
 class MiraHost {
-public:
+  public:
     explicit MiraHost(HostConfig config = {});
     ~MiraHost();
-    MiraHost(const MiraHost&) = delete;
-    MiraHost& operator=(const MiraHost&) = delete;
+    MiraHost(const MiraHost &) = delete;
+    MiraHost &operator=(const MiraHost &) = delete;
 
     /// Current lifecycle state; observable from any thread.
     HostStatus status() const;
@@ -184,35 +184,35 @@ public:
     HostOutcome start(std::shared_ptr<mirage::integration::DesktopEnvironmentBinding> binding);
 
     /// Admits a task with the given goal. Requires Running.
-    TaskSubmissionResult submit_task(const std::string& goal);
+    TaskSubmissionResult submit_task(const std::string &goal);
 
     /// Requests cooperative cancellation of a task. Cancelling an already
     /// terminal task surfaces the pinned rejection instead of reviving it.
-    HostOutcome cancel_task(const TaskIdentity& task);
+    HostOutcome cancel_task(const TaskIdentity &task);
 
     /// Settles a task from the harness side (design doc section 11: Verify
     /// decides goal success). Only legal pinned transitions are admitted;
     /// late completions of settled tasks surface as rejections and never
     /// revive a terminal task.
-    HostOutcome complete_task(const TaskIdentity& task, bool success,
-                              const std::string& safe_error = "");
+    HostOutcome complete_task(const TaskIdentity &task, bool success,
+                              const std::string &safe_error = "");
 
     /// Observes the current task state; Unknown progress for malformed or
     /// unknown identities.
-    TaskViewResult task_view(const TaskIdentity& task) const;
+    TaskViewResult task_view(const TaskIdentity &task) const;
 
     /// Admits one desktop operation for the task so harness-driven desktop
     /// actions are visible in the pinned control plane. Requires Running;
     /// refused while the task is paused or under human takeover (pinned
     /// InvalidState).
-    OperationBeginResult begin_operation(const TaskIdentity& task);
+    OperationBeginResult begin_operation(const TaskIdentity &task);
 
     /// Settles a previously admitted operation after its desktop action
     /// finished. Idempotent: re-statements of an already settled ticket and
     /// tickets from a cancelled or re-driven task era settle as pinned NoOps
     /// and are reported ok — the observable invariant is that the task state
     /// is never revived, which callers verify with task_view().
-    HostOutcome admit_operation_completion(const OperationTicket& ticket);
+    HostOutcome admit_operation_completion(const OperationTicket &ticket);
 
     /// Ordered shutdown: asks the pinned runtime to stop admitting work,
     /// waits up to shutdown_drain for the drain, then finishes the shutdown.
@@ -220,7 +220,7 @@ public:
     /// Failed host it releases pinned resources without reviving the state.
     ShutdownResult shutdown();
 
-private:
+  private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
