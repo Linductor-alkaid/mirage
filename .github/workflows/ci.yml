@@ -80,3 +80,29 @@ jobs:
       - name: Test
         if: matrix.preset != 'tsan'
         run: ctest --preset ${{ matrix.preset }} --output-on-failure
+
+  frontend:
+    name: frontend contracts & app (M1.5-06)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      # Plain shallow checkout: the frontend gate needs only the source tree
+      # (golden vectors included), never the pinned submodules.
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Install Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        working-directory: ui
+        run: npm ci
+      - name: Type check (contracts + app, strict tsc)
+        working-directory: ui
+        run: npm run check
+      - name: Test (golden vectors + contracts + app)
+        working-directory: ui
+        run: npm test
+      - name: Build
+        working-directory: ui
+        run: npm run build

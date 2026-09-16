@@ -1,0 +1,546 @@
+{
+  "meta": {
+    "schema": "mirage-ipc-protocol-golden-vectors",
+    "version": 1,
+    "protocol_version": 1,
+    "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
+    "decision": "DEC-012 (Accepted), DEC-007",
+    "consumers": [
+      "tests/runtime/ipc_protocol_golden_test.cpp",
+      "ui/contracts/test/golden-vectors.test.ts"
+    ],
+    "notes": [
+      "canonical strings are byte-exact: compact JSON, members in the wire order pinned by the schema doc sections 4-7.",
+      "request_failures / response_failures pin the stable decode error strings shared by both codecs; error_prefix matches by prefix because the C++ parser appends its own diagnostic after \"payload is not valid JSON\".",
+      "events and event_failures sections are consumed by the TypeScript mirror from M1.5-01; the C++ side consumes them from M1.5-02 when the event codec lands. hello-capability carries encode_pending for the same reason."
+    ]
+  },
+  "requests": [
+    {
+      "name": "hello",
+      "id": 7,
+      "body": {
+        "op": "hello"
+      },
+      "canonical": "{\"v\":1,\"id\":7,\"op\":\"hello\"}"
+    },
+    {
+      "name": "submit-minimal",
+      "id": 1,
+      "body": {
+        "op": "task.submit",
+        "goal": "read the hostname",
+        "steps": []
+      },
+      "canonical": "{\"v\":1,\"id\":1,\"op\":\"task.submit\",\"goal\":\"read the hostname\",\"steps\":[]}"
+    },
+    {
+      "name": "submit-full",
+      "id": 2,
+      "body": {
+        "op": "task.submit",
+        "goal": "inspect the host",
+        "steps": [
+          {
+            "op": "filesystem.read",
+            "arg": "/etc/hostname"
+          },
+          {
+            "op": "process.execute",
+            "arg": "uname -a"
+          }
+        ],
+        "step_timeout_ms": 15000
+      },
+      "canonical": "{\"v\":1,\"id\":2,\"op\":\"task.submit\",\"goal\":\"inspect the host\",\"steps\":[{\"op\":\"filesystem.read\",\"arg\":\"/etc/hostname\"},{\"op\":\"process.execute\",\"arg\":\"uname -a\"}],\"step_timeout_ms\":15000}"
+    },
+    {
+      "name": "list",
+      "id": 3,
+      "body": {
+        "op": "task.list"
+      },
+      "canonical": "{\"v\":1,\"id\":3,\"op\":\"task.list\"}"
+    },
+    {
+      "name": "inspect",
+      "id": 4,
+      "body": {
+        "op": "task.inspect",
+        "task_id": "task-1"
+      },
+      "canonical": "{\"v\":1,\"id\":4,\"op\":\"task.inspect\",\"task_id\":\"task-1\"}"
+    },
+    {
+      "name": "cancel",
+      "id": 5,
+      "body": {
+        "op": "task.cancel",
+        "task_id": "task-1"
+      },
+      "canonical": "{\"v\":1,\"id\":5,\"op\":\"task.cancel\",\"task_id\":\"task-1\"}"
+    },
+    {
+      "name": "shutdown",
+      "id": 6,
+      "body": {
+        "op": "service.shutdown"
+      },
+      "canonical": "{\"v\":1,\"id\":6,\"op\":\"service.shutdown\"}"
+    }
+  ],
+  "request_failures": [
+    {
+      "name": "not-json",
+      "payload": "definitely not json",
+      "error_prefix": "payload is not valid JSON"
+    },
+    {
+      "name": "wrong-version",
+      "payload": "{\"v\":2,\"id\":1,\"op\":\"hello\"}",
+      "error": "unsupported protocol version"
+    },
+    {
+      "name": "missing-op",
+      "payload": "{\"v\":1,\"id\":1}",
+      "error": "request is missing 'op'"
+    },
+    {
+      "name": "not-an-object",
+      "payload": "[1,2,3]",
+      "error": "request payload must be a JSON object"
+    },
+    {
+      "name": "missing-id",
+      "payload": "{\"v\":1,\"op\":\"hello\"}",
+      "error": "request is missing a non-negative 'id'"
+    },
+    {
+      "name": "negative-id",
+      "payload": "{\"v\":1,\"id\":-1,\"op\":\"hello\"}",
+      "error": "request is missing a non-negative 'id'"
+    },
+    {
+      "name": "submit-missing-goal",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"task.submit\",\"steps\":[]}",
+      "error": "task.submit requires a 'goal' string"
+    },
+    {
+      "name": "submit-step-missing-arg",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"task.submit\",\"goal\":\"g\",\"steps\":[{\"op\":\"filesystem.read\"}]}",
+      "error": "task.submit step requires a non-empty 'arg'"
+    },
+    {
+      "name": "submit-step-unknown-op",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"task.submit\",\"goal\":\"g\",\"steps\":[{\"op\":\"registry.edit\",\"arg\":\"x\"}]}",
+      "error": "task.submit step has unsupported op 'registry.edit'"
+    },
+    {
+      "name": "submit-step-not-object",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"task.submit\",\"goal\":\"g\",\"steps\":[\"filesystem.read\"]}",
+      "error": "task.submit steps must be objects"
+    },
+    {
+      "name": "submit-bad-timeout",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"task.submit\",\"goal\":\"g\",\"steps\":[],\"step_timeout_ms\":0}",
+      "error": "task.submit 'step_timeout_ms' must be positive"
+    },
+    {
+      "name": "inspect-empty-task-id",
+      "payload": "{\"v\":1,\"id\":4,\"op\":\"task.inspect\",\"task_id\":\"\"}",
+      "error": "task.inspect requires a non-empty 'task_id'"
+    },
+    {
+      "name": "unknown-op-events-subscribe",
+      "payload": "{\"v\":1,\"id\":9,\"op\":\"events.subscribe\"}",
+      "error": "unknown op 'events.subscribe'"
+    },
+    {
+      "name": "unknown-op-events-unsubscribe",
+      "payload": "{\"v\":1,\"id\":9,\"op\":\"events.unsubscribe\"}",
+      "error": "unknown op 'events.unsubscribe'"
+    }
+  ],
+  "responses": [
+    {
+      "name": "hello-identity",
+      "response": {
+        "id": 7,
+        "ok": true,
+        "payload": {
+          "kind": "identity",
+          "value": {
+            "service": "mirage-service",
+            "mirage_version": "0.1.0",
+            "mira_core_version": "0.4.0",
+            "host_status": "running",
+            "protocol": 1
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":7,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1}"
+    },
+    {
+      "name": "hello-capability",
+      "encode_pending": "M1.5-02",
+      "response": {
+        "id": 8,
+        "ok": true,
+        "payload": {
+          "kind": "identity",
+          "value": {
+            "service": "mirage-service",
+            "mirage_version": "0.1.0",
+            "mira_core_version": "0.4.0",
+            "host_status": "running",
+            "protocol": 1,
+            "events": true
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":8,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1,\"events\":true}"
+    },
+    {
+      "name": "submit-ack",
+      "response": {
+        "id": 1,
+        "ok": true,
+        "payload": {
+          "kind": "submitted",
+          "value": {
+            "task_id": "task-1"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":1,\"ok\":true,\"task_id\":\"task-1\"}"
+    },
+    {
+      "name": "list",
+      "response": {
+        "id": 3,
+        "ok": true,
+        "payload": {
+          "kind": "list",
+          "value": {
+            "tasks": [
+              {
+                "id": "task-1",
+                "goal": "inspect the host",
+                "progress": "Active"
+              },
+              {
+                "id": "task-2",
+                "goal": "clean the cache",
+                "progress": "Idle"
+              }
+            ]
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":3,\"ok\":true,\"tasks\":[{\"id\":\"task-1\",\"goal\":\"inspect the host\",\"progress\":\"Active\"},{\"id\":\"task-2\",\"goal\":\"clean the cache\",\"progress\":\"Idle\"}]}"
+    },
+    {
+      "name": "inspect-mid",
+      "response": {
+        "id": 4,
+        "ok": true,
+        "payload": {
+          "kind": "inspect",
+          "value": {
+            "id": "task-1",
+            "goal": "inspect the host",
+            "progress": "Active",
+            "steps": [
+              {
+                "index": 0,
+                "kind": "process.execute",
+                "status": "ok",
+                "operation_id": "op-0007",
+                "permission": "allowed",
+                "ok": true,
+                "exit_code": 0,
+                "result": "myhost",
+                "result_truncated": false,
+                "error": ""
+              },
+              {
+                "index": 1,
+                "kind": "filesystem.read",
+                "status": "running",
+                "operation_id": "op-0009",
+                "permission": "confirmed",
+                "ok": false,
+                "exit_code": -1,
+                "result": "",
+                "result_truncated": false,
+                "error": ""
+              }
+            ]
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":4,\"ok\":true,\"task\":{\"id\":\"task-1\",\"goal\":\"inspect the host\",\"progress\":\"Active\",\"steps\":[{\"index\":0,\"kind\":\"process.execute\",\"status\":\"ok\",\"operation_id\":\"op-0007\",\"permission\":\"allowed\",\"ok\":true,\"exit_code\":0,\"result\":\"myhost\",\"result_truncated\":false,\"error\":\"\"},{\"index\":1,\"kind\":\"filesystem.read\",\"status\":\"running\",\"operation_id\":\"op-0009\",\"permission\":\"confirmed\",\"ok\":false,\"exit_code\":-1,\"result\":\"\",\"result_truncated\":false,\"error\":\"\"}]}}"
+    },
+    {
+      "name": "inspect-terminal",
+      "response": {
+        "id": 10,
+        "ok": true,
+        "payload": {
+          "kind": "inspect",
+          "value": {
+            "id": "task-2",
+            "goal": "clean the cache",
+            "progress": "Completed",
+            "success": true,
+            "steps": [
+              {
+                "index": 0,
+                "kind": "filesystem.read",
+                "status": "ok",
+                "operation_id": "op-0011",
+                "permission": "allowed",
+                "ok": true,
+                "exit_code": -1,
+                "result": "cache manifest lines",
+                "result_truncated": true,
+                "error": ""
+              },
+              {
+                "index": 1,
+                "kind": "process.execute",
+                "status": "ok",
+                "operation_id": "op-0012",
+                "permission": "allowed",
+                "ok": true,
+                "exit_code": 0,
+                "result": "done",
+                "result_truncated": false,
+                "error": ""
+              }
+            ]
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":10,\"ok\":true,\"task\":{\"id\":\"task-2\",\"goal\":\"clean the cache\",\"progress\":\"Completed\",\"success\":true,\"steps\":[{\"index\":0,\"kind\":\"filesystem.read\",\"status\":\"ok\",\"operation_id\":\"op-0011\",\"permission\":\"allowed\",\"ok\":true,\"exit_code\":-1,\"result\":\"cache manifest lines\",\"result_truncated\":true,\"error\":\"\"},{\"index\":1,\"kind\":\"process.execute\",\"status\":\"ok\",\"operation_id\":\"op-0012\",\"permission\":\"allowed\",\"ok\":true,\"exit_code\":0,\"result\":\"done\",\"result_truncated\":false,\"error\":\"\"}]}}"
+    },
+    {
+      "name": "cancel-ack",
+      "response": {
+        "id": 5,
+        "ok": true,
+        "payload": {
+          "kind": "cancelled",
+          "value": {
+            "task_id": "task-1",
+            "progress": "Cancelling"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":5,\"ok\":true,\"task_cancelled\":{\"task_id\":\"task-1\",\"progress\":\"Cancelling\"}}"
+    },
+    {
+      "name": "shutdown-ack",
+      "response": {
+        "id": 6,
+        "ok": true,
+        "payload": {
+          "kind": "shutdown-accepted"
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":6,\"ok\":true}"
+    },
+    {
+      "name": "error-not-found",
+      "response": {
+        "id": 9,
+        "ok": false,
+        "error": {
+          "code": "not_found",
+          "message": "unknown task id"
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":9,\"ok\":false,\"error\":{\"code\":\"not_found\",\"message\":\"unknown task id\"}}"
+    },
+    {
+      "name": "error-pinned-passthrough",
+      "response": {
+        "id": 11,
+        "ok": false,
+        "error": {
+          "code": "pinned_runtime",
+          "message": "invalid_state: task already settled"
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":11,\"ok\":false,\"error\":{\"code\":\"pinned_runtime\",\"message\":\"invalid_state: task already settled\"}}"
+    }
+  ],
+  "response_failures": [
+    {
+      "name": "not-json",
+      "payload": "{oops",
+      "error_prefix": "payload is not valid JSON"
+    },
+    {
+      "name": "wrong-version",
+      "payload": "{\"v\":0,\"id\":1,\"ok\":true}",
+      "error": "unsupported protocol version"
+    },
+    {
+      "name": "missing-ok",
+      "payload": "{\"v\":1,\"id\":1}",
+      "error": "response is missing 'ok'"
+    },
+    {
+      "name": "negative-id",
+      "payload": "{\"v\":1,\"id\":-2,\"ok\":true}",
+      "error": "response is missing a non-negative 'id'"
+    },
+    {
+      "name": "failure-without-error",
+      "payload": "{\"v\":1,\"id\":1,\"ok\":false}",
+      "error": "failed response is missing an 'error' object"
+    },
+    {
+      "name": "error-missing-code",
+      "payload": "{\"v\":1,\"id\":1,\"ok\":false,\"error\":{\"message\":\"m\"}}",
+      "error": "response error requires 'code' and 'message'"
+    },
+    {
+      "name": "hello-missing-members",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"service\":\"mirage-service\"}",
+      "error": "hello response is missing identity members"
+    },
+    {
+      "name": "submit-ack-empty-task-id",
+      "payload": "{\"v\":1,\"id\":1,\"ok\":true,\"task_id\":\"\"}",
+      "error": "task.submit response requires a non-empty 'task_id'"
+    },
+    {
+      "name": "list-entry-missing-progress",
+      "payload": "{\"v\":1,\"id\":3,\"ok\":true,\"tasks\":[{\"id\":\"a\",\"goal\":\"b\"}]}",
+      "error": "task.list entries require id, goal and progress"
+    },
+    {
+      "name": "inspect-success-not-boolean",
+      "payload": "{\"v\":1,\"id\":4,\"ok\":true,\"task\":{\"id\":\"t\",\"goal\":\"g\",\"progress\":\"Idle\",\"success\":\"yes\"}}",
+      "error": "task.inspect 'success' must be a boolean"
+    }
+  ],
+  "events": [
+    {
+      "name": "task-updated-active",
+      "event": {
+        "v": 1,
+        "seq": 1,
+        "event": "task.updated",
+        "task_id": "task-1",
+        "goal": "inspect the host",
+        "progress": "Active",
+        "has_success": false,
+        "success": false
+      },
+      "canonical": "{\"v\":1,\"seq\":1,\"event\":\"task.updated\",\"task_id\":\"task-1\",\"goal\":\"inspect the host\",\"progress\":\"Active\",\"has_success\":false,\"success\":false}"
+    },
+    {
+      "name": "task-updated-terminal",
+      "event": {
+        "v": 1,
+        "seq": 5,
+        "event": "task.updated",
+        "task_id": "task-1",
+        "goal": "inspect the host",
+        "progress": "Completed",
+        "has_success": true,
+        "success": true
+      },
+      "canonical": "{\"v\":1,\"seq\":5,\"event\":\"task.updated\",\"task_id\":\"task-1\",\"goal\":\"inspect the host\",\"progress\":\"Completed\",\"has_success\":true,\"success\":true}"
+    },
+    {
+      "name": "host-status-running",
+      "event": {
+        "v": 1,
+        "seq": 2,
+        "event": "host.status",
+        "status": "running"
+      },
+      "canonical": "{\"v\":1,\"seq\":2,\"event\":\"host.status\",\"status\":\"running\"}"
+    },
+    {
+      "name": "events-overflow",
+      "event": {
+        "v": 1,
+        "seq": 6,
+        "event": "events.overflow",
+        "dropped": 3
+      },
+      "canonical": "{\"v\":1,\"seq\":6,\"event\":\"events.overflow\",\"dropped\":3}"
+    }
+  ],
+  "event_failures": [
+    {
+      "name": "not-json",
+      "payload": "",
+      "error_prefix": "payload is not valid JSON"
+    },
+    {
+      "name": "wrong-version",
+      "payload": "{\"v\":2,\"seq\":1,\"event\":\"host.status\",\"status\":\"running\"}",
+      "error": "unsupported protocol version"
+    },
+    {
+      "name": "seq-zero",
+      "payload": "{\"v\":1,\"seq\":0,\"event\":\"host.status\",\"status\":\"running\"}",
+      "error": "event is missing a positive 'seq'"
+    },
+    {
+      "name": "missing-event-name",
+      "payload": "{\"v\":1,\"seq\":1,\"status\":\"running\"}",
+      "error": "event is missing 'event'"
+    },
+    {
+      "name": "unknown-event",
+      "payload": "{\"v\":1,\"seq\":1,\"event\":\"task.deleted\"}",
+      "error": "unknown event 'task.deleted'"
+    },
+    {
+      "name": "task-updated-missing-success",
+      "payload": "{\"v\":1,\"seq\":1,\"event\":\"task.updated\",\"task_id\":\"t\",\"goal\":\"g\",\"progress\":\"Active\",\"has_success\":false}",
+      "error": "task.updated requires 'task_id', 'goal', 'progress', 'has_success' and 'success'"
+    },
+    {
+      "name": "task-updated-unknown-progress",
+      "payload": "{\"v\":1,\"seq\":1,\"event\":\"task.updated\",\"task_id\":\"t\",\"goal\":\"g\",\"progress\":\"Running\",\"has_success\":false,\"success\":false}",
+      "error": "task.updated 'progress' is not a known progress name"
+    },
+    {
+      "name": "host-status-unknown",
+      "payload": "{\"v\":1,\"seq\":1,\"event\":\"host.status\",\"status\":\"paused\"}",
+      "error": "host.status 'status' is not a known host status"
+    },
+    {
+      "name": "overflow-negative-dropped",
+      "payload": "{\"v\":1,\"seq\":1,\"event\":\"events.overflow\",\"dropped\":-1}",
+      "error": "events.overflow requires a non-negative 'dropped'"
+    }
+  ],
+  "framing": [
+    {
+      "name": "hello-frame",
+      "payload": "{\"v\":1,\"id\":7,\"op\":\"hello\"}",
+      "frame_hex": "1b0000007b2276223a312c226964223a372c226f70223a2268656c6c6f227d"
+    },
+    {
+      "name": "multibyte-length-frame",
+      "payload": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "frame_hex": "2c010000787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878"
+    }
+  ],
+  "framing_failures": [
+    {
+      "name": "declared-length-over-cap",
+      "declared_length": 1048577,
+      "reason": "declared frame length 1048577 exceeds the 1048576 byte cap"
+    }
+  ]
+}

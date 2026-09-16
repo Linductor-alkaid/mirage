@@ -1,6 +1,7 @@
 # DEC-012：IPC 事件订阅契约与 wire schema 事实源
 
-> 状态：Proposed
+> 状态：Accepted（2026-09-16 评审通过，记录见文末变更记录；事件帧格式与订阅语义的
+> 冻结仍以 `M1.5-02` 落地为准）
 > 日期：2026-09-16
 > 负责人：Mirage 维护者
 > 冻结里程碑：M1.5（wire schema 文档自 `M1.5-01` 起作为契约事实源；事件帧格式与订阅语义自 `M1.5-02` 落地起冻结）
@@ -109,6 +110,32 @@ Service 的唯一耦合面是 Local IPC 契约，UI 与核心因此可以并行�
   与真实 service 对同一 golden vectors 一致。
 - 预设矩阵 `debug` / `release` / `asan` / `ubsan` / `tsan`（跨上下文事件路径必须
   tsan）构建与 `ctest` 全绿，M1 测试零回归。
+
+## 变更记录
+
+- 2026-09-16：评审通过，状态 Proposed → Accepted（维护者授权评审）。按工程规范第 14
+  节六项重点逐项核查：
+  1. 与产品目标及既有决策一致：扩展 [DEC-007](DEC-007-local-ipc-and-runtime-service.md)
+     冻结的协议 v1 而不破坏其承诺（传输、帧格式、载荷上限、单连接单未决请求全部不变），
+     落实总计划 `EXEC-02` 与 `RULE-07`，耦合面仍为 [DEC-006](DEC-006-ui-web-frontend-packaging.md)
+     的 Local IPC。
+  2. 分层与 Executor 生命周期正确：决策 5 的承载组件（`executor::comm::Topic` /
+     `LatestMailbox` / `MpscChannel` / `DropPolicy::DropOldest`）已在 pinned executor
+     公开头逐一核实存在且语义相符；发布点 owner 为 RuntimeService，publish 位于既有
+     SerialExecutionContext 域，每连接有界队列汇入连接 blocking I/O worker 写出，无
+     自建线程或队列。
+  3. 失败/取消/背压/关闭闭合：溢出以 `events.overflow` 显式呈现、响应帧优先写出、
+     断连取消订阅并排空队列、事件定位为通知（快照为事实源）。
+  4. 兼容与迁移明确：旧客户端零影响，新客户端经 hello `events` 能力探测或稳定错误
+     降级轮询（现服务端对未知 op 以 `protocol_error` 拒绝，见
+     `runtime/service/src/runtime_service.cpp` 的解码失败路径，与决策 2 一致）。
+  5. 验证方式可执行：协议/服务/端到端/预设矩阵用例清单完整；实现证据由 `M1.5-01`
+     （golden vectors 双端一致性）与 `M1.5-02`（事件订阅服务测试）交付时产生，决策
+     状态不表示实施进度。
+  6. 文档同步：本次状态转换同步 [M1.5 计划](../plans/m1.5-ui-parallel-track.md)的
+     风险与阻塞节；`M1.5-01` 的 schema 事实源文档为本决策决策 1 的首个落地物。
+  现状对照：`runtime/ipc` 协议面（严格解码、op 表、`ServiceIdentity`、progress 语义、
+  StepView）与 `ui/contracts` TypeScript 镜像（含事件信封草案实现）均与本决策一致。
 
 ## 关联文档和工作项
 
