@@ -62,9 +62,18 @@ if(MIRAGE_BUILD_TESTS)
 endif()
 
 # ---- developer conveniences --------------------------------------------------
+# The -D arguments carry no manual shell quoting: through the Ninja +
+# shell layers, escaped quotes would end up inside the value itself and
+# silently reduce the script globs to zero files.
 add_custom_target(mirage-format-check
-    COMMAND "${CMAKE_COMMAND}"
-            -DROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
-            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckFormat.cmake"
+    COMMAND ${CMAKE_COMMAND}
+            -DROOT_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckFormat.cmake
     COMMENT "Checking Mirage C++ formatting"
+    VERBATIM)
+add_custom_target(mirage-boundary-check
+    COMMAND ${CMAKE_COMMAND}
+            -DROOT_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/BoundaryCheck.cmake
+    COMMENT "Checking Mirage public headers for pinned third-party includes"
     VERBATIM)
