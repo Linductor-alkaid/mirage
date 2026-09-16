@@ -87,6 +87,6 @@ Desktop Permission 判定（`RULE-05`，[DEC-010](docs/decisions/DEC-010-m1-perm
 ## 开发流程
 
 计划与进度见 [docs/plans/mirage-implementation-plan.md](docs/plans/mirage-implementation-plan.md)，
-架构与产品默认值决策见 [docs/decisions/](docs/decisions/)，Executor 能力缺口反馈见
-[docs/executor_feedback/ledger.md](docs/executor_feedback/ledger.md)。提交与 MR 规范、
+架构与产品默认值决策见 [docs/decisions/](docs/decisions/)，依赖（mira / mirador）问题反馈见
+[docs/dependency_feedback/ledger.md](docs/dependency_feedback/ledger.md)。提交与 MR 规范、
 验证证据要求见 [docs/project/project-standards.md](docs/project/project-standards.md)。

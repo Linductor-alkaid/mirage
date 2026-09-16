@@ -97,23 +97,26 @@ capability card，不读取无关卡片或实现源码：
   submission、communication、monitoring、failure、realtime 与 reliability 各节。公开
   头文件与 pinned 指南是权威，优先公共 facade 和文档化组件，而非本地抽象或实现细节。
 
-## Executor 能力缺口与反馈台账
+## 依赖能力缺口与反馈台账
 
-不得为了绕过 Executor 的能力边界而静默引入另一套并发或生命周期设施。当确认 Executor 无法
+Mirage 的直接依赖只有 pinned `mira` 与 `mirador`；executor（含于 mira）经 mira 传递引入。
+不得为了绕过依赖的能力边界而静默引入另一套并发或生命周期设施。当确认 mira / mirador 无法
 满足 Mirage 的合理需求时，必须按工程规范第 9.4 节执行反馈流程：
 
-1. 先核对当前版本的公开头文件、API 文档、集成指南及相关测试，排除 API 选型错误、配置
-   错误、平台限制和应用层职责。
-2. 在 `docs/executor_feedback/ledger.md` 中新增唯一编号（`EXE-YYYYMMDD-NNN`）的反馈记录，
-   附可复现证据、影响范围、期望语义、建议的最小能力、延期影响和可验收结果。只写
-   "Executor 不支持"不构成有效记录。
+1. 先核对依赖当前版本的公开头文件、API 文档、集成指南及相关测试，排除 API 选型错误、配置
+   错误、平台限制和应用层职责；涉及 executor 时，先确认其公开接口确实无法承载。
+2. 在 `docs/dependency_feedback/ledger.md` 中新增唯一编号（`MIRA-YYYYMMDD-NNN` 或
+   `MIRADOR-YYYYMMDD-NNN`）的反馈记录，附可复现证据、影响范围、期望语义、建议的最小能力、
+   延期影响和可验收结果。只写"依赖不支持"不构成有效记录。executor 层缺口以 `MIRA-*` 条目
+   登记（executor 由 mira pin 并交付，Mira 上游经其自身的 executor 反馈流程消化），不直接
+   向 executor 反馈。
 3. 在相关代码、测试或设计文档中引用该反馈编号。
 4. 确需临时方案时，将其限制在单一 Platform Backend / Adapter 边界内，说明行为差异、风险、
    移除条件和测试覆盖；临时方案不得创建线程、队列或调度器。
-5. 未经明确授权，不直接修改 `third_party/mira/third_party/executor` 来掩盖集成问题，也不
-   把项目特有策略下沉到通用 Executor；先报告并等待明确指示。
+5. 未经明确授权，不直接修改 `third_party/` 下任何 pinned 代码（mira、mirador 及其内嵌
+   依赖）来掩盖集成问题，也不把项目特有策略下沉到通用依赖；先报告并等待明确指示。
 
-以下情况不是 Executor 能力缺口：UI Automation / AT-SPI2 适配、X11 / Wayland / Portal
+以下情况不是依赖能力缺口：UI Automation / AT-SPI2 适配、X11 / Wayland / Portal
 映射、桌面业务状态机策略、错误使用已有 API、平台本身不提供所需权限（如 Wayland 截图
 授权）。它们应在 Mirage 对应的 Platform Backend 或 Desktop Environment 层解决。
 
@@ -169,5 +172,5 @@ Commit、分支、MR、评审与合并必须遵循工程规范第 10 节。要�
 
 一项 Mirage 变更只有在以下条件满足时才算完成：职责位于正确层；全部任务受 Executor
 管理；取消和 shutdown 路径闭合；失败对调用方和 Observer 可见；关键事件可复现；相关测试
-通过；计划状态、设计、决策和验收证据已经同步；Commit 与 MR 符合仓库纪律；若遇到 Executor
-能力缺口，反馈台账已经按要求登记并被实现引用。
+通过；计划状态、设计、决策和验收证据已经同步；Commit 与 MR 符合仓库纪律；若遇到依赖
+（mira / mirador）能力缺口，反馈台账已经按要求登记并被实现引用。

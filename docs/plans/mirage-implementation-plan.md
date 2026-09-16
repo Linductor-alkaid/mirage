@@ -85,8 +85,8 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
       Executor 外部事件循环互操作边界接入；线程亲和的平台调用封装在 Backend 内。
 - [ ] `EXEC-04` 桌面输入注入、截图、OCR 请求等阻塞或耗时操作使用 blocking worker /
       timer 能力承载；输入注入的取消路径必须可解除阻塞。
-- [ ] `EXEC-05` 能力缺口按工程规范第 9.4 节登记 `docs/executor_feedback/ledger.md`
-      并在实现中引用编号。
+- [ ] `EXEC-05` 依赖（mira / mirador，含其内嵌 executor）能力缺口按工程规范第 9.4 节
+      登记 `docs/dependency_feedback/ledger.md` 并在实现中引用编号。
 
 ## 里程碑索引
 

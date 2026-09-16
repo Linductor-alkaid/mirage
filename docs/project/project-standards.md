@@ -51,7 +51,7 @@ Merge Request 提交规范》并补充标准仓库管理方法，Executor 依赖
 | `docs/compatibility/` | 平台、编译器、依赖和 Provider 兼容性证据 | `<dep>-<version>.md` |
 | `docs/supply-chain/` | 依赖锁定、许可证、SBOM 和升级审计 | `dependency-policy.md` |
 | `docs/benchmarks/` | 性能目标、方法、原始条件和结果摘要 | `<metric>-latency.md` |
-| `docs/executor_feedback/` | Executor 能力缺口反馈台账 | `ledger.md` |
+| `docs/dependency_feedback/` | 依赖（mira / mirador）问题反馈台账 | `ledger.md` |
 | `docs/project/` | 本规范及其他仓库级协作流程 | 本文 |
 
 不要用一个"总文档"承载所有内容。安全结论、兼容性声明、性能数据和供应链证据应保留在
@@ -110,7 +110,8 @@ Merge Request 提交规范》并补充标准仓库管理方法，Executor 依赖
 | `DEC-NNN` | 架构或产品决策记录 | `DEC-004` |
 | `BUG-YYYYMMDD-NNN` | 需要跨提交跟踪的重要缺陷 | `BUG-20260831-001` |
 | `RISK-YYYY-NNN` | 影响里程碑或发布的已识别风险 | `RISK-2026-02` |
-| `EXE-YYYYMMDD-NNN` | 仅用于 Executor 反馈台账 | `EXE-20260830-001` |
+| `MIRA-YYYYMMDD-NNN` | 仅用于依赖反馈台账（mira） | `MIRA-20260916-001` |
+| `MIRADOR-YYYYMMDD-NNN` | 仅用于依赖反馈台账（mirador） | `MIRADOR-20260916-001` |
 
 编号一经被引用不得复用；项目扩大到编号冲突时可增加领域前缀，但同一文档内必须一致。
 
@@ -259,7 +260,7 @@ API、持久化格式、事件 schema 或兼容性承诺；核心契约；安全
 该记录可以放在对应里程碑的"验证记录"中。不要为每个小提交创建孤立报告；记录粒度应足以
 支持里程碑验收、问题定位和结论复现。
 
-### 6.4 Executor 反馈台账条目模板
+### 6.4 依赖反馈台账条目模板
 
 见第 9.4 节。
 
@@ -355,28 +356,32 @@ Executor 的定位与全部强制规则见根 `AGENTS.md` 的"Executor 是强制
 
 ### 9.4 能力缺口与反馈台账
 
-不得为了绕过 Executor 的能力边界而静默引入另一套并发或生命周期设施。当确认 Executor
-无法满足合理需求时，必须执行以下流程：
+Mirage 的直接依赖只有 pinned `mira` 与 `mirador`；executor（含于 mira）经 mira 传递
+引入（见第 9.1 节）。不得为了绕过依赖的能力边界而静默引入另一套并发或生命周期设施。
+当确认依赖无法满足合理需求时，必须执行以下流程：
 
-1. 先核对当前版本的公开头文件、API 文档、集成指南及相关测试，排除 API 选型错误、配置
-   错误、平台限制和应用层职责。
-2. 在 `docs/executor_feedback/ledger.md` 中新增一条唯一编号（`EXE-YYYYMMDD-NNN`）的
-   反馈记录，附上可复现证据、影响范围、期望语义和可验收结果。只写"Executor 不支持"不
-   构成有效记录；报告至少包含：缺失的行为、造成缺口的 API/语义限制、为什么现有
-   lifecycle 与 comm 设施不足、建议的最小 Executor 能力或获批例外、延期实施的影响。
+1. 先核对依赖当前版本的公开头文件、API 文档、集成指南及相关测试，排除 API 选型错误、
+   配置错误、平台限制和应用层职责；涉及 executor 的，先确认其公开接口与文档化设施
+   确实无法承载。
+2. 在 `docs/dependency_feedback/ledger.md` 中新增一条唯一编号（mira 用
+   `MIRA-YYYYMMDD-NNN`，mirador 用 `MIRADOR-YYYYMMDD-NNN`）的反馈记录，附上可复现证据、
+   影响范围、期望语义和可验收结果。只写"依赖不支持"不构成有效记录；报告至少包含：
+   缺失的行为、造成缺口的 API/语义限制、为什么现有设施不足、建议的最小能力或获批例外、
+   延期实施的影响。executor 层缺口以 `MIRA-*` 条目登记：executor 由 mira pin 并交付，
+   Mira 上游经其自身的 executor 反馈流程消化，Mirage 不直接向 executor 反馈。
 3. 在相关代码、测试或设计文档中引用该反馈编号。
 4. 确需临时方案时，将其限制在单一 Platform Backend / Adapter 边界内，说明行为差异、
    风险、移除条件和测试覆盖。临时方案不得创建线程、队列或调度器，不得改变"任务与生命
    周期由 Executor 管理"的总体约束。
-5. 未经明确授权，不直接修改 Executor 来掩盖集成问题，也不把项目特有策略下沉到通用
-   Executor。等待明确指示后再实施例外或变更依赖。
+5. 未经明确授权，不直接修改 `third_party/` 下任何 pinned 代码来掩盖集成问题，也不把
+   项目特有策略下沉到通用依赖。等待明确指示后再实施例外或变更依赖。
 
 台账条目分级参考：`P1` 系统性将就（影响整个代码面的派发可见性）、`P2` 结构性将就（某
 子系统整体绕开设施）、`P3` 有而未用（应用侧待办，非缺口）、`违规`（应用违反 AGENTS.md
 需自行整改）。每条记录维护状态（`Open`/`Proposed`/`Accepted`/`Resolved`/`Rejected`）
 和跟进记录表，上游收敛后回写迁移结论与证据。
 
-以下情况不是 Executor 能力缺口：UI Automation / AT-SPI2 适配、X11 / Wayland / Portal
+以下情况不是依赖能力缺口：UI Automation / AT-SPI2 适配、X11 / Wayland / Portal
 映射、桌面业务状态机策略、错误使用已有 API、平台本身不提供所需权限。它们应在 Mirage
 对应的 Platform Backend 或 Desktop Environment 层解决。
 
@@ -509,7 +514,7 @@ git diff --cached
   版本、许可证与校验 commit；configure 阶段由 `cmake/MirageDependencies.cmake` 校验，
   不匹配即失败。
 - 依赖升级走独立 MR：更新 submodule 指针与锁文件、说明版本差异与许可证变化、运行全量
-  回归，并在 `docs/supply-chain/` 记录审计结论；升级前先核对 Executor 反馈台账状态。
+  回归，并在 `docs/supply-chain/` 记录审计结论；升级前先核对依赖反馈台账状态。
 - 生成物（协议文件、fixture、fuzz corpus）约束在构建树内，不进入源码树。
 
 ## 11. C++ 工程基线
