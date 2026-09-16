@@ -1,0 +1,14 @@
+{
+  "name": "@mirage/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "TypeScript mirror of the Mirage Local IPC protocol v1 wire contract (DEC-006/DEC-007; event extension per DEC-012 draft). Pure TS, no runtime dependencies.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "tsc --noEmit"
+  }
+}
