@@ -12,7 +12,7 @@ namespace mirage::runtime::ipc {
 /// long-lived multiplexing clients arrive with the GUI (M5) on the same
 /// protocol. The calling thread blocks no longer than the declared timeout.
 class IpcClient {
-public:
+  public:
     explicit IpcClient(std::string socket_path);
 
     /// Performs one call. Transport failures (no service, timeout, framing
@@ -20,9 +20,9 @@ public:
     /// ("unavailable" for connect failures, "internal" for others) — the
     /// wire-level error of a decoded response is carried in the response's
     /// own IpcError instead.
-    Response call(const Request& request, std::chrono::milliseconds timeout);
+    Response call(const Request &request, std::chrono::milliseconds timeout);
 
-private:
+  private:
     std::string socket_path_;
 };
 

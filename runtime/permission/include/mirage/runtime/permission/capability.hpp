@@ -18,7 +18,7 @@ enum class Capability {
 
 /// Stable string form of a capability ("filesystem.read",
 /// "filesystem.write", "process.execute"); never null.
-const char* capability_name(Capability capability);
+const char *capability_name(Capability capability);
 
 /// Parses a stable capability name; nullopt for anything else.
 std::optional<Capability> capability_from_name(std::string_view name);

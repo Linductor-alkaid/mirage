@@ -28,31 +28,28 @@ namespace mirage::platform::linux_backend {
 class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment,
                                       public mirage::desktop::FilesystemProvider,
                                       public mirage::desktop::ProcessProvider {
-public:
+  public:
     /// The read scope is a hard containment boundary (M1-05): only paths at
     /// or beneath one of `filesystem_read_roots` are readable. The default
     /// constructor declares no roots, so a default-constructed environment
     /// exposes no filesystem surface at all (fail closed).
-    explicit LinuxDesktopEnvironment(
-        std::vector<std::filesystem::path> filesystem_read_roots = {})
+    explicit LinuxDesktopEnvironment(std::vector<std::filesystem::path> filesystem_read_roots = {})
         : read_scope_(std::move(filesystem_read_roots)) {}
 
     mirage::desktop::EnvironmentInfo info() const override;
-    mirage::desktop::FilesystemProvider* filesystem() override { return this; }
-    mirage::desktop::ProcessProvider* process() override { return this; }
+    mirage::desktop::FilesystemProvider *filesystem() override { return this; }
+    mirage::desktop::ProcessProvider *process() override { return this; }
 
     // The three-argument overrides would hide the base conveniences.
     using mirage::desktop::FilesystemProvider::read_text_file;
     using mirage::desktop::ProcessProvider::execute;
 
-    mirage::desktop::FileReadOutcome read_text_file(
-        const std::filesystem::path& path,
-        const mirage::desktop::FileReadLimits& limits,
-        const mirage::desktop::CancelToken& cancel) override;
-    mirage::desktop::ProcessOutcome execute(
-        const std::string& command,
-        const mirage::desktop::ProcessLimits& limits,
-        const mirage::desktop::CancelToken& cancel) override;
+    mirage::desktop::FileReadOutcome
+    read_text_file(const std::filesystem::path &path, const mirage::desktop::FileReadLimits &limits,
+                   const mirage::desktop::CancelToken &cancel) override;
+    mirage::desktop::ProcessOutcome execute(const std::string &command,
+                                            const mirage::desktop::ProcessLimits &limits,
+                                            const mirage::desktop::CancelToken &cancel) override;
 
   private:
     mirage::desktop::PathScope read_scope_;

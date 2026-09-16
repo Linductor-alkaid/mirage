@@ -54,19 +54,17 @@ struct ProcessOutcome {
 /// stays permission-agnostic: callers judge the process.execute capability
 /// through the runtime permission gate (RULE-05, DEC-010) before invoking.
 class ProcessProvider {
-public:
+  public:
     virtual ~ProcessProvider() = default;
 
     /// Executes `command` within `limits`; a cancelled token ends the
     /// command cooperatively (whole process group torn down, cancelled=true)
     /// at the provider's observation granularity.
-    virtual ProcessOutcome execute(const std::string& command,
-                                   const ProcessLimits& limits,
-                                   const CancelToken& cancel) = 0;
+    virtual ProcessOutcome execute(const std::string &command, const ProcessLimits &limits,
+                                   const CancelToken &cancel) = 0;
 
     /// Same execution without cancellation.
-    ProcessOutcome execute(const std::string& command,
-                           const ProcessLimits& limits) {
+    ProcessOutcome execute(const std::string &command, const ProcessLimits &limits) {
         return execute(command, limits, CancelToken{});
     }
 };

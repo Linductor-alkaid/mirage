@@ -14,6 +14,6 @@ std::string default_socket_path();
 
 /// Directory component of a socket path; the service creates it (0700)
 /// before binding and removes the socket file on ordered shutdown.
-std::string socket_directory(const std::string& socket_path);
+std::string socket_directory(const std::string &socket_path);
 
 } // namespace mirage::runtime::ipc

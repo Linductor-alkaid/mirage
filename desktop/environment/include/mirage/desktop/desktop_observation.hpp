@@ -35,6 +35,6 @@ struct DesktopObservation {
 
 /// Schema tag for observation payloads exchanged with Mira. Bump on any
 /// breaking change to DesktopObservation semantics.
-constexpr const char* kObservationSchemaVersion = "0.1";
+constexpr const char *kObservationSchemaVersion = "0.1";
 
 } // namespace mirage::desktop

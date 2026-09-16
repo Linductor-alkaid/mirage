@@ -34,19 +34,19 @@ struct FileReadOutcome {
 /// (RULE-05, DEC-010) before invoking. Methods are synchronous and bounded
 /// by their limits; callers decide the execution context.
 class FilesystemProvider {
-public:
+  public:
     virtual ~FilesystemProvider() = default;
 
     /// Reads a regular file as text. Fails closed with a stable ProviderError
     /// for out-of-scope paths, missing files, directories, unreadable paths,
     /// files beyond the read budget and cancellation; the content is never
     /// truncated silently.
-    virtual FileReadOutcome read_text_file(const std::filesystem::path& path,
-                                           const FileReadLimits& limits,
-                                           const CancelToken& cancel) = 0;
+    virtual FileReadOutcome read_text_file(const std::filesystem::path &path,
+                                           const FileReadLimits &limits,
+                                           const CancelToken &cancel) = 0;
 
     /// Same read under default limits and without cancellation.
-    FileReadOutcome read_text_file(const std::filesystem::path& path) {
+    FileReadOutcome read_text_file(const std::filesystem::path &path) {
         return read_text_file(path, FileReadLimits{}, CancelToken{});
     }
 };

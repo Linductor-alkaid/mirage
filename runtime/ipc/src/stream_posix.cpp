@@ -37,13 +37,11 @@ IoStatus status_from_errno(int error, bool writing) {
 
 IpcStream::IpcStream(int fd) : fd_(fd) {}
 
-IpcStream::~IpcStream() {
-    close();
-}
+IpcStream::~IpcStream() { close(); }
 
-IpcStream::IpcStream(IpcStream&& other) noexcept : fd_(std::exchange(other.fd_, -1)) {}
+IpcStream::IpcStream(IpcStream &&other) noexcept : fd_(std::exchange(other.fd_, -1)) {}
 
-IpcStream& IpcStream::operator=(IpcStream&& other) noexcept {
+IpcStream &IpcStream::operator=(IpcStream &&other) noexcept {
     if (this != &other) {
         close();
         fd_ = std::exchange(other.fd_, -1);
@@ -58,7 +56,7 @@ void IpcStream::close() {
     }
 }
 
-IoResult IpcStream::read_some(char* data, std::size_t size) {
+IoResult IpcStream::read_some(char *data, std::size_t size) {
     IoResult result;
     if (!valid() || size == 0) {
         return result;
@@ -77,7 +75,7 @@ IoResult IpcStream::read_some(char* data, std::size_t size) {
     return result;
 }
 
-IoResult IpcStream::write_some(const char* data, std::size_t size) {
+IoResult IpcStream::write_some(const char *data, std::size_t size) {
     IoResult result;
     if (!valid() || size == 0) {
         return result;
@@ -92,14 +90,12 @@ IoResult IpcStream::write_some(const char* data, std::size_t size) {
     return result;
 }
 
-IpcListener::~IpcListener() {
-    close();
-}
+IpcListener::~IpcListener() { close(); }
 
-IpcListener::IpcListener(IpcListener&& other) noexcept
+IpcListener::IpcListener(IpcListener &&other) noexcept
     : fd_(std::exchange(other.fd_, -1)), path_(std::move(other.path_)) {}
 
-IpcListener& IpcListener::operator=(IpcListener&& other) noexcept {
+IpcListener &IpcListener::operator=(IpcListener &&other) noexcept {
     if (this != &other) {
         close();
         fd_ = std::exchange(other.fd_, -1);
@@ -121,18 +117,16 @@ void IpcListener::close() {
     }
 }
 
-IpcListener IpcListener::bind(const std::string& socket_path,
-                              std::string& diagnostic) {
+IpcListener IpcListener::bind(const std::string &socket_path, std::string &diagnostic) {
     IpcListener listener;
     if (socket_path.empty() || socket_path.size() >= kMaxSunPath) {
-        diagnostic = "socket path is empty or exceeds " +
-                     std::to_string(kMaxSunPath - 1) + " bytes";
+        diagnostic =
+            "socket path is empty or exceeds " + std::to_string(kMaxSunPath - 1) + " bytes";
         return listener;
     }
     const std::string directory = socket_directory(socket_path);
     if (::mkdir(directory.c_str(), 0700) != 0 && errno != EEXIST) {
-        diagnostic = "cannot create socket directory '" + directory +
-                     "': " + std::strerror(errno);
+        diagnostic = "cannot create socket directory '" + directory + "': " + std::strerror(errno);
         return listener;
     }
     // A leftover socket file from a crashed process is only taken over when
@@ -140,8 +134,7 @@ IpcListener IpcListener::bind(const std::string& socket_path,
     struct stat stat_buffer {};
     if (::stat(socket_path.c_str(), &stat_buffer) == 0) {
         if (endpoint_has_listener(socket_path, std::chrono::milliseconds{500})) {
-            diagnostic = "another service is already listening at '" +
-                         socket_path + "'";
+            diagnostic = "another service is already listening at '" + socket_path + "'";
             return listener;
         }
         ::unlink(socket_path.c_str());
@@ -151,11 +144,10 @@ IpcListener IpcListener::bind(const std::string& socket_path,
         diagnostic = std::string("socket() failed: ") + std::strerror(errno);
         return listener;
     }
-    sockaddr_un address {};
+    sockaddr_un address{};
     address.sun_family = AF_UNIX;
     std::strncpy(address.sun_path, socket_path.c_str(), kMaxSunPath - 1);
-    if (::bind(fd, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) !=
-        0) {
+    if (::bind(fd, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0) {
         diagnostic = "bind('" + socket_path + "') failed: " + std::strerror(errno);
         ::close(fd);
         return listener;
@@ -174,9 +166,8 @@ IpcListener IpcListener::bind(const std::string& socket_path,
     return listener;
 }
 
-IpcStream IpcListener::accept(std::string& diagnostic) {
-    const int fd =
-        ::accept4(fd_, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
+IpcStream IpcListener::accept(std::string &diagnostic) {
+    const int fd = ::accept4(fd_, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
     if (fd >= 0) {
         return IpcStream{fd};
     }
@@ -186,7 +177,7 @@ IpcStream IpcListener::accept(std::string& diagnostic) {
     return IpcStream{};
 }
 
-bool endpoint_has_listener(const std::string& socket_path,
+bool endpoint_has_listener(const std::string &socket_path,
                            std::chrono::milliseconds probe_timeout) {
     std::string diagnostic;
     IpcStream probe = connect_stream(socket_path, probe_timeout, diagnostic);
@@ -203,12 +194,11 @@ bool endpoint_has_listener(const std::string& socket_path,
            diagnostic.find("no such file") == std::string::npos;
 }
 
-IpcStream connect_stream(const std::string& socket_path,
-                         std::chrono::milliseconds deadline,
-                         std::string& diagnostic) {
+IpcStream connect_stream(const std::string &socket_path, std::chrono::milliseconds deadline,
+                         std::string &diagnostic) {
     if (socket_path.empty() || socket_path.size() >= kMaxSunPath) {
-        diagnostic = "socket path is empty or exceeds " +
-                     std::to_string(kMaxSunPath - 1) + " bytes";
+        diagnostic =
+            "socket path is empty or exceeds " + std::to_string(kMaxSunPath - 1) + " bytes";
         return IpcStream{};
     }
     const int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
@@ -216,37 +206,33 @@ IpcStream connect_stream(const std::string& socket_path,
         diagnostic = std::string("socket() failed: ") + std::strerror(errno);
         return IpcStream{};
     }
-    sockaddr_un address {};
+    sockaddr_un address{};
     address.sun_family = AF_UNIX;
     std::strncpy(address.sun_path, socket_path.c_str(), kMaxSunPath - 1);
-    if (::connect(fd, reinterpret_cast<const sockaddr*>(&address),
-                  sizeof(address)) != 0 &&
+    if (::connect(fd, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0 &&
         errno != EINPROGRESS) {
         if (errno == ECONNREFUSED || errno == ENOENT) {
             diagnostic = std::string("connection refused: ") + std::strerror(errno);
         } else {
             diagnostic =
-                std::string("connect('") + socket_path + "') failed: " +
-                std::strerror(errno);
+                std::string("connect('") + socket_path + "') failed: " + std::strerror(errno);
         }
         ::close(fd);
         return IpcStream{};
     }
     const auto start = std::chrono::steady_clock::now();
     for (;;) {
-        pollfd descriptor {};
+        pollfd descriptor{};
         descriptor.fd = fd;
         descriptor.events = POLLOUT;
         const int ready = ::poll(&descriptor, 1, 50);
         if (ready > 0) {
             int pending_error = 0;
             socklen_t error_size = sizeof(pending_error);
-            if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, &pending_error,
-                             &error_size) != 0 ||
+            if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, &pending_error, &error_size) != 0 ||
                 pending_error != 0) {
                 diagnostic = std::string("connect('") + socket_path + "') failed: " +
-                             std::strerror(pending_error != 0 ? pending_error
-                                                              : errno);
+                             std::strerror(pending_error != 0 ? pending_error : errno);
                 ::close(fd);
                 return IpcStream{};
             }

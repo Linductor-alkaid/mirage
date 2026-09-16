@@ -17,7 +17,7 @@ namespace mirage::desktop {
 /// canonical paths, so a symlink inside a root that resolves outside the
 /// scope is rejected; roots are canonicalized once at construction.
 class PathScope {
-public:
+  public:
     PathScope() = default;
 
     /// Builds a scope from the declared roots. Non-absolute roots never
@@ -25,12 +25,9 @@ public:
     /// filesystem root), so callers passing relative paths get a deny-all
     /// scope instead of a surprise. Unresolvable roots are kept verbatim
     /// and still work for paths beneath them that come into existence.
-    explicit PathScope(std::vector<std::filesystem::path> roots)
-        : roots_(std::move(roots)) {
-        std::erase_if(roots_, [](const std::filesystem::path& root) {
-            return root.empty();
-        });
-        for (auto& root : roots_) {
+    explicit PathScope(std::vector<std::filesystem::path> roots) : roots_(std::move(roots)) {
+        std::erase_if(roots_, [](const std::filesystem::path &root) { return root.empty(); });
+        for (auto &root : roots_) {
             std::error_code ec;
             auto canonical = std::filesystem::weakly_canonical(root, ec);
             if (!ec) {
@@ -43,7 +40,7 @@ public:
     /// the existing part of the path (symlink-aware). Component-wise, so a
     /// root "/a/b" does not match "/a/bc" and a root of "/" contains all
     /// absolute paths.
-    [[nodiscard]] bool contains(const std::filesystem::path& path) const {
+    [[nodiscard]] bool contains(const std::filesystem::path &path) const {
         if (path.empty()) {
             return false;
         }
@@ -52,14 +49,12 @@ public:
         if (ec) {
             return false;
         }
-        for (const auto& root : roots_) {
+        for (const auto &root : roots_) {
             auto root_component = root.begin();
             const auto root_end = root.end();
             auto path_component = canonical.begin();
-            for (; root_component != root_end;
-                 ++root_component, ++path_component) {
-                if (path_component == canonical.end() ||
-                    *path_component != *root_component) {
+            for (; root_component != root_end; ++root_component, ++path_component) {
+                if (path_component == canonical.end() || *path_component != *root_component) {
                     break;
                 }
             }
@@ -71,9 +66,7 @@ public:
     }
 
     /// The canonicalized roots; exposed for diagnostics and tests.
-    [[nodiscard]] const std::vector<std::filesystem::path>& roots() const {
-        return roots_;
-    }
+    [[nodiscard]] const std::vector<std::filesystem::path> &roots() const { return roots_; }
 
   private:
     std::vector<std::filesystem::path> roots_;

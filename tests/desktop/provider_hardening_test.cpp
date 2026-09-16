@@ -178,8 +178,7 @@ void scenario_default_scope_denies_every_read() {
     MIRAGE_CHECK(denied.error.message.find(existing.string()) != std::string::npos);
 
     // An explicitly empty root list is the same fail-closed scope.
-    linux_backend::LinuxDesktopEnvironment explicit_empty(
-        std::vector<std::filesystem::path>{});
+    linux_backend::LinuxDesktopEnvironment explicit_empty(std::vector<std::filesystem::path>{});
     const auto denied_again = explicit_empty.read_text_file(existing);
     MIRAGE_CHECK(!denied_again.ok);
     MIRAGE_CHECK(denied_again.error.code == "permission_denied");
@@ -300,8 +299,7 @@ void scenario_read_cancelled_before_work() {
 
     desktop::CancelToken token;
     token.request_cancel();
-    const auto outcome =
-        environment.read_text_file(big, desktop::FileReadLimits{}, token);
+    const auto outcome = environment.read_text_file(big, desktop::FileReadLimits{}, token);
     MIRAGE_CHECK(!outcome.ok);
     MIRAGE_CHECK(outcome.error.code == "cancelled");
     MIRAGE_CHECK(outcome.content.empty());

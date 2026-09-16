@@ -33,32 +33,34 @@ mirage::desktop::ProviderError provider_error(std::string code, std::string mess
 /// the size check and the read), and the token is observed once per chunk,
 /// so both paths end the read without unbounded work.
 mirage::desktop::FileReadOutcome read_stream(int fd, std::uintmax_t declared_size,
-                                             const mirage::desktop::FileReadLimits& limits,
-                                             const mirage::desktop::CancelToken& cancel) {
+                                             const mirage::desktop::FileReadLimits &limits,
+                                             const mirage::desktop::CancelToken &cancel) {
     mirage::desktop::FileReadOutcome outcome;
     std::string content;
-    content.reserve(static_cast<std::size_t>(declared_size < limits.max_bytes
-                                                 ? declared_size
-                                                 : limits.max_bytes));
+    content.reserve(static_cast<std::size_t>(declared_size < limits.max_bytes ? declared_size
+                                                                              : limits.max_bytes));
     std::vector<char> buffer(kReadChunkBytes);
     for (;;) {
         if (cancel.cancelled()) {
-            return {false, {},
-                    provider_error("cancelled", "read was cancelled before it finished")};
+            return {
+                false, {}, provider_error("cancelled", "read was cancelled before it finished")};
         }
         const ssize_t received = ::read(fd, buffer.data(), buffer.size());
         if (received < 0) {
             if (errno == EINTR) {
                 continue;
             }
-            return {false, {}, provider_error("io_error", std::string("read failed: ") +
-                                                             std::strerror(errno))};
+            return {
+                false,
+                {},
+                provider_error("io_error", std::string("read failed: ") + std::strerror(errno))};
         }
         if (received == 0) {
             break;
         }
         if (content.size() + static_cast<std::size_t>(received) > limits.max_bytes) {
-            return {false, {},
+            return {false,
+                    {},
                     provider_error("file_too_large", "file exceeds the read budget of " +
                                                          std::to_string(limits.max_bytes) +
                                                          " bytes")};
@@ -77,20 +79,20 @@ mirage::desktop::EnvironmentInfo LinuxDesktopEnvironment::info() const {
 }
 
 mirage::desktop::FileReadOutcome
-LinuxDesktopEnvironment::read_text_file(const std::filesystem::path& path,
-                                        const mirage::desktop::FileReadLimits& limits,
-                                        const mirage::desktop::CancelToken& cancel) {
+LinuxDesktopEnvironment::read_text_file(const std::filesystem::path &path,
+                                        const mirage::desktop::FileReadLimits &limits,
+                                        const mirage::desktop::CancelToken &cancel) {
     if (path.empty()) {
         return {false, {}, provider_error("invalid_argument", "path must not be empty")};
     }
     if (limits.max_bytes == 0) {
-        return {false, {},
-                provider_error("invalid_argument", "read budget must be positive")};
+        return {false, {}, provider_error("invalid_argument", "read budget must be positive")};
     }
     // Scope containment before anything else: an out-of-scope path is a
     // permission refusal, not a lookup, and leaks no filesystem detail.
     if (!read_scope_.contains(path)) {
-        return {false, {},
+        return {false,
+                {},
                 provider_error("permission_denied",
                                "path is outside the allowed read scope: " + path.string())};
     }
@@ -101,28 +103,30 @@ LinuxDesktopEnvironment::read_text_file(const std::filesystem::path& path,
         return {false, {}, provider_error("not_found", "file does not exist: " + path.string())};
     }
     if (!std::filesystem::is_regular_file(status)) {
-        return {false, {},
+        return {false,
+                {},
                 provider_error("invalid_argument", "path is not a regular file: " + path.string())};
     }
     const auto size = std::filesystem::file_size(path, ec);
     if (!ec && size > limits.max_bytes) {
-        return {false, {},
+        return {false,
+                {},
                 provider_error("file_too_large", "file exceeds the read budget of " +
-                                                     std::to_string(limits.max_bytes) +
-                                                     " bytes")};
+                                                     std::to_string(limits.max_bytes) + " bytes")};
     }
 
     const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
     if (fd < 0) {
         const bool denied = errno == EACCES || errno == EPERM;
-        return {false, {},
+        return {false,
+                {},
                 provider_error(denied ? "permission_denied" : "io_error",
                                "cannot open file: " + path.string())};
     }
     mirage::desktop::FileReadOutcome outcome;
     try {
         outcome = read_stream(fd, ec ? 0 : size, limits, cancel);
-    } catch (const std::bad_alloc&) {
+    } catch (const std::bad_alloc &) {
         outcome = {false, {}, provider_error("file_too_large", "file exceeds the read budget")};
     }
     ::close(fd);
@@ -130,35 +134,58 @@ LinuxDesktopEnvironment::read_text_file(const std::filesystem::path& path,
 }
 
 mirage::desktop::ProcessOutcome
-LinuxDesktopEnvironment::execute(const std::string& command,
-                                 const mirage::desktop::ProcessLimits& limits,
-                                 const mirage::desktop::CancelToken& cancel) {
+LinuxDesktopEnvironment::execute(const std::string &command,
+                                 const mirage::desktop::ProcessLimits &limits,
+                                 const mirage::desktop::CancelToken &cancel) {
     using mirage::desktop::ProcessLimits;
     using mirage::desktop::ProcessOutcome;
     // Argument validation happens before any side effect: a refused command
     // must never have reached a shell.
     if (command.empty()) {
-        return {false, false, false, false, false, -1, {}, {},
-                provider_error("invalid_argument", "command must not be empty")};
+        return {false, false, false,
+                false, false, -1,
+                {},    {},    provider_error("invalid_argument", "command must not be empty")};
     }
-    if (limits.timeout <= std::chrono::milliseconds::zero() ||
-        limits.max_output_bytes == 0 || limits.max_command_bytes == 0) {
-        return {false, false, false, false, false, -1, {}, {},
+    if (limits.timeout <= std::chrono::milliseconds::zero() || limits.max_output_bytes == 0 ||
+        limits.max_command_bytes == 0) {
+        return {false,
+                false,
+                false,
+                false,
+                false,
+                -1,
+                {},
+                {},
                 provider_error("invalid_argument",
                                "timeout and output and command budgets must be positive")};
     }
     if (command.size() > limits.max_command_bytes) {
-        return {false, false, false, false, false, -1, {}, {},
-                provider_error("invalid_argument",
-                               "command exceeds the execution budget of " +
-                                   std::to_string(limits.max_command_bytes) + " bytes")};
+        return {false,
+                false,
+                false,
+                false,
+                false,
+                -1,
+                {},
+                {},
+                provider_error("invalid_argument", "command exceeds the execution budget of " +
+                                                       std::to_string(limits.max_command_bytes) +
+                                                       " bytes")};
     }
 
     int stdout_pipe[2];
     int stderr_pipe[2];
     if (pipe2(stdout_pipe, O_CLOEXEC) != 0 || pipe2(stderr_pipe, O_CLOEXEC) != 0) {
-        return {false, false, false, false, false, -1, {}, {},
-                provider_error("io_error", "pipe creation failed: " + std::string(strerror(errno)))};
+        return {
+            false,
+            false,
+            false,
+            false,
+            false,
+            -1,
+            {},
+            {},
+            provider_error("io_error", "pipe creation failed: " + std::string(strerror(errno)))};
     }
 
     const pid_t pid = fork();
@@ -168,8 +195,9 @@ LinuxDesktopEnvironment::execute(const std::string& command,
         close(stdout_pipe[1]);
         close(stderr_pipe[0]);
         close(stderr_pipe[1]);
-        return {false, false, false, false, false, -1, {}, {},
-                provider_error("io_error", "fork failed: " + reason)};
+        return {false, false, false,
+                false, false, -1,
+                {},    {},    provider_error("io_error", "fork failed: " + reason)};
     }
     if (pid == 0) {
         // Child: own process group so the budget or cancellation kill reaches
@@ -177,7 +205,7 @@ LinuxDesktopEnvironment::execute(const std::string& command,
         setpgid(0, 0);
         dup2(stdout_pipe[1], STDOUT_FILENO);
         dup2(stderr_pipe[1], STDERR_FILENO);
-        execl("/bin/sh", "sh", "-c", command.c_str(), static_cast<char*>(nullptr));
+        execl("/bin/sh", "sh", "-c", command.c_str(), static_cast<char *>(nullptr));
         _exit(127);
     }
     // Parent mirrors the child-side setpgid to close the fork race; a failure
@@ -225,7 +253,7 @@ LinuxDesktopEnvironment::execute(const std::string& command,
             if ((fds[index].revents & (POLLIN | POLLHUP)) == 0) {
                 continue;
             }
-            auto& sink = index == 0 ? standard_output : standard_error;
+            auto &sink = index == 0 ? standard_output : standard_error;
             char buffer[4096];
             const ssize_t received = read(fds[index].fd, buffer, sizeof(buffer));
             if (received < 0 && errno == EINTR) {
@@ -236,9 +264,8 @@ LinuxDesktopEnvironment::execute(const std::string& command,
                 --open_streams;
                 continue;
             }
-            const std::size_t room = limits.max_output_bytes > sink.size()
-                                         ? limits.max_output_bytes - sink.size()
-                                         : 0;
+            const std::size_t room =
+                limits.max_output_bytes > sink.size() ? limits.max_output_bytes - sink.size() : 0;
             if (room == 0) {
                 output_truncated = true;
                 continue;
@@ -283,28 +310,58 @@ LinuxDesktopEnvironment::execute(const std::string& command,
         }
     }
     if (was_cancelled) {
-        return {false, false, true, output_truncated, false, -1,
-                std::move(standard_output), std::move(standard_error),
+        return {false,
+                false,
+                true,
+                output_truncated,
+                false,
+                -1,
+                std::move(standard_output),
+                std::move(standard_error),
                 provider_error("cancelled", "command was cancelled before its budget expired")};
     }
     if (timed_out) {
-        return {false, true, false, output_truncated, false, -1, std::move(standard_output),
+        return {false,
+                true,
+                false,
+                output_truncated,
+                false,
+                -1,
+                std::move(standard_output),
                 std::move(standard_error),
                 provider_error("deadline_exceeded", "command exceeded its time budget")};
     }
     if (!reaped) {
-        return {false, false, false, output_truncated, false, -1, std::move(standard_output),
+        return {false,
+                false,
+                false,
+                output_truncated,
+                false,
+                -1,
+                std::move(standard_output),
                 std::move(standard_error),
                 provider_error("io_error", "child could not be reaped")};
     }
     if (WIFSIGNALED(status)) {
-        return {false, false, false, output_truncated, false, 128 + WTERMSIG(status),
-                std::move(standard_output), std::move(standard_error),
-                provider_error("process_signalled",
-                               "command was terminated by signal " + std::to_string(WTERMSIG(status)))};
+        return {false,
+                false,
+                false,
+                output_truncated,
+                false,
+                128 + WTERMSIG(status),
+                std::move(standard_output),
+                std::move(standard_error),
+                provider_error("process_signalled", "command was terminated by signal " +
+                                                        std::to_string(WTERMSIG(status)))};
     }
     if (!WIFEXITED(status)) {
-        return {false, false, false, output_truncated, false, -1, std::move(standard_output),
+        return {false,
+                false,
+                false,
+                output_truncated,
+                false,
+                -1,
+                std::move(standard_output),
                 std::move(standard_error),
                 provider_error("io_error", "command did not exit normally")};
     }

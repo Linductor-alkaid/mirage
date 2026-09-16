@@ -15,8 +15,8 @@ MiraCoreVersion mira_core_version() {
 
 std::string mira_core_version_string() {
     const MiraCoreVersion version = mira_core_version();
-    return std::to_string(version.major) + "." + std::to_string(version.minor) + "."
-           + std::to_string(version.patch);
+    return std::to_string(version.major) + "." + std::to_string(version.minor) + "." +
+           std::to_string(version.patch);
 }
 
 bool mira_core_compatible_with(int expected_major, int expected_minor) {
@@ -26,36 +26,57 @@ bool mira_core_compatible_with(int expected_major, int expected_minor) {
 
 namespace {
 
-const char* error_code_name(mira::ErrorCode code) {
+const char *error_code_name(mira::ErrorCode code) {
     switch (code) {
-    case mira::ErrorCode::Cancelled: return "cancelled";
-    case mira::ErrorCode::DeadlineExceeded: return "deadline_exceeded";
-    case mira::ErrorCode::ResourceExhausted: return "resource_exhausted";
-    case mira::ErrorCode::Unavailable: return "unavailable";
-    case mira::ErrorCode::PermissionDenied: return "permission_denied";
-    case mira::ErrorCode::InvalidArgument: return "invalid_argument";
-    case mira::ErrorCode::InvalidState: return "invalid_state";
-    case mira::ErrorCode::NotFound: return "not_found";
-    case mira::ErrorCode::AlreadyExists: return "already_exists";
-    case mira::ErrorCode::UnsupportedCapability: return "unsupported_capability";
-    case mira::ErrorCode::UnsupportedVersion: return "unsupported_version";
-    case mira::ErrorCode::InvalidObservation: return "invalid_observation";
-    case mira::ErrorCode::StaleObservation: return "stale_observation";
-    case mira::ErrorCode::InvalidModelOutput: return "invalid_model_output";
-    case mira::ErrorCode::ContextOverflow: return "context_overflow";
-    case mira::ErrorCode::SafetyRejected: return "safety_rejected";
-    case mira::ErrorCode::ConfirmationRequired: return "confirmation_required";
-    case mira::ErrorCode::ExecutionUncertain: return "execution_uncertain";
-    case mira::ErrorCode::DataLoss: return "data_loss";
-    case mira::ErrorCode::PlatformError: return "platform_error";
-    case mira::ErrorCode::Internal: return "internal";
+    case mira::ErrorCode::Cancelled:
+        return "cancelled";
+    case mira::ErrorCode::DeadlineExceeded:
+        return "deadline_exceeded";
+    case mira::ErrorCode::ResourceExhausted:
+        return "resource_exhausted";
+    case mira::ErrorCode::Unavailable:
+        return "unavailable";
+    case mira::ErrorCode::PermissionDenied:
+        return "permission_denied";
+    case mira::ErrorCode::InvalidArgument:
+        return "invalid_argument";
+    case mira::ErrorCode::InvalidState:
+        return "invalid_state";
+    case mira::ErrorCode::NotFound:
+        return "not_found";
+    case mira::ErrorCode::AlreadyExists:
+        return "already_exists";
+    case mira::ErrorCode::UnsupportedCapability:
+        return "unsupported_capability";
+    case mira::ErrorCode::UnsupportedVersion:
+        return "unsupported_version";
+    case mira::ErrorCode::InvalidObservation:
+        return "invalid_observation";
+    case mira::ErrorCode::StaleObservation:
+        return "stale_observation";
+    case mira::ErrorCode::InvalidModelOutput:
+        return "invalid_model_output";
+    case mira::ErrorCode::ContextOverflow:
+        return "context_overflow";
+    case mira::ErrorCode::SafetyRejected:
+        return "safety_rejected";
+    case mira::ErrorCode::ConfirmationRequired:
+        return "confirmation_required";
+    case mira::ErrorCode::ExecutionUncertain:
+        return "execution_uncertain";
+    case mira::ErrorCode::DataLoss:
+        return "data_loss";
+    case mira::ErrorCode::PlatformError:
+        return "platform_error";
+    case mira::ErrorCode::Internal:
+        return "internal";
     }
     return "unknown";
 }
 
-HostError pinned_error(const mira::Error& error) {
-    std::string message = error.safe_message.empty() ? "pinned runtime rejected the request"
-                                                     : error.safe_message;
+HostError pinned_error(const mira::Error &error) {
+    std::string message =
+        error.safe_message.empty() ? "pinned runtime rejected the request" : error.safe_message;
     return HostError{"pinned_runtime",
                      std::string(error_code_name(error.code)) + ": " + std::move(message)};
 }
@@ -64,41 +85,51 @@ HostError host_error(std::string code, std::string message) {
     return HostError{std::move(code), std::move(message)};
 }
 
-HostOutcome failed(HostError error) {
-    return HostOutcome{false, std::move(error)};
-}
+HostOutcome failed(HostError error) { return HostOutcome{false, std::move(error)}; }
 
 TaskProgress project_task_state(mira::TaskState state) {
     using mira::TaskState;
     switch (state) {
-    case TaskState::Idle: return TaskProgress::Idle;
+    case TaskState::Idle:
+        return TaskProgress::Idle;
     case TaskState::Observing:
     case TaskState::Reasoning:
     case TaskState::Planning:
     case TaskState::Acting:
     case TaskState::Verifying:
-    case TaskState::Recovering: return TaskProgress::Active;
+    case TaskState::Recovering:
+        return TaskProgress::Active;
     case TaskState::Pausing:
     case TaskState::Paused:
     case TaskState::TakeoverSettling:
-    case TaskState::SuspendedForTakeover: return TaskProgress::Paused;
-    case TaskState::Cancelling: return TaskProgress::Cancelling;
-    case TaskState::Completed: return TaskProgress::Completed;
-    case TaskState::Failed: return TaskProgress::Failed;
-    case TaskState::Cancelled: return TaskProgress::Cancelled;
+    case TaskState::SuspendedForTakeover:
+        return TaskProgress::Paused;
+    case TaskState::Cancelling:
+        return TaskProgress::Cancelling;
+    case TaskState::Completed:
+        return TaskProgress::Completed;
+    case TaskState::Failed:
+        return TaskProgress::Failed;
+    case TaskState::Cancelled:
+        return TaskProgress::Cancelled;
     }
     return TaskProgress::Unknown;
 }
 
 } // namespace
 
-const char* host_status_name(HostStatus status) {
+const char *host_status_name(HostStatus status) {
     switch (status) {
-    case HostStatus::Stopped: return "stopped";
-    case HostStatus::Starting: return "starting";
-    case HostStatus::Running: return "running";
-    case HostStatus::Stopping: return "stopping";
-    case HostStatus::Failed: return "failed";
+    case HostStatus::Stopped:
+        return "stopped";
+    case HostStatus::Starting:
+        return "starting";
+    case HostStatus::Running:
+        return "running";
+    case HostStatus::Stopping:
+        return "stopping";
+    case HostStatus::Failed:
+        return "failed";
     }
     return "unknown";
 }
@@ -138,17 +169,15 @@ MiraHost::~MiraHost() {
     }
 }
 
-HostStatus MiraHost::status() const {
-    return impl_->status.load();
-}
+HostStatus MiraHost::status() const { return impl_->status.load(); }
 
-HostOutcome MiraHost::start(
-    std::shared_ptr<mirage::integration::DesktopEnvironmentBinding> binding) {
+HostOutcome
+MiraHost::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBinding> binding) {
     const HostStatus current = impl_->status.load();
     if (current != HostStatus::Stopped) {
-        return failed(host_error("invalid_state",
-                                 std::string("start() requires a Stopped host, got ") +
-                                     host_status_name(current)));
+        return failed(
+            host_error("invalid_state", std::string("start() requires a Stopped host, got ") +
+                                            host_status_name(current)));
     }
     if (!binding) {
         return failed(host_error("invalid_argument", "binding is null"));
@@ -191,14 +220,14 @@ HostOutcome MiraHost::start(
     return HostOutcome{true, {}};
 }
 
-TaskSubmissionResult MiraHost::submit_task(const std::string& goal) {
+TaskSubmissionResult MiraHost::submit_task(const std::string &goal) {
     const HostStatus current = impl_->status.load();
     if (current != HostStatus::Running) {
         return TaskSubmissionResult{
-            false, {},
-            host_error("invalid_state",
-                       std::string("submit_task() requires a Running host, got ") +
-                           host_status_name(current))};
+            false,
+            {},
+            host_error("invalid_state", std::string("submit_task() requires a Running host, got ") +
+                                            host_status_name(current))};
     }
     if (goal.empty()) {
         return TaskSubmissionResult{
@@ -214,20 +243,21 @@ TaskSubmissionResult MiraHost::submit_task(const std::string& goal) {
         return TaskSubmissionResult{false, {}, pinned_error(outcome.error())};
     }
     if (outcome.value().status == mira::SettlementStatus::Failed) {
-        return TaskSubmissionResult{
-            false, {},
-            outcome.value().error ? pinned_error(*outcome.value().error)
-                                  : host_error("pinned_runtime", "task submission failed")};
+        return TaskSubmissionResult{false,
+                                    {},
+                                    outcome.value().error
+                                        ? pinned_error(*outcome.value().error)
+                                        : host_error("pinned_runtime", "task submission failed")};
     }
     return TaskSubmissionResult{true, TaskIdentity{submission.value().id.to_string()}, {}};
 }
 
-HostOutcome MiraHost::cancel_task(const TaskIdentity& task) {
+HostOutcome MiraHost::cancel_task(const TaskIdentity &task) {
     const HostStatus current = impl_->status.load();
     if (current != HostStatus::Running) {
-        return failed(host_error("invalid_state",
-                                 std::string("cancel_task() requires a Running host, got ") +
-                                     host_status_name(current)));
+        return failed(
+            host_error("invalid_state", std::string("cancel_task() requires a Running host, got ") +
+                                            host_status_name(current)));
     }
     const auto task_id = mira::TaskId::parse(task.id);
     if (!task_id) {
@@ -243,15 +273,15 @@ HostOutcome MiraHost::cancel_task(const TaskIdentity& task) {
         return failed(pinned_error(outcome.error()));
     }
     if (outcome.value().status == mira::SettlementStatus::Failed) {
-        return failed(outcome.value().error ? pinned_error(*outcome.value().error)
-                                            : host_error("pinned_runtime",
-                                                         "task cancellation failed"));
+        return failed(outcome.value().error
+                          ? pinned_error(*outcome.value().error)
+                          : host_error("pinned_runtime", "task cancellation failed"));
     }
     return HostOutcome{true, {}};
 }
 
-HostOutcome MiraHost::complete_task(const TaskIdentity& task, bool success,
-                                    const std::string& safe_error) {
+HostOutcome MiraHost::complete_task(const TaskIdentity &task, bool success,
+                                    const std::string &safe_error) {
     const HostStatus current = impl_->status.load();
     if (current != HostStatus::Running) {
         return failed(host_error("invalid_state",
@@ -280,14 +310,14 @@ HostOutcome MiraHost::complete_task(const TaskIdentity& task, bool success,
         return failed(pinned_error(outcome.error()));
     }
     if (outcome.value().status == mira::SettlementStatus::Failed) {
-        return failed(outcome.value().error ? pinned_error(*outcome.value().error)
-                                            : host_error("pinned_runtime",
-                                                         "task completion was rejected"));
+        return failed(outcome.value().error
+                          ? pinned_error(*outcome.value().error)
+                          : host_error("pinned_runtime", "task completion was rejected"));
     }
     return HostOutcome{true, {}};
 }
 
-TaskViewResult MiraHost::task_view(const TaskIdentity& task) const {
+TaskViewResult MiraHost::task_view(const TaskIdentity &task) const {
     const auto task_id = mira::TaskId::parse(task.id);
     if (!task_id) {
         return TaskViewResult{false, TaskView{},
@@ -306,11 +336,12 @@ TaskViewResult MiraHost::task_view(const TaskIdentity& task) const {
     return TaskViewResult{true, view, {}};
 }
 
-OperationBeginResult MiraHost::begin_operation(const TaskIdentity& task) {
+OperationBeginResult MiraHost::begin_operation(const TaskIdentity &task) {
     const HostStatus current = impl_->status.load();
     if (current != HostStatus::Running) {
         return OperationBeginResult{
-            false, {},
+            false,
+            {},
             host_error("invalid_state",
                        std::string("begin_operation() requires a Running host, got ") +
                            host_status_name(current))};
@@ -325,13 +356,13 @@ OperationBeginResult MiraHost::begin_operation(const TaskIdentity& task) {
     if (!admitted) {
         return OperationBeginResult{false, {}, pinned_error(admitted.error())};
     }
-    const mira::OperationKey& key = admitted.value();
+    const mira::OperationKey &key = admitted.value();
     OperationTicket ticket{task.id, key.task_epoch, key.step_id.to_string(),
                            key.operation_id.to_string()};
     return OperationBeginResult{true, std::move(ticket), {}};
 }
 
-HostOutcome MiraHost::admit_operation_completion(const OperationTicket& ticket) {
+HostOutcome MiraHost::admit_operation_completion(const OperationTicket &ticket) {
     const HostStatus current = impl_->status.load();
     if (current != HostStatus::Running) {
         return failed(host_error("invalid_state",
@@ -357,9 +388,9 @@ HostOutcome MiraHost::admit_operation_completion(const OperationTicket& ticket) 
         return failed(pinned_error(outcome.error()));
     }
     if (outcome.value().status == mira::SettlementStatus::Failed) {
-        return failed(outcome.value().error ? pinned_error(*outcome.value().error)
-                                            : host_error("pinned_runtime",
-                                                         "operation completion was rejected"));
+        return failed(outcome.value().error
+                          ? pinned_error(*outcome.value().error)
+                          : host_error("pinned_runtime", "operation completion was rejected"));
     }
     // Applied settles the operation; NoOp re-states an already settled
     // ticket, which keeps late completion reports idempotent.
@@ -384,10 +415,10 @@ ShutdownResult MiraHost::shutdown() {
     }
     if (current != HostStatus::Running) {
         return ShutdownResult{
-            false, {},
-            host_error("invalid_state",
-                       std::string("shutdown() requires a Running host, got ") +
-                           host_status_name(current))};
+            false,
+            {},
+            host_error("invalid_state", std::string("shutdown() requires a Running host, got ") +
+                                            host_status_name(current))};
     }
 
     impl_->status.store(HostStatus::Stopping);

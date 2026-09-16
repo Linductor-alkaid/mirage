@@ -2,7 +2,7 @@
 
 namespace mirage::runtime::permission {
 
-const char* capability_name(Capability capability) {
+const char *capability_name(Capability capability) {
     switch (capability) {
     case Capability::FilesystemRead:
         return "filesystem.read";

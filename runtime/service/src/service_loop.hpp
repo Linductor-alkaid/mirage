@@ -23,23 +23,22 @@ namespace mirage::runtime::detail {
 /// back through post_response()). The loop thread itself only parses frames
 /// and moves bytes, so it stays responsive to accept, wakeup and shutdown.
 class ServiceLoop final : public executor::IBlockingIoWorker {
-public:
+  public:
     struct Dependencies {
         int listen_fd = -1;
         std::size_t max_connections = 16;
         /// Upper bound of one poll wait; bounds shutdown and wakeup latency.
         int poll_timeout_ms = 200;
         /// Invoked on the loop thread for every complete request frame.
-        std::function<void(std::uint64_t connection_id, std::string payload)>
-            on_frame;
+        std::function<void(std::uint64_t connection_id, std::string payload)> on_frame;
         /// Invoked once on the loop thread when run() exits (any reason).
         std::function<void()> on_exit;
     };
 
     explicit ServiceLoop(Dependencies dependencies);
     ~ServiceLoop() override;
-    ServiceLoop(const ServiceLoop&) = delete;
-    ServiceLoop& operator=(const ServiceLoop&) = delete;
+    ServiceLoop(const ServiceLoop &) = delete;
+    ServiceLoop &operator=(const ServiceLoop &) = delete;
 
     // executor::IBlockingIoWorker
     void run(executor::StopToken stop_token) override;
@@ -52,8 +51,7 @@ public:
 
     /// Queues a response and closes the connection once it is written;
     /// used for protocol violations (DEC-007 framing rules).
-    void post_response_and_close(std::uint64_t connection_id,
-                                 std::string payload);
+    void post_response_and_close(std::uint64_t connection_id, std::string payload);
 
     /// Extra poll descriptor whose readability stops the loop (the signal
     /// self-pipe). Not owned. Must be called before run().
@@ -63,7 +61,7 @@ public:
     /// best-effort response flush; thread-safe (IPC shutdown path).
     void stop_serving();
 
-private:
+  private:
     struct Connection {
         mirage::runtime::ipc::IpcStream stream;
         std::string inbound;
@@ -85,7 +83,7 @@ private:
     void close_connection(std::map<std::uint64_t, Connection>::iterator entry);
     /// One best-effort write pass over a connection's pending outbound;
     /// false when the transport failed or the peer is gone.
-    bool flush_connection(Connection& connection);
+    bool flush_connection(Connection &connection);
     void close_all();
 
     Dependencies dependencies_;

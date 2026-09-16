@@ -8,7 +8,7 @@
 namespace mirage::integration {
 namespace {
 
-std::optional<mirador::PixelFormat> to_mirador_format(const std::string& name) {
+std::optional<mirador::PixelFormat> to_mirador_format(const std::string &name) {
     if (name == "gray8") {
         return mirador::PixelFormat::kGray8;
     }
@@ -32,14 +32,14 @@ std::optional<mirador::PixelFormat> to_mirador_format(const std::string& name) {
 
 } // namespace
 
-bool validate_backend_identity(const VisualBackendIdentity& identity) {
+bool validate_backend_identity(const VisualBackendIdentity &identity) {
     mirador::BackendInfo info;
     info.name = identity.name;
     info.implementation_version = identity.implementation_version;
     info.model_id = identity.model_id;
     info.model_revision = identity.model_revision;
     info.accepted_formats.reserve(identity.accepted_formats.size());
-    for (const std::string& format : identity.accepted_formats) {
+    for (const std::string &format : identity.accepted_formats) {
         const std::optional<mirador::PixelFormat> mapped = to_mirador_format(format);
         if (!mapped) {
             // An unknown format name is a Mirage-side translation failure:

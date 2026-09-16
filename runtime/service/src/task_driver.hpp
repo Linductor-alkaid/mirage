@@ -19,7 +19,7 @@ namespace mirage::runtime::detail {
 /// cancellation is observed between steps. The function never throws:
 /// unexpected failures are recorded on the task and settle it failed, and
 /// the pinned task state stays authoritative via MiraHost.
-void run_driver(executor::StopToken stop_token,
-                std::shared_ptr<ServiceCore> core, std::string task_id);
+void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> core,
+                std::string task_id);
 
 } // namespace mirage::runtime::detail

@@ -34,6 +34,6 @@ struct FrameExtraction {
 /// Extracts one complete frame from the front of `buffer`, erasing the
 /// consumed bytes. Stateless, so both the server loop and clients share the
 /// exact framing rules.
-FrameExtraction try_extract_frame(std::string& buffer);
+FrameExtraction try_extract_frame(std::string &buffer);
 
 } // namespace mirage::runtime::ipc

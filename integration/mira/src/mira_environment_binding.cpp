@@ -25,9 +25,7 @@ MiraEnvironmentBinding::MiraEnvironmentBinding(
     clock_domain_ = mira::ClockDomainId::generate();
 }
 
-const char* MiraEnvironmentBinding::binding_name() const {
-    return name_.c_str();
-}
+const char *MiraEnvironmentBinding::binding_name() const { return name_.c_str(); }
 
 mira::EnvironmentCapabilities MiraEnvironmentBinding::capabilities() const {
     // The M1 desktop environment set carries no screen, structure, foreground
@@ -38,19 +36,18 @@ mira::EnvironmentCapabilities MiraEnvironmentBinding::capabilities() const {
 }
 
 mira::Result<mira::Observation>
-MiraEnvironmentBinding::observe(const mira::ObservationRequest& request,
-                                const mira::OperationContext& context) {
+MiraEnvironmentBinding::observe(const mira::ObservationRequest &request,
+                                const mira::OperationContext &context) {
     if (const auto validated = mira::validate_observation_request(request); !validated) {
         return validated.error();
     }
     if (context.cancelled()) {
-        return pinned_error(mira::ErrorCode::Cancelled,
-                            "observation was cancelled before capture");
+        return pinned_error(mira::ErrorCode::Cancelled, "observation was cancelled before capture");
     }
     const auto unsupported = mira::unsupported_required_components(capabilities(), request);
     if (!unsupported.empty()) {
         std::string message = "observation requires unsupported components:";
-        for (const auto& component : unsupported) {
+        for (const auto &component : unsupported) {
             message += " " + component;
         }
         return pinned_error(mira::ErrorCode::UnsupportedCapability, std::move(message));
@@ -72,8 +69,8 @@ MiraEnvironmentBinding::observe(const mira::ObservationRequest& request,
 }
 
 mira::Result<mira::ExecutionReceipt>
-MiraEnvironmentBinding::execute(const mira::InputSequence& input,
-                                const mira::OperationContext& context) {
+MiraEnvironmentBinding::execute(const mira::InputSequence &input,
+                                const mira::OperationContext &context) {
     (void)input;
     mira::ExecutionReceipt receipt;
     // Refuse before any side effect: no input provider is bound in the M1
@@ -89,7 +86,7 @@ MiraEnvironmentBinding::execute(const mira::InputSequence& input,
     return receipt;
 }
 
-mira::Result<void> MiraEnvironmentBinding::interrupt(const mira::OperationContext& context) {
+mira::Result<void> MiraEnvironmentBinding::interrupt(const mira::OperationContext &context) {
     (void)context;
     // Best-effort release: the M1 environment set has no in-flight platform
     // input or blocking capture to release, so interrupt is an idempotent
