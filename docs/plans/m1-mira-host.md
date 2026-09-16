@@ -46,7 +46,7 @@ Service 与 Local IPC，使 Agent 可以脱离 GUI 生命周期运行（设计�
 - [x] `M1-02` Mira Host 实现可运行的宿主生命周期：初始化 / 关闭顺序、HostStatus 状态
       机（冻结状态集并写入设计文档）、桌面环境绑定接口，覆盖正常完成、取消与 shutdown
       测试。
-- [ ] `M1-03` Desktop Environment 绑定适配器：经 `integration/mira` 把 Filesystem /
+- [x] `M1-03` Desktop Environment 绑定适配器：经 `integration/mira` 把 Filesystem /
       Process Provider 暴露给 Mira，Agent 可提交一个读取文件并执行 Shell 命令的任务并
       观察到结构化结果。
 - [ ] `M1-04` Runtime Service 与 Local IPC：Service 独立于 GUI 生命周期运行，CLI 经
@@ -161,3 +161,58 @@ Service 与 Local IPC，使 Agent 可以脱离 GUI 生命周期运行（设计�
   地注入任意运行中故障，故障注入用例留待具备注入钩子后补；绑定适配器的真实实现与
   Agent 可观察的结构化结果属 `M1-03`。
 - 同步：设计文档第 11.1 节、`DEC-004`、总计划里程碑状态、本验证记录。
+
+2026-09-16：`M1-03` Desktop Environment 绑定适配器完成。
+
+- 范围：`integration/mira` 从纯契约桥扩展为真实绑定——具体适配器
+  `MiraEnvironmentBinding` 最派生类型同时实现 `DesktopEnvironmentBinding` 与 pinned
+  `mira::IEnvironment`，包装 `mirage::desktop::DesktopEnvironment`；pinned 感知/输入
+  面按 M1 能力集如实适配（capabilities 全空集、observe 对 required 超集 fail closed
+  返回 `UnsupportedCapability`、空 required 返回最小无组件 Observation、execute 在
+  副作用前拒绝、interrupt 幂等）。desktop 层新增 `FilesystemProvider`（只读
+  `read_text_file`）、`ProcessProvider`（有界 shell `execute`，超时 + 逐流输出预算）
+  与 `DesktopEnvironment::filesystem()`/`process()` 访问器（缺位返回 null，消费方
+  fail closed）。M1 参考后端 `platform/linux::LinuxDesktopEnvironment` 以 std
+  filesystem 读文件、POSIX fork/exec `/bin/sh -c` 执行命令：独立进程组（父子双侧
+  setpgid）、poll 读取、超时与返回前整组 SIGKILL 收尾、阻塞 waitpid 回收不留僵尸。
+  `MiraHost` 新增 pinned-free 操作面 `begin_operation` / `admit_operation_completion`
+  （`OperationTicket`），宿主侧驱动循环以此括起桌面动作，使其以 pinned
+  OperationRecord 进入控制面；stale/duplicate 完成按 pinned NoOp 幂等呈现，任务终态
+  不复活。绑定形态与过渡期边界登记
+  [DEC-008](../decisions/DEC-008-m1-environment-binding-and-reference-providers.md)。
+- 依据：设计文档第 5、9、11、17 节；`DEC-001`..`004`、`DEC-008`。
+- 验证（Independent-Verification-Agent，Linux x64，Ubuntu 24.04，GCC 13.3.0，
+  CMake 3.28.3，Ninja，clang-format 18.1.3，两轮）：
+  - 第一轮发现参考后端进程收尾路径两个缺陷：直接子进程先退出、孙进程仍持有捕获
+    管道时整组 kill 不触发，孙进程以孤儿存活满 30 秒；deadline kill 后未确认回收
+    即返回，向调用方泄漏僵尸。修复为无条件整组收尾 + 阻塞回收后复验通过。
+  - 新增 `tests/integration/mira_binding_test.cpp`（9 场景 91 断言）：绑定身份与能力
+    如实性、observe fail closed / 最小观察、execute 拒绝与 interrupt 幂等、文件读取
+    正负（缺失/目录/空路径）、进程执行（exit code、stdout/stderr 捕获）、超时预算
+    （sleep 30 用 200ms 预算 5 秒内返回）、非法参数、操作面非法身份拒绝、端到端任务
+    （start → submit → begin_operation → 读文件 → admit → begin_operation → 执行
+    shell → admit → complete_task → `Completed`，结构化结果逐一断言）、取消后迟到
+    完成不复活任务。Independent-Verification-Agent 另补充
+    `tests/integration/desktop_provider_boundary_test.cpp`（6 场景 55 断言）：超时整组
+    清理（含直接子进程先退出的孙进程场景）、重复/迟到操作完成幂等且终态不复活、
+    操作面宿主状态门（Stopped/关闭后 invalid_state）、截断与预算边界（16/64 截断、
+    恰好 64 不截断、零预算拒绝）、文件系统边界（空文件、permission_denied）。
+  - 端到端断言经测试源码与 `mira_host.cpp` 双向核实真实经过 pinned 运行时
+    （submit_task / begin_operation / admit_operation_completion / complete_task）。
+  - 预设矩阵：`debug` / `release` / `asan` / `ubsan` / `tsan` configure + build +
+    ctest 5/5 通过、0 skip；`tsan` 直跑复现 `unexpected memory mapping`（[本机注意
+    事项](../../README.md)），`setarch $(uname -m) -R ctest` 5/5 通过。
+  - 收尾路径重点复跑：boundary 测试 debug 连续 10 次、asan/ubsan/tsan 各 3 次均
+    55/0，每轮系统级抽查 `sleep 30` 残留 0、全系统僵尸 0；对抗探针（重定向输出的
+    游离孙进程在预算内正常完成）验证返回后被整组收尾。
+  - `mirage-format-check` 通过；公共头边界：`desktop/*/include`、`runtime/*/include`、
+    `platform/include`、`platform/linux/include` 对 `mira/`、`mirador/`、`executor/`
+    include 零命中；`OperationTicket` 等新增宿主公共类型 pinned-free。
+- 限制：M1 无模型驱动的 Agent 循环，端到端任务由宿主侧驱动循环推进（`DEC-008`
+  第 2 条，pinned 上游提供宿主环境工具表面后迁移）；Provider 尚无路径范围约束与
+  Permission 判定（`M1-05` / `M1-06` 收紧，`RULE-05` 于 M1-06 落地），该绑定在收紧前
+  仅限开发与测试拓扑；预算内正常完成时游离后台后代（`cmd & disown` 类）会被整组
+  终止，语义演进随 M1-05 取消路径加固复核；Windows 分支本机不可编译验证（M4）；
+  `dependency_wiring_test` 的依赖供应链负向校验已在 `M1-01` 覆盖，本轮未重复。
+- 同步：设计文档第 5、11.1 节、`DEC-008`、总计划里程碑状态、本验证记录、
+  `desktop/process` 契约注释。

@@ -44,3 +44,35 @@ set_tests_properties(desktop_observation_test PROPERTIES
     LABELS "unit"
     TIMEOUT 60
 )
+
+add_executable(mira_binding_test integration/mira_binding_test.cpp)
+target_compile_features(mira_binding_test PUBLIC cxx_std_20)
+mirage_enable_warnings(mira_binding_test)
+target_link_libraries(mira_binding_test
+    PRIVATE
+        Mirage::mira_host
+        Mirage::integration_mira
+        Mirage::platform
+        Mirage::desktop
+)
+add_test(NAME mira_binding_test COMMAND mira_binding_test)
+set_tests_properties(mira_binding_test PROPERTIES
+    LABELS "integration"
+    TIMEOUT 120
+)
+
+add_executable(desktop_provider_boundary_test integration/desktop_provider_boundary_test.cpp)
+target_compile_features(desktop_provider_boundary_test PUBLIC cxx_std_20)
+mirage_enable_warnings(desktop_provider_boundary_test)
+target_link_libraries(desktop_provider_boundary_test
+    PRIVATE
+        Mirage::mira_host
+        Mirage::integration_mira
+        Mirage::platform
+        Mirage::desktop
+)
+add_test(NAME desktop_provider_boundary_test COMMAND desktop_provider_boundary_test)
+set_tests_properties(desktop_provider_boundary_test PROPERTIES
+    LABELS "integration"
+    TIMEOUT 120
+)

@@ -306,6 +306,66 @@ TaskViewResult MiraHost::task_view(const TaskIdentity& task) const {
     return TaskViewResult{true, view, {}};
 }
 
+OperationBeginResult MiraHost::begin_operation(const TaskIdentity& task) {
+    const HostStatus current = impl_->status.load();
+    if (current != HostStatus::Running) {
+        return OperationBeginResult{
+            false, {},
+            host_error("invalid_state",
+                       std::string("begin_operation() requires a Running host, got ") +
+                           host_status_name(current))};
+    }
+    const auto task_id = mira::TaskId::parse(task.id);
+    if (!task_id) {
+        return OperationBeginResult{
+            false, {}, host_error("invalid_argument", "malformed task identity")};
+    }
+
+    const auto admitted = impl_->runtime.begin_operation(task_id.value(), mira::StepId::generate());
+    if (!admitted) {
+        return OperationBeginResult{false, {}, pinned_error(admitted.error())};
+    }
+    const mira::OperationKey& key = admitted.value();
+    OperationTicket ticket{task.id, key.task_epoch, key.step_id.to_string(),
+                           key.operation_id.to_string()};
+    return OperationBeginResult{true, std::move(ticket), {}};
+}
+
+HostOutcome MiraHost::admit_operation_completion(const OperationTicket& ticket) {
+    const HostStatus current = impl_->status.load();
+    if (current != HostStatus::Running) {
+        return failed(host_error("invalid_state",
+                                 std::string("admit_operation_completion() requires a Running "
+                                             "host, got ") +
+                                     host_status_name(current)));
+    }
+    const auto task_id = mira::TaskId::parse(ticket.task_id);
+    const auto step_id = mira::StepId::parse(ticket.step_id);
+    const auto operation_id = mira::OperationId::parse(ticket.operation_id);
+    if (!task_id || !step_id || !operation_id) {
+        return failed(host_error("invalid_argument", "malformed operation ticket"));
+    }
+
+    const mira::OperationKey key{task_id.value(), ticket.task_epoch, step_id.value(),
+                                 operation_id.value()};
+    const auto settled = impl_->runtime.admit_operation_completion(key);
+    if (!settled) {
+        return failed(pinned_error(settled.error()));
+    }
+    const auto outcome = settled.value().outcome(impl_->config.command_wait);
+    if (!outcome) {
+        return failed(pinned_error(outcome.error()));
+    }
+    if (outcome.value().status == mira::SettlementStatus::Failed) {
+        return failed(outcome.value().error ? pinned_error(*outcome.value().error)
+                                            : host_error("pinned_runtime",
+                                                         "operation completion was rejected"));
+    }
+    // Applied settles the operation; NoOp re-states an already settled
+    // ticket, which keeps late completion reports idempotent.
+    return HostOutcome{true, {}};
+}
+
 ShutdownResult MiraHost::shutdown() {
     const HostStatus current = impl_->status.load();
     if (current == HostStatus::Stopped) {

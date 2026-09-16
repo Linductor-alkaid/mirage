@@ -85,6 +85,26 @@ struct TaskIdentity {
     std::string id;
 };
 
+/// Identifier of one admitted desktop operation (design doc section 11.1:
+/// the harness-side driver loop brackets every desktop action with the
+/// pinned operation boundary). The id fields are the pinned identifiers
+/// rendered as 32 lowercase hex characters; the epoch anchors the ticket to
+/// one task era so completions from a cancelled or re-driven era settle as
+/// stale instead of reviving settled work.
+struct OperationTicket {
+    std::string task_id;
+    std::uint64_t task_epoch = 0;
+    std::string step_id;
+    std::string operation_id;
+};
+
+/// Result of begin_operation(); `ticket` is meaningful only when ok is true.
+struct OperationBeginResult {
+    bool ok = false;
+    OperationTicket ticket;
+    HostError error;
+};
+
 /// Result of submit_task(); `task` is meaningful only when ok is true.
 struct TaskSubmissionResult {
     bool ok = false;
@@ -180,6 +200,19 @@ public:
     /// Observes the current task state; Unknown progress for malformed or
     /// unknown identities.
     TaskViewResult task_view(const TaskIdentity& task) const;
+
+    /// Admits one desktop operation for the task so harness-driven desktop
+    /// actions are visible in the pinned control plane. Requires Running;
+    /// refused while the task is paused or under human takeover (pinned
+    /// InvalidState).
+    OperationBeginResult begin_operation(const TaskIdentity& task);
+
+    /// Settles a previously admitted operation after its desktop action
+    /// finished. Idempotent: re-statements of an already settled ticket and
+    /// tickets from a cancelled or re-driven task era settle as pinned NoOps
+    /// and are reported ok — the observable invariant is that the task state
+    /// is never revived, which callers verify with task_view().
+    HostOutcome admit_operation_completion(const OperationTicket& ticket);
 
     /// Ordered shutdown: asks the pinned runtime to stop admitting work,
     /// waits up to shutdown_drain for the drain, then finishes the shutdown.
