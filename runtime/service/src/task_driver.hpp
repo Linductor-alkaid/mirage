@@ -22,4 +22,18 @@ namespace mirage::runtime::detail {
 void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> core,
                 std::string task_id);
 
+/// Publishes one `task.updated` snapshot for the task (DEC-012 decision 3).
+/// Serial-context only: reads the registry record and, for a task that has
+/// not settled, the live pinned progress (the same projection task.inspect
+/// reports), then hands the snapshot to the service's event hub.
+void publish_task_updated(const std::shared_ptr<ServiceCore> &core, const std::string &task_id);
+
+/// Driver-thread entry: posts the publish onto the serial context so event
+/// publication order matches the serialized service state changes. The
+/// publish is a notification, not a reliable delivery (DEC-012 decision 4):
+/// a rejected, drained or late post is dropped instead of blocking the
+/// driver.
+void publish_task_updated_best_effort(const std::shared_ptr<ServiceCore> &core,
+                                      const std::string &task_id);
+
 } // namespace mirage::runtime::detail

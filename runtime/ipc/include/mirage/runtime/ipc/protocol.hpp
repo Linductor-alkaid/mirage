@@ -61,8 +61,19 @@ struct CancelTaskRequest {
 
 struct ShutdownRequest {};
 
+/// Subscribes the connection to the service event stream (DEC-012 decision
+/// 2). No parameters; the subscription is connection-scoped state that dies
+/// with the connection. A pre-M1.5 server rejects the unknown op with a
+/// stable protocol_error, which clients translate into polling fallback.
+struct SubscribeEventsRequest {};
+
+/// Drops the connection's event subscription; idempotent. Events already
+/// queued for the connection may still arrive after the acknowledgement.
+struct UnsubscribeEventsRequest {};
+
 using Request = std::variant<HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest,
-                             CancelTaskRequest, ShutdownRequest>;
+                             CancelTaskRequest, ShutdownRequest, SubscribeEventsRequest,
+                             UnsubscribeEventsRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -74,6 +85,11 @@ struct ServiceIdentity {
     std::string mira_core_version;
     std::string host_status;
     int protocol = kProtocolVersion;
+    /// DEC-012 event-capability advertisement. An event-capable server
+    /// always encodes the member (true); the decoder leaves it disengaged
+    /// when the wire form omits it, so consumers read `value_or(false)` —
+    /// the optional preserves wire presence for byte-exact round-trips.
+    std::optional<bool> events;
 };
 
 struct TaskSubmitted {
@@ -181,6 +197,64 @@ struct ResponseDecode {
 
 /// Strict decode of one response payload.
 ResponseDecode decode_response(std::string_view payload);
+
+// ---------------------------------------------------------------------------
+// Events (DEC-012, wire semantics frozen with M1.5-02)
+// ---------------------------------------------------------------------------
+
+/// `task.updated` snapshot (DEC-012 decision 3): published on task creation,
+/// progress advances and terminal settlement. `progress` carries the same
+/// product projection as task.inspect; `has_success`/`success` are false
+/// until a terminal state, then mirror task.inspect's success members.
+struct TaskUpdatedEvent {
+    std::string task_id;
+    std::string goal;
+    std::string progress;
+    bool has_success = false;
+    bool success = false;
+};
+
+/// `host.status`: the Mira Host five-state name (DEC-004, lowercase stable
+/// form, same set as hello's host_status) published on every transition.
+struct HostStatusEvent {
+    std::string status;
+};
+
+/// `events.overflow`: synthetic marker published to one connection when its
+/// bounded event queue dropped events; `dropped` counts the losses the
+/// marker reports. Snapshots remain the source of truth after it.
+struct EventsOverflowEvent {
+    std::uint64_t dropped = 0;
+};
+
+/// Closed M1.5 event set; M2+ events join additively.
+using EventPayload = std::variant<TaskUpdatedEvent, HostStatusEvent, EventsOverflowEvent>;
+
+/// One decoded event frame minus its envelope bookkeeping: the per-connection
+/// `seq` plus the payload. `seq` is assigned by the sender per connection,
+/// starting at 1 and strictly monotonic.
+struct Event {
+    std::uint64_t seq = 0;
+    EventPayload payload;
+};
+
+/// Stable event names ("task.updated" / "host.status" / "events.overflow").
+const char *event_name(const EventPayload &payload);
+
+/// Encodes one event envelope `{"v":1,"seq":N,"event":"<名称>",...载荷}` as a
+/// wire payload (no framing prefix).
+std::string encode_event(const Event &event);
+
+struct EventDecode {
+    bool ok = false;
+    Event event;       ///< meaningful when ok
+    std::string error; ///< stable reason, meaningful when !ok
+};
+
+/// Strict decode of one event payload; any deviation (bad JSON, wrong
+/// version, non-positive seq, unknown event name, malformed payload fields)
+/// fails with a stable reason.
+EventDecode decode_event(std::string_view payload);
 
 /// Stable string form of a StepKind ("filesystem.read" / "process.execute").
 const char *step_kind_name(StepKind kind);

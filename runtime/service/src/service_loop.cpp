@@ -84,6 +84,7 @@ void ServiceLoop::post_response(std::uint64_t connection_id, std::string payload
 
 void ServiceLoop::post_response_and_close(std::uint64_t connection_id, std::string payload) {
     OutboundMessage message;
+    message.kind = OutboundMessage::Kind::Frame;
     message.connection_id = connection_id;
     message.payload = std::move(payload);
     message.close_after = true;
@@ -93,12 +94,96 @@ void ServiceLoop::post_response_and_close(std::uint64_t connection_id, std::stri
     }
 }
 
+void ServiceLoop::post_attach_events(
+    std::uint64_t connection_id, executor::comm::TopicSubscription<ipc::EventPayload> subscription,
+    std::optional<ipc::EventPayload> seed) {
+    OutboundMessage message;
+    message.kind = OutboundMessage::Kind::AttachEvents;
+    message.connection_id = connection_id;
+    message.seed = std::move(seed);
+    message.subscription = std::move(subscription);
+    if (!outbound_.try_send(std::move(message))) {
+        // Losing an attach would strand the subscription on the topic and
+        // leak events into a queue nobody drains; fail loud like a lost
+        // response (RULE-07).
+        overflow_.store(true, std::memory_order_release);
+        wakeup();
+    }
+}
+
+void ServiceLoop::post_detach_events(std::uint64_t connection_id) {
+    OutboundMessage message;
+    message.kind = OutboundMessage::Kind::DetachEvents;
+    message.connection_id = connection_id;
+    if (!outbound_.try_send(std::move(message))) {
+        overflow_.store(true, std::memory_order_release);
+        wakeup();
+    }
+}
+
+void ServiceLoop::append_event(Connection &connection, const ipc::Event &event) {
+    if (connection.outbound_sent == connection.outbound.size()) {
+        connection.outbound.clear();
+        connection.outbound_sent = 0;
+    }
+    connection.outbound += ipc::make_frame(ipc::encode_event(event));
+}
+
+void ServiceLoop::drain_events() {
+    for (auto &entry : connections_) {
+        Connection &connection = entry.second;
+        if (!connection.events) {
+            continue;
+        }
+        // Responses of this pass were already appended by drain_outbound();
+        // events follow them in the same buffer, so response frames go out
+        // before the connection's queued events (DEC-012 write-out rule).
+        ipc::EventPayload payload;
+        while (connection.events->try_receive(payload)) {
+            ipc::Event event;
+            event.seq = ++connection.event_seq;
+            event.payload = payload;
+            append_event(connection, event);
+        }
+        const auto stats = connection.events->stats();
+        if (stats.dropped_count > connection.overflow_reported) {
+            // The drop-oldest queue discarded events; surface the loss as
+            // the synthetic marker instead of a silent seq hole (RULE-07).
+            ipc::EventsOverflowEvent overflow;
+            overflow.dropped = stats.dropped_count - connection.overflow_reported;
+            connection.overflow_reported = stats.dropped_count;
+            ipc::Event event;
+            event.seq = ++connection.event_seq;
+            event.payload = overflow;
+            append_event(connection, event);
+        }
+    }
+}
+
 void ServiceLoop::drain_outbound() {
     OutboundMessage message;
     while (outbound_.try_receive(message)) {
         auto entry = connections_.find(message.connection_id);
-        if (entry == connections_.end()) {
-            continue; // connection already gone; the response dies with it
+        if (message.kind != OutboundMessage::Kind::Frame &&
+            entry == connections_.end()) {
+            continue; // connection already gone; its subscription dies here
+        }
+        if (message.kind == OutboundMessage::Kind::AttachEvents) {
+            Connection &connection = entry->second;
+            connection.events.emplace(std::move(message.subscription));
+            if (message.seed.has_value()) {
+                // Seed first (seq 1): the current host status at subscribe
+                // time, then everything the topic queued meanwhile.
+                ipc::Event event;
+                event.seq = ++connection.event_seq;
+                event.payload = std::move(*message.seed);
+                append_event(connection, event);
+            }
+            continue;
+        }
+        if (message.kind == OutboundMessage::Kind::DetachEvents) {
+            entry->second.events.reset();
+            continue;
         }
         Connection &connection = entry->second;
         if (connection.outbound_sent == connection.outbound.size()) {
@@ -338,6 +423,7 @@ void ServiceLoop::run(executor::StopToken stop_token) {
         }
 
         drain_outbound();
+        drain_events();
         // Responses produced by handlers during this iteration go out in the
         // same iteration when the socket takes them.
         for (auto entry = connections_.begin(); entry != connections_.end();) {
@@ -366,9 +452,11 @@ void ServiceLoop::run(executor::StopToken stop_token) {
         }
     }
 
-    // Ordered exit: best-effort delivery of already-produced responses, then
-    // close everything. No new requests are read after stop.
+    // Ordered exit: best-effort delivery of already-produced responses and
+    // queued events, then close everything. No new requests are read after
+    // stop.
     drain_outbound();
+    drain_events();
     for (auto &entry : connections_) {
         (void)flush_connection(entry.second);
     }

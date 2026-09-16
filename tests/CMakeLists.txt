@@ -120,6 +120,23 @@ set_tests_properties(runtime_service_test PROPERTIES
     TIMEOUT 300
 )
 
+add_executable(event_subscription_test runtime/event_subscription_test.cpp)
+target_compile_features(event_subscription_test PUBLIC cxx_std_20)
+mirage_enable_warnings(event_subscription_test)
+target_link_libraries(event_subscription_test
+    PRIVATE
+        Mirage::runtime_service
+        Mirage::integration_mira
+        Mirage::platform
+        Mirage::desktop
+        Mirage::ipc
+)
+add_test(NAME event_subscription_test COMMAND event_subscription_test)
+set_tests_properties(event_subscription_test PROPERTIES
+    LABELS "integration"
+    TIMEOUT 300
+)
+
 add_executable(provider_hardening_test desktop/provider_hardening_test.cpp)
 target_compile_features(provider_hardening_test PUBLIC cxx_std_20)
 mirage_enable_warnings(provider_hardening_test)

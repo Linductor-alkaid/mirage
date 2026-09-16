@@ -9,9 +9,13 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <optional>
 #include <string>
 #include <unistd.h>
 
+#include <executor/comm/topic.hpp>
+
+#include <mirage/runtime/ipc/protocol.hpp>
 #include <mirage/runtime/ipc/stream.hpp>
 
 namespace mirage::runtime::detail {
@@ -53,6 +57,20 @@ class ServiceLoop final : public executor::IBlockingIoWorker {
     /// used for protocol violations (DEC-007 framing rules).
     void post_response_and_close(std::uint64_t connection_id, std::string payload);
 
+    /// Attaches an event subscription to a connection (M1.5-02, DEC-012):
+    /// the loop drains the subscription's bounded queue and writes its
+    /// events after the responses of the same pass. `seed`, when engaged,
+    /// becomes the connection's first event (seq 1) — the current host
+    /// status at subscribe time. A subscription for a connection that has
+    /// died in the meantime is dropped here.
+    void post_attach_events(std::uint64_t connection_id,
+                            executor::comm::TopicSubscription<ipc::EventPayload> subscription,
+                            std::optional<ipc::EventPayload> seed);
+
+    /// Detaches a connection's event subscription; idempotent. Queued
+    /// events already written into the connection buffer still flush.
+    void post_detach_events(std::uint64_t connection_id);
+
     /// Extra poll descriptor whose readability stops the loop (the signal
     /// self-pipe). Not owned. Must be called before run().
     void register_shutdown_fd(int fd);
@@ -69,15 +87,31 @@ class ServiceLoop final : public executor::IBlockingIoWorker {
         std::size_t outbound_sent = 0;
         bool busy = false;              ///< one outstanding request
         bool close_after_write = false; ///< protocol violation / capacity
+        /// Event stream state (DEC-012); loop-thread only. The
+        /// subscription is the bounded drop-oldest per-connection queue.
+        std::optional<executor::comm::TopicSubscription<ipc::EventPayload>> events;
+        std::uint64_t event_seq = 0;         ///< last written event's seq
+        std::uint64_t overflow_reported = 0; ///< drops already surfaced
     };
 
     struct OutboundMessage {
+        enum class Kind { Frame, AttachEvents, DetachEvents };
+        Kind kind = Kind::Frame;
         std::uint64_t connection_id = 0;
         std::string payload;
         bool close_after = false;
+        /// AttachEvents only: first event delivered on the new
+        /// subscription (current host status at subscribe time).
+        std::optional<ipc::EventPayload> seed;
+        /// AttachEvents only: the per-connection bounded queue.
+        executor::comm::TopicSubscription<ipc::EventPayload> subscription;
     };
 
     void drain_outbound();
+    void drain_events();
+    /// Appends one encoded event frame to the connection buffer with the
+    /// next per-connection seq.
+    void append_event(Connection &connection, const ipc::Event &event);
     void accept_ready();
     void handle_wakeups(bool wake_ready, bool shutdown_ready);
     void close_connection(std::map<std::uint64_t, Connection>::iterator entry);

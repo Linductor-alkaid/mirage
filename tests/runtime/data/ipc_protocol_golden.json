@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 1,
+    "version": 2,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
     "decision": "DEC-012 (Accepted), DEC-007",
@@ -12,7 +12,8 @@
     "notes": [
       "canonical strings are byte-exact: compact JSON, members in the wire order pinned by the schema doc sections 4-7.",
       "request_failures / response_failures pin the stable decode error strings shared by both codecs; error_prefix matches by prefix because the C++ parser appends its own diagnostic after \"payload is not valid JSON\".",
-      "events and event_failures sections are consumed by the TypeScript mirror from M1.5-01; the C++ side consumes them from M1.5-02 when the event codec lands. hello-capability carries encode_pending for the same reason."
+      "v2 (M1.5-02): events.subscribe / events.unsubscribe are protocol v1 requests on both ends; the former unknown-op-events-* failure vectors were dropped as obsolete (superseded by unknown-op-registry-edit for the unknown-op stable error).",
+      "events and event_failures sections are consumed by both codecs since M1.5-02; hello-capability's events identity member encodes on both ends."
     ]
   },
   "requests": [
@@ -87,6 +88,22 @@
         "op": "service.shutdown"
       },
       "canonical": "{\"v\":1,\"id\":6,\"op\":\"service.shutdown\"}"
+    },
+    {
+      "name": "events-subscribe",
+      "id": 9,
+      "body": {
+        "op": "events.subscribe"
+      },
+      "canonical": "{\"v\":1,\"id\":9,\"op\":\"events.subscribe\"}"
+    },
+    {
+      "name": "events-unsubscribe",
+      "id": 10,
+      "body": {
+        "op": "events.unsubscribe"
+      },
+      "canonical": "{\"v\":1,\"id\":10,\"op\":\"events.unsubscribe\"}"
     }
   ],
   "request_failures": [
@@ -151,14 +168,9 @@
       "error": "task.inspect requires a non-empty 'task_id'"
     },
     {
-      "name": "unknown-op-events-subscribe",
-      "payload": "{\"v\":1,\"id\":9,\"op\":\"events.subscribe\"}",
-      "error": "unknown op 'events.subscribe'"
-    },
-    {
-      "name": "unknown-op-events-unsubscribe",
-      "payload": "{\"v\":1,\"id\":9,\"op\":\"events.unsubscribe\"}",
-      "error": "unknown op 'events.unsubscribe'"
+      "name": "unknown-op-registry-edit",
+      "payload": "{\"v\":1,\"id\":9,\"op\":\"registry.edit\"}",
+      "error": "unknown op 'registry.edit'"
     }
   ],
   "responses": [
@@ -182,7 +194,6 @@
     },
     {
       "name": "hello-capability",
-      "encode_pending": "M1.5-02",
       "response": {
         "id": 8,
         "ok": true,
