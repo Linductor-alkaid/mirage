@@ -37,11 +37,13 @@ Mirage 是基于 Mira 构建的 Linux / Windows 桌面端产品，为 Mira 提�
 - `ElementReference` / `VisualReference`：为 Snapshot 中的可交互对象提供可执行、可
   解析的临时引用，由 Mirage 在行为执行时解析为平台对象或坐标。
 
-## Executor 是强制并发基础设施
+## 并发与生命周期：使用 mira 交付的 executor 能力
 
-Mirage 必须依赖 pinned `mira` 传递引入的 `third_party/mira/third_party/executor`
-（下称 Executor）管理所有并发任务和运行生命周期。Mirage 不自建、不单独 pin 第二份
-Executor。集成时以其公开头文件、`third_party/mira/third_party/executor/docs/API.md`
+Mirage 的直接依赖只有 pinned `mira` 与 `mirador`。executor 是 mira 交付、随其传递引入
+的并发能力组件（`third_party/mira/third_party/executor`，下称 Executor），不是独立的
+第三个依赖：Mirage 通过 pinned mira 使用其能力管理所有并发任务和运行生命周期，不自建、
+不单独 pin 第二份 Executor。集成时以其公开头文件、
+`third_party/mira/third_party/executor/docs/API.md`
 和 `third_party/mira/third_party/executor/docs/skill/executor-integration/SKILL.md`
 为准；本地资源与 pinned 版本一致，优先于其他版本的文档。
 
@@ -83,7 +85,21 @@ Executor。集成时以其公开头文件、`third_party/mira/third_party/execut
 11. 第三方库回调（平台 SDK、MCP 传输等）只做有界校验和投递，业务 handler 不得直接在
     第三方线程执行；经第三方事件循环的延续派发须遵守集成指南的豁免纪律并保持可追溯。
 
-## Executor 文档与能力路由
+## mira / mirador 能力路由与文档
+
+Mirage 的功能优先复用 pinned `mira` 与 `mirador` 已交付的对应能力。实现任何非平凡能力
+前，先按下列路由确认承载方，并核对该依赖的公开头文件与文档，不得重复实现依赖已有的
+能力：
+
+- 并发任务、定时、取消、生命周期与进程内通信 → mira 交付的 executor 能力（强制规则见
+  上一节）。
+- Agent 运行控制面与任务 / 会话状态机 → pinned `MiraRuntime`（`Mira::core`），API 文档
+  见 `third_party/mira/docs/api/`。
+- JSON 编解码 → mira 的 `mira/json.hpp`。
+- 视觉感知（变化检测、OCR / 检测后处理、证据融合、SoM 渲染等）→ mirador 对应模块，
+  以其公开头文件与 `third_party/mirador/docs/`（design、decisions）为准。
+- Mirage 产品特有面（本地 IPC、桌面 Provider、权限判定、产品状态持久化等）由 Mirage
+  自研，但实现前必须先核对 mira / mirador 公开 API，确认依赖确无对应能力后再自研。
 
 设计和实现并发行为前，先使用 pinned 依赖自带的资源，按其路由说明只加载相关的 router 和
 capability card，不读取无关卡片或实现源码：
@@ -134,9 +150,9 @@ Mirage 的直接依赖只有 pinned `mira` 与 `mirador`；executor（含于 mir
 ## 工程约束
 
 - 使用 C++20 和 CMake（≥ 3.25）+ `CMakePresets.json`；公开 API 避免暴露平台与第三方
-  类型（包括 mira / mirador / executor 头文件类型），平台相关编译单元保持可选。依赖方向
-  指向抽象：`apps/ui -> runtime -> desktop -> platform`，`integration` 适配 pinned
-  依赖；Adapter 依赖 Core 接口，不得反向依赖。
+  类型（包括 mira / mirador 及其内嵌 executor 的头文件类型），平台相关编译单元保持
+  可选。依赖方向指向抽象：`apps/ui -> runtime -> desktop -> platform`，`integration`
+  适配 pinned 依赖；Adapter 依赖 Core 接口，不得反向依赖。
 - 所有跨线程共享状态必须有明确所有权或使用 Executor 提供的通信原语；不得依赖隐式全局
   可变状态。所有队列、缓存和并发 operation 都有容量或预算上限。
 - 为状态转换、取消竞态、关闭顺序、队列拒绝、平台边界校验和 Snapshot 引用解析编写测试。
@@ -170,7 +186,8 @@ Commit、分支、MR、评审与合并必须遵循工程规范第 10 节。要�
 
 ## 完成定义
 
-一项 Mirage 变更只有在以下条件满足时才算完成：职责位于正确层；全部任务受 Executor
-管理；取消和 shutdown 路径闭合；失败对调用方和 Observer 可见；关键事件可复现；相关测试
-通过；计划状态、设计、决策和验收证据已经同步；Commit 与 MR 符合仓库纪律；若遇到依赖
-（mira / mirador）能力缺口，反馈台账已经按要求登记并被实现引用。
+一项 Mirage 变更只有在以下条件满足时才算完成：职责位于正确层；未重复实现 mira /
+mirador 已交付的对应能力（路由见「mira / mirador 能力路由与文档」一节）；全部任务受
+Executor 管理；取消和 shutdown 路径闭合；失败对调用方和 Observer 可见；关键事件可复现；
+相关测试通过；计划状态、设计、决策和验收证据已经同步；Commit 与 MR 符合仓库纪律；若
+遇到依赖（mira / mirador）能力缺口，反馈台账已经按要求登记并被实现引用。

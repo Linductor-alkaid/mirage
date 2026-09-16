@@ -334,14 +334,16 @@ Mirage 的直接依赖只有两个 pinned 仓库：
 
 ### 9.2 Executor 强制规则
 
-Executor 的定位与全部强制规则见根 `AGENTS.md` 的"Executor 是强制并发基础设施"一节，
-此处不重复。计划与设计必须写明每类工作由 Executor 的哪种能力承载、任务句柄由谁持有、
-如何取消以及关闭顺序（总计划 `EXEC-NN` 条目）。
+Executor（mira 交付、随其传递引入的并发能力组件）的定位与全部强制规则见根 `AGENTS.md`
+的"并发与生命周期：使用 mira 交付的 executor 能力"一节，此处不重复。计划与设计必须
+写明每类工作由依赖的哪种能力承载、任务句柄由谁持有、如何取消以及关闭顺序（总计划
+`EXEC-NN` 条目）。
 
 ### 9.3 能力选型与文档路由
 
-设计和实现并发行为前，先使用 pinned 版本自带资源，本地资源与依赖版本一致、优先于其他
-版本的文档：
+能力选型先按根 `AGENTS.md`"mira / mirador 能力路由与文档"一节确认各能力领域的承载方，
+优先复用依赖已交付的能力，不得重复实现；涉及并发行为时，再使用 pinned 版本自带资源，
+本地资源与依赖版本一致、优先于其他版本的文档：
 
 - 应用集成：`third_party/mira/third_party/executor/docs/skill/executor-integration/SKILL.md`。
   按其路由表（Quick start / By scenario / By requirement / By API）只加载一个 router
