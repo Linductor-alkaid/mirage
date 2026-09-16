@@ -3,11 +3,12 @@
 /// the active view.
 
 import type { AppActions, AppState } from '../store.js';
-import { hostStatusLabel } from '../store.js';
+import { hostBadge } from '../components/status-badge.js';
 import { h, render } from '../dom.js';
 import { renderWorkspace } from './workspace.js';
 import { renderTasks } from './tasks.js';
 import { renderExecution } from './execution.js';
+import { renderAppearance } from './appearance.js';
 
 export function renderShell(state: AppState, actions: AppActions): HTMLElement {
     const page = h('div', { class: 'shell' }, renderHeader(state), renderNav(state), renderMain(state, actions));
@@ -29,8 +30,8 @@ function renderHeader(state: AppState): HTMLElement {
         { class: 'topbar' },
         h('div', { class: 'brand' }, h('span', { class: 'brand-mark' }, 'M'), h('span', { class: 'brand-name' }, 'Mirage 控制台')),
         h('div', { class: 'topbar-right' },
-            h('span', { class: `pill pill-host host-${hostStatus}`, 'data-testid': 'host-status' }, `Mira Host：${hostStatusLabel(hostStatus)}`),
-            h('span', { class: 'pill pill-transport' }, `${state.transportLabel} 数据`),
+            hostBadge(hostStatus),
+            h('a', { class: 'pill pill-transport', href: '#/settings/appearance', 'data-testid': 'host-detail-link' }, `${state.transportLabel} 数据 · 外观设置`),
         ),
     );
 }
@@ -42,6 +43,7 @@ function renderNav(state: AppState): HTMLElement {
         { class: 'tabs', 'data-testid': 'nav' },
         navTab('#/workspace', '工作台', active === 'workspace'),
         navTab('#/tasks', '任务', active === 'tasks'),
+        navTab('#/settings/appearance', '设置 · 外观', active === 'appearance'),
     );
 }
 
@@ -74,6 +76,9 @@ function renderMain(state: AppState, actions: AppActions): HTMLElement {
             break;
         case 'execution':
             render(main, renderExecution(state, actions));
+            break;
+        case 'appearance':
+            render(main, renderAppearance());
             break;
     }
     return main;

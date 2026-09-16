@@ -1,12 +1,11 @@
 /// 执行详情（Execution）：单个任务的 step 级实时视图 —— 进度、每个步骤的
 /// 状态/权限/退出码/结果/错误，以及取消操作与终态横幅。
 
-import type { StepView } from '@mirage/contracts';
-
 import type { AppActions, AppState } from '../store.js';
-import { isTerminalProgress, kindLabel, stepStatusLabel } from '../store.js';
+import { isTerminalProgress } from '../store.js';
 import { h } from '../dom.js';
-import { progressBadge } from './tasks.js';
+import { taskBadge } from '../components/status-badge.js';
+import { stepCard } from '../components/cards.js';
 
 export function renderExecution(state: AppState, actions: AppActions): HTMLElement {
     if (state.route.view !== 'execution') {
@@ -46,7 +45,17 @@ export function renderExecution(state: AppState, actions: AppActions): HTMLEleme
     } else {
         const list = h('ol', { class: 'step-list', 'data-testid': 'step-list' });
         for (const step of detail.steps) {
-            list.append(renderStepItem(step));
+            list.append(stepCard({
+                index: step.index,
+                kind: step.kind,
+                status: step.status,
+                permission: step.permission,
+                operationId: step.operation_id,
+                exitCode: step.exit_code,
+                error: step.error,
+                result: step.result,
+                resultTruncated: step.result_truncated,
+            }));
         }
         stepsCard.append(list);
     }
@@ -61,7 +70,7 @@ function renderHeaderCard(detail: { id: string; goal: string; progress: string; 
         h('div', { class: 'card-title-row' },
             h('h2', {}, '执行详情'),
             h('div', { class: 'row-gap' },
-                progressBadge(progress),
+                taskBadge(progress),
                 cancelSlot(detail.id, progress, actions),
             ),
         ),
@@ -104,38 +113,3 @@ function cancelSlot(taskId: string, progress: string, actions: AppActions): HTML
     return button;
 }
 
-function renderStepItem(step: StepView): HTMLElement {
-    const item = h('li', { class: 'step-item', 'data-status': step.status, 'data-testid': 'step-item' });
-    item.append(h(
-        'div',
-        { class: 'step-head' },
-        h('span', { class: 'step-index mono' }, `#${step.index + 1}`),
-        h('span', { class: 'chip' }, kindLabel(step.kind)),
-        h('span', { class: `badge badge-${step.status}` }, stepStatusLabel(step.status)),
-        step.permission.length > 0
-            ? h('span', { class: 'chip chip-muted' }, `权限：${step.permission}`)
-            : h('span', {}),
-    ));
-    const meta: string[] = [];
-    if (step.operation_id.length > 0) {
-        meta.push(`operation: ${step.operation_id}`);
-    }
-    if (step.exit_code >= 0) {
-        meta.push(`exit code: ${step.exit_code}`);
-    }
-    if (meta.length > 0) {
-        item.append(h('p', { class: 'muted small mono' }, meta.join(' · ')));
-    }
-    if (step.error.length > 0) {
-        item.append(h('p', { class: 'step-error', 'data-testid': 'step-error' }, step.error));
-    }
-    if (step.result.length > 0) {
-        item.append(h(
-            'details',
-            { class: 'step-result' },
-            h('summary', {}, `结果${step.result_truncated ? '（已截断）' : ''}`),
-            h('pre', { class: 'mono' }, step.result),
-        ));
-    }
-    return item;
-}

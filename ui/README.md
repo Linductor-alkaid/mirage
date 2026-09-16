@@ -11,11 +11,19 @@
   （`runtime/ipc`）的一致性由共享 golden vectors 测试锁定（`M1.5-01`）。
 - `app/` — 前端应用（Vite + TypeScript，vanilla TS 视图层）。组件框架按计划在
   实现评审时定选；Vite/包管理器均为开发期暂定值，不构成 DEC-006 决策 6 的定案。
+- `app/src/theme/` — 三层设计 token 与主题系统（M1.5-08，设计规范 §2）：L1 原始值
+  （`primitives.ts`）与 5 套内置主题的 light/dark L2 值集（`themes.ts`）以 TS 为
+  单一事实源，入口注入生成 CSS；`ThemeManager` 负责 `data-theme`/`data-mode`
+  挂载、即时切换、localStorage 持久化（key `mirage.appearance`）与跟随系统。
+  组件与样式只消费语义 token，私定颜色以测试清零。
+- `app/src/components/` — 基础组件规格（StatusBadge 封闭色映射、StepCard、
+  ActivityCard、ApprovalCard/SnapshotFrame 占位、Composer）。
 
 仓库初始化时的 `ui/workspace`、`ui/tasks`、`ui/execution` 等占位目录对应产品视图
 划分；M1.5-04 阶段这三个视图以模块形式落在 `app/src/views/`（`workspace.ts` /
-`tasks.ts` / `execution.ts`），其余占位目录仍留待后续里程碑（workflow/overlay/
-settings 属 M5 `SCOPE-06` 范围）。
+`tasks.ts` / `execution.ts`）；M1.5-08 增补 `appearance.ts`（`#/settings/appearance`
+外观设置页：主题库 + 明暗模式 + 组件占位预览）。其余占位目录仍留待后续里程碑
+（workflow/overlay 属 M5 `SCOPE-06` 范围；统一壳迁入见 M1.5-07）。
 
 ## 开发命令
 
@@ -24,7 +32,7 @@ settings 属 M5 `SCOPE-06` 范围）。
 ```bash
 npm install          # 安装依赖（Node >= 22）
 npm run check        # 两包 tsc --noEmit
-npm test             # vitest 单测（contracts 编解码 / mock / 事件语义）
+npm test             # vitest 单测（contracts 编解码 / mock / 事件语义 + app 主题与外观）
 npm run build        # tsc + vite build
 npm run dev -w @mirage/app   # 启动 Vite dev server（默认 mock transport）
 ```
