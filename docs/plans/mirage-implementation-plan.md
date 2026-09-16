@@ -101,7 +101,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | 里程碑 | 内容 | 建议发布点 | 状态 | 依赖 |
 | --- | --- | --- | --- | --- |
 | [M1](m1-mira-host.md) | Mira Host、Runtime Service + IPC、Filesystem/Process Provider、CLI | `release-alpha` | Completed | - |
-| [M1.5](m1.5-ui-parallel-track.md) | UI 并行轨道：wire schema 事实源、IPC 事件订阅、dev bridge、Workspace/Tasks 前端（浏览器形态） | -（随开发线交付，产品化 UI 属 M5） | Planned | M1 |
+| [M1.5](m1.5-ui-parallel-track.md) | UI 并行轨道：wire schema 事实源、IPC 事件订阅、dev bridge、前端（浏览器形态，按 DEC-013 harness 优先统一壳组织：会话/工作流/设置 + 统一壳骨架） | -（随开发线交付，产品化 UI 属 M5） | Planned | M1 |
 | M2 | Desktop Environment 核心 Provider + Linux Backend、Semantic Snapshot、Element Reference | `release-beta` | Planned | M1 |
 | M3 | Mirador 集成：OCR / 检测 / 几何 / Visual Cache、Visual Reference | `release-gamma` | Planned | M2 |
 | M4 | Windows Backend（UIA / Win32 / Capture / Input） | `release-delta` | Planned | M2 |
@@ -121,6 +121,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | DEC-006 | UI 技术路线与分发打包 | 已定案（[DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md)）：Web 前端 + 嵌入式渲染壳（暂定 CEF）独立进程；`.deb` / Windows `exe` 安装包。壳选型与更新通道为暂定默认值，M3 冻结 | Mirage 维护者 | M3 |
 | DEC-007 | Local IPC 机制 | 已定案（[DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md)）：Unix domain socket（Linux）/ 命名管道（Windows，M4），长度前缀 + JSON 帧格式，协议 v1 请求面，`apps/service` 进程形态；传输与帧格式自 M1-04 冻结 | Mirage 维护者 | M1（已冻结） |
 | DEC-012 | IPC 事件订阅与 wire schema 事实源 | 已起草待评审（[DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)）：协议 v1 附加事件帧 + 订阅 op（版本号不递增），`docs/design/mirage-ipc-protocol-v1.md` 为契约事实源，事件分发经 `executor::comm` 承载 | Mirage 维护者 | M1.5 |
+| DEC-013 | 前端信息架构与设计规范 | 已定案（[DEC-013](../decisions/DEC-013-frontend-ia-harness-first.md)）：harness 优先统一壳（会话默认落地、workflow 一级入口、设置八类），workflow 编辑器为对齐 mira Workflow IR v1 的结构化步骤序列；规范见 [《Mirage 前端设计规范与信息架构》](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)，M1.5 落地骨架、M5 验收基线 | Mirage 维护者 | M1.5 |
 
 ## 跨里程碑通用完成定义
 
