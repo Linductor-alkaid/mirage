@@ -37,6 +37,13 @@ Service 与 Local IPC，使 Agent 可以脱离 GUI 生命周期运行（设计�
 - [DEC-002](../decisions/DEC-002-build-test-baseline.md)：构建、预设与测试基线。
 - [DEC-003](../decisions/DEC-003-repository-layout.md)：仓库布局与分层依赖方向。
 - [DEC-004](../decisions/DEC-004-mira-host-status-set.md)：Mira Host 状态集（M1 冻结）。
+- [DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md)：GUI / Tray / CLI 仅经
+  Local IPC 与 Runtime Service 交互。
+- [DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md)：Local IPC 机制与
+  Service 进程形态（M1 冻结传输与帧格式）。
+- [DEC-008](../decisions/DEC-008-m1-environment-binding-and-reference-providers.md)：
+  M1 环境绑定与参考 Provider 边界（`M1-04` 附带
+  `DesktopEnvironmentBinding::bound_environment()` 访问器）。
 
 ## 工作项
 
@@ -49,7 +56,7 @@ Service 与 Local IPC，使 Agent 可以脱离 GUI 生命周期运行（设计�
 - [x] `M1-03` Desktop Environment 绑定适配器：经 `integration/mira` 把 Filesystem /
       Process Provider 暴露给 Mira，Agent 可提交一个读取文件并执行 Shell 命令的任务并
       观察到结构化结果。
-- [ ] `M1-04` Runtime Service 与 Local IPC：Service 独立于 GUI 生命周期运行，CLI 经
+- [x] `M1-04` Runtime Service 与 Local IPC：Service 独立于 GUI 生命周期运行，CLI 经
       IPC 完成 `task list` / `task submit` / `task inspect`；IPC 机制定案（DEC-007）。
 - [ ] `M1-05` Filesystem / Process Provider：路径范围约束、命令执行预算与取消路径，
       负向用例覆盖越界访问与拒绝执行。
@@ -62,7 +69,8 @@ Service 与 Local IPC，使 Agent 可以脱离 GUI 生命周期运行（设计�
 
 - Mira Host 对 Mira 公开 API 的宿主形态（实例生命周期、事件订阅）依赖 mira 0.1.x 契约
   稳定性；若上游契约在 M1 期间变化，按依赖升级流程处理并同步锁文件。
-- Local IPC 机制未定案（DEC-007 暂定默认值）；在定案前 `M1-04` 不进入实现。
+- ~~Local IPC 机制未定案~~：已定案为 [DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md)
+  （2026-09-16，Unix domain socket + 长度前缀 JSON 帧，`apps/service` 进程形态）。
 - Wayland 环境下截图与输入能力受限不阻塞 M1（M1 不依赖屏幕能力）。
 
 ## 测试与退出条件
@@ -216,3 +224,68 @@ Service 与 Local IPC，使 Agent 可以脱离 GUI 生命周期运行（设计�
   `dependency_wiring_test` 的依赖供应链负向校验已在 `M1-01` 覆盖，本轮未重复。
 - 同步：设计文档第 5、11.1 节、`DEC-008`、总计划里程碑状态、本验证记录、
   `desktop/process` 契约注释。
+
+2026-09-16：`M1-04` Runtime Service 与 Local IPC 完成。
+
+- 范围：[DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md) 定案并落地——
+  新增 `runtime/ipc`（`endpoint` 默认路径解析、4 字节小端长度前缀帧（1 MiB 上限）、
+  协议 v1 消息面（pinned-free C++ 结构 + `mira::JsonValue` JSON 实现收在实现文件）、
+  POSIX Unix domain socket 传输（非阻塞流、0700 目录、陈旧 socket 探测接管）、阻塞
+  一次性 `IpcClient`）；`runtime/service` 从占位骨架替换为真实 `RuntimeService`——
+  进程内唯一 `executor::Executor` 实例（`EXEC-01`），IPC 事件循环为专属 blocking
+  I/O worker（poll + 双自检管道唤醒），全部 `MiraHost` 操作经一个
+  `SerialExecutionContext` 串行化（宿主单线程所有权纪律），M1 任务驱动器以
+  `submit_cancellable` 承载（step 间检查停止令牌，`begin_operation` /
+  `admit_operation_completion` 括起桌面动作，结构化结果与 operation id 入注册表，
+  fail-fast 结算），响应回投走 `executor::comm::MpscChannel`，停机序列 = 停止
+  accept → 取消驱动 → 排空 executor → `host.shutdown()`（非 worker 线程收尾）；
+  新增 `apps/service`（`mirage-service`，前台运行，SIGINT/SIGTERM 经自管道接入停机），
+  CLI 新增 `service start|status|shutdown` 与 `task submit|list|inspect`
+  （fork + exec 兄弟二进制并等待就绪，退出码 0/1/2/3）；
+  `DesktopEnvironmentBinding` 新增 `bound_environment()` 访问器（默认 null 向后兼容，
+  [DEC-008](../decisions/DEC-008-m1-environment-binding-and-reference-providers.md)
+  变更记录）；任务 steps 为 DEC-007 第 5 条的过渡输入形态。
+- 依据：设计文档第 12（新增 12.1 落地形态）、17、18 节；`DEC-001`..`004`、`DEC-006`、
+  `DEC-007`、`DEC-008`。
+- 验证（Independent-Verification-Agent，Linux x64，Ubuntu 24.04，GCC 13.3.0，
+  CMake 3.28.3，Ninja，clang-format 18.1.3，两轮）：
+  - 新增 `tests/runtime/ipc_protocol_test.cpp`（25 场景 267 断言）：帧 round-trip /
+    半包逐字节 / 粘包两帧 / 超长声明长度 ProtocolError / 恰好 1 MiB 上限；五类请求
+    与各响应形状 round-trip（含 correlation id 保留、`InspectTask` 有无 success
+    两态）、错误响应、23 种非法请求 + 17 种非法响应的稳定拒绝；真实 UDS 传输双向
+    （300 KiB 分片）、重复 bind 拒绝、关闭删 socket、普通文件与孤儿 socket 接管、
+    自动建 0700 目录、`endpoint_has_listener` 语义、`IpcClient` unavailable 与成功
+    路径。
+  - 新增 `tests/runtime/runtime_service_test.cpp`（17 场景 172 断言）：hello 身份、
+    start/run 前置拒绝、null binding 与无环境 fail closed、终态不可重启、steps 任务
+    Completed + operation id（32 位小写十六进制）+ 结构化结果（文件内容、exit code、
+    stdout）、fail-fast（失败步 failed + 后续步 skipped + 金丝雀步未执行）、结果
+    截断、`not_found` / 空 goal `invalid_argument` / 超长 goal / 超步数 / 超长参数、
+    注册表容量 `invalid_state`、同连接顺序复用、3 连接交错、垃圾 JSON →
+    `protocol_error` 后关闭、pipeline 帧违规与超限帧均"先错误帧后关闭"、IPC
+    shutdown（空闲与在途 `sleep 2` 两种拓扑下 clean 且停机有界）、自管道
+    `register_shutdown_fd`、默认 socket 路径解析。测试全程单进程单线程，未用
+    `std::thread`/`std::async`。
+  - 第一轮发现三个实现缺陷并修复后第二轮复验通过：协议违规错误帧被立即关闭吞掉
+    （service_loop 引入独立 violation 结果，先投递错误帧再关闭）；空 goal 错误码
+    归类（解码层仅要求存在与类型，语义 `invalid_argument` 归服务层）；release 预设
+    `-Wunused-result` 构建失败（三处 `::write` 改为消费返回值）。
+  - 预设矩阵：`debug` / `release` / `asan` / `ubsan` / `tsan` configure + build +
+    ctest 均 7/7 通过、0 skip；`tsan` 按[本机注意事项](../../README.md)以
+    `setarch $(uname -m) -R ctest` 运行，无 race 报告。
+  - 端到端冒烟（真实进程）：`mirage service start`（fork + exec + 就绪探测）→
+    `task submit --read/--exec` → `task list` → `task inspect`（Completed、结构化
+    结果与 operation id 可观察）→ `service shutdown`（进程退出、socket 文件删除、
+    同路径可重启）；独立进程 SIGTERM → `stopped cleanly`；CLI 误用与不可达路径
+    退出码（0/1/2/3）符合设计。
+  - `mirage-format-check` 通过；公共头边界：`runtime/*/include`、`desktop/*/include`、
+    `platform/include`、`platform/linux/include` 对 `mira/`、`mirador/`、`executor/`
+    include 零命中（例外为允许项 `mira_environment_binding.hpp` 的
+    `<mira/environment.hpp>`）。
+- 限制：`max_connections` 容量拒绝与 SIGINT（与 SIGTERM 共用处理路径）未单独构造
+  场景（验收未要求，M5 产品化时补充）；任务 steps 为 DEC-007 过渡形态，`M1-05` /
+  `M1-06` 在此边界内收紧（step 预算与取消路径硬化、Permission 判定接入），pinned
+  上游提供宿主环境工具表面后随 DEC-008 迁移；socket 访问控制仅依赖 0700 目录权限，
+  peer credentials 校验留 M5 复核；Windows 命名管道传输属 M4。
+- 同步：设计文档第 12.1、17 节、`DEC-007`（新）、`DEC-008`（变更记录）、总计划
+  里程碑状态、本验证记录、`README` 运行说明。

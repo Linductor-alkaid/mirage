@@ -11,7 +11,7 @@ Mirage 是基于 [Mira](https://github.com/Linductor-alkaid/mira) 构建的 Linu
 
 ```text
 mirage/
-├── apps/          # 可执行入口：cli（已有）、desktop / tray（M5）
+├── apps/          # 可执行入口：cli、service（已有）、desktop / tray（M5）
 ├── runtime/       # Mira Host、Runtime Service、IPC、持久化、权限
 ├── desktop/       # 跨平台 Desktop Environment（Provider 接口与 Observation）
 ├── platform/      # Linux（AT-SPI2 / X11 / Wayland）与 Windows（UIA / Win32）后端
@@ -44,6 +44,24 @@ ctest --preset debug
 `cd build/tsan && setarch $(uname -m) -R ctest` 运行即可（见
 [M1 验证记录](docs/plans/m1-mira-host.md)）。离线/CI 只校验模式：
 `cmake --preset debug -DMIRAGE_FETCH_DEPENDENCIES=OFF`。
+
+## 运行 Runtime Service 与 CLI（M1）
+
+后台 Runtime Service 经 Local IPC 服务于 CLI / GUI（[DEC-007](docs/decisions/DEC-007-local-ipc-and-runtime-service.md)）：
+
+```bash
+./build/debug/apps/mirage service start                 # 拉起 mirage-service 并等待就绪
+./build/debug/apps/mirage service status
+TASK=$(./build/debug/apps/mirage task submit \
+    --goal "read a file and run a shell command" \
+    --read /etc/hostname --exec "printf hello-mirage" | cut -d' ' -f2)
+./build/debug/apps/mirage task list
+./build/debug/apps/mirage task inspect "$TASK"
+./build/debug/apps/mirage service shutdown
+```
+
+M1 任务由 Service 内的宿主侧驱动循环按提交的有序 steps（`--read` / `--exec`）确定性
+推进；Provider 收紧前仅限开发与测试拓扑（[DEC-008](docs/decisions/DEC-008-m1-environment-binding-and-reference-providers.md)）。
 
 ## 开发流程
 

@@ -14,8 +14,10 @@
 `M1-02` Mira Host 生命周期（状态集冻结见
 [DEC-004](../decisions/DEC-004-mira-host-status-set.md)）、`M1-03` Desktop Environment
 绑定适配器（绑定与参考 Provider 边界见
-[DEC-008](../decisions/DEC-008-m1-environment-binding-and-reference-providers.md)）
-已完成；下一工作项 `M1-04` Runtime Service 与 Local IPC。
+[DEC-008](../decisions/DEC-008-m1-environment-binding-and-reference-providers.md)）、
+`M1-04` Runtime Service 与 Local IPC（IPC 机制定案见
+[DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md)）已完成；下一工作项
+`M1-05` Filesystem / Process Provider 收紧。
 
 ## 交付边界
 
@@ -104,7 +106,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | DEC-004 | Mira Host 状态集 | 已定案（[DEC-004](../decisions/DEC-004-mira-host-status-set.md)）：五态 `Stopped/Starting/Running/Stopping/Failed`，M1 冻结并写入设计文档第 11.1 节 | Mirage 维护者 | M1（已冻结） |
 | DEC-005（待建） | DesktopObservation 契约 | 骨架字段集；M2 冻结 schema v1.0 | Mirage 维护者 | M2 |
 | DEC-006 | UI 技术路线与分发打包 | 已定案（[DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md)）：Web 前端 + 嵌入式渲染壳（暂定 CEF）独立进程；`.deb` / Windows `exe` 安装包。壳选型与更新通道为暂定默认值，M3 冻结 | Mirage 维护者 | M3 |
-| DEC-007（待建） | Local IPC 机制 | 未定（候选：Unix domain socket / 命名管道）；M1 内定案 | Mirage 维护者 | M1 |
+| DEC-007 | Local IPC 机制 | 已定案（[DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md)）：Unix domain socket（Linux）/ 命名管道（Windows，M4），长度前缀 + JSON 帧格式，协议 v1 请求面，`apps/service` 进程形态；传输与帧格式自 M1-04 冻结 | Mirage 维护者 | M1（已冻结） |
 
 ## 跨里程碑通用完成定义
 

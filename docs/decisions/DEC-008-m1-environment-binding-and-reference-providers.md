@@ -70,6 +70,14 @@ Agent 可提交一个读取文件并执行 Shell 命令的任务并观察到结�
 - pinned `admit_operation_completion` 对陈旧票券结算为 NoOp：宿主报告幂等 ok，
   可观察不变量是任务终态不复活（与 DEC-004 的终态幂等语义一致）。
 
+## 变更记录
+
+- 2026-09-16（`M1-04`，[DEC-007](DEC-007-local-ipc-and-runtime-service.md) 落地）：
+  `DesktopEnvironmentBinding` 新增 `bound_environment()` 虚访问器（默认返回 null），
+  具体绑定返回其包装的 `DesktopEnvironment`。Runtime Service 的任务驱动循环经它取得
+  M1 桌面能力面（第 2 条"宿主侧驱动循环"的服务侧形态），不改变绑定/适配器形态与
+  cross-cast 纪律；既有实现不受影响（默认实现向后兼容）。
+
 ## 验证方式
 
 - `tests/integration/mira_binding_test.cpp`：绑定身份与能力如实性、observe fail

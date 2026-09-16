@@ -1,0 +1,54 @@
+#pragma once
+
+#include <chrono>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <string>
+
+#include <executor/executor.hpp>
+#include <executor/serial_execution_context.hpp>
+
+#include <mirage/desktop/desktop_environment.hpp>
+#include <mirage/runtime/mira_host.hpp>
+
+#include "task_registry.hpp"
+
+namespace mirage::runtime::detail {
+
+/// State shared by the service loop, the request handlers and the task
+/// drivers. Owned by a shared_ptr so a driver task finishing during drain
+/// can never touch freed state; the RuntimeService::Impl holds one
+/// reference for the service lifetime.
+struct ServiceCore {
+    /// The process's only Executor instance (EXEC-01): the service owns it,
+    /// initializes it in start() and shuts it down in the ordered teardown.
+    executor::Executor executor;
+    /// Serialization context for every MiraHost operation; the host's
+    /// single-owner discipline is expressed through it.
+    executor::SerialExecutionContext serial;
+    MiraHost host;
+    TaskRegistry registry;
+
+    /// Desktop surface the M1 task drivers act on (mirrors the environment
+    /// wrapped by the binding handed to start(); null until then).
+    std::shared_ptr<mirage::desktop::DesktopEnvironment> environment;
+
+    std::string mirage_version;
+    std::size_t max_steps_per_task = 64;
+    std::size_t max_task_records = 256;
+    std::size_t max_result_bytes = 8192;
+    std::chrono::milliseconds step_timeout{30000};
+    std::chrono::milliseconds command_wait{4000};
+
+    /// Driver handles per active task (guarded by its own mutex; the
+    /// registry mutex is never held while touching executor types).
+    std::mutex drivers_mutex;
+    std::map<std::string, executor::TaskSubmission<void>> drivers;
+
+    ServiceCore() = default;
+    ServiceCore(const ServiceCore&) = delete;
+    ServiceCore& operator=(const ServiceCore&) = delete;
+};
+
+} // namespace mirage::runtime::detail
