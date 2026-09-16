@@ -122,6 +122,10 @@
 
 - 设计文档第 12（后台运行）、17（推荐代码结构）节；
   [DEC-006](DEC-006-ui-web-frontend-packaging.md)（UI 仅经 Local IPC 耦合）。
+- 调研依据：[RPA / Agentic Automation 架构调研](../research/2026-09-16-rpa-agentic-automation-architecture-survey.md)
+  ——能力发现/调用协议"进程内与经 IPC 同构"（Robot Framework Remote Library 经验）
+  与执行事件面（`executor::comm::Topic`）的外部佐证，均属协议 v1 冻结承诺之外的
+  后续演进参考。
 - 工作项：`M1-04`（本决策）；`M1-05`（step 预算与取消路径收紧）、`M1-06`
   （Permission 判定接入请求面）在此边界内收紧。
 - pinned 依据：`third_party/mira/include/mira/json.hpp`（解析限制与严格子集）、

@@ -97,6 +97,9 @@ Agent 可提交一个读取文件并执行 Shell 命令的任务并观察到结�
 ## 关联文档和工作项
 
 - 设计文档第 5、9、11 节；[DEC-003](DEC-003-repository-layout.md)（分层与边界）。
+- 调研依据：[RPA / Agentic Automation 架构调研](../research/2026-09-16-rpa-agentic-automation-architecture-survey.md)
+  ——M2 ElementReference 多提示 Target 与解析顺序契约（其第 5.1 节）的设计输入；
+  本决策的 M1 Filesystem / Process Provider 边界不受影响。
 - 工作项：`M1-03`（本决策）；后续 `M1-05`（范围约束与预算硬化）、`M1-06`
   （Permission 判定）在此边界内收紧。
 - pinned 依据：`third_party/mira/docs/api/core-runtime.md`（外部驱动循环与操作接入

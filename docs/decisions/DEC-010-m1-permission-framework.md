@@ -102,4 +102,8 @@ required → 用户 → Approve/Reject；Denied → 拒绝），`RULE-05` 要求
   （协议附加字段变更记录）、[DEC-008](DEC-008-m1-environment-binding-and-reference-providers.md)
   （过渡边界收敛）、[DEC-009](DEC-009-provider-scope-budget-cancellation.md)
   （Provider 硬边界，与判定层叠加）。
+- 调研依据：[RPA / Agentic Automation 架构调研](../research/2026-09-16-rpa-agentic-automation-architecture-survey.md)
+  ——动作 Risk 分级（READ_ONLY / REVERSIBLE / SIDE_EFFECT / IRREVERSIBLE）与
+  "歧义 halt + checkpoint + 确认后恢复"语义（其第 5.3 节），可作为本决策"影响与
+  风险"预告的 M5 确认面产品化决策输入。
 - 工作项：`M1-06`（本决策）；确认 UI 与权限管理产品化在 M5。

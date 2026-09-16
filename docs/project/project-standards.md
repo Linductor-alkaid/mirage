@@ -45,6 +45,7 @@ Merge Request 提交规范》并补充标准仓库管理方法，Executor 依赖
 | 路径 | 内容 | 典型文件 |
 | --- | --- | --- |
 | `docs/design/` | 架构、模块、协议、状态机和跨层契约 | `Mirage：Linux - Windows 桌面端设计方案.md` |
+| `docs/research/` | 外部项目与技术的源码级调研、经验提炼与对照核实 | `2026-09-16-rpa-agentic-automation-architecture-survey.md` |
 | `docs/decisions/` | 架构决策和产品默认值记录 | `DEC-001-<topic>.md` |
 | `docs/plans/` | 总计划、里程碑计划和交付清单 | `mirage-implementation-plan.md`、`m1-<scope>.md` |
 | `docs/security/` | 威胁模型、安全策略、隐私和凭据处理 | `threat-model.md` |

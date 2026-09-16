@@ -107,5 +107,8 @@
 - 设计文档第 5、12.1、15 节；[DEC-007](DEC-007-local-ipc-and-runtime-service.md)
   （协议 v1 请求面扩展）、[DEC-008](DEC-008-m1-environment-binding-and-reference-providers.md)
   （过渡边界的收紧）。
+- 调研依据：[RPA / Agentic Automation 架构调研](../research/2026-09-16-rpa-agentic-automation-architecture-survey.md)
+  ——Agent 类节点继承预算/取消纪律、"歧义 halt 优先于猜测"语义（其第 5.3 节）的
+  外部佐证（Skyvern `MAX_STEPS_PER_RUN` / `MAX_RETRIES_PER_STEP` 为同类机制）。
 - 工作项：`M1-05`（本决策）；`M1-06` Permission 判定将在此范围基座上叠加能力
   判定与用户确认挂点。
