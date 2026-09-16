@@ -46,6 +46,12 @@ public:
 
     const char* binding_name() const override;
 
+    std::shared_ptr<mirage::desktop::DesktopEnvironment> bound_environment()
+        const override
+    {
+        return environment_;
+    }
+
     mira::EnvironmentCapabilities capabilities() const override;
     mira::Result<mira::Observation> observe(const mira::ObservationRequest& request,
                                             const mira::OperationContext& context) override;

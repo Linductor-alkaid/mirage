@@ -522,6 +522,30 @@ mirage workflow run <name>
 mirage agent run <agent> "<goal>"
 ```
 
+### 12.1 M1 落地形态（DEC-007）
+
+M1 阶段 Local IPC 的落地形态由 [DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md)
+冻结：
+
+- **传输**：Linux 使用 Unix domain socket（默认
+  `$XDG_RUNTIME_DIR/mirage/mirage-service.sock`，回退 `/tmp/mirage-<uid>/`，目录
+  `0700`）；Windows（M4）以命名管道实现同一契约。帧格式为 4 字节小端长度前缀 +
+  UTF-8 JSON（pinned mira 的 JSON 模型实现，公共 API 保持 pinned-free），载荷上限
+  1 MiB，单连接同时至多一个未决请求。
+- **协议 v1 请求面**：`hello`、`task.submit`、`task.list`、`task.inspect`、
+  `service.shutdown`。`task.submit` 携带 goal 与可选有序 steps（M1 桌面能力：
+  `filesystem.read` / `process.execute`），由 Service 内的宿主侧驱动循环逐个执行、
+  以 `begin_operation` / `admit_operation_completion` 括起进入 pinned 控制面并记录
+  step 的 operation id（Trace 关联）；这是无模型循环阶段的过渡形态，与 DEC-008 的
+  迁移路径一致。
+- **进程形态**：Runtime Service 由 `apps/service`（`mirage-service`）托管，前台运行
+  至 `service.shutdown` 或 SIGINT/SIGTERM；`mirage service start` 经 fork + exec
+  拉起兄弟二进制并等待就绪。GUI、Tray、CLI 只经 Local IPC 与之交互。
+- **并发承载**：Service 进程内由 RuntimeService 持有唯一的 `executor::Executor`
+  实例（`EXEC-01`）：IPC 事件循环为专属 blocking I/O worker，全部 MiraHost 操作经
+  一个 SerialExecutionContext 串行化，任务驱动为可取消任务（step 间检查停止令牌），
+  响应回投使用 `executor::comm::MpscChannel`。
+
 ## 13. Agent Workspace
 
 Mirage 的桌面 UI 采用 Agent Workspace 组织，而不是只围绕聊天历史组织。
@@ -650,6 +674,7 @@ Mirage 的仓库可以围绕产品集成与桌面能力组织：
 mirage/
 ├── apps/
 │   ├── desktop/
+│   ├── service/
 │   ├── tray/
 │   └── cli/
 │

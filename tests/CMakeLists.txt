@@ -76,3 +76,30 @@ set_tests_properties(desktop_provider_boundary_test PROPERTIES
     LABELS "integration"
     TIMEOUT 120
 )
+
+add_executable(ipc_protocol_test runtime/ipc_protocol_test.cpp)
+target_compile_features(ipc_protocol_test PUBLIC cxx_std_20)
+mirage_enable_warnings(ipc_protocol_test)
+target_link_libraries(ipc_protocol_test PRIVATE Mirage::ipc)
+add_test(NAME ipc_protocol_test COMMAND ipc_protocol_test)
+set_tests_properties(ipc_protocol_test PROPERTIES
+    LABELS "unit;protocol"
+    TIMEOUT 60
+)
+
+add_executable(runtime_service_test runtime/runtime_service_test.cpp)
+target_compile_features(runtime_service_test PUBLIC cxx_std_20)
+mirage_enable_warnings(runtime_service_test)
+target_link_libraries(runtime_service_test
+    PRIVATE
+        Mirage::runtime_service
+        Mirage::integration_mira
+        Mirage::platform
+        Mirage::desktop
+        Mirage::ipc
+)
+add_test(NAME runtime_service_test COMMAND runtime_service_test)
+set_tests_properties(runtime_service_test PROPERTIES
+    LABELS "integration"
+    TIMEOUT 300
+)
