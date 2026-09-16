@@ -291,7 +291,9 @@ void scenario_process_output_truncation_and_exact_budget_boundary() {
 
 void scenario_filesystem_edge_cases() {
     TempWorkspace workspace;
-    linux_backend::LinuxDesktopEnvironment environment;
+    // M1-05: the filesystem boundary scenarios run against an environment
+    // whose read scope is the workspace root.
+    linux_backend::LinuxDesktopEnvironment environment({workspace.root()});
 
     // An empty regular file reads back successfully as empty content.
     const auto empty_path = workspace.root() / "empty.txt";
@@ -319,6 +321,17 @@ void scenario_filesystem_edge_cases() {
         std::fprintf(stderr,
                      "[desktop_provider_boundary_test] permission_denied case skipped (root)\n");
     }
+
+    // M1-05 containment still holds when the file mode would allow the read:
+    // the scope check runs before the file is even looked up.
+    const auto outside = workspace.root() / ".." / "readable-outside.txt";
+    {
+        std::ofstream stream(outside, std::ios::binary | std::ios::trunc);
+        stream << "beyond the scope";
+    }
+    const auto escaped = environment.read_text_file(outside);
+    MIRAGE_CHECK(!escaped.ok);
+    MIRAGE_CHECK(escaped.error.code == "permission_denied");
 }
 
 void run_scenario(const char *name, void (*scenario)()) {

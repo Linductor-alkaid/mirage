@@ -12,6 +12,7 @@ constexpr const char* kOpHello = "hello";
 constexpr const char* kOpSubmit = "task.submit";
 constexpr const char* kOpList = "task.list";
 constexpr const char* kOpInspect = "task.inspect";
+constexpr const char* kOpCancel = "task.cancel";
 constexpr const char* kOpShutdown = "service.shutdown";
 
 constexpr const char* kStepRead = "filesystem.read";
@@ -172,6 +173,11 @@ mira::JsonValue encode_payload(const ResponsePayload& payload) {
                 put(object, "tasks", mira::JsonValue{std::move(entries)});
             } else if constexpr (std::is_same_v<T, InspectTask>) {
                 put(object, "task", encode_inspect(value));
+            } else if constexpr (std::is_same_v<T, TaskCancelled>) {
+                auto cancelled = make_object();
+                put(cancelled, "task_id", value.task_id);
+                put(cancelled, "progress", value.progress);
+                put(object, "task_cancelled", std::move(cancelled));
             } else if constexpr (std::is_same_v<T, ShutdownAccepted>) {
                 // No payload members beyond the ok envelope.
             }
@@ -214,6 +220,9 @@ std::string encode_request(std::uint64_t id, const Request& body) {
                 put(object, "op", kOpList);
             } else if constexpr (std::is_same_v<T, InspectTaskRequest>) {
                 put(object, "op", kOpInspect);
+                put(object, "task_id", value.task_id);
+            } else if constexpr (std::is_same_v<T, CancelTaskRequest>) {
+                put(object, "op", kOpCancel);
                 put(object, "task_id", value.task_id);
             } else if constexpr (std::is_same_v<T, ShutdownRequest>) {
                 put(object, "op", kOpShutdown);
@@ -299,6 +308,15 @@ RequestDecode decode_request(std::string_view payload) {
         }
         inspect.task_id = *task_id;
         result.body = std::move(inspect);
+    } else if (*op == kOpCancel) {
+        CancelTaskRequest cancel;
+        const auto task_id = string_member(object, "task_id");
+        if (!task_id || task_id->empty()) {
+            result.error = "task.cancel requires a non-empty 'task_id'";
+            return result;
+        }
+        cancel.task_id = *task_id;
+        result.body = std::move(cancel);
     } else {
         result.error = "unknown op '" + *op + "'";
         return result;
@@ -469,6 +487,22 @@ ResponseDecode decode_response(std::string_view payload) {
             }
         }
         response.payload = std::move(inspect);
+    } else if (const auto* cancelled = member(object, "task_cancelled");
+               cancelled != nullptr) {
+        if (!cancelled->is_object()) {
+            result.error = "task.cancel 'task_cancelled' must be an object";
+            return result;
+        }
+        TaskCancelled acknowledgement;
+        auto id_text = string_member(*cancelled, "task_id");
+        auto progress = string_member(*cancelled, "progress");
+        if (!id_text || id_text->empty() || !progress) {
+            result.error = "task.cancel requires 'task_id' and 'progress'";
+            return result;
+        }
+        acknowledgement.task_id = std::move(*id_text);
+        acknowledgement.progress = std::move(*progress);
+        response.payload = std::move(acknowledgement);
     } else {
         // An ok response carrying none of the known payload discriminators
         // is the acknowledgement shape (service.shutdown).

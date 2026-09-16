@@ -45,9 +45,14 @@ ServiceConfig make_config(const mirage::testing::TempDir &dir) {
 }
 
 /// Fresh binding over a fresh Linux desktop environment per service start.
-std::shared_ptr<integration::MiraEnvironmentBinding> make_binding() {
+/// M1-05: the environment's filesystem read scope is the test's temp
+/// directory, so filesystem.read steps on fixtures inside it work while
+/// everything outside stays denied.
+std::shared_ptr<integration::MiraEnvironmentBinding>
+make_binding(const mirage::testing::TempDir &dir) {
     return std::make_shared<integration::MiraEnvironmentBinding>(
-        std::make_shared<linux_backend::LinuxDesktopEnvironment>());
+        std::make_shared<linux_backend::LinuxDesktopEnvironment>(
+            std::vector<std::filesystem::path>{dir.root()}));
 }
 
 std::optional<std::string> submit_task(ipc::IpcClient &client, ipc::SubmitTaskRequest request) {
@@ -136,7 +141,7 @@ void scenario_start_rejects_null_binding_fail_closed() {
     MIRAGE_CHECK(refused.error.code == "invalid_argument");
 
     // Fail closed: the instance is terminal, a retry cannot revive it.
-    const auto retry = service.start(make_binding());
+    const auto retry = service.start(make_binding(dir));
     MIRAGE_CHECK(!retry.ok);
     MIRAGE_CHECK(retry.error.code == "invalid_state");
 }
@@ -146,9 +151,9 @@ void scenario_hello_identity_and_terminal_restart() {
     const ServiceConfig config = make_config(dir);
     RuntimeService service(config);
 
-    MIRAGE_CHECK(service.start(make_binding()).ok);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
     // A second start on the live instance must be refused.
-    const auto again = service.start(make_binding());
+    const auto again = service.start(make_binding(dir));
     MIRAGE_CHECK(!again.ok);
     MIRAGE_CHECK(again.error.code == "invalid_state");
 
@@ -173,7 +178,7 @@ void scenario_hello_identity_and_terminal_restart() {
     MIRAGE_CHECK(!std::filesystem::exists(config.socket_path));
 
     // Terminal instance: restart and re-run are both refused.
-    const auto restart = service.start(make_binding());
+    const auto restart = service.start(make_binding(dir));
     MIRAGE_CHECK(!restart.ok);
     MIRAGE_CHECK(restart.error.code == "invalid_state");
     const ServiceRunReport rerun = service.run();
@@ -193,7 +198,7 @@ void scenario_task_completes_steps_with_operation_ids() {
     mirage::testing::TempDir dir;
     const ServiceConfig config = make_config(dir);
     RuntimeService service(config);
-    MIRAGE_CHECK(service.start(make_binding()).ok);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
 
     const std::string token = mirage::testing::unique_token();
     const std::filesystem::path goal_file = dir.root() / ("goal-" + token + ".txt");
@@ -275,7 +280,7 @@ void scenario_task_fails_fast_and_skips_remainder() {
     mirage::testing::TempDir dir;
     const ServiceConfig config = make_config(dir);
     RuntimeService service(config);
-    MIRAGE_CHECK(service.start(make_binding()).ok);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
 
     const std::string token = mirage::testing::unique_token();
     const std::filesystem::path missing = dir.root() / ("missing-" + token + ".txt");
@@ -328,7 +333,7 @@ void scenario_step_result_truncated_to_cap() {
     ServiceConfig config = make_config(dir);
     config.max_result_bytes = 16;
     RuntimeService service(config);
-    MIRAGE_CHECK(service.start(make_binding()).ok);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
 
     const std::string token = mirage::testing::unique_token();
     const std::filesystem::path file = dir.root() / ("wide-" + token + ".txt");
@@ -366,7 +371,7 @@ void scenario_submit_and_inspect_validation() {
     mirage::testing::TempDir dir;
     const ServiceConfig config = make_config(dir);
     RuntimeService service(config);
-    MIRAGE_CHECK(service.start(make_binding()).ok);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
 
     ipc::IpcClient client(config.socket_path);
 
@@ -424,7 +429,7 @@ void scenario_registry_capacity_rejects_third_task() {
     ServiceConfig config = make_config(dir);
     config.max_task_records = 2;
     RuntimeService service(config);
-    MIRAGE_CHECK(service.start(make_binding()).ok);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
 
     ipc::IpcClient client(config.socket_path);
     ipc::SubmitTaskRequest request;
@@ -453,7 +458,7 @@ void scenario_sequential_requests_on_one_connection() {
     mirage::testing::TempDir dir;
     const ServiceConfig config = make_config(dir);
     RuntimeService service(config);
-    MIRAGE_CHECK(service.start(make_binding()).ok);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
 
     std::string diagnostic;
     ipc::IpcStream stream = ipc::connect_stream(config.socket_path, kCallBudget, diagnostic);
@@ -487,7 +492,7 @@ void scenario_interleaved_connections_keep_correlation() {
     mirage::testing::TempDir dir;
     const ServiceConfig config = make_config(dir);
     RuntimeService service(config);
-    MIRAGE_CHECK(service.start(make_binding()).ok);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
 
     std::string diagnostic;
     ipc::IpcStream one = ipc::connect_stream(config.socket_path, kCallBudget, diagnostic);
@@ -531,7 +536,7 @@ void scenario_garbage_payload_yields_protocol_error_then_close() {
     mirage::testing::TempDir dir;
     const ServiceConfig config = make_config(dir);
     RuntimeService service(config);
-    MIRAGE_CHECK(service.start(make_binding()).ok);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
 
     std::string diagnostic;
     ipc::IpcStream stream = ipc::connect_stream(config.socket_path, kCallBudget, diagnostic);
@@ -565,7 +570,7 @@ void scenario_pipelined_request_rejected() {
     mirage::testing::TempDir dir;
     const ServiceConfig config = make_config(dir);
     RuntimeService service(config);
-    MIRAGE_CHECK(service.start(make_binding()).ok);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
 
     std::string diagnostic;
     ipc::IpcStream stream = ipc::connect_stream(config.socket_path, kCallBudget, diagnostic);
@@ -603,7 +608,7 @@ void scenario_oversized_frame_closes_connection() {
     mirage::testing::TempDir dir;
     const ServiceConfig config = make_config(dir);
     RuntimeService service(config);
-    MIRAGE_CHECK(service.start(make_binding()).ok);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
 
     std::string diagnostic;
     ipc::IpcStream stream = ipc::connect_stream(config.socket_path, kCallBudget, diagnostic);
@@ -647,7 +652,7 @@ void scenario_shutdown_via_ipc_after_completed_task() {
     mirage::testing::TempDir dir;
     const ServiceConfig config = make_config(dir);
     RuntimeService service(config);
-    MIRAGE_CHECK(service.start(make_binding()).ok);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
 
     ipc::IpcClient client(config.socket_path);
     ipc::SubmitTaskRequest request;
@@ -669,7 +674,7 @@ void scenario_shutdown_via_ipc_after_completed_task() {
     MIRAGE_CHECK(report.host_shutdown.clean);
     MIRAGE_CHECK(!std::filesystem::exists(config.socket_path));
 
-    const auto restart = service.start(make_binding());
+    const auto restart = service.start(make_binding(dir));
     MIRAGE_CHECK(!restart.ok);
     MIRAGE_CHECK(restart.error.code == "invalid_state");
 }
@@ -678,7 +683,7 @@ void scenario_shutdown_with_inflight_task_is_bounded() {
     mirage::testing::TempDir dir;
     const ServiceConfig config = make_config(dir);
     RuntimeService service(config);
-    MIRAGE_CHECK(service.start(make_binding()).ok);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
 
     ipc::IpcClient client(config.socket_path);
     ipc::SubmitTaskRequest request;
@@ -715,7 +720,7 @@ void scenario_shutdown_fd_triggers_stop() {
     MIRAGE_CHECK(::pipe2(pipe_fds, O_NONBLOCK | O_CLOEXEC) == 0);
     service.register_shutdown_fd(pipe_fds[0]);
 
-    MIRAGE_CHECK(service.start(make_binding()).ok);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
 
     // The signal self-pipe path: one byte written to the registered
     // descriptor stops the loop, exactly like SIGTERM in mirage-service.

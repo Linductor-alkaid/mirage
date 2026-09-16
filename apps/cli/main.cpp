@@ -52,7 +52,7 @@ bool parse_common_option(const std::string& name, const std::string& value,
 bool takes_value(const std::string& name) {
     return name == "--socket" || name == "--timeout" || name == "--goal" ||
            name == "--read" || name == "--exec" || name == "--step-timeout" ||
-           name == "--wait";
+           name == "--wait" || name == "--read-root";
 }
 
 /// Splits `--name value` / `--name=value` pairs; returns false on usage
@@ -196,6 +196,7 @@ int command_service_shutdown(int argc, char** argv) {
 int command_service_start(int argc, char** argv) {
     GlobalOptions options;
     std::chrono::milliseconds wait{10000};
+    std::vector<std::string> read_roots;
     int index = 3; // skip "task/service" and the subcommand
     std::vector<std::string> extra;
     if (!consume_options(
@@ -203,6 +204,10 @@ int command_service_start(int argc, char** argv) {
             [&](const std::string& name, const std::string& value) {
                 if (name == "--wait") {
                     wait = std::chrono::seconds{std::stol(value)};
+                    return true;
+                }
+                if (name == "--read-root") {
+                    read_roots.push_back(value);
                     return true;
                 }
                 return parse_common_option(name, value, options);
@@ -241,6 +246,10 @@ int command_service_start(int argc, char** argv) {
         argv_child.push_back(const_cast<char*>(service_binary.c_str()));
         argv_child.push_back(const_cast<char*>("--socket"));
         argv_child.push_back(const_cast<char*>(socket.c_str()));
+        for (const std::string& root : read_roots) {
+            argv_child.push_back(const_cast<char*>("--read-root"));
+            argv_child.push_back(const_cast<char*>(root.c_str()));
+        }
         argv_child.push_back(nullptr);
         ::execv(service_binary.c_str(), argv_child.data());
         ::_exit(127);
@@ -352,6 +361,50 @@ int command_task_list(int argc, char** argv) {
     return kExitOk;
 }
 
+int command_task_cancel(int argc, char** argv) {
+    std::string task_id;
+    GlobalOptions options;
+    int index = 3; // skip "task/service" and the subcommand
+    std::vector<std::string> operands;
+    std::vector<std::string> extra;
+    if (!consume_options(
+            argc, argv, index,
+            [&options](const std::string& name, const std::string& value) {
+                return parse_common_option(name, value, options);
+            },
+            operands)) {
+        return kExitUsage;
+    }
+    for (const auto& operand : operands) {
+        if (operand.starts_with("--")) {
+            std::cerr << kProgramName << ": unknown option '" << operand
+                      << "'\n";
+            return kExitUsage;
+        }
+        if (!task_id.empty()) {
+            std::cerr << kProgramName << ": cancel takes one task id\n";
+            return kExitUsage;
+        }
+        task_id = operand;
+    }
+    if (task_id.empty()) {
+        std::cerr << kProgramName << ": task cancel requires a task id\n";
+        return kExitUsage;
+    }
+    auto client = client_for(options);
+    const auto response = client.call(
+        mirage::runtime::ipc::CancelTaskRequest{task_id},
+        options.call_timeout);
+    if (const int code = report_response(response); code != kExitOk) {
+        return code;
+    }
+    const auto cancelled =
+        std::get<mirage::runtime::ipc::TaskCancelled>(response.payload);
+    std::cout << "task " << cancelled.task_id << " cancel requested ("
+              << cancelled.progress << ")\n";
+    return kExitOk;
+}
+
 int command_task_inspect(int argc, char** argv) {
     std::string task_id;
     GlobalOptions options;
@@ -446,7 +499,7 @@ void print_usage(std::ostream& out) {
         << "Commands:\n"
         << "  --version                    Print Mirage, Mira core and platform versions\n"
         << "  --help                       Print this help\n"
-        << "  service start [--socket P] [--wait S]\n"
+        << "  service start [--socket P] [--wait S] [--read-root DIR]...\n"
         << "                               Start the background runtime service\n"
         << "  service status [--socket P]  Probe the running service\n"
         << "  service shutdown [--socket P]\n"
@@ -457,6 +510,8 @@ void print_usage(std::ostream& out) {
         << "  task list [--socket P]       List submitted tasks\n"
         << "  task inspect <id> [--socket P]\n"
         << "                               Inspect one task's structured results\n"
+        << "  task cancel <id> [--socket P]\n"
+        << "                               Cancel a task and its running desktop action\n"
         << "\n"
         << "Options usable after each subcommand: --socket PATH (Local IPC\n"
         << "endpoint), --timeout MS (call timeout).\n";
@@ -513,6 +568,9 @@ int main(int argc, char** argv) {
             }
             if (subcommand == "inspect") {
                 return command_task_inspect(argc, argv);
+            }
+            if (subcommand == "cancel") {
+                return command_task_cancel(argc, argv);
             }
             std::cerr << kProgramName << ": unknown task subcommand '"
                       << subcommand << "'\n";

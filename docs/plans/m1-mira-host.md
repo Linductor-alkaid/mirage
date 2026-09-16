@@ -58,8 +58,9 @@ Service 与 Local IPC，使 Agent 可以脱离 GUI 生命周期运行（设计�
       观察到结构化结果。
 - [x] `M1-04` Runtime Service 与 Local IPC：Service 独立于 GUI 生命周期运行，CLI 经
       IPC 完成 `task list` / `task submit` / `task inspect`；IPC 机制定案（DEC-007）。
-- [ ] `M1-05` Filesystem / Process Provider：路径范围约束、命令执行预算与取消路径，
-      负向用例覆盖越界访问与拒绝执行。
+- [x] `M1-05` Filesystem / Process Provider：路径范围约束、命令执行预算与取消路径，
+      负向用例覆盖越界访问与拒绝执行（范围/预算/取消语义见
+      [DEC-009](../decisions/DEC-009-provider-scope-budget-cancellation.md)）。
 - [ ] `M1-06` Desktop Permission 框架雏形：`filesystem.read` / `filesystem.write` /
       `process.execute` Capability 判定与用户确认挂点（确认 UI 可延后到 M5）。
 - [ ] `M1-07` 持久化骨架：Mirage 本地配置与 Runtime Recovery State 的存取（设计文档
@@ -289,3 +290,68 @@ Service 与 Local IPC，使 Agent 可以脱离 GUI 生命周期运行（设计�
   peer credentials 校验留 M5 复核；Windows 命名管道传输属 M4。
 - 同步：设计文档第 12.1、17 节、`DEC-007`（新）、`DEC-008`（变更记录）、总计划
   里程碑状态、本验证记录、`README` 运行说明。
+
+2026-09-16：`M1-05` Filesystem / Process Provider 收紧完成。
+
+- 范围：desktop 层新增 pinned-free 原语 `desktop::CancelToken`（拷贝共享状态的
+  协作取消标志）与 `desktop::PathScope`（canonical 逐组件读范围包含，空范围
+  fail closed）；`FilesystemProvider` 纯虚签名追加 `FileReadLimits`（默认 1 MiB，
+  超限 `file_too_large` 不静默截断）与取消参数，`ProcessLimits` 新增
+  `max_command_bytes`（默认 64 KiB，fork 前拒绝），`ProcessOutcome` 新增
+  `cancelled`。`platform/linux::LinuxDesktopEnvironment` 构造声明读范围（默认空 =
+  拒绝一切读取；`mirage-service` 以可重复 `--read-root` 声明）：范围检查先于存在
+  检查，越界一律 `permission_denied`，symlink / `..` / 兄弟目录逃逸均被 canonical
+  包含判定拒绝；读取为 64 KiB 分块、逐块检查预算与取消；执行 poll 以 25 ms 切片
+  观察 token，取消复用超时路径的整组 SIGKILL + 阻塞回收。Runtime Service 每任务
+  持有 CancelToken，`task.cancel` IPC（协议 v1 扩展，DEC-007 变更记录）按
+  token → driver 停止令牌 → `MiraHost::cancel_task` 顺序传播；被中断步标记新
+  step 状态 `cancelled`、后续 `skipped`、终态由 pinned 结算不复活（`RULE-04`）；
+  有序停机同样先请求任务 token 使排空有界。CLI 新增 `task cancel <id>`。
+  范围、预算与取消语义登记 [DEC-009](../decisions/DEC-009-provider-scope-budget-cancellation.md)。
+- 依据：设计文档第 5、12.1、15 节；`DEC-001`..`004`、`DEC-007`、`DEC-008`、
+  `DEC-009`。
+- 验证（Independent-Verification-Agent，Linux x64，Ubuntu 24.04，GCC 13.3.0，
+  CMake 3.28.3，Ninja，clang-format 18.1.3）：
+  - 新增 `tests/desktop/provider_hardening_test.cpp`（10 场景 96 断言）：CancelToken
+    语义（默认不可取消/拷贝共享/幂等）、PathScope 单元语义（空 scope、root "/"、
+    非绝对 root、"/a/b" 拒 "/a/bc"、不存在叶子）、空范围全拒、越界三形态
+    （兄弟目录 / `..` 逃逸 / symlink 逃逸且消息不泄露解析目标）、root 即文件可读、
+    读预算边界（恰好 max_bytes / +1 fail 且无内容 / 0 invalid_argument）、读取消、
+    命令预算 fork 前拒绝（恰边界成功、+1 拒绝且 canary 未产生、0 拒绝）、执行中
+    取消（<3s 返回、cancelled、已捕获输出保留、含后台子进程整组无残留）。
+  - 新增 `tests/runtime/task_cancel_test.cpp`（4 场景 48 断言）：运行中任务取消
+    （step_timeout 60s 排除超时掩盖，poll 至 step running 后取消，2s 内收敛
+    `Cancelled` / step0 `cancelled` / 后续 `skipped`、canary 未执行、无残留）、
+    未知 id `not_found`、终态任务取消被拒（`pinned_runtime` + `invalid_state:`
+    message）且终态不变、取消后停机有界且 clean。
+  - 更新既有测试以适配空范围默认拒绝的新契约：`mira_binding_test`（95 断言，
+    读场景 scoped 化 + 默认构造拒绝用例）、`desktop_provider_boundary_test`
+    （57 断言，文件边界场景 scoped 化 + `..` 逃逸负向）、
+    `runtime_service_test`（172 断言，binding 辅助统一带 TempDir scope）、
+    `ipc_protocol_test`（299 断言，新增 task.cancel / TaskCancelled round-trip
+    与 11 条非法变体拒绝）。
+  - 预设矩阵：`debug` / `release` / `asan` / `ubsan` / `tsan` configure + build +
+    ctest 均 **9/9 通过、0 skip**；`tsan` 按[本机注意事项](../../README.md)以
+    `setarch $(uname -m) -R ctest` 运行。
+  - `mirage-format-check` 通过；公共头边界：`desktop/*/include`、
+    `runtime/*/include`、`platform/include`、`platform/linux/include` 对
+    `mira/`、`mirador/`、`executor/` include 零命中（新增
+    `cancellation.hpp` / `path_scope.hpp` 为纯 std 类型）。
+  - 端到端冒烟（真实进程）：`mirage-service --read-root <ws>` 启动（输出
+    `filesystem read scope: 1 root(s)`）→ 范围内 `task submit --read/--exec`
+    Completed 且结构化结果可观察 → 范围外读取 `permission_denied` →
+    `sleep 30` 任务 `task cancel`（输出 `cancel requested (Cancelled)`、inspect
+    step0 `cancelled`、无进程残留）→ CLI 误用/不可达/未知 id 退出码 2/3/1 →
+    `service shutdown` 干净退出、socket 删除。
+  - 主循环预检：debug 构建、format-check 与同拓扑手动冒烟先行通过后委派独立
+    验证；实现缺陷未发现，仅修正一处协议注释（终态取消 wire code 实为
+    `pinned_runtime` 透传，与 `task.submit` 形态一致）。
+- 限制：读取中文件增长的运行期预算检查路径无法在单线程 harness 确定性构造，
+  仅由实现覆盖（预检 + 逐块检查双保险），待后续注入测试；CLI 取消路径以手工
+  端到端冒烟验证，未固化为 ctest；范围检查与 open 之间的 TOCTOU 窗口由参考
+  后端接受（完整 Linux Backend 于 M2 以 `openat2(RESOLVE_BENEATH)` 类机制收敛，
+  DEC-009）；取消延迟以 25 ms poll 切片为上界，非即时中断；读范围不约束
+  `/bin/sh -c` 的内部文件访问，命令级约束属 `M1-06` Permission 判定与后续
+  沙箱化；Windows 命名管道与 Backend 属 M4。
+- 同步：设计文档第 5、12.1 节、`DEC-007`（变更记录）、`DEC-008`（变更记录）、
+  `DEC-009`（新）、总计划里程碑状态、本验证记录、`README` 运行说明。

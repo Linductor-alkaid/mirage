@@ -193,6 +193,19 @@ void scenario_request_round_trips() {
         MIRAGE_CHECK(decoded.id == 0);
         MIRAGE_CHECK(std::holds_alternative<ipc::ShutdownRequest>(decoded.body));
     }
+    // M1-05: task.cancel round trip.
+    {
+        const std::string payload = ipc::encode_request(14, ipc::CancelTaskRequest{"task-abc"});
+        MIRAGE_CHECK(payload.find("task.cancel") != std::string::npos);
+        const ipc::RequestDecode decoded = ipc::decode_request(payload);
+        MIRAGE_CHECK(decoded.ok);
+        MIRAGE_CHECK(decoded.id == 14);
+        const auto *cancel = std::get_if<ipc::CancelTaskRequest>(&decoded.body);
+        MIRAGE_CHECK(cancel != nullptr);
+        if (cancel != nullptr) {
+            MIRAGE_CHECK(cancel->task_id == "task-abc");
+        }
+    }
     // An absent steps array is a legitimate task.submit with no scripted work.
     {
         const ipc::RequestDecode decoded = ipc::decode_request(
@@ -245,6 +258,9 @@ void scenario_request_rejects_malformed_payloads() {
         R"({"v":1,"id":5,"op":"task.submit","goal":"g","step_timeout_ms":-100})",
         R"({"v":1,"id":5,"op":"task.inspect"})", // missing id
         R"({"v":1,"id":5,"op":"task.inspect","task_id":""})",
+        R"({"v":1,"id":5,"op":"task.cancel"})",  // missing task_id
+        R"({"v":1,"id":5,"op":"task.cancel","task_id":""})", // empty task_id
+        R"({"v":1,"id":5,"op":"task.cancel","task_id":7})",  // task_id type
     };
     for (const char *payload : invalid_payloads) {
         const ipc::RequestDecode decoded = ipc::decode_request(payload);
@@ -393,6 +409,28 @@ void scenario_response_round_trips() {
         }
     }
     {
+        // M1-05 task.cancel acknowledgement: nested task_cancelled object.
+        ipc::Response response;
+        response.ok = true;
+        response.id = 31;
+        response.payload = ipc::TaskCancelled{"task-abc", "Cancelling"};
+        const std::string wire = ipc::encode_response(response);
+        MIRAGE_CHECK(wire.find("\"task_cancelled\"") != std::string::npos);
+        MIRAGE_CHECK(wire.find("\"task_id\":\"task-abc\"") != std::string::npos);
+        MIRAGE_CHECK(wire.find("\"progress\":\"Cancelling\"") != std::string::npos);
+
+        const ipc::ResponseDecode decoded = ipc::decode_response(wire);
+        MIRAGE_CHECK(decoded.ok);
+        MIRAGE_CHECK(decoded.response.id == 31);
+        MIRAGE_CHECK(decoded.response.ok);
+        const auto *cancelled = std::get_if<ipc::TaskCancelled>(&decoded.response.payload);
+        MIRAGE_CHECK(cancelled != nullptr);
+        if (cancelled != nullptr) {
+            MIRAGE_CHECK(cancelled->task_id == "task-abc");
+            MIRAGE_CHECK(cancelled->progress == "Cancelling");
+        }
+    }
+    {
         // Shutdown acknowledgement: an ok envelope without payload members.
         ipc::Response response;
         response.ok = true;
@@ -437,6 +475,12 @@ void scenario_response_rejects_malformed_payloads() {
         R"({"v":1,"id":1,"ok":true,"tasks":[{}]})",                 // entry members
         R"({"v":1,"id":1,"ok":true,"task":{"id":"i","goal":"g"}})", // no progress
         R"({"v":1,"id":1,"ok":true,"task":{"id":"i","goal":"g","progress":"Active","success":"yes"}})",
+        R"({"v":1,"id":1,"ok":true,"task_cancelled":"cancelling"})",            // not object
+        R"({"v":1,"id":1,"ok":true,"task_cancelled":{}})",                      // no members
+        R"({"v":1,"id":1,"ok":true,"task_cancelled":{"task_id":""}})",          // empty id
+        R"({"v":1,"id":1,"ok":true,"task_cancelled":{"task_id":"t"}})",         // no progress
+        R"({"v":1,"id":1,"ok":true,"task_cancelled":{"progress":"Cancelling"}})", // no task_id
+        R"({"v":1,"id":1,"ok":true,"task_cancelled":{"task_id":"t","progress":3}})", // type
     };
     for (const char *payload : invalid_payloads) {
         const ipc::ResponseDecode decoded = ipc::decode_response(payload);

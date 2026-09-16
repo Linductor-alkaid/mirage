@@ -185,11 +185,17 @@ DesktopEnvironment
 这些 Provider 形成统一的环境接口，上层行为不直接包含平台实现信息。
 
 Provider 以访问器形式挂载在 `DesktopEnvironment` 上（`filesystem()` / `process()` 等，
-返回空指针表示该环境不具备对应能力，消费方必须 fail closed）。M1 首版只包含
-FilesystemProvider（只读文本读取）与 ProcessProvider（有界 shell 执行：超时与输出
-预算）；其范围约束、完整取消路径与 Permission 判定由 M1-05 / M1-06 收紧，
+返回空指针表示该环境不具备对应能力，消费方必须 fail closed）。M1 包含
+FilesystemProvider（只读文本读取）与 ProcessProvider（有界 shell 执行）。
+`M1-05`（[DEC-009](../decisions/DEC-009-provider-scope-budget-cancellation.md)）
+为两者落地范围约束、执行预算与协作取消路径：Filesystem 读取强制 `PathScope`
+读范围（空范围 fail closed）与字节预算（超限 fail closed，不静默截断）；
+Process 执行在副作用前校验命令长度预算，并经 pinned-free 的 `CancelToken`
+协作取消（运行时层将自己的停止令牌适配到它上面，整组进程收尾后返回
+`cancelled` 结果）。Permission 判定（`RULE-05`）与用户确认挂点由 `M1-06`
+落地，此前该绑定仅限开发与测试拓扑；
 [DEC-008](../decisions/DEC-008-m1-environment-binding-and-reference-providers.md)
-记录了该过渡边界。M1 参考后端是 `platform/linux::LinuxDesktopEnvironment`（实现
+记录了该过渡边界的演进。M1 参考后端是 `platform/linux::LinuxDesktopEnvironment`（实现
 desktop 抽象接口；Adapter 依赖 Core 接口），完整 Linux / Windows Backend 分别在
 M2 / M4 落地。
 
@@ -533,6 +539,8 @@ M1 阶段 Local IPC 的落地形态由 [DEC-007](../decisions/DEC-007-local-ipc-
   UTF-8 JSON（pinned mira 的 JSON 模型实现，公共 API 保持 pinned-free），载荷上限
   1 MiB，单连接同时至多一个未决请求。
 - **协议 v1 请求面**：`hello`、`task.submit`、`task.list`、`task.inspect`、
+  `task.cancel`（`M1-05`，[DEC-009](../decisions/DEC-009-provider-scope-budget-cancellation.md)：
+  中断在途桌面动作并按 pinned 取消语义结算任务，被中断步标记 `cancelled`）、
   `service.shutdown`。`task.submit` 携带 goal 与可选有序 steps（M1 桌面能力：
   `filesystem.read` / `process.execute`），由 Service 内的宿主侧驱动循环逐个执行、
   以 `begin_operation` / `admit_operation_completion` 括起进入 pinned 控制面并记录
@@ -544,7 +552,9 @@ M1 阶段 Local IPC 的落地形态由 [DEC-007](../decisions/DEC-007-local-ipc-
 - **并发承载**：Service 进程内由 RuntimeService 持有唯一的 `executor::Executor`
   实例（`EXEC-01`）：IPC 事件循环为专属 blocking I/O worker，全部 MiraHost 操作经
   一个 SerialExecutionContext 串行化，任务驱动为可取消任务（step 间检查停止令牌），
-  响应回投使用 `executor::comm::MpscChannel`。
+  响应回投使用 `executor::comm::MpscChannel`。任务取消（`task.cancel` 与有序
+  停机）按 desktop cancel token → 驱动停止令牌 → pinned cancel 的顺序传播，
+  使在途桌面动作有界中断（`M1-05`，DEC-009）。
 
 ## 13. Agent Workspace
 

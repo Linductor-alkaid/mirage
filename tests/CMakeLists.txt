@@ -103,3 +103,34 @@ set_tests_properties(runtime_service_test PROPERTIES
     LABELS "integration"
     TIMEOUT 300
 )
+
+add_executable(provider_hardening_test desktop/provider_hardening_test.cpp)
+target_compile_features(provider_hardening_test PUBLIC cxx_std_20)
+mirage_enable_warnings(provider_hardening_test)
+target_link_libraries(provider_hardening_test
+    PRIVATE
+        Mirage::desktop
+        Mirage::platform
+)
+add_test(NAME provider_hardening_test COMMAND provider_hardening_test)
+set_tests_properties(provider_hardening_test PROPERTIES
+    LABELS "unit"
+    TIMEOUT 120
+)
+
+add_executable(task_cancel_test runtime/task_cancel_test.cpp)
+target_compile_features(task_cancel_test PUBLIC cxx_std_20)
+mirage_enable_warnings(task_cancel_test)
+target_link_libraries(task_cancel_test
+    PRIVATE
+        Mirage::runtime_service
+        Mirage::integration_mira
+        Mirage::platform
+        Mirage::desktop
+        Mirage::ipc
+)
+add_test(NAME task_cancel_test COMMAND task_cancel_test)
+set_tests_properties(task_cancel_test PROPERTIES
+    LABELS "integration"
+    TIMEOUT 300
+)

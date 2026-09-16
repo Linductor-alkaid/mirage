@@ -72,6 +72,12 @@ Agent 可提交一个读取文件并执行 Shell 命令的任务并观察到结�
 
 ## 变更记录
 
+- 2026-09-16（`M1-05`，[DEC-009](DEC-009-provider-scope-budget-cancellation.md)
+  落地）：第 4 条过渡边界中的"范围约束与预算"部分解除——Filesystem 读取强制
+  `PathScope` 范围与 `FileReadLimits` 预算（空范围 fail closed），Process 执行
+  增加命令长度预算与 `CancelToken` 取消路径；两个 Provider 的纯虚签名追加
+  取消参数（基类便捷重载保持源码兼容）。绑定仍仅限开发与测试拓扑：Permission
+  判定（`RULE-05`）与用户确认挂点待 `M1-06` 收尾。
 - 2026-09-16（`M1-04`，[DEC-007](DEC-007-local-ipc-and-runtime-service.md) 落地）：
   `DesktopEnvironmentBinding` 新增 `bound_environment()` 虚访问器（默认返回 null），
   具体绑定返回其包装的 `DesktopEnvironment`。Runtime Service 的任务驱动循环经它取得

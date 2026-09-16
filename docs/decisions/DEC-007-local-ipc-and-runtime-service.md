@@ -103,6 +103,15 @@
 - 预设矩阵 `debug` / `release` / `asan` / `ubsan` / `tsan` 构建与 `ctest` 全绿；
   公共头 pinned-free 边界零命中。
 
+## 变更记录
+
+- 2026-09-16（`M1-05`，[DEC-009](DEC-009-provider-scope-budget-cancellation.md)
+  落地）：协议 v1 请求面新增 `task.cancel`（`CancelTaskRequest` 请求与
+  `TaskCancelled` 响应载荷），`task.inspect` 的 step 状态集新增 `cancelled`。
+  传输、帧格式、载荷上限与单连接单请求纪律不变；任务取消的语义（desktop
+  cancel token → 驱动停止令牌 → pinned cancel 的顺序、终态幂等）见 DEC-009
+  第 4、5 条。
+
 ## 关联文档和工作项
 
 - 设计文档第 12（后台运行）、17（推荐代码结构）节；
