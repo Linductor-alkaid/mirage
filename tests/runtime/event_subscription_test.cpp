@@ -52,6 +52,17 @@ constexpr auto kTaskBudget = std::chrono::seconds{10};
 constexpr auto kEventBudget = std::chrono::seconds{10};
 /// Quiet window proving no event frame arrives (server poll pass is 200 ms).
 constexpr auto kQuietWindow = std::chrono::milliseconds{700};
+/// Submit-response tolerance for the deterministic overflow burst, sized for
+/// the registered serial backlog pathology (see the M1.5-02 plan verification
+/// record's legacy notes): on a 2-core runner the eight burst drivers cycle
+/// several 4 s command_wait windows each on the congested serial context, so
+/// one submit response can surface tens of seconds late. The overflow
+/// assertions never depend on these responses arriving quickly.
+constexpr auto kBurstResponseBudget = std::chrono::seconds{60};
+constexpr auto kBurstResponseDeadline = std::chrono::seconds{240};
+/// Per-task terminal wait for that same burst on the same congested serial
+/// context (inspect polls queue behind the stalled submits).
+constexpr auto kBurstTerminalBudget = std::chrono::seconds{60};
 
 ServiceConfig make_config(const mirage::testing::TempDir &dir) {
     ServiceConfig config;
@@ -84,8 +95,9 @@ std::optional<std::string> submit_task(ipc::IpcClient &client, ipc::SubmitTaskRe
     const ipc::Response response = client.call(request, budget);
     const auto *submitted = std::get_if<ipc::TaskSubmitted>(&response.payload);
     if (!response.ok || submitted == nullptr) {
-        std::fprintf(stderr, "[event_subscription_test] task.submit failed: ok=%d code='%s' "
-                             "message='%s'\n",
+        std::fprintf(stderr,
+                     "[event_subscription_test] task.submit failed: ok=%d code='%s' "
+                     "message='%s'\n",
                      response.ok ? 1 : 0, response.error.code.c_str(),
                      response.error.message.c_str());
         return std::nullopt;
@@ -94,17 +106,20 @@ std::optional<std::string> submit_task(ipc::IpcClient &client, ipc::SubmitTaskRe
 }
 
 /// Polls task.inspect on a dedicated (unsubscribed) connection until the
-/// task reports a terminal progress state.
+/// task reports a terminal progress state. `budget` bounds the whole wait;
+/// callers inspecting tasks that share the serial context with a heavy burst
+/// pass a wider budget than the default.
 std::optional<ipc::InspectTask> wait_terminal(const std::string &socket_path,
-                                              const std::string &task_id) {
+                                              const std::string &task_id,
+                                              std::chrono::milliseconds budget = kTaskBudget) {
     ipc::IpcClient client(socket_path);
-    const auto deadline = std::chrono::steady_clock::now() + kTaskBudget;
+    const auto deadline = std::chrono::steady_clock::now() + budget;
     for (;;) {
         const ipc::Response response = client.call(ipc::InspectTaskRequest{task_id}, kCallBudget);
         const auto *inspect = std::get_if<ipc::InspectTask>(&response.payload);
-        if (inspect != nullptr && (inspect->progress == "Completed" ||
-                                   inspect->progress == "Failed" ||
-                                   inspect->progress == "Cancelled")) {
+        if (inspect != nullptr &&
+            (inspect->progress == "Completed" || inspect->progress == "Failed" ||
+             inspect->progress == "Cancelled")) {
             return *inspect;
         }
         if (std::chrono::steady_clock::now() >= deadline) {
@@ -211,8 +226,8 @@ std::optional<ipc::Response> read_response(Subscriber &subscriber, EventLog &log
 /// Reads frames until `predicate` accepts an event; everything read on the
 /// way lands in `log`. Nullopt on timeout/close/protocol error.
 template <typename Predicate>
-std::optional<ipc::Event> wait_for_event(Subscriber &subscriber, EventLog &log,
-                                         Predicate predicate, std::chrono::milliseconds budget) {
+std::optional<ipc::Event> wait_for_event(Subscriber &subscriber, EventLog &log, Predicate predicate,
+                                         std::chrono::milliseconds budget) {
     const auto deadline = std::chrono::steady_clock::now() + budget;
     for (;;) {
         const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -529,8 +544,7 @@ void scenario_task_updated_full_sequence() {
             continue;
         }
         const bool terminal_progress = task->progress == "Completed" ||
-                                       task->progress == "Failed" ||
-                                       task->progress == "Cancelled";
+                                       task->progress == "Failed" || task->progress == "Cancelled";
         if (!terminal_progress) {
             MIRAGE_CHECK(task->progress == "Idle" || task->progress == "Active");
             MIRAGE_CHECK(!task->has_success);
@@ -819,10 +833,8 @@ void scenario_two_subscribers_receive_identical_streams() {
                (task->progress == "Completed" || task->progress == "Failed" ||
                 task->progress == "Cancelled");
     };
-    const auto first_done =
-        wait_for_event(first, first_log, is_terminal, kEventBudget);
-    const auto second_done =
-        wait_for_event(second, second_log, is_terminal, kEventBudget);
+    const auto first_done = wait_for_event(first, first_log, is_terminal, kEventBudget);
+    const auto second_done = wait_for_event(second, second_log, is_terminal, kEventBudget);
     MIRAGE_CHECK(first_done.has_value() && second_done.has_value());
     if (!first_done || !second_done) {
         return;
@@ -835,14 +847,12 @@ void scenario_two_subscribers_receive_identical_streams() {
     MIRAGE_CHECK(first_log.size() == second_log.size());
     const std::size_t count = std::min(first_log.size(), second_log.size());
     for (std::size_t index = 0; index < count; ++index) {
-        const std::string left = ipc::encode_event(
-            ipc::Event{0, first_log[index].payload});
-        const std::string right = ipc::encode_event(
-            ipc::Event{0, second_log[index].payload});
+        const std::string left = ipc::encode_event(ipc::Event{0, first_log[index].payload});
+        const std::string right = ipc::encode_event(ipc::Event{0, second_log[index].payload});
         if (left != right) {
-            std::fprintf(stderr,
-                         "[two_subscribers] stream divergence at %zu:\n  first:  %s\n  second: %s\n",
-                         index, left.c_str(), right.c_str());
+            std::fprintf(
+                stderr, "[two_subscribers] stream divergence at %zu:\n  first:  %s\n  second: %s\n",
+                index, left.c_str(), right.c_str());
         }
         MIRAGE_CHECK(left == right);
     }
@@ -990,8 +1000,7 @@ void scenario_unsubscribe_stops_event_delivery() {
 
 /// Counts the distinct tasks of the burst that have a Completed snapshot in
 /// the log so far.
-std::size_t count_settled_tasks(const EventLog &log,
-                                const std::vector<std::string> &task_ids) {
+std::size_t count_settled_tasks(const EventLog &log, const std::vector<std::string> &task_ids) {
     std::vector<std::string> settled;
     for (const ipc::Event &event : log) {
         const auto *task = std::get_if<ipc::TaskUpdatedEvent>(&event.payload);
@@ -1067,13 +1076,17 @@ void scenario_small_queue_overflow_emits_marker() {
 
     // Every submit must be admitted; the responses carry the identities the
     // event assertions below are keyed on. The submit burst overlaps the
-    // drivers' own bounded serial waits, so a response can surface only
-    // after several command_wait windows: the reads share one generous
-    // deadline instead of trusting per-request latency. The overflow
-    // assertion above this line's drain does not depend on these responses.
+    // drivers' own bounded serial waits, so under the registered serial
+    // backlog pathology (see the M1.5-02 plan verification record's legacy
+    // notes — worst on a 2-core CI runner) a response can surface only after
+    // several 4 s command_wait windows, tens of seconds per read. The reads
+    // therefore share one generous deadline instead of trusting per-request
+    // latency. The overflow assertions do NOT depend on these responses:
+    // the creation events are published synchronously inside handle_submit,
+    // before any of these reads could matter to a drain tick.
     std::vector<std::string> task_ids;
     {
-        const auto response_deadline = std::chrono::steady_clock::now() + std::chrono::seconds{60};
+        const auto response_deadline = std::chrono::steady_clock::now() + kBurstResponseDeadline;
         for (std::size_t index = 0; index < clients.size(); ++index) {
             EventLog scratch; // unsubscribed connections never carry events
             const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1081,8 +1094,10 @@ void scenario_small_queue_overflow_emits_marker() {
             const std::optional<ipc::Response> response =
                 remaining <= std::chrono::milliseconds::zero()
                     ? std::nullopt
-                    : read_response(clients[index], scratch, correlation_ids[index],
-                                    std::min(remaining, std::chrono::milliseconds{20000}));
+                    : read_response(
+                          clients[index], scratch, correlation_ids[index],
+                          std::min(remaining, std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                  kBurstResponseBudget)));
             if (!response || !response->ok) {
                 std::fprintf(stderr,
                              "[small_queue_overflow] client %zu submit response missing/bad\n",
@@ -1104,9 +1119,10 @@ void scenario_small_queue_overflow_emits_marker() {
     // must not blur that). Then collect the stream until at least one
     // terminal snapshot survived drop-oldest. Every frame read is appended
     // to the log — discarding reads here would hide the overflow markers
-    // this scenario asserts on.
+    // this scenario asserts on. The wide terminal budget absorbs the same
+    // serial backlog as the response reads above.
     for (const std::string &task_id : task_ids) {
-        const auto done = wait_terminal(config.socket_path, task_id);
+        const auto done = wait_terminal(config.socket_path, task_id, kBurstTerminalBudget);
         MIRAGE_CHECK(done.has_value() && done->progress == "Completed");
     }
     const auto settle_deadline = std::chrono::steady_clock::now() + kEventBudget;
@@ -1116,8 +1132,9 @@ void scenario_small_queue_overflow_emits_marker() {
         if (remaining <= std::chrono::milliseconds::zero()) {
             break;
         }
-        (void)wait_for_event(subscriber, log, [](const ipc::Event &) { return false; },
-                             std::min(remaining, kQuietWindow));
+        (void)wait_for_event(
+            subscriber, log, [](const ipc::Event &) { return false; },
+            std::min(remaining, kQuietWindow));
     }
 
     std::uint64_t dropped_total = 0;
@@ -1129,14 +1146,12 @@ void scenario_small_queue_overflow_emits_marker() {
         }
     }
     if (overflow_markers == 0) {
-        std::fprintf(stderr, "[small_queue_overflow] diagnostics: %zu events, names:",
-                     log.size());
+        std::fprintf(stderr, "[small_queue_overflow] diagnostics: %zu events, names:", log.size());
         for (const ipc::Event &event : log) {
             const auto *task = std::get_if<ipc::TaskUpdatedEvent>(&event.payload);
             if (task != nullptr) {
                 std::fprintf(stderr, " %s(seq %llu %s)", ipc::event_name(event.payload),
-                             static_cast<unsigned long long>(event.seq),
-                             task->progress.c_str());
+                             static_cast<unsigned long long>(event.seq), task->progress.c_str());
             } else {
                 std::fprintf(stderr, " %s(seq %llu)", ipc::event_name(event.payload),
                              static_cast<unsigned long long>(event.seq));
@@ -1350,8 +1365,7 @@ int main() {
     // its event stream is still being written) would die with SIGPIPE here
     // rather than fail a check.
 
-    run_scenario("hello_advertises_events_capability",
-                 scenario_hello_advertises_events_capability);
+    run_scenario("hello_advertises_events_capability", scenario_hello_advertises_events_capability);
     run_scenario("subscribe_unsubscribe_round_trip", scenario_subscribe_unsubscribe_round_trip);
     run_scenario("subscribe_seed_is_current_host_status",
                  scenario_subscribe_seed_is_current_host_status);

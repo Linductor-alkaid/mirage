@@ -134,7 +134,11 @@ target_link_libraries(event_subscription_test
 add_test(NAME event_subscription_test COMMAND event_subscription_test)
 set_tests_properties(event_subscription_test PROPERTIES
     LABELS "integration"
-    TIMEOUT 300
+    # 900 s: the deterministic overflow burst tolerates the registered
+    # serial backlog pathology on 2-core runners (submit responses can lag
+    # tens of seconds behind a 240 s shared deadline); normal runs finish in
+    # well under a minute.
+    TIMEOUT 900
 )
 
 add_executable(provider_hardening_test desktop/provider_hardening_test.cpp)

@@ -28,12 +28,11 @@ constexpr const char *kEventOverflow = "events.overflow";
 /// Closed product progress projection carried by task.updated events (schema
 /// doc 6.2). Kept local so the ipc layer stays independent of mira_host;
 /// the golden vectors pin the set on both ends.
-constexpr const char *kProgressNames[] = {"Idle",    "Active",   "Paused", "Cancelling",
+constexpr const char *kProgressNames[] = {"Idle",      "Active", "Paused",    "Cancelling",
                                           "Completed", "Failed", "Cancelled", "Unknown"};
 
 /// Closed Mira Host five-state set (DEC-004) carried by host.status events.
-constexpr const char *kHostStatusNames[] = {"stopped", "starting", "running", "stopping",
-                                            "failed"};
+constexpr const char *kHostStatusNames[] = {"stopped", "starting", "running", "stopping", "failed"};
 
 bool in_stable_set(const std::string &value, const char *const *set, std::size_t count) {
     for (std::size_t index = 0; index < count; ++index) {
@@ -640,12 +639,12 @@ EventDecode decode_event(std::string_view payload) {
         const auto progress = string_member(object, "progress");
         const auto *has_success = member(object, "has_success");
         const auto *success = member(object, "success");
-        const auto has_success_flag = has_success == nullptr ? std::nullopt : has_success->as_boolean();
+        const auto has_success_flag =
+            has_success == nullptr ? std::nullopt : has_success->as_boolean();
         const auto success_flag = success == nullptr ? std::nullopt : success->as_boolean();
         if (!task_id || !goal || !progress || !has_success_flag || !success_flag) {
-            result.error =
-                "task.updated requires 'task_id', 'goal', 'progress', 'has_success' and "
-                "'success'";
+            result.error = "task.updated requires 'task_id', 'goal', 'progress', 'has_success' and "
+                           "'success'";
             return result;
         }
         if (!in_stable_set(*progress, kProgressNames,

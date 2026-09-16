@@ -448,8 +448,7 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                 MIRAGE_CHECK(actual_value.protocol == expected_value.protocol);
                 // Wire presence is part of the contract: an engaged encoder
                 // must write the member, a disengaged one must omit it.
-                MIRAGE_CHECK(actual_value.events.has_value() ==
-                             expected_value.events.has_value());
+                MIRAGE_CHECK(actual_value.events.has_value() == expected_value.events.has_value());
                 if (actual_value.events.has_value() && expected_value.events.has_value()) {
                     MIRAGE_CHECK(*actual_value.events == *expected_value.events);
                 }

@@ -148,8 +148,8 @@ void mark_driver_done(const std::shared_ptr<ServiceCore> &core, const std::strin
     // The lambdas posted here can outlive this stack frame: when
     // ready_within gives up, the closure stays queued on the serial context
     // and runs later. Every stack string is therefore captured by value.
-    auto view =
-        post_host(service, [&service, task_id] { return service.host.task_view(identity_of(task_id)); });
+    auto view = post_host(
+        service, [&service, task_id] { return service.host.task_view(identity_of(task_id)); });
     if (ready_within(view, service.command_wait)) {
         try {
             const TaskViewResult result = view.get();
@@ -345,9 +345,8 @@ void publish_task_updated(const std::shared_ptr<ServiceCore> &core, const std::s
 void publish_task_updated_best_effort(const std::shared_ptr<ServiceCore> &core,
                                       const std::string &task_id) {
     try {
-        auto posted = core->executor.submit_on(core->serial, [core, task_id] {
-            publish_task_updated(core, task_id);
-        });
+        auto posted = core->executor.submit_on(
+            core->serial, [core, task_id] { publish_task_updated(core, task_id); });
         if (!ready_within(posted, core->command_wait)) {
             return; // dropped: events are notifications, snapshots are truth
         }

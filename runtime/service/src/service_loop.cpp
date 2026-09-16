@@ -164,8 +164,7 @@ void ServiceLoop::drain_outbound() {
     OutboundMessage message;
     while (outbound_.try_receive(message)) {
         auto entry = connections_.find(message.connection_id);
-        if (message.kind != OutboundMessage::Kind::Frame &&
-            entry == connections_.end()) {
+        if (message.kind != OutboundMessage::Kind::Frame && entry == connections_.end()) {
             continue; // connection already gone; its subscription dies here
         }
         if (message.kind == OutboundMessage::Kind::AttachEvents) {
