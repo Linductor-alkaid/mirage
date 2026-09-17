@@ -1,3 +1,4 @@
+import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
@@ -5,4 +6,5 @@ export default defineConfig({
     // file server subpath; dev-time tooling stays per DEC-006 decision 6
     // (tentative until M5).
     base: './',
+    plugins: [react()],
 });

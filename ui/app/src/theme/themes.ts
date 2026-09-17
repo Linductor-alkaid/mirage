@@ -27,6 +27,17 @@ const STATUS_DARK: Pick<
     info: g('sky-400d'),
 };
 
+/** 任务控制台 light 的状态四色：底色为较深的奶油灰（#d6d0c2），在共享
+ * STATUS_LIGHT 基础上按 §2.6 门槛加深（hue 与语义封闭映射不变）。 */
+const CONSOLE_STATUS_LIGHT: Pick<
+    SemanticTokenValues, 'destructive' | 'success' | 'warning' | 'info'
+> = {
+    destructive: '#b91c1c',
+    success: '#166534',
+    warning: '#9a4a08',
+    info: '#0369a1',
+};
+
 /** 玄墨的状态四色：低饱和深色变体，保持四色 hue 相互可区分。 */
 const INK_STATUS_LIGHT: Pick<
     SemanticTokenValues, 'destructive' | 'success' | 'warning' | 'info'
@@ -311,9 +322,77 @@ const ink: Theme = {
     },
 };
 
-export const BUILT_IN_THEMES: readonly Theme[] = [dawn, nordic, ember, matcha, ink];
+/** 任务控制台（MISSION CONSOLE，UI 重写默认主题）：控制台炭蓝底 + 奶油仪
+ * 表面板，琥珀为行动/主动读数色，蓝线剖面蓝为证据强调。dark = 夜班大厅，
+ * light = 白班控制室。状态四色沿用共享校准常量，语义封闭不变。 */
+const inkConsole = '#eae5d8';
+const consoleTheme: Theme = {
+    id: 'mirage-console',
+    name: '任务控制台',
+    light: {
+        background: '#d6d0c2',
+        foreground: '#23282f',
+        card: g('cream-100'),
+        'card-foreground': g('cream-900'),
+        popover: g('cream-50'),
+        primary: g('amber-700'),
+        'primary-foreground': '#fff6e8',
+        secondary: g('cream-200'),
+        'secondary-foreground': '#4a4636',
+        muted: '#e9e2d0',
+        'muted-foreground': g('cream-700'),
+        accent: 'rgb(138 77 8 / 12%)',
+        'accent-foreground': '#7c460a',
+        destructive: CONSOLE_STATUS_LIGHT.destructive,
+        success: CONSOLE_STATUS_LIGHT.success,
+        warning: CONSOLE_STATUS_LIGHT.warning,
+        info: CONSOLE_STATUS_LIGHT.info,
+        border: '#c4bca4',
+        input: '#b9b099',
+        ring: g('amber-700'),
+        'sidebar-background': '#cbc5b6',
+        'surface-raised': g('cream-50'),
+        'overlay-scrim': 'rgb(40 36 24 / 45%)',
+        'evidence-highlight': g('blueline-700'),
+        'evidence-highlight-soft': 'rgb(46 111 158 / 15%)',
+    },
+    dark: {
+        background: g('console-950'),
+        foreground: inkConsole,
+        card: g('console-800'),
+        'card-foreground': inkConsole,
+        popover: g('console-900'),
+        primary: g('amber-450'),
+        'primary-foreground': '#231a06',
+        secondary: g('console-700'),
+        'secondary-foreground': '#cfc9b8',
+        muted: g('console-800'),
+        'muted-foreground': '#9aa2ac',
+        accent: 'rgb(232 163 61 / 14%)',
+        'accent-foreground': g('amber-300'),
+        destructive: STATUS_DARK.destructive,
+        success: STATUS_DARK.success,
+        warning: STATUS_DARK.warning,
+        info: STATUS_DARK.info,
+        border: '#33404e',
+        input: '#3a4756',
+        ring: g('amber-450'),
+        'sidebar-background': g('console-900'),
+        'surface-raised': g('console-700'),
+        'overlay-scrim': 'rgb(10 13 17 / 60%)',
+        'evidence-highlight': g('blueline-400'),
+        'evidence-highlight-soft': 'rgb(127 179 213 / 16%)',
+    },
+    radius: { sm: '4px', md: '6px', lg: '8px' },
+    shadow: {
+        card: '0 1px 2px rgb(8 10 14 / 35%)',
+        overlay: '0 12px 32px rgb(8 10 14 / 50%)',
+    },
+};
 
-export const DEFAULT_THEME_ID = 'mirage-dawn';
+export const BUILT_IN_THEMES: readonly Theme[] = [consoleTheme, dawn, nordic, ember, matcha, ink];
+
+export const DEFAULT_THEME_ID = 'mirage-console';
 
 export function findTheme(id: string): Theme | undefined {
     return BUILT_IN_THEMES.find((theme) => theme.id === id);

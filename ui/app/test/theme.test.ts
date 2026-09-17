@@ -89,10 +89,10 @@ describe('§2.6-1 semantic token coverage', () => {
         }
     }
 
-    it('5 built-in themes with unique ids and default resolvable', () => {
-        expect(BUILT_IN_THEMES).toHaveLength(5);
+    it('6 built-in themes with unique ids and default resolvable', () => {
+        expect(BUILT_IN_THEMES).toHaveLength(6);
         const ids = BUILT_IN_THEMES.map((t) => t.id);
-        expect(new Set(ids).size).toBe(5);
+        expect(new Set(ids).size).toBe(6);
         expect(findTheme(DEFAULT_THEME_ID)?.id).toBe(DEFAULT_THEME_ID);
     });
 

@@ -9,6 +9,7 @@ import {
     resolveMode,
     ThemeManager,
 } from '../src/theme/theme-manager.js';
+import { DEFAULT_THEME_ID } from '../src/theme/themes.js';
 
 function fakeStorage(initial: Record<string, string> = {}): Storage {
     const data = new Map(Object.entries(initial));
@@ -57,14 +58,14 @@ describe('resolveMode', () => {
 
 describe('parseAppearance', () => {
     it('null falls back to default', () => {
-        expect(parseAppearance(null)).toEqual({ themeId: 'mirage-dawn', mode: 'system' });
+        expect(parseAppearance(null)).toEqual({ themeId: DEFAULT_THEME_ID, mode: 'system' });
     });
     it('invalid JSON falls back', () => {
-        expect(parseAppearance('{{{')).toEqual({ themeId: 'mirage-dawn', mode: 'system' });
+        expect(parseAppearance('{{{')).toEqual({ themeId: DEFAULT_THEME_ID, mode: 'system' });
     });
     it('invalid themeId falls back to default theme', () => {
         expect(parseAppearance(JSON.stringify({ themeId: 'nope', mode: 'dark' }))).toEqual({
-            themeId: 'mirage-dawn',
+            themeId: DEFAULT_THEME_ID,
             mode: 'dark',
         });
     });
@@ -102,7 +103,7 @@ describe('ThemeManager', () => {
         const media = fakeMedia(false);
         const mgr = new ThemeManager(root, storage, () => media);
         mgr.start();
-        expect(root.dataset.theme).toBe('mirage-dawn');
+        expect(root.dataset.theme).toBe(DEFAULT_THEME_ID);
         expect(root.dataset.mode).toBe('light');
 
         mgr.setTheme('mirage-matcha');
