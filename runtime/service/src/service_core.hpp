@@ -13,6 +13,7 @@
 #include <mirage/runtime/mira_host.hpp>
 #include <mirage/runtime/permission/permission.hpp>
 
+#include "event_hub.hpp"
 #include "recovery_writer.hpp"
 #include "task_registry.hpp"
 
@@ -45,6 +46,11 @@ struct ServiceCore {
     /// here so the drivers and future request paths share one policy and
     /// one confirmation hook.
     std::shared_ptr<mirage::runtime::permission::PermissionController> permission;
+
+    /// Process-wide event broadcast point (DEC-012 decision 5); publishes
+    /// come from the serial context and the task drivers, subscriptions are
+    /// handed to the IPC loop.
+    EventHub events;
 
     std::string mirage_version;
     std::size_t max_steps_per_task = 64;

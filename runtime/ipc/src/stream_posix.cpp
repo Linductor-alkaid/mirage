@@ -80,7 +80,10 @@ IoResult IpcStream::write_some(const char *data, std::size_t size) {
     if (!valid() || size == 0) {
         return result;
     }
-    const ssize_t written = ::write(fd_, data, size);
+    // send(MSG_NOSIGNAL), not write(): a peer that vanished between the
+    // poll pass and this write must surface as a Closed status here, never
+    // as a process-killing SIGPIPE in embedders that did not ignore it.
+    const ssize_t written = ::send(fd_, data, size, MSG_NOSIGNAL);
     if (written >= 0) {
         result.bytes = static_cast<std::size_t>(written);
         return result;

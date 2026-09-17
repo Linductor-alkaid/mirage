@@ -5,11 +5,13 @@
 /// asserts the `runtime/ipc` codec reproduces every canonical wire form
 /// byte-for-byte plus the stable decode error strings.
 ///
-/// Section coverage split (M1.5-01): `events` / `event_failures` are consumed
-/// by the TypeScript side only; the C++ event codec lands in M1.5-02, which
-/// also lifts the `encode_pending` restriction on the hello-capability
-/// response vector (the C++ encoder has no `events` identity member yet).
-/// There are deliberately no skip placeholders for those sections here.
+/// Section coverage (since M1.5-02): every section is consumed here on the
+/// C++ side. M1.5-01 restricted `events` / `event_failures` to the
+/// TypeScript mirror and marked the hello-capability response vector
+/// `encode_pending`; M1.5-02 lands the C++ event codec, consumes both
+/// sections and lifts that restriction — the identity encoder now writes
+/// the `events` capability member, so all response vectors assert both
+/// directions. There are deliberately no skip placeholders.
 
 #include "../support/test.hpp"
 
@@ -169,6 +171,64 @@ std::string to_hex(const std::string &bytes) {
     return hex;
 }
 
+/// Structured expectation for one `events` vector: the vectors file carries
+/// the decoded event object (`{v, seq, event, ...payload}`); dispatch on the
+/// stable event name and map it onto the codec's Event value.
+ipc::Event event_from_vector(const std::string &name, const mira::JsonValue &body) {
+    ipc::Event event;
+    event.seq = static_cast<std::uint64_t>(vector_integer(body, "seq"));
+    const auto kind = vector_string(body, "event");
+    if (kind == "task.updated") {
+        ipc::TaskUpdatedEvent payload;
+        payload.task_id = vector_string(body, "task_id");
+        payload.goal = vector_string(body, "goal");
+        payload.progress = vector_string(body, "progress");
+        payload.has_success = vector_boolean(body, "has_success");
+        payload.success = vector_boolean(body, "success");
+        event.payload = std::move(payload);
+    } else if (kind == "host.status") {
+        event.payload = ipc::HostStatusEvent{vector_string(body, "status")};
+    } else if (kind == "events.overflow") {
+        ipc::EventsOverflowEvent payload;
+        payload.dropped = static_cast<std::uint64_t>(vector_integer(body, "dropped"));
+        event.payload = std::move(payload);
+    } else {
+        std::fprintf(stderr, "golden event vector '%s' carries unknown event name '%s'\n",
+                     name.c_str(), kind.c_str());
+        MIRAGE_CHECK(false);
+    }
+    return event;
+}
+
+/// Full-structure event equality (seq plus every payload member), so a
+/// decode that drops or mangles any member fails here instead of silently
+/// round-tripping.
+void check_event_equal(const std::string &name, const ipc::Event &expected,
+                       const ipc::Event &actual) {
+    MIRAGE_CHECK(actual.seq == expected.seq);
+    if (actual.seq != expected.seq) {
+        return;
+    }
+    MIRAGE_CHECK(actual.payload.index() == expected.payload.index());
+    if (actual.payload.index() != expected.payload.index()) {
+        return;
+    }
+    if (const auto *task = std::get_if<ipc::TaskUpdatedEvent>(&expected.payload)) {
+        const auto &decoded = std::get<ipc::TaskUpdatedEvent>(actual.payload);
+        check_string_equal(name, "task_id", decoded.task_id, task->task_id);
+        check_string_equal(name, "goal", decoded.goal, task->goal);
+        check_string_equal(name, "progress", decoded.progress, task->progress);
+        MIRAGE_CHECK(decoded.has_success == task->has_success);
+        MIRAGE_CHECK(decoded.success == task->success);
+    } else if (const auto *status = std::get_if<ipc::HostStatusEvent>(&expected.payload)) {
+        check_string_equal(name, "status", std::get<ipc::HostStatusEvent>(actual.payload).status,
+                           status->status);
+    } else if (const auto *overflow = std::get_if<ipc::EventsOverflowEvent>(&expected.payload)) {
+        MIRAGE_CHECK(std::get<ipc::EventsOverflowEvent>(actual.payload).dropped ==
+                     overflow->dropped);
+    }
+}
+
 // --- structured expectations from the vectors file ---------------------------
 
 ipc::Request request_from_body(const mira::JsonValue &body) {
@@ -181,6 +241,12 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
     }
     if (op == "service.shutdown") {
         return ipc::ShutdownRequest{};
+    }
+    if (op == "events.subscribe") {
+        return ipc::SubscribeEventsRequest{};
+    }
+    if (op == "events.unsubscribe") {
+        return ipc::UnsubscribeEventsRequest{};
     }
     if (op == "task.inspect") {
         return ipc::InspectTaskRequest{vector_string(body, "task_id")};
@@ -233,7 +299,9 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
             using T = std::decay_t<decltype(expected_value)>;
             if constexpr (std::is_same_v<T, ipc::HelloRequest> ||
                           std::is_same_v<T, ipc::ListTasksRequest> ||
-                          std::is_same_v<T, ipc::ShutdownRequest>) {
+                          std::is_same_v<T, ipc::ShutdownRequest> ||
+                          std::is_same_v<T, ipc::SubscribeEventsRequest> ||
+                          std::is_same_v<T, ipc::UnsubscribeEventsRequest>) {
                 // Stateless bodies: the variant index comparison above suffices.
             } else if constexpr (std::is_same_v<T, ipc::SubmitTaskRequest>) {
                 const auto &submit = std::get<ipc::SubmitTaskRequest>(actual);
@@ -286,10 +354,14 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
         identity.mira_core_version = vector_string(value, "mira_core_version");
         identity.host_status = vector_string(value, "host_status");
         identity.protocol = static_cast<int>(vector_integer(value, "protocol"));
-        // hello-capability additionally carries "events": true; the C++
-        // struct has no such member yet, so it is ignored here — the decode
-        // assertion below proves unknown members are tolerated (M1.5-02
-        // brings the encoder side).
+        // DEC-012 capability member: hello-capability carries "events":true,
+        // hello-identity omits it. Presence maps onto the optional — missing
+        // decodes to nullopt, so consumers read `value_or(false)`.
+        if (const auto *events = value.find("events"); events != nullptr) {
+            const auto flag = events->as_boolean();
+            MIRAGE_CHECK(flag.has_value());
+            identity.events = flag;
+        }
         response.payload = std::move(identity);
     } else if (kind == "submitted") {
         response.payload = ipc::TaskSubmitted{vector_string(value, "task_id")};
@@ -374,6 +446,12 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                 MIRAGE_CHECK(actual_value.mira_core_version == expected_value.mira_core_version);
                 MIRAGE_CHECK(actual_value.host_status == expected_value.host_status);
                 MIRAGE_CHECK(actual_value.protocol == expected_value.protocol);
+                // Wire presence is part of the contract: an engaged encoder
+                // must write the member, a disengaged one must omit it.
+                MIRAGE_CHECK(actual_value.events.has_value() == expected_value.events.has_value());
+                if (actual_value.events.has_value() && expected_value.events.has_value()) {
+                    MIRAGE_CHECK(*actual_value.events == *expected_value.events);
+                }
             } else if constexpr (std::is_same_v<T, ipc::TaskSubmitted>) {
                 check_string_equal(name, "task_id", actual_value.task_id, expected_value.task_id);
             } else if constexpr (std::is_same_v<T, ipc::TaskList>) {
@@ -427,11 +505,10 @@ void scenario_golden_meta() {
                        "mirage-ipc-protocol-golden-vectors");
     MIRAGE_CHECK(vector_integer(meta, "version") >= 1);
     MIRAGE_CHECK(vector_integer(meta, "protocol_version") == 1);
-    // Every section this gate consumes must exist; the events sections are
-    // consumed by the TypeScript mirror in M1.5-01 and are intentionally not
-    // touched here (no placeholder assertions).
+    // Every section this gate consumes must exist; since M1.5-02 that is all
+    // of them, on the C++ side as well (events / event_failures included).
     for (const char *name : {"requests", "request_failures", "responses", "response_failures",
-                             "framing", "framing_failures"}) {
+                             "events", "event_failures", "framing", "framing_failures"}) {
         MIRAGE_CHECK(vectors().find(name) != nullptr);
     }
 }
@@ -476,13 +553,11 @@ void scenario_golden_responses() {
         const ipc::Response expected = response_from_vector(vector_member(vector, "response"));
         const auto canonical = vector_string(vector, "canonical");
 
-        // Vectors marked encode_pending (hello-capability: `events` identity
-        // member) are decode-only until M1.5-02 gives the C++ encoder that
-        // member; the decode assertion proves unknown members are tolerated.
-        if (vector.find("encode_pending") == nullptr) {
-            const std::string encoded = ipc::encode_response(expected);
-            check_string_equal(name, "encoded response", encoded, canonical);
-        }
+        // Every response vector asserts both directions since M1.5-02: the
+        // identity encoder writes the `events` capability member, so no
+        // vector carries the old encode_pending restriction anymore.
+        const std::string encoded = ipc::encode_response(expected);
+        check_string_equal(name, "encoded response", encoded, canonical);
 
         const ipc::ResponseDecode decoded = ipc::decode_response(canonical);
         if (!decoded.ok) {
@@ -544,6 +619,38 @@ void scenario_golden_framing_failures() {
     }
 }
 
+void scenario_golden_events() {
+    for (const auto &vector : section("events")) {
+        const auto name = vector_name(vector);
+        const ipc::Event expected = event_from_vector(name, vector_member(vector, "event"));
+        const auto canonical = vector_string(vector, "canonical");
+
+        const std::string encoded = ipc::encode_event(expected);
+        check_string_equal(name, "encoded event", encoded, canonical);
+
+        const ipc::EventDecode decoded = ipc::decode_event(canonical);
+        if (!decoded.ok) {
+            std::fprintf(stderr, "golden vector '%s': decode_event failed: %s\n", name.c_str(),
+                         decoded.error.c_str());
+        }
+        MIRAGE_CHECK(decoded.ok);
+        if (decoded.ok) {
+            check_event_equal(name, expected, decoded.event);
+        }
+    }
+}
+
+void scenario_golden_event_failures() {
+    for (const auto &vector : section("event_failures")) {
+        const auto name = vector_name(vector);
+        const ipc::EventDecode decoded = ipc::decode_event(vector_string(vector, "payload"));
+        MIRAGE_CHECK(!decoded.ok);
+        if (!decoded.ok) {
+            check_decode_failure(name, decoded.error, vector);
+        }
+    }
+}
+
 void run_scenario(const char *name, void (*scenario)()) {
     std::fprintf(stderr, "[ipc_protocol_golden_test] scenario: %s\n", name);
     scenario();
@@ -557,6 +664,8 @@ int main() {
     run_scenario("golden_request_failures", scenario_golden_request_failures);
     run_scenario("golden_responses", scenario_golden_responses);
     run_scenario("golden_response_failures", scenario_golden_response_failures);
+    run_scenario("golden_events", scenario_golden_events);
+    run_scenario("golden_event_failures", scenario_golden_event_failures);
     run_scenario("golden_framing", scenario_golden_framing);
     run_scenario("golden_framing_failures", scenario_golden_framing_failures);
     return mirage::testing::finish("ipc_protocol_golden_test");

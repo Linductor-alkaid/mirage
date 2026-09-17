@@ -29,31 +29,11 @@
 namespace mirage::runtime {
 namespace {
 
+using detail::progress_name;
+
 constexpr const char *kServiceName = "mirage-runtime";
 constexpr std::size_t kMaxGoalBytes = 8 * 1024;
 constexpr std::size_t kMaxArgumentBytes = 4 * 1024;
-
-const char *progress_name(TaskProgress progress) {
-    switch (progress) {
-    case TaskProgress::Idle:
-        return "Idle";
-    case TaskProgress::Active:
-        return "Active";
-    case TaskProgress::Paused:
-        return "Paused";
-    case TaskProgress::Cancelling:
-        return "Cancelling";
-    case TaskProgress::Completed:
-        return "Completed";
-    case TaskProgress::Failed:
-        return "Failed";
-    case TaskProgress::Cancelled:
-        return "Cancelled";
-    case TaskProgress::Unknown:
-        break;
-    }
-    return "Unknown";
-}
 
 bool terminal_progress(TaskProgress progress) {
     return progress == TaskProgress::Completed || progress == TaskProgress::Failed ||
@@ -119,6 +99,8 @@ struct RuntimeService::Impl {
         result.mira_core_version = mira_core_version_string();
         result.host_status = host_status_name(core->host.status());
         result.protocol = ipc::kProtocolVersion;
+        // DEC-012: an event-capable service always advertises the member.
+        result.events = true;
         return result;
     }
 
@@ -150,6 +132,17 @@ struct RuntimeService::Impl {
         } else {
             loop->post_response(connection_id, payload);
         }
+    }
+
+    /// Host status transitions publish into the hub (DEC-012 decision 5):
+    /// the LatestMailbox keeps the newest status for subscribe-time seeds
+    /// and the change enters the Topic publish path. Bounded and
+    /// thread-safe; also legal after the executor drained (teardown), where
+    /// subscribers no longer exist but the mailbox stays truthful.
+    void publish_host_status(HostStatus status) {
+        ipc::HostStatusEvent event;
+        event.status = host_status_name(status);
+        core->events.publish_host_status(std::move(event));
     }
 
     // --- request handling --------------------------------------------------
@@ -207,6 +200,16 @@ struct RuntimeService::Impl {
             if (loop) {
                 loop->stop_serving();
             }
+            return;
+        }
+        if (auto *request = std::get_if<ipc::SubscribeEventsRequest>(&decoded.body)) {
+            (void)request;
+            handle_subscribe(connection_id, correlation_id);
+            return;
+        }
+        if (auto *request = std::get_if<ipc::UnsubscribeEventsRequest>(&decoded.body)) {
+            (void)request;
+            handle_unsubscribe(connection_id, correlation_id);
             return;
         }
         fail(connection_id, correlation_id, "unsupported", "unknown request");
@@ -281,6 +284,10 @@ struct RuntimeService::Impl {
             std::lock_guard lock(core->drivers_mutex);
             core->drivers.emplace(submission.task.id, std::move(driver_submission));
         }
+        // Creation event (DEC-012 decision 3); published before the
+        // acknowledgement so a subscriber never observes the ack for a task
+        // whose created event is still queued behind serial work.
+        detail::publish_task_updated(core, submission.task.id);
         respond(connection_id, correlation_id, ipc::TaskSubmitted{submission.task.id});
     }
 
@@ -412,7 +419,40 @@ struct RuntimeService::Impl {
         acknowledgement.task_id = task_id;
         const TaskViewResult view = core->host.task_view(TaskIdentity{task_id});
         acknowledgement.progress = view.ok ? progress_name(view.view.progress) : "Unknown";
+        // Cancellation admission is a progress advance (DEC-012 decision 3):
+        // subscribers see "Cancelling" (or the terminal state the pinned
+        // cancel already settled under) before the ack leaves.
+        detail::publish_task_updated(core, task_id);
         respond(connection_id, correlation_id, std::move(acknowledgement));
+    }
+
+    /// Serial thread: attach the connection to the service event stream
+    /// (DEC-012). The bounded per-connection queue lives in the returned
+    /// subscription; the loop drains it after the responses of each pass.
+    /// The current host status seeds the stream (seq 1) so a fresh
+    /// subscriber starts from the live state, mirroring the frontend mock.
+    void handle_subscribe(std::uint64_t connection_id, std::uint64_t correlation_id) {
+        if (loop == nullptr) {
+            fail(connection_id, correlation_id, "internal", "service loop is not running");
+            return;
+        }
+        auto subscription = core->events.subscribe(config.event_queue_capacity);
+        std::optional<ipc::EventPayload> seed;
+        if (auto status = core->events.current_host_status()) {
+            seed = ipc::EventPayload{std::move(*status)};
+        }
+        respond(connection_id, correlation_id, ipc::ShutdownAccepted{});
+        loop->post_attach_events(connection_id, std::move(subscription), std::move(seed));
+    }
+
+    /// Serial thread: drop the connection's subscription; idempotent.
+    void handle_unsubscribe(std::uint64_t connection_id, std::uint64_t correlation_id) {
+        if (loop == nullptr) {
+            fail(connection_id, correlation_id, "internal", "service loop is not running");
+            return;
+        }
+        loop->post_detach_events(connection_id);
+        respond(connection_id, correlation_id, ipc::ShutdownAccepted{});
     }
 
     // --- lifecycle ---------------------------------------------------------
@@ -470,7 +510,9 @@ struct RuntimeService::Impl {
                     entry->second.cancel.request_cancel();
                 }
             }
-            auto cancelled = core->executor.submit_on(core->serial, [core = core, &id] {
+            // By-value id capture: a timed-out wait abandons the future and
+            // the closure may run after this loop iteration ended.
+            auto cancelled = core->executor.submit_on(core->serial, [core = core, id] {
                 return core->host.cancel_task(TaskIdentity{id});
             });
             try {
@@ -498,7 +540,13 @@ struct RuntimeService::Impl {
         if (config.persist_recovery_state) {
             core->recovery.persist(core->registry);
         }
+        // Host status transitions after the loop is gone have no live
+        // subscribers, but the hub's LatestMailbox stays truthful for the
+        // record (and for any hub-observing diagnostics).
+        publish_host_status(HostStatus::Stopping);
         const ShutdownResult host_shutdown = core->host.shutdown();
+        publish_host_status(host_shutdown.ok && host_shutdown.report.clean ? HostStatus::Stopped
+                                                                           : HostStatus::Failed);
         core->serial.shutdown();
         run_report.clean = host_shutdown.ok && host_shutdown.report.clean;
         if (!run_report.clean) {
@@ -544,7 +592,7 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
     }
     if (impl_->config.step_timeout <= std::chrono::milliseconds::zero() ||
         impl_->config.max_steps_per_task == 0 || impl_->config.max_task_records == 0 ||
-        impl_->config.max_result_bytes == 0) {
+        impl_->config.max_result_bytes == 0 || impl_->config.event_queue_capacity == 0) {
         outcome.error = {"invalid_argument", "service config limits are empty"};
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
         return outcome;
@@ -590,18 +638,22 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         return outcome;
     }
 
+    impl_->publish_host_status(HostStatus::Starting);
     const HostOutcome hosted = impl_->core->host.start(binding);
     if (!hosted.ok) {
+        impl_->publish_host_status(HostStatus::Failed);
         impl_->core->executor.shutdown(false);
         outcome.error = hosted.error;
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
         return outcome;
     }
+    impl_->publish_host_status(HostStatus::Running);
 
     std::string diagnostic;
     impl_->listener = ipc::IpcListener::bind(impl_->socket_path, diagnostic);
     if (!impl_->listener.valid()) {
         impl_->core->host.shutdown();
+        impl_->publish_host_status(impl_->core->host.status());
         impl_->core->executor.shutdown(false);
         outcome.error = {"internal", std::move(diagnostic)};
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
@@ -632,6 +684,7 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         impl_->loop = nullptr;
         impl_->listener.close();
         impl_->core->host.shutdown();
+        impl_->publish_host_status(impl_->core->host.status());
         impl_->core->executor.shutdown(false);
         outcome.error = {"internal", "blocking worker start failed: " +
                                          impl_->loop_worker.start_result().message};

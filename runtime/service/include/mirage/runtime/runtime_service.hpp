@@ -40,6 +40,11 @@ struct ServiceConfig {
     std::size_t max_connections = 16;
     std::size_t max_steps_per_task = 64;
     std::size_t max_task_records = 256;
+    /// Capacity of one connection's bounded event queue (DEC-012 decision
+    /// 5, drop-oldest). Overflowing surfaces as an `events.overflow` marker
+    /// instead of growing without bound; snapshots remain the source of
+    /// truth.
+    std::size_t event_queue_capacity = 256;
     /// Upper bound for one process.execute step (client-requested budgets
     /// are clamped to it). Filesystem reads are bounded by their provider
     /// contract, not by this value.

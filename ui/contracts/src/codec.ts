@@ -94,6 +94,12 @@ export function encodeRequest(id: number, body: RequestBody): string {
         case 'service.shutdown':
             object.op = 'service.shutdown';
             break;
+        case 'events.subscribe':
+            object.op = 'events.subscribe';
+            break;
+        case 'events.unsubscribe':
+            object.op = 'events.unsubscribe';
+            break;
     }
     return JSON.stringify(object);
 }
@@ -154,6 +160,10 @@ export function decodeRequest(payload: string): RequestDecode {
             return { ok: true, id, body: { op: 'task.list' } };
         case 'service.shutdown':
             return { ok: true, id, body: { op: 'service.shutdown' } };
+        case 'events.subscribe':
+            return { ok: true, id, body: { op: 'events.subscribe' } };
+        case 'events.unsubscribe':
+            return { ok: true, id, body: { op: 'events.unsubscribe' } };
         case 'task.submit': {
             const goal = asString(parsed.goal);
             if (goal === null) {

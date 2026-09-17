@@ -47,7 +47,9 @@ export type RequestBody =
     | { op: 'task.list' }
     | { op: 'task.inspect'; task_id: string }
     | { op: 'task.cancel'; task_id: string }
-    | { op: 'service.shutdown' };
+    | { op: 'service.shutdown' }
+    | { op: 'events.subscribe' }
+    | { op: 'events.unsubscribe' };
 
 // ---------------------------------------------------------------------------
 // Responses (service -> client)

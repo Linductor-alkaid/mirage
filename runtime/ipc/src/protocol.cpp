@@ -4,6 +4,7 @@
 
 #include <string>
 #include <type_traits>
+#include <variant>
 
 namespace mirage::runtime::ipc {
 namespace {
@@ -14,9 +15,33 @@ constexpr const char *kOpList = "task.list";
 constexpr const char *kOpInspect = "task.inspect";
 constexpr const char *kOpCancel = "task.cancel";
 constexpr const char *kOpShutdown = "service.shutdown";
+constexpr const char *kOpSubscribe = "events.subscribe";
+constexpr const char *kOpUnsubscribe = "events.unsubscribe";
 
 constexpr const char *kStepRead = "filesystem.read";
 constexpr const char *kStepExecute = "process.execute";
+
+constexpr const char *kEventTaskUpdated = "task.updated";
+constexpr const char *kEventHostStatus = "host.status";
+constexpr const char *kEventOverflow = "events.overflow";
+
+/// Closed product progress projection carried by task.updated events (schema
+/// doc 6.2). Kept local so the ipc layer stays independent of mira_host;
+/// the golden vectors pin the set on both ends.
+constexpr const char *kProgressNames[] = {"Idle",      "Active", "Paused",    "Cancelling",
+                                          "Completed", "Failed", "Cancelled", "Unknown"};
+
+/// Closed Mira Host five-state set (DEC-004) carried by host.status events.
+constexpr const char *kHostStatusNames[] = {"stopped", "starting", "running", "stopping", "failed"};
+
+bool in_stable_set(const std::string &value, const char *const *set, std::size_t count) {
+    for (std::size_t index = 0; index < count; ++index) {
+        if (value == set[index]) {
+            return true;
+        }
+    }
+    return false;
+}
 
 mira::JsonValue make_object() { return mira::JsonValue{mira::JsonValue::Object{}}; }
 
@@ -160,6 +185,9 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 put(object, "mira_core_version", value.mira_core_version);
                 put(object, "host_status", value.host_status);
                 put(object, "protocol", static_cast<std::int64_t>(value.protocol));
+                if (value.events.has_value()) {
+                    put(object, "events", *value.events);
+                }
             } else if constexpr (std::is_same_v<T, TaskSubmitted>) {
                 put(object, "task_id", value.task_id);
             } else if constexpr (std::is_same_v<T, TaskList>) {
@@ -237,6 +265,10 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                 put(object, "task_id", value.task_id);
             } else if constexpr (std::is_same_v<T, ShutdownRequest>) {
                 put(object, "op", kOpShutdown);
+            } else if constexpr (std::is_same_v<T, SubscribeEventsRequest>) {
+                put(object, "op", kOpSubscribe);
+            } else if constexpr (std::is_same_v<T, UnsubscribeEventsRequest>) {
+                put(object, "op", kOpUnsubscribe);
             }
         },
         body);
@@ -277,6 +309,10 @@ RequestDecode decode_request(std::string_view payload) {
         result.body = ListTasksRequest{};
     } else if (*op == kOpShutdown) {
         result.body = ShutdownRequest{};
+    } else if (*op == kOpSubscribe) {
+        result.body = SubscribeEventsRequest{};
+    } else if (*op == kOpUnsubscribe) {
+        result.body = UnsubscribeEventsRequest{};
     } else if (*op == kOpSubmit) {
         SubmitTaskRequest submit;
         const auto goal = string_member(object, "goal");
@@ -424,6 +460,16 @@ ResponseDecode decode_response(std::string_view payload) {
         identity.mira_core_version = std::move(*mira_core);
         identity.host_status = std::move(*host_status);
         identity.protocol = static_cast<int>(*protocol);
+        // DEC-012 capability member: engaged servers always write it, the
+        // decode defaults to disengaged (consumers read value_or(false)).
+        if (const auto *events = member(object, "events"); events != nullptr) {
+            const auto flag = events->as_boolean();
+            if (!flag) {
+                result.error = "hello response 'events' must be a boolean";
+                return result;
+            }
+            identity.events = *flag;
+        }
         response.payload = std::move(identity);
     } else if (const auto *task_id = member(object, "task_id"); task_id != nullptr) {
         auto id_text = string_member(object, "task_id");
@@ -517,6 +563,127 @@ ResponseDecode decode_response(std::string_view payload) {
         // An ok response carrying none of the known payload discriminators
         // is the acknowledgement shape (service.shutdown).
         response.payload = ShutdownAccepted{};
+    }
+    result.ok = true;
+    return result;
+}
+
+const char *event_name(const EventPayload &payload) {
+    if (std::holds_alternative<TaskUpdatedEvent>(payload)) {
+        return kEventTaskUpdated;
+    }
+    if (std::holds_alternative<HostStatusEvent>(payload)) {
+        return kEventHostStatus;
+    }
+    return kEventOverflow;
+}
+
+std::string encode_event(const Event &event) {
+    auto object = make_object();
+    put(object, "v", static_cast<std::int64_t>(kProtocolVersion));
+    put(object, "seq", static_cast<std::int64_t>(event.seq));
+    std::visit(
+        [&object](const auto &value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, TaskUpdatedEvent>) {
+                put(object, "event", kEventTaskUpdated);
+                put(object, "task_id", value.task_id);
+                put(object, "goal", value.goal);
+                put(object, "progress", value.progress);
+                put(object, "has_success", value.has_success);
+                put(object, "success", value.success);
+            } else if constexpr (std::is_same_v<T, HostStatusEvent>) {
+                put(object, "event", kEventHostStatus);
+                put(object, "status", value.status);
+            } else if constexpr (std::is_same_v<T, EventsOverflowEvent>) {
+                put(object, "event", kEventOverflow);
+                put(object, "dropped", static_cast<std::int64_t>(value.dropped));
+            }
+        },
+        event.payload);
+    return mira::to_json_string(object);
+}
+
+EventDecode decode_event(std::string_view payload) {
+    EventDecode result;
+    auto parsed = mira::parse_json(payload);
+    if (!parsed) {
+        result.error = "payload is not valid JSON: " + parsed.error().safe_message;
+        return result;
+    }
+    if (!parsed.value().is_object()) {
+        result.error = "event payload must be a JSON object";
+        return result;
+    }
+    const auto &object = parsed.value();
+    if (const auto version = integer_member(object, "v");
+        !version || *version != kProtocolVersion) {
+        result.error = "unsupported protocol version";
+        return result;
+    }
+    const auto seq = integer_member(object, "seq");
+    if (!seq || *seq < 1) {
+        result.error = "event is missing a positive 'seq'";
+        return result;
+    }
+    result.event.seq = static_cast<std::uint64_t>(*seq);
+    const auto name = string_member(object, "event");
+    if (!name) {
+        result.error = "event is missing 'event'";
+        return result;
+    }
+    if (*name == kEventTaskUpdated) {
+        TaskUpdatedEvent task;
+        const auto task_id = string_member(object, "task_id");
+        const auto goal = string_member(object, "goal");
+        const auto progress = string_member(object, "progress");
+        const auto *has_success = member(object, "has_success");
+        const auto *success = member(object, "success");
+        const auto has_success_flag =
+            has_success == nullptr ? std::nullopt : has_success->as_boolean();
+        const auto success_flag = success == nullptr ? std::nullopt : success->as_boolean();
+        if (!task_id || !goal || !progress || !has_success_flag || !success_flag) {
+            result.error = "task.updated requires 'task_id', 'goal', 'progress', 'has_success' and "
+                           "'success'";
+            return result;
+        }
+        if (!in_stable_set(*progress, kProgressNames,
+                           sizeof(kProgressNames) / sizeof(kProgressNames[0]))) {
+            result.error = "task.updated 'progress' is not a known progress name";
+            return result;
+        }
+        task.task_id = std::move(*task_id);
+        task.goal = std::move(*goal);
+        task.progress = std::move(*progress);
+        task.has_success = *has_success_flag;
+        task.success = *success_flag;
+        result.event.payload = std::move(task);
+    } else if (*name == kEventHostStatus) {
+        HostStatusEvent status;
+        auto status_name = string_member(object, "status");
+        if (!status_name) {
+            result.error = "host.status requires 'status'";
+            return result;
+        }
+        if (!in_stable_set(*status_name, kHostStatusNames,
+                           sizeof(kHostStatusNames) / sizeof(kHostStatusNames[0]))) {
+            result.error = "host.status 'status' is not a known host status";
+            return result;
+        }
+        status.status = std::move(*status_name);
+        result.event.payload = std::move(status);
+    } else if (*name == kEventOverflow) {
+        const auto dropped = integer_member(object, "dropped");
+        if (!dropped || *dropped < 0) {
+            result.error = "events.overflow requires a non-negative 'dropped'";
+            return result;
+        }
+        EventsOverflowEvent overflow;
+        overflow.dropped = static_cast<std::uint64_t>(*dropped);
+        result.event.payload = overflow;
+    } else {
+        result.error = "unknown event '" + *name + "'";
+        return result;
     }
     result.ok = true;
     return result;

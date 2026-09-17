@@ -12,12 +12,40 @@
 #include <utility>
 
 namespace mirage::runtime::detail {
+
+const char *progress_name(TaskProgress progress) {
+    switch (progress) {
+    case TaskProgress::Idle:
+        return "Idle";
+    case TaskProgress::Active:
+        return "Active";
+    case TaskProgress::Paused:
+        return "Paused";
+    case TaskProgress::Cancelling:
+        return "Cancelling";
+    case TaskProgress::Completed:
+        return "Completed";
+    case TaskProgress::Failed:
+        return "Failed";
+    case TaskProgress::Cancelled:
+        return "Cancelled";
+    case TaskProgress::Unknown:
+        break;
+    }
+    return "Unknown";
+}
+
 namespace {
 
 TaskIdentity identity_of(const std::string &task_id) {
     TaskIdentity identity;
     identity.id = task_id;
     return identity;
+}
+
+bool terminal_progress(TaskProgress progress) {
+    return progress == TaskProgress::Completed || progress == TaskProgress::Failed ||
+           progress == TaskProgress::Cancelled;
 }
 
 /// The permission capability a scripted step exercises (DEC-010). The M1
@@ -110,13 +138,19 @@ void mark_step_permission(ServiceCore &core, const std::string &task_id, std::si
 /// hook. The pinned runtime's view is the authoritative terminal name when
 /// reachable (a concurrent cancel can race a failure settlement);
 /// `intended` covers the unreachable-pinned fallback. `has_success` stays
-/// true only when the pinned runtime accepted the settlement.
-void mark_driver_done(ServiceCore &core, const std::string &task_id, const char *intended,
-                      bool has_success, bool success) {
+/// true only when the pinned runtime accepted the settlement. The terminal
+/// `task.updated` event publishes from here, so every settlement path
+/// (complete, failed, cancelled, exception) emits exactly one.
+void mark_driver_done(const std::shared_ptr<ServiceCore> &core, const std::string &task_id,
+                      const char *intended, bool has_success, bool success) {
+    ServiceCore &service = *core;
     const char *progress = intended;
-    auto view =
-        post_host(core, [&core, &task_id] { return core.host.task_view(identity_of(task_id)); });
-    if (ready_within(view, core.command_wait)) {
+    // The lambdas posted here can outlive this stack frame: when
+    // ready_within gives up, the closure stays queued on the serial context
+    // and runs later. Every stack string is therefore captured by value.
+    auto view = post_host(
+        service, [&service, task_id] { return service.host.task_view(identity_of(task_id)); });
+    if (ready_within(view, service.command_wait)) {
         try {
             const TaskViewResult result = view.get();
             if (result.ok) {
@@ -138,16 +172,17 @@ void mark_driver_done(ServiceCore &core, const std::string &task_id, const char 
         }
     }
     {
-        std::lock_guard lock(core.registry.mutex);
-        auto entry = core.registry.tasks.find(task_id);
-        if (entry != core.registry.tasks.end()) {
+        std::lock_guard lock(service.registry.mutex);
+        auto entry = service.registry.tasks.find(task_id);
+        if (entry != service.registry.tasks.end()) {
             entry->second.driver_done = true;
             entry->second.final_progress = progress;
             entry->second.has_success = has_success;
             entry->second.success = success;
         }
     }
-    core.recovery.persist(core.registry);
+    service.recovery.persist(service.registry);
+    publish_task_updated_best_effort(core, task_id);
 }
 
 /// Admits one desktop operation for the task; false means the pinned
@@ -155,7 +190,7 @@ void mark_driver_done(ServiceCore &core, const std::string &task_id, const char 
 /// the driving loop without marking the task failed from here.
 bool begin_operation(ServiceCore &core, const std::string &task_id, OperationTicket &ticket) {
     auto begin = post_host(
-        core, [&core, &task_id] { return core.host.begin_operation(identity_of(task_id)); });
+        core, [&core, task_id] { return core.host.begin_operation(identity_of(task_id)); });
     if (!ready_within(begin, core.command_wait)) {
         return false;
     }
@@ -174,11 +209,13 @@ bool begin_operation(ServiceCore &core, const std::string &task_id, OperationTic
 /// Settles the task failed through the pinned runtime (fail-fast, DEC-007
 /// item 5); has_success only when the pinned runtime accepted the
 /// settlement, so a concurrent cancel keeps the terminal say.
-void settle_failed(ServiceCore &core, const std::string &task_id, const std::string &error) {
-    auto complete = post_host(core, [&core, &task_id, &error] {
-        return core.host.complete_task(identity_of(task_id), false, error);
+void settle_failed(const std::shared_ptr<ServiceCore> &core, const std::string &task_id,
+                   const std::string &error) {
+    ServiceCore &service = *core;
+    auto complete = post_host(service, [&service, task_id, error] {
+        return service.host.complete_task(identity_of(task_id), false, error);
     });
-    const bool settled = ready_within(complete, core.command_wait) && [&] {
+    const bool settled = ready_within(complete, service.command_wait) && [&] {
         try {
             return complete.get().ok;
         } catch (const std::exception &) {
@@ -271,6 +308,55 @@ void execute_action(ServiceCore &core, const ipc::TaskStep &step,
 
 } // namespace
 
+void publish_task_updated(const std::shared_ptr<ServiceCore> &core, const std::string &task_id) {
+    ServiceCore &service = *core;
+    ipc::TaskUpdatedEvent event;
+    event.task_id = task_id;
+    bool settled = false;
+    {
+        std::lock_guard lock(service.registry.mutex);
+        auto entry = service.registry.tasks.find(task_id);
+        if (entry == service.registry.tasks.end()) {
+            return; // the task record is gone (shutdown); nothing to report
+        }
+        event.goal = entry->second.goal;
+        if (!entry->second.final_progress.empty()) {
+            // Settled: the recorded terminal name and outcome are the
+            // truth, exactly as task.inspect reports them.
+            event.progress = entry->second.final_progress;
+            event.has_success = entry->second.has_success;
+            event.success = entry->second.success;
+            settled = true;
+        }
+    }
+    if (!settled) {
+        // Serial context: the live pinned view is the same projection
+        // task.inspect reports for in-flight tasks.
+        const TaskViewResult view = service.host.task_view(TaskIdentity{task_id});
+        event.progress = view.ok ? progress_name(view.view.progress) : "Unknown";
+        if (view.ok && terminal_progress(view.view.progress)) {
+            event.has_success = true;
+            event.success = view.view.success;
+        }
+    }
+    service.events.publish_task_update(std::move(event));
+}
+
+void publish_task_updated_best_effort(const std::shared_ptr<ServiceCore> &core,
+                                      const std::string &task_id) {
+    try {
+        auto posted = core->executor.submit_on(
+            core->serial, [core, task_id] { publish_task_updated(core, task_id); });
+        if (!ready_within(posted, core->command_wait)) {
+            return; // dropped: events are notifications, snapshots are truth
+        }
+        consume(std::move(posted));
+    } catch (const std::exception &) {
+        // Rejected admission (teardown in progress) ends the publish path.
+    } catch (...) {
+    }
+}
+
 void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> core,
                 std::string task_id) {
     if (!core) {
@@ -300,7 +386,7 @@ void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> cor
             if (stop_token.stop_requested() || cancel.cancelled()) {
                 for_each_step(service, task_id, index,
                               [](StepRecord &pending) { pending.status = step_status::kSkipped; });
-                mark_driver_done(service, task_id, "Cancelled", false, false);
+                mark_driver_done(core, task_id, "Cancelled", false, false);
                 return;
             }
 
@@ -326,7 +412,7 @@ void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> cor
                           -1, {}, false, "permission_denied: " + verdict.reason);
                 for_each_step(service, task_id, index + 1,
                               [](StepRecord &pending) { pending.status = step_status::kSkipped; });
-                settle_failed(service, task_id, "permission_denied: " + verdict.reason);
+                settle_failed(core, task_id, "permission_denied: " + verdict.reason);
                 return;
             }
 
@@ -338,11 +424,12 @@ void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> cor
                 // failed from the driver side.
                 for_each_step(service, task_id, index,
                               [](StepRecord &pending) { pending.status = step_status::kSkipped; });
-                mark_driver_done(service, task_id, "Cancelled", false, false);
+                mark_driver_done(core, task_id, "Cancelled", false, false);
                 return;
             }
             mark_step(service, task_id, index, step_status::kRunning, ticket.operation_id,
                       step_permission, false, -1, {}, false, {});
+            publish_task_updated_best_effort(core, task_id);
 
             bool ok = false;
             bool step_cancelled = false;
@@ -363,7 +450,7 @@ void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> cor
                 for_each_step(service, task_id, index + 1,
                               [](StepRecord &pending) { pending.status = step_status::kSkipped; });
                 admit_completion(service, ticket);
-                mark_driver_done(service, task_id, "Cancelled", false, false);
+                mark_driver_done(core, task_id, "Cancelled", false, false);
                 return;
             }
             mark_step(service, task_id, index, ok ? step_status::kOk : step_status::kFailed,
@@ -376,13 +463,14 @@ void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> cor
                 // leave the remaining steps skipped.
                 for_each_step(service, task_id, index + 1,
                               [](StepRecord &pending) { pending.status = step_status::kSkipped; });
-                settle_failed(service, task_id, error);
+                settle_failed(core, task_id, error);
                 return;
             }
+            publish_task_updated_best_effort(core, task_id);
             ++index;
         }
 
-        auto complete = post_host(service, [&service, &task_id] {
+        auto complete = post_host(service, [&service, task_id] {
             return service.host.complete_task(identity_of(task_id), true);
         });
         bool settled = false;
@@ -393,11 +481,11 @@ void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> cor
                 settled = false;
             }
         }
-        mark_driver_done(service, task_id, "Completed", settled, settled);
+        mark_driver_done(core, task_id, "Completed", settled, settled);
     } catch (const std::exception &) {
-        mark_driver_done(service, task_id, "Failed", false, false);
+        mark_driver_done(core, task_id, "Failed", false, false);
     } catch (...) {
-        mark_driver_done(service, task_id, "Failed", false, false);
+        mark_driver_done(core, task_id, "Failed", false, false);
     }
 }
 
