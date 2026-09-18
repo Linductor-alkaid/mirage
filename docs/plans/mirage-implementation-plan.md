@@ -24,12 +24,14 @@ Desktop Permission 框架雏形（Capability 判定与确认挂点见
 （本地配置与 Runtime Recovery State，见
 [DEC-011](../decisions/DEC-011-m1-local-state-persistence.md)）已完成；
 2026-09-16 里程碑退出条件复核通过（5/5，验证记录见
-[M1：Mira Host 与基础 Runtime](m1-mira-host.md)），M1 Completed。下一步为
-M2（Desktop Environment 核心 Provider + Linux Backend、Semantic Snapshot、
-Element Reference），其里程碑计划待建立。UI 并行轨道已建立为
-[M1.5](m1.5-ui-parallel-track.md)：前端（Web 技术栈）以 IPC 契约为唯一耦合面与核心
-并行开发，事件订阅契约见
-[DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)（Proposed）。
+[M1：Mira Host 与基础 Runtime](m1-mira-host.md)），M1 Completed。M2 里程碑计划已
+建立，见 [M2：Desktop Environment 核心 Provider 与 Linux
+Backend](m2-desktop-environment.md)；`M2-01`（核心 Provider 契约与
+DesktopObservation schema v1.0，
+[DEC-005](../decisions/DEC-005-desktop-observation-contract.md)）已完成，后续工作项
+进行中。UI 并行轨道 [M1.5](m1.5-ui-parallel-track.md) 已完成（wire schema 事实源
+[DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)、事件订阅、
+dev bridge、harness 前端壳）。
 
 ## 交付边界
 
@@ -102,7 +104,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | --- | --- | --- | --- | --- |
 | [M1](m1-mira-host.md) | Mira Host、Runtime Service + IPC、Filesystem/Process Provider、CLI | `release-alpha` | Completed | - |
 | [M1.5](m1.5-ui-parallel-track.md) | UI 并行轨道：wire schema 事实源、IPC 事件订阅、dev bridge、前端（浏览器形态，按 DEC-013 harness 优先统一壳组织：会话/工作流/设置 + 统一壳骨架） | -（随开发线交付，产品化 UI 属 M5） | Completed | M1 |
-| M2 | Desktop Environment 核心 Provider + Linux Backend、Semantic Snapshot、Element Reference | `release-beta` | Planned | M1 |
+| [M2](m2-desktop-environment.md) | Desktop Environment 核心 Provider + Linux Backend、Semantic Snapshot、Element Reference | `release-beta` | In Progress | M1 |
 | M3 | Mirador 集成：OCR / 检测 / 几何 / Visual Cache、Visual Reference | `release-gamma` | Planned | M2 |
 | M4 | Windows Backend（UIA / Win32 / Capture / Input） | `release-delta` | Planned | M2 |
 | M5 | Desktop Product：Workspace、Workflow UI、Execution Trace、Overlay、权限 | `release-epsilon` | Planned | M3、M4 |
@@ -117,7 +119,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | --- | --- | --- | --- | --- |
 | DEC-002 | Mira TLS 通道适配器 | 关闭 Mbed TLS 适配器（OpenSSL 适配器可用即构建）；接入真实模型网关前复核 | Mirage 维护者 | M2 |
 | DEC-004 | Mira Host 状态集 | 已定案（[DEC-004](../decisions/DEC-004-mira-host-status-set.md)）：五态 `Stopped/Starting/Running/Stopping/Failed`，M1 冻结并写入设计文档第 11.1 节 | Mirage 维护者 | M1（已冻结） |
-| DEC-005（待建） | DesktopObservation 契约 | 骨架字段集；M2 冻结 schema v1.0 | Mirage 维护者 | M2 |
+| DEC-005 | DesktopObservation 契约 | 已定案（[DEC-005](../decisions/DEC-005-desktop-observation-contract.md)）：schema 1.0 字段集、结构化 SemanticSnapshot（预算 + 确定性渲染）、多提示 ElementTarget 与解析顺序契约（reference → accessibility → Mirador 视觉（M3）→ VLM 显式），M2-01 冻结 | Mirage 维护者 | M2（已冻结） |
 | DEC-006 | UI 技术路线与分发打包 | 已定案（[DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md)）：Web 前端 + 嵌入式渲染壳（暂定 CEF）独立进程；`.deb` / Windows `exe` 安装包。壳选型与更新通道为暂定默认值，M3 冻结 | Mirage 维护者 | M3 |
 | DEC-007 | Local IPC 机制 | 已定案（[DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md)）：Unix domain socket（Linux）/ 命名管道（Windows，M4），长度前缀 + JSON 帧格式，协议 v1 请求面，`apps/service` 进程形态；传输与帧格式自 M1-04 冻结 | Mirage 维护者 | M1（已冻结） |
 | DEC-012 | IPC 事件订阅与 wire schema 事实源 | 已接受（2026-09-16 评审通过，[DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)）：协议 v1 附加事件帧 + 订阅 op（版本号不递增），[mirage-ipc-protocol-v1.md](../design/mirage-ipc-protocol-v1.md) 为契约事实源（M1.5-01 落地，golden vectors 双端门禁），事件分发经 `executor::comm` 承载 | Mirage 维护者 | M1.5 |
