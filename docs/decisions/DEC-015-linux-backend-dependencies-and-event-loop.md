@@ -3,7 +3,7 @@
 > 状态：Accepted
 > 日期：2026-09-18
 > 负责人：Mirage 维护者
-> 冻结里程碑：M2（`M2-02` 落地；第 3 条在 `M2-03` 首次兑现）
+> 冻结里程碑：M2（`M2-02` 落地；第 3 条在 `M2-03` 首次兑现；第 5 条随 `M2-03` 修订）
 > 替代/被替代：无（细化 [DEC-008](DEC-008-m1-environment-binding-and-reference-providers.md)
 > 的 M2 演进路径）
 
@@ -89,6 +89,24 @@
   整屏采集字节与预算拒绝、XTest 指针与键盘事件真实送达监听窗口、位移弦文本、
   取消与非法参数负向。
 - 预设矩阵 + format + boundary 门禁（见 M2 计划验证记录）。
+
+## 变更记录
+
+- 2026-09-18（`M2-03`）：第 5 条测试拓扑修订——Ubuntu 24.04 的 at-spi2-registryd
+  （at-spi2-core 2.52.0）在处理 `Socket.Embed` 时于 libdbus 派发路径段错误
+  （core dump 取证：`dbus_connection_dispatch` 内崩溃，与客户端实现无关）；
+  AT-SPI2 测试拓扑改为 fixture 在私有 D-Bus session 上直接持有
+  `org.a11y.atspi.Registry` 名字并导出 desktop 树（backend 只经
+  `atspi_get_desktop` 读取，不依赖 registryd 的应用注册面），libatspi 经
+  `AT_SPI_BUS_ADDRESS` 指向该私有总线。真实桌面（registryd 正常运行）的产品
+  路径不受影响；有 WM/真实 AT-SPI 应用的验证随 `M2-06` 冒烟补齐。同时落地：
+  SemanticSnapshot 角色词表冻结（`snapshot_role` 显式映射表 + 其余角色小写
+  连字符化 fallback）、structural path 语法冻结（自 application 根起的
+  `role/name` 成对段）、libatspi 包装对象所有权模型（全局弱表 → backend 进程级
+  对象池，容量 8192 为 `RULE-07` 上限）、AccessibilityProvider 契约扩展
+  （`activate_element` / `set_text`，visual/spatial/raw 提示以
+  `unsupported_hint` fail closed，DEC-005 解析顺序不变）；上游
+  `atspi-2.pc` 漏声明 gobject-2.0 依赖（打包缺陷），构建显式补链。
 
 ## 关联文档和工作项
 
