@@ -54,11 +54,21 @@ void scenario_capability_names_and_parsing() {
                  "filesystem.write");
     MIRAGE_CHECK(std::string(permission::capability_name(Capability::ProcessExecute)) ==
                  "process.execute");
+    // M2-02 desktop actions (DEC-015): appended to the frozen vocabulary.
+    MIRAGE_CHECK(std::string(permission::capability_name(Capability::WindowActivate)) ==
+                 "window.activate");
+    MIRAGE_CHECK(std::string(permission::capability_name(Capability::ScreenCapture)) ==
+                 "screen.capture");
+    MIRAGE_CHECK(std::string(permission::capability_name(Capability::InputInject)) ==
+                 "input.inject");
 
     MIRAGE_CHECK(permission::capability_from_name("filesystem.read") == Capability::FilesystemRead);
     MIRAGE_CHECK(permission::capability_from_name("filesystem.write") ==
                  Capability::FilesystemWrite);
     MIRAGE_CHECK(permission::capability_from_name("process.execute") == Capability::ProcessExecute);
+    MIRAGE_CHECK(permission::capability_from_name("window.activate") == Capability::WindowActivate);
+    MIRAGE_CHECK(permission::capability_from_name("screen.capture") == Capability::ScreenCapture);
+    MIRAGE_CHECK(permission::capability_from_name("input.inject") == Capability::InputInject);
 
     // Anything else fails closed: empty, partial, oversized, wrong case.
     MIRAGE_CHECK(!permission::capability_from_name("").has_value());
@@ -69,6 +79,16 @@ void scenario_capability_names_and_parsing() {
     MIRAGE_CHECK(!permission::capability_from_name("FILESYSTEM.READ").has_value());
     MIRAGE_CHECK(!permission::capability_from_name("Process.Execute").has_value());
     MIRAGE_CHECK(!permission::capability_from_name("window.click").has_value());
+    // New names are exact: near misses and case tricks must not parse.
+    MIRAGE_CHECK(!permission::capability_from_name("window").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("screen").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("input").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("window.activat").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("screen.capturex").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("input.inject ").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("Window.Activate").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("SCREEN.CAPTURE").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("Input.Inject").has_value());
 }
 
 void scenario_rule_names_and_parsing() {
@@ -103,6 +123,12 @@ void scenario_default_policy() {
     MIRAGE_CHECK(policy.rule_for(Capability::FilesystemRead) == Rule::Allow);
     MIRAGE_CHECK(policy.rule_for(Capability::FilesystemWrite) == Rule::Deny);
     MIRAGE_CHECK(policy.rule_for(Capability::ProcessExecute) == Rule::Allow);
+    // M2-02 desktop actions default to allow (DEC-015): the Observation ->
+    // Action -> Observation loop is the milestone's purpose; tightening is
+    // explicit configuration.
+    MIRAGE_CHECK(policy.rule_for(Capability::WindowActivate) == Rule::Allow);
+    MIRAGE_CHECK(policy.rule_for(Capability::ScreenCapture) == Rule::Allow);
+    MIRAGE_CHECK(policy.rule_for(Capability::InputInject) == Rule::Allow);
 
     // The rules array stays indexable by capability; writing one slot must
     // not disturb the others.
@@ -112,6 +138,70 @@ void scenario_default_policy() {
     MIRAGE_CHECK(customized.rule_for(Capability::FilesystemRead) == Rule::Allow);
     MIRAGE_CHECK(customized.rule_for(Capability::FilesystemWrite) == Rule::Confirm);
     MIRAGE_CHECK(customized.rule_for(Capability::ProcessExecute) == Rule::Deny);
+    // Tightening a desktop capability leaves the rest of the new slots and
+    // the M1 slots untouched.
+    customized.rules[static_cast<std::size_t>(Capability::InputInject)] = Rule::Deny;
+    MIRAGE_CHECK(customized.rule_for(Capability::WindowActivate) == Rule::Allow);
+    MIRAGE_CHECK(customized.rule_for(Capability::ScreenCapture) == Rule::Allow);
+    MIRAGE_CHECK(customized.rule_for(Capability::InputInject) == Rule::Deny);
+    MIRAGE_CHECK(customized.rule_for(Capability::FilesystemRead) == Rule::Allow);
+}
+
+/// The M2-02 desktop capabilities flow through the same controller verdict
+/// semantics as the M1 vocabulary: policy-only decisions never touch the
+/// confirmation hook, and the reason strings carry the stable name.
+void scenario_desktop_capability_controller_semantics() {
+    PermissionPolicy policy;
+    policy.rules[static_cast<std::size_t>(Capability::ScreenCapture)] = Rule::Deny;
+    policy.rules[static_cast<std::size_t>(Capability::WindowActivate)] = Rule::Confirm;
+    policy.rules[static_cast<std::size_t>(Capability::InputInject)] = Rule::Confirm;
+
+    RecordingConfirmation approve(true);
+    PermissionController controller(policy, approve);
+
+    PermissionRequest denied;
+    denied.capability = Capability::ScreenCapture;
+    denied.resource = "display:0";
+    denied.task_id = "task-cap-deny";
+    denied.operation_id = "op-cap-1";
+    const auto deny_verdict = controller.authorize(denied);
+    MIRAGE_CHECK(!deny_verdict.allowed);
+    MIRAGE_CHECK(deny_verdict.decision == Decision::Denied);
+    MIRAGE_CHECK(deny_verdict.reason == "screen.capture denied by policy");
+    MIRAGE_CHECK(approve.calls == 0); // policy-only: hook untouched
+
+    PermissionRequest confirmed;
+    confirmed.capability = Capability::WindowActivate;
+    confirmed.resource = "window:4194305";
+    confirmed.task_id = "task-cap-confirm";
+    confirmed.operation_id = "op-cap-2";
+    const auto confirm_verdict = controller.authorize(confirmed);
+    MIRAGE_CHECK(confirm_verdict.allowed);
+    MIRAGE_CHECK(confirm_verdict.decision == Decision::AllowedByConfirmation);
+    MIRAGE_CHECK(approve.calls == 1);
+
+    PermissionRequest rejected;
+    rejected.capability = Capability::InputInject;
+    rejected.resource = "type_text";
+    rejected.task_id = "task-cap-reject";
+    rejected.operation_id = "op-cap-3";
+    RecordingConfirmation deny_hook(false);
+    PermissionController rejecting_controller(policy, deny_hook);
+    const auto reject_verdict = rejecting_controller.authorize(rejected);
+    MIRAGE_CHECK(!reject_verdict.allowed);
+    MIRAGE_CHECK(reject_verdict.decision == Decision::DeniedByConfirmation);
+    MIRAGE_CHECK(reject_verdict.reason == "confirmation rejected for input.inject");
+    MIRAGE_CHECK(deny_hook.calls == 1);
+
+    // Default-policy desktop capabilities are decided by policy alone.
+    PermissionController default_controller(PermissionPolicy{}, approve);
+    PermissionRequest allowed;
+    allowed.capability = Capability::ScreenCapture;
+    allowed.resource = "display:0";
+    const auto allow_verdict = default_controller.authorize(allowed);
+    MIRAGE_CHECK(allow_verdict.allowed);
+    MIRAGE_CHECK(allow_verdict.decision == Decision::Allowed);
+    MIRAGE_CHECK(approve.calls == 1); // unchanged by the policy-only allow
 }
 
 // --- controller semantics ----------------------------------------------------
@@ -238,6 +328,8 @@ int main() {
     run_scenario("rule_names_and_parsing", scenario_rule_names_and_parsing);
     run_scenario("decision_names", scenario_decision_names);
     run_scenario("default_policy", scenario_default_policy);
+    run_scenario("desktop_capability_controller_semantics",
+                 scenario_desktop_capability_controller_semantics);
     run_scenario("allow_never_consults_confirmation", scenario_allow_never_consults_confirmation);
     run_scenario("deny_never_consults_confirmation", scenario_deny_never_consults_confirmation);
     run_scenario("confirm_approved_calls_handler_once",
