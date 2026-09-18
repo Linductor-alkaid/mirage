@@ -10,6 +10,12 @@ const char *capability_name(Capability capability) {
         return "filesystem.write";
     case Capability::ProcessExecute:
         return "process.execute";
+    case Capability::WindowActivate:
+        return "window.activate";
+    case Capability::ScreenCapture:
+        return "screen.capture";
+    case Capability::InputInject:
+        return "input.inject";
     }
     return "unknown";
 }
@@ -23,6 +29,15 @@ std::optional<Capability> capability_from_name(std::string_view name) {
     }
     if (name == "process.execute") {
         return Capability::ProcessExecute;
+    }
+    if (name == "window.activate") {
+        return Capability::WindowActivate;
+    }
+    if (name == "screen.capture") {
+        return Capability::ScreenCapture;
+    }
+    if (name == "input.inject") {
+        return Capability::InputInject;
     }
     return std::nullopt;
 }

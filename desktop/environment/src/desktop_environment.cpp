@@ -6,7 +6,9 @@
 
 #include <algorithm>
 #include <array>
+#include <optional>
 #include <string_view>
+#include <utility>
 
 namespace mirage::desktop {
 
@@ -36,16 +38,29 @@ bool is_named_key(std::string_view name) {
 
 } // namespace
 
-bool is_valid_key_name(const std::string &name) {
+bool is_valid_key_name(const std::string &name) { return parse_key_chord(name).has_value(); }
+
+std::optional<KeyChord> parse_key_chord(const std::string &name) {
     // Modifiers appear at most once each, in the documented canonical order;
     // anything after stripping them must be a plain key.
     std::string_view rest = name;
-    for (std::string_view prefix : kModifierPrefixes) {
+    KeyChord chord;
+    const std::array<std::pair<std::string_view, bool *>, 4> modifiers = {
+        {{kModifierPrefixes[0], &chord.ctrl},
+         {kModifierPrefixes[1], &chord.alt},
+         {kModifierPrefixes[2], &chord.shift},
+         {kModifierPrefixes[3], &chord.meta}}};
+    for (const auto &[prefix, flag] : modifiers) {
         if (rest.starts_with(prefix)) {
             rest.remove_prefix(prefix.size());
+            *flag = true;
         }
     }
-    return !rest.empty() && is_named_key(rest);
+    if (rest.empty() || !is_named_key(rest)) {
+        return std::nullopt;
+    }
+    chord.base = std::string(rest);
+    return chord;
 }
 
 bool is_valid_utf8(const std::string &text) {

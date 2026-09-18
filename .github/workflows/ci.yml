@@ -55,8 +55,9 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
-      - name: Install ccache
-        run: sudo apt-get update && sudo apt-get install -y ccache
+      - name: Install ccache and X11 test prerequisites
+        run: sudo apt-get update && sudo apt-get install -y ccache libx11-dev libxtst-dev
+          libxrandr-dev xvfb
       - name: ccache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:

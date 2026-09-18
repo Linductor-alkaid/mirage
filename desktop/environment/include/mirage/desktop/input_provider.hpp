@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 
 #include <mirage/desktop/cancellation.hpp>
@@ -93,6 +94,21 @@ class InputProvider {
         return pointer_button(button, pressed, InputLimits{}, CancelToken{});
     }
 };
+
+/// Parsed KeySym name: modifier flags plus the plain base key. Backends use
+/// it to build platform key events, so chord semantics cannot diverge
+/// between validation and injection.
+struct KeyChord {
+    bool ctrl = false;
+    bool alt = false;
+    bool shift = false;
+    bool meta = false;
+    std::string base; ///< plain key name, e.g. "enter" or "a"
+};
+
+/// Splits a KeySym name into modifiers and base key per the vocabulary
+/// above; nullopt when the name is invalid.
+std::optional<KeyChord> parse_key_chord(const std::string &name);
 
 /// Returns true when `name` follows the KeySym vocabulary documented above.
 /// Shared by backends and callers so validation is identical everywhere;

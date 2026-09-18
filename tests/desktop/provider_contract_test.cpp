@@ -548,6 +548,71 @@ void contract_helper_hardening_edges() {
     MIRAGE_CHECK(!mirage::desktop::is_valid_key_name("ctrl+meta+alt+shift+x")); // wrong order
 }
 
+/// parse_key_chord is the M2-02 shared parser behind is_valid_key_name: the
+/// flags and base it produces are what backends inject, so the split must
+/// agree with validation on every edge the vocabulary defines.
+void key_chord_parsing_matches_validation() {
+    const auto plain = mirage::desktop::parse_key_chord("a");
+    MIRAGE_CHECK(plain.has_value());
+    MIRAGE_CHECK(!plain->ctrl && !plain->alt && !plain->shift && !plain->meta);
+    MIRAGE_CHECK(plain->base == "a");
+
+    const auto full = mirage::desktop::parse_key_chord("ctrl+alt+shift+meta+x");
+    MIRAGE_CHECK(full.has_value());
+    MIRAGE_CHECK(full->ctrl && full->alt && full->shift && full->meta);
+    MIRAGE_CHECK(full->base == "x");
+
+    const auto named = mirage::desktop::parse_key_chord("ctrl+space");
+    MIRAGE_CHECK(named.has_value() && named->ctrl && !named->shift);
+    MIRAGE_CHECK(named->base == "space");
+
+    const auto fn = mirage::desktop::parse_key_chord("shift+f12");
+    MIRAGE_CHECK(fn.has_value() && fn->shift && fn->base == "f12");
+
+    // 'ctrl++': the first '+' is the modifier separator, the second is the
+    // literal printable key.
+    const auto plus = mirage::desktop::parse_key_chord("ctrl++");
+    MIRAGE_CHECK(plus.has_value() && plus->ctrl && plus->base == "+");
+
+    // A lone modifier prefix has no base; a repeated modifier leaves an
+    // invalid remainder; both must be rejected, not produce a chord.
+    MIRAGE_CHECK(!mirage::desktop::parse_key_chord("ctrl+").has_value());
+    MIRAGE_CHECK(!mirage::desktop::parse_key_chord("ctrl+ctrl+c").has_value());
+    MIRAGE_CHECK(!mirage::desktop::parse_key_chord("meta+meta+a").has_value());
+    MIRAGE_CHECK(!mirage::desktop::parse_key_chord("meta+shift+alt+ctrl+x").has_value());
+    MIRAGE_CHECK(!mirage::desktop::parse_key_chord("").has_value());
+
+    // Validation and parsing cannot diverge: every accepted name parses and
+    // every rejected name fails to parse.
+    for (const char *name : {"a",
+                             "?",
+                             "space",
+                             "enter",
+                             "f12",
+                             "ctrl+c",
+                             "ctrl+alt+delete",
+                             "shift+?",
+                             "ctrl+alt+shift+meta+a",
+                             "alt+left",
+                             "f1",
+                             "f",
+                             "z",
+                             "~",
+                             "",
+                             "ctrl+",
+                             "ctrl+ctrl+c",
+                             "f13",
+                             "F12",
+                             "ctrl+shift+shift+x",
+                             "fx",
+                             "f0",
+                             "执行",
+                             "\x7f"}) {
+        MIRAGE_CHECK(mirage::desktop::is_valid_key_name(name) ==
+                     mirage::desktop::parse_key_chord(name).has_value());
+    }
+}
+
 void provider_budget_boundaries() {
     mirage::testing::FakeDesktopEnvironment env;
     for (int i = 1; i <= 3; ++i) {
@@ -814,6 +879,7 @@ int main() {
     input_provider_contract();
     key_name_and_utf8_helpers();
     contract_helper_hardening_edges();
+    key_chord_parsing_matches_validation();
     provider_budget_boundaries();
     accessibility_empty_snapshot_and_boundary();
     application_argument_validation();

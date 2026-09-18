@@ -1,5 +1,7 @@
 #include <mirage/platform/linux/linux_desktop_environment.hpp>
 
+#include "x11_backend.hpp"
+
 #include <cerrno>
 #include <chrono>
 #include <cstdint>
@@ -74,8 +76,33 @@ mirage::desktop::FileReadOutcome read_stream(int fd, std::uintmax_t declared_siz
 
 } // namespace
 
+LinuxDesktopEnvironment::LinuxDesktopEnvironment(std::vector<std::filesystem::path> read_roots,
+                                                 X11Options x11_options)
+    : read_scope_(std::move(read_roots)) {
+    if (x11_options.enabled) {
+        x11_ = X11Backend::open(x11_options.display);
+        // A failed connection intentionally leaves x11_ null: the window /
+        // screen / input accessors report an absent capability instead of
+        // returning broken providers (DEC-015 capability honesty).
+    }
+}
+
+LinuxDesktopEnvironment::~LinuxDesktopEnvironment() = default;
+
 mirage::desktop::EnvironmentInfo LinuxDesktopEnvironment::info() const {
-    return {"mirage-linux-reference", "linux"};
+    return {"mirage-linux", "linux"};
+}
+
+mirage::desktop::WindowProvider *LinuxDesktopEnvironment::window() {
+    return x11_ != nullptr ? x11_->window() : nullptr;
+}
+
+mirage::desktop::ScreenProvider *LinuxDesktopEnvironment::screen() {
+    return x11_ != nullptr ? x11_->screen() : nullptr;
+}
+
+mirage::desktop::InputProvider *LinuxDesktopEnvironment::input() {
+    return x11_ != nullptr ? x11_->input() : nullptr;
 }
 
 mirage::desktop::FileReadOutcome

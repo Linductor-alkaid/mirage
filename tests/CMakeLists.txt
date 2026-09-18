@@ -55,6 +55,26 @@ set_tests_properties(provider_contract_test PROPERTIES
     TIMEOUT 60
 )
 
+# M2-02 Linux backend skeleton: exercised against a private headless Xvfb
+# (DEC-015). Built wherever the X11 dev packages exist; CI installs them.
+find_package(X11 QUIET)
+if(X11_FOUND AND X11_Xtst_FOUND)
+    add_executable(x11_backend_test platform/x11_backend_test.cpp)
+    target_compile_features(x11_backend_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(x11_backend_test)
+    target_link_libraries(x11_backend_test
+        PRIVATE
+            Mirage::platform
+            Mirage::desktop
+            ${X11_X11_LIB}
+    )
+    add_test(NAME x11_backend_test COMMAND x11_backend_test)
+    set_tests_properties(x11_backend_test PROPERTIES
+        LABELS "integration"
+        TIMEOUT 120
+    )
+endif()
+
 add_executable(mira_binding_test integration/mira_binding_test.cpp)
 target_compile_features(mira_binding_test PUBLIC cxx_std_20)
 mirage_enable_warnings(mira_binding_test)

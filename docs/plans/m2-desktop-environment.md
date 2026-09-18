@@ -72,7 +72,7 @@ Desktop Observation，使 Mira 能够稳定操作标准桌面应用（设计文�
       ElementTarget 与解析顺序契约、DesktopObservation schema v1.0（DEC-005 冻结）；
       fake backend 契约测试覆盖正/负向。无平台依赖；现有 Linux 参考后端不实现新
       Provider（访问器缺位 fail closed）。
-- [ ] `M2-02` Linux Backend 骨架闭环（X11 / XWayland）：WindowProvider（枚举 /
+- [x] `M2-02` Linux Backend 骨架闭环（X11 / XWayland）：WindowProvider（枚举 /
       前台 / 激活 / 几何）、ScreenProvider 最小采集、InputProvider 最小注入
       （XTest），以最小动作打通 Observation -> Action -> Observation；系统开发依赖
       引导策略落地；Linux Backend 依赖与事件循环接入决策（D-Bus 栈选型、glib/事件
@@ -175,3 +175,57 @@ backend，真实后端集成测试单独标注并在有显示环境的前提下�
 - 同步：设计文档第 5、6、7 节注记、`DEC-005`（新）、总计划当前状态 / 里程碑索引 /
   决策表、本验证记录。
 
+
+2026-09-18：`M2-02` Linux Backend 骨架闭环（X11）完成。
+
+- 范围：`platform/linux` 新增私有 X11 前端 `x11_backend.{hpp,cpp}`（X11 类型不出
+  公共头，`RULE-01`）——单 `Display` + `XInitThreads` + 互斥锁串行化；WindowProvider
+  （XQueryTree 枚举 + viewable/override_redirect 过滤、`_NET_WM_NAME` 标题、全局
+  坐标几何、EWMH `_NET_ACTIVE_WINDOW` 焦点 → 无 WM 时 X input focus 回退且两条
+  路径 focused 一致；activate = EWMH 消息 → 回退 SetInputFocus+Raise）；ScreenProvider
+  （RandR monitors → 无 RandR 单一 "screen" 根几何；根 framebuffer XGetImage
+  采集 display/window/ROI，Bgra8 行拷贝，预算前置拒绝）；InputProvider（XTest，
+  chord 经 desktop 层 `parse_key_chord` 全量预解析，`type_text` 逐码点 level 0/1
+  位移弦）。`LinuxDesktopEnvironment` 增 `X11Options` opt-in（默认关闭，连接失败
+  访问器 null fail closed），身份更名 `mirage-linux`。`x11_backend_stub.cpp` 使
+  X11 开发包缺失时平台库照常构建（fail closed）。desktop 层增量
+  `parse_key_chord`；permission 词表追加 `window.activate` / `screen.capture` /
+  `input.inject`（默认 allow，DEC-015 第 6 条）。headless 测试拓扑 = 一次性私有
+  Xvfb（`-displayfd` 高端 fd；`$MIRAGE_XVFB` → PATH → 用户前缀定位；缺失响亮
+  失败）。依赖与事件循环接入决策登记
+  [DEC-015](../decisions/DEC-015-linux-backend-dependencies-and-event-loop.md)
+  （第 3 条 glib 家族 D-Bus 栈在 `M2-03` 兑现）。
+- 依据：设计文档第 5、10、18 节；`DEC-005` / `DEC-008` / `DEC-009` / `DEC-010` /
+  `DEC-015`；`RULE-01` / `RULE-03` / `RULE-05` / `RULE-07`；executor-integration
+  blocking-io 卡（外部事件循环边界）。
+- 验证（Independent-Verification-Agent，Linux x64，Ubuntu 24.04，GCC 13.3.0，
+  真实 Xvfb 拓扑，两轮）：
+  - 新增 `tests/platform/x11_backend_test.cpp`（独立验证增强后 11 场景 140 断言）：
+    连接失败 fail closed、枚举与 `result_too_large`（恰边界）、激活后 front_window
+    与 list_windows focused 一致、ROI/窗口/整屏采集红通道字节断言、未知显示器
+    `not_found`、未映射窗口采集与激活 fail closed 且焦点不变、越界 ROI 经静默
+    handler 不杀死进程、XTest MotionNotify/Button1/键码/Shift 弦逐事件真实送达
+    （150 ms deadline 证明拒绝注入零泄漏）、type_text 预算与键位表缺口注入前
+    拒绝、取消与非法参数负向。
+  - 独立验证修复 1 个链接缺陷：stub 分支的 X11Backend 外析构造发出 vtable 引用
+    11 个未定义覆写符号，任何链接平台库的目标失败；补齐 stub 覆写（`std::abort()`
+    不可达体）后独立目录 `-DCMAKE_DISABLE_FIND_PACKAGE_X11=ON` configure+build
+    159/159 目标成功、`build.ninja` 无 `-lX11`、stub 树 ctest 18/18。
+  - permission_test 补三新能力的名称/解析往返、11 条近似串负例、默认策略、槽位
+    隔离与控制器语义（→95 断言）；provider_contract_test 补 `parse_key_chord`
+    与 `is_valid_key_name` 一致性扫描（→351 断言）。
+  - 预设矩阵：`debug` / `release` / `asan` / `ubsan` configure + build + ctest 均
+    **19/19 通过、0 skip**（x11_backend_test 在各预设实跑）；`tsan` 按 README
+    注意事项 `setarch $(uname -m) -R ctest` 19/19。`mirage-format-check` 与
+    `mirage-boundary-check`（32 头 0 违规）通过。
+  - 契约澄清（独立验证发现）：`capture_window` 对不可见窗口按根帧模型返回像素，
+    与原注释"完全遮挡 fail closed"分歧——已修正为：非 viewable fail closed
+    （`not_found`），注释如实描述"窗口边界处的屏幕内容（含重叠内容）"（X 无诚实
+    的逐窗遮挡查询）。
+- 限制：EWMH 激活路径在 Xvfb（无 WM）上不可测，仅回退路径被验证，有 WM 拓扑随
+  `M2-06` 真实桌面冒烟补齐；Wayland/XWayland 合成路径、16bpp 拒绝、多显示器
+  RandR 变体未覆盖；`InputLimits.timeout` 仅校验为正，Xlib 无单调用超时机制，
+  强制收敛依赖调用方执行上下文（`M2-06` 接线验证）；`runtime_service_test` 历史
+  高负载偶发失败本轮 5 预设未复现，继续观察。
+- 同步：`DEC-015`（新）、`DEC-005` 契约头澄清、permission 词表文档、总计划
+  里程碑状态、本验证记录、README Xvfb 说明、CI 依赖安装。

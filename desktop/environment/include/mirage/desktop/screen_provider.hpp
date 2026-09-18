@@ -78,8 +78,12 @@ class ScreenProvider {
                                            const CaptureLimits &limits,
                                            const CancelToken &cancel) = 0;
 
-    /// Captures a window by id (as reported by WindowProvider). Fails closed
-    /// when the window is gone or fully occlusion-blocked by the platform.
+    /// Captures a window by id (as reported by WindowProvider): the
+    /// on-screen content at the window's current bounds, exactly what a
+    /// viewer sees there — content overlapping the window is included,
+    /// because X has no honest per-window occlusion query. Fails closed when
+    /// the window is gone or not viewable (unmapped windows have nothing on
+    /// screen to capture).
     virtual CaptureOutcome capture_window(const std::string &window_id, const CaptureLimits &limits,
                                           const CancelToken &cancel) = 0;
 
