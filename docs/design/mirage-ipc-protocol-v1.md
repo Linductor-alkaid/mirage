@@ -25,6 +25,12 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 - 帧解析（`try_extract_frame`）：缓冲区不足一个完整帧时等待更多数据；头部或声明长度
   违反规则返回协议错误，连接必须关闭。
 - 每帧载荷恰为一个 JSON 对象（第 2 节信封）；一帧多对象、尾部冗余数据均属解码失败。
+- 开发期 WebSocket 映射（非规范，`M1.5-03` devbridge，DEC-012 决策 6）：开发工具
+  `mirage-devbridge` 在浏览器 WebSocket 与 Unix socket 之间做双向帧透传，**一条
+  WebSocket binary 消息恰承载一个完整帧（含 4 字节长度前缀）**，载荷逐字节不改写；
+  浏览器侧复用同一 framing 规则（`ui/contracts` 的 `makeFrame`/`tryExtractFrame`
+  语义），载荷超 1 MiB 或帧头与消息尺寸不符均按协议错误关闭该连接。此映射仅是
+  开发期工具约定，不构成第二传输载体，不改变 DEC-007 传输冻结。
 
 ## 2. 信封与帧判别
 

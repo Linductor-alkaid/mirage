@@ -226,3 +226,28 @@ set_tests_properties(task_cancel_test PROPERTIES
     LABELS "integration"
     TIMEOUT 300
 )
+
+# M1.5-03 dev bridge: the codec tests are pure byte machinery; the relay
+# tests run a real DevBridgeLoop on the Executor against a scripted echo
+# upstream over a temporary Unix socket. Both link only mirage_devbridge_core
+# (executor headers come through its SYSTEM include dir, executor symbols
+# through its LINK_ONLY interface).
+add_executable(websocket_test devbridge/websocket_test.cpp)
+target_compile_features(websocket_test PUBLIC cxx_std_20)
+mirage_enable_warnings(websocket_test)
+target_link_libraries(websocket_test PRIVATE mirage_devbridge_core)
+add_test(NAME websocket_test COMMAND websocket_test)
+set_tests_properties(websocket_test PROPERTIES
+    LABELS "unit"
+    TIMEOUT 60
+)
+
+add_executable(bridge_relay_test devbridge/bridge_relay_test.cpp)
+target_compile_features(bridge_relay_test PUBLIC cxx_std_20)
+mirage_enable_warnings(bridge_relay_test)
+target_link_libraries(bridge_relay_test PRIVATE mirage_devbridge_core)
+add_test(NAME bridge_relay_test COMMAND bridge_relay_test)
+set_tests_properties(bridge_relay_test PROPERTIES
+    LABELS "integration"
+    TIMEOUT 120
+)

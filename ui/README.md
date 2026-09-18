@@ -53,6 +53,27 @@ npm run build        # vite build（字体本地打包，无网络资源）
 npm run dev -w @mirage/app   # 启动 Vite dev server（默认 mock transport）
 ```
 
+## 真实服务联调（M1.5-03 dev bridge）
+
+`mirage-devbridge` 在浏览器 WebSocket 与真实 `mirage-service` 的 Unix socket 之间
+做双向帧透传（DEC-012 决策 6）：一条 WebSocket binary 消息恰承载一个完整帧
+（含 4 字节长度前缀），载荷逐字节不改写；帧编解码复用
+`contracts/src/framing.ts` 的 `makeFrame`/`tryExtractFrame` 语义。
+
+```bash
+# 终端 1：启动真实服务（授予一个读目录供 filesystem.read 步骤使用）
+./build/debug/apps/mirage-service --socket /tmp/mirage-dev/service.sock \
+    --read-root $HOME --no-recovery
+# 终端 2：启动桥（默认 127.0.0.1:8787，--port 0 可取随机端口）
+./build/debug/apps/mirage-devbridge --socket /tmp/mirage-dev/service.sock --port 8787
+```
+
+浏览器连接 `ws://127.0.0.1:8787/`，即可对真实服务完成 hello、订阅与任务
+submit/inspect 往返（验收截图
+[docs/verification/m1.5-03-browser-e2e.png](../docs/verification/m1.5-03-browser-e2e.png)）。
+app 内置真实 transport 的接线（订阅实时刷新、降级轮询、resync）属 `M1.5-05`；
+桥是开发期工具，不进产品安装包，SIGINT 干净停止。
+
 ## Mock 约定（仅 mock，非真实服务行为）
 
 - mock 以 M1 真实服务可观察 wire 行为为模板：五态 host、progress 名称、稳定错误
