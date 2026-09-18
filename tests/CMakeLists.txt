@@ -58,6 +58,10 @@ set_tests_properties(provider_contract_test PROPERTIES
 # M2-02 Linux backend skeleton: exercised against a private headless Xvfb
 # (DEC-015). Built wherever the X11 dev packages exist; CI installs them.
 find_package(X11 QUIET)
+find_package(PkgConfig QUIET)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(ATSPI_TEST QUIET IMPORTED_TARGET atspi-2 gobject-2.0 gio-2.0)
+endif()
 if(X11_FOUND AND X11_Xtst_FOUND)
     add_executable(x11_backend_test platform/x11_backend_test.cpp)
     target_compile_features(x11_backend_test PUBLIC cxx_std_20)
@@ -72,6 +76,34 @@ if(X11_FOUND AND X11_Xtst_FOUND)
     set_tests_properties(x11_backend_test PROPERTIES
         LABELS "integration"
         TIMEOUT 120
+    )
+endif()
+
+# M2-03 AT-SPI2 accessibility: private D-Bus session plus a wire-exact GDBus
+# fake application and an Xvfb window for the id -> title mapping (DEC-015).
+# The test drives X11 directly, so it is only registered where the X11 dev
+# packages exist (same precondition as x11_backend_test).
+if(ATSPI_TEST_FOUND AND X11_FOUND)
+    add_executable(atspi_backend_test platform/atspi_backend_test.cpp)
+    target_compile_features(atspi_backend_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(atspi_backend_test)
+    target_link_libraries(atspi_backend_test
+        PRIVATE
+            Mirage::platform
+            Mirage::desktop
+            PkgConfig::ATSPI_TEST
+            ${X11_X11_LIB}
+    )
+    add_test(NAME atspi_backend_test COMMAND atspi_backend_test)
+    set_tests_properties(atspi_backend_test PROPERTIES
+        LABELS "integration"
+        TIMEOUT 120
+        # The fixture's GDBus dispatch threads trip TSan inside the
+        # UNINSTRUMENTED system glib (its internal synchronization is
+        # invisible to TSan; every reported race lives in libglib/libgio,
+        # none in Mirage code). Suppress exactly those system libraries;
+        # races touching Mirage frames still fail the test.
+        ENVIRONMENT "TSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tests/support/tsan-glib.supp"
     )
 endif()
 

@@ -10,8 +10,11 @@
 #include <mirage/desktop/desktop_environment.hpp>
 #include <mirage/desktop/path_scope.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <map>
+#include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -61,6 +64,20 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
     std::vector<std::pair<std::string, std::string>> notifications; ///< title, body
     std::vector<std::string> input_log;                             ///< human-readable actions
     FakeFailures failures;
+
+    // ---- accessibility action test surface ----
+
+    /// Window id the latest successful snapshot was taken against.
+    std::string active_window_id;
+    /// Refs issued by the latest snapshot (registry semantics: a fresh
+    /// snapshot replaces the set).
+    std::set<std::string> current_refs;
+    /// Refs that were "activated" / written via semantic actions.
+    std::vector<std::string> activated_refs;
+    std::vector<std::pair<std::string, std::string>> text_writes; ///< ref -> new text
+    /// Refs that expose a semantic action / editable text.
+    std::vector<std::string> actionable_refs;
+    std::vector<std::string> editable_refs;
 
     // ---- filesystem test surface (in-memory files) ----
 
@@ -396,12 +413,186 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
                 outcome.error = {"snapshot_too_large", "snapshot exceeds the node budget"};
                 return outcome;
             }
+            // A fresh snapshot replaces the reference registry (stale
+            // handles from older snapshots stop resolving).
+            env_.active_window_id = window_id;
+            env_.current_refs.clear();
+            for (const auto &node : it->second.nodes) {
+                env_.current_refs.insert(node.ref);
+            }
             outcome.ok = true;
             outcome.snapshot = it->second;
             return outcome;
         }
 
+        mirage::desktop::ElementActionOutcome
+        activate_element(const mirage::desktop::ElementTarget &target,
+                         const mirage::desktop::CancelToken &cancel) override {
+            mirage::desktop::ElementActionOutcome outcome;
+            if (cancel.cancelled()) {
+                outcome.cancelled = true;
+                outcome.error = {"cancelled", "activation cancelled"};
+                return outcome;
+            }
+            if (!target.visual.ocr_text.empty() || !target.visual.template_id.empty() ||
+                !target.spatial.relative_to.id.empty() || target.raw.x != 0 || target.raw.y != 0) {
+                outcome.error = {"unsupported_hint", "hint is not accessibility-resolvable"};
+                return outcome;
+            }
+            const std::optional<std::string> resolved = resolve_locked(target);
+            if (!resolved.has_value()) {
+                // No hint group set at all: invalid before any lookup
+                // (contract, element_reference.hpp).
+                outcome.error = {"invalid_argument", "target carries no hint"};
+                return outcome;
+            }
+            if (resolved->empty()) {
+                outcome.error = {"not_found", "target does not resolve to a current element"};
+                return outcome;
+            }
+            const std::string &ref = *resolved;
+            if (std::find(env_.actionable_refs.begin(), env_.actionable_refs.end(), ref) ==
+                env_.actionable_refs.end()) {
+                outcome.error = {"unsupported_element", "element exposes no semantic action"};
+                return outcome;
+            }
+            env_.activated_refs.push_back(ref);
+            outcome.ok = true;
+            return outcome;
+        }
+
+        mirage::desktop::ElementActionOutcome
+        set_text(const mirage::desktop::ElementTarget &target, const std::string &text,
+                 const mirage::desktop::InputLimits &limits,
+                 const mirage::desktop::CancelToken &cancel) override {
+            mirage::desktop::ElementActionOutcome outcome;
+            if (cancel.cancelled()) {
+                outcome.cancelled = true;
+                outcome.error = {"cancelled", "text input cancelled"};
+                return outcome;
+            }
+            if (text.size() > limits.max_text_bytes) {
+                outcome.error = {"invalid_argument", "text exceeds the length budget"};
+                return outcome;
+            }
+            if (!mirage::desktop::is_valid_utf8(text)) {
+                outcome.error = {"invalid_argument", "text must be UTF-8"};
+                return outcome;
+            }
+            const std::optional<std::string> resolved = resolve_locked(target);
+            if (!resolved.has_value()) {
+                outcome.error = {"invalid_argument", "target carries no hint"};
+                return outcome;
+            }
+            if (resolved->empty()) {
+                outcome.error = {"not_found", "target does not resolve to a current element"};
+                return outcome;
+            }
+            const std::string &ref = *resolved;
+            if (std::find(env_.editable_refs.begin(), env_.editable_refs.end(), ref) ==
+                env_.editable_refs.end()) {
+                outcome.error = {"unsupported_element", "element exposes no editable text"};
+                return outcome;
+            }
+            env_.text_writes.emplace_back(ref, text);
+            outcome.ok = true;
+            return outcome;
+        }
+
       private:
+        /// Contract resolution order: reference -> semantic -> structural
+        /// ("/role/name/..." pairs walked from a root node). nullopt means
+        /// the target carries no hint group at all (invalid_argument per the
+        /// contract); "" means a hint was set but does not resolve
+        /// (not_found).
+        std::optional<std::string> resolve_locked(const mirage::desktop::ElementTarget &target) const {
+            if (!target.reference.id.empty()) {
+                return env_.current_refs.count(target.reference.id) != 0
+                           ? std::optional<std::string>(target.reference.id)
+                           : std::optional<std::string>(std::string());
+            }
+            const auto active = env_.snapshots.find(env_.active_window_id);
+            if (active == env_.snapshots.end()) {
+                return std::string();
+            }
+            if (!target.semantic.role.empty() || !target.semantic.name.empty()) {
+                for (const auto &node : active->second.nodes) {
+                    const bool role_ok =
+                        target.semantic.role.empty() || node.role == target.semantic.role;
+                    const bool name_ok =
+                        target.semantic.name.empty() || node.name == target.semantic.name;
+                    if (role_ok && name_ok) {
+                        return node.ref;
+                    }
+                }
+                return std::string();
+            }
+            if (!target.structural.path.empty()) {
+                return resolve_structural(active->second, target.structural.path);
+            }
+            return std::nullopt;
+        }
+
+        static std::string resolve_structural(const mirage::desktop::SemanticSnapshot &snapshot,
+                                              const std::string &path) {
+            std::vector<std::string> segments;
+            std::string current;
+            for (const char ch : path) {
+                if (ch == '/') {
+                    if (!current.empty()) {
+                        segments.push_back(current);
+                        current.clear();
+                    }
+                } else {
+                    current.push_back(ch);
+                }
+            }
+            if (!current.empty()) {
+                segments.push_back(current);
+            }
+            if (segments.empty() || segments.size() % 2 != 0) {
+                return {}; // path is role/name pairs from a root
+            }
+            for (std::size_t root = 0; root < snapshot.nodes.size(); ++root) {
+                if (snapshot.nodes[root].parent != mirage::desktop::kNoParent) {
+                    continue;
+                }
+                std::size_t cursor = root;
+                bool matched = true;
+                for (std::size_t s = 0; s + 1 < segments.size(); s += 2) {
+                    const auto &node = snapshot.nodes[cursor];
+                    if (node.role != segments[s] || node.name != segments[s + 1]) {
+                        matched = false;
+                        break;
+                    }
+                    if (s + 2 >= segments.size()) {
+                        break;
+                    }
+                    // Step to the FIRST CHILD matching the next role/name
+                    // pair (enumeration order), so sibling branches are
+                    // scanned instead of walking only the first child.
+                    bool stepped = false;
+                    for (std::size_t j = 0; j < snapshot.nodes.size(); ++j) {
+                        const auto &child = snapshot.nodes[j];
+                        if (child.parent == cursor && child.role == segments[s + 2] &&
+                            child.name == segments[s + 3]) {
+                            cursor = j;
+                            stepped = true;
+                            break;
+                        }
+                    }
+                    if (!stepped) {
+                        matched = false;
+                        break;
+                    }
+                }
+                if (matched) {
+                    return snapshot.nodes[cursor].ref;
+                }
+            }
+            return {};
+        }
+
         FakeDesktopEnvironment &env_;
     };
 

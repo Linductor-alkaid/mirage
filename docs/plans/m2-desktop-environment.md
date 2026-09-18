@@ -78,7 +78,7 @@ Desktop Observation，使 Mira 能够稳定操作标准桌面应用（设计文�
       引导策略落地；Linux Backend 依赖与事件循环接入决策（D-Bus 栈选型、glib/事件
       循环与 Executor 的 EXEC-03 互操作）登记决策记录；Permission Capability 词表
       扩展随动作落地。
-- [ ] `M2-03` AccessibilityProvider（AT-SPI2）：语义树采集与 SemanticSnapshot 生成
+- [x] `M2-03` AccessibilityProvider（AT-SPI2）：语义树采集与 SemanticSnapshot 生成
       （节点预算、fail closed）、ElementTarget 解析器（reference / semantic /
       structural）与语义动作路径（activate / input_text 语义面优先于键鼠）、快照
       刷新策略首版（行为结果驱动）。
@@ -229,3 +229,65 @@ backend，真实后端集成测试单独标注并在有显示环境的前提下�
   高负载偶发失败本轮 5 预设未复现，继续观察。
 - 同步：`DEC-015`（新）、`DEC-005` 契约头澄清、permission 词表文档、总计划
   里程碑状态、本验证记录、README Xvfb 说明、CI 依赖安装。
+
+2026-09-18：`M2-03` AccessibilityProvider（AT-SPI2）完成。
+
+- 范围：`platform/linux` 新增私有 AT-SPI2 前端 `atspi_backend.{hpp,cpp}`（glib/atspi
+  类型不出公共头，`RULE-01`；与 X11 前端同为可选依赖，缺 `atspi-2` 开发包时编译
+  stub，fail closed）——`semantic_snapshot`（窗口 id 经 WindowProvider 标题映射到
+  可访问窗口，DFS 采集整棵子树为 SemanticSnapshot，节点预算超限
+  `snapshot_too_large` 拒绝不截断，焦点/几何/启用态入节点，快照签发 `@eN` 引用并
+  整体替换引用注册表）、`activate_element` / `set_text`（契约新增；解析顺序按
+  DEC-005：reference → semantic → structural，visual/spatial/raw 提示
+  `unsupported_hint` fail closed；动作经 AT-SPI Action.DoAction 与
+  EditableText.SetTextContents，UTF-8 与预算前置校验）。角色词表冻结
+  （显式映射 button/menu/menuitem/treeitem/text/document 等 + 其余角色小写
+  连字符化 fallback）；structural path 语法冻结（自 application 根起
+  `role/name` 成对段，桌面枚举顺序首个命中）。所有权模型：libatspi 全局对象表
+  为弱引用，backend 以进程级对象池（容量 8192，`RULE-07`）接管全部包装对象。
+  `LinuxDesktopEnvironment` 增 `AtspiOptions`（默认关闭，初始化失败访问器
+  null）。测试拓扑按 DEC-015 修订：fixture 在私有 D-Bus session 上持有
+  `org.a11y.atspi.Registry` 名字并以 GDBus 精确导出 `org.a11y.atspi.*` wire
+  协议树（含派发线程——仅测试基建），libatspi 经 `AT_SPI_BUS_ADDRESS` 接入；
+  真实 registryd 被绕过（其 `Socket.Embed` 处理段错误，core dump 取证，
+  上游 2.52.0 缺陷，见 DEC-015 变更记录）。
+- 依据：设计文档第 5、7、9、18 节；`DEC-005` / `DEC-008` / `DEC-015`；
+  `RULE-01` / `RULE-03` / `RULE-05` / `RULE-07`。
+- 验证（Independent-Verification-Agent，Linux x64，Ubuntu 24.04，GCC 13.3.0，
+  两轮）：
+  - 新增 `tests/platform/atspi_backend_test.cpp`（独立验证增强后 89 断言，5 连跑
+    全绿）：私有 session + fixture 双应用树 + Xvfb 双窗口标题映射；快照全字段
+    （application/window_title/节点 ref-role-name-parent 逐项）、预算边界
+    （==树大小成功 / -1 与 0 拒绝）、拒绝的快照不清空注册表、注册表替换语义
+    （重编号后旧 ref 命中新对象 → unsupported_element，超范围 ref →
+    not_found，均零副作用）、reference/semantic/structural 三路解析真实触发
+    DoAction 与 SetContents（fixture 观测落点）、role-only BFS 层级顺序、
+    `unsupported_hint` / `invalid_argument` / `unsupported_element` / 预算
+    （== / +1）与截断 UTF-8 负向、取消先于 hint 校验、未启用 AtspiOptions 的
+    环境访问器 null。
+  - fake 侧 `provider_contract_test` 增补 `accessibility_element_action_contract`
+    （351 → 401 断言）：三路命中、reference 优先于 semantic、structural 奇数段
+    /不匹配负向、set_text 预算边界与 UTF-8、注册表替换后 stale 语义、取消先于
+    校验且状态不变。
+  - 独立验证修复 5 处测试基建缺陷（均未触碰契约头与生产语义）：fake structural
+    解析盲走长子链（改按 role/name 匹配子节点）；fake 缺"无提示 →
+    invalid_argument"分支（resolve_locked 改 optional 区分）；测试 X 连接泄漏
+    （asan 阳性，补 XCloseDisplay）；atspi 测试注册 gate 缺 X11 条件（X11 缺失
+    时链接失败，gate 改 ATSPI_TEST_FOUND AND X11_FOUND）；tsan 下未插桩系统库
+    （glib/gio/dbus/atspi）派发线程 race 误报（新增 tests/support/tsan-glib.supp
+    抑制，`called_from_lib` 限定 5 库）。
+  - 预设矩阵：`debug` / `release` / `asan` / `ubsan` configure + build + ctest
+    均 **20/20 通过、0 skip**；`tsan` 按 README 注意事项 `setarch $(uname -m) -R
+    ctest` 20/20（glib 误报经 suppression）；stub 双分支验证：无 X11
+    （`-DCMAKE_DISABLE_FIND_PACKAGE_X11=ON`）18/18、无 atspi（影子 pkg-config
+    剔除 atspi-2/gobject-2.0/gio-2.0）19/19，均含"backend disabled"日志确认。
+  - `mirage-format-check` 与 `mirage-boundary-check`（32 头 0 违规）通过；
+    atspi_backend.hpp 确认不在 boundary 扫描范围。
+- 限制：AT-SPI2 事件流（ChildrenChanged 等）未接入（快照刷新策略 v1 为行为
+  结果驱动，接口按全量快照设计）；`atspi-2.pc` 漏声明 gobject-2.0（上游打包
+  缺陷），构建显式补链；角色词表的跨应用一致性仅经 fixture 验证，真实
+  GTK/Chromium 树的词表核对随 `M2-06` 真实桌面冒烟；对象池淘汰路径
+  （>8192 包装对象时释放最老条目）未经 >8192 节点树验证，`M2-06` 关注；
+  role-only BFS 层级顺序为对当前实现的固化断言（变更告警，非 DEC-005 契约）。
+- 同步：`DEC-015` 变更记录、`accessibility_provider.hpp` 契约注释、M2 计划
+  状态、本验证记录。

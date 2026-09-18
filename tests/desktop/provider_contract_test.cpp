@@ -684,6 +684,184 @@ void provider_budget_boundaries() {
     MIRAGE_CHECK(env.input()->type_text("").ok); // empty text is valid
 }
 
+void accessibility_element_action_contract() {
+    using mirage::desktop::ElementTarget;
+    mirage::testing::FakeDesktopEnvironment env;
+    mirage::desktop::AccessibilityProvider &provider = *env.accessibility();
+
+    const auto make = [](std::string ref, std::string role, std::string name, std::size_t parent) {
+        mirage::desktop::SemanticNode n;
+        n.ref = std::move(ref);
+        n.role = std::move(role);
+        n.name = std::move(name);
+        n.parent = parent;
+        return n;
+    };
+
+    mirage::desktop::SemanticSnapshot w1;
+    w1.application = "Editor";
+    w1.window_title = "main";
+    // Two branches from the root: the target of the structural path below
+    // lives in the SECOND branch, so resolution must scan siblings instead
+    // of walking only the first child.
+    w1.nodes.push_back(make("@e1", "window", "main", mirage::desktop::kNoParent));
+    w1.nodes.push_back(make("@e2", "panel", "left", 0));
+    w1.nodes.push_back(make("@e3", "button", "Run", 1));
+    w1.nodes.push_back(make("@e4", "entry", "Name", 1));
+    w1.nodes.push_back(make("@e5", "button", "Deep", 0));
+    env.snapshots["w1"] = w1;
+    env.actionable_refs = {"@e3", "@e5"};
+    env.editable_refs = {"@e4"};
+
+    mirage::desktop::SemanticSnapshot w2;
+    w2.application = "Editor";
+    w2.window_title = "second";
+    w2.nodes.push_back(make("@f1", "button", "Second", mirage::desktop::kNoParent));
+    env.snapshots["w2"] = w2;
+    env.actionable_refs.push_back("@f1");
+
+    // Before any snapshot there is no live window: semantic and structural
+    // hints cannot resolve and report not_found.
+    ElementTarget semantic;
+    semantic.semantic.role = "button";
+    semantic.semantic.name = "Run";
+    MIRAGE_CHECK(provider.activate_element(semantic).error.code == "not_found");
+
+    const auto generated = provider.semantic_snapshot("w1");
+    MIRAGE_CHECK(generated.ok);
+
+    // Reference resolution against the snapshot registry.
+    ElementTarget reference;
+    reference.reference.id = "@e3";
+    const auto ref_hit = provider.activate_element(reference);
+    MIRAGE_CHECK(ref_hit.ok);
+    MIRAGE_CHECK(env.activated_refs.size() == 1);
+    MIRAGE_CHECK(env.activated_refs.back() == "@e3");
+
+    // Structural resolution reaches a target that is not on the first-child
+    // chain: siblings are scanned for each role/name step.
+    ElementTarget structural;
+    structural.structural.path = "/window/main/button/Deep";
+    const auto structural_hit = provider.activate_element(structural);
+    MIRAGE_CHECK(structural_hit.ok);
+    MIRAGE_CHECK(env.activated_refs.back() == "@e5");
+
+    // Structural syntax and lookup failures stay not_found.
+    ElementTarget odd;
+    odd.structural.path = "/window/main/button"; // odd segment count
+    MIRAGE_CHECK(provider.activate_element(odd).error.code == "not_found");
+    ElementTarget no_step;
+    no_step.structural.path = "/window/main/panel/Nowhere";
+    MIRAGE_CHECK(provider.activate_element(no_step).error.code == "not_found");
+    ElementTarget bad_root;
+    bad_root.structural.path = "/dialog/other/button/Run";
+    MIRAGE_CHECK(provider.activate_element(bad_root).error.code == "not_found");
+
+    // Semantic resolution: role+name, and role alone hits the first match in
+    // snapshot order.
+    const auto semantic_hit = provider.activate_element(semantic);
+    MIRAGE_CHECK(semantic_hit.ok);
+    MIRAGE_CHECK(env.activated_refs.back() == "@e3");
+    ElementTarget role_only;
+    role_only.semantic.role = "button";
+    const auto role_hit = provider.activate_element(role_only);
+    MIRAGE_CHECK(role_hit.ok);
+    MIRAGE_CHECK(env.activated_refs.back() == "@e3");
+    ElementTarget unknown;
+    unknown.semantic.role = "button";
+    unknown.semantic.name = "Nowhere";
+    MIRAGE_CHECK(provider.activate_element(unknown).error.code == "not_found");
+
+    // Resolution order (DEC-005): reference wins even when a semantic hint
+    // would match another element.
+    ElementTarget reference_first;
+    reference_first.reference.id = "@e5";
+    reference_first.semantic.role = "entry";
+    const auto order_hit = provider.activate_element(reference_first);
+    MIRAGE_CHECK(order_hit.ok);
+    MIRAGE_CHECK(env.activated_refs.back() == "@e5");
+
+    // set_text lands on the editable element addressed by role+name.
+    ElementTarget entry;
+    entry.semantic.role = "entry";
+    entry.semantic.name = "Name";
+    const auto written = provider.set_text(entry, "hello");
+    MIRAGE_CHECK(written.ok);
+    MIRAGE_CHECK(env.text_writes.size() == 1);
+    MIRAGE_CHECK(env.text_writes.back().first == "@e4");
+    MIRAGE_CHECK(env.text_writes.back().second == "hello");
+
+    // Element capability boundaries: actions need an actionable element,
+    // text needs an editable one.
+    ElementTarget not_actionable;
+    not_actionable.reference.id = "@e4";
+    MIRAGE_CHECK(provider.activate_element(not_actionable).error.code == "unsupported_element");
+    ElementTarget not_editable;
+    not_editable.semantic.role = "button";
+    not_editable.semantic.name = "Run";
+    MIRAGE_CHECK(provider.set_text(not_editable, "x").error.code == "unsupported_element");
+    MIRAGE_CHECK(env.text_writes.size() == 1); // only the successful write landed
+
+    // Non-accessibility hints fail closed before any effect, and take
+    // priority over a valid reference in the same target.
+    const std::size_t activated_before = env.activated_refs.size();
+    ElementTarget visual_ocr;
+    visual_ocr.visual.ocr_text = "Run";
+    MIRAGE_CHECK(provider.activate_element(visual_ocr).error.code == "unsupported_hint");
+    ElementTarget visual_template;
+    visual_template.visual.template_id = "cache:settings";
+    MIRAGE_CHECK(provider.activate_element(visual_template).error.code == "unsupported_hint");
+    ElementTarget spatial;
+    spatial.spatial.relative_to.id = "@e3";
+    spatial.spatial.dx = 4;
+    MIRAGE_CHECK(provider.activate_element(spatial).error.code == "unsupported_hint");
+    ElementTarget raw;
+    raw.raw = {3, 4};
+    MIRAGE_CHECK(provider.activate_element(raw).error.code == "unsupported_hint");
+    ElementTarget reference_with_visual;
+    reference_with_visual.reference.id = "@e3";
+    reference_with_visual.visual.template_id = "cache:settings";
+    MIRAGE_CHECK(provider.activate_element(reference_with_visual).error.code == "unsupported_hint");
+    ElementTarget no_hint;
+    MIRAGE_CHECK(provider.activate_element(no_hint).error.code == "invalid_argument");
+    MIRAGE_CHECK(env.activated_refs.size() == activated_before); // no side effect landed
+
+    // set_text budget and encoding checks run before the element is touched.
+    mirage::desktop::InputLimits exact;
+    exact.max_text_bytes = 5;
+    MIRAGE_CHECK(provider.set_text(entry, "hello", exact, {}).ok);
+    MIRAGE_CHECK(env.text_writes.back().second == "hello");
+    MIRAGE_CHECK(provider.set_text(entry, "hello!", exact, {}).error.code == "invalid_argument");
+    MIRAGE_CHECK(provider.set_text(entry, "", exact, {}).ok); // empty text is valid
+    MIRAGE_CHECK(env.text_writes.back().second.empty());
+    MIRAGE_CHECK(provider.set_text(entry, "\xff", {}).error.code == "invalid_argument");
+    MIRAGE_CHECK(provider.set_text(entry, "\xc3", {}).error.code == "invalid_argument");
+    MIRAGE_CHECK(env.text_writes.size() == 3); // only the three valid writes landed
+
+    // Cancellation precedes even the hint validation and never lands.
+    CancelToken cancel;
+    cancel.request_cancel();
+    MIRAGE_CHECK(provider.activate_element(visual_ocr, cancel).cancelled);
+    MIRAGE_CHECK(provider.activate_element(reference, cancel).cancelled);
+    MIRAGE_CHECK(provider.set_text(entry, "x", {}, cancel).cancelled);
+    MIRAGE_CHECK(env.activated_refs.size() == activated_before);
+    MIRAGE_CHECK(env.text_writes.size() == 3);
+
+    // A fresh snapshot replaces the reference registry: refs from older
+    // snapshots stop resolving, and semantic hints now search the new
+    // window's snapshot.
+    const auto second = provider.semantic_snapshot("w2");
+    MIRAGE_CHECK(second.ok);
+    MIRAGE_CHECK(provider.activate_element(reference).error.code == "not_found");
+    MIRAGE_CHECK(provider.activate_element(semantic).error.code == "not_found");
+    MIRAGE_CHECK(env.activated_refs.size() == activated_before); // stale misses are inert
+    ElementTarget second_ref;
+    second_ref.reference.id = "@f1";
+    const auto second_hit = provider.activate_element(second_ref);
+    MIRAGE_CHECK(second_hit.ok);
+    MIRAGE_CHECK(env.activated_refs.back() == "@f1");
+}
+
 void accessibility_empty_snapshot_and_boundary() {
     mirage::testing::FakeDesktopEnvironment env;
     mirage::desktop::AccessibilityProvider &provider = *env.accessibility();
@@ -873,6 +1051,7 @@ int main() {
     environment_accessors_fail_closed_by_default();
     window_provider_contract();
     accessibility_provider_contract();
+    accessibility_element_action_contract();
     snapshot_rendering_is_deterministic();
     element_target_hint_groups();
     screen_provider_contract();

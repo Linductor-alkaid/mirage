@@ -14,7 +14,8 @@
 
 namespace mirage::platform::linux_backend {
 
-class X11Backend; // private in src/: no X11 types may appear here (RULE-01)
+class X11Backend;   // private in src/: no X11 types may appear here (RULE-01)
+class AtspiBackend; // ditto for the AT-SPI2 frontend (M2-03)
 
 /// Opt-in X11/XWayland surface of the Linux backend (M2-02, DEC-015). When
 /// enabled the environment connects to `display` (empty = $DISPLAY) at
@@ -25,6 +26,14 @@ struct X11Options {
     bool enabled = false;
     /// X display name; empty uses the DISPLAY environment variable.
     std::string display;
+};
+
+/// Opt-in AT-SPI2 accessibility surface (M2-03, DEC-015). When enabled the
+/// environment initializes libatspi at construction and exposes the
+/// AccessibilityProvider; a failed initialization (no accessibility bus)
+/// leaves the accessor null — fail closed, never a broken provider.
+struct AtspiOptions {
+    bool enabled = false;
 };
 
 /// Linux Desktop Environment (design doc sections 5 and 10): M1 scoped
@@ -48,7 +57,7 @@ class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment
     /// default-constructed environment exposes no filesystem and no desktop
     /// surface at all (fail closed).
     explicit LinuxDesktopEnvironment(std::vector<std::filesystem::path> filesystem_read_roots = {},
-                                     X11Options x11_options = {});
+                                     X11Options x11_options = {}, AtspiOptions atspi_options = {});
 
     ~LinuxDesktopEnvironment() override;
 
@@ -62,6 +71,7 @@ class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment
     mirage::desktop::WindowProvider *window() override;
     mirage::desktop::ScreenProvider *screen() override;
     mirage::desktop::InputProvider *input() override;
+    mirage::desktop::AccessibilityProvider *accessibility() override;
 
     // The three-argument overrides would hide the base conveniences.
     using mirage::desktop::FilesystemProvider::read_text_file;
@@ -77,6 +87,7 @@ class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment
   private:
     mirage::desktop::PathScope read_scope_;
     std::unique_ptr<X11Backend> x11_;
+    std::unique_ptr<AtspiBackend> atspi_;
 };
 
 } // namespace mirage::platform::linux_backend
