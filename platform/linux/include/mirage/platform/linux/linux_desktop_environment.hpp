@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -13,17 +14,29 @@
 
 namespace mirage::platform::linux_backend {
 
-/// M1 reference Desktop Environment for Linux (design doc sections 5 and 10):
-/// scoped read-only filesystem access via std::filesystem and bounded,
-/// cancellable shell execution via the POSIX process API. The window /
-/// accessibility / capture / input providers of the full Linux Backend are
-/// M2 scope and report null here; the Desktop Permission gate (RULE-05) is
-/// M1-06 and not part of this surface yet, so bind it only in development
-/// and test topologies (DEC-008).
+class X11Backend; // private in src/: no X11 types may appear here (RULE-01)
+
+/// Opt-in X11/XWayland surface of the Linux backend (M2-02, DEC-015). When
+/// enabled the environment connects to `display` (empty = $DISPLAY) at
+/// construction and exposes the Window / Screen / Input providers; a failed
+/// connection (e.g. a Wayland-native session without XWayland) leaves those
+/// accessors null so consumers fail closed — it never silently degrades.
+struct X11Options {
+    bool enabled = false;
+    /// X display name; empty uses the DISPLAY environment variable.
+    std::string display;
+};
+
+/// Linux Desktop Environment (design doc sections 5 and 10): M1 scoped
+/// read-only filesystem access and bounded, cancellable shell execution,
+/// plus the M2-02 X11 window / capture / input skeleton when opted in. The
+/// accessibility provider remains M2-03 scope and reports null. The Desktop
+/// Permission gate (RULE-05) is judged by the runtime layer before actions
+/// reach any provider; this class itself stays permission-agnostic.
 ///
 /// The class plays both roles of the adapter pattern: it is the concrete
 /// environment an owner in the runtime layer constructs and keeps alive for
-/// as long as the bound Mira instance runs, and it implements the M1 provider
+/// as long as the bound Mira instance runs, and it implements provider
 /// interfaces itself (adapter depends on the desktop core interfaces).
 class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment,
                                       public mirage::desktop::FilesystemProvider,
@@ -31,14 +44,24 @@ class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment
   public:
     /// The read scope is a hard containment boundary (M1-05): only paths at
     /// or beneath one of `filesystem_read_roots` are readable. The default
-    /// constructor declares no roots, so a default-constructed environment
-    /// exposes no filesystem surface at all (fail closed).
-    explicit LinuxDesktopEnvironment(std::vector<std::filesystem::path> filesystem_read_roots = {})
-        : read_scope_(std::move(filesystem_read_roots)) {}
+    /// constructor declares no roots and no X11 surface, so a
+    /// default-constructed environment exposes no filesystem and no desktop
+    /// surface at all (fail closed).
+    explicit LinuxDesktopEnvironment(std::vector<std::filesystem::path> filesystem_read_roots = {},
+                                     X11Options x11_options = {});
+
+    ~LinuxDesktopEnvironment() override;
+
+    LinuxDesktopEnvironment(const LinuxDesktopEnvironment &) = delete;
+    LinuxDesktopEnvironment &operator=(const LinuxDesktopEnvironment &) = delete;
 
     mirage::desktop::EnvironmentInfo info() const override;
     mirage::desktop::FilesystemProvider *filesystem() override { return this; }
     mirage::desktop::ProcessProvider *process() override { return this; }
+
+    mirage::desktop::WindowProvider *window() override;
+    mirage::desktop::ScreenProvider *screen() override;
+    mirage::desktop::InputProvider *input() override;
 
     // The three-argument overrides would hide the base conveniences.
     using mirage::desktop::FilesystemProvider::read_text_file;
@@ -53,6 +76,7 @@ class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment
 
   private:
     mirage::desktop::PathScope read_scope_;
+    std::unique_ptr<X11Backend> x11_;
 };
 
 } // namespace mirage::platform::linux_backend
