@@ -1,0 +1,12 @@
+# TSan suppressions for the AT-SPI2 fixture (M2-03, see tests/CMakeLists.txt
+# atspi_backend_test registration). The fixture answers the backend's
+# synchronous libatspi calls from GDBus dispatch threads; the system glib
+# stack (libglib/libgobject/libgio) ships uninstrumented, so TSan cannot see
+# its internal synchronization and reports races that live entirely inside
+# those libraries. Suppressing by called_from_lib keeps every race whose
+# stack touches Mirage code reportable.
+called_from_lib:libglib-2.0
+called_from_lib:libgobject-2.0
+called_from_lib:libgio-2.0
+called_from_lib:libdbus-1
+called_from_lib:libatspi

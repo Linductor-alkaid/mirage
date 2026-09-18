@@ -1,5 +1,6 @@
 #include <mirage/platform/linux/linux_desktop_environment.hpp>
 
+#include "atspi_backend.hpp"
 #include "x11_backend.hpp"
 
 #include <cerrno>
@@ -77,13 +78,18 @@ mirage::desktop::FileReadOutcome read_stream(int fd, std::uintmax_t declared_siz
 } // namespace
 
 LinuxDesktopEnvironment::LinuxDesktopEnvironment(std::vector<std::filesystem::path> read_roots,
-                                                 X11Options x11_options)
+                                                 X11Options x11_options, AtspiOptions atspi_options)
     : read_scope_(std::move(read_roots)) {
     if (x11_options.enabled) {
         x11_ = X11Backend::open(x11_options.display);
         // A failed connection intentionally leaves x11_ null: the window /
         // screen / input accessors report an absent capability instead of
         // returning broken providers (DEC-015 capability honesty).
+    }
+    if (atspi_options.enabled) {
+        // The accessibility backend maps window ids by title through the X
+        // window surface when present (M2-03); it works without X too.
+        atspi_ = AtspiBackend::open(x11_.get() != nullptr ? x11_->window() : nullptr);
     }
 }
 
@@ -103,6 +109,10 @@ mirage::desktop::ScreenProvider *LinuxDesktopEnvironment::screen() {
 
 mirage::desktop::InputProvider *LinuxDesktopEnvironment::input() {
     return x11_ != nullptr ? x11_->input() : nullptr;
+}
+
+mirage::desktop::AccessibilityProvider *LinuxDesktopEnvironment::accessibility() {
+    return atspi_ != nullptr ? atspi_->accessibility() : nullptr;
 }
 
 mirage::desktop::FileReadOutcome

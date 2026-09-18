@@ -38,6 +38,25 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         target_sources(mirage_platform PRIVATE linux/src/x11_backend_stub.cpp)
         message(STATUS "Linux X11 backend disabled: X11/Xtst/Xrandr dev packages not found")
     endif()
+    # The AT-SPI2 accessibility frontend (M2-03) follows the same optionality
+    # discipline (DEC-015): libatspi pulls glib, both stay PRIVATE to the
+    # platform target and out of every public header (RULE-01).
+    find_package(PkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+        pkg_check_modules(ATSPI QUIET IMPORTED_TARGET atspi-2 gobject-2.0)
+    endif()
+    if(ATSPI_FOUND)
+        target_sources(mirage_platform PRIVATE linux/src/atspi_backend.cpp)
+        # IMPORTED_TARGET carries the transitive link deps; gobject-2.0 is added
+        # explicitly because the atspi-2.pc Requires omits it (upstream
+        # packaging miss, noted in the M2-03 verification record).
+        target_link_libraries(mirage_platform PRIVATE PkgConfig::ATSPI)
+        target_compile_definitions(mirage_platform PRIVATE MIRAGE_LINUX_ATSPI=1)
+        message(STATUS "Linux AT-SPI2 backend enabled (${ATSPI_VERSION})")
+    else()
+        target_sources(mirage_platform PRIVATE linux/src/atspi_backend_stub.cpp)
+        message(STATUS "Linux AT-SPI2 backend disabled: atspi-2 dev package not found")
+    endif()
     target_link_libraries(mirage_platform PUBLIC Mirage::desktop)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     target_sources(mirage_platform PRIVATE windows/src/platform_windows.cpp)
