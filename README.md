@@ -47,6 +47,11 @@ ctest --preset debug
 [M1 验证记录](docs/plans/m1-mira-host.md)）。离线/CI 只校验模式：
 `cmake --preset debug -DMIRAGE_FETCH_DEPENDENCIES=OFF`。
 
+X11 Backend 测试（M2-02 起）需要本机有 Xvfb：`sudo apt install xvfb`，或无 root
+时将发行包提取到用户前缀并导出 `MIRAGE_XVFB=<路径>`（定位顺序
+`$MIRAGE_XVFB` → `$PATH` → `~/.local/mirage-sysroot/usr/bin/Xvfb`；缺失时
+`x11_backend_test` 响亮失败而非跳过，[DEC-015](docs/decisions/DEC-015-linux-backend-dependencies-and-event-loop.md)）。
+
 ## 运行 Runtime Service 与 CLI（M1）
 
 后台 Runtime Service 经 Local IPC 服务于 CLI / GUI（[DEC-007](docs/decisions/DEC-007-local-ipc-and-runtime-service.md)）：
