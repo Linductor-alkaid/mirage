@@ -186,7 +186,11 @@ DesktopEnvironment
 
 Provider 以访问器形式挂载在 `DesktopEnvironment` 上（`filesystem()` / `process()` 等，
 返回空指针表示该环境不具备对应能力，消费方必须 fail closed）。M1 包含
-FilesystemProvider（只读文本读取）与 ProcessProvider（有界 shell 执行）。
+FilesystemProvider（只读文本读取）与 ProcessProvider（有界 shell 执行）；
+`M2-01` 冻结了其余七个核心 Provider 的契约（Application / Window / Accessibility /
+Screen / Input / Clipboard / Notification），全部沿用 M1 的预算 / 取消 / 错误词表
+纪律（[DEC-009](../decisions/DEC-009-provider-scope-budget-cancellation.md)）与
+[DEC-005](../decisions/DEC-005-desktop-observation-contract.md)。
 `M1-05`（[DEC-009](../decisions/DEC-009-provider-scope-budget-cancellation.md)）
 为两者落地范围约束、执行预算与协作取消路径：Filesystem 读取强制 `PathScope`
 读范围（空范围 fail closed）与字节预算（超限 fail closed，不静默截断）；
@@ -230,6 +234,11 @@ DesktopObservation
 ```
 
 其中 Semantic Snapshot 来自 Accessibility，Visual Snapshot 则由 Mirage 与 Mirador 协同产生。
+
+DesktopObservation 的 schema 1.0 字段集已在 `M2-01` 冻结
+（[DEC-005](../decisions/DEC-005-desktop-observation-contract.md)）：结构化
+SemanticSnapshot、焦点元素引用与指针状态入字段集；加字段升 minor 版本，破坏性
+变更升 major 版本。
 
 ```mermaid
 flowchart TD
@@ -282,6 +291,14 @@ input_text(@e4, "...")
 ```
 
 Mirage 负责在行为真正执行时将 Element Reference 解析为对应平台对象。
+
+Mirage 侧以结构化 `SemanticSnapshot` 承载该模型：节点含 `@eN` 引用、稳定角色词表、
+父索引与几何，节点预算超限 fail closed（`RULE-07`）；设计文档所示的紧凑行式文本
+即快照的确定性渲染结果。动作寻址采用多提示 `ElementTarget`（reference / semantic /
+structural / visual / spatial / raw 自由组合），解析顺序固定为：快照 reference →
+Accessibility（semantic → structural）→ Mirador 缓存 / OCR / 几何（M3）→ VLM
+（仅显式开启，不作为默认 resolver），每次降级解析产生可追溯事件，详见
+[DEC-005](../decisions/DEC-005-desktop-observation-contract.md)。
 
 Snapshot 可以根据窗口变化、Accessibility Event 和行为结果进行增量更新，从而避免每一步重新解析完整桌面状态。
 

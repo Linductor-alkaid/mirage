@@ -45,6 +45,16 @@ set_tests_properties(desktop_observation_test PROPERTIES
     TIMEOUT 60
 )
 
+add_executable(provider_contract_test desktop/provider_contract_test.cpp)
+target_compile_features(provider_contract_test PUBLIC cxx_std_20)
+mirage_enable_warnings(provider_contract_test)
+target_link_libraries(provider_contract_test PRIVATE Mirage::desktop)
+add_test(NAME provider_contract_test COMMAND provider_contract_test)
+set_tests_properties(provider_contract_test PROPERTIES
+    LABELS "unit"
+    TIMEOUT 60
+)
+
 add_executable(mira_binding_test integration/mira_binding_test.cpp)
 target_compile_features(mira_binding_test PUBLIC cxx_std_20)
 mirage_enable_warnings(mira_binding_test)
