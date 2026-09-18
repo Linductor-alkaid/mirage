@@ -11,6 +11,7 @@ import {
     seedSessions,
     seedWorkflows,
 } from '../src/state/harness-mock.js';
+import { ATOM_CATALOG } from '../src/state/workflow-backend.js';
 import type { ChatMessage } from '../src/state/model.js';
 
 const MESSAGE_KINDS: readonly ChatMessage['kind'][] = [
@@ -19,6 +20,7 @@ const MESSAGE_KINDS: readonly ChatMessage['kind'][] = [
     'activity',
     'step',
     'snapshot',
+    'workflow-call',
     'approval',
     'system',
 ];
@@ -81,6 +83,24 @@ describe('seedSessions', () => {
             expect(thread.length).toBeLessThanOrEqual(MAX_MESSAGES_PER_SESSION);
         }
     });
+
+    it('s-weekly thread carries the workflow-call tool card (m-w0)', () => {
+        const seeded = seedSessions(NOW);
+        const thread = seeded.messages.get('s-weekly');
+        expect(thread).toBeDefined();
+        const call = thread?.find((m) => m.kind === 'workflow-call');
+        expect(call).toBeDefined();
+        if (call?.kind === 'workflow-call') {
+            expect(call.call).toMatchObject({
+                workflowId: 'wf-shot-report',
+                workflowName: '截图周报生成',
+                version: 'v2',
+                runId: 'r-2397',
+                status: 'completed',
+            });
+            expect(call.call.params).toEqual({ days: '7', limit: '6' });
+        }
+    });
 });
 
 describe('seedWorkflows', () => {
@@ -90,8 +110,9 @@ describe('seedWorkflows', () => {
         expect(seeded.runs).toHaveLength(5);
     });
 
-    it('workflow defs carry the full shape with known step kinds', () => {
+    it('workflow defs carry the full RPA shape with known step kinds', () => {
         const seeded = seedWorkflows(NOW);
+        const atomIds = new Set(ATOM_CATALOG.map((a) => a.id));
         for (const wf of seeded.workflows) {
             expect(wf.name.length).toBeGreaterThan(0);
             expect(wf.version).toMatch(/^v\d+$/);
@@ -99,14 +120,35 @@ describe('seedWorkflows', () => {
             expect(wf.steps.length).toBeGreaterThan(0);
             expect(wf.successRate).toBeGreaterThanOrEqual(0);
             expect(wf.successRate).toBeLessThanOrEqual(1);
+            // RPA 工程面：草稿/发布状态与最近更新时间
+            expect(typeof wf.published, wf.id).toBe('boolean');
+            expect(typeof wf.updatedAt, wf.id).toBe('number');
+            expect(wf.updatedAt, wf.id).toBeLessThanOrEqual(NOW);
             for (const step of wf.steps) {
-                expect(['filesystem.read', 'process.execute', 'display.observe']).toContain(step.kind);
+                expect(['filesystem.read', 'process.execute', 'display.observe', 'control']).toContain(step.kind);
                 expect(step.title.length).toBeGreaterThan(0);
+                // 每个步骤必须引用原子动作目录中的条目
+                expect(step.atomId.length, `${wf.id}:${step.title}`).toBeGreaterThan(0);
+                expect(atomIds.has(step.atomId), `${wf.id}:${step.title} -> ${step.atomId}`).toBe(true);
             }
         }
     });
 
-    it('every run references a seeded workflow with matching name and known status', () => {
+    it('control-kind steps reference control atoms and carry loop bounds', () => {
+        const seeded = seedWorkflows(NOW);
+        const controlSteps = seeded.workflows
+            .flatMap((wf) => wf.steps.map((step) => ({ wf, step })))
+            .filter(({ step }) => step.kind === 'control');
+        expect(controlSteps.length).toBeGreaterThanOrEqual(2); // 条件跳过 + 循环回跳
+        for (const { wf, step } of controlSteps) {
+            expect(step.atomId, wf.id).toMatch(/^ctl\./);
+            if (step.loopMax !== undefined) {
+                expect(step.loopMax, `${wf.id}:${step.title}`).toBeGreaterThan(0);
+            }
+        }
+    });
+
+    it('seeded runs reference published defs with matching names and known statuses', () => {
         const seeded = seedWorkflows(NOW);
         for (const run of seeded.runs) {
             const wf = seeded.workflows.find((w) => w.id === run.workflowId);
@@ -184,6 +226,29 @@ describe('exportSessionMarkdown', () => {
         ]);
         expect(denied).toContain('已拒止');
         expect(pending).toContain('待处理');
+    });
+
+    it('renders workflow-call tool cards as quote lines with name, version and status', () => {
+        const md = exportSessionMarkdown('周报会话', [
+            {
+                id: 'mw',
+                kind: 'workflow-call',
+                at,
+                call: {
+                    workflowId: 'wf-shot-report',
+                    workflowName: '截图周报生成',
+                    version: 'v2',
+                    params: { days: '7', limit: '6' },
+                    runId: 'r-2397',
+                    status: 'completed',
+                },
+            },
+        ]);
+        const quotes = md.split('\n').filter((l) => l.startsWith('> '));
+        expect(quotes.length).toBe(1);
+        expect(quotes[0]).toContain('调用工作流');
+        expect(quotes[0]).toContain('截图周报生成（v2）');
+        expect(quotes[0]).toContain('→ completed');
     });
 
     it('renders system notes and activity as quote lines', () => {

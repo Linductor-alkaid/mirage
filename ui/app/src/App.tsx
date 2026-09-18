@@ -8,7 +8,7 @@ import { ActivityBar, StatusBar } from './shell/Chrome.js';
 import { ApprovalsCenter, CommandPalette, ToastLayer } from './shell/Overlays.js';
 import { ChatPage } from './views/chat/ChatPage.js';
 import { ResourcesPage, SettingsPage } from './views/SettingsAndResources.js';
-import { WorkflowEditor, WorkflowLibrary, WorkflowRunPage } from './views/WorkflowsPages.js';
+import { WorkflowsPage, WorkflowRunPage } from './views/WorkflowsPages.js';
 import { useHarness } from './hooks.js';
 
 export function App(): React.ReactElement {
@@ -54,8 +54,7 @@ export function App(): React.ReactElement {
             />
             <main className="main">
                 {route.view === 'chat' && <ChatPage sidebarCollapsed={sidebarCollapsed} />}
-                {route.view === 'workflows' && <WorkflowLibrary />}
-                {route.view === 'workflow-editor' && <WorkflowEditor workflowId={route.workflowId} />}
+                {(route.view === 'workflows' || route.view === 'workflow-editor') && <WorkflowsPage />}
                 {route.view === 'workflow-run' && (
                     <WorkflowRunPage workflowId={route.workflowId} runId={route.runId} />
                 )}

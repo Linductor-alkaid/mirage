@@ -345,18 +345,35 @@ Mirage Shell（统一应用壳）
 
 ### 3.5 工作流页
 
-- **LibraryView**：卡片（名称、版本、参数摘要、最近运行状态、成功率）；新建/导入/
-  导出（`workflow_definition_to_json` 语义）；模板区（M5）。
-- **EditorView**：三栏——左：参数 Schema 与执行策略面板；中：步骤序列区（StepCard
-  列表 + Control 回跳括弧 + 跳过条件徽标）；右：选中步骤的属性面板（参数、前置
-  条件谓词、验证、错误策略）。顶部诊断条（IR 校验 fail-closed 错误逐条列出）+
-  草稿/发布状态（P6：agent 修改落草稿，发布需确认，diff 预览）。
+> 2026-09-18 修订：工作流页与 agent harness 同壳布局（同一 ActivityBar + 统一
+> 左栏范式），编辑器按 RPA 工程软件范式重构（影刀/OpenRPA/UiPath 调研见
+> `docs/research/rpa-editor-design-reference.md`）。工作流在会话语境中只是
+> agent 可调用的一类工具（线程内 WorkflowCallCard），不是会话页的构成部分。
+
+- **与 harness 同壳**：左栏 = 已保存工作流列表（分组 全部/已发布/草稿 + 搜索；
+  条目操作 = 运行 / 重命名 / 删除确认 / 导出 IR JSON；新建 → 空草稿进编辑器）。
+  主区无选中时 = 最近运行台。
+- **EditorView（RPA 工程范式）**：顶部工具条（名称 / 版本徽标 / 描述 / IR 校验
+  诊断 / 发布 / 运行）；中间顺序序列（单列步骤卡：拖拽排序 + 缝隙插入指示线 +
+  参数 chip（`{"$param"}` 引用高亮）+ skipIf/loop 徽标 + 控制步骤虚线块）；右栏
+  三 Tab——**动作库**（默认：原子动作按大类折叠 + 搜索，可拖入，`+` 追加 /
+  双击追加 / 选中后插入其后）、**属性**（选中指令联动：Input·参数 / Output·
+  输出 / Options·执行条件分组，错误策略固定 fail-fast）、**参数**（工作流级
+  `{"$param"}` 定义表）。
+- **原子动作目录**（最小单元，模拟域先行）：文件 / 命令 / 桌面观察 / 窗口与
+  输入（M2+，依赖 Platform Backend）/ 剪贴板 / 流程控制 / 子流程 七类；目录经
+  `WorkflowBackend.atomCatalog()` 获取（IPC 面 `workflow.atom.catalog`，见 §4）。
 - **RunsView**：运行列表（状态/时间过滤）→ 运行详情：三联布局（步骤时间线 +
   快照流 + 日志/工件），失败步高亮；操作 = 重试（双语义：原版本重跑 / 新版本 +
   原输入重跑）、恢复（recovery）、"让 agent 修复此步"（跳回会话并携带上下文）。
+  断点/单步/变量监视/运行回放待 M2+ 真实运行面交付后建设（影刀「运行回放」
+  对应 Mirage 的观察快照回流）。
 - **与 IR 对齐约束**：编辑器只暴露 Workflow IR v1 语义（有序步骤、前置条件跳过、
   Control 回跳 `loop_head` + `max_iterations`、参数 `{"$param"}` 引用、谓词 DSL）；
-  自由节点图、子 workflow 等属 IR 扩展位，IR 未承诺前 UI 不出现。
+  自由节点图、子 workflow 编排等属 IR 扩展位，IR 未承诺前 UI 不出现。
+- **后端接口缝**：编辑器全部数据经 `WorkflowBackend` 接口
+  （`ui/app/src/state/workflow-backend.ts`：listDefs/saveDraft/publish/remove/
+  atomCatalog/listRuns/run/cancelRun），UI 不感知 mock 或真实 IPC 适配器的差异。
 
 ### 3.6 全局层
 
@@ -371,7 +388,7 @@ Mirage Shell（统一应用壳）
 | 会话列表/管理 | 无 | 需 IPC `session.*` 面（列表/打开/历史摘要），依托 mira `open_session`/会话树 |
 | 会话消息流 | `events` 帧（DEC-012 机制） | 需消息/轮次事件与增量输出事件集（M2+ 事件扩展） |
 | 执行模式提交 | `task.submit`（M1） | 已满足最小闭环；对话模式依赖消息面 |
-| 工作流库/编辑器 | 无 | mira `workflow_ir.hpp`（JSON 序列化）经 IPC 暴露 `workflow.*` 面 |
+| 工作流库/编辑器 | 无 | mira `workflow_ir.hpp`（JSON 序列化）经 IPC 暴露 `workflow.*` 面；2026-09-18 细化为：`workflow.list` / `workflow.save`（草稿） / `workflow.publish` / `workflow.delete` / `workflow.atom.catalog`（原子动作目录，依赖 Platform Backend 能力上报） / `workflow.runs` / `workflow.run` / `workflow.cancel`——UI 侧接口缝已固定为 `WorkflowBackend`（`ui/app/src/state/workflow-backend.ts`），IPC 适配器实现同一接口即可接入 |
 | 运行监控 | `task.inspect`/`task.updated` | WorkflowRun 状态视图事件化 |
 | 设置-模型/记忆 | 无 | mira `ModelProfile`/`MemoryScope` 管理面经 IPC/持久化暴露 |
 | 状态栏主机态 | hello `host_status` / `host.status` 事件 | 已满足 |
@@ -406,3 +423,7 @@ Mirage Shell（统一应用壳）
   为仓库根 `DESIGN.md` 与 `.impeccable/design.json`（本文件保留信息架构与契约
   映射的规范地位，视觉 token 细节以实现事实源为准）。§2.6 内置主题 5→6 套，
   默认主题改为「任务控制台」。
+- 2026-09-18：工作流页重构——与 harness 同壳 + RPA 工程式编辑器（右栏原子动作
+  库拖入 + 属性/参数 Tab；调研归档 `docs/research/rpa-editor-design-reference.md`）；
+  会话页确认为纯 agent harness，工作流以 WorkflowCallCard 作为 agent 可调用的
+  工具呈现；§4 增补 `workflow.*` IPC 面清单与 `WorkflowBackend` 接口缝。

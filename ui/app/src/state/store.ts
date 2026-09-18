@@ -24,10 +24,11 @@ import {
     newSessionMeta,
     seedContext,
     seedSessions,
-    seedWorkflows,
     MAX_MESSAGES_PER_SESSION,
     MAX_SESSIONS,
 } from './harness-mock.js';
+import { MockWorkflowBackend } from './workflow-backend.js';
+import type { WorkflowAtom, WorkflowBackend } from './workflow-backend.js';
 import type {
     ApprovalRequest,
     ChatMessage,
@@ -36,6 +37,7 @@ import type {
     StepDisplay,
     ToastNote,
     WorkflowDef,
+    WorkflowParam,
     WorkflowRun,
 } from './model.js';
 
@@ -148,6 +150,8 @@ export interface HarnessState {
 
     workflows: readonly WorkflowDef[];
     workflowRuns: readonly WorkflowRun[];
+    /** 原子动作目录（RPA 编辑器右栏可拖入的最小单元；来自 WorkflowBackend）。 */
+    atoms: readonly WorkflowAtom[];
 
     context: ReadonlyMap<string, ContextUsage>;
     toasts: readonly ToastNote[];
@@ -179,6 +183,18 @@ export interface HarnessActions {
     cancelTask(taskId: string): Promise<void>;
     runWorkflow(workflowId: string): void;
     cancelWorkflowRun(runId: string): void;
+    /** RPA 编辑器：新建/改名/删除/发布/导出与步骤序列变更（草稿即改即存）。 */
+    createWorkflow(): void;
+    renameWorkflow(id: string, name: string): void;
+    setWorkflowDescription(id: string, description: string): void;
+    setWorkflowParams(id: string, params: WorkflowParam[]): void;
+    deleteWorkflow(id: string): void;
+    publishWorkflow(id: string): void;
+    mutateSteps(id: string, mutate: (steps: WorkflowDef['steps']) => WorkflowDef['steps']): void;
+    setStepParams(id: string, index: number, params: Record<string, string>): void;
+    setStepSkipIf(id: string, index: number, skipIf: string | undefined): void;
+    setStepLoopMax(id: string, index: number, loopMax: number | undefined): void;
+    exportWorkflowJson(id: string): void;
     dismissToast(id: string): void;
     resync(): Promise<void>;
 }
@@ -195,10 +211,11 @@ export class HarnessStore {
     private pollTimer: number | null = null;
     private disposed = false;
 
+    private readonly workflowBackend: WorkflowBackend = new MockWorkflowBackend(now());
+
     constructor(private readonly transport: MockTransport) {
         const t = now();
         const seeded = seedSessions(t);
-        const seededWf = seedWorkflows(t);
         this.state = {
             connection: 'connecting',
             hostStatus: 'starting',
@@ -214,8 +231,9 @@ export class HarnessStore {
             activeTaskIds: [],
             pendingApprovals: [],
             takeover: false,
-            workflows: seededWf.workflows,
-            workflowRuns: seededWf.runs,
+            workflows: [],
+            workflowRuns: [],
+            atoms: [],
             context: new Map([['default', seedContext()]]),
             toasts: [],
         };
@@ -332,6 +350,15 @@ export class HarnessStore {
                 .filter((t) => !isTerminalProgress(t.progress))
                 .map((t) => t.id);
             this.set({ activeTaskIds: active });
+            const [defs, runs, atoms] = await Promise.all([
+                this.workflowBackend.listDefs(),
+                this.workflowBackend.listRuns(),
+                this.workflowBackend.atomCatalog(),
+            ]);
+            if (this.disposed) {
+                return;
+            }
+            this.set({ workflows: defs, workflowRuns: runs, atoms });
         } catch (err) {
             if (this.disposed) {
                 return;
@@ -717,24 +744,138 @@ export class HarnessStore {
         if (wf === undefined) {
             return;
         }
-        const run: WorkflowRun = {
-            id: `r-${now().toString(36)}`,
-            workflowId,
-            workflowName: wf.name,
-            status: 'running',
-            startedAt: now(),
-            steps: wf.steps.map((s) => ({ title: s.title, status: 'pending' })),
-        };
-        this.set({
-            workflowRuns: [run, ...this.state.workflowRuns],
-            workflows: this.state.workflows.map((w) =>
-                w.id === workflowId ? { ...w, lastRunAt: run.startedAt, lastRunStatus: 'running' } : w,
-            ),
-        });
-        this.advanceRun(run.id, 0);
-        this.navigate({ view: 'workflow-run', workflowId, runId: run.id });
-        this.toast(`已启动工作流「${wf.name}」（模拟运行）`, 'info');
+        void this.workflowBackend
+            .run(workflowId)
+            .then((run) => {
+                this.set({
+                    workflowRuns: [run, ...this.state.workflowRuns],
+                    workflows: this.state.workflows.map((w) =>
+                        w.id === workflowId ? { ...w, lastRunAt: run.startedAt, lastRunStatus: 'running' } : w,
+                    ),
+                });
+                this.advanceRun(run.id, 0);
+                this.navigate({ view: 'workflow-run', workflowId, runId: run.id });
+                this.toast(`已启动工作流「${wf.name}」（模拟运行）`, 'info');
+            })
+            .catch((err: unknown) => {
+                this.toast(`运行失败：${err instanceof Error ? err.message : String(err)}`, 'error');
+            });
     };
+
+    /** 新建草稿（RPA：新流程从空序列开始，自动保存为草稿）。 */
+    createWorkflow = (): void => {
+        const id = `wf-${now().toString(36)}`;
+        const draft: WorkflowDef = {
+            id,
+            name: '未命名工作流',
+            version: 'v1',
+            description: '',
+            params: [],
+            steps: [],
+            successRate: 1,
+            published: false,
+            updatedAt: now(),
+        };
+        void this.workflowBackend.saveDraft(draft).then((saved) => {
+            this.set({ workflows: [saved, ...this.state.workflows] });
+            this.navigate({ view: 'workflow-editor', workflowId: saved.id });
+        });
+    }
+
+    renameWorkflow = (id: string, name: string): void => {
+        const trimmed = name.trim();
+        if (trimmed.length === 0) {
+            return;
+        }
+        void this.mutateDef(id, (d) => ({ ...d, name: trimmed }));
+    }
+
+    setWorkflowDescription = (id: string, description: string): void => {
+        void this.mutateDef(id, (d) => ({ ...d, description }));
+    };
+
+    setWorkflowParams = (id: string, params: WorkflowParam[]): void => {
+        void this.mutateDef(id, (d) => ({ ...d, params }));
+    };
+
+    deleteWorkflow = (id: string): void => {
+        void this.workflowBackend.remove(id).then(() => {
+            this.set({
+                workflows: this.state.workflows.filter((w) => w.id !== id),
+                workflowRuns: this.state.workflowRuns.filter((r) => r.workflowId !== id),
+            });
+            if (this.state.route.view === 'workflow-editor' && this.state.route.workflowId === id) {
+                this.navigate({ view: 'workflows' });
+            }
+            this.toast('工作流已删除', 'info');
+        });
+    }
+
+    publishWorkflow = (id: string): void => {
+        void this.workflowBackend
+            .publish(id)
+            .then((published) => {
+                this.set({
+                    workflows: this.state.workflows.map((w) => (w.id === id ? published : w)),
+                });
+                this.toast(`已发布 ${published.name} ${published.version}`, 'info');
+            })
+            .catch((err: unknown) => {
+                this.toast(`发布失败：${err instanceof Error ? err.message : String(err)}`, 'error');
+            });
+    }
+
+    /** 就地修改定义并持久化为草稿（编辑器每次编辑即保存）。 */
+    private mutateDef = async (id: string, mutate: (d: WorkflowDef) => WorkflowDef): Promise<void> => {
+        const current = this.state.workflows.find((w) => w.id === id);
+        if (current === undefined) {
+            return;
+        }
+        const next = mutate({ ...current });
+        const saved = await this.workflowBackend.saveDraft(next);
+        this.set({ workflows: this.state.workflows.map((w) => (w.id === id ? saved : w)) });
+    }
+
+    /** 步骤序列变更（编辑器拖入/排序/改参/删除的统一入口）。 */
+    mutateSteps = (id: string, mutate: (steps: WorkflowDef['steps']) => WorkflowDef['steps']): void => {
+        void this.mutateDef(id, (d) => ({ ...d, steps: mutate([...d.steps]) }));
+    };
+
+    setStepParams = (id: string, index: number, params: Record<string, string>): void => {
+        void this.mutateDef(id, (d) => ({
+            ...d,
+            steps: d.steps.map((s, i) => (i === index ? { ...s, params } : s)),
+        }));
+    }
+
+    setStepSkipIf = (id: string, index: number, skipIf: string | undefined): void => {
+        void this.mutateDef(id, (d) => ({
+            ...d,
+            steps: d.steps.map((s, i) => (i === index ? { ...s, skipIf } : s)),
+        }));
+    }
+
+    setStepLoopMax = (id: string, index: number, loopMax: number | undefined): void => {
+        void this.mutateDef(id, (d) => ({
+            ...d,
+            steps: d.steps.map((s, i) => (i === index ? { ...s, loopMax } : s)),
+        }));
+    }
+
+    exportWorkflowJson = (id: string): void => {
+        const def = this.state.workflows.find((w) => w.id === id);
+        if (def === undefined) {
+            return;
+        }
+        const blob = new Blob([JSON.stringify(toWorkflowIrJson(def), null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${def.name}.${def.version}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        this.toast('已导出 Workflow IR v1 JSON', 'info');
+    }
 
     private advanceRun(runId: string, index: number): void {
         if (this.disposed || this.state.takeover) {
@@ -870,6 +1011,17 @@ export class HarnessStore {
             cancelTask: (taskId) => this.cancelTask(taskId),
             runWorkflow: this.runWorkflow,
             cancelWorkflowRun: this.cancelWorkflowRun,
+            createWorkflow: () => this.createWorkflow(),
+            renameWorkflow: this.renameWorkflow,
+            setWorkflowDescription: this.setWorkflowDescription,
+            setWorkflowParams: this.setWorkflowParams,
+            deleteWorkflow: this.deleteWorkflow,
+            publishWorkflow: this.publishWorkflow,
+            mutateSteps: this.mutateSteps,
+            setStepParams: this.setStepParams,
+            setStepSkipIf: this.setStepSkipIf,
+            setStepLoopMax: this.setStepLoopMax,
+            exportWorkflowJson: this.exportWorkflowJson,
             dismissToast: this.dismissToast,
             resync: () => this.resync(),
         };
@@ -898,6 +1050,26 @@ export function displayStepsOf(
         resultTruncated: s.result_truncated,
         error: s.error,
     }));
+}
+
+/** Workflow IR v1 JSON 形态（与未来 workflow.* IPC 面的序列化对齐；纯函数便于测试）。 */
+export function toWorkflowIrJson(def: WorkflowDef): Record<string, unknown> {
+    return {
+        ir: 'mirage.workflow.v1',
+        id: def.id,
+        name: def.name,
+        version: def.version,
+        description: def.description,
+        params: def.params,
+        steps: def.steps.map((s) => ({
+            atom: s.atomId,
+            kind: s.kind,
+            title: s.title,
+            params: s.params ?? {},
+            ...(s.skipIf !== undefined ? { skip_if: s.skipIf } : {}),
+            ...(s.loopMax !== undefined ? { loop_head: { max_iterations: s.loopMax } } : {}),
+        })),
+    };
 }
 
 export function isTerminalProgress(progress: TaskProgress | string): boolean {

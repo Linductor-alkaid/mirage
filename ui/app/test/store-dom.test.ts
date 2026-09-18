@@ -492,6 +492,177 @@ describe('event face (eventsSupported=true)', () => {
     });
 });
 
+// ---- 工作流 = RPA 工程（WorkflowBackend 缝） --------------------------------------
+
+describe('RPA workflow engineering (WorkflowBackend-backed actions)', () => {
+    /** ready 之外还需等待 connect() 把 defs/runs/atoms 装入状态。 */
+    async function startWorkflowsReady(store: HarnessStore): Promise<void> {
+        store.start();
+        await vi.waitFor(() => {
+            expect(store.get().connection).toBe('ready');
+            expect(store.get().workflows.length).toBeGreaterThan(0);
+            expect(store.get().atoms.length).toBeGreaterThan(0);
+        });
+    }
+
+    const defOf = (store: HarnessStore, id: string) =>
+        store.get().workflows.find((w) => w.id === id);
+
+    it('connect loads seeded defs, runs and the atom catalog into state', async () => {
+        const { store } = makeStore(false);
+        expect(store.get().workflows).toHaveLength(0); // 连接前为空
+        await startWorkflowsReady(store);
+
+        const state = store.get();
+        expect(state.workflows).toHaveLength(4);
+        for (const def of state.workflows) {
+            expect(def.published).toBe(true); // seed 定义均为已发布基线
+            expect(typeof def.updatedAt).toBe('number');
+            expect(def.steps.length).toBeGreaterThan(0);
+            expect(def.steps.every((s) => s.atomId.length > 0)).toBe(true);
+        }
+        expect(state.workflowRuns).toHaveLength(5);
+        expect(state.atoms.length).toBeGreaterThan(0);
+        expect(new Set(state.atoms.map((a) => a.id)).size).toBe(state.atoms.length);
+    });
+
+    it('createWorkflow prepends a fresh draft and navigates to its editor route', async () => {
+        const { store } = makeStore(false);
+        await startWorkflowsReady(store);
+        const before = store.get().workflows.length;
+
+        store.createWorkflow();
+        await vi.waitFor(() => expect(store.get().workflows).toHaveLength(before + 1));
+
+        const draft = store.get().workflows[0];
+        expect(draft).toBeDefined();
+        expect(draft?.name).toBe('未命名工作流');
+        expect(draft?.version).toBe('v1');
+        expect(draft?.published).toBe(false); // 新流程即草稿
+        expect(draft?.steps).toEqual([]);
+        expect(draft?.params).toEqual([]);
+        expect(window.location.hash).toBe(`#/workflows/${draft?.id}`);
+    });
+
+    it('renameWorkflow ignores blank names and persists valid names as drafts', async () => {
+        const { store } = makeStore(false);
+        await startWorkflowsReady(store);
+        const original = defOf(store, 'wf-shot-report');
+        expect(original?.published).toBe(true);
+
+        store.renameWorkflow('wf-shot-report', '   ');
+        expect(defOf(store, 'wf-shot-report')?.name).toBe('截图周报生成'); // 未触达保存
+        expect(defOf(store, 'wf-shot-report')?.published).toBe(true);
+        expect(defOf(store, 'wf-shot-report')?.updatedAt).toBe(original?.updatedAt);
+
+        store.renameWorkflow('wf-shot-report', '  截图周报生成 PRO  ');
+        await vi.waitFor(() => {
+            const def = defOf(store, 'wf-shot-report');
+            expect(def?.name).toBe('截图周报生成 PRO');
+            expect(def?.published).toBe(false); // 编辑即回草稿
+            expect(def?.updatedAt).toBeGreaterThan(original?.updatedAt ?? 0);
+        });
+    });
+
+    it('publishWorkflow bumps the version, flips to published and toasts; unknown id errors', async () => {
+        const { store } = makeStore(false);
+        await startWorkflowsReady(store);
+        expect(defOf(store, 'wf-shot-report')?.version).toBe('v2');
+
+        store.publishWorkflow('wf-shot-report');
+        await vi.waitFor(() => {
+            const def = defOf(store, 'wf-shot-report');
+            expect(def?.version).toBe('v3'); // v2 -> v3
+            expect(def?.published).toBe(true);
+        });
+        expect(store.get().toasts.at(-1)?.text).toBe('已发布 截图周报生成 v3');
+
+        store.publishWorkflow('wf-nope');
+        await vi.waitFor(() => {
+            expect(store.get().toasts.at(-1)?.text).toContain('发布失败');
+        });
+    });
+
+    it('mutateSteps inserts and removes steps; setStepParams syncs to the saved def', async () => {
+        const { store } = makeStore(false);
+        await startWorkflowsReady(store);
+        const id = 'wf-daily-standup';
+        expect(defOf(store, id)?.steps).toHaveLength(3);
+
+        // 插入一个流程控制原子（无参数）
+        store.mutateSteps(id, (steps) => [
+            ...steps,
+            { atomId: 'ctl.delay', title: '收尾延时', kind: 'process.execute', detail: '固定等待' },
+        ]);
+        await vi.waitFor(() => {
+            const steps = defOf(store, id)?.steps ?? [];
+            expect(steps).toHaveLength(4);
+            expect(steps[3]?.atomId).toBe('ctl.delay');
+        });
+
+        // 按序号改参：保存后的 def 步骤同步携带参数
+        store.setStepParams(id, 3, { seconds: '5' });
+        await vi.waitFor(() => {
+            expect(defOf(store, id)?.steps[3]?.params).toEqual({ seconds: '5' });
+        });
+
+        // 删除首步：序列收紧且其余步骤保持原序
+        store.mutateSteps(id, (steps) => steps.filter((_, i) => i !== 0));
+        await vi.waitFor(() => {
+            const steps = defOf(store, id)?.steps ?? [];
+            expect(steps).toHaveLength(3);
+            expect(steps.map((s) => s.title)).toEqual(['读取任务快照', '生成简报', '收尾延时']);
+        });
+    });
+
+    it('setStepSkipIf and setStepLoopMax edit the targeted control step', async () => {
+        const { store } = makeStore(false);
+        await startWorkflowsReady(store);
+
+        store.setStepLoopMax('wf-regression', 2, 7);
+        await vi.waitFor(() => {
+            expect(defOf(store, 'wf-regression')?.steps[2]?.loopMax).toBe(7);
+        });
+
+        store.setStepSkipIf('wf-shot-report', 1, undefined); // 清除谓词
+        await vi.waitFor(() => {
+            expect(defOf(store, 'wf-shot-report')?.steps[1]?.skipIf).toBeUndefined();
+        });
+    });
+
+    it('deleteWorkflow removes the def and its runs; navigates back when its editor is open', async () => {
+        window.location.hash = '#/workflows/wf-shot-report';
+        const { store } = makeStore(false);
+        // 路由在构造时由 hash 解析（deleteWorkflow 的回退判断读当前 state.route）
+        expect(store.get().route).toEqual({ view: 'workflow-editor', workflowId: 'wf-shot-report' });
+
+        await startWorkflowsReady(store);
+        expect(store.get().workflowRuns.some((r) => r.workflowId === 'wf-shot-report')).toBe(true);
+
+        store.deleteWorkflow('wf-shot-report');
+        await vi.waitFor(() => {
+            const state = store.get();
+            expect(state.workflows.some((w) => w.id === 'wf-shot-report')).toBe(false);
+            expect(state.workflowRuns.some((r) => r.workflowId === 'wf-shot-report')).toBe(false);
+        });
+        expect(window.location.hash).toBe('#/workflows'); // 正选中 → 路由回退
+        expect(store.get().toasts.at(-1)?.text).toBe('工作流已删除');
+    });
+
+    it('deleteWorkflow keeps the route when another view is open', async () => {
+        const { store } = makeStore(false);
+        await startWorkflowsReady(store);
+        const hashBefore = window.location.hash; // '#/chat'（beforeEach 设置）
+
+        store.deleteWorkflow('wf-daily-standup');
+        await vi.waitFor(() => {
+            expect(store.get().workflows.some((w) => w.id === 'wf-daily-standup')).toBe(false);
+        });
+        expect(store.get().workflowRuns.some((r) => r.workflowId === 'wf-daily-standup')).toBe(false);
+        expect(window.location.hash).toBe(hashBefore);
+    });
+});
+
 // ---- sendChat 集成（chat 模拟流进入线程） -----------------------------------------
 
 describe('sendChat (simulated chat stream into the thread)', () => {

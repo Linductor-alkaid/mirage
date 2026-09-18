@@ -68,6 +68,12 @@ export function seedSessions(now: number): { sessions: SessionMeta[]; messages: 
     ]);
     messages.set('s-weekly', [
         { id: 'm-w1', kind: 'user', at: now - 5 * HOUR, text: '把最近 7 天的桌面截图按项目分组，挑 6 张有代表性的，生成周报草稿。' },
+        {
+            id: 'm-w0',
+            kind: 'workflow-call',
+            at: now - 5 * HOUR,
+            call: { workflowId: 'wf-shot-report', workflowName: '截图周报生成', version: 'v2', params: { days: '7', limit: '6' }, runId: 'r-2397', status: 'completed' },
+        },
         { id: 'm-w2', kind: 'approval', at: now - 5 * HOUR, approval: { id: 'ap-w1', kind: 'desktop.action', summary: '读取图片目录 ~/Pictures/mirage-shots', detail: 'filesystem.read · 82 个文件', status: 'approved', decidedAt: now - 5 * HOUR } },
         { id: 'm-w3', kind: 'snapshot', at: now - 5 * HOUR, snapshot: { label: '文件管理器 · 截图目录', detail: '按修改时间排序，选中 6 张：覆盖 IPC、主题、工作流三个主题', grid: [10, 7] } },
         { id: 'm-w4', kind: 'assistant', at: now - 5 * HOUR, thinking: { text: '截图时间分布集中在两天；按主题聚类比按天更可读。', elapsedMs: 18_000 }, text: '周报草稿已生成（6 张配图，3 个主题小节）。草稿在编辑器中打开，需要我调整篇幅吗？' },
@@ -110,14 +116,16 @@ export function seedWorkflows(now: number): { workflows: WorkflowDef[]; runs: Wo
                 { name: 'limit', required: false, description: '最多挑选的截图数（默认 6）' },
             ],
             steps: [
-                { title: '扫描截图目录', kind: 'filesystem.read', detail: '~/Pictures/mirage-shots 按 mtime 过滤' },
-                { title: '聚类挑选', kind: 'process.execute', detail: '按主题聚类，取 {"$limit"} 张代表图', skipIf: 'count(shots) == 0' },
-                { title: '屏幕复核', kind: 'display.observe', detail: '确认配图内容与聚类标签一致' },
-                { title: '写入草稿', kind: 'process.execute', detail: '生成 Markdown 周报并打开编辑器' },
+                { atomId: 'file.list-dir', title: '扫描截图目录', kind: 'filesystem.read', detail: '~/Pictures/mirage-shots 按 mtime 过滤', params: { dir: '~/Pictures/mirage-shots' } },
+                { atomId: 'ctl.condition', title: '聚类挑选', kind: 'control', detail: '按主题聚类，取 {"$limit"} 张代表图', params: { predicate: 'count(shots) > 0' }, skipIf: 'count(shots) == 0' },
+                { atomId: 'obs.screenshot', title: '屏幕复核', kind: 'display.observe', detail: '确认配图内容与聚类标签一致', params: { target: 'frontmost-window' } },
+                { atomId: 'cmd.run', title: '写入草稿', kind: 'process.execute', detail: '生成 Markdown 周报并打开编辑器', params: { command: 'mirage report --out weekly-draft.md' } },
             ],
             lastRunAt: now - 5 * HOUR,
             lastRunStatus: 'completed',
             successRate: 0.94,
+            published: true,
+            updatedAt: now - 2 * DAY,
         },
         {
             id: 'wf-daily-standup',
@@ -126,13 +134,15 @@ export function seedWorkflows(now: number): { workflows: WorkflowDef[]; runs: Wo
             description: '汇总昨日构建/任务状态与今日计划，输出站会要点。',
             params: [{ name: 'channel', required: true, description: '发布目标频道' }],
             steps: [
-                { title: '读取构建状态', kind: 'process.execute', detail: 'ci status --since yesterday' },
-                { title: '读取任务快照', kind: 'filesystem.read', detail: 'runtime/task-snapshots.json' },
-                { title: '生成简报', kind: 'process.execute', detail: '模板渲染 → 发送到 {"$channel"}' },
+                { atomId: 'cmd.run', title: '读取构建状态', kind: 'process.execute', detail: 'ci status --since yesterday', params: { command: 'ci status --since yesterday' } },
+                { atomId: 'file.read-text', title: '读取任务快照', kind: 'filesystem.read', detail: 'runtime/task-snapshots.json', params: { path: 'runtime/task-snapshots.json' } },
+                { atomId: 'cmd.run', title: '生成简报', kind: 'process.execute', detail: '模板渲染 → 发送到 {"$channel"}', params: { command: 'notify send {"$channel"}' } },
             ],
             lastRunAt: now - 20 * HOUR,
             lastRunStatus: 'completed',
             successRate: 0.99,
+            published: true,
+            updatedAt: now - 3 * DAY,
         },
         {
             id: 'wf-downloads',
@@ -141,12 +151,14 @@ export function seedWorkflows(now: number): { workflows: WorkflowDef[]; runs: Wo
             description: '按类型归档下载目录，安装包单独入库并生成来源报告。',
             params: [{ name: 'dryRun', required: false, description: '只生成清单不移动' }],
             steps: [
-                { title: '扫描目录', kind: 'filesystem.read', detail: '~/Downloads 全量清单' },
-                { title: '归类移动', kind: 'process.execute', detail: '按扩展名分组移动（dryRun={"$dryRun"}）', skipIf: 'count(unknown) > 3' },
+                { atomId: 'file.list-dir', title: '扫描目录', kind: 'filesystem.read', detail: '~/Downloads 全量清单', params: { dir: '~/Downloads' } },
+                { atomId: 'file.move', title: '归类移动', kind: 'process.execute', detail: '按扩展名分组移动（dryRun={"$dryRun"}）', params: { source: '~/Downloads', target: '~/archives', dryRun: '{"$dryRun"}' }, skipIf: 'count(unknown) > 3' },
             ],
             lastRunAt: now - 4 * DAY,
             lastRunStatus: 'failed',
             successRate: 0.71,
+            published: true,
+            updatedAt: now - 6 * DAY,
         },
         {
             id: 'wf-regression',
@@ -155,13 +167,16 @@ export function seedWorkflows(now: number): { workflows: WorkflowDef[]; runs: Wo
             description: '定时巡检构建产物与冒烟测试，异常时附带日志摘要告警。',
             params: [{ name: 'suite', required: false, description: '测试套件（默认 smoke）' }],
             steps: [
-                { title: '拉取产物', kind: 'filesystem.read', detail: 'build/latest/manifest.json' },
-                { title: '运行冒烟', kind: 'process.execute', detail: 'pytest -m {"$suite"} --maxfail 3' },
-                { title: '截取现场', kind: 'display.observe', detail: '失败时截取终端现场' },
+                { atomId: 'file.read-text', title: '拉取产物', kind: 'filesystem.read', detail: 'build/latest/manifest.json', params: { path: 'build/latest/manifest.json' } },
+                { atomId: 'cmd.run', title: '运行冒烟', kind: 'process.execute', detail: 'pytest -m {"$suite"} --maxfail 3', params: { command: 'pytest -m {"$suite"} --maxfail 3', timeoutSec: '120' } },
+                { atomId: 'ctl.loop', title: '重试巡检', kind: 'control', detail: '失败回跳重试，上限 3 次', params: { maxIterations: '3' }, loopMax: 3 },
+                { atomId: 'obs.screenshot', title: '截取现场', kind: 'display.observe', detail: '失败时截取终端现场', params: { target: 'screen' } },
             ],
             lastRunAt: now - 2 * HOUR,
             lastRunStatus: 'running',
             successRate: 0.97,
+            published: true,
+            updatedAt: now - 10 * HOUR,
         },
     ];
 
@@ -370,6 +385,9 @@ export function exportSessionMarkdown(title: string, messages: readonly ChatMess
                 break;
             case 'approval':
                 lines.push(`> ${time} · 权限请求（${m.approval.kind}）：${m.approval.summary} —— **${m.approval.status === 'approved' ? '已放行' : m.approval.status === 'denied' ? '已拒止' : '待处理'}**`, '');
+                break;
+            case 'workflow-call':
+                lines.push(`> ${time} · 调用工作流：${m.call.workflowName}（${m.call.version}）→ ${m.call.status}`, '');
                 break;
             case 'snapshot':
                 lines.push(`> ${time} · 观察快照：${m.snapshot.label} —— ${m.snapshot.detail}`, '');

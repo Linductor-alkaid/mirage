@@ -5,7 +5,7 @@
 /// - snapshot：观察快照卡（网格占位 + 模拟标注）
 /// - activity / system：活动行 / 系统行
 
-import { Check, ChevronRight, CircleAlert, Eye, FileSearch, Terminal, X } from 'lucide-react';
+import { Check, ChevronRight, CircleAlert, Eye, FileSearch, Terminal, Workflow, X } from 'lucide-react';
 
 import { useHarness } from '../../hooks.js';
 import { renderMarkdown } from '../../lib/markdown.js';
@@ -135,6 +135,46 @@ const SOM_BOXES: readonly { x: number; y: number; w: number; h: number }[] = [
     { x: 60, y: 44, w: 28, h: 34 },
 ];
 
+/** agent 在会话上下文中调用工作流（工具卡，深链运行详情）。 */
+function WorkflowCallCard({ m }: { m: Extract<ChatMessage, { kind: 'workflow-call' }> }): React.ReactElement {
+    const { navigate } = useHarness();
+    const c = m.call;
+    const paramText = Object.entries(c.params)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(' · ');
+    const tone = c.status === 'completed' ? 'success' : c.status === 'failed' ? 'danger' : c.status === 'running' ? 'info' : 'muted';
+    const label = c.status === 'completed' ? '已完成' : c.status === 'failed' ? '已失败' : c.status === 'running' ? '运行中' : '已取消';
+    return (
+        <div className="toolcard" data-testid="workflow-call-card">
+            <button
+                type="button"
+                className="toolcard-head"
+                style={{ width: '100%', textAlign: 'start', background: 'transparent', border: 'none', cursor: 'pointer' }}
+                onClick={() => c.runId !== undefined && navigate({ view: 'workflow-run', workflowId: c.workflowId, runId: c.runId })}
+                title={c.runId !== undefined ? '查看运行详情' : undefined}
+            >
+                <span className="t-kind">
+                    <Workflow size={13} />
+                    工作流
+                </span>
+                <span className="t-arg">
+                    {c.workflowName} · {c.version}
+                    {paramText.length > 0 ? ` · ${paramText}` : ''}
+                </span>
+                <span className={`badge is-${tone} ${c.status === 'running' ? 'is-blink' : ''}`}>{label}</span>
+            </button>
+            {c.runId !== undefined && (
+                <div className="toolcard-detail">
+                    <div className="kv">
+                        <span className="k">run</span>
+                        <span className="mono">{c.runId}</span>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 function SnapshotCard({ m }: { m: Extract<ChatMessage, { kind: 'snapshot' }> }): React.ReactElement {
     const s = m.snapshot;
     return (
@@ -181,6 +221,8 @@ export function MessageView({ m }: { m: ChatMessage }): React.ReactElement {
             );
         case 'step':
             return <StepCard m={m} />;
+        case 'workflow-call':
+            return <WorkflowCallCard m={m} />;
         case 'approval':
             return <ApprovalCard m={m} />;
         case 'snapshot':

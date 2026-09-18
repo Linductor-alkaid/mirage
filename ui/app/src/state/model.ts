@@ -66,6 +66,16 @@ export interface SnapshotView {
     grid: [number, number];
 }
 
+/** agent 在会话上下文中调用工作流的工具卡视图（模拟域叙事）。 */
+export interface WorkflowCallView {
+    workflowId: string;
+    workflowName: string;
+    version: string;
+    params: Record<string, string>;
+    runId?: string;
+    status: WorkflowRunStatus;
+}
+
 export type ChatMessage =
     | { id: string; kind: 'user'; at: number; text: string }
     | {
@@ -79,6 +89,7 @@ export type ChatMessage =
     | { id: string; kind: 'activity'; at: number; taskId: string; progress: TaskProgress; note?: string }
     | { id: string; kind: 'step'; at: number; taskId: string; step: StepDisplay }
     | { id: string; kind: 'snapshot'; at: number; snapshot: SnapshotView }
+    | { id: string; kind: 'workflow-call'; at: number; call: WorkflowCallView }
     | { id: string; kind: 'approval'; at: number; approval: ApprovalRequest }
     | { id: string; kind: 'system'; at: number; text: string; tone: MessageTone };
 
@@ -95,11 +106,17 @@ export interface WorkflowParam {
 }
 
 export interface WorkflowStepDef {
+    /** 原子动作目录引用（编辑器拖入的最小单元；模拟域目录见 workflow-backend）。 */
+    atomId: string;
     title: string;
-    kind: 'filesystem.read' | 'process.execute' | 'display.observe';
+    kind: 'filesystem.read' | 'process.execute' | 'display.observe' | 'control';
     detail: string;
+    /** 结构化参数（键 = 原子动作参数名；值支持 {"$param"} 引用语法）。 */
+    params?: Record<string, string>;
     /** 前置条件谓词（IR v1 跳过语义的展示面）。 */
     skipIf?: string;
+    /** 流程控制回跳上限（IR v1 loop_head 语义，仅 control 类步骤）。 */
+    loopMax?: number;
 }
 
 export interface WorkflowDef {
@@ -112,6 +129,9 @@ export interface WorkflowDef {
     lastRunAt?: number;
     lastRunStatus?: WorkflowRunStatus;
     successRate: number;
+    /** 草稿/发布状态（RPA 语义：草稿可改，发布需确认）。 */
+    published: boolean;
+    updatedAt: number;
 }
 
 export interface WorkflowRunStep {
