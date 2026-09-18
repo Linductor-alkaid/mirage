@@ -71,8 +71,28 @@ npm run dev -w @mirage/app   # 启动 Vite dev server（默认 mock transport）
 浏览器连接 `ws://127.0.0.1:8787/`，即可对真实服务完成 hello、订阅与任务
 submit/inspect 往返（验收截图
 [docs/verification/m1.5-03-browser-e2e.png](../docs/verification/m1.5-03-browser-e2e.png)）。
-app 内置真实 transport 的接线（订阅实时刷新、降级轮询、resync）属 `M1.5-05`；
 桥是开发期工具，不进产品安装包，SIGINT 干净停止。
+
+## transport 选择（M1.5-05）
+
+app 入口按 URL 参数装配 transport，视图层不感知（同一 `MirageTransport` 面）：
+
+- 默认：mock transport（无后端依赖）。
+- `?transport=bridge`：经 dev bridge 连接真实 `mirage-service`（默认
+  `ws://127.0.0.1:8787/`）；`?ws=<url>` 可指定桥地址（隐含 bridge 模式）。
+  连接断开后按有界退避（500ms→8s）自动重连，成功后重置事件 seq 基线并
+  resync 任务快照；`contracts/src/ws-transport.ts` 实现 DEC-007 单未决请求
+  纪律（请求逐条串行、30s 显式超时），事件 seq 跳跃 / `events.overflow`
+  触发快照 resync（`EventSequencer`）。
+- `?events=off`（仅 mock）：构造无 `events` 能力的 mock 服务，用于在浏览器
+  内验收「订阅不可用 → 自动降级 `task.inspect` 轮询」路径；真实服务未广告
+  `events` 能力或 `events.subscribe` 返回 `unsupported` 时走同一降级逻辑。
+
+```bash
+# 终端 3：app 以真实传输启动（Vite dev server 默认 5173）
+npm run dev -w @mirage/app
+# 浏览器打开 http://localhost:5173/?transport=bridge
+```
 
 ## Mock 约定（仅 mock，非真实服务行为）
 

@@ -65,6 +65,12 @@ export interface MirageTransport {
     /** Drops the connection-scoped subscription (idempotent). */
     unsubscribe(): Promise<void>;
 
+    /** Registers a callback fired once per unexpected connection loss after a
+     * successful hello (never for close()). Optional: only real transports
+     * can lose their peer; the mock never fires it. Reconnection and resync
+     * are UI-layer decisions (M1.5-05). */
+    onConnectionLost?(listener: () => void): void;
+
     /** Releases the transport; further requests reject with
      * TransportClosedError. Idempotent. */
     close(): Promise<void>;

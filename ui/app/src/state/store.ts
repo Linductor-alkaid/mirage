@@ -2,8 +2,12 @@
 ///
 /// 分层纪律：
 /// - 契约事实（host 身份、任务状态机、步骤、事件 seq/overflow）只来自
-///   `MirageTransport`（当前为 contracts MockTransport）；事件仅触发快照
-///   重取（DEC-012 决策 4：事件是通知，不是状态本体）。
+///   `MirageTransport`（mock 或 M1.5-05 起的 dev bridge 真实传输，视图不感知）；
+///   事件仅触发快照重取（DEC-012 决策 4：事件是通知，不是状态本体）。
+/// - 事件纪律：EventSequencer 跟踪每连接 seq；seq 跳跃 / overflow 触发快照
+///   resync 并留显式记录。订阅不可用（hello 无 `events` 能力或 subscribe 返回
+///   `unsupported`）时自动降级为 `task.inspect` 轮询。连接断开后按有界退避
+///   自动重连（需 transport 工厂），成功后重置 seq 基线并 resync。
 /// - 会话 / 消息 / 审批 / 工作流为模拟域（`harness-mock.ts`），界面标注
 ///   「模拟」；不回写、不冒充契约事实。
 /// - 终态幂等：已取消 / 已完成任务不因迟到事件复活。
@@ -11,13 +15,13 @@
 import type {
     HostStatus,
     InspectTask,
+    MirageTransport,
+    ServerEvent,
     ServiceIdentity,
     StepView,
     TaskProgress,
 } from '@mirage/contracts';
-import { IpcRequestError } from '@mirage/contracts';
-
-import type { MockTransport } from '@mirage/contracts';
+import { EventSequencer, IpcRequestError } from '@mirage/contracts';
 import {
     ChatSimulator,
     exportSessionMarkdown,
@@ -203,17 +207,32 @@ type Listener = () => void;
 
 const now = (): number => Date.now();
 
+/** 降级轮询周期（事件能力不可用时以 task.inspect 刷新活动任务）。 */
+const POLL_INTERVAL_MS = 2000;
+/** 断线重连退避：500ms 起倍增，封顶 8s（开发期工具，不无限加速）。 */
+const RECONNECT_BASE_MS = 500;
+const RECONNECT_MAX_MS = 8000;
+
 export class HarnessStore {
     private state: HarnessState;
     private readonly listeners = new Set<Listener>();
     private readonly simulator: ChatSimulator;
+    private transport: MirageTransport;
+    private readonly reconnectFactory: (() => MirageTransport) | null;
     private unsubscribeTransport: (() => void) | null = null;
     private pollTimer: number | null = null;
+    private reconnectTimer: number | null = null;
+    private reconnectAttempt = 0;
+    /** 事件 seq 纪律（DEC-012 决策 4）：seq 跳跃/overflow 触发快照 resync；
+     * 每条连接（含重连后的新连接）重置基线。 */
+    private sequencer = new EventSequencer();
     private disposed = false;
 
     private readonly workflowBackend: WorkflowBackend = new MockWorkflowBackend(now());
 
-    constructor(private readonly transport: MockTransport) {
+    constructor(transport: MirageTransport, options: { reconnect?: () => MirageTransport } = {}) {
+        this.transport = transport;
+        this.reconnectFactory = options.reconnect ?? null;
         const t = now();
         const seeded = seedSessions(t);
         this.state = {
@@ -266,7 +285,7 @@ export class HarnessStore {
     // -- 生命周期 ------------------------------------------------------------
 
     start(): void {
-        void this.connect();
+        void this.establish(false);
     }
 
     dispose(): void {
@@ -274,9 +293,12 @@ export class HarnessStore {
         window.removeEventListener('hashchange', this.onHashChange);
         this.simulator.dispose();
         this.unsubscribeTransport?.();
-        if (this.pollTimer !== null) {
-            window.clearInterval(this.pollTimer);
+        this.stopPolling();
+        if (this.reconnectTimer !== null) {
+            window.clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
         }
+        void this.transport.close().catch(() => undefined);
     }
 
     // -- React 绑定 ----------------------------------------------------------
@@ -299,50 +321,53 @@ export class HarnessStore {
 
     // -- 连接与事件 ----------------------------------------------------------
 
-    private async connect(): Promise<void> {
+    /** 建立连接（hello → 订阅或降级轮询 → 首次 task.list）。`resume` 为重连
+     * 路径：成功后重置 seq 基线、刷新任务快照并留 resync 记录。 */
+    private async establish(resume: boolean): Promise<void> {
+        const transport = this.transport;
         try {
-            const identity = await this.transport.hello();
+            transport.onConnectionLost?.(this.onConnectionLost);
+            const identity = await transport.hello();
             if (this.disposed) {
                 return;
             }
+            this.sequencer = new EventSequencer();
             this.set({
                 connection: 'ready',
+                connectionError: undefined,
                 identity,
                 hostStatus: identity.host_status,
                 eventsSupported: identity.events === true,
             });
-            if (identity.events === true) {
-                await this.transport.subscribe((event) => {
-                    switch (event.event) {
-                        case 'task.updated':
-                            this.set({ eventSeq: event.seq });
-                            void this.onTaskEvent();
-                            break;
-                        case 'host.status':
-                            this.set({ hostStatus: event.status, eventSeq: event.seq });
-                            break;
-                        case 'events.overflow':
-                            this.set({
-                                eventSeq: event.seq,
-                                resyncNote: { reason: `溢出丢弃 ${event.dropped} 帧`, at: now() },
-                            });
-                            this.toast(`事件流溢出，已重新同步（丢弃 ${event.dropped} 帧）`, 'warn');
-                            void this.refreshActiveTasks();
-                            break;
-                    }
-                });
-                this.unsubscribeTransport = (): void => {
-                    void this.transport.unsubscribe();
-                };
-            } else {
-                // M1.5-05 降级：无事件能力时轮询活动任务。
-                this.pollTimer = window.setInterval(() => {
-                    if (this.state.activeTaskIds.length > 0) {
-                        void this.refreshActiveTasks();
-                    }
-                }, 2000);
+            if (resume) {
+                this.reconnectAttempt = 0;
             }
-            const tasks = await this.transport.listTasks();
+            let subscribed = false;
+            if (identity.events === true) {
+                try {
+                    await transport.subscribe(this.onTransportEvent);
+                    subscribed = true;
+                    this.unsubscribeTransport = (): void => {
+                        transport.unsubscribe().catch(() => undefined);
+                    };
+                } catch (err) {
+                    // 订阅被明确拒止（unsupported）：按降级处理；其余错误仍是
+                    // 连接级失败，走 catch 的显式失败路径。
+                    if (!(err instanceof IpcRequestError && err.code === 'unsupported')) {
+                        throw err;
+                    }
+                }
+            }
+            if (!subscribed) {
+                this.set({ eventsSupported: false });
+                this.startPolling();
+                if (identity.events === true) {
+                    this.toast('事件订阅不可用（unsupported），已降级为 task.inspect 轮询', 'warn');
+                } else if (!resume) {
+                    this.toast('服务未提供事件能力，已降级为 task.inspect 轮询', 'info');
+                }
+            }
+            const tasks = await transport.listTasks();
             if (this.disposed) {
                 return;
             }
@@ -350,15 +375,20 @@ export class HarnessStore {
                 .filter((t) => !isTerminalProgress(t.progress))
                 .map((t) => t.id);
             this.set({ activeTaskIds: active });
-            const [defs, runs, atoms] = await Promise.all([
-                this.workflowBackend.listDefs(),
-                this.workflowBackend.listRuns(),
-                this.workflowBackend.atomCatalog(),
-            ]);
-            if (this.disposed) {
-                return;
+            if (resume) {
+                await this.refreshActiveTasks();
+                this.set({ resyncNote: { reason: '重连后重新同步任务快照', at: now() } });
+            } else {
+                const [defs, runs, atoms] = await Promise.all([
+                    this.workflowBackend.listDefs(),
+                    this.workflowBackend.listRuns(),
+                    this.workflowBackend.atomCatalog(),
+                ]);
+                if (this.disposed) {
+                    return;
+                }
+                this.set({ workflows: defs, workflowRuns: runs, atoms });
             }
-            this.set({ workflows: defs, workflowRuns: runs, atoms });
         } catch (err) {
             if (this.disposed) {
                 return;
@@ -367,12 +397,87 @@ export class HarnessStore {
                 connection: 'error',
                 connectionError: err instanceof Error ? err.message : String(err),
             });
+            this.scheduleReconnect();
         }
     }
 
-    private async onTaskEvent(): Promise<void> {
-        await this.refreshActiveTasks();
+    /** 连接意外断开（hello 成功之后）：有工厂则进入重连循环（成功后 resync），
+     * 无工厂则显式失败。 */
+    private readonly onConnectionLost = (): void => {
+        if (this.disposed) {
+            return;
+        }
+        this.unsubscribeTransport = null;
+        this.stopPolling();
+        if (this.reconnectFactory === null) {
+            this.set({ connection: 'error', connectionError: '连接中断' });
+            return;
+        }
+        this.set({ connection: 'connecting', connectionError: '连接中断，正在重连…' });
+        this.scheduleReconnect();
+    };
+
+    private scheduleReconnect(): void {
+        const factory = this.reconnectFactory;
+        if (this.disposed || factory === null || this.reconnectTimer !== null) {
+            return;
+        }
+        const delay = Math.min(RECONNECT_BASE_MS * 2 ** Math.min(this.reconnectAttempt, 4), RECONNECT_MAX_MS);
+        this.reconnectAttempt += 1;
+        this.reconnectTimer = window.setTimeout(() => {
+            this.reconnectTimer = null;
+            if (this.disposed) {
+                return;
+            }
+            this.transport = factory();
+            void this.establish(true);
+        }, delay);
     }
+
+    private startPolling(): void {
+        if (this.pollTimer !== null) {
+            return;
+        }
+        this.pollTimer = window.setInterval(() => {
+            if (this.state.activeTaskIds.length > 0) {
+                void this.refreshActiveTasks();
+            }
+        }, POLL_INTERVAL_MS);
+    }
+
+    private stopPolling(): void {
+        if (this.pollTimer !== null) {
+            window.clearInterval(this.pollTimer);
+            this.pollTimer = null;
+        }
+    }
+
+    private readonly onTransportEvent = (event: ServerEvent): void => {
+        const verdict = this.sequencer.push(event);
+        switch (event.event) {
+            case 'task.updated':
+                this.set({ eventSeq: event.seq });
+                break;
+            case 'host.status':
+                this.set({ hostStatus: event.status, eventSeq: event.seq });
+                break;
+            case 'events.overflow':
+                break;
+        }
+        if (verdict.kind === 'resync') {
+            const reason =
+                verdict.reason === 'overflow'
+                    ? `溢出丢弃 ${verdict.dropped} 帧`
+                    : `事件序号跳跃（收到 seq ${event.seq}）`;
+            this.set({ eventSeq: event.seq, resyncNote: { reason, at: now() } });
+            this.toast(`事件流不连续（${reason}），已重新同步任务快照`, 'warn');
+            void this.refreshActiveTasks();
+            return;
+        }
+        if (event.event === 'task.updated') {
+            void this.refreshActiveTasks();
+        }
+    };
 
     /** 重取活动任务快照；终态回写线程与抽屉（幂等）。 */
     private async refreshActiveTasks(): Promise<void> {
