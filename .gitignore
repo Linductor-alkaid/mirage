@@ -25,3 +25,7 @@ sanitize_log/
 *.pem
 *.key
 .env
+
+# Impeccable decision-server session state (not design artifacts)
+.impeccable/questions/
+**/.impeccable/questions/

@@ -1,0 +1,331 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-18",
+  "title": "Design System: Mirage 控制台（任务控制台 / MISSION CONSOLE）",
+  "extensions": {
+    "tokens": {
+      "_note": "语义 token 值集：mirage-console dark（夜班大厅），由 ui/app/src/theme/themes.ts 的 var(--mir-*) 引用经 ui/app/src/theme/primitives.ts 解析一层得到。light 值集与其余 5 套主题见 themes.ts。",
+      "colors": {
+        "background": "#141920",
+        "foreground": "#eae5d8",
+        "card": "#232b35",
+        "card-foreground": "#eae5d8",
+        "popover": "#1a2028",
+        "primary": "#e8a33d",
+        "primary-foreground": "#231a06",
+        "secondary": "#2e3945",
+        "secondary-foreground": "#cfc9b8",
+        "muted": "#232b35",
+        "muted-foreground": "#9aa2ac",
+        "accent": "rgb(232 163 61 / 14%)",
+        "accent-foreground": "#f6c453",
+        "destructive": "#f87171",
+        "success": "#34d399",
+        "warning": "#fbbf24",
+        "info": "#38bdf8",
+        "border": "#33404e",
+        "input": "#3a4756",
+        "ring": "#e8a33d",
+        "sidebar-background": "#1a2028",
+        "surface-raised": "#2e3945",
+        "overlay-scrim": "rgb(10 13 17 / 60%)",
+        "evidence-highlight": "#7fb3d5",
+        "evidence-highlight-soft": "rgb(127 179 213 / 16%)"
+      },
+      "typography": {
+        "body": {
+          "fontFamily": "'Saira Variable', 'Noto Sans SC', 'Noto Sans CJK SC', 'Microsoft YaHei', system-ui, sans-serif",
+          "fontSize": "14px",
+          "fontWeight": 400,
+          "lineHeight": 1.5
+        },
+        "display": {
+          "fontFamily": "'Saira Variable', 'Noto Sans SC', 'Microsoft YaHei', sans-serif",
+          "fontSize": "34px",
+          "fontWeight": 700,
+          "lineHeight": 1.04,
+          "letterSpacing": "0.06em",
+          "fontVariation": "'wdth' 62.5"
+        },
+        "headline": {
+          "fontFamily": "'Saira Variable', 'Noto Sans SC', 'Microsoft YaHei', sans-serif",
+          "fontSize": "20px",
+          "fontWeight": 700,
+          "letterSpacing": "0.04em",
+          "fontVariation": "'wdth' 62.5"
+        },
+        "label": {
+          "fontFamily": "'Saira Variable', 'Noto Sans SC', 'Microsoft YaHei', sans-serif",
+          "fontSize": "11px",
+          "fontWeight": 600,
+          "letterSpacing": "0.08em",
+          "textTransform": "uppercase",
+          "fontVariation": "'wdth' 62.5"
+        },
+        "mono": {
+          "fontFamily": "'Chivo Mono Variable', ui-monospace, 'Cascadia Mono', monospace",
+          "fontSize": "12px",
+          "fontVariantNumeric": "tabular-nums"
+        },
+        "scalePx": { "xs": 12, "sm": 13, "base": 14, "lg": 16, "xl": 18, "2xl": 20, "3xl": 24 }
+      },
+      "spacing": {
+        "space-1": "4px",
+        "space-2": "8px",
+        "space-3": "12px",
+        "space-4": "16px",
+        "space-5": "20px",
+        "space-6": "24px",
+        "space-8": "32px",
+        "row-sm": "24px",
+        "row-md": "28px",
+        "row-lg": "34px",
+        "structure": {
+          "wall": "92px",
+          "rail": "52px",
+          "sidebar": "264px",
+          "statusbar": "30px",
+          "observer": "336px",
+          "thread-max-width": "820px"
+        }
+      },
+      "radii": {
+        "sm": "4px",
+        "md": "6px",
+        "lg": "8px",
+        "pill": "999px",
+        "_note": "mirage-console 主题覆盖值；L1 默认（primitives.ts）为 sm 6 / md 8 / lg 10。"
+      },
+      "motion": {
+        "dur-instant": "90ms",
+        "dur-fast": "160ms",
+        "dur-standard": "300ms",
+        "dur-medium": "450ms",
+        "dur-slow": "650ms",
+        "ease": "cubic-bezier(0.2, 0, 0, 1)",
+        "ease-out": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "ease-circ": "cubic-bezier(0, 0.55, 0.45, 1)",
+        "lamp-on": "80ms",
+        "lamp-off": "600ms",
+        "reduced-motion": "全部时长 token 归零（primitives.ts @media）+ styles.css 全局 0.01ms !important 兜底"
+      }
+    },
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "琥珀读数（行动色）",
+        "canonical": "#e8a33d",
+        "primitiveRef": "--mir-amber-450",
+        "tonalRamp": ["#8a4d08", "#d97706", "#e8a33d", "#fbbf24", "#f6c453"],
+        "tonalRampNote": "项目自有 amber 阶（primitives.ts）：amber-700 / amber-500 / amber-450 / amber-400d / amber-300"
+      },
+      "background": {
+        "role": "neutral",
+        "displayName": "控制台炭蓝底",
+        "canonical": "#141920",
+        "primitiveRef": "--mir-console-950",
+        "tonalRamp": ["#141920", "#1a2028", "#232b35", "#2e3945", "#3d4a58", "#55647a"],
+        "tonalRampNote": "项目自有 console 阶（primitives.ts）：950→500"
+      },
+      "card": {
+        "role": "neutral",
+        "displayName": "仪表面板炭蓝",
+        "canonical": "#232b35",
+        "primitiveRef": "--mir-console-800"
+      },
+      "popover": {
+        "role": "neutral",
+        "displayName": "浮层面板炭蓝",
+        "canonical": "#1a2028",
+        "primitiveRef": "--mir-console-900"
+      },
+      "foreground": {
+        "role": "neutral",
+        "displayName": "暖白奶油刻字",
+        "canonical": "#eae5d8",
+        "primitiveRef": "themes.ts inkConsole 常量",
+        "tonalRamp": ["#2a2517", "#57513f", "#b3a984", "#d4c8a8", "#e5dcc4", "#f2ead8", "#faf6ec"],
+        "tonalRampNote": "项目自有 cream 阶（primitives.ts）：cream-900→50"
+      },
+      "secondary": {
+        "role": "neutral",
+        "displayName": "次级面板炭蓝",
+        "canonical": "#2e3945",
+        "primitiveRef": "--mir-console-700"
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "面板细描边",
+        "canonical": "#33404e",
+        "primitiveRef": "themes.ts dark 字面量"
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "琥珀低透明大底",
+        "canonical": "rgb(232 163 61 / 14%)",
+        "primitiveRef": "rgb(--mir-amber-450 / 14%)"
+      },
+      "evidence-highlight": {
+        "role": "secondary",
+        "displayName": "蓝线剖面蓝（证据色）",
+        "canonical": "#7fb3d5",
+        "primitiveRef": "--mir-blueline-400",
+        "tonalRamp": ["#2e6f9e", "#3d7199", "#7fb3d5", "#9cc6e0", "#b7d3e4"],
+        "tonalRampNote": "项目自有 blueline 阶（primitives.ts）：700/600/400/300/200"
+      },
+      "destructive": {
+        "role": "status",
+        "displayName": "失败红",
+        "canonical": "#f87171",
+        "primitiveRef": "--mir-red-400d"
+      },
+      "success": {
+        "role": "status",
+        "displayName": "成功绿",
+        "canonical": "#34d399",
+        "primitiveRef": "--mir-green-400d"
+      },
+      "warning": {
+        "role": "status",
+        "displayName": "等待琥珀（状态，非行动）",
+        "canonical": "#fbbf24",
+        "primitiveRef": "--mir-amber-400d"
+      },
+      "info": {
+        "role": "status",
+        "displayName": "运行蓝",
+        "canonical": "#38bdf8",
+        "primitiveRef": "--mir-sky-400d"
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "壁挂屏状态动词", "purpose": "wall 大字动词（执行中/等待指示/已接管），34px 压缩态，窄屏 26px。" },
+      "headline": { "displayName": "页面/卡片题", "purpose": "page-head h1（20px/700）与 card h2（16px/600），0.04em 字距。" },
+      "label": { "displayName": "仪表 caps", "purpose": "分组标签、字段标签、状态栏段名、瓦片标签：uppercase + 0.08–0.1em + wdth 62.5。" },
+      "body": { "displayName": "正文", "purpose": "全部 UI 与消息正文；消息正文行高 1.65，线程栏 max-width 820px。" },
+      "mono": { "displayName": "遥测 mono", "purpose": "工具参数/结果、时间线日志、obs-stream、kbd、批准详情；tabular-nums。" }
+    },
+    "shadows": [
+      { "name": "shadow-card", "value": "0 1px 2px rgb(8 10 14 / 35%)", "purpose": "卡片/浮层贴地阴影（mirage-console 覆盖值；L1 默认 0 1px 2px rgb(16 24 40 / 6%), 0 1px 3px rgb(16 24 40 / 10%)）。" },
+      { "name": "shadow-overlay", "value": "0 12px 32px rgb(8 10 14 / 50%)", "purpose": "命令面板/菜单/toast（mirage-console 覆盖值；L1 默认 0 8px 24px rgb(16 24 40 / 16%)）。仅此两档，深度优先用色调分层与描边。" }
+    ],
+    "motion": [
+      { "name": "mir-dur-instant", "value": "90ms", "purpose": "按压、表格行 hover 等即时反馈。" },
+      { "name": "mir-dur-fast", "value": "160ms", "purpose": "按钮配色、pop-in 浮层入场。" },
+      { "name": "mir-dur-standard", "value": "300ms", "purpose": "状态换幕 verb-swap、消息 msg-in、toast-in。" },
+      { "name": "mir-dur-medium", "value": "450ms", "purpose": "展开类：composer 金线 scaleX、ctx-bar 推进。" },
+      { "name": "mir-dur-slow", "value": "650ms", "purpose": "换幕级大过渡上限档。" },
+      { "name": "mir-ease", "value": "cubic-bezier(0.2, 0, 0, 1)", "purpose": "默认缓动。" },
+      { "name": "mir-ease-out", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "入场缓动。" },
+      { "name": "mir-ease-circ", "value": "cubic-bezier(0, 0.55, 0.45, 1)", "purpose": "剖面描线与主动作金线。" },
+      { "name": "mir-lamp-on", "value": "80ms", "purpose": "灯阵快点亮（annunciator 语义）。" },
+      { "name": "mir-lamp-off", "value": "600ms", "purpose": "灯阵慢衰减。" },
+      { "name": "reduced-motion", "value": "0ms / 0.01ms !important", "purpose": "prefers-reduced-motion 全动效降级（token 归零 + 全局兜底）。" }
+    ],
+    "breakpoints": [
+      { "name": "narrow（收观察台）", "value": "900px", "purpose": "隐藏观察台与壁挂屏剖面、状态栏 hide-sm 段；step-row 收窄。" },
+      { "name": "compact（收签派栏）", "value": "640px", "purpose": "隐藏签派栏；壁挂屏转单列，动词降至 26px。" }
+    ]
+  },
+  "components": [
+    {
+      "name": "主按钮（金色主动作线）",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "唯一行动色按钮：琥珀底 + 顶缘 1px 金色主动作线，用于放行/提交等主动作。",
+      "html": "<button class=\"ds-btn-primary\">放行执行</button>",
+      "css": ".ds-btn-primary { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; padding: 0 12px; border: 1px solid var(--primary, #e8a33d); border-radius: var(--mir-radius-sm, 4px); background: var(--primary, #e8a33d); color: var(--primary-foreground, #231a06); font-family: 'Saira Variable', 'Noto Sans SC', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background 160ms cubic-bezier(0.2, 0, 0, 1), border-color 160ms cubic-bezier(0.2, 0, 0, 1); } .ds-btn-primary::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 1px; background: color-mix(in oklab, white 55%, var(--primary, #e8a33d)); pointer-events: none; } .ds-btn-primary:hover { background: color-mix(in oklab, var(--primary, #e8a33d) 88%, white); } .ds-btn-primary:active { transform: translateY(1px); } .ds-btn-primary:focus-visible { outline: 2px solid var(--ring, #e8a33d); outline-offset: 1px; }"
+    },
+    {
+      "name": "Ghost 按钮",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "低强调操作：透明底、muted 刻字，hover 浮现琥珀 accent 底。",
+      "html": "<button class=\"ds-btn-ghost\">取消</button>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; padding: 0 12px; border: 1px solid transparent; border-radius: var(--mir-radius-sm, 4px); background: transparent; color: var(--muted-foreground, #9aa2ac); font-family: 'Saira Variable', 'Noto Sans SC', sans-serif; font-size: 13px; cursor: pointer; transition: background 160ms cubic-bezier(0.2, 0, 0, 1), color 160ms cubic-bezier(0.2, 0, 0, 1); } .ds-btn-ghost:hover { color: var(--foreground, #eae5d8); background: var(--accent, rgb(232 163 61 / 14%)); } .ds-btn-ghost:focus-visible { outline: 2px solid var(--ring, #e8a33d); outline-offset: 1px; }"
+    },
+    {
+      "name": "警戒急停钮",
+      "kind": "custom",
+      "refersTo": "estop",
+      "description": "cue 状态栏的紧急停止警戒钮；触发后 latched 实心红并快点亮，takeover 时壁挂屏动词同转红。",
+      "html": "<button class=\"ds-estop is-latched\">紧急停止</button>",
+      "css": ".ds-estop { display: inline-flex; align-items: center; gap: 8px; height: 22px; padding: 0 10px; border-radius: var(--mir-radius-sm, 4px); border: 1px solid color-mix(in oklab, var(--destructive, #f87171) 55%, var(--border, #33404e)); color: var(--destructive, #f87171); background: color-mix(in oklab, var(--destructive, #f87171) 8%, transparent); font-family: 'Saira Variable', 'Noto Sans SC', sans-serif; font-stretch: 62.5%; font-weight: 600; font-size: 12px; letter-spacing: 0.12em; cursor: pointer; transition: background 160ms cubic-bezier(0.2, 0, 0, 1), color 160ms cubic-bezier(0.2, 0, 0, 1); } .ds-estop:hover { background: color-mix(in oklab, var(--destructive, #f87171) 22%, transparent); } .ds-estop.is-latched { color: var(--background, #141920); background: var(--destructive, #f87171); border-color: var(--destructive, #f87171); animation: ds-lamp-on 80ms cubic-bezier(0.2, 0, 0, 1); } @keyframes ds-lamp-on { from { opacity: 0.4; } to { opacity: 1; } } .ds-estop:focus-visible { outline: 2px solid var(--ring, #e8a33d); outline-offset: 1px; }"
+    },
+    {
+      "name": "仪表面板卡",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "通用面板：凸起一档的表面 + 1px 细描边 + 6px 圆角 + 16px 内边距。",
+      "html": "<div class=\"ds-card\"><h2>运行上下文</h2><p>面板内容以 card-foreground 刻字，标题走 Saira 压缩态。</p></div>",
+      "css": ".ds-card { background: var(--card, #232b35); color: var(--card-foreground, #eae5d8); border: 1px solid var(--border, #33404e); border-radius: var(--mir-radius-md, 6px); padding: 16px; font-family: 'Saira Variable', 'Noto Sans SC', sans-serif; font-size: 14px; line-height: 1.5; } .ds-card h2 { font-stretch: 62.5%; font-weight: 600; font-size: 16px; letter-spacing: 0.04em; margin: 0 0 12px; }"
+    },
+    {
+      "name": "状态徽标（等待琥珀）",
+      "kind": "chip",
+      "refersTo": "badge-warning",
+      "description": "封闭语义色徽标：前置 6px 圆点 + 87.5% 宽度刻字；仅允许 success/warning/danger/info/muted 五种映射。",
+      "html": "<span class=\"ds-badge is-warning\">待批准</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px; border-radius: 999px; border: 1px solid color-mix(in oklab, var(--ds-badge-color, #fbbf24) 45%, var(--border, #33404e)); color: var(--ds-badge-color, #fbbf24); font-family: 'Saira Variable', 'Noto Sans SC', sans-serif; font-stretch: 87.5%; font-weight: 600; font-size: 11px; letter-spacing: 0.04em; white-space: nowrap; } .ds-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--ds-badge-color, #fbbf24); } .ds-badge.is-warning { --ds-badge-color: var(--warning, #fbbf24); } .ds-badge.is-success { --ds-badge-color: var(--success, #34d399); } .ds-badge.is-danger { --ds-badge-color: var(--destructive, #f87171); } .ds-badge.is-info { --ds-badge-color: var(--info, #38bdf8); }"
+    },
+    {
+      "name": "灯阵瓦片（点亮态）",
+      "kind": "custom",
+      "refersTo": "tile-on",
+      "description": "壁挂屏主机灯阵单元：caps 标签 + 压缩态数值；点亮为快 80ms / 慢衰减 600ms 的 annunciator 语义。",
+      "html": "<div class=\"ds-tile is-on\" style=\"--tile-color: var(--primary, #e8a33d);\"><span class=\"ds-t-label\">APPROVAL</span><span class=\"ds-t-value\">2 PENDING</span></div>",
+      "css": ".ds-tile { min-width: 74px; min-height: 42px; padding: 5px 10px 4px; border-radius: var(--mir-radius-sm, 4px); border: 1px solid var(--border, #33404e); background: color-mix(in oklab, var(--card, #232b35) 55%, transparent); text-align: center; font-family: 'Saira Variable', 'Noto Sans SC', sans-serif; transition: background 600ms cubic-bezier(0.2, 0, 0, 1), border-color 600ms cubic-bezier(0.2, 0, 0, 1), color 600ms cubic-bezier(0.2, 0, 0, 1); } .ds-tile .ds-t-label { display: block; font-size: 10px; letter-spacing: 0.1em; color: var(--muted-foreground, #9aa2ac); } .ds-tile .ds-t-value { display: block; font-stretch: 62.5%; font-weight: 600; font-size: 13px; letter-spacing: 0.06em; color: var(--muted-foreground, #9aa2ac); } .ds-tile.is-on { border-color: color-mix(in oklab, var(--tile-color, #e8a33d) 65%, var(--border, #33404e)); background: color-mix(in oklab, var(--tile-color, #e8a33d) 14%, transparent); animation: ds-lamp-on 80ms cubic-bezier(0.2, 0, 0, 1); } .ds-tile.is-on .ds-t-value { color: var(--tile-color, #e8a33d); transition: color 80ms cubic-bezier(0.2, 0, 0, 1); } @keyframes ds-lamp-on { from { opacity: 0.4; } to { opacity: 1; } }"
+    },
+    {
+      "name": "批准卡（放行舞台）",
+      "kind": "card",
+      "refersTo": "approval",
+      "description": "待批准事项卡：顶缘金色渐变主动作线，放行转绿底、拒止转红底；detail 用 mono。",
+      "html": "<div class=\"ds-approval\"><div class=\"ds-a-head\"><span class=\"ds-a-kind\">tool.invoke</span>写入 ~/.config/mirage.yaml</div><div class=\"ds-a-detail\">path: /home/user/.config/mirage.yaml</div><div class=\"ds-a-actions\"><button class=\"ds-btn-primary\">放行</button><button class=\"ds-btn-ghost\">拒止</button></div></div>",
+      "css": ".ds-approval { border: 1px solid color-mix(in oklab, var(--primary, #e8a33d) 40%, var(--border, #33404e)); border-radius: var(--mir-radius-sm, 4px); background: color-mix(in oklab, var(--primary, #e8a33d) 7%, var(--card, #232b35)); overflow: hidden; font-family: 'Saira Variable', 'Noto Sans SC', sans-serif; } .ds-approval::before { content: ''; display: block; height: 1px; background: linear-gradient(90deg, transparent, var(--primary, #e8a33d), transparent); } .ds-a-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px 0; font-size: 13px; font-weight: 600; color: var(--card-foreground, #eae5d8); } .ds-a-kind { font-family: 'Chivo Mono Variable', ui-monospace, monospace; font-size: 11px; color: var(--primary, #e8a33d); border: 1px solid color-mix(in oklab, var(--primary, #e8a33d) 40%, transparent); border-radius: 4px; padding: 1px 6px; } .ds-a-detail { padding: 6px 12px; color: var(--muted-foreground, #9aa2ac); font-size: 12px; font-family: 'Chivo Mono Variable', ui-monospace, monospace; word-break: break-all; } .ds-a-actions { display: flex; gap: 8px; padding: 0 12px 12px; }"
+    },
+    {
+      "name": "输入字段",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "28px 仪表行高的单行输入：input 色描边、凹进混底、focus 转 ring 琥珀。",
+      "html": "<input class=\"ds-input\" placeholder=\"搜索会话\" />",
+      "css": ".ds-input { height: 28px; padding: 0 8px; border: 1px solid var(--input, #3a4756); border-radius: var(--mir-radius-sm, 4px); background: color-mix(in oklab, var(--background, #141920) 55%, var(--card, #232b35)); color: var(--foreground, #eae5d8); font-family: 'Saira Variable', 'Noto Sans SC', sans-serif; font-size: 13px; outline: none; caret-color: var(--primary, #e8a33d); transition: border-color 160ms cubic-bezier(0.2, 0, 0, 1); } .ds-input::placeholder { color: var(--muted-foreground, #9aa2ac); } .ds-input:focus { border-color: var(--ring, #e8a33d); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "任务控制台（Mission Console）",
+    "overview": "把会话页造成一间任务控制大厅：壁挂大屏公开任务剖面的真相，控制台分工监督，任何时刻可放行、可急停。这是驾驶舱，不是聊天网页——它拒绝居中聊天列 + 通用侧栏的后台观感，且是非霓虹材料：无辉光、无渐变彩板、无玻璃拟态，质感来自炭蓝金属底、奶油仪表面板、仪表 caps 刻字与灯阵的物理隐喻。监视感高于表达欲：琥珀是唯一的行动/主动读数色，蓝线是证据与剖面的专用色，状态四色语义封闭；表达性让位于可扫读性，品牌活在精确的细节里。",
+    "keyCharacteristics": [
+      "壁挂屏条（wall）+ 活动栏（rail）+ 签派栏（sidebar）+ 主区（main）+ cue 状态栏（statusbar）的仪表台拓扑，非居中聊天列。",
+      "炭蓝控制台底 + 奶油仪表面板；琥珀唯一行动色；蓝线剖面蓝为证据强调。",
+      "灯阵瓦片、警戒急停钮、金色主动作线、composer 对话/执行双模式。",
+      "紧凑仪表密度：24/28/34px 行阶梯，12–14px 字号，细描边小圆角。",
+      "三层 token（L1 primitive → L2 语义 → 组件），组件零私定颜色，style-scan 测试锁定。",
+      "6 套主题 × 明暗两态，同一语义契约多值集；prefers-reduced-motion 全动效降级。"
+    ],
+    "rules": [
+      { "name": "琥珀唯一行动色规则（The One Amber Rule）", "body": "琥珀（primary）是全界面唯一的行动/主动读数色；蓝线是证据、状态四色是信号灯，三者都不进入行动按钮。金色主动作线是注意力的唯一募集通道，不作装饰。", "section": "colors" },
+      { "name": "语义封闭规则（The Closed-Token Rule）", "body": "styles.css 与组件源码（shell/views/state）零十六进制与 rgb( 字面量，一切颜色经 var(--mir-*) 原始值、26 个语义 token 或对它们的 color-mix(in oklab, ...) 派生；唯一例外是外观设置页主题预览 swatch。由 style-scan.test.ts 逐文件锁定。", "section": "colors" },
+      { "name": "状态 hue 不迁移规则", "body": "状态四色在所有主题、所有模式下保持绿/红/琥珀/蓝的语义 hue；主题只换气质色与中性底，对比度校准只允许加深/变亮。", "section": "colors" },
+      { "name": "仪表 caps 规则", "body": "所有小写标签类文本一律走 .caps：Saira 压缩态（wdth 62.5）+ 600 + 大写 + 0.08em 级字距；不引入第三种字体，也不给正文加字距。", "section": "typography" },
+      { "name": "mono 只讲机器话", "body": "等宽字体只用于遥测事实（参数、结果、日志、时长、键位）；散文与 UI 文案不用 mono。", "section": "typography" },
+      { "name": "两档阴影规则", "body": "只有 --shadow-card 与 --shadow-overlay 两档；新组件不得发明第三档，深度优先用色调分层和描边表达。", "section": "elevation" }
+    ],
+    "dos": [
+      "Do 新组件的一切颜色经 var(--mir-*) 原始值或 26 个语义 token，需要衍生态时用 color-mix(in oklab, var(--token) N%, ...)；组件局部自定义属性只允许别名语义 token。",
+      "Do 新控件复用行阶梯与字号阶（高度 24/28/34px，字 12/13/14px），新间距走 4 基 --mir-space-*，不引入新档位。",
+      "Do 新动效消费 --mir-dur-*/--mir-ease*/--mir-lamp-*；状态指示类复用 lamp-on/lamp-blink，并确认 reduced-motion 下退化为瞬时。",
+      "Do 新主题在 themes.ts 增加完整 light/dark 值集：状态四色保持语义 hue、四色相互可区分、正文对比 ≥4.5:1、状态色 UI 边界 ≥3:1；不改 schema.ts 的 L2 清单与 styles.css 结构。",
+      "Do 改完跑锁定测试：ui/app 下 npx vitest run test/style-scan.test.ts test/theme.test.ts test/theme-manager.test.ts。"
+    ],
+    "donts": [
+      "Don't 在 styles.css 或组件源码出现十六进制/rgb() 颜色字面量——style-scan.test.ts 会逐文件拒绝（唯一例外：外观页主题预览 swatch 的内联展示）。",
+      "Don't 把蓝线证据色（evidence-highlight）或状态四色用作行动按钮/主 CTA；行动色只有琥珀。",
+      "Don't 引入网络字体或第三种字族；仪表刻字一律 Saira wdth 62.5 caps，遥测一律 Chivo Mono。",
+      "Don't 发明第三档阴影、外发光、霓虹辉光或玻璃拟态——本世界是非霓虹材料的控制台。",
+      "Don't 在主题值集里携带影响布局的属性（radius/shadow 之外的一律不放），也不要让主题切换产生位移。",
+      "Don't 动效绕过 motion token 写死 duration/easing，或新增不随 prefers-reduced-motion 降级的动画。"
+    ]
+  }
+}

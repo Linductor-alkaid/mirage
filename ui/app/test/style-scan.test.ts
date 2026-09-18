@@ -1,6 +1,6 @@
-/// M1.5-08 验收：组件零私定颜色 —— styles.css 与 components/*.ts 不得出现
-/// 十六进制色值或 rgb(/rgba( 字面量；views/appearance.ts 的主题预览 swatch
-/// （style 属性内联展示主题值）属允许例外。
+/// 验收：组件零私定颜色 —— styles.css 与 React 组件源码（shell / views /
+/// state / 顶层 tsx）不得出现十六进制色值或 rgb(/rgba( 字面量；外观设置页
+/// 主题预览 swatch（style 属性内联展示主题 token 值）属允许例外。
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -33,12 +33,24 @@ describe('component styles consume semantic tokens only', () => {
         expect(findPrivateColors(css)).toEqual([]);
     });
 
-    for (const file of readdirSync(join(SRC, 'components'))) {
-        if (!file.endsWith('.ts')) {
+    for (const dir of ['shell', 'views/chat', 'views', 'state']) {
+        for (const file of readdirSync(join(SRC, dir))) {
+            if (!file.endsWith('.ts') && !file.endsWith('.tsx')) {
+                continue;
+            }
+            it(`${dir}/${file} has no private color literals`, () => {
+                const source = readFileSync(join(SRC, dir, file), 'utf8');
+                expect(findPrivateColors(source), file).toEqual([]);
+            });
+        }
+    }
+
+    for (const file of readdirSync(SRC)) {
+        if (!file.endsWith('.tsx')) {
             continue;
         }
-        it(`components/${file} has no private color literals`, () => {
-            const source = readFileSync(join(SRC, 'components', file), 'utf8');
+        it(`${file} has no private color literals`, () => {
+            const source = readFileSync(join(SRC, file), 'utf8');
             expect(findPrivateColors(source), file).toEqual([]);
         });
     }

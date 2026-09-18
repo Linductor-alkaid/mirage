@@ -10,9 +10,26 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
-    "@mirage/contracts": "*"
+    "@base-ui/react": "^1.8.0",
+    "@fontsource-variable/chivo-mono": "^5.2.8",
+    "@fontsource-variable/saira": "^5.2.8",
+    "@mirage/contracts": "*",
+    "@tanstack/react-virtual": "^3.14.0",
+    "dompurify": "^3.3.0",
+    "lucide-react": "^0.552.0",
+    "markdown-it": "^14.1.0",
+    "motion": "^13.4.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "shiki": "^4.0.0"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.0",
+    "@types/markdown-it": "^14.1.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.1.0",
+    "jsdom": "^27.0.0",
     "vite": "^7.1.0"
   }
 }
