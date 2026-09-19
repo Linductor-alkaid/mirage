@@ -20,6 +20,12 @@ const char *capability_name(Capability capability) {
         return "clipboard.read";
     case Capability::ClipboardWrite:
         return "clipboard.write";
+    case Capability::ApplicationLaunch:
+        return "application.launch";
+    case Capability::ApplicationTerminate:
+        return "application.terminate";
+    case Capability::NotificationPost:
+        return "notification.post";
     }
     return "unknown";
 }
@@ -48,6 +54,15 @@ std::optional<Capability> capability_from_name(std::string_view name) {
     }
     if (name == "clipboard.write") {
         return Capability::ClipboardWrite;
+    }
+    if (name == "application.launch") {
+        return Capability::ApplicationLaunch;
+    }
+    if (name == "application.terminate") {
+        return Capability::ApplicationTerminate;
+    }
+    if (name == "notification.post") {
+        return Capability::NotificationPost;
     }
     return std::nullopt;
 }

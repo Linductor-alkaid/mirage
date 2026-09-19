@@ -107,6 +107,57 @@ if(ATSPI_TEST_FOUND AND X11_FOUND)
     )
 endif()
 
+# M2-05 Application / Notification frontends (DEC-015): the application
+# test drives a private XDG data tree with fixture desktop entries and
+# per-application copies of the helper binary (globally unique process
+# names for the /proc matching); the notification test runs a private
+# D-Bus session with a wire-exact GDBus Notifications fixture. Both are
+# built and registered only where the gio-unix dev packages exist (the
+# same gating as the platform frontends themselves) and need no X
+# display.
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(GIO_TEST QUIET IMPORTED_TARGET gio-unix-2.0)
+endif()
+if(GIO_TEST_FOUND)
+    add_executable(m205_process_helper platform/m205_process_helper.cpp)
+    target_compile_features(m205_process_helper PUBLIC cxx_std_20)
+    mirage_enable_warnings(m205_process_helper)
+
+    add_executable(application_backend_test platform/application_backend_test.cpp)
+    target_compile_features(application_backend_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(application_backend_test)
+    target_link_libraries(application_backend_test
+        PRIVATE
+            Mirage::platform
+            Mirage::desktop
+    )
+    add_test(NAME application_backend_test COMMAND application_backend_test)
+    set_tests_properties(application_backend_test PROPERTIES
+        LABELS "integration"
+        TIMEOUT 120
+        # The GIO libraries in the platform backend run internal worker
+        # threads (same situation as the AT-SPI2 fixture); suppress exactly
+        # the uninstrumented system glib races, keep Mirage frames reportable.
+        ENVIRONMENT "TSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tests/support/tsan-glib.supp"
+    )
+
+    add_executable(notification_backend_test platform/notification_backend_test.cpp)
+    target_compile_features(notification_backend_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(notification_backend_test)
+    target_link_libraries(notification_backend_test
+        PRIVATE
+            Mirage::platform
+            Mirage::desktop
+            PkgConfig::GIO_TEST
+    )
+    add_test(NAME notification_backend_test COMMAND notification_backend_test)
+    set_tests_properties(notification_backend_test PROPERTIES
+        LABELS "integration"
+        TIMEOUT 120
+        ENVIRONMENT "TSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tests/support/tsan-glib.supp"
+    )
+endif()
+
 add_executable(mira_binding_test integration/mira_binding_test.cpp)
 target_compile_features(mira_binding_test PUBLIC cxx_std_20)
 mirage_enable_warnings(mira_binding_test)

@@ -163,6 +163,11 @@ void scenario_default_policy() {
     // decision 6 rationale as the other desktop actions.
     MIRAGE_CHECK(policy.rule_for(Capability::ClipboardRead) == Rule::Allow);
     MIRAGE_CHECK(policy.rule_for(Capability::ClipboardWrite) == Rule::Allow);
+    // M2-05 application / notification actions default to allow under the
+    // same rationale; filesystem.write stays denied fail closed.
+    MIRAGE_CHECK(policy.rule_for(Capability::ApplicationLaunch) == Rule::Allow);
+    MIRAGE_CHECK(policy.rule_for(Capability::ApplicationTerminate) == Rule::Allow);
+    MIRAGE_CHECK(policy.rule_for(Capability::NotificationPost) == Rule::Allow);
 
     // The rules array stays indexable by capability; writing one slot must
     // not disturb the others.
@@ -244,7 +249,7 @@ void scenario_desktop_capability_controller_semantics() {
 void scenario_clipboard_policy_and_controller() {
     static_assert(static_cast<std::size_t>(Capability::ClipboardRead) == 6);
     static_assert(static_cast<std::size_t>(Capability::ClipboardWrite) == 7);
-    static_assert(std::tuple_size<decltype(PermissionPolicy{}.rules)>::value == 8);
+    static_assert(std::tuple_size<decltype(PermissionPolicy{}.rules)>::value == 11);
 
     const PermissionPolicy policy;
     MIRAGE_CHECK(policy.rule_for(Capability::ClipboardRead) == Rule::Allow);
@@ -312,6 +317,157 @@ void scenario_clipboard_policy_and_controller() {
     MIRAGE_CHECK(tightened.rule_for(Capability::WindowActivate) == Rule::Allow);
     MIRAGE_CHECK(tightened.rule_for(Capability::ScreenCapture) == Rule::Allow);
     MIRAGE_CHECK(tightened.rule_for(Capability::InputInject) == Rule::Allow);
+}
+
+// M2-05 application / notification actions: appended to the frozen vocabulary
+// (DEC-015 decision 6), so the stable names, the parse round-trip and the
+// near-miss surface must all hold exactly like the older entries — and the
+// neighboring clipboard names stay untouched.
+void scenario_application_notification_capability_vocabulary() {
+    MIRAGE_CHECK(std::string(permission::capability_name(Capability::ApplicationLaunch)) ==
+                 "application.launch");
+    MIRAGE_CHECK(std::string(permission::capability_name(Capability::ApplicationTerminate)) ==
+                 "application.terminate");
+    MIRAGE_CHECK(std::string(permission::capability_name(Capability::NotificationPost)) ==
+                 "notification.post");
+    MIRAGE_CHECK(permission::capability_from_name("application.launch") ==
+                 Capability::ApplicationLaunch);
+    MIRAGE_CHECK(permission::capability_from_name("application.terminate") ==
+                 Capability::ApplicationTerminate);
+    MIRAGE_CHECK(permission::capability_from_name("notification.post") ==
+                 Capability::NotificationPost);
+
+    // Near misses fail closed: bare nouns, truncated and extended suffixes,
+    // surrounding whitespace, case tricks, hyphens, wrong separators and
+    // invented actions.
+    MIRAGE_CHECK(!permission::capability_from_name("application").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("notification").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("application.launch!").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("application.launch ").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name(" application.launch").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("application.launchx").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("application.lauch").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("application.terminate ").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("application.terminat").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("application.terminatex").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("application.terminate.extra").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("APPLICATION.LAUNCH").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("Application.Terminate").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("application-launch").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("application/launch").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("notification.post ").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name(" notification.post").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("notification.postx").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("notification.pos").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("notification.post.extra").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("NOTIFICATION.POST").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("Notification.Post").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("notification.send").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("application.launch.terminate").has_value());
+
+    // The M2-04 clipboard names are unaffected by the append.
+    MIRAGE_CHECK(permission::capability_from_name("clipboard.read") == Capability::ClipboardRead);
+    MIRAGE_CHECK(permission::capability_from_name("clipboard.write") == Capability::ClipboardWrite);
+}
+
+// M2-05: the application / notification capabilities ride the same frozen
+// positions and controller semantics — default allow, subscript overrides
+// move through Deny and Confirm, the Confirm hook is touched exactly once,
+// and tightening one slot isolates every other.
+void scenario_application_notification_policy_and_controller() {
+    static_assert(static_cast<std::size_t>(Capability::ApplicationLaunch) == 8);
+    static_assert(static_cast<std::size_t>(Capability::ApplicationTerminate) == 9);
+    static_assert(static_cast<std::size_t>(Capability::NotificationPost) == 10);
+    static_assert(std::tuple_size<decltype(PermissionPolicy{}.rules)>::value == 11);
+
+    const PermissionPolicy policy;
+    MIRAGE_CHECK(policy.rule_for(Capability::ApplicationLaunch) == Rule::Allow);
+    MIRAGE_CHECK(policy.rule_for(Capability::ApplicationTerminate) == Rule::Allow);
+    MIRAGE_CHECK(policy.rule_for(Capability::NotificationPost) == Rule::Allow);
+    MIRAGE_CHECK(policy.rule_for(Capability::FilesystemWrite) == Rule::Deny);
+    MIRAGE_CHECK(policy.rules[static_cast<std::size_t>(Capability::ApplicationLaunch)] ==
+                 Rule::Allow);
+    MIRAGE_CHECK(policy.rules[static_cast<std::size_t>(Capability::ApplicationTerminate)] ==
+                 Rule::Allow);
+    MIRAGE_CHECK(policy.rules[static_cast<std::size_t>(Capability::NotificationPost)] ==
+                 Rule::Allow);
+
+    // Overriding by subscript moves the verdicts through the controller:
+    // deny without the hook...
+    PermissionPolicy tightened;
+    tightened.rules[static_cast<std::size_t>(Capability::ApplicationLaunch)] = Rule::Deny;
+    tightened.rules[static_cast<std::size_t>(Capability::ApplicationTerminate)] = Rule::Confirm;
+    tightened.rules[static_cast<std::size_t>(Capability::NotificationPost)] = Rule::Confirm;
+
+    RecordingConfirmation approve(true);
+    PermissionController controller(tightened, approve);
+
+    PermissionRequest denied;
+    denied.capability = Capability::ApplicationLaunch;
+    denied.resource = "org.gnome.Nautilus.desktop";
+    denied.task_id = "task-app-deny";
+    denied.operation_id = "op-app-1";
+    const auto deny_verdict = controller.authorize(denied);
+    MIRAGE_CHECK(!deny_verdict.allowed);
+    MIRAGE_CHECK(deny_verdict.decision == Decision::Denied);
+    MIRAGE_CHECK(deny_verdict.reason == "application.launch denied by policy");
+    MIRAGE_CHECK(approve.calls == 0); // policy-only: hook untouched
+
+    // ...and confirm through the hook exactly once, with the request fields
+    // arriving untouched.
+    PermissionRequest confirmed;
+    confirmed.capability = Capability::ApplicationTerminate;
+    confirmed.resource = "org.gnome.Nautilus.desktop";
+    confirmed.task_id = "task-app-confirm";
+    confirmed.operation_id = "op-app-2";
+    const auto confirm_verdict = controller.authorize(confirmed);
+    MIRAGE_CHECK(confirm_verdict.allowed);
+    MIRAGE_CHECK(confirm_verdict.decision == Decision::AllowedByConfirmation);
+    MIRAGE_CHECK(approve.calls == 1);
+    MIRAGE_CHECK(approve.last.capability == Capability::ApplicationTerminate);
+    MIRAGE_CHECK(approve.last.resource == "org.gnome.Nautilus.desktop");
+    MIRAGE_CHECK(approve.last.task_id == "task-app-confirm");
+    MIRAGE_CHECK(approve.last.operation_id == "op-app-2");
+
+    // A rejecting hook denies the confirmed notification once per call.
+    PermissionRequest rejected;
+    rejected.capability = Capability::NotificationPost;
+    rejected.resource = "title";
+    rejected.task_id = "task-notify-reject";
+    rejected.operation_id = "op-app-3";
+    RecordingConfirmation deny_hook(false);
+    PermissionController rejecting_controller(tightened, deny_hook);
+    const auto reject_verdict = rejecting_controller.authorize(rejected);
+    MIRAGE_CHECK(!reject_verdict.allowed);
+    MIRAGE_CHECK(reject_verdict.decision == Decision::DeniedByConfirmation);
+    MIRAGE_CHECK(reject_verdict.reason == "confirmation rejected for notification.post");
+    MIRAGE_CHECK(deny_hook.calls == 1);
+
+    // The default policy decides all three by policy alone.
+    RecordingConfirmation untouched(true);
+    PermissionController default_controller(PermissionPolicy{}, untouched);
+    MIRAGE_CHECK(default_controller.authorize(denied).allowed);
+    MIRAGE_CHECK(default_controller.authorize(confirmed).allowed);
+    MIRAGE_CHECK(default_controller.authorize(rejected).allowed);
+    MIRAGE_CHECK(default_controller.authorize(denied).decision == Decision::Allowed);
+    MIRAGE_CHECK(untouched.calls == 0);
+
+    // Tightening the three new slots leaves every earlier slot at its default
+    // (slot isolation across the append boundary).
+    MIRAGE_CHECK(tightened.rule_for(Capability::FilesystemRead) == Rule::Allow);
+    MIRAGE_CHECK(tightened.rule_for(Capability::FilesystemWrite) == Rule::Deny);
+    MIRAGE_CHECK(tightened.rule_for(Capability::ProcessExecute) == Rule::Allow);
+    MIRAGE_CHECK(tightened.rule_for(Capability::WindowActivate) == Rule::Allow);
+    MIRAGE_CHECK(tightened.rule_for(Capability::ScreenCapture) == Rule::Allow);
+    MIRAGE_CHECK(tightened.rule_for(Capability::InputInject) == Rule::Allow);
+    MIRAGE_CHECK(tightened.rule_for(Capability::ClipboardRead) == Rule::Allow);
+    MIRAGE_CHECK(tightened.rule_for(Capability::ClipboardWrite) == Rule::Allow);
+    // ...and vice versa: tightening an M2-04 slot leaves the M2-05 slots.
+    PermissionPolicy clip_tightened;
+    clip_tightened.rules[static_cast<std::size_t>(Capability::ClipboardWrite)] = Rule::Deny;
+    MIRAGE_CHECK(clip_tightened.rule_for(Capability::ApplicationLaunch) == Rule::Allow);
+    MIRAGE_CHECK(clip_tightened.rule_for(Capability::ApplicationTerminate) == Rule::Allow);
+    MIRAGE_CHECK(clip_tightened.rule_for(Capability::NotificationPost) == Rule::Allow);
 }
 
 // --- controller semantics ----------------------------------------------------
@@ -436,12 +592,16 @@ void run_scenario(const char *name, void (*scenario)()) {
 int main() {
     run_scenario("capability_names_and_parsing", scenario_capability_names_and_parsing);
     run_scenario("clipboard_capability_vocabulary", scenario_clipboard_capability_vocabulary);
+    run_scenario("application_notification_capability_vocabulary",
+                 scenario_application_notification_capability_vocabulary);
     run_scenario("rule_names_and_parsing", scenario_rule_names_and_parsing);
     run_scenario("decision_names", scenario_decision_names);
     run_scenario("default_policy", scenario_default_policy);
     run_scenario("desktop_capability_controller_semantics",
                  scenario_desktop_capability_controller_semantics);
     run_scenario("clipboard_policy_and_controller", scenario_clipboard_policy_and_controller);
+    run_scenario("application_notification_policy_and_controller",
+                 scenario_application_notification_policy_and_controller);
     run_scenario("allow_never_consults_confirmation", scenario_allow_never_consults_confirmation);
     run_scenario("deny_never_consults_confirmation", scenario_deny_never_consults_confirmation);
     run_scenario("confirm_approved_calls_handler_once",
