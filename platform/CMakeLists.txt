@@ -57,6 +57,29 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         target_sources(mirage_platform PRIVATE linux/src/atspi_backend_stub.cpp)
         message(STATUS "Linux AT-SPI2 backend disabled: atspi-2 dev package not found")
     endif()
+    # The Application / Notification frontends (M2-05) ride the same glib
+    # family as AT-SPI2 (DEC-015 decision 3): GDesktopAppInfo for desktop
+    # discovery and launch, GDBus for the freedesktop Notifications service.
+    # Same optionality discipline: missing gio-unix dev packages compile the
+    # stubs and the accessors report no capability (fail closed).
+    if(PKG_CONFIG_FOUND)
+        pkg_check_modules(GIO_UNIX QUIET IMPORTED_TARGET gio-unix-2.0)
+    endif()
+    if(GIO_UNIX_FOUND)
+        target_sources(mirage_platform PRIVATE
+            linux/src/application_backend.cpp
+            linux/src/notification_backend.cpp
+        )
+        target_link_libraries(mirage_platform PRIVATE PkgConfig::GIO_UNIX)
+        target_compile_definitions(mirage_platform PRIVATE MIRAGE_LINUX_GIO=1)
+        message(STATUS "Linux application/notification frontends enabled (${GIO_UNIX_VERSION})")
+    else()
+        target_sources(mirage_platform PRIVATE
+            linux/src/application_backend_stub.cpp
+            linux/src/notification_backend_stub.cpp
+        )
+        message(STATUS "Linux application/notification frontends disabled: gio-unix-2.0 dev package not found")
+    endif()
     target_link_libraries(mirage_platform PUBLIC Mirage::desktop)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     target_sources(mirage_platform PRIVATE windows/src/platform_windows.cpp)

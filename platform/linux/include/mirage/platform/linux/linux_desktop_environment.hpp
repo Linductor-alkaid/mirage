@@ -14,8 +14,10 @@
 
 namespace mirage::platform::linux_backend {
 
-class X11Backend;   // private in src/: no X11 types may appear here (RULE-01)
-class AtspiBackend; // ditto for the AT-SPI2 frontend (M2-03)
+class X11Backend;          // private in src/: no X11 types may appear here (RULE-01)
+class AtspiBackend;        // ditto for the AT-SPI2 frontend (M2-03)
+class ApplicationBackend;  // ditto for the GIO application frontend (M2-05)
+class NotificationBackend; // ditto for the GDBus notification frontend (M2-05)
 
 /// Opt-in X11/XWayland surface of the Linux backend (M2-02, DEC-015). When
 /// enabled the environment connects to `display` (empty = $DISPLAY) at
@@ -37,13 +39,29 @@ struct AtspiOptions {
     bool enabled = false;
 };
 
+/// Opt-in application management surface (M2-05): desktop application
+/// discovery, launch, running state and cooperative termination via GIO
+/// (DEC-015 decision 3). Like every other option it defaults to off; open()
+/// cannot fail (discovery happens per call), so the accessor is non-null
+/// exactly when enabled and gio-unix support is compiled in.
+struct ApplicationOptions {
+    bool enabled = false;
+};
+
+/// Opt-in notification surface (M2-05): freedesktop Notifications delivery
+/// over the session bus (DEC-015 decision 3). A missing session bus leaves
+/// the accessor null — fail closed, never a broken provider.
+struct NotificationsOptions {
+    bool enabled = false;
+};
+
 /// Linux Desktop Environment (design doc sections 5 and 10): M1 scoped
 /// read-only filesystem access and bounded, cancellable shell execution,
 /// plus the M2 X11 window / capture / input surface (M2-02), the AT-SPI2
-/// accessibility provider (M2-03) and the X11 clipboard (M2-04) when opted
-/// in. The Desktop Permission gate (RULE-05) is judged by the runtime layer
-/// before actions reach any provider; this class itself stays
-/// permission-agnostic.
+/// accessibility provider (M2-03), the X11 clipboard (M2-04) and the GIO
+/// application / notification frontends (M2-05) when opted in. The Desktop
+/// Permission gate (RULE-05) is judged by the runtime layer before actions
+/// reach any provider; this class itself stays permission-agnostic.
 ///
 /// The class plays both roles of the adapter pattern: it is the concrete
 /// environment an owner in the runtime layer constructs and keeps alive for
@@ -55,11 +73,13 @@ class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment
   public:
     /// The read scope is a hard containment boundary (M1-05): only paths at
     /// or beneath one of `filesystem_read_roots` are readable. The default
-    /// constructor declares no roots and no X11 surface, so a
+    /// constructor declares no roots and no desktop surface, so a
     /// default-constructed environment exposes no filesystem and no desktop
     /// surface at all (fail closed).
     explicit LinuxDesktopEnvironment(std::vector<std::filesystem::path> filesystem_read_roots = {},
-                                     X11Options x11_options = {}, AtspiOptions atspi_options = {});
+                                     X11Options x11_options = {}, AtspiOptions atspi_options = {},
+                                     ApplicationOptions application_options = {},
+                                     NotificationsOptions notifications_options = {});
 
     ~LinuxDesktopEnvironment() override;
 
@@ -75,6 +95,8 @@ class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment
     mirage::desktop::InputProvider *input() override;
     mirage::desktop::AccessibilityProvider *accessibility() override;
     mirage::desktop::ClipboardProvider *clipboard() override;
+    mirage::desktop::ApplicationProvider *application() override;
+    mirage::desktop::NotificationProvider *notification() override;
 
     // The three-argument overrides would hide the base conveniences.
     using mirage::desktop::FilesystemProvider::read_text_file;
@@ -91,6 +113,8 @@ class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment
     mirage::desktop::PathScope read_scope_;
     std::unique_ptr<X11Backend> x11_;
     std::unique_ptr<AtspiBackend> atspi_;
+    std::unique_ptr<ApplicationBackend> application_backend_;
+    std::unique_ptr<NotificationBackend> notification_backend_;
 };
 
 } // namespace mirage::platform::linux_backend

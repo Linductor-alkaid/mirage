@@ -1,6 +1,8 @@
 #include <mirage/platform/linux/linux_desktop_environment.hpp>
 
+#include "application_backend.hpp"
 #include "atspi_backend.hpp"
+#include "notification_backend.hpp"
 #include "x11_backend.hpp"
 
 #include <cerrno>
@@ -78,7 +80,9 @@ mirage::desktop::FileReadOutcome read_stream(int fd, std::uintmax_t declared_siz
 } // namespace
 
 LinuxDesktopEnvironment::LinuxDesktopEnvironment(std::vector<std::filesystem::path> read_roots,
-                                                 X11Options x11_options, AtspiOptions atspi_options)
+                                                 X11Options x11_options, AtspiOptions atspi_options,
+                                                 ApplicationOptions application_options,
+                                                 NotificationsOptions notifications_options)
     : read_scope_(std::move(read_roots)) {
     if (x11_options.enabled) {
         x11_ = X11Backend::open(x11_options.display);
@@ -90,6 +94,16 @@ LinuxDesktopEnvironment::LinuxDesktopEnvironment(std::vector<std::filesystem::pa
         // The accessibility backend maps window ids by title through the X
         // window surface when present (M2-03); it works without X too.
         atspi_ = AtspiBackend::open(x11_.get() != nullptr ? x11_->window() : nullptr);
+    }
+    if (application_options.enabled) {
+        // Discovery and launch resolve per call, so open() cannot fail;
+        // the accessor is non-null exactly when enabled (M2-05).
+        application_backend_ = ApplicationBackend::open();
+    }
+    if (notifications_options.enabled) {
+        // No session bus leaves the accessor null: no notification
+        // capability instead of a broken provider (M2-05, DEC-015).
+        notification_backend_ = NotificationBackend::open();
     }
 }
 
@@ -117,6 +131,14 @@ mirage::desktop::AccessibilityProvider *LinuxDesktopEnvironment::accessibility()
 
 mirage::desktop::ClipboardProvider *LinuxDesktopEnvironment::clipboard() {
     return x11_ != nullptr ? x11_->clipboard() : nullptr;
+}
+
+mirage::desktop::ApplicationProvider *LinuxDesktopEnvironment::application() {
+    return application_backend_.get() != nullptr ? application_backend_->application() : nullptr;
+}
+
+mirage::desktop::NotificationProvider *LinuxDesktopEnvironment::notification() {
+    return notification_backend_.get() != nullptr ? notification_backend_->notification() : nullptr;
 }
 
 mirage::desktop::FileReadOutcome

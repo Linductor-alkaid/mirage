@@ -6,7 +6,7 @@
 > 前置：[M1](m1-mira-host.md)（已完成：Desktop Environment 抽象、Filesystem/Process
 > Provider、绑定适配器、Runtime Service + IPC、Permission 框架、持久化骨架）
 > 建议发布点：`release-beta`（tag 待维护者授权后创建）
-> 更新日期：2026-09-19
+> 更新日期：2026-09-19（`M2-05` 完成）
 
 ## 目标
 
@@ -85,9 +85,11 @@ Desktop Observation，使 Mira 能够稳定操作标准桌面应用（设计文�
 - [x] `M2-04` Input / Clipboard Provider 完整：键盘 / 文本 / 鼠标完整动作面与
       剪贴板读写；`input.inject` / `clipboard.read` / `clipboard.write` Capability
       接入 Permission 判定链。
-- [ ] `M2-05` Application / Notification Provider 与 ScreenProvider 完整：应用发现
+- [x] `M2-05` Application / Notification Provider 与 ScreenProvider 完整：应用发现
       / 启动 / 终止、通知投递、显示器与 ROI 采集；`application.launch` /
-      `application.terminate` / `screen.capture` Capability 接入。
+      `application.terminate` / `screen.capture` Capability 接入（连同
+      `notification.post`；ScreenProvider 契约面已于 `M2-02` 交付并验证，本项复核
+      无缺口）。
 - [ ] `M2-06` Observation 组装与 runtime 接线：desktop 层按需 Observation 组装
       （按任务需求取组件，设计文档第 6 节）、`integration/mira` observe 能力如实
       上报扩展（required 组件映射与 fail closed）、Semantic Snapshot 进入 Agent
@@ -365,3 +367,87 @@ backend，真实后端集成测试单独标注并在有显示环境的前提下�
   `invalid_state`；隔离复跑稳定），与本工作项无关，待单独排查（`M2-06` 关注）。
 - 同步：`DEC-015` 变更记录（剪贴板服务模型 + 第 6 条扩展 + type_text 边界 +
   调用序误报纠正）、本验证记录。
+
+
+2026-09-19：`M2-05` Application / Notification Provider 与 ScreenProvider 完整 完成。
+
+- 范围：`platform/linux` 新增私有 GIO 前端 `application_backend.{hpp,cpp}` 与
+  `notification_backend.{hpp,cpp}`（gio/glib 类型不出公共头，`RULE-01`；缺
+  `gio-unix-2.0` 开发包时编译各自 stub，访问器 null fail closed，DEC-015 第 3 条
+  兑现）。ApplicationProvider：`list_applications`（GAppInfo 枚举 + Hidden /
+  NoDisplay 过滤 + 按 desktop id 去重排序 + 单次有界 /proc 扫描回答 running 标志 +
+  超预算 `result_too_large` 不截断）；`running_state`（自有实例注册表优先，否则按
+  Exec 首 token 的 basename 扫 /proc 取最老存活进程，zombie 不计；
+  instance_id = pid 十进制串）；`launch`（拒绝序对齐 fake 契约：cancelled →
+  timeout → 空 id → 超长 id → 未知 id `not_found` 不建进程 → 已有存活实例
+  `already_running`（含按名可见的外部实例）→ 注册表满 `result_too_large`（容量
+  256，`RULE-07`）；spawn = `g_desktop_app_info_launch_uris_as_manager` +
+  `G_SPAWN_DO_NOT_REAP_CHILD`，child setup 写自身 pid 过 CLOEXEC pipe 并
+  `setpgid(0,0)`）；`terminate`（SIGTERM 不强杀；组信号仅对 tracked 实例——foreign
+  pid 的同名进程组可能不属于该应用；25 ms 切片有界等待，cancel → 实例保持运行，
+  超时 → `deadline_exceeded` 且实例存活可见；入口机会性 reap 防僵尸，无后台线程，
+  `RULE-03`）。NotificationProvider：GDBus 同步 `Notify`（session bus，5 s 内部
+  deadline 常量），校验序 = cancelled → 空 title → title 预算 → body 预算 →
+  UTF-8（共享 `is_valid_utf8`）→ 均 `invalid_argument` 副作用前；D-Bus 失败
+  `io_error`；`open()` 无 session bus → null（fail closed）。
+  `LinuxDesktopEnvironment` 增 `ApplicationOptions` / `NotificationsOptions`
+  （默认关闭，带默认值追加，既有构造点不受影响）与 `application()` /
+  `notification()` 访问器。Permission 词表追加 `application.launch` /
+  `application.terminate` / `notification.post`（默认 allow，DEC-015 第 6 条同
+  理由：launch 固定于 desktop entry 命令、窄于已 allow 的 `process.execute`；
+  terminate 只发 TERM 不强杀；notification 面向用户提示），`rules` 扩至 11 槽。
+  ScreenProvider 部分：契约面（list_displays 含 primary 标志、capture
+  display/window/ROI、预算与取消）已于 `M2-02` 交付并经真实 Xvfb 验证（见
+  `M2-02` 记录），本项复核确认无缺口，未重复改动。
+- 依据：设计文档第 5、10、18 节；`DEC-005` / `DEC-009` / `DEC-010` / `DEC-015`；
+  `RULE-01` / `RULE-03` / `RULE-05` / `RULE-07`。
+- 验证（Independent-Verification-Agent，Linux x64，Ubuntu 24.04，GCC 13.3.0，
+  gio-unix-2.0 2.80.0，真实 GIO / 私有 dbus-daemon 拓扑）：
+  - 新增 `tests/platform/application_backend_test.cpp`（119 断言）：
+    `tests/platform/m205_process_helper.cpp` 助手进程（hold / ignore-term /
+    exit 模式，运行时复制为全局唯一名，exe / comm / argv[0] 三路名字匹配），
+    fixture .desktop 写入临时 XDG_DATA_DIRS 后再触发首个 GIO 调用（GIO 目录
+    快照按进程缓存，实测约束）。场景：发现与 NoDisplay 过滤、去重、预算
+    （`max_applications=0` → `result_too_large`）、未知 id `not_found` 且零进程、
+    非法参数与取消均副作用前、launch → running_state / list 一致 → 重复 launch
+    `already_running` → terminate 后三处 running 归零 → 再 terminate
+    `not_found`、外部 fork 的同名实例按名可见并可被 terminate、忽略 SIGTERM 的
+    stuck 实例 → `deadline_exceeded` 且进程存活（SIGKILL 清理）、terminate 中途
+    cancel → 实例保持运行、自退实例的 opportunity reap 无僵尸。
+  - 新增 `tests/platform/notification_backend_test.cpp`（46 断言）：私有
+    dbus-daemon + 线协议精确的 GDBus Notifications fixture（`tests/support/
+    dbus_session.hpp` 复用 M2-03 拓扑形态）；Notify 全字段（app_name="Mirage"、
+    actions 空、hints 空、expire=-1、title/body 原样）、恰边界放行、四类
+    `invalid_argument` 拒绝零 D-Bus 调用、取消副作用前、无服务名 `io_error`、
+    无 session bus open() null（需同时移除 DBUS_SESSION_BUS_ADDRESS /
+    XDG_RUNTIME_DIR / DISPLAY / HOME 才确定性 fail closed，置于进程末尾）。
+  - `permission_test` 更新至 11 槽（217 断言）：3 新能力名称往返、24 近似串
+    负例、默认策略（3 新 Allow、filesystem.write 仍 Deny）、下标 static_assert
+    （8/9/10）与 11 槽尺寸、Deny/Confirm 判定路径（Confirm 恰一次触达 hook）、
+    槽位隔离。
+  - 预设矩阵：`debug` / `release` / `asan` / `ubsan` configure + build + ctest
+    均 **22/22 通过、0 skip**（新测试各预设实跑）；`tsan` `setarch $(uname -m)
+    -R` 22/22（新报告均为未插桩 glib 库内 race，经既有 suppression；无 Mirage
+    帧 race）。stub 双分支：无 X11（`-DCMAKE_DISABLE_FIND_PACKAGE_X11=ON`）
+    20/20；无 gio（影子 pkg-config 剔除 gio-unix-2.0/gio-2.0）19/19，configure
+    确认 "application/notification frontends disabled"、新测试不注册。
+    `mirage-format-check` 与 `mirage-boundary-check`（32 头 0 违规）通过。
+  - 独立验证修复 3 个生产缺陷（均在验证前不可用）：① `ApplicationBackend::
+    open()` 未分配 `impl_`，首次任意调用空指针解引用（gdb 栈取证）；②
+    `NotificationBackend::notify()` 向 `g_variant_new("(susssasa{sv}i)")` 传
+    `g_variant_builder_end()` 返回的 `GVariant*` 而格式位期望 `GVariantBuilder*`
+    → GLib-ERROR 当场 abort，通知路径完全不可用；③ `exec_binary()` 泄漏
+    `g_desktop_app_info_get_string` 的 transfer-full 字符串（ASAN LeakSanitizer
+    栈落 Mirage 帧）。三处均修复并复验（asan 3 次复跑 0 泄漏、debug 8 次稳定
+    性复跑全绿）。
+- 限制：无权威 application→进程映射，按名匹配无法区分共享二进制名的不同
+  desktop 条目，启动后改名/再 exec 的实例对按名扫描不可见（tracked 实例不受
+  影响）；GIO 目录快照按进程缓存，运行中新增 .desktop 文件在首次 GIO 调用后
+  不可见；通知 fixture 为线协议精确 GDBus 桩而非真实通知守护进程，真实守护进程
+  行为（含回退面）随 `M2-06` 真实桌面冒烟；launch 的已运行判定对多实例应用同样
+  返回 `already_running`（对齐 M2-01 fake 契约语义，多实例需求经
+  `process.execute` 承载）；terminate 对外部实例只发直接 pid 信号，进程组级收尾
+  仅覆盖自有实例。既有 `runtime_service_test` 高负载偶发失败继续观察（`M2-06`
+  关注）。
+- 同步：`DEC-015` 变更记录（第 3 条兑现 + 词表扩展 + 已知限制）、总计划当前
+  状态、本验证记录。
