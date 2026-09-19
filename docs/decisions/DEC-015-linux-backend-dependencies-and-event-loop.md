@@ -108,10 +108,13 @@
   路径（第 3 条形态：Executor blocking I/O worker 承载 selection 事件循环 +
   wakeup 边界）随 `M2-06` runtime 接线一并评估，在此之前不自建线程。
   Permission 词表以第 6 条同一理由追加 `clipboard.read` / `clipboard.write`
-  （默认 allow）。另实测发现本机系统 libX11 的 `X_SetSelectionOwner` 请求字段序
-  与 X 协议不符（owner/selection 互换；本地 Xvfb 与 xcb/上游头文件均为协议序），
-  属开发机环境异常而非代码缺陷——剪贴板测试在本机以协议正确序 interposition 运行
-  （诊断 shim 不入库），健康系统与 CI 不受影响（取证见 M2 计划 M2-04 验证记录）。
+  （默认 allow）。修正记录：本工作项验证期间曾因 `XSetSelectionOwner` 调用方
+  （后端与测试）按"owner 第 2 个参数"的错误记忆传参，把 wire 上 `[4]` 槽填成
+  CLIPBOARD 原子导致 BadWindow，一度误判为"本机系统 libX11 被篡改"并以
+  LD_PRELOAD shim 掩盖；后经官方包哈希带外比对与 `Xlib.h` 核对定性为**调用方
+  参数序错误**（真实顺序 `(display, selection, owner, time)`，selection 在
+  前），调用点已修正，全部测试在原版系统库、无任何 interposition 下验证通过。
+  教训：X11 参数顺序以构建所用 `Xlib.h` 为准，不得凭 man 页记忆。
 
 - 2026-09-18（`M2-03`）：第 5 条测试拓扑修订——Ubuntu 24.04 的 at-spi2-registryd
   （at-spi2-core 2.52.0）在处理 `Socket.Embed` 时于 libdbus 派发路径段错误

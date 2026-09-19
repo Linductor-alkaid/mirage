@@ -315,8 +315,8 @@ backend，真实后端集成测试单独标注并在有显示环境的前提下�
   增 `clipboard()` 访问器（无 X 连接 null fail closed）。
 - 依据：设计文档第 5、10、18 节；`DEC-005` / `DEC-009` / `DEC-010` / `DEC-015`；
   `RULE-01` / `RULE-03` / `RULE-05` / `RULE-07`。
-- 验证（Independent-Verification-Agent，Linux x64，GCC 13，真实 Xvfb 拓扑；主
-  循环对环境取证独立复核，两阶段）：
+- 验证（Independent-Verification-Agent，Linux x64，GCC 13，真实 Xvfb 拓扑，两轮；
+  用户带外参与最终裁决）：
   - 新增 `tests/platform/x11_backend_test.cpp` 剪贴板 5 场景（140 → 227 断言）：
     同后端往返（多字节 UTF-8/覆盖/空串）、空读 `not_found`、读写预算与取消、
     非法 UTF-8 拒绝且状态不变、跨客户端字节级往返（对端 XConvertSelection 读取
@@ -335,22 +335,24 @@ backend，真实后端集成测试单独标注并在有显示环境的前提下�
     clipboard 词表场景（95 → 144 断言）：名称往返 + 14 近似串负例、
     `static_assert` 枚举下标与 8 槽尺寸、默认双 allow、下标覆写 Deny/Confirm
     判定路径（Confirm 恰一次触达 hook）、槽位隔离。
-  - 预设矩阵（剪贴板测试各预设实跑）：`debug` / `release` / `ubsan` 20/20 通过
-    0 skip；`asan` 20/20（`ASAN_OPTIONS=verify_asan_link_order=0`，因本机诊断
-    shim 非插桩，健康系统无需）；`tsan` `setarch $(uname -m) -R` 20/20；stub
-    双分支：无 X11（`-DCMAKE_DISABLE_FIND_PACKAGE_X11=ON`）build OK + 18/18。
-    `mirage-format-check` 与 `mirage-boundary-check`（32 头 0 违规）通过。
-  - 主循环独立复核（环境取证）：不带 shim 时剪贴板 44 断言失败，首败即
-    `write_text` 的 `XSetSelectionOwner`；字节捕获（strace writev）显示本机系统
-    libX11 发出 `selection@4, owner@8` 的 20 字节请求，服务器（及 xcb/上游头
-    文件，owner@4/selection@8 真序）以 BadWindow 拒之（出错资源 id = CLIPBOARD
-    原子值而非窗口 id）；反汇编与上游源码结构体序矛盾。结论：本机系统 libX11
-    与 X 协议不符，属开发机环境异常（独立验证代理"Xproto.h 被旋转"的说法经
-    复核纠正——requestor@4 即上游真布局，其 shim 的 ConvertSelection 语义与
-    stock 一致；其"镜像同源污染"论据不可靠，官方存档比对经同一网络完成不构成
-    独立证据）。剪贴板测试在本机以协议正确序 interposition（LD_PRELOAD 诊断
-    shim，不入库）运行取证；健康系统与 CI 无 shim 直跑。建议维护者在带外环境
-    独立核实本机 libX11 完整性。
+  - **调用序缺陷与误报纠正**：第一轮验证曾得出"本机系统 libX11 发出的
+    `X_SetSelectionOwner` 字段序与协议不符"的错误结论，并以 LD_PRELOAD shim 让
+    测试通过。经用户在带外设备比对官方 deb md5（与本机一致 → 库为真品）+ 核对
+    `/usr/include/X11/Xlib.h` 定性真实根因：
+    **`XSetSelectionOwner` 参数序为 `(display, selection, owner, time)`，
+    selection 在前**，后端与测试均按"owner 第 2"的错误记忆传参，wire `[4]` 槽
+    （owner 位）被填成 CLIPBOARD 原子 → BadWindow 且资源 id = 原子值（44 断言
+    失败的全部来源）。shim 是参数名反定义与调用错序的双重抵消，已废弃。
+    修正：`write_text` 与测试两处调用点换序（附注释指明 Xlib.h 真序）。
+  - 最终矩阵（第二轮复验，一律无 LD_PRELOAD、无任何特殊 env；剪贴板测试各预设
+    实跑 227/0）：`debug` / `release` / `asan` / `ubsan` 20/20 通过 0 skip——
+    **asan 无需任何特殊 `ASAN_OPTIONS`**（第一轮"需要
+    `verify_asan_link_order=0`"是 shim 非插桩造成的假象，已证伪）；`tsan`
+    `setarch $(uname -m) -R` 20/20；stub 双分支：无 X11
+    （`-DCMAKE_DISABLE_FIND_PACKAGE_X11=ON`）build OK + 18/18。
+    `mirage-format-check` 与 `mirage-boundary-check`（32 头 0 违规）通过；
+    Xvfb 定位三分支（`$MIRAGE_XVFB` → `$PATH` → 用户前缀）与缺失时响亮失败经
+    实测确认。
 - 限制：selection 服务为机会性 pump，Provider 调用间隙（agent 空闲期）内纯 X
   客户端 paste 会阻塞至下一次 Mirage 调用；XWayland 合成器桥在所有权变更时即
   缓存内容，Wayland 侧 paste 不受影响；升级路径（Executor blocking worker 承载
@@ -358,6 +360,8 @@ backend，真实后端集成测试单独标注并在有显示环境的前提下�
   （契约无 timeout 字段）。读侧仅接受 UTF8_STRING 目标（Latin-1-only owner
   fail closed 为 `unsupported_content`，不做转码）。`transfers` 上限 8 的拒绝
   路径未经 8+ 并发请求方验证（拓扑受限）；真实桌面（GNOME/挂真 WM）剪贴板与
-  合成器桥互通随 `M2-06` 冒烟。
-- 同步：`DEC-015` 变更记录（剪贴板服务模型 + 第 6 条扩展 + type_text 边界）、
-  README 本机注意事项、本验证记录。
+  合成器桥互通随 `M2-06` 冒烟。既有 `runtime_service_test` 高负载并行下偶发
+  失败再次复现（IPC 客户端 5 s 预算耗尽返回 `unavailable` 而非服务端的
+  `invalid_state`；隔离复跑稳定），与本工作项无关，待单独排查（`M2-06` 关注）。
+- 同步：`DEC-015` 变更记录（剪贴板服务模型 + 第 6 条扩展 + type_text 边界 +
+  调用序误报纠正）、本验证记录。
