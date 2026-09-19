@@ -28,8 +28,11 @@ Desktop Permission 框架雏形（Capability 判定与确认挂点见
 建立，见 [M2：Desktop Environment 核心 Provider 与 Linux
 Backend](m2-desktop-environment.md)；`M2-01`（核心 Provider 契约与
 DesktopObservation schema v1.0，
-[DEC-005](../decisions/DEC-005-desktop-observation-contract.md)）已完成，后续工作项
-进行中。UI 并行轨道 [M1.5](m1.5-ui-parallel-track.md) 已完成（wire schema 事实源
+[DEC-005](../decisions/DEC-005-desktop-observation-contract.md)）、`M2-02`（X11
+骨架闭环，[DEC-015](../decisions/DEC-015-linux-backend-dependencies-and-event-loop.md)）、
+`M2-03`（AT-SPI2 AccessibilityProvider）与 `M2-04`（Input / Clipboard 完整 +
+Permission 词表扩展）已完成，后续工作项进行中。UI 并行轨道
+[M1.5](m1.5-ui-parallel-track.md) 已完成（wire schema 事实源
 [DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)、事件订阅、
 dev bridge、harness 前端壳）。
 

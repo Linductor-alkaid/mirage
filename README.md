@@ -52,6 +52,12 @@ X11 Backend 测试（M2-02 起）需要本机有 Xvfb：`sudo apt install xvfb`�
 `$MIRAGE_XVFB` → `$PATH` → `~/.local/mirage-sysroot/usr/bin/Xvfb`；缺失时
 `x11_backend_test` 响亮失败而非跳过，[DEC-015](docs/decisions/DEC-015-linux-backend-dependencies-and-event-loop.md)）。
 
+开发机注意事项：本机系统 libX11 的 `X_SetSelectionOwner` 请求字段序与 X 协议不符
+（owner/selection 互换；字节捕获与反汇编取证见 [M2 计划](docs/plans/m2-desktop-environment.md)
+M2-04 验证记录），selection 协议路径（M2-04 起的剪贴板测试）在本机需以协议正确序
+interposition 运行（诊断 shim 仅存于本机 `/tmp`，不入库）；健康系统与 CI 不需要
+任何 shim，直接 `ctest` 即可。
+
 ## 运行 Runtime Service 与 CLI（M1）
 
 后台 Runtime Service 经 Local IPC 服务于 CLI / GUI（[DEC-007](docs/decisions/DEC-007-local-ipc-and-runtime-service.md)）：
