@@ -91,6 +91,36 @@ void scenario_capability_names_and_parsing() {
     MIRAGE_CHECK(!permission::capability_from_name("Input.Inject").has_value());
 }
 
+// M2-04 clipboard directions: appended to the frozen vocabulary, so the
+// stable names, the parse round-trip and the near-miss surface must all hold
+// exactly like the older entries.
+void scenario_clipboard_capability_vocabulary() {
+    MIRAGE_CHECK(std::string(permission::capability_name(Capability::ClipboardRead)) ==
+                 "clipboard.read");
+    MIRAGE_CHECK(std::string(permission::capability_name(Capability::ClipboardWrite)) ==
+                 "clipboard.write");
+    MIRAGE_CHECK(permission::capability_from_name("clipboard.read") == Capability::ClipboardRead);
+    MIRAGE_CHECK(permission::capability_from_name("clipboard.write") == Capability::ClipboardWrite);
+
+    // Near misses fail closed: bare noun, slash-joined pair, truncated and
+    // extended suffixes, surrounding whitespace, case tricks, hyphen and
+    // unknown directions.
+    MIRAGE_CHECK(!permission::capability_from_name("clipboard").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("clipboard.read/write").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("clipboard.rea").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("clipboard.readx").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("clipboard.read ").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name(" clipboard.read").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("clipboard.write ").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("CLIPBOARD.READ").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("Clipboard.Write").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("clipboard.WRITE").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("clipboard-read").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("clipboard.read.extra").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("clipboard.writes").has_value());
+    MIRAGE_CHECK(!permission::capability_from_name("clipboard.paste").has_value());
+}
+
 void scenario_rule_names_and_parsing() {
     MIRAGE_CHECK(std::string(permission::rule_name(Rule::Allow)) == "allow");
     MIRAGE_CHECK(std::string(permission::rule_name(Rule::Confirm)) == "confirm");
@@ -129,6 +159,10 @@ void scenario_default_policy() {
     MIRAGE_CHECK(policy.rule_for(Capability::WindowActivate) == Rule::Allow);
     MIRAGE_CHECK(policy.rule_for(Capability::ScreenCapture) == Rule::Allow);
     MIRAGE_CHECK(policy.rule_for(Capability::InputInject) == Rule::Allow);
+    // M2-04 clipboard directions default to allow under the same DEC-015
+    // decision 6 rationale as the other desktop actions.
+    MIRAGE_CHECK(policy.rule_for(Capability::ClipboardRead) == Rule::Allow);
+    MIRAGE_CHECK(policy.rule_for(Capability::ClipboardWrite) == Rule::Allow);
 
     // The rules array stays indexable by capability; writing one slot must
     // not disturb the others.
@@ -202,6 +236,82 @@ void scenario_desktop_capability_controller_semantics() {
     MIRAGE_CHECK(allow_verdict.allowed);
     MIRAGE_CHECK(allow_verdict.decision == Decision::Allowed);
     MIRAGE_CHECK(approve.calls == 1); // unchanged by the policy-only allow
+}
+
+// M2-04: the clipboard capabilities ride the same controller verdict
+// semantics, and the vocabulary stays append-only — the enumerators index
+// the policy array, so their positions are part of the frozen contract.
+void scenario_clipboard_policy_and_controller() {
+    static_assert(static_cast<std::size_t>(Capability::ClipboardRead) == 6);
+    static_assert(static_cast<std::size_t>(Capability::ClipboardWrite) == 7);
+    static_assert(std::tuple_size<decltype(PermissionPolicy{}.rules)>::value == 8);
+
+    const PermissionPolicy policy;
+    MIRAGE_CHECK(policy.rule_for(Capability::ClipboardRead) == Rule::Allow);
+    MIRAGE_CHECK(policy.rule_for(Capability::ClipboardWrite) == Rule::Allow);
+    MIRAGE_CHECK(policy.rules[static_cast<std::size_t>(Capability::ClipboardRead)] == Rule::Allow);
+    MIRAGE_CHECK(policy.rules[static_cast<std::size_t>(Capability::ClipboardWrite)] == Rule::Allow);
+
+    // Overriding by --perm-style subscript moves the verdict through the
+    // controller like every other capability: deny without the hook...
+    PermissionPolicy tightened;
+    tightened.rules[static_cast<std::size_t>(Capability::ClipboardRead)] = Rule::Deny;
+    tightened.rules[static_cast<std::size_t>(Capability::ClipboardWrite)] = Rule::Confirm;
+
+    RecordingConfirmation approve(true);
+    PermissionController controller(tightened, approve);
+
+    PermissionRequest denied;
+    denied.capability = Capability::ClipboardRead;
+    denied.resource = "clipboard";
+    denied.task_id = "task-clip-deny";
+    denied.operation_id = "op-clip-1";
+    const auto deny_verdict = controller.authorize(denied);
+    MIRAGE_CHECK(!deny_verdict.allowed);
+    MIRAGE_CHECK(deny_verdict.decision == Decision::Denied);
+    MIRAGE_CHECK(deny_verdict.reason == "clipboard.read denied by policy");
+    MIRAGE_CHECK(approve.calls == 0); // policy-only: hook untouched
+
+    // ...and confirm through the hook exactly once, with the request fields
+    // arriving untouched.
+    PermissionRequest confirmed;
+    confirmed.capability = Capability::ClipboardWrite;
+    confirmed.resource = "clipboard";
+    confirmed.task_id = "task-clip-confirm";
+    confirmed.operation_id = "op-clip-2";
+    const auto confirm_verdict = controller.authorize(confirmed);
+    MIRAGE_CHECK(confirm_verdict.allowed);
+    MIRAGE_CHECK(confirm_verdict.decision == Decision::AllowedByConfirmation);
+    MIRAGE_CHECK(approve.calls == 1);
+    MIRAGE_CHECK(approve.last.capability == Capability::ClipboardWrite);
+    MIRAGE_CHECK(approve.last.resource == "clipboard");
+    MIRAGE_CHECK(approve.last.task_id == "task-clip-confirm");
+    MIRAGE_CHECK(approve.last.operation_id == "op-clip-2");
+
+    // A rejecting hook denies the confirmed write once per call.
+    RecordingConfirmation reject(false);
+    PermissionController rejecting(tightened, reject);
+    const auto reject_verdict = rejecting.authorize(confirmed);
+    MIRAGE_CHECK(!reject_verdict.allowed);
+    MIRAGE_CHECK(reject_verdict.decision == Decision::DeniedByConfirmation);
+    MIRAGE_CHECK(reject_verdict.reason == "confirmation rejected for clipboard.write");
+    MIRAGE_CHECK(reject.calls == 1);
+
+    // The default policy decides both directions by policy alone.
+    RecordingConfirmation untouched(true);
+    PermissionController default_controller(PermissionPolicy{}, untouched);
+    MIRAGE_CHECK(default_controller.authorize(denied).allowed);
+    MIRAGE_CHECK(default_controller.authorize(confirmed).allowed);
+    MIRAGE_CHECK(default_controller.authorize(denied).decision == Decision::Allowed);
+    MIRAGE_CHECK(untouched.calls == 0);
+
+    // Tightening the clipboard slots leaves every other slot at its default.
+    MIRAGE_CHECK(tightened.rule_for(Capability::FilesystemRead) == Rule::Allow);
+    MIRAGE_CHECK(tightened.rule_for(Capability::FilesystemWrite) == Rule::Deny);
+    MIRAGE_CHECK(tightened.rule_for(Capability::ProcessExecute) == Rule::Allow);
+    MIRAGE_CHECK(tightened.rule_for(Capability::WindowActivate) == Rule::Allow);
+    MIRAGE_CHECK(tightened.rule_for(Capability::ScreenCapture) == Rule::Allow);
+    MIRAGE_CHECK(tightened.rule_for(Capability::InputInject) == Rule::Allow);
 }
 
 // --- controller semantics ----------------------------------------------------
@@ -325,11 +435,13 @@ void run_scenario(const char *name, void (*scenario)()) {
 
 int main() {
     run_scenario("capability_names_and_parsing", scenario_capability_names_and_parsing);
+    run_scenario("clipboard_capability_vocabulary", scenario_clipboard_capability_vocabulary);
     run_scenario("rule_names_and_parsing", scenario_rule_names_and_parsing);
     run_scenario("decision_names", scenario_decision_names);
     run_scenario("default_policy", scenario_default_policy);
     run_scenario("desktop_capability_controller_semantics",
                  scenario_desktop_capability_controller_semantics);
+    run_scenario("clipboard_policy_and_controller", scenario_clipboard_policy_and_controller);
     run_scenario("allow_never_consults_confirmation", scenario_allow_never_consults_confirmation);
     run_scenario("deny_never_consults_confirmation", scenario_deny_never_consults_confirmation);
     run_scenario("confirm_approved_calls_handler_once",

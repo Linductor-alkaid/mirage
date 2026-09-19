@@ -19,9 +19,10 @@ class AtspiBackend; // ditto for the AT-SPI2 frontend (M2-03)
 
 /// Opt-in X11/XWayland surface of the Linux backend (M2-02, DEC-015). When
 /// enabled the environment connects to `display` (empty = $DISPLAY) at
-/// construction and exposes the Window / Screen / Input providers; a failed
-/// connection (e.g. a Wayland-native session without XWayland) leaves those
-/// accessors null so consumers fail closed — it never silently degrades.
+/// construction and exposes the Window / Screen / Input / Clipboard
+/// providers; a failed connection (e.g. a Wayland-native session without
+/// XWayland) leaves those accessors null so consumers fail closed — it never
+/// silently degrades.
 struct X11Options {
     bool enabled = false;
     /// X display name; empty uses the DISPLAY environment variable.
@@ -38,10 +39,11 @@ struct AtspiOptions {
 
 /// Linux Desktop Environment (design doc sections 5 and 10): M1 scoped
 /// read-only filesystem access and bounded, cancellable shell execution,
-/// plus the M2-02 X11 window / capture / input skeleton when opted in. The
-/// accessibility provider remains M2-03 scope and reports null. The Desktop
-/// Permission gate (RULE-05) is judged by the runtime layer before actions
-/// reach any provider; this class itself stays permission-agnostic.
+/// plus the M2 X11 window / capture / input surface (M2-02), the AT-SPI2
+/// accessibility provider (M2-03) and the X11 clipboard (M2-04) when opted
+/// in. The Desktop Permission gate (RULE-05) is judged by the runtime layer
+/// before actions reach any provider; this class itself stays
+/// permission-agnostic.
 ///
 /// The class plays both roles of the adapter pattern: it is the concrete
 /// environment an owner in the runtime layer constructs and keeps alive for
@@ -72,6 +74,7 @@ class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment
     mirage::desktop::ScreenProvider *screen() override;
     mirage::desktop::InputProvider *input() override;
     mirage::desktop::AccessibilityProvider *accessibility() override;
+    mirage::desktop::ClipboardProvider *clipboard() override;
 
     // The three-argument overrides would hide the base conveniences.
     using mirage::desktop::FilesystemProvider::read_text_file;

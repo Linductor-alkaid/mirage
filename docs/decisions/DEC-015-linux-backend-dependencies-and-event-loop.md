@@ -3,7 +3,8 @@
 > 状态：Accepted
 > 日期：2026-09-18
 > 负责人：Mirage 维护者
-> 冻结里程碑：M2（`M2-02` 落地；第 3 条在 `M2-03` 首次兑现；第 5 条随 `M2-03` 修订）
+> 冻结里程碑：M2（`M2-02` 落地；第 3 条在 `M2-03` 首次兑现；第 5 条随 `M2-03` 修订；
+> 第 6 条与剪贴板服务模型随 `M2-04` 修订）
 > 替代/被替代：无（细化 [DEC-008](DEC-008-m1-environment-binding-and-reference-providers.md)
 > 的 M2 演进路径）
 
@@ -54,7 +55,8 @@
    `input.inject` 默认 allow，与 M1 的 `process.execute=allow` 同一理由——M2 的
    目的即 Observation -> Action -> Observation 闭环，默认拒绝会使里程碑闭环依赖
    隐式配置；判定链（RULE-05）与确认挂点保持可用，产品级策略收紧随 M5 的持久化
-   设置面落地（[DEC-010](DEC-010-m1-permission-framework.md) 词表延续）。
+   设置面落地（[DEC-010](DEC-010-m1-permission-framework.md) 词表延续）。`M2-04`
+   以同一理由追加 `clipboard.read` / `clipboard.write` 默认 allow。
 
 ## 备选方案
 
@@ -77,7 +79,8 @@
 - Xvfb 与真实合成器（XWayland + WM）存在行为差：EWMH 路径在 CI 上无 WM 可验证，
   只测回退路径；有 WM 拓扑的验证随 M2-06 在真实桌面冒烟补齐。
 - XTest 文本注入按"逐码点解析 + level 0/1 位移弦"实现，无 per-window 键盘组态
-  处理；完整文本注入语义随 `M2-04` 加固。
+  处理；`M2-04` 复核后冻结该边界：键盘可表达的文本走 `type_text`，键位表外的
+  文本（CJK 等）经 `clipboard.write` + 粘贴弦完成，不虚报逐窗口键盘组态能力。
 - `type_text`/`inject_key` 的超时预算校验为正即接受；Xlib 单次调用无内在超时
   机制，超时强制收敛依赖调用方的执行上下文（blocking worker 取消路径），随
   runtime 接线（M2-06）验证。
@@ -91,6 +94,27 @@
 - 预设矩阵 + format + boundary 门禁（见 M2 计划验证记录）。
 
 ## 变更记录
+
+- 2026-09-18（`M2-04`）：剪贴板服务模型与第 6 条词表扩展。X11 `CLIPBOARD`
+  selection 协议在第 2 条既有纪律内实现（同一 `Display` + 互斥锁；隐藏窗口承载
+  所有权与传输属性；无新线程、无新队列，RULE-03）：`write_text` 副作用 =
+  property 往返取时间戳 + `XSetSelectionOwner` + `XGetSelectionOwner` 验证；
+  `read_text` = `XConvertSelection` + 有界 poll 等待（5 s deadline、25 ms 取消
+  切片），INCR 增量双向（出向并发转移上限 8，`RULE-07`）。**服务模式为机会性
+  pump**：全部 Provider 方法入口消费剪贴板事件，peer 请求的服务延迟上界 = 一次
+  Provider 调用——这是第 2 条"不建线程"与 selection 所有权必须被服务的折中，
+  已知限制为 Provider 调用间隙（agent 空闲期）内纯 X 客户端的 paste 会阻塞等待；
+  XWayland 合成器桥在所有权变更时即取走内容，Wayland 侧 paste 不受影响。升级
+  路径（第 3 条形态：Executor blocking I/O worker 承载 selection 事件循环 +
+  wakeup 边界）随 `M2-06` runtime 接线一并评估，在此之前不自建线程。
+  Permission 词表以第 6 条同一理由追加 `clipboard.read` / `clipboard.write`
+  （默认 allow）。修正记录：本工作项验证期间曾因 `XSetSelectionOwner` 调用方
+  （后端与测试）按"owner 第 2 个参数"的错误记忆传参，把 wire 上 `[4]` 槽填成
+  CLIPBOARD 原子导致 BadWindow，一度误判为"本机系统 libX11 被篡改"并以
+  LD_PRELOAD shim 掩盖；后经官方包哈希带外比对与 `Xlib.h` 核对定性为**调用方
+  参数序错误**（真实顺序 `(display, selection, owner, time)`，selection 在
+  前），调用点已修正，全部测试在原版系统库、无任何 interposition 下验证通过。
+  教训：X11 参数顺序以构建所用 `Xlib.h` 为准，不得凭 man 页记忆。
 
 - 2026-09-18（`M2-03`）：第 5 条测试拓扑修订——Ubuntu 24.04 的 at-spi2-registryd
   （at-spi2-core 2.52.0）在处理 `Socket.Embed` 时于 libdbus 派发路径段错误
@@ -117,4 +141,5 @@
 - Executor 依据：`third_party/mira/third_party/executor/docs/skill/
   executor-integration/references/blocking-io.md`（外部事件循环承载）。
 - 工作项：[M2 计划](../plans/m2-desktop-environment.md) `M2-02`（本决策）；
-  `M2-03`（第 3 条兑现）、`M2-04`（文本注入加固）、`M2-06`（真实桌面冒烟）。
+  `M2-03`（第 3 条兑现）、`M2-04`（剪贴板服务模型与第 6 条扩展）、
+  `M2-06`（真实桌面冒烟与 Executor 承载事件循环的评估）。

@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include <mirage/desktop/clipboard_provider.hpp>
 #include <mirage/desktop/input_provider.hpp>
 #include <mirage/desktop/screen_provider.hpp>
 #include <mirage/desktop/window_provider.hpp>
@@ -24,7 +25,8 @@ namespace mirage::platform::linux_backend {
 
 class X11Backend final : public mirage::desktop::WindowProvider,
                          public mirage::desktop::ScreenProvider,
-                         public mirage::desktop::InputProvider {
+                         public mirage::desktop::InputProvider,
+                         public mirage::desktop::ClipboardProvider {
   public:
     /// Opens `display_name` (empty means the DISPLAY environment variable).
     /// Returns null when the X connection cannot be established — e.g. a
@@ -39,6 +41,7 @@ class X11Backend final : public mirage::desktop::WindowProvider,
     mirage::desktop::WindowProvider *window() { return this; }
     mirage::desktop::ScreenProvider *screen() { return this; }
     mirage::desktop::InputProvider *input() { return this; }
+    mirage::desktop::ClipboardProvider *clipboard() { return this; }
 
     mirage::desktop::WindowListOutcome
     list_windows(const mirage::desktop::WindowListLimits &limits,
@@ -76,6 +79,13 @@ class X11Backend final : public mirage::desktop::WindowProvider,
                    const mirage::desktop::InputLimits &limits,
                    const mirage::desktop::CancelToken &cancel) override;
 
+    mirage::desktop::ClipboardReadOutcome
+    read_text(const mirage::desktop::ClipboardReadLimits &limits,
+              const mirage::desktop::CancelToken &cancel) override;
+    mirage::desktop::ClipboardWriteOutcome
+    write_text(const std::string &text, const mirage::desktop::ClipboardWriteLimits &limits,
+               const mirage::desktop::CancelToken &cancel) override;
+
     /// Opaque X connection state; defined (with all X11 types) in the .cpp.
     /// Named from internal helper functions, which is why it is public.
     struct XConnection;
@@ -86,6 +96,12 @@ class X11Backend final : public mirage::desktop::WindowProvider,
     /// RandR monitor table (or the root geometry as one stable "screen"
     /// display on RandR-less servers). Caller must hold `mutex_`.
     std::vector<mirage::desktop::DisplayInfo> query_displays_locked();
+
+    /// Answers pending clipboard events for the selection we own (requests,
+    /// ownership loss, incremental transfer rounds). Called on entry of every
+    /// provider method and inside the clipboard paths, so the serving latency
+    /// is bounded by one provider call (DEC-015 amendment, M2-04).
+    void pump_clipboard_locked();
 
     XConnection &xconn() { return *connection_; }
 

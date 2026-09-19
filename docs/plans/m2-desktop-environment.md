@@ -6,7 +6,7 @@
 > 前置：[M1](m1-mira-host.md)（已完成：Desktop Environment 抽象、Filesystem/Process
 > Provider、绑定适配器、Runtime Service + IPC、Permission 框架、持久化骨架）
 > 建议发布点：`release-beta`（tag 待维护者授权后创建）
-> 更新日期：2026-09-18
+> 更新日期：2026-09-19
 
 ## 目标
 
@@ -82,7 +82,7 @@ Desktop Observation，使 Mira 能够稳定操作标准桌面应用（设计文�
       （节点预算、fail closed）、ElementTarget 解析器（reference / semantic /
       structural）与语义动作路径（activate / input_text 语义面优先于键鼠）、快照
       刷新策略首版（行为结果驱动）。
-- [ ] `M2-04` Input / Clipboard Provider 完整：键盘 / 文本 / 鼠标完整动作面与
+- [x] `M2-04` Input / Clipboard Provider 完整：键盘 / 文本 / 鼠标完整动作面与
       剪贴板读写；`input.inject` / `clipboard.read` / `clipboard.write` Capability
       接入 Permission 判定链。
 - [ ] `M2-05` Application / Notification Provider 与 ScreenProvider 完整：应用发现
@@ -291,3 +291,77 @@ backend，真实后端集成测试单独标注并在有显示环境的前提下�
   role-only BFS 层级顺序为对当前实现的固化断言（变更告警，非 DEC-005 契约）。
 - 同步：`DEC-015` 变更记录、`accessibility_provider.hpp` 契约注释、M2 计划
   状态、本验证记录。
+
+
+2026-09-19：`M2-04` Input / Clipboard Provider 完整 完成。
+
+- 范围：X11Backend 落地 `ClipboardProvider`（公共头零平台类型，`RULE-01`）——
+  open() 创建隐藏剪贴板窗口（PropertyChangeMask）并 intern
+  CLIPBOARD/TARGETS/INCR/TIMESTAMP/传输属性 atoms；`write_text` 按"取消 → 预算
+  （`max_bytes==0` 或超限 `invalid_argument`）→ UTF-8 校验（`invalid_argument`）
+  → 副作用"排序，副作用 = property 往返取服务器时间戳 + `XSetSelectionOwner` +
+  `XGetSelectionOwner` 验证（失败 io_error 且状态回滚）；`read_text` =
+  `XConvertSelection`(UTF8_STRING) + 有界 poll 等待（5 s deadline、25 ms 取消
+  切片），空 → `not_found`、非 UTF-8 目标/内容 → `unsupported_content`、超预算
+  → `clipboard_too_large`（不截断）、INCR 增量双向（出向并发转移上限 8，
+  `RULE-07`）。`pump_clipboard_locked()` 在全部 11 个 Provider 方法入口服务
+  selection 事件（TARGETS/TIMESTAMP/UTF8_STRING 应答、SelectionClear、INCR 分块
+  推进），服务延迟上界 = 一次 Provider 调用（DEC-015 `M2-04` 修订：机会性 pump
+  而非专用线程，Executor 承载事件循环留作 `M2-06` 评估）。输入侧：M2-02 已交付
+  完整动作面（inject_key/type_text/pointer_move/pointer_button），本项复核后
+  冻结 type_text 边界（group-0 level 0/1；键位表外文本走 clipboard 写 + 粘贴弦）。
+  Permission 词表追加 `clipboard.read` / `clipboard.write`（默认 allow，DEC-015
+  第 6 条同理由），`PermissionPolicy::rules` 扩至 8 槽；`LinuxDesktopEnvironment`
+  增 `clipboard()` 访问器（无 X 连接 null fail closed）。
+- 依据：设计文档第 5、10、18 节；`DEC-005` / `DEC-009` / `DEC-010` / `DEC-015`；
+  `RULE-01` / `RULE-03` / `RULE-05` / `RULE-07`。
+- 验证（Independent-Verification-Agent，Linux x64，GCC 13，真实 Xvfb 拓扑，两轮；
+  用户带外参与最终裁决）：
+  - 新增 `tests/platform/x11_backend_test.cpp` 剪贴板 5 场景（140 → 227 断言）：
+    同后端往返（多字节 UTF-8/覆盖/空串）、空读 `not_found`、读写预算与取消、
+    非法 UTF-8 拒绝且状态不变、跨客户端字节级往返（对端 XConvertSelection 读取
+    与对端持有 owner 双向）、TIMESTAMP 非零与 TARGETS 词表、对端完整 ICCCM INCR
+    接收、大载荷自 INCR 双向逐字节一致（载荷按 XMaxRequestSize 动态取值）、INCR
+    header 预算拒绝、SelectionClear 交接、仅服务 XA_STRING 的 owner →
+    `unsupported_content`。对端以 fork 隔离进程扮演（无线程，`RULE-03`）。
+  - 独立验证修复 2 个生产缺陷：① `UTF8_STRING` 原子误用 `only_if_exists=True`
+    注册（干净 X server 上返回 None，读路径必然失败——真实桌面常已被其他客户端
+    注册而掩盖）；② 被拒/取消的自读 INCR 在 transfer property 上残留悬挂
+    self-transfer，下次读新旧流交错返回损坏字节（`read_text` 起始 erase_if 清理，
+    测试"拒绝后再读完整性"断言抓到）。
+  - fake 侧 `FakeClipboard::write_text` 对齐真实后端拒绝序（零预算 → 载荷预算 →
+    UTF-8，均副作用前），`read_text` 补 `max_bytes==0` 拒绝；
+    `provider_contract_test` +8 断言（401 → 409）。`permission_test` 新增
+    clipboard 词表场景（95 → 144 断言）：名称往返 + 14 近似串负例、
+    `static_assert` 枚举下标与 8 槽尺寸、默认双 allow、下标覆写 Deny/Confirm
+    判定路径（Confirm 恰一次触达 hook）、槽位隔离。
+  - **调用序缺陷与误报纠正**：第一轮验证曾得出"本机系统 libX11 发出的
+    `X_SetSelectionOwner` 字段序与协议不符"的错误结论，并以 LD_PRELOAD shim 让
+    测试通过。经用户在带外设备比对官方 deb md5（与本机一致 → 库为真品）+ 核对
+    `/usr/include/X11/Xlib.h` 定性真实根因：
+    **`XSetSelectionOwner` 参数序为 `(display, selection, owner, time)`，
+    selection 在前**，后端与测试均按"owner 第 2"的错误记忆传参，wire `[4]` 槽
+    （owner 位）被填成 CLIPBOARD 原子 → BadWindow 且资源 id = 原子值（44 断言
+    失败的全部来源）。shim 是参数名反定义与调用错序的双重抵消，已废弃。
+    修正：`write_text` 与测试两处调用点换序（附注释指明 Xlib.h 真序）。
+  - 最终矩阵（第二轮复验，一律无 LD_PRELOAD、无任何特殊 env；剪贴板测试各预设
+    实跑 227/0）：`debug` / `release` / `asan` / `ubsan` 20/20 通过 0 skip——
+    **asan 无需任何特殊 `ASAN_OPTIONS`**（第一轮"需要
+    `verify_asan_link_order=0`"是 shim 非插桩造成的假象，已证伪）；`tsan`
+    `setarch $(uname -m) -R` 20/20；stub 双分支：无 X11
+    （`-DCMAKE_DISABLE_FIND_PACKAGE_X11=ON`）build OK + 18/18。
+    `mirage-format-check` 与 `mirage-boundary-check`（32 头 0 违规）通过；
+    Xvfb 定位三分支（`$MIRAGE_XVFB` → `$PATH` → 用户前缀）与缺失时响亮失败经
+    实测确认。
+- 限制：selection 服务为机会性 pump，Provider 调用间隙（agent 空闲期）内纯 X
+  客户端 paste 会阻塞至下一次 Mirage 调用；XWayland 合成器桥在所有权变更时即
+  缓存内容，Wayland 侧 paste 不受影响；升级路径（Executor blocking worker 承载
+  selection 事件循环）随 `M2-06` runtime 接线评估。读 deadline 5 s 为内部常量
+  （契约无 timeout 字段）。读侧仅接受 UTF8_STRING 目标（Latin-1-only owner
+  fail closed 为 `unsupported_content`，不做转码）。`transfers` 上限 8 的拒绝
+  路径未经 8+ 并发请求方验证（拓扑受限）；真实桌面（GNOME/挂真 WM）剪贴板与
+  合成器桥互通随 `M2-06` 冒烟。既有 `runtime_service_test` 高负载并行下偶发
+  失败再次复现（IPC 客户端 5 s 预算耗尽返回 `unavailable` 而非服务端的
+  `invalid_state`；隔离复跑稳定），与本工作项无关，待单独排查（`M2-06` 关注）。
+- 同步：`DEC-015` 变更记录（剪贴板服务模型 + 第 6 条扩展 + type_text 边界 +
+  调用序误报纠正）、本验证记录。

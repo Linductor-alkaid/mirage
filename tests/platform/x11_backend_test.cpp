@@ -11,14 +11,20 @@
 #include <mirage/platform/linux/linux_desktop_environment.hpp>
 
 #include <sys/select.h>
+#include <sys/wait.h>
+
+#include <unistd.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
+#include <functional>
 #include <string>
 #include <vector>
 
+#include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
@@ -131,6 +137,12 @@ std::string hex_id(Window window) {
     return buffer;
 }
 
+long monotonic_ms() {
+    timespec now{};
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return now.tv_sec * 1000 + now.tv_nsec / 1000000;
+}
+
 void open_fail_closed_on_bad_display() {
     // Capability honesty end-to-end: an environment whose X11 opt-in fails
     // exposes no desktop surface at all.
@@ -138,6 +150,7 @@ void open_fail_closed_on_bad_display() {
     MIRAGE_CHECK(without_x11.window() == nullptr);
     MIRAGE_CHECK(without_x11.screen() == nullptr);
     MIRAGE_CHECK(without_x11.input() == nullptr);
+    MIRAGE_CHECK(without_x11.clipboard() == nullptr); // M2-04: no X, no clipboard either
     MIRAGE_CHECK(without_x11.filesystem() != nullptr);
     MIRAGE_CHECK(without_x11.info().platform == "linux");
 }
@@ -449,10 +462,11 @@ void environment_identity_and_defaults(XvfbDisplay &server) {
     LinuxDesktopEnvironment env({}, {.enabled = true, .display = server.display_name()});
     MIRAGE_CHECK(env.info().name == "mirage-linux");
     MIRAGE_CHECK(env.info().platform == "linux");
-    // Providers the M2-03 milestone has not landed yet stay null (fail
-    // closed), while the M1 surface remains available.
+    // Providers later milestones have not landed stay null (fail closed),
+    // while the M1 surface and the M2 X11/AT-SPI2 providers are available.
+    // M2-04 moved clipboard() from the null group to the live group.
     MIRAGE_CHECK(env.accessibility() == nullptr);
-    MIRAGE_CHECK(env.clipboard() == nullptr);
+    MIRAGE_CHECK(env.clipboard() != nullptr);
     MIRAGE_CHECK(env.application() == nullptr);
     MIRAGE_CHECK(env.notification() == nullptr);
     MIRAGE_CHECK(env.window() != nullptr);
@@ -464,7 +478,562 @@ void environment_identity_and_defaults(XvfbDisplay &server) {
     MIRAGE_CHECK(silent.window() == nullptr);
     MIRAGE_CHECK(silent.screen() == nullptr);
     MIRAGE_CHECK(silent.input() == nullptr);
+    MIRAGE_CHECK(silent.clipboard() == nullptr);
     MIRAGE_CHECK(silent.filesystem() != nullptr);
+}
+
+// ---- M2-04 clipboard (X11 selection protocol) ------------------------------
+//
+// The clipboard is shared machine state negotiated through the ICCCM
+// selection protocol, so the tests drive it from a real second client. The
+// single-threaded test process cannot service a peer selection owner while
+// the backend's bounded read waits for the SelectionNotify, so peer owners
+// run in a forked child with its own display connection — the same process
+// isolation the XvfbDisplay fixture uses (no threads anywhere, RULE-03).
+
+/// Upper bound on how long a forked peer owner keeps serving requests.
+constexpr int kPeerServeMs = 8000;
+
+/// Forks an independent X client that takes the CLIPBOARD selection on its
+/// own window and serves peer requests until kPeerServeMs elapses. With
+/// utf8_capable the owner answers UTF8_STRING (and ICCCM metadata) targets;
+/// without it, UTF8_STRING gets the explicit refusal (SelectionNotify with
+/// property=None) that pins the unsupported_content contract. Never returns
+/// in the child.
+pid_t fork_clipboard_owner(const std::string &display_name, const std::string &payload,
+                           bool utf8_capable) {
+    const pid_t pid = ::fork();
+    if (pid != 0) {
+        return pid;
+    }
+    // Child: never touch the parent's Xlib state; open a fresh connection.
+    Display *display = XOpenDisplay(display_name.c_str());
+    if (display == nullptr) {
+        _exit(1);
+    }
+    const Atom clipboard = XInternAtom(display, "CLIPBOARD", False);
+    const Atom utf8 = XInternAtom(display, "UTF8_STRING", False);
+    const Atom targets = XInternAtom(display, "TARGETS", False);
+    const Atom timestamp = XInternAtom(display, "TIMESTAMP", False);
+    const Window window =
+        XCreateSimpleWindow(display, DefaultRootWindow(display), 0, 0, 1, 1, 0, 0, 0);
+    // ICCCM ownership timestamp via the property round trip (the server
+    // time of the PropertyNotify is our TIMESTAMP answer).
+    const Atom marker = XInternAtom(display, "MIRAGE_TEST_STAMP", False);
+    XSelectInput(display, window, PropertyChangeMask);
+    XChangeProperty(display, window, marker, XA_INTEGER, 8, PropModeReplace,
+                    reinterpret_cast<const unsigned char *>(""), 0);
+    // Xlib.h order: (display, selection, owner, time).
+    XSetSelectionOwner(display, clipboard, window, CurrentTime);
+    XSync(display, False);
+    unsigned long stamp = 1;
+    XEvent event;
+    while (XCheckTypedWindowEvent(display, window, PropertyNotify, &event)) {
+        if (event.xproperty.atom == marker) {
+            stamp = event.xproperty.time;
+        }
+    }
+    const long deadline = monotonic_ms() + kPeerServeMs;
+    bool running = true;
+    while (running && monotonic_ms() < deadline) {
+        while (XPending(display) > 0) {
+            XNextEvent(display, &event);
+            if (event.type != SelectionRequest) {
+                continue;
+            }
+            const XSelectionRequestEvent &request = event.xselectionrequest;
+            const Atom property = request.property != None ? request.property : request.target;
+            Atom reply_property = property;
+            if (request.target == targets) {
+                const Atom supported[] = {targets, utf8_capable ? utf8 : XA_STRING, timestamp};
+                XChangeProperty(display, request.requestor, property, XA_ATOM, 32, PropModeReplace,
+                                reinterpret_cast<const unsigned char *>(supported), 3);
+            } else if (request.target == timestamp) {
+                const long value = static_cast<long>(stamp);
+                XChangeProperty(display, request.requestor, property, XA_INTEGER, 32,
+                                PropModeReplace, reinterpret_cast<const unsigned char *>(&value),
+                                1);
+            } else if (utf8_capable && request.target == utf8) {
+                XChangeProperty(display, request.requestor, property, utf8, 8, PropModeReplace,
+                                reinterpret_cast<const unsigned char *>(payload.data()),
+                                static_cast<int>(payload.size()));
+            } else if (!utf8_capable && request.target == XA_STRING) {
+                XChangeProperty(display, request.requestor, property, XA_STRING, 8, PropModeReplace,
+                                reinterpret_cast<const unsigned char *>(payload.data()),
+                                static_cast<int>(payload.size()));
+            } else {
+                reply_property = None; // ICCCM refusal for unsupported targets
+            }
+            XSelectionEvent reply = {};
+            reply.type = SelectionNotify;
+            reply.display = display;
+            reply.requestor = request.requestor;
+            reply.selection = request.selection;
+            reply.target = request.target;
+            reply.property = reply_property;
+            reply.time = request.time;
+            XSendEvent(display, request.requestor, False, NoEventMask,
+                       reinterpret_cast<XEvent *>(&reply));
+            XFlush(display);
+        }
+        ::usleep(20 * 1000);
+    }
+    XCloseDisplay(display);
+    _exit(0);
+}
+
+/// Waits until a client other than `previous_owner` owns the CLIPBOARD
+/// selection (used after forking a peer owner); false on timeout.
+bool wait_for_clipboard_owner(TestClient &client, Atom clipboard, Window previous_owner,
+                              int timeout_ms) {
+    const long deadline = monotonic_ms() + timeout_ms;
+    while (monotonic_ms() < deadline) {
+        const Window owner = XGetSelectionOwner(client.get(), clipboard);
+        if (owner != None && owner != previous_owner) {
+            return true;
+        }
+        ::usleep(10 * 1000);
+    }
+    return false;
+}
+
+/// Reaps a forked peer owner: SIGKILL closes its display connection, which
+/// releases the selection server-side.
+void reap_peer_owner(pid_t pid) {
+    ::kill(pid, SIGKILL);
+    int status = 0;
+    ::waitpid(pid, &status, 0);
+}
+
+/// Deterministic patterned payload, valid UTF-8 end to end (the read path
+/// re-validates the encoding), cut on an ASCII boundary so chunk limits can
+/// land next to multi-byte sequences.
+std::string make_utf8_payload(std::size_t target_bytes) {
+    const std::string base = "m2-04 \xc3\xa9\xe4\xb8\x96 \xf0\x9f\x96\x96 |";
+    std::string payload;
+    payload.reserve(target_bytes + base.size() + 16);
+    for (std::size_t line = 0; payload.size() < target_bytes; ++line) {
+        payload += base;
+        payload += std::to_string(line);
+        payload += '\n';
+    }
+    const std::size_t cut = payload.rfind('\n', target_bytes);
+    payload.resize(cut + 1);
+    return payload;
+}
+
+/// The backend's serving chunk (x11_backend.cpp clipboard_chunk_bytes): the
+/// largest single-property write the server accepts, derived from the
+/// extended BIG-REQUESTS limit when present (Xvfb advertises ~16 MiB, NOT
+/// the classic 256 KiB XMaxRequestSize). INCR only engages beyond this, so
+/// the incremental tests size their payloads from it.
+std::size_t backend_chunk_bytes(Display *display) {
+    long units = XExtendedMaxRequestSize(display);
+    if (units <= 0) {
+        units = XMaxRequestSize(display);
+    }
+    if (units <= 0) {
+        return 16384;
+    }
+    const std::size_t bytes = static_cast<std::size_t>(units) * 4u;
+    return bytes > 2048u ? bytes - 1024u : bytes / 2u;
+}
+
+/// Single-property peer read of a selection: converts, waits for the
+/// SelectionNotify (draining PropertyNotify noise; `pump` is invoked while
+/// idle so the backend serves the request during a provider call), then
+/// fetches the property with delete=True. `type`/`data` receive the answer
+/// (data sized by format); false on timeout or protocol failure.
+bool peer_read_selection(TestClient &client, Window requestor, Atom selection, Atom target,
+                         Atom property, Atom &type, int &format, std::string &data,
+                         std::function<void()> pump, int timeout_ms) {
+    Display *display = client.get();
+    XDeleteProperty(display, requestor, property);
+    XConvertSelection(display, selection, target, property, requestor, CurrentTime);
+    XSync(display, False);
+    XEvent event{};
+    const long deadline = monotonic_ms() + timeout_ms;
+    bool notified = false;
+    while (monotonic_ms() < deadline) {
+        if (client.next_event(event, 100)) {
+            if (event.type == SelectionNotify && event.xselection.selection == selection &&
+                event.xselection.requestor == requestor) {
+                notified = true;
+                break;
+            }
+            continue; // PropertyNotify and unrelated traffic
+        }
+        if (pump) {
+            pump();
+        }
+    }
+    if (!notified) {
+        return false;
+    }
+    Atom actual_type = None;
+    int actual_format = 0;
+    unsigned long count = 0;
+    unsigned long remaining = 0;
+    unsigned char *raw = nullptr;
+    if (XGetWindowProperty(display, requestor, property, 0, 1 << 20, True, AnyPropertyType,
+                           &actual_type, &actual_format, &count, &remaining, &raw) != Success) {
+        return false;
+    }
+    type = actual_type;
+    format = actual_format;
+    if (raw != nullptr) {
+        const std::size_t unit =
+            actual_format == 32 ? sizeof(long) : (actual_format == 16 ? sizeof(short) : 1);
+        data.assign(reinterpret_cast<const char *>(raw), count * unit);
+        XFree(raw);
+    }
+    return true;
+}
+
+/// Reads a full incremental (INCR) transfer as a peer requestor: expects the
+/// INCR header after the convert, then accumulates delete-acked chunks.
+/// `pump` drives the owner (each chunk is released by the owner's next
+/// provider call, per the DEC-015 serving-latency design). Returns false on
+/// any timeout.
+bool peer_read_incremental(TestClient &client, Window requestor, Atom selection, Atom target,
+                           Atom property, Atom incr_atom, std::string &data,
+                           std::function<void()> pump, int timeout_ms, unsigned long chunk_longs) {
+    Display *display = client.get();
+    XDeleteProperty(display, requestor, property);
+    XConvertSelection(display, selection, target, property, requestor, CurrentTime);
+    XSync(display, False);
+    XEvent event{};
+    long deadline = monotonic_ms() + timeout_ms;
+    bool notified = false;
+    while (!notified && monotonic_ms() < deadline) {
+        if (client.next_event(event, 100)) {
+            if (event.type == SelectionNotify && event.xselection.selection == selection &&
+                event.xselection.requestor == requestor) {
+                notified = true;
+            }
+        } else {
+            pump();
+        }
+    }
+    if (!notified) {
+        return false;
+    }
+    Atom type = None;
+    int format = 0;
+    unsigned long count = 0;
+    unsigned long remaining = 0;
+    unsigned char *raw = nullptr;
+    // Header: delete=False first (ICCCM), then an explicit delete starts the
+    // chunk flow.
+    if (XGetWindowProperty(display, requestor, property, 0, 1, False, AnyPropertyType, &type,
+                           &format, &count, &remaining, &raw) != Success) {
+        return false;
+    }
+    const bool is_incr = type == incr_atom;
+    if (raw != nullptr) {
+        XFree(raw);
+    }
+    if (!is_incr) {
+        return false;
+    }
+    XDeleteProperty(display, requestor, property);
+    deadline = monotonic_ms() + timeout_ms;
+    while (monotonic_ms() < deadline) {
+        pump(); // each delete-ack is observed by the owner on a provider call
+        if (!client.next_event(event, 200)) {
+            continue;
+        }
+        if (event.type != PropertyNotify || event.xproperty.atom != property ||
+            event.xproperty.state != PropertyNewValue) {
+            continue;
+        }
+        if (XGetWindowProperty(display, requestor, property, 0, static_cast<long>(chunk_longs),
+                               True, AnyPropertyType, &type, &format, &count, &remaining,
+                               &raw) != Success) {
+            return false;
+        }
+        const std::size_t bytes = raw != nullptr ? count : 0;
+        if (raw != nullptr) {
+            data.append(reinterpret_cast<const char *>(raw), bytes);
+            XFree(raw);
+        }
+        if (bytes == 0) {
+            return true; // zero-length terminator chunk ends the transfer
+        }
+    }
+    return false;
+}
+
+/// Same-backend roundtrips through the self-request path (owner and
+/// requestor are the backend window): ASCII plus multi-byte UTF-8, the
+/// write-overwrite rule, and the empty-payload boundary.
+void clipboard_same_backend_roundtrips(XvfbDisplay &server) {
+    LinuxDesktopEnvironment env({}, {.enabled = true, .display = server.display_name()});
+    mirage::desktop::ClipboardProvider &clipboard = *env.clipboard();
+
+    const std::string text = "h\xc3\xa9llo \xe4\xb8\x96\xe7\x95\x8c \xf0\x9f\x96\x96";
+    const auto written = clipboard.write_text(text);
+    MIRAGE_CHECK(written.ok);
+    MIRAGE_CHECK(!written.cancelled);
+    const auto read_back = clipboard.read_text();
+    MIRAGE_CHECK(read_back.ok);
+    MIRAGE_CHECK(read_back.content == text);
+
+    // Overwrite: a second write replaces the payload entirely.
+    MIRAGE_CHECK(clipboard.write_text("second-write").ok);
+    const auto second = clipboard.read_text();
+    MIRAGE_CHECK(second.ok);
+    MIRAGE_CHECK(second.content == "second-write");
+
+    // The empty string is valid UTF-8: the selection stays owned with a
+    // zero-length payload and reads back as empty content, not not_found.
+    MIRAGE_CHECK(clipboard.write_text("").ok);
+    const auto empty = clipboard.read_text();
+    MIRAGE_CHECK(empty.ok);
+    MIRAGE_CHECK(empty.content.empty());
+}
+
+/// Empty-clipboard reads, budget refusals, encoding refusals and
+/// pre-side-effect cancellation, each with the X-server ownership observed
+/// through the test client's own connection.
+void clipboard_refusals_keep_state(XvfbDisplay &server, TestClient &client) {
+    LinuxDesktopEnvironment env({}, {.enabled = true, .display = server.display_name()});
+    mirage::desktop::ClipboardProvider &clipboard = *env.clipboard();
+    Display *display = client.get();
+    const Atom clipboard_atom = XInternAtom(display, "CLIPBOARD", False);
+
+    // Fresh / abandoned clipboard: no owner at all is not_found.
+    MIRAGE_CHECK(XGetSelectionOwner(display, clipboard_atom) == None);
+    const auto empty = clipboard.read_text();
+    MIRAGE_CHECK(!empty.ok);
+    MIRAGE_CHECK(empty.error.code == "not_found");
+
+    // A peer that takes and then abandons ownership leaves the clipboard
+    // empty again; the backend observes both hops through its pump.
+    const Window transient = client.make_window(0, 470, 1, 1, 0, "transient-owner");
+    XSetSelectionOwner(display, clipboard_atom, transient,
+                       CurrentTime); // Xlib.h: (selection, owner)
+    XSync(display, False);
+    MIRAGE_CHECK(XGetSelectionOwner(display, clipboard_atom) == transient);
+    XDestroyWindow(display, transient);
+    XSync(display, False);
+    MIRAGE_CHECK(env.window()->front_window().ok); // any provider call pumps
+    MIRAGE_CHECK(XGetSelectionOwner(display, clipboard_atom) == None);
+    const auto abandoned = clipboard.read_text();
+    MIRAGE_CHECK(!abandoned.ok);
+    MIRAGE_CHECK(abandoned.error.code == "not_found");
+
+    // Read budget below the content size refuses without truncation...
+    MIRAGE_CHECK(clipboard.write_text("0123456789").ok);
+    mirage::desktop::ClipboardReadLimits tight_read;
+    tight_read.max_bytes = 4;
+    const auto too_large = clipboard.read_text(tight_read, {});
+    MIRAGE_CHECK(!too_large.ok);
+    MIRAGE_CHECK(too_large.error.code == "clipboard_too_large");
+    MIRAGE_CHECK(too_large.content.empty());
+
+    // ...and the refused write keeps both the server-side ownership and the
+    // previously written payload.
+    const Window owned = XGetSelectionOwner(display, clipboard_atom);
+    MIRAGE_CHECK(owned != None);
+    mirage::desktop::ClipboardWriteLimits tight_write;
+    tight_write.max_bytes = 4;
+    const auto refused = clipboard.write_text("0123456789", tight_write, {});
+    MIRAGE_CHECK(!refused.ok);
+    MIRAGE_CHECK(refused.error.code == "invalid_argument");
+    MIRAGE_CHECK(XGetSelectionOwner(display, clipboard_atom) == owned);
+    MIRAGE_CHECK(clipboard.read_text().content == "0123456789");
+
+    // Zero budgets are invalid arguments in both directions, ownership
+    // untouched.
+    mirage::desktop::ClipboardReadLimits zero_read;
+    zero_read.max_bytes = 0;
+    MIRAGE_CHECK(clipboard.read_text(zero_read, {}).error.code == "invalid_argument");
+    mirage::desktop::ClipboardWriteLimits zero_write;
+    zero_write.max_bytes = 0;
+    MIRAGE_CHECK(clipboard.write_text("x", zero_write, {}).error.code == "invalid_argument");
+    MIRAGE_CHECK(XGetSelectionOwner(display, clipboard_atom) == owned);
+    MIRAGE_CHECK(clipboard.read_text().content == "0123456789");
+
+    // Malformed UTF-8 payloads are refused before any side effect: bad
+    // continuation byte, truncated 2-byte sequence, lone continuation.
+    for (const char *bad : {"\xff\xfe", "ok\xc3", "a\x80"}) {
+        const auto outcome = clipboard.write_text(bad);
+        MIRAGE_CHECK(!outcome.ok);
+        MIRAGE_CHECK(outcome.error.code == "invalid_argument");
+    }
+    MIRAGE_CHECK(XGetSelectionOwner(display, clipboard_atom) == owned);
+    MIRAGE_CHECK(clipboard.read_text().content == "0123456789");
+
+    // Cancellation is observed before the write: reported as cancelled, and
+    // neither ownership nor payload move.
+    CancelToken cancel;
+    cancel.request_cancel();
+    const auto cancelled = clipboard.write_text("nope", {}, cancel);
+    MIRAGE_CHECK(cancelled.cancelled);
+    MIRAGE_CHECK(!cancelled.ok);
+    MIRAGE_CHECK(XGetSelectionOwner(display, clipboard_atom) == owned);
+    MIRAGE_CHECK(clipboard.read_text().content == "0123456789");
+    const auto cancelled_read = clipboard.read_text({}, cancel);
+    MIRAGE_CHECK(!cancelled_read.ok);
+    MIRAGE_CHECK(cancelled_read.error.code == "cancelled");
+}
+
+/// Cross-client transfers with the backend owning the selection and the
+/// test client as an independent requestor: single-property UTF-8 read,
+/// the ICCCM TARGETS/TIMESTAMP metadata, and a full incremental (INCR)
+/// transfer above the server's max request size.
+void clipboard_peer_requests_from_backend(XvfbDisplay &server, TestClient &client) {
+    LinuxDesktopEnvironment env({}, {.enabled = true, .display = server.display_name()});
+    mirage::desktop::ClipboardProvider &clipboard = *env.clipboard();
+    Display *display = client.get();
+
+    const Atom clipboard_atom = XInternAtom(display, "CLIPBOARD", False);
+    const Atom utf8_atom = XInternAtom(display, "UTF8_STRING", False);
+    const Atom incr_atom = XInternAtom(display, "INCR", False);
+    const Atom read_prop = XInternAtom(display, "MIRAGE_TEST_READ", False);
+    const Window requestor = client.make_window(0, 0, 1, 1, 0, "peer-requestor");
+    XSelectInput(display, requestor, PropertyChangeMask);
+    const auto pump = [&env]() {
+        const auto quiet = env.window()->front_window(); // any provider call pumps
+        (void)quiet;
+    };
+
+    MIRAGE_CHECK(clipboard.write_text("from-mirage \xe4\xb8\x96\xe7\x95\x8c").ok);
+    const Window backend_window = XGetSelectionOwner(display, clipboard_atom);
+    MIRAGE_CHECK(backend_window != None);
+
+    // Plain transfer: the peer gets the exact bytes the backend holds.
+    Atom type = None;
+    int format = 0;
+    std::string data;
+    MIRAGE_CHECK(peer_read_selection(client, requestor, clipboard_atom, utf8_atom, read_prop, type,
+                                     format, data, pump, 4000));
+    MIRAGE_CHECK(type == utf8_atom);
+    MIRAGE_CHECK(format == 8);
+    MIRAGE_CHECK(data == "from-mirage \xe4\xb8\x96\xe7\x95\x8c");
+
+    // ICCCM metadata: TIMESTAMP is a real (nonzero) server timestamp...
+    unsigned long stamp = 0;
+    MIRAGE_CHECK(peer_read_selection(client, requestor, clipboard_atom,
+                                     XInternAtom(display, "TIMESTAMP", False), read_prop, type,
+                                     format, data, pump, 4000));
+    MIRAGE_CHECK(type == XA_INTEGER && format == 32 && data.size() == sizeof(long));
+    std::memcpy(&stamp, data.data(), sizeof(stamp));
+    MIRAGE_CHECK(stamp != 0);
+
+    // ...and TARGETS advertises UTF8_STRING.
+    MIRAGE_CHECK(peer_read_selection(client, requestor, clipboard_atom,
+                                     XInternAtom(display, "TARGETS", False), read_prop, type,
+                                     format, data, pump, 4000));
+    MIRAGE_CHECK(type == XA_ATOM && format == 32);
+    bool advertises_utf8 = false;
+    for (std::size_t offset = 0; offset + sizeof(Atom) <= data.size(); offset += sizeof(Atom)) {
+        Atom atom = None;
+        std::memcpy(&atom, data.data() + offset, sizeof(atom));
+        advertises_utf8 = advertises_utf8 || atom == utf8_atom;
+    }
+    MIRAGE_CHECK(advertises_utf8);
+
+    // Incremental transfer: payload above the backend's serving chunk (the
+    // server's extended BIG-REQUESTS ceiling — Xvfb advertises ~16 MiB, so
+    // sized dynamically because the ceiling is a server configuration, not
+    // a protocol constant) delivered to a real second client in chunks. The
+    // write carries an explicit budget because the payload exceeds the
+    // default 1 MiB write cap.
+    const std::size_t chunk = backend_chunk_bytes(display);
+    const std::string big = make_utf8_payload(chunk + 64u * 1024u);
+    MIRAGE_CHECK(big.size() > chunk);
+    mirage::desktop::ClipboardWriteLimits big_write;
+    big_write.max_bytes = big.size();
+    MIRAGE_CHECK(clipboard.write_text(big, big_write, {}).ok);
+    std::string received;
+    MIRAGE_CHECK(peer_read_incremental(client, requestor, clipboard_atom, utf8_atom, read_prop,
+                                       incr_atom, received, pump, 8000, big.size() / 4u + 8192u));
+    MIRAGE_CHECK(received == big);
+}
+
+/// Paths where a peer owns the selection: the backend reads the peer's
+/// content through its pump-driven service, observes a takeover of its own
+/// ownership (SelectionClear), and reports unsupported_content for an owner
+/// that cannot serve UTF-8.
+void clipboard_peer_owned_selection(XvfbDisplay &server, TestClient &client) {
+    LinuxDesktopEnvironment env({}, {.enabled = true, .display = server.display_name()});
+    mirage::desktop::ClipboardProvider &clipboard = *env.clipboard();
+    Display *display = client.get();
+    const Atom clipboard_atom = XInternAtom(display, "CLIPBOARD", False);
+
+    // The peer takes over content the backend wrote; the backend observes
+    // the SelectionClear on its next provider call and afterwards serves
+    // the peer's payload to a read.
+    MIRAGE_CHECK(clipboard.write_text("mirage-first").ok);
+    const Window backend_window = XGetSelectionOwner(display, clipboard_atom);
+    MIRAGE_CHECK(backend_window != None);
+    const pid_t owner = fork_clipboard_owner(server.display_name(), "peer-content", true);
+    MIRAGE_CHECK(owner > 0);
+    MIRAGE_CHECK(wait_for_clipboard_owner(client, clipboard_atom, backend_window, 4000));
+    MIRAGE_CHECK(env.window()->front_window().ok); // pump processes the SelectionClear
+    const auto read_back = clipboard.read_text();
+    MIRAGE_CHECK(read_back.ok);
+    MIRAGE_CHECK(read_back.content == "peer-content");
+    reap_peer_owner(owner);
+    MIRAGE_CHECK(env.window()->front_window().ok); // pump absorbs the released ownership
+
+    // An owner that holds CLIPBOARD but only serves XA_STRING refuses the
+    // UTF8_STRING conversion: unsupported_content, not_found is reserved
+    // for "no owner at all".
+    const pid_t string_owner = fork_clipboard_owner(server.display_name(), "plain", false);
+    MIRAGE_CHECK(string_owner > 0);
+    MIRAGE_CHECK(wait_for_clipboard_owner(client, clipboard_atom, None, 4000));
+    const auto unsupported = clipboard.read_text();
+    MIRAGE_CHECK(!unsupported.ok);
+    MIRAGE_CHECK(unsupported.error.code == "unsupported_content");
+    reap_peer_owner(string_owner);
+}
+
+/// Large-payload roundtrip where the backend is both owner and requestor:
+/// one pass exercises the outgoing INCR streaming and the incoming INCR
+/// reception, including a budget refusal announced by the INCR header and a
+/// clean full read afterwards.
+void clipboard_large_self_incremental(XvfbDisplay &server, TestClient &client) {
+    LinuxDesktopEnvironment env({}, {.enabled = true, .display = server.display_name()});
+    mirage::desktop::ClipboardProvider &clipboard = *env.clipboard();
+
+    // Payload above the backend's serving chunk (the extended BIG-REQUESTS
+    // ceiling — Xvfb advertises ~16 MiB, not the classic 256 KiB) so both
+    // INCR directions engage; sized dynamically because the ceiling is a
+    // server configuration. The explicit budgets cover the payload, which
+    // exceeds the 1 MiB defaults.
+    const std::size_t chunk = backend_chunk_bytes(client.get());
+    const std::string big = make_utf8_payload(chunk + 64u * 1024u);
+    MIRAGE_CHECK(big.size() > chunk);
+    mirage::desktop::ClipboardWriteLimits big_write;
+    big_write.max_bytes = big.size();
+    mirage::desktop::ClipboardReadLimits big_read;
+    big_read.max_bytes = big.size();
+
+    MIRAGE_CHECK(clipboard.write_text(big, big_write, {}).ok);
+    const auto read_back = clipboard.read_text(big_read, {});
+    MIRAGE_CHECK(read_back.ok);
+    MIRAGE_CHECK(read_back.content.size() == big.size());
+    MIRAGE_CHECK(read_back.content == big);
+
+    // The INCR header announces the total size, so a budget one byte under
+    // the payload refuses before any chunk flows.
+    mirage::desktop::ClipboardReadLimits tight;
+    tight.max_bytes = big.size() - 1;
+    const auto refused = clipboard.read_text(tight, {});
+    MIRAGE_CHECK(!refused.ok);
+    MIRAGE_CHECK(refused.error.code == "clipboard_too_large");
+    MIRAGE_CHECK(refused.content.empty());
+
+    // A read following the refused one must still deliver the full payload:
+    // no aborted transfer may linger on the transfer property.
+    const auto after = clipboard.read_text(big_read, {});
+    MIRAGE_CHECK(after.ok);
+    MIRAGE_CHECK(after.content == big);
+    MIRAGE_CHECK(clipboard.write_text("reset", big_write, {}).ok);
+    MIRAGE_CHECK(clipboard.read_text(big_read, {}).content == "reset");
 }
 
 } // namespace
@@ -493,6 +1062,11 @@ int main() {
         input_injection_events(server, client);
         negative_and_boundary_edges(server, client);
         environment_identity_and_defaults(server);
+        clipboard_same_backend_roundtrips(server);
+        clipboard_refusals_keep_state(server, client);
+        clipboard_peer_requests_from_backend(server, client);
+        clipboard_peer_owned_selection(server, client);
+        clipboard_large_self_incremental(server, client);
     } catch (const std::exception &error) {
         std::fprintf(stderr, "Xvfb setup failed: %s\n", error.what());
         return 1;

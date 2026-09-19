@@ -26,18 +26,21 @@ std::optional<Rule> rule_from_name(std::string_view name);
 /// development topology working (DEC-010): reads and shell execution are
 /// allowed outright — always still inside the provider's hard PathScope and
 /// budget boundaries — while filesystem.write, which no M1 provider exposes,
-/// is denied fail closed. The M2-02 desktop actions default to allow for the
-/// same reason (DEC-015): the Observation -> Action -> Observation loop is
-/// the M2 milestone's purpose, and tightening is explicit configuration
-/// until the product-level policy surface lands (M5).
+/// is denied fail closed. The M2 desktop actions default to allow for the
+/// same reason (DEC-015 decision 6): the Observation -> Action -> Observation
+/// loop is the M2 milestone's purpose, and tightening is explicit
+/// configuration until the product-level policy surface lands (M5). M2-04
+/// appends the clipboard directions under the same default.
 struct PermissionPolicy {
-    std::array<Rule, 6> rules{
+    std::array<Rule, 8> rules{
         Rule::Allow, // filesystem.read
         Rule::Deny,  // filesystem.write
         Rule::Allow, // process.execute
         Rule::Allow, // window.activate
         Rule::Allow, // screen.capture
         Rule::Allow, // input.inject
+        Rule::Allow, // clipboard.read
+        Rule::Allow, // clipboard.write
     };
 
     Rule rule_for(Capability capability) const {

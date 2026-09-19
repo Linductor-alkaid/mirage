@@ -375,6 +375,26 @@ void clipboard_provider_contract() {
     MIRAGE_CHECK(!provider.write_text("12345", tight_write, {}).ok);
     MIRAGE_CHECK(provider.read_text().content == "payload"); // unchanged
 
+    // Zero budgets are invalid arguments in both directions, decided before
+    // any content lookup or ownership change.
+    mirage::desktop::ClipboardReadLimits zero_read;
+    zero_read.max_bytes = 0;
+    MIRAGE_CHECK(provider.read_text(zero_read, {}).error.code == "invalid_argument");
+    mirage::desktop::ClipboardWriteLimits zero_write;
+    zero_write.max_bytes = 0;
+    MIRAGE_CHECK(provider.write_text("x", zero_write, {}).error.code == "invalid_argument");
+    MIRAGE_CHECK(provider.read_text().content == "payload"); // unchanged
+
+    // Malformed UTF-8 payloads are refused with invalid_argument before the
+    // clipboard is touched — the same pre-side-effect rejection the real
+    // backends enforce (M2-04): bad continuation byte and a truncated
+    // 2-byte sequence.
+    MIRAGE_CHECK(!provider.write_text("\xff\xfe").ok);
+    MIRAGE_CHECK(provider.write_text("\xff\xfe").error.code == "invalid_argument");
+    MIRAGE_CHECK(!provider.write_text("ok\xc3").ok);
+    MIRAGE_CHECK(provider.write_text("ok\xc3").error.code == "invalid_argument");
+    MIRAGE_CHECK(provider.read_text().content == "payload"); // state unchanged
+
     env.failures.clipboard_unsupported_content = true;
     MIRAGE_CHECK(provider.read_text().error.code == "unsupported_content");
     // Writes stay possible; the read-side content flag is injection-only.
