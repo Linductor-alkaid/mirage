@@ -505,7 +505,8 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
         /// the target carries no hint group at all (invalid_argument per the
         /// contract); "" means a hint was set but does not resolve
         /// (not_found).
-        std::optional<std::string> resolve_locked(const mirage::desktop::ElementTarget &target) const {
+        std::optional<std::string>
+        resolve_locked(const mirage::desktop::ElementTarget &target) const {
             if (!target.reference.id.empty()) {
                 return env_.current_refs.count(target.reference.id) != 0
                            ? std::optional<std::string>(target.reference.id)
@@ -808,6 +809,12 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
                 outcome.error = {"cancelled", "read cancelled"};
                 return outcome;
             }
+            // Same argument contract as the real backends: a zero budget is
+            // an invalid argument, decided before any content lookup.
+            if (limits.max_bytes == 0) {
+                outcome.error = {"invalid_argument", "read budget must be positive"};
+                return outcome;
+            }
             if (env_.failures.clipboard_unsupported_content) {
                 outcome.error = {"unsupported_content", "clipboard holds non-text content"};
                 return outcome;
@@ -834,8 +841,19 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
                 outcome.error = {"cancelled", "write cancelled"};
                 return outcome;
             }
+            // Same rejection order as the real X11 backend: zero budget,
+            // then payload budget, then encoding — all before the clipboard
+            // state is touched.
+            if (limits.max_bytes == 0) {
+                outcome.error = {"invalid_argument", "write budget must be positive"};
+                return outcome;
+            }
             if (text.size() > limits.max_bytes) {
                 outcome.error = {"invalid_argument", "payload exceeds the write budget"};
+                return outcome;
+            }
+            if (!mirage::desktop::is_valid_utf8(text)) {
+                outcome.error = {"invalid_argument", "text must be UTF-8"};
                 return outcome;
             }
             env_.clipboard_text = text;

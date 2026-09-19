@@ -115,6 +115,10 @@ mirage::desktop::AccessibilityProvider *LinuxDesktopEnvironment::accessibility()
     return atspi_ != nullptr ? atspi_->accessibility() : nullptr;
 }
 
+mirage::desktop::ClipboardProvider *LinuxDesktopEnvironment::clipboard() {
+    return x11_ != nullptr ? x11_->clipboard() : nullptr;
+}
+
 mirage::desktop::FileReadOutcome
 LinuxDesktopEnvironment::read_text_file(const std::filesystem::path &path,
                                         const mirage::desktop::FileReadLimits &limits,

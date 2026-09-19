@@ -9,8 +9,9 @@ namespace mirage::runtime::permission {
 /// section 15). The M1 set covers the capabilities the M1 desktop surface
 /// can reach plus filesystem.write, whose judgment exists from the start so
 /// M2+ write providers land on a frozen vocabulary (DEC-010). M2-02 appends
-/// the X11 backend's side-effectful actions (DEC-015); the enumerators are
-/// append-only because the order indexes the per-capability policy array.
+/// the X11 backend's side-effectful actions (DEC-015) and M2-04 appends the
+/// clipboard directions; the enumerators are append-only because the order
+/// indexes the per-capability policy array.
 enum class Capability {
     FilesystemRead,
     FilesystemWrite,
@@ -18,6 +19,8 @@ enum class Capability {
     WindowActivate,
     ScreenCapture,
     InputInject,
+    ClipboardRead,
+    ClipboardWrite,
 };
 
 /// Stable string form of a capability ("filesystem.read",

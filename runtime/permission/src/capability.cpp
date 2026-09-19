@@ -16,6 +16,10 @@ const char *capability_name(Capability capability) {
         return "screen.capture";
     case Capability::InputInject:
         return "input.inject";
+    case Capability::ClipboardRead:
+        return "clipboard.read";
+    case Capability::ClipboardWrite:
+        return "clipboard.write";
     }
     return "unknown";
 }
@@ -38,6 +42,12 @@ std::optional<Capability> capability_from_name(std::string_view name) {
     }
     if (name == "input.inject") {
         return Capability::InputInject;
+    }
+    if (name == "clipboard.read") {
+        return Capability::ClipboardRead;
+    }
+    if (name == "clipboard.write") {
+        return Capability::ClipboardWrite;
     }
     return std::nullopt;
 }

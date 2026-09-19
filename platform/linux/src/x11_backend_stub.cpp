@@ -11,6 +11,10 @@ namespace mirage::platform::linux_backend {
 using mirage::desktop::CancelToken;
 using mirage::desktop::CaptureLimits;
 using mirage::desktop::CaptureOutcome;
+using mirage::desktop::ClipboardReadLimits;
+using mirage::desktop::ClipboardReadOutcome;
+using mirage::desktop::ClipboardWriteLimits;
+using mirage::desktop::ClipboardWriteOutcome;
 using mirage::desktop::DisplayListLimits;
 using mirage::desktop::DisplayListOutcome;
 using mirage::desktop::InputLimits;
@@ -86,6 +90,15 @@ InputOutcome X11Backend::pointer_move(std::int32_t, std::int32_t, const InputLim
 
 InputOutcome X11Backend::pointer_button(const MouseButton &, bool, const InputLimits &,
                                         const CancelToken &) {
+    std::abort(); // unreachable: open() is null in this build
+}
+
+ClipboardReadOutcome X11Backend::read_text(const ClipboardReadLimits &, const CancelToken &) {
+    std::abort(); // unreachable: open() is null in this build
+}
+
+ClipboardWriteOutcome X11Backend::write_text(const std::string &, const ClipboardWriteLimits &,
+                                             const CancelToken &) {
     std::abort(); // unreachable: open() is null in this build
 }
 
