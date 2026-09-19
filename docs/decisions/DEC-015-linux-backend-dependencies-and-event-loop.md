@@ -3,8 +3,9 @@
 > 状态：Accepted
 > 日期：2026-09-18
 > 负责人：Mirage 维护者
-> 冻结里程碑：M2（`M2-02` 落地；第 3 条在 `M2-03` 首次兑现；第 5 条随 `M2-03` 修订；
-> 第 6 条与剪贴板服务模型随 `M2-04` 修订）
+> 冻结里程碑：M2（`M2-02` 落地；第 3 条在 `M2-03` 首次兑现、`M2-05` 扩展；
+> 第 5 条随 `M2-03` 修订；第 6 条与剪贴板服务模型随 `M2-04` 修订、词表随
+> `M2-05` 扩展）
 > 替代/被替代：无（细化 [DEC-008](DEC-008-m1-environment-binding-and-reference-providers.md)
 > 的 M2 演进路径）
 
@@ -94,6 +95,24 @@
 - 预设矩阵 + format + boundary 门禁（见 M2 计划验证记录）。
 
 ## 变更记录
+
+- 2026-09-19（`M2-05`）：第 3 条兑现——Application / Notification 前端以
+  gio-unix 家族落地（`application_backend` / `notification_backend` 及各自
+  stub，缺 `gio-unix-2.0` 开发包时访问器 null fail closed）。运行实例语义：
+  自有实例注册表（容量 256，`RULE-07`）+ 有界 /proc 按名扫描（≤4096 pid，
+  Exec 首 token 的 basename，最老进程胜出，zombie 不计——Linux 无权威
+  application→进程映射，沿用桌面 shell 的按名启发式）；`terminate` 的进程组
+  信号仅对 tracked 实例发出；通知经 GDBus 同步 `Notify`（5 s 内部 deadline），
+  与剪贴板同型：服务延迟不依赖专用主循环 worker，第 3 条"长寿命 blocking I/O
+  worker 承载 glib 主循环"的完整形态继续随 `M2-06` runtime 接线评估。在此之前
+  glib 库内线程（GDBus 同步调用、libatspi 内部）与剪贴板机会性 pump 同为已知
+  折中。Permission 词表以第 6 条同一理由追加 `application.launch` /
+  `application.terminate` / `notification.post`（默认 allow；launch 固定于
+  desktop entry 命令、窄于已 allow 的 `process.execute`；terminate 只发 TERM
+  不强杀），词表扩至 11 槽。已知限制：按名匹配无法区分共享二进制名的不同
+  desktop 条目；GIO 目录快照按进程缓存（首次 GIO 调用后新增 .desktop 不可
+  见）；`launch` 对多实例应用同样 `already_running`（对齐 M2-01 fake 契约，
+  多实例需求经 `process.execute` 承载）。
 
 - 2026-09-18（`M2-04`）：剪贴板服务模型与第 6 条词表扩展。X11 `CLIPBOARD`
   selection 协议在第 2 条既有纪律内实现（同一 `Display` + 互斥锁；隐藏窗口承载
