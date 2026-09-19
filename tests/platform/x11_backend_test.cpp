@@ -523,7 +523,8 @@ pid_t fork_clipboard_owner(const std::string &display_name, const std::string &p
     XSelectInput(display, window, PropertyChangeMask);
     XChangeProperty(display, window, marker, XA_INTEGER, 8, PropModeReplace,
                     reinterpret_cast<const unsigned char *>(""), 0);
-    XSetSelectionOwner(display, window, clipboard, CurrentTime);
+    // Xlib.h order: (display, selection, owner, time).
+    XSetSelectionOwner(display, clipboard, window, CurrentTime);
     XSync(display, False);
     unsigned long stamp = 1;
     XEvent event;
@@ -810,7 +811,8 @@ void clipboard_refusals_keep_state(XvfbDisplay &server, TestClient &client) {
     // A peer that takes and then abandons ownership leaves the clipboard
     // empty again; the backend observes both hops through its pump.
     const Window transient = client.make_window(0, 470, 1, 1, 0, "transient-owner");
-    XSetSelectionOwner(display, transient, clipboard_atom, CurrentTime);
+    XSetSelectionOwner(display, clipboard_atom, transient,
+                       CurrentTime); // Xlib.h: (selection, owner)
     XSync(display, False);
     MIRAGE_CHECK(XGetSelectionOwner(display, clipboard_atom) == transient);
     XDestroyWindow(display, transient);

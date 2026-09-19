@@ -1339,7 +1339,10 @@ ClipboardWriteOutcome X11Backend::write_text(const std::string &text,
     const unsigned long stamp = clipboard_server_timestamp_locked(connection);
     connection.clipboard_payload = text;
     connection.clipboard_timestamp = stamp;
-    XSetSelectionOwner(display, connection.clipboard_window, connection.clipboard, stamp);
+    // Xlib's argument order is (display, selection, owner, time): the
+    // selection atom comes first, the owning window third (Xlib.h) — the
+    // opposite of what the man-page summary suggests.
+    XSetSelectionOwner(display, connection.clipboard, connection.clipboard_window, stamp);
     const bool acquired =
         XSync(display, False) != 0 &&
         XGetSelectionOwner(display, connection.clipboard) == connection.clipboard_window;
