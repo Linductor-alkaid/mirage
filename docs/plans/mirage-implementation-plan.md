@@ -38,7 +38,10 @@ DesktopObservation 按需组装器、绑定 observe 面如实上报与 Semantic 
 退出条件复核通过（6/6，验证记录见
 [M2：Desktop Environment 核心 Provider 与 Linux
 Backend](m2-desktop-environment.md)），M2 Completed。M3（Mirador 视觉集成）里程碑
-计划待建立。UI 并行轨道
+计划已建立，见 [M3：Mirador 视觉集成](m3-mirador-integration.md)；pinned
+mirador 已升级至 v0.3.0（`6fa92ec`，几何区域提议契约经上游 DEC-018 阶段 1
+转正），审计记录见[依赖升级审计](../supply-chain/dependency-upgrade-audit.md)。
+UI 并行轨道
 [M1.5](m1.5-ui-parallel-track.md) 已完成（wire schema 事实源
 [DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)、事件订阅、
 dev bridge、harness 前端壳）。
@@ -115,7 +118,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | [M1](m1-mira-host.md) | Mira Host、Runtime Service + IPC、Filesystem/Process Provider、CLI | `release-alpha` | Completed | - |
 | [M1.5](m1.5-ui-parallel-track.md) | UI 并行轨道：wire schema 事实源、IPC 事件订阅、dev bridge、前端（浏览器形态，按 DEC-013 harness 优先统一壳组织：会话/工作流/设置 + 统一壳骨架） | -（随开发线交付，产品化 UI 属 M5） | Completed | M1 |
 | [M2](m2-desktop-environment.md) | Desktop Environment 核心 Provider + Linux Backend、Semantic Snapshot、Element Reference | `release-beta` | Completed | M1 |
-| M3 | Mirador 集成：OCR / 检测 / 几何 / Visual Cache、Visual Reference | `release-gamma` | Planned | M2 |
+| [M3](m3-mirador-integration.md) | Mirador 集成：OCR / 检测 / 几何 / Visual Cache、Visual Reference | `release-gamma` | Planned | M2 |
 | M4 | Windows Backend（UIA / Win32 / Capture / Input） | `release-delta` | Planned | M2 |
 | M5 | Desktop Product：Workspace、Workflow UI、Execution Trace、Overlay、权限 | `release-epsilon` | Planned | M3、M4 |
 
@@ -134,6 +137,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | DEC-007 | Local IPC 机制 | 已定案（[DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md)）：Unix domain socket（Linux）/ 命名管道（Windows，M4），长度前缀 + JSON 帧格式，协议 v1 请求面，`apps/service` 进程形态；传输与帧格式自 M1-04 冻结 | Mirage 维护者 | M1（已冻结） |
 | DEC-012 | IPC 事件订阅与 wire schema 事实源 | 已接受（2026-09-16 评审通过，[DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)）：协议 v1 附加事件帧 + 订阅 op（版本号不递增），[mirage-ipc-protocol-v1.md](../design/mirage-ipc-protocol-v1.md) 为契约事实源（M1.5-01 落地，golden vectors 双端门禁），事件分发经 `executor::comm` 承载 | Mirage 维护者 | M1.5 |
 | DEC-013 | 前端信息架构与设计规范 | 已定案（[DEC-013](../decisions/DEC-013-frontend-ia-harness-first.md)）：harness 优先统一壳（会话默认落地、workflow 一级入口、设置八类），workflow 编辑器为对齐 mira Workflow IR v1 的结构化步骤序列；规范见 [《Mirage 前端设计规范与信息架构》](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)，M1.5 落地骨架、M5 验收基线 | Mirage 维护者 | M1.5 |
+| DEC-016 | Mirador 视觉集成契约 | 待建（M3-01 产出）：Visual Reference 生命周期与 `visual_snapshot_ref` 组件按 schema 1.x 加法演进、mirador 结果到 Mirage 感知面的映射边界、视觉会话经 blocking worker 串行承载（EXEC-04，取消经 mirador `ExecutionContext` 可解除）、fake / identity backend 为默认验证形态（真实模型后端属集成方） | Mirage 维护者 | M3 |
 
 ## 跨里程碑通用完成定义
 
