@@ -317,6 +317,10 @@ Snapshot 可以根据窗口变化、Accessibility Event 和行为结果进行增
 
 Mirador 作为 Mirage 的视觉基础设施，用于处理无法完全由 Accessibility 表达的桌面信息。
 
+> 契约注记（M3 起）：Visual Reference 生命周期、`visual_snapshot` 组件与 schema
+> 演进、mirador 结果到感知面的映射边界、视觉会话的 Executor 承载方式由
+> [DEC-016](../decisions/DEC-016-mirador-visual-integration-contract.md) 冻结。
+
 Mirage 负责 Screen/Window/ROI Capture，并根据任务需求调用 Mirador 的视觉能力。Mirador 可以提供 OCR、目标检测、线段与几何结构、视觉区域提取、图像特征以及 Visual Cache Match 等结果。
 
 典型处理过程为：

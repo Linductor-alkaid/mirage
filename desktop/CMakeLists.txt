@@ -1,5 +1,6 @@
 add_library(mirage_desktop STATIC
     environment/src/desktop_environment.cpp
+    environment/src/visual_snapshot.cpp
     observation/src/observation_assembler.cpp
 )
 add_library(Mirage::desktop ALIAS mirage_desktop)

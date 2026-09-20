@@ -1,13 +1,13 @@
 # M3：Mirador 视觉集成
 
-> 状态：Planned
+> 状态：In Progress（`M3-01` 完成）
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M2](m2-desktop-environment.md)（已完成：Desktop Environment 核心 Provider、
 > Linux Backend、Semantic Snapshot、ElementTarget 解析顺序契约、Observation 组装
 > 与 runtime 接线）
 > 建议发布点：`release-gamma`（tag 待维护者授权后创建）
-> 更新日期：2026-09-20（里程碑计划建立）
+> 更新日期：2026-09-20（`M3-01` 完成）
 
 ## 目标
 
@@ -89,7 +89,7 @@ Visual Reference（`@vN`）的签发与解析闭环，补齐 DEC-005 解析顺�
 
 ## 工作项
 
-- [ ] `M3-01` 视觉集成契约与决策记录 `DEC-016`：Visual Reference 生命周期
+- [x] `M3-01` 视觉集成契约与决策记录 `DEC-016`：Visual Reference 生命周期
       （`@vN` 签发、注册表容量与换代失效语义，对齐 `@eN` 整体替换先例）、
       `visual_snapshot_ref` 组件的负载形态与 schema 1.0 → 1.x 加法演进、
       mirador 融合快照 / OCR / 检测 / 几何结果到 Mirage 感知面的映射边界
@@ -184,3 +184,40 @@ Visual Reference（`@vN`）的签发与解析闭环，补齐 DEC-005 解析顺�
 （mirador `50f5349` → `6fa92ec`，v0.3.0；升级审计见
 [依赖升级审计](../supply-chain/dependency-upgrade-audit.md) 2026-09-20 条目）。
 后续按工作项追加实施与验收记录。
+
+2026-09-20：`M3-01` 完成（分支 `feat/m3-01-visual-contract`，基于
+`chore/deps-mirador-integration-skill`）。前置：mirador pin 前滚至 `fff7f15`
+（v0.3.0-2，docs-only：README 重构 + `docs/skill/mirador-integration/` 下游
+skill；审计见依赖升级审计同日条目，MR `chore/deps-mirador-integration-skill`），
+skill 卡片为契约输入。
+
+- **决策**：[DEC-016](../decisions/DEC-016-mirador-visual-integration-contract.md)
+  定案六项——`@vN` 生命周期对齐 `@eN` 整体替换先例（容量 fail closed，默认
+  1024 与融合预算对齐）；`visual_snapshot` 结构组件 + `visual_snapshot_ref`
+  scope 句柄（schema 1.0 → 1.1 加法演进，`M3-03` 落线）；映射边界（仅融合
+  输出进感知面，a11y 区域不作融合输入，trace/指纹/像素不外泄）；一图像源一
+  session 一 blocking worker 串行承载（EXEC-04，CancelToken→`ExecutionContext`
+  适配，最新者优先取代语义）；fake/identity backend 默认验证形态与真实权重
+  触发条件（RULE-08）；解析顺序第三环与只读权限面预登记。设计文档第 8 节已
+  加契约注记。
+- **契约头（pinned-free）**：`desktop/environment` 新增
+  `visual_snapshot.hpp`（`VisualRegionSource`/`VisualRegionEntry`/
+  `VisualSnapshot`/`VisualSnapshotLimits`/`VisualPublishOutcome`/
+  `render_visual_snapshot`）与 `visual_reference_registry.hpp`
+  （`VisualReferenceRegistry`：整体替换、`@vN` 确定性编号、`@vs<gen>` scope、
+  容量拒绝、互斥快照交换）。
+- **fake backend（pinned 边界层）**：`integration/mirador` 新增
+  `FakeOcrBackend` / `FakeDetectorBackend`（确定性身份语义、调用计数、
+  kBackendUnavailable / kUnsupportedFormat / kCancelled / kTimeout /
+  kBudgetExceeded 负向语义、`min_confidence` 过滤）。
+- **测试证据**（Independent-Verification-Agent 独立执行）：新增
+  `tests/desktop/visual_contract_test.cpp`（83 checks：渲染确定性、编号/
+  scope、换代失效、容量拒绝、clear 语义、1 写 2 读并发原子性压测）与
+  `tests/integration/fake_visual_backend_test.cpp`（71 checks：门槛 a–h
+  正/负向、门序取消先于 deadline、identity 校验正/负）；
+  `debug` / `release` / `asan` / `ubsan` / `tsan`（`setarch -R`）五预设
+  configure + build + ctest 26/26 通过、0 skip；asan 报告 0，ubsan verbose
+  `runtime error` 0，tsan 并发压测无竞争报告；`mirage-format-check` 通过；
+  `mirage-boundary-check` 通过（35 头 0 命中）。
+- **未覆盖项**：schema 1.1 的 wire/IPC golden vectors 随 `M3-03`；真实模型
+  后端行为不在 M3 声明范围（RULE-08，触发条件见 DEC-016 决策 5）。

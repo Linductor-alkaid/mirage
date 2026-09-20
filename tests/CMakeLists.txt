@@ -402,3 +402,35 @@ set_tests_properties(bridge_relay_test PROPERTIES
     LABELS "integration"
     TIMEOUT 120
 )
+
+# M3-01 visual contract (DEC-016): VisualSnapshot render forms and the
+# VisualReferenceRegistry publication contract, including a concurrent
+# writer/reader atomicity scenario (a TSAN target).
+add_executable(visual_contract_test desktop/visual_contract_test.cpp)
+target_compile_features(visual_contract_test PUBLIC cxx_std_20)
+mirage_enable_warnings(visual_contract_test)
+target_link_libraries(visual_contract_test PRIVATE Mirage::desktop)
+add_test(NAME visual_contract_test COMMAND visual_contract_test)
+set_tests_properties(visual_contract_test PROPERTIES
+    LABELS "unit"
+    TIMEOUT 60
+)
+
+# M3-01 fake visual backends (DEC-016 decision 5): the deterministic OCR /
+# detection stand-ins against the pinned mirador SPI obligations. mirador::core
+# is a PRIVATE dependency of mirage_integration_mirador, so the pinned include
+# dirs no longer propagate transitively; the test asserts mirador Status
+# semantics directly and needs them (same shape as dependency_wiring_test).
+add_executable(fake_visual_backend_test integration/fake_visual_backend_test.cpp)
+target_compile_features(fake_visual_backend_test PUBLIC cxx_std_20)
+mirage_enable_warnings(fake_visual_backend_test)
+target_link_libraries(fake_visual_backend_test
+    PRIVATE
+        Mirage::integration_mirador
+        mirador::core
+)
+add_test(NAME fake_visual_backend_test COMMAND fake_visual_backend_test)
+set_tests_properties(fake_visual_backend_test PROPERTIES
+    LABELS "unit"
+    TIMEOUT 60
+)
