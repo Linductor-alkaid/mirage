@@ -17,18 +17,36 @@ namespace mirage::integration {
 /// environment contract, so MiraHost::start() recovers the contract with a
 /// runtime cross-cast.
 ///
-/// The pinned surface is adapted honestly to what an M1 desktop environment
-/// can deliver:
+/// The pinned surface is adapted honestly to what the bound desktop
+/// environment can deliver (M2-06):
 ///
-/// - capabilities() reports the empty capability set; M1 environments have no
-///   screen, structure, foreground or input surface yet (M2 scope).
-/// - observe() fails closed with UnsupportedCapability for any required
-///   component outside that set and returns a minimal component-free
-///   Observation otherwise.
+/// - capabilities() is derived from the environment's provider accessors:
+///   foreground_app follows window(), ui_tree needs window() and
+///   accessibility() (the semantic snapshot is taken against the focused
+///   window). screen_capture stays false until the M3 Mirador integration
+///   gives the binding an artifact store and published frame payloads
+///   (pinned ScreenFrameDescriptor contract); discrete_input stays false
+///   because the pinned canonical InputSequence is not mapped onto the
+///   desktop input surface — desktop actions run through the harness-side
+///   provider surface under the permission gate (DEC-008, RULE-05).
+///   atomic_observation / max_component_skew stay unset: components are
+///   captured sequentially, no skew bound is claimable. epoch_invalidation
+///   stays false: M2 has no topology-change detection, every observe() is a
+///   fresh on-demand capture.
+/// - observe() maps required structure/foreground onto the desktop-layer
+///   ObservationAssembler (design doc section 6): structure delivers the
+///   AccessibilityProvider's SemanticSnapshot projected onto the pinned
+///   UiTreeSnapshot (the @eN refs survive in StableNodeHint), foreground
+///   delivers the focused window's application name and title. A required
+///   component the environment cannot deliver fails the whole request (fail
+///   closed); optional components are best-effort and their absence is
+///   recorded in the observation quality, never silent.
 /// - execute() refuses input dispatch before any side effect (Rejected
 ///   receipt).
-/// - interrupt() is an idempotent best-effort release (there is nothing
-///   in-flight to release in the M1 set).
+/// - interrupt() is an idempotent best-effort release (the input surface is
+///   not dispatched through this binding, so there is no in-flight platform
+///   input to release; Xlib calls cannot be unblocked from another thread,
+///   hence input_release stays undeclared).
 ///
 /// Filesystem and Process capabilities stay on the mirage provider surface
 /// (DesktopEnvironment::filesystem()/process()); the harness-side driver
