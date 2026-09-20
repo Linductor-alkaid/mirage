@@ -464,3 +464,47 @@ set_tests_properties(visual_session_test PROPERTIES
     LABELS "unit"
     TIMEOUT 120
 )
+
+# M3-03 ElementTargetExecutor (DEC-005 resolution order, DEC-016 decision 6):
+# ring-by-ring target resolution with traceable degraded fall-through, the
+# pointer click sequence under cooperative cancellation, and fail-closed
+# behavior for unbound dependencies, against the fake desktop environment.
+add_executable(element_target_executor_test desktop/element_target_executor_test.cpp)
+target_compile_features(element_target_executor_test PUBLIC cxx_std_20)
+mirage_enable_warnings(element_target_executor_test)
+target_link_libraries(element_target_executor_test PRIVATE Mirage::desktop)
+add_test(NAME element_target_executor_test COMMAND element_target_executor_test)
+set_tests_properties(element_target_executor_test PROPERTIES
+    LABELS "unit"
+    TIMEOUT 60
+)
+
+# M3-03 visual observation loop (DEC-016 decisions 2/3): the fusion ->
+# VisualSnapshot mapping, publish_visual_snapshot boundary semantics and the
+# session -> publish -> observe -> click closed loop over the fake backends
+# on a real Executor (no X, no D-Bus). mirador::core is a PRIVATE dependency
+# of mirage_integration_mirador, so the pinned include dirs no longer
+# propagate transitively; the test asserts mirador geometry semantics
+# directly and needs them (same shape as visual_session_test).
+add_executable(visual_observation_loop_test integration/visual_observation_loop_test.cpp)
+target_compile_features(visual_observation_loop_test PUBLIC cxx_std_20)
+mirage_enable_warnings(visual_observation_loop_test)
+target_link_libraries(visual_observation_loop_test
+    PRIVATE
+        Mirage::integration_mirador
+        mirador::core
+)
+# The session host drives the pinned Executor directly (the per-source
+# blocking worker); headers are consumed as SYSTEM headers and the library is
+# linked by file path (same consumption form as visual_session_test).
+target_include_directories(visual_observation_loop_test SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include"
+)
+target_link_libraries(visual_observation_loop_test PRIVATE
+    $<TARGET_FILE:executor::executor>
+)
+add_test(NAME visual_observation_loop_test COMMAND visual_observation_loop_test)
+set_tests_properties(visual_observation_loop_test PROPERTIES
+    LABELS "unit"
+    TIMEOUT 120
+)

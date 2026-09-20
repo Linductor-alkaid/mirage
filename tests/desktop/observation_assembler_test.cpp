@@ -14,6 +14,8 @@
 #include <mirage/desktop/desktop_observation.hpp>
 #include <mirage/desktop/observation_assembler.hpp>
 #include <mirage/desktop/semantic_snapshot.hpp>
+#include <mirage/desktop/visual_reference_registry.hpp>
+#include <mirage/desktop/visual_snapshot.hpp>
 
 #include <string>
 
@@ -474,6 +476,188 @@ void active_window_success_survives_snapshot_failure() {
     MIRAGE_CHECK(outcome.observation.focused_element.empty());
 }
 
+// ---- visual component (DEC-016 decision 2, M3-03) ----------------------------
+
+/// Two-region snapshot in unpublished (ref-less) form, as a visual pipeline
+/// would hand it to the registry.
+mirage::desktop::VisualSnapshot two_region_visual_snapshot() {
+    using mirage::desktop::VisualRegionEntry;
+    using mirage::desktop::VisualRegionSource;
+    VisualRegionEntry ocr;
+    ocr.source = VisualRegionSource::kOcr;
+    ocr.bounds = {10, 20, 100, 50};
+    ocr.text = "alpha-text";
+    ocr.confidence = 0.91;
+    VisualRegionEntry tpl;
+    tpl.source = VisualRegionSource::kTemplate;
+    tpl.bounds = {200, 30, 40, 20};
+    tpl.template_id = "tpl-1";
+    tpl.confidence = 0.8;
+    mirage::desktop::VisualSnapshot snapshot;
+    snapshot.regions.push_back(ocr);
+    snapshot.regions.push_back(tpl);
+    return snapshot;
+}
+
+void unrequested_visual_component_keeps_the_surface_dark() {
+    // The visual surface is opt-in: a request without the visual component
+    // changes nothing, even when a registry with a live generation is bound.
+    mirage::testing::FakeDesktopEnvironment env;
+    mirage::desktop::VisualReferenceRegistry registry;
+    MIRAGE_CHECK(registry.publish(two_region_visual_snapshot()).ok);
+    ObservationAssembler assembler(env, &registry);
+
+    ObservationComponents components;
+    components.pointer_state = true;
+    const auto outcome = assembler.assemble(components);
+
+    MIRAGE_CHECK(outcome.ok);
+    MIRAGE_CHECK(!outcome.visual_snapshot.requested);
+    MIRAGE_CHECK(!outcome.visual_snapshot.captured);
+    MIRAGE_CHECK(outcome.visual_snapshot.error.code.empty());
+    MIRAGE_CHECK(outcome.observation.visual_snapshot.scope_ref.empty());
+    MIRAGE_CHECK(outcome.observation.visual_snapshot.regions.empty());
+    MIRAGE_CHECK(outcome.observation.visual_snapshot_ref.empty());
+    MIRAGE_CHECK(outcome.pointer_state.captured);
+}
+
+void visual_without_a_registry_fails_closed_unsupported_platform() {
+    mirage::testing::FakeDesktopEnvironment env;
+    ObservationAssembler assembler(env); // no registry bound
+
+    ObservationComponents components;
+    components.visual_snapshot = true;
+    components.pointer_state = true;
+    components.environment_state = true;
+    const auto outcome = assembler.assemble(components);
+
+    MIRAGE_CHECK(!outcome.ok);
+    MIRAGE_CHECK(outcome.visual_snapshot.requested);
+    MIRAGE_CHECK(!outcome.visual_snapshot.captured);
+    MIRAGE_CHECK(outcome.visual_snapshot.error.code == "unsupported_platform");
+    MIRAGE_CHECK(outcome.error.code == "unsupported_platform");
+    MIRAGE_CHECK(outcome.observation.visual_snapshot.scope_ref.empty());
+    MIRAGE_CHECK(outcome.observation.visual_snapshot_ref.empty());
+    // A failed visual component does not stop the later captures.
+    MIRAGE_CHECK(outcome.pointer_state.captured);
+    MIRAGE_CHECK(outcome.environment_state.captured);
+    MIRAGE_CHECK(!outcome.observation.environment_state.empty());
+}
+
+void visual_with_an_unpublished_registry_reports_not_found() {
+    mirage::testing::FakeDesktopEnvironment env;
+    mirage::desktop::VisualReferenceRegistry registry; // no generation published
+    ObservationAssembler assembler(env, &registry);
+
+    ObservationComponents components;
+    components.visual_snapshot = true;
+    components.pointer_state = true;
+    const auto outcome = assembler.assemble(components);
+
+    MIRAGE_CHECK(!outcome.ok);
+    MIRAGE_CHECK(outcome.visual_snapshot.requested);
+    MIRAGE_CHECK(!outcome.visual_snapshot.captured);
+    MIRAGE_CHECK(outcome.visual_snapshot.error.code == "not_found");
+    MIRAGE_CHECK(outcome.error.code == "not_found");
+    // The observation stays visually empty and the pointer still captured.
+    MIRAGE_CHECK(outcome.observation.visual_snapshot_ref.empty());
+    MIRAGE_CHECK(outcome.observation.visual_snapshot.regions.empty());
+    MIRAGE_CHECK(outcome.pointer_state.captured);
+}
+
+void visual_capture_carries_the_published_generation() {
+    mirage::testing::FakeDesktopEnvironment env;
+    mirage::desktop::VisualReferenceRegistry registry;
+    const mirage::desktop::VisualPublishOutcome published =
+        registry.publish(two_region_visual_snapshot());
+    MIRAGE_CHECK(published.ok);
+    ObservationAssembler assembler(env, &registry);
+
+    ObservationComponents components;
+    components.visual_snapshot = true;
+    const auto outcome = assembler.assemble(components);
+
+    MIRAGE_CHECK(outcome.ok);
+    MIRAGE_CHECK(outcome.visual_snapshot.requested);
+    MIRAGE_CHECK(outcome.visual_snapshot.captured);
+    MIRAGE_CHECK(outcome.visual_snapshot.error.code.empty());
+    MIRAGE_CHECK(outcome.error.code.empty());
+    MIRAGE_CHECK(outcome.observation.visual_snapshot_ref == "@vs1");
+    MIRAGE_CHECK(outcome.observation.visual_snapshot.scope_ref == "@vs1");
+    MIRAGE_CHECK(outcome.observation.visual_snapshot.regions.size() == 2);
+    if (outcome.observation.visual_snapshot.regions.size() == 2) {
+        const auto &first = outcome.observation.visual_snapshot.regions[0];
+        const auto &second = outcome.observation.visual_snapshot.regions[1];
+        MIRAGE_CHECK(first.ref == "@v1");
+        MIRAGE_CHECK(first.text == "alpha-text");
+        MIRAGE_CHECK(first.bounds.x == 10);
+        MIRAGE_CHECK(first.bounds.y == 20);
+        MIRAGE_CHECK(first.bounds.width == 100);
+        MIRAGE_CHECK(first.bounds.height == 50);
+        MIRAGE_CHECK(second.ref == "@v2");
+        MIRAGE_CHECK(second.template_id == "tpl-1");
+    }
+}
+
+void visual_capture_follows_newly_published_generations() {
+    mirage::testing::FakeDesktopEnvironment env;
+    mirage::desktop::VisualReferenceRegistry registry;
+    ObservationAssembler assembler(env, &registry);
+
+    ObservationComponents components;
+    components.visual_snapshot = true;
+
+    // First assembly: nothing published yet.
+    const auto empty = assembler.assemble(components);
+    MIRAGE_CHECK(!empty.ok);
+    MIRAGE_CHECK(empty.visual_snapshot.error.code == "not_found");
+
+    // After the first publication the observation carries generation 1.
+    MIRAGE_CHECK(registry.publish(two_region_visual_snapshot()).ok);
+    const auto first = assembler.assemble(components);
+    MIRAGE_CHECK(first.ok);
+    MIRAGE_CHECK(first.observation.visual_snapshot_ref == "@vs1");
+    MIRAGE_CHECK(first.observation.visual_snapshot.regions.size() == 2);
+
+    // The next publication replaces the generation: a later observe reads the
+    // new one, never a stale cached copy.
+    mirage::desktop::VisualSnapshot replacement;
+    mirage::desktop::VisualRegionEntry solo;
+    solo.source = mirage::desktop::VisualRegionSource::kDetector;
+    solo.bounds = {1, 2, 3, 4};
+    solo.text = "fresh";
+    replacement.regions.push_back(solo);
+    MIRAGE_CHECK(registry.publish(replacement).ok);
+
+    const auto second = assembler.assemble(components);
+    MIRAGE_CHECK(second.ok);
+    MIRAGE_CHECK(second.observation.visual_snapshot_ref == "@vs2");
+    MIRAGE_CHECK(second.observation.visual_snapshot.regions.size() == 1);
+    if (second.observation.visual_snapshot.regions.size() == 1) {
+        MIRAGE_CHECK(second.observation.visual_snapshot.regions[0].ref == "@v1");
+        MIRAGE_CHECK(second.observation.visual_snapshot.regions[0].text == "fresh");
+    }
+}
+
+void cancelled_visual_request_reports_cancelled_before_capture() {
+    mirage::testing::FakeDesktopEnvironment env;
+    mirage::desktop::VisualReferenceRegistry registry;
+    MIRAGE_CHECK(registry.publish(two_region_visual_snapshot()).ok);
+    ObservationAssembler assembler(env, &registry);
+
+    CancelToken cancel;
+    cancel.request_cancel();
+    ObservationComponents components;
+    components.visual_snapshot = true;
+    const auto outcome = assembler.assemble(components, {}, cancel);
+
+    MIRAGE_CHECK(!outcome.ok);
+    MIRAGE_CHECK(outcome.cancelled);
+    MIRAGE_CHECK(outcome.error.code == "cancelled");
+    MIRAGE_CHECK(!outcome.visual_snapshot.captured);
+    MIRAGE_CHECK(outcome.observation.visual_snapshot_ref.empty());
+}
+
 } // namespace
 
 void run_scenario(const char *name, void (*scenario)()) {
@@ -516,5 +700,17 @@ int main() {
                  combined_capture_keeps_successful_components_on_failure);
     run_scenario("active_window_success_survives_snapshot_failure",
                  active_window_success_survives_snapshot_failure);
+    run_scenario("unrequested_visual_component_keeps_the_surface_dark",
+                 unrequested_visual_component_keeps_the_surface_dark);
+    run_scenario("visual_without_a_registry_fails_closed_unsupported_platform",
+                 visual_without_a_registry_fails_closed_unsupported_platform);
+    run_scenario("visual_with_an_unpublished_registry_reports_not_found",
+                 visual_with_an_unpublished_registry_reports_not_found);
+    run_scenario("visual_capture_carries_the_published_generation",
+                 visual_capture_carries_the_published_generation);
+    run_scenario("visual_capture_follows_newly_published_generations",
+                 visual_capture_follows_newly_published_generations);
+    run_scenario("cancelled_visual_request_reports_cancelled_before_capture",
+                 cancelled_visual_request_reports_cancelled_before_capture);
     return mirage::testing::finish("observation_assembler_test");
 }
