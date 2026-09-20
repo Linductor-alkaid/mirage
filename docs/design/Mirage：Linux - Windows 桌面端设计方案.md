@@ -264,6 +264,17 @@ Mirage 可以根据当前任务按需生成 Observation。例如当前任务仅�
 
 这种按需感知机制可以减少截图、OCR、目标检测和 VLM 带来的计算开销。
 
+M2 落地形态（`M2-06`）：desktop 层 `ObservationAssembler` 按组件请求组装一条
+`DesktopObservation`（active_window / semantic_snapshot / pointer_state /
+environment_state；visual_snapshot_ref 保留至 M3）。请求的组件是强制的：环境缺
+对应 Provider（访问器缺位）以 stable 错误码 fail closed，失败组件记录自身错误且
+不阻断其余组件；`ok` 仅当全部请求组件捕获成功，从不静默不完整。绑定层
+（`integration/mira`）将 pinned `ObservationRequest.required/optional` 映射到该
+组装器：required 组件无法交付时整个 observe 失败（fail closed），optional 组件
+尽力而为并以 observation quality 的显式降级记录呈现；Semantic Snapshot 经投影
+进入 pinned `UiTreeSnapshot`（`@eN` 引用保留于 stable hint，映射后经 pinned
+validator 复验），见第 11.1 节。
+
 ## 7. Accessibility 与 Semantic Snapshot
 
 Accessibility 是 Mirage 理解标准桌面 GUI 的主要结构化数据来源。
@@ -504,6 +515,14 @@ Mira Host（`runtime/mira_host`）是 pinned `MiraRuntime` 实例的唯一 owner
   拒绝、interrupt 幂等）；Filesystem / Process 经宿主操作面（`begin_operation` /
   `admit_operation_completion`）以 Mirage Provider 返回值暴露给宿主侧驱动循环
   （[DEC-008](../decisions/DEC-008-m1-environment-binding-and-reference-providers.md)）。
+  `M2-06` 起 observe 面如实上报：capabilities 从绑定环境的 Provider 访问器推导
+  （foreground_app ← window、ui_tree ← window + accessibility；screen/input/
+  atomicity/skew bound/epoch 各按其真实缺口保持未声明），required 的
+  structure/foreground 映射到第 6 节的按需组装器并 fail closed，Semantic
+  Snapshot 投影为 pinned `UiTreeSnapshot`（`@eN` 引用入 stable hint、映射后经
+  pinned validator 复验）进入 Agent 观察面，optional 组件降级以 quality 记录
+  显式呈现；screen 像素与 discrete_input 保持未声明（M3 Mirador 视觉集成与
+  pinned 规范输入序列映射落地后再扩展）。
 - 产品层可见的任务进度是 pinned `TaskState` 的 M1 投影：`Idle`；`Active`（Observing/
   Reasoning/Planning/Acting/Verifying/Recovering）；`Paused`（Pausing/Paused/
   TakeoverSettling/SuspendedForTakeover）；`Cancelling`；终态 `Completed`/`Failed`/

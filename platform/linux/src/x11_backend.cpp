@@ -38,6 +38,7 @@ using mirage::desktop::InputOutcome;
 using mirage::desktop::KeyChord;
 using mirage::desktop::KeySym;
 using mirage::desktop::MouseButton;
+using mirage::desktop::PointerQueryOutcome;
 using mirage::desktop::ProviderError;
 using mirage::desktop::WindowActionOutcome;
 using mirage::desktop::WindowGeometry;
@@ -911,6 +912,39 @@ InputOutcome X11Backend::pointer_button(const MouseButton &button, bool pressed,
     if (!outcome.ok) {
         outcome.error = error("io_error", "button injection failed on the X server");
     }
+    return outcome;
+}
+
+PointerQueryOutcome X11Backend::pointer_position(const CancelToken &cancel) {
+    std::lock_guard<std::mutex> guard(mutex_);
+    pump_clipboard_locked();
+    PointerQueryOutcome outcome;
+    if (cancel.cancelled()) {
+        outcome.cancelled = true;
+        outcome.error = error("cancelled", "pointer query cancelled");
+        return outcome;
+    }
+    Window root_return = None;
+    Window child_return = None;
+    int root_x = 0;
+    int root_y = 0;
+    int win_x = 0;
+    int win_y = 0;
+    unsigned int mask = 0;
+    Display *display = connection_->display;
+    // Global desktop coordinates are root-window coordinates throughout the
+    // backend (window geometry, ROI capture), so the pointer query reports
+    // the same space. False means the pointer is on another screen (Zaphod
+    // multi-screen); this backend operates on one root, so that is an I/O
+    // condition, not a position.
+    const Bool on_screen = XQueryPointer(display, XDefaultRootWindow(display), &root_return,
+                                         &child_return, &root_x, &root_y, &win_x, &win_y, &mask);
+    if (!on_screen) {
+        outcome.error = error("io_error", "pointer is not on the queried screen");
+        return outcome;
+    }
+    outcome.ok = true;
+    outcome.position = {root_x, root_y};
     return outcome;
 }
 

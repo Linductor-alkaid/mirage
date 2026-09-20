@@ -4,7 +4,7 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-09-16
+> 更新日期：2026-09-20
 
 ## 当前状态
 
@@ -31,8 +31,11 @@ DesktopObservation schema v1.0，
 [DEC-005](../decisions/DEC-005-desktop-observation-contract.md)）、`M2-02`（X11
 骨架闭环，[DEC-015](../decisions/DEC-015-linux-backend-dependencies-and-event-loop.md)）、
 `M2-03`（AT-SPI2 AccessibilityProvider）、`M2-04`（Input / Clipboard 完整 +
-Permission 词表扩展）与 `M2-05`（Application / Notification Provider 与
-ScreenProvider 完整）已完成，后续工作项进行中。UI 并行轨道
+Permission 词表扩展）、`M2-05`（Application / Notification Provider 与
+ScreenProvider 完整）与 `M2-06`（Observation 组装与 runtime 接线：
+DesktopObservation 按需组装器、绑定 observe 面如实上报与 Semantic Snapshot
+进入 Agent 观察面、DEC-002 Mbed TLS 默认值复核冻结）已完成，后续工作项
+进行中。UI 并行轨道
 [M1.5](m1.5-ui-parallel-track.md) 已完成（wire schema 事实源
 [DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)、事件订阅、
 dev bridge、harness 前端壳）。
@@ -121,7 +124,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 
 | 编号 | 主题 | 暂定默认值 | 负责人 | 最迟冻结 |
 | --- | --- | --- | --- | --- |
-| DEC-002 | Mira TLS 通道适配器 | 关闭 Mbed TLS 适配器（OpenSSL 适配器可用即构建）；接入真实模型网关前复核 | Mirage 维护者 | M2 |
+| DEC-002 | Mira TLS 通道适配器 | 已定案（[DEC-002](../decisions/DEC-002-build-test-baseline.md) 变更记录）：`MIRA_WITH_MBEDTLS=OFF` 于 M2 复核冻结（运行面无模型网关/TLS 传输，mbedtls pinned 子模块在位可随时重开）；接入真实模型网关且通道要求 Mbed TLS 时按记录触发条件重开 | Mirage 维护者 | M2（已冻结） |
 | DEC-004 | Mira Host 状态集 | 已定案（[DEC-004](../decisions/DEC-004-mira-host-status-set.md)）：五态 `Stopped/Starting/Running/Stopping/Failed`，M1 冻结并写入设计文档第 11.1 节 | Mirage 维护者 | M1（已冻结） |
 | DEC-005 | DesktopObservation 契约 | 已定案（[DEC-005](../decisions/DEC-005-desktop-observation-contract.md)）：schema 1.0 字段集、结构化 SemanticSnapshot（预算 + 确定性渲染）、多提示 ElementTarget 与解析顺序契约（reference → accessibility → Mirador 视觉（M3）→ VLM 显式），M2-01 冻结 | Mirage 维护者 | M2（已冻结） |
 | DEC-006 | UI 技术路线与分发打包 | 已定案（[DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md)）：Web 前端 + 嵌入式渲染壳（暂定 CEF）独立进程；`.deb` / Windows `exe` 安装包。壳选型与更新通道为暂定默认值，M3 冻结 | Mirage 维护者 | M3 |

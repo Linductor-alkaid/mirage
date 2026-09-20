@@ -78,6 +78,8 @@ class X11Backend final : public mirage::desktop::WindowProvider,
     pointer_button(const mirage::desktop::MouseButton &button, bool pressed,
                    const mirage::desktop::InputLimits &limits,
                    const mirage::desktop::CancelToken &cancel) override;
+    mirage::desktop::PointerQueryOutcome
+    pointer_position(const mirage::desktop::CancelToken &cancel) override;
 
     mirage::desktop::ClipboardReadOutcome
     read_text(const mirage::desktop::ClipboardReadLimits &limits,

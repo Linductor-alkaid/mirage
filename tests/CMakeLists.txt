@@ -55,6 +55,18 @@ set_tests_properties(provider_contract_test PROPERTIES
     TIMEOUT 60
 )
 
+# M2-06 on-demand observation assembly: DesktopEnvironment-only unit tests
+# against the fake and partial-provider stub environments.
+add_executable(observation_assembler_test desktop/observation_assembler_test.cpp)
+target_compile_features(observation_assembler_test PUBLIC cxx_std_20)
+mirage_enable_warnings(observation_assembler_test)
+target_link_libraries(observation_assembler_test PRIVATE Mirage::desktop)
+add_test(NAME observation_assembler_test COMMAND observation_assembler_test)
+set_tests_properties(observation_assembler_test PROPERTIES
+    LABELS "unit"
+    TIMEOUT 60
+)
+
 # M2-02 Linux backend skeleton: exercised against a private headless Xvfb
 # (DEC-015). Built wherever the X11 dev packages exist; CI installs them.
 find_package(X11 QUIET)
@@ -71,6 +83,7 @@ if(X11_FOUND AND X11_Xtst_FOUND)
             Mirage::platform
             Mirage::desktop
             ${X11_X11_LIB}
+            ${X11_Xtst_LIB}
     )
     add_test(NAME x11_backend_test COMMAND x11_backend_test)
     set_tests_properties(x11_backend_test PROPERTIES
@@ -103,6 +116,31 @@ if(ATSPI_TEST_FOUND AND X11_FOUND)
         # invisible to TSan; every reported race lives in libglib/libgio,
         # none in Mirage code). Suppress exactly those system libraries;
         # races touching Mirage frames still fail the test.
+        ENVIRONMENT "TSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tests/support/tsan-glib.supp"
+    )
+endif()
+
+# M2-06 observation end-to-end (DEC-015 topology, M2 exit condition): the
+# MiraEnvironmentBinding observe() loop over the real Linux backends —
+# private D-Bus session with the wire-exact AT-SPI2 fixture desktop plus a
+# real Xvfb window. Same precondition as atspi_backend_test.
+if(ATSPI_TEST_FOUND AND X11_FOUND)
+    add_executable(observation_e2e_test integration/observation_e2e_test.cpp)
+    target_compile_features(observation_e2e_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(observation_e2e_test)
+    target_link_libraries(observation_e2e_test
+        PRIVATE
+            Mirage::mira_host
+            Mirage::integration_mira
+            Mirage::platform
+            Mirage::desktop
+            PkgConfig::ATSPI_TEST
+            ${X11_X11_LIB}
+    )
+    add_test(NAME observation_e2e_test COMMAND observation_e2e_test)
+    set_tests_properties(observation_e2e_test PROPERTIES
+        LABELS "integration"
+        TIMEOUT 120
         ENVIRONMENT "TSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tests/support/tsan-glib.supp"
     )
 endif()

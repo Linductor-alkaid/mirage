@@ -7,6 +7,7 @@
 #include <string>
 
 #include <mirage/desktop/cancellation.hpp>
+#include <mirage/desktop/desktop_observation.hpp>
 #include <mirage/desktop/provider_error.hpp>
 
 namespace mirage::desktop {
@@ -41,6 +42,15 @@ struct InputOutcome {
     ProviderError error; ///< meaningful only when ok is false
 };
 
+/// Outcome of one pointer position query. `position` is meaningful only
+/// when ok.
+struct PointerQueryOutcome {
+    bool ok = false;
+    bool cancelled = false;
+    PointerState position;
+    ProviderError error; ///< meaningful only when ok is false
+};
+
 /// Keyboard and pointer injection (design doc section 5).
 ///
 /// Input is the fallback path, not the preferred one: actions that can be
@@ -72,6 +82,13 @@ class InputProvider {
     /// Presses or releases a mouse button at the current pointer position.
     virtual InputOutcome pointer_button(const MouseButton &button, bool pressed,
                                         const InputLimits &limits, const CancelToken &cancel) = 0;
+
+    /// Queries the current pointer position in global desktop coordinates
+    /// (feeds the DesktopObservation pointer_state component, design doc
+    /// section 6). Read-only: no side effect, no injection.
+    virtual PointerQueryOutcome pointer_position(const CancelToken &cancel) = 0;
+
+    PointerQueryOutcome pointer_position() { return pointer_position(CancelToken{}); }
 
     /// Convenience overloads without cancellation and under default limits.
     InputOutcome inject_key(const KeySym &key, bool pressed, const InputLimits &limits) {

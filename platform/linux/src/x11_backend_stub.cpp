@@ -21,6 +21,7 @@ using mirage::desktop::InputLimits;
 using mirage::desktop::InputOutcome;
 using mirage::desktop::KeySym;
 using mirage::desktop::MouseButton;
+using mirage::desktop::PointerQueryOutcome;
 using mirage::desktop::WindowActionOutcome;
 using mirage::desktop::WindowGeometry;
 using mirage::desktop::WindowListLimits;
@@ -90,6 +91,10 @@ InputOutcome X11Backend::pointer_move(std::int32_t, std::int32_t, const InputLim
 
 InputOutcome X11Backend::pointer_button(const MouseButton &, bool, const InputLimits &,
                                         const CancelToken &) {
+    std::abort(); // unreachable: open() is null in this build
+}
+
+PointerQueryOutcome X11Backend::pointer_position(const CancelToken &) {
     std::abort(); // unreachable: open() is null in this build
 }
 

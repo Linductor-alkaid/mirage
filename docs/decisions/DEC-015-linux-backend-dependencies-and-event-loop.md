@@ -96,6 +96,28 @@
 
 ## 变更记录
 
+- 2026-09-20（`M2-06`）：observe 接线落地后的两项评估结论。
+  1. **剪贴板 pump / glib 事件循环升级形态：维持机会性 pump，专用 worker 延后**。
+     评估：M2-06 将 Semantic Snapshot 接入绑定 observe 面后，agent 驱动负载的
+     Provider 调用节奏（observe → act 周期内每次 Provider 方法入口即 pump）使
+     selection 服务延迟上界保持为一次 Provider 调用；升级形态（第 3 条的
+     Executor blocking I/O worker 承载 X selection 事件循环与 glib 主循环）消除
+     的只是 agent 空闲期的纯 X 客户端 paste 等待，该场景属产品级交互（M5 设置面/
+     tray 常驻形态），不在 M2 验收面内。引入专用 worker 需要新的 glib/X 事件循环
+     线程边界与关闭顺序（EXEC-03），收益面不支付其复杂度。触发重评条件：产品
+     常驻形态（M5）将空闲期 paste 时延列为验收要求，或出现需要事件驱动快照增量
+     （AT-SPI2 事件流）的实现项。在此之前不自建线程（RULE-03）。
+  2. **`InputLimits.timeout` 强制收敛：维持调用方执行上下文承载**。绑定 observe
+     面无输入派发路径（`discrete_input` 未声明、`execute` 恒 Rejected），输入
+     动作仍经 harness 驱动循环（步骤间取消检查）与消费方选择的 Executor 执行
+     上下文收敛；Xlib 单调用无内在超时机制为已知平台边界，M4 Windows 侧同理
+     （消息循环线程亲和）。该边界如实记录于 Provider 契约注释，不虚报可中断性
+     （`input_release` 不声明）。
+  另外，M2-04 起挂账的 `runtime_service_test` 高负载偶发失败已定性并修复（测试
+  侧 5 s 调用预算兼作时序断言，并行 ctest CPU 超订下双 worker 服务可合法滞后
+  数秒；隔离运行毫秒级），各服务测试的活跃性预算放宽为 30 s，设计内延迟探针
+  保持不变。
+
 - 2026-09-19（`M2-05`）：第 3 条兑现——Application / Notification 前端以
   gio-unix 家族落地（`application_backend` / `notification_backend` 及各自
   stub，缺 `gio-unix-2.0` 开发包时访问器 null fail closed）。运行实例语义：

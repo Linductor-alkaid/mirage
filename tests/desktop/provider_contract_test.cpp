@@ -352,6 +352,65 @@ void key_name_and_utf8_helpers() {
     MIRAGE_CHECK(!mirage::desktop::is_valid_utf8("ok\xc3\x28"));       // bad continuation
 }
 
+/// M2-06 pointer query contract: pointer_position is the read-only half of
+/// the input surface feeding the DesktopObservation pointer_state component.
+/// Cancellation is observed before the result, the position comes from the
+/// provider's tracked state, successful pointer_move calls update it, and a
+/// query is side-effect free (no injection, no state change).
+void pointer_position_contract() {
+    mirage::testing::FakeDesktopEnvironment env;
+    mirage::desktop::InputProvider &provider = *env.input();
+
+    // A fresh environment tracks the origin until something moves it.
+    const auto initial = provider.pointer_position();
+    MIRAGE_CHECK(initial.ok);
+    MIRAGE_CHECK(!initial.cancelled);
+    MIRAGE_CHECK(initial.error.code.empty());
+    MIRAGE_CHECK(initial.position.x == 0);
+    MIRAGE_CHECK(initial.position.y == 0);
+    MIRAGE_CHECK(initial.position.x == env.pointer.x);
+    MIRAGE_CHECK(initial.position.y == env.pointer.y);
+
+    // A successful pointer_move updates the reported position.
+    const auto moved = provider.pointer_move(42, 7);
+    MIRAGE_CHECK(moved.ok);
+    MIRAGE_CHECK(env.pointer.x == 42);
+    MIRAGE_CHECK(env.pointer.y == 7);
+    const auto after_move = provider.pointer_position();
+    MIRAGE_CHECK(after_move.ok);
+    MIRAGE_CHECK(after_move.position.x == 42);
+    MIRAGE_CHECK(after_move.position.y == 7);
+
+    // Negative coordinates are ordinary positions (global desktop space).
+    MIRAGE_CHECK(provider.pointer_move(-3, -4).ok);
+    const auto negative = provider.pointer_position();
+    MIRAGE_CHECK(negative.ok);
+    MIRAGE_CHECK(negative.position.x == -3);
+    MIRAGE_CHECK(negative.position.y == -4);
+
+    // A query is read-only: no injection log entries, no position change.
+    const std::size_t log_size = env.input_log.size();
+    const auto repeat = provider.pointer_position();
+    MIRAGE_CHECK(repeat.ok);
+    MIRAGE_CHECK(repeat.position.x == -3);
+    MIRAGE_CHECK(repeat.position.y == -4);
+    MIRAGE_CHECK(env.pointer.x == -3);
+    MIRAGE_CHECK(env.pointer.y == -4);
+    MIRAGE_CHECK(env.input_log.size() == log_size);
+
+    // Cancellation precedes the result: cancelled outcome, position state
+    // untouched.
+    CancelToken cancel;
+    cancel.request_cancel();
+    const auto cancelled = provider.pointer_position(cancel);
+    MIRAGE_CHECK(!cancelled.ok);
+    MIRAGE_CHECK(cancelled.cancelled);
+    MIRAGE_CHECK(cancelled.error.code == "cancelled");
+    MIRAGE_CHECK(env.pointer.x == -3);
+    MIRAGE_CHECK(env.pointer.y == -4);
+    MIRAGE_CHECK(env.input_log.size() == log_size);
+}
+
 void clipboard_provider_contract() {
     mirage::testing::FakeDesktopEnvironment env;
     mirage::desktop::ClipboardProvider &provider = *env.clipboard();
@@ -1083,6 +1142,7 @@ int main() {
     accessibility_empty_snapshot_and_boundary();
     application_argument_validation();
     cancellation_leaves_state_unchanged();
+    pointer_position_contract();
     element_target_hint_edges();
     snapshot_rendering_edges();
     screen_and_notification_edges();
