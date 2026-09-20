@@ -1,4 +1,5 @@
 add_library(mirage_integration_mirador STATIC
+    src/fake_visual_backend.cpp
     src/mirador_service.cpp
 )
 add_library(Mirage::integration_mirador ALIAS mirage_integration_mirador)
