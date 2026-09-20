@@ -199,9 +199,10 @@ void scenario_cancel_running_task_mid_action() {
         service.run();
         return;
     }
-    const auto live = wait_for(
-        config.socket_path, *task_id, kCallBudget,
-        [&pid_file](const ipc::InspectTask &) { return std::filesystem::exists(pid_file); });
+    const auto live =
+        wait_for(config.socket_path, *task_id, kCallBudget, [&pid_file](const ipc::InspectTask &) {
+            return std::filesystem::exists(pid_file);
+        });
     MIRAGE_CHECK(live.has_value());
 
     // Cancel over IPC: acknowledged with the task id and a sensible progress.
@@ -221,8 +222,8 @@ void scenario_cancel_running_task_mid_action() {
     // rest skipped. The pinned progress can flip a poll slice before the
     // driver finishes marking steps, so wait for the full converged shape.
     const auto started = std::chrono::steady_clock::now();
-    const auto done = wait_for(
-        config.socket_path, *task_id, kCallBudget, [](const ipc::InspectTask &view) {
+    const auto done =
+        wait_for(config.socket_path, *task_id, kCallBudget, [](const ipc::InspectTask &view) {
             return view.progress == "Cancelled" && view.steps.size() == 3 &&
                    view.steps[0].status == "cancelled" && view.steps[1].status == "skipped" &&
                    view.steps[2].status == "skipped";
