@@ -142,3 +142,64 @@ GCC 13.3.0，工作树增量 + /tmp 冷构建交叉验证；原始日志 `/tmp/v
 `DEC-018` 阶段 1 转正使几何区域提议契约计入上游兼容性承诺，为 M3 的
 `M3-04` 消费提供契约稳定性前提；`mirador::geometry` 等模块目标的显式链接
 与运行时行为回归由 M3 工作项（`M3-02` / `M3-04`）承接。
+
+---
+
+## 2026-09-20：mirador → fff7f15（v0.3.0-2，docs-only）
+
+- **分支**：`chore/deps-mirador-integration-skill`（升级前 mirador pin 在
+  `6fa92ec`，即 v0.3.0 tag）。
+- **动机**：上游在 v0.3.0 之后新增下游集成 skill
+  （`docs/skill/mirador-integration/`：1 个路由 `SKILL.md` + 12 张按需加载
+  参考卡，卡片代码经上游对照 v0.3.0 编译运行验证）与 README showcase 重构
+  （含中文版）。M3（`M3-01` / `M3-02` 起）是 pin 的首个大规模消费面，按
+  AGENTS.md「先使用 pinned 依赖自带的资源、按其路由说明加载」的纪律，将
+  skill 纳入 pin 使其可在检出位置原位读取（skill adoption 卡推荐路径）。
+  无 Mirage 侧能力缺口驱动（`docs/dependency_feedback/ledger.md` 本次无
+  新增条目）。
+
+### 版本差异
+
+| 依赖 | 旧 pin | 新 pin | 上游主要交付 |
+| --- | --- | --- | --- |
+| mirador | `6fa92ec`（v0.3.0 tag） | `fff7f15`（v0.3.0-2） | `6fa92ec..fff7f15` 全部为 docs：`670617b` README showcase 重构 + 中文版；`fff7f15` 新增 `docs/skill/mirador-integration/`（路由 + 参考卡）。**`include/` 零变化**（`git diff --name-only` 过滤 `docs/`、README 后为空） |
+| mirador → googletest | `063de7e` | 不变 | — |
+| mira / executor / mbedtls | 不变（`cf0af75` / `2ae4fc8` / `068ff08`） | — | — |
+
+### Mirage 接触面 API 影响分析
+
+Mirage 现有接触面（`integration/mirador` 的 `mirador::core`：`pixel_format`、
+`backend_info`）在区间内零 diff。skill 内容为使用指引（quick-start、帧与
+坐标空间、后端 SPI、会话与缓存、融合与快照、SoM、几何、视觉索引及场景 /
+需求 / API 索引），不改变任何公共头契约；其中与 M3 契约相关的增量信息
+（`mirador::fusion` 为会话管线的最高层链接目标、`kDisplay` 证据参与融合时
+`FusionOptions::display_transform` 必填、stable id 仅 session 内唯一且以
+`is_generation_current` 判定失效、视觉索引 `query` 非 const 等）将由
+`DEC-016`（`M3-01`）吸收并落 Mirage 侧契约。
+
+**结论：本次升级对 Mirage 是纯指针前滚（docs-only），无 API 适配需求。**
+
+### 许可证核对
+
+- mirador：MIT（不变）；googletest：BSD-3-Clause（不变）。mira（UNLICENSED
+  注记维持）、executor（MIT）、mbedtls（Apache-2.0 / GPL-2.0-or-later）、
+  sqlite（Public Domain，vendored，audit-only）均不变。skill 文档随 pin
+  一并以 MIT 接收，不复制进 Mirage 自有文档树（原位读取，升级时随 pin
+  刷新）。
+
+### 回归验证证据
+
+- **pin 校验**：`cmake --preset debug` configure 通过，5/5 pin verified
+  （mira `cf0af75`、executor `2ae4fc8`、mbedtls `068ff08`、mirador `fff7f15`
+  （本次新 pin）、googletest `063de7e`），与 `dependencies.lock.json` 一致。
+- **未覆盖项**：debug/release/asan/ubsan/tsan 构建与 ctest 矩阵本次未重跑。
+  理由：区间零 `include/` 变化，构建与测试的输入（编译单元、链接目标）
+  相对前一 pin（v0.3.0，五预设 24/24 全绿的取证见上一条目）逐字节不变，
+  重跑不产生新信息；矩阵随 `M3-01` 的常规验证在其工作树上继续覆盖。
+
+### 审计结论
+
+通过。submodule 指针与 `dependencies.lock.json` 同步更新于同一变更；
+docs-only 增量，无许可证变化、无 API 适配。`docs/skill/mirador-integration/`
+自本 pin 起为 Mirage 侧 mirador 集成工作的按需路由资源（AGENTS.md 纪律），
+其建议与 pinned 公开头冲突时以头文件契约为准。
