@@ -971,7 +971,7 @@ void scenario_disconnect_mid_task_cleans_up() {
 /// frames, even for tasks submitted afterwards.
 void scenario_unsubscribe_stops_event_delivery() {
     mirage::testing::TempDir dir;
-    const ServiceConfig config = make_config(dir);
+    ServiceConfig config = make_config(dir);
     // The post-detach task settles only as fast as the congested serial
     // context allows; under runner load a 10 s step_timeout can turn the
     // sleep step into a spurious Failed and the 30 s terminal budget into a
