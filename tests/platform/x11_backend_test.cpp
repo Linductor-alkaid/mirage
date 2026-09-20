@@ -27,6 +27,7 @@
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/extensions/XTest.h>
 #include <X11/keysym.h>
 
 namespace {
@@ -1036,6 +1037,94 @@ void clipboard_large_self_incremental(XvfbDisplay &server, TestClient &client) {
     MIRAGE_CHECK(clipboard.read_text(big_read, {}).content == "reset");
 }
 
+/// M2-06 pointer query against the real server: pointer_position reports
+/// root-window (global desktop) coordinates, agrees with independently
+/// injected XTest motions, is side-effect free (no motion events, focus
+/// untouched) and observes cancellation before the query.
+void pointer_position_queries(XvfbDisplay &server, TestClient &client) {
+    LinuxDesktopEnvironment env({}, {.enabled = true, .display = server.display_name()});
+    mirage::desktop::InputProvider &input = *env.input();
+    Display *display = client.get();
+
+    // Baseline: a stationary pointer yields a stable position across
+    // repeated queries (XQueryPointer, root-window space).
+    const auto baseline = input.pointer_position();
+    MIRAGE_CHECK(baseline.ok);
+    const auto repeat = input.pointer_position();
+    MIRAGE_CHECK(repeat.ok);
+    MIRAGE_CHECK(repeat.position.x == baseline.position.x);
+    MIRAGE_CHECK(repeat.position.y == baseline.position.y);
+
+    // A listener window proves the query itself delivers no events, and
+    // carries the input focus for the no-side-effect check.
+    const Window listener = client.make_window(0, 0, 640, 480, rgb(3, 2, 1), "pointer-query");
+    XSelectInput(display, listener, PointerMotionMask);
+    XSetInputFocus(display, listener, RevertToParent, CurrentTime);
+    XSync(display, False);
+    while (XPending(display) > 0) {
+        XEvent drained{};
+        XNextEvent(display, &drained);
+    }
+
+    // Move the pointer with the TEST client's own XTest connection (not the
+    // backend's writer), then query: the backend reads the real global
+    // position.
+    MIRAGE_CHECK(XTestFakeMotionEvent(display, -1, 111, 222, CurrentTime) == True);
+    XSync(display, False);
+    XEvent event{};
+    MIRAGE_CHECK(client.next_event(event)); // the server processed the motion
+    MIRAGE_CHECK(event.type == MotionNotify);
+    const auto moved = input.pointer_position();
+    MIRAGE_CHECK(moved.ok);
+    MIRAGE_CHECK(moved.position.x == 111);
+    MIRAGE_CHECK(moved.position.y == 222);
+
+    MIRAGE_CHECK(XTestFakeMotionEvent(display, -1, 333, 44, CurrentTime) == True);
+    XSync(display, False);
+    MIRAGE_CHECK(client.next_event(event));
+    const auto moved_again = input.pointer_position();
+    MIRAGE_CHECK(moved_again.ok);
+    MIRAGE_CHECK(moved_again.position.x == 333);
+    MIRAGE_CHECK(moved_again.position.y == 44);
+
+    // A query is read-only: the position stays, no motion event is delivered
+    // to the listener, and the input focus is untouched.
+    const auto quiet = input.pointer_position();
+    MIRAGE_CHECK(quiet.ok);
+    MIRAGE_CHECK(quiet.position.x == 333);
+    MIRAGE_CHECK(quiet.position.y == 44);
+    MIRAGE_CHECK(!client.next_event(event, 150)); // deadline: query generated nothing
+    const auto front = env.window()->front_window();
+    MIRAGE_CHECK(front.ok);
+    MIRAGE_CHECK(front.found);
+    MIRAGE_CHECK(front.window.id == hex_id(listener));
+
+    // Cancellation is observed before the query.
+    CancelToken cancel;
+    cancel.request_cancel();
+    const auto cancelled = input.pointer_position(cancel);
+    MIRAGE_CHECK(!cancelled.ok);
+    MIRAGE_CHECK(cancelled.cancelled);
+    MIRAGE_CHECK(cancelled.error.code == "cancelled");
+    const auto after_cancel = input.pointer_position();
+    MIRAGE_CHECK(after_cancel.ok);
+    MIRAGE_CHECK(after_cancel.position.x == 333);
+    MIRAGE_CHECK(after_cancel.position.y == 44);
+
+    // The backend's own pointer_move writer agrees with the query.
+    MIRAGE_CHECK(input.pointer_move(50, 40).ok);
+    MIRAGE_CHECK(client.next_event(event)); // drain the injected motion
+    MIRAGE_CHECK(event.type == MotionNotify);
+    const auto via_move = input.pointer_position();
+    MIRAGE_CHECK(via_move.ok);
+    MIRAGE_CHECK(via_move.position.x == 50);
+    MIRAGE_CHECK(via_move.position.y == 40);
+    while (XPending(display) > 0) {
+        XEvent drained{};
+        XNextEvent(display, &drained);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -1060,6 +1149,7 @@ int main() {
         window_enumeration_and_activation(server, client);
         capture_paths(server, client);
         input_injection_events(server, client);
+        pointer_position_queries(server, client);
         negative_and_boundary_edges(server, client);
         environment_identity_and_defaults(server);
         clipboard_same_backend_roundtrips(server);
