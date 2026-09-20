@@ -508,3 +508,49 @@ set_tests_properties(visual_observation_loop_test PROPERTIES
     LABELS "unit"
     TIMEOUT 120
 )
+
+# M3-04 visual template cache and geometry proposals (DEC-016 decision 3):
+# the per-source VisualTemplateIndex over the pinned mirador VisualIndex
+# (creation validation, clear-winner reuse policy, capacity/eviction
+# reconciliation) and the session host's enrollment / probe / geometry stages
+# on a real Executor blocking worker, including the template_id resolution
+# closed loop into ElementTargetExecutor. mirador::fusion is a PRIVATE
+# dependency of mirage_integration_mirador, so the pinned include dirs no
+# longer propagate transitively; the test asserts mirador Status / geometry
+# semantics directly and needs them (same shape as visual_session_test).
+add_executable(visual_template_index_test integration/visual_template_index_test.cpp)
+target_compile_features(visual_template_index_test PUBLIC cxx_std_20)
+mirage_enable_warnings(visual_template_index_test)
+target_link_libraries(visual_template_index_test
+    PRIVATE
+        Mirage::integration_mirador
+        mirador::fusion
+)
+add_test(NAME visual_template_index_test COMMAND visual_template_index_test)
+set_tests_properties(visual_template_index_test PROPERTIES
+    LABELS "unit"
+    TIMEOUT 60
+)
+
+add_executable(visual_cache_geometry_test integration/visual_cache_geometry_test.cpp)
+target_compile_features(visual_cache_geometry_test PUBLIC cxx_std_20)
+mirage_enable_warnings(visual_cache_geometry_test)
+target_link_libraries(visual_cache_geometry_test
+    PRIVATE
+        Mirage::integration_mirador
+        mirador::fusion
+)
+# The session host drives the pinned Executor directly (the per-source
+# blocking worker); headers are consumed as SYSTEM headers and the library is
+# linked by file path (same consumption form as visual_session_test).
+target_include_directories(visual_cache_geometry_test SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include"
+)
+target_link_libraries(visual_cache_geometry_test PRIVATE
+    $<TARGET_FILE:executor::executor>
+)
+add_test(NAME visual_cache_geometry_test COMMAND visual_cache_geometry_test)
+set_tests_properties(visual_cache_geometry_test PROPERTIES
+    LABELS "unit"
+    TIMEOUT 120
+)
