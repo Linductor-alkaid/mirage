@@ -434,3 +434,33 @@ set_tests_properties(fake_visual_backend_test PROPERTIES
     LABELS "unit"
     TIMEOUT 60
 )
+
+# M3-02 mirador integration adapter (DEC-016 decisions 3/4/5): the execution
+# context and frame translations, the bounded backend registry and the
+# latest-wins visual session host, including cancellation, supersede, stop
+# settlement and first-frame scenarios on a real Executor blocking worker.
+# mirador::fusion is a PRIVATE dependency of mirage_integration_mirador, so
+# the pinned include dirs no longer propagate transitively; the test asserts
+# mirador Status / geometry semantics directly and needs them.
+add_executable(visual_session_test integration/visual_session_test.cpp)
+target_compile_features(visual_session_test PUBLIC cxx_std_20)
+mirage_enable_warnings(visual_session_test)
+target_link_libraries(visual_session_test
+    PRIVATE
+        Mirage::integration_mirador
+        mirador::fusion
+)
+# The session adapter drives the pinned Executor directly (the per-source
+# blocking worker); headers are consumed as SYSTEM headers and the library is
+# linked by file path (same consumption form as mirage_devbridge_core).
+target_include_directories(visual_session_test SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include"
+)
+target_link_libraries(visual_session_test PRIVATE
+    $<TARGET_FILE:executor::executor>
+)
+add_test(NAME visual_session_test COMMAND visual_session_test)
+set_tests_properties(visual_session_test PROPERTIES
+    LABELS "unit"
+    TIMEOUT 120
+)

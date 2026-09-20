@@ -1,6 +1,10 @@
 add_library(mirage_integration_mirador STATIC
     src/fake_visual_backend.cpp
     src/mirador_service.cpp
+    src/visual_backend_registry.cpp
+    src/visual_execution_context.cpp
+    src/visual_frame.cpp
+    src/visual_session_host.cpp
 )
 add_library(Mirage::integration_mirador ALIAS mirage_integration_mirador)
 
@@ -11,6 +15,28 @@ target_include_directories(mirage_integration_mirador
 target_compile_features(mirage_integration_mirador PUBLIC cxx_std_20)
 mirage_enable_warnings(mirage_integration_mirador)
 
-# Pinned mirador core, consumed in-tree from third_party/mirador (DEC-001).
-# PRIVATE: pinned headers must not leak through Mirage's public interface.
-target_link_libraries(mirage_integration_mirador PRIVATE mirador::core)
+# Pinned mirador session pipeline, consumed in-tree from third_party/mirador
+# (DEC-001). Per the M3-02 consumption face the integration links the highest
+# module it uses: mirador::fusion carries the PerceptionSession and PUBLICly
+# pulls mirador::image (frame conversion kernels) and mirador::cache; Mirage
+# consumes neither mirador::geometry nor mirador::render yet. PRIVATE: pinned
+# headers must not leak through Mirage's public interface.
+target_link_libraries(mirage_integration_mirador
+    PUBLIC
+        Mirage::desktop
+    PRIVATE
+        mirador::fusion
+)
+
+# The M3-02 session adapter drives the pinned Executor fabric directly (the
+# per-source blocking worker, DEC-016 decision 4); headers are consumed as
+# SYSTEM headers so the pinned library's own warning hygiene stays out of
+# Mirage's -Werror build, and the library is linked by file path so its
+# non-SYSTEM interface include dirs do not leak into this target (same
+# consumption form as the runtime service).
+target_include_directories(mirage_integration_mirador SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include"
+)
+target_link_libraries(mirage_integration_mirador PRIVATE
+    $<TARGET_FILE:executor::executor>
+)
