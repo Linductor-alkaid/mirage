@@ -9,13 +9,23 @@
 #include <mirage/desktop/observation_assembler.hpp>
 #include <mirage/desktop/process_provider.hpp>
 #include <mirage/desktop/semantic_snapshot.hpp>
+#include <mirage/desktop/visual_reference_registry.hpp>
+#include <mirage/integration/fake_visual_backend.hpp>
 #include <mirage/integration/mira_environment_binding.hpp>
+#include <mirage/integration/visual_observation_pipeline.hpp>
 #include <mirage/platform/linux/linux_desktop_environment.hpp>
 #include <mirage/runtime/mira_host.hpp>
 
+#include <executor/executor.hpp>
+
+#include <mirador/pixel_format.hpp>
+
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <set>
 #include <string>
 #include <system_error>
@@ -660,7 +670,476 @@ void fake_observe_honours_operation_cancellation_and_deadlines() {
     MIRAGE_CHECK(healthy.has_value());
 }
 
+// ---- M3-05: the wired visual surface (EnvironmentVisualPipeline + artifact
+// store) over the fake environment's screen provider -------------------------
+//
+// The scenarios below wire a real VisualObservationPipeline (fake OCR /
+// detection backends on an Executor blocking worker) and a MemoryArtifactStore
+// into the binding, so the capture -> artifact publication -> session analysis
+// -> registry publication cycle and the required/optional visual policy are
+// observable without an X server. The fake backends are deterministic and
+// identity-semantics only; nothing here speaks about real model quality
+// (RULE-08).
+
+struct WiredVisualOptions {
+    bool with_store = true;
+    bool with_backends = true;
+    bool run_ocr = true;
+    bool run_detector = true;
+    bool start_pipeline = true;
+    std::size_t store_bytes = std::size_t{256} << 20;
+    /// Session / worker identity; empty derives a unique name (the executor
+    /// registers blocking workers by name for its whole lifetime, so every
+    /// fixture on the shared executor needs its own).
+    std::string source_id;
+};
+
+struct WiredVisualFixture {
+    std::shared_ptr<mirage::testing::FakeDesktopEnvironment> env =
+        std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    std::unique_ptr<desktop::VisualReferenceRegistry> registry =
+        std::make_unique<desktop::VisualReferenceRegistry>();
+    std::unique_ptr<integration::FakeOcrBackend> ocr;
+    std::unique_ptr<integration::FakeDetectorBackend> detector;
+    std::unique_ptr<mira::MemoryArtifactStore> store;
+    std::unique_ptr<integration::VisualObservationPipeline> pipeline;
+    std::unique_ptr<integration::MiraEnvironmentBinding> binding;
+};
+
+/// One 640x480 primary display "d1" at the origin, a seeded focused window
+/// and (optionally) the full visual wiring, pipeline started per options.
+WiredVisualFixture make_wired_visual_fixture(executor::Executor &executor,
+                                             const WiredVisualOptions &options = {}) {
+    WiredVisualFixture fixture;
+    fixture.env->displays.push_back({"d1", {0, 0, 640, 480}, true});
+    seed_fake_desktop(*fixture.env);
+
+    if (options.with_backends) {
+        integration::FakeOcrConfig ocr_config;
+        ocr_config.info.accepted_formats = {mirador::PixelFormat::kBgra8};
+        fixture.ocr = std::make_unique<integration::FakeOcrBackend>(ocr_config);
+        integration::FakeDetectorConfig detector_config;
+        detector_config.info.accepted_formats = {mirador::PixelFormat::kBgra8};
+        fixture.detector = std::make_unique<integration::FakeDetectorBackend>(detector_config);
+    }
+    if (options.with_store) {
+        fixture.store = std::make_unique<mira::MemoryArtifactStore>(options.store_bytes);
+    }
+    static int fixture_counter = 0;
+    integration::VisualObservationPipelineConfig config;
+    config.source_id = options.source_id.empty()
+                           ? "mirage.fake.screen-" + std::to_string(++fixture_counter)
+                           : options.source_id;
+    config.session.ocr_backend = fixture.ocr.get();
+    config.session.detector_backend = fixture.detector.get();
+    config.display_id = "d1";
+    config.run_ocr = options.run_ocr;
+    config.run_detector = options.run_detector;
+    fixture.pipeline = std::make_unique<integration::VisualObservationPipeline>(
+        executor, *fixture.env->screen(), *fixture.registry, config);
+    if (options.start_pipeline) {
+        std::string error;
+        MIRAGE_CHECK(fixture.pipeline->start(error));
+    }
+    integration::MiraEnvironmentBinding::VisualWiring wiring;
+    wiring.pipeline = fixture.pipeline.get();
+    wiring.artifacts = fixture.store.get();
+    fixture.binding = std::make_unique<integration::MiraEnvironmentBinding>(fixture.env, wiring);
+    return fixture;
+}
+
+bool is_nonzero_digest(const mira::Sha256Digest &digest) {
+    for (const std::uint8_t byte : digest.bytes) {
+        if (byte != 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void wired_visual_capabilities_are_reported_honestly(executor::Executor &executor) {
+    // The whole cycle must be wired and live: pipeline + artifact store +
+    // started session + screen provider. Each missing piece keeps the visual
+    // surface undeclared.
+    {
+        const WiredVisualFixture fixture = make_wired_visual_fixture(executor);
+        const auto capabilities = fixture.binding->capabilities();
+        MIRAGE_CHECK(capabilities.screen_capture);
+        MIRAGE_CHECK(capabilities.perception_sources == 1);
+        MIRAGE_CHECK(capabilities.foreground_app);
+        MIRAGE_CHECK(capabilities.ui_tree);
+    }
+    { // A pipeline without a store could not deliver the pinned payload
+      // record, so it must not claim the screen surface.
+        WiredVisualOptions options;
+        options.with_store = false;
+        const WiredVisualFixture fixture = make_wired_visual_fixture(executor, options);
+        const auto capabilities = fixture.binding->capabilities();
+        MIRAGE_CHECK(!capabilities.screen_capture);
+        MIRAGE_CHECK(capabilities.perception_sources == 0);
+    }
+    { // Wired but not started: the session cannot serve a refresh yet.
+        WiredVisualOptions options;
+        options.start_pipeline = false;
+        const WiredVisualFixture fixture = make_wired_visual_fixture(executor, options);
+        const auto capabilities = fixture.binding->capabilities();
+        MIRAGE_CHECK(!capabilities.screen_capture);
+        MIRAGE_CHECK(capabilities.perception_sources == 0);
+    }
+    { // Stopping the pipeline withdraws the declaration (the host is
+      // one-shot, so this is the terminal state of the scenario).
+        WiredVisualFixture fixture = make_wired_visual_fixture(executor);
+        MIRAGE_CHECK(fixture.binding->capabilities().screen_capture);
+        fixture.pipeline->stop();
+        MIRAGE_CHECK(!fixture.pipeline->running());
+        const auto capabilities = fixture.binding->capabilities();
+        MIRAGE_CHECK(!capabilities.screen_capture);
+        MIRAGE_CHECK(capabilities.perception_sources == 0);
+    }
+}
+
+void wired_required_screen_delivers_a_validator_clean_frame(executor::Executor &executor) {
+    WiredVisualFixture fixture = make_wired_visual_fixture(executor);
+
+    mira::ObservationRequest request;
+    request.required.screen = true;
+    const auto result = fixture.binding->observe(request, mira::make_control_context());
+    MIRAGE_CHECK(result.has_value());
+    if (!result.has_value()) {
+        std::fprintf(stderr, "observe failed: %s\n", result.error().safe_message.c_str());
+        return;
+    }
+    const mira::Observation &observation = result.value();
+    MIRAGE_CHECK(observation.screen.has_value());
+    if (!observation.screen.has_value()) {
+        return;
+    }
+    const mira::ScreenFrameDescriptor &frame = observation.screen->value;
+    MIRAGE_CHECK(mira::validate_frame_descriptor(frame).has_value());
+    MIRAGE_CHECK(frame.width_pixels == 640);
+    MIRAGE_CHECK(frame.height_pixels == 480);
+    MIRAGE_CHECK(frame.pixel_format == mira::PixelFormat::BGRA8888);
+    MIRAGE_CHECK(frame.color_space == mira::ColorSpace::SRGB);
+    MIRAGE_CHECK(frame.alpha_mode == mira::AlphaMode::Opaque);
+    MIRAGE_CHECK(frame.native_rotation == mira::Rotation::Rotation0);
+    MIRAGE_CHECK(frame.planes.size() == 1);
+    if (frame.planes.size() == 1) {
+        MIRAGE_CHECK(frame.planes[0].offset == 0);
+        MIRAGE_CHECK(frame.planes[0].row_stride == 640U * 4U);
+        MIRAGE_CHECK(frame.planes[0].pixel_stride == 4);
+        MIRAGE_CHECK(frame.planes[0].width == 640);
+        MIRAGE_CHECK(frame.planes[0].height == 480);
+    }
+    MIRAGE_CHECK(frame.payload_media_type == "image/x-bgra8888");
+    MIRAGE_CHECK(frame.payload_byte_size == std::size_t{640} * 4U * 480U);
+    MIRAGE_CHECK(is_nonzero_digest(frame.payload_digest));
+    MIRAGE_CHECK(observation.screen->provenance.source == "mirage.desktop.screen");
+    MIRAGE_CHECK(observation.screen->provenance.method == "screen-capture");
+    MIRAGE_CHECK(observation.screen->quality == mira::ComponentQuality::Good);
+
+    // The display id maps onto this observation's topology entry for "d1".
+    MIRAGE_CHECK(observation.topology.displays.size() == 1);
+    if (observation.topology.displays.size() == 1) {
+        MIRAGE_CHECK(frame.display_id == observation.topology.displays[0].id);
+    }
+
+    // The payload reopens through the wired store and holds exactly the
+    // captured bytes (uniform 0x5A fill of the fake provider).
+    mira::ArtifactDescriptor record;
+    record.id = frame.payload_artifact;
+    record.digest = frame.payload_digest;
+    record.byte_size = frame.payload_byte_size;
+    record.media_type = frame.payload_media_type;
+    const auto reopened = fixture.store->open(record);
+    MIRAGE_CHECK(reopened.has_value());
+    if (reopened.has_value()) {
+        MIRAGE_CHECK(reopened.value().size() == frame.payload_byte_size);
+        MIRAGE_CHECK(reopened.value().bytes().size() == frame.payload_byte_size);
+        if (reopened.value().bytes().size() == frame.payload_byte_size) {
+            MIRAGE_CHECK(std::to_integer<unsigned>(reopened.value().bytes().front()) == 0x5AU);
+        }
+    }
+
+    // A screen-only request stays a capture-only refresh: no analysis ran,
+    // no perception is claimed, quality stays clean.
+    MIRAGE_CHECK(observation.perception.empty());
+    MIRAGE_CHECK(observation.quality.overall == mira::ComponentQuality::Good);
+    MIRAGE_CHECK(observation.quality.degradations.empty());
+    MIRAGE_CHECK(fixture.env->capture_calls == 1);
+    MIRAGE_CHECK(fixture.ocr->calls() == 0);
+    MIRAGE_CHECK(fixture.detector->calls() == 0);
+    MIRAGE_CHECK(fixture.registry->size() == 0); // nothing was published
+}
+
+void wired_required_perception_projects_published_regions(executor::Executor &executor) {
+    WiredVisualFixture fixture = make_wired_visual_fixture(executor);
+
+    mira::ObservationRequest request;
+    request.required.perception = 1;
+    const auto result = fixture.binding->observe(request, mira::make_control_context());
+    MIRAGE_CHECK(result.has_value());
+    if (!result.has_value()) {
+        std::fprintf(stderr, "observe failed: %s\n", result.error().safe_message.c_str());
+        return;
+    }
+    const mira::Observation &observation = result.value();
+
+    // The fake fusion merges the full-view OCR and detection evidence into
+    // one region: kOcr form, deterministic text, frame-range bounds in
+    // global desktop coordinates (the display sits at the origin).
+    MIRAGE_CHECK(observation.perception.size() == 1);
+    if (observation.perception.size() == 1) {
+        const mira::PerceptionEvidence &evidence = observation.perception[0].value;
+        MIRAGE_CHECK(!evidence.id.is_nil());
+        MIRAGE_CHECK(evidence.kind == "ocr.text");
+        MIRAGE_CHECK(evidence.label == "mirage-fake");
+        MIRAGE_CHECK(evidence.bounds.left == 0.0);
+        MIRAGE_CHECK(evidence.bounds.top == 0.0);
+        MIRAGE_CHECK(evidence.bounds.right == 640.0);
+        MIRAGE_CHECK(evidence.bounds.bottom == 480.0);
+        MIRAGE_CHECK(!evidence.space.is_nil());
+        MIRAGE_CHECK(observation.perception[0].quality == mira::ComponentQuality::Good);
+        MIRAGE_CHECK(observation.perception[0].provenance.source == "mirage.desktop.visual");
+        MIRAGE_CHECK(observation.perception[0].provenance.method == "mirador-fusion");
+    }
+    // Screen was not requested: the frame is not claimed even though the
+    // refresh captured one.
+    MIRAGE_CHECK(!observation.screen.has_value());
+    MIRAGE_CHECK(observation.quality.overall == mira::ComponentQuality::Good);
+    MIRAGE_CHECK(observation.quality.degradations.empty());
+    MIRAGE_CHECK(fixture.env->capture_calls == 1);
+    MIRAGE_CHECK(fixture.ocr->calls() == 1);
+    MIRAGE_CHECK(fixture.detector->calls() == 1);
+    MIRAGE_CHECK(fixture.registry->size() == 1);
+
+    // A second observation is a fresh capture with fresh evidence
+    // identities.
+    const mira::EvidenceId first_evidence_id =
+        observation.perception.empty() ? mira::EvidenceId{} : observation.perception[0].value.id;
+    const auto second = fixture.binding->observe(request, mira::make_control_context());
+    MIRAGE_CHECK(second.has_value());
+    if (second.has_value()) {
+        MIRAGE_CHECK(second.value().id != observation.id);
+        MIRAGE_CHECK(second.value().perception.size() == 1);
+        if (second.value().perception.size() == 1) {
+            MIRAGE_CHECK(second.value().perception[0].value.id != first_evidence_id);
+        }
+    }
+}
+
+void wired_screen_and_perception_share_one_refresh(executor::Executor &executor) {
+    WiredVisualFixture fixture = make_wired_visual_fixture(executor);
+
+    mira::ObservationRequest request;
+    request.required.screen = true;
+    request.required.perception = 1;
+    const auto result = fixture.binding->observe(request, mira::make_control_context());
+    MIRAGE_CHECK(result.has_value());
+    if (!result.has_value()) {
+        std::fprintf(stderr, "observe failed: %s\n", result.error().safe_message.c_str());
+        return;
+    }
+    const mira::Observation &observation = result.value();
+    MIRAGE_CHECK(observation.screen.has_value());
+    MIRAGE_CHECK(observation.perception.size() == 1);
+    if (observation.screen.has_value() && observation.perception.size() == 1) {
+        // One refresh drove both components: the perception bounds span the
+        // delivered frame (display at the origin).
+        const mira::ScreenFrameDescriptor &frame = observation.screen->value;
+        const mira::PerceptionEvidence &evidence = observation.perception[0].value;
+        MIRAGE_CHECK(frame.width_pixels == 640);
+        MIRAGE_CHECK(frame.height_pixels == 480);
+        MIRAGE_CHECK(evidence.bounds.left == 0.0);
+        MIRAGE_CHECK(evidence.bounds.top == 0.0);
+        MIRAGE_CHECK(evidence.bounds.right == static_cast<double>(frame.width_pixels));
+        MIRAGE_CHECK(evidence.bounds.bottom == static_cast<double>(frame.height_pixels));
+    }
+    // Exactly one capture and one analysis served the whole request.
+    MIRAGE_CHECK(fixture.env->capture_calls == 1);
+    MIRAGE_CHECK(fixture.ocr->calls() == 1);
+    MIRAGE_CHECK(fixture.detector->calls() == 1);
+    MIRAGE_CHECK(observation.quality.overall == mira::ComponentQuality::Good);
+    MIRAGE_CHECK(observation.quality.degradations.empty());
+}
+
+void wired_perception_above_declared_sources_is_refused(executor::Executor &executor) {
+    WiredVisualFixture fixture = make_wired_visual_fixture(executor);
+
+    mira::ObservationRequest request;
+    request.required.perception = 2; // one source is declared
+    const auto refused = fixture.binding->observe(request, mira::make_control_context());
+    MIRAGE_CHECK(!refused.has_value());
+    MIRAGE_CHECK(refused.error().code == mira::ErrorCode::UnsupportedCapability);
+    MIRAGE_CHECK(refused.error().safe_message.find("perception") != std::string::npos);
+    // The capability gate refused the request before any visual work.
+    MIRAGE_CHECK(fixture.env->capture_calls == 0);
+    MIRAGE_CHECK(fixture.ocr->calls() == 0);
+    MIRAGE_CHECK(fixture.detector->calls() == 0);
+}
+
+void wired_screen_capture_failure_degrades_optional_and_fails_required(
+    executor::Executor &executor) {
+    WiredVisualFixture fixture = make_wired_visual_fixture(executor);
+    fixture.env->failures.capture_error = true;
+
+    // Optional screen: the observation succeeds with an explicit,
+    // never-silent degradation.
+    mira::ObservationRequest optional_request;
+    optional_request.optional.screen = true;
+    const auto degraded = fixture.binding->observe(optional_request, mira::make_control_context());
+    MIRAGE_CHECK(degraded.has_value());
+    if (degraded.has_value()) {
+        const mira::Observation &observation = degraded.value();
+        MIRAGE_CHECK(!observation.screen.has_value());
+        MIRAGE_CHECK(observation.quality.screen_missing);
+        MIRAGE_CHECK(observation.quality.overall == mira::ComponentQuality::Degraded);
+        bool screen_note = false;
+        for (const auto &note : observation.quality.degradations) {
+            screen_note = screen_note || note.rfind("screen unavailable", 0) == 0;
+        }
+        MIRAGE_CHECK(screen_note);
+    }
+
+    // Required screen: the capture failure fails the whole request, mapped
+    // onto the pinned error vocabulary.
+    mira::ObservationRequest required_request;
+    required_request.required.screen = true;
+    const auto failed = fixture.binding->observe(required_request, mira::make_control_context());
+    MIRAGE_CHECK(!failed.has_value());
+    if (!failed.has_value()) {
+        MIRAGE_CHECK(failed.error().code == mira::ErrorCode::PlatformError);
+        MIRAGE_CHECK(failed.error().safe_message.find("screen") != std::string::npos);
+        MIRAGE_CHECK(failed.error().safe_message.find("io_error") != std::string::npos);
+    }
+}
+
+void wired_perception_analysis_failure_degrades_optional_and_fails_required(
+    executor::Executor &executor) {
+    // run_ocr enabled with no OCR backend wired: the session settles the
+    // analysis with kBackendUnavailable, surfaced as "io_error".
+    WiredVisualOptions options;
+    options.with_backends = false;
+    options.run_detector = false;
+    WiredVisualFixture fixture = make_wired_visual_fixture(executor, options);
+
+    // Optional perception: explicit degradation, never silence.
+    mira::ObservationRequest optional_request;
+    optional_request.optional.perception = 1;
+    const auto degraded = fixture.binding->observe(optional_request, mira::make_control_context());
+    MIRAGE_CHECK(degraded.has_value());
+    if (degraded.has_value()) {
+        const mira::Observation &observation = degraded.value();
+        MIRAGE_CHECK(observation.perception.empty());
+        MIRAGE_CHECK(observation.quality.overall == mira::ComponentQuality::Degraded);
+        bool perception_note = false;
+        for (const auto &note : observation.quality.degradations) {
+            perception_note = perception_note || note.rfind("perception unavailable", 0) == 0;
+        }
+        MIRAGE_CHECK(perception_note);
+    }
+
+    // Required perception: the analysis failure fails the whole request.
+    mira::ObservationRequest required_request;
+    required_request.required.perception = 1;
+    const auto failed = fixture.binding->observe(required_request, mira::make_control_context());
+    MIRAGE_CHECK(!failed.has_value());
+    if (!failed.has_value()) {
+        MIRAGE_CHECK(failed.error().code == mira::ErrorCode::PlatformError);
+        MIRAGE_CHECK(failed.error().safe_message.find("perception") != std::string::npos);
+        MIRAGE_CHECK(failed.error().safe_message.find("io_error") != std::string::npos);
+    }
+}
+
+void wired_perception_without_analysis_stages_yields_empty_evidence(executor::Executor &executor) {
+    // Fusion-only refresh (both backend stages disabled): the pinned fusion
+    // emits zero regions for zero evidence, so an optional perception request
+    // (a minimum-count hint on the required surface) observes an empty but
+    // healthy visual generation. The backend calls prove the disabled stages
+    // really stayed dark.
+    WiredVisualOptions options;
+    options.run_ocr = false;
+    options.run_detector = false;
+    WiredVisualFixture fixture = make_wired_visual_fixture(executor, options);
+
+    mira::ObservationRequest request;
+    request.optional.perception = 1;
+    const auto result = fixture.binding->observe(request, mira::make_control_context());
+    MIRAGE_CHECK(result.has_value());
+    if (result.has_value()) {
+        MIRAGE_CHECK(result.value().perception.empty());
+        MIRAGE_CHECK(result.value().quality.overall == mira::ComponentQuality::Good);
+        MIRAGE_CHECK(result.value().quality.degradations.empty());
+    }
+    MIRAGE_CHECK(fixture.env->capture_calls == 1);
+    MIRAGE_CHECK(fixture.ocr->calls() == 0);
+    MIRAGE_CHECK(fixture.detector->calls() == 0);
+
+    // A declared required count is a real minimum: zero fused regions fail
+    // the request instead of silently under-delivering.
+    mira::ObservationRequest counted;
+    counted.required.perception = 1;
+    const auto short_fall = fixture.binding->observe(counted, mira::make_control_context());
+    MIRAGE_CHECK(!short_fall.has_value());
+    if (!short_fall.has_value()) {
+        MIRAGE_CHECK(short_fall.error().code == mira::ErrorCode::NotFound);
+        MIRAGE_CHECK(short_fall.error().safe_message.find("perception") != std::string::npos);
+    }
+}
+
+void wired_required_screen_fails_when_the_store_budget_is_exhausted(executor::Executor &executor) {
+    WiredVisualOptions options;
+    options.store_bytes = 1024; // far below one 640x480 BGRA frame
+    WiredVisualFixture fixture = make_wired_visual_fixture(executor, options);
+
+    mira::ObservationRequest request;
+    request.required.screen = true;
+    const auto failed = fixture.binding->observe(request, mira::make_control_context());
+    MIRAGE_CHECK(!failed.has_value());
+    if (!failed.has_value()) {
+        MIRAGE_CHECK(failed.error().code == mira::ErrorCode::ResourceExhausted);
+    }
+}
+
+void wired_observation_without_visual_requests_stays_dark(executor::Executor &executor) {
+    WiredVisualFixture fixture = make_wired_visual_fixture(executor);
+
+    // A request without screen/perception components triggers no capture
+    // and no analysis, even though the pipeline is live.
+    mira::ObservationRequest request;
+    const auto result = fixture.binding->observe(request, mira::make_control_context());
+    MIRAGE_CHECK(result.has_value());
+    if (result.has_value()) {
+        MIRAGE_CHECK(!result.value().screen.has_value());
+        MIRAGE_CHECK(result.value().perception.empty());
+        MIRAGE_CHECK(result.value().quality.overall == mira::ComponentQuality::Good);
+        MIRAGE_CHECK(result.value().quality.degradations.empty());
+    }
+    MIRAGE_CHECK(fixture.env->capture_calls == 0);
+    MIRAGE_CHECK(fixture.ocr->calls() == 0);
+    MIRAGE_CHECK(fixture.detector->calls() == 0);
+    MIRAGE_CHECK(fixture.registry->size() == 0);
+    MIRAGE_CHECK(fixture.registry->current().scope_ref.empty());
+
+    // An optional visual request over an unwired binding fails closed
+    // instead of pretending the surface exists (defense behind the
+    // capability gate, which only refuses required components).
+    auto bare_environment = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    bare_environment->displays.push_back({"d1", {0, 0, 640, 480}, true});
+    integration::MiraEnvironmentBinding bare_binding(bare_environment);
+    mira::ObservationRequest optional_visual;
+    optional_visual.optional.screen = true;
+    const auto refused = bare_binding.observe(optional_visual, mira::make_control_context());
+    MIRAGE_CHECK(!refused.has_value());
+    MIRAGE_CHECK(refused.error().code == mira::ErrorCode::UnsupportedCapability);
+    MIRAGE_CHECK(refused.error().safe_message.find("visual") != std::string::npos);
+}
+
 void run_scenario(const char *name, void (*scenario)()) {
+    std::fprintf(stderr, "[mira_binding_test] scenario: %s\n", name);
+    scenario();
+}
+
+template <typename Scenario> void run_executor_scenario(const char *name, Scenario scenario) {
     std::fprintf(stderr, "[mira_binding_test] scenario: %s\n", name);
     scenario();
 }
@@ -703,5 +1182,45 @@ int main() {
                  fake_observe_refuses_required_screen_despite_screen_provider);
     run_scenario("fake_observe_honours_operation_cancellation_and_deadlines",
                  fake_observe_honours_operation_cancellation_and_deadlines);
+
+    // M3-05 wired visual surface: a real VisualObservationPipeline over the
+    // fake environment's screen provider, its fake backends served by a real
+    // Executor blocking worker (EXEC-01: the executor stays with this test's
+    // main as its external owner).
+    executor::Executor executor;
+    const bool executor_ready = executor.initialize_ex(executor::ExecutorConfig{}).ok;
+    MIRAGE_CHECK(executor_ready);
+    if (executor_ready) {
+        run_executor_scenario("wired_visual_capabilities_are_reported_honestly",
+                              [&] { wired_visual_capabilities_are_reported_honestly(executor); });
+        run_executor_scenario("wired_required_screen_delivers_a_validator_clean_frame", [&] {
+            wired_required_screen_delivers_a_validator_clean_frame(executor);
+        });
+        run_executor_scenario("wired_required_perception_projects_published_regions", [&] {
+            wired_required_perception_projects_published_regions(executor);
+        });
+        run_executor_scenario("wired_screen_and_perception_share_one_refresh",
+                              [&] { wired_screen_and_perception_share_one_refresh(executor); });
+        run_executor_scenario("wired_perception_above_declared_sources_is_refused", [&] {
+            wired_perception_above_declared_sources_is_refused(executor);
+        });
+        run_executor_scenario(
+            "wired_screen_capture_failure_degrades_optional_and_fails_required",
+            [&] { wired_screen_capture_failure_degrades_optional_and_fails_required(executor); });
+        run_executor_scenario(
+            "wired_perception_analysis_failure_degrades_optional_and_fails_required", [&] {
+                wired_perception_analysis_failure_degrades_optional_and_fails_required(executor);
+            });
+        run_executor_scenario(
+            "wired_perception_without_analysis_stages_yields_empty_evidence",
+            [&] { wired_perception_without_analysis_stages_yields_empty_evidence(executor); });
+        run_executor_scenario(
+            "wired_required_screen_fails_when_the_store_budget_is_exhausted",
+            [&] { wired_required_screen_fails_when_the_store_budget_is_exhausted(executor); });
+        run_executor_scenario("wired_observation_without_visual_requests_stays_dark", [&] {
+            wired_observation_without_visual_requests_stays_dark(executor);
+        });
+        executor.shutdown(true);
+    }
     return mirage::testing::finish("mira_binding_test");
 }
