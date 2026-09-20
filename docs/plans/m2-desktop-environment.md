@@ -1,12 +1,12 @@
 # M2：Desktop Environment 核心 Provider 与 Linux Backend
 
-> 状态：In Progress
+> 状态：Completed
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M1](m1-mira-host.md)（已完成：Desktop Environment 抽象、Filesystem/Process
 > Provider、绑定适配器、Runtime Service + IPC、Permission 框架、持久化骨架）
 > 建议发布点：`release-beta`（tag 待维护者授权后创建）
-> 更新日期：2026-09-20（`M2-06` 完成）
+> 更新日期：2026-09-20（`M2-07` 退出复核通过，里程碑完成）
 
 ## 目标
 
@@ -94,7 +94,7 @@ Desktop Observation，使 Mira 能够稳定操作标准桌面应用（设计文�
       （按任务需求取组件，设计文档第 6 节）、`integration/mira` observe 能力如实
       上报扩展（required 组件映射与 fail closed）、Semantic Snapshot 进入 Agent
       观察面；DEC-002 Mbed TLS 暂定默认值复核记录。
-- [ ] `M2-07` 里程碑退出复核：退出条件逐项独立取证（同 M1 退出复核形态）。
+- [x] `M2-07` 里程碑退出复核：退出条件逐项独立取证（同 M1 退出复核形态）。
 
 拆分纪律：契约先于 Backend（`M2-01` 先行）；每个 Backend 能力先以最小闭环打通再
 补全功能（`M2-02` 先于 `M2-03`..`M2-05` 的完整面）；Contract 测试全部经 fake
@@ -119,18 +119,18 @@ backend，真实后端集成测试单独标注并在有显示环境的前提下�
 
 ## 测试与退出条件
 
-- [ ] `debug`、`release`、`asan`、`ubsan` 预设构建通过，`tsan` 按本机注意事项运行；
+- [x] `debug`、`release`、`asan`、`ubsan` 预设构建通过，`tsan` 按本机注意事项运行；
       `ctest` 全绿且无 skip（`DOD-03`）。
-- [ ] 全部新 Provider 契约经 fake backend 测试覆盖正/负向（预算、取消、fail
+- [x] 全部新 Provider 契约经 fake backend 测试覆盖正/负向（预算、取消、fail
       closed、非法参数）（`DOD-04`）。
-- [ ] headless X 拓扑端到端：observe 返回含 SemanticSnapshot 的 Observation，
+- [x] headless X 拓扑端到端：observe 返回含 SemanticSnapshot 的 Observation，
       ElementTarget 经解析执行后 Observation 更新；Linux Backend 真实集成测试在
       有显示环境要求下标注并运行。
-- [ ] 公共头边界检查通过：`desktop`、`runtime`、`platform` 公共头 pinned-free
+- [x] 公共头边界检查通过：`desktop`、`runtime`、`platform` 公共头 pinned-free
       （`DOD-01`）。
-- [ ] DEC-005 冻结、Linux Backend 依赖决策记录、（若触发）依赖反馈台账条目同步；
+- [x] DEC-005 冻结、Linux Backend 依赖决策记录、（若触发）依赖反馈台账条目同步；
       计划状态与验证证据同步（`DOD-05`）。
-- [ ] Commit / MR 符合工程规范第 10 节（`DOD-06`）。
+- [x] Commit / MR 符合工程规范第 10 节（`DOD-06`）。
 
 ## 验证记录
 
@@ -537,3 +537,76 @@ backend，真实后端集成测试单独标注并在有显示环境的前提下�
 - 同步：设计文档第 6、11.1 节注记、`DEC-002` 变更记录（Mbed TLS 默认值复核
   冻结）、`DEC-015` 变更记录（pump 升级评估结论 + 输入超时收敛结论 + 挂账项
   定案）、总计划当前状态与决策表、本验证记录。
+
+
+2026-09-20：M2 里程碑退出条件复核通过（Independent-Verification-Agent），里程碑
+Completed。
+
+- 范围：对 6 项退出条件逐项独立取证，未修改任何源码、测试与文档；复核基于 HEAD
+  `292b74d`，工作树复核前后均干净（依赖锁负向验证的临时篡改即时还原，sha256
+  前后一致）。另以**只读探针**对真实桌面会话补充取证（不注入输入、不激活窗口、
+  不读写剪贴板、不采集屏幕，不对用户活跃会话产生可感知影响）。
+- 验证（Independent-Verification-Agent，Linux x64，Ubuntu 24.04，内核
+  7.0.0-31-generic，GCC 13.3.0，CMake 3.28.3，Ninja 1.13.2，clang-format 18.1.3）：
+  - 预设矩阵（`DOD-03`）：`debug` / `release` / `asan` / `ubsan` configure +
+    build + ctest 均 **24/24 通过、0 skip**；`tsan` 按 README 注意事项
+    `setarch $(uname -m) -R ctest` 24/24。24 项测试清单实跑留证；configure 日志
+    5/5 依赖 pin 核验（mira / executor / mbedtls / mirador / googletest）。顺带
+    闭合 PR #24 依赖 bump 自身记录延期的 `release` / `tsan` 取证缺口（本矩阵在
+    合并后 HEAD 补齐）。
+  - 契约覆盖（`DOD-04`）：`provider_contract_test` 438 checks 0 failures
+    （23 场景，= `M2-06` 基线）、`observation_assembler_test` 137 checks
+    （17 场景）、`desktop_observation_test` 13 checks。"契约面 → fake 场景"
+    映射逐项确认：7 个 Provider（含 M2-06 `pointer_position`）+ SemanticSnapshot
+    渲染 + ElementTarget 提示组与解析顺序（visual/spatial/raw `unsupported_hint`
+    fail closed、reference 优先级）+ 跨 Provider 恰边界预算 + 全 Provider 取消
+    先于副作用，正/负向齐备；62 处 `error.code` 断言覆盖共享错误词表。测试框架
+    为仓库自有 `MIRAGE_CHECK`（非 gtest），场景经源码列举 + 实跑输出留证。
+  - headless X 端到端：`observation_e2e_test` 90 checks 0 failures（真实 Xvfb +
+    私有 D-Bus）：observe(required structure+foreground) 返回含 SemanticSnapshot
+    的 Observation（`@eN` / focused_element）→ 以 `@e3` 构造 ElementTarget 经
+    `activate_element` 语义命中 → 再 observe 全新 ObservationId、UiNodeId 全部
+    更换（注册表整体替换）。x11_backend / atspi_backend / observation_e2e /
+    application_backend / notification_backend 五个真实集成测试的注册门
+    （`X11+Xtst`、`ATSPI+X11`、`gio-unix-2.0`）本机全开，5 个预设全部实跑非
+    skip。
+  - 公共头边界（`DOD-01`）：`mirage-boundary-check` 33 头 0 违规（= `M2-06`
+    基线）、`mirage-format-check` 通过；边界脚本非空跑经 /tmp 假头探针证实
+    （`mira` / `mirador` / `executor` include 被逐一点名 SEND_ERROR，干净树
+    通过），探针树未触碰仓库。
+  - 决策与台账（`DOD-05`）：`DEC-005` 冻结在案（schema 1.0、SemanticSnapshot、
+    ElementTarget 解析顺序）；`DEC-015` 含 M2-02..M2-06 全部阶段决策与变更记录；
+    依赖反馈台账无条目且与各验证记录交叉核对自洽（at-spi2-core 2.52.0 registryd
+    缺陷属系统包而非 pinned 依赖，已在 `DEC-015` 记录规避；observe 扩展经由
+    mira 既有 pinned 面实现，无未登记缺口）。
+  - Commit / MR 与依赖一致性（`DOD-06`）：submodule 指针与
+    `dependencies.lock.json` 一致（mira `cf0af75`、mirador `50f5349`）；锁校验
+    负向验证——篡改 mira commit 为 40 个 `a` 后独立目录 configure 以
+    `Pinned dependency 'mira' commit mismatch` FATAL_ERROR 失败，还原后 sha256
+    一致、工作树干净；触及 third_party 的提交仅 2 条且均为与 lock 同步的指针
+    变更；master CI 最近 3 次 run 全绿（35486679249 / 35483466952 /
+    35454769589）。
+  - 真实桌面只读冒烟（补充取证，超出六项条件的最小范围）：本机存在活跃
+    GNOME 46 / Wayland 会话（`:0` = Xwayland rootless，mutter 为 WM）。只读
+    探针取证：真实 mutter 下 EWMH `_NET_ACTIVE_WINDOW` / `_NET_CLIENT_LIST`
+    读取路径行为正确且与 `xprop` 交叉一致（当前会话 `:0` 零 X 客户端、焦点在
+    Wayland 原生表面，空列表为真值）——`M2-02` 挂账的"有 WM 拓扑仅回退路径被
+    验证"就此部分闭合；AT-SPI 后端在真实会话总线初始化成功，未知 id 快照
+    fail closed（`not_found`）；`list_displays` 经 RandR 读回 eDP-1
+    3200x2000 primary；指针只读查询零副作用。role 词表经独立 libatspi 只读
+    遍历真实树取证：19 应用 5623 节点，冻结映射命中 5459 / 规范 fallback 164
+    （全部小写连字符形，无空串、无未映射崩溃）；snap Firefox 子树受 AppArmor
+    限制时优雅降级不崩溃。
+- 限制：`semantic_snapshot` 对真实应用窗口的正路径全链路（标题→AT-SPI 应用
+  映射→DFS→`@eN` 签发）未在真实桌面执行——当前会话焦点在 Wayland 原生表面、
+  `:0` 无 X 客户端，按只读纪律不拉起 X 客户端/切换用户焦点；该路径已由线协议
+  精确 fixture 覆盖（atspi_backend_test 89 + observation_e2e_test 90，5 预设
+  全绿）。补跑条件：在 X 客户端持有焦点的会话或专用 X11 会话重跑只读探针
+  （负责人：维护者）。侵入性真实桌面动作（EWMH activate、XTest 注入、剪贴板、
+  采集）不对用户活跃会话执行，需专用显示环境取证（负责人：维护者）。
+  `foreground` 组件 optional structure 降级时 package_name 为空的跨仓库消费
+  语义未验证（沿用 `M2-06`）。提交纪律观察项：最近 30 条提交中 7 条 scope
+  使用词表外词（`docs(design)` ×5、`chore(test)`、`feat(permission)`），格式
+  合规；是否追溯纠正由维护者裁量（不重写已发布历史）。`release-beta` tag 与
+  发布流程待维护者授权（工程规范第 10.5 节）。
+- 同步：本里程碑状态与退出条件勾选、总计划当前状态与里程碑索引。
