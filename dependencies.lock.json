@@ -51,10 +51,11 @@
       "name": "mirador",
       "source": "https://github.com/Linductor-alkaid/mirador.git",
       "path": "third_party/mirador",
-      "version": "v0.3.0",
-      "commit": "6fa92ec8de6f954596a17711626a7962b0d3dc0a",
+      "version": "v0.3.0-2",
+      "commit": "fff7f1594d5c91459e95e32da34729e687fbcd52",
       "license": "MIT",
       "license_file": "third_party/mirador/LICENSE",
+      "notes": "v0.3.0 之后仅 docs 增量（README showcase 重构、docs/skill/mirador-integration 下游集成 skill），include/ 零变化",
       "consumption": "add_subdirectory；视觉后端契约经由别名 mirador::core 链接",
       "nested_pins": [
         {
