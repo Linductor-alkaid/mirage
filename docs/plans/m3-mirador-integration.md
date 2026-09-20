@@ -1,13 +1,13 @@
 # M3：Mirador 视觉集成
 
-> 状态：In Progress（`M3-01` 完成）
+> 状态：In Progress（`M3-01`、`M3-02` 完成）
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M2](m2-desktop-environment.md)（已完成：Desktop Environment 核心 Provider、
 > Linux Backend、Semantic Snapshot、ElementTarget 解析顺序契约、Observation 组装
 > 与 runtime 接线）
 > 建议发布点：`release-gamma`（tag 待维护者授权后创建）
-> 更新日期：2026-09-20（`M3-01` 完成）
+> 更新日期：2026-09-20（`M3-02` 完成）
 
 ## 目标
 
@@ -96,7 +96,7 @@ Visual Reference（`@vN`）的签发与解析闭环，补齐 DEC-005 解析顺�
       （哪些进 observation、哪些只在解析时消费）、视觉会话的 Executor 承载
       方式（blocking worker + 每图像源一 session 的串行化模型，`EXEC-04`）、
       fake / identity backend 作为默认验证形态。契约头与 fake 负向测试先行。
-- [ ] `M3-02` 集成层适配器（`integration/mirador`）：`PerceptionSession`
+- [x] `M3-02` 集成层适配器（`integration/mirador`）：`PerceptionSession`
       创建 / `analyze_change` / `run_ocr` / `run_detector` / `fuse` 的封装；
       按消费面为集成层显式链接所需 mirador 模块目标（当前 Mirage 仅链
       `mirador::core`，`image` / `cache` / `geometry` / `fusion` / `render`
@@ -221,3 +221,40 @@ skill 卡片为契约输入。
   `mirage-boundary-check` 通过（35 头 0 命中）。
 - **未覆盖项**：schema 1.1 的 wire/IPC golden vectors 随 `M3-03`；真实模型
   后端行为不在 M3 声明范围（RULE-08，触发条件见 DEC-016 决策 5）。
+
+2026-09-20：`M3-02` 完成（分支 `feat/m3-02-visual-session-adapter`，基于
+`M3-01` 合入后的 `master`）。按 DEC-016 决策 3/4/5 落地集成层适配器。
+
+- **集成层适配器**（`integration/mirador`）：`visual_execution_context`
+  （`desktop::CancelToken` → `ExecutionContext::is_cancelled` 轮询通道、
+  deadline 直映射）；`visual_frame`（ScreenProvider Bgra8 采集帧 →
+  mirador `Frame`：像素拷贝入共享 owner、`mirador::validate` 复核、负路径
+  显式错误码；`convert_frame` 经 mirador `convert_color` 的预算化格式
+  转换，不自研 kernel）；`visual_backend_registry`（SPI 注册：identity 过
+  `validate_backend_identity`、且与后端 `info()` 逐字段一致（含
+  accepted_formats 有序），容量 8 fail closed）；`visual_session_host`
+  （一图像源一 `PerceptionSession` 一 Executor blocking worker 串行承载，
+  EXEC-04；请求经 `executor::comm::LatestMailbox` 最新者优先传输，被取代
+  /外部取消/停止显式结算为 `cancelled`，deadline 显式 `kTimedOut`，取消
+  先于副作用；fusion 固定 kDisplay 目标空间 + 调用方 `display_transform`，
+  融合输入仅限 OCR / 检测证据）。CMake 按消费面改链 `mirador::fusion`
+  （PUBLIC 携带 `image` / `cache`）+ executor（SYSTEM 头 + 按文件路径
+  链接，同 runtime service 惯例）。
+- **测试证据**（Independent-Verification-Agent 独立执行）：新增
+  `tests/integration/visual_session_test.cpp`（26 场景 214 checks：
+  context 映射、帧包装 / owner 存活 / 负路径、convert 通道序 / 预算 /
+  格式矩阵、注册表正负向与容量、融合 happy path（kDisplay 坐标经
+  display_transform 平移验证）、缓存命中以后端调用计数不变证明、null
+  后端 / 不可达格式 / 预算 / 缺 display_transform / 过期 deadline /
+  预取消各负路径、admission 拒绝、最新者优先取代在途分析、stop 对在途
+  与 queued 请求的结算、首帧 kGlobal / kFirstFrame、非法预算 start 失败
+  闭合）；`debug` / `release` / `asan` / `ubsan` / `tsan`（`setarch -R`）
+  五预设 configure + build + ctest 27/27 通过、0 skip；asan 0 报告，
+  ubsan verbose 无 `runtime error`，tsan 并发场景无竞争报告；
+  `mirage-format-check` 通过；`mirage-boundary-check` 通过（35 头
+  0 命中）。
+- **过程记录**：首轮独立验证发现 `to_mirador_frame` 在 `view.data` 赋值
+  前调用 `mirador::validate`、合法帧被一律拒绝的实现缺陷；主循环修复
+  （owner 创建与 data 赋值前移）后复验通过，五预设全绿。
+- **未覆盖项**：真实模型后端行为不在 M3 声明范围（RULE-08）；`@vN`
+  注册表接线、schema 1.1 wire 证据与解析闭环随 `M3-03`。
