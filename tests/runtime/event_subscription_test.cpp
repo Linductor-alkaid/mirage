@@ -51,9 +51,16 @@ using mirage::testing::FrameRead;
 // (M2-06 investigation: 5 s produced rare false 'unavailable' under load while
 // isolated runs answer in milliseconds), so the wait budget is generous.
 constexpr auto kCallBudget = std::chrono::seconds{30};
-constexpr auto kTaskBudget = std::chrono::seconds{10};
+/// Liveness guards for one task's terminal state / one expected event, not
+/// latency assertions: under parallel ctest or CI-runner load the two service
+/// workers can legitimately take tens of seconds to settle a task (the
+/// 2026-09-20 CI release run missed the previous 10 s wait_terminal budget on
+/// a filesystem+sleep task that the same commit settles in well under a
+/// second isolated), so both guards are as generous as kCallBudget. Negative
+/// "nothing arrives" assertions use kQuietWindow, which stays tight by design.
+constexpr auto kTaskBudget = std::chrono::seconds{30};
 /// Total wait for a specific event to appear on a subscriber.
-constexpr auto kEventBudget = std::chrono::seconds{10};
+constexpr auto kEventBudget = std::chrono::seconds{30};
 /// Quiet window proving no event frame arrives (server poll pass is 200 ms).
 constexpr auto kQuietWindow = std::chrono::milliseconds{700};
 /// Submit-response tolerance for the deterministic overflow burst, sized for
@@ -119,15 +126,22 @@ std::optional<ipc::InspectTask> wait_terminal(const std::string &socket_path,
     ipc::IpcClient client(socket_path);
     const auto deadline = std::chrono::steady_clock::now() + budget;
     for (;;) {
-        const ipc::Response response = client.call(ipc::InspectTaskRequest{task_id}, kCallBudget);
+        // Each poll is bounded by the whole-wait budget's remainder (same
+        // idiom as read_response/wait_for_event), so `budget` is a true
+        // ceiling even when a single inspect call stalls under load.
+        const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+            deadline - std::chrono::steady_clock::now());
+        if (remaining <= std::chrono::milliseconds::zero()) {
+            return std::nullopt;
+        }
+        const ipc::Response response =
+            client.call(ipc::InspectTaskRequest{task_id},
+                        std::min<std::chrono::milliseconds>(remaining, kCallBudget));
         const auto *inspect = std::get_if<ipc::InspectTask>(&response.payload);
         if (inspect != nullptr &&
             (inspect->progress == "Completed" || inspect->progress == "Failed" ||
              inspect->progress == "Cancelled")) {
             return *inspect;
-        }
-        if (std::chrono::steady_clock::now() >= deadline) {
-            return std::nullopt;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds{25});
     }
@@ -763,9 +777,17 @@ void scenario_unsubscribed_connection_never_sees_event_frames() {
     const auto deadline = std::chrono::steady_clock::now() + kTaskBudget;
     bool terminal = false;
     while (!terminal) {
+        // Each poll is bounded by the deadline's remainder, so a single
+        // stalled response cannot silently consume the whole wait.
+        const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+            deadline - std::chrono::steady_clock::now());
+        if (remaining <= std::chrono::milliseconds::zero()) {
+            break;
+        }
         const std::uint64_t id = plain.next_id;
         MIRAGE_CHECK(plain.send(ipc::ListTasksRequest{}));
-        const auto response = read_response(plain, log, id, kCallBudget);
+        const auto response = read_response(
+            plain, log, id, std::min<std::chrono::milliseconds>(remaining, kCallBudget));
         MIRAGE_CHECK(response.has_value() && response->ok);
         if (!response || !response->ok) {
             return;
@@ -781,10 +803,10 @@ void scenario_unsubscribed_connection_never_sees_event_frames() {
                 }
             }
         }
-        MIRAGE_CHECK(std::chrono::steady_clock::now() < deadline);
-        if (std::chrono::steady_clock::now() >= deadline) {
-            return;
-        }
+    }
+    MIRAGE_CHECK(terminal);
+    if (!terminal) {
+        return;
     }
 
     // After settlement: still nothing unsolicited.
