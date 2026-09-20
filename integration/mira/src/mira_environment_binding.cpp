@@ -3,6 +3,7 @@
 #include <mirage/desktop/observation_assembler.hpp>
 
 #include <cmath>
+#include <map>
 #include <optional>
 #include <stdexcept>
 #include <utility>
@@ -52,6 +53,113 @@ mira::CaptureSpan span_between(const mira::Timestamp &begin, const mira::Timesta
     span.normalized_end = end;
     span.sync_quality = mira::ClockSyncQuality::Synced;
     return span;
+}
+
+/// The first analysis-stage failure of a refresh: publication refusal wins
+/// over the raw analysis error because it carries the registry semantics
+/// (e.g. snapshot_too_large) the caller must see.
+desktop::ProviderError visual_analysis_error(const EnvironmentVisualRefresh &refresh) {
+    if (!refresh.publish.error.code.empty()) {
+        return refresh.publish.error;
+    }
+    return refresh.analysis_error;
+}
+
+/// Publishes the captured frame into the artifact store and builds the
+/// pinned screen component (plan item `M3-05`). Pixels are the canonical
+/// Bgra8 capture, published raw; the store record (media type, byte size,
+/// digest) is the only wire metadata (pinned DEC-013) and every field the
+/// pinned validator checks is filled before the component is returned.
+mira::Result<mira::ObservationComponent<mira::ScreenFrameDescriptor>>
+project_screen(const EnvironmentVisualRefresh &refresh,
+               const std::map<std::string, mira::DisplayId> &display_ids,
+               const mira::CaptureSpan &capture, mira::IArtifactStore &store) {
+    mira::ArtifactWriteSpec spec;
+    spec.media_type = "image/x-bgra8888";
+    spec.max_bytes = refresh.frame.pixels.empty() ? std::size_t{1} : refresh.frame.pixels.size();
+    auto writer = store.begin(spec);
+    if (!writer) {
+        return writer.error();
+    }
+    if (const auto written =
+            writer.value().write(refresh.frame.pixels.data(), refresh.frame.pixels.size());
+        !written) {
+        return written.error();
+    }
+    const auto committed = store.commit(writer.value());
+    if (!committed) {
+        return committed.error();
+    }
+
+    mira::ScreenFrameDescriptor descriptor;
+    descriptor.frame_id = mira::FrameId::generate();
+    const auto display = display_ids.find(refresh.display_id);
+    descriptor.display_id =
+        display != display_ids.end() ? display->second : mira::DisplayId::generate();
+    descriptor.width_pixels = static_cast<std::uint32_t>(refresh.frame.width);
+    descriptor.height_pixels = static_cast<std::uint32_t>(refresh.frame.height);
+    descriptor.pixel_format = mira::PixelFormat::BGRA8888;
+    descriptor.color_space = mira::ColorSpace::SRGB;
+    descriptor.alpha_mode = mira::AlphaMode::Opaque;
+    descriptor.native_rotation = mira::Rotation::Rotation0;
+    descriptor.planes.push_back(
+        mira::PlaneLayout{0U, static_cast<std::uint32_t>(refresh.frame.stride), 4U,
+                          descriptor.width_pixels, descriptor.height_pixels});
+    descriptor.pixel_space = mira::CoordinateSpaceId::generate();
+    descriptor.capture = capture;
+    descriptor.payload_artifact = committed.value().id;
+    descriptor.payload_media_type = committed.value().media_type;
+    descriptor.payload_byte_size = committed.value().byte_size;
+    descriptor.payload_digest = committed.value().digest;
+
+    if (const auto validated = mira::validate_frame_descriptor(descriptor); !validated) {
+        return validated.error();
+    }
+
+    mira::ObservationComponent<mira::ScreenFrameDescriptor> component;
+    component.value = std::move(descriptor);
+    component.capture = capture;
+    component.quality = mira::ComponentQuality::Good;
+    component.provenance.source = "mirage.desktop.screen";
+    component.provenance.method = "screen-capture";
+    component.environment_epoch = 0;
+    return component;
+}
+
+/// Projects one published visual region onto the pinned perception evidence
+/// vocabulary. Bounds stay global desktop coordinates (DEC-016 decision 3),
+/// declared in one generated space per observation like the structure
+/// projection's node space.
+mira::PerceptionEvidence project_region(const mirage::desktop::VisualRegionEntry &region,
+                                        mira::CoordinateSpaceId space) {
+    mira::PerceptionEvidence evidence;
+    evidence.id = mira::EvidenceId::generate();
+    switch (region.source) {
+    case mirage::desktop::VisualRegionSource::kOcr:
+        evidence.kind = "ocr.text";
+        break;
+    case mirage::desktop::VisualRegionSource::kDetector:
+        evidence.kind = "detector.box";
+        break;
+    case mirage::desktop::VisualRegionSource::kTemplate:
+        evidence.kind = "template.icon";
+        break;
+    case mirage::desktop::VisualRegionSource::kGeometry:
+        evidence.kind = "geometry.region";
+        break;
+    }
+    // The agent-facing line forms of DEC-016 decision 2: OCR and detector
+    // evidence name themselves through text, a template hit through its
+    // enrolled identifier, geometry carries no label.
+    evidence.label = region.source == mirage::desktop::VisualRegionSource::kTemplate
+                         ? region.template_id
+                         : region.text;
+    evidence.bounds =
+        mira::RectF{static_cast<double>(region.bounds.x), static_cast<double>(region.bounds.y),
+                    static_cast<double>(region.bounds.x + region.bounds.width),
+                    static_cast<double>(region.bounds.y + region.bounds.height)};
+    evidence.space = space;
+    return evidence;
 }
 
 /// Projects the frozen mirage role vocabulary onto the pinned coarse role
@@ -194,7 +302,12 @@ project_structure(const mirage::desktop::SemanticSnapshot &snapshot,
 
 MiraEnvironmentBinding::MiraEnvironmentBinding(
     std::shared_ptr<mirage::desktop::DesktopEnvironment> environment)
-    : environment_(std::move(environment)) {
+    : MiraEnvironmentBinding(std::move(environment), VisualWiring{}) {}
+
+MiraEnvironmentBinding::MiraEnvironmentBinding(
+    std::shared_ptr<mirage::desktop::DesktopEnvironment> environment,
+    const VisualWiring &visual_wiring)
+    : environment_(std::move(environment)), visual_wiring_(visual_wiring) {
     if (!environment_) {
         throw std::invalid_argument("MiraEnvironmentBinding requires a desktop environment");
     }
@@ -213,6 +326,16 @@ mira::EnvironmentCapabilities MiraEnvironmentBinding::capabilities() const {
     const bool has_window = environment->window() != nullptr;
     capabilities.foreground_app = has_window;
     capabilities.ui_tree = has_window && environment->accessibility() != nullptr;
+    // The visual surface is declared only when the whole cycle can be
+    // honored: a started pipeline for capture/analysis/publication and an
+    // artifact store for the pinned frame payload record. A pipeline without
+    // a store could not deliver a validator-clean ScreenFrameDescriptor, so
+    // it must not claim screen_capture.
+    if (visual_wiring_.pipeline != nullptr && visual_wiring_.artifacts != nullptr &&
+        visual_wiring_.pipeline->running() && environment->screen() != nullptr) {
+        capabilities.screen_capture = true;
+        capabilities.perception_sources = 1;
+    }
     return capabilities;
 }
 
@@ -245,13 +368,64 @@ MiraEnvironmentBinding::observe(const mira::ObservationRequest &request,
 
     const bool need_structure = request.required.structure;
     const bool need_foreground = request.required.foreground;
+    const bool need_screen = request.required.screen;
+    const std::size_t need_perception = request.required.perception;
     const bool want_structure = need_structure || request.optional.structure;
     const bool want_foreground = need_foreground || request.optional.foreground;
+    const bool want_screen = need_screen || request.optional.screen;
+    const bool want_perception = need_perception > 0 || request.optional.perception > 0;
 
-    mirage::desktop::ObservationAssembler assembler(*environment_);
+    // Visual refresh first (M3-05): capture, and — when perception evidence
+    // is requested — analysis and registry publication. The binding holds no
+    // CancelToken of its own (M2-06 precedent): cooperative cancellation is
+    // probed at stage boundaries, and the analysis itself is bounded by the
+    // operation deadline inside the pipeline.
+    std::optional<EnvironmentVisualRefresh> visual;
+    mira::Timestamp visual_started = started;
+    mira::Timestamp visual_finished = started;
+    if (want_screen || want_perception) {
+        if (visual_wiring_.pipeline == nullptr) {
+            // Unreachable for required components (the capability gate above
+            // already refused them); an optional-only request must still not
+            // pretend the visual surface exists.
+            return pinned_error(mira::ErrorCode::UnsupportedCapability,
+                                "observation requests the visual surface but no pipeline is wired");
+        }
+        visual_started = mira::Timestamp::now();
+        visual = visual_wiring_.pipeline->refresh(want_perception, mirage::desktop::CancelToken{},
+                                                  context.deadline);
+        visual_finished = mira::Timestamp::now();
+        if (visual->capture_cancelled || (want_perception && visual->analysis_cancelled)) {
+            return pinned_error(mira::ErrorCode::Cancelled,
+                                "observation was cancelled during the visual refresh");
+        }
+        if (context.cancelled()) {
+            return pinned_error(mira::ErrorCode::Cancelled,
+                                "observation was cancelled after the visual refresh");
+        }
+        // Required visual components must be delivered or the whole request
+        // fails closed, like structure/foreground below.
+        if (need_screen && !visual->captured) {
+            return desktop_error(visual->capture_error, "screen");
+        }
+        if (need_perception > 0 && !visual->analyzed) {
+            return desktop_error(visual_analysis_error(*visual), "perception");
+        }
+    }
+
+    // The assembler's visual component reads the generation this refresh
+    // just published. With no fresh publication (capture-only refresh or a
+    // failed analysis) it stays unrequested, so a stale generation is never
+    // presented as this observation's visual state.
+    mirage::desktop::VisualReferenceRegistry *registry = nullptr;
+    if (visual.has_value() && visual->analyzed && visual->publish.ok) {
+        registry = &visual_wiring_.pipeline->registry();
+    }
+    mirage::desktop::ObservationAssembler assembler(*environment_, registry);
     mirage::desktop::ObservationComponents components;
     components.active_window = want_foreground;
     components.semantic_snapshot = want_structure;
+    components.visual_snapshot = registry != nullptr;
     const auto assembly = assembler.assemble(
         components, mirage::desktop::ObservationAssemblyLimits{}, mirage::desktop::CancelToken{});
     const mira::Timestamp finished = mira::Timestamp::now();
@@ -288,6 +462,7 @@ MiraEnvironmentBinding::observe(const mira::ObservationRequest &request,
                                                       : mira::ErrorCode::Cancelled,
                             "observation was cancelled or expired after capture");
     }
+    std::map<std::string, mira::DisplayId> display_ids;
     if (mirage::desktop::ScreenProvider *screen = environment_->screen(); screen != nullptr) {
         const auto displays = screen->list_displays();
         if (displays.ok && !displays.displays.empty()) {
@@ -296,6 +471,7 @@ MiraEnvironmentBinding::observe(const mira::ObservationRequest &request,
             for (const auto &display : displays.displays) {
                 mira::DisplayInfo pinned_display;
                 pinned_display.id = mira::DisplayId::generate();
+                display_ids[display.id] = pinned_display.id;
                 pinned_display.name = display.id;
                 pinned_display.native_width_pixels =
                     static_cast<std::uint32_t>(display.geometry.width);
@@ -352,6 +528,66 @@ MiraEnvironmentBinding::observe(const mira::ObservationRequest &request,
         observation.foreground = std::move(component);
     } else if (want_foreground) {
         degradations.push_back("foreground unavailable: " + assembly.active_window.error.code);
+    }
+
+    // Screen component (M3-05): publish the captured frame into the artifact
+    // store and deliver the validator-clean descriptor. Required screen
+    // already failed closed right after the refresh; here a projection or
+    // publication failure of an optional request degrades the observation.
+    if (visual.has_value() && visual->captured && want_screen) {
+        auto screen_component = project_screen(
+            *visual, display_ids, span_between(visual_started, visual_finished, clock_domain_),
+            *visual_wiring_.artifacts);
+        if (screen_component.has_value()) {
+            observation.screen = std::move(screen_component.value());
+        } else if (need_screen) {
+            // The capture succeeded but the payload publication did not: a
+            // required screen component is still undeliverable.
+            return screen_component.error();
+        } else {
+            observation.quality.screen_missing = true;
+            degradations.push_back("screen unavailable: " + screen_component.error().safe_message);
+        }
+    } else if (want_screen) {
+        observation.quality.screen_missing = true;
+        degradations.push_back("screen unavailable: " + (visual.has_value()
+                                                             ? visual->capture_error.code
+                                                             : std::string("not_wired")));
+    }
+
+    // Perception evidence (M3-05): the published visual regions projected
+    // onto the pinned evidence vocabulary. The assembler's visual component
+    // was requested exactly when this refresh published a fresh generation,
+    // so the entries never outlive their own observation.
+    if (want_perception && assembly.visual_snapshot.captured) {
+        const mira::CaptureSpan visual_span =
+            span_between(visual_started, visual_finished, clock_domain_);
+        const auto evidence_space = mira::CoordinateSpaceId::generate();
+        observation.perception.reserve(assembly.observation.visual_snapshot.regions.size());
+        for (const auto &region : assembly.observation.visual_snapshot.regions) {
+            mira::ObservationComponent<mira::PerceptionEvidence> component;
+            component.value = project_region(region, evidence_space);
+            component.capture = visual_span;
+            component.quality = mira::ComponentQuality::Good;
+            component.provenance.source = "mirage.desktop.visual";
+            component.provenance.method = "mirador-fusion";
+            component.environment_epoch = 0;
+            observation.perception.push_back(std::move(component));
+        }
+        if (observation.perception.size() < need_perception) {
+            // The pinned request semantics are a minimum evidence count;
+            // fewer entries means the requirement is unmet, never a silent
+            // shortfall.
+            return pinned_error(mira::ErrorCode::NotFound,
+                                "perception: visual analysis produced " +
+                                    std::to_string(observation.perception.size()) +
+                                    " evidence entries, " + std::to_string(need_perception) +
+                                    " required");
+        }
+    } else if (want_perception) {
+        degradations.push_back(
+            "perception unavailable: " +
+            (visual.has_value() ? visual_analysis_error(*visual).code : std::string("not_wired")));
     }
 
     if (!degradations.empty()) {
