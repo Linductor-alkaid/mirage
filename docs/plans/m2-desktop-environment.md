@@ -6,7 +6,7 @@
 > 前置：[M1](m1-mira-host.md)（已完成：Desktop Environment 抽象、Filesystem/Process
 > Provider、绑定适配器、Runtime Service + IPC、Permission 框架、持久化骨架）
 > 建议发布点：`release-beta`（tag 待维护者授权后创建）
-> 更新日期：2026-09-19（`M2-05` 完成）
+> 更新日期：2026-09-20（`M2-06` 完成）
 
 ## 目标
 
@@ -90,7 +90,7 @@ Desktop Observation，使 Mira 能够稳定操作标准桌面应用（设计文�
       `application.terminate` / `screen.capture` Capability 接入（连同
       `notification.post`；ScreenProvider 契约面已于 `M2-02` 交付并验证，本项复核
       无缺口）。
-- [ ] `M2-06` Observation 组装与 runtime 接线：desktop 层按需 Observation 组装
+- [x] `M2-06` Observation 组装与 runtime 接线：desktop 层按需 Observation 组装
       （按任务需求取组件，设计文档第 6 节）、`integration/mira` observe 能力如实
       上报扩展（required 组件映射与 fail closed）、Semantic Snapshot 进入 Agent
       观察面；DEC-002 Mbed TLS 暂定默认值复核记录。
@@ -451,3 +451,89 @@ backend，真实后端集成测试单独标注并在有显示环境的前提下�
   关注）。
 - 同步：`DEC-015` 变更记录（第 3 条兑现 + 词表扩展 + 已知限制）、总计划当前
   状态、本验证记录。
+
+
+2026-09-20：`M2-06` Observation 组装与 runtime 接线 完成。
+
+- 范围：desktop 层新增 `desktop/observation::ObservationAssembler`——按
+  `ObservationComponents` 请求（active_window / semantic_snapshot / pointer_state /
+  environment_state；visual 保留 M3）从 Provider 访问器按需组装一条
+  `DesktopObservation`（设计文档第 6 节）：请求组件强制（Provider 访问器缺位以
+  "unsupported_platform" fail closed）、失败组件记录自身 stable 错误且不阻断其余
+  捕获、`ok` 仅当全部请求组件捕获成功（显式不完整，从不静默）；snapshot 成功时
+  填 `focused_element` 与 `active_application`（AT-SPI application 根名为 M2 唯一
+  诚实的 window→application 映射）；`environment_state` 为确定性 Provider 清单
+  串。契约新增 `InputProvider::pointer_position()`（只读查询，喂 schema 1.0 的
+  pointer_state 组件；X11 后端 XQueryPointer 根窗口坐标 = 全局坐标，stub 分支补
+  不可达 vtable 体；fake 以 pointer_move 成功写入维护）。`integration/mira` 绑定
+  observe 面如实扩展：`capabilities()` 从访问器推导（foreground_app ← window()、
+  ui_tree ← window()+accessibility()；screen/discrete_input/device/atomicity/
+  skew bound/epoch 均按真实缺口保持未声明并注明升级路径）；`observe()` 将
+  required/optional 的 structure/foreground 映射到组装器（required 不可交付 →
+  整个 observe 按映射后的 pinned 错误 fail closed；optional 尽力而为 → quality
+  degradations 显式降级）；`SemanticSnapshot` 投影为 pinned `UiTreeSnapshot`
+  （新 UiNodeId、parent 解析、`@eN` 入 StableNodeHint、全局像素 bounds、
+  Enabled/Focused 态、角色投影、provenance，complete=!nodes.empty()，投影后经
+  `mira::validate_ui_tree_snapshot` 复验）；topology 尽力而为（screen 侧
+  list_displays → make_display_topology）；Provider 错误词表 → pinned 错误逐码
+  映射；operation context 的取消/超时探针在捕获边界观察。`execute()` 恒
+  Rejected、`interrupt()` 幂等不变（discrete_input 未声明）。随附定性并修复
+  `runtime_service_test` 挂账偶发失败（见下）。
+- 依据：设计文档第 6、7、11 节；`DEC-002`（Mbed TLS 复核，另记）、`DEC-005` /
+  `DEC-008` / `DEC-010` / `DEC-015`；`RULE-01` / `RULE-03` / `RULE-05` /
+  `RULE-07`。
+- 验证（Independent-Verification-Agent，Linux x64，Ubuntu 24.04，GCC 13.3.0，
+  真实 Xvfb + 私有 D-Bus + 线协议精确 GDBus fixture 拓扑）：
+  - 新增 `tests/desktop/observation_assembler_test.cpp`（137 断言，17 场景）：
+    组件选择、缺 Provider fail closed、`not_found`（无焦点窗口）、错误传播不
+    阻断后续捕获、预算拒绝且引用注册表不清空（含恰边界）、预取消、
+    environment_state 精确串（全 Provider / 部分 / 空）、部分桩环境的显式不
+    完整观测、structure-only 与 active_window 成功而 snapshot 失败的
+    active_application 语义。
+  - `tests/desktop/provider_contract_test.cpp` 增 pointer_position 契约（409 →
+    438 断言）：取消先于结果、成功返回位置、pointer_move 后更新、只读零副作用。
+  - `tests/integration/mira_binding_test.cpp` 增 10 个 fake 环境场景（→ 236
+    断言）：能力如实上报、structure/foreground 全投影逐项断言（pinned validator
+    复验、节点 id 唯一、parent、`@eN`→hint、角色投影、bounds、双态独立、
+    NonAtomic、span 有序）、空请求极简观测、错误逐码映射（UnsupportedCapability /
+    NotFound / PlatformError / ResourceExhausted——4097 节点触发）、optional
+    降级记录、有 screen() 仍拒 required.screen、取消/超时探针在捕获边界。
+  - 新增 `tests/integration/observation_e2e_test.cpp`（90 断言）——M2 退出条件
+    "headless X 拓扑端到端"：真实 Xvfb + 私有 D-Bus，observe(required
+    structure+foreground) 返回 fixture 树（roles / refs / 焦点 / topology /
+    foreground 应用名与窗口标题）；以 StableNodeHint 的 `@eN` 构造 ElementTarget
+    经 `activate_element` 语义命中 fixture 落点；再 observe → 全新 ObservationId、
+    全部 UiNodeId 更换（注册表整体替换）、同树 refs 稳定且新 ref 仍可激活。
+    GDBus fixture 抽取为 `tests/support/fake_atspi_desktop.hpp` 共享
+    （atspi_backend_test 89 断言复跑不变）。
+  - `tests/platform/x11_backend_test.cpp` 增真实 X server 指针查询场景（→ 261
+    断言）：XTest 移动后根坐标读回一致、查询零副作用（无事件泄漏、input focus
+    不变）、取消。
+  - 独立验证修复 1 个生产缺陷：组装器 focus 查询仅在 active_window 组件时执行，
+    structure-only 请求（`required.structure` 无 foreground）以空窗口 id 调
+    `semantic_snapshot`，健康环境上必然失败且无焦点时错误码误报
+    invalid_argument 而非契约 `not_found`——修复为 focus 查询服务所有需要的
+    组件、两组件各自携带阶段错误、快照阶段以已解析焦点为门禁（契约强化，
+    复验通过）。
+  - 预设矩阵：`debug` / `release` / `asan` / `ubsan` configure + build + ctest
+    均 **24/24 通过、0 skip**；`tsan` 按 README 注意事项 `setarch $(uname -m)
+    -R ctest` 24/24（glib 未插桩库内 race 经既有 suppression）。stub 双分支：
+    无 X11（`-DCMAKE_DISABLE_FIND_PACKAGE_X11=ON`）171 目标构建成功、`build.ninja`
+    零 `-lX11`、21/21；无 gio（影子 pkg-config）20/20 且确认前端 disabled。
+    `mirage-format-check` 与 `mirage-boundary-check`（33 头 0 违规，含新公共头）
+    通过。新测试 debug / asan 各连跑 3 轮全绿。
+  - 挂账项定案：`runtime_service_test` 高负载偶发失败（M2-04 起记录）定性为
+    测试时序断言过紧——5 s 客户端调用预算在并行 ctest CPU 超订下把双 worker
+    服务的合法尾延迟判为 `unavailable`（隔离运行毫秒级稳定）；五个服务测试的
+    活跃性预算放宽为 30 s 并注明理由，event_subscription_test 的设计内延迟探针
+    （elapsed < 4 s）保持不变。
+- 限制：EWMH/真实 WM 拓扑与真实 GTK/Chromium 可访问树的角色词表一致性仍未冒烟
+  （沙箱无真实桌面环境；沿用 `M2-02`/`M2-03` 限制，随 `M2-07` 退出复核在维护者
+  有显示环境的机器上补齐取证）；绑定 `foreground` 组件在 optional structure 降级
+  时 package_name 为空（activity 保留）——Mira 侧消费空 package 的跨仓库语义
+  未在本仓库验证；多显示器 RandR 变体、16bpp 拒绝等平台变体沿用既有范围；
+  `OperationContext` 捕获中途翻转取消仅在组件边界验证（Provider 内部取消由各自
+  既有测试覆盖，绑定层无法确定性注入）。
+- 同步：设计文档第 6、11.1 节注记、`DEC-002` 变更记录（Mbed TLS 默认值复核
+  冻结）、`DEC-015` 变更记录（pump 升级评估结论 + 输入超时收敛结论 + 挂账项
+  定案）、总计划当前状态与决策表、本验证记录。
