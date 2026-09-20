@@ -1,13 +1,13 @@
 # M3：Mirador 视觉集成
 
-> 状态：In Progress（`M3-01`、`M3-02` 完成）
+> 状态：In Progress（`M3-01`、`M3-02`、`M3-03` 完成）
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M2](m2-desktop-environment.md)（已完成：Desktop Environment 核心 Provider、
 > Linux Backend、Semantic Snapshot、ElementTarget 解析顺序契约、Observation 组装
 > 与 runtime 接线）
 > 建议发布点：`release-gamma`（tag 待维护者授权后创建）
-> 更新日期：2026-09-20（`M3-02` 完成）
+> 更新日期：2026-09-20（`M3-03` 完成）
 
 ## 目标
 
@@ -106,7 +106,7 @@ Visual Reference（`@vN`）的签发与解析闭环，补齐 DEC-005 解析顺�
       mirador `ExecutionContext` 的映射；`OcrBackend` / `DetectorBackend` SPI
       注册、`VisualBackendIdentity` 校验接线与确定性 fake / identity backend
       实现（正 / 负向：格式不支持、后端不可用、取消、预算）。
-- [ ] `M3-03` Visual Observation 组件与解析闭环：ObservationAssembler 增
+- [x] `M3-03` Visual Observation 组件与解析闭环：ObservationAssembler 增
       visual 组件（`visual_snapshot_ref` 从预留位转正，schema 1.x）；Visual
       Reference 注册表（`@vN` 签发、预算、快照换代失效）；ElementTarget
       visual 提示解析器（`ocr_text` 匹配 OCR 区域、`template_id` 走缓存索引，
@@ -258,3 +258,61 @@ skill 卡片为契约输入。
   （owner 创建与 data 赋值前移）后复验通过，五预设全绿。
 - **未覆盖项**：真实模型后端行为不在 M3 声明范围（RULE-08）；`@vN`
   注册表接线、schema 1.1 wire 证据与解析闭环随 `M3-03`。
+
+2026-09-20：`M3-03` 完成（分支 `feat/m3-03-visual-resolution-loop`，基于
+`M3-02` 合入后的 `master`）。schema 1.1 与解析闭环落地。
+
+- **desktop 层**：`DesktopObservation` 新增结构字段 `visual_snapshot`，
+  schema tag 升 `"1.1"`（DEC-016 决策 2 声明的加法演进；
+  `visual_snapshot_ref` 落实 scope 句柄语义）；`ObservationAssembler` 增
+  visual 组件（默认关、不请求零行为变化；fail closed：未绑定 registry →
+  `unsupported_platform`，registry 无已发布代际 → `not_found`；捕获序
+  active_window → semantic → visual → pointer → environment）。新增
+  `element_target_executor`（DEC-005 顺序 + DEC-016 决策 6 的
+  visual/spatial/raw 桩转正）：accessibility（masked target，仅交出该环
+  提示）→ visual reference（`@vN`）→ visual hint（`ocr_text` /
+  `template_id` 精确匹配活动快照条目，ocr 先于 template）→ spatial
+  （`@v` 锚走 registry、`@e` 锚走调用方 semantic context，加偏移）→ raw；
+  环未解析记 `ResolutionStep` 可追溯降级事件并 fall-through，环命中即决定
+  不再降级，accessibility 命中但动作失败（如 unsupported_element）直接
+  报错不降级。`click(@vN)` 闭环 = 解析 bounds 中心 → `pointer_move` →
+  left press → left release，逐步观察取消；release 阶段被取消时以全新
+  token best-effort release 收敛输入状态（设计文档第 13 节不得留按钮
+  按住）。依赖可空，各自环 fail closed。
+- **integration 层**：`visual_observation_mapper`（pinned 唯一边界层）——
+  mirador 融合快照到 `desktop::VisualSnapshot` 的全量确定性映射：来源位
+  优先级 kOcr → kTemplate（`template_id` = label，label 空则顺延）→
+  kDetector → 其余（含纯 kExternal，DEC-016 管线不产生）→ kGeometry；
+  bounds 逐分量 lround（half away from zero）、confidence 转 double；
+  ref/scope 留空由注册表发布赋值。`publish_visual_snapshot` 一步完成
+  映射 + 注册表发布（重编号、scope、整体替换、超预算整体拒绝）。
+- **Permission 面复核（DEC-016 决策 6 确认）**：视觉分析为只读感知，未
+  新增 Capability 词表（`runtime/permission/capability.hpp` 枚举与词表
+  不变）；解析产出的指针动作复用既有 `input.inject` 判定；执行器位于
+  runtime 权限门之后，调用面随 `M3-05` 接线复核。
+- **wire 面处置**：mirage 本地 IPC 协议 v1 不承载 DesktopObservation
+  载荷（UI 事件/请求面），本次无 golden vectors 变更；pinned mira 绑定层
+  observe 对 visual 组件的投影随 `M3-05` 接线落地并按 DEC-012 纪律取证。
+- **测试证据**（Independent-Verification-Agent 独立执行）：更新
+  `tests/desktop/desktop_observation_test.cpp`（schema 1.1 与 visual 默认
+  空，15 checks）、扩展 `tests/desktop/observation_assembler_test.cpp`
+  （visual 组件六场景，199 checks）、新增
+  `tests/desktop/element_target_executor_test.cpp`（22 场景 228 checks：
+  `@vN` click 闭环与奇数尺寸中心、陈旧 `@v` 零注入、ocr/template 精确
+  匹配与优先序、降级 steps 可追溯、accessibility 动作失败不降级、
+  spatial `@v`/`@e` 锚、raw、无提示副作用前拒绝、三段取消含 release
+  收敛、依赖缺失 fail closed、ring 名稳定）与
+  `tests/integration/visual_observation_loop_test.cpp`（5 场景 114
+  checks：来源位映射矩阵与复合位优先、.5 half-away-from-zero 取整、
+  确定性等映射、发布编号/scope/超预算整体拒绝、真 executor + fake
+  backend 会话融合 → 发布 → observe 捕获 → `click(@vN)` /
+  `click(ocr_text)` 命中融合区域中心的端到端闭环、换代后 observe 见新
+  scope）；
+  `debug` / `release` / `asan` / `ubsan` / `tsan`（`setarch -R`）五预设
+  configure + build + ctest 29/29 通过、0 skip；asan / ubsan / tsan
+  报告 0；`mirage-format-check` 通过；`mirage-boundary-check` 通过
+  （36 头 0 命中）。
+- **未覆盖项**：执行器 structural 提示与 set_text 组合路径、raw `{0,0}`
+  与未设置的歧义（契约按未设置处理）未单独测试；headless X 拓扑 e2e
+  （采集 → 分析 → `@vN` → 解析 → 注入 → 再观察）随 `M3-05`；真实模型
+  后端行为不在 M3 声明范围（RULE-08）。
