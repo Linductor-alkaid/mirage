@@ -134,8 +134,9 @@ std::optional<ipc::InspectTask> wait_terminal(const std::string &socket_path,
         if (remaining <= std::chrono::milliseconds::zero()) {
             return std::nullopt;
         }
-        const ipc::Response response = client.call(
-            ipc::InspectTaskRequest{task_id}, std::min<std::chrono::milliseconds>(remaining, kCallBudget));
+        const ipc::Response response =
+            client.call(ipc::InspectTaskRequest{task_id},
+                        std::min<std::chrono::milliseconds>(remaining, kCallBudget));
         const auto *inspect = std::get_if<ipc::InspectTask>(&response.payload);
         if (inspect != nullptr &&
             (inspect->progress == "Completed" || inspect->progress == "Failed" ||
@@ -785,8 +786,8 @@ void scenario_unsubscribed_connection_never_sees_event_frames() {
         }
         const std::uint64_t id = plain.next_id;
         MIRAGE_CHECK(plain.send(ipc::ListTasksRequest{}));
-        const auto response =
-            read_response(plain, log, id, std::min<std::chrono::milliseconds>(remaining, kCallBudget));
+        const auto response = read_response(
+            plain, log, id, std::min<std::chrono::milliseconds>(remaining, kCallBudget));
         MIRAGE_CHECK(response.has_value() && response->ok);
         if (!response || !response->ok) {
             return;
