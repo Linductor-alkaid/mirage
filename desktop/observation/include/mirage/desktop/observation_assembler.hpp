@@ -7,6 +7,7 @@
 #include <mirage/desktop/desktop_observation.hpp>
 #include <mirage/desktop/provider_error.hpp>
 #include <mirage/desktop/semantic_snapshot.hpp>
+#include <mirage/desktop/visual_reference_registry.hpp>
 
 namespace mirage::desktop {
 
@@ -15,8 +16,9 @@ namespace mirage::desktop {
 /// perception, so only the requested components are captured). Requested
 /// components are mandatory at the binding level: an environment that
 /// cannot deliver one reports the failure instead of returning a silently
-/// incomplete observation. `visual_snapshot_ref` stays empty until the M3
-/// Mirador integration lands (DEC-005).
+/// incomplete observation. The visual component defaults to off: the visual
+/// surface stays dark unless requested (DEC-016 decision 2 — an observe
+/// request without the visual component changes nothing).
 struct ObservationComponents {
     /// Focused window's application name (when known), title, geometry and
     /// focus flag.
@@ -25,6 +27,13 @@ struct ObservationComponents {
     /// focused_element and, from the accessibility application root,
     /// active_application).
     bool semantic_snapshot = false;
+    /// The active visual generation from the bound VisualReferenceRegistry
+    /// (DEC-016 decision 2): fills visual_snapshot and visual_snapshot_ref.
+    /// The registry is fed by the visual pipeline (capture -> session
+    /// analysis -> publish); the assembler only reads what was published —
+    /// it never triggers an analysis itself (the per-source session runs on
+    /// its own serialized blocking worker, DEC-016 decision 4).
+    bool visual_snapshot = false;
     /// Global pointer position.
     bool pointer_state = false;
     /// Backend environment summary derived from the available providers.
@@ -55,6 +64,7 @@ struct ObservationAssemblyOutcome {
     DesktopObservation observation; ///< components captured so far
     ObservationComponentResult active_window;
     ObservationComponentResult semantic_snapshot;
+    ObservationComponentResult visual_snapshot;
     ObservationComponentResult pointer_state;
     ObservationComponentResult environment_state;
     ProviderError error; ///< meaningful only when ok is false
@@ -62,21 +72,29 @@ struct ObservationAssemblyOutcome {
 
 /// Assembles one DesktopObservation from the environment's providers on
 /// demand (design doc section 6). The assembler owns no state: every call
-/// captures fresh values through the provider accessors, so callers always
-/// see current desktop state (snapshot refresh policy v1 is behavior-result
-/// driven; a new observation takes a new snapshot).
+/// captures fresh values through the provider accessors and reads the
+/// visual generation current at call time, so callers always see current
+/// desktop state (snapshot refresh policy v1 is behavior-result driven; a
+/// new observation takes a new snapshot).
 ///
 /// Provider-mapped components fail closed when the environment lacks the
 /// provider (accessor null, e.g. the X11/AT-SPI2 frontend was not enabled):
 /// the stable error "unsupported_platform" is reported for that component
-/// instead of guessing. Capture order is active_window, semantic_snapshot,
-/// pointer_state, environment_state; a failed component does not stop the
-/// remaining captures. Cancellation is observed before each component and
-/// inside the providers; a cancelled assembly stops immediately.
+/// instead of guessing. The visual component fails closed the same way when
+/// no registry was bound, and with "not_found" when the bound registry has
+/// no published generation yet. Capture order is active_window,
+/// semantic_snapshot, visual_snapshot, pointer_state, environment_state; a
+/// failed component does not stop the remaining captures. Cancellation is
+/// observed before each component and inside the providers; a cancelled
+/// assembly stops immediately.
 class ObservationAssembler {
   public:
-    /// Does not take ownership; `environment` must outlive the assembler.
-    explicit ObservationAssembler(DesktopEnvironment &environment);
+    /// Does not take ownership; `environment` and `visual_registry` (when
+    /// non-null) must outlive the assembler. A null `visual_registry` keeps
+    /// the visual surface dark: requesting the visual component then fails
+    /// closed instead of capturing.
+    explicit ObservationAssembler(DesktopEnvironment &environment,
+                                  VisualReferenceRegistry *visual_registry = nullptr);
 
     ObservationAssemblyOutcome assemble(const ObservationComponents &components,
                                         const ObservationAssemblyLimits &limits,
@@ -88,6 +106,7 @@ class ObservationAssembler {
 
   private:
     DesktopEnvironment &environment_;
+    VisualReferenceRegistry *visual_registry_;
 };
 
 } // namespace mirage::desktop
