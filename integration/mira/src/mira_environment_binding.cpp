@@ -153,12 +153,10 @@ project_structure(const mirage::desktop::SemanticSnapshot &snapshot,
         projected_node.role = ui_role_of(node.role);
         projected_node.text = node.name;
         projected_node.content_description = node.description;
-        projected_node.bounds = mira::RectF{static_cast<double>(node.geometry.x),
-                                            static_cast<double>(node.geometry.y),
-                                            static_cast<double>(node.geometry.x +
-                                                                node.geometry.width),
-                                            static_cast<double>(node.geometry.y +
-                                                                node.geometry.height)};
+        projected_node.bounds =
+            mira::RectF{static_cast<double>(node.geometry.x), static_cast<double>(node.geometry.y),
+                        static_cast<double>(node.geometry.x + node.geometry.width),
+                        static_cast<double>(node.geometry.y + node.geometry.height)};
         projected_node.space = projected.space;
         if (node.enabled) {
             projected_node.state = projected_node.state | mira::UiNodeState::Enabled;
@@ -179,9 +177,8 @@ project_structure(const mirage::desktop::SemanticSnapshot &snapshot,
                 break;
             }
             const auto parent = snapshot.nodes[cursor.value()].parent;
-            cursor = parent == mirage::desktop::kNoParent
-                         ? std::nullopt
-                         : std::optional<std::size_t>(parent);
+            cursor = parent == mirage::desktop::kNoParent ? std::nullopt
+                                                          : std::optional<std::size_t>(parent);
         }
         max_depth = std::max(max_depth, depth);
     }
@@ -256,8 +253,7 @@ MiraEnvironmentBinding::observe(const mira::ObservationRequest &request,
     components.active_window = want_foreground;
     components.semantic_snapshot = want_structure;
     const auto assembly = assembler.assemble(
-        components, mirage::desktop::ObservationAssemblyLimits{},
-        mirage::desktop::CancelToken{});
+        components, mirage::desktop::ObservationAssemblyLimits{}, mirage::desktop::CancelToken{});
     const mira::Timestamp finished = mira::Timestamp::now();
 
     if (assembly.cancelled) {
@@ -316,8 +312,7 @@ MiraEnvironmentBinding::observe(const mira::ObservationRequest &request,
                 topology) {
                 observation.topology = topology.value();
             } else {
-                degradations.push_back("topology unavailable: " +
-                                       topology.error().safe_message);
+                degradations.push_back("topology unavailable: " + topology.error().safe_message);
             }
         } else if (!displays.ok) {
             degradations.push_back("topology unavailable: " + displays.error.code);
@@ -325,8 +320,8 @@ MiraEnvironmentBinding::observe(const mira::ObservationRequest &request,
     }
 
     if (assembly.semantic_snapshot.captured) {
-        auto structure = project_structure(assembly.observation.semantic_snapshot,
-                                           observation_span);
+        auto structure =
+            project_structure(assembly.observation.semantic_snapshot, observation_span);
         if (!structure) {
             return structure.error();
         }
@@ -339,8 +334,7 @@ MiraEnvironmentBinding::observe(const mira::ObservationRequest &request,
         component.environment_epoch = 0;
         observation.structure = std::move(component);
     } else if (want_structure) {
-        degradations.push_back("structure unavailable: " +
-                               assembly.semantic_snapshot.error.code);
+        degradations.push_back("structure unavailable: " + assembly.semantic_snapshot.error.code);
     }
 
     if (assembly.active_window.captured) {
@@ -379,7 +373,8 @@ MiraEnvironmentBinding::execute(const mira::InputSequence &input,
     receipt.status = mira::ExecutionStatus::Rejected;
     receipt.side_effect_may_have_occurred = false;
     receipt.environment_epoch = 0;
-    receipt.safe_message = "input dispatch is not available through the desktop environment binding";
+    receipt.safe_message =
+        "input dispatch is not available through the desktop environment binding";
     if (context.cancelled()) {
         receipt.safe_message = "input dispatch was cancelled before dispatch";
     }
