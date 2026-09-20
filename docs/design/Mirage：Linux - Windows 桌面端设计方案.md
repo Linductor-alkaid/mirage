@@ -520,13 +520,19 @@ Mira Host（`runtime/mira_host`）是 pinned `MiraRuntime` 实例的唯一 owner
   `admit_operation_completion`）以 Mirage Provider 返回值暴露给宿主侧驱动循环
   （[DEC-008](../decisions/DEC-008-m1-environment-binding-and-reference-providers.md)）。
   `M2-06` 起 observe 面如实上报：capabilities 从绑定环境的 Provider 访问器推导
-  （foreground_app ← window、ui_tree ← window + accessibility；screen/input/
+  （foreground_app ← window、ui_tree ← window + accessibility；input/
   atomicity/skew bound/epoch 各按其真实缺口保持未声明），required 的
   structure/foreground 映射到第 6 节的按需组装器并 fail closed，Semantic
   Snapshot 投影为 pinned `UiTreeSnapshot`（`@eN` 引用入 stable hint、映射后经
   pinned validator 复验）进入 Agent 观察面，optional 组件降级以 quality 记录
-  显式呈现；screen 像素与 discrete_input 保持未声明（M3 Mirador 视觉集成与
-  pinned 规范输入序列映射落地后再扩展）。
+  显式呈现。`M3-05` 起视觉面接线：当绑定配置了视觉管线（采集 → 每源会话分析 →
+  注册表发布，[DEC-016](../decisions/DEC-016-mirador-visual-integration-contract.md)）
+  与 artifact store 时，`screen_capture` 与一个 perception 源可如实声明——
+  screen 组件交付 store 记录完整的 `ScreenFrameDescriptor`（采集帧像素经 store
+  发布，载荷元数据为唯一 wire 描述），perception 请求触发刷新并把发布代际投影为
+  全局桌面坐标的 pinned 证据条目；required/optional fail closed 语义与
+  structure 一致，未接线时视觉位保持未声明。discrete_input 仍未声明（pinned
+  规范输入序列映射落地后再扩展）。
 - 产品层可见的任务进度是 pinned `TaskState` 的 M1 投影：`Idle`；`Active`（Observing/
   Reasoning/Planning/Acting/Verifying/Recovering）；`Paused`（Pausing/Paused/
   TakeoverSettling/SuspendedForTakeover）；`Cancelling`；终态 `Completed`/`Failed`/
