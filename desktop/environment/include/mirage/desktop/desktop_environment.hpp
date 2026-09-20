@@ -34,8 +34,9 @@ struct EnvironmentInfo {
 ///       NotificationProvider
 ///
 /// None of these interfaces may leak platform or third-party types. The
-/// public observation contract they feed is frozen as
-/// kObservationSchemaVersion "1.0" (DEC-005).
+/// public observation contract they feed was frozen as
+/// kObservationSchemaVersion "1.0" (DEC-005) and evolves additively
+/// ("1.1" adds the visual component, DEC-016 decision 2).
 ///
 /// Lifetime: an owner in the runtime layer constructs the concrete backend
 /// (platform/windows or platform/linux) and keeps it alive for as long as the

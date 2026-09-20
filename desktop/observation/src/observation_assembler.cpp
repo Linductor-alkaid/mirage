@@ -2,8 +2,9 @@
 
 namespace mirage::desktop {
 
-ObservationAssembler::ObservationAssembler(DesktopEnvironment &environment)
-    : environment_(environment) {}
+ObservationAssembler::ObservationAssembler(DesktopEnvironment &environment,
+                                           VisualReferenceRegistry *visual_registry)
+    : environment_(environment), visual_registry_(visual_registry) {}
 
 namespace {
 
@@ -46,6 +47,7 @@ ObservationAssemblyOutcome ObservationAssembler::assemble(const ObservationCompo
     ObservationAssemblyOutcome outcome;
     outcome.active_window.requested = components.active_window;
     outcome.semantic_snapshot.requested = components.semantic_snapshot;
+    outcome.visual_snapshot.requested = components.visual_snapshot;
     outcome.pointer_state.requested = components.pointer_state;
     outcome.environment_state.requested = components.environment_state;
     if (cancel.cancelled()) {
@@ -155,6 +157,36 @@ ObservationAssemblyOutcome ObservationAssembler::assemble(const ObservationCompo
                     }
                 }
                 outcome.observation.active_application = snapshot.snapshot.application;
+            }
+        }
+    }
+
+    // The active visual generation: a read of what the visual pipeline has
+    // published, never an analysis trigger (DEC-016 decisions 2 and 4).
+    // Requested without a bound registry the component fails closed with
+    // "unsupported_platform"; with a registry that has no published
+    // generation yet, with "not_found" — an empty visual component would be
+    // a silently incomplete observation.
+    if (components.visual_snapshot && !cancel.cancelled()) {
+        if (visual_registry_ == nullptr) {
+            outcome.visual_snapshot.error = {"unsupported_platform",
+                                             "no visual observation source is bound"};
+            if (outcome.error.code.empty()) {
+                outcome.error = outcome.visual_snapshot.error;
+            }
+        } else {
+            const VisualSnapshot snapshot = visual_registry_->current();
+            if (snapshot.scope_ref.empty()) {
+                outcome.visual_snapshot.error = {"not_found",
+                                                 "no visual snapshot has been published"};
+                if (outcome.error.code.empty()) {
+                    outcome.error = outcome.visual_snapshot.error;
+                }
+            } else {
+                outcome.visual_snapshot.captured = true;
+                outcome.observation.visual_snapshot = std::move(snapshot);
+                outcome.observation.visual_snapshot_ref =
+                    outcome.observation.visual_snapshot.scope_ref;
             }
         }
     }

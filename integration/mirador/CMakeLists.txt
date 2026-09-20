@@ -4,6 +4,7 @@ add_library(mirage_integration_mirador STATIC
     src/visual_backend_registry.cpp
     src/visual_execution_context.cpp
     src/visual_frame.cpp
+    src/visual_observation_mapper.cpp
     src/visual_session_host.cpp
 )
 add_library(Mirage::integration_mirador ALIAS mirage_integration_mirador)
