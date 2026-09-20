@@ -292,28 +292,38 @@ struct RuntimeService::Impl {
     }
 
     void handle_list(std::uint64_t connection_id, std::uint64_t correlation_id) {
-        std::vector<std::pair<const detail::TaskRecord *, std::string>> identities;
+        // Copy the fields the summary needs while holding the registry lock:
+        // the blocking task_view call below must run outside the lock, and a
+        // bare TaskRecord pointer would race mark_driver_done's
+        // final_progress write once the lock is dropped (TSAN, CI run
+        // 35504750823).
+        struct ListedTask {
+            std::string id;
+            std::string goal;
+            std::string final_progress;
+        };
+        std::vector<ListedTask> tasks;
         {
             std::lock_guard lock(core->registry.mutex);
-            identities.reserve(core->registry.tasks.size());
+            tasks.reserve(core->registry.tasks.size());
             for (const auto &entry : core->registry.tasks) {
-                identities.emplace_back(&entry.second, entry.first);
+                tasks.push_back({entry.first, entry.second.goal, entry.second.final_progress});
             }
         }
         ipc::TaskList list;
-        list.tasks.reserve(identities.size());
-        for (const auto &[record, id] : identities) {
+        list.tasks.reserve(tasks.size());
+        for (auto &task : tasks) {
             ipc::TaskSummary summary;
-            summary.id = id;
-            summary.goal = record->goal;
-            if (!record->final_progress.empty()) {
+            if (!task.final_progress.empty()) {
                 // Settled (this run or hydrated from the M1-07 recovery
                 // file): the recorded terminal name is the truth.
-                summary.progress = record->final_progress;
+                summary.progress = task.final_progress;
             } else {
-                const TaskViewResult view = core->host.task_view(TaskIdentity{id});
+                const TaskViewResult view = core->host.task_view(TaskIdentity{task.id});
                 summary.progress = view.ok ? progress_name(view.view.progress) : "Unknown";
             }
+            summary.id = std::move(task.id);
+            summary.goal = std::move(task.goal);
             list.tasks.push_back(std::move(summary));
         }
         respond(connection_id, correlation_id, std::move(list));
