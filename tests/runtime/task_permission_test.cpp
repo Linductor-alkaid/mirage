@@ -40,7 +40,11 @@ using mirage::runtime::ServiceConfig;
 using mirage::runtime::ServiceRunReport;
 using mirage::testing::TempDir;
 
-constexpr auto kCallBudget = std::chrono::seconds{5};
+// Liveness guard against hangs, not a latency assertion: under parallel ctest
+// CPU oversubscription the two service workers can lag several seconds behind
+// (M2-06 investigation: 5 s produced rare false 'unavailable' under load while
+// isolated runs answer in milliseconds), so the wait budget is generous.
+constexpr auto kCallBudget = std::chrono::seconds{30};
 constexpr auto kTaskBudget = std::chrono::seconds{10};
 
 ServiceConfig make_config(const TempDir &dir) {

@@ -45,7 +45,11 @@ using mirage::runtime::ServiceRunReport;
 using mirage::testing::TempDir;
 using mirage::testing::unique_token;
 
-constexpr auto kCallBudget = std::chrono::seconds{5};
+// Liveness guard against hangs, not a latency assertion: under parallel ctest
+// CPU oversubscription the two service workers can lag several seconds behind
+// (M2-06 investigation: 5 s produced rare false 'unavailable' under load while
+// isolated runs answer in milliseconds), so the wait budget is generous.
+constexpr auto kCallBudget = std::chrono::seconds{30};
 constexpr auto kTaskBudget = std::chrono::seconds{10};
 /// Cancellation is observed by the provider within its 25 ms poll slice; the
 /// settlement and inspect round trip must stay far inside this bound.
@@ -196,7 +200,7 @@ void scenario_cancel_running_task_mid_action() {
         return;
     }
     const auto live = wait_for(
-        config.socket_path, *task_id, std::chrono::seconds{5},
+        config.socket_path, *task_id, kCallBudget,
         [&pid_file](const ipc::InspectTask &) { return std::filesystem::exists(pid_file); });
     MIRAGE_CHECK(live.has_value());
 
@@ -218,7 +222,7 @@ void scenario_cancel_running_task_mid_action() {
     // driver finishes marking steps, so wait for the full converged shape.
     const auto started = std::chrono::steady_clock::now();
     const auto done = wait_for(
-        config.socket_path, *task_id, std::chrono::seconds{5}, [](const ipc::InspectTask &view) {
+        config.socket_path, *task_id, kCallBudget, [](const ipc::InspectTask &view) {
             return view.progress == "Cancelled" && view.steps.size() == 3 &&
                    view.steps[0].status == "cancelled" && view.steps[1].status == "skipped" &&
                    view.steps[2].status == "skipped";
