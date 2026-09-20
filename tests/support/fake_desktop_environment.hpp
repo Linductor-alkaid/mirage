@@ -63,6 +63,9 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
     bool clipboard_has_text = false;
     std::vector<std::pair<std::string, std::string>> notifications; ///< title, body
     std::vector<std::string> input_log;                             ///< human-readable actions
+    /// Pointer position reported by pointer_position(); updated by
+    /// successful pointer_move() calls.
+    mirage::desktop::PointerState pointer;
     FakeFailures failures;
 
     // ---- accessibility action test surface ----
@@ -765,6 +768,7 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
                 return outcome;
             }
             env_.input_log.push_back("move " + std::to_string(x) + "," + std::to_string(y));
+            env_.pointer = {x, y};
             outcome.ok = true;
             return outcome;
         }
@@ -790,6 +794,19 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
             }
             env_.input_log.push_back(std::string(pressed ? "press " : "release ") + button);
             outcome.ok = true;
+            return outcome;
+        }
+
+        mirage::desktop::PointerQueryOutcome
+        pointer_position(const mirage::desktop::CancelToken &cancel) override {
+            mirage::desktop::PointerQueryOutcome outcome;
+            if (cancel.cancelled()) {
+                outcome.cancelled = true;
+                outcome.error = {"cancelled", "pointer query cancelled"};
+                return outcome;
+            }
+            outcome.ok = true;
+            outcome.position = env_.pointer;
             return outcome;
         }
 
