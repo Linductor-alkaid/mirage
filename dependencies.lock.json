@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "project": "mirage",
-  "updated": "2026-09-15",
+  "updated": "2026-09-20",
   "notes": "Top-level entries are git submodules verified at configure time by cmake/MirageDependencies.cmake. nested_pins entries are verified against the gitlink recorded in the parent repository's HEAD. Audit-only entries (no 'path' verification in parent HEAD) are informational.",
   "dependencies": [
     {
@@ -9,7 +9,7 @@
       "source": "https://github.com/Linductor-alkaid/mira.git",
       "path": "third_party/mira",
       "version": "0.1.0",
-      "commit": "255e4cf7f5ef1dd96aa20eab5d7532b830e8f70b",
+      "commit": "cf0af7522243357f630b3d3e25680ed6001c6047",
       "license": "UNLICENSED (上游仓库未随附 LICENSE 文件；升级审计时先向上游确认)",
       "consumption": "add_subdirectory；Mirage::core 经由别名 Mira::core 链接",
       "nested_pins": [
@@ -17,8 +17,8 @@
           "name": "executor",
           "source": "https://github.com/Linductor-alkaid/executor.git",
           "path": "third_party/executor",
-          "version": "0.4.0-100-ge2dc8ca",
-          "commit": "e2dc8ca2243345e2e6cf35b395793a58796457b9",
+          "version": "0.5.0",
+          "commit": "2ae4fc8985af8962e08e3282a9330de5445d0d10",
           "license": "MIT"
         },
         {
@@ -51,8 +51,8 @@
       "name": "mirador",
       "source": "https://github.com/Linductor-alkaid/mirador.git",
       "path": "third_party/mirador",
-      "version": "v0.1.0-18-gfbcf6c4",
-      "commit": "fbcf6c44072694d79918e1de3552c497d7e6907d",
+      "version": "v0.2.0-17-g50f5349",
+      "commit": "50f53497cd1e43150057a28afbe82f01ff25c620",
       "license": "MIT",
       "license_file": "third_party/mirador/LICENSE",
       "consumption": "add_subdirectory；视觉后端契约经由别名 mirador::core 链接",
