@@ -1,13 +1,13 @@
 # M3：Mirador 视觉集成
 
-> 状态：In Progress（`M3-01`、`M3-02`、`M3-03`、`M3-04` 完成）
+> 状态：In Progress（`M3-01`、`M3-02`、`M3-03`、`M3-04`、`M3-05` 完成）
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M2](m2-desktop-environment.md)（已完成：Desktop Environment 核心 Provider、
 > Linux Backend、Semantic Snapshot、ElementTarget 解析顺序契约、Observation 组装
 > 与 runtime 接线）
 > 建议发布点：`release-gamma`（tag 待维护者授权后创建）
-> 更新日期：2026-09-20（`M3-04` 完成）
+> 更新日期：2026-09-21（`M3-05` 完成）
 
 ## 目标
 
@@ -118,7 +118,7 @@ Visual Reference（`@vN`）的签发与解析闭环，补齐 DEC-005 解析顺�
       `capability_cache` / `frame_cache` 预算与 Mirage 侧会话生命周期的接线
       （`RULE-07` 容量上限、背压显式）；`geometric_proposal` 闭合区域 →
       Tight / Context ROI 供给检测请求与采集裁剪。
-- [ ] `M3-05` runtime 接线与端到端闭环：`integration/mira` observe 能力如实
+- [x] `M3-05` runtime 接线与端到端闭环：`integration/mira` observe 能力如实
       上报扩展（视觉组件映射与 required / optional fail closed 语义对齐
       M2-06 先例）；增强 Observation 进入 Mira 观察面；headless X 拓扑 e2e：
       采集 → fake 视觉分析 → `@vN` 签发 → ElementTarget visual 解析 → 坐标
@@ -369,3 +369,61 @@ skill 卡片为契约输入。
   `geometry_proposals` 驱动）未引入新 e2e（管线侧已验证提议输出）；上游
   `DEC-018` 阶段 2（temporal stability / 融合集成）落地后再评估 External
   载体替换。几何契约消费中未发现需登记 `MIRADOR-*` 台账的缺口。
+
+2026-09-21：`M3-05` 完成（分支 `feat/m3-05-runtime-visual-wiring`，基于
+`M3-04` 合入后的 `master`）。observe 能力如实上报扩展与端到端闭环落地。
+
+- **绑定侧视觉接线**（`integration/mira`）：新增 pinned-free
+  `EnvironmentVisualPipeline` 接口（`refresh` = 采集 + 按需分析 + 注册表
+  发布，两阶段结果独立上报）；`MiraEnvironmentBinding` 增可选
+  `VisualWiring`（pipeline + `mira::IArtifactStore`，非拥有）。
+  `capabilities()` 仅在管线已启动、store 已配置且 ScreenProvider 在位时
+  声明 `screen_capture` 与一个 perception 源（任一缺失回退 false/0，沿用
+  M2-06 如实申报纪律）。`observe()` 扩展：请求 screen 时发布采集帧进
+  artifact store（media type `image/x-bgra8888`、`max_bytes` = 帧字节数
+  精确预算）并交付过 `validate_frame_descriptor` 的
+  `ScreenFrameDescriptor`（BGRA8888/SRGB/Opaque/Rotation0、单 plane、
+  payload 元数据取 commit 记录、display_id 与本次 topology 同源）；请求
+  perception 时先刷新（分析 + 发布），只投影**本次刷新刚发布的代际**——
+  每区域映射为 `ocr.text` / `template.icon` / `detector.box` /
+  `geometry.region` 证据，bounds 保持全局桌面坐标（DEC-016 决策 3）；
+  required/optional fail closed 对齐 M2-06 先例（required 失败整请求
+  closed、optional 降级 note + `screen_missing` / Degraded，绝不静默；
+  条数不足 required.perception → NotFound）。视觉位未请求时零行为变化
+  （不采集、不分析、不发布）。
+- **管线承载**（`integration/mirador`）：`VisualObservationPipeline`
+  （实现上述接口）——list_displays 选显（配置 id 精确匹配 / primary /
+  首个）→ `capture_display` → `to_mirador_frame`（序列号互斥自增）→
+  `display_transform` 由捕获显示器放置构造（恒等也必传，DEC-016 决策
+  3）→ 每源会话在其 Executor blocking worker 串行分析（deadline 直传，
+  无 deadline 时 10s 上界防挂）→ kCompleted 快照经
+  `publish_visual_snapshot` 发布注册表；kTimedOut → `deadline_exceeded`、
+  kBudgetExceeded → `result_too_large`、kRejected → `invalid_state`、
+  kFailed → `io_error`，kCancelled 显式 `analysis_cancelled`。分析从不
+  在调用方线程执行；并发 refresh 经会话 latest-wins 显式结算（RULE-10）。
+- **文档同步**：设计文档第 11 节能力注记更新（screen 像素面自 `M3-05`
+  起可如实声明，`discrete_input` 仍未声明）；
+  [DEC-016](../decisions/DEC-016-mirador-visual-integration-contract.md)
+  增补 `M3-05` 修订节（pinned 观察面投影形态与载荷预算纪律）。
+- **测试证据**（Independent-Verification-Agent 独立执行）：扩展
+  `tests/integration/mira_binding_test.cpp`（28 场景 381 checks：wired
+  能力如实上报与三态回退、validator-clean 帧描述符 + payload 重开一致、
+  perception 投影字段与代际刷新、单次刷新同时交付 screen+perception
+  （capture/ocr/detector 调用计数各 1）、超额 perception 能力门拒绝、
+  采集/分析失败的 required 失败与 optional 降级、无分析阶段空证据语义、
+  store 预算耗尽 ResourceExhausted、未接线防线、空请求零采集零分析；
+  既有 18 场景全数保留通过）与新增
+  `tests/integration/visual_observation_e2e_test.cpp`（99 checks：Xvfb +
+  AT-SPI2 fixture 拓扑上 capabilities 全开、描述符 == 显示几何且
+  `evaluate_observation` satisfies_request、`@v1` click 经
+  ElementTargetExecutor 命中融合区域中心并经 XQueryPointer 证实指针到
+  位、再观察前进到 `@vs2` 且陈旧代际整体替换、stop 后能力撤回与
+  required 拒绝 / optional 降级 / capture 独立于分析会话）；
+  `debug` / `release` / `asan` / `ubsan` / `tsan`（`setarch -R`）五预设
+  configure + build + ctest 32/32 通过、0 skip；asan / ubsan / tsan 报告
+  0；`mirage-format-check` 通过；`mirage-boundary-check` 通过（36 头
+  0 命中）。
+- **未覆盖项**：多显示器选显的后两个分支（primary / 首个回退；单显示
+  拓扑环境限制，精确匹配分支已覆盖）；binding 层向 refresh 传入
+  deadline 的分析超时路径（`kTimedOut` 映射仅由 visual_session_test 覆盖
+  到 session 层）；真实模型后端行为不在 M3 声明范围（RULE-08）。
