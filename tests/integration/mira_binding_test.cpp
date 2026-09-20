@@ -1,10 +1,14 @@
+#include "../support/fake_desktop_environment.hpp"
 #include "../support/test.hpp"
 
 #include <mira/environment.hpp>
 
 #include <mirage/desktop/desktop_environment.hpp>
+#include <mirage/desktop/desktop_observation.hpp>
 #include <mirage/desktop/filesystem_provider.hpp>
+#include <mirage/desktop/observation_assembler.hpp>
 #include <mirage/desktop/process_provider.hpp>
+#include <mirage/desktop/semantic_snapshot.hpp>
 #include <mirage/integration/mira_environment_binding.hpp>
 #include <mirage/platform/linux/linux_desktop_environment.hpp>
 #include <mirage/runtime/mira_host.hpp>
@@ -12,6 +16,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -325,6 +330,336 @@ void scenario_operation_completion_does_not_revive_cancelled_task() {
     MIRAGE_CHECK(host.shutdown().ok);
 }
 
+// ---- M2-06: observe/capabilities over a fully populated fake environment ----
+//
+// The default LinuxDesktopEnvironment scenarios above pin the honest all-false
+// capability baseline; the scenarios below bind the FakeDesktopEnvironment
+// (all nine providers present) so the structure/foreground delivery path, the
+// required/optional component policy and the pinned error mapping are
+// observable without an X server.
+
+desktop::SemanticNode fake_node(std::string ref, std::string role, std::string name,
+                                std::size_t parent, bool focused = false, bool enabled = true) {
+    desktop::SemanticNode n;
+    n.ref = std::move(ref);
+    n.role = std::move(role);
+    n.name = std::move(name);
+    n.parent = parent;
+    n.focused = focused;
+    n.enabled = enabled;
+    n.geometry = {5, 6, 40, 12};
+    return n;
+}
+
+/// Focused window "w1" ("Editor") with a four-node snapshot whose roles,
+/// states and geometry exercise every projection branch of the binding.
+void seed_fake_desktop(mirage::testing::FakeDesktopEnvironment &env) {
+    desktop::WindowInfo window;
+    window.id = "w1";
+    window.title = "Editor";
+    window.geometry = {10, 20, 800, 600};
+    window.focused = true;
+    env.windows.push_back(window);
+
+    desktop::SemanticSnapshot snapshot;
+    snapshot.application = "FakeEditor";
+    snapshot.window_title = "Editor";
+    snapshot.nodes.push_back(fake_node("@e1", "window", "Editor", desktop::kNoParent));
+    snapshot.nodes.push_back(fake_node("@e2", "panel", "main", 0));
+    snapshot.nodes.push_back(fake_node("@e3", "button", "Run", 1));
+    // Focused but disabled: exercises both state flags independently.
+    snapshot.nodes.push_back(fake_node("@e4", "entry", "Name", 1, /*focused=*/true,
+                                       /*enabled=*/false));
+    env.snapshots["w1"] = snapshot;
+}
+
+void fake_capabilities_are_reported_honestly() {
+    auto environment = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    integration::MiraEnvironmentBinding binding(environment);
+
+    const auto capabilities = binding.capabilities();
+    MIRAGE_CHECK(capabilities.foreground_app);
+    MIRAGE_CHECK(capabilities.ui_tree);
+    MIRAGE_CHECK(!capabilities.screen_capture);
+    MIRAGE_CHECK(!capabilities.device_state);
+    MIRAGE_CHECK(!capabilities.discrete_input);
+    MIRAGE_CHECK(!capabilities.atomic_observation);
+    MIRAGE_CHECK(!capabilities.input_release);
+    MIRAGE_CHECK(!capabilities.epoch_invalidation);
+    MIRAGE_CHECK(capabilities.perception_sources == 0);
+    MIRAGE_CHECK(capabilities.max_component_skew == std::chrono::nanoseconds::zero());
+
+    // execute/interrupt keep their M2-05 semantics on a capable environment:
+    // dispatch is refused before any side effect, interrupt stays idempotent.
+    mira::InputSequence sequence;
+    sequence.events.push_back(mira::InputEvent{"tap", "0.5,0.5"});
+    const auto receipt = binding.execute(sequence, mira::make_control_context());
+    MIRAGE_CHECK(receipt.has_value());
+    MIRAGE_CHECK(receipt.value().status == mira::ExecutionStatus::Rejected);
+    MIRAGE_CHECK(!receipt.value().side_effect_may_have_occurred);
+    MIRAGE_CHECK(binding.interrupt(mira::make_control_context()).has_value());
+    MIRAGE_CHECK(binding.interrupt(mira::make_control_context()).has_value());
+}
+
+void fake_observe_delivers_structure_and_foreground() {
+    auto environment = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    seed_fake_desktop(*environment);
+    integration::MiraEnvironmentBinding binding(environment);
+
+    mira::ObservationRequest request;
+    request.required.structure = true;
+    request.required.foreground = true;
+    const auto result = binding.observe(request, mira::make_control_context());
+    MIRAGE_CHECK(result.has_value());
+    const mira::Observation &observation = result.value();
+
+    MIRAGE_CHECK(!observation.id.is_nil());
+    MIRAGE_CHECK(observation.atomicity == mira::ObservationAtomicity::NonAtomic);
+    MIRAGE_CHECK(observation.environment_epoch == 0);
+    MIRAGE_CHECK(observation.perception.empty());
+    MIRAGE_CHECK(observation.topology.displays.empty()); // fake declares no displays
+    MIRAGE_CHECK(observation.quality.overall == mira::ComponentQuality::Good);
+    MIRAGE_CHECK(observation.quality.degradations.empty());
+
+    // The aggregate span and every component capture are ordered in time.
+    MIRAGE_CHECK(observation.aggregate_span.normalized_begin.monotonic <=
+                 observation.aggregate_span.normalized_end.monotonic);
+
+    // Structure component: present, pinned-validator clean, projection exact.
+    MIRAGE_CHECK(observation.structure.has_value());
+    const mira::UiTreeSnapshot &structure = observation.structure->value;
+    MIRAGE_CHECK(mira::validate_ui_tree_snapshot(structure).has_value());
+    MIRAGE_CHECK(structure.nodes.size() == 4);
+    MIRAGE_CHECK(structure.complete);
+    MIRAGE_CHECK(!structure.truncated);
+    MIRAGE_CHECK(!structure.visible_only);
+    MIRAGE_CHECK(!structure.space.is_nil());
+    MIRAGE_CHECK(structure.max_depth_reached == 3);
+    MIRAGE_CHECK(observation.structure->capture.normalized_begin.monotonic <=
+                 observation.structure->capture.normalized_end.monotonic);
+    MIRAGE_CHECK(observation.structure->quality == mira::ComponentQuality::Good);
+    MIRAGE_CHECK(observation.structure->provenance.source == "mirage.desktop.accessibility");
+
+    std::set<mira::UiNodeId> ids;
+    for (std::size_t i = 0; i < structure.nodes.size(); ++i) {
+        MIRAGE_CHECK(!structure.nodes[i].id.is_nil());
+        MIRAGE_CHECK(ids.insert(structure.nodes[i].id).second); // fresh, unique ids
+        MIRAGE_CHECK(structure.nodes[i].space == structure.space);
+        MIRAGE_CHECK(structure.nodes[i].stable_hint.has_value());
+        MIRAGE_CHECK(structure.nodes[i].stable_hint->hint ==
+                     "@e" + std::to_string(i + 1)); // @eN refs survive as hints
+        MIRAGE_CHECK(structure.nodes[i].provenance.source == "mirage.desktop.accessibility");
+    }
+    // Parent indices are resolved onto the fresh ids.
+    MIRAGE_CHECK(!structure.nodes[0].parent.has_value());
+    MIRAGE_CHECK(structure.nodes[1].parent == structure.nodes[0].id);
+    MIRAGE_CHECK(structure.nodes[2].parent == structure.nodes[1].id);
+    MIRAGE_CHECK(structure.nodes[3].parent == structure.nodes[1].id);
+    // Role projection, text, bounds (global pixel space) and state flags.
+    MIRAGE_CHECK(structure.nodes[0].role == mira::UiRole::Window);
+    MIRAGE_CHECK(structure.nodes[0].text == "Editor");
+    MIRAGE_CHECK(structure.nodes[1].role == mira::UiRole::Pane);
+    MIRAGE_CHECK(structure.nodes[2].role == mira::UiRole::Button);
+    MIRAGE_CHECK(structure.nodes[2].text == "Run");
+    MIRAGE_CHECK(structure.nodes[3].role == mira::UiRole::TextField);
+    MIRAGE_CHECK(structure.nodes[3].text == "Name");
+    for (std::size_t i = 0; i < structure.nodes.size(); ++i) {
+        // geometry {5, 6, 40, 12} -> RectF{5, 6, 45, 18} per node.
+        MIRAGE_CHECK(structure.nodes[i].bounds.left == 5.0);
+        MIRAGE_CHECK(structure.nodes[i].bounds.top == 6.0);
+        MIRAGE_CHECK(structure.nodes[i].bounds.right == 45.0);
+        MIRAGE_CHECK(structure.nodes[i].bounds.bottom == 18.0);
+    }
+    // The three enabled nodes carry Enabled and no Focused; @e4 carries the
+    // inverse combination, so both flags move independently.
+    for (std::size_t i = 0; i < 3; ++i) {
+        MIRAGE_CHECK(mira::has_state(structure.nodes[i].state, mira::UiNodeState::Enabled));
+        MIRAGE_CHECK(!mira::has_state(structure.nodes[i].state, mira::UiNodeState::Focused));
+    }
+    MIRAGE_CHECK(!mira::has_state(structure.nodes[3].state, mira::UiNodeState::Enabled));
+    MIRAGE_CHECK(mira::has_state(structure.nodes[3].state, mira::UiNodeState::Focused));
+
+    // Foreground component: package from the accessibility application root,
+    // activity from the window title.
+    MIRAGE_CHECK(observation.foreground.has_value());
+    MIRAGE_CHECK(observation.foreground->value.package_name == "FakeEditor");
+    MIRAGE_CHECK(observation.foreground->value.activity_name == "Editor");
+    MIRAGE_CHECK(observation.foreground->capture.normalized_begin.monotonic <=
+                 observation.foreground->capture.normalized_end.monotonic);
+    MIRAGE_CHECK(observation.foreground->quality == mira::ComponentQuality::Good);
+    MIRAGE_CHECK(observation.foreground->provenance.source == "mirage.desktop.window");
+}
+
+void fake_observe_without_components_returns_minimal_observation() {
+    auto environment = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    seed_fake_desktop(*environment);
+    integration::MiraEnvironmentBinding binding(environment);
+
+    mira::ObservationRequest request;
+    const auto result = binding.observe(request, mira::make_control_context());
+    MIRAGE_CHECK(result.has_value());
+    const mira::Observation &observation = result.value();
+    MIRAGE_CHECK(!observation.id.is_nil());
+    MIRAGE_CHECK(!observation.structure.has_value());
+    MIRAGE_CHECK(!observation.foreground.has_value());
+    MIRAGE_CHECK(!observation.screen.has_value());
+    MIRAGE_CHECK(observation.perception.empty());
+    MIRAGE_CHECK(observation.quality.overall == mira::ComponentQuality::Good);
+    MIRAGE_CHECK(observation.quality.degradations.empty());
+}
+
+void fake_observe_fails_closed_when_required_structure_is_missing() {
+    auto environment = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    // Focused window hit, but no accessibility tree for it.
+    desktop::WindowInfo window;
+    window.id = "w1";
+    window.title = "Editor";
+    window.focused = true;
+    environment->windows.push_back(window);
+    integration::MiraEnvironmentBinding binding(environment);
+
+    mira::ObservationRequest request;
+    request.required.structure = true;
+    request.required.foreground = true;
+    const auto unsupported = binding.observe(request, mira::make_control_context());
+    MIRAGE_CHECK(!unsupported.has_value());
+    MIRAGE_CHECK(unsupported.error().code == mira::ErrorCode::UnsupportedCapability);
+    MIRAGE_CHECK(unsupported.error().safe_message.find("structure") != std::string::npos);
+}
+
+void fake_observe_reports_not_found_without_any_window() {
+    auto environment = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    integration::MiraEnvironmentBinding binding(environment);
+
+    mira::ObservationRequest foreground_only;
+    foreground_only.required.foreground = true;
+    const auto no_window = binding.observe(foreground_only, mira::make_control_context());
+    MIRAGE_CHECK(!no_window.has_value());
+    MIRAGE_CHECK(no_window.error().code == mira::ErrorCode::NotFound);
+    MIRAGE_CHECK(no_window.error().safe_message.find("foreground") != std::string::npos);
+
+    // A structure requirement over the same empty desktop reports not_found
+    // too: the snapshot is taken against the focused window and none exists.
+    mira::ObservationRequest structure_too;
+    structure_too.required.structure = true;
+    const auto structure_not_found = binding.observe(structure_too, mira::make_control_context());
+    MIRAGE_CHECK(!structure_not_found.has_value());
+    MIRAGE_CHECK(structure_not_found.error().code == mira::ErrorCode::NotFound);
+    MIRAGE_CHECK(structure_not_found.error().safe_message.find("structure") != std::string::npos);
+}
+
+void fake_observe_maps_provider_errors_onto_the_pinned_vocabulary() {
+    // PlatformError: an injected I/O failure inside the snapshot capture.
+    auto environment = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    seed_fake_desktop(*environment);
+    environment->failures.snapshot_error = true;
+    integration::MiraEnvironmentBinding binding(environment);
+
+    mira::ObservationRequest request;
+    request.required.structure = true;
+    const auto io_failure = binding.observe(request, mira::make_control_context());
+    MIRAGE_CHECK(!io_failure.has_value());
+    MIRAGE_CHECK(io_failure.error().code == mira::ErrorCode::PlatformError);
+    MIRAGE_CHECK(io_failure.error().safe_message.find("io_error") != std::string::npos);
+
+    // ResourceExhausted: a snapshot one node over the default 4096 budget is
+    // refused, never truncated ("too_large" suffix mapping).
+    auto oversized = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    seed_fake_desktop(*oversized);
+    desktop::SemanticSnapshot huge;
+    huge.application = "FakeEditor";
+    huge.nodes.push_back(fake_node("@e1", "window", "Editor", desktop::kNoParent));
+    for (std::size_t i = 0; i < 4096; ++i) {
+        huge.nodes.push_back(fake_node("@n" + std::to_string(i), "button", "node", 0));
+    }
+    oversized->snapshots["w1"] = std::move(huge);
+    MIRAGE_CHECK(oversized->accessibility()->semantic_snapshot("w1").error.code ==
+                 "snapshot_too_large");
+    integration::MiraEnvironmentBinding oversized_binding(oversized);
+    const auto exhausted = oversized_binding.observe(request, mira::make_control_context());
+    MIRAGE_CHECK(!exhausted.has_value());
+    MIRAGE_CHECK(exhausted.error().code == mira::ErrorCode::ResourceExhausted);
+    MIRAGE_CHECK(exhausted.error().safe_message.find("structure") != std::string::npos);
+}
+
+void fake_observe_degrades_optional_structure() {
+    auto environment = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    desktop::WindowInfo window;
+    window.id = "w1";
+    window.title = "Editor";
+    window.focused = true;
+    environment->windows.push_back(window); // no snapshots entry for w1
+    integration::MiraEnvironmentBinding binding(environment);
+
+    mira::ObservationRequest request;
+    request.required.foreground = true;
+    request.optional.structure = true;
+    const auto result = binding.observe(request, mira::make_control_context());
+    MIRAGE_CHECK(result.has_value());
+    const mira::Observation &observation = result.value();
+    MIRAGE_CHECK(!observation.structure.has_value()); // optional miss is not fatal...
+    MIRAGE_CHECK(observation.quality.overall == mira::ComponentQuality::Degraded);
+    bool structure_degradation = false;
+    for (const auto &note : observation.quality.degradations) {
+        structure_degradation = structure_degradation || note.find("structure unavailable") == 0;
+    }
+    MIRAGE_CHECK(structure_degradation);
+    // ...and the required foreground component is still delivered. Its
+    // package name comes from the accessibility root, which only a captured
+    // structure provides, so it degrades to an empty name with the title kept.
+    MIRAGE_CHECK(observation.foreground.has_value());
+    MIRAGE_CHECK(observation.foreground->value.activity_name == "Editor");
+    MIRAGE_CHECK(observation.foreground->value.package_name.empty());
+}
+
+void fake_observe_refuses_required_screen_despite_screen_provider() {
+    auto environment = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    environment->displays.push_back({"d1", {0, 0, 640, 480}, true});
+    integration::MiraEnvironmentBinding binding(environment);
+
+    // The environment has a screen provider, but the binding cannot declare
+    // screen_capture until the M3 artifact-store integration: the request
+    // must fail closed at the capability gate, before any capture.
+    MIRAGE_CHECK(environment->screen() != nullptr);
+    MIRAGE_CHECK(!binding.capabilities().screen_capture);
+
+    mira::ObservationRequest request;
+    request.required.screen = true;
+    const auto refused = binding.observe(request, mira::make_control_context());
+    MIRAGE_CHECK(!refused.has_value());
+    MIRAGE_CHECK(refused.error().code == mira::ErrorCode::UnsupportedCapability);
+    MIRAGE_CHECK(refused.error().safe_message.find("screen") != std::string::npos);
+}
+
+void fake_observe_honours_operation_cancellation_and_deadlines() {
+    auto environment = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    seed_fake_desktop(*environment);
+    integration::MiraEnvironmentBinding binding(environment);
+
+    // Cancelled before capture.
+    mira::OperationContext cancelled_context = mira::make_control_context();
+    cancelled_context.cancellation_requested = [] { return true; };
+    mira::ObservationRequest request;
+    request.required.structure = true;
+    request.required.foreground = true;
+    const auto cancelled = binding.observe(request, cancelled_context);
+    MIRAGE_CHECK(!cancelled.has_value());
+    MIRAGE_CHECK(cancelled.error().code == mira::ErrorCode::Cancelled);
+
+    // A deadline that expires during the capture boundary fails the whole
+    // observation even though the captures themselves succeeded.
+    mira::OperationContext expired_context = mira::make_control_context();
+    expired_context.started_at = mira::Timestamp::now();
+    expired_context.deadline = std::chrono::steady_clock::now() - std::chrono::milliseconds{1};
+    const auto expired = binding.observe(request, expired_context);
+    MIRAGE_CHECK(!expired.has_value());
+    MIRAGE_CHECK(expired.error().code == mira::ErrorCode::DeadlineExceeded);
+
+    // An open, live context delivers the observation.
+    const auto healthy = binding.observe(request, mira::make_control_context());
+    MIRAGE_CHECK(healthy.has_value());
+}
+
 void run_scenario(const char *name, void (*scenario)()) {
     std::fprintf(stderr, "[mira_binding_test] scenario: %s\n", name);
     scenario();
@@ -350,5 +685,23 @@ int main() {
                  scenario_end_to_end_task_reads_file_and_executes_shell);
     run_scenario("operation_completion_does_not_revive_cancelled_task",
                  scenario_operation_completion_does_not_revive_cancelled_task);
+    run_scenario("fake_capabilities_are_reported_honestly",
+                 fake_capabilities_are_reported_honestly);
+    run_scenario("fake_observe_delivers_structure_and_foreground",
+                 fake_observe_delivers_structure_and_foreground);
+    run_scenario("fake_observe_without_components_returns_minimal_observation",
+                 fake_observe_without_components_returns_minimal_observation);
+    run_scenario("fake_observe_fails_closed_when_required_structure_is_missing",
+                 fake_observe_fails_closed_when_required_structure_is_missing);
+    run_scenario("fake_observe_reports_not_found_without_any_window",
+                 fake_observe_reports_not_found_without_any_window);
+    run_scenario("fake_observe_maps_provider_errors_onto_the_pinned_vocabulary",
+                 fake_observe_maps_provider_errors_onto_the_pinned_vocabulary);
+    run_scenario("fake_observe_degrades_optional_structure",
+                 fake_observe_degrades_optional_structure);
+    run_scenario("fake_observe_refuses_required_screen_despite_screen_provider",
+                 fake_observe_refuses_required_screen_despite_screen_provider);
+    run_scenario("fake_observe_honours_operation_cancellation_and_deadlines",
+                 fake_observe_honours_operation_cancellation_and_deadlines);
     return mirage::testing::finish("mira_binding_test");
 }
