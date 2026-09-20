@@ -52,8 +52,7 @@ M3 将 pinned mirador（v0.3.0-2）的视觉能力接入 Desktop Observation：O
    在 AT-SPI Backend 内的 mutex + map 先例一致）；发布方（视觉会话的串行
    执行上下文）与解析方（动作执行路径）跨上下文时，一致性由"不可变整体快照
    交换"保证。跨帧再定位所需的 mirador stable_id 由集成层内部保留，不出
-   Mirage 契约面。
-2. **`visual_snapshot` 组件结构化、`visual_snapshot_ref` 为 scope 句柄，
+   Mirage 契约面。2. **`visual_snapshot` 组件结构化、`visual_snapshot_ref` 为 scope 句柄，
    schema 1.0 → 1.1 加法演进**。新增 pinned-free 结构类型
    `mirage::desktop::VisualSnapshot`：`regions[]`，每项 `VisualRegionEntry`
    含 `ref`（`@vN`）、`source`（`ocr` / `detector` / `template` / `geometry`
@@ -119,6 +118,36 @@ M3 将 pinned mirador（v0.3.0-2）的视觉能力接入 Desktop Observation：O
    桩由 `M3-03` 转正。视觉分析为只读感知：不新增 Permission Capability
    词表，解析产出的输入动作复用既有词表（`M3-03` 复核确认，本决策预登记
    结论）。
+
+## 修订（`M3-04` 落线，2026-09-20）
+
+决策 3 预告的三个 `M3-04` 消费面按以下形态定案，主体决策不变：
+
+1. **模板身份经"探测 + 富集"到达感知面**。mirador 融合自身不给模板证据
+   产生 label（`set_label` 只认 detection label / external role），而映射
+   契约要求 kTemplate 条目的 `template_id` 来自 label——因此集成层管线在
+   融合后把登记身份**盖写**到含 kTemplate 位的区域 label 上（最低 evidence
+   id 决定，确定性；身份缺失则清空 label，按既有映射纪律降级为 geometry
+   形态，不发明空/错 template_id）。登记（`enroll`）与探测（`probe`）由
+   每源一实例的 `VisualTemplateIndex` 承载，与 `PerceptionSession` 同一
+   blocking worker 串行上下文；探测位置为本请求检测区域，三层证据的采纳
+   策略是调用方"清晰胜者"阈值（上游 icon tour 纪律）。跨帧再定位 = 检测
+   提议新位置 + 索引确认同一身份 → 新代快照携带不变 `template_id`。
+2. **几何闭合区域以"无语义 ExternalRegion"进融合**。上游 `DEC-018` 阶段 2
+   之前 fusion 无几何证据原生通道；`M3-04` 以每个提议的 `tight_bounds` +
+   `closure_score`（confidence）加入 ExternalRegion，role/text/interactive
+   全空/假——几何事实不携带平台语义（上游 RULE-11 不受影响）。决策 3 中
+   "DEC-016 管线不产生 kExternal" 的说明自此收窄为：**accessibility 路径
+   不产生 kExternal**；kExternal 位仅可来自 `M3-04` 几何管线，映射仍落
+   geometry 形态条目。提议的 context_bounds 供检测请求 ROI 与采集裁剪
+   （`ScreenProvider::capture_roi`）消费，提议本体（线段、分数、有向框）
+   不进 Observation。
+3. **缓存预算接线与占用可观测**。模板索引预算并入 `VisualSessionConfig`
+   与会话预算同门fail closed；索引随会话生命周期生灭（stop 即清空）；
+   frame/result cache 与模板索引的占用（byte_size/entry_count）随分析
+   结果回传（`VisualAnalysisResult::cache_stats`，worker 上读取），不建
+   平行监控设施。
+
 
 ## 备选方案
 

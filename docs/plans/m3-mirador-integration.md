@@ -1,13 +1,13 @@
 # M3：Mirador 视觉集成
 
-> 状态：In Progress（`M3-01`、`M3-02`、`M3-03` 完成）
+> 状态：In Progress（`M3-01`、`M3-02`、`M3-03`、`M3-04` 完成）
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M2](m2-desktop-environment.md)（已完成：Desktop Environment 核心 Provider、
 > Linux Backend、Semantic Snapshot、ElementTarget 解析顺序契约、Observation 组装
 > 与 runtime 接线）
 > 建议发布点：`release-gamma`（tag 待维护者授权后创建）
-> 更新日期：2026-09-20（`M3-03` 完成）
+> 更新日期：2026-09-20（`M3-04` 完成）
 
 ## 目标
 
@@ -113,7 +113,7 @@ Visual Reference（`@vN`）的签发与解析闭环，补齐 DEC-005 解析顺�
       DEC-005 顺序中位于 accessibility 之后、VLM 之前，降级产生可追溯事件）；
       visual 解析 → 全局坐标 → InputProvider 执行路径（`click(@vN)` 闭环）；
       Permission 面复核（视觉分析只读、无新增 Capability 词表）。
-- [ ] `M3-04` Visual Cache 与几何提议接入：`visual_index` 三层证据（精确哈希 /
+- [x] `M3-04` Visual Cache 与几何提议接入：`visual_index` 三层证据（精确哈希 /
       感知哈希 / 模板 NCC）匹配服务于 `template_id` 解析与跨帧元素再定位；
       `capability_cache` / `frame_cache` 预算与 Mirage 侧会话生命周期的接线
       （`RULE-07` 容量上限、背压显式）；`geometric_proposal` 闭合区域 →
@@ -316,3 +316,56 @@ skill 卡片为契约输入。
   与未设置的歧义（契约按未设置处理）未单独测试；headless X 拓扑 e2e
   （采集 → 分析 → `@vN` → 解析 → 注入 → 再观察）随 `M3-05`；真实模型
   后端行为不在 M3 声明范围（RULE-08）。
+
+2026-09-20：`M3-04` 完成（分支 `feat/m3-04-visual-cache-geometry`，基于
+`M3-03` 合入后的 `master`）。Visual Cache 与几何提议按 DEC-016 修订
+（同日）落线。
+
+- **模板索引承载**（`integration/mirador`）：`visual_template_index`
+  （`VisualTemplateIndexConfig` / `VisualTemplateHit` /
+  `VisualTemplateIndex`）——每源一实例包着 pinned `mirador::VisualIndex`
+  三层证据（kExactContent / kPerceptualHash / kTemplate）；`enroll` 经
+  mirador `make_visual_patch_fingerprint`（与索引共享 thumb_side，预算
+  显式 kBudgetExceeded 不截断），identity 容量 fail closed（超限拒绝，
+  不驱逐），索引字节预算驱逐后 identity 表逐 enroll 对账（探测命中必可
+  映射回身份）；`probe` 执行调用方"清晰胜者"复用策略（首候选达阈值且无
+  并列才命中，弱/歧义命中交还真实识别，上游 icon tour 纪律）；probe 非
+  const（mirador query 层级晋升），与会话同 blocking worker 串行上下文。
+- **会话管线扩展**（`VisualSessionHost`）：请求新增模板登记（帧内裁剪）、
+  模板探测（检测区域裁剪 → 指纹 → 索引 → 命中作 `add_template` 证据）、
+  几何阶段（`convert_frame` 转 kGray8（预算显式）→ 一方
+  `SegmentGrowingLineDetector` → `filter_segments` → `merge_collinear` →
+  `propose_regions`，提议入 `geometry_proposals`）与 `cache_stats`（frame
+  / result cache 与模板索引占用，worker 上读取）。阶段序：登记 → 变化门控
+  → 几何 → OCR → 检测（`detector_roi_from_geometry` 时逐提议
+  context_bounds∩frame 作为 ROI，各 ROI 独立能力缓存键）→ 探测 → 融合。
+  融合后富集：kTemplate 区域 label 盖写登记身份（最低 evidence id 决定；
+  身份缺失清 label 降级 geometry 形态）——template_id 经 DEC-016 映射契约
+  到达感知面的唯一通道（mirador `set_label` 不认模板证据）。几何提议经
+  无语义 `ExternalRegion`（tight_bounds + closure_score，role/text/
+  interactive 全空）进融合，映射为 geometry 形态条目（DEC-016 修订第 2
+  条：kExternal 位仅可来自几何管线，accessibility 路径仍不产生）。像素级
+  阶段（登记/探测/几何）限 adapter k0 采集形态，越界提交准入即拒
+  （kRejected）；取消先于登记副作用；失败结算保留已完成阶段产物。
+- **Permission 面不变**：几何/模板均为只读感知与解析提示，未新增
+  Capability 词表；`template_id` 解析仍复用 `M3-03` visual hint 环的精确
+  匹配（本工作项使其有源可匹配）。
+- **测试证据**（Independent-Verification-Agent 独立执行）：新增
+  `tests/integration/visual_template_index_test.cpp`（15 场景 146 checks：
+  create 正负向、指纹确定性、清晰胜者策略与歧义、阈值边界、erase/替换、
+  容量 fail closed、字节预算驱逐对账——条目字节精确等于 pinned 契约
+  `32²+64=1088`）与 `tests/integration/visual_cache_geometry_test.cpp`
+  （11 场景 218 checks：登记→探测→富集→映射→publish→`click(template_id)`
+  命中 kVisualHint 的完整闭环、几何提议确定性 + closure_score、
+  ROI-split 检测调用数 == 提议数且坐标全帧正确、kExternal 位融合条目
+  bounds/confidence 精确、cache_stats 与预算一致、七类准入拒绝零副作用、
+  登记/指纹预算负路径、预取消先于登记、跨帧再定位 template_id 不变且
+  中心随检测区域移动）；`debug` / `release` / `asan` / `ubsan` / `tsan`
+  （`setarch -R`）五预设 configure + build + ctest 31/31 通过、0 skip；
+  `mirage-format-check` 通过；`mirage-boundary-check` 通过（36 头
+  0 命中）。
+- **未覆盖项**：真实模型后端行为不在 M3 声明范围（RULE-08）；几何提议的
+  采集裁剪消费面（`ScreenProvider::capture_roi` 由调用方以
+  `geometry_proposals` 驱动）未引入新 e2e（管线侧已验证提议输出）；上游
+  `DEC-018` 阶段 2（temporal stability / 融合集成）落地后再评估 External
+  载体替换。几何契约消费中未发现需登记 `MIRADOR-*` 台账的缺口。
