@@ -972,6 +972,12 @@ void scenario_disconnect_mid_task_cleans_up() {
 void scenario_unsubscribe_stops_event_delivery() {
     mirage::testing::TempDir dir;
     const ServiceConfig config = make_config(dir);
+    // The post-detach task settles only as fast as the congested serial
+    // context allows; under runner load a 10 s step_timeout can turn the
+    // sleep step into a spurious Failed and the 30 s terminal budget into a
+    // miss (2026-09-20 CI release run 35505564592). Both guards scale with
+    // the registered burst pathology sizing — liveness, not latency.
+    config.step_timeout = std::chrono::seconds{30};
     RuntimeService service(config);
     MIRAGE_CHECK(service.start(make_binding(dir)).ok);
 
@@ -1011,7 +1017,7 @@ void scenario_unsubscribe_stops_event_delivery() {
     if (!task_id) {
         return;
     }
-    const auto done = wait_terminal(config.socket_path, *task_id);
+    const auto done = wait_terminal(config.socket_path, *task_id, kBurstTerminalBudget);
     MIRAGE_CHECK(done.has_value() && done->progress == "Completed");
     if (!done) {
         return;
