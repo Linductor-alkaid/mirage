@@ -34,8 +34,11 @@ DesktopObservation schema v1.0，
 Permission 词表扩展）、`M2-05`（Application / Notification Provider 与
 ScreenProvider 完整）与 `M2-06`（Observation 组装与 runtime 接线：
 DesktopObservation 按需组装器、绑定 observe 面如实上报与 Semantic Snapshot
-进入 Agent 观察面、DEC-002 Mbed TLS 默认值复核冻结）已完成，后续工作项
-进行中。UI 并行轨道
+进入 Agent 观察面、DEC-002 Mbed TLS 默认值复核冻结）已完成；2026-09-20 M2 里程碑
+退出条件复核通过（6/6，验证记录见
+[M2：Desktop Environment 核心 Provider 与 Linux
+Backend](m2-desktop-environment.md)），M2 Completed。M3（Mirador 视觉集成）里程碑
+计划待建立。UI 并行轨道
 [M1.5](m1.5-ui-parallel-track.md) 已完成（wire schema 事实源
 [DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)、事件订阅、
 dev bridge、harness 前端壳）。
@@ -111,7 +114,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | --- | --- | --- | --- | --- |
 | [M1](m1-mira-host.md) | Mira Host、Runtime Service + IPC、Filesystem/Process Provider、CLI | `release-alpha` | Completed | - |
 | [M1.5](m1.5-ui-parallel-track.md) | UI 并行轨道：wire schema 事实源、IPC 事件订阅、dev bridge、前端（浏览器形态，按 DEC-013 harness 优先统一壳组织：会话/工作流/设置 + 统一壳骨架） | -（随开发线交付，产品化 UI 属 M5） | Completed | M1 |
-| [M2](m2-desktop-environment.md) | Desktop Environment 核心 Provider + Linux Backend、Semantic Snapshot、Element Reference | `release-beta` | In Progress | M1 |
+| [M2](m2-desktop-environment.md) | Desktop Environment 核心 Provider + Linux Backend、Semantic Snapshot、Element Reference | `release-beta` | Completed | M1 |
 | M3 | Mirador 集成：OCR / 检测 / 几何 / Visual Cache、Visual Reference | `release-gamma` | Planned | M2 |
 | M4 | Windows Backend（UIA / Win32 / Capture / Input） | `release-delta` | Planned | M2 |
 | M5 | Desktop Product：Workspace、Workflow UI、Execution Trace、Overlay、权限 | `release-epsilon` | Planned | M3、M4 |
