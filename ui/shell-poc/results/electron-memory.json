@@ -1,0 +1,95 @@
+{
+ "label": "electron",
+ "root_pid": 30056,
+ "interval_ms": 500,
+ "max_rss_kib": 906332,
+ "final_rss_kib": 890188,
+ "max_processes": 10,
+ "samples": [
+  {
+   "t_ms": 13,
+   "rss_kib": 59780,
+   "procs": 2
+  },
+  {
+   "t_ms": 527,
+   "rss_kib": 873632,
+   "procs": 10
+  },
+  {
+   "t_ms": 1041,
+   "rss_kib": 904716,
+   "procs": 10
+  },
+  {
+   "t_ms": 1555,
+   "rss_kib": 905984,
+   "procs": 10
+  },
+  {
+   "t_ms": 2069,
+   "rss_kib": 906332,
+   "procs": 10
+  },
+  {
+   "t_ms": 2583,
+   "rss_kib": 906164,
+   "procs": 10
+  },
+  {
+   "t_ms": 3097,
+   "rss_kib": 906164,
+   "procs": 10
+  },
+  {
+   "t_ms": 3611,
+   "rss_kib": 906164,
+   "procs": 10
+  },
+  {
+   "t_ms": 4125,
+   "rss_kib": 906164,
+   "procs": 10
+  },
+  {
+   "t_ms": 4639,
+   "rss_kib": 906188,
+   "procs": 10
+  },
+  {
+   "t_ms": 5152,
+   "rss_kib": 906188,
+   "procs": 10
+  },
+  {
+   "t_ms": 5666,
+   "rss_kib": 899000,
+   "procs": 10
+  },
+  {
+   "t_ms": 6180,
+   "rss_kib": 897848,
+   "procs": 10
+  },
+  {
+   "t_ms": 6694,
+   "rss_kib": 897612,
+   "procs": 10
+  },
+  {
+   "t_ms": 7208,
+   "rss_kib": 897616,
+   "procs": 10
+  },
+  {
+   "t_ms": 7722,
+   "rss_kib": 897104,
+   "procs": 10
+  },
+  {
+   "t_ms": 8236,
+   "rss_kib": 890188,
+   "procs": 10
+  }
+ ]
+}

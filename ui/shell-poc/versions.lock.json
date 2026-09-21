@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "project": "mirage-shell-poc",
+  "updated": "2026-09-21",
+  "notes": "DEC-006 M3-06 壳选型 PoC 的物料版本锁。PoC 产物不进入产品默认构建（DEC-006 第 6 条：二进制来源未进入锁定机制前不得进入默认构建）；本文件只锁定 PoC 取证所用物料的来源与完整性，产品级锁定机制见 docs/supply-chain/shell-binary-locking.md。",
+  "artifacts": [
+    {
+      "name": "cef",
+      "version": "152.0.8+g1ce985c+chromium-152.0.7977.134",
+      "channel": "stable",
+      "platform": "linux64",
+      "distribution": "standard",
+      "url": "https://cef-builds.spotifycdn.com/cef_binary_152.0.8%2Bg1ce985c%2Bchromium-152.0.7977.134_linux64.tar.bz2",
+      "size_bytes": 674894043,
+      "sha1": "add0a51f7333bc660e8e3bafd998e0122568f7d8",
+      "upstream_index": "https://cef-builds.spotifycdn.com/index.json",
+      "license": "BSD-3-Clause（libcef；内含 Chromium/Blink 及第三方组件，详见发行包 LICENSE.txt 及 chrome://credits）"
+    },
+    {
+      "name": "electron",
+      "version": "44.4.3",
+      "channel": "latest",
+      "platform": "linux-x64",
+      "url": "https://registry.npmjs.org/electron/-/electron-44.4.3.tgz",
+      "integrity": "见 electron/package-lock.json（npm 锁定）",
+      "license": "MIT（Electron；内含 Chromium 与 Node.js，许可证见发行包内 LICENSE 及 LICENSES.chromium.html）"
+    },
+    {
+      "name": "ui-assets",
+      "version": "repo HEAD 构建产物（ui/app/dist，vite build，无网络资源）",
+      "notes": "三壳共用同一本地资产测试物；证据文档记录构建 commit。"
+    }
+  ],
+  "unpinned": [
+    {
+      "name": "tauri",
+      "reason": "PoC 环境无 Rust 工具链（rustc/cargo 缺失、rustup 不可达），且 webkit2gtk-4.1 开发头文件不可安装（sudo 需密码）；Tauri 侧以方法学与系统运行时证据承载，补跑条件记录于 docs/benchmarks/shell-poc-baselines.md。"
+    }
+  ]
+}

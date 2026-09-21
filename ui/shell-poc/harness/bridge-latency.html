@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<!--
+  Mirage shell PoC：JS 桥延迟 harness（DEC-006 M3-06）。
+
+  三个候选壳（CEF / Electron / Tauri）加载同一页面，按固定方法学测量 JS → 原生 → JS
+  往返延迟：
+
+  - 每个样本 = 50 次连续 await 往返的耗时均值（µs）。逐次计时受 Chromium 计时器
+    100µs 量化影响（页面非 crossOriginIsolated 时 performance.now 粒度约 100µs），
+    50 次均值把量化误差摊薄到 ±2µs，方法对三壳一致。
+  - 序列：warmup 20 样本丢弃；两种请求载荷（64B / 4096B JSON 字符串）各 400 样本。
+  - 原生侧在 handler 进入 / 离开时打原生时间戳（µs），用于拆分原生段占比。
+  - 完成后经同一桥把统计与原始样本分块回传原生，由壳进程写入 out JSON 后退出。
+
+  页面本身不做任何网络访问；标题固定为 shell-poc-bridge 供窗口存在性检查。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>shell-poc-bridge</title>
+<style>
+  body { font: 14px/1.6 monospace; margin: 24px; background: #101418; color: #d8e0e8; }
+  #log { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div id="shell">detecting bridge…</div>
+<div id="log"></div>
+<script>
+'use strict';
+
+const OPS_PER_SAMPLE = 50;
+const WARMUP_SAMPLES = 20;
+const MEASURE_SAMPLES = 400;
+const PAYLOAD_SIZES = [64, 4096];
+
+function detectBridge() {
+  if (window.mirageBridge && typeof window.mirageBridge.ping === 'function') {
+    return {
+      name: 'electron',
+      ping: (req) => window.mirageBridge.ping(req),
+      report: (msg) => window.mirageBridge.report(msg),
+      done: () => window.mirageBridge.done(),
+    };
+  }
+  if (typeof window.cefQuery === 'function') {
+    const cefSend = (req) => new Promise((resolve, reject) => {
+      window.cefQuery({
+        request: req,
+        persistent: false,
+        onSuccess: resolve,
+        onFailure: (code, msg) => reject(new Error(code + ': ' + msg)),
+      });
+    });
+    return {
+      name: 'cef',
+      ping: cefSend,
+      report: (msg) => cefSend(msg),
+      done: () => cefSend(JSON.stringify({ op: 'done' })),
+    };
+  }
+  return null;
+}
+
+function nowUs() { return performance.now() * 1000; }
+
+function makeRequest(op, i, size, pad) {
+  return JSON.stringify({ op: op, i: i, size: size, pad: pad });
+}
+
+function percentiles(values) {
+  const sorted = values.slice().sort((a, b) => a - b);
+  const q = (p) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))];
+  const mean = sorted.reduce((a, b) => a + b, 0) / sorted.length;
+  const varp = sorted.reduce((a, b) => a + (b - mean) * (b - mean), 0) / sorted.length;
+  return {
+    n: sorted.length,
+    mean_us: mean,
+    stdev_us: Math.sqrt(varp),
+    min_us: sorted[0],
+    p50_us: q(0.50),
+    p90_us: q(0.90),
+    p95_us: q(0.95),
+    p99_us: q(0.99),
+    max_us: sorted[sorted.length - 1],
+  };
+}
+
+async function runSeries(bridge, size, label, log) {
+  const padLen = Math.max(0, size - 40); // request JSON 骨架约 40B，pad 补齐到目标尺寸
+  const pad = 'p'.repeat(padLen);
+  for (let i = 0; i < WARMUP_SAMPLES; i++) {
+    await bridge.ping(makeRequest('ping', i, size, pad));
+  }
+  const samples = [];
+  for (let i = 0; i < MEASURE_SAMPLES; i++) {
+    const t0 = nowUs();
+    for (let k = 0; k < OPS_PER_SAMPLE; k++) {
+      await bridge.ping(makeRequest('ping', i, size, pad));
+    }
+    const t1 = nowUs();
+    samples.push((t1 - t0) / OPS_PER_SAMPLE);
+    if (i % 50 === 0) log(label + ' sample ' + i + '/' + MEASURE_SAMPLES);
+  }
+  const stats = percentiles(samples);
+  log(label + ' done: p50=' + stats.p50_us.toFixed(1) + 'µs p99=' + stats.p99_us.toFixed(1) + 'µs');
+  await bridge.report(JSON.stringify({ op: 'report', kind: 'series', label: label, size: size, stats: stats }));
+  // 原始样本分块回传（每块 100 个，避免单帧过大）
+  for (let off = 0; off < samples.length; off += 100) {
+    await bridge.report(JSON.stringify({
+      op: 'report', kind: 'samples', label: label,
+      offset: off, values: samples.slice(off, off + 100),
+    }));
+  }
+}
+
+async function main() {
+  const log = (s) => { document.getElementById('log').textContent += s + '\n'; };
+  const bridge = detectBridge();
+  if (!bridge) {
+    document.getElementById('shell').textContent = 'no bridge found (browser fallback)';
+    log('window.mirageBridge 与 window.cefQuery 均不存在，退出');
+    return;
+  }
+  document.getElementById('shell').textContent = 'shell: ' + bridge.name + ' — running';
+  log('bridge=' + bridge.name + ' ops/sample=' + OPS_PER_SAMPLE +
+      ' warmup=' + WARMUP_SAMPLES + ' samples=' + MEASURE_SAMPLES +
+      ' sizes=' + PAYLOAD_SIZES.join(','));
+  await bridge.report(JSON.stringify({
+    op: 'report', kind: 'meta', shell: bridge.name,
+    ua: navigator.userAgent, opsPerSample: OPS_PER_SAMPLE,
+    warmupSamples: WARMUP_SAMPLES, measureSamples: MEASURE_SAMPLES,
+    payloadSizes: PAYLOAD_SIZES,
+  }));
+  for (const size of PAYLOAD_SIZES) {
+    await runSeries(bridge, size, size + 'B', log);
+  }
+  document.getElementById('shell').textContent = 'shell: ' + bridge.name + ' — done';
+  await bridge.report(JSON.stringify({ op: 'done' }));
+}
+
+main().catch((e) => {
+  document.getElementById('log').textContent += 'FATAL ' + (e && e.stack || e) + '\n';
+  console.error('shell-poc FATAL', e && (e.stack || e.message) || String(e));
+});
+</script>
+</body>
+</html>
