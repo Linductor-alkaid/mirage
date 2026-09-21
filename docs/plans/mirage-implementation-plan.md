@@ -4,7 +4,7 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-09-20
+> 更新日期：2026-09-21
 
 ## 当前状态
 
@@ -44,7 +44,9 @@ mirador 已升级至 v0.3.0（`6fa92ec`，几何区域提议契约经上游 DEC-
 `M3-01`（视觉集成契约 DEC-016）、`M3-02`（集成层适配器）、`M3-03`（Visual
 Observation 与解析闭环）、`M3-04`（Visual Cache 与几何提议）、`M3-05`
 （runtime 接线与端到端闭环）与 `M3-06`（DEC-006 壳选型 PoC 与冻结：CEF 冻结，
-取证见[壳 PoC 基线报告](../benchmarks/shell-poc-baselines.md)）已完成。
+取证见[壳 PoC 基线报告](../benchmarks/shell-poc-baselines.md)）已完成；
+2026-09-21 M3 里程碑退出条件复核通过（8/8，验证记录见
+[M3：Mirador 视觉集成](m3-mirador-integration.md)），M3 Completed。
 UI 并行轨道
 [M1.5](m1.5-ui-parallel-track.md) 已完成（wire schema 事实源
 [DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)、事件订阅、
@@ -122,7 +124,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | [M1](m1-mira-host.md) | Mira Host、Runtime Service + IPC、Filesystem/Process Provider、CLI | `release-alpha` | Completed | - |
 | [M1.5](m1.5-ui-parallel-track.md) | UI 并行轨道：wire schema 事实源、IPC 事件订阅、dev bridge、前端（浏览器形态，按 DEC-013 harness 优先统一壳组织：会话/工作流/设置 + 统一壳骨架） | -（随开发线交付，产品化 UI 属 M5） | Completed | M1 |
 | [M2](m2-desktop-environment.md) | Desktop Environment 核心 Provider + Linux Backend、Semantic Snapshot、Element Reference | `release-beta` | Completed | M1 |
-| [M3](m3-mirador-integration.md) | Mirador 集成：OCR / 检测 / 几何 / Visual Cache、Visual Reference | `release-gamma` | In Progress | M2 |
+| [M3](m3-mirador-integration.md) | Mirador 集成：OCR / 检测 / 几何 / Visual Cache、Visual Reference | `release-gamma` | Completed | M2 |
 | M4 | Windows Backend（UIA / Win32 / Capture / Input） | `release-delta` | Planned | M2 |
 | M5 | Desktop Product：Workspace、Workflow UI、Execution Trace、Overlay、权限 | `release-epsilon` | Planned | M3、M4 |
 

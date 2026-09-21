@@ -1,13 +1,13 @@
 # M3：Mirador 视觉集成
 
-> 状态：In Progress（`M3-01`、`M3-02`、`M3-03`、`M3-04`、`M3-05`、`M3-06` 完成）
+> 状态：Completed（`M3-01` … `M3-07` 全部完成，退出复核通过）
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M2](m2-desktop-environment.md)（已完成：Desktop Environment 核心 Provider、
 > Linux Backend、Semantic Snapshot、ElementTarget 解析顺序契约、Observation 组装
 > 与 runtime 接线）
 > 建议发布点：`release-gamma`（tag 待维护者授权后创建）
-> 更新日期：2026-09-21（`M3-06` 完成）
+> 更新日期：2026-09-21（`M3-07` 退出复核通过，里程碑完成）
 
 ## 目标
 
@@ -127,7 +127,7 @@ Visual Reference（`@vN`）的签发与解析闭环，补齐 DEC-005 解析顺�
         对比取证（窗口嵌入、本地资产加载、IPC 桥延迟基线、包体积与内存基线、
         Linux 发行版兼容性风险）；壳二进制 / 前端依赖进入锁定与 SBOM 的机制
         复核；更新通道签名 / 差分策略复核；结论回写 DEC-006（含否决理由封存）。
-- [ ] `M3-07` 里程碑退出复核：退出条件逐项独立取证（同 M2-07 形态）。
+- [x] `M3-07` 里程碑退出复核：退出条件逐项独立取证（同 M2-07 形态）。
 
 拆分纪律：契约先于实现（`M3-01` 先行）；集成层先于桌面接线（`M3-02` →
 `M3-03` / `M3-04` → `M3-05`）；fake / identity backend 先于真实模型依赖；
@@ -158,24 +158,24 @@ Visual Reference（`@vN`）的签发与解析闭环，补齐 DEC-005 解析顺�
 
 ## 测试与退出条件
 
-- [ ] `debug`、`release`、`asan`、`ubsan` 预设构建通过，`ctest` 全绿且无 skip；
+- [x] `debug`、`release`、`asan`、`ubsan` 预设构建通过，`ctest` 全绿且无 skip；
       涉及跨上下文状态或关闭路径的变更以 `tsan` 覆盖（按 README 注意事项运行）
       （`DOD-03`）。
-- [ ] 视觉契约与集成层经 fake / identity backend 测试覆盖正 / 负向：预算拒绝
+- [x] 视觉契约与集成层经 fake / identity backend 测试覆盖正 / 负向：预算拒绝
       不截断、取消先于副作用、格式不支持 / 后端不可用 fail closed、缓存命中
       与未命中的一致性、注册表换代失效（`DOD-04`）。
-- [ ] headless X 拓扑端到端：采集 → fake 视觉分析 → `@vN` 签发 → ElementTarget
+- [x] headless X 拓扑端到端：采集 → fake 视觉分析 → `@vN` 签发 → ElementTarget
       visual 解析 → 全局坐标命中（输入注入验证）→ 再观察更新；observe 能力
       如实上报扩展经绑定层测试覆盖。
-- [ ] 公共头边界检查通过：`integration` / `desktop` / `runtime` / `platform`
+- [x] 公共头边界检查通过：`integration` / `desktop` / `runtime` / `platform`
       公共头 pinned-free，mirador 类型不出 Mirage 公共接口（`DOD-01`）。
-- [ ] 视觉任务路径经 Executor 观察：admission 拒绝、执行失败、取消 / 超时、
+- [x] 视觉任务路径经 Executor 观察：admission 拒绝、执行失败、取消 / 超时、
       关闭状态可经 Executor 设施观察，无平行监控（`EXEC-04`、`RULE-03`）。
-- [ ] `DEC-016` 定案并同步设计文档第 8 节注记；`DEC-006` 壳选型冻结并回写
+- [x] `DEC-016` 定案并同步设计文档第 8 节注记；`DEC-006` 壳选型冻结并回写
       结论；（若触发）依赖反馈台账登记；计划状态与验证证据同步（`DOD-05`）。
-- [ ] Commit / MR 符合工程规范第 10 节；`dependencies.lock.json` 与 submodule
+- [x] Commit / MR 符合工程规范第 10 节；`dependencies.lock.json` 与 submodule
       指针一致（`DOD-06`）。
-- [ ] 不出现未经真实模型后端验证的识别质量、性能或实时性声明（`RULE-08`）；
+- [x] 不出现未经真实模型后端验证的识别质量、性能或实时性声明（`RULE-08`）；
       如声明缓存命中或延迟目标，按工程规范第 7 节取证。
 
 ## 验证记录
@@ -468,3 +468,70 @@ skill 卡片为契约输入。
   Windows 侧壳取证（M4）；CEF 沙箱/GPU 正式开关与 deb/exe 打包级验证
   （M5，DEC-006 验证方式节既定）；桥延迟仅覆盖壳内一段，不含 Local IPC
   全链路。
+
+2026-09-21：M3 里程碑退出条件复核通过（Independent-Verification-Agent），里程碑
+Completed。
+
+- 范围：对 8 项退出条件逐项独立取证，未修改任何源码、测试与文档；复核基于 HEAD
+  `e3da768`，工作树复核前后均干净（依赖锁负向验证的临时篡改即时还原，sha256
+  前后一致）。
+- 验证（Independent-Verification-Agent，Linux x64，Ubuntu 24.04.4，内核
+  7.0.0-31-generic，GCC 13.3.0，CMake 3.28.3，Ninja 1.13.2，clang-format
+  18.1.3）：
+  - 预设矩阵（`DOD-03`）：`debug` / `release` / `asan` / `ubsan` / `tsan`
+    五预设均自清空构建目录全新 configure + build + ctest，各 **32/32 通过、
+    0 skip**；`tsan` 按 README 注意事项 `setarch $(uname -m) -R ctest` 32/32。
+    asan / ubsan（`print_stacktrace=1`）/ tsan 运行期报告 grep 均 0 命中；
+    X11 / AT-SPI 门控的真实集成测试（x11_backend 261 / atspi_backend 89 /
+    observation_e2e 90 / visual_observation_e2e 99 / mira_binding 381 checks）
+    五预设计数一致，均为实跑非 skip。
+  - 契约覆盖（`DOD-04`）：视觉契约与集成层测试实跑计数与各工作项验证记录基线
+    逐项一致（visual_contract 83、fake_visual_backend 71、visual_session
+    26 场景 214、visual_template_index 15 场景 146、visual_cache_geometry
+    11 场景 218、visual_observation_loop 5 场景 114、element_target_executor
+    22 场景 228 checks）；预算拒绝不截断、取消先于副作用（首个副作用前检查
+    取消，预取消场景后端调用计数 0）、格式不支持 / 后端不可用 fail closed、
+    缓存命中一致性（命中以后端调用计数不变证明）、注册表换代失效（`@vs2`
+    整体替换）等负向断言逐一在源码定位确认（file:line 留证）。
+  - headless X 端到端：`visual_observation_e2e_test` 99 checks——Xvfb 拓扑上
+    capabilities 如实上报 → 采集 payload 重开校验与描述符 == 显示几何 →
+    `evaluate_observation` satisfies_request → `@v1` click 命中融合区域中心并
+    经独立 XQueryPointer 连接证实指针到位 → 再观察 `@vs2` 换代、陈旧代际整体
+    替换 → stop 后能力撤回与 required 拒绝；`mira_binding_test` 28 场景
+    381 checks 覆盖 observe 能力如实上报扩展（wired 三态、required/optional
+    fail closed、空请求零采集零分析）。
+  - 公共头边界（`DOD-01`）：`mirage-format-check` 通过；`mirage-boundary-check`
+    36 头 0 违规（= `M3-05` 基线）；边界脚本非空跑经 /tmp 假公共头探针证实
+    （`mira` / `mirador` / `executor` include 被逐一点名 SEND_ERROR 并
+    FATAL_ERROR，干净头不误报），探针树未触碰仓库。
+  - Executor 观察（`EXEC-04`、`RULE-03`）：视觉会话一图像源一 blocking worker
+    串行承载（`BlockingWorkerSpec`，session 与模板索引仅 worker 线程触碰）、
+    请求经 `LatestMailbox` 最新者优先；admission 拒绝（未启动 / 源不匹配 /
+    旋转越界 / 非法阈值 / worker 停止显式 `kRejected`）、执行失败 / 取消 /
+    超时显式结算、最新者优先取代在途分析、stop 对在途与 queued 请求的结算均
+    有代码路径与测试场景断言（每个 future 恰好结算一次）；自研代码 grep
+    `std::thread` / `std::jthread` / `std::async` 0 命中（`ui/shell-poc` 同样
+    0 命中且属独立构建图），无平行任务监控子系统。
+  - 决策与台账（`DOD-05`）：`DEC-016` Accepted 且含 M3-04 / M3-05 修订节；
+    设计文档第 8 节契约注记在位；`DEC-006` 含 2026-09-21 冻结修订节（CEF
+    冻结、更新通道冻结、Electron / Tauri 否决理由封存）；依赖反馈台账无条目
+    且自研代码无 `MIRA-*` / `MIRADOR-*` 反馈编号引用，与各工作项"未发现需
+    登记缺口"的记录交叉自洽。
+  - Commit / MR 与依赖一致性（`DOD-06`）：submodule 指针与
+    `dependencies.lock.json` 逐条一致（mira `cf0af75`、mirador `fff7f15`，
+    executor / mbedtls / googletest 嵌套 pin 在册）；锁校验负向验证——篡改
+    mira commit 为 40 个 `a` 后独立目录 configure 以
+    `Pinned dependency 'mira' commit mismatch` FATAL_ERROR 失败，还原后
+    sha256 一致、工作树干净；M3 范围触及 third_party 的提交仅 2 条且均为与
+    lock 同步的纯指针变更；master 最近 CI run 全绿（唯一 cancelled 为同刻
+    合入 PR #29 / #30 相互取消所致，内容已由 PR #30 的 success run 覆盖）。
+  - `RULE-08` 声明审计：识别率 / 准确率 / 识别质量类声明在 docs 与 README /
+    PRODUCT 全库 0 命中；延迟 / 体积 / 内存数字仅出现于 `DEC-006` 与壳 PoC
+    基线报告且均有原始样本与方法学支撑（`ui/shell-poc/results/` 原始 JSON 与
+    `measure/` 采集 / 复算脚本在仓）；视觉管线无任何分析延迟或识别性能声明。
+- 观察项（不阻塞）：M3 范围 10 个文档提交使用 `docs(plans)` / `docs(design)` /
+  `docs(decisions)` / `docs(benchmarks)` 二级 scope、2 个裸 `docs:`，严格对照
+  工程规范第 10 节 scope 词表属细化 / 省略用法（全仓库模式一致）；是否追溯
+  纠正由维护者裁量（不重写已发布历史）。`release-gamma` tag 与发布流程待
+  维护者授权（工程规范第 10.5 节）。
+- 同步：本里程碑状态与退出条件勾选、总计划当前状态与里程碑索引。
