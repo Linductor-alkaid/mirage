@@ -54,6 +54,7 @@ export type Route =
     | { view: 'workflows' }
     | { view: 'workflow-editor'; workflowId: string }
     | { view: 'workflow-run'; workflowId: string; runId: string }
+    | { view: 'world' }
     | { view: 'resources' }
     | { view: 'settings'; category: string };
 
@@ -87,6 +88,9 @@ export function parseRoute(hash: string): Route {
     if (segs[0] === 'resources') {
         return { view: 'resources' };
     }
+    if (segs[0] === 'world') {
+        return { view: 'world' };
+    }
     if (segs[0] === 'settings') {
         const category = segs[1] ?? 'general';
         return {
@@ -107,6 +111,8 @@ export function routeToHash(route: Route): string {
             return `#/workflows/${encodeURIComponent(route.workflowId)}`;
         case 'workflow-run':
             return `#/workflows/${encodeURIComponent(route.workflowId)}/runs/${encodeURIComponent(route.runId)}`;
+        case 'world':
+            return '#/world';
         case 'resources':
             return '#/resources';
         case 'settings':

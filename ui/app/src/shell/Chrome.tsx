@@ -2,7 +2,7 @@
 /// 会话 · 工作流 · 资源(M2+) · — · 设置；底部：transport / host 五态 /
 /// seq / 版本 / 紧急停止警戒钮。
 
-import { Bell, Boxes, MessageSquare, PanelLeftClose, PanelLeftOpen, Settings, Workflow } from 'lucide-react';
+import { Bell, Boxes, Globe, MessageSquare, PanelLeftClose, PanelLeftOpen, Settings, Workflow } from 'lucide-react';
 
 import { useHarness } from '../hooks.js';
 import { hostStatusLabel, hostStatusDot } from '../lib/labels.js';
@@ -51,6 +51,17 @@ export function ActivityBar({
                 onClick={() => navigate({ view: 'workflows' })}
             >
                 <Workflow size={19} strokeWidth={1.6} />
+            </button>
+            <button
+                type="button"
+                className={`rail-btn ${active === 'world' ? 'is-active' : ''}`}
+                title="组织世界（World Projection）"
+                aria-label="组织世界（World Projection）"
+                aria-current={active === 'world' || undefined}
+                onClick={() => navigate({ view: 'world' })}
+                data-testid="rail-world"
+            >
+                <Globe size={19} strokeWidth={1.6} />
             </button>
             <button
                 type="button"

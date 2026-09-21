@@ -2422,4 +2422,89 @@
     }
 }
 
+/* -------------------------------------------------------------------------
+ * World Projection (M4：Organization Layer + Three.js World Projection)
+ * 三个用例纯属展示容器；颜色全部消费 --mir-* 语义 token。
+ * ----------------------------------------------------------------------- */
+
+.world-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    background: var(--mir-bg);
+    color: var(--mir-fg);
+}
+.world-page__toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--mir-space-2) var(--mir-space-4);
+    border-bottom: 1px solid var(--mir-border);
+    background: var(--mir-surface-raised);
+    min-height: var(--mir-row-md);
+}
+.world-page__hud {
+    display: flex;
+    gap: var(--mir-space-3);
+    align-items: center;
+    font-family: var(--mir-font-mono);
+    font-size: var(--mir-text-sm);
+    color: var(--mir-fg-muted);
+}
+.world-page__hud-item {
+    padding: 2px var(--mir-space-2);
+    border-radius: var(--mir-radius-sm);
+    border: 1px solid var(--mir-border);
+    background: color-mix(in oklab, var(--mir-bg) 80%, transparent);
+}
+.world-page__hud-note {
+    color: var(--mir-warning);
+    border-color: color-mix(in oklab, var(--mir-warning) 40%, transparent);
+}
+.world-page__actions {
+    display: flex;
+    gap: var(--mir-space-2);
+}
+.world-page__actions button {
+    font-family: var(--mir-font-body);
+    font-size: var(--mir-text-sm);
+    padding: 4px var(--mir-space-3);
+    border-radius: var(--mir-radius-sm);
+    border: 1px solid var(--mir-border);
+    background: var(--mir-bg);
+    color: var(--mir-fg);
+    cursor: pointer;
+}
+.world-page__actions button:hover:not(:disabled) {
+    border-color: var(--mir-accent);
+}
+.world-page__actions button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.world-page__canvas {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    background: var(--mir-bg);
+    overflow: hidden;
+}
+.world-page__canvas canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+.world-page__footer {
+    padding: var(--mir-space-1) var(--mir-space-4);
+    border-top: 1px solid var(--mir-border);
+    background: var(--mir-surface-raised);
+    font-family: var(--mir-font-mono);
+    font-size: var(--mir-text-xs);
+    color: var(--mir-fg-muted);
+    min-height: var(--mir-row-sm);
+    display: flex;
+    align-items: center;
+}
+
 @layer overrides;

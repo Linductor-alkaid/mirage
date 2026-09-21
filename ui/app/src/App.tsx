@@ -9,6 +9,7 @@ import { ApprovalsCenter, CommandPalette, ToastLayer } from './shell/Overlays.js
 import { ChatPage } from './views/chat/ChatPage.js';
 import { ResourcesPage, SettingsPage } from './views/SettingsAndResources.js';
 import { WorkflowsPage, WorkflowRunPage } from './views/WorkflowsPages.js';
+import { WorldPage } from './views/world/WorldPage.js';
 import { useHarness } from './hooks.js';
 
 export function App(): React.ReactElement {
@@ -58,6 +59,7 @@ export function App(): React.ReactElement {
                 {route.view === 'workflow-run' && (
                     <WorkflowRunPage workflowId={route.workflowId} runId={route.runId} />
                 )}
+                {route.view === 'world' && <WorldPage />}
                 {route.view === 'resources' && <ResourcesPage />}
                 {route.view === 'settings' && <SettingsPage category={route.category} />}
             </main>
