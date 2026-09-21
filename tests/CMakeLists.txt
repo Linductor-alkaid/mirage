@@ -92,6 +92,29 @@ if(X11_FOUND AND X11_Xtst_FOUND)
     )
 endif()
 
+# M4-01 Windows backend skeleton: exercised against the session's real
+# interactive desktop (DEC-017 decision 9 — the CI windows runner's desktop
+# capability is confirmed on the first PR run). Registered only where the
+# Win32 APIs exist; the MinGW cross builds compile and link it, the CI
+# windows job runs it.
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    add_executable(win32_backend_test platform/win32_backend_test.cpp)
+    target_compile_features(win32_backend_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(win32_backend_test)
+    target_link_libraries(win32_backend_test
+        PRIVATE
+            Mirage::platform
+            Mirage::desktop
+            user32
+            gdi32
+    )
+    add_test(NAME win32_backend_test COMMAND win32_backend_test)
+    set_tests_properties(win32_backend_test PROPERTIES
+        LABELS "integration;platform"
+        TIMEOUT 120
+    )
+endif()
+
 # M2-03 AT-SPI2 accessibility: private D-Bus session plus a wire-exact GDBus
 # fake application and an Xvfb window for the id -> title mapping (DEC-015).
 # The test drives X11 directly, so it is only registered where the X11 dev
