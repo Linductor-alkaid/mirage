@@ -139,19 +139,18 @@ Mirage Action（store / organization command）
 需要调整或并行。
 
 ```text
-M0  仓库调查 + 里程碑计划（本文件）+ 文件结构与边界定稿
-M1  Three.js 渲染骨架：scene / lighting / camera / resize / lifecycle / 第一个 view 路由
-M2  World Model（纯数据，无渲染）：Building / Floor / Zone / Workstation / Entity / Spatial relations
-M3  Procedural office layout：Organization tree → floor plan（规则驱动 + 单测）
-M4  Organization Layer + 模拟器 + 事件契约（OrganizationEvent / OrganizationEventSource）
-M5  WorldProjector（org events → world model delta reducer + 审计日志 + 状态机）
-M6  Agent placeholder entity + 视觉状态机（idle / working / walking / collaborating / blocked / waiting / hibernated）
-M7  Movement + 路径 / 朝向插值 + 动画 blend + arrival detection
-M8  Activity 可视化（badge / connection line / speech bubble / warning）
-M9  Mirage UI 联动（route、picking、hover、select、focus camera、Task highlight、collaboration highlight）
-M10 动态组织变化（agent / team 增删后世界形状变化）
-M11 性能与稳定性（10 / 30 / 100 fixture + 资源回收 + 事件节流 + React 渲染隔离）
-M12 历史回放基础（WorldClock + EventLog；不实现 timeline UI，但不可阻断未来接入）
+M0  仓库调查 + 里程碑计划（本文件）+ 文件结构与边界定稿   ✓
+M1  Three.js 渲染骨架：scene / lighting / camera / resize / lifecycle / 第一个 view 路由   ✓
+M2  World Model（纯数据，无渲染）：Building / Floor / Zone / Workstation / Entity / Spatial relations   ✓
+M3  Procedural office layout：Organization tree → floor plan（规则驱动 + 单测）   ✓
+M4  Organization Layer + 模拟器 + 事件契约（OrganizationEvent / OrganizationEventSource）   ✓
+M5  WorldProjector（org events → world model delta reducer + 审计日志 + 状态机）   ✓
+M6  Agent placeholder entity + 视觉状态机 + Movement（路径插值 / arrival detection / 朝向 blend）   ✓
+M7  Activity 可视化（badge / connection line / speech bubble / warning）   ✓
+M8  Mirage UI 联动（route、picking、hover、select、focus camera、Task highlight、collaboration highlight）   ✓
+M9  动态组织变化（agent / team 增删后世界形状变化）   ✓
+M10 性能与稳定性（10 / 30 / 100 fixture + 资源回收 + 事件节流 + React 渲染隔离 + lazy-load chunk）   ✓
+M11 历史回放基础（WorldClock + EventLog + ReplayEngine；不实现 timeline UI）   ✓
 ```
 
 每个 Milestone 退出条件（最小集）：
@@ -169,32 +168,47 @@ M12 历史回放基础（WorldClock + EventLog；不实现 timeline UI，但不�
 - M3 完成：Procedural office layout（规则驱动，4 Team × 28 Agent 测试 fixture）。
 - M4 完成：Organization Layer（events / reducer / store / 确定性 seed simulator）。
 - M5 完成：WorldProjector（org events → world deltas，agent visual state 映射）。
+- M6 完成：Movement polish（arrival detection / idle/walking/working 视觉姿态 / yaw damping）。
+- M7 完成：Activity visualization（status badge + collaboration connection lines）。
+- M8 完成：Mirage UI 双向联动（AgentDetailPanel + focus camera + 反向命令通道）。
+- M9 完成：动态组织变化（team_created / team_removed / membership_changed 增量 layout）。
+- M10 完成：性能与可扩展性（Three.js 懒加载 chunk，~574KB / 147KB gzip 独立 chunk；主 bundle
+  从 1079KB / 320KB gzip 缩减到 516KB / 177KB gzip；100 agents resync < 500ms）。
+- M11 完成：历史回放基础（WorldClock / WorldReplayEngine / replayEventsToState /
+  OrganizationStore 环形 eventLog 暴露；不实现 timeline UI）。
 
-### 验证记录（M0-M5）
+### 验证记录（M0-M11）
 
 提交 hash：见 git log `feat/m4-world-projection` 分支。
 
 - `npm run check`：通过（TypeScript 严格模式：noUncheckedIndexedAccess / verbatimModuleSyntax）。
-- `npm test`：561 / 561 通过（含 31 个新增 world 测试：world-model、organization reducer、
-  layout、projector、colors、simulator）。
-- `npm run build`：通过（vite dist 生成；首屏 JS 1.07MB，gzip 319KB）。
+- `npm test`：574 / 574 通过（含 44 个新增 world 测试：world-model、organization reducer、
+  layout、projector、colors、simulator、dynamic、stress、replay）。
+- `npm run build`：通过（首屏 JS 516KB / 177KB gzip；WorldViewLazy chunk 575KB / 147KB gzip，
+  仅在用户进入 `/#/world` 时下载）。
+- `style-scan` 测试：576+ 测试全过——所有新 CSS 仅消费 `--mir-*` 语义 token。
 
 受影响文件（按层）：
 
 - World Model：`ui/app/src/world/model/*`（types / identity / building / agentEntity / world / index）。
 - Organization：`ui/app/src/world/organization/*`（types / events / reducer / source / simulator / index）。
 - Projector：`ui/app/src/world/projector/*`（colors / layout / projector / index）。
-- Renderer：`ui/app/src/world/renderer/*`（types / orbit / picking / renderer / index）。
-- Coordinator / Interaction / Hooks：`ui/app/src/world/{coordinator,interaction,hooks.tsx,index}`。
-- View：`ui/app/src/views/world/WorldPage.tsx`，路由注册在 `state/store.ts`、`App.tsx`、
-  `shell/Chrome.tsx`；样式追加在 `src/styles.css`（仅消费 `--mir-*` 语义 token）。
+- Renderer：`ui/app/src/world/renderer/*`（types / orbit / picking / renderer / badges / connections / index）。
+- Coordinator / Interaction / Hooks / Replay：`ui/app/src/world/{coordinator,interaction,hooks.tsx,replay,index}`。
+- Views：`ui/app/src/views/world/{WorldPage,WorldPageLazy,AgentDetailPanel}.tsx`，
+  路由注册在 `state/store.ts`、`App.tsx`、`shell/Chrome.tsx`；样式追加在
+  `src/styles.css`（仅消费 `--mir-*` 语义 token）。
+- 依赖：`ui/app/package.json` 新增 `three` / `@types/three`。
+- 文档：`docs/plans/m4-world-projection.md`（本文件）、`docs/plans/mirage-implementation-plan.md`
+  （总计划索引追加 M4-World）、`docs/dependency_feedback/ledger.md`（MIRA-20260921-001
+  反馈：Mira 暂无 multi-agent Runtime 语义）。
 
-已知遗留与下一 Milestone 入口：
+已知遗留与下一阶段：
 
-- WorldProjector 当前走 resync-from-org 全量重建；M9 引入 incremental layout 后替换。
-- 视觉状态机仅切换 mesh 颜色 + 微脉冲；M6 引入路径插值与朝向 blend；M7 引入
-  connection line / speech bubble / status icon 等可视化。
-- 没有 Avatar / GLTF / 动画 mixer；M11 之后再做历史回放基础。
+- WorldProjector 仍走 resync-from-org（增量 layout 当前是 full rebuild）；
+  M12 替换为 spawnNewTeamZone 增量插入。
+- 没有 Avatar / GLTF / 动画 mixer；M12+ 评估。
+- Timeline UI / 历史回放控件尚未落地；M12 在 WorldClock + WorldReplayEngine 之上接入。
 
 ## 已接受 / 已登记的依赖反馈
 
