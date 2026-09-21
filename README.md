@@ -52,6 +52,22 @@ X11 Backend 测试（M2-02 起）需要本机有 Xvfb：`sudo apt install xvfb`�
 `$MIRAGE_XVFB` → `$PATH` → `~/.local/mirage-sysroot/usr/bin/Xvfb`；缺失时
 `x11_backend_test` 响亮失败而非跳过，[DEC-015](docs/decisions/DEC-015-linux-backend-dependencies-and-event-loop.md)）。
 
+Windows Backend 编译门禁（M4-01 起，[DEC-017](docs/decisions/DEC-017-windows-backend-toolchain-and-event-loop.md)）：
+在 Linux 主机上用 MinGW-w64 交叉构建平台子集——无 root 时按用户前缀引导
+（`apt-get download g++-mingw-w64-x86-64` 及其依赖 + `dpkg -x` 到
+`~/.local/mirage-mingw`），然后：
+
+```bash
+export MIRAGE_MINGW_PREFIX=~/.local/mirage-mingw
+cmake -S . -B build/win64-cross -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/mingw-w64-x86_64.cmake \
+      -DMIRAGE_FETCH_DEPENDENCIES=OFF
+cmake --build build/win64-cross --target mirage_desktop mirage_platform win32_backend_test
+```
+
+交叉构建只证明「可以编译」（工程规范第 7 节证据分级）；运行取证来自 CI 的
+MSVC windows 作业（platform 子集 + 可运行测试）与维护者 Windows 机器。
+MSVC 为产品主工具链，MinGW-only 的代码不被接受。
+
 ## 运行 Runtime Service 与 CLI（M1）
 
 后台 Runtime Service 经 Local IPC 服务于 CLI / GUI（[DEC-007](docs/decisions/DEC-007-local-ipc-and-runtime-service.md)）：
