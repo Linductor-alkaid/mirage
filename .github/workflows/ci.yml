@@ -111,6 +111,14 @@ jobs:
         run: >-
           ctest --test-dir build/windows -C Debug --output-on-failure
           -R "^(provider_contract_test|desktop_observation_test|observation_assembler_test|permission_test|win32_backend_test)$"
+      # The invariant-style win32 test prints its check summary and the
+      # session-capability notes (foreground lock, SendInput refusals) on
+      # stderr; ctest hides passing output, so re-run it verbose to keep
+      # that evidence in the log (DEC-017 decision 9 record).
+      - name: Win32 frontend evidence
+        run: >-
+          ctest --test-dir build/windows -C Debug -R "^win32_backend_test$"
+          --output-on-failure -V
 
   frontend:
     name: frontend contracts & app (M1.5-06)
