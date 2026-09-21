@@ -71,7 +71,7 @@ Backend（设计文档第 10、18 节第四阶段）：UI Automation 承载语�
 
 ## 工作项
 
-- [ ] `M4-01` Windows Backend 骨架闭环（Win32）：`WindowsDesktopEnvironment`
+- [x] `M4-01` Windows Backend 骨架闭环（Win32）：`WindowsDesktopEnvironment`
       （公共头零 Win32 类型）+ 私有 Win32 前端——WindowProvider（`EnumWindows`
       枚举与几何、`GetForegroundWindow` / `SetForegroundWindow` 前台与激活）、
       ScreenProvider（`EnumDisplayMonitors` 显示器、GDI `BitBlt` 显示 / 窗口 /
@@ -112,9 +112,10 @@ Provider（UIA）先于外围 Provider、产品进程化（`M4-06`）不阻塞 B
 ## 风险与阻塞
 
 - 开发与 CI 环境均为 Linux，无本机 Windows：编译证据分两级（MinGW 交叉 +
-  MSVC CI，DEC-017）；运行取证依赖 GitHub windows runner 的桌面会话能力（其
-  交互输入 / 窗口创建可用性随 `M4-01` 首个 PR 验证），或维护者 Windows 机器。
-  无法取证的工作项保持未勾选并记录补跑条件（工程规范第 4 节）。
+  MSVC CI，DEC-017）；运行取证依赖 GitHub windows runner 的桌面会话能力——
+  **已在 `M4-01` 首个 PR 确认可用**（交互输入 / 窗口创建 / 前台激活均真实
+  执行，见验证记录 2026-09-22 CI 取证），后续工作项默认可经 CI 取证。仍无法
+  取证的工作项保持未勾选并记录补跑条件（工程规范第 4 节）。
 - MinGW-w64 与 MSVC 的差异（异常模型、`std::filesystem` 行为、Win32 头宏与
   结构体布局、警告面）：双工具链门禁缓解；MSVC 为产品分发（DEC-006）主工具
   链，MinGW-only 的代码不被接受。
@@ -122,9 +123,9 @@ Provider（UIA）先于外围 Provider、产品进程化（`M4-06`）不阻塞 B
   与 X11 EWMH 同类的系统安全边界，如实返回失败并记录，不虚报可激活性。
 - UIA 线程模型（MTA 调用型 vs STA 消息泵事件型）影响 Executor 互操作形态
   （EXEC-03）：`M4-02` 前按 DEC-017 兑现或修订。
-- GitHub windows runner 无真实交互桌面时 win32 集成测试不可运行：按 skip
-  纪律显式标注并记录补跑条件（维护者 Windows 机器），不以"编译通过"冒充
-  运行证据（`RULE-08`）。
+- GitHub windows runner 桌面能力不足时 win32 集成测试不可运行的风险已消除
+  （`M4-01` 首跑确认 runner 有真实交互桌面，测试常驻 CI 门禁）；后续风险仅
+  剩 runner 环境演进（如镜像更换影响桌面能力），由门禁持续暴露。
 - 沙箱无 root：MinGW-w64 以 `apt-get download` + `dpkg -x` 用户前缀提取引导
   （DEC-015 第 4 条同一策略，`M4-01` 已实测可下载）。
 
@@ -210,3 +211,36 @@ Provider（UIA）先于外围 Provider、产品进程化（`M4-06`）不阻塞 B
 - 同步：[M4 计划](m4-windows-backend.md)（本记录）、
   [DEC-017](../decisions/DEC-017-windows-backend-toolchain-and-event-loop.md)
   （新）、总计划当前状态与里程碑索引、README（交叉构建指引）。
+
+2026-09-22：`M4-01` CI 门禁全绿与 Windows 运行级取证完成，工作项完成。
+
+- 范围：分支 `feat/m4-win32-backend-skeleton` PR [#39](https://github.com/Linductor-alkaid/mirage/pull/39)
+  CI 迭代中修复三处 Windows 门禁问题并取证：
+  1. `MirageWarnings.cmake` 为 MSVC 给出独立警告旗标（`/W4 /permissive-
+     /Zc:__cplusplus` + 精选 C4xxx 提示 + `/WX`）——GCC 旗标（`-Wextra` 等）
+     在 MSVC 上是 D8021 硬错误，此为 windows 门禁的首个真实产出；
+  2. `win32_backend.cpp` 命名键表 `std::pair` 花括号初始化经模板转发触发
+     C4242（int→WORD，`/WX` 下致命）——改普通聚合类型，窄化发生在常量可见
+     的聚合初始化点；
+  3. windows 作业增加 win32 测试详细输出步骤（通过时 ctest 隐藏 stdout/
+     stderr，断言计数与环境注记需显式保留）。
+- 验证（CI run 35634388282 与 35634853372，windows-latest，MSVC 19.51
+  （VS 18 2026））：全树 configure 成功（pinned mira/mirador 均在 Windows
+  校验通过，"Mira target platform: Windows"）；**windows 作业 8 步全绿**：
+  MSVC 构建 mirage_desktop / mirage_platform / 5 个测试目标成功，ctest
+  **5/5 通过**，其中 `win32_backend_test` 在 runner 真实交互桌面（虚拟屏
+  1024x768）上 **128 checks, 0 failures**——无环境受限注记输出，即前台激活
+  成功、键盘送达（WM_CHAR / WM_KEYDOWN）与指针往返等运行级场景全部真实执行
+  （DEC-017 决策 9 的 runner 桌面能力就此确认）；MSVC 编译级证据就此闭合
+  DEC-017 决策 1 的"双工具链门禁"。Linux 矩阵（debug/release/asan/ubsan/
+  tsan）、format、boundary、frontend 作业同轮全绿。
+- 限制与挂账：同轮 Linux `debug` 作业一次 `event_subscription_test` 失败
+  （`wait_terminal` 30 s 活跃性预算耗尽，`event_subscription_test.cpp:1283`
+  `settled.has_value()`），同一提交复跑即绿——与本分支改动无关（该测试与
+  Windows 路径零交集，前一轮同代码 run 35634388282 全绿），属 M1.5-02 起
+  记录的 service serial backlog 病理在活跃性断言上的再次显形（此前
+  `runtime_service_test` 同类问题已于 M2-06 定性修复；本例预算已是放宽后的
+  30 s 仍被击穿，指向单次 inspect 调用占满剩余预算的病理）。挂账：由维护者
+  在 runtime 域单独排查定案（负责人：维护者；触发条件：再次复现即立项），
+  不阻塞本工作项。
+- 同步：本验证记录、`DEC-017` 变更记录、PR #39 CI 取证。

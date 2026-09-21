@@ -119,6 +119,19 @@
 - win32 前端集成测试在真实 Windows 会话的运行证据（CI runner 或维护者
   Windows 机器；不可运行时按规范记录）。
 
+## 变更记录
+
+- 2026-09-22（`M4-01` CI 取证）：第 1、9 条的首轮兑现记录。MSVC（windows-
+  latest，VS 18 2026，19.51）全树 configure 成功（pinned mira / mirador 均在
+  Windows 校验通过）；`mirage_enable_warnings` 为 MSVC 增设独立旗标组
+  （`/W4 /permissive- /Zc:__cplusplus` + `/WX`，GCC 旗标在 MSVC 为 D8021
+  硬错误）；windows 作业 5/5 测试通过，`win32_backend_test` 在 runner 真实
+  交互桌面（1024x768）128 checks 0 failures，前台激活与键盘送达场景真实
+  执行——决策 9 预留的"runner 桌面能力"确认成立，windows 集成测试可常驻
+  CI 门禁。MinGW 侧同步取证：`MONITORINFOEXW`（非 `MONITORINFOW`）承载
+  szDevice、VK_* 宏（int）经聚合初始化窄化为 WORD（std::pair 模板转发会
+  触发 MSVC C4242）两处实现纪律记录在案。
+
 ## 关联文档和工作项
 
 - 设计文档第 10、18 节；[DEC-005](DEC-005-desktop-observation-contract.md)、
