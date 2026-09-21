@@ -1,0 +1,13 @@
+{
+  "name": "@mirage/shell-poc-electron",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Mirage shell PoC：Electron 壳承载（DEC-006 M3-06，非产品代码）",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "44.4.3"
+  }
+}
