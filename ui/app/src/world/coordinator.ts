@@ -67,6 +67,7 @@ export class WorldCoordinator {
             logicalStart: opts.logicalStart ?? orgState.logicalTime,
             source: orgState.source,
             initialBuilding,
+            organizationTeams: orgState.teams,
         });
         this.projector.resyncFromOrganization(orgState);
         const w = this.projector.getWorld();
@@ -85,7 +86,9 @@ export class WorldCoordinator {
         }
         this.opts.renderer.start();
         this.unsubscribeOrg = this.opts.organizationStore.subscribe((state) => {
-            // 简单策略：状态变化时整体 resync（M11 替换为 incremental）。
+            // M9 增量策略：把 org 引用同步给 projector，projector 在收到增量事件时
+            // 自行处理 team 增删 / membership_changed；其他事件仍走 resync。
+            this.projector.syncOrganization(state);
             this.projector.resyncFromOrganization(state);
             this.snapshot = {
                 world: this.projector.getWorld(),

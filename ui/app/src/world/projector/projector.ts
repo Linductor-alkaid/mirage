@@ -34,6 +34,7 @@ import type {
     LogicalTime,
     MeetingSpace,
     MeetingSpaceId,
+    TeamId,
     Workstation,
     WorkstationId,
     Zone,
@@ -64,6 +65,8 @@ export interface ProjectorOptions {
     readonly logicalStart: LogicalTime;
     readonly source: import('../model/types.js').EventSource;
     readonly initialBuilding: Building;
+    /** 实时组织团队集合（用于 M9 增量 layout 重建）。 */
+    readonly organizationTeams: Readonly<Record<string, Team>>;
 }
 
 export class WorldProjector {
@@ -71,7 +74,7 @@ export class WorldProjector {
     private readonly opts: ProjectorOptions;
 
     constructor(opts: ProjectorOptions) {
-        this.opts = opts;
+        this.opts = { ...opts, organizationTeams: opts.organizationTeams ?? {} };
         this.world = emptyWorld(opts.logicalStart, opts.source);
         this.world = {
             ...this.world,
@@ -143,6 +146,13 @@ export class WorldProjector {
         };
     }
 
+    /** 让 coordinator 维护 projector 的 organization 引用（team 变化时增量 layout）。 */
+    syncOrganization(org: OrganizationState): void {
+        // 重新把 teams 注入 opts；projector 在 team 增量事件时会用最新值重建。
+        // 此处使用 Object.assign 等价的方式：构造新的 ProjectorOptions。
+        (this.opts as { organizationTeams: Record<string, Team> }).organizationTeams = org.teams;
+    }
+
     /** 单事件 → 增量（不应用）。返回 null 表示无可投影结果。 */
     private diff(event: OrganizationEvent): WorldDelta | null {
         switch (event.type) {
@@ -157,9 +167,11 @@ export class WorldProjector {
             case 'agent.activity_ended':
                 return this.diffActivityEnded(event.agentId, event.activityId, event.at);
             case 'organization.team_created':
+                return this.diffTeamCreated(event.at);
             case 'organization.team_removed':
+                return this.diffTeamRemoved(event.teamId, event.at);
             case 'organization.membership_changed':
-                return null; // 当前由 resyncFromOrganization 统一处理；M9 引入增量。
+                return this.diffMembershipChanged(event.agentId, event.teamId, event.added, event.at);
             case 'organization.role_created':
             case 'task.created':
             case 'task.assigned':
@@ -172,6 +184,83 @@ export class WorldProjector {
             default:
                 return null;
         }
+    }
+
+    private diffTeamCreated(at: LogicalTime): WorldDelta {
+        // 当前实现：增量添加 team 时整张 Building 重建 + entity 重新分配 workstation。
+        // M9 之后的优化版（spawnNewTeamZone）会原地插入 zone。
+        const teams = Object.values(this.opts.organizationTeams);
+        const newBuilding = buildInitialBuilding(teams);
+        const { entities } = redistributeEntities(newBuilding, this.world.entities);
+        this.world = { ...this.world, building: newBuilding };
+        return {
+            at,
+            source: this.opts.source,
+            building: newBuilding,
+            entities,
+        };
+    }
+
+    private diffTeamRemoved(teamId: TeamId, at: LogicalTime): WorldDelta {
+        // 简化：team 被移除时整张建筑重建；被移走的 agent 落到中央兜底锚点。
+        // 真实实现需要保留剩余 team 的几何。
+        const teams = Object.values(this.opts.organizationTeams).filter((t) => t.id !== teamId);
+        const newBuilding = buildInitialBuilding(teams);
+        const { entities } = redistributeEntities(newBuilding, this.world.entities);
+        this.world = { ...this.world, building: newBuilding };
+        return {
+            at,
+            source: this.opts.source,
+            building: newBuilding,
+            entities,
+        };
+    }
+
+    private diffMembershipChanged(
+        agentId: AgentId,
+        teamId: TeamId,
+        added: boolean,
+        at: LogicalTime,
+    ): WorldDelta | null {
+        const target = Object.values(this.world.entities).find((e) => e.agentId === agentId);
+        if (!target) {
+            return null;
+        }
+        const newTeamId = added ? teamId : null;
+        if (target.teamId === newTeamId) {
+            return null; // no-op
+        }
+        // 释放旧 workstation，分配新 team zone 的 workstation（若无新 team 则落到中央）
+        let building = this.world.building;
+        let atWorkstation: WorkstationId | null = null;
+        const newEntity: AgentEntity = { ...target, teamId: newTeamId, atWorkstation: null, atMeeting: null };
+        if (newTeamId) {
+            const result = ensureAgentAssigned(building, newEntity);
+            building = result.building;
+            atWorkstation = result.workstationId;
+        }
+        const anchor = atWorkstation
+            ? findWorkstationAnchor(building, atWorkstation) ?? initialAgentAnchor(building, newTeamId).position
+            : initialAgentAnchor(building, newTeamId).position;
+        const placed: AgentEntity = {
+            ...newEntity,
+            atWorkstation,
+            position: anchor,
+            nav: {
+                moving: true,
+                nextWaypoint: { x: anchor.x, z: anchor.z },
+                destination: { x: anchor.x, z: anchor.z },
+                facing: target.nav.facing,
+                lastUpdateMs: at,
+            },
+            updatedAt: at,
+        };
+        this.world = { ...this.world, building };
+        return {
+            at,
+            source: this.opts.source,
+            entities: { [placed.id]: placed },
+        };
     }
 
     private diffAgentCreated(agent: Agent, at: LogicalTime): WorldDelta {
@@ -404,6 +493,37 @@ export function distance(a: { x: number; z: number }, b: { x: number; z: number 
     const dx = a.x - b.x;
     const dz = a.z - b.z;
     return Math.hypot(dx, dz);
+}
+
+/** 重建 Building 时，把现存的 entity 重新分配到新 zone 的 workstation。
+ *  agent 视觉状态保持，position / atWorkstation 重新计算。 */
+function redistributeEntities(
+    building: Building,
+    existing: Readonly<Record<string, AgentEntity>>,
+): { entities: Record<string, AgentEntity> } {
+    const entities: Record<string, AgentEntity> = {};
+    let workBuilding = building;
+    for (const entity of Object.values(existing)) {
+        const reset: AgentEntity = { ...entity, atWorkstation: null, atMeeting: null, position: { x: 0, y: 0, z: 0 } };
+        const { building: b, workstationId } = ensureAgentAssigned(workBuilding, reset);
+        workBuilding = b;
+        const anchor = workstationId
+            ? findWorkstationAnchor(workBuilding, workstationId) ?? initialAgentAnchor(workBuilding, entity.teamId).position
+            : initialAgentAnchor(workBuilding, entity.teamId).position;
+        entities[entity.id] = {
+            ...reset,
+            atWorkstation: workstationId,
+            position: anchor,
+            nav: {
+                moving: true,
+                nextWaypoint: { x: anchor.x, z: anchor.z },
+                destination: { x: anchor.x, z: anchor.z },
+                facing: entity.nav.facing,
+                lastUpdateMs: entity.nav.lastUpdateMs,
+            },
+        };
+    }
+    return { entities };
 }
 
 export type { Building, Zone, MeetingSpace, Workstation, AgentEntity, Aabb, World, WorldDelta };
