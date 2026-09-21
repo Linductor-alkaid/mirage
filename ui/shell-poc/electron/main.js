@@ -86,6 +86,8 @@ ipcMain.handle('poc-report', (_event, raw) => {
     const arr = result.samples[msg.label] || (result.samples[msg.label] = []);
     for (let i = 0; i < msg.values.length; i++) arr[msg.offset + i] = msg.values[i];
   }
+  // harness 页面经 bridge.report 发送 {op:'done'} 收尾（与 CEF 侧路由协议一致）。
+  if (msg.op === 'done') finish();
   return true;
 });
 
