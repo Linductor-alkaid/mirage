@@ -25,7 +25,7 @@
 /// 这是世界呈现的「主编排」类；React 层只负责 mount/unmount + 暴露
 /// subscribe 给 HUD overlay（详情面板等）。
 
-import type { OrganizationStore } from './organization/source.js';
+import type { OrganizationState, OrganizationStore } from './organization/source.js';
 import { WorldProjector } from './projector/projector.js';
 import { buildInitialBuilding } from './projector/layout.js';
 import type { World } from './model/world.js';
@@ -46,12 +46,14 @@ export interface CoordinatorSnapshot {
 }
 
 type Listener = (snap: CoordinatorSnapshot) => void;
+type OrgListener = (state: OrganizationState) => void;
 
 export class WorldCoordinator {
     private readonly opts: WorldCoordinatorOptions;
     private readonly projector: WorldProjector;
     private snapshot: CoordinatorSnapshot;
     private readonly listeners = new Set<Listener>();
+    private readonly orgListeners = new Set<OrgListener>();
     private unsubscribeOrg: (() => void) | null = null;
     private disposed = false;
 
@@ -74,6 +76,7 @@ export class WorldCoordinator {
             logicalTime: w.logicalTime,
         };
         this.apply();
+        this.wireRenderer();
     }
 
     start(): void {
@@ -90,6 +93,9 @@ export class WorldCoordinator {
                 logicalTime: this.projector.getWorld().logicalTime,
             };
             this.apply();
+            for (const l of this.orgListeners) {
+                l(state);
+            }
         });
     }
 
@@ -101,6 +107,7 @@ export class WorldCoordinator {
         this.unsubscribeOrg?.();
         this.unsubscribeOrg = null;
         this.listeners.clear();
+        this.orgListeners.clear();
         this.opts.renderer.dispose();
     }
 
@@ -109,6 +116,26 @@ export class WorldCoordinator {
         return () => {
             this.listeners.delete(listener);
         };
+    }
+
+    /** 订阅 Organization 状态（用于右侧 AgentDetailPanel 等只读展示）。 */
+    subscribeOrganization(listener: OrgListener): () => void {
+        this.orgListeners.add(listener);
+        // 立刻推送当前状态
+        listener(this.opts.organizationStore.getState());
+        return () => {
+            this.orgListeners.delete(listener);
+        };
+    }
+
+    /** React 层订阅 renderer 的 select（点击/键盘）事件。 */
+    onRendererSelect(listener: (agentEntityId: string | null) => void): () => void {
+        return this.opts.renderer.onSelect(listener);
+    }
+
+    /** React 层订阅 renderer 的 hover 事件。 */
+    onRendererHover(listener: (agentEntityId: string | null) => void): () => void {
+        return this.opts.renderer.onHover(listener);
     }
 
     getSnapshot(): CoordinatorSnapshot {
@@ -132,6 +159,13 @@ export class WorldCoordinator {
         this.opts.renderer.applyWorld(this.snapshot.world);
         for (const listener of this.listeners) {
             listener(this.snapshot);
+        }
+    }
+
+    private wireRenderer(): void {
+        // 初始组织状态推送给监听者（无副作用）
+        for (const l of this.orgListeners) {
+            l(this.opts.organizationStore.getState());
         }
     }
 }

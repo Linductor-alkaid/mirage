@@ -164,7 +164,37 @@ M12 历史回放基础（WorldClock + EventLog；不实现 timeline UI，但不�
 ## 当前状态
 
 - M0 完成：仓库调查完毕；本计划已写。
-- M1 已开始：Three.js 渲染骨架正在落地。
+- M1 完成：Three.js 渲染骨架（renderer lifecycle + OrbitCamera + 地面 + 自适应 ResizeObserver）。
+- M2 完成：World Model 完整数据结构（World / Building / Floor / Zone / Workstation / MeetingSpace / AgentEntity / InteractiveObject）。
+- M3 完成：Procedural office layout（规则驱动，4 Team × 28 Agent 测试 fixture）。
+- M4 完成：Organization Layer（events / reducer / store / 确定性 seed simulator）。
+- M5 完成：WorldProjector（org events → world deltas，agent visual state 映射）。
+
+### 验证记录（M0-M5）
+
+提交 hash：见 git log `feat/m4-world-projection` 分支。
+
+- `npm run check`：通过（TypeScript 严格模式：noUncheckedIndexedAccess / verbatimModuleSyntax）。
+- `npm test`：561 / 561 通过（含 31 个新增 world 测试：world-model、organization reducer、
+  layout、projector、colors、simulator）。
+- `npm run build`：通过（vite dist 生成；首屏 JS 1.07MB，gzip 319KB）。
+
+受影响文件（按层）：
+
+- World Model：`ui/app/src/world/model/*`（types / identity / building / agentEntity / world / index）。
+- Organization：`ui/app/src/world/organization/*`（types / events / reducer / source / simulator / index）。
+- Projector：`ui/app/src/world/projector/*`（colors / layout / projector / index）。
+- Renderer：`ui/app/src/world/renderer/*`（types / orbit / picking / renderer / index）。
+- Coordinator / Interaction / Hooks：`ui/app/src/world/{coordinator,interaction,hooks.tsx,index}`。
+- View：`ui/app/src/views/world/WorldPage.tsx`，路由注册在 `state/store.ts`、`App.tsx`、
+  `shell/Chrome.tsx`；样式追加在 `src/styles.css`（仅消费 `--mir-*` 语义 token）。
+
+已知遗留与下一 Milestone 入口：
+
+- WorldProjector 当前走 resync-from-org 全量重建；M9 引入 incremental layout 后替换。
+- 视觉状态机仅切换 mesh 颜色 + 微脉冲；M6 引入路径插值与朝向 blend；M7 引入
+  connection line / speech bubble / status icon 等可视化。
+- 没有 Avatar / GLTF / 动画 mixer；M11 之后再做历史回放基础。
 
 ## 已接受 / 已登记的依赖反馈
 

@@ -12,11 +12,13 @@
 import * as THREE from 'three';
 
 import type { World } from '../model/world.js';
-import type { AgentEntity } from '../model/agentEntity.js';
+import type { AgentEntity, MeetingSpace, MeetingSpaceId } from '../model/index.js';
 import type { ThemeAdapter } from './types.js';
 import { DEFAULT_THEME } from './types.js';
 import { OrbitCamera } from './orbit.js';
 import { pickAgent } from './picking.js';
+import { createBadgeBundle, isBadgeNotable, type BadgeBundle } from './badges.js';
+import { CollaborationLayer } from './connections.js';
 
 export interface WorldRendererOptions {
     readonly canvas: HTMLCanvasElement;
@@ -31,6 +33,7 @@ interface AgentMeshBundle {
     readonly root: THREE.Object3D;
     readonly body: THREE.Mesh;
     readonly accent: THREE.Mesh;
+    readonly badge: BadgeBundle;
     /** 视觉状态对应的 body 颜色。 */
     setVisualState(state: AgentEntity['visualState']): void;
     setAccent(rgb: { r: number; g: number; b: number }): void;
@@ -48,6 +51,8 @@ export class WorldRenderer {
     private readonly agentBundles = new Map<string, AgentMeshBundle>();
     private readonly root: THREE.Group;
     private buildingRoot: THREE.Group;
+    private readonly collaborationLayer: CollaborationLayer;
+    private readonly collabTickAccumulator = { value: 0 };
     private rafId: number | null = null;
     private lastFrameMs = 0;
     private running = false;
@@ -59,6 +64,8 @@ export class WorldRenderer {
     private hoveredAgentId: string | null = null;
     private currentWorld: World | null = null;
     private resizeObserver: ResizeObserver | null = null;
+    private readonly selectListeners = new Set<(id: string | null) => void>();
+    private readonly hoverListeners = new Set<(id: string | null) => void>();
 
     constructor(opts: WorldRendererOptions) {
         this.opts = opts;
@@ -82,6 +89,8 @@ export class WorldRenderer {
         this.scene.add(this.root);
         this.buildingRoot = new THREE.Group();
         this.root.add(this.buildingRoot);
+        this.collaborationLayer = new CollaborationLayer();
+        this.root.add(this.collaborationLayer.getGroup());
         this.installLighting();
         this.installResize();
         this.installPointer();
@@ -131,6 +140,7 @@ export class WorldRenderer {
             bundle.dispose();
         }
         this.agentBundles.clear();
+        this.collaborationLayer.dispose();
         this.buildingRoot.clear();
         this.root.clear();
         this.scene.clear();
@@ -151,6 +161,9 @@ export class WorldRenderer {
         }
         this.selectedAgentId = agentId;
         this.refreshSelectionVisuals();
+        for (const l of this.selectListeners) {
+            l(agentId);
+        }
         this.opts.onSelect?.(agentId);
     }
 
@@ -160,6 +173,9 @@ export class WorldRenderer {
         }
         this.hoveredAgentId = agentId;
         this.refreshHoverVisuals();
+        for (const l of this.hoverListeners) {
+            l(agentId);
+        }
         this.opts.onHover?.(agentId);
     }
 
@@ -231,6 +247,21 @@ export class WorldRenderer {
         const hit = this.raycast(e.clientX, e.clientY);
         this.hoverAgent(hit);
     };
+
+    /** 让 WorldCoordinator 暴露给 React：renderer 选中某个 AgentEntity 时回调。 */
+    onSelect(listener: (agentEntityId: string | null) => void): () => void {
+        this.selectListeners.add(listener);
+        return () => {
+            this.selectListeners.delete(listener);
+        };
+    }
+
+    onHover(listener: (agentEntityId: string | null) => void): () => void {
+        this.hoverListeners.add(listener);
+        return () => {
+            this.hoverListeners.delete(listener);
+        };
+    }
 
     private raycast(clientX: number, clientY: number): string | null {
         if (!this.currentWorld) {
@@ -347,18 +378,24 @@ export class WorldRenderer {
         body.userData = { agentEntityId: entity.id, agentId: entity.agentId };
         accent.userData = { agentEntityId: entity.id, agentId: entity.agentId };
         group.userData = { agentEntityId: entity.id, agentId: entity.agentId };
+        // 头顶 status badge（M7）
+        const badge = createBadgeBundle(entity);
+        group.add(badge.group);
         this.root.add(group);
 
         return {
             root: group,
             body,
             accent,
+            badge,
             setVisualState: (state) => {
                 const color = visualStateColor(state, this.theme);
                 const mat = body.material as THREE.MeshStandardMaterial;
                 mat.color.copy(color);
                 mat.emissive.copy(visualStateEmissive(state, this.theme));
                 mat.emissiveIntensity = 0.35;
+                badge.setVisualState(state);
+                badge.setVisible(isBadgeNotable(state));
             },
             setAccent: (rgb) => {
                 const mat = accent.material as THREE.MeshStandardMaterial;
@@ -367,6 +404,7 @@ export class WorldRenderer {
             },
             setPosition: (p) => {
                 group.position.set(p.x, p.y, p.z);
+                badge.setPosition({ x: p.x, y: 1.6, z: p.z });
             },
             dispose: () => {
                 this.root.remove(group);
@@ -374,6 +412,7 @@ export class WorldRenderer {
                 (body.material as THREE.Material).dispose();
                 accent.geometry.dispose();
                 (accent.material as THREE.Material).dispose();
+                badge.dispose();
             },
         };
     }
@@ -388,8 +427,9 @@ export class WorldRenderer {
         if (!this.currentWorld) {
             return;
         }
-        // 简单 lerp 平滑
+        // 位置插值（k 与 dt 相关；避免高速帧率时穿插）。
         const k = Math.min(1, dt / 220);
+        const arrivalEpsilon = 0.08;
         for (const entity of Object.values(this.currentWorld.entities)) {
             const bundle = this.agentBundles.get(entity.id);
             if (!bundle) {
@@ -400,15 +440,46 @@ export class WorldRenderer {
             cur.x += (target.x - cur.x) * k;
             cur.y += (target.y - cur.y) * k;
             cur.z += (target.z - cur.z) * k;
-            // 朝向：依据 movement direction；M7 引入 animation
+            // 简单的「主动走」状态机（M6）：当 Agent 在 nav.moving 但 target 与当前差异
+            // 小于 epsilon 时，认为到达；视觉上拉高体位（轻微坐入 workstation）。
+            const dx = target.x - cur.x;
+            const dz = target.z - cur.z;
+            const distance = Math.hypot(dx, dz);
+            if (entity.nav.moving && distance < arrivalEpsilon) {
+                // 到达
+                cur.x = target.x;
+                cur.z = target.z;
+            }
+            // 朝向：依据 movement direction；朝向用 lerp 接近目标。
             if (entity.nav.moving && entity.nav.destination) {
-                const dx = entity.nav.destination.x - cur.x;
-                const dz = entity.nav.destination.z - cur.z;
-                if (Math.hypot(dx, dz) > 0.05) {
-                    const targetYaw = Math.atan2(dx, dz);
+                const tdx = entity.nav.destination.x - cur.x;
+                const tdz = entity.nav.destination.z - cur.z;
+                if (Math.hypot(tdx, tdz) > 0.05) {
+                    const targetYaw = Math.atan2(tdx, tdz);
                     bundle.root.rotation.y = lerpAngle(bundle.root.rotation.y, targetYaw, 0.18);
                 }
+            } else {
+                // 不在移动时，让 Agent 缓慢回到 0 朝向（默认面朝 +z）。
+                bundle.root.rotation.y = lerpAngle(bundle.root.rotation.y, 0, 0.05);
             }
+            // body 高度根据状态调整：working/collaborating 时略微下沉（坐姿）；
+            // walking 时略高（站立位移）。
+            let bodyY = 0.65;
+            if (entity.visualState === 'walking') {
+                bodyY = 0.7 + 0.04 * Math.sin(now * 0.012);
+            } else if (
+                entity.visualState === 'working' ||
+                entity.visualState === 'reviewing' ||
+                entity.visualState === 'testing' ||
+                entity.visualState === 'reporting' ||
+                entity.visualState === 'collaborating'
+            ) {
+                bodyY = 0.55;
+            } else if (entity.visualState === 'blocked') {
+                bodyY = 0.65 + 0.06 * Math.sin(now * 0.015);
+            }
+            bundle.body.position.y = bodyY;
+            bundle.accent.position.y = bodyY + 0.6;
             // accent 微脉冲（提示 working / blocked）
             const pulse = 1 + 0.08 * Math.sin(now * 0.005);
             const accentMesh = bundle.accent;
@@ -421,6 +492,40 @@ export class WorldRenderer {
                 mat.emissiveIntensity = 0.35;
             }
         }
+        // M7：协作连线（在每 ~200ms 重算一次，避免每帧重建 BufferGeometry）
+        this.collabTickAccumulator.value += dt;
+        if (this.collabTickAccumulator.value > 200) {
+            this.collabTickAccumulator.value = 0;
+            this.recomputeCollaborationConnections();
+        }
+    }
+
+    private recomputeCollaborationConnections(): void {
+        if (!this.currentWorld) {
+            return;
+        }
+        const entities = this.currentWorld.entities;
+        // 按 atMeeting 分桶
+        const meetingMembers = new Map<MeetingSpaceId, string[]>();
+        for (const e of Object.values(entities)) {
+            if (e.atMeeting) {
+                const arr = meetingMembers.get(e.atMeeting) ?? [];
+                arr.push(e.id);
+                meetingMembers.set(e.atMeeting, arr);
+            }
+        }
+        const meetingSpaces: { meeting: MeetingSpace; entityIds: ReadonlyArray<string> }[] = [];
+        for (const floor of this.currentWorld.building.floors) {
+            for (const zone of floor.zones) {
+                for (const ms of zone.meetingSpaces) {
+                    const ids = meetingMembers.get(ms.id);
+                    if (ids && ids.length > 0) {
+                        meetingSpaces.push({ meeting: ms, entityIds: ids });
+                    }
+                }
+            }
+        }
+        this.collaborationLayer.update(entities, meetingSpaces);
     }
 
     private refreshSelectionVisuals(): void {
@@ -468,6 +573,7 @@ function visualStateColor(state: AgentEntity['visualState'], theme: ThemeAdapter
         case 'hibernated':
             return new THREE.Color(0x6b7280);
         case 'walking':
+            return new THREE.Color(0xc7d2dd);
         case 'idle':
         default:
             return colorToThree(theme.agentBody);
