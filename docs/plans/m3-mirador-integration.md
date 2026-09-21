@@ -1,13 +1,13 @@
 # M3：Mirador 视觉集成
 
-> 状态：In Progress（`M3-01`、`M3-02`、`M3-03`、`M3-04`、`M3-05` 完成）
+> 状态：In Progress（`M3-01`、`M3-02`、`M3-03`、`M3-04`、`M3-05`、`M3-06` 完成）
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M2](m2-desktop-environment.md)（已完成：Desktop Environment 核心 Provider、
 > Linux Backend、Semantic Snapshot、ElementTarget 解析顺序契约、Observation 组装
 > 与 runtime 接线）
 > 建议发布点：`release-gamma`（tag 待维护者授权后创建）
-> 更新日期：2026-09-21（`M3-05` 完成）
+> 更新日期：2026-09-21（`M3-06` 完成）
 
 ## 目标
 
@@ -123,10 +123,10 @@ Visual Reference（`@vN`）的签发与解析闭环，补齐 DEC-005 解析顺�
       M2-06 先例）；增强 Observation 进入 Mira 观察面；headless X 拓扑 e2e：
       采集 → fake 视觉分析 → `@vN` 签发 → ElementTarget visual 解析 → 坐标
       命中注入 → 再观察更新。
-- [ ] `M3-06` DEC-006 壳选型 PoC 与冻结：CEF（暂定默认值）vs Tauri / Electron
-      对比取证（窗口嵌入、本地资产加载、IPC 桥延迟基线、包体积与内存基线、
-      Linux 发行版兼容性风险）；壳二进制 / 前端依赖进入锁定与 SBOM 的机制
-      复核；更新通道签名 / 差分策略复核；结论回写 DEC-006（含否决理由封存）。
+- [x] `M3-06` DEC-006 壳选型 PoC 与冻结：CEF（暂定默认值）vs Tauri / Electron
+        对比取证（窗口嵌入、本地资产加载、IPC 桥延迟基线、包体积与内存基线、
+        Linux 发行版兼容性风险）；壳二进制 / 前端依赖进入锁定与 SBOM 的机制
+        复核；更新通道签名 / 差分策略复核；结论回写 DEC-006（含否决理由封存）。
 - [ ] `M3-07` 里程碑退出复核：退出条件逐项独立取证（同 M2-07 形态）。
 
 拆分纪律：契约先于实现（`M3-01` 先行）；集成层先于桌面接线（`M3-02` →
@@ -427,3 +427,44 @@ skill 卡片为契约输入。
   拓扑环境限制，精确匹配分支已覆盖）；binding 层向 refresh 传入
   deadline 的分析超时路径（`kTimedOut` 映射仅由 visual_session_test 覆盖
   到 session 层）；真实模型后端行为不在 M3 声明范围（RULE-08）。
+
+2026-09-21：`M3-06` 完成（分支 `feat/m3-06-shell-poc`，基于 `M3-05` 合入后的
+`master`）。DEC-006 壳选型 PoC 与冻结落地。
+
+- **PoC 承载**（`ui/shell-poc/`，新目录；不进入产品默认构建，DEC-006 第 6 条）：
+  三壳共用延迟 harness（每样本 = 50 次连续往返均值，规避 Chromium 计时器
+  100µs 量化；warmup 20 + 64B/4096B 各 400 样本；原生侧 enter/leave 打点；
+  统计 + 原始样本落盘）；CEF 壳（pinned `152.0.8+g1ce985c+chromium-152.0.7977.134`
+  stable，SHA1 官方索引校验，独立 CMake 工程 + mira `json.hpp`）与 Electron 壳
+  （pinned `44.4.3`，npm 锁定）；`measure/` 采集与独立复算脚本；
+  `versions.lock.json` PoC 物料锁（工件 pin 形态实测）。原始结果 JSON 提交于
+  `results/`。
+- **取证结论**（详证见[壳 PoC 基线报告](../benchmarks/shell-poc-baselines.md)）：
+  桥往返 CEF 64B p50/p95 = 102/342 µs、4KiB = 142/362 µs，Electron
+  98/196 µs、112/232 µs（同量级，原始样本独立复算与壳内统计全一致）；进程树
+  RSS final 0.44–0.89 GiB（两壳 10 进程）；载荷 CEF ≈559 MB（strip 后）vs
+  Electron 296 MB；GLIBC 要求两壳同为 2.25。CEF 原生窗口嵌入实测成立
+  （X11 `SetAsChild`，`window_embed.children` 非空）；产品 UI 生产构建两壳均
+  完成挂载（0 console 错误）——CEF 的 `file://` 模块资产被 CORS 拦截，以
+  ≈100 行 `http://mira.local` scheme handler 消化（无 socket 服务进程），
+  Electron `file://` 直载。
+- **冻结决定**（[DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md)
+  2026-09-21 修订节）：渲染壳冻结为 **CEF**；更新通道冻结（Linux apt + GPG
+  仓库唯一路径、Windows 更新清单 ed25519 + SHA-256 + Authenticode 双层、全量
+  优先，差分 M5 按实测评估）；Electron / Tauri 否决理由封存（Tauri 本环境未
+  能完成可运行 PoC——无 Rust 工具链、webkit2gtk-dev 不可安装，补跑条件登记于
+  基线报告 §3.5，以系统运行时证据 + 结构分析承载其侧结论）；壳二进制工件 pin
+  （URL + 版本 + SHA1 + license）与 npm 树锁定、SBOM 生成机制复核见
+  [shell-binary-locking.md](../supply-chain/shell-binary-locking.md)（产品级
+  `dependencies.lock.json` schema v2 扩展随 M5 落地）。
+- **测试证据**（Independent-Verification-Agent 独立复验）：PoC 复跑（CEF
+  harness/ui、Electron harness/ui 四项采集 exit=0，延迟与内存数据可重现，
+  汇总交叉核对无 mismatch）+ 仓库门禁（debug/release/asan/ubsan/tsan 五预设
+  ctest 32/32 通过、0 skip；`mirage-format-check` 与 `mirage-boundary-check`
+  通过；本工作项未改动 `runtime`/`desktop`/`platform`/`integration`/`apps`
+  任何 C++ 代码与公共头，PoC 位于 `ui/shell-poc/` 独立构建图）。证据记录见
+  M3 验证记录与基线报告。
+- **未覆盖项**：Tauri 可运行 PoC（环境限制，补跑条件见基线报告 §3.5）；
+  Windows 侧壳取证（M4）；CEF 沙箱/GPU 正式开关与 deb/exe 打包级验证
+  （M5，DEC-006 验证方式节既定）；桥延迟仅覆盖壳内一段，不含 Local IPC
+  全链路。

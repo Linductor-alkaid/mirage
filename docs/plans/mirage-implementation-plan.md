@@ -40,7 +40,11 @@ DesktopObservation 按需组装器、绑定 observe 面如实上报与 Semantic 
 Backend](m2-desktop-environment.md)），M2 Completed。M3（Mirador 视觉集成）里程碑
 计划已建立，见 [M3：Mirador 视觉集成](m3-mirador-integration.md)；pinned
 mirador 已升级至 v0.3.0（`6fa92ec`，几何区域提议契约经上游 DEC-018 阶段 1
-转正），审计记录见[依赖升级审计](../supply-chain/dependency-upgrade-audit.md)。
+转正），审计记录见[依赖升级审计](../supply-chain/dependency-upgrade-audit.md)；
+`M3-01`（视觉集成契约 DEC-016）、`M3-02`（集成层适配器）、`M3-03`（Visual
+Observation 与解析闭环）、`M3-04`（Visual Cache 与几何提议）、`M3-05`
+（runtime 接线与端到端闭环）与 `M3-06`（DEC-006 壳选型 PoC 与冻结：CEF 冻结，
+取证见[壳 PoC 基线报告](../benchmarks/shell-poc-baselines.md)）已完成。
 UI 并行轨道
 [M1.5](m1.5-ui-parallel-track.md) 已完成（wire schema 事实源
 [DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)、事件订阅、
@@ -118,7 +122,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | [M1](m1-mira-host.md) | Mira Host、Runtime Service + IPC、Filesystem/Process Provider、CLI | `release-alpha` | Completed | - |
 | [M1.5](m1.5-ui-parallel-track.md) | UI 并行轨道：wire schema 事实源、IPC 事件订阅、dev bridge、前端（浏览器形态，按 DEC-013 harness 优先统一壳组织：会话/工作流/设置 + 统一壳骨架） | -（随开发线交付，产品化 UI 属 M5） | Completed | M1 |
 | [M2](m2-desktop-environment.md) | Desktop Environment 核心 Provider + Linux Backend、Semantic Snapshot、Element Reference | `release-beta` | Completed | M1 |
-| [M3](m3-mirador-integration.md) | Mirador 集成：OCR / 检测 / 几何 / Visual Cache、Visual Reference | `release-gamma` | Planned | M2 |
+| [M3](m3-mirador-integration.md) | Mirador 集成：OCR / 检测 / 几何 / Visual Cache、Visual Reference | `release-gamma` | In Progress | M2 |
 | M4 | Windows Backend（UIA / Win32 / Capture / Input） | `release-delta` | Planned | M2 |
 | M5 | Desktop Product：Workspace、Workflow UI、Execution Trace、Overlay、权限 | `release-epsilon` | Planned | M3、M4 |
 
@@ -133,11 +137,11 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | DEC-002 | Mira TLS 通道适配器 | 已定案（[DEC-002](../decisions/DEC-002-build-test-baseline.md) 变更记录）：`MIRA_WITH_MBEDTLS=OFF` 于 M2 复核冻结（运行面无模型网关/TLS 传输，mbedtls pinned 子模块在位可随时重开）；接入真实模型网关且通道要求 Mbed TLS 时按记录触发条件重开 | Mirage 维护者 | M2（已冻结） |
 | DEC-004 | Mira Host 状态集 | 已定案（[DEC-004](../decisions/DEC-004-mira-host-status-set.md)）：五态 `Stopped/Starting/Running/Stopping/Failed`，M1 冻结并写入设计文档第 11.1 节 | Mirage 维护者 | M1（已冻结） |
 | DEC-005 | DesktopObservation 契约 | 已定案（[DEC-005](../decisions/DEC-005-desktop-observation-contract.md)）：schema 1.0 字段集、结构化 SemanticSnapshot（预算 + 确定性渲染）、多提示 ElementTarget 与解析顺序契约（reference → accessibility → Mirador 视觉（M3）→ VLM 显式），M2-01 冻结 | Mirage 维护者 | M2（已冻结） |
-| DEC-006 | UI 技术路线与分发打包 | 已定案（[DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md)）：Web 前端 + 嵌入式渲染壳（暂定 CEF）独立进程；`.deb` / Windows `exe` 安装包。壳选型与更新通道为暂定默认值，M3 冻结 | Mirage 维护者 | M3 |
+| DEC-006 | UI 技术路线与分发打包 | 已定案并冻结（[DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md) 2026-09-21 修订节）：Web 前端 + 嵌入式渲染壳冻结为 CEF（PoC 取证见[壳 PoC 基线报告](../benchmarks/shell-poc-baselines.md)，Electron / Tauri 否决理由封存）；`.deb` / Windows `exe` 安装包；更新通道冻结为 Linux GPG 签名 apt 仓库唯一路径、Windows 双层签名应用内更新器（全量优先，差分 M5 评估） | Mirage 维护者 | M3（已冻结） |
 | DEC-007 | Local IPC 机制 | 已定案（[DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md)）：Unix domain socket（Linux）/ 命名管道（Windows，M4），长度前缀 + JSON 帧格式，协议 v1 请求面，`apps/service` 进程形态；传输与帧格式自 M1-04 冻结 | Mirage 维护者 | M1（已冻结） |
 | DEC-012 | IPC 事件订阅与 wire schema 事实源 | 已接受（2026-09-16 评审通过，[DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)）：协议 v1 附加事件帧 + 订阅 op（版本号不递增），[mirage-ipc-protocol-v1.md](../design/mirage-ipc-protocol-v1.md) 为契约事实源（M1.5-01 落地，golden vectors 双端门禁），事件分发经 `executor::comm` 承载 | Mirage 维护者 | M1.5 |
 | DEC-013 | 前端信息架构与设计规范 | 已定案（[DEC-013](../decisions/DEC-013-frontend-ia-harness-first.md)）：harness 优先统一壳（会话默认落地、workflow 一级入口、设置八类），workflow 编辑器为对齐 mira Workflow IR v1 的结构化步骤序列；规范见 [《Mirage 前端设计规范与信息架构》](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)，M1.5 落地骨架、M5 验收基线 | Mirage 维护者 | M1.5 |
-| DEC-016 | Mirador 视觉集成契约 | 待建（M3-01 产出）：Visual Reference 生命周期与 `visual_snapshot_ref` 组件按 schema 1.x 加法演进、mirador 结果到 Mirage 感知面的映射边界、视觉会话经 blocking worker 串行承载（EXEC-04，取消经 mirador `ExecutionContext` 可解除）、fake / identity backend 为默认验证形态（真实模型后端属集成方） | Mirage 维护者 | M3 |
+| DEC-016 | Mirador 视觉集成契约 | 已定案（[DEC-016](../decisions/DEC-016-mirador-visual-integration-contract.md)，M3-01）：Visual Reference `@vN` 生命周期对齐 `@eN` 整体替换、`visual_snapshot(_ref)` schema 1.0 → 1.1 加法演进、mirador 结果到感知面的映射边界、一图像源一 session 一 blocking worker 串行承载（EXEC-04）、fake/identity backend 默认验证形态（真实模型后端属集成方） | Mirage 维护者 | M3（已冻结） |
 
 ## 跨里程碑通用完成定义
 
