@@ -42,3 +42,9 @@ export * from './interaction/index.js';
 export { WorldCoordinator } from './coordinator.js';
 export { useWorldPanel } from './hooks.js';
 export type { UseWorldPanelOptions, UseWorldPanelResult } from './hooks.js';
+export {
+    ManualWorldClock,
+    WorldReplayEngine,
+    replayEventsToState,
+} from './replay.js';
+export type { WorldClock, EventLogReader } from './replay.js';
