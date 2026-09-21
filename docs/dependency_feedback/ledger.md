@@ -15,4 +15,4 @@ executor 反馈流程消化；Mirage 不直接向 executor 反馈，也不在台
 
 | 编号 | 日期 | 主题 | 分级 | 状态 | 关联实现/测试 |
 | --- | --- | --- | --- | --- | --- |
-| （暂无条目） | | | | | |
+| `MIRA-20260921-001` | 2026-09-21 | Mira Runtime 未暴露 multi-agent / Organization 语义（无 Agent 集合、无 Team、无 Activity 事件） | Major | Open | [M4：Organization Layer 与 World Projection](../plans/m4-world-projection.md)（Organization 模拟器与 `OrganizationEventSource` 接口在 M4 落地） |

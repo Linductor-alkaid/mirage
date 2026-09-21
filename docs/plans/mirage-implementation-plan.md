@@ -44,7 +44,10 @@ mirador 已升级至 v0.3.0（`6fa92ec`，几何区域提议契约经上游 DEC-
 UI 并行轨道
 [M1.5](m1.5-ui-parallel-track.md) 已完成（wire schema 事实源
 [DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)、事件订阅、
-dev bridge、harness 前端壳）。
+dev bridge、harness 前端壳）。新增 World Projection 自主开发轨道在
+[M4-World](m4-world-projection.md) 中推进，登记依赖反馈
+`MIRA-20260921-001`（Mira 暂无 multi-agent Runtime 语义，Organization Layer 在前端
+以确定性 seed 模拟器先行）。
 
 ## 交付边界
 
@@ -121,6 +124,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | [M3](m3-mirador-integration.md) | Mirador 集成：OCR / 检测 / 几何 / Visual Cache、Visual Reference | `release-gamma` | Planned | M2 |
 | M4 | Windows Backend（UIA / Win32 / Capture / Input） | `release-delta` | Planned | M2 |
 | M5 | Desktop Product：Workspace、Workflow UI、Execution Trace、Overlay、权限 | `release-epsilon` | Planned | M3、M4 |
+| [M4-World](m4-world-projection.md) | Organization Layer + Three.js World Projection：自治软件组织的 3D 可观察性界面（OrganizationEventSource / World Model / Three.js Renderer，事件订阅在前端方案；与上面 M4 Windows Backend 并行） | 随开发线交付 | Planned | M3 |
 
 拆分与合并顺序：先契约后实现（Desktop Environment 接口先于任何 Backend）、先骨架后
 功能（每个 Backend 先以最小动作打通 Observation -> Action -> Observation 闭环）、
