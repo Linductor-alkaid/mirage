@@ -170,12 +170,22 @@ Mirage 前端的产品叙事：**首先是 agent harness，其次是 workflow**�
 
 - 界面字体：`system-ui, -apple-system, "Segoe UI", "PingFang SC",
   "Microsoft YaHei", "Noto Sans CJK SC", sans-serif`；等宽：
-  `"JetBrains Mono", "SFMono-Regular", Consolas, "Noto Sans Mono", monospace`。
+  `"JetBrains Mono", "SFMono-Regular", Consolas, "Noto Sans Mono",
+  "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", monospace`。等宽栈必须在
+  通用 `monospace` 兜底前显式插入 CJK 无衬线：Windows 等宽西文字体（Consolas、
+  Cascadia Mono、Chivo Mono）均无中文字形，缺失回退时中文落入宋体（2026-09-21
+  修订，依据 [ZCode 源码级调研](../research/2026-09-21-zcode-harness-source-study.md)
+  §3.4；实现侧 `--mir-font-mono` 同步修正属前端工作项）。
 - 基准字号 14px；正文行高 1.6，界面行高 1.5，代码 1.45。字阶：12 / 13 / 14 / 16 /
   18 / 20 / 24。
-- 数字、ID、路径、代码、token 用等宽字体。
+- 数字、ID、路径、代码、token 用等宽字体；含中文的散文文本不落入等宽上下文。
+- 中文正文按短语断行而非单字：消息正文容器启用 `word-break: auto-phrase`
+  （CEF 即 Chromium，支持该值；ZCode 调研 §3.4）。
+- 全局字号缩放（90% / 100% / 110%）经单一基准变量派生实现（其余字阶以 `calc()`
+  相对该变量推导），禁止改 `html` 根字号——避免连动缩放间距、图标与圆角几何
+  （ZCode 调研 §3.2）。
 - 密度两档（外观设置）：舒适（默认，控件高 32px，区块间距 16px）/ 紧凑（28px /
-  12px）；全局字号缩放 90% / 100% / 110%。
+  12px）。
 
 ### 2.4 动效与无障碍
 
@@ -427,3 +437,8 @@ Mirage Shell（统一应用壳）
   库拖入 + 属性/参数 Tab；调研归档 `docs/research/rpa-editor-design-reference.md`）；
   会话页确认为纯 agent harness，工作流以 WorkflowCallCard 作为 agent 可调用的
   工具呈现；§4 增补 `workflow.*` IPC 面清单与 `WorkflowBackend` 接口缝。
+- 2026-09-21：§2.3 修订——等宽字体栈显式 CJK 回退、中文正文短语断行、字号缩放
+  经单一基准变量派生（禁改根字号）；依据
+  [ZCode 源码级调研](../research/2026-09-21-zcode-harness-source-study.md)，
+  其 §9 固定清单中的其余输入（平台缝、消息事件面语义、壳进程工程、观察契约
+  纪律、治理工具化）登记为对应决策/工作项的演进输入，不在本次规范变更范围。
