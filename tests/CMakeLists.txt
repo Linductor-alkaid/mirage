@@ -143,6 +143,47 @@ if(ATSPI_TEST_FOUND AND X11_FOUND)
         TIMEOUT 120
         ENVIRONMENT "TSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tests/support/tsan-glib.supp"
     )
+
+    # M3-05 visual observation end-to-end (DEC-016, M3 exit condition): the
+    # binding's wired visual surface over the real X11 capture — refresh
+    # (fake backends on a real Executor blocking worker) -> ScreenFrame
+    #Descriptor with a store-recorded payload -> perception evidence in
+    # global desktop coordinates -> @vN click injection -> re-observe with a
+    # fresh generation. Same precondition as observation_e2e_test.
+    add_executable(visual_observation_e2e_test integration/visual_observation_e2e_test.cpp)
+    target_compile_features(visual_observation_e2e_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(visual_observation_e2e_test)
+    target_link_libraries(visual_observation_e2e_test
+        PRIVATE
+            Mirage::mira_host
+            Mirage::integration_mirador
+            Mirage::integration_mira
+            Mirage::platform
+            Mirage::desktop
+            PkgConfig::ATSPI_TEST
+            ${X11_X11_LIB}
+            # The test asserts the fake backends' accepted-format identity
+            # (pinned mirador::PixelFormat); mirador is a PRIVATE dependency
+            # of mirage_integration_mirador, so the pinned include dirs must
+            # be linked explicitly (same shape as fake_visual_backend_test).
+            mirador::core
+    )
+    # The pipeline drives the pinned Executor directly (the per-source
+    # blocking worker); headers are consumed as SYSTEM headers and the
+    # library is linked by file path (same consumption form as the visual
+    # unit tests).
+    target_include_directories(visual_observation_e2e_test SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include"
+    )
+    target_link_libraries(visual_observation_e2e_test PRIVATE
+        $<TARGET_FILE:executor::executor>
+    )
+    add_test(NAME visual_observation_e2e_test COMMAND visual_observation_e2e_test)
+    set_tests_properties(visual_observation_e2e_test PROPERTIES
+        LABELS "integration"
+        TIMEOUT 120
+        ENVIRONMENT "TSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tests/support/tsan-glib.supp"
+    )
 endif()
 
 # M2-05 Application / Notification frontends (DEC-015): the application
@@ -202,9 +243,26 @@ mirage_enable_warnings(mira_binding_test)
 target_link_libraries(mira_binding_test
     PRIVATE
         Mirage::mira_host
+        Mirage::integration_mirador
         Mirage::integration_mira
         Mirage::platform
         Mirage::desktop
+        # The wired-binding scenarios configure the fake backends' accepted
+        # format (pinned mirador::PixelFormat); mirador is a PRIVATE
+        # dependency of mirage_integration_mirador, so the pinned include
+        # dirs must be linked explicitly (same shape as
+        # fake_visual_backend_test).
+        mirador::core
+)
+# The M3-05 wired-binding scenarios run the concrete VisualObservationPipeline
+# over the fake environment's screen provider; the pipeline drives the pinned
+# Executor directly (the per-source blocking worker), consumed as SYSTEM
+# headers and linked by file path (same form as the visual unit tests).
+target_include_directories(mira_binding_test SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include"
+)
+target_link_libraries(mira_binding_test PRIVATE
+    $<TARGET_FILE:executor::executor>
 )
 add_test(NAME mira_binding_test COMMAND mira_binding_test)
 set_tests_properties(mira_binding_test PROPERTIES

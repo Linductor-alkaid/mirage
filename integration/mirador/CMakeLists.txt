@@ -5,6 +5,7 @@ add_library(mirage_integration_mirador STATIC
     src/visual_execution_context.cpp
     src/visual_frame.cpp
     src/visual_observation_mapper.cpp
+    src/visual_observation_pipeline.cpp
     src/visual_session_host.cpp
     src/visual_template_index.cpp
 )
@@ -24,9 +25,16 @@ mirage_enable_warnings(mirage_integration_mirador)
 # (frame / capability caches, visual index); M3-04 adds mirador::geometry for
 # the line-detection SPI and the closed-region proposals. PRIVATE: pinned
 # headers must not leak through Mirage's public interface.
+# M3-05 wires the pipeline onto the binding-facing visual interface. The
+# concrete VisualObservationPipeline implements the pinned-free
+# EnvironmentVisualPipeline that lives with the mira binding, so the
+# interface target propagates (the binding itself stays unaware of the
+# mirador side: composition roots link both and pass the pipeline through
+# the abstract pointer).
 target_link_libraries(mirage_integration_mirador
     PUBLIC
         Mirage::desktop
+        Mirage::integration_mira
     PRIVATE
         mirador::fusion
         mirador::geometry

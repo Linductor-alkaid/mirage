@@ -67,6 +67,10 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
     /// successful pointer_move() calls.
     mirage::desktop::PointerState pointer;
     FakeFailures failures;
+    /// Number of capture_display() calls that got past the cancellation
+    /// check; lets tests prove that a request triggered (or did not
+    /// trigger) a visual refresh.
+    std::size_t capture_calls = 0;
 
     // ---- accessibility action test surface ----
 
@@ -627,6 +631,7 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
             if (cancel.cancelled()) {
                 return cancelled_capture();
             }
+            ++env_.capture_calls;
             for (const auto &display : env_.displays) {
                 if (display.id == display_id) {
                     return make_frame(display.geometry, limits);

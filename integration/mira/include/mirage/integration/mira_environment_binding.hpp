@@ -5,8 +5,10 @@
 
 #include <mirage/desktop/desktop_environment.hpp>
 
+#include <mira/artifact_store.hpp>
 #include <mira/environment.hpp>
 
+#include <mirage/integration/environment_visual_pipeline.hpp>
 #include <mirage/integration/mira_adapter.hpp>
 
 namespace mirage::integration {
@@ -18,21 +20,25 @@ namespace mirage::integration {
 /// runtime cross-cast.
 ///
 /// The pinned surface is adapted honestly to what the bound desktop
-/// environment can deliver (M2-06):
+/// environment can deliver (M2-06, extended by M3-05):
 ///
-/// - capabilities() is derived from the environment's provider accessors:
+/// - capabilities() is derived from the environment's provider accessors and
+///   the optional visual wiring:
 ///   foreground_app follows window(), ui_tree needs window() and
 ///   accessibility() (the semantic snapshot is taken against the focused
-///   window). screen_capture stays false until the M3 Mirador integration
-///   gives the binding an artifact store and published frame payloads
-///   (pinned ScreenFrameDescriptor contract); discrete_input stays false
-///   because the pinned canonical InputSequence is not mapped onto the
-///   desktop input surface — desktop actions run through the harness-side
-///   provider surface under the permission gate (DEC-008, RULE-05).
-///   atomic_observation / max_component_skew stay unset: components are
-///   captured sequentially, no skew bound is claimable. epoch_invalidation
-///   stays false: M2 has no topology-change detection, every observe() is a
-///   fresh on-demand capture.
+///   window). screen_capture and one perception source are declared only
+///   when a started EnvironmentVisualPipeline and an artifact store are
+///   wired and the environment exposes a screen provider: they stand for
+///   the capture -> artifact publication -> session analysis -> registry
+///   publication cycle (pinned ScreenFrameDescriptor contract, DEC-016);
+///   any missing piece keeps the visual surface undeclared. discrete_input
+///   stays false because the pinned canonical InputSequence is not mapped
+///   onto the desktop input surface — desktop actions run through the
+///   harness-side provider surface under the permission gate (DEC-008,
+///   RULE-05). atomic_observation / max_component_skew stay unset:
+///   components are captured sequentially, no skew bound is claimable.
+///   epoch_invalidation stays false: there is no topology-change detection,
+///   every observe() is a fresh on-demand capture.
 /// - observe() maps required structure/foreground onto the desktop-layer
 ///   ObservationAssembler (design doc section 6): structure delivers the
 ///   AccessibilityProvider's SemanticSnapshot projected onto the pinned
@@ -40,7 +46,14 @@ namespace mirage::integration {
 ///   delivers the focused window's application name and title. A required
 ///   component the environment cannot deliver fails the whole request (fail
 ///   closed); optional components are best-effort and their absence is
-///   recorded in the observation quality, never silent.
+///   recorded in the observation quality, never silent. When the request
+///   asks for the screen component the binding publishes the captured frame
+///   into the artifact store and delivers a validator-clean
+///   ScreenFrameDescriptor; when it asks for perception evidence the
+///   binding refreshes the visual pipeline first (capture -> analysis ->
+///   registry publication) and projects the published regions onto
+///   perception evidence in global desktop coordinates (DEC-016 decision
+///   3). Both honor the required/optional policy of the structure path.
 /// - execute() refuses input dispatch before any side effect (Rejected
 ///   receipt).
 /// - interrupt() is an idempotent best-effort release (the input surface is
@@ -55,11 +68,27 @@ namespace mirage::integration {
 /// hosted-environment tool surface, this adapter migrates onto it.
 class MiraEnvironmentBinding final : public DesktopEnvironmentBinding, public mira::IEnvironment {
   public:
+    /// Optional visual wiring (plan item `M3-05`). Both pointers are
+    /// non-owning and must outlive the binding; a null pipeline or a null
+    /// artifact store keeps the visual surface undeclared (capabilities stay
+    /// false and screen/perception requests fail closed at the capability
+    /// gate). The pipeline and the store are deliberately separate: the
+    /// pinned screen component cannot be delivered without published frame
+    /// payloads, so a pipeline without a store must not claim screen_capture.
+    struct VisualWiring {
+        EnvironmentVisualPipeline *pipeline = nullptr;
+        mira::IArtifactStore *artifacts = nullptr;
+    };
+
     /// Takes ownership of one environment reference. Throws
     /// std::invalid_argument when `environment` is null: a binding without an
     /// environment can never host.
     explicit MiraEnvironmentBinding(
         std::shared_ptr<mirage::desktop::DesktopEnvironment> environment);
+
+    /// Same, with the M3-05 visual wiring (pipeline + artifact store).
+    MiraEnvironmentBinding(std::shared_ptr<mirage::desktop::DesktopEnvironment> environment,
+                           const VisualWiring &visual_wiring);
 
     const char *binding_name() const override;
 
@@ -76,6 +105,7 @@ class MiraEnvironmentBinding final : public DesktopEnvironmentBinding, public mi
 
   private:
     std::shared_ptr<mirage::desktop::DesktopEnvironment> environment_;
+    VisualWiring visual_wiring_;
     mira::ClockDomainId clock_domain_;
     std::string name_;
 };

@@ -149,6 +149,27 @@ M3 将 pinned mirador（v0.3.0-2）的视觉能力接入 Desktop Observation：O
    平行监控设施。
 
 
+## 修订（`M3-05` 落线，2026-09-21）
+
+决策"影响与风险"中预告的能力如实上报按以下形态定案，主体决策不变：
+
+1. **pinned 观察面投影**：绑定侧新增 pinned-free `EnvironmentVisualPipeline`
+   接口（刷新 = 采集 + 按需分析 + 注册表发布），具体承载是
+   `integration/mirador::VisualObservationPipeline`；绑定在 observe 请求
+   screen / perception 时驱动它，未请求时视觉面保持暗（决策 2 的零行为
+   变化语义）。`screen_capture` 与一个 perception 源仅在管线已启动、artifact
+   store 已配置且 ScreenProvider 在位时如实声明——screen 组件交付
+   `ScreenFrameDescriptor`（Bgra8 采集帧原样发布进 store，media type
+   `image/x-bgra8888`、精确字节预算，payload 元数据取 commit 记录、经 pinned
+   validator 复验）；perception 证据按决策 2 的来源形态映射为
+   `ocr.text` / `template.icon` / `detector.box` / `geometry.region`，bounds
+   保持决策 3 的全局桌面坐标，`@vN` 句柄仍只在 Mirage 感知面。required/
+   optional fail closed 语义沿用 M2-06 先例；observation 只投影本次刷新刚
+   发布的代际，陈旧代际不作为当前观察的视觉状态。
+2. **授权与预算**：帧载荷发布走 `ArtifactWriteSpec` 精确字节预算
+   （`max_bytes` = 帧字节数），超预算整体失败不截断（RULE-07）；像素除
+   store 载荷外不出视觉会话（决策 3 隐私纪律不变）。
+
 ## 备选方案
 
 - **`visual_snapshot_ref` 内联完整视觉结果文本**：否决。单字符串承载结构化
