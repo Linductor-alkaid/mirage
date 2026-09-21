@@ -304,7 +304,15 @@ std::optional<WindowGeometry> monitor_rect_by_id(const std::string &display_id) 
 /// injected key matches the active layout (the chord's explicit modifiers
 /// stay the source of truth for shift state).
 std::optional<WORD> base_key_vk(const std::string &base) {
-    static const std::array<std::pair<std::string_view, WORD>, 15> kNamedKeys = {{
+    // Plain aggregates instead of std::pair: VK_* macros are plain int, and
+    // a pair's forwarding constructor would narrow int -> WORD inside a
+    // template (MSVC C4242), while aggregate initialization performs the
+    // conversion at the constant itself.
+    struct NamedKey {
+        std::string_view name;
+        WORD vk;
+    };
+    static constexpr std::array<NamedKey, 15> kNamedKeys{{
         {"enter", VK_RETURN},
         {"tab", VK_TAB},
         {"escape", VK_ESCAPE},
