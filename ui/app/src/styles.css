@@ -2495,6 +2495,20 @@
     height: 100%;
     display: block;
 }
+.world-page__loading,
+.world-page__suspense {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-family: var(--mir-font-mono);
+    font-size: var(--mir-text-sm);
+    color: var(--mir-fg-muted);
+    padding: var(--mir-space-2) var(--mir-space-4);
+    border: 1px solid var(--mir-border);
+    border-radius: var(--mir-radius-md);
+    background: var(--mir-surface-raised);
+}
 .world-page__footer {
     padding: var(--mir-space-1) var(--mir-space-4);
     border-top: 1px solid var(--mir-border);

@@ -3,13 +3,15 @@
 
 import { useEffect, useState } from 'react';
 
+import { Suspense } from 'react';
+
 import { WallDisplay } from './shell/WallDisplay.js';
 import { ActivityBar, StatusBar } from './shell/Chrome.js';
 import { ApprovalsCenter, CommandPalette, ToastLayer } from './shell/Overlays.js';
 import { ChatPage } from './views/chat/ChatPage.js';
 import { ResourcesPage, SettingsPage } from './views/SettingsAndResources.js';
 import { WorkflowsPage, WorkflowRunPage } from './views/WorkflowsPages.js';
-import { WorldPage } from './views/world/WorldPage.js';
+import { WorldPageLazyComponent } from './views/world/WorldPage.js';
 import { useHarness } from './hooks.js';
 
 export function App(): React.ReactElement {
@@ -59,7 +61,11 @@ export function App(): React.ReactElement {
                 {route.view === 'workflow-run' && (
                     <WorkflowRunPage workflowId={route.workflowId} runId={route.runId} />
                 )}
-                {route.view === 'world' && <WorldPage />}
+                {route.view === 'world' && (
+                    <Suspense fallback={<div className="world-page__suspense">加载组织世界…</div>}>
+                        <WorldPageLazyComponent />
+                    </Suspense>
+                )}
                 {route.view === 'resources' && <ResourcesPage />}
                 {route.view === 'settings' && <SettingsPage category={route.category} />}
             </main>

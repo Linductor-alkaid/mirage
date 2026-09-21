@@ -22,6 +22,7 @@ export interface UseWorldPanelResult {
     readonly agentCount: number;
     readonly logicalTime: number;
     readonly fps: number;
+    readonly loading: boolean;
 }
 
 export function useWorldPanel(opts: UseWorldPanelOptions): UseWorldPanelResult {
@@ -29,6 +30,7 @@ export function useWorldPanel(opts: UseWorldPanelOptions): UseWorldPanelResult {
     const [agentCount, setAgentCount] = useState(0);
     const [logicalTime, setLogicalTime] = useState(0);
     const [fps, setFps] = useState(0);
+    const [loading, setLoading] = useState(true);
 
     // 在 useEffect 中持有可释放对象；refs 避免 React 重渲染导致 dispose 重入。
     const disposeBagRef = useRef<{
@@ -68,6 +70,7 @@ export function useWorldPanel(opts: UseWorldPanelOptions): UseWorldPanelResult {
         }, 1000);
         simulator.start();
         disposeBagRef.current = { coordinator: coord, renderer, store, simulator };
+        setLoading(false);
 
         return () => {
             window.clearInterval(fpsTimer);
@@ -83,10 +86,11 @@ export function useWorldPanel(opts: UseWorldPanelOptions): UseWorldPanelResult {
             setAgentCount(0);
             setLogicalTime(0);
             setFps(0);
+            setLoading(true);
         };
         // canvasRef 是稳定 ref，不入依赖。
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    return { coordinator, agentCount, logicalTime, fps };
+    return { coordinator, agentCount, logicalTime, fps, loading };
 }
