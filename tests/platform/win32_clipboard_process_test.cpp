@@ -173,6 +173,20 @@ void process_start_matrix_probe() {
     SECURITY_ATTRIBUTES inherit{};
     inherit.nLength = sizeof(inherit);
     inherit.bInheritHandle = TRUE;
+    auto open_nul = [&inherit]() {
+        return ::CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &inherit,
+                             OPEN_EXISTING, 0, nullptr);
+    };
+    auto close_pipe = [](HANDLE &r, HANDLE &w) {
+        if (r != nullptr) {
+            ::CloseHandle(r);
+        }
+        if (w != nullptr) {
+            ::CloseHandle(w);
+        }
+        r = nullptr;
+        w = nullptr;
+    };
 
     // v1: pipes + STARTF (no job).
     {
@@ -283,6 +297,79 @@ void process_start_matrix_probe() {
                          ::GetLastError());
             std::fflush(stderr);
         }
+    }
+    // v5: provider start verbatim — job with KILL_ON_JOB_CLOSE, SUSPENDED
+    // start, pipes + STARTF + NUL stdin — then the provider's wait shape:
+    // a 25ms-sliced polling loop with a drain pass per slice.
+    {
+        HANDLE r = nullptr, w = nullptr;
+        if (::CreatePipe(&r, &w, &inherit, 0) != 0) {
+            HANDLE nul = open_nul();
+            HANDLE job = ::CreateJobObjectW(nullptr, nullptr);
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            ::SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits,
+                                      sizeof(limits));
+            STARTUPINFOW startup{};
+            startup.cb = sizeof(startup);
+            startup.dwFlags = STARTF_USESTDHANDLES;
+            startup.hStdInput = nul;
+            startup.hStdOutput = w;
+            startup.hStdError = w;
+            PROCESS_INFORMATION info{};
+            std::wstring line = L"cmd.exe /c exit 0";
+            if (::CreateProcessW(nullptr, line.data(), nullptr, nullptr, TRUE,
+                                 CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr, nullptr, &startup,
+                                 &info) != 0) {
+                const bool assigned = ::AssignProcessToJobObject(job, info.hProcess) != 0;
+                ::ResumeThread(info.hThread);
+                ::CloseHandle(w);
+                w = nullptr;
+                bool exited = false;
+                int slices = 0;
+                while (!exited && slices < 200) {
+                    if (::WaitForSingleObject(info.hProcess, 25) == WAIT_OBJECT_0) {
+                        exited = true;
+                    }
+                    DWORD avail = 0;
+                    ::PeekNamedPipe(r, nullptr, 0, nullptr, &avail, nullptr);
+                    ++slices;
+                }
+                std::fprintf(stderr,
+                             "[win32-cbp-test] matrix v5 kill-on-close+loop: assigned=%d "
+                             "exited=%d slices=%d\n",
+                             static_cast<int>(assigned), static_cast<int>(exited), slices);
+                std::fflush(stderr);
+            }
+            if (job != nullptr)
+                ::CloseHandle(job);
+            if (nul != nullptr)
+                ::CloseHandle(nul);
+            close_pipe(r, w);
+        }
+    }
+    // v6: same KILL_ON_JOB_CLOSE job but a single 3s wait — separates the
+    // limit flag from the sliced loop.
+    {
+        HANDLE job = ::CreateJobObjectW(nullptr, nullptr);
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        ::SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits));
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        PROCESS_INFORMATION info{};
+        std::wstring line = L"cmd.exe /c exit 0";
+        if (::CreateProcessW(nullptr, line.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
+                             nullptr, nullptr, &startup, &info) != 0) {
+            ::AssignProcessToJobObject(job, info.hProcess);
+            wait_and_report("v6 kill-on-close+single-wait", info);
+        } else {
+            std::fprintf(stderr, "[win32-cbp-test] matrix v6: CreateProcess failed %lu\n",
+                         ::GetLastError());
+            std::fflush(stderr);
+        }
+        if (job != nullptr)
+            ::CloseHandle(job);
     }
 }
 
