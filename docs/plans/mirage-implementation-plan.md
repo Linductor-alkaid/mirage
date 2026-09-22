@@ -61,7 +61,9 @@ ProcessProvider 的 CreateProcess 有界承载）、`M4-04`（ApplicationProvide
 （NotificationProvider：承载决策
 [DEC-018](../decisions/DEC-018-windows-notification-carrier.md)——
 `Shell_NotifyIcon` 气球/横幅 + open() 探测 fail closed 降级，toast 留 M5
-重议）已完成；M4 里程碑进行中。
+重议）与 `M4-06`（产品进程 Windows 化：命名管道 IPC、Windows 持久化、
+service / CLI 进程形态、全树 MSVC 构建）已完成；M4 里程碑进行中
+（`M4-07` 端到端闭环与退出复核待执行）。
 
 ## 交付边界
 
