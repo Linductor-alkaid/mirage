@@ -113,6 +113,27 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         LABELS "integration;platform"
         TIMEOUT 120
     )
+
+    # M4-02 UIA accessibility frontend: exercised against the session's real
+    # interactive desktop through the fixture windows this test creates (the
+    # same DEC-017 decision 9 discipline as win32_backend_test). UIA itself
+    # is a Windows system component, so no SDK library beyond the ones the
+    # platform target already carries is needed here.
+    add_executable(uia_backend_test platform/uia_backend_test.cpp)
+    target_compile_features(uia_backend_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(uia_backend_test)
+    target_link_libraries(uia_backend_test
+        PRIVATE
+            Mirage::platform
+            Mirage::desktop
+            user32
+            gdi32
+    )
+    add_test(NAME uia_backend_test COMMAND uia_backend_test)
+    set_tests_properties(uia_backend_test PROPERTIES
+        LABELS "integration;platform"
+        TIMEOUT 120
+    )
 endif()
 
 # M2-03 AT-SPI2 accessibility: private D-Bus session plus a wire-exact GDBus
