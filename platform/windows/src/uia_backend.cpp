@@ -392,7 +392,11 @@ struct UiaBackend::Impl {
             if (nodes.size() >= budget) {
                 return std::nullopt; // remaining stack entries release themselves
             }
-            SemanticNode node = describe(current.element.get());
+            // The raw view stays valid across the ownership move below:
+            // `elements` holds the reference the rest of the iteration
+            // uses.
+            IUIAutomationElement *element = current.element.get();
+            SemanticNode node = describe(element);
             node.parent = current.parent;
             node.ref = "@e" + std::to_string(nodes.size() + 1);
             nodes.push_back(std::move(node));
@@ -402,7 +406,7 @@ struct UiaBackend::Impl {
             // snapshots).
             std::vector<ComPtr<IUIAutomationElement>> kids;
             ComPtr<IUIAutomationElement> child;
-            HRESULT hr = walker->GetFirstChildElement(current.element.get(), child.out());
+            HRESULT hr = walker->GetFirstChildElement(element, child.out());
             while (SUCCEEDED(hr) && child) {
                 kids.push_back(std::move(child));
                 hr = walker->GetNextSiblingElement(kids.back().get(), child.out());
