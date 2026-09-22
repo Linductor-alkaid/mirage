@@ -550,6 +550,9 @@ set_tests_properties(persistence_test PROPERTIES
 )
 endif()
 
+# POSIX-only: the ipc_io support header (poll-driven frame helpers) and the
+# Linux desktop environment fixtures couple it to the Unix transport.
+if(UNIX)
 add_executable(recovery_service_test runtime/recovery_service_test.cpp)
 target_compile_features(recovery_service_test PUBLIC cxx_std_20)
 mirage_enable_warnings(recovery_service_test)
@@ -567,7 +570,12 @@ set_tests_properties(recovery_service_test PROPERTIES
     LABELS "integration"
     TIMEOUT 300
 )
+endif()
 
+# POSIX-only: the ipc_io support header couples it to the Unix transport
+# (poll.h); the permission matrix itself is platform-neutral and covered by
+# permission_test on every platform.
+if(UNIX)
 add_executable(task_permission_test runtime/task_permission_test.cpp)
 target_compile_features(task_permission_test PUBLIC cxx_std_20)
 mirage_enable_warnings(task_permission_test)
@@ -584,6 +592,7 @@ set_tests_properties(task_permission_test PROPERTIES
     LABELS "integration"
     TIMEOUT 300
 )
+endif()
 
 # POSIX-only: signal-driven cancellation probes.
 # 
