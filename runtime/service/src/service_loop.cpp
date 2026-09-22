@@ -103,9 +103,17 @@ void ServiceLoop::wakeup() noexcept {
 #endif
 }
 
-#ifndef _WIN32
-void ServiceLoop::register_shutdown_fd(int fd) { shutdown_fd_ = fd; }
+void ServiceLoop::register_shutdown_fd(int fd) {
+#ifdef _WIN32
+    // The named-pipe transport has no signal self-pipe: Windows shutdown
+    // reaches the loop through stop_serving() (the console ctrl handler
+    // calls RuntimeService::request_shutdown()), so the descriptor is
+    // deliberately not consumed here.
+    (void)fd;
+#else
+    shutdown_fd_ = fd;
 #endif
+}
 
 void ServiceLoop::stop_serving() {
     stop_serving_.store(true, std::memory_order_release);

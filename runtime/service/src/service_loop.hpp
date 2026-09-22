@@ -75,13 +75,12 @@ class ServiceLoop final : public executor::IBlockingIoWorker {
     /// events already written into the connection buffer still flush.
     void post_detach_events(std::uint64_t connection_id);
 
-#ifndef _WIN32
     /// Extra poll descriptor whose readability stops the loop (the signal
-    /// self-pipe). Not owned. Must be called before run(). POSIX
-    /// transports only: the Windows service stops through
-    /// RuntimeService::request_shutdown().
+    /// self-pipe). Not owned. Must be called before run(). Consumed by the
+    /// POSIX transport only: on Windows the descriptor is ignored —
+    /// shutdown goes through RuntimeService::request_shutdown() (the
+    /// console ctrl handler), so this call is a no-op there.
     void register_shutdown_fd(int fd);
-#endif
 
     /// Requests the loop to stop serving and exit run() after a final
     /// best-effort response flush; thread-safe (IPC shutdown path).
