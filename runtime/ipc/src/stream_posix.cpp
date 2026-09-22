@@ -37,7 +37,8 @@ IoStatus status_from_errno(int error, bool writing) {
 
 IpcStream::~IpcStream() { close(); }
 
-IpcStream::IpcStream(IpcStream &&other) noexcept : native_(std::exchange(other.native_, kInvalidTransport)) {}
+IpcStream::IpcStream(IpcStream &&other) noexcept
+    : native_(std::exchange(other.native_, kInvalidTransport)) {}
 
 IpcStream &IpcStream::operator=(IpcStream &&other) noexcept {
     if (this != &other) {

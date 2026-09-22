@@ -34,16 +34,14 @@ std::optional<std::wstring> wide_from_utf8(const std::string &text) {
     if (text.empty()) {
         return std::wstring{};
     }
-    const int size =
-        ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
-                              static_cast<int>(text.size()), nullptr, 0);
+    const int size = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+                                           static_cast<int>(text.size()), nullptr, 0);
     if (size <= 0) {
         return std::nullopt;
     }
     std::wstring out(static_cast<std::size_t>(size), L'\0');
-    const int written =
-        ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
-                              static_cast<int>(text.size()), out.data(), size);
+    const int written = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+                                              static_cast<int>(text.size()), out.data(), size);
     if (written <= 0) {
         return std::nullopt;
     }
@@ -61,8 +59,8 @@ struct StreamState {
     HANDLE write_event = nullptr; // auto-reset; the write-behind completion
     bool write_pending = false;
     OVERLAPPED write_overlapped{};
-    std::string write_buffer;      ///< owned bytes of the in-flight write
-    std::size_t write_sent = 0;    ///< bytes of `write_buffer` already transferred
+    std::string write_buffer;   ///< owned bytes of the in-flight write
+    std::size_t write_sent = 0; ///< bytes of `write_buffer` already transferred
 };
 
 /// Aborts an in-flight overlapped operation and reaps it. A cancelled
@@ -105,11 +103,12 @@ HANDLE create_pipe_instance(const std::wstring &name, bool first_instance) {
     SECURITY_ATTRIBUTES inherit_none{};
     inherit_none.nLength = sizeof(inherit_none);
     inherit_none.bInheritHandle = FALSE;
-    return ::CreateNamedPipeW(
-        name.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED |
-                          (first_instance ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0),
-        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, PIPE_UNLIMITED_INSTANCES,
-        kPipeBufferBytes, kPipeBufferBytes, 0, &inherit_none);
+    return ::CreateNamedPipeW(name.c_str(),
+                              PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED |
+                                  (first_instance ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0),
+                              PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+                              PIPE_UNLIMITED_INSTANCES, kPipeBufferBytes, kPipeBufferBytes, 0,
+                              &inherit_none);
 }
 
 /// Per-listener state (IpcListener::state_ on Windows): the one idle
@@ -244,8 +243,7 @@ IoResult IpcStream::read_some(char *data, std::size_t size) {
         return result;
     }
     OVERLAPPED overlapped{};
-    const DWORD issued =
-        issue_read(handle, &overlapped, state->read_event, data, size);
+    const DWORD issued = issue_read(handle, &overlapped, state->read_event, data, size);
     if (issued == ERROR_IO_PENDING) {
         // The zero wait loses to scheduling far more often than not; the
         // queued read is aborted and reaped with the caller's buffer still
@@ -325,10 +323,9 @@ IoResult IpcStream::write_some(const char *data, std::size_t size) {
         advanced += written;
         state->write_sent += written;
         if (state->write_sent < state->write_buffer.size()) {
-            const DWORD issued =
-                issue_write(handle, &state->write_overlapped, *state,
-                            state->write_buffer.data() + state->write_sent,
-                            state->write_buffer.size() - state->write_sent);
+            const DWORD issued = issue_write(handle, &state->write_overlapped, *state,
+                                             state->write_buffer.data() + state->write_sent,
+                                             state->write_buffer.size() - state->write_sent);
             if (issued == ERROR_IO_PENDING) {
                 state->write_pending = true;
                 result.bytes = advanced;
@@ -430,16 +427,16 @@ void IpcListener::close() {
 IpcListener IpcListener::bind(const std::string &address, std::string &diagnostic) {
     IpcListener listener;
     const std::optional<std::wstring> name = wide_from_utf8(address);
-    if (!name.has_value() || name->rfind(kPipePrefix, 0) != 0 || name->size() <= std::size(kPipePrefix)) {
-        diagnostic =
-            "address must be a named pipe path of the form \\\\.\\pipe\\<name> (got '" + address +
-            "')";
+    if (!name.has_value() || name->rfind(kPipePrefix, 0) != 0 ||
+        name->size() <= std::size(kPipePrefix)) {
+        diagnostic = "address must be a named pipe path of the form \\\\.\\pipe\\<name> (got '" +
+                     address + "')";
         return listener;
     }
     auto *state = new ListenerState();
     state->name = *name;
-    state->connect_event = ::CreateEventW(nullptr, /*bManualReset=*/FALSE, /*bInitialState=*/FALSE,
-                                          nullptr);
+    state->connect_event =
+        ::CreateEventW(nullptr, /*bManualReset=*/FALSE, /*bInitialState=*/FALSE, nullptr);
     if (state->connect_event == nullptr) {
         diagnostic = "cannot create the connect event (Win32 error " +
                      std::to_string(static_cast<unsigned long>(::GetLastError())) + ")";
@@ -493,8 +490,7 @@ IpcStream IpcListener::accept(std::string &diagnostic) {
         return IpcStream{}; // nothing armed (unexpected; the listener recycles eagerly)
     }
     // HasOverlappedIoCompleted is a macro: no leading ::.
-    if (state->connect_pending &&
-        HasOverlappedIoCompleted(&state->connect_overlapped) == 0) {
+    if (state->connect_pending && HasOverlappedIoCompleted(&state->connect_overlapped) == 0) {
         return IpcStream{}; // the queued connect is still waiting for a client
     }
     DWORD transferred = 0;
@@ -530,9 +526,8 @@ bool endpoint_has_listener(const std::string &address, std::chrono::milliseconds
     if (!name.has_value()) {
         return true; // unparseable address: keep any existing endpoint in place
     }
-    HANDLE probe =
-        ::CreateFileW(name->c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0,
-                      nullptr);
+    HANDLE probe = ::CreateFileW(name->c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+                                 OPEN_EXISTING, 0, nullptr);
     if (probe != INVALID_HANDLE_VALUE) {
         ::CloseHandle(probe);
         return true;
@@ -548,9 +543,8 @@ IpcStream connect_stream(const std::string &address, std::chrono::milliseconds d
                          std::string &diagnostic) {
     const std::optional<std::wstring> name = wide_from_utf8(address);
     if (!name.has_value() || name->rfind(kPipePrefix, 0) != 0) {
-        diagnostic =
-            "address must be a named pipe path of the form \\\\.\\pipe\\<name> (got '" + address +
-            "')";
+        diagnostic = "address must be a named pipe path of the form \\\\.\\pipe\\<name> (got '" +
+                     address + "')";
         return IpcStream{};
     }
     const auto start = std::chrono::steady_clock::now();

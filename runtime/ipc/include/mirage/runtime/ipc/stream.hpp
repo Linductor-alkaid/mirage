@@ -46,6 +46,12 @@ class IpcStream {
     std::intptr_t handle() const { return native_; }
     void close();
 
+    /// Adopts an already-connected, non-blocking transport handle (the fd
+    /// on POSIX, the pipe HANDLE on Windows) for transports that run their
+    /// own accept loop — the dev bridge (M1.5-03). The semantics are the
+    /// stream's; the token is owned from here on.
+    static IpcStream adopt_native(std::intptr_t native) { return IpcStream(native); }
+
     IoResult read_some(char *data, std::size_t size);
     IoResult write_some(const char *data, std::size_t size);
 

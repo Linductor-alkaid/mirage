@@ -36,8 +36,7 @@ bool wait_readable(const IpcStream &, std::chrono::milliseconds budget) {
     if (budget <= std::chrono::milliseconds::zero()) {
         return false;
     }
-    ::Sleep(static_cast<DWORD>(
-        std::min(budget, kClientWaitSlice).count()));
+    ::Sleep(static_cast<DWORD>(std::min(budget, kClientWaitSlice).count()));
     return true;
 }
 
