@@ -203,6 +203,27 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         LABELS "integration;platform"
         TIMEOUT 120
     )
+
+    # M4-05 Windows notification frontend: exercised against the session's
+    # real notification area (DEC-018 carrier) — open() builds the hidden
+    # carrier window and the resident tray icon, notify() posts real
+    # balloons. The frozen refusal matrix is strict; the positive
+    # acceptance scenarios note (never claim) balloon visibility, and a
+    # session without a notification area skips them loudly instead of
+    # failing (the DEC-018 verification plan records that possibility).
+    add_executable(win32_notification_test platform/win32_notification_test.cpp)
+    target_compile_features(win32_notification_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(win32_notification_test)
+    target_link_libraries(win32_notification_test
+        PRIVATE
+            Mirage::platform
+            Mirage::desktop
+    )
+    add_test(NAME win32_notification_test COMMAND win32_notification_test)
+    set_tests_properties(win32_notification_test PROPERTIES
+        LABELS "integration;platform"
+        TIMEOUT 120
+    )
 endif()
 
 # M2-03 AT-SPI2 accessibility: private D-Bus session plus a wire-exact GDBus

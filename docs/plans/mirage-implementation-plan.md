@@ -4,7 +4,7 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-09-22
+> 更新日期：2026-09-23
 
 ## 当前状态
 
@@ -56,9 +56,12 @@ Win32 窗口 / 采集 / 输入，工具链双门禁决策见
 [DEC-017](../decisions/DEC-017-windows-backend-toolchain-and-event-loop.md)）、
 `M4-02`（AccessibilityProvider：UIA 语义树 → SemanticSnapshot 与
 ElementTarget 解析 / 语义动作）、`M4-03`（ClipboardProvider（Win32）与
-ProcessProvider 的 CreateProcess 有界承载）与 `M4-04`（ApplicationProvider：
-开始菜单快捷方式发现、启动 / 运行态 / TERM 等价协作式终止）已完成；M4
-里程碑进行中。
+ProcessProvider 的 CreateProcess 有界承载）、`M4-04`（ApplicationProvider：
+开始菜单快捷方式发现、启动 / 运行态 / TERM 等价协作式终止）与 `M4-05`
+（NotificationProvider：承载决策
+[DEC-018](../decisions/DEC-018-windows-notification-carrier.md)——
+`Shell_NotifyIcon` 气球/横幅 + open() 探测 fail closed 降级，toast 留 M5
+重议）已完成；M4 里程碑进行中。
 
 ## 交付边界
 

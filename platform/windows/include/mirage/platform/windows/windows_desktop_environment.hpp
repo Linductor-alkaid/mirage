@@ -7,9 +7,10 @@
 
 namespace mirage::platform::windows_backend {
 
-class Win32Backend;       // private in src/: no Win32 type may appear here (RULE-01)
-class UiaBackend;         // ditto for the UI Automation frontend (M4-02)
-class ApplicationBackend; // ditto for the application frontend (M4-04)
+class Win32Backend;        // private in src/: no Win32 type may appear here (RULE-01)
+class UiaBackend;          // ditto for the UI Automation frontend (M4-02)
+class ApplicationBackend;  // ditto for the application frontend (M4-04)
+class NotificationBackend; // ditto for the notification frontend (M4-05)
 
 /// Opt-in Win32 surface of the Windows backend (M4-01, DEC-017). When
 /// enabled the environment probes the interactive desktop at construction
@@ -39,14 +40,22 @@ struct ApplicationOptions {
     bool enabled = false;
 };
 
+/// Opt-in notification surface (M4-05, DEC-018): balloon / banner
+/// notifications carried by a hidden window and a resident tray icon
+/// (Shell_NotifyIcon). A failed open() probe — no interactive session, no
+/// shell notification area — leaves the accessor null: fail closed, the
+/// Linux backend's missing-session-bus precedent (capability honesty, not
+/// a degraded provider).
+struct NotificationsOptions {
+    bool enabled = false;
+};
+
 /// Windows Desktop Environment (design doc sections 5 and 10): the M4-01
 /// Win32 window / capture / input surface, the M4-02 UIA accessibility
-/// provider, the M4-03 Win32 clipboard (all opt-in), the M4-04 application
-/// provider (opt-in) and the process execution surface (always available:
-/// CreateProcess works in any session, including service contexts). Later
-/// M4 work items attach the notification provider (M4-05); until then that
-/// accessor reports the base-class null default — a missing capability
-/// instead of a broken provider (fail closed, DEC-008).
+/// provider, the M4-03 Win32 clipboard, the M4-04 application provider and
+/// the M4-05 notification provider (all opt-in) and the process execution
+/// surface (always available: CreateProcess works in any session,
+/// including service contexts). This closes the M4 provider set.
 ///
 /// The Desktop Permission gate (RULE-05) is judged by the runtime layer
 /// before actions reach any provider; this class itself stays
@@ -59,7 +68,8 @@ class WindowsDesktopEnvironment final : public mirage::desktop::DesktopEnvironme
                                         public mirage::desktop::ProcessProvider {
   public:
     explicit WindowsDesktopEnvironment(Win32Options win32_options = {}, UiaOptions uia_options = {},
-                                       ApplicationOptions application_options = {});
+                                       ApplicationOptions application_options = {},
+                                       NotificationsOptions notifications_options = {});
 
     ~WindowsDesktopEnvironment() override;
 
@@ -74,6 +84,7 @@ class WindowsDesktopEnvironment final : public mirage::desktop::DesktopEnvironme
     mirage::desktop::AccessibilityProvider *accessibility() override;
     mirage::desktop::ClipboardProvider *clipboard() override;
     mirage::desktop::ApplicationProvider *application() override;
+    mirage::desktop::NotificationProvider *notification() override;
     mirage::desktop::ProcessProvider *process() override { return this; }
 
     // The three-argument override would hide the base convenience.
@@ -87,6 +98,7 @@ class WindowsDesktopEnvironment final : public mirage::desktop::DesktopEnvironme
     std::unique_ptr<Win32Backend> win32_;
     std::unique_ptr<UiaBackend> uia_;
     std::unique_ptr<ApplicationBackend> application_;
+    std::unique_ptr<NotificationBackend> notification_;
 };
 
 } // namespace mirage::platform::windows_backend

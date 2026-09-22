@@ -6,7 +6,7 @@
 > 前置：[M2](m2-desktop-environment.md)（已完成：Desktop Environment 九个 Provider
 > 契约、SemanticSnapshot、ElementTarget 解析顺序契约；Linux Backend 同型骨架先例）
 > 建议发布点：`release-delta`（tag 待维护者授权后创建）
-> 更新日期：2026-09-22（M4-04 完成）
+> 更新日期：2026-09-23（M4-05 完成）
 
 ## 目标
 
@@ -38,8 +38,10 @@ Backend（设计文档第 10、18 节第四阶段）：UI Automation 承载语�
 非目标：
 
 - Windows 安装包与更新器（DEC-006 分发形态属产品化交付，随 M5 落地取证）。
-- Windows 通知中心的完整产品化交互（通知 Provider 的承载机制在 M4-05 决策，
-  仅交付契约面等价能力）。
+- Windows 通知中心的完整产品化交互（通知 Provider 的承载机制已定案
+  [DEC-018](../decisions/DEC-018-windows-notification-carrier.md)——
+  `Shell_NotifyIcon` 气球/横幅承载 + open() 探测 fail closed 降级；仅交付
+  契约面等价能力）。
 - 采集路径的性能升级（Windows.Graphics.Capture / DXGI Duplication 为后续
   升级路径，DEC-017；M4 只交付 GDI 同步采集并如实声明边界）。
 - Desktop GUI 产品界面（M5）。
@@ -66,6 +68,9 @@ Backend（设计文档第 10、18 节第四阶段）：UI Automation 承载语�
 - [DEC-017](../decisions/DEC-017-windows-backend-toolchain-and-event-loop.md)：
   Windows 工具链双门禁（MinGW-w64 + MSVC）、Win32 前端并发纪律、COM 初始化
   模型、编码纪律、采集模型（M4-01 登记）。
+- [DEC-018](../decisions/DEC-018-windows-notification-carrier.md)：Windows
+  NotificationProvider 承载机制——`Shell_NotifyIcon` 气球/横幅 + open() 探测
+  fail closed 降级，toast 否决并留 M5 重议触发（M4-05 登记）。
 - [M2 计划](m2-desktop-environment.md)：Windows Backend 的工作项拆分、测试拓扑
   与验证记录形态以 Linux Backend 先例为模板。
 
@@ -92,9 +97,12 @@ Backend（设计文档第 10、18 节第四阶段）：UI Automation 承载语�
 - [x] `M4-04` ApplicationProvider（Windows）：应用发现（开始菜单快捷方式 /
       注册表 Uninstall 面，机制随实现定案并记录）、启动 / 运行态 / 终止
       （对齐 M2-05 语义：tracked 实例、TERM 等价的协作式收尾、不强杀）。
-- [ ] `M4-05` 通知承载决策与 NotificationProvider（Windows）：toast（COM /
-      WinRT，需 MSIX 或开始菜单快捷方式前提）vs `Shell_NotifyIcon` 气球等承载
-      机制的决策记录（DEC-018 起，编号顺延）后落地契约面等价能力。
+- [x] `M4-05` 通知承载决策与 NotificationProvider（Windows）：承载机制已定案
+      （[DEC-018](../decisions/DEC-018-windows-notification-carrier.md)——
+      `Shell_NotifyIcon` 气球/横幅承载 + open() 探测 fail closed 降级，toast
+      否决并留 M5 重议触发）；契约面等价能力已落地（`notify` 冻结拒绝序 +
+      平台载荷收窄 63/255 UTF-16 码元 + 嵌入 NUL 拒绝，均副作用前；托盘
+      承载图标常驻、无泵回调如实声明）。
 - [ ] `M4-06` 产品进程 Windows 化：Local IPC 命名管道传输（DEC-007 兑现，
       `stream_windows`；帧格式与协议 v1 不变，golden vectors 复用）、持久化
       Windows 路径与存储（`store_windows`）、`apps/service` / CLI /
@@ -477,3 +485,118 @@ Provider（UIA）先于外围 Provider、产品进程化（`M4-06`）不阻塞 B
 - 同步：[M4 计划](m4-windows-backend.md)（本记录）、
   [总计划](mirage-implementation-plan.md) 当前状态叙述（`M4-01`..`M4-04`
   滞后叙述一并修正）、PR CI 取证（本 PR 作业执行后）。
+
+2026-09-23：`M4-04` CI 门禁全绿与 Windows 运行级取证完成（挂账补录）。
+
+- 范围：上一条记录的挂账项（⑤ CI windows 作业的 MSVC 编译与运行取证）
+  就此闭合，无代码变更。
+- 验证（CI run 35754958118，headSha = ab51335 已核实，全部作业 success）：
+  windows msvc 作业 `win32_application_test` 在真实 Windows runner（MSVC
+  Debug）**250 checks, 0 failures**（14 场景）——第 1 轮失败的两处
+  （launch 生命周期的 list running 断言 = D1 症状、stuck 场景的
+  instance_id 断言 = D2 症状）随 `27c251e` 修复转绿；rooted_ids_cannot_
+  escape 回归与第 2 轮新增断言（ADS 冒号 id、cancelled 结局携带存活
+  instance_id、同映像别名 list 级 running 一致）全部通过；
+  `win32_backend_test` 128/0、`uia_backend_test` 108/0、
+  `win32_clipboard_process_test` 129/0 同轮回归通过；同轮 Linux
+  debug / release / asan / ubsan / tsan、format & boundaries、frontend
+  作业全绿。check 计数对账：第 1 轮 223 + rooted 回归场景 + 第 2 轮新增
+  断言 = 250。
+- 残留观察（非缺陷，仅记录）：mid_wait_cancellation 场景存在 250 ms 取消
+  定时器与 helper 协作退出之间的既有竞态（helper 先退出则结局为 ok），
+  两轮真实运行均绿；属场景设计固有的可接受形态，不挂账。
+- 同步：本计划（M4-04 记录的挂账闭合）、[总计划](mirage-implementation-plan.md)
+  （已随 M4-04 叙述更新）。
+
+2026-09-23：`M4-05` 通知承载决策登记
+（[DEC-018](../decisions/DEC-018-windows-notification-carrier.md)）；实现未
+开始，工作项保持未勾选。
+
+- 范围：决策记录新登记，无代码变更。承载机制定案为 `Shell_NotifyIcon`
+  气球/横幅 + open() 探测 fail closed 降级（行为差异——载荷收窄至
+  63/255 UTF-16 字符、托盘常驻可见面、无泵回调——逐条声明）；toast 否决
+  （AUMID 前提在 M4 无安装包形态下不成立，DEC-006 安装器属 M5；仓库工具链
+  无 toast ABI 头，需手写 WinRT 声明），M5 安装器交付 AUMID 载体且产品化
+  需要 Action Center 驻留/点击交互时凭新证据重议。
+- 依据：`DEC-006` / `DEC-009` / `DEC-010` / `DEC-015`（Linux 通知先例）/
+  `DEC-017`（决策 1 / 3 / 4）；M2-05 冻结契约
+  （`notification_provider.hpp:24-39`）与 Linux 前端先例
+  （`platform/linux/src/notification_backend.cpp`）。
+- 验证：决策编号空缺核实（`ls docs/decisions/` 仅 DEC-001..DEC-017）；工具链
+  事实复核（MinGW 用户前缀 `shellapi.h:563-564` 声明 `Shell_NotifyIconW`、
+  `:465-486` `NOTIFYICONDATAW`（`szInfoTitle[64]` / `szInfo[256]`）；
+  `find` / `grep` 证实前缀内无 toast ABI 头；`platform/CMakeLists.txt:105`
+  Windows 分支已链 `shell32`）。本机无 Windows 会话，未运行任何 Windows
+  构建/测试——运行级取证随 `M4-05` 实现（CI runner 通知区可用性为新增
+  取证点）。
+- 限制：本记录仅为决策登记；`M4-05` 实现与全部适用退出条件未执行（负责人：
+  Mirage 维护者；补跑条件 = 实现 PR 按 M4 门禁执行并取证）。
+- 同步：本计划（更新日期、非目标、设计与决策依据、`M4-05` 工作项表述、
+  本记录）、[DEC-018](../decisions/DEC-018-windows-notification-carrier.md)
+  （新）。
+
+2026-09-23：`M4-05` 通知承载决策与 NotificationProvider（Windows）完成。
+
+- 范围：`platform/windows` 新增私有通知前端 `notification_backend.{hpp,cpp}`
+  （M2-05 冻结契约，Linux `notification_backend` 先例同型；Win32 类型不出
+  .cpp，`RULE-01`），承载机制按
+  [DEC-018](../decisions/DEC-018-windows-notification-carrier.md) 兑现：
+  open() 建隐藏回调窗口（`RegisterClassW` 容忍进程内 `ERROR_CLASS_ALREADY_
+  EXISTS` 复用 + 不可见顶层窗口）+ 托盘承载图标（`NIM_ADD`，V3 尺寸
+  `NOTIFYICONDATAW`、`NIF_MESSAGE|NIF_ICON|NIF_TIP`、共享 stock 图标、
+  tooltip "Mirage"），探测失败（无交互会话 / 无通知区，session 0 同
+  `SendInput` 先例）整体清理并访问器 null——Linux 无 session bus 同型
+  fail closed。`notify` 保持冻结拒绝序（cancelled → 空 title → title
+  字节预算 → body 字节预算 → UTF-8 → 均副作用前 `invalid_argument`），其后
+  兑现平台载荷收窄（`szInfoTitle[64]` / `szInfo[256]` 含终止符 → 63/255
+  UTF-16 码元，超限 `invalid_argument` 不截断）与嵌入 NUL 拒绝（NUL 终止
+  定长数组会静默截断——比 Linux 字面更严，经 stable 错误码可见的平台差异）；
+  `NIM_MODIFY` + `NIF_INFO` + `NIIF_RESPECT_QUIET_TIME` 承载气球，`TRUE` =
+  shell 受理 = 契约 `ok`（≠用户已见）；无泵回调（`NIN_BALLOON*` 积压队列，
+  DEC-018 决策 3）、单调用收敛纪律（`Shell_NotifyIcon` 无每调用超时，
+  DEC-017 决策 3）。析构先 `NIM_DELETE` 后 `DestroyWindow`（线程亲和，
+  跨线程收尾响亮注记延后销毁）。`WindowsDesktopEnvironment` 增
+  `NotificationsOptions`（第 4 参默认值追加，既有构造点不受影响）与
+  `notification()` 访问器；CMake 零新增导入库（`shell32` 已随 M4-04）。
+  权限词表零新增（`notification.post` 沿用 M2-05 冻结默认 allow，
+  DEC-010）。
+- 依据：设计文档第 5、10、18 节；[DEC-018](../decisions/DEC-018-windows-
+  notification-carrier.md)（本项决策）、`DEC-006`（toast 重议触发）/ 
+  `DEC-009` / `DEC-010` / `DEC-015`（Linux 通知先例）/ `DEC-017`（决策
+  1 / 3 / 5 / 7）；M2-05 冻结语义；`RULE-01` / `RULE-03` / `RULE-05` /
+  `RULE-07`。
+- 验证（实现轮主循环编译级取证；运行级随本 PR CI windows 作业执行，结论
+  由下一个工作项的 PR 补录）：
+  - MinGW 交叉门禁（Linux x64 主机，MinGW-w64 GCC 13.2.0 posix 用户前缀，
+    `MIRAGE_WARNINGS_AS_ERRORS=ON`）：`mirage_desktop` / `mirage_platform` /
+    `win32_notification_test` / `m404_process_helper` / 既有三个 win32
+    测试 / 4 个可移植测试共 11 目标 **0 诊断**；`win32_notification_test.exe`
+    `file` 认证 PE32+ x86-64。实现中发现并当场修正一处工具链事实：
+    `IDI_APPLICATION` 经 TCHAR `MAKEINTRESOURCE` 展开，UNICODE 中性 TU
+    （win32_util.hpp 宏纪律）下窄化为窄串——按 winuser.h 定义直书
+    `MAKEINTRESOURCEW(32512)`，双工具链同声明。
+  - Linux 主机（debug 预设）不回归：configure + build（`ninja: no work to
+    do`，Linux 不编译 Windows TU）+ ctest **32/32 通过 0 skip**；
+    `mirage-format-check` 通过（clang-format 18.1.3，含
+    `--dry-run --Werror` 逐文件复核）；`mirage-boundary-check` **0
+    violations in 37 headers**（公共头仅扩展 `windows_desktop_environment.hpp`，
+    新增 `NotificationsOptions` 为纯值类型）。
+  - 新增 `tests/platform/win32_notification_test.cpp`（3 场景组）：
+    选项关闭时访问器 null（fail closed）；真实托盘上的受理（普通 + 63/255
+    恰边界 + 63 码元 CJK 边界孪生）；冻结拒绝序全矩阵（cancelled / 空
+    title / 收紧 title 字节预算 / 收紧 body 字节预算 / 坏 UTF-8）；
+    平台载荷收窄（64 码元 ASCII title = 64 字节 < 256 字节契约预算仍拒绝、
+    64 码元 CJK title = 192 字节 < 预算仍拒绝——码元计数而非字节计数的
+    直接证据、256 码元 ASCII body）；嵌入 NUL 双位置拒绝；第二环境进程内
+    复用承载类 + 双图标共存。气球可见性只注记不声称（契约 `ok` = 受理）；
+    无通知区会话响亮跳过正向场景而非伪造证据（DEC-018 验证方式条款）。
+- 限制与补跑条件：① CI runner 通知区（Explorer 托盘）可用性是新增取证点
+  （M4-01..04 未证过托盘）：正向场景若在 runner 上探测失败，测试按 skip
+  纪律响亮注记并挂账（负责人：维护者；补跑条件 = 维护者 Windows 机器或
+  runner 桌面携带通知区）；② 气球的实际呈现（横幅 / 静默时段 / Win10 驻留
+  / Win11 瞬态）无独立观测通道，按契约 `ok` = 受理≠已见如实声明（DEC-018
+  决策 3）；③ MSVC 编译与运行级证据随本 PR CI 作业执行，结论由下一个工作
+  项的 PR 补录；④ Windows 侧无 sanitizer 矩阵（Linux 侧成立）。
+- 同步：[M4 计划](m4-windows-backend.md)（本记录 + `M4-05` 勾选）、
+  [总计划](mirage-implementation-plan.md) 当前状态叙述、PR CI 取证（本 PR
+  作业执行后）。
