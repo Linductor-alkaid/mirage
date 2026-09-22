@@ -6,7 +6,7 @@
 > 前置：[M2](m2-desktop-environment.md)（已完成：Desktop Environment 九个 Provider
 > 契约、SemanticSnapshot、ElementTarget 解析顺序契约；Linux Backend 同型骨架先例）
 > 建议发布点：`release-delta`（tag 待维护者授权后创建）
-> 更新日期：2026-09-22（M4-01 骨架开工）
+> 更新日期：2026-09-22（M4-02 完成）
 
 ## 目标
 
@@ -80,7 +80,7 @@ Backend（设计文档第 10、18 节第四阶段）：UI Automation 承载语�
       副作用、UTF-8 ↔ UTF-16 转换边界与 Linux 后端语义一致；CMake Windows 分支
       接线（user32 / gdi32）；MinGW-w64 交叉编译门禁与 MSVC CI 作业（DEC-017
       登记）；win32 前端集成测试在真实 Windows 会话取证。
-- [ ] `M4-02` AccessibilityProvider（UI Automation）：COM 初始化模型兑现
+- [x] `M4-02` AccessibilityProvider（UI Automation）：COM 初始化模型兑现
       （DEC-017）、UIA 语义树采集 → SemanticSnapshot（节点预算 fail closed、
       角色词表投影）、ElementTarget 解析（reference / semantic / structural；
       visual/spatial/raw `unsupported_hint` fail closed）与语义动作
@@ -122,7 +122,11 @@ Provider（UIA）先于外围 Provider、产品进程化（`M4-06`）不阻塞 B
 - 前台激活的平台限制（`SetForegroundWindow` 前台锁定、UIPI 完整性级别）：
   与 X11 EWMH 同类的系统安全边界，如实返回失败并记录，不虚报可激活性。
 - UIA 线程模型（MTA 调用型 vs STA 消息泵事件型）影响 Executor 互操作形态
-  （EXEC-03）：`M4-02` 前按 DEC-017 兑现或修订。
+  （EXEC-03）：已按 DEC-017 决策 4 兑现（`M4-02`）——调用型 MTA 每调用承载
+  + 进程级 MTA 锚；事件型 STA + 消息泵升级路径保留。新事实（`M4-02` 取证）：
+  UIA 跨进程调用不可取消、桌面可能存在挂死 provider，live-tree 解析以
+  wall-clock 预算 + 事务超时 + 调用方执行上下文三级兜底（见 M4-02 验证记录
+  限制节）；worker 隔离的结构性升级是否立项由维护者裁决。
 - GitHub windows runner 桌面能力不足时 win32 集成测试不可运行的风险已消除
   （`M4-01` 首跑确认 runner 有真实交互桌面，测试常驻 CI 门禁）；后续风险仅
   剩 runner 环境演进（如镜像更换影响桌面能力），由门禁持续暴露。
@@ -244,3 +248,78 @@ Provider（UIA）先于外围 Provider、产品进程化（`M4-06`）不阻塞 B
   在 runtime 域单独排查定案（负责人：维护者；触发条件：再次复现即立项），
   不阻塞本工作项。
 - 同步：本验证记录、`DEC-017` 变更记录、PR #39 CI 取证。
+
+2026-09-22：`M4-02` AccessibilityProvider（UI Automation）完成。
+
+- 范围：`platform/windows` 新增私有 UIA 前端 `uia_backend.{hpp,cpp}`
+  （`UiaBackend` 实现 M2-03 冻结的 `AccessibilityProvider`，AT-SPI2 先例同
+  型）——`semantic_snapshot`（window_id = HWND 十进制串经 `ElementFromHandle`
+  直达，控制视图 DFS 采集；超 `max_nodes` 预算 `snapshot_too_large` 拒绝不
+  截断；`@e1..@eN` 引用注册表随成功快照整体替换（registry-miss 如实
+  `not_found` 而非 `invalid_argument`）；application = 窗口进程 exe 名、
+  window_title = `GetWindowTextW` 与 WindowProvider 同源；角色词表按 UIA
+  ControlType 投影到 DEC-005 冻结词表（MinGW 宏常量 / MSVC 枚举成员同名
+  `UIA_*ControlTypeId`，本地化 `LocalizedControlType` 不入词表，未知类型如实
+  "unknown"））、`activate_element` / `set_text`（解析序 reference →
+  semantic（桌面根 BFS，4096 访问预算 + 30 s wall-clock 预算）→
+  structural（`/role/name` 成对段，AT-SPI 冻结语法同型）；visual/spatial/raw
+  `unsupported_hint` fail closed；语义动作经 InvokePattern / ValuePattern，
+  只读元素 `unsupported_element`）。COM 模型兑现 DEC-017 决策 4：每方法调用
+  在调用线程 `CoInitializeEx(COINIT_MULTITHREADED)`，首个成功 scope 永久
+  保留为进程级 MTA 锚（恰好一个有界引用，M2-03 对象池先例同型）保注册表
+  元素指针跨调用有效；`RPC_E_CHANGED_MODE` 如实 `io_error`。共享 Win32 助手
+  提取至 `win32_util.hpp`；`WindowsDesktopEnvironment` 增 `UiaOptions`（默认
+  关）与 `accessibility()`，open 失败 null fail closed；CMake 接线
+  `ole32`/`oleaut32`（GUID 经 `__uuidof` 解析，双工具链同声明）。
+- 依据：设计文档第 9、10 节；`DEC-005` / `DEC-009` / `DEC-010` / `DEC-015`
+  （先例）/ `DEC-017`；`RULE-01` / `RULE-03` / `RULE-05` / `RULE-07`。
+- 验证（Independent-Verification-Agent，两轮 + 修复复验 + 看门狗改造轮；
+  Linux x64 Ubuntu 24.04 GCC 13.3.0 + MinGW-w64 GCC 13.2.0 posix）：
+  - Linux 主机矩阵不回归：debug / release / asan / ubsan / tsan 五预设
+    ctest **32/32 通过 0 skip**（基线不变，Linux 不编译 Windows TU）；
+    `mirage-format-check` 通过；`mirage-boundary-check` 0 violations in 37
+    headers（公共头仅扩展 `windows_desktop_environment.hpp`）。
+  - MinGW 交叉门禁：8 目标（mirage_desktop / mirage_platform /
+    uia_backend_test / win32_backend_test / 4 个可移植测试）构建成功，
+    `MIRAGE_WARNINGS_AS_ERRORS=ON` 0 诊断；`uia_backend_test.exe` 认证
+    PE32+ x86-64。
+  - 独立验证发现并回归主循环修复 3 处生产缺陷：① `resolve_locked`
+    registry-miss 分支丢失 found 标记（stale ref 报 `invalid_argument` 而非
+    契约 `not_found`）；② 重写时遗漏注册表回填循环（快照成功后引用全部
+    not_found——AT-SPI 模板的 fill loop 在重写中丢失，CI 首轮暴露）；
+    ③ 上述补丁引入 use-after-move（元素先 move 进对齐数组、子枚举再用空
+    指针，快照塌缩为根节点）。另有 CI 首轮暴露 MSVC/MinGW 控制类型命名
+    假设错误（两 SDK 实为同名 `UIA_*ControlTypeId` + `CONTROLTYPEID`，归一
+    化 shim 撤销）。
+  - 运行级取证（CI run 35685654480，windows-latest，MSVC 14.51，真实交互
+    桌面）：windows 作业 8 步全绿，ctest 6/6；`uia_backend_test` **108
+    checks, 0 failures**（45.5 s）——in-proc 场景全部真实执行：快照结构
+    （fixture 树 9 节点、ref 连续、parent 不变量、button/text 节点角色与
+    几何）、预算 fail-closed 不清注册表、注册表整体替换、**reference 解析
+    经 InvokePattern 真实点击送达**（泵内确认 BN_CLICKED 恰好 +1）、
+    **ValuePattern 文本写入经 GetWindowTextW 逐字符回读**、visual/spatial/
+    raw 提示 `unsupported_hint`、取消先于全部校验、隐藏窗口语义探针。
+  - live-tree 桌面扫描（semantic / structural 解析环）经 `--scan-probe`
+    子进程隔离 + 45 s 看门狗取证：**structural 解析环真实命中并点击成功**
+    （跨进程路径）；semantic 解析环撞上 runner 桌面的挂死 provider（wedged
+    UWP 宿主类窗口），**30 s wall-clock 预算 + 1 s 事务超时被证实生效**
+    （30.09 s 诚实返回 `not_found`，而非挂死）；负向全桌面扫描同样挂死、
+    被看门狗终止并按 skip 纪律响亮注记环境受限。
+- 限制与补跑条件：① semantic live-tree 解析的**命中**场景在 runner 桌面
+  因 wedged provider 耗尽预算返回 `not_found`（30 s 预算内无法保证命中——
+  解析语义契约经 fake `provider_contract_test` 覆盖，真实命中取证挂账）；
+  补跑条件：维护者 Windows 机器或 runner 桌面不再携带挂死 provider 窗口
+  （负责人：维护者）。② 深度诊断定案（根因 = UIA 跨进程 COM 调用不可取消
+  × 桌面存在挂死 provider；`IUIAutomation2` 事务超时是客户端提示而非传输
+  层硬界，AT-SPI 的 D-Bus 每调用超时在 UIA 无等价物）：有界机制只能约束
+  "慢 provider"，单个 wedged 调用仅由调用方执行上下文（Executor 调用超时）
+  兜底——与 DEC-017 决策 3 的单调用收敛纪律同型；共享互斥锁下 wedged 调用
+  会使其后的调用（含取消检查）排队，取消是副作用前观察而非调用中打断。
+  生产侧结构性修复（UIA client 迁入 Executor blocking worker + 调用方有界
+  等待，DEC-017 决策 4 预留的升级路径）是否立项由维护者裁决：当前证据为
+  预算生效、不挂死、structural 环可用，紧迫性下降。③ 依赖反馈台账
+  `MIRA-20260922-001`（pinned executor 在 MinGW posix 模型下无法编译，
+  MSVC 不受影响；M4-06 全树 MinGW 交叉构建时需复核）。
+- 同步：[M4 计划](m4-windows-backend.md)（本记录）、
+  [DEC-017](../decisions/DEC-017-windows-backend-toolchain-and-event-loop.md)
+  变更记录、依赖反馈台账、PR #40 CI 取证。
