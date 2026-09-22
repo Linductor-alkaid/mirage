@@ -45,11 +45,17 @@ using win32_util::utf8_to_utf16;
 // spelling.
 using ControlTypeId = CONTROLTYPEID;
 
-/// Bounded UIA provider transactions (RULE-07): a hung provider window on
-/// the live desktop must fail its calls instead of blocking a snapshot or
-/// resolution indefinitely — the walk then treats it as a vanished element
-/// and moves on. The Executor-side call timeout stays the outer bound
-/// (same discipline as the X11 backend's single-call limits).
+/// Best-effort UIA provider transaction bounds (RULE-07). Honest scope:
+/// they constrain providers that are reachable but slow. A provider whose
+/// process is wedged can hang the underlying COM transaction past both
+/// timeouts (the UIA knobs are client-side hints on its own transaction
+/// machinery, not a transport-level bound — the AT-SPI backend gets that
+/// bound from D-Bus per-call timeouts, UIA has no equivalent). The wall
+/// clock budgets below therefore only fire *between* calls; a single
+/// wedged call is bounded solely by the caller's execution context (the
+/// Executor-side call timeout, same discipline as the X11 backend's
+/// single-call limits), and consumers must treat semantic/structural
+/// resolution as blocking work.
 constexpr DWORD kUiaConnectionTimeoutMs = 2000;  // per provider process
 constexpr DWORD kUiaTransactionTimeoutMs = 1000; // per provider call
 
@@ -497,6 +503,9 @@ struct UiaBackend::Impl {
             ComPtr<IUIAutomationElement> child;
             HRESULT hr = walker->GetFirstChildElement(current, child.out());
             while (SUCCEEDED(hr) && child) {
+                if (ScanClock::now() >= deadline) {
+                    return {}; // scan budget spent: not_found, not a hang
+                }
                 queue.push_back(std::move(child));
                 hr = walker->GetNextSiblingElement(current, child.out());
             }
@@ -636,6 +645,8 @@ SnapshotOutcome UiaBackend::semantic_snapshot(const std::string &window_id,
                                               const SemanticSnapshotLimits &limits,
                                               const CancelToken &cancel) {
     SnapshotOutcome outcome;
+    // See activate_element: the shared mutex means a wedged call queues
+    // every later call behind it; cancellation is pre-effect, not mid-call.
     std::lock_guard<std::mutex> guard(mutex_);
     if (cancel.cancelled()) {
         outcome.cancelled = true;
@@ -696,6 +707,10 @@ SnapshotOutcome UiaBackend::semantic_snapshot(const std::string &window_id,
 ElementActionOutcome UiaBackend::activate_element(const ElementTarget &target,
                                                   const CancelToken &cancel) {
     ElementActionOutcome outcome;
+    // One mutex serializes every call (DEC-017 decision 3). Honest cost of
+    // that shape: a resolution wedged inside an unkillable UIA transaction
+    // holds this mutex, so later calls (cancellation included) queue
+    // behind it — cancellation is observed before effects, not mid-call.
     std::lock_guard<std::mutex> guard(mutex_);
     if (cancel.cancelled()) {
         outcome.cancelled = true;
@@ -750,6 +765,10 @@ ElementActionOutcome UiaBackend::activate_element(const ElementTarget &target,
 ElementActionOutcome UiaBackend::set_text(const ElementTarget &target, const std::string &text,
                                           const InputLimits &limits, const CancelToken &cancel) {
     ElementActionOutcome outcome;
+    // One mutex serializes every call (DEC-017 decision 3). Honest cost of
+    // that shape: a resolution wedged inside an unkillable UIA transaction
+    // holds this mutex, so later calls (cancellation included) queue
+    // behind it — cancellation is observed before effects, not mid-call.
     std::lock_guard<std::mutex> guard(mutex_);
     if (cancel.cancelled()) {
         outcome.cancelled = true;
