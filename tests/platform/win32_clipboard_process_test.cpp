@@ -136,6 +136,135 @@ void process_bare_start_probe() {
     // soft (a slow session is a note, not a failure).
 }
 
+/// Factor matrix for the stall (environment diagnosis, not provider
+/// claims): the bare start terminates in ~13ms on this session, so one of
+/// the provider's start factors keeps cmd alive. Each variant waits 3s and
+/// prints its verdict; together they separate pipes, STARTF_USESTDHANDLES
+/// and the job object.
+void process_start_matrix_probe() {
+    auto wait_and_report = [](const char *name, PROCESS_INFORMATION info) {
+        const DWORD wait = ::WaitForSingleObject(info.hProcess, 3000);
+        std::fprintf(stderr, "[win32-cbp-test] matrix %s: wait=%lu\n", name, wait);
+        std::fflush(stderr);
+        ::CloseHandle(info.hThread);
+        ::CloseHandle(info.hProcess);
+    };
+    SECURITY_ATTRIBUTES inherit{};
+    inherit.nLength = sizeof(inherit);
+    inherit.bInheritHandle = TRUE;
+
+    // v1: pipes + STARTF (no job).
+    {
+        HANDLE r = nullptr, w = nullptr;
+        if (::CreatePipe(&r, &w, &inherit, 0) != 0) {
+            UniqueHandle null_stdin(::CreateFileW(L"NUL", GENERIC_READ,
+                                                  FILE_SHARE_READ | FILE_SHARE_WRITE, &inherit,
+                                                  OPEN_EXISTING, 0, nullptr));
+            UniqueHandle read(r), write(w);
+            STARTUPINFOW startup{};
+            startup.cb = sizeof(startup);
+            startup.dwFlags = STARTF_USESTDHANDLES;
+            startup.hStdInput = null_stdin.get();
+            startup.hStdOutput = write.get();
+            startup.hStdError = write.get();
+            PROCESS_INFORMATION info{};
+            std::wstring line = L"cmd.exe /c exit 0";
+            if (::CreateProcessW(nullptr, line.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
+                                 nullptr, nullptr, &startup, &info) != 0) {
+                write.reset();
+                wait_and_report("v1 pipes+startf", info);
+            } else {
+                std::fprintf(stderr, "[win32-cbp-test] matrix v1: CreateProcess failed %lu\n",
+                             ::GetLastError());
+                std::fflush(stderr);
+            }
+        }
+    }
+    // v2: pipes + STARTF + job (assign before resume via suspend).
+    {
+        HANDLE r = nullptr, w = nullptr;
+        if (::CreatePipe(&r, &w, &inherit, 0) != 0) {
+            UniqueHandle null_stdin(::CreateFileW(L"NUL", GENERIC_READ,
+                                                  FILE_SHARE_READ | FILE_SHARE_WRITE, &inherit,
+                                                  OPEN_EXISTING, 0, nullptr));
+            UniqueHandle read(r), write(w);
+            UniqueHandle job(::CreateJobObjectW(nullptr, nullptr));
+            STARTUPINFOW startup{};
+            startup.cb = sizeof(startup);
+            startup.dwFlags = STARTF_USESTDHANDLES;
+            startup.hStdInput = null_stdin.get();
+            startup.hStdOutput = write.get();
+            startup.hStdError = write.get();
+            PROCESS_INFORMATION info{};
+            std::wstring line = L"cmd.exe /c exit 0";
+            if (::CreateProcessW(nullptr, line.data(), nullptr, nullptr, TRUE,
+                                 CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr, nullptr, &startup,
+                                 &info) != 0) {
+                const bool assigned = ::AssignProcessToJobObject(job.get(), info.hProcess) != 0;
+                ::ResumeThread(info.hThread);
+                write.reset();
+                std::fprintf(stderr, "[win32-cbp-test] matrix v2: assigned=%d\n",
+                             static_cast<int>(assigned));
+                std::fflush(stderr);
+                wait_and_report("v2 pipes+startf+job", info);
+            } else {
+                std::fprintf(stderr, "[win32-cbp-test] matrix v2: CreateProcess failed %lu\n",
+                             ::GetLastError());
+                std::fflush(stderr);
+            }
+        }
+    }
+    // v3: pipes only (default stdio, no STARTF) + job.
+    {
+        HANDLE r = nullptr, w = nullptr;
+        if (::CreatePipe(&r, &w, &inherit, 0) != 0) {
+            UniqueHandle read(r), write(w);
+            UniqueHandle job(::CreateJobObjectW(nullptr, nullptr));
+            STARTUPINFOW startup{};
+            startup.cb = sizeof(startup);
+            PROCESS_INFORMATION info{};
+            std::wstring line = L"cmd.exe /c exit 0";
+            if (::CreateProcessW(nullptr, line.data(), nullptr, nullptr, TRUE,
+                                 CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr, nullptr, &startup,
+                                 &info) != 0) {
+                const bool assigned = ::AssignProcessToJobObject(job.get(), info.hProcess) != 0;
+                ::ResumeThread(info.hThread);
+                write.reset();
+                std::fprintf(stderr, "[win32-cbp-test] matrix v3: assigned=%d\n",
+                             static_cast<int>(assigned));
+                std::fflush(stderr);
+                wait_and_report("v3 pipes+job", info);
+            } else {
+                std::fprintf(stderr, "[win32-cbp-test] matrix v3: CreateProcess failed %lu\n",
+                             ::GetLastError());
+                std::fflush(stderr);
+            }
+        }
+    }
+    // v4: STARTF with NUL handles only (no pipes), no job.
+    {
+        UniqueHandle null_stdin(::CreateFileW(L"NUL", GENERIC_READ,
+                                              FILE_SHARE_READ | FILE_SHARE_WRITE, &inherit,
+                                              OPEN_EXISTING, 0, nullptr));
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        startup.dwFlags = STARTF_USESTDHANDLES;
+        startup.hStdInput = null_stdin.get();
+        startup.hStdOutput = null_stdin.get();
+        startup.hStdError = null_stdin.get();
+        PROCESS_INFORMATION info{};
+        std::wstring line = L"cmd.exe /c exit 0";
+        if (::CreateProcessW(nullptr, line.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
+                             nullptr, nullptr, &startup, &info) != 0) {
+            wait_and_report("v4 startf-null", info);
+        } else {
+            std::fprintf(stderr, "[win32-cbp-test] matrix v4: CreateProcess failed %lu\n",
+                         ::GetLastError());
+            std::fflush(stderr);
+        }
+    }
+}
+
 void run_scenario(const char *name, void (*scenario)()) {
     std::fprintf(stderr, "[win32-cbp-test] scenario: %s\n", name);
     std::fflush(stderr);
@@ -779,6 +908,7 @@ int main() {
     // The process surface is unconditional, so these run in any session.
     run_scenario("process_refusals_before_effects", process_refusals_before_effects);
     run_scenario("process_bare_start_probe", process_bare_start_probe);
+    run_scenario("process_start_matrix_probe", process_start_matrix_probe);
     run_scenario("process_normal_execution_and_exit_codes",
                  process_normal_execution_and_exit_codes);
     run_scenario("process_timeout_bounds_the_call", process_timeout_bounds_the_call);
