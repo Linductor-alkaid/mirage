@@ -19,6 +19,7 @@
 #include <mutex>
 #include <string>
 
+#include <mirage/desktop/clipboard_provider.hpp>
 #include <mirage/desktop/input_provider.hpp>
 #include <mirage/desktop/screen_provider.hpp>
 #include <mirage/desktop/window_provider.hpp>
@@ -27,7 +28,8 @@ namespace mirage::platform::windows_backend {
 
 class Win32Backend final : public mirage::desktop::WindowProvider,
                            public mirage::desktop::ScreenProvider,
-                           public mirage::desktop::InputProvider {
+                           public mirage::desktop::InputProvider,
+                           public mirage::desktop::ClipboardProvider {
   public:
     /// Probes the interactive desktop. Returns null when no display is
     /// attached to the session (capability honesty, DEC-017): callers expose
@@ -41,6 +43,7 @@ class Win32Backend final : public mirage::desktop::WindowProvider,
     mirage::desktop::WindowProvider *window() { return this; }
     mirage::desktop::ScreenProvider *screen() { return this; }
     mirage::desktop::InputProvider *input() { return this; }
+    mirage::desktop::ClipboardProvider *clipboard() { return this; }
 
     mirage::desktop::WindowListOutcome
     list_windows(const mirage::desktop::WindowListLimits &limits,
@@ -79,6 +82,13 @@ class Win32Backend final : public mirage::desktop::WindowProvider,
                    const mirage::desktop::CancelToken &cancel) override;
     mirage::desktop::PointerQueryOutcome
     pointer_position(const mirage::desktop::CancelToken &cancel) override;
+
+    mirage::desktop::ClipboardReadOutcome
+    read_text(const mirage::desktop::ClipboardReadLimits &limits,
+              const mirage::desktop::CancelToken &cancel) override;
+    mirage::desktop::ClipboardWriteOutcome
+    write_text(const std::string &text, const mirage::desktop::ClipboardWriteLimits &limits,
+               const mirage::desktop::CancelToken &cancel) override;
 
   private:
     Win32Backend() = default;

@@ -18,6 +18,7 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -25,6 +26,17 @@
 #include <mirage/desktop/provider_error.hpp>
 
 namespace mirage::platform::windows_backend::win32_util {
+
+/// Owning kernel HANDLE (files, pipes, processes, jobs). CloseHandle on
+/// every release; never wraps pseudo-handles that must not be closed.
+struct HandleCloser {
+    void operator()(void *handle) const {
+        if (handle != nullptr) {
+            ::CloseHandle(handle);
+        }
+    }
+};
+using UniqueHandle = std::unique_ptr<void, HandleCloser>;
 
 inline mirage::desktop::ProviderError error(std::string code, std::string message) {
     return {std::move(code), std::move(message)};

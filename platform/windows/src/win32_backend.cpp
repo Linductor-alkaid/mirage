@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <optional>
@@ -20,6 +21,10 @@ namespace {
 using mirage::desktop::CancelToken;
 using mirage::desktop::CaptureLimits;
 using mirage::desktop::CaptureOutcome;
+using mirage::desktop::ClipboardReadLimits;
+using mirage::desktop::ClipboardReadOutcome;
+using mirage::desktop::ClipboardWriteLimits;
+using mirage::desktop::ClipboardWriteOutcome;
 using mirage::desktop::DisplayInfo;
 using mirage::desktop::DisplayListLimits;
 using mirage::desktop::DisplayListOutcome;
@@ -61,6 +66,50 @@ bool describe_window(HWND window, bool focused, WindowInfo &info) {
         WindowGeometry{rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top};
     info.focused = focused;
     return true;
+}
+
+/// Bounded retry window for OpenClipboard: another window can hold the
+/// clipboard for a while, and the failure is transient (M2-04 deadline
+/// discipline on the shared machine resource).
+constexpr auto kClipboardOpenDeadline = std::chrono::milliseconds{5000};
+constexpr auto kClipboardRetrySlice = std::chrono::milliseconds{25};
+
+/// Pairs with a successful OpenClipboard (nullptr owner): every path out of
+/// the call closes it exactly once.
+struct ClipboardCloser {
+    ClipboardCloser() = default;
+    BOOL owned = FALSE;
+    ~ClipboardCloser() {
+        if (owned != 0) {
+            ::CloseClipboard();
+        }
+    }
+    ClipboardCloser(const ClipboardCloser &) = delete;
+    ClipboardCloser &operator=(const ClipboardCloser &) = delete;
+};
+
+/// Opens the clipboard with the bounded retry discipline; on success the
+/// closer owns the pairing CloseClipboard. Returns false (with the outcome
+/// error set) when the retry window is exhausted or the token fires.
+bool open_clipboard_bounded(ClipboardCloser &closer, const CancelToken &cancel,
+                            mirage::desktop::ProviderError &failure) {
+    const auto deadline = std::chrono::steady_clock::now() + kClipboardOpenDeadline;
+    for (;;) {
+        closer.owned = ::OpenClipboard(nullptr);
+        if (closer.owned != 0) {
+            return true;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            failure =
+                error("io_error", "clipboard is held by another window" + last_error_suffix());
+            return false;
+        }
+        if (cancel.cancelled()) {
+            failure = error("cancelled", "clipboard cancelled");
+            return false;
+        }
+        ::Sleep(static_cast<DWORD>(kClipboardRetrySlice.count()));
+    }
 }
 
 struct EnumWindowsContext {
@@ -719,6 +768,136 @@ PointerQueryOutcome Win32Backend::pointer_position(const CancelToken &cancel) {
     // coordinate space of the contract.
     outcome.position.x = position.x;
     outcome.position.y = position.y;
+    outcome.ok = true;
+    return outcome;
+}
+
+ClipboardReadOutcome Win32Backend::read_text(const ClipboardReadLimits &limits,
+                                             const CancelToken &cancel) {
+    ClipboardReadOutcome outcome;
+    std::lock_guard<std::mutex> guard(mutex_);
+    if (cancel.cancelled()) {
+        outcome.error = error("cancelled", "clipboard read cancelled");
+        return outcome;
+    }
+    if (limits.max_bytes == 0) {
+        outcome.error = error("invalid_argument", "read budget must be positive");
+        return outcome;
+    }
+    ClipboardCloser closer;
+    if (!open_clipboard_bounded(closer, cancel, outcome.error)) {
+        return outcome;
+    }
+    if (::IsClipboardFormatAvailable(CF_UNICODETEXT) == 0) {
+        // Distinguish an empty clipboard from non-text content (M2-04
+        // contract): the format count is the honest witness.
+        if (::CountClipboardFormats() == 0) {
+            outcome.error = error("not_found", "clipboard is empty");
+        } else {
+            outcome.error = error("unsupported_content", "clipboard has no plain text");
+        }
+        return outcome;
+    }
+    HANDLE data = ::GetClipboardData(CF_UNICODETEXT);
+    if (data == nullptr) {
+        outcome.error =
+            error("io_error", "clipboard text handle unavailable" + last_error_suffix());
+        return outcome;
+    }
+    const wchar_t *wide = static_cast<const wchar_t *>(::GlobalLock(data));
+    if (wide == nullptr) {
+        outcome.error =
+            error("io_error", "clipboard text could not be locked" + last_error_suffix());
+        return outcome;
+    }
+    // The clipboard hands out a NUL-terminated UTF-16 blob whose allocation
+    // may exceed the string; the string constructor reads up to the NUL and
+    // the conversion below allocates only the text itself.
+    std::wstring content_wide(wide);
+    ::GlobalUnlock(data);
+    outcome.content = utf16_to_utf8(content_wide);
+    if (outcome.content.empty() && !content_wide.empty()) {
+        outcome.error = error("io_error", "clipboard text could not be converted to UTF-8");
+        return outcome;
+    }
+    if (outcome.content.size() > limits.max_bytes) {
+        // Refusal over a cap on environment-supplied content — never a
+        // silent truncation (M2-04 contract).
+        outcome.content.clear();
+        outcome.error =
+            error("clipboard_too_large", "clipboard text exceeds the read budget of " +
+                                             std::to_string(limits.max_bytes) + " bytes");
+        return outcome;
+    }
+    outcome.ok = true;
+    return outcome;
+}
+
+ClipboardWriteOutcome Win32Backend::write_text(const std::string &text,
+                                               const ClipboardWriteLimits &limits,
+                                               const CancelToken &cancel) {
+    ClipboardWriteOutcome outcome;
+    std::lock_guard<std::mutex> guard(mutex_);
+    if (cancel.cancelled()) {
+        outcome.cancelled = true;
+        outcome.error = error("cancelled", "clipboard write cancelled");
+        return outcome;
+    }
+    if (limits.max_bytes == 0) {
+        outcome.error = error("invalid_argument", "write budget must be positive");
+        return outcome;
+    }
+    if (text.size() > limits.max_bytes) {
+        outcome.error = error("invalid_argument", "payload exceeds the write budget of " +
+                                                      std::to_string(limits.max_bytes) + " bytes");
+        return outcome;
+    }
+    if (!mirage::desktop::is_valid_utf8(text)) {
+        outcome.error = error("invalid_argument", "text must be UTF-8");
+        return outcome;
+    }
+    const auto wide = utf8_to_utf16(text);
+    if (!wide.has_value()) {
+        // Checked at the entry, kept as a guard for the conversion itself.
+        outcome.error = error("invalid_argument", "text must be UTF-8");
+        return outcome;
+    }
+    ClipboardCloser closer;
+    if (!open_clipboard_bounded(closer, cancel, outcome.error)) {
+        if (outcome.error.code == "cancelled") {
+            outcome.cancelled = true;
+        }
+        return outcome;
+    }
+    if (::EmptyClipboard() == 0) {
+        outcome.error = error("io_error", "clipboard could not be emptied" + last_error_suffix());
+        return outcome;
+    }
+    // A failed SetClipboardData leaves the clipboard emptied — the side
+    // effect already happened and cannot be rolled back; the io_error says
+    // so honestly instead of pretending the old content survived.
+    const SIZE_T byte_count = (wide->size() + 1) * sizeof(wchar_t);
+    HGLOBAL global = ::GlobalAlloc(GMEM_MOVEABLE, byte_count);
+    if (global == nullptr) {
+        outcome.error = error("io_error", "clipboard allocation failed" + last_error_suffix());
+        return outcome;
+    }
+    void *mem = ::GlobalLock(global);
+    if (mem == nullptr) {
+        ::GlobalFree(global);
+        outcome.error =
+            error("io_error", "clipboard allocation could not be locked" + last_error_suffix());
+        return outcome;
+    }
+    std::memcpy(mem, wide->c_str(), byte_count);
+    ::GlobalUnlock(global);
+    if (::SetClipboardData(CF_UNICODETEXT, global) == nullptr) {
+        // Failure keeps us owning the allocation.
+        ::GlobalFree(global);
+        outcome.error = error("io_error", "clipboard text could not be set" + last_error_suffix());
+        return outcome;
+    }
+    // Ownership of `global` moved to the clipboard — never freed here.
     outcome.ok = true;
     return outcome;
 }

@@ -3,6 +3,7 @@
 #include <memory>
 
 #include <mirage/desktop/desktop_environment.hpp>
+#include <mirage/desktop/process_provider.hpp>
 
 namespace mirage::platform::windows_backend {
 
@@ -28,12 +29,13 @@ struct UiaOptions {
 };
 
 /// Windows Desktop Environment (design doc sections 5 and 10): the M4-01
-/// Win32 window / capture / input surface plus the M4-02 UIA accessibility
-/// provider when opted in. Later M4 work items attach the clipboard,
-/// application and notification providers (M4-03..M4-05) and the
-/// Filesystem / Process surfaces (M4-03); until then those accessors report
-/// the base-class null default — a missing capability instead of a broken
-/// provider (fail closed, DEC-008).
+/// Win32 window / capture / input surface, the M4-02 UIA accessibility
+/// provider, the M4-03 Win32 clipboard (all opt-in) and the process
+/// execution surface (always available: CreateProcess works in any session,
+/// including service contexts). Later M4 work items attach the application
+/// and notification providers (M4-04..M4-05); until then those accessors
+/// report the base-class null default — a missing capability instead of a
+/// broken provider (fail closed, DEC-008).
 ///
 /// The Desktop Permission gate (RULE-05) is judged by the runtime layer
 /// before actions reach any provider; this class itself stays
@@ -42,7 +44,8 @@ struct UiaOptions {
 /// instance runs, and it implements the provider interfaces through the
 /// private Win32 / UIA frontends (adapter depends on the desktop core
 /// interfaces, DEC-008).
-class WindowsDesktopEnvironment final : public mirage::desktop::DesktopEnvironment {
+class WindowsDesktopEnvironment final : public mirage::desktop::DesktopEnvironment,
+                                        public mirage::desktop::ProcessProvider {
   public:
     explicit WindowsDesktopEnvironment(Win32Options win32_options = {},
                                        UiaOptions uia_options = {});
@@ -58,6 +61,15 @@ class WindowsDesktopEnvironment final : public mirage::desktop::DesktopEnvironme
     mirage::desktop::ScreenProvider *screen() override;
     mirage::desktop::InputProvider *input() override;
     mirage::desktop::AccessibilityProvider *accessibility() override;
+    mirage::desktop::ClipboardProvider *clipboard() override;
+    mirage::desktop::ProcessProvider *process() override { return this; }
+
+    // The three-argument override would hide the base convenience.
+    using mirage::desktop::ProcessProvider::execute;
+
+    mirage::desktop::ProcessOutcome execute(const std::string &command,
+                                            const mirage::desktop::ProcessLimits &limits,
+                                            const mirage::desktop::CancelToken &cancel) override;
 
   private:
     std::unique_ptr<Win32Backend> win32_;
