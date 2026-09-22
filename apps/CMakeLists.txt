@@ -39,6 +39,13 @@ target_link_libraries(mirage-service
 # drive the pinned Executor fabric directly, so executor headers are
 # consumed as SYSTEM headers and the library is linked by file path (same
 # consumption form as the runtime service).
+#
+# POSIX-only by transport: the bridge is written against Unix sockets and
+# poll(2). It is NOT one of the M4-06 product process forms (mirage-service
+# / mirage / tray), so the Windows build excludes it instead of forking a
+# named-pipe variant of a development tool; a Windows bridge is a
+# follow-up if the dev workflow ever needs it.
+if(UNIX)
 add_library(mirage_devbridge_core STATIC
     devbridge/bridge_loop.cpp
     devbridge/websocket.cpp
@@ -71,5 +78,8 @@ target_link_libraries(mirage-devbridge
     PRIVATE
         mirage_devbridge_core
 )
+endif()
 
-# apps/desktop and apps/tray join with the M5 desktop product milestone.
+# apps/desktop and apps/tray join with the M5 desktop product milestone
+# (the M4-06 "tray buildable" criterion carries over to that target; there
+# is deliberately no stub target before it).

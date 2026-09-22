@@ -4,10 +4,21 @@
 #include <mirage/runtime/mira_host.hpp>
 #include <mirage/runtime/runtime_service.hpp>
 
+#include <chrono>
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <filesystem>
+#include <iterator>
+#include <windows.h>
+#else
 #include <fcntl.h>
 #include <unistd.h>
-
-#include <chrono>
+#endif
 #include <cstdlib>
 #include <functional>
 #include <iostream>
@@ -249,6 +260,22 @@ int command_service_start(int argc, char **argv) {
         return kExitUsage;
     }
     // Locate the sibling mirage-service binary next to this executable.
+#ifdef _WIN32
+    wchar_t self_wide[4096];
+    const DWORD self_length =
+        ::GetModuleFileNameW(nullptr, self_wide, static_cast<DWORD>(std::size(self_wide)));
+    if (self_length == 0 || self_length >= std::size(self_wide)) {
+        std::cerr << kProgramName << ": cannot resolve the executable path\n";
+        return kExitFailure;
+    }
+    std::filesystem::path service_path =
+        std::filesystem::path(self_wide).parent_path() / "mirage-service.exe";
+    if (!std::filesystem::exists(service_path)) {
+        service_path = std::filesystem::path(self_wide).parent_path() / "mirage-service";
+    }
+    const std::string service_binary = service_path.string();
+    const std::string service_display = service_path.string();
+#else
     char self_path[4096];
     const ssize_t length = ::readlink("/proc/self/exe", self_path, sizeof(self_path) - 1);
     if (length <= 0) {
@@ -260,15 +287,52 @@ int command_service_start(int argc, char **argv) {
     const auto slash = self.rfind('/');
     const std::string service_binary =
         (slash == std::string::npos ? std::string(".") : self.substr(0, slash)) + "/mirage-service";
+    const std::string &service_display = service_binary;
+#endif
 
     const std::string socket = options.socket_path.empty()
                                    ? mirage::runtime::ipc::default_socket_path()
                                    : options.socket_path;
+    std::optional<long> child_pid;
+#ifdef _WIN32
+    std::string arguments = "\"" + service_binary + "\" --socket \"" + socket + "\"";
+    for (const std::string &root : read_roots) {
+        arguments += " --read-root \"" + root + "\"";
+    }
+    for (const std::string &perm : perm_flags) {
+        arguments += " --perm " + perm;
+    }
+    if (!confirm_mode.empty()) {
+        arguments += " --confirm " + confirm_mode;
+    }
+    if (!config_path.empty()) {
+        arguments += " --config \"" + config_path + "\"";
+    }
+    if (!state_dir.empty()) {
+        arguments += " --state-dir \"" + state_dir + "\"";
+    }
+    if (no_recovery) {
+        arguments += " --no-recovery";
+    }
+    STARTUPINFOA startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    if (!::CreateProcessA(nullptr, arguments.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr,
+                          &startup, &process)) {
+        std::cerr << kProgramName << ": CreateProcess for " << service_binary
+                  << " failed (Win32 error " << ::GetLastError() << ")\n";
+        return kExitFailure;
+    }
+    child_pid = static_cast<long>(process.dwProcessId);
+    ::CloseHandle(process.hThread);
+    ::CloseHandle(process.hProcess);
+#else
     const pid_t child = ::fork();
     if (child < 0) {
         std::cerr << kProgramName << ": fork failed\n";
         return kExitFailure;
     }
+    child_pid = static_cast<long>(child);
     if (child == 0) {
         // Child: become the service (DEC-007 item 6). The parent exits as
         // soon as the endpoint answers hello.
@@ -303,6 +367,7 @@ int command_service_start(int argc, char **argv) {
         ::execv(service_binary.c_str(), argv_child.data());
         ::_exit(127);
     }
+#endif
     // Parent: wait for readiness by probing the endpoint.
     const auto deadline = std::chrono::steady_clock::now() + wait;
     auto probe_client = client_for(options);
@@ -310,15 +375,19 @@ int command_service_start(int argc, char **argv) {
         const auto probe =
             probe_client.call(mirage::runtime::ipc::HelloRequest{}, std::chrono::milliseconds{500});
         if (probe.ok) {
-            std::cout << "service ready at " << socket << " (pid " << child << ")\n";
+            std::cout << "service ready at " << socket << " (pid " << *child_pid << ")\n";
             print_identity(std::get<mirage::runtime::ipc::ServiceIdentity>(probe.payload), socket);
             return kExitOk;
         }
+#ifdef _WIN32
+        ::Sleep(100);
+#else
         ::usleep(100 * 1000);
+#endif
     }
     std::cerr << kProgramName << ": service did not become ready within "
               << std::chrono::duration_cast<std::chrono::seconds>(wait).count() << "s (check "
-              << service_binary << " output)\n";
+              << service_display << " output)\n";
     return kExitFailure;
 }
 

@@ -270,7 +270,7 @@ bool DevBridgeLoop::handle_ws_readable(std::map<int, Session>::iterator entry) {
                     dependencies_.upstream_socket_path.size() + 1);
         if (::connect(upstream_fd, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) ==
             0) {
-            session.upstream = mirage::runtime::ipc::IpcStream(upstream_fd);
+            session.upstream = mirage::runtime::ipc::IpcStream::adopt_native(upstream_fd);
             session.phase = Phase::relaying;
         } else if (errno == EINPROGRESS) {
             session.connecting_fd = upstream_fd;
@@ -393,7 +393,7 @@ bool DevBridgeLoop::finish_upstream_connect(std::map<int, Session>::iterator ent
     }
     const int fd = session.connecting_fd;
     session.connecting_fd = -1;
-    session.upstream = mirage::runtime::ipc::IpcStream(fd);
+    session.upstream = mirage::runtime::ipc::IpcStream::adopt_native(fd);
     session.phase = Phase::relaying;
     return true;
 }
