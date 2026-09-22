@@ -1,6 +1,7 @@
 #include <mirage/platform/windows/windows_desktop_environment.hpp>
 
 #include "application_backend.hpp"
+#include "notification_backend.hpp"
 #include "uia_backend.hpp"
 #include "win32_backend.hpp"
 #include "win32_util.hpp"
@@ -138,7 +139,8 @@ void terminate_tree_fallback(DWORD root_pid) {
 
 WindowsDesktopEnvironment::WindowsDesktopEnvironment(Win32Options win32_options,
                                                      UiaOptions uia_options,
-                                                     ApplicationOptions application_options) {
+                                                     ApplicationOptions application_options,
+                                                     NotificationsOptions notifications_options) {
     if (win32_options.enabled) {
         win32_ = Win32Backend::open();
         // A failed probe (no interactive display in this session)
@@ -157,6 +159,13 @@ WindowsDesktopEnvironment::WindowsDesktopEnvironment(Win32Options win32_options,
         // snapshot and WM_CLOSE posting work in any session, including
         // service contexts — the ProcessProvider availability model.
         application_ = ApplicationBackend::open();
+    }
+    if (notifications_options.enabled) {
+        notification_ = NotificationBackend::open();
+        // A failed probe (no notification area in this session — a service
+        // context, a shell-less desktop) intentionally leaves notification_
+        // null: the Linux backend's missing-session-bus discipline (fail
+        // closed, DEC-018 decision 2).
     }
 }
 
@@ -188,6 +197,10 @@ mirage::desktop::ClipboardProvider *WindowsDesktopEnvironment::clipboard() {
 
 mirage::desktop::ApplicationProvider *WindowsDesktopEnvironment::application() {
     return application_ != nullptr ? application_->application() : nullptr;
+}
+
+mirage::desktop::NotificationProvider *WindowsDesktopEnvironment::notification() {
+    return notification_ != nullptr ? notification_->notification() : nullptr;
 }
 
 ProcessOutcome WindowsDesktopEnvironment::execute(const std::string &command,

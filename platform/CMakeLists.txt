@@ -90,17 +90,20 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         windows/src/platform_windows.cpp
         windows/src/windows_desktop_environment.cpp
         # The Win32 frontend (M4-01), the UIA accessibility frontend
-        # (M4-02) and the application frontend (M4-04) have no stub
-        # variant: user32 / gdi32 / ole32 / oleaut32 / shell32 are part of
-        # every Windows SDK, so the only honest failure mode is a probe
-        # failure at open() time (accessors null, fail closed) — never a
-        # compile-time absence. shell32 carries the known-folder API the
-        # Start Menu discovery resolves its roots through; the shell-link
-        # COM object needs no import library (its GUIDs are defined in the
-        # frontend, the interfaces resolve via __uuidof).
+        # (M4-02), the application frontend (M4-04) and the notification
+        # frontend (M4-05) have no stub variant: user32 / gdi32 / ole32 /
+        # oleaut32 / shell32 are part of every Windows SDK, so the only
+        # honest failure mode is a probe failure at open() time (accessors
+        # null, fail closed) — never a compile-time absence. shell32
+        # carries the known-folder API the Start Menu discovery resolves
+        # its roots through and the Shell_NotifyIcon carrier of the
+        # notification frontend; the shell-link COM object needs no import
+        # library (its GUIDs are defined in the frontend, the interfaces
+        # resolve via __uuidof).
         windows/src/win32_backend.cpp
         windows/src/uia_backend.cpp
         windows/src/application_backend.cpp
+        windows/src/notification_backend.cpp
     )
     target_link_libraries(mirage_platform PRIVATE user32 gdi32 ole32 oleaut32 shell32)
     target_link_libraries(mirage_platform PUBLIC Mirage::desktop)
