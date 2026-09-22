@@ -275,15 +275,29 @@ IoResult IpcStream::read_some(char *data, std::size_t size) {
     if (issued == ERROR_IO_PENDING) {
         // The zero wait loses to scheduling far more often than not; the
         // queued read is aborted and reaped with the caller's buffer still
-        // in scope, so partial progress is reported, never lost.
+        // in scope. The transfer count is authoritative even for an aborted
+        // operation — GetOverlappedResult reports FALSE with
+        // ERROR_OPERATION_ABORTED while `reaped` still carries the bytes
+        // that already landed in the caller's buffer — so any positive
+        // count is delivered as Ok, never dropped.
         if (::WaitForSingleObject(overlapped.hEvent, 0) != WAIT_OBJECT_0) {
             ::CancelIoEx(handle, &overlapped);
             DWORD reaped = 0;
-            if (::GetOverlappedResult(handle, &overlapped, &reaped, TRUE) != 0 && reaped > 0) {
-                result.bytes = reaped; // the cancel raced a completion: bytes are real
+            const BOOL completed = ::GetOverlappedResult(handle, &overlapped, &reaped, TRUE);
+            const DWORD reap_error = completed ? ERROR_SUCCESS : ::GetLastError();
+            if (reaped > 0) {
+                result.bytes = reaped;
+                result.status = IoStatus::Ok;
                 return result;
             }
-            result.status = IoStatus::WouldBlock;
+            if (reap_error == ERROR_OPERATION_ABORTED) {
+                result.status = IoStatus::WouldBlock;
+            } else if (reap_error == ERROR_BROKEN_PIPE) {
+                result.status = IoStatus::Closed;
+            } else {
+                result.status = IoStatus::Error;
+                result.os_error = static_cast<int>(reap_error);
+            }
             return result;
         }
     } else if (issued != ERROR_SUCCESS) {
@@ -333,15 +347,28 @@ IoResult IpcStream::write_some(const char *data, std::size_t size) {
     OVERLAPPED overlapped{};
     const DWORD issued = issue_write(handle, &overlapped, state->write_event, data, size);
     if (issued == ERROR_IO_PENDING) {
+        // Mirror of the read path: the transfer count is authoritative even
+        // for an aborted operation — bytes already on the wire are reported
+        // as Ok so the caller resumes from the true cursor; nothing enters
+        // the pipe twice and nothing is dropped.
         if (::WaitForSingleObject(overlapped.hEvent, 0) != WAIT_OBJECT_0) {
             cancel_and_reap(handle, &overlapped);
             DWORD written = 0;
-            if (::GetOverlappedResult(handle, &overlapped, &written, FALSE) != 0 && written > 0) {
-                result.bytes = written; // the cancel raced a completion
+            const BOOL completed = ::GetOverlappedResult(handle, &overlapped, &written, TRUE);
+            const DWORD reap_error = completed ? ERROR_SUCCESS : ::GetLastError();
+            if (written > 0) {
+                result.bytes = written;
                 result.status = IoStatus::Ok;
                 return result;
             }
-            result.status = IoStatus::WouldBlock;
+            if (reap_error == ERROR_OPERATION_ABORTED) {
+                result.status = IoStatus::WouldBlock;
+            } else if (reap_error == ERROR_BROKEN_PIPE) {
+                result.status = IoStatus::Closed;
+            } else {
+                result.status = IoStatus::Error;
+                result.os_error = static_cast<int>(reap_error);
+            }
             return result;
         }
     } else if (issued != ERROR_SUCCESS) {
