@@ -1,5 +1,6 @@
 #include <mirage/platform/windows/windows_desktop_environment.hpp>
 
+#include "application_backend.hpp"
 #include "uia_backend.hpp"
 #include "win32_backend.hpp"
 #include "win32_util.hpp"
@@ -103,7 +104,13 @@ void terminate_tree_fallback(DWORD root_pid) {
     std::vector<DWORD> known{root_pid};
     for (int pass = 0; pass < 2; ++pass) {
         UniqueHandle snapshot(::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
-        if (snapshot == nullptr) {
+        // The API's failure value is INVALID_HANDLE_VALUE (not nullptr);
+        // a failed snapshot must be loud — silently skipping a teardown
+        // pass would leave descendants of the command tree alive.
+        if (snapshot.get() == INVALID_HANDLE_VALUE) {
+            std::fprintf(stderr, "[win32-exec] tree fallback: process snapshot unavailable%s\n",
+                         win32_util::last_error_suffix().c_str());
+            std::fflush(stderr);
             return;
         }
         PROCESSENTRY32W entry{};
@@ -130,7 +137,8 @@ void terminate_tree_fallback(DWORD root_pid) {
 } // namespace
 
 WindowsDesktopEnvironment::WindowsDesktopEnvironment(Win32Options win32_options,
-                                                     UiaOptions uia_options) {
+                                                     UiaOptions uia_options,
+                                                     ApplicationOptions application_options) {
     if (win32_options.enabled) {
         win32_ = Win32Backend::open();
         // A failed probe (no interactive display in this session)
@@ -143,6 +151,12 @@ WindowsDesktopEnvironment::WindowsDesktopEnvironment(Win32Options win32_options,
         // A failed probe (UIA client core unavailable, or the constructing
         // thread is bound to a foreign COM apartment) intentionally leaves
         // uia_ null — fail closed, same honesty discipline.
+    }
+    if (application_options.enabled) {
+        // Unconditional open (M4-04): discovery, CreateProcess, the process
+        // snapshot and WM_CLOSE posting work in any session, including
+        // service contexts — the ProcessProvider availability model.
+        application_ = ApplicationBackend::open();
     }
 }
 
@@ -170,6 +184,10 @@ mirage::desktop::AccessibilityProvider *WindowsDesktopEnvironment::accessibility
 
 mirage::desktop::ClipboardProvider *WindowsDesktopEnvironment::clipboard() {
     return win32_ != nullptr ? win32_->clipboard() : nullptr;
+}
+
+mirage::desktop::ApplicationProvider *WindowsDesktopEnvironment::application() {
+    return application_ != nullptr ? application_->application() : nullptr;
 }
 
 ProcessOutcome WindowsDesktopEnvironment::execute(const std::string &command,

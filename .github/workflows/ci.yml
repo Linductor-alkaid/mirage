@@ -107,10 +107,11 @@ jobs:
           --target mirage_desktop mirage_platform provider_contract_test
           desktop_observation_test observation_assembler_test permission_test
           win32_backend_test uia_backend_test win32_clipboard_process_test
+          win32_application_test
       - name: Test
         run: >-
           ctest --test-dir build/windows -C Debug --output-on-failure
-          -R "^(provider_contract_test|desktop_observation_test|observation_assembler_test|permission_test|win32_backend_test|uia_backend_test|win32_clipboard_process_test)$"
+          -R "^(provider_contract_test|desktop_observation_test|observation_assembler_test|permission_test|win32_backend_test|uia_backend_test|win32_clipboard_process_test|win32_application_test)$"
       # The invariant-style win32/uia tests print their check summaries and
       # the session-capability notes (foreground lock, SendInput refusals)
       # on stderr; ctest hides passing output, so re-run them verbose to
@@ -118,7 +119,7 @@ jobs:
       - name: Windows frontend evidence
         run: >-
           ctest --test-dir build/windows -C Debug
-          -R "^(win32_backend_test|uia_backend_test|win32_clipboard_process_test)$"
+          -R "^(win32_backend_test|uia_backend_test|win32_clipboard_process_test|win32_application_test)$"
           --output-on-failure -V
 
   frontend:

@@ -7,8 +7,9 @@
 
 namespace mirage::platform::windows_backend {
 
-class Win32Backend; // private in src/: no Win32 type may appear here (RULE-01)
-class UiaBackend;   // ditto for the UI Automation frontend (M4-02)
+class Win32Backend;       // private in src/: no Win32 type may appear here (RULE-01)
+class UiaBackend;         // ditto for the UI Automation frontend (M4-02)
+class ApplicationBackend; // ditto for the application frontend (M4-04)
 
 /// Opt-in Win32 surface of the Windows backend (M4-01, DEC-017). When
 /// enabled the environment probes the interactive desktop at construction
@@ -28,14 +29,24 @@ struct UiaOptions {
     bool enabled = false;
 };
 
+/// Opt-in application surface (M4-04): Start Menu shortcut discovery,
+/// launch, running-state and cooperative termination. Unlike the Win32 and
+/// UIA probes, the application frontend's mechanisms (file-system
+/// discovery, CreateProcess, the process snapshot, WM_CLOSE posting) work
+/// in any session, so opening it cannot fail — the option only decides
+/// whether the capability is exposed at all.
+struct ApplicationOptions {
+    bool enabled = false;
+};
+
 /// Windows Desktop Environment (design doc sections 5 and 10): the M4-01
 /// Win32 window / capture / input surface, the M4-02 UIA accessibility
-/// provider, the M4-03 Win32 clipboard (all opt-in) and the process
-/// execution surface (always available: CreateProcess works in any session,
-/// including service contexts). Later M4 work items attach the application
-/// and notification providers (M4-04..M4-05); until then those accessors
-/// report the base-class null default — a missing capability instead of a
-/// broken provider (fail closed, DEC-008).
+/// provider, the M4-03 Win32 clipboard (all opt-in), the M4-04 application
+/// provider (opt-in) and the process execution surface (always available:
+/// CreateProcess works in any session, including service contexts). Later
+/// M4 work items attach the notification provider (M4-05); until then that
+/// accessor reports the base-class null default — a missing capability
+/// instead of a broken provider (fail closed, DEC-008).
 ///
 /// The Desktop Permission gate (RULE-05) is judged by the runtime layer
 /// before actions reach any provider; this class itself stays
@@ -47,8 +58,8 @@ struct UiaOptions {
 class WindowsDesktopEnvironment final : public mirage::desktop::DesktopEnvironment,
                                         public mirage::desktop::ProcessProvider {
   public:
-    explicit WindowsDesktopEnvironment(Win32Options win32_options = {},
-                                       UiaOptions uia_options = {});
+    explicit WindowsDesktopEnvironment(Win32Options win32_options = {}, UiaOptions uia_options = {},
+                                       ApplicationOptions application_options = {});
 
     ~WindowsDesktopEnvironment() override;
 
@@ -62,6 +73,7 @@ class WindowsDesktopEnvironment final : public mirage::desktop::DesktopEnvironme
     mirage::desktop::InputProvider *input() override;
     mirage::desktop::AccessibilityProvider *accessibility() override;
     mirage::desktop::ClipboardProvider *clipboard() override;
+    mirage::desktop::ApplicationProvider *application() override;
     mirage::desktop::ProcessProvider *process() override { return this; }
 
     // The three-argument override would hide the base convenience.
@@ -74,6 +86,7 @@ class WindowsDesktopEnvironment final : public mirage::desktop::DesktopEnvironme
   private:
     std::unique_ptr<Win32Backend> win32_;
     std::unique_ptr<UiaBackend> uia_;
+    std::unique_ptr<ApplicationBackend> application_;
 };
 
 } // namespace mirage::platform::windows_backend

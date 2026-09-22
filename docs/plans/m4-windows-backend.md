@@ -6,7 +6,7 @@
 > 前置：[M2](m2-desktop-environment.md)（已完成：Desktop Environment 九个 Provider
 > 契约、SemanticSnapshot、ElementTarget 解析顺序契约；Linux Backend 同型骨架先例）
 > 建议发布点：`release-delta`（tag 待维护者授权后创建）
-> 更新日期：2026-09-22（M4-03 完成）
+> 更新日期：2026-09-22（M4-04 完成）
 
 ## 目标
 
@@ -89,7 +89,7 @@ Backend（设计文档第 10、18 节第四阶段）：UI Automation 承载语�
 - [x] `M4-03` ClipboardProvider（Win32）与 ProcessProvider Windows 承载：
       `CF_UNICODETEXT` 读写、预算与 UTF-8 转换（对齐 M2-04 契约语义）；
       ProcessProvider 经 `CreateProcess` 的有界执行与取消（对齐 M1-05 语义）。
-- [ ] `M4-04` ApplicationProvider（Windows）：应用发现（开始菜单快捷方式 /
+- [x] `M4-04` ApplicationProvider（Windows）：应用发现（开始菜单快捷方式 /
       注册表 Uninstall 面，机制随实现定案并记录）、启动 / 运行态 / 终止
       （对齐 M2-05 语义：tracked 实例、TERM 等价的协作式收尾、不强杀）。
 - [ ] `M4-05` 通知承载决策与 NotificationProvider（Windows）：toast（COM /
@@ -386,3 +386,94 @@ Provider（UIA）先于外围 Provider、产品进程化（`M4-06`）不阻塞 B
   程序成立，断言已按 ASCII 子串降敏；③ 后代收割依赖 `KILL_ON_JOB_CLOSE`
   语义，共享 runner 上不可独立观测（注记声明，不硬断言）。
 - 同步：[M4 计划](m4-windows-backend.md)（本记录）、PR #41 CI 取证。
+
+2026-09-22：`M4-04` ApplicationProvider（Windows）完成。
+
+- 范围：`platform/windows` 新增私有应用前端
+  `application_backend.{hpp,cpp}`（实现 M2-05 冻结的 `ApplicationProvider`，
+  Linux `application_backend` 先例同型；COM / shell 类型不出 .cpp，`RULE-01`）。
+  **发现机制在实现中定案：开始菜单快捷方式（.lnk）面**，注册表 Uninstall 面
+  否决——Uninstall 键的 `UninstallString` 是卸载器入口而非启动器（launch 契约
+  执行它会触发卸载），`DisplayIcon` 推导启动目标不可靠；.lnk 是 Windows 上与
+  Linux desktop entry 同构的用户可见启动入口（携带目标路径 / 参数 / 工作目录 /
+  窗口状态，用户根对机器根按相对 id 优先级遮蔽——XDG 先例同型），可承载
+  list / launch / running 全语义面。发现 = 遍历机器与用户两个 Start Menu
+  Programs 树（`SHGetKnownFolderPath`；隐藏属性 = NoDisplay 同型过滤；遍历
+  4096 项上限，`RULE-07`），id = Programs 根下相对路径（'/' 分隔，含 .lnk），
+  id 校验拒绝 `..` / 反斜杠 / 空段 / 前导与尾随分隔符（路径逃逸 fail closed）；
+  .lnk 解析经 IShellLink + IPersistFile（调用域 COM，无需跨调用锚——本前端
+  无跨调用 COM 状态，与 UIA 锚的区别注明）；三个冻结系统 GUID 本地 constexpr
+  定义 + `__uuidof` 解析接口（M4-02 纪律，双工具链同声明，无 uuid.lib 依赖）。
+  `launch` 拒绝序对齐 fake 契约（cancelled → timeout → 空 id → 超长 id →
+  未知 id `not_found` 不建进程 → `already_running`（tracked 优先 + 按映像名
+  扫描的外部实例同样拦截）→ 注册表满 `result_too_large`（容量 256）→
+  `CreateProcessW` 直接启动解析目标（无 job object——应用必须活过调用，与
+  M4-03 预算执行相反；不动 job 即无 KILL_ON_JOB_CLOSE 副作用）），快捷方式
+  "Start in" 缺省回退目标目录，窗口状态（"Run:" 框）经
+  `STARTF_USESHOWWINDOW` 如实传递；`requireAdministrator` 目标
+  `CreateProcess` 不提权 → 诚实 `io_error`（前台锁定同类的系统安全边界，
+  不绕过）。`running_state` / `list` 运行判定 = tracked 注册表（句柄
+  signaled 即退出，机会性 reap 无后台线程，`RULE-03`）+ 有界
+  `CreateToolhelp32Snapshot` 映像名扫描（4096 进程上限；`GetProcessTimes`
+  创建时间排序"最老存活者胜"——M2-05 决定性同型）。`terminate` = 向实例
+  pid 的全部顶层窗口 `PostMessageW(WM_CLOSE)`（TERM 等价协作式收尾；
+  PostMessage 不阻塞，挂死窗口不会卡住 provider；conhost 载体窗口属
+  conhost pid，控制台实例如实不可达），25 ms 切片有界等待（tracked 等自身
+  句柄，外部 pid `OpenProcess(SYNCHRONIZE)`——打开失败时快照复查，已死即
+  ok（ESRCH 先例），存活则诚实 `io_error`）；**全程无 TerminateProcess**，
+  忽略关闭请求的实例 → `deadline_exceeded` 且实例存活可见；取消 → 实例保持
+  运行。`WindowsDesktopEnvironment` 增 `ApplicationOptions`（默认关，带默认
+  值追加，既有构造点不受影响）与 `application()` 访问器；应用前端 open()
+  无条件可用（发现 / CreateProcess / 快照 / WM_CLOSE 均不要求交互桌面，
+  ProcessProvider 可用性模型同型）。CMake：平台库增源并链接 `shell32`（已知
+  文件夹 API 的唯一新增导入；shell-link COM 对象无导入库需求）。
+- 依据：设计文档第 5、10、18 节；`DEC-005` / `DEC-009` / `DEC-010` /
+  `DEC-015`（先例）/ `DEC-017`；M2-05 冻结语义与 fake 契约；
+  `RULE-01` / `RULE-03` / `RULE-05` / `RULE-07`。
+- 验证（本分支实现轮，主循环编译级取证；运行级取证随本 PR 的 CI windows
+  作业执行，结论按仓库先例由下一个工作项的 PR 补录）：
+  - MinGW 交叉门禁（Linux x64 主机，MinGW-w64 GCC 13.2.0 posix 用户前缀）：
+    `mirage_desktop` / `mirage_platform` / `win32_application_test` /
+    `m404_process_helper` / 既有三个 win32 测试 / 4 个可移植测试共 10 目标
+    `MIRAGE_WARNINGS_AS_ERRORS=ON` 构建成功 **0 诊断**；
+    `win32_application_test.exe` / `m404_process_helper.exe` 经 `file` 认证
+    PE32+ x86-64；测试 exe 导出面含 SHELL32.dll（经平台库的已知文件夹
+    API），平台库成员含 `application_backend.cpp.obj`；全树 `all` 目标的
+    失败点仍为已登记的 pinned executor MinGW 缺口（`MIRA-20260922-001`，
+    third_party 不可动，与本工作项无关）。
+  - Linux 主机（debug 预设）不回归：configure + build + ctest **32/32 通过
+    0 skip**（Linux 不编译 Windows TU；release / asan / ubsan / tsan 四预设
+    由独立验证轮按 DOD-03 补齐）。
+  - 门禁：`mirage-format-check` 通过（clang-format 18.1.3）；
+    `mirage-boundary-check` **0 violations in 37 headers**（公共头仅扩展
+    `windows_desktop_environment.hpp`，零新增 Win32 类型）。
+  - 新增 `tests/platform/win32_application_test.cpp`（10 场景）+
+    `tests/platform/m404_process_helper.cpp`（窗口型应用替身：hold =
+    WM_CLOSE 协作退出（SIGTERM 响应型孪生）/ ignore-close = 吞掉 WM_CLOSE
+    （stuck 孪生）/ exit = 自退；ready-file 在窗口存在后才落盘；自带安全
+    定时器）。场景：option 关闭时访问器 null、发现列出 fixture 且跳过隐藏
+    项（独立快照对照）、预算 `result_too_large` 不截断、冻结拒绝序 +
+    快照金丝雀（拒绝的 launch 从未产生进程）、未知与逃逸 id（`..` / 反斜杠
+    / 空段 / 尾斜杠）fail closed、launch → running_state / list / 独立快照
+    三方一致 → 重复 launch `already_running` 且无重复进程 → 协作 terminate
+    （WM_CLOSE 真实送达窗口泵）→ 三处归零 → 再 terminate `not_found`、
+    自退实例机会性 reap 无残留、外部同名实例按名可见并可被协作终止、
+    ignore-close 实例 → `deadline_exceeded` 且 running 可见（测试侧强制
+    清理，provider 全程不强杀）、等待中途定时器取消 → `cancelled` 且实例
+    保持 tracked 存活、非 ASCII id（UTF-16 转义构造，双工具链字节一致）
+    端到端解析。fixture 纪律沿用 m205：助手按运行唯一名复制 + 结束时
+    前缀清扫，开始菜单 fixture 写入真实用户 Programs 树并全程 RAII 还原。
+- 限制与补跑条件：① `win32_application_test` 的运行级证据本机不可产生
+  （无 Windows 会话）——由本分支 PR 的 CI windows 作业取证；② 控制台应用
+  无窗口可投递 WM_CLOSE（conhost 载体窗口不属于实例 pid），Windows 对任意
+  进程无 TERM 等价物且契约禁止强杀——控制台实例的协作终止只能
+  `deadline_exceeded`（GUI 实例不受影响）；记录为平台事实而非缺陷；
+  ③ `requireAdministrator` 清单目标不提权（UAC 提示不属于无头 agent 面），
+  `io_error` 如实报告；UWP / ms-resource / 纯 IDList 快捷方式无可解析
+  目标——照常列出但 launch 失败；④ 按映像名匹配无法区分共享二进制名的
+  不同快捷方式、启动后换名的实例对扫描不可见（tracked 实例不受影响，
+  M2-05 同型限制）；⑤ CI windows 作业的 MSVC 编译与运行取证随本 PR 执行，
+  结论由下一个工作项的 PR 补录（负责人：维护者）。
+- 同步：[M4 计划](m4-windows-backend.md)（本记录）、
+  [总计划](mirage-implementation-plan.md) 当前状态叙述（`M4-01`..`M4-04`
+  滞后叙述一并修正）、PR CI 取证（本 PR 作业执行后）。

@@ -166,6 +166,43 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         LABELS "integration;platform"
         TIMEOUT 120
     )
+
+    # M4-04 Windows application frontend: exercised against the session's
+    # real Start Menu (fixture .lnk entries written into the per-user
+    # Programs tree) and real helper processes, so no interactive desktop
+    # is needed. The helper binary is copied to globally unique names per
+    # fixture application (the m205 discipline) so the image-name matching
+    # only ever sees the processes this test created. The fixture shortcuts
+    # are created through the same COM surface the frontend reads them
+    # with.
+    add_executable(m404_process_helper platform/m404_process_helper.cpp)
+    target_compile_features(m404_process_helper PUBLIC cxx_std_20)
+    mirage_enable_warnings(m404_process_helper)
+    target_link_libraries(m404_process_helper PRIVATE user32 shell32)
+
+    add_executable(win32_application_test platform/win32_application_test.cpp)
+    target_compile_features(win32_application_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(win32_application_test)
+    target_link_libraries(win32_application_test
+        PRIVATE
+            Mirage::platform
+            Mirage::desktop
+            user32
+            ole32
+    )
+    # The test copies m404_process_helper.exe to its run-unique fixture names
+    # from its own directory at startup (GetModuleFileNameW), so the helper
+    # must exist whenever the test binary is built — including partial CI
+    # builds that name only the test target.
+    add_dependencies(win32_application_test m404_process_helper)
+    add_test(NAME win32_application_test COMMAND win32_application_test)
+    # 120s covers the stuck-instance deadline scenarios (a 1.5s cooperative
+    # deadline plus the mid-cancel probe) with wide margin; normal runs
+    # finish in a few seconds.
+    set_tests_properties(win32_application_test PROPERTIES
+        LABELS "integration;platform"
+        TIMEOUT 120
+    )
 endif()
 
 # M2-03 AT-SPI2 accessibility: private D-Bus session plus a wire-exact GDBus
