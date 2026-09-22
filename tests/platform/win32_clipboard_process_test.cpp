@@ -78,6 +78,28 @@ double elapsed_seconds_since(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 }
 
+/// Normal executions carry a tight wall-clock budget: a runner whose
+/// command never terminates burns seconds, not the default 30 (and never
+/// the ctest timeout).
+mirage::desktop::ProcessLimits quick_limit() {
+    mirage::desktop::ProcessLimits limits;
+    limits.timeout = std::chrono::milliseconds{5000};
+    return limits;
+}
+
+/// Prints the full outcome verdict of one execute call (code, message,
+/// timed_out/cancelled flags) so a CI refusal is attributable without a
+/// second run.
+void note_outcome(const char *label, const mirage::desktop::ProcessOutcome &outcome) {
+    std::fprintf(stderr,
+                 "[win32-cbp-test] process outcome %s: ok=%d timed_out=%d cancelled=%d "
+                 "code=%s (%s)\n",
+                 label, static_cast<int>(outcome.ok), static_cast<int>(outcome.timed_out),
+                 static_cast<int>(outcome.cancelled), outcome.error.code.c_str(),
+                 outcome.error.message.c_str());
+    std::fflush(stderr);
+}
+
 void run_scenario(const char *name, void (*scenario)()) {
     std::fprintf(stderr, "[win32-cbp-test] scenario: %s\n", name);
     std::fflush(stderr);
@@ -490,6 +512,7 @@ void process_refusals_before_effects() {
     ProcessLimits exact;
     exact.max_command_bytes = kBudget;
     const auto boundary = process.execute("exit 0", exact, CancelToken{});
+    note_outcome("budget-boundary exit 0", boundary);
     MIRAGE_CHECK(boundary.ok);
     MIRAGE_CHECK(boundary.exited_normally);
 
@@ -525,18 +548,21 @@ void process_normal_execution_and_exit_codes() {
     WindowsDesktopEnvironment env(Win32Options{true});
     mirage::desktop::ProcessProvider &process = *env.process();
 
-    const auto echoed = process.execute("echo mirage-ok", ProcessLimits{});
+    const auto echoed = process.execute("echo mirage-ok", quick_limit());
+    note_outcome("echo mirage-ok", echoed);
     MIRAGE_CHECK(echoed.ok);
     MIRAGE_CHECK(echoed.exited_normally);
     MIRAGE_CHECK(echoed.exit_code == 0);
     MIRAGE_CHECK(echoed.standard_output.find("mirage-ok") != std::string::npos);
 
-    const auto errored = process.execute("echo err-text 1>&2", ProcessLimits{}, CancelToken{});
+    const auto errored = process.execute("echo err-text 1>&2", quick_limit(), CancelToken{});
+    note_outcome("echo err-text", errored);
     MIRAGE_CHECK(errored.ok);
     MIRAGE_CHECK(errored.standard_output.empty());
     MIRAGE_CHECK(errored.standard_error.find("err-text") != std::string::npos);
 
-    const auto quoted = process.execute("echo \"quoted arg\"", ProcessLimits{}, CancelToken{});
+    const auto quoted = process.execute("echo \"quoted arg\"", quick_limit(), CancelToken{});
+    note_outcome("echo quoted", quoted);
     MIRAGE_CHECK(quoted.ok);
     MIRAGE_CHECK(quoted.standard_output.find("quoted arg") != std::string::npos);
 

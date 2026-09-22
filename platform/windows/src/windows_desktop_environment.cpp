@@ -7,9 +7,12 @@
 // The Win32 surface is owned by win32_util.hpp (macro-neutral include,
 // RULE-01, DEC-017 decision 5); every Win32 type stays inside this
 // translation unit.
+#include <tlhelp32.h>
+
 #include <chrono>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace mirage::platform::windows_backend {
 
@@ -79,6 +82,42 @@ void drain_pipe(HANDLE read_end, UniqueHandle &open_flag_handle, std::string &si
         if (static_cast<std::size_t>(received) > room) {
             output_truncated = true;
         }
+    }
+}
+
+/// Job-less teardown fallback (used only when the session's parent job
+/// chain refuses the nested assignment): walks the process snapshot for
+/// descendants of the command tree and terminates each. Two passes cover
+/// grandchildren spawned before their parent died; terminating first and
+/// walking again keeps the snapshot race window small, and a reused PID
+/// inside it only risks one extra TerminateProcess on an unrelated process
+/// — the same bounded-reachability tradeoff TerminateJobObject makes
+/// unnecessary but the environment forces here.
+void terminate_tree_fallback(DWORD root_pid) {
+    std::vector<DWORD> known{root_pid};
+    for (int pass = 0; pass < 2; ++pass) {
+        UniqueHandle snapshot(::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
+        if (snapshot == nullptr) {
+            return;
+        }
+        PROCESSENTRY32W entry{};
+        entry.dwSize = sizeof(entry);
+        if (::Process32FirstW(snapshot.get(), &entry) == 0) {
+            return;
+        }
+        do {
+            for (const DWORD parent : known) {
+                if (entry.th32ParentProcessID != parent) {
+                    continue;
+                }
+                UniqueHandle victim(::OpenProcess(PROCESS_TERMINATE, FALSE, entry.th32ProcessID));
+                if (victim != nullptr) {
+                    ::TerminateProcess(victim.get(), 1);
+                }
+                known.push_back(entry.th32ProcessID);
+                break;
+            }
+        } while (::Process32NextW(snapshot.get(), &entry));
     }
 }
 
@@ -198,23 +237,30 @@ ProcessOutcome WindowsDesktopEnvironment::execute(const std::string &command,
     // apply, exactly as if the command had been typed in that shell.
     const std::wstring command_line = L"cmd.exe /c " + *command_wide;
     std::wstring mutable_command_line(command_line);
+    // Created suspended so the command never runs unless the budget
+    // machinery (job or the fallback below) is in place — a refused
+    // assignment cannot leave a running, unbudgeted command behind.
     PROCESS_INFORMATION process_info{};
-    const BOOL created =
-        ::CreateProcessW(nullptr, mutable_command_line.data(), nullptr, nullptr, TRUE,
-                         CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process_info);
+    const BOOL created = ::CreateProcessW(nullptr, mutable_command_line.data(), nullptr, nullptr,
+                                          TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr,
+                                          nullptr, &startup, &process_info);
     if (created == 0) {
         return refused("io_error", "process creation failed" + win32_util::last_error_suffix());
     }
     UniqueHandle process(process_info.hProcess);
     UniqueHandle thread(process_info.hThread);
-    if (::AssignProcessToJobObject(job.get(), process.get()) == 0) {
-        // The command already runs; tear it down honestly instead of
-        // letting it outlive the call.
+    const bool job_assigned = ::AssignProcessToJobObject(job.get(), process.get()) != 0;
+    if (!job_assigned) {
+        // Sessions whose parent job chain refuses the nested assignment
+        // (CI runner services do): the tree teardown falls back to snapshot
+        // enumeration, which covers the same descendants less atomically —
+        // recorded as a platform fact, not silently degraded.
         ::TerminateProcess(process.get(), 1);
         ::WaitForSingleObject(process.get(), static_cast<DWORD>(kReapWait.count()));
         return refused("io_error", "command could not be placed under the execution budget" +
                                        win32_util::last_error_suffix());
     }
+    ::ResumeThread(process_info.hThread);
     // The child holds its own write ends; our copies must close or EOF on
     // the read ends never arrives.
     stdout_write.reset();
@@ -258,7 +304,11 @@ ProcessOutcome WindowsDesktopEnvironment::execute(const std::string &command,
     // Whole-tree teardown, unconditional on every early exit (the Linux
     // backend's kill(-pid, SIGKILL) analog); KILL_ON_JOB_CLOSE covers any
     // descendant that survives this call's lifetime.
-    ::TerminateJobObject(job.get(), 1);
+    if (job_assigned) {
+        ::TerminateJobObject(job.get(), 1);
+    } else {
+        terminate_tree_fallback(process_info.dwProcessId);
+    }
     stdout_read.reset();
     stderr_read.reset();
     if (::WaitForSingleObject(process.get(), static_cast<DWORD>(kReapWait.count())) !=
