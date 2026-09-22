@@ -48,7 +48,11 @@ ProcessOutcome refused(std::string code, std::string message) {
 /// Pipe bytes are the child's own output encoding, transported verbatim —
 /// the contract's UTF-8 assumption holds for programs that emit UTF-8 and
 /// is not silently transcoded (recorded in the M4-03 verification record).
-void drain_pipe(HANDLE read_end, UniqueHandle &open_flag_handle, std::string &sink,
+/// Returns true when the stream is settled for this round: EOF (closed) or
+/// simply empty. Settled-empty is deliberate — the completion predicate in
+/// execute drains to empty instead of waiting for a write-end close that
+/// may never come (see the conhost note above).
+bool drain_pipe(HANDLE read_end, UniqueHandle &open_flag_handle, std::string &sink,
                 std::size_t max_output_bytes, bool &output_truncated, bool &stream_closed) {
     for (;;) {
         DWORD available = 0;
@@ -56,10 +60,10 @@ void drain_pipe(HANDLE read_end, UniqueHandle &open_flag_handle, std::string &si
             // The write end closed (or the pipe broke): this stream is done.
             open_flag_handle.reset();
             stream_closed = true;
-            return;
+            return true;
         }
         if (available == 0) {
-            return;
+            return true;
         }
         char buffer[4096];
         DWORD to_read = static_cast<DWORD>(sizeof(buffer));
@@ -70,7 +74,7 @@ void drain_pipe(HANDLE read_end, UniqueHandle &open_flag_handle, std::string &si
         if (::ReadFile(read_end, buffer, to_read, &received, nullptr) == 0 || received == 0) {
             open_flag_handle.reset();
             stream_closed = true;
-            return;
+            return true;
         }
         const std::size_t room =
             max_output_bytes > sink.size() ? max_output_bytes - sink.size() : 0;
@@ -332,10 +336,19 @@ ProcessOutcome WindowsDesktopEnvironment::execute(const std::string &command,
             process_exited = true; // keep draining the pipes until EOF
         }
         ++wait_slice;
-        drain_pipe(stdout_read.get(), stdout_read, standard_output, limits.max_output_bytes,
-                   output_truncated, stdout_open);
-        drain_pipe(stderr_read.get(), stderr_read, standard_error, limits.max_output_bytes,
-                   output_truncated, stderr_open);
+        const bool stdout_settled =
+            drain_pipe(stdout_read.get(), stdout_read, standard_output, limits.max_output_bytes,
+                       output_truncated, stdout_open);
+        const bool stderr_settled =
+            drain_pipe(stderr_read.get(), stderr_read, standard_error, limits.max_output_bytes,
+                       output_truncated, stderr_open);
+        // Completion predicate: the command exited and both streams drained
+        // to empty (EOF may never arrive — see drain_pipe). Descendants that
+        // keep running after the direct child exits are torn down by the
+        // whole-tree teardown below, never left behind.
+        if (process_exited && stdout_settled && stderr_settled) {
+            break;
+        }
     }
 
     // Verdict evidence for a burned budget: the exit code BEFORE the kill
