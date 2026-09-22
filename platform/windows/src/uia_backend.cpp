@@ -374,11 +374,14 @@ struct UiaBackend::Impl {
     /// Walks the control-view subtree of `root` in DFS order. Stops and
     /// returns nullopt as soon as collecting another node would exceed
     /// `budget` (refusal, never truncation). Children that fail to acquire
-    /// (element vanished mid-walk) end that branch quietly.
-    std::optional<std::vector<SemanticNode>> collect_tree(IUIAutomationTreeWalker *walker,
-                                                          IUIAutomationElement *root,
-                                                          std::size_t budget) const {
+    /// (element vanished mid-walk) end that branch quietly. The second
+    /// vector is index-aligned with the nodes and owns each node's element,
+    /// so a successful snapshot can hand its references to the registry.
+    std::optional<std::pair<std::vector<SemanticNode>, std::vector<ComPtr<IUIAutomationElement>>>>
+    collect_tree(IUIAutomationTreeWalker *walker, IUIAutomationElement *root,
+                 std::size_t budget) const {
         std::vector<SemanticNode> nodes;
+        std::vector<ComPtr<IUIAutomationElement>> elements;
         std::vector<WalkEntry> stack;
         // The walk owns its own reference to the root (the caller's stays).
         root->AddRef();
@@ -393,6 +396,7 @@ struct UiaBackend::Impl {
             node.parent = current.parent;
             node.ref = "@e" + std::to_string(nodes.size() + 1);
             nodes.push_back(std::move(node));
+            elements.push_back(std::move(current.element));
             // Children keep the DFS order: collect first-to-last, push
             // reversed so the first child is visited next (deterministic
             // snapshots).
@@ -408,7 +412,7 @@ struct UiaBackend::Impl {
                 stack.push_back({std::move(*it), parent_index});
             }
         }
-        return nodes;
+        return std::make_pair(std::move(nodes), std::move(elements));
     }
 
     /// True when the element matches the semantic hint: projected role
@@ -622,20 +626,26 @@ SnapshotOutcome UiaBackend::semantic_snapshot(const std::string &window_id,
         outcome.error = error("unsupported_window", "window exposes no UI Automation element");
         return outcome;
     }
-    std::optional<std::vector<SemanticNode>> nodes =
-        impl_->collect_tree(walker.get(), window_element.get(), limits.max_nodes);
-    if (!nodes.has_value()) {
+    std::optional<std::pair<std::vector<SemanticNode>, std::vector<ComPtr<IUIAutomationElement>>>>
+        collected = impl_->collect_tree(walker.get(), window_element.get(), limits.max_nodes);
+    if (!collected.has_value()) {
         outcome.error = error("snapshot_too_large", "snapshot exceeds the node budget of " +
                                                         std::to_string(limits.max_nodes));
         return outcome;
     }
-    // A fresh snapshot replaces the registry wholesale; stale handles from
-    // older snapshots stop resolving (not_found).
+    // A fresh snapshot replaces the registry wholesale: each ref maps to
+    // the element it was issued for (index-aligned with the nodes); stale
+    // handles from older snapshots stop resolving (not_found).
     impl_->clear_registry();
+    auto &collected_nodes = collected->first;
+    auto &collected_elements = collected->second;
+    for (std::size_t i = 0; i < collected_nodes.size(); ++i) {
+        impl_->registry[collected_nodes[i].ref] = std::move(collected_elements[i]);
+    }
     outcome.ok = true;
     outcome.snapshot.application = application_name_for(*handle);
     outcome.snapshot.window_title = window_title_utf8(*handle);
-    outcome.snapshot.nodes = std::move(*nodes);
+    outcome.snapshot.nodes = std::move(collected_nodes);
     return outcome;
 }
 

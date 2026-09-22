@@ -130,9 +130,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
             gdi32
     )
     add_test(NAME uia_backend_test COMMAND uia_backend_test)
+    # 300s: every UIA call is cross-process, and the semantic/structural
+    # resolution fallbacks walk the live desktop tree (runner window counts
+    # are not ours to choose); the by-reference paths are fast.
     set_tests_properties(uia_backend_test PROPERTIES
         LABELS "integration;platform"
-        TIMEOUT 120
+        TIMEOUT 300
     )
 endif()
 
