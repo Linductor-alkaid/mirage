@@ -20,6 +20,7 @@
 #include <mirage/runtime/ipc/client.hpp>
 #include <mirage/runtime/ipc/framing.hpp>
 #include <mirage/runtime/ipc/protocol.hpp>
+#include <mirage/runtime/ipc/stream.hpp>
 #include <mirage/runtime/persistence/store.hpp>
 #include <mirage/runtime/runtime_service.hpp>
 
@@ -97,6 +98,19 @@ void store_round_trip_and_cap() {
     persistence::LocalStateStore small(tree.root(), "small.json", 8);
     MIRAGE_CHECK(small.save("123456789").ok);
     MIRAGE_CHECK(small.load().status == persistence::LoadStatus::TooLarge);
+
+    // The save creates missing directories (the POSIX store's behavior).
+    persistence::LocalStateStore nested(tree.root() / "deep" / "nested", "state.json", 1024);
+    MIRAGE_CHECK(nested.save(R"({"nested":true})").ok);
+    MIRAGE_CHECK(nested.load().body == R"({"nested":true})");
+
+    // An empty document publishes and loads back as Loaded-empty, never
+    // Absent (the file exists).
+    persistence::LocalStateStore empty_store(tree.root(), "empty.json", 64);
+    MIRAGE_CHECK(empty_store.save("").ok);
+    const persistence::LoadResult empty_loaded = empty_store.load();
+    MIRAGE_CHECK(empty_loaded.status == persistence::LoadStatus::Loaded);
+    MIRAGE_CHECK(empty_loaded.body.empty());
 }
 
 /// --- the product-process IPC round trip over the named pipe -------------
@@ -177,6 +191,225 @@ void ipc_round_trip_over_named_pipe() {
     MIRAGE_CHECK(process.join_clean());
 }
 
+/// --- the named-pipe stream contract (verification scenarios) ------------
+
+/// Every loop in the verification scenarios is bounded: a transport defect
+/// must surface as a failed check within seconds, never as a hang.
+bool stream_write_all(ipc::IpcStream &stream, const std::string &payload,
+                      std::chrono::milliseconds budget) {
+    const auto deadline = std::chrono::steady_clock::now() + budget;
+    std::size_t sent = 0;
+    while (sent < payload.size()) {
+        if (std::chrono::steady_clock::now() >= deadline) {
+            return false;
+        }
+        const ipc::IoResult result =
+            stream.write_some(payload.data() + sent, payload.size() - sent);
+        if (result.status == ipc::IoStatus::Ok) {
+            sent += result.bytes;
+            if (result.bytes == 0) {
+                ::Sleep(10); // pace a no-progress Ok instead of spinning hot
+            }
+            continue;
+        }
+        if (result.status == ipc::IoStatus::WouldBlock) {
+            ::Sleep(10);
+            continue;
+        }
+        return false; // Closed / Error
+    }
+    return true;
+}
+
+/// Drains the stream into `buffer` until `expected` bytes arrived, or the
+/// budget runs out (false).
+bool stream_read_expected(ipc::IpcStream &stream, std::string &buffer, std::size_t expected,
+                          std::chrono::milliseconds budget) {
+    const auto deadline = std::chrono::steady_clock::now() + budget;
+    while (buffer.size() < expected) {
+        if (std::chrono::steady_clock::now() >= deadline) {
+            return false;
+        }
+        char chunk[4096];
+        const ipc::IoResult result = stream.read_some(chunk, sizeof(chunk));
+        if (result.status == ipc::IoStatus::Ok) {
+            buffer.append(chunk, result.bytes);
+            if (result.bytes == 0) {
+                ::Sleep(10); // pace a no-progress Ok instead of spinning hot
+            }
+            continue;
+        }
+        if (result.status == ipc::IoStatus::WouldBlock) {
+            ::Sleep(10);
+            continue;
+        }
+        return false; // Closed / Error
+    }
+    return true;
+}
+
+/// Non-blocking accept polled to a bound: the horizontal-loop shape.
+std::optional<ipc::IpcStream> accept_bounded(ipc::IpcListener &listener,
+                                             std::chrono::milliseconds budget) {
+    const auto deadline = std::chrono::steady_clock::now() + budget;
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::string diagnostic;
+        ipc::IpcStream stream = listener.accept(diagnostic);
+        if (stream.valid()) {
+            return stream;
+        }
+        ::Sleep(5);
+    }
+    return std::nullopt;
+}
+
+/// Byte-exact echo over a fresh pipe: a real client stream (connect_stream)
+/// and a real accepted stream exchange a small payload both directions.
+/// This is the transport contract the whole product surface rides on.
+void named_pipe_stream_echo() {
+    TempTree tree;
+    const std::string name = unique_pipe_name("stream-echo");
+    std::string diagnostic;
+    ipc::IpcListener listener = ipc::IpcListener::bind(name, diagnostic);
+    MIRAGE_CHECK(listener.valid());
+    if (!listener.valid()) {
+        std::fprintf(stderr, "[win32-proc-test] bind failed: %s\n", diagnostic.c_str());
+        std::fflush(stderr);
+        return;
+    }
+
+    struct ClientOutcome {
+        bool connected = false;
+        bool wrote = false;
+        bool echo_ok = false;
+        std::string diagnostic;
+    } client;
+    std::thread client_thread([&] {
+        std::string connect_diagnostic;
+        ipc::IpcStream stream =
+            ipc::connect_stream(name, std::chrono::seconds{5}, connect_diagnostic);
+        if (!stream.valid()) {
+            client.diagnostic = connect_diagnostic;
+            return;
+        }
+        client.connected = true;
+        client.wrote = stream_write_all(stream, "ping-payload", std::chrono::seconds{5});
+        std::string echoed;
+        if (stream_read_expected(stream, echoed, 12, std::chrono::seconds{5})) {
+            client.echo_ok = echoed == "ping-payload";
+        }
+    });
+
+    std::optional<ipc::IpcStream> server = accept_bounded(listener, std::chrono::seconds{5});
+    MIRAGE_CHECK(server.has_value());
+    if (server.has_value()) {
+        ipc::IpcStream server_stream = std::move(*server);
+        std::string inbox;
+        MIRAGE_CHECK(stream_read_expected(server_stream, inbox, 12, std::chrono::seconds{5}));
+        MIRAGE_CHECK(stream_write_all(server_stream, inbox, std::chrono::seconds{5}));
+    }
+    client_thread.join();
+
+    MIRAGE_CHECK(client.connected);
+    if (!client.connected) {
+        std::fprintf(stderr, "[win32-proc-test] client connect failed: %s\n",
+                     client.diagnostic.c_str());
+        std::fflush(stderr);
+    }
+    MIRAGE_CHECK(client.wrote);
+    MIRAGE_CHECK(client.echo_ok);
+}
+
+/// A payload several times the 64 KiB pipe buffer forces the write path
+/// through its queued-write regime; every byte must come back exactly once
+/// (the backpressure-integrity probe of the stream contract).
+void large_payload_round_trip_survives_backpressure() {
+    const std::string name = unique_pipe_name("stream-large");
+    std::string diagnostic;
+    ipc::IpcListener listener = ipc::IpcListener::bind(name, diagnostic);
+    MIRAGE_CHECK(listener.valid());
+    if (!listener.valid()) {
+        return;
+    }
+
+    std::string payload(192 * 1024, '\0');
+    for (std::size_t index = 0; index < payload.size(); ++index) {
+        payload[index] = static_cast<char>(index * 31 + 7);
+    }
+
+    struct ClientOutcome {
+        bool connected = false;
+        bool wrote = false;
+        bool echo_ok = false;
+    } client;
+    std::thread client_thread([&] {
+        std::string connect_diagnostic;
+        ipc::IpcStream stream =
+            ipc::connect_stream(name, std::chrono::seconds{5}, connect_diagnostic);
+        if (!stream.valid()) {
+            return;
+        }
+        client.connected = true;
+        client.wrote = stream_write_all(stream, payload, std::chrono::seconds{20});
+        std::string echoed;
+        if (stream_read_expected(stream, echoed, payload.size(), std::chrono::seconds{20})) {
+            client.echo_ok = echoed == payload;
+        }
+    });
+
+    std::optional<ipc::IpcStream> server = accept_bounded(listener, std::chrono::seconds{5});
+    MIRAGE_CHECK(server.has_value());
+    if (server.has_value()) {
+        ipc::IpcStream server_stream = std::move(*server);
+        std::string inbox;
+        MIRAGE_CHECK(
+            stream_read_expected(server_stream, inbox, payload.size(), std::chrono::seconds{20}));
+        MIRAGE_CHECK(stream_write_all(server_stream, inbox, std::chrono::seconds{20}));
+    }
+    client_thread.join();
+
+    MIRAGE_CHECK(client.connected);
+    MIRAGE_CHECK(client.wrote);
+    MIRAGE_CHECK(client.echo_ok);
+}
+
+/// The takeover discipline of the listening endpoint: a live listener is
+/// visible through the probe, refuses a second bind with the stable
+/// diagnostic, and the name is free again after the listener closes.
+void listener_takeover_and_probe() {
+    const std::string name = unique_pipe_name("takeover");
+
+    // Nothing bound: the endpoint is free to take over.
+    MIRAGE_CHECK(!ipc::endpoint_has_listener(name, std::chrono::milliseconds{500}));
+
+    std::string diagnostic;
+    ipc::IpcListener listener = ipc::IpcListener::bind(name, diagnostic);
+    MIRAGE_CHECK(listener.valid());
+    if (!listener.valid()) {
+        return;
+    }
+
+    // The probe connects (the queued connect completes on the listener); the
+    // ghost connection is consumed so the later close frees the name.
+    MIRAGE_CHECK(ipc::endpoint_has_listener(name, std::chrono::milliseconds{500}));
+    std::optional<ipc::IpcStream> ghost = accept_bounded(listener, std::chrono::seconds{2});
+    MIRAGE_CHECK(ghost.has_value());
+
+    // A second listener on the same name is refused: the first-instance
+    // flag surfaces as the stable takeover diagnostic.
+    std::string second_diagnostic;
+    ipc::IpcListener second = ipc::IpcListener::bind(name, second_diagnostic);
+    MIRAGE_CHECK(!second.valid());
+    MIRAGE_CHECK(second_diagnostic.find("another service is already listening") !=
+                 std::string::npos);
+
+    // After the listener (and its handed-out connection) close, the name is
+    // free again.
+    ghost.reset();
+    listener.close();
+    MIRAGE_CHECK(!ipc::endpoint_has_listener(name, std::chrono::milliseconds{500}));
+}
+
 /// --- golden vectors: the same wire bytes on both transports -------------
 
 /// Frames built by this platform's codec are byte-identical to the shared
@@ -210,6 +443,13 @@ void golden_vector_frame_identity() {
 int main() {
     store_round_trip_and_cap();
     golden_vector_frame_identity();
+    // The verification scenarios come before the product round trip on
+    // purpose: they probe the stream contract directly and fail fast, so
+    // their evidence reaches the log even when the round trip cannot
+    // complete.
+    named_pipe_stream_echo();
+    listener_takeover_and_probe();
+    large_payload_round_trip_survives_backpressure();
     ipc_round_trip_over_named_pipe();
     return mirage::testing::finish("win32_product_process_test");
 }
