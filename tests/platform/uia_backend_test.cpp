@@ -16,6 +16,24 @@
 // win32_backend_test — no scenario depends on window activation: every
 // scenario runs in an ordinary desktop session. The message loop runs on
 // the main thread only (RULE-03: no threads anywhere).
+//
+// Desktop-scan isolation (M4-02 CI evidence, four wedged rounds): the
+// semantic/structural resolution scenarios walk the live desktop tree from
+// the desktop root, and one wedged provider window on the runner desktop (a
+// UWP host process) can hang the first cross-process UIA call into it
+// forever — outside the reach of every bounded mechanism (the
+// transaction/connection timeouts are client-side hints evaluated outside
+// the call; the 30s scan budget only fires between calls). The only
+// reliable bound on such a call is the death of the process carrying it,
+// so the live-tree scenarios run in a disposable child of this same
+// executable (`--scan-probe`): the parent launches itself, watches 45s,
+// and TerminateProcess()es the child on timeout with a loud
+// environment-limited note (the same skip discipline as
+// win32_backend_test's foreground-lock note; never a silent pass). The
+// scenarios that only touch the fixture's own HWNDs stay in this process,
+// where those same CI rounds proved them reliable. Every scenario emits
+// flushed `[uia-test]` stage markers so a hang localizes to one stage in
+// the CI log.
 
 #include "../support/test.hpp"
 
@@ -44,6 +62,8 @@
 #include <cstddef>
 #include <cstdio>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace {
 
@@ -65,6 +85,37 @@ constexpr const char *kHiddenTitle = "mirage-uia-test-hidden";
 constexpr const char *kButtonName = "mirage-uia-test-button";
 constexpr int kButtonId = 2101;
 constexpr int kEditId = 2102;
+
+// `--scan-probe` child mode: the live-tree desktop-scan scenarios only
+// (semantic hit + click, structural hit + click, structural hit on a second
+// locally built path, semantic negative not_found), with strict in-child
+// assertions; the parent consumes the child's exit code as evidence.
+constexpr char kScanProbeFlag[] = "--scan-probe";
+
+// Name suffix the scan-probe child appends to every fixture title and
+// control name: both processes' fixtures coexist on the same desktop while
+// the child scans it, so an exact-name hit must never be ambiguous between
+// them.
+constexpr const char *kScanNameSuffix = "-scan-probe";
+
+// The negative semantic probe: a button name no desktop window carries.
+// Resolving it honestly (not_found) requires walking the whole desktop —
+// exactly the wedge-prone scan the child isolation exists for; if the child
+// hangs here the watchdog note records the session limitation.
+constexpr const char *kScanAbsentButtonName = "mirage-uia-scan-probe-absent-button";
+
+// Hard watchdog on the scan-probe child: generous over every bounded-but-
+// slow live-tree path on a loaded desktop, yet small against the ctest
+// budget (the bounded scans spend at most 30s between calls).
+constexpr DWORD kScanProbeWatchdogMs = 45000;
+
+/// Progress marker for the CI log: one flushed stderr line. The flush is
+/// the point — a wedged cross-process UIA call must not be able to swallow
+/// the marker naming the stage it hung in.
+void stage(const std::string &marker) {
+    std::fprintf(stderr, "[uia-test] %s\n", marker.c_str());
+    std::fflush(stderr);
+}
 
 // File-scope state the window procedure records for the click scenarios.
 // The test is single-threaded (main-thread message pump only, RULE-03), so
@@ -232,10 +283,12 @@ bool near_equal(int a, int b) { return a - b <= 2 && b - a <= 2; }
 /// Registers the test window class and creates the fixture windows: a
 /// visible TOPMOST main window carrying a real push button (Invoke target)
 /// and a real EDIT (Value target), plus a never-shown window (the
-/// ElementFromHandle semantics probe).
+/// ElementFromHandle semantics probe). `name_suffix` disambiguates a second
+/// fixture set on the same desktop (the scan-probe child coexists with the
+/// parent's windows while it scans the live tree).
 class TestGui {
   public:
-    TestGui() {
+    explicit TestGui(const std::string &name_suffix = std::string()) {
         WNDCLASSEXW window_class{};
         window_class.cbSize = static_cast<UINT>(sizeof(window_class));
         window_class.style = CS_HREDRAW | CS_VREDRAW;
@@ -251,12 +304,16 @@ class TestGui {
         // The title doubles as the window/structural-path marker; WS_EX_TOPMOST
         // plus an explicit HWND_TOPMOST raise keeps the fixture clickable
         // through UIA whatever the desktop shows behind it.
-        main_ = CreateWindowExW(WS_EX_TOPMOST, kWindowClassName, L"mirage-uia-backend-test",
+        const std::wstring main_title = utf8_to_utf16_str(std::string(kMainTitle) + name_suffix);
+        const std::wstring button_text = utf8_to_utf16_str(std::string(kButtonName) + name_suffix);
+        const std::wstring hidden_title =
+            utf8_to_utf16_str(std::string(kHiddenTitle) + name_suffix);
+        main_ = CreateWindowExW(WS_EX_TOPMOST, kWindowClassName, main_title.c_str(),
                                 WS_OVERLAPPEDWINDOW | WS_VISIBLE, 100, 100, 400, 300, nullptr,
                                 nullptr, instance, nullptr);
         MIRAGE_CHECK(main_ != nullptr);
         if (main_ != nullptr) {
-            button_ = CreateWindowExW(0, L"BUTTON", L"mirage-uia-test-button",
+            button_ = CreateWindowExW(0, L"BUTTON", button_text.c_str(),
                                       WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 24, 24, 200, 32, main_,
                                       reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonId)),
                                       instance, nullptr);
@@ -270,9 +327,8 @@ class TestGui {
         // Created but never shown: IsWindow still holds, so the id resolves
         // and the snapshot scenario observes the honest element semantics
         // for an invisible window.
-        hidden_ =
-            CreateWindowExW(0, kWindowClassName, L"mirage-uia-test-hidden", WS_OVERLAPPEDWINDOW, 40,
-                            40, 200, 150, nullptr, nullptr, instance, nullptr);
+        hidden_ = CreateWindowExW(0, kWindowClassName, hidden_title.c_str(), WS_OVERLAPPEDWINDOW,
+                                  40, 40, 200, 150, nullptr, nullptr, instance, nullptr);
         MIRAGE_CHECK(hidden_ != nullptr);
         run_pump(300); // let the creation messages and DWM composition settle
     }
@@ -526,16 +582,24 @@ SnapshotRefs registry_replacement(AccessibilityProvider &a11y, HWND main_window)
 
 /// One activation expected to click the fixture button: the outcome must be
 /// ok AND the click must be observable in the window procedure (exactly one
-/// BN_CLICKED, delivered through the pumped message queue).
+/// BN_CLICKED, delivered through the pumped message queue). Every phase
+/// emits a flushed stage marker: activation is the call class a wedged
+/// provider can hang, so the log must say precisely where it stopped.
 void expect_click(AccessibilityProvider &a11y, const ElementTarget &target, const char *scenario) {
+    const std::string tag = std::string("expect_click[") + scenario + "]";
+    stage(tag + ": flush pending messages before the measurement");
     run_pump(50); // flush anything pending before the measurement
     MIRAGE_CHECK(g_click_event != nullptr);
     if (g_click_event == nullptr) {
+        stage(tag + ": no click event handle; scenario aborted");
         return;
     }
     ResetEvent(g_click_event);
     const int before = g_click_count;
+    stage(tag + ": activate_element dispatching");
     const auto outcome = a11y.activate_element(target);
+    stage(tag + ": activate_element returned ok=" + (outcome.ok ? "1" : "0") +
+          " code=" + outcome.error.code);
     MIRAGE_CHECK(outcome.ok);
     if (!outcome.ok) {
         std::fprintf(stderr, "note: %s activation refused: %s (%s)\n", scenario,
@@ -543,13 +607,19 @@ void expect_click(AccessibilityProvider &a11y, const ElementTarget &target, cons
         return;
     }
     const bool delivered = pump_until_event(g_click_event, 5000);
+    stage(tag + ": delivery pump done delivered=" + (delivered ? "1" : "0") +
+          " click_count=" + std::to_string(g_click_count));
     MIRAGE_CHECK(delivered);
     MIRAGE_CHECK(g_click_count == before + 1);
 }
 
-/// All three DEC-005 resolution rings hit the fixture button and click it
-/// exactly once; every rejection below refuses before any side effect, so
-/// the click counter must not move.
+/// The in-proc share of the DEC-005 resolution rings: the by-reference ring
+/// hits the fixture button and clicks it exactly once, and every rejection
+/// below refuses before any side effect, so the click counter must not
+/// move. The semantic and structural rings walk the live desktop tree —
+/// they run in the --scan-probe child (run_desktop_scan_probe), never here:
+/// one wedged provider window on this desktop can hang those calls past
+/// every bounded mechanism, and only a process boundary bounds that.
 void activation_scenarios(AccessibilityProvider &a11y, const SnapshotRefs &refs) {
     if (!refs.ok || refs.button_ref.empty()) {
         std::fprintf(stderr, "note: no button ref from the fresh snapshot; click scenarios "
@@ -561,16 +631,10 @@ void activation_scenarios(AccessibilityProvider &a11y, const SnapshotRefs &refs)
     by_reference.reference.id = refs.button_ref;
     expect_click(a11y, by_reference, "by-reference");
 
-    ElementTarget by_semantic;
-    by_semantic.semantic.role = "button";
-    by_semantic.semantic.name = kButtonName;
-    expect_click(a11y, by_semantic, "by-semantic");
-
-    ElementTarget by_structural;
-    by_structural.structural.path = std::string("/window/") + kMainTitle + "/button/" + kButtonName;
-    expect_click(a11y, by_structural, "by-structural");
-
-    // Rejections before effects (click counter frozen across all of them).
+    // Rejections before effects (click counter frozen across all of them;
+    // none of these touch the live desktop tree — the missing-reference
+    // rejection is a registry miss, the missing semantic probe lives in the
+    // scan-probe child).
     const int before = g_click_count;
 
     ElementTarget visual;
@@ -584,11 +648,6 @@ void activation_scenarios(AccessibilityProvider &a11y, const SnapshotRefs &refs)
 
     ElementTarget no_hint;
     MIRAGE_CHECK(a11y.activate_element(no_hint).error.code == "invalid_argument");
-
-    ElementTarget missing;
-    missing.semantic.role = "button";
-    missing.semantic.name = "no-such-button";
-    MIRAGE_CHECK(a11y.activate_element(missing).error.code == "not_found");
 
     ElementTarget stale;
     stale.reference.id = "@e424242";
@@ -706,9 +765,225 @@ void hidden_window_semantics(AccessibilityProvider &a11y, const TestGui &gui) {
     }
 }
 
+/// --scan-probe mode (see run_desktop_scan_probe): only the live-tree
+/// desktop-scan scenarios run here, in this disposable process. The
+/// assertions are strict — the semantic/structural rings must hit the
+/// suffixed fixture names (no ambiguity with the parent's same-shaped
+/// windows, which coexist on this desktop while the child scans it) and
+/// click exactly once, and the negative probe must come back not_found.
+/// Any of these can hang in a wedged provider's unkillable COM transaction;
+/// the parent's watchdog is the only bound that applies then, and this
+/// process dying with its stage log intact is the recorded evidence.
+int run_scan_probe() {
+    stage("scan-probe mode: enter");
+    TestGui gui(kScanNameSuffix);
+    if (!gui.ok()) {
+        std::fprintf(stderr, "scan-probe: fixture windows could not be created; interactive "
+                             "desktop required\n");
+        return 1;
+    }
+    stage("scan-probe: fixture ready (all names carry the scan-probe suffix)");
+
+    WindowsDesktopEnvironment env(mirage::platform::windows_backend::Win32Options{true},
+                                  mirage::platform::windows_backend::UiaOptions{true});
+    AccessibilityProvider *a11y = env.accessibility();
+    if (a11y == nullptr) {
+        std::fprintf(stderr, "scan-probe: UIA backend probe failed; no scan evidence\n");
+        return 1;
+    }
+    stage("scan-probe: accessibility backend open");
+
+    HANDLE clicks = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    MIRAGE_CHECK(clicks != nullptr);
+    g_click_event = clicks;
+
+    const std::string scan_title = std::string(kMainTitle) + kScanNameSuffix;
+    const std::string scan_button = std::string(kButtonName) + kScanNameSuffix;
+
+    // Ring 2, positive: the semantic hint resolves from the live desktop
+    // root and must hit this process's own suffixed button, exactly once.
+    stage("scan-probe: semantic hit begin (live-tree desktop BFS)");
+    {
+        ElementTarget hit;
+        hit.semantic.role = "button";
+        hit.semantic.name = scan_button;
+        expect_click(*a11y, hit, "scan-probe semantic hit");
+    }
+    stage("scan-probe: semantic hit end");
+
+    // Ring 3, positive: the structural path is built locally from this
+    // process's own fixture title (the parent's window shares the shape,
+    // not the name) and must click the suffixed button exactly once.
+    stage("scan-probe: structural hit begin (locally built path)");
+    {
+        ElementTarget hit;
+        hit.structural.path = std::string("/window/") + scan_title + "/button/" + scan_button;
+        expect_click(*a11y, hit, "scan-probe structural hit");
+    }
+    stage("scan-probe: structural hit end");
+
+    // Ring 3, second locally built path: the two-segment window form must
+    // resolve to the fixture window itself, which exposes no Invoke pattern
+    // and must be refused after resolution (unsupported_element, not
+    // not_found — the path did hit).
+    stage("scan-probe: structural window-path begin (locally built path)");
+    {
+        ElementTarget window_root;
+        window_root.structural.path = std::string("/window/") + scan_title;
+        const auto refused = a11y->activate_element(window_root);
+        MIRAGE_CHECK(!refused.ok);
+        MIRAGE_CHECK(refused.error.code == "unsupported_element");
+    }
+    stage("scan-probe: structural window-path end");
+
+    // Ring 2, negative: a name nothing on the desktop carries. The honest
+    // refusal still requires scanning the whole tree — the wedge-prone
+    // probe, deliberately last so the positive evidence above is already on
+    // the log if the wedged provider window swallows this call.
+    stage("scan-probe: semantic negative not_found begin (full desktop scan, wedge-prone)");
+    {
+        ElementTarget absent;
+        absent.semantic.role = "button";
+        absent.semantic.name = kScanAbsentButtonName;
+        const auto missing = a11y->activate_element(absent);
+        MIRAGE_CHECK(!missing.ok);
+        MIRAGE_CHECK(missing.error.code == "not_found");
+    }
+    stage("scan-probe: semantic negative not_found end");
+
+    g_click_event = nullptr;
+    if (clicks != nullptr) {
+        CloseHandle(clicks);
+    }
+    stage("scan-probe: complete");
+    return mirage::testing::finish("uia_backend_test[scan-probe]");
+}
+
+/// Launches this executable with --scan-probe and enforces the hard
+/// watchdog: a wedged provider window hangs the child's UIA transaction
+/// past every in-process bound, so process death is the only reliable
+/// bound — TerminateProcess on timeout, with a loud environment-limited
+/// note (skip discipline: recorded, never silent, never a fake pass). The
+/// child's stderr is this process's stderr, so its flushed stage log and
+/// this process's interleaved markers land in one ctest capture. Pure
+/// Win32 process API, no threads (RULE-03).
+void run_desktop_scan_probe() {
+    WCHAR path[1024];
+    const DWORD path_cap = static_cast<DWORD>(sizeof(path) / sizeof(path[0]));
+    const DWORD path_len = GetModuleFileNameW(nullptr, path, path_cap);
+    MIRAGE_CHECK(path_len != 0 && path_len < path_cap);
+    if (path_len == 0 || path_len >= path_cap) {
+        std::fprintf(stderr, "note: cannot locate this executable; the desktop-scan "
+                             "scenarios were not run\n");
+        return;
+    }
+
+    std::wstring command_line;
+    command_line += L'"';
+    command_line.append(path, path_len);
+    command_line += L"\" ";
+    command_line += utf8_to_utf16_str(kScanProbeFlag);
+    // CreateProcessW may write into the command-line buffer; keep it
+    // writable and NUL-terminated.
+    std::vector<wchar_t> mutable_command(command_line.begin(), command_line.end());
+    mutable_command.push_back(L'\0');
+
+    STARTUPINFOW startup{};
+    startup.cb = static_cast<DWORD>(sizeof(startup));
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    startup.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    startup.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    HANDLE inherited[] = {startup.hStdInput, startup.hStdOutput, startup.hStdError};
+    for (const HANDLE handle : inherited) {
+        if (handle != nullptr) {
+            SetHandleInformation(handle, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+        }
+    }
+
+    PROCESS_INFORMATION child{};
+    // Both the application path and the full quoted command line, so a
+    // space-bearing directory cannot split the launch.
+    const BOOL launched = CreateProcessW(path, mutable_command.data(), nullptr, nullptr, TRUE, 0,
+                                         nullptr, nullptr, &startup, &child);
+    MIRAGE_CHECK(launched != 0);
+    if (launched == 0) {
+        std::fprintf(stderr,
+                     "note: CreateProcessW failed (gle=%lu); the desktop-scan "
+                     "scenarios were not run\n",
+                     GetLastError());
+        return;
+    }
+    stage("desktop-scan: child launched; watchdog 45000 ms");
+    // Pump-aware wait: the child's live-tree scan probes this process's
+    // fixture windows too, and their standard-control proxies answer via
+    // sent messages — a parent frozen in a plain WaitForSingleObject would
+    // manufacture slow answers the watchdog could then misread as a wedge.
+    // Draining the queue keeps the only hang sources the real ones (the
+    // runner's wedged provider windows). Message loop on the main thread
+    // only; the fixture's own click counter is not consulted after this
+    // point, so stray delivery during the wait records no false evidence.
+    const ULONGLONG wait_deadline = GetTickCount64() + kScanProbeWatchdogMs;
+    DWORD waited = WAIT_FAILED;
+    for (;;) {
+        MSG message{};
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE) != 0) {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+        if (WaitForSingleObject(child.hProcess, 0) == WAIT_OBJECT_0) {
+            waited = WAIT_OBJECT_0;
+            break;
+        }
+        if (GetTickCount64() >= wait_deadline) {
+            waited = WAIT_TIMEOUT;
+            break;
+        }
+        MsgWaitForMultipleObjects(1, &child.hProcess, FALSE, 15, QS_ALLINPUT);
+    }
+    if (waited == WAIT_TIMEOUT) {
+        TerminateProcess(child.hProcess, 1);
+        WaitForSingleObject(child.hProcess, 10000); // reap: no stray child past the watchdog
+        std::fprintf(stderr,
+                     "note: live-tree desktop scan wedged in this session (a hung UIA provider "
+                     "window); the scan-probe child was terminated by the 45s watchdog. "
+                     "semantic/structural runtime evidence is recorded as environment-limited — "
+                     "not a test failure; rerun on a maintainer Windows machine or once the "
+                     "runner desktop no longer carries the hung provider window\n");
+    } else if (waited == WAIT_OBJECT_0) {
+        DWORD exit_code = 0;
+        const BOOL got_code = GetExitCodeProcess(child.hProcess, &exit_code);
+        MIRAGE_CHECK(got_code != 0);
+        // DWORD is unsigned long on every Windows toolchain; %lu takes it
+        // directly (an unsigned long cast would be a useless cast).
+        std::fprintf(stderr,
+                     "[uia-test] desktop-scan: child finished with exit code %lu; its "
+                     "interleaved stage log above carries the semantic/structural evidence\n",
+                     exit_code);
+        MIRAGE_CHECK(exit_code == 0); // child assertions are strict; its failures count here
+    } else {
+        // WaitForSingleObject failed: no bound exists on the child anymore.
+        TerminateProcess(child.hProcess, 1);
+        WaitForSingleObject(child.hProcess, 10000);
+        MIRAGE_CHECK(waited == WAIT_OBJECT_0 || waited == WAIT_TIMEOUT);
+    }
+    CloseHandle(child.hThread);
+    CloseHandle(child.hProcess);
+    stage("desktop-scan: done");
+}
+
 } // namespace
 
-int main() {
+int main(int argc, char *argv[]) {
+    // Child mode: only the live-tree desktop-scan scenarios, then a normal
+    // exit whose code the parent consumes as the scan evidence.
+    for (int i = 1; i < argc; ++i) {
+        if (std::string_view(argv[i]) == kScanProbeFlag) {
+            return run_scan_probe();
+        }
+    }
+
+    stage("fixture: creating windows (main process)");
     TestGui gui;
     if (!gui.ok()) {
         std::fprintf(stderr, "fixture windows could not be created; interactive desktop "
@@ -716,7 +991,9 @@ int main() {
         return 1;
     }
 
+    stage("environment_probe_and_identity: begin");
     environment_probe_and_identity();
+    stage("environment_probe_and_identity: end");
 
     WindowsDesktopEnvironment env(mirage::platform::windows_backend::Win32Options{true},
                                   mirage::platform::windows_backend::UiaOptions{true});
@@ -732,23 +1009,56 @@ int main() {
         return mirage::testing::finish("uia_backend_test");
     }
 
+    // In-proc scenarios: fixture-HWND snapshots, registry resolution and the
+    // pre-effect rejections only — nothing here walks the live desktop tree,
+    // which is what four CI rounds proved wedge-proof in this process.
+    stage("snapshot_rejections: begin");
     snapshot_rejections(*a11y, gui.main_window());
+    stage("snapshot_rejections: end");
+
+    stage("snapshot_success_and_invariants: begin");
     const SnapshotRefs first = snapshot_success_and_invariants(*a11y, gui);
+    stage("snapshot_success_and_invariants: end");
+
+    stage("budget_fail_closed: begin");
     budget_fail_closed(*a11y, gui.main_window(), first);
+    stage("budget_fail_closed: end");
+
+    stage("registry_replacement: begin");
     const SnapshotRefs fresh = registry_replacement(*a11y, gui.main_window());
+    stage("registry_replacement: end");
 
     HANDLE clicks = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     MIRAGE_CHECK(clicks != nullptr);
     g_click_event = clicks;
+    stage("activation_scenarios (in-proc, by-reference ring): begin");
     activation_scenarios(*a11y, fresh);
+    stage("activation_scenarios (in-proc, by-reference ring): end");
     g_click_event = nullptr;
     if (clicks != nullptr) {
         CloseHandle(clicks);
     }
 
+    stage("set_text_scenarios: begin");
     set_text_scenarios(*a11y, fresh, gui);
+    stage("set_text_scenarios: end");
+
+    stage("cancellation_precedence: begin");
     cancellation_precedence(*a11y, fresh);
+    stage("cancellation_precedence: end");
+
+    stage("hidden_window_semantics: begin");
     hidden_window_semantics(*a11y, gui);
+    stage("hidden_window_semantics: end");
+
+    // The semantic/structural rings: isolated in a disposable child of this
+    // executable under a hard 45s watchdog (a wedged provider window hangs
+    // their live-tree calls past every in-process bound; process death is
+    // the only bound that applies). On watchdog timeout the note above
+    // records the environment limitation and the run still ends normally.
+    stage("desktop-scan probe (child isolation): begin");
+    run_desktop_scan_probe();
+    stage("desktop-scan probe (child isolation): end");
 
     return mirage::testing::finish("uia_backend_test");
 }

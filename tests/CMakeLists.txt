@@ -130,12 +130,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
             gdi32
     )
     add_test(NAME uia_backend_test COMMAND uia_backend_test)
-    # 300s: every UIA call is cross-process, and the semantic/structural
-    # resolution fallbacks walk the live desktop tree (runner window counts
-    # are not ours to choose); the by-reference paths are fast.
+    # 120s: the main process only touches the fixture's own HWNDs (fast);
+    # the semantic/structural desktop-scan scenarios run in a disposable
+    # --scan-probe child under a 45s TerminateProcess watchdog (one wedged
+    # provider window can hang a live-tree UIA call past every bounded
+    # mechanism), so the worst case is well under a minute. Anything slower
+    # means an unexpected wedge in the main process itself and must fail.
     set_tests_properties(uia_backend_test PROPERTIES
         LABELS "integration;platform"
-        TIMEOUT 300
+        TIMEOUT 120
     )
 endif()
 
