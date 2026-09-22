@@ -159,6 +159,68 @@ void platform_payload_caps_refuse_before_effects(desktop::NotificationProvider &
     MIRAGE_CHECK(nul_body.error.code == "invalid_argument");
 }
 
+/// Verification round on top of the caps matrix: the sharp edges of the
+/// platform boundary and the refusal order that the base matrix cannot
+/// separate (same stable error code).
+void platform_boundary_sharpness(desktop::NotificationProvider &notifications) {
+    // Cancellation outranks the argument checks: a cancelled token refuses
+    // with "cancelled" even for a payload that would also be rejected.
+    desktop::CancelToken cancelled;
+    cancelled.request_cancel();
+    const desktop::NotificationOutcome cancel_first =
+        notifications.notify("", "body", desktop::NotificationLimits{}, cancelled);
+    MIRAGE_CHECK(cancel_first.cancelled);
+    MIRAGE_CHECK(cancel_first.error.code == "cancelled");
+
+    // Surrogate pairs count as TWO UTF-16 code units each (the balloon
+    // arrays are UTF-16): 32 astral characters are 128 UTF-8 bytes — well
+    // inside the 256-byte contract budget — but 64 code units, over the
+    // 63-unit cap. The 31-pair twin (62 units) lands. The BMP cases in the
+    // caps matrix cannot distinguish code units from characters; this can.
+    std::string astral_over;
+    for (int index = 0; index < 32; ++index) {
+        astral_over += "\xF0\x9F\x98\x80"; // U+1F600: 2 code units, 4 bytes
+    }
+    const desktop::NotificationOutcome astral_refused = notifications.notify(astral_over, "body");
+    MIRAGE_CHECK(!astral_refused.ok);
+    MIRAGE_CHECK(astral_refused.error.code == "invalid_argument");
+
+    std::string astral_at_cap;
+    for (int index = 0; index < 31; ++index) {
+        astral_at_cap += "\xF0\x9F\x98\x80";
+    }
+    const desktop::NotificationOutcome astral_ok =
+        notifications.notify(astral_at_cap, "31 surrogate pairs");
+    MIRAGE_CHECK(astral_ok.ok);
+
+    // The caller's byte budget cannot lift the platform cap: a raised
+    // budget still refuses the 64-unit title.
+    desktop::NotificationLimits raised;
+    raised.max_title_bytes = 4096;
+    const std::string over_units(64, 'a');
+    const desktop::NotificationOutcome still_refused =
+        notifications.notify(over_units, "body", raised, desktop::CancelToken{});
+    MIRAGE_CHECK(!still_refused.ok);
+    MIRAGE_CHECK(still_refused.error.code == "invalid_argument");
+
+    // An empty body carries no refusal in the frozen contract (only the
+    // title must be non-empty; the Linux twin delivers an empty body): the
+    // shell takes the title-only balloon.
+    const desktop::NotificationOutcome empty_body = notifications.notify("Mirage empty body", "");
+    MIRAGE_CHECK(empty_body.ok);
+
+    // The body cap counts code units too: 256 CJK characters are 768 UTF-8
+    // bytes — far inside the 4096-byte contract budget — but 256 code
+    // units, one over the platform cap.
+    std::string cjk_body_over;
+    for (int index = 0; index < 256; ++index) {
+        cjk_body_over += "\xE5\x90\xAF";
+    }
+    const desktop::NotificationOutcome body_refused = notifications.notify("title", cjk_body_over);
+    MIRAGE_CHECK(!body_refused.ok);
+    MIRAGE_CHECK(body_refused.error.code == "invalid_argument");
+}
+
 } // namespace
 
 int main() {
@@ -190,6 +252,11 @@ int main() {
     // Scenario 2: the platform's own caps, refused before any side effect.
     platform_payload_caps_refuse_before_effects(notifications);
 
+    // Scenario 2b (verification): the boundary's sharp edges — surrogate
+    // pairs, budget-independence of the platform cap, the empty body, and
+    // the refusal order the base matrix cannot separate.
+    platform_boundary_sharpness(notifications);
+
     // Scenario 3: a second environment in the same process — the carrier
     // class is reused (ERROR_CLASS_ALREADY_EXISTS is the expected path) and
     // a second (hWnd, uID) icon coexists; both tear down cleanly.
@@ -204,6 +271,32 @@ int main() {
             std::fprintf(stderr, "[win32-notify-test] second carrier unavailable in this "
                                  "session; coexistence scenario skipped\n");
             std::fflush(stderr);
+        }
+    }
+
+    // Scenario 4 (verification): tear a carrier down and open a fresh one —
+    // the class registration survives the destructor (the reuse path), the
+    // teardown releases the icon slot, and the fresh carrier posts. Strict:
+    // the primary carrier just proved the session's tray works, so a failed
+    // reopen is a teardown defect, not an environment property.
+    {
+        WindowsDesktopEnvironment transient{Win32Options{}, UiaOptions{}, ApplicationOptions{},
+                                            NotificationsOptions{true}};
+        MIRAGE_CHECK(transient.notification() != nullptr);
+        if (transient.notification() != nullptr) {
+            const desktop::NotificationOutcome before =
+                transient.notification()->notify("Mirage reopen", "before teardown");
+            MIRAGE_CHECK(before.ok);
+        }
+    } // NIM_DELETE, then DestroyWindow, in the destructor.
+    {
+        WindowsDesktopEnvironment reopened{Win32Options{}, UiaOptions{}, ApplicationOptions{},
+                                           NotificationsOptions{true}};
+        MIRAGE_CHECK(reopened.notification() != nullptr);
+        if (reopened.notification() != nullptr) {
+            const desktop::NotificationOutcome after =
+                reopened.notification()->notify("Mirage reopen", "after teardown");
+            MIRAGE_CHECK(after.ok);
         }
     }
 
