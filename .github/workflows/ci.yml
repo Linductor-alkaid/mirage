@@ -89,7 +89,13 @@ jobs:
     # development tool devbridge and the POSIX-coupled test targets are
     # condition-excluded in CMake, each with its reason) and runs the
     # product-process round trip: mirage-service serving a named pipe with
-    # mirage as the client — the M4-06 exit condition. Runtime evidence for
+    # mirage as the client — the M4-06 exit condition.
+    # The MinGW-w64 cross gate remains scoped to the desktop/platform
+    # subset on the Linux side: the pinned executor cannot compile under
+    # MinGW posix threads (dependency_feedback MIRA-20260922-001, Open).
+    # The new Windows IPC / persistence / service TUs are covered there by
+    # per-TU MinGW -fsyntax-only checks plus this job's MSVC build; a full
+    # -tree cross build is rerun when the ledger gap closes. Runtime evidence for
     # the win32 frontends comes from this runner's interactive desktop.
     name: windows msvc (full tree)
     runs-on: windows-latest

@@ -6,7 +6,7 @@
 > 前置：[M2](m2-desktop-environment.md)（已完成：Desktop Environment 九个 Provider
 > 契约、SemanticSnapshot、ElementTarget 解析顺序契约；Linux Backend 同型骨架先例）
 > 建议发布点：`release-delta`（tag 待维护者授权后创建）
-> 更新日期：2026-09-23（M4-05 完成）
+> 更新日期：2026-09-23（M4-06 完成）
 
 ## 目标
 
@@ -103,7 +103,7 @@ Backend（设计文档第 10、18 节第四阶段）：UI Automation 承载语�
       否决并留 M5 重议触发）；契约面等价能力已落地（`notify` 冻结拒绝序 +
       平台载荷收窄 63/255 UTF-16 码元 + 嵌入 NUL 拒绝，均副作用前；托盘
       承载图标常驻、无泵回调如实声明）。
-- [ ] `M4-06` 产品进程 Windows 化：Local IPC 命名管道传输（DEC-007 兑现，
+- [x] `M4-06` 产品进程 Windows 化：Local IPC 命名管道传输（DEC-007 兑现，
       `stream_windows`；帧格式与协议 v1 不变，golden vectors 复用）、持久化
       Windows 路径与存储（`store_windows`）、`apps/service` / CLI /
       tray 进程形态可构建；全树 MSVC 构建通过。
@@ -600,3 +600,24 @@ Provider（UIA）先于外围 Provider、产品进程化（`M4-06`）不阻塞 B
 - 同步：[M4 计划](m4-windows-backend.md)（本记录 + `M4-05` 勾选）、
   [总计划](mirage-implementation-plan.md) 当前状态叙述、PR CI 取证（本 PR
   作业执行后）。
+
+2026-09-23：`M4-05` CI 门禁全绿与 Windows 运行级取证完成（挂账补录）。
+
+- 范围：上一条记录的挂账项（③ MSVC 编译与运行级证据；限制① runner 通知区
+  可用性取证点）就此闭合，无代码变更（验证轮增补的测试断言随 `3e9e93d` /
+  `56066c5` 在列）。
+- 验证（CI run 35765344178，headSha = 56066c5 已核实，全部 8 作业 success）：
+  windows msvc 作业 MSVC Debug 编译 0 错误，`win32_notification_test`
+  **42 checks, 0 failures**（0.10 s，无无托盘 skip 注记）——**runner 通知区
+  可用性成立**（验证记录挂账的新增取证点转绿），正向场景全部真实执行
+  （含空 body 受理与销毁重开生命周期）；`win32_backend_test` 128/0、
+  `uia_backend_test` 108/0、`win32_clipboard_process_test` 与
+  `win32_application_test`（250/0）同轮回归通过；同轮 Linux
+  debug / release / asan / ubsan / tsan、format & boundaries、frontend
+  作业全绿。check 计数对账：实现者原套件 ~26 + 验证轮新增断言 ~16 = 42。
+  过程记录：首跑 run 35764698599 的 2 failures 定位为实现者 tight-body
+  用例差一错误（`max_body_bytes=4` 配 4 字节载荷恰在冻结 `>` 检查内），
+  `56066c5` 改为真实超限载荷——实现本身无缺陷。
+- 同步：本计划（`M4-05` 记录的挂账闭合）。
+  残留观察（非缺陷，仅记录）：mid_wait 取消定时器与 helper 协作退出之间的
+  既有竞态形态两轮运行均绿（M4-04 记录已注明）。
