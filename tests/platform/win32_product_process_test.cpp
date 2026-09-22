@@ -94,12 +94,15 @@ void store_round_trip_and_cap() {
     MIRAGE_CHECK(refused.error.find("io_error") == 0);
     MIRAGE_CHECK(store.load().body == second);
 
-    // A load over the cap reports TooLarge instead of truncating. The
-    // declarator avoids "small": rpcndr.h (pulled in by MSVC's windows.h
-    // even under WIN32_LEAN_AND_MEAN) #defines small as char — the
-    // IDI_APPLICATION/getenv toolchain-fact family.
-    persistence::LocalStateStore capped_store(tree.root(), "small.json", 8);
-    MIRAGE_CHECK(capped_store.save("123456789").ok);
+    // A load over the cap reports TooLarge instead of truncating. The file
+    // must be planted through a wider-cap store (save and load share one
+    // budget, so an over-budget save is refused before any disk touch).
+    // The declarator avoids "small": rpcndr.h (pulled in by MSVC's
+    // windows.h even under WIN32_LEAN_AND_MEAN) #defines small as char —
+    // the IDI_APPLICATION/getenv toolchain-fact family.
+    persistence::LocalStateStore planter(tree.root(), "capped.json", 1024);
+    MIRAGE_CHECK(planter.save("123456789").ok);
+    persistence::LocalStateStore capped_store(tree.root(), "capped.json", 8);
     MIRAGE_CHECK(capped_store.load().status == persistence::LoadStatus::TooLarge);
 
     // The save creates missing directories (the POSIX store's behavior).
