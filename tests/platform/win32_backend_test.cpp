@@ -223,15 +223,17 @@ class TestGui {
     HWND hidden_ = nullptr;
 };
 
-/// Disabled (default) construction exposes nothing; enabled construction
-/// probes the interactive desktop and exposes exactly the M4-01 surface.
+/// Disabled (default) construction exposes nothing but the always-on M4-03
+/// process surface; enabled construction probes the interactive desktop and
+/// exposes the M4-01 window / capture / input surface plus the M4-03
+/// clipboard (win32_clipboard_process_test owns the M4-03 scenarios).
 /// Both identities report the M4-01 product strings.
 void environment_probe_and_identity() {
     WindowsDesktopEnvironment disabled;
     MIRAGE_CHECK(disabled.window() == nullptr);
     MIRAGE_CHECK(disabled.screen() == nullptr);
     MIRAGE_CHECK(disabled.input() == nullptr);
-    MIRAGE_CHECK(disabled.filesystem() == nullptr); // M4-03 surface, not landed yet
+    MIRAGE_CHECK(disabled.filesystem() == nullptr); // still fail-closed (M4-03 remainder)
     MIRAGE_CHECK(disabled.info().name == "mirage-windows");
     MIRAGE_CHECK(disabled.info().platform == "windows");
 
@@ -248,7 +250,7 @@ void environment_probe_and_identity() {
     MIRAGE_CHECK(env.info().name == "mirage-windows");
     MIRAGE_CHECK(env.info().platform == "windows");
     MIRAGE_CHECK(env.accessibility() == nullptr); // UiaOptions defaults to off (M4-02)
-    MIRAGE_CHECK(env.clipboard() == nullptr);     // M4-04 surface, not landed yet
+    MIRAGE_CHECK(env.clipboard() != nullptr);     // M4-03 clipboard rides the win32 probe
 }
 
 /// Enumeration honesty: the visible titled fixture is listed with a
