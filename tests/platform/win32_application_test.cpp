@@ -279,29 +279,42 @@ struct ForeignTracker {
 struct AppFixtures {
     std::filesystem::path temp_root;
     std::wstring hold_image;
+    std::wstring hold2_image;
     std::wstring ignore_image;
     std::wstring exit_image;
     std::filesystem::path hold_copy;
+    std::filesystem::path hold2_copy;
     std::filesystem::path ignore_copy;
     std::filesystem::path exit_copy;
     std::filesystem::path hold_ready;
+    std::filesystem::path hold2_ready;
     std::filesystem::path ignore_ready;
     std::filesystem::path foreign_ready;
+    std::filesystem::path alias_ready;
     std::wstring hold_arguments;
+    std::wstring hold2_arguments;
     std::wstring ignore_arguments;
+    std::wstring alias_arguments;
     std::string hold_id = "mirage-m404/hold.lnk";
+    std::string hold2_id = "mirage-m404/hold2.lnk";
     std::string ignore_id = "mirage-m404/ignore.lnk";
     std::string exit_id = "mirage-m404/exit.lnk";
+    // An id one directory below the fixture root: discovery must recurse and
+    // the launch surface must resolve the nested relative id.
+    std::string nested_id = "mirage-m404/nested/boundary-payload.lnk";
+    // A second id whose shortcut shares the hold target's image: the
+    // name-based running semantics must answer for both ids alike.
+    std::string alias_id = "mirage-m404/alias.lnk";
     std::string unicode_id;
     std::string hidden_id = "mirage-m404/hidden.lnk";
     std::filesystem::path start_menu_dir;
 };
 
 void note_image_state(const char *label, const AppFixtures &fixtures) {
-    std::fprintf(stderr, "[win32-app-test] %s: hold=%zu ignore=%zu exit=%zu\n", label,
-                 pids_by_image(fixtures.hold_image).size(),
-                 pids_by_image(fixtures.ignore_image).size(),
-                 pids_by_image(fixtures.exit_image).size());
+    std::fprintf(
+        stderr, "[win32-app-test] %s: hold=%zu hold2=%zu ignore=%zu exit=%zu\n", label,
+        pids_by_image(fixtures.hold_image).size(), pids_by_image(fixtures.hold2_image).size(),
+        pids_by_image(fixtures.ignore_image).size(), pids_by_image(fixtures.exit_image).size());
     std::fflush(stderr);
 }
 
@@ -309,7 +322,7 @@ void note_image_state(const char *label, const AppFixtures &fixtures) {
 /// helpers carry their own safety timers as the second net).
 void sweep_run_images(const AppFixtures &fixtures) {
     for (const std::wstring &image :
-         {fixtures.hold_image, fixtures.ignore_image, fixtures.exit_image}) {
+         {fixtures.hold_image, fixtures.hold2_image, fixtures.ignore_image, fixtures.exit_image}) {
         for (const DWORD pid : pids_by_image(image)) {
             std::fprintf(stderr, "[win32-app-test] sweeping stray helper pid %lu (%ls)\n", pid,
                          image.c_str());
@@ -698,6 +711,148 @@ void unicode_id_resolves_end_to_end(desktop::ApplicationProvider &app, AppFixtur
     MIRAGE_CHECK(!after.running);
 }
 
+/// Two distinct fixture applications hold live instances at the same time:
+/// each id tracks only its own instance (the per-id registry), terminating
+/// one leaves the sibling untouched, and both surfaces converge separately.
+void two_instances_are_tracked_independently(desktop::ApplicationProvider &app,
+                                             AppFixtures &fixtures) {
+    desktop::ApplicationLaunchLimits limits;
+    limits.timeout = std::chrono::milliseconds{15000};
+    MIRAGE_CHECK(pids_by_image(fixtures.hold_image).empty()); // settled baseline
+    MIRAGE_CHECK(pids_by_image(fixtures.hold2_image).empty());
+
+    const auto first = app.launch(fixtures.hold_id, limits, desktop::CancelToken{});
+    MIRAGE_CHECK(first.ok);
+    if (!first.ok) {
+        return;
+    }
+    MIRAGE_CHECK(wait_for_file(fixtures.hold_ready));
+
+    const auto second = app.launch(fixtures.hold2_id, limits, desktop::CancelToken{});
+    MIRAGE_CHECK(second.ok);
+    if (!second.ok) {
+        MIRAGE_CHECK(app.terminate(fixtures.hold_id, limits, desktop::CancelToken{}).ok);
+        return;
+    }
+    MIRAGE_CHECK(wait_for_file(fixtures.hold2_ready));
+    MIRAGE_CHECK(second.instance_id != first.instance_id);
+
+    const auto first_state = app.running_state(fixtures.hold_id);
+    MIRAGE_CHECK(first_state.ok);
+    MIRAGE_CHECK(first_state.running);
+    MIRAGE_CHECK(first_state.instance_id == first.instance_id);
+    const auto second_state = app.running_state(fixtures.hold2_id);
+    MIRAGE_CHECK(second_state.ok);
+    MIRAGE_CHECK(second_state.running);
+    MIRAGE_CHECK(second_state.instance_id == second.instance_id);
+    MIRAGE_CHECK(pids_by_image(fixtures.hold_image).size() == 1);
+    MIRAGE_CHECK(pids_by_image(fixtures.hold2_image).size() == 1);
+
+    const auto terminated = app.terminate(fixtures.hold_id, limits, desktop::CancelToken{});
+    MIRAGE_CHECK(terminated.ok);
+    MIRAGE_CHECK(terminated.instance_id == first.instance_id);
+
+    // The sibling instance is untouched by the first id's termination.
+    const auto still = app.running_state(fixtures.hold2_id);
+    MIRAGE_CHECK(still.ok);
+    MIRAGE_CHECK(still.running);
+    MIRAGE_CHECK(still.instance_id == second.instance_id);
+    MIRAGE_CHECK(pids_by_image(fixtures.hold2_image).size() == 1);
+
+    const auto settled = app.terminate(fixtures.hold2_id, limits, desktop::CancelToken{});
+    MIRAGE_CHECK(settled.ok);
+    MIRAGE_CHECK(settled.instance_id == second.instance_id);
+    MIRAGE_CHECK(wait_image_gone(fixtures.hold_image));
+    MIRAGE_CHECK(wait_image_gone(fixtures.hold2_image));
+    const auto first_after = app.running_state(fixtures.hold_id);
+    MIRAGE_CHECK(first_after.ok);
+    MIRAGE_CHECK(!first_after.running);
+    const auto second_after = app.running_state(fixtures.hold2_id);
+    MIRAGE_CHECK(second_after.ok);
+    MIRAGE_CHECK(!second_after.running);
+}
+
+/// Two ids whose shortcuts share one target image: the name-based fallback
+/// makes the shared-image instance visible to the sibling id (the M2-05
+/// name-matching semantics), blocks the sibling's relaunch with
+/// already_running, and a terminate through either id cooperatively ends
+/// that one instance.
+void shared_image_ids_see_the_same_instance(desktop::ApplicationProvider &app,
+                                            AppFixtures &fixtures) {
+    desktop::ApplicationLaunchLimits limits;
+    limits.timeout = std::chrono::milliseconds{15000};
+    MIRAGE_CHECK(pids_by_image(fixtures.hold_image).empty());
+
+    const auto launched = app.launch(fixtures.alias_id, limits, desktop::CancelToken{});
+    MIRAGE_CHECK(launched.ok);
+    if (!launched.ok) {
+        return;
+    }
+    MIRAGE_CHECK(wait_for_file(fixtures.alias_ready));
+
+    // hold_id has no tracked entry, so it must see the shared-image
+    // instance through the snapshot fallback.
+    const auto state = app.running_state(fixtures.hold_id);
+    MIRAGE_CHECK(state.ok);
+    MIRAGE_CHECK(state.running);
+    MIRAGE_CHECK(state.instance_id == launched.instance_id);
+
+    const auto duplicate = app.launch(fixtures.hold_id, limits, desktop::CancelToken{});
+    MIRAGE_CHECK(!duplicate.ok);
+    MIRAGE_CHECK(duplicate.error.code == "already_running");
+    MIRAGE_CHECK(pids_by_image(fixtures.hold_image).size() == 1); // no duplicate spawned
+
+    // Terminating through the sibling id ends the same cooperative instance.
+    const auto terminated = app.terminate(fixtures.hold_id, limits, desktop::CancelToken{});
+    MIRAGE_CHECK(terminated.ok);
+    MIRAGE_CHECK(terminated.instance_id == launched.instance_id);
+    MIRAGE_CHECK(wait_image_gone(fixtures.hold_image));
+
+    // The alias id's own tracked entry is reaped once its process is gone.
+    const auto alias_after = app.running_state(fixtures.alias_id);
+    MIRAGE_CHECK(alias_after.ok);
+    MIRAGE_CHECK(!alias_after.running);
+    const auto hold_after = app.running_state(fixtures.hold_id);
+    MIRAGE_CHECK(hold_after.ok);
+    MIRAGE_CHECK(!hold_after.running);
+}
+
+/// A shortcut nested in a subdirectory carries its nested relative id
+/// through discovery and launch, and the launch command budget accepts an
+/// id of exactly the budget size while refusing one byte more — the
+/// overlong gate fires before the id is ever resolved.
+void nested_id_and_exact_command_budget(desktop::ApplicationProvider &app, AppFixtures &fixtures) {
+    const desktop::ApplicationListOutcome listing = app.list_applications();
+    MIRAGE_CHECK(listing.ok);
+    bool nested_listed = false;
+    if (listing.ok) {
+        for (const desktop::ApplicationInfo &application : listing.applications) {
+            if (application.id == fixtures.nested_id) {
+                nested_listed = true;
+            }
+        }
+    }
+    MIRAGE_CHECK(nested_listed); // recursive discovery reaches the subdirectory
+
+    const auto state = app.running_state(fixtures.nested_id);
+    MIRAGE_CHECK(state.ok);
+    MIRAGE_CHECK(!state.running);
+
+    desktop::ApplicationLaunchLimits exact;
+    exact.timeout = std::chrono::milliseconds{15000};
+    exact.max_command_bytes = fixtures.nested_id.size();
+    const auto launched = app.launch(fixtures.nested_id, exact, desktop::CancelToken{});
+    MIRAGE_CHECK(launched.ok);                          // exactly the budget: accepted, not refused
+    MIRAGE_CHECK(wait_image_gone(fixtures.exit_image)); // its exit-mode target self-exits
+
+    desktop::ApplicationLaunchLimits tight = exact;
+    tight.max_command_bytes = fixtures.nested_id.size() - 1;
+    const auto refused = app.launch(fixtures.nested_id, tight, desktop::CancelToken{});
+    MIRAGE_CHECK(!refused.ok);
+    MIRAGE_CHECK(refused.error.code == "invalid_argument"); // before not_found / any spawn
+    MIRAGE_CHECK(pids_by_image(fixtures.exit_image).empty());
+}
+
 } // namespace
 
 int main() {
@@ -730,22 +885,30 @@ int main() {
     MIRAGE_CHECK(std::filesystem::exists(helper));
 
     fixtures.hold_image = L"m404-" + token + L"-hold.exe";
+    fixtures.hold2_image = L"m404-" + token + L"-hold2.exe";
     fixtures.ignore_image = L"m404-" + token + L"-ignore.exe";
     fixtures.exit_image = L"m404-" + token + L"-exit.exe";
     fixtures.hold_copy = fixtures.temp_root / fixtures.hold_image;
+    fixtures.hold2_copy = fixtures.temp_root / fixtures.hold2_image;
     fixtures.ignore_copy = fixtures.temp_root / fixtures.ignore_image;
     fixtures.exit_copy = fixtures.temp_root / fixtures.exit_image;
     fixtures.hold_ready = fixtures.temp_root / (L"hold-" + token + L".ready");
+    fixtures.hold2_ready = fixtures.temp_root / (L"hold2-" + token + L".ready");
     fixtures.ignore_ready = fixtures.temp_root / (L"ignore-" + token + L".ready");
     fixtures.foreign_ready = fixtures.temp_root / (L"foreign-" + token + L".ready");
+    fixtures.alias_ready = fixtures.temp_root / (L"alias-" + token + L".ready");
     std::filesystem::copy_file(helper, fixtures.hold_copy, fs_error);
+    MIRAGE_CHECK(!fs_error);
+    std::filesystem::copy_file(helper, fixtures.hold2_copy, fs_error);
     MIRAGE_CHECK(!fs_error);
     std::filesystem::copy_file(helper, fixtures.ignore_copy, fs_error);
     MIRAGE_CHECK(!fs_error);
     std::filesystem::copy_file(helper, fixtures.exit_copy, fs_error);
     MIRAGE_CHECK(!fs_error);
     fixtures.hold_arguments = L"hold 3600 \"" + fixtures.hold_ready.wstring() + L"\"";
+    fixtures.hold2_arguments = L"hold 3600 \"" + fixtures.hold2_ready.wstring() + L"\"";
     fixtures.ignore_arguments = L"ignore-close 3600 \"" + fixtures.ignore_ready.wstring() + L"\"";
+    fixtures.alias_arguments = L"hold 3600 \"" + fixtures.alias_ready.wstring() + L"\"";
 
     // "启动" as explicit code units and UTF-8 bytes: the source stays ASCII,
     // so both gate toolchains compile byte-identical fixtures regardless of
@@ -771,14 +934,19 @@ int main() {
         return 1;
     }
     const std::wstring work_dir = fixtures.temp_root.wstring();
+    std::filesystem::create_directories(fixtures.start_menu_dir / L"nested", fs_error);
+    MIRAGE_CHECK(!fs_error); // the nested fixture id's directory
     const auto shortcut = [&](const wchar_t *leaf, const std::filesystem::path &target,
                               const std::wstring &arguments) {
         return create_shortcut((fixtures.start_menu_dir / leaf).wstring(), target.wstring(),
                                arguments, work_dir);
     };
     MIRAGE_CHECK(shortcut(L"hold.lnk", fixtures.hold_copy, fixtures.hold_arguments));
+    MIRAGE_CHECK(shortcut(L"hold2.lnk", fixtures.hold2_copy, fixtures.hold2_arguments));
+    MIRAGE_CHECK(shortcut(L"alias.lnk", fixtures.hold_copy, fixtures.alias_arguments));
     MIRAGE_CHECK(shortcut(L"ignore.lnk", fixtures.ignore_copy, fixtures.ignore_arguments));
     MIRAGE_CHECK(shortcut(L"exit.lnk", fixtures.exit_copy, L"exit"));
+    MIRAGE_CHECK(shortcut(L"nested/boundary-payload.lnk", fixtures.exit_copy, L"exit"));
     MIRAGE_CHECK(shortcut(unicode_leaf.c_str(), fixtures.exit_copy, L"exit"));
     MIRAGE_CHECK(shortcut(L"hidden.lnk", fixtures.exit_copy, L"exit"));
     ::SetFileAttributesW((fixtures.start_menu_dir / L"hidden.lnk").c_str(), FILE_ATTRIBUTE_HIDDEN);
@@ -815,6 +983,12 @@ int main() {
         run_scenario("mid_wait_cancellation_keeps_instance_running",
                      mid_wait_cancellation_keeps_instance_running, app, fixtures);
         run_scenario("unicode_id_resolves_end_to_end", unicode_id_resolves_end_to_end, app,
+                     fixtures);
+        run_scenario("two_instances_are_tracked_independently",
+                     two_instances_are_tracked_independently, app, fixtures);
+        run_scenario("shared_image_ids_see_the_same_instance",
+                     shared_image_ids_see_the_same_instance, app, fixtures);
+        run_scenario("nested_id_and_exact_command_budget", nested_id_and_exact_command_budget, app,
                      fixtures);
     }
 
