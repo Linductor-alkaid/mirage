@@ -6,7 +6,7 @@
 > 前置：[M2](m2-desktop-environment.md)（已完成：Desktop Environment 九个 Provider
 > 契约、SemanticSnapshot、ElementTarget 解析顺序契约；Linux Backend 同型骨架先例）
 > 建议发布点：`release-delta`（tag 待维护者授权后创建）
-> 更新日期：2026-09-22（M4-02 完成）
+> 更新日期：2026-09-22（M4-03 完成）
 
 ## 目标
 
@@ -86,7 +86,7 @@ Backend（设计文档第 10、18 节第四阶段）：UI Automation 承载语�
       visual/spatial/raw `unsupported_hint` fail closed）与语义动作
       （Invoke / Value 模式；语义调用优先于键鼠，设计文档第 9 节）；UIA 前端
       类型不出公共头（`RULE-01`）。
-- [ ] `M4-03` ClipboardProvider（Win32）与 ProcessProvider Windows 承载：
+- [x] `M4-03` ClipboardProvider（Win32）与 ProcessProvider Windows 承载：
       `CF_UNICODETEXT` 读写、预算与 UTF-8 转换（对齐 M2-04 契约语义）；
       ProcessProvider 经 `CreateProcess` 的有界执行与取消（对齐 M1-05 语义）。
 - [ ] `M4-04` ApplicationProvider（Windows）：应用发现（开始菜单快捷方式 /
@@ -323,3 +323,66 @@ Provider（UIA）先于外围 Provider、产品进程化（`M4-06`）不阻塞 B
 - 同步：[M4 计划](m4-windows-backend.md)（本记录）、
   [DEC-017](../decisions/DEC-017-windows-backend-toolchain-and-event-loop.md)
   变更记录、依赖反馈台账、PR #40 CI 取证。
+
+2026-09-22：`M4-03` ClipboardProvider（Win32）与 ProcessProvider Windows 承载
+完成。
+
+- 范围：`platform/windows` 的 `Win32Backend` 增实现 `ClipboardProvider`
+  （M2-04 冻结契约，X11 先例同型）——CF_UNICODETEXT 读写；读侧以格式计数
+  区分空剪贴板（`not_found`）与非文本内容（`unsupported_content`），超读
+  预算 `clipboard_too_large` 不截断；写侧保持副作用前冻结拒绝序（取消 →
+  零预算 → 载荷预算 → UTF-8）；`OpenClipboard` 5 s 有界重试（25 ms 切片
+  观察取消）；`EmptyClipboard` 之后的失败如实 `io_error`（不可回滚副作用
+  如实声明）。`WindowsDesktopEnvironment` 自身实现 `ProcessProvider`
+  （M1-05 语义，无条件可用）：命令经 `cmd.exe /c`；整树置于
+  `KILL_ON_JOB_CLOSE` Job Object，`TerminateJobObject` 承载超时/取消整组
+  拆除（`kill(-pid, SIGKILL)` 等价物）；取消 25 ms 切片观察；
+  `PeekNamedPipe` 非阻塞排水（无线程，`RULE-03`）；每流预算超限
+  `output_truncated` 而非失败；管道字节原样透传（编码属于子程序，注释与
+  本记录声明）。`win32_util.hpp` 增 `UniqueHandle`。
+- 依据：设计文档第 5、10、18 节；`DEC-005` / `DEC-009` / `DEC-010` /
+  `DEC-015`（先例）/ `DEC-017`；M2-04 / M1-05 冻结语义；`RULE-01` /
+  `RULE-03` / `RULE-05` / `RULE-07`。
+- 验证（Independent-Verification-Agent；Linux x64 GCC 13.3.0 + MinGW-w64
+  GCC 13.2.0 posix + CI windows runner MSVC）：
+  - Linux 主机矩阵不回归：debug / release / asan / ubsan / tsan 五预设
+    32/32 通过 0 skip；`mirage-format-check` / `mirage-boundary-check`
+    （37 headers）通过；MinGW 交叉 8 目标 `MIRAGE_WARNINGS_AS_ERRORS=ON`
+    0 诊断，7 个 exe 认证 PE32+。
+  - 新增 `tests/platform/win32_clipboard_process_test.cpp`（12 场景）：
+    剪贴板制造状态（raw 清空 → `not_found`；raw 私有格式 →
+    `unsupported_content`）、多字节 UTF-8 往返 + 独立 `GetClipboardData`
+    对照、冻结拒绝序 + 读回不变量、同线程持有探测的有界性；进程拒绝序 +
+    越预算金丝雀文件证明（拒绝的命令从未产生进程）、`exit 7` 结构化退出
+    码、stderr 捕获、1 s 预算超时（`pre_kill_exit=259` 证实命令真活）、
+    定时器线程触发的中途取消（SIGALRM 探针类比）、10k 行发射器的 1024
+    字节截断与 512 KB 全量对照。
+  - 运行级取证（CI run 35709166819，windows-latest，MSVC，真实交互桌面）：
+    windows 作业全绿，ctest 7/7；`win32_clipboard_process_test`
+    **129 checks, 0 failures（4.94 s）**；`win32_backend_test` 128/0 与
+    `uia_backend_test` 108/0 同轮回归通过。
+- 调试过程与平台事实（对后续 Windows 工作有复用价值）：
+  - CI 迭代 6 轮定位到 execute 在真实桌面全量烧预算的根因：因子矩阵探针
+    （裸启动 17 ms、v1-v6 全部 3 s 内退出、v5 逐行复刻 1 个 25 ms 切片即
+    退出）与 provider 交错同进程对比，verdict 证据
+    （`pre_kill_exit` 携带真实退出码、`GetProcessTimes` 有 exit time、
+    进程句柄已 signaled 而两捕获管道仍 open）裁决——**命令毫秒级正常退
+    出，是管道 EOF 被扣**：隐藏控制台的 conhost 载体（由 cmd 侧创建，
+    `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` 约束不到该层）复制了管道写端且
+    比 cmd 长寿。**平台事实：Windows 控制台会话上管道 EOF 不可作为命令完
+    成信号**。修复：完成谓词改为"直接子进程退出 + 两捕获管道排空至空"；
+    精确句柄继承（`PROC_THREAD_ATTRIBUTE_HANDLE_LIST` +
+    `EXTENDED_STARTUPINFO_PRESENT`，libuv/Python 子进程同款）与
+    `CREATE_SUSPENDED` 先预算后执行（拒绝的赋值不留运行中的无预算命令）
+    一并落地。超时路径 verdict 证实 `pre_kill_exit=259`（命令真活）。
+  - 派生语义澄清：`start /b` 分离后代后主 cmd 立即退出 → 调用 ok 完成，
+    分离后代由整树拆除（`KILL_ON_JOB_CLOSE`）收割——契约"no descendant
+    survives the call"由 job 保证，不依赖 EOF。timed_out 路径由前台长命
+    令场景独立覆盖。
+- 限制与补跑条件：① 同线程持有探测在 runner 上探测不成立（raw
+  `OpenClipboard` 二次打开未失败），held-peer 有界性场景环境受限响亮跳
+  过，补跑条件 = 维护者 Windows 机器（负责人：维护者）；② 管道输出编码
+  为子程序自身编码（cmd 为 OEM 代码页），契约 UTF-8 假设仅对输出 UTF-8 的
+  程序成立，断言已按 ASCII 子串降敏；③ 后代收割依赖 `KILL_ON_JOB_CLOSE`
+  语义，共享 runner 上不可独立观测（注记声明，不硬断言）。
+- 同步：[M4 计划](m4-windows-backend.md)（本记录）、PR #41 CI 取证。

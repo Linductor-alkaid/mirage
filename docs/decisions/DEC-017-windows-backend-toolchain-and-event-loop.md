@@ -121,6 +121,14 @@
 
 ## 变更记录
 
+- 2026-09-22（`M4-03`）：决策 4 的升级路径裁决记录——UIA client 迁入
+  Executor blocking worker 的结构性升级**已获维护者授权立项**，实施窗口由
+  维护者指定（当前证据：live-tree 解析的三级兜底工作正常、structural 环可
+  用，紧迫性低）。另记录 `M4-03` 过程的平台事实：Windows 控制台会话上，
+  `cmd.exe` 的隐藏控制台载体（conhost）会复制管道写端且比命令长寿，管道
+  EOF 不可作为命令完成信号——进程承载使用"直接子进程退出 + 捕获管道排
+  空"完成谓词 + `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` 精确继承 + Job Object
+  整组拆除（`M4-03` 验证记录）。
 - 2026-09-22（`M4-02` CI 取证）：第 4 条（COM 初始化模型）兑现记录。调用型
   MTA 用法按本条落地：每方法调用在调用线程 `CoInitializeEx(
   COINIT_MULTITHREADED)`，首个成功 scope 永久保留为**进程级 MTA 锚**（恰好

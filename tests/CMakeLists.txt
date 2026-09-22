@@ -140,6 +140,32 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         LABELS "integration;platform"
         TIMEOUT 120
     )
+
+    # M4-03 Win32 clipboard + Windows process execution: exercised against
+    # the session's real clipboard and a real cmd.exe child tree (the same
+    # DEC-017 decision 9 discipline as win32_backend_test). No fixture
+    # window is needed: the clipboard scenarios manufacture their states
+    # through the raw Win32 API (empty it, inject a private format, hold it
+    # open as a peer), the process scenarios run real commands under the
+    # provider's job object. The clipboard half needs an interactive
+    # session; the process half is unconditional.
+    add_executable(win32_clipboard_process_test platform/win32_clipboard_process_test.cpp)
+    target_compile_features(win32_clipboard_process_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(win32_clipboard_process_test)
+    target_link_libraries(win32_clipboard_process_test
+        PRIVATE
+            Mirage::platform
+            Mirage::desktop
+            user32
+    )
+    add_test(NAME win32_clipboard_process_test COMMAND win32_clipboard_process_test)
+    # 120s covers the bounded-retry scenarios (two 5s clipboard-open
+    # deadlines, the 3s pipe-holding descendant budget) with wide margin;
+    # normal runs finish in well under a minute.
+    set_tests_properties(win32_clipboard_process_test PROPERTIES
+        LABELS "integration;platform"
+        TIMEOUT 120
+    )
 endif()
 
 # M2-03 AT-SPI2 accessibility: private D-Bus session plus a wire-exact GDBus

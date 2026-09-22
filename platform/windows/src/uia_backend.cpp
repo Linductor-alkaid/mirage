@@ -153,14 +153,8 @@ class Bstr {
     BSTR bstr_;
 };
 
-struct HandleCloser {
-    void operator()(void *handle) const {
-        if (handle != nullptr) {
-            ::CloseHandle(handle);
-        }
-    }
-};
-using ProcessHandle = std::unique_ptr<void, HandleCloser>;
+using win32_util::UniqueHandle;
+using ProcessHandle = UniqueHandle;
 
 /// Normalizes a UIA control type into the stable snapshot vocabulary
 /// (DEC-005): the same targets the AT-SPI backend projects onto (M2-03
