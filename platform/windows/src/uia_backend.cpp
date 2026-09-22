@@ -13,6 +13,7 @@
 #include <uiautomation.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <iterator>
 #include <map>
@@ -43,6 +44,23 @@ using win32_util::utf8_to_utf16;
 // ControlTypeIds members in the MSVC SDK); this TU speaks that one
 // spelling.
 using ControlTypeId = CONTROLTYPEID;
+
+/// Bounded UIA provider transactions (RULE-07): a hung provider window on
+/// the live desktop must fail its calls instead of blocking a snapshot or
+/// resolution indefinitely — the walk then treats it as a vanished element
+/// and moves on. The Executor-side call timeout stays the outer bound
+/// (same discipline as the X11 backend's single-call limits).
+constexpr DWORD kUiaConnectionTimeoutMs = 2000;  // per provider process
+constexpr DWORD kUiaTransactionTimeoutMs = 1000; // per provider call
+
+/// Wall-clock budget for one live-tree search (semantic / structural).
+/// The node-visit bound alone does not bound time on a desktop whose
+/// providers answer slowly (each visit costs several bounded cross-process
+/// calls), so the search reports not_found once the budget is spent —
+/// a resolution that did not fit its budget is an honest refusal, not a
+/// partial result.
+using ScanClock = std::chrono::steady_clock;
+constexpr auto kLiveScanBudget = std::chrono::seconds{30};
 
 /// One call = one COM scope (DEC-017 decision 4): the calling thread joins
 /// the process MTA for the duration of the call. S_OK and S_FALSE both own
@@ -329,6 +347,17 @@ struct UiaBackend::Impl {
                 failure = error("io_error", "UI Automation client core is unavailable");
                 return {};
             }
+            // Transaction bounds are a robustness setting, not a contract
+            // surface: a failed QI or put leaves the UIA defaults in place
+            // and the calls stay correct (only potentially slower). The
+            // timeouts live on the IUIAutomation2 sub-interface.
+            ComPtr<IUIAutomation2> automation2;
+            if (automation->QueryInterface(__uuidof(IUIAutomation2),
+                                           reinterpret_cast<void **>(automation2.out())) == S_OK &&
+                automation2) {
+                automation2->put_ConnectionTimeout(kUiaConnectionTimeoutMs);
+                automation2->put_TransactionTimeout(kUiaTransactionTimeoutMs);
+            }
             mta_anchored = true; // the scope stays open from here on
         }
         ComPtr<IUIAutomationTreeWalker> walker;
@@ -455,7 +484,11 @@ struct UiaBackend::Impl {
         std::vector<ComPtr<IUIAutomationElement>> queue;
         queue.push_back(std::move(root));
         std::size_t head = 0;
+        const auto deadline = ScanClock::now() + kLiveScanBudget;
         while (head < queue.size() && visited < budget) {
+            if (ScanClock::now() >= deadline) {
+                return {}; // scan budget spent: not_found, not a hang
+            }
             IUIAutomationElement *current = queue[head].get();
             if (head != 0 && node_matches(current, role, name)) {
                 return std::move(queue[head]);
@@ -487,9 +520,13 @@ struct UiaBackend::Impl {
         if (automation->GetRootElement(root.out()) != S_OK || !root) {
             return {};
         }
+        const auto deadline = ScanClock::now() + kLiveScanBudget;
         ComPtr<IUIAutomationElement> child;
         HRESULT hr = walker->GetFirstChildElement(root.get(), child.out());
         while (SUCCEEDED(hr) && child) {
+            if (ScanClock::now() >= deadline) {
+                return {}; // scan budget spent: not_found, not a hang
+            }
             ComPtr<IUIAutomationElement> cursor = std::move(child);
             bool failed = false;
             for (std::size_t s = 0; s + 1 < segments.size(); s += 2) {
@@ -504,6 +541,9 @@ struct UiaBackend::Impl {
                 ComPtr<IUIAutomationElement> kid;
                 HRESULT kid_hr = walker->GetFirstChildElement(cursor.get(), kid.out());
                 while (SUCCEEDED(kid_hr) && kid) {
+                    if (ScanClock::now() >= deadline) {
+                        return {}; // scan budget spent: not_found, not a hang
+                    }
                     if (node_matches(kid.get(), segments[s + 2], segments[s + 3])) {
                         next = std::move(kid);
                         break;
