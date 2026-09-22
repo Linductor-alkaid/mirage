@@ -190,6 +190,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
             user32
             ole32
     )
+    # The test copies m404_process_helper.exe to its run-unique fixture names
+    # from its own directory at startup (GetModuleFileNameW), so the helper
+    # must exist whenever the test binary is built — including partial CI
+    # builds that name only the test target.
+    add_dependencies(win32_application_test m404_process_helper)
     add_test(NAME win32_application_test COMMAND win32_application_test)
     # 120s covers the stuck-instance deadline scenarios (a 1.5s cooperative
     # deadline plus the mid-cancel probe) with wide margin; normal runs
