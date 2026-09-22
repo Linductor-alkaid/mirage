@@ -44,8 +44,12 @@ struct SaveResult {
 /// A failed save leaves the previous file intact. load() refuses files
 /// larger than the byte budget with TooLarge instead of truncating.
 ///
-/// POSIX-only in M1 (store_posix.cpp); the Windows storage implementation
-/// lands with the M4 backend behind this same surface.
+/// Platform-selected implementations of this one surface:
+/// store_posix.cpp (0700/0600 + fsync + rename) on Linux and
+/// store_windows.cpp (CREATE_NEW temp + FlushFileBuffers +
+/// MoveFileEx WRITE_THROUGH) on Windows (M4-06); the recorded platform
+/// difference is directory hardening (default profile ACLs instead of
+/// 0700) and directory-durability (no per-directory flush).
 class LocalStateStore {
   public:
     /// `file_name` must be a plain name (no directory separators); the

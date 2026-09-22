@@ -1,8 +1,13 @@
 add_library(mirage_runtime_persistence STATIC
-    src/paths.cpp
     src/recovery.cpp
     src/settings.cpp
-    src/store_posix.cpp
+    # The DEC-011 store and its default paths are platform-selected
+    # implementations of one shared surface (M4-06): atomic save / capped
+    # load on both sides, platform-native durability and paths.
+    $<$<PLATFORM_ID:Windows>:src/store_windows.cpp>
+    $<$<PLATFORM_ID:Windows>:src/paths_windows.cpp>
+    $<$<NOT:$<PLATFORM_ID:Windows>>:src/store_posix.cpp>
+    $<$<NOT:$<PLATFORM_ID:Windows>>:src/paths_posix.cpp>
 )
 add_library(Mirage::persistence ALIAS mirage_runtime_persistence)
 
