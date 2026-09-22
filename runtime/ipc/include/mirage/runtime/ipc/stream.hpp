@@ -49,8 +49,9 @@ class IpcStream {
     /// Adopts an already-connected, non-blocking transport handle (the fd
     /// on POSIX, the pipe HANDLE on Windows) for transports that run their
     /// own accept loop — the dev bridge (M1.5-03). The semantics are the
-    /// stream's; the token is owned from here on.
-    static IpcStream adopt_native(std::intptr_t native) { return IpcStream(native); }
+    /// stream's; the token is owned from here on. Platform-defined: on
+    /// Windows the adoption allocates the overlapped I/O state.
+    static IpcStream adopt_native(std::intptr_t native);
 
     IoResult read_some(char *data, std::size_t size);
     IoResult write_some(const char *data, std::size_t size);
@@ -63,13 +64,17 @@ class IpcStream {
     /// on POSIX, the pipe HANDLE on Windows). Only the transport factories
     /// (accept / connect_stream) construct streams.
     explicit IpcStream(std::intptr_t native) : native_(native) {}
+#ifdef _WIN32
+    /// Windows only: wraps the handle in its overlapped I/O state. Defined
+    /// in stream_windows.cpp; POSIX streams carry no per-stream state.
+    static IpcStream make_stream(std::intptr_t native);
+#endif
 
 #ifdef _WIN32
     static constexpr std::intptr_t kInvalidTransport = 0; // null HANDLE
-    /// Windows only: the stream's overlapped I/O state (completion events,
-    /// the at-most-one in-flight write and its owned buffer). POSIX keeps
-    /// no per-stream state beyond the fd. Declaration order matters: the
-    /// Windows state precedes the native handle.
+    /// Windows only: the stream's overlapped I/O state (the completion
+    /// events). POSIX keeps no per-stream state beyond the fd. Declaration
+    /// order matters: the Windows state precedes the native handle.
     void *state_ = nullptr;
     std::intptr_t native_ = kInvalidTransport;
 #else

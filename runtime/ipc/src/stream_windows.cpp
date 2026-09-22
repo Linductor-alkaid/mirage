@@ -14,6 +14,7 @@
 #include <windows.h>
 
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <iterator>
 #include <optional>
@@ -49,23 +50,21 @@ std::optional<std::wstring> wide_from_utf8(const std::string &text) {
     return out;
 }
 
-/// Per-stream overlapped I/O state (IpcStream::state_ on Windows). Reads
-/// never leave an operation behind (PeekNamedPipe gates them, and an
-/// in-flight read is cancelled and reaped inside read_some); at most one
-/// write is in flight and its bytes are owned here, so the OVERLAPPED never
-/// references a caller buffer across calls.
+/// Per-stream overlapped I/O state (IpcStream::state_ on Windows): the two
+/// completion events. Neither direction ever leaves an operation behind —
+/// reads are gated by PeekNamedPipe, and an operation that queues is
+/// cancelled and reaped inside the very same call, reporting exactly the
+/// bytes that were truly transferred (the POSIX WouldBlock contract; the
+/// caller always resumes from the reported cursor).
 struct StreamState {
-    HANDLE read_event = nullptr;  // auto-reset; the zero-wait read completion
-    HANDLE write_event = nullptr; // auto-reset; the write-behind completion
-    bool write_pending = false;
-    OVERLAPPED write_overlapped{};
-    std::string write_buffer;   ///< owned bytes of the in-flight write
-    std::size_t write_sent = 0; ///< bytes of `write_buffer` already transferred
+    HANDLE read_event = nullptr;  // auto-reset; the read completion
+    HANDLE write_event = nullptr; // auto-reset; the write completion
 };
 
 /// Aborts an in-flight overlapped operation and reaps it. A cancelled
 /// operation completes promptly on a local pipe; the wait keeps the
-/// OVERLAPPED (and, for writes, the owned buffer) alive until it did.
+/// OVERLAPPED (whose buffer belongs to this call's stack) alive until it
+/// did, so partial progress is reported, never lost and never duplicated.
 void cancel_and_reap(HANDLE handle, OVERLAPPED *overlapped) {
     ::CancelIoEx(handle, overlapped);
     DWORD abandoned = 0;
@@ -75,9 +74,9 @@ void cancel_and_reap(HANDLE handle, OVERLAPPED *overlapped) {
 /// Issues one overlapped write. Returns ERROR_SUCCESS when it completed
 /// synchronously (read the count with GetOverlappedResult), ERROR_IO_PENDING
 /// when it queued, or the immediate failure code.
-DWORD issue_write(HANDLE handle, OVERLAPPED *overlapped, StreamState &state, const char *data,
+DWORD issue_write(HANDLE handle, OVERLAPPED *overlapped, HANDLE write_event, const char *data,
                   std::size_t size) {
-    overlapped->hEvent = state.write_event;
+    overlapped->hEvent = write_event;
     if (::WriteFile(handle, data, static_cast<DWORD>(size), nullptr, overlapped) != 0) {
         return ERROR_SUCCESS;
     }
@@ -194,12 +193,6 @@ void IpcStream::close() {
     if (native_ != kInvalidTransport) {
         if (state_ != nullptr) {
             auto *state = static_cast<StreamState *>(state_);
-            if (state->write_pending) {
-                // The owned buffer keeps the in-flight write addressable;
-                // reap it before both go away.
-                cancel_and_reap(reinterpret_cast<HANDLE>(native_), &state->write_overlapped);
-                state->write_pending = false;
-            }
             if (state->read_event != nullptr) {
                 ::CloseHandle(state->read_event);
                 state->read_event = nullptr;
@@ -217,6 +210,41 @@ void IpcStream::close() {
         native_ = kInvalidTransport;
     }
 }
+
+/// Allocates the stream's overlapped I/O state. Round-1 verification D1: a
+/// stream without this state degrades every operation to a null result —
+/// the factories are the only place it can be created, and every one of
+/// them goes through here.
+IpcStream IpcStream::make_stream(std::intptr_t native) {
+    if (native == kInvalidTransport) {
+        return IpcStream{};
+    }
+    auto *state = new StreamState();
+    state->read_event =
+        ::CreateEventW(nullptr, /*bManualReset=*/FALSE, /*bInitialState=*/FALSE, nullptr);
+    state->write_event =
+        ::CreateEventW(nullptr, /*bManualReset=*/FALSE, /*bInitialState=*/FALSE, nullptr);
+    if (state->read_event == nullptr || state->write_event == nullptr) {
+        const DWORD error = ::GetLastError();
+        if (state->read_event != nullptr) {
+            ::CloseHandle(state->read_event);
+        }
+        if (state->write_event != nullptr) {
+            ::CloseHandle(state->write_event);
+        }
+        delete state;
+        ::CloseHandle(reinterpret_cast<HANDLE>(native));
+        std::fprintf(stderr, "[win32-ipc] stream state allocation failed (Win32 error %lu)\n",
+                     static_cast<unsigned long>(error));
+        std::fflush(stderr);
+        return IpcStream{};
+    }
+    IpcStream stream(native);
+    stream.state_ = state;
+    return stream;
+}
+
+IpcStream IpcStream::adopt_native(std::intptr_t native) { return make_stream(native); }
 
 IoResult IpcStream::read_some(char *data, std::size_t size) {
     IoResult result;
@@ -297,95 +325,51 @@ IoResult IpcStream::write_some(const char *data, std::size_t size) {
     }
     const HANDLE handle = reinterpret_cast<HANDLE>(native_);
     auto *state = static_cast<StreamState *>(state_);
-    // Reap phase: drain the write-behind queue first. Every Ok byte
-    // reported here is one previously queued byte, so the caller's cursor
-    // stays exactly in step with the transport.
-    DWORD advanced = 0;
-    while (state->write_pending) {
-        DWORD written = 0;
-        if (::GetOverlappedResult(handle, &state->write_overlapped, &written, FALSE) == 0) {
-            const DWORD error = ::GetLastError();
-            if (error == ERROR_IO_INCOMPLETE) {
-                result.bytes = advanced;
-                result.status = advanced > 0 ? IoStatus::Ok : IoStatus::WouldBlock;
+    // The same discipline as read_some: an operation the pipe cannot take
+    // immediately is cancelled and reaped inside this call, reporting
+    // exactly the bytes that were truly transferred. The caller therefore
+    // always resumes from the reported cursor — nothing is queued behind
+    // the call and nothing can be written twice.
+    OVERLAPPED overlapped{};
+    const DWORD issued = issue_write(handle, &overlapped, state->write_event, data, size);
+    if (issued == ERROR_IO_PENDING) {
+        if (::WaitForSingleObject(overlapped.hEvent, 0) != WAIT_OBJECT_0) {
+            cancel_and_reap(handle, &overlapped);
+            DWORD written = 0;
+            if (::GetOverlappedResult(handle, &overlapped, &written, FALSE) != 0 && written > 0) {
+                result.bytes = written; // the cancel raced a completion
+                result.status = IoStatus::Ok;
                 return result;
             }
-            state->write_pending = false;
-            if (error == ERROR_BROKEN_PIPE) {
-                result.status = IoStatus::Closed;
-            } else {
-                result.status = IoStatus::Error;
-                result.os_error = static_cast<int>(error);
-            }
-            return result;
-        }
-        state->write_pending = false;
-        advanced += written;
-        state->write_sent += written;
-        if (state->write_sent < state->write_buffer.size()) {
-            const DWORD issued = issue_write(handle, &state->write_overlapped, *state,
-                                             state->write_buffer.data() + state->write_sent,
-                                             state->write_buffer.size() - state->write_sent);
-            if (issued == ERROR_IO_PENDING) {
-                state->write_pending = true;
-                result.bytes = advanced;
-                result.status = advanced > 0 ? IoStatus::Ok : IoStatus::WouldBlock;
-                return result;
-            }
-            if (issued != ERROR_SUCCESS) {
-                state->write_pending = false;
-                if (issued == ERROR_BROKEN_PIPE) {
-                    result.status = IoStatus::Closed;
-                } else {
-                    result.status = IoStatus::Error;
-                    result.os_error = static_cast<int>(issued);
-                }
-                return result;
-            }
-            continue; // synchronous completion: reap it on the next pass
-        }
-        state->write_buffer.clear();
-        state->write_sent = 0;
-    }
-    // Issue phase: the caller's fresh bytes. A queued write is copied into
-    // the owned buffer and reported WouldBlock(0) — nothing of this call is
-    // reported written until the transport says so.
-    if (size > 0) {
-        const DWORD issued = issue_write(handle, &state->write_overlapped, *state, data, size);
-        if (issued == ERROR_IO_PENDING) {
-            state->write_pending = true;
-            state->write_sent = 0;
-            state->write_buffer.assign(data, size);
             result.status = IoStatus::WouldBlock;
             return result;
         }
-        if (issued != ERROR_SUCCESS) {
-            if (issued == ERROR_BROKEN_PIPE) {
-                result.status = IoStatus::Closed;
-            } else {
-                result.status = IoStatus::Error;
-                result.os_error = static_cast<int>(issued);
-            }
-            return result;
+    } else if (issued != ERROR_SUCCESS) {
+        if (issued == ERROR_BROKEN_PIPE) {
+            result.status = IoStatus::Closed;
+        } else {
+            result.status = IoStatus::Error;
+            result.os_error = static_cast<int>(issued);
         }
-        DWORD written = 0;
-        if (::GetOverlappedResult(handle, &state->write_overlapped, &written, FALSE) == 0) {
-            const DWORD error = ::GetLastError();
-            if (error == ERROR_BROKEN_PIPE) {
-                result.status = IoStatus::Closed;
-            } else {
-                result.status = IoStatus::Error;
-                result.os_error = static_cast<int>(error);
-            }
-            return result;
-        }
-        advanced += written;
+        return result;
     }
-    if (advanced == 0) {
+    DWORD written = 0;
+    if (::GetOverlappedResult(handle, &overlapped, &written, FALSE) == 0) {
+        const DWORD error = ::GetLastError();
+        if (error == ERROR_BROKEN_PIPE) {
+            result.status = IoStatus::Closed;
+        } else {
+            result.status = IoStatus::Error;
+            result.os_error = static_cast<int>(error);
+        }
+        return result;
+    }
+    if (written == 0) {
         result.status = IoStatus::WouldBlock;
         return result;
     }
-    result.bytes = advanced;
+    result.bytes = written;
+    result.status = IoStatus::Ok;
     return result;
 }
 
@@ -518,7 +502,7 @@ IpcStream IpcListener::accept(std::string &diagnostic) {
         // but cannot take new ones (RULE-07 visibility).
         diagnostic = "listener recycle failed: " + recycle_error;
     }
-    return IpcStream{reinterpret_cast<std::intptr_t>(connected)};
+    return IpcStream::make_stream(reinterpret_cast<std::intptr_t>(connected));
 }
 
 bool endpoint_has_listener(const std::string &address, std::chrono::milliseconds) {
@@ -552,7 +536,7 @@ IpcStream connect_stream(const std::string &address, std::chrono::milliseconds d
         HANDLE handle = ::CreateFileW(name->c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
                                       OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
         if (handle != INVALID_HANDLE_VALUE) {
-            return IpcStream{reinterpret_cast<std::intptr_t>(handle)};
+            return IpcStream::make_stream(reinterpret_cast<std::intptr_t>(handle));
         }
         const DWORD error = ::GetLastError();
         if (error == ERROR_PIPE_BUSY) {
@@ -560,8 +544,12 @@ IpcStream connect_stream(const std::string &address, std::chrono::milliseconds d
             // free slot within the deadline.
             ::WaitNamedPipeW(name->c_str(), 100);
         } else if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) {
-            diagnostic = "connection refused: no such pipe at '" + address + "'";
-            return IpcStream{};
+            // The accept/recycle window keeps zero instances alive for an
+            // instant; within the deadline that is retryable, not a refusal.
+            if (std::chrono::steady_clock::now() - start >= deadline) {
+                diagnostic = "connection refused: no such pipe at '" + address + "'";
+                return IpcStream{};
+            }
         } else {
             diagnostic = "connect('" + address + "') failed (Win32 error " +
                          std::to_string(static_cast<unsigned long>(error)) + ")";

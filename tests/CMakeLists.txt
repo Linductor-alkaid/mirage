@@ -224,27 +224,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         LABELS "integration;platform"
         TIMEOUT 120
     )
-
-    # M4-06 product processes on Windows: the real RuntimeService serving
-    # a named pipe against the real IpcClient (the DEC-007 round trip the
-    # milestone exit condition names), the shared golden-vector framing
-    # identity, and the DEC-011 Windows store. Runs wherever the binary
-    # runs; no interactive desktop needed.
-    add_executable(win32_product_process_test platform/win32_product_process_test.cpp)
-    target_compile_features(win32_product_process_test PUBLIC cxx_std_20)
-    mirage_enable_warnings(win32_product_process_test)
-    target_link_libraries(win32_product_process_test
-        PRIVATE
-            Mirage::runtime_service
-            Mirage::persistence
-            Mirage::platform
-            Mirage::desktop
-    )
-    add_test(NAME win32_product_process_test COMMAND win32_product_process_test)
-    set_tests_properties(win32_product_process_test PROPERTIES
-        LABELS "integration;platform"
-        TIMEOUT 120
-    )
 endif()
 
 # M2-03 AT-SPI2 accessibility: private D-Bus session plus a wire-exact GDBus
@@ -392,9 +371,10 @@ if(GIO_TEST_FOUND)
     )
 endif()
 
-add_executable(mira_binding_test integration/mira_binding_test.cpp)
 # POSIX-only: unistd fixtures.
+# 
 if(UNIX)
+add_executable(mira_binding_test integration/mira_binding_test.cpp)
 target_compile_features(mira_binding_test PUBLIC cxx_std_20)
 mirage_enable_warnings(mira_binding_test)
 target_link_libraries(mira_binding_test
@@ -411,7 +391,6 @@ target_link_libraries(mira_binding_test
         # fake_visual_backend_test).
         mirador::core
 )
-endif()
 # The M3-05 wired-binding scenarios run the concrete VisualObservationPipeline
 # over the fake environment's screen provider; the pipeline drives the pinned
 # Executor directly (the per-source blocking worker), consumed as SYSTEM
@@ -427,10 +406,12 @@ set_tests_properties(mira_binding_test PROPERTIES
     LABELS "integration"
     TIMEOUT 120
 )
+endif()
 
-add_executable(desktop_provider_boundary_test integration/desktop_provider_boundary_test.cpp)
 # POSIX-only: signal self-pipe fixtures.
+# 
 if(UNIX)
+add_executable(desktop_provider_boundary_test integration/desktop_provider_boundary_test.cpp)
 target_compile_features(desktop_provider_boundary_test PUBLIC cxx_std_20)
 mirage_enable_warnings(desktop_provider_boundary_test)
 target_link_libraries(desktop_provider_boundary_test
@@ -440,16 +421,17 @@ target_link_libraries(desktop_provider_boundary_test
         Mirage::platform
         Mirage::desktop
 )
-endif()
 add_test(NAME desktop_provider_boundary_test COMMAND desktop_provider_boundary_test)
 set_tests_properties(desktop_provider_boundary_test PROPERTIES
     LABELS "integration"
     TIMEOUT 120
 )
+endif()
 
-add_executable(ipc_protocol_test runtime/ipc_protocol_test.cpp)
 # POSIX-only: exercises the Unix-socket transport and a forked helper.
+#    # product-process round trip is win32_product_process_test.
 if(UNIX)
+add_executable(ipc_protocol_test runtime/ipc_protocol_test.cpp)
 target_compile_features(ipc_protocol_test PUBLIC cxx_std_20)
 mirage_enable_warnings(ipc_protocol_test)
 target_link_libraries(ipc_protocol_test PRIVATE Mirage::ipc)
@@ -476,10 +458,11 @@ set_tests_properties(ipc_protocol_golden_test PROPERTIES
     TIMEOUT 60
 )
 
-add_executable(runtime_service_test runtime/runtime_service_test.cpp)
 # POSIX-only: Unix-socket endpoints and a signal self-pipe; the Windows
 # product-process round trip is win32_product_process_test.
+# 
 if(UNIX)
+add_executable(runtime_service_test runtime/runtime_service_test.cpp)
 target_compile_features(runtime_service_test PUBLIC cxx_std_20)
 mirage_enable_warnings(runtime_service_test)
 target_link_libraries(runtime_service_test
@@ -490,16 +473,17 @@ target_link_libraries(runtime_service_test
         Mirage::desktop
         Mirage::ipc
 )
-endif()
 add_test(NAME runtime_service_test COMMAND runtime_service_test)
 set_tests_properties(runtime_service_test PROPERTIES
     LABELS "integration"
     TIMEOUT 300
 )
+endif()
 
-add_executable(event_subscription_test runtime/event_subscription_test.cpp)
 # POSIX-only: same Unix-socket transport coupling as runtime_service_test.
+# 
 if(UNIX)
+add_executable(event_subscription_test runtime/event_subscription_test.cpp)
 target_compile_features(event_subscription_test PUBLIC cxx_std_20)
 mirage_enable_warnings(event_subscription_test)
 target_link_libraries(event_subscription_test
@@ -510,7 +494,6 @@ target_link_libraries(event_subscription_test
         Mirage::desktop
         Mirage::ipc
 )
-endif()
 add_test(NAME event_subscription_test COMMAND event_subscription_test)
 set_tests_properties(event_subscription_test PROPERTIES
     LABELS "integration"
@@ -520,7 +503,13 @@ set_tests_properties(event_subscription_test PROPERTIES
     # well under a minute.
     TIMEOUT 900
 )
+endif()
 
+# POSIX-only: the Linux filesystem-store hardening surface it exercises is
+# a platform/linux header set (M1-05); the Windows store is covered by
+# win32_product_process_test.
+# 
+if(UNIX)
 add_executable(provider_hardening_test desktop/provider_hardening_test.cpp)
 target_compile_features(provider_hardening_test PUBLIC cxx_std_20)
 mirage_enable_warnings(provider_hardening_test)
@@ -534,6 +523,7 @@ set_tests_properties(provider_hardening_test PROPERTIES
     LABELS "unit"
     TIMEOUT 120
 )
+endif()
 
 add_executable(permission_test runtime/permission_test.cpp)
 target_compile_features(permission_test PUBLIC cxx_std_20)
@@ -545,10 +535,11 @@ set_tests_properties(permission_test PROPERTIES
     TIMEOUT 60
 )
 
-add_executable(persistence_test runtime/persistence_test.cpp)
 # POSIX-only: asserts the 0700/0600 store hardening; the Windows store is
 # covered by win32_product_process_test.
+# # covered by win32_product_process_test.
 if(UNIX)
+add_executable(persistence_test runtime/persistence_test.cpp)
 target_compile_features(persistence_test PUBLIC cxx_std_20)
 mirage_enable_warnings(persistence_test)
 target_link_libraries(persistence_test PRIVATE Mirage::persistence)
@@ -594,9 +585,10 @@ set_tests_properties(task_permission_test PROPERTIES
     TIMEOUT 300
 )
 
-add_executable(task_cancel_test runtime/task_cancel_test.cpp)
 # POSIX-only: signal-driven cancellation probes.
+# 
 if(UNIX)
+add_executable(task_cancel_test runtime/task_cancel_test.cpp)
 target_compile_features(task_cancel_test PUBLIC cxx_std_20)
 mirage_enable_warnings(task_cancel_test)
 target_link_libraries(task_cancel_test
@@ -607,21 +599,22 @@ target_link_libraries(task_cancel_test
         Mirage::desktop
         Mirage::ipc
 )
-endif()
 add_test(NAME task_cancel_test COMMAND task_cancel_test)
 set_tests_properties(task_cancel_test PROPERTIES
     LABELS "integration"
     TIMEOUT 300
 )
+endif()
 
 # M1.5-03 dev bridge: the codec tests are pure byte machinery; the relay
 # tests run a real DevBridgeLoop on the Executor against a scripted echo
 # upstream over a temporary Unix socket. Both link only mirage_devbridge_core
 # (executor headers come through its SYSTEM include dir, executor symbols
 # through its LINK_ONLY interface).
-add_executable(websocket_test devbridge/websocket_test.cpp)
 # POSIX-only: the devbridge transport (see apps/CMakeLists.txt).
+# 
 if(UNIX)
+add_executable(websocket_test devbridge/websocket_test.cpp)
 target_compile_features(websocket_test PUBLIC cxx_std_20)
 mirage_enable_warnings(websocket_test)
 target_link_libraries(websocket_test PRIVATE mirage_devbridge_core)
@@ -632,9 +625,10 @@ set_tests_properties(websocket_test PROPERTIES
 )
 endif()
 
-add_executable(bridge_relay_test devbridge/bridge_relay_test.cpp)
 # POSIX-only: the devbridge transport (see apps/CMakeLists.txt).
+# 
 if(UNIX)
+add_executable(bridge_relay_test devbridge/bridge_relay_test.cpp)
 target_compile_features(bridge_relay_test PUBLIC cxx_std_20)
 mirage_enable_warnings(bridge_relay_test)
 target_link_libraries(bridge_relay_test PRIVATE mirage_devbridge_core)

@@ -35,6 +35,8 @@ IoStatus status_from_errno(int error, bool writing) {
 
 } // namespace
 
+IpcStream IpcStream::adopt_native(std::intptr_t native) { return IpcStream(native); }
+
 IpcStream::~IpcStream() { close(); }
 
 IpcStream::IpcStream(IpcStream &&other) noexcept
