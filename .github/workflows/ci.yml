@@ -138,12 +138,13 @@ jobs:
             $ready = $false
             while ((Get-Date) -lt $deadline) {
               if ($service.HasExited) { throw "mirage-service exited early with $($service.ExitCode)" }
-              & "build/windows/apps/Debug/mirage.exe" --socket $pipe service status
+              # The CLI takes per-subcommand options: they follow the subcommand.
+              & "build/windows/apps/Debug/mirage.exe" service status --socket $pipe
               if ($LASTEXITCODE -eq 0) { $ready = $true; break }
               Start-Sleep -Milliseconds 300
             }
             if (-not $ready) { throw "mirage-service never answered hello within 30s" }
-            & "build/windows/apps/Debug/mirage.exe" --socket $pipe service shutdown
+            & "build/windows/apps/Debug/mirage.exe" service shutdown --socket $pipe
             if ($LASTEXITCODE -ne 0) { throw "service shutdown failed ($LASTEXITCODE)" }
             $service.WaitForExit(30000) | Out-Null
             if (-not $service.HasExited) { throw "mirage-service did not exit after shutdown" }

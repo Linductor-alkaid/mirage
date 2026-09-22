@@ -224,6 +224,27 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         LABELS "integration;platform"
         TIMEOUT 120
     )
+
+    # M4-06 product processes on Windows: the real RuntimeService serving
+    # a named pipe against the real IpcClient (the DEC-007 round trip the
+    # milestone exit condition names), the shared golden-vector framing
+    # identity, and the DEC-011 Windows store. Runs wherever the binary
+    # runs; no interactive desktop needed.
+    add_executable(win32_product_process_test platform/win32_product_process_test.cpp)
+    target_compile_features(win32_product_process_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(win32_product_process_test)
+    target_link_libraries(win32_product_process_test
+        PRIVATE
+            Mirage::runtime_service
+            Mirage::persistence
+            Mirage::platform
+            Mirage::desktop
+    )
+    add_test(NAME win32_product_process_test COMMAND win32_product_process_test)
+    set_tests_properties(win32_product_process_test PROPERTIES
+        LABELS "integration;platform"
+        TIMEOUT 120
+    )
 endif()
 
 # M2-03 AT-SPI2 accessibility: private D-Bus session plus a wire-exact GDBus
