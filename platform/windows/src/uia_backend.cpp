@@ -38,18 +38,11 @@ using win32_util::parse_window_id;
 using win32_util::utf16_to_utf8;
 using win32_util::utf8_to_utf16;
 
-// Cross-toolchain name normalization (DEC-017 decision 1): MinGW-w64
-// declares the control-type values as UIA_<Name>ControlTypeId macros and
-// the type as CONTROLTYPEID, while the MSVC SDK declares enum
-// UIA_CONTROLTYPE_ID with UIA_<Name>ControlType members. Values are
-// identical; this TU speaks one spelling.
-#ifdef UIA_ButtonControlTypeId
+// Both gate toolchains name the control-type type CONTROLTYPEID and the
+// values UIA_<Name>ControlTypeId (macro constants on MinGW-w64, enum
+// ControlTypeIds members in the MSVC SDK); this TU speaks that one
+// spelling.
 using ControlTypeId = CONTROLTYPEID;
-#define MIRAGE_UIA_CONTROL(name) UIA_##name##ControlTypeId
-#else
-using ControlTypeId = UIA_CONTROLTYPE_ID;
-#define MIRAGE_UIA_CONTROL(name) UIA_##name##ControlType
-#endif
 
 /// One call = one COM scope (DEC-017 decision 4): the calling thread joins
 /// the process MTA for the duration of the call. S_OK and S_FALSE both own
@@ -154,73 +147,73 @@ using ProcessHandle = std::unique_ptr<void, HandleCloser>;
 /// changes with the OS language.
 std::string snapshot_role(ControlTypeId type) {
     switch (type) {
-    case MIRAGE_UIA_CONTROL(Button):
-    case MIRAGE_UIA_CONTROL(SplitButton):
+    case UIA_ButtonControlTypeId:
+    case UIA_SplitButtonControlTypeId:
         return "button";
-    case MIRAGE_UIA_CONTROL(CheckBox):
+    case UIA_CheckBoxControlTypeId:
         return "checkbox";
-    case MIRAGE_UIA_CONTROL(RadioButton):
+    case UIA_RadioButtonControlTypeId:
         return "radio";
-    case MIRAGE_UIA_CONTROL(Menu):
+    case UIA_MenuControlTypeId:
         return "menu";
-    case MIRAGE_UIA_CONTROL(MenuItem):
+    case UIA_MenuItemControlTypeId:
         return "menuitem";
-    case MIRAGE_UIA_CONTROL(MenuBar):
+    case UIA_MenuBarControlTypeId:
         return "menubar";
-    case MIRAGE_UIA_CONTROL(Tree):
+    case UIA_TreeControlTypeId:
         return "tree";
-    case MIRAGE_UIA_CONTROL(TreeItem):
+    case UIA_TreeItemControlTypeId:
         return "treeitem";
-    case MIRAGE_UIA_CONTROL(List):
+    case UIA_ListControlTypeId:
         return "list";
-    case MIRAGE_UIA_CONTROL(ListItem):
+    case UIA_ListItemControlTypeId:
         return "listitem";
-    case MIRAGE_UIA_CONTROL(DataItem):
+    case UIA_DataItemControlTypeId:
         return "cell";
-    case MIRAGE_UIA_CONTROL(Tab):
+    case UIA_TabControlTypeId:
         return "page-tab-list";
-    case MIRAGE_UIA_CONTROL(TabItem):
+    case UIA_TabItemControlTypeId:
         return "pagetab";
-    case MIRAGE_UIA_CONTROL(ComboBox):
+    case UIA_ComboBoxControlTypeId:
         return "combobox";
-    case MIRAGE_UIA_CONTROL(ScrollBar):
+    case UIA_ScrollBarControlTypeId:
         return "scrollbar";
-    case MIRAGE_UIA_CONTROL(Spinner):
+    case UIA_SpinnerControlTypeId:
         return "spinbutton";
-    case MIRAGE_UIA_CONTROL(ProgressBar):
+    case UIA_ProgressBarControlTypeId:
         return "progressbar";
-    case MIRAGE_UIA_CONTROL(StatusBar):
+    case UIA_StatusBarControlTypeId:
         return "statusbar";
-    case MIRAGE_UIA_CONTROL(ToolBar):
+    case UIA_ToolBarControlTypeId:
         return "toolbar";
-    case MIRAGE_UIA_CONTROL(Edit):
+    case UIA_EditControlTypeId:
         return "text";
-    case MIRAGE_UIA_CONTROL(Document):
+    case UIA_DocumentControlTypeId:
         return "document";
-    case MIRAGE_UIA_CONTROL(Window):
+    case UIA_WindowControlTypeId:
         return "window";
-    case MIRAGE_UIA_CONTROL(Pane):
-    case MIRAGE_UIA_CONTROL(Group):
+    case UIA_PaneControlTypeId:
+    case UIA_GroupControlTypeId:
         return "panel";
-    case MIRAGE_UIA_CONTROL(Table):
+    case UIA_TableControlTypeId:
         return "table";
-    case MIRAGE_UIA_CONTROL(Hyperlink):
+    case UIA_HyperlinkControlTypeId:
         return "link";
-    case MIRAGE_UIA_CONTROL(Image):
+    case UIA_ImageControlTypeId:
         return "image";
-    case MIRAGE_UIA_CONTROL(Slider):
+    case UIA_SliderControlTypeId:
         return "slider";
-    case MIRAGE_UIA_CONTROL(Header):
+    case UIA_HeaderControlTypeId:
         return "header";
-    case MIRAGE_UIA_CONTROL(TitleBar):
+    case UIA_TitleBarControlTypeId:
         return "titlebar";
-    case MIRAGE_UIA_CONTROL(Separator):
+    case UIA_SeparatorControlTypeId:
         return "separator";
-    case MIRAGE_UIA_CONTROL(ToolTip):
+    case UIA_ToolTipControlTypeId:
         return "tooltip";
-    case MIRAGE_UIA_CONTROL(Calendar):
+    case UIA_CalendarControlTypeId:
         return "calendar";
-    case MIRAGE_UIA_CONTROL(Custom):
+    case UIA_CustomControlTypeId:
         return "custom";
     default:
         return "unknown";
@@ -363,7 +356,7 @@ struct UiaBackend::Impl {
             node.description = bstr_to_utf8(help); // UIA's closest analog of a description
         }
         ::SysFreeString(help);
-        ControlTypeId type = MIRAGE_UIA_CONTROL(Custom);
+        ControlTypeId type = UIA_CustomControlTypeId;
         node.role =
             element->get_CurrentControlType(&type) == S_OK ? snapshot_role(type) : "unknown";
         RECT rect{};
@@ -436,7 +429,7 @@ struct UiaBackend::Impl {
         if (role.empty()) {
             return true;
         }
-        ControlTypeId type = MIRAGE_UIA_CONTROL(Custom);
+        ControlTypeId type = UIA_CustomControlTypeId;
         return element->get_CurrentControlType(&type) == S_OK && snapshot_role(type) == role;
     }
 
