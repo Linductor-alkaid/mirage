@@ -138,6 +138,24 @@ std::wstring_view image_basename(std::wstring_view path) {
     return slash == std::wstring_view::npos ? path : path.substr(slash + 1);
 }
 
+/// The UTF-8 id form of a wide path (ids are UTF-8 '/'-separated relative
+/// paths; the rooted-id scenarios need the real absolute path as an id).
+std::string utf8_id_of(const std::filesystem::path &path) {
+    const std::wstring wide = path.wstring();
+    if (wide.empty()) {
+        return {};
+    }
+    const int size = ::WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()),
+                                           nullptr, 0, nullptr, nullptr);
+    if (size <= 0) {
+        return {};
+    }
+    std::string out(static_cast<std::size_t>(size), '\0');
+    ::WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), out.data(), size,
+                          nullptr, nullptr);
+    return out;
+}
+
 /// The per-user Start Menu root, resolved through the same known-folder API
 /// the frontend uses (empty when unavailable — the fixture setup fails
 /// loudly in that case instead of faking discovery evidence).
@@ -491,6 +509,51 @@ void unknown_and_escaping_ids_fail_closed(desktop::ApplicationProvider &app,
     }
     MIRAGE_CHECK(pids_by_image(fixtures.hold_image).empty());
     MIRAGE_CHECK(pids_by_image(fixtures.exit_image).empty());
+}
+
+/// Drive-letter and drive-relative ids can never take the id lookup
+/// outside the Start Menu roots — even when a real shortcut with that
+/// absolute path exists (regression for the std::filesystem append
+/// semantics: a rooted right side would replace the whole joined path, a
+/// drive-relative one re-roots to the process CWD). The outside shortcut
+/// is real, so a defective validation would launch it here.
+void rooted_ids_cannot_escape(desktop::ApplicationProvider &app, AppFixtures &fixtures) {
+    const std::filesystem::path outside = fixtures.temp_root / L"outside.lnk";
+    MIRAGE_CHECK(create_shortcut(outside.wstring(), fixtures.exit_copy.wstring(), L"exit",
+                                 fixtures.temp_root.wstring()));
+
+    std::wstring absolute = outside.wstring();
+    std::replace(absolute.begin(), absolute.end(), L'\\', L'/');
+    const std::string absolute_id = utf8_id_of(std::filesystem::path(absolute));
+    MIRAGE_CHECK(absolute_id.find(':') != std::string::npos); // a drive-rooted id shape
+
+    // A drive-relative id, with a real payload at the process CWD it would
+    // re-root to.
+    std::error_code fs_error;
+    const std::filesystem::path cwd_lnk = std::filesystem::current_path(fs_error) / L"outside.lnk";
+    MIRAGE_CHECK(!fs_error);
+    std::filesystem::copy_file(outside, cwd_lnk, std::filesystem::copy_options::overwrite_existing,
+                               fs_error);
+    MIRAGE_CHECK(!fs_error);
+    const std::string drive = absolute_id.substr(0, 1);
+    const std::string drive_relative_id = drive + ":outside.lnk";
+
+    for (const std::string &rooted_id : {absolute_id, drive_relative_id}) {
+        const auto launched =
+            app.launch(rooted_id, desktop::ApplicationLaunchLimits{}, desktop::CancelToken{});
+        MIRAGE_CHECK(!launched.ok);
+        MIRAGE_CHECK(launched.error.code == "not_found");
+        const auto terminated =
+            app.terminate(rooted_id, desktop::ApplicationLaunchLimits{}, desktop::CancelToken{});
+        MIRAGE_CHECK(!terminated.ok);
+        MIRAGE_CHECK(terminated.error.code == "not_found");
+        const auto state = app.running_state(rooted_id);
+        MIRAGE_CHECK(!state.ok);
+        MIRAGE_CHECK(state.error.code == "not_found");
+    }
+    MIRAGE_CHECK(pids_by_image(fixtures.exit_image).empty()); // the outside target never ran
+    std::filesystem::remove(cwd_lnk, fs_error);
+    std::filesystem::remove(outside, fs_error);
 }
 
 /// The launch lifecycle against a real process: instance id, running state
@@ -972,6 +1035,7 @@ int main() {
                      fixtures);
         run_scenario("unknown_and_escaping_ids_fail_closed", unknown_and_escaping_ids_fail_closed,
                      app, fixtures);
+        run_scenario("rooted_ids_cannot_escape", rooted_ids_cannot_escape, app, fixtures);
         run_scenario("launch_state_and_cooperative_terminate",
                      launch_state_and_cooperative_terminate, app, fixtures);
         run_scenario("self_exiting_instance_is_reaped", self_exiting_instance_is_reaped, app,
