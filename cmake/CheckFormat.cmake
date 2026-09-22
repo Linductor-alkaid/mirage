@@ -13,6 +13,7 @@ file(GLOB_RECURSE MIRAGE_FORMAT_FILES
     "${ROOT_DIR}/integration/*/include/*.hpp"
     "${ROOT_DIR}/integration/*/src/*.cpp"
     "${ROOT_DIR}/platform/include/*.hpp"
+    "${ROOT_DIR}/platform/*/include/*.hpp"
     "${ROOT_DIR}/platform/*/src/*.cpp"
     "${ROOT_DIR}/apps/*/*.cpp"
     "${ROOT_DIR}/tests/*.cpp"

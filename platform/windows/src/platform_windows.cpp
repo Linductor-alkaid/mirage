@@ -3,8 +3,10 @@
 namespace mirage::platform {
 
 PlatformInfo platform_info() {
-    // M4 refines this with UI Automation and Win32 availability probes;
-    // probes must stay lazy (queried on demand, never at static init).
+    // The Win32 window/capture/input surface is wired through
+    // WindowsDesktopEnvironment (M4-01, DEC-017); later M4 work items refine
+    // this identity with UI Automation availability probes. Probes must stay
+    // lazy (queried on demand, never at static init).
     return {"windows"};
 }
 

@@ -50,7 +50,10 @@ Observation 与解析闭环）、`M3-04`（Visual Cache 与几何提议）、`M3
 UI 并行轨道
 [M1.5](m1.5-ui-parallel-track.md) 已完成（wire schema 事实源
 [DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)、事件订阅、
-dev bridge、harness 前端壳）。
+dev bridge、harness 前端壳）。M4（Windows Backend）里程碑计划已建立，见
+[M4：Windows Backend](m4-windows-backend.md)；`M4-01`（Windows Backend 骨架闭环：
+Win32 窗口 / 采集 / 输入，工具链双门禁决策见
+[DEC-017](../decisions/DEC-017-windows-backend-toolchain-and-event-loop.md)）进行中。
 
 ## 交付边界
 
@@ -125,7 +128,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | [M1.5](m1.5-ui-parallel-track.md) | UI 并行轨道：wire schema 事实源、IPC 事件订阅、dev bridge、前端（浏览器形态，按 DEC-013 harness 优先统一壳组织：会话/工作流/设置 + 统一壳骨架） | -（随开发线交付，产品化 UI 属 M5） | Completed | M1 |
 | [M2](m2-desktop-environment.md) | Desktop Environment 核心 Provider + Linux Backend、Semantic Snapshot、Element Reference | `release-beta` | Completed | M1 |
 | [M3](m3-mirador-integration.md) | Mirador 集成：OCR / 检测 / 几何 / Visual Cache、Visual Reference | `release-gamma` | Completed | M2 |
-| M4 | Windows Backend（UIA / Win32 / Capture / Input） | `release-delta` | Planned | M2 |
+| [M4](m4-windows-backend.md) | Windows Backend（UIA / Win32 / Capture / Input） | `release-delta` | In Progress | M2 |
 | M5 | Desktop Product：Workspace、Workflow UI、Execution Trace、Overlay、权限 | `release-epsilon` | Planned | M3、M4 |
 
 拆分与合并顺序：先契约后实现（Desktop Environment 接口先于任何 Backend）、先骨架后

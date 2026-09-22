@@ -82,6 +82,44 @@ jobs:
         if: matrix.preset != 'tsan'
         run: ctest --preset ${{ matrix.preset }} --output-on-failure
 
+  windows:
+    # M4-01 Windows backend compile gate (DEC-017 decision 1/9): MSVC is the
+    # product toolchain; this job builds the desktop/platform subset because
+    # the IPC and persistence transports are still POSIX-only until M4-06
+    # wires the named-pipe and store variants. Runtime evidence for the
+    # win32 frontend comes from this runner's interactive desktop; its
+    # capability is confirmed on the first PR run and any gap is recorded
+    # per the skip discipline (never a silent pass).
+    name: windows msvc (platform subset)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout (with pinned submodules)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Configure (verify-only dependency mode)
+        run: cmake -S . -B build/windows -A x64 -DMIRAGE_FETCH_DEPENDENCIES=OFF
+      - name: Build platform subset
+        run: >-
+          cmake --build build/windows --config Debug
+          --target mirage_desktop mirage_platform provider_contract_test
+          desktop_observation_test observation_assembler_test permission_test
+          win32_backend_test
+      - name: Test
+        run: >-
+          ctest --test-dir build/windows -C Debug --output-on-failure
+          -R "^(provider_contract_test|desktop_observation_test|observation_assembler_test|permission_test|win32_backend_test)$"
+      # The invariant-style win32 test prints its check summary and the
+      # session-capability notes (foreground lock, SendInput refusals) on
+      # stderr; ctest hides passing output, so re-run it verbose to keep
+      # that evidence in the log (DEC-017 decision 9 record).
+      - name: Win32 frontend evidence
+        run: >-
+          ctest --test-dir build/windows -C Debug -R "^win32_backend_test$"
+          --output-on-failure -V
+
   frontend:
     name: frontend contracts & app (M1.5-06)
     runs-on: ubuntu-24.04
