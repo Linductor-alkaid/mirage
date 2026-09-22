@@ -141,6 +141,27 @@ void process_bare_start_probe() {
 /// the provider's start factors keeps cmd alive. Each variant waits 3s and
 /// prints its verdict; together they separate pipes, STARTF_USESTDHANDLES
 /// and the job object.
+/// Local owning HANDLE for the matrix probe (the support header does not
+/// carry one and the production util header stays out of tests).
+struct ProbeHandle {
+    HANDLE handle = nullptr;
+    explicit ProbeHandle(HANDLE h) : handle(h) {}
+    ~ProbeHandle() {
+        if (handle != nullptr) {
+            ::CloseHandle(handle);
+        }
+    }
+    ProbeHandle(const ProbeHandle &) = delete;
+    ProbeHandle &operator=(const ProbeHandle &) = delete;
+    HANDLE get() const { return handle; }
+    void reset() {
+        if (handle != nullptr) {
+            ::CloseHandle(handle);
+        }
+        handle = nullptr;
+    }
+};
+
 void process_start_matrix_probe() {
     auto wait_and_report = [](const char *name, PROCESS_INFORMATION info) {
         const DWORD wait = ::WaitForSingleObject(info.hProcess, 3000);
@@ -157,10 +178,10 @@ void process_start_matrix_probe() {
     {
         HANDLE r = nullptr, w = nullptr;
         if (::CreatePipe(&r, &w, &inherit, 0) != 0) {
-            UniqueHandle null_stdin(::CreateFileW(L"NUL", GENERIC_READ,
-                                                  FILE_SHARE_READ | FILE_SHARE_WRITE, &inherit,
-                                                  OPEN_EXISTING, 0, nullptr));
-            UniqueHandle read(r), write(w);
+            ProbeHandle null_stdin(::CreateFileW(L"NUL", GENERIC_READ,
+                                                 FILE_SHARE_READ | FILE_SHARE_WRITE, &inherit,
+                                                 OPEN_EXISTING, 0, nullptr));
+            ProbeHandle read(r), write(w);
             STARTUPINFOW startup{};
             startup.cb = sizeof(startup);
             startup.dwFlags = STARTF_USESTDHANDLES;
@@ -184,11 +205,11 @@ void process_start_matrix_probe() {
     {
         HANDLE r = nullptr, w = nullptr;
         if (::CreatePipe(&r, &w, &inherit, 0) != 0) {
-            UniqueHandle null_stdin(::CreateFileW(L"NUL", GENERIC_READ,
-                                                  FILE_SHARE_READ | FILE_SHARE_WRITE, &inherit,
-                                                  OPEN_EXISTING, 0, nullptr));
-            UniqueHandle read(r), write(w);
-            UniqueHandle job(::CreateJobObjectW(nullptr, nullptr));
+            ProbeHandle null_stdin(::CreateFileW(L"NUL", GENERIC_READ,
+                                                 FILE_SHARE_READ | FILE_SHARE_WRITE, &inherit,
+                                                 OPEN_EXISTING, 0, nullptr));
+            ProbeHandle read(r), write(w);
+            ProbeHandle job(::CreateJobObjectW(nullptr, nullptr));
             STARTUPINFOW startup{};
             startup.cb = sizeof(startup);
             startup.dwFlags = STARTF_USESTDHANDLES;
@@ -218,8 +239,8 @@ void process_start_matrix_probe() {
     {
         HANDLE r = nullptr, w = nullptr;
         if (::CreatePipe(&r, &w, &inherit, 0) != 0) {
-            UniqueHandle read(r), write(w);
-            UniqueHandle job(::CreateJobObjectW(nullptr, nullptr));
+            ProbeHandle read(r), write(w);
+            ProbeHandle job(::CreateJobObjectW(nullptr, nullptr));
             STARTUPINFOW startup{};
             startup.cb = sizeof(startup);
             PROCESS_INFORMATION info{};
@@ -243,9 +264,9 @@ void process_start_matrix_probe() {
     }
     // v4: STARTF with NUL handles only (no pipes), no job.
     {
-        UniqueHandle null_stdin(::CreateFileW(L"NUL", GENERIC_READ,
-                                              FILE_SHARE_READ | FILE_SHARE_WRITE, &inherit,
-                                              OPEN_EXISTING, 0, nullptr));
+        ProbeHandle null_stdin(::CreateFileW(L"NUL", GENERIC_READ,
+                                             FILE_SHARE_READ | FILE_SHARE_WRITE, &inherit,
+                                             OPEN_EXISTING, 0, nullptr));
         STARTUPINFOW startup{};
         startup.cb = sizeof(startup);
         startup.dwFlags = STARTF_USESTDHANDLES;
