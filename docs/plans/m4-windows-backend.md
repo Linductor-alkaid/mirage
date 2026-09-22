@@ -621,3 +621,91 @@ Provider（UIA）先于外围 Provider、产品进程化（`M4-06`）不阻塞 B
 - 同步：本计划（`M4-05` 记录的挂账闭合）。
   残留观察（非缺陷，仅记录）：mid_wait 取消定时器与 helper 协作退出之间的
   既有竞态形态两轮运行均绿（M4-04 记录已注明）。
+
+2026-09-23：`M4-06` 产品进程 Windows 化完成。
+
+- 范围：
+  - **Local IPC 命名管道传输（DEC-007 兑现）**：`stream_windows.cpp` +
+    `endpoint_windows.cpp` 实现与 POSIX 完全相同的 `IpcStream` /
+    `IpcListener` 契约——重叠 I/O 命名管道（`CreateNamedPipeW` /
+    `ConnectNamedPipe` / `CreateFileW`），读侧 `PeekNamedPipe` 门禁零等待
+    （不留下任何在途读操作），写侧至多一个在途重叠写、其字节由流自持
+    （跨调用绝不引用调用方缓冲）、部分完成按已写字节数如实上报；监听端
+    首实例带 `FILE_FLAG_FIRST_PIPE_INSTANCE` 承载遗留端点接管纪律（第二次
+    绑定同名 → access-denied → "another service is already listening"），
+    每次 accept 后立即回收新监听实例；`endpoint_has_listener` 按错误码
+    三态（不存在=可接管 / busy=存活 / 其他=保守保留）。`stream.hpp` 公共
+    契约中立化：不透明 transport token 取代裸 fd（POSIX fd / Windows
+    HANDLE 位型），`adopt_native` 公共工厂供自持 accept 环的传输
+    （devbridge）使用。帧格式、协议 v1、golden vectors **零变更**——
+    framing/protocol 两 TU 与 golden 数据文件一行未动。
+  - **client**：有界等待在 Windows 上为有界切片（传输本身零等待，由
+    read/write 的 WouldBlock 决定就绪）。
+  - **服务环**：帧处理、outbound 队列、事件扇出全部共享（单 TU 平台分叉）；
+    POSIX 保持 poll 驱动环（accept 改经 `IpcListener`、读/帧提取抽取为
+    `ingest_connection`、迭代末冲刷抽取为 `flush_and_settle`——行为等价
+    重构，Linux 32/32 实测不回归）；Windows 为水平驱动环——零等待流上每
+    轮读/写/排水/结算全部连接，`auto-reset wake event` + 同 poll_timeout
+    有界等待（唤醒与停机时延保持 POSIX 界）。RuntimeService 以对象传递
+    监听端；停机路径 POSIX = 信号自泵 + `register_shutdown_fd`，Windows =
+    console ctrl handler → `request_shutdown()`（其线程模型恰为该 API 的
+    契约）。
+  - **持久化（DEC-011）**：`store_windows.cpp`（`CREATE_NEW` 临时文件 =
+    O_EXCL 同型、`FlushFileBuffers` = fsync、`MoveFileEx(REPLACE_EXISTING|
+    WRITE_THROUGH)` = 原子持久发布；上限拒绝不截断同型）与
+    `paths_windows.cpp`（APPDATA / LOCALAPPDATA 映射，工作目录回退同型）。
+    已记录平台差异：目录硬化依赖用户 profile 默认 ACL（无 0700 对应物）、
+    无逐目录刷盘。
+  - **进程形态**：`mirage-service` Windows 化（绑定 `WindowsDesktopEnvironment`
+    默认面——服务上下文桌面能力如实 null fail closed；`--read-root` 为
+    Linux backend 面而拒绝而非静默忽略；console ctrl → `request_shutdown`）；
+    `mirage` CLI Windows 化（`service start` 经 `CreateProcessA` 拉起兄弟
+    mirage-service.exe + 共享就绪探针，余下命令走中立 IpcClient）。
+    devbridge 按传输保持 POSIX-only 条件排除（开发工具，非产品进程形态，
+    不为其分叉命名管道变体——已在 CMake 注明）；apps/tray 维持 M5 里程碑
+    既有范围（无 stub 目标，"tray 可构建"随该目标落地）。
+  - **CI**：windows 作业扩为全树构建 + 12 项测试 + **产品进程往返取证步**
+    （真实 `mirage-service.exe` 服务命名管道 + `mirage.exe` CLI
+    `service status` / `service shutdown`，退出码与停机均断言）。
+- 依据：设计文档第 12 节；`DEC-007` / `DEC-011` / `DEC-012` / `DEC-017` /
+  `DEC-006`（devbridge/tray 边界）；ledger `MIRA-20260922-001`（引用见
+  ci.yml windows 作业注释与本记录限制节）；`RULE-01` / `RULE-02` /
+  `RULE-03` / `RULE-07`；`EXEC-01` / `EXEC-02`。
+- 验证（实现轮主循环本地取证；MSVC 全树编译与运行级随本 PR CI windows
+  作业执行，结论由下一个工作项的 PR 补录）：
+  - **MinGW 交叉门禁（受限，如实声明）**：既有平台/桌面子集 11 目标
+    `MIRAGE_WARNINGS_AS_ERRORS=ON` 构建 **0 诊断**（基线不回归）；全树
+    MinGW 交叉门禁因 **`MIRA-20260922-001`**（pinned executor 的
+    `std::thread::native_handle_type` 假设 win32 线程模型，third_party
+    不可动）本轮仍不可达——作为受限验证按工程规范第 4 节记录：新 Windows
+    TU（`stream_windows` / `endpoint_windows` / `store_windows` /
+    `paths_windows` / `service_loop` Windows 路径 / apps Windows 分支 /
+    `win32_product_process_test`）全部以 MinGW-w64 g++ `-fsyntax-only
+    -Wall -Wextra -Werror` 通过（逐 TU 编译级检查），MSVC 编译由 CI
+    windows 作业覆盖；补跑条件 = 台账缺口关闭后全树交叉复验（负责人：
+    维护者）。
+  - **Linux 主机不回归**：debug 预设全树构建 + ctest **32/32 通过
+    0 skip**——service loop 行为等价重构后 `runtime_service_test` /
+    `event_subscription_test`（真实传输环）保持全绿；`mirage-format-check`
+    通过；`mirage-boundary-check` **0 violations in 37 headers**。
+  - 新增 `tests/platform/win32_product_process_test.cpp`：真实
+    `RuntimeService` 服务命名管道 + 真实 `IpcClient` 的 hello / list-tasks
+    / 协议 shutdown（run() 干净收尾）往返——M4-06 退出条件的库级形态；
+    共享 golden framing 在本平台 codec 上的字节一致性；DEC-011 store 的
+    absent / 往返 / 原子重发布 / 拒绝不截断 / TooLarge 五态。
+- 限制与补跑条件：① 全树 MinGW 交叉挂账 `MIRA-20260922-001`（负责人：
+    维护者；补跑 = 缺口关闭）；② MSVC 全树编译、12 项测试与产品进程往返
+    取证随本 PR CI windows 作业执行，结论由下一个工作项的 PR 补录；
+  ③ POSIX-coupled 测试家族（ipc_protocol / persistence / runtime_service /
+    event_subscription / task_cancel / mira_binding /
+    desktop_provider_boundary / devbridge 两项）在 Windows 上按 CMake 条件
+    排除（各附原因），Windows 侧对应行为由 `win32_product_process_test`
+    与后续 M4-07 端到端取证覆盖，完整移植不属本项；
+  ④ devbridge 的 Windows 传输未立项（开发工具，需要时按后续工作项评估）；
+  ⑤ tray 目标随 M5 落地，"tray 可构建"由该目标兑现；
+  ⑥ 命名管道访问控制为创建者默认 DACL（POSIX 0700 目录的对应面），已
+    在 endpoint/store 记录为平台差异。
+- 同步：[M4 计划](m4-windows-backend.md)（本记录 + `M4-06` 勾选）、
+  [总计划](mirage-implementation-plan.md) 当前状态叙述、
+  [台账](../dependency_feedback/ledger.md)（`MIRA-20260922-001` 引用落于
+  ci.yml 与本记录）、PR CI 取证（本 PR 作业执行后）。
