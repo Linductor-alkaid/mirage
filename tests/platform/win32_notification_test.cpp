@@ -95,8 +95,10 @@ void notification_surface_contract(desktop::NotificationProvider &notifications)
 
     desktop::NotificationLimits tight_body;
     tight_body.max_body_bytes = 4;
+    // The body must actually exceed the budget: a 4-byte body under a
+    // 4-byte cap is within budget and posts (the frozen check is `>`).
     const desktop::NotificationOutcome overlong_body =
-        notifications.notify("title", "body", tight_body, desktop::CancelToken{});
+        notifications.notify("title", "over-budget body", tight_body, desktop::CancelToken{});
     MIRAGE_CHECK(!overlong_body.ok);
     MIRAGE_CHECK(overlong_body.error.code == "invalid_argument");
 
