@@ -11,7 +11,6 @@
 #include <map>
 #include <optional>
 #include <string>
-#include <unistd.h>
 
 #include <executor/comm/topic.hpp>
 
@@ -20,16 +19,21 @@
 
 namespace mirage::runtime::detail {
 
-/// The Local IPC server event loop (DEC-007 item 7): one poll-driven loop on
-/// an Executor blocking I/O worker owning every client connection. Complete
+/// The Local IPC server event loop (DEC-007 item 7): one loop on an
+/// Executor blocking I/O worker owning every client connection. Complete
 /// request frames are handed to `on_frame` (implemented by the service,
 /// which serializes actual work onto its serial context and posts responses
 /// back through post_response()). The loop thread itself only parses frames
 /// and moves bytes, so it stays responsive to accept, wakeup and shutdown.
+/// The frame processing, the outbound queue and the event fan-out are
+/// shared; only the readiness mechanism is platform-selected (poll over
+/// Unix sockets on Linux, zero-wait named-pipe passes with a bounded wait
+/// slice on Windows, M4-06).
 class ServiceLoop final : public executor::IBlockingIoWorker {
   public:
     struct Dependencies {
-        int listen_fd = -1;
+        /// The bound transport endpoint (not owned; must outlive run()).
+        ipc::IpcListener *listener = nullptr;
         std::size_t max_connections = 16;
         /// Upper bound of one poll wait; bounds shutdown and wakeup latency.
         int poll_timeout_ms = 200;
@@ -71,9 +75,13 @@ class ServiceLoop final : public executor::IBlockingIoWorker {
     /// events already written into the connection buffer still flush.
     void post_detach_events(std::uint64_t connection_id);
 
+#ifndef _WIN32
     /// Extra poll descriptor whose readability stops the loop (the signal
-    /// self-pipe). Not owned. Must be called before run().
+    /// self-pipe). Not owned. Must be called before run(). POSIX
+    /// transports only: the Windows service stops through
+    /// RuntimeService::request_shutdown().
     void register_shutdown_fd(int fd);
+#endif
 
     /// Requests the loop to stop serving and exit run() after a final
     /// best-effort response flush; thread-safe (IPC shutdown path).
@@ -120,10 +128,21 @@ class ServiceLoop final : public executor::IBlockingIoWorker {
     bool flush_connection(Connection &connection);
     void close_all();
 
+    /// One read pass + frame extraction over a connection (shared by both
+    /// transports); returns false when the connection must be torn down.
+    bool ingest_connection(std::map<std::uint64_t, Connection>::iterator entry);
+    /// End-of-iteration flush: writes every pending outbound, settles the
+    /// busy/close flags and erases finished connections.
+    void flush_and_settle();
+
     Dependencies dependencies_;
+#ifdef _WIN32
+    void *wake_event_ = nullptr; // auto-reset event; wakeup() sets it
+#else
     int wake_read_ = -1;
     int wake_write_ = -1;
     int shutdown_fd_ = -1;
+#endif
     std::atomic<bool> stop_serving_{false};
     std::atomic<bool> overflow_{false};
     std::uint64_t next_connection_id_ = 1;
