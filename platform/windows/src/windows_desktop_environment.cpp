@@ -10,6 +10,8 @@
 #include <tlhelp32.h>
 
 #include <chrono>
+#include <cstdio>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -231,15 +233,35 @@ ProcessOutcome WindowsDesktopEnvironment::execute(const std::string &command,
         return refused("io_error",
                        "stdin device for the command failed" + win32_util::last_error_suffix());
     }
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    startup.dwFlags = STARTF_USESTDHANDLES;
-    startup.hStdOutput = stdout_write.get();
-    startup.hStdError = stderr_write.get();
+    // Blanket bInheritHandles=TRUE duplicates every inheritable handle of
+    // this process into the child — including, on the hidden console's
+    // behalf, the stdio set into its conhost surrogate. When that surrogate
+    // outlives cmd, the capture pipes never reach EOF and every quick
+    // command burns its whole budget (the M4-03 CI evidence). Inheritance
+    // is therefore pinned to exactly the three stdio handles (the
+    // libuv/Python subprocess pattern).
+    STARTUPINFOEXW startup{};
+    startup.StartupInfo.cb = sizeof(startup);
+    startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    startup.StartupInfo.hStdOutput = stdout_write.get();
+    startup.StartupInfo.hStdError = stderr_write.get();
     // A real (NUL) stdin: STARTF_USESTDHANDLES with a NULL stdin handle
     // stalls some console programs at startup, and the command never reads
     // it anyway.
-    startup.hStdInput = null_stdin.get();
+    startup.StartupInfo.hStdInput = null_stdin.get();
+    SIZE_T attribute_size = 0;
+    ::InitializeProcThreadAttributeList(nullptr, 1, 0, &attribute_size);
+    const std::unique_ptr<unsigned char[]> attribute_storage(new unsigned char[attribute_size]);
+    startup.lpAttributeList =
+        reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attribute_storage.get());
+    if (::InitializeProcThreadAttributeList(startup.lpAttributeList, 1, 0, &attribute_size) == 0) {
+        return refused("io_error", "attribute list init failed" + win32_util::last_error_suffix());
+    }
+    HANDLE std_handles[3] = {null_stdin.get(), stdout_write.get(), stderr_write.get()};
+    if (::UpdateProcThreadAttribute(startup.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                                    std_handles, sizeof(std_handles), nullptr, nullptr) == 0) {
+        return refused("io_error", "handle list update failed" + win32_util::last_error_suffix());
+    }
     // Commands run through the platform shell (contract): cmd.exe /c on
     // Windows, the UTF-8 command converted at the contract boundary. The
     // command is appended verbatim after "/c " — cmd's own quoting rules
@@ -250,12 +272,15 @@ ProcessOutcome WindowsDesktopEnvironment::execute(const std::string &command,
     // machinery (job or the fallback below) is in place — a refused
     // assignment cannot leave a running, unbudgeted command behind.
     PROCESS_INFORMATION process_info{};
-    const BOOL created = ::CreateProcessW(nullptr, mutable_command_line.data(), nullptr, nullptr,
-                                          TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr,
-                                          nullptr, &startup, &process_info);
+    const BOOL created =
+        ::CreateProcessW(nullptr, mutable_command_line.data(), nullptr, nullptr, TRUE,
+                         CREATE_NO_WINDOW | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT,
+                         nullptr, nullptr, &startup.StartupInfo, &process_info);
     if (created == 0) {
+        ::DeleteProcThreadAttributeList(startup.lpAttributeList);
         return refused("io_error", "process creation failed" + win32_util::last_error_suffix());
     }
+    ::DeleteProcThreadAttributeList(startup.lpAttributeList);
     UniqueHandle process(process_info.hProcess);
     UniqueHandle thread(process_info.hThread);
     const bool job_assigned = ::AssignProcessToJobObject(job.get(), process.get()) != 0;
@@ -284,6 +309,8 @@ ProcessOutcome WindowsDesktopEnvironment::execute(const std::string &command,
     bool stdout_open = true;
     bool stderr_open = true;
     bool process_exited = false;
+    int wait_slice = 0;
+    DWORD wait_result = WAIT_TIMEOUT;
     while ((stdout_open || stderr_open || !process_exited)) {
         if (cancel.cancelled()) {
             was_cancelled = true;
@@ -300,16 +327,35 @@ ProcessOutcome WindowsDesktopEnvironment::execute(const std::string &command,
         if (remaining > kCancelPollSlice) {
             remaining = kCancelPollSlice;
         }
-        if (::WaitForSingleObject(process.get(), static_cast<DWORD>(remaining.count())) ==
-            WAIT_OBJECT_0) {
+        wait_result = ::WaitForSingleObject(process.get(), static_cast<DWORD>(remaining.count()));
+        if (wait_result == WAIT_OBJECT_0) {
             process_exited = true; // keep draining the pipes until EOF
         }
+        ++wait_slice;
         drain_pipe(stdout_read.get(), stdout_read, standard_output, limits.max_output_bytes,
                    output_truncated, stdout_open);
         drain_pipe(stderr_read.get(), stderr_read, standard_error, limits.max_output_bytes,
                    output_truncated, stderr_open);
     }
 
+    // Verdict evidence for a burned budget: the exit code BEFORE the kill
+    // (259 = STILL_ACTIVE means the command really lived; a real code means
+    // it finished and only the pipe EOF was withheld), plus whether an exit
+    // time was ever recorded.
+    if (timed_out) {
+        DWORD pre_kill_exit = 0;
+        ::GetExitCodeProcess(process.get(), &pre_kill_exit);
+        FILETIME created_ft{}, exit_ft{}, kernel_ft{}, user_ft{};
+        ::GetProcessTimes(process.get(), &created_ft, &exit_ft, &kernel_ft, &user_ft);
+        const bool has_exit_time = exit_ft.dwLowDateTime != 0 || exit_ft.dwHighDateTime != 0;
+        std::fprintf(stderr,
+                     "[win32-exec] verdict pid=%lu pre_kill_exit=%lu has_exit_time=%d "
+                     "out_open=%d err_open=%d process_exited=%d\n",
+                     process_info.dwProcessId, pre_kill_exit, static_cast<int>(has_exit_time),
+                     static_cast<int>(stdout_open), static_cast<int>(stderr_open),
+                     static_cast<int>(process_exited));
+        std::fflush(stderr);
+    }
     // Whole-tree teardown, unconditional on every early exit (the Linux
     // backend's kill(-pid, SIGKILL) analog); KILL_ON_JOB_CLOSE covers any
     // descendant that survives this call's lifetime.
