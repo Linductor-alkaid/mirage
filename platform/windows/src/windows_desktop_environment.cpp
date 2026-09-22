@@ -211,7 +211,7 @@ ProcessOutcome WindowsDesktopEnvironment::execute(const std::string &command,
         // The command already runs; tear it down honestly instead of
         // letting it outlive the call.
         ::TerminateProcess(process.get(), 1);
-        ::WaitForSingleObject(process.get(), kReapWait.count());
+        ::WaitForSingleObject(process.get(), static_cast<DWORD>(kReapWait.count()));
         return refused("io_error", "command could not be placed under the execution budget" +
                                        win32_util::last_error_suffix());
     }
@@ -261,7 +261,8 @@ ProcessOutcome WindowsDesktopEnvironment::execute(const std::string &command,
     ::TerminateJobObject(job.get(), 1);
     stdout_read.reset();
     stderr_read.reset();
-    if (::WaitForSingleObject(process.get(), kReapWait.count()) != WAIT_OBJECT_0) {
+    if (::WaitForSingleObject(process.get(), static_cast<DWORD>(kReapWait.count())) !=
+        WAIT_OBJECT_0) {
         return refused("io_error", "command could not be reaped");
     }
     DWORD exit_code = 0;
