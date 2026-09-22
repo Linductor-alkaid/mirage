@@ -31,8 +31,6 @@
 
 #include <shellapi.h>
 
-#include <cstdio>
-
 namespace {
 
 // Whether WM_CLOSE is swallowed (the stuck twin). One window per helper
@@ -65,8 +63,13 @@ void write_ready_file(const wchar_t *path) {
     if (path == nullptr || *path == L'\0') {
         return;
     }
-    if (FILE *ready = _wfopen(path, L"w")) {
-        std::fclose(ready);
+    // CreateFileW instead of _wfopen: the ready file only needs to exist,
+    // and MSVC raises the CRT's _wfopen as a warnings-as-errors deprecation
+    // (C4996) that the MinGW cross gate never sees.
+    const HANDLE ready = ::CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                       FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (ready != INVALID_HANDLE_VALUE) {
+        ::CloseHandle(ready);
     }
 }
 
