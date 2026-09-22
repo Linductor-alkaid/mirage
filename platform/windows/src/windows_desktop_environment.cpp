@@ -104,7 +104,13 @@ void terminate_tree_fallback(DWORD root_pid) {
     std::vector<DWORD> known{root_pid};
     for (int pass = 0; pass < 2; ++pass) {
         UniqueHandle snapshot(::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
-        if (snapshot == nullptr) {
+        // The API's failure value is INVALID_HANDLE_VALUE (not nullptr);
+        // a failed snapshot must be loud — silently skipping a teardown
+        // pass would leave descendants of the command tree alive.
+        if (snapshot.get() == INVALID_HANDLE_VALUE) {
+            std::fprintf(stderr, "[win32-exec] tree fallback: process snapshot unavailable%s\n",
+                         win32_util::last_error_suffix().c_str());
+            std::fflush(stderr);
             return;
         }
         PROCESSENTRY32W entry{};

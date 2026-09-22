@@ -265,6 +265,7 @@ std::map<std::string, DiscoveredApp> discover_applications() {
                 if (!hidden) {
                     DiscoveredApp app;
                     app.name = utf16_to_utf8(entry.path().stem().wstring());
+                    app.lnk_path = entry.path().wstring();
                     const std::string id =
                         utf16_to_utf8(entry.path().lexically_relative(root_path).generic_wstring());
                     if (!id.empty() && !app.name.empty()) {
@@ -287,11 +288,15 @@ std::map<std::string, DiscoveredApp> discover_applications() {
 
 /// Ids are relative paths under a Programs root; only real, non-escaping
 /// path components are valid (a refused traversal never touches the file
-/// system). Backslashes are refused so the id namespace stays unambiguous
-/// (one file, one '/'-separated id).
+/// system). Backslashes and colons are refused: the id namespace stays
+/// unambiguous (one file, one '/'-separated id) and a drive-letter or
+/// drive-relative id can never take the join outside the Start Menu roots
+/// (std::filesystem's append replaces the whole path with a rooted right
+/// side, and a drive-relative one re-roots to the process CWD).
 bool valid_application_id(const std::string &application_id) {
     if (application_id.empty() || application_id.front() == '/' ||
-        application_id.find('\\') != std::string::npos) {
+        application_id.find('\\') != std::string::npos ||
+        application_id.find(':') != std::string::npos) {
         return false;
     }
     const std::string_view view(application_id);
@@ -343,17 +348,20 @@ std::optional<std::wstring> shortcut_path_by_id(const std::string &application_i
 
 /// Every process in one bounded snapshot as (pid, image basename) pairs;
 /// the idle process and this process are excluded. Windows keeps no
-/// zombies, so every listed entry is live work.
-std::vector<std::pair<DWORD, std::wstring>> snapshot_processes() {
+/// zombies, so every listed entry is live work. nullopt when the snapshot
+/// itself fails (the API's failure value is INVALID_HANDLE_VALUE): callers
+/// refuse instead of answering from an empty table — a fabricated
+/// "not running" is worse than an honest io_error.
+std::optional<std::vector<std::pair<DWORD, std::wstring>>> snapshot_processes() {
     std::vector<std::pair<DWORD, std::wstring>> processes;
     UniqueHandle snapshot(::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
-    if (snapshot == nullptr) {
-        return processes;
+    if (snapshot.get() == INVALID_HANDLE_VALUE) {
+        return std::nullopt;
     }
     PROCESSENTRY32W entry{};
     entry.dwSize = sizeof(entry);
     if (::Process32FirstW(snapshot.get(), &entry) == 0) {
-        return processes;
+        return std::nullopt;
     }
     const DWORD self = ::GetCurrentProcessId();
     std::size_t visited = 0;
@@ -387,13 +395,18 @@ unsigned long long process_creation_time(DWORD pid) {
 
 /// Live pids whose image basename matches, ordered oldest first (creation
 /// time, then pid) — "which instance" answers stay deterministic, the
-/// oldest live process wins (M2-05).
-std::vector<DWORD> find_live_by_image(const std::wstring &image) {
+/// oldest live process wins (M2-05). nullopt when the snapshot failed.
+std::optional<std::vector<DWORD>> find_live_by_image(const std::wstring &image) {
     std::vector<DWORD> matches;
     if (image.empty()) {
-        return matches;
+        return matches; // nothing to match: a genuine empty answer
     }
-    for (const auto &[pid, name] : snapshot_processes()) {
+    const std::optional<std::vector<std::pair<DWORD, std::wstring>>> processes =
+        snapshot_processes();
+    if (!processes.has_value()) {
+        return std::nullopt;
+    }
+    for (const auto &[pid, name] : *processes) {
         if (iequals(name, image)) {
             matches.push_back(pid);
         }
@@ -410,14 +423,22 @@ std::vector<DWORD> find_live_by_image(const std::wstring &image) {
 }
 
 /// Whether the snapshot currently lists this pid (the "already gone"
-/// witness for a foreign pid whose waitable open failed).
-bool pid_in_snapshot(DWORD pid) {
-    for (const auto &[found, image] : snapshot_processes()) {
+/// witness for a foreign pid whose waitable open failed). A failed scan is
+/// its own answer — "gone" must never be fabricated from it.
+enum class SnapshotPresence { kPresent, kAbsent, kScanFailed };
+
+SnapshotPresence pid_presence(DWORD pid) {
+    const std::optional<std::vector<std::pair<DWORD, std::wstring>>> processes =
+        snapshot_processes();
+    if (!processes.has_value()) {
+        return SnapshotPresence::kScanFailed;
+    }
+    for (const auto &[found, image] : *processes) {
         if (found == pid) {
-            return true;
+            return SnapshotPresence::kPresent;
         }
     }
-    return false;
+    return SnapshotPresence::kAbsent;
 }
 
 /// One instance this backend launched: the owning process handle (closing
@@ -463,9 +484,20 @@ struct Instance {
     HANDLE process = nullptr; // borrowed; the registry (or the caller) owns it
 };
 
+/// The backend's view of a live instance for one application: the process
+/// it launched itself, or — when that one already exited (possibly after
+/// handing off to a relauncher) — the oldest live process matching the
+/// shortcut target's image name (Linux has no authoritative application ->
+/// process mapping and neither does Windows). Returns the pid, whether it
+/// is tracked, and the waitable handle for the tracked case. nullopt means
+/// no live instance; a failed name scan sets `scan_failed` (tracked
+/// instances are still answered — the scan never runs for them), so a
+/// caller never reads a snapshot failure as "not running".
 std::optional<Instance> find_instance_locked(ApplicationState &state,
                                              const std::string &application_id,
-                                             const std::wstring &image_basename) {
+                                             const std::wstring &image_basename,
+                                             bool &scan_failed) {
+    scan_failed = false;
     const auto tracked = state.instances.find(application_id);
     if (tracked != state.instances.end()) {
         if (::WaitForSingleObject(tracked->second.process.get(), 0) == WAIT_TIMEOUT) {
@@ -473,11 +505,15 @@ std::optional<Instance> find_instance_locked(ApplicationState &state,
         }
         state.instances.erase(tracked);
     }
-    const std::vector<DWORD> matches = find_live_by_image(image_basename);
-    if (matches.empty()) {
+    const std::optional<std::vector<DWORD>> matches = find_live_by_image(image_basename);
+    if (!matches.has_value()) {
+        scan_failed = true;
         return std::nullopt;
     }
-    return Instance{matches.front(), false, nullptr};
+    if (matches->empty()) {
+        return std::nullopt;
+    }
+    return Instance{matches->front(), false, nullptr};
 }
 
 struct CloseWindowsContext {
@@ -602,8 +638,16 @@ ApplicationListOutcome ApplicationBackend::list_applications(const ApplicationLi
     }
     // One bounded snapshot answers the running flag for every application
     // at once instead of one scan per application (the M2-05 /proc index).
+    // A failed snapshot refuses the whole call: every row would otherwise
+    // claim "not running" on no evidence.
+    const std::optional<std::vector<std::pair<DWORD, std::wstring>>> processes =
+        snapshot_processes();
+    if (!processes.has_value()) {
+        outcome.error = error("io_error", "process snapshot unavailable" + last_error_suffix());
+        return outcome;
+    }
     std::map<std::wstring, std::vector<DWORD>> image_index;
-    for (const auto &[pid, image] : snapshot_processes()) {
+    for (const auto &[pid, image] : *processes) {
         image_index[lowercase(image)].push_back(pid);
     }
 
@@ -647,7 +691,16 @@ ApplicationQueryOutcome ApplicationBackend::running_state(const std::string &app
     const std::optional<ShortcutTarget> target = resolve_shortcut(*lnk, failure);
     const std::wstring basename =
         target.has_value() ? std::wstring(image_basename(target->path)) : std::wstring();
-    const std::optional<Instance> instance = find_instance_locked(*impl_, application_id, basename);
+    bool scan_failed = false;
+    const std::optional<Instance> instance =
+        find_instance_locked(*impl_, application_id, basename, scan_failed);
+    if (scan_failed) {
+        // A failed scan must not read as "not running" (a tracked hit
+        // never reaches the scan, so this refusal only covers foreign
+        // lookups).
+        outcome.error = error("io_error", "process snapshot unavailable" + last_error_suffix());
+        return outcome;
+    }
     outcome.ok = true;
     if (instance.has_value()) {
         outcome.running = true;
@@ -695,7 +748,16 @@ ApplicationLaunchOutcome ApplicationBackend::launch(const std::string &applicati
     const std::optional<ShortcutTarget> target = resolve_shortcut(*lnk, failure);
     const std::wstring basename =
         target.has_value() ? std::wstring(image_basename(target->path)) : std::wstring();
-    if (find_instance_locked(*impl_, application_id, basename).has_value()) {
+    bool scan_failed = false;
+    const std::optional<Instance> live =
+        find_instance_locked(*impl_, application_id, basename, scan_failed);
+    if (scan_failed) {
+        // The single-instance invariant cannot be verified: refusing is the
+        // fail-closed answer, spawning on an unverified surface is not one.
+        outcome.error = error("io_error", "process snapshot unavailable" + last_error_suffix());
+        return outcome;
+    }
+    if (live.has_value()) {
         outcome.error = error("already_running", "application already has a live instance");
         return outcome;
     }
@@ -748,7 +810,15 @@ ApplicationLaunchOutcome ApplicationBackend::terminate(const std::string &applic
     const std::optional<ShortcutTarget> target = resolve_shortcut(*lnk, failure);
     const std::wstring basename =
         target.has_value() ? std::wstring(image_basename(target->path)) : std::wstring();
-    const std::optional<Instance> instance = find_instance_locked(*impl_, application_id, basename);
+    bool scan_failed = false;
+    const std::optional<Instance> instance =
+        find_instance_locked(*impl_, application_id, basename, scan_failed);
+    if (!instance.has_value() && scan_failed) {
+        // A failed scan must not read as "application has no running
+        // instance" (a tracked hit never reaches the scan).
+        outcome.error = error("io_error", "process snapshot unavailable" + last_error_suffix());
+        return outcome;
+    }
     if (!instance.has_value()) {
         outcome.error = error("not_found", "application has no running instance");
         return outcome;
@@ -760,6 +830,9 @@ ApplicationLaunchOutcome ApplicationBackend::terminate(const std::string &applic
     // equivalent. Never TerminateProcess: forced termination is out of
     // contract scope and a surviving instance is a visible failure
     // (deadline_exceeded), exactly like the SIGTERM discipline of M2-05.
+    // Every non-exit outcome carries the surviving instance's id: it stays
+    // observable (the additive part of the M2-05 semantics — the instance
+    // handle names a still-running process).
     CloseWindowsContext context{pid};
     ::EnumWindows(post_close_to_windows, reinterpret_cast<LPARAM>(&context));
 
@@ -773,12 +846,17 @@ ApplicationLaunchOutcome ApplicationBackend::terminate(const std::string &applic
     if (!instance->tracked) {
         foreign.reset(::OpenProcess(SYNCHRONIZE, FALSE, pid));
         if (foreign == nullptr) {
-            if (!pid_in_snapshot(pid)) {
+            const SnapshotPresence presence = pid_presence(pid);
+            if (presence == SnapshotPresence::kAbsent) {
                 outcome.ok = true;
                 outcome.instance_id = instance_id;
                 return outcome;
             }
-            outcome.error = error("io_error", "instance handle unavailable" + last_error_suffix());
+            outcome.error = error(
+                "io_error", presence == SnapshotPresence::kScanFailed
+                                ? std::string("process snapshot unavailable") + last_error_suffix()
+                                : std::string("instance handle unavailable") + last_error_suffix());
+            outcome.instance_id = instance_id;
             return outcome;
         }
         wait_on = foreign.get();
@@ -799,11 +877,13 @@ ApplicationLaunchOutcome ApplicationBackend::terminate(const std::string &applic
             outcome.cancelled = true;
             outcome.error =
                 error("cancelled", "termination cancelled while the instance was still running");
+            outcome.instance_id = instance_id;
             return outcome;
         }
         if (std::chrono::steady_clock::now() >= deadline) {
             outcome.error = error("deadline_exceeded",
                                   "instance ignored the termination request within the budget");
+            outcome.instance_id = instance_id;
             return outcome;
         }
     }
