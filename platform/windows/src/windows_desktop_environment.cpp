@@ -225,12 +225,21 @@ ProcessOutcome WindowsDesktopEnvironment::execute(const std::string &command,
                        "job object configuration failed" + win32_util::last_error_suffix());
     }
 
+    UniqueHandle null_stdin(::CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                          &inherit, OPEN_EXISTING, 0, nullptr));
+    if (null_stdin == nullptr) {
+        return refused("io_error",
+                       "stdin device for the command failed" + win32_util::last_error_suffix());
+    }
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     startup.dwFlags = STARTF_USESTDHANDLES;
     startup.hStdOutput = stdout_write.get();
     startup.hStdError = stderr_write.get();
-    startup.hStdInput = nullptr;
+    // A real (NUL) stdin: STARTF_USESTDHANDLES with a NULL stdin handle
+    // stalls some console programs at startup, and the command never reads
+    // it anyway.
+    startup.hStdInput = null_stdin.get();
     // Commands run through the platform shell (contract): cmd.exe /c on
     // Windows, the UTF-8 command converted at the contract boundary. The
     // command is appended verbatim after "/c " — cmd's own quoting rules

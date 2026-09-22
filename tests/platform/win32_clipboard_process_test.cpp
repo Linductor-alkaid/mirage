@@ -100,6 +100,42 @@ void note_outcome(const char *label, const mirage::desktop::ProcessOutcome &outc
     std::fflush(stderr);
 }
 
+/// Diagnostic probe (environment fact, not a provider claim): a bare
+/// CreateProcess of "cmd.exe /c exit 0" with no pipes, no job and no
+/// STARTF — if even this does not terminate within the budget, the session
+/// itself starts commands slowly and every timed_out below is honest; if
+/// it terminates fast, the stall lives in the redirected-handle
+/// combination the provider uses.
+void process_bare_start_probe() {
+#ifndef UNICODE
+#error test requires the W surface
+#endif
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION info{};
+    std::wstring command_line = L"cmd.exe /c exit 0";
+    const BOOL created = ::CreateProcessW(nullptr, command_line.data(), nullptr, nullptr, FALSE,
+                                          CREATE_NO_WINDOW, nullptr, nullptr, &startup, &info);
+    if (created == 0) {
+        std::fprintf(stderr, "[win32-cbp-test] bare probe: CreateProcess failed %lu\n",
+                     ::GetLastError());
+        std::fflush(stderr);
+        return;
+    }
+    const auto started = std::chrono::steady_clock::now();
+    const DWORD wait = ::WaitForSingleObject(info.hProcess, 5000);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - started)
+                             .count();
+    std::fprintf(stderr, "[win32-cbp-test] bare probe: wait=%lu elapsed=%lldms\n", wait,
+                 static_cast<long long>(elapsed));
+    std::fflush(stderr);
+    ::CloseHandle(info.hThread);
+    ::CloseHandle(info.hProcess);
+    // The probe records the environment fact; the assertion is deliberately
+    // soft (a slow session is a note, not a failure).
+}
+
 void run_scenario(const char *name, void (*scenario)()) {
     std::fprintf(stderr, "[win32-cbp-test] scenario: %s\n", name);
     std::fflush(stderr);
@@ -742,6 +778,7 @@ int main() {
 
     // The process surface is unconditional, so these run in any session.
     run_scenario("process_refusals_before_effects", process_refusals_before_effects);
+    run_scenario("process_bare_start_probe", process_bare_start_probe);
     run_scenario("process_normal_execution_and_exit_codes",
                  process_normal_execution_and_exit_codes);
     run_scenario("process_timeout_bounds_the_call", process_timeout_bounds_the_call);
