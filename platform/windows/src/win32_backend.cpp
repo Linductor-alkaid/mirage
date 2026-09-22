@@ -1,14 +1,9 @@
 #include "win32_backend.hpp"
 
-// Keep the Win32 surface minimal and macro-neutral; every Win32 type stays
-// inside this translation unit (RULE-01, DEC-017 decision 5).
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
+#include "win32_util.hpp"
+
+// The Win32 surface lives in win32_util.hpp (macro-neutral include, RULE-01,
+// DEC-017 decision 5); every Win32 type stays inside this translation unit.
 
 #include <algorithm>
 #include <array>
@@ -41,82 +36,12 @@ using mirage::desktop::WindowListLimits;
 using mirage::desktop::WindowListOutcome;
 using mirage::desktop::WindowQueryOutcome;
 
-ProviderError error(std::string code, std::string message) {
-    return {std::move(code), std::move(message)};
-}
-
-/// Last-error detail attached to "io_error" messages, so failures stay
-/// diagnosable from logs without echoing window content.
-std::string last_error_suffix() {
-    const DWORD code = ::GetLastError();
-    return " (Win32 error " + std::to_string(static_cast<unsigned long>(code)) + ")";
-}
-
-std::string utf16_to_utf8(const std::wstring &text) {
-    if (text.empty()) {
-        return {};
-    }
-    const int size = ::WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
-                                           nullptr, 0, nullptr, nullptr);
-    if (size <= 0) {
-        return {};
-    }
-    std::string out(static_cast<std::size_t>(size), '\0');
-    const int written = ::WideCharToMultiByte(
-        CP_UTF8, 0, text.data(), static_cast<int>(text.size()), out.data(), size, nullptr, nullptr);
-    if (written <= 0) {
-        return {};
-    }
-    out.resize(static_cast<std::size_t>(written));
-    return out;
-}
-
-/// Narrow conversion for provider payloads (type_text contract is UTF-8);
-/// malformed UTF-8 fails the call instead of being silently repaired
-/// (DEC-017 decision 5, MB_ERR_INVALID_CHARS).
-std::optional<std::wstring> utf8_to_utf16(const std::string &text) {
-    if (text.empty()) {
-        return std::wstring{};
-    }
-    const int size = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
-                                           static_cast<int>(text.size()), nullptr, 0);
-    if (size <= 0) {
-        return std::nullopt;
-    }
-    std::wstring out(static_cast<std::size_t>(size), L'\0');
-    const int written = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
-                                              static_cast<int>(text.size()), out.data(), size);
-    if (written <= 0) {
-        return std::nullopt;
-    }
-    out.resize(static_cast<std::size_t>(written));
-    return out;
-}
-
-/// Window ids are the decimal form of the HWND value (DEC-017 decision 7,
-/// same shape as the X11 backend's `std::to_string(Window)`).
-std::string format_window_id(HWND window) {
-    return std::to_string(reinterpret_cast<uintptr_t>(window));
-}
-
-std::optional<HWND> parse_window_id(const std::string &id) {
-    // 19 digits: every value that fits uint64_t parses without throwing, and
-    // real HWNDs are far below that (handles are 32-bit significant); the
-    // provider reports errors, never exceptions.
-    if (id.empty() || id.size() > 19) {
-        return std::nullopt;
-    }
-    for (const char ch : id) {
-        if (ch < '0' || ch > '9') {
-            return std::nullopt;
-        }
-    }
-    const unsigned long long value = std::stoull(id);
-    if (value == 0) {
-        return std::nullopt;
-    }
-    return reinterpret_cast<HWND>(static_cast<uintptr_t>(value));
-}
+using win32_util::error;
+using win32_util::format_window_id;
+using win32_util::last_error_suffix;
+using win32_util::parse_window_id;
+using win32_util::utf16_to_utf8;
+using win32_util::utf8_to_utf16;
 
 bool describe_window(HWND window, bool focused, WindowInfo &info) {
     const int title_len = ::GetWindowTextLengthW(window);

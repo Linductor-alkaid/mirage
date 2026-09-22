@@ -89,13 +89,15 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     target_sources(mirage_platform PRIVATE
         windows/src/platform_windows.cpp
         windows/src/windows_desktop_environment.cpp
-        # The Win32 frontend (M4-01, DEC-017) has no stub variant: user32 /
-        # gdi32 are part of every Windows SDK, so the only honest failure
-        # mode is a probe failure at open() time (accessors null, fail
-        # closed) — never a compile-time absence.
+        # The Win32 frontend (M4-01) and the UIA accessibility frontend
+        # (M4-02) have no stub variant: user32 / gdi32 / ole32 / oleaut32
+        # are part of every Windows SDK, so the only honest failure mode is
+        # a probe failure at open() time (accessors null, fail closed) —
+        # never a compile-time absence.
         windows/src/win32_backend.cpp
+        windows/src/uia_backend.cpp
     )
-    target_link_libraries(mirage_platform PRIVATE user32 gdi32)
+    target_link_libraries(mirage_platform PRIVATE user32 gdi32 ole32 oleaut32)
     target_link_libraries(mirage_platform PUBLIC Mirage::desktop)
 else()
     message(FATAL_ERROR

@@ -3,8 +3,8 @@
 > 状态：Accepted
 > 日期：2026-09-22
 > 负责人：Mirage 维护者
-> 冻结里程碑：M4（`M4-01` 落地第 1-4、6-9 条；第 5 条 COM 模型在 `M4-02`
-> UIA 首次兑现，事件型升级路径留待该工作项复核）
+> 冻结里程碑：M4（`M4-01` 落地第 1-3、5-9 条；第 4 条 COM 模型在 `M4-02`
+> UIA 兑现，事件型升级路径保留）
 > 替代/被替代：无（Linux 侧先例见
 > [DEC-015](DEC-015-linux-backend-dependencies-and-event-loop.md)，本文为其
 > Windows 同型决策）
@@ -121,9 +121,25 @@
 
 ## 变更记录
 
+- 2026-09-22（`M4-02` CI 取证）：第 4 条（COM 初始化模型）兑现记录。调用型
+  MTA 用法按本条落地：每方法调用在调用线程 `CoInitializeEx(
+  COINIT_MULTITHREADED)`，首个成功 scope 永久保留为**进程级 MTA 锚**（恰好
+  一个有界引用，M2-03 对象池先例同型）——锚使引用注册表的元素指针跨调用
+  有效；无事件流、无线程，事件型升级路径继续保留。`M4-02` 运行级取证补充
+  的平台事实（写入 `M4-02` 验证记录）：UIA 跨进程 COM 调用不可取消，桌面
+  可能存在挂死 provider（runner 桌面已实测）；`IUIAutomation2` 事务/连接
+  超时是客户端提示而非传输层硬界，故 live-tree 解析采用三级兜底——
+  `IUIAutomation2` 超时（约束慢 provider）+ 每次 live-tree 扫描的 30 s
+  wall-clock 预算（预算耗尽如实 `not_found`）+ 调用方执行上下文（Executor
+  调用超时，约束单个 wedged 调用，与决策 3 的单调用收敛纪律同型）。测试侧
+  桌面扫描以子进程隔离 + 看门狗取证（进程死亡是 wedged 事务的唯一可靠
+  收割手段）。UIA client 迁入 Executor blocking worker 的结构性升级是否
+  立项由维护者裁决。工具链事实：两 SDK 的控制类型常量同名
+  `UIA_*ControlTypeId`（MinGW 宏常量 / MSVC 枚举成员）+ `CONTROLTYPEID`
+  typedef，`__uuidof` 双工具链可用，无需 uuid.lib。
 - 2026-09-22（`M4-01` CI 取证）：第 1、9 条的首轮兑现记录。MSVC（windows-
   latest，VS 18 2026，19.51）全树 configure 成功（pinned mira / mirador 均在
-  Windows 校验通过）；`mirage_enable_warnings` 为 MSVC 增设独立旗标组
+  Windows 校验通过，"Mira target platform: Windows"）；`mirage_enable_warnings` 为 MSVC 增设独立旗标组
   （`/W4 /permissive- /Zc:__cplusplus` + `/WX`，GCC 旗标在 MSVC 为 D8021
   硬错误）；windows 作业 5/5 测试通过，`win32_backend_test` 在 runner 真实
   交互桌面（1024x768）128 checks 0 failures，前台激活与键盘送达场景真实

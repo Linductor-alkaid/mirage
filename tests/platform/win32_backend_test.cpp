@@ -247,7 +247,7 @@ void environment_probe_and_identity() {
     MIRAGE_CHECK(env.input() != nullptr);
     MIRAGE_CHECK(env.info().name == "mirage-windows");
     MIRAGE_CHECK(env.info().platform == "windows");
-    MIRAGE_CHECK(env.accessibility() == nullptr); // M4-02 surface, not landed yet
+    MIRAGE_CHECK(env.accessibility() == nullptr); // UiaOptions defaults to off (M4-02)
     MIRAGE_CHECK(env.clipboard() == nullptr);     // M4-04 surface, not landed yet
 }
 
