@@ -496,7 +496,11 @@ void unknown_and_escaping_ids_fail_closed(desktop::ApplicationProvider &app,
          {std::string("mirage-m404/missing.lnk"), std::string("../hold.lnk"),
           std::string("mirage-m404/../hold.lnk"), std::string("mirage-m404//hold.lnk"),
           std::string("/mirage-m404/hold.lnk"), std::string("mirage-m404\\hold.lnk"),
-          std::string("mirage-m404/hold.lnk/"), std::string("mirage-m404/.")}) {
+          std::string("mirage-m404/hold.lnk/"), std::string("mirage-m404/."),
+          // A colon can never appear in an id: it would address an NTFS
+          // alternate data stream of a real entry (or a drive root) rather
+          // than the one-file-one-id namespace.
+          std::string("mirage-m404/hold.lnk:stream")}) {
         const auto launch = app.launch(bad_id);
         MIRAGE_CHECK(!launch.ok);
         MIRAGE_CHECK(launch.error.code == "not_found");
@@ -746,6 +750,9 @@ void mid_wait_cancellation_keeps_instance_running(desktop::ApplicationProvider &
     MIRAGE_CHECK(!terminated.ok);
     MIRAGE_CHECK(terminated.cancelled);
     MIRAGE_CHECK(terminated.error.code == "cancelled");
+    // The cancelled outcome still names the instance it left running (the
+    // visible-survivor semantics of the cooperative termination contract).
+    MIRAGE_CHECK(terminated.instance_id == launched.instance_id);
 
     const auto state = app.running_state(fixtures.hold_id);
     MIRAGE_CHECK(state.ok);
@@ -859,6 +866,25 @@ void shared_image_ids_see_the_same_instance(desktop::ApplicationProvider &app,
     MIRAGE_CHECK(state.ok);
     MIRAGE_CHECK(state.running);
     MIRAGE_CHECK(state.instance_id == launched.instance_id);
+
+    // The list's running flags resolve each shortcut and consult the same
+    // name index: while the one shared-image instance is alive, both ids
+    // listing it must read as running.
+    const desktop::ApplicationListOutcome listing = app.list_applications();
+    MIRAGE_CHECK(listing.ok);
+    bool hold_listed_running = false;
+    bool alias_listed_running = false;
+    if (listing.ok) {
+        for (const desktop::ApplicationInfo &application : listing.applications) {
+            if (application.id == fixtures.hold_id) {
+                hold_listed_running = application.running;
+            } else if (application.id == fixtures.alias_id) {
+                alias_listed_running = application.running;
+            }
+        }
+    }
+    MIRAGE_CHECK(hold_listed_running);
+    MIRAGE_CHECK(alias_listed_running);
 
     const auto duplicate = app.launch(fixtures.hold_id, limits, desktop::CancelToken{});
     MIRAGE_CHECK(!duplicate.ok);
