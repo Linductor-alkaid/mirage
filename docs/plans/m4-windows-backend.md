@@ -762,11 +762,30 @@ Provider（UIA）先于外围 Provider、产品进程化（`M4-06`）不阻塞 B
   - 产品进程往返（真实 `mirage-service.exe` 服务命名管道 + `mirage.exe`
     CLI `service status` / `service shutdown`）：hello 往返、协议停机、
     服务退出码 0、"stopped cleanly"——`M4-06` 退出条件的进程形态取证。
-- 限制与补跑条件：① CI（MinGW 交叉 / Linux 五预设矩阵 / MSVC runner）
-  证据随本 PR 执行，运行 id 由本 PR 补录；② 本机构建依赖全局
-  `/utf-8`（cp936 主机）；③ 采纳写未被对端读走即关闭时，未入管道缓冲
+- 限制与补跑条件：① 本机构建依赖全局
+  `/utf-8`（cp936 主机）；② 采纳写未被对端读走即关闭时，未入管道缓冲
   的尾部字节随连接丢弃（对端见截断）——POSIX close 的既有关闭语义
-  差异已在代码注释与本记录声明，`M4-07` 端到端取证复核；④
+  差异已在代码注释与本记录声明，`M4-07` 端到端取证复核；③
   `MIRA-20260922-001`（全树 MinGW 交叉）维持挂账不变。
 - 同步：本记录、[DEC-017](../decisions/DEC-017-windows-backend-toolchain-
-  and-event-loop.md) 变更记录、CI 取证随本 PR 补录。
+  and-event-loop.md) 变更记录、PR [#45](https://github.com/Linductor-alkaid/mirage/pull/45)
+  CI 取证（下条记录）。
+
+2026-09-25：`M4-06` CI 门禁全绿（挂账补录）。
+
+- 范围：上一条记录的挂账项（CI 证据）就此闭合，无代码变更。
+- 验证（CI run 36148338709，headSha = ef83d95 已核实，全部 8 作业
+  success）：windows msvc (full tree) 作业 MSVC 编译 0 错误，ctest
+  **12/12 通过**——`win32_product_process_test` **50 checks, 0 failures**
+  （runner 上 1.11 s / 复跑 0.85 s，此前五连败的背压探针就此转绿），
+  `win32_backend_test` 128/0、`uia_backend_test` 108/0、
+  `win32_clipboard_process_test` 129/0、`win32_application_test` 250/0
+  （id 规则断言在 runner 与真实机器双面成立）、`win32_notification_test`
+  42/0 同轮回归通过；**产品进程往返取证步真实执行**（`mirage-service.exe`
+  服务命名管道 + `mirage.exe` CLI `service status` / `service shutdown`，
+  "product-process round trip over the named pipe: OK"）；同轮 Linux
+  debug / release / asan / ubsan / tsan、format & boundaries、frontend
+  作业全绿。`M4-06` 的退出条件（命名管道 IPC 往返、Windows 持久化、
+  进程形态可构建、全树 MSVC 构建）全部取证成立。
+- 同步：本计划（挂账闭合）、PR [#45](https://github.com/Linductor-alkaid/mirage/pull/45)
+  CI 取证。
