@@ -155,6 +155,17 @@
   CI 门禁。MinGW 侧同步取证：`MONITORINFOEXW`（非 `MONITORINFOW`）承载
   szDevice、VK_* 宏（int）经聚合初始化窄化为 WORD（std::pair 模板转发会
   触发 MSVC C4242）两处实现纪律记录在案。
+- 2026-09-25（`M4-06` 维护者机器取证）：工具链事实两则。① 源码字符集：
+  仓库全树（含 pinned 依赖）为 UTF-8，MSVC 不声明字符集时按系统代码页
+  读取——cp1252 runner 侥幸通过，cp936 主机在 `/WX` 下 C4819 硬错误；
+  根 `CMakeLists.txt` 对 MSVC 全局 `add_compile_options(/utf-8)`（编码
+  纪律第 5 条的工具链入口兑现，pinned 依赖经本构建图编译，属构建配置
+  而非 pinned 代码变更）。② 重叠 I/O 事件纪律：内核对同步完成同样置位
+  auto-reset 事件，跨调用复用的完成事件必须在每次下发前 `ResetEvent`，
+  否则陈旧信号会把下一个在途操作误判为完成（`ERROR_IO_INCOMPLETE`
+  虚假 Error）；命名管道写侧的背压承载为流自持采纳写（在途至多一个、
+  有界上限），调用内零等待 + 立即取消使排队写永零进展（内核无拷贝
+  机会），2 核调度下退化为完全死滞——见 M4 计划 2026-09-25 记录。
 
 ## 关联文档和工作项
 

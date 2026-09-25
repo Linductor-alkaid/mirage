@@ -6,7 +6,7 @@
 > 前置：[M2](m2-desktop-environment.md)（已完成：Desktop Environment 九个 Provider
 > 契约、SemanticSnapshot、ElementTarget 解析顺序契约；Linux Backend 同型骨架先例）
 > 建议发布点：`release-delta`（tag 待维护者授权后创建）
-> 更新日期：2026-09-23（M4-06 完成）
+> 更新日期：2026-09-25（M4-06 完成并经维护者 Windows 机器运行级取证）
 
 ## 目标
 
@@ -709,3 +709,64 @@ Provider（UIA）先于外围 Provider、产品进程化（`M4-06`）不阻塞 B
   [总计划](mirage-implementation-plan.md) 当前状态叙述、
   [台账](../dependency_feedback/ledger.md)（`MIRA-20260922-001` 引用落于
   ci.yml 与本记录）、PR CI 取证（本 PR 作业执行后）。
+
+2026-09-25：`M4-06` 维护者 Windows 机器运行级取证完成；发现并修复两处
+门禁缺陷（源码字符集区域敏感、命名管道写路径背压死滞），一处测试断言
+按不变量纪律修正。
+
+- 背景：开发环境首次落在本机 Windows 会话（MSVC 19.44 BuildTools +
+  Windows SDK，真实交互桌面），`M4-06` 的 MSVC 全树编译、win32 测试套件
+  与产品进程往返第一次可以在本机直接取证，不再单点依赖 CI runner。
+- 发现 1（build，全树 MSVC 门禁区域敏感）：仓库全部源码（含 pinned
+  mira / mirador）为 UTF-8，而 MSVC 未声明源码字符集时按系统代码页读取
+  ——CI runner（cp1252）侥幸通过，本机（cp936）在 `/WX` 下对
+  `mira_core` 与 Mirage 自有 TU 同时报 C4819 硬错误。修复：根
+  `CMakeLists.txt` 对 MSVC 全局 `add_compile_options(/utf-8)`（pinned
+  依赖从源码经本构建图编译，属 Mirage 构建配置而非 pinned 代码变更；
+  DEC-017 编码纪律的工具链入口兑现）。
+- 发现 2（fix，命名管道写路径背压死滞——CI 上 `win32_product_process_test`
+  192 KiB 背压探针 5 连败的真正根因）：`710e539` 以"调用方游标双重发送"
+  为由把写侧从流自持 write-behind 队列（`93067c3`，亦即本记录所述设计）
+  改为"调用内零等待 + 立即 `CancelIoEx`"。本机带逐周期诊断的独立探针
+  证实：排队写在下发后数微秒内即被取消，内核从未获得把任何字节拷入管道
+  的机会——每周期 reaped=0 → WouldBlock，64 KiB 空闲缓冲完全用不上，
+  传输只能靠"恰好同步完成"的调用推进；2 核 CI 的调度下同步完成不再发生
+  → 服务端 20 s 零接收 + 客户端 20 s 零进展（与 CI 失败签名逐项吻合）。
+  `e21905c` 的"取消竞争完成时字节数仍有效"修复是必要的次要缺陷（恢复
+  队列后持续背压必然撞上取消竞争），但不是根因。修复：写侧恢复流自持
+  采纳语义——排队即把字节复制进流自有缓冲并按 POSIX `write()` 受理语义
+  上报 Ok（在途至多一个、`kMaxAdoptedWriteBytes` 1 MiB 上限
+  `RULE-07`），调用方游标一次性前进、无重发无乱序；重叠写 OVERLAPPED
+  移入流状态（不再引用调用方缓冲，`710e539` D2 的双重发送担忧由此
+  结构性消除）；`issue_write` / `issue_read` 下发前 `ResetEvent`（内核对
+  同步完成同样置位事件，陈旧信号会把在途操作误判为完成 →
+  `ERROR_IO_INCOMPLETE` 虚假 Error——读取排队分支的同型隐患一并消除）；
+  `close()` 在释放流状态前对在途采纳写给 2 s 有界排水窗口后取消回收
+  （OVERLAPPED 不得比流状态长寿）。计划记录"写侧至多一个在途重叠写、
+  其字节由流自持"的表述自 `710e539` 起曾与实现背离，现恢复一致。
+- 发现 3（test，`win32_application_test` 断言机器清单敏感）：发现场景的
+  `all_lnk` 断言要求全部被发现的 id 以小写 `.lnk` 结尾——本机真实开始
+  菜单含 `.url` 项（Git / Java，非隐藏、按 M4-04 设计照常列出）与
+  `Image-Line/More....lnk`（文件名含 `....`），断言必然失败；CI 的干净
+  runner 掩盖了这一点。按不变量式测试纪律改为镜像后端自身 `valid_
+  application_id` 的 id 规则（相对 '/' 路径、无空段 / 点段 / 反斜杠 /
+  冒号），机器无关。
+- 验证（本机 Windows 11 x64，MSVC 19.44 Debug，真实交互桌面）：
+  - 全树 configure + build **0 诊断**（含 pinned mira / mirador）。
+  - CI windows 作业的 12 项测试集 ctest **12/12 通过 0 skip**；
+    `win32_product_process_test` **50 checks, 0 failures**（0.78 s，修复前
+    同机同测试复现 CI 同款 3 failures）。
+  - 2 核亲和（`start /affinity 3`，模拟 CI runner 调度）：
+    `win32_product_process_test` 50/0；192 KiB 背压独立探针 sent=got=
+    196608 完整往返（修复前同探针零进展死滞，逐周期日志在案）。
+  - 产品进程往返（真实 `mirage-service.exe` 服务命名管道 + `mirage.exe`
+    CLI `service status` / `service shutdown`）：hello 往返、协议停机、
+    服务退出码 0、"stopped cleanly"——`M4-06` 退出条件的进程形态取证。
+- 限制与补跑条件：① CI（MinGW 交叉 / Linux 五预设矩阵 / MSVC runner）
+  证据随本 PR 执行，运行 id 由本 PR 补录；② 本机构建依赖全局
+  `/utf-8`（cp936 主机）；③ 采纳写未被对端读走即关闭时，未入管道缓冲
+  的尾部字节随连接丢弃（对端见截断）——POSIX close 的既有关闭语义
+  差异已在代码注释与本记录声明，`M4-07` 端到端取证复核；④
+  `MIRA-20260922-001`（全树 MinGW 交叉）维持挂账不变。
+- 同步：本记录、[DEC-017](../decisions/DEC-017-windows-backend-toolchain-
+  and-event-loop.md) 变更记录、CI 取证随本 PR 补录。
