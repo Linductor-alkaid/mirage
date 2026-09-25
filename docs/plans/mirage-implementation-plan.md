@@ -4,7 +4,7 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-09-25（M4 里程碑完成）
+> 更新日期：2026-09-26（M5 里程碑计划建立）
 
 ## 当前状态
 
@@ -66,7 +66,10 @@ service / CLI 进程形态、全树 MSVC 构建）与 `M4-07`（Windows 端到�
 observe → action → observe 经真实 Win32 / UIA 前端与
 `MiraEnvironmentBinding` 绑定取证；里程碑退出条件逐项复核）已完成；
 M4 里程碑 Completed，退出复核通过（全树 MinGW 交叉复验随台账
-`MIRA-20260922-001` 缺口关闭挂账）。下一里程碑 M5（Desktop Product）。
+`MIRA-20260922-001` 缺口关闭挂账）。M5（Desktop Product）里程碑计划已建立，
+见 [M5：Desktop Product](m5-desktop-product.md)（Planned：工具链与 CEF 二进制
+锁定、CEF 产品壳与壳内 IPC、协议 v1 附加扩展（permission / session /
+workflow）、UI 产品化、Overlay / Tray、打包与更新通道）。
 
 ## 交付边界
 
@@ -142,7 +145,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | [M2](m2-desktop-environment.md) | Desktop Environment 核心 Provider + Linux Backend、Semantic Snapshot、Element Reference | `release-beta` | Completed | M1 |
 | [M3](m3-mirador-integration.md) | Mirador 集成：OCR / 检测 / 几何 / Visual Cache、Visual Reference | `release-gamma` | Completed | M2 |
 | [M4](m4-windows-backend.md) | Windows Backend（UIA / Win32 / Capture / Input） | `release-delta` | Completed | M2 |
-| M5 | Desktop Product：Workspace、Workflow UI、Execution Trace、Overlay、权限 | `release-epsilon` | Planned | M3、M4 |
+| [M5](m5-desktop-product.md) | Desktop Product：Workspace、Workflow UI、Execution Trace、Overlay、权限 | `release-epsilon` | Planned | M3、M4 |
 
 拆分与合并顺序：先契约后实现（Desktop Environment 接口先于任何 Backend）、先骨架后
 功能（每个 Backend 先以最小动作打通 Observation -> Action -> Observation 闭环）、
