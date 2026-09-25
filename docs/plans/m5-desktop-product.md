@@ -1,6 +1,6 @@
 # M5：Desktop Product（Workspace / Overlay / 权限 / 分发）
 
-> 状态：Planned
+> 状态：In Progress（`M5-01` 完成，2026-09-26）
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M3](m3-mirador-integration.md)（已完成：Mirador 视觉集成与壳选型冻结——
@@ -99,7 +99,7 @@
 
 ## 工作项
 
-- [ ] `M5-01` 前端工具链定案与 CEF 二进制锁定（DEC-006 决策 6 兑现）：包
+- [x] `M5-01` 前端工具链定案与 CEF 二进制锁定（DEC-006 决策 6 兑现）：包
       管理器 / 打包器 / lint 工具链（eslint）复核定案并写入 DEC-006 修订；
       组件框架复核（DEC-014 React 19 已定选；前端规范 §2.2 token 命名映射
       复核）；CEF 二进制获取与锁定落地 `dependencies.lock.json` schema v2
@@ -225,4 +225,68 @@
 
 ## 验证记录
 
-（随实施按工作项追加；格式遵循工程规范第 6.3 节最小变更记录模板。）
+2026-09-26：`M5-01` 前端工具链定案与 CEF 二进制锁定完成。
+
+- 范围：
+  - **工具链定案**（DEC-006 修订记录 2026-09-26 节）：npm（workspaces，
+    `npm ci` 纪律，Node ≥ 22 经 `engines` 声明）/ Vite 7 / React 19（DEC-014
+    复核确认）/ vitest 复核确认，无迁移；lint 工具新定选 ESLint 10 +
+    typescript-eslint 8 + eslint-plugin-react-hooks 7（flat config
+    `ui/eslint.config.js`，CI frontend 作业增 lint 步骤）。react-hooks v7
+    新增 `purity` / `set-state-in-effect` 两规则对 M1.5 已交付视图存在 7 处
+    既有发现（5 处渲染期 `Date.now`、2 处 effect 内 setState，文件与位置在
+    lint 首轮输出在案：Overlays.tsx / WorkflowsPages.tsx / Observer.tsx /
+    SessionsSidebar.tsx），修复需视图级重构（时间源注入 / effect→render
+    派生），登记为 `M5-06` / `M5-07` 重做对应视图时的清理范围，当前在 lint
+    配置内记录性豁免（理由注释在案），其余规则全量生效。
+  - **CEF 二进制锁定**（shell-binary-locking §2 机制兑现）：
+    `dependencies.lock.json` 升至 schema v2——`artifacts[]` 登记 CEF
+    `152.0.8+g1ce985c+chromium-152.0.7977.134` stable standard 双平台 pin：
+    linux64（674,894,043 B）sha1 `add0a51f…` 为官方 index 与 PoC 本地
+    sha1sum **双源一致**（index 提取 2026-09-26；本地复核 2026-09-21）； 
+    windows64（359,844,028 B）sha1 `fcefc344…` 为官方 index 提取（本地下载
+    -摘要复核随 `M5-02` 首次消费执行并回填 provenance）。`frontend` 条目登记
+    npm 树概要，`ui/package-lock.json` 的 sha256 于每次 configure 重算比对。
+  - **门禁**：`cmake/MirageDependencies.cmake` 扩展——schema 版本强制（非 2
+    即失败）、工件 pin 结构校验（缺员 / 非 40-hex sha1 / 空值 fail closed）、
+    npm 哈希活动门禁（漂移即 configure 失败，无条件执行——本地、零网络）、
+    `mirage_require_locked_artifact()` 消费门禁（未注册工件被产品目标消费即
+    configure 失败，M5-02 壳目标须经此绑定）。新增
+    `tests/cmake/dependency_lock_test.cmake`（ctest
+    `dependency_lock_gate_test`：2 正例 + 5 负例——未注册工件、schema 回退、
+    非 40-hex sha1、缺员、npm 漂移；夹具经 `MIRAGE_DEPENDENCY_LOCK_DIR`
+    重定向，无需真实 CEF 下载）；windows 作业测试列表纳入。实现期事实：CMake
+    正则不支持 `{n}` 重复语法（花括号为字面量），摘要校验以长度 + 字符类实现。
+  - **沙箱与 GPU 正式方案**（DEC-006 修订节）：沙箱默认启用（Linux `.deb`
+    的 chrome-sandbox 属主 / 模式随 `M5-11` 打包交付；任何禁用须显式记录）；
+    GPU 保持启用、不设跨平台禁用开关（PoC 基线 §3.4 的 GPU 段错误为 Electron
+    特有证据，不外推）。
+- 依据：设计文档第 17、18 节；`DEC-006`（决策 5 / 6 与 2026-09-26 修订）、
+  `DEC-013` / `DEC-014`、`RULE-06` / `RULE-07` / `RULE-08`、工程规范 §9.1；
+  [shell-binary-locking](../supply-chain/shell-binary-locking.md) §2 机制设计；
+  本计划 `M5-01` 工作项。
+- 验证（本机 Windows 11 x64，MSVC 19.44 BuildTools，真实桌面）：
+  - 全树 MSVC configure：schema v2 校验在案（双平台工件 pin + npm 树哈希 +
+    submodule / nested pin 全部通过）；Debug 全树构建 **0 诊断**；ctest
+    **22/22 通过 0 skip**（新增 `dependency_lock_gate_test` 0.35 s，7 场景
+    全绿）。
+  - ui：`npm run check`（tsc 严格）通过；`npm test` **16 文件 530 测试通过**；
+    `npm run lint` 0 问题（ESLint 10.11.0）。
+  - 官方 index 事实源：`index.json`（10.4 MB）本机下载解析（2026-09-26），
+    双平台 tarball 条目（name / sha1 / size）与锁文件登记逐项一致；linux64
+    与 PoC `versions.lock.json` 记录逐字节相同。
+  - Linux 矩阵 / format / boundary：本变更零 C++ TU 变更（clang-format 与
+    boundary 扫描面无交集），Linux 五预设 + format & boundaries 由本 PR CI
+    取证（结论按仓库先例由后续工作项 PR 补录）。
+- 限制与补跑条件：① windows64 CEF 包的本地下载-摘要复核随 `M5-02` 首次消费
+  执行并回填 provenance（负责人：`M5-02` 实现轮）；② react-hooks 新规则的
+  7 处豁免随 `M5-06` / `M5-07` 视图重做清零（负责人：对应工作项）；③ CI
+  frontend lint 步骤、windows 作业门禁测试与 Linux 矩阵随本 PR 首跑取证
+  （负责人：维护者合并裁决）。
+- 同步：[DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md)（修订
+  记录 2026-09-26 节 + 决策 6 定案标注）、
+  [shell-binary-locking](../supply-chain/shell-binary-locking.md)（状态 →
+  Mechanism landed）、
+  [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
+  §6（token 复核记录）、ui/README（工具链与哈希耦合说明）、
+  [总计划](mirage-implementation-plan.md) 状态叙述。
