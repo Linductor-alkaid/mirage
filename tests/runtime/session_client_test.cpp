@@ -330,20 +330,29 @@ void scenario_timeout_closes_session_fail_closed() {
     MIRAGE_CHECK(service.start(make_binding(dir)));
     service.run_async();
 
+    // Connected, but no run() loop yet: the request sits unserved, the call
+    // expires, and the frozen single-outstanding discipline closes the
+    // session fail-closed (no issue-after-silence).
     Session session;
-    MIRAGE_CHECK(session.start(config.socket_path));
+    session.client = std::make_unique<ipc::SessionClient>(config.socket_path);
+    std::string connect_error;
+    MIRAGE_CHECK(session.client->connect(kConnectBudget, connect_error));
 
-    // Connected, but run() is deliberately not consuming: the request sits
-    // unserved, the call expires, and the frozen single-outstanding
-    // discipline closes the session fail-closed (no issue-after-silence).
     const ipc::Response expired =
         session.client->call(ipc::HelloRequest{}, std::chrono::milliseconds{300}).get();
     MIRAGE_CHECK(!expired.ok);
     MIRAGE_CHECK(expired.error.code == "unavailable");
     MIRAGE_CHECK(expired.error.message.find("timed out") != std::string::npos);
 
-    // The loop drains with the fail-closed close; run() reports the cause.
-    session.join_and_stop();
+    // The loop, once started, drains with the fail-closed close; run()
+    // reports the cause instead of serving the dead session.
+    session.loop = std::thread([&session] {
+        std::string reason;
+        session.exit = session.client->run(reason);
+        session.diagnostic = std::move(reason);
+    });
+    session.loop.join();
+    session.loop = {};
     MIRAGE_CHECK(session.exit == ipc::SessionClient::RunExit::ConnectionLost);
     MIRAGE_CHECK(session.diagnostic.find("timed out") != std::string::npos);
 
