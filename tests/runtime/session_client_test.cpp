@@ -8,6 +8,8 @@
 // product-process tests use): service.run() on one thread, SessionClient
 // run() on another.
 
+#include "../support/ipc_io.hpp"
+
 #include "../support/test.hpp"
 
 #include <mirage/integration/mira_environment_binding.hpp>
@@ -101,7 +103,7 @@ struct ServiceProcess {
         }
     }
 
-    bool start(const std::shared_ptr<integration::DesktopEnvironmentBinding> &binding) {
+    bool start(const std::shared_ptr<integration::MiraEnvironmentBinding> &binding) {
         return service.start(binding).ok;
     }
     void run_async() {
