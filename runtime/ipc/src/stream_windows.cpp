@@ -50,16 +50,28 @@ std::optional<std::wstring> wide_from_utf8(const std::string &text) {
     return out;
 }
 
-/// Per-stream overlapped I/O state (IpcStream::state_ on Windows): the two
-/// completion events. Neither direction ever leaves an operation behind —
-/// reads are gated by PeekNamedPipe, and an operation that queues is
-/// cancelled and reaped inside the very same call, reporting exactly the
-/// bytes that were truly transferred (the POSIX WouldBlock contract; the
-/// caller always resumes from the reported cursor).
+/// Per-stream overlapped I/O state (IpcStream::state_ on Windows). Reads
+/// never leave an operation behind: PeekNamedPipe gates every read, so a
+/// queued read is cancelled and reaped inside the same call. Writes adopt:
+/// an operation the pipe cannot complete synchronously stays in flight,
+/// its bytes copied into `write_buffer` (stream-owned, never the caller's
+/// buffer), and the call reports those bytes as Ok — the POSIX write()
+/// acceptance semantic. The kernel transfers the adopted bytes as the peer
+/// drains; the next write_some reaps the operation before issuing more,
+/// so the wire order matches the call order and a caller can never
+/// double-send from its own cursor.
 struct StreamState {
-    HANDLE read_event = nullptr;  // auto-reset; the read completion
-    HANDLE write_event = nullptr; // auto-reset; the write completion
+    HANDLE read_event = nullptr;   // auto-reset; the read completion
+    HANDLE write_event = nullptr;  // auto-reset; the write completion
+    OVERLAPPED write_overlapped{}; // the adopted write's storage (never on a stack)
+    bool write_pending = false;    ///< an adopted write is in flight
+    std::string write_buffer;      ///< owned bytes of the adopted write
 };
+
+/// The adoption cap (RULE-07 budget): the owned buffer holds at most one
+/// write of this size, the protocol's own frame cap — larger requests are
+/// issued in slices of at most this size.
+constexpr std::size_t kMaxAdoptedWriteBytes = 1024 * 1024;
 
 /// Aborts an in-flight overlapped operation and reaps it. A cancelled
 /// operation completes promptly on a local pipe; the wait keeps the
@@ -76,6 +88,10 @@ void cancel_and_reap(HANDLE handle, OVERLAPPED *overlapped) {
 /// when it queued, or the immediate failure code.
 DWORD issue_write(HANDLE handle, OVERLAPPED *overlapped, HANDLE write_event, const char *data,
                   std::size_t size) {
+    // The kernel sets the event even when the operation completes
+    // synchronously; a stale signal would let a zero-wait check mistake the
+    // operation being issued here for a completed one.
+    ::ResetEvent(write_event);
     overlapped->hEvent = write_event;
     if (::WriteFile(handle, data, static_cast<DWORD>(size), nullptr, overlapped) != 0) {
         return ERROR_SUCCESS;
@@ -88,6 +104,7 @@ DWORD issue_write(HANDLE handle, OVERLAPPED *overlapped, HANDLE write_event, con
 /// immediate failure code.
 DWORD issue_read(HANDLE handle, OVERLAPPED *overlapped, HANDLE read_event, char *data,
                  std::size_t size) {
+    ::ResetEvent(read_event); // same stale-signal discipline as issue_write
     overlapped->hEvent = read_event;
     if (::ReadFile(handle, data, static_cast<DWORD>(size), nullptr, overlapped) != 0) {
         return ERROR_SUCCESS;
@@ -193,6 +210,23 @@ void IpcStream::close() {
     if (native_ != kInvalidTransport) {
         if (state_ != nullptr) {
             auto *state = static_cast<StreamState *>(state_);
+            const HANDLE handle = reinterpret_cast<HANDLE>(native_);
+            // An adopted write owns this state: its OVERLAPPED must not
+            // outlive it. Give the in-flight transfer a bounded drain
+            // window first — the peer is usually reading, so the bytes
+            // land in the pipe — then cancel and free. Whatever the pipe
+            // never took is dropped here; the peer sees the truncation as
+            // the broken connection (the POSIX close-with-unsent-data
+            // divergence of the named-pipe transport).
+            if (state->write_pending) {
+                if (::WaitForSingleObject(state->write_event, 2000) != WAIT_OBJECT_0) {
+                    ::CancelIoEx(handle, &state->write_overlapped);
+                    DWORD abandoned = 0;
+                    ::GetOverlappedResult(handle, &state->write_overlapped, &abandoned, TRUE);
+                }
+                state->write_pending = false;
+                state->write_buffer.clear();
+            }
             if (state->read_event != nullptr) {
                 ::CloseHandle(state->read_event);
                 state->read_event = nullptr;
@@ -339,39 +373,49 @@ IoResult IpcStream::write_some(const char *data, std::size_t size) {
     }
     const HANDLE handle = reinterpret_cast<HANDLE>(native_);
     auto *state = static_cast<StreamState *>(state_);
-    // The same discipline as read_some: an operation the pipe cannot take
-    // immediately is cancelled and reaped inside this call, reporting
-    // exactly the bytes that were truly transferred. The caller therefore
-    // always resumes from the reported cursor — nothing is queued behind
-    // the call and nothing can be written twice.
-    OVERLAPPED overlapped{};
-    const DWORD issued = issue_write(handle, &overlapped, state->write_event, data, size);
-    if (issued == ERROR_IO_PENDING) {
-        // Mirror of the read path: the transfer count is authoritative even
-        // for an aborted operation — bytes already on the wire are reported
-        // as Ok so the caller resumes from the true cursor; nothing enters
-        // the pipe twice and nothing is dropped.
-        if (::WaitForSingleObject(overlapped.hEvent, 0) != WAIT_OBJECT_0) {
-            cancel_and_reap(handle, &overlapped);
-            DWORD written = 0;
-            const BOOL completed = ::GetOverlappedResult(handle, &overlapped, &written, TRUE);
-            const DWORD reap_error = completed ? ERROR_SUCCESS : ::GetLastError();
-            if (written > 0) {
-                result.bytes = written;
-                result.status = IoStatus::Ok;
-                return result;
-            }
-            if (reap_error == ERROR_OPERATION_ABORTED) {
-                result.status = IoStatus::WouldBlock;
-            } else if (reap_error == ERROR_BROKEN_PIPE) {
+    // Reap phase: an adopted write must finish before new bytes enter the
+    // pipe, so the wire order matches the call order (one in-flight write
+    // at most). The zero wait keeps the reap non-blocking; WouldBlock sends
+    // the caller away until the peer drained the adopted bytes.
+    if (state->write_pending) {
+        if (::WaitForSingleObject(state->write_event, 0) != WAIT_OBJECT_0) {
+            result.status = IoStatus::WouldBlock;
+            return result;
+        }
+        DWORD completed = 0;
+        if (::GetOverlappedResult(handle, &state->write_overlapped, &completed, FALSE) == 0) {
+            const DWORD error = ::GetLastError();
+            state->write_pending = false;
+            state->write_buffer.clear();
+            if (error == ERROR_BROKEN_PIPE) {
                 result.status = IoStatus::Closed;
             } else {
                 result.status = IoStatus::Error;
-                result.os_error = static_cast<int>(reap_error);
+                result.os_error = static_cast<int>(error);
             }
             return result;
         }
-    } else if (issued != ERROR_SUCCESS) {
+        state->write_pending = false;
+        state->write_buffer.clear();
+        // The pipe is free again; fall through and issue the caller's bytes.
+    }
+    const std::size_t requested = std::min(size, kMaxAdoptedWriteBytes);
+    const DWORD issued = issue_write(handle, &state->write_overlapped, state->write_event, data,
+                                     static_cast<DWORD>(requested));
+    if (issued == ERROR_IO_PENDING) {
+        // Adopt: the operation stays in flight and its bytes move into
+        // stream-owned storage right now, so the caller may reuse its
+        // buffer the moment this call returns. Reporting them as Ok is the
+        // POSIX write() acceptance semantic — accepted by the transport,
+        // carried to the peer as it reads. The member OVERLAPPED survives
+        // until the reap or the close.
+        state->write_buffer.assign(data, requested);
+        state->write_pending = true;
+        result.bytes = requested;
+        result.status = IoStatus::Ok;
+        return result;
+    }
+    if (issued != ERROR_SUCCESS) {
         if (issued == ERROR_BROKEN_PIPE) {
             result.status = IoStatus::Closed;
         } else {
@@ -381,7 +425,7 @@ IoResult IpcStream::write_some(const char *data, std::size_t size) {
         return result;
     }
     DWORD written = 0;
-    if (::GetOverlappedResult(handle, &overlapped, &written, FALSE) == 0) {
+    if (::GetOverlappedResult(handle, &state->write_overlapped, &written, FALSE) == 0) {
         const DWORD error = ::GetLastError();
         if (error == ERROR_BROKEN_PIPE) {
             result.status = IoStatus::Closed;
