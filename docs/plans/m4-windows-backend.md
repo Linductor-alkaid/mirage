@@ -884,5 +884,12 @@ Provider（UIA）先于外围 Provider、产品进程化（`M4-06`）不阻塞 B
   重议触发（`DEC-018`）；④ Windows 采集性能升级（DXGI /
   Windows.Graphics.Capture）为 DEC-017 既定后续路径；⑤ `release-delta`
   tag 与发布流程待维护者授权（工程规范第 10.5 节）。
+- 独立复核（Independent-Verification-Agent，本机 Windows 会话，HEAD
+  `b46ec5b`）：8 项检查全部 PASS——e2e 复跑 74/0 与 13/13 全套复跑、
+  boundary 0/37 复跑、`/utf-8` 全局声明与采纳写实现（file:line 定位）、
+  ci.yml 正则、DEC-017/018 在案、五级依赖 pin 与锁零漂移、RULE-03
+  审计（生产自研 0 命中；测试 fixture 的 std::thread 为测试自有辅助
+  线程，范围外）、CI run 结论与 PR 状态（#45 MERGED / #46 OPEN）逐项
+  与记录一致；结论 = M4 退出证据 sound，无实质偏差。
 - 同步：本里程碑状态（Completed）、退出条件勾选、
   [总计划](mirage-implementation-plan.md) 当前状态叙述与里程碑索引。
