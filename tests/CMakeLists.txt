@@ -841,3 +841,18 @@ set_tests_properties(visual_cache_geometry_test PROPERTIES
     LABELS "unit"
     TIMEOUT 120
 )
+
+# M5-01 lock-gate regression (DEC-006 decision 6): schema v2 structural
+# checks, the frontend npm-tree hash gate and the mirage_require_locked_
+# artifact() consumption gate, exercised positively and negatively in cmake
+# script mode against the real dependencies.lock.json. No compiled binary;
+# portable across the Linux matrix and the Windows job.
+add_test(NAME dependency_lock_gate_test
+    COMMAND ${CMAKE_COMMAND}
+        -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..
+        -DBUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}/dependency_lock_gate_test
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/dependency_lock_test.cmake)
+set_tests_properties(dependency_lock_gate_test PROPERTIES
+    LABELS "unit;smoke"
+    TIMEOUT 60
+)
