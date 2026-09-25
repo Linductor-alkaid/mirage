@@ -375,6 +375,36 @@ void accessor_fail_closed_without_option() {
     MIRAGE_CHECK(env.application() == nullptr);
 }
 
+/// The machine-independent id invariant of the frontend's own discovery:
+/// the exact acceptance rule the id lookup enforces (a relative
+/// '/'-separated path under the Programs root, no empty or dot segments).
+/// Whether a real machine's inventory carries non-.lnk entries is its own
+/// state — a sterile CI runner and a working machine differ — so the
+/// discovery scan asserts the rule, not a hardcoded extension census.
+bool id_matches_discovery_rule(const std::string &application_id) {
+    if (application_id.empty() || application_id.front() == '/' ||
+        application_id.find('\\') != std::string::npos ||
+        application_id.find(':') != std::string::npos) {
+        return false;
+    }
+    std::size_t start = 0;
+    for (;;) {
+        const std::size_t slash = application_id.find('/', start);
+        const std::string segment =
+            application_id.substr(start, slash == std::string::npos ? slash : slash - start);
+        if (segment.empty() || segment == "." || segment == "..") {
+            return false;
+        }
+        if (slash == std::string::npos) {
+            return true;
+        }
+        start = slash + 1;
+        if (start == application_id.size()) {
+            return false; // trailing separator
+        }
+    }
+}
+
 /// Discovery answers with the fixture entries (and the session's real ones),
 /// hidden entries are skipped, and the running flags agree with the
 /// independent snapshot observation (nothing launched yet).
@@ -391,12 +421,13 @@ void discovery_lists_fixtures_and_skips_hidden(desktop::ApplicationProvider &app
 
     std::size_t found = 0;
     bool hidden_listed = false;
-    bool all_lnk = true;
+    bool ids_are_safe = true;
     bool names_match = true;
     for (const desktop::ApplicationInfo &application : listing.applications) {
-        if (application.id.size() < 4 ||
-            application.id.compare(application.id.size() - 4, 4, ".lnk") != 0) {
-            all_lnk = false;
+        // The id invariant of the frontend's own discovery: a relative
+        // '/'-separated path under the Programs root, no escape segments.
+        if (!id_matches_discovery_rule(application.id)) {
+            ids_are_safe = false;
         }
         if (application.id == fixtures.hidden_id) {
             hidden_listed = true;
@@ -417,7 +448,7 @@ void discovery_lists_fixtures_and_skips_hidden(desktop::ApplicationProvider &app
             }
         }
     }
-    MIRAGE_CHECK(all_lnk);
+    MIRAGE_CHECK(ids_are_safe);
     MIRAGE_CHECK(!hidden_listed);
     MIRAGE_CHECK(names_match);
     MIRAGE_CHECK(found == 4); // hold, ignore, exit, unicode — exactly once each
