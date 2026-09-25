@@ -17,7 +17,7 @@ import {
     DesktopBridgeTimeoutError,
 } from '../src/desktop-transport.js';
 import type { DesktopBridgeQuery } from '../src/desktop-transport.js';
-import type { ResponsePayload, ServerEvent, ServiceIdentity } from '../src/types.js';
+import type { RequestBody, ResponsePayload, ServerEvent, ServiceIdentity } from '../src/types.js';
 
 const IDENTITY: ServiceIdentity = {
     service: 'mirage-runtime',
@@ -55,24 +55,33 @@ class FakeBridge {
         return queryId;
     };
 
-    lastRequest(): ReturnType<typeof decodeRequest> {
+    /** Decodes the last sent envelope as a request or throws (the transport
+     * must only ever send well-formed requests). */
+    lastRequest(): { id: number; body: RequestBody } {
         const last = this.queries[this.queries.length - 1];
+        if (last === undefined) {
+            throw new Error('no query was sent');
+        }
         const decoded = decodeRequest(last.envelope);
         if (!decoded.ok) {
             throw new Error(`transport sent an undecodable request: ${decoded.error}`);
         }
-        return decoded;
+        return { id: decoded.id, body: decoded.body };
     }
 
     respondOk(id: number, payload: ResponsePayload): void {
         const last = this.queries[this.queries.length - 1];
-        expect(last).toBeDefined();
+        if (last === undefined) {
+            throw new Error('no query was sent');
+        }
         last.resolve(encodeResponse({ ok: true, id, payload }));
     }
 
     respondError(id: number, code: string, message: string): void {
         const last = this.queries[this.queries.length - 1];
-        expect(last).toBeDefined();
+        if (last === undefined) {
+            throw new Error('no query was sent');
+        }
         last.resolve(
             encodeResponse({ ok: false, id, error: { code: code as never, message } }),
         );
@@ -131,7 +140,11 @@ describe('DesktopBridgeTransport', () => {
     it('answers bridge-side query failures as a closed transport', async () => {
         const { transport, bridge } = makeHarness();
         const pending = transport.listTasks();
-        bridge.queries[0].fail(-2, 'renderer is gone');
+        const first = bridge.queries[0];
+        if (first === undefined) {
+            throw new Error('no query was sent');
+        }
+        first.fail(-2, 'renderer is gone');
         await expect(pending).rejects.toBeInstanceOf(TransportClosedError);
         await transport.close();
     });
