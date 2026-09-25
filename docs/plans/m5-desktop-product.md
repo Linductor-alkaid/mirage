@@ -282,7 +282,7 @@
   执行并回填 provenance（负责人：`M5-02` 实现轮）；② react-hooks 新规则的
   7 处豁免随 `M5-06` / `M5-07` 视图重做清零（负责人：对应工作项）；③ CI
   frontend lint 步骤、windows 作业门禁测试与 Linux 矩阵随本 PR 首跑取证
-  （负责人：维护者合并裁决）。
+  （结论见下一条记录——首跑暴露行尾敏感缺陷并修复，复跑全绿）。
 - 同步：[DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md)（修订
   记录 2026-09-26 节 + 决策 6 定案标注）、
   [shell-binary-locking](../supply-chain/shell-binary-locking.md)（状态 →
@@ -290,3 +290,41 @@
   [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
   §6（token 复核记录）、ui/README（工具链与哈希耦合说明）、
   [总计划](mirage-implementation-plan.md) 状态叙述。
+
+2026-09-26：`M5-01` CI 取证完成；首轮暴露 npm 哈希门禁的行尾敏感缺陷并修复
+（`985e45f`），复跑全绿。
+
+- 背景：PR [#48](https://github.com/Linductor-alkaid/mirage/pull/48) 首轮 CI
+  （run 36164073771，headSha = `efddc2e`）frontend 作业绿，但 5 个 Linux
+  build & test 作业与 format & boundaries 全部失败——与本变更"零 C++ TU"
+  的预期矛盾，指向 configure 期新增门禁。
+- 发现（缺陷定性）：npm 哈希门禁的行尾敏感——首轮实现在 Windows 工作树
+  （core.autocrlf，CRLF 检出）上以 `file(SHA256)` 直接计算
+  `ui/package-lock.json`，登记的是 **CRLF 内容**的摘要；git 索引（repo blob）
+  为 LF，Linux CI 检出（LF）在门禁下必然"漂移"→ configure 失败（5 作业 +
+  format/boundaries 的 configure 步骤同因失败）。本机验证成立：CRLF 哈希
+  `f05f13…`（首轮登记值）≠ LF 规范化哈希 `e45251…`（git blob 内容）。
+- 修复（`985e45f`，`fix(deps)`）：摘要语义改为 **LF 规范化内容**（与提交
+  blob 一致，检出行尾无关）——cmake 侧 `file(READ)` 后
+  `string(REPLACE "\r\n" "\n")` 再 `string(SHA256)`；锁文件登记值更新为
+  `e45251…` 并新增 `lockfile_sha256_semantics` 字段声明语义；错误消息、
+  头注释、ui/README 同步。`npm_drift_rejected` 负例（追加字节 → 规范化内容
+  变化 → fail closed）在修复后语义下仍然成立，门禁强度不减。
+- 验证（复跑 run 36165052646，headSha = `985e45f` 已核实，全部 8 作业
+  success）：
+  - Linux 矩阵：debug / release / asan / ubsan / tsan 五预设全绿，每预设
+    **28/28 测试 0 skip**（含 `dependency_lock_gate_test`，tsan 预设经
+    `setarch -R` 0.22 s 通过）；format & public-header boundaries 绿。
+  - frontend 作业：**lint 步骤首跑执行**（`npm run lint`，ESLint 10.11.0），
+    连同 tsc / 530 测试 / build 全绿。
+  - windows msvc (full tree)：MSVC 编译 0 错误，14/14 测试通过（含
+    `dependency_lock_gate_test` 0.20 s，windows 作业测试列表新增项）；
+    产品进程往返与 windows frontend evidence 步骤照常通过（M4 既有门禁
+    不回归）。
+  - 本机（Windows 11，CRLF 工作树）复验：configure 以 LF 哈希 `e45251…`
+    通过、Debug 全树 0 诊断、ctest 22/22——CRLF 检出与 LF 检出两侧在同一
+    登记值下均通过，检出无关性成立。
+- 限制与补跑条件：无新增；`M5-01` 既有挂账（windows64 CEF 本地下载复核随
+  `M5-02`、react-hooks 豁免随 `M5-06`/`M5-07`）维持不变。
+- 同步：本记录；PR [#48](https://github.com/Linductor-alkaid/mirage/pull/48)
+  CI 取证（首轮 run 36164073771 / 复跑 run 36165052646）。合并裁决：维护者。
