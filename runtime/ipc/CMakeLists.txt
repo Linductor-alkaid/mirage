@@ -2,6 +2,7 @@ add_library(mirage_ipc STATIC
     src/client.cpp
     src/framing.cpp
     src/protocol.cpp
+    src/session_client.cpp
     # The DEC-007 transport is platform-selected: Unix domain sockets on
     # Linux, named pipes on Windows (M4-06). The frame format, the protocol
     # and the golden vectors are shared and unchanged.
