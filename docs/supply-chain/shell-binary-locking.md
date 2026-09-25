@@ -1,7 +1,11 @@
 # 壳二进制与前端依赖的锁定、SBOM 与更新通道机制复核（DEC-006 M3-06）
 
-> 状态：Evidence（M3-06 机制复核完成；产品级落地随 M5）
-> 日期：2026-09-21
+> 状态：Mechanism landed（M3-06 机制复核；§2 锁定机制已随 M5-01 落地为
+> `dependencies.lock.json` schema v2 与 configure 门禁——工件结构校验、npm 锁哈希
+> 活动门禁、`mirage_require_locked_artifact()` 消费门禁，回归见
+> `dependency_lock_gate_test`。尚未落地：SBOM 生成、签名 key 管理与发布机隔离、
+> Windows 更新器实现（随 M5-11 / M5-12 发布交付接线））
+> 日期：2026-09-21（M5-01 落地更新：2026-09-26）
 > 关联：[DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md)（决策 3/5/6 冻结）、
 > [壳 PoC 基线](../benchmarks/shell-poc-baselines.md)、
 > [依赖升级审计](dependency-upgrade-audit.md)、工程规范 §9.1/§10.5/§11
@@ -22,7 +26,7 @@
 （`ui/shell-poc/versions.lock.json`：URL + size + SHA1 + license + upstream index，
 并以此完成一次完整下载-校验-构建循环）。
 
-## 2. 机制设计（M5 落地时进入 `dependencies.lock.json` schema v2）
+## 2. 机制设计（已随 M5-01 进入 `dependencies.lock.json` schema v2）
 
 ### 2.1 壳二进制工件 pin（CEF，冻结选型）
 

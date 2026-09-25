@@ -442,3 +442,9 @@ Mirage Shell（统一应用壳）
   [ZCode 源码级调研](../research/2026-09-21-zcode-harness-source-study.md)，
   其 §9 固定清单中的其余输入（平台缝、消息事件面语义、壳进程工程、观察契约
   纪律、治理工具化）登记为对应决策/工作项的演进输入，不在本次规范变更范围。
+- 2026-09-26：M5-01 前端工具链定案时复核 §2.2 token 命名映射（DEC-006 决策 6
+  既定触发）：实现事实源 `ui/app/src/theme/primitives.ts` 与本节 L1 `--mir-*`
+  基准逐项一致，组件框架定选 React 19（DEC-014）下 token 消费路径（CSS 自定义
+  属性）不变，**无需映射迁移**；console / cream / amber-300 阶为 M1.5-07/08
+  已记录的 L1 增补，非命名漂移。工具链定案记录见
+  [DEC-006 修订](../decisions/DEC-006-ui-web-frontend-packaging.md)（2026-09-26）。

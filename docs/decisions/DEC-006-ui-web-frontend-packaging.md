@@ -43,7 +43,8 @@ settings）与 `apps/desktop`、`apps/tray` 定义为 Mirage 桌面产品，但�
    在 M5。复核记录见
    [壳二进制锁定与更新通道复核](../supply-chain/shell-binary-locking.md) 第 3 节。
 6. **工具链与依赖锁定**：Web 前端工具链（包管理器、打包器、CEF 二进制获取）在 M5
-   里程碑计划定案；CEF 二进制版本与前端依赖必须进入依赖锁定与 SBOM 机制（工程规范
+   里程碑计划定案（已于 2026-09-26 M5-01 定案，见修订记录）；CEF 二进制版本与前端
+   依赖必须进入依赖锁定与 SBOM 机制（工程规范
    9.1），不得出现未锁定的二进制来源。M3-06 已完成进入机制的形态复核：壳二进制以
    工件 pin（URL + 版本 + SHA1 + license）并入 `dependencies.lock.json` 校验，npm
    树以 `package-lock.json` + 仓库级概要条目锁定，SBOM 由构建目标再生成（CEF 组件
@@ -128,3 +129,58 @@ CEF 的已量化代价（接受）：发布载荷 ≈559 MB（strip 后 libcef +
   为一致 + 设计工作流复用"（决策 1）跨发行版不可控，壳为 Rust 与 C++ 主栈双语
   言；体积优势（≈0 打包引擎 vs CEF ≈559 MB）不足以抵消一致性与双语言成本。
 - **PySide6/uv 与本地 HTTP + 浏览器**：维持原否决理由（见备选方案节）。
+
+### 2026-09-26：前端工具链定案与壳二进制锁定落地（M5-01）
+
+**决策 6 兑现（Web 前端工具链定案，M5-01 落地）**——M1.5 起的既成事实逐项复核
+确认，以最小成本定案，无框架迁移：
+
+- **包管理器**：npm（workspaces）。CI 以 `npm ci` 安装、禁止裸 `npm install`
+  漂移；Node 版本下限 22（`ui/package.json` `engines` 声明，CI setup-node 22）。
+- **打包器**：Vite 7（app 构建 / dev server / 本地字体打包，无网络资源）。
+- **组件框架**：React 19（DEC-014 既定选型复核确认）+ Base UI + vanilla TS
+  主题注入不变；《前端设计规范》§2.2 token 命名映射复核**一致**——实现事实源
+  `ui/app/src/theme/primitives.ts` 与规范 L1 `--mir-*` 基准逐项对应（console /
+  cream / amber-300 阶为 M1.5-07/08 任务控制台语系已记录的 L1 增补，非漂移），
+  React 形态下 token 消费路径（CSS 自定义属性）不变，无需映射迁移。
+- **lint 工具链（新定选）**：ESLint 10 + typescript-eslint 8 +
+  eslint-plugin-react-hooks 7（flat config `ui/eslint.config.js`；CI frontend
+  作业增 lint 步骤）。此前仅 tsc 严格检查；react-hooks v7 新增 `purity` /
+  `set-state-in-effect` 两规则对 M1.5 已交付视图存在 7 处既有发现（5 处渲染期
+  `Date.now`、2 处 effect 内 setState），修复需视图级重构（时间源注入 /
+  effect→render 派生），登记为 M5-06 / M5-07 重做对应视图时的清理范围，当前在
+  lint 配置内记录性豁免（含理由注释），其余规则全量生效。
+- **测试**：vitest（M1.5 起事实，复核确认）。
+- **CEF 二进制获取**：官方 CDN（`cef-builds.spotifycdn.com`），版本与双平台
+  摘要经 `dependencies.lock.json` schema v2 工件 pin 锁定（见下）。
+
+**壳二进制锁定落地（schema v2）**：`dependencies.lock.json` 升至 schema v2
+（M5-01，机制设计见
+[shell-binary-locking.md](../supply-chain/shell-binary-locking.md) §2）——
+`artifacts[]` 登记 CEF `152.0.8+g1ce985c+chromium-152.0.7977.134` stable
+standard 双平台 pin：linux64（674,894,043 B，sha1 `add0a51f…`）为官方 index 与
+PoC 本地 sha1sum **双源一致**（index 提取 2026-09-26；本地复核 2026-09-21）；
+windows64（359,844,028 B，sha1 `fcefc344…`）为官方 index 提取（2026-09-26），
+本地下载-摘要复核随 M5-02 首次消费执行并回填 provenance。`frontend` 条目登记
+npm 树概要（`ui/package-lock.json` 的 sha256 于**每次 configure 重算比对**，
+漂移即构建失败；许可证清单生成随 M5-11 发布门禁接线）。
+
+**"未锁定二进制不进默认构建"门禁**：`cmake/MirageDependencies.cmake` 扩展——
+schema 版本强制、工件 pin 结构校验（缺员 / 非 40-hex sha1 / 空值 fail
+closed）、npm 哈希活动门禁、`mirage_require_locked_artifact()` 消费门禁
+（未注册工件被产品目标消费即 configure 失败）；`dependency_lock_gate_test`
+正负 7 例回归（Linux 矩阵与 windows 作业双面）。当前默认构建图无 CEF 消费
+目标，门禁语义自本变更起由测试持续锁定。
+
+**沙箱与 GPU 策略（PoC 暂定值转正式方案，M3-06 预告项）**：
+
+- **沙箱默认启用**。PoC 的 `no_sandbox` 仅因取证环境未配置 chrome-sandbox
+  setuid（基线报告 §3.4），属打包事项而非产品策略：Linux `.deb` 须以正确属主
+  / 模式安装 chrome-sandbox（M5-11），Windows 按 CEF 默认沙箱承载；任何环境性
+  回退必须显式记录原因与范围，不允许静默默认禁用。
+- **GPU 保持启用、不设跨平台禁用开关**。CEF 的 GPU 进程在 PoC 环境（X11
+  ozone / XWayland）正常，基线报告 §3.4 的 GPU 段错误为 Electron 特有证据；
+  个别环境的稳定性回退须凭实测证据逐环境处理（RULE-08），不外推、不预先全局
+  禁用。
+
+验证证据见 [M5 计划](../plans/m5-desktop-product.md) M5-01 验证记录。
