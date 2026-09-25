@@ -398,7 +398,7 @@
 - 限制与补跑条件：① Linux 壳构建与往返：CI Linux 矩阵未启用壳（默认 OFF，
   矩阵不下载 675 MB 工件、无 X11 构建依赖）——Linux 启用待 CI 矩阵补 X11
   依赖后单独评估（负责人：后续 M5 工作项实现轮）；`bridge_core_test` 与
-  `session_client_test`（POSIX）已由本 PR CI 在 Linux 取证；② react-hooks
+  `session_client_test`（POSIX）已由本 PR CI 在 Linux 取证（30/30）；② react-hooks
   豁免等 M5-01 既有挂账不变；③ 事件推送背压 / CSP 收紧 / 安装器布局挂账
   DEC-019 影响节（`M5-08` / `M5-11`）。
 - 同步：[DEC-019](../decisions/DEC-019-cef-shell-skeleton-and-bridge.md)
@@ -406,3 +406,34 @@
   （windows64 provenance 回填）、[ui/README](../../ui/README.md)
   （transport 选择补壳内条目）、ci.yml（windows 作业启用壳 + 工件缓存）、
   [总计划](mirage-implementation-plan.md) 状态叙述。
+
+2026-09-26：`M5-02` CI 取证完成；三轮修复后 run 36189032178 全部 8 作业
+success。
+
+- 首轮（run 36184741655）：frontend 作业 strict tsc 失败——
+  `desktop-transport.test.ts` 的 `noUncheckedIndexedAccess` 索引访问与
+  `RequestDecode` 联合未收窄（`4f4e1f3f` 前夜修复 `f4e1f3f`）；本地 `npm run
+  check` 经管道 tail 读取掩盖了退出码，教训留痕：验证命令须直接读退出码。
+- 次轮（run 36185289907）：Linux 矩阵编译失败——`session_client_test` 只含
+  `test.hpp`，而 `TempDir` / `unique_token` 在 `tests/support/ipc_io.hpp`
+  （`5ed2462` 修复）；随后 debug 预设 Test 失败——事件 seq 严格单调校验在
+  整表重扫的第二轮重复触发（`4af0650` 改为增量校验新到后缀）。
+- 三轮（run 36189032178 前置）：release 预设暴露 timeout 场景设计缺陷——
+  `Session::start` 已启动循环，300 ms 请求在快机器上必然被应答，
+  fail-closed 断言永不触发（`3f08392` 改为"连接不启动循环 → 超时 → 再启动
+  循环验证 ConnectionLost"）。
+- 终轮（run 36189032178，headSha = `3f08392` 已核实）：全部 8 作业 success。
+  - Linux 矩阵 debug / release / asan / ubsan / tsan 五预设全绿，debug 预设
+    **30/30 测试 0 skip**（新增 `bridge_core_test`、`session_client_test`；
+    tsan 经 `setarch -R` 正常）。
+  - frontend：lint + strict tsc + **539 测试**（含 `desktop-transport` 9 例）
+    + build 全绿。
+  - format & public-header boundaries 绿。
+  - windows msvc (full tree)：**UI 资产构建步骤首跑执行**（npm ci + build →
+    壳 configure 的 dist 存在性门禁），锁定的 CEF tarball 按锁哈希缓存后
+    configure 门禁 sha1 复核通过，壳目标（mirage-desktop.dll +
+    bootstrap.exe 布局）构建成功；门禁测试 14/14（`dependency_lock_gate_test`
+    等），`win32_product_process_test` **60 检查 0 失败**（含命名管道
+    SessionClient 往返场景），产品进程往返与 windows frontend evidence
+    照常通过（M4 门禁不回归）。
+- 合并裁决：维护者（PR [#49](https://github.com/Linductor-alkaid/mirage/pull/49)）。
