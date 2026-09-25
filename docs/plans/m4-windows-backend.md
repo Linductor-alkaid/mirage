@@ -1,12 +1,12 @@
 # M4：Windows Backend（UIA / Win32 / Capture / Input）
 
-> 状态：In Progress
+> 状态：Completed（`M4-01` … `M4-07` 全部完成，退出复核通过）
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M2](m2-desktop-environment.md)（已完成：Desktop Environment 九个 Provider
 > 契约、SemanticSnapshot、ElementTarget 解析顺序契约；Linux Backend 同型骨架先例）
 > 建议发布点：`release-delta`（tag 待维护者授权后创建）
-> 更新日期：2026-09-25（M4-06 完成并经维护者 Windows 机器运行级取证）
+> 更新日期：2026-09-25（`M4-07` 退出复核通过，里程碑完成）
 
 ## 目标
 
@@ -107,7 +107,7 @@ Backend（设计文档第 10、18 节第四阶段）：UI Automation 承载语�
       `stream_windows`；帧格式与协议 v1 不变，golden vectors 复用）、持久化
       Windows 路径与存储（`store_windows`）、`apps/service` / CLI /
       tray 进程形态可构建；全树 MSVC 构建通过。
-- [ ] `M4-07` Windows 端到端闭环与里程碑退出复核：`integration/mira` 绑定在
+- [x] `M4-07` Windows 端到端闭环与里程碑退出复核：`integration/mira` 绑定在
       Windows 环境的 observe / execute 面复核（能力如实上报）、真实 Windows
       会话端到端取证（observe → action → observe）；退出条件逐项独立取证
       （同 M2 退出复核形态）。
@@ -143,21 +143,21 @@ Provider（UIA）先于外围 Provider、产品进程化（`M4-06`）不阻塞 B
 
 ## 测试与退出条件
 
-- [ ] Linux 主机矩阵不回归：`debug`、`release`、`asan`、`ubsan` 预设构建 +
+- [x] Linux 主机矩阵不回归：`debug`、`release`、`asan`、`ubsan` 预设构建 +
       `ctest` 全绿无 skip，`tsan` 按本机注意事项运行；`mirage-format-check`
       与 `mirage-boundary-check`（含新增公共头）通过（`DOD-01` / `DOD-03`）。
-- [ ] Windows 编译门禁：MinGW-w64 x86_64 交叉 configure + build 通过；MSVC
+- [x] Windows 编译门禁：MinGW-w64 x86_64 交叉 configure + build 通过；MSVC
       （CI windows runner）configure + build 通过，可运行的纯逻辑测试在
       runner 上实跑（`DOD-03` 的跨平台形式，DEC-017 证据分级）。
-- [ ] Windows Provider 契约不偏离 DEC-005 / DEC-009：预算拒绝、取消先于
+- [x] Windows Provider 契约不偏离 DEC-005 / DEC-009：预算拒绝、取消先于
       副作用、fail closed 语义经既有 fake 契约测试与 Windows 前端集成测试
       双面覆盖；win32 前端测试在真实 Windows 会话取证（CI runner 或维护者
       机器；不可运行时记录原因与补跑条件）（`DOD-04`）。
-- [ ] Windows 端到端闭环：observe 返回含 SemanticSnapshot 的 Observation，
+- [x] Windows 端到端闭环：observe 返回含 SemanticSnapshot 的 Observation，
       ElementTarget 经解析执行后 Observation 更新（`M4-07`）。
-- [ ] 产品进程 Windows 化：`apps/service` 形态在 Windows 上完成 IPC 往返
+- [x] 产品进程 Windows 化：`apps/service` 形态在 Windows 上完成 IPC 往返
       （命名管道传输 + golden vectors 一致）（`M4-06`）。
-- [ ] 决策与文档同步：DEC-017 及后续决策、设计文档注记、总计划状态与验证
+- [x] 决策与文档同步：DEC-017 及后续决策、设计文档注记、总计划状态与验证
       记录同步（`DOD-05`）；Commit / MR 符合工程规范第 10 节（`DOD-06`）。
 
 ## 验证记录
@@ -789,3 +789,107 @@ Provider（UIA）先于外围 Provider、产品进程化（`M4-06`）不阻塞 B
   进程形态可构建、全树 MSVC 构建）全部取证成立。
 - 同步：本计划（挂账闭合）、PR [#45](https://github.com/Linductor-alkaid/mirage/pull/45)
   CI 取证。
+
+2026-09-25：`M4-07` Windows 端到端闭环与里程碑退出复核完成。
+
+- 范围：新增 `tests/integration/win32_observation_e2e_test.cpp`（CI windows
+  作业 Test 与 evidence 两步纳入）——完整 observe → action → observe 闭环
+  在真实交互桌面无模拟器运行：真实 fixture 窗口（push button + edit）+
+  `WindowsDesktopEnvironment` 真实 Win32 / UIA 前端 + 桌面层
+  `ObservationAssembler` / `ElementTargetExecutor` + 全栈经
+  `MiraEnvironmentBinding` 绑定。闭环取证：observe() 将 fixture 的真实
+  UIA 树投影为 validator-clean pinned 快照（@eN refs + 诚实前台
+  AppContext）→ reference ElementTarget 经 accessibility reference ring
+  解析、语义激活**真实点击** fixture 按钮（点击落入 fixture 自有窗口
+  过程，独立于 provider 的自述）→ Value 模式 set_text 写入 edit（独立
+  `GetWindowTextW` 回读）→ 重新观察且新 refs 可继续执行（循环可持续；
+  平台事实：Win32 EDIT 的 UIA Name 恒为空，内容在 Value 模式不入
+  Name——断言按不变量式设计，不依赖该行为）。绑定面在真实后端复核：
+  capabilities 如实上报（foreground_app / ui_tree 声明，
+  screen_capture / discrete_input / input_release 不声明）、required
+  screen 无视觉管线 fail closed 拒绝整请求、pinned input dispatch 副作用
+  前 `Rejected` 且无副作用、interrupt 幂等。前台锁前置：fixture 先经
+  `SendInput` 注入一个惰性合成 SHIFT 键满足 OS 的 last-input 前台权前置
+  （真实用户交互的等价替身），激活本身仍由 provider 执行；仍被拒绝的
+  会话按响亮注记跳过（`win32_backend_test` 纪律）。
+- 依据：设计文档第 6、9、11 节；`DEC-005` / `DEC-007` / `DEC-009` /
+  `DEC-017`；M2-06（`observation_e2e_test`）同型先例；`RULE-01` /
+  `RULE-03` / `RULE-07`。
+- 验证（维护者 Windows 机器 + CI 双面）：
+  - 本机（Windows 11 x64，MSVC 19.44 Debug，真实桌面）：`win32_
+    observation_e2e_test` **74 checks, 0 failures**（重复 4 轮 + 两核
+    亲和 `start /affinity 3` 均绿）；windows 作业 13 项测试集 **13/13**；
+    新 TU MinGW-w64 `-fsyntax-only -Wall -Wextra -Werror` 0 诊断；
+    `mirage-boundary-check` 0 violations in 37 headers。
+  - CI（run 36154470581，headSha = caf622b 已核实，全部 8 作业
+    success）：windows msvc (full tree) 13/13，e2e 在 runner 真实桌面
+    **74 checks, 0 failures**（Test 步 3.99 s / evidence 步 1.99 s，
+    无 skip 注记——runner 前台激活在合成键前置下成立）；产品进程往返
+    步 OK；Linux debug / release / asan / ubsan / tsan、format &
+    boundaries、frontend 全绿（Linux 侧零变更，行为等价不回归）。
+- 同步：本记录 + `M4-07` 勾选、退出条件勾选、
+  [总计划](mirage-implementation-plan.md) 状态叙述与里程碑索引、
+  PR [#46](https://github.com/Linductor-alkaid/mirage/pull/46) CI 取证。
+
+2026-09-25：M4 里程碑退出条件复核通过，里程碑 Completed。
+
+- 范围：对 6 项退出条件逐项独立取证；M4 范围未修改任何 pinned 代码，
+  submodule 指针零变更。
+- 逐项取证：
+  1. **Linux 主机矩阵不回归**（`DOD-01` / `DOD-03`）：PR #45 与 #46 的
+     CI Linux 矩阵（debug / release / asan / ubsan / tsan）全绿
+     （run 36148338709 / 36154470581）；`mirage-format-check`
+     （clang-format-18）与 `mirage-boundary-check` 在两 PR 的 format &
+     boundaries 作业通过；本机复核 boundary 0 violations / 37 headers。
+  2. **Windows 编译门禁**（`DOD-03` 跨平台形式，`DEC-017` 证据分级）：
+     MSVC（产品工具链，`DEC-006`）全树编译在 CI windows 作业两轮
+     0 错误，13 项测试 runner 实跑；MinGW-w64 交叉：既有 11+ 目标
+     `MIRAGE_WARNINGS_AS_ERRORS=ON` 0 诊断（M4-06 记录），新 Windows TU
+     逐 TU `-fsyntax-only -Werror` 0 诊断；全树 MinGW 交叉因台账
+     `MIRA-20260922-001`（pinned executor 的线程模型假设）受限，按工程
+     规范第 4 节记录补跑条件 = 台账缺口关闭后全树交叉复验（负责人：
+     维护者）。
+  3. **Windows Provider 契约不偏离**（`DOD-04`）：fake 契约测试
+     （`provider_contract_test` 等）在 Linux 矩阵与 windows 作业双面
+     绿；win32 前端套件在真实 Windows 会话双点取证（维护者机器 + CI
+     runner）：win32_backend 128 / uia_backend 108 / clipboard_process
+     129 / application 250 / notification 42 / product_process 50
+     checks，均 0 failures；预算拒绝不截断、取消先于副作用、fail
+     closed（null 访问器、open() 探测、能力门）语义在各前端测试与
+     `M4-01`..`M4-06` 验证记录中逐项在案。
+  4. **Windows 端到端闭环**（`M4-07`）：`win32_observation_e2e_test`
+     74 checks / 0 failures——observe（含 SemanticSnapshot 的
+     Observation，pinned validator-clean 投影）→ ElementTarget 经
+     accessibility reference ring 解析并真实执行（独立窗口过程点击
+     证据 + Value 写入独立回读）→ 重新观察（fresh capture，refs 重发
+     且可执行）。本机与 CI runner 双点取证。
+  5. **产品进程 Windows 化**（`M4-06`）：真实 `mirage-service.exe` 服务
+     命名管道 + `mirage.exe` CLI `service status` / `service shutdown`
+     往返在本机与 CI windows 作业双点取证（退出码 0、干净收尾、
+     "product-process round trip over the named pipe: OK"）；golden
+     vectors 复用（`ipc_protocol_golden_test` 双侧绿）。
+  6. **决策与文档同步**（`DOD-05` / `DOD-06`）：`DEC-017`（M4-01..M4-06
+     工具链事实五轮变更记录）与 `DEC-018`（M4-05 承载决策）在案；本计划
+     七条验证记录 + 本复核；总计划状态与里程碑索引同步；submodule 指针
+     与 `dependencies.lock.json` 一致（mira `cf0af75` / mirador
+     `fff7f15`，configure 锁校验通过，M4 范围零指针变更）；`RULE-03`
+     审计：M4 新增 Windows TU（stream / endpoint / store / paths /
+     service_loop / apps / e2e 测试）`std::thread` / `std::jthread` /
+     `std::async` grep 0 命中；Commit / MR 符合工程规范第 10 节
+     （`feat(ipc)` / `feat(platform)` / `test(tests)` / `build` /
+     `docs(plans)`，PR #39-#46 经 CI 门禁合入）。
+- 残留挂账（不阻塞里程碑，均已登记）：① 全树 MinGW 交叉复验 =
+  `MIRA-20260922-001` 缺口关闭（负责人：维护者）；② devbridge 的
+  Windows 传输未立项（开发工具，M4-06 记录）；③ toast 通知承载留 M5
+  重议触发（`DEC-018`）；④ Windows 采集性能升级（DXGI /
+  Windows.Graphics.Capture）为 DEC-017 既定后续路径；⑤ `release-delta`
+  tag 与发布流程待维护者授权（工程规范第 10.5 节）。
+- 独立复核（Independent-Verification-Agent，本机 Windows 会话，HEAD
+  `b46ec5b`）：8 项检查全部 PASS——e2e 复跑 74/0 与 13/13 全套复跑、
+  boundary 0/37 复跑、`/utf-8` 全局声明与采纳写实现（file:line 定位）、
+  ci.yml 正则、DEC-017/018 在案、五级依赖 pin 与锁零漂移、RULE-03
+  审计（生产自研 0 命中；测试 fixture 的 std::thread 为测试自有辅助
+  线程，范围外）、CI run 结论与 PR 状态（#45 MERGED / #46 OPEN）逐项
+  与记录一致；结论 = M4 退出证据 sound，无实质偏差。
+- 同步：本里程碑状态（Completed）、退出条件勾选、
+  [总计划](mirage-implementation-plan.md) 当前状态叙述与里程碑索引。

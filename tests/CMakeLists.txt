@@ -245,6 +245,27 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         LABELS "integration;platform"
         TIMEOUT 120
     )
+
+    # M4-07 end-to-end closed loop on the real interactive desktop: the
+    # observe -> action -> observe cycle through the ObservationAssembler,
+    # the ElementTargetExecutor and MiraEnvironmentBinding against the real
+    # Win32 + UIA frontends and a real fixture window (same DEC-017 decision
+    # 9 discipline as the other win32 suites: runtime evidence needs a
+    # desktop session; the MinGW cross build provides compile evidence).
+    add_executable(win32_observation_e2e_test integration/win32_observation_e2e_test.cpp)
+    target_compile_features(win32_observation_e2e_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(win32_observation_e2e_test)
+    target_link_libraries(win32_observation_e2e_test
+        PRIVATE
+            Mirage::integration_mira
+            Mirage::platform
+            Mirage::desktop
+    )
+    add_test(NAME win32_observation_e2e_test COMMAND win32_observation_e2e_test)
+    set_tests_properties(win32_observation_e2e_test PROPERTIES
+        LABELS "integration"
+        TIMEOUT 120
+    )
 endif()
 
 # M2-03 AT-SPI2 accessibility: private D-Bus session plus a wire-exact GDBus

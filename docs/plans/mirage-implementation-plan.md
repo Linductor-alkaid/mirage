@@ -4,7 +4,7 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-09-23
+> 更新日期：2026-09-25（M4 里程碑完成）
 
 ## 当前状态
 
@@ -61,9 +61,12 @@ ProcessProvider 的 CreateProcess 有界承载）、`M4-04`（ApplicationProvide
 （NotificationProvider：承载决策
 [DEC-018](../decisions/DEC-018-windows-notification-carrier.md)——
 `Shell_NotifyIcon` 气球/横幅 + open() 探测 fail closed 降级，toast 留 M5
-重议）与 `M4-06`（产品进程 Windows 化：命名管道 IPC、Windows 持久化、
-service / CLI 进程形态、全树 MSVC 构建）已完成；M4 里程碑进行中
-（`M4-07` 端到端闭环与退出复核待执行）。
+重议）、`M4-06`（产品进程 Windows 化：命名管道 IPC、Windows 持久化、
+service / CLI 进程形态、全树 MSVC 构建）与 `M4-07`（Windows 端到端闭环：
+observe → action → observe 经真实 Win32 / UIA 前端与
+`MiraEnvironmentBinding` 绑定取证；里程碑退出条件逐项复核）已完成；
+M4 里程碑 Completed，退出复核通过（全树 MinGW 交叉复验随台账
+`MIRA-20260922-001` 缺口关闭挂账）。下一里程碑 M5（Desktop Product）。
 
 ## 交付边界
 
@@ -138,7 +141,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | [M1.5](m1.5-ui-parallel-track.md) | UI 并行轨道：wire schema 事实源、IPC 事件订阅、dev bridge、前端（浏览器形态，按 DEC-013 harness 优先统一壳组织：会话/工作流/设置 + 统一壳骨架） | -（随开发线交付，产品化 UI 属 M5） | Completed | M1 |
 | [M2](m2-desktop-environment.md) | Desktop Environment 核心 Provider + Linux Backend、Semantic Snapshot、Element Reference | `release-beta` | Completed | M1 |
 | [M3](m3-mirador-integration.md) | Mirador 集成：OCR / 检测 / 几何 / Visual Cache、Visual Reference | `release-gamma` | Completed | M2 |
-| [M4](m4-windows-backend.md) | Windows Backend（UIA / Win32 / Capture / Input） | `release-delta` | In Progress | M2 |
+| [M4](m4-windows-backend.md) | Windows Backend（UIA / Win32 / Capture / Input） | `release-delta` | Completed | M2 |
 | M5 | Desktop Product：Workspace、Workflow UI、Execution Trace、Overlay、权限 | `release-epsilon` | Planned | M3、M4 |
 
 拆分与合并顺序：先契约后实现（Desktop Environment 接口先于任何 Backend）、先骨架后
