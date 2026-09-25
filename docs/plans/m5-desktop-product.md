@@ -1,6 +1,6 @@
 # M5：Desktop Product（Workspace / Overlay / 权限 / 分发）
 
-> 状态：In Progress（`M5-01` 完成，2026-09-26）
+> 状态：In Progress（`M5-01`、`M5-02` 完成，2026-09-26）
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M3](m3-mirador-integration.md)（已完成：Mirador 视觉集成与壳选型冻结——
@@ -105,7 +105,7 @@
       复核）；CEF 二进制获取与锁定落地 `dependencies.lock.json` schema v2
       （shell-binary-locking 机制兑现）与"未锁定二进制不进默认构建"门禁；
       CEF 沙箱与 GPU 策略由 PoC 暂定值转正式方案（M3-06 预告）。
-- [ ] `M5-02` CEF 产品壳骨架与壳内 IPC 传输路径（`apps/desktop`）：壳进程
+- [x] `M5-02` CEF 产品壳骨架与壳内 IPC 传输路径（`apps/desktop`）：壳进程
       模型（browser / renderer、窗口创建、加载 `ui/app` 构建产物、M5-01
       定案的沙箱 / GPU 策略）；产品 IPC 路径——browser 进程经 `runtime/ipc`
       `IpcClient` 直连 Local IPC（Unix socket / 命名管道，传输差异不外溢），
@@ -328,3 +328,81 @@
   `M5-02`、react-hooks 豁免随 `M5-06`/`M5-07`）维持不变。
 - 同步：本记录；PR [#48](https://github.com/Linductor-alkaid/mirage/pull/48)
   CI 取证（首轮 run 36164073771 / 复跑 run 36165052646）。合并裁决：维护者。
+
+2026-09-26：`M5-02` CEF 产品壳骨架与壳内 IPC 传输路径完成。
+
+- 范围：
+  - **锁定工件消费**（shell-binary-locking §2.1 兑现）：`cmake/MirageCef.cmake`
+    `mirage_acquire_locked_cef()`——configure 期从锁文件解析平台 pin（URL 按
+    `{platform}` 填充 + 40-hex sha1 + 正整数 size 校验，实现于
+    `mirage_require_locked_artifact_platform()`）；缓存 tarball configure 期
+    复核 sha1/size（失配 FATAL），冷缓存 `file(DOWNLOAD)` 按 `EXPECTED_HASH`
+    下载；解包后校验发行包布局。**M5-01 挂账兑现**：windows64 包本地下载
+    359,844,028 B、sha1 `fcefc344…` 与锁文件登记一致（2026-09-26 本机
+    sha1sum），lock provenance 已回填；configure 门禁以同值复核通过。
+  - **壳目标**：`MIRAGE_ENABLE_DESKTOP_SHELL`（默认 OFF，默认构建图不下载
+    工件、保持密闭；启用即经锁文件绑定，未注册 pin 即 configure 失败）。
+    `apps/desktop/CMakeLists.txt`：Windows 为 `mirage-desktop.dll` +
+    发行包 `bootstrap.exe` 复制为 `mirage-desktop.exe`（CEF 152 bootstrap
+    沙箱模型，DEC-019 决策 3/4）；Linux 为单可执行 + X11 窗口。
+    `CEF_RUNTIME_LIBRARY_FLAG=/MD` 在 `find_package(CEF)` 前设定，CEF 目标与
+    `mirage_ipc` / pinned executor 共用 /MD[d] CRT（消除 LNK2038）。
+  - **壳骨架**（DEC-019）：browser 进程 `DesktopApp`（scheme 注册 +
+    `OnContextInitialized` 建窗）+ `DesktopClient`（message router、浏览器
+    集、末窗关闭退出消息循环）+ `ShellSession`（SessionClient 经 Executor
+    blocking worker 驱动、惰性重连）+ `BridgeCore`（协议封装映射，
+    CEF-free）；renderer 进程 `DesktopRendererApp`（message router 渲染侧
+    `mirageQuery` + 事件/失联进程消息分发到 JS 钩子）；`UiSchemeFactory` 以
+    `mirage://app/`（STANDARD+SECURE+CORS）供 `MIRAGE_UI_APP_DIST` 资产
+    （configure 期要求 dist 存在；路径解码与 `..` 逃逸 fail closed）。
+    查询处理按规则 11：CEF UI 线程只投递 → Executor 执行 → `CefPostTask`
+    回投；admission 拒绝经 future 异常显式应答（规则 10）。沙箱默认启用
+    （bootstrap 承载）、GPU 不禁用（M5-01 正式方案，无跨平台开关）。
+  - **runtime/ipc**：新增 `SessionClient`（`session_client.hpp/.cpp`）——
+    长连接、`call()` 排队 + id 关联、DEC-012 单未决纪律内建于发送节流、
+    事件 sink、超时 fail-closed 关会话；`run()` 由 owner 提交 Executor
+    blocking worker 驱动（类本体 executor-free，无自建线程）。
+  - **UI**：`ui/contracts` 新增 `desktop-transport.ts`
+    （`DesktopBridgeTransport`，CEF 查询对象形式
+    `{request, persistent, onSuccess, onFailure}`；关联 id echo 校验；
+    `__mirageOnEvent` / `__mirageConnectionLost` 钩子生命周期管理）；
+    `app/src/main.tsx` transport 选择扩展——壳内（`window.mirageQuery`
+    存在）自动选 DesktopBridgeTransport，devbridge / mock 语义不变
+    （M1.5 纪律），devbridge 定位不变。
+  - **CI**：windows 全树作业 `-DMIRAGE_ENABLE_DESKTOP_SHELL=ON`，CEF tarball
+    按锁文件哈希缓存（`build/artifact-cache/*.tar.bz2`）。
+- 依据：设计文档第 12、17 节；`DEC-006`（决策 1/6）、`DEC-007`/`DEC-012`、
+  `DEC-013` §3.2、`DEC-017`（/MD 工具链）；[DEC-019](../decisions/DEC-019-cef-shell-skeleton-and-bridge.md)
+  （本工作项新决策记录：工件获取、bootstrap 进程形态、CRT 一致性、受控
+  bridge 机制与载荷格式、SessionClient 归属与失败语义、构建门禁形态）；
+  shell-binary-locking §2.1；本计划 `M5-02` 工作项。
+- 验证（本机 Windows 11 x64，MSVC 19.44 BuildTools，真实桌面，真实
+  `mirage-service` 命名管道 `\.\pipe\mirage-ALKAi-service`）：
+  - configure：schema v2 校验 + 工件 pin 结构校验 + 缓存 tarball sha1 复核
+    （`fcefc344…`）全部通过；Debug 全树构建 0 诊断；ctest **23/23 通过
+    0 skip**（新增 `bridge_core_test` 25 检查；`win32_product_process_test`
+    增命名管道 SessionClient 往返场景，60 检查 0 失败）。
+  - ui：`npm run check`（tsc 严格）通过；`npm test` **17 文件 539 测试通过**
+    （新增 `desktop-transport.test.ts` 9 例）；`npm run lint` 0 问题；
+    `npm run build` 产出 dist 供壳加载。
+  - **壳内 UI 对真实 mirage-service 完成 hello / 订阅 / 任务往返**（验收）：
+    壳窗口加载 `mirage://app/index.html?transport=desktop`；状态栏
+    「HOST 运行中 / TRANSPORT Desktop shell / EVENTS 订阅 / PROTOCOL V1」
+    （hello 身份含 events 能力通告）；composer 提交目标
+    "M5-02 shell roundtrip evidence" + 步骤 `cmd /c echo m502-shell-ok`，
+    UI 呈现「已提交协议任务 2958502ae02b474c8614f805f1aed0b3b（事件流实时
+    返回中）」→「任务完成：1/1 个步骤成功」→ 命令执行步骤「成功」+ 执行
+    结果与观察流（observe → task - Completed）。证据：维护者机器截图
+    （`build/m502-shell-14.png` / `m502-final-status.png` 等，gitignore）与
+    壳/服务进程日志。
+- 限制与补跑条件：① Linux 壳构建与往返：CI Linux 矩阵未启用壳（默认 OFF，
+  矩阵不下载 675 MB 工件、无 X11 构建依赖）——Linux 启用待 CI 矩阵补 X11
+  依赖后单独评估（负责人：后续 M5 工作项实现轮）；`bridge_core_test` 与
+  `session_client_test`（POSIX）已由本 PR CI 在 Linux 取证；② react-hooks
+  豁免等 M5-01 既有挂账不变；③ 事件推送背压 / CSP 收紧 / 安装器布局挂账
+  DEC-019 影响节（`M5-08` / `M5-11`）。
+- 同步：[DEC-019](../decisions/DEC-019-cef-shell-skeleton-and-bridge.md)
+  （新增）、[dependencies.lock.json](../../dependencies.lock.json)
+  （windows64 provenance 回填）、[ui/README](../../ui/README.md)
+  （transport 选择补壳内条目）、ci.yml（windows 作业启用壳 + 工件缓存）、
+  [总计划](mirage-implementation-plan.md) 状态叙述。

@@ -95,6 +95,14 @@ app 入口按 URL 参数装配 transport，视图层不感知（同一 `MirageTr
 - `?events=off`（仅 mock）：构造无 `events` 能力的 mock 服务，用于在浏览器
   内验收「订阅不可用 → 自动降级 `task.inspect` 轮询」路径；真实服务未广告
   `events` 能力或 `events.subscribe` 返回 `unsupported` 时走同一降级逻辑。
+- Mirage 桌面壳内（M5-02）：自动选择 `DesktopBridgeTransport`
+  （`contracts/src/desktop-transport.ts`）——壳的受控 CEF bridge 在页面脚本
+  运行前注入 `window.mirageQuery`，其存在即选中（显式 `?transport=desktop`
+  亦可）。一条 query 携带一个协议 v1 请求封装并应答一个响应封装（bridge 在
+  browser 进程恢复渲染器侧关联 id）；服务事件经 `__mirageOnEvent` 钩子、
+  会话丢失经 `__mirageConnectionLost` 钩子推送。壳进程侧装配见
+  `apps/desktop/`（browser 进程经 `runtime/ipc` 直连 Local IPC，DEC-006：
+  IPC 契约是 UI 与 C++ 的唯一耦合面）。
 
 ```bash
 # 终端 3：app 以真实传输启动（Vite dev server 默认 5173）
