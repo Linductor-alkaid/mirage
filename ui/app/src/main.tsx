@@ -1,8 +1,10 @@
 /// Mirage 控制台 — React 入口。
 /// 装配顺序：字体 → token 样式表（L1/L2）→ 主题管理 → harness store → 壳。
-/// transport 选择（M1.5-05）：默认 mock；`?transport=bridge` 或 `?ws=<url>`
-/// 走 dev bridge WebSocket 真实传输（断线自动重连 + resync）；mock 的
-/// `?events=off` 构造无事件能力的服务，用于浏览器内验收降级轮询路径。
+/// transport 选择（M1.5-05，M5-02 扩展）：默认 mock；`?transport=bridge` 或
+/// `?ws=<url>` 走 dev bridge WebSocket 真实传输（断线自动重连 + resync）；
+/// Mirage 壳内（CEF 受控 bridge 全局存在，或显式 `?transport=desktop`）走
+/// DesktopBridgeTransport 真实传输；mock 的 `?events=off` 构造无事件能力的
+/// 服务，用于浏览器内验收降级轮询路径。
 
 import '@fontsource-variable/saira/wdth.css';
 import '@fontsource-variable/chivo-mono/wght.css';
@@ -11,7 +13,12 @@ import './styles.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
-import { createMockTransport, WsBridgeTransport } from '@mirage/contracts';
+import {
+    createMockTransport,
+    DesktopBridgeTransport,
+    desktopBridgeAvailable,
+    WsBridgeTransport,
+} from '@mirage/contracts';
 import type { MirageTransport } from '@mirage/contracts';
 
 import { App } from './App.js';
@@ -35,6 +42,17 @@ function createTransportSelection(): {
         return {
             transport: new WsBridgeTransport(url),
             reconnect: () => new WsBridgeTransport(url),
+        };
+    }
+    // The Mirage shell injects its controlled bridge before the page runs, so
+    // its presence — or the explicit opt-in — selects the real Local IPC
+    // transport; everything else stays on the mock (dev tools do not gain
+    // shell semantics).
+    const wantsDesktop = params.get('transport') === 'desktop' || desktopBridgeAvailable();
+    if (wantsDesktop && desktopBridgeAvailable()) {
+        return {
+            transport: new DesktopBridgeTransport(),
+            reconnect: () => new DesktopBridgeTransport(),
         };
     }
     const eventsCapability = params.get('events') !== 'off';
