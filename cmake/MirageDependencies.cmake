@@ -14,9 +14,12 @@
 #                    is enforced when the artifact is acquired (download and
 #                    hash check, then unpack).
 #   frontend         npm dependency tree registration. The declared lockfile
-#                    sha256 is re-computed and compared at every configure, so
+#                    sha256 is re-computed at every configure, so
 #                    ui/package-lock.json drift without updating this lock file
-#                    fails the build.
+#                    fails the build. The digest is defined over the
+#                    LF-normalized file content (identical to the committed
+#                    blob), so the gate is invariant to checkout line-ending
+#                    conversion (Windows autocrlf working trees vs LF checkouts).
 #
 # Two operating modes:
 #   MIRAGE_FETCH_DEPENDENCIES=ON  (default) sync missing submodules at
@@ -210,14 +213,19 @@ function(mirage_validate_lock_extensions lock_json)
             "dependencies.lock.json frontend '${front_name}': registered lockfile "
             "'${lock_rel}' does not exist.")
     endif()
-    file(SHA256 "${lock_file}" actual_hash)
+    file(READ "${lock_file}" lockfile_bytes)
+    # The digest is defined over LF-normalized content: git stores the lockfile
+    # with LF, while a Windows working tree may check it out with CRLF
+    # (core.autocrlf). Normalizing makes the registered hash checkout-agnostic.
+    string(REPLACE "\r\n" "\n" lockfile_normalized "${lockfile_bytes}")
+    string(SHA256 actual_hash "${lockfile_normalized}")
     if(NOT actual_hash STREQUAL lock_hash)
         message(FATAL_ERROR
             "dependencies.lock.json frontend '${front_name}': ${lock_rel} drifted from "
             "the repository-level registration (declared ${lock_hash}, actual "
-            "${actual_hash}). Verify the dependency change deliberately and update "
-            "'frontend.lockfile_sha256' in the same change; CI installs with 'npm ci' "
-            "to keep the tree aligned with the lockfile.")
+            "${actual_hash} over LF-normalized content). Verify the dependency change "
+            "deliberately and update 'frontend.lockfile_sha256' in the same change; "
+            "CI installs with 'npm ci' to keep the tree aligned with the lockfile.")
     endif()
     message(STATUS
         "Mirage: frontend npm tree '${front_name}' locked at ${lock_hash}")

@@ -101,7 +101,8 @@
     "name": "ui-frontend",
     "kind": "npm-tree",
     "lockfile": "ui/package-lock.json",
-    "lockfile_sha256": "f05f13c5350a813c7307f99895057708f079d52e3ec680625e2b536bcee44f25",
+    "lockfile_sha256": "e45251685cb981ca81596835ea00a731bf9f688a1a4ae54ca1d9d2ad2d743ab0",
+    "lockfile_sha256_semantics": "sha256 over the LF-normalized file content (identical to the committed blob); the configure gate normalizes CRLF before hashing so the check is invariant to checkout line endings",
     "package_manager": "npm（workspaces；CI 以 npm ci 安装，禁止裸 npm install 漂移）",
     "node_floor": "22",
     "license_manifest": "许可证清单由发布门禁生成（工程规范 10.5，随 M5-11 打包交付接线）"

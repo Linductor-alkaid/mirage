@@ -56,10 +56,10 @@ npm run dev -w @mirage/app   # 启动 Vite dev server（默认 mock transport）
 ```
 
 工具链定案（M5-01，DEC-006 决策 6）：npm + Vite + React 19 + vitest + ESLint
-复核确认，无迁移。供应链耦合：`ui/package-lock.json` 的 sha256 登记于仓库根
-`dependencies.lock.json`（schema v2 `frontend` 条目），**每次 configure 重算
-比对**——改动前端依赖必须在同一变更中更新该哈希，否则构建失败（CI 以
-`npm ci` 安装防漂移）。
+复核确认，无迁移。供应链耦合：`ui/package-lock.json` 的 sha256（LF 规范化
+内容，与提交 blob 一致）登记于仓库根 `dependencies.lock.json`（schema v2
+`frontend` 条目），**每次 configure 重算比对**——改动前端依赖必须在同一变更
+中更新该哈希，否则构建失败（CI 以 `npm ci` 安装防漂移）。
 
 ## 真实服务联调（M1.5-03 dev bridge）
 
