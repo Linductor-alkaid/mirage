@@ -412,7 +412,7 @@ success。
 
 - 首轮（run 36184741655）：frontend 作业 strict tsc 失败——
   `desktop-transport.test.ts` 的 `noUncheckedIndexedAccess` 索引访问与
-  `RequestDecode` 联合未收窄（`4f4e1f3f` 前夜修复 `f4e1f3f`）；本地 `npm run
+  `RequestDecode` 联合未收窄（修复 `f4e1f3f`）；本地 `npm run
   check` 经管道 tail 读取掩盖了退出码，教训留痕：验证命令须直接读退出码。
 - 次轮（run 36185289907）：Linux 矩阵编译失败——`session_client_test` 只含
   `test.hpp`，而 `TempDir` / `unique_token` 在 `tests/support/ipc_io.hpp`
