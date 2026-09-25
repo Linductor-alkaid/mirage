@@ -277,6 +277,7 @@ void scenario_events_flow_to_sink_until_terminal() {
     const auto deadline = std::chrono::steady_clock::now() + kTaskBudget;
     bool terminal = false;
     std::uint64_t last_seq = 0;
+    std::size_t processed = 0; // snapshot prefix already checked
     while (!terminal) {
         if (std::chrono::steady_clock::now() >= deadline) {
             break;
@@ -286,7 +287,9 @@ void scenario_events_flow_to_sink_until_terminal() {
             std::lock_guard<std::mutex> guard(events_mutex);
             snapshot = events;
         }
-        for (const ipc::Event &event : snapshot) {
+        // Only the newly arrived suffix needs checking this pass.
+        for (std::size_t index = processed; index < snapshot.size(); ++index) {
+            const ipc::Event &event = snapshot[index];
             // Per-connection seq is strictly monotonic (DEC-012 decision 3).
             MIRAGE_CHECK(event.seq > last_seq);
             last_seq = event.seq;
@@ -297,6 +300,7 @@ void scenario_events_flow_to_sink_until_terminal() {
                 }
             }
         }
+        processed = snapshot.size();
         if (!terminal) {
             std::this_thread::sleep_for(std::chrono::milliseconds{20});
         }
