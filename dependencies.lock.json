@@ -90,7 +90,7 @@
           "platform": "windows64",
           "size_bytes": 359844028,
           "sha1": "fcefc344b5508991727bae786b2392190379bbcc",
-          "sha1_provenance": "官方 index.json 提取（2026-09-26）；本地下载-摘要复核随首次消费（M5-02）执行并回填本条 provenance"
+          "sha1_provenance": "官方 index.json 与本地下载 sha1sum 双源一致（index 提取 2026-09-26；本地下载-摘要复核 2026-09-26，M5-02 首次消费，MirageCef.cmake configure 门禁以同值复核通过）"
         }
       ],
       "license": "BSD-3-Clause（libcef；内嵌 Chromium/Blink 及第三方组件清单见发行包 LICENSE.txt 与 chrome://credits，SBOM 导出随发布门禁 M5-11 接线）",

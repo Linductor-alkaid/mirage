@@ -106,8 +106,24 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
-      - name: Configure (verify-only dependency mode)
-        run: cmake -S . -B build/windows -A x64 -DMIRAGE_FETCH_DEPENDENCIES=OFF
+      # M5-02: the desktop shell consumes the locked CEF artifact. The
+      # archive (windows64 tarball only; extraction is per-run) is cached on
+      # the lock file hash, so a lock change re-fetches deliberately.
+      - name: Cache the locked CEF artifact
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: build/artifact-cache/*.tar.bz2
+          key: cef-windows64-${{ hashFiles('dependencies.lock.json') }}
+      # The shell serves the built UI from ui/app/dist (configure fails
+      # closed when it is missing), so the frontend build precedes cmake.
+      - name: Build UI assets (served by the desktop shell)
+        run: |
+          npm ci --prefix ui
+          npm run build --prefix ui
+      - name: Configure (verify-only dependency mode, desktop shell enabled)
+        run: >-
+          cmake -S . -B build/windows -A x64 -DMIRAGE_FETCH_DEPENDENCIES=OFF
+          -DMIRAGE_ENABLE_DESKTOP_SHELL=ON
       - name: Build (full tree)
         run: cmake --build build/windows --config Debug
       - name: Test
