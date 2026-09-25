@@ -3,23 +3,54 @@
 #include <mirage/runtime/ipc/framing.hpp>
 #include <mirage/runtime/ipc/stream.hpp>
 
-#include <poll.h>
-
 #include <chrono>
 #include <string>
 #include <utility>
+
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
+#include <algorithm>
+#else
+#include <poll.h>
+#endif
 
 namespace mirage::runtime::ipc {
 namespace {
 
 constexpr std::uint64_t kClientId = 1;
 
+#ifdef _WIN32
+// The named-pipe stream is zero-wait non-blocking (read_some reports
+// WouldBlock instead of waiting), so the bounded waits here only pace the
+// deadline loop: a bounded slice, then the operation itself decides.
+constexpr std::chrono::milliseconds kClientWaitSlice{25};
+
+bool wait_readable(const IpcStream &, std::chrono::milliseconds budget) {
+    if (budget <= std::chrono::milliseconds::zero()) {
+        return false;
+    }
+    ::Sleep(static_cast<DWORD>(std::min(budget, kClientWaitSlice).count()));
+    return true;
+}
+
+bool wait_writable(const IpcStream &, std::chrono::milliseconds budget) {
+    // Writes queue inside the stream; nothing to wait for.
+    return budget > std::chrono::milliseconds::zero();
+}
+#else
 bool wait_readable(const IpcStream &stream, std::chrono::milliseconds budget) {
     if (budget <= std::chrono::milliseconds::zero()) {
         return false;
     }
     pollfd descriptor{};
-    descriptor.fd = stream.handle();
+    descriptor.fd = static_cast<int>(stream.handle());
     descriptor.events = POLLIN;
     return ::poll(&descriptor, 1, static_cast<int>(budget.count())) == 1;
 }
@@ -29,10 +60,11 @@ bool wait_writable(const IpcStream &stream, std::chrono::milliseconds budget) {
         return false;
     }
     pollfd descriptor{};
-    descriptor.fd = stream.handle();
+    descriptor.fd = static_cast<int>(stream.handle());
     descriptor.events = POLLOUT;
     return ::poll(&descriptor, 1, static_cast<int>(budget.count())) == 1;
 }
+#endif
 
 std::chrono::milliseconds remaining(std::chrono::steady_clock::time_point deadline) {
     const auto now = std::chrono::steady_clock::now();

@@ -23,6 +23,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Every source in this tree — Mirage's own and the pinned dependencies built
+# from source — is UTF-8. Declaring the charset globally keeps MSVC from
+# reading them in the system code page, where a cp936 host fails C4819 under
+# -Werror that a cp1252 CI runner never sees (DEC-017's encoding discipline,
+# now also enforced for the toolchain entry point; M4-06 full-tree MSVC gate).
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(MirageDependencies)
 include(MirageWarnings)

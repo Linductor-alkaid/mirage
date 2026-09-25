@@ -204,9 +204,15 @@ std::optional<RecoveryStep> decode_step(const JsonValue &value, std::string &err
 std::string utc_timestamp_now() {
     const std::time_t now = std::time(nullptr);
     std::tm utc{};
+#ifdef _WIN32
+    if (::gmtime_s(&utc, &now) != 0) {
+        return {};
+    }
+#else
     if (::gmtime_r(&now, &utc) == nullptr) {
         return {};
     }
+#endif
     char buffer[32];
     const std::size_t length = std::strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", &utc);
     return std::string(buffer, length);

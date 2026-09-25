@@ -6,7 +6,7 @@
 > 前置：[M2](m2-desktop-environment.md)（已完成：Desktop Environment 九个 Provider
 > 契约、SemanticSnapshot、ElementTarget 解析顺序契约；Linux Backend 同型骨架先例）
 > 建议发布点：`release-delta`（tag 待维护者授权后创建）
-> 更新日期：2026-09-23（M4-05 完成）
+> 更新日期：2026-09-25（M4-06 完成并经维护者 Windows 机器运行级取证）
 
 ## 目标
 
@@ -103,7 +103,7 @@ Backend（设计文档第 10、18 节第四阶段）：UI Automation 承载语�
       否决并留 M5 重议触发）；契约面等价能力已落地（`notify` 冻结拒绝序 +
       平台载荷收窄 63/255 UTF-16 码元 + 嵌入 NUL 拒绝，均副作用前；托盘
       承载图标常驻、无泵回调如实声明）。
-- [ ] `M4-06` 产品进程 Windows 化：Local IPC 命名管道传输（DEC-007 兑现，
+- [x] `M4-06` 产品进程 Windows 化：Local IPC 命名管道传输（DEC-007 兑现，
       `stream_windows`；帧格式与协议 v1 不变，golden vectors 复用）、持久化
       Windows 路径与存储（`store_windows`）、`apps/service` / CLI /
       tray 进程形态可构建；全树 MSVC 构建通过。
@@ -600,3 +600,192 @@ Provider（UIA）先于外围 Provider、产品进程化（`M4-06`）不阻塞 B
 - 同步：[M4 计划](m4-windows-backend.md)（本记录 + `M4-05` 勾选）、
   [总计划](mirage-implementation-plan.md) 当前状态叙述、PR CI 取证（本 PR
   作业执行后）。
+
+2026-09-23：`M4-05` CI 门禁全绿与 Windows 运行级取证完成（挂账补录）。
+
+- 范围：上一条记录的挂账项（③ MSVC 编译与运行级证据；限制① runner 通知区
+  可用性取证点）就此闭合，无代码变更（验证轮增补的测试断言随 `3e9e93d` /
+  `56066c5` 在列）。
+- 验证（CI run 35765344178，headSha = 56066c5 已核实，全部 8 作业 success）：
+  windows msvc 作业 MSVC Debug 编译 0 错误，`win32_notification_test`
+  **42 checks, 0 failures**（0.10 s，无无托盘 skip 注记）——**runner 通知区
+  可用性成立**（验证记录挂账的新增取证点转绿），正向场景全部真实执行
+  （含空 body 受理与销毁重开生命周期）；`win32_backend_test` 128/0、
+  `uia_backend_test` 108/0、`win32_clipboard_process_test` 与
+  `win32_application_test`（250/0）同轮回归通过；同轮 Linux
+  debug / release / asan / ubsan / tsan、format & boundaries、frontend
+  作业全绿。check 计数对账：实现者原套件 ~26 + 验证轮新增断言 ~16 = 42。
+  过程记录：首跑 run 35764698599 的 2 failures 定位为实现者 tight-body
+  用例差一错误（`max_body_bytes=4` 配 4 字节载荷恰在冻结 `>` 检查内），
+  `56066c5` 改为真实超限载荷——实现本身无缺陷。
+- 同步：本计划（`M4-05` 记录的挂账闭合）。
+  残留观察（非缺陷，仅记录）：mid_wait 取消定时器与 helper 协作退出之间的
+  既有竞态形态两轮运行均绿（M4-04 记录已注明）。
+
+2026-09-23：`M4-06` 产品进程 Windows 化完成。
+
+- 范围：
+  - **Local IPC 命名管道传输（DEC-007 兑现）**：`stream_windows.cpp` +
+    `endpoint_windows.cpp` 实现与 POSIX 完全相同的 `IpcStream` /
+    `IpcListener` 契约——重叠 I/O 命名管道（`CreateNamedPipeW` /
+    `ConnectNamedPipe` / `CreateFileW`），读侧 `PeekNamedPipe` 门禁零等待
+    （不留下任何在途读操作），写侧至多一个在途重叠写、其字节由流自持
+    （跨调用绝不引用调用方缓冲）、部分完成按已写字节数如实上报；监听端
+    首实例带 `FILE_FLAG_FIRST_PIPE_INSTANCE` 承载遗留端点接管纪律（第二次
+    绑定同名 → access-denied → "another service is already listening"），
+    每次 accept 后立即回收新监听实例；`endpoint_has_listener` 按错误码
+    三态（不存在=可接管 / busy=存活 / 其他=保守保留）。`stream.hpp` 公共
+    契约中立化：不透明 transport token 取代裸 fd（POSIX fd / Windows
+    HANDLE 位型），`adopt_native` 公共工厂供自持 accept 环的传输
+    （devbridge）使用。帧格式、协议 v1、golden vectors **零变更**——
+    framing/protocol 两 TU 与 golden 数据文件一行未动。
+  - **client**：有界等待在 Windows 上为有界切片（传输本身零等待，由
+    read/write 的 WouldBlock 决定就绪）。
+  - **服务环**：帧处理、outbound 队列、事件扇出全部共享（单 TU 平台分叉）；
+    POSIX 保持 poll 驱动环（accept 改经 `IpcListener`、读/帧提取抽取为
+    `ingest_connection`、迭代末冲刷抽取为 `flush_and_settle`——行为等价
+    重构，Linux 32/32 实测不回归）；Windows 为水平驱动环——零等待流上每
+    轮读/写/排水/结算全部连接，`auto-reset wake event` + 同 poll_timeout
+    有界等待（唤醒与停机时延保持 POSIX 界）。RuntimeService 以对象传递
+    监听端；停机路径 POSIX = 信号自泵 + `register_shutdown_fd`，Windows =
+    console ctrl handler → `request_shutdown()`（其线程模型恰为该 API 的
+    契约）。
+  - **持久化（DEC-011）**：`store_windows.cpp`（`CREATE_NEW` 临时文件 =
+    O_EXCL 同型、`FlushFileBuffers` = fsync、`MoveFileEx(REPLACE_EXISTING|
+    WRITE_THROUGH)` = 原子持久发布；上限拒绝不截断同型）与
+    `paths_windows.cpp`（APPDATA / LOCALAPPDATA 映射，工作目录回退同型）。
+    已记录平台差异：目录硬化依赖用户 profile 默认 ACL（无 0700 对应物）、
+    无逐目录刷盘。
+  - **进程形态**：`mirage-service` Windows 化（绑定 `WindowsDesktopEnvironment`
+    默认面——服务上下文桌面能力如实 null fail closed；`--read-root` 为
+    Linux backend 面而拒绝而非静默忽略；console ctrl → `request_shutdown`）；
+    `mirage` CLI Windows 化（`service start` 经 `CreateProcessA` 拉起兄弟
+    mirage-service.exe + 共享就绪探针，余下命令走中立 IpcClient）。
+    devbridge 按传输保持 POSIX-only 条件排除（开发工具，非产品进程形态，
+    不为其分叉命名管道变体——已在 CMake 注明）；apps/tray 维持 M5 里程碑
+    既有范围（无 stub 目标，"tray 可构建"随该目标落地）。
+  - **CI**：windows 作业扩为全树构建 + 12 项测试 + **产品进程往返取证步**
+    （真实 `mirage-service.exe` 服务命名管道 + `mirage.exe` CLI
+    `service status` / `service shutdown`，退出码与停机均断言）。
+- 依据：设计文档第 12 节；`DEC-007` / `DEC-011` / `DEC-012` / `DEC-017` /
+  `DEC-006`（devbridge/tray 边界）；ledger `MIRA-20260922-001`（引用见
+  ci.yml windows 作业注释与本记录限制节）；`RULE-01` / `RULE-02` /
+  `RULE-03` / `RULE-07`；`EXEC-01` / `EXEC-02`。
+- 验证（实现轮主循环本地取证；MSVC 全树编译与运行级随本 PR CI windows
+  作业执行，结论由下一个工作项的 PR 补录）：
+  - **MinGW 交叉门禁（受限，如实声明）**：既有平台/桌面子集 11 目标
+    `MIRAGE_WARNINGS_AS_ERRORS=ON` 构建 **0 诊断**（基线不回归）；全树
+    MinGW 交叉门禁因 **`MIRA-20260922-001`**（pinned executor 的
+    `std::thread::native_handle_type` 假设 win32 线程模型，third_party
+    不可动）本轮仍不可达——作为受限验证按工程规范第 4 节记录：新 Windows
+    TU（`stream_windows` / `endpoint_windows` / `store_windows` /
+    `paths_windows` / `service_loop` Windows 路径 / apps Windows 分支 /
+    `win32_product_process_test`）全部以 MinGW-w64 g++ `-fsyntax-only
+    -Wall -Wextra -Werror` 通过（逐 TU 编译级检查），MSVC 编译由 CI
+    windows 作业覆盖；补跑条件 = 台账缺口关闭后全树交叉复验（负责人：
+    维护者）。
+  - **Linux 主机不回归**：debug 预设全树构建 + ctest **32/32 通过
+    0 skip**——service loop 行为等价重构后 `runtime_service_test` /
+    `event_subscription_test`（真实传输环）保持全绿；`mirage-format-check`
+    通过；`mirage-boundary-check` **0 violations in 37 headers**。
+  - 新增 `tests/platform/win32_product_process_test.cpp`：真实
+    `RuntimeService` 服务命名管道 + 真实 `IpcClient` 的 hello / list-tasks
+    / 协议 shutdown（run() 干净收尾）往返——M4-06 退出条件的库级形态；
+    共享 golden framing 在本平台 codec 上的字节一致性；DEC-011 store 的
+    absent / 往返 / 原子重发布 / 拒绝不截断 / TooLarge 五态。
+- 限制与补跑条件：① 全树 MinGW 交叉挂账 `MIRA-20260922-001`（负责人：
+    维护者；补跑 = 缺口关闭）；② MSVC 全树编译、12 项测试与产品进程往返
+    取证随本 PR CI windows 作业执行，结论由下一个工作项的 PR 补录；
+  ③ POSIX-coupled 测试家族（ipc_protocol / persistence / runtime_service /
+    event_subscription / task_cancel / mira_binding /
+    desktop_provider_boundary / devbridge 两项）在 Windows 上按 CMake 条件
+    排除（各附原因），Windows 侧对应行为由 `win32_product_process_test`
+    与后续 M4-07 端到端取证覆盖，完整移植不属本项；
+  ④ devbridge 的 Windows 传输未立项（开发工具，需要时按后续工作项评估）；
+  ⑤ tray 目标随 M5 落地，"tray 可构建"由该目标兑现；
+  ⑥ 命名管道访问控制为创建者默认 DACL（POSIX 0700 目录的对应面），已
+    在 endpoint/store 记录为平台差异。
+- 同步：[M4 计划](m4-windows-backend.md)（本记录 + `M4-06` 勾选）、
+  [总计划](mirage-implementation-plan.md) 当前状态叙述、
+  [台账](../dependency_feedback/ledger.md)（`MIRA-20260922-001` 引用落于
+  ci.yml 与本记录）、PR CI 取证（本 PR 作业执行后）。
+
+2026-09-25：`M4-06` 维护者 Windows 机器运行级取证完成；发现并修复两处
+门禁缺陷（源码字符集区域敏感、命名管道写路径背压死滞），一处测试断言
+按不变量纪律修正。
+
+- 背景：开发环境首次落在本机 Windows 会话（MSVC 19.44 BuildTools +
+  Windows SDK，真实交互桌面），`M4-06` 的 MSVC 全树编译、win32 测试套件
+  与产品进程往返第一次可以在本机直接取证，不再单点依赖 CI runner。
+- 发现 1（build，全树 MSVC 门禁区域敏感）：仓库全部源码（含 pinned
+  mira / mirador）为 UTF-8，而 MSVC 未声明源码字符集时按系统代码页读取
+  ——CI runner（cp1252）侥幸通过，本机（cp936）在 `/WX` 下对
+  `mira_core` 与 Mirage 自有 TU 同时报 C4819 硬错误。修复：根
+  `CMakeLists.txt` 对 MSVC 全局 `add_compile_options(/utf-8)`（pinned
+  依赖从源码经本构建图编译，属 Mirage 构建配置而非 pinned 代码变更；
+  DEC-017 编码纪律的工具链入口兑现）。
+- 发现 2（fix，命名管道写路径背压死滞——CI 上 `win32_product_process_test`
+  192 KiB 背压探针 5 连败的真正根因）：`710e539` 以"调用方游标双重发送"
+  为由把写侧从流自持 write-behind 队列（`93067c3`，亦即本记录所述设计）
+  改为"调用内零等待 + 立即 `CancelIoEx`"。本机带逐周期诊断的独立探针
+  证实：排队写在下发后数微秒内即被取消，内核从未获得把任何字节拷入管道
+  的机会——每周期 reaped=0 → WouldBlock，64 KiB 空闲缓冲完全用不上，
+  传输只能靠"恰好同步完成"的调用推进；2 核 CI 的调度下同步完成不再发生
+  → 服务端 20 s 零接收 + 客户端 20 s 零进展（与 CI 失败签名逐项吻合）。
+  `e21905c` 的"取消竞争完成时字节数仍有效"修复是必要的次要缺陷（恢复
+  队列后持续背压必然撞上取消竞争），但不是根因。修复：写侧恢复流自持
+  采纳语义——排队即把字节复制进流自有缓冲并按 POSIX `write()` 受理语义
+  上报 Ok（在途至多一个、`kMaxAdoptedWriteBytes` 1 MiB 上限
+  `RULE-07`），调用方游标一次性前进、无重发无乱序；重叠写 OVERLAPPED
+  移入流状态（不再引用调用方缓冲，`710e539` D2 的双重发送担忧由此
+  结构性消除）；`issue_write` / `issue_read` 下发前 `ResetEvent`（内核对
+  同步完成同样置位事件，陈旧信号会把在途操作误判为完成 →
+  `ERROR_IO_INCOMPLETE` 虚假 Error——读取排队分支的同型隐患一并消除）；
+  `close()` 在释放流状态前对在途采纳写给 2 s 有界排水窗口后取消回收
+  （OVERLAPPED 不得比流状态长寿）。计划记录"写侧至多一个在途重叠写、
+  其字节由流自持"的表述自 `710e539` 起曾与实现背离，现恢复一致。
+- 发现 3（test，`win32_application_test` 断言机器清单敏感）：发现场景的
+  `all_lnk` 断言要求全部被发现的 id 以小写 `.lnk` 结尾——本机真实开始
+  菜单含 `.url` 项（Git / Java，非隐藏、按 M4-04 设计照常列出）与
+  `Image-Line/More....lnk`（文件名含 `....`），断言必然失败；CI 的干净
+  runner 掩盖了这一点。按不变量式测试纪律改为镜像后端自身 `valid_
+  application_id` 的 id 规则（相对 '/' 路径、无空段 / 点段 / 反斜杠 /
+  冒号），机器无关。
+- 验证（本机 Windows 11 x64，MSVC 19.44 Debug，真实交互桌面）：
+  - 全树 configure + build **0 诊断**（含 pinned mira / mirador）。
+  - CI windows 作业的 12 项测试集 ctest **12/12 通过 0 skip**；
+    `win32_product_process_test` **50 checks, 0 failures**（0.78 s，修复前
+    同机同测试复现 CI 同款 3 failures）。
+  - 2 核亲和（`start /affinity 3`，模拟 CI runner 调度）：
+    `win32_product_process_test` 50/0；192 KiB 背压独立探针 sent=got=
+    196608 完整往返（修复前同探针零进展死滞，逐周期日志在案）。
+  - 产品进程往返（真实 `mirage-service.exe` 服务命名管道 + `mirage.exe`
+    CLI `service status` / `service shutdown`）：hello 往返、协议停机、
+    服务退出码 0、"stopped cleanly"——`M4-06` 退出条件的进程形态取证。
+- 限制与补跑条件：① 本机构建依赖全局
+  `/utf-8`（cp936 主机）；② 采纳写未被对端读走即关闭时，未入管道缓冲
+  的尾部字节随连接丢弃（对端见截断）——POSIX close 的既有关闭语义
+  差异已在代码注释与本记录声明，`M4-07` 端到端取证复核；③
+  `MIRA-20260922-001`（全树 MinGW 交叉）维持挂账不变。
+- 同步：本记录、[DEC-017](../decisions/DEC-017-windows-backend-toolchain-
+  and-event-loop.md) 变更记录、PR [#45](https://github.com/Linductor-alkaid/mirage/pull/45)
+  CI 取证（下条记录）。
+
+2026-09-25：`M4-06` CI 门禁全绿（挂账补录）。
+
+- 范围：上一条记录的挂账项（CI 证据）就此闭合，无代码变更。
+- 验证（CI run 36148338709，headSha = ef83d95 已核实，全部 8 作业
+  success）：windows msvc (full tree) 作业 MSVC 编译 0 错误，ctest
+  **12/12 通过**——`win32_product_process_test` **50 checks, 0 failures**
+  （runner 上 1.11 s / 复跑 0.85 s，此前五连败的背压探针就此转绿），
+  `win32_backend_test` 128/0、`uia_backend_test` 108/0、
+  `win32_clipboard_process_test` 129/0、`win32_application_test` 250/0
+  （id 规则断言在 runner 与真实机器双面成立）、`win32_notification_test`
+  42/0 同轮回归通过；**产品进程往返取证步真实执行**（`mirage-service.exe`
+  服务命名管道 + `mirage.exe` CLI `service status` / `service shutdown`，
+  "product-process round trip over the named pipe: OK"）；同轮 Linux
+  debug / release / asan / ubsan / tsan、format & boundaries、frontend
+  作业全绿。`M4-06` 的退出条件（命名管道 IPC 往返、Windows 持久化、
+  进程形态可构建、全树 MSVC 构建）全部取证成立。
+- 同步：本计划（挂账闭合）、PR [#45](https://github.com/Linductor-alkaid/mirage/pull/45)
+  CI 取证。

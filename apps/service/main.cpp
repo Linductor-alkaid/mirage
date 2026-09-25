@@ -1,12 +1,30 @@
 #include <mirage/integration/mira_environment_binding.hpp>
-#include <mirage/platform/linux/linux_desktop_environment.hpp>
 #include <mirage/runtime/permission/permission.hpp>
 #include <mirage/runtime/persistence/paths.hpp>
 #include <mirage/runtime/persistence/settings.hpp>
 #include <mirage/runtime/persistence/store.hpp>
 #include <mirage/runtime/runtime_service.hpp>
 
+// The reference topology binds the platform backend (DEC-008 item 3):
+// the Linux desktop environment on Linux, the Windows one on Windows
+// (M4-06; a service context reports no desktop surface and every
+// desktop accessor stays null — fail closed).
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
+#include <mirage/platform/windows/windows_desktop_environment.hpp>
+#else
+#include <mirage/platform/linux/linux_desktop_environment.hpp>
+
 #include <fcntl.h>
+#include <unistd.h>
+#endif
 
 #include <csignal>
 #include <cstring>
@@ -15,7 +33,6 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <unistd.h>
 #include <vector>
 
 namespace {
@@ -23,6 +40,24 @@ namespace {
 constexpr std::string_view kProgramName = "mirage-service";
 constexpr std::string_view kVersion = MIRAGE_VERSION;
 
+#ifdef _WIN32
+// Windows shutdown: the console ctrl handler runs on its own thread, which
+// is exactly the contract of RuntimeService::request_shutdown() (safe from
+// any thread, never from a POSIX signal handler). The service is created
+// after the handler is registered, so the pointer is only read afterwards.
+mirage::runtime::RuntimeService *g_service = nullptr;
+
+BOOL WINAPI on_console_ctrl(DWORD ctrl_type) {
+    if (ctrl_type == CTRL_C_EVENT || ctrl_type == CTRL_BREAK_EVENT ||
+        ctrl_type == CTRL_CLOSE_EVENT || ctrl_type == CTRL_SHUTDOWN_EVENT) {
+        if (g_service != nullptr) {
+            g_service->request_shutdown();
+        }
+        return TRUE;
+    }
+    return FALSE;
+}
+#else
 // DEC-007: SIGINT/SIGTERM reach the service through a self-pipe registered
 // with the IPC loop; the handler itself stays async-signal-safe (one write).
 int g_signal_pipe_write = -1;
@@ -34,6 +69,7 @@ extern "C" void on_signal(int) {
         (void)written; // async-signal-safe best effort
     }
 }
+#endif
 
 void print_usage(std::ostream &out) {
     out << "Usage: " << kProgramName << " [--socket PATH] [--read-root PATH]...\n"
@@ -240,6 +276,17 @@ int main(int argc, char **argv) {
     // --read-root are readable, and an empty scope denies every read. The
     // M1-06 permission gate (DEC-010) sits in front of every desktop
     // action with the policy declared via --perm.
+#ifdef _WIN32
+    if (!read_roots.empty()) {
+        // The Linux backend owns the filesystem.read scope; the Windows
+        // backend reports no filesystem capability at all, so the flag
+        // would be silently meaningless — refused instead.
+        std::cerr << kProgramName << ": --read-root is a Linux backend surface\n";
+        return 2;
+    }
+    auto environment =
+        std::make_shared<mirage::platform::windows_backend::WindowsDesktopEnvironment>();
+#else
     std::vector<std::filesystem::path> read_scope;
     read_scope.reserve(read_roots.size());
     for (const std::string &root : read_roots) {
@@ -247,8 +294,14 @@ int main(int argc, char **argv) {
     }
     auto environment = std::make_shared<mirage::platform::linux_backend::LinuxDesktopEnvironment>(
         std::move(read_scope));
+#endif
     auto binding = std::make_shared<mirage::integration::MiraEnvironmentBinding>(environment);
 
+    mirage::runtime::RuntimeService service(config);
+#ifdef _WIN32
+    g_service = &service;
+    ::SetConsoleCtrlHandler(on_console_ctrl, TRUE);
+#else
     ::signal(SIGPIPE, SIG_IGN);
     int signal_pipe[2] = {-1, -1};
     // Non-blocking: the loop drains it only on a poll event, and the signal
@@ -263,9 +316,8 @@ int main(int argc, char **argv) {
     ::sigemptyset(&action.sa_mask);
     ::sigaction(SIGINT, &action, nullptr);
     ::sigaction(SIGTERM, &action, nullptr);
-
-    mirage::runtime::RuntimeService service(config);
     service.register_shutdown_fd(signal_pipe[0]);
+#endif
 
     const mirage::runtime::HostOutcome started = service.start(binding);
     if (!started.ok) {

@@ -83,16 +83,23 @@ jobs:
         run: ctest --preset ${{ matrix.preset }} --output-on-failure
 
   windows:
-    # M4-01 Windows backend compile gate (DEC-017 decision 1/9): MSVC is the
-    # product toolchain; this job builds the desktop/platform subset because
-    # the IPC and persistence transports are still POSIX-only until M4-06
-    # wires the named-pipe and store variants. Runtime evidence for the
-    # win32 frontend comes from this runner's interactive desktop; its
-    # capability is confirmed on the first PR run and any gap is recorded
-    # per the skip discipline (never a silent pass).
-    name: windows msvc (platform subset)
+    # Windows compile gate (DEC-017 decision 1/9): MSVC is the product
+    # toolchain. Since M4-06 wires the named-pipe IPC transport and the
+    # Windows store, this job builds the FULL tree (the POSIX-only
+    # development tool devbridge and the POSIX-coupled test targets are
+    # condition-excluded in CMake, each with its reason) and runs the
+    # product-process round trip: mirage-service serving a named pipe with
+    # mirage as the client — the M4-06 exit condition.
+    # The MinGW-w64 cross gate remains scoped to the desktop/platform
+    # subset on the Linux side: the pinned executor cannot compile under
+    # MinGW posix threads (dependency_feedback MIRA-20260922-001, Open).
+    # The new Windows IPC / persistence / service TUs are covered there by
+    # per-TU MinGW -fsyntax-only checks plus this job's MSVC build; a full
+    # -tree cross build is rerun when the ledger gap closes. Runtime evidence for
+    # the win32 frontends comes from this runner's interactive desktop.
+    name: windows msvc (full tree)
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout (with pinned submodules)
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -101,26 +108,54 @@ jobs:
           fetch-depth: 0
       - name: Configure (verify-only dependency mode)
         run: cmake -S . -B build/windows -A x64 -DMIRAGE_FETCH_DEPENDENCIES=OFF
-      - name: Build platform subset
-        run: >-
-          cmake --build build/windows --config Debug
-          --target mirage_desktop mirage_platform provider_contract_test
-          desktop_observation_test observation_assembler_test permission_test
-          win32_backend_test uia_backend_test win32_clipboard_process_test
-          win32_application_test win32_notification_test
+      - name: Build (full tree)
+        run: cmake --build build/windows --config Debug
       - name: Test
         run: >-
           ctest --test-dir build/windows -C Debug --output-on-failure
-          -R "^(provider_contract_test|desktop_observation_test|observation_assembler_test|permission_test|win32_backend_test|uia_backend_test|win32_clipboard_process_test|win32_application_test|win32_notification_test)$"
-      # The invariant-style win32/uia tests print their check summaries and
-      # the session-capability notes (foreground lock, SendInput refusals)
-      # on stderr; ctest hides passing output, so re-run them verbose to
-      # keep that evidence in the log (DEC-017 decision 9 record).
+          -R "^(provider_contract_test|desktop_observation_test|observation_assembler_test|permission_test|mira_host_test|ipc_protocol_golden_test|win32_backend_test|uia_backend_test|win32_clipboard_process_test|win32_application_test|win32_notification_test|win32_product_process_test)$"
+      # The invariant-style win32 tests print their check summaries and
+      # the session-capability notes on stderr; ctest hides passing output,
+      # so re-run them verbose to keep that evidence in the log (DEC-017
+      # decision 9 record).
       - name: Windows frontend evidence
         run: >-
           ctest --test-dir build/windows -C Debug
-          -R "^(win32_backend_test|uia_backend_test|win32_clipboard_process_test|win32_application_test|win32_notification_test)$"
+          -R "^(win32_backend_test|uia_backend_test|win32_clipboard_process_test|win32_application_test|win32_notification_test|win32_product_process_test)$"
           --output-on-failure -V
+      # The M4-06 exit condition, on the real process forms: mirage-service
+      # serving a named pipe, mirage as the client (service status /
+      # service shutdown through the protocol).
+      - name: Product process round trip (service + CLI over a named pipe)
+        shell: pwsh
+        run: |
+          $pipe = "\\.\pipe\mirage-ci-service"
+          $service = Start-Process -FilePath "build/windows/apps/Debug/mirage-service.exe" `
+            -ArgumentList "--socket", $pipe -PassThru -RedirectStandardError "service-err.log" `
+            -RedirectStandardOutput "service-out.log"
+          try {
+            $deadline = (Get-Date).AddSeconds(30)
+            $ready = $false
+            while ((Get-Date) -lt $deadline) {
+              if ($service.HasExited) { throw "mirage-service exited early with $($service.ExitCode)" }
+              # The CLI takes per-subcommand options: they follow the subcommand.
+              & "build/windows/apps/Debug/mirage.exe" service status --socket $pipe
+              if ($LASTEXITCODE -eq 0) { $ready = $true; break }
+              Start-Sleep -Milliseconds 300
+            }
+            if (-not $ready) { throw "mirage-service never answered hello within 30s" }
+            & "build/windows/apps/Debug/mirage.exe" service shutdown --socket $pipe
+            if ($LASTEXITCODE -ne 0) { throw "service shutdown failed ($LASTEXITCODE)" }
+            $service.WaitForExit(30000) | Out-Null
+            if (-not $service.HasExited) { throw "mirage-service did not exit after shutdown" }
+            if ($service.ExitCode -ne 0) { throw "mirage-service exit code $($service.ExitCode)" }
+            Write-Host "product-process round trip over the named pipe: OK"
+          }
+          finally {
+            if (-not $service.HasExited) { Stop-Process -Id $service.Id -Force }
+            if (Test-Path service-out.log) { Get-Content service-out.log }
+            if (Test-Path service-err.log) { Get-Content service-err.log }
+          }
 
   frontend:
     name: frontend contracts & app (M1.5-06)

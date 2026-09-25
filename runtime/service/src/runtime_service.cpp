@@ -671,7 +671,7 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
     }
 
     detail::ServiceLoop::Dependencies dependencies;
-    dependencies.listen_fd = impl_->listener.handle();
+    dependencies.listener = &impl_->listener;
     dependencies.max_connections = impl_->config.max_connections;
     dependencies.on_frame = [raw = impl_.get()](std::uint64_t connection_id, std::string payload) {
         raw->handle_frame(connection_id, payload);

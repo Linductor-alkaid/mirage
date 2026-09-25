@@ -2,16 +2,17 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 
 namespace mirage::runtime::ipc {
 
-/// Result of one non-blocking read/write on an IPC socket.
+/// Result of one non-blocking read/write on an IPC connection.
 enum class IoStatus {
     Ok,         ///< `bytes` transferred; call again for more
     WouldBlock, ///< nothing available / peer not ready; poll and retry
-    Closed,     ///< orderly peer close (read) or the socket is shut down
-    Error,      ///< transport failure; `os_error` carries errno semantics
+    Closed,     ///< orderly peer close (read) or the connection is shut down
+    Error,      ///< transport failure; `os_error` carries OS semantics
 };
 
 struct IoResult {
@@ -20,36 +21,73 @@ struct IoResult {
     int os_error = 0; ///< meaningful only for Error
 };
 
-/// One connected stream of the Local IPC transport (DEC-007). POSIX Unix
-/// domain socket in M1; the Windows named pipe joins this contract with M4.
-/// The stream is non-blocking: owners drive it from poll loops, so no
-/// operation ever blocks its calling thread.
+/// The Local IPC transport (DEC-007): a POSIX Unix domain socket stream on
+/// Linux (stream_posix.cpp), a named pipe stream on Windows
+/// (stream_windows.cpp). Both realize the same contract: operations are
+/// non-blocking and never wait on the peer — a read/write that would block
+/// reports WouldBlock instead, so owners drive readiness from their own
+/// loops (poll on POSIX, PeekNamedPipe / overlapped zero-waits on Windows).
+///
+/// `handle()` is an opaque transport token (the fd bits on POSIX, the pipe
+/// HANDLE bits on Windows). It is not valid to interpret, duplicate or
+/// close it through anything but this class; it exists so a platform loop
+/// can correlate readiness with a connection without reaching inside.
 class IpcStream {
   public:
     IpcStream() = default;
-    /// Takes ownership of an already connected, non-blocking socket fd.
-    explicit IpcStream(int fd);
     ~IpcStream();
     IpcStream(IpcStream &&other) noexcept;
     IpcStream &operator=(IpcStream &&other) noexcept;
     IpcStream(const IpcStream &) = delete;
     IpcStream &operator=(const IpcStream &) = delete;
 
-    bool valid() const { return fd_ >= 0; }
-    /// Pollable handle; meaningful only while valid().
-    int handle() const { return fd_; }
+    bool valid() const { return native_ != kInvalidTransport; }
+    /// Opaque transport token; meaningful only while valid().
+    std::intptr_t handle() const { return native_; }
     void close();
+
+    /// Adopts an already-connected, non-blocking transport handle (the fd
+    /// on POSIX, the pipe HANDLE on Windows) for transports that run their
+    /// own accept loop — the dev bridge (M1.5-03). The semantics are the
+    /// stream's; the token is owned from here on. Platform-defined: on
+    /// Windows the adoption allocates the overlapped I/O state.
+    static IpcStream adopt_native(std::intptr_t native);
 
     IoResult read_some(char *data, std::size_t size);
     IoResult write_some(const char *data, std::size_t size);
 
   private:
-    int fd_ = -1;
+    friend class IpcListener;
+    friend IpcStream connect_stream(const std::string &address, std::chrono::milliseconds deadline,
+                                    std::string &diagnostic);
+    /// Builds a connected stream around a transport-native handle (the fd
+    /// on POSIX, the pipe HANDLE on Windows). Only the transport factories
+    /// (accept / connect_stream) construct streams.
+    explicit IpcStream(std::intptr_t native) : native_(native) {}
+#ifdef _WIN32
+    /// Windows only: wraps the handle in its overlapped I/O state. Defined
+    /// in stream_windows.cpp; POSIX streams carry no per-stream state.
+    static IpcStream make_stream(std::intptr_t native);
+#endif
+
+#ifdef _WIN32
+    static constexpr std::intptr_t kInvalidTransport = 0; // null HANDLE
+    /// Windows only: the stream's overlapped I/O state (the completion
+    /// events). POSIX keeps no per-stream state beyond the fd. Declaration
+    /// order matters: the Windows state precedes the native handle.
+    void *state_ = nullptr;
+    std::intptr_t native_ = kInvalidTransport;
+#else
+    static constexpr std::intptr_t kInvalidTransport = -1; // no fd
+    std::intptr_t native_ = kInvalidTransport;
+#endif
 };
 
-/// Listening endpoint bound to a socket path. Binding fails closed when the
-/// path cannot be prepared; stale-socket takeover is the caller's decision
-/// (probe with endpoint_has_listener, then retry the bind).
+/// Listening endpoint bound to an IPC address. Binding fails closed when
+/// the address cannot be prepared; takeover of a leftover endpoint is the
+/// caller's decision (probe with endpoint_has_listener, then retry the
+/// bind). On Windows the listener owns the one idle named-pipe instance and
+/// recycles a fresh one per accepted connection.
 class IpcListener {
   public:
     IpcListener() = default;
@@ -59,33 +97,40 @@ class IpcListener {
     IpcListener(const IpcListener &) = delete;
     IpcListener &operator=(IpcListener &) = delete;
 
-    /// Creates the parent directory (0700), removes a leftover socket only
-    /// when nothing is listening behind it, binds and listens. On failure
-    /// `diagnostic` explains and the returned listener is invalid.
-    static IpcListener bind(const std::string &socket_path, std::string &diagnostic);
+    /// Creates the transport endpoint. On POSIX the parent directory is
+    /// created (0700) and a leftover socket file is removed only when
+    /// nothing is listening behind it; on Windows the address must be a
+    /// named pipe path (`\\.\pipe\...`) and the first-instance flag makes a
+    /// second listener on the same name fail. On failure `diagnostic`
+    /// explains and the returned listener is invalid.
+    static IpcListener bind(const std::string &address, std::string &diagnostic);
 
-    bool valid() const { return fd_ >= 0; }
-    int handle() const { return fd_; }
-    const std::string &socket_path() const { return path_; }
+    bool valid() const;
+    /// Opaque transport token; meaningful only while valid().
+    std::intptr_t handle() const;
+    const std::string &socket_path() const { return address_; }
     void close();
 
-    /// Non-blocking accept; an invalid stream with IoStatus::WouldBlock
-    /// semantics (valid() == false) means nothing is pending.
+    /// Non-blocking accept; an invalid stream means nothing is pending.
     IpcStream accept(std::string &diagnostic);
 
   private:
+#ifdef _WIN32
+    void *state_ = nullptr; // owns the listener's window-of-implementation state
+#else
     int fd_ = -1;
-    std::string path_;
+#endif
+    std::string address_;
 };
 
-/// True when something is accepting connections at `socket_path` (used to
-/// tell a live service from a stale socket file before takeover).
-bool endpoint_has_listener(const std::string &socket_path, std::chrono::milliseconds probe_timeout);
+/// True when something is accepting connections at `address` (used to tell
+/// a live service from a leftover endpoint before takeover).
+bool endpoint_has_listener(const std::string &address, std::chrono::milliseconds probe_timeout);
 
-/// Connects to `socket_path` with a bounded deadline. On failure the
-/// returned stream is invalid and `diagnostic` explains (including the
-/// "no service listening" case the CLI surfaces).
-IpcStream connect_stream(const std::string &socket_path, std::chrono::milliseconds deadline,
+/// Connects to `address` with a bounded deadline. On failure the returned
+/// stream is invalid and `diagnostic` explains (including the "no service
+/// listening" case the CLI surfaces).
+IpcStream connect_stream(const std::string &address, std::chrono::milliseconds deadline,
                          std::string &diagnostic);
 
 } // namespace mirage::runtime::ipc

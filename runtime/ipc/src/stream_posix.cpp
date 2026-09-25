@@ -35,24 +35,25 @@ IoStatus status_from_errno(int error, bool writing) {
 
 } // namespace
 
-IpcStream::IpcStream(int fd) : fd_(fd) {}
+IpcStream IpcStream::adopt_native(std::intptr_t native) { return IpcStream(native); }
 
 IpcStream::~IpcStream() { close(); }
 
-IpcStream::IpcStream(IpcStream &&other) noexcept : fd_(std::exchange(other.fd_, -1)) {}
+IpcStream::IpcStream(IpcStream &&other) noexcept
+    : native_(std::exchange(other.native_, kInvalidTransport)) {}
 
 IpcStream &IpcStream::operator=(IpcStream &&other) noexcept {
     if (this != &other) {
         close();
-        fd_ = std::exchange(other.fd_, -1);
+        native_ = std::exchange(other.native_, kInvalidTransport);
     }
     return *this;
 }
 
 void IpcStream::close() {
-    if (fd_ >= 0) {
-        ::close(fd_);
-        fd_ = -1;
+    if (native_ != kInvalidTransport) {
+        ::close(static_cast<int>(native_));
+        native_ = kInvalidTransport;
     }
 }
 
@@ -61,7 +62,7 @@ IoResult IpcStream::read_some(char *data, std::size_t size) {
     if (!valid() || size == 0) {
         return result;
     }
-    const ssize_t read_bytes = ::read(fd_, data, size);
+    const ssize_t read_bytes = ::read(static_cast<int>(native_), data, size);
     if (read_bytes > 0) {
         result.bytes = static_cast<std::size_t>(read_bytes);
         return result;
@@ -83,7 +84,7 @@ IoResult IpcStream::write_some(const char *data, std::size_t size) {
     // send(MSG_NOSIGNAL), not write(): a peer that vanished between the
     // poll pass and this write must surface as a Closed status here, never
     // as a process-killing SIGPIPE in embedders that did not ignore it.
-    const ssize_t written = ::send(fd_, data, size, MSG_NOSIGNAL);
+    const ssize_t written = ::send(static_cast<int>(native_), data, size, MSG_NOSIGNAL);
     if (written >= 0) {
         result.bytes = static_cast<std::size_t>(written);
         return result;
@@ -96,16 +97,20 @@ IoResult IpcStream::write_some(const char *data, std::size_t size) {
 IpcListener::~IpcListener() { close(); }
 
 IpcListener::IpcListener(IpcListener &&other) noexcept
-    : fd_(std::exchange(other.fd_, -1)), path_(std::move(other.path_)) {}
+    : fd_(std::exchange(other.fd_, -1)), address_(std::move(other.address_)) {}
 
 IpcListener &IpcListener::operator=(IpcListener &&other) noexcept {
     if (this != &other) {
         close();
         fd_ = std::exchange(other.fd_, -1);
-        path_ = std::move(other.path_);
+        address_ = std::move(other.address_);
     }
     return *this;
 }
+
+bool IpcListener::valid() const { return fd_ >= 0; }
+
+std::intptr_t IpcListener::handle() const { return static_cast<std::intptr_t>(fd_); }
 
 void IpcListener::close() {
     if (fd_ >= 0) {
@@ -114,9 +119,9 @@ void IpcListener::close() {
     }
     // Ordered shutdown removes the socket file so the next start does not
     // mistake this dead endpoint for a live one.
-    if (!path_.empty()) {
-        ::unlink(path_.c_str());
-        path_.clear();
+    if (!address_.empty()) {
+        ::unlink(address_.c_str());
+        address_.clear();
     }
 }
 
@@ -165,14 +170,14 @@ IpcListener IpcListener::bind(const std::string &socket_path, std::string &diagn
         return listener;
     }
     listener.fd_ = fd;
-    listener.path_ = socket_path;
+    listener.address_ = socket_path;
     return listener;
 }
 
 IpcStream IpcListener::accept(std::string &diagnostic) {
     const int fd = ::accept4(fd_, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
     if (fd >= 0) {
-        return IpcStream{fd};
+        return IpcStream{static_cast<std::intptr_t>(fd)};
     }
     if (errno != EAGAIN && errno != EWOULDBLOCK) {
         diagnostic = std::string("accept() failed: ") + std::strerror(errno);
@@ -239,7 +244,7 @@ IpcStream connect_stream(const std::string &socket_path, std::chrono::millisecon
                 ::close(fd);
                 return IpcStream{};
             }
-            return IpcStream{fd};
+            return IpcStream{static_cast<std::intptr_t>(fd)};
         }
         if (std::chrono::steady_clock::now() - start >= deadline) {
             diagnostic = "connect('" + socket_path + "') timed out";
