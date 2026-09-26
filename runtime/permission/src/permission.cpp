@@ -1,5 +1,7 @@
 #include <mirage/runtime/permission/permission.hpp>
 
+#include <utility>
+
 namespace mirage::runtime::permission {
 
 const char *rule_name(Rule rule) {
@@ -27,9 +29,13 @@ std::optional<Rule> rule_from_name(std::string_view name) {
     return std::nullopt;
 }
 
-bool DenyAllConfirmation::confirm(const PermissionRequest &) { return false; }
+ConfirmationResult DenyAllConfirmation::confirm(const PermissionRequest &, const CancelProbe &) {
+    return ConfirmationResult::Rejected;
+}
 
-bool AllowAllConfirmation::confirm(const PermissionRequest &) { return true; }
+ConfirmationResult AllowAllConfirmation::confirm(const PermissionRequest &, const CancelProbe &) {
+    return ConfirmationResult::Approved;
+}
 
 const char *decision_name(Decision decision) {
     switch (decision) {
@@ -49,7 +55,8 @@ PermissionController::PermissionController(PermissionPolicy policy,
                                            ConfirmationHandler &confirmation)
     : policy_(policy), confirmation_(confirmation) {}
 
-PermissionVerdict PermissionController::authorize(const PermissionRequest &request) const {
+PermissionVerdict PermissionController::authorize(const PermissionRequest &request,
+                                                  const CancelProbe &cancelled) const {
     PermissionVerdict verdict;
     switch (policy_.rule_for(request.capability)) {
     case Rule::Allow:
@@ -57,14 +64,44 @@ PermissionVerdict PermissionController::authorize(const PermissionRequest &reque
         verdict.decision = Decision::Allowed;
         return verdict;
     case Rule::Confirm:
-        if (confirmation_.confirm(request)) {
+        // Probe-first (DEC-020): a caller already asked to stop never
+        // raises a confirmation request.
+        if (cancelled && cancelled()) {
+            verdict.allowed = false;
+            verdict.decision = Decision::DeniedByConfirmation;
+            verdict.reason =
+                "confirmation cancelled for " + std::string(capability_name(request.capability));
+            return verdict;
+        }
+        switch (confirmation_.confirm(request, cancelled)) {
+        case ConfirmationResult::Approved:
             verdict.allowed = true;
             verdict.decision = Decision::AllowedByConfirmation;
-        } else {
+            return verdict;
+        case ConfirmationResult::Rejected:
             verdict.allowed = false;
             verdict.decision = Decision::DeniedByConfirmation;
             verdict.reason =
                 "confirmation rejected for " + std::string(capability_name(request.capability));
+            return verdict;
+        case ConfirmationResult::TimedOut:
+            verdict.allowed = false;
+            verdict.decision = Decision::DeniedByConfirmation;
+            verdict.reason =
+                "confirmation timed out for " + std::string(capability_name(request.capability));
+            return verdict;
+        case ConfirmationResult::Unresolved:
+            verdict.allowed = false;
+            verdict.decision = Decision::DeniedByConfirmation;
+            verdict.reason =
+                "confirmation unavailable for " + std::string(capability_name(request.capability));
+            return verdict;
+        case ConfirmationResult::Cancelled:
+            verdict.allowed = false;
+            verdict.decision = Decision::DeniedByConfirmation;
+            verdict.reason =
+                "confirmation cancelled for " + std::string(capability_name(request.capability));
+            return verdict;
         }
         return verdict;
     case Rule::Deny:

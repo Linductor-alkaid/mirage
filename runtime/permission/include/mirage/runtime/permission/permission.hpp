@@ -1,7 +1,9 @@
 #pragma once
 
 #include <array>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include <mirage/runtime/permission/capability.hpp>
@@ -67,31 +69,53 @@ struct PermissionRequest {
     std::string operation_id;
 };
 
-/// User confirmation hook (design doc section 15, DEC-010). The M1 surface
-/// is synchronous and in-process: implementations must return promptly and
-/// must never block on interactive input (the calling task driver thread has
-/// no interactive context in M1). The M5 product UI replaces this hook with
-/// an async confirmation surface over Local IPC.
+/// User confirmation hook (design doc section 15, DEC-010 / DEC-020). The
+/// M1 surface was synchronous and in-process ("return promptly, never block
+/// on interactive input"); M5-03 (DEC-020) replaces that contract: an
+/// implementation may wait for an external answer, but the wait must be
+/// bounded by its own budget, must poll the caller's cancellation probe and
+/// must converge to a stable result — silence never approves.
+enum class ConfirmationResult {
+    /// The user approved within the hook's contract.
+    Approved,
+    /// The user explicitly rejected.
+    Rejected,
+    /// The hook's wait budget elapsed without an answer (fail closed).
+    TimedOut,
+    /// The surface cannot take the request (for example at capacity) —
+    /// fail closed without raising it.
+    Unresolved,
+    /// The caller's cancellation probe fired before the outcome converged.
+    Cancelled,
+};
+
+/// Cancellation probe the hook polls while waiting (DEC-020): true when the
+/// calling task has been asked to stop. An empty probe never fires.
+using CancelProbe = std::function<bool()>;
+
 class ConfirmationHandler {
   public:
     virtual ~ConfirmationHandler() = default;
 
-    /// Returns true when the requested use of the capability is approved,
-    /// false when it is rejected.
-    virtual bool confirm(const PermissionRequest &request) = 0;
+    /// Judges one requested use of the capability. Implementations must
+    /// return a bounded result and observe `cancelled` while waiting.
+    virtual ConfirmationResult confirm(const PermissionRequest &request,
+                                       const CancelProbe &cancelled) = 0;
 };
 
-/// Fail-closed default for headless M1 topologies: every confirmation
-/// request is rejected (DEC-010).
+/// Fail-closed default for headless topologies: every confirmation request
+/// is rejected (DEC-010).
 class DenyAllConfirmation final : public ConfirmationHandler {
   public:
-    bool confirm(const PermissionRequest &request) override;
+    ConfirmationResult confirm(const PermissionRequest &request,
+                               const CancelProbe &cancelled) override;
 };
 
 /// Development/test handler that approves every confirmation request.
 class AllowAllConfirmation final : public ConfirmationHandler {
   public:
-    bool confirm(const PermissionRequest &request) override;
+    ConfirmationResult confirm(const PermissionRequest &request,
+                               const CancelProbe &cancelled) override;
 };
 
 /// What the gate decided for one request.
@@ -130,8 +154,13 @@ class PermissionController {
     PermissionController(PermissionPolicy policy, ConfirmationHandler &confirmation);
 
     /// Judges one request. A Confirm rule consults the confirmation handler
-    /// exactly once; Allow and Deny rules never touch it.
-    PermissionVerdict authorize(const PermissionRequest &request) const;
+    /// exactly once; Allow and Deny rules never touch it. A Confirm rule
+    /// checks `cancelled` before and while consulting the hook (DEC-020): a
+    /// probe that fired yields DeniedByConfirmation with the stable
+    /// "confirmation cancelled" reason, and the hook itself observes the
+    /// same probe while waiting.
+    PermissionVerdict authorize(const PermissionRequest &request,
+                                const CancelProbe &cancelled = {}) const;
 
     const PermissionPolicy &policy() const { return policy_; }
 
