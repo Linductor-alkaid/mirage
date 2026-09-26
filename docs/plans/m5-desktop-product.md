@@ -1,6 +1,6 @@
 # M5：Desktop Product（Workspace / Overlay / 权限 / 分发）
 
-> 状态：In Progress（`M5-01`、`M5-02`、`M5-03` 完成，2026-09-26）
+> 状态：In Progress（`M5-01`、`M5-02`、`M5-03`、`M5-04` 完成，2026-09-26）
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M3](m3-mirador-integration.md)（已完成：Mirador 视觉集成与壳选型冻结——
@@ -120,7 +120,7 @@
       `runtime/permission` 同步确认挂点演进为 Local IPC 异步面（M1
       "必须立即返回"挂点契约的替换路径，判定语义与 Provider 硬边界不变）；
       任务驱动器确认流接线与 trace 记录保持。
-- [ ] `M5-04` 会话与消息契约面（协议 v1 扩展）：`session.*` 请求面（列表 /
+- [x] `M5-04` 会话与消息契约面（协议 v1 扩展）：`session.*` 请求面（列表 /
       打开 / 历史摘要，依托 pinned mira `open_session` / `conversation_log`
       投影）与消息 / 轮次 / 增量输出事件集（DEC-012 扩展流程）；Runtime
       Service 由 M1 过渡驱动形态向 mira 会话 / 任务模型演进（DEC-008 迁移
@@ -527,3 +527,82 @@ success。
   秒/毫秒单位比较与取消场景驱动器收敛竞态——六处均为测试/格式修正，
   实现面零改动。
 - 合并裁决：维护者（PR [#50](https://github.com/Linductor-alkaid/mirage/pull/50)）。
+
+2026-09-26：`M5-04` 会话与消息契约面完成。
+
+- 范围：
+  - **决策记录**：[DEC-021](../decisions/DEC-021-session-message-contract-face.md)
+    （新增，Accepted）——`session.*` 请求面语义（状态投影、容量边界、一致性
+    模型沿用 DEC-012）、消息 / 轮次 / 增量输出事件集、历史投影承载（pinned
+    `MemoryEventStore` + `build_conversation_view`，投影可重建、存储唯一事实
+    源）、`task.submit` 会话绑定（缺席落主会话，旧客户端零影响）、内存易失
+    持久化挂账（跨重启会话历史留待设置条目定案）、DEC-008 迁移路径第一步。
+  - **协议 v1 附加扩展**（DEC-012 流程，传输 / 帧格式 / 版本号不变）：请求
+    `session.list` / `session.open` / `session.history`；事件 `session.updated`
+    / `session.message` / `session.turn` / `session.output`；`task.submit` 可选
+    `session_id` 参数与 `TaskSubmitted.session_id` 回执；hello `sessions` 能力
+    通告。`mirage-ipc-protocol-v1.md` §4 / §5 / §6.1 / §6.4（新） / §7.2 / §10
+    同步（顺带修正 M5-03 遗留的 §6.4→§6.3 引用错位），golden vectors
+    `meta.version` 3 → 4（requests +4、responses +5、events +4 及失败向量，
+    双端门禁同一文件）。
+  - **integration/mira**：`SessionJournal` 适配器（pinned-free 公共头）——以
+    pinned 循环同款事件载荷（`UserMessageInjected` / `LoopSettled` 信封）追加
+    任务目标与结算，历史经 `build_conversation_view` 重建取最新窗口；线程安
+    全（串行域 + 驱动线程并发追加）；fail closed（空载荷、畸形身份、存储
+    容量饱和均显式报错）。
+  - **runtime/mira_host**：pinned-free 会话面——`open_session()`（hosted 运
+    行时新开会话）、`session_view()`（pinned 快照投影为稳定状态名 +
+    environment epoch）、`submit_task(session, goal)` 重载、`primary_session()`；
+    pinned 类型不外溢（边界门禁 39 公共头 0 违规）。
+  - **runtime/service**：`ServiceConfig.max_sessions`（默认 16）/ 
+    `max_history_entries`（默认 200）；会话注册表（主会话随 start() 入册）；
+    三个 session 处理器 + 会话绑定提交 + 驱动接线——`session.turn` /
+    `session.output` 随步结算发布（含批量 skip 轮次）、任务目标与结算以
+    `session.message` 入会话（user 在 serial 域直发、outcome 随驱动结算
+    best-effort）、`session.updated` 随 open 发布。EventHub 新增四个发布点，
+    承载与背压语义与既有事件同路径。
+  - **CLI**：`mirage session list | open | history [--limit N]`；
+    `mirage task submit --session <id>`。
+  - **TS 镜像**：`ui/contracts` 全量同步（类型 + 编解码 + golden 消费映射）。
+- 依据：设计文档第 12.3 节（新）；[DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md)、
+  [DEC-008](../decisions/DEC-008-m1-environment-binding-and-reference-providers.md)
+  （变更记录留痕）、[DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)、
+  [DEC-021](../decisions/DEC-021-session-message-contract-face.md)（本工作项新
+  决策记录）；pinned 依据 `runtime.hpp` / `conversation_log.hpp` / `event_store.hpp`
+  / `agent_loop.hpp` 与 `docs/api/core-runtime.md` / `model-agent-loop.md`（动工
+  前核对，无能力缺口、无台账条目）；本计划 `M5-04` 工作项；
+  [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
+  §4 会话两行。
+- 验证（本机 Windows 11 x64，MSVC 19.44 BuildTools，真实桌面 + 命名管道）：
+  - 全树 MSVC Debug 构建 0 诊断（仅 M5-02 既有 CEF delayload 警告）；ctest
+    **24/24 通过 0 skip**（新增 `session_journal_test` 58 检查：user 往返、
+    outcome 投影句式、会话语序与 `truncated` 窗口、会话独立、fail closed 六
+    场景；`ipc_protocol_golden_test` **504 检查**含 v4 向量逐字节门禁；
+    `mira_host_test` / `permission_test` 等既有门禁零回归）。
+  - ui：`npm run check`（tsc 严格）通过；`npm test` **17 文件 581 测试通过**
+    （golden-vectors 门禁消费同一 vectors 文件，v4 向量两端同绿）。
+  - `mirage-format-check`（clang-format 19）与 `mirage-boundary-check`
+    （39 公共头 0 违规，含新 `session_journal.hpp`）本机通过。
+  - **Windows 命名管道冒烟**（真实 `mirage-service` + CLI 往返）：
+    `session list` 呈现主会话（autonomous）→ `session open` 取得新会话 id →
+    `session list` 双会话 → `task submit --session <id> --goal ...` 回执携带
+    会话归属 → 任务终态后 `session history` 呈现
+    `[1] user: read the smoke fixture` / `[2] outcome: loop settled: Failed
+    (steps 1)`——会话对话投影在 Windows 传输上成立（读步因本机无头拓扑
+    `filesystem provider unavailable` 结算为 Failed，属既有平台事实，非本工
+    作项回归；Completed 路径由 Linux CI 的 `runtime_service_test` 取证）。
+- 限制与补跑条件：① Linux 矩阵（debug / release / asan / ubsan / tsan）与
+  `runtime_service_test`（session 面 8 场景：hello 能力位、主会话可见、
+  open/list、会话内提交与 history 投影、limit 截断、unknown `not_found`、容量
+  `unavailable`）及 `event_subscription_test`（会话事件流时序场景）随本 PR
+  CI 执行（结论由后续记录补录）；② 会话页 UI 接线属 `M5-06`（本工作项交付
+  契约面 + 服务承载 + TS 镜像）；③ 跨重启会话历史持久化挂账 DEC-021（待
+  设置条目定案，`M5-08` 复核）。
+- 同步：[DEC-021](../decisions/DEC-021-session-message-contract-face.md)
+  （新增）、[DEC-008](../decisions/DEC-008-m1-environment-binding-and-reference-providers.md)
+  （变更记录：迁移路径第一步兑现留痕）、
+  [mirage-ipc-protocol-v1.md](../design/mirage-ipc-protocol-v1.md)
+  （§4 / §5 / §6.1 / §6.4 / §7.2 / §10）、设计文档第 12.3 节（新增落地叙述）、
+  [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
+  §4 与变更记录、
+  [总计划](mirage-implementation-plan.md) 状态叙述。

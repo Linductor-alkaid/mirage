@@ -72,6 +72,12 @@ Agent 可提交一个读取文件并执行 Shell 命令的任务并观察到结�
 
 ## 变更记录
 
+- 2026-09-26（`M5-04`，[DEC-021](DEC-021-session-message-contract-face.md) 落地）：
+  第 2 条迁移路径的第一步兑现——Runtime Service 的会话 / 任务模型演进落地
+  `MiraHost` pinned-free 会话面（开新会话、会话视图、按会话提交任务）；任务
+  目标与结算以 pinned 循环同款事件载荷进入会话事件存储，历史由 pinned
+  `build_conversation_view` 投影。模型循环仍未引入（宿主侧驱动循环不变），
+  其与过渡形态的接缝由共享事件存储固定。
 - 2026-09-16（`M1-05`，[DEC-009](DEC-009-provider-scope-budget-cancellation.md)
   落地）：第 4 条过渡边界中的"范围约束与预算"部分解除——Filesystem 读取强制
   `PathScope` 范围与 `FileReadLimits` 预算（空范围 fail closed），Process 执行
