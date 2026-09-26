@@ -22,6 +22,8 @@ import type {
     RequestBody,
     ResponseEnvelop,
     ServerEvent,
+    SessionHistoryEntry,
+    SessionSummary,
     StepView,
     TaskProgress,
     TaskSummary,
@@ -54,14 +56,20 @@ interface GoldenInspectValue {
 }
 
 type GoldenPayload =
-    | { kind: 'identity'; value: { service: string; mirage_version: string; mira_core_version: string; host_status: HostStatus; protocol: number; events?: boolean; permissions?: boolean } }
-    | { kind: 'submitted'; value: { task_id: string } }
+    | { kind: 'identity'; value: { service: string; mirage_version: string; mira_core_version: string; host_status: HostStatus; protocol: number; events?: boolean; permissions?: boolean; sessions?: boolean } }
+    | { kind: 'submitted'; value: { task_id: string; session_id?: string } }
     | { kind: 'list'; value: { tasks: TaskSummary[] } }
     | { kind: 'inspect'; value: GoldenInspectValue }
     | { kind: 'cancelled'; value: { task_id: string; progress: TaskProgress } }
     | { kind: 'shutdown-accepted' }
     | { kind: 'permission-responded'; value: { request_id: string } }
-    | { kind: 'permission-list'; value: { pending: PendingPermission[] } };
+    | { kind: 'permission-list'; value: { pending: PendingPermission[] } }
+    | { kind: 'session-list'; value: { sessions: SessionSummary[] } }
+    | { kind: 'session-opened'; value: { session_id: string } }
+    | {
+          kind: 'session-history';
+          value: { session_id: string; entries: SessionHistoryEntry[]; truncated: boolean };
+      };
 
 type GoldenEnvelop =
     | { id: number; ok: true; payload: GoldenPayload }
@@ -155,6 +163,37 @@ function expectedEnvelop(vector: GoldenResponseVector): ResponseEnvelop {
                 payload: {
                     kind: 'permission-list',
                     value: { pending: response.payload.value.pending },
+                },
+            };
+        case 'session-list':
+            return {
+                ok: true,
+                id: response.id,
+                payload: {
+                    kind: 'session-list',
+                    value: { sessions: response.payload.value.sessions },
+                },
+            };
+        case 'session-opened':
+            return {
+                ok: true,
+                id: response.id,
+                payload: {
+                    kind: 'session-opened',
+                    value: { session_id: response.payload.value.session_id },
+                },
+            };
+        case 'session-history':
+            return {
+                ok: true,
+                id: response.id,
+                payload: {
+                    kind: 'session-history',
+                    value: {
+                        session_id: response.payload.value.session_id,
+                        entries: response.payload.value.entries,
+                        truncated: response.payload.value.truncated,
+                    },
                 },
             };
         case 'shutdown-accepted':

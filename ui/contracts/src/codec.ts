@@ -11,10 +11,13 @@ import type {
     RequestBody,
     ResponseEnvelop,
     ServerEvent,
+    SessionMessageKind,
+    SessionState,
     StepKind,
     StepStatus,
     TaskProgress,
     TaskStep,
+    TurnStatus,
 } from './types.js';
 import { PROTOCOL_VERSION } from './types.js';
 
@@ -44,6 +47,21 @@ const PROGRESS_NAMES: readonly TaskProgress[] = [
     'Cancelled',
     'Unknown',
 ];
+/** Closed session state projection (DEC-021), stable lowercase wire form. */
+const SESSION_STATES: readonly SessionState[] = [
+    'opening',
+    'autonomous',
+    'takeover_pending',
+    'human_controlled',
+    'resuming',
+    'closing',
+    'closed',
+    'failed',
+];
+/** Closed conversation-entry vocabulary (DEC-021). */
+const SESSION_MESSAGE_KINDS: readonly SessionMessageKind[] = ['user', 'outcome'];
+/** Closed settled-step status vocabulary (DEC-021) carried by session.turn. */
+const TURN_STATUSES: readonly TurnStatus[] = ['ok', 'failed', 'cancelled', 'skipped'];
 /** Closed Capability vocabulary (DEC-010 / DEC-020) carried by
  * permission.request events and permission.list entries. */
 const CAPABILITY_NAMES: readonly string[] = [
@@ -94,6 +112,9 @@ export function encodeRequest(id: number, body: RequestBody): string {
             if (body.step_timeout_ms !== undefined) {
                 object.step_timeout_ms = body.step_timeout_ms;
             }
+            if (body.session_id !== undefined) {
+                object.session_id = body.session_id;
+            }
             break;
         }
         case 'task.list':
@@ -123,6 +144,19 @@ export function encodeRequest(id: number, body: RequestBody): string {
             break;
         case 'permission.list':
             object.op = 'permission.list';
+            break;
+        case 'session.list':
+            object.op = 'session.list';
+            break;
+        case 'session.open':
+            object.op = 'session.open';
+            break;
+        case 'session.history':
+            object.op = 'session.history';
+            object.session_id = body.session_id;
+            if (body.limit !== undefined) {
+                object.limit = body.limit;
+            }
             break;
     }
     return JSON.stringify(object);
@@ -235,6 +269,13 @@ export function decodeRequest(payload: string): RequestDecode {
             if (stepTimeoutMs !== undefined) {
                 (body as { step_timeout_ms?: number }).step_timeout_ms = stepTimeoutMs;
             }
+            if (parsed.session_id !== undefined) {
+                const sessionId = asString(parsed.session_id);
+                if (sessionId === null || sessionId.length === 0) {
+                    return { ok: false, error: "task.submit 'session_id' must be non-empty" };
+                }
+                (body as { session_id?: string }).session_id = sessionId;
+            }
             return { ok: true, id, body };
         }
         case 'task.inspect': {
@@ -250,6 +291,31 @@ export function decodeRequest(payload: string): RequestDecode {
                 return { ok: false, error: "task.cancel requires a non-empty 'task_id'" };
             }
             return { ok: true, id, body: { op: 'task.cancel', task_id: taskId } };
+        }
+        case 'session.list':
+            return { ok: true, id, body: { op: 'session.list' } };
+        case 'session.open':
+            return { ok: true, id, body: { op: 'session.open' } };
+        case 'session.history': {
+            const sessionId = asString(parsed.session_id);
+            if (sessionId === null || sessionId.length === 0) {
+                return { ok: false, error: "session.history requires a non-empty 'session_id'" };
+            }
+            let limit: number | undefined;
+            if (parsed.limit !== undefined) {
+                const limitValue = asInteger(parsed.limit);
+                if (limitValue === null || limitValue <= 0) {
+                    return { ok: false, error: "session.history 'limit' must be positive" };
+                }
+                limit = limitValue;
+            }
+            return {
+                ok: true,
+                id,
+                body: limit === undefined
+                    ? { op: 'session.history', session_id: sessionId }
+                    : { op: 'session.history', session_id: sessionId, limit },
+            };
         }
         default:
             return { ok: false, error: `unknown op '${op}'` };
@@ -303,11 +369,18 @@ export function encodeResponse(response: ResponseEnvelop): string {
                 if (value.permissions !== undefined) {
                     object.permissions = value.permissions;
                 }
+                if (value.sessions !== undefined) {
+                    object.sessions = value.sessions;
+                }
                 break;
             }
-            case 'submitted':
+            case 'submitted': {
                 object.task_id = payload.value.task_id;
+                if (payload.value.session_id !== undefined) {
+                    object.session_id = payload.value.session_id;
+                }
                 break;
+            }
             case 'list':
                 object.tasks = payload.value.tasks.map((task) => ({
                     id: task.id,
@@ -338,6 +411,26 @@ export function encodeResponse(response: ResponseEnvelop): string {
                     task_id: entry.task_id,
                     timeout_ms: entry.timeout_ms,
                 }));
+                break;
+            case 'session-list':
+                object.sessions = payload.value.sessions.map((session) => ({
+                    id: session.id,
+                    state: session.state,
+                    created_at_ms: session.created_at_ms,
+                }));
+                break;
+            case 'session-opened':
+                object.session_id = payload.value.session_id;
+                break;
+            case 'session-history':
+                object.session_id = payload.value.session_id;
+                object.entries = payload.value.entries.map((entry) => ({
+                    kind: entry.kind,
+                    text: entry.text,
+                    sequence: entry.sequence,
+                    recorded_at_ms: entry.recorded_at_ms,
+                }));
+                object.truncated = payload.value.truncated;
                 break;
         }
     } else {
@@ -487,6 +580,14 @@ export function decodeResponse(payload: string): ResponseDecode {
             }
             (identity as { permissions?: boolean }).permissions = permissions;
         }
+        // DEC-021 session-face capability member: same discipline as `events`.
+        if (parsed.sessions !== undefined) {
+            const sessions = asBoolean(parsed.sessions);
+            if (sessions === null) {
+                return { ok: false, error: "hello response 'sessions' must be a boolean" };
+            }
+            (identity as { sessions?: boolean }).sessions = sessions;
+        }
         return {
             ok: true,
             response: { ok: true, id, payload: { kind: 'identity', value: identity } },
@@ -497,9 +598,17 @@ export function decodeResponse(payload: string): ResponseDecode {
         if (taskId === null || taskId.length === 0) {
             return { ok: false, error: "task.submit response requires a non-empty 'task_id'" };
         }
+        const submitted: { task_id: string; session_id?: string } = { task_id: taskId };
+        if (parsed.session_id !== undefined) {
+            const sessionId = asString(parsed.session_id);
+            if (sessionId === null || sessionId.length === 0) {
+                return { ok: false, error: "task.submit response 'session_id' must be non-empty" };
+            }
+            submitted.session_id = sessionId;
+        }
         return {
             ok: true,
-            response: { ok: true, id, payload: { kind: 'submitted', value: { task_id: taskId } } },
+            response: { ok: true, id, payload: { kind: 'submitted', value: submitted } },
         };
     }
     if (parsed.tasks !== undefined) {
@@ -616,6 +725,108 @@ export function decodeResponse(payload: string): ResponseDecode {
         return {
             ok: true,
             response: { ok: true, id, payload: { kind: 'permission-list', value: { pending } } },
+        };
+    }
+    if (parsed.entries !== undefined) {
+        // session.history discriminates on "entries"; it also carries
+        // "session_id", so this branch must precede the session-opened one.
+        if (!Array.isArray(parsed.entries)) {
+            return { ok: false, error: "session.history 'entries' must be an array" };
+        }
+        const sessionId = asString(parsed.session_id);
+        if (sessionId === null || sessionId.length === 0) {
+            return { ok: false, error: "session.history requires a non-empty 'session_id'" };
+        }
+        const truncated = asBoolean(parsed.truncated);
+        if (truncated === null) {
+            return { ok: false, error: "session.history requires a 'truncated' boolean" };
+        }
+        const entries = [];
+        for (const entry of parsed.entries) {
+            if (!isRecord(entry)) {
+                return { ok: false, error: 'session.history entries must be objects' };
+            }
+            const kind = asString(entry.kind);
+            const text = asString(entry.text);
+            const sequence = asInteger(entry.sequence);
+            const recordedAtMs = asInteger(entry.recorded_at_ms);
+            if (
+                kind === null ||
+                kind.length === 0 ||
+                text === null ||
+                text.length === 0 ||
+                sequence === null ||
+                sequence < 1 ||
+                recordedAtMs === null ||
+                recordedAtMs < 0
+            ) {
+                return {
+                    ok: false,
+                    error:
+                        "session.history entries require 'kind', 'text', a positive 'sequence' and a non-negative 'recorded_at_ms'",
+                };
+            }
+            if (!SESSION_MESSAGE_KINDS.includes(kind as SessionMessageKind)) {
+                return {
+                    ok: false,
+                    error: "session.history entry 'kind' is not a known message kind",
+                };
+            }
+            entries.push({
+                kind: kind as SessionMessageKind,
+                text,
+                sequence,
+                recorded_at_ms: recordedAtMs,
+            });
+        }
+        return {
+            ok: true,
+            response: {
+                ok: true,
+                id,
+                payload: { kind: 'session-history', value: { session_id: sessionId, entries, truncated } },
+            },
+        };
+    }
+    if (parsed.session_id !== undefined) {
+        const sessionId = asString(parsed.session_id);
+        if (sessionId === null || sessionId.length === 0) {
+            return { ok: false, error: "session.open response requires a non-empty 'session_id'" };
+        }
+        return {
+            ok: true,
+            response: { ok: true, id, payload: { kind: 'session-opened', value: { session_id: sessionId } } },
+        };
+    }
+    if (parsed.sessions !== undefined) {
+        if (!Array.isArray(parsed.sessions)) {
+            return { ok: false, error: "session.list 'sessions' must be an array" };
+        }
+        const sessions = [];
+        for (const entry of parsed.sessions) {
+            if (!isRecord(entry)) {
+                return { ok: false, error: 'session.list entries must be objects' };
+            }
+            const id = asString(entry.id);
+            const state = asString(entry.state);
+            const createdAtMs = asInteger(entry.created_at_ms);
+            if (id === null || id.length === 0 || state === null || createdAtMs === null || createdAtMs < 0) {
+                return {
+                    ok: false,
+                    error: "session.list entries require 'id', 'state' and 'created_at_ms'",
+                };
+            }
+            if (!SESSION_STATES.includes(state as SessionState)) {
+                return {
+                    ok: false,
+                    error: "session.list entry 'state' is not a known session state",
+                };
+            }
+            sessions.push({ id, state: state as SessionState, created_at_ms: createdAtMs });
+        }
+        return {
+            ok: true,
+            response: { ok: true, id, payload: { kind: 'session-list', value: { sessions } } },
         };
     }
     // An ok response carrying none of the known payload discriminators is the
@@ -748,6 +959,141 @@ export function decodeEvent(payload: string): EventDecode {
                 },
             };
         }
+        case 'session.updated': {
+            const sessionId = asString(parsed.session_id);
+            const state = asString(parsed.state);
+            if (sessionId === null || sessionId.length === 0 || state === null) {
+                return { ok: false, error: "session.updated requires 'session_id' and 'state'" };
+            }
+            if (!SESSION_STATES.includes(state as SessionState)) {
+                return { ok: false, error: "session.updated 'state' is not a known session state" };
+            }
+            return {
+                ok: true,
+                event: { v: 1, seq, event: 'session.updated', session_id: sessionId, state: state as SessionState },
+            };
+        }
+        case 'session.message': {
+            const sessionId = asString(parsed.session_id);
+            const taskId = asString(parsed.task_id);
+            const kind = asString(parsed.kind);
+            const text = asString(parsed.text);
+            const sequence = asInteger(parsed.sequence);
+            if (
+                sessionId === null ||
+                sessionId.length === 0 ||
+                taskId === null ||
+                taskId.length === 0 ||
+                kind === null ||
+                text === null ||
+                text.length === 0 ||
+                sequence === null ||
+                sequence < 1
+            ) {
+                return {
+                    ok: false,
+                    error:
+                        "session.message requires 'session_id', 'task_id', 'kind', non-empty 'text' and a positive 'sequence'",
+                };
+            }
+            if (!SESSION_MESSAGE_KINDS.includes(kind as SessionMessageKind)) {
+                return { ok: false, error: "session.message 'kind' is not a known message kind" };
+            }
+            return {
+                ok: true,
+                event: {
+                    v: 1,
+                    seq,
+                    event: 'session.message',
+                    session_id: sessionId,
+                    task_id: taskId,
+                    kind: kind as SessionMessageKind,
+                    text,
+                    sequence,
+                },
+            };
+        }
+        case 'session.turn': {
+            const sessionId = asString(parsed.session_id);
+            const taskId = asString(parsed.task_id);
+            const step = asInteger(parsed.step);
+            const kind = asString(parsed.kind);
+            const status = asString(parsed.status);
+            if (
+                sessionId === null ||
+                sessionId.length === 0 ||
+                taskId === null ||
+                taskId.length === 0 ||
+                step === null ||
+                step < 1 ||
+                kind === null ||
+                status === null
+            ) {
+                return {
+                    ok: false,
+                    error:
+                        "session.turn requires 'session_id', 'task_id', a positive 'step', 'kind' and 'status'",
+                };
+            }
+            if (!STEP_KINDS.includes(kind as StepKind)) {
+                return { ok: false, error: "session.turn 'kind' is not a known step kind" };
+            }
+            if (!TURN_STATUSES.includes(status as TurnStatus)) {
+                return {
+                    ok: false,
+                    error: "session.turn 'status' is not a known settled-step status",
+                };
+            }
+            return {
+                ok: true,
+                event: {
+                    v: 1,
+                    seq,
+                    event: 'session.turn',
+                    session_id: sessionId,
+                    task_id: taskId,
+                    step,
+                    kind: kind as StepKind,
+                    status: status as TurnStatus,
+                },
+            };
+        }
+        case 'session.output': {
+            const sessionId = asString(parsed.session_id);
+            const taskId = asString(parsed.task_id);
+            const step = asInteger(parsed.step);
+            const chunk = asString(parsed.chunk);
+            const truncated = asBoolean(parsed.truncated);
+            if (
+                sessionId === null ||
+                sessionId.length === 0 ||
+                taskId === null ||
+                taskId.length === 0 ||
+                step === null ||
+                step < 1 ||
+                chunk === null ||
+                truncated === null
+            ) {
+                return {
+                    ok: false,
+                    error:
+                        "session.output requires 'session_id', 'task_id', a positive 'step', 'chunk' and 'truncated'",
+                };
+            }
+            return {
+                ok: true,
+                event: {
+                    v: 1,
+                    seq,
+                    event: 'session.output',
+                    session_id: sessionId,
+                    task_id: taskId,
+                    step,
+                    chunk,
+                    truncated,
+                },
+            };
+        }
         default:
             return { ok: false, error: `unknown event '${name}'` };
     }
@@ -779,4 +1125,13 @@ export function classifyFrame(payload: string): FrameKind {
     return 'unknown';
 }
 
-export { STEP_KINDS, STEP_STATUSES, HOST_STATUSES, PROGRESS_NAMES, CAPABILITY_NAMES };
+export {
+    STEP_KINDS,
+    STEP_STATUSES,
+    HOST_STATUSES,
+    PROGRESS_NAMES,
+    CAPABILITY_NAMES,
+    SESSION_STATES,
+    SESSION_MESSAGE_KINDS,
+    TURN_STATUSES,
+};

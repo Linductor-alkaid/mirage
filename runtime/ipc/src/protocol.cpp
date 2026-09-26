@@ -19,6 +19,9 @@ constexpr const char *kOpSubscribe = "events.subscribe";
 constexpr const char *kOpUnsubscribe = "events.unsubscribe";
 constexpr const char *kOpPermissionRespond = "permission.respond";
 constexpr const char *kOpPermissionList = "permission.list";
+constexpr const char *kOpSessionList = "session.list";
+constexpr const char *kOpSessionOpen = "session.open";
+constexpr const char *kOpSessionHistory = "session.history";
 
 constexpr const char *kStepRead = "filesystem.read";
 constexpr const char *kStepExecute = "process.execute";
@@ -27,6 +30,10 @@ constexpr const char *kEventTaskUpdated = "task.updated";
 constexpr const char *kEventHostStatus = "host.status";
 constexpr const char *kEventOverflow = "events.overflow";
 constexpr const char *kEventPermissionRequest = "permission.request";
+constexpr const char *kEventSessionUpdated = "session.updated";
+constexpr const char *kEventSessionMessage = "session.message";
+constexpr const char *kEventSessionTurn = "session.turn";
+constexpr const char *kEventSessionOutput = "session.output";
 
 /// Closed Capability vocabulary (DEC-010 / DEC-020) carried by
 /// permission.request events and permission.list entries. Kept local so the
@@ -46,6 +53,22 @@ constexpr const char *kProgressNames[] = {"Idle",      "Active", "Paused",    "C
 
 /// Closed Mira Host five-state set (DEC-004) carried by host.status events.
 constexpr const char *kHostStatusNames[] = {"stopped", "starting", "running", "stopping", "failed"};
+
+/// Closed session state projection (DEC-021): the pinned SessionState set in
+/// stable lowercase form, carried by session.list entries and session.updated
+/// events. The golden vectors pin the set on both ends.
+constexpr const char *kSessionStateNames[] = {"opening",          "autonomous", "takeover_pending",
+                                              "human_controlled", "resuming",   "closing",
+                                              "closed",           "failed"};
+
+/// Closed conversation-entry vocabulary (DEC-021): "user" marks a task goal
+/// landing in the session, "outcome" a task settlement summary.
+constexpr const char *kSessionMessageKinds[] = {"user", "outcome"};
+
+/// Closed settled-step status vocabulary (DEC-021) carried by session.turn
+/// events; turns publish on settlement only, so the in-flight names are
+/// absent.
+constexpr const char *kTurnStatusNames[] = {"ok", "failed", "cancelled", "skipped"};
 
 bool in_stable_set(const std::string &value, const char *const *set, std::size_t count) {
     for (std::size_t index = 0; index < count; ++index) {
@@ -204,8 +227,14 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 if (value.permissions.has_value()) {
                     put(object, "permissions", *value.permissions);
                 }
+                if (value.sessions.has_value()) {
+                    put(object, "sessions", *value.sessions);
+                }
             } else if constexpr (std::is_same_v<T, TaskSubmitted>) {
                 put(object, "task_id", value.task_id);
+                if (value.session_id) {
+                    put(object, "session_id", *value.session_id);
+                }
             } else if constexpr (std::is_same_v<T, TaskList>) {
                 mira::JsonValue::Array entries;
                 for (const auto &task : value.tasks) {
@@ -237,6 +266,31 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                     entries.emplace_back(std::move(pending));
                 }
                 put(object, "pending", mira::JsonValue{std::move(entries)});
+            } else if constexpr (std::is_same_v<T, SessionList>) {
+                mira::JsonValue::Array entries;
+                for (const auto &session : value.sessions) {
+                    auto entry = make_object();
+                    put(entry, "id", session.id);
+                    put(entry, "state", session.state);
+                    put(entry, "created_at_ms", session.created_at_ms);
+                    entries.emplace_back(std::move(entry));
+                }
+                put(object, "sessions", mira::JsonValue{std::move(entries)});
+            } else if constexpr (std::is_same_v<T, SessionOpened>) {
+                put(object, "session_id", value.session_id);
+            } else if constexpr (std::is_same_v<T, SessionHistory>) {
+                put(object, "session_id", value.session_id);
+                mira::JsonValue::Array entries;
+                for (const auto &entry : value.entries) {
+                    auto item = make_object();
+                    put(item, "kind", entry.kind);
+                    put(item, "text", entry.text);
+                    put(item, "sequence", static_cast<std::int64_t>(entry.sequence));
+                    put(item, "recorded_at_ms", entry.recorded_at_ms);
+                    entries.emplace_back(std::move(item));
+                }
+                put(object, "entries", mira::JsonValue{std::move(entries)});
+                put(object, "truncated", value.truncated);
             } else if constexpr (std::is_same_v<T, ShutdownAccepted>) {
                 // No payload members beyond the ok envelope.
             }
@@ -285,6 +339,9 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                     put(object, "step_timeout_ms",
                         static_cast<std::int64_t>(value.step_timeout->count()));
                 }
+                if (value.session_id) {
+                    put(object, "session_id", *value.session_id);
+                }
             } else if constexpr (std::is_same_v<T, ListTasksRequest>) {
                 put(object, "op", kOpList);
             } else if constexpr (std::is_same_v<T, InspectTaskRequest>) {
@@ -305,6 +362,16 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                 put(object, "approved", value.approved);
             } else if constexpr (std::is_same_v<T, ListPermissionsRequest>) {
                 put(object, "op", kOpPermissionList);
+            } else if constexpr (std::is_same_v<T, ListSessionsRequest>) {
+                put(object, "op", kOpSessionList);
+            } else if constexpr (std::is_same_v<T, OpenSessionRequest>) {
+                put(object, "op", kOpSessionOpen);
+            } else if constexpr (std::is_same_v<T, SessionHistoryRequest>) {
+                put(object, "op", kOpSessionHistory);
+                put(object, "session_id", value.session_id);
+                if (value.limit) {
+                    put(object, "limit", static_cast<std::int64_t>(*value.limit));
+                }
             }
         },
         body);
@@ -381,6 +448,13 @@ RequestDecode decode_request(std::string_view payload) {
             }
             submit.step_timeout = std::chrono::milliseconds(*timeout);
         }
+        if (const auto session = string_member(object, "session_id")) {
+            if (session->empty()) {
+                result.error = "task.submit 'session_id' must be non-empty";
+                return result;
+            }
+            submit.session_id = std::move(*session);
+        }
         result.body = std::move(submit);
     } else if (*op == kOpInspect) {
         InspectTaskRequest inspect;
@@ -418,6 +492,26 @@ RequestDecode decode_request(std::string_view payload) {
         result.body = std::move(respond);
     } else if (*op == kOpPermissionList) {
         result.body = ListPermissionsRequest{};
+    } else if (*op == kOpSessionList) {
+        result.body = ListSessionsRequest{};
+    } else if (*op == kOpSessionOpen) {
+        result.body = OpenSessionRequest{};
+    } else if (*op == kOpSessionHistory) {
+        SessionHistoryRequest history;
+        const auto session_id = string_member(object, "session_id");
+        if (!session_id || session_id->empty()) {
+            result.error = "session.history requires a non-empty 'session_id'";
+            return result;
+        }
+        history.session_id = *session_id;
+        if (const auto limit = integer_member(object, "limit")) {
+            if (*limit <= 0) {
+                result.error = "session.history 'limit' must be positive";
+                return result;
+            }
+            history.limit = static_cast<int>(*limit);
+        }
+        result.body = std::move(history);
     } else {
         result.error = "unknown op '" + *op + "'";
         return result;
@@ -533,6 +627,16 @@ ResponseDecode decode_response(std::string_view payload) {
             }
             identity.permissions = *flag;
         }
+        // DEC-021 session-face capability member: same discipline as
+        // `events`.
+        if (const auto *sessions = member(object, "sessions"); sessions != nullptr) {
+            const auto flag = sessions->as_boolean();
+            if (!flag) {
+                result.error = "hello response 'sessions' must be a boolean";
+                return result;
+            }
+            identity.sessions = *flag;
+        }
         response.payload = std::move(identity);
     } else if (const auto *task_id = member(object, "task_id"); task_id != nullptr) {
         auto id_text = string_member(object, "task_id");
@@ -540,7 +644,15 @@ ResponseDecode decode_response(std::string_view payload) {
             result.error = "task.submit response requires a non-empty 'task_id'";
             return result;
         }
-        response.payload = TaskSubmitted{std::move(*id_text)};
+        TaskSubmitted submitted{std::move(*id_text)};
+        if (const auto session = string_member(object, "session_id")) {
+            if (session->empty()) {
+                result.error = "task.submit response 'session_id' must be non-empty";
+                return result;
+            }
+            submitted.session_id = std::move(*session);
+        }
+        response.payload = std::move(submitted);
     } else if (const auto *tasks = member(object, "tasks"); tasks != nullptr) {
         if (!tasks->is_array()) {
             result.error = "task.list 'tasks' must be an array";
@@ -669,6 +781,92 @@ ResponseDecode decode_response(std::string_view payload) {
             list.pending.push_back(std::move(permission));
         }
         response.payload = std::move(list);
+    } else if (const auto *entries = member(object, "entries"); entries != nullptr) {
+        // SessionHistory discriminates on "entries"; it also carries
+        // "session_id", so this branch must precede the SessionOpened one.
+        if (!entries->is_array()) {
+            result.error = "session.history 'entries' must be an array";
+            return result;
+        }
+        auto session_id = string_member(object, "session_id");
+        if (!session_id || session_id->empty()) {
+            result.error = "session.history requires a non-empty 'session_id'";
+            return result;
+        }
+        const auto *truncated = member(object, "truncated");
+        const auto truncated_flag = truncated == nullptr ? std::nullopt : truncated->as_boolean();
+        if (!truncated_flag) {
+            result.error = "session.history requires a 'truncated' boolean";
+            return result;
+        }
+        SessionHistory history;
+        history.session_id = std::move(*session_id);
+        history.truncated = *truncated_flag;
+        for (const auto &item : *entries->as_array()) {
+            if (!item.is_object()) {
+                result.error = "session.history entries must be objects";
+                return result;
+            }
+            SessionHistoryEntry entry;
+            auto kind = string_member(item, "kind");
+            auto text = string_member(item, "text");
+            const auto sequence = integer_member(item, "sequence");
+            const auto recorded = integer_member(item, "recorded_at_ms");
+            if (!kind || !text || kind->empty() || text->empty() || !sequence || *sequence < 1 ||
+                !recorded || *recorded < 0) {
+                result.error = "session.history entries require 'kind', 'text', a positive "
+                               "'sequence' and a non-negative 'recorded_at_ms'";
+                return result;
+            }
+            if (!in_stable_set(*kind, kSessionMessageKinds,
+                               sizeof(kSessionMessageKinds) / sizeof(kSessionMessageKinds[0]))) {
+                result.error = "session.history entry 'kind' is not a known message kind";
+                return result;
+            }
+            entry.kind = std::move(*kind);
+            entry.text = std::move(*text);
+            entry.sequence = static_cast<std::uint64_t>(*sequence);
+            entry.recorded_at_ms = *recorded;
+            history.entries.push_back(std::move(entry));
+        }
+        response.payload = std::move(history);
+    } else if (const auto *session_id = member(object, "session_id"); session_id != nullptr) {
+        auto id_text = string_member(object, "session_id");
+        if (!id_text || id_text->empty()) {
+            result.error = "session.open response requires a non-empty 'session_id'";
+            return result;
+        }
+        response.payload = SessionOpened{std::move(*id_text)};
+    } else if (const auto *sessions = member(object, "sessions"); sessions != nullptr) {
+        if (!sessions->is_array()) {
+            result.error = "session.list 'sessions' must be an array";
+            return result;
+        }
+        SessionList list;
+        for (const auto &entry : *sessions->as_array()) {
+            if (!entry.is_object()) {
+                result.error = "session.list entries must be objects";
+                return result;
+            }
+            SessionSummary summary;
+            auto id_text = string_member(entry, "id");
+            auto state = string_member(entry, "state");
+            const auto created = integer_member(entry, "created_at_ms");
+            if (!id_text || id_text->empty() || !state || !created || *created < 0) {
+                result.error = "session.list entries require 'id', 'state' and 'created_at_ms'";
+                return result;
+            }
+            if (!in_stable_set(*state, kSessionStateNames,
+                               sizeof(kSessionStateNames) / sizeof(kSessionStateNames[0]))) {
+                result.error = "session.list entry 'state' is not a known session state";
+                return result;
+            }
+            summary.id = std::move(*id_text);
+            summary.state = std::move(*state);
+            summary.created_at_ms = *created;
+            list.sessions.push_back(std::move(summary));
+        }
+        response.payload = std::move(list);
     } else {
         // An ok response carrying none of the known payload discriminators
         // is the acknowledgement shape (service.shutdown).
@@ -687,6 +885,18 @@ const char *event_name(const EventPayload &payload) {
     }
     if (std::holds_alternative<PermissionRequestedEvent>(payload)) {
         return kEventPermissionRequest;
+    }
+    if (std::holds_alternative<SessionUpdatedEvent>(payload)) {
+        return kEventSessionUpdated;
+    }
+    if (std::holds_alternative<SessionMessageEvent>(payload)) {
+        return kEventSessionMessage;
+    }
+    if (std::holds_alternative<SessionTurnEvent>(payload)) {
+        return kEventSessionTurn;
+    }
+    if (std::holds_alternative<SessionOutputEvent>(payload)) {
+        return kEventSessionOutput;
     }
     return kEventOverflow;
 }
@@ -718,6 +928,31 @@ std::string encode_event(const Event &event) {
                 put(object, "resource", value.resource);
                 put(object, "task_id", value.task_id);
                 put(object, "timeout_ms", value.timeout_ms);
+            } else if constexpr (std::is_same_v<T, SessionUpdatedEvent>) {
+                put(object, "event", kEventSessionUpdated);
+                put(object, "session_id", value.session_id);
+                put(object, "state", value.state);
+            } else if constexpr (std::is_same_v<T, SessionMessageEvent>) {
+                put(object, "event", kEventSessionMessage);
+                put(object, "session_id", value.session_id);
+                put(object, "task_id", value.task_id);
+                put(object, "kind", value.kind);
+                put(object, "text", value.text);
+                put(object, "sequence", static_cast<std::int64_t>(value.sequence));
+            } else if constexpr (std::is_same_v<T, SessionTurnEvent>) {
+                put(object, "event", kEventSessionTurn);
+                put(object, "session_id", value.session_id);
+                put(object, "task_id", value.task_id);
+                put(object, "step", static_cast<std::int64_t>(value.step));
+                put(object, "kind", value.kind);
+                put(object, "status", value.status);
+            } else if constexpr (std::is_same_v<T, SessionOutputEvent>) {
+                put(object, "event", kEventSessionOutput);
+                put(object, "session_id", value.session_id);
+                put(object, "task_id", value.task_id);
+                put(object, "step", static_cast<std::int64_t>(value.step));
+                put(object, "chunk", value.chunk);
+                put(object, "truncated", value.truncated);
             }
         },
         event.payload);
@@ -829,6 +1064,94 @@ EventDecode decode_event(std::string_view payload) {
         permission.task_id = std::move(*task_id);
         permission.timeout_ms = *timeout;
         result.event.payload = std::move(permission);
+    } else if (*name == kEventSessionUpdated) {
+        SessionUpdatedEvent session;
+        const auto session_id = string_member(object, "session_id");
+        const auto state = string_member(object, "state");
+        if (!session_id || session_id->empty() || !state) {
+            result.error = "session.updated requires 'session_id' and 'state'";
+            return result;
+        }
+        if (!in_stable_set(*state, kSessionStateNames,
+                           sizeof(kSessionStateNames) / sizeof(kSessionStateNames[0]))) {
+            result.error = "session.updated 'state' is not a known session state";
+            return result;
+        }
+        session.session_id = std::move(*session_id);
+        session.state = std::move(*state);
+        result.event.payload = std::move(session);
+    } else if (*name == kEventSessionMessage) {
+        SessionMessageEvent message;
+        const auto session_id = string_member(object, "session_id");
+        const auto task_id = string_member(object, "task_id");
+        const auto kind = string_member(object, "kind");
+        const auto text = string_member(object, "text");
+        const auto sequence = integer_member(object, "sequence");
+        if (!session_id || session_id->empty() || !task_id || task_id->empty() || !kind || !text ||
+            text->empty() || !sequence || *sequence < 1) {
+            result.error = "session.message requires 'session_id', 'task_id', 'kind', non-empty "
+                           "'text' and a positive 'sequence'";
+            return result;
+        }
+        if (!in_stable_set(*kind, kSessionMessageKinds,
+                           sizeof(kSessionMessageKinds) / sizeof(kSessionMessageKinds[0]))) {
+            result.error = "session.message 'kind' is not a known message kind";
+            return result;
+        }
+        message.session_id = std::move(*session_id);
+        message.task_id = std::move(*task_id);
+        message.kind = std::move(*kind);
+        message.text = std::move(*text);
+        message.sequence = static_cast<std::uint64_t>(*sequence);
+        result.event.payload = std::move(message);
+    } else if (*name == kEventSessionTurn) {
+        SessionTurnEvent turn;
+        const auto session_id = string_member(object, "session_id");
+        const auto task_id = string_member(object, "task_id");
+        const auto step = integer_member(object, "step");
+        const auto kind = string_member(object, "kind");
+        const auto status = string_member(object, "status");
+        if (!session_id || session_id->empty() || !task_id || task_id->empty() || !step ||
+            *step < 1 || !kind || !status) {
+            result.error = "session.turn requires 'session_id', 'task_id', a positive 'step', "
+                           "'kind' and 'status'";
+            return result;
+        }
+        if (step_kind_from_name(*kind) == std::nullopt) {
+            result.error = "session.turn 'kind' is not a known step kind";
+            return result;
+        }
+        if (!in_stable_set(*status, kTurnStatusNames,
+                           sizeof(kTurnStatusNames) / sizeof(kTurnStatusNames[0]))) {
+            result.error = "session.turn 'status' is not a known settled-step status";
+            return result;
+        }
+        turn.session_id = std::move(*session_id);
+        turn.task_id = std::move(*task_id);
+        turn.step = static_cast<int>(*step);
+        turn.kind = std::move(*kind);
+        turn.status = std::move(*status);
+        result.event.payload = std::move(turn);
+    } else if (*name == kEventSessionOutput) {
+        SessionOutputEvent output;
+        const auto session_id = string_member(object, "session_id");
+        const auto task_id = string_member(object, "task_id");
+        const auto step = integer_member(object, "step");
+        const auto chunk = string_member(object, "chunk");
+        const auto *truncated = member(object, "truncated");
+        const auto truncated_flag = truncated == nullptr ? std::nullopt : truncated->as_boolean();
+        if (!session_id || session_id->empty() || !task_id || task_id->empty() || !step ||
+            *step < 1 || !chunk || !truncated_flag) {
+            result.error = "session.output requires 'session_id', 'task_id', a positive 'step', "
+                           "'chunk' and 'truncated'";
+            return result;
+        }
+        output.session_id = std::move(*session_id);
+        output.task_id = std::move(*task_id);
+        output.step = static_cast<int>(*step);
+        output.chunk = std::move(*chunk);
+        output.truncated = *truncated_flag;
+        result.event.payload = std::move(output);
     } else {
         result.error = "unknown event '" + *name + "'";
         return result;

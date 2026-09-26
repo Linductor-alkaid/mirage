@@ -200,6 +200,35 @@ ipc::Event event_from_vector(const std::string &name, const mira::JsonValue &bod
         payload.task_id = vector_string(body, "task_id");
         payload.timeout_ms = vector_integer(body, "timeout_ms");
         event.payload = std::move(payload);
+    } else if (kind == "session.updated") {
+        ipc::SessionUpdatedEvent payload;
+        payload.session_id = vector_string(body, "session_id");
+        payload.state = vector_string(body, "state");
+        event.payload = std::move(payload);
+    } else if (kind == "session.message") {
+        ipc::SessionMessageEvent payload;
+        payload.session_id = vector_string(body, "session_id");
+        payload.task_id = vector_string(body, "task_id");
+        payload.kind = vector_string(body, "kind");
+        payload.text = vector_string(body, "text");
+        payload.sequence = static_cast<std::uint64_t>(vector_integer(body, "sequence"));
+        event.payload = std::move(payload);
+    } else if (kind == "session.turn") {
+        ipc::SessionTurnEvent payload;
+        payload.session_id = vector_string(body, "session_id");
+        payload.task_id = vector_string(body, "task_id");
+        payload.step = static_cast<int>(vector_integer(body, "step"));
+        payload.kind = vector_string(body, "kind");
+        payload.status = vector_string(body, "status");
+        event.payload = std::move(payload);
+    } else if (kind == "session.output") {
+        ipc::SessionOutputEvent payload;
+        payload.session_id = vector_string(body, "session_id");
+        payload.task_id = vector_string(body, "task_id");
+        payload.step = static_cast<int>(vector_integer(body, "step"));
+        payload.chunk = vector_string(body, "chunk");
+        payload.truncated = vector_boolean(body, "truncated");
+        event.payload = std::move(payload);
     } else {
         std::fprintf(stderr, "golden event vector '%s' carries unknown event name '%s'\n",
                      name.c_str(), kind.c_str());
@@ -242,6 +271,31 @@ void check_event_equal(const std::string &name, const ipc::Event &expected,
         check_string_equal(name, "resource", decoded.resource, permission->resource);
         check_string_equal(name, "task_id", decoded.task_id, permission->task_id);
         MIRAGE_CHECK(decoded.timeout_ms == permission->timeout_ms);
+    } else if (const auto *session = std::get_if<ipc::SessionUpdatedEvent>(&expected.payload)) {
+        const auto &decoded = std::get<ipc::SessionUpdatedEvent>(actual.payload);
+        check_string_equal(name, "session_id", decoded.session_id, session->session_id);
+        check_string_equal(name, "state", decoded.state, session->state);
+    } else if (const auto *message = std::get_if<ipc::SessionMessageEvent>(&expected.payload)) {
+        const auto &decoded = std::get<ipc::SessionMessageEvent>(actual.payload);
+        check_string_equal(name, "session_id", decoded.session_id, message->session_id);
+        check_string_equal(name, "task_id", decoded.task_id, message->task_id);
+        check_string_equal(name, "kind", decoded.kind, message->kind);
+        check_string_equal(name, "text", decoded.text, message->text);
+        MIRAGE_CHECK(decoded.sequence == message->sequence);
+    } else if (const auto *turn = std::get_if<ipc::SessionTurnEvent>(&expected.payload)) {
+        const auto &decoded = std::get<ipc::SessionTurnEvent>(actual.payload);
+        check_string_equal(name, "session_id", decoded.session_id, turn->session_id);
+        check_string_equal(name, "task_id", decoded.task_id, turn->task_id);
+        MIRAGE_CHECK(decoded.step == turn->step);
+        check_string_equal(name, "kind", decoded.kind, turn->kind);
+        check_string_equal(name, "status", decoded.status, turn->status);
+    } else if (const auto *output = std::get_if<ipc::SessionOutputEvent>(&expected.payload)) {
+        const auto &decoded = std::get<ipc::SessionOutputEvent>(actual.payload);
+        check_string_equal(name, "session_id", decoded.session_id, output->session_id);
+        check_string_equal(name, "task_id", decoded.task_id, output->task_id);
+        MIRAGE_CHECK(decoded.step == output->step);
+        check_string_equal(name, "chunk", decoded.chunk, output->chunk);
+        MIRAGE_CHECK(decoded.truncated == output->truncated);
     }
 }
 
@@ -279,6 +333,24 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
     if (op == "permission.list") {
         return ipc::ListPermissionsRequest{};
     }
+    if (op == "session.list") {
+        return ipc::ListSessionsRequest{};
+    }
+    if (op == "session.open") {
+        return ipc::OpenSessionRequest{};
+    }
+    if (op == "session.history") {
+        ipc::SessionHistoryRequest history;
+        history.session_id = vector_string(body, "session_id");
+        if (const auto *limit = body.find("limit"); limit != nullptr) {
+            const auto limit_value = limit->as_integer();
+            MIRAGE_CHECK(limit_value.has_value());
+            if (limit_value) {
+                history.limit = static_cast<int>(*limit_value);
+            }
+        }
+        return history;
+    }
     if (op == "task.submit") {
         ipc::SubmitTaskRequest submit;
         submit.goal = vector_string(body, "goal");
@@ -301,6 +373,13 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
             MIRAGE_CHECK(milliseconds_value.has_value());
             if (milliseconds_value) {
                 submit.step_timeout = std::chrono::milliseconds(*milliseconds_value);
+            }
+        }
+        if (const auto *session = body.find("session_id"); session != nullptr) {
+            const auto session_value = session->as_string();
+            MIRAGE_CHECK(session_value != nullptr);
+            if (session_value != nullptr) {
+                submit.session_id = *session_value;
             }
         }
         return submit;
@@ -326,7 +405,10 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                           std::is_same_v<T, ipc::ListTasksRequest> ||
                           std::is_same_v<T, ipc::ShutdownRequest> ||
                           std::is_same_v<T, ipc::SubscribeEventsRequest> ||
-                          std::is_same_v<T, ipc::UnsubscribeEventsRequest>) {
+                          std::is_same_v<T, ipc::UnsubscribeEventsRequest> ||
+                          std::is_same_v<T, ipc::ListPermissionsRequest> ||
+                          std::is_same_v<T, ipc::ListSessionsRequest> ||
+                          std::is_same_v<T, ipc::OpenSessionRequest>) {
                 // Stateless bodies: the variant index comparison above suffices.
             } else if constexpr (std::is_same_v<T, ipc::SubmitTaskRequest>) {
                 const auto &submit = std::get<ipc::SubmitTaskRequest>(actual);
@@ -345,6 +427,12 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                     MIRAGE_CHECK(submit.step_timeout->count() ==
                                  expected_value.step_timeout->count());
                 }
+                MIRAGE_CHECK(submit.session_id.has_value() ==
+                             expected_value.session_id.has_value());
+                if (submit.session_id.has_value() && expected_value.session_id.has_value()) {
+                    check_string_equal(name, "submit session_id", *submit.session_id,
+                                       *expected_value.session_id);
+                }
             } else if constexpr (std::is_same_v<T, ipc::InspectTaskRequest> ||
                                  std::is_same_v<T, ipc::CancelTaskRequest>) {
                 const auto &request = std::get<T>(actual);
@@ -354,6 +442,14 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                 check_string_equal(name, "request_id", respond.request_id,
                                    expected_value.request_id);
                 MIRAGE_CHECK(respond.approved == expected_value.approved);
+            } else if constexpr (std::is_same_v<T, ipc::SessionHistoryRequest>) {
+                const auto &history = std::get<ipc::SessionHistoryRequest>(actual);
+                check_string_equal(name, "session_id", history.session_id,
+                                   expected_value.session_id);
+                MIRAGE_CHECK(history.limit.has_value() == expected_value.limit.has_value());
+                if (history.limit.has_value() && expected_value.limit.has_value()) {
+                    MIRAGE_CHECK(*history.limit == *expected_value.limit);
+                }
             }
         },
         expected);
@@ -398,9 +494,23 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
             MIRAGE_CHECK(flag.has_value());
             identity.permissions = flag;
         }
+        // DEC-021 session-face capability member: same optional discipline.
+        if (const auto *sessions = value.find("sessions"); sessions != nullptr) {
+            const auto flag = sessions->as_boolean();
+            MIRAGE_CHECK(flag.has_value());
+            identity.sessions = flag;
+        }
         response.payload = std::move(identity);
     } else if (kind == "submitted") {
-        response.payload = ipc::TaskSubmitted{vector_string(value, "task_id")};
+        ipc::TaskSubmitted submitted{vector_string(value, "task_id")};
+        if (const auto *session = value.find("session_id"); session != nullptr) {
+            const auto session_value = session->as_string();
+            MIRAGE_CHECK(session_value != nullptr);
+            if (session_value != nullptr) {
+                submitted.session_id = *session_value;
+            }
+        }
+        response.payload = std::move(submitted);
     } else if (kind == "list") {
         ipc::TaskList list;
         const auto *entries = vector_member(value, "tasks").as_array();
@@ -465,6 +575,39 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
             }
         }
         response.payload = std::move(list);
+    } else if (kind == "session-list") {
+        ipc::SessionList list;
+        const auto *entries = vector_member(value, "sessions").as_array();
+        MIRAGE_CHECK(entries != nullptr);
+        if (entries != nullptr) {
+            for (const auto &entry : *entries) {
+                ipc::SessionSummary summary;
+                summary.id = vector_string(entry, "id");
+                summary.state = vector_string(entry, "state");
+                summary.created_at_ms = vector_integer(entry, "created_at_ms");
+                list.sessions.push_back(std::move(summary));
+            }
+        }
+        response.payload = std::move(list);
+    } else if (kind == "session-opened") {
+        response.payload = ipc::SessionOpened{vector_string(value, "session_id")};
+    } else if (kind == "session-history") {
+        ipc::SessionHistory history;
+        history.session_id = vector_string(value, "session_id");
+        history.truncated = vector_boolean(value, "truncated");
+        const auto *entries = vector_member(value, "entries").as_array();
+        MIRAGE_CHECK(entries != nullptr);
+        if (entries != nullptr) {
+            for (const auto &entry : *entries) {
+                ipc::SessionHistoryEntry item;
+                item.kind = vector_string(entry, "kind");
+                item.text = vector_string(entry, "text");
+                item.sequence = static_cast<std::uint64_t>(vector_integer(entry, "sequence"));
+                item.recorded_at_ms = vector_integer(entry, "recorded_at_ms");
+                history.entries.push_back(std::move(item));
+            }
+        }
+        response.payload = std::move(history);
     } else {
         MIRAGE_CHECK(false); // unknown payload kind in the vectors file
     }
@@ -512,8 +655,19 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                     expected_value.permissions.has_value()) {
                     MIRAGE_CHECK(*actual_value.permissions == *expected_value.permissions);
                 }
+                MIRAGE_CHECK(actual_value.sessions.has_value() ==
+                             expected_value.sessions.has_value());
+                if (actual_value.sessions.has_value() && expected_value.sessions.has_value()) {
+                    MIRAGE_CHECK(*actual_value.sessions == *expected_value.sessions);
+                }
             } else if constexpr (std::is_same_v<T, ipc::TaskSubmitted>) {
                 check_string_equal(name, "task_id", actual_value.task_id, expected_value.task_id);
+                MIRAGE_CHECK(actual_value.session_id.has_value() ==
+                             expected_value.session_id.has_value());
+                if (actual_value.session_id.has_value() && expected_value.session_id.has_value()) {
+                    check_string_equal(name, "submit session_id", *actual_value.session_id,
+                                       *expected_value.session_id);
+                }
             } else if constexpr (std::is_same_v<T, ipc::TaskList>) {
                 MIRAGE_CHECK(actual_value.tasks.size() == expected_value.tasks.size());
                 const std::size_t count =
@@ -571,6 +725,35 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                     check_string_equal(name, "pending task_id", actual_entry.task_id,
                                        wanted.task_id);
                     MIRAGE_CHECK(actual_entry.timeout_ms == wanted.timeout_ms);
+                }
+            } else if constexpr (std::is_same_v<T, ipc::SessionList>) {
+                MIRAGE_CHECK(actual_value.sessions.size() == expected_value.sessions.size());
+                const std::size_t count =
+                    std::min(actual_value.sessions.size(), expected_value.sessions.size());
+                for (std::size_t index = 0; index < count; ++index) {
+                    const auto &actual_entry = actual_value.sessions[index];
+                    const auto &wanted = expected_value.sessions[index];
+                    check_string_equal(name, "session id", actual_entry.id, wanted.id);
+                    check_string_equal(name, "session state", actual_entry.state, wanted.state);
+                    MIRAGE_CHECK(actual_entry.created_at_ms == wanted.created_at_ms);
+                }
+            } else if constexpr (std::is_same_v<T, ipc::SessionOpened>) {
+                check_string_equal(name, "session_id", actual_value.session_id,
+                                   expected_value.session_id);
+            } else if constexpr (std::is_same_v<T, ipc::SessionHistory>) {
+                check_string_equal(name, "history session_id", actual_value.session_id,
+                                   expected_value.session_id);
+                MIRAGE_CHECK(actual_value.truncated == expected_value.truncated);
+                MIRAGE_CHECK(actual_value.entries.size() == expected_value.entries.size());
+                const std::size_t count =
+                    std::min(actual_value.entries.size(), expected_value.entries.size());
+                for (std::size_t index = 0; index < count; ++index) {
+                    const auto &actual_entry = actual_value.entries[index];
+                    const auto &wanted = expected_value.entries[index];
+                    check_string_equal(name, "history kind", actual_entry.kind, wanted.kind);
+                    check_string_equal(name, "history text", actual_entry.text, wanted.text);
+                    MIRAGE_CHECK(actual_entry.sequence == wanted.sequence);
+                    MIRAGE_CHECK(actual_entry.recorded_at_ms == wanted.recorded_at_ms);
                 }
             }
         },
