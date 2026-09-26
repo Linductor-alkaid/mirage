@@ -842,12 +842,30 @@ void scenario_session_list_open_and_history_flow() {
     MIRAGE_CHECK(done.has_value());
     MIRAGE_CHECK(done.has_value() && done->progress == "Completed");
 
-    const ipc::Response history_response =
-        client.call(ipc::SessionHistoryRequest{opened_session->session_id, {}}, kCallBudget);
-    MIRAGE_CHECK(history_response.ok);
-    const auto *history = std::get_if<ipc::SessionHistory>(&history_response.payload);
-    MIRAGE_CHECK(history != nullptr);
-    if (history != nullptr) {
+    // The outcome message is appended by the driver thread after the task
+    // record settles; poll the history face until the conversation shows
+    // both entries (liveness guard, not a latency assertion).
+    std::optional<ipc::SessionHistory> history;
+    const auto history_deadline = std::chrono::steady_clock::now() + kTaskBudget;
+    while (!history.has_value()) {
+        const ipc::Response history_response =
+            client.call(ipc::SessionHistoryRequest{opened_session->session_id, {}}, kCallBudget);
+        MIRAGE_CHECK(history_response.ok);
+        if (history_response.ok) {
+            const auto *snapshot = std::get_if<ipc::SessionHistory>(&history_response.payload);
+            MIRAGE_CHECK(snapshot != nullptr);
+            if (snapshot != nullptr && snapshot->entries.size() == 2) {
+                history = *snapshot;
+                break;
+            }
+        }
+        if (std::chrono::steady_clock::now() >= history_deadline) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{25});
+    }
+    MIRAGE_CHECK(history.has_value());
+    if (history.has_value()) {
         MIRAGE_CHECK(history->session_id == opened_session->session_id);
         MIRAGE_CHECK(!history->truncated);
         MIRAGE_CHECK(history->entries.size() == 2);
