@@ -85,6 +85,38 @@ struct TaskIdentity {
     std::string id;
 };
 
+/// Opaque session identity (DEC-021): the pinned session id rendered as 32
+/// lowercase hex characters. The primary session is opened by start();
+/// further sessions are opened through open_session().
+struct SessionIdentity {
+    std::string id;
+};
+
+/// Result of open_session(); `session` is meaningful only when ok is true.
+struct SessionOpenResult {
+    bool ok = false;
+    SessionIdentity session;
+    HostError error;
+};
+
+/// Projected snapshot of one session (pinned session_snapshot projection):
+/// `state` is the pinned SessionState in its stable lowercase wire form
+/// ("opening" / "autonomous" / "takeover_pending" / "human_controlled" /
+/// "resuming" / "closing" / "closed" / "failed") and `environment_epoch` the
+/// pinned epoch the snapshot observed.
+struct SessionView {
+    std::string id;
+    std::string state;
+    std::uint64_t environment_epoch = 0;
+};
+
+/// Result of session_view(); `view` is meaningful only when ok is true.
+struct SessionViewResult {
+    bool ok = false;
+    SessionView view;
+    HostError error;
+};
+
 /// Identifier of one admitted desktop operation (design doc section 11.1:
 /// the harness-side driver loop brackets every desktop action with the
 /// pinned operation boundary). The id fields are the pinned identifiers
@@ -185,6 +217,24 @@ class MiraHost {
 
     /// Admits a task with the given goal. Requires Running.
     TaskSubmissionResult submit_task(const std::string &goal);
+
+    /// Admits a task with the given goal into the given session (DEC-021).
+    /// Requires Running; an unknown or malformed session identity surfaces
+    /// the pinned rejection (not_found shape) instead of a fallback.
+    TaskSubmissionResult submit_task(const SessionIdentity &session, const std::string &goal);
+
+    /// The session start() opened on the pinned runtime; empty id before a
+    /// successful start(). Every session.list includes it (DEC-021).
+    SessionIdentity primary_session() const;
+
+    /// Opens one more session on the hosted pinned runtime, bound to the
+    /// same desktop environment (DEC-021). Requires Running.
+    SessionOpenResult open_session();
+
+    /// Observes the current session state; the pinned snapshot projected
+    /// onto the stable state name. Unknown or malformed identities surface
+    /// the pinned rejection.
+    SessionViewResult session_view(const SessionIdentity &session) const;
 
     /// Requests cooperative cancellation of a task. Cancelling an already
     /// terminal task surfaces the pinned rejection instead of reviving it.
