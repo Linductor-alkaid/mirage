@@ -507,3 +507,23 @@ success。
   落地叙述）、[前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
   §4 与变更记录、
   [总计划](mirage-implementation-plan.md) 状态叙述。
+
+2026-09-26：`M5-03` CI 取证完成；run 36215388888（headSha = `c72316f`
+已核实）全部 8 作业 success。
+
+- Linux 矩阵：debug / release / asan / ubsan / tsan 五预设全绿，每预设
+  **31/31 测试 0 skip**（新增 `permission_ipc_test`——批准 / 拒绝 / 超时 /
+  取消等待中断 / first-response-wins / `permission.list` 快照 / 面未启用
+  `unavailable` / `permissions` 能力位八场景；确认等待的跨上下文收敛路径
+  经 tsan `setarch -R` 验证）；format & public-header boundaries 绿。
+- frontend 作业：lint + strict tsc + 556 测试 + build 全绿（golden vectors
+  双端门禁消费同一 meta.version 3 vectors 文件）。
+- windows msvc (full tree)：14/14 测试通过，`win32_product_process_test`
+  **60 检查 0 失败**、壳目标与 UI 资产构建照常（M4 / M5-02 门禁零回归）。
+- 首轮 CI 修复轮（同 PR 内，提交 `8058ffe` / `706f8e6` / `8c5f54f` /
+  `2dbc462` / `defe42d` / `c72316f`）：golden 测试映射补齐 permission 向量、
+  clang-format 19 → 18 空花括号风格回归、POSIX 专属测试的 GCC
+  `-Werror`（identity 聚合初始化缺新成员、冗余 int64 cast）、测试自身
+  秒/毫秒单位比较与取消场景驱动器收敛竞态——六处均为测试/格式修正，
+  实现面零改动。
+- 合并裁决：维护者（PR [#50](https://github.com/Linductor-alkaid/mirage/pull/50)）。
