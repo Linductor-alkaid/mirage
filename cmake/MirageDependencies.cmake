@@ -267,6 +267,80 @@ function(mirage_require_locked_artifact name out_prefix)
     message(STATUS "Mirage: artifact '${name}' resolved from the lock at ${version}")
 endfunction()
 
+# Per-platform resolution for artifact acquisition: on top of the
+# registration check above this returns the concrete payload URL (with the
+# "{platform}" placeholder substituted), the pinned sha1 and size of that
+# platform's archive. Fails closed when the platform entry is missing or its
+# pin fields are structurally invalid (mirage_require_locked_artifact's
+# non-40-hex negative case, applied per platform).
+function(mirage_require_locked_artifact_platform name platform out_prefix)
+    mirage_require_locked_artifact("${name}" "${name}_lock")
+    _mirage_dependency_lock(lock_json)
+    string(JSON artifact_count ERROR_VARIABLE err LENGTH "${lock_json}" "artifacts")
+    set(found_index)
+    if(NOT err AND artifact_count GREATER 0)
+        math(EXPR artifact_last "${artifact_count} - 1")
+        foreach(i RANGE 0 ${artifact_last})
+            string(JSON entry_name ERROR_VARIABLE entry_err
+                GET "${lock_json}" "artifacts" "${i}" "name")
+            if(NOT entry_err AND entry_name STREQUAL name)
+                set(found_index "${i}")
+                break()
+            endif()
+        endforeach()
+    endif()
+    _mirage_json_field("${lock_json}" url_template "${name}"
+        "artifacts" "${found_index}" "url_template")
+    string(JSON platform_count ERROR_VARIABLE platform_err
+        LENGTH "${lock_json}" "artifacts" "${found_index}" "platforms")
+    set(found_platform)
+    if(NOT platform_err AND platform_count GREATER 0)
+        math(EXPR platform_last "${platform_count} - 1")
+        foreach(i RANGE 0 ${platform_last})
+            string(JSON entry_platform ERROR_VARIABLE entry_err
+                GET "${lock_json}" "artifacts" "${found_index}" "platforms" "${i}" "platform")
+            if(NOT entry_err AND entry_platform STREQUAL platform)
+                set(found_platform "${i}")
+                break()
+            endif()
+        endforeach()
+    endif()
+    if(NOT DEFINED found_platform)
+        message(FATAL_ERROR
+            "Artifact '${name}' has no '${platform}' pin in dependencies.lock.json. "
+            "Register the platform (size_bytes, sha1, provenance) through a deliberate "
+            "lock change before the artifact may be acquired for it.")
+    endif()
+    _mirage_json_field("${lock_json}" sha1 "${name}"
+        "artifacts" "${found_index}" "platforms" "${found_platform}" "sha1")
+    _mirage_json_field("${lock_json}" size_bytes "${name}"
+        "artifacts" "${found_index}" "platforms" "${found_platform}" "size_bytes")
+    # CMake regular expressions have no {n} repetition syntax (M5-01 finding):
+    # digest validation stays length + character class.
+    string(LENGTH "${sha1}" sha1_length)
+    string(REGEX MATCH "^[0-9a-f]+$" sha1_shape "${sha1}")
+    if(NOT sha1_length EQUAL 40 OR NOT sha1_shape)
+        message(FATAL_ERROR
+            "Artifact '${name}' (${platform}): sha1 '${sha1}' is not a 40-character "
+            "lowercase hex digest. Fix the lock entry; refusing to acquire against "
+            "an unverifiable pin.")
+    endif()
+    string(REGEX MATCH "^[0-9]+$" size_shape "${size_bytes}")
+    if(NOT size_shape OR size_bytes EQUAL 0)
+        message(FATAL_ERROR
+            "Artifact '${name}' (${platform}): size_bytes '${size_bytes}' is not a "
+            "positive integer. Fix the lock entry; refusing to acquire against an "
+            "unverifiable pin.")
+    endif()
+    string(REPLACE "{platform}" "${platform}" payload_url "${url_template}")
+    set(${out_prefix}_URL "${payload_url}" PARENT_SCOPE)
+    set(${out_prefix}_VERSION "${${name}_lock_VERSION}" PARENT_SCOPE)
+    set(${out_prefix}_SHA1 "${sha1}" PARENT_SCOPE)
+    set(${out_prefix}_SIZE_BYTES "${size_bytes}" PARENT_SCOPE)
+    message(STATUS "Mirage: artifact '${name}' (${platform}) resolved from the lock "
+        "at ${${name}_lock_VERSION}")
+endfunction()
+
 # The lock file declares schema_version 2 (submodule dependencies[], binary
 # artifacts[], frontend npm-tree registration). Raising the version requires
 # updating this module in the same change.

@@ -40,6 +40,24 @@ target_compile_features(desktop_observation_test PUBLIC cxx_std_20)
 mirage_enable_warnings(desktop_observation_test)
 target_link_libraries(desktop_observation_test PRIVATE Mirage::desktop)
 add_test(NAME desktop_observation_test COMMAND desktop_observation_test)
+
+# M5-02: the desktop shell bridge core (renderer transport ↔ Local IPC
+# session mapping) is CEF-free by construction, so its mapping tests run on
+# every platform without a browser. The single source file is compiled into
+# the test directly (the shell target itself is opt-in and CEF-linked).
+add_executable(bridge_core_test desktop/bridge_core_test.cpp
+    ${CMAKE_SOURCE_DIR}/apps/desktop/src/bridge_core.cpp)
+target_compile_features(bridge_core_test PUBLIC cxx_std_20)
+mirage_enable_warnings(bridge_core_test)
+target_include_directories(bridge_core_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/apps/desktop/src
+)
+target_link_libraries(bridge_core_test PRIVATE Mirage::ipc)
+add_test(NAME bridge_core_test COMMAND bridge_core_test)
+set_tests_properties(bridge_core_test PROPERTIES
+    LABELS "unit"
+    TIMEOUT 60
+)
 set_tests_properties(desktop_observation_test PROPERTIES
     LABELS "unit"
     TIMEOUT 60
@@ -544,6 +562,27 @@ set_tests_properties(event_subscription_test PROPERTIES
     # tens of seconds behind a 240 s shared deadline); normal runs finish in
     # well under a minute.
     TIMEOUT 900
+)
+endif()
+
+# POSIX-only: same Unix-socket transport coupling as runtime_service_test
+# (the M5-02 long-lived session client against a real RuntimeService; the
+# Windows named-pipe session path is covered by win32_product_process_test).
+if(UNIX)
+add_executable(session_client_test runtime/session_client_test.cpp)
+target_compile_features(session_client_test PUBLIC cxx_std_20)
+mirage_enable_warnings(session_client_test)
+target_link_libraries(session_client_test
+    PRIVATE
+        Mirage::runtime_service
+        Mirage::integration_mira
+        Mirage::platform
+        Mirage::ipc
+)
+add_test(NAME session_client_test COMMAND session_client_test)
+set_tests_properties(session_client_test PROPERTIES
+    LABELS "integration"
+    TIMEOUT 300
 )
 endif()
 

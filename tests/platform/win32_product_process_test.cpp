@@ -20,6 +20,7 @@
 #include <mirage/runtime/ipc/client.hpp>
 #include <mirage/runtime/ipc/framing.hpp>
 #include <mirage/runtime/ipc/protocol.hpp>
+#include <mirage/runtime/ipc/session_client.hpp>
 #include <mirage/runtime/ipc/stream.hpp>
 #include <mirage/runtime/persistence/store.hpp>
 #include <mirage/runtime/runtime_service.hpp>
@@ -193,6 +194,64 @@ void ipc_round_trip_over_named_pipe() {
 
     // shutdown through the protocol: run() unwinds cleanly.
     const ipc::Response shutdown = client.call(ipc::ShutdownRequest{}, std::chrono::seconds{30});
+    MIRAGE_CHECK(shutdown.ok);
+    MIRAGE_CHECK(process.join_clean());
+}
+
+/// The M5-02 long-lived session client over the named pipe: hello and
+/// list-tasks on one connection with the run loop driven off-thread (the
+/// test's stand-in for the shell's Executor blocking worker), then a
+/// cooperative stop. The POSIX session_client_test covers the event and
+/// fail-closed paths; this pins the same class to the Windows transport.
+void session_client_round_trip_over_named_pipe() {
+    TempTree tree;
+    mirage::runtime::ServiceConfig config;
+    config.socket_path = unique_pipe_name("session");
+    config.mirage_version = "0.4.0-test";
+    config.executor_threads = 2;
+    config.recovery_directory = tree.root() / "recovery";
+    config.persist_recovery_state = false;
+
+    ServiceProcess process(config);
+    const auto environment = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    const mirage::runtime::HostOutcome started = process.start(environment);
+    MIRAGE_CHECK(started.ok);
+    if (!started.ok) {
+        return;
+    }
+    process.run();
+
+    ipc::SessionClient session(config.socket_path);
+    std::string connect_diagnostic;
+    MIRAGE_CHECK(session.connect(std::chrono::seconds{30}, connect_diagnostic));
+
+    std::atomic<ipc::SessionClient::RunExit> exit_kind{ipc::SessionClient::RunExit::Stopped};
+    std::string run_diagnostic;
+    std::thread loop([&] {
+        std::string reason;
+        exit_kind.store(session.run(reason), std::memory_order_release);
+        run_diagnostic = std::move(reason);
+    });
+
+    const ipc::Response hello = session.call(ipc::HelloRequest{}, std::chrono::seconds{30}).get();
+    MIRAGE_CHECK(hello.ok);
+    const auto *identity = std::get_if<ipc::ServiceIdentity>(&hello.payload);
+    MIRAGE_CHECK(identity != nullptr);
+    if (identity != nullptr) {
+        MIRAGE_CHECK(identity->mirage_version == "0.4.0-test");
+    }
+
+    const ipc::Response listed =
+        session.call(ipc::ListTasksRequest{}, std::chrono::seconds{30}).get();
+    MIRAGE_CHECK(listed.ok);
+    MIRAGE_CHECK(std::holds_alternative<ipc::TaskList>(listed.payload));
+
+    session.stop();
+    loop.join();
+    MIRAGE_CHECK(exit_kind.load(std::memory_order_acquire) == ipc::SessionClient::RunExit::Stopped);
+
+    const ipc::Response shutdown =
+        ipc::IpcClient(config.socket_path).call(ipc::ShutdownRequest{}, std::chrono::seconds{30});
     MIRAGE_CHECK(shutdown.ok);
     MIRAGE_CHECK(process.join_clean());
 }
@@ -457,5 +516,6 @@ int main() {
     listener_takeover_and_probe();
     large_payload_round_trip_survives_backpressure();
     ipc_round_trip_over_named_pipe();
+    session_client_round_trip_over_named_pipe();
     return mirage::testing::finish("win32_product_process_test");
 }

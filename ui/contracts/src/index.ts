@@ -7,4 +7,5 @@ export * from './framing.js';
 export * from './events.js';
 export * from './transport.js';
 export * from './ws-transport.js';
+export * from './desktop-transport.js';
 export * from './mock/mock-service.js';

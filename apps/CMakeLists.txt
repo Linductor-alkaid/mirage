@@ -83,3 +83,9 @@ endif()
 # apps/desktop and apps/tray join with the M5 desktop product milestone
 # (the M4-06 "tray buildable" criterion carries over to that target; there
 # is deliberately no stub target before it).
+#
+# apps/desktop (M5-02): the CEF product shell is opt-in — enabling it
+# downloads the locked CEF artifact and binds it through the dependency lock
+# gate. Off by default, so the default build graph stays hermetic (DEC-006
+# decision 6; see apps/desktop/CMakeLists.txt).
+add_subdirectory(desktop)
