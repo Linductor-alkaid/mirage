@@ -342,7 +342,7 @@ void scenario_request_event_and_approval_completes_step() {
     MIRAGE_CHECK(raised->capability == "filesystem.read");
     MIRAGE_CHECK(raised->resource == goal_file.string());
     MIRAGE_CHECK(raised->timeout_ms >= 1 &&
-                 raised->timeout_ms <= static_cast<std::int64_t>(kConfirmBudget.count()));
+                 raised->timeout_ms <= kConfirmBudget.count());
 
     // The pending snapshot already reports the request before the answer.
     const ipc::Response listed_before = list_pending(config.socket_path);
@@ -544,7 +544,7 @@ void scenario_pending_snapshot_is_the_resync_face() {
             MIRAGE_CHECK(pending->pending[0].resource == goal_file.string());
             MIRAGE_CHECK(pending->pending[0].timeout_ms >= 1 &&
                          pending->pending[0].timeout_ms <=
-                             static_cast<std::int64_t>(kConfirmBudget.count()));
+                             kConfirmBudget.count());
         }
     }
 
