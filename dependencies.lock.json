@@ -9,7 +9,8 @@
       "source": "https://github.com/Linductor-alkaid/mira.git",
       "path": "third_party/mira",
       "version": "0.1.0",
-      "commit": "cf0af7522243357f630b3d3e25680ed6001c6047",
+      "commit": "13485151bf531bff065eadf37be502061de2ab3e",
+      "notes": "cf0af75..1348515（38 commits，无新 tag）：上游 M23 记忆晋升（Stage W4）、M24 上下文策展 fork/merge（Stage W5）、M25 host 集成轮、M26 DEC-037 Stage T1 时间策略、DEC-040 TR1/TR2 工具引用与 skill 发布/运行时接线、DEC-043 架构基线门禁、tool_module_mcp。include/ 纯增量（+1701/-4，新头 temporal_policy / tool_module_mcp / tool_reference / tool_skill / context_working_context_fork / context_working_context_promotion）；Mirage 接触面头文件零 diff；嵌套 executor（2ae4fc8）与 mbedtls（068ff08）gitlink 不变",
       "license": "UNLICENSED (上游仓库未随附 LICENSE 文件；升级审计时先向上游确认)",
       "consumption": "add_subdirectory；Mirage::core 经由别名 Mira::core 链接",
       "nested_pins": [
@@ -51,11 +52,11 @@
       "name": "mirador",
       "source": "https://github.com/Linductor-alkaid/mirador.git",
       "path": "third_party/mirador",
-      "version": "v0.3.0-2",
-      "commit": "fff7f1594d5c91459e95e32da34729e687fbcd52",
+      "version": "v0.3.0-80",
+      "commit": "fb0dc3f85393b77845de8bffeab4201dae97c5d9",
       "license": "MIT",
       "license_file": "third_party/mirador/LICENSE",
-      "notes": "v0.3.0 之后仅 docs 增量（README showcase 重构、docs/skill/mirador-integration 下游集成 skill），include/ 零变化",
+      "notes": "fff7f15..fb0dc3f（78 commits，v0.3.0-80，无新 tag）：上游 M7-06 证据融合状态机、M7-07 全局运动补偿与生成扫掠、M7-08 级联重检测与身份复核、M7-09 合成目标跟踪 A/B/C/D 基准。include/ 纯增量（+1826/-4）：新头 object_tracker.hpp、shift_estimation.hpp；stable_id_tracker.hpp 的 advance() 增加第 4 个带默认值的 confirmed_associations 参数（默认行为逐位不变，源码兼容）；Mirage 直接接触面（pixel_format / backend_info 等）零 diff；嵌套 googletest（063de7e）gitlink 不变。新增 src/fusion/object_tracker.cpp 进入 mirador::fusion、src/image/shift_estimation.cpp 进入 mirador::image——两目标在 Mirage 构建图内（integration/mirador 经 mirador::fusion 链接）",
       "consumption": "add_subdirectory；视觉后端契约经由别名 mirador::core 链接",
       "nested_pins": [
         {

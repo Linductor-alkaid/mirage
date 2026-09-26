@@ -203,3 +203,99 @@ Mirage 现有接触面（`integration/mirador` 的 `mirador::core`：`pixel_form
 docs-only 增量，无许可证变化、无 API 适配。`docs/skill/mirador-integration/`
 自本 pin 起为 Mirage 侧 mirador 集成工作的按需路由资源（AGENTS.md 纪律），
 其建议与 pinned 公开头冲突时以头文件契约为准。
+
+---
+
+## 2026-09-26：mira → 1348515、mirador → fb0dc3f（v0.3.0-80）
+
+- **分支**：`chore/deps-upstream-sync-20260926`（升级前两者分别 pin 在
+  `cf0af75`、`fff7f15`）。
+- **动机**：上游 master 前进，跟进上游能力交付；无 Mirage 侧能力缺口驱动
+  （`docs/dependency_feedback/ledger.md` 本次无新增条目）。
+- **环境**：本机取证首次覆盖双依赖同时前滚（Windows 11 x64，MSVC 19.44
+  BuildTools，Visual Studio 17 2022 生成器）；sanitizer 矩阵由 CI（Linux）
+  双面确认。
+
+### 版本差异
+
+| 依赖 | 旧 pin | 新 pin | 上游主要交付 |
+| --- | --- | --- | --- |
+| mira | `cf0af75` | `1348515`（38 commits，无新 tag） | M23 Stage W4 记忆晋升、M24 Stage W5 上下文策展 fork/merge、M25 host 集成轮、M26 DEC-037 Stage T1 时间策略契约冻结、DEC-040 TR0/TR1/TR2（稳定工具引用、skill 发布生命周期、运行时接线）、DEC-039 MCP 工具模块接纳、DEC-043 架构基线门禁 |
+| mira → executor | `2ae4fc8`（v0.5.0） | 不变 | — |
+| mira → mbedtls | `068ff08`（v3.6.7） | 不变 | — |
+| mirador | `fff7f15`（v0.3.0-2） | `fb0dc3f`（v0.3.0-80，无新 tag） | M7 跨帧目标跟踪 Experimental 轨道（DEC-019/DEC-020）：M7-01..M7-05 `object_tracker.hpp` 池模型与跟踪管线、M7-06 证据融合状态机、M7-07 全局运动补偿、M7-08 级联重检测与身份复核、M7-09 合成目标跟踪 A/B/C/D 基准与阈值校准；新头 `shift_estimation.hpp` |
+| mirador → googletest | `063de7e` | 不变 | — |
+
+### Mirage 接触面 API 影响分析
+
+对 Mirage 全部依赖 include 点逐一 diff（全仓扫描 `#include <mira/*>
+<executor/*> <mirador/*>` 得到接触面）：
+
+- **mira**（`artifact_store`、`environment`、`json`、`version`、
+  `adapters/simulator/simulator_environment`）：`cf0af75..1348515` 区间
+  `include/` 五个接触面头文件**零 diff**。上游新增/修改的 11 个公共头
+  （`temporal_policy`、`tool_module_mcp`、`tool_reference`、`tool_skill`、
+  `context_working_context_fork`、`context_working_context_promotion` 新增；
+  `agent_loop`、`context_working_context`、`memory_consolidation`、
+  `workflow_events`、`workflow_runtime` 修改，合计 +1701/-4）均为纯增量，
+  未被 Mirage 引用。CMake 层新增编译单元进入 `mira_core` / `mira_workflow`
+  源列表，`Mira::core` 目标接口不变。
+- **executor**：嵌套 gitlink 不变（`2ae4fc8`），接触面头文件零风险。
+- **mirador**：接触面传递引入的唯一变更头是 `stable_id_tracker.hpp`
+  （`fusion.hpp` / `perception_session.hpp` 均 include 它）：`advance()`
+  新增第 4 个带默认值的 `std::span<const ConfirmedAssociation>` 参数
+  （M7-06 DEC-010 门控直通），空关联列表复现既有行为逐位不变，源码兼容；
+  Mirage 源码未调用 `advance()`，无适配点。新头 `object_tracker.hpp`
+  （+1621）与 `shift_estimation.hpp`（+167）为独立 Experimental 契约，
+  未被 Mirage 接触面头传递引入。直接接触面（`pixel_format`、
+  `backend_info` 等）零 diff。
+- **构建图变化**：上游新增 `src/fusion/object_tracker.cpp` 进入
+  `mirador::fusion`、`src/image/shift_estimation.cpp` 进入
+  `mirador::image`——两目标在 Mirage 依赖图内（`integration/mirador` 链接
+  `mirador::fusion`，PUBLIC 拉入 `mirador::image`/`cache`），属本次升级
+  实际新增的编译与链接面，已由下述全树构建验证。
+
+**结论：无 API 适配需求；新增编译面（object_tracker / shift_estimation）
+经全树构建验证通过。**
+
+### 许可证核对
+
+- mira：新 pin 仍无 LICENSE 文件，`dependencies.lock.json` 的 UNLICENSED
+  注记维持，待上游补齐后更新。
+- executor：MIT（不变）；mirador：MIT（不变，新头随 pin 以 MIT 接收）；
+  mbedtls：Apache-2.0 / GPL-2.0-or-later（不变）；googletest：
+  BSD-3-Clause（不变）；sqlite（vendored，audit-only）不变。
+
+### 回归验证证据
+
+（本机 Windows 11 x64，MSVC 19.44 BuildTools，Visual Studio 17 2022 生成器
+x64，2026-09-26；增量构建树 `build/windows`。）
+
+- **configure**：`cmake -S . -B build/windows -A x64
+  -DMIRAGE_FETCH_DEPENDENCIES=OFF` 通过，5/5 pin verified——mira
+  `1348515`、executor `2ae4fc8`、mbedtls `068ff08`、mirador `fb0dc3f`
+  （本次新 pin）、googletest `063de7e`，与 `dependencies.lock.json` 一致；
+  CEF 工件与前端 lockfile 门禁复核通过（ATL 警告为既有环境噪音，非本次
+  引入）。
+- **构建**：`cmake --build build/windows --config Debug` 退出码 0，含
+  mirador::fusion（`object_tracker.cpp`）与 mirador::image
+  （`shift_estimation.cpp`）新编译单元及 mira_core/mira_workflow 新增源
+  在 MSVC `/utf-8` 下全量编译链接通过；仅既有 LNK4199 DELAYLOAD 链接
+  警告（apps/desktop，非本次引入）。
+- **测试**：`ctest --test-dir build/windows -C Debug` **23/23 通过、0 失败**
+  （unit 16 / integration 7 / platform 6 / protocol 1 / smoke 2 标签覆盖），
+  79.15s。
+- **未覆盖项（本机）**：asan / ubsan / tsan 预设本机不可运行（预设使用
+  GCC 风格 `-fsanitize` flag，MSVC 不支持），已由 CI（Linux）矩阵覆盖；
+  release 预设本机未跑，由 CI release 作业覆盖。
+
+### 审计结论
+
+通过。submodule 指针与 `dependencies.lock.json` 同步更新于同一变更；无许可
+证变化、无 API 适配、无回归。CI 双面确认（PR #51，run `36223246372`，
+conclusion **success**，8/8 jobs）：windows msvc 全树、Linux debug / release /
+asan / ubsan / tsan 五预设构建+测试、format 与公共头边界、frontend 契约全部
+通过——sanitizer 矩阵在 Linux 侧对本次新增编译面（object_tracker /
+shift_estimation）零报告。上游 M7 目标跟踪 Experimental 契约
+（`object_tracker.hpp`）与 mira 的 DEC-040 工具引用层均为后续 Mirage 工作项
+的候选能力，按需另行引入消费。
