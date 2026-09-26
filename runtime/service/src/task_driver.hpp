@@ -36,4 +36,12 @@ void publish_task_updated(const std::shared_ptr<ServiceCore> &core, const std::s
 void publish_task_updated_best_effort(const std::shared_ptr<ServiceCore> &core,
                                       const std::string &task_id);
 
+/// Driver-thread entry for a raised permission confirmation (DEC-020): the
+/// same serial-domain best-effort publish discipline as the task snapshot,
+/// so the permission.request broadcast keeps the established event ordering
+/// and backpressure semantics. A dropped publish is covered by the
+/// permission.list snapshot (the hub's pending set stays authoritative).
+void publish_permission_request_best_effort(const std::shared_ptr<ServiceCore> &core,
+                                            ipc::PermissionRequestedEvent event);
+
 } // namespace mirage::runtime::detail

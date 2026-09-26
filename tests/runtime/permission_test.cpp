@@ -3,13 +3,19 @@
 // their parsers), the default policy, the PermissionController verdict
 // semantics (Allow and Deny never touch the confirmation hook, Confirm
 // consults it exactly once), the built-in confirmation handlers and the
-// request trace fields reaching the handler untouched.
+// request trace fields reaching the handler untouched. M5-03 (DEC-020)
+// replaces the bool hook contract with ConfirmationResult + CancelProbe and
+// adds the AsyncConfirmationHub surface: bounded waits, first-response-wins
+// resolution, capacity rejection and probe-first cancellation.
 
 #include "../support/test.hpp"
 
 #include <mirage/runtime/permission/capability.hpp>
+#include <mirage/runtime/permission/confirmation_hub.hpp>
 #include <mirage/runtime/permission/permission.hpp>
 
+#include <chrono>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -18,8 +24,11 @@ namespace {
 namespace permission = mirage::runtime::permission;
 
 using permission::AllowAllConfirmation;
+using permission::AsyncConfirmationHub;
+using permission::CancelProbe;
 using permission::Capability;
 using permission::ConfirmationHandler;
+using permission::ConfirmationResult;
 using permission::Decision;
 using permission::DenyAllConfirmation;
 using permission::PermissionController;
@@ -29,20 +38,23 @@ using permission::Rule;
 
 /// Fake confirmation hook: counts invocations and records the last request,
 /// so tests can assert exactly how often the gate consulted it and what the
-/// handler observed.
+/// handler observed. The bool form maps onto the DEC-020 result set
+/// (approve/reject); the explicit form selects any outcome.
 class RecordingConfirmation final : public ConfirmationHandler {
   public:
-    explicit RecordingConfirmation(bool verdict) : verdict_(verdict) {}
+    explicit RecordingConfirmation(bool approved)
+        : result_(approved ? ConfirmationResult::Approved : ConfirmationResult::Rejected) {}
+    explicit RecordingConfirmation(ConfirmationResult result) : result_(result) {}
 
-    bool confirm(const PermissionRequest &request) override {
+    ConfirmationResult confirm(const PermissionRequest &request, const CancelProbe &) override {
         ++calls;
         last = request;
-        return verdict_;
+        return result_;
     }
 
     int calls = 0;
     PermissionRequest last;
-    bool verdict_;
+    ConfirmationResult result_;
 };
 
 // --- stable vocabulary -------------------------------------------------------
@@ -578,8 +590,190 @@ void scenario_builtin_confirmation_handlers() {
     DenyAllConfirmation deny_all;
     AllowAllConfirmation allow_all;
     const PermissionRequest request;
-    MIRAGE_CHECK(!deny_all.confirm(request));
-    MIRAGE_CHECK(allow_all.confirm(request));
+    MIRAGE_CHECK(deny_all.confirm(request, CancelProbe{}) == ConfirmationResult::Rejected);
+    MIRAGE_CHECK(allow_all.confirm(request, CancelProbe{}) == ConfirmationResult::Approved);
+}
+
+// --- DEC-020 async confirmation surface --------------------------------------
+
+/// Every non-approve hook outcome converges to the same wire decision with
+/// its own stable reason string; the probe never fires by default.
+void scenario_confirmation_outcome_reasons() {
+    PermissionPolicy policy;
+    policy.rules[static_cast<std::size_t>(Capability::FilesystemRead)] = Rule::Confirm;
+
+    struct Wanted {
+        const char *reason;
+        ConfirmationResult result;
+    };
+    const Wanted wanted[] = {
+        {"confirmation rejected for filesystem.read", ConfirmationResult::Rejected},
+        {"confirmation timed out for filesystem.read", ConfirmationResult::TimedOut},
+        {"confirmation unavailable for filesystem.read", ConfirmationResult::Unresolved},
+        {"confirmation cancelled for filesystem.read", ConfirmationResult::Cancelled},
+    };
+    for (const auto &expectation : wanted) {
+        RecordingConfirmation handler(expectation.result);
+        PermissionController controller(policy, handler);
+        PermissionRequest request;
+        request.capability = Capability::FilesystemRead;
+        const auto verdict = controller.authorize(request);
+        MIRAGE_CHECK(!verdict.allowed);
+        MIRAGE_CHECK(verdict.decision == Decision::DeniedByConfirmation);
+        MIRAGE_CHECK(verdict.reason == expectation.reason);
+        MIRAGE_CHECK(handler.calls == 1);
+    }
+}
+
+/// Probe-first (DEC-020): a caller already asked to stop never raises a
+/// confirmation request, so the hook is not consulted at all.
+void scenario_probe_fires_before_hook() {
+    PermissionPolicy policy;
+    policy.rules[static_cast<std::size_t>(Capability::ProcessExecute)] = Rule::Confirm;
+    RecordingConfirmation handler(true);
+    PermissionController controller(policy, handler);
+    PermissionRequest request;
+    request.capability = Capability::ProcessExecute;
+    const auto verdict = controller.authorize(request, [] { return true; });
+    MIRAGE_CHECK(!verdict.allowed);
+    MIRAGE_CHECK(verdict.decision == Decision::DeniedByConfirmation);
+    MIRAGE_CHECK(verdict.reason == "confirmation cancelled for process.execute");
+    MIRAGE_CHECK(handler.calls == 0);
+}
+
+/// No probe (the M1 call shape) still reaches the hook: the empty probe
+/// never fires, so existing callers keep their behavior.
+void scenario_empty_probe_reaches_hook() {
+    PermissionPolicy policy;
+    policy.rules[static_cast<std::size_t>(Capability::FilesystemWrite)] = Rule::Confirm;
+    RecordingConfirmation handler(true);
+    PermissionController controller(policy, handler);
+    PermissionRequest request;
+    request.capability = Capability::FilesystemWrite;
+    const auto verdict = controller.authorize(request);
+    MIRAGE_CHECK(verdict.allowed);
+    MIRAGE_CHECK(verdict.decision == Decision::AllowedByConfirmation);
+    MIRAGE_CHECK(handler.calls == 1);
+}
+
+/// The hub resolves an approval raised inside the wait: the "responder" is
+/// simulated from within the probe the wait loop polls (the test discipline
+/// forbids spawning threads; the probe is a legal rendezvous point).
+void scenario_hub_approve_resolution() {
+    AsyncConfirmationHub hub(std::chrono::milliseconds{5000});
+    std::optional<permission::PendingConfirmation> raised;
+    hub.set_publish_hook(
+        [&raised](const permission::PendingConfirmation &pending) { raised = pending; });
+    PermissionRequest request;
+    request.capability = Capability::FilesystemWrite;
+    request.resource = "/tmp/out.txt";
+    request.task_id = "task-hub-approve";
+    const auto probe = [&hub]() -> bool {
+        const auto views = hub.pending();
+        if (!views.empty()) {
+            MIRAGE_CHECK(views.size() == 1);
+            return hub.resolve(views.front().request_id, true) ? false : true;
+        }
+        return false;
+    };
+    MIRAGE_CHECK(hub.confirm(request, probe) == ConfirmationResult::Approved);
+    MIRAGE_CHECK(raised.has_value());
+    if (raised) {
+        MIRAGE_CHECK(raised->capability == "filesystem.write");
+        MIRAGE_CHECK(raised->resource == "/tmp/out.txt");
+        MIRAGE_CHECK(raised->task_id == "task-hub-approve");
+        MIRAGE_CHECK(raised->request_id.rfind("perm-", 0) == 0);
+    }
+    MIRAGE_CHECK(hub.pending().empty());
+}
+
+/// Same resolution shape for an explicit rejection, plus the decided-id
+/// surface: a second resolve (or an unknown id) is not a winner.
+void scenario_hub_reject_resolution() {
+    AsyncConfirmationHub hub(std::chrono::milliseconds{5000});
+    std::string raised_id;
+    hub.set_publish_hook([&raised_id](const permission::PendingConfirmation &pending) {
+        raised_id = pending.request_id;
+    });
+    PermissionRequest request;
+    request.capability = Capability::ProcessExecute;
+    request.resource = "rm -rf /tmp/stale-build";
+    request.task_id = "task-hub-reject";
+    const auto probe = [&hub]() -> bool {
+        const auto views = hub.pending();
+        if (!views.empty()) {
+            hub.resolve(views.front().request_id, false);
+        }
+        return false;
+    };
+    MIRAGE_CHECK(hub.confirm(request, probe) == ConfirmationResult::Rejected);
+    MIRAGE_CHECK(!raised_id.empty());
+    MIRAGE_CHECK(hub.pending().empty());
+    MIRAGE_CHECK(!hub.resolve(raised_id, true)); // decided: not a winner
+    MIRAGE_CHECK(!hub.resolve("perm-no-such", true));
+}
+
+/// The wait budget converges fail closed: with no responder the wait ends
+/// TimedOut and the pending set is cleaned up.
+void scenario_hub_timeout_fails_closed() {
+    AsyncConfirmationHub hub(std::chrono::milliseconds{30});
+    PermissionRequest request;
+    request.capability = Capability::ClipboardWrite;
+    request.task_id = "task-hub-timeout";
+    const auto started = std::chrono::steady_clock::now();
+    MIRAGE_CHECK(hub.confirm(request, CancelProbe{}) == ConfirmationResult::TimedOut);
+    const auto waited = std::chrono::steady_clock::now() - started;
+    MIRAGE_CHECK(waited >= std::chrono::milliseconds{30});
+    MIRAGE_CHECK(waited < std::chrono::seconds{5});
+    MIRAGE_CHECK(hub.pending().empty());
+}
+
+/// The probe outranks the wait: a cancelled caller retracts the raised
+/// request and returns Cancelled.
+void scenario_hub_cancelled_by_probe() {
+    AsyncConfirmationHub hub(std::chrono::milliseconds{5000});
+    PermissionRequest request;
+    request.capability = Capability::FilesystemRead;
+    request.task_id = "task-hub-cancel";
+    const auto probe = [] { return true; };
+    MIRAGE_CHECK(hub.confirm(request, probe) == ConfirmationResult::Cancelled);
+    MIRAGE_CHECK(hub.pending().empty());
+}
+
+/// Capacity is explicit (RULE-07): a second request raised while one is
+/// pending fails closed as Unresolved without disturbing the first.
+void scenario_hub_capacity_fails_closed() {
+    AsyncConfirmationHub hub(std::chrono::milliseconds{5000}, /*max_pending=*/1);
+    std::optional<ConfirmationResult> nested;
+    PermissionRequest first;
+    first.capability = Capability::FilesystemRead;
+    first.task_id = "task-hub-cap-1";
+    PermissionRequest second;
+    second.capability = Capability::FilesystemWrite;
+    second.task_id = "task-hub-cap-2";
+    const auto probe = [&]() -> bool {
+        if (nested.has_value()) {
+            return false;
+        }
+        const auto views = hub.pending();
+        if (views.empty()) {
+            // confirm()'s probe-first entry check: nothing raised yet.
+            return false;
+        }
+        // The outer request is pending: simulate the concurrent second
+        // driver, which the surface at capacity refuses instead of queueing.
+        nested = hub.confirm(second, CancelProbe{});
+        const auto after = hub.pending();
+        MIRAGE_CHECK(after.size() == 1);
+        if (after.size() == 1) {
+            MIRAGE_CHECK(after.front().task_id == "task-hub-cap-1");
+            hub.resolve(after.front().request_id, true);
+        }
+        return false;
+    };
+    MIRAGE_CHECK(hub.confirm(first, probe) == ConfirmationResult::Approved);
+    MIRAGE_CHECK(nested.has_value() && *nested == ConfirmationResult::Unresolved);
+    MIRAGE_CHECK(hub.pending().empty());
 }
 
 void run_scenario(const char *name, void (*scenario)()) {
@@ -610,5 +804,13 @@ int main() {
                  scenario_confirm_rejected_calls_handler_once);
     run_scenario("request_reaches_handler_untouched", scenario_request_reaches_handler_untouched);
     run_scenario("builtin_confirmation_handlers", scenario_builtin_confirmation_handlers);
+    run_scenario("confirmation_outcome_reasons", scenario_confirmation_outcome_reasons);
+    run_scenario("probe_fires_before_hook", scenario_probe_fires_before_hook);
+    run_scenario("empty_probe_reaches_hook", scenario_empty_probe_reaches_hook);
+    run_scenario("hub_approve_resolution", scenario_hub_approve_resolution);
+    run_scenario("hub_reject_resolution", scenario_hub_reject_resolution);
+    run_scenario("hub_timeout_fails_closed", scenario_hub_timeout_fails_closed);
+    run_scenario("hub_cancelled_by_probe", scenario_hub_cancelled_by_probe);
+    run_scenario("hub_capacity_fails_closed", scenario_hub_capacity_fails_closed);
     return mirage::testing::finish("permission_test");
 }

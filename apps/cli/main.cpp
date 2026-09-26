@@ -199,6 +199,7 @@ int command_service_start(int argc, char **argv) {
     std::vector<std::string> read_roots;
     std::vector<std::string> perm_flags;
     std::string confirm_mode;
+    std::string confirm_wait_ms;
     std::string config_path;
     std::string state_dir;
     bool no_recovery = false;
@@ -246,12 +247,28 @@ int command_service_start(int argc, char **argv) {
                     return true;
                 }
                 if (name == "--confirm") {
-                    if (value != "allow" && value != "deny") {
-                        std::cerr << kProgramName << ": --confirm expects allow|deny (got '"
+                    // M5-03 (DEC-020): `ipc` selects the service's async
+                    // confirmation surface and is passed through verbatim.
+                    if (value != "allow" && value != "deny" && value != "ipc") {
+                        std::cerr << kProgramName << ": --confirm expects allow|deny|ipc (got '"
                                   << value << "')\n";
                         return false;
                     }
                     confirm_mode = value;
+                    return true;
+                }
+                if (name == "--confirm-wait-ms") {
+                    // Forwarded to mirage-service --confirm ipc verbatim;
+                    // positivity is validated by the service.
+                    const std::string_view text{value};
+                    if (text.empty() ||
+                        text.find_first_not_of("0123456789") != std::string_view::npos) {
+                        std::cerr << kProgramName
+                                  << ": --confirm-wait-ms expects a positive integer (got '"
+                                  << value << "')\n";
+                        return false;
+                    }
+                    confirm_wait_ms = value;
                     return true;
                 }
                 return parse_common_option(name, value, options);
@@ -351,6 +368,10 @@ int command_service_start(int argc, char **argv) {
         if (!confirm_mode.empty()) {
             argv_child.push_back(const_cast<char *>("--confirm"));
             argv_child.push_back(const_cast<char *>(confirm_mode.c_str()));
+        }
+        if (!confirm_wait_ms.empty()) {
+            argv_child.push_back(const_cast<char *>("--confirm-wait-ms"));
+            argv_child.push_back(const_cast<char *>(confirm_wait_ms.c_str()));
         }
         if (!config_path.empty()) {
             argv_child.push_back(const_cast<char *>("--config"));

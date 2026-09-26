@@ -81,6 +81,8 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 | `service.shutdown` | 无 | `{}`（确认形状，无附加成员） | — |
 | `events.subscribe` | 无（M1.5-02 落地） | `{}`（确认形状） | 旧服务端按未知 op 拒绝：`protocol_error`（`"unknown op 'events.subscribe'"`），新客户端据此降级轮询 |
 | `events.unsubscribe` | 无（M1.5-02 落地） | `{}`（确认形状） | 同上 |
+| `permission.respond` | `request_id`（string，非空），`approved`（boolean）（M5-03 落地） | `{"request_id"}`（回显，§6.4） | `not_found`（未知、已决或已过期的请求 id）、`unavailable`（确认面未启用，§6.4） |
+| `permission.list` | 无（M5-03 落地） | `{"pending":[PendingPermission...]}`（§6.4，可为空数组） | `unavailable`（确认面未启用） |
 
 协议层（`decode_request`）只约束参数的存在与类型（如 `task.submit` 缺 `goal` 即
 `protocol_error`）；空值等语义校验发生在服务层，产出表中 `invalid_argument` 等稳定错误。
@@ -101,7 +103,7 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 | `invalid_argument` | 请求通过协议层但违反服务层语义校验 | 保持连接 |
 | `not_found` | 引用了不存在的任务 id | 保持连接 |
 | `invalid_state` | 任务或服务当前状态不允许该操作 | 保持连接 |
-| `unavailable` | 服务暂不能提供该能力（保留码，M1 服务未使用） | 保持连接 |
+| `unavailable` | 服务暂不能提供该能力（`permission.*` 确认面未启用，M5-03；其余防御性保留） | 保持连接 |
 | `internal` | 服务端内部失败（如任务未被 service runtime 接纳） | 保持连接 |
 | `pinned_runtime` | pinned Mira 控制面拒绝的逐字透传；`message` 以 `invalid_state:` 等稳定前缀开头，安全用于日志与 UI | 保持连接 |
 
@@ -120,6 +122,7 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 | `host_status` | string | 主机五态：`stopped` / `starting` / `running` / `stopping` / `failed`（DEC-004，小写稳定形式） |
 | `protocol` | integer | 协议版本（1） |
 | `events` | boolean（可选） | DEC-012 能力通告：新服务端编码时总是写出；解码端缺省视为 `false`。置于 `protocol` 之后 |
+| `permissions` | boolean（可选） | DEC-020 异步确认面能力通告（`permission.*` 请求面可用）：语义与 `events` 相同（编码端总是写出、解码端缺省 `false`）。置于 `events` 之后 |
 
 ### 6.2 `InspectTask`（task.inspect 响应载荷，嵌于 `task` 成员）
 
@@ -147,7 +150,29 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 | `error` | string | 稳定失败摘要，安全用于 UI |
 
 `task.list` 条目为 `{id, goal, progress}`（成员同序）；`task.submit` 成功载荷为
-`{task_id}`；`task.cancel` 成功载荷为 `{task_cancelled: {task_id, progress}}`。
+`{task_id}`；`task.cancel` 成功载荷为 `{task_cancelled: {task_id, progress}}`；
+`permission.respond` 成功载荷为 `{request_id}`（§6.3）。
+
+### 6.3 `PendingPermission`（permission.* 载荷，M5-03，DEC-020）
+
+`permission.list` 成功载荷：`{"pending":[PendingPermission...]}`（`pending` 可为空
+数组）；`permission.respond` 成功载荷：`{"request_id": <回显>}`。
+
+`pending[i]`（`PendingPermission`，成员按 wire 顺序）：
+
+| 成员 | 类型 | 约束 |
+| --- | --- | --- |
+| `request_id` | string | 非空；服务端生成的待确认请求身份（`permission.respond` 以其回指） |
+| `capability` | string | 封闭 Capability 词表（`filesystem.read` / `filesystem.write` / `process.execute` / `window.activate` / `screen.capture` / `input.inject` / `clipboard.read` / `clipboard.write` / `application.launch` / `application.terminate` / `notification.post`，DEC-010 / DEC-020） |
+| `resource` | string | 动作资源（路径 / 命令行），可为空；披露边界见 DEC-020 决策 8 |
+| `task_id` | string | 非空；发起确认的任务（RULE-05 trace 关联） |
+| `timeout_ms` | integer | 正整数；快照时点的剩余等待预算 |
+
+`permission.respond` 的 `request_id` 未知、已被应答或已超时清理时，服务回
+`not_found`（`"unknown or already decided permission request id"`）；确认面未启用
+（hello `permissions` 为 `false` 或缺省）时，`permission.respond` /
+`permission.list` 回 `unavailable`。多连接竞争语义（first-response-wins）见
+[DEC-020](../decisions/DEC-020-permission-async-confirmation.md) 决策 4。
 
 ## 7. 事件扩展（DEC-012，wire 语义自 `M1.5-02` 落地起冻结）
 
@@ -174,6 +199,7 @@ M1.5 事件集（封闭集合，M2+ 新事件以附加方式进入，不改既�
 | `task.updated` | `task_id`（string）、`goal`（string）、`progress`（string，§6.2 集合）、`has_success`（boolean）、`success`（boolean） | 任务创建、进度推进与终态（含取消、失败）发布；快照语义，`progress` 含义与 `task.inspect` 一致 |
 | `host.status` | `status`（string，§6.1 五态） | Mira Host 状态变化即发布 |
 | `events.overflow` | `dropped`（integer，非负） | 连接级事件队列溢出时发布的合成标记事件 |
+| `permission.request` | `request_id`（string，非空）、`capability`（string，§6.3 词表）、`resource`（string）、`task_id`（string，非空）、`timeout_ms`（正整数） | `confirm` 规则命中且异步确认面启用时发布（DEC-020）：广播给全部订阅连接，等待 `timeout_ms` 预算内任一连接的 `permission.respond`；无应答即超时 fail closed。判定结果以 `task.updated` 终态与 `task.inspect` 步 trace 呈现，`permission.list` 是待确认快照事实源 |
 
 ### 7.3 一致性模型与背压（DEC-012 决策 4、5）
 
@@ -227,6 +253,13 @@ TypeScript 消费者 `ui/contracts/test/golden-vectors.test.ts` 读取**同一�
 
 ## 10. 变更记录
 
+- 2026-09-26（`M5-03`）：权限异步确认面附加扩展（DEC-020，协议版本不递增）。
+  §4 新增 `permission.respond` / `permission.list`；§6.1 新增 `permissions`
+  能力通告成员；§6.3 新增 `PendingPermission` 载荷形状；§7.2 新增
+  `permission.request` 事件。golden vectors：requests 增补两条 permission
+  向量、responses 增补 `permission-responded` / `permission-list`、events
+  增补 `permission-request`，失败向量锁定新稳定错误串（`meta.version`
+  2 → 3）。
 - 2026-09-17（`M1.5-02`）：事件订阅落地，§7 事件帧格式与订阅语义冻结。§6.1
   `events` 能力成员与 §7 的 `events.subscribe` / `events.unsubscribe` 进入两端实现
   （golden vectors：requests 增补两条订阅向量；原 `unknown-op-events-*` 失败向量

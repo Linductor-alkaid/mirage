@@ -1,6 +1,6 @@
 # M5：Desktop Product（Workspace / Overlay / 权限 / 分发）
 
-> 状态：In Progress（`M5-01`、`M5-02` 完成，2026-09-26）
+> 状态：In Progress（`M5-01`、`M5-02`、`M5-03` 完成，2026-09-26）
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M3](m3-mirador-integration.md)（已完成：Mirador 视觉集成与壳选型冻结——
@@ -113,7 +113,7 @@
       耦合面）；壳形态与浏览器形态同构，transport 装配语义在壳内等价；
       devbridge 维持开发工具定位不变。验收：壳内 UI 对真实 `mirage-service`
       完成 hello / 订阅 / 任务往返。
-- [ ] `M5-03` 权限异步确认面（DEC-010 M5 演进）：异步确认语义决策记录
+- [x] `M5-03` 权限异步确认面（DEC-010 M5 演进）：异步确认语义决策记录
       （等待预算、超时收敛、多连接竞争、恢复行为——DEC-010 限制节预告的
       决策输入）；协议 v1 附加扩展 `permission.*`（请求事件 + 应答 op，
       DEC-012 扩展流程，wire 契约与 golden vectors 双端同步）；
@@ -437,3 +437,93 @@ success。
     SessionClient 往返场景），产品进程往返与 windows frontend evidence
     照常通过（M4 门禁不回归）。
 - 合并裁决：维护者（PR [#49](https://github.com/Linductor-alkaid/mirage/pull/49)）。
+
+2026-09-26：`M5-03` 权限异步确认面完成。
+
+- 范围：
+  - **决策记录**：[DEC-020](../decisions/DEC-020-permission-async-confirmation.md)
+    （新增，Accepted）——挂点契约由"同步 bool"演进为 `ConfirmationResult`
+    （`Approved` / `Rejected` / `TimedOut` / `Unresolved` / `Cancelled`）+
+    `CancelProbe`；等待预算默认 120 s（可配置）、超时收敛 fail closed；
+    多连接竞争 first-response-wins（迟到应答稳定 `not_found`）；待确认态纯
+    内存不持久化，`permission.list` 为重同步快照事实源；hello 新增
+    `permissions` 能力通告；`resource` 上 wire 的披露边界显式化。
+  - **协议 v1 附加扩展**（DEC-012 流程，传输 / 帧格式 / 版本号不变）：
+    事件 `permission.request`（`request_id` / `capability` / `resource` /
+    `task_id` / `timeout_ms`）、请求 `permission.respond`（成功载荷
+    `{"request_id"}`）与 `permission.list`（成功载荷 `{"pending":[...]}`）；
+    `mirage-ipc-protocol-v1.md` §4 / §6.1 / §6.3 / §7.2 同步，golden vectors
+    `meta.version` 2 → 3（requests +2、request_failures +4、responses +3、
+    response_failures +3、events +1、event_failures +4，双端门禁同一文件）。
+  - **runtime/permission**：`AsyncConfirmationHub`（pinned-free 纯 std：
+    mutex + promise + 切片轮询，无线程无 executor 类型）——有界等待、容量
+    封顶（默认 64，饱和 fail closed `Unresolved`）、`resolve()` 互斥收敛、
+    `pending()` 快照（剩余预算钳制正值）；`PermissionController::authorize()`
+    增加探测参数，探测先行。判定语义、决策四值、Capability 词表不变
+    （DEC-010 变更记录留痕）。
+  - **runtime/service**：`ServiceConfig.confirmation_hub`（与旧 `confirmation`
+    互斥，start() 校验双设与非正预算 fail closed）；hub 发布经既有 serial 域
+    best-effort 路径（与任务事件同背压语义）；`handle_permission_respond` /
+    `handle_permission_list`（确认面未启用 → 稳定 `unavailable`）；hello 能力
+    位随 hub 装配。任务驱动器：探测 = `{desktop cancel token, executor stop
+    token}`，确认等待期间取消 → 步 `cancelled` 且 permission 字段保持空
+    （未判定语义）、后续 `skipped`、任务 `Cancelled`；authorize 返回后取消
+    仍赢过已确认批准（无副作用）。
+  - **CLI**：`mirage-service --confirm ipc --confirm-wait-ms N`；
+    `mirage service start` 同步透传两旗标（本地预校验）。
+- 依据：设计文档第 12、15 节；[DEC-010](../decisions/DEC-010-m1-permission-framework.md)
+  （被替换条款与不变条款）、[DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)、
+  [DEC-020](../decisions/DEC-020-permission-async-confirmation.md)（本工作项
+  新决策记录）；本计划 `M5-03` 工作项；[前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
+  §4 批准中心契约行。
+- 验证（本机 Windows 11 x64，MSVC 19.44 BuildTools，真实桌面 + 命名管道）：
+  - 全树 MSVC Debug 构建 0 诊断（仅 M5-02 既有 CEF delayload 警告）；ctest
+    **23/23 通过 0 skip**（`permission_test` 更新后 264 检查：新结果集 reason
+    稳定串、探测先行、hub 批准/拒绝/超时/取消/容量 9 场景全绿；
+    `ipc_protocol_golden_test` 359 检查含 permission 向量逐字节门禁；
+    `win32_product_process_test` 等既有门禁零回归）。
+  - ui：`npm run check`（tsc 严格）通过；`npm test` **17 文件 556 测试通过**
+    （golden-vectors 门禁消费同一 vectors 文件，新增向量两端同绿）；
+    `npm run lint` 0 问题；`npm run build` 产出 dist。
+  - `mirage-format-check`（clang-format 19）与 `mirage-boundary-check`
+    （39 公共头 0 违规，含新 `confirmation_hub.hpp`）本机通过。
+  - **Windows 命名管道冒烟**（真实 `mirage-service --confirm ipc
+    --confirm-wait-ms 8000`，CLI 往返）：启动横幅
+    「confirmations: async ipc (wait 8000 ms)」；`task submit`（read 步）后
+    无人应答，8 s 预算耗尽任务 Failed，`task inspect` 呈现
+    `perm=confirmation_rejected` + `permission_denied: confirmation timed out
+    for filesystem.read`——异步面在 Windows 传输上的超时 fail closed 与 trace
+    记录成立（批准 / 拒绝 / 取消 / 多连接路径由 `permission_ipc_test` 在
+    Linux CI 取证，Windows respond 路径由 hub 单元与 golden 门禁覆盖）。
+- 限制与补跑条件：① Linux 矩阵（debug / release / asan / ubsan / tsan）与
+  `permission_ipc_test` 集成取证随本 PR CI 执行（结论由后续记录补录）；②
+  批准中心 UI 接线属 `M5-07`（本工作项交付契约面 + 服务承载 + TS 镜像）；
+  ③ 确认流在 tsan 预设下的跨上下文验证同随 CI。
+- 同步：[DEC-020](../decisions/DEC-020-permission-async-confirmation.md)
+  （新增）、[DEC-010](../decisions/DEC-010-m1-permission-framework.md)
+  （变更记录：挂点契约替换留痕）、
+  [mirage-ipc-protocol-v1.md](../design/mirage-ipc-protocol-v1.md)
+  （§4 / §6.1 / §6.3 / §7.2 + 变更记录）、设计文档第 15 节（异步确认面
+  落地叙述）、[前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
+  §4 与变更记录、
+  [总计划](mirage-implementation-plan.md) 状态叙述。
+
+2026-09-26：`M5-03` CI 取证完成；run 36215388888（headSha = `c72316f`
+已核实）全部 8 作业 success。
+
+- Linux 矩阵：debug / release / asan / ubsan / tsan 五预设全绿，每预设
+  **31/31 测试 0 skip**（新增 `permission_ipc_test`——批准 / 拒绝 / 超时 /
+  取消等待中断 / first-response-wins / `permission.list` 快照 / 面未启用
+  `unavailable` / `permissions` 能力位八场景；确认等待的跨上下文收敛路径
+  经 tsan `setarch -R` 验证）；format & public-header boundaries 绿。
+- frontend 作业：lint + strict tsc + 556 测试 + build 全绿（golden vectors
+  双端门禁消费同一 meta.version 3 vectors 文件）。
+- windows msvc (full tree)：14/14 测试通过，`win32_product_process_test`
+  **60 检查 0 失败**、壳目标与 UI 资产构建照常（M4 / M5-02 门禁零回归）。
+- 首轮 CI 修复轮（同 PR 内，提交 `8058ffe` / `706f8e6` / `8c5f54f` /
+  `2dbc462` / `defe42d` / `c72316f`）：golden 测试映射补齐 permission 向量、
+  clang-format 19 → 18 空花括号风格回归、POSIX 专属测试的 GCC
+  `-Werror`（identity 聚合初始化缺新成员、冗余 int64 cast）、测试自身
+  秒/毫秒单位比较与取消场景驱动器收敛竞态——六处均为测试/格式修正，
+  实现面零改动。
+- 合并裁决：维护者（PR [#50](https://github.com/Linductor-alkaid/mirage/pull/50)）。

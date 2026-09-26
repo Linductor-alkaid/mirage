@@ -357,6 +357,21 @@ void publish_task_updated_best_effort(const std::shared_ptr<ServiceCore> &core,
     }
 }
 
+void publish_permission_request_best_effort(const std::shared_ptr<ServiceCore> &core,
+                                            ipc::PermissionRequestedEvent event) {
+    try {
+        auto posted = core->executor.submit_on(
+            core->serial, [core, event] { core->events.publish_permission_request(event); });
+        if (!ready_within(posted, core->command_wait)) {
+            return; // dropped: the hub's pending set stays the truth (DEC-020)
+        }
+        consume(std::move(posted));
+    } catch (const std::exception &) {
+        // Rejected admission (teardown in progress) ends the publish path.
+    } catch (...) {
+    }
+}
+
 void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> core,
                 std::string task_id) {
     if (!core) {
@@ -390,19 +405,36 @@ void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> cor
                 return;
             }
 
-            // RULE-05 gate (DEC-010): the capability is judged before the
-            // pinned operation is admitted and before any provider side
-            // effect, so a denied action never reaches the desktop. A
-            // missing controller denies too (fail closed).
+            // RULE-05 gate (DEC-010 / DEC-020): the capability is judged
+            // before the pinned operation is admitted and before any
+            // provider side effect, so a denied action never reaches the
+            // desktop. A missing controller denies too (fail closed). The
+            // probe covers cancellation arriving during a Confirm rule's
+            // bounded wait (DEC-020).
             mirage::runtime::permission::PermissionRequest request;
             request.capability = capability_of(step.kind);
             request.resource = step.argument;
             request.task_id = task_id;
+            const auto cancelled_probe = [&cancel, &stop_token]() -> bool {
+                return cancel.cancelled() || stop_token.stop_requested();
+            };
             mirage::runtime::permission::PermissionVerdict verdict;
             if (service.permission != nullptr) {
-                verdict = service.permission->authorize(request);
+                verdict = service.permission->authorize(request, cancelled_probe);
             } else {
                 verdict.reason = "permission controller unavailable";
+            }
+            // Cancellation outranks the verdict whenever it fired (before or
+            // during the confirmation wait, DEC-020): the interrupted step
+            // is cancelled with an empty permission field — the gate never
+            // concluded — and the pinned cancel owns the settlement.
+            if (cancelled_probe()) {
+                mark_step(service, task_id, index, step_status::kCancelled, {}, "", false, -1, {},
+                          false, {});
+                for_each_step(service, task_id, index + 1,
+                              [](StepRecord &pending) { pending.status = step_status::kSkipped; });
+                mark_driver_done(core, task_id, "Cancelled", false, false);
+                return;
             }
             const char *step_permission =
                 mirage::runtime::permission::decision_name(verdict.decision);

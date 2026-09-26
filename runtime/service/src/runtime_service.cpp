@@ -53,9 +53,14 @@ struct RuntimeService::Impl {
 
     ServiceConfig config;
     std::string socket_path;
-    /// Fail-closed hook used when the config carries no confirmation
-    /// handler (DEC-010): headless M1 services reject every Confirm rule.
+    /// Fail-closed hook used when the config carries neither the DEC-020
+    /// async hub nor a legacy confirmation handler (DEC-010): headless
+    /// services reject every Confirm rule.
     permission::DenyAllConfirmation fail_closed_confirmation;
+    /// Non-owning observer of the configured async confirmation surface
+    /// (DEC-020); null unless config.confirmation_hub is set. The config
+    /// shared_ptr owns the hub.
+    permission::AsyncConfirmationHub *confirmation_hub = nullptr;
     std::shared_ptr<detail::ServiceCore> core = std::make_shared<detail::ServiceCore>();
     /// Non-owning observer of the loop object; the executor's blocking
     /// worker owns the loop itself. Valid from a successful start_worker()
@@ -85,10 +90,33 @@ struct RuntimeService::Impl {
             core->registry.capacity = config.max_task_records;
         }
         // One controller for the whole service (DEC-010): the configured
-        // policy plus the configured hook, or the fail-closed default.
-        core->permission = std::make_shared<permission::PermissionController>(
-            config.permission_policy,
-            config.confirmation ? *config.confirmation : fail_closed_confirmation);
+        // policy plus the configured confirmation surface — the DEC-020
+        // async hub, the legacy sync hook, or the fail-closed default.
+        permission::ConfirmationHandler *handler = &fail_closed_confirmation;
+        if (config.confirmation_hub != nullptr) {
+            confirmation_hub = config.confirmation_hub.get();
+            handler = confirmation_hub;
+        } else if (config.confirmation) {
+            handler = config.confirmation.get();
+        }
+        core->permission =
+            std::make_shared<permission::PermissionController>(config.permission_policy, *handler);
+        if (confirmation_hub != nullptr) {
+            // The hub raises requests from the driver thread; the publish
+            // rides the same serial-domain best-effort path as the task
+            // events (DEC-020 decision 6). By-value core capture: the hook
+            // may fire while teardown is draining drivers.
+            confirmation_hub->set_publish_hook(
+                [core = core](const permission::PendingConfirmation &pending) {
+                    ipc::PermissionRequestedEvent event;
+                    event.request_id = pending.request_id;
+                    event.capability = pending.capability;
+                    event.resource = pending.resource;
+                    event.task_id = pending.task_id;
+                    event.timeout_ms = pending.timeout_ms;
+                    detail::publish_permission_request_best_effort(core, std::move(event));
+                });
+        }
         loop_done_future = loop_done.get_future();
     }
 
@@ -101,6 +129,9 @@ struct RuntimeService::Impl {
         result.protocol = ipc::kProtocolVersion;
         // DEC-012: an event-capable service always advertises the member.
         result.events = true;
+        // DEC-020: the async confirmation face is advertised by presence and
+        // value — a hub-equipped service is true, a headless one false.
+        result.permissions = confirmation_hub != nullptr;
         return result;
     }
 
@@ -210,6 +241,15 @@ struct RuntimeService::Impl {
         if (auto *request = std::get_if<ipc::UnsubscribeEventsRequest>(&decoded.body)) {
             (void)request;
             handle_unsubscribe(connection_id, correlation_id);
+            return;
+        }
+        if (auto *request = std::get_if<ipc::RespondPermissionRequest>(&decoded.body)) {
+            handle_permission_respond(connection_id, correlation_id, std::move(*request));
+            return;
+        }
+        if (auto *request = std::get_if<ipc::ListPermissionsRequest>(&decoded.body)) {
+            (void)request;
+            handle_permission_list(connection_id, correlation_id);
             return;
         }
         fail(connection_id, correlation_id, "unsupported", "unknown request");
@@ -465,6 +505,51 @@ struct RuntimeService::Impl {
         respond(connection_id, correlation_id, ipc::ShutdownAccepted{});
     }
 
+    /// Serial thread: resolve one pending permission confirmation (DEC-020).
+    /// The hub is mutex-guarded, so the resolution order — and with it the
+    /// first-response-wins winner — is whoever the serial context lets
+    /// through first. Without the async surface the request face is
+    /// explicitly `unavailable` instead of silently succeeding.
+    void handle_permission_respond(std::uint64_t connection_id, std::uint64_t correlation_id,
+                                   ipc::RespondPermissionRequest request) {
+        if (confirmation_hub == nullptr) {
+            fail(connection_id, correlation_id, "unavailable",
+                 "permission confirmation surface is not active");
+            return;
+        }
+        if (!confirmation_hub->resolve(request.request_id, request.approved)) {
+            fail(connection_id, correlation_id, "not_found",
+                 "unknown or already decided permission request id");
+            return;
+        }
+        ipc::PermissionResponded responded;
+        responded.request_id = std::move(request.request_id);
+        respond(connection_id, correlation_id, std::move(responded));
+    }
+
+    /// Serial thread: the pending-confirmation snapshot (DEC-020) — the
+    /// resync face of the permission confirmation stream (DEC-012 decision
+    /// 4: events are notifications, snapshots are the source of truth).
+    void handle_permission_list(std::uint64_t connection_id, std::uint64_t correlation_id) {
+        if (confirmation_hub == nullptr) {
+            fail(connection_id, correlation_id, "unavailable",
+                 "permission confirmation surface is not active");
+            return;
+        }
+        ipc::PermissionPendingList list;
+        list.pending.reserve(confirmation_hub->pending().size());
+        for (const auto &pending : confirmation_hub->pending()) {
+            ipc::PendingPermission entry;
+            entry.request_id = pending.request_id;
+            entry.capability = pending.capability;
+            entry.resource = pending.resource;
+            entry.task_id = pending.task_id;
+            entry.timeout_ms = pending.timeout_ms;
+            list.pending.push_back(std::move(entry));
+        }
+        respond(connection_id, correlation_id, std::move(list));
+    }
+
     // --- lifecycle ---------------------------------------------------------
 
     void request_loop_stop() {
@@ -604,6 +689,23 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         impl_->config.max_steps_per_task == 0 || impl_->config.max_task_records == 0 ||
         impl_->config.max_result_bytes == 0 || impl_->config.event_queue_capacity == 0) {
         outcome.error = {"invalid_argument", "service config limits are empty"};
+        impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
+        return outcome;
+    }
+    if (impl_->config.confirmation != nullptr && impl_->config.confirmation_hub != nullptr) {
+        // DEC-020 decision 9: the surfaces are mutually exclusive — a
+        // double-configured service would resolve Confirm rules through an
+        // ambiguous path.
+        outcome.error = {"invalid_argument",
+                         "confirmation and confirmation_hub are mutually exclusive"};
+        impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
+        return outcome;
+    }
+    if (impl_->config.confirmation_hub != nullptr &&
+        impl_->config.confirmation_hub->wait_budget() <= std::chrono::milliseconds::zero()) {
+        // A non-positive confirmation budget would converge every request to
+        // TimedOut before any client can answer; refused instead (DEC-020).
+        outcome.error = {"invalid_argument", "confirmation_hub wait budget must be positive"};
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
         return outcome;
     }

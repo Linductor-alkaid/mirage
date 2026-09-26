@@ -398,6 +398,7 @@ Mirage Shell（统一应用壳）
 | 会话列表/管理 | 无 | 需 IPC `session.*` 面（列表/打开/历史摘要），依托 mira `open_session`/会话树 |
 | 会话消息流 | `events` 帧（DEC-012 机制） | 需消息/轮次事件与增量输出事件集（M2+ 事件扩展） |
 | 执行模式提交 | `task.submit`（M1） | 已满足最小闭环；对话模式依赖消息面 |
+| 批准中心 | `permission.request` 事件 + `permission.respond` / `permission.list`（M5-03，DEC-020）；hello `permissions` 能力位探测 | 确认等待预算提示用 `timeout_ms`（事件与快照均携带）；批准结果经 `task.updated` / `task.inspect` 步 trace 呈现 |
 | 工作流库/编辑器 | 无 | mira `workflow_ir.hpp`（JSON 序列化）经 IPC 暴露 `workflow.*` 面；2026-09-18 细化为：`workflow.list` / `workflow.save`（草稿） / `workflow.publish` / `workflow.delete` / `workflow.atom.catalog`（原子动作目录，依赖 Platform Backend 能力上报） / `workflow.runs` / `workflow.run` / `workflow.cancel`——UI 侧接口缝已固定为 `WorkflowBackend`（`ui/app/src/state/workflow-backend.ts`），IPC 适配器实现同一接口即可接入 |
 | 运行监控 | `task.inspect`/`task.updated` | WorkflowRun 状态视图事件化 |
 | 设置-模型/记忆 | 无 | mira `ModelProfile`/`MemoryScope` 管理面经 IPC/持久化暴露 |
@@ -448,3 +449,8 @@ Mirage Shell（统一应用壳）
   属性）不变，**无需映射迁移**；console / cream / amber-300 阶为 M1.5-07/08
   已记录的 L1 增补，非命名漂移。工具链定案记录见
   [DEC-006 修订](../decisions/DEC-006-ui-web-frontend-packaging.md)（2026-09-26）。
+- 2026-09-26：§4 增补批准中心契约行——`permission.request` 事件 +
+  `permission.respond` / `permission.list` 请求面（`M5-03` 落地，
+  [DEC-020](../decisions/DEC-020-permission-async-confirmation.md)）；
+  `ui/contracts` codec 与 golden vectors 双端门禁同步。批准中心视图产品化
+  仍属 `M5-07`。

@@ -675,6 +675,29 @@ set_tests_properties(task_permission_test PROPERTIES
 )
 endif()
 
+# M5-03 permission async confirmation surface (DEC-020): the live-service
+# scenarios ride the same Unix-socket transport coupling as
+# task_permission_test; the Windows confirmation surface shares the hub unit
+# tests (permission_test) and the win32 named-pipe product process test.
+if(UNIX)
+add_executable(permission_ipc_test runtime/permission_ipc_test.cpp)
+target_compile_features(permission_ipc_test PUBLIC cxx_std_20)
+mirage_enable_warnings(permission_ipc_test)
+target_link_libraries(permission_ipc_test
+    PRIVATE
+        Mirage::runtime_service
+        Mirage::integration_mira
+        Mirage::platform
+        Mirage::desktop
+        Mirage::ipc
+)
+add_test(NAME permission_ipc_test COMMAND permission_ipc_test)
+set_tests_properties(permission_ipc_test PROPERTIES
+    LABELS "integration"
+    TIMEOUT 300
+)
+endif()
+
 # POSIX-only: signal-driven cancellation probes.
 # 
 if(UNIX)

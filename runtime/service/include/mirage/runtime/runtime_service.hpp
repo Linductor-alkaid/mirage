@@ -9,6 +9,7 @@
 #include <mirage/integration/mira_adapter.hpp>
 #include <mirage/runtime/ipc/protocol.hpp>
 #include <mirage/runtime/mira_host.hpp>
+#include <mirage/runtime/permission/confirmation_hub.hpp>
 #include <mirage/runtime/permission/permission.hpp>
 
 namespace mirage::runtime {
@@ -63,6 +64,15 @@ struct ServiceConfig {
     /// fail-closed DenyAllConfirmation; the service only keeps this handle,
     /// so the pointed-to handler must outlive every run() of this service.
     std::shared_ptr<permission::ConfirmationHandler> confirmation;
+    /// IPC async confirmation surface (DEC-020, M5-03): when set, Confirm
+    /// rules resolve through the hub — a bounded wait broadcast to
+    /// subscribed clients as permission.request events and answered via the
+    /// permission.respond / permission.list request face — and hello
+    /// advertises the `permissions` capability. Mutually exclusive with
+    /// `confirmation` (start() fails closed when both are set); the hub's
+    /// wait budget must be positive. The service keeps the handle, so the
+    /// hub must outlive every run() of this service.
+    std::shared_ptr<permission::AsyncConfirmationHub> confirmation_hub;
     /// Directory of the Runtime Recovery State file (design doc section 16,
     /// DEC-011, file name "task-recovery.json"). Empty selects the
     /// persistence module's default state directory.

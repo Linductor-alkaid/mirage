@@ -1,5 +1,6 @@
 add_library(mirage_runtime_permission STATIC
     src/capability.cpp
+    src/confirmation_hub.cpp
     src/permission.cpp
 )
 add_library(Mirage::permission ALIAS mirage_runtime_permission)
