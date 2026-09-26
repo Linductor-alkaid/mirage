@@ -22,15 +22,17 @@ target_compile_features(mirage_runtime_service PUBLIC cxx_std_20)
 mirage_enable_warnings(mirage_runtime_service)
 
 # Public surface (RuntimeService, ServiceConfig) is pinned-free; the
-# executor fabric and the JSON codec are implementation details of the
-# service internals (DEC-007). The executor library is linked by file path
-# so its non-SYSTEM interface include dirs do not leak into this target.
+# executor fabric, the JSON codec and the pinned conversation journal are
+# implementation details of the service internals (DEC-007, DEC-021). The
+# executor library is linked by file path so its non-SYSTEM interface include
+# dirs do not leak into this target.
 target_link_libraries(mirage_runtime_service
     PUBLIC
         Mirage::mira_host
         Mirage::ipc
         Mirage::permission
     PRIVATE
+        Mirage::integration_mira
         Mirage::persistence
         $<TARGET_FILE:executor::executor>
 )

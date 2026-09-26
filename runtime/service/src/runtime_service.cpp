@@ -1,5 +1,6 @@
 #include <mirage/runtime/runtime_service.hpp>
 
+#include <mirage/integration/session_journal.hpp>
 #include <mirage/runtime/ipc/endpoint.hpp>
 #include <mirage/runtime/ipc/framing.hpp>
 #include <mirage/runtime/ipc/protocol.hpp>
@@ -17,6 +18,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <ctime>
 #include <future>
 #include <iostream>
 #include <memory>
@@ -34,10 +36,19 @@ using detail::progress_name;
 constexpr const char *kServiceName = "mirage-runtime";
 constexpr std::size_t kMaxGoalBytes = 8 * 1024;
 constexpr std::size_t kMaxArgumentBytes = 4 * 1024;
+/// Default entry budget for one session.history response (DEC-021); the
+/// service clamps the requested limit to ServiceConfig::max_history_entries.
+constexpr std::size_t kDefaultHistoryLimit = 50;
 
 bool terminal_progress(TaskProgress progress) {
     return progress == TaskProgress::Completed || progress == TaskProgress::Failed ||
            progress == TaskProgress::Cancelled;
+}
+
+std::int64_t wall_now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
 }
 
 } // namespace
@@ -82,6 +93,8 @@ struct RuntimeService::Impl {
         core->mirage_version = config.mirage_version;
         core->max_steps_per_task = config.max_steps_per_task;
         core->max_task_records = config.max_task_records;
+        core->max_sessions = config.max_sessions;
+        core->max_history_entries = config.max_history_entries;
         core->max_result_bytes = config.max_result_bytes;
         core->step_timeout = config.step_timeout;
         core->command_wait = config.command_wait;
@@ -89,6 +102,10 @@ struct RuntimeService::Impl {
             std::lock_guard lock(core->registry.mutex);
             core->registry.capacity = config.max_task_records;
         }
+        // The conversation journal (DEC-021): bounded pinned in-memory event
+        // store behind the pinned-free SessionJournal adapter; constructed
+        // with the service, so the session.* faces are always served.
+        core->journal = std::make_shared<mirage::integration::SessionJournal>();
         // One controller for the whole service (DEC-010): the configured
         // policy plus the configured confirmation surface — the DEC-020
         // async hub, the legacy sync hook, or the fail-closed default.
@@ -132,6 +149,9 @@ struct RuntimeService::Impl {
         // DEC-020: the async confirmation face is advertised by presence and
         // value — a hub-equipped service is true, a headless one false.
         result.permissions = confirmation_hub != nullptr;
+        // DEC-021: the session faces (list / open / history) are always
+        // served; the journal is constructed with the service.
+        result.sessions = true;
         return result;
     }
 
@@ -252,6 +272,20 @@ struct RuntimeService::Impl {
             handle_permission_list(connection_id, correlation_id);
             return;
         }
+        if (auto *request = std::get_if<ipc::ListSessionsRequest>(&decoded.body)) {
+            (void)request;
+            handle_session_list(connection_id, correlation_id);
+            return;
+        }
+        if (auto *request = std::get_if<ipc::OpenSessionRequest>(&decoded.body)) {
+            (void)request;
+            handle_session_open(connection_id, correlation_id);
+            return;
+        }
+        if (auto *request = std::get_if<ipc::SessionHistoryRequest>(&decoded.body)) {
+            handle_session_history(connection_id, correlation_id, std::move(*request));
+            return;
+        }
         fail(connection_id, correlation_id, "unsupported", "unknown request");
     }
 
@@ -288,8 +322,25 @@ struct RuntimeService::Impl {
         }
         const std::chrono::milliseconds step_timeout = effective_step_timeout(request.step_timeout);
 
+        // Session resolution (DEC-021): the explicit binding must be a known
+        // session; absence means the primary session (the M1 wire form).
+        std::string session_id;
+        {
+            std::lock_guard lock(core->sessions.mutex);
+            if (request.session_id) {
+                if (!core->sessions.contains(*request.session_id)) {
+                    fail(connection_id, correlation_id, "not_found", "unknown session id");
+                    return;
+                }
+                session_id = *request.session_id;
+            } else {
+                session_id = core->host.primary_session().id;
+            }
+        }
+
         // On the serial thread: direct host call is the owner discipline.
-        const TaskSubmissionResult submission = core->host.submit_task(request.goal);
+        const TaskSubmissionResult submission =
+            core->host.submit_task(SessionIdentity{session_id}, request.goal);
         if (!submission.ok) {
             fail(connection_id, correlation_id, submission.error.code, submission.error.message);
             return;
@@ -307,6 +358,7 @@ struct RuntimeService::Impl {
             detail::TaskRecord record;
             record.id = submission.task.id;
             record.goal = request.goal;
+            record.session_id = session_id;
             record.step_timeout = step_timeout;
             record.steps.reserve(request.steps.size());
             for (const auto &step : request.steps) {
@@ -324,11 +376,30 @@ struct RuntimeService::Impl {
             std::lock_guard lock(core->drivers_mutex);
             core->drivers.emplace(submission.task.id, std::move(driver_submission));
         }
+        // The task goal enters the session conversation (DEC-021): the
+        // journal record is the fact, the message event the notification.
+        // Serial context, so the direct publish keeps event order aligned
+        // with the serialized state change.
+        if (core->journal != nullptr) {
+            const auto appended =
+                core->journal->append_user_message(session_id, submission.task.id, request.goal);
+            if (appended.ok) {
+                ipc::SessionMessageEvent message;
+                message.session_id = session_id;
+                message.task_id = submission.task.id;
+                message.kind = "user";
+                message.text = request.goal;
+                message.sequence = appended.sequence;
+                core->events.publish_session_message(std::move(message));
+            }
+        }
         // Creation event (DEC-012 decision 3); published before the
         // acknowledgement so a subscriber never observes the ack for a task
         // whose created event is still queued behind serial work.
         detail::publish_task_updated(core, submission.task.id);
-        respond(connection_id, correlation_id, ipc::TaskSubmitted{submission.task.id});
+        ipc::TaskSubmitted submitted{submission.task.id};
+        submitted.session_id = session_id;
+        respond(connection_id, correlation_id, std::move(submitted));
     }
 
     void handle_list(std::uint64_t connection_id, std::uint64_t correlation_id) {
@@ -550,6 +621,103 @@ struct RuntimeService::Impl {
         respond(connection_id, correlation_id, std::move(list));
     }
 
+    /// Serial thread: the session registry snapshot (DEC-021) — the resync
+    /// face of the session event stream. State is projected live from the
+    /// pinned runtime; an entry whose pinned view fails surfaces the
+    /// conservative `failed` name instead of an invented state.
+    void handle_session_list(std::uint64_t connection_id, std::uint64_t correlation_id) {
+        std::vector<std::pair<std::string, std::int64_t>> registered;
+        {
+            std::lock_guard lock(core->sessions.mutex);
+            registered.reserve(core->sessions.created_at_ms.size());
+            for (const auto &entry : core->sessions.created_at_ms) {
+                registered.emplace_back(entry.first, entry.second);
+            }
+        }
+        ipc::SessionList list;
+        list.sessions.reserve(registered.size());
+        for (auto &session : registered) {
+            ipc::SessionSummary summary;
+            summary.id = session.first;
+            summary.created_at_ms = session.second;
+            const SessionViewResult view = core->host.session_view(SessionIdentity{session.first});
+            summary.state = view.ok ? view.view.state : "failed";
+            list.sessions.push_back(std::move(summary));
+        }
+        respond(connection_id, correlation_id, std::move(list));
+    }
+
+    /// Serial thread: open one more session on the hosted pinned runtime
+    /// (DEC-021). Capacity is refused explicitly; the pinned receipt waits
+    /// for the bounded command budget, exactly like the primary session at
+    /// start().
+    void handle_session_open(std::uint64_t connection_id, std::uint64_t correlation_id) {
+        {
+            std::lock_guard lock(core->sessions.mutex);
+            if (core->sessions.full()) {
+                fail(connection_id, correlation_id, "unavailable",
+                     "session capacity exhausted (" + std::to_string(core->sessions.capacity) +
+                         ")");
+                return;
+            }
+        }
+        const SessionOpenResult opened = core->host.open_session();
+        if (!opened.ok) {
+            fail(connection_id, correlation_id, opened.error.code, opened.error.message);
+            return;
+        }
+        std::string state = "opening";
+        {
+            std::lock_guard lock(core->sessions.mutex);
+            core->sessions.created_at_ms.emplace(opened.session.id, wall_now_ms());
+        }
+        const SessionViewResult view = core->host.session_view(opened.session);
+        if (view.ok) {
+            state = view.view.state;
+        }
+        // The registry entry is the fact; the event the notification.
+        ipc::SessionUpdatedEvent event;
+        event.session_id = opened.session.id;
+        event.state = state;
+        core->events.publish_session_update(std::move(event));
+        respond(connection_id, correlation_id, ipc::SessionOpened{opened.session.id});
+    }
+
+    /// Serial thread: one session's conversation history (DEC-021) — the
+    /// resync face of the session.message stream, rebuilt from the journal
+    /// through the pinned conversation projection.
+    void handle_session_history(std::uint64_t connection_id, std::uint64_t correlation_id,
+                                ipc::SessionHistoryRequest request) {
+        {
+            std::lock_guard lock(core->sessions.mutex);
+            if (!core->sessions.contains(request.session_id)) {
+                fail(connection_id, correlation_id, "not_found", "unknown session id");
+                return;
+            }
+        }
+        const std::size_t requested =
+            request.limit ? static_cast<std::size_t>(*request.limit) : kDefaultHistoryLimit;
+        const std::size_t limit = std::clamp<std::size_t>(requested, 1, core->max_history_entries);
+        const auto history = core->journal->history(request.session_id, limit);
+        if (!history.ok) {
+            fail(connection_id, correlation_id, "internal", history.error);
+            return;
+        }
+        ipc::SessionHistory response;
+        response.session_id = std::move(request.session_id);
+        response.truncated = history.truncated;
+        response.entries.reserve(history.entries.size());
+        for (const auto &entry : history.entries) {
+            ipc::SessionHistoryEntry item;
+            item.kind = entry.kind;
+            item.text = entry.text;
+            item.sequence = entry.sequence;
+            item.recorded_at_ms = entry.recorded_at_ms;
+            response.entries.push_back(std::move(item));
+        }
+        respond(connection_id, correlation_id, std::move(response));
+    }
+
     // --- lifecycle ---------------------------------------------------------
 
     void request_loop_stop() {
@@ -760,6 +928,14 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         return outcome;
     }
     impl_->publish_host_status(HostStatus::Running);
+
+    // The primary session enters the registry (DEC-021); session.list
+    // reports it alongside the session.open ones.
+    {
+        const SessionIdentity primary = impl_->core->host.primary_session();
+        std::lock_guard lock(impl_->core->sessions.mutex);
+        impl_->core->sessions.created_at_ms.emplace(primary.id, wall_now_ms());
+    }
 
     std::string diagnostic;
     impl_->listener = ipc::IpcListener::bind(impl_->socket_path, diagnostic);

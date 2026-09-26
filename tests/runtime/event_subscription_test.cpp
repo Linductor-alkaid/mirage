@@ -1386,6 +1386,140 @@ void run_scenario(const char *name, void (*scenario)()) {
 
 } // namespace
 
+/// M5-04 (DEC-021): the session conversation event stream. A subscribed
+/// connection sees session.updated when a session enters the registry, and a
+/// task submitted into that session publishes its user message, its settled
+/// turns with the step output chunk and its outcome message — in that order,
+/// with the journal sequences strictly increasing.
+void scenario_session_conversation_event_stream() {
+    mirage::testing::TempDir dir;
+    const ServiceConfig config = make_config(dir);
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+
+    Subscriber subscriber;
+    std::string diagnostic;
+    subscriber.stream = ipc::connect_stream(config.socket_path, kCallBudget, diagnostic);
+    MIRAGE_CHECK(subscriber.valid());
+    if (!subscriber.valid()) {
+        return;
+    }
+    EventLog log;
+    MIRAGE_CHECK(subscribe_and_consume_ack(subscriber, log));
+    const auto seed = subscriber.next_frame(kCallBudget);
+    MIRAGE_CHECK(seed.kind == Subscriber::Incoming::Kind::Event);
+    if (seed.kind != Subscriber::Incoming::Kind::Event) {
+        return;
+    }
+
+    // session.open is issued through a second (client) connection; the
+    // notification arrives on the subscriber.
+    ipc::IpcClient client(config.socket_path);
+    const ipc::Response opened = client.call(ipc::OpenSessionRequest{}, kCallBudget);
+    MIRAGE_CHECK(opened.ok);
+    const auto *opened_session = std::get_if<ipc::SessionOpened>(&opened.payload);
+    MIRAGE_CHECK(opened_session != nullptr);
+    if (opened_session == nullptr) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+    const auto updated = wait_for_event(
+        subscriber, log,
+        [&](const ipc::Event &event) {
+            const auto *session = std::get_if<ipc::SessionUpdatedEvent>(&event.payload);
+            return session != nullptr && session->session_id == opened_session->session_id;
+        },
+        kEventBudget);
+    MIRAGE_CHECK(updated.has_value());
+    if (const auto *session = updated.has_value()
+                                  ? std::get_if<ipc::SessionUpdatedEvent>(&updated->payload)
+                                  : nullptr) {
+        MIRAGE_CHECK(session->state == "autonomous" || session->state == "opening");
+    } else {
+        MIRAGE_CHECK(false);
+    }
+
+    // Submit the task into the new session; the conversation stream follows.
+    const std::string token = mirage::testing::unique_token();
+    const std::filesystem::path file = dir.root() / ("conv-" + token + ".txt");
+    const std::string content = "conversation stream fixture " + token;
+    write_text_file(file, content);
+    ipc::SubmitTaskRequest submit;
+    submit.goal = "stream this task into the session";
+    submit.session_id = opened_session->session_id;
+    submit.steps.push_back({ipc::StepKind::FilesystemRead, file.string()});
+    const ipc::Response submitted = client.call(submit, kCallBudget);
+    MIRAGE_CHECK(submitted.ok);
+    const auto *ack = std::get_if<ipc::TaskSubmitted>(&submitted.payload);
+    MIRAGE_CHECK(ack != nullptr);
+    if (ack == nullptr) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+
+    const auto outcome = wait_for_event(
+        subscriber, log,
+        [&](const ipc::Event &event) {
+            const auto *message = std::get_if<ipc::SessionMessageEvent>(&event.payload);
+            return message != nullptr && message->session_id == opened_session->session_id &&
+                   message->task_id == ack->task_id && message->kind == "outcome";
+        },
+        kEventBudget);
+    MIRAGE_CHECK(outcome.has_value());
+    if (const auto *message = outcome.has_value()
+                                  ? std::get_if<ipc::SessionMessageEvent>(&outcome->payload)
+                                  : nullptr) {
+        MIRAGE_CHECK(message->text == "loop settled: Completed (steps 1)");
+        MIRAGE_CHECK(message->sequence >= 1);
+    } else {
+        MIRAGE_CHECK(false);
+    }
+
+    // Collect this task's conversation stream in delivery order: the user
+    // message precedes the settled turn, which precedes its output chunk.
+    std::optional<std::size_t> user_index;
+    std::optional<std::size_t> turn_index;
+    std::optional<std::size_t> output_index;
+    for (std::size_t index = 0; index < log.size(); ++index) {
+        const ipc::Event &event = log[index];
+        if (const auto *message = std::get_if<ipc::SessionMessageEvent>(&event.payload);
+            message != nullptr && message->task_id == ack->task_id && message->kind == "user" &&
+            !user_index) {
+            user_index = index;
+            MIRAGE_CHECK(message->text == submit.goal);
+            MIRAGE_CHECK(message->session_id == opened_session->session_id);
+            MIRAGE_CHECK(message->sequence >= 1);
+        }
+        if (const auto *settled = std::get_if<ipc::SessionTurnEvent>(&event.payload);
+            settled != nullptr && settled->task_id == ack->task_id && !turn_index) {
+            turn_index = index;
+            MIRAGE_CHECK(settled->session_id == opened_session->session_id);
+            MIRAGE_CHECK(settled->step == 1);
+            MIRAGE_CHECK(settled->kind == "filesystem.read");
+            MIRAGE_CHECK(settled->status == "ok");
+        }
+        if (const auto *chunk = std::get_if<ipc::SessionOutputEvent>(&event.payload);
+            chunk != nullptr && chunk->task_id == ack->task_id && !output_index) {
+            output_index = index;
+            MIRAGE_CHECK(chunk->step == 1);
+            MIRAGE_CHECK(chunk->chunk == content);
+            MIRAGE_CHECK(!chunk->truncated);
+        }
+    }
+    MIRAGE_CHECK(user_index.has_value());
+    MIRAGE_CHECK(turn_index.has_value());
+    MIRAGE_CHECK(output_index.has_value());
+    if (user_index && turn_index && output_index) {
+        MIRAGE_CHECK(*user_index < *turn_index);
+        MIRAGE_CHECK(*turn_index < *output_index);
+    }
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
 int main() {
     // SIGPIPE regression guard (DEC-012 decision 5, M1.5-02): the library
     // write path (IpcStream::write_some) uses send(MSG_NOSIGNAL), so a
@@ -1398,6 +1532,7 @@ int main() {
     // rather than fail a check.
 
     run_scenario("hello_advertises_events_capability", scenario_hello_advertises_events_capability);
+    run_scenario("session_conversation_event_stream", scenario_session_conversation_event_stream);
     run_scenario("subscribe_unsubscribe_round_trip", scenario_subscribe_unsubscribe_round_trip);
     run_scenario("subscribe_seed_is_current_host_status",
                  scenario_subscribe_seed_is_current_host_status);

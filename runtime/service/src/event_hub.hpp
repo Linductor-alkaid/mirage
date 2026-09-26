@@ -50,6 +50,28 @@ class EventHub {
         topic_.publish(ipc::EventPayload{std::move(event)});
     }
 
+    /// Session lifecycle (DEC-021): a session entered the registry. No seed
+    /// semantics — session.list is the resync face.
+    void publish_session_update(ipc::SessionUpdatedEvent event) {
+        topic_.publish(ipc::EventPayload{std::move(event)});
+    }
+
+    /// Conversation projection delta (DEC-021). No seed semantics —
+    /// session.history is the resync face.
+    void publish_session_message(ipc::SessionMessageEvent event) {
+        topic_.publish(ipc::EventPayload{std::move(event)});
+    }
+
+    /// One bounded unit of session work settled (DEC-021).
+    void publish_session_turn(ipc::SessionTurnEvent event) {
+        topic_.publish(ipc::EventPayload{std::move(event)});
+    }
+
+    /// One incremental output chunk of a step result (DEC-021).
+    void publish_session_output(ipc::SessionOutputEvent event) {
+        topic_.publish(ipc::EventPayload{std::move(event)});
+    }
+
     /// Newest host status, engaged once the hosted runtime reported its
     /// first transition; nullopt before that.
     std::optional<ipc::HostStatusEvent> current_host_status() const {
