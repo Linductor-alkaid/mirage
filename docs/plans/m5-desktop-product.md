@@ -606,3 +606,24 @@ success。
   [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
   §4 与变更记录、
   [总计划](mirage-implementation-plan.md) 状态叙述。
+
+2026-09-26：`M5-04` CI 取证完成；run 36260655094（headSha = `b6d313a`
+已核实）全部 8 作业 success。
+
+- Linux 矩阵：debug / release / asan / ubsan / tsan 五预设全绿，每预设
+  **32/32 测试 0 skip**（新增 `session_journal_test`；`runtime_service_test`
+  增至 228 检查——hello `sessions` 能力位、主会话可见、open/list、会话内
+  提交与 history 投影、limit 截断、unknown `not_found`、容量 `unavailable`
+  八场景；`event_subscription_test` 增补会话事件流时序场景；会话事件跨上下
+  文发布经 tsan `setarch -R` 验证）；format & public-header boundaries 绿。
+- frontend 作业：lint + strict tsc + 581 测试 + build 全绿（golden vectors
+  双端门禁消费同一 meta.version 4 vectors 文件）。
+- windows msvc (full tree)：全树构建 + 既有门禁零回归（本机同轮取证已覆盖
+  命名管道冒烟）。
+- 首轮 CI 修复轮（同 PR 内，提交 `9f192bb` / `06149ea` / `d8f2d72` /
+  `b6d313a`）：测试竞态修复（history 断言改为预算内轮询，等驱动线程落账
+  outcome）、GCC `-Werror=missing-field-initializers` 三处（`TaskSubmitted`
+  / `ServiceIdentity` 聚合初始化缺新成员，改显式成员赋值）、会话注册表容量
+  接线缺失（`max_sessions` 存而未用，容量场景开放成功）——四处均为测试/
+  接线修正，契约面零改动。
+- 合并裁决：维护者（PR [#52](https://github.com/Linductor-alkaid/mirage/pull/52)）。
