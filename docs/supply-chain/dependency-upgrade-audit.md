@@ -285,14 +285,17 @@ x64，2026-09-26；增量构建树 `build/windows`。）
 - **测试**：`ctest --test-dir build/windows -C Debug` **23/23 通过、0 失败**
   （unit 16 / integration 7 / platform 6 / protocol 1 / smoke 2 标签覆盖），
   79.15s。
-- **未覆盖项**：asan / ubsan / tsan 预设本机不可运行（预设使用 GCC 风格
-  `-fsanitize` flag，MSVC 不支持），随推送触发 CI（Linux）矩阵双面确认；
-  release 预设本次未跑，本次无优化路径代码变更。
+- **未覆盖项（本机）**：asan / ubsan / tsan 预设本机不可运行（预设使用
+  GCC 风格 `-fsanitize` flag，MSVC 不支持），已由 CI（Linux）矩阵覆盖；
+  release 预设本机未跑，由 CI release 作业覆盖。
 
 ### 审计结论
 
-通过（CI 双面确认待推送后补充）。submodule 指针与 `dependencies.lock.json`
-同步更新于同一变更；无许可证变化、无 API 适配、Windows 全树构建与 23/23
-测试通过。上游 M7 目标跟踪 Experimental 契约（`object_tracker.hpp`）与
-mira 的 DEC-040 工具引用层均为后续 Mirage 工作项的候选能力，按需另行
-引入消费。
+通过。submodule 指针与 `dependencies.lock.json` 同步更新于同一变更；无许可
+证变化、无 API 适配、无回归。CI 双面确认（PR #51，run `36223246372`，
+conclusion **success**，8/8 jobs）：windows msvc 全树、Linux debug / release /
+asan / ubsan / tsan 五预设构建+测试、format 与公共头边界、frontend 契约全部
+通过——sanitizer 矩阵在 Linux 侧对本次新增编译面（object_tracker /
+shift_estimation）零报告。上游 M7 目标跟踪 Experimental 契约
+（`object_tracker.hpp`）与 mira 的 DEC-040 工具引用层均为后续 Mirage 工作项
+的候选能力，按需另行引入消费。
