@@ -192,6 +192,14 @@ ipc::Event event_from_vector(const std::string &name, const mira::JsonValue &bod
         ipc::EventsOverflowEvent payload;
         payload.dropped = static_cast<std::uint64_t>(vector_integer(body, "dropped"));
         event.payload = std::move(payload);
+    } else if (kind == "permission.request") {
+        ipc::PermissionRequestedEvent payload;
+        payload.request_id = vector_string(body, "request_id");
+        payload.capability = vector_string(body, "capability");
+        payload.resource = vector_string(body, "resource");
+        payload.task_id = vector_string(body, "task_id");
+        payload.timeout_ms = vector_integer(body, "timeout_ms");
+        event.payload = std::move(payload);
     } else {
         std::fprintf(stderr, "golden event vector '%s' carries unknown event name '%s'\n",
                      name.c_str(), kind.c_str());
@@ -226,6 +234,14 @@ void check_event_equal(const std::string &name, const ipc::Event &expected,
     } else if (const auto *overflow = std::get_if<ipc::EventsOverflowEvent>(&expected.payload)) {
         MIRAGE_CHECK(std::get<ipc::EventsOverflowEvent>(actual.payload).dropped ==
                      overflow->dropped);
+    } else if (const auto *permission =
+                   std::get_if<ipc::PermissionRequestedEvent>(&expected.payload)) {
+        const auto &decoded = std::get<ipc::PermissionRequestedEvent>(actual.payload);
+        check_string_equal(name, "request_id", decoded.request_id, permission->request_id);
+        check_string_equal(name, "capability", decoded.capability, permission->capability);
+        check_string_equal(name, "resource", decoded.resource, permission->resource);
+        check_string_equal(name, "task_id", decoded.task_id, permission->task_id);
+        MIRAGE_CHECK(decoded.timeout_ms == permission->timeout_ms);
     }
 }
 
@@ -253,6 +269,15 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
     }
     if (op == "task.cancel") {
         return ipc::CancelTaskRequest{vector_string(body, "task_id")};
+    }
+    if (op == "permission.respond") {
+        ipc::RespondPermissionRequest respond;
+        respond.request_id = vector_string(body, "request_id");
+        respond.approved = vector_boolean(body, "approved");
+        return respond;
+    }
+    if (op == "permission.list") {
+        return ipc::ListPermissionsRequest{};
     }
     if (op == "task.submit") {
         ipc::SubmitTaskRequest submit;
@@ -324,6 +349,11 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                                  std::is_same_v<T, ipc::CancelTaskRequest>) {
                 const auto &request = std::get<T>(actual);
                 check_string_equal(name, "task_id", request.task_id, expected_value.task_id);
+            } else if constexpr (std::is_same_v<T, ipc::RespondPermissionRequest>) {
+                const auto &respond = std::get<ipc::RespondPermissionRequest>(actual);
+                check_string_equal(name, "request_id", respond.request_id,
+                                   expected_value.request_id);
+                MIRAGE_CHECK(respond.approved == expected_value.approved);
             }
         },
         expected);
@@ -361,6 +391,12 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
             const auto flag = events->as_boolean();
             MIRAGE_CHECK(flag.has_value());
             identity.events = flag;
+        }
+        // DEC-020 permission-capability member: same optional discipline.
+        if (const auto *permissions = value.find("permissions"); permissions != nullptr) {
+            const auto flag = permissions->as_boolean();
+            MIRAGE_CHECK(flag.has_value());
+            identity.permissions = flag;
         }
         response.payload = std::move(identity);
     } else if (kind == "submitted") {
@@ -411,6 +447,24 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
     } else if (kind == "cancelled") {
         response.payload =
             ipc::TaskCancelled{vector_string(value, "task_id"), vector_string(value, "progress")};
+    } else if (kind == "permission-responded") {
+        response.payload = ipc::PermissionResponded{vector_string(value, "request_id")};
+    } else if (kind == "permission-list") {
+        ipc::PermissionPendingList list;
+        const auto *entries = vector_member(value, "pending").as_array();
+        MIRAGE_CHECK(entries != nullptr);
+        if (entries != nullptr) {
+            for (const auto &entry : *entries) {
+                ipc::PendingPermission permission;
+                permission.request_id = vector_string(entry, "request_id");
+                permission.capability = vector_string(entry, "capability");
+                permission.resource = vector_string(entry, "resource");
+                permission.task_id = vector_string(entry, "task_id");
+                permission.timeout_ms = vector_integer(entry, "timeout_ms");
+                list.pending.push_back(std::move(permission));
+            }
+        }
+        response.payload = std::move(list);
     } else {
         MIRAGE_CHECK(false); // unknown payload kind in the vectors file
     }
@@ -452,6 +506,12 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                 if (actual_value.events.has_value() && expected_value.events.has_value()) {
                     MIRAGE_CHECK(*actual_value.events == *expected_value.events);
                 }
+                MIRAGE_CHECK(actual_value.permissions.has_value() ==
+                             expected_value.permissions.has_value());
+                if (actual_value.permissions.has_value() &&
+                    expected_value.permissions.has_value()) {
+                    MIRAGE_CHECK(*actual_value.permissions == *expected_value.permissions);
+                }
             } else if constexpr (std::is_same_v<T, ipc::TaskSubmitted>) {
                 check_string_equal(name, "task_id", actual_value.task_id, expected_value.task_id);
             } else if constexpr (std::is_same_v<T, ipc::TaskList>) {
@@ -492,6 +552,26 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
             } else if constexpr (std::is_same_v<T, ipc::TaskCancelled>) {
                 MIRAGE_CHECK(actual_value.task_id == expected_value.task_id);
                 MIRAGE_CHECK(actual_value.progress == expected_value.progress);
+            } else if constexpr (std::is_same_v<T, ipc::PermissionResponded>) {
+                check_string_equal(name, "request_id", actual_value.request_id,
+                                   expected_value.request_id);
+            } else if constexpr (std::is_same_v<T, ipc::PermissionPendingList>) {
+                MIRAGE_CHECK(actual_value.pending.size() == expected_value.pending.size());
+                const std::size_t count =
+                    std::min(actual_value.pending.size(), expected_value.pending.size());
+                for (std::size_t index = 0; index < count; ++index) {
+                    const auto &actual_entry = actual_value.pending[index];
+                    const auto &wanted = expected_value.pending[index];
+                    check_string_equal(name, "pending request_id", actual_entry.request_id,
+                                       wanted.request_id);
+                    check_string_equal(name, "pending capability", actual_entry.capability,
+                                       wanted.capability);
+                    check_string_equal(name, "pending resource", actual_entry.resource,
+                                       wanted.resource);
+                    check_string_equal(name, "pending task_id", actual_entry.task_id,
+                                       wanted.task_id);
+                    MIRAGE_CHECK(actual_entry.timeout_ms == wanted.timeout_ms);
+                }
             }
         },
         expected.payload);
