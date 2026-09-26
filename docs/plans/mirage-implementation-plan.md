@@ -70,10 +70,14 @@ M4 里程碑 Completed，退出复核通过（全树 MinGW 交叉复验随台账
 见 [M5：Desktop Product](m5-desktop-product.md)，状态 In Progress；`M5-01`
 （前端工具链定案与 CEF 二进制锁定：npm / Vite / React 19 / vitest 复核确认、
 ESLint 新定选、`dependencies.lock.json` schema v2 工件 pin 与 npm 树哈希门禁、
-沙箱与 GPU 正式方案，DEC-006 2026-09-26 修订）与 `M5-02`（CEF 产品壳骨架与
+沙箱与 GPU 正式方案，DEC-006 2026-09-26 修订）、`M5-02`（CEF 产品壳骨架与
 壳内 IPC 传输路径：锁定工件 configure 期消费门禁、`apps/desktop` bootstrap
 进程形态壳骨架、`runtime/ipc` SessionClient、壳内 UI 对真实 `mirage-service`
-的 hello / 订阅 / 任务往返验收，DEC-019）已完成。
+的 hello / 订阅 / 任务往返验收，DEC-019）与 `M5-03`（权限异步确认面：DEC-020
+替换 M1 同步确认挂点——`AsyncConfirmationHub` 有界等待 + 超时/容量/取消
+fail closed，协议 v1 附加扩展 `permission.request` 事件与
+`permission.respond` / `permission.list` 请求面，golden vectors 双端门禁
+meta.version 3，任务驱动器取消探测接线）已完成。
 
 ## 交付边界
 
