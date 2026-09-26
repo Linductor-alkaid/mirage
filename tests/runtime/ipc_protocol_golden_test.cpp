@@ -502,7 +502,8 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
         }
         response.payload = std::move(identity);
     } else if (kind == "submitted") {
-        ipc::TaskSubmitted submitted{vector_string(value, "task_id")};
+        ipc::TaskSubmitted submitted;
+        submitted.task_id = vector_string(value, "task_id");
         if (const auto *session = value.find("session_id"); session != nullptr) {
             const auto session_value = session->as_string();
             MIRAGE_CHECK(session_value != nullptr);

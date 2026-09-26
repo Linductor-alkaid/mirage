@@ -397,7 +397,8 @@ struct RuntimeService::Impl {
         // acknowledgement so a subscriber never observes the ack for a task
         // whose created event is still queued behind serial work.
         detail::publish_task_updated(core, submission.task.id);
-        ipc::TaskSubmitted submitted{submission.task.id};
+        ipc::TaskSubmitted submitted;
+        submitted.task_id = submission.task.id;
         submitted.session_id = session_id;
         respond(connection_id, correlation_id, std::move(submitted));
     }

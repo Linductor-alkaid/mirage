@@ -644,7 +644,8 @@ ResponseDecode decode_response(std::string_view payload) {
             result.error = "task.submit response requires a non-empty 'task_id'";
             return result;
         }
-        TaskSubmitted submitted{std::move(*id_text)};
+        TaskSubmitted submitted;
+        submitted.task_id = std::move(*id_text);
         if (const auto session = string_member(object, "session_id")) {
             if (session->empty()) {
                 result.error = "task.submit response 'session_id' must be non-empty";

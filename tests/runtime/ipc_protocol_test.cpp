@@ -296,7 +296,11 @@ void scenario_response_round_trips() {
         ipc::Response response;
         response.ok = true;
         response.id = 5;
-        response.payload = ipc::TaskSubmitted{"abc123"};
+        response.payload = [] {
+            ipc::TaskSubmitted value;
+            value.task_id = "abc123";
+            return value;
+        }();
         const ipc::ResponseDecode decoded = ipc::decode_response(ipc::encode_response(response));
         MIRAGE_CHECK(decoded.ok);
         const auto *submitted = std::get_if<ipc::TaskSubmitted>(&decoded.response.payload);
