@@ -17,6 +17,8 @@ constexpr const char *kOpCancel = "task.cancel";
 constexpr const char *kOpShutdown = "service.shutdown";
 constexpr const char *kOpSubscribe = "events.subscribe";
 constexpr const char *kOpUnsubscribe = "events.unsubscribe";
+constexpr const char *kOpPermissionRespond = "permission.respond";
+constexpr const char *kOpPermissionList = "permission.list";
 
 constexpr const char *kStepRead = "filesystem.read";
 constexpr const char *kStepExecute = "process.execute";
@@ -24,6 +26,17 @@ constexpr const char *kStepExecute = "process.execute";
 constexpr const char *kEventTaskUpdated = "task.updated";
 constexpr const char *kEventHostStatus = "host.status";
 constexpr const char *kEventOverflow = "events.overflow";
+constexpr const char *kEventPermissionRequest = "permission.request";
+
+/// Closed Capability vocabulary (DEC-010 / DEC-020) carried by
+/// permission.request events and permission.list entries. Kept local so the
+/// ipc layer stays independent of the permission module; the golden vectors
+/// pin the set on both ends.
+constexpr const char *kCapabilityNames[] = {
+    "filesystem.read",    "filesystem.write",      "process.execute",   "window.activate",
+    "screen.capture",     "input.inject",          "clipboard.read",    "clipboard.write",
+    "application.launch", "application.terminate", "notification.post",
+};
 
 /// Closed product progress projection carried by task.updated events (schema
 /// doc 6.2). Kept local so the ipc layer stays independent of mira_host;
@@ -188,6 +201,9 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 if (value.events.has_value()) {
                     put(object, "events", *value.events);
                 }
+                if (value.permissions.has_value()) {
+                    put(object, "permissions", *value.permissions);
+                }
             } else if constexpr (std::is_same_v<T, TaskSubmitted>) {
                 put(object, "task_id", value.task_id);
             } else if constexpr (std::is_same_v<T, TaskList>) {
@@ -207,6 +223,20 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 put(cancelled, "task_id", value.task_id);
                 put(cancelled, "progress", value.progress);
                 put(object, "task_cancelled", std::move(cancelled));
+            } else if constexpr (std::is_same_v<T, PermissionResponded>) {
+                put(object, "request_id", value.request_id);
+            } else if constexpr (std::is_same_v<T, PermissionPendingList>) {
+                mira::JsonValue::Array entries;
+                for (const auto &entry : value.pending) {
+                    auto pending = make_object();
+                    put(pending, "request_id", entry.request_id);
+                    put(pending, "capability", entry.capability);
+                    put(pending, "resource", entry.resource);
+                    put(pending, "task_id", entry.task_id);
+                    put(pending, "timeout_ms", entry.timeout_ms);
+                    entries.emplace_back(std::move(pending));
+                }
+                put(object, "pending", mira::JsonValue{std::move(entries)});
             } else if constexpr (std::is_same_v<T, ShutdownAccepted>) {
                 // No payload members beyond the ok envelope.
             }
@@ -269,6 +299,12 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                 put(object, "op", kOpSubscribe);
             } else if constexpr (std::is_same_v<T, UnsubscribeEventsRequest>) {
                 put(object, "op", kOpUnsubscribe);
+            } else if constexpr (std::is_same_v<T, RespondPermissionRequest>) {
+                put(object, "op", kOpPermissionRespond);
+                put(object, "request_id", value.request_id);
+                put(object, "approved", value.approved);
+            } else if constexpr (std::is_same_v<T, ListPermissionsRequest>) {
+                put(object, "op", kOpPermissionList);
             }
         },
         body);
@@ -364,6 +400,24 @@ RequestDecode decode_request(std::string_view payload) {
         }
         cancel.task_id = *task_id;
         result.body = std::move(cancel);
+    } else if (*op == kOpPermissionRespond) {
+        RespondPermissionRequest respond;
+        const auto request_id = string_member(object, "request_id");
+        if (!request_id || request_id->empty()) {
+            result.error = "permission.respond requires a non-empty 'request_id'";
+            return result;
+        }
+        respond.request_id = *request_id;
+        const auto *approved = member(object, "approved");
+        const auto approved_flag = approved == nullptr ? std::nullopt : approved->as_boolean();
+        if (!approved_flag) {
+            result.error = "permission.respond requires an 'approved' boolean";
+            return result;
+        }
+        respond.approved = *approved_flag;
+        result.body = std::move(respond);
+    } else if (*op == kOpPermissionList) {
+        result.body = ListPermissionsRequest{};
     } else {
         result.error = "unknown op '" + *op + "'";
         return result;
@@ -470,6 +524,15 @@ ResponseDecode decode_response(std::string_view payload) {
             }
             identity.events = *flag;
         }
+        // DEC-020 permission-capability member: same discipline as `events`.
+        if (const auto *permissions = member(object, "permissions"); permissions != nullptr) {
+            const auto flag = permissions->as_boolean();
+            if (!flag) {
+                result.error = "hello response 'permissions' must be a boolean";
+                return result;
+            }
+            identity.permissions = *flag;
+        }
         response.payload = std::move(identity);
     } else if (const auto *task_id = member(object, "task_id"); task_id != nullptr) {
         auto id_text = string_member(object, "task_id");
@@ -559,6 +622,53 @@ ResponseDecode decode_response(std::string_view payload) {
         acknowledgement.task_id = std::move(*id_text);
         acknowledgement.progress = std::move(*progress);
         response.payload = std::move(acknowledgement);
+    } else if (const auto *request_id = member(object, "request_id"); request_id != nullptr) {
+        auto id_text = string_member(object, "request_id");
+        if (!id_text || id_text->empty()) {
+            result.error = "permission.respond response requires a non-empty 'request_id'";
+            return result;
+        }
+        response.payload = PermissionResponded{std::move(*id_text)};
+    } else if (const auto *pending = member(object, "pending"); pending != nullptr) {
+        if (!pending->is_array()) {
+            result.error = "permission.list 'pending' must be an array";
+            return result;
+        }
+        PermissionPendingList list;
+        for (const auto &entry : *pending->as_array()) {
+            if (!entry.is_object()) {
+                result.error = "permission.list entries must be objects";
+                return result;
+            }
+            PendingPermission permission;
+            auto entry_id = string_member(entry, "request_id");
+            auto entry_capability = string_member(entry, "capability");
+            auto entry_resource = string_member(entry, "resource");
+            auto entry_task_id = string_member(entry, "task_id");
+            const auto timeout = integer_member(entry, "timeout_ms");
+            if (!entry_id || entry_id->empty() || !entry_capability || !entry_resource ||
+                !entry_task_id || entry_task_id->empty() || !timeout) {
+                result.error = "permission.list entries require 'request_id', 'capability', "
+                               "'resource', 'task_id' and 'timeout_ms'";
+                return result;
+            }
+            if (*timeout <= 0) {
+                result.error = "permission.list entry 'timeout_ms' must be positive";
+                return result;
+            }
+            if (!in_stable_set(*entry_capability, kCapabilityNames,
+                               sizeof(kCapabilityNames) / sizeof(kCapabilityNames[0]))) {
+                result.error = "permission.list entry 'capability' is not a known capability";
+                return result;
+            }
+            permission.request_id = std::move(*entry_id);
+            permission.capability = std::move(*entry_capability);
+            permission.resource = std::move(*entry_resource);
+            permission.task_id = std::move(*entry_task_id);
+            permission.timeout_ms = *timeout;
+            list.pending.push_back(std::move(permission));
+        }
+        response.payload = std::move(list);
     } else {
         // An ok response carrying none of the known payload discriminators
         // is the acknowledgement shape (service.shutdown).
@@ -574,6 +684,9 @@ const char *event_name(const EventPayload &payload) {
     }
     if (std::holds_alternative<HostStatusEvent>(payload)) {
         return kEventHostStatus;
+    }
+    if (std::holds_alternative<PermissionRequestedEvent>(payload)) {
+        return kEventPermissionRequest;
     }
     return kEventOverflow;
 }
@@ -598,6 +711,13 @@ std::string encode_event(const Event &event) {
             } else if constexpr (std::is_same_v<T, EventsOverflowEvent>) {
                 put(object, "event", kEventOverflow);
                 put(object, "dropped", static_cast<std::int64_t>(value.dropped));
+            } else if constexpr (std::is_same_v<T, PermissionRequestedEvent>) {
+                put(object, "event", kEventPermissionRequest);
+                put(object, "request_id", value.request_id);
+                put(object, "capability", value.capability);
+                put(object, "resource", value.resource);
+                put(object, "task_id", value.task_id);
+                put(object, "timeout_ms", value.timeout_ms);
             }
         },
         event.payload);
@@ -681,6 +801,34 @@ EventDecode decode_event(std::string_view payload) {
         EventsOverflowEvent overflow;
         overflow.dropped = static_cast<std::uint64_t>(*dropped);
         result.event.payload = overflow;
+    } else if (*name == kEventPermissionRequest) {
+        PermissionRequestedEvent permission;
+        const auto request_id = string_member(object, "request_id");
+        const auto capability = string_member(object, "capability");
+        const auto resource = string_member(object, "resource");
+        const auto task_id = string_member(object, "task_id");
+        const auto timeout = integer_member(object, "timeout_ms");
+        if (!request_id || request_id->empty() || !capability || !resource || !task_id ||
+            task_id->empty() || !timeout) {
+            result.error = "permission.request requires 'request_id', 'capability', 'resource', "
+                           "'task_id' and 'timeout_ms'";
+            return result;
+        }
+        if (!in_stable_set(*capability, kCapabilityNames,
+                           sizeof(kCapabilityNames) / sizeof(kCapabilityNames[0]))) {
+            result.error = "permission.request 'capability' is not a known capability";
+            return result;
+        }
+        if (*timeout <= 0) {
+            result.error = "permission.request 'timeout_ms' must be positive";
+            return result;
+        }
+        permission.request_id = std::move(*request_id);
+        permission.capability = std::move(*capability);
+        permission.resource = std::move(*resource);
+        permission.task_id = std::move(*task_id);
+        permission.timeout_ms = *timeout;
+        result.event.payload = std::move(permission);
     } else {
         result.error = "unknown event '" + *name + "'";
         return result;

@@ -71,9 +71,26 @@ struct SubscribeEventsRequest {};
 /// queued for the connection may still arrive after the acknowledgement.
 struct UnsubscribeEventsRequest {};
 
-using Request = std::variant<HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest,
-                             CancelTaskRequest, ShutdownRequest, SubscribeEventsRequest,
-                             UnsubscribeEventsRequest>;
+/// Answers one pending permission confirmation (DEC-020). Any connection may
+/// respond; the first response that moves the request out of pending wins,
+/// later ones (duplicate, already decided or expired ids) surface the stable
+/// not_found error. The confirmation surface itself is optional service
+/// equipment: without it the service answers `unavailable`.
+struct RespondPermissionRequest {
+    std::string request_id;
+    bool approved = false;
+};
+
+/// Requests the pending-confirmation snapshot (DEC-020): the resync face of
+/// the permission confirmation stream (events are notifications, snapshots
+/// are the source of truth). Connection-independent; empty `pending` means
+/// nothing awaits confirmation right now.
+struct ListPermissionsRequest {};
+
+using Request =
+    std::variant<HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest,
+                 CancelTaskRequest, ShutdownRequest, SubscribeEventsRequest,
+                 UnsubscribeEventsRequest, RespondPermissionRequest, ListPermissionsRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -90,6 +107,10 @@ struct ServiceIdentity {
     /// when the wire form omits it, so consumers read `value_or(false)` —
     /// the optional preserves wire presence for byte-exact round-trips.
     std::optional<bool> events;
+    /// DEC-020 async permission-confirmation advertisement: the
+    /// `permission.respond` / `permission.list` request face is served. Same
+    /// optional-encodes-when-set discipline as `events`.
+    std::optional<bool> permissions;
 };
 
 struct TaskSubmitted {
@@ -148,8 +169,36 @@ struct TaskCancelled {
 
 struct ShutdownAccepted {};
 
-using ResponsePayload = std::variant<ServiceIdentity, TaskSubmitted, TaskList, InspectTask,
-                                     TaskCancelled, ShutdownAccepted>;
+/// Acknowledgement of permission.respond (DEC-020): the id is echoed so the
+/// responder can correlate; a request that was not pending (unknown, already
+/// decided or expired) is a not_found error instead, never a false ack.
+struct PermissionResponded {
+    std::string request_id;
+};
+
+/// One pending confirmation as reported by permission.list (DEC-020).
+/// `timeout_ms` is the remaining wait budget at snapshot time (positive);
+/// `resource` is the path or command line the capability would act on,
+/// surfaced so an approver can see what is being approved (DEC-020 decision
+/// 8's disclosure boundary).
+struct PendingPermission {
+    std::string request_id;
+    std::string capability;
+    std::string resource;
+    std::string task_id;
+    std::int64_t timeout_ms = 0;
+};
+
+/// Snapshot of the pending-confirmation set (DEC-020); may be empty. The
+/// authoritative face for resync after event gaps (DEC-012 consistency
+/// model).
+struct PermissionPendingList {
+    std::vector<PendingPermission> pending;
+};
+
+using ResponsePayload =
+    std::variant<ServiceIdentity, TaskSubmitted, TaskList, InspectTask, TaskCancelled,
+                 ShutdownAccepted, PermissionResponded, PermissionPendingList>;
 
 /// Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc
 /// domain ("protocol_error", "unsupported", "invalid_argument", "not_found",
@@ -227,8 +276,24 @@ struct EventsOverflowEvent {
     std::uint64_t dropped = 0;
 };
 
-/// Closed M1.5 event set; M2+ events join additively.
-using EventPayload = std::variant<TaskUpdatedEvent, HostStatusEvent, EventsOverflowEvent>;
+/// `permission.request` (DEC-020): a Confirm rule hit the async confirmation
+/// surface. Broadcast to every subscribed connection; `timeout_ms` is the
+/// remaining wait budget at publish time, after which the confirmation
+/// converges fail closed. `capability` is from the DEC-010 vocabulary;
+/// `resource` is the path or command line (DEC-020 decision 8 disclosure).
+/// The judgment outcome surfaces through task.updated / task.inspect step
+/// trace, not through this event.
+struct PermissionRequestedEvent {
+    std::string request_id;
+    std::string capability;
+    std::string resource;
+    std::string task_id;
+    std::int64_t timeout_ms = 0;
+};
+
+/// Closed event set; new events join additively (DEC-012).
+using EventPayload =
+    std::variant<TaskUpdatedEvent, HostStatusEvent, EventsOverflowEvent, PermissionRequestedEvent>;
 
 /// One decoded event frame minus its envelope bookkeeping: the per-connection
 /// `seq` plus the payload. `seq` is assigned by the sender per connection,

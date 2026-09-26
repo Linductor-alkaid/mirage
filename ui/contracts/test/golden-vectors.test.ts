@@ -18,6 +18,7 @@ import type {
     HostStatus,
     IpcError,
     InspectTask,
+    PendingPermission,
     RequestBody,
     ResponseEnvelop,
     ServerEvent,
@@ -53,12 +54,14 @@ interface GoldenInspectValue {
 }
 
 type GoldenPayload =
-    | { kind: 'identity'; value: { service: string; mirage_version: string; mira_core_version: string; host_status: HostStatus; protocol: number; events?: boolean } }
+    | { kind: 'identity'; value: { service: string; mirage_version: string; mira_core_version: string; host_status: HostStatus; protocol: number; events?: boolean; permissions?: boolean } }
     | { kind: 'submitted'; value: { task_id: string } }
     | { kind: 'list'; value: { tasks: TaskSummary[] } }
     | { kind: 'inspect'; value: GoldenInspectValue }
     | { kind: 'cancelled'; value: { task_id: string; progress: TaskProgress } }
-    | { kind: 'shutdown-accepted' };
+    | { kind: 'shutdown-accepted' }
+    | { kind: 'permission-responded'; value: { request_id: string } }
+    | { kind: 'permission-list'; value: { pending: PendingPermission[] } };
 
 type GoldenEnvelop =
     | { id: number; ok: true; payload: GoldenPayload }
@@ -139,6 +142,21 @@ function expectedEnvelop(vector: GoldenResponseVector): ResponseEnvelop {
             };
             return { ok: true, id: response.id, payload: { kind: 'inspect', value: task } };
         }
+        case 'permission-responded':
+            return {
+                ok: true,
+                id: response.id,
+                payload: { kind: 'permission-responded', value: { ...response.payload.value } },
+            };
+        case 'permission-list':
+            return {
+                ok: true,
+                id: response.id,
+                payload: {
+                    kind: 'permission-list',
+                    value: { pending: response.payload.value.pending },
+                },
+            };
         case 'shutdown-accepted':
             return { ok: true, id: response.id, payload: { kind: 'shutdown-accepted' } };
     }

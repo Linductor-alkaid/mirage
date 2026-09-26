@@ -1,10 +1,10 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 2,
+    "version": 3,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
-    "decision": "DEC-012 (Accepted), DEC-007",
+    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted)",
     "consumers": [
       "tests/runtime/ipc_protocol_golden_test.cpp",
       "ui/contracts/test/golden-vectors.test.ts"
@@ -13,7 +13,8 @@
       "canonical strings are byte-exact: compact JSON, members in the wire order pinned by the schema doc sections 4-7.",
       "request_failures / response_failures pin the stable decode error strings shared by both codecs; error_prefix matches by prefix because the C++ parser appends its own diagnostic after \"payload is not valid JSON\".",
       "v2 (M1.5-02): events.subscribe / events.unsubscribe are protocol v1 requests on both ends; the former unknown-op-events-* failure vectors were dropped as obsolete (superseded by unknown-op-registry-edit for the unknown-op stable error).",
-      "events and event_failures sections are consumed by both codecs since M1.5-02; hello-capability's events identity member encodes on both ends."
+      "events and event_failures sections are consumed by both codecs since M1.5-02; hello-capability's events identity member encodes on both ends.",
+      "v3 (M5-03): permission.* async confirmation surface (DEC-020) — permission.respond / permission.list requests, permission.request event, hello 'permissions' capability member; wire order pinned by schema doc sections 4, 6.1, 6.3 and 7.2."
     ]
   },
   "requests": [
@@ -104,6 +105,24 @@
         "op": "events.unsubscribe"
       },
       "canonical": "{\"v\":1,\"id\":10,\"op\":\"events.unsubscribe\"}"
+    },
+    {
+      "name": "permission-respond",
+      "id": 10,
+      "body": {
+        "op": "permission.respond",
+        "request_id": "perm-7",
+        "approved": true
+      },
+      "canonical": "{\"v\":1,\"id\":10,\"op\":\"permission.respond\",\"request_id\":\"perm-7\",\"approved\":true}"
+    },
+    {
+      "name": "permission-list",
+      "id": 11,
+      "body": {
+        "op": "permission.list"
+      },
+      "canonical": "{\"v\":1,\"id\":11,\"op\":\"permission.list\"}"
     }
   ],
   "request_failures": [
@@ -171,6 +190,26 @@
       "name": "unknown-op-registry-edit",
       "payload": "{\"v\":1,\"id\":9,\"op\":\"registry.edit\"}",
       "error": "unknown op 'registry.edit'"
+    },
+    {
+      "name": "permission-respond-missing-request-id",
+      "payload": "{\"v\":1,\"id\":10,\"op\":\"permission.respond\",\"approved\":true}",
+      "error": "permission.respond requires a non-empty 'request_id'"
+    },
+    {
+      "name": "permission-respond-empty-request-id",
+      "payload": "{\"v\":1,\"id\":10,\"op\":\"permission.respond\",\"request_id\":\"\",\"approved\":true}",
+      "error": "permission.respond requires a non-empty 'request_id'"
+    },
+    {
+      "name": "permission-respond-missing-approved",
+      "payload": "{\"v\":1,\"id\":10,\"op\":\"permission.respond\",\"request_id\":\"perm-7\"}",
+      "error": "permission.respond requires an 'approved' boolean"
+    },
+    {
+      "name": "permission-respond-approved-not-boolean",
+      "payload": "{\"v\":1,\"id\":10,\"op\":\"permission.respond\",\"request_id\":\"perm-7\",\"approved\":\"yes\"}",
+      "error": "permission.respond requires an 'approved' boolean"
     }
   ],
   "responses": [
@@ -384,6 +423,69 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":11,\"ok\":false,\"error\":{\"code\":\"pinned_runtime\",\"message\":\"invalid_state: task already settled\"}}"
+    },
+    {
+      "name": "permission-responded",
+      "response": {
+        "id": 10,
+        "ok": true,
+        "payload": {
+          "kind": "permission-responded",
+          "value": {
+            "request_id": "perm-7"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":10,\"ok\":true,\"request_id\":\"perm-7\"}"
+    },
+    {
+      "name": "permission-list",
+      "response": {
+        "id": 11,
+        "ok": true,
+        "payload": {
+          "kind": "permission-list",
+          "value": {
+            "pending": [
+              {
+                "request_id": "perm-7",
+                "capability": "process.execute",
+                "resource": "rm -rf /tmp/stale-build",
+                "task_id": "t-1",
+                "timeout_ms": 118000
+              },
+              {
+                "request_id": "perm-8",
+                "capability": "filesystem.write",
+                "resource": "",
+                "task_id": "t-2",
+                "timeout_ms": 42
+              }
+            ]
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":11,\"ok\":true,\"pending\":[{\"request_id\":\"perm-7\",\"capability\":\"process.execute\",\"resource\":\"rm -rf /tmp/stale-build\",\"task_id\":\"t-1\",\"timeout_ms\":118000},{\"request_id\":\"perm-8\",\"capability\":\"filesystem.write\",\"resource\":\"\",\"task_id\":\"t-2\",\"timeout_ms\":42}]}"
+    },
+    {
+      "name": "hello-permissions-capability",
+      "response": {
+        "id": 12,
+        "ok": true,
+        "payload": {
+          "kind": "identity",
+          "value": {
+            "service": "mirage-service",
+            "mirage_version": "0.1.0",
+            "mira_core_version": "0.4.0",
+            "host_status": "running",
+            "protocol": 1,
+            "events": true,
+            "permissions": true
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":12,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1,\"events\":true,\"permissions\":true}"
     }
   ],
   "response_failures": [
@@ -436,6 +538,21 @@
       "name": "inspect-success-not-boolean",
       "payload": "{\"v\":1,\"id\":4,\"ok\":true,\"task\":{\"id\":\"t\",\"goal\":\"g\",\"progress\":\"Idle\",\"success\":\"yes\"}}",
       "error": "task.inspect 'success' must be a boolean"
+    },
+    {
+      "name": "permission-responded-empty-request-id",
+      "payload": "{\"v\":1,\"id\":10,\"ok\":true,\"request_id\":\"\"}",
+      "error": "permission.respond response requires a non-empty 'request_id'"
+    },
+    {
+      "name": "permission-list-entry-missing-timeout",
+      "payload": "{\"v\":1,\"id\":11,\"ok\":true,\"pending\":[{\"request_id\":\"perm-7\",\"capability\":\"process.execute\",\"resource\":\"\",\"task_id\":\"t-1\"}]}",
+      "error": "permission.list entries require 'request_id', 'capability', 'resource', 'task_id' and 'timeout_ms'"
+    },
+    {
+      "name": "permission-list-entry-unknown-capability",
+      "payload": "{\"v\":1,\"id\":11,\"ok\":true,\"pending\":[{\"request_id\":\"perm-7\",\"capability\":\"registry.edit\",\"resource\":\"\",\"task_id\":\"t-1\",\"timeout_ms\":1000}]}",
+      "error": "permission.list entry 'capability' is not a known capability"
     }
   ],
   "events": [
@@ -486,6 +603,20 @@
         "dropped": 3
       },
       "canonical": "{\"v\":1,\"seq\":6,\"event\":\"events.overflow\",\"dropped\":3}"
+    },
+    {
+      "name": "permission-request",
+      "event": {
+        "v": 1,
+        "seq": 4,
+        "event": "permission.request",
+        "request_id": "perm-7",
+        "capability": "process.execute",
+        "resource": "rm -rf /tmp/stale-build",
+        "task_id": "t-1",
+        "timeout_ms": 119000
+      },
+      "canonical": "{\"v\":1,\"seq\":4,\"event\":\"permission.request\",\"request_id\":\"perm-7\",\"capability\":\"process.execute\",\"resource\":\"rm -rf /tmp/stale-build\",\"task_id\":\"t-1\",\"timeout_ms\":119000}"
     }
   ],
   "event_failures": [
@@ -533,6 +664,26 @@
       "name": "overflow-negative-dropped",
       "payload": "{\"v\":1,\"seq\":1,\"event\":\"events.overflow\",\"dropped\":-1}",
       "error": "events.overflow requires a non-negative 'dropped'"
+    },
+    {
+      "name": "permission-request-missing-request-id",
+      "payload": "{\"v\":1,\"seq\":1,\"event\":\"permission.request\",\"capability\":\"process.execute\",\"resource\":\"\",\"task_id\":\"t-1\",\"timeout_ms\":1000}",
+      "error": "permission.request requires 'request_id', 'capability', 'resource', 'task_id' and 'timeout_ms'"
+    },
+    {
+      "name": "permission-request-empty-task-id",
+      "payload": "{\"v\":1,\"seq\":1,\"event\":\"permission.request\",\"request_id\":\"perm-7\",\"capability\":\"process.execute\",\"resource\":\"\",\"task_id\":\"\",\"timeout_ms\":1000}",
+      "error": "permission.request requires 'request_id', 'capability', 'resource', 'task_id' and 'timeout_ms'"
+    },
+    {
+      "name": "permission-request-unknown-capability",
+      "payload": "{\"v\":1,\"seq\":1,\"event\":\"permission.request\",\"request_id\":\"perm-7\",\"capability\":\"registry.edit\",\"resource\":\"\",\"task_id\":\"t-1\",\"timeout_ms\":1000}",
+      "error": "permission.request 'capability' is not a known capability"
+    },
+    {
+      "name": "permission-request-bad-timeout",
+      "payload": "{\"v\":1,\"seq\":1,\"event\":\"permission.request\",\"request_id\":\"perm-7\",\"capability\":\"process.execute\",\"resource\":\"\",\"task_id\":\"t-1\",\"timeout_ms\":0}",
+      "error": "permission.request 'timeout_ms' must be positive"
     }
   ],
   "framing": [

@@ -49,13 +49,16 @@ export type RequestBody =
     | { op: 'task.cancel'; task_id: string }
     | { op: 'service.shutdown' }
     | { op: 'events.subscribe' }
-    | { op: 'events.unsubscribe' };
+    | { op: 'events.unsubscribe' }
+    | { op: 'permission.respond'; request_id: string; approved: boolean }
+    | { op: 'permission.list' };
 
 // ---------------------------------------------------------------------------
 // Responses (service -> client)
 // ---------------------------------------------------------------------------
 
-/** hello payload; `events` is the DEC-012 capability flag (absent = false). */
+/** hello payload; `events` is the DEC-012 capability flag and `permissions`
+ * the DEC-020 async confirmation flag (absent = false for both). */
 export interface ServiceIdentity {
     service: string;
     mirage_version: string;
@@ -63,6 +66,7 @@ export interface ServiceIdentity {
     host_status: HostStatus;
     protocol: number;
     events?: boolean;
+    permissions?: boolean;
 }
 
 export interface TaskSubmitted {
@@ -106,6 +110,16 @@ export interface TaskCancelled {
     progress: TaskProgress;
 }
 
+/** One pending confirmation as reported by permission.list (DEC-020);
+ * `timeout_ms` is the remaining wait budget at snapshot time (positive). */
+export interface PendingPermission {
+    request_id: string;
+    capability: string;
+    resource: string;
+    task_id: string;
+    timeout_ms: number;
+}
+
 /** Successful response payload, discriminated exactly like the C++ variant. */
 export type ResponsePayload =
     | { kind: 'identity'; value: ServiceIdentity }
@@ -113,7 +127,9 @@ export type ResponsePayload =
     | { kind: 'list'; value: { tasks: TaskSummary[] } }
     | { kind: 'inspect'; value: InspectTask }
     | { kind: 'cancelled'; value: TaskCancelled }
-    | { kind: 'shutdown-accepted' };
+    | { kind: 'shutdown-accepted' }
+    | { kind: 'permission-responded'; value: { request_id: string } }
+    | { kind: 'permission-list'; value: { pending: PendingPermission[] } };
 
 /** Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc
  * domain; `pinned_runtime` is the verbatim passthrough shape used when the
@@ -137,13 +153,22 @@ export type ResponseEnvelop =
     | { ok: false; id: number; error: IpcError };
 
 // ---------------------------------------------------------------------------
-// Events (service -> client, DEC-012 draft)
+// Events (service -> client, DEC-012 draft; permission.request is DEC-020)
 // ---------------------------------------------------------------------------
 
-/** Closed M1.5 event set; M2+ events join additively, never by mutation. */
-export type EventName = 'task.updated' | 'host.status' | 'events.overflow';
+/** Closed event set; new events join additively, never by mutation. */
+export type EventName =
+    | 'task.updated'
+    | 'host.status'
+    | 'events.overflow'
+    | 'permission.request';
 
-export const EVENT_NAMES: readonly EventName[] = ['task.updated', 'host.status', 'events.overflow'];
+export const EVENT_NAMES: readonly EventName[] = [
+    'task.updated',
+    'host.status',
+    'events.overflow',
+    'permission.request',
+];
 
 /** `task.updated` snapshot payload; `progress` matches task.inspect semantics. */
 export interface TaskUpdatedPayload {
@@ -164,7 +189,19 @@ export interface EventsOverflowPayload {
     dropped: number;
 }
 
+/** `permission.request` payload (DEC-020): a Confirm rule hit the async
+ * confirmation surface; `timeout_ms` is the remaining wait budget at publish
+ * time. Respond with `permission.respond` before it expires. */
+export interface PermissionRequestedPayload {
+    request_id: string;
+    capability: string;
+    resource: string;
+    task_id: string;
+    timeout_ms: number;
+}
+
 export type ServerEvent =
     | ({ v: 1; seq: number; event: 'task.updated' } & TaskUpdatedPayload)
     | ({ v: 1; seq: number; event: 'host.status' } & HostStatusPayload)
-    | ({ v: 1; seq: number; event: 'events.overflow' } & EventsOverflowPayload);
+    | ({ v: 1; seq: number; event: 'events.overflow' } & EventsOverflowPayload)
+    | ({ v: 1; seq: number; event: 'permission.request' } & PermissionRequestedPayload);

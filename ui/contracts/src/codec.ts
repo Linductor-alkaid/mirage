@@ -7,6 +7,7 @@ import type {
     EventName,
     HostStatus,
     InspectTask,
+    PendingPermission,
     RequestBody,
     ResponseEnvelop,
     ServerEvent,
@@ -42,6 +43,21 @@ const PROGRESS_NAMES: readonly TaskProgress[] = [
     'Failed',
     'Cancelled',
     'Unknown',
+];
+/** Closed Capability vocabulary (DEC-010 / DEC-020) carried by
+ * permission.request events and permission.list entries. */
+const CAPABILITY_NAMES: readonly string[] = [
+    'filesystem.read',
+    'filesystem.write',
+    'process.execute',
+    'window.activate',
+    'screen.capture',
+    'input.inject',
+    'clipboard.read',
+    'clipboard.write',
+    'application.launch',
+    'application.terminate',
+    'notification.post',
 ];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -99,6 +115,14 @@ export function encodeRequest(id: number, body: RequestBody): string {
             break;
         case 'events.unsubscribe':
             object.op = 'events.unsubscribe';
+            break;
+        case 'permission.respond':
+            object.op = 'permission.respond';
+            object.request_id = body.request_id;
+            object.approved = body.approved;
+            break;
+        case 'permission.list':
+            object.op = 'permission.list';
             break;
     }
     return JSON.stringify(object);
@@ -164,6 +188,23 @@ export function decodeRequest(payload: string): RequestDecode {
             return { ok: true, id, body: { op: 'events.subscribe' } };
         case 'events.unsubscribe':
             return { ok: true, id, body: { op: 'events.unsubscribe' } };
+        case 'permission.respond': {
+            const requestId = asString(parsed.request_id);
+            if (requestId === null || requestId.length === 0) {
+                return { ok: false, error: "permission.respond requires a non-empty 'request_id'" };
+            }
+            const approved = asBoolean(parsed.approved);
+            if (approved === null) {
+                return { ok: false, error: "permission.respond requires an 'approved' boolean" };
+            }
+            return {
+                ok: true,
+                id,
+                body: { op: 'permission.respond', request_id: requestId, approved },
+            };
+        }
+        case 'permission.list':
+            return { ok: true, id, body: { op: 'permission.list' } };
         case 'task.submit': {
             const goal = asString(parsed.goal);
             if (goal === null) {
@@ -259,6 +300,9 @@ export function encodeResponse(response: ResponseEnvelop): string {
                 if (value.events !== undefined) {
                     object.events = value.events;
                 }
+                if (value.permissions !== undefined) {
+                    object.permissions = value.permissions;
+                }
                 break;
             }
             case 'submitted':
@@ -282,6 +326,18 @@ export function encodeResponse(response: ResponseEnvelop): string {
                 break;
             case 'shutdown-accepted':
                 // No payload members beyond the ok envelope.
+                break;
+            case 'permission-responded':
+                object.request_id = payload.value.request_id;
+                break;
+            case 'permission-list':
+                object.pending = payload.value.pending.map((entry) => ({
+                    request_id: entry.request_id,
+                    capability: entry.capability,
+                    resource: entry.resource,
+                    task_id: entry.task_id,
+                    timeout_ms: entry.timeout_ms,
+                }));
                 break;
         }
     } else {
@@ -423,6 +479,14 @@ export function decodeResponse(payload: string): ResponseDecode {
             }
             (identity as { events?: boolean }).events = events;
         }
+        // DEC-020 capability member: same discipline as `events`.
+        if (parsed.permissions !== undefined) {
+            const permissions = asBoolean(parsed.permissions);
+            if (permissions === null) {
+                return { ok: false, error: "hello response 'permissions' must be a boolean" };
+            }
+            (identity as { permissions?: boolean }).permissions = permissions;
+        }
         return {
             ok: true,
             response: { ok: true, id, payload: { kind: 'identity', value: identity } },
@@ -487,6 +551,71 @@ export function decodeResponse(payload: string): ResponseDecode {
                 id,
                 payload: { kind: 'cancelled', value: { task_id: taskId, progress: progress as TaskProgress } },
             },
+        };
+    }
+    if (parsed.request_id !== undefined) {
+        const requestId = asString(parsed.request_id);
+        if (requestId === null || requestId.length === 0) {
+            return {
+                ok: false,
+                error: "permission.respond response requires a non-empty 'request_id'",
+            };
+        }
+        return {
+            ok: true,
+            response: {
+                ok: true,
+                id,
+                payload: { kind: 'permission-responded', value: { request_id: requestId } },
+            },
+        };
+    }
+    if (parsed.pending !== undefined) {
+        if (!Array.isArray(parsed.pending)) {
+            return { ok: false, error: "permission.list 'pending' must be an array" };
+        }
+        const pending: PendingPermission[] = [];
+        for (const entry of parsed.pending) {
+            if (!isRecord(entry)) {
+                return { ok: false, error: 'permission.list entries must be objects' };
+            }
+            const requestId = asString(entry.request_id);
+            const capability = asString(entry.capability);
+            const resource = asString(entry.resource);
+            const taskId = asString(entry.task_id);
+            const timeout = asInteger(entry.timeout_ms);
+            if (
+                requestId === null ||
+                requestId.length === 0 ||
+                capability === null ||
+                resource === null ||
+                taskId === null ||
+                taskId.length === 0 ||
+                timeout === null
+            ) {
+                return {
+                    ok: false,
+                    error:
+                        "permission.list entries require 'request_id', 'capability', 'resource', 'task_id' and 'timeout_ms'",
+                };
+            }
+            if (timeout <= 0) {
+                return {
+                    ok: false,
+                    error: "permission.list entry 'timeout_ms' must be positive",
+                };
+            }
+            if (!CAPABILITY_NAMES.includes(capability)) {
+                return {
+                    ok: false,
+                    error: "permission.list entry 'capability' is not a known capability",
+                };
+            }
+            pending.push({ request_id: requestId, capability, resource, task_id: taskId, timeout_ms: timeout });
+        }
+        return {
+            ok: true,
+            response: { ok: true, id, payload: { kind: 'permission-list', value: { pending } } },
         };
     }
     // An ok response carrying none of the known payload discriminators is the
@@ -575,6 +704,50 @@ export function decodeEvent(payload: string): EventDecode {
             }
             return { ok: true, event: { v: 1, seq, event: 'events.overflow', dropped } };
         }
+        case 'permission.request': {
+            const requestId = asString(parsed.request_id);
+            const capability = asString(parsed.capability);
+            const resource = asString(parsed.resource);
+            const taskId = asString(parsed.task_id);
+            const timeout = asInteger(parsed.timeout_ms);
+            if (
+                requestId === null ||
+                requestId.length === 0 ||
+                capability === null ||
+                resource === null ||
+                taskId === null ||
+                taskId.length === 0 ||
+                timeout === null
+            ) {
+                return {
+                    ok: false,
+                    error:
+                        "permission.request requires 'request_id', 'capability', 'resource', 'task_id' and 'timeout_ms'",
+                };
+            }
+            if (!CAPABILITY_NAMES.includes(capability)) {
+                return {
+                    ok: false,
+                    error: "permission.request 'capability' is not a known capability",
+                };
+            }
+            if (timeout <= 0) {
+                return { ok: false, error: "permission.request 'timeout_ms' must be positive" };
+            }
+            return {
+                ok: true,
+                event: {
+                    v: 1,
+                    seq,
+                    event: 'permission.request',
+                    request_id: requestId,
+                    capability,
+                    resource,
+                    task_id: taskId,
+                    timeout_ms: timeout,
+                },
+            };
+        }
         default:
             return { ok: false, error: `unknown event '${name}'` };
     }
@@ -606,4 +779,4 @@ export function classifyFrame(payload: string): FrameKind {
     return 'unknown';
 }
 
-export { STEP_KINDS, STEP_STATUSES, HOST_STATUSES, PROGRESS_NAMES };
+export { STEP_KINDS, STEP_STATUSES, HOST_STATUSES, PROGRESS_NAMES, CAPABILITY_NAMES };
