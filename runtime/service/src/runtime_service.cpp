@@ -102,6 +102,10 @@ struct RuntimeService::Impl {
             std::lock_guard lock(core->registry.mutex);
             core->registry.capacity = config.max_task_records;
         }
+        {
+            std::lock_guard lock(core->sessions.mutex);
+            core->sessions.capacity = config.max_sessions;
+        }
         // The conversation journal (DEC-021): bounded pinned in-memory event
         // store behind the pinned-free SessionJournal adapter; constructed
         // with the service, so the session.* faces are always served.
