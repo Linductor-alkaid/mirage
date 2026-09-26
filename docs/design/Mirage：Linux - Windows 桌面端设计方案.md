@@ -736,11 +736,16 @@ Mirage 将权限判断结果和用户确认结果返回 Mira，并将实际系�
 M1 阶段该判定以框架雏形落地（`M1-06`，
 [DEC-010](../decisions/DEC-010-m1-permission-framework.md)）：`runtime/permission`
 提供 pinned-free 的 Capability 词表（`filesystem.read` / `filesystem.write` /
-`process.execute`）、每能力策略（`allow` / `confirm` / `deny`）与同步的用户
-确认挂点（默认 fail closed；确认 UI 属 M5，届时演进为 Local IPC 异步确认面）。
-Runtime Service 的任务驱动器在动作副作用前判定，决策记录进任务步
-Trace；Provider 层的路径范围、预算与取消硬边界（DEC-009）不受判定结果影响、
-始终生效。默认策略保持读取与执行放行、写入拒绝，收紧经显式配置。
+`process.execute`）、每能力策略（`allow` / `confirm` / `deny`）与用户确认挂点
+（默认 fail closed）。`M5-03` 起（[DEC-020](../decisions/DEC-020-permission-async-confirmation.md)），
+确认挂点演进为 Local IPC 异步确认面：`confirm` 规则命中时经订阅事件
+`permission.request` 广播待确认请求（含能力、资源、任务与剩余等待预算），任一
+IPC 客户端以 `permission.respond` 应答（first-response-wins），等待预算耗尽、
+表面饱和或任务取消均收敛 fail closed；`permission.list` 提供待确认快照作为
+重同步事实源。判定语义、Capability 词表与确认结果四值不变。Runtime Service
+的任务驱动器在动作副作用前判定，决策记录进任务步 Trace；Provider 层的路径
+范围、预算与取消硬边界（DEC-009）不受判定结果影响、始终生效。默认策略保持
+读取与执行放行、写入拒绝，收紧经显式配置。
 
 ## 16. 本地状态与持久化
 
