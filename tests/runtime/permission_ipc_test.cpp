@@ -63,6 +63,10 @@ constexpr auto kConfirmBudget = std::chrono::seconds{20};
 /// The hub's wait budget for timeout scenarios: short, deterministic fail
 /// closed, still above one scheduler slice.
 constexpr auto kTimeoutBudget = std::chrono::milliseconds{400};
+/// The approve-flow budget in milliseconds: `timeout_ms` payloads carry
+/// milliseconds, so the bound must be expressed in the same unit.
+constexpr std::int64_t kConfirmBudgetMs =
+    std::chrono::duration_cast<std::chrono::milliseconds>(kConfirmBudget).count();
 
 ServiceConfig make_config(const mirage::testing::TempDir &dir,
                           std::chrono::milliseconds confirm_budget = kConfirmBudget) {
@@ -126,6 +130,31 @@ std::optional<ipc::InspectTask> wait_terminal(const std::string &socket_path,
             (inspect->progress == "Completed" || inspect->progress == "Failed" ||
              inspect->progress == "Cancelled")) {
             return *inspect;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            return std::nullopt;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{25});
+    }
+}
+
+/// Polls task.inspect until the first step left the pending/running state:
+/// the driver converged on an interrupt (or the wait budget elapsed). This
+/// is the right wait before asserting driver-side state — a pinned cancel
+/// settles the task synchronously, while the driver marks the interrupted
+/// steps a few scheduling slices later.
+std::optional<ipc::InspectTask> wait_driver_converged(const std::string &socket_path,
+                                                      const std::string &task_id) {
+    ipc::IpcClient client(socket_path);
+    const auto deadline = std::chrono::steady_clock::now() + kTaskBudget;
+    for (;;) {
+        const ipc::Response response = client.call(ipc::InspectTaskRequest{task_id}, kCallBudget);
+        const auto *inspect = std::get_if<ipc::InspectTask>(&response.payload);
+        if (inspect != nullptr && !inspect->steps.empty()) {
+            const auto &status = inspect->steps[0].status;
+            if (status == "cancelled" || status == "failed" || status == "ok") {
+                return *inspect;
+            }
         }
         if (std::chrono::steady_clock::now() >= deadline) {
             return std::nullopt;
@@ -341,7 +370,7 @@ void scenario_request_event_and_approval_completes_step() {
     MIRAGE_CHECK(raised->request_id.rfind("perm-", 0) == 0);
     MIRAGE_CHECK(raised->capability == "filesystem.read");
     MIRAGE_CHECK(raised->resource == goal_file.string());
-    MIRAGE_CHECK(raised->timeout_ms >= 1 && raised->timeout_ms <= kConfirmBudget.count());
+    MIRAGE_CHECK(raised->timeout_ms >= 1 && raised->timeout_ms <= kConfirmBudgetMs);
 
     // The pending snapshot already reports the request before the answer.
     const ipc::Response listed_before = list_pending(config.socket_path);
@@ -542,7 +571,7 @@ void scenario_pending_snapshot_is_the_resync_face() {
             MIRAGE_CHECK(pending->pending[0].request_id == raised->request_id);
             MIRAGE_CHECK(pending->pending[0].resource == goal_file.string());
             MIRAGE_CHECK(pending->pending[0].timeout_ms >= 1 &&
-                         pending->pending[0].timeout_ms <= kConfirmBudget.count());
+                         pending->pending[0].timeout_ms <= kConfirmBudgetMs);
         }
     }
 
@@ -656,7 +685,12 @@ void scenario_cancel_during_confirmation_wait() {
     const ipc::Response cancelled = canceller.call(ipc::CancelTaskRequest{*task_id}, kCallBudget);
     MIRAGE_CHECK(cancelled.ok);
 
-    const std::optional<ipc::InspectTask> done = wait_terminal(config.socket_path, *task_id);
+    // Wait for the driver to converge on the interrupt before asserting
+    // driver-side state: the pinned cancel settles the task synchronously,
+    // while the interrupted step, the skipped follower and the pending-set
+    // retraction happen a few scheduling slices later.
+    const std::optional<ipc::InspectTask> done =
+        wait_driver_converged(config.socket_path, *task_id);
     MIRAGE_CHECK(done.has_value());
     if (done) {
         MIRAGE_CHECK(done->progress == "Cancelled");
