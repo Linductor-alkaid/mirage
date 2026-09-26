@@ -1,4 +1,5 @@
 #include <mirage/integration/mira_environment_binding.hpp>
+#include <mirage/runtime/permission/confirmation_hub.hpp>
 #include <mirage/runtime/permission/permission.hpp>
 #include <mirage/runtime/persistence/paths.hpp>
 #include <mirage/runtime/persistence/settings.hpp>
@@ -26,10 +27,12 @@
 #include <unistd.h>
 #endif
 
+#include <chrono>
 #include <csignal>
 #include <cstring>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -92,8 +95,15 @@ void print_usage(std::ostream &out) {
         << "                    one of filesystem.read, filesystem.write,\n"
         << "                    process.execute; DEC-010)\n"
         << "  --confirm MODE    Outcome of confirmation requests (DEC-010\n"
-        << "                    fail-closed hook; allow|deny, default deny;\n"
-        << "                    the M5 UI replaces this with a real prompt)\n"
+        << "                    fail-closed hook): allow|deny|ipc. allow/deny\n"
+        << "                    keep the in-process hook; ipc enables the M5\n"
+        << "                    async confirmation surface (DEC-020): requests\n"
+        << "                    broadcast as permission.request events, wait\n"
+        << "                    --confirm-wait-ms for a permission.respond,\n"
+        << "                    fail closed on timeout (default deny)\n"
+        << "  --confirm-wait-ms N\n"
+        << "                    Wait budget for --confirm ipc confirmations\n"
+        << "                    (default 120000)\n"
         << "  --config PATH     Load a settings file first (DEC-011); flags\n"
         << "                    below override it item by item\n"
         << "  --state-dir PATH  Directory of the task recovery file (M1-07,\n"
@@ -126,6 +136,25 @@ parse_perm_rule(std::string_view rule) {
     return std::make_pair(*capability, *mode);
 }
 
+/// Strict decimal integer parse (no sign, no whitespace, no overflow).
+bool parse_long(std::string_view text, long &value) {
+    if (text.empty()) {
+        return false;
+    }
+    long parsed = 0;
+    for (const char character : text) {
+        if (character < '0' || character > '9') {
+            return false;
+        }
+        if (parsed > (std::numeric_limits<long>::max() - (character - '0')) / 10) {
+            return false;
+        }
+        parsed = parsed * 10 + (character - '0');
+    }
+    value = parsed;
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -135,6 +164,7 @@ int main(int argc, char **argv) {
     std::vector<std::string> perm_flags;
     std::optional<std::string> flag_socket;
     std::optional<std::string> flag_confirm;
+    long confirm_wait_ms = 120000;
     bool read_roots_from_flags = false;
     std::optional<std::filesystem::path> config_file;
 
@@ -184,13 +214,25 @@ int main(int argc, char **argv) {
         }
         if (argument == "--confirm" && index + 1 < argc) {
             const std::string_view mode{argv[++index]};
-            if (mode != "allow" && mode != "deny") {
-                std::cerr << kProgramName << ": --confirm expects allow|deny (got '" << mode
+            if (mode != "allow" && mode != "deny" && mode != "ipc") {
+                std::cerr << kProgramName << ": --confirm expects allow|deny|ipc (got '" << mode
                           << "')\n";
                 print_usage(std::cerr);
                 return 2;
             }
             flag_confirm = std::string(mode);
+            continue;
+        }
+        if (argument == "--confirm-wait-ms" && index + 1 < argc) {
+            const std::string_view value{argv[++index]};
+            long parsed_wait = 0;
+            if (!parse_long(value, parsed_wait) || parsed_wait <= 0) {
+                std::cerr << kProgramName << ": --confirm-wait-ms expects a positive integer (got '"
+                          << value << "')\n";
+                print_usage(std::cerr);
+                return 2;
+            }
+            confirm_wait_ms = parsed_wait;
             continue;
         }
         std::cerr << kProgramName << ": unknown argument '" << argument << "'\n";
@@ -269,6 +311,12 @@ int main(int argc, char **argv) {
         // The service default is already fail closed (DEC-010); the
         // explicit choice documents itself.
         config.confirmation = nullptr;
+    } else if (flag_confirm == "ipc") {
+        // DEC-020: the M5 async confirmation surface — requests broadcast to
+        // subscribed IPC clients, bounded wait, fail closed on timeout.
+        config.confirmation_hub =
+            std::make_shared<mirage::runtime::permission::AsyncConfirmationHub>(
+                std::chrono::milliseconds(confirm_wait_ms));
     }
 
     // The M1 reference topology binds the Linux backend (DEC-008 item 3).
@@ -311,7 +359,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     g_signal_pipe_write = signal_pipe[1];
-    struct sigaction action {};
+    struct sigaction action{};
     action.sa_handler = on_signal;
     ::sigemptyset(&action.sa_mask);
     ::sigaction(SIGINT, &action, nullptr);
@@ -333,7 +381,14 @@ int main(int argc, char **argv) {
                   << mirage::runtime::permission::rule_name(rules[0])
                   << " filesystem.write=" << mirage::runtime::permission::rule_name(rules[1])
                   << " process.execute=" << mirage::runtime::permission::rule_name(rules[2])
-                  << "; confirmations: " << (config.confirmation ? "allow" : "deny") << '\n';
+                  << "; confirmations: ";
+        if (config.confirmation_hub != nullptr) {
+            std::cout << "async ipc (wait " << config.confirmation_hub->wait_budget().count()
+                      << " ms)";
+        } else {
+            std::cout << (config.confirmation ? "allow" : "deny");
+        }
+        std::cout << '\n';
     }
     std::cout << "recovery state: ";
     if (config.persist_recovery_state) {

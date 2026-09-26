@@ -42,6 +42,14 @@ class EventHub {
         topic_.publish(ipc::EventPayload{std::move(event)});
     }
 
+    /// Permission confirmation requests (DEC-020): broadcast to every
+    /// subscriber like the other event kinds. The hub's publish hook funnels
+    /// here through the serial domain; there is no seed semantics — the
+    /// permission.list snapshot is the resync face.
+    void publish_permission_request(ipc::PermissionRequestedEvent event) {
+        topic_.publish(ipc::EventPayload{std::move(event)});
+    }
+
     /// Newest host status, engaged once the hosted runtime reported its
     /// first transition; nullopt before that.
     std::optional<ipc::HostStatusEvent> current_host_status() const {
