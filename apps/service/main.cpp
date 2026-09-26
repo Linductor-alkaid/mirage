@@ -359,7 +359,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     g_signal_pipe_write = signal_pipe[1];
-    struct sigaction action{};
+    struct sigaction action {};
     action.sa_handler = on_signal;
     ::sigemptyset(&action.sa_mask);
     ::sigaction(SIGINT, &action, nullptr);

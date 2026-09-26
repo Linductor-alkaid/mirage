@@ -64,8 +64,8 @@ mirage::runtime::permission::Capability capability_of(ipc::StepKind kind) {
 /// Serialized host operation: every MiraHost call from the driver goes onto
 /// the service's single serial context (the host's one-owner discipline).
 template <typename F>
-auto post_host(ServiceCore &core, F &&operation)
-    -> std::future<typename std::invoke_result<F>::type> {
+auto post_host(ServiceCore &core,
+               F &&operation) -> std::future<typename std::invoke_result<F>::type> {
     return core.executor.submit_on(core.serial, std::forward<F>(operation));
 }
 
