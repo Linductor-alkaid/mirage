@@ -87,6 +87,13 @@
    `skill_tool_registrations` 本轮仍不消费——编辑器不产生 v1.1 工具引用形态、
    Skill 发布产品面未落地（POST-05）；Degraded 兼容呈现随之仍不进 wire。宿主
    verbatim 承载升级后 `WorkflowRuntime`，后续轮按公开 API 接线。
+7. **执行器并发底线（实现期核实，CI 2 核 runner 实证）**：pinned 驱动结构要求
+   宿主执行器为 ToolCall 运行预留并发 worker——异步驱动全程占一个 worker，步
+   监视任务与嵌套的工具派发 / 验证观察 futures 各需一个 worker；两线程池会在
+   第一个 ToolCall 运行上死等（派发 future 永不获 Worker）。服务默认
+   `ServiceConfig::executor_threads` 由 2 提至 4（覆盖驱动 + 监视 + 派发 + 观
+   察的峰值并发），并在头文件注释声明该底线；部署收紧线程数时必须高于此峰值
+   （pinned `WorkflowRuntimeConfig` 亦声明 drives 必须低于 worker 总数）。
 
 ## 备选方案
 
@@ -107,6 +114,9 @@
 
 - `MiraHost::attach_workflow_surface` 签名新增第三参数（非空强制）：编译期破坏性
   变更，仅服务与测试两个调用点，随本变更加线；wire 契约与 golden vectors 零变更。
+- `ServiceConfig::executor_threads` 默认 2 → 4（决策 7）：运行 ToolCall 工作流的
+  服务进程需要 drive + 监视 + 嵌套派发/观察的并发 worker 余量；显式配置为 0（自
+  适应 hw）或 ≥4 的部署不受影响。
 - `ServiceCore` 新增 `workflow_tools` 持有（start() 构建，服务生命周期）；工具集
   handler 捕获 Provider 裸指针，环境由 ServiceCore 持有且生命周期覆盖工作流面
   （teardown 先 `shutdown_workflow_surface()`），无悬垂窗口。

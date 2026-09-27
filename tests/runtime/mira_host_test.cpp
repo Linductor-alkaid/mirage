@@ -557,7 +557,15 @@ std::string tool_call_definition(const std::string &workflow_id, const std::stri
 void scenario_tool_call_steps_dispatch_desktop_atoms() {
     MiraHost host;
     executor::Executor executor;
-    MIRAGE_CHECK(executor.initialize_ex(executor::ExecutorConfig{}).ok);
+    // The pinned drive occupies one worker for the whole run while its step
+    // futures (tool dispatch, verification observation) and the step monitor
+    // need workers of their own (pinned WorkflowRuntimeConfig: drives must
+    // stay below the worker count), so the test sizes the executor
+    // explicitly instead of relying on hardware concurrency (CI runners
+    // report 2 cores).
+    executor::ExecutorConfig executor_config;
+    executor_config.max_threads = 6;
+    MIRAGE_CHECK(executor.initialize_ex(executor_config).ok);
 
     mirage::testing::FakeDesktopEnvironment environment;
 
