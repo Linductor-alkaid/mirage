@@ -5,14 +5,17 @@
 /// `MockWorkflowBackend` 内存实现（模拟域，可辨识），未来 IPC 适配器实现同
 /// 一接口即可接入真实服务，视图层零改动。
 ///
-/// 预期的 IPC 面映射（登记为协议演进输入，见 docs/design 前端设计规范 §4）：
+/// IPC 面映射已随 M5-05 第一轮落地（DEC-023，协议 v1 golden vectors v5）：
 ///   listDefs / saveDraft / publish  → `workflow.list` / `workflow.save` /
-///                                      `workflow.publish`（IR v1 JSON 序列化）
+///                                      `workflow.publish`（IR v1 JSON 对象，
+///                                      256 KiB 预算；发布为 DryRun 门禁 + 幂等）
 ///   listRuns / run / cancelRun      → `workflow.runs` / `workflow.run` /
 ///                                      `workflow.cancel`
-///   atomCatalog                     → `workflow.atom.catalog`（原子动作目录，
-///                                      依赖 Platform Backend 能力上报）
+///   atomCatalog                     → `workflow.atom.catalog`（pinned BuiltIn
+///                                      注册表 exposed view；第一轮为空目录，
+///                                      人口随桌面原子工具注册进入）
 ///   remove                          → `workflow.delete`
+/// Mock 实现仍是 UI 侧接口缝；IPC 适配器接真实面属 M5-05 第二轮。
 
 import type { WorkflowDef, WorkflowParam, WorkflowRun, WorkflowStepDef } from './model.js';
 

@@ -1,6 +1,7 @@
 # M5：Desktop Product（Workspace / Overlay / 权限 / 分发）
 
-> 状态：In Progress（`M5-01`、`M5-02`、`M5-03`、`M5-04` 完成，2026-09-26）
+> 状态：In Progress（`M5-01`、`M5-02`、`M5-03`、`M5-04` 完成，2026-09-26；
+> `M5-05` 第一轮完成，2026-09-27）
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M3](m3-mirador-integration.md)（已完成：Mirador 视觉集成与壳选型冻结——
@@ -131,7 +132,8 @@
       投影）与消息 / 轮次 / 增量输出事件集（DEC-012 扩展流程）；Runtime
       Service 由 M1 过渡驱动形态向 mira 会话 / 任务模型演进（DEC-008 迁移
       路径兑现）；golden vectors 双端门禁与 wire 契约同步。
-- [ ] `M5-05` 工作流契约面与编辑器真实化：`workflow.*` 请求面（`list` /
+- [~] `M5-05` 工作流契约面与编辑器真实化（第一轮契约面已完成，2026-09-27；
+      编辑器真实化与 `atom.catalog` 人口为第二轮）：`workflow.*` 请求面（`list` /
       `save` / `publish` / `delete` / `atom.catalog` / `runs` / `run` /
       `cancel`），绑定 2026-09-26 升级后的 pinned 工作流 / 工具契约面
       （[DEC-022](../decisions/DEC-022-upstream-capability-adoption.md)
@@ -641,3 +643,95 @@ success。
   接线缺失（`max_sessions` 存而未用，容量场景开放成功）——四处均为测试/
   接线修正，契约面零改动。
 - 合并裁决：维护者（PR [#52](https://github.com/Linductor-alkaid/mirage/pull/52)）。
+
+2026-09-27：`M5-05` 第一轮——工作流契约面完成（编辑器真实化与桌面原子工具
+注册为该工作项第二轮，见下方挂账）。
+
+- 范围：
+  - **决策记录**：[DEC-023](../decisions/DEC-023-workflow-contract-face.md)
+    （新增，Accepted）——`workflow.*` 八请求语义（草稿 = pinned
+    `not_validated` 版本可解析不可运行 W-04；发布 = `publish_validated` DryRun
+    门禁 + 内容寻址 + head 同容同证幂等；删除 = 产品目录条目移除、pinned 追加
+    式历史不动；运行注册表容量先淘汰终态后拒绝）、`workflow.run_updated` 事件
+    从 pinned 事件词表转译（不从服务侧推测）、WorkflowRuntime 服务承载（绑定
+    服务进程唯一 Executor / 主会话 / 已绑定环境；teardown 在 Executor 关停前
+    先经 `shutdown_workflow_surface()` 收敛，pinned 关闭顺序兑现）、TR2 取舍
+    （Degraded 本轮不呈现；工具引用挂载与 Skill 注册接口缝复核后挂账）。
+  - **协议 v1 附加扩展**（DEC-012 流程）：请求 `workflow.list` /
+    `workflow.save` / `workflow.publish` / `workflow.delete` /
+    `workflow.atom.catalog` / `workflow.runs` / `workflow.run` /
+    `workflow.cancel`；事件 `workflow.run_updated`；hello `workflows` 能力
+    通告。`mirage-ipc-protocol-v1.md` §4 / §6.1 / §6.5（新） / §7.2 / §10 同
+    步，golden vectors `meta.version` 4 → 5（requests +8、responses +9、
+    events +2 及失败向量，双端门禁同一文件）。
+  - **integration/mira**：`WorkflowEventBridge` 适配器——实现 pinned
+    `IEventStore`，append 透传内部有界 `MemoryEventStore`（EventStore 权威记
+    录纪律），同路解码 `mira.workflow.*` 词表把 Run 级事件经 pinned-free 回调
+    交付；线程安全（驱动线程并发 append），回调异常隔离计数不外溢。
+  - **runtime/mira_host**：工作流承载面——`attach_workflow_surface(executor,
+    bridge)`（Running 门禁 + 二次 attach fail closed）、
+    `save_workflow_definition` / `publish_workflow_definition`（pinned-free，
+    严格 IR 解码在 pinned 边界内）、`start_workflow_run`（库路径 W-03/W-04 +
+    异步驱动；驱动准入失败对已建 run 补发 cancel 后透传拒绝）、
+    `workflow_run_view` / `cancel_workflow_run`（幂等，终态不复活）、
+    `shutdown_workflow_surface()`（幂等，`host.shutdown()` 兜底调用）；
+    executor 仅前向声明，pinned 类型不外溢。
+  - **runtime/service**：`ServiceConfig.max_workflow_definitions`（默认 128）
+    / `max_workflow_runs`（默认 256）；工作流目录注册表与运行注册表（产品索
+    引，进程内易失）；八个 workflow 处理器（字节预算 256 KiB 先于宿主调用、
+    容量饱和 `unavailable`、未知工作流 `not_found`、非终态 run 阻断
+    delete）；bridge sink 直发 EventHub（驱动线程 append，串行域重入规避），
+    `workflow.runs` 为快照事实源。start() 在宿主 Running 后 attach（失败
+    fail closed）；teardown 在 `executor.shutdown(true)` 前插入 workflow
+    surface 收敛。
+  - **CLI**：`mirage workflow list | save --file | publish --file | delete |
+    atoms | runs | run <id> [--digest] [--parameters-file] [--policy] |
+    cancel <run-id>`。
+  - **TS 镜像**：`ui/contracts` 全量同步（类型 + 编解码 + golden 消费映射 +
+    codec 边界单测）。
+- 依据：设计文档第 12.4 节（新）；[DEC-022](../decisions/DEC-022-upstream-capability-adoption.md)
+  决策 1 绑定承诺兑现、[DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)、
+  [DEC-021](../decisions/DEC-021-session-message-contract-face.md)（能力位 /
+  快照 vs 通知 / passthrough 先例）、[DEC-013](../decisions/DEC-013-frontend-ia-harness-first.md)
+  （IR 对齐验收留第二轮）；pinned 依据 `workflow_runtime.hpp` /
+  `workflow_events.hpp` / `workflow_ir.hpp` / `workflow_run.hpp` /
+  `workflow_versioning.hpp` / `tool_executor.hpp` 与
+  `docs/api/workflow-contracts.md`、`docs/design/workflow_runtime_design.md`
+  （动工前接口缝复核，见 DEC-023 背景）。**能力缺口登记**：
+  [MIRA-20260927-001](../dependency_feedback/ledger.md)——同内容草稿记录遮蔽
+  可运行版本（`resolve_workflow_version` 取首条匹配），受影响流为
+  save→publish 同内容后按 digest 运行（fail closed，无静默错误）；本工作项
+  测试以"发布内容 ≠ 草稿内容"自然流取证。
+- 验证（本机 Windows 11 x64，MSVC 19.44 BuildTools，VS 17 2022）：
+  - 全树 MSVC Debug 构建 0 诊断；ctest **25/25 通过 0 skip**（新增
+    `workflow_event_bridge_test` 40 检查：started/settled 转译、store 权威读
+    回、非 workflow 事件静默、sink 异常隔离、批量追加、无 sink 与畸形载荷计
+    数；`mira_host_test` 增至 **136 检查**——workflow surface 生命周期：attach
+    状态门禁与二次 attach、save→publish→幂等重发布、草稿 W-04 透传、畸形身份
+    /参数/策略 fail closed、未知工作流、异步 run + 按运行身份匹配的
+    started/completed 事件、终态投影、幂等 cancel、surface 收敛后拒绝；
+    `ipc_protocol_golden_test` **691 检查**含 v5 向量逐字节门禁；既有门禁零回
+    归）。
+  - ui：`npm run check`（tsc 严格）通过；`npm run lint` 通过；`npm test`
+    **17 文件 619 测试通过**（golden-vectors 门禁消费同一 vectors 文件，v5
+    向量两端同绿）；`npm run build` 通过。
+  - `mirage-format-check`（clang-format 19）与 `mirage-boundary-check`
+    （39 公共头 0 违规）本机通过。
+- 限制与补跑条件：① Linux 矩阵（debug / release / asan / ubsan / tsan）与
+  `session_client_test` 新增 `workflow_face_round_trip` 场景（活服务 + 长连
+  接：hello 能力位、save/list/发布幂等、草稿 W-04 拒绝、unknown `not_found`、
+  run→`workflow.run_updated` started/completed 事件流、`workflow.runs` 终态
+  投影、幂等 cancel、空 atom 目录、delete 及二次 delete `not_found`）随本 PR
+  CI 执行（结论由后续记录补录）；② 编辑器完整版接真实面（`WorkflowBackend`
+  IPC 适配器、DEC-013 IR 对齐验收）与桌面原子工具注册（`atom.catalog` 人口 +
+  ToolCall 步执行路径）属 `M5-05` 第二轮；③ 工作流库 / 注册表 / 运行注册表
+  跨重启持久化随上游库存储（RISK-2026-038）与 DEC-011 设置条目定案；④
+  TR2 `attach_workflow_tool_refs` / `skill_tool_registrations` 接线与工具兼
+  容 Degraded wire 呈现随工具引用挂载轮评估（DEC-023 决策 4）。
+- 同步：[DEC-023](../decisions/DEC-023-workflow-contract-face.md)（新增）、
+  [MIRA-20260927-001](../dependency_feedback/ledger.md)（新增台账条目）、
+  [mirage-ipc-protocol-v1.md](../design/mirage-ipc-protocol-v1.md)
+  （§4 / §6.1 / §6.5 / §7.2 / §10）、设计文档第 12.4 节（新增落地叙述）、
+  [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
+  §4 工作流库与运行监控两行及变更记录、
+  [总计划](mirage-implementation-plan.md) 状态叙述与决策表。

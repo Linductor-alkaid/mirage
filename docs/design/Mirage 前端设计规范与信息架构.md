@@ -399,8 +399,8 @@ Mirage Shell（统一应用壳）
 | 会话消息流 | `session.message` / `session.turn` / `session.output` / `session.updated` 事件（M5-04，DEC-012 机制）；`session.history` 为含时间戳的重同步快照事实源 | 增量输出在 M1 驱动形态为每步一份完整 chunk，流式化后同形状多 chunk（wire 不变）；真实渲染属 M5-06 |
 | 执行模式提交 | `task.submit`（M1） | 已满足最小闭环；对话模式依赖消息面 |
 | 批准中心 | `permission.request` 事件 + `permission.respond` / `permission.list`（M5-03，DEC-020）；hello `permissions` 能力位探测 | 确认等待预算提示用 `timeout_ms`（事件与快照均携带）；批准结果经 `task.updated` / `task.inspect` 步 trace 呈现 |
-| 工作流库/编辑器 | 无 | mira `workflow_ir.hpp`（JSON 序列化）经 IPC 暴露 `workflow.*` 面；2026-09-18 细化为：`workflow.list` / `workflow.save`（草稿） / `workflow.publish` / `workflow.delete` / `workflow.atom.catalog`（原子动作目录，依赖 Platform Backend 能力上报） / `workflow.runs` / `workflow.run` / `workflow.cancel`——UI 侧接口缝已固定为 `WorkflowBackend`（`ui/app/src/state/workflow-backend.ts`），IPC 适配器实现同一接口即可接入 |
-| 运行监控 | `task.inspect`/`task.updated` | WorkflowRun 状态视图事件化 |
+| 工作流库/编辑器 | `workflow.list` / `workflow.save`（草稿 = `not_validated` 版本） / `workflow.publish`（DryRun 门禁 + 幂等） / `workflow.delete`（产品目录移除） / `workflow.atom.catalog`（pinned BuiltIn exposed view 承载，第一轮为空目录） / `workflow.runs` / `workflow.run` / `workflow.cancel`（M5-05 第一轮，DEC-023）；hello `workflows` 能力位探测 | 定义 JSON 为 IR v1 对象（256 KiB 预算）；`WorkflowBackend` IPC 适配器（编辑器接真实面）属 M5-05 第二轮 |
+| 运行监控 | `workflow.run_updated` 事件 + `workflow.runs` 快照事实源（M5-05，DEC-023）；任务级仍为 `task.inspect`/`task.updated` | 已落地：事件由 pinned 工作流事件转译（started → running、settled → 终态 + summary）；步级 / patch / 决策事件按 UI 需求附加扩展 |
 | 设置-模型/记忆 | 无 | mira `ModelProfile`/`MemoryScope` 管理面经 IPC/持久化暴露 |
 | 状态栏主机态 | hello `host_status` / `host.status` 事件 | 已满足 |
 
@@ -420,6 +420,11 @@ Mirage Shell（统一应用壳）
 
 ## 6. 变更记录
 
+- 2026-09-27：`M5-05` 第一轮落地（DEC-023）——§4 工作流库/编辑器行由"无契约"
+  更新为已落地的 `workflow.*` 八请求面（草稿 / 发布 / 删除语义见
+  [DEC-023](../decisions/DEC-023-workflow-contract-face.md)），运行监控行更新为
+  `workflow.run_updated` + `workflow.runs`；`WorkflowBackend` IPC 适配器与编辑器
+  接真实面属 M5-05 第二轮，`atom.catalog` 人口随桌面原子工具注册进入。
 - 2026-09-26：`M5-04` 落地（DEC-021）——§4 会话列表/管理与会话消息流两行由
   "无契约"更新为已落地的 `session.*` 请求面与 `session.*` 事件集（含 `session.history`
   重同步快照语义与 hello `sessions` 能力位）；接线与产品化仍属 M5-06。
