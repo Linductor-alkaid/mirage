@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 describe('hello identity', () => {
-    it('advertises the service identity, protocol 1 and the events capability', async () => {
+    it('advertises the service identity, protocol 1 and the events + workflows capabilities', async () => {
         const { transport } = makeService({ hostStartDelayMs: 0 });
         const identity = await transport.hello();
         expect(identity).toEqual({
@@ -41,10 +41,20 @@ describe('hello identity', () => {
             host_status: 'running',
             protocol: 1,
             events: true,
+            workflows: true,
         });
         expect(identity.events).toBe(true);
+        expect(identity.workflows).toBe(true);
         expect(transport.eventsSupported).toBe(true);
+        expect(transport.workflowsSupported).toBe(true);
         expect(transport.label).toBe('Mock');
+    });
+
+    it('omits the workflows capability when disabled (absent = false on the wire)', async () => {
+        const { transport } = makeService({ hostStartDelayMs: 0, workflowsCapability: false });
+        const identity = await transport.hello();
+        expect(identity.workflows).toBeUndefined();
+        expect(transport.workflowsSupported).toBe(false);
     });
 });
 

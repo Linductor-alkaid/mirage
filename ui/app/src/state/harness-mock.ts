@@ -1,23 +1,23 @@
 /// Harness 模拟域（仅 mock，非真实服务行为）。
 ///
-/// 会话 / 消息 / 审批 / 工作流管理尚无 IPC 面（设计规范 §4 前瞻依赖），
-/// 本文件以可辨识的模拟先行，支撑视觉与交互定型。纪律：
+/// 会话 / 消息 / 审批的线程叙事尚无 IPC 消费面（`session.*` 契约面已落，
+/// 消息流接线属 M5-06），本文件以可辨识的模拟先行，支撑视觉与交互定型。
+/// 工作流域已接契约路径（M5-05：DEC-023 适配器 + MockTransport 工作流面），
+/// 不再属于模拟域。纪律：
 /// - 不伪造契约层事实：任务状态机 / 步骤 / 事件仍以 `@mirage/contracts`
 ///   的 MockTransport 为事实源；本层只做「会话叙事 + 演示权限请求 + 模拟
 ///   快照」的叠加，且在界面上标注「模拟」。
 /// - 演示约定（mock 专属，真实服务不产生）：执行模式提交的目标含
 ///   `approve:` 步骤参数时，该步骤运行期间线程内出现一张模拟权限请求卡，
 ///   拒止不改变协议层任务走向（M2+ 权限事件面前为演示语义）。
-/// - 有界：会话数、每会话消息数、工作流与运行数均有容量上限；所有定时器
-///   可随 `dispose()` / 紧急停止回收。
+/// - 有界：会话数、每会话消息数均有容量上限；所有定时器可随 `dispose()` /
+///   紧急停止回收。
 
 import type {
     ApprovalRequest,
     ChatMessage,
     ContextUsage,
     SessionMeta,
-    WorkflowDef,
-    WorkflowRun,
 } from './model.js';
 
 export const MAX_SESSIONS = 64;
@@ -102,133 +102,6 @@ export function seedSessions(now: number): { sessions: SessionMeta[]; messages: 
         { id: 'm-n2', kind: 'assistant', at: now - 8 * DAY, text: '三条路径：桌面复制 API（无用户提示）、Graphics Capture（一次性授权）、浏览器 getDisplayMedia（每次询问）。产品建议已记入调研笔记。' },
     ]);
     return { sessions, messages };
-}
-
-export function seedWorkflows(now: number): { workflows: WorkflowDef[]; runs: WorkflowRun[] } {
-    const workflows: WorkflowDef[] = [
-        {
-            id: 'wf-shot-report',
-            name: '截图周报生成',
-            version: 'v2',
-            description: '聚合本周截图目录，按主题聚类并生成带配图的周报草稿。',
-            params: [
-                { name: 'days', required: false, description: '回溯天数（默认 7）' },
-                { name: 'limit', required: false, description: '最多挑选的截图数（默认 6）' },
-            ],
-            steps: [
-                { atomId: 'file.list-dir', title: '扫描截图目录', kind: 'filesystem.read', detail: '~/Pictures/mirage-shots 按 mtime 过滤', params: { dir: '~/Pictures/mirage-shots' } },
-                { atomId: 'ctl.condition', title: '聚类挑选', kind: 'control', detail: '按主题聚类，取 {"$limit"} 张代表图', params: { predicate: 'count(shots) > 0' }, skipIf: 'count(shots) == 0' },
-                { atomId: 'obs.screenshot', title: '屏幕复核', kind: 'display.observe', detail: '确认配图内容与聚类标签一致', params: { target: 'frontmost-window' } },
-                { atomId: 'cmd.run', title: '写入草稿', kind: 'process.execute', detail: '生成 Markdown 周报并打开编辑器', params: { command: 'mirage report --out weekly-draft.md' } },
-            ],
-            lastRunAt: now - 5 * HOUR,
-            lastRunStatus: 'completed',
-            successRate: 0.94,
-            published: true,
-            updatedAt: now - 2 * DAY,
-        },
-        {
-            id: 'wf-daily-standup',
-            name: '每日站会简报',
-            version: 'v3',
-            description: '汇总昨日构建/任务状态与今日计划，输出站会要点。',
-            params: [{ name: 'channel', required: true, description: '发布目标频道' }],
-            steps: [
-                { atomId: 'cmd.run', title: '读取构建状态', kind: 'process.execute', detail: 'ci status --since yesterday', params: { command: 'ci status --since yesterday' } },
-                { atomId: 'file.read-text', title: '读取任务快照', kind: 'filesystem.read', detail: 'runtime/task-snapshots.json', params: { path: 'runtime/task-snapshots.json' } },
-                { atomId: 'cmd.run', title: '生成简报', kind: 'process.execute', detail: '模板渲染 → 发送到 {"$channel"}', params: { command: 'notify send {"$channel"}' } },
-            ],
-            lastRunAt: now - 20 * HOUR,
-            lastRunStatus: 'completed',
-            successRate: 0.99,
-            published: true,
-            updatedAt: now - 3 * DAY,
-        },
-        {
-            id: 'wf-downloads',
-            name: '下载目录归档',
-            version: 'v1',
-            description: '按类型归档下载目录，安装包单独入库并生成来源报告。',
-            params: [{ name: 'dryRun', required: false, description: '只生成清单不移动' }],
-            steps: [
-                { atomId: 'file.list-dir', title: '扫描目录', kind: 'filesystem.read', detail: '~/Downloads 全量清单', params: { dir: '~/Downloads' } },
-                { atomId: 'file.move', title: '归类移动', kind: 'process.execute', detail: '按扩展名分组移动（dryRun={"$dryRun"}）', params: { source: '~/Downloads', target: '~/archives', dryRun: '{"$dryRun"}' }, skipIf: 'count(unknown) > 3' },
-            ],
-            lastRunAt: now - 4 * DAY,
-            lastRunStatus: 'failed',
-            successRate: 0.71,
-            published: true,
-            updatedAt: now - 6 * DAY,
-        },
-        {
-            id: 'wf-regression',
-            name: '构建回归巡检',
-            version: 'v5',
-            description: '定时巡检构建产物与冒烟测试，异常时附带日志摘要告警。',
-            params: [{ name: 'suite', required: false, description: '测试套件（默认 smoke）' }],
-            steps: [
-                { atomId: 'file.read-text', title: '拉取产物', kind: 'filesystem.read', detail: 'build/latest/manifest.json', params: { path: 'build/latest/manifest.json' } },
-                { atomId: 'cmd.run', title: '运行冒烟', kind: 'process.execute', detail: 'pytest -m {"$suite"} --maxfail 3', params: { command: 'pytest -m {"$suite"} --maxfail 3', timeoutSec: '120' } },
-                { atomId: 'ctl.loop', title: '重试巡检', kind: 'control', detail: '失败回跳重试，上限 3 次', params: { maxIterations: '3' }, loopMax: 3 },
-                { atomId: 'obs.screenshot', title: '截取现场', kind: 'display.observe', detail: '失败时截取终端现场', params: { target: 'screen' } },
-            ],
-            lastRunAt: now - 2 * HOUR,
-            lastRunStatus: 'running',
-            successRate: 0.97,
-            published: true,
-            updatedAt: now - 10 * HOUR,
-        },
-    ];
-
-    const runs: WorkflowRun[] = [
-        {
-            id: 'r-2401', workflowId: 'wf-regression', workflowName: '构建回归巡检', status: 'running',
-            startedAt: now - 2 * HOUR,
-            steps: [
-                { title: '拉取产物', status: 'ok', durationMs: 3_200, log: 'manifest: 2026-09-18T00:12Z · 42 个目标' },
-                { title: '运行冒烟', status: 'running', log: '17 passed · 2 running…' },
-                { title: '截取现场', status: 'pending' },
-            ],
-        },
-        {
-            id: 'r-2397', workflowId: 'wf-shot-report', workflowName: '截图周报生成', status: 'completed',
-            startedAt: now - 5 * HOUR,
-            steps: [
-                { title: '扫描截图目录', status: 'ok', durationMs: 1_100 },
-                { title: '聚类挑选', status: 'ok', durationMs: 8_400 },
-                { title: '屏幕复核', status: 'ok', durationMs: 2_600 },
-                { title: '写入草稿', status: 'ok', durationMs: 5_900, log: 'weekly-draft.md · 6 图' },
-            ],
-        },
-        {
-            id: 'r-2390', workflowId: 'wf-daily-standup', workflowName: '每日站会简报', status: 'completed',
-            startedAt: now - 20 * HOUR,
-            steps: [
-                { title: '读取构建状态', status: 'ok', durationMs: 2_700 },
-                { title: '读取任务快照', status: 'ok', durationMs: 900 },
-                { title: '生成简报', status: 'ok', durationMs: 4_100 },
-            ],
-        },
-        {
-            id: 'r-2361', workflowId: 'wf-downloads', workflowName: '下载目录归档', status: 'failed',
-            startedAt: now - 4 * DAY,
-            steps: [
-                { title: '扫描目录', status: 'ok', durationMs: 1_800 },
-                { title: '归类移动', status: 'failed', durationMs: 640, log: '来源不明的 .exe × 3 —— 跳过条件未满足前用户中止' },
-            ],
-        },
-        {
-            id: 'r-2330', workflowId: 'wf-shot-report', workflowName: '截图周报生成', status: 'cancelled',
-            startedAt: now - 7 * DAY,
-            steps: [
-                { title: '扫描截图目录', status: 'ok', durationMs: 1_200 },
-                { title: '聚类挑选', status: 'cancelled' },
-                { title: '屏幕复核', status: 'skipped' },
-                { title: '写入草稿', status: 'skipped' },
-            ],
-        },
-    ];
-    return { workflows, runs };
 }
 
 export function seedContext(): ContextUsage {

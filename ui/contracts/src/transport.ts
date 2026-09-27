@@ -4,6 +4,7 @@
 /// one is behind them (DEC-006: the IPC contract is the only coupling face).
 
 import type {
+    ExposedTool,
     InspectTask,
     ResponseEnvelop,
     ResponsePayload,
@@ -12,6 +13,10 @@ import type {
     TaskCancelled,
     TaskStep,
     TaskSummary,
+    WorkflowPolicyName,
+    WorkflowRunState,
+    WorkflowRunSummary,
+    WorkflowSummary,
 } from './types.js';
 
 /** A failed response turned into an exception; `code` is the stable
@@ -40,6 +45,22 @@ export interface SubmitTaskInput {
     step_timeout_ms?: number;
 }
 
+/** workflow.run request body (DEC-023): `digest` defaults to the service
+ * registry's head, `parameters` binds {"$param"} references, `policy` must
+ * be a closed-vocabulary name. */
+export interface WorkflowStartInput {
+    workflow_id: string;
+    digest?: string;
+    parameters?: Record<string, unknown>;
+    policy?: WorkflowPolicyName;
+}
+
+/** A definition submitted to workflow.save / workflow.publish: an IR v1
+ * document as produced by the pinned parser (schema_version {major,minor},
+ * workflow_id, steps with closed-vocabulary kinds, ...). Byte budget
+ * 256 KiB; the service re-validates strictly (fail closed). */
+export type WorkflowDefinition = Record<string, unknown>;
+
 export type EventListener = (event: ServerEvent) => void;
 
 export interface MirageTransport {
@@ -51,12 +72,41 @@ export interface MirageTransport {
      * polling (M1.5-05). */
     readonly eventsSupported: boolean;
 
+    /** True when hello advertised the DEC-023 workflow face; false means the
+     * workflow.* methods will fail and the UI must not present the workflow
+     * surface as live data. */
+    readonly workflowsSupported: boolean;
+
     hello(): Promise<ServiceIdentity>;
     submitTask(request: SubmitTaskInput): Promise<{ task_id: string }>;
     listTasks(): Promise<TaskSummary[]>;
     inspectTask(taskId: string): Promise<InspectTask>;
     cancelTask(taskId: string): Promise<TaskCancelled>;
     shutdown(): Promise<void>;
+
+    // -- workflow face (DEC-023) ----------------------------------------------
+
+    /** Saved definitions as projected by the service registry (summaries;
+     * the wire has no definition read face — editors keep their working
+     * copy in-session). */
+    listWorkflows(): Promise<WorkflowSummary[]>;
+    /** Appends a NotValidated draft version (parseable, not runnable — W-04). */
+    saveWorkflow(definition: WorkflowDefinition): Promise<{ workflow_id: string; digest: string }>;
+    /** Publishes through the DryRun gate; content-addressed and idempotent
+     * (the caller always submits the full current definition — W-03). */
+    publishWorkflow(
+        definition: WorkflowDefinition,
+    ): Promise<{ workflow_id: string; digest: string; dry_run_id: string; idempotent: boolean }>;
+    /** Removes the product catalog entry (append-only version history is
+     * untouched); rejected with invalid_state while non-terminal runs exist. */
+    deleteWorkflow(workflowId: string): Promise<{ workflow_id: string }>;
+    /** The pinned BuiltIn registry's exposed view (DEC-024): what the bound
+     * environment can actually deliver, never a static claim. */
+    workflowAtomCatalog(): Promise<ExposedTool[]>;
+    listWorkflowRuns(): Promise<WorkflowRunSummary[]>;
+    startWorkflowRun(input: WorkflowStartInput): Promise<{ run_id: string }>;
+    /** Pinned cancel_run is idempotent; `state` is the receipt view. */
+    cancelWorkflowRun(runId: string): Promise<{ run_id: string; state: WorkflowRunState }>;
 
     /** Subscribes this connection to the event stream. Rejects with
      * IpcRequestError('unsupported') when the peer has no event surface. */

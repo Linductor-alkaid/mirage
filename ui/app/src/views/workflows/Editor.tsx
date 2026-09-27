@@ -3,8 +3,11 @@
 /// 嵌套控制块）+ 右栏（动作库：可拖入的最小原子动作；属性：选中指令的
 /// 参数编辑）。右栏两个 tab 按语义切换：拖入看动作库，点选指令看属性。
 ///
-/// 纪律：IR v1 语义之外不出现（有序步骤 / skipIf 前置跳过 / loop_head 回跳 /
-/// {"$param"} 参数引用）；错误策略固定 fail-fast（IR 未承诺前不暴露其它策略）。
+/// 纪律：IR v1 语义之外不出现（有序步骤 / 前置条件谓词 / control loop_head
+/// 回跳 / {"$param"} 参数引用 / 副作用步骤 W-02 验证谓词——DEC-024 决策 5）；
+/// 错误策略固定 fail-fast（IR 未承诺前不暴露其它策略）。目录来自 wire
+/// `workflow.atom.catalog`（DEC-024：如实反映绑定环境），控制构造为编辑器
+/// 固定提供，不在目录中宣称。
 
 import { useMemo, useState } from 'react';
 import {
@@ -15,8 +18,8 @@ import {
   MousePointer,
   Play,
   Plus,
-  Repeat,
   Send,
+  ShieldCheck,
   Terminal,
   Trash2,
   Workflow,
@@ -24,6 +27,8 @@ import {
 
 import { useHarness } from '../../hooks.js';
 import type { WorkflowAtom, WorkflowAtomParamSpec } from '../../state/workflow-backend.js';
+import { newHexId } from '../../state/workflow-ir.js';
+import type { WorkflowPredicateOpName, WorkflowPredicateView } from '../../state/model.js';
 
 const CATEGORY_ICONS: Record<string, React.ReactNode> = {
   文件: <FileSearch size={13} />,
@@ -31,12 +36,14 @@ const CATEGORY_ICONS: Record<string, React.ReactNode> = {
   桌面观察: <Eye size={13} />,
   窗口与输入: <MousePointer size={13} />,
   剪贴板: <Clipboard size={13} />,
-  流程控制: <Repeat size={13} />,
-  子流程: <Workflow size={13} />,
+  应用与通知: <Send size={13} />,
+  其他: <Workflow size={13} />,
 };
 
 const MIME_ATOM = 'application/x-mir-atom';
 const MIME_STEP = 'application/x-mir-step';
+
+const PREDICATE_OPS: readonly WorkflowPredicateOpName[] = ['eq', 'ne', 'lt', 'le', 'gt', 'ge', 'contains', 'exists'];
 
 /** IR 诊断（fail-closed 展示：错误逐条列出）。 */
 function useDiagnostics(workflowId: string): { errors: string[]; warnings: string[] } {
@@ -60,15 +67,22 @@ function useDiagnostics(workflowId: string): { errors: string[]; warnings: strin
           }
         }
       }
-      if (s.kind === 'control' && s.atomId === 'ctl.loop' && (s.loopMax === undefined || s.loopMax < 1)) {
+      if (s.kind === 'control' && i === 0) {
+        errors.push('步骤 1：循环回跳没有更早的回跳目标（IR v1 要求目标在序列中先于控制步）。');
+      }
+      if (s.kind === 'control' && (s.loopMax === undefined || s.loopMax < 1)) {
         errors.push(`步骤 ${i + 1}：循环回跳缺少 max_iterations（IR v1 要求 ≥ 1）。`);
       }
-      if (s.kind === 'control' && s.atomId === 'ctl.loop' && i === wf.steps.length - 1) {
+      if (s.kind === 'control' && i === wf.steps.length - 1) {
         warnings.push('循环回跳位于序列末尾：回跳目标为序列头部。');
+      }
+      const atom = state.atoms.find((a) => a.id === s.atomId);
+      if (atom?.hasSideEffects === true) {
+        warnings.push(`步骤 ${i + 1}（副作用）：已自动落 W-02 验证谓词；运行时需绑定参数 ok_${s.stepId.slice(0, 6)}=true，否则该步 fail closed。`);
       }
     });
     return { errors, warnings };
-  }, [state.workflows, workflowId]);
+  }, [state.workflows, state.atoms, workflowId]);
 }
 
 function AtomIcon({ atom }: { atom: WorkflowAtom }): React.ReactElement {
@@ -87,6 +101,7 @@ function AtomLibrary({
 }): React.ReactElement {
   const { state } = useHarness();
   const [query, setQuery] = useState('');
+  const wireAtomCount = useMemo(() => state.atoms.filter((a) => a.kind !== 'control').length, [state.atoms]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return state.atoms.filter(
@@ -108,6 +123,11 @@ function AtomLibrary({
       <div className="sess-search" style={{ margin: '0 0 8px' }}>
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索原子动作…" aria-label="搜索原子动作" />
       </div>
+      {wireAtomCount === 0 && (
+        <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>
+          当前绑定环境未暴露原子能力（wire 目录为空）；流程控制构造始终可用。
+        </p>
+      )}
       {[...categories.entries()].map(([cat, atoms]) => (
         <details key={cat} className="wf-atom-cat" open>
           <summary className="g-label caps">
@@ -129,7 +149,11 @@ function AtomLibrary({
             >
               <AtomIcon atom={a} />
               <span className="wf-atom-name">{a.name}</span>
-              {a.availability === 'planned' && <span className="sim-note" title="依赖 M2+ Platform Backend，运行面待交付">M2+</span>}
+              {a.hasSideEffects && (
+                <span className="sim-note" title="副作用原子：IR 构建时自动落 W-02 验证谓词">
+                  副作用
+                </span>
+              )}
               <button
                 type="button"
                 className="sess-menu-btn"
@@ -148,7 +172,67 @@ function AtomLibrary({
   );
 }
 
-/** 属性面板：选中指令的参数编辑（{"$param"} 引用 + skipIf + loop 上限）。 */
+/** 前置条件谓词编辑（IR v1 结构化谓词：signal + op + 标量值）。 */
+function SkipIfEditor({
+  value,
+  onChange,
+  paramNames,
+}: {
+  value: WorkflowPredicateView | undefined;
+  onChange(next: WorkflowPredicateView | undefined): void;
+  paramNames: readonly string[];
+}): React.ReactElement {
+  const predicate = value ?? { signal: '', op: 'eq' as WorkflowPredicateOpName, value: '' };
+  const commit = (patch: Partial<WorkflowPredicateView>): void => {
+    const next = { ...predicate, ...patch };
+    if (next.signal.trim().length === 0) {
+      onChange(undefined);
+      return;
+    }
+    onChange(next);
+  };
+  return (
+    <div style={{ display: 'grid', gap: 4 }}>
+      <input
+        className="input"
+        list="mir-param-signals"
+        value={predicate.signal}
+        placeholder="run_parameter:名称"
+        aria-label="前置条件 signal"
+        onChange={(e) => commit({ signal: e.target.value })}
+      />
+      <datalist id="mir-param-signals">
+        {paramNames.map((name) => (
+          <option key={name} value={`run_parameter:${name}`} />
+        ))}
+      </datalist>
+      <div style={{ display: 'flex', gap: 4 }}>
+        <select
+          className="select"
+          value={predicate.op}
+          aria-label="前置条件算子"
+          onChange={(e) => commit({ op: e.target.value as WorkflowPredicateOpName })}
+        >
+          {PREDICATE_OPS.map((op) => (
+            <option key={op} value={op}>
+              {op}
+            </option>
+          ))}
+        </select>
+        <input
+          className="input"
+          value={predicate.value}
+          placeholder={predicate.op === 'exists' ? '（exists 无值）' : '标量值'}
+          aria-label="前置条件值"
+          disabled={predicate.op === 'exists'}
+          onChange={(e) => commit({ value: e.target.value })}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** 属性面板：选中指令的参数编辑（{"$param"} 引用 + 前置条件 + loop 上限）。 */
 function StepProps({
   workflowId,
   stepIndex,
@@ -169,7 +253,10 @@ function StepProps({
   };
   const renderParam = (spec: WorkflowAtomParamSpec): React.ReactElement => (
     <div className="form-row" key={spec.name} style={{ gridTemplateColumns: '96px 1fr' }}>
-      <label htmlFor={`pp-${spec.name}`}>{spec.name}</label>
+      <label htmlFor={`pp-${spec.name}`}>
+        {spec.name}
+        {spec.required ? ' *' : ''}
+      </label>
       {spec.type === 'select' ? (
         <select
           id={`pp-${spec.name}`}
@@ -212,24 +299,27 @@ function StepProps({
       ) : (
         <p className="muted" style={{ fontSize: 12 }}>该动作无参数。</p>
       )}
-      {atom.produces !== undefined && (
-        <>
-          <div className="props-group caps" style={{ marginTop: 12 }}>Output · 输出</div>
-          <p className="muted" style={{ fontSize: 11 }}>
-            结果存入 <span className="mono">{`{${atom.produces}}`}</span>，后续指令可用
-          </p>
-        </>
+      {atom.hasSideEffects && (
+        <div className="props-group caps" style={{ marginTop: 12 }}>
+          <ShieldCheck size={11} /> 验证 · W-02
+        </div>
+      )}
+      {atom.hasSideEffects && (
+        <p className="muted" style={{ fontSize: 11 }}>
+          副作用步骤自动携带验证谓词{' '}
+          <span className="mono">{`run_parameter:ok_${step.stepId.slice(0, 6)} eq true`}</span>
+          ，发布 DryRun 下按 NotEvaluable 计数（RULE-10）；Strict 运行需绑定参数{' '}
+          <span className="mono">{`ok_${step.stepId.slice(0, 6)}`}</span>=true，否则该步 fail closed。
+        </p>
       )}
       <div className="props-group caps" style={{ marginTop: 12 }}>Options · 执行条件</div>
       {atom.kind !== 'control' && (
         <div className="form-row" style={{ gridTemplateColumns: '96px 1fr' }}>
-          <label htmlFor="pp-skipif">跳过条件</label>
-          <input
-            id="pp-skipif"
-            className="input"
-            value={step.skipIf ?? ''}
-            placeholder="谓词 DSL（IR v1 skipIf；留空不跳过）"
-            onChange={(e) => setStepSkipIf(workflowId, stepIndex, e.target.value.length > 0 ? e.target.value : undefined)}
+          <label htmlFor="pp-skipif">前置条件</label>
+          <SkipIfEditor
+            value={step.skipIf}
+            onChange={(next) => setStepSkipIf(workflowId, stepIndex, next)}
+            paramNames={wf.params.map((p) => p.name)}
           />
         </div>
       )}
@@ -261,7 +351,8 @@ function StepProps({
   );
 }
 
-/** 参数表：工作流级 {"$param"} 定义（诊断联动：未定义引用会报错）。 */
+/** 参数表：工作流级 {"$param"} 定义（诊断联动：未定义引用会报错）。
+ * 副作用步骤的 W-02 验证绑定参数在保存时自动派生，此处只读展示。 */
 function ParamsPane({ workflowId }: { workflowId: string }): React.ReactElement | null {
   const { state, setWorkflowParams } = useHarness();
   const [newName, setNewName] = useState('');
@@ -269,6 +360,13 @@ function ParamsPane({ workflowId }: { workflowId: string }): React.ReactElement 
   if (wf === undefined) {
     return null;
   }
+  const atomsById = new Map(state.atoms.map((a) => [a.id, a]));
+  const derived = new Set(
+    wf.steps
+      .filter((s) => atomsById.get(s.atomId)?.hasSideEffects === true)
+      .map((s) => `ok_${s.stepId.slice(0, 6)}`),
+  );
+  const declared = wf.params.filter((p) => !derived.has(p.name));
   const add = (): void => {
     const name = newName.trim();
     if (name.length === 0 || wf.params.some((p) => p.name === name)) {
@@ -280,11 +378,11 @@ function ParamsPane({ workflowId }: { workflowId: string }): React.ReactElement 
   return (
     <div className="wf-props" data-testid="wf-params">
       <div className="props-group caps">流程参数（{"$param"} 引用源）</div>
-      {wf.params.length === 0 && (
+      {declared.length === 0 && (
         <p className="muted" style={{ fontSize: 12 }}>尚未定义参数。指令参数里写 {"$name"} 引用即可。</p>
       )}
       <div className="form-grid">
-        {wf.params.map((p) => (
+        {declared.map((p) => (
           <div key={p.name} className="wf-param-row">
             <span className="mono wf-param-name">{`{"$${p.name}"}`}</span>
             <input
@@ -311,6 +409,12 @@ function ParamsPane({ workflowId }: { workflowId: string }): React.ReactElement 
           </div>
         ))}
       </div>
+      {[...derived].map((name) => (
+        <div key={name} className="wf-param-row" title="副作用步骤的 W-02 验证谓词绑定参数（保存时自动生成，可选）">
+          <span className="mono wf-param-name">{`{"$${name}"}`}</span>
+          <span className="muted" style={{ fontSize: 11 }}>自动派生 · 验证谓词绑定（boolean）</span>
+        </div>
+      ))}
       <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
         <input
           className="input"
@@ -359,6 +463,7 @@ export function WorkflowEditor({ workflowId }: { workflowId: string }): React.Re
     mutateSteps(workflowId, (steps) => {
       const next = [...steps];
       next.splice(Math.min(at, next.length), 0, {
+        stepId: newHexId(),
         atomId: atom.id,
         title: atom.name,
         kind: atom.kind,
@@ -420,14 +525,21 @@ export function WorkflowEditor({ workflowId }: { workflowId: string }): React.Re
     <div className="wf-editor" data-testid="workflow-editor">
       <div className="wf-toolbar">
         <strong className="wf-name">{wf.name}</strong>
-        <span className={`badge ${wf.published ? 'is-success' : 'is-warning'}`}>{wf.version}</span>
+        <span className={`badge ${wf.published ? 'is-success' : 'is-warning'}`}>{wf.published ? wf.version : '草稿'}</span>
         {!wf.published && <span className="sim-note">草稿自动保存</span>}
+        {!wf.runnable && <span className="badge is-muted" title="W-04：草稿版本不可被运行引用">不可运行</span>}
+        {!wf.contentKnown && (
+          <span className="badge is-info" title="wire 无定义读取面：只有本会话创建/保存过的定义可编辑">
+            只读 · 无内容副本
+          </span>
+        )}
         <input
           className="input"
           style={{ maxWidth: 280, height: 26 }}
           value={wf.description}
           placeholder="流程描述（可选）"
           aria-label="流程描述"
+          disabled={!wf.contentKnown}
           onChange={(e) => setWorkflowDescription(workflowId, e.target.value)}
         />
         <span className="spacer" style={{ flex: 1 }} />
@@ -438,10 +550,10 @@ export function WorkflowEditor({ workflowId }: { workflowId: string }): React.Re
         ) : (
           <span className="badge is-muted">IR 校验通过</span>
         )}
-        <button type="button" className="btn" onClick={() => publishWorkflow(workflowId)}>
+        <button type="button" className="btn" disabled={!wf.contentKnown} onClick={() => publishWorkflow(workflowId)}>
           <Send size={13} /> 发布
         </button>
-        <button type="button" className="btn btn-primary" onClick={() => runWorkflow(workflowId)}>
+        <button type="button" className="btn btn-primary" disabled={!wf.runnable} onClick={() => runWorkflow(workflowId)}>
           <Play size={13} /> 运行
         </button>
       </div>
@@ -495,7 +607,11 @@ export function WorkflowEditor({ workflowId }: { workflowId: string }): React.Re
                       <span className="wf-step-title">
                         {s.title}
                         {s.kind === 'control' && <span className="badge is-info" style={{ height: 16, fontSize: 10 }}>控制</span>}
-                        {atom?.availability === 'planned' && <span className="sim-note">M2+</span>}
+                        {atom?.hasSideEffects && (
+                          <span className="badge is-success" style={{ height: 16, fontSize: 10 }} title="副作用原子：携带 W-02 验证谓词">
+                            验证
+                          </span>
+                        )}
                       </span>
                       <span className="wf-step-detail">
                         {paramChips.length > 0 ? (
@@ -509,7 +625,11 @@ export function WorkflowEditor({ workflowId }: { workflowId: string }): React.Re
                         )}
                       </span>
                     </span>
-                    {s.skipIf !== undefined && <span className="wf-skip-badge" title={`前置条件：${s.skipIf}`}>skipIf</span>}
+                    {s.skipIf !== undefined && (
+                      <span className="wf-skip-badge" title={`前置条件：${s.skipIf.signal} ${s.skipIf.op} ${s.skipIf.value}`}>
+                        skipIf
+                      </span>
+                    )}
                     {s.loopMax !== undefined && <span className="wf-loop-badge" title={`回跳上限：${s.loopMax}`}>×{s.loopMax}</span>}
                   </div>
                 </div>

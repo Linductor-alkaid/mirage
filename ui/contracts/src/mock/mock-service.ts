@@ -7,9 +7,10 @@
 /// below is mock-only, documented, and never produced by the real service.
 
 import { BoundedEventQueue } from '../events.js';
-import type { EventListener, MirageTransport, SubmitTaskInput } from '../transport.js';
+import type { EventListener, MirageTransport, SubmitTaskInput, WorkflowDefinition, WorkflowStartInput } from '../transport.js';
 import { IpcRequestError, TransportClosedError } from '../transport.js';
 import type {
+    ExposedTool,
     HostStatus,
     InspectTask,
     ServerEvent,
@@ -17,6 +18,9 @@ import type {
     StepView,
     TaskProgress,
     TaskSummary,
+    WorkflowRunState,
+    WorkflowRunSummary,
+    WorkflowSummary,
 } from '../types.js';
 import { PROTOCOL_VERSION } from '../types.js';
 
@@ -34,6 +38,9 @@ export interface MockServiceOptions {
     /** When false, hello omits the `events` capability and subscribe()
      * fails with `unsupported` — drives the UI degradation path (M1.5-05). */
     eventsCapability?: boolean;
+    /** When false, hello omits the `workflows` capability (DEC-023) —
+     * drives the UI's workflow-face fallback path. */
+    workflowsCapability?: boolean;
     /** 'auto' (default) flushes queues via microtasks; 'manual' only
      * enqueues until flush() is called — the deterministic hook for
      * overflow tests. */
@@ -75,6 +82,199 @@ interface Subscription {
     flushScheduled: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Workflow face (DEC-023/DEC-024): in-memory simulation of the observable
+// wire behaviour — append-style draft/publish with validation states,
+// content-addressed digests, a closed atom catalog (the M1 reference
+// binding's two atoms, mirroring what a live test service exposes) and
+// run lifecycle events. It deliberately does NOT re-implement the pinned
+// IR parser: definitions are checked for the members the wire contract
+// pins, everything structural is the real service's job.
+// ---------------------------------------------------------------------------
+
+interface MockWorkflowEntry {
+    definition: WorkflowDefinition;
+    digest: string;
+    validation: 'not_validated' | 'dry_run_passed';
+    updated_at_ms: number;
+}
+
+interface MockWorkflowRun {
+    run_id: string;
+    workflow_id: string;
+    state: WorkflowRunState;
+    run_epoch: number;
+    created_at_ms: number;
+    timer: ReturnType<typeof setTimeout> | null;
+}
+
+const MAX_WORKFLOW_DEFINITION_BYTES = 256 * 1024;
+const WORKFLOW_REGISTRY_CAPACITY = 128;
+const WORKFLOW_RUN_CAPACITY = 256;
+
+function canonicalDefinition(value: WorkflowDefinition): string {
+    return JSON.stringify(value);
+}
+
+/** Mock content digest: stable per content, shaped like the pinned
+ * sha-256 hex (64 chars) so the UI's display paths are exercised. */
+function mockDigest(content: string): string {
+    let h1 = 0x811c9dc5;
+    let h2 = 0x1000193;
+    for (let i = 0; i < content.length; i += 1) {
+        const ch = content.charCodeAt(i);
+        h1 = Math.imul(h1 ^ ch, 0x01000193) >>> 0;
+        h2 = Math.imul(h2 + ch + i, 0x85ebca6b) >>> 0;
+    }
+    return (h1.toString(16).padStart(8, '0') + h2.toString(16).padStart(8, '0')).repeat(4);
+}
+
+function isHexId(value: unknown, length: number): value is string {
+    return typeof value === 'string' && value.length === length && /^[0-9a-f]+$/.test(value);
+}
+
+const TERMINAL_RUN_STATES: readonly WorkflowRunState[] = ['completed', 'failed', 'cancelled'];
+
+function isTerminalRunState(state: WorkflowRunState): boolean {
+    return TERMINAL_RUN_STATES.includes(state);
+}
+
+/** Deterministic mock run id shaped like the pinned 32-hex identities. */
+function mockRunId(number: number): string {
+    const tail = number.toString(16).padStart(8, '0');
+    return `${tail}${tail}${tail}${tail}`;
+}
+
+/** True when a definition carries a side-effect step whose verification
+ * reads a run_parameter that the caller did not bind (mirrors the pinned
+ * fail-closed outcome: NotEvaluable verification fails dispatching runs). */
+function mockVerificationUnbound(definition: WorkflowDefinition, parameters: Record<string, unknown>): boolean {
+    const steps = (definition as { steps?: Array<{ kind?: unknown; verification?: { signal?: unknown } }> })
+        .steps;
+    if (!Array.isArray(steps)) {
+        return false;
+    }
+    for (const step of steps) {
+        const verification = step.verification;
+        if (step.kind !== 'tool_call' || verification === undefined) {
+            continue;
+        }
+        const signal = typeof verification.signal === 'string' ? verification.signal : '';
+        if (!signal.startsWith('run_parameter:')) {
+            continue;
+        }
+        if (!(signal.slice('run_parameter:'.length) in parameters)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** The M1 reference binding's exposed atoms: what a service with the test
+ * desktop environment actually reports (DEC-024; the live-service catalog
+ * carries exactly these two atoms until more providers bind). */
+export const MOCK_ATOM_CATALOG: readonly ExposedTool[] = [
+    {
+        wire_name: 'desktop.filesystem.read_text',
+        version: '1.0.0',
+        description: 'Reads a UTF-8 text file (permission-gated read).',
+        has_side_effects: false,
+        parameters_schema: {
+            type: 'object',
+            properties: { path: { type: 'string', description: 'File path' } },
+            required: ['path'],
+        },
+    },
+    {
+        wire_name: 'desktop.process.execute',
+        version: '1.0.0',
+        description: 'Executes a command line and captures its output (gated side effect).',
+        has_side_effects: true,
+        parameters_schema: {
+            type: 'object',
+            properties: {
+                command: { type: 'string', description: 'Command line' },
+                timeout_ms: {
+                    type: 'integer',
+                    minimum: 1000,
+                    maximum: 120000,
+                    description: 'Wall-clock budget in milliseconds (default 30000)',
+                },
+            },
+            required: ['command'],
+        },
+    },
+];
+
+/** Draft seed: a filesystem read with one {"$param"} reference (parseable,
+ * not runnable — W-04 semantics observable through workflow.list). */
+function seedReadDraft(): WorkflowDefinition {
+    return {
+        schema_version: { major: 1, minor: 0 },
+        workflow_id: 'a1000000000000000000000000000001',
+        name: '读取说明文件',
+        summary: '读取桌面说明文本（草稿种子，演示 W-04 草稿态）',
+        parameters: [
+            { name: 'path', type: 'string', required: true, summary: '说明文件路径' },
+        ],
+        steps: [
+            {
+                step_id: 'b1000000000000000000000000000001',
+                name: '读取文本',
+                kind: 'tool_call',
+                arguments: { tool: 'desktop.filesystem.read_text', path: { $param: 'path' } },
+            },
+        ],
+        default_policy: 'strict',
+        allowed_policies: ['strict', 'dry_run'],
+    };
+}
+
+/** Published seed: the same read, through the DryRun gate; a run completes. */
+function seedReadPublished(): WorkflowDefinition {
+    const def = seedReadDraft();
+    return {
+        ...def,
+        workflow_id: 'a1000000000000000000000000000002',
+        name: '读取系统信息',
+        summary: '已发布的读取流程（种子，可运行）',
+        steps: [
+            {
+                step_id: 'b1000000000000000000000000000002',
+                name: '读取文本',
+                kind: 'tool_call',
+                arguments: { tool: 'desktop.filesystem.read_text', path: 'C:\\mirage\\README.md' },
+            },
+        ],
+    };
+}
+
+/** Published seed with a side effect: W-02 forces the verification
+ * predicate; a run without the bound parameter fails (NotEvaluable is
+ * fail closed on dispatching policies — the mock mirrors that outcome). */
+function seedSideEffect(): WorkflowDefinition {
+    return {
+        schema_version: { major: 1, minor: 0 },
+        workflow_id: 'a1000000000000000000000000000003',
+        name: '清理临时目录',
+        summary: '带副作用原子的发布流程（W-02 验证谓词种子）',
+        parameters: [
+            { name: 'confirmed', type: 'boolean', required: false, summary: '副作用验证谓词绑定' },
+        ],
+        steps: [
+            {
+                step_id: 'b1000000000000000000000000000003',
+                name: '执行清理',
+                kind: 'tool_call',
+                arguments: { tool: 'desktop.process.execute', command: 'echo demo' },
+                verification: { signal: 'run_parameter:confirmed', op: 'eq', value: true },
+            },
+        ],
+        default_policy: 'strict',
+        allowed_policies: ['strict', 'dry_run'],
+    };
+}
+
 const TERMINAL_PROGRESS: readonly TaskProgress[] = ['Completed', 'Failed', 'Cancelled'];
 
 function isTerminal(progress: TaskProgress): boolean {
@@ -100,11 +300,15 @@ export class MockMirageService {
     private hostTimer: ReturnType<typeof setTimeout> | null = null;
     private readonly tasks = new Map<string, MockTask>();
     private readonly subscriptions = new Set<Subscription>();
+    private readonly workflows = new Map<string, MockWorkflowEntry>();
+    private readonly workflowRuns = new Map<string, MockWorkflowRun>();
     private nextTaskNumber = 1;
     private nextOperationNumber = 1;
+    private nextRunNumber = 1;
+    private nextDryRunNumber = 1;
     private closed = false;
     private readonly options: Required<
-        Pick<MockServiceOptions, 'stepDurationMs' | 'hostStartDelayMs' | 'shutdownDelayMs' | 'taskCapacity' | 'eventQueueCapacity' | 'eventsCapability' | 'flushMode'>
+        Pick<MockServiceOptions, 'stepDurationMs' | 'hostStartDelayMs' | 'shutdownDelayMs' | 'taskCapacity' | 'eventQueueCapacity' | 'eventsCapability' | 'workflowsCapability' | 'flushMode'>
     >;
 
     constructor(options: MockServiceOptions = {}) {
@@ -115,8 +319,21 @@ export class MockMirageService {
             taskCapacity: options.taskCapacity ?? 256,
             eventQueueCapacity: options.eventQueueCapacity ?? 64,
             eventsCapability: options.eventsCapability ?? true,
+            workflowsCapability: options.workflowsCapability ?? true,
             flushMode: options.flushMode ?? 'auto',
         };
+        const seed = (definition: WorkflowDefinition, validation: MockWorkflowEntry['validation']): void => {
+            const id = (definition as { workflow_id: string }).workflow_id;
+            this.workflows.set(id, {
+                definition,
+                digest: mockDigest(canonicalDefinition(definition)),
+                validation,
+                updated_at_ms: Date.now() - 3_600_000,
+            });
+        };
+        seed(seedReadDraft(), 'not_validated');
+        seed(seedReadPublished(), 'dry_run_passed');
+        seed(seedSideEffect(), 'dry_run_passed');
         this.setHostStatus('starting');
         if (this.options.hostStartDelayMs === 0) {
             this.setHostStatus('running');
@@ -144,6 +361,12 @@ export class MockMirageService {
                 task.timer = null;
             }
         }
+        for (const run of this.workflowRuns.values()) {
+            if (run.timer !== null) {
+                clearTimeout(run.timer);
+                run.timer = null;
+            }
+        }
         this.subscriptions.clear();
     }
 
@@ -166,6 +389,9 @@ export class MockMirageService {
         };
         if (this.options.eventsCapability) {
             identity.events = true;
+        }
+        if (this.options.workflowsCapability) {
+            identity.workflows = true;
         }
         return identity;
     }
@@ -311,6 +537,243 @@ export class MockMirageService {
         } else {
             setTimeout(settle, this.options.shutdownDelayMs);
         }
+    }
+
+    // -- workflow face (DEC-023/DEC-024) -------------------------------------
+    //
+    // Simulates the observable wire behaviour: registry capacity + byte
+    // budget rejections, content-addressed digests, W-04 draft semantics,
+    // DryRun-gated idempotent publish, delete guards, and run lifecycle
+    // events. Structural IR validation is NOT re-implemented — the mock
+    // checks the members the wire contract pins and lets the UI's real
+    // failures come from the real service.
+
+    /** Members the wire contract pins on every definition; everything else
+     * (limits, predicate shapes, control jumps) is the service's job. */
+    private checkDefinition(definition: WorkflowDefinition): void {
+        if (canonicalDefinition(definition).length > MAX_WORKFLOW_DEFINITION_BYTES) {
+            throw new IpcRequestError(
+                'invalid_argument',
+                `workflow definition exceeds the ${MAX_WORKFLOW_DEFINITION_BYTES} byte budget`,
+            );
+        }
+        const id = (definition as { workflow_id?: unknown }).workflow_id;
+        if (!isHexId(id, 32)) {
+            throw new IpcRequestError('invalid_argument', 'malformed workflow identity');
+        }
+        const record = definition as {
+            name?: unknown;
+            parameters?: unknown;
+            steps?: unknown;
+            default_policy?: unknown;
+            allowed_policies?: unknown;
+        };
+        if (typeof record.name !== 'string' || record.name.length === 0) {
+            throw new IpcRequestError('invalid_argument', 'definition requires a name');
+        }
+        if (!Array.isArray(record.steps)) {
+            throw new IpcRequestError('invalid_argument', 'definition requires steps');
+        }
+        for (const step of record.steps) {
+            const stepId = (step as { step_id?: unknown }).step_id;
+            if (!isHexId(stepId, 32)) {
+                throw new IpcRequestError('invalid_argument', 'step requires a step_id');
+            }
+        }
+        if (record.default_policy !== undefined && typeof record.default_policy !== 'string') {
+            throw new IpcRequestError('invalid_argument', 'default_policy must be a policy name');
+        }
+        if (record.allowed_policies !== undefined && !Array.isArray(record.allowed_policies)) {
+            throw new IpcRequestError('invalid_argument', 'allowed_policies must be an array');
+        }
+    }
+
+    workflowList(): WorkflowSummary[] {
+        this.assertOpen();
+        const summaries: WorkflowSummary[] = [];
+        for (const [workflow_id, entry] of this.workflows) {
+            summaries.push({
+                workflow_id,
+                name: (entry.definition as { name: string }).name,
+                head_digest: entry.digest,
+                validation: entry.validation,
+                runnable: entry.validation === 'dry_run_passed',
+                updated_at_ms: entry.updated_at_ms,
+            });
+        }
+        return summaries.sort((a, b) => a.workflow_id.localeCompare(b.workflow_id));
+    }
+
+    workflowSave(definition: WorkflowDefinition): { workflow_id: string; digest: string } {
+        this.assertOpen();
+        this.checkDefinition(definition);
+        const workflowId = definition.workflow_id as string;
+        if (!this.workflows.has(workflowId) && this.workflows.size >= WORKFLOW_REGISTRY_CAPACITY) {
+            throw new IpcRequestError(
+                'unavailable',
+                `workflow registry capacity exhausted (${WORKFLOW_REGISTRY_CAPACITY})`,
+            );
+        }
+        const digest = mockDigest(canonicalDefinition(definition));
+        this.workflows.set(workflowId, {
+            definition,
+            digest,
+            validation: 'not_validated',
+            updated_at_ms: Date.now(),
+        });
+        return { workflow_id: workflowId, digest };
+    }
+
+    workflowPublish(
+        definition: WorkflowDefinition,
+    ): { workflow_id: string; digest: string; dry_run_id: string; idempotent: boolean } {
+        this.assertOpen();
+        this.checkDefinition(definition);
+        const workflowId = definition.workflow_id as string;
+        if (!this.workflows.has(workflowId) && this.workflows.size >= WORKFLOW_REGISTRY_CAPACITY) {
+            throw new IpcRequestError(
+                'unavailable',
+                `workflow registry capacity exhausted (${WORKFLOW_REGISTRY_CAPACITY})`,
+            );
+        }
+        const digest = mockDigest(canonicalDefinition(definition));
+        const head = this.workflows.get(workflowId);
+        const idempotent = head !== undefined && head.digest === digest && head.validation === 'dry_run_passed';
+        this.workflows.set(workflowId, {
+            definition,
+            digest,
+            validation: 'dry_run_passed',
+            updated_at_ms: Date.now(),
+        });
+        const dry_run_id = `dry-${String(this.nextDryRunNumber).padStart(4, '0')}`;
+        this.nextDryRunNumber += 1;
+        return { workflow_id: workflowId, digest, dry_run_id, idempotent };
+    }
+
+    workflowDelete(workflowId: string): { workflow_id: string } {
+        this.assertOpen();
+        if (!this.workflows.has(workflowId)) {
+            throw new IpcRequestError('not_found', 'unknown workflow id');
+        }
+        for (const run of this.workflowRuns.values()) {
+            if (run.workflow_id === workflowId && !isTerminalRunState(run.state)) {
+                throw new IpcRequestError('invalid_state', 'workflow has non-terminal runs');
+            }
+        }
+        this.workflows.delete(workflowId);
+        return { workflow_id: workflowId };
+    }
+
+    workflowAtomCatalog(): ExposedTool[] {
+        this.assertOpen();
+        return [...MOCK_ATOM_CATALOG];
+    }
+
+    workflowRunList(): WorkflowRunSummary[] {
+        this.assertOpen();
+        const runs: WorkflowRunSummary[] = [];
+        for (const run of this.workflowRuns.values()) {
+            runs.push({
+                run_id: run.run_id,
+                workflow_id: run.workflow_id,
+                state: run.state,
+                run_epoch: run.run_epoch,
+                created_at_ms: run.created_at_ms,
+            });
+        }
+        return runs.sort((a, b) => b.created_at_ms - a.created_at_ms);
+    }
+
+    workflowRun(input: WorkflowStartInput): { run_id: string } {
+        this.assertOpen();
+        if (this.hostStatus !== 'running') {
+            throw new IpcRequestError('invalid_state', `mira host is not running (status: ${this.hostStatus})`);
+        }
+        const entry = this.workflows.get(input.workflow_id);
+        if (entry === undefined) {
+            throw new IpcRequestError('not_found', 'unknown workflow id');
+        }
+        const digest = input.digest ?? entry.digest;
+        if (!isHexId(digest, 64)) {
+            throw new IpcRequestError('invalid_argument', 'malformed workflow digest');
+        }
+        if (digest !== entry.digest || entry.validation !== 'dry_run_passed') {
+            // W-04 passthrough: only the runnable head version admits runs.
+            throw new IpcRequestError('invalid_state', 'workflow version is not runnable');
+        }
+        if (this.workflowRuns.size >= WORKFLOW_RUN_CAPACITY) {
+            throw new IpcRequestError(
+                'unavailable',
+                `workflow run registry capacity exhausted (${WORKFLOW_RUN_CAPACITY})`,
+            );
+        }
+        const runId = mockRunId(this.nextRunNumber);
+        this.nextRunNumber += 1;
+        const run: MockWorkflowRun = {
+            run_id: runId,
+            workflow_id: input.workflow_id,
+            state: 'created',
+            run_epoch: 1,
+            created_at_ms: Date.now(),
+            timer: null,
+        };
+        this.workflowRuns.set(runId, run);
+        const settle = (): void => {
+            run.timer = null;
+            if (run.state !== 'running') {
+                return; // cancelled while driving
+            }
+            // Mock rule mirroring the pinned fail-closed verification: a
+            // side-effect step whose run_parameter verification is not bound
+            // by the caller's parameters fails the run.
+            const failed = mockVerificationUnbound(entry.definition, input.parameters ?? {});
+            this.settleRun(run, failed ? 'failed' : 'completed');
+        };
+        // The service publishes run events from the pinned event stream:
+        // RunStarted arrives as 'running' (there is no wire 'created' event).
+        run.state = 'running';
+        this.publishRunUpdated(run);
+        if (this.options.stepDurationMs === 0) {
+            settle();
+        } else {
+            run.timer = setTimeout(settle, this.options.stepDurationMs * 2);
+        }
+        return { run_id: runId };
+    }
+
+    workflowCancel(runId: string): { run_id: string; state: WorkflowRunState } {
+        this.assertOpen();
+        const run = this.workflowRuns.get(runId);
+        if (run === undefined) {
+            throw new IpcRequestError('not_found', 'unknown workflow run');
+        }
+        // The pinned cancel_run is idempotent: terminal runs answer with
+        // their state instead of failing.
+        if (run.state === 'running' || run.state === 'created') {
+            if (run.timer !== null) {
+                clearTimeout(run.timer);
+                run.timer = null;
+            }
+            this.settleRun(run, 'cancelled');
+        }
+        return { run_id: run.run_id, state: run.state };
+    }
+
+    private settleRun(run: MockWorkflowRun, state: WorkflowRunState): void {
+        run.state = state;
+        run.run_epoch += 1;
+        this.publishRunUpdated(run);
+    }
+
+    private publishRunUpdated(run: MockWorkflowRun): void {
+        this.publishFrame({
+            v: 1,
+            event: 'workflow.run_updated',
+            run_id: run.run_id,
+            workflow_id: run.workflow_id,
+            state: run.state,
+            run_epoch: run.run_epoch,
+        });
     }
 
     // -- event surface ------------------------------------------------------
@@ -513,6 +976,10 @@ export class MockTransport implements MirageTransport {
         return this.service.hello().events === true;
     }
 
+    get workflowsSupported(): boolean {
+        return this.service.hello().workflows === true;
+    }
+
     hello(): Promise<ServiceIdentity> {
         return this.call(() => this.service.hello());
     }
@@ -537,6 +1004,40 @@ export class MockTransport implements MirageTransport {
         return this.call(() => {
             this.service.shutdown();
         });
+    }
+
+    listWorkflows(): Promise<WorkflowSummary[]> {
+        return this.call(() => this.service.workflowList());
+    }
+
+    saveWorkflow(definition: WorkflowDefinition): Promise<{ workflow_id: string; digest: string }> {
+        return this.call(() => this.service.workflowSave(definition));
+    }
+
+    publishWorkflow(
+        definition: WorkflowDefinition,
+    ): Promise<{ workflow_id: string; digest: string; dry_run_id: string; idempotent: boolean }> {
+        return this.call(() => this.service.workflowPublish(definition));
+    }
+
+    deleteWorkflow(workflowId: string): Promise<{ workflow_id: string }> {
+        return this.call(() => this.service.workflowDelete(workflowId));
+    }
+
+    workflowAtomCatalog(): Promise<ExposedTool[]> {
+        return this.call(() => this.service.workflowAtomCatalog());
+    }
+
+    listWorkflowRuns(): Promise<WorkflowRunSummary[]> {
+        return this.call(() => this.service.workflowRunList());
+    }
+
+    startWorkflowRun(input: WorkflowStartInput): Promise<{ run_id: string }> {
+        return this.call(() => this.service.workflowRun(input));
+    }
+
+    cancelWorkflowRun(runId: string): Promise<{ run_id: string; state: WorkflowRunState }> {
+        return this.call(() => this.service.workflowCancel(runId));
     }
 
     subscribe(listener: EventListener): Promise<void> {

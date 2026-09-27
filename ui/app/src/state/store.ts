@@ -31,8 +31,9 @@ import {
     MAX_MESSAGES_PER_SESSION,
     MAX_SESSIONS,
 } from './harness-mock.js';
-import { MockWorkflowBackend } from './workflow-backend.js';
-import type { WorkflowAtom, WorkflowBackend } from './workflow-backend.js';
+import { CONTROL_CONSTRUCTS, IpcWorkflowBackend, newWorkflowId } from './workflow-backend.js';
+import type { WorkflowAtom } from './workflow-backend.js';
+import { workflowDefToIr } from './workflow-ir.js';
 import type {
     ApprovalRequest,
     ChatMessage,
@@ -43,6 +44,7 @@ import type {
     WorkflowDef,
     WorkflowParam,
     WorkflowRun,
+    WorkflowPredicateView,
 } from './model.js';
 
 // ---------------------------------------------------------------------------
@@ -129,6 +131,8 @@ export interface HarnessState {
     eventSeq: number;
     transportLabel: string;
     eventsSupported: boolean;
+    /** DEC-023 工作流能力位（hello `workflows`；false 时工作流页不可用）。 */
+    workflowsSupported: boolean;
     resyncNote?: { reason: string; at: number };
 
     route: Route;
@@ -154,7 +158,7 @@ export interface HarnessState {
 
     workflows: readonly WorkflowDef[];
     workflowRuns: readonly WorkflowRun[];
-    /** 原子动作目录（RPA 编辑器右栏可拖入的最小单元；来自 WorkflowBackend）。 */
+    /** 原子动作目录（wire exposed view + 编辑器控制构造，RPA 右栏拖入源）。 */
     atoms: readonly WorkflowAtom[];
 
     context: ReadonlyMap<string, ContextUsage>;
@@ -196,7 +200,7 @@ export interface HarnessActions {
     publishWorkflow(id: string): void;
     mutateSteps(id: string, mutate: (steps: WorkflowDef['steps']) => WorkflowDef['steps']): void;
     setStepParams(id: string, index: number, params: Record<string, string>): void;
-    setStepSkipIf(id: string, index: number, skipIf: string | undefined): void;
+    setStepSkipIf(id: string, index: number, skipIf: WorkflowPredicateView | undefined): void;
     setStepLoopMax(id: string, index: number, loopMax: number | undefined): void;
     exportWorkflowJson(id: string): void;
     dismissToast(id: string): void;
@@ -218,6 +222,8 @@ export class HarnessStore {
     private readonly listeners = new Set<Listener>();
     private readonly simulator: ChatSimulator;
     private transport: MirageTransport;
+    /** 工作流后端缝（DEC-023 IPC 适配器；随传输重建）。 */
+    private workflowBackend: IpcWorkflowBackend;
     private readonly reconnectFactory: (() => MirageTransport) | null;
     private unsubscribeTransport: (() => void) | null = null;
     private pollTimer: number | null = null;
@@ -228,10 +234,9 @@ export class HarnessStore {
     private sequencer = new EventSequencer();
     private disposed = false;
 
-    private readonly workflowBackend: WorkflowBackend = new MockWorkflowBackend(now());
-
     constructor(transport: MirageTransport, options: { reconnect?: () => MirageTransport } = {}) {
         this.transport = transport;
+        this.workflowBackend = new IpcWorkflowBackend(transport);
         this.reconnectFactory = options.reconnect ?? null;
         const t = now();
         const seeded = seedSessions(t);
@@ -241,6 +246,7 @@ export class HarnessStore {
             eventSeq: 0,
             transportLabel: transport.label,
             eventsSupported: transport.eventsSupported,
+            workflowsSupported: transport.workflowsSupported,
             route: parseRoute(window.location.hash),
             sessions: seeded.sessions,
             messages: seeded.messages,
@@ -327,6 +333,7 @@ export class HarnessStore {
         const transport = this.transport;
         try {
             transport.onConnectionLost?.(this.onConnectionLost);
+            this.workflowBackend = new IpcWorkflowBackend(transport);
             const identity = await transport.hello();
             if (this.disposed) {
                 return;
@@ -338,6 +345,7 @@ export class HarnessStore {
                 identity,
                 hostStatus: identity.host_status,
                 eventsSupported: identity.events === true,
+                workflowsSupported: identity.workflows === true,
             });
             if (resume) {
                 this.reconnectAttempt = 0;
@@ -377,17 +385,10 @@ export class HarnessStore {
             this.set({ activeTaskIds: active });
             if (resume) {
                 await this.refreshActiveTasks();
+                await this.refreshWorkflows();
                 this.set({ resyncNote: { reason: '重连后重新同步任务快照', at: now() } });
             } else {
-                const [defs, runs, atoms] = await Promise.all([
-                    this.workflowBackend.listDefs(),
-                    this.workflowBackend.listRuns(),
-                    this.workflowBackend.atomCatalog(),
-                ]);
-                if (this.disposed) {
-                    return;
-                }
-                this.set({ workflows: defs, workflowRuns: runs, atoms });
+                await this.refreshWorkflows();
             }
         } catch (err) {
             if (this.disposed) {
@@ -442,6 +443,13 @@ export class HarnessStore {
             if (this.state.activeTaskIds.length > 0) {
                 void this.refreshActiveTasks();
             }
+            // 无事件能力时的运行监控兜底：仍有未终态运行则刷新工作流快照。
+            if (
+                this.state.workflowsSupported &&
+                this.state.workflowRuns.some((r) => r.status === 'running' || r.status === 'queued' || r.status === 'paused')
+            ) {
+                void this.refreshWorkflows();
+            }
         }, POLL_INTERVAL_MS);
     }
 
@@ -461,6 +469,12 @@ export class HarnessStore {
             case 'host.status':
                 this.set({ hostStatus: event.status, eventSeq: event.seq });
                 break;
+            case 'workflow.run_updated':
+                this.set({ eventSeq: event.seq });
+                // workflow.runs 是运行快照事实源（DEC-023）：事件只做通知，
+                // 状态以快照刷新回写。
+                void this.refreshWorkflows();
+                break;
             case 'events.overflow':
                 break;
         }
@@ -472,6 +486,7 @@ export class HarnessStore {
             this.set({ eventSeq: event.seq, resyncNote: { reason, at: now() } });
             this.toast(`事件流不连续（${reason}），已重新同步任务快照`, 'warn');
             void this.refreshActiveTasks();
+            void this.refreshWorkflows();
             return;
         }
         if (event.event === 'task.updated') {
@@ -626,6 +641,7 @@ export class HarnessStore {
 
     async resync(): Promise<void> {
         await this.refreshActiveTasks();
+        await this.refreshWorkflows();
         this.set({ resyncNote: { reason: '手动重新同步', at: now() } });
         this.toast('已重新同步事件流与任务快照', 'info');
     }
@@ -842,11 +858,63 @@ export class HarnessStore {
         this.toast('Takeover 已解除；恢复前建议重新观察环境', 'info');
     };
 
-    // -- 工作流（模拟域） ------------------------------------------------------
+    // -- 工作流（DEC-023 契约面） --------------------------------------------
+
+    /** 刷新工作流快照：列表摘要 + 运行快照（workflow.runs 是运行事实源）
+     * + wire 原子目录（含编辑器控制构造）。本会话持有内容副本且 head
+     * digest 未变的定义保留可编辑副本，其余按 wire 投影（不可编辑）。 */
+    private async refreshWorkflows(): Promise<void> {
+        if (this.disposed || this.state.connection !== 'ready' || !this.state.workflowsSupported) {
+            return;
+        }
+        try {
+            const [defs, runs, wireAtoms] = await Promise.all([
+                this.workflowBackend.listDefs(),
+                this.workflowBackend.listRuns(),
+                this.workflowBackend.atomCatalog(),
+            ]);
+            if (this.disposed) {
+                return;
+            }
+            const runsDesc = [...runs].sort((a, b) => b.startedAt - a.startedAt);
+            const merged = defs.map((def) => {
+                const prev = this.state.workflows.find((p) => p.id === def.id);
+                const keep =
+                    prev !== undefined && prev.contentKnown && prev.digest !== undefined && prev.digest === def.digest;
+                const source = keep && prev !== undefined ? { ...prev, name: def.name, updatedAt: def.updatedAt } : def;
+                return withRunInfo(source, runsDesc);
+            });
+            this.set({
+                workflows: merged,
+                workflowRuns: runsDesc.map((r) => ({
+                    ...r,
+                    workflowName: merged.find((d) => d.id === r.workflowId)?.name ?? r.workflowId,
+                })),
+                atoms: [...wireAtoms, ...CONTROL_CONSTRUCTS],
+            });
+        } catch (err) {
+            this.toast(`工作流快照刷新失败：${err instanceof Error ? err.message : String(err)}`, 'warn');
+        }
+    }
+
+    private ensureWorkflows(): boolean {
+        if (!this.state.workflowsSupported) {
+            this.toast('服务未提供工作流能力（hello 无 workflows 位）', 'warn');
+            return false;
+        }
+        return true;
+    }
 
     runWorkflow: HarnessActions['runWorkflow'] = (workflowId) => {
+        if (!this.ensureWorkflows()) {
+            return;
+        }
         const wf = this.state.workflows.find((w) => w.id === workflowId);
         if (wf === undefined) {
+            return;
+        }
+        if (!wf.runnable) {
+            this.toast('草稿不可运行：先发布生成可运行版本（W-04）', 'warn');
             return;
         }
         void this.workflowBackend
@@ -858,9 +926,8 @@ export class HarnessStore {
                         w.id === workflowId ? { ...w, lastRunAt: run.startedAt, lastRunStatus: 'running' } : w,
                     ),
                 });
-                this.advanceRun(run.id, 0);
                 this.navigate({ view: 'workflow-run', workflowId, runId: run.id });
-                this.toast(`已启动工作流「${wf.name}」（模拟运行）`, 'info');
+                this.toast(`已启动工作流「${wf.name}」`, 'info');
             })
             .catch((err: unknown) => {
                 this.toast(`运行失败：${err instanceof Error ? err.message : String(err)}`, 'error');
@@ -869,17 +936,22 @@ export class HarnessStore {
 
     /** 新建草稿（RPA：新流程从空序列开始，自动保存为草稿）。 */
     createWorkflow = (): void => {
-        const id = `wf-${now().toString(36)}`;
+        if (!this.ensureWorkflows()) {
+            return;
+        }
+        const id = newWorkflowId();
         const draft: WorkflowDef = {
             id,
             name: '未命名工作流',
-            version: 'v1',
+            version: '草稿',
             description: '',
             params: [],
             steps: [],
             successRate: 1,
             published: false,
             updatedAt: now(),
+            runnable: false,
+            contentKnown: true,
         };
         void this.workflowBackend.saveDraft(draft).then((saved) => {
             this.set({ workflows: [saved, ...this.state.workflows] });
@@ -904,41 +976,69 @@ export class HarnessStore {
     };
 
     deleteWorkflow = (id: string): void => {
-        void this.workflowBackend.remove(id).then(() => {
-            this.set({
-                workflows: this.state.workflows.filter((w) => w.id !== id),
-                workflowRuns: this.state.workflowRuns.filter((r) => r.workflowId !== id),
+        if (!this.ensureWorkflows()) {
+            return;
+        }
+        void this.workflowBackend
+            .remove(id)
+            .then(() => {
+                this.set({
+                    workflows: this.state.workflows.filter((w) => w.id !== id),
+                    workflowRuns: this.state.workflowRuns.filter((r) => r.workflowId !== id),
+                });
+                if (this.state.route.view === 'workflow-editor' && this.state.route.workflowId === id) {
+                    this.navigate({ view: 'workflows' });
+                }
+                this.toast('工作流已删除（仅目录条目；版本历史保留在服务库）', 'info');
+            })
+            .catch((err: unknown) => {
+                this.toast(`删除失败：${err instanceof Error ? err.message : String(err)}`, 'error');
             });
-            if (this.state.route.view === 'workflow-editor' && this.state.route.workflowId === id) {
-                this.navigate({ view: 'workflows' });
-            }
-            this.toast('工作流已删除', 'info');
-        });
     }
 
     publishWorkflow = (id: string): void => {
+        if (!this.ensureWorkflows()) {
+            return;
+        }
+        const def = this.state.workflows.find((w) => w.id === id);
+        if (def === undefined) {
+            return;
+        }
+        if (!def.contentKnown) {
+            this.toast('本会话没有该定义的内容副本（wire 无定义读取面），不可发布', 'warn');
+            return;
+        }
         void this.workflowBackend
-            .publish(id)
+            .publish(def)
             .then((published) => {
                 this.set({
                     workflows: this.state.workflows.map((w) => (w.id === id ? published : w)),
                 });
-                this.toast(`已发布 ${published.name} ${published.version}`, 'info');
+                this.toast(`已发布 ${published.name}（head ${published.version}）`, 'info');
             })
             .catch((err: unknown) => {
                 this.toast(`发布失败：${err instanceof Error ? err.message : String(err)}`, 'error');
             });
     }
 
-    /** 就地修改定义并持久化为草稿（编辑器每次编辑即保存）。 */
+    /** 就地修改定义并持久化为草稿（编辑器每次编辑即保存）。仅限本会话
+     * 持有内容副本的定义——否则保存会以空内容遮蔽服务端 head（W-03）。 */
     private mutateDef = async (id: string, mutate: (d: WorkflowDef) => WorkflowDef): Promise<void> => {
         const current = this.state.workflows.find((w) => w.id === id);
         if (current === undefined) {
             return;
         }
+        if (!current.contentKnown) {
+            this.toast('本会话没有该定义的内容副本（wire 无定义读取面），不可编辑', 'warn');
+            return;
+        }
         const next = mutate({ ...current });
-        const saved = await this.workflowBackend.saveDraft(next);
-        this.set({ workflows: this.state.workflows.map((w) => (w.id === id ? saved : w)) });
+        try {
+            const saved = await this.workflowBackend.saveDraft(next);
+            this.set({ workflows: this.state.workflows.map((w) => (w.id === id ? saved : w)) });
+        } catch (err) {
+            this.toast(`草稿保存失败：${err instanceof Error ? err.message : String(err)}`, 'error');
+        }
     }
 
     /** 步骤序列变更（编辑器拖入/排序/改参/删除的统一入口）。 */
@@ -953,7 +1053,7 @@ export class HarnessStore {
         }));
     }
 
-    setStepSkipIf = (id: string, index: number, skipIf: string | undefined): void => {
+    setStepSkipIf = (id: string, index: number, skipIf: WorkflowDef['steps'][number]['skipIf']): void => {
         void this.mutateDef(id, (d) => ({
             ...d,
             steps: d.steps.map((s, i) => (i === index ? { ...s, skipIf } : s)),
@@ -972,81 +1072,31 @@ export class HarnessStore {
         if (def === undefined) {
             return;
         }
-        const blob = new Blob([JSON.stringify(toWorkflowIrJson(def), null, 2)], { type: 'application/json' });
+        if (!def.contentKnown) {
+            this.toast('本会话没有该定义的内容副本（wire 无定义读取面），不可导出', 'warn');
+            return;
+        }
+        const atomsById = new Map(this.state.atoms.map((a) => [a.id, a]));
+        const blob = new Blob([JSON.stringify(workflowDefToIr(def, atomsById), null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${def.name}.${def.version}.json`;
+        a.download = `${def.name}.${def.id.slice(0, 8)}.json`;
         a.click();
         URL.revokeObjectURL(url);
         this.toast('已导出 Workflow IR v1 JSON', 'info');
     }
 
-    private advanceRun(runId: string, index: number): void {
-        if (this.disposed || this.state.takeover) {
+    cancelWorkflowRun: HarnessActions['cancelWorkflowRun'] = (runId) => {
+        if (!this.ensureWorkflows()) {
             return;
         }
-        if (index > 0) {
-            const mark = (run: WorkflowRun): WorkflowRun => {
-                if (run.id !== runId) {
-                    return run;
-                }
-                const steps = [...run.steps];
-                const prev = steps[index - 1];
-                if (prev !== undefined && prev.status === 'running') {
-                    steps[index - 1] = { ...prev, status: 'ok', durationMs: 900 + Math.round(Math.random() * 4200) };
-                }
-                const current = steps[index];
-                if (current !== undefined) {
-                    steps[index] = { ...current, status: 'running', log: current.log ?? '运行中…' };
-                }
-                return { ...run, steps };
-            };
-            this.set({ workflowRuns: this.state.workflowRuns.map(mark) });
-        } else {
-            const start = (run: WorkflowRun): WorkflowRun =>
-                run.id === runId
-                    ? { ...run, steps: run.steps.map((s, i) => (i === 0 ? { ...s, status: 'running' as const } : s)) }
-                    : run;
-            this.set({ workflowRuns: this.state.workflowRuns.map(start) });
-        }
-        const isLast = index + 1 >= (this.state.workflowRuns.find((r) => r.id === runId)?.steps.length ?? 0);
-        window.setTimeout(() => {
-            if (this.disposed || this.state.takeover) {
-                return;
-            }
-            if (!isLast) {
-                this.advanceRun(runId, index + 1);
-            } else {
-                const finish = (run: WorkflowRun): WorkflowRun => {
-                    if (run.id !== runId) {
-                        return run;
-                    }
-                    const steps = [...run.steps];
-                    const last = steps[steps.length - 1];
-                    if (last !== undefined && last.status === 'running') {
-                        steps[steps.length - 1] = { ...last, status: 'ok', durationMs: 1_800 };
-                    }
-                    return { ...run, status: 'completed', steps };
-                };
-                this.set({
-                    workflowRuns: this.state.workflowRuns.map(finish),
-                    workflows: this.state.workflows.map((w) =>
-                        w.id === (this.state.workflowRuns.find((r) => r.id === runId)?.workflowId)
-                            ? { ...w, lastRunStatus: 'completed' }
-                            : w,
-                    ),
-                });
-            }
-        }, 1600 + Math.round(Math.random() * 1800));
-    }
-
-    cancelWorkflowRun: HarnessActions['cancelWorkflowRun'] = (runId) => {
-        const cancel = (run: WorkflowRun): WorkflowRun =>
-            run.id === runId && run.status === 'running'
-                ? { ...run, status: 'cancelled', steps: run.steps.map((s) => (s.status === 'running' || s.status === 'pending' ? { ...s, status: 'skipped' as const } : s)) }
-                : run;
-        this.set({ workflowRuns: this.state.workflowRuns.map(cancel) });
+        void this.workflowBackend
+            .cancelRun(runId)
+            .then(() => this.refreshWorkflows())
+            .catch((err: unknown) => {
+                this.toast(`取消失败：${err instanceof Error ? err.message : String(err)}`, 'error');
+            });
         this.toast('已请求取消该运行', 'warn');
     };
 
@@ -1158,22 +1208,18 @@ export function displayStepsOf(
 }
 
 /** Workflow IR v1 JSON 形态（与未来 workflow.* IPC 面的序列化对齐；纯函数便于测试）。 */
-export function toWorkflowIrJson(def: WorkflowDef): Record<string, unknown> {
+/** 用运行快照回填定义的最近运行信息（时间 / 状态 / 终态成功率）。 */
+function withRunInfo(def: WorkflowDef, runsDesc: readonly WorkflowRun[]): WorkflowDef {
+    const lastRun = runsDesc.find((r) => r.workflowId === def.id);
+    const terminal = runsDesc.filter(
+        (r) => r.workflowId === def.id && (r.status === 'completed' || r.status === 'failed' || r.status === 'cancelled'),
+    );
+    const completed = terminal.filter((r) => r.status === 'completed').length;
     return {
-        ir: 'mirage.workflow.v1',
-        id: def.id,
-        name: def.name,
-        version: def.version,
-        description: def.description,
-        params: def.params,
-        steps: def.steps.map((s) => ({
-            atom: s.atomId,
-            kind: s.kind,
-            title: s.title,
-            params: s.params ?? {},
-            ...(s.skipIf !== undefined ? { skip_if: s.skipIf } : {}),
-            ...(s.loopMax !== undefined ? { loop_head: { max_iterations: s.loopMax } } : {}),
-        })),
+        ...def,
+        lastRunAt: lastRun?.startedAt,
+        lastRunStatus: lastRun?.status,
+        successRate: terminal.length > 0 ? completed / terminal.length : 1,
     };
 }
 
