@@ -625,8 +625,21 @@ void scenario_tool_call_steps_dispatch_desktop_atoms() {
     // Deny path: the same atom fails closed under a denying gate; the run
     // settles failed and the clipboard keeps the earlier content.
     allow.store(false);
-    const auto denied_run =
-        host.start_workflow_run(workflow_id, published.digest, R"({"confirm":true})", "strict");
+    // The completed event is emitted before the drive epilogue retires the
+    // single async slot, so admission here can race it; the capacity
+    // rejection is transient (sub-millisecond epilogue) and the bounded
+    // retry waits it out. Any other rejection fails fast through check_ok.
+    mirage::runtime::WorkflowRunStartResult denied_run;
+    bool denied_admitted = false;
+    for (int waited = 0; waited <= 5000 && !denied_admitted; waited += 10) {
+        denied_run =
+            host.start_workflow_run(workflow_id, published.digest, R"({"confirm":true})", "strict");
+        denied_admitted =
+            denied_run.ok || denied_run.error.message.find("capacity") == std::string::npos;
+        if (!denied_admitted) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
     check_ok("denied tool-call run", denied_run);
     bool denied_seen = false;
     MIRAGE_CHECK(wait_until([&] {
