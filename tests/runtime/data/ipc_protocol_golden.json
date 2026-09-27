@@ -1,10 +1,10 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 3,
+    "version": 4,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
-    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted)",
+    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted)",
     "consumers": [
       "tests/runtime/ipc_protocol_golden_test.cpp",
       "ui/contracts/test/golden-vectors.test.ts"
@@ -14,7 +14,8 @@
       "request_failures / response_failures pin the stable decode error strings shared by both codecs; error_prefix matches by prefix because the C++ parser appends its own diagnostic after \"payload is not valid JSON\".",
       "v2 (M1.5-02): events.subscribe / events.unsubscribe are protocol v1 requests on both ends; the former unknown-op-events-* failure vectors were dropped as obsolete (superseded by unknown-op-registry-edit for the unknown-op stable error).",
       "events and event_failures sections are consumed by both codecs since M1.5-02; hello-capability's events identity member encodes on both ends.",
-      "v3 (M5-03): permission.* async confirmation surface (DEC-020) — permission.respond / permission.list requests, permission.request event, hello 'permissions' capability member; wire order pinned by schema doc sections 4, 6.1, 6.3 and 7.2."
+      "v3 (M5-03): permission.* async confirmation surface (DEC-020) — permission.respond / permission.list requests, permission.request event, hello 'permissions' capability member; wire order pinned by schema doc sections 4, 6.1, 6.3 and 7.2.",
+      "v4 (M5-04): session.* conversation face (DEC-021) — session.list / session.open / session.history requests, session.updated / session.message / session.turn / session.output events, task.submit optional session_id binding, TaskSubmitted session_id echo, hello 'sessions' capability member; wire order pinned by schema doc sections 4, 6.1, 6.4 and 7.2."
     ]
   },
   "requests": [
@@ -123,6 +124,43 @@
         "op": "permission.list"
       },
       "canonical": "{\"v\":1,\"id\":11,\"op\":\"permission.list\"}"
+    },
+    {
+      "name": "submit-session",
+      "id": 12,
+      "body": {
+        "op": "task.submit",
+        "goal": "check the session view",
+        "steps": [],
+        "session_id": "session-1"
+      },
+      "canonical": "{\"v\":1,\"id\":12,\"op\":\"task.submit\",\"goal\":\"check the session view\",\"steps\":[],\"session_id\":\"session-1\"}"
+    },
+    {
+      "name": "session-list",
+      "id": 13,
+      "body": {
+        "op": "session.list"
+      },
+      "canonical": "{\"v\":1,\"id\":13,\"op\":\"session.list\"}"
+    },
+    {
+      "name": "session-open",
+      "id": 14,
+      "body": {
+        "op": "session.open"
+      },
+      "canonical": "{\"v\":1,\"id\":14,\"op\":\"session.open\"}"
+    },
+    {
+      "name": "session-history",
+      "id": 15,
+      "body": {
+        "op": "session.history",
+        "session_id": "session-1",
+        "limit": 50
+      },
+      "canonical": "{\"v\":1,\"id\":15,\"op\":\"session.history\",\"session_id\":\"session-1\",\"limit\":50}"
     }
   ],
   "request_failures": [
@@ -210,6 +248,26 @@
       "name": "permission-respond-approved-not-boolean",
       "payload": "{\"v\":1,\"id\":10,\"op\":\"permission.respond\",\"request_id\":\"perm-7\",\"approved\":\"yes\"}",
       "error": "permission.respond requires an 'approved' boolean"
+    },
+    {
+      "name": "submit-empty-session-id",
+      "payload": "{\"v\":1,\"id\":12,\"op\":\"task.submit\",\"goal\":\"g\",\"steps\":[],\"session_id\":\"\"}",
+      "error": "task.submit 'session_id' must be non-empty"
+    },
+    {
+      "name": "session-history-missing-session-id",
+      "payload": "{\"v\":1,\"id\":15,\"op\":\"session.history\",\"limit\":10}",
+      "error": "session.history requires a non-empty 'session_id'"
+    },
+    {
+      "name": "session-history-empty-session-id",
+      "payload": "{\"v\":1,\"id\":15,\"op\":\"session.history\",\"session_id\":\"\"}",
+      "error": "session.history requires a non-empty 'session_id'"
+    },
+    {
+      "name": "session-history-bad-limit",
+      "payload": "{\"v\":1,\"id\":15,\"op\":\"session.history\",\"session_id\":\"session-1\",\"limit\":0}",
+      "error": "session.history 'limit' must be positive"
     }
   ],
   "responses": [
@@ -486,6 +544,110 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":12,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1,\"events\":true,\"permissions\":true}"
+    },
+    {
+      "name": "submit-ack-session",
+      "response": {
+        "id": 13,
+        "ok": true,
+        "payload": {
+          "kind": "submitted",
+          "value": {
+            "task_id": "task-3",
+            "session_id": "session-1"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":13,\"ok\":true,\"task_id\":\"task-3\",\"session_id\":\"session-1\"}"
+    },
+    {
+      "name": "hello-sessions-capability",
+      "response": {
+        "id": 14,
+        "ok": true,
+        "payload": {
+          "kind": "identity",
+          "value": {
+            "service": "mirage-service",
+            "mirage_version": "0.1.0",
+            "mira_core_version": "0.4.0",
+            "host_status": "running",
+            "protocol": 1,
+            "events": true,
+            "permissions": true,
+            "sessions": true
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":14,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1,\"events\":true,\"permissions\":true,\"sessions\":true}"
+    },
+    {
+      "name": "session-list",
+      "response": {
+        "id": 15,
+        "ok": true,
+        "payload": {
+          "kind": "session-list",
+          "value": {
+            "sessions": [
+              {
+                "id": "session-1",
+                "state": "autonomous",
+                "created_at_ms": 1758840000000
+              },
+              {
+                "id": "session-2",
+                "state": "failed",
+                "created_at_ms": 1758840001000
+              }
+            ]
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":15,\"ok\":true,\"sessions\":[{\"id\":\"session-1\",\"state\":\"autonomous\",\"created_at_ms\":1758840000000},{\"id\":\"session-2\",\"state\":\"failed\",\"created_at_ms\":1758840001000}]}"
+    },
+    {
+      "name": "session-opened",
+      "response": {
+        "id": 16,
+        "ok": true,
+        "payload": {
+          "kind": "session-opened",
+          "value": {
+            "session_id": "session-2"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":16,\"ok\":true,\"session_id\":\"session-2\"}"
+    },
+    {
+      "name": "session-history",
+      "response": {
+        "id": 17,
+        "ok": true,
+        "payload": {
+          "kind": "session-history",
+          "value": {
+            "session_id": "session-1",
+            "entries": [
+              {
+                "kind": "user",
+                "text": "inspect the host",
+                "sequence": 3,
+                "recorded_at_ms": 1758840000500
+              },
+              {
+                "kind": "outcome",
+                "text": "loop settled: Completed (steps 2)",
+                "sequence": 9,
+                "recorded_at_ms": 1758840002000
+              }
+            ],
+            "truncated": true
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":17,\"ok\":true,\"session_id\":\"session-1\",\"entries\":[{\"kind\":\"user\",\"text\":\"inspect the host\",\"sequence\":3,\"recorded_at_ms\":1758840000500},{\"kind\":\"outcome\",\"text\":\"loop settled: Completed (steps 2)\",\"sequence\":9,\"recorded_at_ms\":1758840002000}],\"truncated\":true}"
     }
   ],
   "response_failures": [
@@ -553,6 +715,26 @@
       "name": "permission-list-entry-unknown-capability",
       "payload": "{\"v\":1,\"id\":11,\"ok\":true,\"pending\":[{\"request_id\":\"perm-7\",\"capability\":\"registry.edit\",\"resource\":\"\",\"task_id\":\"t-1\",\"timeout_ms\":1000}]}",
       "error": "permission.list entry 'capability' is not a known capability"
+    },
+    {
+      "name": "submit-ack-empty-session-id",
+      "payload": "{\"v\":1,\"id\":13,\"ok\":true,\"task_id\":\"task-3\",\"session_id\":\"\"}",
+      "error": "task.submit response 'session_id' must be non-empty"
+    },
+    {
+      "name": "session-history-missing-truncated",
+      "payload": "{\"v\":1,\"id\":17,\"ok\":true,\"session_id\":\"session-1\",\"entries\":[]}",
+      "error": "session.history requires a 'truncated' boolean"
+    },
+    {
+      "name": "session-history-entry-unknown-kind",
+      "payload": "{\"v\":1,\"id\":17,\"ok\":true,\"session_id\":\"session-1\",\"entries\":[{\"kind\":\"assistant\",\"text\":\"hi\",\"sequence\":1,\"recorded_at_ms\":0}],\"truncated\":false}",
+      "error": "session.history entry 'kind' is not a known message kind"
+    },
+    {
+      "name": "session-list-entry-unknown-state",
+      "payload": "{\"v\":1,\"id\":15,\"ok\":true,\"sessions\":[{\"id\":\"session-1\",\"state\":\"paused\",\"created_at_ms\":0}]}",
+      "error": "session.list entry 'state' is not a known session state"
     }
   ],
   "events": [
@@ -617,6 +799,59 @@
         "timeout_ms": 119000
       },
       "canonical": "{\"v\":1,\"seq\":4,\"event\":\"permission.request\",\"request_id\":\"perm-7\",\"capability\":\"process.execute\",\"resource\":\"rm -rf /tmp/stale-build\",\"task_id\":\"t-1\",\"timeout_ms\":119000}"
+    },
+    {
+      "name": "session-updated",
+      "event": {
+        "v": 1,
+        "seq": 7,
+        "event": "session.updated",
+        "session_id": "session-2",
+        "state": "autonomous"
+      },
+      "canonical": "{\"v\":1,\"seq\":7,\"event\":\"session.updated\",\"session_id\":\"session-2\",\"state\":\"autonomous\"}"
+    },
+    {
+      "name": "session-message-user",
+      "event": {
+        "v": 1,
+        "seq": 8,
+        "event": "session.message",
+        "session_id": "session-1",
+        "task_id": "task-1",
+        "kind": "user",
+        "text": "inspect the host",
+        "sequence": 3
+      },
+      "canonical": "{\"v\":1,\"seq\":8,\"event\":\"session.message\",\"session_id\":\"session-1\",\"task_id\":\"task-1\",\"kind\":\"user\",\"text\":\"inspect the host\",\"sequence\":3}"
+    },
+    {
+      "name": "session-turn-settled",
+      "event": {
+        "v": 1,
+        "seq": 9,
+        "event": "session.turn",
+        "session_id": "session-1",
+        "task_id": "task-1",
+        "step": 1,
+        "kind": "filesystem.read",
+        "status": "ok"
+      },
+      "canonical": "{\"v\":1,\"seq\":9,\"event\":\"session.turn\",\"session_id\":\"session-1\",\"task_id\":\"task-1\",\"step\":1,\"kind\":\"filesystem.read\",\"status\":\"ok\"}"
+    },
+    {
+      "name": "session-output-chunk",
+      "event": {
+        "v": 1,
+        "seq": 10,
+        "event": "session.output",
+        "session_id": "session-1",
+        "task_id": "task-1",
+        "step": 1,
+        "chunk": "myhost",
+        "truncated": false
+      },
+      "canonical": "{\"v\":1,\"seq\":10,\"event\":\"session.output\",\"session_id\":\"session-1\",\"task_id\":\"task-1\",\"step\":1,\"chunk\":\"myhost\",\"truncated\":false}"
     }
   ],
   "event_failures": [
@@ -684,6 +919,26 @@
       "name": "permission-request-bad-timeout",
       "payload": "{\"v\":1,\"seq\":1,\"event\":\"permission.request\",\"request_id\":\"perm-7\",\"capability\":\"process.execute\",\"resource\":\"\",\"task_id\":\"t-1\",\"timeout_ms\":0}",
       "error": "permission.request 'timeout_ms' must be positive"
+    },
+    {
+      "name": "session-updated-unknown-state",
+      "payload": "{\"v\":1,\"seq\":1,\"event\":\"session.updated\",\"session_id\":\"session-1\",\"state\":\"paused\"}",
+      "error": "session.updated 'state' is not a known session state"
+    },
+    {
+      "name": "session-message-unknown-kind",
+      "payload": "{\"v\":1,\"seq\":1,\"event\":\"session.message\",\"session_id\":\"session-1\",\"task_id\":\"task-1\",\"kind\":\"assistant\",\"text\":\"hi\",\"sequence\":1}",
+      "error": "session.message 'kind' is not a known message kind"
+    },
+    {
+      "name": "session-turn-unknown-status",
+      "payload": "{\"v\":1,\"seq\":1,\"event\":\"session.turn\",\"session_id\":\"session-1\",\"task_id\":\"task-1\",\"step\":1,\"kind\":\"filesystem.read\",\"status\":\"running\"}",
+      "error": "session.turn 'status' is not a known settled-step status"
+    },
+    {
+      "name": "session-output-missing-truncated",
+      "payload": "{\"v\":1,\"seq\":1,\"event\":\"session.output\",\"session_id\":\"session-1\",\"task_id\":\"task-1\",\"step\":1,\"chunk\":\"out\"}",
+      "error": "session.output requires 'session_id', 'task_id', a positive 'step', 'chunk' and 'truncated'"
     }
   ],
   "framing": [

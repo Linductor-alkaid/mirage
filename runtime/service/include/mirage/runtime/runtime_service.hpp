@@ -41,6 +41,13 @@ struct ServiceConfig {
     std::size_t max_connections = 16;
     std::size_t max_steps_per_task = 64;
     std::size_t max_task_records = 256;
+    /// Session registry capacity (DEC-021): session.open fails closed with
+    /// the stable `unavailable` error at the bound instead of growing
+    /// without bound. The primary session counts against it.
+    std::size_t max_sessions = 16;
+    /// Upper bound for one session.history response; larger requested limits
+    /// are clamped to it.
+    std::size_t max_history_entries = 200;
     /// Capacity of one connection's bounded event queue (DEC-012 decision
     /// 5, drop-oldest). Overflowing surfaces as an `events.overflow` marker
     /// instead of growing without bound; snapshots remain the source of

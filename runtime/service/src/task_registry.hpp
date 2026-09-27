@@ -49,6 +49,11 @@ struct StepRecord {
 struct TaskRecord {
     std::string id;
     std::string goal;
+    /// Session the task's conversation lands in (DEC-021): the explicit
+    /// binding at submit time or the primary session. Hydrated recovery
+    /// records carry an empty id (their settlement predates this run), and
+    /// the session faces skip them.
+    std::string session_id;
     std::vector<StepRecord> steps;
     /// Wall-clock budget for one process.execute step, already clamped by
     /// the service cap at submit time (DEC-007 item 5).
@@ -92,6 +97,22 @@ struct TaskRegistry {
         }
         return result;
     }
+};
+
+/// Session registry (DEC-021): every session the service knows — the
+/// primary session opened at start() and the ones admitted through
+/// session.open — with its registration wall-clock time. Service-memory
+/// state; the pinned runtime stays the session-state authority (session.list
+/// projects live views). Bounded by `capacity`; admission refuses at the
+/// bound instead of growing without bound (RULE-07). All access happens
+/// under `mutex`.
+struct SessionRegistry {
+    std::mutex mutex;
+    std::map<std::string, std::int64_t> created_at_ms;
+    std::size_t capacity = 16;
+
+    bool full() const { return created_at_ms.size() >= capacity; }
+    bool contains(const std::string &id) const { return created_at_ms.count(id) != 0; }
 };
 
 /// Stable name of a MiraHost task progress state for IPC payloads.

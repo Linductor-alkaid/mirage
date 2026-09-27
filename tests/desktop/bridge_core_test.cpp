@@ -109,7 +109,11 @@ void scenario_submit_request_body_maps_to_the_session() {
         ipc::Response response;
         response.ok = true;
         response.id = 7;
-        response.payload = ipc::TaskSubmitted{"task-1"};
+        response.payload = [] {
+            ipc::TaskSubmitted value;
+            value.task_id = "task-1";
+            return value;
+        }();
         std::promise<ipc::Response> done;
         done.set_value(std::move(response));
         return done.get_future();

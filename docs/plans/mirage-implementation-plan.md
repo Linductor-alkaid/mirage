@@ -73,11 +73,16 @@ ESLint 新定选、`dependencies.lock.json` schema v2 工件 pin 与 npm 树哈�
 沙箱与 GPU 正式方案，DEC-006 2026-09-26 修订）、`M5-02`（CEF 产品壳骨架与
 壳内 IPC 传输路径：锁定工件 configure 期消费门禁、`apps/desktop` bootstrap
 进程形态壳骨架、`runtime/ipc` SessionClient、壳内 UI 对真实 `mirage-service`
-的 hello / 订阅 / 任务往返验收，DEC-019）与 `M5-03`（权限异步确认面：DEC-020
+的 hello / 订阅 / 任务往返验收，DEC-019）、`M5-03`（权限异步确认面：DEC-020
 替换 M1 同步确认挂点——`AsyncConfirmationHub` 有界等待 + 超时/容量/取消
 fail closed，协议 v1 附加扩展 `permission.request` 事件与
 `permission.respond` / `permission.list` 请求面，golden vectors 双端门禁
-meta.version 3，任务驱动器取消探测接线）已完成。
+meta.version 3，任务驱动器取消探测接线）与 `M5-04`（会话与消息契约面：
+DEC-021——`session.list` / `session.open` / `session.history` 请求面与
+`session.updated` / `session.message` / `session.turn` / `session.output`
+事件集，`task.submit` 会话绑定，pinned 会话投影经 `SessionJournal` 承载，
+`MiraHost` 会话面开启 DEC-008 迁移路径第一步，golden vectors 双端门禁
+meta.version 4）已完成。
 
 ## 交付边界
 

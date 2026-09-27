@@ -468,6 +468,23 @@ set_tests_properties(mira_binding_test PROPERTIES
 )
 endif()
 
+# M5-04 session conversation journal (DEC-021): platform-neutral library
+# test over the pinned event store; the pinned include dirs propagate from
+# Mirage::integration_mira by design (the adapter is the pinned-facing
+# boundary).
+add_executable(session_journal_test integration/session_journal_test.cpp)
+target_compile_features(session_journal_test PUBLIC cxx_std_20)
+mirage_enable_warnings(session_journal_test)
+target_link_libraries(session_journal_test
+    PRIVATE
+        Mirage::integration_mira
+)
+add_test(NAME session_journal_test COMMAND session_journal_test)
+set_tests_properties(session_journal_test PROPERTIES
+    LABELS "unit;integration"
+    TIMEOUT 60
+)
+
 # POSIX-only: signal self-pipe fixtures.
 # 
 if(UNIX)

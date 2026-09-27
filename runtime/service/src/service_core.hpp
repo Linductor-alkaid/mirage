@@ -10,6 +10,7 @@
 #include <executor/serial_execution_context.hpp>
 
 #include <mirage/desktop/desktop_environment.hpp>
+#include <mirage/integration/session_journal.hpp>
 #include <mirage/runtime/mira_host.hpp>
 #include <mirage/runtime/permission/permission.hpp>
 
@@ -32,6 +33,8 @@ struct ServiceCore {
     executor::SerialExecutionContext serial;
     MiraHost host;
     TaskRegistry registry;
+    /// Sessions the service knows (DEC-021): primary + session.open ones.
+    SessionRegistry sessions;
 
     /// M1-07 recovery persistence; disabled until enable() puts a store in
     /// it. persist() is called on every driver settlement and at the end of
@@ -52,9 +55,21 @@ struct ServiceCore {
     /// handed to the IPC loop.
     EventHub events;
 
+    /// Conversation journal over the pinned event store (DEC-021): the
+    /// service's only event storage, feeding the session.* history face and
+    /// the session.message stream. Owned here so handlers (serial context)
+    /// and drivers share one store.
+    std::shared_ptr<mirage::integration::SessionJournal> journal;
+
     std::string mirage_version;
     std::size_t max_steps_per_task = 64;
     std::size_t max_task_records = 256;
+    /// Session registry capacity (DEC-021): session.open fails closed at the
+    /// bound instead of growing without bound.
+    std::size_t max_sessions = 16;
+    /// Upper bound for one session.history response, regardless of the
+    /// requested limit.
+    std::size_t max_history_entries = 200;
     std::size_t max_result_bytes = 8192;
     std::chrono::milliseconds step_timeout{30000};
     std::chrono::milliseconds command_wait{4000};

@@ -44,4 +44,12 @@ void publish_task_updated_best_effort(const std::shared_ptr<ServiceCore> &core,
 void publish_permission_request_best_effort(const std::shared_ptr<ServiceCore> &core,
                                             ipc::PermissionRequestedEvent event);
 
+/// Driver-thread entry for the DEC-021 session event set (session.updated /
+/// session.message / session.turn / session.output): the same serial-domain
+/// best-effort publish discipline as the task snapshot. A dropped publish is
+/// covered by the snapshot faces (session.list / session.history), which
+/// stay the source of truth.
+void publish_session_event_best_effort(const std::shared_ptr<ServiceCore> &core,
+                                       ipc::EventPayload event);
+
 } // namespace mirage::runtime::detail

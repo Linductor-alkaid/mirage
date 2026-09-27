@@ -64,7 +64,7 @@ bool takes_value(const std::string &name) {
     return name == "--socket" || name == "--timeout" || name == "--goal" || name == "--read" ||
            name == "--exec" || name == "--step-timeout" || name == "--wait" ||
            name == "--read-root" || name == "--perm" || name == "--confirm" || name == "--config" ||
-           name == "--state-dir";
+           name == "--state-dir" || name == "--session" || name == "--limit";
 }
 
 /// Splits `--name value` / `--name=value` pairs; returns false on usage
@@ -441,6 +441,10 @@ int command_task_submit(int argc, char **argv) {
                     step_timeout = std::chrono::milliseconds{std::stol(value)};
                     return true;
                 }
+                if (name == "--session") {
+                    request.session_id = value;
+                    return true;
+                }
                 return parse_common_option(name, value, options);
             },
             extra)) {
@@ -609,6 +613,107 @@ int command_task_inspect(int argc, char **argv) {
     return kExitOk;
 }
 
+// --- session commands (DEC-021) ---------------------------------------------
+
+int command_session_list(int argc, char **argv) {
+    GlobalOptions options;
+    int index = 3; // skip "session" and the subcommand
+    std::vector<std::string> extra;
+    if (!consume_options(
+            argc, argv, index,
+            [&options](const std::string &name, const std::string &value) {
+                return parse_common_option(name, value, options);
+            },
+            extra)) {
+        return kExitUsage;
+    }
+    auto client = client_for(options);
+    const auto response =
+        client.call(mirage::runtime::ipc::ListSessionsRequest{}, options.call_timeout);
+    if (const int code = report_response(response); code != kExitOk) {
+        return code;
+    }
+    const auto list = std::get<mirage::runtime::ipc::SessionList>(response.payload);
+    for (const auto &session : list.sessions) {
+        std::cout << session.id << ' ' << session.state << '\n';
+    }
+    std::cout << list.sessions.size() << " session(s)\n";
+    return kExitOk;
+}
+
+int command_session_open(int argc, char **argv) {
+    GlobalOptions options;
+    int index = 3; // skip "session" and the subcommand
+    std::vector<std::string> extra;
+    if (!consume_options(
+            argc, argv, index,
+            [&options](const std::string &name, const std::string &value) {
+                return parse_common_option(name, value, options);
+            },
+            extra)) {
+        return kExitUsage;
+    }
+    auto client = client_for(options);
+    const auto response =
+        client.call(mirage::runtime::ipc::OpenSessionRequest{}, options.call_timeout);
+    if (const int code = report_response(response); code != kExitOk) {
+        return code;
+    }
+    std::cout << "session "
+              << std::get<mirage::runtime::ipc::SessionOpened>(response.payload).session_id << '\n';
+    return kExitOk;
+}
+
+int command_session_history(int argc, char **argv) {
+    std::string session_id;
+    std::optional<int> limit;
+    GlobalOptions options;
+    int index = 3; // skip "session" and the subcommand
+    std::vector<std::string> operands;
+    if (!consume_options(
+            argc, argv, index,
+            [&](const std::string &name, const std::string &value) {
+                if (name == "--limit") {
+                    limit = std::stoi(value);
+                    return true;
+                }
+                return parse_common_option(name, value, options);
+            },
+            operands)) {
+        return kExitUsage;
+    }
+    for (const auto &operand : operands) {
+        if (operand.starts_with("--")) {
+            std::cerr << kProgramName << ": unknown option '" << operand << "'\n";
+            return kExitUsage;
+        }
+        if (!session_id.empty()) {
+            std::cerr << kProgramName << ": history takes one session id\n";
+            return kExitUsage;
+        }
+        session_id = operand;
+    }
+    if (session_id.empty()) {
+        std::cerr << kProgramName << ": session history requires a session id\n";
+        return kExitUsage;
+    }
+    auto client = client_for(options);
+    mirage::runtime::ipc::SessionHistoryRequest request;
+    request.session_id = session_id;
+    request.limit = limit;
+    const auto response = client.call(request, options.call_timeout);
+    if (const int code = report_response(response); code != kExitOk) {
+        return code;
+    }
+    const auto history = std::get<mirage::runtime::ipc::SessionHistory>(response.payload);
+    for (const auto &entry : history.entries) {
+        std::cout << '[' << entry.sequence << "] " << entry.kind << ": " << entry.text << '\n';
+    }
+    std::cout << history.entries.size() << " entr" << (history.entries.size() == 1 ? "y" : "ies")
+              << (history.truncated ? " (older entries truncated)\n" : "\n");
+    return kExitOk;
+}
+
 // --- entry ------------------------------------------------------------------
 
 void print_usage(std::ostream &out) {
@@ -628,13 +733,17 @@ void print_usage(std::ostream &out) {
         << "  service shutdown [--socket P]\n"
         << "                               Ask the running service to stop\n"
         << "  task submit --goal TEXT [--read PATH] [--exec CMD]\n"
-        << "              [--step-timeout MS] [--socket P]\n"
+        << "              [--step-timeout MS] [--session ID] [--socket P]\n"
         << "                               Submit an M1 scripted task\n"
         << "  task list [--socket P]       List submitted tasks\n"
         << "  task inspect <id> [--socket P]\n"
         << "                               Inspect one task's structured results\n"
         << "  task cancel <id> [--socket P]\n"
         << "                               Cancel a task and its running desktop action\n"
+        << "  session list [--socket P]    List the service's sessions\n"
+        << "  session open [--socket P]    Open one more session\n"
+        << "  session history <id> [--limit N] [--socket P]\n"
+        << "                               Print a session's conversation history\n"
         << "\n"
         << "Options usable after each subcommand: --socket PATH (Local IPC\n"
         << "endpoint), --timeout MS (call timeout).\n";
@@ -695,6 +804,20 @@ int main(int argc, char **argv) {
                 return command_task_cancel(argc, argv);
             }
             std::cerr << kProgramName << ": unknown task subcommand '" << subcommand << "'\n";
+            return kExitUsage;
+        }
+        if (command == "session" && argc >= 3) {
+            const std::string_view subcommand{argv[2]};
+            if (subcommand == "list") {
+                return command_session_list(argc, argv);
+            }
+            if (subcommand == "open") {
+                return command_session_open(argc, argv);
+            }
+            if (subcommand == "history") {
+                return command_session_history(argc, argv);
+            }
+            std::cerr << kProgramName << ": unknown session subcommand '" << subcommand << "'\n";
             return kExitUsage;
         }
         std::cerr << kProgramName << ": unknown command '" << command << "'\n\n";

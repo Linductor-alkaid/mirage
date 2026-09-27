@@ -9,7 +9,9 @@
 #include <chrono>
 #include <functional>
 #include <future>
+#include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace mirage::runtime::detail {
 
@@ -87,16 +89,58 @@ template <typename T> void consume(std::future<T> future) {
     }
 }
 
-void for_each_step(ServiceCore &core, const std::string &task_id, std::size_t begin,
-                   const std::function<void(StepRecord &)> &mutate) {
-    std::lock_guard lock(core.registry.mutex);
-    auto entry = core.registry.tasks.find(task_id);
-    if (entry == core.registry.tasks.end()) {
+/// Publishes one settled-step turn (DEC-021) and — when the step reached the
+/// action and produced a result, even a partial or empty one — its output
+/// chunk. `result` null means the step never executed (permission deny), so
+/// there is no output to stream.
+void publish_turn_settled(const std::shared_ptr<ServiceCore> &core, const std::string &session_id,
+                          const std::string &task_id, std::size_t index_0based,
+                          const char *kind_name, const char *status, const std::string *result,
+                          bool truncated) {
+    if (session_id.empty()) {
         return;
     }
-    auto &steps = entry->second.steps;
-    for (std::size_t index = begin; index < steps.size(); ++index) {
-        mutate(steps[index]);
+    ipc::SessionTurnEvent turn;
+    turn.session_id = session_id;
+    turn.task_id = task_id;
+    turn.step = static_cast<int>(index_0based + 1);
+    turn.kind = kind_name;
+    turn.status = status;
+    publish_session_event_best_effort(core, ipc::EventPayload{std::move(turn)});
+    if (result == nullptr) {
+        return;
+    }
+    ipc::SessionOutputEvent output;
+    output.session_id = session_id;
+    output.task_id = task_id;
+    output.step = static_cast<int>(index_0based + 1);
+    output.chunk = *result;
+    output.truncated = truncated;
+    publish_session_event_best_effort(core, ipc::EventPayload{std::move(output)});
+}
+
+/// Marks the steps from `begin` skipped (the batch-skip discipline of every
+/// early settlement path) and publishes one skipped turn per step (DEC-021):
+/// the timeline sees why each remaining step produced nothing.
+void skip_with_turns(ServiceCore &service, const std::shared_ptr<ServiceCore> &core,
+                     const std::string &task_id, const std::string &session_id, std::size_t begin) {
+    std::vector<ipc::StepKind> kinds;
+    {
+        std::lock_guard lock(service.registry.mutex);
+        auto entry = service.registry.tasks.find(task_id);
+        if (entry == service.registry.tasks.end()) {
+            return;
+        }
+        auto &steps = entry->second.steps;
+        for (std::size_t index = begin; index < steps.size(); ++index) {
+            steps[index].status = step_status::kSkipped;
+            kinds.push_back(steps[index].spec.kind);
+        }
+    }
+    for (std::size_t offset = 0; offset < kinds.size(); ++offset) {
+        publish_turn_settled(core, session_id, task_id, begin + offset,
+                             ipc::step_kind_name(kinds[offset]), step_status::kSkipped, nullptr,
+                             false);
     }
 }
 
@@ -183,6 +227,37 @@ void mark_driver_done(const std::shared_ptr<ServiceCore> &core, const std::strin
     }
     service.recovery.persist(service.registry);
     publish_task_updated_best_effort(core, task_id);
+    // DEC-021 conversation settlement: the outcome enters the session journal
+    // (the store is the fact) and its notification rides the established
+    // best-effort path. `progress` is the pinned terminal name vocabulary
+    // ("Completed" / "Failed" / "Cancelled"), the same words the pinned
+    // loop writes into LoopSettled events. Hydrated tasks (empty session)
+    // settled in an earlier era and have no conversation here.
+    if (core->journal != nullptr) {
+        std::string session_id;
+        std::size_t steps = 0;
+        {
+            std::lock_guard lock(service.registry.mutex);
+            auto entry = service.registry.tasks.find(task_id);
+            if (entry != service.registry.tasks.end()) {
+                session_id = entry->second.session_id;
+                steps = entry->second.steps.size();
+            }
+        }
+        if (!session_id.empty()) {
+            const auto appended = core->journal->append_outcome(session_id, task_id, progress,
+                                                                static_cast<std::uint32_t>(steps));
+            if (appended.ok) {
+                ipc::SessionMessageEvent message;
+                message.session_id = session_id;
+                message.task_id = task_id;
+                message.kind = "outcome";
+                message.text = appended.text;
+                message.sequence = appended.sequence;
+                publish_session_event_best_effort(core, ipc::EventPayload{std::move(message)});
+            }
+        }
+    }
 }
 
 /// Admits one desktop operation for the task; false means the pinned
@@ -372,6 +447,36 @@ void publish_permission_request_best_effort(const std::shared_ptr<ServiceCore> &
     }
 }
 
+void publish_session_event_best_effort(const std::shared_ptr<ServiceCore> &core,
+                                       ipc::EventPayload event) {
+    try {
+        auto posted =
+            core->executor.submit_on(core->serial, [core, event = std::move(event)]() mutable {
+                std::visit(
+                    [&hub = core->events](auto &payload) {
+                        using T = std::decay_t<decltype(payload)>;
+                        if constexpr (std::is_same_v<T, ipc::SessionUpdatedEvent>) {
+                            hub.publish_session_update(std::move(payload));
+                        } else if constexpr (std::is_same_v<T, ipc::SessionMessageEvent>) {
+                            hub.publish_session_message(std::move(payload));
+                        } else if constexpr (std::is_same_v<T, ipc::SessionTurnEvent>) {
+                            hub.publish_session_turn(std::move(payload));
+                        } else if constexpr (std::is_same_v<T, ipc::SessionOutputEvent>) {
+                            hub.publish_session_output(std::move(payload));
+                        }
+                    },
+                    event);
+            });
+        if (!ready_within(posted, core->command_wait)) {
+            return; // dropped: session.list / session.history stay the truth
+        }
+        consume(std::move(posted));
+    } catch (const std::exception &) {
+        // Rejected admission (teardown in progress) ends the publish path.
+    } catch (...) {
+    }
+}
+
 void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> core,
                 std::string task_id) {
     if (!core) {
@@ -383,6 +488,7 @@ void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> cor
         mirage::desktop::CancelToken cancel;
         for (;;) {
             ipc::TaskStep step;
+            std::string session_id;
             std::chrono::milliseconds step_budget = service.step_timeout;
             {
                 std::lock_guard lock(service.registry.mutex);
@@ -396,11 +502,11 @@ void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> cor
                 step = entry->second.steps[index].spec;
                 step_budget = entry->second.step_timeout;
                 cancel = entry->second.cancel;
+                session_id = entry->second.session_id;
             }
 
             if (stop_token.stop_requested() || cancel.cancelled()) {
-                for_each_step(service, task_id, index,
-                              [](StepRecord &pending) { pending.status = step_status::kSkipped; });
+                skip_with_turns(service, core, task_id, session_id, index);
                 mark_driver_done(core, task_id, "Cancelled", false, false);
                 return;
             }
@@ -431,8 +537,10 @@ void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> cor
             if (cancelled_probe()) {
                 mark_step(service, task_id, index, step_status::kCancelled, {}, "", false, -1, {},
                           false, {});
-                for_each_step(service, task_id, index + 1,
-                              [](StepRecord &pending) { pending.status = step_status::kSkipped; });
+                publish_turn_settled(core, session_id, task_id, index,
+                                     ipc::step_kind_name(step.kind), step_status::kCancelled,
+                                     nullptr, false);
+                skip_with_turns(service, core, task_id, session_id, index + 1);
                 mark_driver_done(core, task_id, "Cancelled", false, false);
                 return;
             }
@@ -442,8 +550,10 @@ void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> cor
             if (!verdict.allowed) {
                 mark_step(service, task_id, index, step_status::kFailed, {}, step_permission, false,
                           -1, {}, false, "permission_denied: " + verdict.reason);
-                for_each_step(service, task_id, index + 1,
-                              [](StepRecord &pending) { pending.status = step_status::kSkipped; });
+                publish_turn_settled(core, session_id, task_id, index,
+                                     ipc::step_kind_name(step.kind), step_status::kFailed, nullptr,
+                                     false);
+                skip_with_turns(service, core, task_id, session_id, index + 1);
                 settle_failed(core, task_id, "permission_denied: " + verdict.reason);
                 return;
             }
@@ -454,8 +564,7 @@ void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> cor
                 // is unknown, cancelled or already settled elsewhere. The
                 // pinned state stays authoritative; nothing is marked
                 // failed from the driver side.
-                for_each_step(service, task_id, index,
-                              [](StepRecord &pending) { pending.status = step_status::kSkipped; });
+                skip_with_turns(service, core, task_id, session_id, index);
                 mark_driver_done(core, task_id, "Cancelled", false, false);
                 return;
             }
@@ -477,24 +586,30 @@ void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> cor
                 // ones are skipped, and the pinned cancel — not the driver
                 // — owns the terminal settlement.
                 mark_step(service, task_id, index, step_status::kCancelled, ticket.operation_id,
-                          step_permission, false, exit_code, std::move(result), truncated,
-                          std::move(error));
-                for_each_step(service, task_id, index + 1,
-                              [](StepRecord &pending) { pending.status = step_status::kSkipped; });
+                          step_permission, false, exit_code, result, truncated, error);
+                publish_turn_settled(core, session_id, task_id, index,
+                                     ipc::step_kind_name(step.kind), step_status::kCancelled,
+                                     &result, truncated);
+                skip_with_turns(service, core, task_id, session_id, index + 1);
                 admit_completion(service, ticket);
                 mark_driver_done(core, task_id, "Cancelled", false, false);
                 return;
             }
+            // The step reached the action: its result — complete, partial,
+            // or possibly empty — is the step's output chunk (DEC-021).
+            const std::string step_result = result;
             mark_step(service, task_id, index, ok ? step_status::kOk : step_status::kFailed,
                       ticket.operation_id, step_permission, ok, exit_code, std::move(result),
-                      truncated, error);
+                      truncated, std::move(error));
+            publish_turn_settled(core, session_id, task_id, index, ipc::step_kind_name(step.kind),
+                                 ok ? step_status::kOk : step_status::kFailed, &step_result,
+                                 truncated);
             admit_completion(service, ticket);
 
             if (!ok) {
                 // Fail-fast (DEC-007 item 5): settle the task failed and
                 // leave the remaining steps skipped.
-                for_each_step(service, task_id, index + 1,
-                              [](StepRecord &pending) { pending.status = step_status::kSkipped; });
+                skip_with_turns(service, core, task_id, session_id, index + 1);
                 settle_failed(core, task_id, error);
                 return;
             }

@@ -4,6 +4,7 @@
 # between the pinned environment contract and mirage::desktop (DEC-008).
 add_library(mirage_integration_mira STATIC
     src/mira_environment_binding.cpp
+    src/session_journal.cpp
 )
 add_library(Mirage::integration_mira ALIAS mirage_integration_mira)
 

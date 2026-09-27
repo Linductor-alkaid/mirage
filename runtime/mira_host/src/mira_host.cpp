@@ -116,6 +116,31 @@ TaskProgress project_task_state(mira::TaskState state) {
     return TaskProgress::Unknown;
 }
 
+/// Stable lowercase wire form of the pinned SessionState (DEC-021); never
+/// translated, the product layer matches on it and the golden vectors pin
+/// the set on both ends.
+const char *session_state_name(mira::SessionState state) {
+    switch (state) {
+    case mira::SessionState::Opening:
+        return "opening";
+    case mira::SessionState::Autonomous:
+        return "autonomous";
+    case mira::SessionState::TakeoverPending:
+        return "takeover_pending";
+    case mira::SessionState::HumanControlled:
+        return "human_controlled";
+    case mira::SessionState::Resuming:
+        return "resuming";
+    case mira::SessionState::Closing:
+        return "closing";
+    case mira::SessionState::Closed:
+        return "closed";
+    case mira::SessionState::Failed:
+        return "failed";
+    }
+    return "failed";
+}
+
 } // namespace
 
 const char *host_status_name(HostStatus status) {
@@ -157,6 +182,9 @@ struct MiraHost::Impl {
     mira::MiraRuntime runtime;
     std::atomic<HostStatus> status{HostStatus::Stopped};
     mira::SessionId session_id;
+    /// The pinned environment start() bound; further sessions (DEC-021)
+    /// open against the same environment.
+    std::shared_ptr<mira::IEnvironment> environment;
     bool runtime_initialized = false;
     HostShutdownReport last_shutdown_report;
 };
@@ -208,6 +236,7 @@ MiraHost::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBinding> 
         return failed(pinned_error(session.error()));
     }
     impl_->session_id = session.value().id;
+    impl_->environment = environment;
     const auto receipt = session.value().command.receipt(impl_->config.command_wait);
     if (!receipt || receipt.value().status != mira::ReceiptStatus::Accepted) {
         impl_->release_pinned_runtime();
@@ -221,6 +250,11 @@ MiraHost::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBinding> 
 }
 
 TaskSubmissionResult MiraHost::submit_task(const std::string &goal) {
+    return submit_task(SessionIdentity{impl_->session_id.to_string()}, goal);
+}
+
+TaskSubmissionResult MiraHost::submit_task(const SessionIdentity &session,
+                                           const std::string &goal) {
     const HostStatus current = impl_->status.load();
     if (current != HostStatus::Running) {
         return TaskSubmissionResult{
@@ -233,8 +267,13 @@ TaskSubmissionResult MiraHost::submit_task(const std::string &goal) {
         return TaskSubmissionResult{
             false, {}, host_error("invalid_argument", "goal must not be empty")};
     }
+    const auto session_id = mira::SessionId::parse(session.id);
+    if (!session_id || session_id->is_nil()) {
+        return TaskSubmissionResult{
+            false, {}, host_error("invalid_argument", "malformed session identity")};
+    }
 
-    const auto submission = impl_->runtime.submit_task(impl_->session_id, mira::TaskSpec{goal});
+    const auto submission = impl_->runtime.submit_task(session_id.value(), mira::TaskSpec{goal});
     if (!submission) {
         return TaskSubmissionResult{false, {}, pinned_error(submission.error())};
     }
@@ -250,6 +289,57 @@ TaskSubmissionResult MiraHost::submit_task(const std::string &goal) {
                                         : host_error("pinned_runtime", "task submission failed")};
     }
     return TaskSubmissionResult{true, TaskIdentity{submission.value().id.to_string()}, {}};
+}
+
+SessionIdentity MiraHost::primary_session() const {
+    return SessionIdentity{impl_->session_id.to_string()};
+}
+
+SessionOpenResult MiraHost::open_session() {
+    const HostStatus current = impl_->status.load();
+    if (current != HostStatus::Running) {
+        return SessionOpenResult{
+            false,
+            {},
+            host_error("invalid_state", std::string("open_session() requires a Running host, "
+                                                    "got ") +
+                                            host_status_name(current))};
+    }
+    if (!impl_->environment) {
+        return SessionOpenResult{
+            false, {}, host_error("invalid_state", "host has no bound environment")};
+    }
+
+    const auto session = impl_->runtime.open_session(impl_->environment);
+    if (!session) {
+        return SessionOpenResult{false, {}, pinned_error(session.error())};
+    }
+    const auto receipt = session.value().command.receipt(impl_->config.command_wait);
+    if (!receipt || receipt.value().status != mira::ReceiptStatus::Accepted) {
+        return SessionOpenResult{
+            false,
+            {},
+            receipt ? host_error("pinned_runtime", "session open command was rejected")
+                    : pinned_error(receipt.error())};
+    }
+    return SessionOpenResult{true, SessionIdentity{session.value().id.to_string()}, {}};
+}
+
+SessionViewResult MiraHost::session_view(const SessionIdentity &session) const {
+    const auto session_id = mira::SessionId::parse(session.id);
+    if (!session_id || session_id->is_nil()) {
+        return SessionViewResult{false, SessionView{},
+                                 host_error("invalid_argument", "malformed session identity")};
+    }
+    const auto snapshot = impl_->runtime.session_snapshot(session_id.value());
+    if (!snapshot) {
+        return SessionViewResult{false, SessionView{}, pinned_error(snapshot.error())};
+    }
+    SessionView view;
+    view.id = session.id;
+    view.state = session_state_name(snapshot.value().state);
+    view.environment_epoch = snapshot.value().environment_epoch;
+    return SessionViewResult{true, std::move(view), {}};
 }
 
 HostOutcome MiraHost::cancel_task(const TaskIdentity &task) {

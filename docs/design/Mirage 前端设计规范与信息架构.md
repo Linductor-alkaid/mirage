@@ -395,8 +395,8 @@ Mirage Shell（统一应用壳）
 
 | 前端能力 | 现有契约 | 前瞻依赖（记录为契约工作项输入） |
 | --- | --- | --- |
-| 会话列表/管理 | 无 | 需 IPC `session.*` 面（列表/打开/历史摘要），依托 mira `open_session`/会话树 |
-| 会话消息流 | `events` 帧（DEC-012 机制） | 需消息/轮次事件与增量输出事件集（M2+ 事件扩展） |
+| 会话列表/管理 | `session.list` / `session.open` / `session.history`（M5-04，DEC-021）；hello `sessions` 能力位探测 | 接线与产品化属 M5-06；`session.open` 容量饱和以 `unavailable` 显式拒绝 |
+| 会话消息流 | `session.message` / `session.turn` / `session.output` / `session.updated` 事件（M5-04，DEC-012 机制）；`session.history` 为含时间戳的重同步快照事实源 | 增量输出在 M1 驱动形态为每步一份完整 chunk，流式化后同形状多 chunk（wire 不变）；真实渲染属 M5-06 |
 | 执行模式提交 | `task.submit`（M1） | 已满足最小闭环；对话模式依赖消息面 |
 | 批准中心 | `permission.request` 事件 + `permission.respond` / `permission.list`（M5-03，DEC-020）；hello `permissions` 能力位探测 | 确认等待预算提示用 `timeout_ms`（事件与快照均携带）；批准结果经 `task.updated` / `task.inspect` 步 trace 呈现 |
 | 工作流库/编辑器 | 无 | mira `workflow_ir.hpp`（JSON 序列化）经 IPC 暴露 `workflow.*` 面；2026-09-18 细化为：`workflow.list` / `workflow.save`（草稿） / `workflow.publish` / `workflow.delete` / `workflow.atom.catalog`（原子动作目录，依赖 Platform Backend 能力上报） / `workflow.runs` / `workflow.run` / `workflow.cancel`——UI 侧接口缝已固定为 `WorkflowBackend`（`ui/app/src/state/workflow-backend.ts`），IPC 适配器实现同一接口即可接入 |
@@ -420,6 +420,9 @@ Mirage Shell（统一应用壳）
 
 ## 6. 变更记录
 
+- 2026-09-26：`M5-04` 落地（DEC-021）——§4 会话列表/管理与会话消息流两行由
+  "无契约"更新为已落地的 `session.*` 请求面与 `session.*` 事件集（含 `session.history`
+  重同步快照语义与 hello `sessions` 能力位）；接线与产品化仍属 M5-06。
 - 2026-09-16：初版。依据 DEC-013 确立 harness 优先信息架构、统一风格规范与
   workflow 结构化步骤编辑器口径。
 - 2026-09-16：依据 DEC-013 修订增补 §2.6 主题系统——产品支持多套风格化内置主题

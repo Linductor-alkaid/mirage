@@ -750,6 +750,191 @@ void run_scenario(const char *name, void (*scenario)()) {
 
 } // namespace
 
+// --- M5-04 session faces (DEC-021) -------------------------------------------
+
+void scenario_session_list_open_and_history_flow() {
+    mirage::testing::TempDir dir;
+    const ServiceConfig config = make_config(dir);
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+
+    ipc::IpcClient client(config.socket_path);
+
+    // hello advertises the session face (DEC-021).
+    const ipc::Response hello = client.call(ipc::HelloRequest{}, kCallBudget);
+    MIRAGE_CHECK(hello.ok);
+    const auto *identity = std::get_if<ipc::ServiceIdentity>(&hello.payload);
+    MIRAGE_CHECK(identity != nullptr);
+    if (identity != nullptr) {
+        MIRAGE_CHECK(identity->sessions.has_value());
+        MIRAGE_CHECK(identity->sessions.value_or(false));
+    }
+
+    // The primary session is visible without any session.open.
+    const ipc::Response first_list = client.call(ipc::ListSessionsRequest{}, kCallBudget);
+    MIRAGE_CHECK(first_list.ok);
+    const auto *primary_list = std::get_if<ipc::SessionList>(&first_list.payload);
+    MIRAGE_CHECK(primary_list != nullptr);
+    MIRAGE_CHECK(primary_list != nullptr && primary_list->sessions.size() == 1);
+    if (primary_list == nullptr || primary_list->sessions.size() != 1) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+    const std::string primary_id = primary_list->sessions[0].id;
+    MIRAGE_CHECK(mirage::testing::is_32_lowercase_hex(primary_id));
+    MIRAGE_CHECK(primary_list->sessions[0].created_at_ms > 0);
+    MIRAGE_CHECK(primary_list->sessions[0].state == "autonomous" ||
+                 primary_list->sessions[0].state == "opening");
+
+    // session.open admits one more session.
+    const ipc::Response opened = client.call(ipc::OpenSessionRequest{}, kCallBudget);
+    MIRAGE_CHECK(opened.ok);
+    const auto *opened_session = std::get_if<ipc::SessionOpened>(&opened.payload);
+    MIRAGE_CHECK(opened_session != nullptr);
+    if (opened_session == nullptr) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+    MIRAGE_CHECK(mirage::testing::is_32_lowercase_hex(opened_session->session_id));
+    MIRAGE_CHECK(opened_session->session_id != primary_id);
+
+    const ipc::Response second_list = client.call(ipc::ListSessionsRequest{}, kCallBudget);
+    MIRAGE_CHECK(second_list.ok);
+    const auto *both = std::get_if<ipc::SessionList>(&second_list.payload);
+    MIRAGE_CHECK(both != nullptr);
+    MIRAGE_CHECK(both != nullptr && both->sessions.size() == 2);
+    bool found_opened = false;
+    if (both != nullptr) {
+        for (const ipc::SessionSummary &session : both->sessions) {
+            if (session.id == opened_session->session_id) {
+                found_opened = true;
+                MIRAGE_CHECK(session.created_at_ms > 0);
+            }
+        }
+    }
+    MIRAGE_CHECK(found_opened);
+
+    // A task submitted into the session echoes the binding and lands its
+    // conversation in that session's history.
+    const std::string token = mirage::testing::unique_token();
+    const std::filesystem::path file = dir.root() / ("session-" + token + ".txt");
+    const std::string content = "session conversation fixture " + token;
+    write_text_file(file, content);
+    ipc::SubmitTaskRequest submit;
+    submit.goal = "read the session fixture";
+    submit.session_id = opened_session->session_id;
+    submit.steps.push_back({ipc::StepKind::FilesystemRead, file.string()});
+    const ipc::Response submitted = client.call(submit, kCallBudget);
+    MIRAGE_CHECK(submitted.ok);
+    const auto *ack = std::get_if<ipc::TaskSubmitted>(&submitted.payload);
+    MIRAGE_CHECK(ack != nullptr);
+    if (ack == nullptr) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+    MIRAGE_CHECK(ack->session_id.has_value());
+    MIRAGE_CHECK(ack->session_id.value_or("") == opened_session->session_id);
+
+    const std::optional<ipc::InspectTask> done = wait_terminal(config.socket_path, ack->task_id);
+    MIRAGE_CHECK(done.has_value());
+    MIRAGE_CHECK(done.has_value() && done->progress == "Completed");
+
+    // The outcome message is appended by the driver thread after the task
+    // record settles; poll the history face until the conversation shows
+    // both entries (liveness guard, not a latency assertion).
+    std::optional<ipc::SessionHistory> history;
+    const auto history_deadline = std::chrono::steady_clock::now() + kTaskBudget;
+    while (!history.has_value()) {
+        const ipc::Response history_response =
+            client.call(ipc::SessionHistoryRequest{opened_session->session_id, {}}, kCallBudget);
+        MIRAGE_CHECK(history_response.ok);
+        if (history_response.ok) {
+            const auto *snapshot = std::get_if<ipc::SessionHistory>(&history_response.payload);
+            MIRAGE_CHECK(snapshot != nullptr);
+            if (snapshot != nullptr && snapshot->entries.size() == 2) {
+                history = *snapshot;
+                break;
+            }
+        }
+        if (std::chrono::steady_clock::now() >= history_deadline) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{25});
+    }
+    MIRAGE_CHECK(history.has_value());
+    if (history.has_value()) {
+        MIRAGE_CHECK(history->session_id == opened_session->session_id);
+        MIRAGE_CHECK(!history->truncated);
+        MIRAGE_CHECK(history->entries.size() == 2);
+        if (history->entries.size() == 2) {
+            const ipc::SessionHistoryEntry &user = history->entries[0];
+            const ipc::SessionHistoryEntry &outcome = history->entries[1];
+            MIRAGE_CHECK(user.kind == "user");
+            MIRAGE_CHECK(user.text == submit.goal);
+            MIRAGE_CHECK(user.sequence >= 1);
+            MIRAGE_CHECK(user.recorded_at_ms > 0);
+            MIRAGE_CHECK(outcome.kind == "outcome");
+            MIRAGE_CHECK(outcome.text == "loop settled: Completed (steps 1)");
+            MIRAGE_CHECK(outcome.sequence > user.sequence);
+        }
+    }
+
+    // The requested limit selects the newest window and reports truncation.
+    const ipc::Response window =
+        client.call(ipc::SessionHistoryRequest{opened_session->session_id, 1}, kCallBudget);
+    MIRAGE_CHECK(window.ok);
+    const auto *windowed = std::get_if<ipc::SessionHistory>(&window.payload);
+    MIRAGE_CHECK(windowed != nullptr);
+    if (windowed != nullptr) {
+        MIRAGE_CHECK(windowed->truncated);
+        MIRAGE_CHECK(windowed->entries.size() == 1);
+        MIRAGE_CHECK(!windowed->entries.empty() && windowed->entries[0].kind == "outcome");
+    }
+
+    // Unknown sessions fail closed on both faces.
+    const ipc::Response unknown_history =
+        client.call(ipc::SessionHistoryRequest{"no-such-session", {}}, kCallBudget);
+    MIRAGE_CHECK(!unknown_history.ok);
+    MIRAGE_CHECK(unknown_history.error.code == "not_found");
+    ipc::SubmitTaskRequest unknown_submit;
+    unknown_submit.goal = "nobody can admit this";
+    unknown_submit.session_id = "no-such-session";
+    const ipc::Response unknown_task = client.call(unknown_submit, kCallBudget);
+    MIRAGE_CHECK(!unknown_task.ok);
+    MIRAGE_CHECK(unknown_task.error.code == "not_found");
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
+void scenario_session_open_capacity_fail_closed() {
+    mirage::testing::TempDir dir;
+    ServiceConfig config = make_config(dir);
+    // The primary session occupies the only slot (DEC-021: it counts
+    // against the bound); session.open must refuse explicitly.
+    config.max_sessions = 1;
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+
+    ipc::IpcClient client(config.socket_path);
+    const ipc::Response opened = client.call(ipc::OpenSessionRequest{}, kCallBudget);
+    MIRAGE_CHECK(!opened.ok);
+    MIRAGE_CHECK(opened.error.code == "unavailable");
+
+    // The refusal left the registry untouched.
+    const ipc::Response list = client.call(ipc::ListSessionsRequest{}, kCallBudget);
+    MIRAGE_CHECK(list.ok);
+    const auto *sessions = std::get_if<ipc::SessionList>(&list.payload);
+    MIRAGE_CHECK(sessions != nullptr);
+    MIRAGE_CHECK(sessions != nullptr && sessions->sessions.size() == 1);
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
 int main() {
     run_scenario("run_before_start_is_rejected", scenario_run_before_start_is_rejected);
     run_scenario("start_rejects_null_binding_fail_closed",
@@ -778,5 +963,7 @@ int main() {
     run_scenario("shutdown_with_inflight_task_is_bounded",
                  scenario_shutdown_with_inflight_task_is_bounded);
     run_scenario("shutdown_fd_triggers_stop", scenario_shutdown_fd_triggers_stop);
+    run_scenario("session_list_open_and_history_flow", scenario_session_list_open_and_history_flow);
+    run_scenario("session_open_capacity_fail_closed", scenario_session_open_capacity_fail_closed);
     return mirage::testing::finish("runtime_service_test");
 }

@@ -628,6 +628,29 @@ M1 阶段 Local IPC 的落地形态由 [DEC-007](../decisions/DEC-007-local-ipc-
   （submit，serial 域）、取消受理（cancel，serial 域）、驱动步进与终态（驱动
   线程 best-effort 投递到 serial 域，拒绝或超时即丢弃该条通知）。
 
+### 12.3 会话与消息契约面（M5，DEC-021）
+
+会话与消息的协议承载由 [DEC-021](../decisions/DEC-021-session-message-contract-face.md)
+定义、随 `M5-04` 落地，wire 契约见[协议 v1 Wire Schema](mirage-ipc-protocol-v1.md)
+§4 / §6.4 / §7.2：
+
+- **会话请求面**：`session.list`（注册表快照，含 `start()` 打开的主会话）、
+  `session.open`（在 hosted pinned 运行时上新开会话，容量饱和 fail closed）、
+  `session.history`（pinned 会话投影重建的对话历史，最新窗口 + `truncated`
+  截断标记）。`task.submit` 以可选 `session_id` 绑定会话（缺席落主会话，M1
+  wire 形态不变），回执携带归属。hello 以 `sessions` 能力成员通告。
+- **会话事件集**：`session.updated`（会话入注册表）、`session.message`
+  （对话投影新增条目：user / outcome）、`session.turn`（有界工作单元结算）、
+  `session.output`（步结果输出增量）。快照事实源为 `session.list` /
+  `session.history`，一致性模型沿用 DEC-012。
+- **服务承载**：`MiraHost` 新增 pinned-free 会话面（开新会话、会话视图、按会
+  话提交）；服务进程持有 pinned `MemoryEventStore`，经 integration/mira 的
+  `SessionJournal` 适配器以 pinned 循环同款事件载荷记录任务目标与结算，历史
+  由 pinned `build_conversation_view` 每次重建（存储是唯一事实源，投影可重
+  建）。模型循环（pinned `AgentLoop`）落地后写同一存储，契约面无感——这是
+  M1 过渡驱动形态向 pinned 会话 / 任务模型演进（DEC-008 迁移路径）的第一
+  步；本阶段仍不引入模型循环，steps 语义不变。
+
 ## 13. Agent Workspace
 
 > **修订（2026-09-16，[DEC-013](../decisions/DEC-013-frontend-ia-harness-first.md)）**：

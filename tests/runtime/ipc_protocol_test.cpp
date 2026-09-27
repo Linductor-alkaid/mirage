@@ -276,8 +276,9 @@ void scenario_response_round_trips() {
         ipc::Response response;
         response.ok = true;
         response.id = 4;
-        response.payload = ipc::ServiceIdentity{
-            "mirage-runtime", "0.5.0", "1.2.3", "Running", 1, std::nullopt, std::nullopt};
+        response.payload =
+            ipc::ServiceIdentity{"mirage-runtime", "0.5.0",      "1.2.3",     "Running", 1,
+                                 std::nullopt,     std::nullopt, std::nullopt};
         const ipc::ResponseDecode decoded = ipc::decode_response(ipc::encode_response(response));
         MIRAGE_CHECK(decoded.ok);
         MIRAGE_CHECK(decoded.response.id == 4);
@@ -296,7 +297,11 @@ void scenario_response_round_trips() {
         ipc::Response response;
         response.ok = true;
         response.id = 5;
-        response.payload = ipc::TaskSubmitted{"abc123"};
+        response.payload = [] {
+            ipc::TaskSubmitted value;
+            value.task_id = "abc123";
+            return value;
+        }();
         const ipc::ResponseDecode decoded = ipc::decode_response(ipc::encode_response(response));
         MIRAGE_CHECK(decoded.ok);
         const auto *submitted = std::get_if<ipc::TaskSubmitted>(&decoded.response.payload);

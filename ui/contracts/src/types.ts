@@ -37,13 +37,40 @@ export type TaskProgress =
 /** Lifecycle of one scripted step (`step_status` namespace in task_registry.hpp). */
 export type StepStatus = 'pending' | 'running' | 'ok' | 'failed' | 'skipped' | 'cancelled';
 
+/** Settled-step status vocabulary carried by `session.turn` (DEC-021): turns
+ * publish on settlement only, so the in-flight names are absent. */
+export type TurnStatus = 'ok' | 'failed' | 'cancelled' | 'skipped';
+
+/** Session state projection of the pinned SessionState (DEC-021), stable
+ * lowercase wire form. */
+export type SessionState =
+    | 'opening'
+    | 'autonomous'
+    | 'takeover_pending'
+    | 'human_controlled'
+    | 'resuming'
+    | 'closing'
+    | 'closed'
+    | 'failed';
+
+/** Conversation-entry vocabulary (DEC-021): "user" marks a task goal landing
+ * in the session, "outcome" a task settlement summary. */
+export type SessionMessageKind = 'user' | 'outcome';
+
 // ---------------------------------------------------------------------------
 // Requests (client -> service)
 // ---------------------------------------------------------------------------
 
 export type RequestBody =
     | { op: 'hello' }
-    | { op: 'task.submit'; goal: string; steps: TaskStep[]; step_timeout_ms?: number }
+    | {
+          op: 'task.submit';
+          goal: string;
+          steps: TaskStep[];
+          step_timeout_ms?: number;
+          /** Session binding (DEC-021); absent = primary session. */
+          session_id?: string;
+      }
     | { op: 'task.list' }
     | { op: 'task.inspect'; task_id: string }
     | { op: 'task.cancel'; task_id: string }
@@ -51,14 +78,18 @@ export type RequestBody =
     | { op: 'events.subscribe' }
     | { op: 'events.unsubscribe' }
     | { op: 'permission.respond'; request_id: string; approved: boolean }
-    | { op: 'permission.list' };
+    | { op: 'permission.list' }
+    | { op: 'session.list' }
+    | { op: 'session.open' }
+    | { op: 'session.history'; session_id: string; limit?: number };
 
 // ---------------------------------------------------------------------------
 // Responses (service -> client)
 // ---------------------------------------------------------------------------
 
-/** hello payload; `events` is the DEC-012 capability flag and `permissions`
- * the DEC-020 async confirmation flag (absent = false for both). */
+/** hello payload; `events` is the DEC-012 capability flag, `permissions` the
+ * DEC-020 async confirmation flag and `sessions` the DEC-021 session-face
+ * flag (absent = false for all three). */
 export interface ServiceIdentity {
     service: string;
     mirage_version: string;
@@ -67,10 +98,13 @@ export interface ServiceIdentity {
     protocol: number;
     events?: boolean;
     permissions?: boolean;
+    sessions?: boolean;
 }
 
 export interface TaskSubmitted {
     task_id: string;
+    /** Session the task's conversation landed in (DEC-021). */
+    session_id?: string;
 }
 
 export interface TaskSummary {
@@ -120,6 +154,24 @@ export interface PendingPermission {
     timeout_ms: number;
 }
 
+/** One session as reported by session.list (DEC-021). `state` is the stable
+ * SessionState projection; `created_at_ms` is the service-side registration
+ * wall-clock time. */
+export interface SessionSummary {
+    id: string;
+    state: SessionState;
+    created_at_ms: number;
+}
+
+/** One conversation entry as reported by session.history (DEC-021);
+ * `sequence` is the entry's position in the session's event sequence. */
+export interface SessionHistoryEntry {
+    kind: SessionMessageKind;
+    text: string;
+    sequence: number;
+    recorded_at_ms: number;
+}
+
 /** Successful response payload, discriminated exactly like the C++ variant. */
 export type ResponsePayload =
     | { kind: 'identity'; value: ServiceIdentity }
@@ -129,7 +181,13 @@ export type ResponsePayload =
     | { kind: 'cancelled'; value: TaskCancelled }
     | { kind: 'shutdown-accepted' }
     | { kind: 'permission-responded'; value: { request_id: string } }
-    | { kind: 'permission-list'; value: { pending: PendingPermission[] } };
+    | { kind: 'permission-list'; value: { pending: PendingPermission[] } }
+    | { kind: 'session-list'; value: { sessions: SessionSummary[] } }
+    | { kind: 'session-opened'; value: { session_id: string } }
+    | {
+          kind: 'session-history';
+          value: { session_id: string; entries: SessionHistoryEntry[]; truncated: boolean };
+      };
 
 /** Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc
  * domain; `pinned_runtime` is the verbatim passthrough shape used when the
@@ -153,7 +211,8 @@ export type ResponseEnvelop =
     | { ok: false; id: number; error: IpcError };
 
 // ---------------------------------------------------------------------------
-// Events (service -> client, DEC-012 draft; permission.request is DEC-020)
+// Events (service -> client, DEC-012 draft; permission.request is DEC-020,
+// session.* are DEC-021)
 // ---------------------------------------------------------------------------
 
 /** Closed event set; new events join additively, never by mutation. */
@@ -161,13 +220,21 @@ export type EventName =
     | 'task.updated'
     | 'host.status'
     | 'events.overflow'
-    | 'permission.request';
+    | 'permission.request'
+    | 'session.updated'
+    | 'session.message'
+    | 'session.turn'
+    | 'session.output';
 
 export const EVENT_NAMES: readonly EventName[] = [
     'task.updated',
     'host.status',
     'events.overflow',
     'permission.request',
+    'session.updated',
+    'session.message',
+    'session.turn',
+    'session.output',
 ];
 
 /** `task.updated` snapshot payload; `progress` matches task.inspect semantics. */
@@ -200,8 +267,48 @@ export interface PermissionRequestedPayload {
     timeout_ms: number;
 }
 
+/** `session.updated` payload (DEC-021): a session entered the registry. */
+export interface SessionUpdatedPayload {
+    session_id: string;
+    state: SessionState;
+}
+
+/** `session.message` payload (DEC-021): one entry joined the session's
+ * conversation projection. */
+export interface SessionMessagePayload {
+    session_id: string;
+    task_id: string;
+    kind: SessionMessageKind;
+    text: string;
+    sequence: number;
+}
+
+/** `session.turn` payload (DEC-021): one bounded unit of session work
+ * settled (a scripted driver step in the M1 form). */
+export interface SessionTurnPayload {
+    session_id: string;
+    task_id: string;
+    step: number;
+    kind: StepKind;
+    status: TurnStatus;
+}
+
+/** `session.output` payload (DEC-021): one incremental output chunk of a
+ * step's structured result; `truncated` marks the cap. */
+export interface SessionOutputPayload {
+    session_id: string;
+    task_id: string;
+    step: number;
+    chunk: string;
+    truncated: boolean;
+}
+
 export type ServerEvent =
     | ({ v: 1; seq: number; event: 'task.updated' } & TaskUpdatedPayload)
     | ({ v: 1; seq: number; event: 'host.status' } & HostStatusPayload)
     | ({ v: 1; seq: number; event: 'events.overflow' } & EventsOverflowPayload)
-    | ({ v: 1; seq: number; event: 'permission.request' } & PermissionRequestedPayload);
+    | ({ v: 1; seq: number; event: 'permission.request' } & PermissionRequestedPayload)
+    | ({ v: 1; seq: number; event: 'session.updated' } & SessionUpdatedPayload)
+    | ({ v: 1; seq: number; event: 'session.message' } & SessionMessagePayload)
+    | ({ v: 1; seq: number; event: 'session.turn' } & SessionTurnPayload)
+    | ({ v: 1; seq: number; event: 'session.output' } & SessionOutputPayload);

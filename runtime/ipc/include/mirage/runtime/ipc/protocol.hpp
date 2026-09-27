@@ -40,6 +40,11 @@ struct SubmitTaskRequest {
     /// the service's own cap. Filesystem reads are bounded by the provider
     /// contract, not by this field.
     std::optional<std::chrono::milliseconds> step_timeout;
+    /// Optional session binding (DEC-021): the task's goal lands in this
+    /// session's conversation and its turns/output publish under it. Absent
+    /// means the primary session, preserving the M1 wire form (old clients
+    /// are unaffected).
+    std::optional<std::string> session_id;
 };
 
 struct ListTasksRequest {};
@@ -87,10 +92,32 @@ struct RespondPermissionRequest {
 /// nothing awaits confirmation right now.
 struct ListPermissionsRequest {};
 
+/// Lists the service's sessions (DEC-021): id, projected state and creation
+/// time for every session in the registry, including the primary session
+/// opened at service start. The snapshot face of the session event stream.
+struct ListSessionsRequest {};
+
+/// Opens one more session on the hosted pinned runtime (DEC-021), bound to
+/// the same desktop environment. Fails with the stable `unavailable` error
+/// when the service-side session capacity is exhausted; pinned rejections
+/// surface in the passthrough shape.
+struct OpenSessionRequest {};
+
+/// Requests one session's conversation history (DEC-021): the pinned
+/// conversation projection (user messages and task outcomes) capped to the
+/// newest `limit` entries (service default and cap apply when absent).
+/// `truncated` marks older entries beyond the budget. Unknown session ids
+/// are a stable not_found error.
+struct SessionHistoryRequest {
+    std::string session_id;
+    std::optional<int> limit;
+};
+
 using Request =
     std::variant<HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest,
                  CancelTaskRequest, ShutdownRequest, SubscribeEventsRequest,
-                 UnsubscribeEventsRequest, RespondPermissionRequest, ListPermissionsRequest>;
+                 UnsubscribeEventsRequest, RespondPermissionRequest, ListPermissionsRequest,
+                 ListSessionsRequest, OpenSessionRequest, SessionHistoryRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -111,10 +138,18 @@ struct ServiceIdentity {
     /// `permission.respond` / `permission.list` request face is served. Same
     /// optional-encodes-when-set discipline as `events`.
     std::optional<bool> permissions;
+    /// DEC-021 session-face advertisement: the `session.list` /
+    /// `session.open` / `session.history` request face is served. Same
+    /// optional-encodes-when-set discipline as `events`.
+    std::optional<bool> sessions;
 };
 
 struct TaskSubmitted {
     std::string task_id;
+    /// Session the task's conversation landed in (DEC-021): the explicit
+    /// binding when the request carried one, the primary session otherwise.
+    /// Encode-when-set; legacy test doubles may omit it.
+    std::optional<std::string> session_id;
 };
 
 struct TaskSummary {
@@ -196,9 +231,56 @@ struct PermissionPendingList {
     std::vector<PendingPermission> pending;
 };
 
+/// One session as reported by session.list (DEC-021). `state` is the stable
+/// lowercase name of the pinned SessionState projection ("opening" /
+/// "autonomous" / "takeover_pending" / "human_controlled" / "resuming" /
+/// "closing" / "closed" / "failed"); a session whose pinned snapshot fails
+/// surfaces the conservative `failed` name instead of an invented state.
+/// `created_at_ms` is the service-side wall-clock registration time.
+struct SessionSummary {
+    std::string id;
+    std::string state;
+    std::int64_t created_at_ms = 0;
+};
+
+/// Snapshot of the session registry (DEC-021), primary session included;
+/// may be empty. The authoritative face for resync after event gaps.
+struct SessionList {
+    std::vector<SessionSummary> sessions;
+};
+
+/// Acknowledgement of session.open (DEC-021): the new session's id, as it
+/// appears in session.list and as a task.submit `session_id` binding.
+struct SessionOpened {
+    std::string session_id;
+};
+
+/// One conversation entry as reported by session.history (DEC-021).
+/// `kind` is "user" (task goal landed in the session) or "outcome" (task
+/// settlement summary); `sequence` is the entry's position in the session's
+/// event sequence; `recorded_at_ms` is the wall-clock time the underlying
+/// event was recorded.
+struct SessionHistoryEntry {
+    std::string kind;
+    std::string text;
+    std::uint64_t sequence = 0;
+    std::int64_t recorded_at_ms = 0;
+};
+
+/// One session's conversation history (DEC-021): the newest `limit` entries
+/// of the pinned conversation projection in session order; `truncated` marks
+/// that older entries exist beyond the budget. The authoritative face for
+/// rebuilding the conversation view after event gaps.
+struct SessionHistory {
+    std::string session_id;
+    std::vector<SessionHistoryEntry> entries;
+    bool truncated = false;
+};
+
 using ResponsePayload =
     std::variant<ServiceIdentity, TaskSubmitted, TaskList, InspectTask, TaskCancelled,
-                 ShutdownAccepted, PermissionResponded, PermissionPendingList>;
+                 ShutdownAccepted, PermissionResponded, PermissionPendingList, SessionList,
+                 SessionOpened, SessionHistory>;
 
 /// Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc
 /// domain ("protocol_error", "unsupported", "invalid_argument", "not_found",
@@ -291,9 +373,58 @@ struct PermissionRequestedEvent {
     std::int64_t timeout_ms = 0;
 };
 
+/// `session.updated` (DEC-021): a session entered the registry (open).
+/// `state` uses the session state vocabulary of SessionSummary; gradual
+/// in-session state changes are not broadcast (the list snapshot is the
+/// source of truth).
+struct SessionUpdatedEvent {
+    std::string session_id;
+    std::string state;
+};
+
+/// `session.message` (DEC-021): one entry joined the session's conversation
+/// projection. `kind` is "user" (the task goal) or "outcome" (the task
+/// settlement summary); `text` is the message body; `sequence` is the
+/// entry's position in the session's event sequence. The history snapshot's
+/// entries additionally carry the recorded-at time; events leave timestamp
+/// semantics to the receiving client.
+struct SessionMessageEvent {
+    std::string session_id;
+    std::string task_id;
+    std::string kind;
+    std::string text;
+    std::uint64_t sequence = 0;
+};
+
+/// `session.turn` (DEC-021): one bounded unit of session work settled — a
+/// scripted driver step in the M1 form, one agent-loop iteration once the
+/// model loop lands. `kind` and `status` reuse the step trace vocabularies
+/// (step_kind_name / settled step statuses). Turns publish on settlement
+/// only; task.updated already covers the in-progress semantics.
+struct SessionTurnEvent {
+    std::string session_id;
+    std::string task_id;
+    int step = 0;
+    std::string kind;
+    std::string status;
+};
+
+/// `session.output` (DEC-021): one incremental output chunk of a step's
+/// structured result, capped like the task.inspect result budget;
+/// `truncated` marks the cap. The M1 driver emits one complete chunk per
+/// settled step; streaming producers emit many, same shape.
+struct SessionOutputEvent {
+    std::string session_id;
+    std::string task_id;
+    int step = 0;
+    std::string chunk;
+    bool truncated = false;
+};
+
 /// Closed event set; new events join additively (DEC-012).
 using EventPayload =
-    std::variant<TaskUpdatedEvent, HostStatusEvent, EventsOverflowEvent, PermissionRequestedEvent>;
+    std::variant<TaskUpdatedEvent, HostStatusEvent, EventsOverflowEvent, PermissionRequestedEvent,
+                 SessionUpdatedEvent, SessionMessageEvent, SessionTurnEvent, SessionOutputEvent>;
 
 /// One decoded event frame minus its envelope bookkeeping: the per-connection
 /// `seq` plus the payload. `seq` is assigned by the sender per connection,
