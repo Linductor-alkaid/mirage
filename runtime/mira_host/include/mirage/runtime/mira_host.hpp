@@ -6,6 +6,11 @@
 #include <string>
 
 #include <mirage/integration/mira_adapter.hpp>
+#include <mirage/integration/workflow_event_bridge.hpp>
+
+namespace executor {
+class Executor;
+}
 
 namespace mirage::runtime {
 
@@ -188,6 +193,51 @@ struct ShutdownResult {
     HostError error;
 };
 
+/// Result of save_workflow_definition() / publish_workflow_definition()
+/// (DEC-023): the definition's pinned identity, content digest and product
+/// name; publish additionally reports the gate drive id and idempotency.
+struct WorkflowDefinitionResult {
+    bool ok = false;
+    std::string workflow_id;
+    std::string digest;
+    std::string name;
+    std::string dry_run_id; ///< publish only; empty for save
+    bool idempotent = false; ///< publish only
+    HostError error;
+};
+
+/// Result of start_workflow_run() (DEC-023): the new run's identity.
+struct WorkflowRunStartResult {
+    bool ok = false;
+    std::string run_id;
+    HostError error;
+};
+
+/// Result of cancel_workflow_run() (DEC-023): the post-call run state as the
+/// pinned view reports it (terminal states included; cancel is idempotent).
+struct WorkflowRunCancelResult {
+    bool ok = false;
+    std::string run_id;
+    std::string state;
+    HostError error;
+};
+
+/// Pinned-free projection of one workflow run snapshot (DEC-023): `state` is
+/// the pinned WorkflowRunState stable lowercase name.
+struct WorkflowRunView {
+    std::string run_id;
+    std::string workflow_id;
+    std::string state;
+    std::uint64_t run_epoch = 0;
+};
+
+/// Result of workflow_run_view(); `view` is meaningful only when ok is true.
+struct WorkflowRunViewResult {
+    bool ok = false;
+    WorkflowRunView view;
+    HostError error;
+};
+
 /// Host for one long-running pinned Mira instance inside the Mirage runtime
 /// (design doc section 11). The host owns the pinned runtime instance, drives
 /// its initialization and ordered shutdown, and exposes a pinned-free task
@@ -263,6 +313,58 @@ class MiraHost {
     /// and are reported ok — the observable invariant is that the task state
     /// is never revived, which callers verify with task_view().
     HostOutcome admit_operation_completion(const OperationTicket &ticket);
+
+    /// Opens the workflow execution surface (M5-05, DEC-023): constructs the
+    /// pinned WorkflowRuntime over the hosted runtime, the primary session,
+    /// the bound environment and the caller-owned Executor, and installs the
+    /// event bridge as its event store. Requires Running; fails closed when
+    /// the surface is already attached. The executor is the service process's
+    /// only instance (EXEC-01); the bridge handle is kept by the host, so it
+    /// must outlive shutdown_workflow_surface().
+    HostOutcome attach_workflow_surface(executor::Executor &executor,
+                                        std::shared_ptr<mirage::integration::WorkflowEventBridge>
+                                            event_bridge);
+
+    /// Appends one draft version of the IR v1 definition (DEC-023): strict
+    /// pinned decode, then a NotValidated library record — resolvable but not
+    /// runnable (W-04). Requires the workflow surface.
+    WorkflowDefinitionResult save_workflow_definition(const std::string &definition_json,
+                                                      const std::string &reason);
+
+    /// Runs the pinned publish gate on the definition (DEC-023): structural
+    /// validation, the empty-parameter DryRun drive (synchronous on the
+    /// calling context) and a DryRunPassed library record with
+    /// content-derived evidence; head-same-content replays settle idempotent.
+    /// Requires the workflow surface.
+    WorkflowDefinitionResult publish_workflow_definition(const std::string &definition_json,
+                                                         const std::string &reason);
+
+    /// Starts one asynchronous run from the library (DEC-023): the version is
+    /// pinned by `digest_hex` (W-03) and must be runnable (W-04);
+    /// `parameters_json` is a serialized JSON object (empty means none) and
+    /// `policy_name` the optional closed policy name (empty uses the
+    /// definition default). A drive admission failure cancels the created run
+    /// best-effort and surfaces the pinned rejection.
+    WorkflowRunStartResult start_workflow_run(const std::string &workflow_id_hex,
+                                              const std::string &digest_hex,
+                                              const std::string &parameters_json,
+                                              const std::string &policy_name);
+
+    /// Observes one run's current state (DEC-023). Unknown or malformed
+    /// identities surface the pinned rejection.
+    WorkflowRunViewResult workflow_run_view(const std::string &run_id_hex) const;
+
+    /// Requests cooperative cancellation of one run (DEC-023); the pinned
+    /// cancel is idempotent and never revives a terminal run.
+    WorkflowRunCancelResult cancel_workflow_run(const std::string &run_id_hex);
+
+    /// Ordered workflow-surface shutdown (DEC-023): stops run producers,
+    /// cancels active runs through the control plane and drains drive futures
+    /// within the pinned budget. Must be called before the owning Executor
+    /// shuts down (pinned order: WorkflowRuntime shutdown → MiraRuntime stop
+    /// → Executor shutdown); the host shutdown() path calls it defensively,
+    /// and it is idempotent.
+    HostOutcome shutdown_workflow_surface();
 
     /// Ordered shutdown: asks the pinned runtime to stop admitting work,
     /// waits up to shutdown_drain for the drain, then finishes the shutdown.

@@ -23,11 +23,18 @@ set_tests_properties(dependency_wiring_test PROPERTIES
 add_executable(mira_host_test runtime/mira_host_test.cpp)
 target_compile_features(mira_host_test PUBLIC cxx_std_20)
 mirage_enable_warnings(mira_host_test)
+# The workflow-surface scenario (M5-05) drives the pinned WorkflowRuntime on
+# its own Executor instance: SYSTEM headers plus a by-file-path link, same
+# form as the visual unit tests.
+target_include_directories(mira_host_test SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include"
+)
 target_link_libraries(mira_host_test
     PRIVATE
         Mirage::mira_host
         Mira::core
         Mira::simulator_adapter
+        $<TARGET_FILE:executor::executor>
 )
 add_test(NAME mira_host_test COMMAND mira_host_test)
 set_tests_properties(mira_host_test PROPERTIES
