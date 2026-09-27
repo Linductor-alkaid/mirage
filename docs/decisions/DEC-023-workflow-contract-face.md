@@ -217,7 +217,12 @@ Skill 执行注册、Degraded 呈现）在本轮的取舍。
   `workflow_versioning.hpp` / `tool_executor.hpp`；
   `third_party/mira/docs/api/workflow-contracts.md` 与
   `docs/design/workflow_runtime_design.md`（§7/§8 Executor 路由与关闭顺序）。
-- 工作项：`M5-05` 第一轮（本决策）；第二轮挂账：桌面原子工具注册与 `atom.catalog`
+- 工作项：`M5-05` 第一轮（本决策）；第二轮：桌面原子工具注册与 `atom.catalog`
   人口已随 [DEC-024](DEC-024-desktop-atom-toolset.md) 落地；编辑器完整版接真实面
-  （DEC-013 IR 对齐验收）与每版本工具引用挂载入口评估为后续增量；
-  消费方 `M5-06`（观察台 / 会话页运行视图）。
+  （DEC-013 IR 对齐验收）已于 2026-09-27 交付（UI transport 扩展本决策的八个
+  请求面 + `workflows` 能力位消费，wire 零变更）。后续增量挂账：① 定义读取面
+  ——`workflow.list` 只投影摘要，编辑器跨会话编辑需要定义读取请求
+  （协议 v1 附加扩展，golden 同步），在此之前编辑器仅可编辑会话内持有内容
+  副本的定义；② 运行参数绑定入口（副作用工作流的 W-02 谓词参数化运行）；
+  ③ 每版本工具引用挂载入口评估（TR2）。消费方 `M5-06`（观察台 / 会话页
+  运行视图）。

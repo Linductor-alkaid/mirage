@@ -370,9 +370,11 @@ Mirage Shell（统一应用壳）
   双击追加 / 选中后插入其后）、**属性**（选中指令联动：Input·参数 / Output·
   输出 / Options·执行条件分组，错误策略固定 fail-fast）、**参数**（工作流级
   `{"$param"}` 定义表）。
-- **原子动作目录**（最小单元，模拟域先行）：文件 / 命令 / 桌面观察 / 窗口与
-  输入（M2+，依赖 Platform Backend）/ 剪贴板 / 流程控制 / 子流程 七类；目录经
-  `WorkflowBackend.atomCatalog()` 获取（IPC 面 `workflow.atom.catalog`，见 §4）。
+- **原子动作目录**（最小单元；M5-05 起经 wire 目录承载）：目录经
+  `WorkflowBackend.atomCatalog()` 获取（IPC 面 `workflow.atom.catalog`，见 §4），
+  如实反映绑定环境的 exposed view（DEC-024），分类含 文件 / 命令 / 桌面观察 /
+  窗口与输入 / 剪贴板 / 应用与通知 / 其他；循环回跳等流程控制构造为编辑器
+  固定提供（IR v1 control 语义），不在 wire 目录中宣称。
 - **RunsView**：运行列表（状态/时间过滤）→ 运行详情：三联布局（步骤时间线 +
   快照流 + 日志/工件），失败步高亮；操作 = 重试（双语义：原版本重跑 / 新版本 +
   原输入重跑）、恢复（recovery）、"让 agent 修复此步"（跳回会话并携带上下文）。
