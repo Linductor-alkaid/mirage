@@ -135,8 +135,8 @@ struct RuntimeService::Impl {
         core->workflow_bridge = std::make_shared<mirage::integration::WorkflowEventBridge>();
         core->workflow_bridge->set_sink([weak = std::weak_ptr<detail::ServiceCore>(core)](
                                             const mirage::integration::WorkflowRunEventView &view) {
-            const auto core = weak.lock();
-            if (!core) {
+            const auto live_core = weak.lock();
+            if (!live_core) {
                 return;
             }
             ipc::WorkflowRunUpdatedEvent event;
@@ -147,7 +147,7 @@ struct RuntimeService::Impl {
             if (!view.summary.empty()) {
                 event.summary = view.summary;
             }
-            core->events.publish_workflow_run(std::move(event));
+            live_core->events.publish_workflow_run(std::move(event));
         });
         // One controller for the whole service (DEC-010): the configured
         // policy plus the configured confirmation surface — the DEC-020
