@@ -25,13 +25,18 @@
 #include <mirage/runtime/persistence/store.hpp>
 #include <mirage/runtime/runtime_service.hpp>
 
+#include <mira/core_contracts.hpp>
+
 #include <windows.h>
 
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <filesystem>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -505,6 +510,138 @@ void golden_vector_frame_identity() {
 
 } // namespace
 
+/// The M5-05 workflow face over the named pipe (DEC-023): the same
+/// request sequence the POSIX session_client_test drives, including the
+/// event stream a subscribed session receives while the publish gate's
+/// DryRun drive emits run events on the service.
+void workflow_face_over_named_pipe() {
+    TempTree tree;
+    mirage::runtime::ServiceConfig config;
+    config.socket_path = unique_pipe_name("workflow");
+    config.mirage_version = "0.4.0-test";
+    config.executor_threads = 2;
+    config.recovery_directory = tree.root() / "recovery";
+    config.persist_recovery_state = false;
+
+    ServiceProcess process(config);
+    const auto environment = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    MIRAGE_CHECK(process.start(environment).ok);
+    process.run();
+
+    ipc::SessionClient session(config.socket_path);
+    std::string connect_diagnostic;
+    MIRAGE_CHECK(session.connect(std::chrono::seconds{30}, connect_diagnostic));
+
+    std::atomic<ipc::SessionClient::RunExit> exit_kind{ipc::SessionClient::RunExit::Stopped};
+    std::string run_diagnostic;
+    std::thread loop([&] {
+        std::string reason;
+        exit_kind.store(session.run(reason), std::memory_order_release);
+        run_diagnostic = std::move(reason);
+    });
+
+    std::mutex events_mutex;
+    std::vector<ipc::Event> events;
+    session.set_event_sink([&](const ipc::Event &event) {
+        std::lock_guard<std::mutex> guard(events_mutex);
+        events.push_back(event);
+    });
+    MIRAGE_CHECK(session.call(ipc::SubscribeEventsRequest{}, std::chrono::seconds{30}).get().ok);
+
+    const std::string workflow_id = [] {
+        mira::WorkflowId id = mira::WorkflowId::generate();
+        return id.to_string();
+    }();
+    const std::string step_id = [] {
+        mira::StepId id = mira::StepId::generate();
+        return id.to_string();
+    }();
+    const auto definition = [&](const std::string &name) {
+        return R"({"schema_version":{"major":1,"minor":0},"workflow_id":")" + workflow_id +
+               R"(","name":")" + name + R"(","parameters":[],"steps":[{"step_id":")" + step_id +
+               R"(","kind":"verify","verification":{"signal":"run_parameter:x","op":"eq","value":"y"}}],)"
+               R"("default_policy":"strict","allowed_policies":["strict","dry_run"]})";
+    };
+
+    ipc::WorkflowSaveRequest save;
+    save.definition_json = definition("demo draft");
+    const ipc::Response saved = session.call(save, std::chrono::seconds{30}).get();
+    if (!saved.ok) {
+        std::fprintf(stderr, "[win32_product_process_test] save failed: %s: %s\n",
+                     saved.error.code.c_str(), saved.error.message.c_str());
+    }
+    MIRAGE_CHECK(saved.ok);
+
+    ipc::WorkflowPublishRequest publish;
+    publish.definition_json = definition("demo");
+    const ipc::Response published = session.call(publish, std::chrono::seconds{30}).get();
+    if (!published.ok) {
+        std::fprintf(stderr, "[win32_product_process_test] publish failed: %s: %s\n",
+                     published.error.code.c_str(), published.error.message.c_str());
+    }
+    MIRAGE_CHECK(published.ok);
+
+    const ipc::Response listed =
+        session.call(ipc::WorkflowListRequest{}, std::chrono::seconds{30}).get();
+    if (!listed.ok) {
+        std::fprintf(stderr, "[win32_product_process_test] list failed: %s: %s\n",
+                     listed.error.code.c_str(), listed.error.message.c_str());
+    }
+    MIRAGE_CHECK(listed.ok);
+
+    ipc::WorkflowRunRequest run_request;
+    run_request.workflow_id = workflow_id;
+    // DryRun policy: the single Verify step's predicate is NotEvaluable
+    // (planned, counted per RULE-10) and the run settles Completed; under a
+    // dispatching policy the pinned runtime settles it Failed instead.
+    run_request.policy = "dry_run";
+    const ipc::Response started = session.call(run_request, std::chrono::seconds{30}).get();
+    if (!started.ok) {
+        std::fprintf(stderr, "[win32_product_process_test] run failed: %s: %s\n",
+                     started.error.code.c_str(), started.error.message.c_str());
+    }
+    MIRAGE_CHECK(started.ok);
+    const auto *started_payload = std::get_if<ipc::WorkflowRunStarted>(&started.payload);
+    MIRAGE_CHECK(started_payload != nullptr);
+    if (started_payload == nullptr) {
+        return;
+    }
+    const std::string run_id = started_payload->run_id;
+
+    // Wait until the run's settled event arrives on the live connection.
+    bool settled_seen = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
+    while (!settled_seen && std::chrono::steady_clock::now() < deadline) {
+        {
+            std::lock_guard<std::mutex> guard(events_mutex);
+            for (const ipc::Event &event : events) {
+                const auto *run_updated = std::get_if<ipc::WorkflowRunUpdatedEvent>(&event.payload);
+                if (run_updated != nullptr && run_updated->run_id == run_id &&
+                    run_updated->state == "completed") {
+                    settled_seen = true;
+                }
+            }
+        }
+        if (!settled_seen) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{20});
+        }
+    }
+    if (!settled_seen) {
+        std::fprintf(stderr, "[win32_product_process_test] run %s never settled; %zu events\n",
+                     run_id.c_str(), events.size());
+    }
+    MIRAGE_CHECK(settled_seen);
+
+    session.stop();
+    loop.join();
+    MIRAGE_CHECK(exit_kind.load(std::memory_order_acquire) == ipc::SessionClient::RunExit::Stopped);
+
+    const ipc::Response shutdown =
+        ipc::IpcClient(config.socket_path).call(ipc::ShutdownRequest{}, std::chrono::seconds{30});
+    MIRAGE_CHECK(shutdown.ok);
+    MIRAGE_CHECK(process.join_clean());
+}
+
 int main() {
     store_round_trip_and_cap();
     golden_vector_frame_identity();
@@ -517,5 +654,6 @@ int main() {
     large_payload_round_trip_survives_backpressure();
     ipc_round_trip_over_named_pipe();
     session_client_round_trip_over_named_pipe();
+    workflow_face_over_named_pipe();
     return mirage::testing::finish("win32_product_process_test");
 }

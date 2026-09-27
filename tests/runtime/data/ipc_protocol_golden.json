@@ -1,10 +1,10 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 4,
+    "version": 5,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
-    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted)",
+    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted)",
     "consumers": [
       "tests/runtime/ipc_protocol_golden_test.cpp",
       "ui/contracts/test/golden-vectors.test.ts"
@@ -15,7 +15,8 @@
       "v2 (M1.5-02): events.subscribe / events.unsubscribe are protocol v1 requests on both ends; the former unknown-op-events-* failure vectors were dropped as obsolete (superseded by unknown-op-registry-edit for the unknown-op stable error).",
       "events and event_failures sections are consumed by both codecs since M1.5-02; hello-capability's events identity member encodes on both ends.",
       "v3 (M5-03): permission.* async confirmation surface (DEC-020) — permission.respond / permission.list requests, permission.request event, hello 'permissions' capability member; wire order pinned by schema doc sections 4, 6.1, 6.3 and 7.2.",
-      "v4 (M5-04): session.* conversation face (DEC-021) — session.list / session.open / session.history requests, session.updated / session.message / session.turn / session.output events, task.submit optional session_id binding, TaskSubmitted session_id echo, hello 'sessions' capability member; wire order pinned by schema doc sections 4, 6.1, 6.4 and 7.2."
+      "v4 (M5-04): session.* conversation face (DEC-021) — session.list / session.open / session.history requests, session.updated / session.message / session.turn / session.output events, task.submit optional session_id binding, TaskSubmitted session_id echo, hello 'sessions' capability member; wire order pinned by schema doc sections 4, 6.1, 6.4 and 7.2.",
+      "v5 (M5-05): workflow.* contract face (DEC-023) — workflow.list / workflow.save / workflow.publish / workflow.delete / workflow.atom.catalog / workflow.runs / workflow.run / workflow.cancel requests, workflow.run_updated event, hello 'workflows' capability member; wire order pinned by schema doc sections 4, 6.1, 6.5 and 7.2."
     ]
   },
   "requests": [
@@ -161,6 +162,106 @@
         "limit": 50
       },
       "canonical": "{\"v\":1,\"id\":15,\"op\":\"session.history\",\"session_id\":\"session-1\",\"limit\":50}"
+    },
+    {
+      "name": "workflow-list",
+      "id": 20,
+      "body": {
+        "op": "workflow.list"
+      },
+      "canonical": "{\"v\":1,\"id\":20,\"op\":\"workflow.list\"}"
+    },
+    {
+      "name": "workflow-save",
+      "id": 21,
+      "body": {
+        "op": "workflow.save",
+        "definition": {
+          "schema_version": {
+            "major": 1,
+            "minor": 0
+          },
+          "workflow_id": "0f9e8d7c6b5a4938271605948372615a",
+          "name": "demo",
+          "parameters": [],
+          "steps": [],
+          "default_policy": "strict",
+          "allowed_policies": [
+            "strict"
+          ]
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":21,\"op\":\"workflow.save\",\"definition\":{\"schema_version\":{\"major\":1,\"minor\":0},\"workflow_id\":\"0f9e8d7c6b5a4938271605948372615a\",\"name\":\"demo\",\"parameters\":[],\"steps\":[],\"default_policy\":\"strict\",\"allowed_policies\":[\"strict\"]}}"
+    },
+    {
+      "name": "workflow-publish",
+      "id": 22,
+      "body": {
+        "op": "workflow.publish",
+        "definition": {
+          "schema_version": {
+            "major": 1,
+            "minor": 0
+          },
+          "workflow_id": "0f9e8d7c6b5a4938271605948372615a",
+          "name": "demo",
+          "parameters": [],
+          "steps": [],
+          "default_policy": "strict",
+          "allowed_policies": [
+            "strict"
+          ]
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":22,\"op\":\"workflow.publish\",\"definition\":{\"schema_version\":{\"major\":1,\"minor\":0},\"workflow_id\":\"0f9e8d7c6b5a4938271605948372615a\",\"name\":\"demo\",\"parameters\":[],\"steps\":[],\"default_policy\":\"strict\",\"allowed_policies\":[\"strict\"]}}"
+    },
+    {
+      "name": "workflow-delete",
+      "id": 23,
+      "body": {
+        "op": "workflow.delete",
+        "workflow_id": "0f9e8d7c6b5a4938271605948372615a"
+      },
+      "canonical": "{\"v\":1,\"id\":23,\"op\":\"workflow.delete\",\"workflow_id\":\"0f9e8d7c6b5a4938271605948372615a\"}"
+    },
+    {
+      "name": "workflow-atom-catalog",
+      "id": 24,
+      "body": {
+        "op": "workflow.atom.catalog"
+      },
+      "canonical": "{\"v\":1,\"id\":24,\"op\":\"workflow.atom.catalog\"}"
+    },
+    {
+      "name": "workflow-runs",
+      "id": 25,
+      "body": {
+        "op": "workflow.runs"
+      },
+      "canonical": "{\"v\":1,\"id\":25,\"op\":\"workflow.runs\"}"
+    },
+    {
+      "name": "workflow-run",
+      "id": 26,
+      "body": {
+        "op": "workflow.run",
+        "workflow_id": "0f9e8d7c6b5a4938271605948372615a",
+        "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "parameters": {
+          "city": "tokyo"
+        },
+        "policy": "interactive"
+      },
+      "canonical": "{\"v\":1,\"id\":26,\"op\":\"workflow.run\",\"workflow_id\":\"0f9e8d7c6b5a4938271605948372615a\",\"digest\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"parameters\":{\"city\":\"tokyo\"},\"policy\":\"interactive\"}"
+    },
+    {
+      "name": "workflow-cancel",
+      "id": 27,
+      "body": {
+        "op": "workflow.cancel",
+        "run_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a"
+      },
+      "canonical": "{\"v\":1,\"id\":27,\"op\":\"workflow.cancel\",\"run_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\"}"
     }
   ],
   "request_failures": [
@@ -268,6 +369,41 @@
       "name": "session-history-bad-limit",
       "payload": "{\"v\":1,\"id\":15,\"op\":\"session.history\",\"session_id\":\"session-1\",\"limit\":0}",
       "error": "session.history 'limit' must be positive"
+    },
+    {
+      "name": "workflow-save-missing-definition",
+      "payload": "{\"v\":1,\"id\":21,\"op\":\"workflow.save\"}",
+      "error": "workflow.save requires a 'definition' object"
+    },
+    {
+      "name": "workflow-save-definition-not-object",
+      "payload": "{\"v\":1,\"id\":21,\"op\":\"workflow.save\",\"definition\":\"x\"}",
+      "error": "workflow.save requires a 'definition' object"
+    },
+    {
+      "name": "workflow-delete-missing-workflow-id",
+      "payload": "{\"v\":1,\"id\":23,\"op\":\"workflow.delete\"}",
+      "error": "workflow.delete requires a non-empty 'workflow_id'"
+    },
+    {
+      "name": "workflow-run-missing-workflow-id",
+      "payload": "{\"v\":1,\"id\":26,\"op\":\"workflow.run\"}",
+      "error": "workflow.run requires a non-empty 'workflow_id'"
+    },
+    {
+      "name": "workflow-run-parameters-not-object",
+      "payload": "{\"v\":1,\"id\":26,\"op\":\"workflow.run\",\"workflow_id\":\"0f9e8d7c6b5a4938271605948372615a\",\"parameters\":[1]}",
+      "error": "workflow.run 'parameters' must be an object"
+    },
+    {
+      "name": "workflow-run-unknown-policy",
+      "payload": "{\"v\":1,\"id\":26,\"op\":\"workflow.run\",\"workflow_id\":\"0f9e8d7c6b5a4938271605948372615a\",\"policy\":\"yolo\"}",
+      "error": "workflow.run 'policy' is not a known policy name"
+    },
+    {
+      "name": "workflow-cancel-missing-run-id",
+      "payload": "{\"v\":1,\"id\":27,\"op\":\"workflow.cancel\"}",
+      "error": "workflow.cancel requires a non-empty 'run_id'"
     }
   ],
   "responses": [
@@ -648,6 +784,196 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":17,\"ok\":true,\"session_id\":\"session-1\",\"entries\":[{\"kind\":\"user\",\"text\":\"inspect the host\",\"sequence\":3,\"recorded_at_ms\":1758840000500},{\"kind\":\"outcome\",\"text\":\"loop settled: Completed (steps 2)\",\"sequence\":9,\"recorded_at_ms\":1758840002000}],\"truncated\":true}"
+    },
+    {
+      "name": "workflow-list",
+      "response": {
+        "id": 20,
+        "ok": true,
+        "payload": {
+          "kind": "workflow-list",
+          "value": {
+            "workflows": [
+              {
+                "workflow_id": "0f9e8d7c6b5a4938271605948372615a",
+                "name": "demo",
+                "head_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "validation": "dry_run_passed",
+                "runnable": true,
+                "updated_at_ms": 1758840001000
+              },
+              {
+                "workflow_id": "1a2b3c4d5e6f4758696a7b8c9d0e1f2a",
+                "name": "archive",
+                "head_digest": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+                "validation": "not_validated",
+                "runnable": false,
+                "updated_at_ms": 1758840002000
+              }
+            ]
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":20,\"ok\":true,\"workflows\":[{\"workflow_id\":\"0f9e8d7c6b5a4938271605948372615a\",\"name\":\"demo\",\"head_digest\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"validation\":\"dry_run_passed\",\"runnable\":true,\"updated_at_ms\":1758840001000},{\"workflow_id\":\"1a2b3c4d5e6f4758696a7b8c9d0e1f2a\",\"name\":\"archive\",\"head_digest\":\"ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb\",\"validation\":\"not_validated\",\"runnable\":false,\"updated_at_ms\":1758840002000}]}"
+    },
+    {
+      "name": "workflow-saved",
+      "response": {
+        "id": 21,
+        "ok": true,
+        "payload": {
+          "kind": "workflow-saved",
+          "value": {
+            "workflow_id": "0f9e8d7c6b5a4938271605948372615a",
+            "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":21,\"ok\":true,\"workflow_id\":\"0f9e8d7c6b5a4938271605948372615a\",\"digest\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}"
+    },
+    {
+      "name": "workflow-published",
+      "response": {
+        "id": 22,
+        "ok": true,
+        "payload": {
+          "kind": "workflow-published",
+          "value": {
+            "workflow_id": "0f9e8d7c6b5a4938271605948372615a",
+            "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "dry_run_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a",
+            "idempotent": false
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":22,\"ok\":true,\"workflow_id\":\"0f9e8d7c6b5a4938271605948372615a\",\"digest\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"dry_run_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"idempotent\":false}"
+    },
+    {
+      "name": "workflow-deleted",
+      "response": {
+        "id": 23,
+        "ok": true,
+        "payload": {
+          "kind": "workflow-deleted",
+          "value": {
+            "workflow_id": "0f9e8d7c6b5a4938271605948372615a"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":23,\"ok\":true,\"workflow_id\":\"0f9e8d7c6b5a4938271605948372615a\"}"
+    },
+    {
+      "name": "workflow-atom-catalog",
+      "response": {
+        "id": 24,
+        "ok": true,
+        "payload": {
+          "kind": "workflow-atom-catalog",
+          "value": {
+            "tools": [
+              {
+                "wire_name": "filesystem.read",
+                "version": "1.0.0",
+                "description": "read a text file",
+                "has_side_effects": false,
+                "parameters_schema": {
+                  "type": "object"
+                }
+              },
+              {
+                "wire_name": "process.execute",
+                "version": "1.0.0",
+                "description": "run a shell command",
+                "has_side_effects": true,
+                "parameters_schema": {
+                  "type": "object"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":24,\"ok\":true,\"tools\":[{\"wire_name\":\"filesystem.read\",\"version\":\"1.0.0\",\"description\":\"read a text file\",\"has_side_effects\":false,\"parameters_schema\":{\"type\":\"object\"}},{\"wire_name\":\"process.execute\",\"version\":\"1.0.0\",\"description\":\"run a shell command\",\"has_side_effects\":true,\"parameters_schema\":{\"type\":\"object\"}}]}"
+    },
+    {
+      "name": "workflow-run-list",
+      "response": {
+        "id": 25,
+        "ok": true,
+        "payload": {
+          "kind": "workflow-run-list",
+          "value": {
+            "runs": [
+              {
+                "run_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a",
+                "workflow_id": "0f9e8d7c6b5a4938271605948372615a",
+                "state": "running",
+                "run_epoch": 1,
+                "created_at_ms": 1758840003000
+              },
+              {
+                "run_id": "1a2b3c4d5e6f4758696a7b8c9d0e1f2a",
+                "workflow_id": "0f9e8d7c6b5a4938271605948372615a",
+                "state": "failed",
+                "run_epoch": 2,
+                "created_at_ms": 1758840004000
+              }
+            ]
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":25,\"ok\":true,\"runs\":[{\"run_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"workflow_id\":\"0f9e8d7c6b5a4938271605948372615a\",\"state\":\"running\",\"run_epoch\":1,\"created_at_ms\":1758840003000},{\"run_id\":\"1a2b3c4d5e6f4758696a7b8c9d0e1f2a\",\"workflow_id\":\"0f9e8d7c6b5a4938271605948372615a\",\"state\":\"failed\",\"run_epoch\":2,\"created_at_ms\":1758840004000}]}"
+    },
+    {
+      "name": "workflow-run-started",
+      "response": {
+        "id": 26,
+        "ok": true,
+        "payload": {
+          "kind": "workflow-run-started",
+          "value": {
+            "run_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":26,\"ok\":true,\"run_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\"}"
+    },
+    {
+      "name": "workflow-run-cancelled",
+      "response": {
+        "id": 27,
+        "ok": true,
+        "payload": {
+          "kind": "workflow-run-cancelled",
+          "value": {
+            "run_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a",
+            "state": "cancelled"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":27,\"ok\":true,\"run_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"state\":\"cancelled\"}"
+    },
+    {
+      "name": "hello-workflows-capability",
+      "response": {
+        "id": 28,
+        "ok": true,
+        "payload": {
+          "kind": "identity",
+          "value": {
+            "service": "mirage-service",
+            "mirage_version": "0.1.0",
+            "mira_core_version": "0.4.0",
+            "host_status": "running",
+            "protocol": 1,
+            "events": true,
+            "permissions": true,
+            "sessions": true,
+            "workflows": true
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":28,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1,\"events\":true,\"permissions\":true,\"sessions\":true,\"workflows\":true}"
     }
   ],
   "response_failures": [
@@ -735,6 +1061,26 @@
       "name": "session-list-entry-unknown-state",
       "payload": "{\"v\":1,\"id\":15,\"ok\":true,\"sessions\":[{\"id\":\"session-1\",\"state\":\"paused\",\"created_at_ms\":0}]}",
       "error": "session.list entry 'state' is not a known session state"
+    },
+    {
+      "name": "workflow-list-entry-unknown-validation",
+      "payload": "{\"v\":1,\"id\":20,\"ok\":true,\"workflows\":[{\"workflow_id\":\"0f9e8d7c6b5a4938271605948372615a\",\"name\":\"demo\",\"head_digest\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"validation\":\"maybe\",\"runnable\":false,\"updated_at_ms\":0}]}",
+      "error": "workflow.list entry 'validation' is not a known validation result"
+    },
+    {
+      "name": "workflow-run-list-entry-unknown-state",
+      "payload": "{\"v\":1,\"id\":25,\"ok\":true,\"runs\":[{\"run_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"workflow_id\":\"0f9e8d7c6b5a4938271605948372615a\",\"state\":\"zombie\",\"run_epoch\":1,\"created_at_ms\":0}]}",
+      "error": "workflow.runs entry 'state' is not a known run state"
+    },
+    {
+      "name": "workflow-saved-missing-digest",
+      "payload": "{\"v\":1,\"id\":21,\"ok\":true,\"digest\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}",
+      "error": "workflow.save response requires 'workflow_id' and 'digest'"
+    },
+    {
+      "name": "workflow-run-started-empty-run-id",
+      "payload": "{\"v\":1,\"id\":26,\"ok\":true,\"run_id\":\"\"}",
+      "error": "workflow.run response requires a non-empty 'run_id'"
     }
   ],
   "events": [
@@ -852,6 +1198,33 @@
         "truncated": false
       },
       "canonical": "{\"v\":1,\"seq\":10,\"event\":\"session.output\",\"session_id\":\"session-1\",\"task_id\":\"task-1\",\"step\":1,\"chunk\":\"myhost\",\"truncated\":false}"
+    },
+    {
+      "name": "workflow-run-updated-started",
+      "event": {
+        "v": 1,
+        "seq": 11,
+        "event": "workflow.run_updated",
+        "run_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a",
+        "workflow_id": "0f9e8d7c6b5a4938271605948372615a",
+        "state": "running",
+        "run_epoch": 0
+      },
+      "canonical": "{\"v\":1,\"seq\":11,\"event\":\"workflow.run_updated\",\"run_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"workflow_id\":\"0f9e8d7c6b5a4938271605948372615a\",\"state\":\"running\",\"run_epoch\":0}"
+    },
+    {
+      "name": "workflow-run-updated-settled",
+      "event": {
+        "v": 1,
+        "seq": 12,
+        "event": "workflow.run_updated",
+        "run_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a",
+        "workflow_id": "0f9e8d7c6b5a4938271605948372615a",
+        "state": "completed",
+        "run_epoch": 3,
+        "summary": "run settled"
+      },
+      "canonical": "{\"v\":1,\"seq\":12,\"event\":\"workflow.run_updated\",\"run_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"workflow_id\":\"0f9e8d7c6b5a4938271605948372615a\",\"state\":\"completed\",\"run_epoch\":3,\"summary\":\"run settled\"}"
     }
   ],
   "event_failures": [
@@ -939,6 +1312,16 @@
       "name": "session-output-missing-truncated",
       "payload": "{\"v\":1,\"seq\":1,\"event\":\"session.output\",\"session_id\":\"session-1\",\"task_id\":\"task-1\",\"step\":1,\"chunk\":\"out\"}",
       "error": "session.output requires 'session_id', 'task_id', a positive 'step', 'chunk' and 'truncated'"
+    },
+    {
+      "name": "workflow-run-updated-missing-run-id",
+      "payload": "{\"v\":1,\"seq\":11,\"event\":\"workflow.run_updated\",\"workflow_id\":\"0f9e8d7c6b5a4938271605948372615a\",\"state\":\"running\",\"run_epoch\":0}",
+      "error": "workflow.run_updated requires 'run_id', 'workflow_id', 'state', a non-negative 'run_epoch'"
+    },
+    {
+      "name": "workflow-run-updated-unknown-state",
+      "payload": "{\"v\":1,\"seq\":11,\"event\":\"workflow.run_updated\",\"run_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"workflow_id\":\"0f9e8d7c6b5a4938271605948372615a\",\"state\":\"zombie\",\"run_epoch\":0}",
+      "error": "workflow.run_updated 'state' is not a known run state"
     }
   ],
   "framing": [

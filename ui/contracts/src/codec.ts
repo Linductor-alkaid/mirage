@@ -5,6 +5,7 @@
 
 import type {
     EventName,
+    ExposedTool,
     HostStatus,
     InspectTask,
     PendingPermission,
@@ -18,6 +19,9 @@ import type {
     TaskProgress,
     TaskStep,
     TurnStatus,
+    WorkflowPolicyName,
+    WorkflowRunState,
+    WorkflowValidation,
 } from './types.js';
 import { PROTOCOL_VERSION } from './types.js';
 
@@ -62,6 +66,32 @@ const SESSION_STATES: readonly SessionState[] = [
 const SESSION_MESSAGE_KINDS: readonly SessionMessageKind[] = ['user', 'outcome'];
 /** Closed settled-step status vocabulary (DEC-021) carried by session.turn. */
 const TURN_STATUSES: readonly TurnStatus[] = ['ok', 'failed', 'cancelled', 'skipped'];
+/** Closed workflow run state projection (DEC-023), stable lowercase form. */
+const WORKFLOW_RUN_STATES: readonly WorkflowRunState[] = [
+    'created',
+    'running',
+    'paused',
+    'waiting_user',
+    'waiting_agent',
+    'completed',
+    'failed',
+    'cancelled',
+];
+/** Closed execution policy vocabulary (DEC-023). */
+const WORKFLOW_POLICIES: readonly WorkflowPolicyName[] = [
+    'strict',
+    'recoverable',
+    'agent_assisted',
+    'interactive',
+    'dry_run',
+];
+/** Closed workflow validation vocabulary (DEC-023). */
+const WORKFLOW_VALIDATIONS: readonly WorkflowValidation[] = [
+    'not_validated',
+    'dry_run_passed',
+    'validated',
+    'rejected',
+];
 /** Closed Capability vocabulary (DEC-010 / DEC-020) carried by
  * permission.request events and permission.list entries. */
 const CAPABILITY_NAMES: readonly string[] = [
@@ -157,6 +187,45 @@ export function encodeRequest(id: number, body: RequestBody): string {
             if (body.limit !== undefined) {
                 object.limit = body.limit;
             }
+            break;
+        case 'workflow.list':
+            object.op = 'workflow.list';
+            break;
+        case 'workflow.save':
+            object.op = 'workflow.save';
+            object.definition = body.definition;
+            break;
+        case 'workflow.publish':
+            object.op = 'workflow.publish';
+            object.definition = body.definition;
+            break;
+        case 'workflow.delete':
+            object.op = 'workflow.delete';
+            object.workflow_id = body.workflow_id;
+            break;
+        case 'workflow.atom.catalog':
+            object.op = 'workflow.atom.catalog';
+            break;
+        case 'workflow.runs':
+            object.op = 'workflow.runs';
+            break;
+        case 'workflow.run': {
+            object.op = 'workflow.run';
+            object.workflow_id = body.workflow_id;
+            if (body.digest !== undefined) {
+                object.digest = body.digest;
+            }
+            if (body.parameters !== undefined) {
+                object.parameters = body.parameters;
+            }
+            if (body.policy !== undefined) {
+                object.policy = body.policy;
+            }
+            break;
+        }
+        case 'workflow.cancel':
+            object.op = 'workflow.cancel';
+            object.run_id = body.run_id;
             break;
     }
     return JSON.stringify(object);
@@ -296,6 +365,84 @@ export function decodeRequest(payload: string): RequestDecode {
             return { ok: true, id, body: { op: 'session.list' } };
         case 'session.open':
             return { ok: true, id, body: { op: 'session.open' } };
+        case 'workflow.list':
+            return { ok: true, id, body: { op: 'workflow.list' } };
+        case 'workflow.atom.catalog':
+            return { ok: true, id, body: { op: 'workflow.atom.catalog' } };
+        case 'workflow.runs':
+            return { ok: true, id, body: { op: 'workflow.runs' } };
+        case 'workflow.save':
+        case 'workflow.publish': {
+            const definition = parsed.definition;
+            if (definition === undefined || !isRecord(definition)) {
+                return {
+                    ok: false,
+                    error: `workflow.${op === 'workflow.save' ? 'save' : 'publish'} requires a 'definition' object`,
+                };
+            }
+            return {
+                ok: true,
+                id,
+                body:
+                    op === 'workflow.save'
+                        ? { op: 'workflow.save', definition }
+                        : { op: 'workflow.publish', definition },
+            };
+        }
+        case 'workflow.delete': {
+            const workflowId = asString(parsed.workflow_id);
+            if (workflowId === null || workflowId.length === 0) {
+                return { ok: false, error: "workflow.delete requires a non-empty 'workflow_id'" };
+            }
+            return { ok: true, id, body: { op: 'workflow.delete', workflow_id: workflowId } };
+        }
+        case 'workflow.run': {
+            const workflowId = asString(parsed.workflow_id);
+            if (workflowId === null || workflowId.length === 0) {
+                return { ok: false, error: "workflow.run requires a non-empty 'workflow_id'" };
+            }
+            let digest: string | undefined;
+            if (parsed.digest !== undefined) {
+                const digestValue = asString(parsed.digest);
+                if (digestValue === null || digestValue.length === 0) {
+                    return { ok: false, error: "workflow.run 'digest' must be non-empty" };
+                }
+                digest = digestValue;
+            }
+            let parameters: Record<string, unknown> | undefined;
+            if (parsed.parameters !== undefined) {
+                if (!isRecord(parsed.parameters)) {
+                    return { ok: false, error: "workflow.run 'parameters' must be an object" };
+                }
+                parameters = parsed.parameters;
+            }
+            let policy: WorkflowPolicyName | undefined;
+            if (parsed.policy !== undefined) {
+                const policyValue = asString(parsed.policy);
+                if (policyValue === null || !WORKFLOW_POLICIES.includes(policyValue as WorkflowPolicyName)) {
+                    return { ok: false, error: "workflow.run 'policy' is not a known policy name" };
+                }
+                policy = policyValue as WorkflowPolicyName;
+            }
+            const body: RequestBody = { op: 'workflow.run', workflow_id: workflowId };
+            if (digest !== undefined) {
+                (body as { digest?: string }).digest = digest;
+            }
+            if (parameters !== undefined) {
+                (body as { parameters?: Record<string, unknown> }).parameters = parameters;
+            }
+            if (policy !== undefined) {
+                (body as { policy?: WorkflowPolicyName }).policy = policy;
+            }
+            return { ok: true, id, body };
+        }
+        case 'workflow.cancel': {
+            const runId = asString(parsed.run_id);
+            if (runId === null || runId.length === 0) {
+                return { ok: false, error: "workflow.cancel requires a non-empty 'run_id'" };
+            }
+            return { ok: true, id, body: { op: 'workflow.cancel', run_id: runId } };
+        }
         case 'session.history': {
             const sessionId = asString(parsed.session_id);
             if (sessionId === null || sessionId.length === 0) {
@@ -372,6 +519,9 @@ export function encodeResponse(response: ResponseEnvelop): string {
                 if (value.sessions !== undefined) {
                     object.sessions = value.sessions;
                 }
+                if (value.workflows !== undefined) {
+                    object.workflows = value.workflows;
+                }
                 break;
             }
             case 'submitted': {
@@ -431,6 +581,54 @@ export function encodeResponse(response: ResponseEnvelop): string {
                     recorded_at_ms: entry.recorded_at_ms,
                 }));
                 object.truncated = payload.value.truncated;
+                break;
+            case 'workflow-list':
+                object.workflows = payload.value.workflows.map((workflow) => ({
+                    workflow_id: workflow.workflow_id,
+                    name: workflow.name,
+                    head_digest: workflow.head_digest,
+                    validation: workflow.validation,
+                    runnable: workflow.runnable,
+                    updated_at_ms: workflow.updated_at_ms,
+                }));
+                break;
+            case 'workflow-saved':
+                object.workflow_id = payload.value.workflow_id;
+                object.digest = payload.value.digest;
+                break;
+            case 'workflow-published':
+                object.workflow_id = payload.value.workflow_id;
+                object.digest = payload.value.digest;
+                object.dry_run_id = payload.value.dry_run_id;
+                object.idempotent = payload.value.idempotent;
+                break;
+            case 'workflow-deleted':
+                object.workflow_id = payload.value.workflow_id;
+                break;
+            case 'workflow-atom-catalog':
+                object.tools = payload.value.tools.map((tool) => ({
+                    wire_name: tool.wire_name,
+                    version: tool.version,
+                    description: tool.description,
+                    has_side_effects: tool.has_side_effects,
+                    parameters_schema: tool.parameters_schema,
+                }));
+                break;
+            case 'workflow-run-list':
+                object.runs = payload.value.runs.map((run) => ({
+                    run_id: run.run_id,
+                    workflow_id: run.workflow_id,
+                    state: run.state,
+                    run_epoch: run.run_epoch,
+                    created_at_ms: run.created_at_ms,
+                }));
+                break;
+            case 'workflow-run-started':
+                object.run_id = payload.value.run_id;
+                break;
+            case 'workflow-run-cancelled':
+                object.run_id = payload.value.run_id;
+                object.state = payload.value.state;
                 break;
         }
     } else {
@@ -587,6 +785,14 @@ export function decodeResponse(payload: string): ResponseDecode {
                 return { ok: false, error: "hello response 'sessions' must be a boolean" };
             }
             (identity as { sessions?: boolean }).sessions = sessions;
+        }
+        // DEC-023 workflow-face capability member: same discipline.
+        if (parsed.workflows !== undefined) {
+            const workflows = asBoolean(parsed.workflows);
+            if (workflows === null) {
+                return { ok: false, error: "hello response 'workflows' must be a boolean" };
+            }
+            (identity as { workflows?: boolean }).workflows = workflows;
         }
         return {
             ok: true,
@@ -827,6 +1033,242 @@ export function decodeResponse(payload: string): ResponseDecode {
         return {
             ok: true,
             response: { ok: true, id, payload: { kind: 'session-list', value: { sessions } } },
+        };
+    }
+    if (parsed.workflows !== undefined) {
+        if (!Array.isArray(parsed.workflows)) {
+            return { ok: false, error: "workflow.list 'workflows' must be an array" };
+        }
+        const workflows = [];
+        for (const entry of parsed.workflows) {
+            if (!isRecord(entry)) {
+                return { ok: false, error: 'workflow.list entries must be objects' };
+            }
+            const workflowId = asString(entry.workflow_id);
+            const name = asString(entry.name);
+            const headDigest = asString(entry.head_digest);
+            const validation = asString(entry.validation);
+            const runnable = asBoolean(entry.runnable);
+            const updatedAtMs = asInteger(entry.updated_at_ms);
+            if (
+                workflowId === null ||
+                workflowId.length === 0 ||
+                name === null ||
+                name.length === 0 ||
+                headDigest === null ||
+                headDigest.length === 0 ||
+                validation === null ||
+                runnable === null ||
+                updatedAtMs === null ||
+                updatedAtMs < 0
+            ) {
+                return {
+                    ok: false,
+                    error:
+                        "workflow.list entries require 'workflow_id', 'name', 'head_digest', 'validation', 'runnable' and 'updated_at_ms'",
+                };
+            }
+            if (!WORKFLOW_VALIDATIONS.includes(validation as WorkflowValidation)) {
+                return {
+                    ok: false,
+                    error: "workflow.list entry 'validation' is not a known validation result",
+                };
+            }
+            workflows.push({
+                workflow_id: workflowId,
+                name,
+                head_digest: headDigest,
+                validation: validation as WorkflowValidation,
+                runnable,
+                updated_at_ms: updatedAtMs,
+            });
+        }
+        return {
+            ok: true,
+            response: { ok: true, id, payload: { kind: 'workflow-list', value: { workflows } } },
+        };
+    }
+    if (parsed.runs !== undefined) {
+        if (!Array.isArray(parsed.runs)) {
+            return { ok: false, error: "workflow.runs 'runs' must be an array" };
+        }
+        const runs = [];
+        for (const entry of parsed.runs) {
+            if (!isRecord(entry)) {
+                return { ok: false, error: 'workflow.runs entries must be objects' };
+            }
+            const runId = asString(entry.run_id);
+            const workflowId = asString(entry.workflow_id);
+            const state = asString(entry.state);
+            const runEpoch = asInteger(entry.run_epoch);
+            const createdAtMs = asInteger(entry.created_at_ms);
+            if (
+                runId === null ||
+                runId.length === 0 ||
+                workflowId === null ||
+                workflowId.length === 0 ||
+                state === null ||
+                runEpoch === null ||
+                runEpoch < 0 ||
+                createdAtMs === null ||
+                createdAtMs < 0
+            ) {
+                return {
+                    ok: false,
+                    error:
+                        "workflow.runs entries require 'run_id', 'workflow_id', 'state', 'run_epoch' and 'created_at_ms'",
+                };
+            }
+            if (!WORKFLOW_RUN_STATES.includes(state as WorkflowRunState)) {
+                return { ok: false, error: "workflow.runs entry 'state' is not a known run state" };
+            }
+            runs.push({
+                run_id: runId,
+                workflow_id: workflowId,
+                state: state as WorkflowRunState,
+                run_epoch: runEpoch,
+                created_at_ms: createdAtMs,
+            });
+        }
+        return {
+            ok: true,
+            response: { ok: true, id, payload: { kind: 'workflow-run-list', value: { runs } } },
+        };
+    }
+    if (parsed.tools !== undefined) {
+        if (!Array.isArray(parsed.tools)) {
+            return { ok: false, error: "workflow.atom.catalog 'tools' must be an array" };
+        }
+        const tools: ExposedTool[] = [];
+        for (const entry of parsed.tools) {
+            if (!isRecord(entry)) {
+                return { ok: false, error: 'workflow.atom.catalog entries must be objects' };
+            }
+            const wireName = asString(entry.wire_name);
+            const version = asString(entry.version);
+            const description = asString(entry.description);
+            const hasSideEffects = asBoolean(entry.has_side_effects);
+            const schema = entry.parameters_schema;
+            if (
+                wireName === null ||
+                wireName.length === 0 ||
+                version === null ||
+                version.length === 0 ||
+                description === null ||
+                description.length === 0 ||
+                hasSideEffects === null ||
+                schema === undefined ||
+                !isRecord(schema)
+            ) {
+                return {
+                    ok: false,
+                    error:
+                        "workflow.atom.catalog entries require 'wire_name', 'version', 'description', 'has_side_effects' and a 'parameters_schema' object",
+                };
+            }
+            tools.push({
+                wire_name: wireName,
+                version,
+                description,
+                has_side_effects: hasSideEffects,
+                parameters_schema: schema,
+            });
+        }
+        return {
+            ok: true,
+            response: { ok: true, id, payload: { kind: 'workflow-atom-catalog', value: { tools } } },
+        };
+    }
+    if (parsed.dry_run_id !== undefined) {
+        // WorkflowPublished also carries workflow_id + digest; it must be
+        // decoded before the saved shape (schema doc 6.5).
+        const workflowId = asString(parsed.workflow_id);
+        const digest = asString(parsed.digest);
+        const dryRunId = asString(parsed.dry_run_id);
+        const idempotent = asBoolean(parsed.idempotent);
+        if (
+            workflowId === null ||
+            workflowId.length === 0 ||
+            digest === null ||
+            digest.length === 0 ||
+            dryRunId === null ||
+            dryRunId.length === 0 ||
+            idempotent === null
+        ) {
+            return {
+                ok: false,
+                error:
+                    "workflow.publish response requires 'workflow_id', 'digest', 'dry_run_id' and 'idempotent'",
+            };
+        }
+        return {
+            ok: true,
+            response: {
+                ok: true,
+                id,
+                payload: {
+                    kind: 'workflow-published',
+                    value: { workflow_id: workflowId, digest, dry_run_id: dryRunId, idempotent },
+                },
+            },
+        };
+    }
+    if (parsed.digest !== undefined) {
+        const workflowId = asString(parsed.workflow_id);
+        const digest = asString(parsed.digest);
+        if (workflowId === null || workflowId.length === 0 || digest === null || digest.length === 0) {
+            return { ok: false, error: "workflow.save response requires 'workflow_id' and 'digest'" };
+        }
+        return {
+            ok: true,
+            response: {
+                ok: true,
+                id,
+                payload: { kind: 'workflow-saved', value: { workflow_id: workflowId, digest } },
+            },
+        };
+    }
+    if (parsed.workflow_id !== undefined) {
+        const workflowId = asString(parsed.workflow_id);
+        if (workflowId === null || workflowId.length === 0) {
+            return { ok: false, error: "workflow.delete response requires a non-empty 'workflow_id'" };
+        }
+        return {
+            ok: true,
+            response: {
+                ok: true,
+                id,
+                payload: { kind: 'workflow-deleted', value: { workflow_id: workflowId } },
+            },
+        };
+    }
+    if (parsed.run_id !== undefined) {
+        const runId = asString(parsed.run_id);
+        if (runId === null || runId.length === 0) {
+            return { ok: false, error: "workflow.run response requires a non-empty 'run_id'" };
+        }
+        if (parsed.state !== undefined) {
+            // The cancelled reply adds "state" to the same envelope shape.
+            const state = asString(parsed.state);
+            if (state === null) {
+                return { ok: false, error: "workflow.cancel response requires a 'state' string" };
+            }
+            return {
+                ok: true,
+                response: {
+                    ok: true,
+                    id,
+                    payload: { kind: 'workflow-run-cancelled', value: { run_id: runId, state: state as WorkflowRunState } },
+                },
+            };
+        }
+        return {
+            ok: true,
+            response: {
+                ok: true,
+                id,
+                payload: { kind: 'workflow-run-started', value: { run_id: runId } },
+            },
         };
     }
     // An ok response carrying none of the known payload discriminators is the
@@ -1093,6 +1535,51 @@ export function decodeEvent(payload: string): EventDecode {
                     truncated,
                 },
             };
+        }
+        case 'workflow.run_updated': {
+            const runId = asString(parsed.run_id);
+            const workflowId = asString(parsed.workflow_id);
+            const state = asString(parsed.state);
+            const runEpoch = asInteger(parsed.run_epoch);
+            if (
+                runId === null ||
+                runId.length === 0 ||
+                workflowId === null ||
+                workflowId.length === 0 ||
+                state === null ||
+                runEpoch === null ||
+                runEpoch < 0
+            ) {
+                return {
+                    ok: false,
+                    error:
+                        "workflow.run_updated requires 'run_id', 'workflow_id', 'state', a non-negative 'run_epoch'",
+                };
+            }
+            if (!WORKFLOW_RUN_STATES.includes(state as WorkflowRunState)) {
+                return { ok: false, error: "workflow.run_updated 'state' is not a known run state" };
+            }
+            let summary: string | undefined;
+            if (parsed.summary !== undefined) {
+                const summaryValue = asString(parsed.summary);
+                if (summaryValue === null) {
+                    return { ok: false, error: "workflow.run_updated 'summary' must be a string" };
+                }
+                summary = summaryValue;
+            }
+            const event: ServerEvent = {
+                v: 1,
+                seq,
+                event: 'workflow.run_updated',
+                run_id: runId,
+                workflow_id: workflowId,
+                state: state as WorkflowRunState,
+                run_epoch: runEpoch,
+            };
+            if (summary !== undefined) {
+                (event as { summary?: string }).summary = summary;
+            }
+            return { ok: true, event };
         }
         default:
             return { ok: false, error: `unknown event '${name}'` };

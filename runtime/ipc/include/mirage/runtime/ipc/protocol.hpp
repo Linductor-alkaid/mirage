@@ -113,11 +113,77 @@ struct SessionHistoryRequest {
     std::optional<int> limit;
 };
 
-using Request =
-    std::variant<HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest,
-                 CancelTaskRequest, ShutdownRequest, SubscribeEventsRequest,
-                 UnsubscribeEventsRequest, RespondPermissionRequest, ListPermissionsRequest,
-                 ListSessionsRequest, OpenSessionRequest, SessionHistoryRequest>;
+/// Lists the service's workflow catalog (DEC-023): product identity, head
+/// version digest, validation and runnability for every workflow the service
+/// saved or published. The pinned library stays the execution-side authority;
+/// the catalog is the product index of what passed through this service.
+struct WorkflowListRequest {};
+
+/// Appends one draft version of the definition (DEC-023): strict pinned IR
+/// decode, then a NotValidated library record — resolvable but not runnable
+/// (W-04). `definition_json` carries the serialized Workflow IR v1 JSON
+/// object; the decoder canonicalizes it, the service enforces the 256 KiB
+/// byte budget.
+struct WorkflowSaveRequest {
+    std::string definition_json;
+};
+
+/// Runs the pinned publish gate on the definition (DEC-023): structural
+/// validation, the empty-parameter DryRun drive and a DryRunPassed library
+/// record with content-derived evidence. A head record with the same content
+/// and evidence settles as an idempotent NoOp.
+struct WorkflowPublishRequest {
+    std::string definition_json;
+};
+
+/// Removes the product catalog entry (DEC-023). The pinned append-only
+/// version history is untouched by design (runs resolve their creation-time
+/// version by digest); runs already created are unaffected. Fails closed
+/// while a non-terminal run exists for the workflow.
+struct WorkflowDeleteRequest {
+    std::string workflow_id;
+};
+
+/// The exposed view of the hosted BuiltIn tool registry (DEC-022 decision 1,
+/// DEC-023): the atom catalog's pinned projection. Empty until desktop
+/// capability tools are registered (M5-05 second round).
+struct WorkflowAtomCatalogRequest {};
+
+/// Snapshot of the service's workflow run registry (DEC-023) with the live
+/// per-run state projected from the pinned runtime. The authoritative face
+/// for resync after `workflow.run_updated` event gaps.
+struct WorkflowRunsRequest {};
+
+/// Starts one workflow run from the library (DEC-023): the version is pinned
+/// by digest (W-03) and must be runnable (W-04); the drive is asynchronous
+/// (pinned capacity applies) and is monitored through `workflow.run_updated`
+/// events and `workflow.runs`.
+struct WorkflowRunRequest {
+    std::string workflow_id;
+    /// Empty resolves to the catalog head digest; an unknown workflow is a
+    /// stable not_found error, a non-runnable head surfaces the pinned W-04
+    /// rejection.
+    std::string digest;
+    /// Serialized JSON object of run parameters; empty means none.
+    std::string parameters_json;
+    /// Optional closed policy name (stable lowercase form); empty uses the
+    /// definition default.
+    std::string policy;
+};
+
+/// Requests cooperative cancellation of one workflow run (DEC-023). The
+/// pinned cancel is idempotent and never revives a terminal run; the reply
+/// carries the post-call run state.
+struct WorkflowCancelRunRequest {
+    std::string run_id;
+};
+
+using Request = std::variant<
+    HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest, CancelTaskRequest,
+    ShutdownRequest, SubscribeEventsRequest, UnsubscribeEventsRequest, RespondPermissionRequest,
+    ListPermissionsRequest, ListSessionsRequest, OpenSessionRequest, SessionHistoryRequest,
+    WorkflowListRequest, WorkflowSaveRequest, WorkflowPublishRequest, WorkflowDeleteRequest,
+    WorkflowAtomCatalogRequest, WorkflowRunsRequest, WorkflowRunRequest, WorkflowCancelRunRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -142,6 +208,9 @@ struct ServiceIdentity {
     /// `session.open` / `session.history` request face is served. Same
     /// optional-encodes-when-set discipline as `events`.
     std::optional<bool> sessions;
+    /// DEC-023 workflow-face advertisement: the `workflow.*` request face is
+    /// served. Same optional-encodes-when-set discipline as `events`.
+    std::optional<bool> workflows;
 };
 
 struct TaskSubmitted {
@@ -277,10 +346,105 @@ struct SessionHistory {
     bool truncated = false;
 };
 
+/// One catalog entry as reported by workflow.list (DEC-023). `validation` is
+/// the pinned WorkflowValidationResult stable name of the head version
+/// ("not_validated" / "dry_run_passed" / "validated" / "rejected");
+/// `runnable` projects W-04 (a head a run may reference).
+struct WorkflowSummary {
+    std::string workflow_id;
+    std::string name;
+    std::string head_digest;
+    std::string validation;
+    bool runnable = false;
+    std::int64_t updated_at_ms = 0;
+};
+
+/// Snapshot of the workflow catalog (DEC-023); may be empty. The service-side
+/// product index over the pinned library.
+struct WorkflowList {
+    std::vector<WorkflowSummary> workflows;
+};
+
+/// Acknowledgement of workflow.save (DEC-023): the definition's identity and
+/// the content digest of the appended NotValidated draft version.
+struct WorkflowSaved {
+    std::string workflow_id;
+    std::string digest;
+};
+
+/// Acknowledgement of workflow.publish (DEC-023): the gated version's
+/// identity, content digest and gate drive id; `idempotent` marks the NoOp
+/// replay of a head record with the same content and evidence.
+struct WorkflowPublished {
+    std::string workflow_id;
+    std::string digest;
+    std::string dry_run_id;
+    bool idempotent = false;
+};
+
+/// Acknowledgement of workflow.delete (DEC-023): the removed catalog entry.
+/// The pinned version history is immutable by design and stays.
+struct WorkflowDeleted {
+    std::string workflow_id;
+};
+
+/// One exposed tool as reported by workflow.atom.catalog (DEC-023): the
+/// pinned BuiltIn registry's exposed view. `version` is the semantic version
+/// rendered as "major.minor.patch"; `parameters_schema_json` carries the
+/// serialized JSON Schema object of the tool input.
+struct ExposedTool {
+    std::string wire_name;
+    std::string version;
+    std::string description;
+    bool has_side_effects = false;
+    std::string parameters_schema_json;
+};
+
+/// Snapshot of the exposed tool projection (DEC-023); may be empty until
+/// desktop capability tools are registered.
+struct WorkflowAtomCatalog {
+    std::vector<ExposedTool> tools;
+};
+
+/// One workflow run as reported by workflow.runs (DEC-023). `state` is the
+/// pinned WorkflowRunState stable lowercase name ("created" / "running" /
+/// "paused" / "waiting_user" / "waiting_agent" / "completed" / "failed" /
+/// "cancelled"), projected live from the pinned runtime; a run whose pinned
+/// snapshot fails surfaces the conservative `failed` name.
+struct WorkflowRunSummary {
+    std::string run_id;
+    std::string workflow_id;
+    std::string state;
+    std::uint64_t run_epoch = 0;
+    std::int64_t created_at_ms = 0;
+};
+
+/// Snapshot of the workflow run registry (DEC-023); may be empty. The
+/// authoritative face for resync after workflow.run_updated event gaps.
+struct WorkflowRunList {
+    std::vector<WorkflowRunSummary> runs;
+};
+
+/// Acknowledgement of workflow.run (DEC-023): the new run's id, as it appears
+/// in workflow.runs and workflow.run_updated events.
+struct WorkflowRunStarted {
+    std::string run_id;
+};
+
+/// Acknowledgement of workflow.cancel (DEC-023) with the run's state as of
+/// the reply — the pinned cancel_run view's current name, terminal states
+/// included (idempotent re-cancels of a settled run return that terminal).
+struct WorkflowRunCancelled {
+    std::string run_id;
+    std::string state;
+};
+
 using ResponsePayload =
     std::variant<ServiceIdentity, TaskSubmitted, TaskList, InspectTask, TaskCancelled,
                  ShutdownAccepted, PermissionResponded, PermissionPendingList, SessionList,
-                 SessionOpened, SessionHistory>;
+                 SessionOpened, SessionHistory, WorkflowList, WorkflowSaved, WorkflowPublished,
+                 WorkflowDeleted, WorkflowAtomCatalog, WorkflowRunList, WorkflowRunStarted,
+                 WorkflowRunCancelled>;
 
 /// Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc
 /// domain ("protocol_error", "unsupported", "invalid_argument", "not_found",
@@ -421,10 +585,26 @@ struct SessionOutputEvent {
     bool truncated = false;
 };
 
+/// `workflow.run_updated` (DEC-023): one workflow run's state published from
+/// the pinned workflow event stream, translated by the service — never
+/// guessed service-side. `state` uses the pinned WorkflowRunState vocabulary
+/// of WorkflowRunSummary ("running" for a started run, the terminal name for
+/// a settled one); `summary` is encode-when-set and carries the settled
+/// pinned safe_summary only. `workflow.runs` is the snapshot source of truth;
+/// events do not fire for intermediate control-plane states.
+struct WorkflowRunUpdatedEvent {
+    std::string run_id;
+    std::string workflow_id;
+    std::string state;
+    std::uint64_t run_epoch = 0;
+    std::optional<std::string> summary;
+};
+
 /// Closed event set; new events join additively (DEC-012).
 using EventPayload =
     std::variant<TaskUpdatedEvent, HostStatusEvent, EventsOverflowEvent, PermissionRequestedEvent,
-                 SessionUpdatedEvent, SessionMessageEvent, SessionTurnEvent, SessionOutputEvent>;
+                 SessionUpdatedEvent, SessionMessageEvent, SessionTurnEvent, SessionOutputEvent,
+                 WorkflowRunUpdatedEvent>;
 
 /// One decoded event frame minus its envelope bookkeeping: the per-connection
 /// `seq` plus the payload. `seq` is assigned by the sender per connection,

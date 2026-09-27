@@ -22,6 +22,14 @@ constexpr const char *kOpPermissionList = "permission.list";
 constexpr const char *kOpSessionList = "session.list";
 constexpr const char *kOpSessionOpen = "session.open";
 constexpr const char *kOpSessionHistory = "session.history";
+constexpr const char *kOpWorkflowList = "workflow.list";
+constexpr const char *kOpWorkflowSave = "workflow.save";
+constexpr const char *kOpWorkflowPublish = "workflow.publish";
+constexpr const char *kOpWorkflowDelete = "workflow.delete";
+constexpr const char *kOpWorkflowAtomCatalog = "workflow.atom.catalog";
+constexpr const char *kOpWorkflowRuns = "workflow.runs";
+constexpr const char *kOpWorkflowRun = "workflow.run";
+constexpr const char *kOpWorkflowCancel = "workflow.cancel";
 
 constexpr const char *kStepRead = "filesystem.read";
 constexpr const char *kStepExecute = "process.execute";
@@ -34,6 +42,7 @@ constexpr const char *kEventSessionUpdated = "session.updated";
 constexpr const char *kEventSessionMessage = "session.message";
 constexpr const char *kEventSessionTurn = "session.turn";
 constexpr const char *kEventSessionOutput = "session.output";
+constexpr const char *kEventWorkflowRunUpdated = "workflow.run_updated";
 
 /// Closed Capability vocabulary (DEC-010 / DEC-020) carried by
 /// permission.request events and permission.list entries. Kept local so the
@@ -69,6 +78,26 @@ constexpr const char *kSessionMessageKinds[] = {"user", "outcome"};
 /// events; turns publish on settlement only, so the in-flight names are
 /// absent.
 constexpr const char *kTurnStatusNames[] = {"ok", "failed", "cancelled", "skipped"};
+
+/// Closed workflow run state vocabulary (DEC-023): the pinned
+/// WorkflowRunState set in stable lowercase form, carried by workflow.runs
+/// entries, workflow.run_updated events and the workflow.cancel reply. The
+/// golden vectors pin the set on both ends.
+constexpr const char *kWorkflowRunStateNames[] = {"created",      "running",       "paused",
+                                                  "waiting_user", "waiting_agent", "completed",
+                                                  "failed",       "cancelled"};
+
+/// Closed workflow validation vocabulary (DEC-023): the pinned
+/// WorkflowValidationResult set in stable lowercase form, carried by
+/// workflow.list head entries.
+constexpr const char *kWorkflowValidationNames[] = {"not_validated", "dry_run_passed", "validated",
+                                                    "rejected"};
+
+/// Closed execution policy vocabulary (DEC-023): the pinned WorkflowPolicy
+/// set in stable lowercase form, carried by the optional workflow.run
+/// `policy` member; empty means the definition default.
+constexpr const char *kWorkflowPolicyNames[] = {"strict", "recoverable", "agent_assisted",
+                                                "interactive", "dry_run"};
 
 bool in_stable_set(const std::string &value, const char *const *set, std::size_t count) {
     for (std::size_t index = 0; index < count; ++index) {
@@ -106,6 +135,29 @@ std::optional<std::string> string_member(const mira::JsonValue &object, std::str
         return *text;
     }
     return std::nullopt;
+}
+
+/// Embeds a stored serialized-JSON member (workflow definitions, run
+/// parameters, tool schemas; DEC-023). The decode side only ever stores
+/// canonical serializations of validated JSON values, so re-parsing is
+/// lossless; a non-parsing text is a caller bug and degrades to a JSON
+/// string member rather than invalid wire bytes.
+mira::JsonValue embedded_json(const std::string &text) {
+    if (auto parsed = mira::parse_json(text)) {
+        return std::move(parsed.value());
+    }
+    return mira::JsonValue{text};
+}
+
+/// Captures a JSON-object member into its canonical serialization for the
+/// pinned-free request/response structs; the object shape is checked by the
+/// caller. Nullopt when the member is absent.
+std::optional<std::string> object_member_text(const mira::JsonValue &object, std::string_view key) {
+    const auto *value = member(object, key);
+    if (value == nullptr) {
+        return std::nullopt;
+    }
+    return mira::to_json_string(*value);
 }
 
 std::optional<TaskStep> decode_step(const mira::JsonValue &value, std::string &error) {
@@ -230,6 +282,9 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 if (value.sessions.has_value()) {
                     put(object, "sessions", *value.sessions);
                 }
+                if (value.workflows.has_value()) {
+                    put(object, "workflows", *value.workflows);
+                }
             } else if constexpr (std::is_same_v<T, TaskSubmitted>) {
                 put(object, "task_id", value.task_id);
                 if (value.session_id) {
@@ -291,6 +346,58 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 }
                 put(object, "entries", mira::JsonValue{std::move(entries)});
                 put(object, "truncated", value.truncated);
+            } else if constexpr (std::is_same_v<T, WorkflowList>) {
+                mira::JsonValue::Array entries;
+                for (const auto &workflow : value.workflows) {
+                    auto entry = make_object();
+                    put(entry, "workflow_id", workflow.workflow_id);
+                    put(entry, "name", workflow.name);
+                    put(entry, "head_digest", workflow.head_digest);
+                    put(entry, "validation", workflow.validation);
+                    put(entry, "runnable", workflow.runnable);
+                    put(entry, "updated_at_ms", workflow.updated_at_ms);
+                    entries.emplace_back(std::move(entry));
+                }
+                put(object, "workflows", mira::JsonValue{std::move(entries)});
+            } else if constexpr (std::is_same_v<T, WorkflowSaved>) {
+                put(object, "workflow_id", value.workflow_id);
+                put(object, "digest", value.digest);
+            } else if constexpr (std::is_same_v<T, WorkflowPublished>) {
+                put(object, "workflow_id", value.workflow_id);
+                put(object, "digest", value.digest);
+                put(object, "dry_run_id", value.dry_run_id);
+                put(object, "idempotent", value.idempotent);
+            } else if constexpr (std::is_same_v<T, WorkflowDeleted>) {
+                put(object, "workflow_id", value.workflow_id);
+            } else if constexpr (std::is_same_v<T, WorkflowAtomCatalog>) {
+                mira::JsonValue::Array entries;
+                for (const auto &tool : value.tools) {
+                    auto entry = make_object();
+                    put(entry, "wire_name", tool.wire_name);
+                    put(entry, "version", tool.version);
+                    put(entry, "description", tool.description);
+                    put(entry, "has_side_effects", tool.has_side_effects);
+                    put(entry, "parameters_schema", embedded_json(tool.parameters_schema_json));
+                    entries.emplace_back(std::move(entry));
+                }
+                put(object, "tools", mira::JsonValue{std::move(entries)});
+            } else if constexpr (std::is_same_v<T, WorkflowRunList>) {
+                mira::JsonValue::Array entries;
+                for (const auto &run : value.runs) {
+                    auto entry = make_object();
+                    put(entry, "run_id", run.run_id);
+                    put(entry, "workflow_id", run.workflow_id);
+                    put(entry, "state", run.state);
+                    put(entry, "run_epoch", static_cast<std::int64_t>(run.run_epoch));
+                    put(entry, "created_at_ms", run.created_at_ms);
+                    entries.emplace_back(std::move(entry));
+                }
+                put(object, "runs", mira::JsonValue{std::move(entries)});
+            } else if constexpr (std::is_same_v<T, WorkflowRunStarted>) {
+                put(object, "run_id", value.run_id);
+            } else if constexpr (std::is_same_v<T, WorkflowRunCancelled>) {
+                put(object, "run_id", value.run_id);
+                put(object, "state", value.state);
             } else if constexpr (std::is_same_v<T, ShutdownAccepted>) {
                 // No payload members beyond the ok envelope.
             }
@@ -372,6 +479,36 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                 if (value.limit) {
                     put(object, "limit", static_cast<std::int64_t>(*value.limit));
                 }
+            } else if constexpr (std::is_same_v<T, WorkflowListRequest>) {
+                put(object, "op", kOpWorkflowList);
+            } else if constexpr (std::is_same_v<T, WorkflowSaveRequest>) {
+                put(object, "op", kOpWorkflowSave);
+                put(object, "definition", embedded_json(value.definition_json));
+            } else if constexpr (std::is_same_v<T, WorkflowPublishRequest>) {
+                put(object, "op", kOpWorkflowPublish);
+                put(object, "definition", embedded_json(value.definition_json));
+            } else if constexpr (std::is_same_v<T, WorkflowDeleteRequest>) {
+                put(object, "op", kOpWorkflowDelete);
+                put(object, "workflow_id", value.workflow_id);
+            } else if constexpr (std::is_same_v<T, WorkflowAtomCatalogRequest>) {
+                put(object, "op", kOpWorkflowAtomCatalog);
+            } else if constexpr (std::is_same_v<T, WorkflowRunsRequest>) {
+                put(object, "op", kOpWorkflowRuns);
+            } else if constexpr (std::is_same_v<T, WorkflowRunRequest>) {
+                put(object, "op", kOpWorkflowRun);
+                put(object, "workflow_id", value.workflow_id);
+                if (!value.digest.empty()) {
+                    put(object, "digest", value.digest);
+                }
+                if (!value.parameters_json.empty()) {
+                    put(object, "parameters", embedded_json(value.parameters_json));
+                }
+                if (!value.policy.empty()) {
+                    put(object, "policy", value.policy);
+                }
+            } else if constexpr (std::is_same_v<T, WorkflowCancelRunRequest>) {
+                put(object, "op", kOpWorkflowCancel);
+                put(object, "run_id", value.run_id);
             }
         },
         body);
@@ -512,6 +649,80 @@ RequestDecode decode_request(std::string_view payload) {
             history.limit = static_cast<int>(*limit);
         }
         result.body = std::move(history);
+    } else if (*op == kOpWorkflowList) {
+        result.body = WorkflowListRequest{};
+    } else if (*op == kOpWorkflowSave) {
+        WorkflowSaveRequest save;
+        auto definition = object_member_text(object, "definition");
+        if (!definition || !member(object, "definition")->is_object()) {
+            result.error = "workflow.save requires a 'definition' object";
+            return result;
+        }
+        save.definition_json = std::move(*definition);
+        result.body = std::move(save);
+    } else if (*op == kOpWorkflowPublish) {
+        WorkflowPublishRequest publish;
+        auto definition = object_member_text(object, "definition");
+        if (!definition || !member(object, "definition")->is_object()) {
+            result.error = "workflow.publish requires a 'definition' object";
+            return result;
+        }
+        publish.definition_json = std::move(*definition);
+        result.body = std::move(publish);
+    } else if (*op == kOpWorkflowDelete) {
+        WorkflowDeleteRequest remove;
+        const auto workflow_id = string_member(object, "workflow_id");
+        if (!workflow_id || workflow_id->empty()) {
+            result.error = "workflow.delete requires a non-empty 'workflow_id'";
+            return result;
+        }
+        remove.workflow_id = *workflow_id;
+        result.body = std::move(remove);
+    } else if (*op == kOpWorkflowAtomCatalog) {
+        result.body = WorkflowAtomCatalogRequest{};
+    } else if (*op == kOpWorkflowRuns) {
+        result.body = WorkflowRunsRequest{};
+    } else if (*op == kOpWorkflowRun) {
+        WorkflowRunRequest run;
+        const auto workflow_id = string_member(object, "workflow_id");
+        if (!workflow_id || workflow_id->empty()) {
+            result.error = "workflow.run requires a non-empty 'workflow_id'";
+            return result;
+        }
+        run.workflow_id = *workflow_id;
+        if (const auto digest = string_member(object, "digest")) {
+            if (digest->empty()) {
+                result.error = "workflow.run 'digest' must be non-empty";
+                return result;
+            }
+            run.digest = *digest;
+        }
+        auto parameters = object_member_text(object, "parameters");
+        if (parameters.has_value() && !member(object, "parameters")->is_object()) {
+            result.error = "workflow.run 'parameters' must be an object";
+            return result;
+        }
+        if (parameters) {
+            run.parameters_json = std::move(*parameters);
+        }
+        if (const auto policy = string_member(object, "policy")) {
+            if (!in_stable_set(*policy, kWorkflowPolicyNames,
+                               sizeof(kWorkflowPolicyNames) / sizeof(kWorkflowPolicyNames[0]))) {
+                result.error = "workflow.run 'policy' is not a known policy name";
+                return result;
+            }
+            run.policy = *policy;
+        }
+        result.body = std::move(run);
+    } else if (*op == kOpWorkflowCancel) {
+        WorkflowCancelRunRequest cancel;
+        const auto run_id = string_member(object, "run_id");
+        if (!run_id || run_id->empty()) {
+            result.error = "workflow.cancel requires a non-empty 'run_id'";
+            return result;
+        }
+        cancel.run_id = *run_id;
+        result.body = std::move(cancel);
     } else {
         result.error = "unknown op '" + *op + "'";
         return result;
@@ -636,6 +847,16 @@ ResponseDecode decode_response(std::string_view payload) {
                 return result;
             }
             identity.sessions = *flag;
+        }
+        // DEC-023 workflow-face capability member: same discipline as
+        // `events`.
+        if (const auto *workflows = member(object, "workflows"); workflows != nullptr) {
+            const auto flag = workflows->as_boolean();
+            if (!flag) {
+                result.error = "hello response 'workflows' must be a boolean";
+                return result;
+            }
+            identity.workflows = *flag;
         }
         response.payload = std::move(identity);
     } else if (const auto *task_id = member(object, "task_id"); task_id != nullptr) {
@@ -868,6 +1089,168 @@ ResponseDecode decode_response(std::string_view payload) {
             list.sessions.push_back(std::move(summary));
         }
         response.payload = std::move(list);
+    } else if (const auto *workflows = member(object, "workflows"); workflows != nullptr) {
+        if (!workflows->is_array()) {
+            result.error = "workflow.list 'workflows' must be an array";
+            return result;
+        }
+        WorkflowList list;
+        for (const auto &entry : *workflows->as_array()) {
+            if (!entry.is_object()) {
+                result.error = "workflow.list entries must be objects";
+                return result;
+            }
+            WorkflowSummary summary;
+            auto entry_id = string_member(entry, "workflow_id");
+            auto name = string_member(entry, "name");
+            auto digest = string_member(entry, "head_digest");
+            auto validation = string_member(entry, "validation");
+            const auto *runnable = member(entry, "runnable");
+            const auto runnable_flag = runnable == nullptr ? std::nullopt : runnable->as_boolean();
+            const auto updated = integer_member(entry, "updated_at_ms");
+            if (!entry_id || entry_id->empty() || !name || name->empty() || !digest ||
+                digest->empty() || !validation || !runnable_flag || !updated || *updated < 0) {
+                result.error = "workflow.list entries require 'workflow_id', 'name', "
+                               "'head_digest', 'validation', 'runnable' and 'updated_at_ms'";
+                return result;
+            }
+            if (!in_stable_set(*validation, kWorkflowValidationNames,
+                               sizeof(kWorkflowValidationNames) /
+                                   sizeof(kWorkflowValidationNames[0]))) {
+                result.error = "workflow.list entry 'validation' is not a known validation result";
+                return result;
+            }
+            summary.workflow_id = std::move(*entry_id);
+            summary.name = std::move(*name);
+            summary.head_digest = std::move(*digest);
+            summary.validation = std::move(*validation);
+            summary.runnable = *runnable_flag;
+            summary.updated_at_ms = *updated;
+            list.workflows.push_back(std::move(summary));
+        }
+        response.payload = std::move(list);
+    } else if (const auto *runs = member(object, "runs"); runs != nullptr) {
+        if (!runs->is_array()) {
+            result.error = "workflow.runs 'runs' must be an array";
+            return result;
+        }
+        WorkflowRunList list;
+        for (const auto &entry : *runs->as_array()) {
+            if (!entry.is_object()) {
+                result.error = "workflow.runs entries must be objects";
+                return result;
+            }
+            WorkflowRunSummary summary;
+            auto run_id = string_member(entry, "run_id");
+            auto workflow_id = string_member(entry, "workflow_id");
+            auto state = string_member(entry, "state");
+            const auto epoch = integer_member(entry, "run_epoch");
+            const auto created = integer_member(entry, "created_at_ms");
+            if (!run_id || run_id->empty() || !workflow_id || workflow_id->empty() || !state ||
+                !epoch || *epoch < 0 || !created || *created < 0) {
+                result.error = "workflow.runs entries require 'run_id', 'workflow_id', 'state', "
+                               "'run_epoch' and 'created_at_ms'";
+                return result;
+            }
+            if (!in_stable_set(*state, kWorkflowRunStateNames,
+                               sizeof(kWorkflowRunStateNames) /
+                                   sizeof(kWorkflowRunStateNames[0]))) {
+                result.error = "workflow.runs entry 'state' is not a known run state";
+                return result;
+            }
+            summary.run_id = std::move(*run_id);
+            summary.workflow_id = std::move(*workflow_id);
+            summary.state = std::move(*state);
+            summary.run_epoch = static_cast<std::uint64_t>(*epoch);
+            summary.created_at_ms = *created;
+            list.runs.push_back(std::move(summary));
+        }
+        response.payload = std::move(list);
+    } else if (const auto *tools = member(object, "tools"); tools != nullptr) {
+        if (!tools->is_array()) {
+            result.error = "workflow.atom.catalog 'tools' must be an array";
+            return result;
+        }
+        WorkflowAtomCatalog catalog;
+        for (const auto &entry : *tools->as_array()) {
+            if (!entry.is_object()) {
+                result.error = "workflow.atom.catalog entries must be objects";
+                return result;
+            }
+            ExposedTool tool;
+            auto wire_name = string_member(entry, "wire_name");
+            auto version = string_member(entry, "version");
+            auto description = string_member(entry, "description");
+            const auto *side_effects = member(entry, "has_side_effects");
+            const auto side_effects_flag =
+                side_effects == nullptr ? std::nullopt : side_effects->as_boolean();
+            auto schema = object_member_text(entry, "parameters_schema");
+            if (!wire_name || wire_name->empty() || !version || version->empty() || !description ||
+                description->empty() || !side_effects_flag || !schema ||
+                !member(entry, "parameters_schema")->is_object()) {
+                result.error = "workflow.atom.catalog entries require 'wire_name', 'version', "
+                               "'description', 'has_side_effects' and a 'parameters_schema' object";
+                return result;
+            }
+            tool.wire_name = std::move(*wire_name);
+            tool.version = std::move(*version);
+            tool.description = std::move(*description);
+            tool.has_side_effects = *side_effects_flag;
+            tool.parameters_schema_json = std::move(*schema);
+            catalog.tools.push_back(std::move(tool));
+        }
+        response.payload = std::move(catalog);
+    } else if (const auto *dry_run_id = member(object, "dry_run_id"); dry_run_id != nullptr) {
+        // WorkflowPublished discriminates on "dry_run_id"; it also carries
+        // "workflow_id" and "digest", so it must precede those branches.
+        auto workflow_id = string_member(object, "workflow_id");
+        auto digest = string_member(object, "digest");
+        auto dry_run_text = string_member(object, "dry_run_id");
+        const auto *idempotent = member(object, "idempotent");
+        const auto idempotent_flag =
+            idempotent == nullptr ? std::nullopt : idempotent->as_boolean();
+        if (!workflow_id || workflow_id->empty() || !digest || digest->empty() || !dry_run_text ||
+            dry_run_text->empty() || !idempotent_flag) {
+            result.error = "workflow.publish response requires 'workflow_id', 'digest', "
+                           "'dry_run_id' and 'idempotent'";
+            return result;
+        }
+        response.payload = WorkflowPublished{std::move(*workflow_id), std::move(*digest),
+                                             std::move(*dry_run_text), *idempotent_flag};
+    } else if (const auto *digest_member = member(object, "digest"); digest_member != nullptr) {
+        // WorkflowSaved discriminates on "digest"; it also carries
+        // "workflow_id", so it must precede the WorkflowDeleted branch.
+        auto workflow_id = string_member(object, "workflow_id");
+        auto digest = string_member(object, "digest");
+        if (!workflow_id || workflow_id->empty() || !digest || digest->empty()) {
+            result.error = "workflow.save response requires 'workflow_id' and 'digest'";
+            return result;
+        }
+        response.payload = WorkflowSaved{std::move(*workflow_id), std::move(*digest)};
+    } else if (const auto *workflow_id = member(object, "workflow_id"); workflow_id != nullptr) {
+        auto id_text = string_member(object, "workflow_id");
+        if (!id_text || id_text->empty()) {
+            result.error = "workflow.delete response requires a non-empty 'workflow_id'";
+            return result;
+        }
+        response.payload = WorkflowDeleted{std::move(*id_text)};
+    } else if (const auto *run_id = member(object, "run_id"); run_id != nullptr) {
+        auto id_text = string_member(object, "run_id");
+        if (!id_text || id_text->empty()) {
+            result.error = "workflow.run response requires a non-empty 'run_id'";
+            return result;
+        }
+        if (const auto *state = member(object, "state"); state != nullptr) {
+            // The cancelled reply adds "state" to the same envelope shape.
+            auto state_text = string_member(object, "state");
+            if (!state_text) {
+                result.error = "workflow.cancel response requires a 'state' string";
+                return result;
+            }
+            response.payload = WorkflowRunCancelled{std::move(*id_text), std::move(*state_text)};
+        } else {
+            response.payload = WorkflowRunStarted{std::move(*id_text)};
+        }
     } else {
         // An ok response carrying none of the known payload discriminators
         // is the acknowledgement shape (service.shutdown).
@@ -898,6 +1281,9 @@ const char *event_name(const EventPayload &payload) {
     }
     if (std::holds_alternative<SessionOutputEvent>(payload)) {
         return kEventSessionOutput;
+    }
+    if (std::holds_alternative<WorkflowRunUpdatedEvent>(payload)) {
+        return kEventWorkflowRunUpdated;
     }
     return kEventOverflow;
 }
@@ -954,6 +1340,15 @@ std::string encode_event(const Event &event) {
                 put(object, "step", static_cast<std::int64_t>(value.step));
                 put(object, "chunk", value.chunk);
                 put(object, "truncated", value.truncated);
+            } else if constexpr (std::is_same_v<T, WorkflowRunUpdatedEvent>) {
+                put(object, "event", kEventWorkflowRunUpdated);
+                put(object, "run_id", value.run_id);
+                put(object, "workflow_id", value.workflow_id);
+                put(object, "state", value.state);
+                put(object, "run_epoch", static_cast<std::int64_t>(value.run_epoch));
+                if (value.summary) {
+                    put(object, "summary", *value.summary);
+                }
             }
         },
         event.payload);
@@ -1153,6 +1548,36 @@ EventDecode decode_event(std::string_view payload) {
         output.chunk = std::move(*chunk);
         output.truncated = *truncated_flag;
         result.event.payload = std::move(output);
+    } else if (*name == kEventWorkflowRunUpdated) {
+        WorkflowRunUpdatedEvent run;
+        const auto run_id = string_member(object, "run_id");
+        const auto workflow_id = string_member(object, "workflow_id");
+        const auto state = string_member(object, "state");
+        const auto epoch = integer_member(object, "run_epoch");
+        if (!run_id || run_id->empty() || !workflow_id || workflow_id->empty() || !state ||
+            !epoch || *epoch < 0) {
+            result.error = "workflow.run_updated requires 'run_id', 'workflow_id', 'state', a "
+                           "non-negative 'run_epoch'";
+            return result;
+        }
+        if (!in_stable_set(*state, kWorkflowRunStateNames,
+                           sizeof(kWorkflowRunStateNames) / sizeof(kWorkflowRunStateNames[0]))) {
+            result.error = "workflow.run_updated 'state' is not a known run state";
+            return result;
+        }
+        run.run_id = std::move(*run_id);
+        run.workflow_id = std::move(*workflow_id);
+        run.state = std::move(*state);
+        run.run_epoch = static_cast<std::uint64_t>(*epoch);
+        if (const auto *summary = member(object, "summary"); summary != nullptr) {
+            const auto text = summary->as_string();
+            if (!text) {
+                result.error = "workflow.run_updated 'summary' must be a string";
+                return result;
+            }
+            run.summary = *text;
+        }
+        result.event.payload = std::move(run);
     } else {
         result.error = "unknown event '" + *name + "'";
         return result;

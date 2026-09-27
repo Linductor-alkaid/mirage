@@ -4,12 +4,19 @@
 #include <mira/environment.hpp>
 
 #include <mirage/integration/mira_adapter.hpp>
+#include <mirage/integration/workflow_event_bridge.hpp>
 #include <mirage/runtime/mira_host.hpp>
 
+#include <executor/executor.hpp>
+
+#include <chrono>
 #include <cstdio>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
+#include <thread>
+#include <vector>
 
 namespace {
 
@@ -340,6 +347,180 @@ void scenario_status_names() {
                  "failed");
 }
 
+// --- workflow surface (M5-05, DEC-023) ----------------------------------------
+
+/// True once `predicate` holds, polling up to `timeout_ms`; the workflow drive
+/// runs on executor workers, so terminal-state observation is asynchronous.
+template <typename Predicate> bool wait_until(Predicate predicate, int timeout_ms = 5000) {
+    for (int waited = 0; waited < timeout_ms; waited += 10) {
+        if (predicate()) {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return predicate();
+}
+
+/// Prints the host rejection before recording the failure so a pinned
+/// passthrough is actionable from the log alone.
+template <typename Result> bool check_ok(const char *what, const Result &result) {
+    if (!result.ok) {
+        std::fprintf(stderr, "[mira_host_test] %s failed: %s: %s\n", what,
+                     result.error.code.c_str(), result.error.message.c_str());
+    }
+    MIRAGE_CHECK(result.ok);
+    return result.ok;
+}
+
+bool is_64_lowercase_hex(const std::string &digest) {
+    if (digest.size() != 64) {
+        return false;
+    }
+    for (const char character : digest) {
+        const bool digit = character >= '0' && character <= '9';
+        const bool lowercase = character >= 'a' && character <= 'f';
+        if (!digit && !lowercase) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// Minimal IR v1 definition bound to the given workflow id: one Verify step
+/// whose predicate references an absent parameter (NotEvaluable, counted by
+/// the pinned honesty counter, RULE-10), so the definition passes the strict
+/// pinned decode, runs without a tool registry and settles the publish
+/// gate's empty DryRun as Completed.
+std::string minimal_definition(const std::string &workflow_id, const std::string &step_id,
+                               const std::string &name) {
+    // The name parameter varies content: the pinned library resolves versions
+    // by content digest, and a same-content draft record shadows a later
+    // runnable record (MIRA-20260927-001), so the flow under test publishes
+    // different content than the draft.
+    return R"({"schema_version":{"major":1,"minor":0},"workflow_id":")" + workflow_id +
+           R"(","name":")" + name + R"(","parameters":[],"steps":[{"step_id":")" + step_id +
+           R"(","kind":"verify","verification":{"signal":"run_parameter:x","op":"eq","value":"y"}}],)"
+           R"("default_policy":"strict","allowed_policies":["strict","dry_run"]})";
+}
+
+void scenario_workflow_surface_lifecycle() {
+    MiraHost host;
+    executor::Executor executor;
+    MIRAGE_CHECK(executor.initialize_ex(executor::ExecutorConfig{}).ok);
+
+    auto bridge = std::make_shared<mirage::integration::WorkflowEventBridge>();
+    // The publish gate drives also emit run events, so the scenario matches
+    // events by run identity instead of counting deliveries.
+    std::mutex events_mutex;
+    std::vector<mirage::integration::WorkflowRunEventView> sink_events;
+    bridge->set_sink([&](const mirage::integration::WorkflowRunEventView &view) {
+        std::lock_guard lock(events_mutex);
+        sink_events.push_back(view);
+    });
+
+    // Attach requires a Running host.
+    const auto early = host.attach_workflow_surface(executor, bridge);
+    MIRAGE_CHECK(!early.ok);
+    MIRAGE_CHECK(early.error.code == "invalid_state");
+
+    const auto binding = std::make_shared<SimulatorBinding>();
+    MIRAGE_CHECK(host.start(binding).ok);
+
+    // The surface attaches once on the Running host; a second attach fails
+    // closed.
+    const auto attached = host.attach_workflow_surface(executor, bridge);
+    MIRAGE_CHECK(attached.ok);
+    const auto double_attach = host.attach_workflow_surface(executor, bridge);
+    MIRAGE_CHECK(!double_attach.ok);
+    MIRAGE_CHECK(double_attach.error.code == "invalid_state");
+
+    // Save lands a NotValidated draft (resolvable, not runnable; W-04).
+    const std::string workflow_id = mira::WorkflowId::generate().to_string();
+    const std::string step_id = mira::StepId::generate().to_string();
+    const auto saved = host.save_workflow_definition(
+        minimal_definition(workflow_id, step_id, "demo draft"), "test draft");
+    check_ok("save", saved);
+    MIRAGE_CHECK(saved.workflow_id == workflow_id);
+    MIRAGE_CHECK(saved.name == "demo draft");
+    MIRAGE_CHECK(is_64_lowercase_hex(saved.digest));
+
+    // Publish gates a runnable version through the empty DryRun.
+    const auto published = host.publish_workflow_definition(
+        minimal_definition(workflow_id, step_id, "demo"), "test publish");
+    check_ok("publish", published);
+    MIRAGE_CHECK(published.workflow_id == workflow_id);
+    MIRAGE_CHECK(!published.idempotent);
+
+    // Republishing the same content settles idempotent.
+    const auto republished = host.publish_workflow_definition(
+        minimal_definition(workflow_id, step_id, "demo"), "test republish");
+    MIRAGE_CHECK(republished.ok);
+    MIRAGE_CHECK(republished.idempotent);
+
+    // A draft digest is not runnable (W-04): the pinned rejection passes
+    // through verbatim.
+    const auto draft_run = host.start_workflow_run(workflow_id, saved.digest, "", "");
+    MIRAGE_CHECK(!draft_run.ok);
+    MIRAGE_CHECK(draft_run.error.code == "pinned_runtime");
+
+    // Malformed inputs fail closed with stable host errors.
+    MIRAGE_CHECK(!host.start_workflow_run("nothex", published.digest, "", "").ok);
+    MIRAGE_CHECK(!host.start_workflow_run(workflow_id, "nothex", "", "").ok);
+    MIRAGE_CHECK(!host.start_workflow_run(workflow_id, published.digest, "not json", "").ok);
+    MIRAGE_CHECK(!host.start_workflow_run(workflow_id, published.digest, "", "yolo").ok);
+
+    // Unknown workflow: pinned not_found passthrough.
+    const auto unknown =
+        host.start_workflow_run(mira::WorkflowId::generate().to_string(), published.digest, "", "");
+    MIRAGE_CHECK(!unknown.ok);
+    MIRAGE_CHECK(unknown.error.code == "pinned_runtime");
+
+    // Run the published version under its DryRun policy; the single Verify
+    // step settles at a step boundary and both run-level events land on the
+    // bridge.
+    const auto run = host.start_workflow_run(workflow_id, published.digest, "", "dry_run");
+    check_ok("run", run);
+    MIRAGE_CHECK(is_32_lowercase_hex(run.run_id));
+    const bool settled_seen = wait_until([&] {
+        std::lock_guard lock(events_mutex);
+        for (const auto &event : sink_events) {
+            if (event.run_id == run.run_id && event.state == "completed") {
+                return true;
+            }
+        }
+        return false;
+    });
+    MIRAGE_CHECK(settled_seen);
+    MIRAGE_CHECK(bridge->sink_failures() == 0);
+
+    const auto view = host.workflow_run_view(run.run_id);
+    MIRAGE_CHECK(view.ok);
+    if (view.view.state != "completed") {
+        std::fprintf(stderr, "[mira_host_test] run settled as '%s' (epoch %llu)\n",
+                     view.view.state.c_str(), static_cast<unsigned long long>(view.view.run_epoch));
+    }
+    MIRAGE_CHECK(view.view.state == "completed");
+    MIRAGE_CHECK(view.view.workflow_id == workflow_id);
+
+    // Cancelling a terminal run is the idempotent NoOp, never a revival.
+    const auto cancelled = host.cancel_workflow_run(run.run_id);
+    MIRAGE_CHECK(cancelled.ok);
+    MIRAGE_CHECK(cancelled.state == "completed");
+
+    // Surface shutdown closes the face; later calls reject with the stable
+    // shape and a second shutdown is a NoOp.
+    const auto surface_down = host.shutdown_workflow_surface();
+    MIRAGE_CHECK(surface_down.ok);
+    const auto after_down = host.save_workflow_definition(
+        minimal_definition(workflow_id, step_id, "late draft"), "late");
+    MIRAGE_CHECK(!after_down.ok);
+    MIRAGE_CHECK(after_down.error.code == "invalid_state");
+    MIRAGE_CHECK(host.shutdown_workflow_surface().ok);
+
+    MIRAGE_CHECK(host.shutdown().ok);
+    executor.shutdown(true);
+}
+
 void run_scenario(const char *name, void (*scenario)()) {
     std::fprintf(stderr, "[mira_host_test] scenario: %s\n", name);
     scenario();
@@ -362,5 +543,6 @@ int main() {
     run_scenario("destructor_releases_started_runtime",
                  scenario_destructor_releases_started_runtime);
     run_scenario("status_names", scenario_status_names);
+    run_scenario("workflow_surface_lifecycle", scenario_workflow_surface_lifecycle);
     return mirage::testing::finish("mira_host_test");
 }

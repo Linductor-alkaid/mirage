@@ -153,6 +153,35 @@ describe('request round-trips', () => {
     it('service.shutdown', () => {
         roundTripRequest(5, { op: 'service.shutdown' });
     });
+
+    it('workflow.run with every optional member absent', () => {
+        roundTripRequest(30, { op: 'workflow.run', workflow_id: 'wf-0042' });
+    });
+
+    it('workflow.run with digest, parameters and policy', () => {
+        roundTripRequest(31, {
+            op: 'workflow.run',
+            workflow_id: 'wf-0042',
+            digest: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+            parameters: { city: 'tokyo' },
+            policy: 'interactive',
+        });
+    });
+
+    it('workflow.save carries the definition object', () => {
+        roundTripRequest(32, {
+            op: 'workflow.save',
+            definition: {
+                schema_version: { major: 1, minor: 0 },
+                workflow_id: 'wf-0042',
+                name: 'demo',
+                parameters: [],
+                steps: [],
+                default_policy: 'strict',
+                allowed_policies: ['strict'],
+            },
+        });
+    });
 });
 
 describe('request strict decoding', () => {
@@ -498,6 +527,53 @@ describe('response strict decoding', () => {
 });
 
 describe('event decoding', () => {
+    it('workflow.run_updated started (summary absent)', () => {
+        expect(
+            decodeEvent(
+                '{"v":1,"seq":9,"event":"workflow.run_updated","run_id":"run-0001","workflow_id":"wf-0001","state":"running","run_epoch":0}',
+            ),
+        ).toEqual({
+            ok: true,
+            event: {
+                v: 1,
+                seq: 9,
+                event: 'workflow.run_updated',
+                run_id: 'run-0001',
+                workflow_id: 'wf-0001',
+                state: 'running',
+                run_epoch: 0,
+            },
+        });
+    });
+
+    it('workflow.run_updated settled with summary', () => {
+        expect(
+            decodeEvent(
+                '{"v":1,"seq":10,"event":"workflow.run_updated","run_id":"run-0001","workflow_id":"wf-0001","state":"completed","run_epoch":3,"summary":"done"}',
+            ),
+        ).toEqual({
+            ok: true,
+            event: {
+                v: 1,
+                seq: 10,
+                event: 'workflow.run_updated',
+                run_id: 'run-0001',
+                workflow_id: 'wf-0001',
+                state: 'completed',
+                run_epoch: 3,
+                summary: 'done',
+            },
+        });
+    });
+
+    it('workflow.run_updated rejects an unknown state', () => {
+        expect(
+            decodeEvent(
+                '{"v":1,"seq":11,"event":"workflow.run_updated","run_id":"run-0001","workflow_id":"wf-0001","state":"zombie","run_epoch":0}',
+            ),
+        ).toEqual({ ok: false, error: "workflow.run_updated 'state' is not a known run state" });
+    });
+
     it('task.updated', () => {
         const payload = JSON.stringify({
             v: 1,

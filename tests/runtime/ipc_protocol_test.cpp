@@ -277,8 +277,8 @@ void scenario_response_round_trips() {
         response.ok = true;
         response.id = 4;
         response.payload =
-            ipc::ServiceIdentity{"mirage-runtime", "0.5.0",      "1.2.3",     "Running", 1,
-                                 std::nullopt,     std::nullopt, std::nullopt};
+            ipc::ServiceIdentity{"mirage-runtime", "0.5.0",      "1.2.3",      "Running",   1,
+                                 std::nullopt,     std::nullopt, std::nullopt, std::nullopt};
         const ipc::ResponseDecode decoded = ipc::decode_response(ipc::encode_response(response));
         MIRAGE_CHECK(decoded.ok);
         MIRAGE_CHECK(decoded.response.id == 4);
@@ -493,6 +493,325 @@ void scenario_response_rejects_malformed_payloads() {
         const ipc::ResponseDecode decoded = ipc::decode_response(payload);
         MIRAGE_CHECK(!decoded.ok);
         MIRAGE_CHECK(!decoded.error.empty());
+    }
+}
+
+// --- protocol: workflow face (DEC-023) ---------------------------------------
+
+void scenario_workflow_requests_round_trip() {
+    // Bare ops.
+    for (const ipc::Request &request :
+         std::vector<ipc::Request>{ipc::WorkflowListRequest{}, ipc::WorkflowAtomCatalogRequest{},
+                                   ipc::WorkflowRunsRequest{}}) {
+        const std::string payload = ipc::encode_request(30, request);
+        const ipc::RequestDecode decoded = ipc::decode_request(payload);
+        MIRAGE_CHECK(decoded.ok);
+        MIRAGE_CHECK(decoded.id == 30);
+        MIRAGE_CHECK(decoded.body.index() == request.index());
+    }
+    // Save carries the definition object; decode canonicalizes it.
+    {
+        ipc::WorkflowSaveRequest save;
+        save.definition_json = R"({"a":1})";
+        const std::string payload = ipc::encode_request(31, save);
+        MIRAGE_CHECK(payload.find("\"definition\":{\"a\":1}") != std::string::npos);
+        const ipc::RequestDecode decoded = ipc::decode_request(payload);
+        MIRAGE_CHECK(decoded.ok);
+        const auto *decoded_save = std::get_if<ipc::WorkflowSaveRequest>(&decoded.body);
+        MIRAGE_CHECK(decoded_save != nullptr);
+        if (decoded_save != nullptr) {
+            MIRAGE_CHECK(decoded_save->definition_json == R"({"a":1})");
+        }
+    }
+    // Publish round-trips like save.
+    {
+        ipc::WorkflowPublishRequest publish;
+        publish.definition_json = R"({"b":2})";
+        const ipc::RequestDecode decoded = ipc::decode_request(ipc::encode_request(32, publish));
+        MIRAGE_CHECK(decoded.ok);
+        const auto *decoded_publish = std::get_if<ipc::WorkflowPublishRequest>(&decoded.body);
+        MIRAGE_CHECK(decoded_publish != nullptr);
+        if (decoded_publish != nullptr) {
+            MIRAGE_CHECK(decoded_publish->definition_json == R"({"b":2})");
+        }
+    }
+    // Delete.
+    {
+        const ipc::RequestDecode decoded =
+            ipc::decode_request(ipc::encode_request(33, ipc::WorkflowDeleteRequest{"wf-1"}));
+        MIRAGE_CHECK(decoded.ok);
+        const auto *remove = std::get_if<ipc::WorkflowDeleteRequest>(&decoded.body);
+        MIRAGE_CHECK(remove != nullptr);
+        if (remove != nullptr) {
+            MIRAGE_CHECK(remove->workflow_id == "wf-1");
+        }
+    }
+    // Run: every optional member engaged on the wire comes back engaged.
+    {
+        ipc::WorkflowRunRequest run;
+        run.workflow_id = "wf-2";
+        run.digest = "d1";
+        run.parameters_json = R"({"city":"tokyo"})";
+        run.policy = "interactive";
+        const ipc::RequestDecode decoded = ipc::decode_request(ipc::encode_request(34, run));
+        MIRAGE_CHECK(decoded.ok);
+        const auto *decoded_run = std::get_if<ipc::WorkflowRunRequest>(&decoded.body);
+        MIRAGE_CHECK(decoded_run != nullptr);
+        if (decoded_run != nullptr) {
+            MIRAGE_CHECK(decoded_run->workflow_id == "wf-2");
+            MIRAGE_CHECK(decoded_run->digest == "d1");
+            MIRAGE_CHECK(decoded_run->parameters_json == R"({"city":"tokyo"})");
+            MIRAGE_CHECK(decoded_run->policy == "interactive");
+        }
+    }
+    // Run with every optional member absent stays absent after decode.
+    {
+        ipc::WorkflowRunRequest head_run;
+        head_run.workflow_id = "wf-3";
+        const ipc::RequestDecode decoded = ipc::decode_request(ipc::encode_request(35, head_run));
+        MIRAGE_CHECK(decoded.ok);
+        const auto *decoded_run = std::get_if<ipc::WorkflowRunRequest>(&decoded.body);
+        MIRAGE_CHECK(decoded_run != nullptr);
+        if (decoded_run != nullptr) {
+            MIRAGE_CHECK(decoded_run->digest.empty());
+            MIRAGE_CHECK(decoded_run->parameters_json.empty());
+            MIRAGE_CHECK(decoded_run->policy.empty());
+        }
+    }
+    // Cancel.
+    {
+        const ipc::RequestDecode decoded =
+            ipc::decode_request(ipc::encode_request(36, ipc::WorkflowCancelRunRequest{"run-9"}));
+        MIRAGE_CHECK(decoded.ok);
+        const auto *cancel = std::get_if<ipc::WorkflowCancelRunRequest>(&decoded.body);
+        MIRAGE_CHECK(cancel != nullptr);
+        if (cancel != nullptr) {
+            MIRAGE_CHECK(cancel->run_id == "run-9");
+        }
+    }
+}
+
+void scenario_workflow_requests_reject_malformed_payloads() {
+    const char *invalid_payloads[] = {
+        R"({"v":1,"id":5,"op":"workflow.save"})",
+        R"({"v":1,"id":5,"op":"workflow.save","definition":3})",
+        R"({"v":1,"id":5,"op":"workflow.publish"})",
+        R"({"v":1,"id":5,"op":"workflow.publish","definition":[]})",
+        R"({"v":1,"id":5,"op":"workflow.delete"})",
+        R"({"v":1,"id":5,"op":"workflow.delete","workflow_id":""})",
+        R"({"v":1,"id":5,"op":"workflow.run"})",
+        R"({"v":1,"id":5,"op":"workflow.run","workflow_id":""})",
+        R"({"v":1,"id":5,"op":"workflow.run","workflow_id":"w","digest":""})",
+        R"({"v":1,"id":5,"op":"workflow.run","workflow_id":"w","parameters":3})",
+        R"({"v":1,"id":5,"op":"workflow.run","workflow_id":"w","policy":"yolo"})",
+        R"({"v":1,"id":5,"op":"workflow.cancel"})",
+        R"({"v":1,"id":5,"op":"workflow.cancel","run_id":""})",
+    };
+    for (const char *payload : invalid_payloads) {
+        const ipc::RequestDecode decoded = ipc::decode_request(payload);
+        MIRAGE_CHECK(!decoded.ok);
+        MIRAGE_CHECK(!decoded.error.empty());
+    }
+}
+
+void scenario_workflow_responses_round_trip() {
+    // WorkflowList.
+    {
+        ipc::WorkflowList list;
+        ipc::WorkflowSummary summary;
+        summary.workflow_id = "wf-1";
+        summary.name = "demo";
+        summary.head_digest = "d1";
+        summary.validation = "dry_run_passed";
+        summary.runnable = true;
+        summary.updated_at_ms = 1758840001000;
+        list.workflows.push_back(summary);
+        const ipc::Response response{true, 40, list, {}};
+        const ipc::ResponseDecode decoded = ipc::decode_response(ipc::encode_response(response));
+        MIRAGE_CHECK(decoded.ok);
+        const auto *back = std::get_if<ipc::WorkflowList>(&decoded.response.payload);
+        MIRAGE_CHECK(back != nullptr);
+        if (back != nullptr) {
+            MIRAGE_CHECK(back->workflows.size() == 1);
+            if (back->workflows.size() == 1) {
+                MIRAGE_CHECK(back->workflows[0].workflow_id == "wf-1");
+                MIRAGE_CHECK(back->workflows[0].name == "demo");
+                MIRAGE_CHECK(back->workflows[0].head_digest == "d1");
+                MIRAGE_CHECK(back->workflows[0].validation == "dry_run_passed");
+                MIRAGE_CHECK(back->workflows[0].runnable);
+                MIRAGE_CHECK(back->workflows[0].updated_at_ms == 1758840001000);
+            }
+        }
+    }
+    // Saved / published / deleted.
+    {
+        const ipc::ResponseDecode decoded = ipc::decode_response(
+            ipc::encode_response(ipc::Response{true, 41, ipc::WorkflowSaved{"wf-1", "d1"}, {}}));
+        MIRAGE_CHECK(decoded.ok);
+        const auto *saved = std::get_if<ipc::WorkflowSaved>(&decoded.response.payload);
+        MIRAGE_CHECK(saved != nullptr);
+        if (saved != nullptr) {
+            MIRAGE_CHECK(saved->workflow_id == "wf-1");
+            MIRAGE_CHECK(saved->digest == "d1");
+        }
+    }
+    {
+        const ipc::ResponseDecode decoded = ipc::decode_response(ipc::encode_response(
+            ipc::Response{true, 42, ipc::WorkflowPublished{"wf-1", "d2", "r1", true}, {}}));
+        MIRAGE_CHECK(decoded.ok);
+        const auto *published = std::get_if<ipc::WorkflowPublished>(&decoded.response.payload);
+        MIRAGE_CHECK(published != nullptr);
+        if (published != nullptr) {
+            MIRAGE_CHECK(published->digest == "d2");
+            MIRAGE_CHECK(published->dry_run_id == "r1");
+            MIRAGE_CHECK(published->idempotent);
+        }
+    }
+    {
+        const ipc::ResponseDecode decoded = ipc::decode_response(
+            ipc::encode_response(ipc::Response{true, 43, ipc::WorkflowDeleted{"wf-1"}, {}}));
+        MIRAGE_CHECK(decoded.ok);
+        MIRAGE_CHECK(std::holds_alternative<ipc::WorkflowDeleted>(decoded.response.payload));
+    }
+    // Atom catalog with a schema object member.
+    {
+        ipc::WorkflowAtomCatalog catalog;
+        ipc::ExposedTool tool;
+        tool.wire_name = "filesystem.read";
+        tool.version = "1.0.0";
+        tool.description = "read a text file";
+        tool.has_side_effects = false;
+        tool.parameters_schema_json = R"({"type":"object"})";
+        catalog.tools.push_back(tool);
+        const ipc::ResponseDecode decoded =
+            ipc::decode_response(ipc::encode_response(ipc::Response{true, 44, catalog, {}}));
+        MIRAGE_CHECK(decoded.ok);
+        const auto *back = std::get_if<ipc::WorkflowAtomCatalog>(&decoded.response.payload);
+        MIRAGE_CHECK(back != nullptr);
+        if (back != nullptr) {
+            MIRAGE_CHECK(back->tools.size() == 1);
+            if (back->tools.size() == 1) {
+                MIRAGE_CHECK(back->tools[0].wire_name == "filesystem.read");
+                MIRAGE_CHECK(back->tools[0].parameters_schema_json == R"({"type":"object"})");
+            }
+        }
+    }
+    // Run list / started / cancelled.
+    {
+        ipc::WorkflowRunList list;
+        list.runs.push_back(ipc::WorkflowRunSummary{"run-1", "wf-1", "running", 1, 1758840003000});
+        const ipc::ResponseDecode decoded =
+            ipc::decode_response(ipc::encode_response(ipc::Response{true, 45, list, {}}));
+        MIRAGE_CHECK(decoded.ok);
+        const auto *back = std::get_if<ipc::WorkflowRunList>(&decoded.response.payload);
+        MIRAGE_CHECK(back != nullptr);
+        if (back != nullptr && back->runs.size() == 1) {
+            MIRAGE_CHECK(back->runs[0].state == "running");
+            MIRAGE_CHECK(back->runs[0].run_epoch == 1);
+        }
+    }
+    {
+        const ipc::ResponseDecode decoded = ipc::decode_response(
+            ipc::encode_response(ipc::Response{true, 46, ipc::WorkflowRunStarted{"run-1"}, {}}));
+        MIRAGE_CHECK(decoded.ok);
+        MIRAGE_CHECK(std::holds_alternative<ipc::WorkflowRunStarted>(decoded.response.payload));
+    }
+    {
+        const ipc::ResponseDecode decoded = ipc::decode_response(ipc::encode_response(
+            ipc::Response{true, 47, ipc::WorkflowRunCancelled{"run-1", "cancelled"}, {}}));
+        MIRAGE_CHECK(decoded.ok);
+        const auto *cancelled = std::get_if<ipc::WorkflowRunCancelled>(&decoded.response.payload);
+        MIRAGE_CHECK(cancelled != nullptr);
+        if (cancelled != nullptr) {
+            MIRAGE_CHECK(cancelled->state == "cancelled");
+        }
+    }
+    // The started and cancelled envelopes share the run_id discriminator;
+    // "state" flips the branch — decode both shapes explicitly.
+    {
+        const ipc::ResponseDecode started =
+            ipc::decode_response(R"({"v":1,"id":48,"ok":true,"run_id":"run-1"})");
+        MIRAGE_CHECK(started.ok);
+        MIRAGE_CHECK(std::holds_alternative<ipc::WorkflowRunStarted>(started.response.payload));
+        const ipc::ResponseDecode cancelled = ipc::decode_response(
+            R"({"v":1,"id":48,"ok":true,"run_id":"run-1","state":"cancelled"})");
+        MIRAGE_CHECK(cancelled.ok);
+        MIRAGE_CHECK(std::holds_alternative<ipc::WorkflowRunCancelled>(cancelled.response.payload));
+    }
+    // The published envelope must not be mistaken for the saved one (both
+    // carry workflow_id + digest; dry_run_id decides).
+    {
+        const ipc::ResponseDecode decoded = ipc::decode_response(
+            R"({"v":1,"id":49,"ok":true,"workflow_id":"wf-1","digest":"d2","dry_run_id":"r1","idempotent":true})");
+        MIRAGE_CHECK(decoded.ok);
+        MIRAGE_CHECK(std::holds_alternative<ipc::WorkflowPublished>(decoded.response.payload));
+    }
+}
+
+void scenario_workflow_responses_reject_malformed_payloads() {
+    const char *invalid_payloads[] = {
+        R"({"v":1,"id":1,"ok":true,"workflows":{}})",
+        R"({"v":1,"id":1,"ok":true,"workflows":[{}]})",
+        R"({"v":1,"id":1,"ok":true,"workflows":[{"workflow_id":"w","name":"n","head_digest":"d","validation":"maybe","runnable":false,"updated_at_ms":0}]})",
+        R"({"v":1,"id":1,"ok":true,"runs":[{"run_id":"r","workflow_id":"w","state":"zombie","run_epoch":1,"created_at_ms":0}]})",
+        R"({"v":1,"id":1,"ok":true,"tools":[{"wire_name":"t","version":"1.0.0","description":"d","has_side_effects":false}]})",
+        R"({"v":1,"id":1,"ok":true,"digest":"d1"})",          // saved without workflow_id
+        R"({"v":1,"id":1,"ok":true,"run_id":""})",            // empty run id
+        R"({"v":1,"id":1,"ok":true,"run_id":"r","state":3})", // state type
+        R"({"v":1,"id":1,"ok":true,"dry_run_id":"r1","workflow_id":"w","digest":"d"})", // no
+                                                                                        // idempotent
+    };
+    for (const char *payload : invalid_payloads) {
+        const ipc::ResponseDecode decoded = ipc::decode_response(payload);
+        MIRAGE_CHECK(!decoded.ok);
+        MIRAGE_CHECK(!decoded.error.empty());
+    }
+}
+
+void scenario_workflow_run_updated_event_round_trip() {
+    {
+        ipc::WorkflowRunUpdatedEvent event;
+        event.run_id = "run-1";
+        event.workflow_id = "wf-1";
+        event.state = "running";
+        event.run_epoch = 0;
+        const std::string payload = ipc::encode_event(ipc::Event{11, event});
+        MIRAGE_CHECK(payload.find("workflow.run_updated") != std::string::npos);
+        MIRAGE_CHECK(payload.find("summary") == std::string::npos);
+        const ipc::EventDecode decoded = ipc::decode_event(payload);
+        MIRAGE_CHECK(decoded.ok);
+        const auto *back = std::get_if<ipc::WorkflowRunUpdatedEvent>(&decoded.event.payload);
+        MIRAGE_CHECK(back != nullptr);
+        if (back != nullptr) {
+            MIRAGE_CHECK(back->run_id == "run-1");
+            MIRAGE_CHECK(back->state == "running");
+            MIRAGE_CHECK(back->run_epoch == 0);
+            MIRAGE_CHECK(!back->summary.has_value());
+        }
+    }
+    {
+        ipc::WorkflowRunUpdatedEvent event;
+        event.run_id = "run-1";
+        event.workflow_id = "wf-1";
+        event.state = "failed";
+        event.run_epoch = 4;
+        event.summary = "step budget exhausted";
+        const ipc::EventDecode decoded =
+            ipc::decode_event(ipc::encode_event(ipc::Event{12, event}));
+        MIRAGE_CHECK(decoded.ok);
+        const auto *back = std::get_if<ipc::WorkflowRunUpdatedEvent>(&decoded.event.payload);
+        MIRAGE_CHECK(back != nullptr);
+        if (back != nullptr && back->summary.has_value()) {
+            MIRAGE_CHECK(*back->summary == "step budget exhausted");
+        }
+    }
+    for (
+        const char *payload : std::vector<const char *>{
+            R"({"v":1,"seq":1,"event":"workflow.run_updated","run_id":"r","state":"running","run_epoch":0})",
+            R"({"v":1,"seq":1,"event":"workflow.run_updated","run_id":"r","workflow_id":"w","state":"zombie","run_epoch":0})",
+            R"({"v":1,"seq":1,"event":"workflow.run_updated","run_id":"r","workflow_id":"w","state":"running","run_epoch":-1})"}) {
+        const ipc::EventDecode decoded = ipc::decode_event(payload);
+        MIRAGE_CHECK(!decoded.ok);
     }
 }
 
@@ -941,6 +1260,14 @@ int main() {
     run_scenario("framing_cap_length_accepted", scenario_framing_cap_length_accepted);
     run_scenario("request_round_trips", scenario_request_round_trips);
     run_scenario("request_rejects_malformed_payloads", scenario_request_rejects_malformed_payloads);
+    run_scenario("workflow_requests_round_trip", scenario_workflow_requests_round_trip);
+    run_scenario("workflow_requests_reject_malformed_payloads",
+                 scenario_workflow_requests_reject_malformed_payloads);
+    run_scenario("workflow_responses_round_trip", scenario_workflow_responses_round_trip);
+    run_scenario("workflow_responses_reject_malformed_payloads",
+                 scenario_workflow_responses_reject_malformed_payloads);
+    run_scenario("workflow_run_updated_event_round_trip",
+                 scenario_workflow_run_updated_event_round_trip);
     run_scenario("response_round_trips", scenario_response_round_trips);
     run_scenario("response_rejects_malformed_payloads",
                  scenario_response_rejects_malformed_payloads);

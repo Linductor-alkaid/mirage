@@ -5,6 +5,7 @@
 add_library(mirage_integration_mira STATIC
     src/mira_environment_binding.cpp
     src/session_journal.cpp
+    src/workflow_event_bridge.cpp
 )
 add_library(Mirage::integration_mira ALIAS mirage_integration_mira)
 
@@ -18,8 +19,11 @@ mirage_enable_warnings(mirage_integration_mira)
 # The concrete binding header implements the pinned environment contract, so
 # pinned include dirs propagate to consumers of this target by design; the
 # desktop environment types are part of the adapter's public surface too.
+# Mira::workflow backs the event bridge (DEC-023) and propagates the pinned
+# workflow contract headers the same way.
 target_link_libraries(mirage_integration_mira
     PUBLIC
         Mirage::desktop
         Mira::core
+        Mira::workflow
 )

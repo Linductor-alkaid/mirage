@@ -87,7 +87,14 @@ meta.version 4）已完成。2026-09-26 双依赖前滚（mira `1348515`、mirad
 游工具引用 / Skill 发布 / MCP 接纳与 mirador 目标跟踪 Experimental 等能力，
 消费路由见 [DEC-022](../decisions/DEC-022-upstream-capability-adoption.md)：
 `M5-05` 绑定升级后的 pinned 工作流 / 工具契约面，Tools / MCP 产品面与
-mirador 跟踪消费分别挂账 POST-05 / POST-04。
+mirador 跟踪消费分别挂账 POST-05 / POST-04。`M5-05` 第一轮（工作流契约面，
+[DEC-023](../decisions/DEC-023-workflow-contract-face.md)）已完成：
+`workflow.list` / `workflow.save` / `workflow.publish` / `workflow.delete` /
+`workflow.atom.catalog` / `workflow.runs` / `workflow.run` / `workflow.cancel`
+请求面与 `workflow.run_updated` 事件（golden vectors 双端门禁 meta.version 5），
+pinned `WorkflowRuntime` 经 `MiraHost` 工作流承载面服务化托管，运行监控事件经
+`WorkflowEventBridge` 从 pinned 事件词表转译；编辑器完整版接真实面与桌面原子
+工具注册为该工作项第二轮。
 
 ## 交付边界
 
@@ -182,6 +189,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | DEC-013 | 前端信息架构与设计规范 | 已定案（[DEC-013](../decisions/DEC-013-frontend-ia-harness-first.md)）：harness 优先统一壳（会话默认落地、workflow 一级入口、设置八类），workflow 编辑器为对齐 mira Workflow IR v1 的结构化步骤序列；规范见 [《Mirage 前端设计规范与信息架构》](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)，M1.5 落地骨架、M5 验收基线 | Mirage 维护者 | M1.5 |
 | DEC-016 | Mirador 视觉集成契约 | 已定案（[DEC-016](../decisions/DEC-016-mirador-visual-integration-contract.md)，M3-01）：Visual Reference `@vN` 生命周期对齐 `@eN` 整体替换、`visual_snapshot(_ref)` schema 1.0 → 1.1 加法演进、mirador 结果到感知面的映射边界、一图像源一 session 一 blocking worker 串行承载（EXEC-04）、fake/identity backend 默认验证形态（真实模型后端属集成方） | Mirage 维护者 | M3（已冻结） |
 | DEC-022 | 上游能力消费路由（2026-09-26 升级批） | 已定案（[DEC-022](../decisions/DEC-022-upstream-capability-adoption.md)）：`M5-05` 绑定升级后 pinned 工作流 / 工具契约面（TR0/TR2、Skill 执行、Degraded 事件；`atom.catalog` 经工具暴露投影；MCP 连接配置以 DEC-039 为承载边界）；Skill / 工具管理产品面挂账 POST-05；mira 记忆 / 上下文 / 时间策略经 `Mira::core` 隐式消费、无 Mirage 直接面；mirador M7 目标跟踪转正前观察、转正后按 POST-04 立项（DEC-016 加法通道） | Mirage 维护者 | M5-05（绑定面）；POST-04 / POST-05 按各自触发条件 |
+| DEC-023 | M5 工作流契约面（协议 v1 扩展）与 WorkflowRuntime 服务承载 | 已定案（[DEC-023](../decisions/DEC-023-workflow-contract-face.md)）：协议 v1 附加扩展 `workflow.*` 八请求 + `workflow.run_updated` 事件 + hello `workflows` 能力位；草稿 = pinned `not_validated` 版本、发布 = `publish_validated` DryRun 门禁、删除 = 产品目录条目移除（pinned 追加式历史不动）；运行监控事件经 `WorkflowEventBridge` 从 pinned 事件转译、快照事实源 `workflow.runs`；TR2 工具引用挂载 / Skill 执行注册 / Degraded 呈现与桌面原子工具注册挂账至第二轮及 POST-05；同内容草稿遮蔽可运行版本的 pinned 语义经台账 `MIRA-20260927-001` 登记 | Mirage 维护者 | `M5-05` 第一轮（已完成）；第二轮（编辑器真实化 + atom 目录人口） |
 
 ## 跨里程碑通用完成定义
 

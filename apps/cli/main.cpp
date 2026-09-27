@@ -5,6 +5,8 @@
 #include <mirage/runtime/runtime_service.hpp>
 
 #include <chrono>
+#include <filesystem>
+#include <fstream>
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -64,7 +66,8 @@ bool takes_value(const std::string &name) {
     return name == "--socket" || name == "--timeout" || name == "--goal" || name == "--read" ||
            name == "--exec" || name == "--step-timeout" || name == "--wait" ||
            name == "--read-root" || name == "--perm" || name == "--confirm" || name == "--config" ||
-           name == "--state-dir" || name == "--session" || name == "--limit";
+           name == "--state-dir" || name == "--session" || name == "--limit" || name == "--file" ||
+           name == "--parameters-file" || name == "--digest" || name == "--policy";
 }
 
 /// Splits `--name value` / `--name=value` pairs; returns false on usage
@@ -714,6 +717,318 @@ int command_session_history(int argc, char **argv) {
     return kExitOk;
 }
 
+// --- workflow commands (DEC-023) ---------------------------------------------
+
+/// Reads a small text file whole; empty output on failure (the caller prints
+/// the usage error). Used for the workflow definition and run parameters.
+std::string read_whole_file(const std::string &path) {
+    std::error_code error;
+    const auto size = std::filesystem::file_size(path, error);
+    if (error || size == 0) {
+        return {};
+    }
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream) {
+        return {};
+    }
+    std::string content(size, static_cast<char>(0));
+    stream.read(content.data(), static_cast<std::streamsize>(size));
+    content.resize(static_cast<std::size_t>(stream.gcount()));
+    return content;
+}
+
+int command_workflow_list(int argc, char **argv) {
+    GlobalOptions options;
+    int index = 3; // skip "workflow" and the subcommand
+    std::vector<std::string> extra;
+    if (!consume_options(
+            argc, argv, index,
+            [&options](const std::string &name, const std::string &value) {
+                return parse_common_option(name, value, options);
+            },
+            extra)) {
+        return kExitUsage;
+    }
+    auto client = client_for(options);
+    const auto response =
+        client.call(mirage::runtime::ipc::WorkflowListRequest{}, options.call_timeout);
+    if (const int code = report_response(response); code != kExitOk) {
+        return code;
+    }
+    const auto list = std::get<mirage::runtime::ipc::WorkflowList>(response.payload);
+    for (const auto &workflow : list.workflows) {
+        std::cout << workflow.workflow_id << ' ' << workflow.name << ' ' << workflow.head_digest
+                  << ' ' << workflow.validation << ' ' << (workflow.runnable ? "runnable" : "draft")
+                  << '\n';
+    }
+    std::cout << list.workflows.size() << " workflow(s)\n";
+    return kExitOk;
+}
+
+int command_workflow_save(int argc, char **argv) {
+    std::string file;
+    GlobalOptions options;
+    int index = 3;
+    std::vector<std::string> extra;
+    if (!consume_options(
+            argc, argv, index,
+            [&](const std::string &name, const std::string &value) {
+                if (name == "--file") {
+                    file = value;
+                    return true;
+                }
+                return parse_common_option(name, value, options);
+            },
+            extra)) {
+        return kExitUsage;
+    }
+    if (file.empty()) {
+        std::cerr << kProgramName << ": workflow save requires --file PATH\n";
+        return kExitUsage;
+    }
+    const std::string definition = read_whole_file(file);
+    if (definition.empty()) {
+        std::cerr << kProgramName << ": cannot read workflow definition '" << file << "'\n";
+        return kExitFailure;
+    }
+    auto client = client_for(options);
+    mirage::runtime::ipc::WorkflowSaveRequest request;
+    request.definition_json = definition;
+    const auto response = client.call(request, options.call_timeout);
+    if (const int code = report_response(response); code != kExitOk) {
+        return code;
+    }
+    const auto saved = std::get<mirage::runtime::ipc::WorkflowSaved>(response.payload);
+    std::cout << "workflow " << saved.workflow_id << '\n' << "draft " << saved.digest << '\n';
+    return kExitOk;
+}
+
+int command_workflow_publish(int argc, char **argv) {
+    std::string file;
+    GlobalOptions options;
+    int index = 3;
+    std::vector<std::string> extra;
+    if (!consume_options(
+            argc, argv, index,
+            [&](const std::string &name, const std::string &value) {
+                if (name == "--file") {
+                    file = value;
+                    return true;
+                }
+                return parse_common_option(name, value, options);
+            },
+            extra)) {
+        return kExitUsage;
+    }
+    if (file.empty()) {
+        std::cerr << kProgramName << ": workflow publish requires --file PATH\n";
+        return kExitUsage;
+    }
+    const std::string definition = read_whole_file(file);
+    if (definition.empty()) {
+        std::cerr << kProgramName << ": cannot read workflow definition '" << file << "'\n";
+        return kExitFailure;
+    }
+    auto client = client_for(options);
+    mirage::runtime::ipc::WorkflowPublishRequest request;
+    request.definition_json = definition;
+    const auto response = client.call(request, options.call_timeout);
+    if (const int code = report_response(response); code != kExitOk) {
+        return code;
+    }
+    const auto published = std::get<mirage::runtime::ipc::WorkflowPublished>(response.payload);
+    std::cout << "workflow " << published.workflow_id << '\n'
+              << "version " << published.digest << (published.idempotent ? " (unchanged)" : "")
+              << '\n';
+    return kExitOk;
+}
+
+int command_workflow_delete(int argc, char **argv) {
+    std::string workflow_id;
+    GlobalOptions options;
+    int index = 3;
+    std::vector<std::string> operands;
+    if (!consume_options(
+            argc, argv, index,
+            [&options](const std::string &name, const std::string &value) {
+                return parse_common_option(name, value, options);
+            },
+            operands)) {
+        return kExitUsage;
+    }
+    for (const auto &operand : operands) {
+        if (!workflow_id.empty()) {
+            std::cerr << kProgramName << ": delete takes one workflow id\n";
+            return kExitUsage;
+        }
+        workflow_id = operand;
+    }
+    if (workflow_id.empty()) {
+        std::cerr << kProgramName << ": workflow delete requires a workflow id\n";
+        return kExitUsage;
+    }
+    auto client = client_for(options);
+    const auto response =
+        client.call(mirage::runtime::ipc::WorkflowDeleteRequest{workflow_id}, options.call_timeout);
+    if (const int code = report_response(response); code != kExitOk) {
+        return code;
+    }
+    std::cout << "deleted " << workflow_id << '\n';
+    return kExitOk;
+}
+
+int command_workflow_atoms(int argc, char **argv) {
+    GlobalOptions options;
+    int index = 3;
+    std::vector<std::string> extra;
+    if (!consume_options(
+            argc, argv, index,
+            [&options](const std::string &name, const std::string &value) {
+                return parse_common_option(name, value, options);
+            },
+            extra)) {
+        return kExitUsage;
+    }
+    auto client = client_for(options);
+    const auto response =
+        client.call(mirage::runtime::ipc::WorkflowAtomCatalogRequest{}, options.call_timeout);
+    if (const int code = report_response(response); code != kExitOk) {
+        return code;
+    }
+    const auto catalog = std::get<mirage::runtime::ipc::WorkflowAtomCatalog>(response.payload);
+    for (const auto &tool : catalog.tools) {
+        std::cout << tool.wire_name << ' ' << tool.version << ' '
+                  << (tool.has_side_effects ? "side-effects" : "read-only") << '\n';
+    }
+    std::cout << catalog.tools.size() << " atom(s)\n";
+    return kExitOk;
+}
+
+int command_workflow_runs(int argc, char **argv) {
+    GlobalOptions options;
+    int index = 3;
+    std::vector<std::string> extra;
+    if (!consume_options(
+            argc, argv, index,
+            [&options](const std::string &name, const std::string &value) {
+                return parse_common_option(name, value, options);
+            },
+            extra)) {
+        return kExitUsage;
+    }
+    auto client = client_for(options);
+    const auto response =
+        client.call(mirage::runtime::ipc::WorkflowRunsRequest{}, options.call_timeout);
+    if (const int code = report_response(response); code != kExitOk) {
+        return code;
+    }
+    const auto list = std::get<mirage::runtime::ipc::WorkflowRunList>(response.payload);
+    for (const auto &run : list.runs) {
+        std::cout << run.run_id << ' ' << run.workflow_id << ' ' << run.state << '\n';
+    }
+    std::cout << list.runs.size() << " run(s)\n";
+    return kExitOk;
+}
+
+int command_workflow_run(int argc, char **argv) {
+    std::string workflow_id;
+    std::string digest;
+    std::string parameters_file;
+    std::string policy;
+    GlobalOptions options;
+    int index = 3;
+    std::vector<std::string> operands;
+    if (!consume_options(
+            argc, argv, index,
+            [&](const std::string &name, const std::string &value) {
+                if (name == "--digest") {
+                    digest = value;
+                    return true;
+                }
+                if (name == "--parameters-file") {
+                    parameters_file = value;
+                    return true;
+                }
+                if (name == "--policy") {
+                    policy = value;
+                    return true;
+                }
+                return parse_common_option(name, value, options);
+            },
+            operands)) {
+        return kExitUsage;
+    }
+    for (const auto &operand : operands) {
+        if (!workflow_id.empty()) {
+            std::cerr << kProgramName << ": run takes one workflow id\n";
+            return kExitUsage;
+        }
+        workflow_id = operand;
+    }
+    if (workflow_id.empty()) {
+        std::cerr << kProgramName << ": workflow run requires a workflow id\n";
+        return kExitUsage;
+    }
+    std::string parameters;
+    if (!parameters_file.empty()) {
+        parameters = read_whole_file(parameters_file);
+        if (parameters.empty()) {
+            std::cerr << kProgramName << ": cannot read run parameters '" << parameters_file
+                      << "'\n";
+            return kExitFailure;
+        }
+    }
+    auto client = client_for(options);
+    mirage::runtime::ipc::WorkflowRunRequest request;
+    request.workflow_id = workflow_id;
+    request.digest = digest;
+    request.parameters_json = parameters;
+    request.policy = policy;
+    const auto response = client.call(request, options.call_timeout);
+    if (const int code = report_response(response); code != kExitOk) {
+        return code;
+    }
+    std::cout << "run "
+              << std::get<mirage::runtime::ipc::WorkflowRunStarted>(response.payload).run_id
+              << '\n';
+    return kExitOk;
+}
+
+int command_workflow_cancel(int argc, char **argv) {
+    std::string run_id;
+    GlobalOptions options;
+    int index = 3;
+    std::vector<std::string> operands;
+    if (!consume_options(
+            argc, argv, index,
+            [&options](const std::string &name, const std::string &value) {
+                return parse_common_option(name, value, options);
+            },
+            operands)) {
+        return kExitUsage;
+    }
+    for (const auto &operand : operands) {
+        if (!run_id.empty()) {
+            std::cerr << kProgramName << ": cancel takes one run id\n";
+            return kExitUsage;
+        }
+        run_id = operand;
+    }
+    if (run_id.empty()) {
+        std::cerr << kProgramName << ": workflow cancel requires a run id\n";
+        return kExitUsage;
+    }
+    auto client = client_for(options);
+    const auto response =
+        client.call(mirage::runtime::ipc::WorkflowCancelRunRequest{run_id}, options.call_timeout);
+    if (const int code = report_response(response); code != kExitOk) {
+        return code;
+    }
+    const auto cancelled = std::get<mirage::runtime::ipc::WorkflowRunCancelled>(response.payload);
+    std::cout << "run " << cancelled.run_id << ' ' << cancelled.state << '\n';
+    return kExitOk;
+}
+
 // --- entry ------------------------------------------------------------------
 
 void print_usage(std::ostream &out) {
@@ -744,6 +1059,19 @@ void print_usage(std::ostream &out) {
         << "  session open [--socket P]    Open one more session\n"
         << "  session history <id> [--limit N] [--socket P]\n"
         << "                               Print a session's conversation history\n"
+        << "  workflow list [--socket P]   List the workflow catalog\n"
+        << "  workflow save --file PATH [--socket P]\n"
+        << "                               Append a draft version of the definition\n"
+        << "  workflow publish --file PATH [--socket P]\n"
+        << "                               Gate and publish the definition\n"
+        << "  workflow delete <id> [--socket P]\n"
+        << "                               Remove a workflow from the catalog\n"
+        << "  workflow atoms [--socket P]  List the exposed atom (tool) catalog\n"
+        << "  workflow runs [--socket P]   List workflow runs and their states\n"
+        << "  workflow run <id> [--digest HEX] [--parameters-file PATH] [--policy NAME]\n"
+        << "              [--socket P]     Start one asynchronous workflow run\n"
+        << "  workflow cancel <run-id> [--socket P]\n"
+        << "                               Cancel a workflow run\n"
         << "\n"
         << "Options usable after each subcommand: --socket PATH (Local IPC\n"
         << "endpoint), --timeout MS (call timeout).\n";
@@ -804,6 +1132,35 @@ int main(int argc, char **argv) {
                 return command_task_cancel(argc, argv);
             }
             std::cerr << kProgramName << ": unknown task subcommand '" << subcommand << "'\n";
+            return kExitUsage;
+        }
+        if (command == "workflow" && argc >= 3) {
+            const std::string_view subcommand{argv[2]};
+            if (subcommand == "list") {
+                return command_workflow_list(argc, argv);
+            }
+            if (subcommand == "save") {
+                return command_workflow_save(argc, argv);
+            }
+            if (subcommand == "publish") {
+                return command_workflow_publish(argc, argv);
+            }
+            if (subcommand == "delete") {
+                return command_workflow_delete(argc, argv);
+            }
+            if (subcommand == "atoms") {
+                return command_workflow_atoms(argc, argv);
+            }
+            if (subcommand == "runs") {
+                return command_workflow_runs(argc, argv);
+            }
+            if (subcommand == "run") {
+                return command_workflow_run(argc, argv);
+            }
+            if (subcommand == "cancel") {
+                return command_workflow_cancel(argc, argv);
+            }
+            std::cerr << kProgramName << ": unknown workflow subcommand '" << subcommand << "'\n";
             return kExitUsage;
         }
         if (command == "session" && argc >= 3) {

@@ -11,6 +11,7 @@
 
 #include <mirage/desktop/desktop_environment.hpp>
 #include <mirage/integration/session_journal.hpp>
+#include <mirage/integration/workflow_event_bridge.hpp>
 #include <mirage/runtime/mira_host.hpp>
 #include <mirage/runtime/permission/permission.hpp>
 
@@ -61,6 +62,15 @@ struct ServiceCore {
     /// and drivers share one store.
     std::shared_ptr<mirage::integration::SessionJournal> journal;
 
+    /// Workflow faces (DEC-023): the catalog and run registries are the
+    /// service-side product index over the pinned library/run table, and the
+    /// event bridge is the pinned workflow event stream's only translation
+    /// point. Constructed with the service, so the workflow.* faces are
+    /// always served; the bridge's sink feeds the EventHub broadcast.
+    WorkflowRegistry workflows;
+    WorkflowRunRegistry workflow_runs;
+    std::shared_ptr<mirage::integration::WorkflowEventBridge> workflow_bridge;
+
     std::string mirage_version;
     std::size_t max_steps_per_task = 64;
     std::size_t max_task_records = 256;
@@ -70,6 +80,11 @@ struct ServiceCore {
     /// Upper bound for one session.history response, regardless of the
     /// requested limit.
     std::size_t max_history_entries = 200;
+    /// Workflow registry capacities (DEC-023): the catalog refuses new ids
+    /// at the bound; the run registry evicts terminal entries before it
+    /// refuses admission.
+    std::size_t max_workflow_definitions = 128;
+    std::size_t max_workflow_runs = 256;
     std::size_t max_result_bytes = 8192;
     std::chrono::milliseconds step_timeout{30000};
     std::chrono::milliseconds command_wait{4000};
