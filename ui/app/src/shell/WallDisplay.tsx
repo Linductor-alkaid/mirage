@@ -2,7 +2,7 @@
 /// 左：大字状态动词（状态换幕）；中：蓝线任务剖面（步骤节点推进）；
 /// 右：主机灯阵（4 联告警瓦片）。一切从契约事实派生，不做装饰性演出。
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { progressLabel } from '../lib/labels.js';
 import { useHarness } from '../hooks.js';
@@ -146,21 +146,25 @@ function MissionProfile(): React.ReactElement {
 
 function Annunciators(): React.ReactElement {
     const { state } = useHarness();
-    const [seqFlash, setSeqFlash] = useState(false);
-    const prevSeq = useRef(state.eventSeq);
+    // seq 变化闪灯：prop→state 调整用渲染期调整模式（React 官方范式，
+    // 不进 effect），闪烁收尾交给定时器回调。
+    const [flashSeq, setFlashSeq] = useState(-1);
+    const [prevSeq, setPrevSeq] = useState(state.eventSeq);
+    if (prevSeq !== state.eventSeq) {
+        setPrevSeq(state.eventSeq);
+        setFlashSeq(state.eventSeq);
+    }
     useEffect(() => {
-        if (state.eventSeq !== prevSeq.current) {
-            prevSeq.current = state.eventSeq;
-            setSeqFlash(true);
-            const t = window.setTimeout(() => setSeqFlash(false), 900);
-            return () => window.clearTimeout(t);
+        if (flashSeq < 0) {
+            return;
         }
-    }, [state.eventSeq]);
+        const t = window.setTimeout(() => setFlashSeq(-1), 900);
+        return () => window.clearTimeout(t);
+    }, [flashSeq]);
 
     const hostOn = state.hostStatus === 'running';
     const hostCls = state.hostStatus === 'failed' ? 'is-on is-blink' : hostOn ? 'is-on' : '';
     const activeCount = state.activeTaskIds.length;
-    const pendingCount = state.pendingApprovals.length;
     return (
         <div className="wall-tiles" role="status" aria-label="主机灯阵">
             <div className={`tile ${hostCls}`} style={{ '--tile-color': 'var(--success)' } as React.CSSProperties}>
@@ -176,18 +180,19 @@ function Annunciators(): React.ReactElement {
                 <span className="t-value">{activeCount > 0 ? `${activeCount} 活跃` : '空'}</span>
             </div>
             <div
-                className={`tile ${seqFlash ? 'is-on' : ''}`}
+                className={`tile ${flashSeq >= 0 ? 'is-on' : ''}`}
                 style={{ '--tile-color': 'var(--evidence-highlight)' } as React.CSSProperties}
             >
                 <span className="t-label">事件</span>
                 <span className="t-value num">SEQ {String(state.eventSeq).padStart(3, '0')}</span>
             </div>
             <div
-                className={`tile ${pendingCount > 0 ? 'is-on is-blink' : ''}`}
+                className="tile"
                 style={{ '--tile-color': 'var(--primary)' } as React.CSSProperties}
+                title="批准中心属 M5-07（异步确认面 permission.* 产品化接线）"
             >
                 <span className="t-label">批准</span>
-                <span className="t-value">{pendingCount > 0 ? `${pendingCount} 待决` : '—'}</span>
+                <span className="t-value">—</span>
             </div>
         </div>
     );

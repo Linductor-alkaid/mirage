@@ -13,6 +13,7 @@ import { decodeEvent, decodeResponse, encodeRequest } from './codec.js';
 import type {
     EventListener,
     MirageTransport,
+    SessionHistoryInput,
     SubmitTaskInput,
     WorkflowDefinition,
     WorkflowStartInput,
@@ -24,6 +25,8 @@ import type {
     RequestBody,
     ResponsePayload,
     ServiceIdentity,
+    SessionHistoryEntry,
+    SessionSummary,
     TaskProgress,
     TaskSummary,
     WorkflowRunState,
@@ -121,6 +124,10 @@ export class DesktopBridgeTransport implements MirageTransport {
         return this.identity?.workflows === true;
     }
 
+    get sessionsSupported(): boolean {
+        return this.identity?.sessions === true;
+    }
+
     onConnectionLost(listener: () => void): void {
         this.lostListeners.add(listener);
     }
@@ -142,6 +149,7 @@ export class DesktopBridgeTransport implements MirageTransport {
             ...(request.step_timeout_ms !== undefined
                 ? { step_timeout_ms: request.step_timeout_ms }
                 : {}),
+            ...(request.session_id !== undefined ? { session_id: request.session_id } : {}),
         });
         return (payload as { kind: 'submitted'; value: { task_id: string } }).value;
     }
@@ -164,6 +172,34 @@ export class DesktopBridgeTransport implements MirageTransport {
 
     async shutdown(): Promise<void> {
         await this.request({ op: 'service.shutdown' });
+    }
+
+    // -- session face (DEC-021, consumed since DEC-025/M5-06) ------------------
+
+    async listSessions(): Promise<SessionSummary[]> {
+        const payload = await this.request({ op: 'session.list' });
+        return (payload as { kind: 'session-list'; value: { sessions: SessionSummary[] } }).value.sessions;
+    }
+
+    async openSession(): Promise<{ session_id: string }> {
+        const payload = await this.request({ op: 'session.open' });
+        return (payload as { kind: 'session-opened'; value: { session_id: string } }).value;
+    }
+
+    async sessionHistory(input: SessionHistoryInput): Promise<{
+        session_id: string;
+        entries: SessionHistoryEntry[];
+        truncated: boolean;
+    }> {
+        const payload = await this.request({
+            op: 'session.history',
+            session_id: input.session_id,
+            ...(input.limit !== undefined ? { limit: input.limit } : {}),
+        });
+        return (payload as {
+            kind: 'session-history';
+            value: { session_id: string; entries: SessionHistoryEntry[]; truncated: boolean };
+        }).value;
     }
 
     // -- workflow face (DEC-023) ----------------------------------------------

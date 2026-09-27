@@ -2,7 +2,7 @@
 
 > 状态：In Progress（`M5-01`、`M5-02`、`M5-03`、`M5-04` 完成，2026-09-26；
 > `M5-05` 第一轮完成 2026-09-27；第二轮桌面原子工具注册与编辑器接真实面
-> 增量完成，2026-09-27）
+> 增量完成，2026-09-27；`M5-06` 第一轮会话页接真实面完成，2026-09-27）
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M3](m3-mirador-integration.md)（已完成：Mirador 视觉集成与壳选型冻结——
@@ -145,10 +145,14 @@
       `WorkflowBackend` 仅作 UI 侧接口缝）；运行监控事件化（WorkflowRun
       状态；工具兼容状态呈现与否由实现轮定，走 DEC-012 附加扩展）；UI 工
       作流编辑器完整版接真实面（DEC-013 IR 对齐验收）。
-- [ ] `M5-06` 会话页产品化（对话模式真实化）：会话列表 / 管理接 `session.*`；
+- [ ] `M5-06` 会话页产品化（对话模式真实化；第一轮"会话页接真实面"完成，
+      2026-09-27，[DEC-025](../decisions/DEC-025-session-page-productization.md)：
+      签派栏 / 线程流 / 观察台接 `session.*` 与任务快照契约路径，模拟域退出
+      会话页，对话模式如实降级，wire 零变更）：会话列表 / 管理接 `session.*`；
       消息流真实渲染（M1.5 模拟域演示语义退出会话页）；观察台真实化——
       运行时间线 / 观察流直连任务快照与事件，视觉状态呈现与订阅演进（M3
-      非目标兑现：视觉参考进入 UI 观察面）。
+      非目标兑现：视觉参考进入 UI 观察面；观察面协议附加扩展挂账
+      DEC-025 挂账①，golden v5 → v6 另立增量）。
 - [ ] `M5-07` 批准中心与权限管理产品化：批准中心接异步确认面（`M5-03`）；
       设置页权限策略配置（每能力 `allow` / `confirm` / `deny`、资源范围、
       默认策略收紧——DEC-010）；权限策略持久化（DEC-011 Desktop
@@ -915,3 +919,99 @@ ToolCall 执行路径）完成（[DEC-024](../decisions/DEC-024-desktop-atom-too
   v5；新增 workflow 传输 / IR 映射 / 契约路径 store 场景随套件通过）。
 - windows msvc (full tree)：全树构建 + 测试通过。
 - 合并裁决：维护者（PR [#56](https://github.com/Linductor-alkaid/mirage/pull/56)，2026-09-27 授权合并）。
+
+2026-09-27：`M5-06` 第一轮——会话页接真实面（消费 `M5-04` 已交付的
+`session.*` 契约面；wire 契约零变更，golden 仍 meta.version 5；
+[DEC-025](../decisions/DEC-025-session-page-productization.md) 新增，Accepted）。
+
+- 范围：
+  - **决策记录**：DEC-025——会话列表 = `session.list` 快照事实源 +
+    `session.updated` 通知（标题为展示层派生：首条 user 消息或会话 id 前
+    8 位；重命名 / 置顶 / 删除 / 导出 / fork 无 wire 面，UI 不呈现，挂账
+    协议扩展评估）；消息流 = `session.history` 重同步基线 +
+    `session.message` 增量 + 任务快照步骤卡，`session.turn` / `session.output`
+    不入线程（与步骤卡同源，避免重复呈现）、作为观察流事件源；**对话模式
+    如实降级**（模型循环未引入，DEC-008 迁移路径第二步，Composer 保留双模式
+    信息架构、对话入口禁用并标注原因，`ChatSimulator` 与回复语料删除）；
+    模拟域退役边界（`seedSessions` / 演示审批叠加 / `approve:` 约定 / 上下文
+    占用 meter 无契约承载撤除；批准中心真实接线属 `M5-07`）；观察台 =
+    时间线（任务快照）+ 观察流（session.turn / output / message 有界环形
+    缓冲，通知面语义，丢帧不回补）；观察面协议附加扩展（视觉状态呈现，
+    M3 非目标完整兑现）挂账另立增量。
+  - **传输面**：`MirageTransport` 扩展 `sessionsSupported` 能力位与
+    `listSessions` / `openSession` / `sessionHistory` 三方法，
+    `SubmitTaskInput` 增加可选 `session_id`；mock / dev bridge WebSocket /
+    Desktop shell 三个传输同变更实现。mock 服务新增 wire 忠实会话面（主
+    会话随构造入册、`session.open` 容量 16 饱和 `unavailable`、
+    `session.history` 默认 50 窗口 + `truncated`、user / outcome 句式
+    `loop settled: <progress> (steps N)` 与单调 sequence、turn / output 每
+    步结算发布语义——无结果步骤不发布 output、失败批跳步发布 skipped
+    turn、`session.updated` 随 open、`?sessions=off` 降级构造）。
+  - **store**：会话 / 消息全部接契约路径——`session.list` 快照 +
+    派生字段保留本地记忆；`selectSession` 拉 `session.history` 重建线程
+    journal 部分（按 sequence 幂等去重，时间归位，`truncated` 呈现截断）；
+    `submitExec` 携带 `session_id` 绑定并在成功后拉历史（事件面缺席时线程
+    仍完整）；`session.message` 事件增量入线程 + 首条 user 消息派生标题 +
+    按 sequence 去重；`session.turn` / `output` / `message` 进每会话有界
+    （40 帧）观察流缓冲，turn 附带触发任务快照刷新。模拟域退役：
+    `harness-mock.ts`（种子会话 / `ChatSimulator` / 演示审批 /
+    `exportSessionMarkdown`）删除。
+  - **视图**：SessionsSidebar 重做（真实会话列表 + 派生标题 + 搜索 +
+    今天 / 近 7 天 / 更早分组 + 任务徽标；管理菜单移除）；Composer 对话
+    模式降级呈现（禁用 + 原因标注），执行模式保留；Observer 观察流改真实
+    事件帧、上下文占用 meter 撤除、trigger-lock 以渲染期状态调整模式重写；
+    messages.tsx 渲染器收敛为 user / outcome / step / activity / system
+    五类（模拟域卡片随域退役）；Overlays 命令面板会话项接派生标题、批准
+    中心转 M5-07 占位面板；WallDisplay 批准灯阵转 M5-07 占位。
+  - **react-hooks 豁免清零（M5-01 挂账兑现）**：M1.5 既有视图的 7 处发现
+    以注入时间源（`useNow` hook，定时器回调推进状态）与 React 官方渲染期
+    状态调整模式修复，`react-hooks/purity` / `set-state-in-effect` 两规则
+    移除豁免、全量生效（`eslint.config.js` 留痕注释）。
+- 依据：[DEC-021](../decisions/DEC-021-session-message-contract-face.md)
+  （被消费契约面）、[DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)
+  （一致性模型）、[DEC-025](../decisions/DEC-025-session-page-productization.md)
+  （本工作项新决策记录）、[DEC-023](../decisions/DEC-023-workflow-contract-face.md)
+  （mock 面纪律先例与挂账批次）、
+  [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
+  §3.3 / §4；本计划 `M5-06` 工作项。
+- 验证（本机 Windows 11，Node 22 / vitest）：
+  - contracts：`session-mock.test.ts` 新增 10 项（主会话入册与列表投影、
+    容量 `unavailable`、`session.updated` 仅随 open、默认绑定落主会话、
+    显式绑定与 unknown `not_found`、history 窗口 / `truncated` / sequence、
+    turn/output 每步发布语义、无结果步骤不发布 output、`?sessions=off`）；
+    ws-transport 增 4 项（session 三方法帧形状 + `session_id` 映射 +
+    稳定错误路由）；desktop-transport 增 2 项（会话三方法 + `session_id`）；
+    mock-service 既有 26 项按会话事件流更新（含能力位断言）。
+  - app：`store-dom.test.ts` 重写为 23 项——模拟域测试段落退役
+    （decideApproval / sendChat / 会话管理本地形态），新增会话面契约路径
+    （open 导航与刷新、容量 `unavailable` 显式 toast、无 `sessions` 能力位
+    拒绝、history 幂等重建与派生标题、`stopSession` 取消绑定任务）与会话
+    事件增量（message 入线程 + 标题派生 + sequence 去重、turn/output 进
+    观察流 + 触发快照刷新）；store-connection 10 项随会话面适配全绿。
+  - eslint 0 告警（purity / set-state-in-effect 全量生效）；contracts +
+    app 双包 `tsc --noEmit` 0 诊断；前端全量 **625 测试 / 18 文件通过**；
+    `vite build` 通过。C++ / wire 侧零变更，golden vectors 消费面（TS 侧）
+    随套件通过；Linux / Windows 矩阵随本 PR CI 执行（结论由后续记录补录）。
+- 限制与补跑条件：① 观察面（视觉状态呈现 / `visual_snapshot_ref` 进观察
+  面）需协议附加扩展与驱动器观察投影评估，golden v5 → v6，另立增量
+  （DEC-025 挂账①）；② 会话管理面（重命名 / 删除 / 导出 / fork）挂账
+  DEC-025 挂账②；③ 对话模式真实化（pinned `AgentLoop` 纯对话形态）挂账
+  DEC-025 挂账③（DEC-008 迁移路径第二步，与设置-模型类目联动）；
+  ④ Linux 矩阵与 windows 作业随本 PR CI 取证。
+- 同步：[DEC-025](../decisions/DEC-025-session-page-productization.md)（新增）、
+  [DEC-021](../decisions/DEC-021-session-message-contract-face.md)（变更记录：
+  UI 消费留痕）、
+  [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
+  §3.3 / §4 与变更记录、ui/README（会话面接口缝）、
+  [总计划](mirage-implementation-plan.md) 状态叙述与决策表。
+
+2026-09-27：`M5-06` 第一轮 CI 取证完成；run 36333683533
+（headSha = `e69bb5e` 已核实）全部 8 作业 success。
+
+- Linux 矩阵：debug / release / asan / tsan / ubsan 五预设全绿；
+  format & public-header boundaries 绿（C++ / wire 零变更，零回归）。
+- frontend 作业：lint（含 react-hooks `purity` / `set-state-in-effect`
+  全量生效）+ strict tsc + **625 测试**（新增会话面传输 / mock / store
+  契约路径场景）+ build 全绿（wire 未变，golden 仍 v5）。
+- windows msvc (full tree)：全树构建 + 测试通过。
+- 合并裁决：维护者（PR [#57](https://github.com/Linductor-alkaid/mirage/pull/57)）。

@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 describe('hello identity', () => {
-    it('advertises the service identity, protocol 1 and the events + workflows capabilities', async () => {
+    it('advertises the service identity, protocol 1 and the events + workflows + sessions capabilities', async () => {
         const { transport } = makeService({ hostStartDelayMs: 0 });
         const identity = await transport.hello();
         expect(identity).toEqual({
@@ -42,11 +42,14 @@ describe('hello identity', () => {
             protocol: 1,
             events: true,
             workflows: true,
+            sessions: true,
         });
         expect(identity.events).toBe(true);
         expect(identity.workflows).toBe(true);
+        expect(identity.sessions).toBe(true);
         expect(transport.eventsSupported).toBe(true);
         expect(transport.workflowsSupported).toBe(true);
+        expect(transport.sessionsSupported).toBe(true);
         expect(transport.label).toBe('Mock');
     });
 
@@ -55,6 +58,13 @@ describe('hello identity', () => {
         const identity = await transport.hello();
         expect(identity.workflows).toBeUndefined();
         expect(transport.workflowsSupported).toBe(false);
+    });
+
+    it('omits the sessions capability when disabled (absent = false on the wire)', async () => {
+        const { transport } = makeService({ hostStartDelayMs: 0, sessionsCapability: false });
+        const identity = await transport.hello();
+        expect(identity.sessions).toBeUndefined();
+        expect(transport.sessionsSupported).toBe(false);
     });
 });
 
@@ -98,9 +108,17 @@ describe('host lifecycle', () => {
         await delay(5);
 
         expect(collector.hostStatuses()).toEqual(['starting', 'running', 'stopping', 'stopped']);
-        // seq order: starting(1), running(2), task Active(3), task Completed(4),
-        // stopping(5), stopped(6).
-        expect(collector.seqs()).toEqual([1, 2, 3, 4, 5, 6]);
+        // seq order: starting(1), running(2), session.message user(3),
+        // task Active(4), task Completed(5), session.message outcome(6,
+        // DEC-021), stopping(7), stopped(8).
+        expect(collector.seqs()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+        // The user goal and the outcome sentence joined the primary session.
+        expect(collector.events[2]).toMatchObject({ event: 'session.message', kind: 'user', text: 'g' });
+        expect(collector.events[5]).toMatchObject({
+            event: 'session.message',
+            kind: 'outcome',
+            text: 'loop settled: Completed (steps 0)',
+        });
         // The task submitted while running completed before shutdown.
         expect(service.list()).toEqual([{ id: 'task-0001', goal: 'g', progress: 'Completed' }]);
     });
@@ -195,9 +213,11 @@ describe('submit and step progression', () => {
             { id: 'task-0001', goal: 'open a terminal', progress: 'Completed' },
         ]);
 
-        // baseline + Active + running(step0) + ok(step0) + running(step1)
-        // + ok(step1) + Completed
-        expect(collector.seqs()).toEqual([1, 2, 3, 4, 5, 6, 7]);
+        // baseline(1) + user message(2) + Active(3) + running(step0, 4)
+        // + ok(step0, 5) + turn(6) + output(7) + running(step1, 8)
+        // + ok(step1, 9) + turn(10) + output(11) + Completed(12)
+        // + outcome message(13) — DEC-021 session face rides the same stream.
+        expect(collector.seqs()).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
         expect(collector.progressUpdates()).toEqual([
             'Active',
             'Active',
@@ -206,14 +226,20 @@ describe('submit and step progression', () => {
             'Active',
             'Completed',
         ]);
-        const terminal = collector.events.at(-1);
-        expect(terminal).toMatchObject({
+        expect(collector.events.at(-2)).toMatchObject({
             event: 'task.updated',
             task_id: 'task-0001',
             goal: 'open a terminal',
             progress: 'Completed',
             has_success: true,
             success: true,
+        });
+        expect(collector.events.at(-1)).toMatchObject({
+            event: 'session.message',
+            session_id: (await transport.listSessions())[0]?.id,
+            task_id: 'task-0001',
+            kind: 'outcome',
+            text: 'loop settled: Completed (steps 2)',
         });
     });
 
@@ -265,7 +291,21 @@ describe('cancellation', () => {
             'Cancelling',
             'Cancelled',
         ]);
-        expect(collector.seqs()).toEqual([1, 2, 3, 4, 5, 6]);
+        // baseline(1) + user message(2) + Active(3) + running(4) + Cancelling(5)
+        // + turn cancelled(6) + turn skipped ×2(7,8) + Cancelling(9)
+        // + Cancelled(10) + outcome message(11).
+        expect(collector.seqs()).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+        const turns = collector.events.filter((event) => event.event === 'session.turn');
+        expect(turns.map((t) => (t.event === 'session.turn' ? t.status : ''))).toEqual([
+            'cancelled',
+            'skipped',
+            'skipped',
+        ]);
+        expect(collector.events.at(-1)).toMatchObject({
+            event: 'session.message',
+            kind: 'outcome',
+            text: 'loop settled: Cancelled (steps 3)',
+        });
 
         // Cancelling a settled task is the pinned passthrough rejection.
         await expectIpcError(
@@ -313,7 +353,17 @@ describe('failure injection', () => {
         expect(inspect.steps[1]?.operation_id).toBe('');
         expect(collector.progressUpdates().at(-1)).toBe('Failed');
         const terminal = collector.events.at(-1);
-        expect(terminal).toMatchObject({ event: 'task.updated', progress: 'Failed', has_success: false, success: false });
+        expect(terminal).toMatchObject({
+            event: 'session.message',
+            kind: 'outcome',
+            text: 'loop settled: Failed (steps 2)',
+        });
+        const turns = collector.events.filter((event) => event.event === 'session.turn');
+        expect(turns.map((t) => (t.event === 'session.turn' ? t.status : ''))).toEqual([
+            'failed',
+            'skipped',
+        ]);
+        expect(collector.events.filter((event) => event.event === 'session.output')).toHaveLength(1);
     });
 
     it('uses the injected-failure placeholder for a bare fail: argument', async () => {

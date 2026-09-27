@@ -17,14 +17,9 @@ export default tseslint.config(
     plugins: { 'react-hooks': reactHooks },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      // react-hooks v7 added purity / set-state-in-effect after M1.5 delivered
-      // the current views; the 7 standing findings (5x Date.now during render,
-      // 2x setState in effect) need view-level redesign — injected time source,
-      // effect→render derivation — that belongs to the M5 UI productization
-      // items reworking these files (M5-06/M5-07). Scoped waiver, not a
-      // permanent exemption; the rest of the plugin stays enforced.
-      'react-hooks/purity': 'off',
-      'react-hooks/set-state-in-effect': 'off',
+      // M5-01 曾对 purity / set-state-in-effect 记录性豁免（M1.5 既有视图的
+      // 7 处发现）；M5-06（DEC-025）视图重做时以注入时间源（useNow）与
+      // 渲染期状态调整模式清零，两规则全量生效。
     },
   },
 );

@@ -1,15 +1,16 @@
 /// Harness 应用状态（React 侧唯一事实源）。
 ///
 /// 分层纪律：
-/// - 契约事实（host 身份、任务状态机、步骤、事件 seq/overflow）只来自
-///   `MirageTransport`（mock 或 M1.5-05 起的 dev bridge 真实传输，视图不感知）；
-///   事件仅触发快照重取（DEC-012 决策 4：事件是通知，不是状态本体）。
+/// - 契约事实（host 身份、任务状态机、步骤、事件 seq/overflow、会话投影、
+///   工作流）只来自 `MirageTransport`（mock 或真实传输，视图不感知）；事件
+///   仅触发快照重取（DEC-012 决策 4：事件是通知，不是状态本体）。
 /// - 事件纪律：EventSequencer 跟踪每连接 seq；seq 跳跃 / overflow 触发快照
 ///   resync 并留显式记录。订阅不可用（hello 无 `events` 能力或 subscribe 返回
 ///   `unsupported`）时自动降级为 `task.inspect` 轮询。连接断开后按有界退避
 ///   自动重连（需 transport 工厂），成功后重置 seq 基线并 resync。
-/// - 会话 / 消息 / 审批 / 工作流为模拟域（`harness-mock.ts`），界面标注
-///   「模拟」；不回写、不冒充契约事实。
+/// - 会话 / 消息 / 工作流全部为契约路径（DEC-025：模拟域退出会话页）。
+///   会话标题与任务徽标是展示层派生事实；wire 没有的管理面（重命名 / 置顶 /
+///   删除 / 导出 / fork）不呈现。
 /// - 终态幂等：已取消 / 已完成任务不因迟到事件复活。
 
 import type {
@@ -22,22 +23,13 @@ import type {
     TaskProgress,
 } from '@mirage/contracts';
 import { EventSequencer, IpcRequestError } from '@mirage/contracts';
-import {
-    ChatSimulator,
-    exportSessionMarkdown,
-    newSessionMeta,
-    seedContext,
-    seedSessions,
-    MAX_MESSAGES_PER_SESSION,
-    MAX_SESSIONS,
-} from './harness-mock.js';
+import { kindLabel, stepStatusLabel } from '../lib/labels.js';
 import { CONTROL_CONSTRUCTS, IpcWorkflowBackend, newWorkflowId } from './workflow-backend.js';
 import type { WorkflowAtom } from './workflow-backend.js';
 import { workflowDefToIr } from './workflow-ir.js';
 import type {
-    ApprovalRequest,
     ChatMessage,
-    ContextUsage,
+    ObsFrame,
     SessionMeta,
     StepDisplay,
     ToastNote,
@@ -122,6 +114,11 @@ export function routeToHash(route: Route): string {
 
 export type ConnectionStatus = 'connecting' | 'ready' | 'error';
 
+/** 每会话观察流缓冲上限（通知面尾随，DEC-025 决策 5）。 */
+export const OBS_FEED_CAPACITY = 40;
+/** 每会话线程缓冲上限（本地视图预算，非契约面）。 */
+export const MAX_MESSAGES_PER_SESSION = 200;
+
 export interface HarnessState {
     connection: ConnectionStatus;
     connectionError?: string;
@@ -133,12 +130,16 @@ export interface HarnessState {
     eventsSupported: boolean;
     /** DEC-023 工作流能力位（hello `workflows`；false 时工作流页不可用）。 */
     workflowsSupported: boolean;
+    /** DEC-021 会话面能力位（hello `sessions`；false 时会话页呈现不可用）。 */
+    sessionsSupported: boolean;
     resyncNote?: { reason: string; at: number };
 
     route: Route;
 
-    sessions: SessionMeta[];
+    sessions: readonly SessionMeta[];
     messages: ReadonlyMap<string, readonly ChatMessage[]>;
+    /** 每会话 `session.history` 是否存在更早条目（truncated 投影）。 */
+    historyTruncated: ReadonlyMap<string, boolean>;
     /** 每会话输入草稿。 */
     drafts: ReadonlyMap<string, string>;
 
@@ -149,19 +150,17 @@ export interface HarnessState {
     /** 正在运行（非终态）的任务 id 集合。 */
     activeTaskIds: readonly string[];
 
-    /** 全局待决审批（批准中心 + Dock + 壁挂屏灯阵）。 */
-    pendingApprovals: readonly ApprovalRequest[];
+    /** 观察流（每会话有界帧缓冲；session.turn / output / message 尾随）。 */
+    obsFeed: ReadonlyMap<string, readonly ObsFrame[]>;
+
     /** 紧急停止（Human Takeover）闩锁。 */
     takeover: boolean;
-    /** 本地对话模拟进行中的会话（Composer 显示「停止」）。 */
-    simBusySession?: string;
 
     workflows: readonly WorkflowDef[];
     workflowRuns: readonly WorkflowRun[];
     /** 原子动作目录（wire exposed view + 编辑器控制构造，RPA 右栏拖入源）。 */
     atoms: readonly WorkflowAtom[];
 
-    context: ReadonlyMap<string, ContextUsage>;
     toasts: readonly ToastNote[];
 }
 
@@ -172,20 +171,14 @@ export interface SubmitStepInput {
 
 export interface HarnessActions {
     navigate(route: Route): void;
-    newSession(mode: SessionMeta['mode']): string;
+    /** 新建会话（session.open；容量饱和显式失败）。 */
+    newSession(): void;
     selectSession(id: string): void;
-    renameSession(id: string, title: string): void;
-    pinSession(id: string, pinned: boolean): void;
-    deleteSession(id: string): void;
-    exportSession(id: string): void;
     setDraft(sessionId: string, text: string): void;
-    /** 对话模式发送（本地模拟）。 */
-    sendChat(sessionId: string, text: string): void;
-    /** 执行模式提交（契约 task.submit 事实流）。 */
+    /** 执行模式提交（task.submit 会话绑定事实流）。 */
     submitExec(sessionId: string, goal: string, steps: SubmitStepInput[], timeoutMs?: number): Promise<void>;
-    /** 停止当前会话的生成 / 取消关联任务。 */
+    /** 停止会话关联任务。 */
     stopSession(sessionId: string): void;
-    decideApproval(approvalId: string, approve: boolean): void;
     engageEstop(): void;
     releaseEstop(): void;
     cancelTask(taskId: string): Promise<void>;
@@ -217,10 +210,36 @@ const POLL_INTERVAL_MS = 2000;
 const RECONNECT_BASE_MS = 500;
 const RECONNECT_MAX_MS = 8000;
 
+/** 线程内会话日志条目的 id 前缀（session.history 重建的去重锚点）。 */
+const JOURNAL_PREFIX = 'jr-';
+
+/** 派生会话标题：首条 user 消息文本（截断），缺省用会话 id 前缀（DEC-025）。 */
+export function deriveSessionTitle(id: string, firstUserText: string | undefined): string {
+    const text = (firstUserText ?? '').replace(/\s+/g, ' ').trim();
+    if (text.length === 0) {
+        return `会话 ${id.slice(0, 8)}`;
+    }
+    return text.length > 32 ? `${text.slice(0, 32)}…` : text;
+}
+
+function journalMessageId(sessionId: string, sequence: number): string {
+    return `${JOURNAL_PREFIX}${sessionId}-${sequence}`;
+}
+
+/** outcome 句式的语气投影（`loop settled: <progress> (steps N)`，DEC-021）。 */
+export function outcomeTone(text: string): 'info' | 'warn' | 'error' {
+    if (text.includes('Completed')) {
+        return 'info';
+    }
+    if (text.includes('Cancelled')) {
+        return 'warn';
+    }
+    return 'error';
+}
+
 export class HarnessStore {
     private state: HarnessState;
     private readonly listeners = new Set<Listener>();
-    private readonly simulator: ChatSimulator;
     private transport: MirageTransport;
     /** 工作流后端缝（DEC-023 IPC 适配器；随传输重建）。 */
     private workflowBackend: IpcWorkflowBackend;
@@ -233,13 +252,12 @@ export class HarnessStore {
      * 每条连接（含重连后的新连接）重置基线。 */
     private sequencer = new EventSequencer();
     private disposed = false;
+    private systemSeq = 0;
 
     constructor(transport: MirageTransport, options: { reconnect?: () => MirageTransport } = {}) {
         this.transport = transport;
         this.workflowBackend = new IpcWorkflowBackend(transport);
         this.reconnectFactory = options.reconnect ?? null;
-        const t = now();
-        const seeded = seedSessions(t);
         this.state = {
             connection: 'connecting',
             hostStatus: 'starting',
@@ -247,44 +265,22 @@ export class HarnessStore {
             transportLabel: transport.label,
             eventsSupported: transport.eventsSupported,
             workflowsSupported: transport.workflowsSupported,
+            sessionsSupported: transport.sessionsSupported,
             route: parseRoute(window.location.hash),
-            sessions: seeded.sessions,
-            messages: seeded.messages,
+            sessions: [],
+            messages: new Map(),
+            historyTruncated: new Map(),
             drafts: new Map(),
             taskDetails: new Map(),
             taskInputs: new Map(),
             activeTaskIds: [],
-            pendingApprovals: [],
+            obsFeed: new Map(),
             takeover: false,
             workflows: [],
             workflowRuns: [],
             atoms: [],
-            context: new Map([['default', seedContext()]]),
             toasts: [],
         };
-        this.simulator = new ChatSimulator({
-            onThinking: (sessionId, messageId, block) => {
-                this.patchMessage(sessionId, messageId, (m) =>
-                    m.kind === 'assistant' ? { ...m, thinking: { ...block, text: block.text } } : m,
-                );
-            },
-            onAssistantChunk: (sessionId, messageId, chunk) => {
-                this.patchMessage(sessionId, messageId, (m) =>
-                    m.kind === 'assistant'
-                        ? { ...m, text: m.text + chunk, streaming: true, thinking: m.thinking }
-                        : m,
-                );
-            },
-            onAssistantDone: (sessionId, messageId) => {
-                this.patchMessage(sessionId, messageId, (m) =>
-                    m.kind === 'assistant' ? { ...m, streaming: false } : m,
-                );
-                this.touchSession(sessionId);
-                if (this.state.simBusySession === sessionId) {
-                    this.set({ simBusySession: undefined });
-                }
-            },
-        });
         window.addEventListener('hashchange', this.onHashChange);
     }
 
@@ -297,7 +293,6 @@ export class HarnessStore {
     dispose(): void {
         this.disposed = true;
         window.removeEventListener('hashchange', this.onHashChange);
-        this.simulator.dispose();
         this.unsubscribeTransport?.();
         this.stopPolling();
         if (this.reconnectTimer !== null) {
@@ -327,8 +322,8 @@ export class HarnessStore {
 
     // -- 连接与事件 ----------------------------------------------------------
 
-    /** 建立连接（hello → 订阅或降级轮询 → 首次 task.list）。`resume` 为重连
-     * 路径：成功后重置 seq 基线、刷新任务快照并留 resync 记录。 */
+    /** 建立连接（hello → 订阅或降级轮询 → 首次快照）。`resume` 为重连
+     * 路径：成功后重置 seq 基线、刷新快照并留 resync 记录。 */
     private async establish(resume: boolean): Promise<void> {
         const transport = this.transport;
         try {
@@ -346,6 +341,7 @@ export class HarnessStore {
                 hostStatus: identity.host_status,
                 eventsSupported: identity.events === true,
                 workflowsSupported: identity.workflows === true,
+                sessionsSupported: identity.sessions === true,
             });
             if (resume) {
                 this.reconnectAttempt = 0;
@@ -383,12 +379,15 @@ export class HarnessStore {
                 .filter((t) => !isTerminalProgress(t.progress))
                 .map((t) => t.id);
             this.set({ activeTaskIds: active });
+            await this.refreshSessions();
+            await this.refreshWorkflows();
+            const routeSession = this.state.route.view === 'chat' ? this.state.route.sessionId : undefined;
+            if (routeSession !== undefined) {
+                await this.loadHistory(routeSession);
+            }
             if (resume) {
                 await this.refreshActiveTasks();
-                await this.refreshWorkflows();
                 this.set({ resyncNote: { reason: '重连后重新同步任务快照', at: now() } });
-            } else {
-                await this.refreshWorkflows();
             }
         } catch (err) {
             if (this.disposed) {
@@ -475,6 +474,22 @@ export class HarnessStore {
                 // 状态以快照刷新回写。
                 void this.refreshWorkflows();
                 break;
+            case 'session.updated':
+                this.set({ eventSeq: event.seq });
+                void this.refreshSessions();
+                break;
+            case 'session.message':
+                this.set({ eventSeq: event.seq });
+                this.onSessionMessage(event.session_id, event.kind, event.text, event.sequence);
+                break;
+            case 'session.turn':
+                this.set({ eventSeq: event.seq });
+                this.onSessionTurn(event.session_id, event.step, event.kind, event.status);
+                break;
+            case 'session.output':
+                this.set({ eventSeq: event.seq });
+                this.onSessionOutput(event.session_id, event.step, event.chunk, event.truncated);
+                break;
             case 'events.overflow':
                 break;
         }
@@ -484,9 +499,8 @@ export class HarnessStore {
                     ? `溢出丢弃 ${verdict.dropped} 帧`
                     : `事件序号跳跃（收到 seq ${event.seq}）`;
             this.set({ eventSeq: event.seq, resyncNote: { reason, at: now() } });
-            this.toast(`事件流不连续（${reason}），已重新同步任务快照`, 'warn');
-            void this.refreshActiveTasks();
-            void this.refreshWorkflows();
+            this.toast(`事件流不连续（${reason}），已重新同步快照`, 'warn');
+            void this.resyncSnapshots();
             return;
         }
         if (event.event === 'task.updated') {
@@ -512,8 +526,6 @@ export class HarnessStore {
                 details.set(id, detail);
                 if (!isTerminalProgress(detail.progress)) {
                     stillActive.push(id);
-                } else {
-                    this.recordTerminalIfNeeded(detail);
                 }
             } catch (err) {
                 if (err instanceof IpcRequestError && err.code === 'not_found') {
@@ -521,7 +533,6 @@ export class HarnessStore {
                 }
             }
         }
-        // 追加新步骤消息到关联会话（幂等：按 operation_id 去重）。
         this.set({
             taskDetails: details,
             activeTaskIds: stillActive,
@@ -534,7 +545,7 @@ export class HarnessStore {
         }
     }
 
-    /** 把契约层步骤变化镜像进关联会话线程（演示审批叠加见此）。 */
+    /** 把契约层步骤变化镜像进关联会话线程（步骤证据的快照事实源）。 */
     private mirrorTaskMessages(detail: InspectTask): void {
         const sessionId = this.sessionIdOfTask(detail.id);
         if (sessionId === undefined) {
@@ -553,18 +564,6 @@ export class HarnessStore {
             const at = indexByOp.get(step.operationId);
             if (at === undefined) {
                 additions.push({ id: `ms-${detail.id}-${step.operationId}`, kind: 'step', at: now(), taskId: detail.id, step });
-                if (step.status === 'running' && step.argument.startsWith('approve:')) {
-                    const approval: ApprovalRequest = {
-                        id: `ap-${detail.id}-${step.operationId}`,
-                        kind: 'process.execute',
-                        summary: step.argument.replace(/^approve:/, '') || '执行命令',
-                        detail: step.argument,
-                        status: 'pending',
-                        requestedAt: now(),
-                    };
-                    additions.push({ id: `${approval.id}-msg`, kind: 'approval', at: now(), approval });
-                    this.set({ pendingApprovals: [...this.state.pendingApprovals, approval] });
-                }
                 continue;
             }
             // 已有步骤卡：状态/证据变化时原地更新（迟到的终态不复活任务）。
@@ -597,33 +596,6 @@ export class HarnessStore {
         }
     }
 
-    private recordTerminalIfNeeded(detail: InspectTask): void {
-        const key = `terminal-${detail.id}`;
-        if (this.announced.has(key)) {
-            return;
-        }
-        this.announced.add(key);
-        if (this.announced.size > 512) {
-            this.announced.clear();
-        }
-        const sessionId = this.sessionIdOfTask(detail.id);
-        if (sessionId === undefined) {
-            return;
-        }
-        const summary = summarizeTask(detail);
-        this.appendMessages(sessionId, [
-            {
-                id: `mas-${detail.id}`,
-                kind: 'assistant',
-                at: now(),
-                text: summary,
-                thinking: { text: '汇总执行证据：步骤状态、退出码与失败原因（fail-fast）。', elapsedMs: 4_000 },
-            },
-        ]);
-    }
-
-    private readonly announced = new Set<string>();
-
     private lastProgressOf(sessionId: string, taskId: string): string | undefined {
         const list = this.state.messages.get(sessionId) ?? [];
         for (let i = list.length - 1; i >= 0; i -= 1) {
@@ -639,87 +611,156 @@ export class HarnessStore {
         return this.state.sessions.find((s) => s.taskId === taskId)?.id;
     }
 
-    async resync(): Promise<void> {
+    /** resync 纪律：任务快照 + 会话列表 + 工作流快照 + 打开会话的历史。 */
+    private async resyncSnapshots(): Promise<void> {
         await this.refreshActiveTasks();
+        await this.refreshSessions();
         await this.refreshWorkflows();
-        this.set({ resyncNote: { reason: '手动重新同步', at: now() } });
-        this.toast('已重新同步事件流与任务快照', 'info');
+        const routeSession = this.state.route.view === 'chat' ? this.state.route.sessionId : undefined;
+        if (routeSession !== undefined) {
+            await this.loadHistory(routeSession);
+        }
     }
 
-    // -- 路由 ----------------------------------------------------------------
+    async resync(): Promise<void> {
+        await this.resyncSnapshots();
+        this.set({ resyncNote: { reason: '手动重新同步', at: now() } });
+        this.toast('已重新同步事件流与快照', 'info');
+    }
 
-    private onHashChange = (): void => {
-        this.set({ route: parseRoute(window.location.hash) });
-    };
+    // -- 会话面（DEC-021 / DEC-025） ------------------------------------------
 
-    navigate: HarnessActions['navigate'] = (route) => {
-        const target = routeToHash(route);
-        if (window.location.hash !== target) {
-            window.location.hash = target;
-        } else {
-            this.set({ route });
+    /** 会话列表快照：session.list 为事实源；派生字段（标题 / 最近活动 /
+     * 任务绑定）对已知会话保留本地记忆。 */
+    private async refreshSessions(): Promise<void> {
+        if (this.disposed || this.state.connection !== 'ready' || !this.state.sessionsSupported) {
+            return;
         }
-    };
+        try {
+            const summaries = await this.transport.listSessions();
+            if (this.disposed) {
+                return;
+            }
+            const merged = summaries.map((summary): SessionMeta => {
+                const prev = this.state.sessions.find((s) => s.id === summary.id);
+                const list = this.state.messages.get(summary.id) ?? [];
+                const firstUser = list.find((m): m is Extract<ChatMessage, { kind: 'user' }> => m.kind === 'user');
+                return {
+                    id: summary.id,
+                    state: summary.state,
+                    createdAt: summary.created_at_ms,
+                    title: prev?.title ?? deriveSessionTitle(summary.id, firstUser?.text),
+                    lastActivityAt: prev?.lastActivityAt ?? summary.created_at_ms,
+                    taskId: prev?.taskId,
+                };
+            });
+            this.set({ sessions: merged });
+        } catch (err) {
+            this.toast(`会话列表刷新失败：${err instanceof Error ? err.message : String(err)}`, 'warn');
+        }
+    }
 
-    // -- 会话管理 ------------------------------------------------------------
+    /** 以 session.history（重同步快照事实源）重建线程的会话日志部分；
+     * 步骤 / 活动 / 系统行保留，随后按时间归位。幂等：按 sequence 去重。 */
+    private async loadHistory(sessionId: string): Promise<void> {
+        if (this.disposed || this.state.connection !== 'ready' || !this.state.sessionsSupported) {
+            return;
+        }
+        try {
+            const history = await this.transport.sessionHistory({ session_id: sessionId });
+            if (this.disposed) {
+                return;
+            }
+            const entries: ChatMessage[] = history.entries.map((entry) => ({
+                id: journalMessageId(sessionId, entry.sequence),
+                kind: entry.kind,
+                at: entry.recorded_at_ms,
+                text: entry.text,
+                sequence: entry.sequence,
+            }));
+            // 快照重建：journal 条目以历史投影为准（幂等），步骤 / 活动 /
+            // 系统行保留，随后按时间归位。
+            const kept = (this.state.messages.get(sessionId) ?? []).filter(
+                (m) => m.kind === 'step' || m.kind === 'activity' || m.kind === 'system',
+            );
+            const merged = [...kept, ...entries].sort((a, b) => a.at - b.at);
+            const messages = new Map(this.state.messages);
+            messages.set(sessionId, merged.slice(-MAX_MESSAGES_PER_SESSION));
+            const historyTruncated = new Map(this.state.historyTruncated);
+            historyTruncated.set(sessionId, history.truncated);
+            this.set({ messages, historyTruncated });
+            this.retitleFromMessages(sessionId);
+        } catch (err) {
+            if (err instanceof IpcRequestError && err.code === 'not_found') {
+                // 未知会话（服务重启后注册表易失）：列表刷新会收敛视图。
+                void this.refreshSessions();
+                return;
+            }
+            this.toast(`会话历史加载失败：${err instanceof Error ? err.message : String(err)}`, 'warn');
+        }
+    }
 
-    newSession: HarnessActions['newSession'] = (mode) => {
-        const meta = newSessionMeta(mode, mode === 'exec' ? '新的执行会话' : '新的对话', now());
-        const sessions = [meta, ...this.state.sessions].slice(0, MAX_SESSIONS);
-        const messages = new Map(this.state.messages);
-        messages.set(meta.id, []);
-        this.set({ sessions, messages });
-        this.navigate({ view: 'chat', sessionId: meta.id });
-        return meta.id;
+    /** 用线程首条 user 消息刷新派生标题（幂等）。 */
+    private retitleFromMessages(sessionId: string): void {
+        const list = this.state.messages.get(sessionId) ?? [];
+        const firstUser = list.find((m): m is Extract<ChatMessage, { kind: 'user' }> => m.kind === 'user');
+        if (firstUser === undefined) {
+            return;
+        }
+        const title = deriveSessionTitle(sessionId, firstUser.text);
+        if (this.state.sessions.some((s) => s.id === sessionId && s.title !== title)) {
+            this.set({
+                sessions: this.state.sessions.map((s) => (s.id === sessionId ? { ...s, title } : s)),
+            });
+        }
+    }
+
+    private touchSession(sessionId: string): void {
+        if (!this.state.sessions.some((s) => s.id === sessionId)) {
+            return;
+        }
+        this.set({
+            sessions: this.state.sessions.map((s) =>
+                s.id === sessionId ? { ...s, lastActivityAt: now() } : s,
+            ),
+        });
+    }
+
+    newSession: HarnessActions['newSession'] = () => {
+        if (!this.ensureSessions()) {
+            return;
+        }
+        void this.transport
+            .openSession()
+            .then(({ session_id }) => {
+                void this.refreshSessions();
+                this.navigate({ view: 'chat', sessionId: session_id });
+            })
+            .catch((err: unknown) => {
+                const message =
+                    err instanceof IpcRequestError
+                        ? err.code === 'unavailable'
+                            ? '会话容量已满，无法新建（服务端显式拒绝）'
+                            : `新建被拒绝（${err.code}）`
+                        : err instanceof Error
+                          ? err.message
+                          : String(err);
+                this.toast(message, 'error');
+            });
     };
 
     selectSession: HarnessActions['selectSession'] = (id) => {
         this.navigate({ view: 'chat', sessionId: id });
+        void this.loadHistory(id);
     };
 
-    renameSession: HarnessActions['renameSession'] = (id, title) => {
-        const title2 = title.trim();
-        if (title2.length === 0) {
-            return;
+    private ensureSessions(): boolean {
+        if (!this.state.sessionsSupported) {
+            this.toast('服务未提供会话面（hello 无 sessions 位）', 'warn');
+            return false;
         }
-        this.set({
-            sessions: this.state.sessions.map((s) => (s.id === id ? { ...s, title: title2, updatedAt: now() } : s)),
-        });
-    };
-
-    pinSession: HarnessActions['pinSession'] = (id, pinned) => {
-        this.set({
-            sessions: this.state.sessions.map((s) => (s.id === id ? { ...s, pinned } : s)),
-        });
-    };
-
-    deleteSession: HarnessActions['deleteSession'] = (id) => {
-        const sessions = this.state.sessions.filter((s) => s.id !== id);
-        const messages = new Map(this.state.messages);
-        messages.delete(id);
-        this.set({ sessions, messages });
-        if (this.state.route.view === 'chat' && this.state.route.sessionId === id) {
-            this.navigate({ view: 'chat' });
-        }
-        this.toast('会话已删除', 'info');
-    };
-
-    exportSession: HarnessActions['exportSession'] = (id) => {
-        const meta = this.state.sessions.find((s) => s.id === id);
-        const messages = this.state.messages.get(id) ?? [];
-        if (meta === undefined) {
-            return;
-        }
-        const markdown = exportSessionMarkdown(meta.title, messages);
-        const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${meta.title}.md`;
-        a.click();
-        URL.revokeObjectURL(url);
-        this.toast('已导出会话 Markdown', 'info');
-    };
+        return true;
+    }
 
     setDraft: HarnessActions['setDraft'] = (sessionId, text) => {
         const drafts = new Map(this.state.drafts);
@@ -727,42 +768,104 @@ export class HarnessStore {
         this.set({ drafts });
     };
 
-    // -- 对话 / 执行 ----------------------------------------------------------
+    // -- 会话事件增量（通知面；快照可重建，幂等去重） -------------------------
 
-    sendChat: HarnessActions['sendChat'] = (sessionId, text) => {
-        const trimmed = text.trim();
-        if (trimmed.length === 0 || this.simulator.busy() || this.state.takeover) {
+    private onSessionMessage(
+        sessionId: string,
+        kind: 'user' | 'outcome',
+        text: string,
+        sequence: number,
+    ): void {
+        const id = journalMessageId(sessionId, sequence);
+        const list = this.state.messages.get(sessionId) ?? [];
+        if (list.some((m) => m.id === id)) {
             return;
         }
-        this.appendMessages(sessionId, [{ id: `mu-${now()}`, kind: 'user', at: now(), text: trimmed }]);
-        this.setDraft(sessionId, '');
+        const message: ChatMessage =
+            kind === 'user'
+                ? { id, kind: 'user', at: now(), text, sequence }
+                : { id, kind: 'outcome', at: now(), text, sequence };
+        const messages = new Map(this.state.messages);
+        messages.set(sessionId, [...list, message].slice(-MAX_MESSAGES_PER_SESSION));
+        this.set({ messages });
+        if (kind === 'user') {
+            const title = deriveSessionTitle(sessionId, text);
+            this.set({
+                sessions: this.state.sessions.map((s) =>
+                    s.id === sessionId ? { ...s, title, lastActivityAt: now() } : s,
+                ),
+            });
+        } else {
+            this.touchSession(sessionId);
+        }
+        this.pushObsFrame(sessionId, {
+            id: `of-${id}`,
+            at: now(),
+            kind: 'message',
+            text: `${kind === 'user' ? '用户' : '结算'} · ${text}`,
+        });
+    }
+
+    private onSessionTurn(
+        sessionId: string,
+        step: number,
+        kind: string,
+        status: string,
+    ): void {
         this.touchSession(sessionId);
-        const assistantId = this.simulator.begin(sessionId, trimmed);
-        // 流式回复以占位消息入线程：模拟器回调按 id 原地推进（thinking/分片/完成）。
-        this.appendMessages(sessionId, [{ id: assistantId, kind: 'assistant', at: now(), text: '', streaming: true }]);
-        this.set({ simBusySession: sessionId });
-    };
+        this.pushObsFrame(sessionId, {
+            id: `of-turn-${sessionId}-${step}-${status}-${now()}`,
+            at: now(),
+            kind: 'turn',
+            text: `轮次 ${step} · ${kindLabel(kind)} → ${stepStatusLabel(status)}`,
+        });
+        // 轮次结算先于或伴随 task.updated 到达：主动刷新快照，时间线不等待。
+        void this.refreshActiveTasks();
+    }
+
+    private onSessionOutput(sessionId: string, step: number, chunk: string, truncated: boolean): void {
+        const preview = chunk.length > 0 ? chunk.slice(0, 80) : '（空输出）';
+        this.pushObsFrame(sessionId, {
+            id: `of-output-${sessionId}-${step}-${now()}`,
+            at: now(),
+            kind: 'output',
+            text: `输出 ${step}${truncated ? '（截断）' : ''} · ${preview}`,
+        });
+    }
+
+    private pushObsFrame(sessionId: string, frame: ObsFrame): void {
+        const feed = new Map(this.state.obsFeed);
+        const next = [...(feed.get(sessionId) ?? []), frame].slice(-OBS_FEED_CAPACITY);
+        feed.set(sessionId, next);
+        this.set({ obsFeed: feed });
+    }
+
+    // -- 执行模式（task.submit 会话绑定） --------------------------------------
 
     submitExec: HarnessActions['submitExec'] = async (sessionId, goal, steps, timeoutMs) => {
         if (this.state.takeover) {
             this.toast('紧急停止中：先解除 Takeover 再提交任务', 'warn');
             return;
         }
+        if (!this.ensureSessions()) {
+            return;
+        }
         const trimmedGoal = goal.trim();
         if (trimmedGoal.length === 0 || steps.length === 0) {
             return;
         }
-        this.appendMessages(sessionId, [{ id: `mu-${now()}`, kind: 'user', at: now(), text: trimmedGoal }]);
         this.setDraft(sessionId, '');
-        this.touchSession(sessionId);
         try {
             const { task_id } = await this.transport.submitTask({
                 goal: trimmedGoal,
                 steps: steps.map((s) => ({ op: s.kind, arg: s.argument })),
                 step_timeout_ms: timeoutMs,
+                session_id: sessionId,
             });
             const sessions = this.state.sessions.map((s) =>
-                s.id === sessionId ? { ...s, taskId: task_id, updatedAt: now() } : s,
+                s.id === sessionId
+                    ? { ...s, taskId: task_id, lastActivityAt: now(), title: s.title === deriveSessionTitle(sessionId, undefined) ? deriveSessionTitle(sessionId, trimmedGoal) : s.title }
+                    : s,
             );
             const taskInputs = new Map(this.state.taskInputs);
             taskInputs.set(task_id, steps);
@@ -771,18 +874,27 @@ export class HarnessStore {
                 taskInputs,
                 activeTaskIds: [...this.state.activeTaskIds, task_id],
             });
-            this.appendMessages(sessionId, [
-                { id: `man-${task_id}`, kind: 'system', at: now(), tone: 'info', text: `已提交协议任务 ${task_id}（${steps.length} 个步骤，事件流实时跟中）` },
-            ]);
+            this.appendSystemLine(sessionId, `已提交协议任务 ${task_id}（${steps.length} 个步骤，事件流实时跟中）`, 'info');
             await this.refreshActiveTasks();
+            // user 消息以服务端 journal 投影为准：事件面缺席（降级轮询）或
+            // 通知丢帧时，历史快照保证线程仍完整。
+            await this.loadHistory(sessionId);
         } catch (err) {
             const message = err instanceof IpcRequestError ? `提交被拒绝（${err.code}）` : err instanceof Error ? err.message : String(err);
-            this.appendMessages(sessionId, [{ id: `me-${now()}`, kind: 'system', at: now(), tone: 'error', text: `任务提交失败：${message}` }]);
+            this.appendSystemLine(sessionId, `任务提交失败：${message}`, 'error');
         }
     };
 
+    private appendSystemLine(sessionId: string, text: string, tone: 'info' | 'warn' | 'error'): void {
+        this.systemSeq += 1;
+        const message: ChatMessage = { id: `sys-${this.systemSeq}`, kind: 'system', at: now(), text, tone };
+        const messages = new Map(this.state.messages);
+        const list = messages.get(sessionId) ?? [];
+        messages.set(sessionId, [...list, message].slice(-MAX_MESSAGES_PER_SESSION));
+        this.set({ messages });
+    }
+
     stopSession: HarnessActions['stopSession'] = (sessionId) => {
-        this.simulator.cancel();
         const meta = this.state.sessions.find((s) => s.id === sessionId);
         if (meta?.taskId !== undefined) {
             void this.cancelTask(meta.taskId);
@@ -800,49 +912,12 @@ export class HarnessStore {
         }
     }
 
-    // -- 审批 / Takeover ------------------------------------------------------
-
-    decideApproval: HarnessActions['decideApproval'] = (approvalId, approve) => {
-        // 幂等门控：不存在或已决的审批不再产生任何副作用（终态幂等）。
-        if (!this.state.pendingApprovals.some((a) => a.id === approvalId)) {
-            return;
-        }
-        const decide = (a: ApprovalRequest): ApprovalRequest =>
-            a.id === approvalId && a.status === 'pending'
-                ? { ...a, status: approve ? 'approved' : 'denied', decidedAt: now() }
-                : a;
-        const pending = this.state.pendingApprovals.filter((a) => a.id !== approvalId);
-        this.set({ pendingApprovals: pending });
-        const messages = new Map(this.state.messages);
-        for (const [sid, list] of messages) {
-            const idx = list.findIndex((m) => m.kind === 'approval' && m.approval.id === approvalId);
-            if (idx >= 0) {
-                const target = list[idx]!;
-                if (target.kind === 'approval') {
-                    const updated: ChatMessage = {
-                        ...target,
-                        approval: decide(target.approval),
-                    };
-                    messages.set(sid, [...list.slice(0, idx), updated, ...list.slice(idx + 1)]);
-                }
-                if (!approve) {
-                    messages.set(sid, [
-                        ...messages.get(sid)!,
-                        { id: `mn-${approvalId}`, kind: 'system', at: now(), tone: 'warn', text: '已拒止该权限请求（模拟：M2+ 权限事件面前为演示语义，协议层任务不受影响）。' },
-                    ]);
-                }
-                break;
-            }
-        }
-        this.set({ messages });
-        this.toast(approve ? '已放行' : '已拒止', approve ? 'info' : 'warn');
-    };
+    // -- Takeover --------------------------------------------------------------
 
     engageEstop: HarnessActions['engageEstop'] = () => {
         if (this.state.takeover) {
             return;
         }
-        this.simulator.cancel();
         this.set({ takeover: true });
         for (const id of [...this.state.activeTaskIds]) {
             void this.transport.cancelTask(id).catch(() => undefined);
@@ -1114,53 +1189,29 @@ export class HarnessStore {
 
     // -- 内部工具 -------------------------------------------------------------
 
-    private touchSession(sessionId: string): void {
-        this.set({
-            sessions: this.state.sessions.map((s) => (s.id === sessionId ? { ...s, updatedAt: now() } : s)),
-        });
-    }
+    // -- 路由 ----------------------------------------------------------------
 
-    private appendMessages(sessionId: string, additions: readonly ChatMessage[]): void {
-        const messages = new Map(this.state.messages);
-        const list = [...(messages.get(sessionId) ?? []), ...additions];
-        messages.set(sessionId, list.slice(-MAX_MESSAGES_PER_SESSION));
-        this.set({ messages });
-    }
+    private onHashChange = (): void => {
+        this.set({ route: parseRoute(window.location.hash) });
+    };
 
-    private patchMessage(
-        sessionId: string,
-        messageId: string,
-        patch: (m: ChatMessage) => ChatMessage,
-    ): void {
-        const messages = new Map(this.state.messages);
-        const list = messages.get(sessionId);
-        if (list === undefined) {
-            return;
+    navigate: HarnessActions['navigate'] = (route) => {
+        const target = routeToHash(route);
+        if (window.location.hash !== target) {
+            window.location.hash = target;
+        } else {
+            this.set({ route });
         }
-        const idx = list.findIndex((m) => m.id === messageId);
-        if (idx < 0) {
-            return;
-        }
-        const updated = [...list];
-        updated[idx] = patch(updated[idx]!);
-        messages.set(sessionId, updated);
-        this.set({ messages });
-    }
+    };
 
     actions(): HarnessActions {
         return {
             navigate: this.navigate,
             newSession: this.newSession,
             selectSession: this.selectSession,
-            renameSession: this.renameSession,
-            pinSession: this.pinSession,
-            deleteSession: this.deleteSession,
-            exportSession: this.exportSession,
             setDraft: this.setDraft,
-            sendChat: this.sendChat,
             submitExec: this.submitExec,
             stopSession: this.stopSession,
-            decideApproval: this.decideApproval,
             engageEstop: this.engageEstop,
             releaseEstop: this.releaseEstop,
             cancelTask: (taskId) => this.cancelTask(taskId),
@@ -1207,7 +1258,6 @@ export function displayStepsOf(
     }));
 }
 
-/** Workflow IR v1 JSON 形态（与未来 workflow.* IPC 面的序列化对齐；纯函数便于测试）。 */
 /** 用运行快照回填定义的最近运行信息（时间 / 状态 / 终态成功率）。 */
 function withRunInfo(def: WorkflowDef, runsDesc: readonly WorkflowRun[]): WorkflowDef {
     const lastRun = runsDesc.find((r) => r.workflowId === def.id);
@@ -1225,21 +1275,4 @@ function withRunInfo(def: WorkflowDef, runsDesc: readonly WorkflowRun[]): Workfl
 
 export function isTerminalProgress(progress: TaskProgress | string): boolean {
     return progress === 'Completed' || progress === 'Failed' || progress === 'Cancelled';
-}
-
-function summarizeTask(detail: InspectTask): string {
-    const ok = detail.steps.filter((s) => s.status === 'ok').length;
-    const failed = detail.steps.filter((s) => s.status === 'failed').length;
-    switch (detail.progress) {
-        case 'Completed':
-            return `任务完成：${ok}/${detail.steps.length} 个步骤成功。` + (detail.has_success && detail.success === true ? '' : '');
-        case 'Failed':
-            return `任务失败（fail-fast）：${failed} 个步骤失败，未开始的步骤已跳过。首个失败步骤见上方卡片，可修正后重试。`;
-        case 'Cancelled':
-            return '任务已取消：运行中的步骤被中断，未开始的步骤被跳过。';
-        case 'Cancelling':
-            return '正在取消…';
-        default:
-            return `任务状态：${detail.progress}`;
-    }
 }

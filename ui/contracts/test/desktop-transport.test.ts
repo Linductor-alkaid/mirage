@@ -223,4 +223,69 @@ describe('DesktopBridgeTransport', () => {
         await expect(pending).rejects.toBeInstanceOf(TransportClosedError);
         await flush();
     });
+
+    it('sends the session face requests and routes their payloads (DEC-021)', async () => {
+        const SESSION_ID = '0f9e8d7c6b5a4938271605948372615b';
+        const { transport, bridge } = makeHarness();
+
+        const list = transport.listSessions();
+        expect(bridge.lastRequest().body.op).toBe('session.list');
+        bridge.respondOk(1, {
+            kind: 'session-list',
+            value: { sessions: [{ id: SESSION_ID, state: 'autonomous', created_at_ms: 7 }] },
+        });
+        await expect(list).resolves.toEqual([{ id: SESSION_ID, state: 'autonomous', created_at_ms: 7 }]);
+
+        const open = transport.openSession();
+        expect(bridge.lastRequest().body.op).toBe('session.open');
+        bridge.respondOk(2, { kind: 'session-opened', value: { session_id: SESSION_ID } });
+        await expect(open).resolves.toEqual({ session_id: SESSION_ID });
+
+        const history = transport.sessionHistory({ session_id: SESSION_ID, limit: 10 });
+        const historyRequest = bridge.lastRequest().body;
+        expect(historyRequest).toEqual({
+            op: 'session.history',
+            session_id: SESSION_ID,
+            limit: 10,
+        });
+        bridge.respondOk(3, {
+            kind: 'session-history',
+            value: {
+                session_id: SESSION_ID,
+                entries: [{ kind: 'user', text: 'goal', sequence: 1, recorded_at_ms: 9 }],
+                truncated: false,
+            },
+        });
+        await expect(history).resolves.toEqual({
+            session_id: SESSION_ID,
+            entries: [{ kind: 'user', text: 'goal', sequence: 1, recorded_at_ms: 9 }],
+            truncated: false,
+        });
+
+        const failing = transport.sessionHistory({ session_id: SESSION_ID });
+        expect(bridge.lastRequest().body).toEqual({ op: 'session.history', session_id: SESSION_ID });
+        bridge.respondError(4, 'not_found', 'unknown session id');
+        await expect(failing).rejects.toMatchObject({ name: 'IpcRequestError', code: 'not_found' });
+
+        await transport.close();
+    });
+
+    it('carries the optional session_id member on task.submit', async () => {
+        const SESSION_ID = '0f9e8d7c6b5a4938271605948372615b';
+        const { transport, bridge } = makeHarness();
+        const pending = transport.submitTask({
+            goal: 'g',
+            steps: [{ op: 'filesystem.read', arg: 'a' }],
+            session_id: SESSION_ID,
+        });
+        expect(bridge.lastRequest().body).toEqual({
+            op: 'task.submit',
+            goal: 'g',
+            steps: [{ op: 'filesystem.read', arg: 'a' }],
+            session_id: SESSION_ID,
+        });
+        bridge.respondOk(1, { kind: 'submitted', value: { task_id: 'task-0001', session_id: SESSION_ID } });
+        await expect(pending).resolves.toEqual({ task_id: 'task-0001', session_id: SESSION_ID });
+        await transport.close();
+    });
 });

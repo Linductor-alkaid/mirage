@@ -18,6 +18,7 @@ import { decodeUtf8, makeFrame, tryExtractFrame } from './framing.js';
 import type {
     EventListener,
     MirageTransport,
+    SessionHistoryInput,
     SubmitTaskInput,
     WorkflowDefinition,
     WorkflowStartInput,
@@ -29,6 +30,8 @@ import type {
     RequestBody,
     ResponsePayload,
     ServiceIdentity,
+    SessionHistoryEntry,
+    SessionSummary,
     TaskProgress,
     TaskSummary,
     WorkflowRunState,
@@ -114,6 +117,10 @@ export class WsBridgeTransport implements MirageTransport {
         return this.identity?.workflows === true;
     }
 
+    get sessionsSupported(): boolean {
+        return this.identity?.sessions === true;
+    }
+
     /** Registers a callback fired once per unexpected connection loss after
      * a successful hello (never for close()). Reconnection and resync are
      * UI-layer decisions (M1.5-05). */
@@ -141,6 +148,7 @@ export class WsBridgeTransport implements MirageTransport {
                 ...(request.step_timeout_ms !== undefined
                     ? { step_timeout_ms: request.step_timeout_ms }
                     : {}),
+                ...(request.session_id !== undefined ? { session_id: request.session_id } : {}),
             },
             'submitted',
         );
@@ -165,6 +173,37 @@ export class WsBridgeTransport implements MirageTransport {
 
     async shutdown(): Promise<void> {
         await this.request({ op: 'service.shutdown' }, null);
+    }
+
+    // -- session face (DEC-021, consumed since DEC-025/M5-06) ------------------
+
+    async listSessions(): Promise<SessionSummary[]> {
+        const payload = await this.request({ op: 'session.list' }, 'session-list');
+        return (payload as { kind: 'session-list'; value: { sessions: SessionSummary[] } }).value.sessions;
+    }
+
+    async openSession(): Promise<{ session_id: string }> {
+        const payload = await this.request({ op: 'session.open' }, 'session-opened');
+        return (payload as { kind: 'session-opened'; value: { session_id: string } }).value;
+    }
+
+    async sessionHistory(input: SessionHistoryInput): Promise<{
+        session_id: string;
+        entries: SessionHistoryEntry[];
+        truncated: boolean;
+    }> {
+        const payload = await this.request(
+            {
+                op: 'session.history',
+                session_id: input.session_id,
+                ...(input.limit !== undefined ? { limit: input.limit } : {}),
+            },
+            'session-history',
+        );
+        return (payload as {
+            kind: 'session-history';
+            value: { session_id: string; entries: SessionHistoryEntry[]; truncated: boolean };
+        }).value;
     }
 
     // -- workflow face (DEC-023) ----------------------------------------------

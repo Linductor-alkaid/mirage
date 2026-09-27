@@ -187,5 +187,8 @@
   `session_snapshot`）、`conversation_log.hpp`（`build_conversation_view`）、
   `event_store.hpp`（`MemoryEventStore`）、`agent_loop.hpp`（事件信封与类型词
   表）、`third_party/mira/docs/api/core-runtime.md` 与 `model-agent-loop.md`。
-- 工作项：`M5-04`（本决策）；消费方 `M5-06`（会话页真实化）、`M5-07`（批准中心
-  复用事件纪律）。
+- 工作项：`M5-04`（本决策）；消费方 `M5-06`（会话页真实化，已于 2026-09-27
+  第一轮兑现——UI 侧 `MirageTransport` 会话三方法 + `sessions` 能力位消费，
+  会话页全部数据面接契约路径、模拟域退役，消费语义见
+  [DEC-025](DEC-025-session-page-productization.md)；wire 契约零变更）、
+  `M5-07`（批准中心复用事件纪律）。
