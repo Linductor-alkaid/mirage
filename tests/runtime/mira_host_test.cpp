@@ -558,13 +558,16 @@ void scenario_tool_call_steps_dispatch_desktop_atoms() {
     MiraHost host;
     executor::Executor executor;
     // The pinned drive occupies one worker for the whole run while its step
-    // futures (tool dispatch, verification observation) and the step monitor
-    // need workers of their own (pinned WorkflowRuntimeConfig: drives must
-    // stay below the worker count), so the test sizes the executor
-    // explicitly instead of relying on hardware concurrency (CI runners
-    // report 2 cores).
+    // monitor and the nested tool-dispatch / verification-observation
+    // futures need workers of their own (pinned WorkflowRuntimeConfig:
+    // drives must stay below the worker count). The pool must be FIXED at
+    // that floor: with an adaptive minimum (hw, min 2 on CI runners) the
+    // pool starts under-provisioned and the first ToolCall run deadlocks
+    // (DEC-024). Four is the service's configured floor; the test proves it
+    // suffices.
     executor::ExecutorConfig executor_config;
-    executor_config.max_threads = 6;
+    executor_config.min_threads = 4;
+    executor_config.max_threads = 4;
     MIRAGE_CHECK(executor.initialize_ex(executor_config).ok);
 
     mirage::testing::FakeDesktopEnvironment environment;

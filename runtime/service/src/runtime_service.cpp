@@ -1288,6 +1288,11 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
 
     executor::ExecutorConfig executor_config;
     if (impl_->config.executor_threads > 0) {
+        // A fixed pool: the floor is the point. With an adaptive minimum the
+        // pool may start with as few as two workers on a small machine, and
+        // the first workflow ToolCall run deadlocks (the drive blocks on its
+        // nested dispatch future while holding its worker; DEC-024).
+        executor_config.min_threads = impl_->config.executor_threads;
         executor_config.max_threads = impl_->config.executor_threads;
     }
     const auto initialized = impl_->core->executor.initialize_ex(executor_config);

@@ -787,6 +787,12 @@ ToolCall 执行路径）完成（[DEC-024](../decisions/DEC-024-desktop-atom-too
     `set_tool_registry()` 安装；服务 `start()` 以共享 `PermissionController`
     实现权限缝构建工具集，`workflow.atom.catalog` 由空目录返回
     `exposed_atoms()` 投影。wire 契约零变更（golden 仍 meta.version 5）。
+  - **执行器并发底线（CI 修复轮实证）**：pinned 驱动结构（驱动 + 步监视 +
+    嵌套派发/观察）要求池以固定 min=max ≥ 4 启动——自适应 min 在 2 核机器上
+    仅起 2 worker，首个 ToolCall 运行即死锁（本地 min=max=2 复现、固定 4 通
+    过）；`ServiceConfig::executor_threads` 默认 2 → 4 并同时落到
+    `min_threads` / `max_threads`（此前仅设 max），固定 2 线程的既有测试均
+    不跑 ToolCall 运行、不受影响。
 - 依据：[DEC-023](../decisions/DEC-023-workflow-contract-face.md) 决策 4 与备
   选"推迟"裁决、[DEC-022](../decisions/DEC-022-upstream-capability-adoption.md)
   决策 1（目录经 pinned exposed view 承载）、[DEC-010](../decisions/DEC-010-m1-permission-framework.md)

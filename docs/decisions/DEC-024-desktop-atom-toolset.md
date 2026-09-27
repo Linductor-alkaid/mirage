@@ -87,13 +87,16 @@
    `skill_tool_registrations` 本轮仍不消费——编辑器不产生 v1.1 工具引用形态、
    Skill 发布产品面未落地（POST-05）；Degraded 兼容呈现随之仍不进 wire。宿主
    verbatim 承载升级后 `WorkflowRuntime`，后续轮按公开 API 接线。
-7. **执行器并发底线（实现期核实，CI 2 核 runner 实证）**：pinned 驱动结构要求
-   宿主执行器为 ToolCall 运行预留并发 worker——异步驱动全程占一个 worker，步
-   监视任务与嵌套的工具派发 / 验证观察 futures 各需一个 worker；两线程池会在
-   第一个 ToolCall 运行上死等（派发 future 永不获 Worker）。服务默认
-   `ServiceConfig::executor_threads` 由 2 提至 4（覆盖驱动 + 监视 + 派发 + 观
-   察的峰值并发），并在头文件注释声明该底线；部署收紧线程数时必须高于此峰值
-   （pinned `WorkflowRuntimeConfig` 亦声明 drives 必须低于 worker 总数）。
+7. **执行器并发底线（实现期核实，本地 min=max=2 复现 + CI 2 核 runner 实证）**：
+   pinned 驱动结构要求宿主执行器为 ToolCall 运行预留并发 worker——异步驱动全
+   程占一个 worker，步监视任务与嵌套的工具派发 / 验证观察 futures 各需一个
+   worker；两线程池会在第一个 ToolCall 运行上死等（派发 future 永不获
+   worker）。且**必须以固定池（min=max）兑现该底线**：仅设 `max_threads` 而
+   `min_threads` 留自适应时，小核机器上池只以 hw（min 2）启动，max 再高也救
+   不了首个 ToolCall 运行。故服务将 `ServiceConfig::executor_threads`（默认
+   2 → 4）同时落到 `min_threads` 与 `max_threads`，覆盖驱动 + 监视 + 派发 +
+   观察的峰值并发；部署收紧线程数时必须 ≥ 该峰值（pinned
+   `WorkflowRuntimeConfig` 亦声明 drives 必须低于 worker 总数）。
 
 ## 备选方案
 
