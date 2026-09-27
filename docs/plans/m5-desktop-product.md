@@ -1004,3 +1004,14 @@ ToolCall 执行路径）完成（[DEC-024](../decisions/DEC-024-desktop-atom-too
   [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
   §3.3 / §4 与变更记录、ui/README（会话面接口缝）、
   [总计划](mirage-implementation-plan.md) 状态叙述与决策表。
+
+2026-09-27：`M5-06` 第一轮 CI 取证完成；run 36333683533
+（headSha = `e69bb5e` 已核实）全部 8 作业 success。
+
+- Linux 矩阵：debug / release / asan / tsan / ubsan 五预设全绿；
+  format & public-header boundaries 绿（C++ / wire 零变更，零回归）。
+- frontend 作业：lint（含 react-hooks `purity` / `set-state-in-effect`
+  全量生效）+ strict tsc + **625 测试**（新增会话面传输 / mock / store
+  契约路径场景）+ build 全绿（wire 未变，golden 仍 v5）。
+- windows msvc (full tree)：全树构建 + 测试通过。
+- 合并裁决：维护者（PR [#57](https://github.com/Linductor-alkaid/mirage/pull/57)）。
