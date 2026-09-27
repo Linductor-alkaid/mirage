@@ -32,6 +32,8 @@ namespace mirage::runtime {
 namespace {
 
 using detail::progress_name;
+using detail::WorkflowCatalogEntry;
+using detail::WorkflowRunRecord;
 
 constexpr const char *kServiceName = "mirage-runtime";
 constexpr std::size_t kMaxGoalBytes = 8 * 1024;
@@ -39,6 +41,9 @@ constexpr std::size_t kMaxArgumentBytes = 4 * 1024;
 /// Default entry budget for one session.history response (DEC-021); the
 /// service clamps the requested limit to ServiceConfig::max_history_entries.
 constexpr std::size_t kDefaultHistoryLimit = 50;
+/// Byte budget for one workflow.save / workflow.publish definition (DEC-023);
+/// the same ceiling the pinned WorkflowLimits enforces on decode.
+constexpr std::size_t kMaxWorkflowDefinitionBytes = 256 * 1024;
 
 bool terminal_progress(TaskProgress progress) {
     return progress == TaskProgress::Completed || progress == TaskProgress::Failed ||
@@ -110,6 +115,34 @@ struct RuntimeService::Impl {
         // store behind the pinned-free SessionJournal adapter; constructed
         // with the service, so the session.* faces are always served.
         core->journal = std::make_shared<mirage::integration::SessionJournal>();
+        {
+            std::lock_guard lock(core->workflows.mutex);
+            core->workflows.capacity = config.max_workflow_definitions;
+        }
+        {
+            std::lock_guard lock(core->workflow_runs.mutex);
+            core->workflow_runs.capacity = config.max_workflow_runs;
+        }
+        // The workflow event bridge (DEC-023): constructed with the service,
+        // so the workflow.* faces are always served. Its sink publishes
+        // directly into the hub — appends arrive on pinned drive threads and
+        // may fire from within a serial handler (the publish gate drive), so
+        // a serial re-submission would re-enter the serial domain; the Topic
+        // is thread-safe and the per-connection queues stay bounded
+        // (workflow.runs is the snapshot truth).
+        core->workflow_bridge = std::make_shared<mirage::integration::WorkflowEventBridge>();
+        core->workflow_bridge->set_sink([core = core](
+                                            const mirage::integration::WorkflowRunEventView &view) {
+            ipc::WorkflowRunUpdatedEvent event;
+            event.run_id = view.run_id;
+            event.workflow_id = view.workflow_id;
+            event.state = view.state;
+            event.run_epoch = view.run_epoch;
+            if (!view.summary.empty()) {
+                event.summary = view.summary;
+            }
+            core->events.publish_workflow_run(std::move(event));
+        });
         // One controller for the whole service (DEC-010): the configured
         // policy plus the configured confirmation surface — the DEC-020
         // async hub, the legacy sync hook, or the fail-closed default.
@@ -156,6 +189,9 @@ struct RuntimeService::Impl {
         // DEC-021: the session faces (list / open / history) are always
         // served; the journal is constructed with the service.
         result.sessions = true;
+        // DEC-023: the workflow faces are always served; the bridge is
+        // constructed with the service and the surface attaches at start().
+        result.workflows = true;
         return result;
     }
 
@@ -288,6 +324,41 @@ struct RuntimeService::Impl {
         }
         if (auto *request = std::get_if<ipc::SessionHistoryRequest>(&decoded.body)) {
             handle_session_history(connection_id, correlation_id, std::move(*request));
+            return;
+        }
+        if (auto *request = std::get_if<ipc::WorkflowListRequest>(&decoded.body)) {
+            (void)request;
+            handle_workflow_list(connection_id, correlation_id);
+            return;
+        }
+        if (auto *request = std::get_if<ipc::WorkflowSaveRequest>(&decoded.body)) {
+            handle_workflow_save(connection_id, correlation_id, std::move(*request));
+            return;
+        }
+        if (auto *request = std::get_if<ipc::WorkflowPublishRequest>(&decoded.body)) {
+            handle_workflow_publish(connection_id, correlation_id, std::move(*request));
+            return;
+        }
+        if (auto *request = std::get_if<ipc::WorkflowDeleteRequest>(&decoded.body)) {
+            handle_workflow_delete(connection_id, correlation_id, std::move(request->workflow_id));
+            return;
+        }
+        if (auto *request = std::get_if<ipc::WorkflowAtomCatalogRequest>(&decoded.body)) {
+            (void)request;
+            handle_workflow_atom_catalog(connection_id, correlation_id);
+            return;
+        }
+        if (auto *request = std::get_if<ipc::WorkflowRunsRequest>(&decoded.body)) {
+            (void)request;
+            handle_workflow_runs(connection_id, correlation_id);
+            return;
+        }
+        if (auto *request = std::get_if<ipc::WorkflowRunRequest>(&decoded.body)) {
+            handle_workflow_run(connection_id, correlation_id, std::move(*request));
+            return;
+        }
+        if (auto *request = std::get_if<ipc::WorkflowCancelRunRequest>(&decoded.body)) {
+            handle_workflow_cancel(connection_id, correlation_id, std::move(request->run_id));
             return;
         }
         fail(connection_id, correlation_id, "unsupported", "unknown request");
@@ -723,6 +794,273 @@ struct RuntimeService::Impl {
         respond(connection_id, correlation_id, std::move(response));
     }
 
+    // --- workflow face (DEC-023) -------------------------------------------
+
+    /// Serial thread: the workflow catalog snapshot (DEC-023) — the resync
+    /// face of the product catalog. Identity and validation are registry
+    /// state written by save/publish; the pinned library stays the
+    /// execution-side authority.
+    void handle_workflow_list(std::uint64_t connection_id, std::uint64_t correlation_id) {
+        std::map<std::string, WorkflowCatalogEntry> entries;
+        {
+            std::lock_guard lock(core->workflows.mutex);
+            entries = core->workflows.workflows;
+        }
+        ipc::WorkflowList list;
+        list.workflows.reserve(entries.size());
+        for (auto &[workflow_id, entry] : entries) {
+            ipc::WorkflowSummary summary;
+            summary.workflow_id = workflow_id;
+            summary.name = entry.name;
+            summary.head_digest = entry.head_digest;
+            summary.validation = entry.validation;
+            summary.runnable = entry.runnable;
+            summary.updated_at_ms = entry.updated_at_ms;
+            list.workflows.push_back(std::move(summary));
+        }
+        respond(connection_id, correlation_id, std::move(list));
+    }
+
+    /// Serial thread: append one draft version (DEC-023). Capacity and byte
+    /// budget are refused before the host call so a rejection never leaves a
+    /// pinned library record behind.
+    void handle_workflow_save(std::uint64_t connection_id, std::uint64_t correlation_id,
+                              ipc::WorkflowSaveRequest request) {
+        if (request.definition_json.size() > kMaxWorkflowDefinitionBytes) {
+            fail(connection_id, correlation_id, "invalid_argument",
+                 "workflow definition exceeds the " +
+                     std::to_string(kMaxWorkflowDefinitionBytes) + " byte budget");
+            return;
+        }
+        const auto saved = core->host.save_workflow_definition(request.definition_json,
+                                                               "workflow.save draft");
+        if (!saved.ok) {
+            fail(connection_id, correlation_id, saved.error.code, saved.error.message);
+            return;
+        }
+        {
+            std::lock_guard lock(core->workflows.mutex);
+            if (!core->workflows.contains(saved.workflow_id) && core->workflows.full()) {
+                fail(connection_id, correlation_id, "unavailable",
+                     "workflow registry capacity exhausted (" +
+                         std::to_string(core->workflows.capacity) + ")");
+                return;
+            }
+            WorkflowCatalogEntry entry;
+            entry.name = saved.name;
+            entry.head_digest = saved.digest;
+            entry.validation = "not_validated";
+            entry.runnable = false;
+            entry.updated_at_ms = wall_now_ms();
+            core->workflows.workflows[saved.workflow_id] = std::move(entry);
+        }
+        respond(connection_id, correlation_id,
+                ipc::WorkflowSaved{saved.workflow_id, saved.digest});
+    }
+
+    /// Serial thread: run the pinned publish gate on the definition (DEC-023).
+    /// The gate dry-runs synchronously on this (serial) context; the run
+    /// registry is untouched. Capacity rules match workflow.save.
+    void handle_workflow_publish(std::uint64_t connection_id, std::uint64_t correlation_id,
+                                 ipc::WorkflowPublishRequest request) {
+        if (request.definition_json.size() > kMaxWorkflowDefinitionBytes) {
+            fail(connection_id, correlation_id, "invalid_argument",
+                 "workflow definition exceeds the " +
+                     std::to_string(kMaxWorkflowDefinitionBytes) + " byte budget");
+            return;
+        }
+        const auto published = core->host.publish_workflow_definition(request.definition_json,
+                                                                      "workflow.publish gate");
+        if (!published.ok) {
+            fail(connection_id, correlation_id, published.error.code, published.error.message);
+            return;
+        }
+        {
+            std::lock_guard lock(core->workflows.mutex);
+            if (!core->workflows.contains(published.workflow_id) && core->workflows.full()) {
+                fail(connection_id, correlation_id, "unavailable",
+                     "workflow registry capacity exhausted (" +
+                         std::to_string(core->workflows.capacity) + ")");
+                return;
+            }
+            WorkflowCatalogEntry entry;
+            entry.name = published.name;
+            entry.head_digest = published.digest;
+            entry.validation = "dry_run_passed";
+            entry.runnable = true;
+            entry.updated_at_ms = wall_now_ms();
+            core->workflows.workflows[published.workflow_id] = std::move(entry);
+        }
+        ipc::WorkflowPublished payload;
+        payload.workflow_id = published.workflow_id;
+        payload.digest = published.digest;
+        payload.dry_run_id = published.dry_run_id;
+        payload.idempotent = published.idempotent;
+        respond(connection_id, correlation_id, std::move(payload));
+    }
+
+    /// Serial thread: remove the product catalog entry (DEC-023). The pinned
+    /// append-only history is untouched; a workflow with non-terminal runs
+    /// refuses deletion (the runs still reference their content).
+    void handle_workflow_delete(std::uint64_t connection_id, std::uint64_t correlation_id,
+                                std::string workflow_id) {
+        bool known = false;
+        {
+            std::lock_guard lock(core->workflows.mutex);
+            known = core->workflows.contains(workflow_id);
+        }
+        if (!known) {
+            fail(connection_id, correlation_id, "not_found", "unknown workflow id");
+            return;
+        }
+        if (workflow_has_non_terminal_runs(workflow_id)) {
+            fail(connection_id, correlation_id, "invalid_state", "workflow has non-terminal runs");
+            return;
+        }
+        {
+            std::lock_guard lock(core->workflows.mutex);
+            core->workflows.workflows.erase(workflow_id);
+        }
+        respond(connection_id, correlation_id, ipc::WorkflowDeleted{std::move(workflow_id)});
+    }
+
+    /// Serial thread: the exposed view of the hosted BuiltIn tool registry
+    /// (DEC-022 decision 1, DEC-023). Empty until the desktop capability
+    /// tools register (M5-05 second round); the wire shape is the contract.
+    void handle_workflow_atom_catalog(std::uint64_t connection_id, std::uint64_t correlation_id) {
+        respond(connection_id, correlation_id, ipc::WorkflowAtomCatalog{});
+    }
+
+    /// Serial thread: the run registry snapshot (DEC-023) — the resync face
+    /// of the workflow.run_updated stream. States re-project live from the
+    /// pinned runtime; a failed snapshot surfaces the conservative `failed`.
+    void handle_workflow_runs(std::uint64_t connection_id, std::uint64_t correlation_id) {
+        std::map<std::string, WorkflowRunRecord> runs;
+        {
+            std::lock_guard lock(core->workflow_runs.mutex);
+            runs = core->workflow_runs.runs;
+        }
+        ipc::WorkflowRunList list;
+        list.runs.reserve(runs.size());
+        for (auto &[run_id, record] : runs) {
+            ipc::WorkflowRunSummary summary;
+            summary.run_id = run_id;
+            summary.workflow_id = record.workflow_id;
+            summary.state = "failed";
+            summary.created_at_ms = record.created_at_ms;
+            const WorkflowRunViewResult view = core->host.workflow_run_view(run_id);
+            if (view.ok) {
+                summary.state = view.view.state;
+                summary.run_epoch = view.view.run_epoch;
+            }
+            list.runs.push_back(std::move(summary));
+        }
+        respond(connection_id, correlation_id, std::move(list));
+    }
+
+    /// Serial thread: admit one asynchronous run (DEC-023). The version pins
+    /// by digest (the registry head when absent); the run registry evicts
+    /// terminal entries before refusing admission.
+    void handle_workflow_run(std::uint64_t connection_id, std::uint64_t correlation_id,
+                             ipc::WorkflowRunRequest request) {
+        std::string digest = request.digest;
+        {
+            std::lock_guard lock(core->workflows.mutex);
+            const auto entry = core->workflows.workflows.find(request.workflow_id);
+            if (entry == core->workflows.workflows.end()) {
+                fail(connection_id, correlation_id, "not_found", "unknown workflow id");
+                return;
+            }
+            if (digest.empty()) {
+                digest = entry->second.head_digest;
+            }
+        }
+        if (!make_room_for_run()) {
+            fail(connection_id, correlation_id, "unavailable",
+                 "workflow run registry capacity exhausted (" +
+                     std::to_string(core->workflow_runs.capacity) + ")");
+            return;
+        }
+        const auto started =
+            core->host.start_workflow_run(request.workflow_id, digest, request.parameters_json,
+                                          request.policy);
+        if (!started.ok) {
+            fail(connection_id, correlation_id, started.error.code, started.error.message);
+            return;
+        }
+        {
+            std::lock_guard lock(core->workflow_runs.mutex);
+            WorkflowRunRecord record;
+            record.workflow_id = request.workflow_id;
+            record.created_at_ms = wall_now_ms();
+            core->workflow_runs.runs[started.run_id] = std::move(record);
+        }
+        respond(connection_id, correlation_id, ipc::WorkflowRunStarted{started.run_id});
+    }
+
+    /// Serial thread: idempotent run cancellation (DEC-023); the reply
+    /// carries the pinned view's post-call state.
+    void handle_workflow_cancel(std::uint64_t connection_id, std::uint64_t correlation_id,
+                                std::string run_id) {
+        const WorkflowRunCancelResult cancelled = core->host.cancel_workflow_run(run_id);
+        if (!cancelled.ok) {
+            fail(connection_id, correlation_id, cancelled.error.code, cancelled.error.message);
+            return;
+        }
+        ipc::WorkflowRunCancelled payload;
+        payload.run_id = std::move(run_id);
+        payload.state = cancelled.state;
+        respond(connection_id, correlation_id, std::move(payload));
+    }
+
+    /// Serial thread: true when at least one run of the workflow sits in a
+    /// non-terminal pinned state (live projection).
+    bool workflow_has_non_terminal_runs(const std::string &workflow_id) {
+        std::vector<std::string> run_ids;
+        {
+            std::lock_guard lock(core->workflow_runs.mutex);
+            for (const auto &[run_id, record] : core->workflow_runs.runs) {
+                if (record.workflow_id == workflow_id) {
+                    run_ids.push_back(run_id);
+                }
+            }
+        }
+        for (const auto &run_id : run_ids) {
+            const WorkflowRunViewResult view = core->host.workflow_run_view(run_id);
+            if (!view.ok) {
+                continue; // unknown runs are not live obstacles
+            }
+            if (view.view.state != "completed" && view.view.state != "failed" &&
+                view.view.state != "cancelled") {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Serial thread: evict oldest terminal entries until the run registry
+    /// has room; false when the registry is full of non-terminal runs. Host
+    /// views are read under the registry mutex — both are leaves on the
+    /// serial thread and nothing else takes them together.
+    bool make_room_for_run() {
+        std::lock_guard lock(core->workflow_runs.mutex);
+        if (!core->workflow_runs.full()) {
+            return true;
+        }
+        for (auto entry = core->workflow_runs.runs.begin();
+             entry != core->workflow_runs.runs.end();) {
+            if (!core->workflow_runs.full()) {
+                return true;
+            }
+            const WorkflowRunViewResult view = core->host.workflow_run_view(entry->first);
+            const bool terminal =
+                view.ok && (view.view.state == "completed" || view.view.state == "failed" ||
+                            view.view.state == "cancelled");
+            entry = terminal ? core->workflow_runs.runs.erase(entry) : std::next(entry);
+        }
+        return !core->workflow_runs.full();
+    }
+
     // --- lifecycle ---------------------------------------------------------
 
     void request_loop_stop() {
@@ -793,6 +1131,11 @@ struct RuntimeService::Impl {
                 // rejections here; the drain below settles the rest.
             }
         }
+        // The workflow surface converges before its Executor (DEC-023 pinned
+        // order: WorkflowRuntime shutdown -> MiraRuntime stop -> Executor
+        // shutdown): cancel active runs and drain their drives while the
+        // executor can still settle them.
+        (void)core->host.shutdown_workflow_surface();
         core->executor.shutdown(true);
         for (auto &future : driver_futures) {
             try {
@@ -932,6 +1275,22 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
         return outcome;
     }
+    // The workflow surface rides the Running host (DEC-023): pinned
+    // WorkflowRuntime over the service executor and the primary session,
+    // with the bridge as its event store. A failure here fails start()
+    // closed — the workflow faces are core equipment, not optional.
+    const HostOutcome workflow_surface =
+        impl_->core->host.attach_workflow_surface(impl_->core->executor,
+                                                  impl_->core->workflow_bridge);
+    if (!workflow_surface.ok) {
+        impl_->core->host.shutdown();
+        impl_->publish_host_status(impl_->core->host.status());
+        impl_->core->executor.shutdown(false);
+        outcome.error = workflow_surface.error;
+        impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
+        return outcome;
+    }
+
     impl_->publish_host_status(HostStatus::Running);
 
     // The primary session enters the registry (DEC-021); session.list

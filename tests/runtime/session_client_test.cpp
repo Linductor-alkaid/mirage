@@ -12,6 +12,8 @@
 
 #include "../support/test.hpp"
 
+#include <mira/core_contracts.hpp>
+
 #include <mirage/integration/mira_environment_binding.hpp>
 #include <mirage/platform/linux/linux_desktop_environment.hpp>
 #include <mirage/runtime/ipc/client.hpp>
@@ -321,6 +323,214 @@ void scenario_events_flow_to_sink_until_terminal() {
     MIRAGE_CHECK(shutdown.ok);
 }
 
+// --- the workflow face (M5-05, DEC-023) ---------------------------------------
+
+/// Minimal IR v1 definition: one Verify step whose predicate references an
+/// absent parameter (NotEvaluable under DryRun, RULE-10 honesty counter), so
+/// the definition runs without a tool registry and settles the publish
+/// gate's empty DryRun. `name` varies content: the pinned library resolves
+/// versions by content digest and a same-content draft record shadows a
+/// later runnable record (MIRA-20260927-001), so the flow under test
+/// publishes different content than the draft.
+std::string workflow_definition(const std::string &workflow_id, const std::string &step_id,
+                                const std::string &name) {
+    return R"({"schema_version":{"major":1,"minor":0},"workflow_id":")" + workflow_id +
+           R"(","name":")" + name + R"(","parameters":[],"steps":[{"step_id":")" + step_id +
+           R"(","kind":"verify","verification":{"signal":"run_parameter:x","op":"eq","value":"y"}}],)"
+           R"("default_policy":"strict","allowed_policies":["strict","dry_run"]})";
+}
+
+void scenario_workflow_face_round_trip() {
+    mirage::testing::TempDir dir;
+    const mirage::runtime::ServiceConfig config = make_config(dir);
+    ServiceProcess service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)));
+    service.run_async();
+
+    Session session;
+    MIRAGE_CHECK(session.start(config.socket_path));
+
+    std::mutex events_mutex;
+    std::vector<ipc::Event> events;
+    session.client->set_event_sink([&](const ipc::Event &event) {
+        std::lock_guard<std::mutex> guard(events_mutex);
+        events.push_back(event);
+    });
+    MIRAGE_CHECK(session.client->call(ipc::SubscribeEventsRequest{}, kCallBudget).get().ok);
+
+    // hello advertises the workflow face (DEC-023 capability discipline).
+    const ipc::Response hello = session.client->call(ipc::HelloRequest{}, kCallBudget).get();
+    MIRAGE_CHECK(hello.ok);
+    const auto *identity = std::get_if<ipc::ServiceIdentity>(&hello.payload);
+    MIRAGE_CHECK(identity != nullptr);
+    MIRAGE_CHECK(identity != nullptr && identity->workflows.value_or(false));
+
+    // Save a draft; the catalog lists it unvalidated and non-runnable.
+    const std::string workflow_id = mira::WorkflowId::generate().to_string();
+    const std::string step_id = mira::StepId::generate().to_string();
+    ipc::WorkflowSaveRequest save;
+    save.definition_json = workflow_definition(workflow_id, step_id, "demo draft");
+    const ipc::Response saved = session.client->call(save, kCallBudget).get();
+    MIRAGE_CHECK(saved.ok);
+    const auto *saved_payload = std::get_if<ipc::WorkflowSaved>(&saved.payload);
+    MIRAGE_CHECK(saved_payload != nullptr);
+    if (saved_payload == nullptr) {
+        return;
+    }
+    MIRAGE_CHECK(saved_payload->workflow_id == workflow_id);
+    MIRAGE_CHECK(saved_payload->digest.size() == 64);
+
+    const ipc::Response listed = session.client->call(ipc::WorkflowListRequest{}, kCallBudget).get();
+    MIRAGE_CHECK(listed.ok);
+    const auto *catalog = std::get_if<ipc::WorkflowList>(&listed.payload);
+    MIRAGE_CHECK(catalog != nullptr);
+    if (catalog != nullptr) {
+        bool found = false;
+        for (const ipc::WorkflowSummary &entry : catalog->workflows) {
+            if (entry.workflow_id == workflow_id) {
+                found = true;
+                MIRAGE_CHECK(entry.name == "demo draft");
+                MIRAGE_CHECK(entry.validation == "not_validated");
+                MIRAGE_CHECK(!entry.runnable);
+            }
+        }
+        MIRAGE_CHECK(found);
+    }
+
+    // Running the draft digest is the pinned W-04 rejection, verbatim.
+    ipc::WorkflowRunRequest draft_run;
+    draft_run.workflow_id = workflow_id;
+    draft_run.digest = saved_payload->digest;
+    const ipc::Response draft_rejected = session.client->call(draft_run, kCallBudget).get();
+    MIRAGE_CHECK(!draft_rejected.ok);
+    MIRAGE_CHECK(draft_rejected.error.code == "pinned_runtime");
+
+    // An unknown workflow is a stable not_found.
+    ipc::WorkflowRunRequest unknown_run;
+    unknown_run.workflow_id = mira::WorkflowId::generate().to_string();
+    const ipc::Response unknown = session.client->call(unknown_run, kCallBudget).get();
+    MIRAGE_CHECK(!unknown.ok);
+    MIRAGE_CHECK(unknown.error.code == "not_found");
+
+    // Publish different content (the natural edit-then-publish flow); the
+    // gate appends a runnable version and the catalog projects it.
+    ipc::WorkflowPublishRequest publish;
+    publish.definition_json = workflow_definition(workflow_id, step_id, "demo");
+    const ipc::Response published = session.client->call(publish, kCallBudget).get();
+    MIRAGE_CHECK(published.ok);
+    const auto *published_payload = std::get_if<ipc::WorkflowPublished>(&published.payload);
+    MIRAGE_CHECK(published_payload != nullptr);
+    if (published_payload == nullptr) {
+        return;
+    }
+    MIRAGE_CHECK(!published_payload->idempotent);
+    MIRAGE_CHECK(published_payload->dry_run_id.size() == 32);
+
+    const ipc::Response listed_again =
+        session.client->call(ipc::WorkflowListRequest{}, kCallBudget).get();
+    MIRAGE_CHECK(listed_again.ok);
+    const auto *catalog_again = std::get_if<ipc::WorkflowList>(&listed_again.payload);
+    MIRAGE_CHECK(catalog_again != nullptr);
+    if (catalog_again != nullptr) {
+        for (const ipc::WorkflowSummary &entry : catalog_again->workflows) {
+            if (entry.workflow_id == workflow_id) {
+                MIRAGE_CHECK(entry.head_digest == published_payload->digest);
+                MIRAGE_CHECK(entry.validation == "dry_run_passed");
+                MIRAGE_CHECK(entry.runnable);
+            }
+        }
+    }
+
+    // Run from the head (digest absent); the drive is asynchronous and the
+    // run_updated stream reports started then the terminal state.
+    ipc::WorkflowRunRequest run_request;
+    run_request.workflow_id = workflow_id;
+    const ipc::Response started = session.client->call(run_request, kCallBudget).get();
+    MIRAGE_CHECK(started.ok);
+    const auto *started_payload = std::get_if<ipc::WorkflowRunStarted>(&started.payload);
+    MIRAGE_CHECK(started_payload != nullptr);
+    if (started_payload == nullptr) {
+        return;
+    }
+    const std::string run_id = started_payload->run_id;
+    MIRAGE_CHECK(mirage::testing::is_32_lowercase_hex(run_id));
+
+    bool saw_running = false;
+    bool saw_completed = false;
+    const auto deadline = std::chrono::steady_clock::now() + kTaskBudget;
+    while (!saw_completed && std::chrono::steady_clock::now() < deadline) {
+        std::vector<ipc::Event> snapshot;
+        {
+            std::lock_guard<std::mutex> guard(events_mutex);
+            snapshot = events;
+        }
+        for (const ipc::Event &event : snapshot) {
+            const auto *run_updated = std::get_if<ipc::WorkflowRunUpdatedEvent>(&event.payload);
+            if (run_updated == nullptr || run_updated->run_id != run_id) {
+                continue;
+            }
+            saw_running = saw_running || run_updated->state == "running";
+            saw_completed = saw_completed || run_updated->state == "completed";
+        }
+        if (!saw_completed) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{20});
+        }
+    }
+    MIRAGE_CHECK(saw_running);
+    MIRAGE_CHECK(saw_completed);
+
+    // workflow.runs projects the terminal state live from the pinned runtime.
+    const ipc::Response runs = session.client->call(ipc::WorkflowRunsRequest{}, kCallBudget).get();
+    MIRAGE_CHECK(runs.ok);
+    const auto *run_list = std::get_if<ipc::WorkflowRunList>(&runs.payload);
+    MIRAGE_CHECK(run_list != nullptr);
+    if (run_list != nullptr) {
+        bool run_found = false;
+        for (const ipc::WorkflowRunSummary &summary : run_list->runs) {
+            if (summary.run_id == run_id) {
+                run_found = true;
+                MIRAGE_CHECK(summary.state == "completed");
+                MIRAGE_CHECK(summary.workflow_id == workflow_id);
+            }
+        }
+        MIRAGE_CHECK(run_found);
+    }
+
+    // Cancelling a terminal run is the idempotent NoOp.
+    ipc::WorkflowCancelRunRequest cancel;
+    cancel.run_id = run_id;
+    const ipc::Response cancelled = session.client->call(cancel, kCallBudget).get();
+    MIRAGE_CHECK(cancelled.ok);
+    const auto *cancelled_payload = std::get_if<ipc::WorkflowRunCancelled>(&cancelled.payload);
+    MIRAGE_CHECK(cancelled_payload != nullptr);
+    MIRAGE_CHECK(cancelled_payload != nullptr && cancelled_payload->state == "completed");
+
+    // The atom catalog face is served; it stays empty until the desktop
+    // capability tools register (M5-05 second round).
+    const ipc::Response atoms =
+        session.client->call(ipc::WorkflowAtomCatalogRequest{}, kCallBudget).get();
+    MIRAGE_CHECK(atoms.ok);
+    const auto *atom_catalog = std::get_if<ipc::WorkflowAtomCatalog>(&atoms.payload);
+    MIRAGE_CHECK(atom_catalog != nullptr);
+    MIRAGE_CHECK(atom_catalog != nullptr && atom_catalog->tools.empty());
+
+    // Delete removes the catalog entry; the second delete is a not_found.
+    ipc::WorkflowDeleteRequest remove;
+    remove.workflow_id = workflow_id;
+    const ipc::Response deleted = session.client->call(remove, kCallBudget).get();
+    MIRAGE_CHECK(deleted.ok);
+    const ipc::Response deleted_again = session.client->call(remove, kCallBudget).get();
+    MIRAGE_CHECK(!deleted_again.ok);
+    MIRAGE_CHECK(deleted_again.error.code == "not_found");
+
+    session.join_and_stop();
+    MIRAGE_CHECK(session.exit == ipc::SessionClient::RunExit::Stopped);
+
+    const ipc::Response shutdown =
+        ipc::IpcClient(config.socket_path).call(ipc::ShutdownRequest{}, kCallBudget);
+    MIRAGE_CHECK(shutdown.ok);
+}
+
 // --- fail-closed paths -------------------------------------------------------
 
 void scenario_timeout_closes_session_fail_closed() {
@@ -417,5 +627,6 @@ int main() {
     run_scenario("timeout_closes_session_fail_closed", scenario_timeout_closes_session_fail_closed);
     run_scenario("service_shutdown_loses_the_session", scenario_service_shutdown_loses_the_session);
     run_scenario("connect_failure_is_bounded", scenario_connect_failure_is_bounded);
+    run_scenario("workflow_face_round_trip", scenario_workflow_face_round_trip);
     return mirage::testing::finish("session_client_test");
 }

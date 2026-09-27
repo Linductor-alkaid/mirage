@@ -48,6 +48,14 @@ struct ServiceConfig {
     /// Upper bound for one session.history response; larger requested limits
     /// are clamped to it.
     std::size_t max_history_entries = 200;
+    /// Workflow catalog capacity (DEC-023): workflow.save refuses new ids at
+    /// the bound instead of growing without bound; saves and publishes of a
+    /// known id are upserts that do not grow the registry.
+    std::size_t max_workflow_definitions = 128;
+    /// Workflow run registry capacity (DEC-023): workflow.run first evicts
+    /// the oldest entries whose pinned state is terminal, then refuses
+    /// admission with the stable `unavailable` error at the bound.
+    std::size_t max_workflow_runs = 256;
     /// Capacity of one connection's bounded event queue (DEC-012 decision
     /// 5, drop-oldest). Overflowing surfaces as an `events.overflow` marker
     /// instead of growing without bound; snapshots remain the source of

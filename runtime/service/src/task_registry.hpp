@@ -115,6 +115,53 @@ struct SessionRegistry {
     bool contains(const std::string &id) const { return created_at_ms.count(id) != 0; }
 };
 
+/// One workflow catalog entry (DEC-023): the product identity of a workflow
+/// the service saved or published, with the head version's content digest
+/// and validation. The pinned library stays the execution-side authority;
+/// this is the product index (the pinned library has no enumeration API).
+struct WorkflowCatalogEntry {
+    std::string name;
+    std::string head_digest;
+    std::string validation;
+    bool runnable = false;
+    std::int64_t updated_at_ms = 0;
+};
+
+/// Workflow catalog registry (DEC-023): every workflow the service knows,
+/// keyed by workflow id, bounded by `capacity` — workflow.save refuses at
+/// the bound instead of growing without bound (RULE-07); save/publish of a
+/// known id is an upsert that does not grow the registry. All access
+/// happens under `mutex`.
+struct WorkflowRegistry {
+    std::mutex mutex;
+    std::map<std::string, WorkflowCatalogEntry> workflows;
+    std::size_t capacity = 128;
+
+    bool full() const { return workflows.size() >= capacity; }
+    bool contains(const std::string &id) const { return workflows.count(id) != 0; }
+};
+
+/// One run the service admitted through workflow.run (DEC-023): identity and
+/// creation time; the state projects live from the pinned runtime at read
+/// time (workflow.runs / workflow.run_updated).
+struct WorkflowRunRecord {
+    std::string workflow_id;
+    std::int64_t created_at_ms = 0;
+};
+
+/// Workflow run registry (DEC-023): the runs the service admitted, keyed by
+/// run id, bounded by `capacity`. Overflow evicts the oldest entries whose
+/// pinned state is terminal (handlers re-project states live); admission is
+/// refused only when nothing terminal remains to evict. All access happens
+/// under `mutex`.
+struct WorkflowRunRegistry {
+    std::mutex mutex;
+    std::map<std::string, WorkflowRunRecord> runs;
+    std::size_t capacity = 256;
+
+    bool full() const { return runs.size() >= capacity; }
+};
+
 /// Stable name of a MiraHost task progress state for IPC payloads.
 const char *progress_name(TaskProgress progress);
 

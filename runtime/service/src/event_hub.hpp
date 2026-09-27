@@ -72,6 +72,16 @@ class EventHub {
         topic_.publish(ipc::EventPayload{std::move(event)});
     }
 
+    /// Workflow run state (DEC-023). Published directly from the pinned
+    /// event bridge's sink threads — re-submitting onto the serial domain
+    /// from within a serial handler (the publish gate drive emits events)
+    /// would re-enter it; the Topic is thread-safe and the per-connection
+    /// queues stay bounded. No seed semantics — workflow.runs is the resync
+    /// face.
+    void publish_workflow_run(ipc::WorkflowRunUpdatedEvent event) {
+        topic_.publish(ipc::EventPayload{std::move(event)});
+    }
+
     /// Newest host status, engaged once the hosted runtime reported its
     /// first transition; nullopt before that.
     std::optional<ipc::HostStatusEvent> current_host_status() const {
