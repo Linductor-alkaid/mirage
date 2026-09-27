@@ -1570,8 +1570,13 @@ EventDecode decode_event(std::string_view payload) {
         run.workflow_id = std::move(*workflow_id);
         run.state = std::move(*state);
         run.run_epoch = static_cast<std::uint64_t>(*epoch);
-        if (const auto summary = string_member(object, "summary")) {
-            run.summary = std::move(*summary);
+        if (const auto *summary = member(object, "summary"); summary != nullptr) {
+            const auto text = summary->as_string();
+            if (!text) {
+                result.error = "workflow.run_updated 'summary' must be a string";
+                return result;
+            }
+            run.summary = *text;
         }
         result.event.payload = std::move(run);
     } else {
