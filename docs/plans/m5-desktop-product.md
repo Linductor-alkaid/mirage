@@ -735,3 +735,28 @@ success。
   [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
   §4 工作流库与运行监控两行及变更记录、
   [总计划](mirage-implementation-plan.md) 状态叙述与决策表。
+
+2026-09-27：`M5-05` 第一轮 CI 取证完成；run 36310217629（headSha = `66b138d`
+已核实）全部 8 作业 success。
+
+- Linux 矩阵：debug / release / asan / tsan / ubsan 五预设全绿，33/33 测试
+  通过（含 `session_client_test` 新增 `workflow_face_round_trip` 活服务场景：
+  hello `workflows` 能力位、save/list、草稿 W-04 拒绝透传、unknown
+  `not_found`、publish 门禁、run → `workflow.run_updated` started/completed
+  事件流、`workflow.runs` 终态投影、幂等 cancel、空 atom 目录、delete 及二次
+  delete `not_found`）；format & public-header boundaries 绿。
+- frontend 作业：lint + strict tsc + 619 测试 + build 全绿（golden vectors
+  双端门禁消费同一 meta.version 5 vectors 文件）。
+- windows msvc (full tree)：全树构建 + 14/14 测试通过（`win32_product_process_test`
+  新增 `workflow_face_over_named_pipe`：workflow 面经命名管道 + SessionClient
+  事件流取证）。
+- CI 修复轮（同 PR 内）：`bbda681`（GCC `-Werror=missing-field-initializers`
+  / `range-loop-construct`，新成员聚合初始化与循环引用）、`446747e`
+  （session_client_test 挂起守卫 300s → 600s，套件扩为七场景）、`cafc7a3` /
+  `fd865d0`（场景失败诊断与 service 必然关停守卫）、`3cb3abe` / `f5545eb`
+  （**根因修复**：pinned run-settled 载荷不含 workflow_id，桥按 run-started
+  记录解析并在 settle 后退役，未命中丢弃广播——wire 非空约束不变，见 DEC-023）、
+  `ecb7972`（ASAN：workflow sink 捕获 ServiceCore 强引用与 core 持有 bridge
+  构成引用环，改 weak 捕获；`0d97156` shadow 改名）、`66b138d`（TSan：
+  `request_shutdown` 与 teardown 并发分离/析构 ServiceLoop 的数据竞争，
+  `loop` 指针原子化 + 分离/析构对 `request_shutdown` 串行化）。
