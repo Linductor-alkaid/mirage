@@ -507,7 +507,8 @@ HostOutcome MiraHost::admit_operation_completion(const OperationTicket &ticket) 
 
 HostOutcome MiraHost::attach_workflow_surface(
     executor::Executor &executor,
-    std::shared_ptr<mirage::integration::WorkflowEventBridge> event_bridge) {
+    std::shared_ptr<mirage::integration::WorkflowEventBridge> event_bridge,
+    std::shared_ptr<mirage::integration::DesktopAtomToolset> atom_toolset) {
     const HostStatus current = impl_->status.load();
     if (current != HostStatus::Running) {
         return failed(host_error("invalid_state",
@@ -521,6 +522,9 @@ HostOutcome MiraHost::attach_workflow_surface(
     if (!event_bridge) {
         return failed(host_error("invalid_argument", "event bridge is null"));
     }
+    if (!atom_toolset) {
+        return failed(host_error("invalid_argument", "atom toolset is null"));
+    }
     if (!impl_->environment) {
         return failed(host_error("invalid_state", "host has no bound environment"));
     }
@@ -531,6 +535,10 @@ HostOutcome MiraHost::attach_workflow_surface(
     auto runtime = std::make_unique<mira::WorkflowRuntime>(executor, impl_->runtime,
                                                            impl_->session_id, impl_->environment);
     runtime->set_event_store(event_bridge);
+    // ToolCall steps dispatch through the desktop atom registry (DEC-024);
+    // Strict definitions carrying ToolCall steps are rejected at admission
+    // while it is absent, so the registry installs before any run starts.
+    runtime->set_tool_registry(atom_toolset->registry());
     impl_->workflow_runtime = std::move(runtime);
     impl_->workflow_events = std::move(event_bridge);
     return HostOutcome{true, {}};

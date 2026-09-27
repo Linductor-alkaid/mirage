@@ -36,8 +36,14 @@ struct ServiceConfig {
     HostConfig host;
     /// Executor async pool size for the service process; 0 lets the executor
     /// adapt. The service owns this process's only Executor instance
-    /// (EXEC-01).
-    std::size_t executor_threads = 2;
+    /// (EXEC-01). The pool is FIXED at this size (min = max): the floor
+    /// covers the pinned workflow drive structure (DEC-024) — one async
+    /// drive occupies a worker for the run's duration while its step monitor
+    /// and the nested tool-dispatch / verification observations each need a
+    /// worker of their own — and an adaptive minimum would start the pool
+    /// under-provisioned on a small machine, deadlocking the first ToolCall
+    /// run.
+    std::size_t executor_threads = 4;
     std::size_t max_connections = 16;
     std::size_t max_steps_per_task = 64;
     std::size_t max_task_records = 256;

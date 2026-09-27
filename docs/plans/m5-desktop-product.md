@@ -1,7 +1,7 @@
 # M5：Desktop Product（Workspace / Overlay / 权限 / 分发）
 
 > 状态：In Progress（`M5-01`、`M5-02`、`M5-03`、`M5-04` 完成，2026-09-26；
-> `M5-05` 第一轮完成，2026-09-27）
+> `M5-05` 第一轮完成 2026-09-27；第二轮桌面原子工具注册增量完成，2026-09-27）
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M3](m3-mirador-integration.md)（已完成：Mirador 视觉集成与壳选型冻结——
@@ -132,8 +132,8 @@
       投影）与消息 / 轮次 / 增量输出事件集（DEC-012 扩展流程）；Runtime
       Service 由 M1 过渡驱动形态向 mira 会话 / 任务模型演进（DEC-008 迁移
       路径兑现）；golden vectors 双端门禁与 wire 契约同步。
-- [~] `M5-05` 工作流契约面与编辑器真实化（第一轮契约面已完成，2026-09-27；
-      编辑器真实化与 `atom.catalog` 人口为第二轮）：`workflow.*` 请求面（`list` /
+- [~] `M5-05` 工作流契约面与编辑器真实化（第一轮契约面与第二轮桌面原子工具
+      注册已完成，2026-09-27；编辑器完整版接真实面为剩余增量）：`workflow.*` 请求面（`list` /
       `save` / `publish` / `delete` / `atom.catalog` / `runs` / `run` /
       `cancel`），绑定 2026-09-26 升级后的 pinned 工作流 / 工具契约面
       （[DEC-022](../decisions/DEC-022-upstream-capability-adoption.md)
@@ -760,3 +760,83 @@ success。
   构成引用环，改 weak 捕获；`0d97156` shadow 改名）、`66b138d`（TSan：
   `request_shutdown` 与 teardown 并发分离/析构 ServiceLoop 的数据竞争，
   `loop` 指针原子化 + 分离/析构对 `request_shutdown` 串行化）。
+
+2026-09-27：`M5-05` 第二轮增量 1——桌面原子工具注册（`atom.catalog` 人口 +
+ToolCall 执行路径）完成（[DEC-024](../decisions/DEC-024-desktop-atom-toolset.md)
+新增，Accepted；编辑器完整版接真实面为该轮剩余增量）。
+
+- 范围：
+  - **决策记录**：DEC-024——integration/mira `DesktopAtomToolset` 在绑定环境
+    非 null Provider 上构建 pinned `BuiltinToolRegistry`（每 Provider 方法一
+    原子，缺席不注册、目录如实反映能力，null 环境 = 空注册表）；初始 13 原
+    子（观察读 4 项不经权限门，与 observe 路径同位；`filesystem.read` /
+    `clipboard.read` 门禁读；7 项门禁副作用原子），捕获（Artifact 承载须走
+    视觉管线）、元素动作（ElementTarget 解析缝）、指针输入（视觉参考/Overlay
+    故事）与 TR2 `attach_workflow_tool_refs` / `skill_tool_registrations` 挂
+    账后续轮（Degraded 呈现仍不进 wire）。
+  - **执行路径**：handler 有界、不抛出；入口查 pinned `OperationContext` 取
+    消探针 → `AtomPermissionGate` 回调缝（integration 声明、服务以共享
+    `PermissionController` 实现，词表外与 null 控制器一律拒绝）→ Provider 调
+    用；Provider 稳定错误映射 pinned 词表（safe_message 保留原 code）；结果为
+    紧凑 JSON，文本预算 64 KiB（读超预算拒绝、流式截断显式置位）。进程内取
+    消边界如实声明：`process.execute` 由其 1–120 s 超时预算收敛（无宿主线程
+    桥接 CancelToken），run 取消在步边界收敛。副作用原子受 pinned W-02 约
+    束（create_run 准入要求 verification 谓词）；DryRun 门禁只规划不派发。
+  - **接线**：`MiraHost::attach_workflow_surface` 新增非空 `atom_toolset` 参
+    数（编译期破坏性变更，调用点仅服务与测试），attach 时
+    `set_tool_registry()` 安装；服务 `start()` 以共享 `PermissionController`
+    实现权限缝构建工具集，`workflow.atom.catalog` 由空目录返回
+    `exposed_atoms()` 投影。wire 契约零变更（golden 仍 meta.version 5）。
+  - **执行器并发底线（CI 修复轮实证）**：pinned 驱动结构（驱动 + 步监视 +
+    嵌套派发/观察）要求池以固定 min=max ≥ 4 启动——自适应 min 在 2 核机器上
+    仅起 2 worker，首个 ToolCall 运行即死锁（本地 min=max=2 复现、固定 4 通
+    过）；`ServiceConfig::executor_threads` 默认 2 → 4 并同时落到
+    `min_threads` / `max_threads`（此前仅设 max），固定 2 线程的既有测试均
+    不跑 ToolCall 运行、不受影响。
+- 依据：[DEC-023](../decisions/DEC-023-workflow-contract-face.md) 决策 4 与备
+  选"推迟"裁决、[DEC-022](../decisions/DEC-022-upstream-capability-adoption.md)
+  决策 1（目录经 pinned exposed view 承载）、[DEC-010](../decisions/DEC-010-m1-permission-framework.md)
+  （RULE-05）；pinned 依据 `tool_executor.hpp`（注册边界、schema 子集、至多
+  一次派发）、`workflow_runtime.hpp`（`set_tool_registry`、派发通道、
+  W-02 准入）、`workflow_ir.hpp`（ToolCall `arguments["tool"]` 绑定、谓词标
+  量值、策略副作用门禁）。
+- 验证（本机 Windows 11 x64，MSVC 19.44 BuildTools，VS 17 2022）：
+  - 全树 MSVC Debug 构建 0 诊断 0 警告；ctest **26/26 通过 0 skip**（新增
+    `desktop_atom_toolset_test` **109 检查**：空注册表、13 原子目录/排序/
+    schema/副作用分级、裸环境收缩、null 门禁拒绝、门禁能力/资源/探针取证、
+    观察原子无门禁、读原子预算与稳定错误、process 结果、取消探针前置拒绝、
+    快照渲染、至多一次派发；`mira_host_test` 增至 **154 检查**——attach 新参
+    数 null 拒绝 + ToolCall 端到端：发布 DryRun 不派发、Strict 运行副作用落
+    于 fake 剪贴板、门禁翻转后同定义运行 fail closed 且剪贴板不被触碰；
+    `session_client_test` 活服务目录断言更新为绑定真实能力两项原子；其余门
+    禁零回归）。
+  - `mirage-format-check`（clang-format 19）与 `mirage-boundary-check`
+    （39 公共头 0 违规）本机通过。
+- 限制与补跑条件：① Linux 矩阵（debug / release / asan / ubsan / tsan）与
+  `session_client_test` / `win32_product_process_test` 更新场景随本 PR CI 执
+  行（结论由后续记录补录）；② 编辑器完整版接真实面（`WorkflowBackend` IPC
+  适配器 + DEC-013 IR 对齐验收）为 `M5-05` 第二轮剩余增量；③ 进程内取
+  消/权限确认在 workflow ToolCall 路径的端到端交互随 M5-07 策略收紧轮复核。
+- 同步：[DEC-024](../decisions/DEC-024-desktop-atom-toolset.md)（新增）、
+  [DEC-023](../decisions/DEC-023-workflow-contract-face.md)（挂账节引用）、
+  设计文档 §12.4（桌面原子工具集段落）、
+  [总计划](mirage-implementation-plan.md) 决策表（DEC-024 行）。
+
+2026-09-27：`M5-05` 第二轮增量 1 CI 取证完成；run 36322476594
+（headSha = `3ccee92` 已核实）全部 8 作业 success。
+
+- Linux 矩阵：debug / release / asan / tsan / ubsan 五预设全绿，34/34 测试
+  通过（含新增 `desktop_atom_toolset_test` 与 `mira_host_test` ToolCall 端到
+  端场景；`session_client_test` 目录断言更新后随套件通过）；format &
+  public-header boundaries 绿。
+- frontend 作业：lint + strict tsc + 测试 + build 全绿（wire 未变，golden 仍
+  v5）。
+- windows msvc (full tree)：全树构建 + 14/14 测试通过。
+- CI 修复轮（同 PR 内）：`2a4ecf0`（GCC `-Werror=missing-field-initializers`
+  ——SemanticNode 部分花括号初始化改逐字段赋值）、`0be98c7` + `b88c165`
+  （**根因修复**：ToolCall 运行需驱动 + 步监视 + 嵌套派发/观察 ≥3 并发
+  worker，宿主执行器以自适应 min 启动 2 worker 即死锁——本地 min=max=2 复
+  现；`ServiceConfig::executor_threads` 默认 2 → 4 且同时落 min/max 固定
+  池，见 DEC-024 决策 7）、`3ccee92`（run-completed 事件先于驱动清算释放
+  异步槽位，场景内第二次准入对瞬态容量拒绝做有界重试）。
+- 合并裁决：维护者（PR [#55](https://github.com/Linductor-alkaid/mirage/pull/55)）。

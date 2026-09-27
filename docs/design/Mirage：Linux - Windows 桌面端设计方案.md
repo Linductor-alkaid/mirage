@@ -680,9 +680,17 @@ M1 阶段 Local IPC 的落地形态由 [DEC-007](../decisions/DEC-007-local-ipc-
   shutdown → MiraRuntime 停止 → Executor shutdown）。服务侧工作流 / 运行两
   个内存注册表是产品索引（pinned 无库枚举 API），库与 Run 表仍是执行侧事
   实源；均为进程内易失形态，持久化随上游库存储（RISK-2026-038）与 DEC-011
-  条目另行定案。编辑器完整版接真实面、桌面原子工具注册（`atom.catalog` 人
-  口与 ToolCall 执行路径）、每版本工具引用挂载属 `M5-05` 第二轮及后续工作
-  项。
+  条目另行定案。
+- **桌面原子工具集（M5-05 第二轮，DEC-024）**：integration/mira 的
+  `DesktopAtomToolset` 在绑定环境的非空 Provider 上构建 pinned
+  `BuiltinToolRegistry`（每 Provider 方法一个原子，Provider 缺席即不注册，
+  目录如实反映能力；初始 13 项，观察读不经权限门、有词表条目的读写原子经
+  `AtomPermissionGate` 回调缝接服务共享 `PermissionController`，RULE-05 与
+  任务驱动同门）；宿主 attach 时经 pinned `set_tool_registry()` 安装，
+  ToolCall 步由此派发真实桌面动作（副作用原子按 pinned W-02 须声明
+  verification 谓词；DryRun 门禁只规划不派发），`workflow.atom.catalog` 由空
+  目录转为 exposed view 投影。编辑器完整版接真实面与每版本工具引用挂载属
+  `M5-05` 第二轮后续增量。
 
 ## 13. Agent Workspace
 

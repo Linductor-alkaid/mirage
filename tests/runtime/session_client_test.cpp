@@ -13,6 +13,7 @@
 #include "../support/test.hpp"
 
 #include <mira/core_contracts.hpp>
+#include <mira/json.hpp>
 
 #include <mirage/integration/mira_environment_binding.hpp>
 #include <mirage/platform/linux/linux_desktop_environment.hpp>
@@ -521,14 +522,24 @@ void scenario_workflow_face_round_trip() {
     MIRAGE_CHECK(cancelled_payload != nullptr);
     MIRAGE_CHECK(cancelled_payload != nullptr && cancelled_payload->state == "completed");
 
-    // The atom catalog face is served; it stays empty until the desktop
-    // capability tools register (M5-05 second round).
+    // The atom catalog projects the bound environment's real capabilities
+    // (DEC-024): the test binding opts into no desktop surface, so exactly
+    // the M1 filesystem and process atoms are exposed.
     const ipc::Response atoms =
         session.client->call(ipc::WorkflowAtomCatalogRequest{}, kCallBudget).get();
     MIRAGE_CHECK(atoms.ok);
     const auto *atom_catalog = std::get_if<ipc::WorkflowAtomCatalog>(&atoms.payload);
     MIRAGE_CHECK(atom_catalog != nullptr);
-    MIRAGE_CHECK(atom_catalog != nullptr && atom_catalog->tools.empty());
+    if (atom_catalog != nullptr) {
+        MIRAGE_CHECK(atom_catalog->tools.size() == 2);
+        if (atom_catalog->tools.size() == 2) {
+            MIRAGE_CHECK(atom_catalog->tools[0].wire_name == "desktop.filesystem.read_text");
+            MIRAGE_CHECK(atom_catalog->tools[1].wire_name == "desktop.process.execute");
+            MIRAGE_CHECK(atom_catalog->tools[1].has_side_effects);
+            const auto schema = mira::parse_json(atom_catalog->tools[1].parameters_schema_json);
+            MIRAGE_CHECK(schema.has_value() && schema.value().is_object());
+        }
+    }
 
     // Delete removes the catalog entry; the second delete is a not_found.
     ipc::WorkflowDeleteRequest remove;

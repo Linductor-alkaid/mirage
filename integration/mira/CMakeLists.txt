@@ -3,6 +3,7 @@
 # include the pinned Mira headers (DEC-003); its public surface translates
 # between the pinned environment contract and mirage::desktop (DEC-008).
 add_library(mirage_integration_mira STATIC
+    src/desktop_atom_toolset.cpp
     src/mira_environment_binding.cpp
     src/session_journal.cpp
     src/workflow_event_bridge.cpp

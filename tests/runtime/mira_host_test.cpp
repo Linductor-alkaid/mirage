@@ -3,12 +3,16 @@
 #include <mira/adapters/simulator/simulator_environment.hpp>
 #include <mira/environment.hpp>
 
+#include <mirage/integration/desktop_atom_toolset.hpp>
 #include <mirage/integration/mira_adapter.hpp>
 #include <mirage/integration/workflow_event_bridge.hpp>
 #include <mirage/runtime/mira_host.hpp>
 
+#include "../support/fake_desktop_environment.hpp"
+
 #include <executor/executor.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <memory>
@@ -408,6 +412,10 @@ void scenario_workflow_surface_lifecycle() {
     executor::Executor executor;
     MIRAGE_CHECK(executor.initialize_ex(executor::ExecutorConfig{}).ok);
 
+    // The pinned SimulatorBinding carries no mirage desktop environment, so
+    // this surface attaches with the empty atom toolset (zero atoms; the
+    // lifecycle scenarios run no ToolCall steps).
+    const auto tools = mirage::integration::DesktopAtomToolset::build(nullptr, nullptr);
     auto bridge = std::make_shared<mirage::integration::WorkflowEventBridge>();
     // The publish gate drives also emit run events, so the scenario matches
     // events by run identity instead of counting deliveries.
@@ -419,18 +427,23 @@ void scenario_workflow_surface_lifecycle() {
     });
 
     // Attach requires a Running host.
-    const auto early = host.attach_workflow_surface(executor, bridge);
+    const auto early = host.attach_workflow_surface(executor, bridge, tools);
     MIRAGE_CHECK(!early.ok);
     MIRAGE_CHECK(early.error.code == "invalid_state");
 
     const auto binding = std::make_shared<SimulatorBinding>();
     MIRAGE_CHECK(host.start(binding).ok);
 
+    // A null toolset fails closed before the surface opens.
+    const auto null_tools = host.attach_workflow_surface(executor, bridge, nullptr);
+    MIRAGE_CHECK(!null_tools.ok);
+    MIRAGE_CHECK(null_tools.error.code == "invalid_argument");
+
     // The surface attaches once on the Running host; a second attach fails
     // closed.
-    const auto attached = host.attach_workflow_surface(executor, bridge);
+    const auto attached = host.attach_workflow_surface(executor, bridge, tools);
     MIRAGE_CHECK(attached.ok);
-    const auto double_attach = host.attach_workflow_surface(executor, bridge);
+    const auto double_attach = host.attach_workflow_surface(executor, bridge, tools);
     MIRAGE_CHECK(!double_attach.ok);
     MIRAGE_CHECK(double_attach.error.code == "invalid_state");
 
@@ -521,6 +534,136 @@ void scenario_workflow_surface_lifecycle() {
     executor.shutdown(true);
 }
 
+/// IR v1 definition with one ToolCall step bound to a desktop atom; the
+/// reserved "tool" member names the wire atom, the remaining members are the
+/// schema-validated input the handler receives. A side-effecting atom must
+/// declare a verification predicate (pinned W-02); this one reads the
+/// `confirm` run parameter, so the publish DryRun (empty parameters) counts
+/// it NotEvaluable (RULE-10) while a real run binds it through
+/// `workflow.run` parameters.
+std::string tool_call_definition(const std::string &workflow_id, const std::string &step_id,
+                                 const std::string &name, const std::string &text) {
+    return R"({"schema_version":{"major":1,"minor":0},"workflow_id":")" + workflow_id +
+           R"(","name":")" + name +
+           R"(","parameters":[{"name":"confirm","type":"boolean","required":false}],)"
+           R"("steps":[{"step_id":")" +
+           step_id +
+           R"(","kind":"tool_call","arguments":{"tool":"desktop.clipboard.write_text","text":")" +
+           text +
+           R"("},"verification":{"signal":"run_parameter:confirm","op":"eq","value":true})"
+           R"(}],"default_policy":"strict","allowed_policies":["strict","dry_run"]})";
+}
+
+void scenario_tool_call_steps_dispatch_desktop_atoms() {
+    MiraHost host;
+    executor::Executor executor;
+    // The pinned drive occupies one worker for the whole run while its step
+    // monitor and the nested tool-dispatch / verification-observation
+    // futures need workers of their own (pinned WorkflowRuntimeConfig:
+    // drives must stay below the worker count). The pool must be FIXED at
+    // that floor: with an adaptive minimum (hw, min 2 on CI runners) the
+    // pool starts under-provisioned and the first ToolCall run deadlocks
+    // (DEC-024). Four is the service's configured floor; the test proves it
+    // suffices.
+    executor::ExecutorConfig executor_config;
+    executor_config.min_threads = 4;
+    executor_config.max_threads = 4;
+    MIRAGE_CHECK(executor.initialize_ex(executor_config).ok);
+
+    mirage::testing::FakeDesktopEnvironment environment;
+
+    // A switchable RULE-05 gate: run A executes under allow, run B lands
+    // after the flip and must fail closed without touching the clipboard.
+    std::atomic<bool> allow{true};
+    mirage::integration::AtomPermissionGate gate =
+        [&allow](const std::string &, const std::string &,
+                 const mirage::integration::AtomCancelProbe &) { return allow.load(); };
+    const auto tools = mirage::integration::DesktopAtomToolset::build(&environment, gate);
+
+    auto bridge = std::make_shared<mirage::integration::WorkflowEventBridge>();
+    std::mutex events_mutex;
+    std::vector<mirage::integration::WorkflowRunEventView> sink_events;
+    bridge->set_sink([&](const mirage::integration::WorkflowRunEventView &view) {
+        std::lock_guard lock(events_mutex);
+        sink_events.push_back(view);
+    });
+
+    const auto binding = std::make_shared<SimulatorBinding>();
+    MIRAGE_CHECK(host.start(binding).ok);
+    const auto attached = host.attach_workflow_surface(executor, bridge, tools);
+    MIRAGE_CHECK(attached.ok);
+
+    // Publish gates a runnable version: the DryRun drive plans the ToolCall
+    // step without dispatching it (the clipboard must stay untouched) and
+    // its verification predicate reads NotEvaluable against the absent
+    // step_result.
+    const std::string workflow_id = mira::WorkflowId::generate().to_string();
+    const std::string step_id = mira::StepId::generate().to_string();
+    const auto published = host.publish_workflow_definition(
+        tool_call_definition(workflow_id, step_id, "clipboard writer", "from workflow"),
+        "atom publish");
+    check_ok("publish tool-call definition", published);
+
+    // Strict run: the step dispatches through the registry and the provider
+    // side effect lands on the fake environment.
+    const auto run =
+        host.start_workflow_run(workflow_id, published.digest, R"({"confirm":true})", "strict");
+    check_ok("strict tool-call run", run);
+    bool allowed_seen = false;
+    MIRAGE_CHECK(wait_until([&] {
+        std::lock_guard lock(events_mutex);
+        for (const auto &event : sink_events) {
+            if (event.run_id == run.run_id && event.state == "completed") {
+                allowed_seen = true;
+            }
+        }
+        return allowed_seen;
+    }));
+    MIRAGE_CHECK(environment.clipboard_has_text);
+    MIRAGE_CHECK(environment.clipboard_text == "from workflow");
+
+    // Deny path: the same atom fails closed under a denying gate; the run
+    // settles failed and the clipboard keeps the earlier content.
+    allow.store(false);
+    // The completed event is emitted before the drive epilogue retires the
+    // single async slot, so admission here can race it; the capacity
+    // rejection is transient (sub-millisecond epilogue) and the bounded
+    // retry waits it out. Any other rejection fails fast through check_ok.
+    mirage::runtime::WorkflowRunStartResult denied_run;
+    bool denied_admitted = false;
+    for (int waited = 0; waited <= 5000 && !denied_admitted; waited += 10) {
+        denied_run =
+            host.start_workflow_run(workflow_id, published.digest, R"({"confirm":true})", "strict");
+        denied_admitted =
+            denied_run.ok || denied_run.error.message.find("capacity") == std::string::npos;
+        if (!denied_admitted) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+    check_ok("denied tool-call run", denied_run);
+    bool denied_seen = false;
+    MIRAGE_CHECK(wait_until([&] {
+        std::lock_guard lock(events_mutex);
+        for (const auto &event : sink_events) {
+            if (event.run_id == denied_run.run_id && event.state == "failed") {
+                denied_seen = true;
+            }
+        }
+        return denied_seen;
+    }));
+    MIRAGE_CHECK(environment.clipboard_text == "from workflow");
+
+    // Terminal projections stay honest for both runs.
+    const auto view = host.workflow_run_view(denied_run.run_id);
+    MIRAGE_CHECK(view.ok);
+    MIRAGE_CHECK(view.view.state == "failed");
+    MIRAGE_CHECK(bridge->sink_failures() == 0);
+
+    MIRAGE_CHECK(host.shutdown_workflow_surface().ok);
+    MIRAGE_CHECK(host.shutdown().ok);
+    executor.shutdown(true);
+}
+
 void run_scenario(const char *name, void (*scenario)()) {
     std::fprintf(stderr, "[mira_host_test] scenario: %s\n", name);
     scenario();
@@ -544,5 +687,7 @@ int main() {
                  scenario_destructor_releases_started_runtime);
     run_scenario("status_names", scenario_status_names);
     run_scenario("workflow_surface_lifecycle", scenario_workflow_surface_lifecycle);
+    run_scenario("tool_call_steps_dispatch_desktop_atoms",
+                 scenario_tool_call_steps_dispatch_desktop_atoms);
     return mirage::testing::finish("mira_host_test");
 }

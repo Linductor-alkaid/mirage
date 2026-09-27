@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 
+#include <mirage/integration/desktop_atom_toolset.hpp>
 #include <mirage/integration/mira_adapter.hpp>
 #include <mirage/integration/workflow_event_bridge.hpp>
 
@@ -317,13 +318,18 @@ class MiraHost {
     /// Opens the workflow execution surface (M5-05, DEC-023): constructs the
     /// pinned WorkflowRuntime over the hosted runtime, the primary session,
     /// the bound environment and the caller-owned Executor, and installs the
-    /// event bridge as its event store. Requires Running; fails closed when
-    /// the surface is already attached. The executor is the service process's
+    /// event bridge as its event store. `atom_toolset` (DEC-024) supplies the
+    /// desktop atom registry the runtime dispatches ToolCall steps through;
+    /// it must be non-null (an environment without capabilities yields the
+    /// empty toolset) and its providers must outlive
+    /// shutdown_workflow_surface(). Requires Running; fails closed when the
+    /// surface is already attached. The executor is the service process's
     /// only instance (EXEC-01); the bridge handle is kept by the host, so it
     /// must outlive shutdown_workflow_surface().
     HostOutcome
     attach_workflow_surface(executor::Executor &executor,
-                            std::shared_ptr<mirage::integration::WorkflowEventBridge> event_bridge);
+                            std::shared_ptr<mirage::integration::WorkflowEventBridge> event_bridge,
+                            std::shared_ptr<mirage::integration::DesktopAtomToolset> atom_toolset);
 
     /// Appends one draft version of the IR v1 definition (DEC-023): strict
     /// pinned decode, then a NotValidated library record — resolvable but not
