@@ -453,6 +453,10 @@ void scenario_workflow_face_round_trip() {
     // run_updated stream reports started then the terminal state.
     ipc::WorkflowRunRequest run_request;
     run_request.workflow_id = workflow_id;
+    // DryRun policy: the single Verify step's predicate is NotEvaluable
+    // (planned, counted per RULE-10) and the run settles Completed; under a
+    // dispatching policy the pinned runtime settles it Failed instead.
+    run_request.policy = "dry_run";
     const ipc::Response started = session.client->call(run_request, kCallBudget).get();
     if (!started.ok) {
         std::fprintf(stderr, "[session_client_test] run failed: %s: %s\n",

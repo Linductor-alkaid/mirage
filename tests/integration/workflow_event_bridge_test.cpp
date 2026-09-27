@@ -70,6 +70,7 @@ void scenario_started_and_settled_deliver() {
         MIRAGE_CHECK(delivered[0].run_epoch == 0);
         MIRAGE_CHECK(delivered[0].summary.empty());
         MIRAGE_CHECK(delivered[1].run_id == run.to_string());
+        MIRAGE_CHECK(delivered[1].workflow_id == kWorkflow);
         MIRAGE_CHECK(delivered[1].state == "completed");
         MIRAGE_CHECK(delivered[1].run_epoch == 3);
         MIRAGE_CHECK(delivered[1].summary == "gate run settled");
@@ -154,6 +155,22 @@ void scenario_batch_append_delivers_each_event() {
     }
 }
 
+void scenario_settled_without_started_is_dropped() {
+    integration::WorkflowEventBridge bridge;
+    std::atomic<int> deliveries{0};
+    bridge.set_sink([&](const integration::WorkflowRunEventView &) { ++deliveries; });
+
+    // A settled event whose started record the bridge never saw carries no
+    // workflow id; the wire event requires one, so the broadcast is dropped
+    // (workflow.runs stays the snapshot truth).
+    mira::WorkflowRunId run = mira::WorkflowRunId::generate();
+    const auto settled = bridge.append(
+        run_settled_request(run, mira::WorkflowRunState::Completed, 1));
+    MIRAGE_CHECK(settled);
+    MIRAGE_CHECK(deliveries.load() == 0);
+    MIRAGE_CHECK(bridge.delivered_events() == 0);
+}
+
 void scenario_detached_sink_delivers_nothing() {
     integration::WorkflowEventBridge bridge;
     mira::WorkflowRunId run;
@@ -186,6 +203,7 @@ int main() {
     scenario_non_workflow_events_are_silent();
     scenario_sink_exception_is_isolated();
     scenario_batch_append_delivers_each_event();
+    scenario_settled_without_started_is_dropped();
     scenario_detached_sink_delivers_nothing();
     return mirage::testing::finish("workflow_event_bridge_test");
 }

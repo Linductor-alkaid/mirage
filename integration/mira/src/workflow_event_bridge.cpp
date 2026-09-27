@@ -3,6 +3,9 @@
 #include <mira/workflow_events.hpp>
 #include <mira/workflow_run.hpp>
 
+#include <algorithm>
+#include <deque>
+#include <map>
 #include <exception>
 #include <mutex>
 #include <optional>
@@ -20,6 +23,9 @@ using mira::MemoryEventStore;
 /// Decodes one run-level workflow payload into the pinned-free view;
 /// nullopt for every other event type or a payload that fails the pinned
 /// parser (store content drift — counted by the caller, never fatal).
+/// Decodes one run-level workflow payload into the pinned-free view; the
+/// pinned run-settled payload omits the workflow id, so a settled view
+/// leaves it empty and the caller resolves it from the started record.
 std::optional<WorkflowRunEventView> decode_run_event(const EventPayload &payload) {
     if (payload.type == "WorkflowRunStarted") {
         const auto parsed = mira::parse_workflow_run_started(payload);
@@ -65,13 +71,31 @@ struct WorkflowEventBridge::Impl {
         if (!sink) {
             return;
         }
-        const auto view = decode_run_event(payload);
+        auto view = decode_run_event(payload);
         if (!view) {
             if (mira::is_workflow_event_type(payload.type)) {
                 std::lock_guard lock(mutex);
                 ++decode_failures_;
             }
             return;
+        }
+        {
+            std::lock_guard lock(mutex);
+            if (view->state == "running") {
+                // Started: register the run's workflow association.
+                run_workflows[view->run_id] = view->workflow_id;
+                run_order.push_back(view->run_id);
+            } else {
+                // Settled: the wire event requires the workflow id (DEC-023);
+                // resolve it from the started record and retire the entry.
+                const auto workflow = run_workflows.find(view->run_id);
+                if (workflow == run_workflows.end()) {
+                    return; // no started record seen: drop, workflow.runs is the truth
+                }
+                view->workflow_id = workflow->second;
+                run_workflows.erase(workflow);
+                run_order.erase(std::find(run_order.begin(), run_order.end(), view->run_id));
+            }
         }
         try {
             sink(*view);
@@ -91,6 +115,12 @@ struct WorkflowEventBridge::Impl {
     /// Internally synchronized; the mutex above guards only the sink handle
     /// and the counters.
     MemoryEventStore store;
+    /// Run-started records awaiting their settle (run id -> workflow id). The
+    /// pinned run-settled payload omits the workflow id, so the bridge keeps
+    /// the association from the started event and retires it on settle - the
+    /// map holds exactly the runs seen started but not yet settled.
+    std::map<std::string, std::string> run_workflows;
+    std::deque<std::string> run_order;
 };
 
 WorkflowEventBridge::WorkflowEventBridge(std::size_t max_events)
