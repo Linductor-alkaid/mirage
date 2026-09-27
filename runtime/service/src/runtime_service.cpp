@@ -82,7 +82,9 @@ struct RuntimeService::Impl {
     /// worker owns the loop itself. Valid from a successful start_worker()
     /// until the lifecycle leaves Running (the run()/destructor path joins
     /// the loop before touching anything else).
-    detail::ServiceLoop *loop = nullptr;
+    /// Atomic: request_shutdown() is legal from any thread, including while
+    /// the owning thread's teardown has already detached the loop.
+    std::atomic<detail::ServiceLoop *> loop{nullptr};
     ipc::IpcListener listener;
     executor::WorkerHandle loop_worker;
     std::promise<void> loop_done;
@@ -131,18 +133,22 @@ struct RuntimeService::Impl {
         // is thread-safe and the per-connection queues stay bounded
         // (workflow.runs is the snapshot truth).
         core->workflow_bridge = std::make_shared<mirage::integration::WorkflowEventBridge>();
-        core->workflow_bridge->set_sink(
-            [core = core](const mirage::integration::WorkflowRunEventView &view) {
-                ipc::WorkflowRunUpdatedEvent event;
-                event.run_id = view.run_id;
-                event.workflow_id = view.workflow_id;
-                event.state = view.state;
-                event.run_epoch = view.run_epoch;
-                if (!view.summary.empty()) {
-                    event.summary = view.summary;
-                }
-                core->events.publish_workflow_run(std::move(event));
-            });
+        core->workflow_bridge->set_sink([weak = std::weak_ptr<detail::ServiceCore>(core)](
+                                            const mirage::integration::WorkflowRunEventView &view) {
+            const auto core = weak.lock();
+            if (!core) {
+                return;
+            }
+            ipc::WorkflowRunUpdatedEvent event;
+            event.run_id = view.run_id;
+            event.workflow_id = view.workflow_id;
+            event.state = view.state;
+            event.run_epoch = view.run_epoch;
+            if (!view.summary.empty()) {
+                event.summary = view.summary;
+            }
+            core->events.publish_workflow_run(std::move(event));
+        });
         // One controller for the whole service (DEC-010): the configured
         // policy plus the configured confirmation surface — the DEC-020
         // async hub, the legacy sync hook, or the fail-closed default.
@@ -203,8 +209,9 @@ struct RuntimeService::Impl {
         response.ok = true;
         response.id = correlation_id;
         response.payload = std::move(payload);
-        if (loop != nullptr) {
-            loop->post_response(connection_id, ipc::encode_response(response));
+        detail::ServiceLoop *active = loop.load(std::memory_order_acquire);
+        if (active != nullptr) {
+            active->post_response(connection_id, ipc::encode_response(response));
         }
     }
 
@@ -214,14 +221,15 @@ struct RuntimeService::Impl {
         response.ok = false;
         response.id = correlation_id;
         response.error = {std::move(code), std::move(message)};
-        if (loop == nullptr) {
+        detail::ServiceLoop *active = loop.load(std::memory_order_acquire);
+        if (active == nullptr) {
             return;
         }
         const std::string payload = ipc::encode_response(response);
         if (close_after) {
-            loop->post_response_and_close(connection_id, payload);
+            active->post_response_and_close(connection_id, payload);
         } else {
-            loop->post_response(connection_id, payload);
+            active->post_response(connection_id, payload);
         }
     }
 
@@ -288,8 +296,8 @@ struct RuntimeService::Impl {
             respond(connection_id, correlation_id, ipc::ShutdownAccepted{});
             // The response above is queued; the loop flushes it on its
             // ordered exit (DEC-007 service.shutdown semantics).
-            if (loop) {
-                loop->stop_serving();
+            if (detail::ServiceLoop *active = loop.load(std::memory_order_acquire)) {
+                active->stop_serving();
             }
             return;
         }
@@ -629,7 +637,8 @@ struct RuntimeService::Impl {
     /// The current host status seeds the stream (seq 1) so a fresh
     /// subscriber starts from the live state, mirroring the frontend mock.
     void handle_subscribe(std::uint64_t connection_id, std::uint64_t correlation_id) {
-        if (loop == nullptr) {
+        detail::ServiceLoop *active = loop.load(std::memory_order_acquire);
+        if (active == nullptr) {
             fail(connection_id, correlation_id, "internal", "service loop is not running");
             return;
         }
@@ -639,16 +648,17 @@ struct RuntimeService::Impl {
             seed = ipc::EventPayload{std::move(*status)};
         }
         respond(connection_id, correlation_id, ipc::ShutdownAccepted{});
-        loop->post_attach_events(connection_id, std::move(subscription), std::move(seed));
+        active->post_attach_events(connection_id, std::move(subscription), std::move(seed));
     }
 
     /// Serial thread: drop the connection's subscription; idempotent.
     void handle_unsubscribe(std::uint64_t connection_id, std::uint64_t correlation_id) {
-        if (loop == nullptr) {
+        detail::ServiceLoop *active = loop.load(std::memory_order_acquire);
+        if (active == nullptr) {
             fail(connection_id, correlation_id, "internal", "service loop is not running");
             return;
         }
-        loop->post_detach_events(connection_id);
+        active->post_detach_events(connection_id);
         respond(connection_id, correlation_id, ipc::ShutdownAccepted{});
     }
 
@@ -1067,8 +1077,9 @@ struct RuntimeService::Impl {
         }
         // Within the Running lifecycle the loop object is alive (it dies
         // only during teardown, which runs after the loop exited).
-        if (loop != nullptr) {
-            loop->stop_serving();
+        detail::ServiceLoop *active = loop.load(std::memory_order_acquire);
+        if (active != nullptr) {
+            active->stop_serving();
         } else if (loop_worker.started()) {
             loop_worker.request_stop();
         }
@@ -1082,7 +1093,7 @@ struct RuntimeService::Impl {
         if (loop_worker.started()) {
             loop_worker.stop();
         }
-        loop = nullptr;
+        loop.store(nullptr, std::memory_order_release);
         std::vector<executor::TaskHandle> handles;
         std::vector<std::future<void>> driver_futures;
         {
@@ -1320,7 +1331,7 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
     if (impl_->shutdown_fd >= 0) {
         owned_loop->register_shutdown_fd(impl_->shutdown_fd);
     }
-    impl_->loop = owned_loop.get();
+    impl_->loop.store(owned_loop.get(), std::memory_order_release);
 
     executor::BlockingWorkerSpec spec;
     spec.name = "mirage-ipc-loop";
@@ -1330,7 +1341,7 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
     spec.worker = std::move(owned_loop);
     impl_->loop_worker = impl_->core->executor.start_worker(std::move(spec));
     if (!impl_->loop_worker.started()) {
-        impl_->loop = nullptr;
+        impl_->loop.store(nullptr, std::memory_order_release);
         impl_->listener.close();
         impl_->core->host.shutdown();
         impl_->publish_host_status(impl_->core->host.status());
