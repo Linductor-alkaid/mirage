@@ -328,13 +328,19 @@ Mirage Shell（统一应用壳）
 
 ### 3.3 会话页（harness 主界面）
 
-- **SessionsSidebar**（240px，可折叠）：新建会话（默认进入执行模式）、搜索框、
-  分组列表。会话对象四件套（重命名[AI 摘要]/置顶/删除确认/导出 Markdown）+ fork
-  （依赖 Mira 会话树，P4 检查点落位后开放）。
+- **SessionsSidebar**（240px，可折叠）：新建会话、搜索框、分组列表。
+  列表接 `session.list` 快照（含主会话），标题为展示层派生（首条 user 消息
+  或会话 id 前缀，DEC-025）；会话"四件套"（重命名[AI 摘要]/置顶/删除确认/
+  导出 Markdown）与 fork 依赖尚不存在的会话管理面，UI 不以本地状态伪造，
+  挂账协议扩展评估（DEC-025 挂账②）。
 - **ThreadView**：消息组 + ActivityCard 流。运行期事件（task.updated / 观察快照 /
   权限请求）作为系统行或活动卡进入消息流；长会话开启"过程折叠 + 轮次导航"。
+  M5-06（DEC-025）落地形态：user / outcome 来自会话面（`session.history` 基线 +
+  `session.message` 增量），步骤卡来自任务快照；`session.turn` / `session.output`
+  作为观察台观察流的事件源。
 - **Composer**：对话模式（纯交流，不产生桌面动作）与执行模式（提交目标给 agent
-  执行，等价 M1 `task.submit` 语义）。
+  执行，等价 M1 `task.submit` 语义）。对话模式在模型循环接入前如实降级
+  （入口禁用 + 原因标注，DEC-025 决策 3）。
 - **RunDrawer**：运行中自动展开，可手动固定。
 - M1 已交付视图映射：M1.5-04 Workspace 提交表单 → Composer（执行模式）；Tasks
   列表 → SessionsSidebar 分组 + 会话条目状态徽标；Execution 详情 → RunDrawer 与
@@ -397,8 +403,8 @@ Mirage Shell（统一应用壳）
 
 | 前端能力 | 现有契约 | 前瞻依赖（记录为契约工作项输入） |
 | --- | --- | --- |
-| 会话列表/管理 | `session.list` / `session.open` / `session.history`（M5-04，DEC-021）；hello `sessions` 能力位探测 | 接线与产品化属 M5-06；`session.open` 容量饱和以 `unavailable` 显式拒绝 |
-| 会话消息流 | `session.message` / `session.turn` / `session.output` / `session.updated` 事件（M5-04，DEC-012 机制）；`session.history` 为含时间戳的重同步快照事实源 | 增量输出在 M1 驱动形态为每步一份完整 chunk，流式化后同形状多 chunk（wire 不变）；真实渲染属 M5-06 |
+| 会话列表/管理 | `session.list` / `session.open` / `session.history`（M5-04，DEC-021）；hello `sessions` 能力位探测 | 已接线（M5-06 第一轮，DEC-025：列表快照 + 派生标题，新建经 `session.open`，容量饱和 `unavailable` 显式拒绝）；重命名 / 删除 / 导出 / fork 无 wire 面，挂账协议扩展评估（DEC-025 挂账②） |
+| 会话消息流 | `session.message` / `session.turn` / `session.output` / `session.updated` 事件（M5-04，DEC-012 机制）；`session.history` 为含时间戳的重同步快照事实源 | 已接线（M5-06 第一轮，DEC-025）：user / outcome 入线程（history 基线 + message 增量 + sequence 去重）；增量输出在 M1 驱动形态为每步一份完整 chunk，流式化后同形状多 chunk（wire 不变）；turn / output 作观察台观察流事件源 |
 | 执行模式提交 | `task.submit`（M1） | 已满足最小闭环；对话模式依赖消息面 |
 | 批准中心 | `permission.request` 事件 + `permission.respond` / `permission.list`（M5-03，DEC-020）；hello `permissions` 能力位探测 | 确认等待预算提示用 `timeout_ms`（事件与快照均携带）；批准结果经 `task.updated` / `task.inspect` 步 trace 呈现 |
 | 工作流库/编辑器 | `workflow.list` / `workflow.save`（草稿 = `not_validated` 版本） / `workflow.publish`（DryRun 门禁 + 幂等） / `workflow.delete`（产品目录移除） / `workflow.atom.catalog`（pinned BuiltIn exposed view 承载，第一轮为空目录） / `workflow.runs` / `workflow.run` / `workflow.cancel`（M5-05 第一轮，DEC-023）；hello `workflows` 能力位探测 | 定义 JSON 为 IR v1 对象（256 KiB 预算）；`WorkflowBackend` IPC 适配器（编辑器接真实面）属 M5-05 第二轮 |
@@ -422,6 +428,10 @@ Mirage Shell（统一应用壳）
 
 ## 6. 变更记录
 
+- 2026-09-27：`M5-06` 第一轮落地（[DEC-025](../decisions/DEC-025-session-page-productization.md)）
+  ——§3.3 SessionsSidebar / ThreadView / Composer 三条按契约路径更新（会话列表接
+  `session.list`、线程 user/outcome 接会话面、对话模式在模型循环前如实降级、
+  会话管理四件套挂账）；§4 会话列表与消息流两行更新为已接线；模拟域退出会话页。
 - 2026-09-27：`M5-05` 第一轮落地（DEC-023）——§4 工作流库/编辑器行由"无契约"
   更新为已落地的 `workflow.*` 八请求面（草稿 / 发布 / 删除语义见
   [DEC-023](../decisions/DEC-023-workflow-contract-face.md)），运行监控行更新为
