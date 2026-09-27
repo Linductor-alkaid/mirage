@@ -500,9 +500,9 @@ void scenario_response_rejects_malformed_payloads() {
 
 void scenario_workflow_requests_round_trip() {
     // Bare ops.
-    for (const ipc::Request request : std::vector<ipc::Request>{
-             ipc::WorkflowListRequest{}, ipc::WorkflowAtomCatalogRequest{},
-             ipc::WorkflowRunsRequest{}}) {
+    for (const ipc::Request request :
+         std::vector<ipc::Request>{ipc::WorkflowListRequest{}, ipc::WorkflowAtomCatalogRequest{},
+                                   ipc::WorkflowRunsRequest{}}) {
         const std::string payload = ipc::encode_request(30, request);
         const ipc::RequestDecode decoded = ipc::decode_request(payload);
         MIRAGE_CHECK(decoded.ok);
@@ -644,8 +644,8 @@ void scenario_workflow_responses_round_trip() {
     }
     // Saved / published / deleted.
     {
-        const ipc::ResponseDecode decoded = ipc::decode_response(ipc::encode_response(
-            ipc::Response{true, 41, ipc::WorkflowSaved{"wf-1", "d1"}, {}}));
+        const ipc::ResponseDecode decoded = ipc::decode_response(
+            ipc::encode_response(ipc::Response{true, 41, ipc::WorkflowSaved{"wf-1", "d1"}, {}}));
         MIRAGE_CHECK(decoded.ok);
         const auto *saved = std::get_if<ipc::WorkflowSaved>(&decoded.response.payload);
         MIRAGE_CHECK(saved != nullptr);
@@ -655,8 +655,8 @@ void scenario_workflow_responses_round_trip() {
         }
     }
     {
-        const ipc::ResponseDecode decoded = ipc::decode_response(
-            ipc::encode_response(ipc::Response{true, 42, ipc::WorkflowPublished{"wf-1", "d2", "r1", true}, {}}));
+        const ipc::ResponseDecode decoded = ipc::decode_response(ipc::encode_response(
+            ipc::Response{true, 42, ipc::WorkflowPublished{"wf-1", "d2", "r1", true}, {}}));
         MIRAGE_CHECK(decoded.ok);
         const auto *published = std::get_if<ipc::WorkflowPublished>(&decoded.response.payload);
         MIRAGE_CHECK(published != nullptr);
@@ -754,10 +754,11 @@ void scenario_workflow_responses_reject_malformed_payloads() {
         R"({"v":1,"id":1,"ok":true,"workflows":[{"workflow_id":"w","name":"n","head_digest":"d","validation":"maybe","runnable":false,"updated_at_ms":0}]})",
         R"({"v":1,"id":1,"ok":true,"runs":[{"run_id":"r","workflow_id":"w","state":"zombie","run_epoch":1,"created_at_ms":0}]})",
         R"({"v":1,"id":1,"ok":true,"tools":[{"wire_name":"t","version":"1.0.0","description":"d","has_side_effects":false}]})",
-        R"({"v":1,"id":1,"ok":true,"digest":"d1"})",                 // saved without workflow_id
-        R"({"v":1,"id":1,"ok":true,"run_id":""})",                   // empty run id
-        R"({"v":1,"id":1,"ok":true,"run_id":"r","state":3})",        // state type
-        R"({"v":1,"id":1,"ok":true,"dry_run_id":"r1","workflow_id":"w","digest":"d"})", // no idempotent
+        R"({"v":1,"id":1,"ok":true,"digest":"d1"})",          // saved without workflow_id
+        R"({"v":1,"id":1,"ok":true,"run_id":""})",            // empty run id
+        R"({"v":1,"id":1,"ok":true,"run_id":"r","state":3})", // state type
+        R"({"v":1,"id":1,"ok":true,"dry_run_id":"r1","workflow_id":"w","digest":"d"})", // no
+                                                                                        // idempotent
     };
     for (const char *payload : invalid_payloads) {
         const ipc::ResponseDecode decoded = ipc::decode_response(payload);
@@ -773,8 +774,7 @@ void scenario_workflow_run_updated_event_round_trip() {
         event.workflow_id = "wf-1";
         event.state = "running";
         event.run_epoch = 0;
-        const std::string payload =
-            ipc::encode_event(ipc::Event{11, event});
+        const std::string payload = ipc::encode_event(ipc::Event{11, event});
         MIRAGE_CHECK(payload.find("workflow.run_updated") != std::string::npos);
         MIRAGE_CHECK(payload.find("summary") == std::string::npos);
         const ipc::EventDecode decoded = ipc::decode_event(payload);
@@ -804,10 +804,11 @@ void scenario_workflow_run_updated_event_round_trip() {
             MIRAGE_CHECK(*back->summary == "step budget exhausted");
         }
     }
-    for (const char *payload : std::vector<const char *>{
-             R"({"v":1,"seq":1,"event":"workflow.run_updated","run_id":"r","state":"running","run_epoch":0})",
-             R"({"v":1,"seq":1,"event":"workflow.run_updated","run_id":"r","workflow_id":"w","state":"zombie","run_epoch":0})",
-             R"({"v":1,"seq":1,"event":"workflow.run_updated","run_id":"r","workflow_id":"w","state":"running","run_epoch":-1})"}) {
+    for (
+        const char *payload : std::vector<const char *>{
+            R"({"v":1,"seq":1,"event":"workflow.run_updated","run_id":"r","state":"running","run_epoch":0})",
+            R"({"v":1,"seq":1,"event":"workflow.run_updated","run_id":"r","workflow_id":"w","state":"zombie","run_epoch":0})",
+            R"({"v":1,"seq":1,"event":"workflow.run_updated","run_id":"r","workflow_id":"w","state":"running","run_epoch":-1})"}) {
         const ipc::EventDecode decoded = ipc::decode_event(payload);
         MIRAGE_CHECK(!decoded.ok);
     }

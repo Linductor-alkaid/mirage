@@ -178,14 +178,12 @@ struct WorkflowCancelRunRequest {
     std::string run_id;
 };
 
-using Request =
-    std::variant<HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest,
-                 CancelTaskRequest, ShutdownRequest, SubscribeEventsRequest,
-                 UnsubscribeEventsRequest, RespondPermissionRequest, ListPermissionsRequest,
-                 ListSessionsRequest, OpenSessionRequest, SessionHistoryRequest,
-                 WorkflowListRequest, WorkflowSaveRequest, WorkflowPublishRequest,
-                 WorkflowDeleteRequest, WorkflowAtomCatalogRequest, WorkflowRunsRequest,
-                 WorkflowRunRequest, WorkflowCancelRunRequest>;
+using Request = std::variant<
+    HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest, CancelTaskRequest,
+    ShutdownRequest, SubscribeEventsRequest, UnsubscribeEventsRequest, RespondPermissionRequest,
+    ListPermissionsRequest, ListSessionsRequest, OpenSessionRequest, SessionHistoryRequest,
+    WorkflowListRequest, WorkflowSaveRequest, WorkflowPublishRequest, WorkflowDeleteRequest,
+    WorkflowAtomCatalogRequest, WorkflowRunsRequest, WorkflowRunRequest, WorkflowCancelRunRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses

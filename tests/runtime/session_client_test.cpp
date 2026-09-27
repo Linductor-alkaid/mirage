@@ -380,7 +380,8 @@ void scenario_workflow_face_round_trip() {
     MIRAGE_CHECK(saved_payload->workflow_id == workflow_id);
     MIRAGE_CHECK(saved_payload->digest.size() == 64);
 
-    const ipc::Response listed = session.client->call(ipc::WorkflowListRequest{}, kCallBudget).get();
+    const ipc::Response listed =
+        session.client->call(ipc::WorkflowListRequest{}, kCallBudget).get();
     MIRAGE_CHECK(listed.ok);
     const auto *catalog = std::get_if<ipc::WorkflowList>(&listed.payload);
     MIRAGE_CHECK(catalog != nullptr);

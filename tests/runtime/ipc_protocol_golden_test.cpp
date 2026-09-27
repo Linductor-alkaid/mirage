@@ -765,8 +765,8 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
     } else if (kind == "workflow-run-started") {
         response.payload = ipc::WorkflowRunStarted{vector_string(value, "run_id")};
     } else if (kind == "workflow-run-cancelled") {
-        response.payload =
-            ipc::WorkflowRunCancelled{vector_string(value, "run_id"), vector_string(value, "state")};
+        response.payload = ipc::WorkflowRunCancelled{vector_string(value, "run_id"),
+                                                     vector_string(value, "state")};
     } else if (kind == "session-history") {
         ipc::SessionHistory history;
         history.session_id = vector_string(value, "session_id");

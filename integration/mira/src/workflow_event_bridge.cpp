@@ -141,7 +141,8 @@ mira::Result<mira::EventPage> WorkflowEventBridge::read(const mira::EventQuery &
     return impl_->store.read(query);
 }
 
-mira::Result<mira::StoreRecoveryReport> WorkflowEventBridge::recover(const mira::RecoveryOptions &options) {
+mira::Result<mira::StoreRecoveryReport>
+WorkflowEventBridge::recover(const mira::RecoveryOptions &options) {
     return impl_->store.recover(options);
 }
 

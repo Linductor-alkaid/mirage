@@ -83,9 +83,9 @@ constexpr const char *kTurnStatusNames[] = {"ok", "failed", "cancelled", "skippe
 /// WorkflowRunState set in stable lowercase form, carried by workflow.runs
 /// entries, workflow.run_updated events and the workflow.cancel reply. The
 /// golden vectors pin the set on both ends.
-constexpr const char *kWorkflowRunStateNames[] = {
-    "created", "running", "paused", "waiting_user",
-    "waiting_agent", "completed", "failed", "cancelled"};
+constexpr const char *kWorkflowRunStateNames[] = {"created",      "running",       "paused",
+                                                  "waiting_user", "waiting_agent", "completed",
+                                                  "failed",       "cancelled"};
 
 /// Closed workflow validation vocabulary (DEC-023): the pinned
 /// WorkflowValidationResult set in stable lowercase form, carried by
@@ -152,8 +152,7 @@ mira::JsonValue embedded_json(const std::string &text) {
 /// Captures a JSON-object member into its canonical serialization for the
 /// pinned-free request/response structs; the object shape is checked by the
 /// caller. Nullopt when the member is absent.
-std::optional<std::string> object_member_text(const mira::JsonValue &object,
-                                              std::string_view key) {
+std::optional<std::string> object_member_text(const mira::JsonValue &object, std::string_view key) {
     const auto *value = member(object, key);
     if (value == nullptr) {
         return std::nullopt;
@@ -1208,7 +1207,8 @@ ResponseDecode decode_response(std::string_view payload) {
         auto digest = string_member(object, "digest");
         auto dry_run_text = string_member(object, "dry_run_id");
         const auto *idempotent = member(object, "idempotent");
-        const auto idempotent_flag = idempotent == nullptr ? std::nullopt : idempotent->as_boolean();
+        const auto idempotent_flag =
+            idempotent == nullptr ? std::nullopt : idempotent->as_boolean();
         if (!workflow_id || workflow_id->empty() || !digest || digest->empty() || !dry_run_text ||
             dry_run_text->empty() || !idempotent_flag) {
             result.error = "workflow.publish response requires 'workflow_id', 'digest', "
@@ -1227,8 +1227,7 @@ ResponseDecode decode_response(std::string_view payload) {
             return result;
         }
         response.payload = WorkflowSaved{std::move(*workflow_id), std::move(*digest)};
-    } else if (const auto *workflow_id = member(object, "workflow_id");
-               workflow_id != nullptr) {
+    } else if (const auto *workflow_id = member(object, "workflow_id"); workflow_id != nullptr) {
         auto id_text = string_member(object, "workflow_id");
         if (!id_text || id_text->empty()) {
             result.error = "workflow.delete response requires a non-empty 'workflow_id'";
@@ -1555,8 +1554,8 @@ EventDecode decode_event(std::string_view payload) {
         const auto workflow_id = string_member(object, "workflow_id");
         const auto state = string_member(object, "state");
         const auto epoch = integer_member(object, "run_epoch");
-        if (!run_id || run_id->empty() || !workflow_id || workflow_id->empty() || !state || !epoch ||
-            *epoch < 0) {
+        if (!run_id || run_id->empty() || !workflow_id || workflow_id->empty() || !state ||
+            !epoch || *epoch < 0) {
             result.error = "workflow.run_updated requires 'run_id', 'workflow_id', 'state', a "
                            "non-negative 'run_epoch'";
             return result;

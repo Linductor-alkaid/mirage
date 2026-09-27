@@ -38,8 +38,8 @@ mira::AppendRequest run_started_request(mira::WorkflowRunId &run_out) {
 }
 
 /// Builds the append request for the same run's settled event.
-mira::AppendRequest run_settled_request(const mira::WorkflowRunId &run, mira::WorkflowRunState state,
-                                        std::uint64_t epoch) {
+mira::AppendRequest run_settled_request(const mira::WorkflowRunId &run,
+                                        mira::WorkflowRunState state, std::uint64_t epoch) {
     const mira::WorkflowRunSettledEvent event{run, state, epoch, "gate run settled"};
     mira::AppendRequest request;
     request.event_id = mira::EventId::generate();
@@ -52,15 +52,14 @@ mira::AppendRequest run_settled_request(const mira::WorkflowRunId &run, mira::Wo
 void scenario_started_and_settled_deliver() {
     integration::WorkflowEventBridge bridge;
     std::vector<integration::WorkflowRunEventView> delivered;
-    bridge.set_sink([&](const integration::WorkflowRunEventView &view) {
-        delivered.push_back(view);
-    });
+    bridge.set_sink(
+        [&](const integration::WorkflowRunEventView &view) { delivered.push_back(view); });
 
     mira::WorkflowRunId run;
     const auto started = bridge.append(run_started_request(run));
     MIRAGE_CHECK(started);
-    const auto settled = bridge.append(
-        run_settled_request(run, mira::WorkflowRunState::Completed, 3));
+    const auto settled =
+        bridge.append(run_settled_request(run, mira::WorkflowRunState::Completed, 3));
     MIRAGE_CHECK(settled);
 
     MIRAGE_CHECK(delivered.size() == 2);
@@ -137,9 +136,8 @@ void scenario_sink_exception_is_isolated() {
 void scenario_batch_append_delivers_each_event() {
     integration::WorkflowEventBridge bridge;
     std::vector<integration::WorkflowRunEventView> delivered;
-    bridge.set_sink([&](const integration::WorkflowRunEventView &view) {
-        delivered.push_back(view);
-    });
+    bridge.set_sink(
+        [&](const integration::WorkflowRunEventView &view) { delivered.push_back(view); });
 
     mira::WorkflowRunId run;
     std::vector<mira::AppendRequest> batch;

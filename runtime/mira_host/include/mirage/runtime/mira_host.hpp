@@ -201,7 +201,7 @@ struct WorkflowDefinitionResult {
     std::string workflow_id;
     std::string digest;
     std::string name;
-    std::string dry_run_id; ///< publish only; empty for save
+    std::string dry_run_id;  ///< publish only; empty for save
     bool idempotent = false; ///< publish only
     HostError error;
 };
@@ -321,9 +321,9 @@ class MiraHost {
     /// the surface is already attached. The executor is the service process's
     /// only instance (EXEC-01); the bridge handle is kept by the host, so it
     /// must outlive shutdown_workflow_surface().
-    HostOutcome attach_workflow_surface(executor::Executor &executor,
-                                        std::shared_ptr<mirage::integration::WorkflowEventBridge>
-                                            event_bridge);
+    HostOutcome
+    attach_workflow_surface(executor::Executor &executor,
+                            std::shared_ptr<mirage::integration::WorkflowEventBridge> event_bridge);
 
     /// Appends one draft version of the IR v1 definition (DEC-023): strict
     /// pinned decode, then a NotValidated library record — resolvable but not

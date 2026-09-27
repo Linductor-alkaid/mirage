@@ -66,9 +66,8 @@ bool takes_value(const std::string &name) {
     return name == "--socket" || name == "--timeout" || name == "--goal" || name == "--read" ||
            name == "--exec" || name == "--step-timeout" || name == "--wait" ||
            name == "--read-root" || name == "--perm" || name == "--confirm" || name == "--config" ||
-           name == "--state-dir" || name == "--session" || name == "--limit" ||
-           name == "--file" || name == "--parameters-file" || name == "--digest" ||
-           name == "--policy";
+           name == "--state-dir" || name == "--session" || name == "--limit" || name == "--file" ||
+           name == "--parameters-file" || name == "--digest" || name == "--policy";
 }
 
 /// Splits `--name value` / `--name=value` pairs; returns false on usage
@@ -758,9 +757,9 @@ int command_workflow_list(int argc, char **argv) {
     }
     const auto list = std::get<mirage::runtime::ipc::WorkflowList>(response.payload);
     for (const auto &workflow : list.workflows) {
-        std::cout << workflow.workflow_id << ' ' << workflow.name << ' '
-                  << workflow.head_digest << ' ' << workflow.validation << ' '
-                  << (workflow.runnable ? "runnable" : "draft") << '\n';
+        std::cout << workflow.workflow_id << ' ' << workflow.name << ' ' << workflow.head_digest
+                  << ' ' << workflow.validation << ' ' << (workflow.runnable ? "runnable" : "draft")
+                  << '\n';
     }
     std::cout << list.workflows.size() << " workflow(s)\n";
     return kExitOk;
@@ -800,8 +799,7 @@ int command_workflow_save(int argc, char **argv) {
         return code;
     }
     const auto saved = std::get<mirage::runtime::ipc::WorkflowSaved>(response.payload);
-    std::cout << "workflow " << saved.workflow_id << '\n'
-              << "draft " << saved.digest << '\n';
+    std::cout << "workflow " << saved.workflow_id << '\n' << "draft " << saved.digest << '\n';
     return kExitOk;
 }
 
@@ -1162,8 +1160,7 @@ int main(int argc, char **argv) {
             if (subcommand == "cancel") {
                 return command_workflow_cancel(argc, argv);
             }
-            std::cerr << kProgramName << ": unknown workflow subcommand '" << subcommand
-                      << "'\n";
+            std::cerr << kProgramName << ": unknown workflow subcommand '" << subcommand << "'\n";
             return kExitUsage;
         }
         if (command == "session" && argc >= 3) {

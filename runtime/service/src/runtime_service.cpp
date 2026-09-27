@@ -131,18 +131,18 @@ struct RuntimeService::Impl {
         // is thread-safe and the per-connection queues stay bounded
         // (workflow.runs is the snapshot truth).
         core->workflow_bridge = std::make_shared<mirage::integration::WorkflowEventBridge>();
-        core->workflow_bridge->set_sink([core = core](
-                                            const mirage::integration::WorkflowRunEventView &view) {
-            ipc::WorkflowRunUpdatedEvent event;
-            event.run_id = view.run_id;
-            event.workflow_id = view.workflow_id;
-            event.state = view.state;
-            event.run_epoch = view.run_epoch;
-            if (!view.summary.empty()) {
-                event.summary = view.summary;
-            }
-            core->events.publish_workflow_run(std::move(event));
-        });
+        core->workflow_bridge->set_sink(
+            [core = core](const mirage::integration::WorkflowRunEventView &view) {
+                ipc::WorkflowRunUpdatedEvent event;
+                event.run_id = view.run_id;
+                event.workflow_id = view.workflow_id;
+                event.state = view.state;
+                event.run_epoch = view.run_epoch;
+                if (!view.summary.empty()) {
+                    event.summary = view.summary;
+                }
+                core->events.publish_workflow_run(std::move(event));
+            });
         // One controller for the whole service (DEC-010): the configured
         // policy plus the configured confirmation surface — the DEC-020
         // async hub, the legacy sync hook, or the fail-closed default.
@@ -828,12 +828,12 @@ struct RuntimeService::Impl {
                               ipc::WorkflowSaveRequest request) {
         if (request.definition_json.size() > kMaxWorkflowDefinitionBytes) {
             fail(connection_id, correlation_id, "invalid_argument",
-                 "workflow definition exceeds the " +
-                     std::to_string(kMaxWorkflowDefinitionBytes) + " byte budget");
+                 "workflow definition exceeds the " + std::to_string(kMaxWorkflowDefinitionBytes) +
+                     " byte budget");
             return;
         }
-        const auto saved = core->host.save_workflow_definition(request.definition_json,
-                                                               "workflow.save draft");
+        const auto saved =
+            core->host.save_workflow_definition(request.definition_json, "workflow.save draft");
         if (!saved.ok) {
             fail(connection_id, correlation_id, saved.error.code, saved.error.message);
             return;
@@ -854,8 +854,7 @@ struct RuntimeService::Impl {
             entry.updated_at_ms = wall_now_ms();
             core->workflows.workflows[saved.workflow_id] = std::move(entry);
         }
-        respond(connection_id, correlation_id,
-                ipc::WorkflowSaved{saved.workflow_id, saved.digest});
+        respond(connection_id, correlation_id, ipc::WorkflowSaved{saved.workflow_id, saved.digest});
     }
 
     /// Serial thread: run the pinned publish gate on the definition (DEC-023).
@@ -865,8 +864,8 @@ struct RuntimeService::Impl {
                                  ipc::WorkflowPublishRequest request) {
         if (request.definition_json.size() > kMaxWorkflowDefinitionBytes) {
             fail(connection_id, correlation_id, "invalid_argument",
-                 "workflow definition exceeds the " +
-                     std::to_string(kMaxWorkflowDefinitionBytes) + " byte budget");
+                 "workflow definition exceeds the " + std::to_string(kMaxWorkflowDefinitionBytes) +
+                     " byte budget");
             return;
         }
         const auto published = core->host.publish_workflow_definition(request.definition_json,
@@ -981,9 +980,8 @@ struct RuntimeService::Impl {
                      std::to_string(core->workflow_runs.capacity) + ")");
             return;
         }
-        const auto started =
-            core->host.start_workflow_run(request.workflow_id, digest, request.parameters_json,
-                                          request.policy);
+        const auto started = core->host.start_workflow_run(request.workflow_id, digest,
+                                                           request.parameters_json, request.policy);
         if (!started.ok) {
             fail(connection_id, correlation_id, started.error.code, started.error.message);
             return;
@@ -1279,9 +1277,8 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
     // WorkflowRuntime over the service executor and the primary session,
     // with the bridge as its event store. A failure here fails start()
     // closed — the workflow faces are core equipment, not optional.
-    const HostOutcome workflow_surface =
-        impl_->core->host.attach_workflow_surface(impl_->core->executor,
-                                                  impl_->core->workflow_bridge);
+    const HostOutcome workflow_surface = impl_->core->host.attach_workflow_surface(
+        impl_->core->executor, impl_->core->workflow_bridge);
     if (!workflow_surface.ok) {
         impl_->core->host.shutdown();
         impl_->publish_host_status(impl_->core->host.status());

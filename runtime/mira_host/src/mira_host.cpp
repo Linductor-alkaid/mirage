@@ -470,7 +470,8 @@ OperationBeginResult MiraHost::begin_operation(const TaskIdentity &task) {
     return OperationBeginResult{true, std::move(ticket), {}};
 }
 
-HostOutcome MiraHost::admit_operation_completion(const OperationTicket &ticket) {    const HostStatus current = impl_->status.load();
+HostOutcome MiraHost::admit_operation_completion(const OperationTicket &ticket) {
+    const HostStatus current = impl_->status.load();
     if (current != HostStatus::Running) {
         return failed(host_error("invalid_state",
                                  std::string("admit_operation_completion() requires a Running "
@@ -527,8 +528,8 @@ HostOutcome MiraHost::attach_workflow_surface(
     // The pinned runtime's event store is the authoritative workflow record
     // (RULE-07); the bridge feeds the service-side broadcast from the same
     // stream, so there is exactly one event source (DEC-023).
-    auto runtime = std::make_unique<mira::WorkflowRuntime>(
-        executor, impl_->runtime, impl_->session_id, impl_->environment);
+    auto runtime = std::make_unique<mira::WorkflowRuntime>(executor, impl_->runtime,
+                                                           impl_->session_id, impl_->environment);
     runtime->set_event_store(event_bridge);
     impl_->workflow_runtime = std::move(runtime);
     impl_->workflow_events = std::move(event_bridge);
@@ -539,16 +540,20 @@ WorkflowDefinitionResult MiraHost::save_workflow_definition(const std::string &d
                                                             const std::string &reason) {
     if (!impl_->workflow_surface_active()) {
         return WorkflowDefinitionResult{
-            false, {}, {}, {}, {}, false,
+            false,
+            {},
+            {},
+            {},
+            {},
+            false,
             host_error("invalid_state", "workflow surface is not attached")};
     }
     const auto parsed = mira::parse_workflow_definition(definition_json);
     if (!parsed) {
-        return WorkflowDefinitionResult{
-            false, {}, {}, {}, {}, false, pinned_error(parsed.error())};
+        return WorkflowDefinitionResult{false, {}, {}, {}, {}, false, pinned_error(parsed.error())};
     }
-    const auto appended = impl_->workflow_runtime->publish_workflow(
-        parsed.value(), "mirage-service", reason);
+    const auto appended =
+        impl_->workflow_runtime->publish_workflow(parsed.value(), "mirage-service", reason);
     if (!appended) {
         return WorkflowDefinitionResult{
             false, {}, {}, {}, {}, false, pinned_error(appended.error())};
@@ -565,13 +570,17 @@ WorkflowDefinitionResult MiraHost::publish_workflow_definition(const std::string
                                                                const std::string &reason) {
     if (!impl_->workflow_surface_active()) {
         return WorkflowDefinitionResult{
-            false, {}, {}, {}, {}, false,
+            false,
+            {},
+            {},
+            {},
+            {},
+            false,
             host_error("invalid_state", "workflow surface is not attached")};
     }
     const auto parsed = mira::parse_workflow_definition(definition_json);
     if (!parsed) {
-        return WorkflowDefinitionResult{
-            false, {}, {}, {}, {}, false, pinned_error(parsed.error())};
+        return WorkflowDefinitionResult{false, {}, {}, {}, {}, false, pinned_error(parsed.error())};
     }
     // The pinned gate validates, dry-runs on the calling context and appends
     // a DryRunPassed record with content-derived evidence; gate failures
@@ -674,8 +683,7 @@ WorkflowRunViewResult MiraHost::workflow_run_view(const std::string &run_id_hex)
 WorkflowRunCancelResult MiraHost::cancel_workflow_run(const std::string &run_id_hex) {
     if (!impl_->workflow_surface_active()) {
         return WorkflowRunCancelResult{
-            false, {}, {},
-            host_error("invalid_state", "workflow surface is not attached")};
+            false, {}, {}, host_error("invalid_state", "workflow surface is not attached")};
     }
     const auto run_id = mira::WorkflowRunId::parse(run_id_hex);
     if (!run_id || run_id->is_nil()) {
@@ -687,8 +695,8 @@ WorkflowRunCancelResult MiraHost::cancel_workflow_run(const std::string &run_id_
     if (!cancelled) {
         return WorkflowRunCancelResult{false, {}, {}, pinned_error(cancelled.error())};
     }
-    return WorkflowRunCancelResult{true, run_id_hex,
-                                   mira::workflow_run_state_name(cancelled.value().state), {}};
+    return WorkflowRunCancelResult{
+        true, run_id_hex, mira::workflow_run_state_name(cancelled.value().state), {}};
 }
 
 HostOutcome MiraHost::shutdown_workflow_surface() {
@@ -703,8 +711,8 @@ HostOutcome MiraHost::shutdown_workflow_surface() {
     // on the service's owning (non-worker) thread.
     const mira::WorkflowShutdownReport report = impl_->workflow_runtime->shutdown();
     if (!report.clean) {
-        return failed(host_error("pinned_runtime", "workflow surface shutdown was not clean: " +
-                                                       report.diagnostic));
+        return failed(host_error("pinned_runtime",
+                                 "workflow surface shutdown was not clean: " + report.diagnostic));
     }
     return HostOutcome{true, {}};
 }
