@@ -5,7 +5,7 @@
 
 import { Square, Timer } from 'lucide-react';
 
-import { useHarness } from '../hooks.js';
+import { useHarness, useNow } from '../hooks.js';
 import { duration, relativeTime } from '../lib/labels.js';
 import type { WorkflowRunStatus } from '../state/model.js';
 import { WorkflowSidebar } from './workflows/WorkflowSidebar.js';
@@ -24,6 +24,7 @@ export function WorkflowsPage(): React.ReactElement {
     const { state } = useHarness();
     const editing = state.route.view === 'workflow-editor' ? state.route.workflowId : undefined;
     const simulated = state.transportLabel === 'Mock';
+    const now = useNow();
     if (!state.workflowsSupported) {
         return (
             <div className="chat" data-testid="workflows-page">
@@ -70,7 +71,7 @@ export function WorkflowsPage(): React.ReactElement {
                                                     {RUN_STATUS[r.status].label}
                                                 </span>
                                             </td>
-                                            <td className="muted">{relativeTime(r.startedAt, Date.now())}</td>
+                                            <td className="muted">{relativeTime(r.startedAt, now)}</td>
                                             <td className="mono muted">
                                                 {r.steps.length > 0
                                                     ? `${r.steps.filter((st) => st.status === 'ok').length}/${r.steps.length}`

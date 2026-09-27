@@ -1,11 +1,13 @@
 /// 全局覆盖层：命令面板（Ctrl+K）、批准/通知中心、Toast 层。
 /// 面板为自绘 listbox（role=listbox/option + 键盘导航 + aria）。
+/// 批准中心自 M5-06 起为占位面板：演示批准域已退役，真实异步确认面
+/// （permission.*，DEC-020）接线属 M5-07（DEC-025 决策 4）。
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, X } from 'lucide-react';
+import { X } from 'lucide-react';
 
-import { useHarness } from '../hooks.js';
-import { approvalKindLabel, relativeTime } from '../lib/labels.js';
+import { useHarness, useNow } from '../hooks.js';
+import { relativeTime } from '../lib/labels.js';
 
 interface PaletteItem {
     id: string;
@@ -18,7 +20,14 @@ export function CommandPalette({ onClose }: { onClose(): void }): React.ReactEle
     const { state, ...actions } = useHarness();
     const [query, setQuery] = useState('');
     const [highlight, setHighlight] = useState(0);
+    // 查询词变化时高亮归零：渲染期调整模式（React 官方范式，不进 effect）。
+    const [prevQuery, setPrevQuery] = useState(query);
+    if (prevQuery !== query) {
+        setPrevQuery(query);
+        setHighlight(0);
+    }
     const inputRef = useRef<HTMLInputElement>(null);
+    const now = useNow();
 
     const items = useMemo<PaletteItem[]>(() => {
         const nav: PaletteItem[] = [
@@ -28,20 +37,14 @@ export function CommandPalette({ onClose }: { onClose(): void }): React.ReactEle
             { id: 'nav-set', label: '前往：设置 · 外观', hint: '页面', run: () => actions.navigate({ view: 'settings', category: 'appearance' }) },
             { id: 'nav-set-perm', label: '前往：设置 · 权限', hint: '页面', run: () => actions.navigate({ view: 'settings', category: 'permissions' }) },
             { id: 'nav-set-runtime', label: '前往：设置 · 运行时', hint: '页面', run: () => actions.navigate({ view: 'settings', category: 'runtime' }) },
-            { id: 'new-chat', label: '新建对话会话', hint: '动作', run: () => actions.newSession('chat') },
-            { id: 'new-exec', label: '新建执行会话', hint: '动作', run: () => actions.newSession('exec') },
+            { id: 'new-session', label: '新建会话', hint: '动作', run: () => actions.newSession() },
             { id: 'resync', label: '重新同步事件流', hint: '动作', run: () => void actions.resync() },
-            { id: 'export', label: '导出当前会话 Markdown', hint: '动作', run: () => {
-                if (state.route.view === 'chat' && state.route.sessionId !== undefined) {
-                    actions.exportSession(state.route.sessionId);
-                }
-            } },
             { id: 'estop', label: state.takeover ? '解除紧急停止' : '紧急停止（Takeover）', hint: '控制', run: () => (state.takeover ? actions.releaseEstop() : actions.engageEstop()) },
         ];
         const sessions: PaletteItem[] = state.sessions.map((s) => ({
             id: `sess-${s.id}`,
             label: `会话：${s.title}`,
-            hint: relativeTime(s.updatedAt, Date.now()),
+            hint: relativeTime(s.lastActivityAt, now),
             run: () => actions.selectSession(s.id),
         }));
         const workflows: PaletteItem[] = state.workflows.map((w) => ({
@@ -51,7 +54,7 @@ export function CommandPalette({ onClose }: { onClose(): void }): React.ReactEle
             run: () => actions.navigate({ view: 'workflow-editor', workflowId: w.id }),
         }));
         return [...nav, ...sessions, ...workflows];
-    }, [state, actions]);
+    }, [state, actions, now]);
 
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase();
@@ -64,9 +67,6 @@ export function CommandPalette({ onClose }: { onClose(): void }): React.ReactEle
     useEffect(() => {
         inputRef.current?.focus();
     }, []);
-    useEffect(() => {
-        setHighlight(0);
-    }, [query]);
 
     const onKeyDown = (e: React.KeyboardEvent): void => {
         if (e.key === 'Escape') {
@@ -137,8 +137,6 @@ export function CommandPalette({ onClose }: { onClose(): void }): React.ReactEle
 
 
 export function ApprovalsCenter({ onClose }: { onClose(): void }): React.ReactElement {
-    const { state, decideApproval } = useHarness();
-    const pending = state.pendingApprovals;
     return (
         <div className="overlay-scrim" onClick={onClose}>
             <div
@@ -148,29 +146,10 @@ export function ApprovalsCenter({ onClose }: { onClose(): void }): React.ReactEl
                 style={{ top: 'calc(var(--mir-size-wall) + 8px)', left: 'calc(var(--mir-size-rail) + 8px)' }}
                 onClick={(e) => e.stopPropagation()}
             >
-                {pending.length === 0 && (
-                    <div className="palette-empty">
-                        没有待决事项。后台批准会出现在这里，不打断当前视图。
-                    </div>
-                )}
-                {pending.map((a) => (
-                    <div key={a.id} className="notif-item">
-                        <span className="n-title">
-                            <strong>{a.summary}</strong>
-                            <span className="badge is-warning is-blink">{approvalKindLabel(a.kind)}</span>
-                        </span>
-                        {a.detail !== undefined && <span className="n-sub mono">{a.detail}</span>}
-                        <span className="n-sub">请求于 {relativeTime(a.requestedAt ?? Date.now(), Date.now())}</span>
-                        <span style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                            <button type="button" className="btn btn-primary" onClick={() => decideApproval(a.id, true)}>
-                                <Check size={14} /> 放行
-                            </button>
-                            <button type="button" className="btn btn-danger" onClick={() => decideApproval(a.id, false)}>
-                                <X size={14} /> 拒止
-                            </button>
-                        </span>
-                    </div>
-                ))}
+                <div className="palette-empty">
+                    批准中心尚未接线：异步确认面（permission.*）的产品化接入属 M5-07。
+                    当前没有可呈现的待决事项。
+                </div>
             </div>
         </div>
     );

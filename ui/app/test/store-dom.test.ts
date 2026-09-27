@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
-/// HarnessStore 集成面（jsdom + 最小脚本化 transport，eventsSupported=false 走
-/// 轮询分支）。覆盖：连接生命周期、submitExec 事实流、演示审批决断、会话
-/// 管理（容量/删除导航/重命名）、事件面 seq、chat 模拟流的 store 集成。
+/// HarnessStore 集成面（jsdom + 最小脚本化 transport）。覆盖：连接生命周期、
+/// submitExec 会话绑定事实流（DEC-025：user 消息以 journal 投影为准）、
+/// 会话面契约路径（open / list / history / 容量显式拒绝）、会话事件增量
+/// （message 入线程 + 派生标题、turn/output 进观察流）、事件面 seq、
+/// 工作流 DEC-023 契约路径。模拟域（演示审批 / chat 模拟器 / 会话种子）
+/// 自 DEC-025 退役，相应行为不再存在。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMockTransport, IpcRequestError } from '@mirage/contracts';
@@ -11,15 +14,15 @@ import type {
     MockTransport,
     ServerEvent,
     ServiceIdentity,
+    SessionSummary,
     StepView,
     SubmitTaskInput,
     TaskProgress,
     TaskSummary,
 } from '@mirage/contracts';
 
-import { MAX_SESSIONS } from '../src/state/harness-mock.js';
 import type { ChatMessage } from '../src/state/model.js';
-import { HarnessStore } from '../src/state/store.js';
+import { deriveSessionTitle, HarnessStore } from '../src/state/store.js';
 import type { SubmitStepInput } from '../src/state/store.js';
 
 // ---- 脚本化 transport（最小 MirageTransport 形状，promise 语义与 wire 一致） --
@@ -58,6 +61,7 @@ function makeIdentity(events: boolean): ServiceIdentity {
         mira_core_version: '0.1.0',
         host_status: 'running',
         protocol: 1,
+        sessions: true,
     };
     if (events) {
         identity.events = true;
@@ -72,12 +76,19 @@ class ScriptedTransport {
     helloImpl: () => Promise<ServiceIdentity>;
     /** 可注入的 submit 拒绝（默认成功）。 */
     submitError: Error | null = null;
+    /** 可注入的 open 拒绝（默认成功）。 */
+    openError: Error | null = null;
     readonly submittedRequests: SubmitTaskInput[] = [];
     readonly cancelledIds: string[] = [];
 
     private nextTaskNumber = 1;
     private readonly inspectTable = new Map<string, InspectTask>();
     private listener: EventListener | null = null;
+    /** DEC-021 会话面：主会话入册，submitTask 落 user 日志条目。 */
+    private readonly sessionList: SessionSummary[] = [
+        { id: 's-primary', state: 'autonomous', created_at_ms: 1_000 },
+    ];
+    private readonly journal = new Map<string, Array<{ kind: 'user' | 'outcome'; text: string; sequence: number; recorded_at_ms: number }>>();
 
     constructor(options: { eventsSupported?: boolean } = {}) {
         this.eventsSupported = options.eventsSupported ?? false;
@@ -95,7 +106,7 @@ class ScriptedTransport {
         this.submittedRequests.push(request);
         const task_id = `t-${String(this.nextTaskNumber).padStart(4, '0')}`;
         this.nextTaskNumber += 1;
-        // 默认快照：首步 running（驱动审批演示路径），其余 pending。
+        // 默认快照：首步 running，其余 pending。
         this.inspectTable.set(
             task_id,
             inspectOf(
@@ -106,7 +117,37 @@ class ScriptedTransport {
                 ),
             ),
         );
+        const sessionId = request.session_id ?? 's-primary';
+        const entries = this.journal.get(sessionId) ?? [];
+        entries.push({
+            kind: 'user',
+            text: request.goal,
+            sequence: entries.length + 1,
+            recorded_at_ms: 2_000,
+        });
+        this.journal.set(sessionId, entries);
         return Promise.resolve({ task_id });
+    }
+
+    listSessions(): Promise<SessionSummary[]> {
+        return Promise.resolve([...this.sessionList]);
+    }
+
+    openSession(): Promise<{ session_id: string }> {
+        if (this.openError !== null) {
+            return Promise.reject(this.openError);
+        }
+        this.sessionList.push({ id: 's-opened', state: 'autonomous', created_at_ms: 3_000 });
+        return Promise.resolve({ session_id: 's-opened' });
+    }
+
+    sessionHistory(input: { session_id: string }): Promise<{
+        session_id: string;
+        entries: Array<{ kind: 'user' | 'outcome'; text: string; sequence: number; recorded_at_ms: number }>;
+        truncated: boolean;
+    }> {
+        const entries = this.journal.get(input.session_id) ?? [];
+        return Promise.resolve({ session_id: input.session_id, entries, truncated: false });
     }
 
     listTasks(): Promise<TaskSummary[]> {
@@ -217,6 +258,10 @@ describe('HarnessStore connection lifecycle', () => {
         expect(store.get().identity?.service).toBe('mirage-runtime');
         expect(store.get().hostStatus).toBe('running');
         expect(store.get().eventsSupported).toBe(false);
+        expect(store.get().sessionsSupported).toBe(true);
+        // 会话列表快照已加载（DEC-025：session.list 为事实源）。
+        expect(store.get().sessions.map((s) => s.id)).toEqual(['s-primary']);
+        expect(store.get().sessions[0]?.title).toBe(deriveSessionTitle('s-primary', undefined));
         expect(transport.subscribedListener).toBeNull(); // 降级轮询，未订阅事件流
         expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), 2000);
 
@@ -239,38 +284,41 @@ describe('HarnessStore connection lifecycle', () => {
 // ---- submitExec ------------------------------------------------------------
 
 describe('submitExec (contract task facts)', () => {
-    it('links task to session, tracks it active, remembers inputs and mirrors the thread', async () => {
+    it('binds session_id, links task to session, tracks it active and mirrors the thread', async () => {
         const { store, transport } = makeStore(false);
         await startReady(store);
 
-        store.setDraft('s-ipc', '待发送草稿');
+        store.setDraft('s-primary', '待发送草稿');
         const steps: SubmitStepInput[] = [
             { kind: 'filesystem.read', argument: 'docs/ipc.md' },
             { kind: 'process.execute', argument: 'make card' },
         ];
-        await store.submitExec('s-ipc', '  整理 IPC 速查卡  ', steps);
+        await store.submitExec('s-primary', '  整理 IPC 速查卡  ', steps);
 
         const state = store.get();
-        const session = state.sessions.find((s) => s.id === 's-ipc');
+        const session = state.sessions.find((s) => s.id === 's-primary');
         expect(session?.taskId).toBe('t-0001');
         expect(state.activeTaskIds).toContain('t-0001');
         expect(state.taskInputs.get('t-0001')).toEqual(steps);
-        expect(state.drafts.get('s-ipc')).toBe('');
+        expect(state.drafts.get('s-primary')).toBe('');
 
-        // wire 映射：goal 去首尾空白；steps → { op, arg }
+        // wire 映射：goal 去首尾空白；steps → { op, arg }；session 绑定显式携带
         expect(transport.submittedRequests[0]).toEqual({
             goal: '整理 IPC 速查卡',
             steps: [
                 { op: 'filesystem.read', arg: 'docs/ipc.md' },
                 { op: 'process.execute', arg: 'make card' },
             ],
+            session_id: 's-primary',
         });
 
-        // 线程：用户消息 + 系统 note（含任务号）+ 步骤卡（argument 按 index 合并）
-        const thread = state.messages.get('s-ipc') ?? [];
-        expect(
-            thread.some((m) => m.kind === 'user' && m.text === '整理 IPC 速查卡'),
-        ).toBe(true);
+        // 线程：user 消息来自 journal 投影（提交后 loadHistory 快照），
+        // 派生标题以首条 user 消息更新，系统回执含任务号。
+        const thread = state.messages.get('s-primary') ?? [];
+        const user = thread.find((m) => m.kind === 'user');
+        expect(requireKind(user!, 'user').text).toBe('整理 IPC 速查卡');
+        expect(requireKind(user!, 'user').sequence).toBe(1);
+        expect(state.sessions.find((s) => s.id === 's-primary')?.title).toBe('整理 IPC 速查卡');
         const systemNotes = thread.filter((m) => m.kind === 'system');
         expect(systemNotes.length).toBeGreaterThanOrEqual(1);
         expect(requireKind(systemNotes[systemNotes.length - 1]!, 'system').text).toContain('t-0001');
@@ -283,14 +331,14 @@ describe('submitExec (contract task facts)', () => {
     it('empty goal or empty steps is a local no-op: transport untouched, thread unchanged', async () => {
         const { store, transport } = makeStore(false);
         await startReady(store);
-        const before = (store.get().messages.get('s-ipc') ?? []).length;
+        const before = (store.get().messages.get('s-primary') ?? []).length;
 
-        await store.submitExec('s-ipc', '   ', [{ kind: 'filesystem.read', argument: 'x' }]);
-        await store.submitExec('s-ipc', '合法目标', []);
-        await store.submitExec('s-ipc', '', [{ kind: 'filesystem.read', argument: 'x' }]);
+        await store.submitExec('s-primary', '   ', [{ kind: 'filesystem.read', argument: 'x' }]);
+        await store.submitExec('s-primary', '合法目标', []);
+        await store.submitExec('s-primary', '', [{ kind: 'filesystem.read', argument: 'x' }]);
 
         expect(transport.submittedRequests).toHaveLength(0);
-        expect((store.get().messages.get('s-ipc') ?? []).length).toBe(before);
+        expect((store.get().messages.get('s-primary') ?? []).length).toBe(before);
         expect(store.get().activeTaskIds).toHaveLength(0);
     });
 
@@ -299,9 +347,9 @@ describe('submitExec (contract task facts)', () => {
         await startReady(store);
         transport.submitError = new IpcRequestError('invalid_state', 'mira host is not running');
 
-        await store.submitExec('s-ipc', '合法目标', [{ kind: 'filesystem.read', argument: 'x' }]);
+        await store.submitExec('s-primary', '合法目标', [{ kind: 'filesystem.read', argument: 'x' }]);
 
-        const thread = store.get().messages.get('s-ipc') ?? [];
+        const thread = store.get().messages.get('s-primary') ?? [];
         const last = thread[thread.length - 1]!;
         expect(last.kind).toBe('system');
         const note = requireKind(last, 'system');
@@ -312,144 +360,183 @@ describe('submitExec (contract task facts)', () => {
     });
 });
 
-// ---- decideApproval ----------------------------------------------------------
+// ---- 会话面（DEC-021 / DEC-025） ---------------------------------------------
 
-describe('decideApproval (demo approval surface)', () => {
-    async function submitApproveTask(
-        store: HarnessStore,
-        sessionId: string,
-    ): Promise<string> {
-        await store.submitExec(sessionId, '需要审批的目标', [
-            { kind: 'process.execute', argument: 'approve:npm test' },
-        ]);
-        const approval = store.get().pendingApprovals[0];
-        expect(approval, 'running approve: 步骤应生成待决审批').toBeDefined();
-        return approval!.id;
-    }
-
-    it('pending approval can be approved once: card flips, queue drains, toast fires', async () => {
+describe('session face (contract path)', () => {
+    it('newSession opens through session.open, refreshes the list and navigates', async () => {
         const { store } = makeStore(false);
         await startReady(store);
-        const approvalId = await submitApproveTask(store, 's-build');
-        expect(store.get().pendingApprovals[0]?.summary).toBe('npm test');
 
-        const threadBefore = (store.get().messages.get('s-build') ?? []).length;
-        store.decideApproval(approvalId, true);
-
-        expect(store.get().pendingApprovals).toHaveLength(0);
-        const card = (store.get().messages.get('s-build') ?? []).find(
-            (m) => m.kind === 'approval' && requireKind(m, 'approval').approval.id === approvalId,
-        );
-        expect(card).toBeDefined();
-        expect(requireKind(card!, 'approval').approval.status).toBe('approved');
-        expect(requireKind(card!, 'approval').approval.decidedAt).toBeDefined();
-        // 批准不追加消息（线程长度不变，卡片原地更新）
-        expect((store.get().messages.get('s-build') ?? []).length).toBe(threadBefore);
-        expect(store.get().toasts.at(-1)?.text).toBe('已放行');
+        store.newSession();
+        await vi.waitFor(() => {
+            expect(store.get().sessions.some((s) => s.id === 's-opened')).toBe(true);
+            expect(window.location.hash).toBe('#/chat/s-opened');
+        });
     });
 
-    it('denial marks the card denied and appends a warn system note', async () => {
-        const { store } = makeStore(false);
+    it('capacity exhaustion surfaces the explicit unavailable rejection as an error toast', async () => {
+        const { store, transport } = makeStore(false);
         await startReady(store);
-        const approvalId = await submitApproveTask(store, 's-weekly');
+        transport.openError = new IpcRequestError('unavailable', 'session capacity exhausted (16)');
 
-        store.decideApproval(approvalId, false);
-
-        const thread = store.get().messages.get('s-weekly') ?? [];
-        const card = thread.find(
-            (m) => m.kind === 'approval' && requireKind(m, 'approval').approval.id === approvalId,
-        );
-        expect(requireKind(card!, 'approval').approval.status).toBe('denied');
-        const last = requireKind(thread[thread.length - 1]!, 'system');
-        expect(last.tone).toBe('warn');
-        expect(last.id).toBe(`mn-${approvalId}`);
-        expect(store.get().toasts.at(-1)?.text).toBe('已拒止');
+        store.newSession();
+        await vi.waitFor(() => {
+            expect(store.get().toasts.at(-1)?.text).toContain('会话容量已满');
+        });
+        expect(window.location.hash).toBe('#/chat');
+        expect(store.get().sessions.some((s) => s.id === 's-opened')).toBe(false);
     });
 
-    // 复验（修复后）：decideApproval 幂等门控 —— pendingApprovals 不含该 id
-    // （已决或未知）时整体 no-op，无消息追加、无 toast。
-    it('already-decided approvals cannot be re-decided: card stays, no duplicate warn/toast', async () => {
-        const { store } = makeStore(false);
-        await startReady(store);
-        const approvalId = await submitApproveTask(store, 's-build');
-        store.decideApproval(approvalId, true);
+    it('without the sessions capability newSession is refused with a hint toast', async () => {
+        const { store, transport } = makeStore(false);
+        // 拔掉 sessions 能力位（wire 语义：hello 无 sessions 成员）。
+        transport.helloImpl = () => {
+            const identity = makeIdentity(false);
+            delete (identity as { sessions?: boolean }).sessions;
+            return Promise.resolve(identity);
+        };
+        store.start();
+        await vi.waitFor(() => expect(store.get().connection).toBe('ready'));
+        expect(store.get().sessionsSupported).toBe(false);
+        expect(store.get().sessions).toEqual([]);
 
-        const warnCount = () =>
-            (store.get().messages.get('s-build') ?? []).filter(
-                (m) => m.kind === 'system' && requireKind(m, 'system').text.includes('已拒止该权限请求'),
-            ).length;
-        const threadLength = (store.get().messages.get('s-build') ?? []).length;
-        const toastCount = store.get().toasts.length;
-
-        store.decideApproval(approvalId, false); // 重复决定（严格语义：应整体 no-op）
-
-        const card = (store.get().messages.get('s-build') ?? []).find(
-            (m) => m.kind === 'approval' && requireKind(m, 'approval').approval.id === approvalId,
-        );
-        expect(requireKind(card!, 'approval').approval.status).toBe('approved');
-        expect(warnCount()).toBe(0);
-        expect((store.get().messages.get('s-build') ?? []).length).toBe(threadLength);
-        expect(store.get().toasts).toHaveLength(toastCount);
-    });
-});
-
-// ---- 会话管理 ----------------------------------------------------------------
-
-describe('session management', () => {
-    it('newSession caps at MAX_SESSIONS=64 keeping the newest', () => {
-        const { store } = makeStore();
-        const created: string[] = [];
-        for (let i = 0; i < 65; i += 1) {
-            created.push(store.newSession('chat'));
-        }
-        expect(MAX_SESSIONS).toBe(64);
-        const sessions = store.get().sessions;
-        expect(sessions).toHaveLength(MAX_SESSIONS);
-        expect(sessions[0]?.id).toBe(created[64]); // 最新在前
-        const ids = new Set(sessions.map((s) => s.id));
-        expect(ids.has(created[0]!)).toBe(false); // 最旧被裁剪
-        expect(ids.has(created[1]!)).toBe(true);
-        expect(store.get().messages.get(created[64]!)).toEqual([]); // 新线程已建
-    });
-
-    it('deleteSession drops the thread and navigates back to #/chat when it was selected', () => {
-        window.location.hash = '#/chat/s-ipc';
-        const { store } = makeStore();
-        expect(store.get().route).toEqual({ view: 'chat', sessionId: 's-ipc' });
-
-        store.deleteSession('s-ipc');
-
-        expect(store.get().sessions.some((s) => s.id === 's-ipc')).toBe(false);
-        expect(store.get().messages.has('s-ipc')).toBe(false);
+        store.newSession();
+        expect(store.get().toasts.at(-1)?.text).toContain('会话面');
         expect(window.location.hash).toBe('#/chat');
     });
 
-    it('deleteSession keeps the route when another session is selected', () => {
-        window.location.hash = '#/chat/s-ipc';
-        const { store } = makeStore();
-        store.deleteSession('s-build');
-        expect(store.get().messages.has('s-build')).toBe(false);
-        expect(window.location.hash).toBe('#/chat/s-ipc');
-        expect(store.get().sessions.some((s) => s.id === 's-build')).toBe(false);
+    it('selectSession loads the history snapshot and rebuilds the journal part idempotently', async () => {
+        const { store, transport } = makeStore(false);
+        await startReady(store);
+        // 预置历史：两条 journal 条目。
+        const entries = transport['journal'].get('s-primary') ?? [];
+        entries.push(
+            { kind: 'user', text: '第一条目标', sequence: 1, recorded_at_ms: 5_000 },
+            { kind: 'outcome', text: 'loop settled: Completed (steps 1)', sequence: 2, recorded_at_ms: 6_000 },
+        );
+        transport['journal'].set('s-primary', entries);
+
+        store.selectSession('s-primary');
+        await vi.waitFor(() => {
+            const thread = store.get().messages.get('s-primary') ?? [];
+            expect(thread.filter((m) => m.kind === 'user' || m.kind === 'outcome')).toHaveLength(2);
+        });
+        const thread = store.get().messages.get('s-primary') ?? [];
+        expect(requireKind(thread[0]!, 'user').text).toBe('第一条目标');
+        expect(requireKind(thread[1]!, 'outcome').text).toContain('loop settled: Completed');
+        // 派生标题跟随首条 user 消息。
+        expect(store.get().sessions.find((s) => s.id === 's-primary')?.title).toBe('第一条目标');
+
+        // 重复拉取幂等：journal 条目不重复。
+        store.selectSession('s-primary');
+        await vi.waitFor(() => {
+            expect(
+                (store.get().messages.get('s-primary') ?? []).filter((m) => m.kind === 'user'),
+            ).toHaveLength(1);
+        });
     });
 
-    it('renameSession trims valid titles and ignores blank ones', () => {
-        const { store } = makeStore();
-        const original = store.get().sessions.find((s) => s.id === 's-ipc')?.title;
+    it('stopSession cancels the bound task only', async () => {
+        const { store, transport } = makeStore(false);
+        await startReady(store);
+        await store.submitExec('s-primary', '目标', [{ kind: 'filesystem.read', argument: 'x' }]);
 
-        store.renameSession('s-ipc', '   ');
-        expect(store.get().sessions.find((s) => s.id === 's-ipc')?.title).toBe(original);
+        store.stopSession('s-primary');
+        await vi.waitFor(() => expect(transport.cancelledIds).toEqual(['t-0001']));
+    });
+});
 
-        store.renameSession('s-ipc', '  IPC 速查卡 v2  ');
-        expect(store.get().sessions.find((s) => s.id === 's-ipc')?.title).toBe('IPC 速查卡 v2');
+// ---- 会话事件增量（通知面） ---------------------------------------------------
+
+describe('session event increments', () => {
+    it('session.message appends the thread entry, derives the title and feeds the observation stream', async () => {
+        const { store, transport } = makeStore(true);
+        await startReady(store);
+
+        transport.emit({
+            v: 1,
+            seq: 4,
+            event: 'session.message',
+            session_id: 's-primary',
+            task_id: 't-x',
+            kind: 'user',
+            text: '把桌面截图整理成周报',
+            sequence: 1,
+        });
+        const thread = store.get().messages.get('s-primary') ?? [];
+        const user = thread.find((m) => m.kind === 'user');
+        expect(requireKind(user!, 'user').text).toBe('把桌面截图整理成周报');
+        expect(store.get().sessions.find((s) => s.id === 's-primary')?.title).toBe('把桌面截图整理成周报');
+        expect(store.get().obsFeed.get('s-primary')?.at(-1)?.text).toContain('用户');
+
+        transport.emit({
+            v: 1,
+            seq: 5,
+            event: 'session.message',
+            session_id: 's-primary',
+            task_id: 't-x',
+            kind: 'outcome',
+            text: 'loop settled: Failed (steps 1)',
+            sequence: 2,
+        });
+        expect(
+            (store.get().messages.get('s-primary') ?? []).some(
+                (m) => m.kind === 'outcome' && m.text.includes('Failed'),
+            ),
+        ).toBe(true);
     });
 
-    it('pinSession toggles the pin flag', () => {
-        const { store } = makeStore();
-        store.pinSession('s-ipc', true);
-        expect(store.get().sessions.find((s) => s.id === 's-ipc')?.pinned).toBe(true);
-        store.pinSession('s-ipc', false);
-        expect(store.get().sessions.find((s) => s.id === 's-ipc')?.pinned).toBe(false);
+    it('session.message is deduplicated against the journal snapshot by sequence', async () => {
+        const { store, transport } = makeStore(true);
+        await startReady(store);
+        const event = {
+            v: 1,
+            seq: 4,
+            event: 'session.message',
+            session_id: 's-primary',
+            task_id: 't-x',
+            kind: 'user',
+            text: '同一目标',
+            sequence: 1,
+        } as const;
+        transport.emit({ ...event });
+        transport.emit({ ...event, seq: 5 });
+        expect(
+            (store.get().messages.get('s-primary') ?? []).filter((m) => m.kind === 'user'),
+        ).toHaveLength(1);
+    });
+
+    it('session.turn / session.output feed the observation stream and trigger a task refresh', async () => {
+        const { store, transport } = makeStore(true);
+        await startReady(store);
+        await store.submitExec('s-primary', '目标', [{ kind: 'filesystem.read', argument: 'x' }]);
+        const inspectSpy = vi.spyOn(transport, 'inspectTask');
+
+        transport.emit({
+            v: 1,
+            seq: 10,
+            event: 'session.turn',
+            session_id: 's-primary',
+            task_id: 't-0001',
+            step: 1,
+            kind: 'filesystem.read',
+            status: 'ok',
+        });
+        transport.emit({
+            v: 1,
+            seq: 11,
+            event: 'session.output',
+            session_id: 's-primary',
+            task_id: 't-0001',
+            step: 1,
+            chunk: '文件内容',
+            truncated: false,
+        });
+        await vi.waitFor(() => expect(inspectSpy).toHaveBeenCalled());
+
+        const feed = store.get().obsFeed.get('s-primary') ?? [];
+        expect(feed.some((f) => f.kind === 'turn' && f.text.includes('轮次 1'))).toBe(true);
+        expect(feed.some((f) => f.kind === 'output' && f.text.includes('文件内容'))).toBe(true);
     });
 });
 
@@ -480,7 +567,7 @@ describe('event face (eventsSupported=true)', () => {
     it('events.overflow records a resync note, warns via toast and retriggers task refresh', async () => {
         const { store, transport } = makeStore(true);
         await startReady(store);
-        await store.submitExec('s-ipc', '活跃任务', [{ kind: 'filesystem.read', argument: 'x' }]);
+        await store.submitExec('s-primary', '活跃任务', [{ kind: 'filesystem.read', argument: 'x' }]);
         // spy 在提交后挂上：只统计溢出触发的重取
         const inspectSpy = vi.spyOn(transport, 'inspectTask');
 
@@ -534,6 +621,8 @@ describe('RPA workflow engineering (contract-backed)', () => {
             'desktop.process.execute',
             'ctl.loop',
         ]);
+        // 会话面随同建立：主会话在列表（DEC-025 消费）
+        expect(state.sessions.length).toBe(1);
     });
 
     it('createWorkflow prepends a fresh editable draft and navigates to its editor route', async () => {
@@ -656,46 +745,5 @@ describe('RPA workflow engineering (contract-backed)', () => {
             expect(store.get().toasts.at(-1)?.text).toContain('不可编辑');
         });
         expect(defOf(store, foreign.id)?.steps).toEqual(before);
-    });
-});
-
-// ---- sendChat 集成（chat 模拟流进入线程） -----------------------------------------
-
-describe('sendChat (simulated chat stream into the thread)', () => {
-    // 复验（修复后）：store 现以 begin() 返回的 id 追加占位 assistant 消息，
-    // 模拟器回调按 id 原地推进（thinking/分片/streaming=false）。
-    it('streams an assistant reply into the thread and clears the busy flag', async () => {
-        vi.useFakeTimers();
-        const { store } = makeStore(true); // 事件分支：避免轮询 interval 干扰 runAllTimersAsync
-        store.start();
-        await vi.advanceTimersByTimeAsync(0);
-        expect(store.get().connection).toBe('ready');
-
-        const assistantCountBefore = (store.get().messages.get('s-ipc') ?? []).filter(
-            (m) => m.kind === 'assistant',
-        ).length;
-
-        store.sendChat('s-ipc', '桌面权限是怎么判定的？');
-        expect(store.get().simBusySession).toBe('s-ipc');
-
-        await vi.runAllTimersAsync(); // 思考 + 全部流片 + toast 定时器
-
-        const thread = store.get().messages.get('s-ipc') ?? [];
-        expect(
-            thread.some((m) => m.kind === 'user' && m.text === '桌面权限是怎么判定的？'),
-        ).toBe(true);
-        // 流已跑完（busy 闩锁已被 onAssistantDone 释放）——证明模拟器回调链执行到收尾
-        expect(store.get().simBusySession).toBeUndefined();
-        // 期望：本轮生成一条新的 assistant 消息（begin 返回的 id 对应的消息进入线程），
-        // 文本为分片拼接的完整回复，且流结束后不再处于 streaming。
-        const assistants = thread.filter((m) => m.kind === 'assistant');
-        expect(assistants, 'sendChat 后应新增一条 assistant 回复').toHaveLength(
-            assistantCountBefore + 1,
-        );
-        const reply = assistants[assistants.length - 1];
-        if (reply?.kind === 'assistant') {
-            expect(reply.text).toContain('权限判定');
-            expect(reply.streaming).toBe(false);
-        }
     });
 });

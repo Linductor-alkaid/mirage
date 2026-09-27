@@ -1,33 +1,35 @@
 /// Harness 前端领域模型（视图层）。
 ///
-/// 契约事实源是 `@mirage/contracts`（协议 v1）：host 身份、任务、步骤、事件、
-/// 工作流全部来自 transport。会话 / 消息 / 审批由 app 层模拟先行 ——
-/// `SessionStore` 的模拟域必须可辨识（见 `harness-mock.ts` 头注释），不得
-/// 伪造契约层事实。工作流模型与 pinned Workflow IR v1 同构（DEC-013 对齐）。
+/// 全部事实来自 `@mirage/contracts`（协议 v1）：host 身份、任务、步骤、事件、
+/// 会话、工作流。模拟域自 M5-06（DEC-025）起退出会话页——标题为展示层派生
+/// 事实（wire 无标题成员），不冒充服务端权威状态。工作流模型与 pinned
+/// Workflow IR v1 同构（DEC-013 对齐）。
 
-import type { TaskProgress } from '@mirage/contracts';
+import type { SessionState, TaskProgress } from '@mirage/contracts';
 
 // ---------------------------------------------------------------------------
 // 会话与消息
 // ---------------------------------------------------------------------------
 
-export type SessionMode = 'chat' | 'exec';
-
+/** 会话条目（视图投影）：wire `SessionSummary` 只有 {id, state, created_at_ms}
+ * （DEC-021）；title / lastActivityAt / taskId 是展示层从会话事件与提交
+ * 回执派生的本地事实，跨连接不承诺一致。 */
 export interface SessionMeta {
     id: string;
-    title: string;
-    pinned: boolean;
+    state: SessionState;
     createdAt: number;
-    updatedAt: number;
-    mode: SessionMode;
-    /** 关联的协议层任务（执行模式提交后回填，契约事实）。 */
+    /** 派生标题：首条 user 消息文本，缺省 `会话 <id 前 8 位>`（DEC-025）。 */
+    title: string;
+    /** 最近一次会话活动（消息 / 轮次事件）的本地时点，用于签派栏排序。 */
+    lastActivityAt: number;
+    /** 关联的协议层任务（本应用会话内提交回执绑定；重连前历史不回填）。 */
     taskId?: string;
 }
 
 export type MessageTone = 'info' | 'warn' | 'error';
 
 /** 步骤的展示形态：契约 StepView 不携带参数（wire 事实），展示层的
- * argument 来自本地提交入参记忆（store.taskInputs）或会话叙事（模拟域）。 */
+ * argument 来自本地提交入参记忆（store.taskInputs）。 */
 export interface StepDisplay {
     index: number;
     kind: string;
@@ -40,58 +42,24 @@ export interface StepDisplay {
     error: string;
 }
 
-/** 模拟 agent 的思维链块（"已思考 Ns" 折叠面板的数据面）。 */
-export interface ThinkingBlock {
-    text: string;
-    elapsedMs: number;
-}
-
-export type ApprovalKind = 'desktop.action' | 'process.execute' | 'filesystem.write';
-
-export interface ApprovalRequest {
-    id: string;
-    kind: ApprovalKind;
-    summary: string;
-    detail?: string;
-    status: 'pending' | 'approved' | 'denied';
-    requestedAt?: number;
-    decidedAt?: number;
-}
-
-/** 观察快照（Desktop Observation 的消息化呈现；模拟域为文字 + 网格占位）。 */
-export interface SnapshotView {
-    label: string;
-    detail: string;
-    /** SoM 标注占位：网格尺寸（列×行），仅用于占位渲染。 */
-    grid: [number, number];
-}
-
-/** agent 在会话上下文中调用工作流的工具卡视图（模拟域叙事）。 */
-export interface WorkflowCallView {
-    workflowId: string;
-    workflowName: string;
-    version: string;
-    params: Record<string, string>;
-    runId?: string;
-    status: WorkflowRunStatus;
-}
-
+/** 线程消息（M5-06 契约路径）：user / outcome 来自会话面（session.history
+ * 基线 + session.message 增量），step / activity 来自任务快照投影，
+ * system 是本地回执行。模型循环引入前不存在 assistant 消息（DEC-025
+ * 决策 3），批准卡 / 快照卡随模拟域退役，批准中心属 M5-07。 */
 export type ChatMessage =
-    | { id: string; kind: 'user'; at: number; text: string }
-    | {
-        id: string;
-        kind: 'assistant';
-        at: number;
-        text: string;
-        streaming?: boolean;
-        thinking?: ThinkingBlock;
-    }
+    | { id: string; kind: 'user'; at: number; text: string; sequence: number }
+    | { id: string; kind: 'outcome'; at: number; text: string; sequence: number }
     | { id: string; kind: 'activity'; at: number; taskId: string; progress: TaskProgress; note?: string }
     | { id: string; kind: 'step'; at: number; taskId: string; step: StepDisplay }
-    | { id: string; kind: 'snapshot'; at: number; snapshot: SnapshotView }
-    | { id: string; kind: 'workflow-call'; at: number; call: WorkflowCallView }
-    | { id: string; kind: 'approval'; at: number; approval: ApprovalRequest }
     | { id: string; kind: 'system'; at: number; text: string; tone: MessageTone };
+
+/** 观察流帧（观察台实时尾随；通知面语义，丢帧不回补——DEC-025 决策 5）。 */
+export interface ObsFrame {
+    id: string;
+    at: number;
+    kind: 'turn' | 'output' | 'message' | 'task';
+    text: string;
+}
 
 // ---------------------------------------------------------------------------
 // 工作流（契约面：DEC-023 wire + pinned Workflow IR v1，DEC-013 对齐）
@@ -204,16 +172,6 @@ export interface WorkflowRun {
     steps: WorkflowRunStep[];
     /** 终态摘要（wire workflow.run_updated 的 summary，encode-when-set）。 */
     summary?: string;
-}
-
-// ---------------------------------------------------------------------------
-// 上下文用量（模拟域，opencode/DSH 共性：占用可见且可分解）
-// ---------------------------------------------------------------------------
-
-export interface ContextUsage {
-    usedTokens: number;
-    budgetTokens: number;
-    breakdown: { system: number; history: number; tools: number };
 }
 
 // ---------------------------------------------------------------------------

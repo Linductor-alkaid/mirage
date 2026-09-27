@@ -1,14 +1,16 @@
-/// 观察台（RunDrawer）：当前运行时间线 + 观察流 + 上下文用量。
-/// 观察流实现 trigger-lock 语义：有活动任务时自动跟随最新帧；用户上滚
-/// 即锁定，出现「已锁定 · 回到实时」cue；点击 cue 或回到底部解除锁定。
+/// 观察台（RunDrawer）：当前运行时间线 + 观察流。
+/// - 运行时间线：任务快照投影（task.inspect，快照事实源）。
+/// - 观察流：真实事件尾随（session.turn / session.output / session.message，
+///   有界环形缓冲）——通知面语义，丢帧不回补（DEC-025 决策 5）。
+///   trigger-lock：有活动任务时自动跟随最新帧；用户上滚即锁定，出现
+///   「已锁定 · 回到实时」cue；点击 cue 或回到底部解除锁定。
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, Gauge, Pin, PinOff } from 'lucide-react';
+import { Activity, Pin, PinOff } from 'lucide-react';
 
 import { useHarness } from '../../hooks.js';
-import { duration, kindLabel, stepStatusLabel } from '../../lib/labels.js';
+import { duration, kindLabel } from '../../lib/labels.js';
 import { displayStepsOf, isTerminalProgress } from '../../state/store.js';
-import { seedContext } from '../../state/harness-mock.js';
 
 interface TimelineItem {
     key: string;
@@ -70,53 +72,46 @@ function useTimeline(): { items: TimelineItem[]; live: boolean; source: 'task' |
     }, [state]);
 }
 
-/** 观察流：模拟桌面回流帧（有界滚动缓冲，配合 trigger-lock）。 */
-function ObservationStream({ live }: { live: boolean }): React.ReactElement {
+/** 观察流：真实事件帧（观察台 store 缓冲）+ 线程活动投影，配合 trigger-lock。 */
+function ObservationStream({ live, sessionId }: { live: boolean; sessionId: string | undefined }): React.ReactElement {
     const { state } = useHarness();
     const frames = useMemo(() => {
-        const sid = state.route.view === 'chat' ? state.route.sessionId : undefined;
-        const list = sid !== undefined ? state.messages.get(sid) ?? [] : [];
-        const out: { key: string; at: number; text: string }[] = [];
-        for (const m of list) {
-            if (m.kind === 'step') {
-                out.push({ key: m.id, at: m.at, text: `observe · ${kindLabel(m.step.kind)} → ${stepStatusLabel(m.step.status)}` });
-            } else if (m.kind === 'snapshot') {
-                out.push({ key: m.id, at: m.at, text: `snapshot · ${m.snapshot.label}` });
-            } else if (m.kind === 'activity') {
-                out.push({ key: m.id, at: m.at, text: `task · ${m.progress}` });
-            }
+        if (sessionId === undefined) {
+            return [];
         }
-        return out.slice(-40);
-    }, [state]);
-    const [locked, setLocked] = useState(false);
+        return (state.obsFeed.get(sessionId) ?? []).map((f) => ({
+            key: f.id,
+            at: f.at,
+            text: f.text,
+        }));
+    }, [state, sessionId]);
+    // trigger-lock：following 是可写状态（滚动/点击改写）；live 代次翻转时
+    // 重置为跟随。prop→state 调整用 React 官方的渲染期调整模式（不进 effect）。
+    const [followGen, setFollowGen] = useState(live);
+    const [following, setFollowing] = useState(true);
+    if (followGen !== live) {
+        setFollowGen(live);
+        setFollowing(true);
+    }
+    const locked = !following && live;
     const boxRef = useRef<HTMLDivElement>(null);
-    const followRef = useRef(true);
 
     useEffect(() => {
-        if (!followRef.current) {
+        if (!following) {
             return;
         }
         const box = boxRef.current;
         if (box !== null) {
             box.scrollTop = box.scrollHeight;
         }
-    }, [frames.length]);
-
-    useEffect(() => {
-        if (!live) {
-            followRef.current = true;
-            setLocked(false);
-        }
-    }, [live]);
+    }, [frames.length, following]);
 
     const onScroll = (): void => {
         const box = boxRef.current;
         if (box === null) {
             return;
         }
-        const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
-        followRef.current = atBottom;
-        setLocked(!atBottom && live);
+        setFollowing(box.scrollHeight - box.scrollTop - box.clientHeight < 24);
     };
 
     return (
@@ -125,14 +120,7 @@ function ObservationStream({ live }: { live: boolean }): React.ReactElement {
                 <button
                     type="button"
                     className="obs-lock-cue"
-                    onClick={() => {
-                        followRef.current = true;
-                        setLocked(false);
-                        const box = boxRef.current;
-                        if (box !== null) {
-                            box.scrollTop = box.scrollHeight;
-                        }
-                    }}
+                    onClick={() => setFollowing(true)}
                 >
                     已锁定 · 回到实时
                 </button>
@@ -144,38 +132,17 @@ function ObservationStream({ live }: { live: boolean }): React.ReactElement {
                 data-testid="obs-stream"
                 aria-label="观察流"
             >
-                {frames.length === 0 && <span className="muted">暂无观察帧。</span>}
+                {frames.length === 0 && (
+                    <span className="muted">
+                        暂无观察帧。观察流跟随会话事件（轮次结算 / 输出 / 消息）实时追加。
+                    </span>
+                )}
                 {frames.map((f) => (
                     <span key={f.key}>
                         <span style={{ opacity: 0.6 }}>{new Date(f.at).toLocaleTimeString('zh-CN', { hour12: false })}</span>{' '}
                         {f.text}
                     </span>
                 ))}
-            </div>
-        </div>
-    );
-}
-
-function ContextMeter(): React.ReactElement {
-    const { state } = useHarness();
-    const sid = state.route.view === 'chat' ? state.route.sessionId : undefined;
-    const ctx = (sid !== undefined ? state.context.get(sid) : undefined) ?? seedContext();
-    const pct = Math.min(100, Math.round((ctx.usedTokens / ctx.budgetTokens) * 100));
-    const seg = (n: number): string => `${Math.min(100, (n / ctx.budgetTokens) * 100).toFixed(2)}%`;
-    return (
-        <div className="ctx-meter" data-testid="context-meter">
-            <span className="sec-title caps" style={{ display: 'flex' }}>
-                <Gauge size={12} /> 上下文占用 <span className="mono" style={{ marginLeft: 'auto' }}>{pct}%</span>
-            </span>
-            <div className="ctx-bar" role="img" aria-label={`上下文占用 ${pct}%`}>
-                <i className="is-system" style={{ width: seg(ctx.breakdown.system) }} />
-                <i className="is-history" style={{ width: seg(ctx.breakdown.history) }} />
-                <i className="is-tools" style={{ width: seg(ctx.breakdown.tools) }} />
-            </div>
-            <div className="ctx-legend">
-                <span className="li is-system">系统 {(ctx.breakdown.system / 1000).toFixed(1)}k</span>
-                <span className="li is-history">历史 {(ctx.breakdown.history / 1000).toFixed(1)}k</span>
-                <span className="li is-tools">工具 {(ctx.breakdown.tools / 1000).toFixed(1)}k</span>
             </div>
         </div>
     );
@@ -237,9 +204,8 @@ export function Observer({
                     <span className="sec-title caps">
                         <Pin size={12} /> 观察流
                     </span>
-                    <ObservationStream live={live} />
+                    <ObservationStream live={live} sessionId={sid} />
                 </div>
-                <ContextMeter />
             </div>
         </aside>
     );

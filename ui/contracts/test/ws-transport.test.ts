@@ -874,3 +874,99 @@ describe('workflow face (DEC-023)', () => {
         await expectIpcError(() => failing, 'not_found');
     });
 });
+
+// ---- session face (DEC-021, consumed since DEC-025/M5-06) -------------------
+
+const SESSION_ID = '0f9e8d7c6b5a4938271605948372615b';
+
+describe('session face (DEC-021)', () => {
+    it('session.list sends the bare op and routes the session-list payload', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+
+        const pending = harness.transport.listSessions();
+        await flush();
+        expect(sentBody(harness.socket.sent.at(-1)!)).toEqual({ op: 'session.list' });
+        respond(harness.socket, 2, {
+            kind: 'session-list',
+            value: { sessions: [{ id: SESSION_ID, state: 'autonomous', created_at_ms: 1_000 }] },
+        });
+        await expect(pending).resolves.toEqual([
+            { id: SESSION_ID, state: 'autonomous', created_at_ms: 1_000 },
+        ]);
+    });
+
+    it('session.open sends the bare op and routes the session-opened payload', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+
+        const pending = harness.transport.openSession();
+        await flush();
+        expect(sentBody(harness.socket.sent.at(-1)!)).toEqual({ op: 'session.open' });
+        respond(harness.socket, 2, { kind: 'session-opened', value: { session_id: SESSION_ID } });
+        await expect(pending).resolves.toEqual({ session_id: SESSION_ID });
+
+        const failing = harness.transport.openSession();
+        await flush();
+        respondError(harness.socket, 3, 'unavailable', 'session capacity exhausted (16)');
+        await expectIpcError(() => failing, 'unavailable');
+    });
+
+    it('session.history carries session_id with optional limit and routes the snapshot', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+
+        const bare = harness.transport.sessionHistory({ session_id: SESSION_ID });
+        await flush();
+        expect(sentBody(harness.socket.sent.at(-1)!)).toEqual({ op: 'session.history', session_id: SESSION_ID });
+        respond(harness.socket, 2, {
+            kind: 'session-history',
+            value: {
+                session_id: SESSION_ID,
+                entries: [{ kind: 'user', text: 'goal', sequence: 1, recorded_at_ms: 5 }],
+                truncated: false,
+            },
+        });
+        await expect(bare).resolves.toEqual({
+            session_id: SESSION_ID,
+            entries: [{ kind: 'user', text: 'goal', sequence: 1, recorded_at_ms: 5 }],
+            truncated: false,
+        });
+
+        const windowed = harness.transport.sessionHistory({ session_id: SESSION_ID, limit: 10 });
+        await flush();
+        expect(sentBody(harness.socket.sent.at(-1)!)).toEqual({
+            op: 'session.history',
+            session_id: SESSION_ID,
+            limit: 10,
+        });
+        respond(harness.socket, 3, {
+            kind: 'session-history',
+            value: { session_id: SESSION_ID, entries: [], truncated: true },
+        });
+        await expect(windowed).resolves.toEqual({ session_id: SESSION_ID, entries: [], truncated: true });
+    });
+
+    it('task.submit maps the optional session_id member', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+
+        const pending = harness.transport.submitTask({
+            goal: 'g',
+            steps: [{ op: 'filesystem.read', arg: 'a' }],
+            session_id: SESSION_ID,
+        });
+        await flush();
+        expect(sentBody(harness.socket.sent.at(-1)!)).toEqual({
+            op: 'task.submit',
+            goal: 'g',
+            steps: [{ op: 'filesystem.read', arg: 'a' }],
+            session_id: SESSION_ID,
+        });
+        respond(harness.socket, 2, {
+            kind: 'submitted',
+            value: { task_id: 'task-0001', session_id: SESSION_ID },
+        });
+        await expect(pending).resolves.toEqual({ task_id: 'task-0001', session_id: SESSION_ID });
+    });
+});

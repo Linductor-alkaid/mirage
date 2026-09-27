@@ -23,7 +23,6 @@ export function ActivityBar({
         state.route.view === 'workflow-editor' || state.route.view === 'workflow-run'
             ? 'workflows'
             : state.route.view;
-    const pendingApprovals = state.pendingApprovals.length;
     const goChat = (): void => {
         navigate({ view: 'chat', sessionId: state.route.view === 'chat' ? state.route.sessionId : undefined });
     };
@@ -65,12 +64,11 @@ export function ActivityBar({
             <button
                 type="button"
                 className={`rail-btn ${approvalsOpen ? 'is-active' : ''}`}
-                title={pendingApprovals > 0 ? `批准中心（${pendingApprovals} 待决）` : '批准中心'}
+                title="批准中心（M5-07 接线异步确认面）"
                 aria-label="批准中心"
                 onClick={onOpenApprovals}
             >
                 <Bell size={19} strokeWidth={1.6} />
-                {pendingApprovals > 0 && <span className="dot" aria-hidden />}
             </button>
             <button
                 type="button"

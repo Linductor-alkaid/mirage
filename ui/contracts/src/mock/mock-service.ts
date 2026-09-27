@@ -7,7 +7,7 @@
 /// below is mock-only, documented, and never produced by the real service.
 
 import { BoundedEventQueue } from '../events.js';
-import type { EventListener, MirageTransport, SubmitTaskInput, WorkflowDefinition, WorkflowStartInput } from '../transport.js';
+import type { EventListener, MirageTransport, SessionHistoryInput, SubmitTaskInput, WorkflowDefinition, WorkflowStartInput } from '../transport.js';
 import { IpcRequestError, TransportClosedError } from '../transport.js';
 import type {
     ExposedTool,
@@ -15,6 +15,8 @@ import type {
     InspectTask,
     ServerEvent,
     ServiceIdentity,
+    SessionHistoryEntry,
+    SessionSummary,
     StepView,
     TaskProgress,
     TaskSummary,
@@ -41,6 +43,9 @@ export interface MockServiceOptions {
     /** When false, hello omits the `workflows` capability (DEC-023) —
      * drives the UI's workflow-face fallback path. */
     workflowsCapability?: boolean;
+    /** When false, hello omits the `sessions` capability (DEC-021) —
+     * drives the UI's session-face fallback path (DEC-025). */
+    sessionsCapability?: boolean;
     /** 'auto' (default) flushes queues via microtasks; 'manual' only
      * enqueues until flush() is called — the deterministic hook for
      * overflow tests. */
@@ -72,6 +77,46 @@ interface MockTask {
     success: boolean;
     cancelRequested: boolean;
     timer: ReturnType<typeof setTimeout> | null;
+    /** DEC-021 conversation owner (resolved at submit; empty = pre-face). */
+    sessionId: string;
+}
+
+// ---------------------------------------------------------------------------
+// Session face (DEC-021, consumed since DEC-025/M5-06): a wire-faithful
+// mirror of the observable behaviour — a registry holding the primary
+// session, capacity-bounded session.open, a per-session conversation journal
+// (user/outcome entries with monotonic sequence numbers) and the session.*
+// event set published at the same points the real service publishes them.
+// The pinned projection internals are NOT re-implemented; the outcome
+// wording mirrors the conversation view's settled sentence shape.
+// ---------------------------------------------------------------------------
+
+interface MockJournalEntry {
+    kind: 'user' | 'outcome';
+    text: string;
+    sequence: number;
+    recorded_at_ms: number;
+}
+
+interface MockSession {
+    id: string;
+    state: 'autonomous';
+    created_at_ms: number;
+    journal: MockJournalEntry[];
+}
+
+const SESSION_REGISTRY_CAPACITY = 16;
+const HISTORY_DEFAULT_LIMIT = 50;
+
+function mockSessionId(number: number): string {
+    const tail = number.toString(16).padStart(8, '0');
+    return `${tail}${tail}${tail}${tail}`;
+}
+
+/** The conversation view's settled sentence shape (DEC-021): the outcome
+ * wording the pinned projection composes. */
+function outcomeSentence(progress: string, steps: number): string {
+    return `loop settled: ${progress} (steps ${steps})`;
 }
 
 interface Subscription {
@@ -302,13 +347,15 @@ export class MockMirageService {
     private readonly subscriptions = new Set<Subscription>();
     private readonly workflows = new Map<string, MockWorkflowEntry>();
     private readonly workflowRuns = new Map<string, MockWorkflowRun>();
+    private readonly sessions = new Map<string, MockSession>();
     private nextTaskNumber = 1;
     private nextOperationNumber = 1;
     private nextRunNumber = 1;
     private nextDryRunNumber = 1;
+    private nextSessionNumber = 1;
     private closed = false;
     private readonly options: Required<
-        Pick<MockServiceOptions, 'stepDurationMs' | 'hostStartDelayMs' | 'shutdownDelayMs' | 'taskCapacity' | 'eventQueueCapacity' | 'eventsCapability' | 'workflowsCapability' | 'flushMode'>
+        Pick<MockServiceOptions, 'stepDurationMs' | 'hostStartDelayMs' | 'shutdownDelayMs' | 'taskCapacity' | 'eventQueueCapacity' | 'eventsCapability' | 'workflowsCapability' | 'sessionsCapability' | 'flushMode'>
     >;
 
     constructor(options: MockServiceOptions = {}) {
@@ -320,8 +367,12 @@ export class MockMirageService {
             eventQueueCapacity: options.eventQueueCapacity ?? 64,
             eventsCapability: options.eventsCapability ?? true,
             workflowsCapability: options.workflowsCapability ?? true,
+            sessionsCapability: options.sessionsCapability ?? true,
             flushMode: options.flushMode ?? 'auto',
         };
+        // DEC-021: the primary session enters the registry up front, so
+        // session.list always reports at least one entry.
+        this.registerSession(Date.now() - 3_600_000);
         const seed = (definition: WorkflowDefinition, validation: MockWorkflowEntry['validation']): void => {
             const id = (definition as { workflow_id: string }).workflow_id;
             this.workflows.set(id, {
@@ -393,6 +444,9 @@ export class MockMirageService {
         if (this.options.workflowsCapability) {
             identity.workflows = true;
         }
+        if (this.options.sessionsCapability) {
+            identity.sessions = true;
+        }
         return identity;
     }
 
@@ -414,6 +468,7 @@ export class MockMirageService {
                 `task registry at capacity (${this.options.taskCapacity})`,
             );
         }
+        const session = this.resolveSubmitSession(request.session_id);
         const steps: MockStep[] = request.steps.map((step) => {
             if (step.arg.length === 0) {
                 throw new IpcRequestError(
@@ -443,8 +498,12 @@ export class MockMirageService {
             success: false,
             cancelRequested: false,
             timer: null,
+            sessionId: session.id,
         };
         this.tasks.set(id, task);
+        // DEC-021: the goal joins the session journal before the submit
+        // response; the notification rides the same ordering.
+        this.appendJournalMessage(session, 'user', goal, id);
         this.publishTaskUpdated(task);
         this.advance(task);
         return { task_id: id };
@@ -776,6 +835,111 @@ export class MockMirageService {
         });
     }
 
+    // -- session face (DEC-021, consumed since DEC-025/M5-06) -----------------
+    //
+    // Simulates the observable wire behaviour: the primary session is born
+    // into the registry, session.open is capacity-bounded, and the
+    // conversation journal produces user/outcome entries whose notifications
+    // ride the session.* event set at the same points the real service
+    // publishes them (submit, step settlement, terminal settlement).
+
+    private registerSession(created_at_ms: number): MockSession {
+        const id = mockSessionId(this.nextSessionNumber);
+        this.nextSessionNumber += 1;
+        const session: MockSession = { id, state: 'autonomous', created_at_ms, journal: [] };
+        this.sessions.set(id, session);
+        return session;
+    }
+
+    /** Resolves the task.submit conversation owner: an explicit binding must
+     * exist (`not_found` mirrors DEC-021), absence lands the primary
+     * session (the oldest registered one in the mock). */
+    private resolveSubmitSession(explicit: string | undefined): MockSession {
+        if (explicit !== undefined) {
+            const session = this.sessions.get(explicit);
+            if (session === undefined) {
+                throw new IpcRequestError('not_found', 'unknown session id');
+            }
+            return session;
+        }
+        let primary: MockSession | null = null;
+        for (const session of this.sessions.values()) {
+            if (primary === null || session.created_at_ms < primary.created_at_ms) {
+                primary = session;
+            }
+        }
+        if (primary === null) {
+            throw new IpcRequestError('invalid_state', 'session registry is empty');
+        }
+        return primary;
+    }
+
+    /** Appends one journal entry and publishes its `session.message`
+     * notification (the journal stays the fact source, DEC-012). */
+    private appendJournalMessage(
+        session: MockSession,
+        kind: 'user' | 'outcome',
+        text: string,
+        taskId: string,
+    ): void {
+        const sequence = session.journal.length + 1;
+        const entry: MockJournalEntry = {
+            kind,
+            text,
+            sequence,
+            recorded_at_ms: Date.now(),
+        };
+        session.journal.push(entry);
+        this.publishFrame({
+            v: 1,
+            event: 'session.message',
+            session_id: session.id,
+            task_id: taskId,
+            kind,
+            text,
+            sequence,
+        });
+    }
+
+    sessionList(): SessionSummary[] {
+        this.assertOpen();
+        const summaries: SessionSummary[] = [];
+        for (const session of this.sessions.values()) {
+            summaries.push({ id: session.id, state: session.state, created_at_ms: session.created_at_ms });
+        }
+        return summaries.sort((a, b) => a.created_at_ms - b.created_at_ms);
+    }
+
+    sessionOpen(): { session_id: string } {
+        this.assertOpen();
+        if (this.sessions.size >= SESSION_REGISTRY_CAPACITY) {
+            throw new IpcRequestError(
+                'unavailable',
+                `session capacity exhausted (${SESSION_REGISTRY_CAPACITY})`,
+            );
+        }
+        const session = this.registerSession(Date.now());
+        this.publishFrame({ v: 1, event: 'session.updated', session_id: session.id, state: session.state });
+        return { session_id: session.id };
+    }
+
+    sessionHistory(
+        input: SessionHistoryInput,
+    ): { session_id: string; entries: SessionHistoryEntry[]; truncated: boolean } {
+        this.assertOpen();
+        const session = this.sessions.get(input.session_id);
+        if (session === undefined) {
+            throw new IpcRequestError('not_found', 'unknown session id');
+        }
+        const limit = Math.max(1, Math.floor(input.limit ?? HISTORY_DEFAULT_LIMIT));
+        const newest = session.journal.slice(-limit);
+        return {
+            session_id: session.id,
+            entries: newest.map((entry) => ({ ...entry })),
+            truncated: session.journal.length > newest.length,
+        };
+    }
+
     // -- event surface ------------------------------------------------------
 
     subscribe(listener: EventListener): void {
@@ -912,7 +1076,11 @@ export class MockMirageService {
             step.exitCode = 1;
             step.error = failure;
             this.publishTaskUpdated(task);
+            this.publishTurnSettled(task, step, true);
+            // Fail-fast batch-skip: every remaining step publishes one
+            // skipped turn (the C++ skip_with_turns discipline).
             this.skipRemaining(task);
+            this.publishSkippedTurns(task);
             this.settle(task, 'Failed', false, false);
             return;
         }
@@ -924,15 +1092,63 @@ export class MockMirageService {
             step.result = `mock content of '${step.argument}'`;
         }
         this.publishTaskUpdated(task);
+        this.publishTurnSettled(task, step, true);
         this.advance(task);
+    }
+
+    /** DEC-021: one settled-step turn plus — when the step reached the
+     * action and produced a result — its output chunk. Steps that never
+     * executed (skip / cancel unwind) publish a turn only. Callers only
+     * pass settled steps; the assert keeps the wire vocabulary honest. */
+    private publishTurnSettled(task: MockTask, step: MockStep, reachedAction: boolean): void {
+        if (task.sessionId.length === 0) {
+            return;
+        }
+        if (step.status === 'pending' || step.status === 'running') {
+            throw new Error('session.turn publishes settled steps only');
+        }
+        const stepNumber = task.steps.indexOf(step) + 1;
+        this.publishFrame({
+            v: 1,
+            event: 'session.turn',
+            session_id: task.sessionId,
+            task_id: task.id,
+            step: stepNumber,
+            kind: step.kind,
+            status: step.status,
+        });
+        if (!reachedAction) {
+            return;
+        }
+        this.publishFrame({
+            v: 1,
+            event: 'session.output',
+            session_id: task.sessionId,
+            task_id: task.id,
+            step: stepNumber,
+            chunk: step.result,
+            truncated: step.resultTruncated,
+        });
+    }
+
+    /** Batch-skip discipline: every skipped step publishes one skipped turn
+     * so the timeline sees why each remaining step produced nothing. */
+    private publishSkippedTurns(task: MockTask): void {
+        for (const step of task.steps) {
+            if (step.status === 'skipped') {
+                this.publishTurnSettled(task, step, false);
+            }
+        }
     }
 
     private unwindCancelled(task: MockTask): void {
         const running = task.steps.find((step) => step.status === 'running');
         if (running !== undefined) {
             running.status = 'cancelled';
+            this.publishTurnSettled(task, running, false);
         }
         this.skipRemaining(task);
+        this.publishSkippedTurns(task);
         this.publishTaskUpdated(task);
         this.settle(task, 'Cancelled', false, false);
     }
@@ -950,6 +1166,13 @@ export class MockMirageService {
         task.hasSuccess = hasSuccess;
         task.success = success;
         this.publishTaskUpdated(task);
+        // DEC-021 conversation settlement: the outcome joins the journal and
+        // its notification rides the same path (the sentence shape mirrors
+        // the pinned conversation view's projection).
+        const session = this.sessions.get(task.sessionId);
+        if (session !== undefined) {
+            this.appendJournalMessage(session, 'outcome', outcomeSentence(progress, task.steps.length), task.id);
+        }
     }
 }
 
@@ -978,6 +1201,10 @@ export class MockTransport implements MirageTransport {
 
     get workflowsSupported(): boolean {
         return this.service.hello().workflows === true;
+    }
+
+    get sessionsSupported(): boolean {
+        return this.service.hello().sessions === true;
     }
 
     hello(): Promise<ServiceIdentity> {
@@ -1038,6 +1265,22 @@ export class MockTransport implements MirageTransport {
 
     cancelWorkflowRun(runId: string): Promise<{ run_id: string; state: WorkflowRunState }> {
         return this.call(() => this.service.workflowCancel(runId));
+    }
+
+    listSessions(): Promise<SessionSummary[]> {
+        return this.call(() => this.service.sessionList());
+    }
+
+    openSession(): Promise<{ session_id: string }> {
+        return this.call(() => this.service.sessionOpen());
+    }
+
+    sessionHistory(input: SessionHistoryInput): Promise<{
+        session_id: string;
+        entries: SessionHistoryEntry[];
+        truncated: boolean;
+    }> {
+        return this.call(() => this.service.sessionHistory(input));
     }
 
     subscribe(listener: EventListener): Promise<void> {

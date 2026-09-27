@@ -13,6 +13,7 @@ import type {
     MirageTransport,
     ServerEvent,
     ServiceIdentity,
+    SessionSummary,
     StepView,
     SubmitTaskInput,
     TaskProgress,
@@ -31,6 +32,7 @@ function makeIdentity(events: boolean): ServiceIdentity {
         mira_core_version: '0.1.0',
         host_status: 'running',
         protocol: 1,
+        sessions: true,
     };
     if (events) {
         identity.events = true;
@@ -86,6 +88,8 @@ class ScriptedTransport implements MirageTransport {
     private readonly inspectTable = new Map<string, InspectTask>();
     private listener: EventListener | null = null;
     private lostListener: (() => void) | null = null;
+    /** DEC-021 会话面：主会话入册，submitTask 落 user 日志条目。 */
+    private readonly journal = new Map<string, Array<{ kind: 'user' | 'outcome'; text: string; sequence: number; recorded_at_ms: number }>>();
 
     constructor(options: { events?: boolean; subscribeUnsupported?: boolean } = {}) {
         const events = options.events ?? false;
@@ -118,7 +122,30 @@ class ScriptedTransport implements MirageTransport {
                 ),
             ),
         );
+        const sessionId = request.session_id ?? 's-primary';
+        const entries = this.journal.get(sessionId) ?? [];
+        entries.push({ kind: 'user', text: request.goal, sequence: entries.length + 1, recorded_at_ms: 1_000 });
+        this.journal.set(sessionId, entries);
         return Promise.resolve({ task_id });
+    }
+
+    listSessions(): Promise<SessionSummary[]> {
+        return Promise.resolve([
+            { id: 's-primary', state: 'autonomous', created_at_ms: 1_000 },
+        ]);
+    }
+
+    openSession(): Promise<{ session_id: string }> {
+        return Promise.resolve({ session_id: 's-opened' });
+    }
+
+    sessionHistory(input: { session_id: string }): Promise<{
+        session_id: string;
+        entries: Array<{ kind: 'user' | 'outcome'; text: string; sequence: number; recorded_at_ms: number }>;
+        truncated: boolean;
+    }> {
+        const entries = this.journal.get(input.session_id) ?? [];
+        return Promise.resolve({ session_id: input.session_id, entries, truncated: false });
     }
 
     listTasks(): Promise<TaskSummary[]> {
@@ -206,7 +233,7 @@ async function startReady(store: HarnessStore): Promise<void> {
 
 async function submitExecTask(store: HarnessStore, argument = 'x'): Promise<void> {
     const steps: SubmitStepInput[] = [{ kind: 'filesystem.read', argument }];
-    await store.submitExec('s-ipc', '活跃任务', steps);
+    await store.submitExec('s-primary', '活跃任务', steps);
 }
 
 beforeEach(() => {

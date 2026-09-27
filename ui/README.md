@@ -21,14 +21,19 @@
   （`themes.ts`）以 TS 为单一事实源，入口注入生成 CSS；`ThemeManager` 负责
   `data-theme`/`data-mode` 挂载、即时切换、localStorage 持久化与跟随系统。
   组件与样式只消费语义 token，私定颜色以测试清零（style-scan）。
-- `app/src/state/` — `store.ts`（HarnessStore：路由、会话、契约任务快照、审批、
-  事件面，React `useSyncExternalStore` 绑定）+ `harness-mock.ts`（模拟域：会话
-  叙事 / 演示审批 / 工作流，全部有界并标注「模拟」）。
+- `app/src/state/` — `store.ts`（HarnessStore：路由、会话（DEC-025 起接
+  `session.*` 契约路径，标题为展示层派生）、契约任务快照、观察流缓冲、
+  事件面，React `useSyncExternalStore` 绑定）+ `workflow-backend.ts`
+  （DEC-023 IPC 适配器）+ `workflow-ir.ts`（编辑器模型 → IR v1 换算点）。
+  模拟域（`harness-mock.ts`）自 M5-06 退役：会话页不再有演示叙事。
 - `app/src/shell/` — 统一壳：壁挂屏 WallDisplay（状态动词 + 蓝线任务剖面 + 灯阵）、
-  ActivityBar、StatusBar（cue 栏 + 紧急停止）、命令面板（Ctrl+K）、批准中心、Toast。
-- `app/src/views/` — 会话页（签派栏 SessionsSidebar、线程流 ThreadView、Composer
-  对话/执行双模式、观察台 Observer：运行时间线 + 观察流 trigger-lock + 上下文
-  占用；工作流以 WorkflowCallCard 呈现为 agent 可调用的工具）、工作流页（与
+  ActivityBar、StatusBar（cue 栏 + 紧急停止）、命令面板（Ctrl+K）、批准中心
+  （M5-07 接线异步确认面，现为占位面板）、Toast。
+- `app/src/views/` — 会话页（签派栏 SessionsSidebar：`session.list` 快照 + 派生
+  标题分组；线程流 ThreadView：user/outcome 接会话面 + 步骤卡接任务快照；
+  Composer 执行模式 + 对话模式降级呈现（模型循环接入前禁用，DEC-025 决策 3）；
+  观察台 Observer：运行时间线（任务快照）+ 观察流（session.turn/output/message
+  事件尾随，trigger-lock））、工作流页（与
   harness 同壳：左栏工作流列表 + RPA 工程式编辑器——右栏原子动作库可拖入/
   属性/参数三 Tab，接口缝 `state/workflow-backend.ts`（M5-05 起为 DEC-023 IPC 适配器，IR 映射见 `state/workflow-ir.ts`）、设置八类、资源占位。
   RPA 范式调研归档：`docs/research/rpa-editor-design-reference.md`。
@@ -113,11 +118,15 @@ npm run dev -w @mirage/app
 ## Mock 约定（仅 mock，非真实服务行为）
 
 - mock 以 M1 真实服务可观察 wire 行为为模板：五态 host、progress 名称、稳定错误
-  形状、每订阅 `seq` 单调递增、有界队列 drop-oldest + `events.overflow`。
+  形状、每订阅 `seq` 单调递增、有界队列 drop-oldest + `events.overflow`；
+  工作流面（DEC-023/DEC-024）与会话面（DEC-021，M5-06 起消费）同为 wire 忠实
+  镜像——容量 / 字节预算拒绝、历史窗口与 `truncated`、`session.*` 事件发布点
+  与真实服务一致。
 - `process.execute` 步骤的 `arg` 以 `fail:` 开头时，该步骤在模拟执行后失败
   （exit code 1），用于演示错误视图。
-- 会话内权限请求卡（`approve:` 前缀参数触发）与快照卡为 `app/src/state/`
-  模拟域的**演示语义**（M2+ 权限/消息事件面前），界面标注「模拟」，不影响
-  协议层任务走向；会话/工作流管理面尚无 IPC（设计规范 §4 前瞻依赖）。
-- `eventsCapability: false` 选项可模拟不支持事件订阅的服务端，用于验证前端
-  降级轮询路径（`M1.5-05`）。
+- 会话页模拟域已退役（M5-06，DEC-025）：会话 / 消息 / 工作流全部为契约路径；
+  `approve:` 演示审批与快照卡随之移除，批准中心属 M5-07 真实批准面；会话管理
+  面（重命名 / 删除 / 导出 / fork）尚无 IPC，UI 不呈现（DEC-025 挂账②）。
+- `eventsCapability: false` / `workflowsCapability: false` /
+  `sessionsCapability: false` 选项（对应 `?events=off` / `?workflows=off` /
+  `?sessions=off`）可模拟缺能力位的服务端，用于验证前端降级路径。

@@ -10,6 +10,8 @@ import type {
     ResponsePayload,
     ServerEvent,
     ServiceIdentity,
+    SessionHistoryEntry,
+    SessionSummary,
     TaskCancelled,
     TaskStep,
     TaskSummary,
@@ -43,6 +45,17 @@ export interface SubmitTaskInput {
     goal: string;
     steps: TaskStep[];
     step_timeout_ms?: number;
+    /** Optional DEC-021 session binding; absent lands the primary session
+     * and the receipt echoes the resolved owner. */
+    session_id?: string;
+}
+
+/** session.history request (DEC-021): `limit` defaults to the service's 50
+ * and is clamped server-side; entries are the newest window in conversation
+ * order with `truncated` marking earlier entries. */
+export interface SessionHistoryInput {
+    session_id: string;
+    limit?: number;
 }
 
 /** workflow.run request body (DEC-023): `digest` defaults to the service
@@ -77,12 +90,34 @@ export interface MirageTransport {
      * surface as live data. */
     readonly workflowsSupported: boolean;
 
+    /** True when hello advertised the DEC-021 session face; false means the
+     * session.* methods will fail and the UI must present the session page
+     * as unavailable (DEC-025: never fake it with local state). */
+    readonly sessionsSupported: boolean;
+
     hello(): Promise<ServiceIdentity>;
     submitTask(request: SubmitTaskInput): Promise<{ task_id: string }>;
     listTasks(): Promise<TaskSummary[]>;
     inspectTask(taskId: string): Promise<InspectTask>;
     cancelTask(taskId: string): Promise<TaskCancelled>;
     shutdown(): Promise<void>;
+
+    // -- session face (DEC-021, consumed since DEC-025/M5-06) ------------------
+
+    /** Registered sessions as projected by the service registry (the primary
+     * session included); snapshot fact source, `session.updated` is the
+     * notification. */
+    listSessions(): Promise<SessionSummary[]>;
+    /** Opens a new session; rejects with IpcRequestError('unavailable') when
+     * the registry is at capacity (DEC-021). */
+    openSession(): Promise<{ session_id: string }>;
+    /** The conversation projection's resync snapshot: newest window of
+     * user/outcome entries in conversation order. */
+    sessionHistory(input: SessionHistoryInput): Promise<{
+        session_id: string;
+        entries: SessionHistoryEntry[];
+        truncated: boolean;
+    }>;
 
     // -- workflow face (DEC-023) ----------------------------------------------
 
