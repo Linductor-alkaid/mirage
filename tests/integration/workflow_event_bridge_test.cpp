@@ -164,8 +164,8 @@ void scenario_settled_without_started_is_dropped() {
     // workflow id; the wire event requires one, so the broadcast is dropped
     // (workflow.runs stays the snapshot truth).
     mira::WorkflowRunId run = mira::WorkflowRunId::generate();
-    const auto settled = bridge.append(
-        run_settled_request(run, mira::WorkflowRunState::Completed, 1));
+    const auto settled =
+        bridge.append(run_settled_request(run, mira::WorkflowRunState::Completed, 1));
     MIRAGE_CHECK(settled);
     MIRAGE_CHECK(deliveries.load() == 0);
     MIRAGE_CHECK(bridge.delivered_events() == 0);

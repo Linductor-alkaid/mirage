@@ -615,8 +615,7 @@ void workflow_face_over_named_pipe() {
         {
             std::lock_guard<std::mutex> guard(events_mutex);
             for (const ipc::Event &event : events) {
-                const auto *run_updated =
-                    std::get_if<ipc::WorkflowRunUpdatedEvent>(&event.payload);
+                const auto *run_updated = std::get_if<ipc::WorkflowRunUpdatedEvent>(&event.payload);
                 if (run_updated != nullptr && run_updated->run_id == run_id &&
                     run_updated->state == "completed") {
                     settled_seen = true;
