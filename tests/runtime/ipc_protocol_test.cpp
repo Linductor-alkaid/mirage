@@ -277,8 +277,8 @@ void scenario_response_round_trips() {
         response.ok = true;
         response.id = 4;
         response.payload =
-            ipc::ServiceIdentity{"mirage-runtime", "0.5.0",      "1.2.3",     "Running", 1,
-                                 std::nullopt,     std::nullopt, std::nullopt};
+            ipc::ServiceIdentity{"mirage-runtime", "0.5.0",      "1.2.3",      "Running",   1,
+                                 std::nullopt,     std::nullopt, std::nullopt, std::nullopt};
         const ipc::ResponseDecode decoded = ipc::decode_response(ipc::encode_response(response));
         MIRAGE_CHECK(decoded.ok);
         MIRAGE_CHECK(decoded.response.id == 4);
@@ -500,7 +500,7 @@ void scenario_response_rejects_malformed_payloads() {
 
 void scenario_workflow_requests_round_trip() {
     // Bare ops.
-    for (const ipc::Request request :
+    for (const ipc::Request &request :
          std::vector<ipc::Request>{ipc::WorkflowListRequest{}, ipc::WorkflowAtomCatalogRequest{},
                                    ipc::WorkflowRunsRequest{}}) {
         const std::string payload = ipc::encode_request(30, request);
@@ -566,8 +566,9 @@ void scenario_workflow_requests_round_trip() {
     }
     // Run with every optional member absent stays absent after decode.
     {
-        const ipc::RequestDecode decoded =
-            ipc::decode_request(ipc::encode_request(35, ipc::WorkflowRunRequest{"wf-3"}));
+        ipc::WorkflowRunRequest head_run;
+        head_run.workflow_id = "wf-3";
+        const ipc::RequestDecode decoded = ipc::decode_request(ipc::encode_request(35, head_run));
         MIRAGE_CHECK(decoded.ok);
         const auto *decoded_run = std::get_if<ipc::WorkflowRunRequest>(&decoded.body);
         MIRAGE_CHECK(decoded_run != nullptr);

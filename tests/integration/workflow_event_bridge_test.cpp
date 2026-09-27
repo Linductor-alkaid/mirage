@@ -88,7 +88,8 @@ void scenario_store_remains_the_authority() {
 
     // The bridge is an event store: everything the runtime emits must stay
     // readable through the pinned read path (RULE-07), not just broadcast.
-    const mira::EventQuery query{request.session_id};
+    mira::EventQuery query;
+    query.session_id = request.session_id;
     const auto page = bridge.read(query);
     MIRAGE_CHECK(page);
     MIRAGE_CHECK(page.value().events.size() == 1);
