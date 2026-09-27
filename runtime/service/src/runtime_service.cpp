@@ -85,6 +85,9 @@ struct RuntimeService::Impl {
     /// Atomic: request_shutdown() is legal from any thread, including while
     /// the owning thread's teardown has already detached the loop.
     std::atomic<detail::ServiceLoop *> loop{nullptr};
+    /// Serializes request_shutdown's stop_serving() dereference against
+    /// the teardown that detaches and destroys the loop.
+    std::mutex loop_mutex;
     ipc::IpcListener listener;
     executor::WorkerHandle loop_worker;
     std::promise<void> loop_done;
@@ -1075,8 +1078,7 @@ struct RuntimeService::Impl {
         if (lifecycle.load(std::memory_order_acquire) != Lifecycle::Running) {
             return;
         }
-        // Within the Running lifecycle the loop object is alive (it dies
-        // only during teardown, which runs after the loop exited).
+        std::lock_guard lock(loop_mutex);
         detail::ServiceLoop *active = loop.load(std::memory_order_acquire);
         if (active != nullptr) {
             active->stop_serving();
@@ -1090,10 +1092,15 @@ struct RuntimeService::Impl {
         // (loop exited, listener closed by run()). Recover the blocking
         // worker, cancel drivers and tasks, drain the executor, then release
         // the hosted pinned runtime on this (non-worker) thread.
-        if (loop_worker.started()) {
-            loop_worker.stop();
+        {
+            // Detach and destroy the loop under the mutex so a concurrent
+            // request_shutdown never dereferences a dying loop (TSan-clean).
+            std::lock_guard lock(loop_mutex);
+            loop.store(nullptr, std::memory_order_release);
+            if (loop_worker.started()) {
+                loop_worker.stop();
+            }
         }
-        loop.store(nullptr, std::memory_order_release);
         std::vector<executor::TaskHandle> handles;
         std::vector<std::future<void>> driver_futures;
         {
