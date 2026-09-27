@@ -485,6 +485,23 @@ set_tests_properties(session_journal_test PROPERTIES
     TIMEOUT 60
 )
 
+# M5-05 workflow event bridge (DEC-023): platform-neutral library test over
+# the pinned workflow event vocabulary; the pinned include dirs propagate
+# from Mirage::integration_mira by design (the adapter is the pinned-facing
+# boundary).
+add_executable(workflow_event_bridge_test integration/workflow_event_bridge_test.cpp)
+target_compile_features(workflow_event_bridge_test PUBLIC cxx_std_20)
+mirage_enable_warnings(workflow_event_bridge_test)
+target_link_libraries(workflow_event_bridge_test
+    PRIVATE
+        Mirage::integration_mira
+)
+add_test(NAME workflow_event_bridge_test COMMAND workflow_event_bridge_test)
+set_tests_properties(workflow_event_bridge_test PROPERTIES
+    LABELS "unit;integration"
+    TIMEOUT 60
+)
+
 # POSIX-only: signal self-pipe fixtures.
 # 
 if(UNIX)
