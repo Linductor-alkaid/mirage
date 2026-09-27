@@ -1,5 +1,6 @@
-/// harness-mock 模拟域：seedSessions / seedWorkflows 形状与上界、
-/// exportSessionMarkdown 导出内容（H1、用户/assistant 小节、引用行）。
+/// harness-mock 模拟域：seedSessions 形状与上界、exportSessionMarkdown
+/// 导出内容（H1、用户/assistant 小节、引用行）。工作流种子已随 M5-05
+/// 编辑器接真实面移除（工作流域走 DEC-023 契约路径）。
 
 import { describe, expect, it } from 'vitest';
 
@@ -9,9 +10,7 @@ import {
     exportSessionMarkdown,
     seedContext,
     seedSessions,
-    seedWorkflows,
 } from '../src/state/harness-mock.js';
-import { ATOM_CATALOG } from '../src/state/workflow-backend.js';
 import type { ChatMessage } from '../src/state/model.js';
 
 const MESSAGE_KINDS: readonly ChatMessage['kind'][] = [
@@ -100,72 +99,6 @@ describe('seedSessions', () => {
             });
             expect(call.call.params).toEqual({ days: '7', limit: '6' });
         }
-    });
-});
-
-describe('seedWorkflows', () => {
-    it('seeds 4 workflows and 5 runs', () => {
-        const seeded = seedWorkflows(NOW);
-        expect(seeded.workflows).toHaveLength(4);
-        expect(seeded.runs).toHaveLength(5);
-    });
-
-    it('workflow defs carry the full RPA shape with known step kinds', () => {
-        const seeded = seedWorkflows(NOW);
-        const atomIds = new Set(ATOM_CATALOG.map((a) => a.id));
-        for (const wf of seeded.workflows) {
-            expect(wf.name.length).toBeGreaterThan(0);
-            expect(wf.version).toMatch(/^v\d+$/);
-            expect(wf.params.length).toBeGreaterThanOrEqual(0);
-            expect(wf.steps.length).toBeGreaterThan(0);
-            expect(wf.successRate).toBeGreaterThanOrEqual(0);
-            expect(wf.successRate).toBeLessThanOrEqual(1);
-            // RPA 工程面：草稿/发布状态与最近更新时间
-            expect(typeof wf.published, wf.id).toBe('boolean');
-            expect(typeof wf.updatedAt, wf.id).toBe('number');
-            expect(wf.updatedAt, wf.id).toBeLessThanOrEqual(NOW);
-            for (const step of wf.steps) {
-                expect(['filesystem.read', 'process.execute', 'display.observe', 'control']).toContain(step.kind);
-                expect(step.title.length).toBeGreaterThan(0);
-                // 每个步骤必须引用原子动作目录中的条目
-                expect(step.atomId.length, `${wf.id}:${step.title}`).toBeGreaterThan(0);
-                expect(atomIds.has(step.atomId), `${wf.id}:${step.title} -> ${step.atomId}`).toBe(true);
-            }
-        }
-    });
-
-    it('control-kind steps reference control atoms and carry loop bounds', () => {
-        const seeded = seedWorkflows(NOW);
-        const controlSteps = seeded.workflows
-            .flatMap((wf) => wf.steps.map((step) => ({ wf, step })))
-            .filter(({ step }) => step.kind === 'control');
-        expect(controlSteps.length).toBeGreaterThanOrEqual(2); // 条件跳过 + 循环回跳
-        for (const { wf, step } of controlSteps) {
-            expect(step.atomId, wf.id).toMatch(/^ctl\./);
-            if (step.loopMax !== undefined) {
-                expect(step.loopMax, `${wf.id}:${step.title}`).toBeGreaterThan(0);
-            }
-        }
-    });
-
-    it('seeded runs reference published defs with matching names and known statuses', () => {
-        const seeded = seedWorkflows(NOW);
-        for (const run of seeded.runs) {
-            const wf = seeded.workflows.find((w) => w.id === run.workflowId);
-            expect(wf, run.id).toBeDefined();
-            expect(run.workflowName, run.id).toBe(wf?.name);
-            expect(['running', 'completed', 'failed', 'cancelled']).toContain(run.status);
-            expect(run.steps.length, run.id).toBeGreaterThan(0);
-        }
-    });
-
-    it('seeded run status distribution: 1 running, 2 completed, 1 failed, 1 cancelled', () => {
-        const seeded = seedWorkflows(NOW);
-        const counts: Record<string, number> = {};
-        for (const run of seeded.runs) {
-            counts[run.status] = (counts[run.status] ?? 0) + 1;
-        }
-        expect(counts).toEqual({ running: 1, completed: 2, failed: 1, cancelled: 1 });
     });
 });
 

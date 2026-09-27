@@ -1684,6 +1684,11 @@
     .menu-item:hover {
         background: var(--accent);
     }
+    .menu-item.is-disabled {
+        color: var(--muted-foreground);
+        cursor: default;
+    }
+
     .menu-item.is-danger {
         color: var(--destructive);
     }

@@ -19,15 +19,21 @@ import type {
     EventListener,
     MirageTransport,
     SubmitTaskInput,
+    WorkflowDefinition,
+    WorkflowStartInput,
 } from './transport.js';
 import { IpcRequestError, TransportClosedError } from './transport.js';
 import type {
+    ExposedTool,
     InspectTask,
     RequestBody,
     ResponsePayload,
     ServiceIdentity,
     TaskProgress,
     TaskSummary,
+    WorkflowRunState,
+    WorkflowRunSummary,
+    WorkflowSummary,
 } from './types.js';
 
 /** A request that never settled within `requestTimeoutMs`. Unlike
@@ -104,6 +110,10 @@ export class WsBridgeTransport implements MirageTransport {
         return this.identity?.events === true;
     }
 
+    get workflowsSupported(): boolean {
+        return this.identity?.workflows === true;
+    }
+
     /** Registers a callback fired once per unexpected connection loss after
      * a successful hello (never for close()). Reconnection and resync are
      * UI-layer decisions (M1.5-05). */
@@ -155,6 +165,68 @@ export class WsBridgeTransport implements MirageTransport {
 
     async shutdown(): Promise<void> {
         await this.request({ op: 'service.shutdown' }, null);
+    }
+
+    // -- workflow face (DEC-023) ----------------------------------------------
+
+    async listWorkflows(): Promise<WorkflowSummary[]> {
+        const payload = await this.request({ op: 'workflow.list' }, 'workflow-list');
+        return (payload as { kind: 'workflow-list'; value: { workflows: WorkflowSummary[] } }).value.workflows;
+    }
+
+    async saveWorkflow(
+        definition: WorkflowDefinition,
+    ): Promise<{ workflow_id: string; digest: string }> {
+        const payload = await this.request({ op: 'workflow.save', definition }, 'workflow-saved');
+        return (payload as { kind: 'workflow-saved'; value: { workflow_id: string; digest: string } }).value;
+    }
+
+    async publishWorkflow(definition: WorkflowDefinition): Promise<{
+        workflow_id: string;
+        digest: string;
+        dry_run_id: string;
+        idempotent: boolean;
+    }> {
+        const payload = await this.request({ op: 'workflow.publish', definition }, 'workflow-published');
+        return (payload as {
+            kind: 'workflow-published';
+            value: { workflow_id: string; digest: string; dry_run_id: string; idempotent: boolean };
+        }).value;
+    }
+
+    async deleteWorkflow(workflowId: string): Promise<{ workflow_id: string }> {
+        const payload = await this.request({ op: 'workflow.delete', workflow_id: workflowId }, 'workflow-deleted');
+        return (payload as { kind: 'workflow-deleted'; value: { workflow_id: string } }).value;
+    }
+
+    async workflowAtomCatalog(): Promise<ExposedTool[]> {
+        const payload = await this.request({ op: 'workflow.atom.catalog' }, 'workflow-atom-catalog');
+        return (payload as { kind: 'workflow-atom-catalog'; value: { tools: ExposedTool[] } }).value.tools;
+    }
+
+    async listWorkflowRuns(): Promise<WorkflowRunSummary[]> {
+        const payload = await this.request({ op: 'workflow.runs' }, 'workflow-run-list');
+        return (payload as { kind: 'workflow-run-list'; value: { runs: WorkflowRunSummary[] } }).value.runs;
+    }
+
+    async startWorkflowRun(input: WorkflowStartInput): Promise<{ run_id: string }> {
+        const payload = await this.request(
+            {
+                op: 'workflow.run',
+                workflow_id: input.workflow_id,
+                ...(input.digest !== undefined ? { digest: input.digest } : {}),
+                ...(input.parameters !== undefined ? { parameters: input.parameters } : {}),
+                ...(input.policy !== undefined ? { policy: input.policy } : {}),
+            },
+            'workflow-run-started',
+        );
+        return (payload as { kind: 'workflow-run-started'; value: { run_id: string } }).value;
+    }
+
+    async cancelWorkflowRun(runId: string): Promise<{ run_id: string; state: WorkflowRunState }> {
+        const payload = await this.request({ op: 'workflow.cancel', run_id: runId }, 'workflow-run-cancelled');
+        return (payload as { kind: 'workflow-run-cancelled'; value: { run_id: string; state: WorkflowRunState } })
+            .value;
     }
 
     async subscribe(listener: EventListener): Promise<void> {

@@ -695,3 +695,182 @@ describe('request frames and response routing per op', () => {
         await expect(pending).resolves.toBeUndefined();
     });
 });
+
+// ---- workflow face (DEC-023) -----------------------------------------------
+
+const WORKFLOW_ID = '0f9e8d7c6b5a4938271605948372615a';
+const RUN_ID = '00000001000000010000000000000001';
+const DIGEST = 'ab'.repeat(32);
+
+function readDefinition(): Record<string, unknown> {
+    return {
+        schema_version: { major: 1, minor: 0 },
+        workflow_id: WORKFLOW_ID,
+        name: '读取文本',
+        parameters: [],
+        steps: [],
+        default_policy: 'strict',
+        allowed_policies: ['strict'],
+    };
+}
+
+describe('workflow face (DEC-023)', () => {
+    it('workflow.list sends the bare op and routes the workflow-list payload', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+
+        const pending = harness.transport.listWorkflows();
+        await flush();
+        expect(sentBody(harness.socket.sent.at(-1)!)).toEqual({ op: 'workflow.list' });
+        respond(harness.socket, 2, {
+            kind: 'workflow-list',
+            value: {
+                workflows: [
+                    {
+                        workflow_id: WORKFLOW_ID,
+                        name: '读取文本',
+                        head_digest: DIGEST,
+                        validation: 'dry_run_passed',
+                        runnable: true,
+                        updated_at_ms: 1_000,
+                    },
+                ],
+            },
+        });
+        await expect(pending).resolves.toEqual([
+            {
+                workflow_id: WORKFLOW_ID,
+                name: '读取文本',
+                head_digest: DIGEST,
+                validation: 'dry_run_passed',
+                runnable: true,
+                updated_at_ms: 1_000,
+            },
+        ]);
+    });
+
+    it('workflow.save / workflow.publish carry the definition object and route their payloads', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+
+        const save = harness.transport.saveWorkflow(readDefinition());
+        await flush();
+        expect(sentBody(harness.socket.sent.at(-1)!)).toEqual({
+            op: 'workflow.save',
+            definition: readDefinition(),
+        });
+        respond(harness.socket, 2, {
+            kind: 'workflow-saved',
+            value: { workflow_id: WORKFLOW_ID, digest: DIGEST },
+        });
+        await expect(save).resolves.toEqual({ workflow_id: WORKFLOW_ID, digest: DIGEST });
+
+        const publish = harness.transport.publishWorkflow(readDefinition());
+        await flush();
+        expect(sentBody(harness.socket.sent.at(-1)!)).toEqual({
+            op: 'workflow.publish',
+            definition: readDefinition(),
+        });
+        respond(harness.socket, 3, {
+            kind: 'workflow-published',
+            value: { workflow_id: WORKFLOW_ID, digest: DIGEST, dry_run_id: 'dry-1', idempotent: false },
+        });
+        await expect(publish).resolves.toEqual({
+            workflow_id: WORKFLOW_ID,
+            digest: DIGEST,
+            dry_run_id: 'dry-1',
+            idempotent: false,
+        });
+    });
+
+    it('workflow.delete carries workflow_id and routes the workflow-deleted payload', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+
+        const pending = harness.transport.deleteWorkflow(WORKFLOW_ID);
+        await flush();
+        expect(sentBody(harness.socket.sent.at(-1)!)).toEqual({
+            op: 'workflow.delete',
+            workflow_id: WORKFLOW_ID,
+        });
+        respond(harness.socket, 2, { kind: 'workflow-deleted', value: { workflow_id: WORKFLOW_ID } });
+        await expect(pending).resolves.toEqual({ workflow_id: WORKFLOW_ID });
+    });
+
+    it('workflow.atom.catalog routes the exposed tools payload', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+
+        const pending = harness.transport.workflowAtomCatalog();
+        await flush();
+        expect(sentBody(harness.socket.sent.at(-1)!)).toEqual({ op: 'workflow.atom.catalog' });
+        respond(harness.socket, 2, {
+            kind: 'workflow-atom-catalog',
+            value: {
+                tools: [
+                    {
+                        wire_name: 'desktop.filesystem.read_text',
+                        version: '1.0.0',
+                        description: 'Reads a UTF-8 text file.',
+                        has_side_effects: false,
+                        parameters_schema: {
+                            type: 'object',
+                            properties: { path: { type: 'string' } },
+                            required: ['path'],
+                        },
+                    },
+                ],
+            },
+        });
+        const tools = await pending;
+        expect(tools).toHaveLength(1);
+        expect(tools[0]).toMatchObject({ wire_name: 'desktop.filesystem.read_text', has_side_effects: false });
+    });
+
+    it('workflow.run maps optional digest/parameters/policy members and routes the started payload', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+
+        const bare = harness.transport.startWorkflowRun({ workflow_id: WORKFLOW_ID });
+        await flush();
+        expect(sentBody(harness.socket.sent.at(-1)!)).toEqual({ op: 'workflow.run', workflow_id: WORKFLOW_ID });
+        respond(harness.socket, 2, { kind: 'workflow-run-started', value: { run_id: RUN_ID } });
+        await expect(bare).resolves.toEqual({ run_id: RUN_ID });
+
+        const full = harness.transport.startWorkflowRun({
+            workflow_id: WORKFLOW_ID,
+            digest: DIGEST,
+            parameters: { confirmed: true },
+            policy: 'strict',
+        });
+        await flush();
+        expect(sentBody(harness.socket.sent.at(-1)!)).toEqual({
+            op: 'workflow.run',
+            workflow_id: WORKFLOW_ID,
+            digest: DIGEST,
+            parameters: { confirmed: true },
+            policy: 'strict',
+        });
+        respond(harness.socket, 3, { kind: 'workflow-run-started', value: { run_id: RUN_ID } });
+        await expect(full).resolves.toEqual({ run_id: RUN_ID });
+    });
+
+    it('workflow.cancel carries run_id and surfaces the stable pinned error on rejection', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+
+        const pending = harness.transport.cancelWorkflowRun(RUN_ID);
+        await flush();
+        expect(sentBody(harness.socket.sent.at(-1)!)).toEqual({ op: 'workflow.cancel', run_id: RUN_ID });
+        respond(harness.socket, 2, {
+            kind: 'workflow-run-cancelled',
+            value: { run_id: RUN_ID, state: 'cancelled' },
+        });
+        await expect(pending).resolves.toEqual({ run_id: RUN_ID, state: 'cancelled' });
+
+        const failing = harness.transport.listWorkflows();
+        await flush();
+        respondError(harness.socket, 3, 'not_found', 'unknown workflow id');
+        await expectIpcError(() => failing, 'not_found');
+    });
+});

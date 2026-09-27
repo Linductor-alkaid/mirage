@@ -105,7 +105,7 @@ export function WorkflowSidebar(): React.ReactElement {
                                             >
                                                 <span className="s-title">{w.name}</span>
                                                 <span className={`badge ${w.published ? 'is-success' : 'is-warning'}`} style={{ height: 16, fontSize: 10 }}>
-                                                    {w.version}
+                                                    {w.published ? w.version : '草稿'}
                                                 </span>
                                                 <span
                                                     className="sess-menu-btn"
@@ -128,37 +128,43 @@ export function WorkflowSidebar(): React.ReactElement {
                                                 </span>
                                             </button>
                                         )}
-                                        {menuFor === w.id && (
-                                            <div
-                                                className="menu-panel"
-                                                style={{ position: 'absolute', top: 28, right: 6, zIndex: 30 }}
-                                                onMouseLeave={() => setMenuFor(null)}
-                                            >
-                                                <button type="button" className="menu-item" onClick={() => { runWorkflow(w.id); setMenuFor(null); }}>
-                                                    <Play size={13} /> 运行
-                                                </button>
-                                                <button type="button" className="menu-item" onClick={() => { setRenaming(w.id); setMenuFor(null); }}>
-                                                    重命名
-                                                </button>
-                                                <button type="button" className="menu-item" onClick={() => { exportWorkflowJson(w.id); setMenuFor(null); }}>
-                                                    导出 IR JSON
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    className="menu-item is-danger"
-                                                    onClick={() => {
-                                                        if (confirmDelete === w.id) {
-                                                            deleteWorkflow(w.id);
-                                                            setMenuFor(null);
-                                                        } else {
-                                                            setConfirmDelete(w.id);
-                                                        }
-                                                    }}
-                                                >
-                                                    <Trash2 size={13} /> {confirmDelete === w.id ? '确认删除？' : '删除工作流'}
-                                                </button>
-                                            </div>
-                                        )}
+                                                {menuFor === w.id && (
+                                                    <div
+                                                        className="menu-panel"
+                                                        style={{ position: 'absolute', top: 28, right: 6, zIndex: 30 }}
+                                                        onMouseLeave={() => setMenuFor(null)}
+                                                    >
+                                                        {w.runnable ? (
+                                                            <button type="button" className="menu-item" onClick={() => { runWorkflow(w.id); setMenuFor(null); }}>
+                                                                <Play size={13} /> 运行
+                                                            </button>
+                                                        ) : (
+                                                            <span className="menu-item is-disabled" title="草稿不可运行：先发布（W-04）">
+                                                                <Play size={13} /> 运行（先发布）
+                                                            </span>
+                                                        )}
+                                                        <button type="button" className="menu-item" onClick={() => { setRenaming(w.id); setMenuFor(null); }}>
+                                                            重命名
+                                                        </button>
+                                                        <button type="button" className="menu-item" onClick={() => { exportWorkflowJson(w.id); setMenuFor(null); }}>
+                                                            导出 IR JSON
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className="menu-item is-danger"
+                                                            onClick={() => {
+                                                                if (confirmDelete === w.id) {
+                                                                    deleteWorkflow(w.id);
+                                                                    setMenuFor(null);
+                                                                } else {
+                                                                    setConfirmDelete(w.id);
+                                                                }
+                                                            }}
+                                                        >
+                                                            <Trash2 size={13} /> {confirmDelete === w.id ? '确认删除？' : '删除工作流'}
+                                                        </button>
+                                                    </div>
+                                                )}
                                     </div>
                                 );
                             })}

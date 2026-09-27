@@ -1,7 +1,8 @@
 # M5：Desktop Product（Workspace / Overlay / 权限 / 分发）
 
 > 状态：In Progress（`M5-01`、`M5-02`、`M5-03`、`M5-04` 完成，2026-09-26；
-> `M5-05` 第一轮完成 2026-09-27；第二轮桌面原子工具注册增量完成，2026-09-27）
+> `M5-05` 第一轮完成 2026-09-27；第二轮桌面原子工具注册与编辑器接真实面
+> 增量完成，2026-09-27）
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M3](m3-mirador-integration.md)（已完成：Mirador 视觉集成与壳选型冻结——
@@ -132,8 +133,8 @@
       投影）与消息 / 轮次 / 增量输出事件集（DEC-012 扩展流程）；Runtime
       Service 由 M1 过渡驱动形态向 mira 会话 / 任务模型演进（DEC-008 迁移
       路径兑现）；golden vectors 双端门禁与 wire 契约同步。
-- [~] `M5-05` 工作流契约面与编辑器真实化（第一轮契约面与第二轮桌面原子工具
-      注册已完成，2026-09-27；编辑器完整版接真实面为剩余增量）：`workflow.*` 请求面（`list` /
+- [x] `M5-05` 工作流契约面与编辑器真实化（第一轮契约面、第二轮桌面原子工具
+      注册与编辑器接真实面完成，2026-09-27）：`workflow.*` 请求面（`list` /
       `save` / `publish` / `delete` / `atom.catalog` / `runs` / `run` /
       `cancel`），绑定 2026-09-26 升级后的 pinned 工作流 / 工具契约面
       （[DEC-022](../decisions/DEC-022-upstream-capability-adoption.md)
@@ -840,3 +841,77 @@ ToolCall 执行路径）完成（[DEC-024](../decisions/DEC-024-desktop-atom-too
   池，见 DEC-024 决策 7）、`3ccee92`（run-completed 事件先于驱动清算释放
   异步槽位，场景内第二次准入对瞬态容量拒绝做有界重试）。
 - 合并裁决：维护者（PR [#55](https://github.com/Linductor-alkaid/mirage/pull/55)）。
+
+2026-09-27：`M5-05` 第二轮增量 2——编辑器完整版接真实面（DEC-013 IR 对齐
+验收；wire 契约零变更，golden 仍 meta.version 5）。
+
+- **传输面**：`MirageTransport` 扩展八个 workflow 方法（`listWorkflows` /
+  `saveWorkflow` / `publishWorkflow` / `deleteWorkflow` /
+  `workflowAtomCatalog` / `listWorkflowRuns` / `startWorkflowRun` /
+  `cancelWorkflowRun`）与 `workflowsSupported` 能力位（hello `workflows`）；
+  Mock / dev bridge WebSocket / Desktop shell 三个传输同变更实现。mock
+  服务新增工作流面（wire 忠实：注册表容量与 256 KiB 字节预算拒绝、
+  NotValidated 草稿 + DryRun 门禁发布幂等、W-04 草稿拒跑透传
+  `invalid_state`、W-02 未绑定验证参数的运行 fail closed、delete 守卫、
+  `workflow.run_updated` 事件经既有事件面分发；目录为 M1 参考绑定两原子，
+  与活服务目录断言一致，不虚构能力；`?workflows=off` 构造降级场景）。
+- **IR 对齐（DEC-013 验收项）**：新增 `ui/app/src/state/workflow-ir.ts`
+  ——编辑器模型 → pinned `workflow_ir.hpp` IR v1 JSON 的唯一换算点。步骤
+  kind 词表与 IR v1 同构（`tool_call`/`control`，封闭集合含
+  `navigate`/`verify`）；步骤带稳定 32-hex `step_id`（插入时生成，重排不
+  变）；参数引用 `{"$name"}` → `{"$param":"name"}` 对象形态；前置条件为
+  结构化谓词（signal/op/标量值，编辑器三字段输入）；循环构造 → `control`
+  步骤 + 首步 `loop_head` 标注 + `max_iterations`；`default_policy` 恒
+  `strict`、`allowed_policies = ["strict","dry_run"]`。
+- **W-02 验收（DEC-024 决策 5）**：副作用原子（wire 目录
+  `has_side_effects`）步骤自动落 verification 谓词
+  `run_parameter:ok_<stepid6> eq true`，并自动派生同名可选 boolean 参数
+  （无默认值）——发布 DryRun 空参绑定下谓词 NotEvaluable 计数通过
+  （RULE-10），Strict 运行须绑定参数否则该步 fail closed，与 C++ 侧
+  `mira_host_test` 已验证形态一致。
+- **适配器与 store**：`WorkflowBackend` 接口重写为 `IpcWorkflowBackend`
+  （三个传输共用；目录懒取缓存）。store 按 hello `workflows` 能力位接
+  契约路径：运行监控事件化（`workflow.run_updated` → 快照刷新，
+  `workflow.runs` 为事实源；无事件能力时有未终态运行则轮询兜底）；模拟
+  推进（`advanceRun`）、`MockWorkflowBackend`、静态 `ATOM_CATALOG` 与
+  `seedWorkflows` 移除（工作流域不再属于模拟域）；运行状态视图新增
+  `queued`/`paused` 投影。**已知边界（如实声明）**：wire 无定义读取面，
+  `workflow.list` 只投影摘要——编辑器仅可编辑本会话创建/保存过的定义
+  （`contentKnown` 标记 + head digest 合并保留会话副本），其余条目只读，
+  防止以空内容遮蔽服务端 head（W-03 内容寻址；MIRA-20260927-001 同源
+  风险）；定义读取面属后续协议附加扩展挂账（与跨会话编辑、M5-06 观察
+  台共同评估）。运行参数绑定入口未随本轮交付（副作用工作流当前以缺参
+  运行会按 W-02 fail closed，属如实呈现）；参数化运行对话框挂账
+  M5-06/编辑器后续轮。
+- 验证（本机 Windows 11，Node 22 / vitest）：eslint 0 告警；contracts +
+  app 双包 `tsc --noEmit` 0 诊断；前端全量 **630 测试 / 19 文件通过**
+  （新增 contracts `workflow-mock.test.ts` 8 项、ws-transport workflow 面
+  6 项（帧形状 + 载荷路由 + 稳定错误）、app `workflow-ir.test.ts` 8 项
+  （IR 形态、W-02 谓词派生、loop_head、谓词标量解析）、
+  `workflow-backend.test.ts` 7 项（目录投影/缓存、W-04/W-03 语义、运行
+  生命周期）、store-dom 工作流组 7 项重写为契约路径（种子投影、
+  `contentKnown` 只读守卫、发布翻转、事件化完成、删除路由回退））；
+  `vite build` 成功（chunk 体积告警为既有情况）。C++ / wire 侧零变更，
+  golden vectors 消费面（TS 侧）随套件通过；Linux/Windows 矩阵随本 PR CI
+  执行（结论由后续记录补录）。
+- 依据：[DEC-013](../decisions/DEC-013-frontend-ia-harness-first.md)（编辑器
+  IR 对齐约束）、[DEC-023](../decisions/DEC-023-workflow-contract-face.md)
+  （wire 面与能力位）、[DEC-024](../decisions/DEC-024-desktop-atom-toolset.md)
+  （目录 exposed view 承载 + 决策 5 W-02 验收）；pinned 依据
+  `workflow_ir.hpp`（IR v1 封闭词汇与谓词形状）、`workflow-contracts.md`
+  （`arguments["tool"]` 绑定、W-02 准入）。
+- 同步：[DEC-023](../decisions/DEC-023-workflow-contract-face.md)（挂账节：
+  编辑器接真实面完成、定义读取面挂账登记）、
+  [DEC-024](../decisions/DEC-024-desktop-atom-toolset.md)（决策 5 验收指向
+  本增量）、`ui/README.md`（接口缝说明）、设计规范 §3.5 目录来源措辞
+  （wire 目录 + 编辑器控制构造）。
+
+2026-09-27：`M5-05` 第二轮增量 2 CI 取证完成；run 36327115131
+（headSha = `e55bd10` 已核实）全部 8 作业 success。
+
+- Linux 矩阵：debug / release / asan / tsan / ubsan 五预设全绿；format &
+  public-header boundaries 绿（C++ / wire 零变更，零回归）。
+- frontend 作业：lint + strict tsc + 测试 + build 全绿（wire 未变，golden 仍
+  v5；新增 workflow 传输 / IR 映射 / 契约路径 store 场景随套件通过）。
+- windows msvc (full tree)：全树构建 + 测试通过。
+- 合并裁决：维护者（PR [#56](https://github.com/Linductor-alkaid/mirage/pull/56)，2026-09-27 授权合并）。

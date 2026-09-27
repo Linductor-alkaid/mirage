@@ -30,7 +30,7 @@
   对话/执行双模式、观察台 Observer：运行时间线 + 观察流 trigger-lock + 上下文
   占用；工作流以 WorkflowCallCard 呈现为 agent 可调用的工具）、工作流页（与
   harness 同壳：左栏工作流列表 + RPA 工程式编辑器——右栏原子动作库可拖入/
-  属性/参数三 Tab，接口缝 `state/workflow-backend.ts`）、设置八类、资源占位。
+  属性/参数三 Tab，接口缝 `state/workflow-backend.ts`（M5-05 起为 DEC-023 IPC 适配器，IR 映射见 `state/workflow-ir.ts`）、设置八类、资源占位。
   RPA 范式调研归档：`docs/research/rpa-editor-design-reference.md`。
 
 ### M1.5-04 视图迁移映射（功能等价）

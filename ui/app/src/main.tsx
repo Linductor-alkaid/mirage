@@ -56,7 +56,8 @@ function createTransportSelection(): {
         };
     }
     const eventsCapability = params.get('events') !== 'off';
-    return { transport: createMockTransport({ eventsCapability }).transport };
+    const workflowsCapability = params.get('workflows') !== 'off';
+    return { transport: createMockTransport({ eventsCapability, workflowsCapability }).transport };
 }
 
 function mountTokenStyles(): void {

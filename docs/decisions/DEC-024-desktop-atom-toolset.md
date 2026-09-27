@@ -139,6 +139,11 @@
 - `mira_host_test`：attach 签名变更接线 + null 工具集拒绝；新增端到端场景——
   含 `desktop.clipboard.write_text` ToolCall 步的定义发布（DryRun 不派发）、
   Strict 运行落成副作用（fake 剪贴板内容）、门禁翻转后同定义运行 fail closed。
+  **编辑器侧验收（2026-09-27 交付）**：UI 编辑器为副作用原子自动落同形
+  verification 谓词（`run_parameter:ok_<stepid6> eq true` + 可选 boolean
+  派生参数，无默认值——DryRun 空参绑定 NotEvaluable 计数通过，RULE-10），
+  实现与测试见 `ui/app/src/state/workflow-ir.ts` 及计划日志 `M5-05`
+  第二轮增量 2。
 - `session_client_test`：活服务目录断言从"空目录"更新为"测试绑定的真实能力"
   （仅 M1 文件系统 + 进程两项原子）。
 - 既有门禁零回归：全树构建、`mira-host` / `runtime_service` / golden vectors
@@ -154,5 +159,5 @@
   schema 子集与至多一次派发）、`workflow_ir.hpp`（ToolCall `arguments["tool"]` 绑
   定、`workflow_policy_dispatches_side_effects`）、`workflow_runtime.hpp`
   （`set_tool_registry` / 派发通道）。
-- 工作项：`M5-05` 第二轮（桌面原子工具注册；编辑器完整版接真实面为第二轮另一
-  增量，随后交付）。
+- 工作项：`M5-05` 第二轮（桌面原子工具注册；编辑器完整版接真实面已随第二轮
+  增量 2 于 2026-09-27 交付，见计划日志）。
