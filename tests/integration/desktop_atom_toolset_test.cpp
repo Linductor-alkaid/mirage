@@ -299,7 +299,11 @@ void scenario_snapshot_atom_renders_the_semantic_tree() {
     mirage::desktop::SemanticSnapshot snapshot;
     snapshot.application = "Terminal";
     snapshot.window_title = "Terminal";
-    snapshot.nodes.push_back({"@e1", "button", "Run"});
+    mirage::desktop::SemanticNode node;
+    node.ref = "@e1";
+    node.role = "button";
+    node.name = "Run";
+    snapshot.nodes.push_back(node);
     environment.snapshots.emplace("w1", snapshot);
     const auto toolset = integration::DesktopAtomToolset::build(&environment, nullptr);
 
