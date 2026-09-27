@@ -651,6 +651,39 @@ M1 阶段 Local IPC 的落地形态由 [DEC-007](../decisions/DEC-007-local-ipc-
   M1 过渡驱动形态向 pinned 会话 / 任务模型演进（DEC-008 迁移路径）的第一
   步；本阶段仍不引入模型循环，steps 语义不变。
 
+### 12.4 工作流契约面（M5，DEC-023）
+
+工作流的协议承载由 [DEC-023](../decisions/DEC-023-workflow-contract-face.md)
+定义、随 `M5-05` 第一轮落地，绑定 2026-09-26 升级后的 pinned
+`WorkflowRuntime` 契约面（[DEC-022](../decisions/DEC-022-upstream-capability-adoption.md)
+决策 1 兑现），wire 契约见[协议 v1 Wire Schema](mirage-ipc-protocol-v1.md)
+§4 / §6.5 / §7.2：
+
+- **工作流请求面**：`workflow.list`（产品目录快照：head digest、validation、
+  可运行投影）、`workflow.save`（草稿 = pinned `not_validated` 版本，可解析
+  不可运行）、`workflow.publish`（pinned DryRun 门禁入库，内容寻址 + 幂等）、
+  `workflow.delete`（产品目录条目移除；pinned 版本历史追加式不可变）、
+  `workflow.atom.catalog`（宿主 BuiltIn 注册表 exposed view 承载，DEC-022：
+  不自建第二套目录模型）、`workflow.runs`（运行状态快照事实源）、
+  `workflow.run`（库路径准入 + 异步驱动）、`workflow.cancel`（幂等取消）。
+  hello 以 `workflows` 能力成员通告。
+- **运行监控事件化**：`workflow.run_updated`（run_id、workflow_id、状态、纪
+  元、可选结算摘要）由服务从 pinned 工作流事件经 integration/mira 的
+  `WorkflowEventBridge` 转译发布（`WorkflowRunStarted` → `running`、
+  `WorkflowRunSettled` → 终态），不从服务侧推测状态；快照事实源为
+  `workflow.runs`，一致性模型沿用 DEC-012。步级 / patch / 决策事件按 UI 消
+  费需求以附加扩展进入。
+- **服务承载**：`MiraHost` 新增工作流承载面——在 Running 宿主上构造 pinned
+  `WorkflowRuntime`（绑定服务进程唯一 Executor、pinned 运行时、主会话与已
+  绑定环境），服务 teardown 在 Executor 关停前先经
+  `shutdown_workflow_surface()` 按 pinned 关闭顺序收敛（WorkflowRuntime
+  shutdown → MiraRuntime 停止 → Executor shutdown）。服务侧工作流 / 运行两
+  个内存注册表是产品索引（pinned 无库枚举 API），库与 Run 表仍是执行侧事
+  实源；均为进程内易失形态，持久化随上游库存储（RISK-2026-038）与 DEC-011
+  条目另行定案。编辑器完整版接真实面、桌面原子工具注册（`atom.catalog` 人
+  口与 ToolCall 执行路径）、每版本工具引用挂载属 `M5-05` 第二轮及后续工作
+  项。
+
 ## 13. Agent Workspace
 
 > **修订（2026-09-16，[DEC-013](../decisions/DEC-013-frontend-ia-harness-first.md)）**：

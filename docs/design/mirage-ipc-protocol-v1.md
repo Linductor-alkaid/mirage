@@ -86,6 +86,14 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 | `session.list` | 无（M5-04 落地） | `{"sessions":[SessionSummary...]}`（§6.4，含主会话，可为空数组） | — |
 | `session.open` | 无（M5-04 落地） | `{"session_id"}`（§6.4） | `unavailable`（会话容量饱和，§6.4）、`pinned_runtime`（透传） |
 | `session.history` | `session_id`（string，非空），`limit`（可选正整数，M5-04 落地） | `{"session_id","entries":[...],"truncated"}`（§6.4） | `not_found`（未知会话） |
+| `workflow.list` | 无（M5-05 落地） | `{"workflows":[WorkflowSummary...]}`（§6.5，可为空数组） | — |
+| `workflow.save` | `definition`（object，IR v1 JSON，M5-05 落地） | `{"workflow_id","digest"}`（§6.5） | `unavailable`（注册表容量饱和，§6.5）、`pinned_runtime`（解码 / 追加拒绝，透传） |
+| `workflow.publish` | `definition`（object，IR v1 JSON，M5-05 落地） | `{"workflow_id","digest","dry_run_id","idempotent"}`（§6.5） | `pinned_runtime`（门禁拒绝，透传） |
+| `workflow.delete` | `workflow_id`（string，非空，M5-05 落地） | `{"workflow_id"}`（§6.5） | `not_found`（未知工作流）、`invalid_state`（存在非终态 Run） |
+| `workflow.atom.catalog` | 无（M5-05 落地） | `{"tools":[ExposedTool...]}`（§6.5，可为空数组） | — |
+| `workflow.runs` | 无（M5-05 落地） | `{"runs":[WorkflowRunSummary...]}`（§6.5，可为空数组） | — |
+| `workflow.run` | `workflow_id`（string，非空），`digest`（可选 string，非空；缺省取 head），`parameters`（可选 object），`policy`（可选封闭策略名，§6.5；M5-05 落地） | `{"run_id"}`（§6.5） | `not_found`（未知工作流）、`unavailable`（运行注册表饱和，§6.5）、`pinned_runtime`（准入 / 提交拒绝，透传） |
+| `workflow.cancel` | `run_id`（string，非空，M5-05 落地） | `{"run_id","state"}`（§6.5） | `pinned_runtime`（透传；幂等取消含终态重申） |
 
 协议层（`decode_request`）只约束参数的存在与类型（如 `task.submit` 缺 `goal` 即
 `protocol_error`）；空值等语义校验发生在服务层，产出表中 `invalid_argument` 等稳定错误。
@@ -127,6 +135,7 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 | `events` | boolean（可选） | DEC-012 能力通告：新服务端编码时总是写出；解码端缺省视为 `false`。置于 `protocol` 之后 |
 | `permissions` | boolean（可选） | DEC-020 异步确认面能力通告（`permission.*` 请求面可用）：语义与 `events` 相同（编码端总是写出、解码端缺省 `false`）。置于 `events` 之后 |
 | `sessions` | boolean（可选） | DEC-021 会话面能力通告（`session.*` 请求面可用）：语义与 `events` 相同。置于 `permissions` 之后 |
+| `workflows` | boolean（可选） | DEC-023 工作流面能力通告（`workflow.*` 请求面可用）：语义与 `events` 相同。置于 `sessions` 之后 |
 
 ### 6.2 `InspectTask`（task.inspect 响应载荷，嵌于 `task` 成员）
 
@@ -210,6 +219,63 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 （状态投影、容量边界、投影承载与持久化挂账）见
 [DEC-021](../decisions/DEC-021-session-message-contract-face.md)。
 
+### 6.5 工作流面载荷（workflow.* 载荷，M5-05，DEC-023）
+
+`workflow.list` 成功载荷：`{"workflows":[WorkflowSummary...]}`；`workflow.save` 成功
+载荷：`{"workflow_id","digest"}`；`workflow.publish` 成功载荷：
+`{"workflow_id","digest","dry_run_id","idempotent"}`；`workflow.delete` 成功载荷：
+`{"workflow_id"}`；`workflow.atom.catalog` 成功载荷：`{"tools":[ExposedTool...]}`；
+`workflow.runs` 成功载荷：`{"runs":[WorkflowRunSummary...]}`；`workflow.run` 成功
+载荷：`{"run_id"}`；`workflow.cancel` 成功载荷：`{"run_id","state"}`。
+
+`workflows[i]`（`WorkflowSummary`，成员按 wire 顺序）：
+
+| 成员 | 类型 | 约束 |
+| --- | --- | --- |
+| `workflow_id` | string | 非空；pinned 工作流 id 的 32 位小写十六进制形式 |
+| `name` | string | 非空；定义内声明的名称 |
+| `head_digest` | string | 非空；head 版本内容 digest 的 64 位小写十六进制形式 |
+| `validation` | string | 封闭词表（pinned WorkflowValidationResult 稳定名）：`not_validated` / `dry_run_passed` / `validated` / `rejected` |
+| `runnable` | boolean | head 记录是否可运行（`dry_run_passed` / `validated` 为 true，W-04） |
+| `updated_at_ms` | integer | 非负整数；服务侧最近一次 save / publish 的墙钟时刻 |
+
+`tools[i]`（`ExposedTool`，成员按 wire 顺序；宿主 BuiltIn 注册表 exposed view，
+DEC-022 决策 1：目录经 pinned 投影承载，不自建第二套目录模型）：
+
+| 成员 | 类型 | 约束 |
+| --- | --- | --- |
+| `wire_name` | string | 非空；工具 wire 名 |
+| `version` | string | 非空；语义版本 `major.minor.patch` |
+| `description` | string | 非空 |
+| `has_side_effects` | boolean | — |
+| `parameters_schema` | object | 工具参数 JSON Schema（pinned `JsonSchema` 根对象原样嵌入） |
+
+`runs[i]`（`WorkflowRunSummary`，成员按 wire 顺序）：
+
+| 成员 | 类型 | 约束 |
+| --- | --- | --- |
+| `run_id` | string | 非空；pinned 运行 id 的 32 位小写十六进制形式 |
+| `workflow_id` | string | 非空；所属工作流 |
+| `state` | string | 封闭运行状态投影（pinned WorkflowRunState 的稳定小写形式）：`created` / `running` / `paused` / `waiting_user` / `waiting_agent` / `completed` / `failed` / `cancelled`；单项快照失败保守呈现 `failed` |
+| `run_epoch` | integer | 非负整数；pinned 运行纪元（每次状态转换 +1，RULE-03） |
+| `created_at_ms` | integer | 非负整数；服务侧注册墙钟时刻 |
+
+`workflow.save` / `workflow.publish` 的 `definition` 为 Workflow IR v1 JSON 对象
+（DEC-013 对齐的编辑器文档形态），由 pinned `parse_workflow_definition` 严格解码
+（未知字段 fail closed）；字节预算 256 KiB，超限回 `invalid_argument`
+（`"workflow definition exceeds the 256 KiB budget"`）。`workflow.save` 追加
+`not_validated` 草稿版本（可解析不可运行，W-04）；`workflow.publish` 经 pinned
+DryRun 门禁追加 `dry_run_passed` 版本，head 同容同证幂等（`idempotent` 为 true）。
+`workflow.run` 缺省 `digest` 取注册表 head（未知工作流 `not_found`
+（`"unknown workflow id"`）；草稿 head 直接触发 pinned W-04 拒绝透传）；`policy`
+未知名回 `invalid_argument`（`"workflow.run 'policy' is not a known policy name"`）。
+注册表 / 运行注册表容量饱和回 `unavailable`（`"workflow registry capacity
+exhausted (N)"` / `"workflow run registry capacity exhausted (N)"`）。删除是产品
+目录条目移除，不动 pinned 追加式版本历史；存在非终态 Run 时回 `invalid_state`
+（`"workflow has non-terminal runs"`）。工作流库与运行注册表为进程内存易失形态，
+重启即空，在此之上不宣称持久化（DEC-023）。`workflow.runs` 是运行状态快照事实源，
+事件是通知。
+
 ## 7. 事件扩展（DEC-012，wire 语义自 `M1.5-02` 落地起冻结）
 
 ### 7.1 订阅
@@ -240,6 +306,7 @@ M1.5 事件集（封闭集合，M2+ 新事件以附加方式进入，不改既�
 | `session.message` | `session_id`（string，非空）、`task_id`（string，非空）、`kind`（string，§6.4 词表）、`text`（string，非空）、`sequence`（正整数） | 会话对话投影新增一条时发布（M5-04）：`user` 为任务目标入会话，`outcome` 为任务结算；`sequence` 为条目在会话事件序列中的序号；`session.history` 是含时间戳的完整投影事实源 |
 | `session.turn` | `session_id`（string，非空）、`task_id`（string，非空）、`step`（正整数）、`kind`（string，§6.2 步词表）、`status`（string，结算态词表 `ok` / `failed` / `cancelled` / `skipped`） | 一个有界会话工作单元结算时发布（M5-04）：M1 驱动形态为一个脚本步，模型循环落地后为一次循环迭代；轮次开始不发布（`task.updated` 覆盖进行中语义） |
 | `session.output` | `session_id`（string，非空）、`task_id`（string，非空）、`step`（正整数）、`chunk`（string，可为空）、`truncated`（boolean） | 步结构化结果的输出增量发布（M5-04）：`chunk` 受 `task.inspect` 结果同源字节预算，M1 驱动每步一份完整结果，流式生产者同形状多 chunk |
+| `workflow.run_updated` | `run_id`（string，非空）、`workflow_id`（string，非空）、`state`（string，§6.5 运行状态集合）、`run_epoch`（非负整数）、`summary`（string，可选，encode-when-set） | 工作流运行状态发布（M5-05，DEC-023）：由服务从 pinned 工作流事件转译——`WorkflowRunStarted` 发布 `running`，`WorkflowRunSettled` 发布终态并携带 `summary`（pinned `safe_summary`，2 KiB 上限）；不从服务侧推测状态。`workflow.runs` 是快照事实源 |
 
 ### 7.3 一致性模型与背压（DEC-012 决策 4、5）
 
@@ -293,6 +360,13 @@ TypeScript 消费者 `ui/contracts/test/golden-vectors.test.ts` 读取**同一�
 
 ## 10. 变更记录
 
+- 2026-09-27（`M5-05`）：工作流契约面附加扩展（DEC-023，协议版本不递增）。
+  §4 新增 `workflow.list` / `workflow.save` / `workflow.publish` /
+  `workflow.delete` / `workflow.atom.catalog` / `workflow.runs` / `workflow.run` /
+  `workflow.cancel`；§6.1 新增 `workflows` 能力通告成员；§6.5 新增
+  `WorkflowSummary` / `ExposedTool` / `WorkflowRunSummary` 载荷形状；§7.2 新增
+  `workflow.run_updated` 事件。golden vectors：requests +8、responses +9、
+  events +1，失败向量锁定新稳定错误串（`meta.version` 4 → 5）。
 - 2026-09-26（`M5-04`）：会话与消息契约面附加扩展（DEC-021，协议版本不递增）。
   §4 新增 `session.list` / `session.open` / `session.history`，`task.submit`
   增补可选 `session_id` 参数与 `TaskSubmitted.session_id` 回执；§6.1 新增
