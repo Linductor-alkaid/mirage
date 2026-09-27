@@ -821,3 +821,22 @@ ToolCall 执行路径）完成（[DEC-024](../decisions/DEC-024-desktop-atom-too
   [DEC-023](../decisions/DEC-023-workflow-contract-face.md)（挂账节引用）、
   设计文档 §12.4（桌面原子工具集段落）、
   [总计划](mirage-implementation-plan.md) 决策表（DEC-024 行）。
+
+2026-09-27：`M5-05` 第二轮增量 1 CI 取证完成；run 36322476594
+（headSha = `3ccee92` 已核实）全部 8 作业 success。
+
+- Linux 矩阵：debug / release / asan / tsan / ubsan 五预设全绿，34/34 测试
+  通过（含新增 `desktop_atom_toolset_test` 与 `mira_host_test` ToolCall 端到
+  端场景；`session_client_test` 目录断言更新后随套件通过）；format &
+  public-header boundaries 绿。
+- frontend 作业：lint + strict tsc + 测试 + build 全绿（wire 未变，golden 仍
+  v5）。
+- windows msvc (full tree)：全树构建 + 14/14 测试通过。
+- CI 修复轮（同 PR 内）：`2a4ecf0`（GCC `-Werror=missing-field-initializers`
+  ——SemanticNode 部分花括号初始化改逐字段赋值）、`0be98c7` + `b88c165`
+  （**根因修复**：ToolCall 运行需驱动 + 步监视 + 嵌套派发/观察 ≥3 并发
+  worker，宿主执行器以自适应 min 启动 2 worker 即死锁——本地 min=max=2 复
+  现；`ServiceConfig::executor_threads` 默认 2 → 4 且同时落 min/max 固定
+  池，见 DEC-024 决策 7）、`3ccee92`（run-completed 事件先于驱动清算释放
+  异步槽位，场景内第二次准入对瞬态容量拒绝做有界重试）。
+- 合并裁决：维护者（PR [#55](https://github.com/Linductor-alkaid/mirage/pull/55)）。
