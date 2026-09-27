@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { decodeEvent, decodeRequest, decodeResponse, encodeRequest, encodeResponse } from '../src/codec.js';
 import { decodeUtf8, makeFrame, tryExtractFrame } from '../src/framing.js';
 import type {
+    ExposedTool,
     HostStatus,
     IpcError,
     InspectTask,
@@ -27,6 +28,9 @@ import type {
     StepView,
     TaskProgress,
     TaskSummary,
+    WorkflowRunState,
+    WorkflowRunSummary,
+    WorkflowSummary,
 } from '../src/types.js';
 
 // --- shared vectors file (single source of truth, never copied) --------------
@@ -56,7 +60,7 @@ interface GoldenInspectValue {
 }
 
 type GoldenPayload =
-    | { kind: 'identity'; value: { service: string; mirage_version: string; mira_core_version: string; host_status: HostStatus; protocol: number; events?: boolean; permissions?: boolean; sessions?: boolean } }
+    | { kind: 'identity'; value: { service: string; mirage_version: string; mira_core_version: string; host_status: HostStatus; protocol: number; events?: boolean; permissions?: boolean; sessions?: boolean; workflows?: boolean } }
     | { kind: 'submitted'; value: { task_id: string; session_id?: string } }
     | { kind: 'list'; value: { tasks: TaskSummary[] } }
     | { kind: 'inspect'; value: GoldenInspectValue }
@@ -69,7 +73,18 @@ type GoldenPayload =
     | {
           kind: 'session-history';
           value: { session_id: string; entries: SessionHistoryEntry[]; truncated: boolean };
-      };
+      }
+    | { kind: 'workflow-list'; value: { workflows: Record<string, unknown>[] } }
+    | { kind: 'workflow-saved'; value: { workflow_id: string; digest: string } }
+    | {
+          kind: 'workflow-published';
+          value: { workflow_id: string; digest: string; dry_run_id: string; idempotent: boolean };
+      }
+    | { kind: 'workflow-deleted'; value: { workflow_id: string } }
+    | { kind: 'workflow-atom-catalog'; value: { tools: Record<string, unknown>[] } }
+    | { kind: 'workflow-run-list'; value: { runs: Record<string, unknown>[] } }
+    | { kind: 'workflow-run-started'; value: { run_id: string } }
+    | { kind: 'workflow-run-cancelled'; value: { run_id: string; state: string } };
 
 type GoldenEnvelop =
     | { id: number; ok: true; payload: GoldenPayload }
@@ -198,6 +213,69 @@ function expectedEnvelop(vector: GoldenResponseVector): ResponseEnvelop {
             };
         case 'shutdown-accepted':
             return { ok: true, id: response.id, payload: { kind: 'shutdown-accepted' } };
+        case 'workflow-list':
+            return {
+                ok: true,
+                id: response.id,
+                payload: {
+                    kind: 'workflow-list',
+                    value: { workflows: response.payload.value.workflows as unknown as WorkflowSummary[] },
+                },
+            };
+        case 'workflow-saved':
+            return {
+                ok: true,
+                id: response.id,
+                payload: { kind: 'workflow-saved', value: { ...response.payload.value } },
+            };
+        case 'workflow-published':
+            return {
+                ok: true,
+                id: response.id,
+                payload: { kind: 'workflow-published', value: { ...response.payload.value } },
+            };
+        case 'workflow-deleted':
+            return {
+                ok: true,
+                id: response.id,
+                payload: { kind: 'workflow-deleted', value: { ...response.payload.value } },
+            };
+        case 'workflow-atom-catalog':
+            return {
+                ok: true,
+                id: response.id,
+                payload: {
+                    kind: 'workflow-atom-catalog',
+                    value: { tools: response.payload.value.tools as unknown as ExposedTool[] },
+                },
+            };
+        case 'workflow-run-list':
+            return {
+                ok: true,
+                id: response.id,
+                payload: {
+                    kind: 'workflow-run-list',
+                    value: { runs: response.payload.value.runs as unknown as WorkflowRunSummary[] },
+                },
+            };
+        case 'workflow-run-started':
+            return {
+                ok: true,
+                id: response.id,
+                payload: { kind: 'workflow-run-started', value: { ...response.payload.value } },
+            };
+        case 'workflow-run-cancelled':
+            return {
+                ok: true,
+                id: response.id,
+                payload: {
+                    kind: 'workflow-run-cancelled',
+                    value: {
+                        run_id: response.payload.value.run_id,
+                        state: response.payload.value.state as WorkflowRunState,
+                    },
+                },
+            };
     }
 }
 

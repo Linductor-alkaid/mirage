@@ -57,6 +57,28 @@ export type SessionState =
  * in the session, "outcome" a task settlement summary. */
 export type SessionMessageKind = 'user' | 'outcome';
 
+/** Workflow run state projection of the pinned WorkflowRunState (DEC-023),
+ * stable lowercase wire form. */
+export type WorkflowRunState =
+    | 'created'
+    | 'running'
+    | 'paused'
+    | 'waiting_user'
+    | 'waiting_agent'
+    | 'completed'
+    | 'failed'
+    | 'cancelled';
+
+/** Closed execution policy vocabulary (DEC-023), stable lowercase wire form;
+ * the optional `workflow.run` member may be omitted to use the definition
+ * default. */
+export type WorkflowPolicyName = 'strict' | 'recoverable' | 'agent_assisted' | 'interactive' | 'dry_run';
+
+/** Workflow validation vocabulary (DEC-023): the pinned
+ * WorkflowValidationResult of a workflow's head version; only
+ * `dry_run_passed` / `validated` heads are runnable (W-04). */
+export type WorkflowValidation = 'not_validated' | 'dry_run_passed' | 'validated' | 'rejected';
+
 // ---------------------------------------------------------------------------
 // Requests (client -> service)
 // ---------------------------------------------------------------------------
@@ -81,15 +103,33 @@ export type RequestBody =
     | { op: 'permission.list' }
     | { op: 'session.list' }
     | { op: 'session.open' }
-    | { op: 'session.history'; session_id: string; limit?: number };
+    | { op: 'session.history'; session_id: string; limit?: number }
+    | { op: 'workflow.list' }
+    /** IR v1 JSON object (DEC-013 aligned); strict pinned decode, 256 KiB
+     * budget at the service. */
+    | { op: 'workflow.save'; definition: Record<string, unknown> }
+    | { op: 'workflow.publish'; definition: Record<string, unknown> }
+    | { op: 'workflow.delete'; workflow_id: string }
+    | { op: 'workflow.atom.catalog' }
+    | { op: 'workflow.runs' }
+    | {
+          op: 'workflow.run';
+          workflow_id: string;
+          /** Absent resolves to the catalog head digest. */
+          digest?: string;
+          parameters?: Record<string, unknown>;
+          /** Absent uses the definition default policy. */
+          policy?: WorkflowPolicyName;
+      }
+    | { op: 'workflow.cancel'; run_id: string };
 
 // ---------------------------------------------------------------------------
 // Responses (service -> client)
 // ---------------------------------------------------------------------------
 
 /** hello payload; `events` is the DEC-012 capability flag, `permissions` the
- * DEC-020 async confirmation flag and `sessions` the DEC-021 session-face
- * flag (absent = false for all three). */
+ * DEC-020 async confirmation flag, `sessions` the DEC-021 session-face flag
+ * and `workflows` the DEC-023 workflow-face flag (absent = false for all). */
 export interface ServiceIdentity {
     service: string;
     mirage_version: string;
@@ -99,6 +139,7 @@ export interface ServiceIdentity {
     events?: boolean;
     permissions?: boolean;
     sessions?: boolean;
+    workflows?: boolean;
 }
 
 export interface TaskSubmitted {
@@ -172,6 +213,37 @@ export interface SessionHistoryEntry {
     recorded_at_ms: number;
 }
 
+/** One catalog entry as reported by workflow.list (DEC-023); `runnable`
+ * projects W-04 (a head version a run may reference). */
+export interface WorkflowSummary {
+    workflow_id: string;
+    name: string;
+    head_digest: string;
+    validation: WorkflowValidation;
+    runnable: boolean;
+    updated_at_ms: number;
+}
+
+/** One exposed tool as reported by workflow.atom.catalog (DEC-023): the
+ * pinned BuiltIn registry's exposed view. */
+export interface ExposedTool {
+    wire_name: string;
+    version: string;
+    description: string;
+    has_side_effects: boolean;
+    parameters_schema: Record<string, unknown>;
+}
+
+/** One workflow run as reported by workflow.runs (DEC-023); `state` is
+ * projected live from the pinned runtime, `failed` when a snapshot fails. */
+export interface WorkflowRunSummary {
+    run_id: string;
+    workflow_id: string;
+    state: WorkflowRunState;
+    run_epoch: number;
+    created_at_ms: number;
+}
+
 /** Successful response payload, discriminated exactly like the C++ variant. */
 export type ResponsePayload =
     | { kind: 'identity'; value: ServiceIdentity }
@@ -187,7 +259,18 @@ export type ResponsePayload =
     | {
           kind: 'session-history';
           value: { session_id: string; entries: SessionHistoryEntry[]; truncated: boolean };
-      };
+      }
+    | { kind: 'workflow-list'; value: { workflows: WorkflowSummary[] } }
+    | { kind: 'workflow-saved'; value: { workflow_id: string; digest: string } }
+    | {
+          kind: 'workflow-published';
+          value: { workflow_id: string; digest: string; dry_run_id: string; idempotent: boolean };
+      }
+    | { kind: 'workflow-deleted'; value: { workflow_id: string } }
+    | { kind: 'workflow-atom-catalog'; value: { tools: ExposedTool[] } }
+    | { kind: 'workflow-run-list'; value: { runs: WorkflowRunSummary[] } }
+    | { kind: 'workflow-run-started'; value: { run_id: string } }
+    | { kind: 'workflow-run-cancelled'; value: { run_id: string; state: WorkflowRunState } };
 
 /** Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc
  * domain; `pinned_runtime` is the verbatim passthrough shape used when the
@@ -224,7 +307,8 @@ export type EventName =
     | 'session.updated'
     | 'session.message'
     | 'session.turn'
-    | 'session.output';
+    | 'session.output'
+    | 'workflow.run_updated';
 
 export const EVENT_NAMES: readonly EventName[] = [
     'task.updated',
@@ -235,6 +319,7 @@ export const EVENT_NAMES: readonly EventName[] = [
     'session.message',
     'session.turn',
     'session.output',
+    'workflow.run_updated',
 ];
 
 /** `task.updated` snapshot payload; `progress` matches task.inspect semantics. */
@@ -303,6 +388,17 @@ export interface SessionOutputPayload {
     truncated: boolean;
 }
 
+/** `workflow.run_updated` payload (DEC-023): one run's state published from
+ * the pinned workflow event stream, translated by the service; `summary` is
+ * present only on settled runs. workflow.runs is the snapshot truth. */
+export interface WorkflowRunUpdatedPayload {
+    run_id: string;
+    workflow_id: string;
+    state: WorkflowRunState;
+    run_epoch: number;
+    summary?: string;
+}
+
 export type ServerEvent =
     | ({ v: 1; seq: number; event: 'task.updated' } & TaskUpdatedPayload)
     | ({ v: 1; seq: number; event: 'host.status' } & HostStatusPayload)
@@ -311,4 +407,5 @@ export type ServerEvent =
     | ({ v: 1; seq: number; event: 'session.updated' } & SessionUpdatedPayload)
     | ({ v: 1; seq: number; event: 'session.message' } & SessionMessagePayload)
     | ({ v: 1; seq: number; event: 'session.turn' } & SessionTurnPayload)
-    | ({ v: 1; seq: number; event: 'session.output' } & SessionOutputPayload);
+    | ({ v: 1; seq: number; event: 'session.output' } & SessionOutputPayload)
+    | ({ v: 1; seq: number; event: 'workflow.run_updated' } & WorkflowRunUpdatedPayload);
