@@ -78,6 +78,12 @@
   多用户隔离）。
 - [DEC-008](../decisions/DEC-008-m1-environment-binding-and-reference-providers.md)：
   M1 过渡驱动形态向 mira 会话 / 任务模型迁移的既定路径（M5-04 兑现）。
+- [DEC-022](../decisions/DEC-022-upstream-capability-adoption.md)：2026-09-26
+  升级批（[升级审计](../supply-chain/dependency-upgrade-audit.md)，mira
+  `1348515` / mirador `fb0dc3f`）能力消费路由——`M5-05` 绑定升级后 pinned
+  工作流 / 工具契约面（TR0/TR2、Skill 执行、DEC-039 MCP 接纳为后续连接配
+  置承载边界）；Tools / MCP 产品面与 mirador 目标跟踪消费挂账 POST-05 /
+  POST-04，不在 M5 范围内。
 - [DEC-010](../decisions/DEC-010-m1-permission-framework.md)：M1 同步确认
   挂点为过渡形态，M5 以 Local IPC 异步确认面替换（判定语义不变），需新
   决策记录；默认策略收紧随产品化。
@@ -127,10 +133,15 @@
       路径兑现）；golden vectors 双端门禁与 wire 契约同步。
 - [ ] `M5-05` 工作流契约面与编辑器真实化：`workflow.*` 请求面（`list` /
       `save` / `publish` / `delete` / `atom.catalog` / `runs` / `run` /
-      `cancel`，对齐 `WorkflowBackend` 接口缝与 pinned mira Workflow IR
-      v1）；`atom.catalog` 承载 Platform Backend 能力上报；运行监控事件化
-      （WorkflowRun 状态）；UI 工作流编辑器完整版接真实面（DEC-013 IR
-      对齐验收）。
+      `cancel`），绑定 2026-09-26 升级后的 pinned 工作流 / 工具契约面
+      （[DEC-022](../decisions/DEC-022-upstream-capability-adoption.md)
+      决策 1：`workflow_runtime` TR2 工具引用挂载与 Skill 执行注册、
+      `workflow_events` 新增事件词表（含工具兼容 Degraded 准入）、
+      `atom.catalog` 经 pinned 工具暴露投影承载 Platform Backend 能力上
+      报；实现前以 pinned 公开头与 `docs/api/` 复核接口缝，M1.5 mock 的
+      `WorkflowBackend` 仅作 UI 侧接口缝）；运行监控事件化（WorkflowRun
+      状态；工具兼容状态呈现与否由实现轮定，走 DEC-012 附加扩展）；UI 工
+      作流编辑器完整版接真实面（DEC-013 IR 对齐验收）。
 - [ ] `M5-06` 会话页产品化（对话模式真实化）：会话列表 / 管理接 `session.*`；
       消息流真实渲染（M1.5 模拟域演示语义退出会话页）；观察台真实化——
       运行时间线 / 观察流直连任务快照与事件，视觉状态呈现与订阅演进（M3
@@ -183,7 +194,10 @@
 - mira 会话 / 消息承载面缺口风险：`M5-04` 动工前先核对 pinned mira 公开
   API（`runtime.hpp` / `conversation_log.hpp` / `agent_loop.hpp`）与
   `docs/api/` 文档；确认缺口即按工程规范 9.4 节登记台账并引用编号，不
-  静默分叉或绕过。
+  静默分叉或绕过。同一纪律适用于 `M5-05`：pinned `WorkflowRuntime` /
+  `workflow_events` 在 2026-09-26 升级批新增工具引用挂载、Skill 执行与
+  Degraded 准入事件（DEC-022 决策 1），动工前以现状公开头部复核接口缝，
+  不按 M1.5 mock 旧认知实现。
 - Linux Overlay / 托盘的平台限制（Wayland 合成器、AppIndicator 可用性、
   点击穿透支持面）：按平台能力如实降级并响亮声明（DEC-006 风险节先例、
   M4 前台激活同类纪律）；不为取证伪造能力。
