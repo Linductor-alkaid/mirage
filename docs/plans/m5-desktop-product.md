@@ -914,4 +914,4 @@ ToolCall 执行路径）完成（[DEC-024](../decisions/DEC-024-desktop-atom-too
 - frontend 作业：lint + strict tsc + 测试 + build 全绿（wire 未变，golden 仍
   v5；新增 workflow 传输 / IR 映射 / 契约路径 store 场景随套件通过）。
 - windows msvc (full tree)：全树构建 + 测试通过。
-- 合并裁决：待维护者授权（PR [#56](https://github.com/Linductor-alkaid/mirage/pull/56)）。
+- 合并裁决：维护者（PR [#56](https://github.com/Linductor-alkaid/mirage/pull/56)，2026-09-27 授权合并）。
