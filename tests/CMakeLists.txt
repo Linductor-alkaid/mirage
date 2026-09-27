@@ -509,6 +509,22 @@ set_tests_properties(workflow_event_bridge_test PROPERTIES
     TIMEOUT 60
 )
 
+# M5-05 desktop atom toolset (DEC-024): registry population, permission
+# gating and the ToolCall execution path over the fake desktop environment;
+# the pinned include dirs propagate from Mirage::integration_mira by design.
+add_executable(desktop_atom_toolset_test integration/desktop_atom_toolset_test.cpp)
+target_compile_features(desktop_atom_toolset_test PUBLIC cxx_std_20)
+mirage_enable_warnings(desktop_atom_toolset_test)
+target_link_libraries(desktop_atom_toolset_test
+    PRIVATE
+        Mirage::integration_mira
+)
+add_test(NAME desktop_atom_toolset_test COMMAND desktop_atom_toolset_test)
+set_tests_properties(desktop_atom_toolset_test PROPERTIES
+    LABELS "unit;integration"
+    TIMEOUT 60
+)
+
 # POSIX-only: signal self-pipe fixtures.
 # 
 if(UNIX)

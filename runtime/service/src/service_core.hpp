@@ -10,6 +10,7 @@
 #include <executor/serial_execution_context.hpp>
 
 #include <mirage/desktop/desktop_environment.hpp>
+#include <mirage/integration/desktop_atom_toolset.hpp>
 #include <mirage/integration/session_journal.hpp>
 #include <mirage/integration/workflow_event_bridge.hpp>
 #include <mirage/runtime/mira_host.hpp>
@@ -70,6 +71,11 @@ struct ServiceCore {
     WorkflowRegistry workflows;
     WorkflowRunRegistry workflow_runs;
     std::shared_ptr<mirage::integration::WorkflowEventBridge> workflow_bridge;
+    /// Desktop atom toolset (DEC-024): the BuiltIn registry workflow ToolCall
+    /// steps dispatch through, projected by workflow.atom.catalog. Built at
+    /// start() over the bound environment with the shared permission gate;
+    /// empty until then.
+    std::shared_ptr<mirage::integration::DesktopAtomToolset> workflow_tools;
 
     std::string mirage_version;
     std::size_t max_steps_per_task = 64;

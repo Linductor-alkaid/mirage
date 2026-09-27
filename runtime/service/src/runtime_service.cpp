@@ -937,10 +937,25 @@ struct RuntimeService::Impl {
     }
 
     /// Serial thread: the exposed view of the hosted BuiltIn tool registry
-    /// (DEC-022 decision 1, DEC-023). Empty until the desktop capability
-    /// tools register (M5-05 second round); the wire shape is the contract.
+    /// (DEC-022 decision 1, DEC-023) — the desktop atom toolset built at
+    /// start() (DEC-024). Empty only when the bound environment carries no
+    /// mapped providers; the wire shape is the contract.
     void handle_workflow_atom_catalog(std::uint64_t connection_id, std::uint64_t correlation_id) {
-        respond(connection_id, correlation_id, ipc::WorkflowAtomCatalog{});
+        ipc::WorkflowAtomCatalog catalog;
+        if (core->workflow_tools) {
+            const auto atoms = core->workflow_tools->exposed_atoms();
+            catalog.tools.reserve(atoms.size());
+            for (const auto &atom : atoms) {
+                ipc::ExposedTool tool;
+                tool.wire_name = atom.wire_name;
+                tool.version = atom.version;
+                tool.description = atom.description;
+                tool.has_side_effects = atom.has_side_effects;
+                tool.parameters_schema_json = atom.parameters_schema_json;
+                catalog.tools.push_back(std::move(tool));
+            }
+        }
+        respond(connection_id, correlation_id, std::move(catalog));
     }
 
     /// Serial thread: the run registry snapshot (DEC-023) — the resync face
@@ -1293,10 +1308,30 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
     }
     // The workflow surface rides the Running host (DEC-023): pinned
     // WorkflowRuntime over the service executor and the primary session,
-    // with the bridge as its event store. A failure here fails start()
-    // closed — the workflow faces are core equipment, not optional.
+    // with the bridge as its event store. The desktop atom toolset (DEC-024)
+    // is built over the same environment with the shared RULE-05 gate, so
+    // ToolCall steps dispatch through the same permission face as the task
+    // drivers. A failure here fails start() closed — the workflow faces are
+    // core equipment, not optional.
+    impl_->core->workflow_tools = mirage::integration::DesktopAtomToolset::build(
+        impl_->core->environment.get(),
+        [permission =
+             impl_->core->permission](const std::string &capability, const std::string &resource,
+                                      const mirage::integration::AtomCancelProbe &cancelled) {
+            if (!permission) {
+                return false; // Fail closed: no controller, no capability use.
+            }
+            const auto parsed = permission::capability_from_name(capability);
+            if (!parsed) {
+                return false; // Fail closed: outside the judged vocabulary.
+            }
+            permission::PermissionRequest request;
+            request.capability = *parsed;
+            request.resource = resource;
+            return permission->authorize(request, cancelled).allowed;
+        });
     const HostOutcome workflow_surface = impl_->core->host.attach_workflow_surface(
-        impl_->core->executor, impl_->core->workflow_bridge);
+        impl_->core->executor, impl_->core->workflow_bridge, impl_->core->workflow_tools);
     if (!workflow_surface.ok) {
         impl_->core->host.shutdown();
         impl_->publish_host_status(impl_->core->host.status());
