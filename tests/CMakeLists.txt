@@ -621,9 +621,12 @@ target_link_libraries(session_client_test
         Mirage::ipc
 )
 add_test(NAME session_client_test COMMAND session_client_test)
+# 600s: liveness guard, not a latency claim. The suite drives seven full
+# service round trips (M5-05 added the workflow face scenario) and CI runs
+# it under parallel ctest oversubscription (the M2-06 budget rationale).
 set_tests_properties(session_client_test PROPERTIES
     LABELS "integration"
-    TIMEOUT 300
+    TIMEOUT 600
 )
 endif()
 
