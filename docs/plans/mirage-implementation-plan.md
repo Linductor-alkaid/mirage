@@ -4,7 +4,7 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-09-26（M5 里程碑计划建立）
+> 更新日期：2026-09-27（2026-09-26 依赖升级批能力消费路由，DEC-022）
 
 ## 当前状态
 
@@ -82,7 +82,12 @@ DEC-021——`session.list` / `session.open` / `session.history` 请求面与
 `session.updated` / `session.message` / `session.turn` / `session.output`
 事件集，`task.submit` 会话绑定，pinned 会话投影经 `SessionJournal` 承载，
 `MiraHost` 会话面开启 DEC-008 迁移路径第一步，golden vectors 双端门禁
-meta.version 4）已完成。
+meta.version 4）已完成。2026-09-26 双依赖前滚（mira `1348515`、mirador
+`fb0dc3f`，[升级审计](../supply-chain/dependency-upgrade-audit.md)）交付上
+游工具引用 / Skill 发布 / MCP 接纳与 mirador 目标跟踪 Experimental 等能力，
+消费路由见 [DEC-022](../decisions/DEC-022-upstream-capability-adoption.md)：
+`M5-05` 绑定升级后的 pinned 工作流 / 工具契约面，Tools / MCP 产品面与
+mirador 跟踪消费分别挂账 POST-05 / POST-04。
 
 ## 交付边界
 
@@ -176,6 +181,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | DEC-012 | IPC 事件订阅与 wire schema 事实源 | 已接受（2026-09-16 评审通过，[DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)）：协议 v1 附加事件帧 + 订阅 op（版本号不递增），[mirage-ipc-protocol-v1.md](../design/mirage-ipc-protocol-v1.md) 为契约事实源（M1.5-01 落地，golden vectors 双端门禁），事件分发经 `executor::comm` 承载 | Mirage 维护者 | M1.5 |
 | DEC-013 | 前端信息架构与设计规范 | 已定案（[DEC-013](../decisions/DEC-013-frontend-ia-harness-first.md)）：harness 优先统一壳（会话默认落地、workflow 一级入口、设置八类），workflow 编辑器为对齐 mira Workflow IR v1 的结构化步骤序列；规范见 [《Mirage 前端设计规范与信息架构》](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)，M1.5 落地骨架、M5 验收基线 | Mirage 维护者 | M1.5 |
 | DEC-016 | Mirador 视觉集成契约 | 已定案（[DEC-016](../decisions/DEC-016-mirador-visual-integration-contract.md)，M3-01）：Visual Reference `@vN` 生命周期对齐 `@eN` 整体替换、`visual_snapshot(_ref)` schema 1.0 → 1.1 加法演进、mirador 结果到感知面的映射边界、一图像源一 session 一 blocking worker 串行承载（EXEC-04）、fake/identity backend 默认验证形态（真实模型后端属集成方） | Mirage 维护者 | M3（已冻结） |
+| DEC-022 | 上游能力消费路由（2026-09-26 升级批） | 已定案（[DEC-022](../decisions/DEC-022-upstream-capability-adoption.md)）：`M5-05` 绑定升级后 pinned 工作流 / 工具契约面（TR0/TR2、Skill 执行、Degraded 事件；`atom.catalog` 经工具暴露投影；MCP 连接配置以 DEC-039 为承载边界）；Skill / 工具管理产品面挂账 POST-05；mira 记忆 / 上下文 / 时间策略经 `Mira::core` 隐式消费、无 Mirage 直接面；mirador M7 目标跟踪转正前观察、转正后按 POST-04 立项（DEC-016 加法通道） | Mirage 维护者 | M5-05（绑定面）；POST-04 / POST-05 按各自触发条件 |
 
 ## 跨里程碑通用完成定义
 
@@ -196,3 +202,13 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
   后，依据真实隔离需求立项。
 - `POST-03` 远程 Desktop Environment（SSH / 容器内桌面）：待本地 Backend 稳定且出现
   真实远程使用场景时立项；接口设计需提前保留 Provider 远程化的可能。
+- `POST-04` mirador M7 跨帧目标跟踪消费（视觉观察增强）：触发条件 = 上游
+  M7-10 go/no-go 判定 GO 且 `object_tracker` 契约计入兼容性承诺；消费点在
+  `integration/mirador`（PerceptionSession 管线 + 变化门控短路），wire 走
+  DEC-016 加法通道；路由见
+  [DEC-022](../decisions/DEC-022-upstream-capability-adoption.md) 决策 4。
+- `POST-05` Tools / MCP 产品面真实化（Skill 列表 / 发布 / 吊销、工具兼容状
+  态、MCP 服务器连接配置）：触发条件 = `M5-05` 工作流契约面落地且出现产品需
+  求；经 IPC 镜像 pinned DEC-040 发布生命周期与 DEC-039 接纳契约，不自建
+  skill 存储；路由见
+  [DEC-022](../decisions/DEC-022-upstream-capability-adoption.md) 决策 2。
