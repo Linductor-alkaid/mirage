@@ -905,3 +905,13 @@ ToolCall 执行路径）完成（[DEC-024](../decisions/DEC-024-desktop-atom-too
   [DEC-024](../decisions/DEC-024-desktop-atom-toolset.md)（决策 5 验收指向
   本增量）、`ui/README.md`（接口缝说明）、设计规范 §3.5 目录来源措辞
   （wire 目录 + 编辑器控制构造）。
+
+2026-09-27：`M5-05` 第二轮增量 2 CI 取证完成；run 36327115131
+（headSha = `e55bd10` 已核实）全部 8 作业 success。
+
+- Linux 矩阵：debug / release / asan / tsan / ubsan 五预设全绿；format &
+  public-header boundaries 绿（C++ / wire 零变更，零回归）。
+- frontend 作业：lint + strict tsc + 测试 + build 全绿（wire 未变，golden 仍
+  v5；新增 workflow 传输 / IR 映射 / 契约路径 store 场景随套件通过）。
+- windows msvc (full tree)：全树构建 + 测试通过。
+- 合并裁决：待维护者授权（PR [#56](https://github.com/Linductor-alkaid/mirage/pull/56)）。
