@@ -229,6 +229,20 @@ ipc::Event event_from_vector(const std::string &name, const mira::JsonValue &bod
         payload.chunk = vector_string(body, "chunk");
         payload.truncated = vector_boolean(body, "truncated");
         event.payload = std::move(payload);
+    } else if (kind == "workflow.run_updated") {
+        ipc::WorkflowRunUpdatedEvent payload;
+        payload.run_id = vector_string(body, "run_id");
+        payload.workflow_id = vector_string(body, "workflow_id");
+        payload.state = vector_string(body, "state");
+        payload.run_epoch = static_cast<std::uint64_t>(vector_integer(body, "run_epoch"));
+        if (const auto *summary = body.find("summary"); summary != nullptr) {
+            const auto summary_value = summary->as_string();
+            MIRAGE_CHECK(summary_value != nullptr);
+            if (summary_value != nullptr) {
+                payload.summary = *summary_value;
+            }
+        }
+        event.payload = std::move(payload);
     } else {
         std::fprintf(stderr, "golden event vector '%s' carries unknown event name '%s'\n",
                      name.c_str(), kind.c_str());
@@ -296,6 +310,16 @@ void check_event_equal(const std::string &name, const ipc::Event &expected,
         MIRAGE_CHECK(decoded.step == output->step);
         check_string_equal(name, "chunk", decoded.chunk, output->chunk);
         MIRAGE_CHECK(decoded.truncated == output->truncated);
+    } else if (const auto *run = std::get_if<ipc::WorkflowRunUpdatedEvent>(&expected.payload)) {
+        const auto &decoded = std::get<ipc::WorkflowRunUpdatedEvent>(actual.payload);
+        check_string_equal(name, "run_id", decoded.run_id, run->run_id);
+        check_string_equal(name, "workflow_id", decoded.workflow_id, run->workflow_id);
+        check_string_equal(name, "state", decoded.state, run->state);
+        MIRAGE_CHECK(decoded.run_epoch == run->run_epoch);
+        MIRAGE_CHECK(decoded.summary.has_value() == run->summary.has_value());
+        if (decoded.summary.has_value() && run->summary.has_value()) {
+            check_string_equal(name, "summary", *decoded.summary, *run->summary);
+        }
     }
 }
 
@@ -338,6 +362,59 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
     }
     if (op == "session.open") {
         return ipc::OpenSessionRequest{};
+    }
+    if (op == "workflow.list") {
+        return ipc::WorkflowListRequest{};
+    }
+    if (op == "workflow.atom.catalog") {
+        return ipc::WorkflowAtomCatalogRequest{};
+    }
+    if (op == "workflow.runs") {
+        return ipc::WorkflowRunsRequest{};
+    }
+    if (op == "workflow.save" || op == "workflow.publish") {
+        // The definition object is carried canonically serialized in the
+        // pinned-free request struct; re-serializing the subtree is lossless
+        // (mira JSON objects preserve insertion order).
+        const auto *definition = body.find("definition");
+        MIRAGE_CHECK(definition != nullptr);
+        if (definition == nullptr) {
+            return op == "workflow.save" ? ipc::Request{ipc::WorkflowSaveRequest{}}
+                                         : ipc::Request{ipc::WorkflowPublishRequest{}};
+        }
+        const std::string canonical = mira::to_json_string(*definition);
+        if (op == "workflow.save") {
+            return ipc::WorkflowSaveRequest{canonical};
+        }
+        return ipc::WorkflowPublishRequest{canonical};
+    }
+    if (op == "workflow.delete") {
+        return ipc::WorkflowDeleteRequest{vector_string(body, "workflow_id")};
+    }
+    if (op == "workflow.run") {
+        ipc::WorkflowRunRequest run;
+        run.workflow_id = vector_string(body, "workflow_id");
+        if (const auto *digest = body.find("digest"); digest != nullptr) {
+            const auto digest_value = digest->as_string();
+            MIRAGE_CHECK(digest_value != nullptr);
+            if (digest_value != nullptr) {
+                run.digest = *digest_value;
+            }
+        }
+        if (const auto *parameters = body.find("parameters"); parameters != nullptr) {
+            run.parameters_json = mira::to_json_string(*parameters);
+        }
+        if (const auto *policy = body.find("policy"); policy != nullptr) {
+            const auto policy_value = policy->as_string();
+            MIRAGE_CHECK(policy_value != nullptr);
+            if (policy_value != nullptr) {
+                run.policy = *policy_value;
+            }
+        }
+        return run;
+    }
+    if (op == "workflow.cancel") {
+        return ipc::WorkflowCancelRunRequest{vector_string(body, "run_id")};
     }
     if (op == "session.history") {
         ipc::SessionHistoryRequest history;
@@ -408,7 +485,10 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                           std::is_same_v<T, ipc::UnsubscribeEventsRequest> ||
                           std::is_same_v<T, ipc::ListPermissionsRequest> ||
                           std::is_same_v<T, ipc::ListSessionsRequest> ||
-                          std::is_same_v<T, ipc::OpenSessionRequest>) {
+                          std::is_same_v<T, ipc::OpenSessionRequest> ||
+                          std::is_same_v<T, ipc::WorkflowListRequest> ||
+                          std::is_same_v<T, ipc::WorkflowAtomCatalogRequest> ||
+                          std::is_same_v<T, ipc::WorkflowRunsRequest>) {
                 // Stateless bodies: the variant index comparison above suffices.
             } else if constexpr (std::is_same_v<T, ipc::SubmitTaskRequest>) {
                 const auto &submit = std::get<ipc::SubmitTaskRequest>(actual);
@@ -450,6 +530,28 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                 if (history.limit.has_value() && expected_value.limit.has_value()) {
                     MIRAGE_CHECK(*history.limit == *expected_value.limit);
                 }
+            } else if constexpr (std::is_same_v<T, ipc::WorkflowSaveRequest> ||
+                                 std::is_same_v<T, ipc::WorkflowPublishRequest>) {
+                // The decoder canonicalizes the definition subtree; compare
+                // the serialized forms byte-exactly.
+                const auto &request = std::get<T>(actual);
+                check_string_equal(name, "definition_json", request.definition_json,
+                                   expected_value.definition_json);
+            } else if constexpr (std::is_same_v<T, ipc::WorkflowDeleteRequest>) {
+                const auto &request = std::get<ipc::WorkflowDeleteRequest>(actual);
+                check_string_equal(name, "workflow_id", request.workflow_id,
+                                   expected_value.workflow_id);
+            } else if constexpr (std::is_same_v<T, ipc::WorkflowRunRequest>) {
+                const auto &run = std::get<ipc::WorkflowRunRequest>(actual);
+                check_string_equal(name, "workflow_id", run.workflow_id,
+                                   expected_value.workflow_id);
+                check_string_equal(name, "digest", run.digest, expected_value.digest);
+                check_string_equal(name, "parameters_json", run.parameters_json,
+                                   expected_value.parameters_json);
+                check_string_equal(name, "policy", run.policy, expected_value.policy);
+            } else if constexpr (std::is_same_v<T, ipc::WorkflowCancelRunRequest>) {
+                const auto &cancel = std::get<ipc::WorkflowCancelRunRequest>(actual);
+                check_string_equal(name, "run_id", cancel.run_id, expected_value.run_id);
             }
         },
         expected);
@@ -499,6 +601,12 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
             const auto flag = sessions->as_boolean();
             MIRAGE_CHECK(flag.has_value());
             identity.sessions = flag;
+        }
+        // DEC-023 workflow-face capability member: same optional discipline.
+        if (const auto *workflows = value.find("workflows"); workflows != nullptr) {
+            const auto flag = workflows->as_boolean();
+            MIRAGE_CHECK(flag.has_value());
+            identity.workflows = flag;
         }
         response.payload = std::move(identity);
     } else if (kind == "submitted") {
@@ -592,6 +700,73 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
         response.payload = std::move(list);
     } else if (kind == "session-opened") {
         response.payload = ipc::SessionOpened{vector_string(value, "session_id")};
+    } else if (kind == "workflow-list") {
+        ipc::WorkflowList list;
+        const auto *entries = vector_member(value, "workflows").as_array();
+        MIRAGE_CHECK(entries != nullptr);
+        if (entries != nullptr) {
+            for (const auto &entry : *entries) {
+                ipc::WorkflowSummary summary;
+                summary.workflow_id = vector_string(entry, "workflow_id");
+                summary.name = vector_string(entry, "name");
+                summary.head_digest = vector_string(entry, "head_digest");
+                summary.validation = vector_string(entry, "validation");
+                summary.runnable = vector_boolean(entry, "runnable");
+                summary.updated_at_ms = vector_integer(entry, "updated_at_ms");
+                list.workflows.push_back(std::move(summary));
+            }
+        }
+        response.payload = std::move(list);
+    } else if (kind == "workflow-saved") {
+        response.payload =
+            ipc::WorkflowSaved{vector_string(value, "workflow_id"), vector_string(value, "digest")};
+    } else if (kind == "workflow-published") {
+        ipc::WorkflowPublished published;
+        published.workflow_id = vector_string(value, "workflow_id");
+        published.digest = vector_string(value, "digest");
+        published.dry_run_id = vector_string(value, "dry_run_id");
+        published.idempotent = vector_boolean(value, "idempotent");
+        response.payload = std::move(published);
+    } else if (kind == "workflow-deleted") {
+        response.payload = ipc::WorkflowDeleted{vector_string(value, "workflow_id")};
+    } else if (kind == "workflow-atom-catalog") {
+        ipc::WorkflowAtomCatalog catalog;
+        const auto *entries = vector_member(value, "tools").as_array();
+        MIRAGE_CHECK(entries != nullptr);
+        if (entries != nullptr) {
+            for (const auto &entry : *entries) {
+                ipc::ExposedTool tool;
+                tool.wire_name = vector_string(entry, "wire_name");
+                tool.version = vector_string(entry, "version");
+                tool.description = vector_string(entry, "description");
+                tool.has_side_effects = vector_boolean(entry, "has_side_effects");
+                tool.parameters_schema_json =
+                    mira::to_json_string(vector_member(entry, "parameters_schema"));
+                catalog.tools.push_back(std::move(tool));
+            }
+        }
+        response.payload = std::move(catalog);
+    } else if (kind == "workflow-run-list") {
+        ipc::WorkflowRunList list;
+        const auto *entries = vector_member(value, "runs").as_array();
+        MIRAGE_CHECK(entries != nullptr);
+        if (entries != nullptr) {
+            for (const auto &entry : *entries) {
+                ipc::WorkflowRunSummary summary;
+                summary.run_id = vector_string(entry, "run_id");
+                summary.workflow_id = vector_string(entry, "workflow_id");
+                summary.state = vector_string(entry, "state");
+                summary.run_epoch = static_cast<std::uint64_t>(vector_integer(entry, "run_epoch"));
+                summary.created_at_ms = vector_integer(entry, "created_at_ms");
+                list.runs.push_back(std::move(summary));
+            }
+        }
+        response.payload = std::move(list);
+    } else if (kind == "workflow-run-started") {
+        response.payload = ipc::WorkflowRunStarted{vector_string(value, "run_id")};
+    } else if (kind == "workflow-run-cancelled") {
+        response.payload =
+            ipc::WorkflowRunCancelled{vector_string(value, "run_id"), vector_string(value, "state")};
     } else if (kind == "session-history") {
         ipc::SessionHistory history;
         history.session_id = vector_string(value, "session_id");
@@ -660,6 +835,11 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                              expected_value.sessions.has_value());
                 if (actual_value.sessions.has_value() && expected_value.sessions.has_value()) {
                     MIRAGE_CHECK(*actual_value.sessions == *expected_value.sessions);
+                }
+                MIRAGE_CHECK(actual_value.workflows.has_value() ==
+                             expected_value.workflows.has_value());
+                if (actual_value.workflows.has_value() && expected_value.workflows.has_value()) {
+                    MIRAGE_CHECK(*actual_value.workflows == *expected_value.workflows);
                 }
             } else if constexpr (std::is_same_v<T, ipc::TaskSubmitted>) {
                 check_string_equal(name, "task_id", actual_value.task_id, expected_value.task_id);
@@ -756,6 +936,72 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                     MIRAGE_CHECK(actual_entry.sequence == wanted.sequence);
                     MIRAGE_CHECK(actual_entry.recorded_at_ms == wanted.recorded_at_ms);
                 }
+            } else if constexpr (std::is_same_v<T, ipc::WorkflowList>) {
+                MIRAGE_CHECK(actual_value.workflows.size() == expected_value.workflows.size());
+                const std::size_t count =
+                    std::min(actual_value.workflows.size(), expected_value.workflows.size());
+                for (std::size_t index = 0; index < count; ++index) {
+                    const auto &actual_entry = actual_value.workflows[index];
+                    const auto &wanted = expected_value.workflows[index];
+                    check_string_equal(name, "workflow id", actual_entry.workflow_id,
+                                       wanted.workflow_id);
+                    check_string_equal(name, "workflow name", actual_entry.name, wanted.name);
+                    check_string_equal(name, "workflow head_digest", actual_entry.head_digest,
+                                       wanted.head_digest);
+                    check_string_equal(name, "workflow validation", actual_entry.validation,
+                                       wanted.validation);
+                    MIRAGE_CHECK(actual_entry.runnable == wanted.runnable);
+                    MIRAGE_CHECK(actual_entry.updated_at_ms == wanted.updated_at_ms);
+                }
+            } else if constexpr (std::is_same_v<T, ipc::WorkflowSaved>) {
+                check_string_equal(name, "workflow_id", actual_value.workflow_id,
+                                   expected_value.workflow_id);
+                check_string_equal(name, "digest", actual_value.digest, expected_value.digest);
+            } else if constexpr (std::is_same_v<T, ipc::WorkflowPublished>) {
+                check_string_equal(name, "workflow_id", actual_value.workflow_id,
+                                   expected_value.workflow_id);
+                check_string_equal(name, "digest", actual_value.digest, expected_value.digest);
+                check_string_equal(name, "dry_run_id", actual_value.dry_run_id,
+                                   expected_value.dry_run_id);
+                MIRAGE_CHECK(actual_value.idempotent == expected_value.idempotent);
+            } else if constexpr (std::is_same_v<T, ipc::WorkflowDeleted>) {
+                check_string_equal(name, "workflow_id", actual_value.workflow_id,
+                                   expected_value.workflow_id);
+            } else if constexpr (std::is_same_v<T, ipc::WorkflowAtomCatalog>) {
+                MIRAGE_CHECK(actual_value.tools.size() == expected_value.tools.size());
+                const std::size_t count =
+                    std::min(actual_value.tools.size(), expected_value.tools.size());
+                for (std::size_t index = 0; index < count; ++index) {
+                    const auto &actual_entry = actual_value.tools[index];
+                    const auto &wanted = expected_value.tools[index];
+                    check_string_equal(name, "tool wire_name", actual_entry.wire_name,
+                                       wanted.wire_name);
+                    check_string_equal(name, "tool version", actual_entry.version, wanted.version);
+                    check_string_equal(name, "tool description", actual_entry.description,
+                                       wanted.description);
+                    MIRAGE_CHECK(actual_entry.has_side_effects == wanted.has_side_effects);
+                    check_string_equal(name, "tool schema", actual_entry.parameters_schema_json,
+                                       wanted.parameters_schema_json);
+                }
+            } else if constexpr (std::is_same_v<T, ipc::WorkflowRunList>) {
+                MIRAGE_CHECK(actual_value.runs.size() == expected_value.runs.size());
+                const std::size_t count =
+                    std::min(actual_value.runs.size(), expected_value.runs.size());
+                for (std::size_t index = 0; index < count; ++index) {
+                    const auto &actual_entry = actual_value.runs[index];
+                    const auto &wanted = expected_value.runs[index];
+                    check_string_equal(name, "run id", actual_entry.run_id, wanted.run_id);
+                    check_string_equal(name, "run workflow_id", actual_entry.workflow_id,
+                                       wanted.workflow_id);
+                    check_string_equal(name, "run state", actual_entry.state, wanted.state);
+                    MIRAGE_CHECK(actual_entry.run_epoch == wanted.run_epoch);
+                    MIRAGE_CHECK(actual_entry.created_at_ms == wanted.created_at_ms);
+                }
+            } else if constexpr (std::is_same_v<T, ipc::WorkflowRunStarted>) {
+                check_string_equal(name, "run_id", actual_value.run_id, expected_value.run_id);
+            } else if constexpr (std::is_same_v<T, ipc::WorkflowRunCancelled>) {
+                check_string_equal(name, "run_id", actual_value.run_id, expected_value.run_id);
+                check_string_equal(name, "state", actual_value.state, expected_value.state);
             }
         },
         expected.payload);
