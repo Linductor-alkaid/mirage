@@ -100,6 +100,9 @@ struct ServiceProcess {
 
     explicit ServiceProcess(mirage::runtime::ServiceConfig config) : service(std::move(config)) {}
     ~ServiceProcess() {
+        // A scenario that early-returns before its explicit shutdown must
+        // not hang the whole suite on this join: request the stop first.
+        service.request_shutdown();
         if (runner.joinable()) {
             runner.join();
         }
@@ -429,6 +432,11 @@ void scenario_workflow_face_round_trip() {
 
     const ipc::Response listed_again =
         session.client->call(ipc::WorkflowListRequest{}, kCallBudget).get();
+    if (!listed_again.ok) {
+        std::fprintf(stderr, "[session_client_test] list#2 failed: %s: %s
+",
+                     listed_again.error.code.c_str(), listed_again.error.message.c_str());
+    }
     MIRAGE_CHECK(listed_again.ok);
     const auto *catalog_again = std::get_if<ipc::WorkflowList>(&listed_again.payload);
     MIRAGE_CHECK(catalog_again != nullptr);
@@ -447,6 +455,11 @@ void scenario_workflow_face_round_trip() {
     ipc::WorkflowRunRequest run_request;
     run_request.workflow_id = workflow_id;
     const ipc::Response started = session.client->call(run_request, kCallBudget).get();
+    if (!started.ok) {
+        std::fprintf(stderr, "[session_client_test] run failed: %s: %s
+",
+                     started.error.code.c_str(), started.error.message.c_str());
+    }
     MIRAGE_CHECK(started.ok);
     const auto *started_payload = std::get_if<ipc::WorkflowRunStarted>(&started.payload);
     MIRAGE_CHECK(started_payload != nullptr);
