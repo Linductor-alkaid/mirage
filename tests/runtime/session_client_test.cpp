@@ -433,8 +433,7 @@ void scenario_workflow_face_round_trip() {
     const ipc::Response listed_again =
         session.client->call(ipc::WorkflowListRequest{}, kCallBudget).get();
     if (!listed_again.ok) {
-        std::fprintf(stderr, "[session_client_test] list#2 failed: %s: %s
-",
+        std::fprintf(stderr, "[session_client_test] list#2 failed: %s: %s\n",
                      listed_again.error.code.c_str(), listed_again.error.message.c_str());
     }
     MIRAGE_CHECK(listed_again.ok);
@@ -456,8 +455,7 @@ void scenario_workflow_face_round_trip() {
     run_request.workflow_id = workflow_id;
     const ipc::Response started = session.client->call(run_request, kCallBudget).get();
     if (!started.ok) {
-        std::fprintf(stderr, "[session_client_test] run failed: %s: %s
-",
+        std::fprintf(stderr, "[session_client_test] run failed: %s: %s\n",
                      started.error.code.c_str(), started.error.message.c_str());
     }
     MIRAGE_CHECK(started.ok);
