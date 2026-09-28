@@ -1279,6 +1279,30 @@ golden `meta.version` 7 → 8；本 PR 的 CI 结论按仓库先例由下一工�
   器 `MIRAGE_WITH_MIRA_MBEDTLS` 门控默认关闭，DEC-017 双工具链行为一致）；
   ③ 凭据承载升级（keyring/secret 服务）、对话流式输出、多轮上下文策略挂
   账 DEC-027 挂账②③④。
+
+2026-09-28：`M5-06` 第四增量独立测试验证（第 1 轮）缺陷修复完成（`fix(runtime)`，
+同 PR 补充提交）。
+
+- 独立验证发现两处服务侧实现缺陷（实测取证，未代改实现）：
+  1. `settle_dialog_turn` 从未赋值 settled `session.chat_updated` 事件的
+     `status` / `user_text`（pending 事件正确），live wire 帧为空串——任
+     何订阅端 decode 拒绝，事件驱动收敛失效，只能靠快照重同步；
+  2. `handle_session_close` 不移除对话注册表条目——容量（= max_sessions）
+     随 open→chat→close 循环永久耗尽，对话面对新会话 `unavailable`，违反
+     "会话关闭时其对话线程随之移除" 的 DEC-027 契约文本。
+- 修复：settle 路径在注册表锁内补写 `event.status` / `event.user_text` /
+  `event.sequence`（自登记 turn 记录取值），未知 turn id 不再发布；close
+  路径同步擦除对话注册表条目并取消在飞对话轮任务（其 settle 发现日志已
+  移除即吞没——原"死代码"分支由此成为关闭会话竞态的活路径）。
+- 回归用例：`event_subscription_test` 恢复独立验证轮注释占位的 settled 断
+  言（ok 帧 status / user_text / reply_text / sequence 逐项 + pending 先于
+  settled 的流序）；`runtime_service_test` 新增
+  `session_close_frees_dialog_registry_slot`（max_sessions=2 下两轮
+  open→chat ok→close 后第三会话对话仍可用——泄漏回归在此表现为
+  `unavailable: dialog registry capacity exhausted (2)`）。
+- 验证：`runtime_service_test` **430 检查 0 失败**、`event_subscription_test`
+  **426 检查 0 失败**（均本机实测）；全树 debug 构建 0 错误，ctest 40/40
+  通过 0 skip，format / boundary（39 公共头）通过。
 - 同步：[DEC-027](../decisions/DEC-027-dialog-mode-model-layer.md)（新增）、
   [DEC-025](../decisions/DEC-025-session-page-productization.md)（挂账③兑
   现留痕）、[DEC-026](../decisions/DEC-026-observation-face-and-definition-read.md)

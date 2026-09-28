@@ -1575,6 +1575,88 @@ void scenario_session_chat_dialog_face() {
 
 // --- session.close (DEC-026 backlog item 2) ----------------------------------
 
+/// Regression (independent verification, M5-06 round 4): session.close must
+/// remove the session's dialog registry entry — without it, the bounded
+/// dialog registry (capacity = max_sessions) fills with dead threads and the
+/// dialog face goes permanently `unavailable` for every new session after
+/// max_sessions open→chat→close cycles.
+void scenario_session_close_frees_dialog_registry_slot() {
+    mirage::testing::TempDir dir;
+    ServiceConfig config = make_config(dir);
+    // The primary session occupies one of the two slots; every other slot
+    // must be reusable across open→chat→close cycles.
+    config.max_sessions = 2;
+    config.model.enabled = true;
+    config.model.dialect = "openai.responses.v1";
+    config.model.model_selector = "test-model";
+    const auto scripted = std::make_shared<mirage::integration::ModelProviderOverride>(
+        [](const mira::ModelProfile &profile) -> std::shared_ptr<mira::IModelProvider> {
+            return std::make_shared<ScriptedModelProvider>(profile);
+        });
+    config.model_provider_override = scripted;
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+
+    ipc::IpcClient client(config.socket_path);
+    for (int cycle = 0; cycle < 2; ++cycle) {
+        const ipc::Response opened = client.call(ipc::OpenSessionRequest{}, kCallBudget);
+        MIRAGE_CHECK(opened.ok);
+        const auto *opened_session = std::get_if<ipc::SessionOpened>(&opened.payload);
+        MIRAGE_CHECK(opened_session != nullptr);
+        if (opened_session == nullptr) {
+            service.request_shutdown();
+            (void)service.run();
+            return;
+        }
+        const std::string session_id = opened_session->session_id;
+        const ipc::Response accepted =
+            client.call(ipc::SessionChatRequest{session_id, "turn text"}, kCallBudget);
+        MIRAGE_CHECK(accepted.ok);
+
+        // The turn must settle ok before the close so the cycle ends clean.
+        const auto deadline = std::chrono::steady_clock::now() + kTaskBudget;
+        bool settled = false;
+        while (!settled) {
+            const ipc::Response snapshot =
+                client.call(ipc::ChatHistoryRequest{session_id, {}}, kCallBudget);
+            MIRAGE_CHECK(snapshot.ok);
+            if (snapshot.ok) {
+                const auto *dialog = std::get_if<ipc::DialogHistory>(&snapshot.payload);
+                MIRAGE_CHECK(dialog != nullptr);
+                if (dialog != nullptr && dialog->turns.size() == 1 &&
+                    dialog->turns[0].status == "ok") {
+                    settled = true;
+                    break;
+                }
+            }
+            if (std::chrono::steady_clock::now() >= deadline) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds{25});
+        }
+        MIRAGE_CHECK(settled);
+
+        const ipc::Response closed = client.call(ipc::CloseSessionRequest{session_id}, kCallBudget);
+        MIRAGE_CHECK(closed.ok);
+    }
+
+    // The registry slots freed by the closes admit a fresh session whose
+    // dialog face works — the leak regression turned this acceptance into
+    // `unavailable: dialog registry capacity exhausted (2)`.
+    const ipc::Response reopened = client.call(ipc::OpenSessionRequest{}, kCallBudget);
+    MIRAGE_CHECK(reopened.ok);
+    const auto *reopened_session = std::get_if<ipc::SessionOpened>(&reopened.payload);
+    MIRAGE_CHECK(reopened_session != nullptr);
+    if (reopened_session != nullptr) {
+        const ipc::Response accepted = client.call(
+            ipc::SessionChatRequest{reopened_session->session_id, "第三轮"}, kCallBudget);
+        MIRAGE_CHECK(accepted.ok);
+    }
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
 void scenario_session_close_lifecycle() {
     mirage::testing::TempDir dir;
     ServiceConfig config = make_config(dir);
@@ -1807,6 +1889,8 @@ int main() {
     run_scenario("session_open_capacity_fail_closed", scenario_session_open_capacity_fail_closed);
     run_scenario("session_close_lifecycle", scenario_session_close_lifecycle);
     run_scenario("session_chat_dialog_face", scenario_session_chat_dialog_face);
+    run_scenario("session_close_frees_dialog_registry_slot",
+                 scenario_session_close_frees_dialog_registry_slot);
     run_scenario("session_chat_latch_and_failure", scenario_session_chat_latch_and_failure);
     run_scenario("session_close_cancels_inflight_task",
                  scenario_session_close_cancels_inflight_task);

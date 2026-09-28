@@ -144,26 +144,29 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
             return; // the session closed: the thread is gone, nothing to settle
         }
         auto &log = found->second;
+        bool settled = false;
         for (auto &record : log.turns) {
             if (record.turn_id == turn_id) {
                 record.status = status;
                 record.reply_text = event.reply_text;
                 record.error = event.error;
+                // The settled notification carries the same wire members as
+                // the pending one (status / user_text / sequence) — without
+                // them every subscriber's decode rejects the frame.
+                event.status = status;
+                event.user_text = record.user_text;
+                event.sequence = record.sequence;
+                settled = true;
                 break;
             }
         }
         if (log.in_flight_turn_id == turn_id) {
             log.in_flight_turn_id.clear();
         }
-        event.sequence = event.has_reply || event.has_error ? [&] {
-            for (const auto &record : log.turns) {
-                if (record.turn_id == turn_id) {
-                    return record.sequence;
-                }
-            }
-            return std::uint64_t{0};
-        }()
-                                                            : 0;
+        if (!settled) {
+            // Unknown turn id: nothing registered, nothing to publish.
+            return;
+        }
     }
     core->events.publish_chat_turn(std::move(event));
 }
@@ -988,6 +991,30 @@ struct RuntimeService::Impl {
         {
             std::lock_guard lock(core->sessions.mutex);
             core->sessions.created_at_ms.erase(session_id);
+        }
+        // The dialog thread dies with the session (DEC-027): the log entry is
+        // removed (freeing the dialog registry slot for reuse) and any
+        // in-flight turn's task is cancelled so it neither lingers nor
+        // publishes into a closed session — its settle path finds the log
+        // gone and swallows the outcome.
+        {
+            std::string in_flight_turn;
+            {
+                std::lock_guard lock(core->dialogs.mutex);
+                if (const auto found = core->dialogs.sessions.find(session_id);
+                    found != core->dialogs.sessions.end()) {
+                    in_flight_turn = found->second.in_flight_turn_id;
+                    core->dialogs.sessions.erase(found);
+                }
+            }
+            if (!in_flight_turn.empty()) {
+                const std::string driver_key = "dialog-" + in_flight_turn;
+                std::lock_guard lock(core->drivers_mutex);
+                if (auto driver = core->drivers.find(driver_key);
+                    driver != core->drivers.end() && driver->second.handle.valid()) {
+                    core->executor.request_task_cancel(driver->second.handle);
+                }
+            }
         }
         // Post-close state from the pinned view; the close command's own
         // settled post-condition is Closed, so a failed view read still

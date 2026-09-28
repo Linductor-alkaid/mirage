@@ -1712,48 +1712,51 @@ void scenario_session_chat_publishes_turn_lifecycle() {
         MIRAGE_CHECK(false);
     }
 
-    // Settled notification: the same turn, ok status, reply text present.
-    // NOTE (independent verification, M5-06 round 4): this half is NOT yet
-    // asserted — the settled notification the service publishes carries an
-    // empty wire 'status' / 'user_text' (settle_dialog_turn never assigns
-    // them), so every subscriber's decode rejects the frame and the wait
-    // below cannot succeed. The pending half above locks the working part
-    // of the stream; the settled-event assertions land together with the
-    // fix. The turn still settles (its history record flips to ok — proven
-    // by runtime_service_test's dialog scenarios), so wait for that
-    // convergence before teardown.
-    const auto settle_deadline = std::chrono::steady_clock::now() + kTaskBudget;
-    for (;;) {
-        const ipc::Response snapshot =
-            client.call(ipc::ChatHistoryRequest{session_id, {}}, kCallBudget);
-        MIRAGE_CHECK(snapshot.ok);
-        if (snapshot.ok) {
-            const auto *dialog = std::get_if<ipc::DialogHistory>(&snapshot.payload);
-            MIRAGE_CHECK(dialog != nullptr);
-            if (dialog != nullptr && dialog->turns.size() == 1 && dialog->turns[0].status == "ok") {
-                break;
-            }
-        }
-        if (std::chrono::steady_clock::now() >= settle_deadline) {
-            break;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds{25});
+    // Settled notification: the same turn, ok status, reply text present,
+    // user text and sequence carried like the pending frame (the settled
+    // frame's wire shape regression — empty status / user_text — is what the
+    // assertions below pin; the decode itself rejects such a frame).
+    const auto settled = wait_for_event(
+        subscriber, log,
+        [&](const ipc::Event &event) {
+            const auto *chat = std::get_if<ipc::ChatTurnUpdatedEvent>(&event.payload);
+            return chat != nullptr && chat->session_id == session_id &&
+                   chat->turn_id == turn->turn_id && chat->status == "ok";
+        },
+        kEventBudget);
+    MIRAGE_CHECK(settled.has_value());
+    if (const auto *chat = settled.has_value()
+                               ? std::get_if<ipc::ChatTurnUpdatedEvent>(&settled->payload)
+                               : nullptr) {
+        MIRAGE_CHECK(chat->user_text == "订阅问题");
+        MIRAGE_CHECK(chat->sequence == 1);
+        MIRAGE_CHECK(chat->has_reply);
+        MIRAGE_CHECK(chat->reply_text == "订阅回复正常。");
+        MIRAGE_CHECK(!chat->has_error);
+    } else {
+        MIRAGE_CHECK(false);
     }
 
-    // The pending notification is the stream's working half today (see the
-    // note above the settled wait): assert its wire fields exactly and that
-    // it landed in the subscriber's log ahead of any later frames.
+    // Stream ordering: the pending frame lands before the settled frame for
+    // the same turn, and no other session.chat_updated frames appear.
     std::optional<std::size_t> pending_index;
+    std::optional<std::size_t> settled_index;
     for (std::size_t index = 0; index < log.size(); ++index) {
         const auto *chat = std::get_if<ipc::ChatTurnUpdatedEvent>(&log[index].payload);
-        if (chat != nullptr && chat->turn_id == turn->turn_id && chat->status == "pending" &&
-            !pending_index) {
+        if (chat == nullptr || chat->turn_id != turn->turn_id) {
+            continue;
+        }
+        if (chat->status == "pending" && !pending_index) {
             pending_index = index;
+        }
+        if (chat->status == "ok" && !settled_index) {
+            settled_index = index;
         }
     }
     MIRAGE_CHECK(pending_index.has_value());
-    if (pending_index.has_value()) {
-        MIRAGE_CHECK(*pending_index < log.size());
+    MIRAGE_CHECK(settled_index.has_value());
+    if (pending_index.has_value() && settled_index.has_value()) {
+        MIRAGE_CHECK(*pending_index < *settled_index);
     }
 
     service.request_shutdown();
