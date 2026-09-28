@@ -11,8 +11,10 @@
 #include <mira/adapters/net/openssl_tls.hpp>
 #endif
 
+#include "model_layer_env.hpp"
+
 #include <algorithm>
-#include <cstdlib>
+#include <mutex>
 #include <utility>
 
 namespace pinned_net = mira::adapters::net;
@@ -28,14 +30,15 @@ class EnvSecretResolver final : public mira::ISecretResolver {
   public:
     [[nodiscard]] mira::Result<std::string> resolve(const mira::SecretRef &reference) override {
         mira::Error error;
-        const char *value = reference.name.empty() ? nullptr : std::getenv(reference.name.c_str());
-        if (value == nullptr) {
+        const auto value =
+            reference.name.empty() ? std::string{} : detail::read_environment_value(reference.name);
+        if (value.empty()) {
             error.code = mira::ErrorCode::PermissionDenied;
             error.domain = "mirage.dialog";
             error.safe_message = "credential environment variable is not set: " + reference.name;
             return error;
         }
-        return std::string{value};
+        return value;
     }
 };
 
@@ -140,6 +143,11 @@ struct ModelLayer::Impl {
 
     ModelLayerConfig config;
     executor::Executor &executor;
+    /// Serializes complete_dialog_turn against shutdown: an in-flight
+    /// inference finishes (bounded by the profile transport deadlines) before
+    /// the gateway/provider/transport are released — destroying them under a
+    /// running infer is a use-after-free the sanitizers rightly flag.
+    std::mutex infer_mutex;
     ModelProviderOverride::Factory override_factory;
     std::shared_ptr<mira::ModelProfile> profile;
     mira::ModelRouter router;
@@ -178,6 +186,9 @@ void ModelLayer::shutdown() {
     if (impl_ == nullptr) {
         return;
     }
+    // Wait out any in-flight dialog completion first (the drain lock), then
+    // release the pinned pieces — never under a running infer.
+    std::lock_guard drain(impl_->infer_mutex);
     if (impl_->transport) {
         impl_->transport->shutdown();
         impl_->transport.reset();
@@ -191,6 +202,10 @@ DialogCompletion ModelLayer::complete_dialog_turn(const std::string &transcript,
                                                   const std::string &user_text,
                                                   const mira::OperationContext &context) {
     DialogCompletion completion;
+    // The drain lock makes shutdown wait out this inference (bounded by the
+    // profile transport deadlines) instead of destroying the pinned pieces
+    // under it.
+    std::lock_guard drain(impl_->infer_mutex);
     if (impl_ == nullptr || !impl_->running || !impl_->gateway) {
         completion.failed = true;
         completion.error = "model layer is not running";

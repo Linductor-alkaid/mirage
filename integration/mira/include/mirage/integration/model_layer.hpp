@@ -130,8 +130,9 @@ class ModelLayer {
                                           const std::string &user_text,
                                           const mira::OperationContext &context);
 
-    /// Ordered teardown: transport first (settles in-flight exchanges), then
-    /// the pinned pieces. Idempotent.
+    /// Ordered teardown: waits out any in-flight dialog completion (bounded
+    /// by the profile transport deadlines), then settles the transport's
+    /// in-flight exchanges and releases the pinned pieces. Idempotent.
     void shutdown();
 
   private:

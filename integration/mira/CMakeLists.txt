@@ -8,6 +8,11 @@ add_library(mirage_integration_mira STATIC
     src/model_layer.cpp
     src/session_journal.cpp
     src/workflow_event_bridge.cpp
+    # The model layer's credential resolver reads the environment per
+    # platform (MSVC raises the CRT getenv as a warnings-as-errors
+    # deprecation; DEC-017 / M4-06 toolchain fact).
+    $<$<PLATFORM_ID:Windows>:src/model_layer_env_windows.cpp>
+    $<$<NOT:$<PLATFORM_ID:Windows>>:src/model_layer_env_posix.cpp>
 )
 add_library(Mirage::integration_mira ALIAS mirage_integration_mira)
 
