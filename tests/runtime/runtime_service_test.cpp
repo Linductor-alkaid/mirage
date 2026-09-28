@@ -1836,14 +1836,51 @@ void scenario_session_state_round_trip_across_restart() {
     }
     MIRAGE_CHECK(follow_settled);
 
-    // NOTE (independent verification, M5-08 round 2): the close-does-not-
-    // resurrect regression is NOT asserted yet — a rehydrated session is
-    // unknown to the pinned host, so session.close answers
-    // `pinned_runtime: not_found: session was not found` and the session can
-    // never be closed (see the round-2 finding). The regression lands
-    // together with the hydration-side session registration fix.
+    // Close-does-not-resurrect regression (round-2 finding): the hydrated
+    // session is closed on the second instance — the close is service-side
+    // (the pinned counterpart is gone with the previous era) — then a third
+    // instance over the same state directory must NOT bring it back: the
+    // session is absent from session.list and its faces answer not_found.
+    const ipc::Response closed =
+        second_client.call(ipc::CloseSessionRequest{session_id}, kCallBudget);
+    MIRAGE_CHECK(closed.ok);
+    const auto *closed_session = std::get_if<ipc::SessionClosed>(&closed.payload);
+    MIRAGE_CHECK(closed_session != nullptr);
+    if (closed_session != nullptr) {
+        MIRAGE_CHECK(closed_session->session_id == session_id);
+        MIRAGE_CHECK(closed_session->state == "closed");
+    }
+
     second.request_shutdown();
     MIRAGE_CHECK(second.run().clean);
+
+    RuntimeService third(config);
+    MIRAGE_CHECK(third.start(make_binding(dir)).ok);
+    ipc::IpcClient third_client(config.socket_path);
+
+    const ipc::Response third_listed = third_client.call(ipc::ListSessionsRequest{}, kCallBudget);
+    MIRAGE_CHECK(third_listed.ok);
+    const auto *third_sessions = std::get_if<ipc::SessionList>(&third_listed.payload);
+    MIRAGE_CHECK(third_sessions != nullptr);
+    bool resurrected = false;
+    if (third_sessions != nullptr) {
+        for (const ipc::SessionSummary &entry : third_sessions->sessions) {
+            resurrected = resurrected || entry.id == session_id;
+        }
+    }
+    MIRAGE_CHECK(!resurrected);
+
+    const ipc::Response ghost_history =
+        third_client.call(ipc::ChatHistoryRequest{session_id, {}}, kCallBudget);
+    MIRAGE_CHECK(!ghost_history.ok);
+    MIRAGE_CHECK(ghost_history.error.code == "not_found");
+    const ipc::Response ghost_chat =
+        third_client.call(ipc::SessionChatRequest{session_id, "hi"}, kCallBudget);
+    MIRAGE_CHECK(!ghost_chat.ok);
+    MIRAGE_CHECK(ghost_chat.error.code == "not_found");
+
+    third.request_shutdown();
+    MIRAGE_CHECK(third.run().clean);
 }
 
 /// M5-08: a corrupt session state document degrades loudly (DEC-011

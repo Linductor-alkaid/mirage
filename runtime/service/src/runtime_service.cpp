@@ -1066,15 +1066,24 @@ struct RuntimeService::Impl {
                 }
             }
         }
-        const HostOutcome closed = core->host.close_session(SessionIdentity{session_id});
-        if (!closed.ok) {
-            fail(connection_id, correlation_id, closed.error.code, closed.error.message);
-            return;
+        // Hydrated sessions (M5-08): a previous-era session has no pinned
+        // counterpart, so there is nothing to close pinned-side — the close
+        // is a pure product-state removal. Live sessions go through the
+        // pinned close (which cancels their non-terminal pinned tasks).
+        const bool hydrated = core->hydrated_sessions.count(session_id) != 0;
+        if (!hydrated) {
+            const HostOutcome closed = core->host.close_session(SessionIdentity{session_id});
+            if (!closed.ok) {
+                fail(connection_id, correlation_id, closed.error.code, closed.error.message);
+                return;
+            }
         }
         {
             std::lock_guard lock(core->sessions.mutex);
             core->sessions.created_at_ms.erase(session_id);
         }
+        core->hydrated_sessions.erase(session_id);
+        detail::persist_session_state(core);
         detail::persist_session_state(core);
         // The dialog thread dies with the session (DEC-027): the log entry is
         // removed (freeing the dialog registry slot for reuse) and any
@@ -2182,6 +2191,12 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                         break;
                     }
                     impl_->core->sessions.created_at_ms.emplace(session.id, session.created_at_ms);
+                    // The pinned counterpart is gone with the previous era:
+                    // the hydrated session is product state only. Its close
+                    // is handled service-side (DEC-028 close face without a
+                    // pinned call), and task submit has no pinned session to
+                    // reach (honest limitation of hydration).
+                    impl_->core->hydrated_sessions.insert(session.id);
                     for (const auto &entry : session.journal) {
                         if (entry.kind == "user") {
                             (void)impl_->core->journal->append_user_message(

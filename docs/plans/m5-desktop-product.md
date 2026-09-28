@@ -1553,7 +1553,16 @@ schema 1 加法演进；本 PR 的 CI 结论按仓库先例由下一工作项 PR
   - Linux 五预设矩阵 / windows 作业随本 PR CI 取证（结论由后续记录补录）。
 - 限制与补跑条件：① 会话状态持久化时机为事件驱动 + teardown——崩溃窗口
   内未落盘的 journal / 对话条目丢失（与 recovery 姿态一致，如实声明）；
-  ② 设置-模型类目的 UI 实时变更需 wire 面（model.get/set），本增量以配
+
+- 2026-09-29：独立测试验证（第 2 轮）缺陷修复——注水会话可被关闭（
+  `fix(runtime)`，同 PR 补充提交）：注水只重建服务侧状态，pinned host 无
+  该会话，session.close 走 pinned close_session 即拒（not_found），持久化
+  会话成僵尸。修复：注水时登记 hydrated_sessions；close 对 hydrated 会话
+  跳过 pinned 调用走纯产品状态移除；同根因下 task.submit 到注水会话无法
+  被 pinned 受理（『只读历史视图』语义）随代码注释与限制节声明。回归：
+  session_state_round_trip_across_restart 恢复 close-不复活断言（第二实
+  例 close ok + 第三实例不复活 + 各面 not_found）。验证：runtime_service_test
+  539 检查 0 失败（本机实测）。  ② 设置-模型类目的 UI 实时变更需 wire 面（model.get/set），本增量以配
   置文件 + 启动装配承载，挂账后续；③ 对端凭据校验的 Windows 命名管道热
   加固（安全描述符显式化）挂账后续；④ 默认策略收紧维持留观（DEC-028 决
   策 5），收紧决策随 M5-08 后使用数据另定。

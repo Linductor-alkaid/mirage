@@ -4,6 +4,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -107,6 +108,12 @@ struct ServiceCore {
     /// journal, dialog threads and session registry persist here across
     /// restarts. Null when disabled (tests).
     std::unique_ptr<mirage::runtime::persistence::LocalStateStore> session_state_store;
+    /// Hydrated session ids (M5-08): sessions restored from the state
+    /// document whose pinned counterpart is gone — service faces (history,
+    /// dialog, close) serve them from product state alone; task submit and
+    /// pinned close have no pinned session to reach and are refused or
+    /// handled service-side respectively.
+    std::set<std::string> hydrated_sessions;
     /// Raw journal append inputs (DEC-021 hydration surface): shadow the
     /// journal's appends with the raw inputs so the persisted document can
     /// reproduce the projected view exactly (append_outcome composes its
