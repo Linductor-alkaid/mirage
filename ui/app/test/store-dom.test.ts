@@ -986,3 +986,30 @@ describe('M5-07 approval center + policy face (store wiring)', () => {
         expect(store.get().policy?.rules['filesystem.read']).toBe('allow');
     });
 });
+
+// ---- M5-08：会话重命名本地别名（DEC-026 挂账⑤） ------------------------------
+
+describe('M5-08 session rename alias (display-layer state)', () => {
+    it('renameSession persists the alias locally and an empty title clears it', async () => {
+        const created = createMockTransport({ hostStartDelayMs: 0, stepDurationMs: 5 });
+        const store = new HarnessStore(created.transport);
+        currentStore = store;
+        store.start();
+        await vi.waitFor(() => expect(store.get().connection).toBe('ready'));
+        const id = store.get().sessions[0]!.id;
+
+        // 别名生效并持久化到 localStorage（展示层产品状态，不进契约面）。
+        store.renameSession(id, '  自定义别名  ');
+        expect(store.get().sessionAliases.get(id)).toBe('自定义别名');
+        expect(store.get().sessions.find((s) => s.id === id)?.title).toBe('自定义别名');
+        expect(JSON.parse(window.localStorage.getItem('mirage.session-aliases')!)[id]).toBe(
+            '自定义别名',
+        );
+
+        // 空标题清除别名：回落派生标题，持久化条目一并移除。
+        store.renameSession(id, '   ');
+        expect(store.get().sessionAliases.has(id)).toBe(false);
+        expect(store.get().sessions.find((s) => s.id === id)?.title).not.toBe('自定义别名');
+        expect(window.localStorage.getItem('mirage.session-aliases')).toBe('{}');
+    });
+});

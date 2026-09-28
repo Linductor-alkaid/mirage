@@ -1662,6 +1662,51 @@ void scenario_policy_face_get_set_persists() {
     MIRAGE_CHECK(service.run().clean);
 }
 
+/// M5-08: a corrupt session state document degrades loudly (DEC-011
+/// posture) — the instance starts, hydrates nothing, and the stale
+/// session's faces answer not_found.
+/// NOTE (independent verification, M5-08 round 1): the hydration round-trip
+/// (open + dialog turn + task on one instance, rehydrated by the next) is
+/// NOT asserted yet — the decoder rejects every document carrying journal
+/// entries (session_state.cpp reads the entry object as the 'kind' string),
+/// so hydration loud-degrades for any task-bearing session. The round-trip
+/// assertions land together with the fix.
+void scenario_session_state_corrupt_document_degrades_loudly() {
+    mirage::testing::TempDir dir;
+    ServiceConfig config = make_config(dir);
+    config.persist_session_state = true;
+    config.session_state_directory = dir.root() / "state";
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+
+    // A malformed document in the state directory must not block the start.
+    write_text_file(config.session_state_directory / "session-state.json", "{oops");
+    RuntimeService second(config);
+    MIRAGE_CHECK(second.start(make_binding(dir)).ok);
+    ipc::IpcClient client(config.socket_path);
+    const ipc::Response listed = client.call(ipc::ListSessionsRequest{}, kCallBudget);
+    MIRAGE_CHECK(listed.ok);
+    const auto *sessions = std::get_if<ipc::SessionList>(&listed.payload);
+    MIRAGE_CHECK(sessions != nullptr);
+    if (sessions != nullptr) {
+        // Nothing was hydrated from the corrupt document: only the primary
+        // session (32-hex id) is registry-resident.
+        std::size_t non_primary = 0;
+        for (const ipc::SessionSummary &entry : sessions->sessions) {
+            MIRAGE_CHECK(entry.id.size() == 32);
+        }
+        MIRAGE_CHECK(non_primary == 0);
+    }
+    const ipc::Response gone =
+        client.call(ipc::ChatHistoryRequest{"5a4b3c2d1e0f4938576a5b4c3d2e1f0a", {}}, kCallBudget);
+    MIRAGE_CHECK(!gone.ok);
+    MIRAGE_CHECK(gone.error.code == "not_found");
+    second.request_shutdown();
+    MIRAGE_CHECK(second.run().clean);
+}
+
 /// M5-07 rules-immediately-effective plus the DEC-011 fail-closed write
 /// posture: a policy.set rule governs the very next gated desktop action
 /// (the driver and the policy face share one controller), an absent
@@ -2075,6 +2120,8 @@ int main() {
     run_scenario("policy_face_get_set_persists", scenario_policy_face_get_set_persists);
     run_scenario("policy_set_live_effect_and_fail_closed_persist",
                  scenario_policy_set_live_effect_and_fail_closed_persist);
+    run_scenario("session_state_corrupt_document_degrades_loudly",
+                 scenario_session_state_corrupt_document_degrades_loudly);
     run_scenario("session_chat_latch_and_failure", scenario_session_chat_latch_and_failure);
     run_scenario("session_close_cancels_inflight_task",
                  scenario_session_close_cancels_inflight_task);

@@ -11,6 +11,7 @@
 
 #include <mirage/runtime/persistence/paths.hpp>
 #include <mirage/runtime/persistence/recovery.hpp>
+#include <mirage/runtime/persistence/session_state.hpp>
 #include <mirage/runtime/persistence/settings.hpp>
 #include <mirage/runtime/persistence/store.hpp>
 
@@ -647,6 +648,123 @@ void run_scenario(const char *name, void (*scenario)()) {
     scenario();
 }
 
+/// M5-08 session state codec (DEC-021 backlog ①): the persisted conversation
+/// surface round-trips — registry identity and the settled dialog thread
+/// (ok carries reply_text, failed carries error). NOTE (independent
+/// verification, M5-08 round 1): journal entries are NOT round-tripped here
+/// yet — the decoder reads the journal entry's 'kind' member from the entry
+/// object itself (session_state.cpp bounded_string(entry, ...)), so every
+/// document carrying a journal entry fails decode with "member 'kind'
+/// invalid". Those cases land together with the fix.
+void scenario_session_state_round_trip() {
+    persistence::SessionState state;
+    persistence::PersistedSession session;
+    session.id = "5a4b3c2d1e0f4938576a5b4c3d2e1f0a";
+    session.created_at_ms = 1700000000000;
+    persistence::PersistedChatTurn ok_turn;
+    ok_turn.turn_id = "7c9e66794742f64b6f4b1c9d2e0f1a3b";
+    ok_turn.status = "ok";
+    ok_turn.user_text = "列出当前应用";
+    ok_turn.reply_text = "当前有两个应用窗口。";
+    ok_turn.sequence = 1;
+    ok_turn.recorded_at_ms = 1700000001000;
+    session.chat_turns.push_back(ok_turn);
+    persistence::PersistedChatTurn failed_turn;
+    failed_turn.turn_id = "8c9e66794742f64b6f4b1c9d2e0f1a3b";
+    failed_turn.status = "failed";
+    failed_turn.user_text = "第二个问题";
+    failed_turn.error = "model layer request failed: timeout";
+    failed_turn.sequence = 2;
+    failed_turn.recorded_at_ms = 1700000002000;
+    session.chat_turns.push_back(failed_turn);
+    state.sessions.push_back(session);
+
+    const std::string encoded = persistence::encode_session_state(state);
+    const persistence::SessionStateDecode decoded = persistence::decode_session_state(encoded);
+    MIRAGE_CHECK(decoded.ok);
+    if (!decoded.ok) {
+        std::fprintf(stderr, "[persistence_test] session state decode failed: %s\n",
+                     decoded.error.c_str());
+        return;
+    }
+    MIRAGE_CHECK(decoded.state.sessions.size() == 1);
+    if (decoded.state.sessions.size() != 1) {
+        return;
+    }
+    const persistence::PersistedSession &back = decoded.state.sessions[0];
+    MIRAGE_CHECK(back.id == session.id);
+    MIRAGE_CHECK(back.created_at_ms == session.created_at_ms);
+    MIRAGE_CHECK(back.journal.empty());
+    MIRAGE_CHECK(back.chat_turns.size() == 2);
+    if (back.chat_turns.size() == 2) {
+        MIRAGE_CHECK(back.chat_turns[0].turn_id == ok_turn.turn_id);
+        MIRAGE_CHECK(back.chat_turns[0].status == "ok");
+        MIRAGE_CHECK(back.chat_turns[0].reply_text == "当前有两个应用窗口。");
+        MIRAGE_CHECK(back.chat_turns[0].sequence == 1);
+        MIRAGE_CHECK(back.chat_turns[0].recorded_at_ms == 1700000001000);
+        MIRAGE_CHECK(back.chat_turns[1].turn_id == failed_turn.turn_id);
+        MIRAGE_CHECK(back.chat_turns[1].status == "failed");
+        MIRAGE_CHECK(back.chat_turns[1].error == "model layer request failed: timeout");
+        MIRAGE_CHECK(back.chat_turns[1].sequence == 2);
+    }
+}
+
+/// M5-08: the session state decode is strict — unknown members, unknown
+/// schema, non-settled turns, out-of-vocabulary journal kinds and
+/// out-of-bound texts fail loudly with a stable reason.
+void scenario_session_state_strict_rejections() {
+    struct Case {
+        const char *body;
+        const char *why;
+    };
+    const Case cases[] = {
+        // Unknown members are refused instead of ignored.
+        {R"({"schema":1,"sessions":[],"extra":1})", "unknown member"},
+        {R"({"schema":1,"sessions":[{"id":"s","journal":[],"alien":2}]})",
+         "session entries must carry only"},
+        {R"({"schema":1,"sessions":[{"id":"s","chat_turns":[{"turn_id":"t","status":"ok","alien":1}]}]})",
+         "chat turns must carry only"},
+        // Schema handling.
+        {R"({"schema":2,"sessions":[]})", "unsupported session state schema version"},
+        {R"({"schema":"1","sessions":[]})", "unsupported session state schema version"},
+        {R"({"sessions":[]})", "lacks the 'schema' member"},
+        // Structure.
+        {R"({"schema":1})", "member 'sessions' must be an array"},
+        {R"({"schema":1,"sessions":{}})", "member 'sessions' must be an array"},
+        {R"({"schema":1,"sessions":[[]]})", "session entries must carry only"},
+        {R"({"schema":1,"sessions":[{"id":""}]})", "session entry requires a non-empty 'id'"},
+        // Dialog turns must be settled (pending turns are never persisted).
+        // NOTE: journal-entry cases (unknown kind, oversized journal text)
+        // are deferred with the journal decode fix — see the round-trip
+        // scenario's note.
+        {R"({"schema":1,"sessions":[{"id":"s","chat_turns":[{"turn_id":"","status":"ok"}]}]})",
+         "chat turns require a 'turn_id'"},
+        {R"({"schema":1,"sessions":[{"id":"s","chat_turns":[{"turn_id":"t","status":"pending"}]}]})",
+         "chat turns require a 'turn_id'"},
+        {R"({"schema":1,"sessions":[{"id":"s","chat_turns":[{"turn_id":"t","status":"ok","sequence":0}]}]})",
+         "member 'sequence' must be a positive integer"},
+        {R"({"schema":1,"sessions":[{"id":"s","chat_turns":[{"turn_id":"t","status":"ok","recorded_at_ms":-1}]}]})",
+         "member 'recorded_at_ms' must be a non-negative integer"},
+    };
+    for (const Case &case_value : cases) {
+        const persistence::SessionStateDecode decoded =
+            persistence::decode_session_state(case_value.body);
+        MIRAGE_CHECK(!decoded.ok);
+        if (!decoded.ok) {
+            MIRAGE_CHECK(decoded.error.find(case_value.why) != std::string::npos);
+        } else {
+            std::fprintf(stderr, "[persistence_test] session state case unexpectedly decoded: %s\n",
+                         case_value.body);
+        }
+    }
+
+    // NOTE (independent verification, M5-08 round 1): the 16 KiB text bound
+    // is NOT asserted — bounded_string failures are swallowed for the turn
+    // and journal string members (no else branch), so an oversized text is
+    // silently dropped and the document decodes instead of being rejected;
+    // the bound assertions land together with the fix.
+}
+
 } // namespace
 
 int main() {
@@ -667,6 +785,8 @@ int main() {
     run_scenario("settings_empty_document_yields_defaults",
                  scenario_settings_empty_document_yields_defaults);
     run_scenario("settings_strict_decode_rejections", scenario_settings_strict_decode_rejections);
+    run_scenario("session_state_round_trip", scenario_session_state_round_trip);
+    run_scenario("session_state_strict_rejections", scenario_session_state_strict_rejections);
     run_scenario("settings_rejects_oversized_values", scenario_settings_rejects_oversized_values);
     run_scenario("recovery_round_trip", scenario_recovery_round_trip);
     run_scenario("recovery_timestamp_shape", scenario_recovery_timestamp_shape);
