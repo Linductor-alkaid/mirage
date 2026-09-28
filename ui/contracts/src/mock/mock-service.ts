@@ -14,6 +14,8 @@ import type {
     HostStatus,
     InspectTask,
     ObservationView,
+    PendingPermission,
+    PolicyView,
     ServerEvent,
     ServiceIdentity,
     SessionHistoryEntry,
@@ -57,6 +59,14 @@ export interface MockServiceOptions {
      * session.chat fails with the old-server unknown-op shape — drives the
      * UI's dialog-face fallback path. */
     chatCapability?: boolean;
+    /** When false, hello omits the `policy` capability (M5-07) and the
+     * policy face fails with the old-server unknown-op shape. The mock's
+     * in-memory policy seeds from the DEC-010 defaults. */
+    policyCapability?: boolean;
+    /** When false, hello omits the `permissions` capability (DEC-020) and
+     * the approval center goes dark — mirrors a headless service without a
+     * confirmation hub. */
+    permissionsCapability?: boolean;
     /** 'auto' (default) flushes queues via microtasks; 'manual' only
      * enqueues until flush() is called — the deterministic hook for
      * overflow tests. */
@@ -384,6 +394,34 @@ export class MockMirageService {
     private readonly sessions = new Map<string, MockSession>();
     /** DEC-021 主会话 id（构造时入册）；session.close 的产品侧守卫锚点。 */
     private primarySessionId = '';
+    /** M5-07 policy face：内存规则集（DEC-010 默认 + policy.set 覆盖）。 */
+    private readonly policyRules = new Map<string, string>([
+        ['filesystem.read', 'allow'],
+        ['filesystem.write', 'deny'],
+        ['process.execute', 'allow'],
+        ['window.activate', 'allow'],
+        ['screen.capture', 'allow'],
+        ['input.inject', 'allow'],
+        ['clipboard.read', 'allow'],
+        ['clipboard.write', 'allow'],
+        ['application.launch', 'allow'],
+        ['application.terminate', 'allow'],
+        ['notification.post', 'allow'],
+    ]);
+    private policyReadRoots: string[] = [];
+    /** DEC-020 挂起确认（mock-only demo 钩子产生）。 */
+    private readonly pendingApprovals = new Map<
+        string,
+        {
+            request_id: string;
+            capability: string;
+            resource: string;
+            task_id: string;
+            expires_at: number;
+            timer: ReturnType<typeof setTimeout> | null;
+        }
+    >();
+    private nextPermissionNumber = 1;
     private nextTaskNumber = 1;
     private nextOperationNumber = 1;
     private nextRunNumber = 1;
@@ -391,7 +429,7 @@ export class MockMirageService {
     private nextSessionNumber = 1;
     private closed = false;
     private readonly options: Required<
-        Pick<MockServiceOptions, 'stepDurationMs' | 'hostStartDelayMs' | 'shutdownDelayMs' | 'taskCapacity' | 'eventQueueCapacity' | 'eventsCapability' | 'workflowsCapability' | 'sessionsCapability' | 'observationCapability' | 'chatCapability' | 'flushMode'>
+        Pick<MockServiceOptions, 'stepDurationMs' | 'hostStartDelayMs' | 'shutdownDelayMs' | 'taskCapacity' | 'eventQueueCapacity' | 'eventsCapability' | 'workflowsCapability' | 'sessionsCapability' | 'observationCapability' | 'chatCapability' | 'policyCapability' | 'permissionsCapability' | 'flushMode'>
     >;
 
     constructor(options: MockServiceOptions = {}) {
@@ -406,6 +444,8 @@ export class MockMirageService {
             sessionsCapability: options.sessionsCapability ?? true,
             observationCapability: options.observationCapability ?? true,
             chatCapability: options.chatCapability ?? true,
+            policyCapability: options.policyCapability ?? true,
+            permissionsCapability: options.permissionsCapability ?? true,
             flushMode: options.flushMode ?? 'auto',
         };
         // DEC-021: the primary session enters the registry up front, so
@@ -491,6 +531,12 @@ export class MockMirageService {
         }
         if (this.options.chatCapability) {
             identity.chat = true;
+        }
+        if (this.options.policyCapability) {
+            identity.policy = true;
+        }
+        if (this.options.permissionsCapability) {
+            identity.permissions = true;
         }
         return identity;
     }
@@ -1195,6 +1241,119 @@ export class MockMirageService {
         };
     }
 
+    /** M5-07 policy face: in-memory rule set served whole; policy.set
+     * replaces the map (the wire face validates the full DEC-010 coverage
+     * upstream). Read roots are in-memory state, no file write-back. */
+    policyGet(): { rules: Record<string, string>; read_roots: string[] } {
+        this.assertOpen();
+        if (!this.options.policyCapability) {
+            throw new IpcRequestError('protocol_error', "unknown op 'policy.get'");
+        }
+        const rules: Record<string, string> = {};
+        for (const [capability, rule] of this.policyRules) {
+            rules[capability] = rule;
+        }
+        return { rules, read_roots: [...this.policyReadRoots] };
+    }
+
+    policySet(rules: Record<string, string>, readRoots?: string[]): {
+        rules: Record<string, string>;
+        read_roots: string[];
+    } {
+        this.assertOpen();
+        if (!this.options.policyCapability) {
+            throw new IpcRequestError('protocol_error', "unknown op 'policy.set'");
+        }
+        this.policyRules.clear();
+        for (const [capability, rule] of Object.entries(rules)) {
+            this.policyRules.set(capability, rule);
+        }
+        if (readRoots !== undefined) {
+            this.policyReadRoots = [...readRoots];
+        }
+        return this.policyGet();
+    }
+
+    // -- permission approvals (DEC-020 wire behavior) ------------------------
+
+    /** The mock's pending-confirmation snapshot: entries enter through
+     * `demoPermissionRequest` (mock-only demo hook — the real service raises
+     * them from Confirm-rule hits) and leave through permission.respond or
+     * the bounded timeout (fail closed). */
+    permissionList(): PendingPermission[] {
+        this.assertOpen();
+        const pending: PendingPermission[] = [];
+        for (const request of this.pendingApprovals.values()) {
+            pending.push({
+                request_id: request.request_id,
+                capability: request.capability,
+                resource: request.resource,
+                task_id: request.task_id,
+                timeout_ms: Math.max(0, Math.round(request.expires_at - Date.now())),
+            });
+        }
+        return pending;
+    }
+
+    /** DEC-020 respond semantics: first response wins; an unknown, already
+     * decided or expired id surfaces the stable not_found. An approved
+     * request settles the waiting step; denied settles it failed. */
+    permissionRespond(requestId: string, approved: boolean): { request_id: string } {
+        this.assertOpen();
+        const request = this.pendingApprovals.get(requestId);
+        if (request === undefined || Date.now() > request.expires_at) {
+            this.pendingApprovals.delete(requestId);
+            throw new IpcRequestError(
+                'not_found',
+                'unknown or already decided permission request id',
+            );
+        }
+        this.pendingApprovals.delete(requestId);
+        if (request.timer !== null) {
+            clearTimeout(request.timer);
+            request.timer = null;
+        }
+        // DEC-020: the judgment outcome surfaces through task.updated / step
+        // trace on the real service; the mock demo carries only the request
+        // lifecycle itself (pending list in, response out).
+        void approved;
+        return { request_id: requestId };
+    }
+
+    /** Mock-only demo hook (never produced by the real service): raises one
+     * scripted permission request that pauses the current task step until
+     * responded or expired (fail closed). */
+    demoPermissionRequest(capability: string, resource: string): string {
+        this.assertOpen();
+        const request_id = `perm-${String(this.nextPermissionNumber).padStart(4, '0')}`;
+        this.nextPermissionNumber += 1;
+        const expires_at = Date.now() + 60_000;
+        const entry = {
+            request_id,
+            capability,
+            resource,
+            task_id: 'demo',
+            expires_at,
+            timer: null as ReturnType<typeof setTimeout> | null,
+        };
+        this.pendingApprovals.set(request_id, entry);
+        entry.timer = setTimeout(() => {
+            // DEC-020 fail closed: the entry just disappears from the
+            // pending snapshot (an approval after expiry is not_found).
+            this.pendingApprovals.delete(request_id);
+        }, 60_000);
+        this.publishFrame({
+            v: 1,
+            event: 'permission.request',
+            request_id,
+            capability,
+            resource,
+            task_id: 'demo',
+            timeout_ms: 60_000,
+        });
+        return request_id;
+    }
+
     // -- event surface ------------------------------------------------------
 
     subscribe(listener: EventListener): void {
@@ -1470,6 +1629,14 @@ export class MockTransport implements MirageTransport {
         return this.service.hello().chat === true;
     }
 
+    get permissionsSupported(): boolean {
+        return this.service.hello().permissions === true;
+    }
+
+    get policySupported(): boolean {
+        return this.service.hello().policy === true;
+    }
+
     hello(): Promise<ServiceIdentity> {
         return this.call(() => this.service.hello());
     }
@@ -1559,6 +1726,25 @@ export class MockTransport implements MirageTransport {
         limit?: number,
     ): Promise<{ session_id: string; turns: MockChatTurn[]; truncated: boolean }> {
         return this.call(() => this.service.sessionChatHistory(sessionId, limit));
+    }
+
+    permissionList(): Promise<PendingPermission[]> {
+        return this.call(() => this.service.permissionList());
+    }
+
+    permissionRespond(requestId: string, approved: boolean): Promise<{ request_id: string }> {
+        return this.call(() => this.service.permissionRespond(requestId, approved));
+    }
+
+    policyGet(): Promise<PolicyView> {
+        return this.call(() => this.service.policyGet());
+    }
+
+    policySet(
+        rules: Record<string, string>,
+        readRoots?: string[],
+    ): Promise<PolicyView> {
+        return this.call(() => this.service.policySet(rules, readRoots));
     }
 
     sessionHistory(input: SessionHistoryInput): Promise<{

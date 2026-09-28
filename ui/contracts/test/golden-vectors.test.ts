@@ -63,7 +63,7 @@ interface GoldenInspectValue {
 }
 
 type GoldenPayload =
-    | { kind: 'identity'; value: { service: string; mirage_version: string; mira_core_version: string; host_status: HostStatus; protocol: number; events?: boolean; permissions?: boolean; sessions?: boolean; workflows?: boolean; observation?: boolean; chat?: boolean } }
+    | { kind: 'identity'; value: { service: string; mirage_version: string; mira_core_version: string; host_status: HostStatus; protocol: number; events?: boolean; permissions?: boolean; sessions?: boolean; workflows?: boolean; observation?: boolean; chat?: boolean; policy?: boolean } }
     | { kind: 'submitted'; value: { task_id: string; session_id?: string } }
     | { kind: 'list'; value: { tasks: TaskSummary[] } }
     | { kind: 'inspect'; value: GoldenInspectValue }
@@ -71,6 +71,7 @@ type GoldenPayload =
     | { kind: 'shutdown-accepted' }
     | { kind: 'permission-responded'; value: { request_id: string } }
     | { kind: 'permission-list'; value: { pending: PendingPermission[] } }
+    | { kind: 'policy-view'; value: { rules: Record<string, string>; read_roots: string[] } }
     | { kind: 'session-list'; value: { sessions: SessionSummary[] } }
     | { kind: 'session-opened'; value: { session_id: string } }
     | {
@@ -205,6 +206,12 @@ function expectedEnvelop(vector: GoldenResponseVector): ResponseEnvelop {
                     kind: 'session-list',
                     value: { sessions: response.payload.value.sessions },
                 },
+            };
+        case 'policy-view':
+            return {
+                ok: true,
+                id: response.id,
+                payload: { kind: 'policy-view', value: { ...response.payload.value } },
             };
         case 'session-opened':
             return {

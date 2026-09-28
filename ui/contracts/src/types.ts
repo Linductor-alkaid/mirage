@@ -113,6 +113,14 @@ export type RequestBody =
     | { op: 'session.chat'; session_id: string; text: string }
     /** The dialog thread's resync snapshot. */
     | { op: 'session.chat.history'; session_id: string; limit?: number }
+    /** Permission policy face (M5-07, DEC-010/DEC-011): the full DEC-010
+     * rule set plus the persisted read-roots resource scope. */
+    | { op: 'policy.get' }
+    | {
+          op: 'policy.set';
+          rules: Record<string, string>;
+          read_roots?: string[];
+      }
     /** Session management face (DEC-026 backlog item 2): closes the session
      * and removes its registry entry — the pinned close cancels the
      * session's non-terminal tasks. The primary session is refused with the
@@ -168,6 +176,7 @@ export interface ServiceIdentity {
     workflows?: boolean;
     observation?: boolean;
     chat?: boolean;
+    policy?: boolean;
 }
 
 export interface TaskSubmitted {
@@ -211,6 +220,14 @@ export interface InspectTask {
 export interface TaskCancelled {
     task_id: string;
     progress: TaskProgress;
+}
+
+/** The live permission policy as reported by policy.get / policy.set
+ * (M5-07): the full DEC-010 rule set (capability name → "allow" /
+ * "confirm" / "deny") plus the read-roots resource scope. */
+export interface PolicyView {
+    rules: Record<string, string>;
+    read_roots: string[];
 }
 
 /** One pending confirmation as reported by permission.list (DEC-020);
@@ -384,6 +401,7 @@ export type ResponsePayload =
     | { kind: 'shutdown-accepted' }
     | { kind: 'permission-responded'; value: { request_id: string } }
     | { kind: 'permission-list'; value: { pending: PendingPermission[] } }
+    | { kind: 'policy-view'; value: PolicyView }
     | { kind: 'session-list'; value: { sessions: SessionSummary[] } }
     | { kind: 'session-opened'; value: { session_id: string } }
     | { kind: 'session-chat-accepted'; value: { turn_id: string } }

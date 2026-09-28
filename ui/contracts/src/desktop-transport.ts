@@ -25,6 +25,8 @@ import type {
     ExposedTool,
     InspectTask,
     ObservationView,
+    PendingPermission,
+    PolicyView,
     RequestBody,
     ResponsePayload,
     ServiceIdentity,
@@ -141,6 +143,14 @@ export class DesktopBridgeTransport implements MirageTransport {
         return this.identity?.chat === true;
     }
 
+    get permissionsSupported(): boolean {
+        return this.identity?.permissions === true;
+    }
+
+    get policySupported(): boolean {
+        return this.identity?.policy === true;
+    }
+
     onConnectionLost(listener: () => void): void {
         this.lostListeners.add(listener);
     }
@@ -203,6 +213,41 @@ export class DesktopBridgeTransport implements MirageTransport {
         const payload = await this.request({ op: 'session.close', session_id: sessionId });
         return (payload as { kind: 'session-closed'; value: { session_id: string; state: SessionState } })
             .value;
+    }
+
+    async permissionList(): Promise<PendingPermission[]> {
+        const payload = await this.request({ op: 'permission.list' });
+        return (payload as { kind: 'permission-list'; value: { pending: PendingPermission[] } })
+            .value.pending;
+    }
+
+    async permissionRespond(
+        requestId: string,
+        approved: boolean,
+    ): Promise<{ request_id: string }> {
+        const payload = await this.request({
+            op: 'permission.respond',
+            request_id: requestId,
+            approved,
+        });
+        return (payload as { kind: 'permission-responded'; value: { request_id: string } }).value;
+    }
+
+    async policyGet(): Promise<PolicyView> {
+        const payload = await this.request({ op: 'policy.get' });
+        return (payload as { kind: 'policy-view'; value: PolicyView }).value;
+    }
+
+    async policySet(
+        rules: Record<string, string>,
+        readRoots?: string[],
+    ): Promise<PolicyView> {
+        const payload = await this.request({
+            op: 'policy.set',
+            rules,
+            ...(readRoots !== undefined ? { read_roots: readRoots } : {}),
+        });
+        return (payload as { kind: 'policy-view'; value: PolicyView }).value;
     }
 
     async sessionChat(sessionId: string, text: string): Promise<{ turn_id: string }> {

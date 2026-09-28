@@ -30,6 +30,8 @@ import type {
     ExposedTool,
     InspectTask,
     ObservationView,
+    PendingPermission,
+    PolicyView,
     RequestBody,
     ResponsePayload,
     ServiceIdentity,
@@ -134,6 +136,14 @@ export class WsBridgeTransport implements MirageTransport {
         return this.identity?.chat === true;
     }
 
+    get permissionsSupported(): boolean {
+        return this.identity?.permissions === true;
+    }
+
+    get policySupported(): boolean {
+        return this.identity?.policy === true;
+    }
+
     /** Registers a callback fired once per unexpected connection loss after
      * a successful hello (never for close()). Reconnection and resync are
      * UI-layer decisions (M1.5-05). */
@@ -204,6 +214,43 @@ export class WsBridgeTransport implements MirageTransport {
         const payload = await this.request({ op: 'session.close', session_id: sessionId }, 'session-closed');
         return (payload as { kind: 'session-closed'; value: { session_id: string; state: SessionState } })
             .value;
+    }
+
+    async permissionList(): Promise<PendingPermission[]> {
+        const payload = await this.request({ op: 'permission.list' }, 'permission-list');
+        return (payload as { kind: 'permission-list'; value: { pending: PendingPermission[] } })
+            .value.pending;
+    }
+
+    async permissionRespond(
+        requestId: string,
+        approved: boolean,
+    ): Promise<{ request_id: string }> {
+        const payload = await this.request(
+            { op: 'permission.respond', request_id: requestId, approved },
+            'permission-responded',
+        );
+        return (payload as { kind: 'permission-responded'; value: { request_id: string } }).value;
+    }
+
+    async policyGet(): Promise<PolicyView> {
+        const payload = await this.request({ op: 'policy.get' }, 'policy-view');
+        return (payload as { kind: 'policy-view'; value: PolicyView }).value;
+    }
+
+    async policySet(
+        rules: Record<string, string>,
+        readRoots?: string[],
+    ): Promise<PolicyView> {
+        const payload = await this.request(
+            {
+                op: 'policy.set',
+                rules,
+                ...(readRoots !== undefined ? { read_roots: readRoots } : {}),
+            },
+            'policy-view',
+        );
+        return (payload as { kind: 'policy-view'; value: PolicyView }).value;
     }
 
     async sessionChat(sessionId: string, text: string): Promise<{ turn_id: string }> {
