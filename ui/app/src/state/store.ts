@@ -147,6 +147,9 @@ export interface HarnessState {
     /** M5-07 策略面视图（policy.get / policy.set 的事实源）；undefined = 未
      * 读取（连接初期或策略面缺席）。 */
     policy?: PolicyView;
+    /** 会话显示别名（DEC-026 挂账⑤落地：展示层产品状态，localStorage 持
+     * 久化——非服务端条目，wire 无标题成员）。 */
+    sessionAliases: ReadonlyMap<string, string>;
     /** DEC-020 异步确认面能力位（hello `permissions`；hub 已配置时为 true）。 */
     permissionsSupported: boolean;
     /** 每会话在途对话轮 turn id（session.chat 已受理、未结算）。 */
@@ -205,6 +208,9 @@ export interface HarnessActions {
     /** 删除会话（session.close，DEC-026 挂账②兑现）：关闭并移除注册表条目，
      * 关联任务由服务端取消；主会话被服务端以 invalid_state 拒绝。 */
     deleteSession(id: string): void;
+    /** 会话重命名（DEC-026 挂账⑤落地）：展示层别名，localStorage 持久化；
+     * 空名清除别名回落派生标题。 */
+    renameSession(id: string, title: string): void;
     setDraft(sessionId: string, text: string): void;
     /** 执行模式提交（task.submit 会话绑定事实流）。 */
     submitExec(sessionId: string, goal: string, steps: SubmitStepInput[], timeoutMs?: number): Promise<void>;
@@ -246,6 +252,34 @@ export interface HarnessActions {
 type Listener = () => void;
 
 const now = (): number => Date.now();
+
+const SESSION_ALIASES_KEY = 'mirage.session-aliases';
+
+/** 会话别名持久化（DEC-026 挂账⑤：展示层产品状态，localStorage 承载——
+ * 跨刷新存活；wire 无标题成员，不进任何契约面）。 */
+function loadSessionAliases(): Map<string, string> {
+    const out = new Map<string, string>();
+    try {
+        const raw = window.localStorage.getItem(SESSION_ALIASES_KEY);
+        if (raw !== null) {
+            for (const [key, value] of Object.entries(JSON.parse(raw) as Record<string, string>)) {
+                out.set(key, value);
+            }
+        }
+    } catch {
+        // 损坏的本地状态按空别名继续（展示层事实，可重建）。
+    }
+    return out;
+}
+
+function saveSessionAliases(map: ReadonlyMap<string, string>): void {
+    try {
+        window.localStorage.setItem(SESSION_ALIASES_KEY, JSON.stringify(Object.fromEntries(map)));
+    } catch {
+        // 存储配额/隐私模式：别名退化为会话内状态，不影响契约事实。
+    }
+}
+
 
 /** 降级轮询周期（事件能力不可用时以 task.inspect 刷新活动任务）。 */
 const POLL_INTERVAL_MS = 2000;
@@ -344,6 +378,7 @@ export class HarnessStore {
             policySupported: transport.policySupported,
             permissionsSupported: transport.permissionsSupported,
             pendingApprovals: [],
+            sessionAliases: loadSessionAliases(),
             pendingChats: new Map(),
             route: parseRoute(window.location.hash),
             sessions: [],
@@ -743,11 +778,12 @@ export class HarnessStore {
                 const prev = this.state.sessions.find((s) => s.id === summary.id);
                 const list = this.state.messages.get(summary.id) ?? [];
                 const firstUser = list.find((m): m is Extract<ChatMessage, { kind: 'user' }> => m.kind === 'user');
+                const alias = this.state.sessionAliases.get(summary.id);
                 return {
                     id: summary.id,
                     state: summary.state,
                     createdAt: summary.created_at_ms,
-                    title: prev?.title ?? deriveSessionTitle(summary.id, firstUser?.text),
+                    title: alias ?? prev?.title ?? deriveSessionTitle(summary.id, firstUser?.text),
                     lastActivityAt: prev?.lastActivityAt ?? summary.created_at_ms,
                     taskId: prev?.taskId,
                 };
@@ -845,6 +881,25 @@ export class HarnessStore {
                           : String(err);
                 this.toast(message, 'error');
             });
+    };
+
+    renameSession: HarnessActions['renameSession'] = (id, title) => {
+        const trimmed = title.trim();
+        const aliases = new Map(this.state.sessionAliases);
+        if (trimmed.length === 0) {
+            aliases.delete(id);
+        } else {
+            aliases.set(id, trimmed);
+        }
+        saveSessionAliases(aliases);
+        this.set({
+            sessionAliases: aliases,
+            sessions: this.state.sessions.map((s) =>
+                s.id === id
+                    ? { ...s, title: trimmed.length > 0 ? trimmed : deriveSessionTitle(id, undefined) }
+                    : s,
+            ),
+        });
     };
 
     selectSession: HarnessActions['selectSession'] = (id) => {
@@ -1635,6 +1690,7 @@ export class HarnessStore {
             newSession: this.newSession,
             selectSession: this.selectSession,
             deleteSession: (id) => this.deleteSession(id),
+            renameSession: (id, title) => this.renameSession(id, title),
             setDraft: this.setDraft,
             submitExec: this.submitExec,
             sendDialog: (sessionId, text) => this.sendDialog(sessionId, text),
