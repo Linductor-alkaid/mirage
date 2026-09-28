@@ -119,12 +119,17 @@ struct SessionRegistry {
 /// the service saved or published, with the head version's content digest
 /// and validation. The pinned library stays the execution-side authority;
 /// this is the product index (the pinned library has no enumeration API).
+/// `definition_json` (DEC-026) retains the head definition content the
+/// service passed through — the pinned library keeps version records only
+/// (no definition-body read API, W-03), so workflow.get projects the head
+/// content from here.
 struct WorkflowCatalogEntry {
     std::string name;
     std::string head_digest;
     std::string validation;
     bool runnable = false;
     std::int64_t updated_at_ms = 0;
+    std::string definition_json;
 };
 
 /// Workflow catalog registry (DEC-023): every workflow the service knows,

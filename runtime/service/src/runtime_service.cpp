@@ -1,5 +1,6 @@
 #include <mirage/runtime/runtime_service.hpp>
 
+#include <mirage/desktop/observation_assembler.hpp>
 #include <mirage/integration/session_journal.hpp>
 #include <mirage/runtime/ipc/endpoint.hpp>
 #include <mirage/runtime/ipc/framing.hpp>
@@ -108,6 +109,7 @@ struct RuntimeService::Impl {
         core->max_result_bytes = config.max_result_bytes;
         core->step_timeout = config.step_timeout;
         core->command_wait = config.command_wait;
+        core->visual_registry = config.visual_registry;
         {
             std::lock_guard lock(core->registry.mutex);
             core->registry.capacity = config.max_task_records;
@@ -201,6 +203,9 @@ struct RuntimeService::Impl {
         // DEC-023: the workflow faces are always served; the bridge is
         // constructed with the service and the surface attaches at start().
         result.workflows = true;
+        // DEC-026: the observation face is always served; a request before
+        // an environment is bound fails closed with `unavailable`.
+        result.observation = true;
         return result;
     }
 
@@ -370,6 +375,14 @@ struct RuntimeService::Impl {
         }
         if (auto *request = std::get_if<ipc::WorkflowCancelRunRequest>(&decoded.body)) {
             handle_workflow_cancel(connection_id, correlation_id, std::move(request->run_id));
+            return;
+        }
+        if (auto *request = std::get_if<ipc::WorkflowGetRequest>(&decoded.body)) {
+            handle_workflow_get(connection_id, correlation_id, std::move(request->workflow_id));
+            return;
+        }
+        if (auto *request = std::get_if<ipc::DesktopObserveRequest>(&decoded.body)) {
+            handle_desktop_observe(connection_id, correlation_id, *request);
             return;
         }
         fail(connection_id, correlation_id, "unsupported", "unknown request");
@@ -865,6 +878,10 @@ struct RuntimeService::Impl {
             entry.validation = "not_validated";
             entry.runnable = false;
             entry.updated_at_ms = wall_now_ms();
+            // DEC-026: the head definition content rides the product index
+            // (the pinned library keeps version records only), so
+            // workflow.get can serve the cross-session editing face.
+            entry.definition_json = request.definition_json;
             core->workflows.workflows[saved.workflow_id] = std::move(entry);
         }
         respond(connection_id, correlation_id, ipc::WorkflowSaved{saved.workflow_id, saved.digest});
@@ -901,6 +918,9 @@ struct RuntimeService::Impl {
             entry.validation = "dry_run_passed";
             entry.runnable = true;
             entry.updated_at_ms = wall_now_ms();
+            // DEC-026: head definition content for workflow.get (see
+            // handle_workflow_save).
+            entry.definition_json = request.definition_json;
             core->workflows.workflows[published.workflow_id] = std::move(entry);
         }
         ipc::WorkflowPublished payload;
@@ -1037,6 +1057,170 @@ struct RuntimeService::Impl {
         payload.run_id = std::move(run_id);
         payload.state = cancelled.state;
         respond(connection_id, correlation_id, std::move(payload));
+    }
+
+    /// Serial thread: the definition read face (DEC-026, DEC-023 backlog
+    /// item 1) — the head definition content the service last saved or
+    /// published for the workflow, projected from the product catalog. The
+    /// pinned library keeps version records only (W-03 content addressing,
+    /// no body read API), so the catalog content is the only honest read
+    /// source; an unknown id is the same stable not_found as workflow.run.
+    void handle_workflow_get(std::uint64_t connection_id, std::uint64_t correlation_id,
+                             std::string workflow_id) {
+        WorkflowCatalogEntry entry;
+        {
+            std::lock_guard lock(core->workflows.mutex);
+            const auto found = core->workflows.workflows.find(workflow_id);
+            if (found == core->workflows.workflows.end()) {
+                fail(connection_id, correlation_id, "not_found", "unknown workflow id");
+                return;
+            }
+            entry = found->second;
+        }
+        ipc::WorkflowDefinitionView view;
+        view.workflow_id = std::move(workflow_id);
+        view.digest = std::move(entry.head_digest);
+        view.definition_json = std::move(entry.definition_json);
+        respond(connection_id, correlation_id, std::move(view));
+    }
+
+    /// Serial thread: one on-demand desktop observation (DEC-026, M5-06) —
+    /// the assembler's projection enters the UI observation face, visual
+    /// generation included when one is published and the request asks for
+    /// it. Requested components are mandatory (the assembler's fail-closed
+    /// discipline): a component the environment cannot deliver fails the
+    /// request with the stable `unavailable` error naming the component,
+    /// and the client re-asks without it. The capture is bounded by the
+    /// providers' own budgets; there is no event form (DEC-026: the M1
+    /// driver form has no observation producer to stream from).
+    void handle_desktop_observe(std::uint64_t connection_id, std::uint64_t correlation_id,
+                                const ipc::DesktopObserveRequest &request) {
+        if (!core->environment) {
+            fail(connection_id, correlation_id, "unavailable", "no desktop environment bound");
+            return;
+        }
+        mirage::desktop::ObservationComponents components;
+        components.active_window = true;
+        components.pointer_state = true;
+        components.environment_state = true;
+        components.semantic_snapshot = request.semantic;
+        components.visual_snapshot = request.visual;
+        mirage::desktop::ObservationAssembler assembler(*core->environment, core->visual_registry);
+        const mirage::desktop::ObservationAssemblyLimits limits;
+        const auto outcome = assembler.assemble(components, limits, mirage::desktop::CancelToken{});
+        if (outcome.cancelled) {
+            // No cancellation path feeds this capture today; the stable
+            // shape stays explicit instead of pretending success.
+            fail(connection_id, correlation_id, "unavailable", "observation was cancelled");
+            return;
+        }
+        if (!outcome.ok) {
+            const mirage::desktop::ObservationComponentResult *failed = nullptr;
+            if (outcome.semantic_snapshot.requested && !outcome.semantic_snapshot.captured) {
+                failed = &outcome.semantic_snapshot;
+            } else if (outcome.visual_snapshot.requested && !outcome.visual_snapshot.captured) {
+                failed = &outcome.visual_snapshot;
+            } else if (outcome.active_window.requested && !outcome.active_window.captured) {
+                failed = &outcome.active_window;
+            } else if (outcome.pointer_state.requested && !outcome.pointer_state.captured) {
+                failed = &outcome.pointer_state;
+            } else if (outcome.environment_state.requested && !outcome.environment_state.captured) {
+                failed = &outcome.environment_state;
+            }
+            std::string detail = "observation unavailable";
+            if (failed != nullptr && !failed->error.code.empty()) {
+                detail += ": " + failed->error.code;
+                if (!failed->error.message.empty()) {
+                    detail += ": " + failed->error.message;
+                }
+            }
+            fail(connection_id, correlation_id, "unavailable", std::move(detail));
+            return;
+        }
+        respond(connection_id, correlation_id, project_observation(outcome.observation, request));
+    }
+
+    /// Projects a captured DesktopObservation onto the wire view (DEC-026).
+    /// The semantic component is capped at the wire node budget with the
+    /// explicit `truncated` mark — the service-side snapshot stays whole
+    /// (assembler budget), the wire view is bounded (RULE-07). Producer
+    /// confidence stays off the wire: no UI consumer today (DEC-023
+    /// add-what-is-consumed discipline).
+    static ipc::ObservationView
+    project_observation(const mirage::desktop::DesktopObservation &source,
+                        const ipc::DesktopObserveRequest &request) {
+        ipc::ObservationView view;
+        view.active_application = source.active_application;
+        view.active_window = source.active_window;
+        view.window_geometry = {source.window_geometry.x, source.window_geometry.y,
+                                source.window_geometry.width, source.window_geometry.height};
+        view.window_focused = source.window_focused;
+        view.focused_element = source.focused_element;
+        view.pointer_x = source.pointer_state.x;
+        view.pointer_y = source.pointer_state.y;
+        view.environment_state = source.environment_state;
+        if (request.semantic) {
+            ipc::ObservationSemantic semantic;
+            semantic.application = source.semantic_snapshot.application;
+            semantic.window_title = source.semantic_snapshot.window_title;
+            const auto &nodes = source.semantic_snapshot.nodes;
+            const auto budget =
+                std::min<std::size_t>(nodes.size(), ipc::kObservationNodeWireBudget);
+            semantic.nodes.reserve(budget);
+            for (std::size_t index = 0; index < budget; ++index) {
+                const auto &node = nodes[index];
+                ipc::ObservationNode projected;
+                projected.ref = node.ref;
+                projected.role = node.role;
+                projected.name = node.name;
+                projected.description = node.description;
+                projected.parent = node.parent == mirage::desktop::kNoParent
+                                       ? -1
+                                       : static_cast<std::int64_t>(node.parent);
+                projected.geometry = {node.geometry.x, node.geometry.y, node.geometry.width,
+                                      node.geometry.height};
+                projected.focused = node.focused;
+                projected.enabled = node.enabled;
+                semantic.nodes.push_back(std::move(projected));
+            }
+            semantic.truncated = nodes.size() > budget;
+            view.semantic = std::move(semantic);
+        }
+        if (request.visual) {
+            // The pair is set together or not at all: an empty scope ref
+            // means no generation was captured, which the assembler already
+            // reports as a failed component above.
+            if (!source.visual_snapshot.scope_ref.empty()) {
+                view.visual_snapshot_ref = source.visual_snapshot.scope_ref;
+                std::vector<ipc::ObservationRegion> regions;
+                regions.reserve(source.visual_snapshot.regions.size());
+                for (const auto &region : source.visual_snapshot.regions) {
+                    ipc::ObservationRegion projected;
+                    projected.ref = region.ref;
+                    switch (region.source) {
+                    case mirage::desktop::VisualRegionSource::kOcr:
+                        projected.source = "ocr";
+                        break;
+                    case mirage::desktop::VisualRegionSource::kDetector:
+                        projected.source = "detector";
+                        break;
+                    case mirage::desktop::VisualRegionSource::kTemplate:
+                        projected.source = "template";
+                        break;
+                    case mirage::desktop::VisualRegionSource::kGeometry:
+                        projected.source = "geometry";
+                        break;
+                    }
+                    projected.geometry = {region.bounds.x, region.bounds.y, region.bounds.width,
+                                          region.bounds.height};
+                    projected.text = region.text;
+                    projected.template_id = region.template_id;
+                    regions.push_back(std::move(projected));
+                }
+                view.visual_regions = std::move(regions);
+            }
+        }
+        return view;
     }
 
     /// Serial thread: true when at least one run of the workflow sits in a

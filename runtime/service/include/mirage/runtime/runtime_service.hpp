@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 
+#include <mirage/desktop/visual_reference_registry.hpp>
 #include <mirage/integration/mira_adapter.hpp>
 #include <mirage/runtime/ipc/protocol.hpp>
 #include <mirage/runtime/mira_host.hpp>
@@ -98,6 +99,13 @@ struct ServiceConfig {
     /// DEC-011, file name "task-recovery.json"). Empty selects the
     /// persistence module's default state directory.
     std::filesystem::path recovery_directory;
+    /// Visual reference registry the desktop.observe face projects the
+    /// visual generation from (DEC-026, M5-06). Non-owning; must outlive
+    /// every run() of this service. Null keeps the visual component dark:
+    /// a desktop.observe request asking for it fails closed with the stable
+    /// `unavailable` error (DEC-016 decision 2 — the surface is never
+    /// claimed that is not wired).
+    mirage::desktop::VisualReferenceRegistry *visual_registry = nullptr;
     /// Persist terminal task records across service restarts (M1-07). The
     /// file is written on every task settlement and at the end of the
     /// ordered teardown, and terminal records are hydrated back into the

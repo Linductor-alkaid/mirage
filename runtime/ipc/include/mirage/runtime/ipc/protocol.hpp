@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -12,6 +13,14 @@ namespace mirage::runtime::ipc {
 /// Wire protocol version (DEC-007). Requests and responses both carry it;
 /// a mismatch is a protocol error, never a best-effort decode.
 inline constexpr int kProtocolVersion = 1;
+
+/// Wire projection budget for one observation semantic snapshot (DEC-026,
+/// RULE-07): the desktop.observe response stays well inside the 1 MiB frame
+/// cap even alongside a full visual generation, so the service projects at
+/// most this many semantic nodes and marks the remainder through
+/// ObservationSemantic::truncated. The service-side snapshot keeps the
+/// assembler's own capture budget; this bounds only the wire view.
+inline constexpr std::size_t kObservationNodeWireBudget = 1024;
 
 // ---------------------------------------------------------------------------
 // Requests
@@ -178,12 +187,43 @@ struct WorkflowCancelRunRequest {
     std::string run_id;
 };
 
+/// Reads one catalog workflow's head definition (DEC-026, M5-06; DEC-023
+/// backlog item 1): the serialized IR v1 JSON the service last saved or
+/// published for the workflow. The pinned library keeps no definition-body
+/// read API (append-only version records, W-03), so the service-side product
+/// registry retains the head content it passed through — the same product
+/// index that projects workflow.list. Unknown ids are a stable not_found.
+struct WorkflowGetRequest {
+    std::string workflow_id;
+};
+
+/// Assembles one on-demand desktop observation (DEC-026, M5-06; design doc
+/// section 6): the observation projection enters the UI observation face,
+/// including the semantic snapshot and the published visual generation
+/// (`visual_snapshot_ref` + regions — the M3 non-goal "visual references
+/// enter the UI observation face"). Components follow the assembler's
+/// requested-means-mandatory discipline: the frame members are always
+/// captured, `semantic` defaults on, the visual component is opt-in and
+/// fails closed with the stable `unavailable` error when no visual
+/// generation is available. There is no event form: the M1 driver form has
+/// no observation producer, so a subscription stream would have nothing
+/// honest to stream (DEC-026).
+struct DesktopObserveRequest {
+    /// Capture the focused window's accessibility snapshot (default true).
+    bool semantic = true;
+    /// Project the current visual generation from the bound visual registry
+    /// (default false; DEC-016 decision 2 — the visual surface stays dark
+    /// unless asked for).
+    bool visual = false;
+};
+
 using Request = std::variant<
     HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest, CancelTaskRequest,
     ShutdownRequest, SubscribeEventsRequest, UnsubscribeEventsRequest, RespondPermissionRequest,
     ListPermissionsRequest, ListSessionsRequest, OpenSessionRequest, SessionHistoryRequest,
     WorkflowListRequest, WorkflowSaveRequest, WorkflowPublishRequest, WorkflowDeleteRequest,
-    WorkflowAtomCatalogRequest, WorkflowRunsRequest, WorkflowRunRequest, WorkflowCancelRunRequest>;
+    WorkflowAtomCatalogRequest, WorkflowRunsRequest, WorkflowRunRequest, WorkflowCancelRunRequest,
+    WorkflowGetRequest, DesktopObserveRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -211,6 +251,9 @@ struct ServiceIdentity {
     /// DEC-023 workflow-face advertisement: the `workflow.*` request face is
     /// served. Same optional-encodes-when-set discipline as `events`.
     std::optional<bool> workflows;
+    /// DEC-026 observation-face advertisement: the `desktop.observe` request
+    /// face is served. Same optional-encodes-when-set discipline as `events`.
+    std::optional<bool> observation;
 };
 
 struct TaskSubmitted {
@@ -439,12 +482,96 @@ struct WorkflowRunCancelled {
     std::string state;
 };
 
+/// One workflow's head definition as reported by workflow.get (DEC-026):
+/// `definition_json` is the canonical serialization of the IR v1 JSON object
+/// the service last saved or published for the workflow, `digest` the head
+/// content digest it is addressable by (W-03). Editors rebuild their working
+/// copy from it — the cross-session editing face DEC-023 deferred to the
+/// definition read face.
+struct WorkflowDefinitionView {
+    std::string workflow_id;
+    std::string digest;
+    std::string definition_json;
+};
+
+/// Rectangle in global desktop coordinates as carried by the observation
+/// projection (DEC-026): the desktop layer's WindowGeometry rendered as a
+/// plain wire object, keeping the ipc layer free of desktop types.
+struct ObservationGeometry {
+    std::int32_t x = 0;
+    std::int32_t y = 0;
+    std::int32_t width = 0;
+    std::int32_t height = 0;
+};
+
+/// One node of the observation projection's semantic snapshot (DEC-026):
+/// the desktop SemanticSnapshot node flattened for the wire. `parent` is
+/// the node's index into the projected `nodes` array, -1 at roots (the
+/// desktop layer's kNoParent sentinel has no wire form). Producer-side
+/// confidence-like scoring fields stay off the wire (no UI consumer — the
+/// DEC-023 add-what-is-consumed discipline).
+struct ObservationNode {
+    std::string ref; ///< "@e5"; stable within one snapshot only
+    std::string role;
+    std::string name;
+    std::string description;
+    std::int64_t parent = -1;
+    ObservationGeometry geometry;
+    bool focused = false;
+    bool enabled = true;
+};
+
+/// The semantic component of the observation projection (DEC-026): the
+/// captured SemanticSnapshot. `truncated` marks that more nodes exist in
+/// the service-side snapshot than the wire projection budget carried —
+/// incompleteness is explicit, never silent.
+struct ObservationSemantic {
+    std::string application;
+    std::string window_title;
+    std::vector<ObservationNode> nodes;
+    bool truncated = false;
+};
+
+/// One visual object of the observation projection (DEC-026): a region of
+/// the published visual generation. `source` is the closed provenance
+/// vocabulary ("ocr" / "detector" / "template" / "geometry"); `ref` is the
+/// executable "@vN" handle the visual reference registry issued.
+struct ObservationRegion {
+    std::string ref;
+    std::string source;
+    ObservationGeometry geometry;
+    std::string text;
+    std::string template_id;
+};
+
+/// One on-demand observation as reported by desktop.observe (DEC-026). The
+/// frame members are always present; `semantic` is encode-when-set (the
+/// component was requested and captured); `visual_snapshot_ref` and
+/// `visual_regions` are an encode-when-set pair (the visual component was
+/// requested and a generation was projected), the `visual_snapshot_ref`
+/// scope handle being the M3 non-goal's "visual references enter the UI
+/// observation face" carrier. Snapshots are the only truth — the response
+/// is a point-in-time capture, not a subscription.
+struct ObservationView {
+    std::string active_application;
+    std::string active_window;
+    ObservationGeometry window_geometry;
+    bool window_focused = false;
+    std::string focused_element;
+    std::int32_t pointer_x = 0;
+    std::int32_t pointer_y = 0;
+    std::string environment_state;
+    std::optional<ObservationSemantic> semantic;
+    std::optional<std::string> visual_snapshot_ref;
+    std::optional<std::vector<ObservationRegion>> visual_regions;
+};
+
 using ResponsePayload =
     std::variant<ServiceIdentity, TaskSubmitted, TaskList, InspectTask, TaskCancelled,
                  ShutdownAccepted, PermissionResponded, PermissionPendingList, SessionList,
                  SessionOpened, SessionHistory, WorkflowList, WorkflowSaved, WorkflowPublished,
                  WorkflowDeleted, WorkflowAtomCatalog, WorkflowRunList, WorkflowRunStarted,
-                 WorkflowRunCancelled>;
+                 WorkflowRunCancelled, WorkflowDefinitionView, ObservationView>;
 
 /// Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc
 /// domain ("protocol_error", "unsupported", "invalid_argument", "not_found",

@@ -416,6 +416,26 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
     if (op == "workflow.cancel") {
         return ipc::WorkflowCancelRunRequest{vector_string(body, "run_id")};
     }
+    if (op == "workflow.get") {
+        return ipc::WorkflowGetRequest{vector_string(body, "workflow_id")};
+    }
+    if (op == "desktop.observe") {
+        ipc::DesktopObserveRequest observe;
+        // The encoder always writes both flags; absent members on a vector
+        // would mean the defaults, but the pinned canonical form carries
+        // them explicitly.
+        if (const auto *semantic = body.find("semantic"); semantic != nullptr) {
+            const auto flag = semantic->as_boolean();
+            MIRAGE_CHECK(flag.has_value());
+            observe.semantic = flag.value_or(true);
+        }
+        if (const auto *visual = body.find("visual"); visual != nullptr) {
+            const auto flag = visual->as_boolean();
+            MIRAGE_CHECK(flag.has_value());
+            observe.visual = flag.value_or(false);
+        }
+        return observe;
+    }
     if (op == "session.history") {
         ipc::SessionHistoryRequest history;
         history.session_id = vector_string(body, "session_id");
@@ -552,6 +572,14 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
             } else if constexpr (std::is_same_v<T, ipc::WorkflowCancelRunRequest>) {
                 const auto &cancel = std::get<ipc::WorkflowCancelRunRequest>(actual);
                 check_string_equal(name, "run_id", cancel.run_id, expected_value.run_id);
+            } else if constexpr (std::is_same_v<T, ipc::WorkflowGetRequest>) {
+                const auto &get = std::get<ipc::WorkflowGetRequest>(actual);
+                check_string_equal(name, "workflow_id", get.workflow_id,
+                                   expected_value.workflow_id);
+            } else if constexpr (std::is_same_v<T, ipc::DesktopObserveRequest>) {
+                const auto &observe = std::get<ipc::DesktopObserveRequest>(actual);
+                MIRAGE_CHECK(observe.semantic == expected_value.semantic);
+                MIRAGE_CHECK(observe.visual == expected_value.visual);
             }
         },
         expected);
@@ -607,6 +635,12 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
             const auto flag = workflows->as_boolean();
             MIRAGE_CHECK(flag.has_value());
             identity.workflows = flag;
+        }
+        // DEC-026 observation-face capability member: same optional discipline.
+        if (const auto *observation = value.find("observation"); observation != nullptr) {
+            const auto flag = observation->as_boolean();
+            MIRAGE_CHECK(flag.has_value());
+            identity.observation = flag;
         }
         response.payload = std::move(identity);
     } else if (kind == "submitted") {
@@ -767,6 +801,78 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
     } else if (kind == "workflow-run-cancelled") {
         response.payload = ipc::WorkflowRunCancelled{vector_string(value, "run_id"),
                                                      vector_string(value, "state")};
+    } else if (kind == "workflow-get") {
+        ipc::WorkflowDefinitionView view;
+        view.workflow_id = vector_string(value, "workflow_id");
+        view.digest = vector_string(value, "digest");
+        view.definition_json = mira::to_json_string(vector_member(value, "definition"));
+        response.payload = std::move(view);
+    } else if (kind == "observation-view") {
+        ipc::ObservationView view;
+        view.active_application = vector_string(value, "active_application");
+        view.active_window = vector_string(value, "active_window");
+        const auto &geometry = vector_member(value, "window_geometry");
+        view.window_geometry = {static_cast<std::int32_t>(vector_integer(geometry, "x")),
+                                static_cast<std::int32_t>(vector_integer(geometry, "y")),
+                                static_cast<std::int32_t>(vector_integer(geometry, "width")),
+                                static_cast<std::int32_t>(vector_integer(geometry, "height"))};
+        view.window_focused = vector_boolean(value, "window_focused");
+        view.focused_element = vector_string(value, "focused_element");
+        view.pointer_x = static_cast<std::int32_t>(vector_integer(value, "pointer_x"));
+        view.pointer_y = static_cast<std::int32_t>(vector_integer(value, "pointer_y"));
+        view.environment_state = vector_string(value, "environment_state");
+        if (const auto *semantic = value.find("semantic"); semantic != nullptr) {
+            ipc::ObservationSemantic projection;
+            projection.application = vector_string(*semantic, "application");
+            projection.window_title = vector_string(*semantic, "window_title");
+            projection.truncated = vector_boolean(*semantic, "truncated");
+            const auto *nodes = vector_member(*semantic, "nodes").as_array();
+            MIRAGE_CHECK(nodes != nullptr);
+            if (nodes != nullptr) {
+                for (const auto &entry : *nodes) {
+                    ipc::ObservationNode node;
+                    node.ref = vector_string(entry, "ref");
+                    node.role = vector_string(entry, "role");
+                    node.name = vector_string(entry, "name");
+                    node.description = vector_string(entry, "description");
+                    node.parent = vector_integer(entry, "parent");
+                    const auto &node_geometry = vector_member(entry, "geometry");
+                    node.geometry = {
+                        static_cast<std::int32_t>(vector_integer(node_geometry, "x")),
+                        static_cast<std::int32_t>(vector_integer(node_geometry, "y")),
+                        static_cast<std::int32_t>(vector_integer(node_geometry, "width")),
+                        static_cast<std::int32_t>(vector_integer(node_geometry, "height"))};
+                    node.focused = vector_boolean(entry, "focused");
+                    node.enabled = vector_boolean(entry, "enabled");
+                    projection.nodes.push_back(std::move(node));
+                }
+            }
+            view.semantic = std::move(projection);
+        }
+        if (const auto *visual_ref = value.find("visual_snapshot_ref"); visual_ref != nullptr) {
+            view.visual_snapshot_ref = vector_string(value, "visual_snapshot_ref");
+            std::vector<ipc::ObservationRegion> regions;
+            const auto *entries = vector_member(value, "visual_regions").as_array();
+            MIRAGE_CHECK(entries != nullptr);
+            if (entries != nullptr) {
+                for (const auto &entry : *entries) {
+                    ipc::ObservationRegion region;
+                    region.ref = vector_string(entry, "ref");
+                    region.source = vector_string(entry, "source");
+                    const auto &region_geometry = vector_member(entry, "geometry");
+                    region.geometry = {
+                        static_cast<std::int32_t>(vector_integer(region_geometry, "x")),
+                        static_cast<std::int32_t>(vector_integer(region_geometry, "y")),
+                        static_cast<std::int32_t>(vector_integer(region_geometry, "width")),
+                        static_cast<std::int32_t>(vector_integer(region_geometry, "height"))};
+                    region.text = vector_string(entry, "text");
+                    region.template_id = vector_string(entry, "template_id");
+                    regions.push_back(std::move(region));
+                }
+            }
+            view.visual_regions = std::move(regions);
+        }
+        response.payload = std::move(view);
     } else if (kind == "session-history") {
         ipc::SessionHistory history;
         history.session_id = vector_string(value, "session_id");
@@ -840,6 +946,12 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                              expected_value.workflows.has_value());
                 if (actual_value.workflows.has_value() && expected_value.workflows.has_value()) {
                     MIRAGE_CHECK(*actual_value.workflows == *expected_value.workflows);
+                }
+                MIRAGE_CHECK(actual_value.observation.has_value() ==
+                             expected_value.observation.has_value());
+                if (actual_value.observation.has_value() &&
+                    expected_value.observation.has_value()) {
+                    MIRAGE_CHECK(*actual_value.observation == *expected_value.observation);
                 }
             } else if constexpr (std::is_same_v<T, ipc::TaskSubmitted>) {
                 check_string_equal(name, "task_id", actual_value.task_id, expected_value.task_id);
@@ -1002,6 +1114,95 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
             } else if constexpr (std::is_same_v<T, ipc::WorkflowRunCancelled>) {
                 check_string_equal(name, "run_id", actual_value.run_id, expected_value.run_id);
                 check_string_equal(name, "state", actual_value.state, expected_value.state);
+            } else if constexpr (std::is_same_v<T, ipc::WorkflowDefinitionView>) {
+                check_string_equal(name, "workflow_id", actual_value.workflow_id,
+                                   expected_value.workflow_id);
+                check_string_equal(name, "digest", actual_value.digest, expected_value.digest);
+                check_string_equal(name, "definition_json", actual_value.definition_json,
+                                   expected_value.definition_json);
+            } else if constexpr (std::is_same_v<T, ipc::ObservationView>) {
+                check_string_equal(name, "active_application", actual_value.active_application,
+                                   expected_value.active_application);
+                check_string_equal(name, "active_window", actual_value.active_window,
+                                   expected_value.active_window);
+                MIRAGE_CHECK(actual_value.window_geometry.x == expected_value.window_geometry.x);
+                MIRAGE_CHECK(actual_value.window_geometry.y == expected_value.window_geometry.y);
+                MIRAGE_CHECK(actual_value.window_geometry.width ==
+                             expected_value.window_geometry.width);
+                MIRAGE_CHECK(actual_value.window_geometry.height ==
+                             expected_value.window_geometry.height);
+                MIRAGE_CHECK(actual_value.window_focused == expected_value.window_focused);
+                check_string_equal(name, "focused_element", actual_value.focused_element,
+                                   expected_value.focused_element);
+                MIRAGE_CHECK(actual_value.pointer_x == expected_value.pointer_x);
+                MIRAGE_CHECK(actual_value.pointer_y == expected_value.pointer_y);
+                check_string_equal(name, "environment_state", actual_value.environment_state,
+                                   expected_value.environment_state);
+                MIRAGE_CHECK(actual_value.semantic.has_value() ==
+                             expected_value.semantic.has_value());
+                if (actual_value.semantic.has_value() && expected_value.semantic.has_value()) {
+                    const auto &actual_semantic = *actual_value.semantic;
+                    const auto &wanted_semantic = *expected_value.semantic;
+                    check_string_equal(name, "semantic application", actual_semantic.application,
+                                       wanted_semantic.application);
+                    check_string_equal(name, "semantic window_title", actual_semantic.window_title,
+                                       wanted_semantic.window_title);
+                    MIRAGE_CHECK(actual_semantic.truncated == wanted_semantic.truncated);
+                    MIRAGE_CHECK(actual_semantic.nodes.size() == wanted_semantic.nodes.size());
+                    const std::size_t node_count =
+                        std::min(actual_semantic.nodes.size(), wanted_semantic.nodes.size());
+                    for (std::size_t index = 0; index < node_count; ++index) {
+                        const auto &actual_node = actual_semantic.nodes[index];
+                        const auto &wanted_node = wanted_semantic.nodes[index];
+                        check_string_equal(name, "node ref", actual_node.ref, wanted_node.ref);
+                        check_string_equal(name, "node role", actual_node.role, wanted_node.role);
+                        check_string_equal(name, "node name", actual_node.name, wanted_node.name);
+                        check_string_equal(name, "node description", actual_node.description,
+                                           wanted_node.description);
+                        MIRAGE_CHECK(actual_node.parent == wanted_node.parent);
+                        MIRAGE_CHECK(actual_node.geometry.x == wanted_node.geometry.x);
+                        MIRAGE_CHECK(actual_node.geometry.y == wanted_node.geometry.y);
+                        MIRAGE_CHECK(actual_node.geometry.width == wanted_node.geometry.width);
+                        MIRAGE_CHECK(actual_node.geometry.height == wanted_node.geometry.height);
+                        MIRAGE_CHECK(actual_node.focused == wanted_node.focused);
+                        MIRAGE_CHECK(actual_node.enabled == wanted_node.enabled);
+                    }
+                }
+                MIRAGE_CHECK(actual_value.visual_snapshot_ref.has_value() ==
+                             expected_value.visual_snapshot_ref.has_value());
+                MIRAGE_CHECK(actual_value.visual_regions.has_value() ==
+                             expected_value.visual_regions.has_value());
+                if (actual_value.visual_snapshot_ref.has_value() &&
+                    expected_value.visual_snapshot_ref.has_value()) {
+                    check_string_equal(name, "visual_snapshot_ref",
+                                       *actual_value.visual_snapshot_ref,
+                                       *expected_value.visual_snapshot_ref);
+                }
+                if (actual_value.visual_regions.has_value() &&
+                    expected_value.visual_regions.has_value()) {
+                    const auto &actual_regions = *actual_value.visual_regions;
+                    const auto &wanted_regions = *expected_value.visual_regions;
+                    MIRAGE_CHECK(actual_regions.size() == wanted_regions.size());
+                    const std::size_t region_count =
+                        std::min(actual_regions.size(), wanted_regions.size());
+                    for (std::size_t index = 0; index < region_count; ++index) {
+                        const auto &actual_region = actual_regions[index];
+                        const auto &wanted_region = wanted_regions[index];
+                        check_string_equal(name, "region ref", actual_region.ref,
+                                           wanted_region.ref);
+                        check_string_equal(name, "region source", actual_region.source,
+                                           wanted_region.source);
+                        MIRAGE_CHECK(actual_region.geometry.x == wanted_region.geometry.x);
+                        MIRAGE_CHECK(actual_region.geometry.y == wanted_region.geometry.y);
+                        MIRAGE_CHECK(actual_region.geometry.width == wanted_region.geometry.width);
+                        MIRAGE_CHECK(actual_region.geometry.height ==
+                                     wanted_region.geometry.height);
+                        check_string_equal(name, "region text", actual_region.text,
+                                           wanted_region.text);
+                        check_string_equal(name, "region template_id", actual_region.template_id,
+                                           wanted_region.template_id);
+                    }
+                }
             }
         },
         expected.payload);

@@ -131,6 +131,67 @@ void write_text_file(const std::filesystem::path &path, const std::string &conte
 
 // --- lifecycle --------------------------------------------------------------
 
+// --- observation face + definition read face (DEC-026, headless paths) ------
+//
+// The success path (a real semantic projection) needs window + accessibility
+// providers and lives in observation_face_test (Xvfb + AT-SPI fixture). Here
+// the headless topology exercises the fail-closed contract: the components
+// the environment cannot deliver fail the request with the stable
+// unavailable error naming the component, never a silently partial view.
+
+void scenario_observe_fails_closed_on_headless_topology() {
+    mirage::testing::TempDir dir;
+    const ServiceConfig config = make_config(dir);
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+
+    ipc::IpcClient client(config.socket_path);
+
+    // hello advertises the observation face; the face is always served.
+    const ipc::Response hello = client.call(ipc::HelloRequest{}, kCallBudget);
+    MIRAGE_CHECK(hello.ok);
+    const auto *identity = std::get_if<ipc::ServiceIdentity>(&hello.payload);
+    MIRAGE_CHECK(identity != nullptr);
+    if (identity != nullptr) {
+        MIRAGE_CHECK(identity->observation.has_value());
+        MIRAGE_CHECK(identity->observation.value_or(false));
+    }
+
+    // No X11 frontend on this topology: the always-on active-window component
+    // fails the whole request (the assembler's requested-means-mandatory
+    // discipline), and the stable error names the platform reason.
+    const ipc::Response observe = client.call(ipc::DesktopObserveRequest{}, kCallBudget);
+    MIRAGE_CHECK(!observe.ok);
+    MIRAGE_CHECK(observe.error.code == "unavailable");
+    MIRAGE_CHECK(observe.error.message.find("unsupported_platform") != std::string::npos);
+
+    // The visual component without a wired registry fails closed too; the
+    // capture order reports the first failed component (active window here).
+    const ipc::Response visual = client.call(ipc::DesktopObserveRequest{true, true}, kCallBudget);
+    MIRAGE_CHECK(!visual.ok);
+    MIRAGE_CHECK(visual.error.code == "unavailable");
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
+void scenario_workflow_get_unknown_id_is_not_found() {
+    mirage::testing::TempDir dir;
+    const ServiceConfig config = make_config(dir);
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+
+    ipc::IpcClient client(config.socket_path);
+    const ipc::Response response =
+        client.call(ipc::WorkflowGetRequest{"no-such-workflow"}, kCallBudget);
+    MIRAGE_CHECK(!response.ok);
+    MIRAGE_CHECK(response.error.code == "not_found");
+    MIRAGE_CHECK(response.error.message == "unknown workflow id");
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
 void scenario_run_before_start_is_rejected() {
     mirage::testing::TempDir dir;
     RuntimeService service(make_config(dir));
@@ -965,5 +1026,9 @@ int main() {
     run_scenario("shutdown_fd_triggers_stop", scenario_shutdown_fd_triggers_stop);
     run_scenario("session_list_open_and_history_flow", scenario_session_list_open_and_history_flow);
     run_scenario("session_open_capacity_fail_closed", scenario_session_open_capacity_fail_closed);
+    run_scenario("observe_fails_closed_on_headless_topology",
+                 scenario_observe_fails_closed_on_headless_topology);
+    run_scenario("workflow_get_unknown_id_is_not_found",
+                 scenario_workflow_get_unknown_id_is_not_found);
     return mirage::testing::finish("runtime_service_test");
 }
