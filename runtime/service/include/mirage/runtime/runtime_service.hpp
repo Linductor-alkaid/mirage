@@ -8,6 +8,7 @@
 
 #include <mirage/desktop/visual_reference_registry.hpp>
 #include <mirage/integration/mira_adapter.hpp>
+#include <mirage/integration/model_layer.hpp>
 #include <mirage/runtime/ipc/protocol.hpp>
 #include <mirage/runtime/mira_host.hpp>
 #include <mirage/runtime/permission/confirmation_hub.hpp>
@@ -106,6 +107,17 @@ struct ServiceConfig {
     /// `unavailable` error (DEC-016 decision 2 — the surface is never
     /// claimed that is not wired).
     mirage::desktop::VisualReferenceRegistry *visual_registry = nullptr;
+    /// Model layer configuration (DEC-027, M5-06): when `enabled` and valid,
+    /// start() assembles the pinned model stack and the session.chat dialog
+    /// face is served (hello `chat` = true). An enabled-but-invalid config
+    /// fails start() closed; a disabled config keeps the face dark
+    /// (`unavailable`, hello without the `chat` member).
+    mirage::integration::ModelLayerConfig model;
+    /// Optional scripted-provider seam (DEC-027): when set, the model layer
+    /// serves the gateway through this provider instead of the pinned socket
+    /// stack (tests / embedded transports). The type is a Mirage-owned
+    /// opaque carrier — no pinned type crosses this header.
+    std::shared_ptr<mirage::integration::ModelProviderOverride> model_provider_override;
     /// Persist terminal task records across service restarts (M1-07). The
     /// file is written on every task settlement and at the end of the
     /// ordered teardown, and terminal records are hydrated back into the

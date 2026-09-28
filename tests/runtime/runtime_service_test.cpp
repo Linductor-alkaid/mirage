@@ -2,10 +2,13 @@
 #include "../support/ipc_io.hpp"
 
 #include <mira/core_contracts.hpp>
+#include <mira/model_contracts.hpp>
+#include <mira/model_provider.hpp>
 
 #include <mirage/desktop/desktop_environment.hpp>
 #include <mirage/desktop/semantic_snapshot.hpp>
 #include <mirage/integration/mira_environment_binding.hpp>
+#include <mirage/integration/model_layer.hpp>
 #include <mirage/platform/linux/linux_desktop_environment.hpp>
 #include <mirage/runtime/ipc/client.hpp>
 #include <mirage/runtime/ipc/endpoint.hpp>
@@ -15,6 +18,11 @@
 #include <mirage/runtime/runtime_service.hpp>
 
 #include <fcntl.h>
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include <chrono>
 #include <cstdint>
@@ -28,6 +36,7 @@
 
 namespace {
 
+namespace mira = ::mira;
 namespace ipc = mirage::runtime::ipc;
 namespace integration = mirage::integration;
 namespace linux_backend = mirage::platform::linux_backend;
@@ -196,6 +205,12 @@ void scenario_observe_fails_closed_on_headless_topology() {
     const ipc::Response visual = client.call(ipc::DesktopObserveRequest{true, true}, kCallBudget);
     MIRAGE_CHECK(!visual.ok);
     MIRAGE_CHECK(visual.error.code == "unavailable");
+
+    // No model layer configured: the dialog face is dark (DEC-027).
+    const ipc::Response chat = client.call(ipc::SessionChatRequest{"any", "hi"}, kCallBudget);
+    MIRAGE_CHECK(!chat.ok);
+    MIRAGE_CHECK(chat.error.code == "unavailable");
+    MIRAGE_CHECK(chat.error.message == "model layer is not configured");
 
     service.request_shutdown();
     MIRAGE_CHECK(service.run().clean);
@@ -1180,6 +1195,141 @@ void scenario_session_list_open_and_history_flow() {
     MIRAGE_CHECK(service.run().clean);
 }
 
+// --- session.chat dialog face (DEC-027) --------------------------------------
+
+/// A scripted pinned model provider for the dialog face scene (DEC-027):
+/// binds to the layer-assembled profile and answers every inference with a
+/// fixed assistant text — the same hermetic pattern the pinned M14/M15
+/// harnesses use (the production socket provider denies private/loopback
+/// endpoints by design, so a local origin can never serve this test).
+class ScriptedModelProvider final : public mira::IModelProvider {
+  public:
+    explicit ScriptedModelProvider(const mira::ModelProfile &profile) : profile_(profile) {}
+    [[nodiscard]] const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        ++calls_;
+        mira::ModelResponse response;
+        response.contract_version = mira::SchemaVersion{1, 0};
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.requested_model = profile_.model_selector;
+        response.status = mira::ModelCompletionStatus::Completed;
+        mira::MessageOutput message;
+        message.role = mira::ModelRole::Assistant;
+        mira::OutputTextPart text;
+        text.text = "桌面回复正常。";
+        message.content.emplace_back(std::move(text));
+        response.output.emplace_back(std::move(message));
+        return response;
+    }
+    [[nodiscard]] int calls() const { return calls_.load(); }
+
+  private:
+    mira::ModelProfile profile_;
+    std::atomic<int> calls_{0};
+};
+
+void scenario_session_chat_dialog_face() {
+    mirage::testing::TempDir dir;
+    ServiceConfig config = make_config(dir);
+    config.model.enabled = true;
+    config.model.dialect = "openai.responses.v1";
+    config.model.model_selector = "test-model";
+    const auto scripted = std::make_shared<mirage::integration::ModelProviderOverride>(
+        [](const mira::ModelProfile &profile) -> std::shared_ptr<mira::IModelProvider> {
+            return std::make_shared<ScriptedModelProvider>(profile);
+        });
+    config.model_provider_override = scripted;
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+
+    ipc::IpcClient client(config.socket_path);
+    const ipc::Response hello = client.call(ipc::HelloRequest{}, kCallBudget);
+    MIRAGE_CHECK(hello.ok);
+    const auto *identity = std::get_if<ipc::ServiceIdentity>(&hello.payload);
+    MIRAGE_CHECK(identity != nullptr);
+    if (identity != nullptr) {
+        MIRAGE_CHECK(identity->chat.has_value());
+        MIRAGE_CHECK(identity->chat.value_or(false));
+    }
+
+    const ipc::Response opened = client.call(ipc::OpenSessionRequest{}, kCallBudget);
+    MIRAGE_CHECK(opened.ok);
+    const auto *opened_session = std::get_if<ipc::SessionOpened>(&opened.payload);
+    MIRAGE_CHECK(opened_session != nullptr);
+    if (opened_session == nullptr) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+    const std::string session_id = opened_session->session_id;
+
+    // Unknown sessions are refused before any model work.
+    const ipc::Response unknown =
+        client.call(ipc::SessionChatRequest{"no-such-session", "hi"}, kCallBudget);
+    MIRAGE_CHECK(!unknown.ok);
+    MIRAGE_CHECK(unknown.error.code == "not_found");
+
+    // The dialog turn is accepted (pending) and settles ok with the canned
+    // reply text; the history snapshot converges to the same record.
+    const ipc::Response accepted =
+        client.call(ipc::SessionChatRequest{session_id, "列出当前桌面上打开的应用"}, kCallBudget);
+    MIRAGE_CHECK(accepted.ok);
+    const auto *turn = std::get_if<ipc::DialogTurnAccepted>(&accepted.payload);
+    MIRAGE_CHECK(turn != nullptr);
+    if (turn == nullptr) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+    MIRAGE_CHECK(mirage::testing::is_32_lowercase_hex(turn->turn_id));
+
+    std::optional<ipc::DialogHistory> history;
+    const auto deadline = std::chrono::steady_clock::now() + kTaskBudget;
+    while (!history.has_value()) {
+        const ipc::Response snapshot =
+            client.call(ipc::ChatHistoryRequest{session_id, {}}, kCallBudget);
+        MIRAGE_CHECK(snapshot.ok);
+        if (snapshot.ok) {
+            const auto *dialog = std::get_if<ipc::DialogHistory>(&snapshot.payload);
+            MIRAGE_CHECK(dialog != nullptr);
+            if (dialog != nullptr && dialog->turns.size() == 1 && dialog->turns[0].status == "ok") {
+                history = *dialog;
+                break;
+            }
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{25});
+    }
+    MIRAGE_CHECK(history.has_value());
+    if (history.has_value()) {
+        MIRAGE_CHECK(history->session_id == session_id);
+        MIRAGE_CHECK(!history->truncated);
+        MIRAGE_CHECK(history->turns.size() == 1);
+        const ipc::DialogTurnEntry &settled = history->turns[0];
+        MIRAGE_CHECK(settled.turn_id == turn->turn_id);
+        MIRAGE_CHECK(settled.status == "ok");
+        MIRAGE_CHECK(settled.user_text == "列出当前桌面上打开的应用");
+        MIRAGE_CHECK(settled.has_reply);
+        MIRAGE_CHECK(settled.reply_text == "桌面回复正常。");
+        MIRAGE_CHECK(!settled.has_error);
+        MIRAGE_CHECK(settled.sequence == 1);
+    }
+
+    // The settled turn cleared the in-flight latch: the next turn accepts.
+    const ipc::Response second =
+        client.call(ipc::SessionChatRequest{session_id, "第二个问题"}, kCallBudget);
+    MIRAGE_CHECK(second.ok);
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
 // --- session.close (DEC-026 backlog item 2) ----------------------------------
 
 void scenario_session_close_lifecycle() {
@@ -1413,6 +1563,7 @@ int main() {
     run_scenario("session_list_open_and_history_flow", scenario_session_list_open_and_history_flow);
     run_scenario("session_open_capacity_fail_closed", scenario_session_open_capacity_fail_closed);
     run_scenario("session_close_lifecycle", scenario_session_close_lifecycle);
+    run_scenario("session_chat_dialog_face", scenario_session_chat_dialog_face);
     run_scenario("session_close_cancels_inflight_task",
                  scenario_session_close_cancels_inflight_task);
     run_scenario("observe_fails_closed_on_headless_topology",

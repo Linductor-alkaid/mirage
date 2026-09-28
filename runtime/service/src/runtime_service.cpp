@@ -10,6 +10,12 @@
 #include <mirage/runtime/persistence/recovery.hpp>
 #include <mirage/runtime/persistence/store.hpp>
 
+// DEC-027 dialog task glue: the pinned operation-context and id types the
+// model layer's completion call consumes (runtime/service already links the
+// pinned core transitively through the integration adapter).
+#include <mira/environment.hpp>
+#include <mira/model_contracts.hpp>
+
 #include "service_core.hpp"
 #include "service_loop.hpp"
 #include "task_driver.hpp"
@@ -19,11 +25,13 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <ctime>
 #include <future>
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <random>
 #include <string>
 #include <utility>
 #include <variant>
@@ -45,6 +53,12 @@ constexpr std::size_t kDefaultHistoryLimit = 50;
 /// Byte budget for one workflow.save / workflow.publish definition (DEC-023);
 /// the same ceiling the pinned WorkflowLimits enforces on decode.
 constexpr std::size_t kMaxWorkflowDefinitionBytes = 256 * 1024;
+/// Byte budget for one session.chat user text (DEC-027); larger inputs are
+/// refused instead of silently cropped.
+constexpr std::size_t kMaxDialogTextBytes = 16 * 1024;
+/// Rendered-transcript bound of one dialog turn: the newest settled turns
+/// that fit the model layer's input budget are rendered oldest-first.
+constexpr std::size_t kDialogTranscriptTurns = 20;
 
 bool terminal_progress(TaskProgress progress) {
     return progress == TaskProgress::Completed || progress == TaskProgress::Failed ||
@@ -55,6 +69,124 @@ std::int64_t wall_now_ms() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
                std::chrono::system_clock::now().time_since_epoch())
         .count();
+}
+
+/// 32-hex dialog turn identity (the pinned id wire form); a correlation id,
+/// not a secret — std::random_device suffices.
+std::string make_turn_id() {
+    std::random_device source;
+    std::string out;
+    out.reserve(32);
+    while (out.size() < 32) {
+        char buffer[16]{};
+        std::snprintf(buffer, sizeof(buffer), "%08x", source());
+        out += buffer;
+    }
+    out.resize(32);
+    return out;
+}
+
+/// Renders the newest settled turns as the dialog transcript block
+/// (oldest-first, "user:" / "assistant:" lines, DEC-027). Bounded by the
+/// turn count; the model layer enforces the byte budget on top.
+std::string render_dialog_transcript(const std::shared_ptr<detail::ServiceCore> &core,
+                                     const std::string &session_id) {
+    std::lock_guard lock(core->dialogs.mutex);
+    const auto found = core->dialogs.sessions.find(session_id);
+    if (found == core->dialogs.sessions.end()) {
+        return {};
+    }
+    auto &log = found->second;
+    std::size_t begin =
+        log.turns.size() > kDialogTranscriptTurns ? log.turns.size() - kDialogTranscriptTurns : 0;
+    std::string transcript;
+    for (std::size_t index = begin; index < log.turns.size(); ++index) {
+        const detail::DialogTurnRecord &record = log.turns[index];
+        if (record.status == "pending") {
+            continue;
+        }
+        if (!transcript.empty()) {
+            transcript += "\n";
+        }
+        transcript += "user: " + record.user_text;
+        transcript += record.status == "ok" ? "\nassistant: " + record.reply_text
+                                            : "\nassistant: (previous turn failed)";
+    }
+    return transcript;
+}
+
+/// Settles one dialog turn (DEC-027): records the outcome, clears the
+/// in-flight latch and publishes the notification. Worker-thread entry (the
+/// dialog task); the Topic publish is thread-safe and per-connection queues
+/// stay bounded — session.chat.history is the resync face. A session that
+/// closed (or a registry that vanished) swallows the turn.
+void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
+                        const std::string &session_id, const std::string &turn_id,
+                        const mirage::integration::DialogCompletion &completion) {
+    std::string status;
+    ipc::ChatTurnUpdatedEvent event;
+    event.session_id = session_id;
+    event.turn_id = turn_id;
+    if (completion.ok) {
+        status = "ok";
+        event.reply_text = completion.reply_text;
+        event.has_reply = true;
+    } else {
+        status = "failed";
+        event.error =
+            completion.cancelled ? std::string{"dialog turn was cancelled"} : completion.error;
+        event.has_error = true;
+    }
+    {
+        std::lock_guard lock(core->dialogs.mutex);
+        const auto found = core->dialogs.sessions.find(session_id);
+        if (found == core->dialogs.sessions.end()) {
+            return; // the session closed: the thread is gone, nothing to settle
+        }
+        auto &log = found->second;
+        for (auto &record : log.turns) {
+            if (record.turn_id == turn_id) {
+                record.status = status;
+                record.reply_text = event.reply_text;
+                record.error = event.error;
+                break;
+            }
+        }
+        if (log.in_flight_turn_id == turn_id) {
+            log.in_flight_turn_id.clear();
+        }
+        event.sequence = event.has_reply || event.has_error ? [&] {
+            for (const auto &record : log.turns) {
+                if (record.turn_id == turn_id) {
+                    return record.sequence;
+                }
+            }
+            return std::uint64_t{0};
+        }()
+                                                            : 0;
+    }
+    core->events.publish_chat_turn(std::move(event));
+}
+
+/// Body of one dialog turn task (DEC-027): the bounded model completion and
+/// its settlement. Never throws.
+void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::string session_id,
+                     std::string turn_id, const std::string &transcript, const std::string &text,
+                     executor::StopToken stop) {
+    mira::OperationContext context;
+    context.session = mira::SessionId::parse(session_id).value_or(mira::SessionId{});
+    context.operation = mira::OperationId::generate();
+    context.started_at = mira::Timestamp::now();
+    context.deadline = std::chrono::steady_clock::now() + core->model.request_deadline;
+    context.cancellation_requested = [stop]() { return stop.stop_requested(); };
+    mirage::integration::DialogCompletion completion =
+        core->model_layer ? core->model_layer->complete_dialog_turn(transcript, text, context)
+                          : mirage::integration::DialogCompletion{};
+    {
+        std::lock_guard lock(core->drivers_mutex);
+        core->drivers.erase("dialog-" + turn_id);
+    }
+    settle_dialog_turn(core, session_id, turn_id, completion);
 }
 
 } // namespace
@@ -206,6 +338,9 @@ struct RuntimeService::Impl {
         // DEC-026: the observation face is always served; a request before
         // an environment is bound fails closed with `unavailable`.
         result.observation = true;
+        // DEC-027: the dialog face rides the configured model layer
+        // (equipment-dependent, like the `permissions` bit).
+        result.chat = core->model_layer != nullptr && core->model_layer->running();
         return result;
     }
 
@@ -340,6 +475,14 @@ struct RuntimeService::Impl {
         }
         if (auto *request = std::get_if<ipc::CloseSessionRequest>(&decoded.body)) {
             handle_session_close(connection_id, correlation_id, std::move(request->session_id));
+            return;
+        }
+        if (auto *request = std::get_if<ipc::SessionChatRequest>(&decoded.body)) {
+            handle_session_chat(connection_id, correlation_id, std::move(*request));
+            return;
+        }
+        if (auto *request = std::get_if<ipc::ChatHistoryRequest>(&decoded.body)) {
+            handle_session_chat_history(connection_id, correlation_id, std::move(*request));
             return;
         }
         if (auto *request = std::get_if<ipc::SessionHistoryRequest>(&decoded.body)) {
@@ -859,6 +1002,144 @@ struct RuntimeService::Impl {
         event.state = state;
         core->events.publish_session_update(std::move(event));
         respond(connection_id, correlation_id, ipc::SessionClosed{std::move(session_id), state});
+    }
+
+    /// Serial thread: accept one dialog turn (DEC-027, M5-06; DEC-025
+    /// backlog item 3). The model inference is a bounded long-running work
+    /// unit, so the handler only validates, registers the pending turn and
+    /// submits a cancellable executor task — the ack carries the turn id,
+    /// and the settled reply/error rides session.chat_updated +
+    /// session.chat.history. One turn per session at a time; the task
+    /// settles through the model layer's own deadlines and cancellation.
+    void handle_session_chat(std::uint64_t connection_id, std::uint64_t correlation_id,
+                             ipc::SessionChatRequest request) {
+        if (core->model_layer == nullptr || !core->model_layer->running()) {
+            fail(connection_id, correlation_id, "unavailable", "model layer is not configured");
+            return;
+        }
+        if (request.text.size() > kMaxDialogTextBytes) {
+            fail(connection_id, correlation_id, "invalid_argument",
+                 "dialog text exceeds the " + std::to_string(kMaxDialogTextBytes) + " byte budget");
+            return;
+        }
+        std::string turn_id;
+        std::uint64_t sequence = 0;
+        {
+            std::lock_guard lock(core->sessions.mutex);
+            if (!core->sessions.contains(request.session_id)) {
+                fail(connection_id, correlation_id, "not_found", "unknown session id");
+                return;
+            }
+        }
+        {
+            std::lock_guard lock(core->dialogs.mutex);
+            auto found = core->dialogs.sessions.find(request.session_id);
+            if (found == core->dialogs.sessions.end()) {
+                // Lazy first-turn creation (the session itself is known — the
+                // session registry check above passed); the dialog registry
+                // is capacity-bounded alongside it.
+                if (core->dialogs.full()) {
+                    fail(connection_id, correlation_id, "unavailable",
+                         "dialog registry capacity exhausted (" +
+                             std::to_string(core->dialogs.capacity) + ")");
+                    return;
+                }
+                found =
+                    core->dialogs.sessions.emplace(request.session_id, detail::SessionDialogLog{})
+                        .first;
+            }
+            auto &log = found->second;
+            (void)found;
+            if (!log.in_flight_turn_id.empty()) {
+                fail(connection_id, correlation_id, "invalid_state",
+                     "a dialog turn is already in flight for this session");
+                return;
+            }
+            if (log.turns.size() >= log.max_turns) {
+                log.turns.erase(log.turns.begin());
+            }
+            detail::DialogTurnRecord record;
+            record.turn_id = make_turn_id();
+            record.status = "pending";
+            record.user_text = request.text;
+            record.sequence = log.next_sequence++;
+            record.recorded_at_ms = wall_now_ms();
+            log.in_flight_turn_id = record.turn_id;
+            log.turns.push_back(record);
+            turn_id = record.turn_id;
+            sequence = record.sequence;
+        }
+        // The pending notification leaves before the acknowledgement so a
+        // subscriber never observes the ack for a turn whose creation event
+        // is still queued (DEC-012 decision 3 ordering precedent).
+        ipc::ChatTurnUpdatedEvent pending;
+        pending.session_id = request.session_id;
+        pending.turn_id = turn_id;
+        pending.status = "pending";
+        pending.user_text = request.text;
+        pending.sequence = sequence;
+        core->events.publish_chat_turn(std::move(pending));
+        ipc::DialogTurnAccepted accepted;
+        accepted.turn_id = turn_id;
+        respond(connection_id, correlation_id, std::move(accepted));
+
+        // Bounded worker: the pinned model stack enforces its own transport
+        // deadlines; the executor stop token ends the wait on teardown.
+        const std::string session_id = request.session_id;
+        const std::string transcript = render_dialog_transcript(core, session_id);
+        auto dialog_submission =
+            core->executor.submit_cancellable([core = core, session_id, turn_id, transcript,
+                                               text = request.text](executor::StopToken stop) {
+                run_dialog_turn(core, session_id, turn_id, transcript, text, stop);
+            });
+        {
+            std::lock_guard lock(core->drivers_mutex);
+            core->drivers.emplace("dialog-" + turn_id, std::move(dialog_submission));
+        }
+    }
+
+    /// Serial thread: one session's dialog thread snapshot (DEC-027) — the
+    /// resync face of the session.chat_updated stream.
+    void handle_session_chat_history(std::uint64_t connection_id, std::uint64_t correlation_id,
+                                     ipc::ChatHistoryRequest request) {
+        {
+            std::lock_guard lock(core->sessions.mutex);
+            if (!core->sessions.contains(request.session_id)) {
+                fail(connection_id, correlation_id, "not_found", "unknown session id");
+                return;
+            }
+        }
+        const std::size_t requested =
+            request.limit ? static_cast<std::size_t>(*request.limit) : kDefaultHistoryLimit;
+        ipc::DialogHistory history;
+        history.session_id = request.session_id;
+        {
+            std::lock_guard lock(core->dialogs.mutex);
+            const auto found = core->dialogs.sessions.find(request.session_id);
+            if (found == core->dialogs.sessions.end()) {
+                respond(connection_id, correlation_id, std::move(history));
+                return;
+            }
+            auto &log = found->second;
+            const std::size_t count = std::min(requested, log.turns.size());
+            history.turns.reserve(count);
+            for (std::size_t index = log.turns.size() - count; index < log.turns.size(); ++index) {
+                const detail::DialogTurnRecord &record = log.turns[index];
+                ipc::DialogTurnEntry entry;
+                entry.turn_id = record.turn_id;
+                entry.status = record.status;
+                entry.user_text = record.user_text;
+                entry.reply_text = record.reply_text;
+                entry.has_reply = record.status == "ok";
+                entry.error = record.error;
+                entry.has_error = record.status == "failed";
+                entry.sequence = record.sequence;
+                entry.recorded_at_ms = record.recorded_at_ms;
+                history.turns.push_back(std::move(entry));
+            }
+            history.truncated = log.total_recorded > history.turns.size();
+        }
+        respond(connection_id, correlation_id, std::move(history));
     }
 
     /// Serial thread: one session's conversation history (DEC-021) — the
@@ -1427,6 +1708,12 @@ struct RuntimeService::Impl {
         // shutdown): cancel active runs and drain their drives while the
         // executor can still settle them.
         (void)core->host.shutdown_workflow_surface();
+        // The model layer's transport workers are executor-backed (DEC-027):
+        // settle their in-flight exchanges while the executor can still
+        // drain them, before the executor itself shuts down.
+        if (core->model_layer) {
+            core->model_layer->shutdown();
+        }
         core->executor.shutdown(true);
         for (auto &future : driver_futures) {
             try {
@@ -1562,10 +1849,39 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         return outcome;
     }
 
+    // Model layer (DEC-027): assembled once the executor is up (its pinned
+    // transport runs blocking I/O workers on it) and before the host starts.
+    // An enabled-but-invalid config fails start() closed; an enabled-but-
+    // unassemblable one does too (a half-wired dialog face would be worse
+    // than a dark one). A disabled config leaves the layer null.
+    impl_->core->model = impl_->config.model;
+    if (impl_->core->model.enabled) {
+        std::string model_error;
+        if (!impl_->core->model.valid(model_error)) {
+            outcome.error = {"invalid_argument", model_error};
+            impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
+            return outcome;
+        }
+        impl_->core->model_layer = std::make_unique<mirage::integration::ModelLayer>(
+            impl_->core->executor, impl_->core->model, impl_->config.model_provider_override.get());
+        if (!impl_->core->model_layer->running()) {
+            outcome.error = {"internal", "model layer assembly failed"};
+            impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
+            return outcome;
+        }
+    }
+    {
+        std::lock_guard lock(impl_->core->dialogs.mutex);
+        impl_->core->dialogs.capacity = impl_->config.max_sessions;
+    }
+
     impl_->publish_host_status(HostStatus::Starting);
     const HostOutcome hosted = impl_->core->host.start(binding);
     if (!hosted.ok) {
         impl_->publish_host_status(HostStatus::Failed);
+        if (impl_->core->model_layer) {
+            impl_->core->model_layer->shutdown();
+        }
         impl_->core->executor.shutdown(false);
         outcome.error = hosted.error;
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);

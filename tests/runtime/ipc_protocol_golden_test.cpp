@@ -243,6 +243,30 @@ ipc::Event event_from_vector(const std::string &name, const mira::JsonValue &bod
             }
         }
         event.payload = std::move(payload);
+    } else if (kind == "session.chat_updated") {
+        ipc::ChatTurnUpdatedEvent payload;
+        payload.session_id = vector_string(body, "session_id");
+        payload.turn_id = vector_string(body, "turn_id");
+        payload.status = vector_string(body, "status");
+        payload.user_text = vector_string(body, "user_text");
+        payload.sequence = static_cast<std::uint64_t>(vector_integer(body, "sequence"));
+        if (const auto *reply = body.find("reply_text"); reply != nullptr) {
+            const auto text = reply->as_string();
+            MIRAGE_CHECK(text != nullptr);
+            if (text != nullptr) {
+                payload.reply_text = *text;
+                payload.has_reply = true;
+            }
+        }
+        if (const auto *failure = body.find("error"); failure != nullptr) {
+            const auto text = failure->as_string();
+            MIRAGE_CHECK(text != nullptr);
+            if (text != nullptr) {
+                payload.error = *text;
+                payload.has_error = true;
+            }
+        }
+        event.payload = std::move(payload);
     } else {
         std::fprintf(stderr, "golden event vector '%s' carries unknown event name '%s'\n",
                      name.c_str(), kind.c_str());
@@ -320,6 +344,21 @@ void check_event_equal(const std::string &name, const ipc::Event &expected,
         if (decoded.summary.has_value() && run->summary.has_value()) {
             check_string_equal(name, "summary", *decoded.summary, *run->summary);
         }
+    } else if (const auto *chat = std::get_if<ipc::ChatTurnUpdatedEvent>(&expected.payload)) {
+        const auto &decoded = std::get<ipc::ChatTurnUpdatedEvent>(actual.payload);
+        check_string_equal(name, "chat session_id", decoded.session_id, chat->session_id);
+        check_string_equal(name, "chat turn_id", decoded.turn_id, chat->turn_id);
+        check_string_equal(name, "chat status", decoded.status, chat->status);
+        check_string_equal(name, "chat user_text", decoded.user_text, chat->user_text);
+        MIRAGE_CHECK(decoded.has_reply == chat->has_reply);
+        if (decoded.has_reply && chat->has_reply) {
+            check_string_equal(name, "chat reply_text", decoded.reply_text, chat->reply_text);
+        }
+        MIRAGE_CHECK(decoded.has_error == chat->has_error);
+        if (decoded.has_error && chat->has_error) {
+            check_string_equal(name, "chat error", decoded.error, chat->error);
+        }
+        MIRAGE_CHECK(decoded.sequence == chat->sequence);
     }
 }
 
@@ -365,6 +404,24 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
     }
     if (op == "session.close") {
         return ipc::CloseSessionRequest{vector_string(body, "session_id")};
+    }
+    if (op == "session.chat") {
+        ipc::SessionChatRequest chat;
+        chat.session_id = vector_string(body, "session_id");
+        chat.text = vector_string(body, "text");
+        return chat;
+    }
+    if (op == "session.chat.history") {
+        ipc::ChatHistoryRequest history;
+        history.session_id = vector_string(body, "session_id");
+        if (const auto *limit = body.find("limit"); limit != nullptr) {
+            const auto limit_value = limit->as_integer();
+            MIRAGE_CHECK(limit_value.has_value());
+            if (limit_value) {
+                history.limit = static_cast<int>(*limit_value);
+            }
+        }
+        return history;
     }
     if (op == "workflow.list") {
         return ipc::WorkflowListRequest{};
@@ -543,6 +600,19 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
             } else if constexpr (std::is_same_v<T, ipc::CloseSessionRequest>) {
                 const auto &close = std::get<ipc::CloseSessionRequest>(actual);
                 check_string_equal(name, "session_id", close.session_id, expected_value.session_id);
+            } else if constexpr (std::is_same_v<T, ipc::SessionChatRequest>) {
+                const auto &chat = std::get<ipc::SessionChatRequest>(actual);
+                check_string_equal(name, "chat session_id", chat.session_id,
+                                   expected_value.session_id);
+                check_string_equal(name, "chat text", chat.text, expected_value.text);
+            } else if constexpr (std::is_same_v<T, ipc::ChatHistoryRequest>) {
+                const auto &history = std::get<ipc::ChatHistoryRequest>(actual);
+                check_string_equal(name, "chat history session_id", history.session_id,
+                                   expected_value.session_id);
+                MIRAGE_CHECK(history.limit.has_value() == expected_value.limit.has_value());
+                if (history.limit.has_value() && expected_value.limit.has_value()) {
+                    MIRAGE_CHECK(*history.limit == *expected_value.limit);
+                }
             } else if constexpr (std::is_same_v<T, ipc::RespondPermissionRequest>) {
                 const auto &respond = std::get<ipc::RespondPermissionRequest>(actual);
                 check_string_equal(name, "request_id", respond.request_id,
@@ -648,6 +718,12 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
             MIRAGE_CHECK(flag.has_value());
             identity.observation = flag;
         }
+        // DEC-027 dialog-face capability member: same optional discipline.
+        if (const auto *chat = value.find("chat"); chat != nullptr) {
+            const auto flag = chat->as_boolean();
+            MIRAGE_CHECK(flag.has_value());
+            identity.chat = flag;
+        }
         response.payload = std::move(identity);
     } else if (kind == "submitted") {
         ipc::TaskSubmitted submitted;
@@ -743,6 +819,34 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
     } else if (kind == "session-closed") {
         response.payload =
             ipc::SessionClosed{vector_string(value, "session_id"), vector_string(value, "state")};
+    } else if (kind == "session-chat-accepted") {
+        response.payload = ipc::DialogTurnAccepted{vector_string(value, "turn_id")};
+    } else if (kind == "session-chat-history") {
+        ipc::DialogHistory history;
+        history.session_id = vector_string(value, "session_id");
+        history.truncated = vector_boolean(value, "truncated");
+        const auto *turns = vector_member(value, "turns").as_array();
+        MIRAGE_CHECK(turns != nullptr);
+        if (turns != nullptr) {
+            for (const auto &entry : *turns) {
+                ipc::DialogTurnEntry turn;
+                turn.turn_id = vector_string(entry, "turn_id");
+                turn.status = vector_string(entry, "status");
+                turn.user_text = vector_string(entry, "user_text");
+                if (const auto *reply = entry.find("reply_text"); reply != nullptr) {
+                    turn.reply_text = vector_string(entry, "reply_text");
+                    turn.has_reply = true;
+                }
+                if (const auto *failure = entry.find("error"); failure != nullptr) {
+                    turn.error = vector_string(entry, "error");
+                    turn.has_error = true;
+                }
+                turn.sequence = static_cast<std::uint64_t>(vector_integer(entry, "sequence"));
+                turn.recorded_at_ms = vector_integer(entry, "recorded_at_ms");
+                history.turns.push_back(std::move(turn));
+            }
+        }
+        response.payload = std::move(history);
     } else if (kind == "workflow-list") {
         ipc::WorkflowList list;
         const auto *entries = vector_member(value, "workflows").as_array();
@@ -962,6 +1066,10 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                     expected_value.observation.has_value()) {
                     MIRAGE_CHECK(*actual_value.observation == *expected_value.observation);
                 }
+                MIRAGE_CHECK(actual_value.chat.has_value() == expected_value.chat.has_value());
+                if (actual_value.chat.has_value() && expected_value.chat.has_value()) {
+                    MIRAGE_CHECK(*actual_value.chat == *expected_value.chat);
+                }
             } else if constexpr (std::is_same_v<T, ipc::TaskSubmitted>) {
                 check_string_equal(name, "task_id", actual_value.task_id, expected_value.task_id);
                 MIRAGE_CHECK(actual_value.session_id.has_value() ==
@@ -1046,6 +1154,34 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                 check_string_equal(name, "session_id", actual_value.session_id,
                                    expected_value.session_id);
                 check_string_equal(name, "session state", actual_value.state, expected_value.state);
+            } else if constexpr (std::is_same_v<T, ipc::DialogTurnAccepted>) {
+                check_string_equal(name, "turn_id", actual_value.turn_id, expected_value.turn_id);
+            } else if constexpr (std::is_same_v<T, ipc::DialogHistory>) {
+                check_string_equal(name, "dialog session_id", actual_value.session_id,
+                                   expected_value.session_id);
+                MIRAGE_CHECK(actual_value.truncated == expected_value.truncated);
+                MIRAGE_CHECK(actual_value.turns.size() == expected_value.turns.size());
+                const std::size_t turn_count =
+                    std::min(actual_value.turns.size(), expected_value.turns.size());
+                for (std::size_t index = 0; index < turn_count; ++index) {
+                    const auto &actual_turn = actual_value.turns[index];
+                    const auto &wanted = expected_value.turns[index];
+                    check_string_equal(name, "turn_id", actual_turn.turn_id, wanted.turn_id);
+                    check_string_equal(name, "turn status", actual_turn.status, wanted.status);
+                    check_string_equal(name, "turn user_text", actual_turn.user_text,
+                                       wanted.user_text);
+                    MIRAGE_CHECK(actual_turn.has_reply == wanted.has_reply);
+                    if (actual_turn.has_reply && wanted.has_reply) {
+                        check_string_equal(name, "turn reply_text", actual_turn.reply_text,
+                                           wanted.reply_text);
+                    }
+                    MIRAGE_CHECK(actual_turn.has_error == wanted.has_error);
+                    if (actual_turn.has_error && wanted.has_error) {
+                        check_string_equal(name, "turn error", actual_turn.error, wanted.error);
+                    }
+                    MIRAGE_CHECK(actual_turn.sequence == wanted.sequence);
+                    MIRAGE_CHECK(actual_turn.recorded_at_ms == wanted.recorded_at_ms);
+                }
             } else if constexpr (std::is_same_v<T, ipc::SessionHistory>) {
                 check_string_equal(name, "history session_id", actual_value.session_id,
                                    expected_value.session_id);

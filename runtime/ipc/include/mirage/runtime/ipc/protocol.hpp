@@ -135,6 +135,31 @@ struct CloseSessionRequest {
     std::string session_id;
 };
 
+/// Submits one dialog turn to the model layer (DEC-027, M5-06; DEC-025
+/// backlog item 3): the text lands in the session's dialog thread and the
+/// assembled reply is published through the `session.chat_updated` event
+/// stream. The call is asynchronous by design — the model inference is a
+/// bounded long-running work unit, so the ack carries only the turn id and
+/// the reply rides the notification / `session.chat.history` snapshot.
+/// Errors: `unavailable` (model layer not configured), `not_found` (unknown
+/// session), `invalid_state` (a turn is already in flight for this
+/// session), `invalid_argument` (text over the service budget).
+struct SessionChatRequest {
+    std::string session_id;
+    std::string text;
+};
+
+/// Requests one session's dialog thread (DEC-027): the bounded in-memory
+/// turn log the service keeps for the session — newest `limit` turns
+/// (service default and cap apply when absent), `truncated` marking older
+/// turns. Turns are service-memory state (workflow-registry discipline:
+/// declared volatile until the DEC-011 persistence items land). Unknown
+/// session ids are a stable not_found error.
+struct ChatHistoryRequest {
+    std::string session_id;
+    std::optional<int> limit;
+};
+
 /// Lists the service's workflow catalog (DEC-023): product identity, head
 /// version digest, validation and runnability for every workflow the service
 /// saved or published. The pinned library stays the execution-side authority;
@@ -230,13 +255,15 @@ struct DesktopObserveRequest {
     bool visual = false;
 };
 
-using Request = std::variant<
-    HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest, CancelTaskRequest,
-    ShutdownRequest, SubscribeEventsRequest, UnsubscribeEventsRequest, RespondPermissionRequest,
-    ListPermissionsRequest, ListSessionsRequest, OpenSessionRequest, SessionHistoryRequest,
-    CloseSessionRequest, WorkflowListRequest, WorkflowSaveRequest, WorkflowPublishRequest,
-    WorkflowDeleteRequest, WorkflowAtomCatalogRequest, WorkflowRunsRequest, WorkflowRunRequest,
-    WorkflowCancelRunRequest, WorkflowGetRequest, DesktopObserveRequest>;
+using Request =
+    std::variant<HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest,
+                 CancelTaskRequest, ShutdownRequest, SubscribeEventsRequest,
+                 UnsubscribeEventsRequest, RespondPermissionRequest, ListPermissionsRequest,
+                 ListSessionsRequest, OpenSessionRequest, SessionHistoryRequest,
+                 CloseSessionRequest, SessionChatRequest, ChatHistoryRequest, WorkflowListRequest,
+                 WorkflowSaveRequest, WorkflowPublishRequest, WorkflowDeleteRequest,
+                 WorkflowAtomCatalogRequest, WorkflowRunsRequest, WorkflowRunRequest,
+                 WorkflowCancelRunRequest, WorkflowGetRequest, DesktopObserveRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -267,6 +294,12 @@ struct ServiceIdentity {
     /// DEC-026 observation-face advertisement: the `desktop.observe` request
     /// face is served. Same optional-encodes-when-set discipline as `events`.
     std::optional<bool> observation;
+    /// DEC-027 dialog-face advertisement: the model layer is configured and
+    /// the `session.chat` request face is served — a service without a
+    /// configured model layer reports false (mirrors the `permissions` bit's
+    /// equipment-dependent semantics). Same optional-encodes-when-set
+    /// discipline as `events`. Placed after `observation`.
+    std::optional<bool> chat;
 };
 
 struct TaskSubmitted {
@@ -392,6 +425,46 @@ struct SessionOpened {
 struct SessionClosed {
     std::string session_id;
     std::string state;
+};
+
+/// Acknowledgement of session.chat (DEC-027): the accepted dialog turn's
+/// id. The turn starts `pending`; its settled form (reply text or the
+/// stable failure reason) arrives through `session.chat_updated` and
+/// `session.chat.history`.
+struct DialogTurnAccepted {
+    std::string turn_id;
+};
+
+/// Closed turn-status vocabulary of the dialog face (DEC-027): "pending"
+/// marks an accepted turn whose model call is still in flight, "ok" a
+/// settled turn carrying `reply_text`, "failed" a settled turn carrying
+/// `error`.
+struct DialogTurnEntry {
+    std::string turn_id;
+    /// "pending" / "ok" / "failed"
+    std::string status;
+    std::string user_text;
+    /// encode-when-set: the assistant reply, present exactly when status is
+    /// "ok".
+    std::string reply_text;
+    bool has_reply = false;
+    /// encode-when-set: the stable failure reason, present exactly when
+    /// status is "failed".
+    std::string error;
+    bool has_error = false;
+    /// The turn's position in the session's dialog sequence, self-incrementing.
+    std::uint64_t sequence = 0;
+    std::int64_t recorded_at_ms = 0;
+};
+
+/// One session's dialog thread as reported by session.chat.history
+/// (DEC-027): the newest `limit` turns in dialog order; `truncated` marks
+/// that older turns exist beyond the budget. The authoritative face for
+/// resync after `session.chat_updated` event gaps.
+struct DialogHistory {
+    std::string session_id;
+    std::vector<DialogTurnEntry> turns;
+    bool truncated = false;
 };
 
 /// One conversation entry as reported by session.history (DEC-021).
@@ -596,9 +669,10 @@ struct ObservationView {
 using ResponsePayload =
     std::variant<ServiceIdentity, TaskSubmitted, TaskList, InspectTask, TaskCancelled,
                  ShutdownAccepted, PermissionResponded, PermissionPendingList, SessionList,
-                 SessionOpened, SessionClosed, SessionHistory, WorkflowList, WorkflowSaved,
-                 WorkflowPublished, WorkflowDeleted, WorkflowAtomCatalog, WorkflowRunList,
-                 WorkflowRunStarted, WorkflowRunCancelled, WorkflowDefinitionView, ObservationView>;
+                 SessionOpened, SessionClosed, DialogTurnAccepted, DialogHistory, SessionHistory,
+                 WorkflowList, WorkflowSaved, WorkflowPublished, WorkflowDeleted,
+                 WorkflowAtomCatalog, WorkflowRunList, WorkflowRunStarted, WorkflowRunCancelled,
+                 WorkflowDefinitionView, ObservationView>;
 
 /// Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc
 /// domain ("protocol_error", "unsupported", "invalid_argument", "not_found",
@@ -754,11 +828,33 @@ struct WorkflowRunUpdatedEvent {
     std::optional<std::string> summary;
 };
 
+/// `session.chat_updated` (DEC-027): one dialog turn's lifecycle published
+/// for the session's dialog thread — "pending" when the turn is accepted
+/// (model call in flight), "ok" when the reply arrived (`reply_text`
+/// encode-when-set), "failed" when the turn settled with a stable failure
+/// reason (`error` encode-when-set). `sequence` is the turn's position in
+/// the session's dialog sequence; `session.chat.history` is the snapshot
+/// fact source.
+struct ChatTurnUpdatedEvent {
+    std::string session_id;
+    std::string turn_id;
+    /// "pending" / "ok" / "failed"
+    std::string status;
+    std::string user_text;
+    /// encode-when-set: present exactly when status is "ok".
+    std::string reply_text;
+    bool has_reply = false;
+    /// encode-when-set: present exactly when status is "failed".
+    std::string error;
+    bool has_error = false;
+    std::uint64_t sequence = 0;
+};
+
 /// Closed event set; new events join additively (DEC-012).
 using EventPayload =
     std::variant<TaskUpdatedEvent, HostStatusEvent, EventsOverflowEvent, PermissionRequestedEvent,
                  SessionUpdatedEvent, SessionMessageEvent, SessionTurnEvent, SessionOutputEvent,
-                 WorkflowRunUpdatedEvent>;
+                 WorkflowRunUpdatedEvent, ChatTurnUpdatedEvent>;
 
 /// One decoded event frame minus its envelope bookkeeping: the per-connection
 /// `seq` plus the payload. `seq` is assigned by the sender per connection,

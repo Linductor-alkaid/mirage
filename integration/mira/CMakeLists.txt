@@ -5,6 +5,7 @@
 add_library(mirage_integration_mira STATIC
     src/desktop_atom_toolset.cpp
     src/mira_environment_binding.cpp
+    src/model_layer.cpp
     src/session_journal.cpp
     src/workflow_event_bridge.cpp
 )
@@ -17,6 +18,14 @@ target_include_directories(mirage_integration_mira
 target_compile_features(mirage_integration_mira PUBLIC cxx_std_20)
 mirage_enable_warnings(mirage_integration_mira)
 
+# The pinned socket transport's public header includes the pinned executor
+# fabric directly (model_layer.cpp consumes it); the headers are consumed as
+# system headers so the pinned library's own warning hygiene stays out of
+# Mirage's -Werror build (same consumption form as mira_core / the service).
+target_include_directories(mirage_integration_mira SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include"
+)
+
 # The concrete binding header implements the pinned environment contract, so
 # pinned include dirs propagate to consumers of this target by design; the
 # desktop environment types are part of the adapter's public surface too.
@@ -27,4 +36,15 @@ target_link_libraries(mirage_integration_mira
         Mirage::desktop
         Mira::core
         Mira::workflow
+    PRIVATE
+        # DEC-027 model layer: the pinned portable socket HTTP/SSE transport
+        # (POSIX + Winsock). https endpoints fail closed unless a TLS channel
+        # adapter was built by the pinned dependency (OpenSSL adapter on UNIX
+        # where its configure found OpenSSL); the layer never downgrades.
+        Mira::net_transport
 )
+
+if(TARGET Mira::openssl_transport)
+    target_link_libraries(mirage_integration_mira PRIVATE Mira::openssl_transport)
+    target_compile_definitions(mirage_integration_mira PRIVATE MIRAGE_HAVE_OPENSSL_TLS)
+endif()

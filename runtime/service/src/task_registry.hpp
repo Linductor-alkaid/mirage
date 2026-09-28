@@ -167,6 +167,47 @@ struct WorkflowRunRegistry {
     bool full() const { return runs.size() >= capacity; }
 };
 
+/// One dialog turn of a session's thread (DEC-027): lifecycle "pending" →
+/// "ok" / "failed"; reply and error are encode-when-set exactly at their
+/// statuses (the wire vocabulary mirrors this record one to one).
+struct DialogTurnRecord {
+    std::string turn_id;
+    /// "pending" / "ok" / "failed"
+    std::string status = "pending";
+    std::string user_text;
+    std::string reply_text;
+    std::string error;
+    std::uint64_t sequence = 0;
+    std::int64_t recorded_at_ms = 0;
+};
+
+/// One session's dialog thread (DEC-027): the bounded turn log plus the
+/// in-flight bookkeeping. Service-memory state (workflow-registry
+/// discipline: declared volatile until the DEC-011 persistence items land);
+/// dropped when the session closes. `total_recorded` counts every turn ever
+/// appended so the snapshot's `truncated` flag stays truthful across
+/// oldest-drop trimming.
+struct SessionDialogLog {
+    std::vector<DialogTurnRecord> turns;
+    std::uint64_t next_sequence = 1;
+    std::uint64_t total_recorded = 0;
+    /// Non-empty while one turn's model call is in flight (the accepted
+    /// turn's id); a second session.chat is refused invalid_state.
+    std::string in_flight_turn_id;
+    std::size_t max_turns = 200;
+};
+
+/// Dialog registry (DEC-027): per-session threads, bounded by `capacity`
+/// (sessions) and each log by its per-session turn bound with oldest-drop
+/// trimming. All access happens under `mutex`.
+struct DialogRegistry {
+    std::mutex mutex;
+    std::map<std::string, SessionDialogLog> sessions;
+    std::size_t capacity = 16;
+
+    bool full() const { return sessions.size() >= capacity; }
+};
+
 /// Stable name of a MiraHost task progress state for IPC payloads.
 const char *progress_name(TaskProgress progress);
 

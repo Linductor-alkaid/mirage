@@ -12,6 +12,7 @@
 #include <mirage/desktop/desktop_environment.hpp>
 #include <mirage/desktop/visual_reference_registry.hpp>
 #include <mirage/integration/desktop_atom_toolset.hpp>
+#include <mirage/integration/model_layer.hpp>
 #include <mirage/integration/session_journal.hpp>
 #include <mirage/integration/workflow_event_bridge.hpp>
 #include <mirage/runtime/mira_host.hpp>
@@ -82,6 +83,17 @@ struct ServiceCore {
     /// start() over the bound environment with the shared permission gate;
     /// empty until then.
     std::shared_ptr<mirage::integration::DesktopAtomToolset> workflow_tools;
+
+    /// Model layer (DEC-027): the pinned model stack serving the
+    /// session.chat dialog face. Constructed at start() only when
+    /// ServiceConfig::model is enabled and valid; null otherwise (hello
+    /// reports no `chat` capability and session.chat answers `unavailable`).
+    std::unique_ptr<mirage::integration::ModelLayer> model_layer;
+    /// The model layer's configuration mirror (DEC-027), engaged at start().
+    mirage::integration::ModelLayerConfig model;
+    /// Dialog threads (DEC-027): the per-session bounded turn logs, the
+    /// snapshot face of session.chat_updated.
+    DialogRegistry dialogs;
 
     std::string mirage_version;
     std::size_t max_steps_per_task = 64;
