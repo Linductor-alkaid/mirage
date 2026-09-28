@@ -431,6 +431,9 @@ Mirage Shell（统一应用壳）
 
 ## 6. 变更记录
 
+- 2026-09-28：`M5-08` 落地——会话重命名展示层别名（localStorage 持久化，
+  DEC-026 挂账⑤兑现）；设置-模型类目以 settings.model 配置块落地（UI 实
+  时变更挂账 wire 面）。
 - 2026-09-28：`M5-07` 落地（[DEC-028](../decisions/DEC-028-permission-policy-face.md)）
   ——§4 批准中心行更新为已接线（permission.list/respond 消费）+ 新增权限
   策略行（policy.get/set 矩阵）。

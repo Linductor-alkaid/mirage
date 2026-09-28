@@ -118,7 +118,12 @@ session.chat_updated 生命周期 + session.chat.history 快照），Composer �
 （permission.list/respond/permission.request），设置页权限矩阵替换为
 DEC-010 十一能力真实矩阵（policy.get 事实源 / policy.set 全量应用立即生
 效 + 合并文档持久化），hello `policy` 能力位，golden vectors v8 → v9，
-DEC-011 默认拾取与写回翻转兑现，默认策略收紧留观 M5-08。
+DEC-011 默认拾取与写回翻转兑现，默认策略收紧留观 M5-08。`M5-08` 设置全
+量与产品化规模复核已完成：LocalSettings 扩展 model / runtime 两块（设置
+-模型类目配置输入与队列容量、连接规模可调），会话历史与对话线程跨重启
+持久化落地（session-state.json，DEC-021 挂账①兑现），POSIX 端点对端凭
+据校验（SO_PEERCRED）与 M1 遗留守护纪律修复（BUG-20260916-001）落地，
+会话重命名产品别名（DEC-026 挂账⑤）落地。
 
 ## 交付边界
 
