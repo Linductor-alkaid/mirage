@@ -2,7 +2,8 @@
 
 > 状态：In Progress（`M5-01`、`M5-02`、`M5-03`、`M5-04` 完成，2026-09-26；
 > `M5-05` 第一轮完成 2026-09-27；第二轮桌面原子工具注册与编辑器接真实面
-> 增量完成，2026-09-27；`M5-06` 第一轮会话页接真实面完成，2026-09-27）
+> 增量完成，2026-09-27；`M5-06` 第一轮会话页接真实面完成 2026-09-27，
+> 第二轮观察面协议扩展批次完成 2026-09-28）
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M3](m3-mirador-integration.md)（已完成：Mirador 视觉集成与壳选型冻结——
@@ -10,7 +11,7 @@
 > Backend 与产品进程 Windows 化——命名管道 IPC、`mirage-service` / CLI 双平台
 > 可运行）
 > 建议发布点：`release-epsilon`（tag 待维护者授权后创建）
-> 更新日期：2026-09-26（计划建立）
+> 更新日期：2026-09-28（`M5-06` 第二轮）
 
 ## 目标
 
@@ -148,11 +149,17 @@
 - [ ] `M5-06` 会话页产品化（对话模式真实化；第一轮"会话页接真实面"完成，
       2026-09-27，[DEC-025](../decisions/DEC-025-session-page-productization.md)：
       签派栏 / 线程流 / 观察台接 `session.*` 与任务快照契约路径，模拟域退出
-      会话页，对话模式如实降级，wire 零变更）：会话列表 / 管理接 `session.*`；
-      消息流真实渲染（M1.5 模拟域演示语义退出会话页）；观察台真实化——
-      运行时间线 / 观察流直连任务快照与事件，视觉状态呈现与订阅演进（M3
-      非目标兑现：视觉参考进入 UI 观察面；观察面协议附加扩展挂账
-      DEC-025 挂账①，golden v5 → v6 另立增量）。
+      会话页，对话模式如实降级，wire 零变更；第二轮"观察面协议扩展批次"
+      完成，2026-09-28，
+      [DEC-026](../decisions/DEC-026-observation-face-and-definition-read.md)：
+      观察面协议附加扩展（`desktop.observe` + `ObservationView`，语义快照
+      投影 / 视觉状态 / `visual_snapshot_ref` 进 UI 观察面，M3 非目标兑现）
+      与工作流定义读取面（`workflow.get`，编辑器跨会话编辑），golden
+      v5 → v6，步级运行事件与会话管理面评估后挂账）：会话列表 / 管理接
+      `session.*`；消息流真实渲染（M1.5 模拟域演示语义退出会话页）；观察台
+      真实化——运行时间线 / 观察流直连任务快照与事件，视觉状态呈现与订阅
+      演进；对话模式真实化挂账 DEC-025 挂账③（DEC-008 迁移路径第二步，
+      与 M5-08 设置-模型类目联动）。
 - [ ] `M5-07` 批准中心与权限管理产品化：批准中心接异步确认面（`M5-03`）；
       设置页权限策略配置（每能力 `allow` / `confirm` / `deny`、资源范围、
       默认策略收紧——DEC-010）；权限策略持久化（DEC-011 Desktop
@@ -1015,3 +1022,78 @@ ToolCall 执行路径）完成（[DEC-024](../decisions/DEC-024-desktop-atom-too
   契约路径场景）+ build 全绿（wire 未变，golden 仍 v5）。
 - windows msvc (full tree)：全树构建 + 测试通过。
 - 合并裁决：维护者（PR [#57](https://github.com/Linductor-alkaid/mirage/pull/57)）。
+
+2026-09-28：`M5-06` 第二轮——观察面协议扩展批次完成（协议 v1 附加扩展，
+[DEC-026](../decisions/DEC-026-observation-face-and-definition-read.md) 新增，
+Accepted；golden `meta.version` 5 → 6；CI 结论按仓库先例由下一工作项 PR 补录）。
+
+- 范围：
+  - **决策记录**：DEC-026——批次构成评估（观察面 / 定义读取面进入，步级运
+    行事件与会话管理面评估后挂账）；观察面 = `desktop.observe` 按需请求，
+    无事件形态（M1 驱动形态无观察生产者，驱动器观察数据投影评估结论）；
+    请求即必须（被请求组件不可交付即整个请求 `unavailable`，不静默残缺）；
+    语义快照投影 1024 节点 wire 预算 + `truncated` 显式标记；`workflow.get`
+    = 服务侧产品目录保留 head 定义正文（pinned 库无正文读取 API 是 W-03 上
+    游设计非缺口）；会话管理面上游核对结论（`session.close` 挂账、重命名
+    产品别名 M5-08、导出客户端投影、fork 不立项）。
+  - **协议 v1 附加扩展**（DEC-012 流程，传输 / 帧格式 / 版本号不变）：请求
+    `desktop.observe` / `workflow.get`；hello `observation` 能力通告；
+    `mirage-ipc-protocol-v1.md` §4 / §6.1 / §6.6（新）/ §10 同步，golden
+    vectors `meta.version` 5 → 6（requests +3、request_failures +4、
+    responses +4、response_failures +5，双端门禁同一文件）。
+  - **runtime/service**：观察处理器（serial 域经 `ObservationAssembler` 按
+    需捕获，视觉组件自 `ServiceConfig.visual_registry` 显式接线的注册表投
+    影，未接线即 fail closed；组件错误映射稳定 `unavailable` 并命名原因）；
+    `workflow.get` 处理器（产品目录条目扩展 head 定义正文的保留，
+    save/publish 同步写入）；hello `observation = true`。
+  - **TS 镜像**：`ui/contracts` 全量同步（类型 + 编解码 + 三个 transport +
+    golden 消费映射）；mock 服务新增 wire 忠实观察面（确定性模拟桌面数据，
+    `observationCapability` 降级构造 = 旧服务 unknown-op 形态）与定义读取
+    面（注册表内容回读 + unknown `not_found`）。
+  - **UI 消费**：观察台新增"桌面状态"面板（`desktop.observe` 按需快照，视
+    觉组件显式请求、错误如实呈现——M3 非目标"视觉参考进入 UI 观察面"兑
+    现）；工作流编辑器 `openWorkflowEditor` 经 `workflow.get` 跨会话回读水
+    合（`irToWorkflowDef` 逆映射，摘要投影字段仍以 `workflow.list` 为准，
+    回读失败保持只读并显式提示）——DEC-023 挂账①兑现，跨会话编辑限制解
+    除；`contentKnown` 守卫文案同步。
+- 依据：[DEC-025](../decisions/DEC-025-session-page-productization.md) 挂账
+  ①②、[DEC-023](../decisions/DEC-023-workflow-contract-face.md) 挂账①、
+  [DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)
+  （附加扩展流程与一致性模型）、
+  [DEC-016](../decisions/DEC-016-mirador-visual-integration-contract.md)
+  （视觉组件投影 / 注册表承载 / 不请求不点亮）、pinned 依据 `runtime.hpp`
+  （会话面核对：无 rename/fork，有 close_session）、`workflow_versioning.hpp`
+  （版本记录无正文核实）、`workflow_events.hpp`（步级事件词表核实）；
+  [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
+  §4 契约映射；本计划 `M5-06` 工作项。
+- 验证（本机 Linux，GCC 13.3 / Node 22）：
+  - 全树 debug 构建零告警；ctest **40/40 通过 0 skip**（新增
+    `observation_face_test` **47 检查**——Xvfb + AT-SPI 活拓扑上经 IPC 完成
+    hello `observation` 能力位、真实语义树投影（fixture 四节点 / focused
+    元素 / 标题）、`semantic=false` 跳过投影、visual 无注册表 fail closed
+    命名组件原因、注册表接线后 `@vs1` / `@v1` 视觉承载；`runtime_service_test`
+    增无头拓扑 fail closed 与 `workflow.get` unknown `not_found` 两场景；
+    `ipc_protocol_golden_test` **845 检查**含 v6 向量逐字节门禁；既有门禁零
+    回归）。
+  - `mirage-format-check`（clang-format）本机通过。
+  - ui：contracts + app 双包 `tsc --noEmit` 0 诊断；`npm test` **18 文件
+    658 测试通过**（golden-vectors 门禁消费同一 v6 vectors 文件，149 用例
+    两端同绿；新增 mock 观察面 / 定义读取面、ws 与 desktop 传输帧形状、
+    store 观察状态机与编辑器回读水合、`irToWorkflowDef` 往返场景）；
+    `npm run lint` 0 告警；`npm run build` 通过。
+  - Linux 五预设矩阵 / windows 作业随本 PR CI 取证（结论由后续记录补录）。
+- 限制与补跑条件：① 产品 `mirage-service` 未接线视觉管线，
+  `desktop.observe` 的视觉组件在产品拓扑下如实 `unavailable`（wire 面已
+  定形，点亮挂账 DEC-026 挂账①，与 Overlay / 采集产品化联动）；② 观察
+  捕获在 Windows 传输上的取证随 windows 作业 CI；③ `session.close` wire
+  面、步级运行事件、对话模式真实化、会话历史持久化分别挂账 DEC-026 /
+  DEC-023 / DEC-025 挂账，不阻塞本工作项收口。
+- 同步：[DEC-026](../decisions/DEC-026-observation-face-and-definition-read.md)
+  （新增）、[DEC-025](../decisions/DEC-025-session-page-productization.md)
+  （挂账①②兑现与结论留痕）、
+  [DEC-023](../decisions/DEC-023-workflow-contract-face.md)（挂账①兑现留
+  痕）、[mirage-ipc-protocol-v1.md](../design/mirage-ipc-protocol-v1.md)
+  （§4 / §6.1 / §6.6 / §10）、
+  [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
+  §4 与变更记录、ui/README（观察面与定义读取面接口缝）、
+  [总计划](mirage-implementation-plan.md) 状态叙述与决策表。

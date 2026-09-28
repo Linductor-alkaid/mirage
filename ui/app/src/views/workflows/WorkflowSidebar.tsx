@@ -16,7 +16,7 @@ const GROUP_LABELS: Record<GroupKey, string> = {
 };
 
 export function WorkflowSidebar(): React.ReactElement {
-    const { state, navigate, runWorkflow, createWorkflow, renameWorkflow, deleteWorkflow, exportWorkflowJson } = useHarness();
+    const { state, runWorkflow, createWorkflow, renameWorkflow, deleteWorkflow, exportWorkflowJson, openWorkflowEditor } = useHarness();
     const [query, setQuery] = useState('');
     const [menuFor, setMenuFor] = useState<string | null>(null);
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -101,7 +101,7 @@ export function WorkflowSidebar(): React.ReactElement {
                                             <button
                                                 type="button"
                                                 className={`sess-item ${isActive ? 'is-active' : ''}`}
-                                                onClick={() => navigate({ view: 'workflow-editor', workflowId: w.id })}
+                                                onClick={() => openWorkflowEditor(w.id)}
                                             >
                                                 <span className="s-title">{w.name}</span>
                                                 <span className={`badge ${w.published ? 'is-success' : 'is-warning'}`} style={{ height: 16, fontSize: 10 }}>

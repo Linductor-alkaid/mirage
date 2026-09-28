@@ -74,6 +74,10 @@ export type WorkflowRunState =
  * default. */
 export type WorkflowPolicyName = 'strict' | 'recoverable' | 'agent_assisted' | 'interactive' | 'dry_run';
 
+/** Visual-region provenance vocabulary (DEC-026): the desktop layer's
+ * VisualRegionSource set in stable lowercase wire form. */
+export type ObservationRegionSource = 'ocr' | 'detector' | 'template' | 'geometry';
+
 /** Workflow validation vocabulary (DEC-023): the pinned
  * WorkflowValidationResult of a workflow's head version; only
  * `dry_run_passed` / `validated` heads are runnable (W-04). */
@@ -121,15 +125,25 @@ export type RequestBody =
           /** Absent uses the definition default policy. */
           policy?: WorkflowPolicyName;
       }
-    | { op: 'workflow.cancel'; run_id: string };
+    | { op: 'workflow.cancel'; run_id: string }
+    /** Definition read face (DEC-026, M5-06; DEC-023 backlog 1): the head
+     * definition content the service last saved or published. */
+    | { op: 'workflow.get'; workflow_id: string }
+    /** On-demand desktop observation (DEC-026, M5-06). `semantic` defaults
+     * on, `visual` off (DEC-016: the visual surface stays dark unless asked);
+     * requested components are mandatory — an unavailable one fails the
+     * request with the stable `unavailable` error. No event form exists: the
+     * M1 driver form has no observation producer to stream from. */
+    | { op: 'desktop.observe'; semantic?: boolean; visual?: boolean };
 
 // ---------------------------------------------------------------------------
 // Responses (service -> client)
 // ---------------------------------------------------------------------------
 
 /** hello payload; `events` is the DEC-012 capability flag, `permissions` the
- * DEC-020 async confirmation flag, `sessions` the DEC-021 session-face flag
- * and `workflows` the DEC-023 workflow-face flag (absent = false for all). */
+ * DEC-020 async confirmation flag, `sessions` the DEC-021 session-face flag,
+ * `workflows` the DEC-023 workflow-face flag and `observation` the DEC-026
+ * observation-face flag (absent = false for all). */
 export interface ServiceIdentity {
     service: string;
     mirage_version: string;
@@ -140,6 +154,7 @@ export interface ServiceIdentity {
     permissions?: boolean;
     sessions?: boolean;
     workflows?: boolean;
+    observation?: boolean;
 }
 
 export interface TaskSubmitted {
@@ -244,6 +259,78 @@ export interface WorkflowRunSummary {
     created_at_ms: number;
 }
 
+/** One workflow's head definition as reported by workflow.get (DEC-026):
+ * the IR v1 JSON the service last saved or published, addressable by
+ * `digest` (W-03). Editors rebuild their working copy from it — the
+ * cross-session editing face. */
+export interface WorkflowDefinitionView {
+    workflow_id: string;
+    digest: string;
+    definition: Record<string, unknown>;
+}
+
+/** Rectangle in global desktop coordinates (DEC-026 observation projection;
+ * the desktop layer's WindowGeometry as a plain wire object). */
+export interface ObservationGeometry {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+/** One node of the observation semantic snapshot (DEC-026). `parent` is the
+ * node's index into the projected `nodes` array, -1 at roots. Producer-side
+ * scoring fields stay off the wire (no UI consumer — DEC-023 discipline). */
+export interface ObservationNode {
+    ref: string;
+    role: string;
+    name: string;
+    description: string;
+    parent: number;
+    geometry: ObservationGeometry;
+    focused: boolean;
+    enabled: boolean;
+}
+
+/** The semantic component of the observation projection (DEC-026);
+ * `truncated` marks nodes beyond the service's 1024-node wire budget —
+ * incompleteness is explicit, never silent. */
+export interface ObservationSemantic {
+    application: string;
+    window_title: string;
+    nodes: ObservationNode[];
+    truncated: boolean;
+}
+
+/** One visual object of the observation projection (DEC-026): a region of
+ * the published visual generation; `ref` is the executable "@vN" handle. */
+export interface ObservationRegion {
+    ref: string;
+    source: ObservationRegionSource;
+    geometry: ObservationGeometry;
+    text: string;
+    template_id: string;
+}
+
+/** One on-demand observation as reported by desktop.observe (DEC-026). The
+ * frame members are always present; `semantic` is present when requested
+ * and captured; `visual_snapshot_ref` + `visual_regions` are a co-present
+ * pair (the M3 non-goal's "visual references enter the UI observation
+ * face" carrier). Point-in-time capture — snapshots are the only truth. */
+export interface ObservationView {
+    active_application: string;
+    active_window: string;
+    window_geometry: ObservationGeometry;
+    window_focused: boolean;
+    focused_element: string;
+    pointer_x: number;
+    pointer_y: number;
+    environment_state: string;
+    semantic?: ObservationSemantic;
+    visual_snapshot_ref?: string;
+    visual_regions?: ObservationRegion[];
+}
+
 /** Successful response payload, discriminated exactly like the C++ variant. */
 export type ResponsePayload =
     | { kind: 'identity'; value: ServiceIdentity }
@@ -270,7 +357,9 @@ export type ResponsePayload =
     | { kind: 'workflow-atom-catalog'; value: { tools: ExposedTool[] } }
     | { kind: 'workflow-run-list'; value: { runs: WorkflowRunSummary[] } }
     | { kind: 'workflow-run-started'; value: { run_id: string } }
-    | { kind: 'workflow-run-cancelled'; value: { run_id: string; state: WorkflowRunState } };
+    | { kind: 'workflow-run-cancelled'; value: { run_id: string; state: WorkflowRunState } }
+    | { kind: 'workflow-get'; value: WorkflowDefinitionView }
+    | { kind: 'observation-view'; value: ObservationView };
 
 /** Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc
  * domain; `pinned_runtime` is the verbatim passthrough shape used when the

@@ -94,6 +94,8 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 | `workflow.runs` | 无（M5-05 落地） | `{"runs":[WorkflowRunSummary...]}`（§6.5，可为空数组） | — |
 | `workflow.run` | `workflow_id`（string，非空），`digest`（可选 string，非空；缺省取 head），`parameters`（可选 object），`policy`（可选封闭策略名，§6.5；M5-05 落地） | `{"run_id"}`（§6.5） | `not_found`（未知工作流）、`unavailable`（运行注册表饱和，§6.5）、`pinned_runtime`（准入 / 提交拒绝，透传） |
 | `workflow.cancel` | `run_id`（string，非空，M5-05 落地） | `{"run_id","state"}`（§6.5） | `pinned_runtime`（透传；幂等取消含终态重申） |
+| `workflow.get` | `workflow_id`（string，非空，M5-06 落地，DEC-026） | `{"workflow_id","digest","definition"}`（§6.6） | `not_found`（未知工作流） |
+| `desktop.observe` | `semantic`（可选 boolean，缺省 true）、`visual`（可选 boolean，缺省 false；M5-06 落地，DEC-026；编码端恒写出两成员） | `ObservationView`（§6.6） | `unavailable`（环境未绑定或被请求组件不可交付，fail closed） |
 
 协议层（`decode_request`）只约束参数的存在与类型（如 `task.submit` 缺 `goal` 即
 `protocol_error`）；空值等语义校验发生在服务层，产出表中 `invalid_argument` 等稳定错误。
@@ -136,6 +138,7 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 | `permissions` | boolean（可选） | DEC-020 异步确认面能力通告（`permission.*` 请求面可用）：语义与 `events` 相同（编码端总是写出、解码端缺省 `false`）。置于 `events` 之后 |
 | `sessions` | boolean（可选） | DEC-021 会话面能力通告（`session.*` 请求面可用）：语义与 `events` 相同。置于 `permissions` 之后 |
 | `workflows` | boolean（可选） | DEC-023 工作流面能力通告（`workflow.*` 请求面可用）：语义与 `events` 相同。置于 `sessions` 之后 |
+| `observation` | boolean（可选） | DEC-026 观察面能力通告（`desktop.observe` 请求面可用）：语义与 `events` 相同。置于 `workflows` 之后 |
 
 ### 6.2 `InspectTask`（task.inspect 响应载荷，嵌于 `task` 成员）
 
@@ -276,6 +279,59 @@ exhausted (N)"` / `"workflow run registry capacity exhausted (N)"`）。删除�
 重启即空，在此之上不宣称持久化（DEC-023）。`workflow.runs` 是运行状态快照事实源，
 事件是通知。
 
+### 6.6 观察面与定义读取面载荷（M5-06，DEC-026）
+
+`workflow.get` 成功载荷：`{"workflow_id","digest","definition"}`。`definition` 为
+该工作流 head 版本的 Workflow IR v1 JSON 对象（服务侧产品目录保留的最近一次
+save / publish 内容；pinned 库仅存版本记录、无定义正文读取 API，W-03），`digest`
+为其内容寻址摘要。未知 id 回 `not_found`（`"unknown workflow id"`）。该请求面
+兑现 DEC-023 挂账①（编辑器跨会话读取与编辑）。
+
+`desktop.observe` 成功载荷（`ObservationView`，成员按 wire 顺序）——按需捕获的
+桌面观察投影，快照语义、无事件形态（M1 驱动形态无观察生产者，DEC-026）：
+
+| 成员 | 类型 | 约束 |
+| --- | --- | --- |
+| `active_application` | string | 可为空（未知应用） |
+| `active_window` | string | 可为空（无前台窗口） |
+| `window_geometry` | object | `{"x","y","width","height"}`，整数（全局桌面坐标） |
+| `window_focused` | boolean | — |
+| `focused_element` | string | 可为空 |
+| `pointer_x` / `pointer_y` | integer | 全局桌面坐标 |
+| `environment_state` | string | 后端环境摘要，可为空 |
+| `semantic` | object（可选） | encode-when-set：请求且捕获成功时写出 |
+| `visual_snapshot_ref` | string（可选） | encode-when-set：与 `visual_regions` 同现同缺 |
+| `visual_regions` | array（可选） | encode-when-set：与 `visual_snapshot_ref` 同现同缺 |
+
+`semantic`（语义快照投影，成员按 wire 顺序）：`application` / `window_title`
+（均可为空）、`nodes`、`truncated`（boolean）。`nodes[i]`：
+
+| 成员 | 类型 | 约束 |
+| --- | --- | --- |
+| `ref` | string | 非空；"@eN"，本快照内稳定 |
+| `role` / `name` / `description` | string | role 为平台稳定小写词表；name / description 可为空 |
+| `parent` | integer | 节点在 `nodes` 内的下标；根为 -1 |
+| `geometry` | object | 同 `window_geometry` |
+| `focused` / `enabled` | boolean | — |
+
+服务侧投影预算 1024 节点（`kObservationNodeWireBudget`）：超出以 `truncated`
+显式标记（服务端快照本身完整，截断只发生在 wire 视图，RULE-07）。生产方置信度
+等无 UI 消费方的字段不进入 wire（按需附加纪律）。
+
+`visual_regions[i]`：
+
+| 成员 | 类型 | 约束 |
+| --- | --- | --- |
+| `ref` | string | 非空；"@vN"，可执行视觉引用 |
+| `source` | string | 封闭词表（pinned VisualRegionSource 稳定名）：`ocr` / `detector` / `template` / `geometry` |
+| `geometry` | object | 同 `window_geometry`（全局桌面坐标） |
+| `text` / `template_id` | string | OCR 文本 / 缓存模板 id，可为空 |
+
+`desktop.observe` 语义：`semantic` 缺省 true、`visual` 缺省 false（DEC-016：不
+请求不点亮视觉面）；请求即必须——被请求组件不可交付（环境未绑定、视觉注册表
+未接线或无已发布代次、捕获失败）时整个请求以 `unavailable` 失败并命名组件原因，
+不返回静默残缺的观察。响应是时点捕获；快照是唯一事实源，无事件流、无回补。
+
 ## 7. 事件扩展（DEC-012，wire 语义自 `M1.5-02` 落地起冻结）
 
 ### 7.1 订阅
@@ -360,6 +416,15 @@ TypeScript 消费者 `ui/contracts/test/golden-vectors.test.ts` 读取**同一�
 
 ## 10. 变更记录
 
+- 2026-09-28（`M5-06` 第二轮）：观察面与工作流定义读取面附加扩展（DEC-026，
+  协议版本不递增）。§4 新增 `workflow.get` / `desktop.observe`；§6.1 新增
+  `observation` 能力通告成员；§6.6（新）新增 `WorkflowDefinitionView` 载荷
+  （head 定义内容自服务侧产品目录，pinned 库无定义正文读取 API）与
+  `ObservationView` 载荷（帧成员 + 语义快照投影（1024 节点 wire 预算 +
+  `truncated` 显式标记）+ `visual_snapshot_ref` / `visual_regions` 同现同缺
+  的视觉承载——M3 非目标"视觉参考进入 UI 观察面"兑现）。golden vectors：
+  requests +3、request_failures +4、responses +4、response_failures +5，
+  失败向量锁定新稳定错误串（`meta.version` 5 → 6）。
 - 2026-09-27（`M5-05`）：工作流契约面附加扩展（DEC-023，协议版本不递增）。
   §4 新增 `workflow.list` / `workflow.save` / `workflow.publish` /
   `workflow.delete` / `workflow.atom.catalog` / `workflow.runs` / `workflow.run` /

@@ -7,12 +7,13 @@
 /// below is mock-only, documented, and never produced by the real service.
 
 import { BoundedEventQueue } from '../events.js';
-import type { EventListener, MirageTransport, SessionHistoryInput, SubmitTaskInput, WorkflowDefinition, WorkflowStartInput } from '../transport.js';
+import type { DesktopObserveInput, EventListener, MirageTransport, SessionHistoryInput, SubmitTaskInput, WorkflowDefinition, WorkflowStartInput } from '../transport.js';
 import { IpcRequestError, TransportClosedError } from '../transport.js';
 import type {
     ExposedTool,
     HostStatus,
     InspectTask,
+    ObservationView,
     ServerEvent,
     ServiceIdentity,
     SessionHistoryEntry,
@@ -20,6 +21,7 @@ import type {
     StepView,
     TaskProgress,
     TaskSummary,
+    WorkflowDefinitionView,
     WorkflowRunState,
     WorkflowRunSummary,
     WorkflowSummary,
@@ -46,6 +48,10 @@ export interface MockServiceOptions {
     /** When false, hello omits the `sessions` capability (DEC-021) —
      * drives the UI's session-face fallback path (DEC-025). */
     sessionsCapability?: boolean;
+    /** When false, hello omits the `observation` capability (DEC-026) and
+     * desktop.observe fails with the old-server unknown-op shape — drives
+     * the UI's observation-face fallback path. */
+    observationCapability?: boolean;
     /** 'auto' (default) flushes queues via microtasks; 'manual' only
      * enqueues until flush() is called — the deterministic hook for
      * overflow tests. */
@@ -355,7 +361,7 @@ export class MockMirageService {
     private nextSessionNumber = 1;
     private closed = false;
     private readonly options: Required<
-        Pick<MockServiceOptions, 'stepDurationMs' | 'hostStartDelayMs' | 'shutdownDelayMs' | 'taskCapacity' | 'eventQueueCapacity' | 'eventsCapability' | 'workflowsCapability' | 'sessionsCapability' | 'flushMode'>
+        Pick<MockServiceOptions, 'stepDurationMs' | 'hostStartDelayMs' | 'shutdownDelayMs' | 'taskCapacity' | 'eventQueueCapacity' | 'eventsCapability' | 'workflowsCapability' | 'sessionsCapability' | 'observationCapability' | 'flushMode'>
     >;
 
     constructor(options: MockServiceOptions = {}) {
@@ -368,6 +374,7 @@ export class MockMirageService {
             eventsCapability: options.eventsCapability ?? true,
             workflowsCapability: options.workflowsCapability ?? true,
             sessionsCapability: options.sessionsCapability ?? true,
+            observationCapability: options.observationCapability ?? true,
             flushMode: options.flushMode ?? 'auto',
         };
         // DEC-021: the primary session enters the registry up front, so
@@ -446,6 +453,9 @@ export class MockMirageService {
         }
         if (this.options.sessionsCapability) {
             identity.sessions = true;
+        }
+        if (this.options.observationCapability) {
+            identity.observation = true;
         }
         return identity;
     }
@@ -721,6 +731,104 @@ export class MockMirageService {
         }
         this.workflows.delete(workflowId);
         return { workflow_id: workflowId };
+    }
+
+    /** The definition read face (DEC-026): the mock registry already keeps
+     * the definition content it was given, so the read projects it verbatim
+     * — the same product-catalog shape the real service serves. */
+    workflowGet(workflowId: string): WorkflowDefinitionView {
+        this.assertOpen();
+        const entry = this.workflows.get(workflowId);
+        if (entry === undefined) {
+            throw new IpcRequestError('not_found', 'unknown workflow id');
+        }
+        return { workflow_id: workflowId, digest: entry.digest, definition: entry.definition };
+    }
+
+    /** The observation face (DEC-026): a deterministic simulated-desktop
+     * capture with the exact wire shape — frame members always, the
+     * semantic snapshot per request, and the co-present visual pair per
+     * request (a published generation exists in the mock topology). No
+     * event form exists on the wire, so none is simulated. */
+    desktopObserve(input: DesktopObserveInput = {}): ObservationView {
+        this.assertOpen();
+        if (!this.options.observationCapability) {
+            throw new IpcRequestError('protocol_error', "unknown op 'desktop.observe'");
+        }
+        if (this.hostStatus !== 'running') {
+            throw new IpcRequestError('unavailable', 'no desktop environment bound');
+        }
+        const semantic = input.semantic ?? true;
+        const visual = input.visual ?? false;
+        const view: ObservationView = {
+            active_application: 'Mock Studio',
+            active_window: 'simulated desktop — session workbench',
+            window_geometry: { x: 0, y: 0, width: 1280, height: 800 },
+            window_focused: true,
+            focused_element: '@e2',
+            pointer_x: 640,
+            pointer_y: 400,
+            environment_state: 'mock',
+        };
+        if (semantic) {
+            view.semantic = {
+                application: 'Mock Studio',
+                window_title: 'simulated desktop — session workbench',
+                nodes: [
+                    {
+                        ref: '@e1',
+                        role: 'panel',
+                        name: 'sidebar',
+                        description: '',
+                        parent: -1,
+                        geometry: { x: 0, y: 0, width: 220, height: 800 },
+                        focused: false,
+                        enabled: true,
+                    },
+                    {
+                        ref: '@e2',
+                        role: 'editor',
+                        name: 'task composer',
+                        description: 'simulated composer surface',
+                        parent: -1,
+                        geometry: { x: 240, y: 32, width: 800, height: 480 },
+                        focused: true,
+                        enabled: true,
+                    },
+                    {
+                        ref: '@e3',
+                        role: 'button',
+                        name: 'submit',
+                        description: '',
+                        parent: -1,
+                        geometry: { x: 960, y: 520, width: 96, height: 32 },
+                        focused: false,
+                        enabled: true,
+                    },
+                ],
+                truncated: false,
+            };
+        }
+        if (visual) {
+            view.visual_snapshot_ref = '@vs1';
+            view.visual_regions = [
+                {
+                    ref: '@v1',
+                    source: 'ocr',
+                    geometry: { x: 240, y: 32, width: 320, height: 28 },
+                    text: 'session workbench',
+                    template_id: '',
+                },
+                {
+                    ref: '@v2',
+                    source: 'template',
+                    geometry: { x: 960, y: 520, width: 96, height: 32 },
+                    text: '',
+                    template_id: 'cache:submit',
+                },
+            ];
+        }
+        return view;
     }
 
     workflowAtomCatalog(): ExposedTool[] {
@@ -1207,6 +1315,10 @@ export class MockTransport implements MirageTransport {
         return this.service.hello().sessions === true;
     }
 
+    get observationSupported(): boolean {
+        return this.service.hello().observation === true;
+    }
+
     hello(): Promise<ServiceIdentity> {
         return this.call(() => this.service.hello());
     }
@@ -1265,6 +1377,14 @@ export class MockTransport implements MirageTransport {
 
     cancelWorkflowRun(runId: string): Promise<{ run_id: string; state: WorkflowRunState }> {
         return this.call(() => this.service.workflowCancel(runId));
+    }
+
+    getWorkflow(workflowId: string): Promise<WorkflowDefinitionView> {
+        return this.call(() => this.service.workflowGet(workflowId));
+    }
+
+    desktopObserve(input: DesktopObserveInput = {}): Promise<ObservationView> {
+        return this.call(() => this.service.desktopObserve(input));
     }
 
     listSessions(): Promise<SessionSummary[]> {

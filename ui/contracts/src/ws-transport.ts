@@ -17,6 +17,7 @@ import { classifyFrame, decodeEvent, decodeResponse, encodeRequest } from './cod
 import { decodeUtf8, makeFrame, tryExtractFrame } from './framing.js';
 import type {
     EventListener,
+    DesktopObserveInput,
     MirageTransport,
     SessionHistoryInput,
     SubmitTaskInput,
@@ -27,6 +28,7 @@ import { IpcRequestError, TransportClosedError } from './transport.js';
 import type {
     ExposedTool,
     InspectTask,
+    ObservationView,
     RequestBody,
     ResponsePayload,
     ServiceIdentity,
@@ -34,6 +36,7 @@ import type {
     SessionSummary,
     TaskProgress,
     TaskSummary,
+    WorkflowDefinitionView,
     WorkflowRunState,
     WorkflowRunSummary,
     WorkflowSummary,
@@ -119,6 +122,10 @@ export class WsBridgeTransport implements MirageTransport {
 
     get sessionsSupported(): boolean {
         return this.identity?.sessions === true;
+    }
+
+    get observationSupported(): boolean {
+        return this.identity?.observation === true;
     }
 
     /** Registers a callback fired once per unexpected connection loss after
@@ -266,6 +273,25 @@ export class WsBridgeTransport implements MirageTransport {
         const payload = await this.request({ op: 'workflow.cancel', run_id: runId }, 'workflow-run-cancelled');
         return (payload as { kind: 'workflow-run-cancelled'; value: { run_id: string; state: WorkflowRunState } })
             .value;
+    }
+
+    async getWorkflow(workflowId: string): Promise<WorkflowDefinitionView> {
+        const payload = await this.request({ op: 'workflow.get', workflow_id: workflowId }, 'workflow-get');
+        return (payload as { kind: 'workflow-get'; value: WorkflowDefinitionView }).value;
+    }
+
+    // -- observation face (DEC-026) --------------------------------------------
+
+    async desktopObserve(input: DesktopObserveInput = {}): Promise<ObservationView> {
+        const payload = await this.request(
+            {
+                op: 'desktop.observe',
+                ...(input.semantic !== undefined ? { semantic: input.semantic } : {}),
+                ...(input.visual !== undefined ? { visual: input.visual } : {}),
+            },
+            'observation-view',
+        );
+        return (payload as { kind: 'observation-view'; value: ObservationView }).value;
     }
 
     async subscribe(listener: EventListener): Promise<void> {

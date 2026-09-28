@@ -8,6 +8,11 @@ import type {
     ExposedTool,
     HostStatus,
     InspectTask,
+    ObservationGeometry,
+    ObservationNode,
+    ObservationRegion,
+    ObservationRegionSource,
+    ObservationView,
     PendingPermission,
     RequestBody,
     ResponseEnvelop,
@@ -91,6 +96,13 @@ const WORKFLOW_VALIDATIONS: readonly WorkflowValidation[] = [
     'dry_run_passed',
     'validated',
     'rejected',
+];
+/** Closed visual-region provenance vocabulary (DEC-026). */
+const OBSERVATION_REGION_SOURCES: readonly ObservationRegionSource[] = [
+    'ocr',
+    'detector',
+    'template',
+    'geometry',
 ];
 /** Closed Capability vocabulary (DEC-010 / DEC-020) carried by
  * permission.request events and permission.list entries. */
@@ -227,6 +239,18 @@ export function encodeRequest(id: number, body: RequestBody): string {
             object.op = 'workflow.cancel';
             object.run_id = body.run_id;
             break;
+        case 'workflow.get':
+            object.op = 'workflow.get';
+            object.workflow_id = body.workflow_id;
+            break;
+        case 'desktop.observe': {
+            object.op = 'desktop.observe';
+            // Both flags always write: the defaults (semantic on, visual off)
+            // are part of the request's pinned canonical form.
+            object.semantic = body.semantic ?? true;
+            object.visual = body.visual ?? false;
+            break;
+        }
     }
     return JSON.stringify(object);
 }
@@ -443,6 +467,34 @@ export function decodeRequest(payload: string): RequestDecode {
             }
             return { ok: true, id, body: { op: 'workflow.cancel', run_id: runId } };
         }
+        case 'workflow.get': {
+            const workflowId = asString(parsed.workflow_id);
+            if (workflowId === null || workflowId.length === 0) {
+                return { ok: false, error: "workflow.get requires a non-empty 'workflow_id'" };
+            }
+            return { ok: true, id, body: { op: 'workflow.get', workflow_id: workflowId } };
+        }
+        case 'desktop.observe': {
+            // Both flags are optional on the wire (absent keeps the default:
+            // semantic on, visual off) and must be booleans when present.
+            let semantic = true;
+            if (parsed.semantic !== undefined) {
+                const flag = asBoolean(parsed.semantic);
+                if (flag === null) {
+                    return { ok: false, error: "desktop.observe 'semantic' must be a boolean" };
+                }
+                semantic = flag;
+            }
+            let visual = false;
+            if (parsed.visual !== undefined) {
+                const flag = asBoolean(parsed.visual);
+                if (flag === null) {
+                    return { ok: false, error: "desktop.observe 'visual' must be a boolean" };
+                }
+                visual = flag;
+            }
+            return { ok: true, id, body: { op: 'desktop.observe', semantic, visual } };
+        }
         case 'session.history': {
             const sessionId = asString(parsed.session_id);
             if (sessionId === null || sessionId.length === 0) {
@@ -521,6 +573,9 @@ export function encodeResponse(response: ResponseEnvelop): string {
                 }
                 if (value.workflows !== undefined) {
                     object.workflows = value.workflows;
+                }
+                if (value.observation !== undefined) {
+                    object.observation = value.observation;
                 }
                 break;
             }
@@ -630,6 +685,37 @@ export function encodeResponse(response: ResponseEnvelop): string {
                 object.run_id = payload.value.run_id;
                 object.state = payload.value.state;
                 break;
+            case 'workflow-get':
+                object.workflow_id = payload.value.workflow_id;
+                object.digest = payload.value.digest;
+                object.definition = payload.value.definition;
+                break;
+            case 'observation-view': {
+                const value = payload.value;
+                object.active_application = value.active_application;
+                object.active_window = value.active_window;
+                object.window_geometry = value.window_geometry;
+                object.window_focused = value.window_focused;
+                object.focused_element = value.focused_element;
+                object.pointer_x = value.pointer_x;
+                object.pointer_y = value.pointer_y;
+                object.environment_state = value.environment_state;
+                if (value.semantic !== undefined) {
+                    object.semantic = {
+                        application: value.semantic.application,
+                        window_title: value.semantic.window_title,
+                        nodes: value.semantic.nodes,
+                        truncated: value.semantic.truncated,
+                    };
+                }
+                if (value.visual_snapshot_ref !== undefined) {
+                    object.visual_snapshot_ref = value.visual_snapshot_ref;
+                }
+                if (value.visual_regions !== undefined) {
+                    object.visual_regions = value.visual_regions;
+                }
+                break;
+            }
         }
     } else {
         object.ok = false;
@@ -644,6 +730,196 @@ export type ResponseDecode =
 
 function decodeStepView(value: unknown): Record<string, unknown> | null {
     return isRecord(value) ? value : null;
+}
+
+// --- observation projection decode helpers (DEC-026) ------------------------
+
+const FRAME_MEMBERS_ERROR =
+    "desktop.observe response requires the frame members 'active_window', " +
+    "'window_geometry', 'window_focused', 'focused_element', 'pointer_x', " +
+    "'pointer_y' and 'environment_state'";
+
+function decodeObservationGeometry(
+    value: unknown,
+    error: { text: string },
+): ObservationGeometry | null {
+    if (!isRecord(value)) {
+        error.text = 'observation geometry must be an object';
+        return null;
+    }
+    const x = asInteger(value.x);
+    const y = asInteger(value.y);
+    const width = asInteger(value.width);
+    const height = asInteger(value.height);
+    if (x === null || y === null || width === null || height === null) {
+        error.text = "observation geometry requires 'x', 'y', 'width' and 'height'";
+        return null;
+    }
+    return { x, y, width, height };
+}
+
+function decodeObservationNode(value: unknown, error: { text: string }): ObservationNode | null {
+    if (!isRecord(value)) {
+        error.text = 'observation semantic nodes must be objects';
+        return null;
+    }
+    const ref = asString(value.ref);
+    const role = asString(value.role);
+    const name = asString(value.name);
+    const description = asString(value.description);
+    const parent = asInteger(value.parent);
+    const focused = asBoolean(value.focused);
+    const enabled = asBoolean(value.enabled);
+    if (
+        ref === null ||
+        ref.length === 0 ||
+        role === null ||
+        name === null ||
+        description === null ||
+        parent === null ||
+        parent < -1 ||
+        focused === null ||
+        enabled === null
+    ) {
+        error.text =
+            "observation semantic nodes require 'ref', 'role', 'name', 'description', a " +
+            "'parent' index (>= -1), 'focused' and 'enabled'";
+        return null;
+    }
+    const geometry = decodeObservationGeometry(value.geometry, error);
+    if (geometry === null) {
+        return null;
+    }
+    return { ref, role, name, description, parent, geometry, focused, enabled };
+}
+
+function decodeObservationRegion(
+    value: unknown,
+    error: { text: string },
+): ObservationRegion | null {
+    if (!isRecord(value)) {
+        error.text = 'observation visual regions must be objects';
+        return null;
+    }
+    const ref = asString(value.ref);
+    const source = asString(value.source);
+    const text = asString(value.text);
+    const templateId = asString(value.template_id);
+    if (
+        ref === null ||
+        ref.length === 0 ||
+        source === null ||
+        text === null ||
+        templateId === null
+    ) {
+        error.text =
+            "observation visual regions require 'ref', 'source', 'geometry', 'text' and " +
+            "'template_id'";
+        return null;
+    }
+    if (!OBSERVATION_REGION_SOURCES.includes(source as ObservationRegionSource)) {
+        error.text = "observation visual region 'source' is not a known region source";
+        return null;
+    }
+    const geometry = decodeObservationGeometry(value.geometry, error);
+    if (geometry === null) {
+        return null;
+    }
+    return { ref, source: source as ObservationRegionSource, geometry, text, template_id: templateId };
+}
+
+function decodeObservationView(
+    parsed: Record<string, unknown>,
+    error: { text: string },
+): ObservationView | null {
+    const activeApplication = asString(parsed.active_application);
+    const activeWindow = asString(parsed.active_window);
+    const focusedElement = asString(parsed.focused_element);
+    const environmentState = asString(parsed.environment_state);
+    const pointerX = asInteger(parsed.pointer_x);
+    const pointerY = asInteger(parsed.pointer_y);
+    const windowFocused = asBoolean(parsed.window_focused);
+    if (
+        activeApplication === null ||
+        activeWindow === null ||
+        focusedElement === null ||
+        environmentState === null ||
+        pointerX === null ||
+        pointerY === null ||
+        windowFocused === null
+    ) {
+        error.text = FRAME_MEMBERS_ERROR;
+        return null;
+    }
+    const windowGeometry = decodeObservationGeometry(parsed.window_geometry, error);
+    if (windowGeometry === null) {
+        error.text = FRAME_MEMBERS_ERROR;
+        return null;
+    }
+    const view: ObservationView = {
+        active_application: activeApplication,
+        active_window: activeWindow,
+        window_geometry: windowGeometry,
+        window_focused: windowFocused,
+        focused_element: focusedElement,
+        pointer_x: pointerX,
+        pointer_y: pointerY,
+        environment_state: environmentState,
+    };
+    if (parsed.semantic !== undefined) {
+        const semantic = parsed.semantic;
+        if (!isRecord(semantic)) {
+            error.text = "desktop.observe 'semantic' must be an object";
+            return null;
+        }
+        const application = asString(semantic.application);
+        const windowTitle = asString(semantic.window_title);
+        const truncated = asBoolean(semantic.truncated);
+        if (application === null || windowTitle === null || truncated === null || !Array.isArray(semantic.nodes)) {
+            error.text =
+                "desktop.observe 'semantic' requires 'application', 'window_title', a 'nodes' " +
+                'array and \'truncated\'';
+            return null;
+        }
+        const nodes: ObservationNode[] = [];
+        for (const entry of semantic.nodes) {
+            const node = decodeObservationNode(entry, error);
+            if (node === null) {
+                return null;
+            }
+            nodes.push(node);
+        }
+        view.semantic = { application, window_title: windowTitle, nodes, truncated };
+    }
+    const hasVisualRef = parsed.visual_snapshot_ref !== undefined;
+    const hasVisualRegions = parsed.visual_regions !== undefined;
+    // The visual pair is co-present or co-absent; a half-carried visual
+    // component is a contract violation, never a partial projection.
+    if (hasVisualRef !== hasVisualRegions) {
+        error.text =
+            "desktop.observe 'visual_snapshot_ref' and 'visual_regions' are co-present";
+        return null;
+    }
+    if (hasVisualRef && hasVisualRegions) {
+        const visualSnapshotRef = asString(parsed.visual_snapshot_ref);
+        if (visualSnapshotRef === null || visualSnapshotRef.length === 0 || !Array.isArray(parsed.visual_regions)) {
+            error.text =
+                "desktop.observe requires a non-empty 'visual_snapshot_ref' and a " +
+                "'visual_regions' array";
+            return null;
+        }
+        const regions: ObservationRegion[] = [];
+        for (const entry of parsed.visual_regions) {
+            const region = decodeObservationRegion(entry, error);
+            if (region === null) {
+                return null;
+            }
+            regions.push(region);
+        }
+        view.visual_snapshot_ref = visualSnapshotRef;
+        view.visual_regions = regions;
+    }
+    return view;
 }
 
 function decodeInspect(value: unknown, error: { text: string }): InspectTask | null {
@@ -793,6 +1069,14 @@ export function decodeResponse(payload: string): ResponseDecode {
                 return { ok: false, error: "hello response 'workflows' must be a boolean" };
             }
             (identity as { workflows?: boolean }).workflows = workflows;
+        }
+        // DEC-026 observation-face capability member: same discipline.
+        if (parsed.observation !== undefined) {
+            const observation = asBoolean(parsed.observation);
+            if (observation === null) {
+                return { ok: false, error: "hello response 'observation' must be a boolean" };
+            }
+            (identity as { observation?: boolean }).observation = observation;
         }
         return {
             ok: true,
@@ -1177,6 +1461,45 @@ export function decodeResponse(payload: string): ResponseDecode {
         return {
             ok: true,
             response: { ok: true, id, payload: { kind: 'workflow-atom-catalog', value: { tools } } },
+        };
+    }
+    if (parsed.definition !== undefined) {
+        // WorkflowDefinitionView discriminates on "definition"; it also
+        // carries workflow_id + digest, so it must precede those branches.
+        if (!isRecord(parsed.definition)) {
+            return { ok: false, error: "workflow.get 'definition' must be an object" };
+        }
+        const workflowId = asString(parsed.workflow_id);
+        const digest = asString(parsed.digest);
+        if (workflowId === null || workflowId.length === 0 || digest === null || digest.length === 0) {
+            return {
+                ok: false,
+                error:
+                    "workflow.get response requires 'workflow_id', 'digest' and a 'definition' object",
+            };
+        }
+        return {
+            ok: true,
+            response: {
+                ok: true,
+                id,
+                payload: {
+                    kind: 'workflow-get',
+                    value: { workflow_id: workflowId, digest, definition: parsed.definition },
+                },
+            },
+        };
+    }
+    if (parsed.active_application !== undefined) {
+        // ObservationView discriminates on "active_application" — no other
+        // payload carries it.
+        const view = decodeObservationView(parsed, errorHolder);
+        if (view === null) {
+            return { ok: false, error: errorHolder.text };
+        }
+        return {
+            ok: true,
+            response: { ok: true, id, payload: { kind: 'observation-view', value: view } },
         };
     }
     if (parsed.dry_run_id !== undefined) {

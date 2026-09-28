@@ -289,3 +289,51 @@ describe('DesktopBridgeTransport', () => {
         await transport.close();
     });
 });
+
+// -- DEC-026 faces: workflow.get + desktop.observe -----------------------------
+
+describe('DesktopBridgeTransport DEC-026 faces', () => {
+    it('sends workflow.get and routes the definition view', async () => {
+        const { transport, bridge } = makeHarness();
+        const pending = transport.getWorkflow('5a4b3c2d1e0f4938576a5b4c3d2e1f0a');
+        expect(bridge.lastRequest().body).toEqual({
+            op: 'workflow.get',
+            workflow_id: '5a4b3c2d1e0f4938576a5b4c3d2e1f0a',
+        });
+        bridge.respondOk(1, {
+            kind: 'workflow-get',
+            value: {
+                workflow_id: '5a4b3c2d1e0f4938576a5b4c3d2e1f0a',
+                digest: 'cd'.repeat(32),
+                definition: { workflow_id: '5a4b3c2d1e0f4938576a5b4c3d2e1f0a', name: 'x', steps: [] },
+            },
+        });
+        const view = await pending;
+        expect(view.digest).toBe('cd'.repeat(32));
+        expect(view.definition.name).toBe('x');
+        await transport.close();
+    });
+
+    it('sends desktop.observe with explicit flags and routes the observation view', async () => {
+        const { transport, bridge } = makeHarness();
+        const pending = transport.desktopObserve({ semantic: false, visual: true });
+        expect(bridge.lastRequest().body).toEqual({ op: 'desktop.observe', semantic: false, visual: true });
+        bridge.respondOk(1, {
+            kind: 'observation-view',
+            value: {
+                active_application: 'Code',
+                active_window: 'main.rs',
+                window_geometry: { x: 0, y: 0, width: 1920, height: 1080 },
+                window_focused: false,
+                focused_element: '',
+                pointer_x: 0,
+                pointer_y: 0,
+                environment_state: 'x11',
+            },
+        });
+        const view = await pending;
+        expect(view.active_window).toBe('main.rs');
+        expect(view.visual_snapshot_ref).toBeUndefined();
+        await transport.close();
+    });
+});

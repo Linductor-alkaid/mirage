@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { WorkflowDef } from '../src/state/model.js';
 import { CONTROL_CONSTRUCTS, atomFromExposedTool } from '../src/state/workflow-backend.js';
-import { derivedVerificationParams, isSideEffectStep, predicateValue, workflowDefToIr } from '../src/state/workflow-ir.js';
+import { derivedVerificationParams, irToWorkflowDef, isSideEffectStep, predicateValue, workflowDefToIr } from '../src/state/workflow-ir.js';
 
 const ATOMS = new Map(
     [
@@ -257,5 +257,103 @@ describe('workflowDefToIr', () => {
         expect(predicateValue('le', '3.5')).toBe(3.5);
         expect(predicateValue('eq', ' hello ')).toBe('hello');
         expect(predicateValue('exists', '')).toBe(null);
+    });
+});
+
+describe('irToWorkflowDef (DEC-026 definition read face)', () => {
+    it('rebuilds an editable def from the IR the write path produced (round trip)', () => {
+        const atomsById = new Map([
+            ...CONTROL_CONSTRUCTS.map((a) => [a.id, a] as const),
+        ]);
+        const atom = atomFromExposedTool({
+            wire_name: 'desktop.filesystem.read_text',
+            version: '1.0.0',
+            description: 'read',
+            has_side_effects: false,
+            parameters_schema: {
+                type: 'object',
+                properties: { path: { type: 'string', description: 'path' } },
+                required: ['path'],
+            },
+        });
+        atomsById.set(atom.id, atom);
+
+        const def: WorkflowDef = {
+            id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            name: 'round-trip',
+            version: '草稿',
+            description: 'desc',
+            params: [{ name: 'path', required: true, description: '目标路径', type: 'string' }],
+            steps: [
+                {
+                    stepId: '11111111111111111111111111111111',
+                    atomId: 'desktop.filesystem.read_text',
+                    title: 'readme',
+                    kind: 'tool_call',
+                    detail: '',
+                    params: { path: 'README.md' },
+                    skipIf: { signal: 'run_parameter:skip', op: 'eq', value: 'true' },
+                },
+                {
+                    stepId: '22222222222222222222222222222222',
+                    atomId: 'ctl.loop',
+                    title: 'loop',
+                    kind: 'control',
+                    detail: '',
+                    loopMax: 4,
+                },
+            ],
+            successRate: 1,
+            published: false,
+            updatedAt: 0,
+            runnable: false,
+            contentKnown: true,
+        };
+        const ir = workflowDefToIr(def, atomsById);
+        const view = { workflow_id: def.id, digest: 'ab'.repeat(32), definition: ir };
+        const rebuilt = irToWorkflowDef(view);
+
+        expect(rebuilt.id).toBe(def.id);
+        expect(rebuilt.name).toBe(def.name);
+        expect(rebuilt.description).toBe(def.description);
+        expect(rebuilt.digest).toBe('ab'.repeat(32));
+        expect(rebuilt.contentKnown).toBe(true);
+        // 摘要投影字段以 workflow.list 为准，读取面不伪造。
+        expect(rebuilt.published).toBe(false);
+        expect(rebuilt.runnable).toBe(false);
+        expect(rebuilt.updatedAt).toBe(0);
+
+        // 参数：IR 参数原样回读（读取步骤无副作用，本例无派生谓词参数）。
+        const names = rebuilt.params.map((p) => p.name);
+        expect(names).toContain('path');
+
+        // 步骤：id / 标题 / 参数 / 谓词 / 回跳上限逐一还原。
+        expect(rebuilt.steps).toHaveLength(2);
+        const first = rebuilt.steps[0]!;
+        expect(first.stepId).toBe('11111111111111111111111111111111');
+        expect(first.atomId).toBe('desktop.filesystem.read_text');
+        expect(first.params).toEqual({ path: 'README.md' });
+        expect(first.skipIf).toEqual({ signal: 'run_parameter:skip', op: 'eq', value: 'true' });
+        const second = rebuilt.steps[1]!;
+        expect(second.kind).toBe('control');
+        expect(second.loopMax).toBe(4);
+    });
+
+    it('skips steps outside the IR v1 closed vocabulary instead of inventing content', () => {
+        const view = {
+            workflow_id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            digest: 'ab'.repeat(32),
+            definition: {
+                name: 'x',
+                steps: [
+                    { step_id: '1', name: 'alien', kind: 'teleport' },
+                    { step_id: '2', name: 'ok', kind: 'tool_call', arguments: { tool: 'desktop.process.execute', command: 'echo hi' } },
+                ],
+            },
+        };
+        const rebuilt = irToWorkflowDef(view);
+        expect(rebuilt.steps).toHaveLength(1);
+        expect(rebuilt.steps[0]!.stepId).toBe('2');
+        expect(rebuilt.steps[0]!.params).toEqual({ command: 'echo hi' });
     });
 });

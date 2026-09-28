@@ -403,11 +403,12 @@ Mirage Shell（统一应用壳）
 
 | 前端能力 | 现有契约 | 前瞻依赖（记录为契约工作项输入） |
 | --- | --- | --- |
-| 会话列表/管理 | `session.list` / `session.open` / `session.history`（M5-04，DEC-021）；hello `sessions` 能力位探测 | 已接线（M5-06 第一轮，DEC-025：列表快照 + 派生标题，新建经 `session.open`，容量饱和 `unavailable` 显式拒绝）；重命名 / 删除 / 导出 / fork 无 wire 面，挂账协议扩展评估（DEC-025 挂账②） |
+| 会话列表/管理 | `session.list` / `session.open` / `session.history`（M5-04，DEC-021）；hello `sessions` 能力位探测 | 已接线（M5-06 第一轮，DEC-025：列表快照 + 派生标题，新建经 `session.open`，容量饱和 `unavailable` 显式拒绝）；会话管理面评估结论随 DEC-026 决策 5：删除走 `session.close`（挂账下一增量）、重命名 = 产品别名（M5-08）、导出 = 客户端投影、fork 不立项 |
 | 会话消息流 | `session.message` / `session.turn` / `session.output` / `session.updated` 事件（M5-04，DEC-012 机制）；`session.history` 为含时间戳的重同步快照事实源 | 已接线（M5-06 第一轮，DEC-025）：user / outcome 入线程（history 基线 + message 增量 + sequence 去重）；增量输出在 M1 驱动形态为每步一份完整 chunk，流式化后同形状多 chunk（wire 不变）；turn / output 作观察台观察流事件源 |
 | 执行模式提交 | `task.submit`（M1） | 已满足最小闭环；对话模式依赖消息面 |
 | 批准中心 | `permission.request` 事件 + `permission.respond` / `permission.list`（M5-03，DEC-020）；hello `permissions` 能力位探测 | 确认等待预算提示用 `timeout_ms`（事件与快照均携带）；批准结果经 `task.updated` / `task.inspect` 步 trace 呈现 |
-| 工作流库/编辑器 | `workflow.list` / `workflow.save`（草稿 = `not_validated` 版本） / `workflow.publish`（DryRun 门禁 + 幂等） / `workflow.delete`（产品目录移除） / `workflow.atom.catalog`（pinned BuiltIn exposed view 承载，第一轮为空目录） / `workflow.runs` / `workflow.run` / `workflow.cancel`（M5-05 第一轮，DEC-023）；hello `workflows` 能力位探测 | 定义 JSON 为 IR v1 对象（256 KiB 预算）；`WorkflowBackend` IPC 适配器（编辑器接真实面）属 M5-05 第二轮 |
+| 工作流库/编辑器 | `workflow.list` / `workflow.save`（草稿 = `not_validated` 版本） / `workflow.publish`（DryRun 门禁 + 幂等） / `workflow.delete`（产品目录移除） / `workflow.atom.catalog`（pinned BuiltIn exposed view 承载） / `workflow.runs` / `workflow.run` / `workflow.cancel`（M5-05，DEC-023） / `workflow.get`（head 定义回读，M5-06 第二轮，DEC-026）；hello `workflows` 能力位探测 | 已接线（M5-05 第二轮 + M5-06 第二轮）：`WorkflowBackend` IPC 适配器 + `workflow.get` 跨会话回读水合（`irToWorkflowDef` 逆映射），编辑器跨会话编辑限制解除 |
+| 桌面状态观察 | `desktop.observe` 按需快照（M5-06 第二轮，DEC-026）；hello `observation` 能力位探测 | 已接线（M5-06 第二轮）：观察台"桌面状态"面板按需捕获（语义快照投影 + 视觉组件显式请求，请求即必须 fail closed）；wire 无事件形态（快照是唯一事实），观察流仍为会话事件尾随；产品视觉管线点亮挂账 DEC-026 挂账① |
 | 运行监控 | `workflow.run_updated` 事件 + `workflow.runs` 快照事实源（M5-05，DEC-023）；任务级仍为 `task.inspect`/`task.updated` | 已落地：事件由 pinned 工作流事件转译（started → running、settled → 终态 + summary）；步级 / patch / 决策事件按 UI 需求附加扩展 |
 | 设置-模型/记忆 | 无 | mira `ModelProfile`/`MemoryScope` 管理面经 IPC/持久化暴露 |
 | 状态栏主机态 | hello `host_status` / `host.status` 事件 | 已满足 |
@@ -428,6 +429,10 @@ Mirage Shell（统一应用壳）
 
 ## 6. 变更记录
 
+- 2026-09-28：`M5-06` 第二轮落地（[DEC-026](../decisions/DEC-026-observation-face-and-definition-read.md)）
+  ——§4 新增桌面状态观察行（`desktop.observe` + `ObservationView`，观察台桌面
+  状态面板）与工作流库/编辑器行更新（`workflow.get` 定义读取面，跨会话编辑
+  限制解除）；会话列表/管理行登记 DEC-026 决策 5 的会话管理面评估结论。
 - 2026-09-27：`M5-06` 第一轮落地（[DEC-025](../decisions/DEC-025-session-page-productization.md)）
   ——§3.3 SessionsSidebar / ThreadView / Composer 三条按契约路径更新（会话列表接
   `session.list`、线程 user/outcome 接会话面、对话模式在模型循环前如实降级、

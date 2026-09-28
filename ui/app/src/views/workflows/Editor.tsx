@@ -529,8 +529,8 @@ export function WorkflowEditor({ workflowId }: { workflowId: string }): React.Re
         {!wf.published && <span className="sim-note">草稿自动保存</span>}
         {!wf.runnable && <span className="badge is-muted" title="W-04：草稿版本不可被运行引用">不可运行</span>}
         {!wf.contentKnown && (
-          <span className="badge is-info" title="wire 无定义读取面：只有本会话创建/保存过的定义可编辑">
-            只读 · 无内容副本
+          <span className="badge is-info" title="定义内容尚未经 workflow.get 回读（DEC-026），回读失败时保持只读">
+            只读 · 内容未回读
           </span>
         )}
         <input

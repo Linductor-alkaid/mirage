@@ -1,10 +1,10 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 5,
+    "version": 6,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
-    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted)",
+    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted)",
     "consumers": [
       "tests/runtime/ipc_protocol_golden_test.cpp",
       "ui/contracts/test/golden-vectors.test.ts"
@@ -16,7 +16,8 @@
       "events and event_failures sections are consumed by both codecs since M1.5-02; hello-capability's events identity member encodes on both ends.",
       "v3 (M5-03): permission.* async confirmation surface (DEC-020) — permission.respond / permission.list requests, permission.request event, hello 'permissions' capability member; wire order pinned by schema doc sections 4, 6.1, 6.3 and 7.2.",
       "v4 (M5-04): session.* conversation face (DEC-021) — session.list / session.open / session.history requests, session.updated / session.message / session.turn / session.output events, task.submit optional session_id binding, TaskSubmitted session_id echo, hello 'sessions' capability member; wire order pinned by schema doc sections 4, 6.1, 6.4 and 7.2.",
-      "v5 (M5-05): workflow.* contract face (DEC-023) — workflow.list / workflow.save / workflow.publish / workflow.delete / workflow.atom.catalog / workflow.runs / workflow.run / workflow.cancel requests, workflow.run_updated event, hello 'workflows' capability member; wire order pinned by schema doc sections 4, 6.1, 6.5 and 7.2."
+      "v5 (M5-05): workflow.* contract face (DEC-023) — workflow.list / workflow.save / workflow.publish / workflow.delete / workflow.atom.catalog / workflow.runs / workflow.run / workflow.cancel requests, workflow.run_updated event, hello 'workflows' capability member; wire order pinned by schema doc sections 4, 6.1, 6.5 and 7.2.",
+      "v6 (M5-06): observation face + workflow definition read face (DEC-026) - desktop.observe request (optional semantic/visual booleans, encoder always writes both) with the ObservationView payload (frame members, optional semantic snapshot projection with a 1024-node wire budget and explicit truncated mark, co-present visual_snapshot_ref / visual_regions pair), workflow.get request with the WorkflowDefinitionView payload (head definition content from the service product catalog), hello 'observation' capability member; wire order pinned by schema doc sections 4, 6.1 and 6.6."
     ]
   },
   "requests": [
@@ -262,6 +263,35 @@
         "run_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a"
       },
       "canonical": "{\"v\":1,\"id\":27,\"op\":\"workflow.cancel\",\"run_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\"}"
+    },
+    {
+      "name": "workflow-get",
+      "id": 28,
+      "body": {
+        "op": "workflow.get",
+        "workflow_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a"
+      },
+      "canonical": "{\"v\":1,\"id\":28,\"op\":\"workflow.get\",\"workflow_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\"}"
+    },
+    {
+      "name": "desktop-observe",
+      "id": 29,
+      "body": {
+        "op": "desktop.observe",
+        "semantic": true,
+        "visual": false
+      },
+      "canonical": "{\"v\":1,\"id\":29,\"op\":\"desktop.observe\",\"semantic\":true,\"visual\":false}"
+    },
+    {
+      "name": "desktop-observe-visual",
+      "id": 30,
+      "body": {
+        "op": "desktop.observe",
+        "semantic": false,
+        "visual": true
+      },
+      "canonical": "{\"v\":1,\"id\":30,\"op\":\"desktop.observe\",\"semantic\":false,\"visual\":true}"
     }
   ],
   "request_failures": [
@@ -404,6 +434,26 @@
       "name": "workflow-cancel-missing-run-id",
       "payload": "{\"v\":1,\"id\":27,\"op\":\"workflow.cancel\"}",
       "error": "workflow.cancel requires a non-empty 'run_id'"
+    },
+    {
+      "name": "workflow-get-missing-workflow-id",
+      "payload": "{\"v\":1,\"id\":9,\"op\":\"workflow.get\"}",
+      "error": "workflow.get requires a non-empty 'workflow_id'"
+    },
+    {
+      "name": "workflow-get-empty-workflow-id",
+      "payload": "{\"v\":1,\"id\":9,\"op\":\"workflow.get\",\"workflow_id\":\"\"}",
+      "error": "workflow.get requires a non-empty 'workflow_id'"
+    },
+    {
+      "name": "desktop-observe-semantic-type",
+      "payload": "{\"v\":1,\"id\":9,\"op\":\"desktop.observe\",\"semantic\":\"yes\"}",
+      "error": "desktop.observe 'semantic' must be a boolean"
+    },
+    {
+      "name": "desktop-observe-visual-type",
+      "payload": "{\"v\":1,\"id\":9,\"op\":\"desktop.observe\",\"visual\":1}",
+      "error": "desktop.observe 'visual' must be a boolean"
     }
   ],
   "responses": [
@@ -974,6 +1024,175 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":28,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1,\"events\":true,\"permissions\":true,\"sessions\":true,\"workflows\":true}"
+    },
+    {
+      "name": "hello-observation-capability",
+      "response": {
+        "id": 29,
+        "ok": true,
+        "payload": {
+          "kind": "identity",
+          "value": {
+            "service": "mirage-service",
+            "mirage_version": "0.1.0",
+            "mira_core_version": "0.4.0",
+            "host_status": "running",
+            "protocol": 1,
+            "events": true,
+            "permissions": true,
+            "sessions": true,
+            "workflows": true,
+            "observation": true
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":29,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1,\"events\":true,\"permissions\":true,\"sessions\":true,\"workflows\":true,\"observation\":true}"
+    },
+    {
+      "name": "workflow-get",
+      "response": {
+        "id": 30,
+        "ok": true,
+        "payload": {
+          "kind": "workflow-get",
+          "value": {
+            "workflow_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a",
+            "digest": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+            "definition": {
+              "schema_version": {
+                "major": 1,
+                "minor": 0
+              },
+              "workflow_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a",
+              "name": "smoke",
+              "parameters": [],
+              "steps": [],
+              "default_policy": "strict",
+              "allowed_policies": [
+                "strict",
+                "dry_run"
+              ]
+            }
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":30,\"ok\":true,\"workflow_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"digest\":\"b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9\",\"definition\":{\"schema_version\":{\"major\":1,\"minor\":0},\"workflow_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"name\":\"smoke\",\"parameters\":[],\"steps\":[],\"default_policy\":\"strict\",\"allowed_policies\":[\"strict\",\"dry_run\"]}}"
+    },
+    {
+      "name": "observation-view",
+      "response": {
+        "id": 31,
+        "ok": true,
+        "payload": {
+          "kind": "observation-view",
+          "value": {
+            "active_application": "Code",
+            "active_window": "main.rs - mirage",
+            "window_geometry": {
+              "x": 0,
+              "y": 0,
+              "width": 1920,
+              "height": 1080
+            },
+            "window_focused": true,
+            "focused_element": "@e3",
+            "pointer_x": 512,
+            "pointer_y": 384,
+            "environment_state": "x11",
+            "semantic": {
+              "application": "Code",
+              "window_title": "main.rs - mirage",
+              "nodes": [
+                {
+                  "ref": "@e1",
+                  "role": "button",
+                  "name": "Run",
+                  "description": "",
+                  "parent": -1,
+                  "geometry": {
+                    "x": 24,
+                    "y": 64,
+                    "width": 88,
+                    "height": 32
+                  },
+                  "focused": true,
+                  "enabled": true
+                },
+                {
+                  "ref": "@e2",
+                  "role": "editor",
+                  "name": "",
+                  "description": "source editor",
+                  "parent": -1,
+                  "geometry": {
+                    "x": 24,
+                    "y": 120,
+                    "width": 800,
+                    "height": 600
+                  },
+                  "focused": false,
+                  "enabled": true
+                }
+              ],
+              "truncated": false
+            },
+            "visual_snapshot_ref": "@vs7",
+            "visual_regions": [
+              {
+                "ref": "@v1",
+                "source": "ocr",
+                "geometry": {
+                  "x": 100,
+                  "y": 200,
+                  "width": 120,
+                  "height": 24
+                },
+                "text": "Run",
+                "template_id": ""
+              },
+              {
+                "ref": "@v2",
+                "source": "template",
+                "geometry": {
+                  "x": 300,
+                  "y": 220,
+                  "width": 32,
+                  "height": 32
+                },
+                "text": "",
+                "template_id": "cache:settings"
+              }
+            ]
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":31,\"ok\":true,\"active_application\":\"Code\",\"active_window\":\"main.rs - mirage\",\"window_geometry\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"window_focused\":true,\"focused_element\":\"@e3\",\"pointer_x\":512,\"pointer_y\":384,\"environment_state\":\"x11\",\"semantic\":{\"application\":\"Code\",\"window_title\":\"main.rs - mirage\",\"nodes\":[{\"ref\":\"@e1\",\"role\":\"button\",\"name\":\"Run\",\"description\":\"\",\"parent\":-1,\"geometry\":{\"x\":24,\"y\":64,\"width\":88,\"height\":32},\"focused\":true,\"enabled\":true},{\"ref\":\"@e2\",\"role\":\"editor\",\"name\":\"\",\"description\":\"source editor\",\"parent\":-1,\"geometry\":{\"x\":24,\"y\":120,\"width\":800,\"height\":600},\"focused\":false,\"enabled\":true}],\"truncated\":false},\"visual_snapshot_ref\":\"@vs7\",\"visual_regions\":[{\"ref\":\"@v1\",\"source\":\"ocr\",\"geometry\":{\"x\":100,\"y\":200,\"width\":120,\"height\":24},\"text\":\"Run\",\"template_id\":\"\"},{\"ref\":\"@v2\",\"source\":\"template\",\"geometry\":{\"x\":300,\"y\":220,\"width\":32,\"height\":32},\"text\":\"\",\"template_id\":\"cache:settings\"}]}"
+    },
+    {
+      "name": "observation-frame-only",
+      "response": {
+        "id": 32,
+        "ok": true,
+        "payload": {
+          "kind": "observation-view",
+          "value": {
+            "active_application": "Code",
+            "active_window": "main.rs - mirage",
+            "window_geometry": {
+              "x": 0,
+              "y": 0,
+              "width": 1920,
+              "height": 1080
+            },
+            "window_focused": true,
+            "focused_element": "@e3",
+            "pointer_x": 512,
+            "pointer_y": 384,
+            "environment_state": "x11"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":32,\"ok\":true,\"active_application\":\"Code\",\"active_window\":\"main.rs - mirage\",\"window_geometry\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"window_focused\":true,\"focused_element\":\"@e3\",\"pointer_x\":512,\"pointer_y\":384,\"environment_state\":\"x11\"}"
     }
   ],
   "response_failures": [
@@ -1081,6 +1300,61 @@
       "name": "workflow-run-started-empty-run-id",
       "payload": "{\"v\":1,\"id\":26,\"ok\":true,\"run_id\":\"\"}",
       "error": "workflow.run response requires a non-empty 'run_id'"
+    },
+    {
+      "name": "observation-view-missing-frame",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"active_application\":\"Code\",\"active_window\":\"main.rs - mirage\"}",
+      "error": "desktop.observe response requires the frame members 'active_window', 'window_geometry', 'window_focused', 'focused_element', 'pointer_x', 'pointer_y' and 'environment_state'"
+    },
+    {
+      "name": "observation-view-visual-half",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"active_application\":\"Code\",\"active_window\":\"main.rs - mirage\",\"window_geometry\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"window_focused\":true,\"focused_element\":\"@e3\",\"pointer_x\":512,\"pointer_y\":384,\"environment_state\":\"x11\",\"visual_snapshot_ref\":\"@vs7\"}",
+      "error": "desktop.observe 'visual_snapshot_ref' and 'visual_regions' are co-present"
+    },
+    {
+      "name": "observation-view-visual-ref-empty",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"active_application\":\"Code\",\"active_window\":\"main.rs - mirage\",\"window_geometry\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"window_focused\":true,\"focused_element\":\"@e3\",\"pointer_x\":512,\"pointer_y\":384,\"environment_state\":\"x11\",\"visual_snapshot_ref\":\"\",\"visual_regions\":[]}",
+      "error": "desktop.observe requires a non-empty 'visual_snapshot_ref' and a 'visual_regions' array"
+    },
+    {
+      "name": "observation-view-bad-region-source",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"active_application\":\"Code\",\"active_window\":\"main.rs - mirage\",\"window_geometry\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"window_focused\":true,\"focused_element\":\"@e3\",\"pointer_x\":512,\"pointer_y\":384,\"environment_state\":\"x11\",\"semantic\":{\"application\":\"Code\",\"window_title\":\"main.rs - mirage\",\"nodes\":[{\"ref\":\"@e1\",\"role\":\"button\",\"name\":\"Run\",\"description\":\"\",\"parent\":-1,\"geometry\":{\"x\":24,\"y\":64,\"width\":88,\"height\":32},\"focused\":true,\"enabled\":true},{\"ref\":\"@e2\",\"role\":\"editor\",\"name\":\"\",\"description\":\"source editor\",\"parent\":-1,\"geometry\":{\"x\":24,\"y\":120,\"width\":800,\"height\":600},\"focused\":false,\"enabled\":true}],\"truncated\":false},\"visual_snapshot_ref\":\"@vs7\",\"visual_regions\":[{\"ref\":\"@v1\",\"source\":\"psychic\",\"geometry\":{\"x\":100,\"y\":200,\"width\":120,\"height\":24},\"text\":\"Run\",\"template_id\":\"\"},{\"ref\":\"@v2\",\"source\":\"template\",\"geometry\":{\"x\":300,\"y\":220,\"width\":32,\"height\":32},\"text\":\"\",\"template_id\":\"cache:settings\"}]}",
+      "error": "observation visual region 'source' is not a known region source"
+    },
+    {
+      "name": "workflow-get-definition-not-object",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"workflow_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"digest\":\"b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9\",\"definition\":\"smoke\"}",
+      "error": "workflow.get 'definition' must be an object"
+    },
+    {
+      "name": "workflow-get-missing-digest",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"workflow_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"definition\":{\"schema_version\":{\"major\":1,\"minor\":0}}}",
+      "error": "workflow.get response requires 'workflow_id', 'digest' and a 'definition' object"
+    },
+    {
+      "name": "observation-view-semantic-not-object",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"active_application\":\"Code\",\"active_window\":\"main.rs - mirage\",\"window_geometry\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"window_focused\":true,\"focused_element\":\"@e3\",\"pointer_x\":512,\"pointer_y\":384,\"environment_state\":\"x11\",\"semantic\":\"yes\"}",
+      "error": "desktop.observe 'semantic' must be an object"
+    },
+    {
+      "name": "observation-view-semantic-missing-truncated",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"active_application\":\"Code\",\"active_window\":\"main.rs - mirage\",\"window_geometry\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"window_focused\":true,\"focused_element\":\"@e3\",\"pointer_x\":512,\"pointer_y\":384,\"environment_state\":\"x11\",\"semantic\":{\"application\":\"Code\",\"window_title\":\"main.rs - mirage\",\"nodes\":[]}}",
+      "error": "desktop.observe 'semantic' requires 'application', 'window_title', a 'nodes' array and 'truncated'"
+    },
+    {
+      "name": "observation-view-node-parent-below-root",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"active_application\":\"Code\",\"active_window\":\"main.rs - mirage\",\"window_geometry\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"window_focused\":true,\"focused_element\":\"@e3\",\"pointer_x\":512,\"pointer_y\":384,\"environment_state\":\"x11\",\"semantic\":{\"application\":\"Code\",\"window_title\":\"main.rs - mirage\",\"nodes\":[{\"ref\":\"@e1\",\"role\":\"button\",\"name\":\"Run\",\"description\":\"\",\"parent\":-2,\"geometry\":{\"x\":24,\"y\":64,\"width\":88,\"height\":32},\"focused\":true,\"enabled\":true}],\"truncated\":false}}",
+      "error": "observation semantic nodes require 'ref', 'role', 'name', 'description', a 'parent' index (>= -1), 'focused' and 'enabled'"
+    },
+    {
+      "name": "observation-view-node-geometry-not-object",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"active_application\":\"Code\",\"active_window\":\"main.rs - mirage\",\"window_geometry\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"window_focused\":true,\"focused_element\":\"@e3\",\"pointer_x\":512,\"pointer_y\":384,\"environment_state\":\"x11\",\"semantic\":{\"application\":\"Code\",\"window_title\":\"main.rs - mirage\",\"nodes\":[{\"ref\":\"@e1\",\"role\":\"button\",\"name\":\"Run\",\"description\":\"\",\"parent\":-1,\"geometry\":\"wide\",\"focused\":true,\"enabled\":true}],\"truncated\":false}}",
+      "error": "observation geometry must be an object"
+    },
+    {
+      "name": "observation-view-region-geometry-not-object",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"active_application\":\"Code\",\"active_window\":\"main.rs - mirage\",\"window_geometry\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"window_focused\":true,\"focused_element\":\"@e3\",\"pointer_x\":512,\"pointer_y\":384,\"environment_state\":\"x11\",\"visual_snapshot_ref\":\"@vs7\",\"visual_regions\":[{\"ref\":\"@v1\",\"source\":\"ocr\",\"geometry\":\"wide\",\"text\":\"Run\",\"template_id\":\"\"}]}",
+      "error": "observation geometry must be an object"
     }
   ],
   "events": [

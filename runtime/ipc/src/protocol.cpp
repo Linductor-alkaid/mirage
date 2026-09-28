@@ -30,6 +30,8 @@ constexpr const char *kOpWorkflowAtomCatalog = "workflow.atom.catalog";
 constexpr const char *kOpWorkflowRuns = "workflow.runs";
 constexpr const char *kOpWorkflowRun = "workflow.run";
 constexpr const char *kOpWorkflowCancel = "workflow.cancel";
+constexpr const char *kOpWorkflowGet = "workflow.get";
+constexpr const char *kOpDesktopObserve = "desktop.observe";
 
 constexpr const char *kStepRead = "filesystem.read";
 constexpr const char *kStepExecute = "process.execute";
@@ -99,6 +101,12 @@ constexpr const char *kWorkflowValidationNames[] = {"not_validated", "dry_run_pa
 constexpr const char *kWorkflowPolicyNames[] = {"strict", "recoverable", "agent_assisted",
                                                 "interactive", "dry_run"};
 
+/// Closed visual-region provenance vocabulary (DEC-026): the desktop layer's
+/// VisualRegionSource set in stable lowercase form, carried by the
+/// observation projection's visual regions. The golden vectors pin the set
+/// on both ends.
+constexpr const char *kObservationRegionSources[] = {"ocr", "detector", "template", "geometry"};
+
 bool in_stable_set(const std::string &value, const char *const *set, std::size_t count) {
     for (std::size_t index = 0; index < count; ++index) {
         if (value == set[index]) {
@@ -158,6 +166,146 @@ std::optional<std::string> object_member_text(const mira::JsonValue &object, std
         return std::nullopt;
     }
     return mira::to_json_string(*value);
+}
+
+std::optional<bool> boolean_member(const mira::JsonValue &object, std::string_view key) {
+    const auto *value = member(object, key);
+    if (value == nullptr) {
+        return std::nullopt;
+    }
+    return value->as_boolean();
+}
+
+// --- observation projection helpers (DEC-026) ------------------------------
+
+mira::JsonValue encode_geometry(const ObservationGeometry &geometry) {
+    auto object = make_object();
+    put(object, "x", static_cast<std::int64_t>(geometry.x));
+    put(object, "y", static_cast<std::int64_t>(geometry.y));
+    put(object, "width", static_cast<std::int64_t>(geometry.width));
+    put(object, "height", static_cast<std::int64_t>(geometry.height));
+    return object;
+}
+
+std::optional<ObservationGeometry> decode_geometry(const mira::JsonValue &value,
+                                                   std::string &error) {
+    if (!value.is_object()) {
+        error = "observation geometry must be an object";
+        return std::nullopt;
+    }
+    const auto x = integer_member(value, "x");
+    const auto y = integer_member(value, "y");
+    const auto width = integer_member(value, "width");
+    const auto height = integer_member(value, "height");
+    if (!x || !y || !width || !height) {
+        error = "observation geometry requires 'x', 'y', 'width' and 'height'";
+        return std::nullopt;
+    }
+    ObservationGeometry geometry;
+    geometry.x = static_cast<std::int32_t>(*x);
+    geometry.y = static_cast<std::int32_t>(*y);
+    geometry.width = static_cast<std::int32_t>(*width);
+    geometry.height = static_cast<std::int32_t>(*height);
+    return geometry;
+}
+
+mira::JsonValue encode_node(const ObservationNode &node) {
+    auto object = make_object();
+    put(object, "ref", node.ref);
+    put(object, "role", node.role);
+    put(object, "name", node.name);
+    put(object, "description", node.description);
+    put(object, "parent", node.parent);
+    put(object, "geometry", encode_geometry(node.geometry));
+    put(object, "focused", node.focused);
+    put(object, "enabled", node.enabled);
+    return object;
+}
+
+std::optional<ObservationNode> decode_node(const mira::JsonValue &value, std::string &error) {
+    if (!value.is_object()) {
+        error = "observation semantic nodes must be objects";
+        return std::nullopt;
+    }
+    ObservationNode node;
+    auto ref = string_member(value, "ref");
+    auto role = string_member(value, "role");
+    auto name = string_member(value, "name");
+    auto description = string_member(value, "description");
+    const auto parent = integer_member(value, "parent");
+    const auto focused = boolean_member(value, "focused");
+    const auto enabled = boolean_member(value, "enabled");
+    if (!ref || ref->empty() || !role || !name || !description || !parent || *parent < -1 ||
+        !focused || !enabled) {
+        error = "observation semantic nodes require 'ref', 'role', 'name', 'description', a "
+                "'parent' index (>= -1), 'focused' and 'enabled'";
+        return std::nullopt;
+    }
+    const auto *geometry_value = member(value, "geometry");
+    if (geometry_value == nullptr) {
+        error = "observation semantic nodes require a 'geometry' object";
+        return std::nullopt;
+    }
+    auto geometry = decode_geometry(*geometry_value, error);
+    if (!geometry) {
+        return std::nullopt;
+    }
+    node.ref = std::move(*ref);
+    node.role = std::move(*role);
+    node.name = std::move(*name);
+    node.description = std::move(*description);
+    node.parent = *parent;
+    node.geometry = std::move(*geometry);
+    node.focused = *focused;
+    node.enabled = *enabled;
+    return node;
+}
+
+mira::JsonValue encode_region(const ObservationRegion &region) {
+    auto object = make_object();
+    put(object, "ref", region.ref);
+    put(object, "source", region.source);
+    put(object, "geometry", encode_geometry(region.geometry));
+    put(object, "text", region.text);
+    put(object, "template_id", region.template_id);
+    return object;
+}
+
+std::optional<ObservationRegion> decode_region(const mira::JsonValue &value, std::string &error) {
+    if (!value.is_object()) {
+        error = "observation visual regions must be objects";
+        return std::nullopt;
+    }
+    ObservationRegion region;
+    auto ref = string_member(value, "ref");
+    auto source = string_member(value, "source");
+    auto text = string_member(value, "text");
+    auto template_id = string_member(value, "template_id");
+    if (!ref || ref->empty() || !source || !text || !template_id) {
+        error = "observation visual regions require 'ref', 'source', 'geometry', 'text' and "
+                "'template_id'";
+        return std::nullopt;
+    }
+    if (!in_stable_set(*source, kObservationRegionSources,
+                       sizeof(kObservationRegionSources) / sizeof(kObservationRegionSources[0]))) {
+        error = "observation visual region 'source' is not a known region source";
+        return std::nullopt;
+    }
+    const auto *geometry_value = member(value, "geometry");
+    if (geometry_value == nullptr) {
+        error = "observation visual regions require a 'geometry' object";
+        return std::nullopt;
+    }
+    auto geometry = decode_geometry(*geometry_value, error);
+    if (!geometry) {
+        return std::nullopt;
+    }
+    region.ref = std::move(*ref);
+    region.source = std::move(*source);
+    region.geometry = std::move(*geometry);
+    region.text = std::move(*text);
+    region.template_id = std::move(*template_id);
+    return region;
 }
 
 std::optional<TaskStep> decode_step(const mira::JsonValue &value, std::string &error) {
@@ -285,6 +433,9 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 if (value.workflows.has_value()) {
                     put(object, "workflows", *value.workflows);
                 }
+                if (value.observation.has_value()) {
+                    put(object, "observation", *value.observation);
+                }
             } else if constexpr (std::is_same_v<T, TaskSubmitted>) {
                 put(object, "task_id", value.task_id);
                 if (value.session_id) {
@@ -398,6 +549,41 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
             } else if constexpr (std::is_same_v<T, WorkflowRunCancelled>) {
                 put(object, "run_id", value.run_id);
                 put(object, "state", value.state);
+            } else if constexpr (std::is_same_v<T, WorkflowDefinitionView>) {
+                put(object, "workflow_id", value.workflow_id);
+                put(object, "digest", value.digest);
+                put(object, "definition", embedded_json(value.definition_json));
+            } else if constexpr (std::is_same_v<T, ObservationView>) {
+                put(object, "active_application", value.active_application);
+                put(object, "active_window", value.active_window);
+                put(object, "window_geometry", encode_geometry(value.window_geometry));
+                put(object, "window_focused", value.window_focused);
+                put(object, "focused_element", value.focused_element);
+                put(object, "pointer_x", static_cast<std::int64_t>(value.pointer_x));
+                put(object, "pointer_y", static_cast<std::int64_t>(value.pointer_y));
+                put(object, "environment_state", value.environment_state);
+                if (value.semantic.has_value()) {
+                    auto semantic = make_object();
+                    put(semantic, "application", value.semantic->application);
+                    put(semantic, "window_title", value.semantic->window_title);
+                    mira::JsonValue::Array nodes;
+                    for (const auto &node : value.semantic->nodes) {
+                        nodes.emplace_back(encode_node(node));
+                    }
+                    put(semantic, "nodes", mira::JsonValue{std::move(nodes)});
+                    put(semantic, "truncated", value.semantic->truncated);
+                    put(object, "semantic", std::move(semantic));
+                }
+                if (value.visual_snapshot_ref.has_value()) {
+                    put(object, "visual_snapshot_ref", *value.visual_snapshot_ref);
+                }
+                if (value.visual_regions.has_value()) {
+                    mira::JsonValue::Array regions;
+                    for (const auto &region : *value.visual_regions) {
+                        regions.emplace_back(encode_region(region));
+                    }
+                    put(object, "visual_regions", mira::JsonValue{std::move(regions)});
+                }
             } else if constexpr (std::is_same_v<T, ShutdownAccepted>) {
                 // No payload members beyond the ok envelope.
             }
@@ -509,6 +695,16 @@ std::string encode_request(std::uint64_t id, const Request &body) {
             } else if constexpr (std::is_same_v<T, WorkflowCancelRunRequest>) {
                 put(object, "op", kOpWorkflowCancel);
                 put(object, "run_id", value.run_id);
+            } else if constexpr (std::is_same_v<T, WorkflowGetRequest>) {
+                put(object, "op", kOpWorkflowGet);
+                put(object, "workflow_id", value.workflow_id);
+            } else if constexpr (std::is_same_v<T, DesktopObserveRequest>) {
+                put(object, "op", kOpDesktopObserve);
+                // Both flags always write: the defaults (semantic on, visual
+                // off) are part of the request's pinned canonical form, and
+                // the explicit form keeps the golden vectors unambiguous.
+                put(object, "semantic", value.semantic);
+                put(object, "visual", value.visual);
             }
         },
         body);
@@ -723,6 +919,36 @@ RequestDecode decode_request(std::string_view payload) {
         }
         cancel.run_id = *run_id;
         result.body = std::move(cancel);
+    } else if (*op == kOpWorkflowGet) {
+        WorkflowGetRequest get;
+        const auto workflow_id = string_member(object, "workflow_id");
+        if (!workflow_id || workflow_id->empty()) {
+            result.error = "workflow.get requires a non-empty 'workflow_id'";
+            return result;
+        }
+        get.workflow_id = *workflow_id;
+        result.body = std::move(get);
+    } else if (*op == kOpDesktopObserve) {
+        DesktopObserveRequest observe;
+        // Both flags are optional on the wire (absent keeps the default:
+        // semantic on, visual off) and must be booleans when present.
+        if (const auto *semantic = member(object, "semantic"); semantic != nullptr) {
+            const auto flag = semantic->as_boolean();
+            if (!flag) {
+                result.error = "desktop.observe 'semantic' must be a boolean";
+                return result;
+            }
+            observe.semantic = *flag;
+        }
+        if (const auto *visual = member(object, "visual"); visual != nullptr) {
+            const auto flag = visual->as_boolean();
+            if (!flag) {
+                result.error = "desktop.observe 'visual' must be a boolean";
+                return result;
+            }
+            observe.visual = *flag;
+        }
+        result.body = observe;
     } else {
         result.error = "unknown op '" + *op + "'";
         return result;
@@ -857,6 +1083,16 @@ ResponseDecode decode_response(std::string_view payload) {
                 return result;
             }
             identity.workflows = *flag;
+        }
+        // DEC-026 observation-face capability member: same discipline as
+        // `events`.
+        if (const auto *observation = member(object, "observation"); observation != nullptr) {
+            const auto flag = observation->as_boolean();
+            if (!flag) {
+                result.error = "hello response 'observation' must be a boolean";
+                return result;
+            }
+            identity.observation = *flag;
         }
         response.payload = std::move(identity);
     } else if (const auto *task_id = member(object, "task_id"); task_id != nullptr) {
@@ -1200,6 +1436,126 @@ ResponseDecode decode_response(std::string_view payload) {
             catalog.tools.push_back(std::move(tool));
         }
         response.payload = std::move(catalog);
+    } else if (const auto *definition = member(object, "definition"); definition != nullptr) {
+        // WorkflowDefinitionView discriminates on "definition"; it also
+        // carries "workflow_id" and "digest", so it must precede those
+        // branches.
+        if (!definition->is_object()) {
+            result.error = "workflow.get 'definition' must be an object";
+            return result;
+        }
+        auto workflow_id = string_member(object, "workflow_id");
+        auto digest = string_member(object, "digest");
+        if (!workflow_id || workflow_id->empty() || !digest || digest->empty()) {
+            result.error = "workflow.get response requires 'workflow_id', 'digest' and a "
+                           "'definition' object";
+            return result;
+        }
+        WorkflowDefinitionView view;
+        view.workflow_id = std::move(*workflow_id);
+        view.digest = std::move(*digest);
+        view.definition_json = object_member_text(object, "definition").value();
+        response.payload = std::move(view);
+    } else if (const auto *active_application = member(object, "active_application");
+               active_application != nullptr) {
+        // ObservationView discriminates on "active_application" — no other
+        // payload carries it.
+        auto active_application_text = string_member(object, "active_application");
+        auto active_window = string_member(object, "active_window");
+        auto focused_element = string_member(object, "focused_element");
+        auto environment_state = string_member(object, "environment_state");
+        const auto pointer_x = integer_member(object, "pointer_x");
+        const auto pointer_y = integer_member(object, "pointer_y");
+        const auto window_focused = boolean_member(object, "window_focused");
+        if (!active_application_text || !active_window || !focused_element || !environment_state ||
+            !pointer_x || !pointer_y || !window_focused) {
+            result.error = "desktop.observe response requires the frame members 'active_window', "
+                           "'window_geometry', 'window_focused', 'focused_element', 'pointer_x', "
+                           "'pointer_y' and 'environment_state'";
+            return result;
+        }
+        ObservationView view;
+        view.active_application = std::move(*active_application_text);
+        view.active_window = std::move(*active_window);
+        view.focused_element = std::move(*focused_element);
+        view.environment_state = std::move(*environment_state);
+        view.pointer_x = static_cast<std::int32_t>(*pointer_x);
+        view.pointer_y = static_cast<std::int32_t>(*pointer_y);
+        view.window_focused = *window_focused;
+        const auto *window_geometry = member(object, "window_geometry");
+        if (window_geometry == nullptr) {
+            result.error = "desktop.observe response requires the frame members 'active_window', "
+                           "'window_geometry', 'window_focused', 'focused_element', 'pointer_x', "
+                           "'pointer_y' and 'environment_state'";
+            return result;
+        }
+        std::string geometry_error;
+        auto window_rect = decode_geometry(*window_geometry, geometry_error);
+        if (!window_rect) {
+            result.error = std::move(geometry_error);
+            return result;
+        }
+        view.window_geometry = std::move(*window_rect);
+        if (const auto *semantic = member(object, "semantic"); semantic != nullptr) {
+            if (!semantic->is_object()) {
+                result.error = "desktop.observe 'semantic' must be an object";
+                return result;
+            }
+            ObservationSemantic projection;
+            auto application = string_member(*semantic, "application");
+            auto window_title = string_member(*semantic, "window_title");
+            const auto truncated = boolean_member(*semantic, "truncated");
+            const auto *nodes = member(*semantic, "nodes");
+            if (!application || !window_title || !truncated || nodes == nullptr ||
+                !nodes->is_array()) {
+                result.error = "desktop.observe 'semantic' requires 'application', "
+                               "'window_title', a 'nodes' array and 'truncated'";
+                return result;
+            }
+            projection.application = std::move(*application);
+            projection.window_title = std::move(*window_title);
+            projection.truncated = *truncated;
+            for (const auto &entry : *nodes->as_array()) {
+                std::string node_error;
+                auto node = decode_node(entry, node_error);
+                if (!node) {
+                    result.error = std::move(node_error);
+                    return result;
+                }
+                projection.nodes.push_back(std::move(*node));
+            }
+            view.semantic = std::move(projection);
+        }
+        const auto *visual_ref = member(object, "visual_snapshot_ref");
+        const auto *visual_regions = member(object, "visual_regions");
+        // The visual pair is co-present or co-absent; a half-carried visual
+        // component is a contract violation, never a partial projection.
+        if ((visual_ref == nullptr) != (visual_regions == nullptr)) {
+            result.error = "desktop.observe 'visual_snapshot_ref' and 'visual_regions' are "
+                           "co-present";
+            return result;
+        }
+        if (visual_ref != nullptr) {
+            auto ref_text = string_member(object, "visual_snapshot_ref");
+            if (!ref_text || ref_text->empty() || !visual_regions->is_array()) {
+                result.error = "desktop.observe requires a non-empty 'visual_snapshot_ref' and a "
+                               "'visual_regions' array";
+                return result;
+            }
+            std::vector<ObservationRegion> regions;
+            for (const auto &entry : *visual_regions->as_array()) {
+                std::string region_error;
+                auto region = decode_region(entry, region_error);
+                if (!region) {
+                    result.error = std::move(region_error);
+                    return result;
+                }
+                regions.push_back(std::move(*region));
+            }
+            view.visual_snapshot_ref = std::move(*ref_text);
+            view.visual_regions = std::move(regions);
+        }
+        response.payload = std::move(view);
     } else if (const auto *dry_run_id = member(object, "dry_run_id"); dry_run_id != nullptr) {
         // WorkflowPublished discriminates on "dry_run_id"; it also carries
         // "workflow_id" and "digest", so it must precede those branches.

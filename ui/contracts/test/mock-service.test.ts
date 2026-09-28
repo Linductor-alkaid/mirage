@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 describe('hello identity', () => {
-    it('advertises the service identity, protocol 1 and the events + workflows + sessions capabilities', async () => {
+    it('advertises the service identity, protocol 1 and the events + workflows + sessions + observation capabilities', async () => {
         const { transport } = makeService({ hostStartDelayMs: 0 });
         const identity = await transport.hello();
         expect(identity).toEqual({
@@ -43,13 +43,16 @@ describe('hello identity', () => {
             events: true,
             workflows: true,
             sessions: true,
+            observation: true,
         });
         expect(identity.events).toBe(true);
         expect(identity.workflows).toBe(true);
         expect(identity.sessions).toBe(true);
+        expect(identity.observation).toBe(true);
         expect(transport.eventsSupported).toBe(true);
         expect(transport.workflowsSupported).toBe(true);
         expect(transport.sessionsSupported).toBe(true);
+        expect(transport.observationSupported).toBe(true);
         expect(transport.label).toBe('Mock');
     });
 
@@ -65,6 +68,17 @@ describe('hello identity', () => {
         const identity = await transport.hello();
         expect(identity.sessions).toBeUndefined();
         expect(transport.sessionsSupported).toBe(false);
+    });
+
+    it('omits the observation capability when disabled and serves the old-server unknown-op shape (DEC-026)', async () => {
+        const { transport } = makeService({ hostStartDelayMs: 0, observationCapability: false });
+        const identity = await transport.hello();
+        expect(identity.observation).toBeUndefined();
+        expect(transport.observationSupported).toBe(false);
+        await expect(transport.desktopObserve({})).rejects.toMatchObject({
+            code: 'protocol_error',
+            message: "unknown op 'desktop.observe'",
+        });
     });
 });
 
@@ -754,5 +768,78 @@ describe('close semantics', () => {
             await expect(promise).rejects.toBeInstanceOf(TransportClosedError);
             await expect(promise).rejects.toThrow('mock service is closed');
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// DEC-026 faces: workflow.get definition read + desktop.observe projection
+// ---------------------------------------------------------------------------
+
+describe('workflow.get definition read face (DEC-026)', () => {
+    it('returns the seeded head definition with its content digest', async () => {
+        const { transport } = makeService({ hostStartDelayMs: 0 });
+        const summaries = await transport.listWorkflows();
+        expect(summaries.length).toBeGreaterThan(0);
+        const summary = summaries[0]!;
+        const view = await transport.getWorkflow(summary.workflow_id);
+        expect(view.workflow_id).toBe(summary.workflow_id);
+        expect(view.digest).toBe(summary.head_digest);
+        expect(view.definition).toEqual(
+            expect.objectContaining({ workflow_id: summary.workflow_id, name: summary.name }),
+        );
+    });
+
+    it('round-trips a saved draft through the read face', async () => {
+        const { transport } = makeService({ hostStartDelayMs: 0 });
+        const definition = {
+            schema_version: { major: 1, minor: 0 },
+            workflow_id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            name: 'read-back',
+            parameters: [],
+            steps: [],
+            default_policy: 'strict',
+            allowed_policies: ['strict', 'dry_run'],
+        };
+        const saved = await transport.saveWorkflow(definition);
+        const view = await transport.getWorkflow('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+        expect(view.digest).toBe(saved.digest);
+        expect(view.definition).toEqual(definition);
+    });
+
+    it('rejects unknown workflow ids with the stable not_found', async () => {
+        const { transport } = makeService({ hostStartDelayMs: 0 });
+        await expect(transport.getWorkflow('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')).rejects.toMatchObject({
+            code: 'not_found',
+            message: 'unknown workflow id',
+        });
+    });
+});
+
+describe('desktop.observe observation face (DEC-026)', () => {
+    it('serves the frame plus semantic snapshot by default and the visual pair only on request', async () => {
+        const { transport } = makeService({ hostStartDelayMs: 0 });
+        const view = await transport.desktopObserve();
+        expect(view.active_application.length).toBeGreaterThan(0);
+        expect(view.window_geometry).toEqual({ x: 0, y: 0, width: 1280, height: 800 });
+        expect(view.semantic).toBeDefined();
+        expect(view.semantic!.truncated).toBe(false);
+        expect(view.semantic!.nodes.length).toBeGreaterThan(0);
+        expect(view.semantic!.nodes[0]!.ref).toBe('@e1');
+        expect(view.visual_snapshot_ref).toBeUndefined();
+        expect(view.visual_regions).toBeUndefined();
+
+        const withVisual = await transport.desktopObserve({ semantic: false, visual: true });
+        expect(withVisual.semantic).toBeUndefined();
+        expect(withVisual.visual_snapshot_ref).toBe('@vs1');
+        expect(withVisual.visual_regions).toHaveLength(2);
+        expect(withVisual.visual_regions![0]!.source).toBe('ocr');
+    });
+
+    it('refuses observation before the host reaches running (fail closed)', async () => {
+        const { transport } = makeService({ hostStartDelayMs: 5_000, stepDurationMs: 0 });
+        await expect(transport.desktopObserve({})).rejects.toMatchObject({
+            code: 'unavailable',
+            message: 'no desktop environment bound',
+        });
     });
 });

@@ -17,6 +17,7 @@ import type {
     HostStatus,
     InspectTask,
     MirageTransport,
+    ObservationView,
     ServerEvent,
     ServiceIdentity,
     StepView,
@@ -132,6 +133,8 @@ export interface HarnessState {
     workflowsSupported: boolean;
     /** DEC-021 会话面能力位（hello `sessions`；false 时会话页呈现不可用）。 */
     sessionsSupported: boolean;
+    /** DEC-026 观察面能力位（hello `observation`；false 时桌面状态面板不可用）。 */
+    observationSupported: boolean;
     resyncNote?: { reason: string; at: number };
 
     route: Route;
@@ -152,6 +155,15 @@ export interface HarnessState {
 
     /** 观察流（每会话有界帧缓冲；session.turn / output / message 尾随）。 */
     obsFeed: ReadonlyMap<string, readonly ObsFrame[]>;
+
+    /** 桌面状态观察（DEC-026 观察面：desktop.observe 按需快照，无事件形态）。
+     * visualRequested 记录成功视图的视觉组件请求状态；错误呈现稳定错误串。 */
+    observation: {
+        status: 'idle' | 'loading' | 'ready' | 'error';
+        visualRequested: boolean;
+        view?: ObservationView;
+        error?: string;
+    };
 
     /** 紧急停止（Human Takeover）闩锁。 */
     takeover: boolean;
@@ -182,8 +194,12 @@ export interface HarnessActions {
     engageEstop(): void;
     releaseEstop(): void;
     cancelTask(taskId: string): Promise<void>;
+    /** 桌面状态观察（DEC-026：desktop.observe 按需快照）。 */
+    refreshObservation(visual: boolean): void;
     runWorkflow(workflowId: string): void;
     cancelWorkflowRun(runId: string): void;
+    /** 打开编辑器：无内容副本的定义先经 workflow.get 回读（DEC-026）。 */
+    openWorkflowEditor(workflowId: string): void;
     /** RPA 编辑器：新建/改名/删除/发布/导出与步骤序列变更（草稿即改即存）。 */
     createWorkflow(): void;
     renameWorkflow(id: string, name: string): void;
@@ -266,6 +282,7 @@ export class HarnessStore {
             eventsSupported: transport.eventsSupported,
             workflowsSupported: transport.workflowsSupported,
             sessionsSupported: transport.sessionsSupported,
+            observationSupported: transport.observationSupported,
             route: parseRoute(window.location.hash),
             sessions: [],
             messages: new Map(),
@@ -275,6 +292,7 @@ export class HarnessStore {
             taskInputs: new Map(),
             activeTaskIds: [],
             obsFeed: new Map(),
+            observation: { status: 'idle', visualRequested: false },
             takeover: false,
             workflows: [],
             workflowRuns: [],
@@ -342,6 +360,7 @@ export class HarnessStore {
                 eventsSupported: identity.events === true,
                 workflowsSupported: identity.workflows === true,
                 sessionsSupported: identity.sessions === true,
+                observationSupported: identity.observation === true,
             });
             if (resume) {
                 this.reconnectAttempt = 0;
@@ -936,8 +955,8 @@ export class HarnessStore {
     // -- 工作流（DEC-023 契约面） --------------------------------------------
 
     /** 刷新工作流快照：列表摘要 + 运行快照（workflow.runs 是运行事实源）
-     * + wire 原子目录（含编辑器控制构造）。本会话持有内容副本且 head
-     * digest 未变的定义保留可编辑副本，其余按 wire 投影（不可编辑）。 */
+     * + wire 原子目录（含编辑器控制构造）。内容副本以会话内持有 +
+     * workflow.get 按需回读（DEC-026）两条路径取得。 */
     private async refreshWorkflows(): Promise<void> {
         if (this.disposed || this.state.connection !== 'ready' || !this.state.workflowsSupported) {
             return;
@@ -979,6 +998,83 @@ export class HarnessStore {
         }
         return true;
     }
+
+    /** 打开编辑器（DEC-026 定义读取面消费）：无内容副本的定义先经
+     * workflow.get 回读 head 内容并重建可编辑副本；回读失败保持只读并
+     * 显式提示（不用空内容遮蔽服务端 head，W-03）。 */
+    openWorkflowEditor: HarnessActions['openWorkflowEditor'] = (workflowId) => {
+        this.navigate({ view: 'workflow-editor', workflowId });
+        const current = this.state.workflows.find((w) => w.id === workflowId);
+        if (current === undefined || current.contentKnown || !this.state.workflowsSupported) {
+            return;
+        }
+        void this.workflowBackend
+            .getDefinition(workflowId)
+            .then((hydrated) => {
+                // 摘要投影字段（published / runnable / updatedAt / 最近运行）
+                // 仍以 workflow.list 条目为准；回读只填充内容侧。
+                this.set({
+                    workflows: this.state.workflows.map((w) =>
+                        w.id === workflowId
+                            ? {
+                                  ...w,
+                                  name: hydrated.name,
+                                  version: hydrated.version,
+                                  description: hydrated.description,
+                                  params: hydrated.params,
+                                  steps: hydrated.steps,
+                                  digest: hydrated.digest,
+                                  contentKnown: true,
+                              }
+                            : w,
+                    ),
+                });
+            })
+            .catch((err: unknown) => {
+                this.toast(`定义读取失败：${err instanceof Error ? err.message : String(err)}`, 'warn');
+            });
+    };
+
+    /** 桌面状态观察（DEC-026）：按需快照，`visual` 显式请求视觉组件——
+     * 请求即必须（服务端 fail closed），不可用即呈现稳定错误。 */
+    refreshObservation: HarnessActions['refreshObservation'] = (visual) => {
+        if (this.state.connection !== 'ready') {
+            return;
+        }
+        if (!this.transport.observationSupported) {
+            this.toast('服务未提供观察面（hello 无 observation 位）', 'warn');
+            return;
+        }
+        this.set({ observation: { ...this.state.observation, status: 'loading' } });
+        void this.transport
+            .desktopObserve({ semantic: true, visual })
+            .then((view) => {
+                if (this.disposed) {
+                    return;
+                }
+                this.set({ observation: { status: 'ready', visualRequested: visual, view } });
+            })
+            .catch((err: unknown) => {
+                if (this.disposed) {
+                    return;
+                }
+                const message =
+                    err instanceof IpcRequestError
+                        ? `${err.code}: ${err.message}`
+                        : err instanceof Error
+                          ? err.message
+                          : String(err);
+                // 保留上一次成功视图（若有），错误显式呈现——快照不被静默清空。
+                this.set({
+                    observation: {
+                        status: 'error',
+                        visualRequested: visual,
+                        error: message,
+                        view: this.state.observation.view,
+                    },
+                });
+            });
+    };
 
     runWorkflow: HarnessActions['runWorkflow'] = (workflowId) => {
         if (!this.ensureWorkflows()) {
@@ -1080,7 +1176,7 @@ export class HarnessStore {
             return;
         }
         if (!def.contentKnown) {
-            this.toast('本会话没有该定义的内容副本（wire 无定义读取面），不可发布', 'warn');
+            this.toast('尚未取得定义内容（workflow.get 未回读），不可发布', 'warn');
             return;
         }
         void this.workflowBackend
@@ -1104,7 +1200,7 @@ export class HarnessStore {
             return;
         }
         if (!current.contentKnown) {
-            this.toast('本会话没有该定义的内容副本（wire 无定义读取面），不可编辑', 'warn');
+            this.toast('尚未取得定义内容（workflow.get 未回读），不可编辑', 'warn');
             return;
         }
         const next = mutate({ ...current });
@@ -1148,7 +1244,7 @@ export class HarnessStore {
             return;
         }
         if (!def.contentKnown) {
-            this.toast('本会话没有该定义的内容副本（wire 无定义读取面），不可导出', 'warn');
+            this.toast('尚未取得定义内容（workflow.get 未回读），不可导出', 'warn');
             return;
         }
         const atomsById = new Map(this.state.atoms.map((a) => [a.id, a]));
@@ -1217,6 +1313,8 @@ export class HarnessStore {
             cancelTask: (taskId) => this.cancelTask(taskId),
             runWorkflow: this.runWorkflow,
             cancelWorkflowRun: this.cancelWorkflowRun,
+            refreshObservation: (visual) => this.refreshObservation(visual),
+            openWorkflowEditor: (workflowId) => this.openWorkflowEditor(workflowId),
             createWorkflow: () => this.createWorkflow(),
             renameWorkflow: this.renameWorkflow,
             setWorkflowDescription: this.setWorkflowDescription,

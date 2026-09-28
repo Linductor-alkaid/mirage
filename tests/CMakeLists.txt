@@ -597,6 +597,33 @@ set_tests_properties(runtime_service_test PROPERTIES
 )
 endif()
 
+# M5-06 (DEC-026): the observation face end to end over Local IPC — a real
+# RuntimeService serves desktop.observe against the live Xvfb + AT-SPI fixture
+# (semantic projection from a real accessibility tree; the visual component's
+# fail-closed behaviour and its wired-registry success path). Same X11/AT-SPI
+# precondition as observation_e2e_test.
+if(UNIX AND ATSPI_TEST_FOUND AND X11_FOUND)
+add_executable(observation_face_test runtime/observation_face_test.cpp)
+target_compile_features(observation_face_test PUBLIC cxx_std_20)
+mirage_enable_warnings(observation_face_test)
+target_link_libraries(observation_face_test
+    PRIVATE
+        Mirage::runtime_service
+        Mirage::integration_mira
+        Mirage::platform
+        Mirage::desktop
+        Mirage::ipc
+        PkgConfig::ATSPI_TEST
+        ${X11_X11_LIB}
+)
+add_test(NAME observation_face_test COMMAND observation_face_test)
+set_tests_properties(observation_face_test PROPERTIES
+    LABELS "integration"
+    TIMEOUT 120
+    ENVIRONMENT "TSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tests/support/tsan-glib.supp"
+)
+endif()
+
 # POSIX-only: same Unix-socket transport coupling as runtime_service_test.
 # 
 if(UNIX)
