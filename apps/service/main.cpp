@@ -173,6 +173,8 @@ int main(int argc, char **argv) {
     std::optional<std::string> flag_confirm;
     long confirm_wait_ms = 120000;
     bool read_roots_from_flags = false;
+    bool model_from_flags = false;
+    bool runtime_from_flags = false;
     std::optional<std::filesystem::path> config_file;
 
     for (int index = 1; index < argc; ++index) {
@@ -243,6 +245,7 @@ int main(int argc, char **argv) {
             continue;
         }
         if (argument == "--model-endpoint" && index + 1 < argc) {
+            model_from_flags = true;
             config.model.enabled = true;
             config.model.endpoint_origin = argv[++index];
             continue;
@@ -323,6 +326,25 @@ int main(int argc, char **argv) {
             if (settings.confirmation) {
                 flag_confirm = *settings.confirmation;
             }
+            if (settings.model.has_value() && !model_from_flags) {
+                config.model = mirage::integration::ModelLayerConfig{};
+                config.model.enabled =
+                    settings.model->enabled && !settings.model->endpoint_origin.empty();
+                config.model.dialect = settings.model->dialect;
+                config.model.display_name = settings.model->display_name;
+                config.model.endpoint_origin = settings.model->endpoint_origin;
+                config.model.api_prefix = settings.model->api_prefix;
+                config.model.model_selector = settings.model->model_selector;
+                config.model.credential_env = settings.model->credential_env;
+            }
+            if (settings.runtime.has_value() && !runtime_from_flags) {
+                if (settings.runtime->event_queue_capacity > 0) {
+                    config.event_queue_capacity = settings.runtime->event_queue_capacity;
+                }
+                if (settings.runtime->max_connections > 0) {
+                    config.max_connections = settings.runtime->max_connections;
+                }
+            }
         }
     }
     // DEC-011 flip (M5-07): with no explicit --config, the default settings
@@ -371,6 +393,25 @@ int main(int argc, char **argv) {
                 }
                 if (settings.confirmation) {
                     flag_confirm = *settings.confirmation;
+                }
+                if (settings.model.has_value()) {
+                    config.model = mirage::integration::ModelLayerConfig{};
+                    config.model.enabled =
+                        settings.model->enabled && !settings.model->endpoint_origin.empty();
+                    config.model.dialect = settings.model->dialect;
+                    config.model.display_name = settings.model->display_name;
+                    config.model.endpoint_origin = settings.model->endpoint_origin;
+                    config.model.api_prefix = settings.model->api_prefix;
+                    config.model.model_selector = settings.model->model_selector;
+                    config.model.credential_env = settings.model->credential_env;
+                }
+                if (settings.runtime.has_value()) {
+                    if (settings.runtime->event_queue_capacity > 0) {
+                        config.event_queue_capacity = settings.runtime->event_queue_capacity;
+                    }
+                    if (settings.runtime->max_connections > 0) {
+                        config.max_connections = settings.runtime->max_connections;
+                    }
                 }
                 config.settings_directory = default_file.parent_path();
                 config.settings_file_name = default_file.filename().string();

@@ -87,6 +87,8 @@ ServiceConfig make_config(const mirage::testing::TempDir &dir) {
     config.executor_threads = 2;
     config.step_timeout = std::chrono::milliseconds{10000};
     config.recovery_directory = dir.root() / "recovery";
+    // M5-08 session state: same isolation discipline as recovery.
+    config.session_state_directory = dir.root() / "session-state";
     return config;
 }
 

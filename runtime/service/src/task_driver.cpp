@@ -248,6 +248,12 @@ void mark_driver_done(const std::shared_ptr<ServiceCore> &core, const std::strin
             const auto appended = core->journal->append_outcome(session_id, task_id, progress,
                                                                 static_cast<std::uint32_t>(steps));
             if (appended.ok) {
+                {
+                    std::lock_guard raw_lock(core->journal_raw_mutex);
+                    core->journal_raw[session_id].push_back(persistence::PersistedJournalEntry{
+                        "outcome", task_id, {}, progress, static_cast<std::uint32_t>(steps)});
+                }
+                detail::persist_session_state(core);
                 ipc::SessionMessageEvent message;
                 message.session_id = session_id;
                 message.task_id = task_id;

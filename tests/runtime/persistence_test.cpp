@@ -11,6 +11,7 @@
 
 #include <mirage/runtime/persistence/paths.hpp>
 #include <mirage/runtime/persistence/recovery.hpp>
+#include <mirage/runtime/persistence/session_state.hpp>
 #include <mirage/runtime/persistence/settings.hpp>
 #include <mirage/runtime/persistence/store.hpp>
 
@@ -223,6 +224,10 @@ void scenario_settings_round_trip_all_fields() {
                                {"process.execute", "confirm"},
                                {"input.inject", "confirm"}};
     filled.confirmation = "deny";
+    filled.model = persistence::ModelSettings{
+        true,       "openai.responses.v1", "prod-model", "https://api.example.com", "/v1",
+        "gpt-test", "MIRAGE_MODEL_KEY"};
+    filled.runtime = persistence::RuntimeSettings{512, 8};
 
     const std::string encoded = persistence::encode_settings(filled);
     const persistence::SettingsDecode decoded = persistence::decode_settings(encoded);
@@ -243,6 +248,22 @@ void scenario_settings_round_trip_all_fields() {
     MIRAGE_CHECK(decoded.settings.permission_rules.count("input.inject") == 1 &&
                  decoded.settings.permission_rules.at("input.inject") == "confirm");
     MIRAGE_CHECK(decoded.settings.confirmation.value_or("?") == "deny");
+    MIRAGE_CHECK(decoded.settings.model.has_value());
+    if (decoded.settings.model.has_value()) {
+        const auto &model = *decoded.settings.model;
+        MIRAGE_CHECK(model.enabled);
+        MIRAGE_CHECK(model.dialect == "openai.responses.v1");
+        MIRAGE_CHECK(model.display_name == "prod-model");
+        MIRAGE_CHECK(model.endpoint_origin == "https://api.example.com");
+        MIRAGE_CHECK(model.api_prefix == "/v1");
+        MIRAGE_CHECK(model.model_selector == "gpt-test");
+        MIRAGE_CHECK(model.credential_env == "MIRAGE_MODEL_KEY");
+    }
+    MIRAGE_CHECK(decoded.settings.runtime.has_value());
+    if (decoded.settings.runtime.has_value()) {
+        MIRAGE_CHECK(decoded.settings.runtime->event_queue_capacity == 512);
+        MIRAGE_CHECK(decoded.settings.runtime->max_connections == 8);
+    }
 }
 
 void scenario_settings_empty_document_yields_defaults() {
@@ -256,6 +277,8 @@ void scenario_settings_empty_document_yields_defaults() {
     MIRAGE_CHECK(decoded.settings.read_roots.empty());
     MIRAGE_CHECK(decoded.settings.permission_rules.empty());
     MIRAGE_CHECK(!decoded.settings.confirmation.has_value());
+    MIRAGE_CHECK(!decoded.settings.model.has_value());
+    MIRAGE_CHECK(!decoded.settings.runtime.has_value());
 }
 
 void scenario_settings_strict_decode_rejections() {
@@ -279,6 +302,9 @@ void scenario_settings_strict_decode_rejections() {
         {R"({"schema":1,"permission":"allow"})", "non-object permission"},
         {R"({"schema":1,"confirmation":"maybe"})", "bad confirmation"},
         {R"({"schema":1,"confirmation":true})", "wrong confirmation type"},
+        {R"({"schema":1,"model":"x"})", "non-object model"},
+        {R"({"schema":1,"model":{"enabled":"yes"}})", "wrong model.enabled type"},
+        {R"({"schema":1,"runtime":{"max_connections":0}})", "non-positive runtime bound"},
         // Bounds (DEC-011 item 3).
         {R"({"schema":1,"read_roots":"/tmp"})", "non-array read_roots"},
         {R"({"schema":1,"socket":42})", "non-string socket"},
@@ -622,6 +648,164 @@ void run_scenario(const char *name, void (*scenario)()) {
     scenario();
 }
 
+/// M5-08 session state codec (DEC-021 backlog ①): the persisted conversation
+/// surface round-trips every field — registry identity, the raw journal
+/// appends (user text verbatim; outcome progress + steps) and the settled
+/// dialog thread (ok carries reply_text, failed carries error).
+/// (Independent verification round 2: the journal cases deferred in round 1
+/// land here together with the journal decode fix.)
+void scenario_session_state_round_trip() {
+    persistence::SessionState state;
+    persistence::PersistedSession session;
+    session.id = "5a4b3c2d1e0f4938576a5b4c3d2e1f0a";
+    session.created_at_ms = 1700000000000;
+    session.journal.push_back(
+        persistence::PersistedJournalEntry{"user", "task-0001", "帮我读取日志", {}, 0});
+    session.journal.push_back(
+        persistence::PersistedJournalEntry{"outcome", "task-0001", {}, "Completed", 3});
+    persistence::PersistedChatTurn ok_turn;
+    ok_turn.turn_id = "7c9e66794742f64b6f4b1c9d2e0f1a3b";
+    ok_turn.status = "ok";
+    ok_turn.user_text = "列出当前应用";
+    ok_turn.reply_text = "当前有两个应用窗口。";
+    ok_turn.sequence = 1;
+    ok_turn.recorded_at_ms = 1700000001000;
+    session.chat_turns.push_back(ok_turn);
+    persistence::PersistedChatTurn failed_turn;
+    failed_turn.turn_id = "8c9e66794742f64b6f4b1c9d2e0f1a3b";
+    failed_turn.status = "failed";
+    failed_turn.user_text = "第二个问题";
+    failed_turn.error = "model layer request failed: timeout";
+    failed_turn.sequence = 2;
+    failed_turn.recorded_at_ms = 1700000002000;
+    session.chat_turns.push_back(failed_turn);
+    state.sessions.push_back(session);
+
+    const std::string encoded = persistence::encode_session_state(state);
+    const persistence::SessionStateDecode decoded = persistence::decode_session_state(encoded);
+    MIRAGE_CHECK(decoded.ok);
+    if (!decoded.ok) {
+        std::fprintf(stderr, "[persistence_test] session state decode failed: %s\n",
+                     decoded.error.c_str());
+        return;
+    }
+    MIRAGE_CHECK(decoded.state.sessions.size() == 1);
+    if (decoded.state.sessions.size() != 1) {
+        return;
+    }
+    const persistence::PersistedSession &back = decoded.state.sessions[0];
+    MIRAGE_CHECK(back.id == session.id);
+    MIRAGE_CHECK(back.created_at_ms == session.created_at_ms);
+    MIRAGE_CHECK(back.journal.size() == 2);
+    if (back.journal.size() == 2) {
+        MIRAGE_CHECK(back.journal[0].kind == "user");
+        MIRAGE_CHECK(back.journal[0].task_id == "task-0001");
+        MIRAGE_CHECK(back.journal[0].text == "帮我读取日志");
+        MIRAGE_CHECK(back.journal[1].kind == "outcome");
+        MIRAGE_CHECK(back.journal[1].outcome == "Completed");
+        MIRAGE_CHECK(back.journal[1].steps == 3);
+    }
+    MIRAGE_CHECK(back.chat_turns.size() == 2);
+    if (back.chat_turns.size() == 2) {
+        MIRAGE_CHECK(back.chat_turns[0].turn_id == ok_turn.turn_id);
+        MIRAGE_CHECK(back.chat_turns[0].status == "ok");
+        MIRAGE_CHECK(back.chat_turns[0].reply_text == "当前有两个应用窗口。");
+        MIRAGE_CHECK(back.chat_turns[0].sequence == 1);
+        MIRAGE_CHECK(back.chat_turns[0].recorded_at_ms == 1700000001000);
+        MIRAGE_CHECK(back.chat_turns[1].turn_id == failed_turn.turn_id);
+        MIRAGE_CHECK(back.chat_turns[1].status == "failed");
+        MIRAGE_CHECK(back.chat_turns[1].error == "model layer request failed: timeout");
+        MIRAGE_CHECK(back.chat_turns[1].sequence == 2);
+    }
+}
+
+/// M5-08: the session state decode is strict — unknown members, unknown
+/// schema, non-settled turns, out-of-vocabulary journal kinds and
+/// out-of-bound texts fail loudly with a stable reason.
+void scenario_session_state_strict_rejections() {
+    struct Case {
+        const char *body;
+        const char *why;
+    };
+    const Case cases[] = {
+        // Unknown members are refused instead of ignored.
+        {R"({"schema":1,"sessions":[],"extra":1})", "unknown member"},
+        {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","journal":[],"alien":2}]})",
+         "session entries must carry only"},
+        {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","chat_turns":[{"turn_id":"t","status":"ok","alien":1}]}]})",
+         "chat turns must carry only"},
+        // Schema handling.
+        {R"({"schema":2,"sessions":[]})", "unsupported session state schema version"},
+        {R"({"schema":"1","sessions":[]})", "unsupported session state schema version"},
+        {R"({"sessions":[]})", "lacks the 'schema' member"},
+        // Structure.
+        {R"({"schema":1})", "member 'sessions' must be an array"},
+        {R"({"schema":1,"sessions":{}})", "member 'sessions' must be an array"},
+        {R"({"schema":1,"sessions":[[]]})", "session entries must carry only"},
+        {R"({"schema":1,"sessions":[{"id":""}]})",
+         "session entry 'id' must be 32 lowercase hex characters"},
+        // Journal vocabulary and required members.
+        {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","journal":[{"kind":"note","task_id":"t","text":"x"}]}]})",
+         "journal entry 'kind' must be"},
+        {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","journal":[{"kind":"user","task_id":"t"}]}]})",
+         "journal 'user' entries require a 'text' member"},
+        {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","journal":[{"kind":"outcome","task_id":"t"}]}]})",
+         "journal 'outcome' entries require an 'outcome' member"},
+        // Non-hex session id fails closed.
+        {R"({"schema":1,"sessions":[{"id":"s","journal":[]}]})",
+         "session entry 'id' must be 32 lowercase hex characters"},
+        // Dialog turns must be settled (pending turns are never persisted).
+        {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","chat_turns":[{"turn_id":"","status":"ok"}]}]})",
+         "chat turns require a 'turn_id'"},
+        {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","chat_turns":[{"turn_id":"t","status":"pending"}]}]})",
+         "chat turns require a 'turn_id'"},
+        {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","chat_turns":[{"turn_id":"t","status":"ok","user_text":"q","sequence":0}]}]})",
+         "settled \"ok\" chat turns require a 'reply_text' member"},
+        {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","chat_turns":[{"turn_id":"t","status":"ok","user_text":"q","recorded_at_ms":-1}]}]})",
+         "settled \"ok\" chat turns require a 'reply_text' member"},
+        {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","chat_turns":[{"turn_id":"t","status":"pending","user_text":"q"}]}]})",
+         "chat turns require a 'turn_id' and a settled 'status'"},
+    };
+    for (const Case &case_value : cases) {
+        const persistence::SessionStateDecode decoded =
+            persistence::decode_session_state(case_value.body);
+        MIRAGE_CHECK(!decoded.ok);
+        if (!decoded.ok) {
+            MIRAGE_CHECK(decoded.error.find(case_value.why) != std::string::npos);
+        } else {
+            std::fprintf(stderr, "[persistence_test] session state case unexpectedly decoded: %s\n",
+                         case_value.body);
+        }
+    }
+
+    // Oversized text (RULE-07): one byte over the 16 KiB budget fails, on
+    // both the journal and the dialog-thread surface.
+    const std::string oversized_text(16 * 1024 + 1, 'x');
+    const std::string hex_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const std::string journal_body = std::string{R"({"schema":1,"sessions":[{"id":")"} + hex_id +
+                                     R"(","journal":[{"kind":"user","task_id":"t","text":")" +
+                                     oversized_text + R"("}]}]})";
+    const auto journal_decoded = persistence::decode_session_state(journal_body);
+    MIRAGE_CHECK(!journal_decoded.ok);
+    if (!journal_decoded.ok) {
+        MIRAGE_CHECK(journal_decoded.error.find("16384") != std::string::npos);
+    }
+    const std::string turn_body = std::string{R"({"schema":1,"sessions":[{"id":")"} + hex_id +
+                                  R"(","chat_turns":[{"turn_id":"t","status":"ok","user_text":")" +
+                                  oversized_text + R"(","reply_text":"r"}]}]})";
+    const auto turn_decoded = persistence::decode_session_state(turn_body);
+    MIRAGE_CHECK(!turn_decoded.ok);
+    if (!turn_decoded.ok) {
+        MIRAGE_CHECK(turn_decoded.error.find("16384") != std::string::npos);
+    }
+
+    // NOTE (independent verification, M5-08 round 1): the 16 KiB text bound
+    // is NOT asserted — bounded_string failures are swallowed for the turn
+    // and journal string members (no else branch), so an oversized text is
+    // silently dropped and the document decodes instead of being rejected;
+    // the bound assertions land together with the fix.
+}
+
 } // namespace
 
 int main() {
@@ -642,6 +826,8 @@ int main() {
     run_scenario("settings_empty_document_yields_defaults",
                  scenario_settings_empty_document_yields_defaults);
     run_scenario("settings_strict_decode_rejections", scenario_settings_strict_decode_rejections);
+    run_scenario("session_state_round_trip", scenario_session_state_round_trip);
+    run_scenario("session_state_strict_rejections", scenario_session_state_strict_rejections);
     run_scenario("settings_rejects_oversized_values", scenario_settings_rejects_oversized_values);
     run_scenario("recovery_round_trip", scenario_recovery_round_trip);
     run_scenario("recovery_timestamp_shape", scenario_recovery_timestamp_shape);

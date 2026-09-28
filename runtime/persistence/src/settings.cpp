@@ -133,6 +133,45 @@ std::string encode_settings(const LocalSettings &settings) {
     if (settings.confirmation) {
         put(object, "confirmation", JsonValue{*settings.confirmation});
     }
+    if (settings.model.has_value()) {
+        const ModelSettings &model = *settings.model;
+        JsonValue model_object = make_object();
+        if (model.enabled) {
+            put(model_object, "enabled", JsonValue{true});
+        }
+        if (!model.dialect.empty()) {
+            put(model_object, "dialect", JsonValue{model.dialect});
+        }
+        if (!model.display_name.empty()) {
+            put(model_object, "display_name", JsonValue{model.display_name});
+        }
+        if (!model.endpoint_origin.empty()) {
+            put(model_object, "endpoint", JsonValue{model.endpoint_origin});
+        }
+        if (!model.api_prefix.empty()) {
+            put(model_object, "api_prefix", JsonValue{model.api_prefix});
+        }
+        if (!model.model_selector.empty()) {
+            put(model_object, "model", JsonValue{model.model_selector});
+        }
+        if (!model.credential_env.empty()) {
+            put(model_object, "credential_env", JsonValue{model.credential_env});
+        }
+        put(object, "model", std::move(model_object));
+    }
+    if (settings.runtime.has_value()) {
+        const RuntimeSettings &runtime = *settings.runtime;
+        JsonValue runtime_object = make_object();
+        if (runtime.event_queue_capacity > 0) {
+            put(runtime_object, "event_queue_capacity",
+                JsonValue{static_cast<std::int64_t>(runtime.event_queue_capacity)});
+        }
+        if (runtime.max_connections > 0) {
+            put(runtime_object, "max_connections",
+                JsonValue{static_cast<std::int64_t>(runtime.max_connections)});
+        }
+        put(object, "runtime", std::move(runtime_object));
+    }
     return mira::to_json_string(object);
 }
 
@@ -148,8 +187,8 @@ SettingsDecode decode_settings(std::string_view body) {
         result.error = "settings document must be a JSON object";
         return result;
     }
-    if (has_unknown_member(document,
-                           {"schema", "socket", "read_roots", "permission", "confirmation"})) {
+    if (has_unknown_member(document, {"schema", "socket", "read_roots", "permission",
+                                      "confirmation", "model", "runtime"})) {
         result.error = "settings document contains an unknown member";
         return result;
     }
@@ -211,6 +250,67 @@ SettingsDecode decode_settings(std::string_view body) {
             return result;
         }
         settings.confirmation = *text;
+    }
+    if (const JsonValue *model_value = member(document, "model"); model_value != nullptr) {
+        if (!model_value->is_object()) {
+            result.error = "member 'model' must be an object";
+            return result;
+        }
+        ModelSettings model;
+        if (const auto *enabled = member(*model_value, "enabled"); enabled != nullptr) {
+            const auto flag = enabled->as_boolean();
+            if (!flag) {
+                result.error = "member 'model.enabled' must be a boolean";
+                return result;
+            }
+            model.enabled = *flag;
+        }
+        auto copy_string = [&](std::string_view key, std::string &target) -> bool {
+            const auto *value = member(*model_value, key);
+            if (value == nullptr) {
+                return true;
+            }
+            const auto *text = value->as_string();
+            if (text == nullptr) {
+                result.error = "member 'model." + std::string(key) + "' must be a string";
+                return false;
+            }
+            target = *text;
+            return true;
+        };
+        if (!copy_string("dialect", model.dialect) ||
+            !copy_string("display_name", model.display_name) ||
+            !copy_string("endpoint", model.endpoint_origin) ||
+            !copy_string("api_prefix", model.api_prefix) ||
+            !copy_string("model", model.model_selector) ||
+            !copy_string("credential_env", model.credential_env)) {
+            return result;
+        }
+        settings.model = std::move(model);
+    }
+    if (const JsonValue *runtime_value = member(document, "runtime"); runtime_value != nullptr) {
+        if (!runtime_value->is_object()) {
+            result.error = "member 'runtime' must be an object";
+            return result;
+        }
+        RuntimeSettings runtime;
+        for (const auto &[key, target] :
+             std::initializer_list<std::pair<std::string_view, std::size_t RuntimeSettings::*>>{
+                 {"event_queue_capacity", &RuntimeSettings::event_queue_capacity},
+                 {"max_connections", &RuntimeSettings::max_connections}}) {
+            const auto *value = member(*runtime_value, key);
+            if (value == nullptr) {
+                continue;
+            }
+            const auto number = value->as_integer();
+            if (!number || *number <= 0) {
+                result.error =
+                    "member 'runtime." + std::string(key) + "' must be a positive integer";
+                return result;
+            }
+            runtime.*target = static_cast<std::size_t>(*number);
+        }
+        settings.runtime = std::move(runtime);
     }
     result.ok = true;
     result.settings = std::move(settings);

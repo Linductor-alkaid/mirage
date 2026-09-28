@@ -65,6 +65,9 @@ ServiceConfig make_config(const mirage::testing::TempDir &dir) {
     // service would persist into the user's real XDG state directory and
     // hydrate foreign history into every later scenario (M1-07).
     config.recovery_directory = dir.root() / "recovery";
+    // M5-08 session state: same isolation discipline as recovery — scenarios
+    // must not see each other's persisted sessions via the default state dir.
+    config.session_state_directory = dir.root() / "session-state";
     return config;
 }
 
@@ -1662,6 +1665,280 @@ void scenario_policy_face_get_set_persists() {
     MIRAGE_CHECK(service.run().clean);
 }
 
+/// M5-08 session state across restarts (DEC-021 backlog ①, service-level
+/// round trip): a session opened on one service instance — with a settled
+/// dialog turn and a completed task's journal entries — is hydrated by the
+/// next instance from the same state directory (registry + conversation +
+/// dialog thread), the rebuilt dialog thread continues its sequence, and a
+/// closed session stays closed across the restart (the close must re-persist
+/// the snapshot — regression for the round-1 persist-point finding).
+void scenario_session_state_round_trip_across_restart() {
+    mirage::testing::TempDir dir;
+    auto make_local_config = [&dir]() {
+        ServiceConfig config = make_config(dir);
+        config.persist_session_state = true;
+        config.session_state_directory = dir.root() / "state";
+        config.model.enabled = true;
+        config.model.dialect = "openai.responses.v1";
+        config.model.model_selector = "test-model";
+        return config;
+    };
+    ServiceConfig config = make_local_config();
+    const auto scripted = std::make_shared<mirage::integration::ModelProviderOverride>(
+        [](const mira::ModelProfile &profile) -> std::shared_ptr<mira::IModelProvider> {
+            return std::make_shared<ScriptedModelProvider>(profile);
+        });
+    config.model_provider_override = scripted;
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+
+    ipc::IpcClient client(config.socket_path);
+    const ipc::Response opened = client.call(ipc::OpenSessionRequest{}, kCallBudget);
+    MIRAGE_CHECK(opened.ok);
+    const auto *opened_session = std::get_if<ipc::SessionOpened>(&opened.payload);
+    MIRAGE_CHECK(opened_session != nullptr);
+    if (opened_session == nullptr) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+    const std::string session_id = opened_session->session_id;
+
+    // One settled dialog turn and one completed task on the session.
+    const ipc::Response accepted =
+        client.call(ipc::SessionChatRequest{session_id, "重启前的问题"}, kCallBudget);
+    MIRAGE_CHECK(accepted.ok);
+    const auto *turn = std::get_if<ipc::DialogTurnAccepted>(&accepted.payload);
+    MIRAGE_CHECK(turn != nullptr);
+    if (turn == nullptr) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+    const auto chat_deadline = std::chrono::steady_clock::now() + kTaskBudget;
+    bool settled = false;
+    while (!settled) {
+        const ipc::Response snapshot =
+            client.call(ipc::ChatHistoryRequest{session_id, {}}, kCallBudget);
+        MIRAGE_CHECK(snapshot.ok);
+        if (snapshot.ok) {
+            const auto *dialog = std::get_if<ipc::DialogHistory>(&snapshot.payload);
+            MIRAGE_CHECK(dialog != nullptr);
+            if (dialog != nullptr && dialog->turns.size() == 1 && dialog->turns[0].status == "ok") {
+                settled = true;
+                break;
+            }
+        }
+        if (std::chrono::steady_clock::now() >= chat_deadline) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{25});
+    }
+    MIRAGE_CHECK(settled);
+
+    const std::string token = mirage::testing::unique_token();
+    const std::filesystem::path note = dir.root() / ("note-" + token + ".txt");
+    write_text_file(note, "session state fixture " + token + "\n");
+    ipc::SubmitTaskRequest submit;
+    submit.goal = "跨重启任务";
+    submit.session_id = session_id;
+    submit.steps.push_back({ipc::StepKind::FilesystemRead, note.string()});
+    const std::optional<std::string> task_id = submit_task(client, submit);
+    MIRAGE_CHECK(task_id.has_value());
+    if (!task_id) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+    const auto done = wait_terminal(config.socket_path, *task_id);
+    MIRAGE_CHECK(done.has_value());
+    if (done.has_value()) {
+        MIRAGE_CHECK(done->progress == "Completed");
+    }
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+
+    // Second instance over the same state directory: the session, its
+    // conversation and its dialog thread come back.
+    RuntimeService second(config);
+    MIRAGE_CHECK(second.start(make_binding(dir)).ok);
+    ipc::IpcClient second_client(config.socket_path);
+
+    const ipc::Response listed = second_client.call(ipc::ListSessionsRequest{}, kCallBudget);
+    MIRAGE_CHECK(listed.ok);
+    const auto *sessions = std::get_if<ipc::SessionList>(&listed.payload);
+    MIRAGE_CHECK(sessions != nullptr);
+    bool hydrated = false;
+    if (sessions != nullptr) {
+        for (const ipc::SessionSummary &entry : sessions->sessions) {
+            hydrated = hydrated || entry.id == session_id;
+        }
+    }
+    MIRAGE_CHECK(hydrated);
+
+    // The conversation journal was re-appended in order: user goal first,
+    // outcome after.
+    const ipc::Response history =
+        second_client.call(ipc::SessionHistoryRequest{session_id, {}}, kCallBudget);
+    MIRAGE_CHECK(history.ok);
+    const auto *conversation = std::get_if<ipc::SessionHistory>(&history.payload);
+    MIRAGE_CHECK(conversation != nullptr);
+    if (conversation != nullptr) {
+        MIRAGE_CHECK(conversation->entries.size() == 2);
+        if (conversation->entries.size() == 2) {
+            MIRAGE_CHECK(conversation->entries[0].kind == "user");
+            MIRAGE_CHECK(conversation->entries[0].text == "跨重启任务");
+            MIRAGE_CHECK(conversation->entries[1].kind == "outcome");
+        }
+    }
+
+    // The dialog thread came back with the persisted turn...
+    const ipc::Response dialog =
+        second_client.call(ipc::ChatHistoryRequest{session_id, {}}, kCallBudget);
+    MIRAGE_CHECK(dialog.ok);
+    const auto *dialog_history = std::get_if<ipc::DialogHistory>(&dialog.payload);
+    MIRAGE_CHECK(dialog_history != nullptr);
+    if (dialog_history != nullptr) {
+        MIRAGE_CHECK(dialog_history->turns.size() == 1);
+        if (dialog_history->turns.size() == 1) {
+            MIRAGE_CHECK(dialog_history->turns[0].turn_id == turn->turn_id);
+            MIRAGE_CHECK(dialog_history->turns[0].status == "ok");
+            MIRAGE_CHECK(dialog_history->turns[0].reply_text == "桌面回复正常。");
+            MIRAGE_CHECK(dialog_history->turns[0].sequence == 1);
+        }
+    }
+
+    // ...and a fresh turn continues the persisted sequence.
+    const ipc::Response followup =
+        second_client.call(ipc::SessionChatRequest{session_id, "重启后追问"}, kCallBudget);
+    MIRAGE_CHECK(followup.ok);
+    const auto follow_deadline = std::chrono::steady_clock::now() + kTaskBudget;
+    bool follow_settled = false;
+    while (!follow_settled) {
+        const ipc::Response snapshot =
+            second_client.call(ipc::ChatHistoryRequest{session_id, {}}, kCallBudget);
+        MIRAGE_CHECK(snapshot.ok);
+        if (snapshot.ok) {
+            const auto *next = std::get_if<ipc::DialogHistory>(&snapshot.payload);
+            MIRAGE_CHECK(next != nullptr);
+            if (next != nullptr && next->turns.size() == 2 && next->turns[1].status == "ok") {
+                MIRAGE_CHECK(next->turns[1].sequence == 2);
+                MIRAGE_CHECK(next->turns[1].user_text == "重启后追问");
+                follow_settled = true;
+                break;
+            }
+        }
+        if (std::chrono::steady_clock::now() >= follow_deadline) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{25});
+    }
+    MIRAGE_CHECK(follow_settled);
+
+    // Declared hydration limitation (fix fdc3b00): task.submit has no
+    // pinned session to reach for a rehydrated session — the honest
+    // read-only-history-view semantics, pinned verbatim.
+    ipc::SubmitTaskRequest to_hydrated;
+    to_hydrated.goal = "注定被拒的任务";
+    to_hydrated.session_id = session_id;
+    to_hydrated.steps.push_back({ipc::StepKind::FilesystemRead, note.string()});
+    const ipc::Response refused = second_client.call(to_hydrated, kCallBudget);
+    MIRAGE_CHECK(!refused.ok);
+    MIRAGE_CHECK(refused.error.code == "pinned_runtime");
+
+    // Close-does-not-resurrect regression (round-2 finding): the hydrated
+    // session is closed on the second instance — the close is service-side
+    // (the pinned counterpart is gone with the previous era) — then a third
+    // instance over the same state directory must NOT bring it back: the
+    // session is absent from session.list and its faces answer not_found.
+    const ipc::Response closed =
+        second_client.call(ipc::CloseSessionRequest{session_id}, kCallBudget);
+    MIRAGE_CHECK(closed.ok);
+    const auto *closed_session = std::get_if<ipc::SessionClosed>(&closed.payload);
+    MIRAGE_CHECK(closed_session != nullptr);
+    if (closed_session != nullptr) {
+        MIRAGE_CHECK(closed_session->session_id == session_id);
+        MIRAGE_CHECK(closed_session->state == "closed");
+    }
+
+    second.request_shutdown();
+    MIRAGE_CHECK(second.run().clean);
+
+    RuntimeService third(config);
+    MIRAGE_CHECK(third.start(make_binding(dir)).ok);
+    ipc::IpcClient third_client(config.socket_path);
+
+    const ipc::Response third_listed = third_client.call(ipc::ListSessionsRequest{}, kCallBudget);
+    MIRAGE_CHECK(third_listed.ok);
+    const auto *third_sessions = std::get_if<ipc::SessionList>(&third_listed.payload);
+    MIRAGE_CHECK(third_sessions != nullptr);
+    bool resurrected = false;
+    if (third_sessions != nullptr) {
+        for (const ipc::SessionSummary &entry : third_sessions->sessions) {
+            resurrected = resurrected || entry.id == session_id;
+        }
+    }
+    MIRAGE_CHECK(!resurrected);
+
+    const ipc::Response ghost_history =
+        third_client.call(ipc::ChatHistoryRequest{session_id, {}}, kCallBudget);
+    MIRAGE_CHECK(!ghost_history.ok);
+    MIRAGE_CHECK(ghost_history.error.code == "not_found");
+    const ipc::Response ghost_chat =
+        third_client.call(ipc::SessionChatRequest{session_id, "hi"}, kCallBudget);
+    MIRAGE_CHECK(!ghost_chat.ok);
+    MIRAGE_CHECK(ghost_chat.error.code == "not_found");
+
+    third.request_shutdown();
+    MIRAGE_CHECK(third.run().clean);
+}
+
+/// M5-08: a corrupt session state document degrades loudly (DEC-011
+/// posture) — the instance starts, hydrates nothing, and the stale
+/// session's faces answer not_found.
+/// NOTE (independent verification, M5-08 round 1): the hydration round-trip
+/// (open + dialog turn + task on one instance, rehydrated by the next) is
+/// NOT asserted yet — the decoder rejects every document carrying journal
+/// entries (session_state.cpp reads the entry object as the 'kind' string),
+/// so hydration loud-degrades for any task-bearing session. The round-trip
+/// assertions land together with the fix.
+void scenario_session_state_corrupt_document_degrades_loudly() {
+    mirage::testing::TempDir dir;
+    ServiceConfig config = make_config(dir);
+    config.persist_session_state = true;
+    config.session_state_directory = dir.root() / "state";
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+
+    // A malformed document in the state directory must not block the start.
+    write_text_file(config.session_state_directory / "session-state.json", "{oops");
+    RuntimeService second(config);
+    MIRAGE_CHECK(second.start(make_binding(dir)).ok);
+    ipc::IpcClient client(config.socket_path);
+    const ipc::Response listed = client.call(ipc::ListSessionsRequest{}, kCallBudget);
+    MIRAGE_CHECK(listed.ok);
+    const auto *sessions = std::get_if<ipc::SessionList>(&listed.payload);
+    MIRAGE_CHECK(sessions != nullptr);
+    if (sessions != nullptr) {
+        // Nothing was hydrated from the corrupt document: only the primary
+        // session (32-hex id) is registry-resident.
+        std::size_t non_primary = 0;
+        for (const ipc::SessionSummary &entry : sessions->sessions) {
+            MIRAGE_CHECK(entry.id.size() == 32);
+        }
+        MIRAGE_CHECK(non_primary == 0);
+    }
+    const ipc::Response gone =
+        client.call(ipc::ChatHistoryRequest{"5a4b3c2d1e0f4938576a5b4c3d2e1f0a", {}}, kCallBudget);
+    MIRAGE_CHECK(!gone.ok);
+    MIRAGE_CHECK(gone.error.code == "not_found");
+    second.request_shutdown();
+    MIRAGE_CHECK(second.run().clean);
+}
+
 /// M5-07 rules-immediately-effective plus the DEC-011 fail-closed write
 /// posture: a policy.set rule governs the very next gated desktop action
 /// (the driver and the policy face share one controller), an absent
@@ -2075,6 +2352,10 @@ int main() {
     run_scenario("policy_face_get_set_persists", scenario_policy_face_get_set_persists);
     run_scenario("policy_set_live_effect_and_fail_closed_persist",
                  scenario_policy_set_live_effect_and_fail_closed_persist);
+    run_scenario("session_state_corrupt_document_degrades_loudly",
+                 scenario_session_state_corrupt_document_degrades_loudly);
+    run_scenario("session_state_round_trip_across_restart",
+                 scenario_session_state_round_trip_across_restart);
     run_scenario("session_chat_latch_and_failure", scenario_session_chat_latch_and_failure);
     run_scenario("session_close_cancels_inflight_task",
                  scenario_session_close_cancels_inflight_task);

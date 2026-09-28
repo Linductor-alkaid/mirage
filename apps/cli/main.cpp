@@ -354,6 +354,20 @@ int command_service_start(int argc, char **argv) {
     }
     child_pid = static_cast<long>(child);
     if (child == 0) {
+        // Daemon discipline (BUG-20260916-001, M5-08): the long-lived child
+        // must not hold the caller's stdio — a pipe reader would otherwise
+        // wait for the service's lifetime EOF. Redirect all three standard
+        // descriptors to /dev/null before exec; the readiness probe talks
+        // over the socket, not over stdio.
+        const int null_fd = ::open("/dev/null", O_RDWR);
+        if (null_fd >= 0) {
+            ::dup2(null_fd, STDIN_FILENO);
+            ::dup2(null_fd, STDOUT_FILENO);
+            ::dup2(null_fd, STDERR_FILENO);
+            if (null_fd > STDERR_FILENO) {
+                ::close(null_fd);
+            }
+        }
         // Child: become the service (DEC-007 item 6). The parent exits as
         // soon as the endpoint answers hello.
         std::vector<char *> argv_child;

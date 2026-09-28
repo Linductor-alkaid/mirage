@@ -175,14 +175,31 @@ IpcListener IpcListener::bind(const std::string &socket_path, std::string &diagn
 }
 
 IpcStream IpcListener::accept(std::string &diagnostic) {
-    const int fd = ::accept4(fd_, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
-    if (fd >= 0) {
+    for (;;) {
+        const int fd = ::accept4(fd_, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
+        if (fd < 0) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                diagnostic = std::string("accept() failed: ") + std::strerror(errno);
+            }
+            return IpcStream{};
+        }
+        // DEC-007/DEC-012 productization review (M5-08): the endpoint is a
+        // same-user local trust boundary, so every accepted connection is
+        // checked against the listener's own credentials via SO_PEERCRED
+        // (Linux). A mismatched peer is closed and the accept loop continues;
+        // platforms without SO_PEERCRED keep the socket-directory permission
+        // (0700) as the only boundary, which is the pre-existing posture.
+#ifdef SO_PEERCRED
+        ucred credentials{};
+        socklen_t credentials_length = sizeof(credentials);
+        if (::getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &credentials, &credentials_length) < 0 ||
+            credentials.uid != ::geteuid()) {
+            ::close(fd);
+            continue;
+        }
+#endif
         return IpcStream{static_cast<std::intptr_t>(fd)};
     }
-    if (errno != EAGAIN && errno != EWOULDBLOCK) {
-        diagnostic = std::string("accept() failed: ") + std::strerror(errno);
-    }
-    return IpcStream{};
 }
 
 bool endpoint_has_listener(const std::string &socket_path,

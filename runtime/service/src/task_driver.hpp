@@ -44,6 +44,11 @@ void publish_task_updated_best_effort(const std::shared_ptr<ServiceCore> &core,
 void publish_permission_request_best_effort(const std::shared_ptr<ServiceCore> &core,
                                             ipc::PermissionRequestedEvent event);
 
+/// Worker-thread-safe session state persist (M5-08, DEC-021 backlog ①):
+/// snapshots the session registry, dialog threads and raw journal appends
+/// into the state document. Called after journal appends; never throws.
+void persist_session_state(const std::shared_ptr<ServiceCore> &core);
+
 /// Driver-thread entry for the DEC-021 session event set (session.updated /
 /// session.message / session.turn / session.output): the same serial-domain
 /// best-effort publish discipline as the task snapshot. A dropped publish is

@@ -3,7 +3,8 @@
 > 状态：In Progress（`M5-01`、`M5-02`、`M5-03`、`M5-04` 完成，2026-09-26；
 > `M5-05` 全部完成 2026-09-27；`M5-06` 完成 2026-09-28（四增量：会话页接
 > 真实面、观察面协议扩展、会话管理面 session.close、对话模式真实化）；
-> `M5-07` 批准中心与权限策略面完成 2026-09-28）
+> `M5-07` 批准中心与权限策略面完成 2026-09-28；`M5-08` 设置八类落地与
+> 产品化规模复核完成 2026-09-28）
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M3](m3-mirador-integration.md)（已完成：Mirador 视觉集成与壳选型冻结——
@@ -11,7 +12,7 @@
 > Backend 与产品进程 Windows 化——命名管道 IPC、`mirage-service` / CLI 双平台
 > 可运行）
 > 建议发布点：`release-epsilon`（tag 待维护者授权后创建）
-> 更新日期：2026-09-28（`M5-07`）
+> 更新日期：2026-09-28（`M5-08`）
 
 ## 目标
 
@@ -171,7 +172,7 @@
       真实化——运行时间线 / 观察流直连任务快照与事件，视觉状态呈现与订阅
       演进；Composer 双模式信息架构完整兑现，模型层未配置的服务保持如实降
       级。
-- [ ] `M5-07` 批准中心与权限管理产品化：批准中心接异步确认面（`M5-03`）；
+- [x] `M5-07` 批准中心与权限管理产品化：批准中心接异步确认面（`M5-03`）；
       设置页权限策略配置（每能力 `allow` / `confirm` / `deny`、资源范围、
       默认策略收紧——DEC-010）；权限策略持久化（DEC-011 Desktop
       Permissions 条目）与运行时生效路径。
@@ -1393,4 +1394,183 @@ DEC-010 / DEC-011 演进修订随实现登记；golden `meta.version` 8 → 9；
   （§4 / §6.1 / §6.8 / §10）、
   [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
   §4 与变更记录、
+  [总计划](mirage-implementation-plan.md) 状态叙述与决策表。
+
+2026-09-28：`M5-07` CI 取证完成（补录）；run 36418679167
+（headSha = `7f8d667`，PR [#61](https://github.com/Linductor-alkaid/mirage/pull/61)）
+全部 8 作业 success，2026-09-28 合并（维护者授权）。
+
+- Linux 矩阵：debug / release / asan / ubsan / tsan 五预设全绿；format &
+  public-header boundaries 绿（40 公共头 0 违规）。
+- frontend 作业：lint + strict tsc + 730 测试 + build 全绿（golden vectors
+  双端门禁消费同一 meta.version 9 vectors 文件）。
+- windows msvc (full tree)：全树构建 + 测试通过。
+- 独立测试验证（第 1 轮）新增用例随本 runs 取证：
+  `policy_set_live_effect_and_fail_closed_persist` / golden
+  `policy-set-roots-too-many` / `policy-set-root-empty` /
+  `policy-view-root-too-long` / ws + desktop + store 传输与策略用例
+  （见 cbf9e76）。
+
+2026-09-28：`M5-08` 设置全量与产品化规模复核完成（DEC-011 条目集扩展，
+schema 1 加法演进；本 PR 的 CI 结论按仓库先例由下一工作项 PR 补录）。
+
+- 范围：
+  - **设置八类持久化条目定案与落地**：LocalSettings 扩展两个新块——
+    `model`（设置-模型类目，DEC-027 `ModelLayerConfig` 面的配置输入：
+    enabled / dialect / display_name / endpoint / api_prefix / model /
+    credential_env）与 `runtime`（Runtime Configuration 类目：
+    event_queue_capacity / max_connections）；apps/service 将两块映射进
+    `ServiceConfig`（模型层启动期装配；事件队列容量与连接规模经配置可
+    调）。UI Layout 类目为前端本地产品状态（会话别名 localStorage +
+    观察台有界缓冲），不进 service.json（结论留痕）。Desktop Permissions
+    已随 DEC-028 全词表落地（部分兑现转全）。
+  - **会话历史跨重启持久化（DEC-021 挂账①兑现）**：新增
+    `persistence::session_state` 编解码（registry + journal raw 输入 + 对
+    话线程；64 会话 / 1024 journal / 256 轮界，文本 16 KiB 界）；服务持
+    久化点 = open / close / dialog settle / journal append / teardown，
+    注水 = 会话注册表重建 + journal 按序重放（pinned store 重导出同一序
+    号）+ 对话线程重建（next_sequence 续号）；损坏文档响亮降级不阻断启
+    动（DEC-011 姿态）。在飞对话轮与未落盘 journal 条目（崩溃窗口）不持
+    久化——如实声明。
+  - **产品化规模复核（DEC-007 / DEC-012 复核条目）**：事件队列容量与连
+    接规模经 `runtime` 块可调（缺省 256 / 16 维持）；复核结论——两界均
+    有界可观察（事件队列 drop-oldest + `events.overflow` 标记、超界连接
+    显式拒绝），维持既有背压纪律；**端点对端凭据校验**：POSIX accept 循
+    环增 SO_PEERCRED 同 uid 校验（不匹配连接关闭并继续），Windows 命名
+    管道默认 DACL 同用户边界为既有姿态（结论留痕，热加固挂账后续）。
+  - **M1 遗留守护纪律修复（BUG-20260916-001）**：`mirage service start`
+    fork 子进程 exec 前 stdio 三描述符重定向 /dev/null——长生命周期服务
+    不再持有调用方管道写端，`| grep` 管道读端正常 EOF。
+  - **会话重命名产品别名（DEC-026 挂账⑤兑现）**：签派栏每会话菜单增「重
+    命名」；标题为展示层产品别名，localStorage 持久化（wire 无标题成
+    员，不进契约面）；空名回落派生标题。
+- 依据：[DEC-011](../decisions/DEC-011-m1-local-state-persistence.md)
+  （条目集与默认拾取翻转，M5-07 已兑现部分）、
+  [DEC-021](../decisions/DEC-021-session-message-contract-face.md)（挂账
+  ①）、[DEC-026](../decisions/DEC-026-observation-face-and-definition-read.md)
+  （挂账⑤）、[DEC-027](../decisions/DEC-027-dialog-mode-model-layer.md)
+  （settings-model 契约输入）、
+  [DEC-028](../decisions/DEC-028-permission-policy-face.md)（决策 5 留
+  观）、[DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md) /
+  [DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)
+  （复核条目）；M1 计划 BUG-20260916-001；本计划 `M5-08` 工作项。
+- 验证（本机 Linux，GCC 13.3 / Node 22）：
+  - 全树 debug 构建零告警；ctest **40/40 通过 0 skip**（`persistence_test`
+    增至 **224 检查**——settings 新块 round-trip、缺省文档、model/runtime
+    负向；`runtime_service_test` **453 检查**含 `policy_face_get_set_persists`
+    与 `session_close_frees_dialog_registry_slot`；`ipc_protocol_golden_test`
+    **1139 检查**维持 v9 逐字节门禁——wire 零变更；既有门禁零回归）。
+  - `mirage-format-check` 与 `mirage-boundary-check`（40 公共头 0 违规）
+    本机通过。
+  - ui：`npm run check`（tsc 严格）0 诊断；`npm test` **18 文件 730 测试
+    通过**（golden-vectors 维持 v9 199 用例；会话重命名场景随套件）；
+    `npm run lint` 0 告警；`npm run build` 通过。
+  - Linux 五预设矩阵 / windows 作业随本 PR CI 取证（结论由后续记录补录）。
+- 限制与补跑条件：① 会话状态持久化时机为事件驱动 + teardown——崩溃窗口
+  内未落盘的 journal / 对话条目丢失（与 recovery 姿态一致，如实声明）；
+  ② 设置-模型类目的 UI 实时变更需 wire 面（model.get/set），本增量以配
+  置文件 + 启动装配承载，挂账后续；③ 对端凭据校验的 Windows 命名管道热
+  加固（安全描述符显式化）挂账后续；④ 默认策略收紧维持留观（DEC-028 决
+  策 5），收紧决策随 M5-08 后使用数据另定。
+- 同步：[DEC-011](../decisions/DEC-011-m1-local-state-persistence.md) /
+  [DEC-028](../decisions/DEC-028-permission-policy-face.md)（演进修订与
+  结论留痕）、
+  [mirage-ipc-protocol-v1.md](../design/mirage-ipc-protocol-v1.md)（零变更
+  确认）、
+  [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
+  §4、ui/README、
+  [总计划](mirage-implementation-plan.md) 状态叙述与决策表。
+
+2026-09-28：`M5-07` CI 取证完成（补录）；run 36418679167
+（headSha = `7f8d667`，PR [#61](https://github.com/Linductor-alkaid/mirage/pull/61)）
+全部 8 作业 success，2026-09-28 合并（维护者授权）。
+
+- Linux 矩阵：debug / release / asan / ubsan / tsan 五预设全绿；format &
+  public-header boundaries 绿（40 公共头 0 违规）。
+- frontend 作业：lint + strict tsc + 730 测试 + build 全绿（golden vectors
+  双端门禁消费同一 meta.version 9 vectors 文件）。
+- windows msvc (full tree)：全树构建 + 测试通过。
+- 独立测试验证（第 1 轮）新增用例随本 runs 取证：
+  `policy_set_live_effect_and_fail_closed_persist` / golden
+  `policy-set-roots-too-many` / `policy-set-root-empty` /
+  `policy-view-root-too-long` / ws + desktop + store 传输与策略用例
+  （见 cbf9e76）。
+
+2026-09-28：`M5-08` 设置全量与产品化规模复核完成（DEC-011 条目集扩展，
+schema 1 加法演进；本 PR 的 CI 结论按仓库先例由下一工作项 PR 补录）。
+
+- 范围：
+  - **设置八类持久化条目定案与落地**：LocalSettings 扩展两个新块——
+    `model`（设置-模型类目，DEC-027 `ModelLayerConfig` 面的配置输入：
+    enabled / dialect / display_name / endpoint / api_prefix / model /
+    credential_env）与 `runtime`（Runtime Configuration 类目：
+    event_queue_capacity / max_connections）；apps/service 将两块映射进
+    `ServiceConfig`（模型层启动期装配；事件队列容量与连接规模经配置可
+    调）。UI Layout 类目为前端本地产品状态（会话别名 localStorage +
+    观察台有界缓冲），不进 service.json（结论留痕）。Desktop Permissions
+    已随 DEC-028 全词表落地（部分兑现转全）。
+  - **会话历史跨重启持久化（DEC-021 挂账①兑现）**：新增
+    `persistence::session_state` 编解码（registry + journal raw 输入 + 对
+    话线程；64 会话 / 1024 journal / 256 轮界，文本 16 KiB 界）；服务持
+    久化点 = open / close / dialog settle / journal append / teardown，
+    注水 = 会话注册表重建 + journal 按序重放（pinned store 重导出同一序
+    号）+ 对话线程重建（next_sequence 续号）；损坏文档响亮降级不阻断启
+    动（DEC-011 姿态）。在飞对话轮与未落盘 journal 条目（崩溃窗口）不持
+    久化——如实声明。
+  - **产品化规模复核（DEC-007 / DEC-012 复核条目）**：事件队列容量与连
+    接规模经 `runtime` 块可调（缺省 256 / 16 维持）；复核结论——两界均
+    有界可观察（事件队列 drop-oldest + `events.overflow` 标记、超界连接
+    显式拒绝），维持既有背压纪律；**端点对端凭据校验**：POSIX accept 循
+    环增 SO_PEERCRED 同 uid 校验（不匹配连接关闭并继续），Windows 命名
+    管道默认 DACL 同用户边界为既有姿态（结论留痕，热加固挂账后续）。
+  - **M1 遗留守护纪律修复（BUG-20260916-001）**：`mirage service start`
+    fork 子进程 exec 前 stdio 三描述符重定向 /dev/null——长生命周期服务
+    不再持有调用方管道写端，`| grep` 管道读端正常 EOF。
+  - **会话重命名产品别名（DEC-026 挂账⑤兑现）**：签派栏每会话菜单增「重
+    命名」；标题为展示层产品别名，localStorage 持久化（wire 无标题成
+    员，不进契约面）；空名回落派生标题。
+- 依据：[DEC-011](../decisions/DEC-011-m1-local-state-persistence.md)
+  （条目集与默认拾取翻转，M5-07 已兑现部分）、
+  [DEC-021](../decisions/DEC-021-session-message-contract-face.md)（挂账
+  ①）、[DEC-026](../decisions/DEC-026-observation-face-and-definition-read.md)
+  （挂账⑤）、[DEC-027](../decisions/DEC-027-dialog-mode-model-layer.md)
+  （settings-model 契约输入）、
+  [DEC-028](../decisions/DEC-028-permission-policy-face.md)（决策 5 留
+  观）、[DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md) /
+  [DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)
+  （复核条目）；M1 计划 BUG-20260916-001；本计划 `M5-08` 工作项。
+- 验证（本机 Linux，GCC 13.3 / Node 22）：
+  - 全树 debug 构建零告警；ctest **40/40 通过 0 skip**（`persistence_test`
+    增至 **224 检查**——settings 新块 round-trip、缺省文档、model/runtime
+    负向；`runtime_service_test` **453 检查**含 `policy_face_get_set_persists`
+    与 `session_close_frees_dialog_registry_slot`；`ipc_protocol_golden_test`
+    **1139 检查**维持 v9 逐字节门禁——wire 零变更；既有门禁零回归）。
+  - `mirage-format-check` 与 `mirage-boundary-check`（40 公共头 0 违规）
+    本机通过。
+  - ui：`npm run check`（tsc 严格）0 诊断；`npm test` **18 文件 730 测试
+    通过**（golden-vectors 维持 v9 199 用例；会话重命名场景随套件）；
+    `npm run lint` 0 告警；`npm run build` 通过。
+  - Linux 五预设矩阵 / windows 作业随本 PR CI 取证（结论由后续记录补录）。
+- 限制与补跑条件：① 会话状态持久化时机为事件驱动 + teardown——崩溃窗口
+  内未落盘的 journal / 对话条目丢失（与 recovery 姿态一致，如实声明）；
+
+- 2026-09-29：独立测试验证（第 2 轮）缺陷修复——注水会话可被关闭（
+  `fix(runtime)`，同 PR 补充提交）：注水只重建服务侧状态，pinned host 无
+  该会话，session.close 走 pinned close_session 即拒（not_found），持久化
+  会话成僵尸。修复：注水时登记 hydrated_sessions；close 对 hydrated 会话
+  跳过 pinned 调用走纯产品状态移除；同根因下 task.submit 到注水会话无法
+  被 pinned 受理（『只读历史视图』语义）随代码注释与限制节声明。回归：
+  session_state_round_trip_across_restart 恢复 close-不复活断言（第二实
+  例 close ok + 第三实例不复活 + 各面 not_found）。验证：runtime_service_test
+  539 检查 0 失败（本机实测）。  ② 设置-模型类目的 UI 实时变更需 wire 面（model.get/set），本增量以配
+  置文件 + 启动装配承载，挂账后续；③ 对端凭据校验的 Windows 命名管道热
+  加固（安全描述符显式化）挂账后续；④ 默认策略收紧维持留观（DEC-028 决
+  策 5），收紧决策随 M5-08 后使用数据另定。
+- 同步：[DEC-011](../decisions/DEC-011-m1-local-state-persistence.md) /
+  [DEC-028](../decisions/DEC-028-permission-policy-face.md)（演进修订与
+  结论留痕）、
+  [mirage-ipc-protocol-v1.md](../design/mirage-ipc-protocol-v1.md)（零变更
+  确认）、
+  [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
+  §4、ui/README、
   [总计划](mirage-implementation-plan.md) 状态叙述与决策表。

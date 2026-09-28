@@ -1,7 +1,8 @@
 /// 签派栏（SessionsSidebar）：新建、搜索、分组列表（今天 / 近 7 天 / 更早）、
-/// 会话删除（session.close，DEC-026 挂账②兑现）。数据全部来自会话面契约路径
-/// （session.list 快照 + 派生标题，DEC-025）；重命名 / 置顶 / 导出 / fork 仍
-/// 无 wire 面，不呈现（DEC-026 决策 5）。
+/// 会话删除（session.close，DEC-026 挂账②兑现）与会话重命名（展示层别名，
+/// localStorage 持久化，DEC-026 挂账⑤落地）。数据全部来自会话面契约路径
+/// （session.list 快照 + 派生标题，DEC-025）；置顶 / 导出 / fork 无产品状态
+/// 承载，不呈现（DEC-028 决策 5 结论）。
 
 import { useMemo, useState } from 'react';
 import { MessageSquarePlus, Search, Trash2 } from 'lucide-react';
@@ -50,10 +51,11 @@ function SessionBadge({ session }: { session: SessionMeta }): React.ReactElement
 }
 
 export function SessionsSidebar(): React.ReactElement {
-    const { state, newSession, selectSession, deleteSession } = useHarness();
+    const { state, newSession, selectSession, deleteSession, renameSession } = useHarness();
     const [query, setQuery] = useState('');
     const [menuFor, setMenuFor] = useState<string | null>(null);
     const [confirmClose, setConfirmClose] = useState<string | null>(null);
+    const [renaming, setRenaming] = useState<string | null>(null);
     const now = useNow();
 
     const activeId = state.route.view === 'chat' ? state.route.sessionId : undefined;
@@ -108,6 +110,32 @@ export function SessionsSidebar(): React.ReactElement {
                             <span className="g-label">{GROUP_LABELS[g]}</span>
                             {list.map((s) => {
                                 const isActive = s.id === activeId;
+                                if (renaming === s.id) {
+                                    return (
+                                        <div key={s.id} className="sess-item is-active">
+                                            <input
+                                                className="input"
+                                                style={{ height: 22 }}
+                                                defaultValue={s.title}
+                                                aria-label={`重命名会话：${s.title}`}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        renameSession(s.id, e.currentTarget.value);
+                                                        setRenaming(null);
+                                                    }
+                                                    if (e.key === 'Escape') {
+                                                        setRenaming(null);
+                                                    }
+                                                }}
+                                                onBlur={(e) => {
+                                                    renameSession(s.id, e.currentTarget.value);
+                                                    setRenaming(null);
+                                                }}
+                                                autoFocus
+                                            />
+                                        </div>
+                                    );
+                                }
                                 return (
                                     <div key={s.id} style={{ position: 'relative' }}>
                                         <button
@@ -146,6 +174,16 @@ export function SessionsSidebar(): React.ReactElement {
                                                 style={{ position: 'absolute', top: 28, right: 6, zIndex: 30 }}
                                                 onMouseLeave={() => setMenuFor(null)}
                                             >
+                                                <button
+                                                    type="button"
+                                                    className="menu-item"
+                                                    onClick={() => {
+                                                        setRenaming(s.id);
+                                                        setMenuFor(null);
+                                                    }}
+                                                >
+                                                    重命名
+                                                </button>
                                                 <button
                                                     type="button"
                                                     className="menu-item is-danger"
