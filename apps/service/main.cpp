@@ -307,24 +307,73 @@ int main(int argc, char **argv) {
             if (!settings.read_roots.empty() && !read_roots_from_flags) {
                 read_roots = settings.read_roots;
             }
-            const auto apply_rule = [&](const std::optional<std::string> &text,
+            const auto apply_rule = [&](const std::string &text,
                                         mirage::runtime::permission::Capability capability) {
-                if (!text) {
-                    return;
-                }
-                const auto rule = mirage::runtime::permission::rule_from_name(*text);
+                const auto rule = mirage::runtime::permission::rule_from_name(text);
                 if (rule) {
                     config.permission_policy.rules[static_cast<std::size_t>(capability)] = *rule;
                 }
             };
-            apply_rule(settings.filesystem_read_rule,
-                       mirage::runtime::permission::Capability::FilesystemRead);
-            apply_rule(settings.filesystem_write_rule,
-                       mirage::runtime::permission::Capability::FilesystemWrite);
-            apply_rule(settings.process_execute_rule,
-                       mirage::runtime::permission::Capability::ProcessExecute);
+            for (const auto &[capability, rule] : settings.permission_rules) {
+                if (const auto parsed =
+                        mirage::runtime::permission::capability_from_name(capability)) {
+                    apply_rule(rule, *parsed);
+                }
+            }
             if (settings.confirmation) {
                 flag_confirm = *settings.confirmation;
+            }
+        }
+    }
+    // DEC-011 flip (M5-07): with no explicit --config, the default settings
+    // file is picked up when it exists — the policy face (M5-07) writes back
+    // here, so a persisted rule set must survive restarts without flags.
+    if (!config_file) {
+        const std::filesystem::path default_file =
+            mirage::runtime::persistence::default_config_directory() / "service.json";
+        std::error_code exists_ec;
+        if (std::filesystem::exists(default_file, exists_ec) && !exists_ec) {
+            config_file = default_file;
+            const std::filesystem::path parent = default_file.parent_path();
+            const mirage::runtime::persistence::LocalStateStore store(
+                parent, default_file.filename().string(),
+                mirage::runtime::persistence::kMaxSettingsFileBytes);
+            const auto loaded = store.load();
+            if (loaded.status == mirage::runtime::persistence::LoadStatus::IoError ||
+                loaded.status == mirage::runtime::persistence::LoadStatus::TooLarge) {
+                std::cerr << kProgramName << ": cannot read default config file '"
+                          << default_file.string() << "': " << loaded.error << '\n';
+                return 1;
+            }
+            if (loaded.status == mirage::runtime::persistence::LoadStatus::Loaded) {
+                const auto decoded = mirage::runtime::persistence::decode_settings(loaded.body);
+                if (!decoded.ok) {
+                    std::cerr << kProgramName << ": invalid default config file '"
+                              << default_file.string() << "': " << decoded.error << '\n';
+                    return 1;
+                }
+                const auto &settings = decoded.settings;
+                if (!settings.socket_path.empty()) {
+                    config.socket_path = settings.socket_path;
+                }
+                if (!settings.read_roots.empty() && !read_roots_from_flags) {
+                    read_roots = settings.read_roots;
+                }
+                for (const auto &[capability, rule] : settings.permission_rules) {
+                    if (const auto parsed =
+                            mirage::runtime::permission::capability_from_name(capability)) {
+                        if (const auto parsed_rule =
+                                mirage::runtime::permission::rule_from_name(rule)) {
+                            config.permission_policy.rules[static_cast<std::size_t>(*parsed)] =
+                                *parsed_rule;
+                        }
+                    }
+                }
+                if (settings.confirmation) {
+                    flag_confirm = *settings.confirmation;
+                }
+                config.settings_directory = default_file.parent_path();
+                config.settings_file_name = default_file.filename().string();
             }
         }
     }
@@ -337,6 +386,9 @@ int main(int argc, char **argv) {
                 parsed->second;
         }
     }
+    // M5-07 policy face: the service reports (and persists against) the
+    // resolved read roots; the roots themselves bound the provider at start.
+    config.read_roots = read_roots;
     if (flag_confirm == "allow") {
         config.confirmation = std::make_shared<mirage::runtime::permission::AllowAllConfirmation>();
     } else if (flag_confirm == "deny") {

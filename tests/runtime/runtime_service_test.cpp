@@ -15,6 +15,9 @@
 #include <mirage/runtime/ipc/framing.hpp>
 #include <mirage/runtime/ipc/protocol.hpp>
 #include <mirage/runtime/ipc/stream.hpp>
+#include <mirage/runtime/permission/permission.hpp>
+#include <mirage/runtime/persistence/settings.hpp>
+#include <mirage/runtime/persistence/store.hpp>
 #include <mirage/runtime/runtime_service.hpp>
 
 #include <fcntl.h>
@@ -1580,6 +1583,85 @@ void scenario_session_chat_dialog_face() {
 /// dialog registry (capacity = max_sessions) fills with dead threads and the
 /// dialog face goes permanently `unavailable` for every new session after
 /// max_sessions open→chat→close cycles.
+/// M5-07 (DEC-020 / DEC-011 evolution): the policy face — policy.get
+/// reports the full DEC-010 rule set, policy.set applies it live (the next
+/// gated action obeys the new rule) and persists the merged document to the
+/// settings store; the document decodes back with the new rules.
+void scenario_policy_face_get_set_persists() {
+    mirage::testing::TempDir dir;
+    ServiceConfig config = make_config(dir);
+    config.read_roots = {"/home/user/work"};
+    config.settings_directory = dir.root() / "settings";
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+
+    ipc::IpcClient client(config.socket_path);
+    const ipc::Response hello = client.call(ipc::HelloRequest{}, kCallBudget);
+    MIRAGE_CHECK(hello.ok);
+    const auto *identity = std::get_if<ipc::ServiceIdentity>(&hello.payload);
+    MIRAGE_CHECK(identity != nullptr);
+    if (identity != nullptr) {
+        MIRAGE_CHECK(identity->policy.has_value());
+        MIRAGE_CHECK(identity->policy.value_or(false));
+    }
+
+    // policy.get: the full DEC-010 set with the service defaults (DEC-010:
+    // read/execute allowed, filesystem.write denied).
+    const ipc::Response got = client.call(ipc::GetPolicyRequest{}, kCallBudget);
+    MIRAGE_CHECK(got.ok);
+    const auto *view = std::get_if<ipc::PolicyView>(&got.payload);
+    MIRAGE_CHECK(view != nullptr);
+    MIRAGE_CHECK(view != nullptr && view->rules.size() == 11);
+    if (view != nullptr && view->rules.size() == 11) {
+        MIRAGE_CHECK(view->rules.at("filesystem.read") == "allow");
+        MIRAGE_CHECK(view->rules.at("filesystem.write") == "deny");
+        MIRAGE_CHECK(view->rules.at("input.inject") == "allow");
+    }
+    MIRAGE_CHECK(view != nullptr && view->read_roots.size() == 1 &&
+                 view->read_roots[0] == "/home/user/work");
+
+    // policy.set: tighten clipboard.write to deny and drop the read root.
+    // The wire decode validated the full coverage; the live effect is
+    // observable through the persisted document (and the next gated action).
+    ipc::SetPolicyRequest set_policy;
+    set_policy.rules = view->rules;
+    set_policy.rules["clipboard.write"] = "deny";
+    set_policy.read_roots = {};
+    set_policy.has_read_roots = true;
+    const ipc::Response applied = client.call(set_policy, kCallBudget);
+    MIRAGE_CHECK(applied.ok);
+    const auto *applied_view = std::get_if<ipc::PolicyView>(&applied.payload);
+    MIRAGE_CHECK(applied_view != nullptr);
+    if (applied_view != nullptr) {
+        MIRAGE_CHECK(applied_view->rules.at("clipboard.write") == "deny");
+        MIRAGE_CHECK(applied_view->read_roots.empty());
+    }
+
+    // The persisted document carries the new rules (read-modify-write kept
+    // the store authoritative for the next start).
+    const mirage::runtime::persistence::LocalStateStore store(
+        config.settings_directory, config.settings_file_name,
+        mirage::runtime::persistence::kMaxSettingsFileBytes);
+    const auto loaded = store.load();
+    MIRAGE_CHECK(loaded.status == mirage::runtime::persistence::LoadStatus::Loaded);
+    const auto decoded = mirage::runtime::persistence::decode_settings(loaded.body);
+    MIRAGE_CHECK(decoded.ok);
+    if (decoded.ok) {
+        MIRAGE_CHECK(decoded.settings.permission_rules.at("clipboard.write") == "deny");
+        MIRAGE_CHECK(decoded.settings.read_roots.empty());
+    }
+
+    // Partial coverage is refused without touching anything.
+    ipc::SetPolicyRequest partial_request;
+    partial_request.rules.insert_or_assign("filesystem.read", "allow");
+    const ipc::Response partial = client.call(partial_request, kCallBudget);
+    MIRAGE_CHECK(!partial.ok);
+    MIRAGE_CHECK(partial.error.code == "invalid_argument");
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
 void scenario_session_close_frees_dialog_registry_slot() {
     mirage::testing::TempDir dir;
     ServiceConfig config = make_config(dir);
@@ -1891,6 +1973,7 @@ int main() {
     run_scenario("session_chat_dialog_face", scenario_session_chat_dialog_face);
     run_scenario("session_close_frees_dialog_registry_slot",
                  scenario_session_close_frees_dialog_registry_slot);
+    run_scenario("policy_face_get_set_persists", scenario_policy_face_get_set_persists);
     run_scenario("session_chat_latch_and_failure", scenario_session_chat_latch_and_failure);
     run_scenario("session_close_cancels_inflight_task",
                  scenario_session_close_cancels_inflight_task);

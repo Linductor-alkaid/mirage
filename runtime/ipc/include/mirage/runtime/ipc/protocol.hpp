@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <variant>
@@ -160,6 +161,27 @@ struct ChatHistoryRequest {
     std::optional<int> limit;
 };
 
+/// Reads the live desktop permission policy (DEC-010 vocabulary; M5-07): the
+/// per-capability rules (the full DEC-010 set) plus the filesystem read
+/// roots that bound the resource scope at start. Always served.
+struct GetPolicyRequest {};
+
+/// Applies a new rule set at runtime (M5-07; DEC-010 rules, DEC-011
+/// persistence): `rules` must cover the full DEC-010 capability vocabulary
+/// (each entry validated against the rule vocabulary); an optional
+/// `read_roots` array replaces the persisted resource scope — the roots take
+/// effect for the bound provider at the next start, while the rules apply
+/// immediately. The merged document persists to the settings store; a
+/// corrupt or unreadable settings file refuses the write. Errors:
+/// `invalid_argument` (unknown capability, unknown rule, missing
+/// capability, bounds).
+struct SetPolicyRequest {
+    std::map<std::string, std::string> rules;
+    std::vector<std::string> read_roots;
+    /// Absent keeps the currently persisted roots.
+    bool has_read_roots = false;
+};
+
 /// Lists the service's workflow catalog (DEC-023): product identity, head
 /// version digest, validation and runnability for every workflow the service
 /// saved or published. The pinned library stays the execution-side authority;
@@ -255,15 +277,14 @@ struct DesktopObserveRequest {
     bool visual = false;
 };
 
-using Request =
-    std::variant<HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest,
-                 CancelTaskRequest, ShutdownRequest, SubscribeEventsRequest,
-                 UnsubscribeEventsRequest, RespondPermissionRequest, ListPermissionsRequest,
-                 ListSessionsRequest, OpenSessionRequest, SessionHistoryRequest,
-                 CloseSessionRequest, SessionChatRequest, ChatHistoryRequest, WorkflowListRequest,
-                 WorkflowSaveRequest, WorkflowPublishRequest, WorkflowDeleteRequest,
-                 WorkflowAtomCatalogRequest, WorkflowRunsRequest, WorkflowRunRequest,
-                 WorkflowCancelRunRequest, WorkflowGetRequest, DesktopObserveRequest>;
+using Request = std::variant<
+    HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest, CancelTaskRequest,
+    ShutdownRequest, SubscribeEventsRequest, UnsubscribeEventsRequest, RespondPermissionRequest,
+    ListPermissionsRequest, ListSessionsRequest, OpenSessionRequest, SessionHistoryRequest,
+    CloseSessionRequest, SessionChatRequest, ChatHistoryRequest, WorkflowListRequest,
+    WorkflowSaveRequest, WorkflowPublishRequest, WorkflowDeleteRequest, WorkflowAtomCatalogRequest,
+    WorkflowRunsRequest, WorkflowRunRequest, WorkflowCancelRunRequest, WorkflowGetRequest,
+    DesktopObserveRequest, GetPolicyRequest, SetPolicyRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -300,6 +321,10 @@ struct ServiceIdentity {
     /// equipment-dependent semantics). Same optional-encodes-when-set
     /// discipline as `events`. Placed after `observation`.
     std::optional<bool> chat;
+    /// DEC-020/M5-07 policy-face advertisement: the permission policy
+    /// request face (`policy.get` / `policy.set`) is served — always true
+    /// from this service generation on. Placed after `chat`.
+    std::optional<bool> policy;
 };
 
 struct TaskSubmitted {
@@ -652,6 +677,15 @@ struct ObservationRegion {
 /// scope handle being the M3 non-goal's "visual references enter the UI
 /// observation face" carrier. Snapshots are the only truth — the response
 /// is a point-in-time capture, not a subscription.
+/// The live desktop permission policy as reported by policy.get and the
+/// policy.set echo (M5-07): the full DEC-010 rule set plus the persisted
+/// resource scope. `rules` is keyed by capability name, values from the
+/// rule vocabulary.
+struct PolicyView {
+    std::map<std::string, std::string> rules;
+    std::vector<std::string> read_roots;
+};
+
 struct ObservationView {
     std::string active_application;
     std::string active_window;
@@ -672,7 +706,7 @@ using ResponsePayload =
                  SessionOpened, SessionClosed, DialogTurnAccepted, DialogHistory, SessionHistory,
                  WorkflowList, WorkflowSaved, WorkflowPublished, WorkflowDeleted,
                  WorkflowAtomCatalog, WorkflowRunList, WorkflowRunStarted, WorkflowRunCancelled,
-                 WorkflowDefinitionView, ObservationView>;
+                 WorkflowDefinitionView, ObservationView, PolicyView>;
 
 /// Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc
 /// domain ("protocol_error", "unsupported", "invalid_argument", "not_found",

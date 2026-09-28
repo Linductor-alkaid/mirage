@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -32,11 +33,13 @@ struct LocalSettings {
     /// Filesystem read roots for the reference Linux backend (DEC-009);
     /// empty keeps the built-in empty scope (every read denied).
     std::vector<std::string> read_roots;
-    /// Per-capability permission rules (DEC-010); nullopt keeps the
-    /// built-in default for that capability.
-    std::optional<std::string> filesystem_read_rule;
-    std::optional<std::string> filesystem_write_rule;
-    std::optional<std::string> process_execute_rule;
+    /// Per-capability permission rules (DEC-010 / M5-07): keys are the
+    /// DEC-010 capability names ("filesystem.read" … "notification.post"),
+    /// values the rule vocabulary ("allow" / "confirm" / "deny"); validated
+    /// by decode_settings. Entries keep the built-in default for that
+    /// capability — absent key, absent override. Since M5-07 the map spans
+    /// the full DEC-010 vocabulary (policy.get / policy.set carry it whole).
+    std::map<std::string, std::string> permission_rules;
     /// Confirmation outcome for Confirm rules (DEC-010): "allow" / "deny";
     /// nullopt keeps the built-in fail-closed deny.
     std::optional<std::string> confirmation;

@@ -218,9 +218,10 @@ void scenario_settings_round_trip_all_fields() {
     filled.schema = persistence::kSettingsSchema;
     filled.socket_path = "/run/user/1000/mirage/custom.sock";
     filled.read_roots = {"/home/user/work", "/tmp/scratch"};
-    filled.filesystem_read_rule = "allow";
-    filled.filesystem_write_rule = "deny";
-    filled.process_execute_rule = "confirm";
+    filled.permission_rules = {{"filesystem.read", "allow"},
+                               {"filesystem.write", "deny"},
+                               {"process.execute", "confirm"},
+                               {"input.inject", "confirm"}};
     filled.confirmation = "deny";
 
     const std::string encoded = persistence::encode_settings(filled);
@@ -232,9 +233,15 @@ void scenario_settings_round_trip_all_fields() {
     MIRAGE_CHECK(decoded.settings.schema == persistence::kSettingsSchema);
     MIRAGE_CHECK(decoded.settings.socket_path == filled.socket_path);
     MIRAGE_CHECK(decoded.settings.read_roots == filled.read_roots);
-    MIRAGE_CHECK(decoded.settings.filesystem_read_rule.value_or("?") == "allow");
-    MIRAGE_CHECK(decoded.settings.filesystem_write_rule.value_or("?") == "deny");
-    MIRAGE_CHECK(decoded.settings.process_execute_rule.value_or("?") == "confirm");
+    MIRAGE_CHECK(decoded.settings.permission_rules.size() == filled.permission_rules.size());
+    MIRAGE_CHECK(decoded.settings.permission_rules.count("filesystem.read") == 1 &&
+                 decoded.settings.permission_rules.at("filesystem.read") == "allow");
+    MIRAGE_CHECK(decoded.settings.permission_rules.count("filesystem.write") == 1 &&
+                 decoded.settings.permission_rules.at("filesystem.write") == "deny");
+    MIRAGE_CHECK(decoded.settings.permission_rules.count("process.execute") == 1 &&
+                 decoded.settings.permission_rules.at("process.execute") == "confirm");
+    MIRAGE_CHECK(decoded.settings.permission_rules.count("input.inject") == 1 &&
+                 decoded.settings.permission_rules.at("input.inject") == "confirm");
     MIRAGE_CHECK(decoded.settings.confirmation.value_or("?") == "deny");
 }
 
@@ -247,9 +254,7 @@ void scenario_settings_empty_document_yields_defaults() {
     }
     MIRAGE_CHECK(decoded.settings.socket_path.empty());
     MIRAGE_CHECK(decoded.settings.read_roots.empty());
-    MIRAGE_CHECK(!decoded.settings.filesystem_read_rule.has_value());
-    MIRAGE_CHECK(!decoded.settings.filesystem_write_rule.has_value());
-    MIRAGE_CHECK(!decoded.settings.process_execute_rule.has_value());
+    MIRAGE_CHECK(decoded.settings.permission_rules.empty());
     MIRAGE_CHECK(!decoded.settings.confirmation.has_value());
 }
 
@@ -269,6 +274,8 @@ void scenario_settings_strict_decode_rejections() {
         // Rule strings use the DEC-010 vocabulary only.
         {R"({"schema":1,"permission":{"process.execute":"maybe"}})", "bad rule string"},
         {R"({"schema":1,"permission":{"proces.execute":"allow"}})", "unknown capability"},
+        {R"({"schema":1,"permission":{"notification.post":"maybe"}})",
+         "bad rule string on new capability"},
         {R"({"schema":1,"permission":"allow"})", "non-object permission"},
         {R"({"schema":1,"confirmation":"maybe"})", "bad confirmation"},
         {R"({"schema":1,"confirmation":true})", "wrong confirmation type"},

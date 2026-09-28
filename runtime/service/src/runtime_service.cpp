@@ -8,6 +8,7 @@
 #include <mirage/runtime/ipc/stream.hpp>
 #include <mirage/runtime/persistence/paths.hpp>
 #include <mirage/runtime/persistence/recovery.hpp>
+#include <mirage/runtime/persistence/settings.hpp>
 #include <mirage/runtime/persistence/store.hpp>
 
 // DEC-027 dialog task glue: the pinned operation-context and id types the
@@ -40,6 +41,7 @@
 namespace mirage::runtime {
 namespace {
 
+namespace persistence = mirage::runtime::persistence;
 using detail::progress_name;
 using detail::WorkflowCatalogEntry;
 using detail::WorkflowRunRecord;
@@ -56,6 +58,9 @@ constexpr std::size_t kMaxWorkflowDefinitionBytes = 256 * 1024;
 /// Byte budget for one session.chat user text (DEC-027); larger inputs are
 /// refused instead of silently cropped.
 constexpr std::size_t kMaxDialogTextBytes = 16 * 1024;
+/// Read-roots bound carried by the policy face (mirrors the persistence
+/// module's settings bounds).
+constexpr std::size_t kMaxPolicyReadRoots = 64;
 /// Rendered-transcript bound of one dialog turn: the newest settled turns
 /// that fit the model layer's input budget are rendered oldest-first.
 constexpr std::size_t kDialogTranscriptTurns = 20;
@@ -344,6 +349,8 @@ struct RuntimeService::Impl {
         // DEC-027: the dialog face rides the configured model layer
         // (equipment-dependent, like the `permissions` bit).
         result.chat = core->model_layer != nullptr && core->model_layer->running();
+        // M5-07: the policy face is core equipment — always served.
+        result.policy = true;
         return result;
     }
 
@@ -486,6 +493,15 @@ struct RuntimeService::Impl {
         }
         if (auto *request = std::get_if<ipc::ChatHistoryRequest>(&decoded.body)) {
             handle_session_chat_history(connection_id, correlation_id, std::move(*request));
+            return;
+        }
+        if (auto *request = std::get_if<ipc::GetPolicyRequest>(&decoded.body)) {
+            (void)request;
+            handle_policy_get(connection_id, correlation_id);
+            return;
+        }
+        if (auto *request = std::get_if<ipc::SetPolicyRequest>(&decoded.body)) {
+            handle_policy_set(connection_id, correlation_id, std::move(*request));
             return;
         }
         if (auto *request = std::get_if<ipc::SessionHistoryRequest>(&decoded.body)) {
@@ -1167,6 +1183,151 @@ struct RuntimeService::Impl {
             history.truncated = log.total_recorded > history.turns.size();
         }
         respond(connection_id, correlation_id, std::move(history));
+    }
+
+    /// Serial thread: the live desktop permission policy (M5-07, DEC-010) —
+    /// the full DEC-010 rule set projected from the controller plus the
+    /// read-roots resource scope mirror. Always served.
+    void handle_policy_get(std::uint64_t connection_id, std::uint64_t correlation_id) {
+        ipc::PolicyView view;
+        const permission::PermissionPolicy policy = core->permission->policy();
+        for (std::size_t index = 0;
+             index < policy.rules.size() &&
+             index < static_cast<std::size_t>(permission::Capability::NotificationPost) + 1;
+             ++index) {
+            const auto capability = static_cast<permission::Capability>(index);
+            view.rules.insert_or_assign(permission::capability_name(capability),
+                                        permission::rule_name(policy.rule_for(capability)));
+        }
+        view.read_roots = core->read_roots;
+        respond(connection_id, correlation_id, std::move(view));
+    }
+
+    /// Serial thread: apply a new rule set (M5-07, DEC-010) and persist the
+    /// merged settings document (DEC-011 Desktop Permissions entry). Rules
+    /// take effect immediately (the controller is shared with every task
+    /// driver and the atom toolset gate); read roots take effect for the
+    /// bound provider at the next start and are persisted as scope state.
+    void handle_policy_set(std::uint64_t connection_id, std::uint64_t correlation_id,
+                           ipc::SetPolicyRequest request) {
+        // Validate coverage before touching anything: the wire face carries
+        // the full DEC-010 set (strict decode above already validated the
+        // vocabulary).
+        permission::PermissionPolicy policy;
+        bool coverage_ok = true;
+        for (std::size_t index = 0;
+             index < static_cast<std::size_t>(permission::Capability::NotificationPost) + 1 &&
+             coverage_ok;
+             ++index) {
+            const auto capability = static_cast<permission::Capability>(index);
+            const auto found = request.rules.find(permission::capability_name(capability));
+            if (found == request.rules.end()) {
+                coverage_ok = false;
+                break;
+            }
+            const auto rule = permission::rule_from_name(found->second);
+            if (!rule) {
+                coverage_ok = false;
+                break;
+            }
+            policy.rules[index] = *rule;
+        }
+        if (!coverage_ok) {
+            fail(connection_id, correlation_id, "invalid_argument",
+                 "policy.set 'rules' must cover every DEC-010 capability");
+            return;
+        }
+        if (request.read_roots.size() > kMaxPolicyReadRoots) {
+            fail(connection_id, correlation_id, "invalid_argument",
+                 "policy.set 'read_roots' exceeds " + std::to_string(kMaxPolicyReadRoots) +
+                     " entries");
+            return;
+        }
+
+        // Live effect first: the controller is shared with every task driver
+        // and the atom toolset gate, so the new rules govern the next
+        // authorize() call.
+        core->permission->set_policy(std::move(policy));
+        if (request.has_read_roots) {
+            core->read_roots = request.read_roots;
+        }
+
+        // Persistence (DEC-011 Desktop Permissions entry): read-modify-write
+        // the settings document, preserving the members this face does not
+        // own (socket, confirmation). A corrupt or unreadable existing
+        // document refuses the write instead of overwriting user state
+        // (DEC-011's fail-closed posture for user-authoritative input).
+        if (core->settings_store == nullptr) {
+            // Write-back disabled (tests): the live effect above still holds.
+            ipc::PolicyView view;
+            const permission::PermissionPolicy applied = core->permission->policy();
+            for (std::size_t index = 0;
+                 index < static_cast<std::size_t>(permission::Capability::NotificationPost) + 1;
+                 ++index) {
+                const auto capability = static_cast<permission::Capability>(index);
+                view.rules.insert_or_assign(permission::capability_name(capability),
+                                            permission::rule_name(applied.rule_for(capability)));
+            }
+            view.read_roots = core->read_roots;
+            respond(connection_id, correlation_id, std::move(view));
+            return;
+        }
+        std::string persist_error;
+        if (!persist_policy_document(core, core->read_roots, &persist_error)) {
+            fail(connection_id, correlation_id, "internal",
+                 "policy persistence failed: " + persist_error);
+            return;
+        }
+        ipc::PolicyView view;
+        const permission::PermissionPolicy applied = core->permission->policy();
+        for (std::size_t index = 0;
+             index < static_cast<std::size_t>(permission::Capability::NotificationPost) + 1;
+             ++index) {
+            const auto capability = static_cast<permission::Capability>(index);
+            view.rules.insert_or_assign(permission::capability_name(capability),
+                                        permission::rule_name(applied.rule_for(capability)));
+        }
+        view.read_roots = core->read_roots;
+        respond(connection_id, correlation_id, std::move(view));
+    }
+
+    /// Read-modify-write of the settings document (DEC-011): carries the new
+    /// rule set and read roots, preserves every other member. Returns false
+    /// with a stable reason when the existing document cannot be trusted.
+    static bool persist_policy_document(const std::shared_ptr<detail::ServiceCore> &core,
+                                        const std::vector<std::string> &read_roots,
+                                        std::string *error) {
+        persistence::LocalSettings document;
+        if (const auto loaded = core->settings_store->load();
+            loaded.status == persistence::LoadStatus::Loaded) {
+            const auto decoded = persistence::decode_settings(loaded.body);
+            if (!decoded.ok) {
+                *error = "existing settings document is invalid: " + decoded.error;
+                return false;
+            }
+            document = decoded.settings;
+        } else if (loaded.status == persistence::LoadStatus::IoError) {
+            // Absent is fine (defaults); a real read failure refuses.
+            *error = "existing settings document cannot be read: " + loaded.error;
+            return false;
+        }
+        document.permission_rules.clear();
+        const permission::PermissionPolicy applied = core->permission->policy();
+        for (std::size_t index = 0;
+             index < static_cast<std::size_t>(permission::Capability::NotificationPost) + 1;
+             ++index) {
+            const auto capability = static_cast<permission::Capability>(index);
+            document.permission_rules.insert_or_assign(
+                permission::capability_name(capability),
+                permission::rule_name(applied.rule_for(capability)));
+        }
+        document.read_roots = read_roots;
+        const auto saved = core->settings_store->save(persistence::encode_settings(document));
+        if (!saved.ok) {
+            *error = saved.error;
+            return false;
+        }
+        return true;
     }
 
     /// Serial thread: one session's conversation history (DEC-021) — the
@@ -1900,6 +2061,16 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
     {
         std::lock_guard lock(impl_->core->dialogs.mutex);
         impl_->core->dialogs.capacity = impl_->config.max_sessions;
+    }
+    // M5-07 policy face: the settings write-back store (DEC-011 Desktop
+    // Permissions entry). The directory is created by the store's save
+    // path; a null store (write-back disabled) keeps policy.set live-only.
+    impl_->core->read_roots = impl_->config.read_roots;
+    if (!impl_->config.settings_directory.empty() && impl_->config.persist_settings) {
+        impl_->core->settings_store =
+            std::make_unique<mirage::runtime::persistence::LocalStateStore>(
+                impl_->config.settings_directory, impl_->config.settings_file_name,
+                mirage::runtime::persistence::kMaxSettingsFileBytes);
     }
 
     impl_->publish_host_status(HostStatus::Starting);

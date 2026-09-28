@@ -24,6 +24,8 @@ constexpr const char *kOpSessionOpen = "session.open";
 constexpr const char *kOpSessionClose = "session.close";
 constexpr const char *kOpSessionChat = "session.chat";
 constexpr const char *kOpSessionChatHistory = "session.chat.history";
+constexpr const char *kOpPolicyGet = "policy.get";
+constexpr const char *kOpPolicySet = "policy.set";
 constexpr const char *kOpSessionHistory = "session.history";
 constexpr const char *kOpWorkflowList = "workflow.list";
 constexpr const char *kOpWorkflowSave = "workflow.save";
@@ -59,6 +61,10 @@ constexpr const char *kCapabilityNames[] = {
     "screen.capture",     "input.inject",          "clipboard.read",    "clipboard.write",
     "application.launch", "application.terminate", "notification.post",
 };
+
+/// Closed rule vocabulary (DEC-010) carried by policy.set rules values
+/// (M5-07). The golden vectors pin the set on both ends.
+constexpr const char *kRuleNames[] = {"allow", "confirm", "deny"};
 
 /// Closed product progress projection carried by task.updated events (schema
 /// doc 6.2). Kept local so the ipc layer stays independent of mira_host;
@@ -511,6 +517,12 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 if (value.chat.has_value()) {
                     put(object, "chat", *value.chat);
                 }
+                if (value.policy.has_value()) {
+                    put(object, "policy", *value.policy);
+                }
+                if (value.policy.has_value()) {
+                    put(object, "policy", *value.policy);
+                }
             } else if constexpr (std::is_same_v<T, TaskSubmitted>) {
                 put(object, "task_id", value.task_id);
                 if (value.session_id) {
@@ -653,6 +665,17 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 put(object, "workflow_id", value.workflow_id);
                 put(object, "digest", value.digest);
                 put(object, "definition", embedded_json(value.definition_json));
+            } else if constexpr (std::is_same_v<T, PolicyView>) {
+                mira::JsonValue rules = make_object();
+                for (const auto &[capability, rule] : value.rules) {
+                    put(rules, capability, rule);
+                }
+                put(object, "rules", std::move(rules));
+                mira::JsonValue::Array roots;
+                for (const auto &root : value.read_roots) {
+                    roots.emplace_back(root);
+                }
+                put(object, "read_roots", mira::JsonValue{std::move(roots)});
             } else if constexpr (std::is_same_v<T, ObservationView>) {
                 put(object, "active_application", value.active_application);
                 put(object, "active_window", value.active_window);
@@ -811,6 +834,22 @@ std::string encode_request(std::uint64_t id, const Request &body) {
             } else if constexpr (std::is_same_v<T, WorkflowGetRequest>) {
                 put(object, "op", kOpWorkflowGet);
                 put(object, "workflow_id", value.workflow_id);
+            } else if constexpr (std::is_same_v<T, GetPolicyRequest>) {
+                put(object, "op", kOpPolicyGet);
+            } else if constexpr (std::is_same_v<T, SetPolicyRequest>) {
+                put(object, "op", kOpPolicySet);
+                mira::JsonValue rules = make_object();
+                for (const auto &[capability, rule] : value.rules) {
+                    put(rules, capability, rule);
+                }
+                put(object, "rules", std::move(rules));
+                if (value.has_read_roots) {
+                    mira::JsonValue::Array roots;
+                    for (const auto &root : value.read_roots) {
+                        roots.emplace_back(root);
+                    }
+                    put(object, "read_roots", mira::JsonValue{std::move(roots)});
+                }
             } else if constexpr (std::is_same_v<T, DesktopObserveRequest>) {
                 put(object, "op", kOpDesktopObserve);
                 // Both flags always write: the defaults (semantic on, visual
@@ -1081,6 +1120,47 @@ RequestDecode decode_request(std::string_view payload) {
         }
         get.workflow_id = *workflow_id;
         result.body = std::move(get);
+    } else if (*op == kOpPolicyGet) {
+        result.body = GetPolicyRequest{};
+    } else if (*op == kOpPolicySet) {
+        SetPolicyRequest set_policy;
+        const auto *rules = member(object, "rules");
+        if (rules == nullptr || !rules->is_object() || rules->as_object() == nullptr) {
+            result.error = "policy.set requires a 'rules' object";
+            return result;
+        }
+        for (const auto &[capability, value] : *rules->as_object()) {
+            if (!in_stable_set(capability, kCapabilityNames,
+                               sizeof(kCapabilityNames) / sizeof(kCapabilityNames[0]))) {
+                result.error = "policy.set 'rules' keys must be DEC-010 capability names";
+                return result;
+            }
+            const auto *text = value.as_string();
+            if (text == nullptr ||
+                !in_stable_set(*text, kRuleNames, sizeof(kRuleNames) / sizeof(kRuleNames[0]))) {
+                result.error = "policy.set rule values must be \"allow\", \"confirm\" or "
+                               "\"deny\"";
+                return result;
+            }
+            set_policy.rules.insert_or_assign(capability, *text);
+        }
+        if (const auto *roots = member(object, "read_roots"); roots != nullptr) {
+            if (!roots->is_array() || roots->as_array()->size() > 64) {
+                result.error = "policy.set 'read_roots' must be an array of at most 64 strings";
+                return result;
+            }
+            for (const auto &entry : *roots->as_array()) {
+                const auto *text = entry.as_string();
+                if (text == nullptr || text->empty() || text->size() > 4096) {
+                    result.error = "policy.set 'read_roots' entries must be strings of at most "
+                                   "4096 bytes";
+                    return result;
+                }
+                set_policy.read_roots.push_back(*text);
+            }
+            set_policy.has_read_roots = true;
+        }
+        result.body = std::move(set_policy);
     } else if (*op == kOpDesktopObserve) {
         DesktopObserveRequest observe;
         // Both flags are optional on the wire (absent keeps the default:
@@ -1255,6 +1335,24 @@ ResponseDecode decode_response(std::string_view payload) {
                 return result;
             }
             identity.chat = *flag;
+        }
+        // M5-07 policy-face capability member: same discipline as `events`.
+        if (const auto *policy = member(object, "policy"); policy != nullptr) {
+            const auto flag = policy->as_boolean();
+            if (!flag) {
+                result.error = "hello response 'policy' must be a boolean";
+                return result;
+            }
+            identity.policy = *flag;
+        }
+        // M5-07 policy-face capability member: same discipline as `events`.
+        if (const auto *policy = member(object, "policy"); policy != nullptr) {
+            const auto flag = policy->as_boolean();
+            if (!flag) {
+                result.error = "hello response 'policy' must be a boolean";
+                return result;
+            }
+            identity.policy = *flag;
         }
         response.payload = std::move(identity);
     } else if (const auto *task_id = member(object, "task_id"); task_id != nullptr) {
@@ -1450,6 +1548,44 @@ ResponseDecode decode_response(std::string_view payload) {
             history.entries.push_back(std::move(entry));
         }
         response.payload = std::move(history);
+    } else if (const auto *rules = member(object, "rules"); rules != nullptr) {
+        // PolicyView discriminates on "rules".
+        if (!rules->is_object() || rules->as_object() == nullptr) {
+            result.error = "policy.get 'rules' must be an object";
+            return result;
+        }
+        PolicyView view;
+        for (const auto &[capability, value] : *rules->as_object()) {
+            if (!in_stable_set(capability, kCapabilityNames,
+                               sizeof(kCapabilityNames) / sizeof(kCapabilityNames[0]))) {
+                result.error = "policy.get 'rules' keys must be DEC-010 capability names";
+                return result;
+            }
+            const auto *text = value.as_string();
+            if (text == nullptr ||
+                !in_stable_set(*text, kRuleNames, sizeof(kRuleNames) / sizeof(kRuleNames[0]))) {
+                result.error = "policy.get rule values must be \"allow\", \"confirm\" or "
+                               "\"deny\"";
+                return result;
+            }
+            view.rules.insert_or_assign(capability, *text);
+        }
+        if (const auto *roots = member(object, "read_roots"); roots != nullptr) {
+            if (!roots->is_array() || roots->as_array()->size() > 64) {
+                result.error = "policy.get 'read_roots' must be an array of at most 64 strings";
+                return result;
+            }
+            for (const auto &entry : *roots->as_array()) {
+                const auto *text = entry.as_string();
+                if (text == nullptr || text->size() > 4096) {
+                    result.error = "policy.get 'read_roots' entries must be strings of at most "
+                                   "4096 bytes";
+                    return result;
+                }
+                view.read_roots.push_back(*text);
+            }
+        }
+        response.payload = std::move(view);
     } else if (const auto *turn_id = member(object, "turn_id"); turn_id != nullptr) {
         auto id_text = string_member(object, "turn_id");
         if (!id_text || id_text->empty()) {
