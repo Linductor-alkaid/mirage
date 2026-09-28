@@ -1158,6 +1158,92 @@ void scenario_session_list_open_and_history_flow() {
     MIRAGE_CHECK(service.run().clean);
 }
 
+// --- session.close (DEC-026 backlog item 2) ----------------------------------
+
+void scenario_session_close_lifecycle() {
+    mirage::testing::TempDir dir;
+    ServiceConfig config = make_config(dir);
+    // The primary session occupies the only registry slot: after closing the
+    // opened session the freed capacity admits a new one.
+    config.max_sessions = 2;
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+
+    ipc::IpcClient client(config.socket_path);
+    // The primary session is the only registry entry at start.
+    const ipc::Response initial_list = client.call(ipc::ListSessionsRequest{}, kCallBudget);
+    MIRAGE_CHECK(initial_list.ok);
+    const auto *initial_sessions = std::get_if<ipc::SessionList>(&initial_list.payload);
+    MIRAGE_CHECK(initial_sessions != nullptr);
+    MIRAGE_CHECK(initial_sessions != nullptr && initial_sessions->sessions.size() == 1);
+    const std::string primary_id =
+        initial_sessions != nullptr && initial_sessions->sessions.size() == 1
+            ? initial_sessions->sessions[0].id
+            : std::string{};
+    MIRAGE_CHECK(!primary_id.empty());
+
+    // The primary session is product equipment: closing it is refused
+    // without touching the pinned runtime or the registry.
+    const ipc::Response close_primary =
+        client.call(ipc::CloseSessionRequest{primary_id}, kCallBudget);
+    MIRAGE_CHECK(!close_primary.ok);
+    MIRAGE_CHECK(close_primary.error.code == "invalid_state");
+    MIRAGE_CHECK(close_primary.error.message == "the primary session cannot be closed");
+
+    // Unknown ids are the same stable not_found as the other session faces.
+    const ipc::Response close_unknown =
+        client.call(ipc::CloseSessionRequest{"no-such-session"}, kCallBudget);
+    MIRAGE_CHECK(!close_unknown.ok);
+    MIRAGE_CHECK(close_unknown.error.code == "not_found");
+    MIRAGE_CHECK(close_unknown.error.message == "unknown session id");
+
+    // session.open admits one more session; closing it removes the registry
+    // entry and reports the pinned post-close state.
+    const ipc::Response opened = client.call(ipc::OpenSessionRequest{}, kCallBudget);
+    MIRAGE_CHECK(opened.ok);
+    const auto *opened_session = std::get_if<ipc::SessionOpened>(&opened.payload);
+    MIRAGE_CHECK(opened_session != nullptr);
+    if (opened_session == nullptr) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+    const std::string session_id = opened_session->session_id;
+    const ipc::Response closed = client.call(ipc::CloseSessionRequest{session_id}, kCallBudget);
+    MIRAGE_CHECK(closed.ok);
+    const auto *closed_session = std::get_if<ipc::SessionClosed>(&closed.payload);
+    MIRAGE_CHECK(closed_session != nullptr);
+    if (closed_session != nullptr) {
+        MIRAGE_CHECK(closed_session->session_id == session_id);
+        MIRAGE_CHECK(closed_session->state == "closed");
+    }
+
+    // The registry entry is gone: session.list reports only the primary,
+    // and a second close of the same id is not_found (nothing to close).
+    const ipc::Response list = client.call(ipc::ListSessionsRequest{}, kCallBudget);
+    MIRAGE_CHECK(list.ok);
+    const auto *sessions = std::get_if<ipc::SessionList>(&list.payload);
+    MIRAGE_CHECK(sessions != nullptr);
+    MIRAGE_CHECK(sessions != nullptr && sessions->sessions.size() == 1);
+    if (sessions != nullptr && sessions->sessions.size() == 1) {
+        MIRAGE_CHECK(sessions->sessions[0].id == primary_id);
+    }
+    const ipc::Response close_again =
+        client.call(ipc::CloseSessionRequest{session_id}, kCallBudget);
+    MIRAGE_CHECK(!close_again.ok);
+    MIRAGE_CHECK(close_again.error.code == "not_found");
+
+    // The freed slot admits a fresh session (capacity was 2).
+    const ipc::Response reopened = client.call(ipc::OpenSessionRequest{}, kCallBudget);
+    MIRAGE_CHECK(reopened.ok);
+    const auto *reopened_session = std::get_if<ipc::SessionOpened>(&reopened.payload);
+    MIRAGE_CHECK(reopened_session != nullptr);
+    MIRAGE_CHECK(reopened_session != nullptr && reopened_session->session_id != session_id);
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
 void scenario_session_open_capacity_fail_closed() {
     mirage::testing::TempDir dir;
     ServiceConfig config = make_config(dir);
@@ -1213,6 +1299,7 @@ int main() {
     run_scenario("shutdown_fd_triggers_stop", scenario_shutdown_fd_triggers_stop);
     run_scenario("session_list_open_and_history_flow", scenario_session_list_open_and_history_flow);
     run_scenario("session_open_capacity_fail_closed", scenario_session_open_capacity_fail_closed);
+    run_scenario("session_close_lifecycle", scenario_session_close_lifecycle);
     run_scenario("observe_fails_closed_on_headless_topology",
                  scenario_observe_fails_closed_on_headless_topology);
     run_scenario("workflow_get_unknown_id_is_not_found",

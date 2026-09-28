@@ -363,6 +363,9 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
     if (op == "session.open") {
         return ipc::OpenSessionRequest{};
     }
+    if (op == "session.close") {
+        return ipc::CloseSessionRequest{vector_string(body, "session_id")};
+    }
     if (op == "workflow.list") {
         return ipc::WorkflowListRequest{};
     }
@@ -537,6 +540,9 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                                  std::is_same_v<T, ipc::CancelTaskRequest>) {
                 const auto &request = std::get<T>(actual);
                 check_string_equal(name, "task_id", request.task_id, expected_value.task_id);
+            } else if constexpr (std::is_same_v<T, ipc::CloseSessionRequest>) {
+                const auto &close = std::get<ipc::CloseSessionRequest>(actual);
+                check_string_equal(name, "session_id", close.session_id, expected_value.session_id);
             } else if constexpr (std::is_same_v<T, ipc::RespondPermissionRequest>) {
                 const auto &respond = std::get<ipc::RespondPermissionRequest>(actual);
                 check_string_equal(name, "request_id", respond.request_id,
@@ -734,6 +740,9 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
         response.payload = std::move(list);
     } else if (kind == "session-opened") {
         response.payload = ipc::SessionOpened{vector_string(value, "session_id")};
+    } else if (kind == "session-closed") {
+        response.payload =
+            ipc::SessionClosed{vector_string(value, "session_id"), vector_string(value, "state")};
     } else if (kind == "workflow-list") {
         ipc::WorkflowList list;
         const auto *entries = vector_member(value, "workflows").as_array();
@@ -1033,6 +1042,10 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
             } else if constexpr (std::is_same_v<T, ipc::SessionOpened>) {
                 check_string_equal(name, "session_id", actual_value.session_id,
                                    expected_value.session_id);
+            } else if constexpr (std::is_same_v<T, ipc::SessionClosed>) {
+                check_string_equal(name, "session_id", actual_value.session_id,
+                                   expected_value.session_id);
+                check_string_equal(name, "session state", actual_value.state, expected_value.state);
             } else if constexpr (std::is_same_v<T, ipc::SessionHistory>) {
                 check_string_equal(name, "history session_id", actual_value.session_id,
                                    expected_value.session_id);

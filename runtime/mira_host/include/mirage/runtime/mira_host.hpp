@@ -282,6 +282,13 @@ class MiraHost {
     /// same desktop environment (DEC-021). Requires Running.
     SessionOpenResult open_session();
 
+    /// Closes one session on the hosted pinned runtime (DEC-026 backlog
+    /// item 2): the pinned close cancels the session's non-terminal tasks
+    /// and settles it Closed; an already Closed session replays as a
+    /// NoOp (idempotent). Requires Running; a primary-session guard lives
+    /// at the service layer (task.submit's default binding).
+    HostOutcome close_session(const SessionIdentity &session);
+
     /// Observes the current session state; the pinned snapshot projected
     /// onto the stable state name. Unknown or malformed identities surface
     /// the pinned rejection.

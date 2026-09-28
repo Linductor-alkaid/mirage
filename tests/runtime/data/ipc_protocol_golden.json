@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 6,
+    "version": 7,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
     "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted)",
@@ -17,7 +17,8 @@
       "v3 (M5-03): permission.* async confirmation surface (DEC-020) — permission.respond / permission.list requests, permission.request event, hello 'permissions' capability member; wire order pinned by schema doc sections 4, 6.1, 6.3 and 7.2.",
       "v4 (M5-04): session.* conversation face (DEC-021) — session.list / session.open / session.history requests, session.updated / session.message / session.turn / session.output events, task.submit optional session_id binding, TaskSubmitted session_id echo, hello 'sessions' capability member; wire order pinned by schema doc sections 4, 6.1, 6.4 and 7.2.",
       "v5 (M5-05): workflow.* contract face (DEC-023) — workflow.list / workflow.save / workflow.publish / workflow.delete / workflow.atom.catalog / workflow.runs / workflow.run / workflow.cancel requests, workflow.run_updated event, hello 'workflows' capability member; wire order pinned by schema doc sections 4, 6.1, 6.5 and 7.2.",
-      "v6 (M5-06): observation face + workflow definition read face (DEC-026) - desktop.observe request (optional semantic/visual booleans, encoder always writes both) with the ObservationView payload (frame members, optional semantic snapshot projection with a 1024-node wire budget and explicit truncated mark, co-present visual_snapshot_ref / visual_regions pair), workflow.get request with the WorkflowDefinitionView payload (head definition content from the service product catalog), hello 'observation' capability member; wire order pinned by schema doc sections 4, 6.1 and 6.6."
+      "v6 (M5-06): observation face + workflow definition read face (DEC-026) - desktop.observe request (optional semantic/visual booleans, encoder always writes both) with the ObservationView payload (frame members, optional semantic snapshot projection with a 1024-node wire budget and explicit truncated mark, co-present visual_snapshot_ref / visual_regions pair), workflow.get request with the WorkflowDefinitionView payload (head definition content from the service product catalog), hello 'observation' capability member; wire order pinned by schema doc sections 4, 6.1 and 6.6.",
+      "v7 (M5-06): session.close management face (DEC-026 backlog item 2) - session.close request (non-empty session_id) with the SessionClosed reply (session_id + post-close state, mirroring the workflow.cancel reply shape; state from the pinned session state vocabulary); primary session refused invalid_state product-side, unknown id not_found, registry entry removed on success. wire order pinned by schema doc sections 4, 6.4 and 10."
     ]
   },
   "requests": [
@@ -292,6 +293,15 @@
         "visual": true
       },
       "canonical": "{\"v\":1,\"id\":30,\"op\":\"desktop.observe\",\"semantic\":false,\"visual\":true}"
+    },
+    {
+      "name": "session-close",
+      "id": 31,
+      "body": {
+        "op": "session.close",
+        "session_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a"
+      },
+      "canonical": "{\"v\":1,\"id\":31,\"op\":\"session.close\",\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\"}"
     }
   ],
   "request_failures": [
@@ -454,6 +464,16 @@
       "name": "desktop-observe-visual-type",
       "payload": "{\"v\":1,\"id\":9,\"op\":\"desktop.observe\",\"visual\":1}",
       "error": "desktop.observe 'visual' must be a boolean"
+    },
+    {
+      "name": "session-close-missing-session-id",
+      "payload": "{\"v\":1,\"id\":9,\"op\":\"session.close\"}",
+      "error": "session.close requires a non-empty 'session_id'"
+    },
+    {
+      "name": "session-close-empty-session-id",
+      "payload": "{\"v\":1,\"id\":9,\"op\":\"session.close\",\"session_id\":\"\"}",
+      "error": "session.close requires a non-empty 'session_id'"
     }
   ],
   "responses": [
@@ -1193,6 +1213,21 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":32,\"ok\":true,\"active_application\":\"Code\",\"active_window\":\"main.rs - mirage\",\"window_geometry\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"window_focused\":true,\"focused_element\":\"@e3\",\"pointer_x\":512,\"pointer_y\":384,\"environment_state\":\"x11\"}"
+    },
+    {
+      "name": "session-closed",
+      "response": {
+        "id": 33,
+        "ok": true,
+        "payload": {
+          "kind": "session-closed",
+          "value": {
+            "session_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a",
+            "state": "closed"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":33,\"ok\":true,\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"state\":\"closed\"}"
     }
   ],
   "response_failures": [
@@ -1355,6 +1390,16 @@
       "name": "observation-view-region-geometry-not-object",
       "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"active_application\":\"Code\",\"active_window\":\"main.rs - mirage\",\"window_geometry\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"window_focused\":true,\"focused_element\":\"@e3\",\"pointer_x\":512,\"pointer_y\":384,\"environment_state\":\"x11\",\"visual_snapshot_ref\":\"@vs7\",\"visual_regions\":[{\"ref\":\"@v1\",\"source\":\"ocr\",\"geometry\":\"wide\",\"text\":\"Run\",\"template_id\":\"\"}]}",
       "error": "observation geometry must be an object"
+    },
+    {
+      "name": "session-closed-state-not-string",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"state\":42}",
+      "error": "session.close response requires a 'state' string from the session state vocabulary"
+    },
+    {
+      "name": "session-closed-state-invalid",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"state\":\"vanished\"}",
+      "error": "session.close response requires a 'state' string from the session state vocabulary"
     }
   ],
   "events": [
