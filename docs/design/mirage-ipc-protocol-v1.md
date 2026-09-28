@@ -88,6 +88,8 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 | `session.close` | `session_id`（string，非空，M5-06 落地，DEC-026 挂账②） | `{"session_id","state"}`（§6.4，state 为关闭后会话状态名） | `invalid_state`（主会话不可关闭）、`not_found`（未知会话）、`pinned_runtime`（透传） |
 | `session.chat` | `session_id`（string，非空）、`text`（string，非空；M5-06 落地，DEC-027） | `{"turn_id"}`（§6.7） | `unavailable`（模型层未配置）、`not_found`（未知会话）、`invalid_state`（该会话已有在途对话轮）、`invalid_argument`（文本超预算） |
 | `session.chat.history` | `session_id`（string，非空）、`limit`（可选正整数；M5-06 落地，DEC-027） | `{"session_id","turns":[...],"truncated"}`（§6.7） | `not_found`（未知会话） |
+| `policy.get` | 无（M5-07 落地，DEC-028） | `{"rules":{...},"read_roots":[...]}`（§6.8） | — |
+| `policy.set` | `rules`（object：全 DEC-010 能力 → allow/confirm/deny）、`read_roots`（可选 string 数组 ≤64 项；M5-07 落地，DEC-028） | `{"rules":{...},"read_roots":[...]}`（§6.8） | `invalid_argument`（能力缺失 / 能力或规则越词表 / 越界） |
 | `session.history` | `session_id`（string，非空），`limit`（可选正整数，M5-04 落地） | `{"session_id","entries":[...],"truncated"}`（§6.4） | `not_found`（未知会话） |
 | `workflow.list` | 无（M5-05 落地） | `{"workflows":[WorkflowSummary...]}`（§6.5，可为空数组） | — |
 | `workflow.save` | `definition`（object，IR v1 JSON，M5-05 落地） | `{"workflow_id","digest"}`（§6.5） | `unavailable`（注册表容量饱和，§6.5）、`pinned_runtime`（解码 / 追加拒绝，透传） |
@@ -143,6 +145,7 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 | `workflows` | boolean（可选） | DEC-023 工作流面能力通告（`workflow.*` 请求面可用）：语义与 `events` 相同。置于 `sessions` 之后 |
 | `observation` | boolean（可选） | DEC-026 观察面能力通告（`desktop.observe` 请求面可用）：语义与 `events` 相同。置于 `workflows` 之后 |
 | `chat` | boolean（可选） | DEC-027 对话面能力通告（模型层已配置，`session.chat` 请求面可用）：语义与 `events` 相同。置于 `observation` 之后 |
+| `policy` | boolean（可选） | DEC-028 策略面能力通告（`policy.get` / `policy.set` 请求面可用）：语义与 `events` 相同。置于 `chat` 之后 |
 
 ### 6.2 `InspectTask`（task.inspect 响应载荷，嵌于 `task` 成员）
 
@@ -373,6 +376,20 @@ save / publish 内容；pinned 库仅存版本记录、无定义正文读取 API
 `session.chat_updated` 是通知（DEC-012 一致性模型沿用）。语义（模型层装
 配、凭据边界、测试承载）见 [DEC-027](../decisions/DEC-027-dialog-mode-model-layer.md)。
 
+### 6.8 权限策略面载荷（policy.* 载荷，M5-07，DEC-028）
+
+`policy.get` / `policy.set` 成功载荷同形：`{"rules":{...},"read_roots":[...]}`。
+`rules` 为全 DEC-010 能力 → 规则（"allow" / "confirm" / "deny"）映射（键即
+capability 稳定名）；`read_roots` 为 filesystem.read 的资源范围（PathScope
+根目录，绑定 provider 时应用——即重启后生效）。
+
+`policy.set` 语义：`rules` 必须覆盖全部 DEC-010 能力（缺失或越词表
+`invalid_argument`）；规则**立即生效**（controller 线程安全快照，与任务驱
+动、atom toolset 门共享），read_roots 持久化为资源范围状态（重启生效）。
+合并文档持久化到 settings store（DEC-011 Desktop Permissions 条目；已存
+文档不可信即拒绝写入）。策略面为核心装备恒可用。语义与持久化边界见
+[DEC-028](../decisions/DEC-028-permission-policy-face.md)。
+
 ## 7. 事件扩展（DEC-012，wire 语义自 `M1.5-02` 落地起冻结）
 
 ### 7.1 订阅
@@ -458,6 +475,12 @@ TypeScript 消费者 `ui/contracts/test/golden-vectors.test.ts` 读取**同一�
 
 ## 10. 变更记录
 
+- 2026-09-28（`M5-07`）：权限策略面附加扩展（DEC-028，协议版本不递增）。
+  §4 新增 `policy.get` / `policy.set`；§6.1 新增 `policy` 能力通告成员；
+  §6.8（新）新增 PolicyView 载荷形状（全 DEC-010 规则集 + read_roots 资源
+  范围）。golden vectors：requests +2、request_failures +4、responses +2
+  含 hello 能力位、response_failures +3，失败向量锁定新稳定错误串
+  （`meta.version` 8 → 9）。
 - 2026-09-28（`M5-06` 第四增量）：对话面附加扩展（DEC-027，DEC-025 挂账③
   兑现，协议版本不递增）。§4 新增 `session.chat` / `session.chat.history`；
   §6.1 新增 `chat` 能力通告成员；§6.7（新）新增对话轮载荷形状（pending/

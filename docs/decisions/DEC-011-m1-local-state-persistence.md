@@ -79,6 +79,17 @@ Memory、Workflow 等 Mira 数据模型继续经 Mira 接口访问。`M1-07` 要
   关注点，留在 `apps/service`；RuntimeService 只消费已解析的配置值，保持库面与装配
   面分离。
 
+## 变更记录
+
+- 2026-09-28（`M5-07`，[DEC-028](DEC-028-permission-policy-face.md)）：两
+  项 M5 翻转兑现——① settings 文档 `permission` 块从三个具名可选成员扩展
+  为全 DEC-010 词表 map（键/值本地封闭词表校验，键序确定编码；schema 保持
+  1，既有成员零变更，加法演进）；② settings 默认拾取翻转——apps/service
+  无 `--config` 时默认读 `default_config_directory()/service.json`（存在
+  才读，损坏 fail closed），且 `policy.set` 读-改-写回写该文件（保留非本
+  面成员）。CLI 旗标优先级不变；测试经 settings_directory 重定向或
+  persist_settings=false 隔离。
+
 ## 影响与风险
 
 - 新增 `runtime/persistence` 目标；`runtime/service`、`apps/service`、`apps/cli`

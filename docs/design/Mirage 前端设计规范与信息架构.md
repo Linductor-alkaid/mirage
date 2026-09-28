@@ -407,7 +407,8 @@ Mirage Shell（统一应用壳）
 | 对话模式 | `session.chat` / `session.chat.history` + `session.chat_updated` 事件（M5-06 第四增量，DEC-027）；hello `chat` 能力位探测 | 已接线（M5-06 第四增量）：Composer 对话模式接 session.chat（异步 turn，回复经事件收敛进线程）；模型层未配置时保持如实降级（`chat` 位缺席） |
 | 会话消息流 | `session.message` / `session.turn` / `session.output` / `session.updated` 事件（M5-04，DEC-012 机制）；`session.history` 为含时间戳的重同步快照事实源 | 已接线（M5-06 第一轮，DEC-025）：user / outcome 入线程（history 基线 + message 增量 + sequence 去重）；增量输出在 M1 驱动形态为每步一份完整 chunk，流式化后同形状多 chunk（wire 不变）；turn / output 作观察台观察流事件源 |
 | 执行模式提交 | `task.submit`（M1） | 已满足最小闭环；对话模式依赖消息面 |
-| 批准中心 | `permission.request` 事件 + `permission.respond` / `permission.list`（M5-03，DEC-020）；hello `permissions` 能力位探测 | 确认等待预算提示用 `timeout_ms`（事件与快照均携带）；批准结果经 `task.updated` / `task.inspect` 步 trace 呈现 |
+| 批准中心 | `permission.request` 事件 + `permission.respond` / `permission.list`（M5-03，DEC-020）；hello `permissions` 能力位探测 | 已接线（M5-07）：批准中心呈现能力 / 资源 / 任务 / 剩余预算，批准 / 拒绝经 permission.respond（先到先得）；确认结果经 task.updated / task.inspect 步 trace 呈现 |
+| 权限策略 | `policy.get` / `policy.set`（M5-07，DEC-028）；hello `policy` 能力位探测 | 已接线（M5-07）：设置页 DEC-010 十一能力真实矩阵（规则立即生效 + 持久化；read roots 资源范围重启生效）；默认策略收紧留观 M5-08 |
 | 工作流库/编辑器 | `workflow.list` / `workflow.save`（草稿 = `not_validated` 版本） / `workflow.publish`（DryRun 门禁 + 幂等） / `workflow.delete`（产品目录移除） / `workflow.atom.catalog`（pinned BuiltIn exposed view 承载） / `workflow.runs` / `workflow.run` / `workflow.cancel`（M5-05，DEC-023） / `workflow.get`（head 定义回读，M5-06 第二轮，DEC-026）；hello `workflows` 能力位探测 | 已接线（M5-05 第二轮 + M5-06 第二轮）：`WorkflowBackend` IPC 适配器 + `workflow.get` 跨会话回读水合（`irToWorkflowDef` 逆映射），编辑器跨会话编辑限制解除 |
 | 桌面状态观察 | `desktop.observe` 按需快照（M5-06 第二轮，DEC-026）；hello `observation` 能力位探测 | 已接线（M5-06 第二轮）：观察台"桌面状态"面板按需捕获（语义快照投影 + 视觉组件显式请求，请求即必须 fail closed）；wire 无事件形态（快照是唯一事实），观察流仍为会话事件尾随；产品视觉管线点亮挂账 DEC-026 挂账① |
 | 运行监控 | `workflow.run_updated` 事件 + `workflow.runs` 快照事实源（M5-05，DEC-023）；任务级仍为 `task.inspect`/`task.updated` | 已落地：事件由 pinned 工作流事件转译（started → running、settled → 终态 + summary）；步级 / patch / 决策事件按 UI 需求附加扩展 |
@@ -430,6 +431,9 @@ Mirage Shell（统一应用壳）
 
 ## 6. 变更记录
 
+- 2026-09-28：`M5-07` 落地（[DEC-028](../decisions/DEC-028-permission-policy-face.md)）
+  ——§4 批准中心行更新为已接线（permission.list/respond 消费）+ 新增权限
+  策略行（policy.get/set 矩阵）。
 - 2026-09-28：`M5-06` 第四增量落地（[DEC-027](../decisions/DEC-027-dialog-mode-model-layer.md)）
   ——§3.3 Composer 双模式信息架构完整兑现（对话模式接 `session.chat` 对话
   面）；§4 新增对话模式行（`session.chat` 面与 `chat` 能力位）。
