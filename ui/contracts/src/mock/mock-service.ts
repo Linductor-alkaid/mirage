@@ -53,6 +53,10 @@ export interface MockServiceOptions {
      * desktop.observe fails with the old-server unknown-op shape — drives
      * the UI's observation-face fallback path. */
     observationCapability?: boolean;
+    /** When false, hello omits the `chat` capability (DEC-027) and
+     * session.chat fails with the old-server unknown-op shape — drives the
+     * UI's dialog-face fallback path. */
+    chatCapability?: boolean;
     /** 'auto' (default) flushes queues via microtasks; 'manual' only
      * enqueues until flush() is called — the deterministic hook for
      * overflow tests. */
@@ -105,15 +109,38 @@ interface MockJournalEntry {
     recorded_at_ms: number;
 }
 
+interface MockChatTurn {
+    turn_id: string;
+    status: 'pending' | 'ok' | 'failed';
+    user_text: string;
+    reply_text?: string;
+    error?: string;
+    sequence: number;
+    recorded_at_ms: number;
+}
+
 interface MockSession {
     id: string;
     state: 'autonomous';
     created_at_ms: number;
     journal: MockJournalEntry[];
+    /** DEC-027 dialog thread: bounded turn log + in-flight latch. */
+    chatTurns: MockChatTurn[];
+    nextChatSequence: number;
+    inFlightChatTurnId: string;
 }
 
 const SESSION_REGISTRY_CAPACITY = 16;
 const HISTORY_DEFAULT_LIMIT = 50;
+
+let mockTurnCounter = 0;
+
+/** Deterministic 32-hex-shaped turn identity suffix for the mock. */
+function mockTurnSuffix(): string {
+    mockTurnCounter += 1;
+    const base = mockTurnCounter.toString(16).padStart(8, '0');
+    return `${base}${base}${base}${base}`;
+}
 
 function mockSessionId(number: number): string {
     const tail = number.toString(16).padStart(8, '0');
@@ -364,7 +391,7 @@ export class MockMirageService {
     private nextSessionNumber = 1;
     private closed = false;
     private readonly options: Required<
-        Pick<MockServiceOptions, 'stepDurationMs' | 'hostStartDelayMs' | 'shutdownDelayMs' | 'taskCapacity' | 'eventQueueCapacity' | 'eventsCapability' | 'workflowsCapability' | 'sessionsCapability' | 'observationCapability' | 'flushMode'>
+        Pick<MockServiceOptions, 'stepDurationMs' | 'hostStartDelayMs' | 'shutdownDelayMs' | 'taskCapacity' | 'eventQueueCapacity' | 'eventsCapability' | 'workflowsCapability' | 'sessionsCapability' | 'observationCapability' | 'chatCapability' | 'flushMode'>
     >;
 
     constructor(options: MockServiceOptions = {}) {
@@ -378,6 +405,7 @@ export class MockMirageService {
             workflowsCapability: options.workflowsCapability ?? true,
             sessionsCapability: options.sessionsCapability ?? true,
             observationCapability: options.observationCapability ?? true,
+            chatCapability: options.chatCapability ?? true,
             flushMode: options.flushMode ?? 'auto',
         };
         // DEC-021: the primary session enters the registry up front, so
@@ -460,6 +488,9 @@ export class MockMirageService {
         }
         if (this.options.observationCapability) {
             identity.observation = true;
+        }
+        if (this.options.chatCapability) {
+            identity.chat = true;
         }
         return identity;
     }
@@ -958,7 +989,15 @@ export class MockMirageService {
     private registerSession(created_at_ms: number): MockSession {
         const id = mockSessionId(this.nextSessionNumber);
         this.nextSessionNumber += 1;
-        const session: MockSession = { id, state: 'autonomous', created_at_ms, journal: [] };
+        const session: MockSession = {
+            id,
+            state: 'autonomous',
+            created_at_ms,
+            journal: [],
+            chatTurns: [],
+            nextChatSequence: 1,
+            inFlightChatTurnId: '',
+        };
         this.sessions.set(id, session);
         return session;
     }
@@ -1052,6 +1091,91 @@ export class MockMirageService {
         this.sessions.delete(sessionId);
         this.publishFrame({ v: 1, event: 'session.updated', session_id: sessionId, state: 'closed' });
         return { session_id: sessionId, state: 'closed' };
+    }
+
+    /** The dialog face (DEC-027): wire-faithful mirror — a deterministic
+     * simulated reply replaces the model call (the mock's documented role),
+     * the turn lifecycle publishes pending then ok, and the snapshot face
+     * projects the bounded turn log. */
+    sessionChat(sessionId: string, text: string): { turn_id: string } {
+        this.assertOpen();
+        if (!this.options.chatCapability) {
+            throw new IpcRequestError('protocol_error', "unknown op 'session.chat'");
+        }
+        if (this.hostStatus !== 'running') {
+            throw new IpcRequestError('unavailable', 'model layer is not configured');
+        }
+        const session = this.sessions.get(sessionId);
+        if (session === undefined) {
+            throw new IpcRequestError('not_found', 'unknown session id');
+        }
+        if (session.inFlightChatTurnId.length > 0) {
+            throw new IpcRequestError(
+                'invalid_state',
+                'a dialog turn is already in flight for this session',
+            );
+        }
+        const turnId = `chat-${String(session.nextChatSequence).padStart(4, '0')}-${mockTurnSuffix()}`;
+        const sequence = session.nextChatSequence;
+        session.nextChatSequence += 1;
+        const turn: MockChatTurn = {
+            turn_id: turnId,
+            status: 'pending',
+            user_text: text,
+            sequence,
+            recorded_at_ms: Date.now(),
+        };
+        session.chatTurns.push(turn);
+        session.inFlightChatTurnId = turnId;
+        this.publishFrame({
+            v: 1,
+            event: 'session.chat_updated',
+            session_id: sessionId,
+            turn_id: turnId,
+            status: 'pending',
+            user_text: text,
+            sequence,
+        });
+        // Deterministic simulated completion (auto flush mode settles via a
+        // microtask-like timer so tests and the UI observe the lifecycle).
+        const reply = `模拟回复：已收到「${text.length > 24 ? `${text.slice(0, 24)}…` : text}」`;
+        setTimeout(() => {
+            if (this.closed || session.inFlightChatTurnId !== turnId) {
+                return;
+            }
+            turn.status = 'ok';
+            turn.reply_text = reply;
+            session.inFlightChatTurnId = '';
+            this.publishFrame({
+                v: 1,
+                event: 'session.chat_updated',
+                session_id: sessionId,
+                turn_id: turnId,
+                status: 'ok',
+                user_text: text,
+                reply_text: reply,
+                sequence,
+            });
+        }, 15);
+        return { turn_id: turnId };
+    }
+
+    sessionChatHistory(
+        sessionId: string,
+        limit?: number,
+    ): { session_id: string; turns: MockChatTurn[]; truncated: boolean } {
+        this.assertOpen();
+        const session = this.sessions.get(sessionId);
+        if (session === undefined) {
+            throw new IpcRequestError('not_found', 'unknown session id');
+        }
+        const bounded = Math.max(1, Math.floor(limit ?? 50));
+        const newest = session.chatTurns.slice(-bounded);
+        return {
+            session_id: sessionId,
+            turns: newest.map((turn) => ({ ...turn })),
+            truncated: session.chatTurns.length > newest.length,
+        };
     }
 
     sessionHistory(
@@ -1342,6 +1466,10 @@ export class MockTransport implements MirageTransport {
         return this.service.hello().observation === true;
     }
 
+    get chatSupported(): boolean {
+        return this.service.hello().chat === true;
+    }
+
     hello(): Promise<ServiceIdentity> {
         return this.call(() => this.service.hello());
     }
@@ -1420,6 +1548,17 @@ export class MockTransport implements MirageTransport {
 
     closeSession(sessionId: string): Promise<{ session_id: string; state: SessionState }> {
         return this.call(() => this.service.sessionClose(sessionId));
+    }
+
+    sessionChat(sessionId: string, text: string): Promise<{ turn_id: string }> {
+        return this.call(() => this.service.sessionChat(sessionId, text));
+    }
+
+    sessionChatHistory(
+        sessionId: string,
+        limit?: number,
+    ): Promise<{ session_id: string; turns: MockChatTurn[]; truncated: boolean }> {
+        return this.call(() => this.service.sessionChatHistory(sessionId, limit));
     }
 
     sessionHistory(input: SessionHistoryInput): Promise<{

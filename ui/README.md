@@ -32,8 +32,10 @@
   ActivityBar、StatusBar（cue 栏 + 紧急停止）、命令面板（Ctrl+K）、批准中心
   （M5-07 接线异步确认面，现为占位面板）、Toast。
 - `app/src/views/` — 会话页（签派栏 SessionsSidebar：`session.list` 快照 + 派生
-  标题分组；线程流 ThreadView：user/outcome 接会话面 + 步骤卡接任务快照；
-  Composer 执行模式 + 对话模式降级呈现（模型循环接入前禁用，DEC-025 决策 3）；
+  标题分组 + 会话关闭（session.close，DEC-026）；线程流 ThreadView：user/outcome
+  接会话面 + 步骤卡接任务快照 + 对话轮（session.chat，DEC-027）；
+  Composer 执行模式 + 对话模式（模型层已配置时经 session.chat 提交，回复经
+  session.chat_updated 收敛；未配置保持降级呈现，DEC-025 决策 3 / DEC-027）；
   观察台 Observer：桌面状态面板（DEC-026 `desktop.observe` 按需快照，视觉组件
   显式请求）+ 运行时间线（任务快照）+ 观察流（session.turn/output/message
   事件尾随，trigger-lock））、工作流页（与

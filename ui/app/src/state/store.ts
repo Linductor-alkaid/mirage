@@ -14,6 +14,7 @@
 /// - 终态幂等：已取消 / 已完成任务不因迟到事件复活。
 
 import type {
+    ChatTurnEntry,
     HostStatus,
     InspectTask,
     MirageTransport,
@@ -135,6 +136,10 @@ export interface HarnessState {
     sessionsSupported: boolean;
     /** DEC-026 观察面能力位（hello `observation`；false 时桌面状态面板不可用）。 */
     observationSupported: boolean;
+    /** DEC-027 对话面能力位（hello `chat`；模型层已配置时为 true）。 */
+    chatSupported: boolean;
+    /** 每会话在途对话轮 turn id（session.chat 已受理、未结算）。 */
+    pendingChats: ReadonlyMap<string, string>;
     resyncNote?: { reason: string; at: number };
 
     route: Route;
@@ -192,6 +197,8 @@ export interface HarnessActions {
     setDraft(sessionId: string, text: string): void;
     /** 执行模式提交（task.submit 会话绑定事实流）。 */
     submitExec(sessionId: string, goal: string, steps: SubmitStepInput[], timeoutMs?: number): Promise<void>;
+    /** 对话模式提交（session.chat 对话面，DEC-027）。 */
+    sendDialog(sessionId: string, text: string): Promise<void>;
     /** 停止会话关联任务。 */
     stopSession(sessionId: string): void;
     engageEstop(): void;
@@ -245,6 +252,36 @@ function journalMessageId(sessionId: string, sequence: number): string {
     return `${JOURNAL_PREFIX}${sessionId}-${sequence}`;
 }
 
+/** 对话轮快照条目 → 线程投影（用户行 + 助手行，DEC-027）。 */
+function mapChatTurn(turn: ChatTurnEntry): ChatMessage[] {
+    const at = turn.recorded_at_ms;
+    const out: ChatMessage[] = [
+        { id: `dlg-u-${turn.turn_id}`, kind: 'user', at, text: turn.user_text },
+    ];
+    if (turn.status === 'failed') {
+        out.push({
+            id: `dlg-a-${turn.turn_id}`,
+            kind: 'assistant',
+            at,
+            turnId: turn.turn_id,
+            status: 'failed',
+            text: turn.error ?? '对话轮失败',
+            userText: turn.user_text,
+        });
+    } else {
+        out.push({
+            id: `dlg-a-${turn.turn_id}`,
+            kind: 'assistant',
+            at,
+            turnId: turn.turn_id,
+            status: turn.status,
+            text: turn.reply_text ?? '',
+            userText: turn.user_text,
+        });
+    }
+    return out;
+}
+
 /** outcome 句式的语气投影（`loop settled: <progress> (steps N)`，DEC-021）。 */
 export function outcomeTone(text: string): 'info' | 'warn' | 'error' {
     if (text.includes('Completed')) {
@@ -286,6 +323,8 @@ export class HarnessStore {
             workflowsSupported: transport.workflowsSupported,
             sessionsSupported: transport.sessionsSupported,
             observationSupported: transport.observationSupported,
+            chatSupported: transport.chatSupported,
+            pendingChats: new Map(),
             route: parseRoute(window.location.hash),
             sessions: [],
             messages: new Map(),
@@ -364,6 +403,7 @@ export class HarnessStore {
                 workflowsSupported: identity.workflows === true,
                 sessionsSupported: identity.sessions === true,
                 observationSupported: identity.observation === true,
+                chatSupported: identity.chat === true,
             });
             if (resume) {
                 this.reconnectAttempt = 0;
@@ -406,6 +446,7 @@ export class HarnessStore {
             const routeSession = this.state.route.view === 'chat' ? this.state.route.sessionId : undefined;
             if (routeSession !== undefined) {
                 await this.loadHistory(routeSession);
+                await this.loadChatHistory(routeSession);
             }
             if (resume) {
                 await this.refreshActiveTasks();
@@ -495,6 +536,10 @@ export class HarnessStore {
                 // workflow.runs 是运行快照事实源（DEC-023）：事件只做通知，
                 // 状态以快照刷新回写。
                 void this.refreshWorkflows();
+                break;
+            case 'session.chat_updated':
+                this.set({ eventSeq: event.seq });
+                this.onChatTurnUpdated(event);
                 break;
             case 'session.updated':
                 this.set({ eventSeq: event.seq });
@@ -774,6 +819,7 @@ export class HarnessStore {
     selectSession: HarnessActions['selectSession'] = (id) => {
         this.navigate({ view: 'chat', sessionId: id });
         void this.loadHistory(id);
+        void this.loadChatHistory(id);
     };
 
     /** 删除会话（session.close，DEC-026 挂账②兑现）：服务端关闭会话、取消
@@ -904,6 +950,93 @@ export class HarnessStore {
         });
     }
 
+/** 把对话轮投影进线程：pending 追加用户行 + 思考中的助手行，ok/failed
+ * 按 turnId 原地收敛（DEC-027 对话面，快照事实源是 session.chat.history）。 */
+    private onChatTurnUpdated(event: Extract<ServerEvent, { event: 'session.chat_updated' }>): void {
+        const sessionId = event.session_id;
+        const list = [...(this.state.messages.get(sessionId) ?? [])];
+        const assistantIndex = list.findIndex(
+            (m) => m.kind === 'assistant' && m.turnId === event.turn_id,
+        );
+        const at = now();
+        if (assistantIndex === -1) {
+            // pending 首投：用户行 + 思考中的助手行（快照重放同构）。
+            list.push({
+                id: `dlg-u-${event.turn_id}`,
+                kind: 'user',
+                at,
+                text: event.user_text,
+            });
+            list.push({
+                id: `dlg-a-${event.turn_id}`,
+                kind: 'assistant',
+                at,
+                turnId: event.turn_id,
+                status: event.status,
+                text: event.reply_text ?? event.error ?? '',
+                userText: event.user_text,
+            });
+        } else {
+            const target = list[assistantIndex]!;
+            if (target.kind === 'assistant') {
+                list[assistantIndex] = {
+                    ...target,
+                    status: event.status,
+                    text: event.reply_text ?? event.error ?? '',
+                };
+            }
+        }
+        const messages = new Map(this.state.messages);
+        messages.set(sessionId, list.slice(-MAX_MESSAGES_PER_SESSION));
+        const pendingChats = new Map(this.state.pendingChats);
+        if (event.status === 'pending') {
+            pendingChats.set(sessionId, event.turn_id);
+        } else {
+            pendingChats.delete(sessionId);
+        }
+        this.set({ messages, pendingChats });
+    }
+
+    /** 会话选中时重建对话线程投影（session.chat.history 快照事实源，
+     * DEC-027）：与 journal 行按时间归位，幂等（按 turnId 去重）。 */
+    private async loadChatHistory(sessionId: string): Promise<void> {
+        if (this.disposed || this.state.connection !== 'ready') {
+            return;
+        }
+        if (!this.state.chatSupported) {
+            return;
+        }
+        try {
+            const snapshot = await this.transport.sessionChatHistory(sessionId);
+            if (this.disposed) {
+                return;
+            }
+            const additions: ChatMessage[] = [];
+            for (const turn of snapshot.turns) {
+                const mapped = mapChatTurn(turn);
+                additions.push(...mapped);
+            }
+            const existing = new Map(
+                (this.state.messages.get(sessionId) ?? []).map((m) => [m.id, m]),
+            );
+            const merged = [...existing.values()];
+            for (const message of additions) {
+                if (!existing.has(message.id)) {
+                    merged.push(message);
+                }
+            }
+            merged.sort((a, b) => a.at - b.at);
+            const messages = new Map(this.state.messages);
+            messages.set(sessionId, merged.slice(-MAX_MESSAGES_PER_SESSION));
+            this.set({ messages });
+        } catch (err) {
+            if (err instanceof IpcRequestError && err.code === 'not_found') {
+                return;
+            }
+            this.toast(`对话线程加载失败：${err instanceof Error ? err.message : String(err)}`, 'warn');
+        }
+    }
+
     private pushObsFrame(sessionId: string, frame: ObsFrame): void {
         const feed = new Map(this.state.obsFeed);
         const next = [...(feed.get(sessionId) ?? []), frame].slice(-OBS_FEED_CAPACITY);
@@ -953,6 +1086,36 @@ export class HarnessStore {
         } catch (err) {
             const message = err instanceof IpcRequestError ? `提交被拒绝（${err.code}）` : err instanceof Error ? err.message : String(err);
             this.appendSystemLine(sessionId, `任务提交失败：${message}`, 'error');
+        }
+    };
+
+    /** 对话模式提交（session.chat，DEC-027）：受理即回执 turn id，回复经
+     * session.chat_updated 事件收敛进线程；拒绝以稳定错误如实呈现。 */
+    sendDialog: HarnessActions['sendDialog'] = async (sessionId, text) => {
+        if (!this.ensureSessions()) {
+            return;
+        }
+        const trimmed = text.trim();
+        if (trimmed.length === 0) {
+            return;
+        }
+        if (this.state.pendingChats.has(sessionId)) {
+            this.toast('上一轮对话仍在进行中', 'warn');
+            return;
+        }
+        this.setDraft(sessionId, '');
+        try {
+            await this.transport.sessionChat(sessionId, trimmed);
+        } catch (err) {
+            const message =
+                err instanceof IpcRequestError
+                    ? err.code === 'unavailable'
+                        ? '对话面不可用（服务端模型层未配置）'
+                        : `对话提交被拒绝（${err.code}）`
+                    : err instanceof Error
+                      ? err.message
+                      : String(err);
+            this.toast(message, 'error');
         }
     };
 
@@ -1360,6 +1523,7 @@ export class HarnessStore {
             deleteSession: (id) => this.deleteSession(id),
             setDraft: this.setDraft,
             submitExec: this.submitExec,
+            sendDialog: (sessionId, text) => this.sendDialog(sessionId, text),
             stopSession: this.stopSession,
             engageEstop: this.engageEstop,
             releaseEstop: this.releaseEstop,

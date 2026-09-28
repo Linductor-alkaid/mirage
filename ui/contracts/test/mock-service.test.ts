@@ -44,15 +44,18 @@ describe('hello identity', () => {
             workflows: true,
             sessions: true,
             observation: true,
+            chat: true,
         });
         expect(identity.events).toBe(true);
         expect(identity.workflows).toBe(true);
         expect(identity.sessions).toBe(true);
         expect(identity.observation).toBe(true);
+        expect(identity.chat).toBe(true);
         expect(transport.eventsSupported).toBe(true);
         expect(transport.workflowsSupported).toBe(true);
         expect(transport.sessionsSupported).toBe(true);
         expect(transport.observationSupported).toBe(true);
+        expect(transport.chatSupported).toBe(true);
         expect(transport.label).toBe('Mock');
     });
 
@@ -68,6 +71,17 @@ describe('hello identity', () => {
         const identity = await transport.hello();
         expect(identity.sessions).toBeUndefined();
         expect(transport.sessionsSupported).toBe(false);
+    });
+
+    it('omits the chat capability when disabled and serves the old-server unknown-op shape (DEC-027)', async () => {
+        const { transport } = makeService({ hostStartDelayMs: 0, chatCapability: false });
+        const identity = await transport.hello();
+        expect(identity.chat).toBeUndefined();
+        expect(transport.chatSupported).toBe(false);
+        await expect(transport.sessionChat('s', 'hi')).rejects.toMatchObject({
+            code: 'protocol_error',
+            message: "unknown op 'session.chat'",
+        });
     });
 
     it('omits the observation capability when disabled and serves the old-server unknown-op shape (DEC-026)', async () => {

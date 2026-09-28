@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { decodeEvent, decodeRequest, decodeResponse, encodeRequest, encodeResponse } from '../src/codec.js';
 import { decodeUtf8, makeFrame, tryExtractFrame } from '../src/framing.js';
 import type {
+    ChatTurnEntry,
     ExposedTool,
     HostStatus,
     IpcError,
@@ -62,7 +63,7 @@ interface GoldenInspectValue {
 }
 
 type GoldenPayload =
-    | { kind: 'identity'; value: { service: string; mirage_version: string; mira_core_version: string; host_status: HostStatus; protocol: number; events?: boolean; permissions?: boolean; sessions?: boolean; workflows?: boolean; observation?: boolean } }
+    | { kind: 'identity'; value: { service: string; mirage_version: string; mira_core_version: string; host_status: HostStatus; protocol: number; events?: boolean; permissions?: boolean; sessions?: boolean; workflows?: boolean; observation?: boolean; chat?: boolean } }
     | { kind: 'submitted'; value: { task_id: string; session_id?: string } }
     | { kind: 'list'; value: { tasks: TaskSummary[] } }
     | { kind: 'inspect'; value: GoldenInspectValue }
@@ -79,6 +80,11 @@ type GoldenPayload =
     | {
           kind: 'session-history';
           value: { session_id: string; entries: SessionHistoryEntry[]; truncated: boolean };
+      }
+    | { kind: 'session-chat-accepted'; value: { turn_id: string } }
+    | {
+          kind: 'session-chat-history';
+          value: { session_id: string; turns: Record<string, unknown>[]; truncated: boolean };
       }
     | { kind: 'workflow-list'; value: { workflows: Record<string, unknown>[] } }
     | { kind: 'workflow-saved'; value: { workflow_id: string; digest: string } }
@@ -207,6 +213,28 @@ function expectedEnvelop(vector: GoldenResponseVector): ResponseEnvelop {
                 payload: {
                     kind: 'session-opened',
                     value: { session_id: response.payload.value.session_id },
+                },
+            };
+        case 'session-chat-accepted':
+            return {
+                ok: true,
+                id: response.id,
+                payload: {
+                    kind: 'session-chat-accepted',
+                    value: { turn_id: response.payload.value.turn_id },
+                },
+            };
+        case 'session-chat-history':
+            return {
+                ok: true,
+                id: response.id,
+                payload: {
+                    kind: 'session-chat-history',
+                    value: {
+                        session_id: response.payload.value.session_id,
+                        turns: response.payload.value.turns as unknown as ChatTurnEntry[],
+                        truncated: response.payload.value.truncated,
+                    },
                 },
             };
         case 'session-closed':

@@ -894,3 +894,47 @@ describe('session close management face (DEC-026)', () => {
         expect(store.get().sessions.some((s) => s.id === primaryId)).toBe(true);
     });
 });
+
+// ---- DEC-027：对话模式（session.chat 面消费） -------------------------------
+
+describe('dialog mode (DEC-027 session.chat face)', () => {
+    it('sendDialog appends the turn, converges on the ok event and clears pending', async () => {
+        const created = createMockTransport({ hostStartDelayMs: 0, stepDurationMs: 5 });
+        const store = new HarnessStore(created.transport);
+        currentStore = store;
+        store.start();
+        await vi.waitFor(() => {
+            expect(store.get().connection).toBe('ready');
+            expect(store.get().chatSupported).toBe(true);
+        });
+        store.selectSession(store.get().sessions[0]!.id);
+        await vi.waitFor(() => expect(store.get().route.sessionId).toBe(store.get().sessions[0]!.id));
+
+        // pending 投影是瞬态（模拟回复 15 ms 内结算）；以最终收敛态断言：
+        // 线程含用户行 + ok 助手行，pending 闩锁清除。
+        store.sendDialog(store.get().sessions[0]!.id, '列出当前应用');
+        await vi.waitFor(() => {
+            const list = store.get().messages.get(store.get().sessions[0]!.id) ?? [];
+            const assistant = list.find((m) => m.kind === 'assistant');
+            expect(assistant?.kind === 'assistant' && assistant.status === 'ok').toBe(true);
+            expect(store.get().pendingChats.has(store.get().sessions[0]!.id)).toBe(false);
+        });
+        const list = store.get().messages.get(store.get().sessions[0]!.id) ?? [];
+        expect(list.some((m) => m.kind === 'user' && m.text === '列出当前应用')).toBe(true);
+        const settled = list.find((m) => m.kind === 'assistant');
+        expect(settled?.kind === 'assistant' && settled.text).toContain('模拟回复');
+    });
+
+    it('surfaces the stable error when the dialog face refuses (invalid_state)', async () => {
+        const created = createMockTransport({ hostStartDelayMs: 5_000, stepDurationMs: 0 });
+        const store = new HarnessStore(created.transport);
+        currentStore = store;
+        store.start();
+        await vi.waitFor(() => expect(store.get().connection).toBe('ready'));
+
+        store.sendDialog(store.get().sessions[0]!.id, 'hi');
+        await vi.waitFor(() => {
+            expect(store.get().toasts.at(-1)?.text).toContain('对话面不可用');
+        });
+    });
+});

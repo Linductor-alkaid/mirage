@@ -69,6 +69,18 @@ function StepCard({ m }: { m: Extract<ChatMessage, { kind: 'step' }> }): React.R
 
 export function MessageView({ m }: { m: ChatMessage }): React.ReactElement {
     switch (m.kind) {
+        case 'assistant':
+            return (
+                <div className={`msg msg-assistant ${m.status === 'failed' ? 'is-failed' : ''}`} data-testid="msg-assistant">
+                    <div className="body">
+                        {m.status === 'pending'
+                            ? '思考中…'
+                            : m.status === 'failed'
+                              ? `对话轮失败：${m.text}`
+                              : m.text}
+                    </div>
+                </div>
+            );
         case 'user':
             return (
                 <div className="msg msg-user" data-testid="msg-user">
