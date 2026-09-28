@@ -1633,6 +1633,50 @@ class CannedDialogProvider final : public mira::IModelProvider {
     std::atomic<int> calls_{0};
 };
 
+/// Gate-blocked provider for the close-during-turn scene (DEC-027): the
+/// inference holds until released (honoring the operation's cancellation
+/// probe, so an executor cancel ends the hold) and then reports the scripted
+/// status — the window in which session.close must cancel the driver and
+/// swallow the outcome.
+class GatedDialogProvider final : public mira::IModelProvider {
+  public:
+    [[nodiscard]] const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &context,
+                                            const mira::ProviderInferOptions &) override {
+        ++calls_;
+        while (hold_.load() && !context.cancelled()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{5});
+        }
+        mira::ModelResponse response;
+        response.contract_version = mira::SchemaVersion{1, 0};
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.requested_model = profile_.model_selector;
+        response.status = context.cancelled() ? mira::ModelCompletionStatus::Cancelled
+                                              : mira::ModelCompletionStatus::Completed;
+        if (response.status == mira::ModelCompletionStatus::Completed) {
+            mira::MessageOutput message;
+            message.role = mira::ModelRole::Assistant;
+            mira::OutputTextPart text;
+            text.text = "门控回复正常。";
+            message.content.emplace_back(std::move(text));
+            response.output.emplace_back(std::move(message));
+        }
+        return response;
+    }
+
+    void hold_open() { hold_.store(true); }
+    void release() { hold_.store(false); }
+    void bind_profile(const mira::ModelProfile &profile) { profile_ = profile; }
+
+  private:
+    mira::ModelProfile profile_;
+    std::atomic<int> calls_{0};
+    std::atomic<bool> hold_{false};
+};
+
 /// M5-06 (DEC-027): the dialog turn lifecycle rides the session.chat_updated
 /// stream. A subscribed connection sees the pending notification (published
 /// before the ack, DEC-012 decision 3 ordering precedent) with the user text
@@ -1763,6 +1807,124 @@ void scenario_session_chat_publishes_turn_lifecycle() {
     MIRAGE_CHECK(service.run().clean);
 }
 
+/// M5-06 (DEC-027): closing a session while one of its dialog turns is still
+/// in flight cancels the turn's driver, and the swallowed outcome must NOT
+/// surface as a session.chat_updated notification — the dialog thread died
+/// with the session, so nothing settles into it after the close.
+void scenario_session_close_swallows_inflight_turn() {
+    mirage::testing::TempDir dir;
+    ServiceConfig config = make_config(dir);
+    config.model.enabled = true;
+    config.model.dialect = "openai.responses.v1";
+    config.model.model_selector = "test-model";
+    auto provider = std::make_shared<GatedDialogProvider>();
+    const auto scripted = std::make_shared<mirage::integration::ModelProviderOverride>(
+        [&provider](const mira::ModelProfile &profile) -> std::shared_ptr<mira::IModelProvider> {
+            provider->bind_profile(profile);
+            return provider;
+        });
+    config.model_provider_override = scripted;
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+
+    Subscriber subscriber;
+    std::string diagnostic;
+    subscriber.stream = ipc::connect_stream(config.socket_path, kCallBudget, diagnostic);
+    MIRAGE_CHECK(subscriber.valid());
+    if (!subscriber.valid()) {
+        return;
+    }
+    EventLog log;
+    MIRAGE_CHECK(subscribe_and_consume_ack(subscriber, log));
+
+    ipc::IpcClient client(config.socket_path);
+    const ipc::Response opened = client.call(ipc::OpenSessionRequest{}, kCallBudget);
+    MIRAGE_CHECK(opened.ok);
+    const auto *opened_session = std::get_if<ipc::SessionOpened>(&opened.payload);
+    MIRAGE_CHECK(opened_session != nullptr);
+    if (opened_session == nullptr) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+    const std::string session_id = opened_session->session_id;
+
+    // The turn enters the model call and stays there (the gate is closed);
+    // its pending notification is the last dialog frame the stream carries.
+    provider->hold_open();
+    const ipc::Response accepted =
+        client.call(ipc::SessionChatRequest{session_id, "关闭前的问题"}, kCallBudget);
+    MIRAGE_CHECK(accepted.ok);
+    const auto *turn = std::get_if<ipc::DialogTurnAccepted>(&accepted.payload);
+    MIRAGE_CHECK(turn != nullptr);
+    if (turn == nullptr) {
+        provider->release();
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+    const auto pending = wait_for_event(
+        subscriber, log,
+        [&](const ipc::Event &event) {
+            const auto *chat = std::get_if<ipc::ChatTurnUpdatedEvent>(&event.payload);
+            return chat != nullptr && chat->turn_id == turn->turn_id && chat->status == "pending";
+        },
+        kEventBudget);
+    MIRAGE_CHECK(pending.has_value());
+
+    // Close the session mid-turn: the close succeeds, the in-flight driver
+    // is cancelled, and the dialog thread dies with the session. Consume the
+    // close's own session.updated notification first — it is the last frame
+    // the closed session legitimately publishes.
+    const ipc::Response closed = client.call(ipc::CloseSessionRequest{session_id}, kCallBudget);
+    MIRAGE_CHECK(closed.ok);
+    const auto closed_notification = wait_for_event(
+        subscriber, log,
+        [&](const ipc::Event &event) {
+            const auto *session = std::get_if<ipc::SessionUpdatedEvent>(&event.payload);
+            return session != nullptr && session->session_id == session_id &&
+                   session->state == "closed";
+        },
+        kEventBudget);
+    MIRAGE_CHECK(closed_notification.has_value());
+    provider->release();
+
+    // After the gate opens, the swallowed turn publishes nothing: no ok /
+    // failed notification for the dead turn arrives on the stream.
+    MIRAGE_CHECK(is_silent(subscriber, kQuietWindow));
+    std::size_t settled_frames = 0;
+    for (const ipc::Event &event : log) {
+        const auto *chat = std::get_if<ipc::ChatTurnUpdatedEvent>(&event.payload);
+        if (chat != nullptr && chat->turn_id == turn->turn_id && chat->status != "pending") {
+            ++settled_frames;
+        }
+    }
+    MIRAGE_CHECK(settled_frames == 0);
+
+    // The session is gone: further dialog work on it is the stable
+    // not_found, and the snapshot no longer reports it.
+    const ipc::Response chat_gone =
+        client.call(ipc::SessionChatRequest{session_id, "后续问题"}, kCallBudget);
+    MIRAGE_CHECK(!chat_gone.ok);
+    MIRAGE_CHECK(chat_gone.error.code == "not_found");
+    const ipc::Response history_gone =
+        client.call(ipc::ChatHistoryRequest{session_id, {}}, kCallBudget);
+    MIRAGE_CHECK(!history_gone.ok);
+    MIRAGE_CHECK(history_gone.error.code == "not_found");
+    const ipc::Response listed = client.call(ipc::ListSessionsRequest{}, kCallBudget);
+    MIRAGE_CHECK(listed.ok);
+    const auto *sessions = std::get_if<ipc::SessionList>(&listed.payload);
+    MIRAGE_CHECK(sessions != nullptr);
+    if (sessions != nullptr) {
+        for (const ipc::SessionSummary &entry : sessions->sessions) {
+            MIRAGE_CHECK(entry.id != session_id);
+        }
+    }
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
 int main() {
     // SIGPIPE regression guard (DEC-012 decision 5, M1.5-02): the library
     // write path (IpcStream::write_some) uses send(MSG_NOSIGNAL), so a
@@ -1780,6 +1942,8 @@ int main() {
                  scenario_session_close_publishes_closed_notification);
     run_scenario("session_chat_publishes_turn_lifecycle",
                  scenario_session_chat_publishes_turn_lifecycle);
+    run_scenario("session_close_swallows_inflight_turn",
+                 scenario_session_close_swallows_inflight_turn);
     run_scenario("subscribe_unsubscribe_round_trip", scenario_subscribe_unsubscribe_round_trip);
     run_scenario("subscribe_seed_is_current_host_status",
                  scenario_subscribe_seed_is_current_host_status);
