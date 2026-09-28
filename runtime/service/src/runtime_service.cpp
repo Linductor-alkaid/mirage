@@ -8,6 +8,7 @@
 #include <mirage/runtime/ipc/stream.hpp>
 #include <mirage/runtime/persistence/paths.hpp>
 #include <mirage/runtime/persistence/recovery.hpp>
+#include <mirage/runtime/persistence/session_state.hpp>
 #include <mirage/runtime/persistence/settings.hpp>
 #include <mirage/runtime/persistence/store.hpp>
 
@@ -155,9 +156,6 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
                 record.status = status;
                 record.reply_text = event.reply_text;
                 record.error = event.error;
-                // The settled notification carries the same wire members as
-                // the pending one (status / user_text / sequence) — without
-                // them every subscriber's decode rejects the frame.
                 event.status = status;
                 event.user_text = record.user_text;
                 event.sequence = record.sequence;
@@ -169,7 +167,6 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
             log.in_flight_turn_id.clear();
         }
         if (!settled) {
-            // Unknown turn id: nothing registered, nothing to publish.
             return;
         }
     }
@@ -198,6 +195,64 @@ void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::stri
 }
 
 } // namespace
+
+namespace detail {
+
+/// Worker-thread-safe session state persist (M5-08, DEC-021 backlog ①):
+/// snapshots the session registry, dialog threads and the raw journal appends
+/// into the state document. File IO on the calling thread matches the
+/// recovery persist precedent; failures are recorded on stderr once per
+/// change of reason and never propagate.
+void persist_session_state(const std::shared_ptr<ServiceCore> &core) {
+    if (core->session_state_store == nullptr) {
+        return;
+    }
+    static std::mutex report_mutex;
+    static std::string last_error;
+    persistence::SessionState state;
+    {
+        std::lock_guard lock(core->journal_raw_mutex);
+        std::lock_guard dialogs_lock(core->dialogs.mutex);
+        std::lock_guard sessions_lock(core->sessions.mutex);
+        for (const auto &[session_id, created] : core->sessions.created_at_ms) {
+            persistence::PersistedSession session;
+            session.id = session_id;
+            session.created_at_ms = created;
+            const auto raw = core->journal_raw.find(session_id);
+            if (raw != core->journal_raw.end()) {
+                session.journal = raw->second;
+            }
+            const auto dialogs = core->dialogs.sessions.find(session_id);
+            if (dialogs != core->dialogs.sessions.end()) {
+                for (const auto &record : dialogs->second.turns) {
+                    if (record.status == "pending") {
+                        continue; // in-flight turns are not persisted
+                    }
+                    persistence::PersistedChatTurn turn;
+                    turn.turn_id = record.turn_id;
+                    turn.status = record.status;
+                    turn.user_text = record.user_text;
+                    turn.reply_text = record.reply_text;
+                    turn.error = record.error;
+                    turn.sequence = record.sequence;
+                    turn.recorded_at_ms = record.recorded_at_ms;
+                    session.chat_turns.push_back(std::move(turn));
+                }
+            }
+            state.sessions.push_back(std::move(session));
+        }
+    }
+    const auto saved = core->session_state_store->save(persistence::encode_session_state(state));
+    if (!saved.ok) {
+        std::lock_guard report_lock(report_mutex);
+        if (last_error != saved.error) {
+            last_error = saved.error;
+            std::cerr << "mirage-service: session state persist failed: " << saved.error << '\n';
+        }
+    }
+}
+
+} // namespace detail
 
 ServiceInfo runtime_service_info() {
     // The service owns the process's Executor and the hosted pinned runtime
@@ -649,6 +704,11 @@ struct RuntimeService::Impl {
             const auto appended =
                 core->journal->append_user_message(session_id, submission.task.id, request.goal);
             if (appended.ok) {
+                {
+                    std::lock_guard raw_lock(core->journal_raw_mutex);
+                    core->journal_raw[session_id].push_back(persistence::PersistedJournalEntry{
+                        "user", submission.task.id, request.goal, {}, 0});
+                }
                 ipc::SessionMessageEvent message;
                 message.session_id = session_id;
                 message.task_id = submission.task.id;
@@ -656,6 +716,7 @@ struct RuntimeService::Impl {
                 message.text = request.goal;
                 message.sequence = appended.sequence;
                 core->events.publish_session_message(std::move(message));
+                detail::persist_session_state(core);
             }
         }
         // Creation event (DEC-012 decision 3); published before the
@@ -2072,8 +2133,81 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                 impl_->config.settings_directory, impl_->config.settings_file_name,
                 mirage::runtime::persistence::kMaxSettingsFileBytes);
     }
+    // M5-08 session state store (DEC-021 backlog ①): the conversation and
+    // dialog thread write-back document lives in the state directory.
+    if (impl_->config.persist_session_state) {
+        const std::filesystem::path session_directory =
+            impl_->config.session_state_directory.empty() ? persistence::default_state_directory()
+                                                          : impl_->config.session_state_directory;
+        impl_->core->session_state_store =
+            std::make_unique<mirage::runtime::persistence::LocalStateStore>(
+                session_directory, "session-state.json",
+                mirage::runtime::persistence::kMaxSettingsFileBytes * 8);
+    }
 
     impl_->publish_host_status(HostStatus::Starting);
+
+    // M5-08 session state hydration (DEC-021 backlog ①): re-register the
+    // persisted sessions, re-append their conversation entries into the
+    // journal (the pinned store re-derives the same per-session sequence
+    // numbers from append order) and rebuild the dialog threads. A broken
+    // session state file degrades loudly instead of failing the start.
+    if (impl_->config.persist_session_state) {
+        const std::filesystem::path session_directory =
+            impl_->config.session_state_directory.empty() ? persistence::default_state_directory()
+                                                          : impl_->config.session_state_directory;
+        const auto loaded = impl_->core->session_state_store->load();
+        if (loaded.status == persistence::LoadStatus::Loaded) {
+            const auto decoded = persistence::decode_session_state(loaded.body);
+            if (!decoded.ok) {
+                std::cerr << "mirage-service: session state file '"
+                          << (session_directory / "session-state.json").string()
+                          << "' is invalid: " << decoded.error << "\n";
+            } else {
+                for (const auto &session : decoded.state.sessions) {
+                    const auto admitted = impl_->core->sessions.full() == false;
+                    if (!admitted) {
+                        break;
+                    }
+                    impl_->core->sessions.created_at_ms.emplace(session.id, session.created_at_ms);
+                    for (const auto &entry : session.journal) {
+                        if (entry.kind == "user") {
+                            (void)impl_->core->journal->append_user_message(
+                                session.id, entry.task_id, entry.text);
+                        } else {
+                            (void)impl_->core->journal->append_outcome(session.id, entry.task_id,
+                                                                       entry.outcome, entry.steps);
+                        }
+                    }
+                    if (!session.chat_turns.empty()) {
+                        std::lock_guard lock(impl_->core->dialogs.mutex);
+                        auto &log = impl_->core->dialogs.sessions[session.id];
+                        std::uint64_t next_sequence = 1;
+                        for (const auto &turn : session.chat_turns) {
+                            detail::DialogTurnRecord record;
+                            record.turn_id = turn.turn_id;
+                            record.status = turn.status;
+                            record.user_text = turn.user_text;
+                            record.reply_text = turn.reply_text;
+                            record.error = turn.error;
+                            record.sequence = turn.sequence;
+                            record.recorded_at_ms = turn.recorded_at_ms;
+                            next_sequence = std::max(next_sequence, turn.sequence + 1);
+                            log.turns.push_back(std::move(record));
+                        }
+                        log.next_sequence = next_sequence;
+                        log.total_recorded = log.turns.size();
+                    }
+                }
+                if (!decoded.state.sessions.empty()) {
+                    std::cerr << "mirage-service: hydrated " << decoded.state.sessions.size()
+                              << " session(s) from "
+                              << (session_directory / "session-state.json").string() << '\n';
+                }
+            }
+        }
+    }
+
     const HostOutcome hosted = impl_->core->host.start(binding);
     if (!hosted.ok) {
         impl_->publish_host_status(HostStatus::Failed);

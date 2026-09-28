@@ -223,6 +223,10 @@ void scenario_settings_round_trip_all_fields() {
                                {"process.execute", "confirm"},
                                {"input.inject", "confirm"}};
     filled.confirmation = "deny";
+    filled.model = persistence::ModelSettings{
+        true,       "openai.responses.v1", "prod-model", "https://api.example.com", "/v1",
+        "gpt-test", "MIRAGE_MODEL_KEY"};
+    filled.runtime = persistence::RuntimeSettings{512, 8};
 
     const std::string encoded = persistence::encode_settings(filled);
     const persistence::SettingsDecode decoded = persistence::decode_settings(encoded);
@@ -243,6 +247,22 @@ void scenario_settings_round_trip_all_fields() {
     MIRAGE_CHECK(decoded.settings.permission_rules.count("input.inject") == 1 &&
                  decoded.settings.permission_rules.at("input.inject") == "confirm");
     MIRAGE_CHECK(decoded.settings.confirmation.value_or("?") == "deny");
+    MIRAGE_CHECK(decoded.settings.model.has_value());
+    if (decoded.settings.model.has_value()) {
+        const auto &model = *decoded.settings.model;
+        MIRAGE_CHECK(model.enabled);
+        MIRAGE_CHECK(model.dialect == "openai.responses.v1");
+        MIRAGE_CHECK(model.display_name == "prod-model");
+        MIRAGE_CHECK(model.endpoint_origin == "https://api.example.com");
+        MIRAGE_CHECK(model.api_prefix == "/v1");
+        MIRAGE_CHECK(model.model_selector == "gpt-test");
+        MIRAGE_CHECK(model.credential_env == "MIRAGE_MODEL_KEY");
+    }
+    MIRAGE_CHECK(decoded.settings.runtime.has_value());
+    if (decoded.settings.runtime.has_value()) {
+        MIRAGE_CHECK(decoded.settings.runtime->event_queue_capacity == 512);
+        MIRAGE_CHECK(decoded.settings.runtime->max_connections == 8);
+    }
 }
 
 void scenario_settings_empty_document_yields_defaults() {
@@ -256,6 +276,8 @@ void scenario_settings_empty_document_yields_defaults() {
     MIRAGE_CHECK(decoded.settings.read_roots.empty());
     MIRAGE_CHECK(decoded.settings.permission_rules.empty());
     MIRAGE_CHECK(!decoded.settings.confirmation.has_value());
+    MIRAGE_CHECK(!decoded.settings.model.has_value());
+    MIRAGE_CHECK(!decoded.settings.runtime.has_value());
 }
 
 void scenario_settings_strict_decode_rejections() {
@@ -279,6 +301,9 @@ void scenario_settings_strict_decode_rejections() {
         {R"({"schema":1,"permission":"allow"})", "non-object permission"},
         {R"({"schema":1,"confirmation":"maybe"})", "bad confirmation"},
         {R"({"schema":1,"confirmation":true})", "wrong confirmation type"},
+        {R"({"schema":1,"model":"x"})", "non-object model"},
+        {R"({"schema":1,"model":{"enabled":"yes"}})", "wrong model.enabled type"},
+        {R"({"schema":1,"runtime":{"max_connections":0}})", "non-positive runtime bound"},
         // Bounds (DEC-011 item 3).
         {R"({"schema":1,"read_roots":"/tmp"})", "non-array read_roots"},
         {R"({"schema":1,"socket":42})", "non-string socket"},

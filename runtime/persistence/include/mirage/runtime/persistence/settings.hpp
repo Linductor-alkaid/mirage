@@ -18,6 +18,27 @@ inline constexpr std::size_t kMaxSettingsFileBytes = 64 * 1024;
 inline constexpr std::size_t kMaxReadRoots = 64;
 inline constexpr std::size_t kMaxPathBytes = 4096;
 
+/// Model profile settings (M5-08 设置-模型类目, DEC-027 契约输入): mirrors
+/// the model layer configuration minus the runtime-only bounds. Empty
+/// endpoint keeps the model layer disabled.
+struct ModelSettings {
+    bool enabled = false;
+    std::string dialect; ///< pinned dialect name; empty keeps the default
+    std::string display_name;
+    std::string endpoint_origin;
+    std::string api_prefix;
+    std::string model_selector;
+    std::string credential_env; ///< env var carrying the API key
+};
+
+/// Runtime configuration settings (M5-08 Runtime Configuration 类目):
+/// productization review bounds (DEC-012 / DEC-007 复核条目). Zero keeps the
+/// built-in default.
+struct RuntimeSettings {
+    std::size_t event_queue_capacity = 0;
+    std::size_t max_connections = 0;
+};
+
 /// Mirage's local configuration for the runtime service (design doc section
 /// 16, DEC-011): the M1-configurable surface of Application Settings,
 /// Runtime Configuration and Desktop Permissions. Every member is optional
@@ -43,6 +64,12 @@ struct LocalSettings {
     /// Confirmation outcome for Confirm rules (DEC-010): "allow" / "deny";
     /// nullopt keeps the built-in fail-closed deny.
     std::optional<std::string> confirmation;
+    /// Model profile block (M5-08 设置-模型类目); nullopt keeps the model
+    /// layer disabled.
+    std::optional<ModelSettings> model;
+    /// Runtime configuration block (M5-08 Runtime Configuration 类目);
+    /// nullopt keeps the built-in bounds.
+    std::optional<RuntimeSettings> runtime;
 };
 
 /// Serializes the document (compact JSON, schema field included).

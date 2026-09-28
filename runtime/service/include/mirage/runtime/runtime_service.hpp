@@ -124,6 +124,13 @@ struct ServiceConfig {
     /// When false, policy.set stays live-only and never writes the settings
     /// document (tests).
     bool persist_settings = true;
+    /// Session state persistence (M5-08, DEC-021 backlog ①): directory of
+    /// the `session-state.json` document. Empty selects the DEC-011 default
+    /// state directory (the recovery document's sibling).
+    std::filesystem::path session_state_directory;
+    /// When false, the session state document is neither persisted nor
+    /// hydrated (tests).
+    bool persist_session_state = true;
     mirage::integration::ModelLayerConfig model;
     /// Optional scripted-provider seam (DEC-027): when set, the model layer
     /// serves the gateway through this provider instead of the pinned socket

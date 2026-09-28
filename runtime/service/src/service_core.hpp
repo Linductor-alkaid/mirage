@@ -18,6 +18,7 @@
 #include <mirage/integration/workflow_event_bridge.hpp>
 #include <mirage/runtime/mira_host.hpp>
 #include <mirage/runtime/permission/permission.hpp>
+#include <mirage/runtime/persistence/session_state.hpp>
 #include <mirage/runtime/persistence/settings.hpp>
 #include <mirage/runtime/persistence/store.hpp>
 
@@ -102,6 +103,21 @@ struct ServiceCore {
     /// policy.set persists the merged document here. Null when write-back is
     /// disabled (tests).
     std::unique_ptr<mirage::runtime::persistence::LocalStateStore> settings_store;
+    /// Session state store (M5-08, DEC-021 backlog ①): the conversation
+    /// journal, dialog threads and session registry persist here across
+    /// restarts. Null when disabled (tests).
+    std::unique_ptr<mirage::runtime::persistence::LocalStateStore> session_state_store;
+    /// Raw journal append inputs (DEC-021 hydration surface): shadow the
+    /// journal's appends with the raw inputs so the persisted document can
+    /// reproduce the projected view exactly (append_outcome composes its
+    /// sentence from progress + steps; the projection alone would not
+    /// round-trip). Same append discipline as the journal itself.
+    std::mutex journal_raw_mutex;
+    std::map<std::string, std::vector<mirage::runtime::persistence::PersistedJournalEntry>>
+        journal_raw;
+    /// Serializes session-state document writes from the serial context and
+    /// worker threads (dialog settle, task settle).
+    std::mutex session_state_mutex;
     /// Dialog threads (DEC-027): the per-session bounded turn logs, the
     /// snapshot face of session.chat_updated.
     DialogRegistry dialogs;
