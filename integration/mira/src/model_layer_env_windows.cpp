@@ -21,7 +21,7 @@ std::string read_environment_value(const std::string &name) {
     if (wide_length <= 0) {
         return {};
     }
-    const std::wstring wide_name(static_cast<std::size_t>(wide_length), L'\0');
+    std::wstring wide_name(static_cast<std::size_t>(wide_length), L'\0');
     ::MultiByteToWideChar(CP_UTF8, 0, name.c_str(), static_cast<int>(name.size()), wide_name.data(),
                           wide_length);
     DWORD size = ::GetEnvironmentVariableW(wide_name.c_str(), nullptr, 0);
