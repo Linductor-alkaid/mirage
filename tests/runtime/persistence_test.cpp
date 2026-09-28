@@ -720,9 +720,9 @@ void scenario_session_state_strict_rejections() {
     const Case cases[] = {
         // Unknown members are refused instead of ignored.
         {R"({"schema":1,"sessions":[],"extra":1})", "unknown member"},
-        {R"({"schema":1,"sessions":[{"id":"s","journal":[],"alien":2}]})",
+        {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","journal":[],"alien":2}]})",
          "session entries must carry only"},
-        {R"({"schema":1,"sessions":[{"id":"s","chat_turns":[{"turn_id":"t","status":"ok","alien":1}]}]})",
+        {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","chat_turns":[{"turn_id":"t","status":"ok","alien":1}]}]})",
          "chat turns must carry only"},
         // Schema handling.
         {R"({"schema":2,"sessions":[]})", "unsupported session state schema version"},
@@ -732,19 +732,22 @@ void scenario_session_state_strict_rejections() {
         {R"({"schema":1})", "member 'sessions' must be an array"},
         {R"({"schema":1,"sessions":{}})", "member 'sessions' must be an array"},
         {R"({"schema":1,"sessions":[[]]})", "session entries must carry only"},
-        {R"({"schema":1,"sessions":[{"id":""}]})", "session entry requires a non-empty 'id'"},
+        {R"({"schema":1,"sessions":[{"id":""}]})",
+         "session entry 'id' must be 32 lowercase hex characters"},
         // Dialog turns must be settled (pending turns are never persisted).
         // NOTE: journal-entry cases (unknown kind, oversized journal text)
         // are deferred with the journal decode fix — see the round-trip
         // scenario's note.
-        {R"({"schema":1,"sessions":[{"id":"s","chat_turns":[{"turn_id":"","status":"ok"}]}]})",
+        {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","chat_turns":[{"turn_id":"","status":"ok"}]}]})",
          "chat turns require a 'turn_id'"},
-        {R"({"schema":1,"sessions":[{"id":"s","chat_turns":[{"turn_id":"t","status":"pending"}]}]})",
+        {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","chat_turns":[{"turn_id":"t","status":"pending"}]}]})",
          "chat turns require a 'turn_id'"},
-        {R"({"schema":1,"sessions":[{"id":"s","chat_turns":[{"turn_id":"t","status":"ok","sequence":0}]}]})",
-         "member 'sequence' must be a positive integer"},
-        {R"({"schema":1,"sessions":[{"id":"s","chat_turns":[{"turn_id":"t","status":"ok","recorded_at_ms":-1}]}]})",
-         "member 'recorded_at_ms' must be a non-negative integer"},
+        {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","chat_turns":[{"turn_id":"t","status":"ok","user_text":"q","sequence":0}]}]})",
+         "settled \"ok\" chat turns require a 'reply_text' member"},
+        {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","chat_turns":[{"turn_id":"t","status":"ok","user_text":"q","recorded_at_ms":-1}]}]})",
+         "settled \"ok\" chat turns require a 'reply_text' member"},
+        {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","chat_turns":[{"turn_id":"t","status":"pending","user_text":"q"}]}]})",
+         "chat turns require a 'turn_id' and a settled 'status'"},
     };
     for (const Case &case_value : cases) {
         const persistence::SessionStateDecode decoded =

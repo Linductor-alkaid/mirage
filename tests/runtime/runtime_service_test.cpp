@@ -65,6 +65,9 @@ ServiceConfig make_config(const mirage::testing::TempDir &dir) {
     // service would persist into the user's real XDG state directory and
     // hydrate foreign history into every later scenario (M1-07).
     config.recovery_directory = dir.root() / "recovery";
+    // M5-08 session state: same isolation discipline as recovery — scenarios
+    // must not see each other's persisted sessions via the default state dir.
+    config.session_state_directory = dir.root() / "session-state";
     return config;
 }
 

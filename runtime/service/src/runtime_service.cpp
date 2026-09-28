@@ -171,6 +171,7 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
         }
     }
     core->events.publish_chat_turn(std::move(event));
+    persist_session_state(core);
 }
 
 /// Body of one dialog turn task (DEC-027): the bounded model completion and
@@ -207,6 +208,10 @@ void persist_session_state(const std::shared_ptr<ServiceCore> &core) {
     if (core->session_state_store == nullptr) {
         return;
     }
+    // Serializes concurrent persist entry (serial context, task drivers,
+    // dialog settle): the store's temp file name carries only the pid, so
+    // unsynchronized saves would collide on O_EXCL and skip a snapshot.
+    std::lock_guard state_lock(core->session_state_mutex);
     static std::mutex report_mutex;
     static std::string last_error;
     persistence::SessionState state;
@@ -1009,6 +1014,7 @@ struct RuntimeService::Impl {
         event.session_id = opened.session.id;
         event.state = state;
         core->events.publish_session_update(std::move(event));
+        detail::persist_session_state(core);
         respond(connection_id, correlation_id, ipc::SessionOpened{opened.session.id});
     }
 
@@ -1069,6 +1075,7 @@ struct RuntimeService::Impl {
             std::lock_guard lock(core->sessions.mutex);
             core->sessions.created_at_ms.erase(session_id);
         }
+        detail::persist_session_state(core);
         // The dialog thread dies with the session (DEC-027): the log entry is
         // removed (freeing the dialog registry slot for reuse) and any
         // in-flight turn's task is cancelled so it neither lingers nor
@@ -1083,6 +1090,8 @@ struct RuntimeService::Impl {
                     in_flight_turn = found->second.in_flight_turn_id;
                     core->dialogs.sessions.erase(found);
                 }
+                std::lock_guard raw_lock(core->journal_raw_mutex);
+                core->journal_raw.erase(session_id);
             }
             if (!in_flight_turn.empty()) {
                 const std::string driver_key = "dialog-" + in_flight_turn;
@@ -1963,6 +1972,9 @@ struct RuntimeService::Impl {
         if (core->model_layer) {
             core->model_layer->shutdown();
         }
+        // M5-08: the final session state snapshot lands while the executor
+        // can still settle the write (same ordering rationale as recovery).
+        persist_session_state(core);
         core->executor.shutdown(true);
         for (auto &future : driver_futures) {
             try {

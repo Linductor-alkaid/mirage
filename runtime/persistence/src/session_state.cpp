@@ -167,8 +167,12 @@ SessionStateDecode decode_session_state(std::string_view body) {
                 return result;
             }
         }
-        if (session.id.empty()) {
-            result.error = "session entry requires a non-empty 'id'";
+        // The header pins the id form to the pinned session id (32 lowercase
+        // hex characters); anything else fails closed.
+        constexpr std::string_view kHexDigits = "0123456789abcdef";
+        if (session.id.size() != 32 ||
+            session.id.find_first_not_of(kHexDigits) != std::string::npos) {
+            result.error = "session entry 'id' must be 32 lowercase hex characters";
             return result;
         }
         if (const auto *created = member(session_value, "created_at_ms"); created != nullptr) {
@@ -195,11 +199,18 @@ SessionStateDecode decode_session_state(std::string_view body) {
                     return result;
                 }
                 PersistedJournalEntry record;
-                if (const auto kind = bounded_string(entry, result.error)) {
-                    record.kind = *kind;
-                } else {
-                    result.error = "member 'kind' invalid: " + result.error;
-                    return result;
+                {
+                    const auto *kind_value = member(entry, "kind");
+                    if (kind_value == nullptr) {
+                        result.error = "journal entry requires a 'kind' member";
+                        return result;
+                    }
+                    if (const auto kind = bounded_string(*kind_value, result.error)) {
+                        record.kind = *kind;
+                    } else {
+                        result.error = "member 'kind' invalid: " + result.error;
+                        return result;
+                    }
                 }
                 if (record.kind != "user" && record.kind != "outcome") {
                     result.error = "journal entry 'kind' must be \"user\" or \"outcome\"";
@@ -208,6 +219,9 @@ SessionStateDecode decode_session_state(std::string_view body) {
                 if (const auto *task = member(entry, "task_id"); task != nullptr) {
                     if (const auto text = bounded_string(*task, result.error)) {
                         record.task_id = *text;
+                    } else {
+                        result.error = "member 'task_id' invalid: " + result.error;
+                        return result;
                     }
                 }
                 if (record.kind == "user") {
@@ -218,6 +232,9 @@ SessionStateDecode decode_session_state(std::string_view body) {
                             result.error = "member 'text' invalid: " + result.error;
                             return result;
                         }
+                    } else {
+                        result.error = "journal 'user' entries require a 'text' member";
+                        return result;
                     }
                 } else {
                     if (const auto *outcome_value = member(entry, "outcome");
@@ -228,6 +245,9 @@ SessionStateDecode decode_session_state(std::string_view body) {
                             result.error = "member 'outcome' invalid: " + result.error;
                             return result;
                         }
+                    } else {
+                        result.error = "journal 'outcome' entries require an 'outcome' member";
+                        return result;
                     }
                     if (const auto *steps_value = member(entry, "steps"); steps_value != nullptr) {
                         const auto steps = steps_value->as_integer();
@@ -260,11 +280,17 @@ SessionStateDecode decode_session_state(std::string_view body) {
                 if (const auto *field = member(entry, "turn_id"); field != nullptr) {
                     if (const auto text = bounded_string(*field, result.error)) {
                         turn.turn_id = *text;
+                    } else {
+                        result.error = "member 'turn_id' invalid: " + result.error;
+                        return result;
                     }
                 }
                 if (const auto *field = member(entry, "status"); field != nullptr) {
                     if (const auto text = bounded_string(*field, result.error)) {
                         turn.status = *text;
+                    } else {
+                        result.error = "member 'status' invalid: " + result.error;
+                        return result;
                     }
                 }
                 if (turn.turn_id.empty() || (turn.status != "ok" && turn.status != "failed")) {
@@ -275,19 +301,37 @@ SessionStateDecode decode_session_state(std::string_view body) {
                 if (const auto *field = member(entry, "user_text"); field != nullptr) {
                     if (const auto text = bounded_string(*field, result.error)) {
                         turn.user_text = *text;
+                    } else {
+                        result.error = "member 'user_text' invalid: " + result.error;
+                        return result;
                     }
+                } else {
+                    result.error = "chat turns require a 'user_text' member";
+                    return result;
                 }
                 if (turn.status == "ok") {
                     if (const auto *field = member(entry, "reply_text"); field != nullptr) {
                         if (const auto text = bounded_string(*field, result.error)) {
                             turn.reply_text = *text;
+                        } else {
+                            result.error = "member 'reply_text' invalid: " + result.error;
+                            return result;
                         }
+                    } else {
+                        result.error = "settled \"ok\" chat turns require a 'reply_text' member";
+                        return result;
                     }
                 } else {
                     if (const auto *field = member(entry, "error"); field != nullptr) {
                         if (const auto text = bounded_string(*field, result.error)) {
                             turn.error = *text;
+                        } else {
+                            result.error = "member 'error' invalid: " + result.error;
+                            return result;
                         }
+                    } else {
+                        result.error = "settled \"failed\" chat turns require an 'error' member";
+                        return result;
                     }
                 }
                 if (const auto *field = member(entry, "sequence"); field != nullptr) {
