@@ -160,10 +160,18 @@
       `session.close`"完成，2026-09-28（DEC-026 挂账②兑现，golden v6 → v7）：
       pinned `close_session` 承载 + 服务注册表条目移除（容量可复用）+ 主会
       话 `invalid_state` 守卫 + 会话页删除入口，`session.updated` 增补关闭
-      发布点）：会话列表 / 管理接 `session.*`；消息流真实渲染（M1.5 模拟域
-      演示语义退出会话页）；观察台真实化——运行时间线 / 观察流直连任务快
-      照与事件，视觉状态呈现与订阅演进；对话模式真实化挂账 DEC-025 挂账③
-      （DEC-008 迁移路径第二步，与 M5-08 设置-模型类目联动）。
+      发布点）；第四增量"对话模式真实化"完成，2026-09-28
+      （[DEC-027](../decisions/DEC-027-dialog-mode-model-layer.md) 新增，
+      Accepted，DEC-025 挂账③兑现，golden v7 → v8）：模型层装配（pinned
+      ModelProfile/Router/Provider/SocketTransport/Gateway + SecretRef 环
+      境变量解析 + OpenSSL TLS 通道按需挂接）+ `session.chat` /
+      `session.chat.history` / `session.chat_updated` 对话面 + Composer 对
+      话模式启用；DEC-026 挂账④联动评估维持挂账（纯对话无桌面驱动步），
+      M5-08 联动评估以 `ModelLayerConfig` 面为契约输入）：会话列表 / 管理接
+      `session.*`；消息流真实渲染（M1.5 模拟域演示语义退出会话页）；观察台
+      真实化——运行时间线 / 观察流直连任务快照与事件，视觉状态呈现与订阅
+      演进；Composer 双模式信息架构完整兑现，模型层未配置的服务保持如实降
+      级。
 - [ ] `M5-07` 批准中心与权限管理产品化：批准中心接异步确认面（`M5-03`）；
       设置页权限策略配置（每能力 `allow` / `confirm` / `deny`、资源范围、
       默认策略收紧——DEC-010）；权限策略持久化（DEC-011 Desktop
@@ -1186,3 +1194,97 @@ Accepted；golden `meta.version` 5 → 6；CI 结论按仓库先例由下一工�
   [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
   §4 与变更记录、ui/README（会话管理面接口缝）、
   [总计划](mirage-implementation-plan.md) 状态叙述。
+
+2026-09-28：`M5-06` 第三增量 CI 取证完成（补录）；run 36391609320
+（headSha = `32868cb`，PR [#59](https://github.com/Linductor-alkaid/mirage/pull/59)）
+全部 8 作业 success，2026-09-28 合并（维护者授权）。
+
+- Linux 矩阵：debug / release / asan / ubsan / tsan 五预设全绿，每预设
+  **34/34 测试 0 skip**（含 `session_close_lifecycle` 场景）；format &
+  public-header boundaries 绿。
+- frontend 作业：lint + strict tsc + 702 测试 + build 全绿（golden vectors
+  双端门禁消费同一 meta.version 7 vectors 文件）。
+- windows msvc (full tree)：全树构建 + 测试通过。
+- 独立测试验证（第 1 轮）新增用例随本 runs 取证：
+  `session_close_cancels_inflight_task` /
+  `session_close_publishes_closed_notification` / golden
+  `session-closed-closing-state` 与 `session-closed-empty-session-id` /
+  desktop-transport session.close 两用例（见 32868cb）。
+
+2026-09-28：`M5-06` 第四增量——对话模式真实化完成（协议 v1 附加扩展，
+[DEC-027](../decisions/DEC-027-dialog-mode-model-layer.md) 新增，Accepted；
+golden `meta.version` 7 → 8；本 PR 的 CI 结论按仓库先例由下一工作项 PR 补
+录）。**`M5-06` 工作项至此收口**（四增量：会话页接真实面 / 观察面协议扩
+展 / 会话管理面 / 对话模式真实化）。
+
+- 范围：
+  - **决策记录**：DEC-027——纯对话形态定位（Text 契约单轮 ModelRequest →
+    ModelGateway 推理，不复用桌面 AgentLoop）；对话线程承载边界（服务内
+    存易失 turn 日志，不进 pinned 会话投影——`build_conversation_view` 无
+    助手词条，伪造 user/outcome 即语义伪造）；SecretRef 解析源 = 进程环境
+    变量（传输边界解析，fail closed）；测试承载 = 注入式
+    `ModelProviderOverride`（生产 provider 的 SSRF 姿态使回环端点不可达，
+    pinned 安全设计非配置缺口）；DEC-026 挂账④联动评估维持挂账（纯对话
+    无桌面驱动步）；M5-08 联动评估以 `ModelLayerConfig` 面为契约输入。
+  - **模型层装配**：`integration/mira::ModelLayer`——pinned `ModelProfile`
+    + `ModelRouter` + `OpenAiCompatibleProvider` + `SocketHttpTransport`
+    （Executor blocking worker 承载）+ `ModelGateway`；TLS 通道挂接
+    pinned OpenSSL 适配器（目标存在时），https 无通道 fail closed 永不降
+    级；`ServiceConfig::model` + `--model-*` CLI 旗标（缺省禁用，启用但
+    无效 fail closed）。
+  - **协议 v1 附加扩展**（DEC-012 流程，传输 / 帧格式 / 版本号不变）：请求
+    `session.chat` / `session.chat.history`；事件 `session.chat_updated`
+    （pending → ok / failed，reply_text / error encode-when-set 成对校
+    验）；hello `chat` 能力位（模型层装备依赖，`permissions` 位先例）；
+    `mirage-ipc-protocol-v1.md` §4 / §6.1 / §6.7（新）/ §7.2 / §10 同步，
+    golden `meta.version` 7 → 8。
+  - **runtime/service**：`handle_session_chat`（受理即回执 + 可取消任务承
+    载推理 + 每会话单在途闩锁 + 16 KiB 文本预算）/
+    `handle_session_chat_history`（快照事实源）；DialogRegistry（容量 =
+    max_sessions，每线程 200 轮最旧裁剪 + truncated 显式，会话关闭随之移
+    除）；teardown 在 Executor 关停前收敛模型层传输（pinned 关闭顺序）。
+  - **TS 镜像 + mock**：`MirageTransport.chatSupported` / `sessionChat` /
+    `sessionChatHistory`，dev bridge / Desktop shell / mock 三传输同变
+    更；mock 对话面（确定性模拟回复、pending → ok 生命周期、
+    `chatCapability=false` 降级构造）。
+  - **UI**：Composer 对话模式启用（`chat` 能力位 gate；未配置保持如实降
+    级并说明）；对话线程投影（用户行 + 助手行：pending 思考中 / ok 回复 /
+    failed 稳定错误），随 session.chat_updated 收敛、随
+    session.chat.history 重建；在途轮禁再提交。
+- 依据：[DEC-025](../decisions/DEC-025-session-page-productization.md) 挂
+  账③、[DEC-026](../decisions/DEC-026-observation-face-and-definition-read.md)
+  挂账④联动评估、[DEC-008](../decisions/DEC-008-m1-environment-binding-and-reference-providers.md)
+  迁移路径第二步、[DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)
+  附加扩展流程；pinned 依据 `model_profile.hpp` / `model_gateway.hpp` /
+  `model_provider.hpp` / `model_transport.hpp` / `adapters/net/`（SSRF 姿
+  态与 TLS 门禁核实）、`conversation_log.hpp`（投影无助手词条核实）、
+  `agent_loop.cpp`（ModelRequest 装配先例）；本计划 `M5-06` 工作项。
+- 验证（本机 Linux，GCC 13.3 / Node 22）：
+  - 全树 debug 构建零告警；ctest **40/40 通过 0 skip**（`runtime_service_test`
+    增至 **362 检查**——新场景 `session_chat_dialog_face`（注入 provider）：
+    hello 能力位、unknown `not_found`、turn 受理 → 收敛 ok → 回执文本、
+    in-flight 闩锁清除、第二轮受理、无模型层 `unavailable`；`ipc_protocol_golden_test`
+    **999 检查**含 v8 向量逐字节门禁；既有门禁零回归）。
+  - `mirage-format-check` 与 `mirage-boundary-check`（39 公共头 0 违规）
+    本机通过。
+  - ui：`npm run check`（tsc 严格）0 诊断；`npm test` **18 文件 702 测试
+    通过**（golden-vectors 消费同一 v8 文件 180 用例两端同绿；新增 mock
+    对话面、ws/desktop 传输帧形状、store 对话线程收敛与稳定错误呈现）；
+    `npm run lint` 0 告警；`npm run build` 通过。
+  - Linux 五预设矩阵 / windows 作业随本 PR CI 取证（结论由后续记录补录）。
+- 限制与补跑条件：① 真实模型端点连通性（公网 https + TLS + 真实凭据）未
+  被 CI 覆盖——pinned provider 的 SSRF 姿态拒绝回环/私网端点，CI 以注入
+  provider 取证对话流程，真实端点属部署态取证（DEC-027 挂账①，维护者机
+  器 / 打包轮）；② https 在 Windows 默认构建 fail closed（Mbed TLS 适配
+  器 `MIRAGE_WITH_MIRA_MBEDTLS` 门控默认关闭，DEC-017 双工具链行为一致）；
+  ③ 凭据承载升级（keyring/secret 服务）、对话流式输出、多轮上下文策略挂
+  账 DEC-027 挂账②③④。
+- 同步：[DEC-027](../decisions/DEC-027-dialog-mode-model-layer.md)（新增）、
+  [DEC-025](../decisions/DEC-025-session-page-productization.md)（挂账③兑
+  现留痕）、[DEC-026](../decisions/DEC-026-observation-face-and-definition-read.md)
+  （挂账④联动评估结论留痕）、
+  [mirage-ipc-protocol-v1.md](../design/mirage-ipc-protocol-v1.md)
+  （§4 / §6.1 / §6.7 / §7.2 / §10）、
+  [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
+  §3.3 / §4 与变更记录、ui/README（对话面接口缝）、
+  [总计划](mirage-implementation-plan.md) 状态叙述与决策表。

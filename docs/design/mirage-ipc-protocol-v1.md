@@ -86,6 +86,8 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 | `session.list` | 无（M5-04 落地） | `{"sessions":[SessionSummary...]}`（§6.4，含主会话，可为空数组） | — |
 | `session.open` | 无（M5-04 落地） | `{"session_id"}`（§6.4） | `unavailable`（会话容量饱和，§6.4）、`pinned_runtime`（透传） |
 | `session.close` | `session_id`（string，非空，M5-06 落地，DEC-026 挂账②） | `{"session_id","state"}`（§6.4，state 为关闭后会话状态名） | `invalid_state`（主会话不可关闭）、`not_found`（未知会话）、`pinned_runtime`（透传） |
+| `session.chat` | `session_id`（string，非空）、`text`（string，非空；M5-06 落地，DEC-027） | `{"turn_id"}`（§6.7） | `unavailable`（模型层未配置）、`not_found`（未知会话）、`invalid_state`（该会话已有在途对话轮）、`invalid_argument`（文本超预算） |
+| `session.chat.history` | `session_id`（string，非空）、`limit`（可选正整数；M5-06 落地，DEC-027） | `{"session_id","turns":[...],"truncated"}`（§6.7） | `not_found`（未知会话） |
 | `session.history` | `session_id`（string，非空），`limit`（可选正整数，M5-04 落地） | `{"session_id","entries":[...],"truncated"}`（§6.4） | `not_found`（未知会话） |
 | `workflow.list` | 无（M5-05 落地） | `{"workflows":[WorkflowSummary...]}`（§6.5，可为空数组） | — |
 | `workflow.save` | `definition`（object，IR v1 JSON，M5-05 落地） | `{"workflow_id","digest"}`（§6.5） | `unavailable`（注册表容量饱和，§6.5）、`pinned_runtime`（解码 / 追加拒绝，透传） |
@@ -140,6 +142,7 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 | `sessions` | boolean（可选） | DEC-021 会话面能力通告（`session.*` 请求面可用）：语义与 `events` 相同。置于 `permissions` 之后 |
 | `workflows` | boolean（可选） | DEC-023 工作流面能力通告（`workflow.*` 请求面可用）：语义与 `events` 相同。置于 `sessions` 之后 |
 | `observation` | boolean（可选） | DEC-026 观察面能力通告（`desktop.observe` 请求面可用）：语义与 `events` 相同。置于 `workflows` 之后 |
+| `chat` | boolean（可选） | DEC-027 对话面能力通告（模型层已配置，`session.chat` 请求面可用）：语义与 `events` 相同。置于 `observation` 之后 |
 
 ### 6.2 `InspectTask`（task.inspect 响应载荷，嵌于 `task` 成员）
 
@@ -345,6 +348,31 @@ save / publish 内容；pinned 库仅存版本记录、无定义正文读取 API
 未接线或无已发布代次、捕获失败）时整个请求以 `unavailable` 失败并命名组件原因，
 不返回静默残缺的观察。响应是时点捕获；快照是唯一事实源，无事件流、无回补。
 
+### 6.7 对话面载荷（session.chat.* 载荷，M5-06，DEC-027）
+
+`session.chat` 成功载荷：`{"turn_id"}`——受理回执，对话轮异步执行；settled
+回复/错误经 `session.chat_updated` 事件与 `session.chat.history` 快照投递。
+`session.chat.history` 成功载荷：`{"session_id","turns":[...],"truncated"}`。
+
+`turns[i]`（`DialogTurnEntry`，成员按 wire 顺序）：
+
+| 成员 | 类型 | 约束 |
+| --- | --- | --- |
+| `turn_id` | string | 非空；对话轮身份 |
+| `status` | string | 封闭词表：`pending` / `ok` / `failed` |
+| `user_text` | string | 非空；用户输入原文 |
+| `reply_text` | string（可选） | encode-when-set：恰在 `ok` 时携带 |
+| `error` | string（可选） | encode-when-set：恰在 `failed` 时携带（稳定失败原因，安全用于 UI） |
+| `sequence` | integer | 正整数；该轮在会话对话序列中的序号 |
+| `recorded_at_ms` | integer | 非负整数；受理墙钟时刻 |
+
+`session.chat` 语义：对话轮由模型层异步执行（有界长任务，Executor 可取消任
+务承载），受理即回执；每会话同时至多一个在途轮（`invalid_state`），文本预
+算 16 KiB（`invalid_argument`）。turn 日志是服务内存易失状态（DEC-011 持
+久化挂账），会话关闭时随之移除。`session.chat.history` 是快照事实源，
+`session.chat_updated` 是通知（DEC-012 一致性模型沿用）。语义（模型层装
+配、凭据边界、测试承载）见 [DEC-027](../decisions/DEC-027-dialog-mode-model-layer.md)。
+
 ## 7. 事件扩展（DEC-012，wire 语义自 `M1.5-02` 落地起冻结）
 
 ### 7.1 订阅
@@ -376,6 +404,7 @@ M1.5 事件集（封闭集合，M2+ 新事件以附加方式进入，不改既�
 | `session.turn` | `session_id`（string，非空）、`task_id`（string，非空）、`step`（正整数）、`kind`（string，§6.2 步词表）、`status`（string，结算态词表 `ok` / `failed` / `cancelled` / `skipped`） | 一个有界会话工作单元结算时发布（M5-04）：M1 驱动形态为一个脚本步，模型循环落地后为一次循环迭代；轮次开始不发布（`task.updated` 覆盖进行中语义） |
 | `session.output` | `session_id`（string，非空）、`task_id`（string，非空）、`step`（正整数）、`chunk`（string，可为空）、`truncated`（boolean） | 步结构化结果的输出增量发布（M5-04）：`chunk` 受 `task.inspect` 结果同源字节预算，M1 驱动每步一份完整结果，流式生产者同形状多 chunk |
 | `workflow.run_updated` | `run_id`（string，非空）、`workflow_id`（string，非空）、`state`（string，§6.5 运行状态集合）、`run_epoch`（非负整数）、`summary`（string，可选，encode-when-set） | 工作流运行状态发布（M5-05，DEC-023）：由服务从 pinned 工作流事件转译——`WorkflowRunStarted` 发布 `running`，`WorkflowRunSettled` 发布终态并携带 `summary`（pinned `safe_summary`，2 KiB 上限）；不从服务侧推测状态。`workflow.runs` 是快照事实源 |
+| `session.chat_updated` | `session_id`（string，非空）、`turn_id`（string，非空）、`status`（string，§6.7 轮状态集合）、`user_text`（string，非空）、`reply_text`（string，可选，encode-when-set 恰在 ok）、`error`（string，可选，encode-when-set 恰在 failed）、`sequence`（正整数） | 对话轮生命周期发布（M5-06，DEC-027）：受理 `pending`、收敛 `ok` / `failed`；`session.chat.history` 是快照事实源 |
 
 ### 7.3 一致性模型与背压（DEC-012 决策 4、5）
 
@@ -429,6 +458,14 @@ TypeScript 消费者 `ui/contracts/test/golden-vectors.test.ts` 读取**同一�
 
 ## 10. 变更记录
 
+- 2026-09-28（`M5-06` 第四增量）：对话面附加扩展（DEC-027，DEC-025 挂账③
+  兑现，协议版本不递增）。§4 新增 `session.chat` / `session.chat.history`；
+  §6.1 新增 `chat` 能力通告成员；§6.7（新）新增对话轮载荷形状（pending/
+  ok/failed 封闭词表、reply_text/error 成对可选校验）；§7.2 新增
+  `session.chat_updated` 事件。golden vectors：requests +2、
+  request_failures +4、responses +3 含 hello 能力位、response_failures +4、
+  events +2、event_failures +2，失败向量锁定新稳定错误串（`meta.version`
+  7 → 8）。
 - 2026-09-28（`M5-06` 第三增量）：会话管理面 `session.close`（DEC-026 挂账②
   兑现，协议版本不递增）。§4 新增 `session.close`；§6.4 新增关闭语义（pinned
   `close_session` 承载 + 注册表条目移除 + 主会话 `invalid_state` 守卫）；§7.2

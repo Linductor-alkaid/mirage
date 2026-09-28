@@ -105,9 +105,14 @@ UI 侧消费 `M5-04` 的 `session.*` 契约面（wire 零变更），会话列�
 管理面评估后挂账（PR #58 CI 全绿取证已补录里程碑计划）；第三增量会话管理面
 `session.close`（DEC-026 挂账②兑现）已完成：pinned `close_session` 承载 +
 服务注册表条目移除 + 主会话 `invalid_state` 守卫 + 会话页删除入口，
-`session.updated` 增补关闭发布点，golden vectors v6 → v7；剩余增量对话模式
-真实化（DEC-025 挂账③，DEC-008 迁移路径第二步）与 M5-08 设置-模型类目联动
-评估。
+`session.updated` 增补关闭发布点，golden vectors v6 → v7；第四增量对话模式
+真实化（[DEC-027](../decisions/DEC-027-dialog-mode-model-layer.md)，DEC-025
+挂账③兑现，DEC-008 迁移路径第二步纯对话形态）已完成：模型层装配（pinned
+ModelProfile/Router/Provider/SocketTransport/Gateway + SecretRef 环境变量
+解析 + TLS 通道按需挂接）与 `session.chat` 对话面（异步 turn +
+session.chat_updated 生命周期 + session.chat.history 快照），Composer 双模
+式信息架构完整兑现，golden vectors v7 → v8——`M5-06` 工作项收口；设置-模
+型类目（Profile 管理面、凭据承载升级）属 M5-08 联动范围。
 
 ## 交付边界
 
@@ -205,7 +210,8 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | DEC-023 | M5 工作流契约面（协议 v1 扩展）与 WorkflowRuntime 服务承载 | 已定案（[DEC-023](../decisions/DEC-023-workflow-contract-face.md)）：协议 v1 附加扩展 `workflow.*` 八请求 + `workflow.run_updated` 事件 + hello `workflows` 能力位；草稿 = pinned `not_validated` 版本、发布 = `publish_validated` DryRun 门禁、删除 = 产品目录条目移除（pinned 追加式历史不动）；运行监控事件经 `WorkflowEventBridge` 从 pinned 事件转译、快照事实源 `workflow.runs`；TR2 工具引用挂载 / Skill 执行注册 / Degraded 呈现与桌面原子工具注册挂账至第二轮及 POST-05；同内容草稿遮蔽可运行版本的 pinned 语义经台账 `MIRA-20260927-001` 登记 | Mirage 维护者 | `M5-05` 第一轮（已完成）；第二轮（编辑器真实化 + atom 目录人口） |
 | DEC-024 | M5 桌面原子工具集（atom.catalog 人口与 ToolCall 执行路径） | 已定案（[DEC-024](../decisions/DEC-024-desktop-atom-toolset.md)）：integration/mira `DesktopAtomToolset` 在绑定环境非空 Provider 上构建 pinned `BuiltinToolRegistry`（初始 13 原子，缺席不注册、目录如实反映能力）；宿主 attach 经 `set_tool_registry` 安装，ToolCall 步派发真实桌面动作（副作用原子按 pinned W-02 须带 verification 谓词；DryRun 门禁只规划不派发）；权限经 `AtomPermissionGate` 回调缝接服务共享 `PermissionController`（RULE-05 与任务驱动同门）；`workflow.atom.catalog` 转 exposed view 投影，wire 契约不变（golden 仍 v5）；捕获 / 元素动作 / 指针输入与 TR2 挂载挂账后续轮 | Mirage 维护者 | `M5-05` 第二轮（桌面原子工具注册增量）；编辑器真实化增量随后 |
 | DEC-025 | M5 会话页产品化（会话面消费、模拟域退役与对话模式承载） | 已定案（[DEC-025](../decisions/DEC-025-session-page-productization.md)）：会话列表 = `session.list` 快照事实源 + 派生标题（重命名/置顶/删除/导出/fork 无 wire 面不呈现，挂账协议扩展评估）；消息流 = `session.history` 重同步基线 + `session.message` 增量 + 任务快照步骤卡，turn/output 作观察流事件源；对话模式在模型循环接入前如实降级（DEC-008 迁移路径第二步挂账）；模拟域退出会话页；观察台 = 任务快照时间线 + 会话事件观察流（通知面语义）；观察面协议附加扩展（视觉状态呈现，M3 非目标完整兑现，golden v5 → v6）挂账另立增量 | Mirage 维护者 | `M5-06` 第一轮（已完成）；观察面 / 会话管理面 / 对话模式挂账后续增量 |
-| DEC-026 | M5 观察面协议附加扩展与工作流定义读取面（golden v6 批次） | 已定案（[DEC-026](../decisions/DEC-026-observation-face-and-definition-read.md)）：`desktop.observe` 按需请求 + `ObservationView` 载荷（帧成员恒在、语义快照投影 1024 节点 wire 预算 + `truncated` 显式标记、`visual_snapshot_ref`/`visual_regions` 同现同缺视觉承载，请求即必须 fail closed；无事件形态——M1 驱动形态无观察生产者，驱动器观察投影评估结论）；`workflow.get` + `WorkflowDefinitionView`（head 定义正文由服务侧产品目录保留，pinned 库无正文读取 API 属 W-03 上游设计非缺口），编辑器跨会话编辑解除；hello `observation` 能力位；步级运行事件（无已承诺消费方）与会话管理面（删除=pinned `close_session` 承载挂账 `session.close`、重命名=产品别名 M5-08、导出=客户端投影、fork 不立项）评估后挂账；产品视觉管线接线挂账与 Overlay 联动 | Mirage 维护者 | `M5-06` 第二轮（已完成）；视觉管线点亮 / `session.close` / 步级运行事件挂账后续增量 |
+| DEC-026 | M5 观察面协议附加扩展与工作流定义读取面（golden v6 批次） | 已定案（[DEC-026](../decisions/DEC-026-observation-face-and-definition-read.md)）：`desktop.observe` 按需请求 + `ObservationView` 载荷（帧成员恒在、语义快照投影 1024 节点 wire 预算 + `truncated` 显式标记、`visual_snapshot_ref`/`visual_regions` 同现同缺视觉承载，请求即必须 fail closed；无事件形态——M1 驱动形态无观察生产者，驱动器观察投影评估结论）；`workflow.get` + `WorkflowDefinitionView`（head 定义正文由服务侧产品目录保留，pinned 库无正文读取 API 属 W-03 上游设计非缺口），编辑器跨会话编辑解除；hello `observation` 能力位；步级运行事件（无已承诺消费方）与会话管理面（删除=pinned `close_session` 承载挂账 `session.close`、重命名=产品别名 M5-08、导出=客户端投影、fork 不立项）评估后挂账；产品视觉管线接线挂账与 Overlay 联动 | Mirage 维护者 | `M5-06` 第二轮（已完成）；视觉管线点亮 / `session.close` / 步级运行事件挂账后续增量 || DEC-026 | M5 观察面协议附加扩展与工作流定义读取面（golden v6 批次） | 已定案（[DEC-026](../decisions/DEC-026-observation-face-and-definition-read.md)）：`desktop.observe` 按需请求 + `ObservationView` 载荷（帧成员恒在、语义快照投影 1024 节点 wire 预算 + `truncated` 显式标记、`visual_snapshot_ref`/`visual_regions` 同现同缺视觉承载，请求即必须 fail closed；无事件形态——M1 驱动形态无观察生产者，驱动器观察投影评估结论）；`workflow.get` + `WorkflowDefinitionView`（head 定义正文由服务侧产品目录保留，pinned 库无正文读取 API 属 W-03 上游设计非缺口），编辑器跨会话编辑解除；hello `observation` 能力位；步级运行事件（无已承诺消费方）与会话管理面（删除=pinned `close_session` 承载挂账 `session.close`、重命名=产品别名 M5-08、导出=客户端投影、fork 不立项）评估后挂账；产品视觉管线接线挂账与 Overlay 联动 | Mirage 维护者 | `M5-06` 第二轮（已完成）；视觉管线点亮 / `session.close` / 步级运行事件挂账后续增量 |
+| DEC-027 | M5 对话模式真实化（模型层装配与 session.chat 对话面） | 已定案（[DEC-027](../decisions/DEC-027-dialog-mode-model-layer.md)）：纯对话形态 = Text 契约单轮 ModelRequest → ModelGateway 推理（不复用桌面 AgentLoop）；`integration/mira::ModelLayer` 装配 pinned ModelProfile/Router/Provider/SocketTransport/Gateway，SecretRef 经环境变量在传输边界解析（fail closed），TLS 通道按需挂接、https 无通道 fail closed 永不降级；`session.chat` 异步 turn 受理回执 + `session.chat_updated` 生命周期事件 + `session.chat.history` 快照，hello `chat` 能力位；对话线程服务内存易失、不进 pinned 会话投影；测试经 `ModelProviderOverride` 注入（生产 provider SSRF 姿态拒回环为上游安全设计）；真实端点连通性挂账部署态取证；凭据升级/流式/上下文策略挂 M5-08 与后续 | Mirage 维护者 | `M5-06` 第四增量（已完成，工作项收口）；真实端点取证 / 凭据升级 / 流式挂账后续 |
 
 ## 跨里程碑通用完成定义
 
