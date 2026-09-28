@@ -337,3 +337,37 @@ describe('DesktopBridgeTransport DEC-026 faces', () => {
         await transport.close();
     });
 });
+
+// -- session.close management face (DEC-026 backlog item 2) --------------------
+
+describe('DesktopBridgeTransport session.close', () => {
+    it('sends session.close and routes the closed reply with the post-close state', async () => {
+        const { transport, bridge } = makeHarness();
+        const pending = transport.closeSession('5a4b3c2d1e0f4938576a5b4c3d2e1f0a');
+        expect(bridge.lastRequest().body).toEqual({
+            op: 'session.close',
+            session_id: '5a4b3c2d1e0f4938576a5b4c3d2e1f0a',
+        });
+        bridge.respondOk(1, {
+            kind: 'session-closed',
+            value: { session_id: '5a4b3c2d1e0f4938576a5b4c3d2e1f0a', state: 'closed' },
+        });
+        const closed = await pending;
+        expect(closed).toEqual({
+            session_id: '5a4b3c2d1e0f4938576a5b4c3d2e1f0a',
+            state: 'closed',
+        });
+        await transport.close();
+    });
+
+    it('surfaces the stable invalid_state refusal for the primary session', async () => {
+        const { transport, bridge } = makeHarness();
+        const pending = transport.closeSession('s-primary');
+        bridge.respondError(1, 'invalid_state', 'the primary session cannot be closed');
+        await expect(pending).rejects.toMatchObject({
+            code: 'invalid_state',
+            message: 'the primary session cannot be closed',
+        });
+        await transport.close();
+    });
+});

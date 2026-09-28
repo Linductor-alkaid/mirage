@@ -1520,6 +1520,79 @@ void scenario_session_conversation_event_stream() {
     MIRAGE_CHECK(service.run().clean);
 }
 
+/// M5-06 (DEC-026 backlog item 2): session.close is a publication point on
+/// the session.updated stream — a subscribed connection sees the closed
+/// state for the closed session, and the registry snapshot no longer reports
+/// it (session.list stays the fact source).
+void scenario_session_close_publishes_closed_notification() {
+    mirage::testing::TempDir dir;
+    const ServiceConfig config = make_config(dir);
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+
+    Subscriber subscriber;
+    std::string diagnostic;
+    subscriber.stream = ipc::connect_stream(config.socket_path, kCallBudget, diagnostic);
+    MIRAGE_CHECK(subscriber.valid());
+    if (!subscriber.valid()) {
+        return;
+    }
+    EventLog log;
+    MIRAGE_CHECK(subscribe_and_consume_ack(subscriber, log));
+
+    // Open through a second (client) connection; the close notification must
+    // arrive on the subscriber.
+    ipc::IpcClient client(config.socket_path);
+    const ipc::Response opened = client.call(ipc::OpenSessionRequest{}, kCallBudget);
+    MIRAGE_CHECK(opened.ok);
+    const auto *opened_session = std::get_if<ipc::SessionOpened>(&opened.payload);
+    MIRAGE_CHECK(opened_session != nullptr);
+    if (opened_session == nullptr) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+
+    const ipc::Response closed =
+        client.call(ipc::CloseSessionRequest{opened_session->session_id}, kCallBudget);
+    MIRAGE_CHECK(closed.ok);
+    const auto *closed_session = std::get_if<ipc::SessionClosed>(&closed.payload);
+    MIRAGE_CHECK(closed_session != nullptr);
+    if (closed_session != nullptr) {
+        MIRAGE_CHECK(closed_session->session_id == opened_session->session_id);
+        MIRAGE_CHECK(closed_session->state == "closed");
+    }
+
+    const auto updated = wait_for_event(
+        subscriber, log,
+        [&](const ipc::Event &event) {
+            const auto *session = std::get_if<ipc::SessionUpdatedEvent>(&event.payload);
+            return session != nullptr && session->session_id == opened_session->session_id &&
+                   session->state == "closed";
+        },
+        kEventBudget);
+    MIRAGE_CHECK(updated.has_value());
+
+    // The registry snapshot is the fact source: the closed session is gone,
+    // the primary stays.
+    const ipc::Response list = client.call(ipc::ListSessionsRequest{}, kCallBudget);
+    MIRAGE_CHECK(list.ok);
+    const auto *sessions = std::get_if<ipc::SessionList>(&list.payload);
+    MIRAGE_CHECK(sessions != nullptr);
+    if (sessions != nullptr) {
+        bool closed_session_listed = false;
+        for (const ipc::SessionSummary &entry : sessions->sessions) {
+            if (entry.id == opened_session->session_id) {
+                closed_session_listed = true;
+            }
+        }
+        MIRAGE_CHECK(!closed_session_listed);
+    }
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
 int main() {
     // SIGPIPE regression guard (DEC-012 decision 5, M1.5-02): the library
     // write path (IpcStream::write_some) uses send(MSG_NOSIGNAL), so a
@@ -1533,6 +1606,8 @@ int main() {
 
     run_scenario("hello_advertises_events_capability", scenario_hello_advertises_events_capability);
     run_scenario("session_conversation_event_stream", scenario_session_conversation_event_stream);
+    run_scenario("session_close_publishes_closed_notification",
+                 scenario_session_close_publishes_closed_notification);
     run_scenario("subscribe_unsubscribe_round_trip", scenario_subscribe_unsubscribe_round_trip);
     run_scenario("subscribe_seed_is_current_host_status",
                  scenario_subscribe_seed_is_current_host_status);

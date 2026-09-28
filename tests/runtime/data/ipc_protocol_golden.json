@@ -1228,6 +1228,21 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":33,\"ok\":true,\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"state\":\"closed\"}"
+    },
+    {
+      "name": "session-closed-closing-state",
+      "response": {
+        "id": 34,
+        "ok": true,
+        "payload": {
+          "kind": "session-closed",
+          "value": {
+            "session_id": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+            "state": "closing"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":34,\"ok\":true,\"session_id\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"closing\"}"
     }
   ],
   "response_failures": [
@@ -1400,6 +1415,11 @@
       "name": "session-closed-state-invalid",
       "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"state\":\"vanished\"}",
       "error": "session.close response requires a 'state' string from the session state vocabulary"
+    },
+    {
+      "name": "session-closed-empty-session-id",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"session_id\":\"\",\"state\":\"closed\"}",
+      "error": "session.open response requires a non-empty 'session_id'"
     }
   ],
   "events": [

@@ -97,6 +97,28 @@ std::optional<ipc::InspectTask> wait_terminal(const std::string &socket_path,
     }
 }
 
+/// Polls task.inspect until `predicate` accepts the view; a liveness wait,
+/// not a latency assertion. The budget is the same generous kCallBudget the
+/// event suite uses for its waits: under parallel ctest CPU oversubscription
+/// the service workers can legitimately lag several seconds behind.
+template <typename Predicate>
+std::optional<ipc::InspectTask> wait_for_progress(const std::string &socket_path,
+                                                  const std::string &task_id, Predicate predicate) {
+    ipc::IpcClient client(socket_path);
+    const auto deadline = std::chrono::steady_clock::now() + kCallBudget;
+    for (;;) {
+        const ipc::Response response = client.call(ipc::InspectTaskRequest{task_id}, kCallBudget);
+        const auto *inspect = std::get_if<ipc::InspectTask>(&response.payload);
+        if (inspect != nullptr && predicate(*inspect)) {
+            return *inspect;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            return std::nullopt;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{25});
+    }
+}
+
 bool looks_like_version_triple(const std::string &text) {
     const auto first = text.find('.');
     if (first == std::string::npos) {
@@ -1244,6 +1266,97 @@ void scenario_session_close_lifecycle() {
     MIRAGE_CHECK(service.run().clean);
 }
 
+/// Closing a session cooperatively interrupts its own non-terminal tasks
+/// (DEC-026 backlog item 2): the same two-step cancel task.cancel uses (cancel
+/// token + executor task cancel) runs before the pinned close, so an
+/// in-flight desktop action ends at its next observation point and the task
+/// settles terminal promptly. The 60 s step budget makes timeout masking
+/// impossible: only the cancellation path can end the sleep inside the
+/// scenario's wait budget.
+void scenario_session_close_cancels_inflight_task() {
+    mirage::testing::TempDir dir;
+    ServiceConfig config = make_config(dir);
+    config.step_timeout = std::chrono::milliseconds{60000};
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+
+    ipc::IpcClient client(config.socket_path);
+    const ipc::Response opened = client.call(ipc::OpenSessionRequest{}, kCallBudget);
+    MIRAGE_CHECK(opened.ok);
+    const auto *opened_session = std::get_if<ipc::SessionOpened>(&opened.payload);
+    MIRAGE_CHECK(opened_session != nullptr);
+    if (opened_session == nullptr) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+    const std::string session_id = opened_session->session_id;
+
+    // One long sleep step bound to the opened session (explicit binding, so
+    // the primary session keeps no task and stays closeable-by-refusal).
+    ipc::SubmitTaskRequest submit;
+    submit.goal = "long task cancelled by session.close";
+    submit.session_id = session_id;
+    submit.steps.push_back({ipc::StepKind::ProcessExecute, "sleep 30"});
+    const std::optional<std::string> task_id = submit_task(client, submit);
+    MIRAGE_CHECK(task_id.has_value());
+    if (!task_id) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+
+    // Let the driver enter the sleep step before closing the session.
+    const auto running =
+        wait_for_progress(config.socket_path, *task_id, [](const ipc::InspectTask &view) {
+            return !view.steps.empty() && view.steps[0].status == "running";
+        });
+    MIRAGE_CHECK(running.has_value());
+    if (!running) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+
+    const ipc::Response closed = client.call(ipc::CloseSessionRequest{session_id}, kCallBudget);
+    MIRAGE_CHECK(closed.ok);
+    const auto *closed_session = std::get_if<ipc::SessionClosed>(&closed.payload);
+    MIRAGE_CHECK(closed_session != nullptr);
+    if (closed_session != nullptr) {
+        MIRAGE_CHECK(closed_session->session_id == session_id);
+        MIRAGE_CHECK(closed_session->state == "closed");
+    }
+
+    // The task settles terminal promptly AND the driver's step bookkeeping
+    // converges to the same picture (the pinned progress can flip a poll
+    // slice before the driver finishes marking steps — same shape
+    // task_cancel_test waits for). The 30 s wait budget stays far below the
+    // 60 s step budget, so only the cancellation path can produce this.
+    const auto done =
+        wait_for_progress(config.socket_path, *task_id, [](const ipc::InspectTask &view) {
+            return view.progress == "Cancelled" && !view.steps.empty() &&
+                   view.steps[0].status == "cancelled";
+        });
+    MIRAGE_CHECK(done.has_value());
+    if (done.has_value()) {
+        MIRAGE_CHECK(done->progress == "Cancelled");
+        MIRAGE_CHECK(!done->steps.empty());
+        if (!done->steps.empty()) {
+            MIRAGE_CHECK(done->steps[0].status == "cancelled");
+        }
+    }
+
+    // The closed session's registry entry is gone; the primary stays.
+    const ipc::Response list = client.call(ipc::ListSessionsRequest{}, kCallBudget);
+    MIRAGE_CHECK(list.ok);
+    const auto *sessions = std::get_if<ipc::SessionList>(&list.payload);
+    MIRAGE_CHECK(sessions != nullptr);
+    MIRAGE_CHECK(sessions != nullptr && sessions->sessions.size() == 1);
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
 void scenario_session_open_capacity_fail_closed() {
     mirage::testing::TempDir dir;
     ServiceConfig config = make_config(dir);
@@ -1300,6 +1413,8 @@ int main() {
     run_scenario("session_list_open_and_history_flow", scenario_session_list_open_and_history_flow);
     run_scenario("session_open_capacity_fail_closed", scenario_session_open_capacity_fail_closed);
     run_scenario("session_close_lifecycle", scenario_session_close_lifecycle);
+    run_scenario("session_close_cancels_inflight_task",
+                 scenario_session_close_cancels_inflight_task);
     run_scenario("observe_fails_closed_on_headless_topology",
                  scenario_observe_fails_closed_on_headless_topology);
     run_scenario("workflow_get_unknown_id_is_not_found",
