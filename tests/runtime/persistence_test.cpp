@@ -649,18 +649,20 @@ void run_scenario(const char *name, void (*scenario)()) {
 }
 
 /// M5-08 session state codec (DEC-021 backlog ①): the persisted conversation
-/// surface round-trips — registry identity and the settled dialog thread
-/// (ok carries reply_text, failed carries error). NOTE (independent
-/// verification, M5-08 round 1): journal entries are NOT round-tripped here
-/// yet — the decoder reads the journal entry's 'kind' member from the entry
-/// object itself (session_state.cpp bounded_string(entry, ...)), so every
-/// document carrying a journal entry fails decode with "member 'kind'
-/// invalid". Those cases land together with the fix.
+/// surface round-trips every field — registry identity, the raw journal
+/// appends (user text verbatim; outcome progress + steps) and the settled
+/// dialog thread (ok carries reply_text, failed carries error).
+/// (Independent verification round 2: the journal cases deferred in round 1
+/// land here together with the journal decode fix.)
 void scenario_session_state_round_trip() {
     persistence::SessionState state;
     persistence::PersistedSession session;
     session.id = "5a4b3c2d1e0f4938576a5b4c3d2e1f0a";
     session.created_at_ms = 1700000000000;
+    session.journal.push_back(
+        persistence::PersistedJournalEntry{"user", "task-0001", "帮我读取日志", {}, 0});
+    session.journal.push_back(
+        persistence::PersistedJournalEntry{"outcome", "task-0001", {}, "Completed", 3});
     persistence::PersistedChatTurn ok_turn;
     ok_turn.turn_id = "7c9e66794742f64b6f4b1c9d2e0f1a3b";
     ok_turn.status = "ok";
@@ -694,7 +696,15 @@ void scenario_session_state_round_trip() {
     const persistence::PersistedSession &back = decoded.state.sessions[0];
     MIRAGE_CHECK(back.id == session.id);
     MIRAGE_CHECK(back.created_at_ms == session.created_at_ms);
-    MIRAGE_CHECK(back.journal.empty());
+    MIRAGE_CHECK(back.journal.size() == 2);
+    if (back.journal.size() == 2) {
+        MIRAGE_CHECK(back.journal[0].kind == "user");
+        MIRAGE_CHECK(back.journal[0].task_id == "task-0001");
+        MIRAGE_CHECK(back.journal[0].text == "帮我读取日志");
+        MIRAGE_CHECK(back.journal[1].kind == "outcome");
+        MIRAGE_CHECK(back.journal[1].outcome == "Completed");
+        MIRAGE_CHECK(back.journal[1].steps == 3);
+    }
     MIRAGE_CHECK(back.chat_turns.size() == 2);
     if (back.chat_turns.size() == 2) {
         MIRAGE_CHECK(back.chat_turns[0].turn_id == ok_turn.turn_id);
@@ -734,10 +744,17 @@ void scenario_session_state_strict_rejections() {
         {R"({"schema":1,"sessions":[[]]})", "session entries must carry only"},
         {R"({"schema":1,"sessions":[{"id":""}]})",
          "session entry 'id' must be 32 lowercase hex characters"},
+        // Journal vocabulary and required members.
+        {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","journal":[{"kind":"note","task_id":"t","text":"x"}]}]})",
+         "journal entry 'kind' must be"},
+        {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","journal":[{"kind":"user","task_id":"t"}]}]})",
+         "journal 'user' entries require a 'text' member"},
+        {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","journal":[{"kind":"outcome","task_id":"t"}]}]})",
+         "journal 'outcome' entries require an 'outcome' member"},
+        // Non-hex session id fails closed.
+        {R"({"schema":1,"sessions":[{"id":"s","journal":[]}]})",
+         "session entry 'id' must be 32 lowercase hex characters"},
         // Dialog turns must be settled (pending turns are never persisted).
-        // NOTE: journal-entry cases (unknown kind, oversized journal text)
-        // are deferred with the journal decode fix — see the round-trip
-        // scenario's note.
         {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","chat_turns":[{"turn_id":"","status":"ok"}]}]})",
          "chat turns require a 'turn_id'"},
         {R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","chat_turns":[{"turn_id":"t","status":"pending"}]}]})",
@@ -759,6 +776,27 @@ void scenario_session_state_strict_rejections() {
             std::fprintf(stderr, "[persistence_test] session state case unexpectedly decoded: %s\n",
                          case_value.body);
         }
+    }
+
+    // Oversized text (RULE-07): one byte over the 16 KiB budget fails, on
+    // both the journal and the dialog-thread surface.
+    const std::string oversized_text(16 * 1024 + 1, 'x');
+    const std::string hex_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const std::string journal_body = std::string{R"({"schema":1,"sessions":[{"id":")"} + hex_id +
+                                     R"(","journal":[{"kind":"user","task_id":"t","text":")" +
+                                     oversized_text + R"("}]}]})";
+    const auto journal_decoded = persistence::decode_session_state(journal_body);
+    MIRAGE_CHECK(!journal_decoded.ok);
+    if (!journal_decoded.ok) {
+        MIRAGE_CHECK(journal_decoded.error.find("16384") != std::string::npos);
+    }
+    const std::string turn_body = std::string{R"({"schema":1,"sessions":[{"id":")"} + hex_id +
+                                  R"(","chat_turns":[{"turn_id":"t","status":"ok","user_text":")" +
+                                  oversized_text + R"(","reply_text":"r"}]}]})";
+    const auto turn_decoded = persistence::decode_session_state(turn_body);
+    MIRAGE_CHECK(!turn_decoded.ok);
+    if (!turn_decoded.ok) {
+        MIRAGE_CHECK(turn_decoded.error.find("16384") != std::string::npos);
     }
 
     // NOTE (independent verification, M5-08 round 1): the 16 KiB text bound
