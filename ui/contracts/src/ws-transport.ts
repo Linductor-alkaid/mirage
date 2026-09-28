@@ -33,6 +33,7 @@ import type {
     ResponsePayload,
     ServiceIdentity,
     SessionHistoryEntry,
+    SessionState,
     SessionSummary,
     TaskProgress,
     TaskSummary,
@@ -192,6 +193,12 @@ export class WsBridgeTransport implements MirageTransport {
     async openSession(): Promise<{ session_id: string }> {
         const payload = await this.request({ op: 'session.open' }, 'session-opened');
         return (payload as { kind: 'session-opened'; value: { session_id: string } }).value;
+    }
+
+    async closeSession(sessionId: string): Promise<{ session_id: string; state: SessionState }> {
+        const payload = await this.request({ op: 'session.close', session_id: sessionId }, 'session-closed');
+        return (payload as { kind: 'session-closed'; value: { session_id: string; state: SessionState } })
+            .value;
     }
 
     async sessionHistory(input: SessionHistoryInput): Promise<{

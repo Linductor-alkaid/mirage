@@ -107,6 +107,11 @@ export type RequestBody =
     | { op: 'permission.list' }
     | { op: 'session.list' }
     | { op: 'session.open' }
+    /** Session management face (DEC-026 backlog item 2): closes the session
+     * and removes its registry entry — the pinned close cancels the
+     * session's non-terminal tasks. The primary session is refused with the
+     * stable `invalid_state` error (task.submit's default binding). */
+    | { op: 'session.close'; session_id: string }
     | { op: 'session.history'; session_id: string; limit?: number }
     | { op: 'workflow.list' }
     /** IR v1 JSON object (DEC-013 aligned); strict pinned decode, 256 KiB
@@ -343,6 +348,11 @@ export type ResponsePayload =
     | { kind: 'permission-list'; value: { pending: PendingPermission[] } }
     | { kind: 'session-list'; value: { sessions: SessionSummary[] } }
     | { kind: 'session-opened'; value: { session_id: string } }
+    /** session.close reply (DEC-026 backlog item 2): the closed session's id
+     * plus its post-close state (the SessionState vocabulary, "closed" when
+     * the projected view is readable). Mirrors the workflow.cancel reply
+     * shape and keeps the envelope distinguishable from session.open's. */
+    | { kind: 'session-closed'; value: { session_id: string; state: SessionState } }
     | {
           kind: 'session-history';
           value: { session_id: string; entries: SessionHistoryEntry[]; truncated: boolean };

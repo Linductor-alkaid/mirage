@@ -85,6 +85,7 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 | `permission.list` | 无（M5-03 落地） | `{"pending":[PendingPermission...]}`（§6.3，可为空数组） | `unavailable`（确认面未启用） |
 | `session.list` | 无（M5-04 落地） | `{"sessions":[SessionSummary...]}`（§6.4，含主会话，可为空数组） | — |
 | `session.open` | 无（M5-04 落地） | `{"session_id"}`（§6.4） | `unavailable`（会话容量饱和，§6.4）、`pinned_runtime`（透传） |
+| `session.close` | `session_id`（string，非空，M5-06 落地，DEC-026 挂账②） | `{"session_id","state"}`（§6.4，state 为关闭后会话状态名） | `invalid_state`（主会话不可关闭）、`not_found`（未知会话）、`pinned_runtime`（透传） |
 | `session.history` | `session_id`（string，非空），`limit`（可选正整数，M5-04 落地） | `{"session_id","entries":[...],"truncated"}`（§6.4） | `not_found`（未知会话） |
 | `workflow.list` | 无（M5-05 落地） | `{"workflows":[WorkflowSummary...]}`（§6.5，可为空数组） | — |
 | `workflow.save` | `definition`（object，IR v1 JSON，M5-05 落地） | `{"workflow_id","digest"}`（§6.5） | `unavailable`（注册表容量饱和，§6.5）、`pinned_runtime`（解码 / 追加拒绝，透传） |
@@ -222,6 +223,18 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 （状态投影、容量边界、投影承载与持久化挂账）见
 [DEC-021](../decisions/DEC-021-session-message-contract-face.md)。
 
+`session.close` 成功载荷（M5-06，DEC-026 挂账②）：`{"session_id","state"}`——
+`session_id` 为被关闭会话 id，`state` 为关闭后的会话状态名（§6.4 封闭状态词
+表；`closed` 为关闭命令自身的收敛后条件，服务端投影视图可读时以实时视图为
+准）。成员形状沿用 `workflow.cancel` 回执先例（id + 状态名），并使信封与
+`session.open` 回执在 wire 上可判别。语义：关闭由 pinned `close_session` 承
+载——该会话的非终态任务被 pinned 取消、会话收敛 Closed（幂等：已 Closed 的
+会话重放为 NoOp）；成功后服务侧注册表条目移除，`session.list` 不再呈现该会
+话，释放的容量可复用。主会话是 start() 打开的产品设备并锚定 `task.submit`
+的缺席默认绑定，关闭请求回 `invalid_state`
+（`"the primary session cannot be closed"`）；未知 id 回 `not_found`
+（`"unknown session id"`）。
+
 ### 6.5 工作流面载荷（workflow.* 载荷，M5-05，DEC-023）
 
 `workflow.list` 成功载荷：`{"workflows":[WorkflowSummary...]}`；`workflow.save` 成功
@@ -358,7 +371,7 @@ M1.5 事件集（封闭集合，M2+ 新事件以附加方式进入，不改既�
 | `host.status` | `status`（string，§6.1 五态） | Mira Host 状态变化即发布 |
 | `events.overflow` | `dropped`（integer，非负） | 连接级事件队列溢出时发布的合成标记事件 |
 | `permission.request` | `request_id`（string，非空）、`capability`（string，§6.3 词表）、`resource`（string）、`task_id`（string，非空）、`timeout_ms`（正整数） | `confirm` 规则命中且异步确认面启用时发布（DEC-020）：广播给全部订阅连接，等待 `timeout_ms` 预算内任一连接的 `permission.respond`；无应答即超时 fail closed。判定结果以 `task.updated` 终态与 `task.inspect` 步 trace 呈现，`permission.list` 是待确认快照事实源 |
-| `session.updated` | `session_id`（string，非空）、`state`（string，§6.4 状态集合） | 会话进入服务注册表（open）时发布（M5-04，DEC-021）；会话内状态不逐条广播，`session.list` 是快照事实源 |
+| `session.updated` | `session_id`（string，非空）、`state`（string，§6.4 状态集合） | 会话进入服务注册表（open）时发布（M5-04，DEC-021），会话被关闭并移出注册表时以关闭后状态名（典型 `closed`）发布（M5-06，DEC-026 挂账②）；会话内状态不逐条广播，`session.list` 是快照事实源 |
 | `session.message` | `session_id`（string，非空）、`task_id`（string，非空）、`kind`（string，§6.4 词表）、`text`（string，非空）、`sequence`（正整数） | 会话对话投影新增一条时发布（M5-04）：`user` 为任务目标入会话，`outcome` 为任务结算；`sequence` 为条目在会话事件序列中的序号；`session.history` 是含时间戳的完整投影事实源 |
 | `session.turn` | `session_id`（string，非空）、`task_id`（string，非空）、`step`（正整数）、`kind`（string，§6.2 步词表）、`status`（string，结算态词表 `ok` / `failed` / `cancelled` / `skipped`） | 一个有界会话工作单元结算时发布（M5-04）：M1 驱动形态为一个脚本步，模型循环落地后为一次循环迭代；轮次开始不发布（`task.updated` 覆盖进行中语义） |
 | `session.output` | `session_id`（string，非空）、`task_id`（string，非空）、`step`（正整数）、`chunk`（string，可为空）、`truncated`（boolean） | 步结构化结果的输出增量发布（M5-04）：`chunk` 受 `task.inspect` 结果同源字节预算，M1 驱动每步一份完整结果，流式生产者同形状多 chunk |
@@ -416,6 +429,12 @@ TypeScript 消费者 `ui/contracts/test/golden-vectors.test.ts` 读取**同一�
 
 ## 10. 变更记录
 
+- 2026-09-28（`M5-06` 第三增量）：会话管理面 `session.close`（DEC-026 挂账②
+  兑现，协议版本不递增）。§4 新增 `session.close`；§6.4 新增关闭语义（pinned
+  `close_session` 承载 + 注册表条目移除 + 主会话 `invalid_state` 守卫）；§7.2
+  `session.updated` 增补关闭发布点。golden vectors：requests +1、
+  request_failures +2、responses +1、response_failures +2，失败向量锁定新稳
+  定错误串（`meta.version` 6 → 7）。
 - 2026-09-28（`M5-06` 第二轮）：观察面与工作流定义读取面附加扩展（DEC-026，
   协议版本不递增）。§4 新增 `workflow.get` / `desktop.observe`；§6.1 新增
   `observation` 能力通告成员；§6.6（新）新增 `WorkflowDefinitionView` 载荷

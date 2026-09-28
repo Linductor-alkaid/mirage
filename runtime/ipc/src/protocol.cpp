@@ -21,6 +21,7 @@ constexpr const char *kOpPermissionRespond = "permission.respond";
 constexpr const char *kOpPermissionList = "permission.list";
 constexpr const char *kOpSessionList = "session.list";
 constexpr const char *kOpSessionOpen = "session.open";
+constexpr const char *kOpSessionClose = "session.close";
 constexpr const char *kOpSessionHistory = "session.history";
 constexpr const char *kOpWorkflowList = "workflow.list";
 constexpr const char *kOpWorkflowSave = "workflow.save";
@@ -484,6 +485,9 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 put(object, "sessions", mira::JsonValue{std::move(entries)});
             } else if constexpr (std::is_same_v<T, SessionOpened>) {
                 put(object, "session_id", value.session_id);
+            } else if constexpr (std::is_same_v<T, SessionClosed>) {
+                put(object, "session_id", value.session_id);
+                put(object, "state", value.state);
             } else if constexpr (std::is_same_v<T, SessionHistory>) {
                 put(object, "session_id", value.session_id);
                 mira::JsonValue::Array entries;
@@ -659,6 +663,9 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                 put(object, "op", kOpSessionList);
             } else if constexpr (std::is_same_v<T, OpenSessionRequest>) {
                 put(object, "op", kOpSessionOpen);
+            } else if constexpr (std::is_same_v<T, CloseSessionRequest>) {
+                put(object, "op", kOpSessionClose);
+                put(object, "session_id", value.session_id);
             } else if constexpr (std::is_same_v<T, SessionHistoryRequest>) {
                 put(object, "op", kOpSessionHistory);
                 put(object, "session_id", value.session_id);
@@ -829,6 +836,15 @@ RequestDecode decode_request(std::string_view payload) {
         result.body = ListSessionsRequest{};
     } else if (*op == kOpSessionOpen) {
         result.body = OpenSessionRequest{};
+    } else if (*op == kOpSessionClose) {
+        CloseSessionRequest close;
+        const auto session_id = string_member(object, "session_id");
+        if (!session_id || session_id->empty()) {
+            result.error = "session.close requires a non-empty 'session_id'";
+            return result;
+        }
+        close.session_id = *session_id;
+        result.body = std::move(close);
     } else if (*op == kOpSessionHistory) {
         SessionHistoryRequest history;
         const auto session_id = string_member(object, "session_id");
@@ -1294,7 +1310,21 @@ ResponseDecode decode_response(std::string_view payload) {
             result.error = "session.open response requires a non-empty 'session_id'";
             return result;
         }
-        response.payload = SessionOpened{std::move(*id_text)};
+        if (const auto *state = member(object, "state"); state != nullptr) {
+            // The closed reply adds "state" to the same envelope shape
+            // (mirrors the workflow.cancel / workflow.run discrimination).
+            auto state_text = string_member(object, "state");
+            if (!state_text ||
+                !in_stable_set(*state_text, kSessionStateNames,
+                               sizeof(kSessionStateNames) / sizeof(kSessionStateNames[0]))) {
+                result.error = "session.close response requires a 'state' string from the "
+                               "session state vocabulary";
+                return result;
+            }
+            response.payload = SessionClosed{std::move(*id_text), std::move(*state_text)};
+        } else {
+            response.payload = SessionOpened{std::move(*id_text)};
+        }
     } else if (const auto *sessions = member(object, "sessions"); sessions != nullptr) {
         if (!sessions->is_array()) {
             result.error = "session.list 'sessions' must be an array";

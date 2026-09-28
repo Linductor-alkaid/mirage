@@ -122,6 +122,19 @@ struct SessionHistoryRequest {
     std::optional<int> limit;
 };
 
+/// Closes one session and removes its product registry entry (DEC-026
+/// backlog item 2, M5-06): the pinned close cancels the session's
+/// non-terminal tasks and settles it Closed, and the service drops the
+/// registry entry so session.list no longer reports it (the freed capacity
+/// is reusable). The primary session is product equipment opened at start
+/// and anchors task.submit's default binding — closing it is refused with
+/// the stable `invalid_state` error. Unknown ids are a stable not_found;
+/// the pinned close is idempotent (an already Closed session replays as a
+/// NoOp).
+struct CloseSessionRequest {
+    std::string session_id;
+};
+
 /// Lists the service's workflow catalog (DEC-023): product identity, head
 /// version digest, validation and runnability for every workflow the service
 /// saved or published. The pinned library stays the execution-side authority;
@@ -221,9 +234,9 @@ using Request = std::variant<
     HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest, CancelTaskRequest,
     ShutdownRequest, SubscribeEventsRequest, UnsubscribeEventsRequest, RespondPermissionRequest,
     ListPermissionsRequest, ListSessionsRequest, OpenSessionRequest, SessionHistoryRequest,
-    WorkflowListRequest, WorkflowSaveRequest, WorkflowPublishRequest, WorkflowDeleteRequest,
-    WorkflowAtomCatalogRequest, WorkflowRunsRequest, WorkflowRunRequest, WorkflowCancelRunRequest,
-    WorkflowGetRequest, DesktopObserveRequest>;
+    CloseSessionRequest, WorkflowListRequest, WorkflowSaveRequest, WorkflowPublishRequest,
+    WorkflowDeleteRequest, WorkflowAtomCatalogRequest, WorkflowRunsRequest, WorkflowRunRequest,
+    WorkflowCancelRunRequest, WorkflowGetRequest, DesktopObserveRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -365,6 +378,20 @@ struct SessionList {
 /// appears in session.list and as a task.submit `session_id` binding.
 struct SessionOpened {
     std::string session_id;
+};
+
+/// Acknowledgement of session.close (DEC-026 backlog item 2): the closed
+/// session's id plus its post-close state (the pinned session state
+/// vocabulary of SessionSummary, "closed" when the projected view is
+/// readable — the close command's own settled post-condition — and the
+/// conservative live view name otherwise). The registry entry is already
+/// removed: session.list no longer reports the session, and the pinned
+/// close settled it Closed after cancelling its non-terminal tasks.
+/// `state` mirrors the workflow.cancel reply shape and keeps the envelope
+/// distinguishable from session.open's on the wire.
+struct SessionClosed {
+    std::string session_id;
+    std::string state;
 };
 
 /// One conversation entry as reported by session.history (DEC-021).
@@ -569,9 +596,9 @@ struct ObservationView {
 using ResponsePayload =
     std::variant<ServiceIdentity, TaskSubmitted, TaskList, InspectTask, TaskCancelled,
                  ShutdownAccepted, PermissionResponded, PermissionPendingList, SessionList,
-                 SessionOpened, SessionHistory, WorkflowList, WorkflowSaved, WorkflowPublished,
-                 WorkflowDeleted, WorkflowAtomCatalog, WorkflowRunList, WorkflowRunStarted,
-                 WorkflowRunCancelled, WorkflowDefinitionView, ObservationView>;
+                 SessionOpened, SessionClosed, SessionHistory, WorkflowList, WorkflowSaved,
+                 WorkflowPublished, WorkflowDeleted, WorkflowAtomCatalog, WorkflowRunList,
+                 WorkflowRunStarted, WorkflowRunCancelled, WorkflowDefinitionView, ObservationView>;
 
 /// Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc
 /// domain ("protocol_error", "unsupported", "invalid_argument", "not_found",

@@ -102,7 +102,12 @@ UI 侧消费 `M5-04` 的 `session.*` 契约面（wire 零变更），会话列�
 已完成：`desktop.observe` 按需观察请求面（语义快照投影 / 视觉状态 /
 `visual_snapshot_ref` 进 UI 观察面，M3 非目标兑现）与 `workflow.get` 定义读
 取面（编辑器跨会话编辑）随 golden vectors v5 → v6 上线，步级运行事件与会话
-管理面评估后挂账。
+管理面评估后挂账（PR #58 CI 全绿取证已补录里程碑计划）；第三增量会话管理面
+`session.close`（DEC-026 挂账②兑现）已完成：pinned `close_session` 承载 +
+服务注册表条目移除 + 主会话 `invalid_state` 守卫 + 会话页删除入口，
+`session.updated` 增补关闭发布点，golden vectors v6 → v7；剩余增量对话模式
+真实化（DEC-025 挂账③，DEC-008 迁移路径第二步）与 M5-08 设置-模型类目联动
+评估。
 
 ## 交付边界
 

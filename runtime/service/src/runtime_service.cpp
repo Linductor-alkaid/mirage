@@ -338,6 +338,10 @@ struct RuntimeService::Impl {
             handle_session_open(connection_id, correlation_id);
             return;
         }
+        if (auto *request = std::get_if<ipc::CloseSessionRequest>(&decoded.body)) {
+            handle_session_close(connection_id, correlation_id, std::move(request->session_id));
+            return;
+        }
         if (auto *request = std::get_if<ipc::SessionHistoryRequest>(&decoded.body)) {
             handle_session_history(connection_id, correlation_id, std::move(*request));
             return;
@@ -783,6 +787,78 @@ struct RuntimeService::Impl {
         event.state = state;
         core->events.publish_session_update(std::move(event));
         respond(connection_id, correlation_id, ipc::SessionOpened{opened.session.id});
+    }
+
+    /// Serial thread: close one session and drop its registry entry
+    /// (DEC-026 backlog item 2). The pinned close cancels the session's
+    /// non-terminal tasks and settles it Closed; the local drivers of those
+    /// tasks get the same cooperative interruption task.cancel uses so
+    /// in-flight provider actions end promptly. The primary session is
+    /// product equipment (opened at start, task.submit's default binding)
+    /// and is refused before anything is touched; unknown ids are the same
+    /// stable not_found as the other session faces. Removal is the fact;
+    /// session.updated carries the closed state as the notification.
+    void handle_session_close(std::uint64_t connection_id, std::uint64_t correlation_id,
+                              std::string session_id) {
+        if (core->host.primary_session().id == session_id) {
+            fail(connection_id, correlation_id, "invalid_state",
+                 "the primary session cannot be closed");
+            return;
+        }
+        {
+            std::lock_guard lock(core->sessions.mutex);
+            if (!core->sessions.contains(session_id)) {
+                fail(connection_id, correlation_id, "not_found", "unknown session id");
+                return;
+            }
+        }
+        // Cooperative interruption for the session's own drivers: the same
+        // two-step (cancel token + executor task cancel) task.cancel uses,
+        // so an in-flight desktop action ends at its next observation point
+        // instead of outrunning the pinned cancel.
+        {
+            std::vector<std::string> driver_ids;
+            {
+                std::lock_guard lock(core->registry.mutex);
+                for (auto &[task_id, record] : core->registry.tasks) {
+                    if (record.session_id == session_id && !record.driver_done) {
+                        record.cancel.request_cancel();
+                        driver_ids.push_back(task_id);
+                    }
+                }
+            }
+            {
+                std::lock_guard lock(core->drivers_mutex);
+                for (const std::string &task_id : driver_ids) {
+                    if (auto driver = core->drivers.find(task_id);
+                        driver != core->drivers.end() && driver->second.handle.valid()) {
+                        core->executor.request_task_cancel(driver->second.handle);
+                    }
+                }
+            }
+        }
+        const HostOutcome closed = core->host.close_session(SessionIdentity{session_id});
+        if (!closed.ok) {
+            fail(connection_id, correlation_id, closed.error.code, closed.error.message);
+            return;
+        }
+        {
+            std::lock_guard lock(core->sessions.mutex);
+            core->sessions.created_at_ms.erase(session_id);
+        }
+        // Post-close state from the pinned view; the close command's own
+        // settled post-condition is Closed, so a failed view read still
+        // reports the command's outcome rather than an invented state.
+        std::string state = "closed";
+        const SessionViewResult view = core->host.session_view(SessionIdentity{session_id});
+        if (view.ok) {
+            state = view.view.state;
+        }
+        ipc::SessionUpdatedEvent event;
+        event.session_id = session_id;
+        event.state = state;
+        core->events.publish_session_update(std::move(event));
+        respond(connection_id, correlation_id, ipc::SessionClosed{std::move(session_id), state});
     }
 
     /// Serial thread: one session's conversation history (DEC-021) — the

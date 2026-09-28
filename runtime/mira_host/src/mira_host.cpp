@@ -343,6 +343,36 @@ SessionOpenResult MiraHost::open_session() {
     return SessionOpenResult{true, SessionIdentity{session.value().id.to_string()}, {}};
 }
 
+HostOutcome MiraHost::close_session(const SessionIdentity &session) {
+    const HostStatus current = impl_->status.load();
+    if (current != HostStatus::Running) {
+        return failed(
+            host_error("invalid_state", std::string("close_session() requires a Running host, "
+                                                    "got ") +
+                                            host_status_name(current)));
+    }
+    const auto session_id = mira::SessionId::parse(session.id);
+    if (!session_id || session_id->is_nil()) {
+        return failed(host_error("invalid_argument", "malformed session identity"));
+    }
+
+    const auto closed = impl_->runtime.close_session(session_id.value());
+    if (!closed) {
+        return failed(pinned_error(closed.error()));
+    }
+    const auto outcome = closed.value().outcome(impl_->config.command_wait);
+    if (!outcome) {
+        return failed(pinned_error(outcome.error()));
+    }
+    if (outcome.value().status == mira::SettlementStatus::Failed) {
+        return failed(outcome.value().error ? pinned_error(*outcome.value().error)
+                                            : host_error("pinned_runtime", "session close failed"));
+    }
+    // Applied and NoOp both mean the session is Closed (the pinned close is
+    // idempotent over an already Closed session).
+    return HostOutcome{true, {}};
+}
+
 SessionViewResult MiraHost::session_view(const SessionIdentity &session) const {
     const auto session_id = mira::SessionId::parse(session.id);
     if (!session_id || session_id->is_nil()) {

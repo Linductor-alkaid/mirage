@@ -1069,3 +1069,41 @@ describe('DEC-026 faces over the WebSocket mapping', () => {
         expect(view.visual_regions).toBeUndefined();
     });
 });
+
+// ---- session.close management face (DEC-026 backlog item 2) -------------------
+
+describe('session.close over the WebSocket mapping', () => {
+    it('closeSession sends session.close and routes the closed reply with state', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+        harness.socket.sent.length = 0;
+
+        const pending = harness.transport.closeSession('5a4b3c2d1e0f4938576a5b4c3d2e1f0a');
+        await flush();
+        expect(sentBody(harness.socket.sent[0]!)).toEqual({
+            op: 'session.close',
+            session_id: '5a4b3c2d1e0f4938576a5b4c3d2e1f0a',
+        });
+
+        respond(harness.socket, 2, {
+            kind: 'session-closed',
+            value: { session_id: '5a4b3c2d1e0f4938576a5b4c3d2e1f0a', state: 'closed' },
+        });
+        const closed = await pending;
+        expect(closed).toEqual({ session_id: '5a4b3c2d1e0f4938576a5b4c3d2e1f0a', state: 'closed' });
+    });
+
+    it('surfaces the stable invalid_state for the primary session guard', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+        harness.socket.sent.length = 0;
+
+        const pending = harness.transport.closeSession('s-primary');
+        await flush();
+        respondError(harness.socket, 2, 'invalid_state', 'the primary session cannot be closed');
+        await expect(pending).rejects.toMatchObject({
+            code: 'invalid_state',
+            message: 'the primary session cannot be closed',
+        });
+    });
+});

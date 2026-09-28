@@ -203,3 +203,60 @@ describe('sessions capability disabled', () => {
         expect(transport.sessionsSupported).toBe(false);
     });
 });
+
+describe('session.close management face (DEC-026 backlog item 2)', () => {
+    it('closes an opened session, removes it from the list and publishes the closed notification', async () => {
+        const { transport } = makeService({ hostStartDelayMs: 0 });
+        const collector = createEventCollector();
+        await transport.subscribe(collector.listener);
+
+        const opened = await transport.openSession();
+        await delay(5);
+        expect((await transport.listSessions()).some((s) => s.id === opened.session_id)).toBe(true);
+
+        const closed = await transport.closeSession(opened.session_id);
+        expect(closed).toEqual({ session_id: opened.session_id, state: 'closed' });
+        expect((await transport.listSessions()).some((s) => s.id === opened.session_id)).toBe(false);
+        await delay(5);
+        // The open notification (state autonomous) plus exactly one closed
+        // notification are expected for this session.
+        const closedEvents = collector.events.filter(
+            (event) =>
+                event.event === 'session.updated' &&
+                event.session_id === opened.session_id &&
+                event.state === 'closed',
+        );
+        expect(closedEvents).toHaveLength(1);
+    });
+
+    it('refuses the primary session with the stable invalid_state (task.submit default binding)', async () => {
+        const { transport } = makeService({ hostStartDelayMs: 0 });
+        const sessions = await transport.listSessions();
+        expect(sessions).toHaveLength(1);
+        await expect(transport.closeSession(sessions[0]!.id)).rejects.toMatchObject({
+            code: 'invalid_state',
+            message: 'the primary session cannot be closed',
+        });
+        // The refusal left the registry untouched.
+        expect(await transport.listSessions()).toHaveLength(1);
+    });
+
+    it('answers not_found for unknown ids and keeps capacity freed after close', async () => {
+        const { transport } = makeService({ hostStartDelayMs: 0 });
+        await expect(transport.closeSession('ffffffffffffffffffffffffffffffff')).rejects.toMatchObject({
+            code: 'not_found',
+            message: 'unknown session id',
+        });
+        // Fill the registry, close one, and confirm the freed slot admits a
+        // new session (the mock registry capacity is 16, primary included).
+        const { transport: capacityTransport } = makeService({ hostStartDelayMs: 0 });
+        const opened: string[] = [];
+        for (let i = 0; i < 15; i += 1) {
+            opened.push((await capacityTransport.openSession()).session_id);
+        }
+        await expect(capacityTransport.openSession()).rejects.toMatchObject({ code: 'unavailable' });
+        await capacityTransport.closeSession(opened[0]!);
+        const reopened = await capacityTransport.openSession();
+        expect(reopened.session_id).not.toBe(opened[0]);
+    });
+});
