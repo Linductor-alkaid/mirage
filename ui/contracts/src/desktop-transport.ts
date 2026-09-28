@@ -11,6 +11,7 @@
 
 import { decodeEvent, decodeResponse, encodeRequest } from './codec.js';
 import type {
+    DesktopObserveInput,
     EventListener,
     MirageTransport,
     SessionHistoryInput,
@@ -22,6 +23,7 @@ import { IpcRequestError, TransportClosedError } from './transport.js';
 import type {
     ExposedTool,
     InspectTask,
+    ObservationView,
     RequestBody,
     ResponsePayload,
     ServiceIdentity,
@@ -29,6 +31,7 @@ import type {
     SessionSummary,
     TaskProgress,
     TaskSummary,
+    WorkflowDefinitionView,
     WorkflowRunState,
     WorkflowRunSummary,
     WorkflowSummary,
@@ -126,6 +129,10 @@ export class DesktopBridgeTransport implements MirageTransport {
 
     get sessionsSupported(): boolean {
         return this.identity?.sessions === true;
+    }
+
+    get observationSupported(): boolean {
+        return this.identity?.observation === true;
     }
 
     onConnectionLost(listener: () => void): void {
@@ -259,6 +266,22 @@ export class DesktopBridgeTransport implements MirageTransport {
         const payload = await this.request({ op: 'workflow.cancel', run_id: runId });
         return (payload as { kind: 'workflow-run-cancelled'; value: { run_id: string; state: WorkflowRunState } })
             .value;
+    }
+
+    async getWorkflow(workflowId: string): Promise<WorkflowDefinitionView> {
+        const payload = await this.request({ op: 'workflow.get', workflow_id: workflowId });
+        return (payload as { kind: 'workflow-get'; value: WorkflowDefinitionView }).value;
+    }
+
+    // -- observation face (DEC-026) --------------------------------------------
+
+    async desktopObserve(input: DesktopObserveInput = {}): Promise<ObservationView> {
+        const payload = await this.request({
+            op: 'desktop.observe',
+            ...(input.semantic !== undefined ? { semantic: input.semantic } : {}),
+            ...(input.visual !== undefined ? { visual: input.visual } : {}),
+        });
+        return (payload as { kind: 'observation-view'; value: ObservationView }).value;
     }
 
     async subscribe(listener: EventListener): Promise<void> {

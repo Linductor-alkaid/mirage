@@ -1,11 +1,13 @@
 /// Workflow 编辑器的后端接口缝与 IPC 适配器（RPA 工程界面的事实层）。
 ///
 /// 设计规范 §3.5：编辑器全部数据经 `WorkflowBackend` 接口，UI 不感知传输
-/// 差异。IPC 面映射（DEC-023，协议 v1 golden v5）：
-///   listDefs / saveDraft / publish  → `workflow.list` / `workflow.save` /
-///                                      `workflow.publish`（IR v1 JSON，
-///                                      映射见 `workflow-ir.ts`；发布为
-///                                      DryRun 门禁 + 内容寻址幂等）
+/// 差异。IPC 面映射（DEC-023 / DEC-026，协议 v1 golden v6）：
+///   listDefs / getDefinition         → `workflow.list` / `workflow.get`
+///                                      （DEC-026 定义读取面：跨会话回读
+///                                      head 内容，重建可编辑副本）
+///   saveDraft / publish              → `workflow.save` / `workflow.publish`
+///                                      （IR v1 JSON，映射见 `workflow-ir.ts`；
+///                                      发布为 DryRun 门禁 + 内容寻址幂等）
 ///   listRuns / run / cancelRun      → `workflow.runs` / `workflow.run` /
 ///                                      `workflow.cancel`（W-04：草稿拒跑）
 ///   atomCatalog                     → `workflow.atom.catalog`（pinned
@@ -13,15 +15,14 @@
 ///                                      DEC-024：目录如实反映绑定环境）
 ///   remove                          → `workflow.delete`（产品目录条目）
 ///
-/// wire 无定义读取面：`workflow.list` 只返回摘要。定义内容副本保存在
-/// store 会话内（`WorkflowDef.contentKnown`），仅会话内创建/保存过的定义
-/// 可编辑，避免以空内容遮蔽服务端 head（W-03 内容寻址）。
+/// 未经 getDefinition 回读的定义仍以摘要呈现（contentKnown = false），
+/// 防止以空内容遮蔽服务端 head（W-03 内容寻址）。
 
 import type { ExposedTool, MirageTransport, WorkflowRunState, WorkflowSummary } from '@mirage/contracts';
 
 import { RUN_STATUS_OF_STATE } from './model.js';
 import type { WorkflowDef, WorkflowRun, WorkflowStepKind } from './model.js';
-import { newHexId, workflowDefToIr } from './workflow-ir.js';
+import { irToWorkflowDef, newHexId, workflowDefToIr } from './workflow-ir.js';
 
 // ---------------------------------------------------------------------------
 // 原子动作目录（wire 目录投影 + 编辑器控制构造）
@@ -156,8 +157,12 @@ export interface WorkflowDraftPayload {
 }
 
 export interface WorkflowBackend {
-    /** 已保存工作流定义（服务注册表投影；未持有内容副本者不可编辑）。 */
+    /** 已保存工作流定义（服务注册表投影；未持有内容副本者可经 getDefinition
+     * 回读——DEC-026 定义读取面）。 */
     listDefs(): Promise<WorkflowDef[]>;
+    /** 定义读取面（DEC-026，DEC-023 挂账①兑现）：回读 head 定义内容并
+     * 重建可编辑副本（unknown id 以 not_found 拒绝）。 */
+    getDefinition(id: string): Promise<WorkflowDef>;
     /** 保存草稿（追加 NotValidated 版本；head 回到不可运行——W-04）。 */
     saveDraft(def: WorkflowDraftPayload): Promise<WorkflowDef>;
     /** 发布当前草稿内容（DryRun 门禁；内容寻址幂等——W-03）。 */
@@ -208,6 +213,11 @@ export class IpcWorkflowBackend implements WorkflowBackend {
     async listDefs(): Promise<WorkflowDef[]> {
         const summaries = await this.transport.listWorkflows();
         return summaries.map(defFromSummary);
+    }
+
+    async getDefinition(id: string): Promise<WorkflowDef> {
+        const view = await this.transport.getWorkflow(id);
+        return irToWorkflowDef(view);
     }
 
     async saveDraft(def: WorkflowDraftPayload): Promise<WorkflowDef> {

@@ -612,7 +612,7 @@ describe('RPA workflow engineering (contract-backed)', () => {
         for (const def of state.workflows) {
             expect(typeof def.updatedAt).toBe('number');
             expect(def.runnable).toBe(def.published); // W-04 投影
-            // 列表条目只有摘要：无内容副本者不可编辑（wire 无定义读取面）
+            // 列表条目只有摘要：内容副本须经定义读取面按需回读（DEC-026）
             expect(def.contentKnown).toBe(false);
         }
         // wire 目录 2 原子（M1 参考绑定）+ 1 编辑器控制构造
@@ -745,5 +745,96 @@ describe('RPA workflow engineering (contract-backed)', () => {
             expect(store.get().toasts.at(-1)?.text).toContain('不可编辑');
         });
         expect(defOf(store, foreign.id)?.steps).toEqual(before);
+    });
+});
+
+// ---- DEC-026 faces：定义读取面（编辑器跨会话编辑）+ 桌面状态观察面 ----------
+
+describe('DEC-026 faces (definition read face + desktop observation)', () => {
+    const defOf = (store: HarnessStore, id: string) => store.get().workflows.find((w) => w.id === id);
+
+    function makeFreshWorkflowStore(stepDurationMs = 10): { store: HarnessStore; transport: MockTransport } {
+        const created = createMockTransport({ hostStartDelayMs: 0, stepDurationMs });
+        const store = new HarnessStore(created.transport);
+        currentStore = store;
+        return { store, transport: created.transport };
+    }
+
+    async function startReady(store: HarnessStore): Promise<void> {
+        store.start();
+        await vi.waitFor(() => {
+            expect(store.get().connection).toBe('ready');
+            expect(store.get().workflows.length).toBeGreaterThan(0);
+        });
+    }
+
+    it('openWorkflowEditor hydrates a summary-only def into an editable copy (workflow.get)', async () => {
+        const { store } = makeFreshWorkflowStore();
+        await startReady(store);
+        const foreign = store.get().workflows.find((w) => !w.contentKnown)!;
+        expect(foreign.description).toBe('');
+
+        store.openWorkflowEditor(foreign.id);
+        expect(window.location.hash).toBe(`#/workflows/${foreign.id}`);
+        await vi.waitFor(() => {
+            const hydrated = defOf(store, foreign.id);
+            expect(hydrated?.contentKnown).toBe(true);
+            // 摘要投影字段（published / runnable）保持以 workflow.list 为准。
+            expect(hydrated?.published).toBe(foreign.published);
+            expect(hydrated?.runnable).toBe(foreign.runnable);
+        });
+    });
+
+    it('openWorkflowEditor keeps the def read-only and toasts when the read face rejects', async () => {
+        const { store, transport } = makeFreshWorkflowStore();
+        await startReady(store);
+        const foreign = store.get().workflows.find((w) => !w.contentKnown)!;
+        vi.spyOn(transport, 'getWorkflow').mockRejectedValue(
+            new IpcRequestError('not_found', 'unknown workflow id'),
+        );
+
+        store.openWorkflowEditor(foreign.id);
+        await vi.waitFor(() => {
+            expect(store.get().toasts.at(-1)?.text).toContain('定义读取失败');
+        });
+        expect(defOf(store, foreign.id)?.contentKnown).toBe(false);
+    });
+
+    it('refreshObservation captures the desktop snapshot (semantic by default, visual on request)', async () => {
+        const { store } = makeFreshWorkflowStore();
+        await startReady(store);
+        expect(store.get().observationSupported).toBe(true);
+        expect(store.get().observation.status).toBe('idle');
+
+        store.refreshObservation(false);
+        await vi.waitFor(() => {
+            expect(store.get().observation.status).toBe('ready');
+        });
+        const view = store.get().observation.view;
+        expect(view?.semantic).toBeDefined();
+        expect(view?.visual_snapshot_ref).toBeUndefined();
+        expect(store.get().observation.visualRequested).toBe(false);
+
+        store.refreshObservation(true);
+        await vi.waitFor(() => {
+            expect(store.get().observation.view?.visual_snapshot_ref).toBe('@vs1');
+        });
+        expect(store.get().observation.visualRequested).toBe(true);
+    });
+
+    it('refreshObservation surfaces the stable error when the face refuses (fail closed)', async () => {
+        // hostStartDelayMs 拉长：连接就绪时 host 仍在 starting，桌面环境未
+        // 绑定 → 观察 face 以 unavailable 拒绝（fail closed 如实呈现）。
+        const created = createMockTransport({ hostStartDelayMs: 5_000, stepDurationMs: 0 });
+        const store = new HarnessStore(created.transport);
+        currentStore = store;
+        store.start();
+        await vi.waitFor(() => expect(store.get().connection).toBe('ready'));
+
+        store.refreshObservation(false);
+        await vi.waitFor(() => {
+            expect(store.get().observation.status).toBe('error');
+        });
+        expect(store.get().observation.error).toContain('unavailable');
     });
 });

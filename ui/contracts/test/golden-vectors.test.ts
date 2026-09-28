@@ -19,6 +19,7 @@ import type {
     HostStatus,
     IpcError,
     InspectTask,
+    ObservationView,
     PendingPermission,
     RequestBody,
     ResponseEnvelop,
@@ -60,7 +61,7 @@ interface GoldenInspectValue {
 }
 
 type GoldenPayload =
-    | { kind: 'identity'; value: { service: string; mirage_version: string; mira_core_version: string; host_status: HostStatus; protocol: number; events?: boolean; permissions?: boolean; sessions?: boolean; workflows?: boolean } }
+    | { kind: 'identity'; value: { service: string; mirage_version: string; mira_core_version: string; host_status: HostStatus; protocol: number; events?: boolean; permissions?: boolean; sessions?: boolean; workflows?: boolean; observation?: boolean } }
     | { kind: 'submitted'; value: { task_id: string; session_id?: string } }
     | { kind: 'list'; value: { tasks: TaskSummary[] } }
     | { kind: 'inspect'; value: GoldenInspectValue }
@@ -84,7 +85,12 @@ type GoldenPayload =
     | { kind: 'workflow-atom-catalog'; value: { tools: Record<string, unknown>[] } }
     | { kind: 'workflow-run-list'; value: { runs: Record<string, unknown>[] } }
     | { kind: 'workflow-run-started'; value: { run_id: string } }
-    | { kind: 'workflow-run-cancelled'; value: { run_id: string; state: string } };
+    | { kind: 'workflow-run-cancelled'; value: { run_id: string; state: string } }
+    | {
+          kind: 'workflow-get';
+          value: { workflow_id: string; digest: string; definition: Record<string, unknown> };
+      }
+    | { kind: 'observation-view'; value: Record<string, unknown> };
 
 type GoldenEnvelop =
     | { id: number; ok: true; payload: GoldenPayload }
@@ -274,6 +280,21 @@ function expectedEnvelop(vector: GoldenResponseVector): ResponseEnvelop {
                         run_id: response.payload.value.run_id,
                         state: response.payload.value.state as WorkflowRunState,
                     },
+                },
+            };
+        case 'workflow-get':
+            return {
+                ok: true,
+                id: response.id,
+                payload: { kind: 'workflow-get', value: { ...response.payload.value } },
+            };
+        case 'observation-view':
+            return {
+                ok: true,
+                id: response.id,
+                payload: {
+                    kind: 'observation-view',
+                    value: response.payload.value as unknown as ObservationView,
                 },
             };
     }

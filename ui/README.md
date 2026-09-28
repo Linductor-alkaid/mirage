@@ -23,8 +23,10 @@
   组件与样式只消费语义 token，私定颜色以测试清零（style-scan）。
 - `app/src/state/` — `store.ts`（HarnessStore：路由、会话（DEC-025 起接
   `session.*` 契约路径，标题为展示层派生）、契约任务快照、观察流缓冲、
-  事件面，React `useSyncExternalStore` 绑定）+ `workflow-backend.ts`
-  （DEC-023 IPC 适配器）+ `workflow-ir.ts`（编辑器模型 → IR v1 换算点）。
+  桌面状态观察（DEC-026 `desktop.observe` 按需快照）、事件面，React
+  `useSyncExternalStore` 绑定）+ `workflow-backend.ts`
+  （DEC-023 IPC 适配器；DEC-026 起含 `workflow.get` 定义读取）+
+  `workflow-ir.ts`（编辑器模型 ↔ IR v1 双向换算点）。
   模拟域（`harness-mock.ts`）自 M5-06 退役：会话页不再有演示叙事。
 - `app/src/shell/` — 统一壳：壁挂屏 WallDisplay（状态动词 + 蓝线任务剖面 + 灯阵）、
   ActivityBar、StatusBar（cue 栏 + 紧急停止）、命令面板（Ctrl+K）、批准中心
@@ -32,10 +34,11 @@
 - `app/src/views/` — 会话页（签派栏 SessionsSidebar：`session.list` 快照 + 派生
   标题分组；线程流 ThreadView：user/outcome 接会话面 + 步骤卡接任务快照；
   Composer 执行模式 + 对话模式降级呈现（模型循环接入前禁用，DEC-025 决策 3）；
-  观察台 Observer：运行时间线（任务快照）+ 观察流（session.turn/output/message
+  观察台 Observer：桌面状态面板（DEC-026 `desktop.observe` 按需快照，视觉组件
+  显式请求）+ 运行时间线（任务快照）+ 观察流（session.turn/output/message
   事件尾随，trigger-lock））、工作流页（与
   harness 同壳：左栏工作流列表 + RPA 工程式编辑器——右栏原子动作库可拖入/
-  属性/参数三 Tab，接口缝 `state/workflow-backend.ts`（M5-05 起为 DEC-023 IPC 适配器，IR 映射见 `state/workflow-ir.ts`）、设置八类、资源占位。
+  属性/参数三 Tab，接口缝 `state/workflow-backend.ts`（M5-05 起为 DEC-023 IPC 适配器；M5-06 第二轮起经 `workflow.get` 跨会话回读定义，IR 双向映射见 `state/workflow-ir.ts`）、设置八类、资源占位。
   RPA 范式调研归档：`docs/research/rpa-editor-design-reference.md`。
 
 ### M1.5-04 视图迁移映射（功能等价）
@@ -126,7 +129,12 @@ npm run dev -w @mirage/app
   （exit code 1），用于演示错误视图。
 - 会话页模拟域已退役（M5-06，DEC-025）：会话 / 消息 / 工作流全部为契约路径；
   `approve:` 演示审批与快照卡随之移除，批准中心属 M5-07 真实批准面；会话管理
-  面（重命名 / 删除 / 导出 / fork）尚无 IPC，UI 不呈现（DEC-025 挂账②）。
+  面评估结论见 DEC-026 决策 5（`session.close` wire 面挂账、重命名 = 产品别名
+  M5-08、导出 = 客户端投影、fork 不立项），UI 在 wire 面落地前不呈现。
+- 观察面（M5-06 第二轮，DEC-026）：mock `desktop.observe` 返回确定性模拟桌面
+  数据（wire 形状与真实服务一致；视觉对按请求返回）；无事件形态——桌面状态为
+  按需快照，观察流仍为会话事件尾随。
 - `eventsCapability: false` / `workflowsCapability: false` /
-  `sessionsCapability: false` 选项（对应 `?events=off` / `?workflows=off` /
-  `?sessions=off`）可模拟缺能力位的服务端，用于验证前端降级路径。
+  `sessionsCapability: false` / `observationCapability: false` 选项（对应
+  `?events=off` / `?workflows=off` / `?sessions=off` 等）可模拟缺能力位的服务
+  端，用于验证前端降级路径。

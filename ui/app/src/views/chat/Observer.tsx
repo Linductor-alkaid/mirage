@@ -1,4 +1,7 @@
-/// 观察台（RunDrawer）：当前运行时间线 + 观察流。
+/// 观察台（RunDrawer）：桌面状态 + 当前运行时间线 + 观察流。
+/// - 桌面状态：DEC-026 观察面（desktop.observe 按需快照）——语义快照投影、
+///   视觉状态与 visual_snapshot_ref 进入 UI 观察面（M3 非目标兑现）。请求
+///   即必须（服务端 fail closed）：组件不可用即呈现稳定错误，快照是唯一事实。
 /// - 运行时间线：任务快照投影（task.inspect，快照事实源）。
 /// - 观察流：真实事件尾随（session.turn / session.output / session.message，
 ///   有界环形缓冲）——通知面语义，丢帧不回补（DEC-025 决策 5）。
@@ -6,7 +9,7 @@
 ///   「已锁定 · 回到实时」cue；点击 cue 或回到底部解除锁定。
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, Pin, PinOff } from 'lucide-react';
+import { Activity, MonitorSmartphone, Pin, PinOff, RefreshCw } from 'lucide-react';
 
 import { useHarness } from '../../hooks.js';
 import { duration, kindLabel } from '../../lib/labels.js';
@@ -148,6 +151,98 @@ function ObservationStream({ live, sessionId }: { live: boolean; sessionId: stri
     );
 }
 
+/** 桌面状态面板（DEC-026 观察面）：按需快照的语义 / 视觉投影。视觉组件
+ * 显式请求（DEC-016：不请求不点亮；请求而不可用即稳定错误，不静默）。 */
+function DesktopState(): React.ReactElement {
+    const { state, refreshObservation } = useHarness();
+    const { observation, observationSupported } = state;
+    const [withVisual, setWithVisual] = useState(false);
+    const view = observation.view;
+    return (
+        <div className="obs-section">
+            <span className="sec-title caps">
+                <MonitorSmartphone size={12} /> 桌面状态
+                <span className="muted" style={{ textTransform: 'none', letterSpacing: 0 }}>
+                    · desktop.observe 快照
+                </span>
+                <span className="spacer" style={{ flex: 1 }} />
+                <label className="muted" style={{ display: 'flex', gap: 4, alignItems: 'center', textTransform: 'none', letterSpacing: 0 }}>
+                    <input
+                        type="checkbox"
+                        checked={withVisual}
+                        onChange={(e) => setWithVisual(e.target.checked)}
+                        aria-label="包含视觉状态"
+                    />
+                    视觉
+                </label>
+                <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ height: 20 }}
+                    disabled={observation.status === 'loading'}
+                    onClick={() => refreshObservation(withVisual)}
+                    aria-label="刷新桌面状态"
+                    title={observationSupported ? '观察当前桌面（按需快照）' : '服务未提供观察面'}
+                >
+                    <RefreshCw size={12} />
+                </button>
+            </span>
+            {!observationSupported && (
+                <span className="muted" style={{ fontSize: 12 }}>
+                    服务未提供观察面（hello 无 observation 位），桌面状态不可用。
+                </span>
+            )}
+            {observationSupported && observation.status === 'idle' && (
+                <span className="muted" style={{ fontSize: 12 }}>
+                    点击刷新观察当前桌面（语义快照按需捕获；视觉状态显式请求，DEC-016）。
+                </span>
+            )}
+            {observationSupported && observation.status === 'loading' && (
+                <span className="muted" style={{ fontSize: 12 }}>观察中…</span>
+            )}
+            {observationSupported && observation.status === 'error' && (
+                <div className="system-line is-warn" style={{ alignSelf: 'stretch' }} data-testid="observation-error">
+                    观察失败：{observation.error}
+                </div>
+            )}
+            {observationSupported && view !== undefined && (
+                <div className="timeline" data-testid="desktop-state">
+                    <div className="tl-step is-ok">
+                        <span className="tl-dot" aria-hidden />
+                        <div className="tl-label">
+                            <div className="tl-title">
+                                <span>{view.active_application.length > 0 ? view.active_application : '（未知应用）'}</span>
+                                <span className="tl-dur">{view.environment_state}</span>
+                            </div>
+                            <div className="tl-log">
+                                {view.active_window.length > 0 ? view.active_window : '（无前台窗口）'}
+                                {view.window_focused ? ' · 聚焦' : ''} · 指针 ({view.pointer_x}, {view.pointer_y})
+                            </div>
+                            {view.semantic !== undefined && (
+                                <div className="tl-log">
+                                    语义快照 {view.semantic.application} · {view.semantic.nodes.length} 节点
+                                    {view.semantic.truncated ? '（已截断）' : ''}
+                                    {view.semantic.nodes.slice(0, 6).map((n) => ` ${n.ref} ${n.role}${n.name.length > 0 ? `「${n.name}」` : ''}`).join('，')}
+                                </div>
+                            )}
+                            {view.visual_snapshot_ref !== undefined && (
+                                <div className="tl-log">
+                                    视觉代次 {view.visual_snapshot_ref} · {view.visual_regions?.length ?? 0} 区域
+                                    {view.visual_regions !== undefined &&
+                                        view.visual_regions.slice(0, 6).map((r) => ` ${r.ref}(${r.source})`).join('，')}
+                                </div>
+                            )}
+                            {view.visual_snapshot_ref === undefined && observation.visualRequested && (
+                                <div className="tl-log">视觉面未捕获（无已发布代次）。</div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 export function Observer({
     open,
     onToggle,
@@ -172,6 +267,7 @@ export function Observer({
                 </button>
             </div>
             <div className="observer-body">
+                <DesktopState />
                 <div className="obs-section">
                     <span className="sec-title caps">
                         <Activity size={12} /> 运行时间线

@@ -14,11 +14,31 @@
 
 import type {
     WorkflowDef,
+    WorkflowParam,
     WorkflowPredicateOpName,
     WorkflowPredicateView,
     WorkflowStepDef,
+    WorkflowStepKind,
 } from './model.js';
 import type { WorkflowAtom } from './workflow-backend.js';
+
+/** IR v1 封闭词汇（读取面回读的白名单；未知形态不进编辑器）。 */
+const WORKFLOW_STEP_KINDS: readonly WorkflowStepKind[] = [
+    'tool_call',
+    'navigate',
+    'verify',
+    'control',
+];
+const WORKFLOW_PREDICATE_OPS: readonly WorkflowPredicateOpName[] = [
+    'eq',
+    'ne',
+    'lt',
+    'le',
+    'gt',
+    'ge',
+    'contains',
+    'exists',
+];
 
 /** 32-hex 身份（IR workflow_id / step_id），与 pinned `WorkflowId` /
  * `StepId` 的 `to_string()` 形态一致。 */
@@ -118,6 +138,154 @@ function predicateToJson(predicate: WorkflowPredicateView): Record<string, unkno
         signal: predicate.signal,
         op: predicate.op,
         value: predicateValue(predicate.op, predicate.value),
+    };
+}
+
+/** 把 IR 值文本还原为编辑器输入（argumentValue 的逆：引用对象 → 引用文本；
+ * 数值 → 十进制文本；其余按字符串）。 */
+function argumentText(value: unknown): string {
+    if (typeof value === 'number') {
+        return String(value);
+    }
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        const param = (value as { $param?: unknown }).$param;
+        if (typeof param === 'string') {
+            return `{"$param":"${param}"}`;
+        }
+    }
+    return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+/** predicateValue 的逆：JSON 标量 → 编辑器文本（null 为 exists 的空值）。 */
+function predicateText(value: unknown): string {
+    if (value === null || value === undefined) {
+        return '';
+    }
+    if (typeof value === 'boolean' || typeof value === 'number') {
+        return String(value);
+    }
+    return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+function predicateFromJson(value: unknown): WorkflowPredicateView | undefined {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const record = value as Record<string, unknown>;
+    const signal = typeof record.signal === 'string' ? record.signal : '';
+    const op = typeof record.op === 'string' ? record.op : '';
+    if (signal.length === 0 || !WORKFLOW_PREDICATE_OPS.includes(op as WorkflowPredicateOpName)) {
+        return undefined;
+    }
+    return { signal, op: op as WorkflowPredicateOpName, value: predicateText(record.value) };
+}
+
+/** wire 定义的参数 → 编辑器参数（DEC-026 读取面：参数按 IR 原样回读；
+ * 副作用步骤的派生验证参数在下次保存时由 workflowDefToIr 重新归并）。 */
+function paramsFromIr(definition: Record<string, unknown>): WorkflowParam[] {
+    const raw = definition.parameters;
+    if (!Array.isArray(raw)) {
+        return [];
+    }
+    const params: WorkflowParam[] = [];
+    for (const entry of raw) {
+        if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+            continue;
+        }
+        const record = entry as Record<string, unknown>;
+        const name = typeof record.name === 'string' ? record.name : '';
+        if (name.length === 0) {
+            continue;
+        }
+        params.push({
+            name,
+            required: record.required === true,
+            description: typeof record.summary === 'string' ? record.summary : '',
+            type: typeof record.type === 'string' ? (record.type as WorkflowParam['type']) : undefined,
+        });
+    }
+    return params;
+}
+
+function stepsFromIr(definition: Record<string, unknown>): WorkflowStepDef[] {
+    const raw = definition.steps;
+    if (!Array.isArray(raw)) {
+        return [];
+    }
+    const steps: WorkflowStepDef[] = [];
+    for (const entry of raw) {
+        if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+            continue;
+        }
+        const record = entry as Record<string, unknown>;
+        const kind = typeof record.kind === 'string' ? record.kind : '';
+        const stepId = typeof record.step_id === 'string' ? record.step_id : '';
+        if (stepId.length === 0 || !WORKFLOW_STEP_KINDS.includes(kind as WorkflowStepKind)) {
+            continue; // 未知形态不进编辑器（IR v1 封闭词汇，fail closed）
+        }
+        const step: WorkflowStepDef = {
+            stepId,
+            atomId:
+                kind === 'tool_call' && typeof record.arguments === 'object' && record.arguments !== null
+                    ? typeof (record.arguments as Record<string, unknown>).tool === 'string'
+                        ? ((record.arguments as Record<string, unknown>).tool as string)
+                        : ''
+                    : 'ctl.loop',
+            title: typeof record.name === 'string' ? record.name : stepId,
+            kind: kind as WorkflowStepKind,
+            detail: '',
+        };
+        if (kind === 'tool_call') {
+            const params: Record<string, string> = {};
+            if (typeof record.arguments === 'object' && record.arguments !== null) {
+                for (const [key, value] of Object.entries(record.arguments as Record<string, unknown>)) {
+                    if (key === 'tool') {
+                        continue;
+                    }
+                    params[key] = argumentText(value);
+                }
+            }
+            step.params = params;
+        } else if (kind === 'control') {
+            const loopMax = record.max_iterations;
+            step.loopMax = typeof loopMax === 'number' && Number.isInteger(loopMax) && loopMax > 0 ? loopMax : 1;
+        }
+        if (record.precondition !== undefined) {
+            const skipIf = predicateFromJson(record.precondition);
+            if (skipIf !== undefined) {
+                step.skipIf = skipIf;
+            }
+        }
+        steps.push(step);
+    }
+    return steps;
+}
+
+/** wire 定义读取面（DEC-026）→ 编辑器模型：workflowDefToIr 的逆映射。
+ * 纪律与正向一致——只接受 IR v1 封闭词汇，未知形态跳过不虚构；派生验证
+ * 谓词与 loop_head 标注由保存路径重建，不在此恢复。`published` / `runnable`
+ * / `updatedAt` 是 workflow.list 摘要投影的字段，读取面不携带——调用方
+ * 必须从既有摘要条目归并，不得使用此处的占位值。 */
+export function irToWorkflowDef(view: {
+    workflow_id: string;
+    digest: string;
+    definition: Record<string, unknown>;
+}): WorkflowDef {
+    const definition = view.definition;
+    const steps = stepsFromIr(definition);
+    return {
+        id: view.workflow_id,
+        name: typeof definition.name === 'string' ? definition.name : view.workflow_id,
+        version: view.digest.slice(0, 8),
+        description: typeof definition.summary === 'string' ? definition.summary : '',
+        params: paramsFromIr(definition),
+        steps,
+        successRate: 1,
+        published: false,
+        updatedAt: 0,
+        runnable: false,
+        digest: view.digest,
+        contentKnown: true,
     };
 }
 

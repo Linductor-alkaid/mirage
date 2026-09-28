@@ -970,3 +970,72 @@ describe('session face (DEC-021)', () => {
         await expect(pending).resolves.toEqual({ task_id: 'task-0001', session_id: SESSION_ID });
     });
 });
+
+// ---- DEC-026 faces: workflow.get + desktop.observe ----------------------------
+
+describe('DEC-026 faces over the WebSocket mapping', () => {
+    it('getWorkflow sends workflow.get and resolves with the definition view', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+        harness.socket.sent.length = 0;
+
+        const pending = harness.transport.getWorkflow('5a4b3c2d1e0f4938576a5b4c3d2e1f0a');
+        await flush();
+        expect(sentBody(harness.socket.sent[0]!)).toEqual({
+            op: 'workflow.get',
+            workflow_id: '5a4b3c2d1e0f4938576a5b4c3d2e1f0a',
+        });
+
+        const definition = { schema_version: { major: 1, minor: 0 }, workflow_id: '5a4b3c2d1e0f4938576a5b4c3d2e1f0a', name: 'x', steps: [] };
+        respond(harness.socket, 2, {
+            kind: 'workflow-get',
+            value: { workflow_id: '5a4b3c2d1e0f4938576a5b4c3d2e1f0a', digest: 'ab'.repeat(32), definition },
+        });
+        const view = await pending;
+        expect(view.digest).toBe('ab'.repeat(32));
+        expect(view.definition).toEqual(definition);
+    });
+
+    it('getWorkflow surfaces the stable not_found for unknown ids', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+        harness.socket.sent.length = 0;
+
+        const pending = harness.transport.getWorkflow('ff');
+        await flush();
+        respondError(harness.socket, 2, 'not_found', 'unknown workflow id');
+        await expect(pending).rejects.toMatchObject({ code: 'not_found', message: 'unknown workflow id' });
+    });
+
+    it('desktopObserve sends the explicit semantic/visual flags and resolves with the observation view', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+        harness.socket.sent.length = 0;
+
+        const pending = harness.transport.desktopObserve({ visual: true });
+        await flush();
+        expect(sentBody(harness.socket.sent[0]!)).toEqual({ op: 'desktop.observe', semantic: true, visual: true });
+
+        respond(harness.socket, 2, {
+            kind: 'observation-view',
+            value: {
+                active_application: 'Code',
+                active_window: 'main.rs',
+                window_geometry: { x: 0, y: 0, width: 1920, height: 1080 },
+                window_focused: true,
+                focused_element: '@e3',
+                pointer_x: 10,
+                pointer_y: 20,
+                environment_state: 'x11',
+                visual_snapshot_ref: '@vs7',
+                visual_regions: [
+                    { ref: '@v1', source: 'ocr', geometry: { x: 1, y: 2, width: 3, height: 4 }, text: 'Run', template_id: '' },
+                ],
+            },
+        });
+        const view = await pending;
+        expect(view.visual_snapshot_ref).toBe('@vs7');
+        expect(view.visual_regions).toHaveLength(1);
+        expect(view.semantic).toBeUndefined();
+    });
+});

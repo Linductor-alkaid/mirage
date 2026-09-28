@@ -6,6 +6,7 @@
 import type {
     ExposedTool,
     InspectTask,
+    ObservationView,
     ResponseEnvelop,
     ResponsePayload,
     ServerEvent,
@@ -15,6 +16,7 @@ import type {
     TaskCancelled,
     TaskStep,
     TaskSummary,
+    WorkflowDefinitionView,
     WorkflowPolicyName,
     WorkflowRunState,
     WorkflowRunSummary,
@@ -68,6 +70,13 @@ export interface WorkflowStartInput {
     policy?: WorkflowPolicyName;
 }
 
+/** desktop.observe request body (DEC-026): `semantic` defaults on, `visual`
+ * off (DEC-016 — the visual surface stays dark unless asked for). */
+export interface DesktopObserveInput {
+    semantic?: boolean;
+    visual?: boolean;
+}
+
 /** A definition submitted to workflow.save / workflow.publish: an IR v1
  * document as produced by the pinned parser (schema_version {major,minor},
  * workflow_id, steps with closed-vocabulary kinds, ...). Byte budget
@@ -94,6 +103,11 @@ export interface MirageTransport {
      * session.* methods will fail and the UI must present the session page
      * as unavailable (DEC-025: never fake it with local state). */
     readonly sessionsSupported: boolean;
+
+    /** True when hello advertised the DEC-026 observation face; false means
+     * desktop.observe will fail and the UI must not present the observation
+     * console's desktop-state panel as live data. */
+    readonly observationSupported: boolean;
 
     hello(): Promise<ServiceIdentity>;
     submitTask(request: SubmitTaskInput): Promise<{ task_id: string }>;
@@ -142,6 +156,17 @@ export interface MirageTransport {
     startWorkflowRun(input: WorkflowStartInput): Promise<{ run_id: string }>;
     /** Pinned cancel_run is idempotent; `state` is the receipt view. */
     cancelWorkflowRun(runId: string): Promise<{ run_id: string; state: WorkflowRunState }>;
+    /** The head definition content (DEC-026) — the cross-session editing
+     * face; rejects with IpcRequestError('not_found') for unknown ids. */
+    getWorkflow(workflowId: string): Promise<WorkflowDefinitionView>;
+
+    // -- observation face (DEC-026) --------------------------------------------
+
+    /** One on-demand desktop observation (point-in-time capture, no event
+     * form); rejects with IpcRequestError('unavailable') when a requested
+     * component cannot be delivered (no environment bound, no visual
+     * registry/generation, capture failure). */
+    desktopObserve(input?: DesktopObserveInput): Promise<ObservationView>;
 
     /** Subscribes this connection to the event stream. Rejects with
      * IpcRequestError('unsupported') when the peer has no event surface. */
