@@ -140,7 +140,13 @@ DEC-025 挂账①②③与 DEC-023 挂账①中锚定。第二轮动工前需对
    `ServiceConfig.visual_registry`，`desktop.observe` 视觉组件在真实桌面端
    到端点亮（与 Overlay / 采集产品化联动评估）。
 2. **`session.close` wire 面**（DEC-025 挂账②结论的扩展部分）：pinned
-   `close_session` 承载 + 服务注册表移除 + 会话页删除入口。
+   `close_session` 承载 + 服务注册表移除 + 会话页删除入口。——**已于
+   2026-09-28 随 `M5-06` 第三增量兑现**（协议 v1 附加扩展，golden
+   v6 → v7）：pinned close 取消该会话非终态任务并收敛 Closed（幂等
+   NoOp），服务注册表条目移除、容量可复用；主会话为产品设备并锚定
+   `task.submit` 缺席默认绑定，关闭以 `invalid_state` 拒绝；`session.updated`
+   增补关闭发布点；`session.close` 回执 `{session_id, state}` 沿用
+   `workflow.cancel` 形状先例。
 3. **步级运行事件**（DEC-023 挂账②联动）：编辑器运行视图需要步级呈现时，
    桥转译 `WorkflowStepStarted` / `WorkflowStepSettled` + 新事件附加扩展。
 4. **驱动器步级观察事件**：模型循环（DEC-008 第二步）引入后按真实消费再

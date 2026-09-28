@@ -119,10 +119,11 @@ M1.5 模拟域承载（预置会话种子、本地回复模拟器、演示权限
 2. **会话管理面评估**：上游能力核对已完成（pinned `runtime.hpp` 会话面 =
    open / submit / takeover / release / close / snapshot），结论随
    [DEC-026](DEC-026-observation-face-and-definition-read.md) 决策 5：删除
-   由 pinned `close_session`（既有能力）承载，wire 面 `session.close` 挂账
-   下一增量（非依赖缺口）；重命名 = 产品展示层别名（DEC-011 产品状态条
-   目，M5-08）；导出 = 客户端以 `session.history` 投影；fork 无 pinned 操作
-   面、产品语义未定案前不立项。
+   由 pinned `close_session`（既有能力）承载，wire 面 `session.close` ——
+   **已于 2026-09-28 随 `M5-06` 第三增量兑现**（DEC-026 挂账②，golden
+   v6 → v7；主会话 `invalid_state` 守卫、注册表条目移除、会话页删除入口）；
+   重命名 = 产品展示层别名（DEC-011 产品状态条目，M5-08）；导出 = 客户端以
+   `session.history` 投影；fork 无 pinned 操作面、产品语义未定案前不立项。
 3. **对话模式真实化**：pinned `AgentLoop` 纯对话形态接入（模型层装配、
    ModelProfile 配置面、SecretRef 凭据解析），属 DEC-008 迁移路径第二步，
    与设置-模型类目（M5-08）联动评估。

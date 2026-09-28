@@ -3,7 +3,8 @@
 > 状态：In Progress（`M5-01`、`M5-02`、`M5-03`、`M5-04` 完成，2026-09-26；
 > `M5-05` 第一轮完成 2026-09-27；第二轮桌面原子工具注册与编辑器接真实面
 > 增量完成，2026-09-27；`M5-06` 第一轮会话页接真实面完成 2026-09-27，
-> 第二轮观察面协议扩展批次完成 2026-09-28）
+> 第二轮观察面协议扩展批次完成 2026-09-28，第三增量会话管理面
+> `session.close` 完成 2026-09-28）
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M3](m3-mirador-integration.md)（已完成：Mirador 视觉集成与壳选型冻结——
@@ -11,7 +12,7 @@
 > Backend 与产品进程 Windows 化——命名管道 IPC、`mirage-service` / CLI 双平台
 > 可运行）
 > 建议发布点：`release-epsilon`（tag 待维护者授权后创建）
-> 更新日期：2026-09-28（`M5-06` 第二轮）
+> 更新日期：2026-09-28（`M5-06` 第三增量）
 
 ## 目标
 
@@ -155,11 +156,14 @@
       观察面协议附加扩展（`desktop.observe` + `ObservationView`，语义快照
       投影 / 视觉状态 / `visual_snapshot_ref` 进 UI 观察面，M3 非目标兑现）
       与工作流定义读取面（`workflow.get`，编辑器跨会话编辑），golden
-      v5 → v6，步级运行事件与会话管理面评估后挂账）：会话列表 / 管理接
-      `session.*`；消息流真实渲染（M1.5 模拟域演示语义退出会话页）；观察台
-      真实化——运行时间线 / 观察流直连任务快照与事件，视觉状态呈现与订阅
-      演进；对话模式真实化挂账 DEC-025 挂账③（DEC-008 迁移路径第二步，
-      与 M5-08 设置-模型类目联动）。
+      v5 → v6，步级运行事件与会话管理面评估后挂账；第三增量"会话管理面
+      `session.close`"完成，2026-09-28（DEC-026 挂账②兑现，golden v6 → v7）：
+      pinned `close_session` 承载 + 服务注册表条目移除（容量可复用）+ 主会
+      话 `invalid_state` 守卫 + 会话页删除入口，`session.updated` 增补关闭
+      发布点）：会话列表 / 管理接 `session.*`；消息流真实渲染（M1.5 模拟域
+      演示语义退出会话页）；观察台真实化——运行时间线 / 观察流直连任务快
+      照与事件，视觉状态呈现与订阅演进；对话模式真实化挂账 DEC-025 挂账③
+      （DEC-008 迁移路径第二步，与 M5-08 设置-模型类目联动）。
 - [ ] `M5-07` 批准中心与权限管理产品化：批准中心接异步确认面（`M5-03`）；
       设置页权限策略配置（每能力 `allow` / `confirm` / `deny`、资源范围、
       默认策略收紧——DEC-010）；权限策略持久化（DEC-011 Desktop
@@ -1097,3 +1101,88 @@ Accepted；golden `meta.version` 5 → 6；CI 结论按仓库先例由下一工�
   [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
   §4 与变更记录、ui/README（观察面与定义读取面接口缝）、
   [总计划](mirage-implementation-plan.md) 状态叙述与决策表。
+
+2026-09-28：`M5-06` 第二轮 CI 取证完成（补录）；run 36383958688
+（headSha = `02984f5`，PR [#58](https://github.com/Linductor-alkaid/mirage/pull/58)）
+全部 8 作业 success，2026-09-28 合并（维护者授权）。
+
+- Linux 矩阵：debug / release / asan / ubsan / tsan 五预设全绿，每预设
+  **34/34 测试 0 skip**（含第二轮新增 `observation_face_test` 与
+  `runtime_service_test` 观察面 / 定义读取场景；tsan 经 `setarch -R`）；
+  format & public-header boundaries 绿（39 公共头 0 违规）。
+- frontend 作业：lint + strict tsc + 665 测试 + build 全绿（golden vectors
+  双端门禁消费同一 meta.version 6 vectors 文件）。
+- windows msvc (full tree)：全树构建 + 测试通过（win32 观察面端到端
+  74 检查 0 失败）；**M5-06 第二轮验证记录的补跑条件①②随本 runs 关闭**
+  （观察捕获经 Windows 传输的取证由 win32 端到端与全树门禁覆盖）。
+- 独立测试验证（第 1 轮）新增用例随本 runs 取证：
+  `workflow_get_serves_head_definition_content` /
+  `observe_wire_budget_truncates_with_explicit_mark` /
+  `session-close` 前置 golden response_failures 六向量 /
+  ws-transport desktop.observe 缺省帧形（见 02984f5）。
+
+2026-09-28：`M5-06` 第三增量——会话管理面 `session.close` 完成（协议 v1 附
+加扩展，DEC-026 挂账②兑现；golden `meta.version` 6 → 7；本 PR 的 CI 结论按
+仓库先例由下一工作项 PR 补录）。
+
+- 范围：
+  - **协议 v1 附加扩展**（DEC-012 流程，传输 / 帧格式 / 版本号不变）：请求
+    `session.close`（`session_id` 非空）+ 回执 `SessionClosed`
+    `{session_id, state}`（沿用 `workflow.cancel` 回执形状先例，信封与
+    `session.open` 可判别）；`session.updated` 增补关闭发布点；
+    `mirage-ipc-protocol-v1.md` §4 / §6.4 / §7.2 / §10 同步，golden vectors
+    `meta.version` 6 → 7（requests +1、request_failures +2、responses +1、
+    response_failures +2，双端门禁同一文件）。
+  - **runtime/mira_host**：`close_session()`（Running 门禁 + pinned
+    `close_session` 命令 outcome 等待，Applied / NoOp 皆视为关闭成功——
+    pinned 幂等；pinned 拒绝透传）。
+  - **runtime/service**：`handle_session_close`——主会话守卫（`task.submit`
+    缺席默认绑定锚点，`invalid_state` "the primary session cannot be
+    closed"）；未知 id 稳定 `not_found`；该会话未结算任务的驱动走
+    `task.cancel` 同款协作中断（cancel token + executor task cancel）后在
+    pinned 边界取消；成功后注册表条目移除（容量可复用）、发布
+    `session.updated {state}`、回执携带关闭后状态（投影视图可读取实时名，
+    否则取关闭命令自身收敛后条件 `closed`）。
+  - **TS 镜像 + mock**：`MirageTransport.closeSession`，dev bridge /
+    Desktop shell / mock 三传输同变更；mock 会话面新增 wire 忠实关闭（主
+    会话守卫 / unknown `not_found` / 注册表移除 + 关闭通知；构造期主会话
+    id 显式锚定）。
+  - **UI**：会话页签派栏新增每会话操作菜单（删除 = `session.close`，两段
+    确认）；成功后本地线程 / 草稿 / 截断标记 / 观察流 / 提交入参记忆随注
+    册表事实收敛清空，当前路由为被删会话时回退默认路由；主会话拒绝以稳定
+    错误如实呈现（`invalid_state` 映射说明文案）。
+- 依据：[DEC-026](../decisions/DEC-026-observation-face-and-definition-read.md)
+  挂账②与决策 5 会话管理面评估结论、[DEC-021](../decisions/DEC-021-session-message-contract-face.md)
+  （会话面先例）、[DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)
+  （附加扩展流程）、pinned 依据 `runtime.hpp` `close_session` 命令语义与
+  `core_contracts.hpp` 会话状态机（Opening/Autonomous/TakeoverPending/
+  HumanControlled → Closing，Closed 幂等 NoOp，Failed 终态不可关闭）；
+  本计划 `M5-06` 工作项。
+- 验证（本机 Linux，GCC 13.3 / Node 22）：
+  - 全树 debug 构建零告警；ctest **40/40 通过 0 skip**（`runtime_service_test`
+    增至 **313 检查**——新场景 `session_close_lifecycle`：主会话守卫、
+    unknown `not_found`、open→close→list 收缩、二次 close `not_found`、容
+    量复用；`ipc_protocol_golden_test` **875 检查**含 v7 向量逐字节门禁；
+    既有门禁零回归）。
+  - `mirage-format-check` 与 `mirage-boundary-check`（39 公共头 0 违规）本
+    机通过。
+  - ui：`npm run check`（tsc 严格）0 诊断；`npm test` **18 文件 678 测试通
+    过**（golden-vectors 消费同一 v7 文件 161 用例两端同绿；新增 mock 关闭
+    面 3 项、ws-transport 帧形状 2 项、store 删除会话 2 项）；`npm run
+    lint` 0 告警；`npm run build` 通过。
+  - Linux 五预设矩阵 / windows 作业随本 PR CI 取证（结论由后续记录补录）。
+- 限制与补跑条件：① 主会话守卫为产品侧策略（`task.submit` 缺席默认绑定
+  锚点，M5-04/DEC-021 契约不变式），pinned 层无此概念——如未来引入"关闭
+  主会话后自动重开"的产品语义需另立决策；② 被关闭会话的本地会话历史
+  （journal）随 pinned Closed 收敛，跨重启持久化仍属 DEC-021 挂账（M5-08）；
+  ③ 重命名（产品别名）/ 导出（客户端投影）/ fork 维持 DEC-026 决策 5 结论；
+  对话模式真实化挂账 DEC-025 挂账③。
+- 同步：[DEC-026](../decisions/DEC-026-observation-face-and-definition-read.md)
+  （挂账②兑现留痕）、
+  [DEC-025](../decisions/DEC-025-session-page-productization.md)（挂账②删
+  除增量兑现留痕）、
+  [mirage-ipc-protocol-v1.md](../design/mirage-ipc-protocol-v1.md)
+  （§4 / §6.4 / §7.2 / §10）、
+  [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
+  §4 与变更记录、ui/README（会话管理面接口缝）、
+  [总计划](mirage-implementation-plan.md) 状态叙述。
