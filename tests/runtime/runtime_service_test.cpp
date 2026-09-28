@@ -1,6 +1,10 @@
+#include "../support/fake_desktop_environment.hpp"
 #include "../support/ipc_io.hpp"
 
+#include <mira/core_contracts.hpp>
+
 #include <mirage/desktop/desktop_environment.hpp>
+#include <mirage/desktop/semantic_snapshot.hpp>
 #include <mirage/integration/mira_environment_binding.hpp>
 #include <mirage/platform/linux/linux_desktop_environment.hpp>
 #include <mirage/runtime/ipc/client.hpp>
@@ -187,6 +191,189 @@ void scenario_workflow_get_unknown_id_is_not_found() {
     MIRAGE_CHECK(!response.ok);
     MIRAGE_CHECK(response.error.code == "not_found");
     MIRAGE_CHECK(response.error.message == "unknown workflow id");
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
+/// Minimal IR v1 definition for the definition-read-face scenario: one Verify
+/// step whose predicate references an absent parameter (NotEvaluable under
+/// DryRun), so workflow.publish passes its gate without a tool registry — the
+/// same shape session_client_test publishes. `name` varies content: the pinned
+/// library resolves versions by content digest and same-content records shadow
+/// each other (MIRA-20260927-001).
+std::string workflow_definition_json(const std::string &workflow_id, const std::string &step_id,
+                                     const std::string &name) {
+    return R"({"schema_version":{"major":1,"minor":0},"workflow_id":")" + workflow_id +
+           R"(","name":")" + name + R"(","parameters":[],"steps":[{"step_id":")" + step_id +
+           R"(","kind":"verify","verification":{"signal":"run_parameter:x","op":"eq","value":"y"}}],)"
+           R"("default_policy":"strict","allowed_policies":["strict","dry_run"]})";
+}
+
+/// Definition read face success path (DEC-026): workflow.get serves the head
+/// definition content the service last saved or published, addressed by that
+/// version's content digest; workflow.delete removes the entry and the read
+/// face answers not_found afterwards. The existing headless scenarios only
+/// cover the unknown-id rejection — without this the face's main product path
+/// (save -> read back -> publish -> read back -> delete) has no coverage.
+void scenario_workflow_get_serves_head_definition_content() {
+    mirage::testing::TempDir dir;
+    const ServiceConfig config = make_config(dir);
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+
+    ipc::IpcClient client(config.socket_path);
+    const std::string workflow_id = mira::WorkflowId::generate().to_string();
+    const std::string step_id = mira::StepId::generate().to_string();
+
+    // Draft: the read face serves exactly the saved content under the save's
+    // digest — byte-for-byte, no re-shaping on the way out.
+    ipc::WorkflowSaveRequest save;
+    save.definition_json = workflow_definition_json(workflow_id, step_id, "read-face draft");
+    const ipc::Response saved = client.call(save, kCallBudget);
+    MIRAGE_CHECK(saved.ok);
+    const auto *saved_payload = std::get_if<ipc::WorkflowSaved>(&saved.payload);
+    MIRAGE_CHECK(saved_payload != nullptr);
+    if (saved_payload != nullptr) {
+        MIRAGE_CHECK(saved_payload->workflow_id == workflow_id);
+        MIRAGE_CHECK(saved_payload->digest.size() == 64);
+    }
+
+    const ipc::Response got = client.call(ipc::WorkflowGetRequest{workflow_id}, kCallBudget);
+    MIRAGE_CHECK(got.ok);
+    const auto *view = std::get_if<ipc::WorkflowDefinitionView>(&got.payload);
+    MIRAGE_CHECK(view != nullptr);
+    if (view != nullptr && saved_payload != nullptr) {
+        MIRAGE_CHECK(view->workflow_id == workflow_id);
+        MIRAGE_CHECK(view->digest == saved_payload->digest);
+        MIRAGE_CHECK(view->definition_json == save.definition_json);
+    }
+
+    // Publish different content (the natural edit-then-publish flow): the
+    // read face moves to the published head, digest included.
+    ipc::WorkflowPublishRequest publish;
+    publish.definition_json = workflow_definition_json(workflow_id, step_id, "read-face head");
+    const ipc::Response published = client.call(publish, kCallBudget);
+    MIRAGE_CHECK(published.ok);
+    const auto *published_payload = std::get_if<ipc::WorkflowPublished>(&published.payload);
+    MIRAGE_CHECK(published_payload != nullptr);
+    if (published_payload != nullptr) {
+        MIRAGE_CHECK(published_payload->digest != saved_payload->digest);
+        MIRAGE_CHECK(!published_payload->idempotent);
+    }
+
+    const ipc::Response got_again = client.call(ipc::WorkflowGetRequest{workflow_id}, kCallBudget);
+    MIRAGE_CHECK(got_again.ok);
+    const auto *view_again = std::get_if<ipc::WorkflowDefinitionView>(&got_again.payload);
+    MIRAGE_CHECK(view_again != nullptr);
+    if (view_again != nullptr && published_payload != nullptr) {
+        MIRAGE_CHECK(view_again->digest == published_payload->digest);
+        MIRAGE_CHECK(view_again->definition_json == publish.definition_json);
+    }
+
+    // Delete removes the catalog entry: the read face answers not_found, the
+    // same stable rejection as an unknown id.
+    const ipc::Response deleted = client.call(ipc::WorkflowDeleteRequest{workflow_id}, kCallBudget);
+    MIRAGE_CHECK(deleted.ok);
+    const ipc::Response gone = client.call(ipc::WorkflowGetRequest{workflow_id}, kCallBudget);
+    MIRAGE_CHECK(!gone.ok);
+    MIRAGE_CHECK(gone.error.code == "not_found");
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
+/// Wire-budget projection (DEC-026, RULE-07): a service-side snapshot larger
+/// than kObservationNodeWireBudget projects exactly the budget onto the wire
+/// with the explicit `truncated` mark; a snapshot exactly at the budget stays
+/// unmarked. The parent index remaps kNoParent to the wire's -1, and
+/// focused_element comes from the projected snapshot. The real-topology
+/// observation_face_test cannot size its AT-SPI tree this precisely, so the
+/// fake environment's snapshot table is the knob here.
+void scenario_observe_wire_budget_truncates_with_explicit_mark() {
+    mirage::testing::TempDir dir;
+    const ServiceConfig config = make_config(dir);
+
+    // In-memory desktop: one focused window whose accessibility snapshot is
+    // served from the fake's table, refillable between observations (the
+    // assembler captures fresh state per request, so the next observe sees
+    // the new tree without restarting the service).
+    const auto desktop = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    mirage::desktop::WindowInfo window;
+    window.id = "w1";
+    window.title = "Budget Window";
+    window.geometry = {0, 0, 640, 480};
+    window.focused = true;
+    desktop->windows.push_back(window);
+
+    auto fill_snapshot = [&desktop](const std::size_t node_count) {
+        mirage::desktop::SemanticSnapshot snapshot;
+        snapshot.application = "BudgetApp";
+        snapshot.window_title = "Budget Window";
+        snapshot.nodes.reserve(node_count);
+        for (std::size_t index = 0; index < node_count; ++index) {
+            mirage::desktop::SemanticNode node;
+            node.ref = "@e" + std::to_string(index + 1);
+            node.role = "button";
+            node.name = "node-" + std::to_string(index);
+            node.parent = index == 0 ? mirage::desktop::kNoParent : 0;
+            node.geometry = {static_cast<std::int32_t>(index), 0, 10, 10};
+            node.focused = index == 7; // well inside the wire window
+            node.enabled = true;
+            snapshot.nodes.push_back(std::move(node));
+        }
+        desktop->snapshots["w1"] = std::move(snapshot);
+    };
+
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(std::make_shared<integration::MiraEnvironmentBinding>(desktop)).ok);
+    ipc::IpcClient client(config.socket_path);
+
+    // Over budget: 1025 service-side nodes project 1024 wire nodes marked
+    // truncated; the projection keeps the capture order prefix.
+    fill_snapshot(ipc::kObservationNodeWireBudget + 1);
+    const ipc::Response over = client.call(ipc::DesktopObserveRequest{}, kCallBudget);
+    MIRAGE_CHECK(over.ok);
+    const auto *over_view = std::get_if<ipc::ObservationView>(&over.payload);
+    MIRAGE_CHECK(over_view != nullptr);
+    if (over_view != nullptr && over_view->semantic.has_value()) {
+        const ipc::ObservationSemantic &semantic = *over_view->semantic;
+        MIRAGE_CHECK(semantic.nodes.size() == ipc::kObservationNodeWireBudget);
+        MIRAGE_CHECK(semantic.truncated);
+        MIRAGE_CHECK(semantic.nodes.front().ref == "@e1");
+        MIRAGE_CHECK(semantic.nodes.back().ref ==
+                     "@e" + std::to_string(ipc::kObservationNodeWireBudget));
+        // kNoParent has no wire form: roots project -1, real parents their
+        // index.
+        MIRAGE_CHECK(semantic.nodes.front().parent == -1);
+        MIRAGE_CHECK(semantic.nodes[1].parent == 0);
+        // Frame context still rides along: focused_element from the
+        // projected snapshot (index 7 -> "@e8"), application from its root.
+        MIRAGE_CHECK(over_view->focused_element == "@e8");
+        MIRAGE_CHECK(over_view->active_application == "BudgetApp");
+        MIRAGE_CHECK(over_view->active_window == "Budget Window");
+        MIRAGE_CHECK(over_view->window_focused);
+        MIRAGE_CHECK(over_view->environment_state.compare(0, 5, "test:") == 0);
+    } else if (over_view != nullptr) {
+        MIRAGE_CHECK(over_view->semantic.has_value());
+    }
+
+    // Exactly at the budget: the whole projection rides the wire and the
+    // truncation mark stays off — incompleteness is never claimed that does
+    // not exist.
+    fill_snapshot(ipc::kObservationNodeWireBudget);
+    const ipc::Response exact = client.call(ipc::DesktopObserveRequest{}, kCallBudget);
+    MIRAGE_CHECK(exact.ok);
+    const auto *exact_view = std::get_if<ipc::ObservationView>(&exact.payload);
+    MIRAGE_CHECK(exact_view != nullptr);
+    if (exact_view != nullptr && exact_view->semantic.has_value()) {
+        MIRAGE_CHECK(exact_view->semantic->nodes.size() == ipc::kObservationNodeWireBudget);
+        MIRAGE_CHECK(!exact_view->semantic->truncated);
+        MIRAGE_CHECK(exact_view->semantic->nodes.back().ref ==
+                     "@e" + std::to_string(ipc::kObservationNodeWireBudget));
+    } else if (exact_view != nullptr) {
+        MIRAGE_CHECK(exact_view->semantic.has_value());
+    }
 
     service.request_shutdown();
     MIRAGE_CHECK(service.run().clean);
@@ -1030,5 +1217,9 @@ int main() {
                  scenario_observe_fails_closed_on_headless_topology);
     run_scenario("workflow_get_unknown_id_is_not_found",
                  scenario_workflow_get_unknown_id_is_not_found);
+    run_scenario("workflow_get_serves_head_definition_content",
+                 scenario_workflow_get_serves_head_definition_content);
+    run_scenario("observe_wire_budget_truncates_with_explicit_mark",
+                 scenario_observe_wire_budget_truncates_with_explicit_mark);
     return mirage::testing::finish("runtime_service_test");
 }

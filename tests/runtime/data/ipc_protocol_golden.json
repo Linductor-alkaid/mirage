@@ -1325,6 +1325,36 @@
       "name": "workflow-get-definition-not-object",
       "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"workflow_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"digest\":\"b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9\",\"definition\":\"smoke\"}",
       "error": "workflow.get 'definition' must be an object"
+    },
+    {
+      "name": "workflow-get-missing-digest",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"workflow_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"definition\":{\"schema_version\":{\"major\":1,\"minor\":0}}}",
+      "error": "workflow.get response requires 'workflow_id', 'digest' and a 'definition' object"
+    },
+    {
+      "name": "observation-view-semantic-not-object",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"active_application\":\"Code\",\"active_window\":\"main.rs - mirage\",\"window_geometry\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"window_focused\":true,\"focused_element\":\"@e3\",\"pointer_x\":512,\"pointer_y\":384,\"environment_state\":\"x11\",\"semantic\":\"yes\"}",
+      "error": "desktop.observe 'semantic' must be an object"
+    },
+    {
+      "name": "observation-view-semantic-missing-truncated",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"active_application\":\"Code\",\"active_window\":\"main.rs - mirage\",\"window_geometry\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"window_focused\":true,\"focused_element\":\"@e3\",\"pointer_x\":512,\"pointer_y\":384,\"environment_state\":\"x11\",\"semantic\":{\"application\":\"Code\",\"window_title\":\"main.rs - mirage\",\"nodes\":[]}}",
+      "error": "desktop.observe 'semantic' requires 'application', 'window_title', a 'nodes' array and 'truncated'"
+    },
+    {
+      "name": "observation-view-node-parent-below-root",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"active_application\":\"Code\",\"active_window\":\"main.rs - mirage\",\"window_geometry\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"window_focused\":true,\"focused_element\":\"@e3\",\"pointer_x\":512,\"pointer_y\":384,\"environment_state\":\"x11\",\"semantic\":{\"application\":\"Code\",\"window_title\":\"main.rs - mirage\",\"nodes\":[{\"ref\":\"@e1\",\"role\":\"button\",\"name\":\"Run\",\"description\":\"\",\"parent\":-2,\"geometry\":{\"x\":24,\"y\":64,\"width\":88,\"height\":32},\"focused\":true,\"enabled\":true}],\"truncated\":false}}",
+      "error": "observation semantic nodes require 'ref', 'role', 'name', 'description', a 'parent' index (>= -1), 'focused' and 'enabled'"
+    },
+    {
+      "name": "observation-view-node-geometry-not-object",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"active_application\":\"Code\",\"active_window\":\"main.rs - mirage\",\"window_geometry\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"window_focused\":true,\"focused_element\":\"@e3\",\"pointer_x\":512,\"pointer_y\":384,\"environment_state\":\"x11\",\"semantic\":{\"application\":\"Code\",\"window_title\":\"main.rs - mirage\",\"nodes\":[{\"ref\":\"@e1\",\"role\":\"button\",\"name\":\"Run\",\"description\":\"\",\"parent\":-1,\"geometry\":\"wide\",\"focused\":true,\"enabled\":true}],\"truncated\":false}}",
+      "error": "observation geometry must be an object"
+    },
+    {
+      "name": "observation-view-region-geometry-not-object",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"active_application\":\"Code\",\"active_window\":\"main.rs - mirage\",\"window_geometry\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"window_focused\":true,\"focused_element\":\"@e3\",\"pointer_x\":512,\"pointer_y\":384,\"environment_state\":\"x11\",\"visual_snapshot_ref\":\"@vs7\",\"visual_regions\":[{\"ref\":\"@v1\",\"source\":\"ocr\",\"geometry\":\"wide\",\"text\":\"Run\",\"template_id\":\"\"}]}",
+      "error": "observation geometry must be an object"
     }
   ],
   "events": [

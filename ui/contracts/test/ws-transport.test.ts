@@ -1038,4 +1038,34 @@ describe('DEC-026 faces over the WebSocket mapping', () => {
         expect(view.visual_regions).toHaveLength(1);
         expect(view.semantic).toBeUndefined();
     });
+
+    it('desktopObserve without input writes the pinned defaults (semantic on, visual off)', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+        harness.socket.sent.length = 0;
+
+        const pending = harness.transport.desktopObserve();
+        await flush();
+        // The canonical form always carries both flags: absent input falls
+        // back to the request defaults, never to an abbreviated body.
+        expect(sentBody(harness.socket.sent[0]!)).toEqual({ op: 'desktop.observe', semantic: true, visual: false });
+
+        respond(harness.socket, 2, {
+            kind: 'observation-view',
+            value: {
+                active_application: 'Code',
+                active_window: 'main.rs',
+                window_geometry: { x: 0, y: 0, width: 1920, height: 1080 },
+                window_focused: true,
+                focused_element: '@e3',
+                pointer_x: 10,
+                pointer_y: 20,
+                environment_state: 'x11',
+            },
+        });
+        const view = await pending;
+        expect(view.semantic).toBeUndefined();
+        expect(view.visual_snapshot_ref).toBeUndefined();
+        expect(view.visual_regions).toBeUndefined();
+    });
 });
