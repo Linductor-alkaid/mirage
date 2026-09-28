@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 8,
+    "version": 9,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
     "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted)",
@@ -19,7 +19,8 @@
       "v5 (M5-05): workflow.* contract face (DEC-023) — workflow.list / workflow.save / workflow.publish / workflow.delete / workflow.atom.catalog / workflow.runs / workflow.run / workflow.cancel requests, workflow.run_updated event, hello 'workflows' capability member; wire order pinned by schema doc sections 4, 6.1, 6.5 and 7.2.",
       "v6 (M5-06): observation face + workflow definition read face (DEC-026) - desktop.observe request (optional semantic/visual booleans, encoder always writes both) with the ObservationView payload (frame members, optional semantic snapshot projection with a 1024-node wire budget and explicit truncated mark, co-present visual_snapshot_ref / visual_regions pair), workflow.get request with the WorkflowDefinitionView payload (head definition content from the service product catalog), hello 'observation' capability member; wire order pinned by schema doc sections 4, 6.1 and 6.6.",
       "v7 (M5-06): session.close management face (DEC-026 backlog item 2) - session.close request (non-empty session_id) with the SessionClosed reply (session_id + post-close state, mirroring the workflow.cancel reply shape; state from the pinned session state vocabulary); primary session refused invalid_state product-side, unknown id not_found, registry entry removed on success. wire order pinned by schema doc sections 4, 6.4 and 10.",
-      "v8 (M5-06): dialog mode face (DEC-027) - session.chat / session.chat.history requests with the DialogTurnAccepted / DialogHistory payloads (turns carry pending/ok/failed closed status vocabulary, reply_text / error encode-when-set exactly at ok / failed), session.chat_updated event (pending / ok / failed lifecycle), hello 'chat' capability member (model-layer equipment, permissions-bit precedent); wire order pinned by schema doc sections 4, 6.1, 6.7 and 7.2."
+      "v8 (M5-06): dialog mode face (DEC-027) - session.chat / session.chat.history requests with the DialogTurnAccepted / DialogHistory payloads (turns carry pending/ok/failed closed status vocabulary, reply_text / error encode-when-set exactly at ok / failed), session.chat_updated event (pending / ok / failed lifecycle), hello 'chat' capability member (model-layer equipment, permissions-bit precedent); wire order pinned by schema doc sections 4, 6.1, 6.7 and 7.2.",
+      "v9 (M5-07): permission policy face (DEC-020/DEC-011 evolution) - policy.get / policy.set requests with the PolicyView payload (full DEC-010 rule set, optional read_roots resource scope), hello 'policy' capability member (always served); wire order pinned by schema doc sections 4, 6.1, 6.8 and 10."
     ]
   },
   "requests": [
@@ -322,6 +323,39 @@
         "session_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a"
       },
       "canonical": "{\"v\":1,\"id\":33,\"op\":\"session.chat.history\",\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\"}"
+    },
+    {
+      "name": "policy-get",
+      "id": 34,
+      "body": {
+        "op": "policy.get"
+      },
+      "canonical": "{\"v\":1,\"id\":34,\"op\":\"policy.get\"}"
+    },
+    {
+      "name": "policy-set",
+      "id": 35,
+      "body": {
+        "op": "policy.set",
+        "rules": {
+          "application.launch": "allow",
+          "application.terminate": "confirm",
+          "clipboard.read": "allow",
+          "clipboard.write": "confirm",
+          "filesystem.read": "allow",
+          "filesystem.write": "deny",
+          "input.inject": "confirm",
+          "notification.post": "allow",
+          "process.execute": "confirm",
+          "screen.capture": "allow",
+          "window.activate": "allow"
+        },
+        "read_roots": [
+          "/home/user/work",
+          "/tmp/scratch"
+        ]
+      },
+      "canonical": "{\"v\":1,\"id\":35,\"op\":\"policy.set\",\"rules\":{\"application.launch\":\"allow\",\"application.terminate\":\"confirm\",\"clipboard.read\":\"allow\",\"clipboard.write\":\"confirm\",\"filesystem.read\":\"allow\",\"filesystem.write\":\"deny\",\"input.inject\":\"confirm\",\"notification.post\":\"allow\",\"process.execute\":\"confirm\",\"screen.capture\":\"allow\",\"window.activate\":\"allow\"},\"read_roots\":[\"/home/user/work\",\"/tmp/scratch\"]}"
     }
   ],
   "request_failures": [
@@ -514,6 +548,36 @@
       "name": "chat-history-limit-zero",
       "payload": "{\"v\":1,\"id\":9,\"op\":\"session.chat.history\",\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"limit\":0}",
       "error": "session.chat.history 'limit' must be positive"
+    },
+    {
+      "name": "policy-set-missing-rules",
+      "payload": "{\"v\":1,\"id\":9,\"op\":\"policy.set\"}",
+      "error": "policy.set requires a 'rules' object"
+    },
+    {
+      "name": "policy-set-unknown-capability",
+      "payload": "{\"v\":1,\"id\":9,\"op\":\"policy.set\",\"rules\":{\"window.activtate\":\"allow\"}}",
+      "error": "policy.set 'rules' keys must be DEC-010 capability names"
+    },
+    {
+      "name": "policy-set-bad-rule",
+      "payload": "{\"v\":1,\"id\":9,\"op\":\"policy.set\",\"rules\":{\"input.inject\":\"maybe\"}}",
+      "error": "policy.set rule values must be \"allow\", \"confirm\" or \"deny\""
+    },
+    {
+      "name": "policy-set-roots-not-array",
+      "payload": "{\"v\":1,\"id\":9,\"op\":\"policy.set\",\"rules\":{\"input.inject\":\"allow\"},\"read_roots\":\"/tmp\"}",
+      "error": "policy.set 'read_roots' must be an array of at most 64 strings"
+    },
+    {
+      "name": "policy-set-roots-too-many",
+      "payload": "{\"v\":1,\"id\":9,\"op\":\"policy.set\",\"rules\":{\"input.inject\":\"allow\"},\"read_roots\":[\"/tmp/root-00\",\"/tmp/root-01\",\"/tmp/root-02\",\"/tmp/root-03\",\"/tmp/root-04\",\"/tmp/root-05\",\"/tmp/root-06\",\"/tmp/root-07\",\"/tmp/root-08\",\"/tmp/root-09\",\"/tmp/root-10\",\"/tmp/root-11\",\"/tmp/root-12\",\"/tmp/root-13\",\"/tmp/root-14\",\"/tmp/root-15\",\"/tmp/root-16\",\"/tmp/root-17\",\"/tmp/root-18\",\"/tmp/root-19\",\"/tmp/root-20\",\"/tmp/root-21\",\"/tmp/root-22\",\"/tmp/root-23\",\"/tmp/root-24\",\"/tmp/root-25\",\"/tmp/root-26\",\"/tmp/root-27\",\"/tmp/root-28\",\"/tmp/root-29\",\"/tmp/root-30\",\"/tmp/root-31\",\"/tmp/root-32\",\"/tmp/root-33\",\"/tmp/root-34\",\"/tmp/root-35\",\"/tmp/root-36\",\"/tmp/root-37\",\"/tmp/root-38\",\"/tmp/root-39\",\"/tmp/root-40\",\"/tmp/root-41\",\"/tmp/root-42\",\"/tmp/root-43\",\"/tmp/root-44\",\"/tmp/root-45\",\"/tmp/root-46\",\"/tmp/root-47\",\"/tmp/root-48\",\"/tmp/root-49\",\"/tmp/root-50\",\"/tmp/root-51\",\"/tmp/root-52\",\"/tmp/root-53\",\"/tmp/root-54\",\"/tmp/root-55\",\"/tmp/root-56\",\"/tmp/root-57\",\"/tmp/root-58\",\"/tmp/root-59\",\"/tmp/root-60\",\"/tmp/root-61\",\"/tmp/root-62\",\"/tmp/root-63\",\"/tmp/root-64\"]}",
+      "error": "policy.set 'read_roots' must be an array of at most 64 strings"
+    },
+    {
+      "name": "policy-set-root-empty",
+      "payload": "{\"v\":1,\"id\":9,\"op\":\"policy.set\",\"rules\":{\"input.inject\":\"allow\"},\"read_roots\":[\"\"]}",
+      "error": "policy.set 'read_roots' entries must be strings of at most 4096 bytes"
     }
   ],
   "responses": [
@@ -1354,6 +1418,61 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":36,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1,\"events\":true,\"permissions\":true,\"sessions\":true,\"workflows\":true,\"observation\":true,\"chat\":true}"
+    },
+    {
+      "name": "policy-get",
+      "response": {
+        "id": 36,
+        "ok": true,
+        "payload": {
+          "kind": "policy-view",
+          "value": {
+            "rules": {
+              "application.launch": "allow",
+              "application.terminate": "confirm",
+              "clipboard.read": "allow",
+              "clipboard.write": "confirm",
+              "filesystem.read": "allow",
+              "filesystem.write": "deny",
+              "input.inject": "confirm",
+              "notification.post": "allow",
+              "process.execute": "confirm",
+              "screen.capture": "allow",
+              "window.activate": "allow"
+            },
+            "read_roots": [
+              "/home/user/work",
+              "/tmp/scratch"
+            ]
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":36,\"ok\":true,\"rules\":{\"application.launch\":\"allow\",\"application.terminate\":\"confirm\",\"clipboard.read\":\"allow\",\"clipboard.write\":\"confirm\",\"filesystem.read\":\"allow\",\"filesystem.write\":\"deny\",\"input.inject\":\"confirm\",\"notification.post\":\"allow\",\"process.execute\":\"confirm\",\"screen.capture\":\"allow\",\"window.activate\":\"allow\"},\"read_roots\":[\"/home/user/work\",\"/tmp/scratch\"]}"
+    },
+    {
+      "name": "hello-policy-capability",
+      "response": {
+        "id": 37,
+        "ok": true,
+        "payload": {
+          "kind": "identity",
+          "value": {
+            "service": "mirage-service",
+            "mirage_version": "0.1.0",
+            "mira_core_version": "0.4.0",
+            "host_status": "running",
+            "protocol": 1,
+            "events": true,
+            "permissions": true,
+            "sessions": true,
+            "workflows": true,
+            "observation": true,
+            "chat": true,
+            "policy": true
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":37,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1,\"events\":true,\"permissions\":true,\"sessions\":true,\"workflows\":true,\"observation\":true,\"chat\":true,\"policy\":true}"
     }
   ],
   "response_failures": [
@@ -1551,6 +1670,26 @@
       "name": "chat-turn-reply-on-failed",
       "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"truncated\":false,\"turns\":[{\"turn_id\":\"a\",\"status\":\"failed\",\"user_text\":\"q\",\"reply_text\":\"x\",\"sequence\":1,\"recorded_at_ms\":0}]}",
       "error": "session.chat.history 'reply_text' is present exactly when status is 'ok'"
+    },
+    {
+      "name": "policy-get-rules-not-object",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"rules\":\"allow\"}",
+      "error": "policy.get 'rules' must be an object"
+    },
+    {
+      "name": "policy-get-unknown-capability",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"rules\":{\"window.activtate\":\"allow\"}}",
+      "error": "policy.get 'rules' keys must be DEC-010 capability names"
+    },
+    {
+      "name": "policy-get-bad-rule",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"rules\":{\"input.inject\":\"maybe\"}}",
+      "error": "policy.get rule values must be \"allow\", \"confirm\" or \"deny\""
+    },
+    {
+      "name": "policy-view-root-too-long",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"rules\":{\"application.launch\":\"allow\",\"application.terminate\":\"allow\",\"clipboard.read\":\"allow\",\"clipboard.write\":\"allow\",\"filesystem.read\":\"allow\",\"filesystem.write\":\"deny\",\"input.inject\":\"allow\",\"notification.post\":\"allow\",\"process.execute\":\"allow\",\"screen.capture\":\"allow\",\"window.activate\":\"allow\"},\"read_roots\":[\"/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]}",
+      "error": "policy.get 'read_roots' entries must be strings of at most 4096 bytes"
     }
   ],
   "events": [

@@ -33,7 +33,9 @@
   （M5-07 接线异步确认面，现为占位面板）、Toast。
 - `app/src/views/` — 会话页（签派栏 SessionsSidebar：`session.list` 快照 + 派生
   标题分组 + 会话关闭（session.close，DEC-026）；线程流 ThreadView：user/outcome
-  接会话面 + 步骤卡接任务快照 + 对话轮（session.chat，DEC-027）；
+  接会话面 + 步骤卡接任务快照 + 对话轮（session.chat，DEC-027）；批准中心
+  接 permission.* 异步确认面（DEC-020，M5-07）；设置页权限矩阵接
+  policy.get/set（DEC-028，M5-07）；
   Composer 执行模式 + 对话模式（模型层已配置时经 session.chat 提交，回复经
   session.chat_updated 收敛；未配置保持降级呈现，DEC-025 决策 3 / DEC-027）；
   观察台 Observer：桌面状态面板（DEC-026 `desktop.observe` 按需快照，视觉组件

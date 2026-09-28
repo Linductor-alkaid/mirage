@@ -938,3 +938,51 @@ describe('dialog mode (DEC-027 session.chat face)', () => {
         });
     });
 });
+
+// ---- M5-07：批准中心与策略面（store 接线） ----------------------------------
+
+describe('M5-07 approval center + policy face (store wiring)', () => {
+    it('loads the policy snapshot, surfaces demo approvals and converges after respond', async () => {
+        const created = createMockTransport({ hostStartDelayMs: 0, stepDurationMs: 5 });
+        const store = new HarnessStore(created.transport);
+        currentStore = store;
+        store.start();
+        await vi.waitFor(() => {
+            expect(store.get().connection).toBe('ready');
+            expect(store.get().policySupported).toBe(true);
+            expect(store.get().permissionsSupported).toBe(true);
+        });
+
+        // 连接即读取策略快照（设置页矩阵事实源）。
+        await vi.waitFor(() => expect(store.get().policy).toBeDefined());
+        expect(Object.keys(store.get().policy!.rules).length).toBeGreaterThan(0);
+
+        // mock-only demo 钩子产生一条挂起确认（permission.request 事件驱动
+        // permission.list 重取），批准中心出现该条目。
+        created.service.demoPermissionRequest('filesystem.write', '/tmp/approval.txt');
+        await vi.waitFor(() => expect(store.get().pendingApprovals).toHaveLength(1));
+        const requestId = store.get().pendingApprovals[0]!.request_id;
+        expect(store.get().pendingApprovals[0]!.capability).toBe('filesystem.write');
+
+        // 响应（先到先得）后快照收敛为空。
+        await store.respondApproval(requestId, true);
+        await vi.waitFor(() => expect(store.get().pendingApprovals).toHaveLength(0));
+    });
+
+    it('setPolicy applies the new rule set and converges the store view', async () => {
+        const created = createMockTransport({ hostStartDelayMs: 0, stepDurationMs: 5 });
+        const store = new HarnessStore(created.transport);
+        currentStore = store;
+        store.start();
+        await vi.waitFor(() => {
+            expect(store.get().connection).toBe('ready');
+            expect(store.get().policy).toBeDefined();
+        });
+
+        const rules = { ...store.get().policy!.rules, 'clipboard.write': 'deny' };
+        await store.setPolicy(rules);
+        expect(store.get().policy?.rules['clipboard.write']).toBe('deny');
+        // 其余规则原样保留（全量覆盖语义在 store 侧以完整规则集提交）。
+        expect(store.get().policy?.rules['filesystem.read']).toBe('allow');
+    });
+});

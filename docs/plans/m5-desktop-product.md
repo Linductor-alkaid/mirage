@@ -1,10 +1,9 @@
 # M5：Desktop Product（Workspace / Overlay / 权限 / 分发）
 
 > 状态：In Progress（`M5-01`、`M5-02`、`M5-03`、`M5-04` 完成，2026-09-26；
-> `M5-05` 第一轮完成 2026-09-27；第二轮桌面原子工具注册与编辑器接真实面
-> 增量完成，2026-09-27；`M5-06` 第一轮会话页接真实面完成 2026-09-27，
-> 第二轮观察面协议扩展批次完成 2026-09-28，第三增量会话管理面
-> `session.close` 完成 2026-09-28）
+> `M5-05` 全部完成 2026-09-27；`M5-06` 完成 2026-09-28（四增量：会话页接
+> 真实面、观察面协议扩展、会话管理面 session.close、对话模式真实化）；
+> `M5-07` 批准中心与权限策略面完成 2026-09-28）
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M3](m3-mirador-integration.md)（已完成：Mirador 视觉集成与壳选型冻结——
@@ -12,7 +11,7 @@
 > Backend 与产品进程 Windows 化——命名管道 IPC、`mirage-service` / CLI 双平台
 > 可运行）
 > 建议发布点：`release-epsilon`（tag 待维护者授权后创建）
-> 更新日期：2026-09-28（`M5-06` 第三增量）
+> 更新日期：2026-09-28（`M5-07`）
 
 ## 目标
 
@@ -147,7 +146,7 @@
       `WorkflowBackend` 仅作 UI 侧接口缝）；运行监控事件化（WorkflowRun
       状态；工具兼容状态呈现与否由实现轮定，走 DEC-012 附加扩展）；UI 工
       作流编辑器完整版接真实面（DEC-013 IR 对齐验收）。
-- [ ] `M5-06` 会话页产品化（对话模式真实化；第一轮"会话页接真实面"完成，
+- [x] `M5-06` 会话页产品化（对话模式真实化；第一轮"会话页接真实面"完成，
       2026-09-27，[DEC-025](../decisions/DEC-025-session-page-productization.md)：
       签派栏 / 线程流 / 观察台接 `session.*` 与任务快照契约路径，模拟域退出
       会话页，对话模式如实降级，wire 零变更；第二轮"观察面协议扩展批次"
@@ -1311,4 +1310,87 @@ golden `meta.version` 7 → 8；本 PR 的 CI 结论按仓库先例由下一工�
   （§4 / §6.1 / §6.7 / §7.2 / §10）、
   [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
   §3.3 / §4 与变更记录、ui/README（对话面接口缝）、
+  [总计划](mirage-implementation-plan.md) 状态叙述与决策表。
+
+2026-09-28：`M5-06` 第四增量 CI 取证完成（补录）；run 36418679167
+（headSha = `7f8d667`，PR [#60](https://github.com/Linductor-alkaid/mirage/pull/60)）
+全部 8 作业 success，2026-09-28 合并（维护者授权）。
+
+- 首轮 CI 暴露三处问题并同 PR 修复（`4d8b92d` / `7f8d667`）：
+  windows msvc——MSVC 将 CRT getenv 视为弃用（C4996→C2220），按
+  runtime/persistence 平台分 TU 先例拆分 model_layer_env_{posix,windows}.cpp；
+  首轮修复引入 C2664（const wstring data() 非 LPWSTR），去 const 后 MinGW
+  交叉编译 Built target；tsan/asan——`session_chat_dialog_face` 场景的在飞
+  infer 与 teardown 的 ModelLayer::shutdown 竞争（gateway/provider/transport
+  UAF + BudgetLedger/ProviderCircuit data race），ModelLayer 增 infer_mutex
+  排水锁（shutdown 等待在飞推理完成再释放）。
+- 终轮（run 36418679167）：Linux 五预设全绿（34/34），format / boundaries
+  绿，frontend 707 测试绿，windows 全树构建 + 测试通过。
+- 独立测试验证（第 2 轮）新增用例随本 runs 取证：
+  `session_close_swallows_inflight_turn`（GatedDialogProvider 门控 + 静默
+  窗口断言）、`session_chat_publishes_turn_lifecycle` settled 断言恢复、
+  `session_close_frees_dialog_registry_slot` 复验（见 e899c3d）。
+
+2026-09-28：`M5-07` 批准中心与权限管理产品化完成（协议 v1 附加扩展，
+[DEC-028](../decisions/DEC-028-permission-policy-face.md) 新增，Accepted；
+DEC-010 / DEC-011 演进修订随实现登记；golden `meta.version` 8 → 9；本 PR
+的 CI 结论按仓库先例由下一工作项 PR 补录）。
+
+- 范围：
+  - **批准中心接线（DEC-020 面消费）**：Overlays ApprovalsCenter 从占位转
+    正——`permission.list` 快照事实源 + `permission.request` 事件触发重
+    取，逐条呈现能力 / 资源 / 任务 / 剩余预算，批准 / 拒绝经
+    `permission.respond`（先到先得，`not_found` 静默收敛）；WallDisplay 批
+    准灯阵接真实挂起计数；TS 传输缺口补齐（`permissionList` /
+    `permissionRespond` / `permissionsSupported`——M5-03 只交付了
+    types/codec，MirageTransport 从未暴露确认面）。
+  - **设置页权限矩阵**：Provider × 占位矩阵（SimTag）替换为 DEC-010 十一
+    能力真实矩阵——`policy.get` 事实源、变更经 `policy.set` 全量应用；规
+    则立即生效，read roots 资源范围重启生效（如实声明）；策略面缺席如实
+    降级。
+  - **协议 v1 附加扩展**（DEC-012 流程）：请求 `policy.get` / `policy.set`
+    （PolicyView：全 DEC-010 规则集 + read_roots 资源范围）；hello
+    `policy` 能力位（核心装备恒真）；`mirage-ipc-protocol-v1.md` §4 /
+    §6.1 / §6.8（新）/ §10 同步，golden `meta.version` 8 → 9。
+  - **服务承载**：`PermissionController` 增线程安全 `policy()` /
+    `set_policy`（authorize 改经加锁快照）；`handle_policy_get` /
+    `handle_policy_set`（全量覆盖校验 `invalid_argument`；规则立即生效；
+    settings 读-改-写持久化——已存文档不可信拒绝写入，保留非本面成员）；
+    `ServiceConfig` 增 `read_roots` 镜像 / `settings_directory` /
+    `persist_settings`。
+  - **DEC-011 翻转兑现**：apps/service 无 `--config` 时默认拾取
+    `default_config_directory()/service.json`（损坏 fail closed）；
+    policy.set 读-改-写回写该文件。默认策略收紧留观（DEC-028 决策 5）。
+- 依据：[DEC-020](../decisions/DEC-020-permission-async-confirmation.md)
+  （异步确认面语义）、[DEC-010](../decisions/DEC-010-m1-permission-framework.md)
+  / [DEC-011](../decisions/DEC-011-m1-local-state-persistence.md)（演进修
+  订随实现登记）、[DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)
+  （附加扩展流程）；本计划 `M5-07` 工作项；M5-06 占位锚点（Overlays /
+  WallDisplay 转正）。
+- 验证（本机 Linux，GCC 13.3 / Node 22）：
+  - 全树 debug 构建零告警；ctest **40/40 通过 0 skip**（`runtime_service_test`
+    增至 **453 检查**——新场景 `policy_face_get_set_persists`：get 默认集
+    （read/execute allow、filesystem.write deny）、set 收紧 clipboard.write
+    + 清空 read_roots、持久化文档回读、部分覆盖拒绝；`persistence_test`
+    规则 map round-trip 与全词表负向；`ipc_protocol_golden_test` **1139 检
+    查**含 v9 向量逐字节门禁；既有门禁零回归）。
+  - `mirage-format-check` 与 `mirage-boundary-check`（39 公共头 0 违规）
+    本机通过。
+  - ui：`npm run check`（tsc 严格）0 诊断；`npm test` **18 文件 718 测试
+    通过**（golden-vectors 消费同一 v9 文件 199 用例两端同绿；新增 mock
+    能力位与批准 / 策略面场景）；`npm run lint` 0 告警；`npm run build`
+    通过。
+  - Linux 五预设矩阵 / windows 作业随本 PR CI 取证（结论由后续记录补录）。
+- 限制与补跑条件：① 默认策略收紧（DEC-010 M1 默认值维持）留观至 M5-08
+  产品化规模复核（DEC-028 决策 5）；② read roots 资源范围重启后生效
+  （PathScope 绑定 provider 构造，热更属新 provider 可变面，未立项）；
+  ③ 批准中心超时倒计时依赖快照内 timeout_ms，事件流不逐秒推送——剩余秒
+  数随重取刷新。
+- 同步：[DEC-028](../decisions/DEC-028-permission-policy-face.md)（新增）、
+  [DEC-010](../decisions/DEC-010-m1-permission-framework.md) /
+  [DEC-011](../decisions/DEC-011-m1-local-state-persistence.md)（演进修订
+  登记）、[mirage-ipc-protocol-v1.md](../design/mirage-ipc-protocol-v1.md)
+  （§4 / §6.1 / §6.8 / §10）、
+  [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
+  §4 与变更记录、
   [总计划](mirage-implementation-plan.md) 状态叙述与决策表。

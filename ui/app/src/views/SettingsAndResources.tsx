@@ -324,41 +324,87 @@ function McpSettings(): React.ReactElement {
     );
 }
 
-const PROVIDERS = ['Application', 'Window', 'Accessibility', 'Screen', 'Input', 'Clipboard', 'Filesystem', 'Process', 'Notification'] as const;
+/** DEC-010 能力词表（顺序即展示顺序）。 */
+const CAPABILITIES = [
+    'filesystem.read',
+    'filesystem.write',
+    'process.execute',
+    'window.activate',
+    'screen.capture',
+    'input.inject',
+    'clipboard.read',
+    'clipboard.write',
+    'application.launch',
+    'application.terminate',
+    'notification.post',
+] as const;
 
+type RuleValue = 'allow' | 'confirm' | 'deny';
+
+/** 权限策略矩阵（M5-07，DEC-010 / DEC-011）：读 policy.get，变更经
+ * policy.set 全量应用——规则立即生效并合并持久化；read roots 为资源范围
+ * 状态，重启后生效。策略面缺席时如实降级。 */
 function PermissionsSettings(): React.ReactElement {
-    const [matrix, setMatrix] = useState<Record<string, 'allow' | 'ask' | 'deny'>>(
-        Object.fromEntries(PROVIDERS.map((p) => [p, p === 'Input' || p === 'Process' ? 'ask' : 'allow'])),
-    );
+    const { state, setPolicy } = useHarness();
+    const view = state.policy;
+    const supported = state.policySupported && state.connection === 'ready';
+
+    if (!supported) {
+        return (
+            <section className="settings-body" aria-label="权限">
+                <h1>权限</h1>
+                <p className="lead">
+                    服务未提供策略面（hello 无 policy 位，DEC-027）。矩阵不可用。
+                </p>
+            </section>
+        );
+    }
+    if (view === undefined) {
+        return (
+            <section className="settings-body" aria-label="权限">
+                <h1>权限</h1>
+                <p className="lead">策略读取中……</p>
+            </section>
+        );
+    }
+
+    const apply = (rules: Record<string, string>, readRoots?: string[]): void => {
+        void setPolicy(rules, readRoots);
+    };
+
+    const setRule = (capability: string, rule: RuleValue): void => {
+        apply({ ...view.rules, [capability]: rule }, undefined);
+    };
+
     return (
         <section className="settings-body" aria-label="权限">
             <h1>权限</h1>
             <p className="lead">
-                桌面权限策略矩阵（Provider × 默认模式，DEC-010）。运行中的 ask 请求进入批准中心。 <SimTag />
+                桌面权限策略（DEC-010 能力 × allow / confirm / deny）。规则变更立即生效并持久
+                化；Confirm 规则命中的请求进入批准中心。
             </p>
             <div className="card">
                 <table className="matrix" data-testid="permission-matrix">
                     <thead>
                         <tr>
-                            <th>Provider</th>
-                            <th>默认模式</th>
+                            <th>能力</th>
+                            <th>规则</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {PROVIDERS.map((p) => (
-                            <tr key={p}>
-                                <td>{p}</td>
+                        {CAPABILITIES.map((capability) => (
+                            <tr key={capability}>
+                                <td className="mono">{capability}</td>
                                 <td>
                                     <select
                                         className="select"
-                                        value={matrix[p]}
-                                        aria-label={`${p} 默认权限`}
-                                        onChange={(e) =>
-                                            setMatrix({ ...matrix, [p]: e.target.value as 'allow' | 'ask' | 'deny' })
-                                        }
+                                        value={view.rules[capability] ?? 'allow'}
+                                        aria-label={`${capability} 权限规则`}
+                                        data-testid={`policy-${capability}`}
+                                        onChange={(e) => setRule(capability, e.target.value as RuleValue)}
                                     >
                                         <option value="allow">allow</option>
-                                        <option value="ask">ask</option>
+                                        <option value="confirm">confirm</option>
                                         <option value="deny">deny</option>
                                     </select>
                                 </td>
@@ -366,6 +412,22 @@ function PermissionsSettings(): React.ReactElement {
                         ))}
                     </tbody>
                 </table>
+            </div>
+            <div className="card" style={{ marginTop: 12 }}>
+                <strong style={{ fontSize: 13 }}>资源范围（filesystem.read roots）</strong>
+                <p className="muted" style={{ fontSize: 12 }}>
+                    当前 {view.read_roots.length} 项{view.read_roots.length > 0 ? `：${view.read_roots.join('，')}` : ''}
+                    。资源范围重启后生效（绑定 provider 时应用）。
+                </p>
+                <button
+                    type="button"
+                    className="btn"
+                    style={{ height: 26 }}
+                    disabled={view.read_roots.length === 0}
+                    onClick={() => apply(view.rules, [])}
+                >
+                    清空资源范围（重启后生效）
+                </button>
             </div>
         </section>
     );

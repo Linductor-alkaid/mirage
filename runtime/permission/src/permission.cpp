@@ -55,10 +55,20 @@ PermissionController::PermissionController(PermissionPolicy policy,
                                            ConfirmationHandler &confirmation)
     : policy_(policy), confirmation_(confirmation) {}
 
+PermissionPolicy PermissionController::policy() const {
+    std::lock_guard lock(policy_mutex_);
+    return policy_;
+}
+
+void PermissionController::set_policy(PermissionPolicy policy) {
+    std::lock_guard lock(policy_mutex_);
+    policy_ = std::move(policy);
+}
+
 PermissionVerdict PermissionController::authorize(const PermissionRequest &request,
                                                   const CancelProbe &cancelled) const {
     PermissionVerdict verdict;
-    switch (policy_.rule_for(request.capability)) {
+    switch (policy().rule_for(request.capability)) {
     case Rule::Allow:
         verdict.allowed = true;
         verdict.decision = Decision::Allowed;

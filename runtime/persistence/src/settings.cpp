@@ -121,17 +121,13 @@ std::string encode_settings(const LocalSettings &settings) {
         }
         put(object, "read_roots", JsonValue{std::move(roots)});
     }
-    JsonValue rules = make_object();
-    if (settings.filesystem_read_rule) {
-        put(rules, "filesystem.read", JsonValue{*settings.filesystem_read_rule});
-    }
-    if (settings.filesystem_write_rule) {
-        put(rules, "filesystem.write", JsonValue{*settings.filesystem_write_rule});
-    }
-    if (settings.process_execute_rule) {
-        put(rules, "process.execute", JsonValue{*settings.process_execute_rule});
-    }
-    if (!rules.as_object()->empty()) {
+    if (!settings.permission_rules.empty()) {
+        // std::map iterates in key order: the encoded member order is
+        // deterministic (and matches the capability vocabulary order).
+        JsonValue rules = make_object();
+        for (const auto &[capability, rule] : settings.permission_rules) {
+            put(rules, capability, JsonValue{rule});
+        }
         put(object, "permission", std::move(rules));
     }
     if (settings.confirmation) {
@@ -181,28 +177,31 @@ SettingsDecode decode_settings(std::string_view body) {
         return result; // error already carries the stable reason
     }
     if (const JsonValue *rules = member(document, "permission")) {
-        if (!rules->is_object() ||
-            has_unknown_member(*rules,
-                               {"filesystem.read", "filesystem.write", "process.execute"})) {
-            result.error = "member 'permission' must hold only the DEC-010 capability "
-                           "names";
+        if (!rules->is_object() || rules->as_object() == nullptr) {
+            result.error = "member 'permission' must be an object of DEC-010 capability "
+                           "names to rule strings";
             return result;
         }
-        auto read_rule = rule_member(*rules, "filesystem.read", result.error);
-        if (member(*rules, "filesystem.read") != nullptr && !read_rule) {
-            return result;
+        for (const auto &[capability, value] : *rules->as_object()) {
+            // Keys are validated against the closed DEC-010 capability
+            // vocabulary (kept local: this module stays permission-free);
+            // values against the rule vocabulary (rule_member).
+            if (capability != "filesystem.read" && capability != "filesystem.write" &&
+                capability != "process.execute" && capability != "window.activate" &&
+                capability != "screen.capture" && capability != "input.inject" &&
+                capability != "clipboard.read" && capability != "clipboard.write" &&
+                capability != "application.launch" && capability != "application.terminate" &&
+                capability != "notification.post") {
+                result.error = "member 'permission' must hold only the DEC-010 capability "
+                               "names";
+                return result;
+            }
+            auto rule = rule_member(*rules, capability, result.error);
+            if (!rule) {
+                return result;
+            }
+            settings.permission_rules.insert_or_assign(capability, *rule);
         }
-        settings.filesystem_read_rule = std::move(read_rule);
-        auto write_rule = rule_member(*rules, "filesystem.write", result.error);
-        if (member(*rules, "filesystem.write") != nullptr && !write_rule) {
-            return result;
-        }
-        settings.filesystem_write_rule = std::move(write_rule);
-        auto execute_rule = rule_member(*rules, "process.execute", result.error);
-        if (member(*rules, "process.execute") != nullptr && !execute_rule) {
-            return result;
-        }
-        settings.process_execute_rule = std::move(execute_rule);
     }
     const JsonValue *confirmation = member(document, "confirmation");
     if (confirmation != nullptr) {

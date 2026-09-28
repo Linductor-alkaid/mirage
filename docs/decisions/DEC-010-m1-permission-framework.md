@@ -110,6 +110,12 @@ required → 用户 → Approve/Reject；Denied → 拒绝），`RULE-05` 要求
 
 ## 变更记录
 
+- 2026-09-28（`M5-07`，[DEC-028](DEC-028-permission-policy-face.md)）：策略
+  面产品化——`policy.get` / `policy.set` wire 面承载全 DEC-010 词表规则集
+  （M1 三能力扩展到 11 能力，词表不变），规则运行时生效（controller 线程
+  安全快照判定），持久化与默认拾取按 DEC-011 修订落地；默认策略收紧留观
+  （DEC-028 决策 5），Confirm 挂点语义与 Provider 硬边界不变。
+
 - 2026-09-26：决策 4 冻结的同步确认挂点契约（"同步、进程内、必须立即返回"）
   由 [DEC-020](DEC-020-permission-async-confirmation.md)（`M5-03`）按本决策
   "影响与风险"节预告的路径替换为 Local IPC 异步确认面。判定语义、决策四值、

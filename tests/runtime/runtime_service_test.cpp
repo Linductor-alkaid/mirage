@@ -15,6 +15,9 @@
 #include <mirage/runtime/ipc/framing.hpp>
 #include <mirage/runtime/ipc/protocol.hpp>
 #include <mirage/runtime/ipc/stream.hpp>
+#include <mirage/runtime/permission/permission.hpp>
+#include <mirage/runtime/persistence/settings.hpp>
+#include <mirage/runtime/persistence/store.hpp>
 #include <mirage/runtime/runtime_service.hpp>
 
 #include <fcntl.h>
@@ -1580,6 +1583,184 @@ void scenario_session_chat_dialog_face() {
 /// dialog registry (capacity = max_sessions) fills with dead threads and the
 /// dialog face goes permanently `unavailable` for every new session after
 /// max_sessions open→chat→close cycles.
+/// M5-07 (DEC-020 / DEC-011 evolution): the policy face — policy.get
+/// reports the full DEC-010 rule set, policy.set applies it live (the next
+/// gated action obeys the new rule) and persists the merged document to the
+/// settings store; the document decodes back with the new rules.
+void scenario_policy_face_get_set_persists() {
+    mirage::testing::TempDir dir;
+    ServiceConfig config = make_config(dir);
+    config.read_roots = {"/home/user/work"};
+    config.settings_directory = dir.root() / "settings";
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+
+    ipc::IpcClient client(config.socket_path);
+    const ipc::Response hello = client.call(ipc::HelloRequest{}, kCallBudget);
+    MIRAGE_CHECK(hello.ok);
+    const auto *identity = std::get_if<ipc::ServiceIdentity>(&hello.payload);
+    MIRAGE_CHECK(identity != nullptr);
+    if (identity != nullptr) {
+        MIRAGE_CHECK(identity->policy.has_value());
+        MIRAGE_CHECK(identity->policy.value_or(false));
+    }
+
+    // policy.get: the full DEC-010 set with the service defaults (DEC-010:
+    // read/execute allowed, filesystem.write denied).
+    const ipc::Response got = client.call(ipc::GetPolicyRequest{}, kCallBudget);
+    MIRAGE_CHECK(got.ok);
+    const auto *view = std::get_if<ipc::PolicyView>(&got.payload);
+    MIRAGE_CHECK(view != nullptr);
+    MIRAGE_CHECK(view != nullptr && view->rules.size() == 11);
+    if (view != nullptr && view->rules.size() == 11) {
+        MIRAGE_CHECK(view->rules.at("filesystem.read") == "allow");
+        MIRAGE_CHECK(view->rules.at("filesystem.write") == "deny");
+        MIRAGE_CHECK(view->rules.at("input.inject") == "allow");
+    }
+    MIRAGE_CHECK(view != nullptr && view->read_roots.size() == 1 &&
+                 view->read_roots[0] == "/home/user/work");
+
+    // policy.set: tighten clipboard.write to deny and drop the read root.
+    // The wire decode validated the full coverage; the live effect is
+    // observable through the persisted document (and the next gated action).
+    ipc::SetPolicyRequest set_policy;
+    set_policy.rules = view->rules;
+    set_policy.rules["clipboard.write"] = "deny";
+    set_policy.read_roots = {};
+    set_policy.has_read_roots = true;
+    const ipc::Response applied = client.call(set_policy, kCallBudget);
+    MIRAGE_CHECK(applied.ok);
+    const auto *applied_view = std::get_if<ipc::PolicyView>(&applied.payload);
+    MIRAGE_CHECK(applied_view != nullptr);
+    if (applied_view != nullptr) {
+        MIRAGE_CHECK(applied_view->rules.at("clipboard.write") == "deny");
+        MIRAGE_CHECK(applied_view->read_roots.empty());
+    }
+
+    // The persisted document carries the new rules (read-modify-write kept
+    // the store authoritative for the next start).
+    const mirage::runtime::persistence::LocalStateStore store(
+        config.settings_directory, config.settings_file_name,
+        mirage::runtime::persistence::kMaxSettingsFileBytes);
+    const auto loaded = store.load();
+    MIRAGE_CHECK(loaded.status == mirage::runtime::persistence::LoadStatus::Loaded);
+    const auto decoded = mirage::runtime::persistence::decode_settings(loaded.body);
+    MIRAGE_CHECK(decoded.ok);
+    if (decoded.ok) {
+        MIRAGE_CHECK(decoded.settings.permission_rules.at("clipboard.write") == "deny");
+        MIRAGE_CHECK(decoded.settings.read_roots.empty());
+    }
+
+    // Partial coverage is refused without touching anything.
+    ipc::SetPolicyRequest partial_request;
+    partial_request.rules.insert_or_assign("filesystem.read", "allow");
+    const ipc::Response partial = client.call(partial_request, kCallBudget);
+    MIRAGE_CHECK(!partial.ok);
+    MIRAGE_CHECK(partial.error.code == "invalid_argument");
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
+/// M5-07 rules-immediately-effective plus the DEC-011 fail-closed write
+/// posture: a policy.set rule governs the very next gated desktop action
+/// (the driver and the policy face share one controller), an absent
+/// read_roots member keeps the persisted scope, and a corrupt settings
+/// document refuses the WRITE while the applied rules stay live — the
+/// response reports the persistence failure, not a silently rolled-back
+/// policy.
+void scenario_policy_set_live_effect_and_fail_closed_persist() {
+    mirage::testing::TempDir dir;
+    ServiceConfig config = make_config(dir);
+    config.read_roots = {"/home/user/work"};
+    config.settings_directory = dir.root() / "settings";
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+
+    ipc::IpcClient client(config.socket_path);
+    const ipc::Response baseline = client.call(ipc::GetPolicyRequest{}, kCallBudget);
+    MIRAGE_CHECK(baseline.ok);
+    const auto *baseline_view = std::get_if<ipc::PolicyView>(&baseline.payload);
+    MIRAGE_CHECK(baseline_view != nullptr);
+    if (baseline_view == nullptr) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+
+    // Set with the read_roots member absent: the persisted scope is kept.
+    ipc::SetPolicyRequest deny_execute;
+    deny_execute.rules = baseline_view->rules;
+    deny_execute.rules["process.execute"] = "deny";
+    const ipc::Response applied = client.call(deny_execute, kCallBudget);
+    MIRAGE_CHECK(applied.ok);
+    const auto *applied_view = std::get_if<ipc::PolicyView>(&applied.payload);
+    MIRAGE_CHECK(applied_view != nullptr);
+    if (applied_view != nullptr) {
+        MIRAGE_CHECK(applied_view->rules.at("process.execute") == "deny");
+        MIRAGE_CHECK(applied_view->read_roots.size() == 1 &&
+                     applied_view->read_roots[0] == "/home/user/work");
+    }
+
+    // The rule governs the next gated action immediately: a process.execute
+    // step is refused before any desktop action (the driver reads the same
+    // controller the policy face just replaced).
+    ipc::SubmitTaskRequest gated;
+    gated.goal = "run a command the freshly-set policy denies";
+    gated.steps.push_back({ipc::StepKind::ProcessExecute, "printf after-deny"});
+    const std::optional<std::string> task_id = submit_task(client, gated);
+    MIRAGE_CHECK(task_id.has_value());
+    if (!task_id) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+    const auto done = wait_terminal(config.socket_path, *task_id);
+    MIRAGE_CHECK(done.has_value());
+    if (done.has_value()) {
+        MIRAGE_CHECK(done->progress == "Failed");
+        MIRAGE_CHECK(!done->steps.empty());
+        if (!done->steps.empty()) {
+            const ipc::StepView &denied = done->steps[0];
+            MIRAGE_CHECK(denied.status == "failed");
+            MIRAGE_CHECK(denied.permission == "denied");
+            MIRAGE_CHECK(denied.error.find("process.execute denied by policy") !=
+                         std::string::npos);
+        }
+    }
+
+    // Corrupt the persisted document behind the service's back, then set
+    // again: the write is refused (DEC-011 fail-closed posture for
+    // user-authoritative state), and the response says so...
+    const std::filesystem::path settings_file =
+        config.settings_directory / config.settings_file_name;
+    MIRAGE_CHECK(std::filesystem::exists(settings_file));
+    write_text_file(settings_file, "{oops");
+    ipc::SetPolicyRequest deny_clipboard;
+    deny_clipboard.rules = baseline_view->rules;
+    deny_clipboard.rules["process.execute"] = "deny";
+    deny_clipboard.rules["clipboard.write"] = "deny";
+    const ipc::Response refused = client.call(deny_clipboard, kCallBudget);
+    MIRAGE_CHECK(!refused.ok);
+    MIRAGE_CHECK(refused.error.code == "internal");
+    MIRAGE_CHECK(refused.error.message.find("policy persistence failed") != std::string::npos);
+
+    // ...but the applied rules are live: policy.get reports the new
+    // clipboard rule (the asymmetry is the documented posture — live effect
+    // first, refused write reported honestly).
+    const ipc::Response after = client.call(ipc::GetPolicyRequest{}, kCallBudget);
+    MIRAGE_CHECK(after.ok);
+    const auto *after_view = std::get_if<ipc::PolicyView>(&after.payload);
+    MIRAGE_CHECK(after_view != nullptr);
+    if (after_view != nullptr) {
+        MIRAGE_CHECK(after_view->rules.at("clipboard.write") == "deny");
+        MIRAGE_CHECK(after_view->rules.at("process.execute") == "deny");
+    }
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
 void scenario_session_close_frees_dialog_registry_slot() {
     mirage::testing::TempDir dir;
     ServiceConfig config = make_config(dir);
@@ -1891,6 +2072,9 @@ int main() {
     run_scenario("session_chat_dialog_face", scenario_session_chat_dialog_face);
     run_scenario("session_close_frees_dialog_registry_slot",
                  scenario_session_close_frees_dialog_registry_slot);
+    run_scenario("policy_face_get_set_persists", scenario_policy_face_get_set_persists);
+    run_scenario("policy_set_live_effect_and_fail_closed_persist",
+                 scenario_policy_set_live_effect_and_fail_closed_persist);
     run_scenario("session_chat_latch_and_failure", scenario_session_chat_latch_and_failure);
     run_scenario("session_close_cancels_inflight_task",
                  scenario_session_close_cancels_inflight_task);

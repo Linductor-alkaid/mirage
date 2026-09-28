@@ -19,6 +19,8 @@ import type {
     InspectTask,
     MirageTransport,
     ObservationView,
+    PendingPermission,
+    PolicyView,
     ServerEvent,
     ServiceIdentity,
     StepView,
@@ -138,6 +140,15 @@ export interface HarnessState {
     observationSupported: boolean;
     /** DEC-027 对话面能力位（hello `chat`；模型层已配置时为 true）。 */
     chatSupported: boolean;
+    /** M5-07 策略面能力位（hello `policy`；恒 true 但保留位判别）。 */
+    policySupported: boolean;
+    /** M5-07 待批准确认（DEC-020 异步确认面；permission.list 为事实源）。 */
+    pendingApprovals: readonly PendingPermission[];
+    /** M5-07 策略面视图（policy.get / policy.set 的事实源）；undefined = 未
+     * 读取（连接初期或策略面缺席）。 */
+    policy?: PolicyView;
+    /** DEC-020 异步确认面能力位（hello `permissions`；hub 已配置时为 true）。 */
+    permissionsSupported: boolean;
     /** 每会话在途对话轮 turn id（session.chat 已受理、未结算）。 */
     pendingChats: ReadonlyMap<string, string>;
     resyncNote?: { reason: string; at: number };
@@ -199,6 +210,12 @@ export interface HarnessActions {
     submitExec(sessionId: string, goal: string, steps: SubmitStepInput[], timeoutMs?: number): Promise<void>;
     /** 对话模式提交（session.chat 对话面，DEC-027）。 */
     sendDialog(sessionId: string, text: string): Promise<void>;
+    /** 批准中心（DEC-020 异步确认面）：响应一条挂起确认（先到先得）。 */
+    respondApproval(requestId: string, approved: boolean): Promise<void>;
+    /** 重取挂起确认快照（permission.list）。 */
+    loadApprovals(): Promise<void>;
+    /** 设置页策略面（M5-07）：应用新规则集（立即生效 + 持久化）。 */
+    setPolicy(rules: Record<string, string>, readRoots?: string[]): Promise<void>;
     /** 停止会话关联任务。 */
     stopSession(sessionId: string): void;
     engageEstop(): void;
@@ -324,6 +341,9 @@ export class HarnessStore {
             sessionsSupported: transport.sessionsSupported,
             observationSupported: transport.observationSupported,
             chatSupported: transport.chatSupported,
+            policySupported: transport.policySupported,
+            permissionsSupported: transport.permissionsSupported,
+            pendingApprovals: [],
             pendingChats: new Map(),
             route: parseRoute(window.location.hash),
             sessions: [],
@@ -404,6 +424,8 @@ export class HarnessStore {
                 sessionsSupported: identity.sessions === true,
                 observationSupported: identity.observation === true,
                 chatSupported: identity.chat === true,
+                policySupported: identity.policy === true,
+                permissionsSupported: identity.permissions === true,
             });
             if (resume) {
                 this.reconnectAttempt = 0;
@@ -448,6 +470,8 @@ export class HarnessStore {
                 await this.loadHistory(routeSession);
                 await this.loadChatHistory(routeSession);
             }
+            await this.refreshPolicy();
+            await this.loadApprovals();
             if (resume) {
                 await this.refreshActiveTasks();
                 this.set({ resyncNote: { reason: '重连后重新同步任务快照', at: now() } });
@@ -557,6 +581,13 @@ export class HarnessStore {
                 this.set({ eventSeq: event.seq });
                 this.onSessionOutput(event.session_id, event.step, event.chunk, event.truncated);
                 break;
+            case 'permission.request': {
+                this.set({ eventSeq: event.seq });
+                // DEC-020：请求事件是通知，快照以 permission.list 重取（预算
+                // 倒计时也来自快照），这里触发重取即可。
+                void this.loadApprovals();
+                break;
+            }
             case 'events.overflow':
                 break;
         }
@@ -1036,6 +1067,89 @@ export class HarnessStore {
             this.toast(`对话线程加载失败：${err instanceof Error ? err.message : String(err)}`, 'warn');
         }
     }
+
+    // -- 批准中心与策略面（DEC-020 / M5-07） -----------------------------------
+
+    /** 重取挂起确认快照（DEC-020：permission.list 是事实源）。 */
+    async loadApprovals(): Promise<void> {
+        if (this.disposed || this.state.connection !== 'ready') {
+            return;
+        }
+        if (!this.state.permissionsSupported) {
+            return;
+        }
+        try {
+            const pending = await this.transport.permissionList();
+            if (this.disposed) {
+                return;
+            }
+            this.set({ pendingApprovals: pending });
+        } catch (err) {
+            if (err instanceof IpcRequestError && err.code === 'unavailable') {
+                return; // 确认面未启用（hub 未配置）
+            }
+            this.toast(`批准中心刷新失败：${err instanceof Error ? err.message : String(err)}`, 'warn');
+        }
+    }
+
+    /** 响应一条挂起确认（DEC-020 first-response-wins）：成功后重取快照；
+     * not_found（已决/已超时）静默收敛，其余稳定错误呈现。 */
+    respondApproval: HarnessActions['respondApproval'] = async (requestId, approved) => {
+        if (!this.state.permissionsSupported) {
+            this.toast('服务未提供异步确认面（hello 无 permissions 位）', 'warn');
+            return;
+        }
+        try {
+            await this.transport.permissionRespond(requestId, approved);
+            await this.loadApprovals();
+        } catch (err) {
+            if (err instanceof IpcRequestError && err.code === 'not_found') {
+                await this.loadApprovals();
+                return;
+            }
+            this.toast(`批准响应失败：${err instanceof Error ? err.message : String(err)}`, 'error');
+        }
+    };
+
+    /** 策略面读取（M5-07）：设置页矩阵的事实源。 */
+    private async refreshPolicy(): Promise<void> {
+        if (this.disposed || this.state.connection !== 'ready' || !this.state.policySupported) {
+            return;
+        }
+        try {
+            const view = await this.transport.policyGet();
+            if (this.disposed) {
+                return;
+            }
+            this.set({ policy: view });
+        } catch (err) {
+            if (err instanceof IpcRequestError && err.code === 'unavailable') {
+                return;
+            }
+            this.toast(`策略读取失败：${err instanceof Error ? err.message : String(err)}`, 'warn');
+        }
+    }
+
+    /** 应用新规则集（M5-07）：立即生效 + 合并文档持久化；回显写回状态。 */
+    setPolicy: HarnessActions['setPolicy'] = async (rules, readRoots) => {
+        if (!this.state.policySupported) {
+            this.toast('服务未提供策略面（hello 无 policy 位）', 'warn');
+            return;
+        }
+        try {
+            const view = await this.transport.policySet(rules, readRoots);
+            this.set({ policy: view });
+            this.toast('权限策略已更新（规则立即生效）', 'info');
+        } catch (err) {
+            const message =
+                err instanceof IpcRequestError
+                    ? `策略应用被拒绝（${err.code}）`
+                    : err instanceof Error
+                      ? err.message
+                      : String(err);
+            this.toast(message, 'error');
+        }
+    };
 
     private pushObsFrame(sessionId: string, frame: ObsFrame): void {
         const feed = new Map(this.state.obsFeed);
@@ -1524,6 +1638,9 @@ export class HarnessStore {
             setDraft: this.setDraft,
             submitExec: this.submitExec,
             sendDialog: (sessionId, text) => this.sendDialog(sessionId, text),
+            respondApproval: (requestId, approved) => this.respondApproval(requestId, approved),
+            loadApprovals: () => this.loadApprovals(),
+            setPolicy: (rules, readRoots) => this.setPolicy(rules, readRoots),
             stopSession: this.stopSession,
             engageEstop: this.engageEstop,
             releaseEstop: this.releaseEstop,

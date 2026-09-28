@@ -1,5 +1,7 @@
 #pragma once
 
+#include <mutex>
+
 #include <array>
 #include <functional>
 #include <memory>
@@ -162,9 +164,17 @@ class PermissionController {
     PermissionVerdict authorize(const PermissionRequest &request,
                                 const CancelProbe &cancelled = {}) const;
 
-    const PermissionPolicy &policy() const { return policy_; }
+    /// Snapshot of the live policy (M5-07 policy face).
+    PermissionPolicy policy() const;
+
+    /// Replaces the live policy (M5-07 policy face: the settings page
+    /// applies a new rule set at runtime). Thread-safe against authorize():
+    /// callers run on task driver threads while the policy face runs on the
+    /// service serial context.
+    void set_policy(PermissionPolicy policy);
 
   private:
+    mutable std::mutex policy_mutex_;
     PermissionPolicy policy_;
     ConfirmationHandler &confirmation_;
 };

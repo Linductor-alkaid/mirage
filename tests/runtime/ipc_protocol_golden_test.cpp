@@ -405,6 +405,38 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
     if (op == "session.close") {
         return ipc::CloseSessionRequest{vector_string(body, "session_id")};
     }
+    if (op == "policy.get") {
+        return ipc::GetPolicyRequest{};
+    }
+    if (op == "policy.set") {
+        ipc::SetPolicyRequest set_policy;
+        const auto *rules = vector_member(body, "rules").as_object();
+        MIRAGE_CHECK(rules != nullptr);
+        if (rules != nullptr) {
+            for (const auto &[capability, value] : *rules) {
+                const auto *text = value.as_string();
+                MIRAGE_CHECK(text != nullptr);
+                if (text != nullptr) {
+                    set_policy.rules.insert_or_assign(capability, *text);
+                }
+            }
+        }
+        if (const auto *roots = body.find("read_roots"); roots != nullptr) {
+            const auto *entries = roots->as_array();
+            MIRAGE_CHECK(entries != nullptr);
+            if (entries != nullptr) {
+                for (const auto &entry : *entries) {
+                    const auto *text = entry.as_string();
+                    MIRAGE_CHECK(text != nullptr);
+                    if (text != nullptr) {
+                        set_policy.read_roots.push_back(*text);
+                    }
+                }
+            }
+            set_policy.has_read_roots = true;
+        }
+        return set_policy;
+    }
     if (op == "session.chat") {
         ipc::SessionChatRequest chat;
         chat.session_id = vector_string(body, "session_id");
@@ -600,6 +632,20 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
             } else if constexpr (std::is_same_v<T, ipc::CloseSessionRequest>) {
                 const auto &close = std::get<ipc::CloseSessionRequest>(actual);
                 check_string_equal(name, "session_id", close.session_id, expected_value.session_id);
+            } else if constexpr (std::is_same_v<T, ipc::GetPolicyRequest>) {
+                // Stateless body: the variant index comparison above suffices.
+            } else if constexpr (std::is_same_v<T, ipc::SetPolicyRequest>) {
+                const auto &set_policy = std::get<ipc::SetPolicyRequest>(actual);
+                MIRAGE_CHECK(set_policy.rules.size() == expected_value.rules.size());
+                for (const auto &[capability, rule] : expected_value.rules) {
+                    const auto found = set_policy.rules.find(capability);
+                    MIRAGE_CHECK(found != set_policy.rules.end());
+                    if (found != set_policy.rules.end()) {
+                        check_string_equal(name, "policy rule " + capability, found->second, rule);
+                    }
+                }
+                MIRAGE_CHECK(set_policy.has_read_roots == expected_value.has_read_roots);
+                MIRAGE_CHECK(set_policy.read_roots == expected_value.read_roots);
             } else if constexpr (std::is_same_v<T, ipc::SessionChatRequest>) {
                 const auto &chat = std::get<ipc::SessionChatRequest>(actual);
                 check_string_equal(name, "chat session_id", chat.session_id,
@@ -724,6 +770,12 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
             MIRAGE_CHECK(flag.has_value());
             identity.chat = flag;
         }
+        // M5-07 policy-face capability member: same optional discipline.
+        if (const auto *policy = value.find("policy"); policy != nullptr) {
+            const auto flag = policy->as_boolean();
+            MIRAGE_CHECK(flag.has_value());
+            identity.policy = flag;
+        }
         response.payload = std::move(identity);
     } else if (kind == "submitted") {
         ipc::TaskSubmitted submitted;
@@ -819,6 +871,31 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
     } else if (kind == "session-closed") {
         response.payload =
             ipc::SessionClosed{vector_string(value, "session_id"), vector_string(value, "state")};
+    } else if (kind == "policy-view") {
+        ipc::PolicyView view;
+        const auto *policy_rules = vector_member(value, "rules").as_object();
+        MIRAGE_CHECK(policy_rules != nullptr);
+        if (policy_rules != nullptr) {
+            for (const auto &[capability, rule_value] : *policy_rules) {
+                const auto *text = rule_value.as_string();
+                MIRAGE_CHECK(text != nullptr);
+                if (text != nullptr) {
+                    view.rules.insert_or_assign(capability, *text);
+                }
+            }
+        }
+        const auto *roots = vector_member(value, "read_roots").as_array();
+        MIRAGE_CHECK(roots != nullptr);
+        if (roots != nullptr) {
+            for (const auto &entry : *roots) {
+                const auto *text = entry.as_string();
+                MIRAGE_CHECK(text != nullptr);
+                if (text != nullptr) {
+                    view.read_roots.push_back(*text);
+                }
+            }
+        }
+        response.payload = std::move(view);
     } else if (kind == "session-chat-accepted") {
         response.payload = ipc::DialogTurnAccepted{vector_string(value, "turn_id")};
     } else if (kind == "session-chat-history") {
@@ -1070,6 +1147,10 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                 if (actual_value.chat.has_value() && expected_value.chat.has_value()) {
                     MIRAGE_CHECK(*actual_value.chat == *expected_value.chat);
                 }
+                MIRAGE_CHECK(actual_value.policy.has_value() == expected_value.policy.has_value());
+                if (actual_value.policy.has_value() && expected_value.policy.has_value()) {
+                    MIRAGE_CHECK(*actual_value.policy == *expected_value.policy);
+                }
             } else if constexpr (std::is_same_v<T, ipc::TaskSubmitted>) {
                 check_string_equal(name, "task_id", actual_value.task_id, expected_value.task_id);
                 MIRAGE_CHECK(actual_value.session_id.has_value() ==
@@ -1154,6 +1235,16 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                 check_string_equal(name, "session_id", actual_value.session_id,
                                    expected_value.session_id);
                 check_string_equal(name, "session state", actual_value.state, expected_value.state);
+            } else if constexpr (std::is_same_v<T, ipc::PolicyView>) {
+                MIRAGE_CHECK(actual_value.rules.size() == expected_value.rules.size());
+                for (const auto &[capability, rule] : expected_value.rules) {
+                    const auto found = actual_value.rules.find(capability);
+                    MIRAGE_CHECK(found != actual_value.rules.end());
+                    if (found != actual_value.rules.end()) {
+                        check_string_equal(name, "policy rule " + capability, found->second, rule);
+                    }
+                }
+                MIRAGE_CHECK(actual_value.read_roots == expected_value.read_roots);
             } else if constexpr (std::is_same_v<T, ipc::DialogTurnAccepted>) {
                 check_string_equal(name, "turn_id", actual_value.turn_id, expected_value.turn_id);
             } else if constexpr (std::is_same_v<T, ipc::DialogHistory>) {

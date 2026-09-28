@@ -589,6 +589,8 @@ target_link_libraries(runtime_service_test
         Mirage::platform
         Mirage::desktop
         Mirage::ipc
+        Mirage::persistence
+        Mirage::permission
 )
 add_test(NAME runtime_service_test COMMAND runtime_service_test)
 set_tests_properties(runtime_service_test PROPERTIES

@@ -45,12 +45,17 @@ describe('hello identity', () => {
             sessions: true,
             observation: true,
             chat: true,
+            policy: true,
+            permissions: true,
         });
         expect(identity.events).toBe(true);
         expect(identity.workflows).toBe(true);
         expect(identity.sessions).toBe(true);
         expect(identity.observation).toBe(true);
         expect(identity.chat).toBe(true);
+        expect(identity.policy).toBe(true);
+        expect(identity.permissions).toBe(true);
+        expect(transport.permissionsSupported).toBe(true);
         expect(transport.eventsSupported).toBe(true);
         expect(transport.workflowsSupported).toBe(true);
         expect(transport.sessionsSupported).toBe(true);

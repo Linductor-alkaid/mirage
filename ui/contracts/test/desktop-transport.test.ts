@@ -419,3 +419,63 @@ describe('DesktopBridgeTransport session.chat', () => {
         await transport.close();
     });
 });
+
+// -- M5-07 faces: permission approvals + policy get/set -------------------------
+
+describe('DesktopBridgeTransport M5-07 faces', () => {
+    it('sends permission.list and routes the pending snapshot', async () => {
+        const { transport, bridge } = makeHarness();
+        const pending = transport.permissionList();
+        expect(bridge.lastRequest().body).toEqual({ op: 'permission.list' });
+        bridge.respondOk(1, {
+            kind: 'permission-list',
+            value: {
+                pending: [
+                    {
+                        request_id: 'perm-0002',
+                        capability: 'process.execute',
+                        resource: 'make',
+                        task_id: 'task-0002',
+                        timeout_ms: 10_000,
+                    },
+                ],
+            },
+        });
+        const approvals = await pending;
+        expect(approvals).toHaveLength(1);
+        expect(approvals[0]!.task_id).toBe('task-0002');
+        await transport.close();
+    });
+
+    it('sends permission.respond with the decision and routes the ack', async () => {
+        const { transport, bridge } = makeHarness();
+        const pending = transport.permissionRespond('perm-0002', true);
+        expect(bridge.lastRequest().body).toEqual({
+            op: 'permission.respond',
+            request_id: 'perm-0002',
+            approved: true,
+        });
+        bridge.respondOk(1, { kind: 'permission-responded', value: { request_id: 'perm-0002' } });
+        expect(await pending).toEqual({ request_id: 'perm-0002' });
+        await transport.close();
+    });
+
+    it('sends policy.get / policy.set and routes the policy view', async () => {
+        const { transport, bridge } = makeHarness();
+        const getting = transport.policyGet();
+        expect(bridge.lastRequest().body).toEqual({ op: 'policy.get' });
+        const view = {
+            rules: { 'filesystem.read': 'allow', 'clipboard.write': 'deny' },
+            read_roots: [] as string[],
+        };
+        bridge.respondOk(1, { kind: 'policy-view', value: view });
+        expect(await getting).toEqual(view);
+
+        const rules = { 'filesystem.read': 'allow', 'clipboard.write': 'deny' };
+        const setting = transport.policySet(rules);
+        expect(bridge.lastRequest().body).toEqual({ op: 'policy.set', rules });
+        bridge.respondOk(2, { kind: 'policy-view', value: view });
+        expect(await setting).toEqual(view);
+        await transport.close();
+    });
+});

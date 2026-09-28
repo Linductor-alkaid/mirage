@@ -99,6 +99,9 @@ const WORKFLOW_VALIDATIONS: readonly WorkflowValidation[] = [
     'validated',
     'rejected',
 ];
+/** Closed rule vocabulary (DEC-010) carried by policy.set / policy.get. */
+const RULE_NAMES: readonly string[] = ['allow', 'confirm', 'deny'];
+
 /** Closed dialog turn-status vocabulary (DEC-027). */
 const CHAT_TURN_STATUSES: readonly ChatTurnStatus[] = ['pending', 'ok', 'failed'];
 
@@ -210,6 +213,21 @@ export function encodeRequest(id: number, body: RequestBody): string {
                 object.limit = body.limit;
             }
             break;
+        case 'policy.get':
+            object.op = 'policy.get';
+            break;
+        case 'policy.set': {
+            object.op = 'policy.set';
+            const rules: Record<string, string> = {};
+            for (const [capability, rule] of Object.entries(body.rules)) {
+                rules[capability] = rule;
+            }
+            object.rules = rules;
+            if (body.read_roots !== undefined) {
+                object.read_roots = body.read_roots;
+            }
+            break;
+        }
         case 'session.close':
             object.op = 'session.close';
             object.session_id = body.session_id;
@@ -420,6 +438,54 @@ export function decodeRequest(payload: string): RequestDecode {
                 return { ok: false, error: "session.chat requires a non-empty 'text'" };
             }
             return { ok: true, id, body: { op: 'session.chat', session_id: sessionId, text } };
+        }
+        case 'policy.get':
+            return { ok: true, id, body: { op: 'policy.get' } };
+        case 'policy.set': {
+            const rules = parsed.rules;
+            if (!isRecord(rules)) {
+                return { ok: false, error: "policy.set requires a 'rules' object" };
+            }
+            const decodedRules: Record<string, string> = {};
+            for (const [capability, value] of Object.entries(rules)) {
+                if (!CAPABILITY_NAMES.includes(capability)) {
+                    return {
+                        ok: false,
+                        error: "policy.set 'rules' keys must be DEC-010 capability names",
+                    };
+                }
+                const rule = asString(value);
+                if (rule === null || !RULE_NAMES.includes(rule)) {
+                    return {
+                        ok: false,
+                        error: 'policy.set rule values must be "allow", "confirm" or "deny"',
+                    };
+                }
+                decodedRules[capability] = rule;
+            }
+            const body: RequestBody = { op: 'policy.set', rules: decodedRules };
+            if (parsed.read_roots !== undefined) {
+                if (!Array.isArray(parsed.read_roots) || parsed.read_roots.length > 64) {
+                    return {
+                        ok: false,
+                        error: "policy.set 'read_roots' must be an array of at most 64 strings",
+                    };
+                }
+                const roots: string[] = [];
+                for (const entry of parsed.read_roots) {
+                    const root = asString(entry);
+                    if (root === null || root.length === 0 || root.length > 4096) {
+                        return {
+                            ok: false,
+                            error:
+                                "policy.set 'read_roots' entries must be strings of at most 4096 bytes",
+                        };
+                    }
+                    roots.push(root);
+                }
+                (body as { read_roots?: string[] }).read_roots = roots;
+            }
+            return { ok: true, id, body };
         }
         case 'session.chat.history': {
             const sessionId = asString(parsed.session_id);
@@ -646,6 +712,9 @@ export function encodeResponse(response: ResponseEnvelop): string {
                 if (value.chat !== undefined) {
                     object.chat = value.chat;
                 }
+                if (value.policy !== undefined) {
+                    object.policy = value.policy;
+                }
                 break;
             }
             case 'submitted': {
@@ -695,6 +764,10 @@ export function encodeResponse(response: ResponseEnvelop): string {
                 break;
             case 'session-opened':
                 object.session_id = payload.value.session_id;
+                break;
+            case 'policy-view':
+                object.rules = payload.value.rules;
+                object.read_roots = payload.value.read_roots;
                 break;
             case 'session-closed':
                 object.session_id = payload.value.session_id;
@@ -1233,6 +1306,14 @@ export function decodeResponse(payload: string): ResponseDecode {
             }
             (identity as { chat?: boolean }).chat = chat;
         }
+        // M5-07 policy-face capability member: same discipline.
+        if (parsed.policy !== undefined) {
+            const policyFlag = asBoolean(parsed.policy);
+            if (policyFlag === null) {
+                return { ok: false, error: "hello response 'policy' must be a boolean" };
+            }
+            (identity as { policy?: boolean }).policy = policyFlag;
+        }
         return {
             ok: true,
             response: { ok: true, id, payload: { kind: 'identity', value: identity } },
@@ -1430,6 +1511,57 @@ export function decodeResponse(payload: string): ResponseDecode {
                 ok: true,
                 id,
                 payload: { kind: 'session-history', value: { session_id: sessionId, entries, truncated } },
+            },
+        };
+    }
+    if (parsed.rules !== undefined) {
+        // PolicyView discriminates on "rules" (M5-07).
+        if (!isRecord(parsed.rules)) {
+            return { ok: false, error: "policy.get 'rules' must be an object" };
+        }
+        const rules: Record<string, string> = {};
+        for (const [capability, value] of Object.entries(parsed.rules)) {
+            if (!CAPABILITY_NAMES.includes(capability)) {
+                return {
+                    ok: false,
+                    error: "policy.get 'rules' keys must be DEC-010 capability names",
+                };
+            }
+            const rule = asString(value);
+            if (rule === null || !RULE_NAMES.includes(rule)) {
+                return {
+                    ok: false,
+                    error: 'policy.get rule values must be "allow", "confirm" or "deny"',
+                };
+            }
+            rules[capability] = rule;
+        }
+        const readRoots: string[] = [];
+        if (parsed.read_roots !== undefined) {
+            if (!Array.isArray(parsed.read_roots) || parsed.read_roots.length > 64) {
+                return {
+                    ok: false,
+                    error: "policy.get 'read_roots' must be an array of at most 64 strings",
+                };
+            }
+            for (const entry of parsed.read_roots) {
+                const root = asString(entry);
+                if (root === null || root.length > 4096) {
+                    return {
+                        ok: false,
+                        error:
+                            "policy.get 'read_roots' entries must be strings of at most 4096 bytes",
+                    };
+                }
+                readRoots.push(root);
+            }
+        }
+        return {
+            ok: true,
+            response: {
+                ok: true,
+                id,
+                payload: { kind: 'policy-view', value: { rules, read_roots: readRoots } },
             },
         };
     }

@@ -5,6 +5,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include <executor/executor.hpp>
 #include <executor/serial_execution_context.hpp>
@@ -17,6 +18,8 @@
 #include <mirage/integration/workflow_event_bridge.hpp>
 #include <mirage/runtime/mira_host.hpp>
 #include <mirage/runtime/permission/permission.hpp>
+#include <mirage/runtime/persistence/settings.hpp>
+#include <mirage/runtime/persistence/store.hpp>
 
 #include "event_hub.hpp"
 #include "recovery_writer.hpp"
@@ -91,6 +94,14 @@ struct ServiceCore {
     std::unique_ptr<mirage::integration::ModelLayer> model_layer;
     /// The model layer's configuration mirror (DEC-027), engaged at start().
     mirage::integration::ModelLayerConfig model;
+    /// Read-roots resource-scope mirror (M5-07 policy face): reported by
+    /// policy.get, replaced by policy.set, applied to the bound provider at
+    /// start (the embedding wires it into the environment).
+    std::vector<std::string> read_roots;
+    /// Settings write-back store (M5-07, DEC-011 Desktop Permissions entry):
+    /// policy.set persists the merged document here. Null when write-back is
+    /// disabled (tests).
+    std::unique_ptr<mirage::runtime::persistence::LocalStateStore> settings_store;
     /// Dialog threads (DEC-027): the per-session bounded turn logs, the
     /// snapshot face of session.chat_updated.
     DialogRegistry dialogs;

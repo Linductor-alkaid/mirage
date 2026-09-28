@@ -1180,3 +1180,102 @@ describe('session.chat over the WebSocket mapping', () => {
         expect(history.turns[0]!.reply_text).toBe('当前有两个应用窗口：编辑器与终端。');
     });
 });
+
+// ---- M5-07 faces: permission approvals + policy get/set ------------------------
+
+describe('M5-07 faces over the WebSocket mapping', () => {
+    it('policyGet sends policy.get and routes the policy view', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+        harness.socket.sent.length = 0;
+
+        const pending = harness.transport.policyGet();
+        await flush();
+        expect(sentBody(harness.socket.sent[0]!)).toEqual({ op: 'policy.get' });
+
+        respond(harness.socket, 2, {
+            kind: 'policy-view',
+            value: {
+                rules: { 'filesystem.read': 'allow', 'filesystem.write': 'deny' },
+                read_roots: ['/home/user/work'],
+            },
+        });
+        const view = await pending;
+        expect(view.rules['filesystem.write']).toBe('deny');
+        expect(view.read_roots).toEqual(['/home/user/work']);
+    });
+
+    it('policySet sends the full rule set with optional read_roots and routes the echo', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+        harness.socket.sent.length = 0;
+
+        const rules = { 'filesystem.read': 'allow', 'filesystem.write': 'deny' };
+        const pending = harness.transport.policySet(rules, ['/tmp/scratch']);
+        await flush();
+        expect(sentBody(harness.socket.sent[0]!)).toEqual({
+            op: 'policy.set',
+            rules,
+            read_roots: ['/tmp/scratch'],
+        });
+
+        respond(harness.socket, 2, {
+            kind: 'policy-view',
+            value: { rules, read_roots: ['/tmp/scratch'] },
+        });
+        const view = await pending;
+        expect(view.read_roots).toEqual(['/tmp/scratch']);
+    });
+
+    it('permissionList sends permission.list and routes the pending snapshot', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+        harness.socket.sent.length = 0;
+
+        const pending = harness.transport.permissionList();
+        await flush();
+        expect(sentBody(harness.socket.sent[0]!)).toEqual({ op: 'permission.list' });
+
+        respond(harness.socket, 2, {
+            kind: 'permission-list',
+            value: {
+                pending: [
+                    {
+                        request_id: 'perm-0001',
+                        capability: 'filesystem.write',
+                        resource: '/tmp/out.txt',
+                        task_id: 'task-0001',
+                        timeout_ms: 30_000,
+                    },
+                ],
+            },
+        });
+        const approvals = await pending;
+        expect(approvals).toHaveLength(1);
+        expect(approvals[0]!.request_id).toBe('perm-0001');
+        expect(approvals[0]!.capability).toBe('filesystem.write');
+    });
+
+    it('permissionRespond sends the decision and routes the ack; later responses surface not_found', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+        harness.socket.sent.length = 0;
+
+        const pending = harness.transport.permissionRespond('perm-0001', false);
+        await flush();
+        expect(sentBody(harness.socket.sent[0]!)).toEqual({
+            op: 'permission.respond',
+            request_id: 'perm-0001',
+            approved: false,
+        });
+
+        respond(harness.socket, 2, { kind: 'permission-responded', value: { request_id: 'perm-0001' } });
+        expect(await pending).toEqual({ request_id: 'perm-0001' });
+
+        harness.socket.sent.length = 0;
+        const late = harness.transport.permissionRespond('perm-0001', true);
+        await flush();
+        respondError(harness.socket, 3, 'not_found', 'unknown permission request');
+        await expect(late).rejects.toMatchObject({ code: 'not_found' });
+    });
+});

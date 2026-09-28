@@ -112,6 +112,18 @@ struct ServiceConfig {
     /// face is served (hello `chat` = true). An enabled-but-invalid config
     /// fails start() closed; a disabled config keeps the face dark
     /// (`unavailable`, hello without the `chat` member).
+    /// Filesystem read roots mirror (M5-07 policy face): populated by the
+    /// embedding from settings/flags so policy.get reports the live resource
+    /// scope; the roots themselves apply to the bound provider at start.
+    std::vector<std::string> read_roots;
+    /// Settings write-back directory / file name (DEC-011 Desktop
+    /// Permissions entry, M5-07): policy.set persists the merged document
+    /// here. Empty directory disables write-back (tests).
+    std::filesystem::path settings_directory;
+    std::string settings_file_name = "service.json";
+    /// When false, policy.set stays live-only and never writes the settings
+    /// document (tests).
+    bool persist_settings = true;
     mirage::integration::ModelLayerConfig model;
     /// Optional scripted-provider seam (DEC-027): when set, the model layer
     /// serves the gateway through this provider instead of the pinned socket

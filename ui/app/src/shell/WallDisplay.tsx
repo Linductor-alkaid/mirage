@@ -187,12 +187,18 @@ function Annunciators(): React.ReactElement {
                 <span className="t-value num">SEQ {String(state.eventSeq).padStart(3, '0')}</span>
             </div>
             <div
-                className="tile"
+                className={`tile ${state.pendingApprovals.length > 0 ? 'is-live' : ''}`}
                 style={{ '--tile-color': 'var(--primary)' } as React.CSSProperties}
-                title="批准中心属 M5-07（异步确认面 permission.* 产品化接线）"
+                title={
+                    state.permissionsSupported
+                        ? `待批准请求 ${state.pendingApprovals.length} 条（批准中心）`
+                        : '异步确认面未启用'
+                }
             >
                 <span className="t-label">批准</span>
-                <span className="t-value">—</span>
+                <span className="t-value num">
+                    {state.permissionsSupported ? state.pendingApprovals.length : '—'}
+                </span>
             </div>
         </div>
     );

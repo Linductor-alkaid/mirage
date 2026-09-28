@@ -1,7 +1,7 @@
 /// 全局覆盖层：命令面板（Ctrl+K）、批准/通知中心、Toast 层。
 /// 面板为自绘 listbox（role=listbox/option + 键盘导航 + aria）。
-/// 批准中心自 M5-06 起为占位面板：演示批准域已退役，真实异步确认面
-/// （permission.*，DEC-020）接线属 M5-07（DEC-025 决策 4）。
+/// 批准中心自 M5-07 起接真实异步确认面（permission.*，DEC-020）：快照 +
+/// 请求事件 + permission.respond（DEC-027 增量记录的占位由此兑现）。
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
@@ -136,7 +136,20 @@ export function CommandPalette({ onClose }: { onClose(): void }): React.ReactEle
 }
 
 
+/// 批准中心（M5-07，DEC-020 异步确认面）：permission.list 为快照事实源，
+/// 请求事件触发重取；每条挂起确认呈现能力 / 资源 / 任务 / 剩余预算，批准
+/// 或拒绝经 permission.respond（先到先得，not_found 静默收敛）。
 export function ApprovalsCenter({ onClose }: { onClose(): void }): React.ReactElement {
+    const { state, respondApproval, loadApprovals } = useHarness();
+
+    useEffect(() => {
+        void loadApprovals();
+    }, [loadApprovals]);
+
+    const pending = state.pendingApprovals;
+    const unavailable =
+        !state.permissionsSupported && state.connection === 'ready';
+
     return (
         <div className="overlay-scrim" onClick={onClose}>
             <div
@@ -146,10 +159,69 @@ export function ApprovalsCenter({ onClose }: { onClose(): void }): React.ReactEl
                 style={{ top: 'calc(var(--mir-size-wall) + 8px)', left: 'calc(var(--mir-size-rail) + 8px)' }}
                 onClick={(e) => e.stopPropagation()}
             >
-                <div className="palette-empty">
-                    批准中心尚未接线：异步确认面（permission.*）的产品化接入属 M5-07。
-                    当前没有可呈现的待决事项。
+                <div className="palette-empty" style={{ marginBottom: 8 }}>
+                    <span>批准中心（DEC-020 异步确认面）。</span>
+                    <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ height: 20, marginLeft: 8 }}
+                        onClick={() => void loadApprovals()}
+                    >
+                        刷新
+                    </button>
                 </div>
+                {unavailable && (
+                    <div className="palette-empty">
+                        服务未提供异步确认面（hello 无 permissions 位，确认 hub 未配置）。
+                    </div>
+                )}
+                {state.permissionsSupported && pending.length === 0 && (
+                    <div className="palette-empty" data-testid="approvals-empty">
+                        没有待批准请求。Confirm 规则命中时请求会出现在这里。
+                    </div>
+                )}
+                {pending.map((item) => {
+                    const remaining = Math.max(0, Math.round((item.timeout_ms) / 1000));
+                    return (
+                        <div
+                            key={item.request_id}
+                            className="card"
+                            style={{ margin: '6px 0', padding: 8 }}
+                            data-testid="approval-card"
+                        >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                                <strong className="mono">{item.capability}</strong>
+                                <span className="badge is-warn">剩余 {remaining}s</span>
+                            </div>
+                            {item.resource.length > 0 && (
+                                <div className="mono" style={{ fontSize: 12, opacity: 0.8, marginTop: 4 }}>
+                                    {item.resource}
+                                </div>
+                            )}
+                            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                                任务 {item.task_id.slice(0, 8)} · 请求 {item.request_id.slice(0, 8)}
+                            </div>
+                            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                                <button
+                                    type="button"
+                                    className="btn btn-primary"
+                                    style={{ height: 26 }}
+                                    onClick={() => void respondApproval(item.request_id, true)}
+                                >
+                                    批准
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn-danger"
+                                    style={{ height: 26 }}
+                                    onClick={() => void respondApproval(item.request_id, false)}
+                                >
+                                    拒绝
+                                </button>
+                            </div>
+                        </div>
+                    );
+                })}
             </div>
         </div>
     );

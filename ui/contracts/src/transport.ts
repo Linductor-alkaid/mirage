@@ -6,6 +6,8 @@
 import type {
     ChatTurnEntry,
     ExposedTool,
+    PendingPermission,
+    PolicyView,
     InspectTask,
     ObservationView,
     ResponseEnvelop,
@@ -116,6 +118,22 @@ export interface MirageTransport {
      * dialog mode stays disabled (DEC-025 honest degradation). */
     readonly chatSupported: boolean;
 
+    /** DEC-020 async-confirmation capability (hello `permissions`; a hub-
+     * equipped service is true, a headless one false). */
+    readonly permissionsSupported: boolean;
+
+    /** True when hello advertised the M5-07 policy face; false means the
+     * policy.get / policy.set methods will fail and the settings page must
+     * not present the matrix as live data. */
+    readonly policySupported: boolean;
+
+    /** The pending-confirmation snapshot (DEC-020 resync face); empty means
+     * nothing awaits confirmation right now. */
+    permissionList(): Promise<PendingPermission[]>;
+    /** DEC-020 respond: first response wins; an unknown / already decided /
+     * expired id surfaces the stable not_found. */
+    permissionRespond(requestId: string, approved: boolean): Promise<{ request_id: string }>;
+
     hello(): Promise<ServiceIdentity>;
     submitTask(request: SubmitTaskInput): Promise<{ task_id: string }>;
     listTasks(): Promise<TaskSummary[]>;
@@ -152,6 +170,21 @@ export interface MirageTransport {
      * model layer is configured, 'invalid_state' while a turn is in flight
      * for the session, 'not_found' for unknown sessions. */
     sessionChat(sessionId: string, text: string): Promise<{ turn_id: string }>;
+    /** Permission approvals (DEC-020): the pending-confirmation snapshot
+     * (resync face) and the respond call — first response wins, later ones
+     * surface the stable not_found. */
+    permissionList(): Promise<PendingPermission[]>;
+    permissionRespond(requestId: string, approved: boolean): Promise<{ request_id: string }>;
+
+    /** Permission policy face (M5-07): reads the live rule set plus the
+     * persisted read-roots scope; set applies the rules immediately and
+     * persists the merged document. */
+    policyGet(): Promise<PolicyView>;
+    policySet(
+        rules: Record<string, string>,
+        readRoots?: string[],
+    ): Promise<PolicyView>;
+
     /** The dialog thread's resync snapshot (newest window, DEC-027). */
     sessionChatHistory(
         sessionId: string,
