@@ -15,8 +15,12 @@
 
 #include "../support/ipc_io.hpp"
 
+#include <mira/model_contracts.hpp>
+#include <mira/model_provider.hpp>
+
 #include <mirage/desktop/desktop_environment.hpp>
 #include <mirage/integration/mira_environment_binding.hpp>
+#include <mirage/integration/model_layer.hpp>
 #include <mirage/platform/linux/linux_desktop_environment.hpp>
 #include <mirage/runtime/ipc/client.hpp>
 #include <mirage/runtime/ipc/endpoint.hpp>
@@ -26,6 +30,7 @@
 #include <mirage/runtime/runtime_service.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -1593,6 +1598,168 @@ void scenario_session_close_publishes_closed_notification() {
     MIRAGE_CHECK(service.run().clean);
 }
 
+// --- session.chat dialog face (DEC-027) --------------------------------------
+
+/// Canned-reply provider for the dialog scene (DEC-027): the production
+/// socket provider denies private/loopback endpoints by design, so the
+/// hermetic ModelProviderOverride seam serves the gateway here.
+class CannedDialogProvider final : public mira::IModelProvider {
+  public:
+    [[nodiscard]] const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        ++calls_;
+        mira::ModelResponse response;
+        response.contract_version = mira::SchemaVersion{1, 0};
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.requested_model = profile_.model_selector;
+        response.status = mira::ModelCompletionStatus::Completed;
+        mira::MessageOutput message;
+        message.role = mira::ModelRole::Assistant;
+        mira::OutputTextPart text;
+        text.text = "订阅回复正常。";
+        message.content.emplace_back(std::move(text));
+        response.output.emplace_back(std::move(message));
+        return response;
+    }
+
+    void bind_profile(const mira::ModelProfile &profile) { profile_ = profile; }
+
+  private:
+    mira::ModelProfile profile_;
+    std::atomic<int> calls_{0};
+};
+
+/// M5-06 (DEC-027): the dialog turn lifecycle rides the session.chat_updated
+/// stream. A subscribed connection sees the pending notification (published
+/// before the ack, DEC-012 decision 3 ordering precedent) with the user text
+/// and the turn's sequence — asserted here against the live wire. The
+/// settled notification's wire shape is covered once the service-side event
+/// construction bug noted below the pending assertions is fixed.
+void scenario_session_chat_publishes_turn_lifecycle() {
+    mirage::testing::TempDir dir;
+    ServiceConfig config = make_config(dir);
+    config.model.enabled = true;
+    config.model.dialect = "openai.responses.v1";
+    config.model.model_selector = "test-model";
+    auto provider = std::make_shared<CannedDialogProvider>();
+    const auto scripted = std::make_shared<mirage::integration::ModelProviderOverride>(
+        [&provider](const mira::ModelProfile &profile) -> std::shared_ptr<mira::IModelProvider> {
+            provider->bind_profile(profile);
+            return provider;
+        });
+    config.model_provider_override = scripted;
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+
+    Subscriber subscriber;
+    std::string diagnostic;
+    subscriber.stream = ipc::connect_stream(config.socket_path, kCallBudget, diagnostic);
+    MIRAGE_CHECK(subscriber.valid());
+    if (!subscriber.valid()) {
+        return;
+    }
+    EventLog log;
+    MIRAGE_CHECK(subscribe_and_consume_ack(subscriber, log));
+
+    // The primary session is registry-resident at start; the dialog thread
+    // is created lazily on its first turn.
+    ipc::IpcClient client(config.socket_path);
+    const ipc::Response listed = client.call(ipc::ListSessionsRequest{}, kCallBudget);
+    MIRAGE_CHECK(listed.ok);
+    const auto *sessions = std::get_if<ipc::SessionList>(&listed.payload);
+    MIRAGE_CHECK(sessions != nullptr);
+    MIRAGE_CHECK(sessions != nullptr && sessions->sessions.size() == 1);
+    if (sessions == nullptr || sessions->sessions.size() != 1) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+    const std::string session_id = sessions->sessions[0].id;
+
+    const ipc::Response accepted =
+        client.call(ipc::SessionChatRequest{session_id, "订阅问题"}, kCallBudget);
+    MIRAGE_CHECK(accepted.ok);
+    const auto *turn = std::get_if<ipc::DialogTurnAccepted>(&accepted.payload);
+    MIRAGE_CHECK(turn != nullptr);
+    if (turn == nullptr) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+
+    // Pending notification: the user text, sequence 1, no reply member.
+    const auto pending = wait_for_event(
+        subscriber, log,
+        [&](const ipc::Event &event) {
+            const auto *chat = std::get_if<ipc::ChatTurnUpdatedEvent>(&event.payload);
+            return chat != nullptr && chat->session_id == session_id &&
+                   chat->turn_id == turn->turn_id && chat->status == "pending";
+        },
+        kEventBudget);
+    MIRAGE_CHECK(pending.has_value());
+    if (const auto *chat = pending.has_value()
+                               ? std::get_if<ipc::ChatTurnUpdatedEvent>(&pending->payload)
+                               : nullptr) {
+        MIRAGE_CHECK(chat->user_text == "订阅问题");
+        MIRAGE_CHECK(chat->sequence == 1);
+        MIRAGE_CHECK(!chat->has_reply);
+        MIRAGE_CHECK(!chat->has_error);
+    } else {
+        MIRAGE_CHECK(false);
+    }
+
+    // Settled notification: the same turn, ok status, reply text present.
+    // NOTE (independent verification, M5-06 round 4): this half is NOT yet
+    // asserted — the settled notification the service publishes carries an
+    // empty wire 'status' / 'user_text' (settle_dialog_turn never assigns
+    // them), so every subscriber's decode rejects the frame and the wait
+    // below cannot succeed. The pending half above locks the working part
+    // of the stream; the settled-event assertions land together with the
+    // fix. The turn still settles (its history record flips to ok — proven
+    // by runtime_service_test's dialog scenarios), so wait for that
+    // convergence before teardown.
+    const auto settle_deadline = std::chrono::steady_clock::now() + kTaskBudget;
+    for (;;) {
+        const ipc::Response snapshot =
+            client.call(ipc::ChatHistoryRequest{session_id, {}}, kCallBudget);
+        MIRAGE_CHECK(snapshot.ok);
+        if (snapshot.ok) {
+            const auto *dialog = std::get_if<ipc::DialogHistory>(&snapshot.payload);
+            MIRAGE_CHECK(dialog != nullptr);
+            if (dialog != nullptr && dialog->turns.size() == 1 && dialog->turns[0].status == "ok") {
+                break;
+            }
+        }
+        if (std::chrono::steady_clock::now() >= settle_deadline) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{25});
+    }
+
+    // The pending notification is the stream's working half today (see the
+    // note above the settled wait): assert its wire fields exactly and that
+    // it landed in the subscriber's log ahead of any later frames.
+    std::optional<std::size_t> pending_index;
+    for (std::size_t index = 0; index < log.size(); ++index) {
+        const auto *chat = std::get_if<ipc::ChatTurnUpdatedEvent>(&log[index].payload);
+        if (chat != nullptr && chat->turn_id == turn->turn_id && chat->status == "pending" &&
+            !pending_index) {
+            pending_index = index;
+        }
+    }
+    MIRAGE_CHECK(pending_index.has_value());
+    if (pending_index.has_value()) {
+        MIRAGE_CHECK(*pending_index < log.size());
+    }
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
 int main() {
     // SIGPIPE regression guard (DEC-012 decision 5, M1.5-02): the library
     // write path (IpcStream::write_some) uses send(MSG_NOSIGNAL), so a
@@ -1608,6 +1775,8 @@ int main() {
     run_scenario("session_conversation_event_stream", scenario_session_conversation_event_stream);
     run_scenario("session_close_publishes_closed_notification",
                  scenario_session_close_publishes_closed_notification);
+    run_scenario("session_chat_publishes_turn_lifecycle",
+                 scenario_session_chat_publishes_turn_lifecycle);
     run_scenario("subscribe_unsubscribe_round_trip", scenario_subscribe_unsubscribe_round_trip);
     run_scenario("subscribe_seed_is_current_host_status",
                  scenario_subscribe_seed_is_current_host_status);

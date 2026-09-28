@@ -1232,6 +1232,249 @@ class ScriptedModelProvider final : public mira::IModelProvider {
     std::atomic<int> calls_{0};
 };
 
+/// A gate-blocked scripted provider (DEC-027): an inference holds inside
+/// infer() until the test releases it — the window the in-flight latch and
+/// the pending history shape live in — and later inferences return a
+/// scripted outcome (the canned reply, or a Failed status), so the failure
+/// settlement path is reachable deterministically. The cancellation probe is
+/// honored so teardown is never blocked.
+class GatedModelProvider final : public mira::IModelProvider {
+  public:
+    GatedModelProvider() = default;
+    [[nodiscard]] const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &context,
+                                            const mira::ProviderInferOptions &) override {
+        ++calls_;
+        while (hold_.load() && !context.cancelled()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{5});
+        }
+        if (context.cancelled()) {
+            mira::ModelResponse cancelled;
+            cancelled.contract_version = mira::SchemaVersion{1, 0};
+            cancelled.request_id = request.request_id;
+            cancelled.operation_id = request.operation_id;
+            cancelled.profile_id = profile_.id;
+            cancelled.requested_model = profile_.model_selector;
+            cancelled.status = mira::ModelCompletionStatus::Cancelled;
+            return cancelled;
+        }
+        mira::ModelResponse response;
+        response.contract_version = mira::SchemaVersion{1, 0};
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.requested_model = profile_.model_selector;
+        if (fail_after_release_.load()) {
+            response.status = mira::ModelCompletionStatus::Failed;
+            return response;
+        }
+        response.status = mira::ModelCompletionStatus::Completed;
+        mira::MessageOutput message;
+        message.role = mira::ModelRole::Assistant;
+        mira::OutputTextPart text;
+        text.text = "门控回复正常。";
+        message.content.emplace_back(std::move(text));
+        response.output.emplace_back(std::move(message));
+        return response;
+    }
+
+    void hold_open() { hold_.store(true); }
+    void release() { hold_.store(false); }
+    void fail_subsequent() { fail_after_release_.store(true); }
+
+    /// Binds the layer-assembled profile (the override factory receives it).
+    void bind_profile(const mira::ModelProfile &profile) { profile_ = profile; }
+
+  private:
+    mira::ModelProfile profile_;
+    std::atomic<int> calls_{0};
+    std::atomic<bool> hold_{false};
+    std::atomic<bool> fail_after_release_{false};
+};
+
+/// The dialog latch and failure settlement (DEC-027): a second session.chat
+/// while one turn's model call is in flight is refused invalid_state, the
+/// pending turn's history entry carries neither reply nor error, a Failed
+/// model status settles the turn "failed" with the stable error, and every
+/// settlement — ok or failed — clears the latch so the next turn accepts.
+/// The 16 KiB text budget refuses instead of cropping.
+void scenario_session_chat_latch_and_failure() {
+    mirage::testing::TempDir dir;
+    ServiceConfig config = make_config(dir);
+    config.model.enabled = true;
+    config.model.dialect = "openai.responses.v1";
+    config.model.model_selector = "test-model";
+    auto gated_provider = std::make_shared<GatedModelProvider>();
+    const auto scripted = std::make_shared<mirage::integration::ModelProviderOverride>(
+        [&gated_provider](
+            const mira::ModelProfile &profile) -> std::shared_ptr<mira::IModelProvider> {
+            gated_provider->bind_profile(profile);
+            return gated_provider;
+        });
+    config.model_provider_override = scripted;
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+
+    ipc::IpcClient client(config.socket_path);
+    const ipc::Response opened = client.call(ipc::OpenSessionRequest{}, kCallBudget);
+    MIRAGE_CHECK(opened.ok);
+    const auto *opened_session = std::get_if<ipc::SessionOpened>(&opened.payload);
+    MIRAGE_CHECK(opened_session != nullptr);
+    if (opened_session == nullptr) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+    const std::string session_id = opened_session->session_id;
+
+    // Over-budget text is refused before any turn is registered.
+    const std::string oversized(16 * 1024 + 1, 'x');
+    const ipc::Response oversized_reply =
+        client.call(ipc::SessionChatRequest{session_id, oversized}, kCallBudget);
+    MIRAGE_CHECK(!oversized_reply.ok);
+    MIRAGE_CHECK(oversized_reply.error.code == "invalid_argument");
+    MIRAGE_CHECK(oversized_reply.error.message.find("byte budget") != std::string::npos);
+
+    // Turn 1 enters the model call and stays there (the gate is closed).
+    gated_provider->hold_open();
+    const ipc::Response accepted =
+        client.call(ipc::SessionChatRequest{session_id, "第一个问题"}, kCallBudget);
+    MIRAGE_CHECK(accepted.ok);
+    const auto *turn = std::get_if<ipc::DialogTurnAccepted>(&accepted.payload);
+    MIRAGE_CHECK(turn != nullptr);
+    if (turn == nullptr) {
+        gated_provider->release();
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+
+    // The in-flight latch refuses a second turn for the same session.
+    const ipc::Response latch =
+        client.call(ipc::SessionChatRequest{session_id, "第二个问题"}, kCallBudget);
+    MIRAGE_CHECK(!latch.ok);
+    MIRAGE_CHECK(latch.error.code == "invalid_state");
+    MIRAGE_CHECK(latch.error.message == "a dialog turn is already in flight for this session");
+
+    // The pending history entry carries neither reply nor error.
+    const ipc::Response pending_snapshot =
+        client.call(ipc::ChatHistoryRequest{session_id, {}}, kCallBudget);
+    MIRAGE_CHECK(pending_snapshot.ok);
+    const auto *pending_history = std::get_if<ipc::DialogHistory>(&pending_snapshot.payload);
+    MIRAGE_CHECK(pending_history != nullptr);
+    if (pending_history != nullptr) {
+        MIRAGE_CHECK(pending_history->turns.size() == 1);
+        if (pending_history->turns.size() == 1) {
+            const ipc::DialogTurnEntry &entry = pending_history->turns[0];
+            MIRAGE_CHECK(entry.turn_id == turn->turn_id);
+            MIRAGE_CHECK(entry.status == "pending");
+            MIRAGE_CHECK(!entry.has_reply);
+            MIRAGE_CHECK(!entry.has_error);
+        }
+    }
+
+    // Release the gate: the turn settles ok, the latch clears, and the
+    // follow-up turn accepts.
+    gated_provider->release();
+    std::optional<ipc::DialogTurnEntry> settled;
+    const auto deadline = std::chrono::steady_clock::now() + kTaskBudget;
+    while (!settled.has_value()) {
+        const ipc::Response snapshot =
+            client.call(ipc::ChatHistoryRequest{session_id, {}}, kCallBudget);
+        MIRAGE_CHECK(snapshot.ok);
+        if (snapshot.ok) {
+            const auto *dialog = std::get_if<ipc::DialogHistory>(&snapshot.payload);
+            MIRAGE_CHECK(dialog != nullptr);
+            if (dialog != nullptr && dialog->turns.size() == 1 && dialog->turns[0].status == "ok") {
+                settled = dialog->turns[0];
+                break;
+            }
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{25});
+    }
+    MIRAGE_CHECK(settled.has_value());
+    if (settled.has_value()) {
+        MIRAGE_CHECK(settled->turn_id == turn->turn_id);
+        MIRAGE_CHECK(settled->has_reply);
+        MIRAGE_CHECK(settled->reply_text == "门控回复正常。");
+        MIRAGE_CHECK(!settled->has_error);
+    }
+
+    // Subsequent turns run in failure mode: the Failed model status settles
+    // the turn "failed" with the stable error, and the latch still clears.
+    gated_provider->fail_subsequent();
+    const ipc::Response second =
+        client.call(ipc::SessionChatRequest{session_id, "第二个问题"}, kCallBudget);
+    MIRAGE_CHECK(second.ok);
+    const auto *second_turn = std::get_if<ipc::DialogTurnAccepted>(&second.payload);
+    MIRAGE_CHECK(second_turn != nullptr);
+    if (second_turn == nullptr) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+    std::optional<ipc::DialogTurnEntry> failed;
+    const auto failed_deadline = std::chrono::steady_clock::now() + kTaskBudget;
+    while (!failed.has_value()) {
+        const ipc::Response snapshot =
+            client.call(ipc::ChatHistoryRequest{session_id, {}}, kCallBudget);
+        MIRAGE_CHECK(snapshot.ok);
+        if (snapshot.ok) {
+            const auto *dialog = std::get_if<ipc::DialogHistory>(&snapshot.payload);
+            MIRAGE_CHECK(dialog != nullptr);
+            if (dialog != nullptr && dialog->turns.size() == 2 &&
+                dialog->turns[1].status == "failed") {
+                failed = dialog->turns[1];
+                break;
+            }
+        }
+        if (std::chrono::steady_clock::now() >= failed_deadline) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{25});
+    }
+    MIRAGE_CHECK(failed.has_value());
+    if (failed.has_value()) {
+        MIRAGE_CHECK(failed->turn_id == second_turn->turn_id);
+        MIRAGE_CHECK(failed->sequence == 2);
+        MIRAGE_CHECK(failed->has_error);
+        MIRAGE_CHECK(failed->error.find("model layer did not complete the turn") !=
+                     std::string::npos);
+        MIRAGE_CHECK(!failed->has_reply);
+    }
+
+    // The failed settlement cleared the latch: the next turn accepts (and
+    // fails the same way; the settle wait below keeps teardown clean).
+    const ipc::Response third =
+        client.call(ipc::SessionChatRequest{session_id, "第三个问题"}, kCallBudget);
+    MIRAGE_CHECK(third.ok);
+    const auto third_deadline = std::chrono::steady_clock::now() + kTaskBudget;
+    for (;;) {
+        const ipc::Response snapshot =
+            client.call(ipc::ChatHistoryRequest{session_id, {}}, kCallBudget);
+        MIRAGE_CHECK(snapshot.ok);
+        if (snapshot.ok) {
+            const auto *dialog = std::get_if<ipc::DialogHistory>(&snapshot.payload);
+            MIRAGE_CHECK(dialog != nullptr);
+            if (dialog != nullptr && dialog->turns.size() == 3 &&
+                dialog->turns[2].status == "failed") {
+                break;
+            }
+        }
+        if (std::chrono::steady_clock::now() >= third_deadline) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{25});
+    }
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
 void scenario_session_chat_dialog_face() {
     mirage::testing::TempDir dir;
     ServiceConfig config = make_config(dir);
@@ -1564,6 +1807,7 @@ int main() {
     run_scenario("session_open_capacity_fail_closed", scenario_session_open_capacity_fail_closed);
     run_scenario("session_close_lifecycle", scenario_session_close_lifecycle);
     run_scenario("session_chat_dialog_face", scenario_session_chat_dialog_face);
+    run_scenario("session_chat_latch_and_failure", scenario_session_chat_latch_and_failure);
     run_scenario("session_close_cancels_inflight_task",
                  scenario_session_close_cancels_inflight_task);
     run_scenario("observe_fails_closed_on_headless_topology",
