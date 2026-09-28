@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 7,
+    "version": 8,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
     "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted)",
@@ -18,7 +18,8 @@
       "v4 (M5-04): session.* conversation face (DEC-021) — session.list / session.open / session.history requests, session.updated / session.message / session.turn / session.output events, task.submit optional session_id binding, TaskSubmitted session_id echo, hello 'sessions' capability member; wire order pinned by schema doc sections 4, 6.1, 6.4 and 7.2.",
       "v5 (M5-05): workflow.* contract face (DEC-023) — workflow.list / workflow.save / workflow.publish / workflow.delete / workflow.atom.catalog / workflow.runs / workflow.run / workflow.cancel requests, workflow.run_updated event, hello 'workflows' capability member; wire order pinned by schema doc sections 4, 6.1, 6.5 and 7.2.",
       "v6 (M5-06): observation face + workflow definition read face (DEC-026) - desktop.observe request (optional semantic/visual booleans, encoder always writes both) with the ObservationView payload (frame members, optional semantic snapshot projection with a 1024-node wire budget and explicit truncated mark, co-present visual_snapshot_ref / visual_regions pair), workflow.get request with the WorkflowDefinitionView payload (head definition content from the service product catalog), hello 'observation' capability member; wire order pinned by schema doc sections 4, 6.1 and 6.6.",
-      "v7 (M5-06): session.close management face (DEC-026 backlog item 2) - session.close request (non-empty session_id) with the SessionClosed reply (session_id + post-close state, mirroring the workflow.cancel reply shape; state from the pinned session state vocabulary); primary session refused invalid_state product-side, unknown id not_found, registry entry removed on success. wire order pinned by schema doc sections 4, 6.4 and 10."
+      "v7 (M5-06): session.close management face (DEC-026 backlog item 2) - session.close request (non-empty session_id) with the SessionClosed reply (session_id + post-close state, mirroring the workflow.cancel reply shape; state from the pinned session state vocabulary); primary session refused invalid_state product-side, unknown id not_found, registry entry removed on success. wire order pinned by schema doc sections 4, 6.4 and 10.",
+      "v8 (M5-06): dialog mode face (DEC-027) - session.chat / session.chat.history requests with the DialogTurnAccepted / DialogHistory payloads (turns carry pending/ok/failed closed status vocabulary, reply_text / error encode-when-set exactly at ok / failed), session.chat_updated event (pending / ok / failed lifecycle), hello 'chat' capability member (model-layer equipment, permissions-bit precedent); wire order pinned by schema doc sections 4, 6.1, 6.7 and 7.2."
     ]
   },
   "requests": [
@@ -302,6 +303,25 @@
         "session_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a"
       },
       "canonical": "{\"v\":1,\"id\":31,\"op\":\"session.close\",\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\"}"
+    },
+    {
+      "name": "session-chat",
+      "id": 32,
+      "body": {
+        "op": "session.chat",
+        "session_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a",
+        "text": "列出当前桌面上打开的应用"
+      },
+      "canonical": "{\"v\":1,\"id\":32,\"op\":\"session.chat\",\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"text\":\"列出当前桌面上打开的应用\"}"
+    },
+    {
+      "name": "session-chat-history",
+      "id": 33,
+      "body": {
+        "op": "session.chat.history",
+        "session_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a"
+      },
+      "canonical": "{\"v\":1,\"id\":33,\"op\":\"session.chat.history\",\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\"}"
     }
   ],
   "request_failures": [
@@ -474,6 +494,26 @@
       "name": "session-close-empty-session-id",
       "payload": "{\"v\":1,\"id\":9,\"op\":\"session.close\",\"session_id\":\"\"}",
       "error": "session.close requires a non-empty 'session_id'"
+    },
+    {
+      "name": "session-chat-missing-session-id",
+      "payload": "{\"v\":1,\"id\":9,\"op\":\"session.chat\",\"text\":\"hi\"}",
+      "error": "session.chat requires a non-empty 'session_id'"
+    },
+    {
+      "name": "session-chat-missing-text",
+      "payload": "{\"v\":1,\"id\":9,\"op\":\"session.chat\",\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\"}",
+      "error": "session.chat requires a non-empty 'text'"
+    },
+    {
+      "name": "chat-history-missing-session-id",
+      "payload": "{\"v\":1,\"id\":9,\"op\":\"session.chat.history\"}",
+      "error": "session.chat.history requires a non-empty 'session_id'"
+    },
+    {
+      "name": "chat-history-limit-zero",
+      "payload": "{\"v\":1,\"id\":9,\"op\":\"session.chat.history\",\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"limit\":0}",
+      "error": "session.chat.history 'limit' must be positive"
     }
   ],
   "responses": [
@@ -1243,6 +1283,77 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":34,\"ok\":true,\"session_id\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"closing\"}"
+    },
+    {
+      "name": "session-chat-accepted",
+      "response": {
+        "id": 34,
+        "ok": true,
+        "payload": {
+          "kind": "session-chat-accepted",
+          "value": {
+            "turn_id": "7c9e66794742f64b6f4b1c9d2e0f1a3b"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":34,\"ok\":true,\"turn_id\":\"7c9e66794742f64b6f4b1c9d2e0f1a3b\"}"
+    },
+    {
+      "name": "session-chat-history",
+      "response": {
+        "id": 35,
+        "ok": true,
+        "payload": {
+          "kind": "session-chat-history",
+          "value": {
+            "session_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a",
+            "turns": [
+              {
+                "turn_id": "7c9e66794742f64b6f4b1c9d2e0f1a3b",
+                "status": "ok",
+                "user_text": "列出当前桌面上打开的应用",
+                "reply_text": "当前有两个应用窗口：编辑器与终端。",
+                "sequence": 1,
+                "recorded_at_ms": 1700000000000
+              },
+              {
+                "turn_id": "8c9e66794742f64b6f4b1c9d2e0f1a3b",
+                "status": "failed",
+                "user_text": "第二个问题",
+                "error": "model layer request failed: timeout",
+                "sequence": 2,
+                "recorded_at_ms": 1700000001000
+              }
+            ],
+            "truncated": true
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":35,\"ok\":true,\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"turns\":[{\"turn_id\":\"7c9e66794742f64b6f4b1c9d2e0f1a3b\",\"status\":\"ok\",\"user_text\":\"列出当前桌面上打开的应用\",\"reply_text\":\"当前有两个应用窗口：编辑器与终端。\",\"sequence\":1,\"recorded_at_ms\":1700000000000},{\"turn_id\":\"8c9e66794742f64b6f4b1c9d2e0f1a3b\",\"status\":\"failed\",\"user_text\":\"第二个问题\",\"error\":\"model layer request failed: timeout\",\"sequence\":2,\"recorded_at_ms\":1700000001000}],\"truncated\":true}"
+    },
+    {
+      "name": "hello-chat-capability",
+      "response": {
+        "id": 36,
+        "ok": true,
+        "payload": {
+          "kind": "identity",
+          "value": {
+            "service": "mirage-service",
+            "mirage_version": "0.1.0",
+            "mira_core_version": "0.4.0",
+            "host_status": "running",
+            "protocol": 1,
+            "events": true,
+            "permissions": true,
+            "sessions": true,
+            "workflows": true,
+            "observation": true,
+            "chat": true
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":36,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1,\"events\":true,\"permissions\":true,\"sessions\":true,\"workflows\":true,\"observation\":true,\"chat\":true}"
     }
   ],
   "response_failures": [
@@ -1420,6 +1531,26 @@
       "name": "session-closed-empty-session-id",
       "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"session_id\":\"\",\"state\":\"closed\"}",
       "error": "session.open response requires a non-empty 'session_id'"
+    },
+    {
+      "name": "chat-accepted-empty-turn-id",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"turn_id\":\"\"}",
+      "error": "session.chat response requires a non-empty 'turn_id'"
+    },
+    {
+      "name": "chat-history-missing-truncated",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"turns\":[]}",
+      "error": "session.chat.history requires 'session_id', 'turns' and 'truncated'"
+    },
+    {
+      "name": "chat-turn-bad-status",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"truncated\":false,\"turns\":[{\"turn_id\":\"a\",\"status\":\"vanished\",\"user_text\":\"q\",\"sequence\":1,\"recorded_at_ms\":0}]}",
+      "error": "session.chat.history turn 'status' is not a known turn status"
+    },
+    {
+      "name": "chat-turn-reply-on-failed",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"truncated\":false,\"turns\":[{\"turn_id\":\"a\",\"status\":\"failed\",\"user_text\":\"q\",\"reply_text\":\"x\",\"sequence\":1,\"recorded_at_ms\":0}]}",
+      "error": "session.chat.history 'reply_text' is present exactly when status is 'ok'"
     }
   ],
   "events": [
@@ -1564,6 +1695,35 @@
         "summary": "run settled"
       },
       "canonical": "{\"v\":1,\"seq\":12,\"event\":\"workflow.run_updated\",\"run_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"workflow_id\":\"0f9e8d7c6b5a4938271605948372615a\",\"state\":\"completed\",\"run_epoch\":3,\"summary\":\"run settled\"}"
+    },
+    {
+      "name": "chat-updated-ok",
+      "event": {
+        "v": 1,
+        "seq": 12,
+        "event": "session.chat_updated",
+        "session_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a",
+        "turn_id": "7c9e66794742f64b6f4b1c9d2e0f1a3b",
+        "status": "ok",
+        "user_text": "列出当前桌面上打开的应用",
+        "reply_text": "当前有两个应用窗口：编辑器与终端。",
+        "sequence": 1
+      },
+      "canonical": "{\"v\":1,\"seq\":12,\"event\":\"session.chat_updated\",\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"turn_id\":\"7c9e66794742f64b6f4b1c9d2e0f1a3b\",\"status\":\"ok\",\"user_text\":\"列出当前桌面上打开的应用\",\"reply_text\":\"当前有两个应用窗口：编辑器与终端。\",\"sequence\":1}"
+    },
+    {
+      "name": "chat-updated-pending",
+      "event": {
+        "v": 1,
+        "seq": 13,
+        "event": "session.chat_updated",
+        "session_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a",
+        "turn_id": "8c9e66794742f64b6f4b1c9d2e0f1a3b",
+        "status": "pending",
+        "user_text": "第二个问题",
+        "sequence": 2
+      },
+      "canonical": "{\"v\":1,\"seq\":13,\"event\":\"session.chat_updated\",\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"turn_id\":\"8c9e66794742f64b6f4b1c9d2e0f1a3b\",\"status\":\"pending\",\"user_text\":\"第二个问题\",\"sequence\":2}"
     }
   ],
   "event_failures": [
@@ -1661,6 +1821,16 @@
       "name": "workflow-run-updated-unknown-state",
       "payload": "{\"v\":1,\"seq\":11,\"event\":\"workflow.run_updated\",\"run_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"workflow_id\":\"0f9e8d7c6b5a4938271605948372615a\",\"state\":\"zombie\",\"run_epoch\":0}",
       "error": "workflow.run_updated 'state' is not a known run state"
+    },
+    {
+      "name": "chat-updated-bad-status",
+      "payload": "{\"v\":1,\"seq\":9,\"event\":\"session.chat_updated\",\"session_id\":\"s\",\"turn_id\":\"t\",\"status\":\"vanished\",\"user_text\":\"q\",\"sequence\":1}",
+      "error": "session.chat_updated 'status' is not a known turn status"
+    },
+    {
+      "name": "chat-updated-reply-on-pending",
+      "payload": "{\"v\":1,\"seq\":9,\"event\":\"session.chat_updated\",\"session_id\":\"s\",\"turn_id\":\"t\",\"status\":\"pending\",\"user_text\":\"q\",\"reply_text\":\"x\",\"sequence\":1}",
+      "error": "session.chat_updated 'reply_text' must be a string present exactly when status is 'ok'"
     }
   ],
   "framing": [

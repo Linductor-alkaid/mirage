@@ -4,6 +4,7 @@
 /// one is behind them (DEC-006: the IPC contract is the only coupling face).
 
 import type {
+    ChatTurnEntry,
     ExposedTool,
     InspectTask,
     ObservationView,
@@ -110,6 +111,11 @@ export interface MirageTransport {
      * console's desktop-state panel as live data. */
     readonly observationSupported: boolean;
 
+    /** True when hello advertised the DEC-027 dialog face (a model layer is
+     * configured); false means session.chat will fail and the Composer's
+     * dialog mode stays disabled (DEC-025 honest degradation). */
+    readonly chatSupported: boolean;
+
     hello(): Promise<ServiceIdentity>;
     submitTask(request: SubmitTaskInput): Promise<{ task_id: string }>;
     listTasks(): Promise<TaskSummary[]>;
@@ -138,6 +144,21 @@ export interface MirageTransport {
     sessionHistory(input: SessionHistoryInput): Promise<{
         session_id: string;
         entries: SessionHistoryEntry[];
+        truncated: boolean;
+    }>;
+    /** Dialog face (DEC-027): submits one dialog turn; the ack carries the
+     * turn id and the settled reply/error rides the session.chat_updated
+     * event stream. Rejects with IpcRequestError('unavailable') when no
+     * model layer is configured, 'invalid_state' while a turn is in flight
+     * for the session, 'not_found' for unknown sessions. */
+    sessionChat(sessionId: string, text: string): Promise<{ turn_id: string }>;
+    /** The dialog thread's resync snapshot (newest window, DEC-027). */
+    sessionChatHistory(
+        sessionId: string,
+        limit?: number,
+    ): Promise<{
+        session_id: string;
+        turns: ChatTurnEntry[];
         truncated: boolean;
     }>;
 

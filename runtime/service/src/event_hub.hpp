@@ -82,6 +82,16 @@ class EventHub {
         topic_.publish(ipc::EventPayload{std::move(event)});
     }
 
+    /// Dialog turn lifecycle (DEC-027). Published from the dialog task's
+    /// worker thread on accept (pending, serial domain via the caller) and
+    /// on settlement (ok / failed, worker thread — same direct-publish
+    /// discipline as the workflow bridge: the Topic is thread-safe,
+    /// per-connection queues bounded, session.chat.history is the resync
+    /// face).
+    void publish_chat_turn(ipc::ChatTurnUpdatedEvent event) {
+        topic_.publish(ipc::EventPayload{std::move(event)});
+    }
+
     /// Newest host status, engaged once the hosted runtime reported its
     /// first transition; nullopt before that.
     std::optional<ipc::HostStatusEvent> current_host_status() const {

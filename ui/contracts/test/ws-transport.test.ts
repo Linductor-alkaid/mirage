@@ -1107,3 +1107,76 @@ describe('session.close over the WebSocket mapping', () => {
         });
     });
 });
+
+// ---- dialog face (DEC-027): session.chat / session.chat.history ---------------
+
+describe('session.chat over the WebSocket mapping', () => {
+    it('sessionChat sends the chat request and routes the accepted turn id', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+        harness.socket.sent.length = 0;
+
+        const pending = harness.transport.sessionChat('5a4b3c2d1e0f4938576a5b4c3d2e1f0a', '列出当前应用');
+        await flush();
+        expect(sentBody(harness.socket.sent[0]!)).toEqual({
+            op: 'session.chat',
+            session_id: '5a4b3c2d1e0f4938576a5b4c3d2e1f0a',
+            text: '列出当前应用',
+        });
+
+        respond(harness.socket, 2, { kind: 'session-chat-accepted', value: { turn_id: 'a'.repeat(32) } });
+        const accepted = await pending;
+        expect(accepted).toEqual({ turn_id: 'a'.repeat(32) });
+    });
+
+    it('sessionChat surfaces the in-flight invalid_state latch', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+        harness.socket.sent.length = 0;
+
+        const pending = harness.transport.sessionChat('s', 'hi');
+        await flush();
+        respondError(harness.socket, 2, 'invalid_state', 'a dialog turn is already in flight for this session');
+        await expect(pending).rejects.toMatchObject({
+            code: 'invalid_state',
+            message: 'a dialog turn is already in flight for this session',
+        });
+    });
+
+    it('sessionChatHistory sends the snapshot request and routes the dialog thread', async () => {
+        const harness = makeHarness();
+        await handshake(harness, true);
+        harness.socket.sent.length = 0;
+
+        const pending = harness.transport.sessionChatHistory('5a4b3c2d1e0f4938576a5b4c3d2e1f0a', 5);
+        await flush();
+        expect(sentBody(harness.socket.sent[0]!)).toEqual({
+            op: 'session.chat.history',
+            session_id: '5a4b3c2d1e0f4938576a5b4c3d2e1f0a',
+            limit: 5,
+        });
+
+        respond(harness.socket, 2, {
+            kind: 'session-chat-history',
+            value: {
+                session_id: '5a4b3c2d1e0f4938576a5b4c3d2e1f0a',
+                turns: [
+                    {
+                        turn_id: 'a'.repeat(32),
+                        status: 'ok',
+                        user_text: 'q',
+                        reply_text: '当前有两个应用窗口：编辑器与终端。',
+                        sequence: 1,
+                        recorded_at_ms: 1700000000000,
+                    },
+                ],
+                truncated: false,
+            },
+        });
+        const history = await pending;
+        expect(history.session_id).toBe('5a4b3c2d1e0f4938576a5b4c3d2e1f0a');
+        expect(history.truncated).toBe(false);
+        expect(history.turns[0]!.status).toBe('ok');
+        expect(history.turns[0]!.reply_text).toBe('当前有两个应用窗口：编辑器与终端。');
+    });
+});

@@ -4,6 +4,8 @@
 /// failure (M1.5-01), so keep every branch and reason text aligned.
 
 import type {
+    ChatTurnEntry,
+    ChatTurnStatus,
     EventName,
     ExposedTool,
     HostStatus,
@@ -97,6 +99,9 @@ const WORKFLOW_VALIDATIONS: readonly WorkflowValidation[] = [
     'validated',
     'rejected',
 ];
+/** Closed dialog turn-status vocabulary (DEC-027). */
+const CHAT_TURN_STATUSES: readonly ChatTurnStatus[] = ['pending', 'ok', 'failed'];
+
 /** Closed visual-region provenance vocabulary (DEC-026). */
 const OBSERVATION_REGION_SOURCES: readonly ObservationRegionSource[] = [
     'ocr',
@@ -192,6 +197,18 @@ export function encodeRequest(id: number, body: RequestBody): string {
             break;
         case 'session.open':
             object.op = 'session.open';
+            break;
+        case 'session.chat':
+            object.op = 'session.chat';
+            object.session_id = body.session_id;
+            object.text = body.text;
+            break;
+        case 'session.chat.history':
+            object.op = 'session.chat.history';
+            object.session_id = body.session_id;
+            if (body.limit !== undefined) {
+                object.limit = body.limit;
+            }
             break;
         case 'session.close':
             object.op = 'session.close';
@@ -393,6 +410,44 @@ export function decodeRequest(payload: string): RequestDecode {
             return { ok: true, id, body: { op: 'session.list' } };
         case 'session.open':
             return { ok: true, id, body: { op: 'session.open' } };
+        case 'session.chat': {
+            const sessionId = asString(parsed.session_id);
+            const text = asString(parsed.text);
+            if (sessionId === null || sessionId.length === 0) {
+                return { ok: false, error: "session.chat requires a non-empty 'session_id'" };
+            }
+            if (text === null || text.length === 0) {
+                return { ok: false, error: "session.chat requires a non-empty 'text'" };
+            }
+            return { ok: true, id, body: { op: 'session.chat', session_id: sessionId, text } };
+        }
+        case 'session.chat.history': {
+            const sessionId = asString(parsed.session_id);
+            if (sessionId === null || sessionId.length === 0) {
+                return {
+                    ok: false,
+                    error: "session.chat.history requires a non-empty 'session_id'",
+                };
+            }
+            let limit: number | undefined;
+            if (parsed.limit !== undefined) {
+                const limitValue = asInteger(parsed.limit);
+                if (limitValue === null || limitValue <= 0) {
+                    return {
+                        ok: false,
+                        error: "session.chat.history 'limit' must be positive",
+                    };
+                }
+                limit = limitValue;
+            }
+            return {
+                ok: true,
+                id,
+                body: limit === undefined
+                    ? { op: 'session.chat.history', session_id: sessionId }
+                    : { op: 'session.chat.history', session_id: sessionId, limit },
+            };
+        }
         case 'session.close': {
             const sessionId = asString(parsed.session_id);
             if (sessionId === null || sessionId.length === 0) {
@@ -588,6 +643,9 @@ export function encodeResponse(response: ResponseEnvelop): string {
                 if (value.observation !== undefined) {
                     object.observation = value.observation;
                 }
+                if (value.chat !== undefined) {
+                    object.chat = value.chat;
+                }
                 break;
             }
             case 'submitted': {
@@ -642,6 +700,15 @@ export function encodeResponse(response: ResponseEnvelop): string {
                 object.session_id = payload.value.session_id;
                 object.state = payload.value.state;
                 break;
+            case 'session-chat-accepted':
+                object.turn_id = payload.value.turn_id;
+                break;
+            case 'session-chat-history': {
+                object.session_id = payload.value.session_id;
+                object.turns = payload.value.turns;
+                object.truncated = payload.value.truncated;
+                break;
+            }
             case 'session-history':
                 object.session_id = payload.value.session_id;
                 object.entries = payload.value.entries.map((entry) => ({
@@ -841,6 +908,71 @@ function decodeObservationRegion(
         return null;
     }
     return { ref, source: source as ObservationRegionSource, geometry, text, template_id: templateId };
+}
+
+/** Dialog turn entry decode (DEC-027): status vocabulary plus the
+ * reply_text / error encode-when-set pairs validated exactly at ok / failed. */
+function decodeChatTurnEntry(value: unknown, error: { text: string }): ChatTurnEntry | null {
+    if (!isRecord(value)) {
+        error.text = 'session.chat.history turns must be objects';
+        return null;
+    }
+    const turnId = asString(value.turn_id);
+    const status = asString(value.status);
+    const userText = asString(value.user_text);
+    const sequence = asInteger(value.sequence);
+    const recordedAtMs = asInteger(value.recorded_at_ms);
+    if (
+        turnId === null ||
+        turnId.length === 0 ||
+        status === null ||
+        userText === null ||
+        sequence === null ||
+        sequence < 1 ||
+        recordedAtMs === null ||
+        recordedAtMs < 0
+    ) {
+        error.text =
+            "session.chat.history turns require 'turn_id', 'status', 'user_text', a positive " +
+            "'sequence' and a non-negative 'recorded_at_ms'";
+        return null;
+    }
+    if (!CHAT_TURN_STATUSES.includes(status as ChatTurnStatus)) {
+        error.text = "session.chat.history turn 'status' is not a known turn status";
+        return null;
+    }
+    const turn: ChatTurnEntry = {
+        turn_id: turnId,
+        status: status as ChatTurnStatus,
+        user_text: userText,
+        sequence,
+        recorded_at_ms: recordedAtMs,
+    };
+    if (value.reply_text !== undefined) {
+        const reply = asString(value.reply_text);
+        if (reply === null || status !== 'ok') {
+            error.text =
+                "session.chat.history 'reply_text' is present exactly when status is 'ok'";
+            return null;
+        }
+        turn.reply_text = reply;
+    } else if (status === 'ok') {
+        error.text = "session.chat.history 'reply_text' is present exactly when status is 'ok'";
+        return null;
+    }
+    if (value.error !== undefined) {
+        const failure = asString(value.error);
+        if (failure === null || status !== 'failed') {
+            error.text =
+                "session.chat.history 'error' is present exactly when status is 'failed'";
+            return null;
+        }
+        turn.error = failure;
+    } else if (status === 'failed') {
+        error.text = "session.chat.history 'error' is present exactly when status is 'failed'";
+        return null;
+    }
+    return turn;
 }
 
 function decodeObservationView(
@@ -1093,6 +1225,14 @@ export function decodeResponse(payload: string): ResponseDecode {
             }
             (identity as { observation?: boolean }).observation = observation;
         }
+        // DEC-027 dialog-face capability member: same discipline.
+        if (parsed.chat !== undefined) {
+            const chat = asBoolean(parsed.chat);
+            if (chat === null) {
+                return { ok: false, error: "hello response 'chat' must be a boolean" };
+            }
+            (identity as { chat?: boolean }).chat = chat;
+        }
         return {
             ok: true,
             response: { ok: true, id, payload: { kind: 'identity', value: identity } },
@@ -1290,6 +1430,45 @@ export function decodeResponse(payload: string): ResponseDecode {
                 ok: true,
                 id,
                 payload: { kind: 'session-history', value: { session_id: sessionId, entries, truncated } },
+            },
+        };
+    }
+    if (parsed.turn_id !== undefined) {
+        const turnId = asString(parsed.turn_id);
+        if (turnId === null || turnId.length === 0) {
+            return { ok: false, error: "session.chat response requires a non-empty 'turn_id'" };
+        }
+        return {
+            ok: true,
+            response: { ok: true, id, payload: { kind: 'session-chat-accepted', value: { turn_id: turnId } } },
+        };
+    }
+    if (parsed.turns !== undefined) {
+        if (!Array.isArray(parsed.turns)) {
+            return { ok: false, error: "session.chat.history 'turns' must be an array" };
+        }
+        const sessionId = asString(parsed.session_id);
+        const truncated = asBoolean(parsed.truncated);
+        if (sessionId === null || sessionId.length === 0 || truncated === null) {
+            return {
+                ok: false,
+                error: "session.chat.history requires 'session_id', 'turns' and 'truncated'",
+            };
+        }
+        const turns: ChatTurnEntry[] = [];
+        for (const entry of parsed.turns) {
+            const turn = decodeChatTurnEntry(entry, errorHolder);
+            if (turn === null) {
+                return { ok: false, error: errorHolder.text };
+            }
+            turns.push(turn);
+        }
+        return {
+            ok: true,
+            response: {
+                ok: true,
+                id,
+                payload: { kind: 'session-chat-history', value: { session_id: sessionId, turns, truncated } },
             },
         };
     }
@@ -1937,6 +2116,85 @@ export function decodeEvent(payload: string): EventDecode {
             if (summary !== undefined) {
                 (event as { summary?: string }).summary = summary;
             }
+            return { ok: true, event };
+        }
+        case 'session.chat_updated': {
+            const sessionId = asString(parsed.session_id);
+            const turnId = asString(parsed.turn_id);
+            const status = asString(parsed.status);
+            const userText = asString(parsed.user_text);
+            const sequence = asInteger(parsed.sequence);
+            if (
+                sessionId === null ||
+                sessionId.length === 0 ||
+                turnId === null ||
+                turnId.length === 0 ||
+                status === null ||
+                userText === null ||
+                sequence === null ||
+                sequence < 1
+            ) {
+                return {
+                    ok: false,
+                    error:
+                        "session.chat_updated requires 'session_id', 'turn_id', 'status', " +
+                        "'user_text' and a positive 'sequence'",
+                };
+            }
+            if (!CHAT_TURN_STATUSES.includes(status as ChatTurnStatus)) {
+                return { ok: false, error: "session.chat_updated 'status' is not a known turn status" };
+            }
+            // Validate the optional pair first, then assemble the event with
+            // wire member order (reply_text / error before sequence) so the
+            // stringify lock holds byte for byte.
+            let reply: string | undefined;
+            let failure: string | undefined;
+            if (parsed.reply_text !== undefined) {
+                const text = asString(parsed.reply_text);
+                if (text === null || status !== 'ok') {
+                    return {
+                        ok: false,
+                        error:
+                            "session.chat_updated 'reply_text' must be a string present exactly when status is 'ok'",
+                    };
+                }
+                reply = text;
+            } else if (status === 'ok') {
+                return {
+                    ok: false,
+                    error:
+                        "session.chat_updated 'reply_text' must be a string present exactly when status is 'ok'",
+                };
+            }
+            if (parsed.error !== undefined) {
+                const text = asString(parsed.error);
+                if (text === null || status !== 'failed') {
+                    return {
+                        ok: false,
+                        error:
+                            "session.chat_updated 'error' must be a string present exactly when status is 'failed'",
+                    };
+                }
+                failure = text;
+            } else if (status === 'failed') {
+                return {
+                    ok: false,
+                    error:
+                        "session.chat_updated 'error' must be a string present exactly when status is 'failed'",
+                };
+            }
+            const event: ServerEvent = {
+                v: 1,
+                seq,
+                event: 'session.chat_updated',
+                session_id: sessionId,
+                turn_id: turnId,
+                status: status as ChatTurnStatus,
+                user_text: userText,
+                ...(reply !== undefined ? { reply_text: reply } : {}),
+                ...(failure !== undefined ? { error: failure } : {}),
+                sequence,
+            };
             return { ok: true, event };
         }
         default:

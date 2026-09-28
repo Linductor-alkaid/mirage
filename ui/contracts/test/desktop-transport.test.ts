@@ -371,3 +371,51 @@ describe('DesktopBridgeTransport session.close', () => {
         await transport.close();
     });
 });
+
+// -- dialog face (DEC-027): session.chat / session.chat.history ----------------
+
+describe('DesktopBridgeTransport session.chat', () => {
+    it('sends session.chat and routes the accepted turn id', async () => {
+        const { transport, bridge } = makeHarness();
+        const pending = transport.sessionChat('5a4b3c2d1e0f4938576a5b4c3d2e1f0a', '列出当前应用');
+        expect(bridge.lastRequest().body).toEqual({
+            op: 'session.chat',
+            session_id: '5a4b3c2d1e0f4938576a5b4c3d2e1f0a',
+            text: '列出当前应用',
+        });
+        bridge.respondOk(1, { kind: 'session-chat-accepted', value: { turn_id: 'b'.repeat(32) } });
+        const accepted = await pending;
+        expect(accepted).toEqual({ turn_id: 'b'.repeat(32) });
+        await transport.close();
+    });
+
+    it('sends session.chat.history with an optional limit and routes the dialog thread', async () => {
+        const { transport, bridge } = makeHarness();
+        const pending = transport.sessionChatHistory('5a4b3c2d1e0f4938576a5b4c3d2e1f0a');
+        expect(bridge.lastRequest().body).toEqual({
+            op: 'session.chat.history',
+            session_id: '5a4b3c2d1e0f4938576a5b4c3d2e1f0a',
+        });
+        bridge.respondOk(1, {
+            kind: 'session-chat-history',
+            value: {
+                session_id: '5a4b3c2d1e0f4938576a5b4c3d2e1f0a',
+                turns: [
+                    {
+                        turn_id: 'b'.repeat(32),
+                        status: 'failed',
+                        user_text: 'q',
+                        error: 'model layer request failed: timeout',
+                        sequence: 2,
+                        recorded_at_ms: 1700000001000,
+                    },
+                ],
+                truncated: false,
+            },
+        });
+        const history = await pending;
+        expect(history.turns[0]!.status).toBe('failed');
+        expect(history.turns[0]!.error).toBe('model layer request failed: timeout');
+        await transport.close();
+    });
+});

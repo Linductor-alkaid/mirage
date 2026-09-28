@@ -403,7 +403,8 @@ Mirage Shell（统一应用壳）
 
 | 前端能力 | 现有契约 | 前瞻依赖（记录为契约工作项输入） |
 | --- | --- | --- |
-| 会话列表/管理 | `session.list` / `session.open` / `session.history`（M5-04，DEC-021） / `session.close`（M5-06 第三增量，DEC-026 挂账②）；hello `sessions` 能力位探测 | 已接线（M5-06 第一轮 + 第三增量）：列表快照 + 派生标题，新建经 `session.open`（容量饱和 `unavailable` 显式拒绝），删除经 `session.close`（主会话 `invalid_state` 守卫如实呈现，关闭后本地记忆随注册表事实收敛）；重命名 = 产品别名（M5-08）、导出 = 客户端投影、fork 不立项（DEC-026 决策 5） |
+| 会话列表/管理 | `session.list` / `session.open` / `session.history`（M5-04，DEC-021） / `session.close`（M5-06 第三增量，DEC-026 挂账②）；hello `sessions` 能力位探测 | 已接线（M5-06 第一轮 + 第三增量）：列表快照 + 派生标题，新建经 `session.open`（容量饱和 `unavailable` 显式拒绝），删除经 `session.close`（主会话 `invalid_state` 守卫如实呈现，关闭后本地记忆随注册表事实收敛）；重命名 = 产品别名（M5-08）、导出 = 客户端投影、fork 不立项（DEC-026 决策 5） || 会话列表/管理 | `session.list` / `session.open` / `session.history`（M5-04，DEC-021） / `session.close`（M5-06 第三增量，DEC-026 挂账②）；hello `sessions` 能力位探测 | 已接线（M5-06 第一轮 + 第三增量）：列表快照 + 派生标题，新建经 `session.open`（容量饱和 `unavailable` 显式拒绝），删除经 `session.close`（主会话 `invalid_state` 守卫如实呈现，关闭后本地记忆随注册表事实收敛）；重命名 = 产品别名（M5-08）、导出 = 客户端投影、fork 不立项（DEC-026 决策 5） |
+| 对话模式 | `session.chat` / `session.chat.history` + `session.chat_updated` 事件（M5-06 第四增量，DEC-027）；hello `chat` 能力位探测 | 已接线（M5-06 第四增量）：Composer 对话模式接 session.chat（异步 turn，回复经事件收敛进线程）；模型层未配置时保持如实降级（`chat` 位缺席） |
 | 会话消息流 | `session.message` / `session.turn` / `session.output` / `session.updated` 事件（M5-04，DEC-012 机制）；`session.history` 为含时间戳的重同步快照事实源 | 已接线（M5-06 第一轮，DEC-025）：user / outcome 入线程（history 基线 + message 增量 + sequence 去重）；增量输出在 M1 驱动形态为每步一份完整 chunk，流式化后同形状多 chunk（wire 不变）；turn / output 作观察台观察流事件源 |
 | 执行模式提交 | `task.submit`（M1） | 已满足最小闭环；对话模式依赖消息面 |
 | 批准中心 | `permission.request` 事件 + `permission.respond` / `permission.list`（M5-03，DEC-020）；hello `permissions` 能力位探测 | 确认等待预算提示用 `timeout_ms`（事件与快照均携带）；批准结果经 `task.updated` / `task.inspect` 步 trace 呈现 |
@@ -429,6 +430,9 @@ Mirage Shell（统一应用壳）
 
 ## 6. 变更记录
 
+- 2026-09-28：`M5-06` 第四增量落地（[DEC-027](../decisions/DEC-027-dialog-mode-model-layer.md)）
+  ——§3.3 Composer 双模式信息架构完整兑现（对话模式接 `session.chat` 对话
+  面）；§4 新增对话模式行（`session.chat` 面与 `chat` 能力位）。
 - 2026-09-28：`M5-06` 第三增量落地（session.close，DEC-026 挂账②兑现）
   ——§4 会话列表/管理行更新（删除经 `session.close` 接线，主会话守卫如实
   呈现；重命名/导出/fork 维持 DEC-026 决策 5 结论）。

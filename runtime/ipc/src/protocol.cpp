@@ -22,6 +22,8 @@ constexpr const char *kOpPermissionList = "permission.list";
 constexpr const char *kOpSessionList = "session.list";
 constexpr const char *kOpSessionOpen = "session.open";
 constexpr const char *kOpSessionClose = "session.close";
+constexpr const char *kOpSessionChat = "session.chat";
+constexpr const char *kOpSessionChatHistory = "session.chat.history";
 constexpr const char *kOpSessionHistory = "session.history";
 constexpr const char *kOpWorkflowList = "workflow.list";
 constexpr const char *kOpWorkflowSave = "workflow.save";
@@ -46,6 +48,7 @@ constexpr const char *kEventSessionMessage = "session.message";
 constexpr const char *kEventSessionTurn = "session.turn";
 constexpr const char *kEventSessionOutput = "session.output";
 constexpr const char *kEventWorkflowRunUpdated = "workflow.run_updated";
+constexpr const char *kEventChatTurnUpdated = "session.chat_updated";
 
 /// Closed Capability vocabulary (DEC-010 / DEC-020) carried by
 /// permission.request events and permission.list entries. Kept local so the
@@ -107,6 +110,11 @@ constexpr const char *kWorkflowPolicyNames[] = {"strict", "recoverable", "agent_
 /// observation projection's visual regions. The golden vectors pin the set
 /// on both ends.
 constexpr const char *kObservationRegionSources[] = {"ocr", "detector", "template", "geometry"};
+
+/// Closed dialog turn-status vocabulary (DEC-027): "pending" marks an
+/// accepted turn whose model call is in flight, "ok" a settled turn with a
+/// reply, "failed" a settled turn with a stable error.
+constexpr const char *kDialogTurnStatuses[] = {"pending", "ok", "failed"};
 
 bool in_stable_set(const std::string &value, const char *const *set, std::size_t count) {
     for (std::size_t index = 0; index < count; ++index) {
@@ -309,6 +317,69 @@ std::optional<ObservationRegion> decode_region(const mira::JsonValue &value, std
     return region;
 }
 
+std::optional<DialogTurnEntry> decode_dialog_turn(const mira::JsonValue &value,
+                                                  std::string &error) {
+    if (!value.is_object()) {
+        error = "session.chat.history turns must be objects";
+        return std::nullopt;
+    }
+    DialogTurnEntry turn;
+    auto turn_id = string_member(value, "turn_id");
+    auto status = string_member(value, "status");
+    auto user_text = string_member(value, "user_text");
+    const auto sequence = integer_member(value, "sequence");
+    const auto recorded = integer_member(value, "recorded_at_ms");
+    if (!turn_id || turn_id->empty() || !status || !user_text || !sequence || *sequence < 1 ||
+        !recorded || *recorded < 0) {
+        error = "session.chat.history turns require 'turn_id', 'status', 'user_text', a positive "
+                "'sequence' and a non-negative 'recorded_at_ms'";
+        return std::nullopt;
+    }
+    if (!in_stable_set(*status, kDialogTurnStatuses,
+                       sizeof(kDialogTurnStatuses) / sizeof(kDialogTurnStatuses[0]))) {
+        error = "session.chat.history turn 'status' is not a known turn status";
+        return std::nullopt;
+    }
+    turn.turn_id = std::move(*turn_id);
+    turn.status = std::move(*status);
+    turn.user_text = std::move(*user_text);
+    turn.sequence = static_cast<std::uint64_t>(*sequence);
+    turn.recorded_at_ms = *recorded;
+    if (const auto *reply = member(value, "reply_text"); reply != nullptr) {
+        const auto text = reply->as_string();
+        if (!text) {
+            error = "session.chat.history turn 'reply_text' must be a string";
+            return std::nullopt;
+        }
+        if (turn.status != "ok") {
+            error = "session.chat.history 'reply_text' is present exactly when status is 'ok'";
+            return std::nullopt;
+        }
+        turn.reply_text = *text;
+        turn.has_reply = true;
+    } else if (turn.status == "ok") {
+        error = "session.chat.history 'reply_text' is present exactly when status is 'ok'";
+        return std::nullopt;
+    }
+    if (const auto *failure = member(value, "error"); failure != nullptr) {
+        const auto text = failure->as_string();
+        if (!text) {
+            error = "session.chat.history turn 'error' must be a string";
+            return std::nullopt;
+        }
+        if (turn.status != "failed") {
+            error = "session.chat.history 'error' is present exactly when status is 'failed'";
+            return std::nullopt;
+        }
+        turn.error = *text;
+        turn.has_error = true;
+    } else if (turn.status == "failed") {
+        error = "session.chat.history 'error' is present exactly when status is 'failed'";
+        return std::nullopt;
+    }
+    return turn;
+}
+
 std::optional<TaskStep> decode_step(const mira::JsonValue &value, std::string &error) {
     if (!value.is_object()) {
         error = "task.submit steps must be objects";
@@ -437,6 +508,9 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 if (value.observation.has_value()) {
                     put(object, "observation", *value.observation);
                 }
+                if (value.chat.has_value()) {
+                    put(object, "chat", *value.chat);
+                }
             } else if constexpr (std::is_same_v<T, TaskSubmitted>) {
                 put(object, "task_id", value.task_id);
                 if (value.session_id) {
@@ -488,6 +562,28 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
             } else if constexpr (std::is_same_v<T, SessionClosed>) {
                 put(object, "session_id", value.session_id);
                 put(object, "state", value.state);
+            } else if constexpr (std::is_same_v<T, DialogTurnAccepted>) {
+                put(object, "turn_id", value.turn_id);
+            } else if constexpr (std::is_same_v<T, DialogHistory>) {
+                put(object, "session_id", value.session_id);
+                mira::JsonValue::Array turns;
+                for (const auto &turn : value.turns) {
+                    auto entry = make_object();
+                    put(entry, "turn_id", turn.turn_id);
+                    put(entry, "status", turn.status);
+                    put(entry, "user_text", turn.user_text);
+                    if (turn.has_reply) {
+                        put(entry, "reply_text", turn.reply_text);
+                    }
+                    if (turn.has_error) {
+                        put(entry, "error", turn.error);
+                    }
+                    put(entry, "sequence", static_cast<std::int64_t>(turn.sequence));
+                    put(entry, "recorded_at_ms", turn.recorded_at_ms);
+                    turns.emplace_back(std::move(entry));
+                }
+                put(object, "turns", mira::JsonValue{std::move(turns)});
+                put(object, "truncated", value.truncated);
             } else if constexpr (std::is_same_v<T, SessionHistory>) {
                 put(object, "session_id", value.session_id);
                 mira::JsonValue::Array entries;
@@ -666,6 +762,16 @@ std::string encode_request(std::uint64_t id, const Request &body) {
             } else if constexpr (std::is_same_v<T, CloseSessionRequest>) {
                 put(object, "op", kOpSessionClose);
                 put(object, "session_id", value.session_id);
+            } else if constexpr (std::is_same_v<T, SessionChatRequest>) {
+                put(object, "op", kOpSessionChat);
+                put(object, "session_id", value.session_id);
+                put(object, "text", value.text);
+            } else if constexpr (std::is_same_v<T, ChatHistoryRequest>) {
+                put(object, "op", kOpSessionChatHistory);
+                put(object, "session_id", value.session_id);
+                if (value.limit) {
+                    put(object, "limit", static_cast<std::int64_t>(*value.limit));
+                }
             } else if constexpr (std::is_same_v<T, SessionHistoryRequest>) {
                 put(object, "op", kOpSessionHistory);
                 put(object, "session_id", value.session_id);
@@ -845,6 +951,37 @@ RequestDecode decode_request(std::string_view payload) {
         }
         close.session_id = *session_id;
         result.body = std::move(close);
+    } else if (*op == kOpSessionChat) {
+        SessionChatRequest chat;
+        const auto session_id = string_member(object, "session_id");
+        if (!session_id || session_id->empty()) {
+            result.error = "session.chat requires a non-empty 'session_id'";
+            return result;
+        }
+        chat.session_id = *session_id;
+        const auto text = string_member(object, "text");
+        if (!text || text->empty()) {
+            result.error = "session.chat requires a non-empty 'text'";
+            return result;
+        }
+        chat.text = *text;
+        result.body = std::move(chat);
+    } else if (*op == kOpSessionChatHistory) {
+        ChatHistoryRequest history;
+        const auto session_id = string_member(object, "session_id");
+        if (!session_id || session_id->empty()) {
+            result.error = "session.chat.history requires a non-empty 'session_id'";
+            return result;
+        }
+        history.session_id = *session_id;
+        if (const auto limit = integer_member(object, "limit")) {
+            if (*limit <= 0) {
+                result.error = "session.chat.history 'limit' must be positive";
+                return result;
+            }
+            history.limit = static_cast<int>(*limit);
+        }
+        result.body = std::move(history);
     } else if (*op == kOpSessionHistory) {
         SessionHistoryRequest history;
         const auto session_id = string_member(object, "session_id");
@@ -1110,6 +1247,15 @@ ResponseDecode decode_response(std::string_view payload) {
             }
             identity.observation = *flag;
         }
+        // DEC-027 dialog-face capability member: same discipline as `events`.
+        if (const auto *chat = member(object, "chat"); chat != nullptr) {
+            const auto flag = chat->as_boolean();
+            if (!flag) {
+                result.error = "hello response 'chat' must be a boolean";
+                return result;
+            }
+            identity.chat = *flag;
+        }
         response.payload = std::move(identity);
     } else if (const auto *task_id = member(object, "task_id"); task_id != nullptr) {
         auto id_text = string_member(object, "task_id");
@@ -1302,6 +1448,37 @@ ResponseDecode decode_response(std::string_view payload) {
             entry.sequence = static_cast<std::uint64_t>(*sequence);
             entry.recorded_at_ms = *recorded;
             history.entries.push_back(std::move(entry));
+        }
+        response.payload = std::move(history);
+    } else if (const auto *turn_id = member(object, "turn_id"); turn_id != nullptr) {
+        auto id_text = string_member(object, "turn_id");
+        if (!id_text || id_text->empty()) {
+            result.error = "session.chat response requires a non-empty 'turn_id'";
+            return result;
+        }
+        response.payload = DialogTurnAccepted{std::move(*id_text)};
+    } else if (const auto *turns = member(object, "turns"); turns != nullptr) {
+        if (!turns->is_array()) {
+            result.error = "session.chat.history 'turns' must be an array";
+            return result;
+        }
+        auto session_id = string_member(object, "session_id");
+        const auto truncated = boolean_member(object, "truncated");
+        if (!session_id || session_id->empty() || !truncated) {
+            result.error = "session.chat.history requires 'session_id', 'turns' and 'truncated'";
+            return result;
+        }
+        DialogHistory history;
+        history.session_id = std::move(*session_id);
+        history.truncated = *truncated;
+        for (const auto &entry : *turns->as_array()) {
+            std::string turn_error;
+            auto turn = decode_dialog_turn(entry, turn_error);
+            if (!turn) {
+                result.error = std::move(turn_error);
+                return result;
+            }
+            history.turns.push_back(std::move(*turn));
         }
         response.payload = std::move(history);
     } else if (const auto *session_id = member(object, "session_id"); session_id != nullptr) {
@@ -1671,6 +1848,9 @@ const char *event_name(const EventPayload &payload) {
     if (std::holds_alternative<WorkflowRunUpdatedEvent>(payload)) {
         return kEventWorkflowRunUpdated;
     }
+    if (std::holds_alternative<ChatTurnUpdatedEvent>(payload)) {
+        return kEventChatTurnUpdated;
+    }
     return kEventOverflow;
 }
 
@@ -1735,6 +1915,19 @@ std::string encode_event(const Event &event) {
                 if (value.summary) {
                     put(object, "summary", *value.summary);
                 }
+            } else if constexpr (std::is_same_v<T, ChatTurnUpdatedEvent>) {
+                put(object, "event", kEventChatTurnUpdated);
+                put(object, "session_id", value.session_id);
+                put(object, "turn_id", value.turn_id);
+                put(object, "status", value.status);
+                put(object, "user_text", value.user_text);
+                if (value.has_reply) {
+                    put(object, "reply_text", value.reply_text);
+                }
+                if (value.has_error) {
+                    put(object, "error", value.error);
+                }
+                put(object, "sequence", static_cast<std::int64_t>(value.sequence));
             }
         },
         event.payload);
@@ -1964,6 +2157,58 @@ EventDecode decode_event(std::string_view payload) {
             run.summary = *text;
         }
         result.event.payload = std::move(run);
+    } else if (*name == kEventChatTurnUpdated) {
+        ChatTurnUpdatedEvent chat;
+        const auto session_id = string_member(object, "session_id");
+        const auto turn_id = string_member(object, "turn_id");
+        const auto status = string_member(object, "status");
+        const auto user_text = string_member(object, "user_text");
+        const auto sequence = integer_member(object, "sequence");
+        if (!session_id || session_id->empty() || !turn_id || turn_id->empty() || !status ||
+            !user_text || !sequence || *sequence < 1) {
+            result.error = "session.chat_updated requires 'session_id', 'turn_id', 'status', "
+                           "'user_text' and a positive 'sequence'";
+            return result;
+        }
+        if (!in_stable_set(*status, kDialogTurnStatuses,
+                           sizeof(kDialogTurnStatuses) / sizeof(kDialogTurnStatuses[0]))) {
+            result.error = "session.chat_updated 'status' is not a known turn status";
+            return result;
+        }
+        chat.session_id = std::move(*session_id);
+        chat.turn_id = std::move(*turn_id);
+        chat.status = std::move(*status);
+        chat.user_text = std::move(*user_text);
+        chat.sequence = static_cast<std::uint64_t>(*sequence);
+        if (const auto *reply = member(object, "reply_text"); reply != nullptr) {
+            const auto text = reply->as_string();
+            if (!text || chat.status != "ok") {
+                result.error = "session.chat_updated 'reply_text' must be a string present "
+                               "exactly when status is 'ok'";
+                return result;
+            }
+            chat.reply_text = *text;
+            chat.has_reply = true;
+        } else if (chat.status == "ok") {
+            result.error = "session.chat_updated 'reply_text' must be a string present "
+                           "exactly when status is 'ok'";
+            return result;
+        }
+        if (const auto *failure = member(object, "error"); failure != nullptr) {
+            const auto text = failure->as_string();
+            if (!text || chat.status != "failed") {
+                result.error = "session.chat_updated 'error' must be a string present exactly "
+                               "when status is 'failed'";
+                return result;
+            }
+            chat.error = *text;
+            chat.has_error = true;
+        } else if (chat.status == "failed") {
+            result.error = "session.chat_updated 'error' must be a string present exactly "
+                           "when status is 'failed'";
+            return result;
+        }
+        result.event.payload = std::move(chat);
     } else {
         result.error = "unknown event '" + *name + "'";
         return result;

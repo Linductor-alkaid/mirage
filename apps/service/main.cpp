@@ -79,6 +79,9 @@ void print_usage(std::ostream &out) {
         << "               [--perm CAPABILITY=allow|confirm|deny]...\n"
         << "               [--confirm allow|deny]\n"
         << "               [--config PATH] [--state-dir PATH] [--no-recovery]\n"
+        << "               [--model-endpoint ORIGIN] [--model-selector ALIAS]\n"
+        << "               [--model-api-prefix PREFIX] [--model-dialect DIALECT]\n"
+        << "               [--model-credential-env VAR] [--model-display-name NAME]\n"
         << "\n"
         << "Hosts the Mirage background runtime service (design doc section\n"
         << "12): a pinned Mira instance bound to the local desktop\n"
@@ -101,6 +104,10 @@ void print_usage(std::ostream &out) {
         << "                    broadcast as permission.request events, wait\n"
         << "                    --confirm-wait-ms for a permission.respond,\n"
         << "                    fail closed on timeout (default deny)\n"
+        << "  --model-*         Model layer configuration (DEC-027). --model-endpoint\n"
+        << "                    enables the dialog face (session.chat); the endpoint is\n"
+        << "                    the fixed provider origin, the credential env var is read\n"
+        << "                    at the transport boundary only. Default: disabled.\n"
         << "  --confirm-wait-ms N\n"
         << "                    Wait budget for --confirm ipc confirmations\n"
         << "                    (default 120000)\n"
@@ -233,6 +240,31 @@ int main(int argc, char **argv) {
                 return 2;
             }
             confirm_wait_ms = parsed_wait;
+            continue;
+        }
+        if (argument == "--model-endpoint" && index + 1 < argc) {
+            config.model.enabled = true;
+            config.model.endpoint_origin = argv[++index];
+            continue;
+        }
+        if (argument == "--model-selector" && index + 1 < argc) {
+            config.model.model_selector = argv[++index];
+            continue;
+        }
+        if (argument == "--model-api-prefix" && index + 1 < argc) {
+            config.model.api_prefix = argv[++index];
+            continue;
+        }
+        if (argument == "--model-dialect" && index + 1 < argc) {
+            config.model.dialect = argv[++index];
+            continue;
+        }
+        if (argument == "--model-credential-env" && index + 1 < argc) {
+            config.model.credential_env = argv[++index];
+            continue;
+        }
+        if (argument == "--model-display-name" && index + 1 < argc) {
+            config.model.display_name = argv[++index];
             continue;
         }
         std::cerr << kProgramName << ": unknown argument '" << argument << "'\n";

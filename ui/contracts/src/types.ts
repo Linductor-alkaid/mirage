@@ -107,6 +107,12 @@ export type RequestBody =
     | { op: 'permission.list' }
     | { op: 'session.list' }
     | { op: 'session.open' }
+    /** Dialog face (DEC-027, M5-06; DEC-025 backlog 3): one dialog turn to
+     * the model layer — asynchronous, the reply rides the
+     * `session.chat_updated` event stream. */
+    | { op: 'session.chat'; session_id: string; text: string }
+    /** The dialog thread's resync snapshot. */
+    | { op: 'session.chat.history'; session_id: string; limit?: number }
     /** Session management face (DEC-026 backlog item 2): closes the session
      * and removes its registry entry — the pinned close cancels the
      * session's non-terminal tasks. The primary session is refused with the
@@ -147,8 +153,9 @@ export type RequestBody =
 
 /** hello payload; `events` is the DEC-012 capability flag, `permissions` the
  * DEC-020 async confirmation flag, `sessions` the DEC-021 session-face flag,
- * `workflows` the DEC-023 workflow-face flag and `observation` the DEC-026
- * observation-face flag (absent = false for all). */
+ * `workflows` the DEC-023 workflow-face flag, `observation` the DEC-026
+ * observation-face flag and `chat` the DEC-027 dialog-face flag (absent =
+ * false for all). */
 export interface ServiceIdentity {
     service: string;
     mirage_version: string;
@@ -160,6 +167,7 @@ export interface ServiceIdentity {
     sessions?: boolean;
     workflows?: boolean;
     observation?: boolean;
+    chat?: boolean;
 }
 
 export interface TaskSubmitted {
@@ -336,6 +344,36 @@ export interface ObservationView {
     visual_regions?: ObservationRegion[];
 }
 
+/** Closed turn-status vocabulary of the dialog face (DEC-027): "pending"
+ * marks an accepted turn whose model call is in flight, "ok" a settled turn
+ * carrying `reply_text`, "failed" a settled turn carrying `error`. */
+export type ChatTurnStatus = 'pending' | 'ok' | 'failed';
+
+/** One dialog turn as reported by session.chat.history (DEC-027);
+ * `reply_text` / `error` are present exactly at their statuses. */
+export interface ChatTurnEntry {
+    turn_id: string;
+    status: ChatTurnStatus;
+    user_text: string;
+    reply_text?: string;
+    error?: string;
+    sequence: number;
+    recorded_at_ms: number;
+}
+
+/** `session.chat_updated` payload (DEC-027): one dialog turn's lifecycle;
+ * `reply_text` / `error` present exactly at ok / failed. The snapshot face
+ * is session.chat.history. */
+export interface ChatTurnUpdatedPayload {
+    session_id: string;
+    turn_id: string;
+    status: ChatTurnStatus;
+    user_text: string;
+    reply_text?: string;
+    error?: string;
+    sequence: number;
+}
+
 /** Successful response payload, discriminated exactly like the C++ variant. */
 export type ResponsePayload =
     | { kind: 'identity'; value: ServiceIdentity }
@@ -348,6 +386,11 @@ export type ResponsePayload =
     | { kind: 'permission-list'; value: { pending: PendingPermission[] } }
     | { kind: 'session-list'; value: { sessions: SessionSummary[] } }
     | { kind: 'session-opened'; value: { session_id: string } }
+    | { kind: 'session-chat-accepted'; value: { turn_id: string } }
+    | {
+          kind: 'session-chat-history';
+          value: { session_id: string; turns: ChatTurnEntry[]; truncated: boolean };
+      }
     /** session.close reply (DEC-026 backlog item 2): the closed session's id
      * plus its post-close state (the SessionState vocabulary, "closed" when
      * the projected view is readable). Mirrors the workflow.cancel reply
@@ -407,7 +450,8 @@ export type EventName =
     | 'session.message'
     | 'session.turn'
     | 'session.output'
-    | 'workflow.run_updated';
+    | 'workflow.run_updated'
+    | 'session.chat_updated';
 
 export const EVENT_NAMES: readonly EventName[] = [
     'task.updated',
@@ -419,6 +463,7 @@ export const EVENT_NAMES: readonly EventName[] = [
     'session.turn',
     'session.output',
     'workflow.run_updated',
+    'session.chat_updated',
 ];
 
 /** `task.updated` snapshot payload; `progress` matches task.inspect semantics. */
@@ -507,4 +552,5 @@ export type ServerEvent =
     | ({ v: 1; seq: number; event: 'session.message' } & SessionMessagePayload)
     | ({ v: 1; seq: number; event: 'session.turn' } & SessionTurnPayload)
     | ({ v: 1; seq: number; event: 'session.output' } & SessionOutputPayload)
-    | ({ v: 1; seq: number; event: 'workflow.run_updated' } & WorkflowRunUpdatedPayload);
+    | ({ v: 1; seq: number; event: 'workflow.run_updated' } & WorkflowRunUpdatedPayload)
+    | ({ v: 1; seq: number; event: 'session.chat_updated' } & ChatTurnUpdatedPayload);

@@ -26,6 +26,18 @@ export interface SessionMeta {
     taskId?: string;
 }
 
+/** 对话轮的线程投影（DEC-027 对话面）：pending 显示思考中，ok 显示回复，
+ * failed 显示稳定失败原因。 */
+export interface AssistantMessage {
+    id: string;
+    kind: 'assistant';
+    at: number;
+    turnId: string;
+    status: 'pending' | 'ok' | 'failed';
+    text: string;
+    userText: string;
+}
+
 export type MessageTone = 'info' | 'warn' | 'error';
 
 /** 步骤的展示形态：契约 StepView 不携带参数（wire 事实），展示层的
@@ -47,7 +59,8 @@ export interface StepDisplay {
  * system 是本地回执行。模型循环引入前不存在 assistant 消息（DEC-025
  * 决策 3），批准卡 / 快照卡随模拟域退役，批准中心属 M5-07。 */
 export type ChatMessage =
-    | { id: string; kind: 'user'; at: number; text: string; sequence: number }
+    | { id: string; kind: 'user'; at: number; text: string; sequence?: number }
+    | { id: string; kind: 'assistant'; at: number; turnId: string; status: 'pending' | 'ok' | 'failed'; text: string; userText: string }
     | { id: string; kind: 'outcome'; at: number; text: string; sequence: number }
     | { id: string; kind: 'activity'; at: number; taskId: string; progress: TaskProgress; note?: string }
     | { id: string; kind: 'step'; at: number; taskId: string; step: StepDisplay }

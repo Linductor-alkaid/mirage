@@ -21,6 +21,7 @@ import type {
 } from './transport.js';
 import { IpcRequestError, TransportClosedError } from './transport.js';
 import type {
+    ChatTurnEntry,
     ExposedTool,
     InspectTask,
     ObservationView,
@@ -136,6 +137,10 @@ export class DesktopBridgeTransport implements MirageTransport {
         return this.identity?.observation === true;
     }
 
+    get chatSupported(): boolean {
+        return this.identity?.chat === true;
+    }
+
     onConnectionLost(listener: () => void): void {
         this.lostListeners.add(listener);
     }
@@ -198,6 +203,26 @@ export class DesktopBridgeTransport implements MirageTransport {
         const payload = await this.request({ op: 'session.close', session_id: sessionId });
         return (payload as { kind: 'session-closed'; value: { session_id: string; state: SessionState } })
             .value;
+    }
+
+    async sessionChat(sessionId: string, text: string): Promise<{ turn_id: string }> {
+        const payload = await this.request({ op: 'session.chat', session_id: sessionId, text });
+        return (payload as { kind: 'session-chat-accepted'; value: { turn_id: string } }).value;
+    }
+
+    async sessionChatHistory(
+        sessionId: string,
+        limit?: number,
+    ): Promise<{ session_id: string; turns: ChatTurnEntry[]; truncated: boolean }> {
+        const payload = await this.request({
+            op: 'session.chat.history',
+            session_id: sessionId,
+            ...(limit !== undefined ? { limit } : {}),
+        });
+        return (payload as {
+            kind: 'session-chat-history';
+            value: { session_id: string; turns: ChatTurnEntry[]; truncated: boolean };
+        }).value;
     }
 
     async sessionHistory(input: SessionHistoryInput): Promise<{
