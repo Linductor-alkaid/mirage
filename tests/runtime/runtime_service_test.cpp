@@ -1836,6 +1836,17 @@ void scenario_session_state_round_trip_across_restart() {
     }
     MIRAGE_CHECK(follow_settled);
 
+    // Declared hydration limitation (fix fdc3b00): task.submit has no
+    // pinned session to reach for a rehydrated session — the honest
+    // read-only-history-view semantics, pinned verbatim.
+    ipc::SubmitTaskRequest to_hydrated;
+    to_hydrated.goal = "注定被拒的任务";
+    to_hydrated.session_id = session_id;
+    to_hydrated.steps.push_back({ipc::StepKind::FilesystemRead, note.string()});
+    const ipc::Response refused = second_client.call(to_hydrated, kCallBudget);
+    MIRAGE_CHECK(!refused.ok);
+    MIRAGE_CHECK(refused.error.code == "pinned_runtime");
+
     // Close-does-not-resurrect regression (round-2 finding): the hydrated
     // session is closed on the second instance — the close is service-side
     // (the pinned counterpart is gone with the previous era) — then a third
