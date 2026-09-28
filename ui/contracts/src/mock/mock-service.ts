@@ -17,6 +17,7 @@ import type {
     ServerEvent,
     ServiceIdentity,
     SessionHistoryEntry,
+    SessionState,
     SessionSummary,
     StepView,
     TaskProgress,
@@ -354,6 +355,8 @@ export class MockMirageService {
     private readonly workflows = new Map<string, MockWorkflowEntry>();
     private readonly workflowRuns = new Map<string, MockWorkflowRun>();
     private readonly sessions = new Map<string, MockSession>();
+    /** DEC-021 主会话 id（构造时入册）；session.close 的产品侧守卫锚点。 */
+    private primarySessionId = '';
     private nextTaskNumber = 1;
     private nextOperationNumber = 1;
     private nextRunNumber = 1;
@@ -378,8 +381,9 @@ export class MockMirageService {
             flushMode: options.flushMode ?? 'auto',
         };
         // DEC-021: the primary session enters the registry up front, so
-        // session.list always reports at least one entry.
-        this.registerSession(Date.now() - 3_600_000);
+        // session.list always reports at least one entry. Its id anchors
+        // session.close's primary guard (DEC-026).
+        this.primarySessionId = this.registerSession(Date.now() - 3_600_000).id;
         const seed = (definition: WorkflowDefinition, validation: MockWorkflowEntry['validation']): void => {
             const id = (definition as { workflow_id: string }).workflow_id;
             this.workflows.set(id, {
@@ -1031,6 +1035,25 @@ export class MockMirageService {
         return { session_id: session.id };
     }
 
+    /** The session management face (DEC-026 backlog item 2): wire-faithful
+     * mirror — the primary session is refused with the same stable
+     * invalid_state the real service answers, an unknown id is not_found,
+     * and a successful close removes the registry entry and publishes the
+     * session.updated notification with the closed state. */
+    sessionClose(sessionId: string): { session_id: string; state: 'closed' } {
+        this.assertOpen();
+        if (sessionId === this.primarySessionId) {
+            throw new IpcRequestError('invalid_state', 'the primary session cannot be closed');
+        }
+        const session = this.sessions.get(sessionId);
+        if (session === undefined) {
+            throw new IpcRequestError('not_found', 'unknown session id');
+        }
+        this.sessions.delete(sessionId);
+        this.publishFrame({ v: 1, event: 'session.updated', session_id: sessionId, state: 'closed' });
+        return { session_id: sessionId, state: 'closed' };
+    }
+
     sessionHistory(
         input: SessionHistoryInput,
     ): { session_id: string; entries: SessionHistoryEntry[]; truncated: boolean } {
@@ -1393,6 +1416,10 @@ export class MockTransport implements MirageTransport {
 
     openSession(): Promise<{ session_id: string }> {
         return this.call(() => this.service.sessionOpen());
+    }
+
+    closeSession(sessionId: string): Promise<{ session_id: string; state: SessionState }> {
+        return this.call(() => this.service.sessionClose(sessionId));
     }
 
     sessionHistory(input: SessionHistoryInput): Promise<{

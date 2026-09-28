@@ -186,6 +186,9 @@ export interface HarnessActions {
     /** 新建会话（session.open；容量饱和显式失败）。 */
     newSession(): void;
     selectSession(id: string): void;
+    /** 删除会话（session.close，DEC-026 挂账②兑现）：关闭并移除注册表条目，
+     * 关联任务由服务端取消；主会话被服务端以 invalid_state 拒绝。 */
+    deleteSession(id: string): void;
     setDraft(sessionId: string, text: string): void;
     /** 执行模式提交（task.submit 会话绑定事实流）。 */
     submitExec(sessionId: string, goal: string, steps: SubmitStepInput[], timeoutMs?: number): Promise<void>;
@@ -773,6 +776,55 @@ export class HarnessStore {
         void this.loadHistory(id);
     };
 
+    /** 删除会话（session.close，DEC-026 挂账②兑现）：服务端关闭会话、取消
+     * 其关联任务并移除注册表条目；本地线程 / 草稿 / 观察流 / 提交入参记忆
+     * 随注册表事实收敛清空。主会话被服务端以 invalid_state 拒绝（task.submit
+     * 默认绑定锚点），稳定错误如实呈现。 */
+    deleteSession: HarnessActions['deleteSession'] = (sessionId) => {
+        if (!this.ensureSessions()) {
+            return;
+        }
+        void this.transport
+            .closeSession(sessionId)
+            .then(() => {
+                // 本地记忆随注册表事实收敛清空（线程 / 草稿 / 截断标记 /
+                // 观察流 / 提交入参）。
+                const messages = new Map(this.state.messages);
+                messages.delete(sessionId);
+                const drafts = new Map(this.state.drafts);
+                drafts.delete(sessionId);
+                const historyTruncated = new Map(this.state.historyTruncated);
+                historyTruncated.delete(sessionId);
+                const obsFeed = new Map(this.state.obsFeed);
+                obsFeed.delete(sessionId);
+                const taskInputs = new Map(this.state.taskInputs);
+                taskInputs.delete(sessionId);
+                this.set({
+                    messages,
+                    drafts,
+                    historyTruncated,
+                    obsFeed,
+                    taskInputs,
+                    sessions: this.state.sessions.filter((s) => s.id !== sessionId),
+                });
+                if (this.state.route.view === 'chat' && this.state.route.sessionId === sessionId) {
+                    this.navigate({ view: 'chat' });
+                }
+                this.toast('会话已关闭并从列表移除（关联任务已取消）', 'info');
+            })
+            .catch((err: unknown) => {
+                const message =
+                    err instanceof IpcRequestError
+                        ? err.code === 'invalid_state'
+                            ? '主会话不可关闭（task.submit 的默认提交会话）'
+                            : `删除被拒绝（${err.code}）`
+                        : err instanceof Error
+                          ? err.message
+                          : String(err);
+                this.toast(message, 'error');
+            });
+    };
+
     private ensureSessions(): boolean {
         if (!this.state.sessionsSupported) {
             this.toast('服务未提供会话面（hello 无 sessions 位）', 'warn');
@@ -1305,6 +1357,7 @@ export class HarnessStore {
             navigate: this.navigate,
             newSession: this.newSession,
             selectSession: this.selectSession,
+            deleteSession: (id) => this.deleteSession(id),
             setDraft: this.setDraft,
             submitExec: this.submitExec,
             stopSession: this.stopSession,

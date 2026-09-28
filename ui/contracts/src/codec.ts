@@ -193,6 +193,10 @@ export function encodeRequest(id: number, body: RequestBody): string {
         case 'session.open':
             object.op = 'session.open';
             break;
+        case 'session.close':
+            object.op = 'session.close';
+            object.session_id = body.session_id;
+            break;
         case 'session.history':
             object.op = 'session.history';
             object.session_id = body.session_id;
@@ -389,6 +393,13 @@ export function decodeRequest(payload: string): RequestDecode {
             return { ok: true, id, body: { op: 'session.list' } };
         case 'session.open':
             return { ok: true, id, body: { op: 'session.open' } };
+        case 'session.close': {
+            const sessionId = asString(parsed.session_id);
+            if (sessionId === null || sessionId.length === 0) {
+                return { ok: false, error: "session.close requires a non-empty 'session_id'" };
+            }
+            return { ok: true, id, body: { op: 'session.close', session_id: sessionId } };
+        }
         case 'workflow.list':
             return { ok: true, id, body: { op: 'workflow.list' } };
         case 'workflow.atom.catalog':
@@ -626,6 +637,10 @@ export function encodeResponse(response: ResponseEnvelop): string {
                 break;
             case 'session-opened':
                 object.session_id = payload.value.session_id;
+                break;
+            case 'session-closed':
+                object.session_id = payload.value.session_id;
+                object.state = payload.value.state;
                 break;
             case 'session-history':
                 object.session_id = payload.value.session_id;
@@ -1282,6 +1297,26 @@ export function decodeResponse(payload: string): ResponseDecode {
         const sessionId = asString(parsed.session_id);
         if (sessionId === null || sessionId.length === 0) {
             return { ok: false, error: "session.open response requires a non-empty 'session_id'" };
+        }
+        if (parsed.state !== undefined) {
+            // The closed reply adds "state" to the same envelope shape
+            // (mirrors the workflow.cancel / workflow.run discrimination).
+            const state = asString(parsed.state);
+            if (state === null || !SESSION_STATES.includes(state as SessionState)) {
+                return {
+                    ok: false,
+                    error:
+                        "session.close response requires a 'state' string from the session state vocabulary",
+                };
+            }
+            return {
+                ok: true,
+                response: {
+                    ok: true,
+                    id,
+                    payload: { kind: 'session-closed', value: { session_id: sessionId, state: state as SessionState } },
+                },
+            };
         }
         return {
             ok: true,

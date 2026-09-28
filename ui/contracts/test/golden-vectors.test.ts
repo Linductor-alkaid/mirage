@@ -25,6 +25,7 @@ import type {
     ResponseEnvelop,
     ServerEvent,
     SessionHistoryEntry,
+    SessionState,
     SessionSummary,
     StepView,
     TaskProgress,
@@ -71,6 +72,10 @@ type GoldenPayload =
     | { kind: 'permission-list'; value: { pending: PendingPermission[] } }
     | { kind: 'session-list'; value: { sessions: SessionSummary[] } }
     | { kind: 'session-opened'; value: { session_id: string } }
+    | {
+          kind: 'session-closed';
+          value: { session_id: string; state: SessionState };
+      }
     | {
           kind: 'session-history';
           value: { session_id: string; entries: SessionHistoryEntry[]; truncated: boolean };
@@ -202,6 +207,18 @@ function expectedEnvelop(vector: GoldenResponseVector): ResponseEnvelop {
                 payload: {
                     kind: 'session-opened',
                     value: { session_id: response.payload.value.session_id },
+                },
+            };
+        case 'session-closed':
+            return {
+                ok: true,
+                id: response.id,
+                payload: {
+                    kind: 'session-closed',
+                    value: {
+                        session_id: response.payload.value.session_id,
+                        state: response.payload.value.state as SessionState,
+                    },
                 },
             };
         case 'session-history':

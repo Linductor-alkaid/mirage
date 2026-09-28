@@ -12,6 +12,7 @@ import type {
     ServerEvent,
     ServiceIdentity,
     SessionHistoryEntry,
+    SessionState,
     SessionSummary,
     TaskCancelled,
     TaskStep,
@@ -125,6 +126,13 @@ export interface MirageTransport {
     /** Opens a new session; rejects with IpcRequestError('unavailable') when
      * the registry is at capacity (DEC-021). */
     openSession(): Promise<{ session_id: string }>;
+    /** Session management face (DEC-026 backlog item 2): closes the session
+     * and removes its registry entry — the pinned close cancels the
+     * session's non-terminal tasks. Rejects with IpcRequestError:
+     * 'invalid_state' for the primary session (task.submit's default
+     * binding), 'not_found' for unknown or already-removed ids. `state` is
+     * the post-close pinned state ("closed" when the view is readable). */
+    closeSession(sessionId: string): Promise<{ session_id: string; state: SessionState }>;
     /** The conversation projection's resync snapshot: newest window of
      * user/outcome entries in conversation order. */
     sessionHistory(input: SessionHistoryInput): Promise<{

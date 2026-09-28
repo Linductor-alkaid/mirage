@@ -838,3 +838,59 @@ describe('DEC-026 faces (definition read face + desktop observation)', () => {
         expect(store.get().observation.error).toContain('unavailable');
     });
 });
+
+// ---- 会话管理面（session.close，DEC-026 挂账②兑现） ------------------------
+
+describe('session close management face (DEC-026)', () => {
+    it('deleteSession closes the session, drops local memory and refreshes the list', async () => {
+        const created = createMockTransport({ hostStartDelayMs: 0, stepDurationMs: 5 });
+        const store = new HarnessStore(created.transport);
+        currentStore = store;
+        store.start();
+        await vi.waitFor(() => {
+            expect(store.get().connection).toBe('ready');
+            expect(store.get().sessions.length).toBe(1);
+        });
+
+        const before = store.get().sessions.length;
+        store.newSession();
+        await vi.waitFor(() => {
+            expect(store.get().sessions.length).toBe(before + 1);
+            expect(store.get().route.view).toBe('chat');
+        });
+        // newSession 落点新会话；落点会话产生本地记忆（草稿），删除后随
+        // 注册表事实收敛清空。
+        const openedId = store.get().route.view === 'chat' ? store.get().route.sessionId : undefined;
+        expect(openedId).toBeDefined();
+        store.setDraft(openedId!, 'draft text');
+
+        store.deleteSession(openedId);
+        await vi.waitFor(() => {
+            expect(store.get().sessions.some((s) => s.id === openedId)).toBe(false);
+            expect(store.get().messages.has(openedId)).toBe(false);
+            expect(store.get().drafts.has(openedId)).toBe(false);
+        });
+        expect(store.get().toasts.at(-1)?.text).toContain('会话已关闭');
+        // 当前路由是被删会话时回退到默认会话路由。
+        expect(window.location.hash).toBe('#/chat');
+    });
+
+    it('deleteSession surfaces the stable invalid_state for the primary session', async () => {
+        const created = createMockTransport({ hostStartDelayMs: 0, stepDurationMs: 5 });
+        const store = new HarnessStore(created.transport);
+        currentStore = store;
+        store.start();
+        await vi.waitFor(() => {
+            expect(store.get().connection).toBe('ready');
+            expect(store.get().sessions.length).toBe(1);
+        });
+        const primaryId = store.get().sessions[0]!.id;
+
+        store.deleteSession(primaryId);
+        await vi.waitFor(() => {
+            expect(store.get().toasts.at(-1)?.text).toContain('主会话不可关闭');
+        });
+        // 主会话仍在列表（服务端拒绝未触碰注册表）。
+        expect(store.get().sessions.some((s) => s.id === primaryId)).toBe(true);
+    });
+});
