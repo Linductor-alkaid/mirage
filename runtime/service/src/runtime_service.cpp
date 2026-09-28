@@ -216,9 +216,14 @@ void persist_session_state(const std::shared_ptr<ServiceCore> &core) {
     static std::string last_error;
     persistence::SessionState state;
     {
-        std::lock_guard lock(core->journal_raw_mutex);
-        std::lock_guard dialogs_lock(core->dialogs.mutex);
+        // Canonical nesting order for these three mutexes (handle_session_close
+        // nests dialogs.mutex -> journal_raw_mutex, the same relative order):
+        // sessions.mutex -> dialogs.mutex -> journal_raw_mutex. Any other
+        // order is a lock-order inversion (TSan reported exactly that cycle
+        // against the previous journal_raw-first nesting here).
         std::lock_guard sessions_lock(core->sessions.mutex);
+        std::lock_guard dialogs_lock(core->dialogs.mutex);
+        std::lock_guard raw_lock(core->journal_raw_mutex);
         for (const auto &[session_id, created] : core->sessions.created_at_ms) {
             persistence::PersistedSession session;
             session.id = session_id;
@@ -1093,6 +1098,9 @@ struct RuntimeService::Impl {
         {
             std::string in_flight_turn;
             {
+                // dialogs.mutex -> journal_raw_mutex keeps the canonical
+                // nesting order shared with persist_session_state (see the
+                // comment there); sessions.mutex was already released above.
                 std::lock_guard lock(core->dialogs.mutex);
                 if (const auto found = core->dialogs.sessions.find(session_id);
                     found != core->dialogs.sessions.end()) {
