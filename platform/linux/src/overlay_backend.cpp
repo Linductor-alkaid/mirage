@@ -90,7 +90,7 @@ struct X11OverlayCarrier::Surface {
     OverlaySurfaceFrame frame;
     bool has_frame = false;
     std::chrono::steady_clock::time_point confirm_deadline{};
-    long shown_countdown = -1;
+    long long shown_countdown = -1;
     std::vector<Button> buttons;
 
     unsigned long px_banner_bg = 0;
@@ -137,8 +137,10 @@ struct X11OverlayCarrier::Surface {
     }
 
     /// The confirmation's remaining whole seconds (clamped at zero),
-    /// derived from the deadline captured when its frame arrived.
-    long countdown_seconds(std::chrono::steady_clock::time_point now) const {
+    /// derived from the deadline captured when its frame arrived. long
+    /// long: std::chrono::seconds::count() is __int64 on MSVC — a long
+    /// narrows there (C4244 under warnings-as-errors); neutral on GCC/Clang.
+    long long countdown_seconds(std::chrono::steady_clock::time_point now) const {
         if (!frame.confirmation.has_value()) {
             return -1;
         }
@@ -227,8 +229,8 @@ void compose(X11OverlayCarrier::Surface &surface,
 
     // Confirmation banner (bottom-center): question + countdown + buttons.
     if (frame.confirmation.has_value() && surface.font != nullptr) {
-        const long countdown =
-            std::max(0L, surface.countdown_seconds(std::chrono::steady_clock::now()));
+        const long long countdown =
+            std::max(0LL, surface.countdown_seconds(std::chrono::steady_clock::now()));
         const std::string question =
             ascii_only("Allow " + frame.confirmation->capability + " " +
                        frame.confirmation->resource + "? [" + std::to_string(countdown) + "s]");
@@ -380,7 +382,7 @@ X11OverlayCarrier::run(const OverlayCarrierContext &context,
 
         if (surface.has_frame) {
             // Repaint on new frames and on confirmation countdown ticks.
-            const long countdown = surface.countdown_seconds(std::chrono::steady_clock::now());
+            const long long countdown = surface.countdown_seconds(std::chrono::steady_clock::now());
             if (!surface.presented || countdown != surface.shown_countdown) {
                 surface.shown_countdown = countdown;
                 surface.buttons.clear();

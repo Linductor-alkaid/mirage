@@ -117,11 +117,15 @@ struct OverlayState {
     bool presented = false;
     bool interaction_shown = false;
     std::chrono::steady_clock::time_point confirm_deadline{};
-    long shown_countdown = -1;
+    // long long: std::chrono::seconds::count() is __int64 on MSVC — a long
+    // here narrows and trips C4244 under the warnings-as-errors gate
+    // (decided by the windows msvc CI run of PR #63); long long is the
+    // neutral type on every supported toolchain.
+    long long shown_countdown = -1;
     Layout layout; ///< last composed presentation
     bool layout_valid = false;
 
-    long countdown_seconds(std::chrono::steady_clock::time_point now) const {
+    long long countdown_seconds(std::chrono::steady_clock::time_point now) const {
         if (!frame.confirmation.has_value()) {
             return -1;
         }
@@ -295,7 +299,7 @@ struct LayeredSurface {
 /// Composes `state.frame` into `layout` over the virtual screen; returns
 /// false when the surface state cannot support composition (no font, no
 /// measurement DC).
-bool compose_layout(OverlayState &state, HDC measure_dc, long countdown) {
+bool compose_layout(OverlayState &state, HDC measure_dc, long long countdown) {
     const OverlaySurfaceFrame &frame = state.frame;
     const int screen_w = state.screen.right - state.screen.left;
     const int screen_h = state.screen.bottom - state.screen.top;
@@ -406,7 +410,7 @@ bool compose_layout(OverlayState &state, HDC measure_dc, long countdown) {
     if (frame.confirmation.has_value() && measure_dc != nullptr) {
         const std::wstring question =
             wide_of("Allow " + frame.confirmation->capability + " " + frame.confirmation->resource +
-                    "? [" + std::to_string(std::max(0L, countdown)) + "s]");
+                    "? [" + std::to_string(std::max(0LL, countdown)) + "s]");
         const int text_w = measure(question);
         const int w = std::min(screen_w, text_w + 2 * kPadding + 2 * (kButtonWidth + kPadding));
         const int x = (screen_w - w) / 2;
@@ -623,7 +627,8 @@ Win32OverlayCarrier::run(const OverlayCarrierContext &context,
 
             if (pump.has_frame) {
                 // Repaint on new frames and on confirmation countdown ticks.
-                const long countdown = pump.countdown_seconds(std::chrono::steady_clock::now());
+                const long long countdown =
+                    pump.countdown_seconds(std::chrono::steady_clock::now());
                 if (!pump.presented || countdown != pump.shown_countdown) {
                     pump.shown_countdown = countdown;
                     if (compose_layout(pump, state->measure_dc, countdown) &&
