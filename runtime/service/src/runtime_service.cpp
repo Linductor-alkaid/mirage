@@ -575,6 +575,16 @@ struct RuntimeService::Impl {
             handle_cancel(connection_id, correlation_id, std::move(request->task_id));
             return;
         }
+        if (auto *request = std::get_if<ipc::PauseTaskRequest>(&decoded.body)) {
+            handle_pause_resume(connection_id, correlation_id, std::move(request->task_id),
+                                /*pause=*/true);
+            return;
+        }
+        if (auto *request = std::get_if<ipc::ResumeTaskRequest>(&decoded.body)) {
+            handle_pause_resume(connection_id, correlation_id, std::move(request->task_id),
+                                /*pause=*/false);
+            return;
+        }
         if (auto *request = std::get_if<ipc::ShutdownRequest>(&decoded.body)) {
             (void)request;
             respond(connection_id, correlation_id, ipc::ShutdownAccepted{});
@@ -948,6 +958,57 @@ struct RuntimeService::Impl {
         // cancel already settled under) before the ack leaves.
         detail::publish_task_updated(core, task_id);
         respond(connection_id, correlation_id, std::move(acknowledgement));
+    }
+
+    /// Serial thread: task.pause / task.resume (M5-10, DEC-030) — the
+    /// pinned pause family projected onto the wire. The registry guard
+    /// mirrors handle_cancel (unknown id not_found; recovery-era tasks are
+    /// terminal and never revived); the pinned rejection passes through
+    /// verbatim otherwise. The admitted command is a progress advance
+    /// (DEC-012 decision 3): subscribers see "Paused" / "Active" before
+    /// the ack leaves, and the driving loop parks on / resumes from the
+    /// next operation boundary.
+    void handle_pause_resume(std::uint64_t connection_id, std::uint64_t correlation_id,
+                             std::string task_id, bool pause) {
+        bool known = false;
+        bool from_recovery = false;
+        {
+            std::lock_guard lock(core->registry.mutex);
+            auto entry = core->registry.tasks.find(task_id);
+            known = entry != core->registry.tasks.end();
+            from_recovery = known && entry->second.from_recovery;
+        }
+        if (!known) {
+            fail(connection_id, correlation_id, "not_found", "unknown task id");
+            return;
+        }
+        if (from_recovery) {
+            fail(connection_id, correlation_id, "invalid_state",
+                 "task belongs to a previous service run and is already "
+                 "settled");
+            return;
+        }
+        const HostOutcome commanded = pause ? core->host.pause_task(TaskIdentity{task_id})
+                                            : core->host.resume_task(TaskIdentity{task_id});
+        if (!commanded.ok) {
+            fail(connection_id, correlation_id, commanded.error.code, commanded.error.message);
+            return;
+        }
+        const TaskViewResult view = core->host.task_view(TaskIdentity{task_id});
+        const char *progress = view.ok ? progress_name(view.view.progress) : "Unknown";
+        if (pause) {
+            ipc::TaskPaused acknowledgement;
+            acknowledgement.task_id = task_id;
+            acknowledgement.progress = progress;
+            detail::publish_task_updated(core, task_id);
+            respond(connection_id, correlation_id, std::move(acknowledgement));
+        } else {
+            ipc::TaskResumed acknowledgement;
+            acknowledgement.task_id = task_id;
+            acknowledgement.progress = progress;
+            detail::publish_task_updated(core, task_id);
+            respond(connection_id, correlation_id, std::move(acknowledgement));
+        }
     }
 
     /// Serial thread: attach the connection to the service event stream

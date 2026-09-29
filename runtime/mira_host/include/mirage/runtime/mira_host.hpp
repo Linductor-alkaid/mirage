@@ -298,6 +298,20 @@ class MiraHost {
     /// terminal task surfaces the pinned rejection instead of reviving it.
     HostOutcome cancel_task(const TaskIdentity &task);
 
+    /// Moves a task into the pinned pause family (M5-10, DEC-030): the
+    /// epoch advances, in-flight operation completions settle stale and new
+    /// begin_operation() calls are refused while paused — the driving loop
+    /// parks at the next operation boundary and resumes driving after
+    /// resume_task(). Requires Running; illegal transitions (terminal,
+    /// already paused) surface the pinned rejection.
+    HostOutcome pause_task(const TaskIdentity &task);
+
+    /// Returns a paused task to the pinned drive state (M5-10, DEC-030):
+    /// the epoch advances again so stale-era completions stay settled, and
+    /// a parked driving loop re-admits its next operation. Requires
+    /// Running; resume of a non-paused task surfaces the pinned rejection.
+    HostOutcome resume_task(const TaskIdentity &task);
+
     /// Settles a task from the harness side (design doc section 11: Verify
     /// decides goal success). Only legal pinned transitions are admitted;
     /// late completions of settled tasks surface as rejections and never
@@ -387,6 +401,10 @@ class MiraHost {
 
   private:
     struct Impl;
+    /// Shared body of pause_task() / resume_task() (M5-10, DEC-030): the
+    /// pinned pause-family command with cancel_task()'s Running guard,
+    /// identity parse and settlement discipline.
+    HostOutcome pause_family_task(const TaskIdentity &task, bool pause);
     std::unique_ptr<Impl> impl_;
 };
 

@@ -387,6 +387,12 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
     if (op == "task.cancel") {
         return ipc::CancelTaskRequest{vector_string(body, "task_id")};
     }
+    if (op == "task.pause") {
+        return ipc::PauseTaskRequest{vector_string(body, "task_id")};
+    }
+    if (op == "task.resume") {
+        return ipc::ResumeTaskRequest{vector_string(body, "task_id")};
+    }
     if (op == "permission.respond") {
         ipc::RespondPermissionRequest respond;
         respond.request_id = vector_string(body, "request_id");
@@ -626,7 +632,9 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                                        *expected_value.session_id);
                 }
             } else if constexpr (std::is_same_v<T, ipc::InspectTaskRequest> ||
-                                 std::is_same_v<T, ipc::CancelTaskRequest>) {
+                                 std::is_same_v<T, ipc::CancelTaskRequest> ||
+                                 std::is_same_v<T, ipc::PauseTaskRequest> ||
+                                 std::is_same_v<T, ipc::ResumeTaskRequest>) {
                 const auto &request = std::get<T>(actual);
                 check_string_equal(name, "task_id", request.task_id, expected_value.task_id);
             } else if constexpr (std::is_same_v<T, ipc::CloseSessionRequest>) {
@@ -834,6 +842,12 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
     } else if (kind == "cancelled") {
         response.payload =
             ipc::TaskCancelled{vector_string(value, "task_id"), vector_string(value, "progress")};
+    } else if (kind == "paused") {
+        response.payload =
+            ipc::TaskPaused{vector_string(value, "task_id"), vector_string(value, "progress")};
+    } else if (kind == "resumed") {
+        response.payload =
+            ipc::TaskResumed{vector_string(value, "task_id"), vector_string(value, "progress")};
     } else if (kind == "permission-responded") {
         response.payload = ipc::PermissionResponded{vector_string(value, "request_id")};
     } else if (kind == "permission-list") {

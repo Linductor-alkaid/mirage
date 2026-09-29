@@ -14,6 +14,8 @@ constexpr const char *kOpSubmit = "task.submit";
 constexpr const char *kOpList = "task.list";
 constexpr const char *kOpInspect = "task.inspect";
 constexpr const char *kOpCancel = "task.cancel";
+constexpr const char *kOpPause = "task.pause";
+constexpr const char *kOpResume = "task.resume";
 constexpr const char *kOpShutdown = "service.shutdown";
 constexpr const char *kOpSubscribe = "events.subscribe";
 constexpr const char *kOpUnsubscribe = "events.unsubscribe";
@@ -545,6 +547,16 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 put(cancelled, "task_id", value.task_id);
                 put(cancelled, "progress", value.progress);
                 put(object, "task_cancelled", std::move(cancelled));
+            } else if constexpr (std::is_same_v<T, TaskPaused>) {
+                auto paused = make_object();
+                put(paused, "task_id", value.task_id);
+                put(paused, "progress", value.progress);
+                put(object, "task_paused", std::move(paused));
+            } else if constexpr (std::is_same_v<T, TaskResumed>) {
+                auto resumed = make_object();
+                put(resumed, "task_id", value.task_id);
+                put(resumed, "progress", value.progress);
+                put(object, "task_resumed", std::move(resumed));
             } else if constexpr (std::is_same_v<T, PermissionResponded>) {
                 put(object, "request_id", value.request_id);
             } else if constexpr (std::is_same_v<T, PermissionPendingList>) {
@@ -766,6 +778,12 @@ std::string encode_request(std::uint64_t id, const Request &body) {
             } else if constexpr (std::is_same_v<T, CancelTaskRequest>) {
                 put(object, "op", kOpCancel);
                 put(object, "task_id", value.task_id);
+            } else if constexpr (std::is_same_v<T, PauseTaskRequest>) {
+                put(object, "op", kOpPause);
+                put(object, "task_id", value.task_id);
+            } else if constexpr (std::is_same_v<T, ResumeTaskRequest>) {
+                put(object, "op", kOpResume);
+                put(object, "task_id", value.task_id);
             } else if constexpr (std::is_same_v<T, ShutdownRequest>) {
                 put(object, "op", kOpShutdown);
             } else if constexpr (std::is_same_v<T, SubscribeEventsRequest>) {
@@ -959,6 +977,24 @@ RequestDecode decode_request(std::string_view payload) {
         }
         cancel.task_id = *task_id;
         result.body = std::move(cancel);
+    } else if (*op == kOpPause) {
+        PauseTaskRequest pause;
+        const auto task_id = string_member(object, "task_id");
+        if (!task_id || task_id->empty()) {
+            result.error = "task.pause requires a non-empty 'task_id'";
+            return result;
+        }
+        pause.task_id = *task_id;
+        result.body = std::move(pause);
+    } else if (*op == kOpResume) {
+        ResumeTaskRequest resume;
+        const auto task_id = string_member(object, "task_id");
+        if (!task_id || task_id->empty()) {
+            result.error = "task.resume requires a non-empty 'task_id'";
+            return result;
+        }
+        resume.task_id = *task_id;
+        result.body = std::move(resume);
     } else if (*op == kOpPermissionRespond) {
         RespondPermissionRequest respond;
         const auto request_id = string_member(object, "request_id");
@@ -1447,6 +1483,36 @@ ResponseDecode decode_response(std::string_view payload) {
         auto progress = string_member(*cancelled, "progress");
         if (!id_text || id_text->empty() || !progress) {
             result.error = "task.cancel requires 'task_id' and 'progress'";
+            return result;
+        }
+        acknowledgement.task_id = std::move(*id_text);
+        acknowledgement.progress = std::move(*progress);
+        response.payload = std::move(acknowledgement);
+    } else if (const auto *paused = member(object, "task_paused"); paused != nullptr) {
+        if (!paused->is_object()) {
+            result.error = "task.pause 'task_paused' must be an object";
+            return result;
+        }
+        TaskPaused acknowledgement;
+        auto id_text = string_member(*paused, "task_id");
+        auto progress = string_member(*paused, "progress");
+        if (!id_text || id_text->empty() || !progress) {
+            result.error = "task.pause requires 'task_id' and 'progress'";
+            return result;
+        }
+        acknowledgement.task_id = std::move(*id_text);
+        acknowledgement.progress = std::move(*progress);
+        response.payload = std::move(acknowledgement);
+    } else if (const auto *resumed = member(object, "task_resumed"); resumed != nullptr) {
+        if (!resumed->is_object()) {
+            result.error = "task.resume 'task_resumed' must be an object";
+            return result;
+        }
+        TaskResumed acknowledgement;
+        auto id_text = string_member(*resumed, "task_id");
+        auto progress = string_member(*resumed, "progress");
+        if (!id_text || id_text->empty() || !progress) {
+            result.error = "task.resume requires 'task_id' and 'progress'";
             return result;
         }
         acknowledgement.task_id = std::move(*id_text);

@@ -178,6 +178,14 @@ export function encodeRequest(id: number, body: RequestBody): string {
             object.op = 'task.cancel';
             object.task_id = body.task_id;
             break;
+        case 'task.pause':
+            object.op = 'task.pause';
+            object.task_id = body.task_id;
+            break;
+        case 'task.resume':
+            object.op = 'task.resume';
+            object.task_id = body.task_id;
+            break;
         case 'service.shutdown':
             object.op = 'service.shutdown';
             break;
@@ -423,6 +431,20 @@ export function decodeRequest(payload: string): RequestDecode {
                 return { ok: false, error: "task.cancel requires a non-empty 'task_id'" };
             }
             return { ok: true, id, body: { op: 'task.cancel', task_id: taskId } };
+        }
+        case 'task.pause': {
+            const taskId = asString(parsed.task_id);
+            if (taskId === null || taskId.length === 0) {
+                return { ok: false, error: "task.pause requires a non-empty 'task_id'" };
+            }
+            return { ok: true, id, body: { op: 'task.pause', task_id: taskId } };
+        }
+        case 'task.resume': {
+            const taskId = asString(parsed.task_id);
+            if (taskId === null || taskId.length === 0) {
+                return { ok: false, error: "task.resume requires a non-empty 'task_id'" };
+            }
+            return { ok: true, id, body: { op: 'task.resume', task_id: taskId } };
         }
         case 'session.list':
             return { ok: true, id, body: { op: 'session.list' } };
@@ -736,6 +758,18 @@ export function encodeResponse(response: ResponseEnvelop): string {
                 break;
             case 'cancelled':
                 object.task_cancelled = {
+                    task_id: payload.value.task_id,
+                    progress: payload.value.progress,
+                };
+                break;
+            case 'paused':
+                object.task_paused = {
+                    task_id: payload.value.task_id,
+                    progress: payload.value.progress,
+                };
+                break;
+            case 'resumed':
+                object.task_resumed = {
                     task_id: payload.value.task_id,
                     progress: payload.value.progress,
                 };
@@ -1385,6 +1419,44 @@ export function decodeResponse(payload: string): ResponseDecode {
                 ok: true,
                 id,
                 payload: { kind: 'cancelled', value: { task_id: taskId, progress: progress as TaskProgress } },
+            },
+        };
+    }
+    if (parsed.task_paused !== undefined) {
+        const paused = parsed.task_paused;
+        if (!isRecord(paused)) {
+            return { ok: false, error: "task.pause 'task_paused' must be an object" };
+        }
+        const taskId = asString(paused.task_id);
+        const progress = asString(paused.progress);
+        if (taskId === null || taskId.length === 0 || progress === null) {
+            return { ok: false, error: "task.pause requires 'task_id' and 'progress'" };
+        }
+        return {
+            ok: true,
+            response: {
+                ok: true,
+                id,
+                payload: { kind: 'paused', value: { task_id: taskId, progress: progress as TaskProgress } },
+            },
+        };
+    }
+    if (parsed.task_resumed !== undefined) {
+        const resumed = parsed.task_resumed;
+        if (!isRecord(resumed)) {
+            return { ok: false, error: "task.resume 'task_resumed' must be an object" };
+        }
+        const taskId = asString(resumed.task_id);
+        const progress = asString(resumed.progress);
+        if (taskId === null || taskId.length === 0 || progress === null) {
+            return { ok: false, error: "task.resume requires 'task_id' and 'progress'" };
+        }
+        return {
+            ok: true,
+            response: {
+                ok: true,
+                id,
+                payload: { kind: 'resumed', value: { task_id: taskId, progress: progress as TaskProgress } },
             },
         };
     }

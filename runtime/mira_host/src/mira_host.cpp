@@ -418,6 +418,44 @@ HostOutcome MiraHost::cancel_task(const TaskIdentity &task) {
     return HostOutcome{true, {}};
 }
 
+HostOutcome MiraHost::pause_family_task(const TaskIdentity &task, bool pause) {
+    const HostStatus current = impl_->status.load();
+    if (current != HostStatus::Running) {
+        return failed(host_error("invalid_state",
+                                 std::string(pause ? "pause_task()" : "resume_task()") +
+                                     " requires a Running host, got " + host_status_name(current)));
+    }
+    const auto parsed = mira::TaskId::parse(task.id);
+    if (!parsed) {
+        return failed(host_error("invalid_argument", "malformed task identity"));
+    }
+
+    const auto commanded = pause ? impl_->runtime.pause_task(parsed.value())
+                                 : impl_->runtime.resume_task(parsed.value());
+    if (!commanded) {
+        return failed(pinned_error(commanded.error()));
+    }
+    const auto outcome = commanded.value().outcome(impl_->config.command_wait);
+    if (!outcome) {
+        return failed(pinned_error(outcome.error()));
+    }
+    if (outcome.value().status == mira::SettlementStatus::Failed) {
+        return failed(
+            outcome.value().error
+                ? pinned_error(*outcome.value().error)
+                : host_error("pinned_runtime", pause ? "task pause failed" : "task resume failed"));
+    }
+    return HostOutcome{true, {}};
+}
+
+HostOutcome MiraHost::pause_task(const TaskIdentity &task) {
+    return pause_family_task(task, /*pause=*/true);
+}
+
+HostOutcome MiraHost::resume_task(const TaskIdentity &task) {
+    return pause_family_task(task, /*pause=*/false);
+}
+
 HostOutcome MiraHost::complete_task(const TaskIdentity &task, bool success,
                                     const std::string &safe_error) {
     const HostStatus current = impl_->status.load();
