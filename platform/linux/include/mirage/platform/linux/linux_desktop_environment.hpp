@@ -9,6 +9,7 @@
 #include <mirage/desktop/cancellation.hpp>
 #include <mirage/desktop/desktop_environment.hpp>
 #include <mirage/desktop/filesystem_provider.hpp>
+#include <mirage/desktop/overlay_carrier.hpp>
 #include <mirage/desktop/path_scope.hpp>
 #include <mirage/desktop/process_provider.hpp>
 
@@ -18,6 +19,16 @@ class X11Backend;          // private in src/: no X11 types may appear here (RUL
 class AtspiBackend;        // ditto for the AT-SPI2 frontend (M2-03)
 class ApplicationBackend;  // ditto for the GIO application frontend (M2-05)
 class NotificationBackend; // ditto for the GDBus notification frontend (M2-05)
+
+/// Desktop Overlay carrier of the Linux backend (M5-09, DEC-029): the X11
+/// shape overlay (topmost override-redirect window, shape-composed
+/// transparency, click-through except the confirm entry). Null without an
+/// X/XWayland connection (e.g. a Wayland-native session) or without X11
+/// Xshape support in the build — capability honesty, never a degraded
+/// carrier. The carrier runs on the caller's Executor blocking worker; it
+/// holds its own X connection.
+std::unique_ptr<mirage::desktop::OverlayCarrier>
+open_overlay_carrier(const std::string &display = {});
 
 /// Opt-in X11/XWayland surface of the Linux backend (M2-02, DEC-015). When
 /// enabled the environment connects to `display` (empty = $DISPLAY) at
