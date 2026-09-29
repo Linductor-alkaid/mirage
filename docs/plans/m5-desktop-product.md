@@ -4,7 +4,8 @@
 > `M5-05` 全部完成 2026-09-27；`M5-06` 完成 2026-09-28（四增量：会话页接
 > 真实面、观察面协议扩展、会话管理面 session.close、对话模式真实化）；
 > `M5-07` 批准中心与权限策略面完成 2026-09-28；`M5-08` 设置八类落地与
-> 产品化规模复核完成 2026-09-28）
+> 产品化规模复核完成 2026-09-28（CI 取证已由 `M5-09` PR 补录）；
+> `M5-09` Desktop Overlay 完成 2026-09-30（DEC-029 承载机制定案））
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M3](m3-mirador-integration.md)（已完成：Mirador 视觉集成与壳选型冻结——
@@ -12,7 +13,7 @@
 > Backend 与产品进程 Windows 化——命名管道 IPC、`mirage-service` / CLI 双平台
 > 可运行）
 > 建议发布点：`release-epsilon`（tag 待维护者授权后创建）
-> 更新日期：2026-09-28（`M5-08`）
+> 更新日期：2026-09-30（`M5-09`）
 
 ## 目标
 
@@ -176,17 +177,21 @@
       设置页权限策略配置（每能力 `allow` / `confirm` / `deny`、资源范围、
       默认策略收紧——DEC-010）；权限策略持久化（DEC-011 Desktop
       Permissions 条目）与运行时生效路径。
-- [ ] `M5-08` 设置全量与产品化规模复核：设置八类持久化条目定案与落地
+- [x] `M5-08` 设置全量与产品化规模复核：设置八类持久化条目定案与落地
       （DEC-011 条目集：Application Settings / Runtime Configuration /
       Desktop Permissions / UI Layout / Platform Configuration 等）；默认
       路径解析翻转默认行为（DEC-011）；事件队列容量 / 多连接规模 / 端点
       对端凭据校验的产品化复核（DEC-012 / DEC-007 复核条目）；M1 遗留
       `mirage service start` 守护纪律修复随产品化落地（M1 计划验证记录
-      挂账）。
-- [ ] `M5-09` Desktop Overlay：平台承载（Windows 分层窗口：置顶 / 透明 /
+      挂账）；CI 取证已随 `M5-09` PR 补录（2026-09-30，工程规范第 4 节
+      勾选规则第 1 条）。
+- [x] `M5-09` Desktop Overlay（完成 2026-09-30；
+      [DEC-029](../decisions/DEC-029-desktop-overlay-carrier.md) 承载机制
+      随实现定案并登记）：平台承载（Windows 分层窗口：置顶 / 透明 /
       点击穿透；Linux X11 覆盖层先例 + Wayland 限制如实声明——DEC-006
       风险节）与 UI（目标高亮、即将执行操作提示、确认入口、Observation
-      调试观察面）；与任务执行流的事件联动（承载机制随实现定案并记录）。
+      调试观察面）；与任务执行流的事件联动（服务内部事件织物：事件订阅
+      横幅 + 桌面原子动作 overlay 缝 + 确认面镜像，wire 零变更）。
 - [ ] `M5-10` Tray 进程形态（`apps/tray`）：运行状态显示、任务暂停 / 恢复、
       快速进入 Mirage；经 Local IPC 交互（`EXEC-02`，不自建 Executor）；
       承载机制按平台能力如实降级（Windows 通知区事实沿用 DEC-018 既有
@@ -1481,96 +1486,103 @@ schema 1 加法演进；本 PR 的 CI 结论按仓库先例由下一工作项 PR
   §4、ui/README、
   [总计划](mirage-implementation-plan.md) 状态叙述与决策表。
 
-2026-09-28：`M5-07` CI 取证完成（补录）；run 36418679167
-（headSha = `7f8d667`，PR [#61](https://github.com/Linductor-alkaid/mirage/pull/61)）
-全部 8 作业 success，2026-09-28 合并（维护者授权）。
+2026-09-29：`M5-08` 第二轮独立验证缺陷修复（同 PR 补充提交）——注水会
+话可被关闭（`fix(runtime)`）：注水只重建服务侧状态，pinned host 无该会
+话，session.close 走 pinned close_session 即拒（not_found），持久化会
+话成僵尸。
+
+- 修复：注水时登记 hydrated_sessions；close 对 hydrated 会话跳过 pinned
+  调用走纯产品状态移除；同根因下 task.submit 到注水会话无法被 pinned
+  受理（『只读历史视图』语义）随代码注释与限制节声明。
+- 回归：session_state_round_trip_across_restart 恢复 close-不复活断言
+  （第二实例 close ok + 第三实例不复活 + 各面 not_found）。
+- 验证：runtime_service_test 539 检查 0 失败（本机实测）。
+
+2026-09-30：`M5-08` CI 取证完成（补录，由 `M5-09` PR 兑现自述义务）；run
+36457274467（headSha = `214b53c`，PR
+[#62](https://github.com/Linductor-alkaid/mirage/pull/62)）全部 8 作业
+success，2026-09-28 合并（维护者授权）。
 
 - Linux 矩阵：debug / release / asan / ubsan / tsan 五预设全绿；format &
-  public-header boundaries 绿（40 公共头 0 违规）。
-- frontend 作业：lint + strict tsc + 730 测试 + build 全绿（golden vectors
-  双端门禁消费同一 meta.version 9 vectors 文件）。
+  public-header boundaries 绿。
+- frontend 作业：lint + strict tsc + 730 测试 + build 全绿。
 - windows msvc (full tree)：全树构建 + 测试通过。
-- 独立测试验证（第 1 轮）新增用例随本 runs 取证：
-  `policy_set_live_effect_and_fail_closed_persist` / golden
-  `policy-set-roots-too-many` / `policy-set-root-empty` /
-  `policy-view-root-too-long` / ws + desktop + store 传输与策略用例
-  （见 cbf9e76）。
+- 独立测试验证（第 2 轮）缺陷修复（注水会话可被关闭，`fdc3b00` /
+  `042fb31` / `214b53c`）随本 run 取证（runtime_service_test 539 检查）。
+- 复选框同步：`M5-08` 工作项复选框随本记录翻转（工程规范第 4 节勾选规则
+  第 1 条；先例 c3f1629 补录 `M5-07`）。
 
-2026-09-28：`M5-08` 设置全量与产品化规模复核完成（DEC-011 条目集扩展，
-schema 1 加法演进；本 PR 的 CI 结论按仓库先例由下一工作项 PR 补录）。
+2026-09-30：`M5-09` Desktop Overlay 完成（DEC-029 承载机制随实现定案并
+登记；本 PR 的 CI 结论按仓库先例由下一工作项 PR 补录）。
 
 - 范围：
-  - **设置八类持久化条目定案与落地**：LocalSettings 扩展两个新块——
-    `model`（设置-模型类目，DEC-027 `ModelLayerConfig` 面的配置输入：
-    enabled / dialect / display_name / endpoint / api_prefix / model /
-    credential_env）与 `runtime`（Runtime Configuration 类目：
-    event_queue_capacity / max_connections）；apps/service 将两块映射进
-    `ServiceConfig`（模型层启动期装配；事件队列容量与连接规模经配置可
-    调）。UI Layout 类目为前端本地产品状态（会话别名 localStorage +
-    观察台有界缓冲），不进 service.json（结论留痕）。Desktop Permissions
-    已随 DEC-028 全词表落地（部分兑现转全）。
-  - **会话历史跨重启持久化（DEC-021 挂账①兑现）**：新增
-    `persistence::session_state` 编解码（registry + journal raw 输入 + 对
-    话线程；64 会话 / 1024 journal / 256 轮界，文本 16 KiB 界）；服务持
-    久化点 = open / close / dialog settle / journal append / teardown，
-    注水 = 会话注册表重建 + journal 按序重放（pinned store 重导出同一序
-    号）+ 对话线程重建（next_sequence 续号）；损坏文档响亮降级不阻断启
-    动（DEC-011 姿态）。在飞对话轮与未落盘 journal 条目（崩溃窗口）不持
-    久化——如实声明。
-  - **产品化规模复核（DEC-007 / DEC-012 复核条目）**：事件队列容量与连
-    接规模经 `runtime` 块可调（缺省 256 / 16 维持）；复核结论——两界均
-    有界可观察（事件队列 drop-oldest + `events.overflow` 标记、超界连接
-    显式拒绝），维持既有背压纪律；**端点对端凭据校验**：POSIX accept 循
-    环增 SO_PEERCRED 同 uid 校验（不匹配连接关闭并继续），Windows 命名
-    管道默认 DACL 同用户边界为既有姿态（结论留痕，热加固挂账后续）。
-  - **M1 遗留守护纪律修复（BUG-20260916-001）**：`mirage service start`
-    fork 子进程 exec 前 stdio 三描述符重定向 /dev/null——长生命周期服务
-    不再持有调用方管道写端，`| grep` 管道读端正常 EOF。
-  - **会话重命名产品别名（DEC-026 挂账⑤兑现）**：签派栏每会话菜单增「重
-    命名」；标题为展示层产品别名，localStorage 持久化（wire 无标题成
-    员，不进契约面）；空名回落派生标题。
-- 依据：[DEC-011](../decisions/DEC-011-m1-local-state-persistence.md)
-  （条目集与默认拾取翻转，M5-07 已兑现部分）、
-  [DEC-021](../decisions/DEC-021-session-message-contract-face.md)（挂账
-  ①）、[DEC-026](../decisions/DEC-026-observation-face-and-definition-read.md)
-  （挂账⑤）、[DEC-027](../decisions/DEC-027-dialog-mode-model-layer.md)
-  （settings-model 契约输入）、
-  [DEC-028](../decisions/DEC-028-permission-policy-face.md)（决策 5 留
-  观）、[DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md) /
-  [DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)
-  （复核条目）；M1 计划 BUG-20260916-001；本计划 `M5-08` 工作项。
-- 验证（本机 Linux，GCC 13.3 / Node 22）：
-  - 全树 debug 构建零告警；ctest **40/40 通过 0 skip**（`persistence_test`
-    增至 **224 检查**——settings 新块 round-trip、缺省文档、model/runtime
-    负向；`runtime_service_test` **453 检查**含 `policy_face_get_set_persists`
-    与 `session_close_frees_dialog_registry_slot`；`ipc_protocol_golden_test`
-    **1139 检查**维持 v9 逐字节门禁——wire 零变更；既有门禁零回归）。
-  - `mirage-format-check` 与 `mirage-boundary-check`（40 公共头 0 违规）
-    本机通过。
-  - ui：`npm run check`（tsc 严格）0 诊断；`npm test` **18 文件 730 测试
-    通过**（golden-vectors 维持 v9 199 用例；会话重命名场景随套件）；
-    `npm run lint` 0 告警；`npm run build` 通过。
-  - Linux 五预设矩阵 / windows 作业随本 PR CI 取证（结论由后续记录补录）。
-- 限制与补跑条件：① 会话状态持久化时机为事件驱动 + teardown——崩溃窗口
-  内未落盘的 journal / 对话条目丢失（与 recovery 姿态一致，如实声明）；
-
-- 2026-09-29：独立测试验证（第 2 轮）缺陷修复——注水会话可被关闭（
-  `fix(runtime)`，同 PR 补充提交）：注水只重建服务侧状态，pinned host 无
-  该会话，session.close 走 pinned close_session 即拒（not_found），持久化
-  会话成僵尸。修复：注水时登记 hydrated_sessions；close 对 hydrated 会话
-  跳过 pinned 调用走纯产品状态移除；同根因下 task.submit 到注水会话无法
-  被 pinned 受理（『只读历史视图』语义）随代码注释与限制节声明。回归：
-  session_state_round_trip_across_restart 恢复 close-不复活断言（第二实
-  例 close ok + 第三实例不复活 + 各面 not_found）。验证：runtime_service_test
-  539 检查 0 失败（本机实测）。  ② 设置-模型类目的 UI 实时变更需 wire 面（model.get/set），本增量以配
-  置文件 + 启动装配承载，挂账后续；③ 对端凭据校验的 Windows 命名管道热
-  加固（安全描述符显式化）挂账后续；④ 默认策略收紧维持留观（DEC-028 决
-  策 5），收紧决策随 M5-08 后使用数据另定。
-- 同步：[DEC-011](../decisions/DEC-011-m1-local-state-persistence.md) /
-  [DEC-028](../decisions/DEC-028-permission-policy-face.md)（演进修订与
-  结论留痕）、
-  [mirage-ipc-protocol-v1.md](../design/mirage-ipc-protocol-v1.md)（零变更
-  确认）、
-  [前端规范](../design/Mirage%20%E5%89%8D%E7%AB%AF%E8%AE%BE%E8%AE%A1%E8%A7%84%E8%8C%83%E4%B8%8E%E4%BF%A1%E6%81%AF%E6%9E%B6%E6%9E%84.md)
-  §4、ui/README、
-  [总计划](mirage-implementation-plan.md) 状态叙述与决策表。
+  - **承载机制（DEC-029）**：Overlay 由 `mirage-service` 进程承载（与 GUI
+    生命周期解耦，后台任务持续呈现），平台承载落 Platform Backend 私有
+    前端——Windows 双分层窗口（视觉窗 `WS_EX_LAYERED|WS_EX_TRANSPARENT`
+    整面跨进程点击穿透 + 每像素 alpha `UpdateLayeredWindow`；交互窗仅确认
+    横幅区域可点，layered alpha 命中测试自然放行透明像素）；Linux X11
+    shape 覆盖层（override-redirect 置顶窗 + `XShape` 内容/输入双 shape，
+    无确认入口时整窗穿透；不依赖合成管理器，Xvfb 可取证）；Wayland 原生
+    会话 / X11 dev 缺席 / 无交互桌面 → `open_overlay_carrier()` 返回
+    null（能力如实缺失，DEC-015 先例）。不进 DesktopEnvironment 冻结
+    provider 集、不进 IPC wire（`desktop/overlay_carrier.hpp` /
+    `overlay_surface.hpp` 两个纯 std 公共头为唯一新契约面，boundary 门禁
+    覆盖）。
+  - **与任务执行流的事件联动（wire 零变更）**：`OverlayPresenter`（服务
+    内部模块）经 `EventHub::subscribe()` 订阅既有事件流驱动任务横幅
+    （`task.updated` Active → 终态清面）；`DesktopAtomToolset` 新增
+    `AtomOverlayFeed` 缝（null 零开销，`AtomPermissionGate` 先例同型）：
+    `desktop.window.activate` / `desktop.input.type_text` 动作前发布
+    "即将执行 + 目标高亮"（几何经同 Provider 有界查询，失败如实降级为无
+    高亮）、动作后清除；`desktop.accessibility.semantic_snapshot` 在
+    debug 模式发布语义快照节点为 Observation 调试盒（封顶 64，RULE-07）。
+  - **确认入口（DEC-020 应答面扩展）**：hub publish hook 同步镜像待确认
+    请求到 overlay；确认横幅按钮点击经服务串行域调
+    `AsyncConfirmationHub::resolve()`（与 IPC 客户端同一路径，
+    first-response-wins 不变）；呈现以 hub 快照校验（新增 `is_pending()`
+    探测，已决请求即刻清面）。呈现循环 = Executor `IBlockingIoWorker`
+    （teardown 于驱动取消前 join；平台回调线程不做业务决策，点击投递串行
+    域）。
+  - **产品装配**：`ServiceConfig` 增 `overlay_carrier`（null = 既有行为
+    零影响）与 `overlay_debug`；`mirage-service` CLI 增 `--overlay
+    on|debug`（默认 off，不经同意不在桌面绘制）。UI 工作区零变更
+    （DEC-013 §3.6 "独立透明窗，内部布局不规定"形态兑现）。
+- 依据：设计文档第 12、14、17 节；[DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md)
+  （风险节先例）、[DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)
+  （事件织物）、[DEC-015](../decisions/DEC-015-linux-backend-dependencies-and-event-loop.md)
+  （前端可选性）、[DEC-017](../decisions/DEC-017-windows-backend-toolchain-and-event-loop.md)
+  （双工具链 + Win32 前端并发纪律）、
+  [DEC-018](../decisions/DEC-018-windows-notification-carrier.md)（承载
+  决策形态先例）、[DEC-020](../decisions/DEC-020-permission-async-confirmation.md)、
+  [DEC-024](../decisions/DEC-024-desktop-atom-toolset.md)（atom 缝模式）、
+  [DEC-029](../decisions/DEC-029-desktop-overlay-carrier.md)（本工作项新
+  决策记录）；本计划 `M5-09` 工作项。
+- 验证（本机 Linux，GCC 13.3，真实 X 会话 `:0`）：
+  - 全树 debug 构建零错误（含 platform X11 overlay 前端与 Windows 前端
+    同源编译路径外的 Linux TU）；ctest **40/40 通过 0 skip**（既有门禁零
+    回归；`ipc_protocol_golden_test` 维持 v9 逐字节门禁——wire 零变更的
+    回归证据；`runtime_service_test` 全绿——overlay 缺省路径即既有行为）。
+  - `mirage-format-check` 通过（本变更全部 C++ TU）；`mirage-boundary-check`
+    通过（**42 公共头 0 违规**，含新增 `overlay_carrier.hpp` /
+    `overlay_surface.hpp`——纯 std，无第三方 include）。
+  - 运行级冒烟（真实 X 会话）：`mirage-service --overlay on` 启动——X11
+    载体建立、overlay pump worker 受理、服务按既有路径服务、SIGTERM 后
+    "stopped cleanly"（teardown 先于驱动取消 join pump，关闭序闭合）；
+    `DISPLAY=:99`（无服务器）→ `open_overlay_carrier()` 返回 null，stderr
+    响亮声明 "overlay carrier unavailable … the service continues without
+    the overlay"，启动横幅如实报告 `desktop overlay: off`。
+- 限制与补跑条件：① 本 PR 的 CI 结论（Linux 五预设矩阵、format &
+  boundaries、frontend、windows msvc 全树）按仓库先例由下一工作项 PR
+  补录；② Windows 分层窗口的运行级取证（置顶 / alpha / 穿透 / 交互窗
+  点击应答）需真实 Windows 桌面，本机不可达——随 CI windows 作业编译
+  门禁 + 维护者 Windows 机器补跑（DEC-017 证据分级，M4-06 先例）；③
+  overlay 呈现路径的功能/并发测试（fake carrier 注入的任务横幅联动、
+  确认呈现与 resolve 清面、overlay 点击收敛、teardown 顺序）由独立测试
+  验证轮交付；④ Xvfb 无合成器环境下的 shape 呈现取证本机未执行（Xvfb
+  未安装），随独立验证轮补跑；⑤ MinGW platform 子集交叉编译本机不可达
+  （交叉工具链缺席；`MIRA-20260922-001` 全树缺口维持挂账），Win32 前端
+  双工具链证据随 CI MSVC + 后续交叉窗口补跑。
+- 同步：[DEC-029](../decisions/DEC-029-desktop-overlay-carrier.md)（新增，
+  Accepted）、[总计划](mirage-implementation-plan.md) 状态叙述与决策表；
+  wire 契约零变更（`mirage-ipc-protocol-v1.md` 无涉）、前端规范 §3.6
+  形态兑现无修订。
