@@ -3,6 +3,7 @@
 #include <mira/tool_executor.hpp>
 
 #include <mirage/desktop/desktop_environment.hpp>
+#include <mirage/desktop/overlay_surface.hpp>
 
 #include <functional>
 #include <memory>
@@ -27,6 +28,28 @@ using AtomCancelProbe = std::function<bool()>;
 /// entry are never judged through it.
 using AtomPermissionGate = std::function<bool(
     const std::string &capability, const std::string &resource, const AtomCancelProbe &cancelled)>;
+
+/// One upcoming desktop action mirrored onto the Desktop Overlay (M5-09,
+/// DEC-029): the "即将执行操作提示" line plus the target highlights. An
+/// empty update clears the action face (published after the action
+/// settles).
+struct AtomOverlayAction {
+    std::string hint;
+    std::vector<mirage::desktop::OverlayHighlight> highlights;
+};
+
+/// Overlay seam between the atom execution path and the service's Desktop
+/// Overlay presenter (M5-09, DEC-029): wired per build, null members keep
+/// the mirror dark with zero per-call cost (the AtomPermissionGate seam
+/// precedent). `show_action` fires after the permission judgement and
+/// before the provider side effect; `show_observation` fires when an
+/// observation atom delivered a snapshot (the Observation debug face
+/// consumes it only when the service enabled that face). Both callbacks
+/// must be bounded and must not throw.
+struct AtomOverlayFeed {
+    std::function<void(const AtomOverlayAction &)> show_action;
+    std::function<void(const mirage::desktop::SemanticSnapshot &)> show_observation;
+};
 
 /// Wire-facing projection of one registered desktop atom — the
 /// `mirage.ipc` ExposedTool shape (DEC-023), pinned-free. `version` is the
@@ -59,9 +82,12 @@ class DesktopAtomToolset final {
     /// environment yields the empty toolset (zero atoms): a binding without
     /// a mirage desktop environment has no capabilities to expose. The
     /// environment must outlive the returned registry's runtime attachment.
-    /// `gate` may be null, which denies every gated atom.
+    /// `gate` may be null, which denies every gated atom. `feed` may be
+    /// default (dark members): the desktop-position atoms then mirror
+    /// nothing onto the Desktop Overlay (M5-09, DEC-029).
     static std::shared_ptr<DesktopAtomToolset>
-    build(mirage::desktop::DesktopEnvironment *environment, AtomPermissionGate gate);
+    build(mirage::desktop::DesktopEnvironment *environment, AtomPermissionGate gate,
+          const AtomOverlayFeed &feed = {});
 
     ~DesktopAtomToolset();
     DesktopAtomToolset(const DesktopAtomToolset &) = delete;

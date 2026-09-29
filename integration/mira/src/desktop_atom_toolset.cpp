@@ -298,16 +298,17 @@ AtomRegistration window_front(mirage::desktop::WindowProvider &window) {
     return registration;
 }
 
-AtomRegistration window_activate(AtomPermissionGate gate, mirage::desktop::WindowProvider &window) {
+AtomRegistration window_activate(AtomPermissionGate gate, mirage::desktop::WindowProvider &window,
+                                 const AtomOverlayFeed &feed) {
     AtomRegistration registration;
     registration.spec.wire_name = "desktop.window.activate";
     registration.spec.description = "Focuses one window by id.";
     registration.spec.has_side_effects = true;
     registration.spec.parameters_schema = mira::JsonSchema{object_schema(
         {{"window_id", string_schema("Window id from desktop.window.list")}}, {"window_id"})};
-    registration.handler = [gate,
-                            &window](const JsonValue &arguments,
-                                     const mira::OperationContext &context) -> Result<JsonValue> {
+    registration.handler = [gate, &window,
+                            feed](const JsonValue &arguments,
+                                  const mira::OperationContext &context) -> Result<JsonValue> {
         if (context.cancelled()) {
             return cancelled_error();
         }
@@ -315,7 +316,35 @@ AtomRegistration window_activate(AtomPermissionGate gate, mirage::desktop::Windo
         if (!authorized(gate, "window.activate", window_id, context)) {
             return permission_denied("window.activate");
         }
+        // Overlay mirror (M5-09, DEC-029): the upcoming activation with the
+        // target geometry, published after the judgement and before the
+        // side effect. A failed geometry lookup degrades to a highlight-less
+        // hint and never blocks the action.
+        if (feed.show_action) {
+            AtomOverlayAction action;
+            const auto windows = window.list_windows(mirage::desktop::WindowListLimits{},
+                                                     mirage::desktop::CancelToken{});
+            if (windows.ok) {
+                const auto found = std::find_if(
+                    windows.windows.begin(), windows.windows.end(),
+                    [&](const mirage::desktop::WindowInfo &info) { return info.id == window_id; });
+                if (found != windows.windows.end()) {
+                    const std::string &title = !found->title.empty() ? found->title : found->id;
+                    if (found->geometry.width > 0 && found->geometry.height > 0) {
+                        action.highlights.push_back({found->geometry, title});
+                    }
+                    action.hint = "activating \"" + title + "\"";
+                }
+            }
+            if (action.hint.empty()) {
+                action.hint = "activating window " + window_id;
+            }
+            feed.show_action(action);
+        }
         const auto outcome = window.activate(window_id, mirage::desktop::CancelToken{});
+        if (feed.show_action) {
+            feed.show_action(AtomOverlayAction{}); // the action settled
+        }
         if (!outcome.ok) {
             return provider_error(outcome.error);
         }
@@ -478,16 +507,18 @@ AtomRegistration clipboard_write_text(AtomPermissionGate gate,
     return registration;
 }
 
-AtomRegistration input_type_text(AtomPermissionGate gate, mirage::desktop::InputProvider &input) {
+AtomRegistration input_type_text(AtomPermissionGate gate, mirage::desktop::InputProvider &input,
+                                 mirage::desktop::WindowProvider *window,
+                                 const AtomOverlayFeed &feed) {
     AtomRegistration registration;
     registration.spec.wire_name = "desktop.input.type_text";
     registration.spec.description = "Types UTF-8 text into the focused window.";
     registration.spec.has_side_effects = true;
     registration.spec.parameters_schema =
         mira::JsonSchema{object_schema({{"text", string_schema("Text to type")}}, {"text"})};
-    registration.handler = [gate,
-                            &input](const JsonValue &arguments,
-                                    const mira::OperationContext &context) -> Result<JsonValue> {
+    registration.handler = [gate, &input, window,
+                            feed](const JsonValue &arguments,
+                                  const mira::OperationContext &context) -> Result<JsonValue> {
         if (context.cancelled()) {
             return cancelled_error();
         }
@@ -495,8 +526,29 @@ AtomRegistration input_type_text(AtomPermissionGate gate, mirage::desktop::Input
         if (!authorized(gate, "input.inject", text, context)) {
             return permission_denied("input.inject");
         }
+        // Overlay mirror (M5-09, DEC-029): the upcoming typing with the
+        // focused window's geometry; a failed lookup degrades to a
+        // highlight-less hint and never blocks the action.
+        if (feed.show_action) {
+            AtomOverlayAction action;
+            action.hint = "typing " + std::to_string(text.size()) + " character(s)";
+            if (window != nullptr) {
+                const auto front = window->front_window(mirage::desktop::CancelToken{});
+                if (front.ok && front.found && front.window.geometry.width > 0 &&
+                    front.window.geometry.height > 0) {
+                    const std::string &title =
+                        !front.window.title.empty() ? front.window.title : front.window.id;
+                    action.highlights.push_back({front.window.geometry, title});
+                    action.hint = "typing into \"" + title + "\"";
+                }
+            }
+            feed.show_action(action);
+        }
         const auto outcome =
             input.type_text(text, mirage::desktop::InputLimits{}, mirage::desktop::CancelToken{});
+        if (feed.show_action) {
+            feed.show_action(AtomOverlayAction{}); // the action settled
+        }
         if (!outcome.ok) {
             return provider_error(outcome.error);
         }
@@ -541,7 +593,8 @@ AtomRegistration notification_post(AtomPermissionGate gate,
 }
 
 AtomRegistration
-accessibility_semantic_snapshot(mirage::desktop::AccessibilityProvider &accessibility) {
+accessibility_semantic_snapshot(mirage::desktop::AccessibilityProvider &accessibility,
+                                const AtomOverlayFeed &feed) {
     AtomRegistration registration;
     registration.spec.wire_name = "desktop.accessibility.semantic_snapshot";
     registration.spec.description =
@@ -549,9 +602,9 @@ accessibility_semantic_snapshot(mirage::desktop::AccessibilityProvider &accessib
         "the deterministic rendered form.";
     registration.spec.parameters_schema = mira::JsonSchema{object_schema(
         {{"window_id", string_schema("Window id from desktop.window.list")}}, {"window_id"})};
-    registration.handler =
-        [&accessibility](const JsonValue &arguments,
-                         const mira::OperationContext &context) -> Result<JsonValue> {
+    registration.handler = [&accessibility,
+                            feed](const JsonValue &arguments,
+                                  const mira::OperationContext &context) -> Result<JsonValue> {
         if (context.cancelled()) {
             return cancelled_error();
         }
@@ -561,6 +614,12 @@ accessibility_semantic_snapshot(mirage::desktop::AccessibilityProvider &accessib
             string_member(arguments, "window_id"), limits, mirage::desktop::CancelToken{});
         if (!outcome.ok) {
             return provider_error(outcome.error);
+        }
+        // Overlay mirror (M5-09, DEC-029): the Observation debug face —
+        // the presenter projects the node geometry when the service
+        // enabled the face; the feed member is dark otherwise.
+        if (feed.show_observation) {
+            feed.show_observation(outcome.snapshot);
         }
         auto rendered = mirage::desktop::render_semantic_snapshot(outcome.snapshot);
         bool truncated = false;
@@ -588,8 +647,8 @@ struct DesktopAtomToolset::Impl final {
 };
 
 std::shared_ptr<DesktopAtomToolset>
-DesktopAtomToolset::build(mirage::desktop::DesktopEnvironment *environment,
-                          AtomPermissionGate gate) {
+DesktopAtomToolset::build(mirage::desktop::DesktopEnvironment *environment, AtomPermissionGate gate,
+                          const AtomOverlayFeed &feed) {
     auto toolset = std::shared_ptr<DesktopAtomToolset>(new DesktopAtomToolset());
     toolset->impl_ = std::make_unique<Impl>();
     if (environment == nullptr) {
@@ -618,10 +677,15 @@ DesktopAtomToolset::build(mirage::desktop::DesktopEnvironment *environment,
     if (auto *provider = environment->process()) {
         register_atom(process_execute(gate, *provider));
     }
+    // The input atoms' overlay hint resolves the focused window through the
+    // window provider when one is bound (DEC-029 decision 5); captured as a
+    // plain pointer — the environment outlives the registry's attachment.
+    mirage::desktop::WindowProvider *window_provider = nullptr;
     if (auto *provider = environment->window()) {
         register_atom(window_list(*provider));
         register_atom(window_front(*provider));
-        register_atom(window_activate(gate, *provider));
+        register_atom(window_activate(gate, *provider, feed));
+        window_provider = provider;
     }
     if (auto *provider = environment->application()) {
         register_atom(application_list(*provider));
@@ -633,13 +697,13 @@ DesktopAtomToolset::build(mirage::desktop::DesktopEnvironment *environment,
         register_atom(clipboard_write_text(gate, *provider));
     }
     if (auto *provider = environment->input()) {
-        register_atom(input_type_text(gate, *provider));
+        register_atom(input_type_text(gate, *provider, window_provider, feed));
     }
     if (auto *provider = environment->notification()) {
         register_atom(notification_post(gate, *provider));
     }
     if (auto *provider = environment->accessibility()) {
-        register_atom(accessibility_semantic_snapshot(*provider));
+        register_atom(accessibility_semantic_snapshot(*provider, feed));
     }
     return toolset;
 }
