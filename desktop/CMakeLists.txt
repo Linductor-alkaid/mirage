@@ -1,6 +1,7 @@
 add_library(mirage_desktop STATIC
     environment/src/desktop_environment.cpp
     environment/src/element_target_executor.cpp
+    environment/src/overlay_surface.cpp
     environment/src/visual_snapshot.cpp
     observation/src/observation_assembler.cpp
 )
