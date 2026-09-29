@@ -13,6 +13,7 @@
 #include <mira/json.hpp>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
@@ -531,7 +532,13 @@ AtomRegistration input_type_text(AtomPermissionGate gate, mirage::desktop::Input
         // highlight-less hint and never blocks the action.
         if (feed.show_action) {
             AtomOverlayAction action;
-            action.hint = "typing " + std::to_string(text.size()) + " character(s)";
+            // The hint counts codepoints, not bytes: the tool input is
+            // UTF-8, so raw size() would overcount multi-byte text.
+            std::size_t codepoints = 0;
+            for (const char character : text) {
+                codepoints += (static_cast<unsigned char>(character) & 0xC0) != 0x80 ? 1u : 0u;
+            }
+            action.hint = "typing " + std::to_string(codepoints) + " character(s)";
             if (window != nullptr) {
                 const auto front = window->front_window(mirage::desktop::CancelToken{});
                 if (front.ok && front.found && front.window.geometry.width > 0 &&
