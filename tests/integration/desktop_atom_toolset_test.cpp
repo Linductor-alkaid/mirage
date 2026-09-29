@@ -462,6 +462,24 @@ void scenario_overlay_feed_mirrors_input_type_text() {
         MIRAGE_CHECK(unfocused.actions.front().hint == "typing 5 character(s)");
         MIRAGE_CHECK(unfocused.actions.front().highlights.empty());
     }
+
+    // The typed-size line counts codepoints, not bytes: the tool input is
+    // UTF-8 ("你好a" is 3 characters over 7 bytes), so the raw byte count
+    // would overcount multi-byte text (independent verification round 2).
+    RecordingOverlayFeed multibyte;
+    const auto multibyte_toolset =
+        integration::DesktopAtomToolset::build(&bare, bare_gate.gate(), multibyte.feed(&bare));
+    const auto multibyte_outcome =
+        dispatch(*multibyte_toolset->registry(), "desktop.input.type_text",
+                 arguments({{"text", mira::JsonValue{"\xE4\xBD\xA0\xE5\xA5\xBD"
+                                                     "a"}}}),
+                 mira::make_control_context());
+    check_dispatch_ok("type_text multibyte without focus", multibyte_outcome);
+    MIRAGE_CHECK(multibyte.actions.size() == 2);
+    if (multibyte.actions.size() == 2) {
+        MIRAGE_CHECK(multibyte.actions.front().hint == "typing 3 character(s)");
+        MIRAGE_CHECK(multibyte.actions.front().highlights.empty());
+    }
 }
 
 void scenario_denied_action_never_mirrors() {
