@@ -69,6 +69,12 @@ class DbusSession {
 
     const std::string &bus_address() const { return bus_address_; }
 
+    /// The daemon's pid: a crash-path exit skips this destructor, so a test
+    /// that must terminate itself inside a GLib fatal handler can still tear
+    /// the daemon down (its inherited output fds would otherwise hold the
+    /// harness's pipes open past the process's death).
+    pid_t daemon_pid() const { return dbus_pid_; }
+
   private:
     void teardown() {
         if (dbus_pid_ > 0) {
