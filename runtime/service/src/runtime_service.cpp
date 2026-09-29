@@ -18,6 +18,7 @@
 #include <mira/environment.hpp>
 #include <mira/model_contracts.hpp>
 
+#include "overlay_presenter.hpp"
 #include "service_core.hpp"
 #include "service_loop.hpp"
 #include "task_driver.hpp"
@@ -65,6 +66,10 @@ constexpr std::size_t kMaxPolicyReadRoots = 64;
 /// Rendered-transcript bound of one dialog turn: the newest settled turns
 /// that fit the model layer's input budget are rendered oldest-first.
 constexpr std::size_t kDialogTranscriptTurns = 20;
+/// Overlay event subscription capacity (M5-09, DEC-029): the presentation
+/// is a best-effort view — drops converge through later snapshots instead
+/// of surfacing as errors (the drop-oldest discipline, DEC-012).
+constexpr std::size_t kOverlayEventQueueCapacity = 64;
 
 bool terminal_progress(TaskProgress progress) {
     return progress == TaskProgress::Completed || progress == TaskProgress::Failed ||
@@ -296,6 +301,13 @@ struct RuntimeService::Impl {
     std::mutex loop_mutex;
     ipc::IpcListener listener;
     executor::WorkerHandle loop_worker;
+    /// Desktop Overlay presentation (M5-09, DEC-029): null without
+    /// config.overlay_carrier. The presenter is owned here so the hub
+    /// publish hook and the atom overlay feed hold stable raw pointers;
+    /// the pump worker (executor-owned adapter) is joined by teardown()
+    /// before this member is destroyed.
+    std::unique_ptr<detail::OverlayPresenter> overlay;
+    executor::WorkerHandle overlay_worker;
     std::promise<void> loop_done;
     std::future<void> loop_done_future;
     std::atomic<Lifecycle> lifecycle{Lifecycle::New};
@@ -371,21 +383,46 @@ struct RuntimeService::Impl {
         }
         core->permission =
             std::make_shared<permission::PermissionController>(config.permission_policy, *handler);
+        // The Desktop Overlay presenter (M5-09, DEC-029): constructed with
+        // the service so the hub hook below (and later the atom overlay
+        // feed) can hold a stable raw pointer. A null carrier keeps it
+        // null and the service behaves exactly as before.
+        if (config.overlay_carrier != nullptr) {
+            detail::OverlayPresenter::Dependencies overlay_dependencies;
+            overlay_dependencies.carrier = config.overlay_carrier.get();
+            overlay_dependencies.events = core->events.subscribe(kOverlayEventQueueCapacity);
+            overlay_dependencies.on_click = [raw =
+                                                 this](const mirage::desktop::OverlayClick &click) {
+                raw->deliver_overlay_click(click);
+            };
+            overlay_dependencies.is_pending =
+                [hub = confirmation_hub](const std::string &request_id) {
+                    return hub != nullptr ? hub->is_pending(request_id) : false;
+                };
+            overlay_dependencies.show_debug = config.overlay_debug;
+            overlay = std::make_unique<detail::OverlayPresenter>(std::move(overlay_dependencies));
+        }
         if (confirmation_hub != nullptr) {
             // The hub raises requests from the driver thread; the publish
             // rides the same serial-domain best-effort path as the task
             // events (DEC-020 decision 6). By-value core capture: the hook
-            // may fire while teardown is draining drivers.
-            confirmation_hub->set_publish_hook(
-                [core = core](const permission::PendingConfirmation &pending) {
-                    ipc::PermissionRequestedEvent event;
-                    event.request_id = pending.request_id;
-                    event.capability = pending.capability;
-                    event.resource = pending.resource;
-                    event.task_id = pending.task_id;
-                    event.timeout_ms = pending.timeout_ms;
-                    detail::publish_permission_request_best_effort(core, std::move(event));
-                });
+            // may fire while teardown is draining drivers. The overlay
+            // mirror (M5-09) publishes on the calling thread into the
+            // presenter's LatestMailbox — bounded and never blocking.
+            confirmation_hub->set_publish_hook([core = core, overlay = overlay.get()](
+                                                   const permission::PendingConfirmation &pending) {
+                ipc::PermissionRequestedEvent event;
+                event.request_id = pending.request_id;
+                event.capability = pending.capability;
+                event.resource = pending.resource;
+                event.task_id = pending.task_id;
+                event.timeout_ms = pending.timeout_ms;
+                detail::publish_permission_request_best_effort(core, std::move(event));
+                if (overlay != nullptr) {
+                    overlay->show_confirmation({pending.request_id, pending.capability,
+                                                pending.resource, pending.timeout_ms});
+                }
+            });
         }
         loop_done_future = loop_done.get_future();
     }
@@ -463,6 +500,35 @@ struct RuntimeService::Impl {
     }
 
     // --- request handling --------------------------------------------------
+
+    /// Overlay pump thread (M5-09, DEC-029): a confirm-entry click is a
+    /// business decision, so it never resolves on the platform callback
+    /// thread — it posts onto the serial domain and resolves through the
+    /// hub's reply path (first-response-wins with IPC clients). Admission
+    /// rejected during teardown means the click is a discarded interaction.
+    void deliver_overlay_click(const mirage::desktop::OverlayClick &click) {
+        permission::AsyncConfirmationHub *hub = confirmation_hub;
+        if (hub == nullptr) {
+            return; // no async face: the overlay shows no confirm entry
+        }
+        consume_best_effort(core->executor.submit_on(
+            core->serial, [hub, request_id = click.request_id, approved = click.approved] {
+                (void)hub->resolve(request_id, approved);
+            }));
+    }
+
+    /// Consumes a settled best-effort future, swallowing its exception (the
+    /// task_driver's discipline): admission rejections during teardown are
+    /// recorded nowhere — the click is dropped.
+    template <typename T> void consume_best_effort(std::future<T> future) {
+        try {
+            if (future.valid()) {
+                (void)future.get();
+            }
+        } catch (const std::exception &) {
+        } catch (...) {
+        }
+    }
 
     /// Loop thread: pushes the frame through the service's serial context so
     /// every request (and every host operation it performs) runs serialized
@@ -1932,6 +1998,17 @@ struct RuntimeService::Impl {
                 loop_worker.stop();
             }
         }
+        {
+            // The overlay pump joins before the drivers are cancelled
+            // (DEC-029 decision 6): the surface is gone from the screen
+            // while in-flight work still settles, and the pump thread never
+            // outlives the presenter whose raw pointers the hub hook and
+            // the atom feed hold.
+            if (overlay_worker.started()) {
+                overlay_worker.stop();
+            }
+            overlay_worker = executor::WorkerHandle{};
+        }
         std::vector<executor::TaskHandle> handles;
         std::vector<std::future<void>> driver_futures;
         {
@@ -2260,7 +2337,21 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
     // is built over the same environment with the shared RULE-05 gate, so
     // ToolCall steps dispatch through the same permission face as the task
     // drivers. A failure here fails start() closed — the workflow faces are
-    // core equipment, not optional.
+    // core equipment, not optional. With the overlay presenter live (M5-09,
+    // DEC-029), the atom overlay feed mirrors the desktop-position actions
+    // (upcoming action + target highlight) and the observation debug face
+    // onto the overlay surface.
+    mirage::integration::AtomOverlayFeed overlay_feed;
+    if (impl_->overlay != nullptr) {
+        overlay_feed.show_action =
+            [overlay = impl_->overlay.get()](const mirage::integration::AtomOverlayAction &action) {
+                overlay->show_action(action.hint, action.highlights);
+            };
+        overlay_feed.show_observation =
+            [overlay = impl_->overlay.get()](const mirage::desktop::SemanticSnapshot &snapshot) {
+                overlay->show_observation(snapshot);
+            };
+    }
     impl_->core->workflow_tools = mirage::integration::DesktopAtomToolset::build(
         impl_->core->environment.get(),
         [permission =
@@ -2277,7 +2368,8 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
             request.capability = *parsed;
             request.resource = resource;
             return permission->authorize(request, cancelled).allowed;
-        });
+        },
+        overlay_feed);
     const HostOutcome workflow_surface = impl_->core->host.attach_workflow_surface(
         impl_->core->executor, impl_->core->workflow_bridge, impl_->core->workflow_tools);
     if (!workflow_surface.ok) {
@@ -2340,6 +2432,27 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                                          impl_->loop_worker.start_result().message};
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
         return outcome;
+    }
+
+    // The Desktop Overlay pump (M5-09, DEC-029): started last, once every
+    // producer it mirrors is live. The executor owns the pump adapter; the
+    // presenter stays Impl-owned (the hub hook and the atom feed hold raw
+    // pointers into it). An admission failure degrades loudly but does not
+    // fail the start: the overlay is a presentation surface, not a
+    // capability the service's faces depend on (the DEC-011 loud-degradation
+    // posture).
+    if (impl_->overlay != nullptr) {
+        executor::BlockingWorkerSpec overlay_spec;
+        overlay_spec.name = "mirage-overlay";
+        overlay_spec.config.thread_name = "mirage-overlay";
+        overlay_spec.worker = std::make_unique<detail::OverlayPumpWorker>(impl_->overlay.get());
+        impl_->overlay_worker = impl_->core->executor.start_worker(std::move(overlay_spec));
+        if (!impl_->overlay_worker.started()) {
+            std::cerr << "mirage-service: overlay worker start failed ("
+                      << impl_->overlay_worker.start_result().message
+                      << "); the service continues without the overlay surface\n";
+            impl_->overlay_worker = executor::WorkerHandle{};
+        }
     }
     impl_->lifecycle.store(Impl::Lifecycle::Running, std::memory_order_release);
     outcome.ok = true;

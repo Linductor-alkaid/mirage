@@ -78,6 +78,12 @@ class AsyncConfirmationHub final : public ConfirmationHandler {
     /// entry still validates on the wire.
     std::vector<PendingConfirmation> pending() const;
 
+    /// Liveness probe for confirmation displays (M5-09, DEC-029): true while
+    /// the request id is still undecided. The pending set stays the fact
+    /// source; a display mirroring a request must drop it when this turns
+    /// false (an IPC client may resolve first — first-response-wins).
+    bool is_pending(const std::string &request_id) const;
+
   private:
     struct Entry {
         std::promise<bool> ready;

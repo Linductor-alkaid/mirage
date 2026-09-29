@@ -1,4 +1,5 @@
 add_library(mirage_runtime_service STATIC
+    src/overlay_presenter.cpp
     src/recovery_writer.cpp
     src/runtime_service.cpp
     src/service_loop.cpp
