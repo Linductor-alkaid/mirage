@@ -123,7 +123,16 @@ DEC-011 默认拾取与写回翻转兑现，默认策略收紧留观 M5-08。`M5
 -模型类目配置输入与队列容量、连接规模可调），会话历史与对话线程跨重启
 持久化落地（session-state.json，DEC-021 挂账①兑现），POSIX 端点对端凭
 据校验（SO_PEERCRED）与 M1 遗留守护纪律修复（BUG-20260916-001）落地，
-会话重命名产品别名（DEC-026 挂账⑤）落地。
+会话重命名产品别名（DEC-026 挂账⑤）落地。`M5-09` Desktop Overlay 已完成
+（[DEC-029](../decisions/DEC-029-desktop-overlay-carrier.md) 承载机制随实现
+定案并登记）：Overlay 由 `mirage-service` 进程承载（与 GUI 生命周期解耦）、
+平台承载落 Platform Backend 私有前端（Windows 双分层窗口：置顶 / 每像素
+alpha / 跨进程点击穿透 + 确认入口交互窗；Linux X11 shape 覆盖层先例，无合
+成器依赖，Wayland 原生会话如实降级为无载体）；UI 面兑现目标高亮、即将执行
+操作提示、确认入口与 Observation 调试观察面（`--overlay on|debug`，默认
+off）；与任务执行流的事件联动经服务内部事件织物（事件订阅横幅 +
+`AtomOverlayFeed` 动作缝 + 确认面镜像，wire 零变更，DEC-020 应答路径扩展
+为 IPC 客户端或 Overlay 确认入口 first-response-wins）。
 
 ## 交付边界
 
@@ -224,6 +233,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | DEC-026 | M5 观察面协议附加扩展与工作流定义读取面（golden v6 批次） | 已定案（[DEC-026](../decisions/DEC-026-observation-face-and-definition-read.md)）：`desktop.observe` 按需请求 + `ObservationView` 载荷（帧成员恒在、语义快照投影 1024 节点 wire 预算 + `truncated` 显式标记、`visual_snapshot_ref`/`visual_regions` 同现同缺视觉承载，请求即必须 fail closed；无事件形态——M1 驱动形态无观察生产者，驱动器观察投影评估结论）；`workflow.get` + `WorkflowDefinitionView`（head 定义正文由服务侧产品目录保留，pinned 库无正文读取 API 属 W-03 上游设计非缺口），编辑器跨会话编辑解除；hello `observation` 能力位；步级运行事件（无已承诺消费方）与会话管理面（删除=pinned `close_session` 承载挂账 `session.close`、重命名=产品别名 M5-08、导出=客户端投影、fork 不立项）评估后挂账；产品视觉管线接线挂账与 Overlay 联动 | Mirage 维护者 | `M5-06` 第二轮（已完成）；视觉管线点亮 / `session.close` / 步级运行事件挂账后续增量 || DEC-026 | M5 观察面协议附加扩展与工作流定义读取面（golden v6 批次） | 已定案（[DEC-026](../decisions/DEC-026-observation-face-and-definition-read.md)）：`desktop.observe` 按需请求 + `ObservationView` 载荷（帧成员恒在、语义快照投影 1024 节点 wire 预算 + `truncated` 显式标记、`visual_snapshot_ref`/`visual_regions` 同现同缺视觉承载，请求即必须 fail closed；无事件形态——M1 驱动形态无观察生产者，驱动器观察投影评估结论）；`workflow.get` + `WorkflowDefinitionView`（head 定义正文由服务侧产品目录保留，pinned 库无正文读取 API 属 W-03 上游设计非缺口），编辑器跨会话编辑解除；hello `observation` 能力位；步级运行事件（无已承诺消费方）与会话管理面（删除=pinned `close_session` 承载挂账 `session.close`、重命名=产品别名 M5-08、导出=客户端投影、fork 不立项）评估后挂账；产品视觉管线接线挂账与 Overlay 联动 | Mirage 维护者 | `M5-06` 第二轮（已完成）；视觉管线点亮 / `session.close` / 步级运行事件挂账后续增量 |
 | DEC-027 | M5 对话模式真实化（模型层装配与 session.chat 对话面） | 已定案（[DEC-027](../decisions/DEC-027-dialog-mode-model-layer.md)）：纯对话形态 = Text 契约单轮 ModelRequest → ModelGateway 推理（不复用桌面 AgentLoop）；`integration/mira::ModelLayer` 装配 pinned ModelProfile/Router/Provider/SocketTransport/Gateway，SecretRef 经环境变量在传输边界解析（fail closed），TLS 通道按需挂接、https 无通道 fail closed 永不降级；`session.chat` 异步 turn 受理回执 + `session.chat_updated` 生命周期事件 + `session.chat.history` 快照，hello `chat` 能力位；对话线程服务内存易失、不进 pinned 会话投影；测试经 `ModelProviderOverride` 注入（生产 provider SSRF 姿态拒回环为上游安全设计）；真实端点连通性挂账部署态取证；凭据升级/流式/上下文策略挂 M5-08 与后续 | Mirage 维护者 | `M5-06` 第四增量（已完成，工作项收口）；真实端点取证 / 凭据升级 / 流式挂账后续 || DEC-027 | M5 对话模式真实化（模型层装配与 session.chat 对话面） | 已定案（[DEC-027](../decisions/DEC-027-dialog-mode-model-layer.md)）：纯对话形态 = Text 契约单轮 ModelRequest → ModelGateway 推理（不复用桌面 AgentLoop）；`integration/mira::ModelLayer` 装配 pinned ModelProfile/Router/Provider/SocketTransport/Gateway，SecretRef 经环境变量在传输边界解析（fail closed），TLS 通道按需挂接、https 无通道 fail closed 永不降级；`session.chat` 异步 turn 受理回执 + `session.chat_updated` 生命周期事件 + `session.chat.history` 快照，hello `chat` 能力位；对话线程服务内存易失、不进 pinned 会话投影；测试经 `ModelProviderOverride` 注入（生产 provider SSRF 姿态拒回环为上游安全设计）；真实端点连通性挂账部署态取证；凭据升级/流式/上下文策略挂 M5-08 与后续 | Mirage 维护者 | `M5-06` 第四增量（已完成，工作项收口）；真实端点取证 / 凭据升级 / 流式挂账后续 |
 | DEC-028 | M5-07 批准中心与权限策略面（policy.get/set 与 DEC-011 扩展） | 已定案（[DEC-028](../decisions/DEC-028-permission-policy-face.md)）：批准中心接 DEC-020 异步确认面（permission.list 快照 + permission.request 通知 + permission.respond 先到先得，TS 传输缺口补齐）；`policy.get` / `policy.set` wire 面（PolicyView：全 DEC-010 规则集 + read_roots 资源范围；全量覆盖校验、规则立即生效、read roots 重启生效）；`PermissionController` 线程安全 policy/set_policy；settings `permission` 块扩展为全词表 map（加法演进）+ 默认拾取与写回翻转（DEC-011 修订）；默认策略收紧留观 M5-08 | Mirage 维护者 | `M5-07`（已完成）；默认收紧 / read-roots 热更挂账后续 |
+| DEC-029 | M5-09 Desktop Overlay 承载机制（服务进程承载 + Platform Backend 私有前端 + 事件织物联动，wire 零变更） | 已定案（[DEC-029](../decisions/DEC-029-desktop-overlay-carrier.md)）：Overlay 由 `mirage-service` 承载（任务执行流宿主，GUI 关闭仍呈现）；`desktop/overlay_carrier.hpp` + `overlay_surface.hpp` 纯 std 公共头为唯一新契约面（不进 DesktopEnvironment 冻结 provider 集、不进 IPC wire）；Windows 双分层窗口（视觉窗 `WS_EX_TRANSPARENT` 跨进程穿透 + 每像素 alpha；交互窗仅确认横幅可点）；Linux X11 shape 覆盖层（override-redirect + XShape 双 shape，无合成器依赖），Wayland 原生 / 无交互桌面 open() 返回 null fail closed；呈现循环 = Executor `IBlockingIoWorker`，流侧 `LatestMailbox` 最新状态语义；`AtomOverlayFeed` 动作缝（DEC-024 先例同型）；确认入口经 `AsyncConfirmationHub::resolve` 同路径应答（first-response-wins 不变），呈现以 hub 快照 `is_pending` 校验；`--overlay on|debug` 默认 off | Mirage 维护者 | `M5-09`（已完成）；Windows 运行级取证 / Xvfb 呈现取证 / 独立测试验证轮挂账后续 |
 
 ## 跨里程碑通用完成定义
 

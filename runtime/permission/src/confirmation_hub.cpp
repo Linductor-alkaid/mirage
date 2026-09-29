@@ -128,6 +128,11 @@ std::vector<PendingConfirmation> AsyncConfirmationHub::pending() const {
     return views;
 }
 
+bool AsyncConfirmationHub::is_pending(const std::string &request_id) const {
+    std::lock_guard lock(mutex_);
+    return pending_.find(request_id) != pending_.end();
+}
+
 void AsyncConfirmationHub::erase_request(const std::string &request_id) {
     std::lock_guard lock(mutex_);
     pending_.erase(request_id);

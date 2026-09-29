@@ -138,23 +138,30 @@ std::optional<ipc::InspectTask> wait_terminal(const std::string &socket_path,
     }
 }
 
-/// Polls task.inspect until the first step left the pending/running state:
+/// Polls task.inspect until every submitted step carries a settled status:
 /// the driver converged on an interrupt (or the wait budget elapsed). This
 /// is the right wait before asserting driver-side state — a pinned cancel
-/// settles the task synchronously, while the driver marks the interrupted
-/// steps a few scheduling slices later.
+/// settles the task state synchronously, while the driver marks the
+/// interrupted step and then its skipped followers a few scheduling slices
+/// apart, so a wait keyed on the first step alone races the follower's
+/// "skipped" record under load.
 std::optional<ipc::InspectTask> wait_driver_converged(const std::string &socket_path,
-                                                      const std::string &task_id) {
+                                                      const std::string &task_id,
+                                                      std::size_t expected_steps) {
+    static constexpr std::array<const char *, 4> kSettled = {"ok", "failed", "skipped",
+                                                             "cancelled"};
     ipc::IpcClient client(socket_path);
     const auto deadline = std::chrono::steady_clock::now() + kTaskBudget;
     for (;;) {
         const ipc::Response response = client.call(ipc::InspectTaskRequest{task_id}, kCallBudget);
         const auto *inspect = std::get_if<ipc::InspectTask>(&response.payload);
-        if (inspect != nullptr && !inspect->steps.empty()) {
-            const auto &status = inspect->steps[0].status;
-            if (status == "cancelled" || status == "failed" || status == "ok") {
-                return *inspect;
-            }
+        if (inspect != nullptr && inspect->steps.size() >= expected_steps &&
+            std::all_of(inspect->steps.begin(), inspect->steps.end(),
+                        [](const ipc::StepView &step) {
+                            return std::find(std::begin(kSettled), std::end(kSettled),
+                                             step.status) != std::end(kSettled);
+                        })) {
+            return *inspect;
         }
         if (std::chrono::steady_clock::now() >= deadline) {
             return std::nullopt;
@@ -690,7 +697,7 @@ void scenario_cancel_during_confirmation_wait() {
     // while the interrupted step, the skipped follower and the pending-set
     // retraction happen a few scheduling slices later.
     const std::optional<ipc::InspectTask> done =
-        wait_driver_converged(config.socket_path, *task_id);
+        wait_driver_converged(config.socket_path, *task_id, request.steps.size());
     MIRAGE_CHECK(done.has_value());
     if (done) {
         MIRAGE_CHECK(done->progress == "Cancelled");

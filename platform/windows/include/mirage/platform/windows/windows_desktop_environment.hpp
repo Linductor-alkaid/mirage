@@ -3,6 +3,7 @@
 #include <memory>
 
 #include <mirage/desktop/desktop_environment.hpp>
+#include <mirage/desktop/overlay_carrier.hpp>
 #include <mirage/desktop/process_provider.hpp>
 
 namespace mirage::platform::windows_backend {
@@ -11,6 +12,14 @@ class Win32Backend;        // private in src/: no Win32 type may appear here (RU
 class UiaBackend;          // ditto for the UI Automation frontend (M4-02)
 class ApplicationBackend;  // ditto for the application frontend (M4-04)
 class NotificationBackend; // ditto for the notification frontend (M4-05)
+
+/// Desktop Overlay carrier of the Windows backend (M5-09, DEC-029): the
+/// layered-window overlay (topmost, per-pixel alpha, cross-process
+/// click-through except the confirm entry). Null when the session has no
+/// interactive display — capability honesty, never a degraded carrier. The
+/// carrier runs on the caller's Executor blocking worker; both windows are
+/// created and destroyed on that thread.
+std::unique_ptr<mirage::desktop::OverlayCarrier> open_overlay_carrier();
 
 /// Opt-in Win32 surface of the Windows backend (M4-01, DEC-017). When
 /// enabled the environment probes the interactive desktop at construction

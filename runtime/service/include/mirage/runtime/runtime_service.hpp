@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 
+#include <mirage/desktop/overlay_carrier.hpp>
 #include <mirage/desktop/visual_reference_registry.hpp>
 #include <mirage/integration/mira_adapter.hpp>
 #include <mirage/integration/model_layer.hpp>
@@ -137,6 +138,15 @@ struct ServiceConfig {
     /// stack (tests / embedded transports). The type is a Mirage-owned
     /// opaque carrier — no pinned type crosses this header.
     std::shared_ptr<mirage::integration::ModelProviderOverride> model_provider_override;
+    /// Desktop Overlay carrier (M5-09, DEC-029): when set, the service
+    /// hosts the overlay surface on an Executor blocking worker and drives
+    /// it from the task execution flow (event subscription + the desktop
+    /// atom feed + the confirmation hub hook). Null keeps the surface dark:
+    /// the service behaves exactly as before this field existed.
+    std::shared_ptr<mirage::desktop::OverlayCarrier> overlay_carrier;
+    /// Observation debug face of the overlay (semantic snapshot nodes as
+    /// boxes, DEC-029 decision 7). Only effective with `overlay_carrier`.
+    bool overlay_debug = false;
     /// Persist terminal task records across service restarts (M1-07). The
     /// file is written on every task settlement and at the end of the
     /// ordered teardown, and terminal records are hydrated back into the

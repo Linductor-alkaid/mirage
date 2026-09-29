@@ -82,6 +82,7 @@ void print_usage(std::ostream &out) {
         << "               [--model-endpoint ORIGIN] [--model-selector ALIAS]\n"
         << "               [--model-api-prefix PREFIX] [--model-dialect DIALECT]\n"
         << "               [--model-credential-env VAR] [--model-display-name NAME]\n"
+        << "               [--overlay on|debug]\n"
         << "\n"
         << "Hosts the Mirage background runtime service (design doc section\n"
         << "12): a pinned Mira instance bound to the local desktop\n"
@@ -111,6 +112,12 @@ void print_usage(std::ostream &out) {
         << "  --confirm-wait-ms N\n"
         << "                    Wait budget for --confirm ipc confirmations\n"
         << "                    (default 120000)\n"
+        << "  --overlay MODE    Desktop Overlay surface (M5-09, DEC-029): off\n"
+        << "                    (default) keeps the desktop clear; on mirrors\n"
+        << "                    task actions, target highlights and pending\n"
+        << "                    confirmations onto the platform overlay;\n"
+        << "                    debug additionally shows the Observation\n"
+        << "                    debug face (semantic snapshot boxes)\n"
         << "  --config PATH     Load a settings file first (DEC-011); flags\n"
         << "                    below override it item by item\n"
         << "  --state-dir PATH  Directory of the task recovery file (M1-07,\n"
@@ -175,6 +182,8 @@ int main(int argc, char **argv) {
     bool read_roots_from_flags = false;
     bool model_from_flags = false;
     bool runtime_from_flags = false;
+    bool overlay_from_flags = false;
+    bool overlay_debug = false;
     std::optional<std::filesystem::path> config_file;
 
     for (int index = 1; index < argc; ++index) {
@@ -268,6 +277,18 @@ int main(int argc, char **argv) {
         }
         if (argument == "--model-display-name" && index + 1 < argc) {
             config.model.display_name = argv[++index];
+            continue;
+        }
+        if (argument == "--overlay" && index + 1 < argc) {
+            const std::string_view mode{argv[++index]};
+            if (mode != "on" && mode != "debug") {
+                std::cerr << kProgramName << ": --overlay expects on|debug (got '" << mode
+                          << "')\n";
+                print_usage(std::cerr);
+                return 2;
+            }
+            overlay_from_flags = true;
+            overlay_debug = mode == "debug";
             continue;
         }
         std::cerr << kProgramName << ": unknown argument '" << argument << "'\n";
@@ -459,6 +480,12 @@ int main(int argc, char **argv) {
     }
     auto environment =
         std::make_shared<mirage::platform::windows_backend::WindowsDesktopEnvironment>();
+    if (overlay_from_flags) {
+        // M5-09 (DEC-029): the layered-window overlay carrier. A null probe
+        // (no interactive desktop) degrades loudly — the service continues
+        // without the overlay surface.
+        config.overlay_carrier = mirage::platform::windows_backend::open_overlay_carrier();
+    }
 #else
     std::vector<std::filesystem::path> read_scope;
     read_scope.reserve(read_roots.size());
@@ -467,7 +494,19 @@ int main(int argc, char **argv) {
     }
     auto environment = std::make_shared<mirage::platform::linux_backend::LinuxDesktopEnvironment>(
         std::move(read_scope));
+    if (overlay_from_flags) {
+        // M5-09 (DEC-029): the X11 shape overlay carrier. Null without an
+        // X/XWayland connection (e.g. a Wayland-native session) — loud
+        // degradation, never a faked surface.
+        config.overlay_carrier = mirage::platform::linux_backend::open_overlay_carrier();
+    }
 #endif
+    if (overlay_from_flags && config.overlay_carrier == nullptr) {
+        std::cerr << kProgramName
+                  << ": overlay carrier unavailable on this session (no interactive display / "
+                     "no X or XWayland connection); the service continues without the overlay\n";
+    }
+    config.overlay_debug = overlay_debug;
     auto binding = std::make_shared<mirage::integration::MiraEnvironmentBinding>(environment);
 
     mirage::runtime::RuntimeService service(config);
@@ -499,7 +538,11 @@ int main(int argc, char **argv) {
         return 1;
     }
     std::cout << kProgramName << " serving at " << service.socket_path() << '\n'
-              << "filesystem read scope: " << read_roots.size() << " root(s)\n";
+              << "filesystem read scope: " << read_roots.size() << " root(s)\n"
+              << "desktop overlay: "
+              << (config.overlay_carrier != nullptr ? (config.overlay_debug ? "debug" : "on")
+                                                    : "off")
+              << '\n';
     {
         const auto &rules = config.permission_policy.rules;
         std::cout << "permission policy:" << " filesystem.read="
