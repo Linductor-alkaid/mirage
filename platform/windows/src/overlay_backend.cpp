@@ -278,7 +278,10 @@ struct LayeredSurface {
     }
 
     bool present(const POINT &origin) {
-        const SIZE size{width, height};
+        // Non-const: the MinGW-w64 winuser.h signature takes SIZE * (the
+        // MSVC SDK widens it to CONST SIZE *), so a const local fails the
+        // MinGW toolchain (DEC-017 dual-toolchain gate).
+        SIZE size{width, height};
         POINT source{0, 0};
         BLENDFUNCTION blend{AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
         HDC screen_dc = ::GetDC(nullptr);

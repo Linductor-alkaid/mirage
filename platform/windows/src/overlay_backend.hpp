@@ -42,7 +42,10 @@ class Win32OverlayCarrier final : public mirage::desktop::OverlayCarrier {
     Win32OverlayCarrier();
 
     /// Per-run window and presentation state; all Win32 types stay in the
-    /// .cpp (the member is an opaque pointer here).
+    /// .cpp definition (RULE-01). Declared here because C++ requires a
+    /// nested type to be declared before its out-of-class definition — the
+    /// member is still an opaque pointer in every other translation unit.
+    struct State;
     void *state_ = nullptr;
     /// The visual window handle (as void*), published only while a healthy
     /// presentation loop runs; wakeup() posts WM_NULL to it. void* keeps
