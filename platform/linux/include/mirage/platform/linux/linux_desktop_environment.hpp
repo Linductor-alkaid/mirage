@@ -12,6 +12,7 @@
 #include <mirage/desktop/overlay_carrier.hpp>
 #include <mirage/desktop/path_scope.hpp>
 #include <mirage/desktop/process_provider.hpp>
+#include <mirage/desktop/tray_carrier.hpp>
 
 namespace mirage::platform::linux_backend {
 
@@ -29,6 +30,15 @@ class NotificationBackend; // ditto for the GDBus notification frontend (M2-05)
 /// holds its own X connection.
 std::unique_ptr<mirage::desktop::OverlayCarrier>
 open_overlay_carrier(const std::string &display = {});
+
+/// Tray indicator carrier of the Linux backend (M5-10, DEC-030): the
+/// session-bus StatusNotifierItem indicator (AppIndicator protocol family)
+/// with its context menu. Null without a session bus or without a
+/// StatusNotifierWatcher host (e.g. stock GNOME without the AppIndicator
+/// extension) or without gio support in the build — capability honesty,
+/// never a degraded carrier. The carrier runs on the caller's Executor
+/// blocking worker (its GLib loop is the encapsulated platform event loop).
+std::unique_ptr<mirage::desktop::TrayCarrier> open_tray_carrier();
 
 /// Opt-in X11/XWayland surface of the Linux backend (M2-02, DEC-015). When
 /// enabled the environment connects to `display` (empty = $DISPLAY) at
