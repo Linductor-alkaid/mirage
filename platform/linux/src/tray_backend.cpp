@@ -18,7 +18,10 @@ using mirage::desktop::TrayState;
 constexpr guint kStopPollMs = 100;
 
 /// Well-known names and object paths of the indicator protocol.
-constexpr const char *kWatcherName = "org.kde.StatusNotifierItemWatcher";
+constexpr const char *kWatcherName = "org.kde.StatusNotifierWatcher";
+/// The watcher's interface name differs from its bus name by the "Item"
+/// link (the SNI protocol's own asymmetry).
+constexpr const char *kWatcherInterface = "org.kde.StatusNotifierItemWatcher";
 constexpr const char *kItemPath = "/org/mirage/tray";
 constexpr const char *kMenuPath = "/org/mirage/tray/menu";
 constexpr const char *kItemId = "mirage-tray";
@@ -150,7 +153,7 @@ struct GioTrayCarrier::Surface {
     GMainContext *context = nullptr; ///< thread-default context of run()
     guint item_registration = 0;
     guint menu_registration = 0;
-    guint stop_source = 0;
+    GSource *stop_source = nullptr;
     guint watcher_watch = 0;
     guint revision = 1;
     TrayCarrierContext carrier;
@@ -436,7 +439,7 @@ GioTrayCarrier::run(const TrayCarrierContext &context,
     if (report.diagnostic.empty()) {
         GError *error = nullptr;
         GVariant *registered = g_dbus_connection_call_sync(
-            surface.connection, kWatcherName, "/StatusNotifierWatcher", kWatcherName,
+            surface.connection, kWatcherName, "/StatusNotifierWatcher", kWatcherInterface,
             "RegisterStatusNotifierItem", g_variant_new("(s)", kItemPath), nullptr,
             G_DBUS_CALL_FLAGS_NONE, 5000, nullptr, &error);
         if (registered == nullptr) {
@@ -458,9 +461,13 @@ GioTrayCarrier::run(const TrayCarrierContext &context,
     if (report.diagnostic.empty()) {
         // Bounded stop: the timeout source polls the owner's stop probe on
         // the loop (DEC-030 decision 6); wakeup() invokes a refresh so the
-        // newest state is pushed within one slice too.
-        surface.stop_source = g_timeout_add(
-            kStopPollMs,
+        // newest state is pushed within one slice too. The source is
+        // attached to the loop's OWN thread-default context explicitly —
+        // g_timeout_add would land on the global default context and the
+        // stop probe would never fire inside this loop.
+        GSource *stop_timer = g_timeout_source_new(kStopPollMs);
+        g_source_set_callback(
+            stop_timer,
             [](gpointer user_data) -> gint {
                 auto *stop = static_cast<StopContext *>(user_data);
                 if ((*stop->stop_requested)()) {
@@ -470,7 +477,9 @@ GioTrayCarrier::run(const TrayCarrierContext &context,
                 }
                 return G_SOURCE_CONTINUE;
             },
-            &stop_context);
+            &stop_context, nullptr);
+        surface.stop_source = stop_timer; // kept: destroyed in teardown
+        g_source_attach(stop_timer, surface.context);
         surface.watcher_watch = g_bus_watch_name_on_connection(
             surface.connection, kWatcherName, G_BUS_NAME_WATCHER_FLAGS_NONE, nullptr,
             watcher_vanished, &surface, nullptr);
@@ -486,8 +495,12 @@ GioTrayCarrier::run(const TrayCarrierContext &context,
         }
     }
 
-    if (surface.stop_source != 0) {
-        g_source_remove(surface.stop_source);
+    if (surface.stop_source != nullptr) {
+        // g_source_destroy (not g_source_remove): the source lives on the
+        // run loop's own context, not the global default one.
+        g_source_destroy(surface.stop_source);
+        g_source_unref(surface.stop_source);
+        surface.stop_source = nullptr;
     }
     if (surface.watcher_watch != 0) {
         g_bus_unwatch_name(surface.watcher_watch);
