@@ -89,3 +89,7 @@ endif()
 # gate. Off by default, so the default build graph stays hermetic (DEC-006
 # decision 6; see apps/desktop/CMakeLists.txt).
 add_subdirectory(desktop)
+
+# The tray process form (M5-10, DEC-030): runs on every platform; the
+# carrier inside degrades honestly where the platform has no indicator.
+add_subdirectory(tray)
