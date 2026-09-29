@@ -92,6 +92,18 @@ set_tests_properties(observation_assembler_test PROPERTIES
     TIMEOUT 60
 )
 
+# M5-09 Desktop Overlay frame contract (DEC-029): the budget vocabulary and
+# the UTF-8-boundary clamp cut are platform-neutral; platform-neutral unit.
+add_executable(overlay_surface_test desktop/overlay_surface_test.cpp)
+target_compile_features(overlay_surface_test PUBLIC cxx_std_20)
+mirage_enable_warnings(overlay_surface_test)
+target_link_libraries(overlay_surface_test PRIVATE Mirage::desktop)
+add_test(NAME overlay_surface_test COMMAND overlay_surface_test)
+set_tests_properties(overlay_surface_test PROPERTIES
+    LABELS "unit"
+    TIMEOUT 60
+)
+
 # M2-02 Linux backend skeleton: exercised against a private headless Xvfb
 # (DEC-015). Built wherever the X11 dev packages exist; CI installs them.
 find_package(X11 QUIET)
@@ -112,6 +124,30 @@ if(X11_FOUND AND X11_Xtst_FOUND)
     )
     add_test(NAME x11_backend_test COMMAND x11_backend_test)
     set_tests_properties(x11_backend_test PROPERTIES
+        LABELS "integration"
+        TIMEOUT 120
+    )
+endif()
+
+# M5-09 X11 shape overlay carrier (DEC-029): exercised against a private
+# headless Xvfb like the M2-02 backend tests. Registered only where the
+# real overlay frontend is compiled (the stub build returns null and has
+# nothing honest to exercise); the shape-extension condition mirrors
+# platform/CMakeLists.txt.
+if(X11_FOUND AND X11_Xtst_FOUND AND X11_Xrandr_FOUND AND X11_Xshape_FOUND)
+    add_executable(overlay_carrier_test platform/overlay_carrier_test.cpp)
+    target_compile_features(overlay_carrier_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(overlay_carrier_test)
+    target_link_libraries(overlay_carrier_test
+        PRIVATE
+            Mirage::platform
+            Mirage::desktop
+            ${X11_X11_LIB}
+            ${X11_Xtst_LIB}
+            ${X11_Xext_LIB}
+    )
+    add_test(NAME overlay_carrier_test COMMAND overlay_carrier_test)
+    set_tests_properties(overlay_carrier_test PROPERTIES
         LABELS "integration"
         TIMEOUT 120
     )
@@ -705,6 +741,34 @@ set_tests_properties(permission_test PROPERTIES
     TIMEOUT 60
 )
 
+# M5-09 Desktop Overlay presenter (DEC-029): the service-internal
+# presentation path against a scripted carrier — composition, latest-state
+# dedup, budgets, the hub-probe confirmation revalidation and the
+# stop/failure paths. The presenter is an internal module (runtime/service/
+# src): the test reaches it through the source-tree include path, and the
+# executor headers enter as SYSTEM exactly like the service target consumes
+# them; the executor library links by file path so its interface include
+# dirs do not leak.
+add_executable(overlay_presenter_test runtime/overlay_presenter_test.cpp)
+target_compile_features(overlay_presenter_test PUBLIC cxx_std_20)
+mirage_enable_warnings(overlay_presenter_test)
+target_include_directories(overlay_presenter_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/runtime/service/src
+)
+target_include_directories(overlay_presenter_test SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include"
+)
+target_link_libraries(overlay_presenter_test
+    PRIVATE
+        Mirage::runtime_service
+        $<TARGET_FILE:executor::executor>
+)
+add_test(NAME overlay_presenter_test COMMAND overlay_presenter_test)
+set_tests_properties(overlay_presenter_test PROPERTIES
+    LABELS "unit"
+    TIMEOUT 60
+)
+
 # POSIX-only: asserts the 0700/0600 store hardening; the Windows store is
 # covered by win32_product_process_test.
 # # covered by win32_product_process_test.
@@ -782,6 +846,31 @@ target_link_libraries(permission_ipc_test
 )
 add_test(NAME permission_ipc_test COMMAND permission_ipc_test)
 set_tests_properties(permission_ipc_test PROPERTIES
+    LABELS "integration"
+    TIMEOUT 300
+)
+endif()
+
+# M5-09 Desktop Overlay service integration (DEC-029): the overlay pump on
+# the service's blocking worker, the confirmation mirror + confirm-entry
+# click resolution, the IPC-first clearing discipline and the broken-carrier
+# loud degradation — all over the Unix-socket transport like
+# permission_ipc_test (the Windows product surface shares the presenter unit
+# tests and the win32 overlay frontend's own CI job).
+if(UNIX)
+add_executable(overlay_service_test runtime/overlay_service_test.cpp)
+target_compile_features(overlay_service_test PUBLIC cxx_std_20)
+mirage_enable_warnings(overlay_service_test)
+target_link_libraries(overlay_service_test
+    PRIVATE
+        Mirage::runtime_service
+        Mirage::integration_mira
+        Mirage::platform
+        Mirage::desktop
+        Mirage::ipc
+)
+add_test(NAME overlay_service_test COMMAND overlay_service_test)
+set_tests_properties(overlay_service_test PROPERTIES
     LABELS "integration"
     TIMEOUT 300
 )

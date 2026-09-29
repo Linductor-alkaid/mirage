@@ -331,6 +331,208 @@ void scenario_snapshot_atom_renders_the_semantic_tree() {
     }
 }
 
+/// Records what the AtomOverlayFeed seam (M5-09, DEC-029) received, plus
+/// the focused state at each action publish — the ordering evidence that
+/// the mirror fires after the permission judgement and before the provider
+/// side effect.
+struct RecordingOverlayFeed {
+    std::vector<integration::AtomOverlayAction> actions;
+    std::vector<bool> focused_at_publish;
+    std::vector<mirage::desktop::SemanticSnapshot> observations;
+
+    integration::AtomOverlayFeed feed(mirage::testing::FakeDesktopEnvironment *environment) {
+        integration::AtomOverlayFeed feed;
+        feed.show_action = [this, environment](const integration::AtomOverlayAction &action) {
+            actions.push_back(action);
+            focused_at_publish.push_back(!environment->windows.empty() &&
+                                         environment->windows.front().focused);
+        };
+        feed.show_observation = [this](const mirage::desktop::SemanticSnapshot &snapshot) {
+            observations.push_back(snapshot);
+        };
+        return feed;
+    }
+};
+
+void scenario_overlay_feed_mirrors_window_activate() {
+    mirage::testing::FakeDesktopEnvironment environment;
+    environment.windows.push_back({"w1", "Terminal", {0, 0, 800, 600}, false});
+    RecordingOverlayFeed recorder;
+    RecordingGate gate; // the mirror rides the judged action: allow
+    const auto toolset = integration::DesktopAtomToolset::build(&environment, gate.gate(),
+                                                                recorder.feed(&environment));
+
+    const auto outcome =
+        dispatch(*toolset->registry(), "desktop.window.activate",
+                 arguments({{"window_id", mira::JsonValue{"w1"}}}), mira::make_control_context());
+    check_dispatch_ok("activate with overlay feed", outcome);
+
+    // The side effect really happened.
+    MIRAGE_CHECK(environment.windows.front().focused);
+
+    // Exactly two mirror updates: the upcoming action, then the clearing
+    // publish once the action settled.
+    MIRAGE_CHECK(recorder.actions.size() == 2);
+    if (recorder.actions.size() == 2) {
+        const integration::AtomOverlayAction &upcoming = recorder.actions.front();
+        MIRAGE_CHECK(upcoming.hint == "activating \"Terminal\"");
+        MIRAGE_CHECK(upcoming.highlights.size() == 1);
+        if (upcoming.highlights.size() == 1) {
+            MIRAGE_CHECK(upcoming.highlights.front().rect.width == 800);
+            MIRAGE_CHECK(upcoming.highlights.front().rect.height == 600);
+            MIRAGE_CHECK(upcoming.highlights.front().label == "Terminal");
+        }
+        // Ordering: the mirror published before the provider side effect.
+        MIRAGE_CHECK(recorder.focused_at_publish.front() == false);
+        const integration::AtomOverlayAction &settled = recorder.actions.back();
+        MIRAGE_CHECK(settled.hint.empty());
+        MIRAGE_CHECK(settled.highlights.empty());
+    }
+}
+
+void scenario_overlay_feed_degrades_when_the_target_lookup_fails() {
+    mirage::testing::FakeDesktopEnvironment environment;
+    environment.windows.push_back({"w1", "Terminal", {0, 0, 800, 600}, false});
+    RecordingOverlayFeed recorder;
+    RecordingGate gate;
+    const auto toolset = integration::DesktopAtomToolset::build(&environment, gate.gate(),
+                                                                recorder.feed(&environment));
+
+    // An unknown window id: the activation fails, but the mirror still
+    // published a highlight-less degraded hint and cleared after the failed
+    // attempt — the overlay never blocks nor misdescribes the action.
+    const auto outcome =
+        dispatch(*toolset->registry(), "desktop.window.activate",
+                 arguments({{"window_id", mira::JsonValue{"w9"}}}), mira::make_control_context());
+    MIRAGE_CHECK(outcome.has_value() && outcome.value().failed);
+    if (outcome.has_value()) {
+        MIRAGE_CHECK(outcome.value().safe_error_summary.find("not_found") != std::string::npos);
+    }
+
+    MIRAGE_CHECK(recorder.actions.size() == 2);
+    if (recorder.actions.size() == 2) {
+        MIRAGE_CHECK(recorder.actions.front().hint == "activating window w9");
+        MIRAGE_CHECK(recorder.actions.front().highlights.empty());
+        MIRAGE_CHECK(recorder.actions.back().hint.empty());
+        MIRAGE_CHECK(recorder.actions.back().highlights.empty());
+    }
+    MIRAGE_CHECK(!environment.windows.front().focused);
+}
+
+void scenario_overlay_feed_mirrors_input_type_text() {
+    mirage::testing::FakeDesktopEnvironment environment;
+    environment.windows.push_back({"w1", "Editor", {10, 20, 300, 200}, true});
+    RecordingOverlayFeed recorder;
+    RecordingGate gate;
+    const auto toolset = integration::DesktopAtomToolset::build(&environment, gate.gate(),
+                                                                recorder.feed(&environment));
+
+    const auto outcome =
+        dispatch(*toolset->registry(), "desktop.input.type_text",
+                 arguments({{"text", mira::JsonValue{"hello"}}}), mira::make_control_context());
+    check_dispatch_ok("type_text with overlay feed", outcome);
+
+    MIRAGE_CHECK(recorder.actions.size() == 2);
+    if (recorder.actions.size() == 2) {
+        const integration::AtomOverlayAction &upcoming = recorder.actions.front();
+        MIRAGE_CHECK(upcoming.hint == "typing into \"Editor\"");
+        MIRAGE_CHECK(upcoming.highlights.size() == 1);
+        if (upcoming.highlights.size() == 1) {
+            MIRAGE_CHECK(upcoming.highlights.front().rect.x == 10);
+            MIRAGE_CHECK(upcoming.highlights.front().rect.y == 20);
+            MIRAGE_CHECK(upcoming.highlights.front().label == "Editor");
+        }
+        MIRAGE_CHECK(recorder.actions.back().hint.empty());
+    }
+
+    // Without a focused window the hint degrades to the typed-size line and
+    // carries no highlight (the mirror never blocks the action).
+    RecordingOverlayFeed unfocused;
+    mirage::testing::FakeDesktopEnvironment bare;
+    bare.windows.push_back({"w1", "Background", {0, 0, 100, 100}, false});
+    RecordingGate bare_gate;
+    const auto bare_toolset =
+        integration::DesktopAtomToolset::build(&bare, bare_gate.gate(), unfocused.feed(&bare));
+    const auto bare_outcome =
+        dispatch(*bare_toolset->registry(), "desktop.input.type_text",
+                 arguments({{"text", mira::JsonValue{"hello"}}}), mira::make_control_context());
+    check_dispatch_ok("type_text without focus", bare_outcome);
+    MIRAGE_CHECK(unfocused.actions.size() == 2);
+    if (unfocused.actions.size() == 2) {
+        MIRAGE_CHECK(unfocused.actions.front().hint == "typing 5 character(s)");
+        MIRAGE_CHECK(unfocused.actions.front().highlights.empty());
+    }
+}
+
+void scenario_denied_action_never_mirrors() {
+    mirage::testing::FakeDesktopEnvironment environment;
+    environment.windows.push_back({"w1", "Editor", {0, 0, 100, 100}, true});
+    RecordingOverlayFeed recorder;
+    RecordingGate denying;
+    denying.verdict = false;
+    const auto toolset = integration::DesktopAtomToolset::build(&environment, denying.gate(),
+                                                                recorder.feed(&environment));
+    const auto outcome =
+        dispatch(*toolset->registry(), "desktop.input.type_text",
+                 arguments({{"text", mira::JsonValue{"no"}}}), mira::make_control_context());
+    MIRAGE_CHECK(outcome.has_value() && outcome.value().failed);
+    // The permission judgement precedes the mirror: a denied action leaves
+    // the overlay completely dark.
+    MIRAGE_CHECK(recorder.actions.empty());
+    MIRAGE_CHECK(recorder.focused_at_publish.empty());
+}
+
+void scenario_overlay_feed_delivers_the_observation_face() {
+    mirage::testing::FakeDesktopEnvironment environment;
+    environment.windows.push_back({"w1", "Terminal", {0, 0, 800, 600}, true});
+    mirage::desktop::SemanticSnapshot snapshot;
+    snapshot.application = "Terminal";
+    snapshot.window_title = "Terminal";
+    mirage::desktop::SemanticNode node;
+    node.ref = "@e1";
+    node.role = "button";
+    node.name = "Run";
+    node.geometry = {5, 6, 100, 50};
+    snapshot.nodes.push_back(node);
+    environment.snapshots.emplace("w1", snapshot);
+
+    RecordingOverlayFeed recorder;
+    const auto toolset =
+        integration::DesktopAtomToolset::build(&environment, nullptr, recorder.feed(&environment));
+    const auto outcome =
+        dispatch(*toolset->registry(), "desktop.accessibility.semantic_snapshot",
+                 arguments({{"window_id", mira::JsonValue{"w1"}}}), mira::make_control_context());
+    check_dispatch_ok("semantic_snapshot with overlay feed", outcome);
+    // The delivered snapshot reached the feed unmodified (the presenter
+    // projects the boxes; the seam only mirrors).
+    MIRAGE_CHECK(recorder.observations.size() == 1);
+    if (recorder.observations.size() == 1) {
+        MIRAGE_CHECK(recorder.observations.front().application == "Terminal");
+        MIRAGE_CHECK(recorder.observations.front().nodes.size() == 1);
+        if (recorder.observations.front().nodes.size() == 1) {
+            MIRAGE_CHECK(recorder.observations.front().nodes.front().ref == "@e1");
+            MIRAGE_CHECK(recorder.observations.front().nodes.front().geometry.width == 100);
+        }
+    }
+    MIRAGE_CHECK(recorder.actions.empty());
+
+    // A dark observation member keeps the mirror silent (explicit product
+    // decision): the atom must not depend on the face being wired.
+    RecordingOverlayFeed dark;
+    integration::AtomOverlayFeed half_wired;
+    half_wired.show_action = [&dark](const integration::AtomOverlayAction &action) {
+        dark.actions.push_back(action);
+    };
+    const auto dark_toolset =
+        integration::DesktopAtomToolset::build(&environment, nullptr, half_wired);
+    const auto dark_outcome =
+        dispatch(*dark_toolset->registry(), "desktop.accessibility.semantic_snapshot",
+                 arguments({{"window_id", mira::JsonValue{"w1"}}}), mira::make_control_context());
+    check_dispatch_ok("semantic_snapshot with dark observation", dark_outcome);
+    MIRAGE_CHECK(dark.observations.empty());
+    MIRAGE_CHECK(dark.actions.empty());
+}
+
 void scenario_at_most_once_dispatch_stays_enforced() {
     mirage::testing::FakeDesktopEnvironment environment;
     const auto toolset = integration::DesktopAtomToolset::build(&environment, nullptr);
@@ -370,6 +572,11 @@ int main() {
     scenario_process_atom_carries_the_command_result();
     scenario_cancelled_drive_refuses_the_atom_before_the_provider();
     scenario_snapshot_atom_renders_the_semantic_tree();
+    scenario_overlay_feed_mirrors_window_activate();
+    scenario_overlay_feed_degrades_when_the_target_lookup_fails();
+    scenario_overlay_feed_mirrors_input_type_text();
+    scenario_denied_action_never_mirrors();
+    scenario_overlay_feed_delivers_the_observation_face();
     scenario_at_most_once_dispatch_stays_enforced();
     return mirage::testing::finish("desktop_atom_toolset_test");
 }
