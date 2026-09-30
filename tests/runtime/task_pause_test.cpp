@@ -45,7 +45,10 @@ using mirage::testing::unique_token;
 // Liveness guards against hangs, not latency assertions (the
 // task_cancel_test oversubscription rationale).
 constexpr auto kCallBudget = std::chrono::seconds{30};
-constexpr auto kTaskBudget = std::chrono::seconds{20};
+// 60s: the pause→resume→re-drive round trip spawns multiple processes per
+// step on debug builds and shared CI runners; 20s was observed to time out
+// the convergence wait on loaded runners (PR #66 CI, M5-12 round 3).
+constexpr auto kTaskBudget = std::chrono::seconds{60};
 /// The parked window: long enough for an in-flight `sleep 1` step to finish
 /// and for a mis-settling driver to have (wrongly) converged, short enough
 /// to keep the scenario inside its budget.
