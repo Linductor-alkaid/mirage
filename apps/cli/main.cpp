@@ -1106,6 +1106,11 @@ void print_version() {
 
 } // namespace
 
+namespace mirage::cli {
+int command_update_check(int argc, char **argv);
+int command_update_apply(int argc, char **argv);
+} // namespace mirage::cli
+
 int main(int argc, char **argv) {
     if (argc >= 2) {
         const std::string_view command{argv[1]};
@@ -1116,6 +1121,17 @@ int main(int argc, char **argv) {
         if (command == "--help") {
             print_usage(std::cout);
             return 0;
+        }
+        if (command == "update" && argc >= 3) {
+            const std::string_view subcommand{argv[2]};
+            if (subcommand == "check") {
+                return mirage::cli::command_update_check(argc - 2, argv + 2);
+            }
+            if (subcommand == "apply") {
+                return mirage::cli::command_update_apply(argc - 2, argv + 2);
+            }
+            std::cerr << kProgramName << ": unknown update subcommand '" << subcommand << "'\n";
+            return kExitUsage;
         }
         if (command == "service" && argc >= 3) {
             const std::string_view subcommand{argv[2]};

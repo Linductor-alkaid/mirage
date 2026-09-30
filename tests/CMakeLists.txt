@@ -637,6 +637,30 @@ set_tests_properties(ipc_protocol_golden_test PROPERTIES
 # product-process round trip is win32_product_process_test.
 # 
 if(UNIX)
+# M5-12 (DEC-032): the updater core — manifest decode, ed25519
+# verification and the atomic apply engine. Registered only where OpenSSL
+# libcrypto exists (the same optional-boundary discipline as the library
+# itself: without it the crypto face fails closed and this test is
+# meaningless).
+find_package(OpenSSL QUIET)
+if(OPENSSL_FOUND)
+    add_executable(update_core_test runtime/update_core_test.cpp)
+    target_compile_features(update_core_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(update_core_test)
+    target_link_libraries(update_core_test
+        PRIVATE
+            Mirage::update
+            OpenSSL::Crypto
+    )
+    add_test(NAME update_core_test COMMAND update_core_test)
+    set_tests_properties(update_core_test PROPERTIES
+        LABELS "unit"
+        TIMEOUT 120
+    )
+else()
+    message(STATUS "update_core_test disabled: OpenSSL not found")
+endif()
+
 add_executable(runtime_service_test runtime/runtime_service_test.cpp)
 target_compile_features(runtime_service_test PUBLIC cxx_std_20)
 mirage_enable_warnings(runtime_service_test)

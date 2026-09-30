@@ -1,5 +1,6 @@
 add_executable(mirage
     cli/main.cpp
+    cli/update_command.cpp
 )
 
 target_compile_features(mirage PUBLIC cxx_std_20)
@@ -12,6 +13,7 @@ target_link_libraries(mirage
         Mirage::integration_mira
         Mirage::integration_mirador
         Mirage::platform
+        Mirage::update
 )
 
 # The background Runtime Service host (design doc section 12, DEC-007):
