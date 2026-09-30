@@ -19,10 +19,15 @@ constexpr guint kStopPollMs = 100;
 
 /// Well-known names and object paths of the indicator protocol.
 constexpr const char *kWatcherName = "org.kde.StatusNotifierWatcher";
-/// The watcher's interface name differs from its bus name by the "Item"
-/// link (the SNI protocol's own asymmetry).
-constexpr const char *kWatcherInterface = "org.kde.StatusNotifierItemWatcher";
+/// Per the SNI spec the watcher's interface name IS its bus name (no
+/// "ItemWatcher" interface exists); c90e71c briefly had this backwards by
+/// promoting the smoke fake's own mistake into the constant.
+constexpr const char *kWatcherInterface = "org.kde.StatusNotifierWatcher";
+/// The conventional item path the SNI hosts introspect under the
+/// registered bus name (the registration parameter is the bus name, not
+/// the path — verification round 1, defect 2).
 constexpr const char *kItemPath = "/org/mirage/tray";
+constexpr const char *kItemAltPath = "/StatusNotifierItem";
 constexpr const char *kMenuPath = "/org/mirage/tray/menu";
 constexpr const char *kItemId = "mirage-tray";
 
@@ -62,7 +67,6 @@ constexpr const char *kMenuXml = "<node>"
                                  "      <arg name='recursionDepth' type='i' direction='in'/>"
                                  "      <arg name='propertyNames' type='as' direction='in'/>"
                                  "      <arg name='revision' type='u' direction='out'/>"
-                                 "      <arg name='parent' type='i' direction='out'/>"
                                  "      <arg name='layout' type='a(ia{sv}av)' direction='out'/>"
                                  "    </method>"
                                  "    <method name='GetGroupProperties'>"
@@ -148,10 +152,18 @@ GVariant *menu_props_for(const TrayState &state, guint id) {
 } // namespace
 
 struct GioTrayCarrier::Surface {
-    GDBusConnection *connection = nullptr; ///< owned reference (session bus)
+    /// Dedicated message-bus connection for this carrier (owned). Created
+    /// inside run() AFTER the loop's thread-default context is pushed, so
+    /// the connection's dispatch source lands on the loop that serves the
+    /// exported objects — a connection created earlier (or the shared
+    /// g_bus_get_sync singleton) would dispatch elsewhere and the exports
+    /// would never answer (verification round 1 smoke finding).
+    GDBusConnection *connection = nullptr;
+    std::string session_address; ///< resolved by open()
     GMainLoop *loop = nullptr;
     GMainContext *context = nullptr; ///< thread-default context of run()
     guint item_registration = 0;
+    guint alt_item_registration = 0;
     guint menu_registration = 0;
     GSource *stop_source = nullptr;
     guint watcher_watch = 0;
@@ -219,31 +231,27 @@ void menu_method_call(GDBusConnection *, const gchar *, const gchar *, const gch
     auto *surface = static_cast<GioTrayCarrier::Surface *>(user_data);
     if (g_strcmp0(method, "GetLayout") == 0) {
         guint depth = 0;
-        g_variant_get(parameters, "(ii as)", nullptr, &depth, nullptr);
+        g_variant_get(parameters, "(iias)", nullptr, &depth, nullptr);
         GVariantBuilder layout;
         g_variant_builder_init(&layout, G_VARIANT_TYPE("a(ia{sv}av)"));
         for (const MenuEntry &entry : kMenuLayout) {
-            GVariantBuilder props;
-            g_variant_builder_init(&props, G_VARIANT_TYPE("a{sv}"));
-            GVariantBuilder children;
-            g_variant_builder_init(&children, G_VARIANT_TYPE("av"));
-            if (depth != 0) {
-                GVariant *properties = menu_properties_variant(*surface, entry.id);
-                GVariantIter iterator;
-                const gchar *key = nullptr;
-                GVariant *value = nullptr;
-                g_variant_iter_init(&iterator, properties);
-                while (g_variant_iter_loop(&iterator, "{sv}", &key, &value)) {
-                    g_variant_builder_add(&props, "{sv}", key, value);
-                }
-                g_variant_unref(properties);
-            }
-            g_variant_builder_add(&layout, "(ia{sv}av)", static_cast<gint>(entry.id),
-                                  g_variant_builder_end(&props), g_variant_builder_end(&children));
+            // Tuple construction (never "{sv}"/"a..." varargs slots): the
+            // format-string varargs language would read the pre-built
+            // GVariant* as a key pointer / varargs array and overrun
+            // (verification round 1, defects 3 and 4).
+            GVariant *props = depth != 0 ? menu_properties_variant(*surface, entry.id)
+                                         : g_variant_new("a{sv}", nullptr);
+            GVariant *children = g_variant_new_array(G_VARIANT_TYPE("v"), nullptr, 0);
+            GVariant *values[3] = {g_variant_new_int32(entry.id), props, children};
+            g_variant_builder_add_value(&layout, g_variant_new_tuple(values, 3));
         }
-        g_dbus_method_invocation_return_value(invocation,
-                                              g_variant_new("(u i a(ia{sv}av))", surface->revision,
-                                                            0, g_variant_builder_end(&layout)));
+        // Canonical libdbusmenu signature: (u revision, a(ia{sv}av) layout)
+        // — no parent member (libdbusmenu's exported introspection XML).
+        GVariantBuilder reply;
+        g_variant_builder_init(&reply, G_VARIANT_TYPE("(ua(ia{sv}av))"));
+        g_variant_builder_add(&reply, "u", surface->revision);
+        g_variant_builder_add_value(&reply, g_variant_builder_end(&layout));
+        g_dbus_method_invocation_return_value(invocation, g_variant_builder_end(&reply));
         return;
     }
     if (g_strcmp0(method, "GetGroupProperties") == 0) {
@@ -251,14 +259,16 @@ void menu_method_call(GDBusConnection *, const gchar *, const gchar *, const gch
         g_variant_builder_init(&properties, G_VARIANT_TYPE("a(ia{sv})"));
         GVariantIter iterator;
         gint id = 0;
-        g_variant_get(parameters, "(ai as)", &iterator, nullptr);
+        g_variant_get(parameters, "(aias)", &iterator, nullptr);
         while (g_variant_iter_loop(&iterator, "i", &id)) {
             GVariant *props = menu_properties_variant(*surface, static_cast<guint>(id));
-            g_variant_builder_add(&properties, "(ia{sv})", id, props);
-            g_variant_unref(props);
+            GVariant *values[2] = {g_variant_new_int32(id), props};
+            g_variant_builder_add_value(&properties, g_variant_new_tuple(values, 2));
         }
-        g_dbus_method_invocation_return_value(
-            invocation, g_variant_new("(a(ia{sv}))", g_variant_builder_end(&properties)));
+        GVariantBuilder reply;
+        g_variant_builder_init(&reply, G_VARIANT_TYPE("(a(ia{sv}))"));
+        g_variant_builder_add_value(&reply, g_variant_builder_end(&properties));
+        g_dbus_method_invocation_return_value(invocation, g_variant_builder_end(&reply));
         return;
     }
     if (g_strcmp0(method, "GetProperty") == 0) {
@@ -323,17 +333,19 @@ void notify_state_changed(GioTrayCarrier::Surface &surface) {
     const guint ids[] = {kItemStatus, kItemPause, kItemResume, kItemOpenShell};
     for (const guint id : ids) {
         GVariant *props = menu_properties_variant(surface, id);
-        g_variant_builder_add(&updated, "(ia{sv})", static_cast<gint>(id), props);
-        g_variant_unref(props);
+        GVariant *values[2] = {g_variant_new_int32(id), props};
+        g_variant_builder_add_value(&updated, g_variant_new_tuple(values, 2));
     }
     GVariantBuilder removed;
     g_variant_builder_init(&removed, G_VARIANT_TYPE("as"));
     error = nullptr;
+    GVariantBuilder signal_parameters;
+    g_variant_builder_init(&signal_parameters, G_VARIANT_TYPE("(a(ia{sv})as)"));
+    g_variant_builder_add_value(&signal_parameters, g_variant_builder_end(&updated));
+    g_variant_builder_add_value(&signal_parameters, g_variant_builder_end(&removed));
     g_dbus_connection_emit_signal(surface.connection, nullptr, kMenuPath, "com.canonical.dbusmenu",
                                   "ItemsPropertiesUpdated",
-                                  g_variant_new("(a(ia{sv})as)", g_variant_builder_end(&updated),
-                                                g_variant_builder_end(&removed)),
-                                  &error);
+                                  g_variant_builder_end(&signal_parameters), &error);
     if (error != nullptr) {
         g_error_free(error);
     }
@@ -362,8 +374,24 @@ GioTrayCarrier::~GioTrayCarrier() = default;
 
 std::unique_ptr<GioTrayCarrier> GioTrayCarrier::open() {
     GError *error = nullptr;
-    GDBusConnection *connection = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, &error);
-    if (connection == nullptr) {
+    gchar *address = g_dbus_address_get_for_bus_sync(G_BUS_TYPE_SESSION, nullptr, &error);
+    if (address == nullptr) {
+        if (error != nullptr) {
+            g_error_free(error);
+        }
+        return nullptr; // no session bus address: no indicator carrier
+    }
+    // The probe uses a DEDICATED connection, never the g_bus_get_sync
+    // singleton: the singleton caches the first session bus for the whole
+    // process, which poisons later capability probes when the bus address
+    // changes between scenarios (verification round 1 follow-up).
+    GDBusConnection *probe = g_dbus_connection_new_for_address_sync(
+        address,
+        static_cast<GDBusConnectionFlags>(G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT |
+                                          G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION),
+        nullptr, nullptr, &error);
+    if (probe == nullptr) {
+        g_free(address);
         if (error != nullptr) {
             g_error_free(error);
         }
@@ -372,11 +400,12 @@ std::unique_ptr<GioTrayCarrier> GioTrayCarrier::open() {
     // A StatusNotifierWatcher host is what turns an exported item into a
     // visible indicator (capability honesty, DEC-030 decision 4).
     GVariant *has_owner = g_dbus_connection_call_sync(
-        connection, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+        probe, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
         "NameHasOwner", g_variant_new("(s)", kWatcherName), G_VARIANT_TYPE("(b)"),
         G_DBUS_CALL_FLAGS_NONE, 2000, nullptr, &error);
     if (has_owner == nullptr) {
-        g_object_unref(connection);
+        g_object_unref(probe);
+        g_free(address);
         if (error != nullptr) {
             g_error_free(error);
         }
@@ -385,13 +414,15 @@ std::unique_ptr<GioTrayCarrier> GioTrayCarrier::open() {
     gboolean owned = FALSE;
     g_variant_get(has_owner, "(b)", &owned);
     g_variant_unref(has_owner);
+    g_object_unref(probe);
     if (!owned) {
-        g_object_unref(connection);
+        g_free(address);
         return nullptr;
     }
     auto carrier = std::unique_ptr<GioTrayCarrier>(new GioTrayCarrier());
     carrier->surface_ = std::make_unique<Surface>();
-    carrier->surface_->connection = connection;
+    carrier->surface_->session_address = address;
+    g_free(address);
     return carrier;
 }
 
@@ -423,15 +454,43 @@ GioTrayCarrier::run(const TrayCarrierContext &context,
     g_main_context_push_thread_default(surface.context);
     surface.loop = g_main_loop_new(surface.context, FALSE);
 
-    GDBusNodeInfo *item_info = g_dbus_node_info_new_for_xml(kItemXml, nullptr);
-    GDBusNodeInfo *menu_info = g_dbus_node_info_new_for_xml(kMenuXml, nullptr);
+    // The carrier's OWN message-bus connection, created with this loop's
+    // thread-default context current: its dispatch source then serves the
+    // exported objects from this loop. (A shared g_bus_get_sync singleton
+    // would dispatch on whatever context it was created under — the
+    // exports would never answer.)
+    GError *connection_error = nullptr;
+    surface.connection = g_dbus_connection_new_for_address_sync(
+        surface.session_address.c_str(),
+        static_cast<GDBusConnectionFlags>(G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT |
+                                          G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION),
+        nullptr, nullptr, &connection_error);
+    if (surface.connection == nullptr) {
+        report.diagnostic = std::string("tray session connection failed: ") +
+                            (connection_error != nullptr ? connection_error->message : "?");
+        if (connection_error != nullptr) {
+            g_error_free(connection_error);
+        }
+    }
+
+    GDBusNodeInfo *item_info = nullptr;
+    GDBusNodeInfo *menu_info = nullptr;
+    if (report.diagnostic.empty()) {
+        item_info = g_dbus_node_info_new_for_xml(kItemXml, nullptr);
+        menu_info = g_dbus_node_info_new_for_xml(kMenuXml, nullptr);
+    }
     surface.item_registration =
         g_dbus_connection_register_object(surface.connection, kItemPath, item_info->interfaces[0],
                                           &kItemVtable, &surface, nullptr, nullptr);
     surface.menu_registration =
         g_dbus_connection_register_object(surface.connection, kMenuPath, menu_info->interfaces[0],
                                           &kMenuVtable, &surface, nullptr, nullptr);
-    if (surface.item_registration == 0 || surface.menu_registration == 0) {
+    // The conventional path hosts may probe first (same vtable, same item).
+    surface.alt_item_registration = g_dbus_connection_register_object(
+        surface.connection, kItemAltPath, item_info->interfaces[0], &kItemVtable, &surface, nullptr,
+        nullptr);
+    if (surface.item_registration == 0 || surface.menu_registration == 0 ||
+        surface.alt_item_registration == 0) {
         report.diagnostic = "tray indicator object export failed";
     }
 
@@ -440,7 +499,12 @@ GioTrayCarrier::run(const TrayCarrierContext &context,
         GError *error = nullptr;
         GVariant *registered = g_dbus_connection_call_sync(
             surface.connection, kWatcherName, "/StatusNotifierWatcher", kWatcherInterface,
-            "RegisterStatusNotifierItem", g_variant_new("(s)", kItemPath), nullptr,
+            "RegisterStatusNotifierItem",
+            // The spec: the parameter is the item's bus name (unique name of
+            // this connection) — the host introspects the conventional item
+            // path under it. Passing the object path here made every real
+            // host fail to resolve the entry (verification round 1).
+            g_variant_new("(s)", g_dbus_connection_get_unique_name(surface.connection)), nullptr,
             G_DBUS_CALL_FLAGS_NONE, 5000, nullptr, &error);
         if (registered == nullptr) {
             report.diagnostic = std::string("indicator registration refused: ") +
@@ -507,6 +571,9 @@ GioTrayCarrier::run(const TrayCarrierContext &context,
     }
     if (surface.menu_registration != 0) {
         g_dbus_connection_unregister_object(surface.connection, surface.menu_registration);
+    }
+    if (surface.alt_item_registration != 0) {
+        g_dbus_connection_unregister_object(surface.connection, surface.alt_item_registration);
     }
     if (surface.item_registration != 0) {
         g_dbus_connection_unregister_object(surface.connection, surface.item_registration);
