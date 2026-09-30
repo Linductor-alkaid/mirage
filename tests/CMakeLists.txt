@@ -661,6 +661,28 @@ else()
     message(STATUS "update_core_test disabled: OpenSSL not found")
 endif()
 
+# M5-12 update client end-to-end (independent verification, DEC-032): the
+# real HTTP channel on 127.0.0.1 (in-process server) driving UpdateClient
+# check/apply — byte-budget overrun, 3xx no-follow, non-200, same-size sha
+# tampering with the target untouched, and the rollback invariant. The HTTP
+# server and the fetcher under test are the POSIX port (the Windows fetcher
+# port is compile-gated by the MinGW cross build); needs the crypto face.
+if(UNIX AND OPENSSL_FOUND)
+    add_executable(update_client_http_test runtime/update_client_http_test.cpp)
+    target_compile_features(update_client_http_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(update_client_http_test)
+    target_link_libraries(update_client_http_test
+        PRIVATE
+            Mirage::update
+            OpenSSL::Crypto
+    )
+    add_test(NAME update_client_http_test COMMAND update_client_http_test)
+    set_tests_properties(update_client_http_test PROPERTIES
+        LABELS "unit"
+        TIMEOUT 120
+    )
+endif()
+
 add_executable(runtime_service_test runtime/runtime_service_test.cpp)
 target_compile_features(runtime_service_test PUBLIC cxx_std_20)
 mirage_enable_warnings(runtime_service_test)
