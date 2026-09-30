@@ -5,6 +5,7 @@
 #include <mirage/desktop/desktop_environment.hpp>
 #include <mirage/desktop/overlay_carrier.hpp>
 #include <mirage/desktop/process_provider.hpp>
+#include <mirage/desktop/tray_carrier.hpp>
 
 namespace mirage::platform::windows_backend {
 
@@ -20,6 +21,15 @@ class NotificationBackend; // ditto for the notification frontend (M4-05)
 /// carrier runs on the caller's Executor blocking worker; both windows are
 /// created and destroyed on that thread.
 std::unique_ptr<mirage::desktop::OverlayCarrier> open_overlay_carrier();
+
+/// Tray indicator carrier of the Windows backend (M5-10, DEC-030): the
+/// notification-area icon of the DEC-018 Shell_NotifyIcon carrier with its
+/// productized context menu (status header, pause / resume, open the
+/// desktop shell, quit). Null when the session has no interactive display —
+/// capability honesty, never a degraded carrier. The carrier runs on the
+/// caller's Executor blocking worker; icon, menu and callback window are
+/// created and destroyed on that thread.
+std::unique_ptr<mirage::desktop::TrayCarrier> open_tray_carrier();
 
 /// Opt-in Win32 surface of the Windows backend (M4-01, DEC-017). When
 /// enabled the environment probes the interactive desktop at construction

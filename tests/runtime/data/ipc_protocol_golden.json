@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 9,
+    "version": 10,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
     "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted)",
@@ -20,7 +20,8 @@
       "v6 (M5-06): observation face + workflow definition read face (DEC-026) - desktop.observe request (optional semantic/visual booleans, encoder always writes both) with the ObservationView payload (frame members, optional semantic snapshot projection with a 1024-node wire budget and explicit truncated mark, co-present visual_snapshot_ref / visual_regions pair), workflow.get request with the WorkflowDefinitionView payload (head definition content from the service product catalog), hello 'observation' capability member; wire order pinned by schema doc sections 4, 6.1 and 6.6.",
       "v7 (M5-06): session.close management face (DEC-026 backlog item 2) - session.close request (non-empty session_id) with the SessionClosed reply (session_id + post-close state, mirroring the workflow.cancel reply shape; state from the pinned session state vocabulary); primary session refused invalid_state product-side, unknown id not_found, registry entry removed on success. wire order pinned by schema doc sections 4, 6.4 and 10.",
       "v8 (M5-06): dialog mode face (DEC-027) - session.chat / session.chat.history requests with the DialogTurnAccepted / DialogHistory payloads (turns carry pending/ok/failed closed status vocabulary, reply_text / error encode-when-set exactly at ok / failed), session.chat_updated event (pending / ok / failed lifecycle), hello 'chat' capability member (model-layer equipment, permissions-bit precedent); wire order pinned by schema doc sections 4, 6.1, 6.7 and 7.2.",
-      "v9 (M5-07): permission policy face (DEC-020/DEC-011 evolution) - policy.get / policy.set requests with the PolicyView payload (full DEC-010 rule set, optional read_roots resource scope), hello 'policy' capability member (always served); wire order pinned by schema doc sections 4, 6.1, 6.8 and 10."
+      "v9 (M5-07): permission policy face (DEC-020/DEC-011 evolution) - policy.get / policy.set requests with the PolicyView payload (full DEC-010 rule set, optional read_roots resource scope), hello 'policy' capability member (always served); wire order pinned by schema doc sections 4, 6.1, 6.8 and 10.",
+    "v10 (M5-10): task pause/resume face (DEC-030) - task.pause / task.resume requests with the TaskPaused / TaskResumed replies (task_id + post-command progress snapshot, mirroring the task.cancel reply shape); progress stays inside the task.updated / task.inspect vocabulary. wire order pinned by schema doc sections 4, 6.9 and 10."
     ]
   },
   "requests": [
@@ -87,6 +88,24 @@
         "task_id": "task-1"
       },
       "canonical": "{\"v\":1,\"id\":5,\"op\":\"task.cancel\",\"task_id\":\"task-1\"}"
+    },
+    {
+      "name": "pause",
+      "id": 40,
+      "body": {
+        "op": "task.pause",
+        "task_id": "task-9"
+      },
+      "canonical": "{\"v\":1,\"id\":40,\"op\":\"task.pause\",\"task_id\":\"task-9\"}"
+    },
+    {
+      "name": "resume",
+      "id": 41,
+      "body": {
+        "op": "task.resume",
+        "task_id": "task-9"
+      },
+      "canonical": "{\"v\":1,\"id\":41,\"op\":\"task.resume\",\"task_id\":\"task-9\"}"
     },
     {
       "name": "shutdown",
@@ -418,6 +437,16 @@
       "name": "inspect-empty-task-id",
       "payload": "{\"v\":1,\"id\":4,\"op\":\"task.inspect\",\"task_id\":\"\"}",
       "error": "task.inspect requires a non-empty 'task_id'"
+    },
+    {
+      "name": "pause-missing-task-id",
+      "payload": "{\"v\":1,\"id\":42,\"op\":\"task.pause\"}",
+      "error": "task.pause requires a non-empty 'task_id'"
+    },
+    {
+      "name": "resume-missing-task-id",
+      "payload": "{\"v\":1,\"id\":43,\"op\":\"task.resume\"}",
+      "error": "task.resume requires a non-empty 'task_id'"
     },
     {
       "name": "unknown-op-registry-edit",
@@ -756,6 +785,36 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":5,\"ok\":true,\"task_cancelled\":{\"task_id\":\"task-1\",\"progress\":\"Cancelling\"}}"
+    },
+    {
+      "name": "paused-ack",
+      "response": {
+        "id": 40,
+        "ok": true,
+        "payload": {
+          "kind": "paused",
+          "value": {
+            "task_id": "task-9",
+            "progress": "Paused"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":40,\"ok\":true,\"task_paused\":{\"task_id\":\"task-9\",\"progress\":\"Paused\"}}"
+    },
+    {
+      "name": "resumed-ack",
+      "response": {
+        "id": 41,
+        "ok": true,
+        "payload": {
+          "kind": "resumed",
+          "value": {
+            "task_id": "task-9",
+            "progress": "Active"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":41,\"ok\":true,\"task_resumed\":{\"task_id\":\"task-9\",\"progress\":\"Active\"}}"
     },
     {
       "name": "shutdown-ack",

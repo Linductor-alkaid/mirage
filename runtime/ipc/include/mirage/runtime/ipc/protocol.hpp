@@ -74,6 +74,26 @@ struct CancelTaskRequest {
     std::string task_id;
 };
 
+/// Moves a task into the pinned pause family (M5-10, DEC-030): the epoch
+/// advances, in-flight operation completions settle stale and the driving
+/// loop parks at the next operation boundary until task.resume. Unknown
+/// ids are not_found; illegal transitions surface the pinned rejection
+/// verbatim (same passthrough shape as task.cancel).
+struct PauseTaskRequest {
+    std::string task_id;
+};
+
+/// Returns a paused task to the drive state (M5-10, DEC-030): the epoch
+/// advances again and a parked driving loop re-admits its next operation.
+/// Unknown ids are not_found; a resume of a live non-paused task is
+/// refused invalid_state at the service boundary (the pinned transition
+/// table would otherwise admit Idle→Observing — verification round 1,
+/// defect 5), while terminal-era tasks surface the pinned rejection
+/// verbatim.
+struct ResumeTaskRequest {
+    std::string task_id;
+};
+
 struct ShutdownRequest {};
 
 /// Subscribes the connection to the service event stream (DEC-012 decision
@@ -277,14 +297,16 @@ struct DesktopObserveRequest {
     bool visual = false;
 };
 
-using Request = std::variant<
-    HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest, CancelTaskRequest,
-    ShutdownRequest, SubscribeEventsRequest, UnsubscribeEventsRequest, RespondPermissionRequest,
-    ListPermissionsRequest, ListSessionsRequest, OpenSessionRequest, SessionHistoryRequest,
-    CloseSessionRequest, SessionChatRequest, ChatHistoryRequest, WorkflowListRequest,
-    WorkflowSaveRequest, WorkflowPublishRequest, WorkflowDeleteRequest, WorkflowAtomCatalogRequest,
-    WorkflowRunsRequest, WorkflowRunRequest, WorkflowCancelRunRequest, WorkflowGetRequest,
-    DesktopObserveRequest, GetPolicyRequest, SetPolicyRequest>;
+using Request =
+    std::variant<HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest,
+                 CancelTaskRequest, PauseTaskRequest, ResumeTaskRequest, ShutdownRequest,
+                 SubscribeEventsRequest, UnsubscribeEventsRequest, RespondPermissionRequest,
+                 ListPermissionsRequest, ListSessionsRequest, OpenSessionRequest,
+                 SessionHistoryRequest, CloseSessionRequest, SessionChatRequest, ChatHistoryRequest,
+                 WorkflowListRequest, WorkflowSaveRequest, WorkflowPublishRequest,
+                 WorkflowDeleteRequest, WorkflowAtomCatalogRequest, WorkflowRunsRequest,
+                 WorkflowRunRequest, WorkflowCancelRunRequest, WorkflowGetRequest,
+                 DesktopObserveRequest, GetPolicyRequest, SetPolicyRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -381,6 +403,20 @@ struct InspectTask {
 /// Acknowledgement of task.cancel with the task's progress as of the
 /// cancellation request (typically "Cancelling" or a terminal state).
 struct TaskCancelled {
+    std::string task_id;
+    std::string progress;
+};
+
+/// Acknowledgements of task.pause / task.resume (M5-10, DEC-030) with the
+/// task's progress as of the acknowledged command (typically "Paused" for
+/// pause and "Active" for resume; the snapshot face stays the source of
+/// truth).
+struct TaskPaused {
+    std::string task_id;
+    std::string progress;
+};
+
+struct TaskResumed {
     std::string task_id;
     std::string progress;
 };
@@ -701,10 +737,10 @@ struct ObservationView {
 };
 
 using ResponsePayload =
-    std::variant<ServiceIdentity, TaskSubmitted, TaskList, InspectTask, TaskCancelled,
-                 ShutdownAccepted, PermissionResponded, PermissionPendingList, SessionList,
-                 SessionOpened, SessionClosed, DialogTurnAccepted, DialogHistory, SessionHistory,
-                 WorkflowList, WorkflowSaved, WorkflowPublished, WorkflowDeleted,
+    std::variant<ServiceIdentity, TaskSubmitted, TaskList, InspectTask, TaskCancelled, TaskPaused,
+                 TaskResumed, ShutdownAccepted, PermissionResponded, PermissionPendingList,
+                 SessionList, SessionOpened, SessionClosed, DialogTurnAccepted, DialogHistory,
+                 SessionHistory, WorkflowList, WorkflowSaved, WorkflowPublished, WorkflowDeleted,
                  WorkflowAtomCatalog, WorkflowRunList, WorkflowRunStarted, WorkflowRunCancelled,
                  WorkflowDefinitionView, ObservationView, PolicyView>;
 

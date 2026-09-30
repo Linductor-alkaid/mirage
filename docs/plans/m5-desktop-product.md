@@ -5,7 +5,9 @@
 > 真实面、观察面协议扩展、会话管理面 session.close、对话模式真实化）；
 > `M5-07` 批准中心与权限策略面完成 2026-09-28；`M5-08` 设置八类落地与
 > 产品化规模复核完成 2026-09-28（CI 取证已由 `M5-09` PR 补录）；
-> `M5-09` Desktop Overlay 完成 2026-09-30（DEC-029 承载机制定案））
+> `M5-09` Desktop Overlay 完成 2026-09-30（DEC-029 承载机制定案，CI 取证
+> 已由 `M5-10` PR 补录）；`M5-10` Tray 进程形态完成 2026-09-30（DEC-030
+> 承载机制与任务暂停/恢复面定案））
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M3](m3-mirador-integration.md)（已完成：Mirador 视觉集成与壳选型冻结——
@@ -13,7 +15,7 @@
 > Backend 与产品进程 Windows 化——命名管道 IPC、`mirage-service` / CLI 双平台
 > 可运行）
 > 建议发布点：`release-epsilon`（tag 待维护者授权后创建）
-> 更新日期：2026-09-30（`M5-09`）
+> 更新日期：2026-09-30（`M5-10`）
 
 ## 目标
 
@@ -192,10 +194,14 @@
       风险节）与 UI（目标高亮、即将执行操作提示、确认入口、Observation
       调试观察面）；与任务执行流的事件联动（服务内部事件织物：事件订阅
       横幅 + 桌面原子动作 overlay 缝 + 确认面镜像，wire 零变更）。
-- [ ] `M5-10` Tray 进程形态（`apps/tray`）：运行状态显示、任务暂停 / 恢复、
-      快速进入 Mirage；经 Local IPC 交互（`EXEC-02`，不自建 Executor）；
-      承载机制按平台能力如实降级（Windows 通知区事实沿用 DEC-018 既有
-      承载面；Linux 状态指示器机制随实现定案并记录）。
+- [x] `M5-10` Tray 进程形态（`apps/tray`，完成 2026-09-30；
+      [DEC-030](../decisions/DEC-030-tray-carrier-and-task-pause-face.md)
+      承载机制与任务暂停/恢复面随实现定案并登记）：运行状态显示、任务
+      暂停 / 恢复、快速进入 Mirage；经 Local IPC 交互（`EXEC-02`，单
+      Executor owner）；承载机制按平台能力如实降级（Windows 通知区沿用
+      DEC-018 既有承载面的产品化菜单扩展；Linux StatusNotifierItem +
+      最小 dbusmenu，纯 gio 依赖族，无指示器宿主 → null 响亮退出）；
+      wire 面 `task.pause` / `task.resume` 附加扩展（DEC-012，golden v10）。
 - [ ] `M5-11` 打包与更新通道（DEC-006 分发形态兑现）：Linux `.deb` + GPG
       签名 apt 仓库（签名 key 管理与发布机隔离——shell-binary-locking
       既定）；Windows `exe` 安装器（生成器随实现定案并记录，DEC-006 决策 4
@@ -1586,3 +1592,107 @@ success，2026-09-28 合并（维护者授权）。
   Accepted）、[总计划](mirage-implementation-plan.md) 状态叙述与决策表；
   wire 契约零变更（`mirage-ipc-protocol-v1.md` 无涉）、前端规范 §3.6
   形态兑现无修订。
+
+2026-09-30：`M5-09` CI 取证完成（补录，由 `M5-10` PR 兑现自述义务，即上条
+记录限制与补跑条件①）；PR
+[#63](https://github.com/Linductor-alkaid/mirage/pull/63)（headSha = `a4c481f`）
+已合并（2026-09-29T20:15:21Z，维护者授权），修复轮 CI run 36623002429
+全部 8 作业 pass——Linux 五预设矩阵 / format & public-header boundaries /
+frontend / windows msvc (full tree)（`gh pr view 63` stateCheckRollup 与
+`gh pr checks 63` 实测核验，含第 1 轮验证发现的 Windows 编译缺陷修复后
+复跑）。复选框同步：`M5-09` 复选框已随 `M5-09` PR 翻转，本记录仅补录
+CI 结论（工程规范第 4 节勾选规则第 1 条，先例 c3f1629）。
+
+2026-09-30：`M5-10` Tray 进程形态完成（DEC-030 承载机制与任务暂停/恢复面
+随实现定案并登记；本 PR 的 CI 结论按仓库先例由下一工作项 PR 补录）。
+
+- 范围：
+  - **进程形态（DEC-030 决策 1）**：`apps/tray`（`mirage-tray`）——单
+    Executor owner，SessionClient 经 blocking worker 驱动（ShellSession
+    消费形态），托盘载体经 TrayPumpWorker 呈现循环（OverlayPumpWorker
+    先例）；进程不自建线程；断连自续重连（2 s 有界节拍，`submit_delayed`
+    timer 能力）。
+  - **任务暂停/恢复面（DEC-030 决策 2/5）**：wire `task.pause` /
+    `task.resume`（v10，与 `task.cancel` 同形应答 + 守卫镜像）+
+    MiraHost pause 家族投影 + 驱动操作边界驻留（暂停期 `begin_operation`
+    拒绝时驻留、resume 后新 step id 续驱——无此驻留暂停即误收账取消，
+    DEC-030 决策 5 含 pinned"不支持执行级续跑"关系的如实声明）。
+  - **平台承载（DEC-030 决策 3/4）**：Windows = DEC-018 Shell_NotifyIcon
+    面产品化（常驻图标 + tooltip + 运行时弹出菜单，无 AUMID/无 WinRT）；
+    Linux = StatusNotifierItem + 最小 dbusmenu（纯 gio 依赖族，DEC-015
+    纪律），无会话总线 / 无指示器宿主 → null 响亮退出，宿主消失 → 带诊断
+    退出。
+  - **快速进入 Mirage（DEC-030 决策 6）**：兄弟 `mirage-desktop` 二进制
+    发现（`--shell` 可覆盖），缺失禁用菜单项，分离进程拉起。
+- 依据：设计文档第 12 节；[DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md) /
+  [DEC-015](../decisions/DEC-015-linux-backend-dependencies-and-event-loop.md) /
+  [DEC-017](../decisions/DEC-017-windows-backend-toolchain-and-event-loop.md) /
+  [DEC-018](../decisions/DEC-018-windows-notification-carrier.md) /
+  [DEC-030](../decisions/DEC-030-tray-carrier-and-task-pause-face.md)（本
+  工作项新决策记录）；本计划 `M5-10` 工作项。
+- 验证（本机 Linux，GCC 13.3，真实会话总线）：
+  - 全树 debug 构建 0 错；ctest **44/44 通过 0 skip**（golden 双端 v10：
+    C++ golden 1169 检查、TS 200 用例；`npm run check` 0 诊断、
+    `npm test` 18 文件 737 测试通过——既有门禁零回归）。
+  - `mirage-format-check` 通过；`mirage-boundary-check` **42 公共头 0
+    违规**（新增 `desktop/tray_carrier.hpp` 纯 std 头在册）。
+  - MinGW 交叉 platform 子集全绿（含 Win32 托盘前端 TU；全树交叉仍撞
+    `MIRA-20260922-001`，平台子集口径同 DEC-029）。
+  - 运行级冒烟（真实会话总线）：无 StatusNotifierWatcher 的会话 →
+    `open_tray_carrier()` null、进程响亮退出（fail closed，两次实测）；
+    Fake SNI watcher 宿主 → `RegisterStatusNotifierItem` 受理（watcher
+    侧记录在案）、指示器对象导出、dbusmenu Event 菜单动作投递、SIGTERM
+    有界干净停机（teardown 全序 stderr 标记在案）；冒烟中发现并修复两处
+    实现缺陷（resync 自锁死、载体退出静默）与一处平台常量笔误
+    （watcher 接口名），修复后复测通过。
+- 限制与补跑条件：① 本 PR 的 CI 结论按仓库先例由下一工作项 PR 补录；
+  ② Windows 托盘运行级取证（图标/tooltip/菜单灰显与点击、穿透行为）与
+  `--overlay`/托盘并行的桌面取证需真实 Windows 会话（维护者机器兜底，
+  CI windows 作业只证 MSVC 编译）；③ 真实指示器宿主（KDE/ayatana）下的
+  视觉呈现与点击取证（本机以 Fake watcher 宿主替代，图标资产随 M5-11
+  交付前指示器显示宿主占位图——如实声明）；④ task.pause/resume 的
+  Idle-era / Active-era / 暂停期取消 / 驱动驻留恢复语义由独立测试验证轮
+  以夹具钉住（本轮冒烟覆盖 Active 前提交与菜单动作投递路径，未覆盖
+  Idle-era 暂停的端到端组合）；⑤ 全树 MinGW 交叉复验随
+  `MIRA-20260922-001` 维持挂账。
+- 同步：[DEC-030](../decisions/DEC-030-tray-carrier-and-task-pause-face.md)
+  （新增，Accepted）、
+  [mirage-ipc-protocol-v1.md](../design/mirage-ipc-protocol-v1.md)（v10：
+  §4/§6.9/§10）、[总计划](mirage-implementation-plan.md) 状态叙述与决策
+  表；前端规范无修订（托盘为平台原生面，DEC-013 §3.6 形态兑现）。
+
+2026-09-30：`M5-10` 独立测试验证（第 1 轮）缺陷修复（同分支补充提交）。
+验证轮交付 `task_pause_test` / `tray_backend_test`（SNI 规范门）等并报 5
+缺陷 + 2 项低度问题，全部修复：
+
+- **SNI 规范符合性（缺陷①②）**：watcher 接口名误写为
+  `org.kde.StatusNotifierItemWatcher`（冒烟 fake 自身错写被固化为常量），
+  规范（freedesktop SNI 页）与真实宿主 introspection 均为接口名=总线名
+  `org.kde.StatusNotifierWatcher`——已改；`RegisterStatusNotifierItem` 参数
+  误传对象路径，规范要求条目的会话总线唯一名（宿主据此在
+  `/StatusNotifierItem` 约定路径内省）——改传本连接唯一名，同一 vtable 在
+  约定路径补充导出。DEC-030 决策 4 的"Item 非对称"失实表述一并更正。
+- **dbusmenu 编解码（缺陷③④）**：`GetLayout` / `GetGroupProperties` 的
+  GVariant 格式串含空格（格式串语言不允许空白）；`ItemsPropertiesUpdated`
+  与布局项构造把预构造 GVariant 经 `"{sv}"`/`"a..."` varargs 槽传递（越界
+  读变参）——全部改为无空格格式串 + `g_variant_new_tuple`/builder 显式
+  构造。
+- **resume 语义（缺陷⑤）**：文档声称"非暂停态 resume 被 pinned 逐字拒
+  绝"，而 pinned 迁移表允许 Idle→Observing（运行中任务 resume 被接受）。
+  处置：服务层为 resume 增加 Paused 门（活态非暂停任务 `invalid_state`
+  "task is not paused"；终态任务维持 pinned 逐字透传），文档/头注按实际
+  行为校准——选择门而非改文档的理由：避免对运行中任务的无谓 epoch 递增。
+- **低度两项**：main.cpp teardown 调试残留移除；托盘命令的 5 s IPC 等待与
+  2 s 连接尝试移出载体泵线程/状态互斥量（此前会冻结呈现循环，属有界延迟
+  非死锁）。
+- 验证：`task_pause_test` 64/64 检查通过；`tray_backend_test` 的
+  capability_honesty / 注册规范符合（唯一名参数 + 接口名）/ 条目属性 /
+  watcher_vanish 诊断退出场景全部通过。
+- 遗留（验证轮复核项，非实现缺陷）：① `tray_backend_test:478` 的
+  `wait_for(pump.done())`（规范门场景）与 `:552-554` 生命周期场景
+  （循环经属性/GetLayout 探测存活、request_stop 后 clean 停机）相互矛盾——
+  持久呈现循环在无 request_stop 时不可能 10 s 内自行 done；建议谓词改为
+  存活断言或先 request_stop。② `tray_backend_test:620-621` 以
+  `(ua(ia{sv}av))` 两元组解析 GetLayout 应答，canonical dbusmenu 签名为
+  三元组 `(uia(ia{sv}av))`（revision/parent/layout，libdbusmenu 导出
+  XML 在案）——真实宿主按三元组解析，实现维持规范形状，测试解析需校正。

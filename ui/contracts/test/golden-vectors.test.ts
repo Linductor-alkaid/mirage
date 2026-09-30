@@ -68,6 +68,8 @@ type GoldenPayload =
     | { kind: 'list'; value: { tasks: TaskSummary[] } }
     | { kind: 'inspect'; value: GoldenInspectValue }
     | { kind: 'cancelled'; value: { task_id: string; progress: TaskProgress } }
+    | { kind: 'paused'; value: { task_id: string; progress: TaskProgress } }
+    | { kind: 'resumed'; value: { task_id: string; progress: TaskProgress } }
     | { kind: 'shutdown-accepted' }
     | { kind: 'permission-responded'; value: { request_id: string } }
     | { kind: 'permission-list'; value: { pending: PendingPermission[] } }
@@ -170,6 +172,10 @@ function expectedEnvelop(vector: GoldenResponseVector): ResponseEnvelop {
             return { ok: true, id: response.id, payload: { kind: 'list', value: { tasks: response.payload.value.tasks } } };
         case 'cancelled':
             return { ok: true, id: response.id, payload: { kind: 'cancelled', value: { ...response.payload.value } } };
+        case 'paused':
+            return { ok: true, id: response.id, payload: { kind: 'paused', value: { ...response.payload.value } } };
+        case 'resumed':
+            return { ok: true, id: response.id, payload: { kind: 'resumed', value: { ...response.payload.value } } };
         case 'inspect': {
             const value = response.payload.value;
             const hasSuccess = value.success !== undefined;

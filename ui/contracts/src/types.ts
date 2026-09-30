@@ -100,6 +100,8 @@ export type RequestBody =
     | { op: 'task.list' }
     | { op: 'task.inspect'; task_id: string }
     | { op: 'task.cancel'; task_id: string }
+    | { op: 'task.pause'; task_id: string }
+    | { op: 'task.resume'; task_id: string }
     | { op: 'service.shutdown' }
     | { op: 'events.subscribe' }
     | { op: 'events.unsubscribe' }
@@ -218,6 +220,18 @@ export interface InspectTask {
 }
 
 export interface TaskCancelled {
+    task_id: string;
+    progress: TaskProgress;
+}
+
+/** Acknowledgements of task.pause / task.resume (M5-10, DEC-030) with the
+ * post-command progress snapshot. */
+export interface TaskPaused {
+    task_id: string;
+    progress: TaskProgress;
+}
+
+export interface TaskResumed {
     task_id: string;
     progress: TaskProgress;
 }
@@ -398,6 +412,8 @@ export type ResponsePayload =
     | { kind: 'list'; value: { tasks: TaskSummary[] } }
     | { kind: 'inspect'; value: InspectTask }
     | { kind: 'cancelled'; value: TaskCancelled }
+    | { kind: 'paused'; value: TaskPaused }
+    | { kind: 'resumed'; value: TaskResumed }
     | { kind: 'shutdown-accepted' }
     | { kind: 'permission-responded'; value: { request_id: string } }
     | { kind: 'permission-list'; value: { pending: PendingPermission[] } }

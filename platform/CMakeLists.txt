@@ -81,16 +81,18 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         target_sources(mirage_platform PRIVATE
             linux/src/application_backend.cpp
             linux/src/notification_backend.cpp
+            linux/src/tray_backend.cpp
         )
         target_link_libraries(mirage_platform PRIVATE PkgConfig::GIO_UNIX)
         target_compile_definitions(mirage_platform PRIVATE MIRAGE_LINUX_GIO=1)
-        message(STATUS "Linux application/notification frontends enabled (${GIO_UNIX_VERSION})")
+        message(STATUS "Linux application/notification/tray frontends enabled (${GIO_UNIX_VERSION})")
     else()
         target_sources(mirage_platform PRIVATE
             linux/src/application_backend_stub.cpp
             linux/src/notification_backend_stub.cpp
+            linux/src/tray_backend_stub.cpp
         )
-        message(STATUS "Linux application/notification frontends disabled: gio-unix-2.0 dev package not found")
+        message(STATUS "Linux application/notification/tray frontends disabled: gio-unix-2.0 dev package not found")
     endif()
     target_link_libraries(mirage_platform PUBLIC Mirage::desktop)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
@@ -103,20 +105,22 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         windows/src/windows_desktop_environment.cpp
         # The Win32 frontend (M4-01), the UIA accessibility frontend
         # (M4-02), the application frontend (M4-04), the notification
-        # frontend (M4-05) and the overlay frontend (M5-09, DEC-029) have no
-        # stub variant: user32 / gdi32 / ole32 / oleaut32 / shell32 are part
-        # of every Windows SDK, so the only honest failure mode is a probe
-        # failure at open() time (accessors null, fail closed) — never a
-        # compile-time absence. shell32 carries the known-folder API the
-        # Start Menu discovery resolves its roots through and the
-        # Shell_NotifyIcon carrier of the notification frontend; the
-        # shell-link COM object needs no import library (its GUIDs are
-        # defined in the frontend, the interfaces resolve via __uuidof).
+        # frontend (M4-05), the overlay frontend (M5-09, DEC-029) and the
+        # tray frontend (M5-10, DEC-030) have no stub variant: user32 /
+        # gdi32 / ole32 / oleaut32 / shell32 are part of every Windows SDK,
+        # so the only honest failure mode is a probe failure at open() time
+        # (accessors null, fail closed) — never a compile-time absence.
+        # shell32 carries the known-folder API the Start Menu discovery
+        # resolves its roots through and the Shell_NotifyIcon carrier of the
+        # notification and tray frontends; the shell-link COM object needs
+        # no import library (its GUIDs are defined in the frontend, the
+        # interfaces resolve via __uuidof).
         windows/src/win32_backend.cpp
         windows/src/uia_backend.cpp
         windows/src/application_backend.cpp
         windows/src/notification_backend.cpp
         windows/src/overlay_backend.cpp
+        windows/src/tray_backend.cpp
     )
     target_link_libraries(mirage_platform PRIVATE user32 gdi32 ole32 oleaut32 shell32)
     target_link_libraries(mirage_platform PUBLIC Mirage::desktop)

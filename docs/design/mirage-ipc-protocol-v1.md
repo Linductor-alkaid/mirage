@@ -78,6 +78,8 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 | `task.list` | 无 | `{"tasks":[{"id","goal","progress"}...]}` | — |
 | `task.inspect` | `task_id`（string，非空） | `{"task": InspectTask}`（§6.2） | `not_found`（未知任务） |
 | `task.cancel` | `task_id`（string，非空） | `{"task_cancelled":{"task_id","progress"}}`（progress 为取消请求时点的快照，典型为 `Cancelling` 或终态） | `not_found`（未知任务）、`invalid_state`（任务属既往服务轮次且已终态）、`pinned_runtime`（已终态任务，message 前缀 `invalid_state:`） |
+| `task.pause` | `task_id`（string，非空；M5-10 落地，DEC-030） | `{"task_paused":{"task_id","progress"}}`（§6.9，progress 为命令受理时点的快照，典型为 `Paused`） | `not_found`（未知任务）、`invalid_state`（任务属既往服务轮次且已终态）、`pinned_runtime`（非法迁移如已暂停/终态，逐字透传） |
+| `task.resume` | `task_id`（string，非空；M5-10 落地，DEC-030） | `{"task_resumed":{"task_id","progress"}}`（§6.9，progress 为命令受理时点的快照，典型为 `Active`） | `not_found`（未知任务）、`invalid_state`（任务属既往服务轮次且已终态；任务非暂停态——pinned 迁移表允许 Idle→Observing，产品边界先行拒绝）、`pinned_runtime`（其余非法迁移逐字透传） |
 | `service.shutdown` | 无 | `{}`（确认形状，无附加成员） | — |
 | `events.subscribe` | 无（M1.5-02 落地） | `{}`（确认形状） | 旧服务端按未知 op 拒绝：`protocol_error`（`"unknown op 'events.subscribe'"`），新客户端据此降级轮询 |
 | `events.unsubscribe` | 无（M1.5-02 落地） | `{}`（确认形状） | 同上 |
@@ -390,6 +392,26 @@ capability 稳定名）；`read_roots` 为 filesystem.read 的资源范围（Pat
 文档不可信即拒绝写入）。策略面为核心装备恒可用。语义与持久化边界见
 [DEC-028](../decisions/DEC-028-permission-policy-face.md)。
 
+### 6.9 任务暂停/恢复载荷（M5-10，DEC-030）
+
+`task.pause` / `task.resume` 投影 pinned pause 家族（`pause_task` /
+`resume_task`，pinned `runtime.hpp`）：epoch 递增、在途操作迟到完成按
+stale 结算、驱动的 `begin_operation` 在暂停期被拒——任务驱动在下一个操作
+边界驻留（取消可中断），`task.resume` 后以新 step id 重新受理并续驱
+（DEC-030 决策 4）。应答载荷与 `task_cancelled` 同形：
+
+```text
+TaskPaused  = {"task_id","progress"}   # progress ∈ task.updated 词表，典型 "Paused"
+TaskResumed = {"task_id","progress"}   # 典型 "Active"
+```
+
+`progress` 为命令受理时点的快照；快照事实源仍是 `task.list` /
+`task.inspect`。受理是进度推进（DEC-012 决策 3）：应答离站前先发布
+`task.updated`。恢复语义为 pinned 既定"重新驱动"（pinned
+core-runtime.md：resume 回 Observing 再进 epoch，不支持执行级续跑）——
+M1 过渡驱动以内存延续驻留/续驱，属宿主侧驱动形态，见 DEC-030 决策 4 的
+边界声明。
+
 ## 7. 事件扩展（DEC-012，wire 语义自 `M1.5-02` 落地起冻结）
 
 ### 7.1 订阅
@@ -475,6 +497,11 @@ TypeScript 消费者 `ui/contracts/test/golden-vectors.test.ts` 读取**同一�
 
 ## 10. 变更记录
 
+- 2026-09-30（`M5-10`）：任务暂停/恢复面附加扩展（DEC-030，协议版本不递
+  增）。§4 新增 `task.pause` / `task.resume`；§6.9（新）新增
+  `TaskPaused` / `TaskResumed` 载荷形状（pinned pause 家族投影，与
+  `task_cancelled` 同形）。golden vectors：requests +2、request_failures
+  +2、responses +2，失败向量锁定新稳定错误串（`meta.version` 9 → 10）。
 - 2026-09-28（`M5-07`）：权限策略面附加扩展（DEC-028，协议版本不递增）。
   §4 新增 `policy.get` / `policy.set`；§6.1 新增 `policy` 能力通告成员；
   §6.8（新）新增 PolicyView 载荷形状（全 DEC-010 规则集 + read_roots 资源

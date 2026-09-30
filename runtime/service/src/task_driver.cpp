@@ -9,6 +9,7 @@
 #include <chrono>
 #include <functional>
 #include <future>
+#include <thread>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -284,6 +285,44 @@ bool begin_operation(ServiceCore &core, const std::string &task_id, OperationTic
         return true;
     } catch (const std::exception &) {
         return false;
+    }
+}
+
+/// Poll slice while a drive parks on the pinned pause family (M5-10,
+/// DEC-030). Bounded: wakeup latency for cancel and resume never exceeds
+/// one slice.
+constexpr std::chrono::milliseconds kPausePollSlice{100};
+
+/// True when a refused operation admission was the pinned pause family and
+/// the task later left it (resume): the drive parks here — cancel-aware,
+/// bounded slices, one serialized task_view per slice — and the caller
+/// re-admits the operation. False when the task never paused, parked and
+/// was cancelled or settled while parked, or the drive's cancellation
+/// fired (the caller then takes its existing refusal path).
+bool wait_for_resume(ServiceCore &core, const std::string &task_id,
+                     const mirage::desktop::CancelToken &cancel,
+                     const executor::StopToken &stop_token) {
+    for (;;) {
+        auto view =
+            post_host(core, [&core, task_id] { return core.host.task_view(identity_of(task_id)); });
+        if (cancel.cancelled() || stop_token.stop_requested()) {
+            return false;
+        }
+        if (ready_within(view, core.command_wait)) {
+            try {
+                const TaskViewResult result = view.get();
+                if (result.ok) {
+                    if (result.view.progress != TaskProgress::Paused) {
+                        return result.view.progress == TaskProgress::Active;
+                    }
+                } else {
+                    return false; // unknown identity: not a pause anymore
+                }
+            } catch (const std::exception &) {
+                return false;
+            }
+        }
+        std::this_thread::sleep_for(kPausePollSlice);
     }
 }
 
@@ -565,7 +604,17 @@ void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> cor
             }
 
             OperationTicket ticket;
-            if (!begin_operation(service, task_id, ticket)) {
+            bool admitted = begin_operation(service, task_id, ticket);
+            if (!admitted && wait_for_resume(service, task_id, cancel, stop_token)) {
+                // Pause family at the operation boundary (M5-10, DEC-030):
+                // the drive parked through the pause and the pinned view
+                // reads Active again (resume_task advanced the epoch) — a
+                // fresh admission re-enters the drive with the in-memory
+                // continuation. A second refusal converges on the refusal
+                // path below.
+                admitted = begin_operation(service, task_id, ticket);
+            }
+            if (!admitted) {
                 // The pinned control plane refused the operation: the task
                 // is unknown, cancelled or already settled elsewhere. The
                 // pinned state stays authoritative; nothing is marked

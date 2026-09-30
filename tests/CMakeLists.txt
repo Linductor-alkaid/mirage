@@ -472,6 +472,28 @@ if(GIO_TEST_FOUND)
         TIMEOUT 120
         ENVIRONMENT "TSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tests/support/tsan-glib.supp"
     )
+
+    # M5-10 Linux tray carrier (DEC-030) against a private D-Bus session and
+    # a wire-exact fake SNI watcher host: capability honesty, the
+    # specification conformance of the item registration, the menu Event →
+    # action delivery, the wakeup-driven state push, the clean stop and the
+    # watcher-vanished diagnostic exit (the notification test's fixture
+    # topology).
+    add_executable(tray_backend_test platform/tray_backend_test.cpp)
+    target_compile_features(tray_backend_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(tray_backend_test)
+    target_link_libraries(tray_backend_test
+        PRIVATE
+            Mirage::platform
+            Mirage::desktop
+            PkgConfig::GIO_TEST
+    )
+    add_test(NAME tray_backend_test COMMAND tray_backend_test)
+    set_tests_properties(tray_backend_test PROPERTIES
+        LABELS "integration"
+        TIMEOUT 120
+        ENVIRONMENT "TSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tests/support/tsan-glib.supp"
+    )
 endif()
 
 # POSIX-only: unistd fixtures.
@@ -892,6 +914,30 @@ target_link_libraries(task_cancel_test
 )
 add_test(NAME task_cancel_test COMMAND task_cancel_test)
 set_tests_properties(task_cancel_test PROPERTIES
+    LABELS "integration"
+    TIMEOUT 300
+)
+endif()
+
+# M5-10 task pause/resume face (DEC-030): the pinned pause family over the
+# live service — the parked driving loop, the no-mis-settlement invariant,
+# the event advance and the cancel/guard matrix ride the same Unix-socket
+# transport coupling as task_cancel_test; codec coverage lives in the golden
+# vectors (v10) and ipc_protocol_test.
+if(UNIX)
+add_executable(task_pause_test runtime/task_pause_test.cpp)
+target_compile_features(task_pause_test PUBLIC cxx_std_20)
+mirage_enable_warnings(task_pause_test)
+target_link_libraries(task_pause_test
+    PRIVATE
+        Mirage::runtime_service
+        Mirage::integration_mira
+        Mirage::platform
+        Mirage::desktop
+        Mirage::ipc
+)
+add_test(NAME task_pause_test COMMAND task_pause_test)
+set_tests_properties(task_pause_test PROPERTIES
     LABELS "integration"
     TIMEOUT 300
 )
