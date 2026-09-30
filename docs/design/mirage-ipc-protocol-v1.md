@@ -79,7 +79,7 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 | `task.inspect` | `task_id`（string，非空） | `{"task": InspectTask}`（§6.2） | `not_found`（未知任务） |
 | `task.cancel` | `task_id`（string，非空） | `{"task_cancelled":{"task_id","progress"}}`（progress 为取消请求时点的快照，典型为 `Cancelling` 或终态） | `not_found`（未知任务）、`invalid_state`（任务属既往服务轮次且已终态）、`pinned_runtime`（已终态任务，message 前缀 `invalid_state:`） |
 | `task.pause` | `task_id`（string，非空；M5-10 落地，DEC-030） | `{"task_paused":{"task_id","progress"}}`（§6.9，progress 为命令受理时点的快照，典型为 `Paused`） | `not_found`（未知任务）、`invalid_state`（任务属既往服务轮次且已终态）、`pinned_runtime`（非法迁移如已暂停/终态，逐字透传） |
-| `task.resume` | `task_id`（string，非空；M5-10 落地，DEC-030） | `{"task_resumed":{"task_id","progress"}}`（§6.9，progress 为命令受理时点的快照，典型为 `Active`） | 同 `task.pause`（`resume` 的非法迁移为非暂停态） |
+| `task.resume` | `task_id`（string，非空；M5-10 落地，DEC-030） | `{"task_resumed":{"task_id","progress"}}`（§6.9，progress 为命令受理时点的快照，典型为 `Active`） | `not_found`（未知任务）、`invalid_state`（任务属既往服务轮次且已终态；任务非暂停态——pinned 迁移表允许 Idle→Observing，产品边界先行拒绝）、`pinned_runtime`（其余非法迁移逐字透传） |
 | `service.shutdown` | 无 | `{}`（确认形状，无附加成员） | — |
 | `events.subscribe` | 无（M1.5-02 落地） | `{}`（确认形状） | 旧服务端按未知 op 拒绝：`protocol_error`（`"unknown op 'events.subscribe'"`），新客户端据此降级轮询 |
 | `events.unsubscribe` | 无（M1.5-02 落地） | `{}`（确认形状） | 同上 |

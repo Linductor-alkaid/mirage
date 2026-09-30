@@ -85,8 +85,11 @@ struct PauseTaskRequest {
 
 /// Returns a paused task to the drive state (M5-10, DEC-030): the epoch
 /// advances again and a parked driving loop re-admits its next operation.
-/// Unknown ids are not_found; resume of a non-paused task surfaces the
-/// pinned rejection verbatim.
+/// Unknown ids are not_found; a resume of a live non-paused task is
+/// refused invalid_state at the service boundary (the pinned transition
+/// table would otherwise admit Idle→Observing — verification round 1,
+/// defect 5), while terminal-era tasks surface the pinned rejection
+/// verbatim.
 struct ResumeTaskRequest {
     std::string task_id;
 };

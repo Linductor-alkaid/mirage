@@ -309,7 +309,11 @@ class MiraHost {
     /// Returns a paused task to the pinned drive state (M5-10, DEC-030):
     /// the epoch advances again so stale-era completions stay settled, and
     /// a parked driving loop re-admits its next operation. Requires
-    /// Running; resume of a non-paused task surfaces the pinned rejection.
+    /// Running. Note the pinned transition table admits Idle→Observing, so
+    /// a resume of a merely-running (never paused) task is accepted here
+    /// with an epoch bump — the service layer gates resume on the paused
+    /// view (invalid_state) to keep the wire contract's refusal semantics
+    /// (verification round 1, defect 5).
     HostOutcome resume_task(const TaskIdentity &task);
 
     /// Settles a task from the harness side (design doc section 11: Verify

@@ -988,6 +988,22 @@ struct RuntimeService::Impl {
                  "settled");
             return;
         }
+        // Product-side state gate for resume (verification round 1,
+        // defect 5): the pinned control plane admits Idle→Observing, so a
+        // resume of a merely-running (never paused) task would be accepted
+        // with an epoch bump — refused here instead, making the wire
+        // contract's "resume of a non-paused task surfaces invalid_state"
+        // true at the product boundary. Terminal-era tasks fall through to
+        // the pinned judgement (their rejection is the verbatim
+        // pinned_runtime passthrough), and pause stays pinned-judged.
+        if (!pause) {
+            const TaskViewResult pre = core->host.task_view(TaskIdentity{task_id});
+            if (pre.ok && pre.view.progress != TaskProgress::Paused &&
+                !terminal_progress(pre.view.progress)) {
+                fail(connection_id, correlation_id, "invalid_state", "task is not paused");
+                return;
+            }
+        }
         const HostOutcome commanded = pause ? core->host.pause_task(TaskIdentity{task_id})
                                             : core->host.resume_task(TaskIdentity{task_id});
         if (!commanded.ok) {
