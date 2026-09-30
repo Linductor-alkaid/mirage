@@ -7,8 +7,7 @@
 #include <mirage/runtime/update/update_client.hpp>
 
 #include <algorithm>
-#include <cstdlib>
-#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 
@@ -28,16 +27,16 @@ constexpr std::string_view kUpdateUsage =
     "release machine keyring).\n";
 
 /// Raw 32-byte read of the trust-anchor public key file (fail closed).
+/// Stream-based: std::fopen is C4996-deprecated on MSVC (-Werror, DEC-017).
 bool read_pubkey(const std::string &path, std::string &out) {
-    std::FILE *handle = std::fopen(path.c_str(), "rb");
-    if (handle == nullptr) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
         std::cerr << "mirage update: cannot open public key '" << path << "'\n";
         return false;
     }
     char buffer[32];
-    const auto read = std::fread(buffer, 1, sizeof(buffer), handle);
-    std::fclose(handle);
-    if (read != sizeof(buffer)) {
+    in.read(buffer, static_cast<std::streamsize>(sizeof(buffer)));
+    if (!in || in.gcount() != static_cast<std::streamsize>(sizeof(buffer))) {
         std::cerr << "mirage update: public key must be exactly 32 raw bytes\n";
         return false;
     }
