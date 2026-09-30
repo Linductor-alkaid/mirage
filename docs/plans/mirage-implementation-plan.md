@@ -139,7 +139,14 @@ off）；与任务执行流的事件联动经服务内部事件织物（事件�
 `task.resume` 附加扩展（v10；pinned pause 家族投影 + 驱动操作边界驻留），
 快速进入 Mirage 经兄弟壳二进制发现拉起；Windows 承载沿用 DEC-018 通知区面
 的产品化菜单扩展，Linux 以 StatusNotifierItem + 最小 dbusmenu（纯 gio）并
-在无指示器宿主会话如实降级为无载体。
+在无指示器宿主会话如实降级为无载体。`M5-11` 打包与更新通道已完成
+（[DEC-031](../decisions/DEC-031-windows-installer-generator.md) 安装器
+生成器定案 NSIS、DEC-018 toast 重议结论不重开）：Linux `.deb` 由 CPack
+DEB 产出（四产品进程 + postinst/prerm 尽力而为脚本），apt 仓库 GPG
+签名/验签脚本 fail closed（签名 key 发布机隔离，本机临时演练 key 演练
+全过）；Windows NSIS 安装器脚本 + Authenticode 签名脚本（证书注入 fail
+closed，发布机取证补跑）；更新清单 ed25519 签名生成与 fail-closed 验签
+脚本（本地五步演练：签验/篡改拒/恢复/回滚收敛）。
 
 ## 交付边界
 
@@ -242,6 +249,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | DEC-028 | M5-07 批准中心与权限策略面（policy.get/set 与 DEC-011 扩展） | 已定案（[DEC-028](../decisions/DEC-028-permission-policy-face.md)）：批准中心接 DEC-020 异步确认面（permission.list 快照 + permission.request 通知 + permission.respond 先到先得，TS 传输缺口补齐）；`policy.get` / `policy.set` wire 面（PolicyView：全 DEC-010 规则集 + read_roots 资源范围；全量覆盖校验、规则立即生效、read roots 重启生效）；`PermissionController` 线程安全 policy/set_policy；settings `permission` 块扩展为全词表 map（加法演进）+ 默认拾取与写回翻转（DEC-011 修订）；默认策略收紧留观 M5-08 | Mirage 维护者 | `M5-07`（已完成）；默认收紧 / read-roots 热更挂账后续 |
 | DEC-029 | M5-09 Desktop Overlay 承载机制（服务进程承载 + Platform Backend 私有前端 + 事件织物联动，wire 零变更） | 已定案（[DEC-029](../decisions/DEC-029-desktop-overlay-carrier.md)）：Overlay 由 `mirage-service` 承载（任务执行流宿主，GUI 关闭仍呈现）；`desktop/overlay_carrier.hpp` + `overlay_surface.hpp` 纯 std 公共头为唯一新契约面（不进 DesktopEnvironment 冻结 provider 集、不进 IPC wire）；Windows 双分层窗口（视觉窗 `WS_EX_TRANSPARENT` 跨进程穿透 + 每像素 alpha；交互窗仅确认横幅可点）；Linux X11 shape 覆盖层（override-redirect + XShape 双 shape，无合成器依赖），Wayland 原生 / 无交互桌面 open() 返回 null fail closed；呈现循环 = Executor `IBlockingIoWorker`，流侧 `LatestMailbox` 最新状态语义；`AtomOverlayFeed` 动作缝（DEC-024 先例同型）；确认入口经 `AsyncConfirmationHub::resolve` 同路径应答（first-response-wins 不变），呈现以 hub 快照 `is_pending` 校验；`--overlay on|debug` 默认 off | Mirage 维护者 | `M5-09`（已完成）；Windows 运行级取证 / Xvfb 呈现取证 / 独立测试验证轮挂账后续 |
 | DEC-030 | M5-10 Tray 承载机制与任务暂停/恢复面（task.pause/resume 附加扩展 + 双平台指示器承载） | 已定案（[DEC-030](../decisions/DEC-030-tray-carrier-and-task-pause-face.md)）：`apps/tray` 单 Executor owner 经 Local IPC（EXEC-02）；`task.pause`/`task.resume` v1 附加扩展（v10，与 task.cancel 同形守卫），pinned pause 家族投影 + 驱动操作边界驻留（resume 后新 step id 续驱；pinned"不支持执行级续跑"关系如实声明）；Windows 承载 = DEC-018 Shell_NotifyIcon 面产品化菜单扩展（无 AUMID/无 WinRT）；Linux = StatusNotifierItem + 最小 dbusmenu（纯 gio 族，DEC-015 纪律），无指示器宿主 null 响亮退出；快速进入 = 兄弟壳二进制发现 | Mirage 维护者 | `M5-10`（已完成）；Windows 托盘运行级取证 / 真实指示器宿主取证 / 独立测试验证轮挂账后续 |
+| DEC-031 | M5-11 Windows 安装器生成器定案（NSIS）与打包/更新通道交付 | 已定案（[DEC-031](../decisions/DEC-031-windows-installer-generator.md)）：生成器 = NSIS（`packaging/windows/mirage.nsi` + build-installer.ps1，fail closed），WiX 否决（.NET 工具链绑定、MSI 特性超需）；载荷 = 四产品进程 + 可选桌面壳 CEF payload；AUMID 注册表键随安装器交付（DEC-018 载体半边成立，快捷方式属性插件留发布机）；Authenticode 签名脚本证书注入 fail closed（证书不入仓库）；Linux .deb = CPack DEB（shlibdeps 自动依赖 + postinst/prerm），apt 仓库 GPG 签名/验签脚本 + 更新清单 ed25519 签名与 fail-closed 验签（本地五步演练全过）| Mirage 维护者 | `M5-11`（已完成）；真实安装/升级/卸载取证 / makensis 构建 + Authenticode 签名取证 / 图标资产挂账后续 |
 
 ## 跨里程碑通用完成定义
 
