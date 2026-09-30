@@ -1128,6 +1128,26 @@ set_tests_properties(visual_cache_geometry_test PROPERTIES
     TIMEOUT 120
 )
 
+# M5-11 update channel (DEC-006 decision 5): the producer/verifier pair's
+# fail-closed matrix — positive round trip, tampered/missing artifact,
+# untrusted key, wrong schema and empty file list under VALID signatures,
+# and the producer's refusal to emit an unsigned manifest. POSIX-only by
+# nature (bash + openssl producer toolchain, the release-side Linux shape);
+# the consumer side is the Windows updater (M5-12).
+if(UNIX)
+    find_program(UPDATE_TEST_BASH bash)
+    find_program(UPDATE_TEST_OPENSSL openssl)
+    if(UPDATE_TEST_BASH AND UPDATE_TEST_OPENSSL)
+        add_test(NAME update_channel_test
+            COMMAND ${UPDATE_TEST_BASH}
+                ${CMAKE_CURRENT_SOURCE_DIR}/packaging/update_channel_test.sh)
+        set_tests_properties(update_channel_test PROPERTIES
+            LABELS "unit;smoke"
+            TIMEOUT 120
+        )
+    endif()
+endif()
+
 # M5-01 lock-gate regression (DEC-006 decision 6): schema v2 structural
 # checks, the frontend npm-tree hash gate and the mirage_require_locked_
 # artifact() consumption gate, exercised positively and negatively in cmake
