@@ -108,8 +108,13 @@ must_fail "untrusted public key rejected" -- verify \
 sed 's/mirage-update-manifest/mirage-other-manifest/' update-manifest.json > wrong-schema.json
 openssl pkeyutl -sign -inkey mirage-update-ed25519-NOT-RELEASE.key -rawin \
     -in wrong-schema.json -out wrong-schema.json.sig 2> /dev/null
+# Verify the fixture under the TRUSTED public key (trust.asc): proving the
+# signature is valid is what attributes the later rejection to the schema
+# gate. (The producer's private key file is intentionally not read here —
+# `-pubin` against a private key is rejected by OpenSSL 3.0 on the CI
+# runners while 3.5+ tolerates it.)
 check "wrong-schema fixture signed (signature gate passes it on purpose)" \
-    $( openssl pkeyutl -verify -pubin -inkey mirage-update-ed25519-NOT-RELEASE.key \
+    $( openssl pkeyutl -verify -pubin -inkey trust.asc \
            -rawin -sigfile wrong-schema.json.sig -in wrong-schema.json > /dev/null 2>&1 \
            && echo 0 || echo 1 )
 must_fail "wrong schema rejected under a valid signature" -- verify \
