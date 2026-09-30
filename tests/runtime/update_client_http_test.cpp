@@ -280,6 +280,49 @@ int main() {
             error);
         MIRAGE_CHECK(!refused_version_missing.has_value());
     }
+    {
+        // Path-safety gate (verification round 2, observation B): the name
+        // and the version both feed path joins — separators and '.'/'..'
+        // are refused even under a valid signing key.
+        update::DecodeError error;
+        const auto refused_name_traversal = update::decode_update_manifest(R"({
+  "schema": "mirage-update-manifest", "schema_version": 1, "version": "v",
+  "timestamp": "t",
+  "files": [ { "name": "../evil", "size": 1, "sha256": "0000000000000000000000000000000000000000000000000000000000000000" } ]
+})",
+                                                                           error);
+        MIRAGE_CHECK(!refused_name_traversal.has_value());
+        MIRAGE_CHECK(error.message.find("path separators") != std::string::npos);
+        const auto refused_name_subdir = update::decode_update_manifest(R"({
+  "schema": "mirage-update-manifest", "schema_version": 1, "version": "v",
+  "timestamp": "t",
+  "files": [ { "name": "sub/dir", "size": 1, "sha256": "0000000000000000000000000000000000000000000000000000000000000000" } ]
+})",
+                                                                        error);
+        MIRAGE_CHECK(!refused_name_subdir.has_value());
+        const auto refused_name_backslash = update::decode_update_manifest(R"({
+  "schema": "mirage-update-manifest", "schema_version": 1, "version": "v",
+  "timestamp": "t",
+  "files": [ { "name": "sub\\dir", "size": 1, "sha256": "0000000000000000000000000000000000000000000000000000000000000000" } ]
+})",
+                                                                           error);
+        MIRAGE_CHECK(!refused_name_backslash.has_value());
+        const auto refused_name_dotdot = update::decode_update_manifest(R"({
+  "schema": "mirage-update-manifest", "schema_version": 1, "version": "v",
+  "timestamp": "t",
+  "files": [ { "name": "..", "size": 1, "sha256": "0000000000000000000000000000000000000000000000000000000000000000" } ]
+})",
+                                                                        error);
+        MIRAGE_CHECK(!refused_name_dotdot.has_value());
+        const auto refused_version_traversal = update::decode_update_manifest(R"({
+  "schema": "mirage-update-manifest", "schema_version": 1, "version": "../x",
+  "timestamp": "t",
+  "files": [ { "name": "a", "size": 1, "sha256": "0000000000000000000000000000000000000000000000000000000000000000" } ]
+})",
+                                                                              error);
+        MIRAGE_CHECK(!refused_version_traversal.has_value());
+        MIRAGE_CHECK(error.message.find("path separators") != std::string::npos);
+    }
 
     // --- HTTP channel end to end ------------------------------------------
     const fs::path base = fs::temp_directory_path() / "mirage-update-http-test";
@@ -426,9 +469,28 @@ int main() {
         fs::create_directories(target / "notes.txt", cleanup);
         update::UpdateClient client(anchor);
         const auto outcome = client.apply(channel, target.string(), (base / "staging-r").string());
-        MIRAGE_CHECK(outcome.report.status != update::ApplyStatus::Applied);
+        MIRAGE_CHECK(outcome.report.status == update::ApplyStatus::RolledBack);
         MIRAGE_CHECK(fs::is_directory(target / "notes.txt", cleanup));
+        // The newly added (never backed up) app.exe is removed on rollback:
+        // the target converges on the old state (DEC-032 invariant, fixed in
+        // verification round 2).
         MIRAGE_CHECK(!fs::exists(target / "app.exe", cleanup));
+    }
+
+    // Backup-restore branch: a previously EXISTING file was already backed
+    // up and switched when a later entry fails — the rollback restores the
+    // original content from the backup instead of leaving the new bytes.
+    {
+        const fs::path target = base / "target-restore";
+        fs::create_directories(target, cleanup);
+        write_file(target / "app.exe", "OLD app.exe content");
+        fs::create_directories(target / "notes.txt", cleanup); // blocks its own switch
+
+        update::UpdateClient client(anchor);
+        const auto outcome = client.apply(channel, target.string(), (base / "staging-s").string());
+        MIRAGE_CHECK(outcome.report.status == update::ApplyStatus::RolledBack);
+        MIRAGE_CHECK(read_file(target / "app.exe") == "OLD app.exe content");
+        MIRAGE_CHECK(fs::is_directory(target / "notes.txt", cleanup));
     }
 
     server.stop();
