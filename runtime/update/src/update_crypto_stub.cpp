@@ -8,21 +8,14 @@
 
 namespace mirage::runtime::update {
 
-bool ed25519_available() {
+bool ed25519_available() { return false; }
+
+bool verify_ed25519(const std::uint8_t *, const std::uint8_t *, std::size_t, const std::uint8_t *) {
     return false;
 }
 
-bool verify_ed25519(const std::uint8_t *, const std::uint8_t *, std::size_t,
-                    const std::uint8_t *) {
-    return false;
-}
+bool base64_decode(const std::string &, std::string &) { return false; }
 
-bool base64_decode(const std::string &, std::string &) {
-    return false;
-}
-
-bool base64_decode_pem_body(const std::string &, std::string &) {
-    return false;
-}
+bool base64_decode_pem_body(const std::string &, std::string &) { return false; }
 
 } // namespace mirage::runtime::update

@@ -9,9 +9,7 @@
 
 namespace mirage::runtime::update {
 
-std::string sha256_hex(const std::string &bytes) {
-    return sha256_internal::hex(bytes);
-}
+std::string sha256_hex(const std::string &bytes) { return sha256_internal::hex(bytes); }
 
 namespace {
 

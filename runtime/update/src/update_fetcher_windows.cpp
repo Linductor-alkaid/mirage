@@ -137,7 +137,7 @@ FetchResult http_get(const std::string &host, const std::string &path, std::uint
     for (const addrinfo *entry = list; entry != nullptr && socket_fd == INVALID_SOCKET;
          entry = entry->ai_next) {
         socket_fd = ::WSASocketW(entry->ai_family, entry->ai_socktype, entry->ai_protocol, nullptr,
-                                0, WSA_FLAG_OVERLAPPED);
+                                 0, WSA_FLAG_OVERLAPPED);
         if (socket_fd == INVALID_SOCKET) {
             socket_fd = ::socket(entry->ai_family, entry->ai_socktype, entry->ai_protocol);
         }
