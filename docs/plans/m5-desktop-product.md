@@ -1660,3 +1660,39 @@ CI 结论（工程规范第 4 节勾选规则第 1 条，先例 c3f1629）。
   [mirage-ipc-protocol-v1.md](../design/mirage-ipc-protocol-v1.md)（v10：
   §4/§6.9/§10）、[总计划](mirage-implementation-plan.md) 状态叙述与决策
   表；前端规范无修订（托盘为平台原生面，DEC-013 §3.6 形态兑现）。
+
+2026-09-30：`M5-10` 独立测试验证（第 1 轮）缺陷修复（同分支补充提交）。
+验证轮交付 `task_pause_test` / `tray_backend_test`（SNI 规范门）等并报 5
+缺陷 + 2 项低度问题，全部修复：
+
+- **SNI 规范符合性（缺陷①②）**：watcher 接口名误写为
+  `org.kde.StatusNotifierItemWatcher`（冒烟 fake 自身错写被固化为常量），
+  规范（freedesktop SNI 页）与真实宿主 introspection 均为接口名=总线名
+  `org.kde.StatusNotifierWatcher`——已改；`RegisterStatusNotifierItem` 参数
+  误传对象路径，规范要求条目的会话总线唯一名（宿主据此在
+  `/StatusNotifierItem` 约定路径内省）——改传本连接唯一名，同一 vtable 在
+  约定路径补充导出。DEC-030 决策 4 的"Item 非对称"失实表述一并更正。
+- **dbusmenu 编解码（缺陷③④）**：`GetLayout` / `GetGroupProperties` 的
+  GVariant 格式串含空格（格式串语言不允许空白）；`ItemsPropertiesUpdated`
+  与布局项构造把预构造 GVariant 经 `"{sv}"`/`"a..."` varargs 槽传递（越界
+  读变参）——全部改为无空格格式串 + `g_variant_new_tuple`/builder 显式
+  构造。
+- **resume 语义（缺陷⑤）**：文档声称"非暂停态 resume 被 pinned 逐字拒
+  绝"，而 pinned 迁移表允许 Idle→Observing（运行中任务 resume 被接受）。
+  处置：服务层为 resume 增加 Paused 门（活态非暂停任务 `invalid_state`
+  "task is not paused"；终态任务维持 pinned 逐字透传），文档/头注按实际
+  行为校准——选择门而非改文档的理由：避免对运行中任务的无谓 epoch 递增。
+- **低度两项**：main.cpp teardown 调试残留移除；托盘命令的 5 s IPC 等待与
+  2 s 连接尝试移出载体泵线程/状态互斥量（此前会冻结呈现循环，属有界延迟
+  非死锁）。
+- 验证：`task_pause_test` 64/64 检查通过；`tray_backend_test` 的
+  capability_honesty / 注册规范符合（唯一名参数 + 接口名）/ 条目属性 /
+  watcher_vanish 诊断退出场景全部通过。
+- 遗留（验证轮复核项，非实现缺陷）：① `tray_backend_test:478` 的
+  `wait_for(pump.done())`（规范门场景）与 `:552-554` 生命周期场景
+  （循环经属性/GetLayout 探测存活、request_stop 后 clean 停机）相互矛盾——
+  持久呈现循环在无 request_stop 时不可能 10 s 内自行 done；建议谓词改为
+  存活断言或先 request_stop。② `tray_backend_test:620-621` 以
+  `(ua(ia{sv}av))` 两元组解析 GetLayout 应答，canonical dbusmenu 签名为
+  三元组 `(uia(ia{sv}av))`（revision/parent/layout，libdbusmenu 导出
+  XML 在案）——真实宿主按三元组解析，实现维持规范形状，测试解析需校正。

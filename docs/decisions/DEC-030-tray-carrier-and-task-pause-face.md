@@ -52,9 +52,13 @@
 4. **Linux 承载 = 会话总线 StatusNotifierItem + 最小 dbusmenu 服务**：导出
    `org.kde.StatusNotifierItem`（属性 vtable 实时 pull + `PropertiesChanged`
    推送）与 `com.canonical.dbusmenu`（固定布局 GetLayout / Event /
-   ItemsPropertiesUpdated），向 `org.kde.StatusNotifierWatcher` 注册（接口名
-   与总线名的 "Item" 非对称如实处理）；**只依赖既有 gio-unix-2.0 可选依赖
-   族**（[DEC-015](DEC-015-linux-backend-dependencies-and-event-loop.md) 决策 3
+   ItemsPropertiesUpdated），向会话总线的 `org.kde.StatusNotifierWatcher`
+   注册——按 SNI 规范，**watcher 的接口名与总线名同为
+   `org.kde.StatusNotifierWatcher`**（规范中不存在 "ItemWatcher" 接口），
+   注册参数为**本连接的会话总线唯一名**（宿主据此在约定条目路径
+   `/StatusNotifierItem` 下内省条目），独立验证第 1 轮（SNI 规范核对 +
+   tray_backend_test 规范门）修正了实现与冒烟 fake 中两处错写；
+   **只依赖既有 gio-unix-2.0 可选依赖族**（[DEC-015](DEC-015-linux-backend-dependencies-and-event-loop.md) 决策 3
    纪律，无 GTK / 无 libayatana——否决理由见备选）。无会话总线或无
    StatusNotifierWatcher 宿主 → `open_tray_carrier()` 返回 null，进程响亮
    退出（能力诚实）；指示器宿主中途消失 → 呈现循环带诊断退出，进程随止。
