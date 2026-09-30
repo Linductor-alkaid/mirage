@@ -3,10 +3,16 @@
 // implementation. Platform boundary inside this module only; every Win32
 // type stays here (RULE-01).
 
-#include <mirage/runtime/update/update_fetcher.hpp>
-
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
+
+#include <mirage/runtime/update/update_fetcher.hpp>
 
 #include <algorithm>
 #include <cstring>
@@ -130,7 +136,7 @@ FetchResult http_get(const std::string &host, const std::string &path, std::uint
     SOCKET socket_fd = INVALID_SOCKET;
     for (const addrinfo *entry = list; entry != nullptr && socket_fd == INVALID_SOCKET;
          entry = entry->ai_next) {
-        socket_fd = ::WSASocket(entry->ai_family, entry->ai_socktype, entry->ai_protocol, nullptr,
+        socket_fd = ::WSASocketW(entry->ai_family, entry->ai_socktype, entry->ai_protocol, nullptr,
                                 0, WSA_FLAG_OVERLAPPED);
         if (socket_fd == INVALID_SOCKET) {
             socket_fd = ::socket(entry->ai_family, entry->ai_socktype, entry->ai_protocol);

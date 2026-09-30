@@ -5,8 +5,8 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cstdio>
 #include <filesystem>
+#include <fstream>
 
 namespace fs = std::filesystem;
 
@@ -145,15 +145,15 @@ ApplyOutcome UpdateClient::apply(const std::string &base_url, const std::string 
             return outcome;
         }
         const auto staged_file = staging / file.name;
-        std::FILE *handle = std::fopen(staged_file.string().c_str(), "wb");
-        if (handle == nullptr) {
+        std::ofstream out(staged_file, std::ios::binary | std::ios::trunc);
+        if (!out) {
             outcome.report.diagnostic = "cannot persist staged file: " + file.name;
             outcome.staging_dir = staging.string();
             return outcome;
         }
-        const auto written = std::fwrite(file_fetch.body.data(), 1, file_fetch.body.size(), handle);
-        std::fclose(handle);
-        if (written != file_fetch.body.size()) {
+        out.write(file_fetch.body.data(), static_cast<std::streamsize>(file_fetch.body.size()));
+        out.close();
+        if (!out) {
             outcome.report.diagnostic = "cannot persist staged file: " + file.name;
             outcome.staging_dir = staging.string();
             return outcome;

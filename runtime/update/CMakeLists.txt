@@ -16,32 +16,38 @@ mirage_enable_warnings(mirage_update)
 
 target_sources(mirage_update PRIVATE
     src/update_client.cpp
-    src/update_crypto_openssl.cpp
     src/update_manifest.cpp
     src/update_apply.cpp
-    src/update_fetcher_posix.cpp
+    src/sha256.cpp
 )
 
-if(UNIX)
-    target_sources(mirage_update PRIVATE src/update_crypto_openssl.cpp)
-    find_package(OpenSSL QUIET)
-    if(OpenSSL_FOUND)
-        target_link_libraries(mirage_update PRIVATE OpenSSL::Crypto)
-        target_compile_definitions(mirage_update PRIVATE MIRAGE_UPDATE_HAS_ED25519=1)
-        message(STATUS "Updater ed25519 verification enabled (OpenSSL)")
-    else()
-        target_compile_definitions(mirage_update PRIVATE MIRAGE_UPDATE_HAS_ED25519=0)
-        message(STATUS "Updater ed25519 verification DISABLED: OpenSSL not found (fail closed)")
-    endif()
-elseif(WIN32)
-    # Windows: the fetch port compiles over WinSock2; the crypto face is
-    # fail-closed in this delivery — the Windows updater build wires the
-    # ed25519 verifier when the packaging step ships an OpenSSL Crypto
-    # runtime (tracked in the M5-12 verification record).
-    target_sources(mirage_update PRIVATE src/update_fetcher_windows.cpp)
+# Crypto face: the ed25519 verifier needs libcrypto. Where it exists the
+# real verifier compiles; where it does not (e.g. the MSVC full-tree job)
+# a fail-closed stub is compiled instead — the updater refuses every
+# signature loudly rather than silently trusting one. Digests (SHA-256)
+# stay available on every toolchain via the embedded implementation.
+find_package(OpenSSL QUIET)
+if(OPENSSL_FOUND)
+    target_sources(mirage_update PRIVATE
+        src/update_crypto_openssl.cpp
+    )
+    target_link_libraries(mirage_update PRIVATE OpenSSL::Crypto)
+    target_compile_definitions(mirage_update PRIVATE MIRAGE_UPDATE_HAS_ED25519=1)
+    message(STATUS "Updater ed25519 verification enabled (OpenSSL)")
+else()
+    target_sources(mirage_update PRIVATE
+        src/update_crypto_stub.cpp
+    )
     target_compile_definitions(mirage_update PRIVATE MIRAGE_UPDATE_HAS_ED25519=0)
+    message(STATUS "Updater ed25519 verification DISABLED: OpenSSL not found (fail closed)")
+endif()
+
+# Fetch port: POSIX sockets vs WinSock2, one per platform.
+if(UNIX)
+    target_sources(mirage_update PRIVATE src/update_fetcher_posix.cpp)
+elseif(WIN32)
+    target_sources(mirage_update PRIVATE src/update_fetcher_windows.cpp)
     target_link_libraries(mirage_update PRIVATE ws2_32)
-    message(STATUS "Updater Windows fetch enabled; ed25519 verification DISABLED (fail closed)")
 endif()
 
 # The pinned mira/json parser (header-only usage via Mira::core).

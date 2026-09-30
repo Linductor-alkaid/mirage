@@ -1,9 +1,10 @@
 #include <mirage/runtime/update/update_apply.hpp>
 
 #include <algorithm>
-#include <cstdio>
 #include <filesystem>
 #include <system_error>
+
+#include <fstream>
 
 #include <mirage/runtime/update/update_crypto.hpp>
 
@@ -68,18 +69,13 @@ ApplyReport apply_staged_update(const UpdateManifest &manifest, const std::strin
             return report;
         }
         // Read and digest the staged bytes.
-        std::FILE *handle = std::fopen(staged.string().c_str(), "rb");
-        if (handle == nullptr) {
+        std::ifstream in(staged, std::ios::binary);
+        if (!in) {
             report.diagnostic = "cannot open staged file: " + file.name;
             return report;
         }
-        std::string bytes;
-        char buffer[64 * 1024];
-        std::size_t n = 0;
-        while ((n = std::fread(buffer, 1, sizeof(buffer), handle)) > 0) {
-            bytes.append(buffer, n);
-        }
-        std::fclose(handle);
+        const std::string bytes((std::istreambuf_iterator<char>(in)),
+                                std::istreambuf_iterator<char>());
         if (sha256_hex(bytes) != file.sha256) {
             report.diagnostic = "staged sha256 mismatch: " + file.name;
             return report;

@@ -1,25 +1,19 @@
 #include <mirage/runtime/update/update_manifest.hpp>
 
+#include "sha256_internal.hpp"
+
 #include <mira/json.hpp>
 
 #include <algorithm>
 #include <cctype>
-#include <iomanip>
-#include <sstream>
-
-#include <openssl/sha.h>
 
 namespace mirage::runtime::update {
-namespace {
 
-std::string to_hex(const unsigned char *data, std::size_t len) {
-    std::ostringstream out;
-    out << std::hex << std::setfill('0');
-    for (std::size_t i = 0; i < len; ++i) {
-        out << std::setw(2) << static_cast<int>(data[i]);
-    }
-    return out.str();
+std::string sha256_hex(const std::string &bytes) {
+    return sha256_internal::hex(bytes);
 }
+
+namespace {
 
 bool is_lower_hex_digest(const std::string &text) {
     if (text.size() != 64) {
@@ -31,12 +25,6 @@ bool is_lower_hex_digest(const std::string &text) {
 }
 
 } // namespace
-
-std::string sha256_hex(const std::string &bytes) {
-    unsigned char digest[SHA256_DIGEST_LENGTH];
-    SHA256(reinterpret_cast<const unsigned char *>(bytes.data()), bytes.size(), digest);
-    return to_hex(digest, sizeof(digest));
-}
 
 bool UpdateManifest::is_path_safe(const std::string &value) {
     if (value.empty() || value == "." || value == "..") {
