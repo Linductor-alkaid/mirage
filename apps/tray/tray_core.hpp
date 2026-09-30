@@ -146,7 +146,7 @@ class TrayCore final {
         std::string progress;
     };
 
-    bool ensure_connected_locked();
+    bool ensure_connected();
     void handle_event(const ipc::Event &event);
     void handle_lost(const std::string &diagnostic);
     void schedule_reconnect();

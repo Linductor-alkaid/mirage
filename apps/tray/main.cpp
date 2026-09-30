@@ -201,14 +201,10 @@ int main(int argc, char **argv) {
 
     // Ordered teardown (AGENTS.md rule 7): stop the presentation loop,
     // stop the session state machine and its worker, drain, shut down.
-    std::cerr << "tray-debug: teardown begin\n";
     executor::WorkerHandle stop_handle = pump_worker;
     stop_handle.stop();
-    std::cerr << "tray-debug: pump joined\n";
     core.shutdown();
-    std::cerr << "tray-debug: core shut down\n";
     executor.shutdown(true);
-    std::cerr << "tray-debug: executor shut down\n";
     std::cout << kProgramName << " stopped\n";
     return 0;
 }

@@ -43,29 +43,37 @@ TrayCore::TrayCore(Dependencies dependencies, executor::Executor &executor)
 TrayCore::~TrayCore() = default;
 
 bool TrayCore::start() {
-    bool connected = false;
-    {
-        std::lock_guard lock(mutex_);
-        connected = ensure_connected_locked();
-    }
-    // The snapshot resync issues a request and must never run under the
-    // state mutex (the session worker's event sink takes the same mutex).
+    // ensure_connected releases the state mutex for its bounded connect —
+    // it must never run under the lock (verification round 1, issue b).
+    // The snapshot resync issues a request and stays off the lock too.
+    const bool connected = ensure_connected();
     if (connected) {
         resync_from_snapshot();
     }
     return connected;
 }
 
-bool TrayCore::ensure_connected_locked() {
-    if (stopping_) {
-        return false;
-    }
-    if (session_ && session_worker_.started() && session_->connected()) {
-        return true;
+bool TrayCore::ensure_connected() {
+    {
+        std::lock_guard lock(mutex_);
+        if (stopping_) {
+            return false;
+        }
+        if (session_ && session_worker_.started() && session_->connected()) {
+            return true;
+        }
     }
     auto next = std::make_shared<ipc::SessionClient>(dependencies_.socket_path);
     std::string diagnostic;
-    if (!next->connect(kConnectDeadline, diagnostic)) {
+    // The bounded connect runs OUTSIDE the state mutex (verification round
+    // 1, issue b): holding the mutex here froze the carrier pump's
+    // load_state for the whole attempt.
+    const bool connected = next->connect(kConnectDeadline, diagnostic);
+    std::lock_guard lock(mutex_);
+    if (stopping_) {
+        return false; // raced with shutdown: discard the attempt
+    }
+    if (!connected) {
         std::cerr << "mirage-tray: mirage-service unreachable (" << dependencies_.socket_path
                   << "): " << diagnostic << "; the tray keeps retrying\n";
         return false;
@@ -138,11 +146,18 @@ mirage::desktop::TrayState TrayCore::state() {
 void TrayCore::on_action(mirage::desktop::TrayAction action) {
     switch (action) {
     case mirage::desktop::TrayAction::Pause:
-        deliver_command(/*pause=*/true);
+    case mirage::desktop::TrayAction::Resume: {
+        // The command's bounded IPC wait runs on the executor, never on the
+        // carrier pump thread — a full wait here would freeze the
+        // presentation loop (verification round 1, issue b).
+        // deliver_command is no-throw by construction, so the admission
+        // future carries only the void value; command outcomes surface
+        // through the task.updated stream and stderr.
+        const bool pause = action == mirage::desktop::TrayAction::Pause;
+        auto future = executor_.submit_auto([this, pause] { deliver_command(pause); });
+        (void)future;
         break;
-    case mirage::desktop::TrayAction::Resume:
-        deliver_command(/*pause=*/false);
-        break;
+    }
     case mirage::desktop::TrayAction::OpenShell:
         open_shell();
         break;
@@ -207,16 +222,14 @@ void TrayCore::schedule_reconnect() {
     const auto reconnect_delay_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(kReconnectDelay).count();
     auto scheduled = executor_.submit_delayed(reconnect_delay_ms, [this] {
-        bool connected = false;
         {
             std::lock_guard lock(mutex_);
             reconnect_scheduled_ = false;
             if (stopping_ || connected_) {
                 return;
             }
-            connected = ensure_connected_locked();
         }
-        if (connected) {
+        if (ensure_connected()) {
             resync_from_snapshot();
             return;
         }
