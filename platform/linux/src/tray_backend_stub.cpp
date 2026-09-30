@@ -9,6 +9,11 @@
 
 namespace mirage::platform::linux_backend {
 
+// The member unique_ptr's default destruction needs the nested type
+// complete in this translation unit (the overlay stub's XConnection
+// precedent).
+struct GioTrayCarrier::Surface {};
+
 GioTrayCarrier::~GioTrayCarrier() = default;
 
 std::unique_ptr<GioTrayCarrier> GioTrayCarrier::open() {

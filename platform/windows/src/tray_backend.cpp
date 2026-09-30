@@ -7,8 +7,8 @@
 // notification frontend's precedent, M4-05).
 #include <shellapi.h>
 
+#include <algorithm>
 #include <atomic>
-#include <cwchar>
 #include <string>
 #include <utility>
 
@@ -57,11 +57,14 @@ struct TrayPumpState {
 
 /// Shell_NotifyIcon tooltip budget: szTip is 128 wchar_t including the
 /// terminator (shellapi.h). Clamped in UTF-8 first, then UTF-16; the copy
-/// is the standard bounded wcsncpy (no _TRUNCATE SEC-API dependency — the
-/// DEC-017 dual-toolchain gate).
+/// is a bounded element loop — std::wcsncpy is C4996-deprecated on MSVC
+/// (verification round 3 CI) and the SEC-API _s forms are not part of the
+/// DEC-017 dual-toolchain baseline.
 void set_tooltip(NOTIFYICONDATAW &icon, const std::wstring &status) {
-    std::wcsncpy(icon.szTip, status.c_str(), 127);
-    icon.szTip[127] = L'\0';
+    constexpr std::size_t kTipBudget = sizeof(icon.szTip) / sizeof(icon.szTip[0]);
+    const std::size_t take = std::min(status.size(), kTipBudget - 1);
+    std::copy(status.begin(), status.begin() + static_cast<std::ptrdiff_t>(take), icon.szTip);
+    icon.szTip[take] = L'\0';
 }
 
 LRESULT CALLBACK tray_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
