@@ -39,6 +39,12 @@ struct UpdateManifest {
     static constexpr std::size_t kMaxNameBytes = 256;
     static constexpr std::size_t kMaxVersionBytes = 64;
     static constexpr std::size_t kMaxTimestampBytes = 64;
+
+    /// True when `value` is safe to join into a filesystem path: no path
+    /// separators, no '..' and no '.' as the whole value (the name and the
+    /// version both feed path joins in the apply/staging flow — defense in
+    /// depth against a compromised signing key, M5-12 round-2 review).
+    static bool is_path_safe(const std::string &value);
 };
 
 struct DecodeError {

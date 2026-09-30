@@ -88,7 +88,15 @@ ApplyReport apply_staged_update(const UpdateManifest &manifest, const std::strin
 
     // Apply: per-file atomic replace with rollback backups, oldest first.
     std::vector<Backup> backups;
+    // Manifest files that did NOT exist before the apply (nothing to back
+    // up): on rollback they are REMOVED so the target converges on the old
+    // state instead of a mixed old/new set (DEC-032 invariant).
+    std::vector<std::string> added;
     auto rollback = [&]() {
+        for (auto it = added.rbegin(); it != added.rend(); ++it) {
+            std::error_code remove_error;
+            fs::remove(target / *it, remove_error);
+        }
         for (auto it = backups.rbegin(); it != backups.rend(); ++it) {
             const fs::path target_file = target / it->name;
             std::error_code restore_error;
@@ -127,9 +135,13 @@ ApplyReport apply_staged_update(const UpdateManifest &manifest, const std::strin
         }
         if (!atomic_replace(staged, target_file, error)) {
             report.diagnostic = "cannot switch " + file.name + ": " + error.message();
-            report.status = backups.empty() ? ApplyStatus::Failed : ApplyStatus::RolledBack;
+            report.status =
+                backups.empty() && added.empty() ? ApplyStatus::Failed : ApplyStatus::RolledBack;
             rollback();
             return report;
+        }
+        if (!existed) {
+            added.push_back(file.name);
         }
         report.applied.push_back(file.name);
     }

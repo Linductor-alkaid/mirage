@@ -3,8 +3,6 @@
 #include <mirage/runtime/update/update_crypto.hpp>
 #include <mirage/runtime/update/update_fetcher.hpp>
 
-#include <mirage/runtime/update/update_crypto.hpp>
-
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
@@ -110,8 +108,9 @@ ApplyOutcome UpdateClient::apply(const std::string &base_url, const std::string 
         return outcome;
     }
 
-    // 2. staging directory: <staging_root>/<version>-<pid>-<counter> — a
-    //    fresh staging area per apply, never shared.
+    // 2. staging directory: <staging_root>/<version>-<counter> — a fresh
+    //    staging area per apply, never shared. version comes from the
+    //    signed manifest and is path-safe (decode gate, DEC-032).
     static std::atomic<unsigned long long> staging_counter{0};
     const auto staging =
         fs::path(staging_root) / (manifest->version + "-" + std::to_string(++staging_counter));

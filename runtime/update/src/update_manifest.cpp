@@ -38,6 +38,14 @@ std::string sha256_hex(const std::string &bytes) {
     return to_hex(digest, sizeof(digest));
 }
 
+bool UpdateManifest::is_path_safe(const std::string &value) {
+    if (value.empty() || value == "." || value == "..") {
+        return false;
+    }
+    return std::none_of(value.begin(), value.end(),
+                        [](unsigned char c) { return c == '/' || c == '\\'; });
+}
+
 std::optional<UpdateManifest> decode_update_manifest(const std::string &json_text,
                                                      DecodeError &error) {
     const auto fail = [&error](std::string code, std::string message) {
@@ -80,6 +88,9 @@ std::optional<UpdateManifest> decode_update_manifest(const std::string &json_tex
         version->as_string()->size() > UpdateManifest::kMaxVersionBytes) {
         return fail("bad_version", "manifest 'version' must be a non-empty string");
     }
+    if (!UpdateManifest::is_path_safe(*version->as_string())) {
+        return fail("bad_version", "manifest 'version' must not contain path separators");
+    }
     manifest.version = *version->as_string();
 
     const auto *timestamp = root.find("timestamp");
@@ -108,6 +119,9 @@ std::optional<UpdateManifest> decode_update_manifest(const std::string &json_tex
         if (name == nullptr || !name->is_string() || name->as_string()->empty() ||
             name->as_string()->size() > UpdateManifest::kMaxNameBytes) {
             return fail("bad_files", "file entry 'name' must be a non-empty string");
+        }
+        if (!UpdateManifest::is_path_safe(*name->as_string())) {
+            return fail("bad_files", "file entry 'name' must not contain path separators");
         }
         if (size == nullptr || size->kind() != mira::JsonValue::Kind::Integer ||
             *size->as_integer() < 0) {
