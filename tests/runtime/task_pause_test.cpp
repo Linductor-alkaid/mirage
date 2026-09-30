@@ -400,12 +400,41 @@ void scenario_pause_resume_refusals_mirror_cancel() {
         MIRAGE_CHECK(!response.error.message.empty());
     }
 
-    // Reported to the developer, deliberately not pinned here: a resume of
-    // a RUNNING task currently succeeds (the pinned drive state stays Idle
-    // for the whole M1 drive and Idle→Observing is a legal transition),
-    // while the wire/host header docs claim a verbatim pinned rejection —
-    // the contract decision (gate service-side vs amend the docs) belongs
-    // to the implementation owner.
+    // resume of a RUNNING (never paused) task: the product-side Paused gate
+    // refuses it (verification round 1, defect 5 — the pinned control plane
+    // would have accepted Idle→Observing with a pointless epoch bump), the
+    // task keeps driving unchanged.
+    const std::string token = unique_token();
+    ipc::SubmitTaskRequest request;
+    request.goal = "task resumed while merely running";
+    request.steps.push_back({ipc::StepKind::ProcessExecute, "sleep 1"});
+    const std::optional<std::string> task_id = submit_task(client, request);
+    MIRAGE_CHECK(task_id.has_value());
+    if (!task_id) {
+        service.request_shutdown();
+        service.run();
+        return;
+    }
+    const auto running =
+        wait_for(config.socket_path, *task_id, kTaskBudget, [](const ipc::InspectTask &view) {
+            return !view.steps.empty() && view.steps[0].status == "running";
+        });
+    MIRAGE_CHECK(running.has_value());
+    if (running) {
+        const ipc::Response resume_response =
+            client.call(ipc::ResumeTaskRequest{*task_id}, kCallBudget);
+        MIRAGE_CHECK(!resume_response.ok);
+        MIRAGE_CHECK(resume_response.error.code == "invalid_state");
+        MIRAGE_CHECK(resume_response.error.message.find("task is not paused") != std::string::npos);
+        const auto after = inspect_once(config.socket_path, *task_id);
+        MIRAGE_CHECK(after.has_value());
+        if (after) {
+            // The refusal changed nothing: the M1 drive keeps its pinned
+            // Idle drive state (projected as "Idle") and the step runs on.
+            MIRAGE_CHECK(after->progress == "Idle");
+        }
+    }
+
     service.request_shutdown();
     MIRAGE_CHECK(service.run().clean);
 }

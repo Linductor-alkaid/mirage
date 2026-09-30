@@ -234,22 +234,31 @@ class FakeStatusNotifierWatcher {
                 GVariantIter *updated = nullptr;
                 GVariantIter *removed = nullptr;
                 g_variant_get(parameters, "(a(ia{sv})as)", &updated, &removed);
-                gint id = 0;
-                GVariant *props = nullptr;
                 const std::lock_guard guard(self->mutex_);
-                while (g_variant_iter_loop(updated, "(ia{sv})", &id, &props)) {
+                // Child-by-child reads (no container varargs slots), and the
+                // dict values are v-wrapped: unwrap before reading.
+                while (GVariant *entry = g_variant_iter_next_value(updated)) {
                     RecordedMenuProps record;
-                    record.id = id;
-                    if (GVariant *enabled =
-                            g_variant_lookup_value(props, "enabled", G_VARIANT_TYPE_BOOLEAN)) {
-                        record.enabled = g_variant_get_boolean(enabled);
-                        g_variant_unref(enabled);
+                    GVariant *id_variant = g_variant_get_child_value(entry, 0);
+                    record.id = g_variant_get_int32(id_variant);
+                    g_variant_unref(id_variant);
+                    GVariant *props = g_variant_get_child_value(entry, 1);
+                    for (const char *key : {"enabled", "label"}) {
+                        // g_variant_lookup_value unwraps the dict's v values.
+                        GVariant *value = g_variant_lookup_value(props, key, nullptr);
+                        if (value == nullptr) {
+                            continue;
+                        }
+                        if (g_variant_is_of_type(value, G_VARIANT_TYPE_BOOLEAN)) {
+                            record.enabled = g_variant_get_boolean(value) ? TRUE : FALSE;
+                        }
+                        if (g_variant_is_of_type(value, G_VARIANT_TYPE_STRING)) {
+                            record.label = g_variant_get_string(value, nullptr);
+                        }
+                        g_variant_unref(value);
                     }
-                    if (GVariant *label =
-                            g_variant_lookup_value(props, "label", G_VARIANT_TYPE_STRING)) {
-                        record.label = g_variant_get_string(label, nullptr);
-                        g_variant_unref(label);
-                    }
+                    g_variant_unref(props);
+                    g_variant_unref(entry);
                     self->menu_pushes_.push_back(std::move(record));
                 }
                 g_variant_iter_free(updated);
@@ -300,10 +309,12 @@ class FakeStatusNotifierWatcher {
 
     GVariant *call_menu_get_group_properties(const std::string &carrier_sender) {
         static const gint queried_ids[] = {2, 99};
-        static const char *const no_properties[] = {nullptr};
+        GVariant *ids =
+            g_variant_new_fixed_array(G_VARIANT_TYPE_INT32, queried_ids, 2, sizeof(gint32));
+        GVariant *properties = g_variant_new_strv(nullptr, 0);
         return g_dbus_connection_call_sync(
             connection_, carrier_sender.c_str(), "/org/mirage/tray/menu", "com.canonical.dbusmenu",
-            "GetGroupProperties", g_variant_new("(ai^as)", queried_ids, 2, no_properties), nullptr,
+            "GetGroupProperties", g_variant_new("(@ai@as)", ids, properties), nullptr,
             G_DBUS_CALL_FLAGS_NONE, 5000, nullptr, nullptr);
     }
 
@@ -429,11 +440,17 @@ class TrayPump {
 // --- capability honesty ------------------------------------------------------
 
 void scenario_no_session_bus_returns_null() {
+    // A dead literal address: address resolution accepts it verbatim and
+    // the probe connection must fail. (Unsetting the variable entirely is
+    // NOT asserted: GLib then falls back to the autolaunch transport, which
+    // can legitimately find or spawn a session bus on a desktop machine.)
     const char *saved = ::getenv("DBUS_SESSION_BUS_ADDRESS");
-    ::unsetenv("DBUS_SESSION_BUS_ADDRESS");
+    ::setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/mirage-tray-test-bus", 1);
     const auto carrier = open_tray_carrier();
     if (saved != nullptr) {
         ::setenv("DBUS_SESSION_BUS_ADDRESS", saved, 1);
+    } else {
+        ::unsetenv("DBUS_SESSION_BUS_ADDRESS");
     }
     MIRAGE_CHECK(carrier == nullptr);
 }
@@ -467,15 +484,18 @@ void scenario_registers_with_the_specification_watcher(FakeStatusNotifierWatcher
     MIRAGE_CHECK(registrations.size() == 1);
     if (registrations.size() == 1) {
         const RecordedRegistration &record = registrations.front();
-        // SNI spec: the service parameter is the item's bus name ("in the
-        // form of its full name on the session bus") — never an object path.
+        // SNI spec: the interface is the watcher's bus name (no
+        // "ItemWatcher" interface exists) and the service parameter is the
+        // item's bus name ("in the form of its full name on the session
+        // bus") — never an object path.
+        MIRAGE_CHECK(record.interface_used == "org.kde.StatusNotifierWatcher");
         MIRAGE_CHECK(!record.service_parameter.empty());
         MIRAGE_CHECK(record.service_parameter.front() == ':');
         MIRAGE_CHECK(record.sender == record.service_parameter);
     }
 
-    // The presentation loop comes up clean over the specification watcher.
-    MIRAGE_CHECK(wait_for([&pump] { return pump.done(); }));
+    // The presentation loop stays up clean over the specification watcher
+    // and stops cleanly on request.
     pump.request_stop();
     pump.join();
     MIRAGE_CHECK(pump.report().clean);
@@ -619,28 +639,29 @@ void scenario_state_push_and_menu_layout_queries(FakeStatusNotifierWatcher &watc
         g_variant_get(layout, "(ua(ia{sv}av))", &revision, &entries);
         MIRAGE_CHECK(revision >= 1);
         MIRAGE_CHECK(g_variant_iter_n_children(entries) == 7);
-        // The pause entry (id 2) mirrors the state's can_pause.
+        // The pause entry (id 2) mirrors the state's can_pause. Entries are
+        // read child-by-child (the "av" slot is not directly loopable).
         gboolean pause_enabled = FALSE;
         gboolean quit_enabled = FALSE;
-        gint id = 0;
-        GVariant *props = nullptr;
-        while (g_variant_iter_loop(entries, "(ia{sv}av)", &id, &props, nullptr)) {
-            if (id == 2) {
-                GVariant *enabled =
-                    g_variant_lookup_value(props, "enabled", G_VARIANT_TYPE_BOOLEAN);
-                if (enabled != nullptr) {
-                    pause_enabled = g_variant_get_boolean(enabled);
-                    g_variant_unref(enabled);
+        while (GVariant *entry = g_variant_iter_next_value(entries)) {
+            GVariant *id_variant = g_variant_get_child_value(entry, 0);
+            const gint id = g_variant_get_int32(id_variant);
+            g_variant_unref(id_variant);
+            GVariant *props = g_variant_get_child_value(entry, 1);
+            GVariant *enabled = g_variant_lookup_value(props, "enabled", nullptr);
+            if (enabled != nullptr) {
+                if (g_variant_is_of_type(enabled, G_VARIANT_TYPE_BOOLEAN)) {
+                    if (id == 2) {
+                        pause_enabled = g_variant_get_boolean(enabled) ? TRUE : FALSE;
+                    }
+                    if (id == 99) {
+                        quit_enabled = g_variant_get_boolean(enabled) ? TRUE : FALSE;
+                    }
                 }
+                g_variant_unref(enabled);
             }
-            if (id == 99) {
-                GVariant *enabled =
-                    g_variant_lookup_value(props, "enabled", G_VARIANT_TYPE_BOOLEAN);
-                if (enabled != nullptr) {
-                    quit_enabled = g_variant_get_boolean(enabled);
-                    g_variant_unref(enabled);
-                }
-            }
+            g_variant_unref(props);
+            g_variant_unref(entry);
         }
         g_variant_iter_free(entries);
         g_variant_unref(layout);
@@ -669,13 +690,6 @@ void scenario_state_push_and_menu_layout_queries(FakeStatusNotifierWatcher &watc
     }));
     watcher.unsubscribe_state_pushes();
 
-    // GetGroupProperties: the host's batch read over the same ids.
-    GVariant *group = watcher.call_menu_get_group_properties(carrier_sender);
-    MIRAGE_CHECK(group != nullptr);
-    if (group != nullptr) {
-        g_variant_unref(group);
-    }
-
     pump.request_stop();
     pump.join();
     MIRAGE_CHECK(pump.report().clean);
@@ -683,6 +697,139 @@ void scenario_state_push_and_menu_layout_queries(FakeStatusNotifierWatcher &watc
     // fatal-probe handler exits the process when one fires, so reaching this
     // line already proves the push and the read are both clean.
     MIRAGE_CHECK(!g_fatal_seen.load(std::memory_order_acquire));
+}
+
+/// The host's batch read (GetGroupProperties) over the same ids. The
+/// handler's g_variant_get passes a GVariantIter struct where the varargs
+/// slot requires GVariantIter** — on the current tree the first iteration
+/// aborts the process through a GLib type-info assertion (which bypasses
+/// the GLog default handler, hence the SIGABRT probe): the probe captures
+/// the abort and exits with kFatalProbeExit deterministically, so the
+/// crash evidence survives ctest's captured pipes without a core-dump hang.
+static std::atomic<bool> g_abort_probe_armed{false};
+
+void tray_abort_probe_handler(int) {
+    if (!g_abort_probe_armed.load(std::memory_order_acquire)) {
+        ::signal(SIGABRT, SIG_DFL);
+        ::raise(SIGABRT);
+        return;
+    }
+    std::fprintf(stderr,
+                 "[tray_backend_test] captured expected SIGABRT (GLib type-info assertion)\n");
+    std::fflush(stderr);
+    const pid_t daemon = g_dbus_daemon_pid.load(std::memory_order_acquire);
+    if (daemon > 0) {
+        ::kill(daemon, SIGTERM);
+    }
+    ::_exit(kFatalProbeExit);
+}
+
+void scenario_menu_group_properties_delivery(FakeStatusNotifierWatcher &watcher) {
+    ::signal(SIGABRT, tray_abort_probe_handler);
+    g_abort_probe_armed.store(true, std::memory_order_release);
+    const auto carrier = open_tray_carrier();
+    MIRAGE_CHECK(carrier != nullptr);
+    if (carrier == nullptr) {
+        return;
+    }
+    TrayPump pump;
+    TrayState active;
+    active.status = "Mirage：任务运行中：clean the cache — Active";
+    active.can_pause = true;
+    active.can_open_shell = true;
+    pump.set_state(active);
+    pump.start(*carrier);
+    MIRAGE_CHECK(wait_for([&watcher] { return !watcher.registrations().empty(); }));
+
+    std::string carrier_sender;
+    {
+        const auto registrations = watcher.registrations();
+        if (!registrations.empty()) {
+            carrier_sender = registrations.front().sender;
+        }
+    }
+    MIRAGE_CHECK(!carrier_sender.empty());
+
+    GVariant *group = watcher.call_menu_get_group_properties(carrier_sender);
+    MIRAGE_CHECK(group != nullptr);
+    if (group != nullptr) {
+        g_variant_unref(group);
+    }
+    pump.request_stop();
+    pump.join();
+    MIRAGE_CHECK(pump.report().clean);
+    g_abort_probe_armed.store(false, std::memory_order_release);
+    ::signal(SIGABRT, SIG_DFL);
+}
+
+/// Verification round 2 regression probe: the session bus can die between
+/// open() and run() (the session address is resolved and probed in open(),
+/// the carrier's own connection is only created inside run()). When that
+/// connection fails, run() must converge on clean=false with a diagnostic —
+/// the registration block after it must stay guarded. Runs in a forked
+/// child: on the current tree the unguarded path crashes the child (null
+/// node info dereference) and the parent turns that into evidence without
+/// taking the suite down.
+void scenario_bus_dies_between_open_and_run() {
+    DbusSession dying_session;
+    g_dbus_daemon_pid.store(dying_session.daemon_pid(), std::memory_order_release);
+    ::setenv("DBUS_SESSION_BUS_ADDRESS", dying_session.bus_address().c_str(), 1);
+    FakeStatusNotifierWatcher dying_watcher;
+    if (!dying_watcher.start(dying_session.bus_address(), /*tolerant=*/true)) {
+        std::fprintf(stderr, "[tray_backend_test] dying-session fixture failed to start\n");
+        MIRAGE_CHECK(false);
+        return;
+    }
+    const auto carrier = open_tray_carrier();
+    MIRAGE_CHECK(carrier != nullptr);
+    if (carrier == nullptr) {
+        return;
+    }
+
+    // The bus goes away after the carrier was opened and before run().
+    ::kill(dying_session.daemon_pid(), SIGTERM);
+    std::this_thread::sleep_for(std::chrono::milliseconds{300});
+
+    const pid_t child = ::fork();
+    if (child == 0) {
+        mirage::desktop::TrayCarrierContext context;
+        context.load_state = [] { return TrayState{}; };
+        const TrayCarrier::RunReport report = carrier->run(context, [] { return false; });
+        const bool degraded = !report.clean && !report.diagnostic.empty();
+        std::fprintf(stderr, "[tray_backend_test] dying-bus child: clean=%d diagnostic='%s'\n",
+                     report.clean ? 1 : 0, report.diagnostic.c_str());
+        std::fflush(stderr);
+        ::_exit(degraded ? 0 : 1);
+    }
+
+    // Bounded wait with kill-on-hang: the child either exits by itself or
+    // the parent reaps it and reports the hang as a failure.
+    int status = 0;
+    bool reaped = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{20};
+    while (std::chrono::steady_clock::now() < deadline) {
+        const pid_t got = ::waitpid(child, &status, WNOHANG);
+        if (got == child) {
+            reaped = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{50});
+    }
+    if (!reaped) {
+        std::fprintf(stderr, "[tray_backend_test] dying-bus child hung; killed\n");
+        ::kill(child, SIGKILL);
+        ::waitpid(child, &status, 0);
+        MIRAGE_CHECK(false);
+        return;
+    }
+    std::fprintf(stderr,
+                 "[tray_backend_test] dying-bus child reaped: exited=%d signal=%d code=%d\n",
+                 WIFEXITED(status) ? 1 : 0, WIFSIGNALED(status) ? WTERMSIG(status) : 0,
+                 WIFEXITED(status) ? WEXITSTATUS(status) : 0);
+    MIRAGE_CHECK(WIFEXITED(status));
+    if (WIFEXITED(status)) {
+        MIRAGE_CHECK(WEXITSTATUS(status) == 0);
+    }
 }
 
 } // namespace
@@ -718,6 +865,15 @@ int main() {
             scenario_watcher_vanish_ends_the_loop_with_a_diagnostic(tolerant_watcher);
         }
 
+        std::fprintf(stderr, "[tray_backend_test] scenario: menu_group_properties\n");
+        {
+            FakeStatusNotifierWatcher fresh_watcher;
+            if (!fresh_watcher.start(session.bus_address(), /*tolerant=*/true)) {
+                return 1;
+            }
+            scenario_menu_group_properties_delivery(fresh_watcher);
+        }
+
         std::fprintf(stderr, "[tray_backend_test] scenario: state_push_and_menu_layout\n");
         {
             // A fresh host: the vanish scenario dropped the well-known name,
@@ -729,6 +885,12 @@ int main() {
             }
             scenario_state_push_and_menu_layout_queries(fresh_watcher);
         }
+
+        std::fprintf(stderr, "[tray_backend_test] scenario: bus_dies_between_open_and_run\n");
+        scenario_bus_dies_between_open_and_run();
+        // Back to the main session for any later wiring.
+        g_dbus_daemon_pid.store(session.daemon_pid(), std::memory_order_release);
+        ::setenv("DBUS_SESSION_BUS_ADDRESS", session.bus_address().c_str(), 1);
     } catch (const std::exception &error) {
         std::fprintf(stderr, "[tray_backend_test] dbus fixture failed: %s\n", error.what());
         return 1;
