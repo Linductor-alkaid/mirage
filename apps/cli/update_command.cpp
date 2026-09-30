@@ -7,6 +7,7 @@
 #include <mirage/runtime/update/update_client.hpp>
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
