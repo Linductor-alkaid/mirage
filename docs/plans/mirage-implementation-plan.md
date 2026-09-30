@@ -140,6 +140,16 @@ off）；与任务执行流的事件联动经服务内部事件织物（事件�
 快速进入 Mirage 经兄弟壳二进制发现拉起；Windows 承载沿用 DEC-018 通知区面
 的产品化菜单扩展，Linux 以 StatusNotifierItem + 最小 dbusmenu（纯 gio）并
 在无指示器宿主会话如实降级为无载体。`M5-11` 打包与更新通道已完成
+（[DEC-031](../decisions/DEC-031-windows-installer-generator.md) NSIS
+定案、DEC-018 toast 重议不重开）：Linux .deb（CPack DEB）+ GPG 签名 apt
+仓库脚本（fail closed）+ Windows NSIS 安装器 + Authenticode 签名脚本
+（证书注入 fail closed）+ 更新清单 ed25519 工具链与五步演练。`M5-12`
+Windows 应用内更新器已完成
+（[DEC-032](../decisions/DEC-032-update-client-fail-closed.md)）：清单
+严格解析 + ed25519 验签（libcrypto EVP，OpenSSL 缺席构建整体 fail
+closed）+ 原子切换与逆序回滚 + HTTP fetch（信任锚为清单签名与
+Authenticode 双层，非 TLS）+ `mirage update check/apply` CLI；差分维持
+全量优先不承诺；更新器零私钥（keyring 隔离既定）。`M5-11` 打包与更新通道已完成
 （[DEC-031](../decisions/DEC-031-windows-installer-generator.md) 安装器
 生成器定案 NSIS、DEC-018 toast 重议结论不重开）：Linux `.deb` 由 CPack
 DEB 产出（四产品进程 + postinst/prerm 尽力而为脚本），apt 仓库 GPG
@@ -250,6 +260,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | DEC-029 | M5-09 Desktop Overlay 承载机制（服务进程承载 + Platform Backend 私有前端 + 事件织物联动，wire 零变更） | 已定案（[DEC-029](../decisions/DEC-029-desktop-overlay-carrier.md)）：Overlay 由 `mirage-service` 承载（任务执行流宿主，GUI 关闭仍呈现）；`desktop/overlay_carrier.hpp` + `overlay_surface.hpp` 纯 std 公共头为唯一新契约面（不进 DesktopEnvironment 冻结 provider 集、不进 IPC wire）；Windows 双分层窗口（视觉窗 `WS_EX_TRANSPARENT` 跨进程穿透 + 每像素 alpha；交互窗仅确认横幅可点）；Linux X11 shape 覆盖层（override-redirect + XShape 双 shape，无合成器依赖），Wayland 原生 / 无交互桌面 open() 返回 null fail closed；呈现循环 = Executor `IBlockingIoWorker`，流侧 `LatestMailbox` 最新状态语义；`AtomOverlayFeed` 动作缝（DEC-024 先例同型）；确认入口经 `AsyncConfirmationHub::resolve` 同路径应答（first-response-wins 不变），呈现以 hub 快照 `is_pending` 校验；`--overlay on|debug` 默认 off | Mirage 维护者 | `M5-09`（已完成）；Windows 运行级取证 / Xvfb 呈现取证 / 独立测试验证轮挂账后续 |
 | DEC-030 | M5-10 Tray 承载机制与任务暂停/恢复面（task.pause/resume 附加扩展 + 双平台指示器承载） | 已定案（[DEC-030](../decisions/DEC-030-tray-carrier-and-task-pause-face.md)）：`apps/tray` 单 Executor owner 经 Local IPC（EXEC-02）；`task.pause`/`task.resume` v1 附加扩展（v10，与 task.cancel 同形守卫），pinned pause 家族投影 + 驱动操作边界驻留（resume 后新 step id 续驱；pinned"不支持执行级续跑"关系如实声明）；Windows 承载 = DEC-018 Shell_NotifyIcon 面产品化菜单扩展（无 AUMID/无 WinRT）；Linux = StatusNotifierItem + 最小 dbusmenu（纯 gio 族，DEC-015 纪律），无指示器宿主 null 响亮退出；快速进入 = 兄弟壳二进制发现 | Mirage 维护者 | `M5-10`（已完成）；Windows 托盘运行级取证 / 真实指示器宿主取证 / 独立测试验证轮挂账后续 |
 | DEC-031 | M5-11 Windows 安装器生成器定案（NSIS）与打包/更新通道交付 | 已定案（[DEC-031](../decisions/DEC-031-windows-installer-generator.md)）：生成器 = NSIS（`packaging/windows/mirage.nsi` + build-installer.ps1，fail closed），WiX 否决（.NET 工具链绑定、MSI 特性超需）；载荷 = 四产品进程 + 可选桌面壳 CEF payload；AUMID 注册表键随安装器交付（DEC-018 载体半边成立，快捷方式属性插件留发布机）；Authenticode 签名脚本证书注入 fail closed（证书不入仓库）；Linux .deb = CPack DEB（shlibdeps 自动依赖 + postinst/prerm），apt 仓库 GPG 签名/验签脚本 + 更新清单 ed25519 签名与 fail-closed 验签（本地五步演练全过）| Mirage 维护者 | `M5-11`（已完成）；真实安装/升级/卸载取证 / makensis 构建 + Authenticode 签名取证 / 图标资产挂账后续 |
+| DEC-032 | M5-12 Windows 应用内更新器核心与通道 fail-closed 行为（runtime/update 库 + CLI，全量优先） | 已定案（[DEC-032](../decisions/DEC-032-update-client-fail-closed.md)）：runtime/update 库——清单严格解码（schema/字段/预算全 fail closed）、ed25519 验签（libcrypto EVP，OpenSSL 缺席构建整体 fail closed 于 crypto 面）、HTTP fetch（无 TLS，信任锚为清单签名+Authenticode 双层；3xx 不跟随；超预算 fail closed；POSIX/WinSock 双端口）、原子切换（staged 预检→备份→aside+rename→全成删备、败则逆序回滚）；CLI `mirage update check/apply`；托盘/壳触发面接同核（后续接线）；更新器零私钥（信任锚公钥随包分发）| Mirage 维护者 | `M5-12`（已完成）；Windows 运行级全量更新演练 / OpenSSL 运行时随包分发挂账后续 |
 
 ## 跨里程碑通用完成定义
 

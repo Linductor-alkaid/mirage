@@ -8,7 +8,9 @@
 > `M5-09` Desktop Overlay 完成 2026-09-30（DEC-029 承载机制定案，CI 取证
 > 已由 `M5-10` PR 补录）；`M5-10` Tray 进程形态完成 2026-09-30（DEC-030
 > 承载机制与任务暂停/恢复面定案，CI 取证已由 `M5-11` PR 补录）；
-> `M5-11` 打包与更新通道完成 2026-09-30（DEC-031 安装器生成器定案））
+> `M5-11` 打包与更新通道完成 2026-09-30（DEC-031 安装器生成器定案，CI 取证
+> 已由 `M5-12` PR 补录）；`M5-12` Windows 应用内更新器完成 2026-09-30
+> （DEC-032 更新器与通道 fail-closed 行为定案））
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M3](m3-mirador-integration.md)（已完成：Mirador 视觉集成与壳选型冻结——
@@ -16,7 +18,7 @@
 > Backend 与产品进程 Windows 化——命名管道 IPC、`mirage-service` / CLI 双平台
 > 可运行）
 > 建议发布点：`release-epsilon`（tag 待维护者授权后创建）
-> 更新日期：2026-09-30（`M5-11`）
+> 更新日期：2026-09-30（`M5-12`）
 
 ## 目标
 
@@ -216,12 +218,19 @@
       升级 / 卸载验证与更新通道演练（清单验签 fail closed——本地演练五步
       全过：签验/篡改文件拒/恢复过/篡改清单拒/回滚收敛；真实安装/升级/
       卸载需 root，留 CI/维护者机器补跑）；toast 通知承载重议评估（结论：
-      触发条件需求半边不成立 → 不重开，DEC-018 修订记录留痕）。
+      触发条件需求半边不成立 → 不重开，DEC-018 修订记录留痕）；CI 取证已由
+      `M5-12` PR 补录（2026-09-30，工程规范第 4 节勾选规则第 1 条）。
 
-- [ ] `M5-12` Windows 应用内更新器：更新清单（版本 / URL / SHA-256 /
-      ed25519 签名）验签 fail closed + 原子切换与回滚（shell-binary-locking
-      机制设计兑现；凭据经系统 keyring）；对签名清单完成全量更新演练
-      取证（差分按实测评估、不提前承诺）。
+- [x] `M5-12` Windows 应用内更新器（完成 2026-09-30；
+      [DEC-032](../decisions/DEC-032-update-client-fail-closed.md) 更新器
+      核心与通道 fail-closed 行为定案）：更新清单（版本 / URL / SHA-256 /
+      ed25519 签名）验签 fail closed（strict 解码 + EVP ed25519，OpenSSL
+      缺席构建整体 fail closed）+ 原子切换与回滚（尺寸/sha256 预检 → 备份
+      → 逐文件 aside+rename → 全成删备、败则逆序回滚；shell-binary-locking
+      机制设计兑现；更新器零私钥——信任锚为随包分发的 32 字节公钥，签名
+      私钥在发布机 keyring）；对签名清单完成全量更新演练取证（真实 HTTP
+      通道：check/apply/尺寸超预算拒/同尺寸篡改 sha256 门拒）；差分按实测
+      评估、不提前承诺（维持 DEC-006 决策 5 全量优先）。
 - [ ] `M5-13` 里程碑退出复核：退出条件逐项独立取证（同 M2 / M4 退出复核
       形态，独立验证轮）。
 
@@ -1792,4 +1801,69 @@ DEC-018 toast 重议结论不重开、DEC-006 决策 4 修订；本 PR 的 CI �
   （M5-11 重议评估修订：不重开）、
   [DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md)（决策 4
   生成器定案 NSIS + 修订记录）、
+  [总计划](mirage-implementation-plan.md) 状态叙述与决策表。
+
+2026-09-30：`M5-11` CI 取证完成（补录，由 `M5-12` PR 兑现自述义务，即其
+验证记录限制与补跑条件①）；PR
+[#65](https://github.com/Linductor-alkaid/mirage/pull/65)（headSha =
+`cfaff47`）已合并（2026-09-30T04:05:46Z，维护者授权），CI run
+36664314544 全部 8 作业 pass——Linux 五预设矩阵 / format &
+public-header boundaries / frontend / windows msvc (full tree)
+（`gh pr view 65` stateCheckRollup 与 `gh pr checks 65` 实测核验；该轮
+先以 test-side 发现判停后由维护者修正测试并复跑全绿——上条记录遗留的
+478 谓词矛盾与 GetLayout 解析已由验证轮自行修正）。复选框同步：`M5-11`
+复选框已随 `M5-11` PR 翻转，本记录仅补录 CI 结论（工程规范第 4 节勾选
+规则第 1 条，先例 c3f1629）。
+
+2026-09-30：`M5-12` Windows 应用内更新器完成（DEC-032 更新器核心与通道
+fail-closed 行为定案；本 PR 的 CI 结论按仓库先例由下一工作项 PR 补录）。
+
+- 范围：
+  - **更新器核心 `runtime/update`（Mirage::update）**：清单严格解析
+    （schema/schema_version/version/timestamp/files 全字段 fail closed，
+    重复名拒绝，预算封顶 RULE-07）；ed25519 验签（libcrypto EVP，
+    OpenSSL 缺席构建整体 fail closed 于 crypto 面——同
+    `MIRA_WITH_OPENSSL` 可选边界纪律）；HTTP fetch（无 TLS——信任锚为
+    清单 ed25519 签名 + Authenticode 双层，DEC-006 决策 5；3xx 不跟随，
+    超预算 fail closed；POSIX/WinSock 双端口，模块内平台边界）；
+    原子切换引擎：staged 尺寸+sha256 预检 → 备份 → 逐文件 aside+rename
+    → 全部成功才删备份，任一失败逆序回滚（目标目录要么全新要么全旧）。
+    UpdateClient 编排（fetch manifest+sig → 验签 → fetch 文件 → 内存
+    sha256 复核 → staging 落盘 → apply；原始 64 字节签名，与 M5-11 生产
+    者工具链 pkeyutl 原始输出一致）。
+  - **CLI（apps/cli）**：`mirage update check/apply`（--url/--pubkey/
+    --target/--staging）；应用内（托盘/壳）触发面接同一核心（后续接线
+    点，DEC-032 记录）。
+  - **差分**：维持 DEC-006 决策 5 全量优先，不承诺（M5-12 记录留痕）。
+  - **凭据/keyring**：更新器零私钥——信任锚为随包分发的 32 字节
+    ed25519 公钥（非机密）；签名私钥在发布机 keyring（M5-11 隔离既
+    定），"凭据经系统 keyring" 对更新器客户端无私有凭据需求，如实声明。
+- 依据：[DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md)
+  （决策 5）、
+  [shell-binary-locking](../supply-chain/shell-binary-locking.md) §3
+  （验签 fail-closed 行为细节随 M5 实现补决策——由 DEC-032 兑现）、
+  [DEC-032](../decisions/DEC-032-update-client-fail-closed.md)（本工作
+  项新决策记录）；本计划 `M5-12` 工作项。
+- 验证（本机 Linux，真实 HTTP 通道 127.0.0.1）：
+  - 全树 debug 构建 0 错；ctest **48/48 通过**（新增 update_core_test：
+    清单 fail-closed 解码矩阵 / ed25519 round-trip + 篡改拒 / 原子切换
+    + 损坏 staging 拒且目标不触碰）；`mirage-format-check` 通过；
+    `mirage-boundary-check` 48 公共头 0 违规（新增 update 四公共头）；
+    MinGW 交叉 `mirage_platform` 全绿（WinSock fetch 编译门）。
+  - **全量更新演练取证（真实 HTTP 通道）**：`update check` 报告通道版本
+    （清单+签名经 HTTP fetch + ed25519 验签）；`update apply` 成功落位
+    （1 文件 8 字节，staging→target）；尺寸超预算传输拒（fail closed）；
+    同尺寸篡改体 → staged sha256 门拒（fail closed，目标目录零写入）。
+- 限制与补跑条件：① 本 PR 的 CI 结论按仓库先例由下一工作项 PR 补录；
+  ② Windows 运行级全量更新演练（真实安装器 payload + 重启换新 + 回滚
+  演练）需真实 Windows 会话——维护者机器兜底（DEC-017 证据分级）；
+  本轮交付并验证的通道原语（清单/签名/fetch/原子切换/回滚）为跨平台
+  同源代码，Linux 侧演练取证在案；③ Windows 更新器构建需 OpenSSL
+  Crypto 运行时随包分发（M5-11 安装器补跑时纳入载荷清单）——无
+  OpenSSL 时更新器整体 fail closed（拒绝一切签名），不静默降级；
+  ④ 应用内（托盘/壳）触发面接线留后续增量（CLI 已交付，核心同源）。
+- 同步：[DEC-032](../decisions/DEC-032-update-client-fail-closed.md)
+  （新增，Accepted）、
+  [shell-binary-locking](../supply-chain/shell-binary-locking.md) §3
+  （fail-closed 行为细节补决策兑现）、
   [总计划](mirage-implementation-plan.md) 状态叙述与决策表。

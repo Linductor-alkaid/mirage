@@ -4,7 +4,8 @@
 > `dependencies.lock.json` schema v2 与 configure 门禁——工件结构校验、npm 锁哈希
 > 活动门禁、`mirage_require_locked_artifact()` 消费门禁，回归见
 > `dependency_lock_gate_test`。尚未落地：SBOM 生成、签名 key 管理与发布机隔离、
-> Windows 更新器实现（随 M5-11 / M5-12 发布交付接线））
+> Windows 更新器实现（随 M5-12 落地：runtime/update 核 + 应用内触发面
+> 接线点；Windows 运行级演练取证随发布交付补跑））
 > 日期：2026-09-21（M5-01 落地更新：2026-09-26）
 > 关联：[DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md)（决策 3/5/6 冻结）、
 > [壳 PoC 基线](../benchmarks/shell-poc-baselines.md)、
@@ -77,7 +78,7 @@ index.json 并以本地 `sha1sum` 复核（PoC 已复核一致）。
 | --- | --- | --- |
 | Linux（.deb，apt 仓库唯一更新路径） | 仓库级 GPG 签名（`Release.gpg`/`InRelease`），用户导入 Mirage 签名 key；签名的 key 管理与发布机隔离 M5 落实 | 安装包全量（apt 无内建二进制差分；repo 元数据 pdiff 由 apt-generate 处理）；CEF 载荷 ≈560 MB 使全量 debs 增量升级流量可感知但可接受，后续可评估 `apt-ftparchive` 之外的 delta 机制，非承诺 |
 | Windows（exe 安装包 + 应用内更新器） | 双层：更新清单（版本、URL、SHA-256、ed25519 签名）+ Authenticode 签名的安装包二进制；更新器先验清单签名与哈希再执行，含原子切换与回滚（DEC-006 决策 5 既有承诺不变） | 首版全量安装包；CEF 无内建差分机制，差分更新（如 courgette/bsdiff）M5 按真实流量成本评估，不提前承诺 |
-| 通用 | 更新通道与签名验签代码属 Runtime Service/更新器，凭据经系统 keyring（AGENTS.md 纪律）；清单格式与验签失败的 fail-closed 行为在 M5 实现时补决策细节 | — |
+| 通用 | 更新通道与签名验签代码属更新器（runtime/update 库 + CLI/托盘触发面），凭据经系统 keyring（更新器客户端零私有凭据：信任锚为随包分发公钥）；清单格式与验签失败的 fail-closed 行为细节已随 M5-12 补决策——[DEC-032](../decisions/DEC-032-update-client-fail-closed.md) | — |
 
 复核结论：暂定默认值（Linux apt 唯一路径、Windows 签名应用内更新器）**经受住
 壳选型复核，予以冻结**；差分策略记录为"全量优先、差分按 M5 实测评估"，不声明
