@@ -14,14 +14,14 @@
 #include <thread>
 #include <utility>
 
-#include <mirage/platform/linux/linux_desktop_environment.hpp>
-
 #ifdef _WIN32
 #include <windows.h>
 
 #include <mirage/platform/windows/windows_desktop_environment.hpp>
 #else
 #include <csignal>
+
+#include <mirage/platform/linux/linux_desktop_environment.hpp>
 #endif
 
 namespace {
