@@ -10,6 +10,8 @@ include(CTest)
 
 option(MIRAGE_BUILD_TESTS "Build Mirage tests" ${BUILD_TESTING})
 option(MIRAGE_WARNINGS_AS_ERRORS "Treat Mirage warnings as errors" ON)
+option(MIRAGE_ENABLE_PACKAGING
+    "Configure CPack DEB package generation (M5-11, DEC-031)" OFF)
 option(MIRAGE_ENABLE_CLANG_TIDY "Run clang-tidy while compiling Mirage targets" OFF)
 option(MIRAGE_VERIFY_DEPENDENCIES
     "Verify pinned third_party commits against dependencies.lock.json" ON)
@@ -68,6 +70,13 @@ add_subdirectory(apps)
 if(MIRAGE_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
+endif()
+
+# ---- packaging (M5-11, DEC-031) ----------------------------------------------
+# The .deb ships the binaries this build tree produced. Off by default: the
+# packaging configuration is release-engineering, not a build prerequisite.
+if(MIRAGE_ENABLE_PACKAGING)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/packaging-deb.cmake")
 endif()
 
 # ---- developer conveniences --------------------------------------------------

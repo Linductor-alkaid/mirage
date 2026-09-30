@@ -32,8 +32,9 @@ settings）与 `apps/desktop`、`apps/tray` 定义为 Mirage 桌面产品，但�
    WebKitGTK 版本碎片化且壳为 Rust）与 Electron（自带 Chromium 但引入 Node 运行时）。
    M3 冻结依据的 PoC 取证：窗口嵌入、本地资产加载、IPC 桥延迟基线、包体积与内存
    基线，见 [壳 PoC 基线报告](../benchmarks/shell-poc-baselines.md)与修订节。
-4. **分发打包【已定案】**：Linux 发布 `.deb`；Windows 发布 `exe` 安装包（NSIS /
-   WiX-exe 等具体生成器在 M5 里程碑计划确定）。版本与发布遵循工程规范 10.5
+4. **分发打包【已定案】**：Linux 发布 `.deb`；Windows 发布 `exe` 安装包（生成器
+   已定案 NSIS——2026-09-30 M5-11，见
+   [DEC-031](DEC-031-windows-installer-generator.md) 修订记录）。版本与发布遵循工程规范 10.5
    （语义化版本、CHANGELOG、SBOM 与兼容性门禁）。
 5. **更新通道【已冻结 2026-09-21】**：Linux 的 deb 以 apt 仓库为唯一更新路径（包管
    理器与自更新器不并行，避免互相覆盖），仓库经 GPG 签名；Windows 以签名的应用内
@@ -184,3 +185,12 @@ closed）、npm 哈希活动门禁、`mirage_require_locked_artifact()` 消费�
   禁用。
 
 验证证据见 [M5 计划](../plans/m5-desktop-product.md) M5-01 验证记录。
+
+### 2026-09-30：M5-11 安装器生成器定案（NSIS，DEC-031）
+
+决策 4 遗留的"NSIS / WiX-exe 等具体生成器在 M5 里程碑计划确定"随 `M5-11`
+定案：**NSIS**（`packaging/windows/mirage.nsi` + build-installer.ps1，
+fail closed；AUMID 注册表键随安装器写入），WiX 否决理由与取证分级见
+[DEC-031](DEC-031-windows-installer-generator.md)。Linux `.deb` 由 CPack
+DEB 产出（packaging/linux），apt 仓库 GPG 签名/验签与更新清单演练脚本随
+`M5-11` 交付（packaging/linux、packaging/update）。

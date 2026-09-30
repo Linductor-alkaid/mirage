@@ -140,3 +140,26 @@
   门禁、决策 3 Win32 前端并发纪律、决策 4 STA + 泵升级路径）。
 - 工作项：[M4 计划](../plans/m4-windows-backend.md) `M4-05`（决策落地进度由
   该工作项跟踪，本记录状态不表示实施进度）。
+
+## 修订记录
+
+### 2026-09-30：M5-11 toast 通知承载重议评估（结论：不重开）
+
+M5-11 按本记录"M5 重议触发条件"完成复核，触发条件**仅半边成立**：
+
+- **安装器 AUMID 载体——已成立**：[DEC-031](DEC-031-windows-installer-generator.md)
+  的 NSIS 安装器写入 AppUserModelId 注册表键
+  （`HKCU\Software\Classes\AppUserModelId\Mirage.Desktop`，
+  DisplayName），快捷方式 AUMID 属性插件留发布机——"安装器可交付 AUMID
+  载体"自此成立。
+- **产品需求——未成立**：M5-10 已交付托盘承载面（Shell_NotifyIcon 常驻
+  图标 + 菜单：运行状态 / 任务暂停恢复 / 快速进入 Mirage，DEC-030），
+  M5 的通知类产品需求（状态可见性 + 用户操作入口）由托盘覆盖；**无
+  Action Center 驻留、无点击激活 toast 交互、无富内容通知需求**进入
+  M5 范围（M5 计划范围节与非目标均未列）。
+
+结论：重议触发条件为合取（需求 ∧ 载体），需求半边不成立 → **本记录维持
+不重开**：M5 通知承载 = Shell_NotifyIcon 托盘面（DEC-030），WinRT toast
+维持"后续需求触发时凭新证据重议"（AUMID 载体已就位，届时重议成本降低）。
+`M5-11` 的 toast 重议评估结论以此修订记录留痕（[M5 计划](../plans/m5-desktop-product.md)
+`M5-11` 工作项验收）。

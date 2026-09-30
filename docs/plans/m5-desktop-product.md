@@ -7,7 +7,8 @@
 > 产品化规模复核完成 2026-09-28（CI 取证已由 `M5-09` PR 补录）；
 > `M5-09` Desktop Overlay 完成 2026-09-30（DEC-029 承载机制定案，CI 取证
 > 已由 `M5-10` PR 补录）；`M5-10` Tray 进程形态完成 2026-09-30（DEC-030
-> 承载机制与任务暂停/恢复面定案））
+> 承载机制与任务暂停/恢复面定案，CI 取证已由 `M5-11` PR 补录）；
+> `M5-11` 打包与更新通道完成 2026-09-30（DEC-031 安装器生成器定案））
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：[M3](m3-mirador-integration.md)（已完成：Mirador 视觉集成与壳选型冻结——
@@ -15,7 +16,7 @@
 > Backend 与产品进程 Windows 化——命名管道 IPC、`mirage-service` / CLI 双平台
 > 可运行）
 > 建议发布点：`release-epsilon`（tag 待维护者授权后创建）
-> 更新日期：2026-09-30（`M5-10`）
+> 更新日期：2026-09-30（`M5-11`）
 
 ## 目标
 
@@ -201,13 +202,22 @@
       Executor owner）；承载机制按平台能力如实降级（Windows 通知区沿用
       DEC-018 既有承载面的产品化菜单扩展；Linux StatusNotifierItem +
       最小 dbusmenu，纯 gio 依赖族，无指示器宿主 → null 响亮退出）；
-      wire 面 `task.pause` / `task.resume` 附加扩展（DEC-012，golden v10）。
-- [ ] `M5-11` 打包与更新通道（DEC-006 分发形态兑现）：Linux `.deb` + GPG
-      签名 apt 仓库（签名 key 管理与发布机隔离——shell-binary-locking
-      既定）；Windows `exe` 安装器（生成器随实现定案并记录，DEC-006 决策 4
-      列 NSIS / WiX 为候选）+ Authenticode 签名；安装 / 升级 / 卸载验证与
-      更新通道演练（清单验签 fail closed）；toast 通知承载重议评估（DEC-018 M5
-      触发条件复核，结论留痕）。
+      wire 面 `task.pause` / `task.resume` 附加扩展（DEC-012，golden v10）；
+      CI 取证已由 `M5-11` PR 补录（2026-09-30，工程规范第 4 节勾选规则
+      第 1 条）。
+- [x] `M5-11` 打包与更新通道（完成 2026-09-30；
+      [DEC-031](../decisions/DEC-031-windows-installer-generator.md) 安装器
+      生成器定案 NSIS，WiX 否决理由在案；toast 重议结论入 DEC-018 修订
+      记录——不重开）：Linux `.deb`（CPack DEB）+ GPG 签名 apt 仓库
+      （make-apt-repo.sh + verify-apt-repo.sh；签名 key 发布机隔离，本机
+      临时测试 key 演练）；Windows `exe` 安装器（mirage.nsi +
+      build-installer.ps1，makensis fail closed）+ Authenticode 签名脚本
+      （authenticode-sign.ps1，证书注入 fail closed，不入仓库）；安装 /
+      升级 / 卸载验证与更新通道演练（清单验签 fail closed——本地演练五步
+      全过：签验/篡改文件拒/恢复过/篡改清单拒/回滚收敛；真实安装/升级/
+      卸载需 root，留 CI/维护者机器补跑）；toast 通知承载重议评估（结论：
+      触发条件需求半边不成立 → 不重开，DEC-018 修订记录留痕）。
+
 - [ ] `M5-12` Windows 应用内更新器：更新清单（版本 / URL / SHA-256 /
       ed25519 签名）验签 fail closed + 原子切换与回滚（shell-binary-locking
       机制设计兑现；凭据经系统 keyring）；对签名清单完成全量更新演练
@@ -1696,3 +1706,90 @@ CI 结论（工程规范第 4 节勾选规则第 1 条，先例 c3f1629）。
   `(ua(ia{sv}av))` 两元组解析 GetLayout 应答，canonical dbusmenu 签名为
   三元组 `(uia(ia{sv}av))`（revision/parent/layout，libdbusmenu 导出
   XML 在案）——真实宿主按三元组解析，实现维持规范形状，测试解析需校正。
+
+2026-09-30：`M5-10` CI 取证完成（补录，由 `M5-11` PR 兑现自述义务，即其
+验证记录限制与补跑条件①）；PR
+[#64](https://github.com/Linductor-alkaid/mirage/pull/64)（headSha =
+`87d9fad`）已合并（2026-09-30T02:27:08Z，维护者授权），CI run
+36658320402 全部 8 作业 pass——Linux 五预设矩阵 / format &
+public-header boundaries / frontend / windows msvc (full tree)
+（`gh pr view 64` stateCheckRollup 与 `gh pr checks 64` 实测核验，含
+第 2 轮验证发现的连接失败空解引与迭代器槽型缺陷修复后复跑）。复选框
+同步：`M5-10` 复选框已随 `M5-10` PR 翻转，本记录仅补录 CI 结论（工程
+规范第 4 节勾选规则第 1 条，先例 c3f1629）。
+
+2026-09-30：`M5-11` 打包与更新通道完成（DEC-031 安装器生成器定案 NSIS、
+DEC-018 toast 重议结论不重开、DEC-006 决策 4 修订；本 PR 的 CI 结论按
+仓库先例由下一工作项 PR 补录）。
+
+- 范围：
+  - **Linux `.deb`（CPack DEB）**：`-DMIRAGE_ENABLE_PACKAGING=ON` 后
+    `cpack -G DEB` 产出 `mirage_0.1.0_amd64.deb`——四产品进程安装规则
+    （mirage / mirage-service / mirage-tray 恒打包；mirage-desktop 与
+    chrome-sandbox 随桌面壳构建携带，CEF payload 边界声明）、
+    dpkg-shlibdeps 自动依赖、postinst（chrome-sandbox setuid 尽力而为，
+    不阻断安装）/ prerm（mirage service shutdown 尽力而为）。
+  - **apt 仓库 + GPG 签名（签名 key 发布机隔离）**：
+    `packaging/linux/make-apt-repo.sh`（apt-ftparchive Packages/Release、
+    InRelease 明签 + Release.gpg 分离签名；**fail closed**——无 key 且无
+    `--test-key` 拒绝出仓；`--test-key` 生成仓库内临时演练 key，生产
+    key 经 GNUPGHOME / --key-id / MIRAGE_GPG_KEY_ID 注入且永不入仓）；
+    `verify-apt-repo.sh`（专用 GNUPGHOME gpgv 验签 InRelease +
+    Release.gpg，任一失败即非零）。
+  - **Windows `exe` 安装器（DEC-031 定案 NSIS）**：
+    `packaging/windows/mirage.nsi`（四进程恒打包；桌面壳 + CEF payload
+    随 `MIRAGE_WITH_DESKTOP`；开始菜单快捷方式；AUMID 注册表键
+    AppUserModelId——DEC-018 载体交付；卸载器 + ARP 注册）；
+    `build-installer.ps1`（makensis 缺席/载荷缺文件 fail closed）。
+    Authenticode：`authenticode-sign.ps1`（signtool SHA256 + 时间戳，
+    证书经 MIRAGE_CODESIGN_* 环境变量注入，缺失即 fail closed——证书
+    不入仓库）。本机无 makensis/无证书：exe 构建与签名取证留发布机/
+    CI windows 作业（补跑条件）。
+  - **更新通道演练（清单验签 fail closed）**：
+    `packaging/update/make-update-manifest.sh`（ed25519/openssl 签名，
+    临时演练 key fail closed）+ `verify-update-manifest.sh`（签名 →
+    schema 门 → 逐文件 sha256/size，任一失败即非零）+ `rehearsal.sh`
+    五步演练。
+  - **toast 通知承载重议评估（DEC-018 M5 触发条件复核）**：结论
+    **不重开**——触发条件两半：安装器 AUMID 载体已成立（DEC-031）、
+    产品需求半边不成立（M5 通知类需求由 M5-10 托盘覆盖，无 Action
+    Center 驻留/点击激活/富内容通知需求）→ 合取不成立，维持 DEC-018；
+    结论以 DEC-018 修订记录留痕。
+- 依据：[DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md)
+  （决策 4/5）、
+  [DEC-018](../decisions/DEC-018-windows-notification-carrier.md)
+  （触发条件与结论留痕）、
+  [DEC-030](../decisions/DEC-030-tray-carrier-and-task-pause-face.md)
+  （托盘面）、
+  [DEC-031](../decisions/DEC-031-windows-installer-generator.md)（本工作
+  项新决策记录）；本计划 `M5-11` 工作项。
+- 验证（本机 Linux，无 root——真实安装/升级/卸载留补跑，见限制节）：
+  - `.deb` 构建与检查：`cpack -G DEB` 产出 `mirage_0.1.0_amd64.deb`；
+    `dpkg-deb --info` control 字段齐全（Package/Version/Architecture/
+    自动 shlibdeps Depends/Description）+ postinst/prerm 在册；
+    `dpkg-deb --contents` 二进制路径正确；控制脚本 `sh -n` 语法通过。
+  - apt 仓库演练：`make-apt-repo.sh --test-key` 产出 pool/ +
+    dists/stable（InRelease/Packages[.gz]/Release/Release.gpg）并记录
+    演练 key；`verify-apt-repo.sh` 独立 gpgv 验签链全过（InRelease +
+    Release.gpg）；**fail closed 负演练**：无 key 拒签 ✓、错误公钥拒验 ✓。
+  - 更新通道演练（rehearsal.sh 五步）：签发+验证 OK；篡改文件 → 拒；
+    恢复 → OK；篡改清单 → 拒；回滚（重发上一好清单+产物）→ 收敛 OK。
+  - 全树 debug 构建（含打包选项）0 错；`mirage-format-check` 通过；
+    `mirage-boundary-check` 43 公共头 0 违规（无新公共头）；MinGW 交叉
+    `mirage_platform` 全绿（Win32 无涉本轮新码，回归确认）。
+- 限制与补跑条件：① 本 PR 的 CI 结论按仓库先例由下一工作项 PR 补录；
+  ② 真实安装/升级/卸载验证需 root（本会话沙箱 no-new-privileges，dpkg
+  安装不可达）——留 CI Linux root 作业或维护者机器（dpkg -i / upgrade /
+  purge 序列 + apt file:// 仓库消费验证）；③ Windows 安装器构建
+  （makensis）与 Authenticode 签名取证需 Windows 发布机/CI（维护者
+  机器兜底，DEC-017 证据分级）；④ NSIS 快捷方式 AUMID 属性插件
+  （ApplicationID）留发布机——安装器已交付 AppUserModelId 注册表键
+  （DEC-018 触发条件载体半边成立）；⑤ 图标资产（tray 指示器 .ico、
+  开始菜单快捷方式图标）留后续/发布机补齐。
+- 同步：[DEC-031](../decisions/DEC-031-windows-installer-generator.md)
+  （新增，Accepted）、
+  [DEC-018](../decisions/DEC-018-windows-notification-carrier.md)
+  （M5-11 重议评估修订：不重开）、
+  [DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md)（决策 4
+  生成器定案 NSIS + 修订记录）、
+  [总计划](mirage-implementation-plan.md) 状态叙述与决策表。
