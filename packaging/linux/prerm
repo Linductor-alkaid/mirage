@@ -1,0 +1,12 @@
+#!/bin/sh
+# Mirage .deb prerm (M5-11, DEC-031): best-effort graceful shutdown of a
+# running background service before removal/upgrade. Never fatal: the
+# package must be removable even when the service ignores us or the CLI is
+# absent.
+set +e
+
+if [ -x /usr/bin/mirage ]; then
+    timeout 5 /usr/bin/mirage service shutdown >/dev/null 2>&1 || true
+fi
+
+exit 0
