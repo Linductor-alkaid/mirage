@@ -257,14 +257,20 @@ void menu_method_call(GDBusConnection *, const gchar *, const gchar *, const gch
     if (g_strcmp0(method, "GetGroupProperties") == 0) {
         GVariantBuilder properties;
         g_variant_builder_init(&properties, G_VARIANT_TYPE("a(ia{sv})"));
-        GVariantIter iterator;
+        // Allocation-style iterator (GVariantIter**): the varargs contract
+        // for an "ai" slot in g_variant_get — handing the address of a
+        // STACK GVariantIter overwrites it with the heap pointer and the
+        // first g_variant_iter_loop aborts on a corrupted type info
+        // (verification round 2, defect 7). Freed after the loop.
+        GVariantIter *iterator = nullptr;
         gint id = 0;
         g_variant_get(parameters, "(aias)", &iterator, nullptr);
-        while (g_variant_iter_loop(&iterator, "i", &id)) {
+        while (g_variant_iter_loop(iterator, "i", &id)) {
             GVariant *props = menu_properties_variant(*surface, static_cast<guint>(id));
             GVariant *values[2] = {g_variant_new_int32(id), props};
             g_variant_builder_add_value(&properties, g_variant_new_tuple(values, 2));
         }
+        g_variant_iter_free(iterator);
         GVariantBuilder reply;
         g_variant_builder_init(&reply, G_VARIANT_TYPE("(a(ia{sv}))"));
         g_variant_builder_add_value(&reply, g_variant_builder_end(&properties));
@@ -475,23 +481,28 @@ GioTrayCarrier::run(const TrayCarrierContext &context,
 
     GDBusNodeInfo *item_info = nullptr;
     GDBusNodeInfo *menu_info = nullptr;
+    // The exports ride the same empty-diagnostic guard as the registration
+    // call below: when the dedicated connection could not be created (the
+    // bus died between open() and run()), item_info/menu_info stay null and
+    // a null connection must not be handed to the export (verification
+    // round 2, defect 6 — a pump-thread SIGSEGV on that path).
     if (report.diagnostic.empty()) {
         item_info = g_dbus_node_info_new_for_xml(kItemXml, nullptr);
         menu_info = g_dbus_node_info_new_for_xml(kMenuXml, nullptr);
-    }
-    surface.item_registration =
-        g_dbus_connection_register_object(surface.connection, kItemPath, item_info->interfaces[0],
-                                          &kItemVtable, &surface, nullptr, nullptr);
-    surface.menu_registration =
-        g_dbus_connection_register_object(surface.connection, kMenuPath, menu_info->interfaces[0],
-                                          &kMenuVtable, &surface, nullptr, nullptr);
-    // The conventional path hosts may probe first (same vtable, same item).
-    surface.alt_item_registration = g_dbus_connection_register_object(
-        surface.connection, kItemAltPath, item_info->interfaces[0], &kItemVtable, &surface, nullptr,
-        nullptr);
-    if (surface.item_registration == 0 || surface.menu_registration == 0 ||
-        surface.alt_item_registration == 0) {
-        report.diagnostic = "tray indicator object export failed";
+        surface.item_registration = g_dbus_connection_register_object(
+            surface.connection, kItemPath, item_info->interfaces[0], &kItemVtable, &surface,
+            nullptr, nullptr);
+        surface.menu_registration = g_dbus_connection_register_object(
+            surface.connection, kMenuPath, menu_info->interfaces[0], &kMenuVtable, &surface,
+            nullptr, nullptr);
+        // The conventional path hosts may probe first (same vtable, same item).
+        surface.alt_item_registration = g_dbus_connection_register_object(
+            surface.connection, kItemAltPath, item_info->interfaces[0], &kItemVtable, &surface,
+            nullptr, nullptr);
+        if (surface.item_registration == 0 || surface.menu_registration == 0 ||
+            surface.alt_item_registration == 0) {
+            report.diagnostic = "tray indicator object export failed";
+        }
     }
 
     // Register with the watcher so the indicator materializes.
@@ -578,8 +589,14 @@ GioTrayCarrier::run(const TrayCarrierContext &context,
     if (surface.item_registration != 0) {
         g_dbus_connection_unregister_object(surface.connection, surface.item_registration);
     }
-    g_dbus_node_info_unref(item_info);
-    g_dbus_node_info_unref(menu_info);
+    // Null-tolerant teardown: both stay null when the export block was
+    // skipped (connection failure).
+    if (item_info != nullptr) {
+        g_dbus_node_info_unref(item_info);
+    }
+    if (menu_info != nullptr) {
+        g_dbus_node_info_unref(menu_info);
+    }
     g_main_loop_unref(surface.loop);
     g_main_context_pop_thread_default(surface.context);
     g_main_context_unref(surface.context);
