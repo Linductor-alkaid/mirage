@@ -169,6 +169,8 @@ struct SessionChatRequest {
     std::string session_id;
     std::string text;
     bool agent = false; ///< DEC-034: conversational harness; absent preserves legacy dialog.
+    std::string access = "default"; ///< DEC-037: read_only hides all tools
+    std::string reasoning = "";     ///< empty/default or minimal/low/medium/high
 };
 struct CancelChatRequest {
     std::string session_id;

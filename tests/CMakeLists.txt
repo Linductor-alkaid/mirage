@@ -2,7 +2,7 @@
 # binary using tests/support/test.hpp; labels drive CI selection (docs/
 # project/project-standards.md section 11).
 add_executable(native_chat_model_test desktop/native_chat_model_test.cpp
-    ${CMAKE_SOURCE_DIR}/apps/native/chat_model.cpp)
+    ${CMAKE_SOURCE_DIR}/apps/native/chat_model.cpp ${CMAKE_SOURCE_DIR}/apps/native/attachment.cpp)
 target_include_directories(native_chat_model_test PRIVATE ${CMAKE_SOURCE_DIR}/apps/native)
 target_compile_features(native_chat_model_test PRIVATE cxx_std_20)
 mirage_enable_warnings(native_chat_model_test)
@@ -56,23 +56,6 @@ mirage_enable_warnings(desktop_observation_test)
 target_link_libraries(desktop_observation_test PRIVATE Mirage::desktop)
 add_test(NAME desktop_observation_test COMMAND desktop_observation_test)
 
-# M5-02: the desktop shell bridge core (renderer transport ↔ Local IPC
-# session mapping) is CEF-free by construction, so its mapping tests run on
-# every platform without a browser. The single source file is compiled into
-# the test directly (the shell target itself is opt-in and CEF-linked).
-add_executable(bridge_core_test desktop/bridge_core_test.cpp
-    ${CMAKE_SOURCE_DIR}/apps/desktop/src/bridge_core.cpp)
-target_compile_features(bridge_core_test PUBLIC cxx_std_20)
-mirage_enable_warnings(bridge_core_test)
-target_include_directories(bridge_core_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/apps/desktop/src
-)
-target_link_libraries(bridge_core_test PRIVATE Mirage::ipc)
-add_test(NAME bridge_core_test COMMAND bridge_core_test)
-set_tests_properties(bridge_core_test PROPERTIES
-    LABELS "unit"
-    TIMEOUT 60
-)
 set_tests_properties(desktop_observation_test PROPERTIES
     LABELS "unit"
     TIMEOUT 60
@@ -997,39 +980,6 @@ set_tests_properties(task_pause_test PROPERTIES
 )
 endif()
 
-# M1.5-03 dev bridge: the codec tests are pure byte machinery; the relay
-# tests run a real DevBridgeLoop on the Executor against a scripted echo
-# upstream over a temporary Unix socket. Both link only mirage_devbridge_core
-# (executor headers come through its SYSTEM include dir, executor symbols
-# through its LINK_ONLY interface).
-# POSIX-only: the devbridge transport (see apps/CMakeLists.txt).
-# 
-if(UNIX)
-add_executable(websocket_test devbridge/websocket_test.cpp)
-target_compile_features(websocket_test PUBLIC cxx_std_20)
-mirage_enable_warnings(websocket_test)
-target_link_libraries(websocket_test PRIVATE mirage_devbridge_core)
-add_test(NAME websocket_test COMMAND websocket_test)
-set_tests_properties(websocket_test PROPERTIES
-    LABELS "unit"
-    TIMEOUT 60
-)
-endif()
-
-# POSIX-only: the devbridge transport (see apps/CMakeLists.txt).
-# 
-if(UNIX)
-add_executable(bridge_relay_test devbridge/bridge_relay_test.cpp)
-target_compile_features(bridge_relay_test PUBLIC cxx_std_20)
-mirage_enable_warnings(bridge_relay_test)
-target_link_libraries(bridge_relay_test PRIVATE mirage_devbridge_core)
-add_test(NAME bridge_relay_test COMMAND bridge_relay_test)
-set_tests_properties(bridge_relay_test PROPERTIES
-    LABELS "integration"
-    TIMEOUT 120
-)
-endif()
-
 # M3-01 visual contract (DEC-016): VisualSnapshot render forms and the
 # VisualReferenceRegistry publication contract, including a concurrent
 # writer/reader atomicity scenario (a TSAN target).
@@ -1219,7 +1169,7 @@ set_tests_properties(dependency_lock_gate_test PROPERTIES
 
 if(UNIX)
     add_executable(native_agent_integration_test runtime/native_agent_integration_test.cpp
-        ${CMAKE_SOURCE_DIR}/apps/native/runtime_bridge.cpp)
+        ${CMAKE_SOURCE_DIR}/apps/native/runtime_bridge.cpp ${CMAKE_SOURCE_DIR}/apps/native/attachment.cpp)
     target_include_directories(native_agent_integration_test PRIVATE
         ${CMAKE_SOURCE_DIR}/apps/native)
     target_include_directories(native_agent_integration_test SYSTEM PRIVATE

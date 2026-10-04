@@ -600,3 +600,19 @@ model为非空≤1024bytes模型ID。未知用量整对象省略，旧帧不变�
 `context_window_tokens`整数；缺失/0表示未知，其余2048–2000000。非零预算应用至Mira
 ProfileLimits。未配置保留原运行默认，前端仍报告分母未知，不把默认当供应商容量。
 保存/停用沿既有模型设置与Executor路径；活动会话运行中不允许修改模型配置。
+
+
+### DEC-037 增量：原生配置目录与提交选项
+
+`model.get/set` 的schema=1 JSON字符串新增可选 `models` 数组（至多12个ModelSettings）。
+每项display_name非空、至多128bytes且唯一，字段各至多2048bytes；整文档至多64KiB。
+`model`仍表示当前应用配置；`supports_reasoning`为可选布尔，默认false。
+目录保存和活动配置同一model.set完成，保留其他配置块。省略/空models保留已有目录，
+支持旧客户端；每次切换拒绝活动模型任务。重启从service.json恢复目录。
+
+`session.chat`新增可选`access`（default/read_only，缺省default）、`reasoning`
+（空字符串/minimal/low/medium/high，缺省空）。未知值/错误类型decode拒绝；
+未声明supports_reasoning时带reasoning的请求在admission前回unavailable。
+read_only不提供工具，default仅当前注册wait；不映射到桌面PermissionPolicy。
+选择和文本随请求冻结，对已有运行轮次不生效。文本附件使用现有text载荷，受同一16KiB
+限制，明确来源为用户主动选择的文本，并非文件上传协议或自动文件访问。

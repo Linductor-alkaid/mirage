@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Mirage
+Comment=Agent desktop workbench
+Exec=mirage start
+Icon=mirage
+Terminal=false
+Categories=Development;
+StartupWMClass=org.mirage.native

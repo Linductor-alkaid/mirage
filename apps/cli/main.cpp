@@ -19,6 +19,7 @@
 #include <windows.h>
 #else
 #include <fcntl.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #endif
 #include <cstdlib>
@@ -67,7 +68,8 @@ bool takes_value(const std::string &name) {
            name == "--exec" || name == "--step-timeout" || name == "--wait" ||
            name == "--read-root" || name == "--perm" || name == "--confirm" || name == "--config" ||
            name == "--state-dir" || name == "--session" || name == "--limit" || name == "--file" ||
-           name == "--parameters-file" || name == "--digest" || name == "--policy";
+           name == "--parameters-file" || name == "--digest" || name == "--policy" ||
+           name == "--shell" || name == "--tray";
 }
 
 /// Splits `--name value` / `--name=value` pairs; returns false on usage
@@ -427,6 +429,276 @@ int command_service_start(int argc, char **argv) {
               << std::chrono::duration_cast<std::chrono::seconds>(wait).count() << "s (check "
               << service_display << " output)\n";
     return kExitFailure;
+}
+
+// --- product start -----------------------------------------------------------
+
+/// Resolves a sibling product binary next to this executable (the same
+/// layout rule the service spawn uses).
+std::optional<std::string> sibling_binary(const std::string &name) {
+#ifdef _WIN32
+    wchar_t self_wide[4096];
+    const DWORD self_length =
+        ::GetModuleFileNameW(nullptr, self_wide, static_cast<DWORD>(std::size(self_wide)));
+    if (self_length == 0 || self_length >= std::size(self_wide)) {
+        return std::nullopt;
+    }
+    std::filesystem::path path = std::filesystem::path(self_wide).parent_path() / (name + ".exe");
+    if (!std::filesystem::exists(path)) {
+        path = std::filesystem::path(self_wide).parent_path() / name;
+    }
+    if (!std::filesystem::exists(path)) {
+        return std::nullopt;
+    }
+    return path.string();
+#else
+    char self_path[4096];
+    const ssize_t length = ::readlink("/proc/self/exe", self_path, sizeof(self_path) - 1);
+    if (length <= 0) {
+        return std::nullopt;
+    }
+    self_path[length] = '\0';
+    const std::string self{self_path};
+    const auto slash = self.rfind('/');
+    const std::string path =
+        (slash == std::string::npos ? std::string(".") : self.substr(0, slash)) + "/" + name;
+    if (!std::filesystem::exists(path)) {
+        const auto development = std::filesystem::path(path).parent_path() /
+                                 (name == "mirage-tray" ? "tray" : "native") / name;
+        if ((name == "mirage-native" || name == "mirage-tray") &&
+            std::filesystem::exists(development))
+            return development.string();
+        return std::nullopt;
+    }
+    return path;
+#endif
+}
+
+/// Detached product-face spawn: the child must outlive this short-lived
+/// launcher and must not hold its stdio (the same pipe-EOF discipline as the
+/// service daemon, BUG-20260916-001). Returns the child pid, or nullopt when
+/// the spawn itself failed.
+std::optional<long> spawn_detached_face(const std::string &binary, const std::string &socket_path) {
+#ifdef _WIN32
+    auto quote = [](const std::string &value) {
+        std::string result = "\"";
+        std::size_t slashes = 0;
+        for (char character : value) {
+            if (character == '\\') {
+                ++slashes;
+                continue;
+            }
+            result.append(slashes * (character == '"' ? 2 : 1), '\\');
+            slashes = 0;
+            if (character == '"')
+                result += '\\';
+            result += character;
+        }
+        result.append(slashes * 2, '\\');
+        return result + "\"";
+    };
+    std::string command = quote(binary);
+    if (!socket_path.empty())
+        command += " --socket " + quote(socket_path);
+    STARTUPINFOA startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    const DWORD flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP;
+    const auto *previous = std::getenv("MIRAGE_NATIVE_SOCKET");
+    const std::string previous_value = previous ? previous : "";
+    if (!socket_path.empty())
+        (void)::_putenv_s("MIRAGE_NATIVE_SOCKET", socket_path.c_str());
+    const BOOL created = ::CreateProcessA(nullptr, command.data(), nullptr, nullptr, FALSE, flags,
+                                          nullptr, nullptr, &startup, &process);
+    if (!socket_path.empty())
+        (void)::_putenv_s("MIRAGE_NATIVE_SOCKET", previous_value.c_str());
+    if (!created) {
+        return std::nullopt;
+    }
+    const long pid = static_cast<long>(process.dwProcessId);
+    ::CloseHandle(process.hThread);
+    ::CloseHandle(process.hProcess);
+    return pid;
+#else
+    const pid_t child = ::fork();
+    if (child < 0) {
+        return std::nullopt;
+    }
+    if (child == 0) {
+        ::setsid();
+        const int null_fd = ::open("/dev/null", O_RDWR);
+        if (null_fd >= 0) {
+            ::dup2(null_fd, STDIN_FILENO);
+            ::dup2(null_fd, STDOUT_FILENO);
+            ::dup2(null_fd, STDERR_FILENO);
+            if (null_fd > STDERR_FILENO) {
+                ::close(null_fd);
+            }
+        }
+        if (!socket_path.empty() && ::setenv("MIRAGE_NATIVE_SOCKET", socket_path.c_str(), 1) != 0)
+            ::_exit(127);
+        if (socket_path.empty())
+            ::execl(binary.c_str(), binary.c_str(), static_cast<char *>(nullptr));
+        else
+            ::execl(binary.c_str(), binary.c_str(), "--socket", socket_path.c_str(),
+                    static_cast<char *>(nullptr));
+        ::_exit(127);
+    }
+    return static_cast<long>(child);
+#endif
+}
+
+/// Liveness probe for a spawned face pid. On POSIX the child is reaped
+/// first (WNOHANG): an already-exited child is a zombie, and a bare
+/// kill(pid, 0) reports zombies — e.g. a failed exec — as alive.
+bool spawned_face_alive(long pid) {
+#ifdef _WIN32
+    const HANDLE handle =
+        ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(pid));
+    if (handle == nullptr) {
+        return false;
+    }
+    DWORD code = 0;
+    const bool alive = ::GetExitCodeProcess(handle, &code) && code == STILL_ACTIVE;
+    ::CloseHandle(handle);
+    return alive;
+#else
+    return ::waitpid(static_cast<pid_t>(pid), nullptr, WNOHANG) == 0;
+#endif
+}
+
+/// `mirage start`: the one-command product boot. Ensures the runtime service
+/// is up (idempotent — a live endpoint is reused, not respawned), then
+/// launches the tray and native UI as separate processes.
+/// Runtime workers belong to their service/UI owners; this synchronous
+/// command only bootstraps and exits. Whole-product exit is tracked in M6-04.
+int command_start(int argc, char **argv) {
+    GlobalOptions options;
+    std::chrono::milliseconds wait{10000};
+    bool with_shell = true;
+    bool with_tray = true;
+    std::string shell_binary;
+    std::string tray_binary;
+    int index = 2; // skip the program name and "start"
+    std::vector<std::string> extra;
+    if (!consume_options(
+            argc, argv, index,
+            [&](const std::string &name, const std::string &value) {
+                if (name == "--wait") {
+                    wait = std::chrono::seconds{std::stol(value)};
+                    return true;
+                }
+                if (name == "--no-shell") {
+                    with_shell = false;
+                    return true;
+                }
+                if (name == "--no-tray") {
+                    with_tray = false;
+                    return true;
+                }
+                if (name == "--shell") {
+                    shell_binary = value;
+                    return true;
+                }
+                if (name == "--tray") {
+                    tray_binary = value;
+                    return true;
+                }
+                return parse_common_option(name, value, options);
+            },
+            extra)) {
+        return kExitUsage;
+    }
+    if (!extra.empty()) {
+        std::cerr << kProgramName << ": 'start' takes no operands\n";
+        return kExitUsage;
+    }
+
+    // 1) Service: reuse a live endpoint, otherwise bootstrap the daemon via
+    // the proven `service start` path (spawn + readiness probe).
+    {
+        auto probe = client_for(options);
+        const auto hello =
+            probe.call(mirage::runtime::ipc::HelloRequest{}, std::chrono::milliseconds{1000});
+        if (hello.ok) {
+            const std::string socket = options.socket_path.empty()
+                                           ? mirage::runtime::ipc::default_socket_path()
+                                           : options.socket_path;
+            std::cout << "service already running at " << socket << '\n';
+        } else {
+            std::vector<char *> service_argv{const_cast<char *>("mirage"),
+                                             const_cast<char *>("service"),
+                                             const_cast<char *>("start")};
+            std::string wait_arg;
+            if (!options.socket_path.empty()) {
+                service_argv.push_back(const_cast<char *>("--socket"));
+                service_argv.push_back(options.socket_path.data());
+            }
+            service_argv.push_back(const_cast<char *>("--wait"));
+            wait_arg =
+                std::to_string(std::chrono::duration_cast<std::chrono::seconds>(wait).count());
+            service_argv.push_back(wait_arg.data());
+            service_argv.push_back(nullptr);
+            const int code = command_service_start(static_cast<int>(service_argv.size() - 1),
+                                                   service_argv.data());
+            if (code != kExitOk) {
+                return code;
+            }
+        }
+    }
+
+    // 2) Product faces: detached spawns with a best-effort liveness check. A
+    // face that dies immediately is a hard error — the command asked for a
+    // working desktop, not a silent flash.
+    struct Face {
+        const char *name;
+        bool enabled;
+        const std::string &override_path;
+    };
+    const Face faces[] = {
+        {"mirage-tray", with_tray, tray_binary},
+        {"mirage-native", with_shell, shell_binary},
+    };
+    std::vector<std::pair<std::string, long>> spawned;
+    for (const Face &face : faces) {
+        if (!face.enabled) {
+            continue;
+        }
+        std::optional<std::string> binary;
+        if (!face.override_path.empty()) {
+            // An explicit override is validated too: a typo'd path must fail
+            // the command, not flash a silent exec-127.
+            if (!std::filesystem::exists(face.override_path)) {
+                std::cerr << kProgramName << ": " << face.override_path << " does not exist\n";
+                return kExitFailure;
+            }
+            binary = face.override_path;
+        } else {
+            binary = sibling_binary(face.name);
+        }
+        if (!binary) {
+            std::cerr << kProgramName << ": " << face.name
+                      << " not found next to the mirage binary (was it packaged?)\n";
+            return kExitFailure;
+        }
+        const std::optional<long> pid = spawn_detached_face(*binary, options.socket_path);
+        if (!pid) {
+            std::cerr << kProgramName << ": spawning " << face.name << " failed\n";
+            return kExitFailure;
+        }
+        spawned.emplace_back(face.name, *pid);
+    }
+    for (const auto &[name, pid] : spawned) {
+        if (!spawned_face_alive(pid)) {
+            std::cerr << kProgramName << ": " << name << " exited immediately\n";
+            return kExitFailure;
+        }
+        std::cout << name << " running (pid " << pid << ")\n";
+    }
+    if (spawned.empty()) {
+        std::cout << "product started (no faces requested)\n";
+    }
+    return kExitOk;
 }
 
 // --- task commands ----------------------------------------------------------
@@ -1053,6 +1325,11 @@ void print_usage(std::ostream &out) {
         << "Commands:\n"
         << "  --version                    Print Mirage, Mira core and platform versions\n"
         << "  --help                       Print this help\n"
+        << "  start [--socket P] [--wait S] [--no-tray] [--no-shell]\n"
+        << "        [--tray PATH] [--shell PATH]\n"
+        << "                               Start the product: runtime service (reused\n"
+        << "                               when already running) plus the tray and\n"
+        << "                               desktop shell faces\n"
         << "  service start [--socket P] [--wait S] [--read-root DIR]...\n"
         << "                [--perm CAP=allow|confirm|deny]...\n"
         << "                [--confirm allow|deny] [--config PATH]\n"
@@ -1132,6 +1409,9 @@ int main(int argc, char **argv) {
             }
             std::cerr << kProgramName << ": unknown update subcommand '" << subcommand << "'\n";
             return kExitUsage;
+        }
+        if (command == "start") {
+            return command_start(argc, argv);
         }
         if (command == "service" && argc >= 3) {
             const std::string_view subcommand{argv[2]};

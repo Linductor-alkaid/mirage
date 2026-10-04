@@ -842,6 +842,10 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                 put(object, "text", value.text);
                 if (value.agent)
                     put(object, "agent", true);
+                if (value.access != "default")
+                    put(object, "access", value.access);
+                if (!value.reasoning.empty())
+                    put(object, "reasoning", value.reasoning);
             } else if constexpr (std::is_same_v<T, GetModelRequest>) {
                 put(object, "op", "model.get");
             } else if constexpr (std::is_same_v<T, SetModelRequest>) {
@@ -1089,6 +1093,24 @@ RequestDecode decode_request(std::string_view payload) {
                 return result;
             }
             chat.agent = *flag->as_boolean();
+        }
+        if (const auto *value = member(object, "access")) {
+            const auto *text_value = value->as_string();
+            if (!text_value || (*text_value != "default" && *text_value != "read_only")) {
+                result.error = "invalid access mode";
+                return result;
+            }
+            chat.access = *text_value;
+        }
+        if (const auto *value = member(object, "reasoning")) {
+            const auto *text_value = value->as_string();
+            if (!text_value ||
+                (!text_value->empty() && *text_value != "minimal" && *text_value != "low" &&
+                 *text_value != "medium" && *text_value != "high")) {
+                result.error = "invalid reasoning level";
+                return result;
+            }
+            chat.reasoning = *text_value;
         }
         result.body = std::move(chat);
     } else if (*op == "model.get") {

@@ -6,8 +6,7 @@
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
     "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted)",
     "consumers": [
-      "tests/runtime/ipc_protocol_golden_test.cpp",
-      "ui/contracts/test/golden-vectors.test.ts"
+      "tests/runtime/ipc_protocol_golden_test.cpp"
     ],
     "notes": [
       "canonical strings are byte-exact: compact JSON, members in the wire order pinned by the schema doc sections 4-7.",

@@ -1,5 +1,7 @@
 # DEC-006：UI 技术路线与分发打包形态
 
+> 2026-10-05：本文 CEF/TS 选型及 npm/CEF 载荷锁定部分已由 [DEC-037](../decisions/DEC-037-native-model-composer-and-web-retirement.md) 替代；保留历史证据。当前前端为 EUI，依赖锁 schema 3，无 Chromium 下载消费。
+
 > 状态：Accepted
 > 日期：2026-09-15（2026-09-21 壳选型与更新通道冻结，见文末修订节）
 > 负责人：Mirage 维护者

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "attachment.hpp"
 #include "context_usage.hpp"
 #include <cstddef>
 #include <cstdint>
@@ -37,6 +38,12 @@ struct LocalSession {
     std::vector<std::uint64_t> submitted_references;
     std::optional<ContextUsage> context_usage;
     std::uint64_t usage_sequence = 0;
+    std::vector<TextAttachment> attachments = {};
+    std::vector<std::uint64_t> submitted_attachments = {};
+    std::string access = "default";
+    std::string reasoning = "";
+    bool attachment_loading = false;
+    std::uint64_t attachment_generation = 0;
 };
 
 // UI-thread-only, bounded preview state. IDs are never reused, and switching
@@ -57,6 +64,9 @@ class ChatModel {
     bool bind_remote(std::uint64_t id, const std::string &remote);
     bool reference_message(std::uint64_t message_id);
     void remove_reference(std::uint64_t message_id);
+    bool attach(std::uint64_t session_id, TextAttachment attachment,
+                std::optional<std::uint64_t> generation = {});
+    void remove_attachment(std::uint64_t id);
     std::string submission_text() const;
     void acknowledge_submission(std::uint64_t id);
     LocalSession *find(std::uint64_t id);
@@ -74,6 +84,7 @@ class ChatModel {
     std::uint64_t next_session_ = 1;
     std::uint64_t next_message_ = 1;
     std::uint64_t next_reference_ = 1;
+    std::uint64_t next_attachment_ = 1;
     std::string notice_;
 };
 

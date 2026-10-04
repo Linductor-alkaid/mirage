@@ -136,6 +136,8 @@ std::string encode_settings(const LocalSettings &settings) {
     if (settings.model.has_value()) {
         const ModelSettings &model = *settings.model;
         JsonValue model_object = make_object();
+        if (model.supports_reasoning)
+            put(model_object, "supports_reasoning", JsonValue{true});
         if (model.enabled) {
             put(model_object, "enabled", JsonValue{true});
         }
@@ -162,6 +164,16 @@ std::string encode_settings(const LocalSettings &settings) {
         }
         put(object, "model", std::move(model_object));
     }
+    if (!settings.models.empty()) {
+        JsonValue::Array models;
+        for (const auto &profile : settings.models) {
+            LocalSettings single;
+            single.model = profile;
+            auto encoded = mira::parse_json(encode_settings(single));
+            models.push_back(*member(encoded.value(), "model"));
+        }
+        put(object, "models", JsonValue{std::move(models)});
+    }
     if (settings.runtime.has_value()) {
         const RuntimeSettings &runtime = *settings.runtime;
         JsonValue runtime_object = make_object();
@@ -180,6 +192,10 @@ std::string encode_settings(const LocalSettings &settings) {
 
 SettingsDecode decode_settings(std::string_view body) {
     SettingsDecode result;
+    if (body.size() > kMaxSettingsFileBytes) {
+        result.error = "settings exceeds 64 KiB";
+        return result;
+    }
     auto parsed = mira::parse_json(body);
     if (!parsed) {
         result.error = "invalid JSON: " + parsed.error().safe_message;
@@ -191,7 +207,7 @@ SettingsDecode decode_settings(std::string_view body) {
         return result;
     }
     if (has_unknown_member(document, {"schema", "socket", "read_roots", "permission",
-                                      "confirmation", "model", "runtime"})) {
+                                      "confirmation", "model", "models", "runtime"})) {
         result.error = "settings document contains an unknown member";
         return result;
     }
@@ -260,6 +276,20 @@ SettingsDecode decode_settings(std::string_view body) {
             return result;
         }
         ModelSettings model;
+        if (has_unknown_member(*model_value, {"enabled", "supports_reasoning", "dialect",
+                                              "display_name", "endpoint", "api_prefix", "model",
+                                              "credential_env", "context_window_tokens"})) {
+            result.error = "unknown model field";
+            return result;
+        }
+        if (const auto *value = member(*model_value, "supports_reasoning")) {
+            const auto flag = value->as_boolean();
+            if (!flag) {
+                result.error = "supports_reasoning must be boolean";
+                return result;
+            }
+            model.supports_reasoning = *flag;
+        }
         if (const auto *enabled = member(*model_value, "enabled"); enabled != nullptr) {
             const auto flag = enabled->as_boolean();
             if (!flag) {
@@ -276,6 +306,10 @@ SettingsDecode decode_settings(std::string_view body) {
             const auto *text = value->as_string();
             if (text == nullptr) {
                 result.error = "member 'model." + std::string(key) + "' must be a string";
+                return false;
+            }
+            if (text->size() > 2048) {
+                result.error = "model field exceeds 2048 bytes";
                 return false;
             }
             target = *text;
@@ -299,6 +333,34 @@ SettingsDecode decode_settings(std::string_view body) {
             model.context_window_tokens = static_cast<std::uint64_t>(*number);
         }
         settings.model = std::move(model);
+    }
+    if (const auto *catalog = member(document, "models")) {
+        const auto *array = catalog->as_array();
+        if (!array || array->size() > 12) {
+            result.error = "models must be an array of at most 12 profiles";
+            return result;
+        }
+        for (const auto &entry : *array) {
+            JsonValue single = make_object();
+            put(single, "schema", JsonValue{1});
+            put(single, "model", entry);
+            auto decoded = decode_settings(mira::to_json_string(single));
+            if (!decoded.ok || !decoded.settings.model) {
+                result.error = "invalid models entry: " + decoded.error;
+                return result;
+            }
+            const auto &name = decoded.settings.model->display_name;
+            if (name.empty() || name.size() > 128) {
+                result.error = "catalog profile name must contain 1..128 bytes";
+                return result;
+            }
+            for (const auto &previous : settings.models)
+                if (previous.display_name == name) {
+                    result.error = "duplicate catalog profile name";
+                    return result;
+                }
+            settings.models.push_back(*decoded.settings.model);
+        }
     }
     if (const JsonValue *runtime_value = member(document, "runtime"); runtime_value != nullptr) {
         if (!runtime_value->is_object()) {

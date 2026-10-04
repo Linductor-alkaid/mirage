@@ -1,6 +1,5 @@
 ; M5-11 (DEC-031): NSIS installer for the Windows product processes.
-; Ships: mirage.exe (CLI), mirage-service.exe, mirage-tray.exe and — when
-; built — mirage-desktop.exe with its CEF payload (see MIRAGE_DESKTOP_DIR).
+; Ships CLI, service, tray and the native EUI frontend with assets (DEC-037).
 ; Also writes the System.AppUserModel.ID start-menu shortcut property and
 ; registry key (the DEC-018 AUMID carrier: the trigger condition's "installer
 ; can deliver AUMID" half is met by this installer).
@@ -14,11 +13,10 @@ OutFile "mirage-installer.exe"
 !ifndef MIRAGE_VERSION
 !define MIRAGE_VERSION "0.1.0"
 !endif
-!ifndef MIRAGE_WITH_DESKTOP
-!define MIRAGE_WITH_DESKTOP "0"
-!endif
 
+!ifndef MIRAGE_BIN_DIR
 !define MIRAGE_BIN_DIR "..\..\build\release\bin"
+!endif
 !define MIRAGE_AUMID "Mirage.Desktop"
 
 Page Directory
@@ -33,23 +31,18 @@ Section "Install"
     File "${MIRAGE_BIN_DIR}\mirage-service.exe"
     File "${MIRAGE_BIN_DIR}\mirage-tray.exe"
 
-    ; Desktop shell + CEF payload when the release tree carries them.
-    !if "${MIRAGE_WITH_DESKTOP}" == "1"
-        File "${MIRAGE_BIN_DIR}\mirage-desktop.exe"
-        File /nonfatal "${MIRAGE_BIN_DIR}\chrome_elf.dll"
-        File /nonfatal "${MIRAGE_BIN_DIR}\libcef.dll"
-        File /nonfatal /r "${MIRAGE_BIN_DIR}\locales"
-        File /nonfatal "${MIRAGE_BIN_DIR}\icudtl.dat"
-        File /nonfatal "${MIRAGE_BIN_DIR}\resources.pak"
-        ; CEF chrome-sandbox.exe ships setuid-equivalent via the installer
-        ; ACL (the Windows sandbox model is bootstrap-mediated, M5-01).
-        File /nonfatal "${MIRAGE_BIN_DIR}\vk_swiftshader.dll"
-    !endif
+    File "${MIRAGE_BIN_DIR}\mirage-native.exe"
+    SetOutPath "$INSTDIR\assets"
+    File "${MIRAGE_BIN_DIR}\assets\mira.png"
+    File "${MIRAGE_BIN_DIR}\assets\mira-ui.png"
+    File "${MIRAGE_BIN_DIR}\assets\Font Awesome 7 Free-Solid-900.otf"
+    File "${MIRAGE_BIN_DIR}\assets\JingNanJunJunTi-JinNanJunJunTi-Bold-2.ttf"
+    SetOutPath "$INSTDIR"
 
     ; Start Menu shortcut (快速进入 Mirage).
     CreateDirectory "$SMPROGRAMS\Mirage"
-    CreateShortcut "$SMPROGRAMS\Mirage\Mirage.lnk" "$INSTDIR\mirage-desktop.exe" "" \
-        "$INSTDIR\mirage-desktop.exe" 0 SW_SHOWNORMAL "" ""
+    CreateShortcut "$SMPROGRAMS\Mirage\Mirage.lnk" "$INSTDIR\mirage.exe" "start" \
+        "$INSTDIR\mirage-native.exe" 0 SW_SHOWNORMAL "" ""
 
     ; DEC-018 AUMID carrier, registry half: AppUserModelId key with
     ; DisplayName/IconUri. The shortcut's own System.AppUserModel.ID
@@ -78,9 +71,8 @@ Section "Uninstall"
     Delete "$INSTDIR\mirage.exe"
     Delete "$INSTDIR\mirage-service.exe"
     Delete "$INSTDIR\mirage-tray.exe"
-    Delete "$INSTDIR\mirage-desktop.exe"
+    Delete "$INSTDIR\mirage-native.exe"
+    RMDir /r "$INSTDIR\assets"
     Delete "$INSTDIR\uninstall.exe"
-    ; CEF payload files are removed with RMDir /r by the uninstaller policy:
-    ; kept conservative here (only files the installer wrote).
     RMDir "$INSTDIR"
 SectionEnd

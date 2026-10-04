@@ -316,3 +316,11 @@ M6整体与M6-04状态不变，未将Wayland截图限制或Windows/IME待验收�
 经现有IPC展示；Debug/Release、ASAN/UBSAN、TSAN、真实模型和上下文扩展视觉复核通过。
 详见[M6](m6-native-frontend.md)及[验收](../compatibility/native-context-usage-20261004.md)。
 窗口未知和重启旧历史明确展示未知；M6整体与Windows/统一入口进程任务状态不变。
+
+2026-10-05：维护者要求 ZCode 模型配置/指定输入栏顺序并清除旧 TS 前端，按 [DEC-037](../decisions/DEC-037-native-model-composer-and-web-retirement.md) 新增 M6-07/08。旧 CEF/TS 技术路线已退役，M5 历史验收保留；当前前端为 EUI 原生。完整入口/托盘退出确认仍在 M6-04。
+
+M6-07/08 Linux首步已完成，模型目录、真实文本附件、权限/推理请求与指定工具栏接通，
+旧Web源码/构建/打包已清除。Debug空闲回归48/48，原生针对与sanitizers通过，Linux
+原生DEB生成和提取启动通过；负载下旧订阅测试失败和Windows等未执行项保留记录。
+[模型与输入验收](../compatibility/native-model-composer-20261005.md) /
+[退役验收](../compatibility/native-retirement-20261005.md)。M6整体与M6-04状态不变。

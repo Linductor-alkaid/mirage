@@ -23,7 +23,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(eui_neo PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fexceptions>)
 endif()
 
-add_executable(mirage-native app.cpp chat_model.cpp window_controls.cpp runtime_bridge.cpp)
+add_executable(mirage-native app.cpp chat_model.cpp window_controls.cpp runtime_bridge.cpp attachment.cpp)
 # Replace EUI's example executable icon with the imported Mira artwork.
 if(WIN32)
     set_property(GLOBAL PROPERTY EUI_NEO_APP_ICON_RESOURCE "")

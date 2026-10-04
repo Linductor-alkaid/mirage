@@ -1,340 +1,463 @@
 ---
-name: Mirage 控制台
-description: 任务控制台（MISSION CONSOLE）——驾驶舱而非聊天网页的 Agent 监督桌面
+name: Mirage 原生 Agent 对话页
+description: EUI-NEO 原生 ZCode 会话、服务商配置与有界文本附件的中性明暗设计系统
 colors:
-  background: "#141920"
-  foreground: "#eae5d8"
-  card: "#232b35"
-  card-foreground: "#eae5d8"
-  popover: "#1a2028"
-  primary: "#e8a33d"
-  primary-foreground: "#231a06"
-  secondary: "#2e3945"
-  secondary-foreground: "#cfc9b8"
-  muted: "#232b35"
-  muted-foreground: "#9aa2ac"
-  accent: "rgb(232 163 61 / 14%)"
-  accent-foreground: "#f6c453"
-  destructive: "#f87171"
-  success: "#34d399"
-  warning: "#fbbf24"
-  info: "#38bdf8"
-  border: "#33404e"
-  input: "#3a4756"
-  ring: "#e8a33d"
-  sidebar-background: "#1a2028"
-  surface-raised: "#2e3945"
-  overlay-scrim: "rgb(10 13 17 / 60%)"
-  evidence-highlight: "#7fb3d5"
-  evidence-highlight-soft: "rgb(127 179 213 / 16%)"
+  light-background: '#f8f8f8'
+  light-sidebar: '#f0f0f0'
+  light-surface: '#ffffff'
+  light-hover: '#e8e8e8'
+  light-selected: '#e2e2e2'
+  light-text: '#202020'
+  light-muted: '#6d6d6d'
+  light-border: '#dfdfdf'
+  light-action: '#222222'
+  light-inverse: '#ffffff'
+  dark-background: '#161616'
+  dark-sidebar: '#1d1d1d'
+  dark-surface: '#222222'
+  dark-hover: '#2c2c2c'
+  dark-selected: '#333333'
+  dark-text: '#eeeeee'
+  dark-muted: '#a1a1a1'
+  dark-border: '#353535'
+  dark-action: '#eeeeee'
+  dark-inverse: '#161616'
+  light-user: '#f0f0f0'
+  dark-user: '#222222'
+  dark-composer: '#2b2b2b'
+  light-markdown-accent: '#1a70b8'
+  dark-markdown-accent: '#80beff'
+  light-code-background: '#eeeeee'
+  dark-code-background: '#222222'
+  light-quote-background: '#f0f0f0'
+  dark-quote-background: '#202020'
+  light-context-ring: '#737373'
+  dark-context-ring: '#b1b1b1'
 typography:
-  display:
-    fontFamily: "'Saira Variable', 'Noto Sans SC', 'Microsoft YaHei', sans-serif"
-    fontSize: "34px"
-    fontWeight: 700
-    lineHeight: 1.04
-    letterSpacing: "0.06em"
-    fontVariation: "'wdth' 62.5"
   headline:
-    fontFamily: "'Saira Variable', 'Noto Sans SC', 'Microsoft YaHei', sans-serif"
-    fontSize: "20px"
-    fontWeight: 700
-    letterSpacing: "0.04em"
-    fontVariation: "'wdth' 62.5"
-  label:
-    fontFamily: "'Saira Variable', 'Noto Sans SC', 'Microsoft YaHei', sans-serif"
-    fontSize: "11px"
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 30px
+    fontWeight: 500
+    lineHeight: 1.5
+  brand:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 22px
     fontWeight: 600
-    letterSpacing: "0.08em"
-    fontVariation: "'wdth' 62.5"
+    lineHeight: 1.5
+  title:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 21px
+    fontWeight: 600
+    lineHeight: 1.5
+  message:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 16px
+    fontWeight: 400
+    lineHeight: 26px
   body:
-    fontFamily: "'Saira Variable', 'Noto Sans SC', 'Noto Sans CJK SC', 'Microsoft YaHei', system-ui, sans-serif"
-    fontSize: "14px"
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 17px
+    fontWeight: 400
+  navigation:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 16px
     fontWeight: 400
     lineHeight: 1.5
-  mono:
-    fontFamily: "'Chivo Mono Variable', ui-monospace, 'Cascadia Mono', monospace"
-    fontSize: "12px"
-    fontFeature: "tnum"
-rounded:
-  sm: "4px"
-  md: "6px"
-  lg: "8px"
-  pill: "999px"
-spacing:
-  space-1: "4px"
-  space-2: "8px"
-  space-3: "12px"
-  space-4: "16px"
-  space-5: "20px"
-  space-6: "24px"
-  space-8: "32px"
-  row-sm: "24px"
-  row-md: "28px"
-  row-lg: "34px"
-components:
-  button-primary:
-    backgroundColor: "{colors.primary}"
-    textColor: "{colors.primary-foreground}"
-    rounded: "{rounded.sm}"
-    height: "28px"
-    padding: "0 12px"
-  button-primary-hover:
-    backgroundColor: "color-mix(in oklab, {colors.primary} 88%, white)"
-  button-ghost:
-    backgroundColor: "transparent"
-    textColor: "{colors.muted-foreground}"
-    rounded: "{rounded.sm}"
-    height: "28px"
-    padding: "0 12px"
-  button-danger:
-    backgroundColor: "transparent"
-    textColor: "{colors.destructive}"
-    rounded: "{rounded.sm}"
-    height: "28px"
-    padding: "0 12px"
-  card:
-    backgroundColor: "{colors.card}"
-    textColor: "{colors.card-foreground}"
-    rounded: "{rounded.md}"
-    padding: "16px"
-  badge-warning:
-    backgroundColor: "transparent"
-    textColor: "{colors.warning}"
-    rounded: "{rounded.pill}"
-    height: "20px"
-    padding: "0 8px"
-  estop:
-    backgroundColor: "color-mix(in oklab, {colors.destructive} 8%, transparent)"
-    textColor: "{colors.destructive}"
-    rounded: "{rounded.sm}"
-    height: "22px"
-    padding: "0 10px"
-  estop-latched:
-    backgroundColor: "{colors.destructive}"
-    textColor: "{colors.background}"
-  tile-on:
-    backgroundColor: "color-mix(in oklab, {colors.primary} 14%, transparent)"
-    textColor: "{colors.primary}"
-    rounded: "{rounded.sm}"
-  approval:
-    backgroundColor: "color-mix(in oklab, {colors.primary} 7%, {colors.card})"
-    textColor: "{colors.card-foreground}"
-    rounded: "{rounded.sm}"
-    padding: "9px 12px 12px"
+  label:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 14px
+    fontWeight: 400
+    lineHeight: 1.5
+  hint:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 13px
+    fontWeight: 400
+    lineHeight: 1.5
   input:
-    backgroundColor: "color-mix(in oklab, {colors.background} 55%, {colors.card})"
-    textColor: "{colors.foreground}"
-    rounded: "{rounded.sm}"
-    height: "28px"
-    padding: "0 8px"
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 16px
+    fontWeight: 400
+  button-label:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 15px
+    fontWeight: 400
+  settings-heading:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 30px
+    fontWeight: 600
+    lineHeight: 1.5
+  provider-selector:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 18px
+    fontWeight: 400
+  model-heading:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 28px
+    fontWeight: 600
+    lineHeight: 1.5
+  model-field:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 16px
+    fontWeight: 400
+  markdown-h1:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 22px
+  markdown-h2:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 20px
+  markdown-h3:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 18px
+  markdown-code:
+    fontSize: 14px
+  reference-body:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 14px
+    lineHeight: 22px
+  composer-label:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 13px
+  composer-notice:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 12px
+    lineHeight: 18px
+  composer-shortcut:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 11px
+    lineHeight: 16.5px
+rounded:
+  input: 4px
+  control: 7px
+  message: 12px
+  panel: 12px
+  provider-chooser: 10px
+  composer: 16px
+  reference: 14px
+  markdown: 8px
+  message-action: 6px
+spacing:
+  session-gap: 4px
+  text-gap: 8px
+  input-inset: 12px
+  sidebar-inset: 16px
+  dialog-inset: 24px
+  user-horizontal: 16px
+  user-vertical: 12px
+  thread-gap: 24px
+  markdown-block-gap: 12px
+  reference-gap: 16px
+components:
+  button-ghost:
+    backgroundColor: transparent
+    textColor: '{colors.light-text}'
+    rounded: '{rounded.control}'
+    size: 36px
+  button-ghost-hover:
+    backgroundColor: '{colors.light-hover}'
+  button-primary:
+    backgroundColor: '{colors.light-action}'
+    textColor: '{colors.light-inverse}'
+    rounded: '{rounded.control}'
+    size: 36px
+  button-primary-disabled:
+    backgroundColor: '{colors.light-hover}'
+    textColor: '{colors.light-muted}'
+  button-primary-hover:
+    backgroundColor: '{colors.light-muted}'
+  button-pressed:
+    backgroundColor: '{colors.light-selected}'
+  session-row:
+    backgroundColor: transparent
+    textColor: '{colors.light-text}'
+    rounded: '{rounded.control}'
+    height: 48px
+  session-row-selected:
+    backgroundColor: '{colors.light-selected}'
+  composer:
+    backgroundColor: '{colors.light-surface}'
+    rounded: '{rounded.composer}'
+  input:
+    backgroundColor: '{colors.light-surface}'
+    textColor: '{colors.light-text}'
+    rounded: '{rounded.input}'
+    padding: 12px
+    typography: '{typography.input}'
+  dialog:
+    backgroundColor: '{colors.light-surface}'
+    textColor: '{colors.light-text}'
+    rounded: '{rounded.panel}'
+    width: 460px
+    height: 252px
+  theme-option:
+    backgroundColor: '{colors.light-surface}'
+    textColor: '{colors.light-text}'
+    typography: '{typography.navigation}'
+    rounded: '{rounded.control}'
+    width: 116px
+    height: 40px
+  theme-option-selected:
+    backgroundColor: '{colors.light-selected}'
+  theme-panel:
+    backgroundColor: '{colors.light-surface}'
+    rounded: '{rounded.panel}'
+    height: 100px
+  theme-panel-narrow:
+    height: 126px
+  provider-selector:
+    backgroundColor: transparent
+    textColor: '{colors.light-text}'
+    rounded: '{rounded.control}'
+    height: 40px
+    typography: '{typography.provider-selector}'
+  model-input:
+    backgroundColor: '{colors.light-surface}'
+    textColor: '{colors.light-text}'
+    rounded: '{rounded.control}'
+    height: 44px
+    padding: 12px
+    typography: '{typography.model-field}'
+  model-apply:
+    backgroundColor: '{colors.light-action}'
+    textColor: '{colors.light-inverse}'
+    rounded: '{rounded.control}'
+    width: 112px
+    height: 40px
+    typography: '{typography.button-label}'
+  user-bubble:
+    backgroundColor: '{colors.light-user}'
+    textColor: '{colors.light-text}'
+    rounded: '{rounded.message}'
+    padding: 12px 16px
+    typography: '{typography.message}'
+  agent-reply:
+    backgroundColor: transparent
+    textColor: '{colors.light-text}'
+    typography: '{typography.message}'
+  reference-pill:
+    backgroundColor: '{colors.light-hover}'
+    textColor: '{colors.light-text}'
+    rounded: '{rounded.reference}'
+    width: 176px
+    height: 28px
+  context-control:
+    backgroundColor: transparent
+    textColor: '{colors.light-context-ring}'
+    rounded: '{rounded.control}'
+    width: 36px
+    height: 32px
+  context-popover:
+    backgroundColor: '{colors.light-surface}'
+    textColor: '{colors.light-text}'
+    rounded: '{rounded.panel}'
+    width: 320px
+    height: 224px
+    typography: '{typography.label}'
+  reference-popover:
+    backgroundColor: '{colors.light-surface}'
+    textColor: '{colors.light-text}'
+    rounded: '{rounded.panel}'
+    width: 320px
 ---
 
-> **适用范围（legacy Web/CEF）**：本文的 frontmatter 与全部既有规则仅适用于 `ui/app` 的 Mission Console。
-> EUI-NEO 原生入口 `apps/native` / `mirage-native` 使用独立的
-> [原生设计系统](apps/native/DESIGN.md) 与 [原生机器可读记录](apps/native/.impeccable/design.json)。
-> 根 `.impeccable/design.json` 的 `extensions.scopedSurfaces.native-agent` 提供该路由。
+# Design System: Mirage 原生 Agent 对话页
 
-# Design System: Mirage 控制台
+> **历史替代（DEC-037，2026-10-05）**：原根 DESIGN.md 的 Mission Console 对应已删除的 `ui/app` / Web/CEF 前端。旧炭蓝金属、奶油仪表、琥珀行动色、Saira/Chivo 字体和灯阵拓扑不再是现行产品约束；历史版本由 Git 保留。此文件与 [原生设计记录](apps/native/DESIGN.md) 同步描述现行原生系统。
 
-> 本文描述**已实现**的设计系统（2026-09 冻结于 M1.5 UI 重写）。事实源：
-> L1 原始值 `ui/app/src/theme/primitives.ts`；L2 语义清单 `ui/app/src/theme/schema.ts`；
-> 主题值集 `ui/app/src/theme/themes.ts`（默认 `mirage-console`）；组件语言与
-> `@layer` 结构 `ui/app/src/styles.css`；方向契约
-> `ui/app/.impeccable/surfaces/ui-app-index-html.md`。本 frontmatter 中的颜色是
-> 默认主题 **mirage-console dark（夜班大厅）** 的语义值经 `var(--mir-*)` 解析一层后
-> 的具体值；light 值集与其余 5 套主题见 `themes.ts`。运行时组件只消费
-> `var(--primary)` 等语义 token，不消费本文的十六进制字面量。
+> 现行范围：`apps/native` / `mirage-native`，M6-01/02/03/05/06/07/08、DEC-033/034/035/036/037。事实源：
+> `apps/native/app.cpp` 的 `Palette`、`text()`、`button_style()`、`conversation_page()` 与 `compose_page()`；
+> `apps/native/chat_model.hpp/.cpp` 的附件/引用预算、提交编码、ACK 与成功轮次用量；`apps/native/attachment.cpp` 与 `apps/native/runtime_bridge.cpp` 的显式文件选择和 Executor 读取边界；`apps/native/context_usage.hpp` 的比例、数字与圆环；`apps/native/markdown_adapter.hpp` 的公共 DSL 兼容边界；
+> `apps/native/window_controls.cpp` 的窗口尺寸与初始 DPI 换算。产品依据为仓库根目录 `PRODUCT.md`，
+> 方向契约为 `docs/design/native-agent-frontend.md`。
+> frontmatter 同时记录明暗两态；组件条目使用默认浅色，深色按同名 Palette 角色替换。
+> `.impeccable/design.json` 承载布局、原生边界与组件示意，不是另一个原生实现。
 
 ## Overview
 
-**Creative North Star: "任务控制台（Mission Console）"**
+**Creative North Star: "桌面 Agent 的对话工作台"**
 
-把会话页造成一间任务控制大厅：壁挂大屏公开任务剖面的真相，控制台分工监督，任何时刻可放行、可急停。这是驾驶舱，不是聊天网页——它拒绝的品类默认排布：居中聊天列 + 通用侧栏的后台观感（方向契约 `ui-app-index-html.md`，Apollo-era Mission Control 语系，**非霓虹材料**：无辉光、无渐变彩板、无玻璃拟态；质感来自炭蓝金属底、奶油仪表面板、仪表 caps 刻字与灯阵的物理隐喻）。
+中性灰底、窄会话栏和居中的阅读列构成原生桌面对话工作台。细分隔线与轻微色阶承担结构，实心发送控件集中表达主操作。视觉参考用户指定的 ZCode Zai Light/Dark；使用的是 Mirage 自己的 EUI DSL 页面，未复制参考项目的业务实现。
 
-监视感高于表达欲（PRODUCT.md 原则 1「可信优先」）：状态、证据、批准、停止永远一级可达。琥珀是唯一的行动/主动读数色，蓝线是证据与剖面的专用色，状态四色语义封闭；表达性让位于可扫读性，品牌活在精确的细节里。
+当前表面经独立 Runtime Service 展示真实 Agent 会话，并在设置页配置模型。会话标题、草稿、轮次状态与服务提示保持既有信息层级；发送、运行、回复、停止或失败来自服务回执与事件。本原生系统是 DEC-037 旧 TS/CEF 前端退役后的现行视觉契约，仓库根目录同步此记录；原 Web Mission Console 的炭蓝/奶油/琥珀、仪表 caps 和灯阵仅保留为历史设计背景，既有版本可从 Git 历史查看。
 
 **Key Characteristics:**
-- 壁挂屏条（wall）+ 活动栏（rail）+ 签派栏（sidebar）+ 主区（main）+ cue 状态栏（statusbar）的仪表台拓扑，非居中聊天列。
-- 炭蓝控制台底 + 奶油仪表面板；琥珀唯一行动色；蓝线剖面蓝为证据强调。
-- 灯阵瓦片、警戒急停钮、金色主动作线、composer 对话/执行双模式。
-- 紧凑仪表密度：24/28/34px 行阶梯，12–14px 字号，细描边小圆角。
-- 三层 token（L1 primitive → L2 语义 → 组件），组件零私定颜色，`style-scan` 测试锁定。
-- 6 套主题 × 明暗两态，同一语义契约多值集；`prefers-reduced-motion` 全动效降级。
+- 明暗两态共享中性灰角色；默认浅色。
+- 系统中文无衬线文字与 Font Awesome Solid 操作图标；品牌继承 Mira 原始角色图。
+- 可调宽并收起的侧栏、右对齐用户气泡、无卡片 Markdown 回复与随文字增高的 composer。
+- 设置入口集中外观与模型；主题即时应用且仅在当前运行中保留，模型配置由服务保存并确认。
+- 平面容器、细描边、有限圆角。
+- 清晰展示实际轮次状态、已应用模型、附件/引用来源与服务连接结果；上下文比例取最近成功请求的输入 Token 与显式窗口预算，未知时明确说明。
 
 ## Colors
 
-调色板是一间控制室的照明方案：炭蓝（console 阶）是机器外壳，奶油（cream 阶）是仪表面板，琥珀是唯一的行动与主动读数色，蓝线（blueline 阶）是证据与剖面的墨水，状态四色是封闭的信号灯语义。所有颜色定义在 `primitives.ts`（L1）并经 `themes.ts` 映射为 L2 语义 token；组件层禁止出现颜色字面量。
+两套控件 Palette 都使用中性灰，颜色原始值以 frontmatter 为准。Mira 角色图保留原始红发蓝眼色彩，这些图片颜色不扩展为控件强调色 token。
 
-### Primary（行动色：琥珀）
-- **琥珀读数（primary，dark `#e8a33d` = `--mir-amber-450`；light `#8a4d08` = `--mir-amber-700`）**：唯一行动色。主按钮、ring、激活位标、composer 金线、批准卡、灯阵待批准闪烁全部用它。深浅两态共用一套语义名。
-- **primary-foreground**（dark `#231a06` / light `#fff6e8`）：琥珀上的刻字，近黑/近白，保证对比。
-- **accent / accent-foreground**（dark `rgb(232 163 61 / 14%)` / `#f6c453`）：琥珀的低透明大底（hover、mode 选中），前景用更亮的 `--mir-amber-300`。
+### Primary
 
-### Secondary（证据色：蓝线）
-- **蓝线剖面蓝（evidence-highlight，dark `#7fb3d5` = `--mir-blueline-400`；light `#2e6f9e` = `--mir-blueline-700`）**：壁挂屏任务剖面 SVG 的描线与节点、工具卡的 kind 刻字、快照卡的 SoM 网格与元素框、上下文用量条。证据专用，**不作行动色**。
-- **evidence-highlight-soft**（dark `rgb(127 179 213 / 16%)`）：证据色的软底（快照底、剖面底光）。
+- **实心操作墨色 / 浅色操作字**：`light-action` 与 `dark-action` 用于发送和对话框确认，搭配对应 `inverse`；深色主题下操作按钮反转为浅色。
+- **操作反馈灰**：填充按钮 hover 使用 `muted`，所有按钮 pressed 使用 `selected`；不额外制造色相变化。
 
-### Tertiary（状态四色：封闭语义）
-封闭映射，任何主题不得改变 hue（`themes.ts` 头注）：成功绿 / 失败红 / 等待琥珀 / 运行蓝。
-- **success**（dark `#34d399` = `--mir-green-400d` / 共享 light `#157f3d`）：完成、OK 灯、放行锁定。
-- **destructive**（dark `#f87171` = `--mir-red-400d` / light `#dc2626` = `--mir-red-500`）：失败、急停、takeover。
-- **warning**（dark `#fbbf24` = `--mir-amber-400d` / light `#b2540a`）：待批准、锁定提示、模拟标记。与行动琥珀同 hue 不同 token——等待是状态，不是按钮。
-- **info**（dark `#38bdf8` = `--mir-sky-400d` / light `#0284c7` = `--mir-sky-500`）：运行中、思维链 live。
+### Neutral
 
-### Neutral（炭蓝 console 阶 + 奶油 cream 阶）
-- **background**（dark `#141920` = `--mir-console-950`）：控制台炭蓝底；结构条（rail/statusbar/observer）用 `color-mix` 再压暗约 4–6%。
-- **card / popover / surface-raised**（dark `#232b35` / `#1a2028` / `#2e3945`）：仪表面板层；light 模式下换用 cream 阶（`#f2ead8` / `#faf6ec`）。
-- **foreground / card-foreground**（dark `#eae5d8`）：暖白奶油刻字（inkConsole 常量，`themes.ts`）。
-- **muted-foreground**（dark `#9aa2ac`）、**secondary / border / input**（dark `#2e3945` / `#33404e` / `#3a4756`）：次级刻字、细描边、字段描边。
-- **sidebar-background**（dark `#1a2028` = `--mir-console-900`）：签派栏。
-- **overlay-scrim**（dark `rgb(10 13 17 / 60%)`）：命令面板/弹层下的遮罩。
+- **页面灰、侧栏灰、容器面**：`background`、`sidebar`、`surface` 分别承担页面、导航与设置/弹层的色阶。用户气泡使用 `user`，深色 composer 与其弹出面板使用 `dark-composer`；助手回复直接落在页面背景。
+- **阅读墨色、辅助灰**：`text` 承担正文和标题，`muted` 用于说明、图标、消息角色与服务状态提示。
+- **边界灰、悬停灰、选中灰**：`border` 分隔区域与容器，`hover` 提供交互反馈，`selected` 标记当前会话、外观导航与所选主题。
 
-### Named Rules
-**琥珀唯一行动色规则（The One Amber Rule）。** 琥珀（primary）是全界面唯一的行动/主动读数色；蓝线是证据、状态四色是信号灯，三者都不进入行动按钮。金色主动作线（`btn-primary::before`、composer 顶线、批准卡顶缘）是注意力的唯一募集通道，不作装饰。
+上下文圆环使用 `context-ring` 灰色角色，底环透明度 25%、占用弧透明度 70%；未知态只保留底环。进度条使用 border 底轨与 muted 填充。
 
-**语义封闭规则（The Closed-Token Rule）。** `styles.css` 与组件源码（shell/views/state）零十六进制与 `rgb(` 字面量，一切颜色经 `var(--mir-*)` 原始值、26 个语义 token 或对它们的 `color-mix(in oklab, ...)` 派生；唯一例外是外观设置页主题预览 swatch。由 `ui/app/test/style-scan.test.ts` 逐文件锁定。
+Markdown 链接/强调色、代码块与引用块背景使用对应专用角色。`markdown-accent` 不表示链接已可打开。
 
-**状态 hue 不迁移规则。** 状态四色在所有主题、所有模式下保持绿/红/琥珀/蓝的语义 hue；主题只换气质色与中性底，对比度校准只允许加深/变亮（`themes.ts` STATUS_* 常量即按门槛校准的产物）。
+**The Native Scope Rule.** 现行产品页面复用原生 Palette；已退役 Web/CEF 的琥珀控制台 tokens 不迁入新表面。
 
 ## Typography
 
-**Display Font:** Saira Variable（`wdth` 轴，仪表用途一律 `font-stretch: 62.5%` 压缩态）+ Noto Sans SC / Microsoft YaHei 回退
-**Body Font:** 同一 Saira Variable（正常宽度）+ 系统 CJK 回退
-**Label/Mono Font:** Chivo Mono Variable（遥测/代码/键位），`font-variant-numeric: tabular-nums`
+**Body Font:** 启动时选择存在的系统中文字体文件；Windows 先尝试 Microsoft YaHei，再尝试 SimHei；Linux 依次尝试 Noto Sans CJK、Droid Sans Fallback、WenQuanYi Micro Hei。frontmatter 的字体族描述这些实际候选的阅读用途，原生加载机制是文件选择而非浏览器 CSS 回退。
 
-加载方式：`main.tsx` 以 npm 包 `@fontsource-variable/saira/wdth.css` 与 `@fontsource-variable/chivo-mono/wght.css` 引入，Vite 本地打包 woff2（含 `wdth` 轴），**无网络字体**（surfaces 契约 Constraints）。字体栈定义于 `styles.css` `@layer base` 的 `--mir-font-body/display/mono`。
-
-**Character:** 仪表刻字（压缩 caps）与遥测等宽承担全部"机器感"，正文保持 CJK 可读性——品牌感来自字宽轴与字距，不来自花哨字体。
+**Character:** 简体中文为主，标题与正文共用系统无衬线文字。Font Awesome 7 Free Solid 单独加载图标；不以 Unicode 文字符号代替操作图标。
 
 ### Hierarchy
-- **Display（壁挂屏状态动词）**（700, 34px, 1.04, 0.06em, wdth 62.5）：wall 大字动词「执行中」等；窄屏降至 26px。
-- **Headline（页面/卡片题）**（700, 20px `--mir-text-2xl`, 0.04em）：页面头 `page-head h1`；卡片题 `card h2` 600/16px。
-- **Label（仪表 caps，工具类 `.caps`）**（600, 10–12px, 0.08–0.1em, uppercase, wdth 62.5）：分组标签、字段标签、状态栏段名、灯阵瓦片标签。
-- **Body**（400, 14px `--mir-text-base`, 1.5）：正文基准；消息正文 1.65 行高，线程栏 `max-width: 820px`。
-- **Mono（遥测）**（Chivo Mono, 11–13px, tabular-nums）：工具参数/结果、时间线日志、obs-stream、kbd、批准详情。
-- **Numeral（`.num`）**（Saira wdth 62.5, tabular-nums）：仪表数字读数。
 
-字号阶（`primitives.ts`）：xs 12 / sm 13 / base 14 / lg 16 / xl 18 / 2xl 20 / 3xl 24px。
+- **Headline**：空态问题，用字号与留白建立阅读起点；没有额外的 eyebrow。
+- **Brand / Title**：侧栏品牌与对话框题，权重略高。
+- **Settings Heading**：外观页标题使用 30px，模型服务标题使用 28px，服务商详情标题使用 20px，说明沿用 Body，主题按钮沿用 Navigation，偏好声明沿用 Label。
+- **Model Field**：模型表单的单行输入和标签均使用 16px；标签行高框为 28px，输入行高交由 EUI 组件。协议和页底按钮沿用 Button Label。
+- **Message / Body**：用户正文与助手 Markdown 为 16px / 26px；H1/H2/H3 为 22/20/18px，代码 14px，块间隔 12px。引用预览 14px / 22px。弹层正文 28px 行高。Markdown 代码字体与未显式设置的标题行高由 pinned EUI 提供，不猜测为产品 token。
+- **Context Detail**：标题与百分比沿用 16px / 500 权重，Token 摘要沿用 14px；二者行框 28px。来源、模型与本次引用行沿用 13px、24px 行框。
+- **Navigation / Label / Hint**：会话、工具条、状态与快捷键提示逐级收紧。
+- **Input / Button Label**：输入保持正文的 16px；草稿高度测量使用 24px 行高，实际输入行高由 EUI 管理。composer 模式/模型 13px、通知 12px、快捷键 11px，对话框操作 15px。
+- `text()` 默认行高为字号的 1.5 倍；输入与部分 EUI 组件保留库默认行高，不把未指定值记成产品规则。
+- 单行文字和图标使用同一行框的 ink-center 对齐，文字不再用字号差值手工偏移；图标行高使用图标字号，行框高度由所在行决定。
 
-### Named Rules
-**仪表 caps 规则。** 所有小写标签类文本（分组、字段、段名、瓦片标签）一律走 `.caps`：Saira 压缩态 + 600 + 大写 + 0.08em 级字距；不引入第三种字体，也不给正文加字距。
-
-**mono 只讲机器话。** 等宽字体只用于遥测事实（参数、结果、日志、时长、键位）；散文与 UI 文案不用 mono。
+字体资源最终回退仍指向 EUI 随附的装饰字体 `JingNanJunJunTi-JinNanJunJunTi-Bold-2.ttf`。该回退是缺少系统中文字体时的实现限制，不作为未来表面的规范字体。
 
 ## Layout
 
-应用壳是 CSS Grid 仪表台（`styles.css` `@layer layout` 的 `.console`）：
+- 初始窗口为 1180×800 逻辑单位，最小为 860×620；初始化按 content-scale 与 framebuffer/window 比例换算系统窗口尺寸。仅记录当前初始换算，不宣称跨显示器动态 DPI 行为。
+- 侧栏默认 260px，可调范围 224–400px；实际宽度上限为 `max(224px, min(400px, screen.width - 520px))`。进程内保留用户所需宽度，窗口缩小时只钳制显示宽度；手动收起后宽度为零，展开时恢复当前窗口容纳的宽度。没有自动断点隐藏。
+- 分隔条的透明命中区宽 8px，中心在侧栏右边界，从 y=60 延伸到窗口底部；hover 使用 border、拖动/pressed 使用 muted。支持鼠标拖动，键盘聚焦后左右键每次调宽 8px。
+- 标题拖动区和分隔线为 60px 高，与方向契约一致。
+- 空会话列为 `min(672px, main_width - 48px)`，水平居中；问候 30px、54px 行框，说明 14px、28px 行框，无建议列表。
+- 有消息时列为 `min(896px, main_width - (main_width >= 864px ? 96px : 32px))`，水平居中。用户气泡按文字测量宽度加 32px，最小 80px，最大 `min(576px, thread_width)`，右对齐；助手正文宽 `thread_width - 24px`，无卡片。
+- 编辑区高 `clamp(measure(draft, column - 40px, 16px, 24px) + 16px, 48px, 168px)`；composer 高为编辑区 + 56px 工具区，有附件或引用再加 36px，总高 104–224px（有附件或引用 140–260px）。活动 composer 顶部为 `screen.height - composer_height - 28px`；空态期望顶部为 `max(188px, screen.height × 0.29 + 106px)`，按同一底部边界钳制。问候顶部为 `max(80px, composer_y - 104px)`。
+- 消息滚动区顶部 72px，高 `max(48px, composer_y - 88px)`；滚动条宽 4px、gap 8px。工具条顶部为 `composer_y + composer_height - 44px`；面板下方 24px 通知/快捷键行从面板底部 + 4px 开始。
+- 外观/模型设置保留 `min(800px, main_width - 64px)` 居中列。
+- 会话列表为 48px 行高、4px 行间隔；消息行间隔 24px。新建/返回按钮宽度为 `sidebar - 32px`，会话列表宽度为 `sidebar - 24px`，随侧栏一起变化。最小窗口保持同一结构，用户可收起侧栏增加空间。
+- 外观页标题框从 y=104 开始，高 48px；说明从 y=160 开始，高 32px。主题面板从 y=232 开始；内容列宽度低于 600px 时由横排变为上下排，面板由 100px 增高至 126px，并省略重复说明，保留偏好声明。
 
-```
-'wall wall'     92px   (--mir-size-wall 壁挂屏条)
-'rail main'     1fr    (活动栏 52px + 主区)
-'rail status'   30px   (--mir-size-statusbar cue 状态栏)
-/ 52px 1fr             (--mir-size-rail)
-```
+- 模型页标题从 y=90 开始，高 48px；说明从 y=140 开始，高 32px。服务商/详情共用面板从 y=194 开始，高 `screen.height - 334px`。内容列宽 ≥700px 时内部导航为 176px，导航行高 44px、间隔 6px，内部两侧各留 8px，细分隔线后详情左右各留 24px，标题距面板顶部 16px。内容列宽 <700px 时不显示左栏，详情宽为 `content_width - 48px`，面板顶部改为全详情宽、40px 高的当前服务商名称选择器，距顶部 12px；18px 文字与14px下拉图标。点击后显示带完整可区分名称的滚动列表，选中再进入对应配置。表单从 y=250 开始，高 `screen.height - 402px`；六个字段行高 92px，各含 28px 标签框、8px 间隔与 44px 输入。协议行高 94px，思考能力开关高 40px、说明高 64px，凭据说明高 60px。滚动条宽 4px、与内容间隔 12px。
+- 模型页底部状态固定于 `screen.height - 110px`，高 28px；按钮在其下 38px，高 40px。重新连接在详情宽 <480px 时为 36px 图标按钮，否则宽 104px；取消修改宽 80px，停用宽 100px，保存并应用宽 112px；最小窗口滚动表单，页底操作保持可达。
 
-主区内部为横向三联：签派栏 264px（`--mir-size-sidebar`，会话搜索 + 置顶/今天分组）→ 线程流（中栏，内容 `max-width: 820px` 居中，composer 固定其底部）→ 观察台 336px（`--mir-size-observer`，运行时间线 + 观察流 + 上下文用量表）。壁挂屏条内再分三格：状态动词（minmax(220px, 1.1fr)）/ 蓝线剖面（2fr）/ 主机灯阵（4 列瓦片）。
-
-**密度：紧凑仪表。** 行阶梯 `--mir-row-sm/md/lg` = 24/28/34px；控件高度对齐行阶梯（按钮/输入 28px，徽标 20px，estop 22px）；间距 4 基阶 `--mir-space-1..8` = 4/8/12/16/20/24/32px；卡片内边距 16px，线程区留白 20×24px。正文 14px、辅助 12–13px、刻字 10–11px。
-
-**响应式降级（桌面产品，CEF 窗口可缩小）**：≤900px 先收观察台与壁挂屏剖面、状态栏 `hide-sm` 段隐藏；≤640px 再收签派栏，壁挂屏转单列（`styles.css` `@layer motion` 内两个 media query）。
+**The Reading Column Rule.** 空态与活动态各按实际列宽策略居中；消息与活动 composer 共用列。设置保留 800px 上限；所有列受主区可用空间限制。
 
 ## Elevation & Depth
 
-深度靠**色调分层 + 细描边**表达，阴影仅两档、存在感极低（`primitives.ts` L1 + `themes.ts` 可选覆盖）。壁挂屏、rail、statusbar、observer 用 `color-mix(in oklab, var(--background) 88–96%, black)` 的压暗底色表明"凹进的金属面"；面板（card/popover）用亮一档的 token 表明"凸起的仪表"；不使用多层堆叠阴影。
+自定义容器以色调分层和 1px 细描边构成平面结构。按钮、输入与用户气泡不添加阴影；对话框使用 25% 黑色全窗 scrim 和最高交互层。没有自定义页面入场或装饰动效；按钮 pressScale 为 1。
 
-### Shadow Vocabulary
-- **card**（console dark 覆盖值 `0 1px 2px rgb(8 10 14 / 35%)`）：卡片与浮层的贴地阴影。
-- **overlay**（console dark 覆盖值 `0 12px 32px rgb(8 10 14 / 50%)`）：命令面板、菜单、toast。
-
-### Named Rules
-**两档阴影规则。** 只有 `--shadow-card` 与 `--shadow-overlay` 两档；新组件不得发明第三档，深度优先用色调分层和描边表达。
+**The Flat Surface Rule.** 自定义按钮、用户气泡和输入不添加阴影；层级靠中性色阶与细描边表达。
 
 ## Shapes
 
-小圆角 + 1px 细描边的仪表面板语言。半径阶 `--mir-radius-sm/md/lg` = 6/8/10px（L1 默认）；默认主题 mirage-console 经主题可选字段覆盖为 **4/6/8px**（`themes.ts` consoleTheme.radius），全元件更接近机械切角；胶囊 `--mir-radius-pill` = 999px 只用于徽标、系统行与锁定 cue。描边一律 1px `var(--border)`；强调描边用 `color-mix` 向语义色偏移（如 `--destructive` 55%、`--primary` 40%）而非加粗。灯阵瓦片、工具卡、批准卡均为直角面板 + 顶缘或侧缘的 1px 色线，不使用外发光。焦点统一 `*:focus-visible` 2px `var(--ring)` 外描边。
+输入 4px、消息动作/工具条标签 6px、普通控件 7px、Markdown 块 8px、用户气泡/弹层 12px、引用 pill 14px、composer 16px；实际值以 frontmatter 为准。标题分隔线、侧栏边界与容器边框为 1px；窗口无系统装饰。未最大化时边缘设置 5px 的透明 resize 区、角部设置 14px 的 resize 区；这些命中区不是装饰描边。
 
 ## Components
 
-组件语言（`styles.css` `@layer components`，组件源码在 `src/shell/`、`src/views/`）：
+### Buttons
 
-### 按钮（`.btn` 系列）
-- **Shape:** 28px 高（row-md）、radius sm（4px）、1px 描边。
-- **Primary:** `--primary` 底 + `--primary-foreground` 字，顶缘 1px 金色主动作线（`::before`，`color-mix(white 55%, primary)`）；hover 提亮至 88% primary 混白；`:active` 下沉 1px。
-- **Ghost / Danger:** ghost 透明底 muted 字；danger 透明底 + destructive 55% 描边字，hover destructive 14% 底。禁用 opacity 0.45。
+工具栏 icon button 为 36×36px，图标 17px；透明常态使用正文墨色，hover 使用悬停灰。发送采用填充按钮，空白草稿时禁用。新建对话/返回对话默认为 228×44px，宽度随侧栏变化；对话框动作 76×38px。按压无缩放。键盘焦点绘制与禁用处理由 EUI 组件提供，本层没有自定义焦点环 token。
 
-### 灯阵瓦片（`.tile`，signature）
-壁挂屏右侧 4 列状态灯（host 五态/seq/待批准等，`src/shell/WallDisplay.tsx`）。74×42px 起步，caps 标签 + 压缩态数值。点亮（`.is-on`）时边框向 `--tile-color` 65% 混合、底 14%、数值转 `--tile-color`——**快点亮 80ms（`--mir-lamp-on`）/ 慢衰减 600ms（`--mir-lamp-off`）**；`.is-blink` 加 `lamp-blink` 步进闪烁。`--tile-color` 只允许取语义 token（success/info/evidence-highlight/primary 等）。
+### Mira Brand Image
 
-### 警戒急停（`.estop`，signature）
-cue 状态栏右端的红色警戒钮：destructive 8% 底 + 55% 描边字，caps 刻字 0.12em。触发后 `.is-latched` 实心 destructive + `lamp-on` 点亮。takeover 时壁挂屏动词转 destructive（`.wall-verb.is-takeover`）。
+品牌身份沿用维护者指定的本机最新 Mira 红发蓝眼角色。`assets/mira.png` 是
+`~/mira/docs/mira.png` 的透明 PNG 原样副本，来源提交为
+`472e43010485131790ca300c574d0ba17e50a711`；SHA-256 与原始来源记录见
+[`assets/provenance.json`](assets/provenance.json)。不重绘、不改色、不换用旧 pinned 海报。
 
-### 蓝线剖面（`.wall-profile`，signature）
-壁挂屏中格的 SVG 任务剖面：`edge` 走 evidence 55% 底线，已完成 `edge-done` 满色 2px，活动节点 `node-active` 用 primary 描边并 `node-breathe` 呼吸（2.2s）。推进 = 描线（stroke-dashoffset，ease-out-circ，surfaces 契约 Signature interaction 3）。
+侧栏使用 `assets/mira-ui.png`：从原图去除 ancillary metadata 后无损 RGBA 重编码的
+1254×1254px 派生图，每个像素及 alpha 与原图完全一致；原图完整保留来源元数据。
+这是 EUI-20261004-003 的资源适配：EUI 在 PNG/SVG 判别时扫描前 511 bytes 的 `<svg`，
+原 PNG 的 caBX/C2PA 元数据在 byte 305 含 SVG 缩略图，导致误分类和侧栏解码失败。
+派生 hash 与转换说明同样记录在 provenance.json；不把该适配解释为画作修改或层级覆盖。
 
-### 工具卡 / 批准卡 / 快照卡
-- **工具卡 `.toolcard`**：radius sm 细描边；kind 刻字用 mono + evidence 色；失败态描边向 destructive 45% 偏移；结果区 mono 12px、max-height 180px。
-- **批准卡 `.approval`**（signature，"金色主动作线的舞台"）：primary 7% 混 card 底 + primary 40% 描边，顶缘透明→primary→透明的 1px 渐变线；放行后 `.is-approved` 转 success 6% 底，拒止 `.is-denied` 转 destructive 6% 底。
-- **快照卡 `.snapcard`**：16:9 桌面回流，evidence 18% 的 8×12 SoM 网格 + 元素框（evidence 60% 描边）+ mono 角标；模拟数据带 warning 色 `snap-sim` 标记。
+侧栏展开时图像在 (24, 12) 的 36×36px 框内使用 contain，保留比例与透明背景，
+不参与命中测试；Mirage 字标从 x=72 开始，宽 `sidebar - 140px`（默认 120px），与图像共用 36px 行框。
+窗口图标继续使用原始 `assets/mira.png`；构建将原图与 UI 派生图复制到可执行文件旁的 assets 目录，运行无需本机 Mira 源目录。
+Windows EXE 资源使用仅作 ICO 容器转换的 `assets/mira.ico`，替换 EUI 示例图标；
+Windows 资源构建与真机显示尚未验证。`trayIcon` 仍预置原始 PNG，但托盘仍关闭。
 
-### Composer（双模式，signature）
-线程流底部 820px 卡片。顶部模式切换（对话/执行 `.mode-btn`，选中用 accent）；输入非空或有待批准时 `composer.is-live` 点亮顶缘主动作金线（scaleX 0→1，`--mir-dur-medium` + `--mir-ease-circ`）；上方 `.composer-dock` 承载待批准事项（warning 色条目）。执行模式展示步骤构建器（`.step-row` 150px/1fr/auto 网格）。
+Linux Dock 通过 `org.mirage.native.desktop` 关联应用身份与图标；文件标识和
+`StartupWMClass` 均匹配 appId `org.mirage.native`。构建生成的 entry 使用可执行文件
+绝对路径作为 Exec、同一构建目录 `assets/mira.png` 的绝对路径作为 Icon。
+显式 target `mirage-native-register-desktop` 将 entry 复制到
+`$XDG_DATA_HOME/applications`（未设置时为 `$HOME/.local/share/applications`），
+并在 `update-desktop-database` 可用时刷新数据库；普通构建不写用户 profile。
+当前 Release 已注册并重启：Gio 的 Icon/Exec 解析、窗口 WM_CLASS 匹配通过，
+AT-SPI 中 GNOME Mirage 按钮的 SHOWING=true。Dock 像素截图因权限限制未完成，
+这些关联与可访问性证据不构成图标实际像素显示的视觉验证。
 
-### 命令面板 / 浮层
-`.palette`（Ctrl+K，top 14vh、620px、popover 底 + overlay 阴影 + `palette-in` 入场）、`.popover-panel` 通知/批准中心、`.menu-panel`、`.toast`（右下角、状态栏上方、左缘 2px 状态色线）。遮罩统一 `--overlay-scrim`。命令面板、菜单项 hover/highlight 一律 accent。
+### Navigation
 
-### 状态徽标与状态点
-`.badge`：胶囊、20px 高、前置 6px 圆点，`--badge-color` 只取封闭语义（is-success/warning/danger/info/muted），字用 Saira **87.5%** 宽度（比仪表 caps 略宽的徽标刻字）。状态栏 `.status-dot` 8px：is-ok/is-warn/is-bad/is-run 映射四色，is-run 步进闪烁。
+可调宽侧栏承载品牌、新建、会话列表、说明与设置入口。会话行有独立选中底色和 hover；标题 16px，Font Awesome 对话图标 16px。底部齿轮打开设置；侧栏收起后顶部保留展开与设置齿轮，主题操作集中在设置的外观页。设置侧栏以“返回对话”和“外观 / 模型”分类替代会话列表，当前分类填充 selected；收起侧栏时标题栏另有 124×36px 的返回按钮。会话行和窗口标题按实际字体测量可用宽度；超长标题逐个移除 UTF-8 码点并追加省略号，仅缩短显示文本，保留原始会话标题。首次用户提交生成标题时跳过开头空格、制表符与CR/LF，纯空白回退“新对话”；标题取第一行最多16个UTF-8码点。提交文本先保留用户草稿，再追加引用和附件，防止包装标签抢占标题；无草稿/引用的附件提交以“附件：文件名”开始。
 
-### 观察台
-`.observer` 336px 凹进面：时间线 `.tl-step`（8px 节点，is-ok/is-failed/is-running 映射状态色，is-running 步进闪烁 1.2s）；观察流 `.obs-stream` mono 11px，**trigger-lock**——运行中自由滚动，用户上滚即锁定自动跟随并出现 sticky 的 warning 色「已锁定 · 回到实时」cue（`.obs-lock-cue`）；上下文用量表 `.ctx-meter` 三段全部由 evidence 派生（55%/100%/45% 混合），进度变化走 `--mir-dur-medium` transform。
+### Appearance Settings
 
-## Motion
+外观页延续 surface、细描边、panel 圆角；没有新增彩色控件或装饰层。主题标签在面板内
+(24, 16)，宽屏说明在 (24, 50)。浅色/深色按钮为 116×40px、横向步距 124px（间距 8px），
+文字与图标均为 16px。选中项填充 selected，未选中填充 surface，均有 1px border；
+hover 使用 hover、pressed 使用 selected。宽屏按钮组从面板右侧 264px 开始、y=30；
+窄屏在 (24, 62) 排于标签下方。
 
-动效 token 全部在 `primitives.ts`（L1，非主题化），语义是"仪器响应"：快、有端点、无弹性装饰。
+选择即时刷新整页 Palette；面板下方 14px 声明“即时应用 · 本次运行内保留外观偏好”，
+宽屏距面板顶部 120px、窄屏 136px。没有系统主题同步、磁盘持久化或后台任务。
+设置打开时不合成对话输入和 composer，保留会话及草稿；Ctrl+N 与 Ctrl+Enter 不修改背景会话。
+Ctrl+, 在没有弹层时打开设置；Escape 先关闭弹层，再返回对话。
 
-**时长分层（`--mir-dur-*`）：**
-- `--mir-dur-instant` 90ms —— 按压、表格行 hover 等即时反馈
-- `--mir-dur-fast` 160ms —— 按钮配色、浮层入场（pop-in）
-- `--mir-dur-standard` 300ms —— 状态换幕（verb-swap）、消息入场（msg-in）、toast
-- `--mir-dur-medium` 450ms —— 展开类（composer 金线、ctx-bar 推进）
-- `--mir-dur-slow` 650ms —— 换幕级大过渡（预留上限档）
+侧栏横向调整光标由私有 GLFW Adapter 创建和切换，悬停/拖动结束后复原，
+应用 onShutdown 释放；该平台类型不进入设计 token 或公开产品接口。
 
-**缓动：** `--mir-ease` cubic-bezier(0.2,0,0,1)（默认）；`--mir-ease-out` cubic-bezier(0.16,1,0.3,1)（入场）；`--mir-ease-circ` cubic-bezier(0,0.55,0.45,1)（剖面描线/金线）。
+### Model Settings
 
-**灯阵语法：** `--mir-lamp-on` 80ms / `--mir-lamp-off` 600ms——快点亮、慢衰减（annunciator 物理隐喻）。关键帧 `lamp-on`（opacity 0.4→1）用于点亮，`lamp-blink`（steps(1,end)，1→0.35）用于待批准/运行闪烁（1.3s 或 1.6s）。
+宽屏服务商导航与滚动详情复用同一 surface 面板、细分隔线和 selected 选中底色；紧凑页用显式当前服务商名称选择器替代左栏。“添加服务商”位于说明右侧，124×36px。最多 12 个命名配置，选中导航只编辑对应草稿，“保存并应用”经 service ACK 后才切换活动模型。紧凑选择器列表位于面板内左16px、顶部58px，宽 `content_width - 32px`，高 `min(max(88px, screen.height - 390px), 16px + 50px × 配置数)`；10px圆角、1px border、surface底色，内部8px inset，44px行高与6px间隔。当前项使用勾选图标，行文字14px、图标16px；透明dismiss层z=20，列表z=21，点击外部、Escape或返回对话关闭；Escape先关闭选择列表再离开设置。模态期间选择器回调受保护，保存中或草稿未保存时禁止切换服务商。六个单行输入沿用 surface、text、muted 与 control 圆角，常态细描边为 border，focus 描边为 action；无阴影。填写服务商名称、服务地址（仅 origin）、API 路径、模型名称、凭据环境变量名称与可选“上下文窗口预算（Token）”。窗口预算留空表示未知，非零值为 2048–2000000 的整数；填写值作为显式预算映射到 Mira ProfileLimits，不表示供应商自动发现容量。未配置时 UI 分母未知，服务保持既有 Mira 默认运行预算。输入与标签各为 16px，输入高 44px、inset 12px；表单有独立滚动位置。协议选项 Responses / Chat Completions 分别宽 128/172px、高 40px、间隔 8px，选中填充 selected，hover/pressed 沿用既有按钮角色。
 
-**状态换幕快切：** 壁挂屏大字动词切换是一次 300ms 快切 + 6px 上移入位（`verb-swap`），不做软淡入长驻（surfaces 契约 Signature interaction 1）。全部关键帧集中在 `styles.css` `@layer motion`（verb-swap / lamp-on / lamp-blink / node-breathe / msg-in / pop-in / palette-in / toast-in / caret）。
+页底固定状态与“重新连接 / 取消修改 / 停用模型 / 保存并应用”。窄详情下重新连接只显示 16px 图标，保留其他按钮文字。“取消修改”请求 model.get，service ACK 后恢复已保存目录并移除未保存新配置。保存等待时显示“应用中…”并阻止字段编辑与重复应用；未读到配置或缺少地址/模型时禁用保存。表单草稿与服务确认的模型分开，保存失败保留当前已应用模型；忙、取消、地址格式与凭据缺失提供可读提示。凭据说明只要求变量名称。字段焦点与禁用交互仍由 EUI 管理。显式开启 supports_reasoning 才允许 minimal/low/medium/high；默认不传 reasoning_effort，供应商拒绝返回可见错误，不自动降级重试。
 
-**降级：** `prefers-reduced-motion: reduce` 双保险——`primitives.ts` 把全部时长 token 归零；`styles.css` 再以全局 `animation/transition-duration: 0.01ms !important` 兜底。新动效必须消费 `--mir-dur-*`/`--mir-ease*`，禁止私有 duration。
+### Messages / Markdown
 
-## Theming（明暗两态与 6 主题机制）
+用户消息为右对齐轻灰气泡，12px 圆角、1px border、水平 16px / 垂直 12px 内边距。已完成助手回复直接使用 EUI 公共 MarkdownBuilder，无外层卡片或角色标题；运行/失败行保留图标与明确状态。展示只移除回复首尾 CR/LF 空行，保留内部格式与服务原始历史，没有桌面执行卡。非运行中消息下方提供整条复制与引用，按钮 30×28px、图标 13px、圆角 6px。所有 icon-only button 显式 `.text("")`，避免默认文字泄漏。
 
-**两态气质：** dark = 夜班大厅（默认气质：炭蓝 console 阶底 + 暖白刻字 + 亮琥珀），light = 白班控制室（奶油灰底 `#d6d0c2` + cream 面板 + 深琥珀 `--mir-amber-700`）。状态四色 light 用共享校准常量（console 用更深一档 `CONSOLE_STATUS_LIGHT`），dark 统一用 `*400d` 亮档。
+连续 CJK 段额外间距由单一 `apps/native/markdown_adapter.hpp` 经公开 DSL 修正，反馈 EUI-20261004-004；保留上游解析、保守换行及高度预算，升级后按反馈移除。支持标题、列表、粗体、代码和表格；精细文字框选与链接打开缺少公开回调，尚不支持。
 
-**机制（`schema.ts` + `theme-manager.ts`）：**
-- 主题 = 同一 26 token 语义契约（L2 全量清单）的多套值集；`buildThemeStylesheet()` 产出 `:root[data-theme='<id>'][data-mode='light|dark']` 规则对，`main.ts` 挂载一次。
-- `ThemeManager` 把 `data-theme`/`data-mode` 写在根节点，切换只换属性不重载；偏好 `{themeId, mode}` 持久化于 localStorage `mirage.appearance`，mode 支持 light/dark/system（system 监听 `prefers-color-scheme`）；非法值回退默认。
-- 主题值集只允许颜色；radius/shadow 是独立可选字段——**布局零位移门槛：主题不得引入影响布局的属性**。
-- 组件与视图不感知主题，只消费语义 token（`theme-manager.ts` 头注）。
+### Inputs / Fields
 
-**6 套内置主题（`themes.ts` BUILT_IN_THEMES）：** `mirage-console` 任务控制台（默认，DEFAULT_THEME_ID）、`mirage-dawn` 晨蓝（严格等于规范 §2.2 基准值）、`mirage-nordic` 冷杉、`mirage-ember` 暖沙、`mirage-matcha` 抹茶、`mirage-ink` 玄墨。设置页外观区以 2×2 色板卡片预览（`.theme-card`）。
+多行输入位于 composer 的 (4px, 4px + refs_height)，宽 `column - 8px`，内部 inset 12px，16px 文字，增长到 168px 后内部滚动。背景与 focused 背景保持 composer 颜色，边框透明、hit 边框为零，无阴影；composer 外框聚焦时由 border 变为 muted。
 
-**新主题门槛（`themes.ts` 头注 §2.6）：** light/dark 各提供全 26 token 值集；状态四色保持语义 hue 且四色相互可区分；对比度达标——正文/文本 ≥4.5:1（surfaces 契约 Constraints），状态色 UI 边界 ≥3:1（STATUS_LIGHT 校准注释）；语义封闭映射不变。机制与 golden/契约测试（`ui/app/test/theme.test.ts`、`theme-manager.test.ts`、`style-scan.test.ts`）不得为新增主题改动。
+Enter 发送、Shift+Enter 换行、Ctrl+Enter 保留发送兼容；composition 状态阻止 IME 候选确认提前提交。设置、模态或工具条 popover 打开期间阻止背景输入。提交未接纳或失败时保留草稿；合成中文粘贴不算真实中文 IME 验收。
+
+### Composer / Context
+
+浅色为 surface、深色为 dark-composer，16px 圆角、1px 边界。工具顺序为附件、访问权限、上下文比例、模型、思考深度、发送。加号/发送 36×36px、图标 17px；权限 110×32px；上下文入口 36×32px，内置 20×20px 圆环；模型宽 `max(96px, column - 342px)`、高 32px；思考 88×32px。标签 13px、下拉图标 9px。权限与思考各自保留于当前本地会话，提交时冻结；调整会话选择不改写已冻结的在途请求。只读不注册工具，默认只使用当前已注册 wait，不表示完整桌面访问。模型入口以“服务商名称 · 模型 ID”列出已保存配置，并提供“管理模型”；服务 ACK 后更新已应用模型，活动任务或保存失败拒绝切换。未声明思考能力时入口说明限制并提供模型设置，不能选择档位。运行期间发送改为停止，调用 session.chat.cancel；提交等待或附件读取期间禁用发送；空草稿/引用/附件、断开连接或未取得远端会话时同样禁用。禁用实心发送使用 hover 底色与 muted 图标，避免正常行动色暗示可提交。
+
+加号提供“添加文本附件”和“查看附件与引用”，明确说明 UTF-8、最多 4 个与合计 8 KiB。同步系统文件对话框只接收用户主动选择的文件，读取交给前端唯一 Executor 的有限任务；拒绝非普通文件、二进制、无效 UTF-8 与超限，Linux 还拒绝符号链接/FIFO，取消选择无错误。附件以文件名与完整文本加入明确标记的不可信用户 TextPart 上下文，不提供图像/二进制上传或自动目录读取。附件和引用出现后展示 176×28px“附件 N · 引用 N”计数 pill，图标 11px、文字 12px；点击打开宽 `min(320px, column)`、高 `min(352px, screen.height - 160px)` 的滚动预览。附件展示文件名、字节数、13px / 22px 文本和移除入口；引用展示完整文字、来源角色、消息 ID，并可逐条删除，文字 14px / 22px、行间距 16px、滚动条宽 4px / gap 6px。引用最多 4 条、合计 8 KiB；附件另有相同上限，二者与草稿一起受编码后 16 KiB wire 上限。引用/附件实例有独立单调 ID，ACK 仅清除该次提交实例；附件 generation 防止已清空会话接纳迟到读取结果。
+
+上下文圆环采用 24×24 SVG 视框、半径 10、描边 4，原生显示为 20×20px；用 SVG 路径弧绘制占用，避免依赖 dash-array 支持。点击或经 EUI 键盘操作展开宽 `min(320px, column)`、高 224px 的详情，浅色使用 surface、深色使用 dark-composer，按上下文工具的 x=162px 锚点定位并钳制到 composer 可用宽度；与 composer 间隔 8px、顶部至少 68px。标题与百分比在顶部，下一行展示带千位分隔的“输入 / 窗口 Token”；下方是 6px 高、3px 圆角的比例条，以及来源、模型、本次引用数三行。未知时显示灰色空环、“未知”与“Token 用量尚不可用 / 等待模型返回 Token 用量”；已有输入但分母未知时显示“输入 / 未知 Token”，提示到模型设置填写窗口预算。真实零用量配合已知分母显示 0%；原始 Token 数和百分比可以超过 100%，仅圆环与进度条图形钳制到 100%。
+
+分子仅来自 Mira ModelResponse.usage 的 Exact / ProviderReported input_tokens，按最近一次成功请求显示“上次请求 · 模型输入用量”；工具循环取最终回复调用的输入，不累计各次调用，不计输出 Token，不从草稿或 bytes 估算。失败/取消保留前一次成功值；新成功轮次缺少用量则回到未知；迟到的旧序列不能覆盖较新的用量。服务重启后的旧历史不持久化用量，显示未知。截图中的 391 / 128,000 Token = 0.3% 来自真实请求与显式测试预算，128,000 不是自动发现的供应商窗口。
+
+模型 popover 高 `min(352px, 68px + 44px × 配置数)`，动作/权限 popover 高 164px，思考 popover 已启用时高 244px、未启用时高 148px；各面板按对应工具的横向锚点定位（附件/引用 8px、权限 48px、上下文 162px、模型 202px、思考 `column - 136px`），再钳制到 composer 边界；共用 12px 圆角、1px 边界，透明 dismiss 层 z=20、面板 z=21，位于 composer 上方且顶部不小于 68px。
+
+### Dialog
+
+对话框在全窗 scrim 上居中；标题、正文、确认/取消属于同一面板。确认清空只处理打开弹层时选定的会话。scrim 点击与 Escape 关闭弹层；弹层打开期间快捷键和输入受保护。面板拦截点击，防止穿透关闭。
 
 ## Do's and Don'ts
 
-### 正确扩展（新增组件/主题的操作规程）
-- **Do** 新组件的一切颜色经 `var(--mir-*)` 原始值或 26 个语义 token，需要衍生态时用 `color-mix(in oklab, var(--token) N%, ...)`；组件局部自定义属性只允许别名语义 token（先例：`WallDisplay.tsx` 的 `--tile-color: var(--success)`）。
-- **Do** 新控件复用行阶梯与字号阶（高度 24/28/34px，字 12/13/14px），新间距走 4 基 `--mir-space-*`，不引入新档位。
-- **Do** 新动效消费 `--mir-dur-*`/`--mir-ease*`/`--mir-lamp-*`；状态指示类复用 `lamp-on`/`lamp-blink`，并确认 reduced-motion 下退化为瞬时。
-- **Do** 新主题在 `themes.ts` 增加完整 light/dark 值集并通过上文「新主题门槛」；不改 `schema.ts` 的 L2 清单与 `styles.css` 结构。
-- **Do** 改完跑锁定测试：`ui/app` 下 `npx vitest run test/style-scan.test.ts test/theme.test.ts test/theme-manager.test.ts`。
+### Do:
+- **Do** 使用同一 Palette 角色切换明暗，让文字、边界与操作同时变化。
+- **Do** 保持文字与图标的职责分离；操作图标使用随应用配置加载的 Font Awesome Solid。
+- **Do** 保留 Mira 品牌图的原始画作、比例、透明背景与来源记录。
+- **Do** 按服务回执显示发送、运行与终态；composer 只显示服务确认的模型。
+- **Do** 保持附件/引用文本、来源与删除入口可检查；上下文用量标明上次请求和配置预算，缺少事实源或分母时明确未知。
+- **Do** 将新原生页面的视觉扩展同步到apps/native 和仓库根目录的现行设计记录。
 
 ### Don't:
-- **Don't** 在 `styles.css` 或组件源码出现十六进制/`rgb()` 颜色字面量——`style-scan.test.ts` 会逐文件拒绝（唯一例外：外观页主题预览 swatch 的内联展示）。
-- **Don't** 把蓝线证据色（evidence-highlight）或状态四色用作行动按钮/主 CTA；行动色只有琥珀。
-- **Don't** 引入网络字体或第三种字族；仪表刻字一律 Saira wdth 62.5 caps，遥测一律 Chivo Mono。
-- **Don't** 发明第三档阴影、外发光、霓虹辉光或玻璃拟态——本世界是非霓虹材料的控制台。
-- **Don't** 在主题值集里携带影响布局的属性（radius/shadow 之外的一律不放），也不要让主题切换产生位移。
-- **Don't** 动效绕过 motion token 写死 duration/easing，或新增不随 `prefers-reduced-motion` 降级的动画。
+- **Don't** 将设置草稿包装成已应用模型，或将通用文字/工具轮次包装成桌面任务执行。
+- **Don't** 以 ZCode 参考截图作为应用内素材；交付的品牌 raster 仅来自已记录来源的 Mira 原始角色图。
+- **Don't** 将 Web/CEF 的仪表 caps、琥珀主色与灯阵语法默认套入原生对话页。

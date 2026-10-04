@@ -1,7 +1,7 @@
 /// M1.5-01 golden-vector consistency gate (docs/design/mirage-ipc-protocol-v1.md
 /// section 8): consumes the shared vectors file
 /// tests/runtime/data/ipc_protocol_golden.json — the very same file the
-/// TypeScript mirror (ui/contracts/test/golden-vectors.test.ts) reads — and
+/// retired TypeScript mirror formerly read — and
 /// asserts the `runtime/ipc` codec reproduces every canonical wire form
 /// byte-for-byte plus the stable decode error strings.
 ///

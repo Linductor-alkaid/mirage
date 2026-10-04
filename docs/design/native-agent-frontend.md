@@ -22,7 +22,7 @@ STORY：用户在设置配置模型服务，返回会话提交文字任务，读
 FIRST VIEWPORT：1180×800 无边框窗口，260px可调侧栏与60px原生标题条保留；
 空会话为居中问候与672px输入框。有消息后，右对齐轻灰用户气泡、无边框Markdown回复，
 主区宽≥864px时阅读列扣除96px留白，最大896px，底部16px圆角输入随文字增高。
-加号/模式/模型/上下文/发送构成紧凑工具条；最小860×620保持操作可达。
+附件/访问权限/上下文占比/模型/思考深度/发送构成紧凑工具条；最小860×620保持操作可达。
 
 FORM：用户指定 ZCode 参考，code-led 原生桌面对话页；seed key：user-zcode-native。
 
@@ -97,3 +97,28 @@ IPC请求最多16个、事件通道128条；事件缺口读取历史恢复，终
 
 M6-06按[DEC-036](../decisions/DEC-036-context-usage-presentation.md)补齐上下文圆环：
 最近成功请求输入Token/显式配置窗口预算，点击详情；未知不显示虚假0%。
+
+
+## 模型配置与提交意图（M6-07 / DEC-037）
+
+以 ZCode `ModelProviderSectionLayout` 的服务商导航和右侧详情为布局依据；
+宽 ≥700px 时内部导航176px；小于700px时使用全宽命名服务商选择器，保留可滚动表单。
+至多12个命名配置，目录位于settings.models，活动配置位于settings.model。
+切换只在service ACK后更新composer，活动任务/存盘失败拒绝切换；API Key仍经环境SecretRef。
+
+每轮IPC携带access和reasoning；read_only不注册工具，default仅当前wait。
+模型声明supports_reasoning后才提供Mira公开minimal/low/medium/high，默认省略。
+文本附件由前端Executor有限任务读取；只接受普通文件，8KiB/4个上限，UTF-8校验，
+拒绝FIFO/符号链接（Linux），借generation与单调附件ID保护清空/发送ACK竞态。
+附件以明确不可信用户上下文送入现有TextPart，未开放Mira file/image能力。
+
+## 旧前端退役（M6-08 / DEC-037）
+
+ui、CEF shell和Web devbridge不再参与源码/依赖/CI/安装包；依赖锁schema3明确native。
+保留C++ IPC golden及全部服务/平台边界测试；只移除随组件删除而失效的三个专用桥测试。
+Linux安装包只携带native、Mira图标和必要字体，不携带EUI示例音乐/图像或Chromium。
+旧文档和M5验收仅为历史；完整进程退出确认和Windows真机验证仍未完成。
+
+模型替换先构建并验证新适配器，再持久化配置并交接旧适配器。生产 SocketHttpTransport 的 worker_name 使用各自 ModelProfileId，避免默认名称在新旧模型重叠期间冲突；同一时刻最多持有旧、新两层，失败销毁候选层并保留旧配置。全部传输 worker 仍由服务唯一 Executor 管理；不创建自有线程或调度器。
+
+紧凑模型页（内容宽 <700px）使用全宽命名服务商选择器替代图标栏，打开后先显示配置名称再选择；Escape/外部点击关闭列表。宽屏仍为176px命名导航。用户任务文本放在序列化附件/引用之前，纯附件轮次以“附件：文件名”开头；会话标题略过首部空白，纯空白回退为“新对话”。

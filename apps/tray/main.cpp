@@ -57,7 +57,7 @@ void print_usage(std::ostream &out) {
         << "Options:\n"
         << "  --socket PATH  IPC endpoint (default: DEC-007 default path)\n"
         << "  --shell PATH   Desktop shell binary for 打开 Mirage\n"
-        << "                 (default: the mirage-desktop sibling of this\n"
+        << "                 (default: the mirage-native sibling of this\n"
         << "                 executable)\n"
         << "  --version      Print version and exit\n"
         << "  --help         Print this help\n";
@@ -70,14 +70,17 @@ std::string default_shell_path(const char *argv0) {
     const std::filesystem::path self = std::filesystem::absolute(argv0);
     const std::filesystem::path sibling = self.parent_path()
 #ifdef _WIN32
-                                          / "mirage-desktop.exe";
+                                          / "mirage-native.exe";
 #else
-                                          / "mirage-desktop";
+                                          / "mirage-native";
 #endif
     std::error_code error;
     if (std::filesystem::exists(sibling, error) && !error) {
         return sibling.string();
     }
+    const auto development = self.parent_path() / "native" / sibling.filename();
+    if (std::filesystem::exists(development, error) && !error)
+        return development.string();
     return {};
 }
 

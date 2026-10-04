@@ -1,6 +1,6 @@
 ---
 name: Mirage 原生 Agent 对话页
-description: EUI-NEO 原生 ZCode 会话布局、文字上下文与模型设置的中性明暗设计系统
+description: EUI-NEO 原生 ZCode 会话、服务商配置与有界文本附件的中性明暗设计系统
 colors:
   light-background: '#f8f8f8'
   light-sidebar: '#f0f0f0'
@@ -86,6 +86,15 @@ typography:
     fontSize: 30px
     fontWeight: 600
     lineHeight: 1.5
+  provider-selector:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 18px
+    fontWeight: 400
+  model-heading:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 28px
+    fontWeight: 600
+    lineHeight: 1.5
   model-field:
     fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
     fontSize: 16px
@@ -121,6 +130,7 @@ rounded:
   control: 7px
   message: 12px
   panel: 12px
+  provider-chooser: 10px
   composer: 16px
   reference: 14px
   markdown: 8px
@@ -149,6 +159,9 @@ components:
     textColor: '{colors.light-inverse}'
     rounded: '{rounded.control}'
     size: 36px
+  button-primary-disabled:
+    backgroundColor: '{colors.light-hover}'
+    textColor: '{colors.light-muted}'
   button-primary-hover:
     backgroundColor: '{colors.light-muted}'
   button-pressed:
@@ -190,6 +203,12 @@ components:
     height: 100px
   theme-panel-narrow:
     height: 126px
+  provider-selector:
+    backgroundColor: transparent
+    textColor: '{colors.light-text}'
+    rounded: '{rounded.control}'
+    height: 40px
+    typography: '{typography.provider-selector}'
   model-input:
     backgroundColor: '{colors.light-surface}'
     textColor: '{colors.light-text}'
@@ -242,9 +261,9 @@ components:
 
 # Design System: Mirage 原生 Agent 对话页
 
-> 范围：`apps/native` / `mirage-native`，M6-01/02/03/05/06、DEC-033/034/035/036。事实源：
+> 范围：`apps/native` / `mirage-native`，M6-01/02/03/05/06/07/08、DEC-033/034/035/036/037。事实源：
 > `app.cpp` 的 `Palette`、`text()`、`button_style()`、`conversation_page()` 与 `compose_page()`；
-> `chat_model.hpp/.cpp` 的引用预算、提交编码、ACK 与成功轮次用量；`context_usage.hpp` 的比例、数字与圆环；`markdown_adapter.hpp` 的公共 DSL 兼容边界；
+> `chat_model.hpp/.cpp` 的附件/引用预算、提交编码、ACK 与成功轮次用量；`attachment.cpp` 与 `runtime_bridge.cpp` 的显式文件选择和 Executor 读取边界；`context_usage.hpp` 的比例、数字与圆环；`markdown_adapter.hpp` 的公共 DSL 兼容边界；
 > `window_controls.cpp` 的窗口尺寸与初始 DPI 换算。产品依据为仓库根目录 `PRODUCT.md`，
 > 方向契约为 `../../docs/design/native-agent-frontend.md`。
 > frontmatter 同时记录明暗两态；组件条目使用默认浅色，深色按同名 Palette 角色替换。
@@ -256,7 +275,7 @@ components:
 
 中性灰底、窄会话栏和居中的阅读列构成原生桌面对话工作台。细分隔线与轻微色阶承担结构，实心发送控件集中表达主操作。视觉参考用户指定的 ZCode Zai Light/Dark；使用的是 Mirage 自己的 EUI DSL 页面，未复制参考项目的业务实现。
 
-当前表面经独立 Runtime Service 展示真实 Agent 会话，并在设置页配置模型。会话标题、草稿、轮次状态与服务提示保持既有信息层级；发送、运行、回复、停止或失败来自服务回执与事件。此记录仅适用于 apps/native / mirage-native，不替代仓库根目录保留的 Web/CEF Mission Console 设计。
+当前表面经独立 Runtime Service 展示真实 Agent 会话，并在设置页配置模型。会话标题、草稿、轮次状态与服务提示保持既有信息层级；发送、运行、回复、停止或失败来自服务回执与事件。本原生系统是 DEC-037 旧 TS/CEF 前端退役后的现行视觉契约，仓库根目录同步此记录；原 Web Mission Console 的炭蓝/奶油/琥珀、仪表 caps 和灯阵仅保留为历史设计背景，既有版本可从 Git 历史查看。
 
 **Key Characteristics:**
 - 明暗两态共享中性灰角色；默认浅色。
@@ -264,7 +283,7 @@ components:
 - 可调宽并收起的侧栏、右对齐用户气泡、无卡片 Markdown 回复与随文字增高的 composer。
 - 设置入口集中外观与模型；主题即时应用且仅在当前运行中保留，模型配置由服务保存并确认。
 - 平面容器、细描边、有限圆角。
-- 清晰展示实际轮次状态、已应用模型、引用来源与服务连接结果；上下文比例取最近成功请求的输入 Token 与显式窗口预算，未知时明确说明。
+- 清晰展示实际轮次状态、已应用模型、附件/引用来源与服务连接结果；上下文比例取最近成功请求的输入 Token 与显式窗口预算，未知时明确说明。
 
 ## Colors
 
@@ -285,7 +304,7 @@ components:
 
 Markdown 链接/强调色、代码块与引用块背景使用对应专用角色。`markdown-accent` 不表示链接已可打开。
 
-**The Native Scope Rule.** 此系统只约束 apps/native；旧 Web/CEF 的琥珀控制台 tokens 不迁入本表面。
+**The Native Scope Rule.** 现行产品页面复用原生 Palette；已退役 Web/CEF 的琥珀控制台 tokens 不迁入新表面。
 
 ## Typography
 
@@ -297,7 +316,7 @@ Markdown 链接/强调色、代码块与引用块背景使用对应专用角色�
 
 - **Headline**：空态问题，用字号与留白建立阅读起点；没有额外的 eyebrow。
 - **Brand / Title**：侧栏品牌与对话框题，权重略高。
-- **Settings Heading**：外观与模型页标题使用独立字号，说明沿用 Body，主题按钮沿用 Navigation，偏好声明沿用 Label。
+- **Settings Heading**：外观页标题使用 30px，模型服务标题使用 28px，服务商详情标题使用 20px，说明沿用 Body，主题按钮沿用 Navigation，偏好声明沿用 Label。
 - **Model Field**：模型表单的单行输入和标签均使用 16px；标签行高框为 28px，输入行高交由 EUI 组件。协议和页底按钮沿用 Button Label。
 - **Message / Body**：用户正文与助手 Markdown 为 16px / 26px；H1/H2/H3 为 22/20/18px，代码 14px，块间隔 12px。引用预览 14px / 22px。弹层正文 28px 行高。Markdown 代码字体与未显式设置的标题行高由 pinned EUI 提供，不猜测为产品 token。
 - **Context Detail**：标题与百分比沿用 16px / 500 权重，Token 摘要沿用 14px；二者行框 28px。来源、模型与本次引用行沿用 13px、24px 行框。
@@ -316,14 +335,14 @@ Markdown 链接/强调色、代码块与引用块背景使用对应专用角色�
 - 标题拖动区和分隔线为 60px 高，与方向契约一致。
 - 空会话列为 `min(672px, main_width - 48px)`，水平居中；问候 30px、54px 行框，说明 14px、28px 行框，无建议列表。
 - 有消息时列为 `min(896px, main_width - (main_width >= 864px ? 96px : 32px))`，水平居中。用户气泡按文字测量宽度加 32px，最小 80px，最大 `min(576px, thread_width)`，右对齐；助手正文宽 `thread_width - 24px`，无卡片。
-- 编辑区高 `clamp(measure(draft, column - 40px, 16px, 24px) + 16px, 48px, 168px)`；composer 高为编辑区 + 56px 工具区，有引用再加 36px，总高 104–224px（有引用 140–260px）。活动 composer 顶部为 `screen.height - composer_height - 28px`；空态期望顶部为 `max(188px, screen.height × 0.29 + 106px)`，按同一底部边界钳制。问候顶部为 `max(80px, composer_y - 104px)`。
+- 编辑区高 `clamp(measure(draft, column - 40px, 16px, 24px) + 16px, 48px, 168px)`；composer 高为编辑区 + 56px 工具区，有附件或引用再加 36px，总高 104–224px（有附件或引用 140–260px）。活动 composer 顶部为 `screen.height - composer_height - 28px`；空态期望顶部为 `max(188px, screen.height × 0.29 + 106px)`，按同一底部边界钳制。问候顶部为 `max(80px, composer_y - 104px)`。
 - 消息滚动区顶部 72px，高 `max(48px, composer_y - 88px)`；滚动条宽 4px、gap 8px。工具条顶部为 `composer_y + composer_height - 44px`；面板下方 24px 通知/快捷键行从面板底部 + 4px 开始。
 - 外观/模型设置保留 `min(800px, main_width - 64px)` 居中列。
 - 会话列表为 48px 行高、4px 行间隔；消息行间隔 24px。新建/返回按钮宽度为 `sidebar - 32px`，会话列表宽度为 `sidebar - 24px`，随侧栏一起变化。最小窗口保持同一结构，用户可收起侧栏增加空间。
 - 外观页标题框从 y=104 开始，高 48px；说明从 y=160 开始，高 32px。主题面板从 y=232 开始；内容列宽度低于 600px 时由横排变为上下排，面板由 100px 增高至 126px，并省略重复说明，保留偏好声明。
 
-- 模型页复用外观页标题/说明位置。表单从 y=214 开始，高 `screen.height - 342px`；五个字段行高 92px，各含 28px 标签框、8px 间隔与 44px 输入。协议行高 94px，说明框高 60px。滚动条宽 4px、与内容间隔 12px。
-- 模型页底部状态固定于 `screen.height - 110px`，高 28px；按钮在其下 38px，高 40px。重新连接宽 104px，停用宽 100px，保存并应用宽 112px；最小窗口滚动表单，页底操作保持可达。
+- 模型页标题从 y=90 开始，高 48px；说明从 y=140 开始，高 32px。服务商/详情共用面板从 y=194 开始，高 `screen.height - 334px`。内容列宽 ≥700px 时内部导航为 176px，导航行高 44px、间隔 6px，内部两侧各留 8px，细分隔线后详情左右各留 24px，标题距面板顶部 16px。内容列宽 <700px 时不显示左栏，详情宽为 `content_width - 48px`，面板顶部改为全详情宽、40px 高的当前服务商名称选择器，距顶部 12px；18px 文字与14px下拉图标。点击后显示带完整可区分名称的滚动列表，选中再进入对应配置。表单从 y=250 开始，高 `screen.height - 402px`；六个字段行高 92px，各含 28px 标签框、8px 间隔与 44px 输入。协议行高 94px，思考能力开关高 40px、说明高 64px，凭据说明高 60px。滚动条宽 4px、与内容间隔 12px。
+- 模型页底部状态固定于 `screen.height - 110px`，高 28px；按钮在其下 38px，高 40px。重新连接在详情宽 <480px 时为 36px 图标按钮，否则宽 104px；取消修改宽 80px，停用宽 100px，保存并应用宽 112px；最小窗口滚动表单，页底操作保持可达。
 
 **The Reading Column Rule.** 空态与活动态各按实际列宽策略居中；消息与活动 composer 共用列。设置保留 800px 上限；所有列受主区可用空间限制。
 
@@ -374,7 +393,7 @@ AT-SPI 中 GNOME Mirage 按钮的 SHOWING=true。Dock 像素截图因权限限�
 
 ### Navigation
 
-可调宽侧栏承载品牌、新建、会话列表、说明与设置入口。会话行有独立选中底色和 hover；标题 16px，Font Awesome 对话图标 16px。底部齿轮打开设置；侧栏收起后顶部保留展开与设置齿轮，主题操作集中在设置的外观页。设置侧栏以“返回对话”和“外观 / 模型”分类替代会话列表，当前分类填充 selected；收起侧栏时标题栏另有 124×36px 的返回按钮。会话行和窗口标题按实际字体测量可用宽度；超长标题逐个移除 UTF-8 码点并追加省略号，仅缩短显示文本，保留原始会话标题。
+可调宽侧栏承载品牌、新建、会话列表、说明与设置入口。会话行有独立选中底色和 hover；标题 16px，Font Awesome 对话图标 16px。底部齿轮打开设置；侧栏收起后顶部保留展开与设置齿轮，主题操作集中在设置的外观页。设置侧栏以“返回对话”和“外观 / 模型”分类替代会话列表，当前分类填充 selected；收起侧栏时标题栏另有 124×36px 的返回按钮。会话行和窗口标题按实际字体测量可用宽度；超长标题逐个移除 UTF-8 码点并追加省略号，仅缩短显示文本，保留原始会话标题。首次用户提交生成标题时跳过开头空格、制表符与CR/LF，纯空白回退“新对话”；标题取第一行最多16个UTF-8码点。提交文本先保留用户草稿，再追加引用和附件，防止包装标签抢占标题；无草稿/引用的附件提交以“附件：文件名”开始。
 
 ### Appearance Settings
 
@@ -394,9 +413,9 @@ Ctrl+, 在没有弹层时打开设置；Escape 先关闭弹层，再返回对话
 
 ### Model Settings
 
-五个单行输入沿用 surface、text、muted 与 control 圆角，常态细描边为 border，focus 描边为 action；无阴影。填写服务地址（仅 origin）、API 路径、模型名称、凭据环境变量名称与可选“上下文窗口预算（Token）”。窗口预算留空表示未知，非零值为 2048–2000000 的整数；填写值作为显式预算映射到 Mira ProfileLimits，不表示供应商自动发现容量。未配置时 UI 分母未知，服务保持既有 Mira 默认运行预算。输入与标签各为 16px，输入高 44px、inset 12px；表单有独立滚动位置。协议选项 Responses / Chat Completions 分别宽 128/172px、高 40px、间隔 8px，选中填充 selected，hover/pressed 沿用既有按钮角色。
+宽屏服务商导航与滚动详情复用同一 surface 面板、细分隔线和 selected 选中底色；紧凑页用显式当前服务商名称选择器替代左栏。“添加服务商”位于说明右侧，124×36px。最多 12 个命名配置，选中导航只编辑对应草稿，“保存并应用”经 service ACK 后才切换活动模型。紧凑选择器列表位于面板内左16px、顶部58px，宽 `content_width - 32px`，高 `min(max(88px, screen.height - 390px), 16px + 50px × 配置数)`；10px圆角、1px border、surface底色，内部8px inset，44px行高与6px间隔。当前项使用勾选图标，行文字14px、图标16px；透明dismiss层z=20，列表z=21，点击外部、Escape或返回对话关闭；Escape先关闭选择列表再离开设置。模态期间选择器回调受保护，保存中或草稿未保存时禁止切换服务商。六个单行输入沿用 surface、text、muted 与 control 圆角，常态细描边为 border，focus 描边为 action；无阴影。填写服务商名称、服务地址（仅 origin）、API 路径、模型名称、凭据环境变量名称与可选“上下文窗口预算（Token）”。窗口预算留空表示未知，非零值为 2048–2000000 的整数；填写值作为显式预算映射到 Mira ProfileLimits，不表示供应商自动发现容量。未配置时 UI 分母未知，服务保持既有 Mira 默认运行预算。输入与标签各为 16px，输入高 44px、inset 12px；表单有独立滚动位置。协议选项 Responses / Chat Completions 分别宽 128/172px、高 40px、间隔 8px，选中填充 selected，hover/pressed 沿用既有按钮角色。
 
-页底固定状态与“重新连接 / 停用模型 / 保存并应用”。保存等待时显示“应用中…”并阻止字段编辑与重复应用；未读到配置或缺少地址/模型时禁用保存。表单草稿与服务确认的模型分开，保存失败保留当前已应用模型；忙、取消、地址格式与凭据缺失提供可读提示。凭据说明只要求变量名称。字段焦点与禁用交互仍由 EUI 管理。
+页底固定状态与“重新连接 / 取消修改 / 停用模型 / 保存并应用”。窄详情下重新连接只显示 16px 图标，保留其他按钮文字。“取消修改”请求 model.get，service ACK 后恢复已保存目录并移除未保存新配置。保存等待时显示“应用中…”并阻止字段编辑与重复应用；未读到配置或缺少地址/模型时禁用保存。表单草稿与服务确认的模型分开，保存失败保留当前已应用模型；忙、取消、地址格式与凭据缺失提供可读提示。凭据说明只要求变量名称。字段焦点与禁用交互仍由 EUI 管理。显式开启 supports_reasoning 才允许 minimal/low/medium/high；默认不传 reasoning_effort，供应商拒绝返回可见错误，不自动降级重试。
 
 ### Messages / Markdown
 
@@ -412,15 +431,15 @@ Enter 发送、Shift+Enter 换行、Ctrl+Enter 保留发送兼容；composition 
 
 ### Composer / Context
 
-浅色为 surface、深色为 dark-composer，16px 圆角、1px 边界。工具顺序为加号、模式、模型、上下文、发送：加号/发送 36×36px、图标 17px；上下文入口 36×32px，内置 20×20px 圆环；模式 84×32px，模型宽 `max(72px, column - 244px)`、高 32px，标签 13px、下拉图标 9px。模式对应实际 agent 布尔值，运行或提交期间不切换；模型只显示服务确认值，入口打开真实模型设置。运行期间发送改为停止，调用 session.chat.cancel；提交等待禁用。
+浅色为 surface、深色为 dark-composer，16px 圆角、1px 边界。工具顺序为附件、访问权限、上下文比例、模型、思考深度、发送。加号/发送 36×36px、图标 17px；权限 110×32px；上下文入口 36×32px，内置 20×20px 圆环；模型宽 `max(96px, column - 342px)`、高 32px；思考 88×32px。标签 13px、下拉图标 9px。权限与思考各自保留于当前本地会话，提交时冻结；调整会话选择不改写已冻结的在途请求。只读不注册工具，默认只使用当前已注册 wait，不表示完整桌面访问。模型入口以“服务商名称 · 模型 ID”列出已保存配置，并提供“管理模型”；服务 ACK 后更新已应用模型，活动任务或保存失败拒绝切换。未声明思考能力时入口说明限制并提供模型设置，不能选择档位。运行期间发送改为停止，调用 session.chat.cancel；提交等待或附件读取期间禁用发送；空草稿/引用/附件、断开连接或未取得远端会话时同样禁用。禁用实心发送使用 hover 底色与 muted 图标，避免正常行动色暗示可提交。
 
-加号提供“引用上一条回复”与“新建会话”，无文件读取或附件上传。引用出现后展示 176×28px 计数 pill，图标 11px、文字 12px；点击打开宽 `min(320px, column)`、高 `min(352px, screen.height - 160px)` 的滚动预览，可读完整文字、来源角色与消息 ID，并逐条删除。预览文字 14px / 22px、行间距 16px、滚动条宽 4px / gap 6px；删除按钮 28×26px、图标 12px。引用最多 4 条、合计 8KiB；草稿与编码后引用共同受 16KiB wire 上限。引用实例有独立单调 ID，ACK 仅清除该次已提交实例；提交后新草稿、新引用或同来源的重新引用保持不变。
+加号提供“添加文本附件”和“查看附件与引用”，明确说明 UTF-8、最多 4 个与合计 8 KiB。同步系统文件对话框只接收用户主动选择的文件，读取交给前端唯一 Executor 的有限任务；拒绝非普通文件、二进制、无效 UTF-8 与超限，Linux 还拒绝符号链接/FIFO，取消选择无错误。附件以文件名与完整文本加入明确标记的不可信用户 TextPart 上下文，不提供图像/二进制上传或自动目录读取。附件和引用出现后展示 176×28px“附件 N · 引用 N”计数 pill，图标 11px、文字 12px；点击打开宽 `min(320px, column)`、高 `min(352px, screen.height - 160px)` 的滚动预览。附件展示文件名、字节数、13px / 22px 文本和移除入口；引用展示完整文字、来源角色、消息 ID，并可逐条删除，文字 14px / 22px、行间距 16px、滚动条宽 4px / gap 6px。引用最多 4 条、合计 8 KiB；附件另有相同上限，二者与草稿一起受编码后 16 KiB wire 上限。引用/附件实例有独立单调 ID，ACK 仅清除该次提交实例；附件 generation 防止已清空会话接纳迟到读取结果。
 
-上下文圆环采用 24×24 SVG 视框、半径 10、描边 4，原生显示为 20×20px；用 SVG 路径弧绘制占用，避免依赖 dash-array 支持。点击或经 EUI 键盘操作展开宽 `min(320px, column)`、高 224px 的详情，浅色使用 surface、深色使用 dark-composer，右边缘对齐 composer；与 composer 间隔 8px、顶部至少 68px。标题与百分比在顶部，下一行展示带千位分隔的“输入 / 窗口 Token”；下方是 6px 高、3px 圆角的比例条，以及来源、模型、本次引用数三行。未知时显示灰色空环、“未知”与“Token 用量尚不可用 / 等待模型返回 Token 用量”；已有输入但分母未知时显示“输入 / 未知 Token”，提示到模型设置填写窗口预算。真实零用量配合已知分母显示 0%；原始 Token 数和百分比可以超过 100%，仅圆环与进度条图形钳制到 100%。
+上下文圆环采用 24×24 SVG 视框、半径 10、描边 4，原生显示为 20×20px；用 SVG 路径弧绘制占用，避免依赖 dash-array 支持。点击或经 EUI 键盘操作展开宽 `min(320px, column)`、高 224px 的详情，浅色使用 surface、深色使用 dark-composer，按上下文工具的 x=162px 锚点定位并钳制到 composer 可用宽度；与 composer 间隔 8px、顶部至少 68px。标题与百分比在顶部，下一行展示带千位分隔的“输入 / 窗口 Token”；下方是 6px 高、3px 圆角的比例条，以及来源、模型、本次引用数三行。未知时显示灰色空环、“未知”与“Token 用量尚不可用 / 等待模型返回 Token 用量”；已有输入但分母未知时显示“输入 / 未知 Token”，提示到模型设置填写窗口预算。真实零用量配合已知分母显示 0%；原始 Token 数和百分比可以超过 100%，仅圆环与进度条图形钳制到 100%。
 
 分子仅来自 Mira ModelResponse.usage 的 Exact / ProviderReported input_tokens，按最近一次成功请求显示“上次请求 · 模型输入用量”；工具循环取最终回复调用的输入，不累计各次调用，不计输出 Token，不从草稿或 bytes 估算。失败/取消保留前一次成功值；新成功轮次缺少用量则回到未知；迟到的旧序列不能覆盖较新的用量。服务重启后的旧历史不持久化用量，显示未知。截图中的 391 / 128,000 Token = 0.3% 来自真实请求与显式测试预算，128,000 不是自动发现的供应商窗口。
 
-模型 popover 高 136px，动作/模式 popover 高 116px；各面板共用 12px 圆角、1px 边界，透明 dismiss 层 z=20、面板 z=21，位于 composer 上方且顶部不小于 68px。
+模型 popover 高 `min(352px, 68px + 44px × 配置数)`，动作/权限 popover 高 164px，思考 popover 已启用时高 244px、未启用时高 148px；各面板按对应工具的横向锚点定位（附件/引用 8px、权限 48px、上下文 162px、模型 202px、思考 `column - 136px`），再钳制到 composer 边界；共用 12px 圆角、1px 边界，透明 dismiss 层 z=20、面板 z=21，位于 composer 上方且顶部不小于 68px。
 
 ### Dialog
 
@@ -433,8 +452,8 @@ Enter 发送、Shift+Enter 换行、Ctrl+Enter 保留发送兼容；composition 
 - **Do** 保持文字与图标的职责分离；操作图标使用随应用配置加载的 Font Awesome Solid。
 - **Do** 保留 Mira 品牌图的原始画作、比例、透明背景与来源记录。
 - **Do** 按服务回执显示发送、运行与终态；composer 只显示服务确认的模型。
-- **Do** 保持引用文本、来源与删除入口可检查；上下文用量标明上次请求和配置预算，缺少事实源或分母时明确未知。
-- **Do** 将新原生页面的视觉扩展记录在本目录，不覆盖根目录旧 Web 系统。
+- **Do** 保持附件/引用文本、来源与删除入口可检查；上下文用量标明上次请求和配置预算，缺少事实源或分母时明确未知。
+- **Do** 将新原生页面的视觉扩展同步到本目录和仓库根目录的现行设计记录。
 
 ### Don't:
 - **Don't** 将设置草稿包装成已应用模型，或将通用文字/工具轮次包装成桌面任务执行。

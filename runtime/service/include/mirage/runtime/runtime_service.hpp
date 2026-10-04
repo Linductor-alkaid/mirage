@@ -133,6 +133,7 @@ struct ServiceConfig {
     /// hydrated (tests).
     bool persist_session_state = true;
     mirage::integration::ModelLayerConfig model;
+    std::string model_catalog_json; ///< DEC-037: bounded settings document with models catalog
     /// Optional scripted-provider seam (DEC-027): when set, the model layer
     /// serves the gateway through this provider instead of the pinned socket
     /// stack (tests / embedded transports). The type is a Mirage-owned

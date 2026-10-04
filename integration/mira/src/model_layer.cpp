@@ -22,6 +22,19 @@ namespace pinned_net = mira::adapters::net;
 
 namespace mirage::integration {
 namespace {
+std::optional<mira::ReasoningEffort> reasoning_value(const std::string &value) {
+    if (value == "minimal")
+        return mira::ReasoningEffort::Minimal;
+    if (value == "low")
+        return mira::ReasoningEffort::Low;
+    if (value == "medium")
+        return mira::ReasoningEffort::Medium;
+    if (value == "high")
+        return mira::ReasoningEffort::High;
+    return {};
+}
+} // namespace
+namespace {
 
 /// Resolves SecretRef names against the process environment at the transport
 /// boundary only (pinned secret discipline): the plaintext never leaves the
@@ -132,8 +145,12 @@ struct ModelLayer::Impl {
             // Production form: the pinned socket HTTP/SSE transport (with the
             // OpenSSL TLS channel when built). The pinned provider denies
             // private/loopback endpoints by design (SSRF posture).
+            pinned_net::SocketTransportConfig transport_config;
+            // Replacement is assembled before the old layer is released. Each
+            // profile needs a distinct Executor worker identity during that overlap.
+            transport_config.worker_name = "mirage-model-" + profile->id.to_string();
             transport = std::make_shared<pinned_net::SocketHttpTransport>(
-                executor, secrets, make_tls_factory(), pinned_net::SocketTransportConfig{});
+                executor, secrets, make_tls_factory(), std::move(transport_config));
             if (!transport->start()) {
                 transport.reset();
                 return false;
@@ -170,6 +187,8 @@ struct ModelLayer::Impl {
         record.credential = mira::SecretRef{config.credential_env};
         // Pure-dialog needs text only; capabilities are declared at the
         // evidence the pinned fixtures provide, never claimed beyond that.
+        if (config.supports_reasoning)
+            record.capabilities.generation.reasoning_effort = mira::ParamMapping::OmitIfUnset;
         record.capabilities.text =
             mira::CapabilityFlag{true, mira::CapabilityEvidence::FixtureVerified, ""};
         record.capabilities.function_tools =
@@ -258,11 +277,19 @@ void ModelLayer::shutdown() {
 
 DialogCompletion ModelLayer::complete_dialog_turn(const std::string &transcript,
                                                   const std::string &user_text,
-                                                  const mira::OperationContext &context) {
+                                                  const mira::OperationContext &context,
+                                                  const std::string &reasoning,
+                                                  bool tools_allowed) {
     DialogCompletion completion;
     // The drain lock makes shutdown wait out this inference (bounded by the
     // profile transport deadlines) instead of destroying the pinned pieces
     // under it.
+    if (!reasoning.empty() &&
+        (!impl_ || !impl_->config.supports_reasoning || !reasoning_value(reasoning))) {
+        completion.failed = true;
+        completion.error = "unsupported reasoning effort";
+        return completion;
+    }
     std::lock_guard drain(impl_->infer_mutex);
     if (impl_ == nullptr || !impl_->running || !impl_->gateway) {
         completion.failed = true;
@@ -320,8 +347,10 @@ DialogCompletion ModelLayer::complete_dialog_turn(const std::string &transcript,
     user_item.content.emplace_back(std::move(prompt_text));
     request.input = {std::move(system_item), std::move(user_item)};
 
+    (void)tools_allowed;
     // Pure dialog: Text output, no tools, one request per turn.
     request.output_contract.mode = mira::OutputMode::Text;
+    request.generation.reasoning_effort = reasoning_value(reasoning);
     request.generation.max_output_tokens = impl_->config.max_output_tokens;
     request.budget.max_output_tokens = impl_->config.max_output_tokens;
     request.budget.max_requests = 1;
@@ -399,8 +428,16 @@ DialogCompletion ModelLayer::complete_dialog_turn(const std::string &transcript,
 // MIRA-20261004-001: temporary host Adapter over public Mira model/tool APIs.
 DialogCompletion ModelLayer::complete_harness_turn(const std::string &transcript,
                                                    const std::string &user_text,
-                                                   const mira::OperationContext &context) {
+                                                   const mira::OperationContext &context,
+                                                   const std::string &reasoning,
+                                                   bool tools_allowed) {
     DialogCompletion completion;
+    if (!reasoning.empty() &&
+        (!impl_ || !impl_->config.supports_reasoning || !reasoning_value(reasoning))) {
+        completion.failed = true;
+        completion.error = "unsupported reasoning effort";
+        return completion;
+    }
     std::lock_guard drain(impl_->infer_mutex);
     if (!impl_->running || transcript.size() + user_text.size() > impl_->config.max_input_bytes) {
         completion.failed = true;
@@ -409,11 +446,13 @@ DialogCompletion ModelLayer::complete_harness_turn(const std::string &transcript
     }
     mira::BuiltinToolRegistry tools;
     auto wait = mira::make_wait_tool();
-    const auto registered = tools.register_tool(wait.spec, wait.handler);
-    if (!registered) {
-        completion.failed = true;
-        completion.error = registered.error().safe_message;
-        return completion;
+    if (tools_allowed) {
+        const auto registered = tools.register_tool(wait.spec, wait.handler);
+        if (!registered) {
+            completion.failed = true;
+            completion.error = registered.error().safe_message;
+            return completion;
+        }
     }
     std::vector<mira::ModelInputItem> input;
     auto add = [&](mira::ModelRole role, const std::string &source, std::string text) {
@@ -452,6 +491,7 @@ DialogCompletion ModelLayer::complete_harness_turn(const std::string &transcript
         request.input = input;
         request.tools = tools.exposed_tools();
         request.output_contract.mode = mira::OutputMode::Text;
+        request.generation.reasoning_effort = reasoning_value(reasoning);
         request.generation.max_output_tokens = impl_->config.max_output_tokens;
         request.budget.max_output_tokens =
             std::min(impl_->config.max_output_tokens * 16,

@@ -31,6 +31,7 @@ struct ModelSettings {
     std::string model_selector;
     std::string credential_env;              ///< env var carrying the API key
     std::uint64_t context_window_tokens = 0; ///< 0 unknown; otherwise configured 2048..2000000
+    bool supports_reasoning = false;
 };
 
 /// Runtime configuration settings (M5-08 Runtime Configuration 类目):
@@ -69,6 +70,7 @@ struct LocalSettings {
     /// Model profile block (M5-08 设置-模型类目); nullopt keeps the model
     /// layer disabled.
     std::optional<ModelSettings> model;
+    std::vector<ModelSettings> models; ///< DEC-037: named catalog, at most 12
     /// Runtime configuration block (M5-08 Runtime Configuration 类目);
     /// nullopt keeps the built-in bounds.
     std::optional<RuntimeSettings> runtime;

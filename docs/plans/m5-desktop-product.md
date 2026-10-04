@@ -1815,6 +1815,78 @@ public-header boundaries / frontend / windows msvc (full tree)
 复选框已随 `M5-11` PR 翻转，本记录仅补录 CI 结论（工程规范第 4 节勾选
 规则第 1 条，先例 c3f1629）。
 
+2026-09-30：`M5-11` Linux 壳实机构建与 `.deb` 壳载荷打包补齐（Linux 侧
+修订：`apps/desktop` 壳此前只在 Windows CI 作业编译——CI 矩阵尚无 X11
+构建依赖，Linux 编译路径存在四处潜伏缺陷，本轮启用
+`MIRAGE_ENABLE_DESKTOP_SHELL=ON` 实机构建时暴露并修复；`.deb` 布局由
+"chrome-sandbox 单文件条件携带、CEF payload 留发布机"修订为"壳 + 完整
+CEF payload 随构建树携带、与二进制同目录安装"）。
+
+- 修复（`apps/desktop`，均为 Linux 首次编译暴露）：
+  ① CEF 根 include 改 SYSTEM——第三方头不得背 Mirage 告警集
+  （`-Werror=shadow` 打在 `cef_types_wrappers.h` 的 CefPoint/CefRect
+  构造上，后续语义错误全是级联噪声）；
+  ② CEF `SET_EXECUTABLE_TARGET_PROPERTIES` 追加的 `-fno-exceptions` /
+  `-fno-threadsafe-statics` 之后恢复 `-fexceptions -fthreadsafe-statics`
+  ——壳消费 pinned executor 与 Mirage IPC，错误路径是异常（AGENTS.md：
+  失败必须可达调用方），executor 静态依赖线程安全局部静态初始化；RTTI
+  维持关闭（无使用，CEF ABI）；
+  ③ `desktop_app.cpp` Linux 块 `include/cef_types.h` →
+  `include/internal/cef_types.h`（CEF 152 无前一路径，Linux-only 死
+  include 首次被编译）；
+  ④ `shell_session.cpp` 事件转发 lambda 内 `guard` 遮蔽外层同名局部，
+  改名 `forward_guard`。
+- 打包（`packaging/linux`）：`packaging-deb.cmake` 移除从未接线的
+  `MIRAGE_CEF_SANDBOX_FILE` 死分支；壳目标经 CACHE INTERNAL 发布部署
+  布局（`MIRAGE_DESKTOP_SHELL_PAYLOAD_DIR`/`_FILES`），deb 安装规则按
+  该清单把 12 项 CEF payload + locales 目录装入 `/usr/bin`（CEF 相对
+  可执行文件解析 payload，壳 `$ORIGIN` rpath 匹配；chrome-sandbox
+  setuid 位仍由 postinst 安装时置位，构建期不置位）；postinst 路径
+  `/usr/lib/mirage/chrome-sandbox` → `/usr/bin/chrome-sandbox`。
+- 验证（本机 Linux，无 root）：debug 全树构建 0 错（首次产出
+  `mirage-desktop`；CEF 152 linux64 锁定产物 674,894,043 字节经 lock
+  sha1 `add0a51f…` 复核后解包消费）；`dpkg-deb --info` control 齐全，
+  Depends 26 项含 nss/atk/gbm/cups 等全部 CEF 运行时依赖（dpkg-shlibdeps
+  扫描 libcef.so）；`dpkg-deb -c` = 4 产品二进制 + 12 项 CEF payload +
+  220 locales，md5sums 236 条与包内常规文件数一致；postinst/prerm
+  `sh -n` 通过；包内 libcef.so 与构建树部署副本 sha1 逐字节一致
+  （`12c272b1…`）；解包态启动冒烟 `DISPLAY=:0 timeout 15 mirage-desktop`
+  存活满 15 s、日志 `browser created`、无 sandbox 报错。以上由
+  Independent-Verification-Agent 独立复核（控制信息/文件清单/控制脚本/
+  完整性四项 PASS）。
+- 限制与补跑条件：① 真实安装/升级/卸载仍需 root（本会话沙箱
+  no-new-privileges，同上条记录限制②）——补跑 `dpkg -i` +
+  `stat -c '%U:%G %a' /usr/bin/chrome-sandbox`（应 root:root 4755）+
+  安装态启动冒烟；② Debug 载荷含 1.7 GB 未裁剪 libcef.so（deb 实测
+  473 MB，Installed-Size ≈ 2.0 GB）——发布 deb 应走 release 预设 +
+  strip（发布机步骤，M5-11 既有边界不变）。
+
+2026-09-30：`mirage start` 产品一键启动面交付（CLI 编排，四进程产品
+布局不变）。
+
+- 范围：`apps/cli` 新增 `start` 命令——先探测 Local IPC 端点：存活则
+  复用服务（不重复拉守护），否则复用既有 `service start` 守护路径
+  （fork/exec + /dev/null stdio + 就绪探测，BUG-20260916-001 纪律）；
+  随后以脱离进程方式（POSIX fork+setsid+stdio /dev/null，Windows
+  DETACHED_PROCESS）拉起 `mirage-tray` 与 `mirage-desktop`（同目录
+  sibling 解析，`--shell`/`--tray` 可显式覆盖，`--no-*` 可跳过），
+  1.5 s 后复核进程存活，立即退出判失败并携带非零退出码。每个进程仍
+  各自持有 Executor owner（AGENTS.md 规则 7），本命令仅编排后退出。
+- 修复（同轮独立验证发现）：面存活复核若只 `kill(pid,0)` 会被僵尸态
+  击穿——fork 后不 reap，exec 失败立即退出的子进程以僵尸存活被误报
+  `running` 且 exit 0；改为 `waitpid(WNOHANG)` 先收尸再判活；显式覆盖
+  路径补存在性检查（typo 路径必须使命令失败而非静默闪退）。
+- 依据：DEC-007 item 6（CLI 引导服务）、DEC-019/DEC-030（壳/托盘
+  面）、M5-11 四进程打包记录。
+- 验证（Independent-Verification-Agent，专用 socket + 替身面）：冷
+  启动全量、服务幂等复用（不重复拉守护）、面级单选拉起、脱离性
+  （setsid 后 PPID 脱离 CLI）、shutdown 收尾、真实 `mirage-desktop`
+  全 CEF 进程树冒烟全 PASS；失败检测路径两用例（面立即退出 / 显式
+  路径不存在）经修复复验后 PASS。遗留观察项：`start` 重复执行会重复
+  拉起面级实例（服务层幂等；面层单实例去重归属壳/托盘自身纪律，
+  DEC-030 边界，留后续产品化）；Windows 分支未实机验证（CI windows
+  作业补）。
+
 2026-09-30：`M5-12` Windows 应用内更新器完成（DEC-032 更新器核心与通道
 fail-closed 行为定案；本 PR 的 CI 结论按仓库先例由下一工作项 PR 补录）。
 
@@ -1867,3 +1939,5 @@ fail-closed 行为定案；本 PR 的 CI 结论按仓库先例由下一工作项
   [shell-binary-locking](../supply-chain/shell-binary-locking.md) §3
   （fail-closed 行为细节补决策兑现）、
   [总计划](mirage-implementation-plan.md) 状态叙述与决策表。
+
+2026-10-05：维护者明确要求清除旧 TS/CEF 前端，按 DEC-037 / M6-08 删除相关源码和构建消费。以上 M5 CEF/TS 验收作为历史保存，不再是当前产品实现。未提交旧壳/打包文件在清理前备份至 `/tmp/mirage-legacy-before-retirement-20261005`。

@@ -3,7 +3,7 @@
 > 状态：In Progress
 > 负责人：Mirage 维护者
 > 所属计划：[实施总计划](mirage-implementation-plan.md)
-> 更新日期：2026-10-04
+> 更新日期：2026-10-05
 > 决策：[DEC-033](../decisions/DEC-033-native-agent-frontend.md)
 > 前置：既有 M5 服务与 IPC；本轮交付不依赖完整 M5 发布验收。
 > 建议发布点：暂不新增发布标签。
@@ -11,7 +11,7 @@
 ## 目标与范围
 
 先提供 EUI-NEO dev 原生窗口和 ZCode 参考的 Agent 对话页面，再逐步迁移真实 IPC
-及统一入口/托盘所有权。原生 UI 分步交付 Linux 首步，不删除旧前端。
+及统一入口/托盘所有权。原生 UI 分步交付 Linux 首步。2026-10-05 维护者明确要求清除旧 TS/CEF 前端，按 DEC-037 退役其源码、构建和打包入口。
 不修改 Mira / Mirador，不实现新的 Agent 内核，不把预览当作真实对话。
 
 ## 工作项
@@ -24,6 +24,8 @@
 | M6-04 | Planned | 独立入口、前端/托盘分进程、退出活动确认与整体 shutdown、打包替换 CEF |
 | M6-05 | Completed | 整个会话页对齐ZCode：用户气泡/Agent Markdown、居中草稿与自增高输入、工具条/上下文引用、复制与键盘交互；按DEC-035验收 |
 | M6-06 | Completed | Linux首步ZCode上下文比例圆环与详情；接通Mira最近请求输入Token，显式窗口预算，未知状态与IPC兼容测试；依据DEC-036 |
+| M6-07 | Completed | Linux首步ZCode服务商配置与附件/权限/占比/模型/思考工具栏；真实UTF-8附件、受限工具权限、模型目录、每轮reasoning与回归；供应商推理互通和Windows另验 |
+| M6-08 | Completed | Linux首步删除TS/CEF/Web devbridge，保留原生IPC golden/依赖门禁；更新CI/CLI/打包，DEB提取启动通过；Windows安装及整体生命周期另验 |
 
 ## 测试矩阵与退出条件
 
@@ -32,6 +34,8 @@
 - [x] 容量边界与会话草稿隔离的模型测试，现有回归不退化。
 - [ ] Windows 构建及窗口/中文 IME 真机验证。原因：当前 Linux 环境；负责人：维护者；补跑：Windows CMake native preset 与窗口交互验证。
 - [x] M6-03 Linux 真实 IPC、异常/拒绝/取消/超时/shutdown 测试。
+- [x] M6-07 Linux 模型配置/有界文本附件/每轮权限与推理、正常/最小明暗界面及修正复核。
+- [x] M6-08 原生无 Node/CEF 构建、依赖锁门禁与 Linux DEB 提取启动。
 - [ ] M6-04 整体生命周期与安装包验收。
 
 ## 风险与实施记录
@@ -163,3 +167,21 @@ M6整体仍In Progress、M6-04仍Planned；未创建commit/MR或修改pinned源�
 格式化后Debug全树构建及51/51 CTest、Release原生构建及模型1/1复验通过。
 Windows和整体入口/托盘待验状态不变；此次只作本地提交，未push或创建/合并PR。
 详见[Git验收记录](../compatibility/native-git-checkpoint-20261005.md)。
+
+2026-10-05 / M6-07/08 Linux 首步完成：按 DEC-037 交付服务商模型配置、指定顺序输入
+工具栏、UTF-8 文本附件与真实 harness 请求。实际附件回复“青柠-37”，输入432/128000
+显示0.3%；生产 transport 更换使用公开 worker_name 配置消除实例冲突。模型目录和
+保存/放弃使用服务 ACK，推理只对显式声明支持的配置开放，当前只读权限禁用现有wait工具。
+旧TS/CEF/devbridge源码、构建消费与打包入口已退役，原生DEB约13.1MiB、提取启动成功。
+
+Debug空闲全量48/48；负载下旧event_subscription_test曾失败，单项及空闲全量复跑通过，
+不抹去失败事实。最终原生单元207checks/集成87checks，Debug/Release各2/2；
+ASAN/UBSAN/TSAN通过，格式/公开边界/凭据内容检查通过。24张最终实机截图已核验。
+独立初审三项修正（附件标题、最小窗口具名配置、PRODUCT当前事实）最终全部resolved，
+disposition=ship，仅修正列表范围；四份DESIGN/JSON已独立同步。
+[模型与输入验收](../compatibility/native-model-composer-20261005.md) /
+[退役验收](../compatibility/native-retirement-20261005.md) /
+[最终verdict](../../.impeccable/review/native-model-final-verdict.md)。
+工作整理为当前分支上的范围化本地提交；不改写master，不push/合并。Windows/真实IME、
+供应商推理互通、root安装与整体托盘退出保持明确缺项，负责人/补跑条件见验收记录。
+M6整体保持In Progress，M6-04保持Planned。

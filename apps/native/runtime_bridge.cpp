@@ -106,6 +106,21 @@ bool RuntimeBridge::call(ipc::Request request, std::string tag, std::uint64_t lo
         }));
     return true;
 }
+bool RuntimeBridge::load_attachment(const std::string &path, std::uint64_t session_id,
+                                    std::uint64_t generation) {
+    auto &p = *impl_;
+    if (p.stopping || p.calls.size() >= 16)
+        return false;
+    p.calls.push_back(p.executor.submit_auto([&p, path, session_id, generation] {
+        RuntimeMessage message;
+        message.kind = RuntimeMessage::Kind::Attachment;
+        message.local_id = session_id;
+        message.attachment_generation = generation;
+        message.attachment = read_text_attachment(path);
+        p.post(std::move(message));
+    }));
+    return true;
+}
 bool RuntimeBridge::receive(RuntimeMessage &out) {
     auto &p = *impl_;
     for (auto it = p.calls.begin(); it != p.calls.end();) {

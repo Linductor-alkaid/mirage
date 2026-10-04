@@ -1,5 +1,12 @@
 #include "../support/test.hpp"
 #include "chat_model.hpp"
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#ifndef _WIN32
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 int main() {
     using mirage::native_ui::ChatModel;
@@ -154,5 +161,76 @@ int main() {
     usage.select_session(usage_session);
     usage.clear_current();
     MIRAGE_CHECK(!usage.current().context_usage && usage.current().usage_sequence == 0);
+    ChatModel attachments;
+    const auto attachment_session = attachments.current().id;
+    attachments.apply_turn(attachment_session, "leading", "ok", "\n\n  用户任务\n正文", "回复", {});
+    MIRAGE_CHECK(attachments.current().title == "用户任务");
+    attachments.clear_current();
+    MIRAGE_CHECK(attachments.attach(attachment_session, {0, "notes.txt", "内容"}));
+    const auto attachment_only = attachments.submission_text();
+    attachments.apply_turn(attachment_session, "attachment-only", "ok", attachment_only, "回复",
+                           {});
+    MIRAGE_CHECK(attachments.current().title == "附件：notes.txt");
+    attachments.clear_current();
+    MIRAGE_CHECK(attachments.attach(attachment_session, {0, "notes.txt", "内容"}));
+    MIRAGE_CHECK(attachments.set_draft("我的附件任务"));
+    const auto with_task = attachments.submission_text();
+    attachments.apply_turn(attachment_session, "attachment-task", "ok", with_task, "回复", {});
+    MIRAGE_CHECK(attachments.current().title == "我的附件任务");
+    attachments.clear_current();
+    MIRAGE_CHECK(attachments.attach(attachment_session, {0, "note.txt", "附件测试"}));
+    const auto attachment_id = attachments.current().attachments.front().id;
+    MIRAGE_CHECK(attachments.submission_text().find("附件测试") != std::string::npos);
+    attachments.current().submitted_attachments = {attachment_id};
+    MIRAGE_CHECK(attachments.attach(attachment_session, {0, "later.md", "后来的附件"}));
+    attachments.acknowledge_submission(attachment_session);
+    MIRAGE_CHECK(attachments.current().attachments.size() == 1);
+    MIRAGE_CHECK(
+        !attachments.attach(attachment_session, {0, "oversize.txt", std::string(8193, 'a')}));
+    const auto generation = attachments.current().attachment_generation;
+    attachments.clear_current();
+    MIRAGE_CHECK(!attachments.attach(attachment_session, {0, "late.txt", "迟到"}, generation));
+    MIRAGE_CHECK(attachments.current().attachments.empty());
+    for (int i = 0; i < 4; ++i)
+        MIRAGE_CHECK(attachments.attach(attachment_session, {0, "a.txt", "a"}));
+    MIRAGE_CHECK(!attachments.attach(attachment_session, {0, "fifth.txt", "a"}));
+    attachments.set_draft(std::string(ChatModel::max_text_bytes, 'x'));
+    MIRAGE_CHECK(attachments.submission_text().empty());
+    const auto directory =
+        std::filesystem::temp_directory_path() /
+        ("mirage-attachment-" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto path = (directory / "note.txt").string();
+    {
+        std::ofstream file(path);
+        file << "中文 UTF-8";
+    }
+    MIRAGE_CHECK(mirage::native_ui::read_text_attachment(path).attachment.has_value());
+    {
+        std::ofstream file(path, std::ios::binary);
+        file.write("a\0b", 3);
+    }
+    MIRAGE_CHECK(!mirage::native_ui::read_text_attachment(path).error.empty());
+    {
+        std::ofstream file(path, std::ios::binary);
+        file << "\xc0\x80";
+    }
+    MIRAGE_CHECK(!mirage::native_ui::read_text_attachment(path).attachment);
+    {
+        std::ofstream file(path);
+        file << std::string(8193, 'x');
+    }
+    MIRAGE_CHECK(!mirage::native_ui::read_text_attachment(path).attachment);
+    MIRAGE_CHECK(!mirage::native_ui::read_text_attachment(directory.string()).attachment);
+#ifndef _WIN32
+    const auto fifo = (directory / "fifo").string();
+    MIRAGE_CHECK(::mkfifo(fifo.c_str(), 0600) == 0);
+    MIRAGE_CHECK(!mirage::native_ui::read_text_attachment(fifo).attachment);
+    std::filesystem::create_symlink(path, directory / "link");
+    MIRAGE_CHECK(
+        !mirage::native_ui::read_text_attachment((directory / "link").string()).attachment);
+#endif
+    std::filesystem::remove_all(directory);
     return mirage::testing::finish("native_chat_model_test");
 }

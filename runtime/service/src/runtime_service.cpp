@@ -189,7 +189,8 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
 /// its settlement; driver wrapper reports unexpected exceptions to Executor.
 void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::string session_id,
                      std::string turn_id, const std::string &transcript, const std::string &text,
-                     executor::StopToken stop, bool agent, const std::string &agent_task_id) {
+                     executor::StopToken stop, bool agent, const std::string &agent_task_id,
+                     const std::string &reasoning, bool tools_allowed) {
     mira::OperationContext context;
     context.session = mira::SessionId::parse(session_id).value_or(mira::SessionId{});
     context.task = mira::TaskId::parse(agent_task_id).value_or(mira::TaskId{});
@@ -201,8 +202,10 @@ void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::stri
     };
     mirage::integration::DialogCompletion completion =
         core->model_layer
-            ? (agent ? core->model_layer->complete_harness_turn(transcript, text, context)
-                     : core->model_layer->complete_dialog_turn(transcript, text, context))
+            ? (agent ? core->model_layer->complete_harness_turn(transcript, text, context,
+                                                                reasoning, tools_allowed)
+                     : core->model_layer->complete_dialog_turn(transcript, text, context, reasoning,
+                                                               tools_allowed))
             : mirage::integration::DialogCompletion{};
     if (!agent_task_id.empty()) {
         const auto settled =
@@ -1335,8 +1338,12 @@ struct RuntimeService::Impl {
         persistence::LocalSettings document;
         const auto &m = core->model;
         document.model = persistence::ModelSettings{
-            m.enabled,    m.dialect,        m.display_name,   m.endpoint_origin,
-            m.api_prefix, m.model_selector, m.credential_env, m.context_window_tokens};
+            m.enabled,           m.dialect,        m.display_name,   m.endpoint_origin,
+            m.api_prefix,        m.model_selector, m.credential_env, m.context_window_tokens,
+            m.supports_reasoning};
+        const auto catalog = persistence::decode_settings(config.model_catalog_json);
+        if (catalog.ok)
+            document.models = catalog.settings.models;
         respond(connection, correlation,
                 ipc::ModelConfiguration{persistence::encode_settings(document)});
     }
@@ -1365,6 +1372,7 @@ struct RuntimeService::Impl {
         const auto &m = *decoded.settings.model;
         auto next_config = core->model;
         next_config.enabled = m.enabled;
+        next_config.supports_reasoning = m.supports_reasoning;
         next_config.dialect = m.dialect.empty() ? "openai.responses.v1" : m.dialect;
         next_config.display_name = m.display_name;
         next_config.endpoint_origin = m.endpoint_origin;
@@ -1407,6 +1415,8 @@ struct RuntimeService::Impl {
                 return;
             }
             saved.model = m;
+            if (!decoded.settings.models.empty())
+                saved.models = decoded.settings.models;
             const auto written = core->settings_store->save(persistence::encode_settings(saved));
             if (!written.ok) {
                 fail(connection, correlation, "internal", written.error);
@@ -1417,6 +1427,8 @@ struct RuntimeService::Impl {
         core->model = next_config;
         core->model_available.store(m.enabled);
         config.model = next_config;
+        if (!decoded.settings.models.empty())
+            config.model_catalog_json = request.settings_json;
         handle_model_get(connection, correlation);
     }
 
@@ -1447,6 +1459,18 @@ struct RuntimeService::Impl {
         }
         if (core->model_layer == nullptr || !core->model_layer->running()) {
             fail(connection_id, correlation_id, "unavailable", "model layer is not configured");
+            return;
+        }
+        if ((request.access != "default" && request.access != "read_only") ||
+            (!request.reasoning.empty() && request.reasoning != "minimal" &&
+             request.reasoning != "low" && request.reasoning != "medium" &&
+             request.reasoning != "high")) {
+            fail(connection_id, correlation_id, "invalid_argument", "invalid composer options");
+            return;
+        }
+        if (!request.reasoning.empty() && !core->model.supports_reasoning) {
+            fail(connection_id, correlation_id, "unavailable",
+                 "model does not declare reasoning_effort support");
             return;
         }
         if (request.text.size() > kMaxDialogTextBytes) {
@@ -1550,10 +1574,11 @@ struct RuntimeService::Impl {
         const std::string transcript = render_dialog_transcript(core, session_id);
         auto dialog_submission = core->executor.submit_cancellable(
             [core = core, session_id, turn_id, transcript, text = request.text,
-             agent = request.agent, agent_task_id](executor::StopToken stop) {
+             agent = request.agent, agent_task_id, reasoning = request.reasoning,
+             tools_allowed = request.access != "read_only"](executor::StopToken stop) {
                 try {
                     run_dialog_turn(core, session_id, turn_id, transcript, text, stop, agent,
-                                    agent_task_id);
+                                    agent_task_id, reasoning, tools_allowed);
                 } catch (...) {
                     mirage::integration::DialogCompletion failed;
                     failed.failed = true;

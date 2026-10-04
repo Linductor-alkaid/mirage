@@ -1,15 +1,7 @@
 #!/bin/sh
-# Mirage .deb postinst (M5-11, DEC-031): best-effort session setup.
-# Nothing here may fail the package install: every step is conditional and
-# non-fatal — the shipped binaries run without any of this state.
+# Native frontend needs no privileged browser sandbox helper.
 set -e
-
-# CEF chrome-sandbox: the M5-01 sandbox policy ships the setuid helper when
-# the desktop shell is installed (M5-11 packaging delivery). Best effort:
-# only when the file exists, and never fatal.
-if [ -f /usr/lib/mirage/chrome-sandbox ]; then
-    chown root:root /usr/lib/mirage/chrome-sandbox || true
-    chmod 4755 /usr/lib/mirage/chrome-sandbox || true
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database /usr/share/applications || true
 fi
-
 exit 0

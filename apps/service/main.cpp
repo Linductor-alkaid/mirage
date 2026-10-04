@@ -358,6 +358,8 @@ int main(int argc, char **argv) {
                 config.model.model_selector = settings.model->model_selector;
                 config.model.credential_env = settings.model->credential_env;
                 config.model.context_window_tokens = settings.model->context_window_tokens;
+                config.model.supports_reasoning = settings.model->supports_reasoning;
+                config.model_catalog_json = mirage::runtime::persistence::encode_settings(settings);
             }
             if (settings.runtime.has_value() && !runtime_from_flags) {
                 if (settings.runtime->event_queue_capacity > 0) {
@@ -427,6 +429,9 @@ int main(int argc, char **argv) {
                     config.model.model_selector = settings.model->model_selector;
                     config.model.credential_env = settings.model->credential_env;
                     config.model.context_window_tokens = settings.model->context_window_tokens;
+                    config.model.supports_reasoning = settings.model->supports_reasoning;
+                    config.model_catalog_json =
+                        mirage::runtime::persistence::encode_settings(settings);
                 }
                 if (settings.runtime.has_value()) {
                     if (settings.runtime->event_queue_capacity > 0) {

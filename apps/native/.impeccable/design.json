@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-04T13:15:58.407223+00:00",
+  "generatedAt": "2026-10-04T17:58:30.189702+00:00",
   "title": "Design System: Mirage 原生 Agent 对话页",
   "extensions": {
     "scope": {
@@ -475,7 +475,7 @@
       },
       "settings-heading": {
         "displayName": "Settings heading",
-        "purpose": "外观与模型页标题；沿用现有系统中文字体。"
+        "purpose": "外观页30px标题；模型服务页使用独立28px model-heading。"
       },
       "model-field": {
         "displayName": "Model field",
@@ -488,11 +488,25 @@
       "markdown-code": {
         "displayName": "Markdown code",
         "purpose": "14px; code font remains pinned EUI rather than an invented product family."
+      },
+      "model-heading": {
+        "displayName": "Model services heading",
+        "purpose": "模型服务页28px、600标题；服务商详情标题20px。"
+      },
+      "provider-selector": {
+        "displayName": "Compact current-provider selector",
+        "purpose": "Visible 18px provider name and 14px chevron replace compact anonymous icon rail."
       }
     },
     "shadows": [],
     "motion": [],
-    "breakpoints": [],
+    "breakpoints": [
+      {
+        "name": "model-provider-navigation",
+        "value": "700px",
+        "scope": "Settings content column: 176px labeled rail at or above threshold, full-width named selector below."
+      }
+    ],
     "layout": {
       "units": "logical px",
       "startup": {
@@ -511,22 +525,35 @@
         "top": "composer_y + composer_height - 44",
         "iconControlSize": 36,
         "iconSize": 17,
-        "modeWidth": 84,
+        "modeWidth": 110,
         "labelControlHeight": 32,
-        "modelWidth": "max(72, column - 244)",
+        "modelWidth": "max(96, column - 342)",
         "labelSize": 13,
         "chevronSize": 9,
         "order": [
-          "add",
-          "mode",
-          "model",
+          "attachment",
+          "access",
           "context",
+          "model",
+          "reasoning",
           "send"
         ],
         "contextControlSize": [
           36,
           32
-        ]
+        ],
+        "reasoningSize": [
+          88,
+          32
+        ],
+        "anchors": {
+          "attachment": 8,
+          "access": 48,
+          "context": 162,
+          "model": 202,
+          "reasoning": "column - 136",
+          "send": "column - 44"
+        }
       },
       "sessionRowHeight": 48,
       "threadTop": 72,
@@ -599,8 +626,8 @@
         }
       },
       "modelSettings": {
-        "formTop": 214,
-        "formHeight": "screen.height - 342",
+        "formTop": 250,
+        "formHeight": "screen.height - 402",
         "fieldRowHeight": 92,
         "labelHeight": 28,
         "fieldGap": 8,
@@ -621,11 +648,50 @@
           "statusHeight": 28,
           "buttonTopInset": 38,
           "buttonHeight": 40,
-          "reconnectWidth": 104,
+          "reconnectWidth": "detail width < 480 ? 36 : 104",
           "disableWidth": 100,
-          "applyWidth": 112
+          "applyWidth": 112,
+          "reconnectIconSize": 16,
+          "discardWidth": 80
         },
-        "singleLineFieldCount": 5
+        "singleLineFieldCount": 6,
+        "headingTop": 90,
+        "headingSize": 28,
+        "descriptionTop": 140,
+        "descriptionSize": 15,
+        "panelTop": 194,
+        "panelHeight": "screen.height - 334",
+        "navigationWidth": "content width >= 700 ? 176 : 0",
+        "navigationRowHeight": 44,
+        "navigationGap": 6,
+        "detailInset": 24,
+        "reasoningToggleHeight": 40,
+        "reasoningHelpHeight": 64,
+        "detailWidth": "content width - (content width >= 700 ? 176 : 0) - 48",
+        "compactProviderSelector": {
+          "shownBelowContentWidth": 700,
+          "top": "panel_y + 12",
+          "width": "content_width - 48",
+          "height": 40,
+          "labelSize": 18,
+          "iconSize": 14,
+          "currentProviderNameVisible": true
+        },
+        "providerChooser": {
+          "xInset": 16,
+          "top": "panel_y + 58",
+          "width": "content_width - 32",
+          "height": "min(max(88, screen.height - 390), 16 + 50 * profile_count)",
+          "radius": 10,
+          "inset": 8,
+          "rowHeight": 44,
+          "gap": 6,
+          "labelSize": 14,
+          "iconSize": 16,
+          "dismissZ": 20,
+          "panelZ": 21,
+          "dismiss": "Outer click, Escape, return to conversation, or selecting a named row. Escape dismisses chooser before leaving settings; selector callbacks respect existing modal guards."
+        }
       },
       "settingsColumn": "min(800, main_width - 64)",
       "emptyColumn": "min(672, main_width - 48)",
@@ -637,7 +703,7 @@
         "gap": 8
       },
       "inputHeight": "clamp(measure(draft, column - 40, 16, 24) + 16, 48, 168)",
-      "composerHeight": "input_height + 56 + (references.empty ? 0 : 36)",
+      "composerHeight": "input_height + 56 + (references.empty && attachments.empty ? 0 : 36)",
       "composerTop": "min(empty ? max(188, screen.height * 0.29 + 106) : screen.height - composer_height - 28, screen.height - composer_height - 28)",
       "greeting": {
         "top": "max(80, composer_y - 104)",
@@ -671,8 +737,8 @@
         "width": "min(320, column)",
         "referenceHeight": "min(352, screen.height - 160)",
         "contextHeight": 224,
-        "modelHeight": 136,
-        "actionsOrModeHeight": 116,
+        "modelHeight": "min(352, 68 + 44 * model_count)",
+        "actionsOrModeHeight": 164,
         "top": "max(68, composer_y - popup_height - 8)",
         "radius": 12,
         "dismissZ": 20,
@@ -705,7 +771,7 @@
           "fontSize": 12,
           "iconSize": 11
         },
-        "contextX": "composer_x + column - popup_width",
+        "contextX": "composer_x + clamp(162, 8, column - popup_width - 8)",
         "contextDetail": {
           "titleAndPercentSize": 16,
           "titleAndPercentWeight": 500,
@@ -742,7 +808,18 @@
           "trackOpacity": 0.25,
           "arcOpacity": 0.7,
           "implementation": "SVG path arcs; no dash-array dependency.",
-          "position": "composer_x + column - 80, toolbar_y + 6"
+          "position": "composer_x + 170, toolbar_y + 6"
+        },
+        "reasoningHeight": {
+          "supported": 244,
+          "unsupported": 148
+        },
+        "anchor": {
+          "attachmentsAndReferences": 8,
+          "access": 48,
+          "context": 162,
+          "model": 202,
+          "reasoning": "column - 136"
         }
       }
     },
@@ -883,18 +960,20 @@
     },
     "modelBehavior": {
       "fields": [
+        "display_name",
         "endpoint_origin",
         "api_prefix",
         "model_selector",
         "credential_env",
         "context_window_tokens",
-        "dialect"
+        "dialect",
+        "supports_reasoning"
       ],
       "protocols": [
         "openai.responses.v1",
         "openai.chat-completions.v1"
       ],
-      "persistence": "Service merges model block through model.set; credentials resolve only from service environment.",
+      "persistence": "Service model.set persists named settings.models directory and applied settings.model; credentials resolve only from service environment.",
       "draftAndApplied": "Form draft is separate from service-confirmed live_model; composer uses live_model only.",
       "saving": "Apply label becomes 应用中…; edits/protocol changes and duplicate save are blocked.",
       "saveDisabled": "Model not loaded, save pending, empty origin or empty model selector.",
@@ -911,10 +990,16 @@
         "default": "Unconfigured retains existing Mira runtime defaults while UI denominator stays unknown.",
         "discovery": false,
         "validationNotice": "窗口预算请输入 2048–2000000 的整数，或留空。"
-      }
+      },
+      "maximumProfiles": 12,
+      "switching": "Composer selects saved profile; service ACK updates live_model. Active tasks and persistence failure reject switching.",
+      "reasoning": "Explicit supports_reasoning enables minimal/low/medium/high; default omits reasoning_effort; provider refusal is visible and never silently retried.",
+      "discard": "model.get ACK restores persisted directory and applied profile, discarding unsaved edits/new profiles.",
+      "pickerLabel": "Provider name · model ID; visually truncated via actual font measurement.",
+      "providerNavigation": "Wide labeled rail; compact current-provider named selector opens bounded scrollable named list. Disabled while saving or form is dirty."
     },
     "chatBehavior": {
-      "entry": "Agent / ordinary conversation modes map to session.chat agent=true / false; mode is frozen while running or submitting.",
+      "entry": "session.chat carries session access and reasoning captured at submission; read_only registers no tools, default registers only wait.",
       "roles": [
         "right-aligned user bubble",
         "cardless completed Mira Markdown",
@@ -946,7 +1031,7 @@
         "combinedEncodedWireBytes": 16384,
         "inspection": "Count pill opens scrollable text/source role/message-ID preview with individual removal.",
         "ack": "Each reference has a unique monotonic instance ID; ACK removes submitted instances only, preserving new/re-added references and changed draft.",
-        "wire": "Expanded references are plain user input in service history; no attachment schema or local file access."
+        "wire": "Expanded references and attachments are explicitly marked user text context, using TextPart; no binary/image uploads."
       },
       "context": "Last successful model input_tokens / explicit configured context-window budget, with 上次请求 source label, model and current reference count. Missing provider usage or denominator is unknown; no draft/byte estimator.",
       "markdownCompatibility": {
@@ -966,7 +1051,22 @@
         "ordering": "Older sequence cannot overwrite newer usage.",
         "restart": "Old persisted history has no usage and remains unknown.",
         "wire": "Optional context_usage with input_tokens, window_tokens and model; older messages remain compatible."
-      }
+      },
+      "attachments": {
+        "selection": "EUI public synchronous file dialog; explicit user selection only",
+        "read": "Frontend sole Executor finite task; future consumed",
+        "maxCount": 4,
+        "maxTextBytes": 8192,
+        "combinedEncodedWireBytes": 16384,
+        "accepted": "Regular UTF-8 text; binary/control bytes and invalid UTF-8 rejected; Linux rejects symlink/FIFO",
+        "inspection": "Shared attachment/reference preview includes filename, byte count, full text and removal",
+        "ordering": "Generation guards late reads; monotonic attachment IDs let ACK remove submitted instances only",
+        "trust": "Explicitly untrusted text context"
+      },
+      "requestIntent": "Access and reasoning choices are captured for each request; later local selection does not mutate in-flight intent.",
+      "disabledSend": "Filled disabled icon control uses hover background and muted icon; pending submission/read, no text/context, no connection/remote session disables it.",
+      "title": "Skip leading space/tab/CR/LF, whitespace-only becomes 新对话; use at most 16 UTF-8 codepoints of first line.",
+      "submissionOrder": "User draft first, serialized references next, explicitly untrusted attachments last. Attachment-only begins 附件：filename."
     },
     "reviewEvidence": {
       "initialVerdict": ".impeccable/review/native-zcode-finish-verdict.md",
@@ -1004,6 +1104,16 @@
         "budgetSource": "Explicit configured test budget; not provider discovery.",
         "settingsValidation": "abc rejected with visible integer range notice; 128000 restored, saved and confirmed by model.get.",
         "limits": "Windows/real IME not newly verified; live ZCode pixel comparison remains unavailable."
+      },
+      "modelConfiguration": {
+        "workItems": [
+          "M6-07",
+          "M6-08"
+        ],
+        "decision": "DEC-037",
+        "captures": "Repository .impeccable/review/native-model-*.png; first inspection only, final review remains separate",
+        "documentationSource": "apps/native/app.cpp, chat_model.cpp, attachment.cpp, runtime_bridge.cpp",
+        "limits": "Windows GUI, real IME and full desktop access are not established by these captures."
       }
     }
   },
@@ -1020,9 +1130,9 @@
       "name": "Filled send control",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "原生已实现组件的浅色 HTML/CSS 示意；原生交互与焦点由 EUI 管理。",
+      "description": "原生已实现组件的浅色 HTML/CSS 示意；原生交互与焦点由 EUI 管理。 禁用发送以 hover 底色和 muted 图标表达不可提交。",
       "html": "<button class=\"ds-send\" aria-label=\"发送给 Mira\"><svg viewBox=\"0 0 16 16\" width=\"17\" height=\"17\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M7 13V5L4 8 2.6 6.6 8 1.2l5.4 5.4L12 8 9 5v8z\"/></svg></button>",
-      "css": ".ds-send{width:36px;height:36px;border:0;border-radius:7px;background:#222222;color:#fff;display:inline-grid;place-items:center;cursor:pointer}.ds-send:hover{background:#6d6d6d}.ds-send:active{background:#e2e2e2}.ds-send:focus-visible{outline:2px solid #202020;outline-offset:2px}"
+      "css": ".ds-send{width:36px;height:36px;border:0;border-radius:7px;background:#222222;color:#fff;display:inline-grid;place-items:center;cursor:pointer}.ds-send:hover{background:#6d6d6d}.ds-send:active{background:#e2e2e2}.ds-send:focus-visible{outline:2px solid #202020;outline-offset:2px} .ds-send:disabled{background:#e8e8e8;color:#6d6d6d;cursor:default}"
     },
     {
       "name": "Selected session",
@@ -1052,9 +1162,9 @@
       "name": "Composer panel",
       "kind": "custom",
       "refersTo": "composer",
-      "description": "原生增长 composer 的浅色静态示意；HTML textarea 不实现 IPC、IME 或自动测量。 上下文入口示意默认未知的灰色空环。",
-      "html": "<section class=\"ds-composer\"><textarea class=\"ds-composer-draft\" aria-label=\"任务草稿\" placeholder=\"向 Mira 提问，或描述一个任务…\"></textarea><div class=\"ds-toolbar\"><button aria-label=\"添加\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M8 2v12M2 8h12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button><button>Agent <svg width=\"9\" height=\"9\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"m3 5 5 5 5-5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button><button class=\"ds-model\">选择模型 <svg width=\"9\" height=\"9\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"m3 5 5 5 5-5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button><button class=\"ds-context-control\" aria-label=\"上下文\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\" fill=\"none\" stroke=\"#737373\" stroke-opacity=\"0.25\" stroke-width=\"4\"/></svg></button><button class=\"ds-send\" aria-label=\"发送\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M8 13V3M3 8l5-5 5 5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button></div></section>",
-      "css": ".ds-composer{font-family:Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif;width:100%;max-width:672px;box-sizing:border-box;padding:4px 4px 8px;border:1px solid #dfdfdf;border-radius:16px;background:#fff;color:#202020}.ds-composer:focus-within{border-color:#6d6d6d}.ds-composer-draft{display:block;box-sizing:border-box;width:100%;height:48px;max-height:168px;padding:12px;border:0;border-radius:4px;background:#fff;color:#202020;font-family:inherit;font-size:16px;resize:none}.ds-composer-draft::placeholder{color:#6d6d6d}.ds-composer-draft:focus-visible{outline:0}.ds-toolbar{height:36px;margin-top:8px;display:flex;align-items:center;gap:4px;padding:0 4px}.ds-toolbar button{height:32px;border:0;border-radius:6px;background:transparent;color:#202020;font-family:inherit;font-size:13px;cursor:pointer}.ds-toolbar button[aria-label]{width:36px;height:36px;border-radius:7px;display:inline-grid;place-items:center}.ds-toolbar .ds-model{flex:1;text-align:left}.ds-toolbar .ds-send{background:#222222;color:white}.ds-toolbar button:hover{background:#e8e8e8}.ds-toolbar .ds-send:hover{background:#6d6d6d}.ds-toolbar button:active{background:#e2e2e2}.ds-toolbar button:focus-visible{outline:2px solid #202020;outline-offset:2px} .ds-toolbar .ds-context-control{height:32px}"
+      "description": "原生增长 composer 的浅色静态示意；附件、权限、上下文、模型、思考、发送的顺序与源一致。HTML 不实现 IPC、IME、附件读取或测量。",
+      "html": "<section class=\"ds-composer\"><textarea class=\"ds-composer-draft\" aria-label=\"任务草稿\" placeholder=\"向 Mira 提问，或描述一个任务…\"></textarea><div class=\"ds-toolbar\"><button aria-label=\"添加\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M8 2v12M2 8h12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button><button class=\"ds-access\">默认权限</button><button class=\"ds-context-control\" aria-label=\"上下文\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\" fill=\"none\" stroke=\"#737373\" stroke-opacity=\"0.25\" stroke-width=\"4\"/></svg></button><button class=\"ds-model\">选择模型</button><button class=\"ds-reasoning\">默认思考</button><button class=\"ds-send\" aria-label=\"发送\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M8 13V3M3 8l5-5 5 5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button></div></section>",
+      "css": ".ds-composer{font-family:Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif;width:100%;max-width:672px;box-sizing:border-box;padding:4px 4px 8px;border:1px solid #dfdfdf;border-radius:16px;background:#fff;color:#202020}.ds-composer:focus-within{border-color:#6d6d6d}.ds-composer-draft{display:block;box-sizing:border-box;width:100%;height:48px;max-height:168px;padding:12px;border:0;border-radius:4px;background:#fff;color:#202020;font-family:inherit;font-size:16px;resize:none}.ds-composer-draft::placeholder{color:#6d6d6d}.ds-composer-draft:focus-visible{outline:0}.ds-toolbar{height:36px;margin-top:8px;display:flex;align-items:center;gap:4px;padding:0 4px}.ds-toolbar button{height:32px;border:0;border-radius:6px;background:transparent;color:#202020;font-family:inherit;font-size:13px;cursor:pointer}.ds-toolbar button[aria-label]{width:36px;height:36px;border-radius:7px;display:inline-grid;place-items:center}.ds-toolbar .ds-model{flex:1;text-align:left}.ds-toolbar .ds-send{background:#222222;color:white}.ds-toolbar button:hover{background:#e8e8e8}.ds-toolbar .ds-send:hover{background:#6d6d6d}.ds-toolbar button:active{background:#e2e2e2}.ds-toolbar button:focus-visible{outline:2px solid #202020;outline-offset:2px} .ds-toolbar .ds-context-control{height:32px} .ds-toolbar .ds-access{width:110px;flex:none}.ds-toolbar .ds-reasoning{width:88px;flex:none}.ds-toolbar .ds-context-control{width:36px;flex:none}.ds-toolbar .ds-model{min-width:96px} .ds-toolbar .ds-send:disabled{background:#e8e8e8;color:#6d6d6d;cursor:default}"
     },
     {
       "name": "Theme choice",
@@ -1081,11 +1191,11 @@
       "css": ".ds-reply{font-family:Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif;font-size:16px;line-height:26px;color:#202020;background:transparent}.ds-reply p{margin:0 0 12px}.ds-reply pre{margin:0;padding:12px;border-radius:8px;background:#eee;font-size:14px;overflow:auto}"
     },
     {
-      "name": "Inspectable references",
+      "name": "Inspectable attachments and references",
       "kind": "chip",
       "refersTo": "reference-popover",
-      "description": "计数 pill 与有界可滚动文字/来源预览的浅色静态示意；原生点击、删除与 ACK 由 ChatModel 实现。",
-      "html": "<div class=\"ds-reference\"><button class=\"ds-reference-pill\">引用 1 条消息</button><section class=\"ds-reference-panel\"><h3>引用的消息</h3><div class=\"ds-reference-list\"><header><span>Mira · 消息 #1</span><button aria-label=\"移除此引用\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M3 4h10M6 2h4M5 6v7h6V6M7 7v5M9 7v5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg></button></header><p>请描述你要完成的任务。</p></div></section></div>",
+      "description": "共享计数 pill 和有界文本预览的浅色静态示意；附件读取、删除与 ACK 由原生 Executor/ChatModel 管理。",
+      "html": "<div class=\"ds-reference\"><button class=\"ds-reference-pill\">附件 0 · 引用 1</button><section class=\"ds-reference-panel\"><h3>附件与引用</h3><div class=\"ds-reference-list\"><header><span>Mira · 消息 #1</span><button aria-label=\"移除此引用\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M3 4h10M6 2h4M5 6v7h6V6M7 7v5M9 7v5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg></button></header><p>请描述你要完成的任务。</p></div></section></div>",
       "css": ".ds-reference{font-family:Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif;color:#202020}.ds-reference-pill{width:176px;height:28px;border:0;border-radius:14px;background:#e8e8e8;color:#202020;font-family:inherit;font-size:12px;cursor:pointer}.ds-reference-panel{width:320px;max-width:100%;height:352px;box-sizing:border-box;margin-top:8px;padding:12px;border:1px solid #dfdfdf;border-radius:12px;background:#fff}.ds-reference-panel h3{margin:0 4px 8px;font-size:16px;font-weight:500;line-height:28px}.ds-reference-list{height:292px;overflow:auto}.ds-reference-list header{height:26px;display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#6d6d6d}.ds-reference-list button{width:28px;height:26px;border:0;border-radius:7px;background:transparent;color:#202020;display:inline-grid;place-items:center;cursor:pointer}.ds-reference-list p{margin:6px 4px 0;font-size:14px;line-height:22px;white-space:pre-wrap;overflow-wrap:anywhere}.ds-reference button:hover{background:#e8e8e8}.ds-reference button:active{background:#e2e2e2}.ds-reference button:focus-visible{outline:2px solid #202020;outline-offset:2px}"
     },
     {
@@ -1095,23 +1205,31 @@
       "description": "最近成功请求的浅色静态示意；391/128000来自真实请求与显式测试预算，不是供应商自动发现。原生数据/键盘交互由IPC及EUI管理。",
       "html": "<section class=\"ds-context-panel\"><header><span>上下文</span><span>0.3%</span></header><p class=\"ds-context-tokens\">391 / 128,000 Token</p><div class=\"ds-context-track\"><div class=\"ds-context-fill\"></div></div><p class=\"ds-context-source\">上次请求 · 模型输入用量</p><p class=\"ds-context-model\">Qwen/Qwen3.5-4B</p><p class=\"ds-context-refs\">本次引用 0 条消息</p></section>",
       "css": ".ds-context-panel{position:relative;box-sizing:border-box;width:320px;max-width:100%;height:224px;border:1px solid #dfdfdf;border-radius:12px;background:#fff;color:#202020;font-family:Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif}.ds-context-panel header{position:absolute;top:12px;left:16px;right:16px;height:28px;display:flex;align-items:center;justify-content:space-between;font-size:16px;font-weight:500}.ds-context-panel p{position:absolute;margin:0;left:16px;right:16px;display:flex;align-items:center}.ds-context-tokens{top:48px;height:28px;font-size:14px}.ds-context-track{position:absolute;top:88px;left:16px;right:16px;height:6px;border-radius:3px;background:#dfdfdf;overflow:hidden}.ds-context-fill{width:0.3%;height:6px;border-radius:3px;background:#6d6d6d}.ds-context-source,.ds-context-model,.ds-context-refs{height:24px;font-size:13px;color:#6d6d6d}.ds-context-source{top:106px}.ds-context-model{top:134px}.ds-context-refs{top:182px}.ds-context-panel::after{content:\"\";position:absolute;left:16px;right:16px;top:170px;height:1px;background:#dfdfdf}"
+    },
+    {
+      "name": "Compact provider selector",
+      "kind": "nav",
+      "refersTo": "provider-selector",
+      "description": "紧凑模型页当前服务商名称和可滚动命名选择列表的静态示意；原生列表由EUI与ChatModel管理。",
+      "html": "<section class=\"ds-provider-nav\"><button class=\"ds-provider-selector\">SiliconFlow <svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"m3 5 5 5 5-5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button><div class=\"ds-provider-list\"><button>SiliconFlow</button><button>自定义服务 2</button></div></section>",
+      "css": ".ds-provider-nav{font-family:Noto Sans CJK,Microsoft YaHei,sans-serif;color:#202020;max-width:420px}.ds-provider-selector{display:flex;align-items:center;justify-content:space-between;width:100%;height:40px;font:400 18px Noto Sans CJK,Microsoft YaHei,sans-serif;border:0;border-radius:7px;background:transparent;color:#202020}.ds-provider-list{max-height:180px;overflow:auto;margin-top:6px;padding:8px;border:1px solid #dfdfdf;border-radius:10px;background:#fff}.ds-provider-list button{display:block;width:100%;height:44px;margin-bottom:6px;border:0;border-radius:7px;background:transparent;color:#202020;text-align:left;font:400 14px Noto Sans CJK,Microsoft YaHei,sans-serif}.ds-provider-nav button:hover{background:#e8e8e8}.ds-provider-nav button:active{background:#e2e2e2}.ds-provider-nav button:focus-visible{outline:2px solid #202020;outline-offset:2px}.ds-provider-nav button:disabled{color:#6d6d6d}"
     }
   ],
   "narrative": {
     "northStar": "桌面 Agent 的对话工作台",
-    "overview": "中性灰底、窄会话栏和居中的阅读列构成原生桌面对话工作台。细分隔线与轻微色阶承担结构，实心发送控件集中表达主操作。视觉参考用户指定的 ZCode Zai Light/Dark；使用的是 Mirage 自己的 EUI DSL 页面，未复制参考项目的业务实现。\n\n当前表面经独立 Runtime Service 展示真实 Agent 会话，并在设置页配置模型。会话标题、草稿、轮次状态与服务提示保持既有信息层级；发送、运行、回复、停止或失败来自服务回执与事件。此记录仅适用于 apps/native / mirage-native，不替代仓库根目录保留的 Web/CEF Mission Console 设计。",
+    "overview": "中性灰底、窄会话栏和居中的阅读列构成原生桌面对话工作台。细分隔线与轻微色阶承担结构，实心发送控件集中表达主操作。视觉参考用户指定的 ZCode Zai Light/Dark；使用的是 Mirage 自己的 EUI DSL 页面，未复制参考项目的业务实现。\n\n当前表面经独立 Runtime Service 展示真实 Agent 会话，并在设置页配置模型。会话标题、草稿、轮次状态与服务提示保持既有信息层级；发送、运行、回复、停止或失败来自服务回执与事件。本原生系统是 DEC-037 旧 TS/CEF 前端退役后的现行视觉契约，仓库根目录同步此记录；原 Web Mission Console 的炭蓝/奶油/琥珀、仪表 caps 和灯阵仅保留为历史设计背景，既有版本可从 Git 历史查看。\n",
     "keyCharacteristics": [
       "明暗两态共享中性灰角色；默认浅色。",
       "系统中文无衬线文字与 Font Awesome Solid 操作图标；品牌继承 Mira 原始角色图。",
       "可调宽并收起的侧栏、右对齐用户气泡、无卡片 Markdown 回复与随文字增高的 composer。",
       "设置入口集中外观与模型；主题即时应用且仅在当前运行中保留，模型配置由服务保存并确认。",
       "平面容器、细描边、有限圆角。",
-      "清晰展示实际轮次状态、已应用模型、引用来源与服务连接结果；上下文比例取最近成功请求的输入 Token 与显式窗口预算，未知时明确说明。"
+      "清晰展示实际轮次状态、已应用模型、附件/引用来源与服务连接结果；上下文比例取最近成功请求的输入 Token 与显式窗口预算，未知时明确说明。"
     ],
     "rules": [
       {
         "name": "The Native Scope Rule",
-        "body": "此系统只约束 apps/native；旧 Web/CEF 的琥珀控制台 tokens 不迁入本表面。",
+        "body": "现行产品页面复用原生 Palette；已退役 Web/CEF 的琥珀控制台 tokens 不迁入新表面。",
         "section": "colors"
       },
       {
@@ -1130,8 +1248,8 @@
       "Do 保持文字与图标的职责分离；操作图标使用随应用配置加载的 Font Awesome Solid。",
       "Do 保留 Mira 品牌图的原始画作、比例、透明背景与来源记录。",
       "Do 按服务回执显示发送、运行与终态；composer 只显示服务确认的模型。",
-      "Do 保持引用文本、来源与删除入口可检查；上下文用量标明上次请求和配置预算，缺少事实源或分母时明确未知。",
-      "Do 将新原生页面的视觉扩展记录在本目录，不覆盖根目录旧 Web 系统。"
+      "Do 保持附件/引用文本、来源与删除入口可检查；上下文用量标明上次请求和配置预算，缺少事实源或分母时明确未知。",
+      "Do 将新原生页面的视觉扩展同步到本目录和仓库根目录的现行设计记录。"
     ],
     "donts": [
       "Don't 将设置草稿包装成已应用模型，或将通用文字/工具轮次包装成桌面任务执行。",

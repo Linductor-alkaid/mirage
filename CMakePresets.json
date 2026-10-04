@@ -58,8 +58,8 @@
         "CMAKE_CXX_FLAGS_INIT": "-fsanitize=thread -fno-omit-frame-pointer"
       }
     },
-    {"name": "native-debug", "inherits": "debug", "displayName": "Native UI Debug", "cacheVariables": {"MIRAGE_ENABLE_NATIVE_FRONTEND": "ON", "MIRAGE_ENABLE_DESKTOP_SHELL": "OFF"}},
-    {"name": "native-release", "inherits": "release", "displayName": "Native UI Release", "cacheVariables": {"MIRAGE_ENABLE_NATIVE_FRONTEND": "ON", "MIRAGE_ENABLE_DESKTOP_SHELL": "OFF"}}
+    {"name": "native-debug", "inherits": "debug", "displayName": "Native UI Debug", "cacheVariables": {"MIRAGE_ENABLE_NATIVE_FRONTEND": "ON"}},
+    {"name": "native-release", "inherits": "release", "displayName": "Native UI Release", "cacheVariables": {"MIRAGE_ENABLE_NATIVE_FRONTEND": "ON"}}
   ],
   "buildPresets": [
     {"name": "debug", "configurePreset": "debug"},

@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <executor/executor.hpp>
+#include <fstream>
 #include <mira/json.hpp>
 #include <mira/model_digest.hpp>
 #include <mira/model_provider.hpp>
@@ -32,6 +33,8 @@ class Provider final : public mira::IModelProvider {
                                             const mira::OperationContext &context,
                                             const mira::ProviderInferOptions &) override {
         const int number = ++calls;
+        last_tools.store(static_cast<int>(request.tools.size()));
+        saw_high.store(request.generation.reasoning_effort == mira::ReasoningEffort::High);
         bool image = false;
         for (const auto &item : request.input)
             for (const auto &part : item.content) {
@@ -95,7 +98,8 @@ class Provider final : public mira::IModelProvider {
         return reply;
     }
     mira::ModelProfile profile_;
-    std::atomic_int calls{0};
+    std::atomic_int calls{0}, last_tools{0};
+    std::atomic_bool saw_high{false};
     std::atomic_bool report_usage{true};
     std::atomic_bool hold{false}, tool_first{true}, saw_image{false}, saw_tool_result{false},
         throw_now{false}, always_tool{false}, bad_tool{false};
@@ -146,6 +150,31 @@ int main(int argc, char **argv) {
         std::printf("ok=%d steps=%u tools=%u\n", result.ok, result.model_steps, result.tool_calls);
         std::printf("%s\n", result.ok ? result.reply_text.c_str() : result.error.c_str());
         return result.ok ? 0 : 1;
+    }
+    // Exercise the production transport admission path, without any network
+    // request or credentials. Provider fixtures do not start blocking workers.
+    {
+        executor::Executor owner;
+        executor::ExecutorConfig limits;
+        limits.min_threads = limits.max_threads = 2;
+        MIRAGE_CHECK(owner.initialize_ex(limits));
+        integration::ModelLayerConfig live;
+        live.enabled = true;
+        live.endpoint_origin = "http://example.com";
+        live.model_selector = "transport-lifecycle-fixture";
+        {
+            integration::ModelLayer active(owner, live);
+            MIRAGE_CHECK(active.running());
+            for (int i = 0; i < 3; ++i) {
+                integration::ModelLayer replacement(owner, live);
+                MIRAGE_CHECK(replacement.running());
+                replacement.shutdown();
+                MIRAGE_CHECK(!replacement.running() && active.running());
+            }
+            active.shutdown();
+            MIRAGE_CHECK(!active.running());
+        }
+        owner.shutdown(true);
     }
     mirage::testing::TempDir dir;
     auto environment = std::make_shared<HarnessEnvironment>();
@@ -299,6 +328,48 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(turn && turn->status == "failed" &&
                  turn->error.find("cancelled") != std::string::npos);
     provider->hold.store(false);
+    MIRAGE_CHECK(
+        !client.call(ipc::SessionChatRequest{session, "unsupported", true, "default", "high"}, 2s)
+             .ok);
+    MIRAGE_CHECK(
+        !ipc::decode_request(
+             R"({"v":1,"id":1,"op":"session.chat","session_id":"a","text":"b","access":"full"})")
+             .ok);
+    MIRAGE_CHECK(
+        !ipc::decode_request(
+             R"({"v":1,"id":1,"op":"session.chat","session_id":"a","text":"b","reasoning":"ultra"})")
+             .ok);
+    settings.model->supports_reasoning = true;
+    settings.models = {*settings.model, *settings.model};
+    settings.models.back().display_name = "Other fixture";
+    settings.models.back().model_selector = "second-model";
+    MIRAGE_CHECK(client.call(ipc::SetModelRequest{persistence::encode_settings(settings)}, 2s).ok);
+    const auto catalog_response = client.call(ipc::GetModelRequest{}, 2s);
+    const auto catalog = persistence::decode_settings(
+        std::get<ipc::ModelConfiguration>(catalog_response.payload).settings_json);
+    MIRAGE_CHECK(catalog.ok && catalog.settings.models.size() == 2 &&
+                 catalog.settings.model->supports_reasoning);
+    const auto saved_catalog = persistence::decode_settings(
+        persistence::LocalStateStore(config.settings_directory, "service.json", 65536).load().body);
+    MIRAGE_CHECK(saved_catalog.ok && saved_catalog.settings.models.size() == 2 &&
+                 saved_catalog.settings.permission_rules == initial.permission_rules);
+    provider->tool_first.store(false);
+    MIRAGE_CHECK(client
+                     .call(ipc::SessionChatRequest{session, "text attachment: deliberate content",
+                                                   true, "read_only", "high"},
+                           2s)
+                     .ok);
+    turn = wait_turn(client, session);
+    MIRAGE_CHECK(turn && turn->status == "ok" && provider->last_tools.load() == 0 &&
+                 provider->saw_high.load());
+    auto duplicates = settings;
+    duplicates.models.back().display_name = duplicates.models.front().display_name;
+    MIRAGE_CHECK(!persistence::decode_settings(persistence::encode_settings(duplicates)).ok);
+    MIRAGE_CHECK(
+        !client.call(ipc::SetModelRequest{persistence::encode_settings(duplicates)}, 2s).ok);
+    auto many = settings;
+    many.models.resize(13);
+    MIRAGE_CHECK(!persistence::decode_settings(persistence::encode_settings(many)).ok);
     // Real subscription + UI bridge responses, independent of EUI/Chromium.
     std::atomic_int wakes{0};
     mirage::native_ui::RuntimeBridge bridge([&wakes] { ++wakes; }, config.socket_path);
@@ -321,6 +392,23 @@ int main(int argc, char **argv) {
         (void)::poll(nullptr, 0, 1);
     }
     MIRAGE_CHECK(subscribed);
+    const auto attachment_path = (dir.root() / "attachment.txt").string();
+    {
+        std::ofstream file(attachment_path);
+        file << "真实文本附件";
+    }
+    MIRAGE_CHECK(bridge.load_attachment(attachment_path, 7));
+    bool attachment_loaded = false;
+    deadline = std::chrono::steady_clock::now() + 2s;
+    while (std::chrono::steady_clock::now() < deadline && !attachment_loaded) {
+        while (bridge.receive(message))
+            if (message.kind == mirage::native_ui::RuntimeMessage::Kind::Attachment)
+                attachment_loaded = message.local_id == 7 && message.attachment.attachment &&
+                                    message.attachment.attachment->text == "真实文本附件";
+        (void)::poll(nullptr, 0, 1);
+    }
+    MIRAGE_CHECK(attachment_loaded);
+
     // Frontend startup submits these together; the persistent client is single-outstanding.
     MIRAGE_CHECK(bridge.call(ipc::ListSessionsRequest{}, "burst.sessions"));
     MIRAGE_CHECK(bridge.call(ipc::GetModelRequest{}, "burst.model"));
@@ -368,6 +456,7 @@ int main(int argc, char **argv) {
     }
     MIRAGE_CHECK(recovered && bridge.connected());
     bridge.shutdown();
+    MIRAGE_CHECK(!bridge.load_attachment(attachment_path, 7));
     turn = wait_turn(client, session);
     MIRAGE_CHECK(turn && turn->status == "ok");
     const auto active_provider = provider;

@@ -27,6 +27,7 @@ namespace mirage::integration {
 /// for equipment-dependent faces).
 struct ModelLayerConfig {
     bool enabled = false;
+    bool supports_reasoning = false;
     /// Pinned wire dialect of the profile (pinned protocol_dialect_from
     /// vocabulary): "openai.responses.v1" or "openai.chat-completions.v1".
     std::string dialect = "openai.responses.v1";
@@ -135,12 +136,16 @@ class ModelLayer {
     /// and the profile transport deadlines.
     DialogCompletion complete_dialog_turn(const std::string &transcript,
                                           const std::string &user_text,
-                                          const mira::OperationContext &context);
+                                          const mira::OperationContext &context,
+                                          const std::string &reasoning = "",
+                                          bool tools_allowed = true);
 
     // MIRA-20261004-001: bounded conversational harness, no desktop observation.
     DialogCompletion complete_harness_turn(const std::string &transcript,
                                            const std::string &user_text,
-                                           const mira::OperationContext &context);
+                                           const mira::OperationContext &context,
+                                           const std::string &reasoning = "",
+                                           bool tools_allowed = true);
 
     /// Ordered teardown: waits out any in-flight dialog completion (bounded
     /// by the profile transport deadlines), then settles the transport's
