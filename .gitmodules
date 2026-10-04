@@ -4,3 +4,7 @@
 [submodule "third_party/mirador"]
 	path = third_party/mirador
 	url = https://github.com/Linductor-alkaid/mirador.git
+[submodule "third_party/eui-neo"]
+	path = third_party/eui-neo
+	url = https://github.com/sudoevolve/EUI-NEO.git
+	branch = dev

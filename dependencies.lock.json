@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "project": "mirage",
-  "updated": "2026-09-26",
+  "updated": "2026-10-03",
   "notes": "Schema v2 (M5-01, DEC-006 decision 6). Top-level 'dependencies' entries are git submodules verified at configure time by cmake/MirageDependencies.cmake; nested_pins entries are verified against the gitlink recorded in the parent repository's HEAD; audit-only entries (no 'path' verification in parent HEAD) are informational. 'artifacts' entries are non-submodule binary pins (version + url + sha1 + size + license) validated structurally at configure; integrity is enforced when the artifact is acquired/consumed. 'frontend' registers the npm dependency tree: its lockfile sha256 is re-computed and compared at every configure, so any ui/package-lock.json drift without updating this registration fails the build. No unlocked binary may enter the default build (DEC-006 decision 6): a product target consuming a pinned artifact must resolve it through mirage_require_locked_artifact().",
   "dependencies": [
     {
@@ -69,6 +69,18 @@
           "usage": "test-only (mirador 自身测试；Mirage 测试不链接)"
         }
       ]
+    },
+    {
+      "name": "eui-neo",
+      "source": "https://github.com/sudoevolve/EUI-NEO.git",
+      "path": "third_party/eui-neo",
+      "version": "0.6.0-dev",
+      "branch": "dev",
+      "commit": "4691fc0a5c1fde6f3e22f1ac454ed87c7a17f722",
+      "license": "Apache-2.0",
+      "license_file": "third_party/eui-neo/LICENSE",
+      "consumption": "UI-only; opt-in apps/native; bundled GLFW/OpenGL; DEC-033",
+      "notes": "M6-01: user-authorized native UI dependency. No EUI async/network/audio calls in Mirage; Executor discipline unchanged."
     }
   ],
   "artifacts": [

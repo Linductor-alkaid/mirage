@@ -3,7 +3,7 @@
 ## 适用范围
 
 本文件适用于 Mirage 仓库中的全部自研代码、测试、文档与构建配置。`third_party/`
-中的上游代码（pinned `mira`、`mirador` 及其内嵌依赖）遵循其自身约定；除非任务明确
+中的上游代码（pinned `mira`、`mirador`、`eui-neo` 及其内嵌依赖）遵循其自身约定；除非任务明确
 要求升级或修复依赖，否则不要修改其中的代码。本文件是仓库级最高强制约束，与
 [项目管理与工程规范](docs/project/project-standards.md)（下称"工程规范"）配套使用：
 本文件定义底线，工程规范定义完整流程、模板与证据要求。
@@ -39,7 +39,7 @@ Mirage 是基于 Mira 构建的 Linux / Windows 桌面端产品，为 Mira 提�
 
 ## 并发与生命周期：使用 mira 交付的 executor 能力
 
-Mirage 的直接依赖只有 pinned `mira` 与 `mirador`。executor 是 mira 交付、随其传递引入
+Mirage 的核心直接依赖为 pinned `mira` 与 `mirador`；UI 专用依赖 `eui-neo`（dev 完整提交锁定）由维护者明确授权，边界见 DEC-033，不使用其 async/network/audio 承载业务并发。executor 是 mira 交付、随其传递引入
 的并发能力组件（`third_party/mira/third_party/executor`，下称 Executor），不是独立的
 第三个依赖：Mirage 通过 pinned mira 使用其能力管理所有并发任务和运行生命周期，不自建、
 不单独 pin 第二份 Executor。集成时以其公开头文件、
@@ -115,7 +115,7 @@ capability card，不读取无关卡片或实现源码：
 
 ## 依赖能力缺口与反馈台账
 
-Mirage 的直接依赖只有 pinned `mira` 与 `mirador`；executor（含于 mira）经 mira 传递引入。
+Mirage 的核心直接依赖为 pinned `mira` 与 `mirador`，另有 UI 专用 `eui-neo`（DEC-033）；executor（含于 mira）经 mira 传递引入。
 不得为了绕过依赖的能力边界而静默引入另一套并发或生命周期设施。当确认 mira / mirador 无法
 满足 Mirage 的合理需求时，必须按工程规范第 9.4 节执行反馈流程：
 
@@ -175,7 +175,7 @@ Commit、分支、MR、评审与合并必须遵循工程规范第 10 节。要�
   未执行测试不得填写"测试通过"。
 - 提交前检查 `git status` / `git diff` / `git diff --cached`：不包含无关格式化、临时 Debug
   代码、运行日志、编译产物、IDE 文件、大文件和敏感信息；不把无关工作树改动带入提交。
-  `third_party/mira`、`third_party/mirador` 只能以 submodule 指针变更进入提交，且必须与
+  `third_party/mira`、`third_party/mirador`、`third_party/eui-neo` 只能以 submodule 指针变更进入提交，且必须与
   `dependencies.lock.json` 同步更新。
 - `user.name` 与 `user.email` 必须是提交者本人，严禁使用他人身份提交。
 - Agent 可以在需要触发或验证 CI 时创建范围化 commit 并以普通非 force 方式 push 当前工作
