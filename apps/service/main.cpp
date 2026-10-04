@@ -357,6 +357,7 @@ int main(int argc, char **argv) {
                 config.model.api_prefix = settings.model->api_prefix;
                 config.model.model_selector = settings.model->model_selector;
                 config.model.credential_env = settings.model->credential_env;
+                config.model.context_window_tokens = settings.model->context_window_tokens;
             }
             if (settings.runtime.has_value() && !runtime_from_flags) {
                 if (settings.runtime->event_queue_capacity > 0) {
@@ -425,6 +426,7 @@ int main(int argc, char **argv) {
                     config.model.api_prefix = settings.model->api_prefix;
                     config.model.model_selector = settings.model->model_selector;
                     config.model.credential_env = settings.model->credential_env;
+                    config.model.context_window_tokens = settings.model->context_window_tokens;
                 }
                 if (settings.runtime.has_value()) {
                     if (settings.runtime->event_queue_capacity > 0) {
@@ -439,6 +441,14 @@ int main(int argc, char **argv) {
             }
         }
     }
+    // DEC-034: model.set also persists on a first launch and with --config.
+    // Select the write-back destination even when the document is absent.
+    const auto settings_destination = config_file.value_or(
+        mirage::runtime::persistence::default_config_directory() / "service.json");
+    config.settings_directory = settings_destination.parent_path().empty()
+                                    ? std::filesystem::path(".")
+                                    : settings_destination.parent_path();
+    config.settings_file_name = settings_destination.filename().string();
     if (flag_socket) {
         config.socket_path = *flag_socket;
     }

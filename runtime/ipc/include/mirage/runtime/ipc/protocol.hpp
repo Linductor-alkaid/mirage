@@ -168,6 +168,18 @@ struct CloseSessionRequest {
 struct SessionChatRequest {
     std::string session_id;
     std::string text;
+    bool agent = false; ///< DEC-034: conversational harness; absent preserves legacy dialog.
+};
+struct CancelChatRequest {
+    std::string session_id;
+};
+struct GetModelRequest {};
+// Settings schema v1 document carrying only the model block, no plaintext key.
+struct SetModelRequest {
+    std::string settings_json;
+};
+struct ModelConfiguration {
+    std::string settings_json;
 };
 
 /// Requests one session's dialog thread (DEC-027): the bounded in-memory
@@ -297,16 +309,15 @@ struct DesktopObserveRequest {
     bool visual = false;
 };
 
-using Request =
-    std::variant<HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest,
-                 CancelTaskRequest, PauseTaskRequest, ResumeTaskRequest, ShutdownRequest,
-                 SubscribeEventsRequest, UnsubscribeEventsRequest, RespondPermissionRequest,
-                 ListPermissionsRequest, ListSessionsRequest, OpenSessionRequest,
-                 SessionHistoryRequest, CloseSessionRequest, SessionChatRequest, ChatHistoryRequest,
-                 WorkflowListRequest, WorkflowSaveRequest, WorkflowPublishRequest,
-                 WorkflowDeleteRequest, WorkflowAtomCatalogRequest, WorkflowRunsRequest,
-                 WorkflowRunRequest, WorkflowCancelRunRequest, WorkflowGetRequest,
-                 DesktopObserveRequest, GetPolicyRequest, SetPolicyRequest>;
+using Request = std::variant<
+    HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest, CancelTaskRequest,
+    PauseTaskRequest, ResumeTaskRequest, ShutdownRequest, SubscribeEventsRequest,
+    UnsubscribeEventsRequest, RespondPermissionRequest, ListPermissionsRequest, ListSessionsRequest,
+    OpenSessionRequest, SessionHistoryRequest, CloseSessionRequest, SessionChatRequest,
+    ChatHistoryRequest, WorkflowListRequest, WorkflowSaveRequest, WorkflowPublishRequest,
+    WorkflowDeleteRequest, WorkflowAtomCatalogRequest, WorkflowRunsRequest, WorkflowRunRequest,
+    WorkflowCancelRunRequest, WorkflowGetRequest, DesktopObserveRequest, GetPolicyRequest,
+    SetPolicyRequest, GetModelRequest, SetModelRequest, CancelChatRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -500,6 +511,13 @@ struct DialogTurnAccepted {
 /// marks an accepted turn whose model call is still in flight, "ok" a
 /// settled turn carrying `reply_text`, "failed" a settled turn carrying
 /// `error`.
+/// DEC-036: last successful request's provider input usage and configured budget.
+struct ContextUsage {
+    std::uint64_t input_tokens = 0;
+    std::uint64_t window_tokens = 0; // 0 unknown
+    std::string model;
+};
+
 struct DialogTurnEntry {
     std::string turn_id;
     /// "pending" / "ok" / "failed"
@@ -516,6 +534,7 @@ struct DialogTurnEntry {
     /// The turn's position in the session's dialog sequence, self-incrementing.
     std::uint64_t sequence = 0;
     std::int64_t recorded_at_ms = 0;
+    std::optional<ContextUsage> context_usage;
 };
 
 /// One session's dialog thread as reported by session.chat.history
@@ -742,7 +761,7 @@ using ResponsePayload =
                  SessionList, SessionOpened, SessionClosed, DialogTurnAccepted, DialogHistory,
                  SessionHistory, WorkflowList, WorkflowSaved, WorkflowPublished, WorkflowDeleted,
                  WorkflowAtomCatalog, WorkflowRunList, WorkflowRunStarted, WorkflowRunCancelled,
-                 WorkflowDefinitionView, ObservationView, PolicyView>;
+                 WorkflowDefinitionView, ObservationView, PolicyView, ModelConfiguration>;
 
 /// Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc
 /// domain ("protocol_error", "unsupported", "invalid_argument", "not_found",
@@ -918,6 +937,7 @@ struct ChatTurnUpdatedEvent {
     std::string error;
     bool has_error = false;
     std::uint64_t sequence = 0;
+    std::optional<ContextUsage> context_usage;
 };
 
 /// Closed event set; new events join additively (DEC-012).

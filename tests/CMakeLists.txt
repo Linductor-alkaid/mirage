@@ -1208,3 +1208,17 @@ set_tests_properties(dependency_lock_gate_test PROPERTIES
     LABELS "unit;smoke"
     TIMEOUT 60
 )
+
+if(UNIX)
+    add_executable(native_agent_integration_test runtime/native_agent_integration_test.cpp
+        ${CMAKE_SOURCE_DIR}/apps/native/runtime_bridge.cpp)
+    target_include_directories(native_agent_integration_test PRIVATE
+        ${CMAKE_SOURCE_DIR}/apps/native)
+    target_include_directories(native_agent_integration_test SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include)
+    target_link_libraries(native_agent_integration_test PRIVATE Mirage::runtime_service
+        Mirage::ipc Mirage::persistence Mirage::integration_mira executor)
+    mirage_enable_warnings(native_agent_integration_test)
+    add_test(NAME native_agent_integration_test COMMAND native_agent_integration_test)
+    set_tests_properties(native_agent_integration_test PROPERTIES LABELS "integration;runtime;ui" TIMEOUT 40)
+endif()

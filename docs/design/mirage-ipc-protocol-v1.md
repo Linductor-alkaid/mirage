@@ -564,3 +564,39 @@ TypeScript 消费者 `ui/contracts/test/golden-vectors.test.ts` 读取**同一�
 - 2026-09-16（`M1.5-01`）：初版。按 `runtime/ipc` 现状（`protocol.hpp` / `protocol.cpp` /
   `framing.hpp`、`runtime_service.cpp` 错误面）与 DEC-012 事件扩展（Accepted）整理；
   golden vectors 门禁随本变更落地（C++ + TypeScript 双端测试）。
+
+
+## DEC-034 原生模型与通用 harness 附加面
+
+v1加法扩展，旧session.chat缺省仍是单次纯文字推理，旧编码不增加agent:false。
+新客户端发送`agent:true`启用通用harness；此值必须是bool。接纳仍返回turn_id，
+终态通过session.chat_updated及session.chat.history呈现，接纳不代表执行成功。
+
+| 请求op | 参数 | 成功payload与约束 |
+| --- | --- | --- |
+| model.get | 无 | model_settings：schema=1 LocalSettings JSON字符串，仅model块 |
+| model.set | settings：上述JSON字符串，最多65536字节 | 同model.get；只允许model块，有活动轮次时invalid_state |
+| session.chat.cancel | session_id | turn_id；协作取消，终态通过原有轮次事件/历史返回 |
+
+服务校验origin、prefix、model ID、dialect、凭据环境变量名及字段预算；密钥不进入wire。
+保存保留既有配置其他块，写入失败不替换当前模型。agent轮次以MiraRuntime任务身份执行，
+全服务同时最多一个agent轮次；有活动agent时旧dialog也忙拒绝。当前wait工具的受限
+文本反馈契约及依赖缺口见DEC-034 / MIRA-20261004-001。无屏幕/RPA工具，不能据此
+宣称task.submit设备闭环已迁入原生UI。旧golden仍兼容，新面由native_agent_integration_test覆盖。
+
+
+### DEC-036：可选上下文用量投影（M6-06）
+
+`session.chat.history`各turn及`session.chat_updated`可选携带`context_usage`：
+`{"input_tokens":391,"window_tokens":128000,"model":"Qwen/Qwen3.5-4B"}`。
+仅成功`ok`轮次携带；input_tokens为最后一次模型请求的Exact/ProviderReported输入用量，
+范围0–2000000000；window_tokens为显式配置预算（0表示未知，非零2048–2000000），
+model为非空≤1024bytes模型ID。未知用量整对象省略，旧帧不变；缺字段可解析。
+有对象时错误类型/负值/越界/错误状态拒绝。不得从轮次累计或bytes推算Token。
+用量随现有事件推送，可经history补读；服务重启恢复的旧轮次暂不保留该可选投影。
+
+`model.set`请求的settings及`model.get/set`响应的model_settings（均为JSON字符串）
+中model块新增可选
+`context_window_tokens`整数；缺失/0表示未知，其余2048–2000000。非零预算应用至Mira
+ProfileLimits。未配置保留原运行默认，前端仍报告分母未知，不把默认当供应商容量。
+保存/停用沿既有模型设置与Executor路径；活动会话运行中不允许修改模型配置。

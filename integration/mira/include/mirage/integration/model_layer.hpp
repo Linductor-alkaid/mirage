@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace executor {
@@ -43,15 +44,16 @@ struct ModelLayerConfig {
     std::string credential_env;
     /// Whole-request budget mirrored into the profile transport deadlines.
     std::chrono::milliseconds request_deadline{120'000};
-    /// Per-turn generation bound.
+    /// Per-request generation bound (1..16384); harness also has a whole-loop token budget.
     std::uint64_t max_output_tokens = 2048;
+    std::uint64_t context_window_tokens = 0; ///< DEC-036: explicit window budget; 0 unknown
     /// Per-turn input text budget (user text plus rendered transcript).
     std::size_t max_input_bytes = 64ULL * 1024ULL;
 
     /// Fail-closed validation for an enabled layer: a known dialect and a
     /// model selector are mandatory; the endpoint origin is required only
     /// when the pinned socket stack is assembled (an override provider does
-    /// not dial any origin). A disabled layer needs nothing.
+    /// not dial any origin). Disabled layers still validate bounded field syntax.
     [[nodiscard]] bool valid(std::string &error) const;
 };
 
@@ -64,6 +66,11 @@ struct DialogCompletion {
     bool cancelled = false;
     std::string error;
     std::string reply_text;
+    std::uint32_t model_steps = 0;
+    std::uint32_t tool_calls = 0;
+    std::optional<std::uint64_t> input_tokens; // final successful request, provider reported
+    std::uint64_t context_window_tokens = 0;
+    std::string usage_model;
 };
 
 /// Opaque carrier for a caller-supplied pinned model provider (DEC-027 test
@@ -129,6 +136,11 @@ class ModelLayer {
     DialogCompletion complete_dialog_turn(const std::string &transcript,
                                           const std::string &user_text,
                                           const mira::OperationContext &context);
+
+    // MIRA-20261004-001: bounded conversational harness, no desktop observation.
+    DialogCompletion complete_harness_turn(const std::string &transcript,
+                                           const std::string &user_text,
+                                           const mira::OperationContext &context);
 
     /// Ordered teardown: waits out any in-flight dialog completion (bounded
     /// by the profile transport deadlines), then settles the transport's

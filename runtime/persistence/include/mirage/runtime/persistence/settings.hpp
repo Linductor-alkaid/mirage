@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <optional>
 #include <string>
@@ -28,7 +29,8 @@ struct ModelSettings {
     std::string endpoint_origin;
     std::string api_prefix;
     std::string model_selector;
-    std::string credential_env; ///< env var carrying the API key
+    std::string credential_env;              ///< env var carrying the API key
+    std::uint64_t context_window_tokens = 0; ///< 0 unknown; otherwise configured 2048..2000000
 };
 
 /// Runtime configuration settings (M5-08 Runtime Configuration 类目):

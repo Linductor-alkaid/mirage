@@ -325,6 +325,33 @@ std::optional<ObservationRegion> decode_region(const mira::JsonValue &value, std
     return region;
 }
 
+mira::JsonValue encode_context_usage(const ContextUsage &usage) {
+    auto object = make_object();
+    put(object, "input_tokens", static_cast<std::int64_t>(usage.input_tokens));
+    put(object, "window_tokens", static_cast<std::int64_t>(usage.window_tokens));
+    put(object, "model", usage.model);
+    return object;
+}
+
+bool decode_context_usage(const mira::JsonValue &object, const std::string &status,
+                          std::optional<ContextUsage> &usage, std::string &error) {
+    const auto *value = member(object, "context_usage");
+    if (!value)
+        return true;
+    const auto input = integer_member(*value, "input_tokens");
+    const auto window = integer_member(*value, "window_tokens");
+    const auto model = string_member(*value, "model");
+    if (status != "ok" || !value->is_object() || !input || *input < 0 || *input > 2000000000 ||
+        !window || (*window != 0 && (*window < 2048 || *window > 2000000)) || !model ||
+        model->empty() || model->size() > 1024) {
+        error = "invalid context_usage on dialog turn";
+        return false;
+    }
+    usage = ContextUsage{static_cast<std::uint64_t>(*input), static_cast<std::uint64_t>(*window),
+                         *model};
+    return true;
+}
+
 std::optional<DialogTurnEntry> decode_dialog_turn(const mira::JsonValue &value,
                                                   std::string &error) {
     if (!value.is_object()) {
@@ -385,6 +412,8 @@ std::optional<DialogTurnEntry> decode_dialog_turn(const mira::JsonValue &value,
         error = "session.chat.history 'error' is present exactly when status is 'failed'";
         return std::nullopt;
     }
+    if (!decode_context_usage(value, turn.status, turn.context_usage, error))
+        return std::nullopt;
     return turn;
 }
 
@@ -604,6 +633,8 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                     }
                     put(entry, "sequence", static_cast<std::int64_t>(turn.sequence));
                     put(entry, "recorded_at_ms", turn.recorded_at_ms);
+                    if (turn.context_usage)
+                        put(entry, "context_usage", encode_context_usage(*turn.context_usage));
                     turns.emplace_back(std::move(entry));
                 }
                 put(object, "turns", mira::JsonValue{std::move(turns)});
@@ -677,6 +708,8 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 put(object, "workflow_id", value.workflow_id);
                 put(object, "digest", value.digest);
                 put(object, "definition", embedded_json(value.definition_json));
+            } else if constexpr (std::is_same_v<T, ModelConfiguration>) {
+                put(object, "model_settings", value.settings_json);
             } else if constexpr (std::is_same_v<T, PolicyView>) {
                 mira::JsonValue rules = make_object();
                 for (const auto &[capability, rule] : value.rules) {
@@ -807,6 +840,16 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                 put(object, "op", kOpSessionChat);
                 put(object, "session_id", value.session_id);
                 put(object, "text", value.text);
+                if (value.agent)
+                    put(object, "agent", true);
+            } else if constexpr (std::is_same_v<T, GetModelRequest>) {
+                put(object, "op", "model.get");
+            } else if constexpr (std::is_same_v<T, SetModelRequest>) {
+                put(object, "op", "model.set");
+                put(object, "settings", value.settings_json);
+            } else if constexpr (std::is_same_v<T, CancelChatRequest>) {
+                put(object, "op", "session.chat.cancel");
+                put(object, "session_id", value.session_id);
             } else if constexpr (std::is_same_v<T, ChatHistoryRequest>) {
                 put(object, "op", kOpSessionChatHistory);
                 put(object, "session_id", value.session_id);
@@ -1040,7 +1083,30 @@ RequestDecode decode_request(std::string_view payload) {
             return result;
         }
         chat.text = *text;
+        if (const auto *flag = member(object, "agent")) {
+            if (!flag->is_boolean()) {
+                result.error = "agent must be boolean";
+                return result;
+            }
+            chat.agent = *flag->as_boolean();
+        }
         result.body = std::move(chat);
+    } else if (*op == "model.get") {
+        result.body = GetModelRequest{};
+    } else if (*op == "model.set") {
+        const auto settings = string_member(object, "settings");
+        if (!settings || settings->size() > 65536) {
+            result.error = "model.set requires bounded settings";
+            return result;
+        }
+        result.body = SetModelRequest{*settings};
+    } else if (*op == "session.chat.cancel") {
+        const auto session = string_member(object, "session_id");
+        if (!session || session->empty()) {
+            result.error = "cancel requires session_id";
+            return result;
+        }
+        result.body = CancelChatRequest{*session};
     } else if (*op == kOpSessionChatHistory) {
         ChatHistoryRequest history;
         const auto session_id = string_member(object, "session_id");
@@ -1614,6 +1680,12 @@ ResponseDecode decode_response(std::string_view payload) {
             history.entries.push_back(std::move(entry));
         }
         response.payload = std::move(history);
+    } else if (const auto settings = string_member(object, "model_settings")) {
+        if (settings->size() > 65536) {
+            result.error = "model settings exceed budget";
+            return result;
+        }
+        response.payload = ModelConfiguration{*settings};
     } else if (const auto *rules = member(object, "rules"); rules != nullptr) {
         // PolicyView discriminates on "rules".
         if (!rules->is_object() || rules->as_object() == nullptr) {
@@ -2119,6 +2191,8 @@ std::string encode_event(const Event &event) {
                 }
             } else if constexpr (std::is_same_v<T, ChatTurnUpdatedEvent>) {
                 put(object, "event", kEventChatTurnUpdated);
+                if (value.context_usage)
+                    put(object, "context_usage", encode_context_usage(*value.context_usage));
                 put(object, "session_id", value.session_id);
                 put(object, "turn_id", value.turn_id);
                 put(object, "status", value.status);
@@ -2410,6 +2484,8 @@ EventDecode decode_event(std::string_view payload) {
                            "when status is 'failed'";
             return result;
         }
+        if (!decode_context_usage(object, chat.status, chat.context_usage, result.error))
+            return result;
         result.event.payload = std::move(chat);
     } else {
         result.error = "unknown event '" + *name + "'";

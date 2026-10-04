@@ -154,6 +154,9 @@ std::string encode_settings(const LocalSettings &settings) {
         if (!model.model_selector.empty()) {
             put(model_object, "model", JsonValue{model.model_selector});
         }
+        if (model.context_window_tokens)
+            put(model_object, "context_window_tokens",
+                JsonValue{static_cast<std::int64_t>(model.context_window_tokens)});
         if (!model.credential_env.empty()) {
             put(model_object, "credential_env", JsonValue{model.credential_env});
         }
@@ -285,6 +288,15 @@ SettingsDecode decode_settings(std::string_view body) {
             !copy_string("model", model.model_selector) ||
             !copy_string("credential_env", model.credential_env)) {
             return result;
+        }
+        if (const auto *value = member(*model_value, "context_window_tokens")) {
+            const auto number = value->as_integer();
+            if (!number || (*number != 0 && (*number < 2048 || *number > 2000000))) {
+                result.error =
+                    "model.context_window_tokens must be 0 or an integer between 2048 and 2000000";
+                return result;
+            }
+            model.context_window_tokens = static_cast<std::uint64_t>(*number);
         }
         settings.model = std::move(model);
     }

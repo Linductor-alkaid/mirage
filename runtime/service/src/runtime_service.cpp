@@ -142,6 +142,9 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
         status = "ok";
         event.reply_text = completion.reply_text;
         event.has_reply = true;
+        if (completion.input_tokens)
+            event.context_usage = ipc::ContextUsage{
+                *completion.input_tokens, completion.context_window_tokens, completion.usage_model};
     } else {
         status = "failed";
         event.error =
@@ -158,8 +161,11 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
         bool settled = false;
         for (auto &record : log.turns) {
             if (record.turn_id == turn_id) {
+                if (record.status != "pending")
+                    return; // terminal settlement is idempotent
                 record.status = status;
                 record.reply_text = event.reply_text;
+                record.context_usage = event.context_usage;
                 record.error = event.error;
                 event.status = status;
                 event.user_text = record.user_text;
@@ -180,22 +186,41 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
 }
 
 /// Body of one dialog turn task (DEC-027): the bounded model completion and
-/// its settlement. Never throws.
+/// its settlement; driver wrapper reports unexpected exceptions to Executor.
 void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::string session_id,
                      std::string turn_id, const std::string &transcript, const std::string &text,
-                     executor::StopToken stop) {
+                     executor::StopToken stop, bool agent, const std::string &agent_task_id) {
     mira::OperationContext context;
     context.session = mira::SessionId::parse(session_id).value_or(mira::SessionId{});
+    context.task = mira::TaskId::parse(agent_task_id).value_or(mira::TaskId{});
     context.operation = mira::OperationId::generate();
     context.started_at = mira::Timestamp::now();
     context.deadline = std::chrono::steady_clock::now() + core->model.request_deadline;
-    context.cancellation_requested = [stop]() { return stop.stop_requested(); };
+    context.cancellation_requested = [stop, deadline = *context.deadline]() {
+        return stop.stop_requested() || std::chrono::steady_clock::now() >= deadline;
+    };
     mirage::integration::DialogCompletion completion =
-        core->model_layer ? core->model_layer->complete_dialog_turn(transcript, text, context)
-                          : mirage::integration::DialogCompletion{};
-    {
-        std::lock_guard lock(core->drivers_mutex);
-        core->drivers.erase("dialog-" + turn_id);
+        core->model_layer
+            ? (agent ? core->model_layer->complete_harness_turn(transcript, text, context)
+                     : core->model_layer->complete_dialog_turn(transcript, text, context))
+            : mirage::integration::DialogCompletion{};
+    if (!agent_task_id.empty()) {
+        const auto settled =
+            core->executor
+                .submit_on(core->serial,
+                           [core, agent_task_id, completion] {
+                               return completion.cancelled
+                                          ? core->host.cancel_task(TaskIdentity{agent_task_id})
+                                          : core->host.complete_task(TaskIdentity{agent_task_id},
+                                                                     completion.ok,
+                                                                     completion.error);
+                           })
+                .get();
+        if (!settled.ok) {
+            completion.ok = false;
+            completion.failed = true;
+            completion.error = "Agent control-plane settlement failed: " + settled.error.message;
+        }
     }
     settle_dialog_turn(core, session_id, turn_id, completion);
 }
@@ -450,7 +475,7 @@ struct RuntimeService::Impl {
         result.observation = true;
         // DEC-027: the dialog face rides the configured model layer
         // (equipment-dependent, like the `permissions` bit).
-        result.chat = core->model_layer != nullptr && core->model_layer->running();
+        result.chat = core->model_available.load();
         // M5-07: the policy face is core equipment — always served.
         result.policy = true;
         return result;
@@ -626,6 +651,35 @@ struct RuntimeService::Impl {
         }
         if (auto *request = std::get_if<ipc::CloseSessionRequest>(&decoded.body)) {
             handle_session_close(connection_id, correlation_id, std::move(request->session_id));
+            return;
+        }
+        if (std::holds_alternative<ipc::GetModelRequest>(decoded.body)) {
+            handle_model_get(connection_id, correlation_id);
+            return;
+        }
+        if (auto *request = std::get_if<ipc::SetModelRequest>(&decoded.body)) {
+            handle_model_set(connection_id, correlation_id, *request);
+            return;
+        }
+        if (auto *request = std::get_if<ipc::CancelChatRequest>(&decoded.body)) {
+            std::string turn;
+            {
+                std::lock_guard lock(core->dialogs.mutex);
+                const auto it = core->dialogs.sessions.find(request->session_id);
+                if (it != core->dialogs.sessions.end())
+                    turn = it->second.in_flight_turn_id;
+            }
+            if (turn.empty()) {
+                fail(connection_id, correlation_id, "invalid_state", "no active turn");
+                return;
+            }
+            {
+                std::lock_guard lock(core->drivers_mutex);
+                const auto it = core->drivers.find("dialog-" + turn);
+                if (it != core->drivers.end())
+                    core->executor.request_task_cancel(it->second.handle);
+            }
+            respond(connection_id, correlation_id, ipc::DialogTurnAccepted{turn});
             return;
         }
         if (auto *request = std::get_if<ipc::SessionChatRequest>(&decoded.body)) {
@@ -1277,6 +1331,95 @@ struct RuntimeService::Impl {
         respond(connection_id, correlation_id, ipc::SessionClosed{std::move(session_id), state});
     }
 
+    void handle_model_get(std::uint64_t connection, std::uint64_t correlation) {
+        persistence::LocalSettings document;
+        const auto &m = core->model;
+        document.model = persistence::ModelSettings{
+            m.enabled,    m.dialect,        m.display_name,   m.endpoint_origin,
+            m.api_prefix, m.model_selector, m.credential_env, m.context_window_tokens};
+        respond(connection, correlation,
+                ipc::ModelConfiguration{persistence::encode_settings(document)});
+    }
+
+    void handle_model_set(std::uint64_t connection, std::uint64_t correlation,
+                          const ipc::SetModelRequest &request) {
+        const auto decoded = persistence::decode_settings(request.settings_json);
+        if (!decoded.ok || !decoded.settings.model || !decoded.settings.socket_path.empty() ||
+            !decoded.settings.read_roots.empty() || !decoded.settings.permission_rules.empty() ||
+            decoded.settings.confirmation || decoded.settings.runtime) {
+            fail(connection, correlation, "invalid_argument",
+                 "model.set requires only a valid model block");
+            return;
+        }
+        {
+            std::lock_guard lock(core->dialogs.mutex);
+            for (const auto &[id, log] : core->dialogs.sessions) {
+                (void)id;
+                if (!log.in_flight_turn_id.empty()) {
+                    fail(connection, correlation, "invalid_state",
+                         "stop active turns before changing model");
+                    return;
+                }
+            }
+        }
+        const auto &m = *decoded.settings.model;
+        auto next_config = core->model;
+        next_config.enabled = m.enabled;
+        next_config.dialect = m.dialect.empty() ? "openai.responses.v1" : m.dialect;
+        next_config.display_name = m.display_name;
+        next_config.endpoint_origin = m.endpoint_origin;
+        next_config.api_prefix = m.api_prefix;
+        next_config.model_selector = m.model_selector;
+        next_config.credential_env = m.credential_env;
+        next_config.context_window_tokens = m.context_window_tokens;
+        std::string reason;
+        if (!next_config.valid(reason) || (m.enabled && m.endpoint_origin.empty())) {
+            fail(connection, correlation, "invalid_argument",
+                 reason.empty() ? "endpoint is required" : reason);
+            return;
+        }
+        std::unique_ptr<mirage::integration::ModelLayer> next;
+        if (m.enabled) {
+            try {
+                next = std::make_unique<mirage::integration::ModelLayer>(
+                    core->executor, next_config, config.model_provider_override.get());
+            } catch (...) {
+                fail(connection, correlation, "internal", "cannot assemble model layer");
+                return;
+            }
+            if (!next->running()) {
+                fail(connection, correlation, "unavailable", "cannot start model layer");
+                return;
+            }
+        }
+        if (core->settings_store) {
+            persistence::LocalSettings saved;
+            const auto loaded = core->settings_store->load();
+            if (loaded.status == persistence::LoadStatus::Loaded) {
+                const auto old = persistence::decode_settings(loaded.body);
+                if (!old.ok) {
+                    fail(connection, correlation, "invalid_state", "existing settings are invalid");
+                    return;
+                }
+                saved = old.settings;
+            } else if (loaded.status != persistence::LoadStatus::Absent) {
+                fail(connection, correlation, "internal", "cannot read existing settings");
+                return;
+            }
+            saved.model = m;
+            const auto written = core->settings_store->save(persistence::encode_settings(saved));
+            if (!written.ok) {
+                fail(connection, correlation, "internal", written.error);
+                return;
+            }
+        }
+        core->model_layer = std::move(next);
+        core->model = next_config;
+        core->model_available.store(m.enabled);
+        config.model = next_config;
+        handle_model_get(connection, correlation);
+    }
+
     /// Serial thread: accept one dialog turn (DEC-027, M5-06; DEC-025
     /// backlog item 3). The model inference is a bounded long-running work
     /// unit, so the handler only validates, registers the pending turn and
@@ -1286,6 +1429,22 @@ struct RuntimeService::Impl {
     /// settles through the model layer's own deadlines and cancellation.
     void handle_session_chat(std::uint64_t connection_id, std::uint64_t correlation_id,
                              ipc::SessionChatRequest request) {
+        { // Consume finished task outcomes before reusing bounded driver slots.
+            std::lock_guard lock(core->drivers_mutex);
+            for (auto it = core->drivers.begin(); it != core->drivers.end();) {
+                if (it->first.starts_with("dialog-") && it->second.future.valid() &&
+                    it->second.future.wait_for(std::chrono::milliseconds{0}) ==
+                        std::future_status::ready) {
+                    try {
+                        it->second.future.get();
+                    } catch (...) {
+                        std::cerr << "mirage-service: model driver failed\n";
+                    }
+                    it = core->drivers.erase(it);
+                } else
+                    ++it;
+            }
+        }
         if (core->model_layer == nullptr || !core->model_layer->running()) {
             fail(connection_id, correlation_id, "unavailable", "model layer is not configured");
             return;
@@ -1296,7 +1455,26 @@ struct RuntimeService::Impl {
             return;
         }
         std::string turn_id;
+        std::string agent_task_id;
         std::uint64_t sequence = 0;
+        {
+            std::lock_guard lock(core->dialogs.mutex);
+            for (const auto &[id, log] : core->dialogs.sessions) {
+                (void)id;
+                if (log.in_flight_turn_id.empty())
+                    continue;
+                const auto active =
+                    std::find_if(log.turns.begin(), log.turns.end(), [&log](const auto &turn) {
+                        return turn.turn_id == log.in_flight_turn_id;
+                    });
+                if (request.agent ||
+                    (active != log.turns.end() && !active->agent_task_id.empty())) {
+                    fail(connection_id, correlation_id, "invalid_state",
+                         "another model turn is active");
+                    return;
+                }
+            }
+        }
         {
             std::lock_guard lock(core->sessions.mutex);
             if (!core->sessions.contains(request.session_id)) {
@@ -1331,7 +1509,17 @@ struct RuntimeService::Impl {
             if (log.turns.size() >= log.max_turns) {
                 log.turns.erase(log.turns.begin());
             }
+            if (request.agent) {
+                const auto hosted =
+                    core->host.submit_task(SessionIdentity{request.session_id}, request.text);
+                if (!hosted.ok) {
+                    fail(connection_id, correlation_id, hosted.error.code, hosted.error.message);
+                    return;
+                }
+                agent_task_id = hosted.task.id;
+            }
             detail::DialogTurnRecord record;
+            record.agent_task_id = agent_task_id;
             record.turn_id = make_turn_id();
             record.status = "pending";
             record.user_text = request.text;
@@ -1360,12 +1548,44 @@ struct RuntimeService::Impl {
         // deadlines; the executor stop token ends the wait on teardown.
         const std::string session_id = request.session_id;
         const std::string transcript = render_dialog_transcript(core, session_id);
-        auto dialog_submission =
-            core->executor.submit_cancellable([core = core, session_id, turn_id, transcript,
-                                               text = request.text](executor::StopToken stop) {
-                run_dialog_turn(core, session_id, turn_id, transcript, text, stop);
+        auto dialog_submission = core->executor.submit_cancellable(
+            [core = core, session_id, turn_id, transcript, text = request.text,
+             agent = request.agent, agent_task_id](executor::StopToken stop) {
+                try {
+                    run_dialog_turn(core, session_id, turn_id, transcript, text, stop, agent,
+                                    agent_task_id);
+                } catch (...) {
+                    mirage::integration::DialogCompletion failed;
+                    failed.failed = true;
+                    failed.error = "model task failed unexpectedly";
+                    if (!agent_task_id.empty()) {
+                        (void)core->executor
+                            .submit_on(core->serial,
+                                       [core, agent_task_id] {
+                                           return core->host.complete_task(
+                                               TaskIdentity{agent_task_id}, false,
+                                               "Agent driver exception");
+                                       })
+                            .get();
+                    }
+                    settle_dialog_turn(core, session_id, turn_id, failed);
+                    throw; // Executor failure remains observable.
+                }
             });
-        {
+        if (dialog_submission.future.wait_for(std::chrono::milliseconds{0}) ==
+            std::future_status::ready) {
+            try {
+                dialog_submission.future.get();
+            } catch (...) {
+                mirage::integration::DialogCompletion failed;
+                failed.failed = true;
+                failed.error = "model task admission or execution failed";
+                if (!agent_task_id.empty())
+                    (void)core->host.complete_task(TaskIdentity{agent_task_id}, false,
+                                                   failed.error);
+                settle_dialog_turn(core, session_id, turn_id, failed);
+            }
+        } else {
             std::lock_guard lock(core->drivers_mutex);
             core->drivers.emplace("dialog-" + turn_id, std::move(dialog_submission));
         }
@@ -1408,6 +1628,7 @@ struct RuntimeService::Impl {
                 entry.has_error = record.status == "failed";
                 entry.sequence = record.sequence;
                 entry.recorded_at_ms = record.recorded_at_ms;
+                entry.context_usage = record.context_usage;
                 history.turns.push_back(std::move(entry));
             }
             history.truncated = log.total_recorded > history.turns.size();
@@ -2140,6 +2361,7 @@ struct RuntimeService::Impl {
         // The model layer's transport workers are executor-backed (DEC-027):
         // settle their in-flight exchanges while the executor can still
         // drain them, before the executor itself shuts down.
+        core->model_available.store(false);
         if (core->model_layer) {
             core->model_layer->shutdown();
         }
@@ -2328,6 +2550,8 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                 mirage::runtime::persistence::kMaxSettingsFileBytes * 8);
     }
 
+    impl_->core->model_available.store(impl_->core->model_layer &&
+                                       impl_->core->model_layer->running());
     impl_->publish_host_status(HostStatus::Starting);
 
     // M5-08 session state hydration (DEC-021 backlog ①): re-register the

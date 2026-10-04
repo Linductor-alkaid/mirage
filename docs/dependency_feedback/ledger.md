@@ -88,3 +88,47 @@ executor 反馈流程消化；Mirage 不直接向 executor 反馈，也不在台
   "发布必经内容变更或直接发布"为既定流，并在 UI 呈现 pinned 拒绝原文。上游
   消化后移除本条目对流约束的引用。
 
+
+## MIRA-20261004-001：通用对话 harness 缺少无观察循环入口
+
+- **版本与核对**：pinned Mira 1348515 的 agent_loop.hpp、model-agent-loop.md、
+  tool_executor.hpp、model_contracts.hpp、agent_harness_test.cpp；本机最新 472e430
+  的公开 AgentLoop 接口相同。AgentLoopConfig 无观察策略；Full 观察固定 required.screen。
+- **复现**：将不提供 screen_capture 的 IEnvironment 交给 AgentLoop，即使目标只是
+  文字问答，也在第一次 ModelGateway 调用前以 unsupported screen observation 失败。
+  此行为是现有设备闭环语义，无法靠配置改成通用对话。
+- **影响**：M6-03 的通用 Agent harness 不需要自动截图、离散输入或 RPA workflow；
+  现有 AgentLoop 不可直接承载。ModelGateway / BuiltinToolRegistry / MiraRuntime
+  可以复用，未发现已公开的独立 ConversationalAgentLoop。
+- **期望最小能力**：公开无观察的 model -> tool proposal -> execute -> result -> model
+  循环，工具/请求预算、取消、epoch admission 与终态回执沿用既有契约；文本回答即
+  会话终态，不强制 done/action JSON 或设备验证。同时补齐 ModelRequest 中的规范
+  tool-call/result input 项，当前 build_tool_result_input 的产物无法直接加入 ModelRequest.input。
+- **临时边界**：仅 integration/mira/src/model_layer.cpp 的 bounded harness adapter，
+  最多16次推理/32次工具；复用网关解析与工具注册表。工具结果以来源标注的有界
+  JSON文本回填（与 pinned loop 相同约束），不是原生 function_call_output；不接桌面
+  Provider、workflow 或自动屏幕观察，不建立线程/队列/调度器。Runtime Service 负责
+  task/session/cancel，Executor 负责执行与排空。上游交付通用入口后移除该 adapter。
+- **验收**：没有屏幕 Provider 的环境中真实 provider fixture完成问答与两次推理的工具
+  回填；非法提案、错误、取消、超时/预算、关闭不产生桌面副作用。
+- **状态/责任人**：Open；维护者与 Mira 上游。延期影响为保留此单一适配边界与受限
+  工具回填语义。不修改第三方代码、不冒充已反馈远端 issue。
+
+## MIRA-20261004-002：OpenSSL TLS Adapter 未发送 SNI
+
+- **版本/核对**：pinned 1348515 的公开 openssl_tls.hpp、model_transport.hpp、TLS相关测试；
+  OpenSslTlsChannelFactory 的 initialize 已由 Mirage 正确调用。TlsOptions 无SNI开关。
+  最小握手复现后核对 adapters/net/openssl_tls.cpp 的 setup：设置了 hostname verification，
+  未调用 SSL_set_tlsext_host_name；不是关闭证书校验即可解决的应用配置问题。
+- **复现证据**：本机 Mira MiniMax 配置，已初始化工厂的真实 harness 返回
+  tls certificate verification failed。相同主机/系统信任库，Python ssl 带 SNI 握手验证成功；
+  无 SNI 的证书 subject=*.unionpayintl.com，带 SNI 的 subject=*.minimaxi.com，均只握手，
+  未发送 HTTP 或凭据。SiliconFlow 相同 adapter 真实文字/工具请求通过。
+- **影响/期望最小能力**：需要SNI路由的HTTPS模型端点不可用。setup 在 connect 前设置
+  TLS server_name，同时保留系统信任库、链验证、主机名验证，IP字面量按TLS规范处理。
+- **可验收结果**：需要SNI的fixture及MiniMax端点使用正确证书完成握手；错误证书仍拒绝，
+  不降级HTTP或关闭验证。凭据不参与握手诊断。
+- **临时措施/移除条件**：无绕过；沿用 pinned TLS fail closed，真实可用的SiliconFlow用于
+  当前harness验收。实现引用本编号，上游修复并经授权升级pin后补验MiniMax。
+- **状态/负责人**：Open；维护者与Mira上游。延期影响为MiniMax无法验收；未修改third_party，
+  未向远端提交issue。测试原始证书在临时目录，仓库只记录非敏感诊断。
