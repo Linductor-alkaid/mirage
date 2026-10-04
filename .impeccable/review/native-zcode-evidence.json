@@ -1,0 +1,51 @@
+{
+  "date": "2026-10-04",
+  "scope": "M6-05 Linux native conversation aligned to user-pinned ZCode source; no RPA",
+  "reference_commit": "29628c9acdb81b703bbd4080c207a0e7ce5e276e",
+  "reference_pixels": "Unavailable: GNOME ScreenshotWindow AccessDenied for Wayland ZCode; source/layout comparison only",
+  "platform": "Linux GNOME XWayland/OpenGL 2x, logical1180x800 and860x620",
+  "tests": {
+    "Debug": "build success, targeted3/3",
+    "Release": "build success, targeted1/1",
+    "ASAN": "chat_model1/1",
+    "UBSAN": "chat_model1/1",
+    "chat_model_checks": 166,
+    "new_async_paths": 0,
+    "ASAN_GUI": "detect_leaks=1, Markdown/reference inspector and scroll, normal exit0, no diagnostics"
+  },
+  "real_model": "SiliconFlow Qwen/Qwen3.5-4B: actual Markdown reply, copied byte-for-byte through GLFW clipboard",
+  "assets": "Unchanged; retained Mira provenance.json. No generated bitmap assets",
+  "not_verified": [
+    "Windows",
+    "Chinese IME candidate confirmation",
+    "ZCode running-window pixel comparison"
+  ],
+  "source_sha256": {
+    "apps/native/app.cpp": "33e0132f954ff03c1c0306d28bba16940efb744b7b70f575267e5469c8ab5b00",
+    "apps/native/chat_model.cpp": "cfad534e1f6af67beb88245c7694e4523e9a58bcd517dc49afacdb1b4e035fa3",
+    "apps/native/chat_model.hpp": "b66cbb056a527fdca7743a4029e075cc42a6303dc9d8c42ea5c4f40ff2a4ec42",
+    "apps/native/markdown_adapter.hpp": "1883dd809b773a16bff86cec030a78dfdbe8b9fe4366498ee5f0bb461f239cd0",
+    "apps/native/window_controls.cpp": "0f1a88ffd8d23db1afc28098ba951a1f1accf2af403157d1bbc2bce47c258e03",
+    "tests/desktop/native_chat_model_test.cpp": "b708f0fefe0232c618fc8917acd08202abe5522209f711232c0852a550ce8ae5"
+  },
+  "capture_sha256": {
+    ".impeccable/review/native-zcode-context-light.png": "933846c0afd5d57692210a3839176614e3d8972ac914940206ed74d4130088ac",
+    ".impeccable/review/native-zcode-empty-light.png": "5895cb89b4b07368cac85e515eb6ad2125370d66c941687851ceb98a0b416c51",
+    ".impeccable/review/native-zcode-input-light.png": "787d4fcb308a008643685a65184fa25d6bb5807833d2ccd30f924c226cbf00a8",
+    ".impeccable/review/native-zcode-long-input-light.png": "3ba86e92cfe88a53f06b7d442bcad90b34ab59bdfde09968dd9b8adbd77c38e7",
+    ".impeccable/review/native-zcode-markdown-light.png": "92a5e1f7318040b9a8fb8d8095db055916616586bde667bba466dcd05a78cd8f",
+    ".impeccable/review/native-zcode-reference-light.png": "d89089f2a2644b297b77e32b6c427f43006722e29bb39d04da5953ebdfee2a02",
+    ".impeccable/review/native-zcode-reference-preview-light.png": "6c9fd040fce97d953c4a637a893955de052d0130f3deadb0899c50c272c21dec",
+    ".impeccable/review/native-zcode-reply-dark.png": "7cdb0e5f44f62727ed2a5ede55dc0ebc88fc9ecdce6b349bbbf6c4c71d45feb4",
+    ".impeccable/review/native-zcode-reply-light.png": "92a5e1f7318040b9a8fb8d8095db055916616586bde667bba466dcd05a78cd8f",
+    ".impeccable/review/native-zcode-reply-min-dark.png": "8e10841cb99ee33ddb41bfdbdee14d4267f116b7e52865b7be0536abde3f3ab6",
+    ".impeccable/review/native-zcode-reply-min-light.png": "ff79261c07a07f4ea587a56dec22ffb0dda56fa94177adae001f7b0af355f97f"
+  },
+  "capture_validation": "All 11 final capture files opened individually; input shows multi-line Chinese draft, reply files are history-tail views",
+  "visual_review": {
+    "disposition": "ship",
+    "scope": "two listed fixes resolved, not a renewed whole-surface/pixel-equivalence claim",
+    "verdict": ".impeccable/review/native-zcode-final-verdict.md"
+  },
+  "documentation": "native DESIGN/JSON and narrow PRODUCT facts refreshed; root legacy design preserved"
+}

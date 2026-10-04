@@ -1,0 +1,51 @@
+{
+  "workItem": "M6-06",
+  "scope": "Linux native context usage extension",
+  "captureScale": 2,
+  "viewports": [
+    [
+      1180,
+      800
+    ],
+    [
+      860,
+      620
+    ]
+  ],
+  "captures": [
+    "native-context-unknown-light.png",
+    "native-context-usage-light.png",
+    "native-context-usage-dark.png",
+    "native-context-usage-min-light.png",
+    "native-context-usage-min-dark.png",
+    "native-context-model-window-light.png",
+    "native-context-model-window-invalid.png",
+    "native-context-final-light.png"
+  ],
+  "liveUsage": "native-context-live-usage.json",
+  "interactions": [
+    "click context ring to inspect; Escape dismiss",
+    "switch light/dark; resize to minimum",
+    "invalid window abc is rejected with draft retained",
+    "restore and save 128000; model.get confirms budget"
+  ],
+  "review": {
+    "disposition": "ship",
+    "scope": "five context captures and context code only",
+    "verdict": "native-context-finish-verdict.md"
+  },
+  "limitations": [
+    "128000 is configured test budget, not automatic vendor discovery",
+    "last successful input usage; draft is not live-tokenized",
+    "restarted old history lacks usage",
+    "Windows not verified",
+    "ZCode live screenshot denied; source/layout reference"
+  ],
+  "tests": {
+    "Debug": "4/4 CTests",
+    "Release": "1/1 CTest; native UI built",
+    "ASAN": "2/2 CTests, detect_leaks=1",
+    "UBSAN": "2/2 CTests",
+    "TSAN": "180+64 checks, setarch -R, no race diagnostics"
+  }
+}

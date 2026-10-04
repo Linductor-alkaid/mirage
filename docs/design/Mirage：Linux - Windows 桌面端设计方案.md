@@ -1,5 +1,10 @@
 # Mirage：Linux / Windows 桌面端设计方案
 
+> 2026-10-03 更新：UI 产品方向按 [DEC-033](../decisions/DEC-033-native-agent-frontend.md)
+> 迁移到 EUI-NEO 原生前端，首步会话页面见 [原生设计](native-agent-frontend.md)。
+> 本文既有 CEF UI 实现记录作为迁移前基线保留；Runtime/Provider/IPC/Executor
+> 分层约束继续生效。整体入口与托盘生命周期尚待 M6-04 验收。
+
 ## 1. 项目概述
 
 Mirage 是基于 Mira 构建的 Linux / Windows 桌面端产品，为 Mira 提供完整的 PC 运行环境、桌面交互能力与产品界面，使通用 Agent 能够进入用户真实的桌面工作环境执行任务。

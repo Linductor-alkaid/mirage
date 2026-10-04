@@ -291,3 +291,28 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
   求；经 IPC 镜像 pinned DEC-040 发布生命周期与 DEC-039 接纳契约，不自建
   skill 存储；路由见
   [DEC-022](../decisions/DEC-022-upstream-capability-adoption.md) 决策 2。
+
+## 2026-10-03 原生前端接手
+
+维护者要求轻量原生窗口与 ZCode 参考的会话页，按 [DEC-033](../decisions/DEC-033-native-agent-frontend.md) 新建 [M6](m6-native-frontend.md)（In Progress）。先实施 EUI dev 锁定和本地预览；真实 IPC 与整体托盘退出分别归 M6-03/04。既有 M5/CEF 验收保留，不作为原生端功能等价证据。
+
+
+2026-10-04 / M6-03：按维护者澄清，先交付通用Agent harness，RPA workflow暂不接入。
+DEC-034在单一integration Adapter中复用Mira模型/工具/运行控制面；依赖缺口
+MIRA-20261004-001（通用入口/工具输入）与002（TLS SNI）保留台账。本机SiliconFlow
+实际问答与工具回填通过，MiniMax未通过；M6-04入口/托盘整体退出仍按原计划。
+具体状态和验证见[M6](m6-native-frontend.md)及[验收](../compatibility/native-harness-20261004.md)。
+
+M6-03 Linux通用harness首步已完成，真实模型/取消/背压/关闭与界面验收见上述证据；
+M6整体仍In Progress，M6-04统一入口/托盘与Windows运行取证未完成。
+
+2026-10-04 / M6-05：Linux原生会话页按ZCode源码对齐完成，包含Agent Markdown、
+增长输入、引用原文/来源检查及真实上下文入口；测试与独立修正评分见
+[会话验收](../compatibility/native-zcode-conversation-20261004.md)。
+M6整体与M6-04状态不变，未将Wayland截图限制或Windows/IME待验收标记完成。
+
+
+2026-10-04：M6-06 Linux首步上下文占用圆环完成，真实最后请求输入Token/显式窗口预算
+经现有IPC展示；Debug/Release、ASAN/UBSAN、TSAN、真实模型和上下文扩展视觉复核通过。
+详见[M6](m6-native-frontend.md)及[验收](../compatibility/native-context-usage-20261004.md)。
+窗口未知和重启旧历史明确展示未知；M6整体与Windows/统一入口进程任务状态不变。

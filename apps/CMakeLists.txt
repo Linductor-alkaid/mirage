@@ -95,3 +95,6 @@ add_subdirectory(desktop)
 # The tray process form (M5-10, DEC-030): runs on every platform; the
 # carrier inside degrades honestly where the platform has no indicator.
 add_subdirectory(tray)
+
+# Native UI migration, DEC-033 / M6-01. Independent of the legacy CEF shell.
+add_subdirectory(native)

@@ -1,0 +1,442 @@
+---
+name: Mirage 原生 Agent 对话页
+description: EUI-NEO 原生 ZCode 会话布局、文字上下文与模型设置的中性明暗设计系统
+colors:
+  light-background: '#f8f8f8'
+  light-sidebar: '#f0f0f0'
+  light-surface: '#ffffff'
+  light-hover: '#e8e8e8'
+  light-selected: '#e2e2e2'
+  light-text: '#202020'
+  light-muted: '#6d6d6d'
+  light-border: '#dfdfdf'
+  light-action: '#222222'
+  light-inverse: '#ffffff'
+  dark-background: '#161616'
+  dark-sidebar: '#1d1d1d'
+  dark-surface: '#222222'
+  dark-hover: '#2c2c2c'
+  dark-selected: '#333333'
+  dark-text: '#eeeeee'
+  dark-muted: '#a1a1a1'
+  dark-border: '#353535'
+  dark-action: '#eeeeee'
+  dark-inverse: '#161616'
+  light-user: '#f0f0f0'
+  dark-user: '#222222'
+  dark-composer: '#2b2b2b'
+  light-markdown-accent: '#1a70b8'
+  dark-markdown-accent: '#80beff'
+  light-code-background: '#eeeeee'
+  dark-code-background: '#222222'
+  light-quote-background: '#f0f0f0'
+  dark-quote-background: '#202020'
+  light-context-ring: '#737373'
+  dark-context-ring: '#b1b1b1'
+typography:
+  headline:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 30px
+    fontWeight: 500
+    lineHeight: 1.5
+  brand:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 22px
+    fontWeight: 600
+    lineHeight: 1.5
+  title:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 21px
+    fontWeight: 600
+    lineHeight: 1.5
+  message:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 16px
+    fontWeight: 400
+    lineHeight: 26px
+  body:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 17px
+    fontWeight: 400
+  navigation:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 16px
+    fontWeight: 400
+    lineHeight: 1.5
+  label:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 14px
+    fontWeight: 400
+    lineHeight: 1.5
+  hint:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 13px
+    fontWeight: 400
+    lineHeight: 1.5
+  input:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 16px
+    fontWeight: 400
+  button-label:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 15px
+    fontWeight: 400
+  settings-heading:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 30px
+    fontWeight: 600
+    lineHeight: 1.5
+  model-field:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 16px
+    fontWeight: 400
+  markdown-h1:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 22px
+  markdown-h2:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 20px
+  markdown-h3:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 18px
+  markdown-code:
+    fontSize: 14px
+  reference-body:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 14px
+    lineHeight: 22px
+  composer-label:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 13px
+  composer-notice:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 12px
+    lineHeight: 18px
+  composer-shortcut:
+    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontSize: 11px
+    lineHeight: 16.5px
+rounded:
+  input: 4px
+  control: 7px
+  message: 12px
+  panel: 12px
+  composer: 16px
+  reference: 14px
+  markdown: 8px
+  message-action: 6px
+spacing:
+  session-gap: 4px
+  text-gap: 8px
+  input-inset: 12px
+  sidebar-inset: 16px
+  dialog-inset: 24px
+  user-horizontal: 16px
+  user-vertical: 12px
+  thread-gap: 24px
+  markdown-block-gap: 12px
+  reference-gap: 16px
+components:
+  button-ghost:
+    backgroundColor: transparent
+    textColor: '{colors.light-text}'
+    rounded: '{rounded.control}'
+    size: 36px
+  button-ghost-hover:
+    backgroundColor: '{colors.light-hover}'
+  button-primary:
+    backgroundColor: '{colors.light-action}'
+    textColor: '{colors.light-inverse}'
+    rounded: '{rounded.control}'
+    size: 36px
+  button-primary-hover:
+    backgroundColor: '{colors.light-muted}'
+  button-pressed:
+    backgroundColor: '{colors.light-selected}'
+  session-row:
+    backgroundColor: transparent
+    textColor: '{colors.light-text}'
+    rounded: '{rounded.control}'
+    height: 48px
+  session-row-selected:
+    backgroundColor: '{colors.light-selected}'
+  composer:
+    backgroundColor: '{colors.light-surface}'
+    rounded: '{rounded.composer}'
+  input:
+    backgroundColor: '{colors.light-surface}'
+    textColor: '{colors.light-text}'
+    rounded: '{rounded.input}'
+    padding: 12px
+    typography: '{typography.input}'
+  dialog:
+    backgroundColor: '{colors.light-surface}'
+    textColor: '{colors.light-text}'
+    rounded: '{rounded.panel}'
+    width: 460px
+    height: 252px
+  theme-option:
+    backgroundColor: '{colors.light-surface}'
+    textColor: '{colors.light-text}'
+    typography: '{typography.navigation}'
+    rounded: '{rounded.control}'
+    width: 116px
+    height: 40px
+  theme-option-selected:
+    backgroundColor: '{colors.light-selected}'
+  theme-panel:
+    backgroundColor: '{colors.light-surface}'
+    rounded: '{rounded.panel}'
+    height: 100px
+  theme-panel-narrow:
+    height: 126px
+  model-input:
+    backgroundColor: '{colors.light-surface}'
+    textColor: '{colors.light-text}'
+    rounded: '{rounded.control}'
+    height: 44px
+    padding: 12px
+    typography: '{typography.model-field}'
+  model-apply:
+    backgroundColor: '{colors.light-action}'
+    textColor: '{colors.light-inverse}'
+    rounded: '{rounded.control}'
+    width: 112px
+    height: 40px
+    typography: '{typography.button-label}'
+  user-bubble:
+    backgroundColor: '{colors.light-user}'
+    textColor: '{colors.light-text}'
+    rounded: '{rounded.message}'
+    padding: 12px 16px
+    typography: '{typography.message}'
+  agent-reply:
+    backgroundColor: transparent
+    textColor: '{colors.light-text}'
+    typography: '{typography.message}'
+  reference-pill:
+    backgroundColor: '{colors.light-hover}'
+    textColor: '{colors.light-text}'
+    rounded: '{rounded.reference}'
+    width: 176px
+    height: 28px
+  context-control:
+    backgroundColor: transparent
+    textColor: '{colors.light-context-ring}'
+    rounded: '{rounded.control}'
+    width: 36px
+    height: 32px
+  context-popover:
+    backgroundColor: '{colors.light-surface}'
+    textColor: '{colors.light-text}'
+    rounded: '{rounded.panel}'
+    width: 320px
+    height: 224px
+    typography: '{typography.label}'
+  reference-popover:
+    backgroundColor: '{colors.light-surface}'
+    textColor: '{colors.light-text}'
+    rounded: '{rounded.panel}'
+    width: 320px
+---
+
+# Design System: Mirage 原生 Agent 对话页
+
+> 范围：`apps/native` / `mirage-native`，M6-01/02/03/05/06、DEC-033/034/035/036。事实源：
+> `app.cpp` 的 `Palette`、`text()`、`button_style()`、`conversation_page()` 与 `compose_page()`；
+> `chat_model.hpp/.cpp` 的引用预算、提交编码、ACK 与成功轮次用量；`context_usage.hpp` 的比例、数字与圆环；`markdown_adapter.hpp` 的公共 DSL 兼容边界；
+> `window_controls.cpp` 的窗口尺寸与初始 DPI 换算。产品依据为仓库根目录 `PRODUCT.md`，
+> 方向契约为 `../../docs/design/native-agent-frontend.md`。
+> frontmatter 同时记录明暗两态；组件条目使用默认浅色，深色按同名 Palette 角色替换。
+> `.impeccable/design.json` 承载布局、原生边界与组件示意，不是另一个原生实现。
+
+## Overview
+
+**Creative North Star: "桌面 Agent 的对话工作台"**
+
+中性灰底、窄会话栏和居中的阅读列构成原生桌面对话工作台。细分隔线与轻微色阶承担结构，实心发送控件集中表达主操作。视觉参考用户指定的 ZCode Zai Light/Dark；使用的是 Mirage 自己的 EUI DSL 页面，未复制参考项目的业务实现。
+
+当前表面经独立 Runtime Service 展示真实 Agent 会话，并在设置页配置模型。会话标题、草稿、轮次状态与服务提示保持既有信息层级；发送、运行、回复、停止或失败来自服务回执与事件。此记录仅适用于 apps/native / mirage-native，不替代仓库根目录保留的 Web/CEF Mission Console 设计。
+
+**Key Characteristics:**
+- 明暗两态共享中性灰角色；默认浅色。
+- 系统中文无衬线文字与 Font Awesome Solid 操作图标；品牌继承 Mira 原始角色图。
+- 可调宽并收起的侧栏、右对齐用户气泡、无卡片 Markdown 回复与随文字增高的 composer。
+- 设置入口集中外观与模型；主题即时应用且仅在当前运行中保留，模型配置由服务保存并确认。
+- 平面容器、细描边、有限圆角。
+- 清晰展示实际轮次状态、已应用模型、引用来源与服务连接结果；上下文比例取最近成功请求的输入 Token 与显式窗口预算，未知时明确说明。
+
+## Colors
+
+两套控件 Palette 都使用中性灰，颜色原始值以 frontmatter 为准。Mira 角色图保留原始红发蓝眼色彩，这些图片颜色不扩展为控件强调色 token。
+
+### Primary
+
+- **实心操作墨色 / 浅色操作字**：`light-action` 与 `dark-action` 用于发送和对话框确认，搭配对应 `inverse`；深色主题下操作按钮反转为浅色。
+- **操作反馈灰**：填充按钮 hover 使用 `muted`，所有按钮 pressed 使用 `selected`；不额外制造色相变化。
+
+### Neutral
+
+- **页面灰、侧栏灰、容器面**：`background`、`sidebar`、`surface` 分别承担页面、导航与设置/弹层的色阶。用户气泡使用 `user`，深色 composer 与其弹出面板使用 `dark-composer`；助手回复直接落在页面背景。
+- **阅读墨色、辅助灰**：`text` 承担正文和标题，`muted` 用于说明、图标、消息角色与服务状态提示。
+- **边界灰、悬停灰、选中灰**：`border` 分隔区域与容器，`hover` 提供交互反馈，`selected` 标记当前会话、外观导航与所选主题。
+
+上下文圆环使用 `context-ring` 灰色角色，底环透明度 25%、占用弧透明度 70%；未知态只保留底环。进度条使用 border 底轨与 muted 填充。
+
+Markdown 链接/强调色、代码块与引用块背景使用对应专用角色。`markdown-accent` 不表示链接已可打开。
+
+**The Native Scope Rule.** 此系统只约束 apps/native；旧 Web/CEF 的琥珀控制台 tokens 不迁入本表面。
+
+## Typography
+
+**Body Font:** 启动时选择存在的系统中文字体文件；Windows 先尝试 Microsoft YaHei，再尝试 SimHei；Linux 依次尝试 Noto Sans CJK、Droid Sans Fallback、WenQuanYi Micro Hei。frontmatter 的字体族描述这些实际候选的阅读用途，原生加载机制是文件选择而非浏览器 CSS 回退。
+
+**Character:** 简体中文为主，标题与正文共用系统无衬线文字。Font Awesome 7 Free Solid 单独加载图标；不以 Unicode 文字符号代替操作图标。
+
+### Hierarchy
+
+- **Headline**：空态问题，用字号与留白建立阅读起点；没有额外的 eyebrow。
+- **Brand / Title**：侧栏品牌与对话框题，权重略高。
+- **Settings Heading**：外观与模型页标题使用独立字号，说明沿用 Body，主题按钮沿用 Navigation，偏好声明沿用 Label。
+- **Model Field**：模型表单的单行输入和标签均使用 16px；标签行高框为 28px，输入行高交由 EUI 组件。协议和页底按钮沿用 Button Label。
+- **Message / Body**：用户正文与助手 Markdown 为 16px / 26px；H1/H2/H3 为 22/20/18px，代码 14px，块间隔 12px。引用预览 14px / 22px。弹层正文 28px 行高。Markdown 代码字体与未显式设置的标题行高由 pinned EUI 提供，不猜测为产品 token。
+- **Context Detail**：标题与百分比沿用 16px / 500 权重，Token 摘要沿用 14px；二者行框 28px。来源、模型与本次引用行沿用 13px、24px 行框。
+- **Navigation / Label / Hint**：会话、工具条、状态与快捷键提示逐级收紧。
+- **Input / Button Label**：输入保持正文的 16px；草稿高度测量使用 24px 行高，实际输入行高由 EUI 管理。composer 模式/模型 13px、通知 12px、快捷键 11px，对话框操作 15px。
+- `text()` 默认行高为字号的 1.5 倍；输入与部分 EUI 组件保留库默认行高，不把未指定值记成产品规则。
+- 单行文字和图标使用同一行框的 ink-center 对齐，文字不再用字号差值手工偏移；图标行高使用图标字号，行框高度由所在行决定。
+
+字体资源最终回退仍指向 EUI 随附的装饰字体 `JingNanJunJunTi-JinNanJunJunTi-Bold-2.ttf`。该回退是缺少系统中文字体时的实现限制，不作为未来表面的规范字体。
+
+## Layout
+
+- 初始窗口为 1180×800 逻辑单位，最小为 860×620；初始化按 content-scale 与 framebuffer/window 比例换算系统窗口尺寸。仅记录当前初始换算，不宣称跨显示器动态 DPI 行为。
+- 侧栏默认 260px，可调范围 224–400px；实际宽度上限为 `max(224px, min(400px, screen.width - 520px))`。进程内保留用户所需宽度，窗口缩小时只钳制显示宽度；手动收起后宽度为零，展开时恢复当前窗口容纳的宽度。没有自动断点隐藏。
+- 分隔条的透明命中区宽 8px，中心在侧栏右边界，从 y=60 延伸到窗口底部；hover 使用 border、拖动/pressed 使用 muted。支持鼠标拖动，键盘聚焦后左右键每次调宽 8px。
+- 标题拖动区和分隔线为 60px 高，与方向契约一致。
+- 空会话列为 `min(672px, main_width - 48px)`，水平居中；问候 30px、54px 行框，说明 14px、28px 行框，无建议列表。
+- 有消息时列为 `min(896px, main_width - (main_width >= 864px ? 96px : 32px))`，水平居中。用户气泡按文字测量宽度加 32px，最小 80px，最大 `min(576px, thread_width)`，右对齐；助手正文宽 `thread_width - 24px`，无卡片。
+- 编辑区高 `clamp(measure(draft, column - 40px, 16px, 24px) + 16px, 48px, 168px)`；composer 高为编辑区 + 56px 工具区，有引用再加 36px，总高 104–224px（有引用 140–260px）。活动 composer 顶部为 `screen.height - composer_height - 28px`；空态期望顶部为 `max(188px, screen.height × 0.29 + 106px)`，按同一底部边界钳制。问候顶部为 `max(80px, composer_y - 104px)`。
+- 消息滚动区顶部 72px，高 `max(48px, composer_y - 88px)`；滚动条宽 4px、gap 8px。工具条顶部为 `composer_y + composer_height - 44px`；面板下方 24px 通知/快捷键行从面板底部 + 4px 开始。
+- 外观/模型设置保留 `min(800px, main_width - 64px)` 居中列。
+- 会话列表为 48px 行高、4px 行间隔；消息行间隔 24px。新建/返回按钮宽度为 `sidebar - 32px`，会话列表宽度为 `sidebar - 24px`，随侧栏一起变化。最小窗口保持同一结构，用户可收起侧栏增加空间。
+- 外观页标题框从 y=104 开始，高 48px；说明从 y=160 开始，高 32px。主题面板从 y=232 开始；内容列宽度低于 600px 时由横排变为上下排，面板由 100px 增高至 126px，并省略重复说明，保留偏好声明。
+
+- 模型页复用外观页标题/说明位置。表单从 y=214 开始，高 `screen.height - 342px`；五个字段行高 92px，各含 28px 标签框、8px 间隔与 44px 输入。协议行高 94px，说明框高 60px。滚动条宽 4px、与内容间隔 12px。
+- 模型页底部状态固定于 `screen.height - 110px`，高 28px；按钮在其下 38px，高 40px。重新连接宽 104px，停用宽 100px，保存并应用宽 112px；最小窗口滚动表单，页底操作保持可达。
+
+**The Reading Column Rule.** 空态与活动态各按实际列宽策略居中；消息与活动 composer 共用列。设置保留 800px 上限；所有列受主区可用空间限制。
+
+## Elevation & Depth
+
+自定义容器以色调分层和 1px 细描边构成平面结构。按钮、输入与用户气泡不添加阴影；对话框使用 25% 黑色全窗 scrim 和最高交互层。没有自定义页面入场或装饰动效；按钮 pressScale 为 1。
+
+**The Flat Surface Rule.** 自定义按钮、用户气泡和输入不添加阴影；层级靠中性色阶与细描边表达。
+
+## Shapes
+
+输入 4px、消息动作/工具条标签 6px、普通控件 7px、Markdown 块 8px、用户气泡/弹层 12px、引用 pill 14px、composer 16px；实际值以 frontmatter 为准。标题分隔线、侧栏边界与容器边框为 1px；窗口无系统装饰。未最大化时边缘设置 5px 的透明 resize 区、角部设置 14px 的 resize 区；这些命中区不是装饰描边。
+
+## Components
+
+### Buttons
+
+工具栏 icon button 为 36×36px，图标 17px；透明常态使用正文墨色，hover 使用悬停灰。发送采用填充按钮，空白草稿时禁用。新建对话/返回对话默认为 228×44px，宽度随侧栏变化；对话框动作 76×38px。按压无缩放。键盘焦点绘制与禁用处理由 EUI 组件提供，本层没有自定义焦点环 token。
+
+### Mira Brand Image
+
+品牌身份沿用维护者指定的本机最新 Mira 红发蓝眼角色。`assets/mira.png` 是
+`~/mira/docs/mira.png` 的透明 PNG 原样副本，来源提交为
+`472e43010485131790ca300c574d0ba17e50a711`；SHA-256 与原始来源记录见
+[`assets/provenance.json`](assets/provenance.json)。不重绘、不改色、不换用旧 pinned 海报。
+
+侧栏使用 `assets/mira-ui.png`：从原图去除 ancillary metadata 后无损 RGBA 重编码的
+1254×1254px 派生图，每个像素及 alpha 与原图完全一致；原图完整保留来源元数据。
+这是 EUI-20261004-003 的资源适配：EUI 在 PNG/SVG 判别时扫描前 511 bytes 的 `<svg`，
+原 PNG 的 caBX/C2PA 元数据在 byte 305 含 SVG 缩略图，导致误分类和侧栏解码失败。
+派生 hash 与转换说明同样记录在 provenance.json；不把该适配解释为画作修改或层级覆盖。
+
+侧栏展开时图像在 (24, 12) 的 36×36px 框内使用 contain，保留比例与透明背景，
+不参与命中测试；Mirage 字标从 x=72 开始，宽 `sidebar - 140px`（默认 120px），与图像共用 36px 行框。
+窗口图标继续使用原始 `assets/mira.png`；构建将原图与 UI 派生图复制到可执行文件旁的 assets 目录，运行无需本机 Mira 源目录。
+Windows EXE 资源使用仅作 ICO 容器转换的 `assets/mira.ico`，替换 EUI 示例图标；
+Windows 资源构建与真机显示尚未验证。`trayIcon` 仍预置原始 PNG，但托盘仍关闭。
+
+Linux Dock 通过 `org.mirage.native.desktop` 关联应用身份与图标；文件标识和
+`StartupWMClass` 均匹配 appId `org.mirage.native`。构建生成的 entry 使用可执行文件
+绝对路径作为 Exec、同一构建目录 `assets/mira.png` 的绝对路径作为 Icon。
+显式 target `mirage-native-register-desktop` 将 entry 复制到
+`$XDG_DATA_HOME/applications`（未设置时为 `$HOME/.local/share/applications`），
+并在 `update-desktop-database` 可用时刷新数据库；普通构建不写用户 profile。
+当前 Release 已注册并重启：Gio 的 Icon/Exec 解析、窗口 WM_CLASS 匹配通过，
+AT-SPI 中 GNOME Mirage 按钮的 SHOWING=true。Dock 像素截图因权限限制未完成，
+这些关联与可访问性证据不构成图标实际像素显示的视觉验证。
+
+### Navigation
+
+可调宽侧栏承载品牌、新建、会话列表、说明与设置入口。会话行有独立选中底色和 hover；标题 16px，Font Awesome 对话图标 16px。底部齿轮打开设置；侧栏收起后顶部保留展开与设置齿轮，主题操作集中在设置的外观页。设置侧栏以“返回对话”和“外观 / 模型”分类替代会话列表，当前分类填充 selected；收起侧栏时标题栏另有 124×36px 的返回按钮。会话行和窗口标题按实际字体测量可用宽度；超长标题逐个移除 UTF-8 码点并追加省略号，仅缩短显示文本，保留原始会话标题。
+
+### Appearance Settings
+
+外观页延续 surface、细描边、panel 圆角；没有新增彩色控件或装饰层。主题标签在面板内
+(24, 16)，宽屏说明在 (24, 50)。浅色/深色按钮为 116×40px、横向步距 124px（间距 8px），
+文字与图标均为 16px。选中项填充 selected，未选中填充 surface，均有 1px border；
+hover 使用 hover、pressed 使用 selected。宽屏按钮组从面板右侧 264px 开始、y=30；
+窄屏在 (24, 62) 排于标签下方。
+
+选择即时刷新整页 Palette；面板下方 14px 声明“即时应用 · 本次运行内保留外观偏好”，
+宽屏距面板顶部 120px、窄屏 136px。没有系统主题同步、磁盘持久化或后台任务。
+设置打开时不合成对话输入和 composer，保留会话及草稿；Ctrl+N 与 Ctrl+Enter 不修改背景会话。
+Ctrl+, 在没有弹层时打开设置；Escape 先关闭弹层，再返回对话。
+
+侧栏横向调整光标由私有 GLFW Adapter 创建和切换，悬停/拖动结束后复原，
+应用 onShutdown 释放；该平台类型不进入设计 token 或公开产品接口。
+
+### Model Settings
+
+五个单行输入沿用 surface、text、muted 与 control 圆角，常态细描边为 border，focus 描边为 action；无阴影。填写服务地址（仅 origin）、API 路径、模型名称、凭据环境变量名称与可选“上下文窗口预算（Token）”。窗口预算留空表示未知，非零值为 2048–2000000 的整数；填写值作为显式预算映射到 Mira ProfileLimits，不表示供应商自动发现容量。未配置时 UI 分母未知，服务保持既有 Mira 默认运行预算。输入与标签各为 16px，输入高 44px、inset 12px；表单有独立滚动位置。协议选项 Responses / Chat Completions 分别宽 128/172px、高 40px、间隔 8px，选中填充 selected，hover/pressed 沿用既有按钮角色。
+
+页底固定状态与“重新连接 / 停用模型 / 保存并应用”。保存等待时显示“应用中…”并阻止字段编辑与重复应用；未读到配置或缺少地址/模型时禁用保存。表单草稿与服务确认的模型分开，保存失败保留当前已应用模型；忙、取消、地址格式与凭据缺失提供可读提示。凭据说明只要求变量名称。字段焦点与禁用交互仍由 EUI 管理。
+
+### Messages / Markdown
+
+用户消息为右对齐轻灰气泡，12px 圆角、1px border、水平 16px / 垂直 12px 内边距。已完成助手回复直接使用 EUI 公共 MarkdownBuilder，无外层卡片或角色标题；运行/失败行保留图标与明确状态。展示只移除回复首尾 CR/LF 空行，保留内部格式与服务原始历史，没有桌面执行卡。非运行中消息下方提供整条复制与引用，按钮 30×28px、图标 13px、圆角 6px。所有 icon-only button 显式 `.text("")`，避免默认文字泄漏。
+
+连续 CJK 段额外间距由单一 `markdown_adapter.hpp` 经公开 DSL 修正，反馈 EUI-20261004-004；保留上游解析、保守换行及高度预算，升级后按反馈移除。支持标题、列表、粗体、代码和表格；精细文字框选与链接打开缺少公开回调，尚不支持。
+
+### Inputs / Fields
+
+多行输入位于 composer 的 (4px, 4px + refs_height)，宽 `column - 8px`，内部 inset 12px，16px 文字，增长到 168px 后内部滚动。背景与 focused 背景保持 composer 颜色，边框透明、hit 边框为零，无阴影；composer 外框聚焦时由 border 变为 muted。
+
+Enter 发送、Shift+Enter 换行、Ctrl+Enter 保留发送兼容；composition 状态阻止 IME 候选确认提前提交。设置、模态或工具条 popover 打开期间阻止背景输入。提交未接纳或失败时保留草稿；合成中文粘贴不算真实中文 IME 验收。
+
+### Composer / Context
+
+浅色为 surface、深色为 dark-composer，16px 圆角、1px 边界。工具顺序为加号、模式、模型、上下文、发送：加号/发送 36×36px、图标 17px；上下文入口 36×32px，内置 20×20px 圆环；模式 84×32px，模型宽 `max(72px, column - 244px)`、高 32px，标签 13px、下拉图标 9px。模式对应实际 agent 布尔值，运行或提交期间不切换；模型只显示服务确认值，入口打开真实模型设置。运行期间发送改为停止，调用 session.chat.cancel；提交等待禁用。
+
+加号提供“引用上一条回复”与“新建会话”，无文件读取或附件上传。引用出现后展示 176×28px 计数 pill，图标 11px、文字 12px；点击打开宽 `min(320px, column)`、高 `min(352px, screen.height - 160px)` 的滚动预览，可读完整文字、来源角色与消息 ID，并逐条删除。预览文字 14px / 22px、行间距 16px、滚动条宽 4px / gap 6px；删除按钮 28×26px、图标 12px。引用最多 4 条、合计 8KiB；草稿与编码后引用共同受 16KiB wire 上限。引用实例有独立单调 ID，ACK 仅清除该次已提交实例；提交后新草稿、新引用或同来源的重新引用保持不变。
+
+上下文圆环采用 24×24 SVG 视框、半径 10、描边 4，原生显示为 20×20px；用 SVG 路径弧绘制占用，避免依赖 dash-array 支持。点击或经 EUI 键盘操作展开宽 `min(320px, column)`、高 224px 的详情，浅色使用 surface、深色使用 dark-composer，右边缘对齐 composer；与 composer 间隔 8px、顶部至少 68px。标题与百分比在顶部，下一行展示带千位分隔的“输入 / 窗口 Token”；下方是 6px 高、3px 圆角的比例条，以及来源、模型、本次引用数三行。未知时显示灰色空环、“未知”与“Token 用量尚不可用 / 等待模型返回 Token 用量”；已有输入但分母未知时显示“输入 / 未知 Token”，提示到模型设置填写窗口预算。真实零用量配合已知分母显示 0%；原始 Token 数和百分比可以超过 100%，仅圆环与进度条图形钳制到 100%。
+
+分子仅来自 Mira ModelResponse.usage 的 Exact / ProviderReported input_tokens，按最近一次成功请求显示“上次请求 · 模型输入用量”；工具循环取最终回复调用的输入，不累计各次调用，不计输出 Token，不从草稿或 bytes 估算。失败/取消保留前一次成功值；新成功轮次缺少用量则回到未知；迟到的旧序列不能覆盖较新的用量。服务重启后的旧历史不持久化用量，显示未知。截图中的 391 / 128,000 Token = 0.3% 来自真实请求与显式测试预算，128,000 不是自动发现的供应商窗口。
+
+模型 popover 高 136px，动作/模式 popover 高 116px；各面板共用 12px 圆角、1px 边界，透明 dismiss 层 z=20、面板 z=21，位于 composer 上方且顶部不小于 68px。
+
+### Dialog
+
+对话框在全窗 scrim 上居中；标题、正文、确认/取消属于同一面板。确认清空只处理打开弹层时选定的会话。scrim 点击与 Escape 关闭弹层；弹层打开期间快捷键和输入受保护。面板拦截点击，防止穿透关闭。
+
+## Do's and Don'ts
+
+### Do:
+- **Do** 使用同一 Palette 角色切换明暗，让文字、边界与操作同时变化。
+- **Do** 保持文字与图标的职责分离；操作图标使用随应用配置加载的 Font Awesome Solid。
+- **Do** 保留 Mira 品牌图的原始画作、比例、透明背景与来源记录。
+- **Do** 按服务回执显示发送、运行与终态；composer 只显示服务确认的模型。
+- **Do** 保持引用文本、来源与删除入口可检查；上下文用量标明上次请求和配置预算，缺少事实源或分母时明确未知。
+- **Do** 将新原生页面的视觉扩展记录在本目录，不覆盖根目录旧 Web 系统。
+
+### Don't:
+- **Don't** 将设置草稿包装成已应用模型，或将通用文字/工具轮次包装成桌面任务执行。
+- **Don't** 以 ZCode 参考截图作为应用内素材；交付的品牌 raster 仅来自已记录来源的 Mira 原始角色图。
+- **Don't** 将 Web/CEF 的仪表 caps、琥珀主色与灯阵语法默认套入原生对话页。

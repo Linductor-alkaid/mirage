@@ -225,7 +225,17 @@
     "breakpoints": [
       { "name": "narrow（收观察台）", "value": "900px", "purpose": "隐藏观察台与壁挂屏剖面、状态栏 hide-sm 段；step-row 收窄。" },
       { "name": "compact（收签派栏）", "value": "640px", "purpose": "隐藏签派栏；壁挂屏转单列，动词降至 26px。" }
-    ]
+    ],
+    "scopedSurfaces": {
+      "native-agent": {
+        "scope": "apps/native / mirage-native",
+        "designDocument": "apps/native/DESIGN.md",
+        "sidecar": "apps/native/.impeccable/design.json",
+        "directionContract": "docs/design/native-agent-frontend.md",
+        "status": "linux-runtime-connected",
+        "legacyRootScope": "ui/app / Web-CEF Mission Console"
+      }
+    }
   },
   "components": [
     {

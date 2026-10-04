@@ -1,6 +1,14 @@
 # Test binaries follow the pinned mira house style: one plain main() per
 # binary using tests/support/test.hpp; labels drive CI selection (docs/
 # project/project-standards.md section 11).
+add_executable(native_chat_model_test desktop/native_chat_model_test.cpp
+    ${CMAKE_SOURCE_DIR}/apps/native/chat_model.cpp)
+target_include_directories(native_chat_model_test PRIVATE ${CMAKE_SOURCE_DIR}/apps/native)
+target_compile_features(native_chat_model_test PRIVATE cxx_std_20)
+mirage_enable_warnings(native_chat_model_test)
+add_test(NAME native_chat_model_test COMMAND native_chat_model_test)
+set_tests_properties(native_chat_model_test PROPERTIES LABELS "unit;ui" TIMEOUT 30)
+
 add_executable(dependency_wiring_test smoke/dependency_wiring_test.cpp)
 target_compile_features(dependency_wiring_test PUBLIC cxx_std_20)
 mirage_enable_warnings(dependency_wiring_test)

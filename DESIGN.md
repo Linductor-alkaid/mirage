@@ -130,6 +130,11 @@ components:
     padding: "0 8px"
 ---
 
+> **适用范围（legacy Web/CEF）**：本文的 frontmatter 与全部既有规则仅适用于 `ui/app` 的 Mission Console。
+> EUI-NEO 原生入口 `apps/native` / `mirage-native` 使用独立的
+> [原生设计系统](apps/native/DESIGN.md) 与 [原生机器可读记录](apps/native/.impeccable/design.json)。
+> 根 `.impeccable/design.json` 的 `extensions.scopedSurfaces.native-agent` 提供该路由。
+
 # Design System: Mirage 控制台
 
 > 本文描述**已实现**的设计系统（2026-09 冻结于 M1.5 UI 重写）。事实源：

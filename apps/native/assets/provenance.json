@@ -1,0 +1,20 @@
+{
+  "asset": "mira.png",
+  "source": "Mira docs/mira.png",
+  "source_commit": "472e43010485131790ca300c574d0ba17e50a711",
+  "imported_on": "2026-10-04",
+  "sha256": "e615d7e768c532e9966e97fbbaeefc4b7212ef386521bef6be680ed3d250bbed",
+  "use": "User requested Mirage inherit local latest Mira red-haired blue-eyed character icon. PNG byte-for-byte copy; ICO format conversion only.",
+  "icon_container": "mira.ico",
+  "source_repository": "https://github.com/Linductor-alkaid/mira",
+  "upstream_license": "AGPL-3.0 per source repository LICENSE; no artwork-specific license found.",
+  "ui_asset": {
+    "asset": "mira-ui.png",
+    "sha256": "c6756133885ecd1ce9bcf01657380a6d13a52c83315914b0dd707fbfa30a047d",
+    "dimensions": [
+      1254,
+      1254
+    ],
+    "transform": "Lossless RGBA PNG re-encode without ancillary metadata; every pixel including alpha is identical. Original mira.png retains source metadata. EUI-20261004-003: embedded SVG metadata causes upstream PNG/SVG misclassification."
+  }
+}

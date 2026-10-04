@@ -1,0 +1,8 @@
+[
+  "Shift+Enter adds a newline without submission; per-session Chinese drafts remain independent",
+  "GLFW whole-message copy returns exact real Markdown reply including code fences and unspaced Chinese",
+  "Quote count pill opens a bounded scroll inspector with exact text, role and source messageID; individual removal clears last pill",
+  "Context shows actual loaded rounds/reference count/raw bytes, with unsupported Token usage explicit",
+  "12-line draft grows to bounded editor height with scrollbar; reference pill and toolbar remain visible",
+  "Normal and minimum light/dark captures show reachable model/mode/context/send controls"
+]

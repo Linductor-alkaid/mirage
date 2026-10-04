@@ -1,0 +1,85 @@
+{
+  "platform": "Linux XWayland",
+  "content_scale": 2,
+  "files": {
+    "apps/native/app.cpp": {
+      "sha256": "00809fbdb966856c8e54d5dd6f63d7c3e90a1316182e478a4b33fd8282eb2877"
+    },
+    "apps/native/DESIGN.md": {
+      "sha256": "c75e5447ebede8fd8b77594ffa6684f211ac85b938ecd3291802889d00c04bb7"
+    },
+    "apps/native/.impeccable/design.json": {
+      "sha256": "6e7ba3949f15ce90717a85d404b277bbe95d02fc1e7dd7fa18e26b29c6ce7198"
+    },
+    ".impeccable/review/native-v2-collapsed-860.png": {
+      "sha256": "e243c96424b9e7c3d125c0a7bdeb871dc0b8a866e1de2eda6bb8352045d62f59",
+      "physical_pixels": [
+        1720,
+        1240
+      ]
+    },
+    ".impeccable/review/native-v2-dark-1180.png": {
+      "sha256": "5359b5fb8ef6399aaff2caf03840fff4c1763711557b6c893c5bbfdafb10d864",
+      "physical_pixels": [
+        2360,
+        1600
+      ]
+    },
+    ".impeccable/review/native-v2-dark-860.png": {
+      "sha256": "f4d75b014548e80bd0f484d25bc714c0d02f9174eaad73f742f3a50017a86c3f",
+      "physical_pixels": [
+        1720,
+        1240
+      ]
+    },
+    ".impeccable/review/native-v2-dialog.png": {
+      "sha256": "81407b0c94ef9e89c22c182007829e9420507db4984dd8ee8ec3d1a1ec114758",
+      "physical_pixels": [
+        2360,
+        1600
+      ]
+    },
+    ".impeccable/review/native-v2-draft-1180.png": {
+      "sha256": "b98e9bf60f71b71ea178f87e5aa332964cf898bb1ec1e8bc5d67e105a1b63854",
+      "physical_pixels": [
+        2360,
+        1600
+      ]
+    },
+    ".impeccable/review/native-v2-final-light-1180.png": {
+      "sha256": "177a4231e7a713e03fa84b137444cf4c4ea1b1c895bedc4f8d0fdeb712efec06",
+      "physical_pixels": [
+        2360,
+        1600
+      ]
+    },
+    ".impeccable/review/native-v2-light-1180.png": {
+      "sha256": "e2981492a3619042cc8b57032c264b0d505fa20385e74ce8fd80ecc80abd73e6",
+      "physical_pixels": [
+        2360,
+        1600
+      ]
+    },
+    ".impeccable/review/native-v2-light-860.png": {
+      "sha256": "fee9329387fe2f12b26497b0631bddc154cdd47f090bffcba713e5bed6d5eb45",
+      "physical_pixels": [
+        1720,
+        1240
+      ]
+    },
+    ".impeccable/review/native-v2-messages-1180.png": {
+      "sha256": "178ad42bb18b8013da3731cfb4f3fbb442055433b31ddaeea5d63acf159fb4cd",
+      "physical_pixels": [
+        2360,
+        1600
+      ]
+    },
+    ".impeccable/review/native-v2-messages-860.png": {
+      "sha256": "329988f3f9604ce57dcc1741546396294383a7de58984847664d5acb6c3a2d71",
+      "physical_pixels": [
+        1720,
+        1240
+      ]
+    }
+  }
+}
