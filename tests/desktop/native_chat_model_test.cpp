@@ -48,6 +48,35 @@ int main() {
     selection.caret = 6;
     selection.finish(selected);
     MIRAGE_CHECK(!selection.ready);
+    ChatModel streaming;
+    const auto stream_session = streaming.current().id;
+    streaming.apply_turn(stream_session, "live", "pending", "问题", {}, {});
+    MIRAGE_CHECK(streaming.current().messages.back().text.empty() &&
+                 streaming.current().messages.back().started);
+    streaming.apply_preview(stream_session, "unknown", "request", 1, "不应出现", false);
+    streaming.apply_preview(stream_session, "live", "request", 1, "第一段", false);
+    MIRAGE_CHECK(streaming.current().messages.back().text == "第一段");
+    streaming.current().scroll_offset = 11;
+    streaming.apply_preview(stream_session, "live", "request", 2, "第一段第二段", false);
+    MIRAGE_CHECK(streaming.current().scroll_offset == 11);
+    streaming.apply_turn(stream_session, "live", "pending", "问题", {}, {});
+    MIRAGE_CHECK(streaming.current().messages.back().text == "第一段第二段");
+    streaming.apply_preview(stream_session, "live", "request", 1, "乱序", false);
+    MIRAGE_CHECK(streaming.current().messages.back().text == "第一段第二段");
+    streaming.apply_preview(stream_session, "live", "retry", 3, "", false);
+    MIRAGE_CHECK(streaming.current().messages.back().text.empty());
+    streaming.apply_preview(stream_session, "live", "retry", 4, std::string(16385, 'x'), false);
+    MIRAGE_CHECK(streaming.current().messages.back().preview_sequence == 3);
+    streaming.apply_turn(stream_session, "live", "ok", "问题", "规范结果", {});
+    MIRAGE_CHECK(streaming.current().messages.back().duration);
+    streaming.apply_preview(stream_session, "live", "retry", 5, "迟到", false);
+    MIRAGE_CHECK(streaming.current().messages.back().text == "规范结果");
+    streaming.apply_turn(stream_session, "cancel", "pending", "取消", {}, {});
+    streaming.apply_preview(stream_session, "cancel", "c", 1, "部分结果", true);
+    streaming.apply_turn(stream_session, "cancel", "failed", "取消", {}, "已取消");
+    streaming.apply_preview(stream_session, "cancel", "c", 2, "迟到", false);
+    MIRAGE_CHECK(streaming.current().messages.back().text == "已取消" &&
+                 !streaming.current().running);
     ChatModel revised;
     const auto revision_session = revised.current().id;
     revised.apply_turn(revision_session, "base", "ok", "更早输入", "更早回答", {}, {}, 1);

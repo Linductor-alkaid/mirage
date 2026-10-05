@@ -36,12 +36,12 @@ colors:
 typography:
   headline:
     fontFamily: Noto Sans SC, sans-serif
-    fontSize: 30px
+    fontSize: 26px
     fontWeight: 500
     lineHeight: 1.5
   brand:
     fontFamily: Noto Sans SC, sans-serif
-    fontSize: 22px
+    fontSize: 18px
     fontWeight: 600
     lineHeight: 1.5
   title:
@@ -51,16 +51,16 @@ typography:
     lineHeight: 1.5
   message:
     fontFamily: Noto Sans SC, sans-serif
-    fontSize: 16px
+    fontSize: 14px
     fontWeight: 400
-    lineHeight: 24px
+    lineHeight: 22px
   body:
     fontFamily: Noto Sans SC, sans-serif
     fontSize: 17px
     fontWeight: 400
   navigation:
     fontFamily: Noto Sans SC, sans-serif
-    fontSize: 16px
+    fontSize: 14px
     fontWeight: 400
     lineHeight: 1.5
   label:
@@ -75,7 +75,7 @@ typography:
     lineHeight: 1.5
   input:
     fontFamily: Noto Sans SC, sans-serif
-    fontSize: 16px
+    fontSize: 14px
     fontWeight: 400
   button-label:
     fontFamily: Noto Sans SC, sans-serif
@@ -83,7 +83,7 @@ typography:
     fontWeight: 400
   settings-heading:
     fontFamily: Noto Sans SC, sans-serif
-    fontSize: 30px
+    fontSize: 24px
     fontWeight: 600
     lineHeight: 1.5
   provider-selector:
@@ -92,7 +92,7 @@ typography:
     fontWeight: 400
   model-heading:
     fontFamily: Noto Sans SC, sans-serif
-    fontSize: 28px
+    fontSize: 24px
     fontWeight: 600
     lineHeight: 1.5
   model-field:
@@ -101,15 +101,15 @@ typography:
     fontWeight: 400
   markdown-h1:
     fontFamily: Noto Sans SC, sans-serif
-    fontSize: 20px
+    fontSize: 18px
   markdown-h2:
     fontFamily: Noto Sans SC, sans-serif
-    fontSize: 18px
+    fontSize: 16px
   markdown-h3:
     fontFamily: Noto Sans SC, sans-serif
-    fontSize: 17px
+    fontSize: 15px
   markdown-code:
-    fontSize: 14px
+    fontSize: 13px
   reference-body:
     fontFamily: Noto Sans SC, sans-serif
     fontSize: 14px
@@ -327,12 +327,12 @@ Markdown 链接/强调色、代码块与引用块背景使用对应专用角色�
 
 - **Headline**：空态问题，用字号与留白建立阅读起点；没有额外的 eyebrow。
 - **Brand / Title**：侧栏品牌与对话框题，权重略高。
-- **Settings Heading**：外观页标题使用 30px，模型服务标题使用 28px，服务商详情标题使用 20px，说明沿用 Body，主题按钮沿用 Navigation，偏好声明沿用 Label。
+- **Settings Heading**：外观页与模型服务标题使用 24px，服务商详情标题使用 20px，说明沿用 Body，主题按钮沿用 Navigation，偏好声明沿用 Label。
 - **Model Field**：模型表单的单行输入和标签均使用 16px；标签行高框为 28px，输入行高交由 EUI 组件。协议和页底按钮沿用 Button Label。
-- **Message / Body**：用户正文与助手 Markdown 为 16px / 24px；H1/H2/H3 为 20/18/17px，代码 14px，块间隔 8px。引用预览 14px / 22px。弹层正文 28px 行高。Markdown 代码字体与未显式设置的标题行高由 pinned EUI 提供，不猜测为产品 token。
+- **Message / Body**：用户正文与助手 Markdown 为 14px / 22px；H1/H2/H3 为 18/16/15px，代码 13px，块间隔 8px。引用预览 14px / 22px。弹层正文 28px 行高。Markdown 代码字体与未显式设置的标题行高由 pinned EUI 提供，不猜测为产品 token。
 - **Context Detail**：标题与百分比沿用 16px / 500 权重，Token 摘要沿用 14px；二者行框 28px。来源、模型与本次引用行沿用 13px、24px 行框。
 - **Navigation / Label / Hint**：会话、工具条、状态与快捷键提示逐级收紧。
-- **Input / Button Label**：输入保持正文的 16px；草稿测量与实际输入同用 `ui_font_size(16) * 1.2` 行高（约27.80px）。composer 模式/模型 13px、通知 12px、快捷键 11px，对话框操作 15px。
+- **Input / Button Label**：输入保持正文的 14px；草稿测量与实际输入同用 `ui_font_size(14) * 1.2` 行高（约24.33px）。composer 模式/模型 13px、通知 12px、快捷键 11px，对话框操作 15px。
 - `text()` 默认行高为字号的 1.5 倍；输入与部分 EUI 组件保留库默认行高，不把未指定值记成产品规则。
 - 单行文字和图标使用同一行框的 ink-center 对齐，文字不再用字号差值手工偏移；图标行高使用图标字号，行框高度由所在行决定。
 
@@ -345,7 +345,7 @@ Markdown 行内段使用 Top 对齐与 `(lineHeight - fontSize) / 2` 的统一�
 - 初始窗口为 1180×800 逻辑单位，最小为 860×620；初始化按 content-scale 与 framebuffer/window 比例换算系统窗口尺寸。仅记录当前初始换算，不宣称跨显示器动态 DPI 行为。
 - 侧栏默认 260px，可调范围 224–400px；实际宽度上限为 `max(224px, min(400px, screen.width - 520px))`。进程内保留用户所需宽度，窗口缩小时只钳制显示宽度；手动收起后宽度为零，展开时恢复当前窗口容纳的宽度。没有自动断点隐藏。
 - 分隔条的透明命中区宽 8px，中心在侧栏右边界，从 y=60 延伸到窗口底部；hover 使用 border、拖动/pressed 使用 muted。支持鼠标拖动，键盘聚焦后左右键每次调宽 8px。
-- 标题拖动区和分隔线为 60px 高，与方向契约一致。顶部60px标题栏左侧显示当前会话标题（16EM、现有500权重请求），空标题回退“新对话”，随当前会话切换更新；左边距为侧栏右侧28px，侧栏收起时从x=116px开始，右侧预留146px用于窗口按钮；收起侧栏的设置页右侧预留286px避开返回对话按钮。标题按字体度量省略且不改变原始值，文字不拦截标题栏拖动。
+- 标题拖动区和分隔线为 60px 高，与方向契约一致。顶部60px标题栏左侧显示当前会话标题（14EM、现有500权重请求），空标题回退“新对话”，随当前会话切换更新；左边距为侧栏右侧28px，侧栏收起时从x=116px开始，右侧预留146px用于窗口按钮；收起侧栏的设置页右侧预留286px避开返回对话按钮。标题按字体度量省略且不改变原始值，文字不拦截标题栏拖动。
 - 空会话列为 `min(672px, main_width - 48px)`，水平居中；问候 30px、54px 行框，说明 14px、28px 行框，无建议列表。
 - 有消息时列为 `min(800px, main_width - (main_width >= 864px ? 96px : 48px))`，水平居中。用户气泡按文字测量宽度加 24px，最小 80px，最大 `min(576px, thread_width)`，右对齐；助手正文宽 `thread_width - 16px`，无卡片。
 - 编辑区高 `clamp(measure(draft, column - 40px, ui_font_size(16), ui_input_line_height(16)) + 24px, 52px, 168px)`；composer 高为编辑区 + 56px 工具区，有附件或引用再加 36px，编辑最后输入再加32px；非编辑态总高 108–224px（有附件或引用 144–260px）。活动 composer 顶部为 `screen.height - composer_height - 28px`；空态期望顶部为 `max(188px, screen.height × 0.29 + 106px)`，按同一底部边界钳制。问候顶部为 `max(80px, composer_y - 104px)`。
@@ -373,7 +373,7 @@ Markdown 行内段使用 Top 对齐与 `(lineHeight - fontSize) / 2` 的统一�
 
 ### Buttons
 
-工具栏 icon button 为 36×36px，图标 17px；透明常态使用正文墨色，hover 使用悬停灰。发送采用填充按钮，空白草稿时禁用。新建对话/返回对话默认为 228×44px，宽度随侧栏变化；对话框动作 76×38px。按压无缩放。键盘焦点绘制与禁用处理由 EUI 组件提供，本层没有自定义焦点环 token。
+工具栏 icon button 为 36×36px，图标 17px；透明常态使用正文墨色，hover 使用悬停灰。发送采用填充按钮，空白草稿时禁用。新建对话/返回对话默认为 228×36px，宽度随侧栏变化；对话框动作 76×38px。按压无缩放。键盘焦点绘制与禁用处理由 EUI 组件提供，本层没有自定义焦点环 token。
 
 ### Mira Brand Image
 
@@ -388,8 +388,8 @@ Markdown 行内段使用 Top 对齐与 `(lineHeight - fontSize) / 2` 的统一�
 原 PNG 的 caBX/C2PA 元数据在 byte 305 含 SVG 缩略图，导致误分类和侧栏解码失败。
 派生 hash 与转换说明同样记录在 provenance.json；不把该适配解释为画作修改或层级覆盖。
 
-侧栏展开时图像在 (24, 12) 的 36×36px 框内使用 contain，保留比例与透明背景，
-不参与命中测试；Mirage 字标从 x=72 开始，宽 `sidebar - 140px`（默认 120px），与图像共用 36px 行框。
+侧栏展开时图像在 (24, 16) 的 28×28px 框内使用 contain，保留比例与透明背景，
+不参与命中测试；Mirage 字标从 x=64 开始，宽 `sidebar - 132px`（默认 128px），与图像共用 28px 行框。
 窗口图标继续使用原始 `assets/mira.png`；构建将原图与 UI 派生图复制到可执行文件旁的 assets 目录，运行无需本机 Mira 源目录。
 Windows EXE 资源使用仅作 ICO 容器转换的 `assets/mira.ico`，替换 EUI 示例图标；
 Windows 资源构建与真机显示尚未验证。`trayIcon` 仍预置原始 PNG，但托盘仍关闭。
@@ -406,14 +406,14 @@ AT-SPI 中 GNOME Mirage 按钮的 SHOWING=true。Dock 像素截图因权限限�
 
 ### Navigation
 
-可调宽侧栏承载品牌、新建、会话列表、说明与设置入口。会话行有独立选中底色和 hover；标题 16px，Font Awesome 对话图标 16px。底部齿轮打开设置；侧栏收起后顶部保留展开与设置齿轮，主题操作集中在设置的外观页。设置侧栏以“返回对话”和“外观 / 模型”分类替代会话列表，当前分类填充 selected；收起侧栏时标题栏另有 124×36px 的返回按钮。会话行和窗口标题按实际字体测量可用宽度；超长标题逐个移除 UTF-8 码点并追加省略号，仅缩短显示文本，保留原始会话标题。首次用户提交生成标题时跳过开头空格、制表符与CR/LF，纯空白回退“新对话”；标题取第一行最多16个UTF-8码点。提交文本先保留用户草稿，再追加引用和附件，防止包装标签抢占标题；无草稿/引用的附件提交以“附件：文件名”开始。
+可调宽侧栏承载品牌、新建、会话列表、说明与设置入口。会话行有独立选中底色和 hover；标题 14px，Font Awesome 对话图标 16px。底部齿轮打开设置；侧栏收起后顶部保留展开与设置齿轮，主题操作集中在设置的外观页。设置侧栏以“返回对话”和“外观 / 模型”分类替代会话列表，当前分类填充 selected；收起侧栏时标题栏另有 124×36px 的返回按钮。会话行和窗口标题按实际字体测量可用宽度；超长标题逐个移除 UTF-8 码点并追加省略号，仅缩短显示文本，保留原始会话标题。首次用户提交生成标题时跳过开头空格、制表符与CR/LF，纯空白回退“新对话”；标题取第一行最多16个UTF-8码点。提交文本先保留用户草稿，再追加引用和附件，防止包装标签抢占标题；无草稿/引用的附件提交以“附件：文件名”开始。
 
 ### Draft Sessions / History
 
 新建只准备本地草稿，首次发送才创建远端会话；请求被接纳并出现实际消息后才进入历史。
 重复新建复用无消息、无远端 ID 且没有提交或删除等待的本地草稿。无消息的本地草稿和远端记录均不生成侧栏行；
 零历史使用14px“暂无历史对话”和13px“发送消息后将显示在这里”，共用 muted，居中的空态 composer 保持既有布局。
-历史行仍为48px，标题可用宽为行宽减100px，为右侧36×36px垃圾桶留位（x=行宽−40px、y=6px）。
+历史行高40px，标题可用宽为行宽减100px，为右侧36×36px垃圾桶留位（x=行宽−40px、y=2px）。
 运行、提交或删除等待时垃圾桶禁用。删除当前行回到草稿，删除其他行保持当前选择与草稿。
 服务列表刷新移除已不存在的稳定历史，空历史快照同样移除旧行；本地草稿与运行、提交、删除等待记录保留。
 
@@ -462,7 +462,7 @@ Linux Secret Service 为当前验收范围；Windows Credential Manager 的目�
 
 ### Inputs / Fields
 
-多行输入位于 composer 的 (4px, 4px + refs_height + edit_height)，宽 `column - 8px`，内部 inset 12px，16px 文字，增长到 168px 后内部滚动。背景与 focused 背景保持 composer 颜色，边框透明、hit 边框为零，无阴影；composer 外框聚焦时由 border 变为 muted。
+多行输入位于 composer 的 (4px, 4px + refs_height + edit_height)，宽 `column - 8px`，内部 inset 12px，14px 文字，增长到 168px 后内部滚动。背景与 focused 背景保持 composer 颜色，边框透明、hit 边框为零，无阴影；composer 外框聚焦时由 border 变为 muted。
 
 Enter 发送、Shift+Enter 换行、Ctrl+Enter 保留发送兼容；composition 状态阻止 IME 候选确认提前提交。设置、模态或工具条 popover 打开期间阻止背景输入。提交未接纳或失败时保留草稿；合成中文粘贴不算真实中文 IME 验收。
 
@@ -472,11 +472,11 @@ Enter 发送、Shift+Enter 换行、Ctrl+Enter 保留发送兼容；composition 
 
 加号提供“添加文本附件”和“查看附件与引用”，明确说明 UTF-8、最多 4 个与合计 8 KiB。同步系统文件对话框只接收用户主动选择的文件，读取交给前端唯一 Executor 的有限任务；拒绝非普通文件、二进制、无效 UTF-8 与超限，Linux 还拒绝符号链接/FIFO，取消选择无错误。附件以文件名与完整文本加入明确标记的不可信用户 TextPart 上下文，不提供图像/二进制上传或自动目录读取。附件和引用出现后展示 176×28px“附件 N · 引用 N”计数 pill，图标 11px、文字 12px；点击打开宽 `min(320px, column)`、高 `min(352px, screen.height - 160px)` 的滚动预览。附件展示文件名、字节数、13px / 22px 文本和移除入口；引用展示完整文字、来源角色、消息 ID，并可逐条删除，文字 14px / 22px、行间距 16px、滚动条宽 4px / gap 6px。引用最多 4 段、合计 8 KiB；附件另有相同上限，二者与草稿一起受编码后 16 KiB wire 上限。引用/附件实例有独立单调 ID，ACK 仅清除该次提交实例；附件 generation 防止已清空会话接纳迟到读取结果。
 
-上下文圆环采用 24×24 SVG 视框、半径 10、描边 4，原生显示为 20×20px；用 SVG 路径弧绘制占用，避免依赖 dash-array 支持。点击或经 EUI 键盘操作展开宽 `min(320px, column)`、高 224px 的详情，浅色使用 surface、深色使用 dark-composer，按上下文工具的 x=162px 锚点定位并钳制到 composer 可用宽度；与 composer 间隔 8px、顶部至少 68px。标题与百分比在顶部，下一行展示带千位分隔的“输入 / 窗口 Token”；下方是 6px 高、3px 圆角的比例条，以及来源、模型、本次引用数三行。未知时显示灰色空环、“未知”与“Token 用量尚不可用 / 等待模型返回 Token 用量”；已有输入但分母未知时显示“输入 / 未知 Token”，提示到模型设置填写窗口预算。真实零用量配合已知分母显示 0%；原始 Token 数和百分比可以超过 100%，仅圆环与进度条图形钳制到 100%。
+上下文圆环采用 24×24 SVG 视框、半径 10、描边 4，原生显示为 20×20px；用 SVG 路径弧绘制占用，避免依赖 dash-array 支持。点击或经 EUI 键盘操作展开宽 `min(320px, column)`、高 224px 的详情，浅色使用 surface、深色使用 dark-composer，按上下文工具的 `column - 180 - model_width` 锚点定位并钳制到 composer 可用宽度；与 composer 间隔 8px、顶部至少 68px。标题与百分比在顶部，下一行展示带千位分隔的“输入 / 窗口 Token”；下方是 6px 高、3px 圆角的比例条，以及来源、模型、本次引用数三行。未知时显示灰色空环、“未知”与“Token 用量尚不可用 / 等待模型返回 Token 用量”；已有输入但分母未知时显示“输入 / 未知 Token”，提示到模型设置填写窗口预算。真实零用量配合已知分母显示 0%；原始 Token 数和百分比可以超过 100%，仅圆环与进度条图形钳制到 100%。
 
 分子仅来自 Mira ModelResponse.usage 的 Exact / ProviderReported input_tokens，按最近一次成功请求显示“上次请求 · 模型输入用量”；工具循环取最终回复调用的输入，不累计各次调用，不计输出 Token，不从草稿或 bytes 估算。失败/取消保留前一次成功值；新成功轮次缺少用量则回到未知；迟到的旧序列不能覆盖较新的用量。服务重启后的旧历史不持久化用量，显示未知。截图中的 391 / 128,000 Token = 0.3% 来自真实请求与显式测试预算，128,000 不是自动发现的供应商窗口。
 
-模型 popover 高 `min(352px, 68px + 44px × 配置数)`，动作/权限 popover 高 164px，思考 popover 已启用时高 244px、未启用时高 148px；各面板按对应工具的横向锚点定位（附件/引用 8px、权限 48px、上下文 162px、模型 202px、思考 `column - 136px`），再钳制到 composer 边界；共用 12px 圆角、1px 边界，透明 dismiss 层 z=20、面板 z=21，位于 composer 上方且顶部不小于 68px。
+模型 popover 高 `min(352px, 68px + 44px × 配置数)`，动作/权限 popover 高 164px，思考 popover 已启用时高 244px、未启用时高 148px；各面板按对应工具的横向锚点定位（附件/引用 8px、权限 48px、上下文 `column - 180 - model_width`、模型 `column - 140 - model_width`、思考 `column - 136px`），再钳制到 composer 边界；共用 12px 圆角、1px 边界，透明 dismiss 层 z=20、面板 z=21，位于 composer 上方且顶部不小于 68px。
 
 ### Dialog
 
@@ -505,3 +505,22 @@ scrim 点击与 Escape 关闭弹层；弹层打开期间快捷键和输入受保
 - **Don't** 将设置草稿包装成已应用模型，或将通用文字/工具轮次包装成桌面任务执行。
 - **Don't** 以 ZCode 参考截图作为应用内素材；交付的品牌 raster 仅来自已记录来源的 Mira 原始角色图。
 - **Don't** 将 Web/CEF 的仪表 caps、琥珀主色与灯阵语法默认套入原生对话页。
+
+## 2026-10-05：会话密度与真实执行反馈（DEC-041）
+
+M6-15/16/17/18：正文/输入14EM，正文22px行高；标题14EM、品牌18EM/28px图像，
+会话行40px、新建按钮36px，外观/模型标题24EM。保留Noto SC换算与中文基线适配。
+工具组按实际模型宽度定位：附件/权限靠左；model_x=column-140-model_width，
+context_x=model_x-40，思考/发送维持右边距，popover复用实际锚点。
+
+等待只有三点低幅脉冲与“思考中/正在回复 · 用时”一行；已收到的Markdown直接显示。
+用时来自本UI观察到pending后的steady_clock，终态冻结；历史未知时不编造时长。
+Executor周期句柄100ms刷新活动会话，取消句柄、停止worker、消费future、shutdown后释放UI。
+preview是≤16KiB完整快照，经服务Topic与UI MpscChannel传递，不持久化，不改变Token占比；
+新尝试清空，乱序/终态后/取消后的预览拒绝。最终规范响应替换预览。
+
+公开ConversationLoop替代临时文字回填（MIRA-20261004-001）。仅wait工具；默认2048输出token
+对应7次模型请求上限，32次工具，预算按profile公开whole-run规则推导；用户大输出预算时
+减少轮数并将单轮预算钳制至profile上限的一半。没有桌面观察或RPA能力。
+Linux使用EUI平台公开XIM光标入口；详细互操作、环境限制和验收见
+[进度验收](docs/compatibility/native-conversation-progress-20261005.md)。此前16px、私有循环和无流式段落为历史实现，以上替代。

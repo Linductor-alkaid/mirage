@@ -203,12 +203,24 @@ void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::stri
     context.cancellation_requested = [stop, deadline = *context.deadline]() {
         return stop.stop_requested() || std::chrono::steady_clock::now() >= deadline;
     };
+    // Transport callback only performs bounded validation and Topic delivery.
+    // Per-infer callbacks are sequential; the shared atomic also covers retries safely.
+    auto preview_sequence = std::make_shared<std::atomic<std::uint64_t>>(0);
+    integration::DialogPreviewSink preview = [core, session_id, turn_id, stop, preview_sequence](
+                                                 const std::string &request,
+                                                 const std::string &preview_text, bool truncated) {
+        if (stop.stop_requested() || request.empty() || request.size() > 128 ||
+            preview_text.size() > 16 * 1024)
+            return;
+        core->events.publish_chat_preview({session_id, turn_id, request, preview_text,
+                                           preview_sequence->fetch_add(1) + 1, truncated});
+    };
     mirage::integration::DialogCompletion completion =
         core->model_layer
             ? (agent ? core->model_layer->complete_harness_turn(transcript, text, context,
-                                                                reasoning, tools_allowed)
+                                                                reasoning, tools_allowed, preview)
                      : core->model_layer->complete_dialog_turn(transcript, text, context, reasoning,
-                                                               tools_allowed))
+                                                               tools_allowed, preview))
             : mirage::integration::DialogCompletion{};
     if (!agent_task_id.empty()) {
         const auto settled =
@@ -634,8 +646,7 @@ struct RuntimeService::Impl {
             return;
         }
         if (auto *request = std::get_if<ipc::SubscribeEventsRequest>(&decoded.body)) {
-            (void)request;
-            handle_subscribe(connection_id, correlation_id);
+            handle_subscribe(connection_id, correlation_id, request->chat_preview);
             return;
         }
         if (auto *request = std::get_if<ipc::UnsubscribeEventsRequest>(&decoded.body)) {
@@ -1103,7 +1114,8 @@ struct RuntimeService::Impl {
     /// subscription; the loop drains it after the responses of each pass.
     /// The current host status seeds the stream (seq 1) so a fresh
     /// subscriber starts from the live state, mirroring the frontend mock.
-    void handle_subscribe(std::uint64_t connection_id, std::uint64_t correlation_id) {
+    void handle_subscribe(std::uint64_t connection_id, std::uint64_t correlation_id,
+                          bool chat_preview) {
         detail::ServiceLoop *active = loop.load(std::memory_order_acquire);
         if (active == nullptr) {
             fail(connection_id, correlation_id, "internal", "service loop is not running");
@@ -1115,7 +1127,8 @@ struct RuntimeService::Impl {
             seed = ipc::EventPayload{std::move(*status)};
         }
         respond(connection_id, correlation_id, ipc::ShutdownAccepted{});
-        active->post_attach_events(connection_id, std::move(subscription), std::move(seed));
+        active->post_attach_events(connection_id, std::move(subscription), std::move(seed),
+                                   chat_preview);
     }
 
     /// Serial thread: drop the connection's subscription; idempotent.

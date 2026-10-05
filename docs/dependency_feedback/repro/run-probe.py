@@ -1,4 +1,5 @@
 """Build the offline probe against an already built native-debug dependency graph."""
+import sys
 import pathlib
 import shlex
 import subprocess
@@ -25,4 +26,4 @@ with tempfile.TemporaryDirectory(prefix="mirage-feedback-") as temporary:
         "-I" + str(root / "third_party/mira/third_party/executor/include"),
     ]
     subprocess.run(args, cwd=build, check=True)
-    subprocess.run([executable], check=True)
+    subprocess.run([executable] + (["--fixed"] if "--fixed" in sys.argv else []), check=True)

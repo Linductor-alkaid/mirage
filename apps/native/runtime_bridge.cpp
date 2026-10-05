@@ -14,7 +14,9 @@ struct RuntimeBridge::Impl {
     std::shared_ptr<ipc::SessionClient> client;
     executor::comm::MpscChannel<RuntimeMessage> inbox{
         {.capacity = 128, .name = "native-ui-events"}};
-    std::atomic_bool live{false}, gap{false};
+    std::atomic_bool live{false}, gap{false}, active{false};
+    executor::TimerHandle activity_timer;
+    std::uint64_t timer_failures = 0;
     std::function<void()> wake;
     executor::WorkerHandle worker;
     std::vector<std::future<void>> calls; // UI-only ownership, capacity 16
@@ -123,6 +125,17 @@ bool RuntimeBridge::load_attachment(const std::string &path, std::uint64_t sessi
 }
 bool RuntimeBridge::receive(RuntimeMessage &out) {
     auto &p = *impl_;
+    if (p.activity_timer.valid()) {
+        const auto status = p.executor.get_periodic_task_status(p.activity_timer.id());
+        if (status && status->failed_count > p.timer_failures) {
+            p.timer_failures = status->failed_count;
+            p.post({RuntimeMessage::Kind::Diagnostic,
+                    "等待状态刷新失败: " + status->last_error_message,
+                    0,
+                    {},
+                    {}});
+        }
+    }
     for (auto it = p.calls.begin(); it != p.calls.end();) {
         if (it->wait_for(std::chrono::milliseconds{0}) == std::future_status::ready) {
             try {
@@ -138,11 +151,34 @@ bool RuntimeBridge::receive(RuntimeMessage &out) {
 }
 bool RuntimeBridge::connected() const { return impl_->live.load(); }
 bool RuntimeBridge::take_gap() { return impl_->gap.exchange(false); }
+void RuntimeBridge::set_activity(bool active) {
+    auto &p = *impl_;
+    if (p.stopping || p.active.exchange(active) == active)
+        return;
+    if (!active) {
+        if (p.activity_timer.valid())
+            (void)p.activity_timer.cancel();
+        p.activity_timer = {};
+        return;
+    }
+    p.timer_failures = 0;
+    p.activity_timer =
+        p.executor.submit_periodic_cancellable_with_handle(100, [&p](executor::StopToken stop) {
+            if (!stop.stop_requested() && p.active.load())
+                p.wake();
+        });
+    if (!p.activity_timer.valid())
+        p.post({RuntimeMessage::Kind::Diagnostic, "等待状态刷新提交被拒绝", 0, {}, {}});
+}
+
 void RuntimeBridge::shutdown() {
     if (!impl_ || impl_->stopping)
         return;
     auto &p = *impl_;
     p.stopping = true;
+    p.active.store(false);
+    if (p.activity_timer.valid())
+        (void)p.activity_timer.cancel();
     p.live.store(false);
     p.client->stop();
     if (p.worker.started())

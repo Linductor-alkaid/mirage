@@ -662,3 +662,17 @@ Wire golden覆盖缺省兼容、替换请求/ACK/事件及非法目标，服务�
 和写盘拒绝、并发拒绝、取消、重启编辑/续聊/删除。见
 [DEC-039](../decisions/DEC-039-conversation-selection-and-revision.md)与
 [Linux验收](../compatibility/native-conversation-revision-20261005.md)。
+
+
+## DEC-041：可选会话流式预览
+
+`events.subscribe`新增可选boolean `chat_preview`（缺省false，旧编码不增加字段）。
+仅声明true的连接收到`session.chat_preview`；未知类型/非法bool拒绝。旧服务忽略此可选
+字段，客户端仍可依赖最终会话事件工作；当前服务对旧客户端过滤预览且不增加其事件seq。
+
+事件字段为session_id、turn_id、request_id（非空，各≤128bytes）、sequence（正整数，
+轮内递增）、text（≤16384bytes完整快照）、truncated（bool）。预览来自Mira的非权威
+公开sink，经既有有界Topic/服务循环传递。队列溢出沿用events.overflow与历史恢复。
+每次推理重试先发空快照；客户端仅替换匹配pending轮，拒绝旧序列/终态/取消后的内容。
+预览不存盘、不推动工具、不修改context_usage；最终成功ChatTurnUpdated才携带规范reply_text。
+协议版本仍为1，其他请求/终态契约不变。测试覆盖新旧订阅同场及字段拒绝。

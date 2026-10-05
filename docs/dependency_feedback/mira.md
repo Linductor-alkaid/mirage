@@ -6,13 +6,13 @@
 > 工作项：[M6-10](../plans/m6-native-frontend.md)
 > 总入口：[依赖反馈](ledger.md)；维护规则：[工程规范9.4](../project/project-standards.md)
 
-## 核对基线与状态
+## M6-10历史核对基线与当前状态
 
 - Mirage pinned Mira：`13485151bf531bff065eadf37be502061de2ab3e`。
 - 2026-10-05核对Mira本机与GitHub master：`472e43010485131790ca300c574d0ba17e50a711`。
   已核对四项相关公开头/API文档、测试与对应实现路径，未发现已交付修复；
   本轮动态复现针对pinned版本，master仅作源码/API核对，不宣称动态复验master。
-- executor由Mira传递交付，反馈只提交Mira；不修改第三方代码或升级pin。
+- M6-10未修改第三方代码或升级pin；M6-18经维护者授权接入PR#76及流式PR#79，当前pin见锁文件。executor仍由Mira传递交付。
 - `Open`表示缺口待处理；是否已提交上游由“上游”列独立记录。
   `Resolved`须同时有上游修复、Mirage授权升级及对应复验，issue关闭不自动表示已迁移。
 - 旧编号保留；历史证据与本轮离线复现区分，不把工作绕行的通过当成缺陷修复。
@@ -20,9 +20,9 @@
 | 编号 | 主题 | 类型/分级 | 状态 | 本轮证据 | 上游 |
 | --- | --- | --- | --- | --- | --- |
 | MIRA-20260922-001 | Executor MinGW POSIX native_handle转换 | 构建缺陷 | Open | 最小编译复现同类错误 | [#75](https://github.com/Linductor-alkaid/mira/issues/75)，已提交 |
-| MIRA-20260927-001 | 同digest草稿遮蔽已验证workflow记录 | 版本语义缺陷 | Open | 公共版本API离线复现 | [#74](https://github.com/Linductor-alkaid/mira/issues/74)，已提交 |
-| MIRA-20261004-001 | 无屏幕通用harness与规范工具回填入口 | P2：harness边界结构性缺口 | Open | 无屏幕环境在模型路由前失败；核对输入契约 | [#73](https://github.com/Linductor-alkaid/mira/issues/73)，已提交 |
-| MIRA-20261004-002 | OpenSSL ClientHello缺少SNI | 传输缺陷 | Open | socketpair捕获真实adapter ClientHello，无server_name | [#72](https://github.com/Linductor-alkaid/mira/issues/72)，已提交 |
+| MIRA-20260927-001 | 同digest草稿遮蔽已验证workflow记录 | 版本语义缺陷 | Resolved | 公共版本API离线复现 | [#74](https://github.com/Linductor-alkaid/mira/issues/74)，已提交 |
+| MIRA-20261004-001 | 无屏幕通用harness与规范工具回填入口 | P2：harness边界结构性缺口 | Resolved | 无屏幕环境在模型路由前失败；核对输入契约 | [#73](https://github.com/Linductor-alkaid/mira/issues/73)，已提交 |
+| MIRA-20261004-002 | OpenSSL ClientHello缺少SNI | 传输缺陷 | Resolved | socketpair捕获真实adapter ClientHello，无server_name | [#72](https://github.com/Linductor-alkaid/mira/issues/72)，已提交 |
 
 ## 2026-10-05复核证据
 
@@ -189,3 +189,27 @@ Mirage恢复设计。不把该现象直接登记为Mira缺陷，也不要求终�
 | 2026-10-05 | MIRA-20260922-001 | 复核pinned与master、离线复现并提交[#75](https://github.com/Linductor-alkaid/mira/issues/75)；API回读确认作者/编号/完整正文/Open | Mira上游处理；Mirage维护者在上游交付后评估授权升级并按该条验收复跑 |
 
 本轮仅反馈，四项均保持Open。未修改Mira/Executor/Mirador源码或pin，未向Executor或Mirador提交issue。
+
+<a id="mira-20261005-001"></a>
+
+## MIRA-20261005-001：真实流式预览与Chat Completions SSE
+
+- 状态：Accepted；负责人：Mirage维护者；范围：M6-17/18、DEC-041。
+- 核对：3716dbf的公开InferOptions/ProviderInferOptions无实时sink；take_last_preview仅在infer返回后可用；OpenAiCompatibleProvider流式入口仅Responses，ConversationLoop固定默认选项。
+- 复现：配置Chat模型并启用stream被Provider拒绝；Responses回调只供内部parser消费，UI在终态前没有公开文本事件。已排除Mirage的显示/连接配置问题。
+- 影响：无法真实增量输出；私自解析协议会重复Mira已有模型职责。
+- 最小能力：有界非权威完整快照sink、两种协议SSE归约、ConversationLoop选项透传及最后usage。
+- 语义：预览不得进入历史、触发工具或作为成功依据；重试清空、取消停止投递、终态覆盖；断流失败。
+- 延期影响：保留等待状态直至最终回复，不模拟打字。2026-10-05维护者授权修复并要求上游PR。
+- 验收：分片中文、工具参数、预算/终态拒绝、实时回调、异常隔离/取消和下游晚到预览门禁。
+- 移除条件：同步上游修复提交与锁文件、完成集成验收；已提交[上游PR#79](https://github.com/Linductor-alkaid/mira/pull/79)，本地pin 0a099ba集成验证通过；上游尚未合并，保持Accepted。
+
+
+## M6-18升级复验
+
+3716dbf（PR#76）加流式补丁0a099ba已同步锁文件；`run-probe.py --fixed`退出0，
+workflow digest解析已验证版本、ClientHello SNI均通过。公开ConversationLoop及规范
+ToolResultPart在集成测试及两家真实供应商工具往返通过。因此#74/#73/#72对应三项为
+Resolved，历史探针现象保留不重写；Executor MinGW#75仍Open。
+MIRA-20261005-001的上游PR#79尚未合并；本地修复通过不冒充上游合并。
+详见[本轮验收](../compatibility/native-conversation-progress-20261005.md)。

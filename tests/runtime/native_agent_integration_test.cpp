@@ -36,7 +36,7 @@ class Provider final : public mira::IModelProvider {
     const mira::ModelProfile &profile() const override { return profile_; }
     mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
                                             const mira::OperationContext &context,
-                                            const mira::ProviderInferOptions &) override {
+                                            const mira::ProviderInferOptions &options) override {
         std::string input_text;
         for (const auto &item : request.input)
             for (const auto &part : item.content)
@@ -55,6 +55,11 @@ class Provider final : public mira::IModelProvider {
                 }
             }
         saw_image.store(image);
+        if (options.stream && options.preview_sink) {
+            options.preview_sink(request.request_id, {});
+            options.preview_sink(request.request_id, {"Mira 正在", 0, false});
+            options.preview_sink(request.request_id, {"Mira 正在增量回复", 0, false});
+        }
         while (hold.load() && !context.cancelled_or_expired(mira::Timestamp::now()))
             (void)::poll(nullptr, 0, 1);
         mira::ModelResponse reply;
@@ -99,7 +104,9 @@ class Provider final : public mira::IModelProvider {
         }
         if (number > 1)
             for (const auto &item : request.input)
-                if (item.provenance.source == "mirage.harness.tool-result.v1")
+                if (std::any_of(item.content.begin(), item.content.end(), [](const auto &part) {
+                        return std::holds_alternative<mira::ToolResultPart>(part);
+                    }))
                     saw_tool_result.store(true);
         mira::MessageOutput message;
         mira::OutputTextPart text;
@@ -155,7 +162,18 @@ int main(int argc, char **argv) {
             context.operation = mira::OperationId::generate();
             context.started_at = mira::Timestamp::now();
             context.deadline = std::chrono::steady_clock::now() + 60s;
-            result = model.complete_harness_turn({}, read("MIRAGE_PROBE_PROMPT"), context);
+            std::size_t updates = 0, largest = 0;
+            bool before_terminal = false;
+            result = model.complete_harness_turn({}, read("MIRAGE_PROBE_PROMPT"), context, "", true,
+                                                 [&](const auto &, const auto &text, bool) {
+                                                     if (!text.empty()) {
+                                                         ++updates;
+                                                         largest = std::max(largest, text.size());
+                                                         before_terminal = true;
+                                                     }
+                                                 });
+            std::printf("stream_updates=%zu largest_snapshot=%zu delivered_before_return=%d\n",
+                        updates, largest, before_terminal);
             model.shutdown();
         }
         owner.shutdown(true);
@@ -415,8 +433,7 @@ int main(int argc, char **argv) {
     const auto before_budget = provider->calls.load();
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "预算路径", true}, 2s).ok);
     turn = wait_turn(client, session);
-    MIRAGE_CHECK(turn && turn->status == "failed" &&
-                 turn->error.find("16 model steps") != std::string::npos);
+    MIRAGE_CHECK(turn && turn->status == "failed" && turn->error.find("turn") != std::string::npos);
     MIRAGE_CHECK(provider->calls.load() - before_budget == 16);
     provider->always_tool.store(false);
     provider->hold.store(true);
@@ -479,7 +496,7 @@ int main(int argc, char **argv) {
         (void)::poll(nullptr, 0, 1);
     }
     MIRAGE_CHECK(connected);
-    MIRAGE_CHECK(bridge.call(ipc::SubscribeEventsRequest{}, "subscribe"));
+    MIRAGE_CHECK(bridge.call(ipc::SubscribeEventsRequest{true}, "subscribe"));
     bool subscribed = false;
     deadline = std::chrono::steady_clock::now() + 4s;
     while (std::chrono::steady_clock::now() < deadline && !subscribed) {
@@ -489,6 +506,25 @@ int main(int argc, char **argv) {
         (void)::poll(nullptr, 0, 1);
     }
     MIRAGE_CHECK(subscribed);
+    // A pre-preview subscriber receives canonical events without unknown preview frames.
+    mirage::native_ui::RuntimeBridge legacy([] {}, config.socket_path);
+    bool legacy_ready = false;
+    deadline = std::chrono::steady_clock::now() + 4s;
+    while (std::chrono::steady_clock::now() < deadline && !legacy_ready) {
+        while (legacy.receive(message))
+            legacy_ready |= message.kind == mirage::native_ui::RuntimeMessage::Kind::Connected;
+        (void)::poll(nullptr, 0, 1);
+    }
+    MIRAGE_CHECK(legacy_ready);
+    MIRAGE_CHECK(legacy.call(ipc::SubscribeEventsRequest{}, "legacy.subscribe"));
+    legacy_ready = false;
+    deadline = std::chrono::steady_clock::now() + 4s;
+    while (std::chrono::steady_clock::now() < deadline && !legacy_ready) {
+        while (legacy.receive(message))
+            legacy_ready |= message.tag == "legacy.subscribe" && message.response.ok;
+        (void)::poll(nullptr, 0, 1);
+    }
+    MIRAGE_CHECK(legacy_ready);
     const auto attachment_path = (dir.root() / "attachment.txt").string();
     {
         std::ofstream file(attachment_path);
@@ -518,20 +554,67 @@ int main(int argc, char **argv) {
         (void)::poll(nullptr, 0, 1);
     }
     MIRAGE_CHECK(burst_ok == 2 && bridge.connected());
+    const auto wake_before_activity = wakes.load();
+    bridge.set_activity(true);
+    deadline = std::chrono::steady_clock::now() + 500ms;
+    while (std::chrono::steady_clock::now() < deadline && wakes.load() <= wake_before_activity)
+        (void)::poll(nullptr, 0, 1);
+    MIRAGE_CHECK(wakes.load() > wake_before_activity);
+    bridge.set_activity(false);
+    provider->hold.store(true);
     MIRAGE_CHECK(bridge.call(ipc::SessionChatRequest{session, "真实事件", true}, "send", 7));
-    bool got_event = false, got_ack = false;
+    bool got_event = false, got_ack = false, got_preview = false;
     deadline = std::chrono::steady_clock::now() + 4s;
-    while (std::chrono::steady_clock::now() < deadline && (!got_event || !got_ack)) {
+    while (std::chrono::steady_clock::now() < deadline && (!got_preview || !got_ack)) {
         while (bridge.receive(message)) {
             if (message.event &&
                 std::holds_alternative<ipc::ChatTurnUpdatedEvent>(message.event->payload))
                 got_event = true;
+            if (message.event)
+                if (const auto *preview =
+                        std::get_if<ipc::ChatPreviewEvent>(&message.event->payload))
+                    got_preview = got_preview || preview->text == "Mira 正在增量回复";
             if (message.tag == "send" && message.response.ok)
                 got_ack = true;
         }
         (void)::poll(nullptr, 0, 1);
     }
-    MIRAGE_CHECK(got_event && got_ack && wakes.load() > 0);
+    MIRAGE_CHECK(got_preview && got_ack);
+    const auto pending_history = client.call(ipc::ChatHistoryRequest{session, 40}, 2s);
+    MIRAGE_CHECK(pending_history.ok);
+    if (pending_history.ok) {
+        const auto &pending = std::get<ipc::DialogHistory>(pending_history.payload).turns.back();
+        MIRAGE_CHECK(pending.status == "pending" && pending.reply_text.empty() &&
+                     !pending.context_usage);
+    }
+    provider->hold.store(false);
+    got_event = false;
+    deadline = std::chrono::steady_clock::now() + 4s;
+    while (std::chrono::steady_clock::now() < deadline && !got_event) {
+        while (bridge.receive(message))
+            if (message.event)
+                if (const auto *turn_event =
+                        std::get_if<ipc::ChatTurnUpdatedEvent>(&message.event->payload))
+                    got_event = turn_event->status == "ok";
+        (void)::poll(nullptr, 0, 1);
+    }
+    MIRAGE_CHECK(got_event && wakes.load() > 0);
+    bool legacy_terminal = false;
+    bool legacy_preview = false;
+    deadline = std::chrono::steady_clock::now() + 4s;
+    while (std::chrono::steady_clock::now() < deadline && !legacy_terminal) {
+        while (legacy.receive(message)) {
+            if (message.event) {
+                legacy_preview |=
+                    std::holds_alternative<ipc::ChatPreviewEvent>(message.event->payload);
+                if (const auto *legacy_turn =
+                        std::get_if<ipc::ChatTurnUpdatedEvent>(&message.event->payload))
+                    legacy_terminal |= legacy_turn->status == "ok";
+            }
+        }
+        (void)::poll(nullptr, 0, 1);
+    }
+    MIRAGE_CHECK(legacy_terminal && !legacy_preview);
     // Intentionally stop draining the UI inbox: overflow must be observable and recoverable.
     bool admitted = true;
     for (int batch = 0; batch < 12; ++batch) {

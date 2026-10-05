@@ -3,6 +3,9 @@
 #include <executor/executor.hpp>
 #include <mira/adapters/net/openssl_tls.hpp>
 #include <mira/agent_loop.hpp>
+#if __has_include(<mira/conversation_loop.hpp>)
+#include <mira/conversation_loop.hpp>
+#endif
 #include <mira/workflow_versioning.hpp>
 
 #include <array>
@@ -13,6 +16,7 @@
 #include <unistd.h>
 
 namespace {
+bool expect_fixed = false;
 void require(bool ok, const char *message) {
     if (!ok)
         throw std::runtime_error(message);
@@ -65,10 +69,13 @@ void version_probe() {
             "append validated");
     const auto resolved = mira::resolve_workflow_version(history, draft.content_digest);
     const auto latest = mira::latest_runnable_workflow_version(history);
-    require(resolved && latest && !mira::workflow_version_is_runnable(resolved.value()) &&
+    require(resolved && latest &&
+                (mira::workflow_version_is_runnable(resolved.value()) == expect_fixed) &&
                 mira::workflow_version_is_runnable(latest.value()),
             "version behavior changed; re-triage feedback");
-    std::cout << "workflow: digest resolves not_validated; latest runnable=dry_run_passed\n";
+    std::cout << "workflow: digest runnable="
+              << mira::workflow_version_is_runnable(resolved.value())
+              << "; latest runnable=dry_run_passed\n";
 }
 struct SocketPair {
     int fds[2]{-1, -1};
@@ -113,11 +120,15 @@ void sni_probe() {
         sni = sni || type == 0;
         cursor += count;
     }
-    require(!sni, "SNI now exists; re-triage feedback");
-    std::cout << "openssl: DNS host supplied; ClientHello server_name extension absent\n";
+    require(sni == expect_fixed, "SNI presence differs from selected expectation");
+    std::cout << "openssl: DNS host supplied; ClientHello server_name present=" << sni << "\n";
 }
 } // namespace
-int main() {
+int main(int argc, char **) {
+    expect_fixed = argc > 1;
+#if __has_include(<mira/conversation_loop.hpp>)
+    std::cout << "public ConversationLoop and canonical tool parts available\n";
+#endif
     executor::Executor owner;
     if (!owner.initialize_ex(executor::ExecutorConfig{}).ok)
         return 2;

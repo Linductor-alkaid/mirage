@@ -54,6 +54,7 @@ constexpr const char *kEventSessionMessage = "session.message";
 constexpr const char *kEventSessionTurn = "session.turn";
 constexpr const char *kEventSessionOutput = "session.output";
 constexpr const char *kEventWorkflowRunUpdated = "workflow.run_updated";
+constexpr const char *kEventChatPreview = "session.chat_preview";
 constexpr const char *kEventChatTurnUpdated = "session.chat_updated";
 
 /// Closed Capability vocabulary (DEC-010 / DEC-020) carried by
@@ -830,6 +831,8 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                 put(object, "op", kOpShutdown);
             } else if constexpr (std::is_same_v<T, SubscribeEventsRequest>) {
                 put(object, "op", kOpSubscribe);
+                if (value.chat_preview)
+                    put(object, "chat_preview", true);
             } else if constexpr (std::is_same_v<T, UnsubscribeEventsRequest>) {
                 put(object, "op", kOpUnsubscribe);
             } else if constexpr (std::is_same_v<T, RespondPermissionRequest>) {
@@ -979,7 +982,16 @@ RequestDecode decode_request(std::string_view payload) {
     } else if (*op == kOpShutdown) {
         result.body = ShutdownRequest{};
     } else if (*op == kOpSubscribe) {
-        result.body = SubscribeEventsRequest{};
+        SubscribeEventsRequest subscribe;
+        if (member(object, "chat_preview")) {
+            const auto flag = boolean_member(object, "chat_preview");
+            if (!flag) {
+                result.error = "events.subscribe chat_preview must be boolean";
+                return result;
+            }
+            subscribe.chat_preview = *flag;
+        }
+        result.body = subscribe;
     } else if (*op == kOpUnsubscribe) {
         result.body = UnsubscribeEventsRequest{};
     } else if (*op == kOpSubmit) {
@@ -2203,6 +2215,8 @@ const char *event_name(const EventPayload &payload) {
     if (std::holds_alternative<WorkflowRunUpdatedEvent>(payload)) {
         return kEventWorkflowRunUpdated;
     }
+    if (std::holds_alternative<ChatPreviewEvent>(payload))
+        return kEventChatPreview;
     if (std::holds_alternative<ChatTurnUpdatedEvent>(payload)) {
         return kEventChatTurnUpdated;
     }
@@ -2270,6 +2284,14 @@ std::string encode_event(const Event &event) {
                 if (value.summary) {
                     put(object, "summary", *value.summary);
                 }
+            } else if constexpr (std::is_same_v<T, ChatPreviewEvent>) {
+                put(object, "event", kEventChatPreview);
+                put(object, "session_id", value.session_id);
+                put(object, "turn_id", value.turn_id);
+                put(object, "request_id", value.request_id);
+                put(object, "text", value.text);
+                put(object, "sequence", static_cast<std::int64_t>(value.sequence));
+                put(object, "truncated", value.truncated);
             } else if constexpr (std::is_same_v<T, ChatTurnUpdatedEvent>) {
                 put(object, "event", kEventChatTurnUpdated);
                 if (!value.replaces_turn_id.empty())
@@ -2516,6 +2538,22 @@ EventDecode decode_event(std::string_view payload) {
             run.summary = *text;
         }
         result.event.payload = std::move(run);
+    } else if (*name == kEventChatPreview) {
+        const auto session = string_member(object, "session_id");
+        const auto turn = string_member(object, "turn_id");
+        const auto request = string_member(object, "request_id");
+        const auto text = string_member(object, "text");
+        const auto sequence = integer_member(object, "sequence");
+        const auto *flag = member(object, "truncated");
+        const auto truncated = flag ? flag->as_boolean() : std::nullopt;
+        if (!session || session->empty() || session->size() > 128 || !turn || turn->empty() ||
+            turn->size() > 128 || !request || request->empty() || request->size() > 128 || !text ||
+            text->size() > 16 * 1024 || !sequence || *sequence < 1 || !truncated) {
+            result.error = "invalid bounded session.chat_preview snapshot";
+            return result;
+        }
+        result.event.payload = ChatPreviewEvent{
+            *session, *turn, *request, *text, static_cast<std::uint64_t>(*sequence), *truncated};
     } else if (*name == kEventChatTurnUpdated) {
         ChatTurnUpdatedEvent chat;
         const auto session_id = string_member(object, "session_id");

@@ -6,7 +6,7 @@
 #include <optional>
 namespace mirage::native_ui {
 struct RuntimeMessage {
-    enum class Kind { Connected, Lost, Response, Event, Attachment } kind = Kind::Lost;
+    enum class Kind { Connected, Lost, Response, Event, Attachment, Diagnostic } kind = Kind::Lost;
     std::string tag;
     std::uint64_t local_id = 0;
     mirage::runtime::ipc::Response response;
@@ -25,6 +25,7 @@ class RuntimeBridge {
                          std::uint64_t generation = 0);
     bool connected() const;
     bool take_gap();
+    void set_activity(bool active);
     void shutdown();
 
   private:

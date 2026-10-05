@@ -139,3 +139,14 @@ EUI 为维护者授权的 UI 专用依赖（DEC-033），不属于 Mira / Mirado
   换行/高度预算仍保留，不宣称跨字体严格基线与完整Chromium像素匹配。
 - 验收：原生混排/输入/编辑/选择、字体度量断言与正常/最小明暗截图；移除条件：上游
   公开EM字号及统一度量交付后复跑本轮验证并移除转换。仅本地台账，未向上游反馈。
+
+## EUI-20261005-008：Linux输入法候选框缺少光标定位
+
+- 状态：Accepted；负责人：Mirage维护者；依据：DEC-041、M6-16。
+- 核对：dev 123f0c5，公开IME cursor rect在Linux为空实现，bundled GLFW固定PreeditNothing，无公开XIC位置入口。输入框已传正确行矩形，排除应用坐标遗漏。
+- 复现：X11/IBus中文输入，候选窗口使用IM默认位置而非输入框；输入窗口移动和多行输入均无法提供caret定位。
+- 最小修复：平台层协商PreeditPosition并保留Nothing回退；公共窗口内像素接口更新XNSpotLocation，EUI桥接行底坐标与framebuffer/window换算。
+- 资源：字体集与XIC随窗口销毁；不引入线程、队列或业务调度。未知/不支持的IM保留原有输入行为，不宣称定位保证。
+- 验收：私有Xvfb+真实IBus XIM确认位置样式、三次光标位置；中文候选/提交与Enter过滤保持正常；应用渲染/缩放回归。
+- 授权：2026-10-05维护者允许依赖修复并要求上游PR；已提交[上游PR#88](https://github.com/sudoevolve/EUI-NEO/pull/88)，pin df8ab1c；私有Xvfb/IBus/libpinyin候选(220,440)→(400,280)与光标一致，提交“你好”。上游未合并，保持Accepted。
+- 延期/移除条件：没有修复时保留原候选位置；同步可审查PR提交及锁文件后复验。Wayland原生后端不在本轮（Mirage当前使用X11/XWayland）。

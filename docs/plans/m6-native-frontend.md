@@ -31,6 +31,10 @@
 | M6-12 | Completed | 随应用交付固定中文字体，统一Markdown行内基线；依据DEC-040，验证混排、输入、最小明暗窗口与打包资源 |
 | M6-13 | Completed | Linux输入工具栏模型按钮按文字收紧并限制180px；沿用DEC-035/037，验收短/长名称、最小/正常明暗窗口与选择入口 |
 | M6-14 | Completed | 会话顶部显示当前标题，跟随会话切换；沿用DEC-035，验收空草稿、生成标题、历史切换、长标题及侧栏收起 |
+| M6-15 | Completed（Linux） | 右侧工具组与ZCode视觉密度；DEC-041，正常/最小明暗与长名称验收 |
+| M6-16 | Completed（Linux X11） | 光标附近中文IME定位；DEC-041，依赖公开入口核查/最小补齐及焦点/缩放/多行验证 |
+| M6-17 | Completed（Linux） | 真实流式预览、等待动效与用时；DEC-041，终态/取消/失败/背压/关闭验证 |
+| M6-18 | Completed（Linux） | 接入Mira PR#76修复与公开ConversationLoop，保持Executor版本；依赖审计/回填/取消回归 |
 | M6-10 | Completed | 依工程规范9.4整理Mira/Mirador独立反馈台账，复核已登记问题并向Mira上游提交可复现反馈；不修改依赖或升级pin |
 
 ## 测试矩阵与退出条件
@@ -48,6 +52,10 @@
 - [x] M6-12 Linux固定中文字体/Markdown行内基线；正常/最小明暗混排、输入/选段、Release/ASAN与DEB资源验收。
 - [x] M6-13 Linux模型按钮按名称收紧；短/长名称、正常/最小明暗、入口交互与Release/ASAN验收。
 - [x] M6-14 Linux顶部标题、空草稿/首次消息/历史切换、长名称及侧栏收起；Release/ASAN回归。
+- [x] M6-15 正常/最小明暗右侧组与紧凑会话呈现。
+- [x] M6-16 Linux XIM光标定位、候选两次移动与真实中文提交；高DPI/其他IM另验。
+- [x] M6-17 实时预览、等待/用时、旧客户端兼容及终态/失败/取消/关闭；ASAN/UBSAN/TSAN。
+- [x] M6-18 PR#76公开Loop/规范工具/SNI/workflow复验与依赖PR/pin审计。
 - [ ] M6-04 整体生命周期与安装包验收。
 
 ## 风险与实施记录
@@ -247,3 +255,15 @@ Windows/IME/高DPI仍由维护者在目标平台补跑，M6-04不变。完整证
 侧栏展开/收起和设置返回入口留足空间。Debug原生102 checks / 0 failures，Release/ASAN
 相关回归各2/2通过，一次批量8帧验收通过。见
 [会话标题验收](../compatibility/native-session-title-20261005.md)，Windows保持待验证。
+
+
+2026-10-05 / M6-15/16/17/18 Linux范围完成：按DEC-041收紧会话密度并将上下文/模型归入
+右侧组，接通真实流式、单行等待动画和用时。公开ConversationLoop代替私有循环，保持
+Executor 2ae4fc8；三项Mira历史反馈复验Resolved。Mira流式PR#79与EUI IME PR#88已提交，
+未合并；Mirage以可获取提交锁定，并记录Mira新增AGPL-3.0许可证与EUI fork来源。
+Debug针对5/5（含旧订阅），Release/ASAN/UBSAN各4/4，TSAN用setarch -R通过集成及协议；
+普通TSAN启动映射失败保留。真实两家模型的提前预览及wait工具往返通过；一次网络超时
+保持明确错误。私有IBus/libpinyin候选坐标与光标一致，中文提交成功；一轮会话渲染批量验收。
+四份DESIGN/JSON、协议/设计、依赖反馈/审计同步，内联降级复核通过，不称独立评审。
+[验收](../compatibility/native-conversation-progress-20261005.md)。Windows、原生Wayland、
+物理高DPI/其他IM与完整入口托盘退出待维护者在目标环境补跑；M6整体仍In Progress。

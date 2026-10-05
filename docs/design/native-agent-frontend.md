@@ -38,7 +38,7 @@ FINISH：unreviewed and undocumented is unfinished; this build ends with the fin
 
 单行文字与图标共享行框中心，使用 EUI 的 ink-center 对齐；取消手工字号偏移。
 M6-02历史基线为标题34px、正文/输入18px和固定160px composer；M6-05已由下述
-ZCode整页布局替代。现行正文/输入16px，composer随内容增高，取消三条建议。
+ZCode整页布局替代。现行正文/输入14EM，composer随内容增高，取消三条建议。
 
 ## Mira 图标继承（2026-10-04）
 
@@ -76,12 +76,11 @@ Escape 先关闭模态弹窗，再返回对话，Ctrl+, 打开设置。侧栏收
 Responses/Chat Completions二选一。保存通过model.set应用并合并写入服务配置，保留其他块；
 活动轮次时忙拒绝，配置校验或存盘失败保持当前模型。API Key 经 Mira SecretRef 从系统凭据读取；旧环境变量配置继续兼容。
 
-会话发送session.chat(agent=true)，使用MiraRuntime任务身份、ModelGateway、公共工具解析器
-和BuiltinToolRegistry；只注册wait。16次推理、32次工具、2KiB单工具/8KiB反馈上限，
-网关输出token预算也可提前拒绝。工具结果为来源标注的JSON文字回填，MIRA-20261004-001
-记录缺少通用loop及规范tool-result输入的问题；不是直接调用设备AgentLoop。
-无自动截图、桌面工具或RPA。本机SiliconFlow实际文字/工具循环已通过，MiniMax
-受pinned TLS缺少SNI影响（MIRA-20261004-002）。原生tool-result互操作未验收。
+会话发送session.chat(agent=true)，使用MiraRuntime任务身份及公开ConversationLoop，
+规范ToolResultPart由Mira回填；只注册wait，权限禁止时不注册。最多16次推理、32次工具，
+实际推理轮数按Profile输出预算收紧（默认7），无自动截图或桌面工具。
+M6-18已接入PR#76的通用loop及SNI修复，SiliconFlow与MiniMax均实测规范wait工具往返。
+流式预览由Mira提供，保持临时且非权威，终态回复才进入历史。
 
 IPC请求最多16个、事件通道128条；事件缺口读取历史恢复，终态投影拒绝迟到pending。
 服务断开显示错误，可在模型页重新连接；不静默自动提交。模型草稿与已应用配置
@@ -192,3 +191,22 @@ Markdown标题行高请求字号+6；代码/图标不套中文系数，反馈EUI
 
 2026-10-05 / M6-14：按ZCode WorkspaceHeaderSections的顶部任务名称/长文本截断层级，
 在既有60px标题栏显示当前会话标题，空标题回退“新对话”。顶部60px标题栏左侧显示当前会话标题（16EM、现有500权重请求），空标题回退“新对话”，随当前会话切换更新；左边距为侧栏右侧28px，侧栏收起时从x=116px开始，右侧预留146px用于窗口按钮；收起侧栏的设置页右侧预留286px避开返回对话按钮。标题按字体度量省略且不改变原始值，文字不拦截标题栏拖动。
+
+
+## DEC-041：当前会话密度、进度与输入法（2026-10-05）
+
+本节覆盖之前各轮的视觉数值：正文/输入14EM、行距22px，Markdown标题18/16/15EM，
+品牌18EM/28px图、欢迎26EM、顶部标题14EM、历史行40px、新建/返回按钮36px，设置标题24EM。
+输入最小50px、上限168px，沿用Noto Sans SC的统一EM测量。附件/权限留左侧；上下文、
+实际字宽模型按钮、思考、发送为右侧组，最小860px和长名称均无重叠。
+
+等待行显示轻量三点动效与单调时钟用时；真实预览到达后渲染Markdown，完成后显示本次
+观察到的耗时，恢复历史缺少计时不估算。既有Executor仅在活动时注册100ms周期刷新，
+停止时取消并在外部owner关闭。IPC预览完整快照限16KiB，订阅显式chat_preview=true；
+旧订阅只收到原有事件。客户端校验会话/轮次/单调序列，终态或取消后拒绝预览，事件缺口
+仍用历史恢复，不把预览当规范输出或Token统计。
+
+EUI平台层补齐Linux XIM PreeditPosition与窗口内光标行底定位；不在产品读取XIC私有布局。
+X11/IBus/libpinyin候选移动和中文提交已实测，原生Wayland/物理高DPI/Windows仍待目标环境验证。
+依据[DEC-041](../decisions/DEC-041-native-conversation-density-and-progress.md)，
+[验收](../compatibility/native-conversation-progress-20261005.md)。

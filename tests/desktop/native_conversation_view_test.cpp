@@ -217,7 +217,7 @@ const auto model = "Mirage";
     page.chat.set_draft("输入框：中文 ABC xyz 012345，。！？ / Mira Agent");
     frame();
     auto *input = element("composer.input." + std::to_string(session_id));
-    MIRAGE_CHECK(input->frame.height - 24 >= ui_input_line_height(16));
+    MIRAGE_CHECK(input->frame.height - 24 >= ui_input_line_height(14));
     capture("mixed-minimum-light");
     page.dark = true;
     frame();
@@ -230,6 +230,32 @@ const auto model = "Mirage";
     page.dark = false;
     frame();
     capture("mixed-normal-light");
+    // Real preview snapshots change the displayed body; waiting has a single status line.
+    page.chat.apply_turn(session_id, "stream", "pending", "给我一个流式回复", {}, {}, {}, 2);
+    auto &live_answer = page.chat.current().messages.back();
+    live_answer.started = std::chrono::steady_clock::now() - std::chrono::milliseconds{2300};
+    const auto live_key = "message." + std::to_string(live_answer.id);
+    frame();
+    MIRAGE_CHECK(element(live_key + ".state")->text.starts_with("思考中 · "));
+    MIRAGE_CHECK(view->find(live_key + ".copy") == nullptr);
+    capture("waiting-light");
+    page.dark = true;
+    frame();
+    capture("waiting-dark");
+    page.chat.apply_preview(session_id, "stream", "req", 1, "## 流式回复\n\n这是实际收到的第一段。",
+                            false);
+    frame();
+    MIRAGE_CHECK(element(live_key + ".state")->text.starts_with("正在回复 · "));
+    MIRAGE_CHECK(view->find(live_key + ".markdown") != nullptr);
+    capture("streaming-dark");
+    page.dark = false;
+    frame();
+    capture("streaming-light");
+    page.chat.apply_turn(session_id, "stream", "ok", "给我一个流式回复", "完整规范回复。", {}, {},
+                         2);
+    frame();
+    MIRAGE_CHECK(view->find(live_key + ".duration") != nullptr);
+    MIRAGE_CHECK(view->find(live_key + ".state") == nullptr);
     // Compact model labels must remain readable and leave the adjacent actions clear.
     page.live_model.enabled = true;
     for (const auto &model : {std::string("GLM-4.6"),
@@ -262,7 +288,8 @@ const auto model = "Mirage";
     page.chat.set_draft("");
     const auto saved_title = page.chat.current().title;
     const std::string long_title =
-        "这是一段用于验证窗口标题省略显示的合成会话标题 / Mirage agent conversation 20261005";
+        "这是一段用于验证窗口标题省略显示的合成会话标题 / Mirage agent conversation 20261005 / "
+        "超长标题省略测试超长标题省略测试超长标题省略测试超长标题省略测试";
     page.chat.current().title = long_title;
     width = 860;
     height = 620;
@@ -309,7 +336,7 @@ const auto model = "Mirage";
         frame();
     MIRAGE_CHECK(page.chat.current().scroll_offset > 0);
     const auto selected_line =
-        static_cast<int>((scroll_y + page.chat.current().scroll_offset - long_bounds.y) / 24);
+        static_cast<int>((scroll_y + page.chat.current().scroll_offset - long_bounds.y) / 22);
     const auto expected_prefix = "第" + std::to_string(selected_line) + "行";
     core::queuePointerButton(handle, long_bounds.x + 1, scroll_y, core::PointerButton::Left,
                              core::PointerAction::Press, {});

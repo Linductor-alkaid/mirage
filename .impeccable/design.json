@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-05T09:56:37.077078+00:00",
+  "generatedAt": "2026-10-05T15:01:54.183758+00:00",
   "title": "Design System: Mirage 原生 Agent 对话页",
   "extensions": {
     "scope": {
@@ -27,8 +27,8 @@
       "legacyDesignDocument": "DESIGN.md",
       "previewOnly": false,
       "runtime": "Separate Runtime Service via versioned Local IPC; UI owns its Executor-managed bridge.",
-      "workItem": "M6-12",
-      "decision": "DEC-040",
+      "workItem": "M6-15/16/17/18",
+      "decision": "DEC-041",
       "visualAuthority": {
         "seed": "user-zcode-native",
         "mode": "code-led",
@@ -61,7 +61,8 @@
         "docs/design/mirage-ipc-protocol-v1.md",
         "docs/decisions/DEC-038-api-keys-and-draft-sessions.md",
         "docs/decisions/DEC-039-conversation-selection-and-revision.md",
-        "docs/decisions/DEC-040-native-typography.md"
+        "docs/decisions/DEC-040-native-typography.md",
+        "docs/decisions/DEC-041-native-conversation-density-and-progress.md"
       ]
     },
     "colorMeta": {
@@ -491,7 +492,7 @@
       },
       "input": {
         "displayName": "Draft input",
-        "purpose": "16px dynamic multiline draft; sizing measurement uses 24px line height, rendered line height belongs to EUI."
+        "purpose": "14EM dynamic multiline draft; EUI line height 24.3264px, minimum input height 50px."
       },
       "button-label": {
         "displayName": "Dialog action",
@@ -499,7 +500,7 @@
       },
       "settings-heading": {
         "displayName": "Settings heading",
-        "purpose": "外观页30px标题；模型服务页使用独立28px model-heading。"
+        "purpose": "外观/模型服务页24EM标题。"
       },
       "model-field": {
         "displayName": "Model field",
@@ -507,15 +508,15 @@
       },
       "message": {
         "displayName": "Conversation body",
-        "purpose": "16px / 24px user body and public EUI Markdown body."
+        "purpose": "14EM / 22px user body and public EUI Markdown body."
       },
       "markdown-code": {
         "displayName": "Markdown code",
-        "purpose": "14px; code font remains pinned EUI rather than an invented product family."
+        "purpose": "13px monospace, independent of Noto SC EM conversion."
       },
       "model-heading": {
         "displayName": "Model services heading",
-        "purpose": "模型服务页28px、600标题；服务商详情标题20px。"
+        "purpose": "模型服务页24EM、600标题；服务商详情标题20EM。"
       },
       "provider-selector": {
         "displayName": "Compact current-provider selector",
@@ -544,7 +545,7 @@
       "initialScalePolicy": "content-scale × window width / framebuffer width",
       "sidebarWidth": 260,
       "headerHeight": 60,
-      "headerTitle": "顶部60px标题栏左侧显示当前会话标题（16EM、现有500权重请求），空标题回退“新对话”，随当前会话切换更新；左边距为侧栏右侧28px，侧栏收起时从x=116px开始，右侧预留146px用于窗口按钮；收起侧栏的设置页右侧预留286px避开返回对话按钮。标题按字体度量省略且不改变原始值，文字不拦截标题栏拖动。",
+      "headerTitle": "顶部60px标题栏左侧显示当前会话标题（14EM、现有500权重请求），空标题回退“新对话”，随当前会话切换更新；左边距为侧栏右侧28px，侧栏收起时从x=116px开始，右侧预留146px用于窗口按钮；收起侧栏的设置页右侧预留286px避开返回对话按钮。标题按字体度量省略且不改变原始值，文字不拦截标题栏拖动。",
       "manualSidebarCollapse": true,
       "composerToolbar": {
         "top": "composer_y + composer_height - 44",
@@ -574,13 +575,13 @@
         "anchors": {
           "attachment": 8,
           "access": 48,
-          "context": 162,
-          "model": 202,
+          "context": "column - 180 - model_width",
+          "model": "column - 140 - model_width",
           "reasoning": "column - 136",
           "send": "column - 44"
         }
       },
-      "sessionRowHeight": 48,
+      "sessionRowHeight": 40,
       "threadTop": 72,
       "dialog": {
         "width": 460,
@@ -764,14 +765,14 @@
         "width": 4,
         "gap": 8
       },
-      "inputHeight": "clamp(measure(draft, column - 40, ui_font_size(16), ui_input_line_height(16)) + 24, 52, 168)",
+      "inputHeight": "clamp(measure(draft, column - 40, ui_font_size(14), ui_input_line_height(14)) + 24, 50, 168)",
       "composerHeight": "input_height + 56 + (references.empty && attachments.empty ? 0 : 36) + (edit_turn_id.empty ? 0 : 32)",
       "composerTop": "min(empty ? max(188, screen.height * 0.29 + 106) : screen.height - composer_height - 28, screen.height - composer_height - 28)",
       "greeting": {
         "top": "max(80, composer_y - 104)",
         "titleHeight": 54,
         "descriptionHeight": 28,
-        "titleSize": 30,
+        "titleSize": 26,
         "descriptionSize": 14,
         "suggestions": false
       },
@@ -786,12 +787,12 @@
       "assistantReply": {
         "card": false,
         "bodyWidth": "thread_width - 16",
-        "bodySize": 16,
-        "bodyLineHeight": 24,
-        "h1Size": 20,
-        "h2Size": 18,
-        "h3Size": 17,
-        "codeSize": 14,
+        "bodySize": 14,
+        "bodyLineHeight": 22,
+        "h1Size": 18,
+        "h2Size": 16,
+        "h3Size": 15,
+        "codeSize": 13,
         "blockGap": 8,
         "radius": 8
       },
@@ -833,7 +834,7 @@
           "fontSize": 12,
           "iconSize": 11
         },
-        "contextX": "composer_x + clamp(162, 8, column - popup_width - 8)",
+        "contextX": "composer_x + clamp(column - 180 - model_width, 8, column - popup_width - 8)",
         "contextDetail": {
           "titleAndPercentSize": 16,
           "titleAndPercentWeight": 500,
@@ -992,18 +993,18 @@
       "sidebar": {
         "position": {
           "x": 24,
-          "y": 12
+          "y": 16
         },
         "size": {
-          "width": 36,
-          "height": 36
+          "width": 28,
+          "height": 28
         },
         "fit": "contain",
         "hitTest": "none",
         "wordmark": {
-          "x": 72,
+          "x": 64,
           "y": 12,
-          "width": "sidebar - 140 (120 at default width)",
+          "width": "sidebar - 132",
           "height": 36
         }
       },
@@ -1228,6 +1229,15 @@
         "wire": "session.chat replace_turn_id targets exactly last settled turn; pending/final events and ACK carry replaces_turn_id.",
         "rollback": "Executor admission and replacement persistence before ACK; refusal keeps old history. Model transcript excludes old user/reply and preserves earlier turns. External tool side effects and old task audit are retained.",
         "restart": "Stable product session lazily maps to a new current Mira session for native harness; close/delete removes mapping. Desktop task.submit is not extended."
+      },
+      "streaming": {
+        "source": "Mira SSE preview snapshots -> service bounded Topic -> UI MpscChannel",
+        "budgetBytes": 16384,
+        "authority": "UI only; no history, tools or usage authority",
+        "ordering": "Per-turn sequence; new request resets; terminal/retired turns reject late preview",
+        "waiting": "Three restrained dots; real monotonic elapsed; one status line",
+        "duration": "Freeze observed run at terminal; omit for historical runs with no local timing",
+        "refresh": "Executor cancellable periodic TimerHandle, 100ms while active; cancel before drain/shutdown"
       }
     },
     "reviewEvidence": {
@@ -1298,7 +1308,8 @@
         "documentation": ".impeccable/review/conversation-20261005/documentation.md",
         "reviewMode": "Inline degraded finish-reviewer/documenter substitution; no independent reviewer.",
         "limits": "Synthetic EUI framebuffer captures; no live ZCode screenshot, Windows or real IME acceptance."
-      }
+      },
+      "conversationProgress": "docs/compatibility/native-conversation-progress-20261005.md"
     },
     "canonicalSurface": {
       "implementation": "apps/native",
@@ -1330,15 +1341,15 @@
           "descender": -288
         },
         "appliesTo": "Noto SC drawing/measurement/wrapping/input/selection; excludes icons and monospace",
-        "bodyRequestPx": 23.168,
-        "bodyLineHeightPx": 24,
-        "inputLineHeightPx": 27.8016,
+        "bodyRequestPx": 20.272,
+        "bodyLineHeightPx": 22,
+        "inputLineHeightPx": 24.3264,
         "headingLineHeight": "Converted request font size + 6, per EUI",
         "feedback": "EUI-20261005-007"
       },
       "inlineCodeWidth": "Measured with restored independent monospace size; shrink chip and shift same-row following runs, retain upstream wrap/height budget.",
       "finishVerdict": ".impeccable/review/typography-20261005/finish-verdict.md",
-      "minimumInputHeightPx": 52
+      "minimumInputHeightPx": 50
     }
   },
   "components": [
@@ -1364,7 +1375,7 @@
       "refersTo": "session-row-selected",
       "description": "有真实消息的选中历史行与垃圾桶静态示意；空草稿不生成历史行，实际删除等待service ACK。",
       "html": "<div class=\"ds-session\"><button class=\"ds-session-select\">整理今天的工作</button><button class=\"ds-session-delete\" aria-label=\"删除这段对话\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M3 4h10M6 2h4M5 6v7h6V6M7 7v5M9 7v5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg></button></div>",
-      "css": ".ds-session{position:relative;height:48px;width:236px;border-radius:7px;background:#e2e2e2;color:#202020;font-family:Noto Sans SC,sans-serif}.ds-session button{border:0;border-radius:7px;background:transparent;color:inherit;font-family:inherit;cursor:pointer}.ds-session-select{width:100%;height:48px;padding:0 56px 0 44px;text-align:left;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-session-delete{position:absolute;right:4px;top:6px;width:36px;height:36px;display:inline-grid;place-items:center}.ds-session button:hover{background:#e8e8e8}.ds-session button:active{background:#e2e2e2}.ds-session button:focus-visible{outline:2px solid #202020;outline-offset:2px}.ds-session button:disabled{color:#6d6d6d;cursor:default}"
+      "css": ".ds-session{position:relative;height:40px;width:236px;border-radius:7px;background:#e2e2e2;color:#202020;font-family:Noto Sans SC,sans-serif}.ds-session button{border:0;border-radius:7px;background:transparent;color:inherit;font-family:inherit;cursor:pointer}.ds-session-select{width:100%;height:40px;padding:0 56px 0 44px;text-align:left;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-session-delete{position:absolute;right:4px;top:2px;width:36px;height:36px;display:inline-grid;place-items:center}.ds-session button:hover{background:#e8e8e8}.ds-session button:active{background:#e2e2e2}.ds-session button:focus-visible{outline:2px solid #202020;outline-offset:2px}.ds-session button:disabled{color:#6d6d6d;cursor:default}"
     },
     {
       "name": "Multiline draft",
@@ -1372,7 +1383,7 @@
       "refersTo": "input",
       "description": "原生已实现组件的浅色 HTML/CSS 示意；原生交互与焦点由 EUI 管理。",
       "html": "<textarea class=\"ds-input\" aria-label=\"任务草稿\" placeholder=\"向 Mira 提问，或描述一个任务…\"></textarea>",
-      "css": ".ds-input{font-family:Noto Sans SC, sans-serif;min-height:52px;max-height:168px;width:100%;box-sizing:border-box;padding:12px;border:0;border-radius:4px;background:#fff;color:#202020;font-size:16px;resize:none;overflow:auto}.ds-input::placeholder{color:#6d6d6d}.ds-input:hover,.ds-input:focus-visible{background:#fff;outline:0}"
+      "css": ".ds-input{font-family:Noto Sans SC, sans-serif;min-height:50px;max-height:168px;width:100%;box-sizing:border-box;padding:12px;border:0;border-radius:4px;background:#fff;color:#202020;font-size:14px;resize:none;overflow:auto}.ds-input::placeholder{color:#6d6d6d}.ds-input:hover,.ds-input:focus-visible{background:#fff;outline:0}"
     },
     {
       "name": "User message bubble",
@@ -1380,7 +1391,7 @@
       "refersTo": "user-bubble",
       "description": "原生已实现组件的浅色 HTML/CSS 示意；原生交互与焦点由 EUI 管理。",
       "html": "<article class=\"ds-user\">请描述你要完成的任务。</article>",
-      "css": ".ds-user{font-family:Noto Sans SC, sans-serif;margin-left:auto;box-sizing:border-box;width:fit-content;max-width:576px;padding:8px 12px;border:none;border-radius:10px;background:#f0f0f0;color:#202020;font-size:16px;line-height:24px;white-space:pre-wrap;overflow-wrap:anywhere}"
+      "css": ".ds-user{font-family:Noto Sans SC, sans-serif;margin-left:auto;box-sizing:border-box;width:fit-content;max-width:576px;padding:8px 12px;border:none;border-radius:10px;background:#f0f0f0;color:#202020;font-size:14px;line-height:22px;white-space:pre-wrap;overflow-wrap:anywhere}"
     },
     {
       "name": "Composer panel",
@@ -1388,7 +1399,7 @@
       "refersTo": "composer",
       "description": "原生增长 composer 的浅色静态示意；附件、权限、上下文、模型、思考、发送的顺序与源一致。HTML 不实现 IPC、IME、附件读取或测量。",
       "html": "<section class=\"ds-composer\"><textarea class=\"ds-composer-draft\" aria-label=\"任务草稿\" placeholder=\"向 Mira 提问，或描述一个任务…\"></textarea><div class=\"ds-toolbar\"><button aria-label=\"添加\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M8 2v12M2 8h12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button><button class=\"ds-access\">默认权限</button><button class=\"ds-context-control\" aria-label=\"上下文\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\" fill=\"none\" stroke=\"#737373\" stroke-opacity=\"0.25\" stroke-width=\"4\"/></svg></button><button class=\"ds-model\">选择模型</button><button class=\"ds-reasoning\">默认思考</button><button class=\"ds-send\" aria-label=\"发送\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M8 13V3M3 8l5-5 5 5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button></div></section>",
-      "css": ".ds-composer{font-family:Noto Sans SC, sans-serif;width:100%;max-width:672px;box-sizing:border-box;padding:4px 4px 8px;border:1px solid #dfdfdf;border-radius:16px;background:#fff;color:#202020}.ds-composer:focus-within{border-color:#6d6d6d}.ds-composer-draft{display:block;box-sizing:border-box;width:100%;height:52px;max-height:168px;padding:12px;border:0;border-radius:4px;background:#fff;color:#202020;font-family:inherit;font-size:16px;resize:none}.ds-composer-draft::placeholder{color:#6d6d6d}.ds-composer-draft:focus-visible{outline:0}.ds-toolbar{height:36px;margin-top:8px;display:flex;align-items:center;gap:4px;padding:0 4px}.ds-toolbar button{height:32px;border:0;border-radius:6px;background:transparent;color:#202020;font-family:inherit;font-size:13px;cursor:pointer}.ds-toolbar button[aria-label]{width:36px;height:36px;border-radius:7px;display:inline-grid;place-items:center}.ds-toolbar .ds-model{flex:0 1 auto;text-align:left;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ds-toolbar .ds-send{background:#222222;color:white}.ds-toolbar button:hover{background:#e8e8e8}.ds-toolbar .ds-send:hover{background:#6d6d6d}.ds-toolbar button:active{background:#e2e2e2}.ds-toolbar button:focus-visible{outline:2px solid #202020;outline-offset:2px} .ds-toolbar .ds-context-control{height:32px} .ds-toolbar .ds-access{width:110px;flex:none}.ds-toolbar .ds-reasoning{width:88px;flex:none;margin-left:auto}.ds-toolbar .ds-context-control{width:36px;flex:none}.ds-toolbar .ds-model{min-width:96px} .ds-toolbar .ds-send:disabled{background:#e8e8e8;color:#6d6d6d;cursor:default}"
+      "css": ".ds-composer{font-family:Noto Sans SC, sans-serif;width:100%;max-width:672px;box-sizing:border-box;padding:4px 4px 8px;border:1px solid #dfdfdf;border-radius:16px;background:#fff;color:#202020}.ds-composer:focus-within{border-color:#6d6d6d}.ds-composer-draft{display:block;box-sizing:border-box;width:100%;height:50px;max-height:168px;padding:12px;border:0;border-radius:4px;background:#fff;color:#202020;font-family:inherit;font-size:14px;resize:none}.ds-composer-draft::placeholder{color:#6d6d6d}.ds-composer-draft:focus-visible{outline:0}.ds-toolbar{height:36px;margin-top:8px;display:flex;align-items:center;gap:4px;padding:0 4px}.ds-toolbar button{height:32px;border:0;border-radius:6px;background:transparent;color:#202020;font-family:inherit;font-size:13px;cursor:pointer}.ds-toolbar button[aria-label]{width:36px;height:36px;border-radius:7px;display:inline-grid;place-items:center}.ds-toolbar .ds-model{flex:0 1 auto;text-align:left;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ds-toolbar .ds-send{background:#222222;color:white}.ds-toolbar button:hover{background:#e8e8e8}.ds-toolbar .ds-send:hover{background:#6d6d6d}.ds-toolbar button:active{background:#e2e2e2}.ds-toolbar button:focus-visible{outline:2px solid #202020;outline-offset:2px} .ds-toolbar .ds-context-control{height:32px} .ds-toolbar .ds-access{width:110px;flex:none}.ds-toolbar .ds-reasoning{width:88px;flex:none}.ds-toolbar .ds-context-control{width:36px;flex:none;margin-left:auto}.ds-toolbar .ds-model{min-width:96px} .ds-toolbar .ds-send:disabled{background:#e8e8e8;color:#6d6d6d;cursor:default}"
     },
     {
       "name": "Theme choice",
@@ -1412,7 +1423,7 @@
       "refersTo": "agent-reply",
       "description": "已完成回复的无卡片文字/代码视觉示意；实际原生渲染使用 EUI Markdown。",
       "html": "<article class=\"ds-reply\"><p>和 Mira 一起，把想法变成下一步。</p><pre><code>const auto result = run();</code></pre></article>",
-      "css": ".ds-reply{font-family:Noto Sans SC, sans-serif;font-size:16px;line-height:24px;color:#202020;background:transparent}.ds-reply p{margin:0 0 8px}.ds-reply pre{margin:0;padding:12px;border-radius:8px;background:#eee;font-size:14px;overflow:auto}"
+      "css": ".ds-reply{font-family:Noto Sans SC, sans-serif;font-size:14px;line-height:22px;color:#202020;background:transparent}.ds-reply p{margin:0 0 8px}.ds-reply pre{margin:0;padding:12px;border-radius:8px;background:#eee;font-size:13px;overflow:auto}"
     },
     {
       "name": "Inspectable attachments and references",

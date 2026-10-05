@@ -69,7 +69,7 @@ class ServiceLoop final : public executor::IBlockingIoWorker {
     /// died in the meantime is dropped here.
     void post_attach_events(std::uint64_t connection_id,
                             executor::comm::TopicSubscription<ipc::EventPayload> subscription,
-                            std::optional<ipc::EventPayload> seed);
+                            std::optional<ipc::EventPayload> seed, bool chat_preview = false);
 
     /// Detaches a connection's event subscription; idempotent. Queued
     /// events already written into the connection buffer still flush.
@@ -97,6 +97,7 @@ class ServiceLoop final : public executor::IBlockingIoWorker {
         /// Event stream state (DEC-012); loop-thread only. The
         /// subscription is the bounded drop-oldest per-connection queue.
         std::optional<executor::comm::TopicSubscription<ipc::EventPayload>> events;
+        bool chat_preview = false;           ///< explicit preview capability
         std::uint64_t event_seq = 0;         ///< last written event's seq
         std::uint64_t overflow_reported = 0; ///< drops already surfaced
     };
@@ -107,6 +108,7 @@ class ServiceLoop final : public executor::IBlockingIoWorker {
         std::uint64_t connection_id = 0;
         std::string payload;
         bool close_after = false;
+        bool chat_preview = false;
         /// AttachEvents only: first event delivered on the new
         /// subscription (current host status at subscribe time).
         std::optional<ipc::EventPayload> seed;

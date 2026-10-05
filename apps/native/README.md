@@ -37,8 +37,11 @@ Linux 已验证系统凭据与重启调用；Windows 凭据路径尚待目标环
 当前 EUI 临时密码适配不支持撤销/重做，遮蔽时复制只得到掩码，见 EUI-20261005-004。
 
 当前接入真实IPC和通用模型/工具harness，只注册Mira自带wait，不观察屏幕或执行RPA。
-工具回填为受限JSON文字上下文，见MIRA-20261004-001。本机SiliconFlow真实文字/工具
-已验证；MiniMax暂受pinned TLS SNI缺口影响，见MIRA-20261004-002。
+通用循环由Mira公开ConversationLoop承载，使用规范工具part回填；MIRA-20261004-001/002
+已升级复验。SiliconFlow与MiniMax真实文字、工具往返与提前流式预览均通过。
+当前正文/输入14EM、22px行距，上下文/模型归入右侧组；等待有动效及真实用时。
+Linux XIM/IBus候选跟随光标并已验证中文提交；原生Wayland、物理高DPI与其他IM待验。
+依赖修复PR与完整证据见[本轮验收](../../docs/compatibility/native-conversation-progress-20261005.md)。
 关闭仅退出前端进程；托盘联动及整程序退出属于M6-04。
 
 源码：app.cpp（视图）、chat_model.*（UI线程有界服务状态投影）、window_controls.*

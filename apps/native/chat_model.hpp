@@ -2,6 +2,7 @@
 
 #include "attachment.hpp"
 #include "context_usage.hpp"
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -15,6 +16,11 @@ struct LocalMessage {
     std::string role = "你";
     std::string status = "未发送";
     std::string turn_id;
+    std::optional<std::chrono::steady_clock::time_point> started = {};
+    std::optional<std::chrono::milliseconds> duration = {};
+    std::uint64_t preview_sequence = 0;
+    std::string preview_request = {};
+    bool preview_truncated = false;
 };
 
 struct ContextReference {
@@ -92,6 +98,8 @@ class ChatModel {
                     const std::string &user, const std::string &reply, const std::string &error,
                     std::optional<ContextUsage> usage = {}, std::uint64_t sequence = 0,
                     const std::string &replaces = {});
+    void apply_preview(std::uint64_t id, const std::string &turn, const std::string &request,
+                       std::uint64_t sequence, const std::string &text, bool truncated);
     LocalSession &current();
     const LocalSession &current() const;
     const std::vector<LocalSession> &sessions() const { return sessions_; }

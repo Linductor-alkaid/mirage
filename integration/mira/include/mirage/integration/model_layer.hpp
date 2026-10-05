@@ -102,6 +102,11 @@ class ModelProviderOverride {
     Factory factory_;
 };
 
+/// Full transient snapshot, at most 16KiB. Invoked on the transport context;
+/// consumers perform bounded delivery only. Canonical results settle separately.
+using DialogPreviewSink =
+    std::function<void(const std::string &request_id, const std::string &text, bool truncated)>;
+
 /// The service-side model layer (DEC-027): assembles the pinned model stack —
 /// ModelProfile + ModelRouter + OpenAiCompatibleProvider over the pinned
 /// SocketHttpTransport (+ the OpenSSL TLS channel when the pinned adapter was
@@ -136,18 +141,16 @@ class ModelLayer {
     /// earlier-conversation block (may be empty); `user_text` is the new
     /// user message. Bounded by the context deadline / cancellation probe
     /// and the profile transport deadlines.
-    DialogCompletion complete_dialog_turn(const std::string &transcript,
-                                          const std::string &user_text,
-                                          const mira::OperationContext &context,
-                                          const std::string &reasoning = "",
-                                          bool tools_allowed = true);
+    DialogCompletion
+    complete_dialog_turn(const std::string &transcript, const std::string &user_text,
+                         const mira::OperationContext &context, const std::string &reasoning = "",
+                         bool tools_allowed = true, DialogPreviewSink preview = {});
 
     // MIRA-20261004-001: bounded conversational harness, no desktop observation.
-    DialogCompletion complete_harness_turn(const std::string &transcript,
-                                           const std::string &user_text,
-                                           const mira::OperationContext &context,
-                                           const std::string &reasoning = "",
-                                           bool tools_allowed = true);
+    DialogCompletion
+    complete_harness_turn(const std::string &transcript, const std::string &user_text,
+                          const mira::OperationContext &context, const std::string &reasoning = "",
+                          bool tools_allowed = true, DialogPreviewSink preview = {});
 
     /// Ordered teardown: waits out any in-flight dialog completion (bounded
     /// by the profile transport deadlines), then settles the transport's

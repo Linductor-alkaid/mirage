@@ -10,7 +10,7 @@
 
 | 依赖 | 详细台账 | 已确认问题 | 说明 |
 | --- | --- | --- | --- |
-| Mira | [Mira台账](mira.md) | 4项Open | Runtime/模型/工具/workflow及随Mira交付的Executor；本轮先向Mira反馈 |
+| Mira | [Mira台账](mira.md) | 1项Open、3项Resolved、1项Accepted | Runtime/模型/工具/workflow及随Mira交付的Executor；本轮先向Mira反馈 |
 | Mirador | [Mirador台账](mirador.md) | 0项 | 明确初始化为空；有可复现证据后登记，不推断不存在未来问题 |
 
 executor经pinned Mira传递引入，编号使用`MIRA-YYYYMMDD-NNN`，不直接向Executor提交。
@@ -40,3 +40,7 @@ Mirador使用`MIRADOR-YYYYMMDD-NNN`。EUI是用户授权的UI依赖，其既有�
 ## MIRA-20261004-002：OpenSSL TLS Adapter 未发送 SNI
 
 详见 [该条目](mira.md#mira-20261004-002)。
+
+## MIRA-20261005-001：真实流式预览与Chat Completions SSE
+
+详见[该条目](mira.md#mira-20261005-001)。

@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cmath>
 #include <components/markdown.h>
 #include <cstdlib>
 #include <eui/platform.h>
@@ -201,7 +202,7 @@ void drain_runtime() {
             }
         } else if (message.kind == RuntimeMessage::Kind::Connected) {
             s.runtime_notice = "已连接 Runtime Service";
-            call_runtime(ipc::SubscribeEventsRequest{}, "subscribe");
+            call_runtime(ipc::SubscribeEventsRequest{true}, "subscribe");
 
         } else if (message.kind == RuntimeMessage::Kind::Lost) {
             s.runtime_notice = "服务连接已断开，请在设置 → 模型中重新连接。";
@@ -345,6 +346,8 @@ void drain_runtime() {
                 s.runtime_notice = "请求已接纳，等待 Mira 回复。";
                 history(message.local_id);
             }
+        } else if (message.kind == RuntimeMessage::Kind::Diagnostic) {
+            s.runtime_notice = message.tag;
         } else if (message.event) {
             if (const auto *turn =
                     std::get_if<ipc::ChatTurnUpdatedEvent>(&message.event->payload)) {
@@ -357,6 +360,14 @@ void drain_runtime() {
                         s.runtime_notice = turn->status == "pending" ? "Mira 正在运行…"
                                            : turn->status == "ok"    ? "Mira 已回复"
                                                                      : display_error(turn->error);
+                        break;
+                    }
+            } else if (const auto *preview =
+                           std::get_if<ipc::ChatPreviewEvent>(&message.event->payload)) {
+                for (const auto &session : s.chat.sessions())
+                    if (session.remote_id == preview->session_id) {
+                        s.chat.apply_preview(session.id, preview->turn_id, preview->request_id,
+                                             preview->sequence, preview->text, preview->truncated);
                         break;
                     }
             } else if (std::holds_alternative<ipc::EventsOverflowEvent>(message.event->payload)) {
@@ -548,7 +559,7 @@ void modal(eui::Ui &ui, const eui::Screen &screen, const Palette &p) {
         .build();
 }
 void appearance_page(eui::Ui &ui, float x, float width, const Palette &p) {
-    text(ui, "settings.title", "外观", x, 104, width, 48, 30, p.text, 600);
+    text(ui, "settings.title", "外观", x, 104, width, 48, 24, p.text, 600);
     text(ui, "settings.description", "调整 Mirage 的显示方式。", x, 160, width, 32, 17, p.muted);
     const float row_y = 232;
     const bool narrow = width < 600;
@@ -662,7 +673,7 @@ void add_attachment() {
 void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float width,
                          const Palette &p, const components::theme::ThemeColorTokens &tokens) {
     auto &s = state();
-    text(ui, "model.title", "模型服务", x, 90, width, 48, 28, p.text, 600);
+    text(ui, "model.title", "模型服务", x, 90, width, 48, 24, p.text, 600);
     text(ui, "model.description", "连接服务商，管理 Agent 使用的模型。", x, 140, width - 136, 32,
          15, p.muted);
     components::button(ui, "model.add.provider")
@@ -1155,7 +1166,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                : std::min(800.0f, main_width - (main_width >= 864 ? 96 : 48));
     const float x = sidebar + (main_width - column) / 2;
     const float input_height = std::clamp(
-        text_height(session.draft, column - 40, 16, ui_input_line_height(16)) + 24, 52.0f, 168.0f);
+        text_height(session.draft, column - 40, 14, ui_input_line_height(14)) + 24, 50.0f, 168.0f);
     const float refs_height =
         session.references.empty() && session.attachments.empty() ? 0.0f : 36.0f;
     const float edit_height = session.edit_turn_id.empty() ? 0 : 32;
@@ -1168,7 +1179,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
     const auto session_id = session.id;
     if (empty) {
         const float greeting_y = std::max(80.0f, y - 104);
-        text(ui, "welcome.title", "今天，我们从哪里开始？", x, greeting_y, column, 54, 30, p.text,
+        text(ui, "welcome.title", "今天，我们从哪里开始？", x, greeting_y, column, 54, 26, p.text,
              500);
         if (auto *title = ui.find("welcome.title"))
             title->horizontalAlign = eui::HorizontalAlign::Center;
@@ -1184,12 +1195,12 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         markdown.codeBackground = s.dark ? color(0x222222) : color(0xeeeeee);
         markdown.quoteBackground = s.dark ? color(0x202020) : color(0xf0f0f0);
         markdown.divider = p.border;
-        markdown.bodySize = ui_font_size(16);
-        markdown.bodyLineHeight = 24;
-        markdown.h1Size = ui_font_size(20);
-        markdown.h2Size = ui_font_size(18);
-        markdown.h3Size = ui_font_size(17);
-        markdown.codeSize = 14;
+        markdown.bodySize = ui_font_size(14);
+        markdown.bodyLineHeight = 22;
+        markdown.h1Size = ui_font_size(18);
+        markdown.h2Size = ui_font_size(16);
+        markdown.h3Size = ui_font_size(15);
+        markdown.codeSize = 13;
         markdown.blockGap = 8;
         markdown.radius = 8;
         components::scrollView(ui, "thread." + std::to_string(session_id))
@@ -1217,20 +1228,34 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                     if (user) {
                         core::TextStyle measured;
                         measured.text = message.text;
-                        measured.fontSize = ui_font_size(16);
+                        measured.fontSize = ui_font_size(14);
                         bubble_width = std::min(
                             std::min(576.0f, width),
                             std::max(80.0f, core::TextPrimitive::measureTextSize(measured).x + 24));
                     }
                     const float body_width = user ? bubble_width - 24 : width - 16;
                     const float body_height =
-                        user || pending || failed
-                            ? text_height(message.text, body_width, 16, 24)
-                            : std::max(24.0f, components::MarkdownBuilder::estimateHeight(
+                        pending && message.text.empty() ? 0
+                        : user || failed
+                            ? text_height(message.text, body_width, 14, 22)
+                            : std::max(22.0f, components::MarkdownBuilder::estimateHeight(
                                                   message.text, body_width, markdown));
+                    const float elapsed =
+                        message.started
+                            ? static_cast<float>(
+                                  (message.duration.value_or(
+                                       std::chrono::duration_cast<std::chrono::milliseconds>(
+                                           std::chrono::steady_clock::now() - *message.started)))
+                                      .count()) /
+                                  1000.0f
+                            : 0;
+                    const auto tenths =
+                        static_cast<unsigned long long>(std::max(0.0f, elapsed) * 10);
+                    const std::string elapsed_label =
+                        std::to_string(tenths / 10) + "." + std::to_string(tenths % 10) + " 秒";
                     const float body_y = user ? 8.0f : pending || failed ? 28.0f : 0.0f;
                     const float row_height =
-                        body_height + body_y + (user ? 8 : 0) + (pending ? 0 : 28);
+                        body_height + body_y + (user ? 8 : 0) + (pending ? 4 : 28);
                     list.stack(key)
                         .size(width, row_height)
                         .content([&] {
@@ -1243,26 +1268,43 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                     .radius(10)
                                     .build();
                             if (pending || failed) {
-                                icon(list, key + ".state.icon", pending ? 0xf141 : 0xf06a, 0, 0, 13,
-                                     24, p.muted);
+                                if (pending) {
+                                    // One restrained travelling pulse; no simulated text reveal.
+                                    for (int dot = 0; dot < 3; ++dot) {
+                                        const float phase =
+                                            elapsed * 5 - static_cast<float>(dot) * 1.6f;
+                                        list.rect(key + ".activity." + std::to_string(dot))
+                                            .position(static_cast<float>(dot) * 6, 10)
+                                            .size(3, 3)
+                                            .radius(1.5f)
+                                            .color(p.muted)
+                                            .opacity(0.3f + 0.7f * (0.5f + 0.5f * std::sin(phase)))
+                                            .hitTestMode(eui::dsl::HitTestMode::None)
+                                            .build();
+                                    }
+                                } else
+                                    icon(list, key + ".state.icon", 0xf06a, 0, 0, 13, 24, p.muted);
                                 text(list, key + ".state",
-                                     pending ? "Mira 正在处理" : "任务已停止或失败", 28, 0,
-                                     width - 28, 24, 14, p.muted);
+                                     pending
+                                         ? (message.text.empty() ? "思考中 · " : "正在回复 · ") +
+                                               elapsed_label
+                                         : "任务已停止或失败",
+                                     28, 0, width - 28, 24, 12, p.muted);
                             }
-                            if (user || pending || failed)
+                            if (user || failed)
                                 list.text(key + ".body")
                                     .position(left + (user ? 12 : 0), body_y)
                                     .size(body_width, body_height)
                                     .text(message.text)
-                                    .fontSize(ui_font_size(16))
-                                    .lineHeight(24)
+                                    .fontSize(ui_font_size(14))
+                                    .lineHeight(22)
                                     .wrap()
                                     .color(p.text)
                                     .hitTestMode(eui::dsl::HitTestMode::None)
                                     .build();
                             else {
                                 components::markdown(list, key + ".markdown")
-                                    .position(0, 0)
+                                    .position(0, body_y)
                                     .width(body_width)
                                     .height(body_height)
                                     .markdown(message.text)
@@ -1388,6 +1430,9 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                     }
                                 }
                                 const float action_y = row_height - 26;
+                                if (!user && message.duration)
+                                    text(list, key + ".duration", "用时 " + elapsed_label, 38,
+                                         action_y, width - 38, 26, 11, p.muted);
                                 const bool can_edit =
                                     user && session.messages.size() >= 2 &&
                                     &message == &session.messages[session.messages.size() - 2];
@@ -1518,7 +1563,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         .placeholder("向 Mira 提问，或描述一个任务…")
         .multiline()
         .scrollbar()
-        .fontSize(ui_font_size(16))
+        .fontSize(ui_font_size(14))
         .inset(12)
         .style(input_style)
         .onFocus([](bool focused) {
@@ -1576,19 +1621,6 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         .style(toolbar)
         .onClick([toggle] { toggle(PageState::Popup::Mode); })
         .build();
-    const auto usage_ratio = context_ratio(session.context_usage);
-    components::button(ui, "composer.context")
-        .position(x + 162, toolbar_y)
-        .size(36, 32)
-        .text("")
-        .style(toolbar)
-        .onClick([toggle] { toggle(PageState::Popup::Context); })
-        .build();
-    ui.svg("composer.context.ring")
-        .source(context_ring_svg(usage_ratio, s.dark))
-        .position(x + 170, toolbar_y + 6)
-        .size(20, 20)
-        .build();
     const std::string model_label = s.live_model.enabled ? s.live_model.model_selector : "选择模型";
     core::TextStyle model_text;
     model_text.fontSize = ui_font_size(13);
@@ -1600,8 +1632,23 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
     const float model_width =
         std::clamp(core::TextPrimitive::measureTextSize(model_text).x + model_insets, 96.0f,
                    std::min(180.0f, std::max(96.0f, column - 342)));
+    const float model_x = column - 140 - model_width;
+    const float context_x = model_x - 40;
+    const auto usage_ratio = context_ratio(session.context_usage);
+    components::button(ui, "composer.context")
+        .position(x + context_x, toolbar_y)
+        .size(36, 32)
+        .text("")
+        .style(toolbar)
+        .onClick([toggle] { toggle(PageState::Popup::Context); })
+        .build();
+    ui.svg("composer.context.ring")
+        .source(context_ring_svg(usage_ratio, s.dark))
+        .position(x + context_x + 8, toolbar_y + 6)
+        .size(20, 20)
+        .build();
     components::button(ui, "composer.model")
-        .position(x + 202, toolbar_y)
+        .position(x + model_x, toolbar_y)
         .size(model_width, 32)
         .text(fitted_title(model_label, model_width - model_insets, 13))
         .icon(0xf078)
@@ -1656,8 +1703,8 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                 ? std::min(352.0f, 68.0f + 44.0f * static_cast<float>(s.models.size()))
             : popup == PageState::Popup::Reasoning ? (s.live_model.supports_reasoning ? 244 : 148)
                                                    : 164;
-        const float anchor = popup == PageState::Popup::Context     ? 162
-                             : popup == PageState::Popup::Model     ? 202
+        const float anchor = popup == PageState::Popup::Context     ? context_x
+                             : popup == PageState::Popup::Model     ? model_x
                              : popup == PageState::Popup::Reasoning ? column - 136
                              : popup == PageState::Popup::Mode      ? 48
                                                                     : 8;
@@ -1991,6 +2038,10 @@ void resize_edges(eui::Ui &ui, const eui::Screen &screen) {
 void compose_page(eui::Ui &ui, const eui::Screen &screen) {
     drain_runtime();
     auto &s = state();
+    if (s.runtime)
+        s.runtime->set_activity(
+            std::any_of(s.chat.sessions().begin(), s.chat.sessions().end(),
+                        [](const auto &session) { return session.running || session.submitting; }));
     const auto p = palette(s.dark);
     const auto tokens = s.dark ? components::theme::dark() : components::theme::light();
     const float sidebar_limit = std::max(224.0f, std::min(400.0f, screen.width - 520));
@@ -2015,22 +2066,22 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                     .build();
                 // EUI-20261004-003: metadata-free, pixel-identical UI copy.
                 ui.image("brand.mira")
-                    .position(24, 12)
-                    .size(36, 36)
+                    .position(24, 16)
+                    .size(28, 28)
                     .source("assets/mira-ui.png")
                     .contain()
                     .hitTestMode(eui::dsl::HitTestMode::None)
                     .build();
-                text(ui, "brand", "Mirage", 72, 12, sidebar - 140, 36, 22, p.text, 600);
+                text(ui, "brand", "Mirage", 64, 12, sidebar - 132, 36, 18, p.text, 600);
                 icon_button(ui, "sidebar.hide", 0xf0db, sidebar - 52, 12, p,
                             [] { state().sidebar = false; });
                 if (s.settings) {
                     components::button(ui, "settings.back")
                         .position(16, 76)
-                        .size(sidebar - 32, 44)
+                        .size(sidebar - 32, 36)
                         .text("返回对话")
                         .icon(0xf060)
-                        .fontSize(ui_font_size(16))
+                        .fontSize(ui_font_size(14))
                         .iconSize(16)
                         .style(button_style(p))
                         .onClick([] {
@@ -2062,10 +2113,10 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                 } else {
                     components::button(ui, "session.new")
                         .position(16, 76)
-                        .size(sidebar - 32, 44)
+                        .size(sidebar - 32, 36)
                         .text("新建对话")
                         .icon(0xf067)
-                        .fontSize(ui_font_size(16))
+                        .fontSize(ui_font_size(14))
                         .iconSize(16)
                         .style(button_style(p))
                         .onClick([] { new_session(); })
@@ -2099,10 +2150,10 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                                 const bool selected = id == s.chat.current().id;
                                 const std::string key = "session." + std::to_string(id);
                                 list.stack(key)
-                                    .size(width, 48)
+                                    .size(width, 40)
                                     .content([&] {
                                         list.rect(key + ".hit")
-                                            .size(width, 48)
+                                            .size(width, 40)
                                             .radius(7)
                                             .states(selected ? p.selected : eui::Color{0, 0, 0, 0},
                                                     p.hover, p.selected)
@@ -2113,12 +2164,12 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                                                 history(id);
                                             })
                                             .build();
-                                        icon(list, key + ".icon", 0xf075, 12, 0, 16, 48, p.muted);
+                                        icon(list, key + ".icon", 0xf075, 12, 0, 14, 40, p.muted);
                                         text(list, key + ".title",
-                                             fitted_title(session.title, width - 100, 16), 44, 0,
-                                             width - 100, 48, 16, p.text);
+                                             fitted_title(session.title, width - 100, 14), 44, 0,
+                                             width - 100, 40, 14, p.text);
                                         icon_button(
-                                            list, key + ".delete", 0xf2ed, width - 40, 6, p,
+                                            list, key + ".delete", 0xf2ed, width - 40, 2, p,
                                             [id] {
                                                 auto &v = state();
                                                 if (v.about || v.confirm_clear || v.confirm_delete)
@@ -2206,8 +2257,8 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
             const std::string title = s.settings              ? "设置"
                                       : session_title.empty() ? "新对话"
                                                               : session_title;
-            text(ui, "thread.title", fitted_title(title, title_width, 16), title_x, 0, title_width,
-                 60, 16, p.text, 500);
+            text(ui, "thread.title", fitted_title(title, title_width, 14), title_x, 0, title_width,
+                 60, 14, p.text, 500);
             icon_button(ui, "window.minimize", 0xf068, screen.width - 130, 12, p, window::minimize);
             icon_button(ui, "window.maximize", window::maximized() ? 0xf2d2 : 0xf2d0,
                         screen.width - 88, 12, p, window::toggle_maximize);

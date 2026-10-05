@@ -338,16 +338,35 @@ void ChatModel::apply_turn(std::uint64_t id, const std::string &turn, const std:
         session->context_usage = std::move(usage);
         session->usage_sequence = sequence;
     }
+    if (status == "pending" && !answer.started)
+        answer.started = std::chrono::steady_clock::now();
+    if (status != "pending" && answer.started && !answer.duration)
+        answer.duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - *answer.started);
     answer.status = status == "pending" ? "运行中" : status == "ok" ? "已回复" : "已停止或失败";
-    answer.text = status == "pending" ? "正在处理你的请求…"
-                  : status == "ok"    ? reply_for_display(reply)
-                                      : error;
+    if (status != "pending")
+        answer.text = status == "ok" ? reply_for_display(reply) : error;
     session->running =
         std::any_of(session->messages.begin(), session->messages.end(), [](const auto &message) {
             return message.role == "Mira" && message.status == "运行中";
         });
     session->submitting = false;
     session->scroll_offset = 10000000.0f;
+}
+
+void ChatModel::apply_preview(std::uint64_t id, const std::string &turn, const std::string &request,
+                              std::uint64_t sequence, const std::string &text, bool truncated) {
+    auto *session = find(id);
+    if (!session || request.empty() || request.size() > 128 || text.size() > max_text_bytes)
+        return;
+    auto it = std::find_if(session->messages.begin(), session->messages.end(),
+                           [&](const auto &m) { return m.turn_id == turn && m.role == "Mira"; });
+    if (it == session->messages.end() || it->status != "运行中" || sequence <= it->preview_sequence)
+        return;
+    it->preview_sequence = sequence;
+    it->preview_request = request;
+    it->preview_truncated = truncated;
+    it->text = text;
 }
 
 LocalSession &ChatModel::current() { return sessions_[selected_]; }

@@ -324,3 +324,9 @@ M6-07/08 Linux首步已完成，模型目录、真实文本附件、权限/推�
 原生DEB生成和提取启动通过；负载下旧订阅测试失败和Windows等未执行项保留记录。
 [模型与输入验收](../compatibility/native-model-composer-20261005.md) /
 [退役验收](../compatibility/native-retirement-20261005.md)。M6整体与M6-04状态不变。
+
+
+2026-10-05 / M6-15至18完成Linux范围：紧凑会话、右侧模型/用量、真实流式与用时，
+Linux XIM候选光标跟随及公开Mira ConversationLoop；两项依赖修复分别提交上游PR，
+原Executor版本保留，锁与供应链审计同步。[验收](../compatibility/native-conversation-progress-20261005.md)。
+M6整体/入口托盘M6-04仍未完成，Windows/Wayland/物理高DPI另验。

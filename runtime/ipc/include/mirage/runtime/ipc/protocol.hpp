@@ -97,10 +97,12 @@ struct ResumeTaskRequest {
 struct ShutdownRequest {};
 
 /// Subscribes the connection to the service event stream (DEC-012 decision
-/// 2). No parameters; the subscription is connection-scoped state that dies
+/// 2). Preview delivery is opt-in; the subscription is connection-scoped state that dies
 /// with the connection. A pre-M1.5 server rejects the unknown op with a
 /// stable protocol_error, which clients translate into polling fallback.
-struct SubscribeEventsRequest {};
+struct SubscribeEventsRequest {
+    bool chat_preview = false; ///< DEC-041: transient previews understood by this client
+};
 
 /// Drops the connection's event subscription; idempotent. Events already
 /// queued for the connection may still arrive after the acknowledgement.
@@ -956,11 +958,22 @@ struct ChatTurnUpdatedEvent {
     std::string replaces_turn_id = {};
 };
 
+// DEC-041: ephemeral bounded FULL snapshot, never history/usage/tool authority.
+// Sequence is monotonic across attempts in a turn; empty text clears the preview.
+struct ChatPreviewEvent {
+    std::string session_id;
+    std::string turn_id;
+    std::string request_id;
+    std::string text;
+    std::uint64_t sequence = 0;
+    bool truncated = false;
+};
+
 /// Closed event set; new events join additively (DEC-012).
 using EventPayload =
     std::variant<TaskUpdatedEvent, HostStatusEvent, EventsOverflowEvent, PermissionRequestedEvent,
                  SessionUpdatedEvent, SessionMessageEvent, SessionTurnEvent, SessionOutputEvent,
-                 WorkflowRunUpdatedEvent, ChatTurnUpdatedEvent>;
+                 WorkflowRunUpdatedEvent, ChatTurnUpdatedEvent, ChatPreviewEvent>;
 
 /// One decoded event frame minus its envelope bookkeeping: the per-connection
 /// `seq` plus the payload. `seq` is assigned by the sender per connection,
