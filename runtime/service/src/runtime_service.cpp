@@ -24,6 +24,7 @@
 #include "task_driver.hpp"
 
 #include <executor/blocking_io.hpp>
+#include <executor/comm.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -169,6 +170,7 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
                 record.error = event.error;
                 event.status = status;
                 event.user_text = record.user_text;
+                event.replaces_turn_id = record.replaces_turn_id;
                 event.sequence = record.sequence;
                 settled = true;
                 break;
@@ -190,9 +192,10 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
 void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::string session_id,
                      std::string turn_id, const std::string &transcript, const std::string &text,
                      executor::StopToken stop, bool agent, const std::string &agent_task_id,
-                     const std::string &reasoning, bool tools_allowed) {
+                     const std::string &reasoning, bool tools_allowed,
+                     const std::string &host_session_id) {
     mira::OperationContext context;
-    context.session = mira::SessionId::parse(session_id).value_or(mira::SessionId{});
+    context.session = mira::SessionId::parse(host_session_id).value_or(mira::SessionId{});
     context.task = mira::TaskId::parse(agent_task_id).value_or(mira::TaskId{});
     context.operation = mira::OperationId::generate();
     context.started_at = mira::Timestamp::now();
@@ -1190,7 +1193,9 @@ struct RuntimeService::Impl {
             ipc::SessionSummary summary;
             summary.id = session.first;
             summary.created_at_ms = session.second;
-            const SessionViewResult view = core->host.session_view(SessionIdentity{session.first});
+            const auto rebound = core->harness_sessions.find(session.first);
+            const SessionViewResult view = core->host.session_view(SessionIdentity{
+                rebound == core->harness_sessions.end() ? session.first : rebound->second});
             summary.state = view.ok ? view.view.state : "failed";
             list.sessions.push_back(std::move(summary));
         }
@@ -1282,13 +1287,15 @@ struct RuntimeService::Impl {
                 }
             }
         }
-        // Hydrated sessions (M5-08): a previous-era session has no pinned
-        // counterpart, so there is nothing to close pinned-side — the close
-        // is a pure product-state removal. Live sessions go through the
-        // pinned close (which cancels their non-terminal pinned tasks).
+        // A hydrated session has no pinned counterpart until the native
+        // harness lazily reopens one (DEC-039). Close that target when present;
+        // otherwise remove only product state. Live sessions use their own ID.
         const bool hydrated = core->hydrated_sessions.count(session_id) != 0;
-        if (!hydrated) {
-            const HostOutcome closed = core->host.close_session(SessionIdentity{session_id});
+        const auto rebound = core->harness_sessions.find(session_id);
+        const std::string pinned_id =
+            rebound == core->harness_sessions.end() ? session_id : rebound->second;
+        if (!hydrated || rebound != core->harness_sessions.end()) {
+            const HostOutcome closed = core->host.close_session(SessionIdentity{pinned_id});
             if (!closed.ok) {
                 fail(connection_id, correlation_id, closed.error.code, closed.error.message);
                 return;
@@ -1299,6 +1306,7 @@ struct RuntimeService::Impl {
             core->sessions.created_at_ms.erase(session_id);
         }
         core->hydrated_sessions.erase(session_id);
+        core->harness_sessions.erase(session_id);
         detail::persist_session_state(core);
         detail::persist_session_state(core);
         // The dialog thread dies with the session (DEC-027): the log entry is
@@ -1334,7 +1342,7 @@ struct RuntimeService::Impl {
         // settled post-condition is Closed, so a failed view read still
         // reports the command's outcome rather than an invented state.
         std::string state = "closed";
-        const SessionViewResult view = core->host.session_view(SessionIdentity{session_id});
+        const SessionViewResult view = core->host.session_view(SessionIdentity{pinned_id});
         if (view.ok) {
             state = view.view.state;
         }
@@ -1382,8 +1390,11 @@ struct RuntimeService::Impl {
             fail(connection, correlation, "internal", "cannot persist session deletion");
             return;
         }
-        if (!primary && !core->hydrated_sessions.count(id)) {
-            const auto closed = core->host.close_session(SessionIdentity{id});
+        const auto rebound = core->harness_sessions.find(id);
+        if (!primary &&
+            (!core->hydrated_sessions.count(id) || rebound != core->harness_sessions.end())) {
+            const auto pinned_id = rebound == core->harness_sessions.end() ? id : rebound->second;
+            const auto closed = core->host.close_session(SessionIdentity{pinned_id});
             if (!closed.ok) {
                 const bool restored = detail::persist_session_state(core, {}, false, true);
                 fail(connection, correlation, closed.error.code,
@@ -1398,6 +1409,7 @@ struct RuntimeService::Impl {
                 core->sessions.created_at_ms.erase(id);
             }
             core->hydrated_sessions.erase(id);
+            core->harness_sessions.erase(id);
         }
         {
             std::lock_guard lock(core->dialogs.mutex);
@@ -1624,7 +1636,13 @@ struct RuntimeService::Impl {
         }
         std::string turn_id;
         std::string agent_task_id;
+        std::string host_session_id = request.session_id;
         std::uint64_t sequence = 0;
+        std::optional<detail::SessionDialogLog> previous_log;
+        // DEC-039: no persist caller may observe a provisional replacement.
+        std::unique_lock state_lock(core->session_state_mutex, std::defer_lock);
+        if (!request.replace_turn_id.empty())
+            state_lock.lock();
         {
             std::lock_guard lock(core->dialogs.mutex);
             for (const auto &[id, log] : core->dialogs.sessions) {
@@ -1674,20 +1692,46 @@ struct RuntimeService::Impl {
                      "a dialog turn is already in flight for this session");
                 return;
             }
-            if (log.turns.size() >= log.max_turns) {
-                log.turns.erase(log.turns.begin());
+            if (!request.replace_turn_id.empty()) {
+                if (log.turns.empty() || log.turns.back().turn_id != request.replace_turn_id ||
+                    log.turns.back().status == "pending") {
+                    fail(connection_id, correlation_id, "invalid_state",
+                         "only the latest settled turn can be replaced");
+                    return;
+                }
+                previous_log = log;
             }
             if (request.agent) {
+                if (core->hydrated_sessions.contains(request.session_id)) {
+                    auto rebound = core->harness_sessions.find(request.session_id);
+                    if (rebound == core->harness_sessions.end()) {
+                        const auto opened = core->host.open_session();
+                        if (!opened.ok) {
+                            fail(connection_id, correlation_id, opened.error.code,
+                                 opened.error.message);
+                            return;
+                        }
+                        rebound =
+                            core->harness_sessions.emplace(request.session_id, opened.session.id)
+                                .first;
+                    }
+                    host_session_id = rebound->second;
+                }
                 const auto hosted =
-                    core->host.submit_task(SessionIdentity{request.session_id}, request.text);
+                    core->host.submit_task(SessionIdentity{host_session_id}, request.text);
                 if (!hosted.ok) {
                     fail(connection_id, correlation_id, hosted.error.code, hosted.error.message);
                     return;
                 }
                 agent_task_id = hosted.task.id;
             }
+            if (previous_log)
+                log.turns.pop_back();
+            else if (log.turns.size() >= log.max_turns)
+                log.turns.erase(log.turns.begin());
             detail::DialogTurnRecord record;
             record.agent_task_id = agent_task_id;
+            record.replaces_turn_id = request.replace_turn_id;
             record.turn_id = make_turn_id();
             record.status = "pending";
             record.user_text = request.text;
@@ -1698,31 +1742,24 @@ struct RuntimeService::Impl {
             turn_id = record.turn_id;
             sequence = record.sequence;
         }
-        // The pending notification leaves before the acknowledgement so a
-        // subscriber never observes the ack for a turn whose creation event
-        // is still queued (DEC-012 decision 3 ordering precedent).
-        ipc::ChatTurnUpdatedEvent pending;
-        pending.session_id = request.session_id;
-        pending.turn_id = turn_id;
-        pending.status = "pending";
-        pending.user_text = request.text;
-        pending.sequence = sequence;
-        core->events.publish_chat_turn(std::move(pending));
-        ipc::DialogTurnAccepted accepted;
-        accepted.turn_id = turn_id;
-        respond(connection_id, correlation_id, std::move(accepted));
-
         // Bounded worker: the pinned model stack enforces its own transport
         // deadlines; the executor stop token ends the wait on teardown.
         const std::string session_id = request.session_id;
         const std::string transcript = render_dialog_transcript(core, session_id);
+        auto ready = std::make_shared<executor::comm::PhaseGate>("dialog-admission");
         auto dialog_submission = core->executor.submit_cancellable(
-            [core = core, session_id, turn_id, transcript, text = request.text,
-             agent = request.agent, agent_task_id, reasoning = request.reasoning,
+            [core = core, ready, session_id, turn_id, transcript, text = request.text,
+             agent = request.agent, agent_task_id, host_session_id, reasoning = request.reasoning,
              tools_allowed = request.access != "read_only"](executor::StopToken stop) {
+                // Startup coordination belongs to Executor; no private queue or waiter.
+                while (!ready->has_reached(1)) {
+                    if (ready->is_closed() || stop.stop_requested())
+                        return;
+                    (void)ready->wait_for(1, std::chrono::milliseconds{10});
+                }
                 try {
                     run_dialog_turn(core, session_id, turn_id, transcript, text, stop, agent,
-                                    agent_task_id, reasoning, tools_allowed);
+                                    agent_task_id, reasoning, tools_allowed, host_session_id);
                 } catch (...) {
                     mirage::integration::DialogCompletion failed;
                     failed.failed = true;
@@ -1741,23 +1778,68 @@ struct RuntimeService::Impl {
                     throw; // Executor failure remains observable.
                 }
             });
+        bool admitted = true;
         if (dialog_submission.future.wait_for(std::chrono::milliseconds{0}) ==
             std::future_status::ready) {
             try {
                 dialog_submission.future.get();
+                admitted = false;
             } catch (...) {
-                mirage::integration::DialogCompletion failed;
-                failed.failed = true;
-                failed.error = "model task admission or execution failed";
-                if (!agent_task_id.empty())
-                    (void)core->host.complete_task(TaskIdentity{agent_task_id}, false,
-                                                   failed.error);
-                settle_dialog_turn(core, session_id, turn_id, failed);
+                admitted = false;
             }
-        } else {
+        }
+        const bool persisted =
+            admitted && (!previous_log || detail::persist_session_state(core, {}, false, true));
+        if (!persisted) {
+            {
+                std::lock_guard lock(core->dialogs.mutex);
+                auto &log = core->dialogs.sessions.at(session_id);
+                if (previous_log)
+                    log = std::move(*previous_log);
+                else {
+                    std::erase_if(log.turns,
+                                  [&turn_id](const auto &turn) { return turn.turn_id == turn_id; });
+                    log.in_flight_turn_id.clear();
+                }
+            }
+            ready->close();
+            if (dialog_submission.future.valid()) {
+                std::lock_guard lock(core->drivers_mutex);
+                core->drivers.emplace("dialog-" + turn_id, std::move(dialog_submission));
+            }
+            if (!agent_task_id.empty())
+                (void)core->host.complete_task(TaskIdentity{agent_task_id}, false,
+                                               "Dialog admission failed");
+            fail(connection_id, correlation_id, "unavailable",
+                 admitted ? "conversation replacement could not be persisted"
+                          : "model task admission failed");
+            return;
+        }
+        if (state_lock.owns_lock())
+            state_lock.unlock();
+        // The pending notification leaves before the acknowledgement so a
+        // subscriber never observes the ack for a turn whose creation event
+        // is still queued (DEC-012 decision 3 ordering precedent).
+        ipc::ChatTurnUpdatedEvent pending;
+        pending.session_id = request.session_id;
+        pending.turn_id = turn_id;
+        pending.status = "pending";
+        pending.user_text = request.text;
+        pending.sequence = sequence;
+        pending.replaces_turn_id = request.replace_turn_id;
+        core->events.publish_chat_turn(std::move(pending));
+        ipc::DialogTurnAccepted accepted;
+        accepted.turn_id = turn_id;
+        accepted.replaces_turn_id = request.replace_turn_id;
+        respond(connection_id, correlation_id, std::move(accepted));
+
+        {
             std::lock_guard lock(core->drivers_mutex);
             core->drivers.emplace("dialog-" + turn_id, std::move(dialog_submission));
         }
+        const auto advanced = ready->advance();
+        if (!advanced)
+            throw std::runtime_error("dialog admission gate failed");
     }
 
     /// Serial thread: one session's dialog thread snapshot (DEC-027) — the
@@ -2747,10 +2829,9 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                     }
                     impl_->core->sessions.created_at_ms.emplace(session.id, session.created_at_ms);
                     // The pinned counterpart is gone with the previous era:
-                    // the hydrated session is product state only. Its close
-                    // is handled service-side (DEC-028 close face without a
-                    // pinned call), and task submit has no pinned session to
-                    // reach (honest limitation of hydration).
+                    // history is product state. Native session.chat lazily
+                    // reopens a pinned harness target (DEC-039); desktop
+                    // task.submit still has no recovered pinned session.
                     impl_->core->hydrated_sessions.insert(session.id);
                     for (const auto &entry : session.journal) {
                         if (entry.kind == "user") {

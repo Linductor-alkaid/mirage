@@ -622,6 +622,8 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 put(object, "state", value.state);
             } else if constexpr (std::is_same_v<T, DialogTurnAccepted>) {
                 put(object, "turn_id", value.turn_id);
+                if (!value.replaces_turn_id.empty())
+                    put(object, "replaces_turn_id", value.replaces_turn_id);
             } else if constexpr (std::is_same_v<T, DialogHistory>) {
                 put(object, "session_id", value.session_id);
                 mira::JsonValue::Array turns;
@@ -856,6 +858,8 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                     put(object, "access", value.access);
                 if (!value.reasoning.empty())
                     put(object, "reasoning", value.reasoning);
+                if (!value.replace_turn_id.empty())
+                    put(object, "replace_turn_id", value.replace_turn_id);
             } else if constexpr (std::is_same_v<T, GetModelRequest>) {
                 put(object, "op", "model.get");
             } else if constexpr (std::is_same_v<T, SetModelRequest>) {
@@ -1130,6 +1134,14 @@ RequestDecode decode_request(std::string_view payload) {
                 return result;
             }
             chat.reasoning = *text_value;
+        }
+        if (const auto *value = member(object, "replace_turn_id")) {
+            const auto *replacement = value->as_string();
+            if (!replacement || replacement->empty() || replacement->size() > 128) {
+                result.error = "replace_turn_id must be a non-empty bounded string";
+                return result;
+            }
+            chat.replace_turn_id = *replacement;
         }
         result.body = std::move(chat);
     } else if (*op == "model.get") {
@@ -1783,7 +1795,16 @@ ResponseDecode decode_response(std::string_view payload) {
             result.error = "session.chat response requires a non-empty 'turn_id'";
             return result;
         }
-        response.payload = DialogTurnAccepted{std::move(*id_text)};
+        DialogTurnAccepted accepted{std::move(*id_text)};
+        if (const auto *value = member(object, "replaces_turn_id")) {
+            const auto *replacement = value->as_string();
+            if (!replacement || replacement->empty() || replacement->size() > 128) {
+                result.error = "invalid replaces_turn_id";
+                return result;
+            }
+            accepted.replaces_turn_id = *replacement;
+        }
+        response.payload = std::move(accepted);
     } else if (const auto *turns = member(object, "turns"); turns != nullptr) {
         if (!turns->is_array()) {
             result.error = "session.chat.history 'turns' must be an array";
@@ -2251,6 +2272,8 @@ std::string encode_event(const Event &event) {
                 }
             } else if constexpr (std::is_same_v<T, ChatTurnUpdatedEvent>) {
                 put(object, "event", kEventChatTurnUpdated);
+                if (!value.replaces_turn_id.empty())
+                    put(object, "replaces_turn_id", value.replaces_turn_id);
                 if (value.context_usage)
                     put(object, "context_usage", encode_context_usage(*value.context_usage));
                 put(object, "session_id", value.session_id);
@@ -2516,6 +2539,14 @@ EventDecode decode_event(std::string_view payload) {
         chat.status = std::move(*status);
         chat.user_text = std::move(*user_text);
         chat.sequence = static_cast<std::uint64_t>(*sequence);
+        if (const auto *value = member(object, "replaces_turn_id")) {
+            const auto *id = value->as_string();
+            if (!id || id->empty() || id->size() > 128 || *id == chat.turn_id) {
+                result.error = "invalid replaces_turn_id";
+                return result;
+            }
+            chat.replaces_turn_id = *id;
+        }
         if (const auto *reply = member(object, "reply_text"); reply != nullptr) {
             const auto text = reply->as_string();
             if (!text || chat.status != "ok") {

@@ -53,7 +53,7 @@ typography:
     fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
     fontSize: 16px
     fontWeight: 400
-    lineHeight: 26px
+    lineHeight: 24px
   body:
     fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
     fontSize: 17px
@@ -101,13 +101,13 @@ typography:
     fontWeight: 400
   markdown-h1:
     fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
-    fontSize: 22px
+    fontSize: 20px
   markdown-h2:
     fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
-    fontSize: 20px
+    fontSize: 18px
   markdown-h3:
     fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
-    fontSize: 18px
+    fontSize: 17px
   markdown-code:
     fontSize: 14px
   reference-body:
@@ -128,23 +128,23 @@ typography:
 rounded:
   input: 4px
   control: 7px
-  message: 12px
+  message: 10px
   panel: 12px
   provider-chooser: 10px
   composer: 16px
   reference: 14px
   markdown: 8px
-  message-action: 6px
+  message-action: 5px
 spacing:
   session-gap: 4px
   text-gap: 8px
   input-inset: 12px
   sidebar-inset: 16px
   dialog-inset: 24px
-  user-horizontal: 16px
-  user-vertical: 12px
-  thread-gap: 24px
-  markdown-block-gap: 12px
+  user-horizontal: 12px
+  user-vertical: 8px
+  thread-gap: 14px
+  markdown-block-gap: 8px
   reference-gap: 16px
 components:
   button-ghost:
@@ -233,7 +233,7 @@ components:
     backgroundColor: '{colors.light-user}'
     textColor: '{colors.light-text}'
     rounded: '{rounded.message}'
-    padding: 12px 16px
+    padding: 8px 12px
     typography: '{typography.message}'
   agent-reply:
     backgroundColor: transparent
@@ -325,7 +325,7 @@ Markdown 链接/强调色、代码块与引用块背景使用对应专用角色�
 - **Brand / Title**：侧栏品牌与对话框题，权重略高。
 - **Settings Heading**：外观页标题使用 30px，模型服务标题使用 28px，服务商详情标题使用 20px，说明沿用 Body，主题按钮沿用 Navigation，偏好声明沿用 Label。
 - **Model Field**：模型表单的单行输入和标签均使用 16px；标签行高框为 28px，输入行高交由 EUI 组件。协议和页底按钮沿用 Button Label。
-- **Message / Body**：用户正文与助手 Markdown 为 16px / 26px；H1/H2/H3 为 22/20/18px，代码 14px，块间隔 12px。引用预览 14px / 22px。弹层正文 28px 行高。Markdown 代码字体与未显式设置的标题行高由 pinned EUI 提供，不猜测为产品 token。
+- **Message / Body**：用户正文与助手 Markdown 为 16px / 24px；H1/H2/H3 为 20/18/17px，代码 14px，块间隔 8px。引用预览 14px / 22px。弹层正文 28px 行高。Markdown 代码字体与未显式设置的标题行高由 pinned EUI 提供，不猜测为产品 token。
 - **Context Detail**：标题与百分比沿用 16px / 500 权重，Token 摘要沿用 14px；二者行框 28px。来源、模型与本次引用行沿用 13px、24px 行框。
 - **Navigation / Label / Hint**：会话、工具条、状态与快捷键提示逐级收紧。
 - **Input / Button Label**：输入保持正文的 16px；草稿高度测量使用 24px 行高，实际输入行高由 EUI 管理。composer 模式/模型 13px、通知 12px、快捷键 11px，对话框操作 15px。
@@ -341,11 +341,11 @@ Markdown 链接/强调色、代码块与引用块背景使用对应专用角色�
 - 分隔条的透明命中区宽 8px，中心在侧栏右边界，从 y=60 延伸到窗口底部；hover 使用 border、拖动/pressed 使用 muted。支持鼠标拖动，键盘聚焦后左右键每次调宽 8px。
 - 标题拖动区和分隔线为 60px 高，与方向契约一致。
 - 空会话列为 `min(672px, main_width - 48px)`，水平居中；问候 30px、54px 行框，说明 14px、28px 行框，无建议列表。
-- 有消息时列为 `min(896px, main_width - (main_width >= 864px ? 96px : 32px))`，水平居中。用户气泡按文字测量宽度加 32px，最小 80px，最大 `min(576px, thread_width)`，右对齐；助手正文宽 `thread_width - 24px`，无卡片。
-- 编辑区高 `clamp(measure(draft, column - 40px, 16px, 24px) + 16px, 48px, 168px)`；composer 高为编辑区 + 56px 工具区，有附件或引用再加 36px，总高 104–224px（有附件或引用 140–260px）。活动 composer 顶部为 `screen.height - composer_height - 28px`；空态期望顶部为 `max(188px, screen.height × 0.29 + 106px)`，按同一底部边界钳制。问候顶部为 `max(80px, composer_y - 104px)`。
+- 有消息时列为 `min(800px, main_width - (main_width >= 864px ? 96px : 48px))`，水平居中。用户气泡按文字测量宽度加 24px，最小 80px，最大 `min(576px, thread_width)`，右对齐；助手正文宽 `thread_width - 16px`，无卡片。
+- 编辑区高 `clamp(measure(draft, column - 40px, 16px, 24px) + 16px, 48px, 168px)`；composer 高为编辑区 + 56px 工具区，有附件或引用再加 36px，编辑最后输入再加32px；非编辑态总高 104–224px（有附件或引用 140–260px）。活动 composer 顶部为 `screen.height - composer_height - 28px`；空态期望顶部为 `max(188px, screen.height × 0.29 + 106px)`，按同一底部边界钳制。问候顶部为 `max(80px, composer_y - 104px)`。
 - 消息滚动区顶部 72px，高 `max(48px, composer_y - 88px)`；滚动条宽 4px、gap 8px。工具条顶部为 `composer_y + composer_height - 44px`；面板下方 24px 通知/快捷键行从面板底部 + 4px 开始。
 - 外观/模型设置保留 `min(800px, main_width - 64px)` 居中列。
-- 会话列表为 48px 行高、4px 行间隔；消息行间隔 24px。新建/返回按钮宽度为 `sidebar - 32px`，会话列表宽度为 `sidebar - 24px`，随侧栏一起变化。最小窗口保持同一结构，用户可收起侧栏增加空间。
+- 会话列表为 48px 行高、4px 行间隔；消息行间隔 14px。新建/返回按钮宽度为 `sidebar - 32px`，会话列表宽度为 `sidebar - 24px`，随侧栏一起变化。最小窗口保持同一结构，用户可收起侧栏增加空间。
 - 外观页标题框从 y=104 开始，高 48px；说明从 y=160 开始，高 32px。主题面板从 y=232 开始；内容列宽度低于 600px 时由横排变为上下排，面板由 100px 增高至 126px，并省略重复说明，保留偏好声明。
 
 - 模型页标题从 y=90 开始，高 48px；说明从 y=140 开始，高 32px。服务商/详情共用面板从 y=194 开始，高 `screen.height - 334px`。内容列宽 ≥700px 时内部导航为 176px，导航行高 44px、间隔 6px，内部两侧各留 8px，细分隔线后详情左右各留 24px，标题距面板顶部 16px。内容列宽 <700px 时不显示左栏，详情宽为 `content_width - 48px`，面板顶部改为全详情宽、40px 高的当前服务商名称选择器，距顶部 12px；18px 文字与14px下拉图标。点击后显示带完整可区分名称的滚动列表，选中再进入对应配置。表单从 y=250 开始，高 `screen.height - 402px`；六个字段行高 92px，各含 28px 标签框、8px 间隔与 44px 输入。协议行高 94px，思考能力开关高 40px、说明高 64px，凭据说明高 60px。滚动条宽 4px、与内容间隔 12px。
@@ -361,7 +361,7 @@ Markdown 链接/强调色、代码块与引用块背景使用对应专用角色�
 
 ## Shapes
 
-输入 4px、消息动作/工具条标签 6px、普通控件 7px、Markdown 块 8px、用户气泡/弹层 12px、引用 pill 14px、composer 16px；实际值以 frontmatter 为准。标题分隔线、侧栏边界与容器边框为 1px；窗口无系统装饰。未最大化时边缘设置 5px 的透明 resize 区、角部设置 14px 的 resize 区；这些命中区不是装饰描边。
+输入 4px、消息动作 5px、工具条标签 6px、普通控件/选段浮层 7px、Markdown 块 8px、用户气泡 10px、弹层 12px、引用 pill 14px、composer 16px；实际值以 frontmatter 为准。标题分隔线、侧栏边界与容器边框为 1px；窗口无系统装饰。未最大化时边缘设置 5px 的透明 resize 区、角部设置 14px 的 resize 区；这些命中区不是装饰描边。
 
 ## Components
 
@@ -448,13 +448,15 @@ Linux Secret Service 为当前验收范围；Windows Credential Manager 的目�
 
 ### Messages / Markdown
 
-用户消息为右对齐轻灰气泡，12px 圆角、1px border、水平 16px / 垂直 12px 内边距。已完成助手回复直接使用 EUI 公共 MarkdownBuilder，无外层卡片或角色标题；运行/失败行保留图标与明确状态。展示只移除回复首尾 CR/LF 空行，保留内部格式与服务原始历史，没有桌面执行卡。非运行中消息下方提供整条复制与引用，按钮 30×28px、图标 13px、圆角 6px。所有 icon-only button 显式 `.text("")`，避免默认文字泄漏。
+用户消息为右对齐轻灰气泡，10px 圆角、无 border、水平 12px / 垂直 8px 内边距。已完成助手回复直接使用 EUI 公共 MarkdownBuilder，无外层卡片或角色标题；运行/失败行保留图标与明确状态。展示只移除回复首尾 CR/LF 空行，保留内部格式与服务原始历史，没有桌面执行卡。非运行中消息下方预留28px动作区，复制仅在正文/动作区悬停或键盘聚焦时显示；最后一条用户消息另有编辑。按钮28×26px、图标12px、圆角5px、muted色，焦点时1px muted边界；没有整条引用按钮。所有 icon-only button 显式 `.text("")`，避免默认文字泄漏。
 
-连续 CJK 段额外间距由单一 `markdown_adapter.hpp` 经公开 DSL 修正，反馈 EUI-20261004-004；保留上游解析、保守换行及高度预算，升级后按反馈移除。支持标题、列表、粗体、代码和表格；精细文字框选与链接打开缺少公开回调，尚不支持。
+连续 CJK 段额外间距由单一 `markdown_adapter.hpp` 经公开 DSL 修正，反馈 EUI-20261004-004；保留上游解析、保守换行及高度预算，升级后按反馈移除。支持标题、列表、粗体、代码和表格。拖选同一消息的实际渲染文字后显示100×32px“引用选段”浮层，13px标签、12px图标、7px圆角、1px边界；空间不足时放在选区下方，避开标题和composer。单一选择适配器见EUI-20261005-005；Ctrl+C复制选段，Escape/滚动/切换/编辑/背景点击取消。尚不支持跨消息选择、拖选自动滚动或链接打开。
+
+最后一条用户输入可进入编辑：composer顶部增加32px提示条和56×26px取消按钮，标签/取消使用12px。进入时保留原草稿，取消恢复；接受重发才替换原轮次两条消息，并重置用量为未知，新的成功请求回填真实用量。运行/提交期间禁用编辑，重发不撤销外部工具副作用。
 
 ### Inputs / Fields
 
-多行输入位于 composer 的 (4px, 4px + refs_height)，宽 `column - 8px`，内部 inset 12px，16px 文字，增长到 168px 后内部滚动。背景与 focused 背景保持 composer 颜色，边框透明、hit 边框为零，无阴影；composer 外框聚焦时由 border 变为 muted。
+多行输入位于 composer 的 (4px, 4px + refs_height + edit_height)，宽 `column - 8px`，内部 inset 12px，16px 文字，增长到 168px 后内部滚动。背景与 focused 背景保持 composer 颜色，边框透明、hit 边框为零，无阴影；composer 外框聚焦时由 border 变为 muted。
 
 Enter 发送、Shift+Enter 换行、Ctrl+Enter 保留发送兼容；composition 状态阻止 IME 候选确认提前提交。设置、模态或工具条 popover 打开期间阻止背景输入。提交未接纳或失败时保留草稿；合成中文粘贴不算真实中文 IME 验收。
 
@@ -462,7 +464,7 @@ Enter 发送、Shift+Enter 换行、Ctrl+Enter 保留发送兼容；composition 
 
 浅色为 surface、深色为 dark-composer，16px 圆角、1px 边界。工具顺序为附件、访问权限、上下文比例、模型、思考深度、发送。加号/发送 36×36px、图标 17px；权限 110×32px；上下文入口 36×32px，内置 20×20px 圆环；模型宽 `max(96px, column - 342px)`、高 32px；思考 88×32px。标签 13px、下拉图标 9px。权限与思考各自保留于当前本地会话，提交时冻结；调整会话选择不改写已冻结的在途请求。只读不注册工具，默认只使用当前已注册 wait，不表示完整桌面访问。模型入口以“服务商名称 · 模型 ID”列出已保存配置，并提供“管理模型”；服务 ACK 后更新已应用模型，活动任务或保存失败拒绝切换。未声明思考能力时入口说明限制并提供模型设置，不能选择档位。运行期间发送改为停止，调用 session.chat.cancel；提交等待或附件读取期间禁用发送；空草稿/引用/附件、断开连接或删除等待时同样禁用；首次提交按需创建远端会话。禁用实心发送使用 hover 底色与 muted 图标，避免正常行动色暗示可提交。
 
-加号提供“添加文本附件”和“查看附件与引用”，明确说明 UTF-8、最多 4 个与合计 8 KiB。同步系统文件对话框只接收用户主动选择的文件，读取交给前端唯一 Executor 的有限任务；拒绝非普通文件、二进制、无效 UTF-8 与超限，Linux 还拒绝符号链接/FIFO，取消选择无错误。附件以文件名与完整文本加入明确标记的不可信用户 TextPart 上下文，不提供图像/二进制上传或自动目录读取。附件和引用出现后展示 176×28px“附件 N · 引用 N”计数 pill，图标 11px、文字 12px；点击打开宽 `min(320px, column)`、高 `min(352px, screen.height - 160px)` 的滚动预览。附件展示文件名、字节数、13px / 22px 文本和移除入口；引用展示完整文字、来源角色、消息 ID，并可逐条删除，文字 14px / 22px、行间距 16px、滚动条宽 4px / gap 6px。引用最多 4 条、合计 8 KiB；附件另有相同上限，二者与草稿一起受编码后 16 KiB wire 上限。引用/附件实例有独立单调 ID，ACK 仅清除该次提交实例；附件 generation 防止已清空会话接纳迟到读取结果。
+加号提供“添加文本附件”和“查看附件与引用”，明确说明 UTF-8、最多 4 个与合计 8 KiB。同步系统文件对话框只接收用户主动选择的文件，读取交给前端唯一 Executor 的有限任务；拒绝非普通文件、二进制、无效 UTF-8 与超限，Linux 还拒绝符号链接/FIFO，取消选择无错误。附件以文件名与完整文本加入明确标记的不可信用户 TextPart 上下文，不提供图像/二进制上传或自动目录读取。附件和引用出现后展示 176×28px“附件 N · 引用 N”计数 pill，图标 11px、文字 12px；点击打开宽 `min(320px, column)`、高 `min(352px, screen.height - 160px)` 的滚动预览。附件展示文件名、字节数、13px / 22px 文本和移除入口；引用展示完整文字、来源角色、消息 ID，并可逐条删除，文字 14px / 22px、行间距 16px、滚动条宽 4px / gap 6px。引用最多 4 段、合计 8 KiB；附件另有相同上限，二者与草稿一起受编码后 16 KiB wire 上限。引用/附件实例有独立单调 ID，ACK 仅清除该次提交实例；附件 generation 防止已清空会话接纳迟到读取结果。
 
 上下文圆环采用 24×24 SVG 视框、半径 10、描边 4，原生显示为 20×20px；用 SVG 路径弧绘制占用，避免依赖 dash-array 支持。点击或经 EUI 键盘操作展开宽 `min(320px, column)`、高 224px 的详情，浅色使用 surface、深色使用 dark-composer，按上下文工具的 x=162px 锚点定位并钳制到 composer 可用宽度；与 composer 间隔 8px、顶部至少 68px。标题与百分比在顶部，下一行展示带千位分隔的“输入 / 窗口 Token”；下方是 6px 高、3px 圆角的比例条，以及来源、模型、本次引用数三行。未知时显示灰色空环、“未知”与“Token 用量尚不可用 / 等待模型返回 Token 用量”；已有输入但分母未知时显示“输入 / 未知 Token”，提示到模型设置填写窗口预算。真实零用量配合已知分母显示 0%；原始 Token 数和百分比可以超过 100%，仅圆环与进度条图形钳制到 100%。
 

@@ -48,6 +48,10 @@ struct LocalSession {
     std::string pending_access = {};
     std::string pending_reasoning = {};
     bool deleting = false;
+    std::string edit_turn_id = {};
+    std::string edit_saved_draft = {};
+    std::uint64_t latest_sequence = 0;
+    std::vector<std::string> retired_turns = {};
 };
 
 // UI-thread-only, bounded preview state. IDs are never reused, and switching
@@ -71,6 +75,12 @@ class ChatModel {
     bool submit();
     bool bind_remote(std::uint64_t id, const std::string &remote);
     bool reference_message(std::uint64_t message_id);
+    bool reference_excerpt(std::uint64_t message_id, const std::string &text);
+    void remove_reference_instance(std::uint64_t id);
+    bool edit_last_input(std::uint64_t message_id);
+    void cancel_edit();
+    void reconcile_turns(std::uint64_t id, const std::vector<std::string> &turns,
+                         std::uint64_t newest_sequence);
     void remove_reference(std::uint64_t message_id);
     bool attach(std::uint64_t session_id, TextAttachment attachment,
                 std::optional<std::uint64_t> generation = {});
@@ -80,7 +90,8 @@ class ChatModel {
     LocalSession *find(std::uint64_t id);
     void apply_turn(std::uint64_t id, const std::string &turn, const std::string &status,
                     const std::string &user, const std::string &reply, const std::string &error,
-                    std::optional<ContextUsage> usage = {}, std::uint64_t sequence = 0);
+                    std::optional<ContextUsage> usage = {}, std::uint64_t sequence = 0,
+                    const std::string &replaces = {});
     LocalSession &current();
     const LocalSession &current() const;
     const std::vector<LocalSession> &sessions() const { return sessions_; }

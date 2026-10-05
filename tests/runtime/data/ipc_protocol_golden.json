@@ -1,10 +1,10 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 11,
+    "version": 12,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
-    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted), DEC-038 (Accepted)",
+    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted), DEC-038 (Accepted), DEC-039 (Accepted)",
     "consumers": [
       "tests/runtime/ipc_protocol_golden_test.cpp"
     ],
@@ -21,7 +21,8 @@
       "v8 (M5-06): dialog mode face (DEC-027) - session.chat / session.chat.history requests with the DialogTurnAccepted / DialogHistory payloads (turns carry pending/ok/failed closed status vocabulary, reply_text / error encode-when-set exactly at ok / failed), session.chat_updated event (pending / ok / failed lifecycle), hello 'chat' capability member (model-layer equipment, permissions-bit precedent); wire order pinned by schema doc sections 4, 6.1, 6.7 and 7.2.",
       "v9 (M5-07): permission policy face (DEC-020/DEC-011 evolution) - policy.get / policy.set requests with the PolicyView payload (full DEC-010 rule set, optional read_roots resource scope), hello 'policy' capability member (always served); wire order pinned by schema doc sections 4, 6.1, 6.8 and 10.",
       "v10 (M5-10): task pause/resume face (DEC-030) - task.pause / task.resume requests with the TaskPaused / TaskResumed replies (task_id + post-command progress snapshot, mirroring the task.cancel reply shape); progress stays inside the task.updated / task.inspect vocabulary. wire order pinned by schema doc sections 4, 6.9 and 10.",
-      "v11 (M6-09): direct API Key write-only model.set field and optional cleanup warning; session.delete acknowledged persistence boundary. Existing v1 request/response canonical strings remain compatible; schema doc DEC-038 increment."
+      "v11 (M6-09): direct API Key write-only model.set field and optional cleanup warning; session.delete acknowledged persistence boundary. Existing v1 request/response canonical strings remain compatible; schema doc DEC-038 increment.",
+      "v12 (M6-11): optional last-turn replacement guard and replacement provenance in acknowledgement/events. Absent fields retain previous canonical strings."
     ]
   },
   "requests": [
@@ -404,6 +405,17 @@
         "api_key": ""
       },
       "canonical": "{\"v\":1,\"id\":93,\"op\":\"model.set\",\"settings\":\"{\\\"schema\\\":1,\\\"model\\\":{\\\"enabled\\\":false}}\",\"api_key\":\"\"}"
+    },
+    {
+      "name": "session-chat-replace",
+      "id": 91,
+      "body": {
+        "op": "session.chat",
+        "session_id": "session-1",
+        "text": "revised input",
+        "replace_turn_id": "old-turn"
+      },
+      "canonical": "{\"v\":1,\"id\":91,\"op\":\"session.chat\",\"session_id\":\"session-1\",\"text\":\"revised input\",\"replace_turn_id\":\"old-turn\"}"
     }
   ],
   "request_failures": [
@@ -636,6 +648,21 @@
       "name": "policy-set-root-empty",
       "payload": "{\"v\":1,\"id\":9,\"op\":\"policy.set\",\"rules\":{\"input.inject\":\"allow\"},\"read_roots\":[\"\"]}",
       "error": "policy.set 'read_roots' entries must be strings of at most 4096 bytes"
+    },
+    {
+      "name": "invalid-replacement-0",
+      "payload": "{\"v\":1,\"id\":91,\"op\":\"session.chat\",\"session_id\":\"session-1\",\"text\":\"test\",\"replace_turn_id\":\"\"}",
+      "error": "replace_turn_id must be a non-empty bounded string"
+    },
+    {
+      "name": "invalid-replacement-1",
+      "payload": "{\"v\":1,\"id\":91,\"op\":\"session.chat\",\"session_id\":\"session-1\",\"text\":\"test\",\"replace_turn_id\":7}",
+      "error": "replace_turn_id must be a non-empty bounded string"
+    },
+    {
+      "name": "invalid-replacement-129",
+      "payload": "{\"v\":1,\"id\":91,\"op\":\"session.chat\",\"session_id\":\"session-1\",\"text\":\"test\",\"replace_turn_id\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      "error": "replace_turn_id must be a non-empty bounded string"
     }
   ],
   "responses": [
@@ -1590,6 +1617,21 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":92,\"ok\":true,\"model_settings\":\"{\\\"schema\\\":1}\",\"warning\":\"cleanup pending\"}"
+    },
+    {
+      "name": "session-chat-replacement-accepted",
+      "response": {
+        "id": 91,
+        "ok": true,
+        "payload": {
+          "kind": "session-chat-accepted",
+          "value": {
+            "turn_id": "new-turn",
+            "replaces_turn_id": "old-turn"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":91,\"ok\":true,\"turn_id\":\"new-turn\",\"replaces_turn_id\":\"old-turn\"}"
     }
   ],
   "response_failures": [
@@ -1980,6 +2022,21 @@
         "sequence": 2
       },
       "canonical": "{\"v\":1,\"seq\":13,\"event\":\"session.chat_updated\",\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"turn_id\":\"8c9e66794742f64b6f4b1c9d2e0f1a3b\",\"status\":\"pending\",\"user_text\":\"第二个问题\",\"sequence\":2}"
+    },
+    {
+      "name": "session-chat-replacement-pending",
+      "event": {
+        "v": 1,
+        "seq": 91,
+        "event": "session.chat_updated",
+        "replaces_turn_id": "old-turn",
+        "session_id": "session-1",
+        "turn_id": "new-turn",
+        "status": "pending",
+        "user_text": "revised input",
+        "sequence": 3
+      },
+      "canonical": "{\"v\":1,\"seq\":91,\"event\":\"session.chat_updated\",\"replaces_turn_id\":\"old-turn\",\"session_id\":\"session-1\",\"turn_id\":\"new-turn\",\"status\":\"pending\",\"user_text\":\"revised input\",\"sequence\":3}"
     }
   ],
   "event_failures": [

@@ -110,11 +110,13 @@ struct ServiceCore {
     /// restarts. Null when disabled (tests).
     std::unique_ptr<mirage::runtime::persistence::LocalStateStore> session_state_store;
     /// Hydrated session ids (M5-08): sessions restored from the state
-    /// document whose pinned counterpart is gone — service faces (history,
-    /// dialog, close) serve them from product state alone; task submit and
-    /// pinned close have no pinned session to reach and are refused or
-    /// handled service-side respectively.
+    /// document whose pinned counterpart is gone. History stays product state;
+    /// native dialog can reopen a target below (DEC-039), while desktop task
+    /// submission does not restore the previous pinned session.
     std::set<std::string> hydrated_sessions;
+    // DEC-039: serial-context-only, lazily reopened native harness sessions.
+    // At most one target per capacity-bounded product session; never persisted.
+    std::map<std::string, std::string> harness_sessions;
     /// Raw journal append inputs (DEC-021 hydration surface): shadow the
     /// journal's appends with the raw inputs so the persisted document can
     /// reproduce the projected view exactly (append_outcome composes its

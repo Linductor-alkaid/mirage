@@ -35,14 +35,14 @@ Mirage 是基于 Mira 构建的桌面端产品，为 Mira 通用 Agent 提供完
 ## Capabilities and Constraints
 
 - 新原生前端：C++20 + pinned EUI-NEO dev（GLFW/OpenGL），无 Chromium；依赖只在 UI 层使用，不使用 EUI async/network/audio 承载业务并发。
-- 当前原生界面：新建/切换服务会话、独立草稿、随文字增高的16px多行输入、中文粘贴、通用 Agent harness、真实发送/回复/停止状态、Markdown回复、整条复制、文字引用与可检查来源/逐条删除的引用弹层、真实上下文容量、滚动、明暗、侧栏调宽与收起、窗口控制。UI 最多显示 24 个会话、每会话最近 40 轮（80 条消息），草稿最多 16 KiB；草稿、主题与侧栏宽度只保留在当前 UI 进程。会话历史由服务持有，服务重启恢复的旧会话只恢复历史，新轮次使用本次服务的活动会话。
-- 原生引用最多4条、原文合计8KiB；草稿与编码后引用共同受16KiB提交上限，拒绝保留草稿。ACK按引用实例清除本次提交项，保护新草稿/新引用与重新引用。上下文圆环与详情展示最近成功请求的模型输入Token / 显式配置窗口预算，只接受Mira的Exact / ProviderReported用量；工具循环取最终回复调用输入，不累计调用或计入输出，不从草稿/bytes估算。默认窗口未知，缺用量或分母显示未知；已知零显示0%，超额保留原始数字/百分比、图形钳制100%。失败/取消保留此前成功值，新成功缺用量重置未知，旧序列不覆盖新值；服务重启旧历史的用量未知（M6-06、DEC-036）。精细框选与链接打开尚不支持；EUI连续CJK间距临时经公共DSL Adapter修正，上游保守换行保留（DEC-035、EUI-20261004-004）。
+- 当前原生界面：新建/切换服务会话、独立草稿、随文字增高的16px多行输入、中文粘贴、通用 Agent harness、真实发送/回复/停止状态、Markdown回复、整条复制、文字引用与可检查来源/逐条删除的引用弹层、真实上下文容量、滚动、明暗、侧栏调宽与收起、窗口控制。UI 最多显示 24 个会话、每会话最近 40 轮（80 条消息），草稿最多 16 KiB；草稿、主题与侧栏宽度只保留在当前 UI 进程。会话历史由服务持有；服务重启后首次harness提交延迟打开当前Mira会话，继续使用稳定历史ID。
+- 原生引用最多4段、原文合计8KiB；草稿与编码后引用共同受16KiB提交上限，拒绝保留草稿。ACK按引用实例清除本次提交项，保护新草稿/新引用与重新引用。上下文圆环与详情展示最近成功请求的模型输入Token / 显式配置窗口预算，只接受Mira的Exact / ProviderReported用量；工具循环取最终回复调用输入，不累计调用或计入输出，不从草稿/bytes估算。默认窗口未知，缺用量或分母显示未知；已知零显示0%，超额保留原始数字/百分比、图形钳制100%。失败/取消保留此前成功值，新成功缺用量重置未知，旧序列不覆盖新值；服务重启旧历史的用量未知（M6-06、DEC-036）。支持同一消息拖选引用；跨消息选择、自动滚动与链接打开尚不支持；EUI连续CJK间距临时经公共DSL Adapter修正，上游保守换行保留（DEC-035、EUI-20261004-004）。
 - 设置 → 模型提供服务 origin、API 路径、模型 ID、直接 API Key 输入、可选上下文窗口预算（Token）与 Responses / Chat Completions 协议。窗口预算留空为未知，非零整数范围2048–2000000；保存后的配置同时映射Mira ProfileLimits，未配置保留既有Mira默认运行预算，UI不宣称自动发现供应商窗口。保存经 model.set 合并写入服务配置并应用；活动轮次时忙拒绝，失败保留已应用模型。API Key 默认遮蔽，保存在系统钥匙环，普通配置仅保存引用；已存 Key 不回传，留空保留、显式移除后保存清除。旧环境变量配置保留兼容读取；composer 显示服务确认的模型，未保存表单不会冒充已应用配置。
 - Agent 模式入口经 session.chat(agent=true) 使用 MiraRuntime、ModelGateway 和 Mira 自带 wait 工具；当前不提供截图、桌面工具、RPA 或 workflow。通用循环暂位于 ModelLayer Adapter，能力反馈为 MIRA-20261004-001；未直接调用设备 AgentLoop。
 - RuntimeBridge 经 Executor 管理有界 IPC 请求与事件投递，服务断开可在模型页重新连接；退出 UI 停止自身 IPC 与 Executor，不关闭外部已有 Runtime Service。流式回复、统一入口/托盘与活动退出确认仍待后续交付。
 - 2026-10-05 按维护者要求删除旧 TS/CEF、npm 工具链与 Web 调试桥；原生前端继续消费版本化 Local IPC，C++ golden 和服务测试保留。后台工作由 Mira Executor 管理。
 - 平台与供应商验收：Linux X11/XWayland 为当前验收范围；SiliconFlow 真实文字/工具循环已通过。MiniMax 受 pinned TLS SNI 缺口影响（MIRA-20261004-002）；Windows 真机窗口/IME 与流式回复未验收，不宣称原生 Wayland 支持。
-- 当前原生会话基线按用户指定的 ZCode 整页参考：中性明暗背景、672px居中空态、右对齐用户气泡、无卡片Markdown回复、最大896px活动阅读列与16px圆角增长composer，工具顺序为附件/访问权限/上下文占比/模型/思考深度/发送。Linux原生截图与ZCode源码/布局对齐已复核，两项指定修正评分均resolved；运行中Wayland ZCode截图因ScreenshotWindow AccessDenied未完成像素对照。旧 mission-console 风格不约束新原生页面。
+- 当前原生会话基线按用户指定的 ZCode 整页参考：中性明暗背景、672px居中空态、右对齐用户气泡、无卡片Markdown回复、最大800px活动阅读列与16px圆角增长composer，工具顺序为附件/访问权限/上下文占比/模型/思考深度/发送。Linux原生截图与ZCode源码/布局对齐已复核，两项指定修正评分均resolved；运行中Wayland ZCode截图因ScreenshotWindow AccessDenied未完成像素对照。旧 mission-console 风格不约束新原生页面。
 
 ## Brand Commitments
 
@@ -81,3 +81,9 @@ Mirage 是基于 Mira 构建的桌面端产品，为 Mira 通用 Agent 提供完
 历史行提供垃圾桶与删除确认，活动会话须先停止；服务确认并持久化成功后移除，重启不恢复。
 模型页直接填写 API Key，存 Linux Secret Service / Windows Credential Manager，普通配置仅存引用；
 系统凭据不可用/锁定时明确失败。Linux 首步已验证，Windows 由目标环境另验。
+
+2026-10-05（DEC-039 / M6-11）：会话气泡和Markdown减重，正文16/24；复制仅悬停/键盘聚焦时显示，
+移除整条引用按钮，拖选实际渲染文字后弹出引用。最后一条已终结输入支持修改重发；接纳与保存成功
+才替换其用户/Agent消息，实际模型输入排除旧轮次，失败拒绝保留原历史。该操作不撤销工具外部副作用。
+[验收证据](docs/compatibility/native-conversation-revision-20261005.md)使用显式合成会话和真实Mira请求夹具，
+不作为运行中ZCode的像素对比或本轮供应商在线测试。

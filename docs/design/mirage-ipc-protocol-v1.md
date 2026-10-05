@@ -638,3 +638,27 @@ session.delete 对无活动任务/对话的普通会话复用 pinned Mira close 
 成功后普通会话不再出现在 session.list，主会话仍存在但对话为空。与 session.close 的原有语义分开。
 UI 对空列表和空对话不建立历史行；新草稿首次发送才 session.open，已删除本地 ID 不接受迟到更新。
 新增 wire golden 覆盖写 Key、移除 Key、删除请求/响应和带 warning 的配置响应。
+
+### DEC-039 增量：最后一轮替换
+
+| 面 | 新增可选字段 | 语义 |
+| --- | --- | --- |
+| session.chat 请求 | replace_turn_id:string | 非空且≤128字节；只能精确匹配当前会话最后已终结轮次 |
+| session.chat 成功ACK | replaces_turn_id:string | 被替换旧轮次ID；turn_id为新轮次 |
+| session.chat_updated 事件 | replaces_turn_id:string | pending和终态均携带，订阅者据此移除旧消息对 |
+
+字段缺省时保持旧v1 canonical编码。非法类型、空值、超长ID在解码层拒绝；目标过期、
+非末轮或正在运行返回invalid_state。先完成Mira Task接纳、Executor提交与替换持久化，
+才发布pending和ACK；失败恢复旧记录并返回unavailable，绝不提前删除调用方历史。
+
+新轮次sequence继续单调增长。模型transcript排除旧轮次用户文字/回复，更早历史保留；
+这不是外部工具事务回滚，旧Task审计保留。新轮次推理失败仍是被接纳轮次的失败。
+UI用替换ID和序列抵御迟到旧回复，session.chat.history为事实快照，旧ID不再存在。
+持久化不需要新字段：保存的是已替换后的有界轮次，重启后用稳定产品ID继续历史harness。
+运行Mira会话由串行服务延迟重新打开并映射，Task/OperationContext使用当前运行ID；
+session.close/delete关闭映射目标，旧桌面task.submit面不在该恢复范围内。
+
+Wire golden覆盖缺省兼容、替换请求/ACK/事件及非法目标，服务集成测试检查Mira真实请求
+和写盘拒绝、并发拒绝、取消、重启编辑/续聊/删除。见
+[DEC-039](../decisions/DEC-039-conversation-selection-and-revision.md)与
+[Linux验收](../compatibility/native-conversation-revision-20261005.md)。

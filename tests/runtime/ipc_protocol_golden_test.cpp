@@ -249,6 +249,8 @@ ipc::Event event_from_vector(const std::string &name, const mira::JsonValue &bod
         payload.turn_id = vector_string(body, "turn_id");
         payload.status = vector_string(body, "status");
         payload.user_text = vector_string(body, "user_text");
+        if (body.find("replaces_turn_id"))
+            payload.replaces_turn_id = vector_string(body, "replaces_turn_id");
         payload.sequence = static_cast<std::uint64_t>(vector_integer(body, "sequence"));
         if (const auto *reply = body.find("reply_text"); reply != nullptr) {
             const auto text = reply->as_string();
@@ -348,6 +350,8 @@ void check_event_equal(const std::string &name, const ipc::Event &expected,
         const auto &decoded = std::get<ipc::ChatTurnUpdatedEvent>(actual.payload);
         check_string_equal(name, "chat session_id", decoded.session_id, chat->session_id);
         check_string_equal(name, "chat turn_id", decoded.turn_id, chat->turn_id);
+        check_string_equal(name, "replaces_turn_id", decoded.replaces_turn_id,
+                           chat->replaces_turn_id);
         check_string_equal(name, "chat status", decoded.status, chat->status);
         check_string_equal(name, "chat user_text", decoded.user_text, chat->user_text);
         MIRAGE_CHECK(decoded.has_reply == chat->has_reply);
@@ -455,6 +459,8 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
         ipc::SessionChatRequest chat;
         chat.session_id = vector_string(body, "session_id");
         chat.text = vector_string(body, "text");
+        if (body.find("replace_turn_id"))
+            chat.replace_turn_id = vector_string(body, "replace_turn_id");
         return chat;
     }
     if (op == "session.chat.history") {
@@ -667,6 +673,8 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                 check_string_equal(name, "chat session_id", chat.session_id,
                                    expected_value.session_id);
                 check_string_equal(name, "chat text", chat.text, expected_value.text);
+                check_string_equal(name, "replace_turn_id", chat.replace_turn_id,
+                                   expected_value.replace_turn_id);
             } else if constexpr (std::is_same_v<T, ipc::ChatHistoryRequest>) {
                 const auto &history = std::get<ipc::ChatHistoryRequest>(actual);
                 check_string_equal(name, "chat history session_id", history.session_id,
@@ -925,7 +933,10 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
         }
         response.payload = std::move(view);
     } else if (kind == "session-chat-accepted") {
-        response.payload = ipc::DialogTurnAccepted{vector_string(value, "turn_id")};
+        ipc::DialogTurnAccepted accepted{vector_string(value, "turn_id")};
+        if (value.find("replaces_turn_id"))
+            accepted.replaces_turn_id = vector_string(value, "replaces_turn_id");
+        response.payload = std::move(accepted);
     } else if (kind == "session-chat-history") {
         ipc::DialogHistory history;
         history.session_id = vector_string(value, "session_id");
@@ -1275,6 +1286,8 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                 MIRAGE_CHECK(actual_value.read_roots == expected_value.read_roots);
             } else if constexpr (std::is_same_v<T, ipc::DialogTurnAccepted>) {
                 check_string_equal(name, "turn_id", actual_value.turn_id, expected_value.turn_id);
+                check_string_equal(name, "replaces_turn_id", actual_value.replaces_turn_id,
+                                   expected_value.replaces_turn_id);
             } else if constexpr (std::is_same_v<T, ipc::DialogHistory>) {
                 check_string_equal(name, "dialog session_id", actual_value.session_id,
                                    expected_value.session_id);

@@ -174,6 +174,7 @@ struct DialogTurnRecord {
     std::optional<ipc::ContextUsage> context_usage;
     std::string turn_id;
     std::string agent_task_id;
+    std::string replaces_turn_id;
     /// "pending" / "ok" / "failed"
     std::string status = "pending";
     std::string user_text;

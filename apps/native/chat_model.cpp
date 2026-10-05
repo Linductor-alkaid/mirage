@@ -159,24 +159,66 @@ bool ChatModel::bind_remote(std::uint64_t id, const std::string &remote) {
     return true;
 }
 bool ChatModel::reference_message(std::uint64_t message_id) {
+    const auto &messages = current().messages;
+    const auto found =
+        std::find_if(messages.begin(), messages.end(),
+                     [message_id](const auto &message) { return message.id == message_id; });
+    return found != messages.end() && reference_excerpt(message_id, found->text);
+}
+bool ChatModel::reference_excerpt(std::uint64_t message_id, const std::string &text) {
     auto &session = current();
-    if (std::any_of(session.references.begin(), session.references.end(),
-                    [message_id](const auto &r) { return r.message_id == message_id; }))
-        return true;
     const auto message = std::find_if(session.messages.begin(), session.messages.end(),
                                       [message_id](const auto &m) { return m.id == message_id; });
-    if (message == session.messages.end() || message->text.empty() || message->status == "运行中")
+    if (message == session.messages.end() || text.empty() || message->status == "运行中" ||
+        text.find_first_not_of(" \t\r\n") == std::string::npos)
         return false;
-    std::size_t bytes = message->text.size();
+    if (std::any_of(session.references.begin(), session.references.end(),
+                    [&](const auto &r) { return r.message_id == message_id && r.text == text; }))
+        return true;
+    std::size_t bytes = text.size();
     for (const auto &reference : session.references)
         bytes += reference.text.size();
     if (session.references.size() >= 4 || bytes > 8 * 1024) {
-        notice_ = "最多引用 4 条消息，总文字不超过 8 KiB。";
+        notice_ = "最多引用 4 段文字，总文字不超过 8 KiB。";
         return false;
     }
-    session.references.push_back({message->id, message->role, message->text, next_reference_++});
+    session.references.push_back({message->id, message->role, text, next_reference_++});
     notice_.clear();
     return true;
+}
+void ChatModel::remove_reference_instance(std::uint64_t id) {
+    std::erase_if(current().references, [id](const auto &r) { return r.id == id; });
+}
+bool ChatModel::edit_last_input(std::uint64_t message_id) {
+    auto &session = current();
+    if (session.running || session.submitting || session.deleting || session.attachment_loading ||
+        !session.edit_turn_id.empty() || session.messages.size() < 2)
+        return false;
+    const auto &message = session.messages[session.messages.size() - 2];
+    if (message.id != message_id || message.role != "你" || message.turn_id.empty())
+        return false;
+    session.edit_turn_id = message.turn_id;
+    session.edit_saved_draft = session.draft;
+    session.draft = message.text;
+    return true;
+}
+void ChatModel::cancel_edit() {
+    auto &session = current();
+    if (session.submitting || session.edit_turn_id.empty())
+        return;
+    session.draft = std::move(session.edit_saved_draft);
+    session.edit_turn_id.clear();
+}
+void ChatModel::reconcile_turns(std::uint64_t id, const std::vector<std::string> &turns,
+                                std::uint64_t newest_sequence) {
+    auto *session = find(id);
+    if (!session || newest_sequence < session->latest_sequence)
+        return;
+    std::erase_if(session->messages, [&](const auto &message) {
+        return std::find(turns.begin(), turns.end(), message.turn_id) == turns.end();
+    });
+    session->context_usage.reset();
+    session->usage_sequence = 0;
 }
 void ChatModel::remove_reference(std::uint64_t message_id) {
     std::erase_if(current().references,
@@ -238,7 +280,9 @@ void ChatModel::acknowledge_submission(std::uint64_t id) {
     if (!session)
         return;
     if (session->draft == session->submitted_text)
-        session->draft.clear();
+        session->draft = session->edit_turn_id.empty() ? std::string{} : session->edit_saved_draft;
+    session->edit_turn_id.clear();
+    session->edit_saved_draft.clear();
     std::erase_if(session->references, [session](const auto &r) {
         return std::find(session->submitted_references.begin(), session->submitted_references.end(),
                          r.id) != session->submitted_references.end();
@@ -256,21 +300,37 @@ void ChatModel::acknowledge_submission(std::uint64_t id) {
 void ChatModel::apply_turn(std::uint64_t id, const std::string &turn, const std::string &status,
                            const std::string &user, const std::string &reply,
                            const std::string &error, std::optional<ContextUsage> usage,
-                           std::uint64_t sequence) {
+                           std::uint64_t sequence, const std::string &replaces) {
     auto *session = find(id);
-    if (!session)
+    if (!session || std::find(session->retired_turns.begin(), session->retired_turns.end(), turn) !=
+                        session->retired_turns.end())
         return;
+    if (!replaces.empty() && std::find(session->retired_turns.begin(), session->retired_turns.end(),
+                                       replaces) == session->retired_turns.end()) {
+        std::erase_if(session->messages, [&](const auto &m) { return m.turn_id == replaces; });
+        if (std::find(session->retired_turns.begin(), session->retired_turns.end(), replaces) ==
+            session->retired_turns.end()) {
+            if (session->retired_turns.size() >= max_messages)
+                session->retired_turns.erase(session->retired_turns.begin());
+            session->retired_turns.push_back(replaces);
+        }
+        session->context_usage.reset();
+        session->usage_sequence = sequence;
+    }
     if (session->messages.empty())
         session->title = title_from(user);
     auto it = std::find_if(session->messages.begin(), session->messages.end(),
                            [&turn](const auto &m) { return m.turn_id == turn; });
     if (it == session->messages.end()) {
+        if (sequence && sequence < session->latest_sequence)
+            return;
         if (session->messages.size() + 2 > max_messages)
             session->messages.erase(session->messages.begin(), session->messages.begin() + 2);
         session->messages.push_back({next_message_++, user, "你", "已发送", turn});
         session->messages.push_back({next_message_++, {}, "Mira", {}, turn});
         it = session->messages.end() - 2;
     }
+    session->latest_sequence = std::max(session->latest_sequence, sequence);
     auto &answer = *(it + 1);
     if (status == "pending" && !answer.status.empty() && answer.status != "运行中")
         return;

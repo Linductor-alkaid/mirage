@@ -1190,3 +1190,21 @@ if(UNIX)
     add_test(NAME native_agent_integration_test COMMAND native_agent_integration_test)
     set_tests_properties(native_agent_integration_test PROPERTIES LABELS "integration;runtime;ui" TIMEOUT 40)
 endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_ENABLE_NATIVE_FRONTEND)
+    add_executable(native_conversation_view_test desktop/native_conversation_view_test.cpp
+        ${CMAKE_SOURCE_DIR}/apps/native/chat_model.cpp
+        ${CMAKE_SOURCE_DIR}/apps/native/window_controls.cpp
+        ${CMAKE_SOURCE_DIR}/apps/native/runtime_bridge.cpp
+        ${CMAKE_SOURCE_DIR}/apps/native/attachment.cpp)
+    add_dependencies(native_conversation_view_test mirage-native)
+    target_include_directories(native_conversation_view_test PRIVATE ${CMAKE_SOURCE_DIR}/apps/native)
+    target_include_directories(native_conversation_view_test SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/eui-neo ${CMAKE_SOURCE_DIR}/third_party/eui-neo/include
+        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include)
+    target_link_libraries(native_conversation_view_test PRIVATE eui::neo Mirage::ipc Mirage::persistence executor)
+    mirage_enable_warnings(native_conversation_view_test)
+    add_test(NAME native_conversation_view_test COMMAND native_conversation_view_test)
+    set_tests_properties(native_conversation_view_test PROPERTIES LABELS "integration;ui" TIMEOUT 30
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/apps/native")
+endif()

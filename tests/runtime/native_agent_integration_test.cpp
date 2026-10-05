@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <executor/comm.hpp>
 #include <executor/executor.hpp>
 #include <fstream>
 #include <map>
@@ -36,6 +37,12 @@ class Provider final : public mira::IModelProvider {
     mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
                                             const mira::OperationContext &context,
                                             const mira::ProviderInferOptions &) override {
+        std::string input_text;
+        for (const auto &item : request.input)
+            for (const auto &part : item.content)
+                if (const auto *text = std::get_if<mira::TextPart>(&part))
+                    input_text += text->text + "\n";
+        wire.publish(std::move(input_text));
         const int number = ++calls;
         last_tools.store(static_cast<int>(request.tools.size()));
         saw_high.store(request.generation.reasoning_effort == mira::ReasoningEffort::High);
@@ -96,14 +103,15 @@ class Provider final : public mira::IModelProvider {
                     saw_tool_result.store(true);
         mira::MessageOutput message;
         mira::OutputTextPart text;
-        text.text = "Mira 已完成通用工具调用。";
+        text.text = old_reply.load() ? "旧末轮专属回复" : "Mira 已完成通用工具调用。";
         message.content.emplace_back(std::move(text));
         reply.output.emplace_back(std::move(message));
         return reply;
     }
+    executor::comm::LatestMailbox<std::string> wire{"test-model-wire"};
     mira::ModelProfile profile_;
     std::atomic_int calls{0}, last_tools{0};
-    std::atomic_bool saw_high{false};
+    std::atomic_bool saw_high{false}, old_reply{false};
     std::atomic_bool report_usage{true};
     std::atomic_bool hold{false}, tool_first{true}, saw_image{false}, saw_tool_result{false},
         throw_now{false}, always_tool{false}, bad_tool{false};
@@ -321,10 +329,67 @@ int main(int argc, char **argv) {
         envelope.payload = update;
         MIRAGE_CHECK(ipc::decode_event(ipc::encode_event(envelope)).ok);
     }
+    provider->old_reply.store(true);
     provider->report_usage.store(false);
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "缺失Token用量", true}, 2s).ok);
     const auto missing_usage = wait_turn(client, session);
     MIRAGE_CHECK(missing_usage && missing_usage->status == "ok" && !missing_usage->context_usage);
+    // DEC-039: replace the last settled pair, preserving earlier context.
+    provider->old_reply.store(false);
+    const auto obsolete = missing_usage->turn_id;
+    const auto invalid_replacement = client.call(
+        ipc::SessionChatRequest{session, "不会入库", true, "read_only", "", "not-the-latest"}, 2s);
+    MIRAGE_CHECK(!invalid_replacement.ok && invalid_replacement.error.code == "invalid_state");
+    const auto unchanged = client.call(ipc::ChatHistoryRequest{session, 40}, 2s);
+    MIRAGE_CHECK(std::get<ipc::DialogHistory>(unchanged.payload).turns.back().turn_id == obsolete);
+    const auto replacement = client.call(
+        ipc::SessionChatRequest{session, "修改后的输入", true, "read_only", "", obsolete}, 2s);
+    MIRAGE_CHECK(replacement.ok &&
+                 std::get<ipc::DialogTurnAccepted>(replacement.payload).replaces_turn_id ==
+                     obsolete);
+    auto replaced = wait_turn(client, session);
+    MIRAGE_CHECK(replaced && replaced->status == "ok" && replaced->turn_id != obsolete);
+    std::string wire;
+    MIRAGE_CHECK(provider->wire.try_load(wire));
+    MIRAGE_CHECK(wire.find("修改后的输入") != std::string::npos &&
+                 wire.find("缺失Token用量") == std::string::npos &&
+                 wire.find("旧末轮专属回复") == std::string::npos &&
+                 wire.find("解释一个概念") != std::string::npos);
+    const auto replacement_history = client.call(ipc::ChatHistoryRequest{session, 40}, 2s);
+    MIRAGE_CHECK(std::get<ipc::DialogHistory>(replacement_history.payload).turns.size() == 2);
+    MIRAGE_CHECK(
+        !client
+             .call(ipc::SessionChatRequest{session, "过期编辑", true, "default", "", obsolete}, 2s)
+             .ok);
+    // Fail persistence before acknowledgement: old context remains intact.
+    const auto state_directory = config.session_state_directory;
+    const auto saved_directory = state_directory.string() + "-saved";
+    std::filesystem::rename(state_directory, saved_directory);
+    {
+        std::ofstream blocker(state_directory);
+        blocker << "fixture blocker";
+    }
+    const auto persist_refused = client.call(
+        ipc::SessionChatRequest{session, "不应替换", true, "read_only", "", replaced->turn_id}, 2s);
+    MIRAGE_CHECK(!persist_refused.ok && persist_refused.error.code == "unavailable");
+    std::filesystem::remove(state_directory);
+    std::filesystem::rename(saved_directory, state_directory);
+    const auto after_failure = client.call(ipc::ChatHistoryRequest{session, 40}, 2s);
+    MIRAGE_CHECK(std::get<ipc::DialogHistory>(after_failure.payload).turns.back().turn_id ==
+                 replaced->turn_id);
+    // Replacing a turn cannot restore an active or superseded task.
+    provider->hold.store(true);
+    const auto active_revision = client.call(
+        ipc::SessionChatRequest{session, "活动修改", true, "read_only", "", replaced->turn_id}, 2s);
+    MIRAGE_CHECK(active_revision.ok);
+    MIRAGE_CHECK(!client
+                      .call(ipc::SessionChatRequest{session, "并发修改", true, "read_only", "",
+                                                    replaced->turn_id},
+                            2s)
+                      .ok);
+    MIRAGE_CHECK(client.call(ipc::CancelChatRequest{session}, 2s).ok);
+    MIRAGE_CHECK(wait_turn(client, session)->status == "failed");
+    provider->hold.store(false);
     provider->report_usage.store(true);
     provider->bad_tool.store(true);
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "非法提案", true}, 2s).ok);
@@ -616,6 +681,35 @@ int main(int argc, char **argv) {
         const auto &restored_sessions = std::get<ipc::SessionList>(restored_list.payload).sessions;
         MIRAGE_CHECK(std::none_of(restored_sessions.begin(), restored_sessions.end(),
                                   [&](const auto &item) { return item.id == disposable; }));
+        const auto restored_history =
+            restored_client.call(ipc::ChatHistoryRequest{session, 40}, 2s);
+        const auto &restored_turns = std::get<ipc::DialogHistory>(restored_history.payload).turns;
+        MIRAGE_CHECK(
+            !restored_turns.empty() &&
+            std::none_of(restored_turns.begin(), restored_turns.end(),
+                         [&obsolete](const auto &item) { return item.turn_id == obsolete; }));
+        const auto restored_last = restored_turns.back().turn_id;
+        MIRAGE_CHECK(restored_client.call(ipc::SetModelRequest{serialized}, 2s).ok);
+        provider->hold.store(false);
+        MIRAGE_CHECK(restored_client
+                         .call(ipc::SessionChatRequest{session, "重启后编辑", true, "read_only", "",
+                                                       restored_last},
+                               2s)
+                         .ok);
+        const auto resumed = wait_turn(restored_client, session);
+        MIRAGE_CHECK(resumed && resumed->status == "ok" && resumed->user_text == "重启后编辑");
+        const auto rebound_list = restored_client.call(ipc::ListSessionsRequest{}, 2s);
+        MIRAGE_CHECK(rebound_list.ok);
+        const auto &rebound_sessions = std::get<ipc::SessionList>(rebound_list.payload).sessions;
+        MIRAGE_CHECK(
+            std::any_of(rebound_sessions.begin(), rebound_sessions.end(), [&](const auto &item) {
+                return item.id == session && item.state != "failed";
+            }));
+        MIRAGE_CHECK(restored_client
+                         .call(ipc::SessionChatRequest{session, "继续会话", true, "read_only"}, 2s)
+                         .ok);
+        const auto continued = wait_turn(restored_client, session);
+        MIRAGE_CHECK(continued && continued->status == "ok");
         MIRAGE_CHECK(restored_client.call(ipc::DeleteSessionRequest{session}, 2s).ok);
         MIRAGE_CHECK(!restored_client.call(ipc::ChatHistoryRequest{session, 40}, 2s).ok);
         restarted.request_shutdown();

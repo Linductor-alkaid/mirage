@@ -3,6 +3,7 @@
 #include "markdown_adapter.hpp"
 #include "runtime_bridge.hpp"
 #include "secret_input.hpp"
+#include "selection_adapter.hpp"
 #include "window_controls.hpp"
 #include <mirage/runtime/persistence/settings.hpp>
 
@@ -37,6 +38,9 @@ Palette palette(bool dark) {
 }
 struct PageState {
     ChatModel chat;
+    TextSelection selection;
+    std::uint64_t hovered_message = 0;
+    std::vector<std::uint64_t> selection_cache_ids;
     bool dark = false;
     bool sidebar = true;
     bool settings = false;
@@ -104,7 +108,7 @@ void new_session() {
 bool send_prepared(LocalSession &session) {
     return call_runtime(ipc::SessionChatRequest{session.remote_id, session.pending_prompt,
                                                 state().agent_mode, session.pending_access,
-                                                session.pending_reasoning},
+                                                session.pending_reasoning, session.edit_turn_id},
                         "send", session.id);
 }
 void submit_turn() {
@@ -162,6 +166,12 @@ std::string display_error(const std::string &error) {
     if (error.starts_with(credential))
         return "服务未设置凭据变量 " + error.substr(credential.size()) +
                "。设置该变量后重启 Runtime Service。";
+    if (error == "only the latest settled turn can be replaced")
+        return "最后一轮已发生变化，请取消编辑并重新选择最后一条输入。";
+    if (error == "conversation replacement could not be persisted")
+        return "无法保存修改，原对话已保留。请检查存储空间后重试。";
+    if (error == "model task admission failed")
+        return "服务繁忙，消息未提交。请稍后重试。";
     if (error == "dialog turn was cancelled")
         return "当前任务已停止。";
     if (error == "another model turn is active" ||
@@ -309,17 +319,26 @@ void drain_runtime() {
                     } else
                         session = s.chat.find(known->id);
                 }
-                if (session && !session->deleting && session->remote_id == snapshot->session_id)
+                if (session && !session->deleting && session->remote_id == snapshot->session_id) {
+                    std::vector<std::string> ids;
+                    std::uint64_t newest = 0;
+                    for (const auto &turn : snapshot->turns) {
+                        ids.push_back(turn.turn_id);
+                        newest = std::max(newest, turn.sequence);
+                    }
+                    s.chat.reconcile_turns(session->id, ids, newest);
                     for (const auto &turn : snapshot->turns)
                         s.chat.apply_turn(session->id, turn.turn_id, turn.status, turn.user_text,
                                           turn.reply_text, display_error(turn.error),
                                           native_usage(turn.context_usage), turn.sequence);
+                }
             } else if (std::holds_alternative<ipc::DialogTurnAccepted>(payload) &&
                        message.tag == "send") {
                 if (session) {
                     const auto *accepted = std::get_if<ipc::DialogTurnAccepted>(&payload);
                     s.chat.apply_turn(session->id, accepted->turn_id, "pending",
-                                      session->pending_prompt, {}, {});
+                                      session->pending_prompt, {}, {}, {}, 0,
+                                      accepted->replaces_turn_id);
                     s.chat.acknowledge_submission(session->id);
                 }
                 s.runtime_notice = "请求已接纳，等待 Mira 回复。";
@@ -332,7 +351,8 @@ void drain_runtime() {
                     if (session.remote_id == turn->session_id) {
                         s.chat.apply_turn(session.id, turn->turn_id, turn->status, turn->user_text,
                                           turn->reply_text, display_error(turn->error),
-                                          native_usage(turn->context_usage), turn->sequence);
+                                          native_usage(turn->context_usage), turn->sequence,
+                                          turn->replaces_turn_id);
                         s.runtime_notice = turn->status == "pending" ? "Mira 正在运行…"
                                            : turn->status == "ok"    ? "Mira 已回复"
                                                                      : display_error(turn->error);
@@ -1129,16 +1149,29 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                        const components::theme::ThemeColorTokens &tokens) {
     auto &s = state();
     auto &session = s.chat.current();
+    for (const auto cached : s.selection_cache_ids)
+        if (std::none_of(session.messages.begin(), session.messages.end(),
+                         [cached](const auto &message) { return message.id == cached; }))
+            ui.releaseStateScope("message." + std::to_string(cached) + ".text.geometry");
+    s.selection_cache_ids.clear();
+    for (const auto &message : session.messages)
+        s.selection_cache_ids.push_back(message.id);
     const bool empty = session.messages.empty();
+    if (s.selection.session != session.id || s.settings || s.about || s.confirm_clear ||
+        s.confirm_delete || s.popup != PageState::Popup::None ||
+        std::none_of(session.messages.begin(), session.messages.end(),
+                     [&](const auto &message) { return message.id == s.selection.message; }))
+        s.selection.clear();
     const float main_width = screen.width - sidebar;
     const float column = empty ? std::min(672.0f, main_width - 48)
-                               : std::min(896.0f, main_width - (main_width >= 864 ? 96 : 32));
+                               : std::min(800.0f, main_width - (main_width >= 864 ? 96 : 48));
     const float x = sidebar + (main_width - column) / 2;
     const float input_height =
         std::clamp(text_height(session.draft, column - 40, 16, 24) + 16, 48.0f, 168.0f);
     const float refs_height =
         session.references.empty() && session.attachments.empty() ? 0.0f : 36.0f;
-    const float composer_height = input_height + refs_height + 56;
+    const float edit_height = session.edit_turn_id.empty() ? 0 : 32;
+    const float composer_height = input_height + refs_height + edit_height + 56;
     const float wanted_y =
         empty ? std::max(188.0f, screen.height * .29f + 106) : screen.height - composer_height - 28;
     const float y = std::min(wanted_y, screen.height - composer_height - 28);
@@ -1164,25 +1197,27 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         markdown.quoteBackground = s.dark ? color(0x202020) : color(0xf0f0f0);
         markdown.divider = p.border;
         markdown.bodySize = 16;
-        markdown.bodyLineHeight = 26;
-        markdown.h1Size = 22;
-        markdown.h2Size = 20;
-        markdown.h3Size = 18;
+        markdown.bodyLineHeight = 24;
+        markdown.h1Size = 20;
+        markdown.h2Size = 18;
+        markdown.h3Size = 17;
         markdown.codeSize = 14;
-        markdown.blockGap = 12;
+        markdown.blockGap = 8;
         markdown.radius = 8;
         components::scrollView(ui, "thread." + std::to_string(session_id))
             .position(x, 72)
             .size(column, std::max(48.0f, y - 88))
             .theme(tokens)
-            .gap(24)
+            .gap(14)
             .offset(session.scroll_offset)
             .scrollbarWidth(4)
             .scrollbarGap(8)
             .onChange([session_id](float offset) {
                 auto &chat = state().chat;
-                if (chat.current().id == session_id)
+                if (chat.current().id == session_id) {
                     chat.current().scroll_offset = offset;
+                    state().selection.clear();
+                }
             })
             .content([&](eui::Ui &list, float width, float) {
                 for (const auto &message : session.messages) {
@@ -1197,17 +1232,17 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                         measured.fontSize = 16;
                         bubble_width = std::min(
                             std::min(576.0f, width),
-                            std::max(80.0f, core::TextPrimitive::measureTextSize(measured).x + 32));
+                            std::max(80.0f, core::TextPrimitive::measureTextSize(measured).x + 24));
                     }
-                    const float body_width = user ? bubble_width - 32 : width - 24;
+                    const float body_width = user ? bubble_width - 24 : width - 16;
                     const float body_height =
                         user || pending || failed
-                            ? text_height(message.text, body_width)
-                            : std::max(26.0f, components::MarkdownBuilder::estimateHeight(
+                            ? text_height(message.text, body_width, 16, 24)
+                            : std::max(24.0f, components::MarkdownBuilder::estimateHeight(
                                                   message.text, body_width, markdown));
-                    const float body_y = user ? 12.0f : pending || failed ? 28.0f : 0.0f;
+                    const float body_y = user ? 8.0f : pending || failed ? 28.0f : 0.0f;
                     const float row_height =
-                        body_height + body_y + (user ? 12 : 0) + (pending ? 0 : 36);
+                        body_height + body_y + (user ? 8 : 0) + (pending ? 0 : 28);
                     list.stack(key)
                         .size(width, row_height)
                         .content([&] {
@@ -1215,10 +1250,9 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                             if (user)
                                 list.rect(key + ".bubble")
                                     .position(left, 0)
-                                    .size(bubble_width, body_height + 24)
+                                    .size(bubble_width, body_height + 16)
                                     .color(s.dark ? color(0x222222) : color(0xf0f0f0))
-                                    .radius(12)
-                                    .border(1, p.border)
+                                    .radius(10)
                                     .build();
                             if (pending || failed) {
                                 icon(list, key + ".state.icon", pending ? 0xf141 : 0xf06a, 0, 0, 13,
@@ -1229,11 +1263,11 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                             }
                             if (user || pending || failed)
                                 list.text(key + ".body")
-                                    .position(left + (user ? 16 : 0), body_y)
+                                    .position(left + (user ? 12 : 0), body_y)
                                     .size(body_width, body_height)
                                     .text(message.text)
                                     .fontSize(16)
-                                    .lineHeight(26)
+                                    .lineHeight(24)
                                     .wrap()
                                     .color(p.text)
                                     .hitTestMode(eui::dsl::HitTestMode::None)
@@ -1250,36 +1284,193 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                     compact_markdown_cjk(*view, message.text);
                             }
                             if (!pending) {
-                                const float action_y = row_height - 32;
-                                const float action_x = user ? width - 68 : 0;
-                                const std::string copy = message.text;
                                 const auto id = message.id;
+                                auto &cache = list.state<SelectionCache>(key + ".text.geometry");
+                                if (!cache.rendered)
+                                    cache.rendered = std::make_shared<SelectionText>();
+                                const auto rendered = cache.rendered;
+                                // Layout frames are unscrolled; the press bounds include the
+                                // rendered scroll transform. The overlay covers only the body.
+                                list.rect(key + ".select")
+                                    .position(left + (user ? 12 : 0), body_y)
+                                    .size(body_width, body_height)
+                                    .color({0, 0, 0, 0})
+                                    .onHover([id](bool entered) {
+                                        auto &page = state();
+                                        if (entered)
+                                            page.hovered_message = id;
+                                        else if (page.hovered_message == id)
+                                            page.hovered_message = 0;
+                                    })
+                                    .onPress([rendered, id, session_id, width = body_width, &list,
+                                              key, plain = user || failed](const auto &event,
+                                                                           const auto &bounds) {
+                                        *rendered = {};
+                                        if (const auto *body =
+                                                list.find(key + (plain ? ".body" : ".markdown")))
+                                            collect_selection_text(*body, *rendered);
+                                        auto &selection = state().selection;
+                                        selection.clear();
+                                        selection.session = session_id;
+                                        selection.message = id;
+                                        selection.scale = bounds.width / width;
+                                        if (const auto *target = list.find(key + ".select")) {
+                                            selection.origin_x =
+                                                bounds.x - target->frame.x * selection.scale;
+                                            selection.origin_y =
+                                                bounds.y - target->frame.y * selection.scale;
+                                        }
+                                        if (const auto *row = list.find(key)) {
+                                            selection.row_x = row->frame.x;
+                                            selection.row_y = row->frame.y;
+                                        }
+                                        selection.anchor = selection.caret = rendered->hit(
+                                            (event.x - selection.origin_x) / selection.scale,
+                                            (event.y - selection.origin_y) / selection.scale);
+                                        selection.dragging = true;
+                                    })
+                                    .onDrag([rendered, id](const auto &event) {
+                                        auto &selection = state().selection;
+                                        if (selection.dragging && selection.message == id)
+                                            selection.caret = rendered->hit(
+                                                (event.x - selection.origin_x) / selection.scale,
+                                                (event.y - selection.origin_y) / selection.scale);
+                                    })
+                                    .onRelease([rendered, id](const auto &event, const auto &) {
+                                        auto &selection = state().selection;
+                                        if (selection.message != id)
+                                            return;
+                                        if (event.action == eui::PointerAction::Cancel) {
+                                            selection.clear();
+                                            return;
+                                        }
+                                        selection.caret = rendered->hit(
+                                            (event.x - selection.origin_x) / selection.scale,
+                                            (event.y - selection.origin_y) / selection.scale);
+                                        selection.finish(*rendered);
+                                        selection.popup_x = event.x / selection.scale;
+                                        selection.popup_y = event.y / selection.scale;
+                                    })
+                                    .onKeyEvent([](const auto &event) {
+                                        auto &selection = state().selection;
+                                        if (!event.isDown())
+                                            return false;
+                                        if (event.key == eui::InputKey::Escape) {
+                                            selection.clear();
+                                            return true;
+                                        }
+                                        if (event.modifiers.control &&
+                                            event.key == eui::InputKey::C &&
+                                            !selection.excerpt.empty()) {
+                                            window::copy_text(selection.excerpt);
+                                            return true;
+                                        }
+                                        return false;
+                                    })
+                                    .build();
+                                const auto &selection = s.selection;
+                                if (selection.message == id && selection.session == session_id) {
+                                    const auto begin = std::min(selection.anchor, selection.caret);
+                                    const auto end = std::max(selection.anchor, selection.caret);
+                                    for (std::size_t i = 0; i < rendered->lines.size(); ++i) {
+                                        const auto &line = rendered->lines[i];
+                                        if (line.start >= end ||
+                                            line.start + line.text.size() <= begin)
+                                            continue;
+                                        float start_x = 0, end_x = 0;
+                                        for (std::size_t j = 0;
+                                             j < std::min(line.bytes.size(), line.carets.size());
+                                             ++j) {
+                                            const auto offset =
+                                                line.start +
+                                                static_cast<std::size_t>(line.bytes[j]);
+                                            if (offset <= begin)
+                                                start_x = line.carets[j];
+                                            if (offset <= end)
+                                                end_x = line.carets[j];
+                                        }
+                                        list.rect(key + ".selection." + std::to_string(i))
+                                            .position(line.x - selection.row_x + start_x,
+                                                      line.y - selection.row_y)
+                                            .size(std::max(0.0f, end_x - start_x), line.height)
+                                            .color(s.dark ? eui::Color{.5f, .7f, 1, .25f}
+                                                          : eui::Color{.1f, .4f, .8f, .18f})
+                                            .hitTestMode(eui::dsl::HitTestMode::None)
+                                            .build();
+                                    }
+                                }
+                                const float action_y = row_height - 26;
+                                const bool can_edit =
+                                    user && session.messages.size() >= 2 &&
+                                    &message == &session.messages[session.messages.size() - 2];
+                                const float action_x = user ? width - (can_edit ? 60 : 28) : 0;
                                 auto small = button_style(p);
-                                small.radius = 6;
+                                small.radius = 5;
+                                small.icon = p.muted;
+                                const bool visible = s.hovered_message == id;
+                                auto wire_action = [&](const std::string &action) {
+                                    if (auto *button = list.find(action)) {
+                                        button->opacity =
+                                            visible || list.isFocused(action + ".bg") ? 1 : 0;
+                                    }
+                                    if (auto *button = list.find(action + ".bg")) {
+                                        button->focusable = true;
+                                        button->onHoverChanged = [id](bool entered) {
+                                            auto &page = state();
+                                            if (entered)
+                                                page.hovered_message = id;
+                                            else if (page.hovered_message == id)
+                                                page.hovered_message = 0;
+                                        };
+                                        if (list.isFocused(action + ".bg"))
+                                            button->border = {1, p.muted};
+                                    }
+                                };
+                                list.rect(key + ".actions.hit")
+                                    .position(action_x, action_y)
+                                    .size(can_edit ? 60 : 28, 26)
+                                    .color({0, 0, 0, 0})
+                                    .onHover([id](bool entered) {
+                                        auto &page = state();
+                                        if (entered)
+                                            page.hovered_message = id;
+                                        else if (page.hovered_message == id)
+                                            page.hovered_message = 0;
+                                    })
+                                    .build();
                                 components::button(list, key + ".copy")
                                     .position(action_x, action_y)
-                                    .size(30, 28)
+                                    .size(28, 26)
                                     .text("")
                                     .icon(0xf0c5)
-                                    .iconSize(13)
+                                    .iconSize(12)
                                     .style(small)
-                                    .onClick([copy] {
+                                    .onClick([copy = message.text] {
                                         window::copy_text(copy);
                                         state().runtime_notice = "已复制消息";
                                     })
                                     .build();
-                                components::button(list, key + ".quote")
-                                    .position(action_x + 34, action_y)
-                                    .size(30, 28)
-                                    .text("")
-                                    .icon(0xf10d)
-                                    .iconSize(13)
-                                    .style(small)
-                                    .onClick([id] {
-                                        if (!state().chat.reference_message(id))
-                                            state().runtime_notice = state().chat.notice();
-                                    })
-                                    .build();
+                                wire_action(key + ".copy");
+                                if (can_edit) {
+                                    components::button(list, key + ".edit")
+                                        .position(action_x + 32, action_y)
+                                        .size(28, 26)
+                                        .text("")
+                                        .icon(0xf303)
+                                        .iconSize(12)
+                                        .style(small)
+                                        .disabled(session.running || session.submitting ||
+                                                  !session.edit_turn_id.empty())
+                                        .onClick([id] {
+                                            if (state().chat.edit_last_input(id)) {
+                                                state().selection.clear();
+                                                state().runtime_notice =
+                                                    "编辑后重发将替换最后一轮对话";
+                                            }
+                                        })
+                                        .build();
+                                    wire_action(key + ".edit");
+                                }
                             }
                         })
                         .build();
@@ -1311,6 +1502,19 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
             .onClick([] { state().popup = PageState::Popup::References; })
             .build();
     }
+    if (edit_height) {
+        text(ui, "composer.edit.label", "编辑最后一条输入 · 重发后替换上一轮", x + 16,
+             y + refs_height + 6, column - 88, 24, 12, p.muted);
+        components::button(ui, "composer.edit.cancel")
+            .position(x + column - 68, y + refs_height + 4)
+            .size(56, 26)
+            .text("取消")
+            .fontSize(12)
+            .style(button_style(p))
+            .disabled(session.submitting || session.running)
+            .onClick([] { state().chat.cancel_edit(); })
+            .build();
+    }
     components::InputStyle input_style(tokens);
     input_style.background = input_style.focused = input_fill;
     input_style.border = input_style.focusBorder = {0, 0, 0, 0};
@@ -1320,7 +1524,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
     input_style.shadow = {};
     input_style.radius = 4;
     components::input(ui, input_id)
-        .position(x + 4, y + 4 + refs_height)
+        .position(x + 4, y + 4 + refs_height + edit_height)
         .size(column - 8, input_height)
         .value(session.draft)
         .placeholder("向 Mira 提问，或描述一个任务…")
@@ -1331,7 +1535,9 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         .style(input_style)
         .onFocus([](bool focused) {
             state().composer_focused = focused;
-            if (!focused)
+            if (focused)
+                state().selection.clear();
+            else
                 state().composer_composing = false;
         })
         .onChange([](const auto &value) { state().chat.set_draft(value); })
@@ -1621,6 +1827,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                 const auto key =
                                     "reference.preview." + std::to_string(reference.id);
                                 const auto source_id = reference.message_id;
+                                const auto reference_id = reference.id;
                                 const float height = text_height(reference.text, width - 8, 14, 22);
                                 list.stack(key)
                                     .size(width, height + 38)
@@ -1636,8 +1843,9 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                             .icon(0xf2ed)
                                             .iconSize(12)
                                             .style(button_style(p))
-                                            .onClick([source_id] {
-                                                state().chat.remove_reference(source_id);
+                                            .onClick([reference_id] {
+                                                state().chat.remove_reference_instance(
+                                                    reference_id);
                                                 if (state().chat.current().references.empty())
                                                     state().popup = PageState::Popup::None;
                                             })
@@ -1702,9 +1910,46 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                         .color(p.border)
                         .build();
                     text(ui, "composer.popup.context.refs",
-                         "本次引用 " + std::to_string(session.references.size()) + " 条消息", 16,
+                         "本次引用 " + std::to_string(session.references.size()) + " 段文字", 16,
                          182, popup_width - 32, 24, 13, p.muted);
                 }
+            })
+            .build();
+    }
+    if (s.selection.ready && s.selection.session == session_id) {
+        const float sx = std::clamp(s.selection.popup_x - 50, sidebar + 12, screen.width - 116);
+        const float desired_top = s.selection.popup_y - 40;
+        const float sy =
+            std::clamp(desired_top < 72 ? s.selection.popup_y + 18 : desired_top, 72.0f, y - 36);
+        ui.stack("selection.popup")
+            .position(sx, sy)
+            .size(100, 32)
+            .zIndex(15)
+            .content([&] {
+                ui.rect("selection.panel")
+                    .size(100, 32)
+                    .color(p.surface)
+                    .radius(7)
+                    .border(1, p.border)
+                    .build();
+                components::button(ui, "selection.quote")
+                    .size(100, 32)
+                    .text("引用选段")
+                    .icon(0xf10d)
+                    .iconSize(12)
+                    .fontSize(13)
+                    .style(button_style(p))
+                    .onClick([] {
+                        auto &page = state();
+                        if (page.selection.session == page.chat.current().id &&
+                            page.chat.reference_excerpt(page.selection.message,
+                                                        page.selection.excerpt)) {
+                            page.runtime_notice = "已添加选中文字";
+                            page.selection.clear();
+                        } else
+                            page.runtime_notice = page.chat.notice();
+                    })
+                    .build();
             })
             .build();
     }
@@ -1759,7 +2004,11 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
     ui.stack("root")
         .size(screen.width, screen.height)
         .content([&] {
-            ui.rect("background").size(screen.width, screen.height).color(p.background).build();
+            ui.rect("background")
+                .size(screen.width, screen.height)
+                .color(p.background)
+                .onClick([] { state().selection.clear(); })
+                .build();
             if (s.sidebar) {
                 ui.rect("sidebar.background").size(sidebar, screen.height).color(p.sidebar).build();
                 ui.rect("sidebar.border")
@@ -2047,12 +2296,17 @@ const DslAppConfig &dslAppConfig() {
                 }
                 if (event.action == eui::KeyAction::Press && event.key == eui::InputKey::Escape) {
                     auto &s = mirage::native_ui::state();
-                    if (s.about || s.confirm_clear || s.confirm_delete)
+                    if (s.selection.ready || s.selection.dragging)
+                        s.selection.clear();
+                    else if (s.about || s.confirm_clear || s.confirm_delete)
                         s.about = s.confirm_clear = s.confirm_delete = false;
                     else if (s.popup != mirage::native_ui::PageState::Popup::None)
                         s.popup = mirage::native_ui::PageState::Popup::None;
                     else if (s.model_chooser)
                         s.model_chooser = false;
+                    else if (!s.chat.current().edit_turn_id.empty() &&
+                             !s.chat.current().submitting && !s.chat.current().running)
+                        s.chat.cancel_edit();
                     else
                         s.settings = false;
                     app::requestUpdate();

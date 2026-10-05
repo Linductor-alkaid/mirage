@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-05T02:48:35.522512+00:00",
+  "generatedAt": "2026-10-05T09:11:12.411444+00:00",
   "title": "Design System: Mirage 原生 Agent 对话页",
   "extensions": {
     "scope": {
@@ -16,20 +16,22 @@
         "apps/native/context_usage.hpp",
         "apps/native/secret_input.hpp",
         "apps/native/secret_edit.hpp",
-        "apps/native/conversation_preview.hpp"
+        "apps/native/conversation_preview.hpp",
+        "apps/native/selection_adapter.hpp",
+        "apps/native/text_selection.hpp"
       ],
       "directionContract": "docs/design/native-agent-frontend.md",
       "legacyDesignDocument": "DESIGN.md",
       "previewOnly": false,
       "runtime": "Separate Runtime Service via versioned Local IPC; UI owns its Executor-managed bridge.",
-      "workItem": "M6-09",
-      "decision": "DEC-038",
+      "workItem": "M6-11",
+      "decision": "DEC-039",
       "visualAuthority": {
         "seed": "user-zcode-native",
         "mode": "code-led",
         "purpose": "Operate",
         "referenceRevision": "29628c9acdb81b703bbd4080c207a0e7ce5e276e",
-        "comparison": "ZCode source/layout plus Linux native captures; live Wayland ZCode pixel comparison unavailable (ScreenshotWindow AccessDenied)"
+        "comparison": "ZCode source and official page content; browser navigation timed out. Native captures are synthetic public EUI renders on isolated Xvfb, not live ZCode pixel comparison."
       },
       "priorWorkItems": [
         "M6-01",
@@ -38,19 +40,22 @@
         "M6-05",
         "M6-06",
         "M6-07",
-        "M6-08"
+        "M6-08",
+        "M6-09"
       ],
       "priorDecisions": [
         "DEC-033",
         "DEC-034",
         "DEC-035",
         "DEC-036",
-        "DEC-037"
+        "DEC-037",
+        "DEC-038"
       ],
       "contractDocuments": [
         "docs/design/native-agent-frontend.md",
         "docs/design/mirage-ipc-protocol-v1.md",
-        "docs/decisions/DEC-038-api-keys-and-draft-sessions.md"
+        "docs/decisions/DEC-038-api-keys-and-draft-sessions.md",
+        "docs/decisions/DEC-039-conversation-selection-and-revision.md"
       ]
     },
     "colorMeta": {
@@ -496,7 +501,7 @@
       },
       "message": {
         "displayName": "Conversation body",
-        "purpose": "16px / 26px user body and public EUI Markdown body."
+        "purpose": "16px / 24px user body and public EUI Markdown body."
       },
       "markdown-code": {
         "displayName": "Markdown code",
@@ -745,15 +750,15 @@
       },
       "settingsColumn": "min(800, main_width - 64)",
       "emptyColumn": "min(672, main_width - 48)",
-      "activeColumn": "min(896, main_width - (main_width >= 864 ? 96 : 32))",
+      "activeColumn": "min(800, main_width - (main_width >= 864 ? 96 : 48))",
       "threadHeight": "max(48, composer_y - 88)",
-      "threadGap": 24,
+      "threadGap": 14,
       "threadScrollbar": {
         "width": 4,
         "gap": 8
       },
       "inputHeight": "clamp(measure(draft, column - 40, 16, 24) + 16, 48, 168)",
-      "composerHeight": "input_height + 56 + (references.empty && attachments.empty ? 0 : 36)",
+      "composerHeight": "input_height + 56 + (references.empty && attachments.empty ? 0 : 36) + (edit_turn_id.empty ? 0 : 32)",
       "composerTop": "min(empty ? max(188, screen.height * 0.29 + 106) : screen.height - composer_height - 28, screen.height - composer_height - 28)",
       "greeting": {
         "top": "max(80, composer_y - 104)",
@@ -765,22 +770,22 @@
       },
       "userBubble": {
         "align": "right",
-        "width": "min(min(576, thread_width), max(80, measured_text_width + 32))",
-        "paddingX": 16,
-        "paddingY": 12,
-        "radius": 12,
-        "borderWidth": 1
+        "width": "min(min(576, thread_width), max(80, measured_text_width + 24))",
+        "paddingX": 12,
+        "paddingY": 8,
+        "radius": 10,
+        "borderWidth": 0
       },
       "assistantReply": {
         "card": false,
-        "bodyWidth": "thread_width - 24",
+        "bodyWidth": "thread_width - 16",
         "bodySize": 16,
-        "bodyLineHeight": 26,
-        "h1Size": 22,
-        "h2Size": 20,
-        "h3Size": 18,
+        "bodyLineHeight": 24,
+        "h1Size": 20,
+        "h2Size": 18,
+        "h3Size": 17,
         "codeSize": 14,
-        "blockGap": 12,
+        "blockGap": 8,
         "radius": 8
       },
       "contextPopovers": {
@@ -887,6 +892,28 @@
           "row width - 40",
           6
         ]
+      },
+      "messageActions": {
+        "heightReserved": 28,
+        "buttonSize": [
+          28,
+          26
+        ],
+        "iconSize": 12,
+        "radius": 5,
+        "visibility": "message/action hover or keyboard focus",
+        "lastInputEdit": true
+      },
+      "selectionAction": {
+        "size": [
+          100,
+          32
+        ],
+        "labelSize": 13,
+        "iconSize": 12,
+        "radius": 7,
+        "borderWidth": 1,
+        "placement": "Above selection, below when first row has no room; clamp between title and composer."
       }
     },
     "overlay": {
@@ -1111,9 +1138,9 @@
         "newline": "Shift+Enter",
         "composition": "Composition state prevents premature send; real Chinese IME acceptance remains unverified."
       },
-      "copy": "Whole-message clipboard copy via private GLFW adapter; fine selection and link opening unsupported.",
+      "copy": "Whole-message copy on hover or keyboard focus; Ctrl+C copies selected excerpt. Link opening remains unsupported.",
       "references": {
-        "source": "User-selected message text snapshot within current session",
+        "source": "Drag-selected rendered text excerpt with stable source message ID; per-instance removal and ACK consumption.",
         "maxCount": 4,
         "maxTextBytes": 8192,
         "combinedEncodedWireBytes": 16384,
@@ -1138,7 +1165,8 @@
         "successMissingUsage": "Reset to unknown.",
         "ordering": "Older sequence cannot overwrite newer usage.",
         "restart": "Old persisted history has no usage and remains unknown.",
-        "wire": "Optional context_usage with input_tokens, window_tokens and model; older messages remain compatible."
+        "wire": "Optional context_usage with input_tokens, window_tokens and model; older messages remain compatible.",
+        "revision": "Accepted replacement resets usage to unknown until a new successful provider response."
       },
       "attachments": {
         "selection": "EUI public synchronous file dialog; explicit user selection only",
@@ -1172,6 +1200,19 @@
         "selection": "Deleting selected history returns to a draft; deleting another retains current selection/draft.",
         "reconciliation": "Remove stable history missing from service list or with empty snapshot; preserve local drafts and running/submitting/deleting records.",
         "staleResponses": "History discovery epoch and stable local ID protect against late updates."
+      },
+      "selection": {
+        "adapter": "apps/native/selection_adapter.hpp",
+        "feedback": "EUI-20261005-005",
+        "limits": "One message; no auto-scroll or cross-message selection; 16KiB / 8192 shaped runs per message, 80 current messages. Geometry collected only on press; retired cache scopes released.",
+        "dismiss": "Escape, scroll, session change, edit, settings/modal/popover, source removal, background click."
+      },
+      "lastInputRevision": {
+        "entry": "Hover/focus edit action on last settled user input; compact 32px composer banner.",
+        "draft": "Cancel restores prior draft; original messages remain until acceptance.",
+        "wire": "session.chat replace_turn_id targets exactly last settled turn; pending/final events and ACK carry replaces_turn_id.",
+        "rollback": "Executor admission and replacement persistence before ACK; refusal keeps old history. Model transcript excludes old user/reply and preserves earlier turns. External tool side effects and old task audit are retained.",
+        "restart": "Stable product session lazily maps to a new current Mira session for native harness; close/delete removes mapping. Desktop task.submit is not extended."
       }
     },
     "reviewEvidence": {
@@ -1232,6 +1273,16 @@
         ],
         "documentationPass": "Current task differences only; incumbent native palette, type, radius and structure preserved.",
         "limits": "Existing Windows, real IME, full desktop tools and live ZCode pixel-comparison limits remain; no new guarantee from this documentation pass."
+      },
+      "conversationRevision": {
+        "workItem": "M6-11",
+        "decision": "DEC-039",
+        "captures": ".impeccable/review/conversation-20261005/*.png",
+        "finishReview": ".impeccable/review/conversation-20261005/finish-review.md",
+        "finishVerdict": ".impeccable/review/conversation-20261005/finish-verdict.md",
+        "documentation": ".impeccable/review/conversation-20261005/documentation.md",
+        "reviewMode": "Inline degraded finish-reviewer/documenter substitution; no independent reviewer.",
+        "limits": "Synthetic EUI framebuffer captures; no live ZCode screenshot, Windows or real IME acceptance."
       }
     }
   },
@@ -1274,7 +1325,7 @@
       "refersTo": "user-bubble",
       "description": "原生已实现组件的浅色 HTML/CSS 示意；原生交互与焦点由 EUI 管理。",
       "html": "<article class=\"ds-user\">请描述你要完成的任务。</article>",
-      "css": ".ds-user{font-family:Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif;margin-left:auto;box-sizing:border-box;width:fit-content;max-width:576px;padding:12px 16px;border:1px solid #dfdfdf;border-radius:12px;background:#f0f0f0;color:#202020;font-size:16px;line-height:26px;white-space:pre-wrap;overflow-wrap:anywhere}"
+      "css": ".ds-user{font-family:Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif;margin-left:auto;box-sizing:border-box;width:fit-content;max-width:576px;padding:8px 12px;border:none;border-radius:10px;background:#f0f0f0;color:#202020;font-size:16px;line-height:24px;white-space:pre-wrap;overflow-wrap:anywhere}"
     },
     {
       "name": "Composer panel",
@@ -1306,7 +1357,7 @@
       "refersTo": "agent-reply",
       "description": "已完成回复的无卡片文字/代码视觉示意；实际原生渲染使用 EUI Markdown。",
       "html": "<article class=\"ds-reply\"><p>和 Mira 一起，把想法变成下一步。</p><pre><code>const auto result = run();</code></pre></article>",
-      "css": ".ds-reply{font-family:Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif;font-size:16px;line-height:26px;color:#202020;background:transparent}.ds-reply p{margin:0 0 12px}.ds-reply pre{margin:0;padding:12px;border-radius:8px;background:#eee;font-size:14px;overflow:auto}"
+      "css": ".ds-reply{font-family:Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif;font-size:16px;line-height:24px;color:#202020;background:transparent}.ds-reply p{margin:0 0 8px}.ds-reply pre{margin:0;padding:12px;border-radius:8px;background:#eee;font-size:14px;overflow:auto}"
     },
     {
       "name": "Inspectable attachments and references",
@@ -1321,7 +1372,7 @@
       "kind": "custom",
       "refersTo": "context-popover",
       "description": "最近成功请求的浅色静态示意；391/128000来自真实请求与显式测试预算，不是供应商自动发现。原生数据/键盘交互由IPC及EUI管理。",
-      "html": "<section class=\"ds-context-panel\"><header><span>上下文</span><span>0.3%</span></header><p class=\"ds-context-tokens\">391 / 128,000 Token</p><div class=\"ds-context-track\"><div class=\"ds-context-fill\"></div></div><p class=\"ds-context-source\">上次请求 · 模型输入用量</p><p class=\"ds-context-model\">Qwen/Qwen3.5-4B</p><p class=\"ds-context-refs\">本次引用 0 条消息</p></section>",
+      "html": "<section class=\"ds-context-panel\"><header><span>上下文</span><span>0.3%</span></header><p class=\"ds-context-tokens\">391 / 128,000 Token</p><div class=\"ds-context-track\"><div class=\"ds-context-fill\"></div></div><p class=\"ds-context-source\">上次请求 · 模型输入用量</p><p class=\"ds-context-model\">Qwen/Qwen3.5-4B</p><p class=\"ds-context-refs\">本次引用 0 段文字</p></section>",
       "css": ".ds-context-panel{position:relative;box-sizing:border-box;width:320px;max-width:100%;height:224px;border:1px solid #dfdfdf;border-radius:12px;background:#fff;color:#202020;font-family:Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif}.ds-context-panel header{position:absolute;top:12px;left:16px;right:16px;height:28px;display:flex;align-items:center;justify-content:space-between;font-size:16px;font-weight:500}.ds-context-panel p{position:absolute;margin:0;left:16px;right:16px;display:flex;align-items:center}.ds-context-tokens{top:48px;height:28px;font-size:14px}.ds-context-track{position:absolute;top:88px;left:16px;right:16px;height:6px;border-radius:3px;background:#dfdfdf;overflow:hidden}.ds-context-fill{width:0.3%;height:6px;border-radius:3px;background:#6d6d6d}.ds-context-source,.ds-context-model,.ds-context-refs{height:24px;font-size:13px;color:#6d6d6d}.ds-context-source{top:106px}.ds-context-model{top:134px}.ds-context-refs{top:182px}.ds-context-panel::after{content:\"\";position:absolute;left:16px;right:16px;top:170px;height:1px;background:#dfdfdf}"
     },
     {

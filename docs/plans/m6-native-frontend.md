@@ -27,6 +27,7 @@
 | M6-07 | Completed | Linux首步ZCode服务商配置与附件/权限/占比/模型/思考工具栏；真实UTF-8附件、受限工具权限、模型目录、每轮reasoning与回归；供应商推理互通和Windows另验 |
 | M6-08 | Completed | Linux首步删除TS/CEF/Web devbridge，保留原生IPC golden/依赖门禁；更新CI/CLI/打包，DEB提取启动通过；Windows安装及整体生命周期另验 |
 | M6-09 | Completed | Linux直接API Key/系统凭据、空草稿延迟会话创建与历史删除；依据DEC-038，覆盖持久化/失败/活动拒绝与真实界面 |
+| M6-11 | Completed | Linux会话视觉减重、悬停复制、选中文字引用与最后一轮编辑重发；依据DEC-039，验证服务端上下文替换、失败保留与真实交互 |
 | M6-10 | Completed | 依工程规范9.4整理Mira/Mirador独立反馈台账，复核已登记问题并向Mira上游提交可复现反馈；不修改依赖或升级pin |
 
 ## 测试矩阵与退出条件
@@ -40,6 +41,7 @@
 - [x] M6-08 原生无 Node/CEF 构建、依赖锁门禁与 Linux DEB 提取启动。
 - [x] M6-09 Linux直接API Key、系统凭据、草稿首发与历史删除持久化/失败门禁。
 - [x] M6-10 依赖独立台账、Mira四项复核/上游回执与可复跑证据。
+- [x] M6-11 Linux悬停动作、选段引用、最后轮次编辑与真实Mira上下文替换/失败保留；原生框架交互截图与sanitizer通过。
 - [ ] M6-04 整体生命周期与安装包验收。
 
 ## 风险与实施记录
@@ -214,3 +216,10 @@ M6整体仍 In Progress；未升级 pinned 依赖，未发布/合并。
 已确认缺口，明确空表与登记规则。离线公共API/TLS ClientHello探针退出0复现三项现象，
 MinGW POSIX最小表达式预期退出1并复现诊断；mira_host_test 1/1通过（不同内容绕行，
 不冒充缺陷修复）。纠正M6-09恢复限制的决策引用为DEC-011；无生产行为、第三方源码或pin变更。
+
+2026-10-05 / M6-11：按DEC-039完成Linux会话减重、悬停复制、选段浮层与末轮编辑重发。
+Debug完整50/50；Release/ASAN相关4/4，UBSAN/TSAN相关3/3，原生渲染交互31 checks。
+实际Mira夹具请求排除旧末轮而保留更早上下文；覆盖持久化失败、活动拒绝、取消与重启历史
+编辑/续聊/删除。四份DESIGN/JSON和IPC契约同步；内联设计修正评分ship（两项范围），
+不称独立评审。详见[验收证据](../compatibility/native-conversation-revision-20261005.md)。
+Windows、IME、跨消息/自动滚动和live ZCode像素对照未交付，负责人/补跑条件记录于证据。

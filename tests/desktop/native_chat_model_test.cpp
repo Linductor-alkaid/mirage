@@ -2,6 +2,7 @@
 #include "chat_model.hpp"
 #include "conversation_preview.hpp"
 #include "secret_edit.hpp"
+#include "text_selection.hpp"
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -30,6 +31,62 @@ int main() {
     MIRAGE_CHECK(edit_secret("ab", "***", 1, 1, 1, 2) == "a*b");
     MIRAGE_CHECK(!edit_secret("ab", "a b", 1, 1, 1, 2));
     MIRAGE_CHECK(!edit_secret("ab", std::string(2049, '*'), 1, 1, 1, 2));
+    using namespace mirage::native_ui;
+    SelectionText selected;
+    selected.append({"红发", 0, 0, 24, {0, 3, 6}, {0, 16, 32}});
+    selected.append({"蓝眼", 32, 0, 24, {0, 3, 6}, {0, 16, 32}});
+    selected.append({"下一行", 0, 24, 24, {0, 3, 6, 9}, {0, 16, 32, 48}});
+    MIRAGE_CHECK(selected.text == "红发蓝眼\n下一行");
+    MIRAGE_CHECK(selected.hit(15, 10) == 3 && selected.hit(49, 10) == 9);
+    MIRAGE_CHECK(selected.hit(31, 30) == 19);
+    TextSelection selection;
+    selection.anchor = 9;
+    selection.caret = 3;
+    selection.finish(selected);
+    MIRAGE_CHECK(selection.ready && selection.excerpt == "发蓝");
+    selection.anchor = 6;
+    selection.caret = 6;
+    selection.finish(selected);
+    MIRAGE_CHECK(!selection.ready);
+    ChatModel revised;
+    const auto revision_session = revised.current().id;
+    revised.apply_turn(revision_session, "base", "ok", "更早输入", "更早回答", {}, {}, 1);
+    revised.apply_turn(revision_session, "old", "ok", "最后输入", "最后回答", {},
+                       ContextUsage{300, 1000, "model"}, 2);
+    revised.set_draft("原来草稿");
+    const auto last_input = revised.current().messages[2].id;
+    MIRAGE_CHECK(!revised.edit_last_input(revised.current().messages[0].id));
+    MIRAGE_CHECK(revised.edit_last_input(last_input));
+    MIRAGE_CHECK(revised.current().draft == "最后输入" && revised.current().messages.size() == 4);
+    revised.set_draft("修改输入");
+    revised.cancel_edit();
+    MIRAGE_CHECK(revised.current().draft == "原来草稿" &&
+                 revised.current().messages[3].text == "最后回答");
+    MIRAGE_CHECK(revised.reference_excerpt(last_input, "最后"));
+    MIRAGE_CHECK(revised.reference_excerpt(last_input, "输入"));
+    MIRAGE_CHECK(revised.current().references.size() == 2);
+    const auto excerpt_id = revised.current().references.front().id;
+    revised.remove_reference_instance(excerpt_id);
+    MIRAGE_CHECK(revised.current().references.size() == 1 &&
+                 revised.current().references.front().text == "输入");
+    MIRAGE_CHECK(revised.edit_last_input(last_input));
+    revised.set_draft("修改输入");
+    revised.current().submitted_text = "修改输入";
+    revised.apply_turn(revision_session, "new", "pending", "修改输入", {}, {}, {}, 3, "old");
+    MIRAGE_CHECK(revised.current().messages.size() == 4 && !revised.current().context_usage);
+    revised.acknowledge_submission(revision_session);
+    MIRAGE_CHECK(revised.current().draft == "原来草稿" && revised.current().edit_turn_id.empty());
+    revised.apply_turn(revision_session, "new", "ok", "修改输入", "修改回答", {},
+                       ContextUsage{120, 1000, "model"}, 3);
+    revised.apply_turn(revision_session, "old", "ok", "最后输入", "迟到回答", {}, {}, 2);
+    MIRAGE_CHECK(revised.current().messages.size() == 4 &&
+                 revised.current().messages.back().text == "修改回答");
+    revised.apply_turn(revision_session, "new", "pending", "修改输入", {}, {}, {}, 0, "old");
+    MIRAGE_CHECK(revised.current().context_usage->input_tokens == 120);
+    revised.reconcile_turns(revision_session, {"old"}, 2);
+    MIRAGE_CHECK(revised.current().messages.size() == 4);
+    revised.reconcile_turns(revision_session, {"new"}, 3);
+    MIRAGE_CHECK(revised.current().messages.size() == 2);
     ChatModel drafts;
     const auto draft_id = drafts.current().id;
     MIRAGE_CHECK(drafts.history_count() == 0);

@@ -174,8 +174,9 @@ struct SessionChatRequest {
     std::string session_id;
     std::string text;
     bool agent = false; ///< DEC-034: conversational harness; absent preserves legacy dialog.
-    std::string access = "default"; ///< DEC-037: read_only hides all tools
-    std::string reasoning = "";     ///< empty/default or minimal/low/medium/high
+    std::string access = "default";   ///< DEC-037: read_only hides all tools
+    std::string reasoning = "";       ///< empty/default or minimal/low/medium/high
+    std::string replace_turn_id = {}; ///< DEC-039: replace exactly the latest settled turn
 };
 struct CancelChatRequest {
     std::string session_id;
@@ -517,6 +518,7 @@ struct SessionClosed {
 /// `session.chat.history`.
 struct DialogTurnAccepted {
     std::string turn_id;
+    std::string replaces_turn_id = {};
 };
 
 /// Closed turn-status vocabulary of the dialog face (DEC-027): "pending"
@@ -951,6 +953,7 @@ struct ChatTurnUpdatedEvent {
     bool has_error = false;
     std::uint64_t sequence = 0;
     std::optional<ContextUsage> context_usage;
+    std::string replaces_turn_id = {};
 };
 
 /// Closed event set; new events join additively (DEC-012).

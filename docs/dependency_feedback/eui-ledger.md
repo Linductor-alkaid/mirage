@@ -81,3 +81,21 @@ EUI 为维护者授权的 UI 专用依赖（DEC-033），不属于 Mira / Mirado
 - 期望最小能力：文档化的 password 模式，隐藏渲染、光标/选择/粘贴/删除和撤销一致。
 - 移除条件：上游公开接口交付并通过同一编辑/显示和遮蔽测试；当前原生适配由
   单元测试与实际键鼠验证，延后系统密码模式不会阻断直接 API Key 交互。
+
+## EUI-20261005-005：缺少只读正文和Markdown的文字选择接口
+
+- 状态：Open；负责人：Mirage维护者；版本：dev 4691fc0a。
+- 复现：公开TextBuilder/MarkdownBuilder输出仅有静态文字，未提供选择范围、选中文字、
+  选区矩形或selection-changed回调。InputModel有字体测量、UTF-8光标和换行接口，
+  但不能把完整Markdown作为可编辑输入替代正常排版。
+- 影响：ZCode式会话选段引用；用户应引用实际可见选段，跨粗体/换行仍保持UTF-8边界。
+- 期望最小能力：只读文字/Markdown的有界选择控制器，输出可见文本与选区矩形、来源，
+  支持拖选、取消、复制与主题色；不要求产品引用语义下沉。
+- 单一Adapter：apps/native/selection_adapter.hpp利用公开DSL排版后frame及InputModel/
+  TextPrimitive字体测量；纯几何选择由text_selection.hpp承载。每条最多16KiB/8192段，
+  当前视图最多80消息，切换/移除后释放缓存。无新线程、队列或调度器，无上游修改。
+- 行为差异：选区限同一消息；拖选不自动滚动或跨消息；引用来自实际渲染文本而非整条源
+  Markdown；选区矩形沿各字形段，保留上游排版间隔。Escape/滚动/切换/编辑时取消。
+- 验收：native_conversation_view_test真实EUI排版/渲染与指针事件，跨中文/粗体选择、
+  悬停复制、浮动引用与最小明暗截图；native_chat_model_test覆盖UTF-8选区和引用预算。
+- 移除：上游公开控制器交付并通过同一验证后删除Adapter。仅本地台账，未向EUI发送反馈。
