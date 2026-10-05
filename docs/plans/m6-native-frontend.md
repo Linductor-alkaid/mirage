@@ -28,6 +28,7 @@
 | M6-08 | Completed | Linux首步删除TS/CEF/Web devbridge，保留原生IPC golden/依赖门禁；更新CI/CLI/打包，DEB提取启动通过；Windows安装及整体生命周期另验 |
 | M6-09 | Completed | Linux直接API Key/系统凭据、空草稿延迟会话创建与历史删除；依据DEC-038，覆盖持久化/失败/活动拒绝与真实界面 |
 | M6-11 | Completed | Linux会话视觉减重、悬停复制、选中文字引用与最后一轮编辑重发；依据DEC-039，验证服务端上下文替换、失败保留与真实交互 |
+| M6-12 | Completed | 随应用交付固定中文字体，统一Markdown行内基线；依据DEC-040，验证混排、输入、最小明暗窗口与打包资源 |
 | M6-10 | Completed | 依工程规范9.4整理Mira/Mirador独立反馈台账，复核已登记问题并向Mira上游提交可复现反馈；不修改依赖或升级pin |
 
 ## 测试矩阵与退出条件
@@ -42,6 +43,7 @@
 - [x] M6-09 Linux直接API Key、系统凭据、草稿首发与历史删除持久化/失败门禁。
 - [x] M6-10 依赖独立台账、Mira四项复核/上游回执与可复跑证据。
 - [x] M6-11 Linux悬停动作、选段引用、最后轮次编辑与真实Mira上下文替换/失败保留；原生框架交互截图与sanitizer通过。
+- [x] M6-12 Linux固定中文字体/Markdown行内基线；正常/最小明暗混排、输入/选段、Release/ASAN与DEB资源验收。
 - [ ] M6-04 整体生命周期与安装包验收。
 
 ## 风险与实施记录
@@ -223,3 +225,11 @@ Debug完整50/50；Release/ASAN相关4/4，UBSAN/TSAN相关3/3，原生渲染交
 编辑/续聊/删除。四份DESIGN/JSON和IPC契约同步；内联设计修正评分ship（两项范围），
 不称独立评审。详见[验收证据](../compatibility/native-conversation-revision-20261005.md)。
 Windows、IME、跨消息/自动滚动和live ZCode像素对照未交付，负责人/补跑条件记录于证据。
+
+2026-10-05 / M6-12：按DEC-040使用完整 Noto Sans SC Regular，官方简体中文区域字面2.004；字体压缩归档离线交付，按1.448统一EM字号换算与测量，主题/布局保留，输入最小高52以容纳新行度量。同时修正EUI逐段ink-center
+造成的中文字高低跳动，经公开DSL Adapter统一行框，缺口EUI-20261005-006/007本地挂账。
+Debug/Release/ASAN相关回归各2/2，原生44 checks / 0 failures；正常/最小明暗、混排、
+Markdown与输入12帧，Linux DEB字体/OFL摘要一致。格式、49公共头边界和Git差异检查
+通过；无依赖修改、并发变化或模型调用。内联降级设计复核disposition=ship，仅字体范围；
+Windows/IME/高DPI仍由维护者在目标平台补跑，M6-04不变。完整证据：
+[native-typography-20261005](../compatibility/native-typography-20261005.md)。

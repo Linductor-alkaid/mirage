@@ -1,0 +1,23 @@
+{
+  "family": "Noto Sans SC",
+  "style": "Regular",
+  "version": "2.004",
+  "license": "OFL-1.1",
+  "sourceRepository": "https://github.com/notofonts/noto-cjk",
+  "sourceCommit": "523d033d6cb47f4a80c58a35753646f5c3608a78",
+  "sourceRef": "Sans2.004",
+  "sourcePath": "Sans/SubsetOTF/SC/NotoSansSC-Regular.otf",
+  "sourceURL": "https://raw.githubusercontent.com/notofonts/noto-cjk/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/SubsetOTF/SC/NotoSansSC-Regular.otf",
+  "fontSha256": "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9",
+  "fontBytes": 8331336,
+  "archiveSha256": "c19dafda0b5e635e5acacfe0a42e105baa1f4274e3412513c922fdfe965bb832",
+  "archiveBytes": 5838016,
+  "transformation": "Byte-for-byte official region-specific SC OTF in a deterministic xz/tar container. No app-specific subsetting or glyph/metric/name edits.",
+  "importedOn": "2026-10-05",
+  "reference": {
+    "repository": "https://github.com/zai-org/ZCode",
+    "commit": "29628c9acdb81b703bbd4080c207a0e7ce5e276e",
+    "uiSans": "Tailwind v4.2.2 default ui-sans-serif/system-ui/sans-serif; no bundled UI font.",
+    "localLinuxChineseMatch": "Noto Sans CJK SC, fontconfig face index2. The shipped official Noto Sans SC is the matching region-specific face; not a Chromium pixel rendering guarantee."
+  }
+}

@@ -15,7 +15,7 @@
 THESIS：桌面 Agent 的对话工作台；先读清当前会话，再在底部描述任务。
 
 OWN-WORLD：参考 ZCode 的 Zai Light/Dark 中性灰、窄侧栏、细分隔线、紧凑工具条，
-深色实心发送按钮；中文系统无衬线字体，图标使用 Font Awesome。
+深色实心发送按钮；随应用交付的 Noto Sans SC 中文无衬线字体，图标使用 Font Awesome。
 
 STORY：用户在设置配置模型服务，返回会话提交文字任务，读取Mira回复或明确失败；
 必要时停止轮次。通用harness先于RPA，当前不提供屏幕操作或workflow功能。
@@ -171,3 +171,17 @@ Mira旧Task终态保留审计。
 参考ZCode的MarkdownSelectionTooltip/useTextSelection与会话操作源码（29628c9a），
 官网页面内容可读，浏览器打开超时，未完成运行中ZCode像素比较。
 [验收](../compatibility/native-conversation-revision-20261005.md)区分合成原生渲染与Mira请求证据。
+
+## 固定字面与行内对齐（DEC-040）
+
+M6-12 使用完整 Noto Sans SC Regular 2.004 官方 OTF，压缩归档/精确来源/摘要/OFL
+许可随仓库记录，CMake离线解包并复制到应用assets，Linux与Windows打包包含字体与许可。
+Markdown行内中文、拉丁与标点使用统一行框，避免逐字ink-center产生上下跳动；单行控件
+与图标继续整体居中。字号、主题、代码monospace和布局保持现有契约。公开DSL临时适配
+引用EUI-20261005-006；不改第三方依赖。Linux原生混排/输入/选段证据见
+[native-typography-20261005](../compatibility/native-typography-20261005.md)，Windows与
+真实IME仍由维护者在目标环境补跑。
+
+字号以设计EM为准，Noto SC经typography.hpp乘1.448换为EUI请求单位；测量/换行/
+输入/选区一致。正文行高24保留，composer测量匹配InputBuilder请求字号×1.2，
+Markdown标题行高请求字号+6；代码/图标不套中文系数，反馈EUI-20261005-007。

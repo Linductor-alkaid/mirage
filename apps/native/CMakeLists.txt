@@ -34,6 +34,19 @@ if(WIN32)
     target_sources(mirage-native PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/mirage_icon.rc")
 endif()
 eui_neo_configure_app(mirage-native)
+# DEC-040: keep the complete official font compressed in Git; extract offline.
+set(mirage_font_archive "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/noto-sans-sc-2.004.tar.xz")
+file(SHA256 "${mirage_font_archive}" mirage_font_archive_sha)
+if(NOT mirage_font_archive_sha STREQUAL "c19dafda0b5e635e5acacfe0a42e105baa1f4274e3412513c922fdfe965bb832")
+    message(FATAL_ERROR "Mirage font archive checksum mismatch")
+endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${mirage_font_archive}")
+file(ARCHIVE_EXTRACT INPUT "${mirage_font_archive}" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/font-assets")
+set(mirage_font_file "${CMAKE_CURRENT_BINARY_DIR}/font-assets/NotoSansSC-Regular.otf")
+file(SHA256 "${mirage_font_file}" mirage_font_sha)
+if(NOT mirage_font_sha STREQUAL "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9")
+    message(FATAL_ERROR "Mirage font checksum mismatch")
+endif()
 # Copy by target directory for single- and multi-config generators; no ~/mira dependency.
 add_custom_target(mirage-native-assets
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:mirage-native>/assets"
@@ -43,6 +56,11 @@ add_custom_target(mirage-native-assets
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/mira-ui.png"
         "$<TARGET_FILE_DIR:mirage-native>/assets/mira-ui.png"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${mirage_font_file}" "$<TARGET_FILE_DIR:mirage-native>/assets/NotoSansSC-Regular.otf"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/OFL-NotoSansSC.txt"
+        "$<TARGET_FILE_DIR:mirage-native>/assets/OFL-NotoSansSC.txt"
     VERBATIM)
 add_dependencies(mirage-native mirage-native-assets)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

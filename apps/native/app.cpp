@@ -4,6 +4,7 @@
 #include "runtime_bridge.hpp"
 #include "secret_input.hpp"
 #include "selection_adapter.hpp"
+#include "typography.hpp"
 #include "window_controls.hpp"
 #include <mirage/runtime/persistence/settings.hpp>
 
@@ -375,21 +376,8 @@ void drain_runtime() {
     }
 }
 std::string text_font() {
-    const char *candidates[] = {
-#ifdef _WIN32
-        "C:/Windows/Fonts/msyh.ttc",
-        "C:/Windows/Fonts/simhei.ttf",
-#endif
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
-        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-    };
-    for (const auto *path : candidates) {
-        std::error_code error;
-        if (std::filesystem::is_regular_file(path, error))
-            return path;
-    }
-    return "assets/JingNanJunJunTi-JinNanJunJunTi-Bold-2.ttf";
+    // DEC-040: shipped full Simplified Chinese face, independent of host fonts.
+    return "assets/NotoSansSC-Regular.otf";
 }
 void text(eui::Ui &ui, const std::string &id, const std::string &value, float x, float y,
           float width, float height, float size, eui::Color ink, int weight = 400) {
@@ -397,7 +385,7 @@ void text(eui::Ui &ui, const std::string &id, const std::string &value, float x,
         .position(x, y)
         .size(width, height)
         .text(value)
-        .fontSize(size)
+        .fontSize(ui_font_size(size))
         .lineHeight(size * 1.5f)
         .verticalAlign(eui::VerticalAlign::Center)
         .fontWeight(weight)
@@ -408,7 +396,7 @@ void text(eui::Ui &ui, const std::string &id, const std::string &value, float x,
 // Fit the display title to its actual font metrics without changing the session title.
 std::string fitted_title(const std::string &value, float width, float size) {
     core::TextStyle style;
-    style.fontSize = size;
+    style.fontSize = ui_font_size(size);
     style.text = value;
     if (core::TextPrimitive::measureTextSize(style).x <= width)
         return value;
@@ -524,7 +512,7 @@ void modal(eui::Ui &ui, const eui::Screen &screen, const Palette &p) {
                           ? "当前会话的草稿和未发送消息将被清空。其他会话会保留。"
                           : "会话通过 Runtime Service 接入 Mira 模型与任务控制。当前提供通用对话 "
                             "harness，RPA workflow 尚未接入。")
-                .fontSize(17)
+                .fontSize(ui_font_size(17))
                 .lineHeight(28)
                 .wrap()
                 .color(p.muted)
@@ -534,7 +522,7 @@ void modal(eui::Ui &ui, const eui::Screen &screen, const Palette &p) {
                     .position(x + width - 188, y + height - 60)
                     .size(76, 38)
                     .text("取消")
-                    .fontSize(15)
+                    .fontSize(ui_font_size(15))
                     .style(button_style(p))
                     .onClick([] { state().confirm_clear = state().confirm_delete = false; })
                     .build();
@@ -545,7 +533,7 @@ void modal(eui::Ui &ui, const eui::Screen &screen, const Palette &p) {
                 .text(deleting   ? "删除"
                       : clearing ? "清空"
                                  : "知道了")
-                .fontSize(15)
+                .fontSize(ui_font_size(15))
                 .style(button_style(p, true))
                 .onClick([] {
                     auto &value = state();
@@ -591,7 +579,7 @@ void appearance_page(eui::Ui &ui, float x, float width, const Palette &p) {
             .text(dark ? "深色" : "浅色")
             .icon(dark ? 0xf186 : 0xf185)
             .iconSize(16)
-            .fontSize(16)
+            .fontSize(ui_font_size(16))
             .style(style)
             .onClick([dark] { state().dark = dark; })
             .build();
@@ -682,7 +670,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
         .size(124, 36)
         .text("添加服务商")
         .icon(0xf067)
-        .fontSize(14)
+        .fontSize(ui_font_size(14))
         .style(button_style(p))
         .disabled(s.saving_model || s.models.size() >= 12 || s.model_dirty)
         .onClick([] {
@@ -739,7 +727,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                               : fitted_title(s.models[i].display_name, w - 40, 14))
                         .icon(0xf1b2)
                         .iconSize(16)
-                        .fontSize(14)
+                        .fontSize(ui_font_size(14))
                         .style(style)
                         .disabled(s.saving_model || s.model_dirty)
                         .onClick([i] {
@@ -771,7 +759,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                width - 48, 18))
             .icon(0xf078)
             .iconSize(14)
-            .fontSize(18)
+            .fontSize(ui_font_size(18))
             .style(button_style(p))
             .disabled(s.saving_model || s.model_dirty)
             .onClick([] {
@@ -816,7 +804,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                         list.text(std::string(id) + ".label")
                             .size(w, 28)
                             .text(label)
-                            .fontSize(16)
+                            .fontSize(ui_font_size(16))
                             .verticalAlign(eui::VerticalAlign::Center)
                             .color(p.text)
                             .build();
@@ -824,7 +812,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                             .size(w, 44)
                             .value(value)
                             .placeholder(placeholder)
-                            .fontSize(16)
+                            .fontSize(ui_font_size(16))
                             .inset(12)
                             .style(input_style)
                             .onChange([change](const std::string &next) {
@@ -882,7 +870,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                     .position(w - 64, 0)
                                     .size(64, 28)
                                     .text(s.remove_api_key ? "已移除" : "移除")
-                                    .fontSize(13)
+                                    .fontSize(ui_font_size(13))
                                     .style(button_style(p))
                                     .disabled(s.saving_model)
                                     .onClick([] {
@@ -959,7 +947,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                     list.text("model.protocol.label")
                         .size(w, 28)
                         .text("协议")
-                        .fontSize(16)
+                        .fontSize(ui_font_size(16))
                         .color(p.text)
                         .build();
                     list.row("model.protocol.choices")
@@ -979,7 +967,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                 components::button(list, "model.protocol." + std::to_string(i))
                                     .size(i == 0 ? 128 : 172, 40)
                                     .text(i == 0 ? "Responses" : "Chat Completions")
-                                    .fontSize(15)
+                                    .fontSize(ui_font_size(15))
                                     .style(style)
                                     .disabled(s.saving_model)
                                     .onClick([dialect] {
@@ -998,7 +986,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                                  : "启用思考深度（reasoning_effort）")
                 .icon(s.model.supports_reasoning ? 0xf14a : 0xf0c8)
                 .iconSize(15)
-                .fontSize(14)
+                .fontSize(ui_font_size(14))
                 .style(button_style(p))
                 .disabled(s.saving_model)
                 .onClick([] {
@@ -1013,7 +1001,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                 .width(w)
                 .height(64)
                 .text("仅在该模型支持 reasoning_effort 时启用。供应商拒绝参数会显示错误。")
-                .fontSize(13)
+                .fontSize(ui_font_size(13))
                 .lineHeight(22)
                 .wrap()
                 .color(p.muted)
@@ -1022,7 +1010,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                 .width(w)
                 .height(60)
                 .text("API Key 保存在系统钥匙环中。留空保留现有 Key，点击移除后保存可清除。")
-                .fontSize(14)
+                .fontSize(ui_font_size(14))
                 .lineHeight(24)
                 .wrap()
                 .color(p.muted)
@@ -1038,7 +1026,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
         .text(width < 480 ? "" : "重新连接")
         .icon(width < 480 ? 0xf021 : 0)
         .iconSize(16)
-        .fontSize(15)
+        .fontSize(ui_font_size(15))
         .style(button_style(p))
         .onClick(start_runtime)
         .build();
@@ -1046,7 +1034,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
         .position(x + width - 308, y + 38)
         .size(80, 40)
         .text("取消修改")
-        .fontSize(14)
+        .fontSize(ui_font_size(14))
         .style(button_style(p))
         .disabled(!s.model_dirty || s.saving_model)
         .onClick([] {
@@ -1061,7 +1049,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
         .position(x + width - 220, y + 38)
         .size(100, 40)
         .text("停用模型")
-        .fontSize(15)
+        .fontSize(ui_font_size(15))
         .style(button_style(p))
         .disabled(!s.model_loaded || s.saving_model)
         .onClick([] { apply_model(false); })
@@ -1070,7 +1058,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
         .position(x + width - 112, y + 38)
         .size(112, 40)
         .text(s.saving_model ? "应用中…" : "保存并应用")
-        .fontSize(15)
+        .fontSize(ui_font_size(15))
         .style(button_style(p, true))
         .disabled(!s.model_loaded || s.saving_model || s.model.endpoint_origin.empty() ||
                   s.model.model_selector.empty())
@@ -1109,7 +1097,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                 .text(fitted_title(s.models[i].display_name, w - 44, 14))
                                 .icon(i == s.model_index ? 0xf00c : 0xf1b2)
                                 .iconSize(16)
-                                .fontSize(14)
+                                .fontSize(ui_font_size(14))
                                 .style(button_style(p))
                                 .disabled(s.saving_model || s.model_dirty)
                                 .onClick([i] {
@@ -1139,7 +1127,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
 float text_height(const std::string &value, float width, float size = 16, float line = 26) {
     core::TextStyle style;
     style.text = value;
-    style.fontSize = size;
+    style.fontSize = ui_font_size(size);
     style.maxWidth = width;
     style.wrap = true;
     style.lineHeight = line;
@@ -1166,8 +1154,8 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
     const float column = empty ? std::min(672.0f, main_width - 48)
                                : std::min(800.0f, main_width - (main_width >= 864 ? 96 : 48));
     const float x = sidebar + (main_width - column) / 2;
-    const float input_height =
-        std::clamp(text_height(session.draft, column - 40, 16, 24) + 16, 48.0f, 168.0f);
+    const float input_height = std::clamp(
+        text_height(session.draft, column - 40, 16, ui_input_line_height(16)) + 24, 52.0f, 168.0f);
     const float refs_height =
         session.references.empty() && session.attachments.empty() ? 0.0f : 36.0f;
     const float edit_height = session.edit_turn_id.empty() ? 0 : 32;
@@ -1196,11 +1184,11 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         markdown.codeBackground = s.dark ? color(0x222222) : color(0xeeeeee);
         markdown.quoteBackground = s.dark ? color(0x202020) : color(0xf0f0f0);
         markdown.divider = p.border;
-        markdown.bodySize = 16;
+        markdown.bodySize = ui_font_size(16);
         markdown.bodyLineHeight = 24;
-        markdown.h1Size = 20;
-        markdown.h2Size = 18;
-        markdown.h3Size = 17;
+        markdown.h1Size = ui_font_size(20);
+        markdown.h2Size = ui_font_size(18);
+        markdown.h3Size = ui_font_size(17);
         markdown.codeSize = 14;
         markdown.blockGap = 8;
         markdown.radius = 8;
@@ -1229,7 +1217,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                     if (user) {
                         core::TextStyle measured;
                         measured.text = message.text;
-                        measured.fontSize = 16;
+                        measured.fontSize = ui_font_size(16);
                         bubble_width = std::min(
                             std::min(576.0f, width),
                             std::max(80.0f, core::TextPrimitive::measureTextSize(measured).x + 24));
@@ -1266,7 +1254,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                     .position(left + (user ? 12 : 0), body_y)
                                     .size(body_width, body_height)
                                     .text(message.text)
-                                    .fontSize(16)
+                                    .fontSize(ui_font_size(16))
                                     .lineHeight(24)
                                     .wrap()
                                     .color(p.text)
@@ -1495,7 +1483,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
             .size(176, 28)
             .text("附件 " + std::to_string(session.attachments.size()) + " · 引用 " +
                   std::to_string(session.references.size()))
-            .fontSize(12)
+            .fontSize(ui_font_size(12))
             .icon(0xf10d)
             .iconSize(11)
             .style(pill)
@@ -1509,7 +1497,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
             .position(x + column - 68, y + refs_height + 4)
             .size(56, 26)
             .text("取消")
-            .fontSize(12)
+            .fontSize(ui_font_size(12))
             .style(button_style(p))
             .disabled(session.submitting || session.running)
             .onClick([] { state().chat.cancel_edit(); })
@@ -1530,7 +1518,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         .placeholder("向 Mira 提问，或描述一个任务…")
         .multiline()
         .scrollbar()
-        .fontSize(16)
+        .fontSize(ui_font_size(16))
         .inset(12)
         .style(input_style)
         .onFocus([](bool focused) {
@@ -1584,7 +1572,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         .text(session.access == "read_only" ? "只读模式" : "默认权限")
         .icon(0xf078)
         .iconSize(9)
-        .fontSize(13)
+        .fontSize(ui_font_size(13))
         .style(toolbar)
         .onClick([toggle] { toggle(PageState::Popup::Mode); })
         .build();
@@ -1609,7 +1597,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                    : "选择模型")
         .icon(0xf078)
         .iconSize(9)
-        .fontSize(13)
+        .fontSize(ui_font_size(13))
         .style(toolbar)
         .disabled(s.saving_model)
         .onClick([toggle] { toggle(PageState::Popup::Model); })
@@ -1626,7 +1614,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         .text(effort + "思考")
         .icon(0xf078)
         .iconSize(9)
-        .fontSize(13)
+        .fontSize(ui_font_size(13))
         .style(toolbar)
         .onClick([toggle] { toggle(PageState::Popup::Reasoning); })
         .build();
@@ -1692,7 +1680,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                         .text(label)
                         .icon(glyph)
                         .iconSize(14)
-                        .fontSize(14)
+                        .fontSize(ui_font_size(14))
                         .style(button_style(p))
                         .disabled(disabled)
                         .onClick(std::move(action))
@@ -1766,7 +1754,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                     .icon(model.display_name == s.live_model.display_name ? 0xf00c
                                                                                           : 0xf1b2)
                                     .iconSize(14)
-                                    .fontSize(14)
+                                    .fontSize(ui_font_size(14))
                                     .style(button_style(p))
                                     .disabled(session.running || session.submitting ||
                                               s.saving_model || model.model_selector.empty())
@@ -1804,7 +1792,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                                     std::to_string(attachment.text.size()) + " B",
                                                 width - 38, 14))
                                             .icon(0xf00d)
-                                            .fontSize(14)
+                                            .fontSize(ui_font_size(14))
                                             .style(button_style(p))
                                             .onClick([id = attachment.id] {
                                                 state().chat.remove_attachment(id);
@@ -1815,7 +1803,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                             .size(width,
                                                   text_height(attachment.text, width, 13, 22))
                                             .text(attachment.text)
-                                            .fontSize(13)
+                                            .fontSize(ui_font_size(13))
                                             .lineHeight(22)
                                             .wrap()
                                             .color(p.muted)
@@ -1854,7 +1842,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                             .position(4, 32)
                                             .size(width - 8, height)
                                             .text(reference.text)
-                                            .fontSize(14)
+                                            .fontSize(ui_font_size(14))
                                             .lineHeight(22)
                                             .color(p.text)
                                             .wrap()
@@ -1937,7 +1925,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                     .text("引用选段")
                     .icon(0xf10d)
                     .iconSize(12)
-                    .fontSize(13)
+                    .fontSize(ui_font_size(13))
                     .style(button_style(p))
                     .onClick([] {
                         auto &page = state();
@@ -2033,7 +2021,7 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                         .size(sidebar - 32, 44)
                         .text("返回对话")
                         .icon(0xf060)
-                        .fontSize(16)
+                        .fontSize(ui_font_size(16))
                         .iconSize(16)
                         .style(button_style(p))
                         .onClick([] {
@@ -2068,7 +2056,7 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                         .size(sidebar - 32, 44)
                         .text("新建对话")
                         .icon(0xf067)
-                        .fontSize(16)
+                        .fontSize(ui_font_size(16))
                         .iconSize(16)
                         .style(button_style(p))
                         .onClick([] { new_session(); })
@@ -2222,7 +2210,7 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                         .size(124, 36)
                         .text("返回对话")
                         .icon(0xf060)
-                        .fontSize(14)
+                        .fontSize(ui_font_size(14))
                         .style(button_style(p))
                         .onClick([] {
                             state().settings = false;

@@ -1,6 +1,9 @@
 #pragma once
 
+#include "typography.hpp"
+#include <algorithm>
 #include <core/dsl.h>
+#include <core/render/text.h>
 #include <string_view>
 
 namespace mirage::native_ui {
@@ -37,8 +40,49 @@ inline void compact_markdown_cjk(core::dsl::Element &root, std::string_view sour
     core::dsl::Element *previous = nullptr;
     std::string previous_text;
     float shift = 0;
+    float code_shift = 0;
+    float line_y = -1;
     for (auto &child : root.children) {
         compact_markdown_cjk(*child, source);
+        // EUI-20261005-006: center aligns each segment's own ink bounds.
+        // A shared line box keeps Chinese, Latin and punctuation on one baseline.
+        // Include styled segments with background/decor children, not just CJK.
+        if (child->id.find(".seg.") != std::string::npos) {
+            if (line_y != child->y) {
+                code_shift = 0;
+                line_y = child->y;
+            }
+            child->x -= code_shift;
+            for (auto &run : child->children) {
+                if (run->kind == core::dsl::ElementKind::Text && run->id.ends_with(".text")) {
+                    if (run->fontFamily == "monospace") {
+                        // Markdown derives inline code size as bodySize - 1.
+                        // The platform code font must not receive the CJK factor.
+                        run->fontSize = (run->fontSize + 1) / ui_font_size(1) - 1;
+                        run->verticalAlign = core::VerticalAlign::Center;
+                        run->y = 0;
+                        // Keep the chip width consistent with its independent font.
+                        // Wrapping/row budgets remain the upstream conservative ones.
+                        const auto width = core::TextPrimitive::measureTextWidth(
+                            run->text, run->fontFamily, run->fontSize, run->fontWeight);
+                        const float shrink =
+                            std::max(0.0f, child->width.value - width - run->x * 2);
+                        child->width.value -= shrink;
+                        run->width.value = child->width.value - run->x * 2;
+                        for (auto &decoration : child->children)
+                            if (decoration->id.ends_with(".bg"))
+                                decoration->width.value = child->width.value;
+                        code_shift += shrink;
+                    } else {
+                        run->verticalAlign = core::VerticalAlign::Top;
+                        run->y = std::max(0.0f, (run->lineHeight - run->fontSize) * 0.5f);
+                    }
+                }
+            }
+        } else {
+            code_shift = 0;
+            line_y = -1;
+        }
         if (child->id.find(".seg.") == std::string::npos || child->children.size() != 1 ||
             child->children.front()->kind != core::dsl::ElementKind::Text) {
             previous = nullptr;

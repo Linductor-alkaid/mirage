@@ -29,7 +29,8 @@ endif()
 install(TARGETS mirage-native RUNTIME DESTINATION bin)
 install(FILES "${CMAKE_SOURCE_DIR}/apps/native/assets/mira.png" "${CMAKE_SOURCE_DIR}/apps/native/assets/mira-ui.png"
     "${CMAKE_SOURCE_DIR}/third_party/eui-neo/assets/Font Awesome 7 Free-Solid-900.otf"
-    "${CMAKE_SOURCE_DIR}/third_party/eui-neo/assets/JingNanJunJunTi-JinNanJunJunTi-Bold-2.ttf" DESTINATION bin/assets)
+    "${CMAKE_BINARY_DIR}/apps/native/font-assets/NotoSansSC-Regular.otf"
+    "${CMAKE_SOURCE_DIR}/apps/native/assets/fonts/OFL-NotoSansSC.txt" DESTINATION bin/assets)
 configure_file("${CMAKE_SOURCE_DIR}/apps/native/org.mirage.native.installed.desktop.in"
     "${CMAKE_BINARY_DIR}/org.mirage.native.installed.desktop" @ONLY)
 install(FILES "${CMAKE_BINARY_DIR}/org.mirage.native.installed.desktop"

@@ -36,7 +36,8 @@ Section "Install"
     File "${MIRAGE_BIN_DIR}\assets\mira.png"
     File "${MIRAGE_BIN_DIR}\assets\mira-ui.png"
     File "${MIRAGE_BIN_DIR}\assets\Font Awesome 7 Free-Solid-900.otf"
-    File "${MIRAGE_BIN_DIR}\assets\JingNanJunJunTi-JinNanJunJunTi-Bold-2.ttf"
+    File "${MIRAGE_BIN_DIR}\assets\NotoSansSC-Regular.otf"
+    File "${MIRAGE_BIN_DIR}\assets\OFL-NotoSansSC.txt"
     SetOutPath "$INSTDIR"
 
     ; Start Menu shortcut (快速进入 Mirage).

@@ -35,94 +35,94 @@ colors:
   dark-context-ring: '#b1b1b1'
 typography:
   headline:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 30px
     fontWeight: 500
     lineHeight: 1.5
   brand:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 22px
     fontWeight: 600
     lineHeight: 1.5
   title:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 21px
     fontWeight: 600
     lineHeight: 1.5
   message:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 16px
     fontWeight: 400
     lineHeight: 24px
   body:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 17px
     fontWeight: 400
   navigation:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 16px
     fontWeight: 400
     lineHeight: 1.5
   label:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 14px
     fontWeight: 400
     lineHeight: 1.5
   hint:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 13px
     fontWeight: 400
     lineHeight: 1.5
   input:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 16px
     fontWeight: 400
   button-label:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 15px
     fontWeight: 400
   settings-heading:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 30px
     fontWeight: 600
     lineHeight: 1.5
   provider-selector:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 18px
     fontWeight: 400
   model-heading:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 28px
     fontWeight: 600
     lineHeight: 1.5
   model-field:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 16px
     fontWeight: 400
   markdown-h1:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 20px
   markdown-h2:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 18px
   markdown-h3:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 17px
   markdown-code:
     fontSize: 14px
   reference-body:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 14px
     lineHeight: 22px
   composer-label:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 13px
   composer-notice:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 12px
     lineHeight: 18px
   composer-shortcut:
-    fontFamily: Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif
+    fontFamily: Noto Sans SC, sans-serif
     fontSize: 11px
     lineHeight: 16.5px
 rounded:
@@ -286,7 +286,7 @@ components:
 
 **Key Characteristics:**
 - 明暗两态共享中性灰角色；默认浅色。
-- 系统中文无衬线文字与 Font Awesome Solid 操作图标；品牌继承 Mira 原始角色图。
+- 随应用交付的 Noto Sans SC 中文无衬线文字与 Font Awesome Solid 操作图标；品牌继承 Mira 原始角色图。
 - 可调宽并收起的侧栏、右对齐用户气泡、无卡片 Markdown 回复与随文字增高的 composer。
 - 设置入口集中外观与模型；主题即时应用且仅在当前运行中保留，模型配置由服务保存并确认，API Key 直接输入并默认遮蔽。
 - 平面容器、细描边、有限圆角。
@@ -315,9 +315,11 @@ Markdown 链接/强调色、代码块与引用块背景使用对应专用角色�
 
 ## Typography
 
-**Body Font:** 启动时选择存在的系统中文字体文件；Windows 先尝试 Microsoft YaHei，再尝试 SimHei；Linux 依次尝试 Noto Sans CJK、Droid Sans Fallback、WenQuanYi Micro Hei。frontmatter 的字体族描述这些实际候选的阅读用途，原生加载机制是文件选择而非浏览器 CSS 回退。
+**Body Font:** 固定加载随应用交付的 `assets/NotoSansSC-Regular.otf`（Noto Sans SC Regular 2.004），中文与拉丁文字共用同一字面；不按本机系统字体或 TTC 首个字面变化。Git 内保存完整 OTF 的 xz/tar 归档，构建时离线解包，包含 OFL-1.1 许可；原始来源、摘要和无字形变更说明见 `apps/native/assets/fonts/provenance.json`。
 
-**Character:** 简体中文为主，标题与正文共用系统无衬线文字。Font Awesome 7 Free Solid 单独加载图标；不以 Unicode 文字符号代替操作图标。
+设计字号以EM记载；Noto SC的公开组件请求字号为设计值乘1.448（如正文16EM请求23.168）。文字测量、换行与输入使用同一换算，Font Awesome/代码保持独立度量。Markdown标题行高沿用请求字号加6，H1/H2/H3约34.96/32.06/30.62px；正文行高24px。换算见 `apps/native/typography.hpp`，字体度量由原生测试校验（EUI-20261005-007）。
+
+**Character:** 简体中文为主，标题与正文共用 Noto Sans SC 无衬线文字。Font Awesome 7 Free Solid 单独加载图标；不以 Unicode 文字符号代替操作图标。
 
 ### Hierarchy
 
@@ -328,11 +330,13 @@ Markdown 链接/强调色、代码块与引用块背景使用对应专用角色�
 - **Message / Body**：用户正文与助手 Markdown 为 16px / 24px；H1/H2/H3 为 20/18/17px，代码 14px，块间隔 8px。引用预览 14px / 22px。弹层正文 28px 行高。Markdown 代码字体与未显式设置的标题行高由 pinned EUI 提供，不猜测为产品 token。
 - **Context Detail**：标题与百分比沿用 16px / 500 权重，Token 摘要沿用 14px；二者行框 28px。来源、模型与本次引用行沿用 13px、24px 行框。
 - **Navigation / Label / Hint**：会话、工具条、状态与快捷键提示逐级收紧。
-- **Input / Button Label**：输入保持正文的 16px；草稿高度测量使用 24px 行高，实际输入行高由 EUI 管理。composer 模式/模型 13px、通知 12px、快捷键 11px，对话框操作 15px。
+- **Input / Button Label**：输入保持正文的 16px；草稿测量与实际输入同用 `ui_font_size(16) * 1.2` 行高（约27.80px）。composer 模式/模型 13px、通知 12px、快捷键 11px，对话框操作 15px。
 - `text()` 默认行高为字号的 1.5 倍；输入与部分 EUI 组件保留库默认行高，不把未指定值记成产品规则。
 - 单行文字和图标使用同一行框的 ink-center 对齐，文字不再用字号差值手工偏移；图标行高使用图标字号，行框高度由所在行决定。
 
-字体资源最终回退仍指向 EUI 随附的装饰字体 `JingNanJunJunTi-JinNanJunJunTi-Bold-2.ttf`。该回退是缺少系统中文字体时的实现限制，不作为未来表面的规范字体。
+Markdown 行内段使用 Top 对齐与 `(lineHeight - fontSize) / 2` 的统一行框内边距，普通中文、英文与标点不再逐字按轮廓居中（EUI-20261005-006）。按钮与图标仍保持整个标签的 ink-center。行内代码还原独立的逻辑字号并整体居中，保留上游保守宽度预算。代码继续使用 EUI 的 monospace 字体；pinned EUI 未按字体文件切换字重，现有 fontWeight 值不代表已交付独立粗体字面。
+
+维护者授权按ZCode选择字体，M6-12 / DEC-040；ZCode使用系统无衬线栈，本机中文对应Noto Sans CJK SC，选其同系列官方简体中文区域字面。统一中文字面和Markdown行内基线，不扩大布局与主题范围。验证见 `docs/compatibility/native-typography-20261005.md`。Windows与真实IME的字体表现尚待目标平台补跑。
 
 ## Layout
 
@@ -342,7 +346,7 @@ Markdown 链接/强调色、代码块与引用块背景使用对应专用角色�
 - 标题拖动区和分隔线为 60px 高，与方向契约一致。
 - 空会话列为 `min(672px, main_width - 48px)`，水平居中；问候 30px、54px 行框，说明 14px、28px 行框，无建议列表。
 - 有消息时列为 `min(800px, main_width - (main_width >= 864px ? 96px : 48px))`，水平居中。用户气泡按文字测量宽度加 24px，最小 80px，最大 `min(576px, thread_width)`，右对齐；助手正文宽 `thread_width - 16px`，无卡片。
-- 编辑区高 `clamp(measure(draft, column - 40px, 16px, 24px) + 16px, 48px, 168px)`；composer 高为编辑区 + 56px 工具区，有附件或引用再加 36px，编辑最后输入再加32px；非编辑态总高 104–224px（有附件或引用 140–260px）。活动 composer 顶部为 `screen.height - composer_height - 28px`；空态期望顶部为 `max(188px, screen.height × 0.29 + 106px)`，按同一底部边界钳制。问候顶部为 `max(80px, composer_y - 104px)`。
+- 编辑区高 `clamp(measure(draft, column - 40px, ui_font_size(16), ui_input_line_height(16)) + 24px, 52px, 168px)`；composer 高为编辑区 + 56px 工具区，有附件或引用再加 36px，编辑最后输入再加32px；非编辑态总高 108–224px（有附件或引用 144–260px）。活动 composer 顶部为 `screen.height - composer_height - 28px`；空态期望顶部为 `max(188px, screen.height × 0.29 + 106px)`，按同一底部边界钳制。问候顶部为 `max(80px, composer_y - 104px)`。
 - 消息滚动区顶部 72px，高 `max(48px, composer_y - 88px)`；滚动条宽 4px、gap 8px。工具条顶部为 `composer_y + composer_height - 44px`；面板下方 24px 通知/快捷键行从面板底部 + 4px 开始。
 - 外观/模型设置保留 `min(800px, main_width - 64px)` 居中列。
 - 会话列表为 48px 行高、4px 行间隔；消息行间隔 14px。新建/返回按钮宽度为 `sidebar - 32px`，会话列表宽度为 `sidebar - 24px`，随侧栏一起变化。最小窗口保持同一结构，用户可收起侧栏增加空间。

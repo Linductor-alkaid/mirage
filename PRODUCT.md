@@ -87,3 +87,7 @@ Mirage 是基于 Mira 构建的桌面端产品，为 Mira 通用 Agent 提供完
 才替换其用户/Agent消息，实际模型输入排除旧轮次，失败拒绝保留原历史。该操作不撤销工具外部副作用。
 [验收证据](docs/compatibility/native-conversation-revision-20261005.md)使用显式合成会话和真实Mira请求夹具，
 不作为运行中ZCode的像素对比或本轮供应商在线测试。
+
+2026-10-05 / M6-12：原生界面统一使用随应用交付的 Noto Sans SC 简体中文字面，
+修正Markdown行内文字高低不齐；字体与OFL许可离线构建/打包。Linux验证见
+[字体验收](docs/compatibility/native-typography-20261005.md)。Windows/真实IME待补跑。

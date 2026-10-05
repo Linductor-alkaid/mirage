@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-05T09:11:12.411444+00:00",
+  "generatedAt": "2026-10-05T09:56:37.078364+00:00",
   "title": "Design System: Mirage 原生 Agent 对话页",
   "extensions": {
     "scope": {
@@ -18,14 +18,17 @@
         "apps/native/secret_edit.hpp",
         "apps/native/conversation_preview.hpp",
         "apps/native/selection_adapter.hpp",
-        "apps/native/text_selection.hpp"
+        "apps/native/text_selection.hpp",
+        "apps/native/CMakeLists.txt",
+        "apps/native/assets/fonts/provenance.json",
+        "apps/native/typography.hpp"
       ],
       "directionContract": "docs/design/native-agent-frontend.md",
       "legacyDesignDocument": "DESIGN.md",
       "previewOnly": false,
       "runtime": "Separate Runtime Service via versioned Local IPC; UI owns its Executor-managed bridge.",
-      "workItem": "M6-11",
-      "decision": "DEC-039",
+      "workItem": "M6-12",
+      "decision": "DEC-040",
       "visualAuthority": {
         "seed": "user-zcode-native",
         "mode": "code-led",
@@ -41,7 +44,8 @@
         "M6-06",
         "M6-07",
         "M6-08",
-        "M6-09"
+        "M6-09",
+        "M6-11"
       ],
       "priorDecisions": [
         "DEC-033",
@@ -49,13 +53,15 @@
         "DEC-035",
         "DEC-036",
         "DEC-037",
-        "DEC-038"
+        "DEC-038",
+        "DEC-039"
       ],
       "contractDocuments": [
         "docs/design/native-agent-frontend.md",
         "docs/design/mirage-ipc-protocol-v1.md",
         "docs/decisions/DEC-038-api-keys-and-draft-sessions.md",
-        "docs/decisions/DEC-039-conversation-selection-and-revision.md"
+        "docs/decisions/DEC-039-conversation-selection-and-revision.md",
+        "docs/decisions/DEC-040-native-typography.md"
       ]
     },
     "colorMeta": {
@@ -481,7 +487,7 @@
     "typographyMeta": {
       "headline": {
         "displayName": "Empty-state headline",
-        "purpose": "空态问题，系统中文文字；没有独立装饰 display face。"
+        "purpose": "空态问题，Noto Sans SC 中文文字；没有独立装饰 display face。"
       },
       "input": {
         "displayName": "Draft input",
@@ -757,7 +763,7 @@
         "width": 4,
         "gap": 8
       },
-      "inputHeight": "clamp(measure(draft, column - 40, 16, 24) + 16, 48, 168)",
+      "inputHeight": "clamp(measure(draft, column - 40, ui_font_size(16), ui_input_line_height(16)) + 24, 52, 168)",
       "composerHeight": "input_height + 56 + (references.empty && attachments.empty ? 0 : 36) + (edit_turn_id.empty ? 0 : 32)",
       "composerTop": "min(empty ? max(188, screen.height * 0.29 + 106) : screen.height - composer_height - 28, screen.height - composer_height - 28)",
       "greeting": {
@@ -925,12 +931,7 @@
       "iconSource": "Font Awesome 7 Free Solid loaded by app configuration; preview SVG is an equivalent inline silhouette.",
       "focus": "Native focus/disabled behavior is delegated to EUI; sample button focus outlines are browser-preview affordances, not native tokens."
     },
-    "knownDrift": [
-      {
-        "source": "apps/native/app.cpp:text_font",
-        "statement": "Decorative fallback font remains for hosts with none of the system CJK candidates; not canonized."
-      }
-    ],
+    "knownDrift": [],
     "assetProvenance": {
       "shippingRasters": [
         {
@@ -964,12 +965,25 @@
         "name": "ZCode Zai Light/Dark",
         "url": "https://github.com/zai-org/ZCode",
         "use": "Visual and layout inspiration only; no shipping raster from reference."
-      }
+      },
+      "shippingFonts": [
+        {
+          "family": "Noto Sans SC",
+          "style": "Regular",
+          "version": "2.004",
+          "archive": "apps/native/assets/fonts/noto-sans-sc-2.004.tar.xz",
+          "runtimePath": "assets/NotoSansSC-Regular.otf",
+          "provenance": "apps/native/assets/fonts/provenance.json",
+          "license": "OFL-1.1",
+          "licenseFile": "apps/native/assets/fonts/OFL-NotoSansSC.txt"
+        }
+      ]
     },
     "textAlignment": {
       "singleLine": "EUI ink-center within shared row bounds; no font-size-based y offsets.",
       "icons": "Horizontal and vertical center; glyph line height equals icon font size.",
-      "titleFit": "Measure actual text width; remove UTF-8 code points and append ellipsis until it fits; preserve the underlying session title."
+      "titleFit": "Measure actual text width; remove UTF-8 code points and append ellipsis until it fits; preserve the underlying session title.",
+      "markdownInline": "Top aligned within a shared line box, with max(0, (lineHeight - fontSize) / 2) padding; avoids per-segment ink centering. EUI-20261005-006. Inline code keeps its independent logical size and whole-run center alignment."
     },
     "brandImage": {
       "source": "assets/mira-ui.png",
@@ -1284,6 +1298,33 @@
         "reviewMode": "Inline degraded finish-reviewer/documenter substitution; no independent reviewer.",
         "limits": "Synthetic EUI framebuffer captures; no live ZCode screenshot, Windows or real IME acceptance."
       }
+    },
+    "typographyDelivery": {
+      "family": "Noto Sans SC",
+      "source": "Full official Regular 2.004 OTF; offline archive extraction, verified archive/font SHA256 in CMake.",
+      "fontWeight": "Existing numeric weight semantics retained; pinned EUI resolves this default face for all weights. No independent bold-face claim.",
+      "fallback": "EUI retains system monospace/emoji and missing-glyph fallback; product no longer selects system TTC or decorative example font.",
+      "evidence": "docs/compatibility/native-typography-20261005.md",
+      "captures": ".impeccable/review/typography-20261005/*.png",
+      "reviewMode": "Inline degraded finish review and document extraction; no independent agent review.",
+      "reference": "ZCode uses Tailwind system sans; local fontconfig Chinese fallback is Noto Sans CJK SC. Noto Sans SC is the matching official SC regional face, not a unique built-in ZCode font or a Chromium raster match.",
+      "emConversion": {
+        "factor": 1.448,
+        "metrics": {
+          "unitsPerEm": 1000,
+          "ascender": 1160,
+          "descender": -288
+        },
+        "appliesTo": "Noto SC drawing/measurement/wrapping/input/selection; excludes icons and monospace",
+        "bodyRequestPx": 23.168,
+        "bodyLineHeightPx": 24,
+        "inputLineHeightPx": 27.8016,
+        "headingLineHeight": "Converted request font size + 6, per EUI",
+        "feedback": "EUI-20261005-007"
+      },
+      "inlineCodeWidth": "Measured with restored independent monospace size; shrink chip and shift same-row following runs, retain upstream wrap/height budget.",
+      "finishVerdict": ".impeccable/review/typography-20261005/finish-verdict.md",
+      "minimumInputHeightPx": 52
     }
   },
   "components": [
@@ -1309,7 +1350,7 @@
       "refersTo": "session-row-selected",
       "description": "有真实消息的选中历史行与垃圾桶静态示意；空草稿不生成历史行，实际删除等待service ACK。",
       "html": "<div class=\"ds-session\"><button class=\"ds-session-select\">整理今天的工作</button><button class=\"ds-session-delete\" aria-label=\"删除这段对话\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M3 4h10M6 2h4M5 6v7h6V6M7 7v5M9 7v5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg></button></div>",
-      "css": ".ds-session{position:relative;height:48px;width:236px;border-radius:7px;background:#e2e2e2;color:#202020;font-family:Noto Sans CJK,Microsoft YaHei,sans-serif}.ds-session button{border:0;border-radius:7px;background:transparent;color:inherit;font-family:inherit;cursor:pointer}.ds-session-select{width:100%;height:48px;padding:0 56px 0 44px;text-align:left;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-session-delete{position:absolute;right:4px;top:6px;width:36px;height:36px;display:inline-grid;place-items:center}.ds-session button:hover{background:#e8e8e8}.ds-session button:active{background:#e2e2e2}.ds-session button:focus-visible{outline:2px solid #202020;outline-offset:2px}.ds-session button:disabled{color:#6d6d6d;cursor:default}"
+      "css": ".ds-session{position:relative;height:48px;width:236px;border-radius:7px;background:#e2e2e2;color:#202020;font-family:Noto Sans SC,sans-serif}.ds-session button{border:0;border-radius:7px;background:transparent;color:inherit;font-family:inherit;cursor:pointer}.ds-session-select{width:100%;height:48px;padding:0 56px 0 44px;text-align:left;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-session-delete{position:absolute;right:4px;top:6px;width:36px;height:36px;display:inline-grid;place-items:center}.ds-session button:hover{background:#e8e8e8}.ds-session button:active{background:#e2e2e2}.ds-session button:focus-visible{outline:2px solid #202020;outline-offset:2px}.ds-session button:disabled{color:#6d6d6d;cursor:default}"
     },
     {
       "name": "Multiline draft",
@@ -1317,7 +1358,7 @@
       "refersTo": "input",
       "description": "原生已实现组件的浅色 HTML/CSS 示意；原生交互与焦点由 EUI 管理。",
       "html": "<textarea class=\"ds-input\" aria-label=\"任务草稿\" placeholder=\"向 Mira 提问，或描述一个任务…\"></textarea>",
-      "css": ".ds-input{font-family:Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif;min-height:48px;max-height:168px;width:100%;box-sizing:border-box;padding:12px;border:0;border-radius:4px;background:#fff;color:#202020;font-size:16px;resize:none;overflow:auto}.ds-input::placeholder{color:#6d6d6d}.ds-input:hover,.ds-input:focus-visible{background:#fff;outline:0}"
+      "css": ".ds-input{font-family:Noto Sans SC, sans-serif;min-height:52px;max-height:168px;width:100%;box-sizing:border-box;padding:12px;border:0;border-radius:4px;background:#fff;color:#202020;font-size:16px;resize:none;overflow:auto}.ds-input::placeholder{color:#6d6d6d}.ds-input:hover,.ds-input:focus-visible{background:#fff;outline:0}"
     },
     {
       "name": "User message bubble",
@@ -1325,7 +1366,7 @@
       "refersTo": "user-bubble",
       "description": "原生已实现组件的浅色 HTML/CSS 示意；原生交互与焦点由 EUI 管理。",
       "html": "<article class=\"ds-user\">请描述你要完成的任务。</article>",
-      "css": ".ds-user{font-family:Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif;margin-left:auto;box-sizing:border-box;width:fit-content;max-width:576px;padding:8px 12px;border:none;border-radius:10px;background:#f0f0f0;color:#202020;font-size:16px;line-height:24px;white-space:pre-wrap;overflow-wrap:anywhere}"
+      "css": ".ds-user{font-family:Noto Sans SC, sans-serif;margin-left:auto;box-sizing:border-box;width:fit-content;max-width:576px;padding:8px 12px;border:none;border-radius:10px;background:#f0f0f0;color:#202020;font-size:16px;line-height:24px;white-space:pre-wrap;overflow-wrap:anywhere}"
     },
     {
       "name": "Composer panel",
@@ -1333,7 +1374,7 @@
       "refersTo": "composer",
       "description": "原生增长 composer 的浅色静态示意；附件、权限、上下文、模型、思考、发送的顺序与源一致。HTML 不实现 IPC、IME、附件读取或测量。",
       "html": "<section class=\"ds-composer\"><textarea class=\"ds-composer-draft\" aria-label=\"任务草稿\" placeholder=\"向 Mira 提问，或描述一个任务…\"></textarea><div class=\"ds-toolbar\"><button aria-label=\"添加\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M8 2v12M2 8h12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button><button class=\"ds-access\">默认权限</button><button class=\"ds-context-control\" aria-label=\"上下文\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\" fill=\"none\" stroke=\"#737373\" stroke-opacity=\"0.25\" stroke-width=\"4\"/></svg></button><button class=\"ds-model\">选择模型</button><button class=\"ds-reasoning\">默认思考</button><button class=\"ds-send\" aria-label=\"发送\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M8 13V3M3 8l5-5 5 5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button></div></section>",
-      "css": ".ds-composer{font-family:Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif;width:100%;max-width:672px;box-sizing:border-box;padding:4px 4px 8px;border:1px solid #dfdfdf;border-radius:16px;background:#fff;color:#202020}.ds-composer:focus-within{border-color:#6d6d6d}.ds-composer-draft{display:block;box-sizing:border-box;width:100%;height:48px;max-height:168px;padding:12px;border:0;border-radius:4px;background:#fff;color:#202020;font-family:inherit;font-size:16px;resize:none}.ds-composer-draft::placeholder{color:#6d6d6d}.ds-composer-draft:focus-visible{outline:0}.ds-toolbar{height:36px;margin-top:8px;display:flex;align-items:center;gap:4px;padding:0 4px}.ds-toolbar button{height:32px;border:0;border-radius:6px;background:transparent;color:#202020;font-family:inherit;font-size:13px;cursor:pointer}.ds-toolbar button[aria-label]{width:36px;height:36px;border-radius:7px;display:inline-grid;place-items:center}.ds-toolbar .ds-model{flex:1;text-align:left}.ds-toolbar .ds-send{background:#222222;color:white}.ds-toolbar button:hover{background:#e8e8e8}.ds-toolbar .ds-send:hover{background:#6d6d6d}.ds-toolbar button:active{background:#e2e2e2}.ds-toolbar button:focus-visible{outline:2px solid #202020;outline-offset:2px} .ds-toolbar .ds-context-control{height:32px} .ds-toolbar .ds-access{width:110px;flex:none}.ds-toolbar .ds-reasoning{width:88px;flex:none}.ds-toolbar .ds-context-control{width:36px;flex:none}.ds-toolbar .ds-model{min-width:96px} .ds-toolbar .ds-send:disabled{background:#e8e8e8;color:#6d6d6d;cursor:default}"
+      "css": ".ds-composer{font-family:Noto Sans SC, sans-serif;width:100%;max-width:672px;box-sizing:border-box;padding:4px 4px 8px;border:1px solid #dfdfdf;border-radius:16px;background:#fff;color:#202020}.ds-composer:focus-within{border-color:#6d6d6d}.ds-composer-draft{display:block;box-sizing:border-box;width:100%;height:52px;max-height:168px;padding:12px;border:0;border-radius:4px;background:#fff;color:#202020;font-family:inherit;font-size:16px;resize:none}.ds-composer-draft::placeholder{color:#6d6d6d}.ds-composer-draft:focus-visible{outline:0}.ds-toolbar{height:36px;margin-top:8px;display:flex;align-items:center;gap:4px;padding:0 4px}.ds-toolbar button{height:32px;border:0;border-radius:6px;background:transparent;color:#202020;font-family:inherit;font-size:13px;cursor:pointer}.ds-toolbar button[aria-label]{width:36px;height:36px;border-radius:7px;display:inline-grid;place-items:center}.ds-toolbar .ds-model{flex:1;text-align:left}.ds-toolbar .ds-send{background:#222222;color:white}.ds-toolbar button:hover{background:#e8e8e8}.ds-toolbar .ds-send:hover{background:#6d6d6d}.ds-toolbar button:active{background:#e2e2e2}.ds-toolbar button:focus-visible{outline:2px solid #202020;outline-offset:2px} .ds-toolbar .ds-context-control{height:32px} .ds-toolbar .ds-access{width:110px;flex:none}.ds-toolbar .ds-reasoning{width:88px;flex:none}.ds-toolbar .ds-context-control{width:36px;flex:none}.ds-toolbar .ds-model{min-width:96px} .ds-toolbar .ds-send:disabled{background:#e8e8e8;color:#6d6d6d;cursor:default}"
     },
     {
       "name": "Theme choice",
@@ -1341,7 +1382,7 @@
       "refersTo": "theme-option",
       "description": "外观页浅色/深色选择的浅色示意；原生即时刷新与偏好由 UI 进程持有。",
       "html": "<div class=\"ds-theme-options\"><button class=\"ds-theme-option\" aria-pressed=\"true\"><svg viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"3\" fill=\"currentColor\"/><path d=\"M8 0v3M8 13v3M0 8h3M13 8h3M2.3 2.3l2.1 2.1m7.2 7.2l2.1 2.1M2.3 13.7l2.1-2.1m7.2-7.2l2.1-2.1\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg>浅色</button><button class=\"ds-theme-option\" aria-pressed=\"false\"><svg viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M14.2 10.3A6.5 6.5 0 0 1 5.7 1.8a6.6 6.6 0 1 0 8.5 8.5z\"/></svg>深色</button></div>",
-      "css": ".ds-theme-options{display:flex;gap:8px}.ds-theme-option{font-family:Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif;width:116px;height:40px;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:16px;border:1px solid #dfdfdf;border-radius:7px;background:#fff;color:#202020;cursor:pointer}.ds-theme-option[aria-pressed=\"true\"]{background:#e2e2e2}.ds-theme-option:hover{background:#e8e8e8}.ds-theme-option:active{background:#e2e2e2}.ds-theme-option:focus-visible{outline:2px solid #202020;outline-offset:2px}"
+      "css": ".ds-theme-options{display:flex;gap:8px}.ds-theme-option{font-family:Noto Sans SC, sans-serif;width:116px;height:40px;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:16px;border:1px solid #dfdfdf;border-radius:7px;background:#fff;color:#202020;cursor:pointer}.ds-theme-option[aria-pressed=\"true\"]{background:#e2e2e2}.ds-theme-option:hover{background:#e8e8e8}.ds-theme-option:active{background:#e2e2e2}.ds-theme-option:focus-visible{outline:2px solid #202020;outline-offset:2px}"
     },
     {
       "name": "Model setting input",
@@ -1349,7 +1390,7 @@
       "refersTo": "model-input",
       "description": "模型表单的16px标签/输入与focus描边示意；原生编辑、草稿和保存由EUI及IPC管理。",
       "html": "<label class=\"ds-model-field\">模型名称<input class=\"ds-model-input\" value=\"provider/model-id\" aria-label=\"模型名称\" /></label>",
-      "css": ".ds-model-field{display:flex;flex-direction:column;gap:8px;height:92px;width:300px;font-family:Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif;font-size:16px;color:#202020;line-height:28px}.ds-model-input{height:44px;box-sizing:border-box;padding:12px;font-family:Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif;font-size:16px;border:1px solid #dfdfdf;border-radius:7px;background:#fff;color:#202020}.ds-model-input:hover{background:#fff}.ds-model-input:focus-visible{outline:0;border-color:#222222}.ds-model-input:disabled{cursor:default}"
+      "css": ".ds-model-field{display:flex;flex-direction:column;gap:8px;height:92px;width:300px;font-family:Noto Sans SC, sans-serif;font-size:16px;color:#202020;line-height:28px}.ds-model-input{height:44px;box-sizing:border-box;padding:12px;font-family:Noto Sans SC, sans-serif;font-size:16px;border:1px solid #dfdfdf;border-radius:7px;background:#fff;color:#202020}.ds-model-input:hover{background:#fff}.ds-model-input:focus-visible{outline:0;border-color:#222222}.ds-model-input:disabled{cursor:default}"
     },
     {
       "name": "Cardless assistant reply",
@@ -1357,7 +1398,7 @@
       "refersTo": "agent-reply",
       "description": "已完成回复的无卡片文字/代码视觉示意；实际原生渲染使用 EUI Markdown。",
       "html": "<article class=\"ds-reply\"><p>和 Mira 一起，把想法变成下一步。</p><pre><code>const auto result = run();</code></pre></article>",
-      "css": ".ds-reply{font-family:Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif;font-size:16px;line-height:24px;color:#202020;background:transparent}.ds-reply p{margin:0 0 8px}.ds-reply pre{margin:0;padding:12px;border-radius:8px;background:#eee;font-size:14px;overflow:auto}"
+      "css": ".ds-reply{font-family:Noto Sans SC, sans-serif;font-size:16px;line-height:24px;color:#202020;background:transparent}.ds-reply p{margin:0 0 8px}.ds-reply pre{margin:0;padding:12px;border-radius:8px;background:#eee;font-size:14px;overflow:auto}"
     },
     {
       "name": "Inspectable attachments and references",
@@ -1365,7 +1406,7 @@
       "refersTo": "reference-popover",
       "description": "共享计数 pill 和有界文本预览的浅色静态示意；附件读取、删除与 ACK 由原生 Executor/ChatModel 管理。",
       "html": "<div class=\"ds-reference\"><button class=\"ds-reference-pill\">附件 0 · 引用 1</button><section class=\"ds-reference-panel\"><h3>附件与引用</h3><div class=\"ds-reference-list\"><header><span>Mira · 消息 #1</span><button aria-label=\"移除此引用\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M3 4h10M6 2h4M5 6v7h6V6M7 7v5M9 7v5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg></button></header><p>请描述你要完成的任务。</p></div></section></div>",
-      "css": ".ds-reference{font-family:Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif;color:#202020}.ds-reference-pill{width:176px;height:28px;border:0;border-radius:14px;background:#e8e8e8;color:#202020;font-family:inherit;font-size:12px;cursor:pointer}.ds-reference-panel{width:320px;max-width:100%;height:352px;box-sizing:border-box;margin-top:8px;padding:12px;border:1px solid #dfdfdf;border-radius:12px;background:#fff}.ds-reference-panel h3{margin:0 4px 8px;font-size:16px;font-weight:500;line-height:28px}.ds-reference-list{height:292px;overflow:auto}.ds-reference-list header{height:26px;display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#6d6d6d}.ds-reference-list button{width:28px;height:26px;border:0;border-radius:7px;background:transparent;color:#202020;display:inline-grid;place-items:center;cursor:pointer}.ds-reference-list p{margin:6px 4px 0;font-size:14px;line-height:22px;white-space:pre-wrap;overflow-wrap:anywhere}.ds-reference button:hover{background:#e8e8e8}.ds-reference button:active{background:#e2e2e2}.ds-reference button:focus-visible{outline:2px solid #202020;outline-offset:2px}"
+      "css": ".ds-reference{font-family:Noto Sans SC, sans-serif;color:#202020}.ds-reference-pill{width:176px;height:28px;border:0;border-radius:14px;background:#e8e8e8;color:#202020;font-family:inherit;font-size:12px;cursor:pointer}.ds-reference-panel{width:320px;max-width:100%;height:352px;box-sizing:border-box;margin-top:8px;padding:12px;border:1px solid #dfdfdf;border-radius:12px;background:#fff}.ds-reference-panel h3{margin:0 4px 8px;font-size:16px;font-weight:500;line-height:28px}.ds-reference-list{height:292px;overflow:auto}.ds-reference-list header{height:26px;display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#6d6d6d}.ds-reference-list button{width:28px;height:26px;border:0;border-radius:7px;background:transparent;color:#202020;display:inline-grid;place-items:center;cursor:pointer}.ds-reference-list p{margin:6px 4px 0;font-size:14px;line-height:22px;white-space:pre-wrap;overflow-wrap:anywhere}.ds-reference button:hover{background:#e8e8e8}.ds-reference button:active{background:#e2e2e2}.ds-reference button:focus-visible{outline:2px solid #202020;outline-offset:2px}"
     },
     {
       "name": "Context usage detail",
@@ -1373,7 +1414,7 @@
       "refersTo": "context-popover",
       "description": "最近成功请求的浅色静态示意；391/128000来自真实请求与显式测试预算，不是供应商自动发现。原生数据/键盘交互由IPC及EUI管理。",
       "html": "<section class=\"ds-context-panel\"><header><span>上下文</span><span>0.3%</span></header><p class=\"ds-context-tokens\">391 / 128,000 Token</p><div class=\"ds-context-track\"><div class=\"ds-context-fill\"></div></div><p class=\"ds-context-source\">上次请求 · 模型输入用量</p><p class=\"ds-context-model\">Qwen/Qwen3.5-4B</p><p class=\"ds-context-refs\">本次引用 0 段文字</p></section>",
-      "css": ".ds-context-panel{position:relative;box-sizing:border-box;width:320px;max-width:100%;height:224px;border:1px solid #dfdfdf;border-radius:12px;background:#fff;color:#202020;font-family:Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif}.ds-context-panel header{position:absolute;top:12px;left:16px;right:16px;height:28px;display:flex;align-items:center;justify-content:space-between;font-size:16px;font-weight:500}.ds-context-panel p{position:absolute;margin:0;left:16px;right:16px;display:flex;align-items:center}.ds-context-tokens{top:48px;height:28px;font-size:14px}.ds-context-track{position:absolute;top:88px;left:16px;right:16px;height:6px;border-radius:3px;background:#dfdfdf;overflow:hidden}.ds-context-fill{width:0.3%;height:6px;border-radius:3px;background:#6d6d6d}.ds-context-source,.ds-context-model,.ds-context-refs{height:24px;font-size:13px;color:#6d6d6d}.ds-context-source{top:106px}.ds-context-model{top:134px}.ds-context-refs{top:182px}.ds-context-panel::after{content:\"\";position:absolute;left:16px;right:16px;top:170px;height:1px;background:#dfdfdf}"
+      "css": ".ds-context-panel{position:relative;box-sizing:border-box;width:320px;max-width:100%;height:224px;border:1px solid #dfdfdf;border-radius:12px;background:#fff;color:#202020;font-family:Noto Sans SC, sans-serif}.ds-context-panel header{position:absolute;top:12px;left:16px;right:16px;height:28px;display:flex;align-items:center;justify-content:space-between;font-size:16px;font-weight:500}.ds-context-panel p{position:absolute;margin:0;left:16px;right:16px;display:flex;align-items:center}.ds-context-tokens{top:48px;height:28px;font-size:14px}.ds-context-track{position:absolute;top:88px;left:16px;right:16px;height:6px;border-radius:3px;background:#dfdfdf;overflow:hidden}.ds-context-fill{width:0.3%;height:6px;border-radius:3px;background:#6d6d6d}.ds-context-source,.ds-context-model,.ds-context-refs{height:24px;font-size:13px;color:#6d6d6d}.ds-context-source{top:106px}.ds-context-model{top:134px}.ds-context-refs{top:182px}.ds-context-panel::after{content:\"\";position:absolute;left:16px;right:16px;top:170px;height:1px;background:#dfdfdf}"
     },
     {
       "name": "Compact provider selector",
@@ -1381,7 +1422,7 @@
       "refersTo": "provider-selector",
       "description": "紧凑模型页当前服务商名称和可滚动命名选择列表的静态示意；原生列表由EUI与ChatModel管理。",
       "html": "<section class=\"ds-provider-nav\"><button class=\"ds-provider-selector\">SiliconFlow <svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"m3 5 5 5 5-5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button><div class=\"ds-provider-list\"><button>SiliconFlow</button><button>自定义服务 2</button></div></section>",
-      "css": ".ds-provider-nav{font-family:Noto Sans CJK,Microsoft YaHei,sans-serif;color:#202020;max-width:420px}.ds-provider-selector{display:flex;align-items:center;justify-content:space-between;width:100%;height:40px;font:400 18px Noto Sans CJK,Microsoft YaHei,sans-serif;border:0;border-radius:7px;background:transparent;color:#202020}.ds-provider-list{max-height:180px;overflow:auto;margin-top:6px;padding:8px;border:1px solid #dfdfdf;border-radius:10px;background:#fff}.ds-provider-list button{display:block;width:100%;height:44px;margin-bottom:6px;border:0;border-radius:7px;background:transparent;color:#202020;text-align:left;font:400 14px Noto Sans CJK,Microsoft YaHei,sans-serif}.ds-provider-nav button:hover{background:#e8e8e8}.ds-provider-nav button:active{background:#e2e2e2}.ds-provider-nav button:focus-visible{outline:2px solid #202020;outline-offset:2px}.ds-provider-nav button:disabled{color:#6d6d6d}"
+      "css": ".ds-provider-nav{font-family:Noto Sans SC,sans-serif;color:#202020;max-width:420px}.ds-provider-selector{display:flex;align-items:center;justify-content:space-between;width:100%;height:40px;font:400 18px Noto Sans SC,sans-serif;border:0;border-radius:7px;background:transparent;color:#202020}.ds-provider-list{max-height:180px;overflow:auto;margin-top:6px;padding:8px;border:1px solid #dfdfdf;border-radius:10px;background:#fff}.ds-provider-list button{display:block;width:100%;height:44px;margin-bottom:6px;border:0;border-radius:7px;background:transparent;color:#202020;text-align:left;font:400 14px Noto Sans SC,sans-serif}.ds-provider-nav button:hover{background:#e8e8e8}.ds-provider-nav button:active{background:#e2e2e2}.ds-provider-nav button:focus-visible{outline:2px solid #202020;outline-offset:2px}.ds-provider-nav button:disabled{color:#6d6d6d}"
     },
     {
       "name": "Configured API Key field",
@@ -1389,7 +1430,7 @@
       "refersTo": "model-input",
       "description": "已配置但不回传Key的静态示意；眼睛只显示本次输入，移除需保存。原生密钥编辑由EUI Adapter管理。",
       "html": "<section class=\"ds-secret-field\"><div class=\"ds-secret-label\"><span>API Key</span><button class=\"ds-secret-remove\">移除</button></div><div class=\"ds-secret-entry\"><input class=\"ds-secret-input\" type=\"password\" autocomplete=\"off\" placeholder=\"已配置；填写新 Key 可替换\" aria-label=\"API Key\"/><button class=\"ds-secret-visible\" aria-label=\"显示本次输入\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 20 20\" aria-hidden=\"true\"><path d=\"M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/><circle cx=\"10\" cy=\"10\" r=\"2.5\" fill=\"currentColor\"/></svg></button></div></section>",
-      "css": ".ds-secret-field{width:420px;max-width:100%;height:92px;color:#202020;font-family:Noto Sans CJK,Microsoft YaHei,sans-serif;font-size:16px}.ds-secret-label{height:28px;display:flex;align-items:center;justify-content:space-between;padding-right:6px}.ds-secret-field button{border:0;border-radius:7px;background:transparent;color:#202020;font-family:inherit;cursor:pointer}.ds-secret-remove{width:64px;height:28px;font-size:13px}.ds-secret-entry{position:relative;margin-top:8px;height:44px}.ds-secret-input{width:calc(100% - 44px);height:44px;padding:12px;box-sizing:border-box;border:1px solid #dfdfdf;border-radius:7px;background:#fff;color:#202020;font-family:inherit;font-size:16px}.ds-secret-input::placeholder{color:#6d6d6d}.ds-secret-input:focus-visible{outline:0;border-color:#222222}.ds-secret-visible{position:absolute;right:4px;top:4px;width:36px;height:36px;display:inline-grid;place-items:center}.ds-secret-field button:hover{background:#e8e8e8}.ds-secret-field button:active{background:#e2e2e2}.ds-secret-field button:focus-visible{outline:2px solid #202020;outline-offset:2px}.ds-secret-field button:disabled{color:#6d6d6d;cursor:default}"
+      "css": ".ds-secret-field{width:420px;max-width:100%;height:92px;color:#202020;font-family:Noto Sans SC,sans-serif;font-size:16px}.ds-secret-label{height:28px;display:flex;align-items:center;justify-content:space-between;padding-right:6px}.ds-secret-field button{border:0;border-radius:7px;background:transparent;color:#202020;font-family:inherit;cursor:pointer}.ds-secret-remove{width:64px;height:28px;font-size:13px}.ds-secret-entry{position:relative;margin-top:8px;height:44px}.ds-secret-input{width:calc(100% - 44px);height:44px;padding:12px;box-sizing:border-box;border:1px solid #dfdfdf;border-radius:7px;background:#fff;color:#202020;font-family:inherit;font-size:16px}.ds-secret-input::placeholder{color:#6d6d6d}.ds-secret-input:focus-visible{outline:0;border-color:#222222}.ds-secret-visible{position:absolute;right:4px;top:4px;width:36px;height:36px;display:inline-grid;place-items:center}.ds-secret-field button:hover{background:#e8e8e8}.ds-secret-field button:active{background:#e2e2e2}.ds-secret-field button:focus-visible{outline:2px solid #202020;outline-offset:2px}.ds-secret-field button:disabled{color:#6d6d6d;cursor:default}"
     },
     {
       "name": "History deletion confirmation",
@@ -1397,7 +1438,7 @@
       "refersTo": "dialog-delete",
       "description": "460×316px删除确认静态示意，固定目标的首条输入和最近消息提供辨识；真实删除在service ACK后完成。",
       "html": "<section class=\"ds-delete-dialog\"><h2>删除这段对话？</h2><p class=\"ds-delete-target\">对话：整理今天的工作</p><p class=\"ds-delete-preview\">最近消息 · Mira：已整理完成。</p><p class=\"ds-delete-body\">这段对话及其上下文将被删除，无法恢复。其他对话会保留。</p><button class=\"ds-delete-cancel\">取消</button><button class=\"ds-delete-confirm\">删除</button></section>",
-      "css": ".ds-delete-dialog{position:relative;width:460px;max-width:100%;height:316px;box-sizing:border-box;border:1px solid #dfdfdf;border-radius:12px;background:#fff;color:#202020;font-family:Noto Sans CJK,Microsoft YaHei,sans-serif}.ds-delete-dialog h2{position:absolute;left:24px;right:24px;top:22px;height:36px;margin:0;font-size:21px;font-weight:600;line-height:36px}.ds-delete-dialog p{position:absolute;left:24px;right:24px;margin:0}.ds-delete-target,.ds-delete-preview{height:26px;font-size:14px;line-height:26px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-delete-target{top:67px}.ds-delete-preview{top:94px;color:#6d6d6d}.ds-delete-body{top:131px;height:85px;color:#6d6d6d;font-size:17px;line-height:28px}.ds-delete-dialog button{position:absolute;bottom:22px;width:76px;height:38px;border:0;border-radius:7px;font-family:inherit;font-size:15px;cursor:pointer}.ds-delete-cancel{right:112px;background:transparent;color:#202020}.ds-delete-confirm{right:24px;background:#222222;color:#fff}.ds-delete-cancel:hover{background:#e8e8e8}.ds-delete-confirm:hover{background:#6d6d6d}.ds-delete-dialog button:active{background:#e2e2e2}.ds-delete-dialog button:focus-visible{outline:2px solid #202020;outline-offset:2px}"
+      "css": ".ds-delete-dialog{position:relative;width:460px;max-width:100%;height:316px;box-sizing:border-box;border:1px solid #dfdfdf;border-radius:12px;background:#fff;color:#202020;font-family:Noto Sans SC,sans-serif}.ds-delete-dialog h2{position:absolute;left:24px;right:24px;top:22px;height:36px;margin:0;font-size:21px;font-weight:600;line-height:36px}.ds-delete-dialog p{position:absolute;left:24px;right:24px;margin:0}.ds-delete-target,.ds-delete-preview{height:26px;font-size:14px;line-height:26px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-delete-target{top:67px}.ds-delete-preview{top:94px;color:#6d6d6d}.ds-delete-body{top:131px;height:85px;color:#6d6d6d;font-size:17px;line-height:28px}.ds-delete-dialog button{position:absolute;bottom:22px;width:76px;height:38px;border:0;border-radius:7px;font-family:inherit;font-size:15px;cursor:pointer}.ds-delete-cancel{right:112px;background:transparent;color:#202020}.ds-delete-confirm{right:24px;background:#222222;color:#fff}.ds-delete-cancel:hover{background:#e8e8e8}.ds-delete-confirm:hover{background:#6d6d6d}.ds-delete-dialog button:active{background:#e2e2e2}.ds-delete-dialog button:focus-visible{outline:2px solid #202020;outline-offset:2px}"
     }
   ],
   "narrative": {
@@ -1405,7 +1446,7 @@
     "overview": "当前表面经独立 Runtime Service 展示真实 Agent 会话，并在设置页配置模型。本地草稿在首次提交获接纳并产生实际消息后进入历史，删除经服务确认后移除。会话标题、草稿、轮次状态与服务提示保持既有信息层级；发送、运行、回复、停止或失败来自服务回执与事件。本原生系统是 DEC-037 旧 TS/CEF 前端退役后的现行视觉契约，仓库根目录同步此记录；原 Web Mission Console 的炭蓝/奶油/琥珀、仪表 caps 和灯阵仅保留为历史设计背景，既有版本可从 Git 历史查看。\n",
     "keyCharacteristics": [
       "明暗两态共享中性灰角色；默认浅色。",
-      "系统中文无衬线文字与 Font Awesome Solid 操作图标；品牌继承 Mira 原始角色图。",
+      "随应用交付的 Noto Sans SC 中文无衬线文字与 Font Awesome Solid 操作图标；品牌继承 Mira 原始角色图。",
       "可调宽并收起的侧栏、右对齐用户气泡、无卡片 Markdown 回复与随文字增高的 composer。",
       "设置入口集中外观与模型；主题即时应用且仅在当前运行中保留，模型配置由服务保存并确认，API Key 直接输入并默认遮蔽。",
       "平面容器、细描边、有限圆角。",

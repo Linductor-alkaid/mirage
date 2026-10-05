@@ -1,5 +1,6 @@
 #pragma once
 #include "secret_edit.hpp"
+#include "typography.hpp"
 #include <components/input.h>
 
 namespace mirage::native_ui {
@@ -16,7 +17,7 @@ inline void secret_input(core::dsl::Ui &ui, const std::string &id, float width,
         .size(width, 44)
         .value(visible ? value : std::string(value.size(), '*'))
         .placeholder(placeholder)
-        .fontSize(16)
+        .fontSize(ui_font_size(16))
         .inset(12)
         .style(style)
         .onChange([&editing, visible, value, change](const std::string &next) {

@@ -4,6 +4,8 @@
 // private UI state out of the product's public API and production test hooks.
 #include "../../apps/native/app.cpp"
 #include <GLFW/glfw3.h>
+#include <ft2build.h>
+#include FT_FREETYPE_H
 #include <core/dsl_runtime.h>
 #include <fstream>
 #include <iostream>
@@ -33,6 +35,22 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(backend && backend->initialize());
     core::render::ScopedRenderBackend backend_scope(*backend);
     using namespace mirage::native_ui;
+    // Reject an absent/corrupt shipped face rather than accepting EUI's fallback.
+    FT_Library font_library = nullptr;
+    FT_Face font_face = nullptr;
+    MIRAGE_CHECK(FT_Init_FreeType(&font_library) == 0);
+    MIRAGE_CHECK(FT_New_Face(font_library, text_font().c_str(), 0, &font_face) == 0);
+    if (font_face) {
+        MIRAGE_CHECK(std::string(font_face->family_name) == "Noto Sans SC");
+        MIRAGE_CHECK(font_face->num_glyphs >= 29000);
+        MIRAGE_CHECK(font_face->units_per_EM == 1000 && font_face->ascender == 1160 &&
+                     font_face->descender == -288);
+        for (const auto glyph : {0x4e2dUL, 0x6587UL, 0x7530UL, 0xff0cUL, 0x0041UL, 0x0030UL})
+            MIRAGE_CHECK(FT_Get_Char_Index(font_face, glyph) != 0);
+        FT_Done_Face(font_face);
+    }
+    if (font_library)
+        FT_Done_FreeType(font_library);
     core::TextPrimitive::setDefaultFontFiles(text_font(),
                                              "assets/Font Awesome 7 Free-Solid-900.otf");
     auto &page = state();
@@ -124,13 +142,13 @@ int main(int argc, char **argv) {
     // Select from rendered Markdown, including a phrase crossing emphasis runs.
     auto *answer = element("message." + std::to_string(assistant) + ".select");
     const auto answer_bounds = answer->frame;
-    core::queuePointerButton(handle, answer_bounds.x + 2, answer_bounds.y + 40,
+    core::queuePointerButton(handle, answer_bounds.x + 2, answer_bounds.y + 48,
                              core::PointerButton::Left, core::PointerAction::Press, {});
     frame();
-    core::queuePointerMotion(handle, answer_bounds.x + 360, answer_bounds.y + 40,
+    core::queuePointerMotion(handle, answer_bounds.x + 360, answer_bounds.y + 48,
                              core::PointerButton::Left, {});
     frame();
-    core::queuePointerButton(handle, answer_bounds.x + 360, answer_bounds.y + 40,
+    core::queuePointerButton(handle, answer_bounds.x + 360, answer_bounds.y + 48,
                              core::PointerButton::Left, core::PointerAction::Release, {});
     frame();
     MIRAGE_CHECK(page.selection.ready && page.selection.excerpt.find("**") == std::string::npos &&
@@ -163,6 +181,40 @@ int main(int argc, char **argv) {
     frame();
     capture("minimum-light");
     MIRAGE_CHECK(element("composer.panel")->frame.y >= 72);
+    // Render a mixed-script stress sample through the actual product widgets.
+    page.chat.current().messages.front().text =
+        "字体检查：中文 ABC xyz 012345，。！？（括号） / Mirage v1.2";
+    page.chat.current().messages.back().text = R"markdown(## 中文与 Latin 字体
+
+天地人口田上下大小，中英文 ABC xyz 012345 应保持自然基线。
+
+普通文字 **强调中文 Bold 123** 与标点：，。！？（括号）。
+
+行内代码 `agent_loop()` 与 [链接文字 Link](https://example.com)。
+
+- 列表 Chinese / English 2026
+- 简繁字符：字体渲染 / 字體渲染
+
+```cpp
+const auto model = "Mirage";
+```)markdown";
+    page.chat.set_draft("输入框：中文 ABC xyz 012345，。！？ / Mira Agent");
+    frame();
+    auto *input = element("composer.input." + std::to_string(session_id));
+    MIRAGE_CHECK(input->frame.height - 24 >= ui_input_line_height(16));
+    capture("mixed-minimum-light");
+    page.dark = true;
+    frame();
+    capture("mixed-minimum-dark");
+    width = 1180;
+    height = 800;
+    glfwSetWindowSize(window, width, height);
+    frame();
+    capture("mixed-normal-dark");
+    page.dark = false;
+    frame();
+    capture("mixed-normal-light");
+    page.chat.set_draft("");
     // A scrolled content transform must not shift selection into an earlier line.
     auto &long_user = page.chat.current().messages.front();
     long_user.text.clear();

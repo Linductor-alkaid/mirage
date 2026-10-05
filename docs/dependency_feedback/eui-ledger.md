@@ -99,3 +99,43 @@ EUI 为维护者授权的 UI 专用依赖（DEC-033），不属于 Mira / Mirado
 - 验收：native_conversation_view_test真实EUI排版/渲染与指针事件，跨中文/粗体选择、
   悬停复制、浮动引用与最小明暗截图；native_chat_model_test覆盖UTF-8选区和引用预算。
 - 移除：上游公开控制器交付并通过同一验证后删除Adapter。仅本地台账，未向EUI发送反馈。
+
+## EUI-20261005-006：Markdown行内段按各自轮廓居中导致基线跳动
+
+- 状态：Open；负责人：Mirage维护者；版本：dev 4691fc0a。
+- 复现：公开MarkdownBuilder输出 `天地人口田上下大小 ABC xyz 012345，。！？`，中文
+  被拆为独立seg，每段Text使用VerticalAlign::Center。轮廓较矮的“口”、标点与大字
+  分别被居中；相同字体/字号下文字高低不齐，替换字体本身不能消除此行为。
+- 核查：公开MarkdownStyle没有行内垂直对齐或baseline配置；TextPrimitive的Center
+  是每个文字段的ink bounds居中，Top则保留由字体ascent定义的自然基线。不存在
+  可直接配置MarkdownBuilder基线的公开选项，保留原字号/行高才能对照复现。
+- 期望：行内段共用基线，支持普通/强调/链接/标点/代码/不同字体；提供公开baseline
+  或行内对齐能力，以混排截图验证，不靠每字不同的经验偏移。
+- 临时边界：markdown_adapter.hpp通过公开DSL Element，普通字体seg中的.text使用Top
+  和统一行框内边距，包括带装饰的段；代码恢复独立字号并整体居中，普通文字默认字体一致。控件和图标仍居中，
+  不改解析/换行/块高，不建线程或调度器，不修改上游。
+- 差异/风险：代码保持平台monospace，不宣称不同字体的ascender精确匹配；依赖公开
+  组件的seg/text ID模式，升级必须重新验证。原换行/高度预算沿用EUI。
+- 验收：native_conversation_view_test实际原生渲染、中英数字标点/强调/链接/代码与
+  输入、正常/最小明暗窗口；证据native-typography-20261005.md。
+- 移除条件：上游公开能力可保持共同基线并通过同一混排/选段回归后删除本修正。延期
+  影响仅限原生Adapter维护；本记录尚未向上游发送消息或issue。
+
+## EUI-20261005-007：字号单位缺少EM选项，CJK字体被行度量缩小
+
+- 状态：Open；负责人：Mirage维护者；版本：dev 4691fc0a。
+- 复现：TextPrimitive默认NotoSansSC-Regular.otf 2.004，fontSize16；字形明显小于
+  16px CSS EM。字体units_per_EM1000、ascender1160、descender-288；渲染按
+  1000/1448缩放请求字号。不同字体的升降部总高度不同，换字体后可见大小变化明显。
+- 核查：公开TextStyle/TextBuilder/InputBuilder提供fontSize但没有EM/line-metrics
+  单位选项；修改文件路径或fontWeight不改变此语义。不是损坏字体或缺失回退。
+- 期望最小能力：文档化字号单位，提供EM字号或字体度量换算接口；测量/绘制/输入/
+  Markdown共享单位，跨字体与正常/最小窗口回归。
+- 临时边界：UI typography.hpp将Noto SC设计EM字号乘1.448后交给公开组件，测量也
+  使用同一换算；正文行高24不变。InputBuilder行高为请求字号乘1.2，composer测量
+  与其一致。Markdown标题仍使用组件的请求字号加6行高。图标与代码不套中文系数，
+  Markdown行内代码恢复原独立字号与整段居中。没有字体文件/上游修改或并发路径。
+- 风险：系数只对当前字体度量有效，原生测试断言字体版本所需度量；代码按独立字号重新测宽，缩小背景并平移后续段；上游保守
+  换行/高度预算仍保留，不宣称跨字体严格基线与完整Chromium像素匹配。
+- 验收：原生混排/输入/编辑/选择、字体度量断言与正常/最小明暗截图；移除条件：上游
+  公开EM字号及统一度量交付后复跑本轮验证并移除转换。仅本地台账，未向上游反馈。
