@@ -218,3 +218,14 @@ X11/IBus/libpinyin候选移动和中文提交已实测，原生Wayland/物理高
 私有真实窗口IME、多行候选、模型流式/用时/上下文已复验，见
 [最终验收](../compatibility/native-conversation-finish-20261006.md)。窗口关闭投递平台空事件
 以解除UI idle wait，仍仅退出UI；无新增Executor任务或桌面/RPA能力。
+
+
+## 服务编辑与侧栏对齐（M6-21 / DEC-042）
+
+服务配置严格对照ZCode 29628c9的SectionLayout、Navigation、ProviderCardSections与ProviderApiFormatSelect。内部服务导航为224px；详情可用宽小于700px时保留56px图标栏，不再切成全宽选择器。导航32px行高、12px面板内缩进；详情24px内缩进。右侧服务标题18px，空服务直接编辑名称，已保存服务在标题更多菜单中重命名/删除。Base URL包含origin和路径，API格式使用下拉菜单（OpenAI Chat Completions / Responses），随后是默认遮蔽的API Key、模型列表、添加模型及当前模型的上下文/思考配置。标签14px，输入32px、inset12px；模型行36px，外层40px。页底状态、取消修改和80×32px保存固定于详情内；保存未就绪时降低按钮不透明度。
+
+服务与模型分别呈现，settings.models仍有12条总预算；provider_id/provider_name是可选产品元数据，旧display_name单模型配置兼容。没有目录时左侧显示本地“未命名服务”；填名称后先保留该草稿行，保存成功ACK才更新左侧名称、目录与live_model。无模型服务允许保存为停用。添加/删除模型在独立编辑副本中进行；共享连接与Key按服务一致更新。显式models空数组清空目录，缺失表示旧客户端保持目录。删除服务释放不再被目录/活动模型引用的Key；清理失败返回警告。保存失败保留全部编辑、Key草稿及已应用模型；取消修改仅在读取成功后丢弃。新增模型前保留当前模型的窗口与思考编辑。支持reasoning_effort时可开启思考深度，默认不传参数。
+
+本轮基于公开源码逐项对照和原生实渲染取证；未取得运行中ZCode原生窗口截图，不宣称像素级1:1。Mirage尚未接入的Anthropic、OAuth/套餐、模型连通性探测和额外模型元数据不展示伪实现，差异及补齐条件见M6-21验收记录。
+
+侧栏采用20px行外缩进，品牌/导航/历史图标中心x=44、文字x=64。保存经既有RuntimeBridge/Executor IPC，未新增任务或平台设施。配置存在性与provider元数据是Mirage产品职责，Mira模型网关/公开Profile和生命周期保持复用。

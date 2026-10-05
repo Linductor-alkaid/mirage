@@ -88,7 +88,7 @@ typography:
     lineHeight: 1.5
   provider-selector:
     fontFamily: Noto Sans SC, sans-serif
-    fontSize: 18px
+    fontSize: 14px
     fontWeight: 400
   model-heading:
     fontFamily: Noto Sans SC, sans-serif
@@ -97,7 +97,7 @@ typography:
     lineHeight: 1.5
   model-field:
     fontFamily: Noto Sans SC, sans-serif
-    fontSize: 16px
+    fontSize: 14px
     fontWeight: 400
   markdown-h1:
     fontFamily: Noto Sans SC, sans-serif
@@ -139,7 +139,7 @@ spacing:
   session-gap: 4px
   text-gap: 8px
   input-inset: 12px
-  sidebar-inset: 16px
+  sidebar-inset: 20px
   dialog-inset: 24px
   user-horizontal: 12px
   user-vertical: 8px
@@ -213,21 +213,21 @@ components:
     backgroundColor: transparent
     textColor: '{colors.light-text}'
     rounded: '{rounded.control}'
-    height: 40px
+    height: 32px
     typography: '{typography.provider-selector}'
   model-input:
     backgroundColor: '{colors.light-surface}'
     textColor: '{colors.light-text}'
     rounded: '{rounded.control}'
-    height: 44px
+    height: 32px
     padding: 12px
     typography: '{typography.model-field}'
   model-apply:
     backgroundColor: '{colors.light-action}'
     textColor: '{colors.light-inverse}'
     rounded: '{rounded.control}'
-    width: 112px
-    height: 40px
+    width: 80px
+    height: 32px
     typography: '{typography.button-label}'
   user-bubble:
     backgroundColor: '{colors.light-user}'
@@ -325,7 +325,7 @@ Markdown 链接/强调色、代码块与引用块背景使用对应专用角色�
 
 - **Headline**：空态问题，用字号与留白建立阅读起点；没有额外的 eyebrow。
 - **Brand / Title**：侧栏品牌与对话框题，权重略高。
-- **Settings Heading**：外观页与模型服务标题使用 24px，服务商详情标题使用 20px，说明沿用 Body，主题按钮沿用 Navigation，偏好声明沿用 Label。
+- **Settings Heading**：外观页与模型服务标题使用 24px，服务商详情标题使用 18px，说明沿用 Body，主题按钮沿用 Navigation，偏好声明沿用 Label。
 - **Model Field**：模型表单的单行输入和标签均使用 16px；标签行高框为 28px，输入行高交由 EUI 组件。协议和页底按钮沿用 Button Label。
 - **Message / Body**：用户正文与助手 Markdown 为 14px / 22px；H1/H2/H3 为 18/16/15px，代码 13px，块间隔 8px。引用预览 14px / 22px。弹层正文 28px 行高。Markdown 代码字体与未显式设置的标题行高由 pinned EUI 提供，不猜测为产品 token。
 - **Context Detail**：标题与百分比沿用 16px / 500 权重，Token 摘要沿用 14px；二者行框 28px。来源、模型与本次引用行沿用 13px、24px 行框。
@@ -433,9 +433,11 @@ Ctrl+, 在没有弹层时打开设置；Escape 先关闭弹层，再返回对话
 
 ### Model Settings
 
-宽屏服务商导航与滚动详情复用同一 surface 面板、细分隔线和 selected 选中底色；紧凑页用显式当前服务商名称选择器替代左栏。“添加服务商”位于说明右侧，124×36px。最多 12 个命名配置，选中导航只编辑对应草稿，“保存并应用”经 service ACK 后才切换活动模型。紧凑选择器列表位于面板内左16px、顶部58px，宽 `content_width - 32px`，高 `min(max(88px, screen.height - 390px), 16px + 50px × 配置数)`；10px圆角、1px border、surface底色，内部8px inset，44px行高与6px间隔。当前项使用勾选图标，行文字14px、图标16px；透明dismiss层z=20，列表z=21，点击外部、Escape或返回对话关闭；Escape先关闭选择列表再离开设置。模态期间选择器回调受保护，保存中或草稿未保存时禁止切换服务商。六个单行输入沿用 surface、text、muted 与 control 圆角，常态细描边为 border，focus 描边为 action；无阴影。填写服务商名称、服务地址（仅 origin）、API 路径、模型名称、API Key（默认遮蔽，可切换本次输入的显示）与可选“上下文窗口预算（Token）”。窗口预算留空表示未知，非零值为 2048–2000000 的整数；填写值作为显式预算映射到 Mira ProfileLimits，不表示供应商自动发现容量。未配置时 UI 分母未知，服务保持既有 Mira 默认运行预算。输入与标签各为 16px，输入高 44px、inset 12px；表单有独立滚动位置。协议选项 Responses / Chat Completions 分别宽 128/172px、高 40px、间隔 8px，选中填充 selected，hover/pressed 沿用既有按钮角色。
+服务配置严格对照ZCode 29628c9的SectionLayout、Navigation、ProviderCardSections与ProviderApiFormatSelect。内部服务导航为224px；详情可用宽小于700px时保留56px图标栏，不再切成全宽选择器。导航32px行高、12px面板内缩进；详情24px内缩进。右侧服务标题18px，空服务直接编辑名称，已保存服务在标题更多菜单中重命名/删除。Base URL包含origin和路径，API格式使用下拉菜单（OpenAI Chat Completions / Responses），随后是默认遮蔽的API Key、模型列表、添加模型及当前模型的上下文/思考配置。标签14px，输入32px、inset12px；模型行36px，外层40px。页底状态、取消修改和80×32px保存固定于详情内；保存未就绪时降低按钮不透明度。
 
-页底固定状态与“重新连接 / 取消修改 / 停用模型 / 保存并应用”。窄详情下重新连接只显示 16px 图标，保留其他按钮文字。“取消修改”请求 model.get，service ACK 后恢复已保存目录并移除未保存新配置。保存等待时显示“应用中…”并阻止字段编辑与重复应用；未读到配置或缺少地址/模型时禁用保存。表单草稿与服务确认的模型分开，保存失败保留当前已应用模型；忙、取消、地址格式与凭据缺失提供可读提示。凭据说明明确系统钥匙环、留空保留与显式移除后保存。字段焦点与禁用交互仍由 EUI 管理。显式开启 supports_reasoning 才允许 minimal/low/medium/high；默认不传 reasoning_effort，供应商拒绝返回可见错误，不自动降级重试。
+服务与模型分别呈现，settings.models仍有12条总预算；provider_id/provider_name是可选产品元数据，旧display_name单模型配置兼容。没有目录时左侧显示本地“未命名服务”；填名称后先保留该草稿行，保存成功ACK才更新左侧名称、目录与live_model。无模型服务允许保存为停用。添加/删除模型在独立编辑副本中进行；共享连接与Key按服务一致更新。显式models空数组清空目录，缺失表示旧客户端保持目录。删除服务释放不再被目录/活动模型引用的Key；清理失败返回警告。保存失败保留全部编辑、Key草稿及已应用模型；取消修改仅在读取成功后丢弃。新增模型前保留当前模型的窗口与思考编辑。支持reasoning_effort时可开启思考深度，默认不传参数。
+
+本轮基于公开源码逐项对照和原生实渲染取证；未取得运行中ZCode原生窗口截图，不宣称像素级1:1。Mirage尚未接入的Anthropic、OAuth/套餐、模型连通性探测和额外模型元数据不展示伪实现，差异及补齐条件见M6-21验收记录。
 
 ### API Key Field
 
@@ -532,3 +534,6 @@ Linux使用EUI平台公开XIM光标入口；详细互操作、环境限制和验
 Enter/Space返回最新。程序offset使用修复后的EUI公开scrollView，不重建私有Runtime状态。
 真实窗口正常/最小明暗、IME候选、等待/流式/用时证据见
 [最终验收](../../docs/compatibility/native-conversation-finish-20261006.md)，渲染夹具验证实际视口变化。
+
+
+M6-21侧栏统一20px行外缩进，图标盒24px的中心x=44、文字x=64；品牌图像32/20起点、24×24，返回/新建、分类、历史及底部入口沿同一轴。

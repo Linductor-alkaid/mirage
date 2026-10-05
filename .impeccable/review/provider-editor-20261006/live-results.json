@@ -1,0 +1,23 @@
+{
+  "scope": "real Release window, private Xvfb/DBus/IBus, real provider",
+  "model": "Qwen/Qwen3.5-4B",
+  "candidate_positions": [
+    [
+      400,
+      378
+    ],
+    [
+      400,
+      402
+    ]
+  ],
+  "ime_draft_did_not_create_session": true,
+  "waiting_frames_changed": true,
+  "preview_count": 241,
+  "preview_max_bytes": 1251,
+  "terminal_status": "ok",
+  "final_bytes": 1251,
+  "history_verified": true,
+  "idle_native_window_closed": true,
+  "modelSettingsFromEmpty": true
+}

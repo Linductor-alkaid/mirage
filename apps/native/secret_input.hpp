@@ -14,10 +14,10 @@ inline void secret_input(core::dsl::Ui &ui, const std::string &id, float width,
     using Model = components::input_detail::InputModel;
     auto &editing = ui.state<Model::InputState>(id);
     components::input(ui, id)
-        .size(width, 44)
+        .size(width, 32)
         .value(visible ? value : std::string(value.size(), '*'))
         .placeholder(placeholder)
-        .fontSize(ui_font_size(16))
+        .fontSize(ui_font_size(14))
         .inset(12)
         .style(style)
         .onChange([&editing, visible, value, change](const std::string &next) {

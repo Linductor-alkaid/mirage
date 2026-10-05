@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-05T15:01:54.183758+00:00",
+  "generatedAt": "2026-10-05T18:57:05.179495+00:00",
   "title": "Design System: Mirage 原生 Agent 对话页",
   "extensions": {
     "scope": {
@@ -27,8 +27,8 @@
       "legacyDesignDocument": "DESIGN.md",
       "previewOnly": false,
       "runtime": "Separate Runtime Service via versioned Local IPC; UI owns its Executor-managed bridge.",
-      "workItem": "M6-20",
-      "decision": "DEC-041",
+      "workItem": "M6-21",
+      "decision": "docs/decisions/DEC-042-native-provider-editor.md",
       "visualAuthority": {
         "seed": "user-zcode-native",
         "mode": "code-led",
@@ -64,7 +64,7 @@
         "docs/decisions/DEC-040-native-typography.md",
         "docs/decisions/DEC-041-native-conversation-density-and-progress.md"
       ],
-      "liveAcceptance": "docs/compatibility/native-conversation-finish-20261006.md"
+      "liveAcceptance": "docs/compatibility/native-provider-editor-20261006.md"
     },
     "colorMeta": {
       "light-background": {
@@ -505,7 +505,7 @@
       },
       "model-field": {
         "displayName": "Model field",
-        "purpose": "模型表单单行输入与标签各为16px；输入行高由EUI组件决定。"
+        "purpose": "14px标签与32px输入；18px服务标题。"
       },
       "message": {
         "displayName": "Conversation body",
@@ -923,6 +923,30 @@
         "radius": 7,
         "borderWidth": 1,
         "placement": "Above selection, below when first row has no room; clamp between title and composer."
+      },
+      "providerEditor": {
+        "navigationWidth": 224,
+        "compactNavigationWidth": 56,
+        "compactWhenContentBelow": 700,
+        "navigationRowHeight": 32,
+        "detailInset": 24,
+        "fieldHeight": 32,
+        "modelRowHeight": 36,
+        "saveSize": [
+          80,
+          32
+        ]
+      },
+      "sidebarAlignment": {
+        "outerInset": 20,
+        "iconCenterX": 44,
+        "textX": 64,
+        "brandImage": [
+          32,
+          20,
+          24,
+          24
+        ]
       }
     },
     "overlay": {
@@ -1070,65 +1094,31 @@
     },
     "modelBehavior": {
       "fields": [
-        "display_name",
-        "endpoint_origin",
-        "api_prefix",
-        "model_selector",
+        "provider_id",
+        "provider_name",
+        "base_url",
         "api_key",
+        "model_selector",
         "context_window_tokens",
         "dialect",
         "supports_reasoning"
       ],
       "protocols": [
-        "openai.responses.v1",
-        "openai.chat-completions.v1"
+        "openai.chat-completions.v1",
+        "openai.responses.v1"
       ],
-      "persistence": "Service model.set persists named settings.models directory and applied settings.model; API Keys are write-only UI drafts stored in OS credentials; settings retain credential_ref, with legacy environment compatibility.",
-      "draftAndApplied": "Form draft is separate from service-confirmed live_model; composer uses live_model only.",
-      "saving": "Apply label becomes 应用中…; edits/protocol changes and duplicate save are blocked.",
-      "saveDisabled": "Model not loaded, save pending, empty origin or empty model selector.",
-      "errors": "Friendly busy, cancelled, origin-format, credential and disconnected notices; failure preserves applied model.",
-      "reconnect": "Explicit bridge reconnect; no automatic resubmission.",
-      "contextWindowBudget": {
-        "optional": true,
-        "unknown": "Blank, zero or absent",
-        "nonzeroIntegerRange": [
-          2048,
-          2000000
-        ],
-        "mapping": "Configured budget maps to Mira ProfileLimits max_context_tokens.",
-        "default": "Unconfigured retains existing Mira runtime defaults while UI denominator stays unknown.",
-        "discovery": false,
-        "validationNotice": "窗口预算请输入 2048–2000000 的整数，或留空。"
-      },
-      "maximumProfiles": 12,
-      "switching": "Composer selects saved profile; service ACK updates live_model. Active tasks and persistence failure reject switching.",
-      "reasoning": "Explicit supports_reasoning enables minimal/low/medium/high; default omits reasoning_effort; provider refusal is visible and never silently retried.",
-      "discard": "model.get ACK restores persisted directory and applied profile, discarding unsaved edits/new profiles.",
-      "pickerLabel": "Provider name · model ID; visually truncated via actual font measurement.",
-      "providerNavigation": "Wide labeled rail; compact current-provider named selector opens bounded scrollable named list. Disabled while saving or form is dirty.",
-      "credential": {
-        "decision": "DEC-038",
-        "supersedes": "The credential environment-variable name field; environment configuration remains a service read-compatibility path only.",
-        "entry": "Direct API Key, masked with stars by default; visibility toggle shows this input only.",
-        "storedReadback": false,
-        "configuredPlaceholder": "已配置；填写新 Key 可替换",
-        "pendingRemovalPlaceholder": "保存后移除 API Key",
-        "blank": "Preserve existing credential.",
-        "remove": "Explicit remove followed by Save clears credential.",
-        "maximumBytes": 2048,
-        "acceptedBytes": "Printable ASCII 33–126.",
-        "draftLifetime": "Discard after successful save, confirmed discard, or provider change.",
-        "editing": "Undo/redo disabled; hidden copy contains masks only.",
-        "storage": "Linux Secret Service / Windows Credential Manager; settings contain credential_ref only.",
-        "status": "Errors and successful-save cleanup warnings appear in the existing fixed status line.",
-        "nativeAdapter": {
-          "source": "apps/native/secret_input.hpp / secret_edit.hpp",
-          "feedback": "EUI-20261005-004",
-          "scope": "Local masked-input adapter; no upstream modifications; remove when pinned EUI provides the documented password capability."
-        },
-        "validation": "Linux first-step scope; Windows target acceptance remains separate."
-      }
+      "draftAndApplied": "Separate editor/catalog/live_model; ACK is authoritative. Empty directory exposes an unnamed local provider.",
+      "saving": "Save whole provider; shared connection/key, model-specific context/reasoning. Failed save keeps editor and applied model.",
+      "saveDisabled": "Not loaded, pending save, or unchanged; opacity0.45.",
+      "persistence": "Optional provider metadata; models_present distinguishes explicit empty catalog from old-client absence. Keys in OS keyring, never settings.",
+      "reference": "ZCode29628c9 SectionLayout/Navigation/ProviderCardSections/ProviderApiFormatSelect",
+      "unsupportedParity": [
+        "Anthropic",
+        "OAuth/plans",
+        "model connectivity probe",
+        "extra model metadata"
+      ],
+      "evidence": "docs/compatibility/native-provider-editor-20261006.md"
     },
     "chatBehavior": {
       "entry": "session.chat carries session access and reasoning captured at submission; read_only registers no tools, default registers only wait.",
@@ -1312,7 +1302,13 @@
         "reviewMode": "Inline degraded finish-reviewer/documenter substitution; no independent reviewer.",
         "limits": "Synthetic EUI framebuffer captures; no live ZCode screenshot, Windows or real IME acceptance."
       },
-      "conversationProgress": "docs/compatibility/native-conversation-progress-20261005.md"
+      "conversationProgress": "docs/compatibility/native-conversation-progress-20261005.md",
+      "providerEditor": {
+        "workItem": "M6-21",
+        "evidence": "docs/compatibility/native-provider-editor-20261006.md",
+        "scope": "Linux X11 source comparison and actual native renderer; no ZCode window pixel comparison",
+        "verdict": ".impeccable/review/provider-editor-20261006/finish-verdict.md"
+      }
     },
     "canonicalSurface": {
       "implementation": "apps/native",
@@ -1418,7 +1414,7 @@
       "refersTo": "model-input",
       "description": "模型表单的16px标签/输入与focus描边示意；原生编辑、草稿和保存由EUI及IPC管理。",
       "html": "<label class=\"ds-model-field\">模型名称<input class=\"ds-model-input\" value=\"provider/model-id\" aria-label=\"模型名称\" /></label>",
-      "css": ".ds-model-field{display:flex;flex-direction:column;gap:8px;height:92px;width:300px;font-family:Noto Sans SC, sans-serif;font-size:16px;color:#202020;line-height:28px}.ds-model-input{height:44px;box-sizing:border-box;padding:12px;font-family:Noto Sans SC, sans-serif;font-size:16px;border:1px solid #dfdfdf;border-radius:7px;background:#fff;color:#202020}.ds-model-input:hover{background:#fff}.ds-model-input:focus-visible{outline:0;border-color:#222222}.ds-model-input:disabled{cursor:default}"
+      "css": ".ds-model-field{display:flex;flex-direction:column;gap:8px;height:92px;width:300px;font-family:Noto Sans SC, sans-serif;font-size:16px;color:#202020;line-height:28px}.ds-model-input{height:32px;box-sizing:border-box;padding:12px;font-family:Noto Sans SC, sans-serif;font-size:16px;border:1px solid #dfdfdf;border-radius:7px;background:#fff;color:#202020}.ds-model-input:hover{background:#fff}.ds-model-input:focus-visible{outline:0;border-color:#222222}.ds-model-input:disabled{cursor:default}"
     },
     {
       "name": "Cardless assistant reply",
@@ -1448,9 +1444,9 @@
       "name": "Compact provider selector",
       "kind": "nav",
       "refersTo": "provider-selector",
-      "description": "紧凑模型页当前服务商名称和可滚动命名选择列表的静态示意；原生列表由EUI与ChatModel管理。",
-      "html": "<section class=\"ds-provider-nav\"><button class=\"ds-provider-selector\">SiliconFlow <svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"m3 5 5 5 5-5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button><div class=\"ds-provider-list\"><button>SiliconFlow</button><button>自定义服务 2</button></div></section>",
-      "css": ".ds-provider-nav{font-family:Noto Sans SC,sans-serif;color:#202020;max-width:420px}.ds-provider-selector{display:flex;align-items:center;justify-content:space-between;width:100%;height:40px;font:400 18px Noto Sans SC,sans-serif;border:0;border-radius:7px;background:transparent;color:#202020}.ds-provider-list{max-height:180px;overflow:auto;margin-top:6px;padding:8px;border:1px solid #dfdfdf;border-radius:10px;background:#fff}.ds-provider-list button{display:block;width:100%;height:44px;margin-bottom:6px;border:0;border-radius:7px;background:transparent;color:#202020;text-align:left;font:400 14px Noto Sans SC,sans-serif}.ds-provider-nav button:hover{background:#e8e8e8}.ds-provider-nav button:active{background:#e2e2e2}.ds-provider-nav button:focus-visible{outline:2px solid #202020;outline-offset:2px}.ds-provider-nav button:disabled{color:#6d6d6d}"
+      "description": "224/56px服务导航、32px行。无目录时有未命名草稿，保存ACK后更新名称。",
+      "html": "<nav class=\"ds-provider-nav\"><button aria-current=\"true\">未命名服务</button><button>本地服务</button></nav>",
+      "css": ".ds-provider-nav{width:224px;padding:12px;border-right:1px solid #dfdfdf;background:#fff}.ds-provider-nav button{display:block;width:100%;height:32px;padding:0 8px;border:0;border-radius:8px;background:transparent;text-align:left;font:500 14px Noto Sans SC,sans-serif;color:#202020}.ds-provider-nav button[aria-current]{background:#e2e2e2}.ds-provider-nav button:hover{background:#e8e8e8}"
     },
     {
       "name": "Configured API Key field",
@@ -1458,7 +1454,7 @@
       "refersTo": "model-input",
       "description": "已配置但不回传Key的静态示意；眼睛只显示本次输入，移除需保存。原生密钥编辑由EUI Adapter管理。",
       "html": "<section class=\"ds-secret-field\"><div class=\"ds-secret-label\"><span>API Key</span><button class=\"ds-secret-remove\">移除</button></div><div class=\"ds-secret-entry\"><input class=\"ds-secret-input\" type=\"password\" autocomplete=\"off\" placeholder=\"已配置；填写新 Key 可替换\" aria-label=\"API Key\"/><button class=\"ds-secret-visible\" aria-label=\"显示本次输入\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 20 20\" aria-hidden=\"true\"><path d=\"M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/><circle cx=\"10\" cy=\"10\" r=\"2.5\" fill=\"currentColor\"/></svg></button></div></section>",
-      "css": ".ds-secret-field{width:420px;max-width:100%;height:92px;color:#202020;font-family:Noto Sans SC,sans-serif;font-size:16px}.ds-secret-label{height:28px;display:flex;align-items:center;justify-content:space-between;padding-right:6px}.ds-secret-field button{border:0;border-radius:7px;background:transparent;color:#202020;font-family:inherit;cursor:pointer}.ds-secret-remove{width:64px;height:28px;font-size:13px}.ds-secret-entry{position:relative;margin-top:8px;height:44px}.ds-secret-input{width:calc(100% - 44px);height:44px;padding:12px;box-sizing:border-box;border:1px solid #dfdfdf;border-radius:7px;background:#fff;color:#202020;font-family:inherit;font-size:16px}.ds-secret-input::placeholder{color:#6d6d6d}.ds-secret-input:focus-visible{outline:0;border-color:#222222}.ds-secret-visible{position:absolute;right:4px;top:4px;width:36px;height:36px;display:inline-grid;place-items:center}.ds-secret-field button:hover{background:#e8e8e8}.ds-secret-field button:active{background:#e2e2e2}.ds-secret-field button:focus-visible{outline:2px solid #202020;outline-offset:2px}.ds-secret-field button:disabled{color:#6d6d6d;cursor:default}"
+      "css": ".ds-secret-field{width:420px;max-width:100%;height:92px;color:#202020;font-family:Noto Sans SC,sans-serif;font-size:16px}.ds-secret-label{height:28px;display:flex;align-items:center;justify-content:space-between;padding-right:6px}.ds-secret-field button{border:0;border-radius:7px;background:transparent;color:#202020;font-family:inherit;cursor:pointer}.ds-secret-remove{width:64px;height:28px;font-size:13px}.ds-secret-entry{position:relative;margin-top:8px;height:32px}.ds-secret-input{width:calc(100% - 44px);height:32px;padding:12px;box-sizing:border-box;border:1px solid #dfdfdf;border-radius:7px;background:#fff;color:#202020;font-family:inherit;font-size:16px}.ds-secret-input::placeholder{color:#6d6d6d}.ds-secret-input:focus-visible{outline:0;border-color:#222222}.ds-secret-visible{position:absolute;right:4px;top:4px;width:36px;height:36px;display:inline-grid;place-items:center}.ds-secret-field button:hover{background:#e8e8e8}.ds-secret-field button:active{background:#e2e2e2}.ds-secret-field button:focus-visible{outline:2px solid #202020;outline-offset:2px}.ds-secret-field button:disabled{color:#6d6d6d;cursor:default}"
     },
     {
       "name": "History deletion confirmation",

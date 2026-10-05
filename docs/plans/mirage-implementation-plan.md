@@ -4,7 +4,7 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-10-06（M6-20 原生会话复验）
+> 更新日期：2026-10-06（M6-21 模型服务编辑）
 
 ## 当前状态
 
@@ -342,3 +342,5 @@ SDK消费、Mirage原生回归通过。同步最新dev修复并移除库层异�
 补齐长回复阅读保位与返回底部、空闲关闭唤醒。EUI公开offset修复更新PR#88/pin与锁，
 当前head四项CI及原生Debug/Release/ASAN/UBSAN回归通过；无新增Executor并发路径。
 [最终验收](../compatibility/native-conversation-finish-20261006.md)。M6整体仍In Progress，M6-04保持Planned。
+
+2026-10-06 / M6-21完成Linux侧栏与模型服务编辑：统一图标/文字轴、未命名草稿、服务/模型分层、实际Key保存/刷新/调用；来源对照与未覆盖的完整ZCode能力见[验收](../compatibility/native-provider-editor-20261006.md)。M6整体状态和M6-04不变。

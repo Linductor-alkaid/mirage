@@ -76,7 +76,7 @@ class Wire:
             self.events.append(obj)
 
 def session(args):
-    from Xlib import display, X, XK, protocol
+    from Xlib import display, X, XK, Xatom, protocol
     from Xlib.ext import xtest
     from PIL import Image, ImageChops
     children = []
@@ -98,11 +98,24 @@ def session(args):
         provider = cfg['model_providers'][cfg['model_provider']]
         origin = urlsplit(provider['base_url'])
         model = {'enabled': True, 'display_name': '验证用模型', 'endpoint': origin.scheme + '://' + origin.netloc, 'api_prefix': origin.path.rstrip('/') or '/v1', 'model': cfg['model'], 'dialect': 'openai.responses.v1' if provider['wire_api'] == 'responses' else 'openai.chat-completions.v1', 'credential_env': 'MIRAGE_ACCEPTANCE_KEY', 'context_window_tokens': 128000}
-        config['model'] = model
+        if not args.model_settings:
+            config['model'] = model
         config_path.write_text(json.dumps(config))
         config_path.chmod(384)
         env = os.environ.copy()
-        env['MIRAGE_ACCEPTANCE_KEY'] = json.loads((args.provider / 'auth.json').read_text())['OPENAI_API_KEY']
+        test_key = json.loads((args.provider / 'auth.json').read_text())['OPENAI_API_KEY']
+        if args.model_settings:
+            keyring = subprocess.Popen(['gnome-keyring-daemon', '--foreground', '--components=secrets', '--unlock'], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            keyring.stdin.write(b'\n')
+            if keyring.stdin and not keyring.stdin.closed:
+                keyring.stdin.close()
+            children.append(keyring)
+            time.sleep(0.3)
+            # Use the unlocked, ephemeral collection of this private daemon.
+            # No alias or credential on the user's session bus is touched.
+            subprocess.run(['gdbus', 'call', '--session', '--dest', 'org.freedesktop.secrets', '--object-path', '/org/freedesktop/secrets', '--method', 'org.freedesktop.Secret.Service.SetAlias', 'default', '/org/freedesktop/secrets/collection/session'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+        else:
+            env['MIRAGE_ACCEPTANCE_KEY'] = test_key
         endpoint = str(Path(os.environ['XDG_RUNTIME_DIR']) / 'mirage.sock')
         service_log = open(output / 'service.log', 'w')
         children.append(subprocess.Popen([str(args.build / 'apps/mirage-service'), '--socket', endpoint, '--config', str(config_path), '--state-dir', os.environ['XDG_STATE_HOME'], '--no-recovery'], env=env, stdout=service_log, stderr=service_log))
@@ -170,6 +183,74 @@ def session(args):
 
         def engine(name):
             subprocess.run(['/usr/bin/python3', '-c', "import gi;gi.require_version('IBus','1.0');from gi.repository import IBus;IBus.init();b=IBus.Bus();assert b.is_connected();assert b.set_global_engine(" + repr(name) + ')'], check=True, timeout=8)
+
+        def paste(text):
+            # Clipboard owner and all requests are on the private X server.
+            owner = root.create_window(-10, -10, 1, 1, 0, D.screen().root_depth)
+            clipboard = D.intern_atom('CLIPBOARD')
+            utf8 = D.intern_atom('UTF8_STRING')
+            targets = D.intern_atom('TARGETS')
+            owner.set_selection_owner(clipboard, X.CurrentTime)
+            D.sync()
+            key('v', ctrl=True)
+            deadline = time.monotonic() + 0.7
+            while time.monotonic() < deadline:
+                if not D.pending_events():
+                    select.select([D], [], [], 0.02)
+                    continue
+                event = D.next_event()
+                if event.type == X.SelectionRequest:
+                    target = event.property or event.target
+                    if event.target == targets:
+                        event.requestor.change_property(target, Xatom.ATOM, 32, [utf8, targets])
+                    else:
+                        event.requestor.change_property(target, utf8, 8, text.encode())
+                    event.requestor.send_event(protocol.event.SelectionNotify(time=event.time, requestor=event.requestor, selection=event.selection, target=event.target, property=target))
+                    D.flush()
+            owner.destroy()
+            D.sync()
+
+        if args.model_settings:
+            engine('xkb:us::eng')
+            click(226, 756)
+            click(90, 226)
+            capture('model-empty-live')
+            click(750, 220)
+            paste('Acceptance service')
+            click(720, 284)
+            paste(provider['base_url'].rstrip('/'))
+            if provider['wire_api'] == 'responses':
+                click(780, 348)
+                click(780, 422)
+            click(750, 412)
+            paste(test_key)
+            click(1030, 456)
+            click(750, 564)
+            paste(cfg['model'])
+            click(790, 604)
+            click(1060, 744)
+            deadline = time.monotonic() + 8
+            saved = None
+            while time.monotonic() < deadline:
+                result = wire.call('model.get')
+                saved = json.loads(result['model_settings'])
+                if saved.get('model', {}).get('provider_name') == 'Acceptance service':
+                    break
+                time.sleep(0.1)
+            capture('model-after-save-live')
+            assert saved and saved['model'].get('provider_name') == 'Acceptance service', 'model UI did not save'
+            assert saved['model']['enabled'] and saved['model']['model'] == cfg['model']
+            assert saved['model']['api_key_configured'] and len(saved['model']['credential_ref']) == 32
+            assert len(saved['models']) == 1 and 'credential_env' not in saved['model']
+            assert test_key not in json.dumps(saved)
+            stored = list(Path(os.environ['XDG_CONFIG_HOME']).rglob('service.json'))
+            assert stored and any(saved['model']['credential_ref'] in path.read_text() for path in stored), 'saved reference missing from disk'
+            assert all(test_key not in path.read_text() for path in stored), 'plaintext key persisted'
+            capture('model-saved-live')
+            # Refresh must restore the acknowledged name and configured-key state.
+            click(977, 152)
+            capture('model-refreshed-live')
+            click(86, 94)
 
         def candidate():
             deadline = time.monotonic() + 3
@@ -283,6 +364,7 @@ def session(args):
         app.wait(timeout=8)
         assert app.returncode == 0, 'native window exit failed'
         results = {'scope': 'real Release window, private Xvfb/DBus/IBus, real provider', 'model': cfg['model'], 'candidate_positions': [first, second], 'ime_draft_did_not_create_session': True, 'waiting_frames_changed': True, 'preview_count': len(previews), 'preview_max_bytes': max((p['bytes'] for p in previews)), 'terminal_status': terminal['status'], 'final_bytes': len(terminal['reply_text'].encode()), 'history_verified': True, 'idle_native_window_closed': True}
+        results['modelSettingsFromEmpty'] = args.model_settings
         (output / 'results.json').write_text(json.dumps(results, ensure_ascii=False, indent=2) + '\n')
         print(json.dumps(results, ensure_ascii=False), flush=True)
     finally:
@@ -295,6 +377,7 @@ def main():
     p.add_argument('--build', type=Path, required=True)
     p.add_argument('--provider', type=Path, required=True)
     p.add_argument('--no-captures', action='store_true')
+    p.add_argument('--model-settings', action='store_true', help='Start empty; configure the model through the UI and a private system keyring')
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--xvfb', default='Xvfb')
     p.add_argument('--session', action='store_true', help=argparse.SUPPRESS)
@@ -326,7 +409,8 @@ def main():
                 ['dbus-run-session', '--', sys.executable, str(Path(__file__).resolve()),
                  '--build', str(args.build), '--provider', str(args.provider),
                  '--output', str(args.output), '--session',
-                 *(['--no-captures'] if args.no_captures else [])],
+                 *(['--no-captures'] if args.no_captures else []),
+                 *(['--model-settings'] if args.model_settings else [])],
                 env=env, start_new_session=True)
             if driver.wait(timeout=110) != 0:
                 raise RuntimeError('private acceptance session failed')

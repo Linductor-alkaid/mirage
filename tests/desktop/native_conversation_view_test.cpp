@@ -414,6 +414,129 @@ const auto model = "Mirage";
                   << "; frame.y=" << long_bounds.y << "; origin.y=" << page.selection.origin_y
                   << "; ready=" << page.selection.ready << '\n';
     MIRAGE_CHECK(page.selection.ready && page.selection.excerpt.starts_with(expected_prefix));
+    // M6-21: empty service drafts never masquerade as saved models. Exercise
+    // the same rendered controls and ACK projection used by the product.
+    page.settings = page.model_page = true;
+    page.model_dirty = false;
+    persistence::LocalSettings empty_catalog;
+    empty_catalog.models_present = true;
+    accept_model_configuration(empty_catalog, "model", "");
+    frame();
+    MIRAGE_CHECK(page.model_loaded && page.models.empty() && !page.live_model.enabled);
+    MIRAGE_CHECK(element("model.provider.0.label")->text == "未命名服务");
+    MIRAGE_CHECK(element("model.models.empty.label")->text == "暂无模型，请添加模型");
+    const auto brand_bounds = element("brand.mira")->frame;
+    const auto nav_bounds = element("settings.nav.1.icon")->frame;
+    MIRAGE_CHECK(std::abs(brand_bounds.x + brand_bounds.width / 2 - nav_bounds.x -
+                          nav_bounds.width / 2) < 1);
+    MIRAGE_CHECK(element("settings.nav.1.label")->frame.x == element("brand")->frame.x);
+    capture("provider-empty-light");
+    page.model.provider_name = "本地测试服务";
+    set_base_url("https://api.example.test/v1");
+    page.model_dirty = true;
+    auto draft_document = provider_document(false);
+    MIRAGE_CHECK(draft_document && draft_document->models.size() == 1 &&
+                 !draft_document->model->enabled && draft_document->model->model_selector.empty());
+    MIRAGE_CHECK(page.models.empty());
+    frame();
+    MIRAGE_CHECK(element("model.provider.0.label")->text == "未命名服务");
+    // Rejected/disconnected submission must leave the editable name and catalog intact.
+    apply_model(false);
+    MIRAGE_CHECK(!page.saving_model && page.model_dirty && page.models.empty() &&
+                 page.model.provider_name == "本地测试服务");
+    accept_model_configuration(*draft_document, "save", "");
+    frame();
+    MIRAGE_CHECK(!page.model_dirty && page.models.size() == 1);
+    MIRAGE_CHECK(element("model.provider.0.label")->text == "本地测试服务");
+    element("model.provider.actions.bg")->onClick();
+    frame();
+    eui::KeyEvent activate;
+    activate.action = eui::KeyAction::Press;
+    activate.key = eui::InputKey::Enter;
+    MIRAGE_CHECK(element("model.provider.rename.bg")->onKeyEvent(activate));
+    frame();
+    MIRAGE_CHECK(page.editing_provider_name && !page.provider_actions);
+    element("model.protocol.control.bg")->onClick();
+    frame();
+    element("model.protocol.1.bg")->onClick();
+    frame();
+    MIRAGE_CHECK(page.model.dialect == "openai.responses.v1" && !page.model_format_open);
+    element("model.protocol.control.bg")->onClick();
+    frame();
+    element("model.protocol.0.bg")->onClick();
+    frame();
+    MIRAGE_CHECK(page.model.dialect == "openai.chat-completions.v1");
+
+    element("model.add.model.bg")->onClick();
+    frame();
+    page.new_model_id = "first-model";
+    frame();
+    element("model.add.confirm.bg")->onClick();
+    frame();
+    MIRAGE_CHECK(page.provider_models.size() == 1 && page.model.model_selector == "first-model");
+    page.model_window = "128000";
+    auto first_document = provider_document(true);
+    MIRAGE_CHECK(first_document && first_document->models.size() == 1 &&
+                 first_document->model->context_window_tokens == 128000);
+    accept_model_configuration(*first_document, "save", "");
+    page.model_window = "64000";
+    page.model.supports_reasoning = true;
+    element("model.add.model.bg")->onClick();
+    page.new_model_id = "second-model";
+    frame();
+    element("model.add.confirm.bg")->onClick();
+    frame();
+    auto second_document = provider_document(true);
+    MIRAGE_CHECK(second_document && second_document->models.size() == 2 &&
+                 second_document->models[0].context_window_tokens == 64000 &&
+                 second_document->models[0].supports_reasoning);
+    accept_model_configuration(*second_document, "save", "");
+    frame();
+    MIRAGE_CHECK(!view->find("model.provider.1.label"));
+    MIRAGE_CHECK(element("model.entry.1.label")->text == "second-model");
+    capture("provider-models-light");
+    for (const bool dark : {false, true}) {
+        page.dark = dark;
+        width = 860;
+        height = 620;
+        glfwSetWindowSize(window, width, height);
+        frame();
+        MIRAGE_CHECK(element("model.providers")->frame.width > 0);
+        MIRAGE_CHECK(element("model.form")->frame.width > 260);
+        MIRAGE_CHECK(element("model.save.bg")->frame.x >= element("model.form")->frame.x);
+        capture(dark ? "provider-minimum-dark" : "provider-minimum-light");
+    }
+    width = 1180;
+    height = 800;
+    page.dark = true;
+    glfwSetWindowSize(window, width, height);
+    frame();
+    capture("provider-models-dark");
+    element("model.entry.1.delete.bg")->onClick();
+    frame();
+    MIRAGE_CHECK(page.provider_models.size() == 1 && page.model_dirty);
+    MIRAGE_CHECK(page.live_model.model_selector == "second-model");
+    auto deleted_model_document = provider_document(true);
+    MIRAGE_CHECK(deleted_model_document && deleted_model_document->models.size() == 1);
+    accept_model_configuration(*deleted_model_document, "save", "");
+    MIRAGE_CHECK(page.live_model.model_selector == "first-model");
+    page.model.provider_name = "重命名服务";
+    page.model_dirty = true;
+    auto renamed_document = provider_document(true);
+    MIRAGE_CHECK(renamed_document->models[0].display_name ==
+                 first_document->models[0].display_name);
+    MIRAGE_CHECK(renamed_document &&
+                 renamed_document->model->provider_id == first_document->model->provider_id);
+    accept_model_configuration(*renamed_document, "save", "");
+    frame();
+    MIRAGE_CHECK(element("model.provider.0.label")->text == "重命名服务");
+    page.model_window = "wrong";
+    MIRAGE_CHECK(!provider_document(true));
+    page.model_dirty = true;
+    accept_model_configuration(*renamed_document, "model", "");
+    MIRAGE_CHECK(page.model_window == "wrong");
+    accept_model_configuration(*renamed_document, "discard", "");
+    MIRAGE_CHECK(page.model_window == "64000" && !page.model_dirty);
     glfwPollEvents();
     window::close();
     glfwWaitEvents();
