@@ -1458,6 +1458,12 @@ struct RuntimeService::Impl {
         const auto catalog = persistence::decode_settings(config.model_catalog_json);
         if (catalog.ok)
             document.models = catalog.settings.models;
+        document.models_present = true;
+        for (const auto &profile : document.models)
+            if (profile.display_name == document.model->display_name) {
+                document.model->provider_id = profile.provider_id;
+                document.model->provider_name = profile.provider_name;
+            }
         for (auto &profile : document.models)
             profile.api_key_configured =
                 !profile.credential_ref.empty() || !profile.credential_env.empty();
@@ -1497,6 +1503,7 @@ struct RuntimeService::Impl {
             m.credential_ref = core->model.credential_ref;
             m.credential_env.clear();
         }
+        const auto previous_catalog = persistence::decode_settings(config.model_catalog_json);
         const auto old_reference = m.credential_ref;
         if (request.api_key && !config.credential_write) {
             fail(connection, correlation, "unavailable",
@@ -1512,6 +1519,15 @@ struct RuntimeService::Impl {
         for (auto &profile : decoded.settings.models)
             if (profile.display_name == m.display_name)
                 profile = m;
+            else if (!m.provider_id.empty() && profile.provider_id == m.provider_id) {
+                profile.provider_name = m.provider_name;
+                profile.endpoint_origin = m.endpoint_origin;
+                profile.api_prefix = m.api_prefix;
+                profile.dialect = m.dialect;
+                profile.credential_ref = m.credential_ref;
+                profile.credential_env = m.credential_env;
+                profile.api_key_configured = m.api_key_configured;
+            }
         auto next_config = core->model;
         next_config.enabled = m.enabled;
         next_config.supports_reasoning = m.supports_reasoning;
@@ -1558,8 +1574,10 @@ struct RuntimeService::Impl {
                 return;
             }
             saved.model = m;
-            if (!decoded.settings.models.empty())
+            if (decoded.settings.models_present || !decoded.settings.models.empty()) {
                 saved.models = decoded.settings.models;
+                saved.models_present = true;
+            }
             for (auto &profile : saved.models)
                 if (profile.display_name == m.display_name)
                     profile = m;
@@ -1586,7 +1604,7 @@ struct RuntimeService::Impl {
         config.model = next_config;
         if (core->settings_store)
             config.model_catalog_json = persistence::encode_settings(saved);
-        else if (!decoded.settings.models.empty())
+        else if (decoded.settings.models_present || !decoded.settings.models.empty())
             config.model_catalog_json = persistence::encode_settings(decoded.settings);
         std::string warning;
         if (request.api_key && !old_reference.empty() && old_reference != m.credential_ref) {
@@ -1597,6 +1615,27 @@ struct RuntimeService::Impl {
             if (!retained && !config.credential_write(old_reference, "").ok)
                 warning =
                     "配置已保存；旧 API Key 清理失败，可在系统钥匙环中移除未使用的 Mirage 凭据。";
+        }
+        // DEC-042: deleting a provider also releases keys that no remaining
+        // provider/model or active configuration references, after persistence.
+        if (previous_catalog.ok && config.credential_write) {
+            std::vector<std::string> cleaned;
+            for (const auto &profile : previous_catalog.settings.models) {
+                const auto &reference = profile.credential_ref;
+                if (reference.empty() || reference == old_reference ||
+                    reference == m.credential_ref ||
+                    std::find(cleaned.begin(), cleaned.end(), reference) != cleaned.end())
+                    continue;
+                const bool retained =
+                    std::any_of(saved.models.begin(), saved.models.end(), [&](const auto &entry) {
+                        return entry.credential_ref == reference;
+                    });
+                if (!retained) {
+                    cleaned.push_back(reference);
+                    if (!config.credential_write(reference, "").ok)
+                        warning = "配置已保存；已删除服务的API Key清理失败";
+                }
+            }
         }
         handle_model_get(connection, correlation, std::move(warning));
     }

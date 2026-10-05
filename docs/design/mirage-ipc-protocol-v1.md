@@ -608,7 +608,7 @@ ProfileLimits。未配置保留原运行默认，前端仍报告分母未知，�
 `model.get/set` 的schema=1 JSON字符串新增可选 `models` 数组（至多12个ModelSettings）。
 每项display_name非空、至多128bytes且唯一，字段各至多2048bytes；整文档至多64KiB。
 `model`仍表示当前应用配置；`supports_reasoning`为可选布尔，默认false。
-目录保存和活动配置同一model.set完成，保留其他配置块。省略/空models保留已有目录，
+目录保存和活动配置同一model.set完成，保留其他配置块。DEC-042更新：省略models保留已有目录，显式空数组清空目录，
 支持旧客户端；每次切换拒绝活动模型任务。重启从service.json恢复目录。
 
 `session.chat`新增可选`access`（default/read_only，缺省default）、`reasoning`
@@ -676,3 +676,8 @@ Wire golden覆盖缺省兼容、替换请求/ACK/事件及非法目标，服务�
 每次推理重试先发空快照；客户端仅替换匹配pending轮，拒绝旧序列/终态/取消后的内容。
 预览不存盘、不推动工具、不修改context_usage；最终成功ChatTurnUpdated才携带规范reply_text。
 协议版本仍为1，其他请求/终态契约不变。测试覆盖新旧订阅同场及字段拒绝。
+
+
+### DEC-042增量：服务商元数据与目录存在性
+
+model/models条目增加可选provider_id/provider_name（字符串）；无字段的旧目录视为单模型服务。model.get回送所选模型的服务元数据和显式models数组。同provider_id共享Base URL（endpoint/api_prefix）、dialect和credential_ref/credential_env；model.set以当前model的连接字段为准统一更新同服务条目。模型目录仍限制12条，display_name为稳定且独立的模型配置身份。空模型服务以enabled=false保存，选择真实模型后才可运行。缺失models保持旧目录；空数组表示清空，旧客户端无字段行为保留。持久化成功后才切换应用状态并清理不再引用的Key，清理失败以warning回送。

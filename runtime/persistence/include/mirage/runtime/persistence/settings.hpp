@@ -34,6 +34,8 @@ struct ModelSettings {
     bool supports_reasoning = false;
     std::string credential_ref = {}; ///< DEC-038: OS credential-store reference, no plaintext
     bool api_key_configured = false; ///< UI projection; recalculated by service
+    std::string provider_id = {};    ///< DEC-042: stable product service identity
+    std::string provider_name = {};  ///< DEC-042: service label, separate from model identity
 };
 
 /// Runtime configuration settings (M5-08 Runtime Configuration 类目):
@@ -72,7 +74,8 @@ struct LocalSettings {
     /// Model profile block (M5-08 设置-模型类目); nullopt keeps the model
     /// layer disabled.
     std::optional<ModelSettings> model;
-    std::vector<ModelSettings> models; ///< DEC-037: named catalog, at most 12
+    std::vector<ModelSettings> models; ///< DEC-037/042: catalog, at most 12 profiles
+    bool models_present = false; ///< Explicit empty catalog clears; absent preserves old clients
     /// Runtime configuration block (M5-08 Runtime Configuration 类目);
     /// nullopt keeps the built-in bounds.
     std::optional<RuntimeSettings> runtime;

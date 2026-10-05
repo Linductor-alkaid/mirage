@@ -706,6 +706,78 @@ int main(int argc, char **argv) {
     }
     MIRAGE_CHECK(client.call(ipc::SetModelRequest{serialized}, 2s).ok);
 
+    // DEC-042: a provider has multiple model identities but one connection/key.
+    auto provider_settings = settings;
+    provider_settings.models_present = true;
+    provider_settings.model->provider_id = "provider-test";
+    provider_settings.model->provider_name = "测试服务";
+    provider_settings.models = {*provider_settings.model, *provider_settings.model};
+    provider_settings.models[1].display_name = "provider-second";
+    provider_settings.models[1].model_selector = "provider-second-model";
+    const auto grouped =
+        client.call(ipc::SetModelRequest{persistence::encode_settings(provider_settings),
+                                         "provider-synthetic-key"},
+                    2s);
+    MIRAGE_CHECK(grouped.ok);
+    auto grouped_settings = persistence::decode_settings(
+        std::get<ipc::ModelConfiguration>(grouped.payload).settings_json);
+    MIRAGE_CHECK(grouped_settings.ok && grouped_settings.settings.models.size() == 2 &&
+                 grouped_settings.settings.model->provider_name == "测试服务");
+    MIRAGE_CHECK(grouped_settings.settings.models[0].credential_ref ==
+                     grouped_settings.settings.models[1].credential_ref &&
+                 !grouped_settings.settings.models[1].credential_ref.empty());
+    auto failed_group = grouped_settings.settings;
+    failed_group.model->provider_name = "未提交服务名";
+    std::ofstream(settings_barrier) << "occupied";
+    MIRAGE_CHECK(!client
+                      .call(ipc::SetModelRequest{persistence::encode_settings(failed_group),
+                                                 "rejected-group-key"},
+                            2s)
+                      .ok);
+    const auto retained_group = client.call(ipc::GetModelRequest{}, 2s);
+    const auto retained_settings = persistence::decode_settings(
+        std::get<ipc::ModelConfiguration>(retained_group.payload).settings_json);
+    MIRAGE_CHECK(retained_settings.settings.model->provider_name == "测试服务" &&
+                 retained_settings.settings.models[1].credential_ref ==
+                     grouped_settings.settings.models[1].credential_ref);
+    {
+        std::lock_guard lock(key_mutex);
+        MIRAGE_CHECK(keys.size() == 1);
+    }
+    std::filesystem::remove(settings_barrier);
+    auto selected_group = grouped_settings.settings;
+    selected_group.model = selected_group.models[1];
+    MIRAGE_CHECK(
+        client.call(ipc::SetModelRequest{persistence::encode_settings(selected_group)}, 2s).ok);
+    selected_group.model->provider_name = "新服务名";
+    selected_group.model->endpoint_origin = "https://renamed.test";
+    auto renamed_group =
+        client.call(ipc::SetModelRequest{persistence::encode_settings(selected_group)}, 2s);
+    MIRAGE_CHECK(renamed_group.ok);
+    const auto renamed_settings = persistence::decode_settings(
+        std::get<ipc::ModelConfiguration>(renamed_group.payload).settings_json);
+    MIRAGE_CHECK(renamed_settings.settings.models[0].provider_name == "新服务名" &&
+                 renamed_settings.settings.models[0].endpoint_origin == "https://renamed.test");
+    persistence::LocalSettings clear_catalog;
+    clear_catalog.models_present = true;
+    clear_catalog.model = persistence::ModelSettings{};
+    const auto cleared_catalog =
+        client.call(ipc::SetModelRequest{persistence::encode_settings(clear_catalog)}, 2s);
+    MIRAGE_CHECK(cleared_catalog.ok);
+    const auto cleared_settings = persistence::decode_settings(
+        std::get<ipc::ModelConfiguration>(cleared_catalog.payload).settings_json);
+    MIRAGE_CHECK(cleared_settings.ok && cleared_settings.settings.models_present &&
+                 cleared_settings.settings.models.empty() &&
+                 !cleared_settings.settings.model->enabled);
+    {
+        std::lock_guard lock(key_mutex);
+        MIRAGE_CHECK(keys.empty());
+    }
+    const auto disk_cleared = persistence::decode_settings(key_disk.load().body);
+    MIRAGE_CHECK(disk_cleared.ok && disk_cleared.settings.models_present &&
+                 disk_cleared.settings.models.empty());
+    MIRAGE_CHECK(client.call(ipc::SetModelRequest{serialized}, 2s).ok);
+
     // Delete is durable, active-safe and can clear the legacy primary chat.
     auto disposable_open = client.call(ipc::OpenSessionRequest{}, 2s);
     const auto disposable = std::get<ipc::SessionOpened>(disposable_open.payload).session_id;

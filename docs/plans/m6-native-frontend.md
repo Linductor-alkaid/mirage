@@ -37,6 +37,7 @@
 | M6-19 | Completed（Linux） | 修复EUI Vulkan生命周期探针，四种窗口/渲染组合CI与SDK消费复验；维护者2026-10-05明确授权，沿用DEC-041 |
 | M6-20 | Completed（Linux X11） | 在真实原生窗口补验输入框IME、真实服务流式回复与等待计时，修正验收中发现的会话体验问题；沿用DEC-041，维护者2026-10-06再次明确范围 |
 | M6-18 | Completed（Linux） | 接入Mira PR#76修复与公开ConversationLoop，保持Executor版本；依赖审计/回填/取消回归 |
+| M6-21 | In Progress | 侧栏统一内容缩进/图标轴；ZCode服务导航、未命名草稿、连接配置和模型列表；保存ACK、失败保留、真实配置重载验收，依据DEC-042 |
 | M6-10 | Completed | 依工程规范9.4整理Mira/Mirador独立反馈台账，复核已登记问题并向Mira上游提交可复现反馈；不修改依赖或升级pin |
 
 ## 测试矩阵与退出条件
@@ -293,3 +294,5 @@ Mira PR#79 pull_request 12项CI成功。pin ed1deb6与锁/审计同步，无forc
 真实模型预览/用时验证；新增长回复保位/恢复跟随。EUI-20261006-001修复程序offset，
 更新PR#88/pin ff1e757及锁，当前head四项CI全通过；原生回归包括实际视口像素及idle
 关闭唤醒。Windows/Wayland/物理高DPI与M6-04另验。[最终验收](../compatibility/native-conversation-finish-20261006.md)。
+
+2026-10-06 / M6-21：维护者要求严格对照ZCode模型管理与侧栏。参考源码固定29628c9；先补齐服务与模型的分层、空目录草稿、保存ACK权威状态，再调整224/56px服务导航、32px控件、连接字段顺序及模型行。旧配置保持兼容，凭据仍由系统钥匙环承载，任务仍由RuntimeBridge/Executor管理。计划验收空目录、命名保存/重载、多模型切换、删除与失败回滚、正常/最小明暗截图。

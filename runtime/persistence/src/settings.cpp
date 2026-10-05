@@ -148,6 +148,10 @@ std::string encode_settings(const LocalSettings &settings) {
         if (!model.dialect.empty()) {
             put(model_object, "dialect", JsonValue{model.dialect});
         }
+        if (!model.provider_id.empty())
+            put(model_object, "provider_id", JsonValue{model.provider_id});
+        if (!model.provider_name.empty())
+            put(model_object, "provider_name", JsonValue{model.provider_name});
         if (!model.display_name.empty()) {
             put(model_object, "display_name", JsonValue{model.display_name});
         }
@@ -168,7 +172,7 @@ std::string encode_settings(const LocalSettings &settings) {
         }
         put(object, "model", std::move(model_object));
     }
-    if (!settings.models.empty()) {
+    if (settings.models_present || !settings.models.empty()) {
         JsonValue::Array models;
         for (const auto &profile : settings.models) {
             LocalSettings single;
@@ -283,7 +287,8 @@ SettingsDecode decode_settings(std::string_view body) {
         if (has_unknown_member(*model_value,
                                {"enabled", "supports_reasoning", "dialect", "display_name",
                                 "endpoint", "api_prefix", "model", "credential_env",
-                                "credential_ref", "api_key_configured", "context_window_tokens"})) {
+                                "credential_ref", "api_key_configured", "context_window_tokens",
+                                "provider_id", "provider_name"})) {
             result.error = "unknown model field";
             return result;
         }
@@ -334,7 +339,9 @@ SettingsDecode decode_settings(std::string_view body) {
             !copy_string("api_prefix", model.api_prefix) ||
             !copy_string("model", model.model_selector) ||
             !copy_string("credential_env", model.credential_env) ||
-            !copy_string("credential_ref", model.credential_ref)) {
+            !copy_string("credential_ref", model.credential_ref) ||
+            !copy_string("provider_id", model.provider_id) ||
+            !copy_string("provider_name", model.provider_name)) {
             return result;
         }
         if (const auto *value = member(*model_value, "context_window_tokens")) {
@@ -355,6 +362,7 @@ SettingsDecode decode_settings(std::string_view body) {
         settings.model = std::move(model);
     }
     if (const auto *catalog = member(document, "models")) {
+        settings.models_present = true;
         const auto *array = catalog->as_array();
         if (!array || array->size() > 12) {
             result.error = "models must be an array of at most 12 profiles";
