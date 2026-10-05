@@ -49,7 +49,8 @@ Linux XIM/IBus候选跟随光标并已验证中文提交；原生Wayland、物�
 async/network/audio 来绕过项目生命周期约束。
 
 EUI 当前构建和图像解码问题与临时适配见
-[反馈记录](../../docs/dependency_feedback/eui-ledger.md)，不修改 pinned 依赖。
+[反馈记录](../../docs/dependency_feedback/eui-ledger.md)；已授权修复以独立上游PR提交锁定，
+不在应用构建时静默修改依赖。
 计划与验收见 [M6](../../docs/plans/m6-native-frontend.md)。
 
 应用继承 Mira 的红发蓝眼角色图标，来自维护者指定的本机最新 Mira，
@@ -105,3 +106,9 @@ EUI Markdown通过公开排版适配支持同一消息拖选；尚不支持跨�
 排除旧轮次。运行或提交期间禁用编辑，拒绝保留原历史。工具的外部副作用不会撤销。
 重启后的历史会话可延迟重新绑定Mira运行会话继续harness对话；删除/关闭释放对应映射。
 [Linux验收](../../docs/compatibility/native-conversation-revision-20261005.md)。
+
+
+2026-10-06 / M6-20：底部流式跟随、上翻阅读保位、终态保位，箭头或键盘返回最新。
+EUI公开offset同步修复已按维护者授权追加PR#88；依赖源码不在应用构建时注入补丁。
+真实原生窗口IME多行候选、实际模型预览/等待用时与上下文验证见
+[最终验收](../../docs/compatibility/native-conversation-finish-20261006.md)。

@@ -58,6 +58,8 @@ struct LocalSession {
     std::string edit_saved_draft = {};
     std::uint64_t latest_sequence = 0;
     std::vector<std::string> retired_turns = {};
+    float scroll_extent = 0;
+    bool follow_output = true;
 };
 
 // UI-thread-only, bounded preview state. IDs are never reused, and switching

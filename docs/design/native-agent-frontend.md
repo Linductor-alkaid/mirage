@@ -210,3 +210,11 @@ EUI平台层补齐Linux XIM PreeditPosition与窗口内光标行底定位；不�
 X11/IBus/libpinyin候选移动和中文提交已实测，原生Wayland/物理高DPI/Windows仍待目标环境验证。
 依据[DEC-041](../decisions/DEC-041-native-conversation-density-and-progress.md)，
 [验收](../compatibility/native-conversation-progress-20261005.md)。
+
+
+2026-10-06 / M6-20：长回复跟随由UI线程持有明确状态，底部跟随、上翻保位、终态保位；
+回到底部/箭头/键盘恢复，新轮重置。通过EUI公开offset控制，EUI-20261006-001修复同步
+配置到实际Runtime滚动并失效重绘，已更新上游PR#88与锁。原生回归比较实际阅读视口像素。
+私有真实窗口IME、多行候选、模型流式/用时/上下文已复验，见
+[最终验收](../compatibility/native-conversation-finish-20261006.md)。窗口关闭投递平台空事件
+以解除UI idle wait，仍仅退出UI；无新增Executor任务或桌面/RPA能力。

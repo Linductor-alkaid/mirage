@@ -1208,13 +1208,17 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
             .size(column, std::max(48.0f, y - 88))
             .theme(tokens)
             .gap(14)
-            .offset(session.scroll_offset)
+            .offset(session.follow_output ? 10000000.0f : session.scroll_offset)
             .scrollbarWidth(4)
             .scrollbarGap(8)
             .onChange([session_id](float offset) {
                 auto &chat = state().chat;
                 if (chat.current().id == session_id) {
                     chat.current().scroll_offset = offset;
+                    const bool follow = offset >= chat.current().scroll_extent - 1;
+                    if (follow != chat.current().follow_output)
+                        app::requestUpdate();
+                    chat.current().follow_output = follow;
                     state().selection.clear();
                 }
             })
@@ -1510,6 +1514,37 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                 }
             })
             .build();
+        if (const auto *thread = ui.find("thread." + std::to_string(session_id)))
+            session.scroll_extent = thread->scrollMaxOffset;
+        if (!session.follow_output && session.scroll_extent > 1) {
+            auto latest = button_style(p);
+            latest.normal = p.surface;
+            latest.border = {1, p.border};
+            auto follow = [] {
+                state().chat.current().follow_output = true;
+                state().chat.current().scroll_offset = 10000000.0f;
+                app::requestUpdate();
+            };
+            components::button(ui, "thread.latest")
+                .position(x + column / 2 - 18, y - 58)
+                .size(36, 36)
+                .text("")
+                .icon(0xf063)
+                .iconSize(14)
+                .style(latest)
+                .onClick(follow)
+                .build();
+            if (auto *hit = ui.find("thread.latest.bg")) {
+                hit->focusable = true;
+                hit->onKeyEvent = [follow](const eui::KeyEvent &event) {
+                    if (!event.isDown() ||
+                        (event.key != eui::InputKey::Enter && event.key != eui::InputKey::Space))
+                        return false;
+                    follow();
+                    return true;
+                };
+            }
+        }
     }
     const auto input_fill = s.dark ? color(0x2b2b2b) : p.surface;
     ui.rect("composer.panel")

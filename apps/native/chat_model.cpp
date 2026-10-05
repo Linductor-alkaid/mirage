@@ -142,6 +142,7 @@ bool ChatModel::submit() {
     session.messages.push_back({next_message_++, std::move(text), "你", "未发送", {}});
     session.draft.clear();
     session.scroll_offset = 10000000.0f; // clamped by the scroll view on compose
+    session.follow_output = true;
     notice_ = "消息已保留在本地预览中，尚未发送给 Agent。";
     return true;
 }
@@ -321,7 +322,8 @@ void ChatModel::apply_turn(std::uint64_t id, const std::string &turn, const std:
         session->title = title_from(user);
     auto it = std::find_if(session->messages.begin(), session->messages.end(),
                            [&turn](const auto &m) { return m.turn_id == turn; });
-    if (it == session->messages.end()) {
+    const bool new_turn = it == session->messages.end();
+    if (new_turn) {
         if (sequence && sequence < session->latest_sequence)
             return;
         if (session->messages.size() + 2 > max_messages)
@@ -351,7 +353,10 @@ void ChatModel::apply_turn(std::uint64_t id, const std::string &turn, const std:
             return message.role == "Mira" && message.status == "运行中";
         });
     session->submitting = false;
-    session->scroll_offset = 10000000.0f;
+    if (new_turn)
+        session->follow_output = true;
+    if (session->follow_output)
+        session->scroll_offset = 10000000.0f;
 }
 
 void ChatModel::apply_preview(std::uint64_t id, const std::string &turn, const std::string &request,

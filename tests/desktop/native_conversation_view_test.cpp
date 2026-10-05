@@ -257,6 +257,66 @@ const auto model = "Mirage";
     frame();
     MIRAGE_CHECK(view->find(live_key + ".duration") != nullptr);
     MIRAGE_CHECK(view->find(live_key + ".state") == nullptr);
+    // Returning to the bottom after reading older content must resume stream following.
+    page.chat.apply_turn(session_id, "long-stream", "pending", "长回复滚动验证", {}, {}, {}, 3);
+    std::string long_preview;
+    for (int line = 0; line < 40; ++line)
+        long_preview += "流式内容第" + std::to_string(line) + "行。\n\n";
+    page.chat.apply_preview(session_id, "long-stream", "long-request", 1, long_preview, false);
+    frame();
+    const auto thread_key = "thread." + std::to_string(session_id);
+    element(thread_key)->onScrollOffsetChanged(40);
+    frame();
+    const float reading_offset = element(thread_key)->scrollOffset;
+    MIRAGE_CHECK(reading_offset < element(thread_key)->scrollMaxOffset - 10);
+    MIRAGE_CHECK(view->find("thread.latest") && !page.chat.current().follow_output);
+    page.chat.apply_preview(session_id, "long-stream", "long-request", 2,
+                            long_preview + "追加内容。\n\n", false);
+    frame();
+    MIRAGE_CHECK(std::abs(element(thread_key)->scrollOffset - reading_offset) < 1);
+    element(thread_key)->onScrollOffsetChanged(element(thread_key)->scrollMaxOffset);
+    frame();
+    MIRAGE_CHECK(
+        std::abs(element(thread_key)->scrollOffset - element(thread_key)->scrollMaxOffset) < 1);
+    MIRAGE_CHECK(!view->find("thread.latest") && page.chat.current().follow_output);
+    page.chat.apply_preview(session_id, "long-stream", "long-request", 3,
+                            long_preview + "追加内容。\n\n新到达的末行。\n\n", false);
+    frame();
+    MIRAGE_CHECK(
+        std::abs(element(thread_key)->scrollOffset - element(thread_key)->scrollMaxOffset) < 1);
+    element(thread_key)->onScrollOffsetChanged(40);
+    frame();
+    page.chat.apply_turn(session_id, "long-stream", "ok", "长回复滚动验证", long_preview, {}, {},
+                         3);
+    frame();
+    MIRAGE_CHECK(std::abs(element(thread_key)->scrollOffset - 40) < 1);
+    auto visible_text_pixels = [&] {
+        runtime.requestFullPaint();
+        runtime.render(width, height, 1, palette(page.dark).background);
+        glFinish();
+        // Exclude the arrow and composer: observe movement of the reading
+        // viewport, rather than only checking the requested DSL offset.
+        std::vector<unsigned char> pixels(700 * 330 * 3);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadPixels(320, height - 550, 700, 330, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+        return pixels;
+    };
+    const auto reading_pixels = visible_text_pixels();
+    capture("stream-reading-light");
+    auto *latest_hit = element("thread.latest.bg");
+    MIRAGE_CHECK(latest_hit->focusable);
+    eui::KeyEvent latest_enter;
+    latest_enter.key = eui::InputKey::Enter;
+    latest_enter.action = eui::KeyAction::Press;
+    MIRAGE_CHECK(latest_hit->onKeyEvent(latest_enter));
+    frame();
+    MIRAGE_CHECK(page.chat.current().follow_output && !view->find("thread.latest"));
+    MIRAGE_CHECK(
+        std::abs(element(thread_key)->scrollOffset - element(thread_key)->scrollMaxOffset) < 1);
+    MIRAGE_CHECK(visible_text_pixels() != reading_pixels);
+    capture("stream-following-light");
+    page.chat.current().messages.back().text = "滚动验证完成。";
+    frame();
     // Compact model labels must remain readable and leave the adjacent actions clear.
     page.live_model.enabled = true;
     for (const auto &model : {std::string("GLM-4.6"),
@@ -326,6 +386,7 @@ const auto model = "Mirage";
     for (int line = 0; line < 32; ++line)
         long_user.text += "第" + std::to_string(line) + "行选择验证abc\n";
     page.chat.current().scroll_offset = 0;
+    page.chat.current().follow_output = false;
     frame();
     const auto long_bounds = element(key + ".select")->frame;
     const float scroll_y = 120;

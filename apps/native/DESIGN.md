@@ -522,3 +522,13 @@ preview是≤16KiB完整快照，经服务Topic与UI MpscChannel传递，不持�
 减少轮数并将单轮预算钳制至profile上限的一半。没有桌面观察或RPA能力。
 Linux使用EUI平台公开XIM光标入口；详细互操作、环境限制和验收见
 [进度验收](../../docs/compatibility/native-conversation-progress-20261005.md)。此前16px、私有循环和无流式段落为历史实现，以上替代。
+
+
+## 2026-10-06：流式阅读位置（M6-20）
+
+当前会话在底部持续跟随；用户上翻或拖动滚动条后保留阅读位置，终态不强制跳转。
+再次到达底部恢复跟随；未跟随且内容可滚动时，在(x + column/2 - 18, composer.y - 58)
+显示36×36px、14px向下箭头，surface底色、1px border、既有hover/pressed色；点击或聚焦后
+Enter/Space返回最新。程序offset使用修复后的EUI公开scrollView，不重建私有Runtime状态。
+真实窗口正常/最小明暗、IME候选、等待/流式/用时证据见
+[最终验收](../../docs/compatibility/native-conversation-finish-20261006.md)，渲染夹具验证实际视口变化。

@@ -161,3 +161,22 @@ EUI 为维护者授权的 UI 专用依赖（DEC-033），不属于 Mira / Mirado
 - 最小修复：删除不用的GLAD include，复用公开windowRenderApi选择配置后端，不增加渲染实现或并发设施。
 - 影响/延期：Vulkan CI无法通过；保持Mirage既有OpenGL后端，不能将两项OpenGL通过宣称全矩阵通过。
 - 验收：四种窗口/渲染组合build、unit/probe、SDK消费者；维护者明确授权修改并要求保留上游PR。[PR#88](https://github.com/sudoevolve/EUI-NEO/pull/88)新增独立提交ed1deb6；两种Vulkan各33/33及SDK消费者通过，OpenGL生命周期回归通过；远程run37338533567四项后端/SDK消费全部success，状态Accepted（上游PR尚未合并）。
+
+## EUI-20261006-001：重新compose的offset未同步到实际滚动状态
+
+- 状态：Accepted；负责人：Mirage维护者；工作项M6-20，依据DEC-041及既有依赖修复授权。
+- 核对：pin ed1deb6的公开scrollView.offset、scrollState、onChange与组件文档；Runtime首次
+  初始化读取offset，此后仅钳制旧内部位置，忽略应用新请求。不是调用私有API或坐标错误。
+- 复现：长回复向上阅读后，设置offset为末尾；DSL元素显示末尾值，实际文本和滚动条仍停在
+  原位置。两张真实EUI渲染截图一致；原生回归新增读取视口像素比较，避免仅测请求参数。
+- 影响：流式内容增长、窗口缩小和“回到最新”无法正确移动实际画面；不修复不能完整交付M6-17。
+- 最小修复：记录上一次配置offset，新请求同步实际位置并停止旧惯性；onChange回写当前位置
+  与未改变配置保留用户惯性；更新viewport dirty rect。不新增业务队列、线程或定时器。
+- 验收：程序跳转、onChange回写、未控滚动、增长跟随与缩短钳制单测；原生真实视口像素、
+  阅读时终态保位、返回最新、Release/ASAN与上游四项构建CI。修复追加独立依赖提交并更新
+  [PR#88](https://github.com/sudoevolve/EUI-NEO/pull/88)，pin/锁同步后保留Accepted直至上游合并。
+- 移除条件：升级包含相同语义的上游dev后复验；没有产品层私有状态重建或滚动绕行。
+
+EUI-20261006-001验收补充：ff1e757已普通push；PR#88当前head的
+[run37348553548](https://github.com/sudoevolve/EUI-NEO/actions/runs/37348553548)整体success、四项job全成功。
+ui_state单测、原生实际视口像素和Debug/Release/ASAN/UBSAN各2/2通过，反馈保持Accepted待上游合并。

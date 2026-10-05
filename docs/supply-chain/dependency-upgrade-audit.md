@@ -331,3 +331,11 @@ EUI df8ab1c→ed1deb6：普通merge上游dev88a9ec1并新增独立生命周期�
 同一PR#88可审查，gitlink/lock同步。Mirage删除库层异常覆写，应用自身Executor异常处理
 保留，不改变实际产品GLFW/OpenGL后端。两种Vulkan各33/33和SDK消费通过，远程矩阵
 及Mirage回归见[验收](../compatibility/eui-vulkan-followup-20261005.md)，未验证平台不作保证。
+
+
+## M6-20：EUI受控滚动修复
+
+EUI ed1deb6→ff1e7572132a7ff8fc70c8e52f7778fce4dd976f：单独修复重新compose的offset
+同步、惯性回写与viewport失效，附ui_state单测/公共组件说明；反馈EUI-20261006-001。
+依维护者既有授权更新PR#88，普通push、未合并，gitlink/lock一致；其他依赖、嵌套Executor
+与许可证不变。没有引入新包、并发设施或改变产品后端。[验收](../compatibility/native-conversation-finish-20261006.md)。

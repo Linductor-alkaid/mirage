@@ -524,3 +524,11 @@ preview是≤16KiB完整快照，经服务Topic与UI MpscChannel传递，不持�
 减少轮数并将单轮预算钳制至profile上限的一半。没有桌面观察或RPA能力。
 Linux使用EUI平台公开XIM光标入口；详细互操作、环境限制和验收见
 [进度验收](docs/compatibility/native-conversation-progress-20261005.md)。此前16px、私有循环和无流式段落为历史实现，以上替代。
+
+
+## 2026-10-06：真实会话复验与长回复滚动（M6-20）
+
+根设计契约沿用DEC-041的ZCode会话密度与右侧工具组。真实窗口IME/流式/用时和上下文
+已复验；在底部跟随新内容，上翻保位，终态不跳读。36×36px中性边框箭头居中置于composer
+上方，仅在阅读旧内容时显示；点击或键盘Enter/Space返回最新。EUI程序offset同步修复
+登记EUI-20261006-001并更新PR#88。见[最终验收](docs/compatibility/native-conversation-finish-20261006.md)。

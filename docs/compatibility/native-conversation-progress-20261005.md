@@ -3,6 +3,9 @@
 > 状态：Completed（下述Linux范围）；负责人：Linductor-alkaid；日期：2026-10-05。
 > 工作项：M6-15/16/17/18；依据：[DEC-041](../decisions/DEC-041-native-conversation-density-and-progress.md)。
 
+后续：本文件保留2026-10-05的历史结果；Vulkan/CI收尾见eui-vulkan-followup-20261005.md，
+实际会话复验和最新EUI受控滚动修复见[2026-10-06最终验收](native-conversation-finish-20261006.md)。
+
 ## 交付与依赖
 
 正文/输入14EM、22px行距，顶部14EM、历史40px与较小品牌/设置标题；工具栏左侧附件/权限，

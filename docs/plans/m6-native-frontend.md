@@ -3,7 +3,7 @@
 > 状态：In Progress
 > 负责人：Mirage 维护者
 > 所属计划：[实施总计划](mirage-implementation-plan.md)
-> 更新日期：2026-10-05
+> 更新日期：2026-10-06
 > 决策：[DEC-033](../decisions/DEC-033-native-agent-frontend.md)
 > 前置：既有 M5 服务与 IPC；本轮交付不依赖完整 M5 发布验收。
 > 建议发布点：暂不新增发布标签。
@@ -35,6 +35,7 @@
 | M6-16 | Completed（Linux X11） | 光标附近中文IME定位；DEC-041，依赖公开入口核查/最小补齐及焦点/缩放/多行验证 |
 | M6-17 | Completed（Linux） | 真实流式预览、等待动效与用时；DEC-041，终态/取消/失败/背压/关闭验证 |
 | M6-19 | Completed（Linux） | 修复EUI Vulkan生命周期探针，四种窗口/渲染组合CI与SDK消费复验；维护者2026-10-05明确授权，沿用DEC-041 |
+| M6-20 | Completed（Linux X11） | 在真实原生窗口补验输入框IME、真实服务流式回复与等待计时，修正验收中发现的会话体验问题；沿用DEC-041，维护者2026-10-06再次明确范围 |
 | M6-18 | Completed（Linux） | 接入Mira PR#76修复与公开ConversationLoop，保持Executor版本；依赖审计/回填/取消回归 |
 | M6-10 | Completed | 依工程规范9.4整理Mira/Mirador独立反馈台账，复核已登记问题并向Mira上游提交可复现反馈；不修改依赖或升级pin |
 
@@ -58,6 +59,7 @@
 - [x] M6-17 实时预览、等待/用时、旧客户端兼容及终态/失败/取消/关闭；ASAN/UBSAN/TSAN。
 - [x] M6-18 PR#76公开Loop/规范工具/SNI/workflow复验与依赖PR/pin审计。
 - [x] M6-19 EUI四项后端CI/SDK消费、Vulkan各33项、本地OpenGL及Mirage Debug/Release/ASAN回归。
+- [x] M6-20 真实窗口IME/流式/计时复验，阅读保位/实际返回底部像素回归、空闲退出唤醒；依赖PR/锁与当前head四项CI通过。
 - [ ] M6-04 整体生命周期与安装包验收。
 
 ## 风险与实施记录
@@ -285,3 +287,9 @@ M6-19完成：PR#88 run37338533567四项后端矩阵与SDK消费全部success；
 Mira PR#79 pull_request 12项CI成功。pin ed1deb6与锁/审计同步，无force-push/merge。
 [本轮验收](../compatibility/eui-vulkan-followup-20261005.md)。M6整体与M6-04未完成，
 物理GPU/Wayland/Windows原生IME/高DPI仍由维护者在目标环境补跑。
+
+
+2026-10-06 / M6-20：完成维护者再次列出的会话目标。真实输入框候选跟随、多行中文与
+真实模型预览/用时验证；新增长回复保位/恢复跟随。EUI-20261006-001修复程序offset，
+更新PR#88/pin ff1e757及锁，当前head四项CI全通过；原生回归包括实际视口像素及idle
+关闭唤醒。Windows/Wayland/物理高DPI与M6-04另验。[最终验收](../compatibility/native-conversation-finish-20261006.md)。

@@ -27,7 +27,7 @@
       "legacyDesignDocument": "DESIGN.md",
       "previewOnly": false,
       "runtime": "Separate Runtime Service via versioned Local IPC; UI owns its Executor-managed bridge.",
-      "workItem": "M6-15/16/17/18",
+      "workItem": "M6-20",
       "decision": "DEC-041",
       "visualAuthority": {
         "seed": "user-zcode-native",
@@ -63,7 +63,8 @@
         "docs/decisions/DEC-039-conversation-selection-and-revision.md",
         "docs/decisions/DEC-040-native-typography.md",
         "docs/decisions/DEC-041-native-conversation-density-and-progress.md"
-      ]
+      ],
+      "liveAcceptance": "docs/compatibility/native-conversation-finish-20261006.md"
     },
     "colorMeta": {
       "light-background": {
@@ -1237,7 +1238,9 @@
         "ordering": "Per-turn sequence; new request resets; terminal/retired turns reject late preview",
         "waiting": "Three restrained dots; real monotonic elapsed; one status line",
         "duration": "Freeze observed run at terminal; omit for historical runs with no local timing",
-        "refresh": "Executor cancellable periodic TimerHandle, 100ms while active; cancel before drain/shutdown"
+        "refresh": "Executor cancellable periodic TimerHandle, 100ms while active; cancel before drain/shutdown",
+        "scrolling": "Follow while at bottom; scrolling up pauses following; terminal preserves reading position; arrow or keyboard returns to latest; new turn resumes.",
+        "latestControl": "36x36, centered above composer; neutral surface, 1px border, 14px arrow; visible only while reading older content; Enter/Space."
       }
     },
     "reviewEvidence": {

@@ -27,3 +27,9 @@ Chat Completions SSE归约。下游只通过executor::comm传递UI预览；预�
 
 2026-10-05维护者已明确授权上述依赖修复，要求分别提交上游PR。修复提交须可独立审查，
 Mirage同步gitlink与锁文件；不修改嵌套Executor、不迁移kairo。
+
+
+2026-10-06实施补充（M6-20）：真实窗口复验发现EUI忽略已有scrollView的程序offset。
+沿已授权依赖修复与PR纪律登记EUI-20261006-001，补齐配置同步并保留用户惯性。
+UI采用底部跟随/上翻保位/终态保位，提供返回最新入口；用实际阅读视口像素验收。
+空闲关闭在Mirage窗口适配层发平台唤醒，不改变Runtime/托盘owner或Executor边界。

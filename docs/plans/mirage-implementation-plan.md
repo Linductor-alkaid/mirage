@@ -4,7 +4,7 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-09-27（2026-09-26 依赖升级批能力消费路由，DEC-022）
+> 更新日期：2026-10-06（M6-20 原生会话复验）
 
 ## 当前状态
 
@@ -336,3 +336,9 @@ M6-19完成Linux依赖收尾：EUI四种窗口/渲染CI组合全部通过，Vulk
 SDK消费、Mirage原生回归通过。同步最新dev修复并移除库层异常临时覆写；Mira流式PR
 12项CI也已成功。未合并依赖PR，完整入口/托盘M6-04保持后续工作。
 [验收](../compatibility/eui-vulkan-followup-20261005.md)。
+
+
+2026-10-06 / M6-20完成Linux会话复验：真实窗口IME/多行、真实流式/用时、右侧工具组，
+补齐长回复阅读保位与返回底部、空闲关闭唤醒。EUI公开offset修复更新PR#88/pin与锁，
+当前head四项CI及原生Debug/Release/ASAN/UBSAN回归通过；无新增Executor并发路径。
+[最终验收](../compatibility/native-conversation-finish-20261006.md)。M6整体仍In Progress，M6-04保持Planned。
