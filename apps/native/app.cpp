@@ -2199,9 +2199,15 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                 icon_button(ui, "settings.collapsed", 0xf013, 60, 12, p,
                             [] { state().settings = true; });
             }
-            if (s.settings)
-                text(ui, "thread.title", fitted_title("设置", main_width - 300, 16),
-                     sidebar + (s.sidebar ? 28 : 116), 0, main_width - 300, 60, 16, p.text, 500);
+            const float title_x = sidebar + (s.sidebar ? 28 : 116);
+            const float title_right = screen.width - (s.settings && !s.sidebar ? 286 : 146);
+            const float title_width = std::max(0.0f, title_right - title_x);
+            const auto &session_title = s.chat.current().title;
+            const std::string title = s.settings              ? "设置"
+                                      : session_title.empty() ? "新对话"
+                                                              : session_title;
+            text(ui, "thread.title", fitted_title(title, title_width, 16), title_x, 0, title_width,
+                 60, 16, p.text, 500);
             icon_button(ui, "window.minimize", 0xf068, screen.width - 130, 12, p, window::minimize);
             icon_button(ui, "window.maximize", window::maximized() ? 0xf2d2 : 0xf2d0,
                         screen.width - 88, 12, p, window::toggle_maximize);

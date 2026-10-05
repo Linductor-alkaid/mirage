@@ -345,7 +345,7 @@ Markdown 行内段使用 Top 对齐与 `(lineHeight - fontSize) / 2` 的统一�
 - 初始窗口为 1180×800 逻辑单位，最小为 860×620；初始化按 content-scale 与 framebuffer/window 比例换算系统窗口尺寸。仅记录当前初始换算，不宣称跨显示器动态 DPI 行为。
 - 侧栏默认 260px，可调范围 224–400px；实际宽度上限为 `max(224px, min(400px, screen.width - 520px))`。进程内保留用户所需宽度，窗口缩小时只钳制显示宽度；手动收起后宽度为零，展开时恢复当前窗口容纳的宽度。没有自动断点隐藏。
 - 分隔条的透明命中区宽 8px，中心在侧栏右边界，从 y=60 延伸到窗口底部；hover 使用 border、拖动/pressed 使用 muted。支持鼠标拖动，键盘聚焦后左右键每次调宽 8px。
-- 标题拖动区和分隔线为 60px 高，与方向契约一致。
+- 标题拖动区和分隔线为 60px 高，与方向契约一致。顶部60px标题栏左侧显示当前会话标题（16EM、现有500权重请求），空标题回退“新对话”，随当前会话切换更新；左边距为侧栏右侧28px，侧栏收起时从x=116px开始，右侧预留146px用于窗口按钮；收起侧栏的设置页右侧预留286px避开返回对话按钮。标题按字体度量省略且不改变原始值，文字不拦截标题栏拖动。
 - 空会话列为 `min(672px, main_width - 48px)`，水平居中；问候 30px、54px 行框，说明 14px、28px 行框，无建议列表。
 - 有消息时列为 `min(800px, main_width - (main_width >= 864px ? 96px : 48px))`，水平居中。用户气泡按文字测量宽度加 24px，最小 80px，最大 `min(576px, thread_width)`，右对齐；助手正文宽 `thread_width - 16px`，无卡片。
 - 编辑区高 `clamp(measure(draft, column - 40px, ui_font_size(16), ui_input_line_height(16)) + 24px, 52px, 168px)`；composer 高为编辑区 + 56px 工具区，有附件或引用再加 36px，编辑最后输入再加32px；非编辑态总高 108–224px（有附件或引用 144–260px）。活动 composer 顶部为 `screen.height - composer_height - 28px`；空态期望顶部为 `max(188px, screen.height × 0.29 + 106px)`，按同一底部边界钳制。问候顶部为 `max(80px, composer_y - 104px)`。

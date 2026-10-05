@@ -544,6 +544,7 @@
       "initialScalePolicy": "content-scale × window width / framebuffer width",
       "sidebarWidth": 260,
       "headerHeight": 60,
+      "headerTitle": "顶部60px标题栏左侧显示当前会话标题（16EM、现有500权重请求），空标题回退“新对话”，随当前会话切换更新；左边距为侧栏右侧28px，侧栏收起时从x=116px开始，右侧预留146px用于窗口按钮；收起侧栏的设置页右侧预留286px避开返回对话按钮。标题按字体度量省略且不改变原始值，文字不拦截标题栏拖动。",
       "manualSidebarCollapse": true,
       "composerToolbar": {
         "top": "composer_y + composer_height - 44",

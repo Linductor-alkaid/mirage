@@ -105,6 +105,22 @@ int main(int argc, char **argv) {
         return found;
     };
     const auto key = "message." + std::to_string(user);
+    MIRAGE_CHECK(element("thread.title")->text == page.chat.current().title);
+    capture("title-history");
+    const auto history_count = page.chat.history_count();
+    MIRAGE_CHECK(page.chat.new_draft());
+    frame();
+    MIRAGE_CHECK(element("thread.title")->text == "新对话" &&
+                 page.chat.history_count() == history_count);
+    capture("title-new-draft");
+    const auto second_session = page.chat.current().id;
+    page.chat.apply_turn(second_session, "second", "ok", "另一段合成会话", "合成回复", {}, {}, 1);
+    frame();
+    MIRAGE_CHECK(element("thread.title")->text == "另一段合成会话");
+    MIRAGE_CHECK(page.chat.select_session(session_id));
+    frame();
+    MIRAGE_CHECK(element("thread.title")->text == page.chat.current().title);
+    capture("title-switched-history");
     auto *copy = element(key + ".copy");
     MIRAGE_CHECK(copy && copy->opacity == 0);
     MIRAGE_CHECK(!view->find(key + ".quote"));
@@ -244,6 +260,38 @@ const auto model = "Mirage";
     height = 800;
     glfwSetWindowSize(window, width, height);
     page.chat.set_draft("");
+    const auto saved_title = page.chat.current().title;
+    const std::string long_title =
+        "这是一段用于验证窗口标题省略显示的合成会话标题 / Mirage agent conversation 20261005";
+    page.chat.current().title = long_title;
+    width = 860;
+    height = 620;
+    glfwSetWindowSize(window, width, height);
+    for (const bool sidebar : {true, false}) {
+        page.sidebar = sidebar;
+        for (const bool dark : {false, true}) {
+            page.dark = dark;
+            frame();
+            const auto *title = element("thread.title");
+            MIRAGE_CHECK(title->text.ends_with("…") && page.chat.current().title == long_title);
+            MIRAGE_CHECK(title->frame.x + title->frame.width < element("window.minimize")->frame.x);
+            capture(std::string("title-long-") + (sidebar ? "sidebar" : "collapsed") +
+                    (dark ? "-dark" : "-light"));
+        }
+    }
+    page.settings = true;
+    frame();
+    MIRAGE_CHECK(element("thread.title")->text == "设置");
+    MIRAGE_CHECK(element("thread.title")->frame.x + element("thread.title")->frame.width <
+                 element("settings.back.collapsed")->frame.x);
+    capture("title-settings-collapsed");
+    page.settings = false;
+    page.sidebar = true;
+    page.dark = false;
+    page.chat.current().title = saved_title;
+    width = 1180;
+    height = 800;
+    glfwSetWindowSize(window, width, height);
     // A scrolled content transform must not shift selection into an earlier line.
     auto &long_user = page.chat.current().messages.front();
     long_user.text.clear();
