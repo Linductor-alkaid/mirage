@@ -299,3 +299,25 @@ asan / ubsan / tsan 五预设构建+测试、format 与公共头边界、fronten
 shift_estimation）零报告。上游 M7 目标跟踪 Experimental 契约
 （`object_tracker.hpp`）与 mira 的 DEC-040 工具引用层均为后续 Mirage 工作项
 的候选能力，按需另行引入消费。
+
+## 2026-10-05：M6-16/18授权IME与流式依赖修复（DEC-041）
+
+Mira `1348515`→PR#76 `3716dbf`→`0a099ba3b2d9911b5b9f1e17d38c8a27c4f61fb2`：
+公开ConversationLoop、规范工具回填、SNI与同digest版本修复，再加真实有界预览及Chat SSE。
+[修复PR#79](https://github.com/Linductor-alkaid/mira/pull/79)已提交未合并；不改内嵌Executor
+`2ae4fc8`/mbedtls或sqlite。当前master的kairo迁移未引入，保留用户要求的Executor约定。
+公开适配只在integration层；不把平台或UI类型下沉Mira。该基线新增LICENSE，锁记录从
+UNLICENSED更新为AGPL-3.0及license_file；分发审计应沿当前LICENSE核对源代码交付义务，
+不得沿用历史“无许可证变化”的结论。本轮未创建发行包或release。
+
+EUI `4691fc0`→dev `123f0c5`→`df8ab1ce73c2cf50a1cdac9b2ccbfa3a380db777`：
+上游dev更新加Linux XIM caret定位，其他平台fallback保留。许可Apache-2.0不变，内嵌
+GLFW仍zlib。本次明确授权修改GLFW平台适配，新增公开入口/能力宏；不在产品层读取XIC。
+[上游PR#88](https://github.com/sudoevolve/EUI-NEO/pull/88)已提交未合并。为干净checkout可获取
+锁定提交，.gitmodules/lock改指维护者fork并另记原上游URL；branch记录仍为dev基线，
+完整SHA为唯一版本事实。Mirage GLFW hash门禁同步，配置不注入补丁。
+
+Linux Debug五项、Release/ASAN/UBSAN各四项、TSAN关闭ASLR后的协议/集成通过；Mira六项
+Debug与架构检查通过；EUI bundled Debug与真实私有IBus候选移动/中文提交通过。
+Windows、Wayland/物理高DPI/其他IM及上游Mira当前依赖CI未覆盖，负责人维护者在目标环境
+补跑。完整[验收证据](../compatibility/native-conversation-progress-20261005.md)。

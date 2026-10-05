@@ -9,9 +9,9 @@
       "source": "https://github.com/Linductor-alkaid/mira.git",
       "path": "third_party/mira",
       "version": "0.1.0",
-      "commit": "13485151bf531bff065eadf37be502061de2ab3e",
-      "notes": "cf0af75..1348515（38 commits，无新 tag）：上游 M23 记忆晋升（Stage W4）、M24 上下文策展 fork/merge（Stage W5）、M25 host 集成轮、M26 DEC-037 Stage T1 时间策略、DEC-040 TR1/TR2 工具引用与 skill 发布/运行时接线、DEC-043 架构基线门禁、tool_module_mcp。include/ 纯增量（+1701/-4，新头 temporal_policy / tool_module_mcp / tool_reference / tool_skill / context_working_context_fork / context_working_context_promotion）；Mirage 接触面头文件零 diff；嵌套 executor（2ae4fc8）与 mbedtls（068ff08）gitlink 不变",
-      "license": "UNLICENSED (上游仓库未随附 LICENSE 文件；升级审计时先向上游确认)",
+      "commit": "0a099ba3b2d9911b5b9f1e17d38c8a27c4f61fb2",
+      "notes": "M6-18 / DEC-041: PR#76 ConversationLoop/canonical tools, SNI and workflow fixes plus streaming PR#79 https://github.com/Linductor-alkaid/mira/pull/79. Pre-kairo base retains nested Executor 2ae4fc8; license now AGPL-3.0.",
+      "license": "AGPL-3.0",
       "consumption": "add_subdirectory；Mirage::core 经由别名 Mira::core 链接",
       "nested_pins": [
         {
@@ -46,7 +46,8 @@
           "license": "Public Domain",
           "archive_sha256": "1e71ddf93849c6a6ecf58b827c0692073d2dd7ee40196158068f7b29f422e87d"
         }
-      ]
+      ],
+      "license_file": "third_party/mira/LICENSE"
     },
     {
       "name": "mirador",
@@ -72,15 +73,16 @@
     },
     {
       "name": "eui-neo",
-      "source": "https://github.com/sudoevolve/EUI-NEO.git",
+      "source": "https://github.com/Linductor-alkaid/EUI-NEO.git",
       "path": "third_party/eui-neo",
       "version": "0.6.0-dev",
       "branch": "dev",
-      "commit": "4691fc0a5c1fde6f3e22f1ac454ed87c7a17f722",
+      "commit": "df8ab1ce73c2cf50a1cdac9b2ccbfa3a380db777",
       "license": "Apache-2.0",
       "license_file": "third_party/eui-neo/LICENSE",
       "consumption": "UI-only; opt-in apps/native; bundled GLFW/OpenGL; DEC-033",
-      "notes": "M6-01: user-authorized native UI dependency. No EUI async/network/audio calls in Mirage; Executor discipline unchanged."
+      "notes": "Dev 123f0c5 plus Linux XIM caret repair, upstream PR#88 https://github.com/sudoevolve/EUI-NEO/pull/88; DEC-041. Full commit is reachable from authorized maintainer fork.",
+      "upstream": "https://github.com/sudoevolve/EUI-NEO.git"
     }
   ],
   "artifacts": [],

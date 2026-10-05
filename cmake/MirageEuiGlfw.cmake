@@ -1,6 +1,7 @@
 # EUI-20261003-001: dev's IME gate records CRLF hashes, but git stores LF.
 # Use EUI's documented externally supplied GLFW target, compiled directly
-# from its already-fixed bundled source. No source patches/copies or workers.
+# from its pinned bundled source, including authorized XIM repair PR#88
+# (DEC-041 / EUI-20261005-008). No configure-time patches or workers.
 function(mirage_provide_eui_glfw)
     set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -14,7 +15,7 @@ function(mirage_provide_eui_glfw)
         file(READ "${source}" content)
         string(REPLACE "\r\n" "\n" content "${content}")
         string(SHA256 hash "${content}")
-        if(NOT hash STREQUAL "8ce625aa965d6da401ce3f4992fdb53ac4ecd34bc00b22bbaeffab41f72b0dae")
+        if(NOT hash STREQUAL "a4b7e67319996fc50b3bc0ae6943e6141a0b6b400e3c4f3f7279979dafd02258")
             message(FATAL_ERROR "EUI-20261003-001: reviewed GLFW IME source changed; re-audit before upgrading")
         endif()
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${source}")
