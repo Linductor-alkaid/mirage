@@ -67,7 +67,7 @@ Qwen/Qwen3.5-4B真实回复成功；重启不注入 Key 环境变量后，新 Ag
   Windows MSVC native preset、已登录桌面凭据读写与重启调用，不标记目标平台完成。
 - 系统钥匙环必须可用且解锁；此阶段不自动弹出钥匙环 unlock/create prompt。
 - EUI 密码输入 Adapter 暂不支持撤销/重做；遮蔽时复制只复制掩码，不读取已存密钥。
-- DEC-028 已有恢复限制：hydrated 历史是产品记录，未恢复 pinned Mira 活动身份，可查看/
+- DEC-011 已有产品状态恢复限制：hydrated 历史是产品记录，未恢复 pinned Mira 活动身份，可查看/
   删除，但重启后的旧 Agent 会话不能继续运行。此轮 Key 重启验证使用新会话，不掩盖该限制。
 - 主会话历史删除保留设备默认身份和任务审计；不声称擦除所有日志/任务证据。
 - Linux 中文 IME、原生 Wayland、Windows窗口、托盘整体退出与完整安装生命周期仍由原

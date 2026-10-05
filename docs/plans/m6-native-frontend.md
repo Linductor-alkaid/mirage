@@ -27,6 +27,7 @@
 | M6-07 | Completed | Linux首步ZCode服务商配置与附件/权限/占比/模型/思考工具栏；真实UTF-8附件、受限工具权限、模型目录、每轮reasoning与回归；供应商推理互通和Windows另验 |
 | M6-08 | Completed | Linux首步删除TS/CEF/Web devbridge，保留原生IPC golden/依赖门禁；更新CI/CLI/打包，DEB提取启动通过；Windows安装及整体生命周期另验 |
 | M6-09 | Completed | Linux直接API Key/系统凭据、空草稿延迟会话创建与历史删除；依据DEC-038，覆盖持久化/失败/活动拒绝与真实界面 |
+| M6-10 | Completed | 依工程规范9.4整理Mira/Mirador独立反馈台账，复核已登记问题并向Mira上游提交可复现反馈；不修改依赖或升级pin |
 
 ## 测试矩阵与退出条件
 
@@ -38,9 +39,15 @@
 - [x] M6-07 Linux 模型配置/有界文本附件/每轮权限与推理、正常/最小明暗界面及修正复核。
 - [x] M6-08 原生无 Node/CEF 构建、依赖锁门禁与 Linux DEB 提取启动。
 - [x] M6-09 Linux直接API Key、系统凭据、草稿首发与历史删除持久化/失败门禁。
+- [x] M6-10 依赖独立台账、Mira四项复核/上游回执与可复跑证据。
 - [ ] M6-04 整体生命周期与安装包验收。
 
 ## 风险与实施记录
+
+2026-10-05 / M6-10：维护者要求建立两个依赖的反馈台账并先反馈Mira。以既有
+DEC-034与工程规范9.4为依据，保留旧反馈编号/链接，核对pinned与上游master、去重已有
+issue，补充复现与验收条件后提交。Mirador无已确认缺口时明确为空，不为填表虚构问题；
+完成条件为台账、上游回执、复核证据与范围化Git提交同步。
 
 2026-10-03：维护者明确授权 UI 专用 EUI 依赖与 dev 分支。锁定
 `4691fc0a5c1fde6f3e22f1ac454ed87c7a17f722`；包含上游 XIM-filtered X11 keys 修复。
@@ -199,5 +206,11 @@ SecretRef/ISecretResolver、session close 与现有产品状态存储；系统�
 [验收记录](../compatibility/native-credentials-sessions-20261005.md)：Debug 49/49，Release /
 ASAN / UBSAN / TSAN（setarch -R）相关4项各通过，340 ChatModel + 126 integration checks，
 系统钥匙环10 checks；本机真实模型及无环境Key的服务重启调用、删除后重启无复活取证。
-Windows凭据路径、恢复历史的Agent续跑（DEC-028已有产品状态限制）、托盘整体退出另验，
+Windows凭据路径、恢复历史的Agent续跑（DEC-011已有产品状态限制）、托盘整体退出另验，
 M6整体仍 In Progress；未升级 pinned 依赖，未发布/合并。
+
+2026-10-05 / M6-10完成：综合台账改为稳定编号入口，分离Mira与Mirador台账；四项Mira
+反馈已复核并提交上游#72/#73/#74/#75，回读确认完整正文，状态保持Open。Mirador当前无
+已确认缺口，明确空表与登记规则。离线公共API/TLS ClientHello探针退出0复现三项现象，
+MinGW POSIX最小表达式预期退出1并复现诊断；mira_host_test 1/1通过（不同内容绕行，
+不冒充缺陷修复）。纠正M6-09恢复限制的决策引用为DEC-011；无生产行为、第三方源码或pin变更。
