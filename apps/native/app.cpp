@@ -1589,12 +1589,21 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         .position(x + 170, toolbar_y + 6)
         .size(20, 20)
         .build();
-    const float model_width = std::max(96.0f, column - 342);
+    const std::string model_label = s.live_model.enabled ? s.live_model.model_selector : "选择模型";
+    core::TextStyle model_text;
+    model_text.fontSize = ui_font_size(13);
+    model_text.text = model_label;
+    // Match ButtonBuilder's icon, gap and horizontal insets when fitting the label.
+    const components::theme::ThemeMetricTokens button_metrics;
+    const float model_insets = 9 * 1.15f + std::max(button_metrics.spacing.small, 32 * 0.12f) +
+                               button_metrics.spacing.section * 2;
+    const float model_width =
+        std::clamp(core::TextPrimitive::measureTextSize(model_text).x + model_insets, 96.0f,
+                   std::min(180.0f, std::max(96.0f, column - 342)));
     components::button(ui, "composer.model")
         .position(x + 202, toolbar_y)
         .size(model_width, 32)
-        .text(s.live_model.enabled ? fitted_title(s.live_model.model_selector, model_width - 28, 13)
-                                   : "选择模型")
+        .text(fitted_title(model_label, model_width - model_insets, 13))
         .icon(0xf078)
         .iconSize(9)
         .fontSize(ui_font_size(13))

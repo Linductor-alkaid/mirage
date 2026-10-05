@@ -214,6 +214,35 @@ const auto model = "Mirage";
     page.dark = false;
     frame();
     capture("mixed-normal-light");
+    // Compact model labels must remain readable and leave the adjacent actions clear.
+    page.live_model.enabled = true;
+    for (const auto &model : {std::string("GLM-4.6"),
+                              std::string("synthetic/provider/very-long-model-name-20261005")}) {
+        page.live_model.model_selector = model;
+        const auto name = model == "GLM-4.6" ? "short" : "long";
+        for (const int viewport : {1180, 860}) {
+            width = viewport;
+            height = viewport == 1180 ? 800 : 620;
+            glfwSetWindowSize(window, width, height);
+            for (const bool dark : {false, true}) {
+                page.dark = dark;
+                frame();
+                const auto button = element("composer.model")->frame;
+                MIRAGE_CHECK(button.x + button.width < element("composer.reasoning")->frame.x);
+                capture(std::string("model-") + name + "-" + std::to_string(viewport) +
+                        (dark ? "-dark" : "-light"));
+            }
+        }
+    }
+    element("composer.model.bg")->onClick();
+    frame();
+    MIRAGE_CHECK(page.popup == PageState::Popup::Model && view->find("composer.popup.settings"));
+    page.popup = PageState::Popup::None;
+    page.live_model.enabled = false;
+    page.dark = false;
+    width = 1180;
+    height = 800;
+    glfwSetWindowSize(window, width, height);
     page.chat.set_draft("");
     // A scrolled content transform must not shift selection into an earlier line.
     auto &long_user = page.chat.current().messages.front();

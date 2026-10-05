@@ -29,6 +29,7 @@
 | M6-09 | Completed | Linux直接API Key/系统凭据、空草稿延迟会话创建与历史删除；依据DEC-038，覆盖持久化/失败/活动拒绝与真实界面 |
 | M6-11 | Completed | Linux会话视觉减重、悬停复制、选中文字引用与最后一轮编辑重发；依据DEC-039，验证服务端上下文替换、失败保留与真实交互 |
 | M6-12 | Completed | 随应用交付固定中文字体，统一Markdown行内基线；依据DEC-040，验证混排、输入、最小明暗窗口与打包资源 |
+| M6-13 | Completed | Linux输入工具栏模型按钮按文字收紧并限制180px；沿用DEC-035/037，验收短/长名称、最小/正常明暗窗口与选择入口 |
 | M6-10 | Completed | 依工程规范9.4整理Mira/Mirador独立反馈台账，复核已登记问题并向Mira上游提交可复现反馈；不修改依赖或升级pin |
 
 ## 测试矩阵与退出条件
@@ -44,6 +45,7 @@
 - [x] M6-10 依赖独立台账、Mira四项复核/上游回执与可复跑证据。
 - [x] M6-11 Linux悬停动作、选段引用、最后轮次编辑与真实Mira上下文替换/失败保留；原生框架交互截图与sanitizer通过。
 - [x] M6-12 Linux固定中文字体/Markdown行内基线；正常/最小明暗混排、输入/选段、Release/ASAN与DEB资源验收。
+- [x] M6-13 Linux模型按钮按名称收紧；短/长名称、正常/最小明暗、入口交互与Release/ASAN验收。
 - [ ] M6-04 整体生命周期与安装包验收。
 
 ## 风险与实施记录
@@ -233,3 +235,8 @@ Markdown与输入12帧，Linux DEB字体/OFL摘要一致。格式、49公共头�
 通过；无依赖修改、并发变化或模型调用。内联降级设计复核disposition=ship，仅字体范围；
 Windows/IME/高DPI仍由维护者在目标平台补跑，M6-04不变。完整证据：
 [native-typography-20261005](../compatibility/native-typography-20261005.md)。
+
+2026-10-05 / M6-13：模型按钮改为实际字宽加EUI公开控件内边距，宽96–180px，长名称省略；
+思考/发送右对齐与实际模型ID保留。Debug原生渲染70 checks / 0 failures，Release/ASAN相关
+回归2/2通过，8种窗口/主题/标签组合完成单轮视觉检查。证据见
+[模型按钮验收](../compatibility/native-model-button-20261005.md)；Windows仍待目标平台补跑。
