@@ -24,7 +24,7 @@ Linux x86_64 / GCC、Ninja，当前pinned源码；以下是本轮实际执行结
 | 验证 | 实际结果 |
 | --- | --- |
 | Debug针对 | 5/5通过：chat model、native conversation view、native agent integration、IPC protocol、event subscription |
-| Release针对 | 同上前四项4/4通过；原生应用构建通过 |
+| Release针对 | 同上前四项4/4通过；原生UI、Service、Tray、CLI构建通过 |
 | ASAN / UBSAN | 各四项4/4通过；ASAN detect_leaks=0，不声明LSAN或全C图形栈覆盖 |
 | TSAN | 普通启动映射错误；setarch -R后集成156 checks、协议459 checks通过，无race诊断 |
 | Mira standalone Debug | SSE/conversation/gateway/canonical/dialect/tool_loop六项6/6；架构检查通过 |
@@ -33,6 +33,7 @@ Linux x86_64 / GCC、Ninja，当前pinned源码；以下是本轮实际执行结
 | 原生渲染 | 一次批量正常/最小、明暗、长名称、等待/真实预览夹具，布局无重叠 |
 
 ```sh
+cmake --build build/native-release --target mirage-native mirage-service mirage-tray mirage -j2
 cmake --build build/native-debug --target native_chat_model_test native_conversation_view_test native_agent_integration_test ipc_protocol_test mirage-native -j2
 ctest --test-dir build/native-debug -R '^(native_chat_model_test|native_conversation_view_test|native_agent_integration_test|ipc_protocol_test|event_subscription_test)$' --output-on-failure
 # native-release / asan / ubsan对应构建；各运行前四项。ASAN关闭系统图形库leak检测。
@@ -96,3 +97,7 @@ python3 third_party/eui-neo/tests/platform/run_linux_ime_cursor_probe.py /tmp/eu
 Windows、原生Wayland、物理高DPI/其他IM由维护者在对应环境补跑；本轮不作跨平台保证。
 上游当前kairo配置的Mira CI另验，本轮保持Executor约定。M6-04统一入口/托盘退出确认
 尚未完成，M6里程碑仍In Progress。无新增桌面/RPA工具或workflow执行能力。
+
+Git交付：当前codex/native-agent-workbench保留范围化依赖锁与会话实现提交；
+依赖修复已普通push并分别建PR，Mirage当前为本地提交，不合并master、不创建release。
+原有未提交截图/交互结果仍留工作树，未纳入本轮。
