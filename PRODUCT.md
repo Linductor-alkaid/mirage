@@ -37,7 +37,7 @@ Mirage 是基于 Mira 构建的桌面端产品，为 Mira 通用 Agent 提供完
 - 新原生前端：C++20 + pinned EUI-NEO dev（GLFW/OpenGL），无 Chromium；依赖只在 UI 层使用，不使用 EUI async/network/audio 承载业务并发。
 - 当前原生界面：新建/切换服务会话、独立草稿、随文字增高的16px多行输入、中文粘贴、通用 Agent harness、真实发送/回复/停止状态、Markdown回复、整条复制、文字引用与可检查来源/逐条删除的引用弹层、真实上下文容量、滚动、明暗、侧栏调宽与收起、窗口控制。UI 最多显示 24 个会话、每会话最近 40 轮（80 条消息），草稿最多 16 KiB；草稿、主题与侧栏宽度只保留在当前 UI 进程。会话历史由服务持有，服务重启恢复的旧会话只恢复历史，新轮次使用本次服务的活动会话。
 - 原生引用最多4条、原文合计8KiB；草稿与编码后引用共同受16KiB提交上限，拒绝保留草稿。ACK按引用实例清除本次提交项，保护新草稿/新引用与重新引用。上下文圆环与详情展示最近成功请求的模型输入Token / 显式配置窗口预算，只接受Mira的Exact / ProviderReported用量；工具循环取最终回复调用输入，不累计调用或计入输出，不从草稿/bytes估算。默认窗口未知，缺用量或分母显示未知；已知零显示0%，超额保留原始数字/百分比、图形钳制100%。失败/取消保留此前成功值，新成功缺用量重置未知，旧序列不覆盖新值；服务重启旧历史的用量未知（M6-06、DEC-036）。精细框选与链接打开尚不支持；EUI连续CJK间距临时经公共DSL Adapter修正，上游保守换行保留（DEC-035、EUI-20261004-004）。
-- 设置 → 模型提供服务 origin、API 路径、模型 ID、凭据环境变量名称、可选上下文窗口预算（Token）与 Responses / Chat Completions 协议。窗口预算留空为未知，非零整数范围2048–2000000；保存后的配置同时映射Mira ProfileLimits，未配置保留既有Mira默认运行预算，UI不宣称自动发现供应商窗口。保存经 model.set 合并写入服务配置并应用；活动轮次时忙拒绝，失败保留已应用模型。API Key 从 Runtime Service 的环境读取，配置不保存密钥；composer 显示服务确认的模型，未保存表单不会冒充已应用配置。
+- 设置 → 模型提供服务 origin、API 路径、模型 ID、直接 API Key 输入、可选上下文窗口预算（Token）与 Responses / Chat Completions 协议。窗口预算留空为未知，非零整数范围2048–2000000；保存后的配置同时映射Mira ProfileLimits，未配置保留既有Mira默认运行预算，UI不宣称自动发现供应商窗口。保存经 model.set 合并写入服务配置并应用；活动轮次时忙拒绝，失败保留已应用模型。API Key 默认遮蔽，保存在系统钥匙环，普通配置仅保存引用；已存 Key 不回传，留空保留、显式移除后保存清除。旧环境变量配置保留兼容读取；composer 显示服务确认的模型，未保存表单不会冒充已应用配置。
 - Agent 模式入口经 session.chat(agent=true) 使用 MiraRuntime、ModelGateway 和 Mira 自带 wait 工具；当前不提供截图、桌面工具、RPA 或 workflow。通用循环暂位于 ModelLayer Adapter，能力反馈为 MIRA-20261004-001；未直接调用设备 AgentLoop。
 - RuntimeBridge 经 Executor 管理有界 IPC 请求与事件投递，服务断开可在模型页重新连接；退出 UI 停止自身 IPC 与 Executor，不关闭外部已有 Runtime Service。流式回复、统一入口/托盘与活动退出确认仍待后续交付。
 - 2026-10-05 按维护者要求删除旧 TS/CEF、npm 工具链与 Web 调试桥；原生前端继续消费版本化 Local IPC，C++ golden 和服务测试保留。后台工作由 Mira Executor 管理。
@@ -76,3 +76,8 @@ Mirage 是基于 Mira 构建的桌面端产品，为 Mira 通用 Agent 提供完
 - 无产品特定的无障碍强制标准记录；现行调色与字号以 `apps/native/DESIGN.md` 和对应 Linux 截图为证据。
 
 2026-10-05（DEC-037）：模型设置采用服务商导航/右侧配置分栏，至多 12 个命名配置，切换需服务确认；凭据仍为服务端环境变量。附件为用户选择的 UTF-8 普通文本，至多 4 个、合计 8 KiB；只读隐藏工具，默认仅 wait，未开放桌面/RPA。思考档位在供应商明确启用 reasoning_effort 后传入每轮请求；默认不传。
+
+2026-10-05（DEC-038）：新建为本地草稿，首次发送后才进入历史；重复新建复用未开始的空白草稿。
+历史行提供垃圾桶与删除确认，活动会话须先停止；服务确认并持久化成功后移除，重启不恢复。
+模型页直接填写 API Key，存 Linux Secret Service / Windows Credential Manager，普通配置仅存引用；
+系统凭据不可用/锁定时明确失败。Linux 首步已验证，Windows 由目标环境另验。

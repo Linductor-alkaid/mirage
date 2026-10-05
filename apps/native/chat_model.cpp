@@ -32,7 +32,7 @@ ChatModel::ChatModel() { create_session(); }
 
 bool ChatModel::create_session() {
     if (sessions_.size() >= max_sessions) {
-        notice_ = "最多保留 24 个预览会话。请在已有会话中继续。";
+        notice_ = "最多保留 24 个会话。请删除旧会话后重试。";
         return false;
     }
     sessions_.push_back(
@@ -40,6 +40,53 @@ bool ChatModel::create_session() {
     selected_ = sessions_.size() - 1;
     notice_.clear();
     return true;
+}
+
+bool ChatModel::new_draft() {
+    for (const auto &session : sessions_)
+        if (session.messages.empty() && session.remote_id.empty() && !session.submitting &&
+            !session.deleting)
+            return select_session(session.id);
+    return create_session();
+}
+std::size_t ChatModel::history_count() const {
+    return static_cast<std::size_t>(
+        std::count_if(sessions_.begin(), sessions_.end(),
+                      [](const auto &session) { return !session.messages.empty(); }));
+}
+bool ChatModel::delete_session(std::uint64_t id) {
+    auto found = std::find_if(sessions_.begin(), sessions_.end(),
+                              [id](const auto &session) { return session.id == id; });
+    if (found == sessions_.end() || found->running || found->submitting)
+        return false;
+    const auto selected_id = current().id;
+    sessions_.erase(found);
+    if (sessions_.empty()) {
+        selected_ = 0;
+        return create_session();
+    }
+    const auto selected =
+        std::find_if(sessions_.begin(), sessions_.end(),
+                     [selected_id](const auto &session) { return session.id == selected_id; });
+    if (selected != sessions_.end())
+        selected_ = static_cast<std::size_t>(selected - sessions_.begin());
+    else {
+        selected_ = 0;
+        new_draft();
+    }
+    notice_.clear();
+    return true;
+}
+
+void ChatModel::reconcile_remote_sessions(const std::vector<std::string> &remote_ids) {
+    std::vector<std::uint64_t> stale;
+    for (const auto &session : sessions_)
+        if (!session.remote_id.empty() && !session.messages.empty() && !session.running &&
+            !session.submitting && !session.deleting &&
+            std::find(remote_ids.begin(), remote_ids.end(), session.remote_id) == remote_ids.end())
+            stale.push_back(session.id);
+    for (const auto id : stale)
+        delete_session(id);
 }
 
 bool ChatModel::select_session(std::uint64_t id) {

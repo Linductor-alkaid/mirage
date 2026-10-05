@@ -44,6 +44,10 @@ struct LocalSession {
     std::string reasoning = "";
     bool attachment_loading = false;
     std::uint64_t attachment_generation = 0;
+    std::string pending_prompt = {};
+    std::string pending_access = {};
+    std::string pending_reasoning = {};
+    bool deleting = false;
 };
 
 // UI-thread-only, bounded preview state. IDs are never reused, and switching
@@ -56,6 +60,10 @@ class ChatModel {
 
     ChatModel();
     bool create_session();
+    bool new_draft();
+    bool delete_session(std::uint64_t id);
+    void reconcile_remote_sessions(const std::vector<std::string> &remote_ids);
+    std::size_t history_count() const;
     bool select_session(std::uint64_t id);
     void clear_current();
     bool clear_session(std::uint64_t id);

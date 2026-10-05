@@ -1,10 +1,12 @@
 #include "../support/ipc_io.hpp"
 #include "runtime_bridge.hpp"
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <executor/executor.hpp>
 #include <fstream>
+#include <map>
 #include <mira/json.hpp>
 #include <mira/model_digest.hpp>
 #include <mira/model_provider.hpp>
@@ -12,9 +14,11 @@
 #include <mirage/integration/model_layer.hpp>
 #include <mirage/runtime/ipc/client.hpp>
 #include <mirage/runtime/ipc/endpoint.hpp>
+#include <mirage/runtime/persistence/session_state.hpp>
 #include <mirage/runtime/persistence/settings.hpp>
 #include <mirage/runtime/persistence/store.hpp>
 #include <mirage/runtime/runtime_service.hpp>
+#include <mutex>
 #include <poll.h>
 
 namespace ipc = mirage::runtime::ipc;
@@ -186,7 +190,29 @@ int main(int argc, char **argv) {
     config.model.request_deadline = 300ms;
     config.model.max_output_tokens = 512;
     config.persist_recovery_state = false;
-    config.persist_session_state = false;
+    config.persist_session_state = true;
+    config.session_state_directory = dir.root() / "session-state";
+    std::mutex key_mutex;
+    std::map<std::string, std::string> keys;
+    std::atomic_bool key_write_failure{false}, key_remove_failure{false};
+    config.credential_write = [&](const std::string &reference, const std::string &value) {
+        std::lock_guard lock(key_mutex);
+        if ((key_write_failure.load() && !value.empty()) ||
+            (key_remove_failure.load() && value.empty()))
+            return mirage::runtime::CredentialWriteResult{false, "fixture keyring unavailable"};
+        if (value.empty())
+            keys.erase(reference);
+        else
+            keys[reference] = value;
+        return mirage::runtime::CredentialWriteResult{true, {}};
+    };
+    config.model.credential_lookup =
+        [&](const std::string &reference) -> std::optional<std::string> {
+        std::lock_guard lock(key_mutex);
+        const auto found = keys.find(reference);
+        return found == keys.end() ? std::optional<std::string>{}
+                                   : std::optional<std::string>{found->second};
+    };
 
     persistence::LocalSettings initial;
     initial.read_roots = {"/example/read-only"};
@@ -213,6 +239,9 @@ int main(int argc, char **argv) {
     mirage::runtime::RuntimeService service(config);
     MIRAGE_CHECK(service.start(binding).ok);
     ipc::IpcClient client(config.socket_path);
+    const auto first_sessions = client.call(ipc::ListSessionsRequest{}, 2s);
+    const auto primary_session =
+        std::get<ipc::SessionList>(first_sessions.payload).sessions.front().id;
     persistence::LocalSettings settings;
     settings.model = persistence::ModelSettings{
         true,  "openai.responses.v1", "Agent fixture",  "https://fixture.example",
@@ -234,6 +263,7 @@ int main(int argc, char **argv) {
     auto set = client.call(ipc::SetModelRequest{serialized}, 2s);
     MIRAGE_CHECK(set.ok && std::holds_alternative<ipc::ModelConfiguration>(set.payload));
     initial.model = settings.model;
+    initial.model->api_key_configured = true;
     const auto expected_saved = persistence::encode_settings(initial);
     const auto loaded =
         persistence::LocalStateStore(config.settings_directory, "service.json", 65536).load();
@@ -305,6 +335,8 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "等待停止", true}, 2s).ok);
     const auto busy = client.call(ipc::SetModelRequest{serialized}, 2s);
     MIRAGE_CHECK(!busy.ok && busy.error.code == "invalid_state");
+    const auto active_delete = client.call(ipc::DeleteSessionRequest{session}, 2s);
+    MIRAGE_CHECK(!active_delete.ok && active_delete.error.code == "invalid_state");
     MIRAGE_CHECK(client.call(ipc::CancelChatRequest{session}, 2s).ok);
     turn = wait_turn(client, session);
     MIRAGE_CHECK(turn && turn->status == "failed");
@@ -459,6 +491,108 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(!bridge.load_attachment(attachment_path, 7));
     turn = wait_turn(client, session);
     MIRAGE_CHECK(turn && turn->status == "ok");
+    // Write-only keys: keys live in the injected OS store, never settings/get.
+    const auto key_packet = ipc::SetModelRequest{serialized, "mirage-synthetic-api-key"};
+    const auto key_roundtrip = ipc::decode_request(ipc::encode_request(18, key_packet));
+    MIRAGE_CHECK(key_roundtrip.ok &&
+                 std::get<ipc::SetModelRequest>(key_roundtrip.body).api_key == key_packet.api_key);
+    MIRAGE_CHECK(!ipc::decode_request(
+                      R"({"v":1,"id":1,"op":"model.set","settings":"{}","api_key":"bad key"})")
+                      .ok);
+    key_write_failure.store(true);
+    MIRAGE_CHECK(!client.call(key_packet, 2s).ok);
+    key_write_failure.store(false);
+    auto key_response = client.call(key_packet, 2s);
+    MIRAGE_CHECK(key_response.ok);
+    auto key_document = std::get<ipc::ModelConfiguration>(key_response.payload).settings_json;
+    auto keyed = persistence::decode_settings(key_document);
+    MIRAGE_CHECK(keyed.ok && keyed.settings.model->credential_env.empty() &&
+                 keyed.settings.model->credential_ref.size() == 32 &&
+                 keyed.settings.model->api_key_configured);
+    MIRAGE_CHECK(key_document.find("mirage-synthetic-api-key") == std::string::npos);
+    persistence::LocalStateStore key_disk(config.settings_directory, "service.json", 65536);
+    MIRAGE_CHECK(key_disk.load().body.find("mirage-synthetic-api-key") == std::string::npos);
+    {
+        std::lock_guard lock(key_mutex);
+        MIRAGE_CHECK(keys.size() == 1 && keys.begin()->second == "mirage-synthetic-api-key");
+    }
+    const auto settings_barrier =
+        config.settings_directory /
+        ("service.json.tmp." + std::to_string(static_cast<long>(::getpid())));
+    std::ofstream(settings_barrier) << "occupied";
+    MIRAGE_CHECK(!client.call(ipc::SetModelRequest{key_document, "another-synthetic-key"}, 2s).ok);
+    {
+        std::lock_guard lock(key_mutex);
+        MIRAGE_CHECK(keys.size() == 1 && keys.begin()->second == "mirage-synthetic-api-key");
+    }
+    std::filesystem::remove(settings_barrier);
+    // Clearing requires an explicit empty write; absent keeps the reference.
+    MIRAGE_CHECK(client.call(ipc::SetModelRequest{key_document}, 2s).ok);
+    auto cleared = client.call(ipc::SetModelRequest{key_document, ""}, 2s);
+    MIRAGE_CHECK(cleared.ok);
+    {
+        std::lock_guard lock(key_mutex);
+        MIRAGE_CHECK(keys.empty());
+    }
+    MIRAGE_CHECK(!persistence::decode_settings(
+                      std::get<ipc::ModelConfiguration>(cleared.payload).settings_json)
+                      .settings.model->api_key_configured);
+    // Cleanup failure is visible even though the new redacted configuration
+    // has already been committed; the failed orphan is not silently claimed removed.
+    auto cleanup_key = client.call(key_packet, 2s);
+    MIRAGE_CHECK(cleanup_key.ok);
+    const auto cleanup_document =
+        std::get<ipc::ModelConfiguration>(cleanup_key.payload).settings_json;
+    key_remove_failure.store(true);
+    const auto cleanup_warning = client.call(ipc::SetModelRequest{cleanup_document, ""}, 2s);
+    MIRAGE_CHECK(cleanup_warning.ok);
+    const auto &cleanup_config = std::get<ipc::ModelConfiguration>(cleanup_warning.payload);
+    MIRAGE_CHECK(!cleanup_config.warning.empty());
+    MIRAGE_CHECK(!persistence::decode_settings(cleanup_config.settings_json)
+                      .settings.model->api_key_configured);
+    key_remove_failure.store(false);
+    {
+        std::lock_guard lock(key_mutex);
+        MIRAGE_CHECK(keys.size() == 1);
+        keys.clear(); // remove only the synthetic fixture's reported orphan
+    }
+    MIRAGE_CHECK(client.call(ipc::SetModelRequest{serialized}, 2s).ok);
+
+    // Delete is durable, active-safe and can clear the legacy primary chat.
+    auto disposable_open = client.call(ipc::OpenSessionRequest{}, 2s);
+    const auto disposable = std::get<ipc::SessionOpened>(disposable_open.payload).session_id;
+    MIRAGE_CHECK(client.call(ipc::SessionChatRequest{disposable, "可删除的历史", true}, 2s).ok);
+    MIRAGE_CHECK(wait_turn(client, disposable).has_value());
+    const auto state_backup = dir.root() / "state-backup";
+    std::filesystem::rename(config.session_state_directory, state_backup);
+    std::ofstream(config.session_state_directory) << "directory blocked";
+    MIRAGE_CHECK(!client.call(ipc::DeleteSessionRequest{disposable}, 2s).ok);
+    MIRAGE_CHECK(client.call(ipc::ChatHistoryRequest{disposable, 40}, 2s).ok);
+    std::filesystem::remove(config.session_state_directory);
+    std::filesystem::remove(
+        state_backup / ("session-state.json.tmp." + std::to_string(static_cast<long>(::getpid()))));
+    std::filesystem::rename(state_backup, config.session_state_directory);
+    const auto removed = client.call(ipc::DeleteSessionRequest{disposable}, 2s);
+    MIRAGE_CHECK(removed.ok && std::holds_alternative<ipc::SessionDeleted>(removed.payload));
+    MIRAGE_CHECK(ipc::decode_response(ipc::encode_response(removed)).ok);
+    MIRAGE_CHECK(!client.call(ipc::ChatHistoryRequest{disposable, 40}, 2s).ok);
+    MIRAGE_CHECK(!client.call(ipc::DeleteSessionRequest{disposable}, 2s).ok);
+    MIRAGE_CHECK(
+        client.call(ipc::SessionChatRequest{primary_session, "主会话旧历史", true}, 2s).ok);
+    MIRAGE_CHECK(wait_turn(client, primary_session).has_value());
+    MIRAGE_CHECK(client.call(ipc::DeleteSessionRequest{primary_session}, 2s).ok);
+    const auto primary_history = client.call(ipc::ChatHistoryRequest{primary_session, 40}, 2s);
+    MIRAGE_CHECK(primary_history.ok &&
+                 std::get<ipc::DialogHistory>(primary_history.payload).turns.empty());
+    const auto persisted_sessions = persistence::decode_session_state(
+        persistence::LocalStateStore(config.session_state_directory, "session-state.json",
+                                     1024 * 1024)
+            .load()
+            .body);
+    MIRAGE_CHECK(persisted_sessions.ok &&
+                 std::none_of(persisted_sessions.state.sessions.begin(),
+                              persisted_sessions.state.sessions.end(),
+                              [&](const auto &item) { return item.id == disposable; }));
     const auto active_provider = provider;
     const auto before_corrupt = client.call(ipc::GetModelRequest{}, 2s);
     persistence::LocalStateStore disk(config.settings_directory, "service.json", 65536);
@@ -474,6 +608,19 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "关闭路径", true}, 2s).ok);
     service.request_shutdown();
     MIRAGE_CHECK(service.run().clean);
+    {
+        mirage::runtime::RuntimeService restarted(config);
+        MIRAGE_CHECK(restarted.start(binding).ok);
+        ipc::IpcClient restored_client(config.socket_path);
+        const auto restored_list = restored_client.call(ipc::ListSessionsRequest{}, 2s);
+        const auto &restored_sessions = std::get<ipc::SessionList>(restored_list.payload).sessions;
+        MIRAGE_CHECK(std::none_of(restored_sessions.begin(), restored_sessions.end(),
+                                  [&](const auto &item) { return item.id == disposable; }));
+        MIRAGE_CHECK(restored_client.call(ipc::DeleteSessionRequest{session}, 2s).ok);
+        MIRAGE_CHECK(!restored_client.call(ipc::ChatHistoryRequest{session, 40}, 2s).ok);
+        restarted.request_shutdown();
+        MIRAGE_CHECK(restarted.run().clean);
+    }
     mirage::native_ui::RuntimeBridge unavailable([] {}, (dir.root() / "absent.sock").string());
     deadline = std::chrono::steady_clock::now() + 2s;
     bool lost = false;

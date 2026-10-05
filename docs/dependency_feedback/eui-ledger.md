@@ -69,3 +69,15 @@ EUI 为维护者授权的 UI 专用依赖（DEC-033），不属于 Mira / Mirado
   Adapter依赖组件生成的segment ID模式，升级时必须重新实机验证。
 - 移除条件：上游正确保留文本空白并经上述混排回归和正常/最小窗口验证后删除Adapter。
   本条仅本地记录，没有向上游发送消息；验证见native-zcode-conversation-20261004.md。
+
+## EUI-20261005-004：InputBuilder 缺少密码输入模式
+
+- 状态：Open；负责人：Mirage 维护者；版本：dev 4691fc0a。
+- 公开 components/input.h 的 value/build 与 InputModel 无 password/echo/obscure 接口。
+  API Key 若直接使用普通 input 会明文展示，无法满足默认遮蔽和显式显示。
+- 单一临时 Adapter：apps/native/secret_input.hpp，隐藏时 EUI 状态仅持有 ASCII 遮罩，
+  根据公开 InputModel 的上一选择区/当前光标重建插入删除；Ctrl-Z/Y 不处理，
+  遮蔽时复制只能复制遮罩。显示/隐藏和新输入使用现有字体/样式，不改第三方代码。
+- 期望最小能力：文档化的 password 模式，隐藏渲染、光标/选择/粘贴/删除和撤销一致。
+- 移除条件：上游公开接口交付并通过同一编辑/显示和遮蔽测试；当前原生适配由
+  单元测试与实际键鼠验证，延后系统密码模式不会阻断直接 API Key 交互。

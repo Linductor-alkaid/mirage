@@ -578,7 +578,8 @@ v1加法扩展，旧session.chat缺省仍是单次纯文字推理，旧编码不
 | model.set | settings：上述JSON字符串，最多65536字节 | 同model.get；只允许model块，有活动轮次时invalid_state |
 | session.chat.cancel | session_id | turn_id；协作取消，终态通过原有轮次事件/历史返回 |
 
-服务校验origin、prefix、model ID、dialect、凭据环境变量名及字段预算；密钥不进入wire。
+服务校验origin、prefix、model ID、dialect、凭据引用/旧环境变量名及字段预算；
+DEC-038 直接密钥只通过本地 model.set 的 write-only api_key 参数进入，不进入响应或普通设置。
 保存保留既有配置其他块，写入失败不替换当前模型。agent轮次以MiraRuntime任务身份执行，
 全服务同时最多一个agent轮次；有活动agent时旧dialog也忙拒绝。当前wait工具的受限
 文本反馈契约及依赖缺口见DEC-034 / MIRA-20261004-001。无屏幕/RPA工具，不能据此
@@ -616,3 +617,24 @@ ProfileLimits。未配置保留原运行默认，前端仍报告分母未知，�
 read_only不提供工具，default仅当前注册wait；不映射到桌面PermissionPolicy。
 选择和文本随请求冻结，对已有运行轮次不生效。文本附件使用现有text载荷，受同一16KiB
 限制，明确来源为用户主动选择的文本，并非文件上传协议或自动文件访问。
+
+
+### DEC-038 增量：直接凭据与持久化删除
+
+| 请求 op | 参数 | 成功载荷与失败语义 |
+| --- | --- | --- |
+| model.set | settings 同前；可选 api_key string | 同 model.get，可选 warning string 表示配置已应用但旧凭据清理失败 |
+| session.delete | 非空 session_id | {session_id, deleted:true}；not_found、invalid_state（活动轮次/任务）、internal（持久化失败） |
+
+api_key 为 write-only，最多2048个ASCII字节（33–126）；缺省保留凭据，空字符串显式移除。
+settings/model_settings 的 model 与 models 项新增可选32位小写十六进制 credential_ref，
+以及布尔 api_key_configured（服务端投影，不代表凭据已通过供应商验证）。无明文 key 成员。
+旧 credential_env 继续兼容；界面改用直接 Key。密钥仅存系统 Secret Service / Credential Manager；
+新引用写入后原子保存配置，保存失败清理新引用并保留原活动模型，清理失败对调用方可见。
+成功后的旧引用清理失败通过 warning 提示，调用方必须呈现；不得把 warning 当作保存失败。
+
+session.delete 对无活动任务/对话的普通会话复用 pinned Mira close 并清除服务注册、产品对话与
+持久化快照。历史遗留主会话保留身份和任务审计，只清除产品对话。写盘失败返回错误并保留可见历史；
+成功后普通会话不再出现在 session.list，主会话仍存在但对话为空。与 session.close 的原有语义分开。
+UI 对空列表和空对话不建立历史行；新草稿首次发送才 session.open，已删除本地 ID 不接受迟到更新。
+新增 wire golden 覆盖写 Key、移除 Key、删除请求/响应和带 warning 的配置响应。

@@ -9,6 +9,16 @@ mirage_enable_warnings(native_chat_model_test)
 add_test(NAME native_chat_model_test COMMAND native_chat_model_test)
 set_tests_properties(native_chat_model_test PROPERTIES LABELS "unit;ui" TIMEOUT 30)
 
+add_executable(credential_store_test platform/credential_store_test.cpp)
+target_compile_features(credential_store_test PRIVATE cxx_std_20)
+mirage_enable_warnings(credential_store_test)
+target_link_libraries(credential_store_test PRIVATE Mirage::platform Mira::core)
+target_include_directories(credential_store_test SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include")
+target_link_libraries(credential_store_test PRIVATE $<TARGET_FILE:executor::executor>)
+add_test(NAME credential_store_test COMMAND credential_store_test)
+set_tests_properties(credential_store_test PROPERTIES LABELS "unit;platform" TIMEOUT 30)
+
 add_executable(dependency_wiring_test smoke/dependency_wiring_test.cpp)
 target_compile_features(dependency_wiring_test PUBLIC cxx_std_20)
 mirage_enable_warnings(dependency_wiring_test)

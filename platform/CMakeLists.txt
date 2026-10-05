@@ -23,6 +23,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_sources(mirage_platform PRIVATE
         linux/src/platform_linux.cpp
         linux/src/linux_desktop_environment.cpp
+        linux/src/credential_store.cpp
     )
     # The X11/XWayland frontend (M2-02) is optional so a machine without the
     # X11 dev packages still builds the platform library; the backend then
@@ -102,6 +103,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     )
     target_sources(mirage_platform PRIVATE
         windows/src/platform_windows.cpp
+        windows/src/credential_store.cpp
         windows/src/windows_desktop_environment.cpp
         # The Win32 frontend (M4-01), the UIA accessibility frontend
         # (M4-02), the application frontend (M4-04), the notification
@@ -122,7 +124,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         windows/src/overlay_backend.cpp
         windows/src/tray_backend.cpp
     )
-    target_link_libraries(mirage_platform PRIVATE user32 gdi32 ole32 oleaut32 shell32)
+    target_link_libraries(mirage_platform PRIVATE user32 gdi32 ole32 oleaut32 shell32 advapi32)
     target_link_libraries(mirage_platform PUBLIC Mirage::desktop)
 else()
     message(FATAL_ERROR

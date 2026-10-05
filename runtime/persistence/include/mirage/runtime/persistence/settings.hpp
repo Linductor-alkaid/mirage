@@ -32,6 +32,8 @@ struct ModelSettings {
     std::string credential_env;              ///< env var carrying the API key
     std::uint64_t context_window_tokens = 0; ///< 0 unknown; otherwise configured 2048..2000000
     bool supports_reasoning = false;
+    std::string credential_ref = {}; ///< DEC-038: OS credential-store reference, no plaintext
+    bool api_key_configured = false; ///< UI projection; recalculated by service
 };
 
 /// Runtime configuration settings (M5-08 Runtime Configuration 类目):

@@ -40,20 +40,32 @@ namespace {
 /// boundary only (pinned secret discipline): the plaintext never leaves the
 /// transport, never enters events or digests. An unset variable fails closed
 /// (PermissionDenied) instead of sending an unauthenticated request.
-class EnvSecretResolver final : public mira::ISecretResolver {
+class ProfileSecretResolver final : public mira::ISecretResolver {
   public:
+    explicit ProfileSecretResolver(const ModelLayerConfig &config)
+        : lookup_(config.credential_lookup) {}
     [[nodiscard]] mira::Result<std::string> resolve(const mira::SecretRef &reference) override {
         mira::Error error;
+        const bool stored = reference.name.starts_with("mirage:");
+        const auto resolved =
+            stored && lookup_ ? lookup_(reference.name.substr(7)) : std::optional<std::string>{};
         const auto value =
-            reference.name.empty() ? std::string{} : detail::read_environment_value(reference.name);
+            stored ? resolved.value_or("")
+                   : (reference.name.empty() ? std::string{}
+                                             : detail::read_environment_value(reference.name));
         if (value.empty()) {
             error.code = mira::ErrorCode::PermissionDenied;
             error.domain = "mirage.dialog";
-            error.safe_message = "credential environment variable is not set: " + reference.name;
+            error.safe_message =
+                stored ? "系统保存的 API Key 不可用，请解锁钥匙环或重新配置。"
+                       : "credential environment variable is not set: " + reference.name;
             return error;
         }
         return value;
     }
+
+  private:
+    std::function<std::optional<std::string>(const std::string &)> lookup_;
 };
 
 } // namespace
@@ -73,6 +85,12 @@ bool ModelLayerConfig::valid(std::string &error) const {
     if (context_window_tokens != 0 &&
         (context_window_tokens < 2048 || context_window_tokens > 2000000)) {
         error = "context window must be 0 (unknown) or between 2048 and 2000000 tokens";
+        return false;
+    }
+    if (!credential_ref.empty() &&
+        (credential_ref.size() != 32 ||
+         credential_ref.find_first_not_of("0123456789abcdef") != std::string::npos)) {
+        error = "invalid credential reference";
         return false;
     }
     if (credential_env.size() > 128 ||
@@ -139,6 +157,7 @@ struct ModelLayer::Impl {
         if (!override_factory && config.endpoint_origin.empty()) {
             return false; // the socket stack dials a fixed origin; none configured
         }
+        secrets = std::make_shared<ProfileSecretResolver>(config);
         profile = std::make_shared<mira::ModelProfile>(build_profile(*dialect));
         router.register_profile(profile);
         if (!override_factory) {
@@ -184,7 +203,9 @@ struct ModelLayer::Impl {
         // The credential rides a SecretRef naming an environment variable and
         // is resolved inside the transport only (pinned secret discipline);
         // an empty name means the profile carries no credential.
-        record.credential = mira::SecretRef{config.credential_env};
+        record.credential =
+            mira::SecretRef{config.credential_ref.empty() ? config.credential_env
+                                                          : "mirage:" + config.credential_ref};
         // Pure-dialog needs text only; capabilities are declared at the
         // evidence the pinned fixtures provide, never claimed beyond that.
         if (config.supports_reasoning)
@@ -228,7 +249,7 @@ struct ModelLayer::Impl {
     ModelProviderOverride::Factory override_factory;
     std::shared_ptr<mira::ModelProfile> profile;
     mira::ModelRouter router;
-    std::shared_ptr<mira::ISecretResolver> secrets = std::make_shared<EnvSecretResolver>();
+    std::shared_ptr<mira::ISecretResolver> secrets;
     std::shared_ptr<pinned_net::SocketHttpTransport> transport;
     std::shared_ptr<mira::IModelProvider> provider;
     std::unique_ptr<mira::ModelGateway> gateway;

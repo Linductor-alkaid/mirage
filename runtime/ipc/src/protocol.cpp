@@ -2,6 +2,7 @@
 
 #include <mira/json.hpp>
 
+#include <algorithm>
 #include <string>
 #include <type_traits>
 #include <variant>
@@ -22,6 +23,7 @@ constexpr const char *kOpUnsubscribe = "events.unsubscribe";
 constexpr const char *kOpPermissionRespond = "permission.respond";
 constexpr const char *kOpPermissionList = "permission.list";
 constexpr const char *kOpSessionList = "session.list";
+constexpr const char *kOpSessionDelete = "session.delete";
 constexpr const char *kOpSessionOpen = "session.open";
 constexpr const char *kOpSessionClose = "session.close";
 constexpr const char *kOpSessionChat = "session.chat";
@@ -612,6 +614,9 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 put(object, "sessions", mira::JsonValue{std::move(entries)});
             } else if constexpr (std::is_same_v<T, SessionOpened>) {
                 put(object, "session_id", value.session_id);
+            } else if constexpr (std::is_same_v<T, SessionDeleted>) {
+                put(object, "session_id", value.session_id);
+                put(object, "deleted", true);
             } else if constexpr (std::is_same_v<T, SessionClosed>) {
                 put(object, "session_id", value.session_id);
                 put(object, "state", value.state);
@@ -710,6 +715,8 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 put(object, "definition", embedded_json(value.definition_json));
             } else if constexpr (std::is_same_v<T, ModelConfiguration>) {
                 put(object, "model_settings", value.settings_json);
+                if (!value.warning.empty())
+                    put(object, "warning", value.warning);
             } else if constexpr (std::is_same_v<T, PolicyView>) {
                 mira::JsonValue rules = make_object();
                 for (const auto &[capability, rule] : value.rules) {
@@ -833,6 +840,9 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                 put(object, "op", kOpSessionList);
             } else if constexpr (std::is_same_v<T, OpenSessionRequest>) {
                 put(object, "op", kOpSessionOpen);
+            } else if constexpr (std::is_same_v<T, DeleteSessionRequest>) {
+                put(object, "op", kOpSessionDelete);
+                put(object, "session_id", value.session_id);
             } else if constexpr (std::is_same_v<T, CloseSessionRequest>) {
                 put(object, "op", kOpSessionClose);
                 put(object, "session_id", value.session_id);
@@ -851,6 +861,8 @@ std::string encode_request(std::uint64_t id, const Request &body) {
             } else if constexpr (std::is_same_v<T, SetModelRequest>) {
                 put(object, "op", "model.set");
                 put(object, "settings", value.settings_json);
+                if (value.api_key)
+                    put(object, "api_key", *value.api_key);
             } else if constexpr (std::is_same_v<T, CancelChatRequest>) {
                 put(object, "op", "session.chat.cancel");
                 put(object, "session_id", value.session_id);
@@ -1064,6 +1076,13 @@ RequestDecode decode_request(std::string_view payload) {
         result.body = ListSessionsRequest{};
     } else if (*op == kOpSessionOpen) {
         result.body = OpenSessionRequest{};
+    } else if (*op == kOpSessionDelete) {
+        const auto deleted_id = string_member(object, "session_id");
+        if (!deleted_id || deleted_id->empty()) {
+            result.error = "session.delete requires session_id";
+            return result;
+        }
+        result.body = DeleteSessionRequest{*deleted_id};
     } else if (*op == kOpSessionClose) {
         CloseSessionRequest close;
         const auto session_id = string_member(object, "session_id");
@@ -1121,7 +1140,18 @@ RequestDecode decode_request(std::string_view payload) {
             result.error = "model.set requires bounded settings";
             return result;
         }
-        result.body = SetModelRequest{*settings};
+        SetModelRequest request{*settings};
+        if (const auto *value = member(object, "api_key")) {
+            const auto *key = value->as_string();
+            if (!key || key->size() > 2048 ||
+                std::any_of(key->begin(), key->end(),
+                            [](unsigned char c) { return c < 33 || c > 126; })) {
+                result.error = "invalid API Key";
+                return result;
+            }
+            request.api_key = *key;
+        }
+        result.body = std::move(request);
     } else if (*op == "session.chat.cancel") {
         const auto session = string_member(object, "session_id");
         if (!session || session->empty()) {
@@ -1707,7 +1737,8 @@ ResponseDecode decode_response(std::string_view payload) {
             result.error = "model settings exceed budget";
             return result;
         }
-        response.payload = ModelConfiguration{*settings};
+        response.payload =
+            ModelConfiguration{*settings, string_member(object, "warning").value_or("")};
     } else if (const auto *rules = member(object, "rules"); rules != nullptr) {
         // PolicyView discriminates on "rules".
         if (!rules->is_object() || rules->as_object() == nullptr) {
@@ -1783,7 +1814,14 @@ ResponseDecode decode_response(std::string_view payload) {
             result.error = "session.open response requires a non-empty 'session_id'";
             return result;
         }
-        if (const auto *state = member(object, "state"); state != nullptr) {
+        if (const auto *deleted = member(object, "deleted")) {
+            const auto flag = deleted->as_boolean();
+            if (!flag || !*flag) {
+                result.error = "session.delete reply requires deleted=true";
+                return result;
+            }
+            response.payload = SessionDeleted{*id_text};
+        } else if (const auto *state = member(object, "state"); state != nullptr) {
             // The closed reply adds "state" to the same envelope shape
             // (mirrors the workflow.cancel / workflow.run discrimination).
             auto state_text = string_member(object, "state");

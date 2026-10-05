@@ -1,6 +1,8 @@
 #include "chat_model.hpp"
+#include "conversation_preview.hpp"
 #include "markdown_adapter.hpp"
 #include "runtime_bridge.hpp"
+#include "secret_input.hpp"
 #include "window_controls.hpp"
 #include <mirage/runtime/persistence/settings.hpp>
 
@@ -43,6 +45,12 @@ struct PageState {
     bool agent_mode = true;
     std::vector<mirage::runtime::persistence::ModelSettings> models;
     std::size_t model_index = 0;
+    std::string api_key;
+    bool show_api_key = false;
+    bool remove_api_key = false;
+    std::uint64_t history_epoch = 0;
+    bool confirm_delete = false;
+    std::uint64_t delete_target = 0;
     bool saving_model = false;
     bool model_loaded = false;
     bool model_dirty = false;
@@ -90,35 +98,55 @@ void history(std::uint64_t id) {
 }
 void new_session() {
     auto &s = state();
-    if (s.chat.create_session())
-        call_runtime(ipc::OpenSessionRequest{}, "open", s.chat.current().id);
+    if (!s.about && !s.confirm_clear && !s.confirm_delete)
+        s.chat.new_draft();
+}
+bool send_prepared(LocalSession &session) {
+    return call_runtime(ipc::SessionChatRequest{session.remote_id, session.pending_prompt,
+                                                state().agent_mode, session.pending_access,
+                                                session.pending_reasoning},
+                        "send", session.id);
 }
 void submit_turn() {
     auto &s = state();
     auto &session = s.chat.current();
-    if (session.remote_id.empty() || session.running || session.submitting ||
-        session.attachment_loading || s.saving_model)
+    if (session.running || session.submitting || session.deleting || session.attachment_loading ||
+        s.saving_model || !s.runtime || !s.runtime->connected())
         return;
     const auto prompt = s.chat.submission_text();
     if (prompt.empty()) {
         s.runtime_notice = "请输入消息，并将输入和引用合计缩短到 16 KiB 以内。";
         return;
     }
-    if (call_runtime(
-            ipc::SessionChatRequest{session.remote_id, prompt, s.agent_mode, session.access,
-                                    s.live_model.supports_reasoning ? session.reasoning : ""},
-            "send", session.id)) {
-        session.submitted_text = session.draft;
-        session.submitting = true;
+    session.pending_prompt = prompt;
+    session.pending_access = session.access;
+    session.pending_reasoning = s.live_model.supports_reasoning ? session.reasoning : "";
+    session.submitted_text = session.draft;
+    session.submitted_attachments.clear();
+    for (const auto &attachment : session.attachments)
+        session.submitted_attachments.push_back(attachment.id);
+    session.submitted_references.clear();
+    for (const auto &reference : session.references)
+        session.submitted_references.push_back(reference.id);
+    session.submitting = session.remote_id.empty()
+                             ? call_runtime(ipc::OpenSessionRequest{}, "open_send", session.id)
+                             : send_prepared(session);
+    if (session.submitting) {
         s.runtime_notice = "正在提交…";
-        session.submitted_attachments.clear();
-        for (const auto &attachment : session.attachments)
-            session.submitted_attachments.push_back(attachment.id);
-        session.submitted_references.clear();
-        for (const auto &reference : session.references)
-            session.submitted_references.push_back(reference.id);
         s.popup = PageState::Popup::None;
     }
+}
+void delete_history() {
+    auto &s = state();
+    auto *target = s.chat.find(s.delete_target);
+    if (!target || target->running || target->submitting || target->deleting)
+        return;
+    if (target->remote_id.empty())
+        s.chat.delete_session(target->id);
+    else
+        target->deleting =
+            call_runtime(ipc::DeleteSessionRequest{target->remote_id}, "delete", target->id);
+    s.confirm_delete = false;
 }
 void start_runtime() {
     auto &s = state();
@@ -170,14 +198,17 @@ void drain_runtime() {
             for (const auto &item : s.chat.sessions()) {
                 auto *session = s.chat.find(item.id);
                 session->submitting = false;
+                session->deleting = false;
                 session->attachment_loading = false;
             }
         } else if (message.kind == RuntimeMessage::Kind::Response) {
             auto *session = s.chat.find(message.local_id);
             if (!message.response.ok) {
                 s.runtime_notice = display_error(message.response.error.message);
-                if (session)
+                if (session) {
                     session->submitting = false;
+                    session->deleting = false;
+                }
                 if (message.tag == "save" || message.tag == "discard") {
                     s.saving_model = false;
                     s.model_notice = display_error(message.response.error.message);
@@ -185,7 +216,6 @@ void drain_runtime() {
                 continue;
             }
             if (message.tag == "subscribe") {
-                call_runtime(ipc::ListSessionsRequest{}, "sessions");
                 call_runtime(ipc::GetModelRequest{}, "model");
             }
             const auto &payload = message.response.payload;
@@ -213,44 +243,83 @@ void drain_runtime() {
                                              : "";
                     }
                     s.model_loaded = true;
+                    if (message.tag == "model")
+                        call_runtime(ipc::ListSessionsRequest{}, "sessions");
                     if (message.tag == "save" || message.tag == "discard") {
                         s.saving_model = false;
                         s.model_dirty = false;
-                        s.model_notice = message.tag == "discard"
-                                             ? "已放弃未保存的修改"
-                                             : "已保存并应用到 Runtime Service";
+                        s.api_key.clear();
+                        s.show_api_key = false;
+                        s.remove_api_key = false;
+                        s.model_notice =
+                            message.tag == "discard"
+                                ? "已放弃未保存的修改"
+                                : (config->warning.empty() ? "已保存并应用到 Runtime Service"
+                                                           : config->warning);
                     }
                 }
             } else if (const auto *opened = std::get_if<ipc::SessionOpened>(&payload)) {
-                s.chat.bind_remote(message.local_id, opened->session_id);
-                history(message.local_id);
-            } else if (const auto *sessions = std::get_if<ipc::SessionList>(&payload)) {
-                const auto selected = s.chat.current().id;
-                for (const auto &remote : sessions->sessions) {
-                    if (remote.state == "closed" || remote.state == "failed")
-                        continue;
-                    const auto existing = std::find_if(
-                        s.chat.sessions().begin(), s.chat.sessions().end(),
-                        [&remote](const auto &entry) { return entry.remote_id == remote.id; });
-                    if (existing != s.chat.sessions().end())
-                        continue;
-                    if (s.chat.current().remote_id.empty())
-                        s.chat.bind_remote(s.chat.current().id, remote.id);
-                    else if (s.chat.create_session())
-                        s.chat.bind_remote(s.chat.current().id, remote.id);
+                if (session && message.tag == "open_send") {
+                    s.chat.bind_remote(session->id, opened->session_id);
+                    if (!send_prepared(*session))
+                        session->submitting = false;
                 }
-                s.chat.select_session(selected);
-                history(selected);
+            } else if (std::holds_alternative<ipc::SessionDeleted>(payload) &&
+                       message.tag == "delete") {
+                if (session)
+                    s.chat.delete_session(session->id);
+                ++s.history_epoch;
+                call_runtime(ipc::ListSessionsRequest{}, "sessions");
+                s.runtime_notice = "对话已删除。";
+            } else if (const auto *sessions = std::get_if<ipc::SessionList>(&payload)) {
+                ++s.history_epoch;
+                std::vector<std::string> remote_ids;
+                for (const auto &remote : sessions->sessions)
+                    if (remote.state != "closed")
+                        remote_ids.push_back(remote.id);
+                s.chat.reconcile_remote_sessions(remote_ids);
+                for (const auto &remote : sessions->sessions)
+                    if (remote.state != "closed")
+                        call_runtime(ipc::ChatHistoryRequest{remote.id, 40},
+                                     "discover." + std::to_string(s.history_epoch) + "." +
+                                         remote.id);
             } else if (const auto *snapshot = std::get_if<ipc::DialogHistory>(&payload)) {
-                if (session && session->remote_id == snapshot->session_id) {
+                if (message.tag.starts_with("discover.")) {
+                    const auto dot = message.tag.find('.', 9);
+                    const auto epoch = message.tag.substr(9, dot - 9);
+                    if (epoch != std::to_string(s.history_epoch))
+                        continue;
+                    auto known = std::find_if(
+                        s.chat.sessions().begin(), s.chat.sessions().end(),
+                        [&](const auto &item) { return item.remote_id == snapshot->session_id; });
+                    if (snapshot->turns.empty()) {
+                        if (known != s.chat.sessions().end() && !known->messages.empty() &&
+                            !known->running && !known->submitting && !known->deleting)
+                            s.chat.delete_session(known->id);
+                        continue;
+                    }
+                    if (known == s.chat.sessions().end()) {
+                        const auto selected = s.chat.current().id;
+                        if (!s.chat.create_session())
+                            continue;
+                        const auto id = s.chat.current().id;
+                        s.chat.bind_remote(id, snapshot->session_id);
+                        session = s.chat.find(id);
+                        s.chat.select_session(selected);
+                    } else
+                        session = s.chat.find(known->id);
+                }
+                if (session && !session->deleting && session->remote_id == snapshot->session_id)
                     for (const auto &turn : snapshot->turns)
                         s.chat.apply_turn(session->id, turn.turn_id, turn.status, turn.user_text,
                                           turn.reply_text, display_error(turn.error),
                                           native_usage(turn.context_usage), turn.sequence);
-                }
             } else if (std::holds_alternative<ipc::DialogTurnAccepted>(payload) &&
                        message.tag == "send") {
                 if (session) {
+                    const auto *accepted = std::get_if<ipc::DialogTurnAccepted>(&payload);
+                    s.chat.apply_turn(session->id, accepted->turn_id, "pending",
+                                      session->pending_prompt, {}, {});
                     s.chat.acknowledge_submission(session->id);
                 }
                 s.runtime_notice = "请求已接纳，等待 Mira 回复。";
@@ -383,9 +452,10 @@ void icon_button(eui::Ui &ui, const std::string &id, unsigned int glyph, float x
 }
 void modal(eui::Ui &ui, const eui::Screen &screen, const Palette &p) {
     auto &s = state();
-    if (!s.about && !s.confirm_clear)
+    if (!s.about && !s.confirm_clear && !s.confirm_delete)
         return;
-    const float width = 460, x = (screen.width - width) / 2, y = (screen.height - 252) / 2;
+    const float height = s.confirm_delete ? 316 : 252;
+    const float width = 460, x = (screen.width - width) / 2, y = (screen.height - height) / 2;
     ui.stack("dialog")
         .size(screen.width, screen.height)
         .zIndex(30)
@@ -393,23 +463,44 @@ void modal(eui::Ui &ui, const eui::Screen &screen, const Palette &p) {
             ui.rect("dialog.scrim")
                 .size(screen.width, screen.height)
                 .color({0, 0, 0, 0.25f})
-                .onClick([] { state().about = state().confirm_clear = false; })
+                .onClick(
+                    [] { state().about = state().confirm_clear = state().confirm_delete = false; })
                 .build();
             ui.rect("dialog.panel")
                 .position(x, y)
-                .size(width, 252)
+                .size(width, height)
                 .color(p.surface)
                 .radius(12)
                 .border(1, p.border)
                 .onClick([] {})
                 .build();
+            const bool deleting = s.confirm_delete;
             const bool clearing = s.confirm_clear;
-            text(ui, "dialog.title", clearing ? "清空当前对话？" : "Mirage · Mira", x + 24, y + 22,
-                 width - 48, 36, 21, p.text, 600);
+            text(ui, "dialog.title",
+                 deleting   ? "删除这段对话？"
+                 : clearing ? "清空当前对话？"
+                            : "Mirage · Mira",
+                 x + 24, y + 22, width - 48, 36, 21, p.text, 600);
+            if (deleting) {
+                const auto *target = s.chat.find(s.delete_target);
+                const auto title = target && !target->messages.empty()
+                                       ? conversation_preview(target->messages.front().text)
+                                       : "对话已不可用";
+                const auto preview = target && !target->messages.empty()
+                                         ? target->messages.back().role + "：" +
+                                               conversation_preview(target->messages.back().text)
+                                         : "";
+                text(ui, "dialog.delete.target", fitted_title("对话：" + title, width - 48, 14),
+                     x + 24, y + 67, width - 48, 26, 14, p.text);
+                text(ui, "dialog.delete.preview",
+                     fitted_title("最近消息 · " + preview, width - 48, 14), x + 24, y + 94,
+                     width - 48, 26, 14, p.muted);
+            }
             ui.text("dialog.body")
-                .position(x + 24, y + 67)
+                .position(x + 24, y + (deleting ? 131 : 67))
                 .size(width - 48, 85)
-                .text(clearing
+                .text(deleting ? "这段对话及其上下文将被删除，无法恢复。其他对话会保留。"
+                      : clearing
                           ? "当前会话的草稿和未发送消息将被清空。其他会话会保留。"
                           : "会话通过 Runtime Service 接入 Mira 模型与任务控制。当前提供通用对话 "
                             "harness，RPA workflow 尚未接入。")
@@ -418,27 +509,31 @@ void modal(eui::Ui &ui, const eui::Screen &screen, const Palette &p) {
                 .wrap()
                 .color(p.muted)
                 .build();
-            if (clearing) {
+            if (clearing || deleting) {
                 components::button(ui, "dialog.cancel")
-                    .position(x + width - 188, y + 192)
+                    .position(x + width - 188, y + height - 60)
                     .size(76, 38)
                     .text("取消")
                     .fontSize(15)
                     .style(button_style(p))
-                    .onClick([] { state().confirm_clear = false; })
+                    .onClick([] { state().confirm_clear = state().confirm_delete = false; })
                     .build();
             }
             components::button(ui, "dialog.confirm")
-                .position(x + width - 100, y + 192)
+                .position(x + width - 100, y + height - 60)
                 .size(76, 38)
-                .text(clearing ? "清空" : "知道了")
+                .text(deleting   ? "删除"
+                      : clearing ? "清空"
+                                 : "知道了")
                 .fontSize(15)
                 .style(button_style(p, true))
                 .onClick([] {
                     auto &value = state();
-                    if (value.confirm_clear)
+                    if (value.confirm_delete)
+                        delete_history();
+                    else if (value.confirm_clear)
                         value.chat.clear_session(value.clear_target);
-                    value.about = value.confirm_clear = false;
+                    value.about = value.confirm_clear = value.confirm_delete = false;
                 })
                 .build();
         })
@@ -491,7 +586,7 @@ std::optional<ContextUsage> native_usage(const std::optional<ipc::ContextUsage> 
 }
 void apply_model(bool enabled) {
     auto &v = state();
-    if (v.about || v.confirm_clear || v.saving_model)
+    if (v.about || v.confirm_clear || v.confirm_delete || v.saving_model)
         return;
     std::uint64_t window = 0;
     if (!v.model_window.empty()) {
@@ -515,8 +610,12 @@ void apply_model(bool enabled) {
     persistence::LocalSettings document;
     document.model = v.model;
     document.models = v.models;
-    v.saving_model =
-        call_runtime(ipc::SetModelRequest{persistence::encode_settings(document)}, "save");
+    v.saving_model = call_runtime(
+        ipc::SetModelRequest{persistence::encode_settings(document),
+                             v.remove_api_key    ? std::optional<std::string>{""}
+                             : v.api_key.empty() ? std::optional<std::string>{}
+                                                 : std::optional<std::string>{v.api_key}},
+        "save");
 }
 void choose_model(std::size_t index) {
     auto &v = state();
@@ -569,7 +668,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
         .onClick([] {
             auto &v = state();
             persistence::ModelSettings profile;
-            if (v.about || v.confirm_clear)
+            if (v.about || v.confirm_clear || v.confirm_delete)
                 return;
             v.model_chooser = false;
             profile.display_name = "自定义服务 " + std::to_string(v.models.size() + 1);
@@ -579,6 +678,9 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
             v.models.push_back(profile);
             v.model_index = v.models.size() - 1;
             v.model = profile;
+            v.api_key.clear();
+            v.show_api_key = false;
+            v.remove_api_key = false;
             v.model_window.clear();
             v.model_scroll = 0;
             v.model_dirty = true;
@@ -622,10 +724,13 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                         .disabled(s.saving_model || s.model_dirty)
                         .onClick([i] {
                             auto &v = state();
-                            if (v.about || v.confirm_clear)
+                            if (v.about || v.confirm_clear || v.confirm_delete)
                                 return;
                             v.model_index = i;
                             v.model = v.models[i];
+                            v.api_key.clear();
+                            v.show_api_key = false;
+                            v.remove_api_key = false;
                             v.model_window = v.model.context_window_tokens
                                                  ? std::to_string(v.model.context_window_tokens)
                                                  : "";
@@ -651,7 +756,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
             .disabled(s.saving_model || s.model_dirty)
             .onClick([] {
                 auto &v = state();
-                if (!v.about && !v.confirm_clear)
+                if (!v.about && !v.confirm_clear && !v.confirm_delete)
                     v.model_chooser = !v.model_chooser;
             })
             .build();
@@ -704,6 +809,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                             .style(input_style)
                             .onChange([change](const std::string &next) {
                                 if (!state().settings || !state().model_page || state().about ||
+                                    state().confirm_clear || state().confirm_delete ||
                                     state().saving_model || next.size() > 2048)
                                     return;
                                 change(next);
@@ -719,12 +825,14 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                     (event.modifiers.control && event.key == eui::InputKey::Comma))
                                     return false;
                                 if (!state().settings || !state().model_page || state().about ||
+                                    state().confirm_clear || state().confirm_delete ||
                                     state().saving_model)
                                     return true;
                                 return key ? key(event) : false;
                             };
                             hit->onTextInput = [input](const eui::TextInputEvent &event) {
                                 if (state().settings && state().model_page && !state().about &&
+                                    !state().confirm_clear && !state().confirm_delete &&
                                     !state().saving_model && input)
                                     input(event);
                             };
@@ -740,9 +848,86 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                   [](const auto &v) { state().model.api_prefix = v; });
             field("model.selector", "模型名称", s.model.model_selector, "供应商提供的模型 ID",
                   [](const auto &v) { state().model.model_selector = v; });
-            field("model.credential", "凭据环境变量", s.model.credential_env,
-                  "例如 MIRAGE_API_KEY（填写变量名）",
-                  [](const auto &v) { state().model.credential_env = v; });
+            list.column("model.key.row")
+                .width(w)
+                .height(92)
+                .gap(8)
+                .content([&] {
+                    list.stack("model.key.label.row")
+                        .size(w, 28)
+                        .content([&] {
+                            text(list, "model.key.label", "API Key", 0, 0, w - 70, 28, 16, p.text);
+                            if (s.model.api_key_configured || s.remove_api_key)
+                                components::button(list, "model.key.remove")
+                                    .position(w - 64, 0)
+                                    .size(64, 28)
+                                    .text(s.remove_api_key ? "已移除" : "移除")
+                                    .fontSize(13)
+                                    .style(button_style(p))
+                                    .disabled(s.saving_model)
+                                    .onClick([] {
+                                        auto &v = state();
+                                        if (v.about || v.confirm_clear || v.confirm_delete)
+                                            return;
+                                        v.api_key.clear();
+                                        v.remove_api_key = true;
+                                        v.model_dirty = true;
+                                    })
+                                    .build();
+                        })
+                        .build();
+                    list.stack("model.key.control")
+                        .size(w, 44)
+                        .content([&] {
+                            secret_input(list, "model.key", w - 44, s.api_key, s.show_api_key,
+                                         s.remove_api_key ? "保存后移除 API Key"
+                                         : s.model.api_key_configured ? "已配置；填写新 Key 可替换"
+                                                                      : "输入 API Key",
+                                         input_style, [](const auto &key) {
+                                             auto &v = state();
+                                             if (v.about || v.confirm_clear || v.confirm_delete ||
+                                                 v.saving_model)
+                                                 return;
+                                             v.api_key = key;
+                                             v.remove_api_key = false;
+                                             v.model_dirty = true;
+                                             v.model_notice.clear();
+                                         });
+                            if (auto *hit = list.find("model.key.hit")) {
+                                auto key = hit->onKeyEvent;
+                                auto input = hit->onTextInput;
+                                hit->onKeyEvent = [key](const eui::KeyEvent &event) {
+                                    if (event.key == eui::InputKey::Escape ||
+                                        (event.modifiers.control &&
+                                         event.key == eui::InputKey::Comma))
+                                        return false;
+                                    const auto &v = state();
+                                    if (!v.settings || !v.model_page || v.about ||
+                                        v.confirm_clear || v.confirm_delete || v.saving_model)
+                                        return true;
+                                    return key ? key(event) : false;
+                                };
+                                hit->onTextInput = [input](const eui::TextInputEvent &event) {
+                                    const auto &v = state();
+                                    if (v.settings && v.model_page && !v.about &&
+                                        !v.confirm_clear && !v.confirm_delete && !v.saving_model &&
+                                        input)
+                                        input(event);
+                                };
+                            }
+                            icon_button(
+                                list, "model.key.visible", s.show_api_key ? 0xf070 : 0xf06e, w - 40,
+                                4, p,
+                                [] {
+                                    auto &v = state();
+                                    if (!v.about && !v.confirm_clear && !v.confirm_delete)
+                                        v.show_api_key = !v.show_api_key;
+                                },
+                                false, s.saving_model);
+                        })
+                        .build();
+                })
+                .build();
             field("model.window", "上下文窗口预算（Token）", s.model_window,
                   "留空表示未知；填写供应商支持的窗口大小",
                   [](const auto &v) { state().model_window = v; });
@@ -798,7 +983,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                 .disabled(s.saving_model)
                 .onClick([] {
                     auto &v = state();
-                    if (v.about || v.confirm_clear)
+                    if (v.about || v.confirm_clear || v.confirm_delete)
                         return;
                     v.model.supports_reasoning = !v.model.supports_reasoning;
                     v.model_dirty = true;
@@ -816,7 +1001,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
             list.text("model.secret.help")
                 .width(w)
                 .height(60)
-                .text("API Key 从 Runtime Service 的环境读取，不写入配置文件。")
+                .text("API Key 保存在系统钥匙环中。留空保留现有 Key，点击移除后保存可清除。")
                 .fontSize(14)
                 .lineHeight(24)
                 .wrap()
@@ -846,7 +1031,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
         .disabled(!s.model_dirty || s.saving_model)
         .onClick([] {
             auto &v = state();
-            if (v.about || v.confirm_clear)
+            if (v.about || v.confirm_clear || v.confirm_delete)
                 return;
             v.model_dirty = false;
             v.saving_model = call_runtime(ipc::GetModelRequest{}, "discard");
@@ -909,10 +1094,13 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                 .disabled(s.saving_model || s.model_dirty)
                                 .onClick([i] {
                                     auto &v = state();
-                                    if (v.about || v.confirm_clear)
+                                    if (v.about || v.confirm_clear || v.confirm_delete)
                                         return;
                                     v.model_index = i;
                                     v.model = v.models[i];
+                                    v.api_key.clear();
+                                    v.show_api_key = false;
+                                    v.remove_api_key = false;
                                     v.model_window =
                                         v.model.context_window_tokens
                                             ? std::to_string(v.model.context_window_tokens)
@@ -1156,7 +1344,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                 (event.modifiers.control && event.key == eui::InputKey::Comma))
                 return false;
             if (state().settings || state().about || state().confirm_clear ||
-                state().popup != PageState::Popup::None)
+                state().confirm_delete || state().popup != PageState::Popup::None)
                 return true;
             if (event.key == eui::InputKey::Enter && event.isDown() && !event.modifiers.shift &&
                 !state().composer_composing) {
@@ -1168,7 +1356,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         auto original_text = hit->onTextInput;
         hit->onTextInput = [original_text](const eui::TextInputEvent &event) {
             if (state().settings || state().about || state().confirm_clear ||
-                state().popup != PageState::Popup::None)
+                state().confirm_delete || state().popup != PageState::Popup::None)
                 return;
             if (event.compositionChanged || event.composing)
                 state().composer_composing = event.composing;
@@ -1248,7 +1436,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         },
         true,
         session.submitting || session.attachment_loading || s.saving_model || !s.runtime ||
-            !s.runtime->connected() || session.remote_id.empty() ||
+            !s.runtime->connected() || session.deleting ||
             (!session.running && s.chat.submission_text().empty()));
     const auto notice = !s.chat.notice().empty() ? s.chat.notice() : s.runtime_notice;
     text(ui, "composer.notice", fitted_title(notice, column - 168, 12), x, y + composer_height + 4,
@@ -1652,7 +1840,15 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                         .scrollbarGap(2)
                         .onChange([](float offset) { state().session_scroll = offset; })
                         .content([&](eui::Ui &list, float width, float) {
+                            if (s.chat.history_count() == 0) {
+                                text(list, "session.empty", "暂无历史对话", 12, 8, width - 24, 28,
+                                     14, p.muted);
+                                text(list, "session.empty.help", "发送消息后将显示在这里", 12, 38,
+                                     width - 24, 28, 13, p.muted);
+                            }
                             for (const auto &session : s.chat.sessions()) {
+                                if (session.messages.empty())
+                                    continue;
                                 const auto id = session.id;
                                 const bool selected = id == s.chat.current().id;
                                 const std::string key = "session." + std::to_string(id);
@@ -1673,8 +1869,20 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                                             .build();
                                         icon(list, key + ".icon", 0xf075, 12, 0, 16, 48, p.muted);
                                         text(list, key + ".title",
-                                             fitted_title(session.title, width - 56, 16), 44, 0,
-                                             width - 56, 48, 16, p.text);
+                                             fitted_title(session.title, width - 100, 16), 44, 0,
+                                             width - 100, 48, 16, p.text);
+                                        icon_button(
+                                            list, key + ".delete", 0xf2ed, width - 40, 6, p,
+                                            [id] {
+                                                auto &v = state();
+                                                if (v.about || v.confirm_clear || v.confirm_delete)
+                                                    return;
+                                                v.delete_target = id;
+                                                v.confirm_delete = true;
+                                            },
+                                            false,
+                                            session.running || session.submitting ||
+                                                session.deleting);
                                     })
                                     .build();
                             }
@@ -1784,7 +1992,7 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
             modal(ui, screen, p);
         })
         .build();
-    if (!s.sidebar || s.about || s.confirm_clear)
+    if (!s.sidebar || s.about || s.confirm_clear || s.confirm_delete)
         s.sidebar_hover = s.sidebar_dragging = false;
     if (!window::primary_pointer_down())
         s.sidebar_dragging = false;
@@ -1823,7 +2031,7 @@ const DslAppConfig &dslAppConfig() {
                 if (event.action == eui::KeyAction::Press && event.modifiers.control &&
                     event.key == eui::InputKey::Comma) {
                     auto &s = mirage::native_ui::state();
-                    if (!s.about && !s.confirm_clear) {
+                    if (!s.about && !s.confirm_clear && !s.confirm_delete) {
                         s.settings = true;
                         s.popup = mirage::native_ui::PageState::Popup::None;
                     }
@@ -1839,8 +2047,8 @@ const DslAppConfig &dslAppConfig() {
                 }
                 if (event.action == eui::KeyAction::Press && event.key == eui::InputKey::Escape) {
                     auto &s = mirage::native_ui::state();
-                    if (s.about || s.confirm_clear)
-                        s.about = s.confirm_clear = false;
+                    if (s.about || s.confirm_clear || s.confirm_delete)
+                        s.about = s.confirm_clear = s.confirm_delete = false;
                     else if (s.popup != mirage::native_ui::PageState::Popup::None)
                         s.popup = mirage::native_ui::PageState::Popup::None;
                     else if (s.model_chooser)

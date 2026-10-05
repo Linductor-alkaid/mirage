@@ -136,6 +136,10 @@ std::string encode_settings(const LocalSettings &settings) {
     if (settings.model.has_value()) {
         const ModelSettings &model = *settings.model;
         JsonValue model_object = make_object();
+        if (!model.credential_ref.empty())
+            put(model_object, "credential_ref", JsonValue{model.credential_ref});
+        if (model.api_key_configured)
+            put(model_object, "api_key_configured", JsonValue{true});
         if (model.supports_reasoning)
             put(model_object, "supports_reasoning", JsonValue{true});
         if (model.enabled) {
@@ -276,9 +280,10 @@ SettingsDecode decode_settings(std::string_view body) {
             return result;
         }
         ModelSettings model;
-        if (has_unknown_member(*model_value, {"enabled", "supports_reasoning", "dialect",
-                                              "display_name", "endpoint", "api_prefix", "model",
-                                              "credential_env", "context_window_tokens"})) {
+        if (has_unknown_member(*model_value,
+                               {"enabled", "supports_reasoning", "dialect", "display_name",
+                                "endpoint", "api_prefix", "model", "credential_env",
+                                "credential_ref", "api_key_configured", "context_window_tokens"})) {
             result.error = "unknown model field";
             return result;
         }
@@ -289,6 +294,14 @@ SettingsDecode decode_settings(std::string_view body) {
                 return result;
             }
             model.supports_reasoning = *flag;
+        }
+        if (const auto *value = member(*model_value, "api_key_configured")) {
+            const auto flag = value->as_boolean();
+            if (!flag) {
+                result.error = "api_key_configured must be boolean";
+                return result;
+            }
+            model.api_key_configured = *flag;
         }
         if (const auto *enabled = member(*model_value, "enabled"); enabled != nullptr) {
             const auto flag = enabled->as_boolean();
@@ -320,7 +333,8 @@ SettingsDecode decode_settings(std::string_view body) {
             !copy_string("endpoint", model.endpoint_origin) ||
             !copy_string("api_prefix", model.api_prefix) ||
             !copy_string("model", model.model_selector) ||
-            !copy_string("credential_env", model.credential_env)) {
+            !copy_string("credential_env", model.credential_env) ||
+            !copy_string("credential_ref", model.credential_ref)) {
             return result;
         }
         if (const auto *value = member(*model_value, "context_window_tokens")) {
@@ -331,6 +345,12 @@ SettingsDecode decode_settings(std::string_view body) {
                 return result;
             }
             model.context_window_tokens = static_cast<std::uint64_t>(*number);
+        }
+        if (!model.credential_ref.empty() &&
+            (model.credential_ref.size() != 32 ||
+             model.credential_ref.find_first_not_of("0123456789abcdef") != std::string::npos)) {
+            result.error = "invalid credential reference";
+            return result;
         }
         settings.model = std::move(model);
     }

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-04T17:58:30.189702+00:00",
+  "generatedAt": "2026-10-05T02:48:35.522512+00:00",
   "title": "Design System: Mirage 原生 Agent 对话页",
   "extensions": {
     "scope": {
@@ -13,14 +13,17 @@
         "apps/native/runtime_bridge.cpp",
         "apps/native/chat_model.hpp",
         "apps/native/markdown_adapter.hpp",
-        "apps/native/context_usage.hpp"
+        "apps/native/context_usage.hpp",
+        "apps/native/secret_input.hpp",
+        "apps/native/secret_edit.hpp",
+        "apps/native/conversation_preview.hpp"
       ],
       "directionContract": "docs/design/native-agent-frontend.md",
       "legacyDesignDocument": "DESIGN.md",
       "previewOnly": false,
       "runtime": "Separate Runtime Service via versioned Local IPC; UI owns its Executor-managed bridge.",
-      "workItem": "M6-06",
-      "decision": "DEC-036",
+      "workItem": "M6-09",
+      "decision": "DEC-038",
       "visualAuthority": {
         "seed": "user-zcode-native",
         "mode": "code-led",
@@ -32,12 +35,22 @@
         "M6-01",
         "M6-02",
         "M6-03",
-        "M6-05"
+        "M6-05",
+        "M6-06",
+        "M6-07",
+        "M6-08"
       ],
       "priorDecisions": [
         "DEC-033",
         "DEC-034",
-        "DEC-035"
+        "DEC-035",
+        "DEC-036",
+        "DEC-037"
+      ],
+      "contractDocuments": [
+        "docs/design/native-agent-frontend.md",
+        "docs/design/mirage-ipc-protocol-v1.md",
+        "docs/decisions/DEC-038-api-keys-and-draft-sessions.md"
       ]
     },
     "colorMeta": {
@@ -562,7 +575,20 @@
         "height": 252,
         "bodyLineHeight": 28,
         "actionWidth": 76,
-        "actionHeight": 38
+        "actionHeight": 38,
+        "delete": {
+          "height": 316,
+          "titleTop": 22,
+          "titleSize": 21,
+          "titleWeight": 600,
+          "targetTop": 67,
+          "latestMessageTop": 94,
+          "excerptHeight": 26,
+          "excerptSize": 14,
+          "bodyTop": 131,
+          "bodySize": 17,
+          "actionTop": "height - 60"
+        }
       },
       "sidebarResize": {
         "defaultWidth": 260,
@@ -691,6 +717,30 @@
           "dismissZ": 20,
           "panelZ": 21,
           "dismiss": "Outer click, Escape, return to conversation, or selecting a named row. Escape dismisses chooser before leaving settings; selector callbacks respect existing modal guards."
+        },
+        "apiKey": {
+          "rowHeight": 92,
+          "labelHeight": 28,
+          "fieldGap": 8,
+          "inputHeight": 44,
+          "fontSize": 16,
+          "inputWidth": "field width - 44",
+          "visibilitySize": [
+            36,
+            36
+          ],
+          "visibilityPosition": [
+            "field width - 40",
+            4
+          ],
+          "removeSize": [
+            64,
+            28
+          ],
+          "removePosition": [
+            "field width - 70",
+            0
+          ]
         }
       },
       "settingsColumn": "min(800, main_width - 64)",
@@ -821,6 +871,22 @@
           "model": 202,
           "reasoning": "column - 136"
         }
+      },
+      "sidebarHistory": {
+        "emptyTitle": "暂无历史对话",
+        "emptyTitleSize": 14,
+        "emptyHelp": "发送消息后将显示在这里",
+        "emptyHelpSize": 13,
+        "emptyTextRole": "muted",
+        "titleWidth": "row width - 100",
+        "deleteButtonSize": [
+          36,
+          36
+        ],
+        "deleteButtonPosition": [
+          "row width - 40",
+          6
+        ]
       }
     },
     "overlay": {
@@ -964,7 +1030,7 @@
         "endpoint_origin",
         "api_prefix",
         "model_selector",
-        "credential_env",
+        "api_key",
         "context_window_tokens",
         "dialect",
         "supports_reasoning"
@@ -973,7 +1039,7 @@
         "openai.responses.v1",
         "openai.chat-completions.v1"
       ],
-      "persistence": "Service model.set persists named settings.models directory and applied settings.model; credentials resolve only from service environment.",
+      "persistence": "Service model.set persists named settings.models directory and applied settings.model; API Keys are write-only UI drafts stored in OS credentials; settings retain credential_ref, with legacy environment compatibility.",
       "draftAndApplied": "Form draft is separate from service-confirmed live_model; composer uses live_model only.",
       "saving": "Apply label becomes 应用中…; edits/protocol changes and duplicate save are blocked.",
       "saveDisabled": "Model not loaded, save pending, empty origin or empty model selector.",
@@ -996,7 +1062,29 @@
       "reasoning": "Explicit supports_reasoning enables minimal/low/medium/high; default omits reasoning_effort; provider refusal is visible and never silently retried.",
       "discard": "model.get ACK restores persisted directory and applied profile, discarding unsaved edits/new profiles.",
       "pickerLabel": "Provider name · model ID; visually truncated via actual font measurement.",
-      "providerNavigation": "Wide labeled rail; compact current-provider named selector opens bounded scrollable named list. Disabled while saving or form is dirty."
+      "providerNavigation": "Wide labeled rail; compact current-provider named selector opens bounded scrollable named list. Disabled while saving or form is dirty.",
+      "credential": {
+        "decision": "DEC-038",
+        "supersedes": "The credential environment-variable name field; environment configuration remains a service read-compatibility path only.",
+        "entry": "Direct API Key, masked with stars by default; visibility toggle shows this input only.",
+        "storedReadback": false,
+        "configuredPlaceholder": "已配置；填写新 Key 可替换",
+        "pendingRemovalPlaceholder": "保存后移除 API Key",
+        "blank": "Preserve existing credential.",
+        "remove": "Explicit remove followed by Save clears credential.",
+        "maximumBytes": 2048,
+        "acceptedBytes": "Printable ASCII 33–126.",
+        "draftLifetime": "Discard after successful save, confirmed discard, or provider change.",
+        "editing": "Undo/redo disabled; hidden copy contains masks only.",
+        "storage": "Linux Secret Service / Windows Credential Manager; settings contain credential_ref only.",
+        "status": "Errors and successful-save cleanup warnings appear in the existing fixed status line.",
+        "nativeAdapter": {
+          "source": "apps/native/secret_input.hpp / secret_edit.hpp",
+          "feedback": "EUI-20261005-004",
+          "scope": "Local masked-input adapter; no upstream modifications; remove when pinned EUI provides the documented password capability."
+        },
+        "validation": "Linux first-step scope; Windows target acceptance remains separate."
+      }
     },
     "chatBehavior": {
       "entry": "session.chat carries session access and reasoning captured at submission; read_only registers no tools, default registers only wait.",
@@ -1064,9 +1152,27 @@
         "trust": "Explicitly untrusted text context"
       },
       "requestIntent": "Access and reasoning choices are captured for each request; later local selection does not mutate in-flight intent.",
-      "disabledSend": "Filled disabled icon control uses hover background and muted icon; pending submission/read, no text/context, no connection/remote session disables it.",
+      "disabledSend": "Filled disabled icon control uses hover background and muted icon; pending submission/read, no text/context, no connection disables it; a remote session is created at first submission.",
       "title": "Skip leading space/tab/CR/LF, whitespace-only becomes 新对话; use at most 16 UTF-8 codepoints of first line.",
-      "submissionOrder": "User draft first, serialized references next, explicitly untrusted attachments last. Attachment-only begins 附件：filename."
+      "submissionOrder": "User draft first, serialized references next, explicitly untrusted attachments last. Attachment-only begins 附件：filename.",
+      "draftHistory": {
+        "new": "Local draft only; no session.open until first submission.",
+        "reuse": "Reuse message-free local draft with no remote ID, submitting or deleting state.",
+        "visibility": "Only sessions with actual messages have sidebar history rows; admission precedes first submitted message.",
+        "firstSubmit": "Freeze prompt/access/reasoning, open remote session if needed, then submit after open ACK.",
+        "emptyHistory": "No phantom 新对话 row; centered empty composer uses existing layout."
+      },
+      "historyDeletion": {
+        "target": "Stable local ID captured when opening confirmation; excerpts are rendered from that target, independent of current selection.",
+        "disabled": "Running, submitting or deleting session.",
+        "confirmationTitle": "删除这段对话？",
+        "confirmationBody": "这段对话及其上下文将被删除，无法恢复。其他对话会保留。",
+        "excerpt": "First input plus latest message role/text; stop at first CR/LF or 256 bytes, preserve complete UTF-8 codepoints, replace control bytes with spaces, append ellipsis if truncated, then fit by measured font width.",
+        "completion": "Remove history only after service deletion ACK; refresh remote list. Failure preserves visible record.",
+        "selection": "Deleting selected history returns to a draft; deleting another retains current selection/draft.",
+        "reconciliation": "Remove stable history missing from service list or with empty snapshot; preserve local drafts and running/submitting/deleting records.",
+        "staleResponses": "History discovery epoch and stable local ID protect against late updates."
+      }
     },
     "reviewEvidence": {
       "initialVerdict": ".impeccable/review/native-zcode-finish-verdict.md",
@@ -1114,6 +1220,18 @@
         "captures": "Repository .impeccable/review/native-model-*.png; first inspection only, final review remains separate",
         "documentationSource": "apps/native/app.cpp, chat_model.cpp, attachment.cpp, runtime_bridge.cpp",
         "limits": "Windows GUI, real IME and full desktop access are not established by these captures."
+      },
+      "credentialsAndHistory": {
+        "workItem": "M6-09",
+        "decision": "DEC-038",
+        "source": "apps/native/app.cpp, chat_model.cpp, secret_input.hpp, secret_edit.hpp, conversation_preview.hpp; protocol and native frontend contracts.",
+        "captures": [
+          ".impeccable/review/native-keys-empty-draft.png",
+          ".impeccable/review/native-keys-configured-min-light.png",
+          ".impeccable/review/native-keys-delete-confirm-min-dark.png"
+        ],
+        "documentationPass": "Current task differences only; incumbent native palette, type, radius and structure preserved.",
+        "limits": "Existing Windows, real IME, full desktop tools and live ZCode pixel-comparison limits remain; no new guarantee from this documentation pass."
       }
     }
   },
@@ -1135,12 +1253,12 @@
       "css": ".ds-send{width:36px;height:36px;border:0;border-radius:7px;background:#222222;color:#fff;display:inline-grid;place-items:center;cursor:pointer}.ds-send:hover{background:#6d6d6d}.ds-send:active{background:#e2e2e2}.ds-send:focus-visible{outline:2px solid #202020;outline-offset:2px} .ds-send:disabled{background:#e8e8e8;color:#6d6d6d;cursor:default}"
     },
     {
-      "name": "Selected session",
+      "name": "Selected history row",
       "kind": "nav",
       "refersTo": "session-row-selected",
-      "description": "原生已实现组件的浅色 HTML/CSS 示意；原生交互与焦点由 EUI 管理。",
-      "html": "<button class=\"ds-session\">新对话</button>",
-      "css": ".ds-session{font-family:Noto Sans CJK, Microsoft YaHei, Droid Sans Fallback, WenQuanYi Micro Hei, sans-serif;height:48px;width:236px;text-align:left;padding:0 12px 0 44px;border:0;border-radius:7px;background:#e2e2e2;color:#202020;font-size:16px;cursor:pointer}.ds-session:hover{background:#e8e8e8}.ds-session:active{background:#e2e2e2}.ds-session:focus-visible{outline:2px solid #202020;outline-offset:2px}"
+      "description": "有真实消息的选中历史行与垃圾桶静态示意；空草稿不生成历史行，实际删除等待service ACK。",
+      "html": "<div class=\"ds-session\"><button class=\"ds-session-select\">整理今天的工作</button><button class=\"ds-session-delete\" aria-label=\"删除这段对话\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M3 4h10M6 2h4M5 6v7h6V6M7 7v5M9 7v5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg></button></div>",
+      "css": ".ds-session{position:relative;height:48px;width:236px;border-radius:7px;background:#e2e2e2;color:#202020;font-family:Noto Sans CJK,Microsoft YaHei,sans-serif}.ds-session button{border:0;border-radius:7px;background:transparent;color:inherit;font-family:inherit;cursor:pointer}.ds-session-select{width:100%;height:48px;padding:0 56px 0 44px;text-align:left;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-session-delete{position:absolute;right:4px;top:6px;width:36px;height:36px;display:inline-grid;place-items:center}.ds-session button:hover{background:#e8e8e8}.ds-session button:active{background:#e2e2e2}.ds-session button:focus-visible{outline:2px solid #202020;outline-offset:2px}.ds-session button:disabled{color:#6d6d6d;cursor:default}"
     },
     {
       "name": "Multiline draft",
@@ -1213,16 +1331,32 @@
       "description": "紧凑模型页当前服务商名称和可滚动命名选择列表的静态示意；原生列表由EUI与ChatModel管理。",
       "html": "<section class=\"ds-provider-nav\"><button class=\"ds-provider-selector\">SiliconFlow <svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"m3 5 5 5 5-5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button><div class=\"ds-provider-list\"><button>SiliconFlow</button><button>自定义服务 2</button></div></section>",
       "css": ".ds-provider-nav{font-family:Noto Sans CJK,Microsoft YaHei,sans-serif;color:#202020;max-width:420px}.ds-provider-selector{display:flex;align-items:center;justify-content:space-between;width:100%;height:40px;font:400 18px Noto Sans CJK,Microsoft YaHei,sans-serif;border:0;border-radius:7px;background:transparent;color:#202020}.ds-provider-list{max-height:180px;overflow:auto;margin-top:6px;padding:8px;border:1px solid #dfdfdf;border-radius:10px;background:#fff}.ds-provider-list button{display:block;width:100%;height:44px;margin-bottom:6px;border:0;border-radius:7px;background:transparent;color:#202020;text-align:left;font:400 14px Noto Sans CJK,Microsoft YaHei,sans-serif}.ds-provider-nav button:hover{background:#e8e8e8}.ds-provider-nav button:active{background:#e2e2e2}.ds-provider-nav button:focus-visible{outline:2px solid #202020;outline-offset:2px}.ds-provider-nav button:disabled{color:#6d6d6d}"
+    },
+    {
+      "name": "Configured API Key field",
+      "kind": "input",
+      "refersTo": "model-input",
+      "description": "已配置但不回传Key的静态示意；眼睛只显示本次输入，移除需保存。原生密钥编辑由EUI Adapter管理。",
+      "html": "<section class=\"ds-secret-field\"><div class=\"ds-secret-label\"><span>API Key</span><button class=\"ds-secret-remove\">移除</button></div><div class=\"ds-secret-entry\"><input class=\"ds-secret-input\" type=\"password\" autocomplete=\"off\" placeholder=\"已配置；填写新 Key 可替换\" aria-label=\"API Key\"/><button class=\"ds-secret-visible\" aria-label=\"显示本次输入\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 20 20\" aria-hidden=\"true\"><path d=\"M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/><circle cx=\"10\" cy=\"10\" r=\"2.5\" fill=\"currentColor\"/></svg></button></div></section>",
+      "css": ".ds-secret-field{width:420px;max-width:100%;height:92px;color:#202020;font-family:Noto Sans CJK,Microsoft YaHei,sans-serif;font-size:16px}.ds-secret-label{height:28px;display:flex;align-items:center;justify-content:space-between;padding-right:6px}.ds-secret-field button{border:0;border-radius:7px;background:transparent;color:#202020;font-family:inherit;cursor:pointer}.ds-secret-remove{width:64px;height:28px;font-size:13px}.ds-secret-entry{position:relative;margin-top:8px;height:44px}.ds-secret-input{width:calc(100% - 44px);height:44px;padding:12px;box-sizing:border-box;border:1px solid #dfdfdf;border-radius:7px;background:#fff;color:#202020;font-family:inherit;font-size:16px}.ds-secret-input::placeholder{color:#6d6d6d}.ds-secret-input:focus-visible{outline:0;border-color:#222222}.ds-secret-visible{position:absolute;right:4px;top:4px;width:36px;height:36px;display:inline-grid;place-items:center}.ds-secret-field button:hover{background:#e8e8e8}.ds-secret-field button:active{background:#e2e2e2}.ds-secret-field button:focus-visible{outline:2px solid #202020;outline-offset:2px}.ds-secret-field button:disabled{color:#6d6d6d;cursor:default}"
+    },
+    {
+      "name": "History deletion confirmation",
+      "kind": "custom",
+      "refersTo": "dialog-delete",
+      "description": "460×316px删除确认静态示意，固定目标的首条输入和最近消息提供辨识；真实删除在service ACK后完成。",
+      "html": "<section class=\"ds-delete-dialog\"><h2>删除这段对话？</h2><p class=\"ds-delete-target\">对话：整理今天的工作</p><p class=\"ds-delete-preview\">最近消息 · Mira：已整理完成。</p><p class=\"ds-delete-body\">这段对话及其上下文将被删除，无法恢复。其他对话会保留。</p><button class=\"ds-delete-cancel\">取消</button><button class=\"ds-delete-confirm\">删除</button></section>",
+      "css": ".ds-delete-dialog{position:relative;width:460px;max-width:100%;height:316px;box-sizing:border-box;border:1px solid #dfdfdf;border-radius:12px;background:#fff;color:#202020;font-family:Noto Sans CJK,Microsoft YaHei,sans-serif}.ds-delete-dialog h2{position:absolute;left:24px;right:24px;top:22px;height:36px;margin:0;font-size:21px;font-weight:600;line-height:36px}.ds-delete-dialog p{position:absolute;left:24px;right:24px;margin:0}.ds-delete-target,.ds-delete-preview{height:26px;font-size:14px;line-height:26px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-delete-target{top:67px}.ds-delete-preview{top:94px;color:#6d6d6d}.ds-delete-body{top:131px;height:85px;color:#6d6d6d;font-size:17px;line-height:28px}.ds-delete-dialog button{position:absolute;bottom:22px;width:76px;height:38px;border:0;border-radius:7px;font-family:inherit;font-size:15px;cursor:pointer}.ds-delete-cancel{right:112px;background:transparent;color:#202020}.ds-delete-confirm{right:24px;background:#222222;color:#fff}.ds-delete-cancel:hover{background:#e8e8e8}.ds-delete-confirm:hover{background:#6d6d6d}.ds-delete-dialog button:active{background:#e2e2e2}.ds-delete-dialog button:focus-visible{outline:2px solid #202020;outline-offset:2px}"
     }
   ],
   "narrative": {
     "northStar": "桌面 Agent 的对话工作台",
-    "overview": "中性灰底、窄会话栏和居中的阅读列构成原生桌面对话工作台。细分隔线与轻微色阶承担结构，实心发送控件集中表达主操作。视觉参考用户指定的 ZCode Zai Light/Dark；使用的是 Mirage 自己的 EUI DSL 页面，未复制参考项目的业务实现。\n\n当前表面经独立 Runtime Service 展示真实 Agent 会话，并在设置页配置模型。会话标题、草稿、轮次状态与服务提示保持既有信息层级；发送、运行、回复、停止或失败来自服务回执与事件。本原生系统是 DEC-037 旧 TS/CEF 前端退役后的现行视觉契约，仓库根目录同步此记录；原 Web Mission Console 的炭蓝/奶油/琥珀、仪表 caps 和灯阵仅保留为历史设计背景，既有版本可从 Git 历史查看。\n",
+    "overview": "当前表面经独立 Runtime Service 展示真实 Agent 会话，并在设置页配置模型。本地草稿在首次提交获接纳并产生实际消息后进入历史，删除经服务确认后移除。会话标题、草稿、轮次状态与服务提示保持既有信息层级；发送、运行、回复、停止或失败来自服务回执与事件。本原生系统是 DEC-037 旧 TS/CEF 前端退役后的现行视觉契约，仓库根目录同步此记录；原 Web Mission Console 的炭蓝/奶油/琥珀、仪表 caps 和灯阵仅保留为历史设计背景，既有版本可从 Git 历史查看。\n",
     "keyCharacteristics": [
       "明暗两态共享中性灰角色；默认浅色。",
       "系统中文无衬线文字与 Font Awesome Solid 操作图标；品牌继承 Mira 原始角色图。",
       "可调宽并收起的侧栏、右对齐用户气泡、无卡片 Markdown 回复与随文字增高的 composer。",
-      "设置入口集中外观与模型；主题即时应用且仅在当前运行中保留，模型配置由服务保存并确认。",
+      "设置入口集中外观与模型；主题即时应用且仅在当前运行中保留，模型配置由服务保存并确认，API Key 直接输入并默认遮蔽。",
       "平面容器、细描边、有限圆角。",
       "清晰展示实际轮次状态、已应用模型、附件/引用来源与服务连接结果；上下文比例取最近成功请求的输入 Token 与显式窗口预算，未知时明确说明。"
     ],

@@ -408,6 +408,14 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
     if (op == "session.open") {
         return ipc::OpenSessionRequest{};
     }
+    if (op == "session.delete")
+        return ipc::DeleteSessionRequest{vector_string(body, "session_id")};
+    if (op == "model.set") {
+        ipc::SetModelRequest request{vector_string(body, "settings")};
+        if (body.find("api_key"))
+            request.api_key = vector_string(body, "api_key");
+        return request;
+    }
     if (op == "session.close") {
         return ipc::CloseSessionRequest{vector_string(body, "session_id")};
     }
@@ -882,6 +890,12 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
         response.payload = std::move(list);
     } else if (kind == "session-opened") {
         response.payload = ipc::SessionOpened{vector_string(value, "session_id")};
+    } else if (kind == "session-deleted") {
+        response.payload = ipc::SessionDeleted{vector_string(value, "session_id")};
+    } else if (kind == "model-configuration") {
+        response.payload =
+            ipc::ModelConfiguration{vector_string(value, "settings"),
+                                    value.find("warning") ? vector_string(value, "warning") : ""};
     } else if (kind == "session-closed") {
         response.payload =
             ipc::SessionClosed{vector_string(value, "session_id"), vector_string(value, "state")};

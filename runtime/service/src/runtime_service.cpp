@@ -237,14 +237,18 @@ namespace detail {
 /// into the state document. File IO on the calling thread matches the
 /// recovery persist precedent; failures are recorded on stderr once per
 /// change of reason and never propagate.
-void persist_session_state(const std::shared_ptr<ServiceCore> &core) {
+bool persist_session_state(const std::shared_ptr<ServiceCore> &core,
+                           const std::string &omit_session, bool keep_identity,
+                           bool caller_holds_state_lock) {
     if (core->session_state_store == nullptr) {
-        return;
+        return true;
     }
     // Serializes concurrent persist entry (serial context, task drivers,
     // dialog settle): the store's temp file name carries only the pid, so
     // unsynchronized saves would collide on O_EXCL and skip a snapshot.
-    std::lock_guard state_lock(core->session_state_mutex);
+    std::unique_lock state_lock(core->session_state_mutex, std::defer_lock);
+    if (!caller_holds_state_lock)
+        state_lock.lock();
     static std::mutex report_mutex;
     static std::string last_error;
     persistence::SessionState state;
@@ -258,6 +262,8 @@ void persist_session_state(const std::shared_ptr<ServiceCore> &core) {
         std::lock_guard dialogs_lock(core->dialogs.mutex);
         std::lock_guard raw_lock(core->journal_raw_mutex);
         for (const auto &[session_id, created] : core->sessions.created_at_ms) {
+            if (session_id == omit_session && !keep_identity)
+                continue;
             persistence::PersistedSession session;
             session.id = session_id;
             session.created_at_ms = created;
@@ -266,7 +272,7 @@ void persist_session_state(const std::shared_ptr<ServiceCore> &core) {
                 session.journal = raw->second;
             }
             const auto dialogs = core->dialogs.sessions.find(session_id);
-            if (dialogs != core->dialogs.sessions.end()) {
+            if (dialogs != core->dialogs.sessions.end() && session_id != omit_session) {
                 for (const auto &record : dialogs->second.turns) {
                     if (record.status == "pending") {
                         continue; // in-flight turns are not persisted
@@ -293,6 +299,7 @@ void persist_session_state(const std::shared_ptr<ServiceCore> &core) {
             std::cerr << "mirage-service: session state persist failed: " << saved.error << '\n';
         }
     }
+    return saved.ok;
 }
 
 } // namespace detail
@@ -650,6 +657,10 @@ struct RuntimeService::Impl {
         if (auto *request = std::get_if<ipc::OpenSessionRequest>(&decoded.body)) {
             (void)request;
             handle_session_open(connection_id, correlation_id);
+            return;
+        }
+        if (auto *request = std::get_if<ipc::DeleteSessionRequest>(&decoded.body)) {
+            handle_session_delete(connection_id, correlation_id, request->session_id);
             return;
         }
         if (auto *request = std::get_if<ipc::CloseSessionRequest>(&decoded.body)) {
@@ -1334,23 +1345,105 @@ struct RuntimeService::Impl {
         respond(connection_id, correlation_id, ipc::SessionClosed{std::move(session_id), state});
     }
 
-    void handle_model_get(std::uint64_t connection, std::uint64_t correlation) {
+    void handle_session_delete(std::uint64_t connection, std::uint64_t correlation,
+                               const std::string &id) {
+        {
+            std::lock_guard lock(core->sessions.mutex);
+            if (!core->sessions.contains(id)) {
+                fail(connection, correlation, "not_found", "unknown session id");
+                return;
+            }
+        }
+        {
+            std::lock_guard lock(core->dialogs.mutex);
+            const auto found = core->dialogs.sessions.find(id);
+            if (found != core->dialogs.sessions.end() && !found->second.in_flight_turn_id.empty()) {
+                fail(connection, correlation, "invalid_state",
+                     "stop active turns before deleting session");
+                return;
+            }
+        }
+        {
+            std::lock_guard lock(core->registry.mutex);
+            for (const auto &[task, record] : core->registry.tasks) {
+                (void)task;
+                if (record.session_id == id && !record.driver_done) {
+                    fail(connection, correlation, "invalid_state",
+                         "stop active tasks before deleting session");
+                    return;
+                }
+            }
+        }
+        std::unique_lock state_lock(core->session_state_mutex);
+        const bool primary = id == core->host.primary_session().id;
+        // Write the intended state before mutating identities. A failed disk
+        // write leaves both the runtime and the visible history untouched.
+        if (!detail::persist_session_state(core, id, primary, true)) {
+            fail(connection, correlation, "internal", "cannot persist session deletion");
+            return;
+        }
+        if (!primary && !core->hydrated_sessions.count(id)) {
+            const auto closed = core->host.close_session(SessionIdentity{id});
+            if (!closed.ok) {
+                const bool restored = detail::persist_session_state(core, {}, false, true);
+                fail(connection, correlation, closed.error.code,
+                     restored ? closed.error.message
+                              : "cannot close session or restore persisted history");
+                return;
+            }
+        }
+        if (!primary) {
+            {
+                std::lock_guard lock(core->sessions.mutex);
+                core->sessions.created_at_ms.erase(id);
+            }
+            core->hydrated_sessions.erase(id);
+        }
+        {
+            std::lock_guard lock(core->dialogs.mutex);
+            core->dialogs.sessions.erase(id);
+        }
+        if (!primary) {
+            std::lock_guard lock(core->journal_raw_mutex);
+            core->journal_raw.erase(id);
+        }
+        ipc::SessionUpdatedEvent event;
+        event.session_id = id;
+        event.state = primary ? "autonomous" : "closed";
+        core->events.publish_session_update(std::move(event));
+        respond(connection, correlation, ipc::SessionDeleted{id});
+    }
+
+    void handle_model_get(std::uint64_t connection, std::uint64_t correlation,
+                          std::string warning = {}) {
         persistence::LocalSettings document;
         const auto &m = core->model;
-        document.model = persistence::ModelSettings{
-            m.enabled,           m.dialect,        m.display_name,   m.endpoint_origin,
-            m.api_prefix,        m.model_selector, m.credential_env, m.context_window_tokens,
-            m.supports_reasoning};
+        document.model =
+            persistence::ModelSettings{m.enabled,
+                                       m.dialect,
+                                       m.display_name,
+                                       m.endpoint_origin,
+                                       m.api_prefix,
+                                       m.model_selector,
+                                       m.credential_env,
+                                       m.context_window_tokens,
+                                       m.supports_reasoning,
+                                       m.credential_ref,
+                                       !m.credential_ref.empty() || !m.credential_env.empty()};
         const auto catalog = persistence::decode_settings(config.model_catalog_json);
         if (catalog.ok)
             document.models = catalog.settings.models;
-        respond(connection, correlation,
-                ipc::ModelConfiguration{persistence::encode_settings(document)});
+        for (auto &profile : document.models)
+            profile.api_key_configured =
+                !profile.credential_ref.empty() || !profile.credential_env.empty();
+        respond(
+            connection, correlation,
+            ipc::ModelConfiguration{persistence::encode_settings(document), std::move(warning)});
     }
 
     void handle_model_set(std::uint64_t connection, std::uint64_t correlation,
                           const ipc::SetModelRequest &request) {
-        const auto decoded = persistence::decode_settings(request.settings_json);
+        auto decoded = persistence::decode_settings(request.settings_json);
         if (!decoded.ok || !decoded.settings.model || !decoded.settings.socket_path.empty() ||
             !decoded.settings.read_roots.empty() || !decoded.settings.permission_rules.empty() ||
             decoded.settings.confirmation || decoded.settings.runtime) {
@@ -1369,7 +1462,31 @@ struct RuntimeService::Impl {
                 }
             }
         }
-        const auto &m = *decoded.settings.model;
+        if (request.api_key && !core->settings_store) {
+            fail(connection, correlation, "unavailable", "model settings storage is unavailable");
+            return;
+        }
+        auto &m = *decoded.settings.model;
+        if (!request.api_key && m.credential_ref.empty() &&
+            m.display_name == core->model.display_name && !core->model.credential_ref.empty()) {
+            m.credential_ref = core->model.credential_ref;
+            m.credential_env.clear();
+        }
+        const auto old_reference = m.credential_ref;
+        if (request.api_key && !config.credential_write) {
+            fail(connection, correlation, "unavailable",
+                 "system credential storage is unavailable");
+            return;
+        }
+        if (request.api_key) {
+            m.credential_ref =
+                request.api_key->empty() ? "" : mira::ModelProfileId::generate().to_string();
+            m.credential_env.clear();
+        }
+        m.api_key_configured = !m.credential_ref.empty() || !m.credential_env.empty();
+        for (auto &profile : decoded.settings.models)
+            if (profile.display_name == m.display_name)
+                profile = m;
         auto next_config = core->model;
         next_config.enabled = m.enabled;
         next_config.supports_reasoning = m.supports_reasoning;
@@ -1379,6 +1496,7 @@ struct RuntimeService::Impl {
         next_config.api_prefix = m.api_prefix;
         next_config.model_selector = m.model_selector;
         next_config.credential_env = m.credential_env;
+        next_config.credential_ref = m.credential_ref;
         next_config.context_window_tokens = m.context_window_tokens;
         std::string reason;
         if (!next_config.valid(reason) || (m.enabled && m.endpoint_origin.empty())) {
@@ -1400,8 +1518,8 @@ struct RuntimeService::Impl {
                 return;
             }
         }
+        persistence::LocalSettings saved;
         if (core->settings_store) {
-            persistence::LocalSettings saved;
             const auto loaded = core->settings_store->load();
             if (loaded.status == persistence::LoadStatus::Loaded) {
                 const auto old = persistence::decode_settings(loaded.body);
@@ -1417,9 +1535,23 @@ struct RuntimeService::Impl {
             saved.model = m;
             if (!decoded.settings.models.empty())
                 saved.models = decoded.settings.models;
+            for (auto &profile : saved.models)
+                if (profile.display_name == m.display_name)
+                    profile = m;
+            if (request.api_key && !request.api_key->empty()) {
+                const auto stored = config.credential_write(m.credential_ref, *request.api_key);
+                if (!stored.ok) {
+                    fail(connection, correlation, "unavailable", stored.error);
+                    return;
+                }
+            }
             const auto written = core->settings_store->save(persistence::encode_settings(saved));
             if (!written.ok) {
-                fail(connection, correlation, "internal", written.error);
+                std::string error = written.error;
+                if (request.api_key && !request.api_key->empty() &&
+                    !config.credential_write(m.credential_ref, "").ok)
+                    error += "; cannot remove unused credential";
+                fail(connection, correlation, "internal", error);
                 return;
             }
         }
@@ -1427,9 +1559,21 @@ struct RuntimeService::Impl {
         core->model = next_config;
         core->model_available.store(m.enabled);
         config.model = next_config;
-        if (!decoded.settings.models.empty())
-            config.model_catalog_json = request.settings_json;
-        handle_model_get(connection, correlation);
+        if (core->settings_store)
+            config.model_catalog_json = persistence::encode_settings(saved);
+        else if (!decoded.settings.models.empty())
+            config.model_catalog_json = persistence::encode_settings(decoded.settings);
+        std::string warning;
+        if (request.api_key && !old_reference.empty() && old_reference != m.credential_ref) {
+            const bool retained =
+                std::any_of(saved.models.begin(), saved.models.end(), [&](const auto &profile) {
+                    return profile.credential_ref == old_reference;
+                });
+            if (!retained && !config.credential_write(old_reference, "").ok)
+                warning =
+                    "配置已保存；旧 API Key 清理失败，可在系统钥匙环中移除未使用的 Mirage 凭据。";
+        }
+        handle_model_get(connection, correlation, std::move(warning));
     }
 
     /// Serial thread: accept one dialog turn (DEC-027, M5-06; DEC-025

@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstddef>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -26,11 +27,21 @@ struct ServiceInfo {
 
 ServiceInfo runtime_service_info();
 
+/// Platform credential write result; no platform or persistence types cross
+/// the Runtime Service public configuration boundary.
+struct CredentialWriteResult {
+    bool ok = false;
+    std::string error;
+};
+
 /// Configuration of the Mirage background runtime service (design doc
 /// section 12, DEC-007). Every bound carries a capacity or budget: the
 /// registry, the step count, the step wall clock and the per-step result
 /// size all reject or truncate explicitly instead of growing without bound.
 struct ServiceConfig {
+    /// DEC-038: finite platform save/remove, called only by the serialized
+    /// Executor handler. Empty value removes; failure does not activate a new ref.
+    std::function<CredentialWriteResult(const std::string &, const std::string &)> credential_write;
     /// Local IPC endpoint. Empty selects the DEC-007 default
     /// ($XDG_RUNTIME_DIR/mirage/mirage-service.sock with a /tmp fallback).
     std::string socket_path;

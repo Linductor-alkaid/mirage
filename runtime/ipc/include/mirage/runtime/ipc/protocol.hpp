@@ -155,6 +155,11 @@ struct SessionHistoryRequest {
 struct CloseSessionRequest {
     std::string session_id;
 };
+/// Delete product conversation/history; refuse active turns/tasks. The
+/// primary equipment identity stays alive after its history is removed.
+struct DeleteSessionRequest {
+    std::string session_id;
+};
 
 /// Submits one dialog turn to the model layer (DEC-027, M5-06; DEC-025
 /// backlog item 3): the text lands in the session's dialog thread and the
@@ -176,12 +181,14 @@ struct CancelChatRequest {
     std::string session_id;
 };
 struct GetModelRequest {};
-// Settings schema v1 document carrying only the model block, no plaintext key.
+// Settings schema v1 document with model/catalog; optional key is write-only.
 struct SetModelRequest {
     std::string settings_json;
+    std::optional<std::string> api_key = {}; // absent keep, empty explicitly remove
 };
 struct ModelConfiguration {
     std::string settings_json;
+    std::string warning = {};
 };
 
 /// Requests one session's dialog thread (DEC-027): the bounded in-memory
@@ -315,11 +322,11 @@ using Request = std::variant<
     HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest, CancelTaskRequest,
     PauseTaskRequest, ResumeTaskRequest, ShutdownRequest, SubscribeEventsRequest,
     UnsubscribeEventsRequest, RespondPermissionRequest, ListPermissionsRequest, ListSessionsRequest,
-    OpenSessionRequest, SessionHistoryRequest, CloseSessionRequest, SessionChatRequest,
-    ChatHistoryRequest, WorkflowListRequest, WorkflowSaveRequest, WorkflowPublishRequest,
-    WorkflowDeleteRequest, WorkflowAtomCatalogRequest, WorkflowRunsRequest, WorkflowRunRequest,
-    WorkflowCancelRunRequest, WorkflowGetRequest, DesktopObserveRequest, GetPolicyRequest,
-    SetPolicyRequest, GetModelRequest, SetModelRequest, CancelChatRequest>;
+    OpenSessionRequest, SessionHistoryRequest, CloseSessionRequest, DeleteSessionRequest,
+    SessionChatRequest, ChatHistoryRequest, WorkflowListRequest, WorkflowSaveRequest,
+    WorkflowPublishRequest, WorkflowDeleteRequest, WorkflowAtomCatalogRequest, WorkflowRunsRequest,
+    WorkflowRunRequest, WorkflowCancelRunRequest, WorkflowGetRequest, DesktopObserveRequest,
+    GetPolicyRequest, SetPolicyRequest, GetModelRequest, SetModelRequest, CancelChatRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -496,6 +503,9 @@ struct SessionOpened {
 /// close settled it Closed after cancelling its non-terminal tasks.
 /// `state` mirrors the workflow.cancel reply shape and keeps the envelope
 /// distinguishable from session.open's on the wire.
+struct SessionDeleted {
+    std::string session_id;
+};
 struct SessionClosed {
     std::string session_id;
     std::string state;
@@ -760,10 +770,11 @@ struct ObservationView {
 using ResponsePayload =
     std::variant<ServiceIdentity, TaskSubmitted, TaskList, InspectTask, TaskCancelled, TaskPaused,
                  TaskResumed, ShutdownAccepted, PermissionResponded, PermissionPendingList,
-                 SessionList, SessionOpened, SessionClosed, DialogTurnAccepted, DialogHistory,
-                 SessionHistory, WorkflowList, WorkflowSaved, WorkflowPublished, WorkflowDeleted,
-                 WorkflowAtomCatalog, WorkflowRunList, WorkflowRunStarted, WorkflowRunCancelled,
-                 WorkflowDefinitionView, ObservationView, PolicyView, ModelConfiguration>;
+                 SessionList, SessionOpened, SessionClosed, SessionDeleted, DialogTurnAccepted,
+                 DialogHistory, SessionHistory, WorkflowList, WorkflowSaved, WorkflowPublished,
+                 WorkflowDeleted, WorkflowAtomCatalog, WorkflowRunList, WorkflowRunStarted,
+                 WorkflowRunCancelled, WorkflowDefinitionView, ObservationView, PolicyView,
+                 ModelConfiguration>;
 
 /// Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc
 /// domain ("protocol_error", "unsupported", "invalid_argument", "not_found",

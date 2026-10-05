@@ -1,5 +1,7 @@
 #include "../support/test.hpp"
 #include "chat_model.hpp"
+#include "conversation_preview.hpp"
+#include "secret_edit.hpp"
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -10,6 +12,64 @@
 
 int main() {
     using mirage::native_ui::ChatModel;
+    using mirage::native_ui::conversation_preview;
+    MIRAGE_CHECK(conversation_preview("短消息") == "短消息");
+    MIRAGE_CHECK(conversation_preview("第一行\n第二行") == "第一行…");
+    MIRAGE_CHECK(conversation_preview("第一行\r\n第二行") == "第一行…");
+    MIRAGE_CHECK(conversation_preview("a\tb") == "a b");
+    MIRAGE_CHECK(conversation_preview(std::string(16384, 'x')) == std::string(256, 'x') + "…");
+    std::string long_cjk;
+    for (int i = 0; i < 100; ++i)
+        long_cjk += "字";
+    MIRAGE_CHECK(conversation_preview(long_cjk) == long_cjk.substr(0, 255) + "…");
+    using mirage::native_ui::edit_secret;
+    MIRAGE_CHECK(edit_secret("abc", "**X*", 2, 2, 2, 3) == "abXc");
+    MIRAGE_CHECK(edit_secret("abc", "**", 2, 2, 2, 1) == "ac");
+    MIRAGE_CHECK(edit_secret("abc", "**", 1, 1, 1, 1) == "ac");
+    MIRAGE_CHECK(edit_secret("abcd", "*XY*", 3, 1, 3, 3) == "aXYd");
+    MIRAGE_CHECK(edit_secret("ab", "***", 1, 1, 1, 2) == "a*b");
+    MIRAGE_CHECK(!edit_secret("ab", "a b", 1, 1, 1, 2));
+    MIRAGE_CHECK(!edit_secret("ab", std::string(2049, '*'), 1, 1, 1, 2));
+    ChatModel drafts;
+    const auto draft_id = drafts.current().id;
+    MIRAGE_CHECK(drafts.history_count() == 0);
+    drafts.set_draft("保留未发送的草稿");
+    for (int i = 0; i < 100; ++i)
+        MIRAGE_CHECK(drafts.new_draft());
+    MIRAGE_CHECK(drafts.sessions().size() == 1 && drafts.current().id == draft_id);
+    MIRAGE_CHECK(drafts.current().draft == "保留未发送的草稿" && drafts.history_count() == 0);
+    drafts.apply_turn(draft_id, "accepted", "pending", "首发消息", {}, {});
+    MIRAGE_CHECK(drafts.history_count() == 1 && !drafts.delete_session(draft_id));
+    MIRAGE_CHECK(drafts.new_draft() && drafts.current().id != draft_id);
+    const auto next_draft = drafts.current().id;
+    drafts.apply_turn(draft_id, "accepted", "ok", "首发消息", "回答", {});
+    MIRAGE_CHECK(drafts.delete_session(draft_id) && drafts.current().id == next_draft);
+    drafts.apply_turn(draft_id, "late", "ok", "迟到", "不得复活", {});
+    MIRAGE_CHECK(drafts.history_count() == 0 && drafts.sessions().size() == 1);
+    MIRAGE_CHECK(drafts.delete_session(next_draft) && drafts.current().id > next_draft);
+    MIRAGE_CHECK(!drafts.delete_session(next_draft));
+    ChatModel reconciled;
+    const auto kept_draft = reconciled.current().id;
+    MIRAGE_CHECK(reconciled.set_draft("保留草稿"));
+    MIRAGE_CHECK(reconciled.create_session());
+    const auto stale = reconciled.current().id;
+    MIRAGE_CHECK(reconciled.bind_remote(stale, "removed-server-id"));
+    reconciled.apply_turn(stale, "settled", "ok", "旧历史", "回复", {});
+    MIRAGE_CHECK(reconciled.create_session());
+    const auto active = reconciled.current().id;
+    MIRAGE_CHECK(reconciled.bind_remote(active, "active-server-id"));
+    reconciled.apply_turn(active, "pending", "pending", "活动历史", {}, {});
+    MIRAGE_CHECK(reconciled.select_session(kept_draft));
+    reconciled.reconcile_remote_sessions({});
+    MIRAGE_CHECK(!reconciled.find(stale));
+    MIRAGE_CHECK(reconciled.find(active) && reconciled.current().id == kept_draft &&
+                 reconciled.current().draft == "保留草稿");
+    reconciled.apply_turn(active, "pending", "ok", "活动历史", "结束", {});
+    MIRAGE_CHECK(reconciled.select_session(active));
+    reconciled.reconcile_remote_sessions({"active-server-id"});
+    MIRAGE_CHECK(reconciled.find(active));
+    reconciled.reconcile_remote_sessions({});
+    MIRAGE_CHECK(!reconciled.find(active) && reconciled.current().id == kept_draft);
     ChatModel model;
     const auto first = model.current().id;
     MIRAGE_CHECK(!model.submit());

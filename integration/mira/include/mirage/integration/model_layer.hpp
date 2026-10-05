@@ -43,6 +43,8 @@ struct ModelLayerConfig {
     /// SecretRef at the transport boundary only (never logged, never stored
     /// in events). Empty means the profile carries no credential.
     std::string credential_env;
+    std::string credential_ref;
+    std::function<std::optional<std::string>(const std::string &)> credential_lookup;
     /// Whole-request budget mirrored into the profile transport deadlines.
     std::chrono::milliseconds request_deadline{120'000};
     /// Per-request generation bound (1..16384); harness also has a whole-loop token budget.

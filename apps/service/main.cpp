@@ -1,4 +1,5 @@
 #include <mirage/integration/mira_environment_binding.hpp>
+#include <mirage/platform/credential_store.hpp>
 #include <mirage/runtime/permission/confirmation_hub.hpp>
 #include <mirage/runtime/permission/permission.hpp>
 #include <mirage/runtime/persistence/paths.hpp>
@@ -173,6 +174,11 @@ bool parse_long(std::string_view text, long &value) {
 
 int main(int argc, char **argv) {
     mirage::runtime::ServiceConfig config;
+    config.credential_write = [](const std::string &reference, const std::string &value) {
+        const auto result = mirage::platform::write_credential(reference, value);
+        return mirage::runtime::CredentialWriteResult{result.ok, result.error};
+    };
+
     config.mirage_version = std::string(kVersion);
     std::vector<std::string> read_roots;
     std::vector<std::string> perm_flags;
@@ -357,6 +363,7 @@ int main(int argc, char **argv) {
                 config.model.api_prefix = settings.model->api_prefix;
                 config.model.model_selector = settings.model->model_selector;
                 config.model.credential_env = settings.model->credential_env;
+                config.model.credential_ref = settings.model->credential_ref;
                 config.model.context_window_tokens = settings.model->context_window_tokens;
                 config.model.supports_reasoning = settings.model->supports_reasoning;
                 config.model_catalog_json = mirage::runtime::persistence::encode_settings(settings);
@@ -428,6 +435,7 @@ int main(int argc, char **argv) {
                     config.model.api_prefix = settings.model->api_prefix;
                     config.model.model_selector = settings.model->model_selector;
                     config.model.credential_env = settings.model->credential_env;
+                    config.model.credential_ref = settings.model->credential_ref;
                     config.model.context_window_tokens = settings.model->context_window_tokens;
                     config.model.supports_reasoning = settings.model->supports_reasoning;
                     config.model_catalog_json =
@@ -524,6 +532,13 @@ int main(int argc, char **argv) {
     config.overlay_debug = overlay_debug;
     auto binding = std::make_shared<mirage::integration::MiraEnvironmentBinding>(environment);
 
+    config.model.credential_lookup =
+        [](const std::string &reference) -> std::optional<std::string> {
+        const auto result = mirage::platform::read_credential(reference);
+        if (result.ok)
+            return result.value;
+        return {};
+    };
     mirage::runtime::RuntimeService service(config);
 #ifdef _WIN32
     g_service = &service;

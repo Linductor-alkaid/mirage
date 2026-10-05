@@ -26,6 +26,7 @@
 | M6-06 | Completed | Linux首步ZCode上下文比例圆环与详情；接通Mira最近请求输入Token，显式窗口预算，未知状态与IPC兼容测试；依据DEC-036 |
 | M6-07 | Completed | Linux首步ZCode服务商配置与附件/权限/占比/模型/思考工具栏；真实UTF-8附件、受限工具权限、模型目录、每轮reasoning与回归；供应商推理互通和Windows另验 |
 | M6-08 | Completed | Linux首步删除TS/CEF/Web devbridge，保留原生IPC golden/依赖门禁；更新CI/CLI/打包，DEB提取启动通过；Windows安装及整体生命周期另验 |
+| M6-09 | Completed | Linux直接API Key/系统凭据、空草稿延迟会话创建与历史删除；依据DEC-038，覆盖持久化/失败/活动拒绝与真实界面 |
 
 ## 测试矩阵与退出条件
 
@@ -36,6 +37,7 @@
 - [x] M6-03 Linux 真实 IPC、异常/拒绝/取消/超时/shutdown 测试。
 - [x] M6-07 Linux 模型配置/有界文本附件/每轮权限与推理、正常/最小明暗界面及修正复核。
 - [x] M6-08 原生无 Node/CEF 构建、依赖锁门禁与 Linux DEB 提取启动。
+- [x] M6-09 Linux直接API Key、系统凭据、草稿首发与历史删除持久化/失败门禁。
 - [ ] M6-04 整体生命周期与安装包验收。
 
 ## 风险与实施记录
@@ -185,3 +187,17 @@ disposition=ship，仅修正列表范围；四份DESIGN/JSON已独立同步。
 工作整理为当前分支上的范围化本地提交；不改写master，不push/合并。Windows/真实IME、
 供应商推理互通、root安装与整体托盘退出保持明确缺项，负责人/补跑条件见验收记录。
 M6整体保持In Progress，M6-04保持Planned。
+
+2026-10-05 / M6-09：维护者要求直接 API Key、空草稿不进历史、历史可删除，按
+[DEC-038](../decisions/DEC-038-api-keys-and-draft-sessions.md) 实施。复用 pinned Mira
+SecretRef/ISecretResolver、session close 与现有产品状态存储；系统凭据映射只在平台边界，
+不写明文配置，不新增并发设施。等待测试和 Linux 实机验收。
+
+
+2026-10-05 M6-09 Linux首步完成：直接 API Key 通过系统钥匙环而非明文配置保存；新建只分配
+本地草稿，首次发送后进入历史；历史确认删除、活动拒绝和删除持久化已验证。
+[验收记录](../compatibility/native-credentials-sessions-20261005.md)：Debug 49/49，Release /
+ASAN / UBSAN / TSAN（setarch -R）相关4项各通过，340 ChatModel + 126 integration checks，
+系统钥匙环10 checks；本机真实模型及无环境Key的服务重启调用、删除后重启无复活取证。
+Windows凭据路径、恢复历史的Agent续跑（DEC-028已有产品状态限制）、托盘整体退出另验，
+M6整体仍 In Progress；未升级 pinned 依赖，未发布/合并。

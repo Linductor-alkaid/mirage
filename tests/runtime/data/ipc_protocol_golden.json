@@ -1,10 +1,10 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 10,
+    "version": 11,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
-    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted)",
+    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted), DEC-038 (Accepted)",
     "consumers": [
       "tests/runtime/ipc_protocol_golden_test.cpp"
     ],
@@ -20,7 +20,8 @@
       "v7 (M5-06): session.close management face (DEC-026 backlog item 2) - session.close request (non-empty session_id) with the SessionClosed reply (session_id + post-close state, mirroring the workflow.cancel reply shape; state from the pinned session state vocabulary); primary session refused invalid_state product-side, unknown id not_found, registry entry removed on success. wire order pinned by schema doc sections 4, 6.4 and 10.",
       "v8 (M5-06): dialog mode face (DEC-027) - session.chat / session.chat.history requests with the DialogTurnAccepted / DialogHistory payloads (turns carry pending/ok/failed closed status vocabulary, reply_text / error encode-when-set exactly at ok / failed), session.chat_updated event (pending / ok / failed lifecycle), hello 'chat' capability member (model-layer equipment, permissions-bit precedent); wire order pinned by schema doc sections 4, 6.1, 6.7 and 7.2.",
       "v9 (M5-07): permission policy face (DEC-020/DEC-011 evolution) - policy.get / policy.set requests with the PolicyView payload (full DEC-010 rule set, optional read_roots resource scope), hello 'policy' capability member (always served); wire order pinned by schema doc sections 4, 6.1, 6.8 and 10.",
-    "v10 (M5-10): task pause/resume face (DEC-030) - task.pause / task.resume requests with the TaskPaused / TaskResumed replies (task_id + post-command progress snapshot, mirroring the task.cancel reply shape); progress stays inside the task.updated / task.inspect vocabulary. wire order pinned by schema doc sections 4, 6.9 and 10."
+      "v10 (M5-10): task pause/resume face (DEC-030) - task.pause / task.resume requests with the TaskPaused / TaskResumed replies (task_id + post-command progress snapshot, mirroring the task.cancel reply shape); progress stays inside the task.updated / task.inspect vocabulary. wire order pinned by schema doc sections 4, 6.9 and 10.",
+      "v11 (M6-09): direct API Key write-only model.set field and optional cleanup warning; session.delete acknowledged persistence boundary. Existing v1 request/response canonical strings remain compatible; schema doc DEC-038 increment."
     ]
   },
   "requests": [
@@ -374,6 +375,35 @@
         ]
       },
       "canonical": "{\"v\":1,\"id\":35,\"op\":\"policy.set\",\"rules\":{\"application.launch\":\"allow\",\"application.terminate\":\"confirm\",\"clipboard.read\":\"allow\",\"clipboard.write\":\"confirm\",\"filesystem.read\":\"allow\",\"filesystem.write\":\"deny\",\"input.inject\":\"confirm\",\"notification.post\":\"allow\",\"process.execute\":\"confirm\",\"screen.capture\":\"allow\",\"window.activate\":\"allow\"},\"read_roots\":[\"/home/user/work\",\"/tmp/scratch\"]}"
+    },
+    {
+      "name": "session-delete",
+      "id": 91,
+      "body": {
+        "op": "session.delete",
+        "session_id": "session-1"
+      },
+      "canonical": "{\"v\":1,\"id\":91,\"op\":\"session.delete\",\"session_id\":\"session-1\"}"
+    },
+    {
+      "name": "model-key-write-only",
+      "id": 92,
+      "body": {
+        "op": "model.set",
+        "settings": "{\"schema\":1,\"model\":{\"enabled\":false}}",
+        "api_key": "synthetic-key"
+      },
+      "canonical": "{\"v\":1,\"id\":92,\"op\":\"model.set\",\"settings\":\"{\\\"schema\\\":1,\\\"model\\\":{\\\"enabled\\\":false}}\",\"api_key\":\"synthetic-key\"}"
+    },
+    {
+      "name": "model-key-remove",
+      "id": 93,
+      "body": {
+        "op": "model.set",
+        "settings": "{\"schema\":1,\"model\":{\"enabled\":false}}",
+        "api_key": ""
+      },
+      "canonical": "{\"v\":1,\"id\":93,\"op\":\"model.set\",\"settings\":\"{\\\"schema\\\":1,\\\"model\\\":{\\\"enabled\\\":false}}\",\"api_key\":\"\"}"
     }
   ],
   "request_failures": [
@@ -1531,6 +1561,35 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":37,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1,\"events\":true,\"permissions\":true,\"sessions\":true,\"workflows\":true,\"observation\":true,\"chat\":true,\"policy\":true}"
+    },
+    {
+      "name": "session-deleted",
+      "response": {
+        "id": 91,
+        "ok": true,
+        "payload": {
+          "kind": "session-deleted",
+          "value": {
+            "session_id": "session-1"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":91,\"ok\":true,\"session_id\":\"session-1\",\"deleted\":true}"
+    },
+    {
+      "name": "model-configuration-warning",
+      "response": {
+        "id": 92,
+        "ok": true,
+        "payload": {
+          "kind": "model-configuration",
+          "value": {
+            "settings": "{\"schema\":1}",
+            "warning": "cleanup pending"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":92,\"ok\":true,\"model_settings\":\"{\\\"schema\\\":1}\",\"warning\":\"cleanup pending\"}"
     }
   ],
   "response_failures": [
