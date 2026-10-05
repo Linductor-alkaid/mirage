@@ -213,3 +213,8 @@ ToolResultPart在集成测试及两家真实供应商工具往返通过。因此
 Resolved，历史探针现象保留不重写；Executor MinGW#75仍Open。
 MIRA-20261005-001的上游PR#79尚未合并；本地修复通过不冒充上游合并。
 详见[本轮验收](../compatibility/native-conversation-progress-20261005.md)。
+
+
+M6-19收尾回读：Mira PR#79的pull_request run37332976997在当前pin 0a099ba上12/12 jobs
+成功，含Windows/Android、GCC/Clang、sanitizers与quality；同SHA push另有未完quality，
+未合并PR。依赖CI通过不替代Mirage Windows界面真机验证。

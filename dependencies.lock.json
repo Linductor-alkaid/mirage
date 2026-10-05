@@ -77,11 +77,11 @@
       "path": "third_party/eui-neo",
       "version": "0.6.0-dev",
       "branch": "dev",
-      "commit": "df8ab1ce73c2cf50a1cdac9b2ccbfa3a380db777",
+      "commit": "ed1deb6d242c8c1472d782d042b54fbf9a208bb2",
       "license": "Apache-2.0",
       "license_file": "third_party/eui-neo/LICENSE",
       "consumption": "UI-only; opt-in apps/native; bundled GLFW/OpenGL; DEC-033",
-      "notes": "Dev 123f0c5 plus Linux XIM caret repair, upstream PR#88 https://github.com/sudoevolve/EUI-NEO/pull/88; DEC-041. Full commit is reachable from authorized maintainer fork.",
+      "notes": "Dev 88a9ec1 plus authorized XIM caret and backend-neutral lifecycle repairs. Upstream PR#88 https://github.com/sudoevolve/EUI-NEO/pull/88; DEC-041 / M6-19. Full commit reachable from maintainer fork; Mirage remains OpenGL.",
       "upstream": "https://github.com/sudoevolve/EUI-NEO.git"
     }
   ],

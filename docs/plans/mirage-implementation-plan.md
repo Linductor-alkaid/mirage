@@ -330,3 +330,9 @@ M6-07/08 Linux首步已完成，模型目录、真实文本附件、权限/推�
 Linux XIM候选光标跟随及公开Mira ConversationLoop；两项依赖修复分别提交上游PR，
 原Executor版本保留，锁与供应链审计同步。[验收](../compatibility/native-conversation-progress-20261005.md)。
 M6整体/入口托盘M6-04仍未完成，Windows/Wayland/物理高DPI另验。
+
+
+M6-19完成Linux依赖收尾：EUI四种窗口/渲染CI组合全部通过，Vulkan生命周期修复与
+SDK消费、Mirage原生回归通过。同步最新dev修复并移除库层异常临时覆写；Mira流式PR
+12项CI也已成功。未合并依赖PR，完整入口/托盘M6-04保持后续工作。
+[验收](../compatibility/eui-vulkan-followup-20261005.md)。

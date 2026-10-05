@@ -34,6 +34,7 @@
 | M6-15 | Completed（Linux） | 右侧工具组与ZCode视觉密度；DEC-041，正常/最小明暗与长名称验收 |
 | M6-16 | Completed（Linux X11） | 光标附近中文IME定位；DEC-041，依赖公开入口核查/最小补齐及焦点/缩放/多行验证 |
 | M6-17 | Completed（Linux） | 真实流式预览、等待动效与用时；DEC-041，终态/取消/失败/背压/关闭验证 |
+| M6-19 | Completed（Linux） | 修复EUI Vulkan生命周期探针，四种窗口/渲染组合CI与SDK消费复验；维护者2026-10-05明确授权，沿用DEC-041 |
 | M6-18 | Completed（Linux） | 接入Mira PR#76修复与公开ConversationLoop，保持Executor版本；依赖审计/回填/取消回归 |
 | M6-10 | Completed | 依工程规范9.4整理Mira/Mirador独立反馈台账，复核已登记问题并向Mira上游提交可复现反馈；不修改依赖或升级pin |
 
@@ -56,6 +57,7 @@
 - [x] M6-16 Linux XIM光标定位、候选两次移动与真实中文提交；高DPI/其他IM另验。
 - [x] M6-17 实时预览、等待/用时、旧客户端兼容及终态/失败/取消/关闭；ASAN/UBSAN/TSAN。
 - [x] M6-18 PR#76公开Loop/规范工具/SNI/workflow复验与依赖PR/pin审计。
+- [x] M6-19 EUI四项后端CI/SDK消费、Vulkan各33项、本地OpenGL及Mirage Debug/Release/ASAN回归。
 - [ ] M6-04 整体生命周期与安装包验收。
 
 ## 风险与实施记录
@@ -267,3 +269,19 @@ Debug针对5/5（含旧订阅），Release/ASAN/UBSAN各4/4，TSAN用setarch -R�
 四份DESIGN/JSON、协议/设计、依赖反馈/审计同步，内联降级复核通过，不称独立评审。
 [验收](../compatibility/native-conversation-progress-20261005.md)。Windows、原生Wayland、
 物理高DPI/其他IM与完整入口托盘退出待维护者在目标环境补跑；M6整体仍In Progress。
+
+2026-10-05 / M6-19：维护者要求解决EUI Vulkan问题并继续推进。已确认CI探针
+无条件包含GLAD且硬编码OpenGL窗口；先按EUI公开windowRenderApi选择配置后端，
+验证GLFW/SDL2 × OpenGL/Vulkan、SDK安装消费，再同步PR/pin和Mirage原生回归。
+此项不改变Mirage当前OpenGL产品后端，不开启RPA/workflow。
+
+M6-19补充：本地Release暴露旧pin的-fno-exceptions构建失败；上游dev88a9ec1已合并
+对应平台/DSL无异常修复（#84/#85/#86）。普通merge保留已发表IME提交，不重写历史；
+同步此dev基线后复验Vulkan，不另造异常处理绕行。
+
+M6-19完成：PR#88 run37338533567四项后端矩阵与SDK消费全部success；两种Vulkan本地
+各33/33及SDK consumer1/1、OpenGL生命周期回归通过。Mirage Debug/Release/ASAN各2/2，
+格式/边界通过；EUI-20261003-002升级后Resolved并删除库层异常覆写，应用自身异常保留。
+Mira PR#79 pull_request 12项CI成功。pin ed1deb6与锁/审计同步，无force-push/merge。
+[本轮验收](../compatibility/eui-vulkan-followup-20261005.md)。M6整体与M6-04未完成，
+物理GPU/Wayland/Windows原生IME/高DPI仍由维护者在目标环境补跑。

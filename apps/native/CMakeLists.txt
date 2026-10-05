@@ -17,11 +17,8 @@ include("${CMAKE_SOURCE_DIR}/cmake/MirageEuiGlfw.cmake")
 mirage_provide_eui_glfw()
 add_subdirectory("${CMAKE_SOURCE_DIR}/third_party/eui-neo"
                  "${CMAKE_BINARY_DIR}/third_party/eui-neo" EXCLUDE_FROM_ALL)
-# EUI-20261003-002: dev platform.cpp catches filesystem errors but its
-# Release flags disable exceptions. Enable them through target properties.
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(eui_neo PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fexceptions>)
-endif()
+# EUI-20261003-002: upstream dev 88a9ec1 supplies the no-exceptions platform fix.
+# Keep upstream library flags; the application retains exceptions for Executor.
 
 add_executable(mirage-native app.cpp chat_model.cpp window_controls.cpp runtime_bridge.cpp attachment.cpp)
 # Replace EUI's example executable icon with the imported Mira artwork.

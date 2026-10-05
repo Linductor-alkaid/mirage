@@ -1,7 +1,7 @@
 # EUI-NEO 集成反馈
 
 EUI 为维护者授权的 UI 专用依赖（DEC-033），不属于 Mira / Mirador 能力台账。
-以下是本地记录，尚未向上游发送消息或创建 issue。
+以下逐项维护历史证据与上游状态；已提交或升级复验的条目分别记录链接。
 
 ## EUI-20261003-001：GLFW IME 构建门禁使用 CRLF 摘要
 
@@ -23,7 +23,7 @@ EUI 为维护者授权的 UI 专用依赖（DEC-033），不属于 Mira / Mirado
 
 ## EUI-20261003-002：Release 禁用异常但平台实现使用 catch
 
-- 状态：Open；负责人：Mirage 维护者；影响：GCC Linux Release 构建。
+- 状态：Resolved；负责人：Mirage 维护者；影响：GCC Linux Release 构建。
 - 版本：dev / 4691fc0；复现：native-release 构建，core/platform/platform.cpp:286
   报 exception handling disabled（文件对话框临时目录错误捕获）。
 - 核查：eui_apply_compile_options 在非 Debug 使用 -fno-exceptions，平台源码却无条件
@@ -31,7 +31,7 @@ EUI 为维护者授权的 UI 专用依赖（DEC-033），不属于 Mira / Mirado
 - 临时集成：仅在应用 CMake 追加 eui_neo / mirage-native 的 -fexceptions，保留已知错误
   捕获语义，无上游源码修改。风险：库体积可能增加，尚无性能保证。
 - 期望与移除：上游统一异常策略并覆盖 Linux Release 构建，升级验证后移除覆写。
-- 延期影响：当前可通过 target 属性继续构建；新平台仍需独立验证。未向上游发消息。
+- 延期影响：历史通过target属性绕行；新平台仍需独立验证。早期未提交，当前上游[#86](https://github.com/sudoevolve/EUI-NEO/pull/86)已合并，dev88a9ec1升级与Release验证后移除库层覆写；验收见[M6-19](../compatibility/eui-vulkan-followup-20261005.md)。
 
 ## EUI-20261004-003：PNG 中 SVG 元数据被误判成 SVG 文件
 
@@ -148,5 +148,16 @@ EUI 为维护者授权的 UI 专用依赖（DEC-033），不属于 Mira / Mirado
 - 最小修复：平台层协商PreeditPosition并保留Nothing回退；公共窗口内像素接口更新XNSpotLocation，EUI桥接行底坐标与framebuffer/window换算。
 - 资源：字体集与XIC随窗口销毁；不引入线程、队列或业务调度。未知/不支持的IM保留原有输入行为，不宣称定位保证。
 - 验收：私有Xvfb+真实IBus XIM确认位置样式、三次光标位置；中文候选/提交与Enter过滤保持正常；应用渲染/缩放回归。
-- 授权：2026-10-05维护者允许依赖修复并要求上游PR；已提交[上游PR#88](https://github.com/sudoevolve/EUI-NEO/pull/88)，pin df8ab1c；私有Xvfb/IBus/libpinyin候选(220,440)→(400,280)与光标一致，提交“你好”。上游未合并，保持Accepted。
+- 授权：2026-10-05维护者允许依赖修复并要求上游PR；已提交[上游PR#88](https://github.com/sudoevolve/EUI-NEO/pull/88)，首轮pin df8ab1c（M6-19升级为ed1deb6）；私有Xvfb/IBus/libpinyin候选(220,440)→(400,280)与光标一致，提交“你好”。上游未合并，保持Accepted。
 - 延期/移除条件：没有修复时保留原候选位置；同步可审查PR提交及锁文件后复验。Wayland原生后端不在本轮（Mirage当前使用X11/XWayland）。
+
+
+## EUI-20261005-009：Vulkan CI生命周期探针绑定OpenGL
+
+- 状态：Accepted；负责人：Mirage维护者；工作项M6-19，沿用DEC-041。
+- 复现版本：dev123f0c5及当时pin df8ab1c；已核对render_backend.h公开windowRenderApi及其他后端探针。
+- 证据：PR#88 CI两项Vulkan在dsl_app_lifecycle_probe.cpp:11因glad/glad.h不存在失败；GLAD并未被此探针使用。
+- 后续问题：探针硬编码RenderApi::OpenGL，移除include仍会创建与Vulkan backend不匹配的窗口；这是依赖测试夹具问题，不是Mirage选择错误。
+- 最小修复：删除不用的GLAD include，复用公开windowRenderApi选择配置后端，不增加渲染实现或并发设施。
+- 影响/延期：Vulkan CI无法通过；保持Mirage既有OpenGL后端，不能将两项OpenGL通过宣称全矩阵通过。
+- 验收：四种窗口/渲染组合build、unit/probe、SDK消费者；维护者明确授权修改并要求保留上游PR。[PR#88](https://github.com/sudoevolve/EUI-NEO/pull/88)新增独立提交ed1deb6；两种Vulkan各33/33及SDK消费者通过，OpenGL生命周期回归通过；远程run37338533567四项后端/SDK消费全部success，状态Accepted（上游PR尚未合并）。

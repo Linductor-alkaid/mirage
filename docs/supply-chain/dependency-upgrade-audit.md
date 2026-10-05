@@ -321,3 +321,13 @@ Linux Debug五项、Release/ASAN/UBSAN各四项、TSAN关闭ASLR后的协议/集
 Debug与架构检查通过；EUI bundled Debug与真实私有IBus候选移动/中文提交通过。
 Windows、Wayland/物理高DPI/其他IM及上游Mira当前依赖CI未覆盖，负责人维护者在目标环境
 补跑。完整[验收证据](../compatibility/native-conversation-progress-20261005.md)。
+
+
+## M6-19：EUI Vulkan生命周期修复及dev同步
+
+EUI df8ab1c→ed1deb6：普通merge上游dev88a9ec1并新增独立生命周期探针提交。上游7文件
+涵盖已接受的GLFW3.3标识兼容、平台无异常临时目录失败处理、DSL启动异常策略及对应
+测试；自研补丁仅移除GLAD/复用已配置RenderApi。Apache-2.0/GLFW zlib与其他依赖不变，
+同一PR#88可审查，gitlink/lock同步。Mirage删除库层异常覆写，应用自身Executor异常处理
+保留，不改变实际产品GLFW/OpenGL后端。两种Vulkan各33/33和SDK消费通过，远程矩阵
+及Mirage回归见[验收](../compatibility/eui-vulkan-followup-20261005.md)，未验证平台不作保证。
