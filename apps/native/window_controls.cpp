@@ -90,8 +90,12 @@ void toggle_maximize() {
         glfwMaximizeWindow(handle);
 }
 void close() {
-    if (handle)
+    if (handle) {
         glfwSetWindowShouldClose(handle, GLFW_TRUE);
+        // A click is dispatched during compose/update; EUI can enter its idle
+        // wait later in that same frame. Wake it to observe the close flag.
+        glfwPostEmptyEvent();
+    }
 }
 void copy_text(const std::string &text) {
     if (handle)

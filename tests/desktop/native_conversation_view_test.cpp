@@ -35,6 +35,7 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(backend && backend->initialize());
     core::render::ScopedRenderBackend backend_scope(*backend);
     using namespace mirage::native_ui;
+    window::initialize();
     // Reject an absent/corrupt shipped face rather than accepting EUI's fallback.
     FT_Library font_library = nullptr;
     FT_Face font_face = nullptr;
@@ -352,6 +353,11 @@ const auto model = "Mirage";
                   << "; frame.y=" << long_bounds.y << "; origin.y=" << page.selection.origin_y
                   << "; ready=" << page.selection.ready << '\n';
     MIRAGE_CHECK(page.selection.ready && page.selection.excerpt.starts_with(expected_prefix));
+    glfwPollEvents();
+    window::close();
+    glfwWaitEvents();
+    MIRAGE_CHECK(glfwWindowShouldClose(window));
+    window::shutdown();
     runtime.shutdown();
     backend.reset();
     core::window::destroyWindow(handle);
