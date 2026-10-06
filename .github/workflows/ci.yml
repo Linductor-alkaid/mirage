@@ -169,10 +169,10 @@ jobs:
         with:
           submodules: recursive
       - name: Install native UI build prerequisites
-        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libcurl4-openssl-dev xvfb
       - name: Configure native frontend
         run: cmake --preset native-debug -DMIRAGE_FETCH_DEPENDENCIES=OFF
       - name: Build native UI and harness tests
-        run: cmake --build build/native-debug --target mirage-native native_chat_model_test native_agent_integration_test
+        run: cmake --build build/native-debug --target mirage-native native_chat_model_test native_agent_integration_test native_conversation_view_test
       - name: Verify native state and IPC
-        run: ctest --test-dir build/native-debug -R 'native_chat_model_test|native_agent_integration_test' --output-on-failure
+        run: ctest --test-dir build/native-debug -R 'native_chat_model_test|native_agent_integration_test|native_conversation_view_test' --output-on-failure
