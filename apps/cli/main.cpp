@@ -1,3 +1,4 @@
+#include "../common/environment.hpp"
 #include <mirage/platform/platform_info.hpp>
 #include <mirage/runtime/ipc/client.hpp>
 #include <mirage/runtime/ipc/endpoint.hpp>
@@ -509,8 +510,8 @@ std::optional<long> spawn_product_tray(const std::string &binary, const std::str
     startup.cb = sizeof(startup);
     PROCESS_INFORMATION process{};
     const DWORD flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP;
-    const auto *previous = std::getenv("MIRAGE_NATIVE_SOCKET");
-    const std::string previous_value = previous ? previous : "";
+    const auto previous = mirage::apps::environment_variable("MIRAGE_NATIVE_SOCKET");
+    const std::string previous_value = previous.value_or("");
     if (!socket_path.empty())
         (void)::_putenv_s("MIRAGE_NATIVE_SOCKET", socket_path.c_str());
     const BOOL created = ::CreateProcessA(nullptr, command.data(), nullptr, nullptr, FALSE, flags,
