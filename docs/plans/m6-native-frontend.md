@@ -42,6 +42,7 @@
 | M6-23 | Completed（Linux X11） | 实际模型页35项交互修复/复验；DEC-044，324项renderer、ACK、断线重连与最小明暗证据 |
 | M6-25 | Completed（Linux X11） | 托盘内嵌Runtime、独立前端准入/复用、左键两项菜单、整体退出与活动确认；DEC-045 |
 | M6-24 | Completed（Linux X11） | 修复开发desktop入口绕过Service；真实GIO冷启动、Key保存/替换与服务复用验收 |
+| M6-28 | In Progress | 原生前端 PR 栈 CI 验收、按依赖合并与已合并分支/过期 build 清理；[维护计划](maintenance-ci-acceptance-20261007.md) |
 | M6-10 | Completed | 依工程规范9.4整理Mira/Mirador独立反馈台账，复核已登记问题并向Mira上游提交可复现反馈；不修改依赖或升级pin |
 
 ## 测试矩阵与退出条件
