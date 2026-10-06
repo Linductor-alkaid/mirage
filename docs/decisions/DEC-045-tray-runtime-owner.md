@@ -42,3 +42,25 @@ FrontendProcess.open 在既有子进程路径直接经 Platform Backend 请求�
 所有工作仍为 Runtime 串行上下文有限任务，不新增 UI 定时器/线程或修改 EUI。
 未映射的初始子进程保留首次 map；预算超限/平台请求失败有诊断。焦点仍受 WM/系统
 规则约束，恢复请求不等同于未经核对的实际焦点 ACK。
+
+
+## 2026-10-06 左键托盘菜单
+
+按维护者明确要求，左键单击托盘显示固定两项，顺序为“打开应用”“退出应用”；右键
+仍可打开相同菜单。打开复用/恢复所属前端，前端已关闭时由托盘重建；退出继续使用
+Runtime 的活动计数、退出确认与取消/排空链路。状态只放在图标 tooltip。此产品默认值
+替代 DEC-030 决策 3 的状态头/暂停/恢复可见条目；既有 task.pause/task.resume IPC
+契约与 TrayAction 枚举保持兼容，但平台菜单不再投递这两种动作。
+
+Linux 由桌面宿主显示菜单，不增加 GTK 窗口或另一事件泵。SNI ItemIsMenu=true，
+保留 Menu 路径且不声明 Activate 方法，以便宿主把左键用于菜单。DBusMenu GetLayout
+返回 `(u(ia{sv}av))`：id=0 根、children-display=submenu 和两个 variant 子节点；
+AboutToShow 使用有符号 id，ItemsPropertiesUpdated 的删除列表使用 a(ias)，ToolTip
+的 pixmap 使用 a(iiay)。补齐菜单 Version/TextDirection/Status/IconThemePath 属性，
+批量属性最多接受 256 个 id，旧/未知 id 不派发业务动作。平台回调仍仅投递既有
+Executor 有界动作通道，不改变业务生命周期。
+
+协议核对依据：[StatusNotifierItem 规范](https://specifications.freedesktop.org/status-notifier-item/latest/status-notifier-item.html)、
+[DBusMenu XML](https://github.com/Alexays/Waybar/blob/master/protocol/dbus-menu.xml)，以及本机
+ubuntu-appindicators 的 interfaces.js / dbusMenu.js / indicatorStatusIcon.js。验证区别
+标准签名互通与真实通知区鼠标点击；未执行后者时不以协议测试替代像素验收。

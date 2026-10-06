@@ -43,8 +43,8 @@ Linux 已验证系统凭据与重启调用；Windows 凭据路径尚待目标环
 当前正文/输入14EM、22px行距，上下文/模型归入右侧组；等待有动效及真实用时。
 Linux XIM/IBus候选跟随光标并已验证中文提交；原生Wayland、物理高DPI与其他IM待验。
 依赖修复PR与完整证据见[本轮验收](../../docs/compatibility/native-conversation-progress-20261005.md)。
-关闭窗口仅退出前端；Agent 服务和任务在托盘继续驻留。托盘“打开 Mirage”重开或激活
-单个窗口；“退出”有活动 Agent/Workflow 时显示取消/停止确认，再回收整个应用。
+关闭窗口仅退出前端；Agent 服务和任务在托盘继续驻留。左键单击托盘显示菜单，“打开应用”重开或激活
+单个窗口；“退出应用”有活动 Agent/Workflow 时显示取消/停止确认，再回收整个应用。
 `mirage start --no-shell` 仅驻留托盘，普通启动会复用它。前端在创建窗口前验证托盘
 及所属子进程身份，不能直接启动或连接 headless Service。Linux 需要 SNI 通知区宿主；
 注册失败会明确拒绝启动，不打开孤立窗口。进程契约见 DEC-045；安装包/Windows 仍属 M6-04。

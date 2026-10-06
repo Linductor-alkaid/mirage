@@ -40,7 +40,7 @@
 | M6-22 | Completed | 会话侧栏/服务名输入间距、厂商预设、Anthropic Messages接入与MiniMax-M3真实识图；DEC-043 |
 | M6-21 | Completed（Linux X11） | 侧栏统一内容缩进/图标轴；ZCode服务导航、未命名草稿、连接配置和模型列表；保存ACK、失败保留、真实配置重载验收，依据DEC-042 |
 | M6-23 | Completed（Linux X11） | 实际模型页35项交互修复/复验；DEC-044，324项renderer、ACK、断线重连与最小明暗证据 |
-| M6-25 | Completed（Linux X11） | 托盘内嵌Runtime、独立前端准入/复用、托盘整体退出与活动确认；DEC-045 |
+| M6-25 | Completed（Linux X11） | 托盘内嵌Runtime、独立前端准入/复用、左键两项菜单、整体退出与活动确认；DEC-045 |
 | M6-24 | Completed（Linux X11） | 修复开发desktop入口绕过Service；真实GIO冷启动、Key保存/替换与服务复用验收 |
 | M6-10 | Completed | 依工程规范9.4整理Mira/Mirador独立反馈台账，复核已登记问题并向Mira上游提交可复现反馈；不修改依赖或升级pin |
 
@@ -342,3 +342,16 @@ BUG-20261006-006 已修复：托盘通过 Platform Backend 恢复自己持有的
 最小化时暂停的 compose。GNOME 应用列表条目实际恢复、私有 WM 21/21、所属 PID/
 错误 PID/256 窗口预算平台测试通过；Release 相关 4/4 加平台 1/1、ASAN/UBSAN
 相关各 2/2 加平台各 1/1。Linux 范围恢复 Completed，未更改 Windows/包装验收状态。
+
+
+2026-10-06 / M6-25 菜单增量 In Progress：维护者要求左键单击托盘显示仅“打开应用”/
+“退出应用”两项。沿 DEC-045 复用 open/quit 与活动确认；修正 Linux DBusMenu 根树
+及宿主互通格式，菜单提示保留在 tooltip，移除暂停/恢复的可见条目，不修改依赖。
+
+
+2026-10-06 / M6-25 菜单增量 Completed（Linux 协议/私有产品范围）：左键菜单声明、
+标准根树、两项标签/启用状态、签名互通通过；真实产品 23/23，Release 相关 3/3，
+菜单后端 79 checks；ASAN/UBSAN/受控 ASLR TSAN 各 1/1。首次 ASAN 发现事件字符串
+和夹具 GMainLoop 泄漏，修复并复跑通过。当前用户实例保留，待正常重启加载；真实
+GNOME 通知区鼠标菜单及 Windows 留给维护者目标环境补验，不计为已完成。详见
+[托盘验收](../compatibility/tray-runtime-owner-20261006.md)菜单增量。

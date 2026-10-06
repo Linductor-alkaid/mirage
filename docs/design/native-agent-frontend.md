@@ -250,3 +250,12 @@ BUG-20261006-003/004修订加载门禁：初次连接前允许本地预设选择
 FrontendProcess 平台实现直接匹配所属子进程窗口，请求 WM 恢复，再由既有 IPC
 状态处理继续 UI 显示/确认。GNOME 实际应用条目及私有 ICCCM/EWMH 夹具补验，
 证据见 [托盘验收补充](../compatibility/tray-runtime-owner-20261006.md)。
+
+
+## 托盘菜单入口（M6-25 / DEC-045）
+
+左键单击常驻托盘弹出“打开应用”“退出应用”两项菜单。“打开应用”经托盘 Runtime
+复用/恢复所属前端或重建已关闭的前端。“退出应用”无活动工作时整体关闭；有活动
+Agent/任务/Workflow 时先恢复前端显示退出确认，取消保留工作，确认后取消并收敛。
+Linux 菜单由 StatusNotifierItem/DBusMenu 宿主呈现，Windows 使用平台弹出菜单；
+状态保留在 tooltip，菜单不展示暂停/恢复。既有 Executor owner/有界动作通道不变。

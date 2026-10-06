@@ -87,6 +87,35 @@ bus.call_sync(sys.argv[1],'/org/mirage/tray/menu','com.canonical.dbusmenu','Even
         wire = Wire(endpoint)
         first = control()
         check('two processes with ready native child', first['frontend_pid'] == ui.pid and first['frontend_ready'])
+        destination = json.loads((output / 'sni-watcher.json').read_text())['items'][-1]
+        menu_probe = """import json,sys
+from gi.repository import Gio, GLib
+bus=Gio.bus_get_sync(Gio.BusType.SESSION,None)
+def call(path,iface,method,args,reply):
+ return bus.call_sync(sys.argv[1],path,iface,method,args,GLib.VariantType.new(reply),
+                      Gio.DBusCallFlags.NONE,3000,None).unpack()
+_,root=call('/org/mirage/tray/menu','com.canonical.dbusmenu','GetLayout',
+            GLib.Variant('(iias)',(0,-1,[])),'(u(ia{sv}av))')
+menu=call('/org/mirage/tray','org.freedesktop.DBus.Properties','Get',
+          GLib.Variant('(ss)',('org.kde.StatusNotifierItem','ItemIsMenu')),'(v)')[0]
+about=call('/org/mirage/tray/menu','com.canonical.dbusmenu','AboutToShow',
+           GLib.Variant('(i)',(0,)),'(b)')[0]
+properties=call('/org/mirage/tray/menu','org.freedesktop.DBus.Properties','GetAll',
+                GLib.Variant('(s)',('com.canonical.dbusmenu',)),'(a{sv})')[0]
+print(json.dumps(dict(root_id=root[0],children=root[2],menu=menu,about=about,
+                     version=properties['Version'])))
+"""
+        probe = subprocess.run(['/usr/bin/python3', '-c', menu_probe, destination], env=env,
+                               check=True, capture_output=True, text=True, timeout=8)
+        exported = json.loads(probe.stdout)
+        check('left-click menu advertised with standard root and two enabled actions',
+              exported['menu'] is True and exported['root_id'] == 0 and
+              [(child[0], child[1]['label'], child[1]['enabled'], child[2])
+               for child in exported['children']] ==
+              [(5, '打开应用', True, []), (99, '退出应用', True, [])])
+        check('host menu preparation and properties use interoperable signatures',
+              exported['about'] is False and exported['version'] == 3)
+
         check('repeat application open reuses tray and window', command('start').returncode == 0 and control()['frontend_pid'] == ui.pid)
         D = display.Display()
         root = D.screen().root
@@ -141,7 +170,7 @@ bus.call_sync(sys.argv[1],'/org/mirage/tray/menu','com.canonical.dbusmenu','Even
         check('closing native leaves tray and Runtime running; child reaped', closed['frontend_pid'] == 0 and tray.poll() is None)
         menu(5)
         reopened = await_value(control, lambda p: p['frontend_ready'])
-        check('tray Open Mirage reopens a new child', reopened['frontend_pid'] != ui.pid)
+        check('tray Open Application reopens a new child', reopened['frontend_pid'] != ui.pid)
         w = window(reopened['frontend_pid'])
         task = wire.call('task.submit', goal='退出确认测试：私有 sleep 任务', steps=[dict(op='process.execute', arg='sleep 30')])['task_id']
         check('incomplete task is counted by Runtime', control()['active_work'] >= 1)

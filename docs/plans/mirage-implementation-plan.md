@@ -362,3 +362,10 @@ In Progress，等待 Windows、原生 Wayland 和安装包补验。
 2026-10-06 / M6-25 补验：BUG-20261006-006 的最小化恢复由所属 FrontendProcess
 平台边界处理，GNOME 条目恢复、私有 WM 21/21 和有界 PID 平台测试通过。窗口
 更新通知不再是恢复的前提，Linux 范围 Completed；Windows/包装仍未验收。
+
+
+2026-10-06 / M6-25 菜单增量：按维护者要求左键显示“打开应用”“退出应用”，修正
+Linux DBusMenu 宿主格式，保持 Runtime 活动退出确认。Linux 协议/私有真实产品
+23/23、相关 Release 3/3、ASAN/UBSAN/受控 ASLR TSAN 各 1/1 通过；真实通知区鼠标
+与 Windows 补验仍未执行，不改变 M6-04 范围。当前用户实例待重启，
+[证据](../compatibility/tray-runtime-owner-20261006.md)。

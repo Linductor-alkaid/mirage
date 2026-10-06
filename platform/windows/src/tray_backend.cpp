@@ -33,9 +33,6 @@ constexpr UINT kWakeupMessage = WM_APP + 2;
 
 /// Menu command ids of the context menu (TrackPopupMenuEx returns the id).
 enum : int {
-    kMenuStatus = 0, ///< header entry: disabled, shows the status line
-    kMenuPause = 1,
-    kMenuResume = 2,
     kMenuOpenShell = 3,
     kMenuQuit = 9,
 };
@@ -85,17 +82,9 @@ LRESULT CALLBACK tray_window_proc(HWND window, UINT message, WPARAM wparam, LPAR
             const auto append = [&](UINT flags, UINT_PTR id, const wchar_t *text) {
                 ::AppendMenuW(menu, flags, id, text);
             };
-            append(MF_STRING | MF_DISABLED, kMenuStatus, state->status.c_str());
-            append(MF_SEPARATOR, 0, nullptr);
-            append(MF_STRING | (state->state.can_pause ? MF_ENABLED : MF_GRAYED), kMenuPause,
-                   L"暂停任务");
-            append(MF_STRING | (state->state.can_resume ? MF_ENABLED : MF_GRAYED), kMenuResume,
-                   L"恢复任务");
-            append(MF_SEPARATOR, 0, nullptr);
             append(MF_STRING | (state->state.can_open_shell ? MF_ENABLED : MF_GRAYED),
-                   kMenuOpenShell, L"打开 Mirage");
-            append(MF_SEPARATOR, 0, nullptr);
-            append(MF_STRING, kMenuQuit, L"退出");
+                   kMenuOpenShell, L"打开应用");
+            append(MF_STRING, kMenuQuit, L"退出应用");
             ::SetForegroundWindow(window);
             POINT cursor{};
             ::GetCursorPos(&cursor);
@@ -106,12 +95,9 @@ LRESULT CALLBACK tray_window_proc(HWND window, UINT message, WPARAM wparam, LPAR
                                    cursor.y, window, nullptr);
             ::DestroyMenu(menu);
             ::PostMessageW(window, WM_NULL, 0, 0); // settle the foreground switch
-            if (command == kMenuPause || command == kMenuResume || command == kMenuOpenShell ||
-                command == kMenuQuit) {
-                const TrayAction action = command == kMenuPause       ? TrayAction::Pause
-                                          : command == kMenuResume    ? TrayAction::Resume
-                                          : command == kMenuOpenShell ? TrayAction::OpenShell
-                                                                      : TrayAction::Quit;
+            if (command == kMenuOpenShell || command == kMenuQuit) {
+                const TrayAction action =
+                    command == kMenuOpenShell ? TrayAction::OpenShell : TrayAction::Quit;
                 if (state->context.on_action) {
                     state->context.on_action(action);
                 }

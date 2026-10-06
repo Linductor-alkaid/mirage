@@ -33,12 +33,7 @@ constexpr const char *kItemId = "mirage-tray";
 
 /// Menu item ids of the fixed layout (com.canonical.dbusmenu item ids).
 enum : guint {
-    kItemStatus = 1, ///< header entry: disabled, shows the status line
-    kItemPause = 2,
-    kItemResume = 3,
-    kItemSeparator1 = 4,
     kItemOpenShell = 5,
-    kItemSeparator2 = 6,
     kItemQuit = 99,
 };
 
@@ -50,7 +45,8 @@ constexpr const char *kItemXml = "<node>"
                                  "    <property name='Title' type='s' access='read'/>"
                                  "    <property name='Status' type='s' access='read'/>"
                                  "    <property name='IconName' type='s' access='read'/>"
-                                 "    <property name='ToolTip' type='(sa(iiidd)ss)' access='read'/>"
+                                 "    <property name='ToolTip' type='(sa(iiay)ss)' access='read'/>"
+                                 "    <property name='ItemIsMenu' type='b' access='read'/>"
                                  "    <property name='Menu' type='o' access='read'/>"
                                  "  </interface>"
                                  "</node>";
@@ -58,8 +54,12 @@ constexpr const char *kItemXml = "<node>"
 /// The com.canonical.dbusmenu interface (the subset the menu uses).
 constexpr const char *kMenuXml = "<node>"
                                  "  <interface name='com.canonical.dbusmenu'>"
+                                 "    <property name='Version' type='u' access='read'/>"
+                                 "    <property name='TextDirection' type='s' access='read'/>"
+                                 "    <property name='Status' type='s' access='read'/>"
+                                 "    <property name='IconThemePath' type='as' access='read'/>"
                                  "    <method name='AboutToShow'>"
-                                 "      <arg name='parentId' type='u' direction='in'/>"
+                                 "      <arg name='parentId' type='i' direction='in'/>"
                                  "      <arg name='needUpdate' type='b' direction='out'/>"
                                  "    </method>"
                                  "    <method name='GetLayout'>"
@@ -67,7 +67,7 @@ constexpr const char *kMenuXml = "<node>"
                                  "      <arg name='recursionDepth' type='i' direction='in'/>"
                                  "      <arg name='propertyNames' type='as' direction='in'/>"
                                  "      <arg name='revision' type='u' direction='out'/>"
-                                 "      <arg name='layout' type='a(ia{sv}av)' direction='out'/>"
+                                 "      <arg name='layout' type='(ia{sv}av)' direction='out'/>"
                                  "    </method>"
                                  "    <method name='GetGroupProperties'>"
                                  "      <arg name='ids' type='ai' direction='in'/>"
@@ -87,7 +87,7 @@ constexpr const char *kMenuXml = "<node>"
                                  "    </method>"
                                  "    <signal name='ItemsPropertiesUpdated'>"
                                  "      <arg name='updatedProps' type='a(ia{sv})' direction='out'/>"
-                                 "      <arg name='removedProps' type='as' direction='out'/>"
+                                 "      <arg name='removedProps' type='a(ias)' direction='out'/>"
                                  "    </signal>"
                                  "    <signal name='LayoutUpdated'>"
                                  "      <arg name='revision' type='u' direction='out'/>"
@@ -96,56 +96,20 @@ constexpr const char *kMenuXml = "<node>"
                                  "  </interface>"
                                  "</node>";
 
-/// One menu entry of the fixed layout.
-struct MenuEntry {
-    guint id = 0;
-    const char *label = nullptr; ///< nullptr renders a separator entry
-};
-
-constexpr MenuEntry kMenuLayout[] = {
-    {kItemStatus, nullptr},     {kItemPause, "暂停任务"},        {kItemResume, "恢复任务"},
-    {kItemSeparator1, nullptr}, {kItemOpenShell, "打开 Mirage"}, {kItemSeparator2, nullptr},
-    {kItemQuit, "退出"},
-};
+constexpr guint kMenuLayout[] = {kItemOpenShell, kItemQuit};
 
 GVariant *menu_props_for(const TrayState &state, guint id) {
     GVariantBuilder builder;
     g_variant_builder_init(&builder, G_VARIANT_TYPE("a{sv}"));
-    if (id == kItemSeparator1 || id == kItemSeparator2) {
-        g_variant_builder_add(&builder, "{sv}", "type", g_variant_new_string("separator"));
-        g_variant_builder_add(&builder, "{sv}", "enabled", g_variant_new_boolean(FALSE));
-        return g_variant_builder_end(&builder);
-    }
-    if (id == kItemStatus) {
+    if (id == 0) {
+        g_variant_builder_add(&builder, "{sv}", "children-display",
+                              g_variant_new_string("submenu"));
+    } else if (id == kItemOpenShell || id == kItemQuit) {
         g_variant_builder_add(&builder, "{sv}", "label",
-                              g_variant_new_string(state.status.c_str()));
-        g_variant_builder_add(&builder, "{sv}", "enabled", g_variant_new_boolean(FALSE));
-        return g_variant_builder_end(&builder);
+                              g_variant_new_string(id == kItemOpenShell ? "打开应用" : "退出应用"));
+        g_variant_builder_add(&builder, "{sv}", "enabled",
+                              g_variant_new_boolean(id == kItemQuit || state.can_open_shell));
     }
-    const char *label = "";
-    gboolean enabled = FALSE;
-    switch (id) {
-    case kItemPause:
-        label = "暂停任务";
-        enabled = state.can_pause ? TRUE : FALSE;
-        break;
-    case kItemResume:
-        label = "恢复任务";
-        enabled = state.can_resume ? TRUE : FALSE;
-        break;
-    case kItemOpenShell:
-        label = "打开 Mirage";
-        enabled = state.can_open_shell ? TRUE : FALSE;
-        break;
-    case kItemQuit:
-        label = "退出";
-        enabled = TRUE;
-        break;
-    default:
-        break;
-    }
-    g_variant_builder_add(&builder, "{sv}", "label", g_variant_new_string(label));
-    g_variant_builder_add(&builder, "{sv}", "enabled", g_variant_new_boolean(enabled));
     return g_variant_builder_end(&builder);
 }
 
@@ -208,12 +172,30 @@ GVariant *get_property(GDBusConnection *, const gchar *, const gchar *, const gc
             surface->carrier.icon_path.empty() ? kItemId : surface->carrier.icon_path.c_str());
     }
     if (g_strcmp0(property, "ToolTip") == 0) {
-        return g_variant_new_parsed("('%s', @a(iiidd) [], 'Mirage', %s)", kItemId,
-                                    state.status.c_str());
+        return g_variant_new("(s@a(iiay)ss)", kItemId,
+                             g_variant_new_array(G_VARIANT_TYPE("(iiay)"), nullptr, 0), "Mirage",
+                             state.status.c_str());
     }
+    if (g_strcmp0(property, "ItemIsMenu") == 0)
+        return g_variant_new_boolean(TRUE);
     if (g_strcmp0(property, "Menu") == 0) {
         return g_variant_new_object_path(kMenuPath);
     }
+    g_set_error(error, G_DBUS_ERROR, G_DBUS_ERROR_UNKNOWN_PROPERTY, "unknown property '%s'",
+                property);
+    return nullptr;
+}
+
+GVariant *menu_get_property(GDBusConnection *, const gchar *, const gchar *, const gchar *,
+                            const gchar *property, GError **error, gpointer) {
+    if (g_strcmp0(property, "Version") == 0)
+        return g_variant_new_uint32(3);
+    if (g_strcmp0(property, "TextDirection") == 0)
+        return g_variant_new_string("ltr");
+    if (g_strcmp0(property, "Status") == 0)
+        return g_variant_new_string("normal");
+    if (g_strcmp0(property, "IconThemePath") == 0)
+        return g_variant_new_strv(nullptr, 0);
     g_set_error(error, G_DBUS_ERROR, G_DBUS_ERROR_UNKNOWN_PROPERTY, "unknown property '%s'",
                 property);
     return nullptr;
@@ -229,33 +211,34 @@ void menu_method_call(GDBusConnection *, const gchar *, const gchar *, const gch
                       gpointer user_data) {
     auto *surface = static_cast<GioTrayCarrier::Surface *>(user_data);
     if (g_strcmp0(method, "GetLayout") == 0) {
-        guint depth = 0;
-        g_variant_get(parameters, "(iias)", nullptr, &depth, nullptr);
-        GVariantBuilder layout;
-        g_variant_builder_init(&layout, G_VARIANT_TYPE("a(ia{sv}av)"));
-        for (const MenuEntry &entry : kMenuLayout) {
-            // Tuple construction (never "{sv}"/"a..." varargs slots): the
-            // format-string varargs language would read the pre-built
-            // GVariant* as a key pointer / varargs array and overrun
-            // (verification round 1, defects 3 and 4).
-            GVariant *props = depth != 0 ? menu_properties_variant(*surface, entry.id)
-                                         : g_variant_new("a{sv}", nullptr);
-            GVariant *children = g_variant_new_array(G_VARIANT_TYPE("v"), nullptr, 0);
-            GVariant *values[3] = {g_variant_new_int32(entry.id), props, children};
-            g_variant_builder_add_value(&layout, g_variant_new_tuple(values, 3));
+        gint parent = 0, depth = 0;
+        g_variant_get(parameters, "(iias)", &parent, &depth, nullptr);
+        if ((parent != 0 && parent != kItemOpenShell && parent != kItemQuit) || depth < -1) {
+            g_dbus_method_invocation_return_error(invocation, G_DBUS_ERROR,
+                                                  G_DBUS_ERROR_INVALID_ARGS,
+                                                  "unknown menu parent or depth");
+            return;
         }
-        // Canonical libdbusmenu signature: (u revision, a(ia{sv}av) layout)
-        // — no parent member (libdbusmenu's exported introspection XML).
-        GVariantBuilder reply;
-        g_variant_builder_init(&reply, G_VARIANT_TYPE("(ua(ia{sv}av))"));
-        g_variant_builder_add(&reply, "u", surface->revision);
-        g_variant_builder_add_value(&reply, g_variant_builder_end(&layout));
-        g_dbus_method_invocation_return_value(invocation, g_variant_builder_end(&reply));
+        GVariantBuilder children;
+        g_variant_builder_init(&children, G_VARIANT_TYPE("av"));
+        if (parent == 0 && depth != 0) {
+            for (const guint id : kMenuLayout) {
+                GVariant *leaf[] = {g_variant_new_int32(id), menu_properties_variant(*surface, id),
+                                    g_variant_new_array(G_VARIANT_TYPE("v"), nullptr, 0)};
+                g_variant_builder_add_value(&children,
+                                            g_variant_new_variant(g_variant_new_tuple(leaf, 3)));
+            }
+        }
+        // libdbusmenu returns one root (id, properties, variant children),
+        // not an array of siblings. GNOME/KDE clients unpack this exact tree.
+        GVariant *root[] = {g_variant_new_int32(parent),
+                            menu_properties_variant(*surface, static_cast<guint>(parent)),
+                            g_variant_builder_end(&children)};
+        GVariant *reply[] = {g_variant_new_uint32(surface->revision), g_variant_new_tuple(root, 3)};
+        g_dbus_method_invocation_return_value(invocation, g_variant_new_tuple(reply, 2));
         return;
     }
     if (g_strcmp0(method, "GetGroupProperties") == 0) {
-        GVariantBuilder properties;
-        g_variant_builder_init(&properties, G_VARIANT_TYPE("a(ia{sv})"));
         // Allocation-style iterator (GVariantIter**): the varargs contract
         // for an "ai" slot in g_variant_get — handing the address of a
         // STACK GVariantIter overwrites it with the heap pointer and the
@@ -264,7 +247,17 @@ void menu_method_call(GDBusConnection *, const gchar *, const gchar *, const gch
         GVariantIter *iterator = nullptr;
         gint id = 0;
         g_variant_get(parameters, "(aias)", &iterator, nullptr);
+        if (g_variant_iter_n_children(iterator) > 256) {
+            g_variant_iter_free(iterator);
+            g_dbus_method_invocation_return_error(invocation, G_DBUS_ERROR,
+                                                  G_DBUS_ERROR_INVALID_ARGS, "too many menu ids");
+            return;
+        }
+        GVariantBuilder properties;
+        g_variant_builder_init(&properties, G_VARIANT_TYPE("a(ia{sv})"));
         while (g_variant_iter_loop(iterator, "i", &id)) {
+            if (id != 0 && id != kItemOpenShell && id != kItemQuit)
+                continue;
             GVariant *props = menu_properties_variant(*surface, static_cast<guint>(id));
             GVariant *values[2] = {g_variant_new_int32(id), props};
             g_variant_builder_add_value(&properties, g_variant_new_tuple(values, 2));
@@ -279,7 +272,7 @@ void menu_method_call(GDBusConnection *, const gchar *, const gchar *, const gch
     if (g_strcmp0(method, "GetProperty") == 0) {
         const gchar *name = nullptr;
         gint id = 0;
-        g_variant_get(parameters, "(is)", &id, &name);
+        g_variant_get(parameters, "(i&s)", &id, &name);
         GVariant *props = menu_properties_variant(*surface, static_cast<guint>(id));
         GVariant *value = g_variant_lookup_value(props, name, nullptr);
         g_variant_unref(props);
@@ -290,6 +283,7 @@ void menu_method_call(GDBusConnection *, const gchar *, const gchar *, const gch
             return;
         }
         g_dbus_method_invocation_return_value(invocation, g_variant_new("(v)", value));
+        g_variant_unref(value);
         return;
     }
     if (g_strcmp0(method, "AboutToShow") == 0) {
@@ -299,19 +293,15 @@ void menu_method_call(GDBusConnection *, const gchar *, const gchar *, const gch
     if (g_strcmp0(method, "Event") == 0) {
         gint id = 0;
         const gchar *event_id = nullptr;
-        g_variant_get(parameters, "(isvu)", &id, &event_id, nullptr, nullptr);
+        g_variant_get(parameters, "(i&svu)", &id, &event_id, nullptr, nullptr);
         if (g_strcmp0(event_id, "clicked") == 0) {
-            const TrayAction action = id == static_cast<gint>(kItemPause)    ? TrayAction::Pause
-                                      : id == static_cast<gint>(kItemResume) ? TrayAction::Resume
-                                      : id == static_cast<gint>(kItemOpenShell)
-                                          ? TrayAction::OpenShell
-                                      : id == static_cast<gint>(kItemQuit) ? TrayAction::Quit
-                                                                           : TrayAction::Quit;
-            if (id == static_cast<gint>(kItemPause) || id == static_cast<gint>(kItemResume) ||
-                id == static_cast<gint>(kItemOpenShell) || id == static_cast<gint>(kItemQuit)) {
-                if (surface->carrier.on_action) {
-                    surface->carrier.on_action(action);
-                }
+            if ((id == static_cast<gint>(kItemOpenShell) || id == static_cast<gint>(kItemQuit)) &&
+                surface->carrier.on_action) {
+                const auto state = current_state(*surface);
+                if (id == static_cast<gint>(kItemQuit) || state.can_open_shell)
+                    surface->carrier.on_action(id == static_cast<gint>(kItemOpenShell)
+                                                   ? TrayAction::OpenShell
+                                                   : TrayAction::Quit);
             }
         }
         g_dbus_method_invocation_return_value(invocation, nullptr);
@@ -335,17 +325,17 @@ void notify_state_changed(GioTrayCarrier::Surface &surface) {
     }
     GVariantBuilder updated;
     g_variant_builder_init(&updated, G_VARIANT_TYPE("a(ia{sv})"));
-    const guint ids[] = {kItemStatus, kItemPause, kItemResume, kItemOpenShell};
+    const guint ids[] = {kItemOpenShell, kItemQuit};
     for (const guint id : ids) {
         GVariant *props = menu_properties_variant(surface, id);
         GVariant *values[2] = {g_variant_new_int32(id), props};
         g_variant_builder_add_value(&updated, g_variant_new_tuple(values, 2));
     }
     GVariantBuilder removed;
-    g_variant_builder_init(&removed, G_VARIANT_TYPE("as"));
+    g_variant_builder_init(&removed, G_VARIANT_TYPE("a(ias)"));
     error = nullptr;
     GVariantBuilder signal_parameters;
-    g_variant_builder_init(&signal_parameters, G_VARIANT_TYPE("(a(ia{sv})as)"));
+    g_variant_builder_init(&signal_parameters, G_VARIANT_TYPE("(a(ia{sv})a(ias))"));
     g_variant_builder_add_value(&signal_parameters, g_variant_builder_end(&updated));
     g_variant_builder_add_value(&signal_parameters, g_variant_builder_end(&removed));
     g_dbus_connection_emit_signal(surface.connection, nullptr, kMenuPath, "com.canonical.dbusmenu",
@@ -442,7 +432,7 @@ const GDBusInterfaceVTable kItemVtable = {
     {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr}};
 const GDBusInterfaceVTable kMenuVtable = {
     menu_method_call,
-    nullptr,
+    menu_get_property,
     nullptr,
     {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr}};
 

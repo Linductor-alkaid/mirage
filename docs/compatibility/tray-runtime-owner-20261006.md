@@ -148,3 +148,44 @@ ctest --test-dir build/native-release   -R '^(tray_runtime_test|native_agent_int
 均通过；TSAN 的 event_subscription_test 末尾 Completed 计时断言失败，Windows
 MSVC 全树 getenv/C4244 门禁失败，均记录为未完成，不声称全 CI 通过。此次修复不
 将 M6-04 的 Windows/包装验收关闭，后续按目标门禁单独处理。
+
+
+## 左键两项菜单增量
+
+对应 bc4bcf6 后本记录所在提交的工作树，环境及依赖 pin 同前。按 DEC-045 左键
+显示“打开应用”“退出应用”，右键保留相同菜单。Linux 返回一个 id=0 的 DBusMenu
+根和两个 variant 子节点，声明 ItemIsMenu，并补齐菜单属性与签名；Windows 保留
+现有左键/右键弹出路径，布局同步为两项。旧暂停/恢复 id 不派发，Open 灰显时不派发，
+Quit 始终进入 Runtime 既有退出检查。没有新增并发设施或修改依赖。
+
+```bash
+cmake --build build/native-release --target mirage mirage-native mirage-service mirage-tray \
+  tray_backend_test tray_runtime_test frontend_activation_test mirage-format-check mirage-boundary-check -j6
+ctest --test-dir build/native-release \
+  -R '^(tray_backend_test|tray_runtime_test|frontend_activation_test)$' --output-on-failure
+python3 tests/manual/tray_runtime_acceptance.py --build build/native-release \
+  --window-manager --output /tmp/mirage-tray-menu-private-final \
+  --xvfb /home/linductor/.local/mirage-sysroot/usr/bin/Xvfb
+cmake --build build/asan --target tray_backend_test -j4
+ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 ctest --test-dir build/asan -R '^tray_backend_test$' --output-on-failure
+cmake --build build/ubsan --target tray_backend_test -j4
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ctest --test-dir build/ubsan -R '^tray_backend_test$' --output-on-failure
+cmake --build build/tsan --target tray_backend_test -j4
+setarch x86_64 -R ctest --test-dir build/tsan -R '^tray_backend_test$' --output-on-failure
+```
+
+Release 3/3，菜单后端 79 checks；格式与 51 个公共头边界检查通过。真实双进程
+23/23，在既有 21 项生命周期矩阵之外，新增标准签名根树/两个启用动作/ItemIsMenu
+以及 AboutToShow/GetAll 准备请求。打开、最小化恢复、关闭重开、活动任务退出取消/
+确认均通过。公开结果为证据目录 menu-results.json；测试未读取用户 Key 或发出推理。
+
+首次 ASAN（71 checks 版）报告 136 字节泄漏：7 个 Event 字符串副本及 5 个测试
+GMainLoop。回调改用 borrowed 字符串，GetProperty 返回值引用平衡，夹具 join 后
+释放 loop；补根深度/无效 parent/深度及批量预算测试后 ASAN/UBSAN/TSAN 各 1/1（79 checks），
+无 sanitizer 报告。TSAN 仍需关闭 ASLR，未改变此前全树 CI 的独立失败记录。
+
+当前用户托盘/前端实例未强制重启；只读确认 active_work=0，不读取会话正文或草稿。
+新菜单随正常重启加载。私有 DBus 宿主验证了菜单协议与产品动作，但未执行真实
+GNOME 通知区左键像素/鼠标菜单验收；Windows 构建/通知区亦未执行，负责人 Mirage
+维护者，补跑条件为加载新实例后点击通知区和目标 Windows SDK/桌面。此记录不以
+协议测试冒充实际通知区呈现，也不将未执行项标为通过。

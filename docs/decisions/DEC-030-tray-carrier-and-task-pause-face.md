@@ -46,7 +46,8 @@
    §4/§6.9/§10 同步。
 3. **Windows 承载 = DEC-018 既有 Shell_NotifyIcon 面的产品化扩展**：常驻图标
    + 活动提示（状态行）+ 运行时弹出菜单（状态头 / 暂停 / 恢复 / 打开 Mirage /
-   退出，灰显随状态），`TrackPopupMenuEx(TPM_RETURNCMD)` + `SetForegroundWindow`
+   退出，灰显随状态；产品菜单现由 [DEC-045](DEC-045-tray-runtime-owner.md) 的两项菜单替代），
+   `TrackPopupMenuEx(TPM_RETURNCMD)` + `SetForegroundWindow`
    焦点纪律；仍不建 AUMID 载体、不引入 WinRT（DEC-018 决策 5 与其 M5 重议
    条件不动——本决策是气球承载的常驻图标面产品化，不是 toast 承载改选）。
 4. **Linux 承载 = 会话总线 StatusNotifierItem + 最小 dbusmenu 服务**：导出
