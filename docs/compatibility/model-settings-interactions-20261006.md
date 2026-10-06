@@ -55,3 +55,5 @@ python3 tests/manual/native_conversation_acceptance.py --build build/native-rele
 ## 边界与待补跑
 
 不改依赖pin、业务协议、凭据存储或Executor路径；编辑状态在UI主线程，IPC仍由既有RuntimeBridge管理。无新增跨上下文状态，不重复跑TSAN或声明跨平台性能。CI原生job补齐CURL开发包/Xvfb，并纳入renderer回归；远端结果随后记录。Windows既有MSVC告警失败仍独立存在，Windows/Wayland/物理高DPI/屏幕阅读器由维护者在对应环境补跑。本轮未验证厂商鉴权/连通性，未增加模型发现或连接探测，不声明完整ZCode 1:1。Impeccable报告的既有design.json漂移未作为本次交互修复的副作用迁移；M6整体保持In Progress。
+
+补验自定义服务路径：合成Responses配置从未命名服务手动输入名称/地址/Key、选择Responses、添加模型、明确启用、保存/刷新及键盘替换Key均通过，进程退出0，不发起推理。驱动改为菜单当前Responses行坐标，并新增协议ACK断言；[结果](../../.impeccable/review/model-settings-20261006/custom-settings-results.json)。命令沿用上方驱动，将provider改为`/tmp/mirage-response-fixture-provider`，使用`--model-settings --settings-only`；配置`fixture-model`、`https://example.com/v1`、`wire_api="responses"`及公开占位Key。

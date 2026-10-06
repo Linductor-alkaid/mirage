@@ -231,7 +231,7 @@ def session(args):
                 paste(provider['base_url'].rstrip('/'))
                 if provider['wire_api'] == 'responses':
                     click(780, 348)
-                    click(780, 422)
+                    click(780, 438)
             click(750, 412)
             paste(test_key)
             if not args.preset_minimax:
@@ -258,6 +258,8 @@ def session(args):
                 assert saved['model']['dialect'] == 'anthropic.messages.v1'
                 assert saved['model']['api_prefix'] == '/anthropic/v1'
                 assert saved['model']['provider_id'] == 'preset:minimax'
+            else:
+                assert saved['model']['dialect'] == ('openai.responses.v1' if provider['wire_api'] == 'responses' else 'openai.chat-completions.v1')
             assert test_key not in json.dumps(saved)
             stored = list(Path(os.environ['XDG_CONFIG_HOME']).rglob('service.json'))
             assert stored and any(saved['model']['credential_ref'] in path.read_text() for path in stored), 'saved reference missing from disk'
