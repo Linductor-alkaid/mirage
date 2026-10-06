@@ -4,7 +4,7 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-10-07（M6-26 会话思考与空历史恢复）
+> 更新日期：2026-10-07（M6-27 会话到底部鼠标操作）
 
 ## 当前状态
 
@@ -382,3 +382,7 @@ Linux 入口范围 Completed，Windows/原生 Wayland/包装范围保持待验�
 Mira Messages 自适应思考/签名工具回填经上游 PR#81 和精确 pin 交付，Executor 未变。
 真实 MiniMax 原生开关/预览、工具循环及 Release/消毒器验证见[验收](../compatibility/session-thinking-20261007.md)。
 整体 M6 的 Windows/Wayland 与包装边界继续未完成。
+
+2026-10-07：M6-27 修复会话到底部按钮层级，真实指针点击、正文移动、恢复末尾跟随在
+Linux 原生正常/最小明暗通过；Release/ASAN/UBSAN 相关各 2/2。正式桌面入口加载新版，
+同时完成 M6-26 锁屏后重启补验；[证据](../compatibility/conversation-scroll-20261007.md)。

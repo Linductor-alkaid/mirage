@@ -40,6 +40,7 @@
 | M6-22 | Completed | 会话侧栏/服务名输入间距、厂商预设、Anthropic Messages接入与MiniMax-M3真实识图；DEC-043 |
 | M6-21 | Completed（Linux X11） | 侧栏统一内容缩进/图标轴；ZCode服务导航、未命名草稿、连接配置和模型列表；保存ACK、失败保留、真实配置重载验收，依据DEC-042 |
 | M6-23 | Completed（Linux X11） | 实际模型页35项交互修复/复验；DEC-044，324项renderer、ACK、断线重连与最小明暗证据 |
+| M6-27 | Completed（Linux X11） | 修复会话“到底部”鼠标操作；真实指针命中、阅读位置、流式跟随回归；沿用 DEC-041 |
 | M6-26 | Completed（Linux X11） | 会话思考按模型选择、Messages 自适应/签名回填与空历史恢复；DEC-046，真实 MiniMax 与多次重启验收 |
 | M6-25 | Completed（Linux X11） | 托盘内嵌Runtime、独立前端准入/复用、左键两项菜单、整体退出与活动确认；DEC-045 |
 | M6-24 | Completed（Linux X11） | 修复开发desktop入口绕过Service；真实GIO冷启动、Key保存/替换与服务复用验收 |
@@ -385,3 +386,15 @@ ASAN/UBSAN 原生入口拒绝/exec 循环分支各 6/6。临时诊断条目已�
 adaptive wait 工具循环 2 步/1 工具成功。Release 52/52、ASAN/UBSAN 相关各 3/3、
 TSAN 208 checks（关闭 ASLR）、Mira 协议 7/7。Mira [PR#81](https://github.com/Linductor-alkaid/mira/pull/81)
 及锁文件同步，详见[验收与迁移](../compatibility/session-thinking-20261007.md)。不关闭整体 M6。
+
+## 2026-10-07 / M6-27：到底部按钮
+
+In Progress：维护者报告会话箭头点击无响应（BUG-20261007-001）。沿用 DEC-041 的
+阅读位置/输出跟随契约，先在实际原生 view/runtime 注入鼠标按下与松开复现，检查命中层级、
+滚动状态同步及界面绘制；修复不改变按钮外观或任务并发，覆盖普通/长输出与恢复跟随。
+
+2026-10-07 / M6-27 Completed（Linux X11）：复现鼠标命中被 z=1 会话子树截获，箭头
+根层 z=2 修复；真实 Runtime 指针按下/松开、正文像素、末尾位置与跟随，正常/最小明暗
+通过。Release/ASAN/UBSAN 相关各 2/2，renderer 421 checks、format/文档链接通过。
+正式 GIO 入口已加载新版，保留 1 个非空历史，新建/删除空会话成功；M6-26 锁屏后启动
+补验完成。无依赖、协议或并发变更。[验收](../compatibility/conversation-scroll-20261007.md)。

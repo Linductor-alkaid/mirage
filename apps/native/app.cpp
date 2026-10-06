@@ -2302,6 +2302,10 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                 .style(latest)
                 .onClick(follow)
                 .build();
+            // The scroll view's scrollbar lifts its whole subtree to z=1.
+            // Keep this overlay above it for both painting and pointer hit testing.
+            if (auto *overlay = ui.find("thread.latest"))
+                overlay->zIndex = 2;
             if (auto *hit = ui.find("thread.latest.bg")) {
                 hit->focusable = true;
                 hit->onKeyEvent = [follow](const eui::KeyEvent &event) {
