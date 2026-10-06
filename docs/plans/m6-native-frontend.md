@@ -303,3 +303,7 @@ M6-21 Linux支持能力范围验收完成：Debug/Release/ASAN/UBSAN各3/3，原
 2026-10-06 / M6-22：维护者要求继续对照ZCode调整间距，提供国内外厂商预设与Anthropic协议，并使用本机Mira MiniMax配置验证识图。先核对公开能力，Mira当前仅有两种OpenAI方言；按MIRA-20261006-001登记并经既有依赖修复/PR授权补齐最小Messages方言，保持Executor pin。验收包括真实协议/图片输入、取消和错误、预设保存重载与原生窗口正常/最小明暗状态；不声明未测试厂商可用。
 
 2026-10-06 / M6-22验收：24px侧栏/8px标题输入内边距、11项厂商预设和Messages已交付。完整Debug50/50，相关Release/ASAN/UBSAN各3/3，受控ASLR TSAN2/2；真实MiniMax只填Key保存/刷新/流式会话、工具往返及随机图片2/2通过。来源许可、失败证据、上游PR#80与pin同步。闭合本项Linux本地交付，M6整体不关闭；图片附件产品入口、扩展思考、其他厂商/平台不在本项完成声明内，详见[验收与限制](../compatibility/provider-presets-and-vision-20261006.md)。
+
+2026-10-06 / M6-22 follow-up（In Progress）：维护者报告输入API Key后保存仍灰。定位遮蔽编辑回调捕获上一compose的raw值；连续输入不能稳定落入当前草稿。按DEC-043/既有凭据边界修复最新编辑值与按钮刷新，不改变保存ACK和model_loaded门禁；补验键盘连续输入、粘贴、已保存服务替换与实际保存。
+
+2026-10-06 / M6-22 follow-up Completed（Linux本地，BUG-20261006-001）：修复密钥Adapter批次/快照和刷新，Debug相关3/3、Release/ASAN/UBSAN各renderer1/1；真实Release窗口合成Key粘贴保存/键盘替换ACK通过，不发起模型请求。证据见[API Key保存修复](../compatibility/provider-presets-and-vision-20261006.md#api-key保存按钮修复bug-20261006-001)。

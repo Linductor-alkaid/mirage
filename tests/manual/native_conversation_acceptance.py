@@ -2,7 +2,9 @@
 
 Requires python-xlib, Pillow, Xvfb, DBus, IBus/libpinyin and system PyGObject.
 --provider selects an already authorized local Mira model_provider directory;
-it makes one paid model request. Credentials are read only into the service
+it makes one paid model request unless --settings-only is selected.
+The settings-only mode checks paste/save and typed replacement without inference.
+Credentials are read only into the service
 child environment, never printed or stored in the temporary settings file.
 All windows, clipboard input, service state and IM settings are private.
 This is a bounded external test driver, not a product task/executor path.
@@ -261,6 +263,33 @@ def session(args):
             # Refresh must restore the acknowledged name and configured-key state.
             click(977, 152)
             capture('model-refreshed-live')
+            if args.settings_only:
+                # Replace only the key of an acknowledged, otherwise clean
+                # service. A new reference proves the UI submitted this edit.
+                old_reference = saved['model']['credential_ref']
+                click(750, 412)
+                for char in 'replacementkey':
+                    key(char)
+                capture('key-typed-save-enabled')
+                click(1060, 744)
+                deadline = time.monotonic() + 8
+                while time.monotonic() < deadline:
+                    updated = json.loads(wire.call('model.get')['model_settings'])
+                    if updated['model']['credential_ref'] != old_reference:
+                        break
+                    time.sleep(0.1)
+                assert updated['model']['credential_ref'] != old_reference, 'typed key did not enable save'
+                assert updated['model']['api_key_configured'], 'typed key not configured'
+                capture('key-typed-saved')
+                results = dict(scope='real Release window, private keyring, synthetic key, no model request',
+                               pasted_key_saved=True, typed_replacement_saved=True,
+                               secret_not_in_settings=True, network_requests=0)
+                (output / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
+                print(json.dumps(results), flush=True)
+                click(1150, 30)
+                app.wait(timeout=8)
+                assert app.returncode == 0
+                return
             click(86, 94)
 
         def candidate():
@@ -388,6 +417,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--build', type=Path, required=True)
     p.add_argument('--provider', type=Path, required=True)
+    p.add_argument('--settings-only', action='store_true', help='With --model-settings, stop after paste/save and typed key replacement; no inference request')
     p.add_argument('--no-captures', action='store_true')
     p.add_argument('--preset-minimax', action='store_true', help='With --model-settings, configure the MiniMax preset by entering only its key')
     p.add_argument('--model-settings', action='store_true', help='Start empty; configure the model through the UI and a private system keyring')
@@ -395,6 +425,8 @@ def main():
     p.add_argument('--xvfb', default='Xvfb')
     p.add_argument('--session', action='store_true', help=argparse.SUPPRESS)
     args = p.parse_args()
+    if args.settings_only and not args.model_settings:
+        p.error('--settings-only requires --model-settings')
     args.build = args.build.resolve()
     args.provider = args.provider.resolve()
     args.output = args.output.resolve()
@@ -424,7 +456,8 @@ def main():
                  '--output', str(args.output), '--session',
                  *(['--no-captures'] if args.no_captures else []),
                  *(['--model-settings'] if args.model_settings else []),
-                 *(['--preset-minimax'] if args.preset_minimax else [])],
+                 *(['--preset-minimax'] if args.preset_minimax else []),
+                 *(['--settings-only'] if args.settings_only else [])],
                 env=env, start_new_session=True)
             if driver.wait(timeout=110) != 0:
                 raise RuntimeError('private acceptance session failed')

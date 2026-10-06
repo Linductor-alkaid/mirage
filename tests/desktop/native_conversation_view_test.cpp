@@ -446,6 +446,47 @@ const auto model = "Mirage";
     MIRAGE_CHECK(preset_document && preset_document->model->enabled &&
                  preset_document->models[0].provider_id == "preset:minimax");
     capture("provider-preset-minimax-light");
+    // Drive the actual masked input handler on a clean, acknowledged service.
+    // Multiple text events can arrive before the next compose (fast typing).
+    accept_model_configuration(*preset_document, "save", "");
+    frame();
+    MIRAGE_CHECK(element("model.save.bg")->disabled && !page.model_dirty);
+    auto input_key = [&](const std::string &text, bool paste = false) {
+        eui::TextInputEvent event;
+        if (paste)
+            event.pasteText = text;
+        else
+            event.text = text;
+        element("model.key.hit")->onTextInput(event);
+    };
+    eui::TextInputEvent combined;
+    combined.text = "s";
+    combined.pasteText = "k-test";
+    element("model.key.hit")->onTextInput(combined);
+    MIRAGE_CHECK(page.api_key == "sk-test" && page.model_dirty);
+    frame();
+    MIRAGE_CHECK(!element("model.save.bg")->disabled);
+    accept_model_configuration(*preset_document, "save", "");
+    frame();
+    for (const auto *part : {"s", "k", "-", "test"})
+        input_key(part);
+    MIRAGE_CHECK(page.api_key == "sk-test" && page.model_dirty);
+    frame();
+    MIRAGE_CHECK(!element("model.save.bg")->disabled);
+    auto &key_edit = view->state<components::input_detail::InputModel::InputState>("model.key");
+    MIRAGE_CHECK(key_edit.text == "*******" && key_edit.undoStack.empty());
+    key_edit.selectionStart = 0;
+    key_edit.selectionEnd = key_edit.cursor = static_cast<int>(key_edit.text.size());
+    input_key("replacement-key", true);
+    MIRAGE_CHECK(page.api_key == "replacement-key");
+    frame();
+    MIRAGE_CHECK(!element("model.save.bg")->disabled);
+    // A refresh reply cannot erase a key draft; saving still waits for ACK.
+    accept_model_configuration(*preset_document, "model", "");
+    MIRAGE_CHECK(page.api_key == "replacement-key" && page.model_dirty);
+    accept_model_configuration(empty_catalog, "discard", "");
+    select_preset(2);
+    frame();
     select_preset(0); // Unsaved key/service edits cannot silently disappear.
     MIRAGE_CHECK(page.model.provider_id == "preset:minimax");
     page.model_dirty = false;

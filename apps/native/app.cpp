@@ -1263,6 +1263,8 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                              state().api_key = key;
                                              state().remove_api_key = false;
                                              state().model_dirty = true;
+                                             state().model_notice = "有未保存的修改";
+                                             app::requestUpdate();
                                          });
                             components::button(list, "model.key.visible")
                                 .position(w - 32, 0)

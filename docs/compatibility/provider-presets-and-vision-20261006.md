@@ -41,3 +41,13 @@ Linux x86_64、GCC 13.3、CMake/Ninja、原生EUI GLFW/OpenGL；Executor2ae4fc8�
 官方依据：[ZCode](https://github.com/zai-org/ZCode/tree/29628c9acdb81b703bbd4080c207a0e7ce5e276e)、[MiniMax Messages](https://platform.minimax.io/docs/api-reference/text-anthropic-api)、[Claude Messages](https://platform.claude.com/docs/en/api/messages/create)、[流式生命周期](https://platform.claude.com/docs/en/build-with-claude/streaming)。
 
 Mira固定提交`7795e13cd6b8169f4936016c169702c2c60e876c`，[上游PR#80](https://github.com/Linductor-alkaid/mira/pull/80)已提交未合并，堆叠于#79。锁文件与gitlink相同，verify-only configure通过。Mirage依赖升级[PR#67](https://github.com/Linductor-alkaid/mirage/pull/67)独立评审，UI改动在其上堆叠。CI执行中，不将尚未结束的跨平台job写成通过。
+
+## API Key保存按钮修复（BUG-20261006-001）
+
+维护者报告输入Key后保存仍灰。遮蔽Adapter捕获上一帧的raw快照，连续事件会丢失后续字符；同一TextInputEvent同时带text/pasteText时，EUI分两次插入/推入undo快照，取最后一份无法从原raw重建编辑，变更回调不执行，按钮不启用。现在引用外部owner持有的最新草稿值，并以本批次第一份快照定位整体编辑；成功变更明确请求应用刷新/提示未保存，不放宽model_loaded或保存中门禁。undo/redo仍清空，raw不进入隐藏组件状态。
+
+新增真实handler回归覆盖同一帧连续输入、同一event文字加粘贴、全选替换、隐藏掩码、保存启用、刷新不能覆盖草稿。修复前连续输入测试2项失败，记录/tmp/mirage-key-before-test.log；修复后Debug相关3/3，Release/ASAN/UBSAN renderer各1/1通过。命令`cmake --build build/<配置> --target native_conversation_view_test -j 3`及`ctest --test-dir build/<配置> -R '^native_conversation_view_test$' --output-on-failure`；Debug额外运行harness/persistence。格式与Python语法通过。没有新增并发/生命周期路径，不改依赖。
+
+真实Release窗口在私有Xvfb/DBus/钥匙环使用合成fixtureKey验证：从空配置选MiniMax、粘贴保存、刷新，再只键盘输入替换Key，保存按钮启用，点击后服务ACK产生新的credential_ref。Key不写settings；不请求模型。命令`python3 tests/manual/native_conversation_acceptance.py --build build/native-release --provider /tmp/mirage-key-fixture-provider --model-settings --preset-minimax --settings-only --xvfb /home/linductor/.local/mirage-sysroot/usr/bin/Xvfb --output /tmp/mirage-key-live-20261006`；fixture配置模型MiniMax-M3、公开地址和非凭据占位值。驱动拒绝未同时指定model-settings的settings-only，避免误发付费请求。
+
+持久证据：[输入后保存可用](../../.impeccable/review/key-save-20261006/key-typed-save-enabled.png)、[ACK后恢复干净状态](../../.impeccable/review/key-save-20261006/key-typed-saved.png)、[结果](../../.impeccable/review/key-save-20261006/results.json)。Windows/Wayland尚未重跑，负责人维护者在相应输入环境补验；不以X11结果外推。

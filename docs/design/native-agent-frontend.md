@@ -233,3 +233,5 @@ X11/IBus/libpinyin候选移动和中文提交已实测，原生Wayland/物理高
 ## M6-22：预设与Messages接入
 
 DEC-043在既有ACK/密钥事务下增加11项API Key预设及anthropic.messages.v1，来源固定ZCode config/provider模板与MiniMax官方文档。用户选择预设后只需Key保存，其他连接字段仍可编辑；未知窗口预算保持0，MiniMax-M3按官方1M窗口填充。模型层Messages普通文本/工具/SSE已接入；extended thinking明确停用。侧栏24px外边距/48px图标中心/68px文字轴，服务标题8px内边距且静态显示同轴。MiniMax图片测试使用Mira公开Provider发送合成PNG；当前会话文本附件边界不变，不宣称图片上传已交付。
+
+M6-22 / BUG-20261006-001：密钥遮蔽Adapter的回调读取当前owner持有草稿值；同批次输入从首个undo快照重建整体编辑。成功编辑置dirty并请求页面刷新，保留加载/保存门禁与ACK权威；组件隐藏状态仍仅含掩码。
