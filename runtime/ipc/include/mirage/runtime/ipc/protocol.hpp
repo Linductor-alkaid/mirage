@@ -96,6 +96,22 @@ struct ResumeTaskRequest {
 
 struct ShutdownRequest {};
 
+// DEC-045: bounded product lifecycle face. confirm/cancel require the current
+// exit epoch, preventing delayed UI confirmations from closing a later prompt.
+struct ProductControlRequest {
+    std::string action = "status"; // status/open/quit/confirm_quit/cancel_quit/frontend_ready
+    std::uint64_t exit_epoch = 0;
+    std::int64_t frontend_pid = 0; // frontend_ready only
+};
+struct ProductState {
+    std::int64_t frontend_pid = 0;
+    std::uint64_t window_epoch = 0;
+    std::uint64_t exit_epoch = 0;
+    std::size_t active_work = 0;
+    bool exit_pending = false;
+    bool frontend_ready = false;
+};
+
 /// Subscribes the connection to the service event stream (DEC-012 decision
 /// 2). Preview delivery is opt-in; the subscription is connection-scoped state that dies
 /// with the connection. A pre-M1.5 server rejects the unknown op with a
@@ -323,13 +339,14 @@ struct DesktopObserveRequest {
 
 using Request = std::variant<
     HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest, CancelTaskRequest,
-    PauseTaskRequest, ResumeTaskRequest, ShutdownRequest, SubscribeEventsRequest,
-    UnsubscribeEventsRequest, RespondPermissionRequest, ListPermissionsRequest, ListSessionsRequest,
-    OpenSessionRequest, SessionHistoryRequest, CloseSessionRequest, DeleteSessionRequest,
-    SessionChatRequest, ChatHistoryRequest, WorkflowListRequest, WorkflowSaveRequest,
-    WorkflowPublishRequest, WorkflowDeleteRequest, WorkflowAtomCatalogRequest, WorkflowRunsRequest,
-    WorkflowRunRequest, WorkflowCancelRunRequest, WorkflowGetRequest, DesktopObserveRequest,
-    GetPolicyRequest, SetPolicyRequest, GetModelRequest, SetModelRequest, CancelChatRequest>;
+    PauseTaskRequest, ResumeTaskRequest, ShutdownRequest, ProductControlRequest,
+    SubscribeEventsRequest, UnsubscribeEventsRequest, RespondPermissionRequest,
+    ListPermissionsRequest, ListSessionsRequest, OpenSessionRequest, SessionHistoryRequest,
+    CloseSessionRequest, DeleteSessionRequest, SessionChatRequest, ChatHistoryRequest,
+    WorkflowListRequest, WorkflowSaveRequest, WorkflowPublishRequest, WorkflowDeleteRequest,
+    WorkflowAtomCatalogRequest, WorkflowRunsRequest, WorkflowRunRequest, WorkflowCancelRunRequest,
+    WorkflowGetRequest, DesktopObserveRequest, GetPolicyRequest, SetPolicyRequest, GetModelRequest,
+    SetModelRequest, CancelChatRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -370,6 +387,7 @@ struct ServiceIdentity {
     /// request face (`policy.get` / `policy.set`) is served — always true
     /// from this service generation on. Placed after `chat`.
     std::optional<bool> policy;
+    std::optional<bool> tray{}; // true only after embedded tray registration
 };
 
 struct TaskSubmitted {
@@ -772,13 +790,13 @@ struct ObservationView {
 };
 
 using ResponsePayload =
-    std::variant<ServiceIdentity, TaskSubmitted, TaskList, InspectTask, TaskCancelled, TaskPaused,
-                 TaskResumed, ShutdownAccepted, PermissionResponded, PermissionPendingList,
-                 SessionList, SessionOpened, SessionClosed, SessionDeleted, DialogTurnAccepted,
-                 DialogHistory, SessionHistory, WorkflowList, WorkflowSaved, WorkflowPublished,
-                 WorkflowDeleted, WorkflowAtomCatalog, WorkflowRunList, WorkflowRunStarted,
-                 WorkflowRunCancelled, WorkflowDefinitionView, ObservationView, PolicyView,
-                 ModelConfiguration>;
+    std::variant<ServiceIdentity, ProductState, TaskSubmitted, TaskList, InspectTask, TaskCancelled,
+                 TaskPaused, TaskResumed, ShutdownAccepted, PermissionResponded,
+                 PermissionPendingList, SessionList, SessionOpened, SessionClosed, SessionDeleted,
+                 DialogTurnAccepted, DialogHistory, SessionHistory, WorkflowList, WorkflowSaved,
+                 WorkflowPublished, WorkflowDeleted, WorkflowAtomCatalog, WorkflowRunList,
+                 WorkflowRunStarted, WorkflowRunCancelled, WorkflowDefinitionView, ObservationView,
+                 PolicyView, ModelConfiguration>;
 
 /// Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc
 /// domain ("protocol_error", "unsupported", "invalid_argument", "not_found",

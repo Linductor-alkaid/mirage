@@ -6,6 +6,7 @@ namespace mirage::native_ui::window {
 // Private GLFW adapter. No window/library types enter Mirage public contracts.
 void initialize();
 void minimize();
+void show();
 void toggle_maximize();
 bool maximized();
 void close();

@@ -26,6 +26,7 @@
 #include <utility>
 
 namespace mirage::native_ui {
+std::uint64_t process_id();
 namespace {
 eui::Color color(unsigned int rgb) {
     return {static_cast<float>((rgb >> 16) & 255) / 255.0f,
@@ -79,6 +80,9 @@ struct PageState {
     bool remove_api_key = false;
     std::uint64_t history_epoch = 0;
     bool confirm_delete = false;
+    bool confirm_exit = false;
+    std::uint64_t exit_epoch = 0, window_epoch = 0;
+    std::size_t active_work = 0;
     std::uint64_t delete_target = 0;
     bool saving_model = false;
     bool model_loaded = false;
@@ -628,9 +632,15 @@ void drain_runtime() {
         } else if (message.kind == RuntimeMessage::Kind::Connected) {
             s.runtime_notice = "已连接 Runtime Service";
             call_runtime(ipc::SubscribeEventsRequest{true}, "subscribe");
+            call_runtime(ipc::ProductControlRequest{"frontend_ready", 0,
+                                                    static_cast<std::int64_t>(process_id())},
+                         "product");
 
         } else if (message.kind == RuntimeMessage::Kind::Lost) {
-            s.runtime_notice = "服务连接已断开，请在设置 → 模型中重新连接。";
+            s.runtime_notice = s.runtime->connected() ? "请求未能执行，请重试。"
+                                                      : "托盘服务已退出，正在关闭窗口。";
+            if (!s.runtime->connected())
+                window::close();
             s.saving_model = false;
             for (const auto &item : s.chat.sessions()) {
                 auto *session = s.chat.find(item.id);
@@ -656,7 +666,15 @@ void drain_runtime() {
                 call_runtime(ipc::GetModelRequest{}, "model");
             }
             const auto &payload = message.response.payload;
-            if (const auto *config = std::get_if<ipc::ModelConfiguration>(&payload)) {
+            if (const auto *product = std::get_if<ipc::ProductState>(&payload)) {
+                s.confirm_exit = product->exit_pending;
+                s.exit_epoch = product->exit_epoch;
+                s.active_work = product->active_work;
+                if (product->window_epoch != s.window_epoch) {
+                    s.window_epoch = product->window_epoch;
+                    window::show();
+                }
+            } else if (const auto *config = std::get_if<ipc::ModelConfiguration>(&payload)) {
                 const auto decoded = persistence::decode_settings(config->settings_json);
                 if (decoded.ok) {
                     accept_model_configuration(decoded.settings, message.tag, config->warning);
@@ -766,7 +784,10 @@ void drain_runtime() {
                                              preview->sequence, preview->text, preview->truncated);
                         break;
                     }
+            } else if (std::holds_alternative<ipc::HostStatusEvent>(message.event->payload)) {
+                call_runtime(ipc::ProductControlRequest{}, "product");
             } else if (std::holds_alternative<ipc::EventsOverflowEvent>(message.event->payload)) {
+                call_runtime(ipc::ProductControlRequest{}, "product");
                 history(s.chat.current().id);
             }
         }
@@ -3081,6 +3102,65 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
             resize_edges(ui, screen);
             modal(ui, screen, p);
             model_editor_modal(ui, screen, p);
+            if (s.confirm_exit) {
+                const float x = (screen.width - 460) / 2, y = (screen.height - 240) / 2;
+                ui.stack("product.exit")
+                    .size(screen.width, screen.height)
+                    .zIndex(100)
+                    .content([&] {
+                        ui.rect("product.exit.scrim")
+                            .size(screen.width, screen.height)
+                            .color({0, 0, 0, 0.3f})
+                            .onClick([] {})
+                            .build();
+                        ui.rect("product.exit.panel")
+                            .position(x, y)
+                            .size(460, 240)
+                            .color(p.surface)
+                            .radius(12)
+                            .border(1, p.border)
+                            .onClick([] {})
+                            .build();
+                        text(ui, "product.exit.title", "停止任务并退出 Mirage？", x + 24, y + 20,
+                             412, 36, 20, p.text, 600);
+                        ui.text("product.exit.body")
+                            .position(x + 24, y + 72)
+                            .size(412, 78)
+                            .text("有 " + std::to_string(s.active_work) +
+                                  " 项 Agent 会话或 Workflow "
+                                  "正在运行。退出会停止这些任务并关闭整个应用。")
+                            .fontSize(ui_font_size(15))
+                            .lineHeight(24)
+                            .wrap()
+                            .color(p.muted)
+                            .build();
+                        components::button(ui, "product.exit.cancel")
+                            .position(x + 224, y + 180)
+                            .size(88, 36)
+                            .text("继续运行")
+                            .fontSize(ui_font_size(14))
+                            .style(button_style(p))
+                            .onClick([] {
+                                call_runtime(
+                                    ipc::ProductControlRequest{"cancel_quit", state().exit_epoch},
+                                    "product");
+                            })
+                            .build();
+                        components::button(ui, "product.exit.confirm")
+                            .position(x + 324, y + 180)
+                            .size(112, 36)
+                            .text("停止并退出")
+                            .fontSize(ui_font_size(14))
+                            .style(button_style(p, true))
+                            .onClick([] {
+                                call_runtime(
+                                    ipc::ProductControlRequest{"confirm_quit", state().exit_epoch},
+                                    "product");
+                            })
+                            .build();
+                    })
+                    .build();
+            }
         })
         .build();
     if (!s.sidebar || s.about || s.confirm_clear || s.confirm_delete)
@@ -3119,6 +3199,14 @@ const DslAppConfig &dslAppConfig() {
                 mirage::native_ui::window::shutdown();
             })
             .onKeyEvent([](const eui::KeyEvent &event) {
+                if (mirage::native_ui::state().confirm_exit) {
+                    if (event.action == eui::KeyAction::Press && event.key == eui::InputKey::Escape)
+                        mirage::native_ui::call_runtime(
+                            mirage::runtime::ipc::ProductControlRequest{
+                                "cancel_quit", mirage::native_ui::state().exit_epoch},
+                            "product");
+                    return;
+                }
                 if (event.action == eui::KeyAction::Press && event.modifiers.control &&
                     event.key == eui::InputKey::Comma) {
                     auto &s = mirage::native_ui::state();

@@ -135,3 +135,9 @@
 - pinned 依据：`third_party/mira/include/mira/json.hpp`（解析限制与严格子集）、
   `third_party/mira/third_party/executor/include/executor/blocking_io.hpp` 与
   `serial_execution_context.hpp`（事件循环与串行化承载）。
+
+## 2026-10-06 产品进程所有权修订
+
+[DEC-045](DEC-045-tray-runtime-owner.md) 替代本决策中产品托盘作为独立 Service
+客户端的部分：托盘内嵌 RuntimeService，复用其唯一 Executor，并持有独立前端
+子进程。本文其他 API/平台/任务语义及历史验收保留；新拓扑以 M6-25 证据为准。

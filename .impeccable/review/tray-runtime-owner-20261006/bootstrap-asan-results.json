@@ -1,0 +1,30 @@
+{
+  "scope": "native bootstrap rejection paths; private XDG; no window or inference",
+  "checks": [
+    {
+      "name": "native refuses missing tray before display initialization",
+      "passed": true
+    },
+    {
+      "name": "product refuses no-tray frontend option",
+      "passed": true
+    },
+    {
+      "name": "unrelated desktop marker cannot bypass frontend ownership",
+      "passed": true
+    },
+    {
+      "name": "explicit endpoint blocks desktop rebootstrap",
+      "passed": true
+    },
+    {
+      "name": "missing launcher refuses before window initialization",
+      "passed": true
+    },
+    {
+      "name": "same-image launcher refuses exec cycle",
+      "passed": true
+    }
+  ],
+  "inference_requests": 0
+}

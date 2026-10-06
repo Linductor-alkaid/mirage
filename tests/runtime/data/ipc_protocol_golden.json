@@ -1,10 +1,10 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 12,
+    "version": 13,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
-    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted), DEC-038 (Accepted), DEC-039 (Accepted)",
+    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted), DEC-038 (Accepted), DEC-039 (Accepted), DEC-045 (Accepted)",
     "consumers": [
       "tests/runtime/ipc_protocol_golden_test.cpp"
     ],
@@ -22,7 +22,8 @@
       "v9 (M5-07): permission policy face (DEC-020/DEC-011 evolution) - policy.get / policy.set requests with the PolicyView payload (full DEC-010 rule set, optional read_roots resource scope), hello 'policy' capability member (always served); wire order pinned by schema doc sections 4, 6.1, 6.8 and 10.",
       "v10 (M5-10): task pause/resume face (DEC-030) - task.pause / task.resume requests with the TaskPaused / TaskResumed replies (task_id + post-command progress snapshot, mirroring the task.cancel reply shape); progress stays inside the task.updated / task.inspect vocabulary. wire order pinned by schema doc sections 4, 6.9 and 10.",
       "v11 (M6-09): direct API Key write-only model.set field and optional cleanup warning; session.delete acknowledged persistence boundary. Existing v1 request/response canonical strings remain compatible; schema doc DEC-038 increment.",
-      "v12 (M6-11): optional last-turn replacement guard and replacement provenance in acknowledgement/events. Absent fields retain previous canonical strings."
+      "v12 (M6-11): optional last-turn replacement guard and replacement provenance in acknowledgement/events. Absent fields retain previous canonical strings.",
+      "v13 (M6-25): tray capability and product.control actions/state; readiness binds the owned frontend PID, quit confirmation uses a separate exit epoch; old v1 vectors unchanged."
     ]
   },
   "requests": [
@@ -416,6 +417,67 @@
         "replace_turn_id": "old-turn"
       },
       "canonical": "{\"v\":1,\"id\":91,\"op\":\"session.chat\",\"session_id\":\"session-1\",\"text\":\"revised input\",\"replace_turn_id\":\"old-turn\"}"
+    },
+    {
+      "name": "product-status",
+      "id": 101,
+      "body": {
+        "op": "product.control",
+        "action": "status",
+        "exit_epoch": 0
+      },
+      "canonical": "{\"v\":1,\"id\":101,\"op\":\"product.control\",\"action\":\"status\",\"exit_epoch\":0}"
+    },
+    {
+      "name": "product-open",
+      "id": 102,
+      "body": {
+        "op": "product.control",
+        "action": "open",
+        "exit_epoch": 0
+      },
+      "canonical": "{\"v\":1,\"id\":102,\"op\":\"product.control\",\"action\":\"open\",\"exit_epoch\":0}"
+    },
+    {
+      "name": "product-quit",
+      "id": 103,
+      "body": {
+        "op": "product.control",
+        "action": "quit",
+        "exit_epoch": 0
+      },
+      "canonical": "{\"v\":1,\"id\":103,\"op\":\"product.control\",\"action\":\"quit\",\"exit_epoch\":0}"
+    },
+    {
+      "name": "product-confirm_quit",
+      "id": 104,
+      "body": {
+        "op": "product.control",
+        "action": "confirm_quit",
+        "exit_epoch": 4
+      },
+      "canonical": "{\"v\":1,\"id\":104,\"op\":\"product.control\",\"action\":\"confirm_quit\",\"exit_epoch\":4}"
+    },
+    {
+      "name": "product-cancel_quit",
+      "id": 105,
+      "body": {
+        "op": "product.control",
+        "action": "cancel_quit",
+        "exit_epoch": 4
+      },
+      "canonical": "{\"v\":1,\"id\":105,\"op\":\"product.control\",\"action\":\"cancel_quit\",\"exit_epoch\":4}"
+    },
+    {
+      "name": "product-frontend_ready",
+      "id": 106,
+      "body": {
+        "op": "product.control",
+        "action": "frontend_ready",
+        "exit_epoch": 0,
+        "frontend_pid": 777
+      },
+      "canonical": "{\"v\":1,\"id\":106,\"op\":\"product.control\",\"action\":\"frontend_ready\",\"exit_epoch\":0,\"frontend_pid\":777}"
     }
   ],
   "request_failures": [
@@ -663,6 +725,26 @@
       "name": "invalid-replacement-129",
       "payload": "{\"v\":1,\"id\":91,\"op\":\"session.chat\",\"session_id\":\"session-1\",\"text\":\"test\",\"replace_turn_id\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
       "error": "replace_turn_id must be a non-empty bounded string"
+    },
+    {
+      "name": "product-unknown-action",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"product.control\",\"action\":\"unknown\",\"exit_epoch\":0}",
+      "error": "invalid product action or exit epoch"
+    },
+    {
+      "name": "product-negative-epoch",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"product.control\",\"action\":\"quit\",\"exit_epoch\":-1}",
+      "error": "invalid product action or exit epoch"
+    },
+    {
+      "name": "product-ready-missing-pid",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"product.control\",\"action\":\"frontend_ready\",\"exit_epoch\":0}",
+      "error": "frontend_ready requires a positive frontend_pid and zero exit_epoch"
+    },
+    {
+      "name": "product-ready-nonzero-epoch",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"product.control\",\"action\":\"frontend_ready\",\"exit_epoch\":3,\"frontend_pid\":777}",
+      "error": "frontend_ready requires a positive frontend_pid and zero exit_epoch"
     }
   ],
   "responses": [
@@ -1632,6 +1714,44 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":91,\"ok\":true,\"turn_id\":\"new-turn\",\"replaces_turn_id\":\"old-turn\"}"
+    },
+    {
+      "name": "product-pending",
+      "response": {
+        "id": 105,
+        "ok": true,
+        "payload": {
+          "kind": "product-state",
+          "value": {
+            "frontend_pid": 777,
+            "window_epoch": 2,
+            "exit_epoch": 4,
+            "active_work": 1,
+            "exit_pending": true,
+            "frontend_ready": true
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":105,\"ok\":true,\"product\":true,\"frontend_pid\":777,\"window_epoch\":2,\"exit_epoch\":4,\"active_work\":1,\"exit_pending\":true,\"frontend_ready\":true}"
+    },
+    {
+      "name": "hello-registered-tray",
+      "response": {
+        "id": 7,
+        "ok": true,
+        "payload": {
+          "kind": "identity",
+          "value": {
+            "service": "mirage-service",
+            "mirage_version": "0.1.0",
+            "mira_core_version": "0.4.0",
+            "host_status": "running",
+            "protocol": 1,
+            "tray": true
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":7,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1,\"tray\":true}"
     }
   ],
   "response_failures": [
@@ -1849,6 +1969,16 @@
       "name": "policy-view-root-too-long",
       "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"rules\":{\"application.launch\":\"allow\",\"application.terminate\":\"allow\",\"clipboard.read\":\"allow\",\"clipboard.write\":\"allow\",\"filesystem.read\":\"allow\",\"filesystem.write\":\"deny\",\"input.inject\":\"allow\",\"notification.post\":\"allow\",\"process.execute\":\"allow\",\"screen.capture\":\"allow\",\"window.activate\":\"allow\"},\"read_roots\":[\"/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]}",
       "error": "policy.get 'read_roots' entries must be strings of at most 4096 bytes"
+    },
+    {
+      "name": "product-negative-pid",
+      "payload": "{\"v\":1,\"id\":1,\"ok\":true,\"product\":true,\"frontend_pid\":-1,\"window_epoch\":2,\"exit_epoch\":4,\"active_work\":1,\"exit_pending\":true,\"frontend_ready\":true}",
+      "error": "invalid product state"
+    },
+    {
+      "name": "hello-tray-nonboolean",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1,\"tray\":\"yes\"}",
+      "error": "hello tray must be boolean"
     }
   ],
   "events": [

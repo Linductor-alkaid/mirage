@@ -872,6 +872,31 @@ const auto model = "Mirage";
         element("model.dialog.cancel.bg")->onClick();
         discard_model_edits();
     }
+    page.model_dialog = PageState::ModelDialog::None;
+    page.confirm_exit = true;
+    page.exit_epoch = 9;
+    page.active_work = 256;
+    for (const bool dark : {false, true}) {
+        width = 860;
+        height = 620;
+        page.dark = dark;
+        frame();
+        MIRAGE_CHECK(element("product.exit.panel")->frame.x >= 0);
+        MIRAGE_CHECK(element("product.exit.confirm.bg")->frame.y + 36 <= height);
+        MIRAGE_CHECK(element("product.exit.cancel.bg") && element("product.exit.title"));
+        MIRAGE_CHECK(element("product.exit.body")->text.find("256") != std::string::npos);
+        capture(dark ? "exit-confirm-minimum-dark" : "exit-confirm-minimum-light");
+        const auto count = page.chat.current().messages.size();
+        eui::KeyEvent blocked_new;
+        blocked_new.key = eui::InputKey::N;
+        blocked_new.action = eui::KeyAction::Press;
+        blocked_new.modifiers.control = true;
+        const auto exit_dialog_session = page.chat.current().id;
+        app::dslAppConfig().keyEventHandler(blocked_new);
+        MIRAGE_CHECK(page.chat.current().id == exit_dialog_session);
+        MIRAGE_CHECK(page.chat.current().messages.size() == count && page.confirm_exit);
+    }
+    page.confirm_exit = false;
     width = 1180;
     height = 800;
     glfwPollEvents();

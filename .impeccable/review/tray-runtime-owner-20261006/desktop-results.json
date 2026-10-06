@@ -1,0 +1,10 @@
+{
+  "scope": "GIO launches generated desktop entry; private XDG/DBus/Xvfb; embedded Runtime",
+  "tray_started": true,
+  "native_started": true,
+  "service_embedded": true,
+  "separate_processes": true,
+  "frontend_owned_by_tray": true,
+  "existing_tray_reused": true,
+  "inference_requests": 0
+}

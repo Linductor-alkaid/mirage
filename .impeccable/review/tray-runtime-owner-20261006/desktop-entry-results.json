@@ -1,0 +1,9 @@
+{
+  "scope": "GNOME application-list cold open reported by maintainer; registered GIO warm open measured",
+  "maintainer_reports_window_and_tray": true,
+  "registered_entry_uses_product_launcher": true,
+  "frontend_ready": true,
+  "same_frontend_pid": true,
+  "same_tray_pid": true,
+  "inference_requests_by_test": 0
+}

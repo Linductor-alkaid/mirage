@@ -193,6 +193,9 @@ class FakeStatusNotifierWatcher {
         if (dispatch_thread_.joinable()) {
             dispatch_thread_.join();
         }
+        if (loop_ != nullptr) {
+            g_main_loop_unref(loop_);
+        }
         if (node_ != nullptr) {
             g_dbus_node_info_unref(node_);
         }
@@ -233,7 +236,7 @@ class FakeStatusNotifierWatcher {
                 auto *self = static_cast<FakeStatusNotifierWatcher *>(user_data);
                 GVariantIter *updated = nullptr;
                 GVariantIter *removed = nullptr;
-                g_variant_get(parameters, "(a(ia{sv})as)", &updated, &removed);
+                g_variant_get(parameters, "(a(ia{sv})a(ias))", &updated, &removed);
                 const std::lock_guard guard(self->mutex_);
                 // Child-by-child reads (no container varargs slots), and the
                 // dict values are v-wrapped: unwrap before reading.
@@ -299,23 +302,26 @@ class FakeStatusNotifierWatcher {
         }
     }
 
-    GVariant *call_menu_get_layout(const std::string &carrier_sender, GError **error) {
+    GVariant *call_menu_get_layout(const std::string &carrier_sender, GError **error,
+                                   gint parent = 0, gint depth = -1) {
         static const char *const no_properties[] = {nullptr};
         return g_dbus_connection_call_sync(
             connection_, carrier_sender.c_str(), "/org/mirage/tray/menu", "com.canonical.dbusmenu",
-            "GetLayout", g_variant_new("(ii^as)", 0, 1, no_properties), nullptr,
-            G_DBUS_CALL_FLAGS_NONE, 5000, nullptr, error);
+            "GetLayout", g_variant_new("(ii^as)", parent, depth, no_properties),
+            G_VARIANT_TYPE("(u(ia{sv}av))"), G_DBUS_CALL_FLAGS_NONE, 5000, nullptr, error);
     }
 
-    GVariant *call_menu_get_group_properties(const std::string &carrier_sender) {
-        static const gint queried_ids[] = {2, 99};
-        GVariant *ids =
-            g_variant_new_fixed_array(G_VARIANT_TYPE_INT32, queried_ids, 2, sizeof(gint32));
+    GVariant *call_menu_get_group_properties(const std::string &carrier_sender,
+                                             bool oversized = false, GError **error = nullptr) {
+        std::vector<gint> queried_ids(oversized ? 257 : 2, 5);
+        queried_ids.back() = 99;
+        GVariant *ids = g_variant_new_fixed_array(G_VARIANT_TYPE_INT32, queried_ids.data(),
+                                                  queried_ids.size(), sizeof(gint32));
         GVariant *properties = g_variant_new_strv(nullptr, 0);
         return g_dbus_connection_call_sync(
             connection_, carrier_sender.c_str(), "/org/mirage/tray/menu", "com.canonical.dbusmenu",
-            "GetGroupProperties", g_variant_new("(@ai@as)", ids, properties), nullptr,
-            G_DBUS_CALL_FLAGS_NONE, 5000, nullptr, nullptr);
+            "GetGroupProperties", g_variant_new("(@ai@as)", ids, properties),
+            G_VARIANT_TYPE("(a(ia{sv}))"), G_DBUS_CALL_FLAGS_NONE, 5000, nullptr, error);
     }
 
     GVariant *call_item_property(const std::string &carrier_sender, const char *property,
@@ -556,15 +562,43 @@ void scenario_lifecycle_over_tolerant_watcher(FakeStatusNotifierWatcher &watcher
     // reply is what a real indicator host requests first, and any defect
     // there must not mask the rest of the lifecycle evidence.
 
-    // Menu events deliver the mapped actions; the disabled header entry
-    // delivers nothing. (The wakeup-driven state push is probed in its own
-    // final scenario: on the current tree it aborts the process, and that
-    // must not mask the rest of the lifecycle evidence.)
+    GVariant *is_menu = watcher.call_item_property(carrier_sender, "ItemIsMenu", &error);
+    MIRAGE_CHECK(is_menu != nullptr);
+    if (is_menu != nullptr) {
+        GVariant *inner = nullptr;
+        g_variant_get(is_menu, "(v)", &inner);
+        MIRAGE_CHECK(g_variant_get_boolean(inner));
+        g_variant_unref(inner);
+        g_variant_unref(is_menu);
+    }
+    GVariant *tooltip = watcher.call_item_property(carrier_sender, "ToolTip", &error);
+    MIRAGE_CHECK(tooltip != nullptr);
+    if (tooltip != nullptr) {
+        GVariant *inner = nullptr;
+        g_variant_get(tooltip, "(v)", &inner);
+        MIRAGE_CHECK(g_variant_is_of_type(inner, G_VARIANT_TYPE("(sa(iiay)ss)")));
+        g_variant_unref(inner);
+        g_variant_unref(tooltip);
+    }
 
-    const std::size_t before_header = pump.actions().size();
-    watcher.call_menu_event(carrier_sender, 1);
-    std::this_thread::sleep_for(std::chrono::milliseconds{300});
-    MIRAGE_CHECK(pump.actions().size() == before_header);
+    // Obsolete/unknown ids cannot pause/resume work or dispatch actions.
+    for (gint id : {1, 2, 3})
+        watcher.call_menu_event(carrier_sender, id);
+    MIRAGE_CHECK(pump.actions().empty());
+    watcher.call_menu_event(carrier_sender, 5);
+    watcher.call_menu_event(carrier_sender, 99);
+    MIRAGE_CHECK(wait_for([&pump] { return pump.actions().size() == 2; }));
+    const auto actions = pump.actions();
+    if (actions.size() == 2) {
+        MIRAGE_CHECK(actions[0] == TrayAction::OpenShell);
+        MIRAGE_CHECK(actions[1] == TrayAction::Quit);
+    }
+    initial.can_open_shell = false;
+    pump.set_state(initial);
+    watcher.call_menu_event(carrier_sender, 5);
+    watcher.call_menu_event(carrier_sender, 99);
+    MIRAGE_CHECK(wait_for([&pump] { return pump.actions().size() == 3; }));
+    MIRAGE_CHECK(pump.actions().back() == TrayAction::Quit);
 
     watcher.unsubscribe_state_pushes();
 
@@ -595,15 +629,8 @@ void scenario_watcher_vanish_ends_the_loop_with_a_diagnostic(FakeStatusNotifierW
     MIRAGE_CHECK(pump.report().diagnostic.find("StatusNotifierWatcher") != std::string::npos);
 }
 
-/// The runtime state push and the menu layout read path — exactly what a
-/// real indicator host drives: the owner flips the TrayState and wakes the
-/// pump (the watcher must receive ItemsPropertiesUpdated with the new
-/// enablement), then GetLayout returns the fixed seven-entry table and
-/// GetGroupProperties answers the same properties. Kept as the FINAL
-/// scenario: on the current tree both the state push (tray_backend.cpp:326,
-/// unterminated a{sv} varargs) and the layout read (spaced GVariant format
-/// strings) abort the process (GLib fatal) — the abort is the defect
-/// evidence and must not mask the earlier scenarios.
+/// A host reads the standard root tree with exactly two actions and receives
+/// menu enablement updates after a Runtime state change.
 void scenario_state_push_and_menu_layout_queries(FakeStatusNotifierWatcher &watcher) {
     g_log_set_default_handler(tray_fatal_probe_handler, nullptr);
     const auto carrier = open_tray_carrier();
@@ -634,55 +661,78 @@ void scenario_state_push_and_menu_layout_queries(FakeStatusNotifierWatcher &watc
     GVariant *layout = watcher.call_menu_get_layout(carrier_sender, &error);
     MIRAGE_CHECK(layout != nullptr);
     if (layout != nullptr) {
-        guint revision = 0;
-        GVariantIter *entries = nullptr;
-        g_variant_get(layout, "(ua(ia{sv}av))", &revision, &entries);
-        MIRAGE_CHECK(revision >= 1);
-        MIRAGE_CHECK(g_variant_iter_n_children(entries) == 7);
-        // The pause entry (id 2) mirrors the state's can_pause. Entries are
-        // read child-by-child (the "av" slot is not directly loopable).
-        gboolean pause_enabled = FALSE;
-        gboolean quit_enabled = FALSE;
-        while (GVariant *entry = g_variant_iter_next_value(entries)) {
-            GVariant *id_variant = g_variant_get_child_value(entry, 0);
-            const gint id = g_variant_get_int32(id_variant);
-            g_variant_unref(id_variant);
-            GVariant *props = g_variant_get_child_value(entry, 1);
-            GVariant *enabled = g_variant_lookup_value(props, "enabled", nullptr);
-            if (enabled != nullptr) {
-                if (g_variant_is_of_type(enabled, G_VARIANT_TYPE_BOOLEAN)) {
-                    if (id == 2) {
-                        pause_enabled = g_variant_get_boolean(enabled) ? TRUE : FALSE;
-                    }
-                    if (id == 99) {
-                        quit_enabled = g_variant_get_boolean(enabled) ? TRUE : FALSE;
-                    }
-                }
-                g_variant_unref(enabled);
-            }
-            g_variant_unref(props);
+        GVariant *revision = g_variant_get_child_value(layout, 0);
+        MIRAGE_CHECK(g_variant_get_uint32(revision) >= 1);
+        g_variant_unref(revision);
+        GVariant *root = g_variant_get_child_value(layout, 1);
+        GVariant *id = g_variant_get_child_value(root, 0);
+        MIRAGE_CHECK(g_variant_get_int32(id) == 0);
+        g_variant_unref(id);
+        GVariant *props = g_variant_get_child_value(root, 1);
+        const gchar *display = nullptr;
+        MIRAGE_CHECK(g_variant_lookup(props, "children-display", "&s", &display));
+        MIRAGE_CHECK(g_strcmp0(display, "submenu") == 0);
+        g_variant_unref(props);
+        GVariant *children = g_variant_get_child_value(root, 2);
+        MIRAGE_CHECK(g_variant_n_children(children) == 2);
+        for (gsize index = 0; index < g_variant_n_children(children); ++index) {
+            GVariant *wrapped = g_variant_get_child_value(children, index);
+            GVariant *entry = g_variant_get_variant(wrapped);
+            MIRAGE_CHECK(g_variant_is_of_type(entry, G_VARIANT_TYPE("(ia{sv}av)")));
+            GVariant *entry_id = g_variant_get_child_value(entry, 0);
+            MIRAGE_CHECK(g_variant_get_int32(entry_id) == (index == 0 ? 5 : 99));
+            g_variant_unref(entry_id);
+            GVariant *entry_props = g_variant_get_child_value(entry, 1);
+            const gchar *label = nullptr;
+            gboolean enabled = FALSE;
+            MIRAGE_CHECK(g_variant_lookup(entry_props, "label", "&s", &label));
+            MIRAGE_CHECK(g_strcmp0(label, index == 0 ? "打开应用" : "退出应用") == 0);
+            MIRAGE_CHECK(g_variant_lookup(entry_props, "enabled", "b", &enabled));
+            MIRAGE_CHECK(enabled == TRUE);
+            g_variant_unref(entry_props);
+            GVariant *leaf_children = g_variant_get_child_value(entry, 2);
+            MIRAGE_CHECK(g_variant_n_children(leaf_children) == 0);
+            g_variant_unref(leaf_children);
             g_variant_unref(entry);
+            g_variant_unref(wrapped);
         }
-        g_variant_iter_free(entries);
+        g_variant_unref(children);
+        g_variant_unref(root);
         g_variant_unref(layout);
-        MIRAGE_CHECK(pause_enabled == TRUE);
-        MIRAGE_CHECK(quit_enabled == TRUE);
     }
 
-    // The runtime state push: flip the state (paused task → resume entry
-    // enabled, pause disabled) and wake the pump — the watcher receives
+    for (const gint parent : {0, 5}) {
+        GVariant *shallow = watcher.call_menu_get_layout(carrier_sender, &error, parent, 0);
+        MIRAGE_CHECK(shallow != nullptr);
+        if (shallow != nullptr) {
+            GVariant *root = g_variant_get_child_value(shallow, 1);
+            GVariant *children = g_variant_get_child_value(root, 2);
+            MIRAGE_CHECK(g_variant_n_children(children) == 0);
+            g_variant_unref(children);
+            g_variant_unref(root);
+            g_variant_unref(shallow);
+        }
+    }
+    GVariant *invalid = watcher.call_menu_get_layout(carrier_sender, &error, 2);
+    MIRAGE_CHECK(invalid == nullptr && error != nullptr);
+    g_clear_error(&error);
+    invalid = watcher.call_menu_get_layout(carrier_sender, &error, 0, -2);
+    MIRAGE_CHECK(invalid == nullptr && error != nullptr);
+    g_clear_error(&error);
+
+    // Disable Open and wake the pump — the watcher receives
     // PropertiesChanged on the item and ItemsPropertiesUpdated on the menu.
     watcher.subscribe_state_pushes();
     TrayState paused;
     paused.status = "Mirage：任务已暂停：clean the cache — Paused";
     paused.can_resume = true;
-    paused.can_open_shell = true;
+    paused.can_open_shell = false;
     pump.set_state(paused);
     carrier->wakeup();
     MIRAGE_CHECK(wait_for([&watcher] { return watcher.properties_changed_seen(); }));
     MIRAGE_CHECK(wait_for([&watcher] {
         for (const RecordedMenuProps &push : watcher.menu_pushes()) {
-            if (push.id == 3 && push.enabled == TRUE && push.label == "恢复任务") {
+            if (push.id == 5 && push.enabled == FALSE && push.label == "打开应用") {
                 return true;
             }
         }
@@ -753,8 +803,15 @@ void scenario_menu_group_properties_delivery(FakeStatusNotifierWatcher &watcher)
     GVariant *group = watcher.call_menu_get_group_properties(carrier_sender);
     MIRAGE_CHECK(group != nullptr);
     if (group != nullptr) {
+        GVariant *entries = g_variant_get_child_value(group, 0);
+        MIRAGE_CHECK(g_variant_n_children(entries) == 2);
+        g_variant_unref(entries);
         g_variant_unref(group);
     }
+    GError *error = nullptr;
+    group = watcher.call_menu_get_group_properties(carrier_sender, true, &error);
+    MIRAGE_CHECK(group == nullptr && error != nullptr);
+    g_clear_error(&error);
     pump.request_stop();
     pump.join();
     MIRAGE_CHECK(pump.report().clean);

@@ -21,7 +21,7 @@
 | M6-01 | In Progress | EUI dev 完整提交锁定、bundled 构建、原生无边框窗口与窗口控制；Linux 构建/运行已取证，Windows 保持待验收 |
 | M6-02 | Completed | Linux 首步窄侧栏与对话页，本地会话/草稿/未发送消息、主题、滚动、容量限制；截图、模型测试与键鼠交互取证通过 |
 | M6-03 | Completed | Linux 首步模型设置与通用 harness：真实 session.list/open/chat/history 与事件；Executor 管理请求、停止与断线，离线故障注入和真实SiliconFlow模型验收；Windows与后续扩展另验 |
-| M6-04 | Planned | 独立入口、前端/托盘分进程、退出活动确认与整体 shutdown、打包替换 CEF |
+| M6-04 | In Progress | 独立入口、前端/托盘分进程、退出活动确认与整体 shutdown、打包替换 CEF |
 | M6-05 | Completed | 整个会话页对齐ZCode：用户气泡/Agent Markdown、居中草稿与自增高输入、工具条/上下文引用、复制与键盘交互；按DEC-035验收 |
 | M6-06 | Completed | Linux首步ZCode上下文比例圆环与详情；接通Mira最近请求输入Token，显式窗口预算，未知状态与IPC兼容测试；依据DEC-036 |
 | M6-07 | Completed | Linux首步ZCode服务商配置与附件/权限/占比/模型/思考工具栏；真实UTF-8附件、受限工具权限、模型目录、每轮reasoning与回归；供应商推理互通和Windows另验 |
@@ -40,8 +40,9 @@
 | M6-22 | Completed | 会话侧栏/服务名输入间距、厂商预设、Anthropic Messages接入与MiniMax-M3真实识图；DEC-043 |
 | M6-21 | Completed（Linux X11） | 侧栏统一内容缩进/图标轴；ZCode服务导航、未命名草稿、连接配置和模型列表；保存ACK、失败保留、真实配置重载验收，依据DEC-042 |
 | M6-23 | Completed（Linux X11） | 实际模型页35项交互修复/复验；DEC-044，324项renderer、ACK、断线重连与最小明暗证据 |
+| M6-25 | Completed（Linux X11） | 托盘内嵌Runtime、独立前端准入/复用、左键两项菜单、整体退出与活动确认；DEC-045 |
 | M6-24 | Completed（Linux X11） | 修复开发desktop入口绕过Service；真实GIO冷启动、Key保存/替换与服务复用验收 |
-| M6-28 | In Progress | 原生前端 PR 栈 CI 验收、按依赖合并与已合并分支/过期 build 清理；[维护计划](maintenance-ci-acceptance-20261007.md) |
+| M6-28 | In Progress | 原生前端 PR 栈 CI 验收、按依赖合并与已合并分支/过期 build 清理；[维护计划](maintenance-ci-acceptance-20261007.md)、[进程 EOF 修复](maintenance-linux-process-eof-20261007.md) |
 | M6-10 | Completed | 依工程规范9.4整理Mira/Mirador独立反馈台账，复核已登记问题并向Mira上游提交可复现反馈；不修改依赖或升级pin |
 
 ## 测试矩阵与退出条件
@@ -322,3 +323,52 @@ M6-21 Linux支持能力范围验收完成：Debug/Release/ASAN/UBSAN各3/3，原
 2026-10-06 / M6-24 Completed（Linux X11，BUG-20261006-005）：维护者报告Key后保存仍灰。当前注册的开发desktop entry直接运行mirage-native，实际只存在UI进程；依DEC-007/037将其接入已交付mirage start，先确保Service就绪再启动独立UI/Tray。注册目标同时构建启动器/Service/Tray，保持Dock身份。从生成的desktop entry真实启动、无需手动预启Service完成Key保存/替换，核实Service复用；不扩展UI任务设施或托盘整体退出确认。
 
 M6-24验收：真实desktop冷启动三个独立进程，Key-only保存、替换、凭据不落明文及Service复用通过；Release相关4/4。详见[入口保存验收](../compatibility/desktop-model-save-20261006.md)。维护者随后要求托盘内嵌Runtime；本记录保留为旧拓扑修复证据，新拓扑由DEC-045另立项。
+
+2026-10-06 / M6-25 In Progress：维护者明确要求Agent服务归托盘进程；统一入口只启动托盘，托盘Runtime就绪后启动独立前端，无托盘时前端拒绝创建窗口。沿用现有Mira/Executor/IPC/托盘平台能力；验证冷启动、重复启动、无宿主拒绝、前端关闭重开、活动退出取消/确认、宿主失败与有界清理。依DEC-045更新进程所有权，不修改pinned依赖。
+
+
+M6-25 Linux 交付已完成：真实双进程/托盘注册、关闭重开、退出取消/确认、宿主终止
+共 18 项通过；Runtime/IPC/界面/凭据回归 8/8，ASAN 与 UBSAN 各 3/3，TSAN 在
+关闭 ASLR 后 1/1。托盘为 Runtime 唯一 owner，前端需在线托盘且为其所属子进程；
+先前 Key 保存在新拓扑下再次通过。详见 [托盘验收](../compatibility/tray-runtime-owner-20261006.md)。
+Windows/Wayland/真实通知区像素与安装包仍由 M6-04 继续验收，不关闭整体 M6。
+
+
+2026-10-06 / M6-25 重新打开：维护者反馈 Dock/应用列表打不开窗口。实机确认窗口处于
+_NET_WM_STATE_HIDDEN；EUI 最小化跳过 compose，原恢复请求放在 compose 内不能被消费。
+在 FrontendProcess 平台边界直接激活所属子进程窗口，补最小化恢复/宿主退出验证后再关闭。
+
+
+BUG-20261006-006 已修复：托盘通过 Platform Backend 恢复自己持有的前端，不依赖
+最小化时暂停的 compose。GNOME 应用列表条目实际恢复、私有 WM 21/21、所属 PID/
+错误 PID/256 窗口预算平台测试通过；Release 相关 4/4 加平台 1/1、ASAN/UBSAN
+相关各 2/2 加平台各 1/1。Linux 范围恢复 Completed，未更改 Windows/包装验收状态。
+
+
+2026-10-06 / M6-25 菜单增量 In Progress：维护者要求左键单击托盘显示仅“打开应用”/
+“退出应用”两项。沿 DEC-045 复用 open/quit 与活动确认；修正 Linux DBusMenu 根树
+及宿主互通格式，菜单提示保留在 tooltip，移除暂停/恢复的可见条目，不修改依赖。
+
+
+2026-10-06 / M6-25 菜单增量 Completed（Linux 协议/私有产品范围）：左键菜单声明、
+标准根树、两项标签/启用状态、签名互通通过；真实产品 23/23，Release 相关 3/3，
+菜单后端 79 checks；ASAN/UBSAN/受控 ASLR TSAN 各 1/1。首次 ASAN 发现事件字符串
+和夹具 GMainLoop 泄漏，修复并复跑通过。当前用户实例保留，待正常重启加载；真实
+GNOME 通知区鼠标菜单及 Windows 留给维护者目标环境补验，不计为已完成。详见
+[托盘验收](../compatibility/tray-runtime-owner-20261006.md)菜单增量。
+
+
+2026-10-06 / M6-25 入口补验 In Progress：维护者再次明确应用列表统一入口，冷启动先
+托盘后前端，托盘已在线时只打开/恢复前端。实际 GNOME 点击日志仍直接执行旧
+mirage-native，虽磁盘条目已是 mirage start，旧入口被前端准入拒绝；GIO 读新条目
+不能替代 GNOME 现存缓存验收。沿 DEC-045 为已登记的旧桌面调用增加启动器兼容
+转发，实际窗口仍由托盘创建，直接 CLI/显式端点的非所属前端继续拒绝。移除临时
+入口诊断，补冷启动/已驻留/关闭重开/循环守卫验证，不修改依赖。
+
+
+BUG-20261006-007 / M6-25 入口补验 Completed（Linux）：维护者实机应用列表点击确认
+窗口与托盘同时出现；随后 GIO 再打开复用相同托盘与前端。真实私有当前入口 24/24、
+旧缓存入口 28/28（含已有托盘/关闭前端后从桌面入口重开）、Release 相关 3/3；
+ASAN/UBSAN 原生入口拒绝/exec 循环分支各 6/6。临时诊断条目已撤除，开发注册目标
+重新写入正式 mirage start，未修改 pinned 依赖。证据和剩余平台范围见
+[托盘验收入口补充](../compatibility/tray-runtime-owner-20261006.md)。

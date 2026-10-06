@@ -3,6 +3,21 @@
 #include <GLFW/glfw3.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+namespace mirage::native_ui {
+std::uint64_t process_id() {
+#ifdef _WIN32
+    return ::GetCurrentProcessId();
+#else
+    return static_cast<std::uint64_t>(::getpid());
+#endif
+}
+} // namespace mirage::native_ui
 
 namespace mirage::native_ui::window {
 namespace {
@@ -75,6 +90,14 @@ void shutdown() {
     sidebar_cursor = nullptr;
     sidebar_cursor_active = false;
     handle = nullptr;
+}
+void show() {
+    if (handle) {
+        glfwShowWindow(handle);
+        if (glfwGetWindowAttrib(handle, GLFW_ICONIFIED))
+            glfwRestoreWindow(handle);
+        glfwFocusWindow(handle);
+    }
 }
 void minimize() {
     if (handle)

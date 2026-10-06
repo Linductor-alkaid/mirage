@@ -352,6 +352,34 @@ void scenario_command_budget_refuses_before_side_effects() {
     MIRAGE_CHECK(!std::filesystem::exists(canary));
 }
 
+// BUG-20261007-001: pipe EOF does not imply that the shell has exited.
+void scenario_pipe_eof_preserves_process_completion() {
+    linux_backend::LinuxDesktopEnvironment environment;
+    desktop::ProcessLimits limits;
+    limits.timeout = std::chrono::milliseconds{2000};
+    const auto closed =
+        environment.execute("exec 1>&- 2>&-; sleep 0.15; exit 7", limits, desktop::CancelToken{});
+    MIRAGE_CHECK(closed.ok && closed.exited_normally && closed.exit_code == 7);
+    const auto staggered = environment.execute(
+        "exec 1>&-; sleep 0.15; printf late-output >&2; exit 0", limits, desktop::CancelToken{});
+    MIRAGE_CHECK(staggered.ok && staggered.exited_normally && staggered.exit_code == 0);
+    MIRAGE_CHECK(staggered.standard_error == "late-output");
+    TempWorkspace workspace;
+    const auto pid_file = workspace.root() / "normal-child";
+    const auto background = environment.execute("sleep 30 >/dev/null 2>&1 & echo $! > '" +
+                                                    pid_file.string() + "'; exit 0",
+                                                limits, desktop::CancelToken{});
+    MIRAGE_CHECK(background.ok && background.exited_normally && background.exit_code == 0);
+    const auto pids = read_pid_file(pid_file);
+    MIRAGE_CHECK(pids.size() == 1);
+    for (const auto pid : pids)
+        MIRAGE_CHECK(process_is_gone(pid, std::chrono::milliseconds{2000}));
+    limits.timeout = std::chrono::milliseconds{100};
+    const auto timeout =
+        environment.execute("exec 1>&- 2>&-; sleep 30", limits, desktop::CancelToken{});
+    MIRAGE_CHECK(!timeout.ok && timeout.timed_out && timeout.error.code == "deadline_exceeded");
+}
+
 // --- execution cancellation --------------------------------------------------
 
 /// The single-threaded mid-flight cancellation probe: SIGALRM fires once
@@ -363,6 +391,26 @@ extern "C" void on_alarm_request_cancel(int) {
     if (g_alarm_cancel_token != nullptr) {
         g_alarm_cancel_token->request_cancel();
     }
+}
+
+void scenario_cancel_after_pipe_eof() {
+    linux_backend::LinuxDesktopEnvironment environment;
+    desktop::CancelToken token;
+    g_alarm_cancel_token = &token;
+    struct sigaction action {
+    }, previous{};
+    action.sa_handler = on_alarm_request_cancel;
+    ::sigemptyset(&action.sa_mask);
+    MIRAGE_CHECK(::sigaction(SIGALRM, &action, &previous) == 0);
+    ::alarm(1);
+    desktop::ProcessLimits limits;
+    limits.timeout = std::chrono::milliseconds{5000};
+    const auto outcome = environment.execute("exec 1>&- 2>&-; sleep 30", limits, token);
+    ::alarm(0);
+    g_alarm_cancel_token = nullptr;
+    ::sigaction(SIGALRM, &previous, nullptr);
+    MIRAGE_CHECK(!outcome.ok && outcome.cancelled && !outcome.timed_out);
+    MIRAGE_CHECK(outcome.error.code == "cancelled");
 }
 
 void scenario_cancel_midflight_tears_down_group_and_keeps_output() {
@@ -477,6 +525,9 @@ int main() {
     run_scenario("read_cancelled_before_work", scenario_read_cancelled_before_work);
     run_scenario("command_budget_refuses_before_side_effects",
                  scenario_command_budget_refuses_before_side_effects);
+    run_scenario("pipe_eof_preserves_process_completion",
+                 scenario_pipe_eof_preserves_process_completion);
+    run_scenario("cancel_after_pipe_eof", scenario_cancel_after_pipe_eof);
     run_scenario("cancel_midflight_tears_down_group_and_keeps_output",
                  scenario_cancel_midflight_tears_down_group_and_keeps_output);
     run_scenario("cancel_token_set_before_execute_returns_promptly",
