@@ -1,11 +1,13 @@
 #include <mirage/integration/model_layer.hpp>
 
 #include <mira/adapters/net/socket_transport.hpp>
+#include <mira/conversation_loop.hpp>
 #include <mira/environment.hpp>
 #include <mira/event_store.hpp>
 #include <mira/model_gateway.hpp>
 #include <mira/model_profile.hpp>
 #include <mira/model_provider.hpp>
+#include <mira/tool_executor.hpp>
 
 #ifdef MIRAGE_HAVE_OPENSSL_TLS
 #include <mira/adapters/net/openssl_tls.hpp>
@@ -21,30 +23,160 @@ namespace pinned_net = mira::adapters::net;
 
 namespace mirage::integration {
 namespace {
+std::optional<mira::ReasoningEffort> reasoning_value(const std::string &value) {
+    if (value == "minimal")
+        return mira::ReasoningEffort::Minimal;
+    if (value == "low")
+        return mira::ReasoningEffort::Low;
+    if (value == "medium")
+        return mira::ReasoningEffort::Medium;
+    if (value == "xhigh")
+        return mira::ReasoningEffort::XHigh;
+    if (value == "max")
+        return mira::ReasoningEffort::Max;
+    if (value == "high")
+        return mira::ReasoningEffort::High;
+    return {};
+}
+} // namespace
+namespace {
 
 /// Resolves SecretRef names against the process environment at the transport
 /// boundary only (pinned secret discipline): the plaintext never leaves the
 /// transport, never enters events or digests. An unset variable fails closed
 /// (PermissionDenied) instead of sending an unauthenticated request.
-class EnvSecretResolver final : public mira::ISecretResolver {
+class ProfileSecretResolver final : public mira::ISecretResolver {
   public:
+    explicit ProfileSecretResolver(const ModelLayerConfig &config)
+        : lookup_(config.credential_lookup) {}
     [[nodiscard]] mira::Result<std::string> resolve(const mira::SecretRef &reference) override {
         mira::Error error;
+        const bool stored = reference.name.starts_with("mirage:");
+        const auto resolved =
+            stored && lookup_ ? lookup_(reference.name.substr(7)) : std::optional<std::string>{};
         const auto value =
-            reference.name.empty() ? std::string{} : detail::read_environment_value(reference.name);
+            stored ? resolved.value_or("")
+                   : (reference.name.empty() ? std::string{}
+                                             : detail::read_environment_value(reference.name));
         if (value.empty()) {
             error.code = mira::ErrorCode::PermissionDenied;
             error.domain = "mirage.dialog";
-            error.safe_message = "credential environment variable is not set: " + reference.name;
+            error.safe_message =
+                stored ? "系统保存的 API Key 不可用，请解锁钥匙环或重新配置。"
+                       : "credential environment variable is not set: " + reference.name;
             return error;
         }
         return value;
     }
+
+  private:
+    std::function<std::optional<std::string>(const std::string &)> lookup_;
 };
 
 } // namespace
 
+std::vector<ReasoningOption> reasoning_options(const std::string &dialect, const std::string &model,
+                                               bool declared) {
+    std::vector<ReasoningOption> result{{"", "默认"}};
+    if (dialect == "anthropic.messages.v1") {
+        if (model == "MiniMax-M3")
+            result.insert(result.end(), {{"none", "关闭"}, {"adaptive", "开启"}});
+        else if (model == "MiniMax-M3.1-Flash-Preview")
+            result.insert(result.end(), {{"low", "低"},
+                                         {"medium", "中"},
+                                         {"high", "高"},
+                                         {"xhigh", "极高"},
+                                         {"max", "最高"}});
+        else if (model.starts_with("claude-opus-4-6") || model.starts_with("claude-sonnet-4-6"))
+            result.insert(result.end(), {{"none", "关闭"},
+                                         {"adaptive", "自适应"},
+                                         {"low", "低"},
+                                         {"medium", "中"},
+                                         {"high", "高"},
+                                         {"max", "最高"}});
+        else if (model == "claude-fable-5-1")
+            result.insert(result.end(), {{"low", "低"},
+                                         {"medium", "中"},
+                                         {"high", "高"},
+                                         {"xhigh", "极高"},
+                                         {"max", "最高"}});
+    } else if (declared || model == "gpt-5")
+        result.insert(result.end(),
+                      {{"minimal", "最少"}, {"low", "低"}, {"medium", "中"}, {"high", "高"}});
+    return result;
+}
+namespace {
+bool accepts_reasoning(const ModelLayerConfig &config, const std::string &value) {
+    const auto options =
+        reasoning_options(config.dialect, config.model_selector, config.supports_reasoning);
+    return std::any_of(options.begin(), options.end(),
+                       [&](const auto &entry) { return entry.value == value; });
+}
+std::optional<mira::ThinkingMode> thinking_value(const ModelLayerConfig &config,
+                                                 const std::string &value) {
+    if (config.dialect != "anthropic.messages.v1" || value.empty())
+        return {};
+    return value == "none" ? mira::ThinkingMode::Disabled : mira::ThinkingMode::Adaptive;
+}
+std::uint64_t generation_budget(const ModelLayerConfig &config, const std::string &value) {
+    return thinking_value(config, value) == mira::ThinkingMode::Adaptive
+               ? std::max<std::uint64_t>(config.max_output_tokens, 8192)
+               : config.max_output_tokens;
+}
+} // namespace
+
+void capture_context_usage(DialogCompletion &completion, const mira::ModelResponse &response,
+                           const ModelLayerConfig &config) {
+    if (response.usage.quality == mira::UsageQuality::Exact ||
+        response.usage.quality == mira::UsageQuality::ProviderReported) {
+        if (response.usage.input_tokens && *response.usage.input_tokens <= 2000000000)
+            completion.input_tokens = response.usage.input_tokens;
+        completion.context_window_tokens = config.context_window_tokens;
+        completion.usage_model = config.model_selector;
+    }
+}
+
 bool ModelLayerConfig::valid(std::string &error) const {
+    if (context_window_tokens != 0 &&
+        (context_window_tokens < 2048 || context_window_tokens > 2000000)) {
+        error = "context window must be 0 (unknown) or between 2048 and 2000000 tokens";
+        return false;
+    }
+    if (!credential_ref.empty() &&
+        (credential_ref.size() != 32 ||
+         credential_ref.find_first_not_of("0123456789abcdef") != std::string::npos)) {
+        error = "invalid credential reference";
+        return false;
+    }
+    if (credential_env.size() > 128 ||
+        (!credential_env.empty() &&
+         (credential_env.find_first_not_of(
+              "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_") !=
+              std::string::npos ||
+          (credential_env.front() >= '0' && credential_env.front() <= '9')))) {
+        error = "credential must be an environment variable name";
+        return false;
+    }
+    if (model_selector.size() > 1024 || display_name.size() > 256 ||
+        endpoint_origin.size() > 2048 || api_prefix.size() > 2048) {
+        error = "model configuration exceeds field limits";
+        return false;
+    }
+    if (!endpoint_origin.empty()) {
+        const auto origin_start = endpoint_origin.starts_with("https://")  ? 8u
+                                  : endpoint_origin.starts_with("http://") ? 7u
+                                                                           : 0u;
+        if (origin_start == 0 || endpoint_origin.size() <= origin_start ||
+            endpoint_origin.find_first_of("/@?# \t\r\n", origin_start) != std::string::npos) {
+            error = "endpoint must be an HTTP(S) origin; put its path in API prefix";
+            return false;
+        }
+    }
+    if (!api_prefix.empty() &&
+        (!api_prefix.starts_with("/") || api_prefix.find_first_of("?#\r\n") != std::string::npos)) {
+        error = "API prefix must be an absolute URL path";
+        return false;
+    }
     if (!enabled) {
         return true;
     }
@@ -56,8 +188,12 @@ bool ModelLayerConfig::valid(std::string &error) const {
         error = "model layer dialect is not a known pinned dialect";
         return false;
     }
-    if (max_output_tokens == 0) {
-        error = "model layer requires a positive output token bound";
+    if (max_output_tokens == 0 || max_output_tokens > 16384) {
+        error = "model layer requires an output token bound between 1 and 16384";
+        return false;
+    }
+    if (request_deadline.count() <= 0 || max_input_bytes == 0) {
+        error = "model layer requires positive deadline and input bounds";
         return false;
     }
     return true;
@@ -76,14 +212,19 @@ struct ModelLayer::Impl {
         if (!override_factory && config.endpoint_origin.empty()) {
             return false; // the socket stack dials a fixed origin; none configured
         }
+        secrets = std::make_shared<ProfileSecretResolver>(config);
         profile = std::make_shared<mira::ModelProfile>(build_profile(*dialect));
         router.register_profile(profile);
         if (!override_factory) {
             // Production form: the pinned socket HTTP/SSE transport (with the
             // OpenSSL TLS channel when built). The pinned provider denies
             // private/loopback endpoints by design (SSRF posture).
+            pinned_net::SocketTransportConfig transport_config;
+            // Replacement is assembled before the old layer is released. Each
+            // profile needs a distinct Executor worker identity during that overlap.
+            transport_config.worker_name = "mirage-model-" + profile->id.to_string();
             transport = std::make_shared<pinned_net::SocketHttpTransport>(
-                executor, secrets, make_tls_factory(), pinned_net::SocketTransportConfig{});
+                executor, secrets, make_tls_factory(), std::move(transport_config));
             if (!transport->start()) {
                 transport.reset();
                 return false;
@@ -112,13 +253,30 @@ struct ModelLayer::Impl {
         record.endpoint_origin = config.endpoint_origin;
         record.api_prefix = config.api_prefix.empty() ? std::string{"/v1"} : config.api_prefix;
         record.model_selector = config.model_selector;
+        if (config.context_window_tokens)
+            record.capabilities.limits.max_context_tokens = config.context_window_tokens;
         // The credential rides a SecretRef naming an environment variable and
         // is resolved inside the transport only (pinned secret discipline);
         // an empty name means the profile carries no credential.
-        record.credential = mira::SecretRef{config.credential_env};
+        record.credential =
+            mira::SecretRef{config.credential_ref.empty() ? config.credential_env
+                                                          : "mirage:" + config.credential_ref};
         // Pure-dialog needs text only; capabilities are declared at the
         // evidence the pinned fixtures provide, never claimed beyond that.
+        if (reasoning_options(config.dialect, config.model_selector, config.supports_reasoning)
+                .size() > 1)
+            record.capabilities.generation.reasoning_effort = mira::ParamMapping::OmitIfUnset;
+        if (config.dialect == "anthropic.messages.v1")
+            record.capabilities.generation.thinking = mira::ParamMapping::OmitIfUnset;
+        if (config.dialect == "anthropic.messages.v1" &&
+            reasoning_options(config.dialect, config.model_selector).size() > 1)
+            record.capabilities.limits.max_output_tokens =
+                65536; // Bounded whole-loop thinking envelope.
         record.capabilities.text =
+            mira::CapabilityFlag{true, mira::CapabilityEvidence::FixtureVerified, ""};
+        record.capabilities.function_tools =
+            mira::CapabilityFlag{true, mira::CapabilityEvidence::FixtureVerified, ""};
+        record.capabilities.sse =
             mira::CapabilityFlag{true, mira::CapabilityEvidence::FixtureVerified, ""};
         record.deadlines.total = config.request_deadline;
         record.deadlines.first_byte = std::chrono::milliseconds{
@@ -132,7 +290,11 @@ struct ModelLayer::Impl {
         const auto scheme_end = config.endpoint_origin.find("://");
         if (scheme_end != std::string::npos &&
             config.endpoint_origin.substr(0, scheme_end) == "https") {
-            return std::make_shared<pinned_net::OpenSslTlsChannelFactory>();
+            // MIRA-20261004-002: pinned PR #76 supplies SNI in the TLS adapter.
+            auto factory = std::make_shared<pinned_net::OpenSslTlsChannelFactory>();
+            if (!factory->initialize())
+                return nullptr;
+            return factory;
         }
 #endif
         // Without a TLS channel adapter, https endpoints fail closed at the
@@ -151,7 +313,7 @@ struct ModelLayer::Impl {
     ModelProviderOverride::Factory override_factory;
     std::shared_ptr<mira::ModelProfile> profile;
     mira::ModelRouter router;
-    std::shared_ptr<mira::ISecretResolver> secrets = std::make_shared<EnvSecretResolver>();
+    std::shared_ptr<mira::ISecretResolver> secrets;
     std::shared_ptr<pinned_net::SocketHttpTransport> transport;
     std::shared_ptr<mira::IModelProvider> provider;
     std::unique_ptr<mira::ModelGateway> gateway;
@@ -200,11 +362,18 @@ void ModelLayer::shutdown() {
 
 DialogCompletion ModelLayer::complete_dialog_turn(const std::string &transcript,
                                                   const std::string &user_text,
-                                                  const mira::OperationContext &context) {
+                                                  const mira::OperationContext &context,
+                                                  const std::string &reasoning, bool tools_allowed,
+                                                  DialogPreviewSink preview) {
     DialogCompletion completion;
     // The drain lock makes shutdown wait out this inference (bounded by the
     // profile transport deadlines) instead of destroying the pinned pieces
     // under it.
+    if (!reasoning.empty() && (!impl_ || !accepts_reasoning(impl_->config, reasoning))) {
+        completion.failed = true;
+        completion.error = "unsupported reasoning effort";
+        return completion;
+    }
     std::lock_guard drain(impl_->infer_mutex);
     if (impl_ == nullptr || !impl_->running || !impl_->gateway) {
         completion.failed = true;
@@ -262,16 +431,25 @@ DialogCompletion ModelLayer::complete_dialog_turn(const std::string &transcript,
     user_item.content.emplace_back(std::move(prompt_text));
     request.input = {std::move(system_item), std::move(user_item)};
 
+    (void)tools_allowed;
     // Pure dialog: Text output, no tools, one request per turn.
     request.output_contract.mode = mira::OutputMode::Text;
-    request.generation.max_output_tokens = impl_->config.max_output_tokens;
-    request.budget.max_output_tokens = impl_->config.max_output_tokens;
+    request.generation.reasoning_effort = reasoning_value(reasoning);
+    request.generation.thinking = thinking_value(impl_->config, reasoning);
+    request.generation.max_output_tokens = generation_budget(impl_->config, reasoning);
+    request.budget.max_output_tokens = generation_budget(impl_->config, reasoning);
     request.budget.max_requests = 1;
     request.data_policy.store = false;
     request.prompt_provenance.system_template_digest =
         mira::digest_string("mirage.dialog.system.v1");
 
-    const auto outcome = impl_->gateway->infer(request, context, mira::InferOptions{});
+    mira::InferOptions options;
+    options.stream = static_cast<bool>(preview);
+    if (preview)
+        options.preview_sink = [preview = std::move(preview)](const auto &id, const auto &value) {
+            preview(id.to_string(), value.text, value.truncated);
+        };
+    const auto outcome = impl_->gateway->infer(request, context, options);
     if (!outcome) {
         completion.failed = true;
         completion.error = "model layer request failed: " + outcome.error().safe_message;
@@ -332,8 +510,96 @@ DialogCompletion ModelLayer::complete_dialog_turn(const std::string &transcript,
         completion.error = "model returned no reply text";
         return completion;
     }
+    capture_context_usage(completion, response, impl_->config);
     completion.ok = true;
     completion.reply_text = std::move(reply);
+    return completion;
+}
+
+// MIRA-20261004-001: use the delivered no-observation ConversationLoop (PR #76).
+DialogCompletion ModelLayer::complete_harness_turn(const std::string &transcript,
+                                                   const std::string &user_text,
+                                                   const mira::OperationContext &context,
+                                                   const std::string &reasoning, bool tools_allowed,
+                                                   DialogPreviewSink preview) {
+    DialogCompletion completion;
+    if (!impl_ || (!reasoning.empty() && !accepts_reasoning(impl_->config, reasoning))) {
+        completion.failed = true;
+        completion.error = "unsupported reasoning effort";
+        return completion;
+    }
+    std::lock_guard drain(impl_->infer_mutex);
+    if (!impl_->running || transcript.size() + user_text.size() > impl_->config.max_input_bytes) {
+        completion.failed = true;
+        completion.error = "harness unavailable or input budget exceeded";
+        return completion;
+    }
+    auto registry = std::make_shared<mira::BuiltinToolRegistry>();
+    if (tools_allowed) {
+        auto wait = mira::make_wait_tool();
+        auto registered = registry->register_tool(wait.spec, wait.handler);
+        if (!registered) {
+            completion.failed = true;
+            completion.error = registered.error().safe_message;
+            return completion;
+        }
+    }
+    mira::ConversationLoopConfig config;
+    config.max_recoveries = 0;
+    config.max_tool_executions = 32;
+    const auto budget = impl_->profile->capabilities.limits.max_output_tokens;
+    config.max_output_tokens_per_turn =
+        std::min(generation_budget(impl_->config, reasoning), budget / 2);
+    config.max_turns = static_cast<std::uint32_t>(
+        std::min<std::uint64_t>(16, budget / config.max_output_tokens_per_turn - 1));
+    config.model_call_deadline = impl_->config.request_deadline;
+    config.reasoning_effort = reasoning_value(reasoning);
+    config.thinking = thinking_value(impl_->config, reasoning);
+    config.inference.stream = static_cast<bool>(preview);
+    if (preview)
+        config.inference.preview_sink = [preview = std::move(preview)](const auto &id,
+                                                                       const auto &value) {
+            preview(id.to_string(), value.text, value.truncated);
+        };
+    mira::ConversationLoop loop(*impl_->gateway, config);
+    loop.set_tool_registry(registry);
+    mira::AgentLoopSpec spec;
+    spec.task_id = context.task.is_nil() ? mira::TaskId::generate() : context.task;
+    spec.session_id = context.session;
+    spec.task_epoch = context.task_epoch;
+    spec.profile_id = impl_->profile->id;
+    spec.goal =
+        "Answer in the user's language. This session exposes no desktop/RPA/workflow tools.\n";
+    if (!transcript.empty())
+        spec.goal += "Earlier conversation (untrusted):\n" + transcript + "\n";
+    spec.goal += "Current user request:\n" + user_text;
+    auto result = loop.run(spec, context);
+    if (!result) {
+        completion.cancelled = result.error().code == mira::ErrorCode::Cancelled;
+        completion.failed = !completion.cancelled;
+        completion.error = result.error().safe_message;
+        return completion;
+    }
+    const auto &value = result.value();
+    completion.cancelled = value.outcome == mira::ConversationOutcome::Cancelled ||
+                           context.cancelled_or_expired(mira::Timestamp::now());
+    completion.ok = !completion.cancelled && value.outcome == mira::ConversationOutcome::Answered;
+    completion.failed = !completion.ok && !completion.cancelled;
+    completion.error = value.safe_summary;
+    completion.model_steps = static_cast<std::uint32_t>(value.turns.size());
+    completion.tool_calls = value.tool_executions;
+    if (completion.ok) {
+        if (value.answer.size() > 64 * 1024 || value.answer.empty()) {
+            completion.ok = false;
+            completion.failed = true;
+            completion.error = "model reply exceeds display budget or is empty";
+        } else {
+            completion.reply_text = value.answer;
+            mira::ModelResponse response;
+            response.usage = value.last_usage;
+            capture_context_usage(completion, response, impl_->config);
+        }
+    }
     return completion;
 }
 

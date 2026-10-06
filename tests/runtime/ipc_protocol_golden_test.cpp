@@ -1,7 +1,7 @@
 /// M1.5-01 golden-vector consistency gate (docs/design/mirage-ipc-protocol-v1.md
 /// section 8): consumes the shared vectors file
 /// tests/runtime/data/ipc_protocol_golden.json — the very same file the
-/// TypeScript mirror (ui/contracts/test/golden-vectors.test.ts) reads — and
+/// retired TypeScript mirror formerly read — and
 /// asserts the `runtime/ipc` codec reproduces every canonical wire form
 /// byte-for-byte plus the stable decode error strings.
 ///
@@ -249,6 +249,8 @@ ipc::Event event_from_vector(const std::string &name, const mira::JsonValue &bod
         payload.turn_id = vector_string(body, "turn_id");
         payload.status = vector_string(body, "status");
         payload.user_text = vector_string(body, "user_text");
+        if (body.find("replaces_turn_id"))
+            payload.replaces_turn_id = vector_string(body, "replaces_turn_id");
         payload.sequence = static_cast<std::uint64_t>(vector_integer(body, "sequence"));
         if (const auto *reply = body.find("reply_text"); reply != nullptr) {
             const auto text = reply->as_string();
@@ -348,6 +350,8 @@ void check_event_equal(const std::string &name, const ipc::Event &expected,
         const auto &decoded = std::get<ipc::ChatTurnUpdatedEvent>(actual.payload);
         check_string_equal(name, "chat session_id", decoded.session_id, chat->session_id);
         check_string_equal(name, "chat turn_id", decoded.turn_id, chat->turn_id);
+        check_string_equal(name, "replaces_turn_id", decoded.replaces_turn_id,
+                           chat->replaces_turn_id);
         check_string_equal(name, "chat status", decoded.status, chat->status);
         check_string_equal(name, "chat user_text", decoded.user_text, chat->user_text);
         MIRAGE_CHECK(decoded.has_reply == chat->has_reply);
@@ -368,6 +372,14 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
     const auto op = vector_string(body, "op");
     if (op == "hello") {
         return ipc::HelloRequest{};
+    }
+    if (op == "product.control") {
+        ipc::ProductControlRequest request{
+            vector_string(body, "action"),
+            static_cast<std::uint64_t>(vector_integer(body, "exit_epoch"))};
+        if (body.find("frontend_pid"))
+            request.frontend_pid = vector_integer(body, "frontend_pid");
+        return request;
     }
     if (op == "task.list") {
         return ipc::ListTasksRequest{};
@@ -408,6 +420,14 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
     if (op == "session.open") {
         return ipc::OpenSessionRequest{};
     }
+    if (op == "session.delete")
+        return ipc::DeleteSessionRequest{vector_string(body, "session_id")};
+    if (op == "model.set") {
+        ipc::SetModelRequest request{vector_string(body, "settings")};
+        if (body.find("api_key"))
+            request.api_key = vector_string(body, "api_key");
+        return request;
+    }
     if (op == "session.close") {
         return ipc::CloseSessionRequest{vector_string(body, "session_id")};
     }
@@ -447,6 +467,8 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
         ipc::SessionChatRequest chat;
         chat.session_id = vector_string(body, "session_id");
         chat.text = vector_string(body, "text");
+        if (body.find("replace_turn_id"))
+            chat.replace_turn_id = vector_string(body, "replace_turn_id");
         return chat;
     }
     if (op == "session.chat.history") {
@@ -608,6 +630,11 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                           std::is_same_v<T, ipc::WorkflowAtomCatalogRequest> ||
                           std::is_same_v<T, ipc::WorkflowRunsRequest>) {
                 // Stateless bodies: the variant index comparison above suffices.
+            } else if constexpr (std::is_same_v<T, ipc::ProductControlRequest>) {
+                const auto &request = std::get<T>(actual);
+                MIRAGE_CHECK(request.action == expected_value.action);
+                MIRAGE_CHECK(request.exit_epoch == expected_value.exit_epoch);
+                MIRAGE_CHECK(request.frontend_pid == expected_value.frontend_pid);
             } else if constexpr (std::is_same_v<T, ipc::SubmitTaskRequest>) {
                 const auto &submit = std::get<ipc::SubmitTaskRequest>(actual);
                 check_string_equal(name, "submit goal", submit.goal, expected_value.goal);
@@ -659,6 +686,8 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                 check_string_equal(name, "chat session_id", chat.session_id,
                                    expected_value.session_id);
                 check_string_equal(name, "chat text", chat.text, expected_value.text);
+                check_string_equal(name, "replace_turn_id", chat.replace_turn_id,
+                                   expected_value.replace_turn_id);
             } else if constexpr (std::is_same_v<T, ipc::ChatHistoryRequest>) {
                 const auto &history = std::get<ipc::ChatHistoryRequest>(actual);
                 check_string_equal(name, "chat history session_id", history.session_id,
@@ -784,7 +813,17 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
             MIRAGE_CHECK(flag.has_value());
             identity.policy = flag;
         }
+        if (value.find("tray"))
+            identity.tray = vector_boolean(value, "tray");
         response.payload = std::move(identity);
+    } else if (kind == "product-state") {
+        response.payload =
+            ipc::ProductState{vector_integer(value, "frontend_pid"),
+                              static_cast<std::uint64_t>(vector_integer(value, "window_epoch")),
+                              static_cast<std::uint64_t>(vector_integer(value, "exit_epoch")),
+                              static_cast<std::size_t>(vector_integer(value, "active_work")),
+                              vector_boolean(value, "exit_pending"),
+                              vector_boolean(value, "frontend_ready")};
     } else if (kind == "submitted") {
         ipc::TaskSubmitted submitted;
         submitted.task_id = vector_string(value, "task_id");
@@ -882,6 +921,12 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
         response.payload = std::move(list);
     } else if (kind == "session-opened") {
         response.payload = ipc::SessionOpened{vector_string(value, "session_id")};
+    } else if (kind == "session-deleted") {
+        response.payload = ipc::SessionDeleted{vector_string(value, "session_id")};
+    } else if (kind == "model-configuration") {
+        response.payload =
+            ipc::ModelConfiguration{vector_string(value, "settings"),
+                                    value.find("warning") ? vector_string(value, "warning") : ""};
     } else if (kind == "session-closed") {
         response.payload =
             ipc::SessionClosed{vector_string(value, "session_id"), vector_string(value, "state")};
@@ -911,7 +956,10 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
         }
         response.payload = std::move(view);
     } else if (kind == "session-chat-accepted") {
-        response.payload = ipc::DialogTurnAccepted{vector_string(value, "turn_id")};
+        ipc::DialogTurnAccepted accepted{vector_string(value, "turn_id")};
+        if (value.find("replaces_turn_id"))
+            accepted.replaces_turn_id = vector_string(value, "replaces_turn_id");
+        response.payload = std::move(accepted);
     } else if (kind == "session-chat-history") {
         ipc::DialogHistory history;
         history.session_id = vector_string(value, "session_id");
@@ -1123,7 +1171,15 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
             const auto &actual_value = std::get<T>(actual.payload);
             if constexpr (std::is_same_v<T, ipc::ShutdownAccepted>) {
                 // Nothing beyond the ok envelope.
+            } else if constexpr (std::is_same_v<T, ipc::ProductState>) {
+                MIRAGE_CHECK(actual_value.frontend_pid == expected_value.frontend_pid);
+                MIRAGE_CHECK(actual_value.window_epoch == expected_value.window_epoch);
+                MIRAGE_CHECK(actual_value.exit_epoch == expected_value.exit_epoch);
+                MIRAGE_CHECK(actual_value.active_work == expected_value.active_work);
+                MIRAGE_CHECK(actual_value.exit_pending == expected_value.exit_pending);
+                MIRAGE_CHECK(actual_value.frontend_ready == expected_value.frontend_ready);
             } else if constexpr (std::is_same_v<T, ipc::ServiceIdentity>) {
+                MIRAGE_CHECK(actual_value.tray == expected_value.tray);
                 check_string_equal(name, "service name", actual_value.name, expected_value.name);
                 MIRAGE_CHECK(actual_value.mirage_version == expected_value.mirage_version);
                 MIRAGE_CHECK(actual_value.mira_core_version == expected_value.mira_core_version);
@@ -1261,6 +1317,8 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                 MIRAGE_CHECK(actual_value.read_roots == expected_value.read_roots);
             } else if constexpr (std::is_same_v<T, ipc::DialogTurnAccepted>) {
                 check_string_equal(name, "turn_id", actual_value.turn_id, expected_value.turn_id);
+                check_string_equal(name, "replaces_turn_id", actual_value.replaces_turn_id,
+                                   expected_value.replaces_turn_id);
             } else if constexpr (std::is_same_v<T, ipc::DialogHistory>) {
                 check_string_equal(name, "dialog session_id", actual_value.session_id,
                                    expected_value.session_id);

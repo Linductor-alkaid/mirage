@@ -33,9 +33,6 @@ constexpr UINT kWakeupMessage = WM_APP + 2;
 
 /// Menu command ids of the context menu (TrackPopupMenuEx returns the id).
 enum : int {
-    kMenuStatus = 0, ///< header entry: disabled, shows the status line
-    kMenuPause = 1,
-    kMenuResume = 2,
     kMenuOpenShell = 3,
     kMenuQuit = 9,
 };
@@ -50,6 +47,7 @@ struct TrayPumpState {
     HWND window = nullptr;
     NOTIFYICONDATAW icon{}; ///< Shell_NotifyIcon state of the resident icon
     bool icon_added = false;
+    bool icon_owned = false;
     TrayCarrierContext context;
     TrayState state;     ///< newest loaded presentation state
     std::wstring status; ///< UTF-16 of state.status (tooltip budget clamped)
@@ -84,17 +82,9 @@ LRESULT CALLBACK tray_window_proc(HWND window, UINT message, WPARAM wparam, LPAR
             const auto append = [&](UINT flags, UINT_PTR id, const wchar_t *text) {
                 ::AppendMenuW(menu, flags, id, text);
             };
-            append(MF_STRING | MF_DISABLED, kMenuStatus, state->status.c_str());
-            append(MF_SEPARATOR, 0, nullptr);
-            append(MF_STRING | (state->state.can_pause ? MF_ENABLED : MF_GRAYED), kMenuPause,
-                   L"暂停任务");
-            append(MF_STRING | (state->state.can_resume ? MF_ENABLED : MF_GRAYED), kMenuResume,
-                   L"恢复任务");
-            append(MF_SEPARATOR, 0, nullptr);
             append(MF_STRING | (state->state.can_open_shell ? MF_ENABLED : MF_GRAYED),
-                   kMenuOpenShell, L"打开 Mirage");
-            append(MF_SEPARATOR, 0, nullptr);
-            append(MF_STRING, kMenuQuit, L"退出");
+                   kMenuOpenShell, L"打开应用");
+            append(MF_STRING, kMenuQuit, L"退出应用");
             ::SetForegroundWindow(window);
             POINT cursor{};
             ::GetCursorPos(&cursor);
@@ -105,12 +95,9 @@ LRESULT CALLBACK tray_window_proc(HWND window, UINT message, WPARAM wparam, LPAR
                                    cursor.y, window, nullptr);
             ::DestroyMenu(menu);
             ::PostMessageW(window, WM_NULL, 0, 0); // settle the foreground switch
-            if (command == kMenuPause || command == kMenuResume || command == kMenuOpenShell ||
-                command == kMenuQuit) {
-                const TrayAction action = command == kMenuPause       ? TrayAction::Pause
-                                          : command == kMenuResume    ? TrayAction::Resume
-                                          : command == kMenuOpenShell ? TrayAction::OpenShell
-                                                                      : TrayAction::Quit;
+            if (command == kMenuOpenShell || command == kMenuQuit) {
+                const TrayAction action =
+                    command == kMenuOpenShell ? TrayAction::OpenShell : TrayAction::Quit;
                 if (state->context.on_action) {
                     state->context.on_action(action);
                 }
@@ -186,7 +173,16 @@ Win32TrayCarrier::run(const TrayCarrierContext &context,
     pump.icon.uCallbackMessage = kIconCallbackMessage;
     // MAKEINTRESOURCEW explicitly: without UNICODE the IDI_APPLICATION
     // macro maps to the ANSI resource cast (DEC-017 macro-neutral W discipline).
-    pump.icon.hIcon = ::LoadIconW(nullptr, MAKEINTRESOURCEW(32512)); // shared stock icon
+    if (!context.icon_path.empty()) {
+        const auto path = win32_util::utf8_to_utf16(context.icon_path);
+        if (path) {
+            pump.icon.hIcon = static_cast<HICON>(::LoadImageW(nullptr, path->c_str(), IMAGE_ICON, 0,
+                                                              0, LR_LOADFROMFILE | LR_DEFAULTSIZE));
+            pump.icon_owned = pump.icon.hIcon != nullptr;
+        }
+    }
+    if (!pump.icon.hIcon)
+        pump.icon.hIcon = ::LoadIconW(nullptr, MAKEINTRESOURCEW(32512));
     if (pump.icon.hIcon == nullptr) {
         report.diagnostic = "tray icon load failed" + last_error_suffix();
         ::DestroyWindow(pump.window);
@@ -202,10 +198,14 @@ Win32TrayCarrier::run(const TrayCarrierContext &context,
         // surface honestly does not exist in this session (DEC-018's
         // capability-honesty posture).
         report.diagnostic = "notification area refused the tray icon" + last_error_suffix();
+        if (pump.icon_owned)
+            ::DestroyIcon(pump.icon.hIcon);
         ::DestroyWindow(pump.window);
         return report;
     }
     pump.icon_added = true;
+    if (context.on_ready)
+        context.on_ready();
     callback_window_.store(pump.window, std::memory_order_release);
 
     report.clean = true;
@@ -243,6 +243,8 @@ Win32TrayCarrier::run(const TrayCarrierContext &context,
     if (pump.icon_added) {
         ::Shell_NotifyIconW(NIM_DELETE, &pump.icon);
     }
+    if (pump.icon_owned)
+        ::DestroyIcon(pump.icon.hIcon);
     ::DestroyWindow(pump.window);
     return report;
 }

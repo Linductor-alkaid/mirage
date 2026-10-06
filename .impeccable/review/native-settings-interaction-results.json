@@ -1,0 +1,14 @@
+[
+  "Actual mouse drag260to320",
+  "Focused divider Right/Left adjusts8px",
+  "clamps224/400",
+  "Minimum860window caps340/main520",
+  "Expand restores requested400",
+  "Theme Light/Dark applies to whole UI",
+  "Collapsed settings entry works",
+  "Settings CtrlN/CtrlEnter do not change hidden chat",
+  "Return/Escape preserves original Chinese draft",
+  "CtrlComma opens settings",
+  "Escape closes about before settings",
+  "Separate post-resize mouse drag340to260 passed"
+]

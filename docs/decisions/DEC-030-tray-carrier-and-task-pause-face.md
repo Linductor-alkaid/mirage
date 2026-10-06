@@ -46,7 +46,8 @@
    §4/§6.9/§10 同步。
 3. **Windows 承载 = DEC-018 既有 Shell_NotifyIcon 面的产品化扩展**：常驻图标
    + 活动提示（状态行）+ 运行时弹出菜单（状态头 / 暂停 / 恢复 / 打开 Mirage /
-   退出，灰显随状态），`TrackPopupMenuEx(TPM_RETURNCMD)` + `SetForegroundWindow`
+   退出，灰显随状态；产品菜单现由 [DEC-045](DEC-045-tray-runtime-owner.md) 的两项菜单替代），
+   `TrackPopupMenuEx(TPM_RETURNCMD)` + `SetForegroundWindow`
    焦点纪律；仍不建 AUMID 载体、不引入 WinRT（DEC-018 决策 5 与其 M5 重议
    条件不动——本决策是气球承载的常驻图标面产品化，不是 toast 承载改选）。
 4. **Linux 承载 = 会话总线 StatusNotifierItem + 最小 dbusmenu 服务**：导出
@@ -141,3 +142,9 @@
   [DEC-024](DEC-024-desktop-atom-toolset.md) / DEC-029（缝与承载先例形态）。
 - 工作项：[M5 计划](../plans/m5-desktop-product.md) `M5-10`（本记录即"Linux
   状态指示器机制随实现定案并记录"义务的兑现）。
+
+## 2026-10-06 产品进程所有权修订
+
+[DEC-045](DEC-045-tray-runtime-owner.md) 替代本决策中产品托盘作为独立 Service
+客户端的部分：托盘内嵌 RuntimeService，复用其唯一 Executor，并持有独立前端
+子进程。本文其他 API/平台/任务语义及历史验收保留；新拓扑以 M6-25 证据为准。

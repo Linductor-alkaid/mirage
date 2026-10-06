@@ -1,0 +1,69 @@
+{
+  "date": "2026-10-04",
+  "scope": "Linux M6-03 general harness, no automatic screen/RPA",
+  "fixture_checks": 51,
+  "real_models": {
+    "siliconflow": "text 1 inference / tool 3 inferences, 2 executions: passed",
+    "minimax": "failed: pinned TLS no SNI; MIRA-20261004-002"
+  },
+  "limits": {
+    "max_model_steps": 16,
+    "max_tools": 32,
+    "tool_bytes": 2048,
+    "feedback_bytes": 8192,
+    "ui_calls": 16,
+    "ui_events": 128
+  },
+  "platform": "Linux XWayland/OpenGL 2x, logical1180x800/860x620",
+  "tests": {
+    "native-debug_regression": "51/51 passed, fixture-only start synchronization fix then targeted1/1 passed",
+    "native-release": "4/4 passed",
+    "ASAN": "2/2 passed",
+    "UBSAN": "2/2 passed",
+    "TSAN": "51 harness + 141 chat checks passed with setarch x86_64 -R; default address mapping prevents start",
+    "public_header_boundary": "48 headers / 0 violations"
+  },
+  "not_verified": [
+    "Windows",
+    "native tool-result wire interop",
+    "M6-04 tray/unified startup"
+  ],
+  "assets": "unchanged; provenance.json sidecar retained; embed-prompt scan lacks metadata on two existing PNG assets (preexisting)",
+  "source_sha256": {
+    "apps/native/app.cpp": "dc677f9b141356b693a94893eb57570ec886cf5438ad90f03018ab440b4bec9e",
+    "apps/native/runtime_bridge.cpp": "5fdfdb6429eb4f144fc72fc514449d1bb1ddb9a6816260d530d3ca52a8e8477d",
+    "integration/mira/src/model_layer.cpp": "13852055b009852218dabcb8505ef6119f48e13520f2d888b65b17051f9937ca",
+    "runtime/service/src/runtime_service.cpp": "f0a4ea986cc4be92f74365dd5ecba2f79e68586ebb0e438af6d4d3a4089e3702",
+    "runtime/ipc/src/protocol.cpp": "f22ce241f891f23710c8fed0436ae8ff92309eb0510210693c2a0e91b0861fe0",
+    "tests/runtime/native_agent_integration_test.cpp": "55e0a6b001f0dbf917dfca0bc75f22c78259bd4d82b814c92b6bdd2c616c4f94",
+    "apps/native/chat_model.cpp": "03a2164890a9b5eb3d72d1a0852235c30a4f5b5600d6ff52f3b7302c609531b5",
+    "tests/desktop/native_chat_model_test.cpp": "ac399222da69a1cd4b0f39766c8ffeba58abcea1341bf2c1e6a619de4fd602a0"
+  },
+  "chat_model_checks": 141,
+  "failure_injection": [
+    "Executor max_in_flight refusal recorded via failure status",
+    "UI event inbox overflow observable and fresh model snapshot recovers",
+    "corrupt existing config refuses save and preserves applied model"
+  ],
+  "visual_review": {
+    "disposition": "ship",
+    "scope": "two scored fixes within eight Linux captures",
+    "verdict": ".impeccable/review/native-harness-final-verdict.md"
+  },
+  "credential_scan": {
+    "files": 242,
+    "hits": 0
+  },
+  "capture_sha256": {
+    ".impeccable/review/native-harness-chat-reply-dark.png": "7fc186819ad161e2c4f90087e81fd94ca64c234399f8472495d397200ef17634",
+    ".impeccable/review/native-harness-chat-reply-light.png": "a610c998ebbf41e20dce9740a5ec0a7a1e6912131986f5c0afa1319a3d76f7e7",
+    ".impeccable/review/native-harness-chat-reply-min-dark.png": "f170fa4b5a7a4a5b4b4f9cb2bd261ad62c861cf57e31e295ee9b8ca33c956177",
+    ".impeccable/review/native-harness-live-draft.png": "f267a7255802999a08397a96ff282945ce1781e5c2e3750f9a682a33dc8776dd",
+    ".impeccable/review/native-harness-model-final-dark.png": "6162401c5a37580ca66b591bee620784b9f7d589af2d3703c45a4bcb1dd82d73",
+    ".impeccable/review/native-harness-model-final-light.png": "fd5d151088198a5ee776daa868542accd4f1891a79ec0f6bf99a00be45b7f3bd",
+    ".impeccable/review/native-harness-model-final-min-dark.png": "0deebfdd239e830f8bfa57dd766a298a7531d702cd5bed9254de1fd5d9e7f747",
+    ".impeccable/review/native-harness-model-final-min-light.png": "7a42858d219d3bbdc2d00df1730ca313d11bcf594c232c49f5b31ef20c4ac03b",
+    ".impeccable/review/native-harness-model-min-scrolled.png": "712c9c0bb130b56cc107898a51c2879bed4b10e5f9730a64c01e153b4f5262d5",
+    ".impeccable/review/native-harness-model-saved.png": "c53855a4182b2e9ab7ea2b32c29df9bb8e49cf9398d7f49fc2fb1e3b541fef9f"
+  }
+}

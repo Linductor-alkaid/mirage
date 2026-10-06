@@ -1,0 +1,9 @@
+{
+  "provider": "SiliconFlow",
+  "context_usage": {
+    "input_tokens": 391,
+    "window_tokens": 128000,
+    "model": "Qwen/Qwen3.5-4B"
+  },
+  "scope": "real request; 128000 is configured test window budget"
+}

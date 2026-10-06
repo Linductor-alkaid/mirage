@@ -1251,7 +1251,30 @@ void run_scenario(const char *name, void (*scenario)()) {
 
 } // namespace
 
+void scenario_chat_preview() {
+    auto opt_in = ipc::decode_request(ipc::encode_request(1, ipc::SubscribeEventsRequest{true}));
+    MIRAGE_CHECK(opt_in.ok && std::get<ipc::SubscribeEventsRequest>(opt_in.body).chat_preview);
+    auto old = ipc::decode_request(ipc::encode_request(1, ipc::SubscribeEventsRequest{}));
+    MIRAGE_CHECK(old.ok && !std::get<ipc::SubscribeEventsRequest>(old.body).chat_preview);
+    MIRAGE_CHECK(!ipc::decode_request(R"({"id":1,"op":"events.subscribe","chat_preview":1})").ok);
+    ipc::ChatPreviewEvent preview{"session", "turn", "request", "中文增量", 2, false};
+    auto decoded = ipc::decode_event(ipc::encode_event({7, preview}));
+    MIRAGE_CHECK(decoded.ok);
+    MIRAGE_CHECK(std::get<ipc::ChatPreviewEvent>(decoded.event.payload).text == "中文增量");
+    preview.text = "";
+    MIRAGE_CHECK(ipc::decode_event(ipc::encode_event({8, preview})).ok);
+    preview.text = std::string(16385, 'x');
+    MIRAGE_CHECK(!ipc::decode_event(ipc::encode_event({8, preview})).ok);
+    preview.text = "x";
+    preview.sequence = 0;
+    MIRAGE_CHECK(!ipc::decode_event(ipc::encode_event({8, preview})).ok);
+    preview.sequence = 1;
+    preview.request_id = "";
+    MIRAGE_CHECK(!ipc::decode_event(ipc::encode_event({8, preview})).ok);
+}
+
 int main() {
+    run_scenario("chat_preview", scenario_chat_preview);
     run_scenario("framing_round_trip", scenario_framing_round_trip);
     run_scenario("framing_little_endian_header", scenario_framing_little_endian_header);
     run_scenario("framing_empty_payload", scenario_framing_empty_payload);

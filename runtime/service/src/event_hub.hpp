@@ -88,6 +88,10 @@ class EventHub {
     /// discipline as the workflow bridge: the Topic is thread-safe,
     /// per-connection queues bounded, session.chat.history is the resync
     /// face).
+    void publish_chat_preview(ipc::ChatPreviewEvent event) {
+        topic_.publish(ipc::EventPayload{std::move(event)});
+    }
+
     void publish_chat_turn(ipc::ChatTurnUpdatedEvent event) {
         topic_.publish(ipc::EventPayload{std::move(event)});
     }

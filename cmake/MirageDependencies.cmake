@@ -1,9 +1,9 @@
 # Resolve and verify the pins declared in dependencies.lock.json
-# (docs/project/project-standards.md section 9.1; schema v2 since M5-01,
+# (docs/project/project-standards.md section 9.1; schema v3 since M6-08,
 # DEC-006 decision 6).
 #
 # Lock file layout:
-#   schema_version   must be 2.
+#   schema_version   must be 3.
 #   dependencies[]   git submodules. Top-level entries are verified against
 #                    the submodule worktree; nested_pins entries are verified
 #                    against the gitlink recorded by their parent repository,
@@ -13,13 +13,8 @@
 #                    license). Validated structurally at configure; the digest
 #                    is enforced when the artifact is acquired (download and
 #                    hash check, then unpack).
-#   frontend         npm dependency tree registration. The declared lockfile
-#                    sha256 is re-computed at every configure, so
-#                    ui/package-lock.json drift without updating this lock file
-#                    fails the build. The digest is defined over the
-#                    LF-normalized file content (identical to the committed
-#                    blob), so the gate is invariant to checkout line-ending
-#                    conversion (Windows autocrlf working trees vs LF checkouts).
+#   frontend         native-cpp entry backed by the pinned EUI dependency.
+#                    No npm/CEF consumption remains (DEC-037).
 #
 # Two operating modes:
 #   MIRAGE_FETCH_DEPENDENCIES=ON  (default) sync missing submodules at
@@ -33,8 +28,8 @@
 #
 # Gate (DEC-006 decision 6): no unlocked binary may enter the default build.
 # The default build graph contains no consumer of any pinned artifact; a
-# product target that starts consuming one (the M5-02 apps/desktop shell is
-# the first) must resolve it through mirage_require_locked_artifact(), which
+# product target that starts consuming one must resolve it through
+# mirage_require_locked_artifact(), which
 # is a configure error for any artifact missing from the lock file.
 
 # Captured at include time (CMAKE_CURRENT_LIST_DIR points at cmake/ while the
@@ -127,14 +122,18 @@ function(_mirage_verify_nested dep_name dep_dir nested_path expected_commit)
     message(STATUS "Mirage: nested pin '${dep_name}:${nested_path}' verified at ${actual_commit}")
 endfunction()
 
-# Structural validation of the schema v2 sections (artifacts[] + frontend).
+# Structural validation of the schema v3 sections (artifacts[] + frontend).
 # Fails closed on any missing or malformed member so a hand-edited lock file
 # cannot weaken the gate.
 function(mirage_validate_lock_extensions lock_json)
+    string(JSON artifact_type ERROR_VARIABLE artifact_error TYPE "${lock_json}" "artifacts")
+    if(artifact_error OR NOT artifact_type STREQUAL "ARRAY")
+        message(FATAL_ERROR "artifacts must be an array")
+    endif()
     string(JSON artifact_count ERROR_VARIABLE err LENGTH "${lock_json}" "artifacts")
     if(err)
         message(FATAL_ERROR
-            "dependencies.lock.json schema v2 requires an 'artifacts' array (${err}).")
+            "dependencies.lock.json schema v3 requires an 'artifacts' array (${err}).")
     endif()
     if(artifact_count GREATER 0)
         math(EXPR artifact_last "${artifact_count} - 1")
@@ -193,42 +192,16 @@ function(mirage_validate_lock_extensions lock_json)
         endforeach()
     endif()
 
-    string(JSON front_name ERROR_VARIABLE err GET "${lock_json}" "frontend" "name")
-    if(err)
-        message(FATAL_ERROR
-            "dependencies.lock.json schema v2 requires a 'frontend' npm-tree "
-            "registration (${err}).")
+    _mirage_json_field("${lock_json}" front_kind "frontend" "frontend" "kind")
+    _mirage_json_field("${lock_json}" front_entry "frontend" "frontend" "entry")
+    _mirage_json_field("${lock_json}" front_dep "frontend" "frontend" "dependency")
+    if(NOT front_kind STREQUAL "native-cpp" OR NOT front_dep STREQUAL "eui-neo")
+        message(FATAL_ERROR "frontend must register native-cpp with eui-neo (DEC-037)")
     endif()
-    _mirage_json_field("${lock_json}" lock_rel "frontend" "frontend" "lockfile")
-    _mirage_json_field("${lock_json}" lock_hash "frontend" "frontend" "lockfile_sha256")
-    string(LENGTH "${lock_hash}" lock_hash_length)
-    if(NOT lock_hash_length EQUAL 64 OR NOT lock_hash MATCHES "^[0-9a-f]+$")
-        message(FATAL_ERROR
-            "dependencies.lock.json frontend: 'lockfile_sha256' must be a lowercase "
-            "64-hex sha256 digest (got '${lock_hash}').")
+    if(NOT front_entry STREQUAL "apps/native/app.cpp" OR NOT EXISTS "${_MIRAGE_PROJECT_ROOT}/${front_entry}")
+        message(FATAL_ERROR "native frontend entry is missing or invalid")
     endif()
-    set(lock_file "${_MIRAGE_PROJECT_ROOT}/${lock_rel}")
-    if(NOT EXISTS "${lock_file}")
-        message(FATAL_ERROR
-            "dependencies.lock.json frontend '${front_name}': registered lockfile "
-            "'${lock_rel}' does not exist.")
-    endif()
-    file(READ "${lock_file}" lockfile_bytes)
-    # The digest is defined over LF-normalized content: git stores the lockfile
-    # with LF, while a Windows working tree may check it out with CRLF
-    # (core.autocrlf). Normalizing makes the registered hash checkout-agnostic.
-    string(REPLACE "\r\n" "\n" lockfile_normalized "${lockfile_bytes}")
-    string(SHA256 actual_hash "${lockfile_normalized}")
-    if(NOT actual_hash STREQUAL lock_hash)
-        message(FATAL_ERROR
-            "dependencies.lock.json frontend '${front_name}': ${lock_rel} drifted from "
-            "the repository-level registration (declared ${lock_hash}, actual "
-            "${actual_hash} over LF-normalized content). Verify the dependency change "
-            "deliberately and update 'frontend.lockfile_sha256' in the same change; "
-            "CI installs with 'npm ci' to keep the tree aligned with the lockfile.")
-    endif()
-    message(STATUS
-        "Mirage: frontend npm tree '${front_name}' locked at ${lock_hash}")
+    message(STATUS "Mirage: native frontend '${front_entry}', no npm/CEF consumption")
 endfunction()
 
 # Consumption gate for locked binary artifacts (DEC-006 decision 6): a product
@@ -341,14 +314,14 @@ function(mirage_require_locked_artifact_platform name platform out_prefix)
         "at ${${name}_lock_VERSION}")
 endfunction()
 
-# The lock file declares schema_version 2 (submodule dependencies[], binary
-# artifacts[], frontend npm-tree registration). Raising the version requires
+# The lock file declares schema_version 3 (submodule dependencies[], binary
+# artifacts[], native frontend registration). Raising the version requires
 # updating this module in the same change.
-function(mirage_require_lock_schema_v2 lock_json)
+function(mirage_require_lock_schema lock_json)
     string(JSON schema_version ERROR_VARIABLE schema_err GET "${lock_json}" "schema_version")
-    if(schema_err OR NOT schema_version EQUAL 2)
+    if(schema_err OR NOT schema_version EQUAL 3)
         message(FATAL_ERROR
-            "dependencies.lock.json schema_version must be 2 (found "
+            "dependencies.lock.json schema_version must be 3 (found "
             "'${schema_version}'). Update cmake/MirageDependencies.cmake together "
             "with the lock file.")
     endif()
@@ -356,7 +329,7 @@ endfunction()
 
 function(mirage_resolve_pinned_dependencies)
     _mirage_dependency_lock(lock_json)
-    mirage_require_lock_schema_v2("${lock_json}")
+    mirage_require_lock_schema("${lock_json}")
     mirage_validate_lock_extensions("${lock_json}")
     string(JSON dep_count LENGTH "${lock_json}" "dependencies")
     if(dep_count EQUAL 0)

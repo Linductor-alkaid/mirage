@@ -171,7 +171,10 @@ struct WorkflowRunRegistry {
 /// "ok" / "failed"; reply and error are encode-when-set exactly at their
 /// statuses (the wire vocabulary mirrors this record one to one).
 struct DialogTurnRecord {
+    std::optional<ipc::ContextUsage> context_usage;
     std::string turn_id;
+    std::string agent_task_id;
+    std::string replaces_turn_id;
     /// "pending" / "ok" / "failed"
     std::string status = "pending";
     std::string user_text;

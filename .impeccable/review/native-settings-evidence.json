@@ -1,0 +1,155 @@
+{
+  "date": "2026-10-04",
+  "scope": "M6-02 resizable conversation sidebar and Settings/Appearance",
+  "eui_commit": "4691fc0a5c1fde6f3e22f1ac454ed87c7a17f722",
+  "content_scale": 2,
+  "builds": {
+    "native-debug": "passed",
+    "native-release": "passed",
+    "asan GUI": "passed"
+  },
+  "model_ctest": {
+    "native-debug": "1/1 passed",
+    "native-release": "1/1 passed",
+    "asan": "1/1 passed",
+    "ubsan": "1/1 passed"
+  },
+  "asan_gui": {
+    "detect_leaks": 1,
+    "exit_code": 0,
+    "diagnostics": false,
+    "actions": "drag, theme, settings navigation, collapse/expand, cursor teardown"
+  },
+  "interaction_checks": [
+    "Actual mouse drag260to320",
+    "Focused divider Right/Left adjusts8px",
+    "clamps224/400",
+    "Minimum860window caps340/main520",
+    "Expand restores requested400",
+    "Theme Light/Dark applies to whole UI",
+    "Collapsed settings entry works",
+    "Settings CtrlN/CtrlEnter do not change hidden chat",
+    "Return/Escape preserves original Chinese draft",
+    "CtrlComma opens settings",
+    "Escape closes about before settings",
+    "Separate post-resize mouse drag340to260 passed"
+  ],
+  "screenshots": {
+    "native-settings-about.png": {
+      "physical_dimensions": [
+        1720,
+        1240
+      ],
+      "sha256": "e2a1bca06e4cbd5f230b9911faa15d38e50f10f3979ed651a892e72f1e69bf1c"
+    },
+    "native-settings-after-modal.png": {
+      "physical_dimensions": [
+        1720,
+        1240
+      ],
+      "sha256": "46b8c3258d187063ea94cca98ede7581c4f261df438ae6fc6250712c608724e3"
+    },
+    "native-settings-appearance-dark.png": {
+      "physical_dimensions": [
+        2360,
+        1600
+      ],
+      "sha256": "9d6414b125f51ea2368bef6421076eaf91048864a17fdb353b5a20e6711941f2"
+    },
+    "native-settings-appearance-light.png": {
+      "physical_dimensions": [
+        2360,
+        1600
+      ],
+      "sha256": "c7ff4790b6af6a8fdab7f215e4e1a6ab40a27d2339e52f191f168b468c503fb8"
+    },
+    "native-settings-appearance-min-dark.png": {
+      "physical_dimensions": [
+        1720,
+        1240
+      ],
+      "sha256": "aa32887bdcf820fd1f2e890f90b0c4ee080df6b39bc19271a161246b8a60c86a"
+    },
+    "native-settings-appearance-min-light.png": {
+      "physical_dimensions": [
+        1720,
+        1240
+      ],
+      "sha256": "46b8c3258d187063ea94cca98ede7581c4f261df438ae6fc6250712c608724e3"
+    },
+    "native-settings-chat-collapsed-dark.png": {
+      "physical_dimensions": [
+        2360,
+        1600
+      ],
+      "sha256": "f1ee9a911120b310203eeff1184a72ed1b6455d03b47404a7e0ddf7e89712659"
+    },
+    "native-settings-chat-light.png": {
+      "physical_dimensions": [
+        2360,
+        1600
+      ],
+      "sha256": "fd9cc906d240e5290dffc93e7d3d2c4d21eb157381c8d5e7e6f5b0f2cc3266f5"
+    },
+    "native-settings-chat-min-wide.png": {
+      "physical_dimensions": [
+        1720,
+        1240
+      ],
+      "sha256": "656beb4e1baca33171ea23bce9d68b97580c65ebd31b97aa1d68b66f3eac1582"
+    },
+    "native-settings-chat-sidebar-min.png": {
+      "physical_dimensions": [
+        2360,
+        1600
+      ],
+      "sha256": "a16dae89c2ede2a0f9939a8d488dc06c278e09a583bba29613143bded032241a"
+    },
+    "native-settings-collapsed-dark.png": {
+      "physical_dimensions": [
+        2360,
+        1600
+      ],
+      "sha256": "b67c71e260fbc2514faa986c3d1632b4aa80237c536b1d65f7b71a29c3b60115"
+    },
+    "native-settings-final-light.png": {
+      "physical_dimensions": [
+        2360,
+        1600
+      ],
+      "sha256": "c7ff4790b6af6a8fdab7f215e4e1a6ab40a27d2339e52f191f168b468c503fb8"
+    },
+    "native-settings-return-draft-dark.png": {
+      "physical_dimensions": [
+        2360,
+        1600
+      ],
+      "sha256": "4a41a4c3df734a7b94ae8bd85b97ebd1b5a3c23ecdb2144e945b6c745d9b2354"
+    },
+    "native-settings-return-draft-min-light.png": {
+      "physical_dimensions": [
+        1720,
+        1240
+      ],
+      "sha256": "56435382ca1ded6e02cd841ee744f106835dd74c96ba3a7042d71cfd515f04a8"
+    },
+    "native-settings-sidebar-320.png": {
+      "physical_dimensions": [
+        2360,
+        1600
+      ],
+      "sha256": "7ffea861928c9e7e7b34b11fdb65c289c7724382ca8831f73ed10eb1d4bc7e31"
+    }
+  },
+  "limits": {
+    "windows": "not run; Linux host",
+    "system_theme": "not implemented",
+    "persistence": "in-process only",
+    "backend": "local unsent preview only"
+  },
+  "source_sha256": {
+    "apps/native/app.cpp": "de005a3f8e8a4842958a1136f222cfaa451b2a2aec830f84cbc028cd3828ec97",
+    "apps/native/window_controls.cpp": "9a98681a2cbb8ce7474f89555757f91e995516cdb437e0ba7414de8e5d93c333",
+    "apps/native/window_controls.hpp": "b79310728629113d61aa07287540b578beffc100395d22eb2ee273f51a96f2c4"
+  }
+}

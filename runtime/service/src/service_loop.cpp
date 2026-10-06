@@ -146,11 +146,12 @@ void ServiceLoop::post_response_and_close(std::uint64_t connection_id, std::stri
 
 void ServiceLoop::post_attach_events(
     std::uint64_t connection_id, executor::comm::TopicSubscription<ipc::EventPayload> subscription,
-    std::optional<ipc::EventPayload> seed) {
+    std::optional<ipc::EventPayload> seed, bool chat_preview) {
     OutboundMessage message;
     message.kind = OutboundMessage::Kind::AttachEvents;
     message.connection_id = connection_id;
     message.seed = std::move(seed);
+    message.chat_preview = chat_preview;
     message.subscription = std::move(subscription);
     if (!outbound_.try_send(std::move(message))) {
         // Losing an attach would strand the subscription on the topic and
@@ -190,6 +191,8 @@ void ServiceLoop::drain_events() {
         // before the connection's queued events (DEC-012 write-out rule).
         ipc::EventPayload payload;
         while (connection.events->try_receive(payload)) {
+            if (!connection.chat_preview && std::holds_alternative<ipc::ChatPreviewEvent>(payload))
+                continue;
             ipc::Event event;
             event.seq = ++connection.event_seq;
             event.payload = payload;
@@ -220,6 +223,7 @@ void ServiceLoop::drain_outbound() {
         if (message.kind == OutboundMessage::Kind::AttachEvents) {
             Connection &connection = entry->second;
             connection.events.emplace(std::move(message.subscription));
+            connection.chat_preview = message.chat_preview;
             if (message.seed.has_value()) {
                 // Seed first (seq 1): the current host status at subscribe
                 // time, then everything the topic queued meanwhile.

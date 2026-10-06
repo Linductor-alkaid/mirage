@@ -286,12 +286,30 @@ LinuxDesktopEnvironment::execute(const std::string &command,
     bool output_truncated = false;
     bool timed_out = false;
     bool was_cancelled = false;
+    bool child_exited = false;
+    std::string io_failure;
     int open_streams = 2;
-    while (open_streams > 0) {
+    int capture_fds[2] = {stdout_pipe[0], stderr_pipe[0]};
+    // BUG-20261007-001: closing stdout/stderr is independent of process exit.
+    // Observe exit without reaping so the PID remains reserved during group cleanup.
+    while (open_streams > 0 || !child_exited) {
         if (cancel.cancelled()) {
             was_cancelled = true;
             break;
         }
+        if (!child_exited) {
+            siginfo_t exit_info{};
+            if (waitid(P_PID, static_cast<id_t>(pid), &exit_info, WEXITED | WNOHANG | WNOWAIT) !=
+                0) {
+                if (errno == EINTR)
+                    continue;
+                io_failure = "child exit observation failed: " + std::string(strerror(errno));
+                break;
+            }
+            child_exited = exit_info.si_pid == pid;
+        }
+        if (child_exited && open_streams == 0)
+            break;
         auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
             deadline - std::chrono::steady_clock::now());
         if (remaining <= std::chrono::milliseconds::zero()) {
@@ -303,16 +321,20 @@ LinuxDesktopEnvironment::execute(const std::string &command,
         if (remaining > kCancelPollSlice) {
             remaining = kCancelPollSlice;
         }
-        pollfd fds[2] = {{stdout_pipe[0], POLLIN, 0}, {stderr_pipe[0], POLLIN, 0}};
+        pollfd fds[2] = {{capture_fds[0], POLLIN, 0}, {capture_fds[1], POLLIN, 0}};
         const int ready = poll(fds, 2, static_cast<int>(remaining.count()));
         if (ready < 0) {
             if (errno == EINTR) {
                 continue;
             }
-            timed_out = true;
+            io_failure = "capture poll failed: " + std::string(strerror(errno));
             break;
         }
         for (int index = 0; index < 2; ++index) {
+            if ((fds[index].revents & (POLLERR | POLLNVAL)) != 0) {
+                io_failure = "capture descriptor became unavailable";
+                break;
+            }
             if ((fds[index].revents & (POLLIN | POLLHUP)) == 0) {
                 continue;
             }
@@ -322,8 +344,14 @@ LinuxDesktopEnvironment::execute(const std::string &command,
             if (received < 0 && errno == EINTR) {
                 continue;
             }
-            if (received <= 0) {
+            if (received < 0) {
+                io_failure = "capture read failed: " + std::string(strerror(errno));
+                break;
+            }
+            if (received == 0) {
                 close(fds[index].fd);
+                capture_fds[index] =
+                    -1; // poll ignores retired descriptors, including reused fd numbers
                 --open_streams;
                 continue;
             }
@@ -340,25 +368,22 @@ LinuxDesktopEnvironment::execute(const std::string &command,
                 output_truncated = true;
             }
         }
+        if (!io_failure.empty())
+            break;
     }
-    if (open_streams > 0) {
-        // Timeout, cancellation or poll failure: stop reading and tear the
-        // command down.
-        if ((open_streams & 1) != 0) {
-            close(stdout_pipe[0]);
-        }
-        if ((open_streams & 2) != 0) {
-            close(stderr_pipe[0]);
-        }
-    }
+    for (const int fd : capture_fds)
+        if (fd >= 0)
+            close(fd);
 
     // Whole-group teardown: a budget-covered or cancelled command must leave
     // nothing behind, so the process group is SIGKILLed unconditionally before
     // reaping. Descendants can outlive the direct child while still holding
     // the capture pipes, and for members that already exited the kill is a
-    // no-op while waitpid still reports the direct child's real exit status.
+    // no-op for an exited child observed with WNOWAIT. A live child is killed
+    // only on cancellation, budget expiry or I/O failure, never on pipe EOF.
     kill(-pid, SIGKILL);
-    kill(pid, SIGKILL);
+    if (!child_exited)
+        kill(pid, SIGKILL);
 
     // Blocking reap: after SIGKILL the direct child holds no live work, so
     // this completes promptly and guarantees no zombie survives the call.
@@ -393,6 +418,17 @@ LinuxDesktopEnvironment::execute(const std::string &command,
                 std::move(standard_output),
                 std::move(standard_error),
                 provider_error("deadline_exceeded", "command exceeded its time budget")};
+    }
+    if (!io_failure.empty()) {
+        return {false,
+                false,
+                false,
+                output_truncated,
+                false,
+                -1,
+                std::move(standard_output),
+                std::move(standard_error),
+                provider_error("io_error", std::move(io_failure))};
     }
     if (!reaped) {
         return {false,

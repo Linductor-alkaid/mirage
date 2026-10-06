@@ -1,0 +1,90 @@
+{
+  "scope": "real Linux product; private XDG/DBus/SNI/X11; no inference",
+  "checks": [
+    {
+      "name": "native refuses missing tray before display initialization",
+      "passed": true
+    },
+    {
+      "name": "product refuses no-tray frontend option",
+      "passed": true
+    },
+    {
+      "name": "native refuses headless service",
+      "passed": true
+    },
+    {
+      "name": "launcher refuses headless endpoint without killing it",
+      "passed": true
+    },
+    {
+      "name": "missing notification host fails startup",
+      "passed": true
+    },
+    {
+      "name": "two processes with ready native child",
+      "passed": true
+    },
+    {
+      "name": "repeat application open reuses tray and window",
+      "passed": true
+    },
+    {
+      "name": "native minimize stops painting and stays owned",
+      "passed": true
+    },
+    {
+      "name": "launcher restores minimized child without a paint-loop ACK",
+      "passed": true
+    },
+    {
+      "name": "tray Open restores the same minimized child",
+      "passed": true
+    },
+    {
+      "name": "closing native leaves tray and Runtime running; child reaped",
+      "passed": true
+    },
+    {
+      "name": "tray Open Mirage reopens a new child",
+      "passed": true
+    },
+    {
+      "name": "incomplete task is counted by Runtime",
+      "passed": true
+    },
+    {
+      "name": "tray Quit reopens active exit confirmation",
+      "passed": true
+    },
+    {
+      "name": "confirmation scrim leaves task running",
+      "passed": true
+    },
+    {
+      "name": "actual Continue Running keeps task and tray alive",
+      "passed": true
+    },
+    {
+      "name": "cancelled exit does not cancel task",
+      "passed": true
+    },
+    {
+      "name": "new exit prompt has a new epoch",
+      "passed": true
+    },
+    {
+      "name": "actual Stop and Exit closes tray, native and IPC",
+      "passed": true
+    },
+    {
+      "name": "product restarts after complete exit",
+      "passed": true
+    },
+    {
+      "name": "host SIGTERM reaps native and removes endpoint",
+      "passed": true
+    }
+  ],
+  "inference_requests": 0
+}

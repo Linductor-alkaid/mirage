@@ -96,11 +96,29 @@ struct ResumeTaskRequest {
 
 struct ShutdownRequest {};
 
+// DEC-045: bounded product lifecycle face. confirm/cancel require the current
+// exit epoch, preventing delayed UI confirmations from closing a later prompt.
+struct ProductControlRequest {
+    std::string action = "status"; // status/open/quit/confirm_quit/cancel_quit/frontend_ready
+    std::uint64_t exit_epoch = 0;
+    std::int64_t frontend_pid = 0; // frontend_ready only
+};
+struct ProductState {
+    std::int64_t frontend_pid = 0;
+    std::uint64_t window_epoch = 0;
+    std::uint64_t exit_epoch = 0;
+    std::size_t active_work = 0;
+    bool exit_pending = false;
+    bool frontend_ready = false;
+};
+
 /// Subscribes the connection to the service event stream (DEC-012 decision
-/// 2). No parameters; the subscription is connection-scoped state that dies
+/// 2). Preview delivery is opt-in; the subscription is connection-scoped state that dies
 /// with the connection. A pre-M1.5 server rejects the unknown op with a
 /// stable protocol_error, which clients translate into polling fallback.
-struct SubscribeEventsRequest {};
+struct SubscribeEventsRequest {
+    bool chat_preview = false; ///< DEC-041: transient previews understood by this client
+};
 
 /// Drops the connection's event subscription; idempotent. Events already
 /// queued for the connection may still arrive after the acknowledgement.
@@ -155,6 +173,11 @@ struct SessionHistoryRequest {
 struct CloseSessionRequest {
     std::string session_id;
 };
+/// Delete product conversation/history; refuse active turns/tasks. The
+/// primary equipment identity stays alive after its history is removed.
+struct DeleteSessionRequest {
+    std::string session_id;
+};
 
 /// Submits one dialog turn to the model layer (DEC-027, M5-06; DEC-025
 /// backlog item 3): the text lands in the session's dialog thread and the
@@ -168,6 +191,23 @@ struct CloseSessionRequest {
 struct SessionChatRequest {
     std::string session_id;
     std::string text;
+    bool agent = false; ///< DEC-034: conversational harness; absent preserves legacy dialog.
+    std::string access = "default";   ///< DEC-037: read_only hides all tools
+    std::string reasoning = "";       ///< empty/default or minimal/low/medium/high
+    std::string replace_turn_id = {}; ///< DEC-039: replace exactly the latest settled turn
+};
+struct CancelChatRequest {
+    std::string session_id;
+};
+struct GetModelRequest {};
+// Settings schema v1 document with model/catalog; optional key is write-only.
+struct SetModelRequest {
+    std::string settings_json;
+    std::optional<std::string> api_key = {}; // absent keep, empty explicitly remove
+};
+struct ModelConfiguration {
+    std::string settings_json;
+    std::string warning = {};
 };
 
 /// Requests one session's dialog thread (DEC-027): the bounded in-memory
@@ -297,16 +337,16 @@ struct DesktopObserveRequest {
     bool visual = false;
 };
 
-using Request =
-    std::variant<HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest,
-                 CancelTaskRequest, PauseTaskRequest, ResumeTaskRequest, ShutdownRequest,
-                 SubscribeEventsRequest, UnsubscribeEventsRequest, RespondPermissionRequest,
-                 ListPermissionsRequest, ListSessionsRequest, OpenSessionRequest,
-                 SessionHistoryRequest, CloseSessionRequest, SessionChatRequest, ChatHistoryRequest,
-                 WorkflowListRequest, WorkflowSaveRequest, WorkflowPublishRequest,
-                 WorkflowDeleteRequest, WorkflowAtomCatalogRequest, WorkflowRunsRequest,
-                 WorkflowRunRequest, WorkflowCancelRunRequest, WorkflowGetRequest,
-                 DesktopObserveRequest, GetPolicyRequest, SetPolicyRequest>;
+using Request = std::variant<
+    HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest, CancelTaskRequest,
+    PauseTaskRequest, ResumeTaskRequest, ShutdownRequest, ProductControlRequest,
+    SubscribeEventsRequest, UnsubscribeEventsRequest, RespondPermissionRequest,
+    ListPermissionsRequest, ListSessionsRequest, OpenSessionRequest, SessionHistoryRequest,
+    CloseSessionRequest, DeleteSessionRequest, SessionChatRequest, ChatHistoryRequest,
+    WorkflowListRequest, WorkflowSaveRequest, WorkflowPublishRequest, WorkflowDeleteRequest,
+    WorkflowAtomCatalogRequest, WorkflowRunsRequest, WorkflowRunRequest, WorkflowCancelRunRequest,
+    WorkflowGetRequest, DesktopObserveRequest, GetPolicyRequest, SetPolicyRequest, GetModelRequest,
+    SetModelRequest, CancelChatRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -347,6 +387,7 @@ struct ServiceIdentity {
     /// request face (`policy.get` / `policy.set`) is served — always true
     /// from this service generation on. Placed after `chat`.
     std::optional<bool> policy;
+    std::optional<bool> tray{}; // true only after embedded tray registration
 };
 
 struct TaskSubmitted {
@@ -483,6 +524,9 @@ struct SessionOpened {
 /// close settled it Closed after cancelling its non-terminal tasks.
 /// `state` mirrors the workflow.cancel reply shape and keeps the envelope
 /// distinguishable from session.open's on the wire.
+struct SessionDeleted {
+    std::string session_id;
+};
 struct SessionClosed {
     std::string session_id;
     std::string state;
@@ -494,12 +538,20 @@ struct SessionClosed {
 /// `session.chat.history`.
 struct DialogTurnAccepted {
     std::string turn_id;
+    std::string replaces_turn_id = {};
 };
 
 /// Closed turn-status vocabulary of the dialog face (DEC-027): "pending"
 /// marks an accepted turn whose model call is still in flight, "ok" a
 /// settled turn carrying `reply_text`, "failed" a settled turn carrying
 /// `error`.
+/// DEC-036: last successful request's provider input usage and configured budget.
+struct ContextUsage {
+    std::uint64_t input_tokens = 0;
+    std::uint64_t window_tokens = 0; // 0 unknown
+    std::string model;
+};
+
 struct DialogTurnEntry {
     std::string turn_id;
     /// "pending" / "ok" / "failed"
@@ -516,6 +568,7 @@ struct DialogTurnEntry {
     /// The turn's position in the session's dialog sequence, self-incrementing.
     std::uint64_t sequence = 0;
     std::int64_t recorded_at_ms = 0;
+    std::optional<ContextUsage> context_usage;
 };
 
 /// One session's dialog thread as reported by session.chat.history
@@ -737,12 +790,13 @@ struct ObservationView {
 };
 
 using ResponsePayload =
-    std::variant<ServiceIdentity, TaskSubmitted, TaskList, InspectTask, TaskCancelled, TaskPaused,
-                 TaskResumed, ShutdownAccepted, PermissionResponded, PermissionPendingList,
-                 SessionList, SessionOpened, SessionClosed, DialogTurnAccepted, DialogHistory,
-                 SessionHistory, WorkflowList, WorkflowSaved, WorkflowPublished, WorkflowDeleted,
-                 WorkflowAtomCatalog, WorkflowRunList, WorkflowRunStarted, WorkflowRunCancelled,
-                 WorkflowDefinitionView, ObservationView, PolicyView>;
+    std::variant<ServiceIdentity, ProductState, TaskSubmitted, TaskList, InspectTask, TaskCancelled,
+                 TaskPaused, TaskResumed, ShutdownAccepted, PermissionResponded,
+                 PermissionPendingList, SessionList, SessionOpened, SessionClosed, SessionDeleted,
+                 DialogTurnAccepted, DialogHistory, SessionHistory, WorkflowList, WorkflowSaved,
+                 WorkflowPublished, WorkflowDeleted, WorkflowAtomCatalog, WorkflowRunList,
+                 WorkflowRunStarted, WorkflowRunCancelled, WorkflowDefinitionView, ObservationView,
+                 PolicyView, ModelConfiguration>;
 
 /// Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc
 /// domain ("protocol_error", "unsupported", "invalid_argument", "not_found",
@@ -918,13 +972,26 @@ struct ChatTurnUpdatedEvent {
     std::string error;
     bool has_error = false;
     std::uint64_t sequence = 0;
+    std::optional<ContextUsage> context_usage;
+    std::string replaces_turn_id = {};
+};
+
+// DEC-041: ephemeral bounded FULL snapshot, never history/usage/tool authority.
+// Sequence is monotonic across attempts in a turn; empty text clears the preview.
+struct ChatPreviewEvent {
+    std::string session_id;
+    std::string turn_id;
+    std::string request_id;
+    std::string text;
+    std::uint64_t sequence = 0;
+    bool truncated = false;
 };
 
 /// Closed event set; new events join additively (DEC-012).
 using EventPayload =
     std::variant<TaskUpdatedEvent, HostStatusEvent, EventsOverflowEvent, PermissionRequestedEvent,
                  SessionUpdatedEvent, SessionMessageEvent, SessionTurnEvent, SessionOutputEvent,
-                 WorkflowRunUpdatedEvent, ChatTurnUpdatedEvent>;
+                 WorkflowRunUpdatedEvent, ChatTurnUpdatedEvent, ChatPreviewEvent>;
 
 /// One decoded event frame minus its envelope bookkeeping: the per-connection
 /// `seq` plus the payload. `seq` is assigned by the sender per connection,

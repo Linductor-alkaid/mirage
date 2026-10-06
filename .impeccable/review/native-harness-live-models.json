@@ -1,0 +1,30 @@
+[
+  {
+    "provider": "siliconflow",
+    "model": "Qwen/Qwen3.5-4B",
+    "kind": "text",
+    "exit": 0,
+    "output": "ok=1 steps=1 tools=0\n\n\n2 + 3 等于 5。\n"
+  },
+  {
+    "provider": "siliconflow",
+    "model": "Qwen/Qwen3.5-4B",
+    "kind": "tool",
+    "exit": 0,
+    "output": "ok=1 steps=3 tools=2\n\n\nwait 工具已成功执行，等待了 1 毫秒。\n"
+  },
+  {
+    "provider": "minimax",
+    "model": "MiniMax-M3",
+    "kind": "text",
+    "exit": 1,
+    "output": "ok=0 steps=1 tools=0\ntls certificate verification failed\n"
+  },
+  {
+    "provider": "minimax",
+    "model": "MiniMax-M3",
+    "kind": "tool",
+    "exit": 1,
+    "output": "ok=0 steps=1 tools=0\ntls certificate verification failed\n"
+  }
+]

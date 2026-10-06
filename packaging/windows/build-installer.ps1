@@ -6,8 +6,7 @@
 # record for the payload layout).
 param(
     [string]$BinDir = "..\..\build\release\bin",
-    [string]$Version = "0.1.0",
-    [switch]$WithDesktop
+    [string]$Version = "0.1.0"
 )
 $ErrorActionPreference = "Stop"
 
@@ -16,7 +15,7 @@ if ($null -eq $makensis) {
     Write-Error "makensis not found on PATH (install NSIS: choco install nsis)"
     exit 1
 }
-foreach ($binary in @("mirage.exe", "mirage-service.exe", "mirage-tray.exe")) {
+foreach ($binary in @("mirage.exe", "mirage-service.exe", "mirage-tray.exe", "mirage-native.exe")) {
     if (-not (Test-Path (Join-Path $BinDir $binary))) {
         Write-Error "release tree is missing $binary (build the MSVC release configuration first)"
         exit 1
@@ -24,7 +23,7 @@ foreach ($binary in @("mirage.exe", "mirage-service.exe", "mirage-tray.exe")) {
 }
 
 $defines = @("-DMIRAGE_VERSION=$Version", "-DMIRAGE_BIN_DIR=$BinDir")
-if ($WithDesktop) { $defines += "-DMIRAGE_WITH_DESKTOP=1" }
+if (-not (Test-Path (Join-Path $BinDir "assets"))) { Write-Error "native assets missing"; exit 1 }
 
 & makensis @defines "mirage.nsi"
 if ($LASTEXITCODE -ne 0) {

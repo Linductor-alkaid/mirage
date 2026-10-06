@@ -1,0 +1,10 @@
+{
+  "scope": "real Release window, private keyring, synthetic key, no model request",
+  "pasted_key_saved": true,
+  "typed_replacement_saved": true,
+  "secret_not_in_settings": true,
+  "network_requests": 0,
+  "custom_provider": true,
+  "protocol": "openai.responses.v1",
+  "protocol_checked_in_driver": true
+}

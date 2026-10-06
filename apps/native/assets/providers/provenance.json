@@ -1,0 +1,132 @@
+{
+  "sourceRepository": "https://github.com/zai-org/ZCode",
+  "revision": "29628c9acdb81b703bbd4080c207a0e7ce5e276e",
+  "transformation": "Byte-for-byte copies. Provider marks retain their owners; repository Apache-2.0 license included.",
+  "files": [
+    {
+      "file": "model-provider-openai.png",
+      "sha256": "5eda220a8219ecbbd571e6132702e91c8d85194c6b4e39b1921356789e6a9c5d",
+      "source": {
+        "brand": "OpenAI",
+        "file": "model-provider-openai.png",
+        "providerIds": [
+          "openai"
+        ],
+        "sourceUrl": "https://images.ctfassets.net/j22is2dtoxu1/intercom-img-d177d076c9a5453052925143/49d5d812b0a6fcc20a14faa8c629d9fb/icon-ios-1024_401x.png",
+        "sourceOwner": "OpenAI",
+        "normalization": "Official 1024x1024 OpenAI Help Center icon downsampled to 80x80 RGB."
+      }
+    },
+    {
+      "file": "model-provider-anthropic.png",
+      "sha256": "4161ba60dfd4ba79c7fd1cffdc1153a38504b1f0da201b717a71cc17ba7cf22c",
+      "source": {
+        "brand": "Anthropic",
+        "file": "model-provider-anthropic.png",
+        "providerIds": [
+          "anthropic"
+        ],
+        "sourceUrl": "https://cdn.prod.website-files.com/67ce28cfec624e2b733f8a52/67d31dd7aa394792257596c5_webclip.png",
+        "sourceOwner": "Anthropic",
+        "normalization": "Official website webclip downsampled from 256x256 to 80x80 RGB."
+      }
+    },
+    {
+      "file": "model-provider-minimax.png",
+      "sha256": "55169f0e4796d9a2ed52250426c593201bc3768604823c817037185d3ffd71cd",
+      "source": {
+        "brand": "MiniMax",
+        "file": "model-provider-minimax.png",
+        "providerIds": [
+          "minimax"
+        ],
+        "sourceUrl": "https://file.cdn.minimax.io/public/MiniMax_Logo.zip",
+        "sourceOwner": "MiniMax",
+        "normalization": "Official 200x200 full-square SVG from the MiniMax brand package rendered at 80x80 RGB."
+      }
+    },
+    {
+      "file": "model-provider-deepseek.png",
+      "sha256": "d230d76fb02be92a84f2b634896a358db5399632ab671af738751b45690af863",
+      "source": {
+        "brand": "DeepSeek",
+        "file": "model-provider-deepseek.png",
+        "providerIds": [
+          "deepseek"
+        ],
+        "sourceUrl": "https://github.com/deepseek-ai.png?size=512",
+        "sourceOwner": "DeepSeek",
+        "normalization": "Official GitHub organization avatar downsampled from 460x460 to 80x80 RGB."
+      }
+    },
+    {
+      "file": "model-provider-moonshot-kimi.png",
+      "sha256": "4fe1f8f64defd29b267f9396705f723a15191717bdb55705dc15b3a5260970f8",
+      "source": {
+        "brand": "Moonshot Kimi",
+        "file": "model-provider-moonshot-kimi.png",
+        "providerIds": [
+          "moonshot-kimi"
+        ],
+        "sourceUrl": "https://raw.githubusercontent.com/MoonshotAI/Branding-Guide/67b20b1315f96d05f3192b24050635745abd3d90/scenarios/03-icon-without-kimi/kimi-icon-right-angle.png",
+        "sourceOwner": "Moonshot AI",
+        "normalization": "Official right-angle icon downsampled from 1024x1024 to 80x80 RGB."
+      }
+    },
+    {
+      "file": "model-provider-alibaba-cloud.png",
+      "sha256": "2b272099aa7f8815b63bb070fde4fd2340b2214d14d33e5aa815c0584c834996",
+      "source": {
+        "brand": "Alibaba Model Studio",
+        "file": "model-provider-alibaba-cloud.png",
+        "providerIds": [
+          "qwen-alibaba-model-studio-cn",
+          "qwen-alibaba-model-studio-intl"
+        ],
+        "sourceUrl": "https://github.com/aliyun.png?size=512",
+        "sourcePage": "https://github.com/aliyun",
+        "sourceOwner": "Alibaba Cloud",
+        "normalization": "Official Alibaba Cloud GitHub organization square symbol downsampled unchanged from 320x320 to 80x80 RGBA PNG."
+      }
+    },
+    {
+      "file": "model-provider-zai.png",
+      "sha256": "9fd3cb324dcace295da0069949065c3d2919eb76140d2c20201583de47c8eb8d",
+      "source": {
+        "sourceUrl": "repository-existing:model-provider-zai.png",
+        "sourceOwner": "Z.ai"
+      }
+    },
+    {
+      "file": "logo-bigmodel.svg",
+      "sha256": "63d72de1b988ab15000f8e5c495d9a9da39272748c8fef103a4b39fda6605847",
+      "source": {
+        "brand": "BigModel",
+        "file": "logo-bigmodel.svg",
+        "providerIds": [
+          "bigmodel-api",
+          "account:bigmodel-individual-coding-plan",
+          "account:bigmodel-team-coding-plan",
+          "account:bigmodel-offpeak-idle-plan"
+        ],
+        "sourceUrl": "repository-existing:logo-bigmodel.svg",
+        "sourceOwner": "BigModel",
+        "normalization": "Reuse the repository's original transparent 16x16 blue gradient BigModel vector without modification."
+      }
+    },
+    {
+      "file": "model-provider-xiaomi-mimo.png",
+      "sha256": "ba518bd54bbb067bd85edf5ee9c14c5c191c00b2b23c33abe9528e664588bdea",
+      "source": {
+        "brand": "Xiaomi MiMo",
+        "file": "model-provider-xiaomi-mimo.png",
+        "providerIds": [
+          "xiaomi-mimo"
+        ],
+        "sourceUrl": "https://platform.xiaomimimo.com/static/logo.5c3d18dc51d9cbea.jpg",
+        "sourceOwner": "Xiaomi MiMo",
+        "normalization": "Official 256x256 embedded source image downsampled to 80x80 RGB."
+      }
+    }
+  ]
+}

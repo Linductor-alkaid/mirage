@@ -2,6 +2,7 @@
 
 #include <mira/json.hpp>
 
+#include <algorithm>
 #include <string>
 #include <type_traits>
 #include <variant>
@@ -22,6 +23,7 @@ constexpr const char *kOpUnsubscribe = "events.unsubscribe";
 constexpr const char *kOpPermissionRespond = "permission.respond";
 constexpr const char *kOpPermissionList = "permission.list";
 constexpr const char *kOpSessionList = "session.list";
+constexpr const char *kOpSessionDelete = "session.delete";
 constexpr const char *kOpSessionOpen = "session.open";
 constexpr const char *kOpSessionClose = "session.close";
 constexpr const char *kOpSessionChat = "session.chat";
@@ -52,6 +54,7 @@ constexpr const char *kEventSessionMessage = "session.message";
 constexpr const char *kEventSessionTurn = "session.turn";
 constexpr const char *kEventSessionOutput = "session.output";
 constexpr const char *kEventWorkflowRunUpdated = "workflow.run_updated";
+constexpr const char *kEventChatPreview = "session.chat_preview";
 constexpr const char *kEventChatTurnUpdated = "session.chat_updated";
 
 /// Closed Capability vocabulary (DEC-010 / DEC-020) carried by
@@ -325,6 +328,33 @@ std::optional<ObservationRegion> decode_region(const mira::JsonValue &value, std
     return region;
 }
 
+mira::JsonValue encode_context_usage(const ContextUsage &usage) {
+    auto object = make_object();
+    put(object, "input_tokens", static_cast<std::int64_t>(usage.input_tokens));
+    put(object, "window_tokens", static_cast<std::int64_t>(usage.window_tokens));
+    put(object, "model", usage.model);
+    return object;
+}
+
+bool decode_context_usage(const mira::JsonValue &object, const std::string &status,
+                          std::optional<ContextUsage> &usage, std::string &error) {
+    const auto *value = member(object, "context_usage");
+    if (!value)
+        return true;
+    const auto input = integer_member(*value, "input_tokens");
+    const auto window = integer_member(*value, "window_tokens");
+    const auto model = string_member(*value, "model");
+    if (status != "ok" || !value->is_object() || !input || *input < 0 || *input > 2000000000 ||
+        !window || (*window != 0 && (*window < 2048 || *window > 2000000)) || !model ||
+        model->empty() || model->size() > 1024) {
+        error = "invalid context_usage on dialog turn";
+        return false;
+    }
+    usage = ContextUsage{static_cast<std::uint64_t>(*input), static_cast<std::uint64_t>(*window),
+                         *model};
+    return true;
+}
+
 std::optional<DialogTurnEntry> decode_dialog_turn(const mira::JsonValue &value,
                                                   std::string &error) {
     if (!value.is_object()) {
@@ -385,6 +415,8 @@ std::optional<DialogTurnEntry> decode_dialog_turn(const mira::JsonValue &value,
         error = "session.chat.history 'error' is present exactly when status is 'failed'";
         return std::nullopt;
     }
+    if (!decode_context_usage(value, turn.status, turn.context_usage, error))
+        return std::nullopt;
     return turn;
 }
 
@@ -501,6 +533,8 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 put(object, "mira_core_version", value.mira_core_version);
                 put(object, "host_status", value.host_status);
                 put(object, "protocol", static_cast<std::int64_t>(value.protocol));
+                if (value.tray)
+                    put(object, "tray", *value.tray);
                 if (value.events.has_value()) {
                     put(object, "events", *value.events);
                 }
@@ -525,6 +559,14 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 if (value.policy.has_value()) {
                     put(object, "policy", *value.policy);
                 }
+            } else if constexpr (std::is_same_v<T, ProductState>) {
+                put(object, "product", true);
+                put(object, "frontend_pid", value.frontend_pid);
+                put(object, "window_epoch", static_cast<std::int64_t>(value.window_epoch));
+                put(object, "exit_epoch", static_cast<std::int64_t>(value.exit_epoch));
+                put(object, "active_work", static_cast<std::int64_t>(value.active_work));
+                put(object, "exit_pending", value.exit_pending);
+                put(object, "frontend_ready", value.frontend_ready);
             } else if constexpr (std::is_same_v<T, TaskSubmitted>) {
                 put(object, "task_id", value.task_id);
                 if (value.session_id) {
@@ -583,11 +625,16 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 put(object, "sessions", mira::JsonValue{std::move(entries)});
             } else if constexpr (std::is_same_v<T, SessionOpened>) {
                 put(object, "session_id", value.session_id);
+            } else if constexpr (std::is_same_v<T, SessionDeleted>) {
+                put(object, "session_id", value.session_id);
+                put(object, "deleted", true);
             } else if constexpr (std::is_same_v<T, SessionClosed>) {
                 put(object, "session_id", value.session_id);
                 put(object, "state", value.state);
             } else if constexpr (std::is_same_v<T, DialogTurnAccepted>) {
                 put(object, "turn_id", value.turn_id);
+                if (!value.replaces_turn_id.empty())
+                    put(object, "replaces_turn_id", value.replaces_turn_id);
             } else if constexpr (std::is_same_v<T, DialogHistory>) {
                 put(object, "session_id", value.session_id);
                 mira::JsonValue::Array turns;
@@ -604,6 +651,8 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                     }
                     put(entry, "sequence", static_cast<std::int64_t>(turn.sequence));
                     put(entry, "recorded_at_ms", turn.recorded_at_ms);
+                    if (turn.context_usage)
+                        put(entry, "context_usage", encode_context_usage(*turn.context_usage));
                     turns.emplace_back(std::move(entry));
                 }
                 put(object, "turns", mira::JsonValue{std::move(turns)});
@@ -677,6 +726,10 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 put(object, "workflow_id", value.workflow_id);
                 put(object, "digest", value.digest);
                 put(object, "definition", embedded_json(value.definition_json));
+            } else if constexpr (std::is_same_v<T, ModelConfiguration>) {
+                put(object, "model_settings", value.settings_json);
+                if (!value.warning.empty())
+                    put(object, "warning", value.warning);
             } else if constexpr (std::is_same_v<T, PolicyView>) {
                 mira::JsonValue rules = make_object();
                 for (const auto &[capability, rule] : value.rules) {
@@ -786,8 +839,16 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                 put(object, "task_id", value.task_id);
             } else if constexpr (std::is_same_v<T, ShutdownRequest>) {
                 put(object, "op", kOpShutdown);
+            } else if constexpr (std::is_same_v<T, ProductControlRequest>) {
+                put(object, "op", "product.control");
+                put(object, "action", value.action);
+                put(object, "exit_epoch", static_cast<std::int64_t>(value.exit_epoch));
+                if (value.action == "frontend_ready")
+                    put(object, "frontend_pid", value.frontend_pid);
             } else if constexpr (std::is_same_v<T, SubscribeEventsRequest>) {
                 put(object, "op", kOpSubscribe);
+                if (value.chat_preview)
+                    put(object, "chat_preview", true);
             } else if constexpr (std::is_same_v<T, UnsubscribeEventsRequest>) {
                 put(object, "op", kOpUnsubscribe);
             } else if constexpr (std::is_same_v<T, RespondPermissionRequest>) {
@@ -800,6 +861,9 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                 put(object, "op", kOpSessionList);
             } else if constexpr (std::is_same_v<T, OpenSessionRequest>) {
                 put(object, "op", kOpSessionOpen);
+            } else if constexpr (std::is_same_v<T, DeleteSessionRequest>) {
+                put(object, "op", kOpSessionDelete);
+                put(object, "session_id", value.session_id);
             } else if constexpr (std::is_same_v<T, CloseSessionRequest>) {
                 put(object, "op", kOpSessionClose);
                 put(object, "session_id", value.session_id);
@@ -807,6 +871,24 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                 put(object, "op", kOpSessionChat);
                 put(object, "session_id", value.session_id);
                 put(object, "text", value.text);
+                if (value.agent)
+                    put(object, "agent", true);
+                if (value.access != "default")
+                    put(object, "access", value.access);
+                if (!value.reasoning.empty())
+                    put(object, "reasoning", value.reasoning);
+                if (!value.replace_turn_id.empty())
+                    put(object, "replace_turn_id", value.replace_turn_id);
+            } else if constexpr (std::is_same_v<T, GetModelRequest>) {
+                put(object, "op", "model.get");
+            } else if constexpr (std::is_same_v<T, SetModelRequest>) {
+                put(object, "op", "model.set");
+                put(object, "settings", value.settings_json);
+                if (value.api_key)
+                    put(object, "api_key", *value.api_key);
+            } else if constexpr (std::is_same_v<T, CancelChatRequest>) {
+                put(object, "op", "session.chat.cancel");
+                put(object, "session_id", value.session_id);
             } else if constexpr (std::is_same_v<T, ChatHistoryRequest>) {
                 put(object, "op", kOpSessionChatHistory);
                 put(object, "session_id", value.session_id);
@@ -915,8 +997,40 @@ RequestDecode decode_request(std::string_view payload) {
         result.body = ListTasksRequest{};
     } else if (*op == kOpShutdown) {
         result.body = ShutdownRequest{};
+    } else if (*op == "product.control") {
+        const auto action = string_member(object, "action");
+        const auto epoch = integer_member(object, "exit_epoch");
+        if (!action ||
+            (*action != "status" && *action != "open" && *action != "quit" &&
+             *action != "confirm_quit" && *action != "cancel_quit" &&
+             *action != "frontend_ready") ||
+            !epoch || *epoch < 0) {
+            result.error = "invalid product action or exit epoch";
+            return result;
+        }
+        std::int64_t frontend_pid = 0;
+        if (*action == "frontend_ready") {
+            const auto pid = integer_member(object, "frontend_pid");
+            if (!pid || *pid <= 0 || *epoch != 0) {
+                result.error =
+                    "frontend_ready requires a positive frontend_pid and zero exit_epoch";
+                return result;
+            }
+            frontend_pid = *pid;
+        }
+        result.body =
+            ProductControlRequest{*action, static_cast<std::uint64_t>(*epoch), frontend_pid};
     } else if (*op == kOpSubscribe) {
-        result.body = SubscribeEventsRequest{};
+        SubscribeEventsRequest subscribe;
+        if (member(object, "chat_preview")) {
+            const auto flag = boolean_member(object, "chat_preview");
+            if (!flag) {
+                result.error = "events.subscribe chat_preview must be boolean";
+                return result;
+            }
+            subscribe.chat_preview = *flag;
+        }
+        result.body = subscribe;
     } else if (*op == kOpUnsubscribe) {
         result.body = UnsubscribeEventsRequest{};
     } else if (*op == kOpSubmit) {
@@ -1017,6 +1131,13 @@ RequestDecode decode_request(std::string_view payload) {
         result.body = ListSessionsRequest{};
     } else if (*op == kOpSessionOpen) {
         result.body = OpenSessionRequest{};
+    } else if (*op == kOpSessionDelete) {
+        const auto deleted_id = string_member(object, "session_id");
+        if (!deleted_id || deleted_id->empty()) {
+            result.error = "session.delete requires session_id";
+            return result;
+        }
+        result.body = DeleteSessionRequest{*deleted_id};
     } else if (*op == kOpSessionClose) {
         CloseSessionRequest close;
         const auto session_id = string_member(object, "session_id");
@@ -1040,7 +1161,68 @@ RequestDecode decode_request(std::string_view payload) {
             return result;
         }
         chat.text = *text;
+        if (const auto *flag = member(object, "agent")) {
+            if (!flag->is_boolean()) {
+                result.error = "agent must be boolean";
+                return result;
+            }
+            chat.agent = *flag->as_boolean();
+        }
+        if (const auto *value = member(object, "access")) {
+            const auto *text_value = value->as_string();
+            if (!text_value || (*text_value != "default" && *text_value != "read_only")) {
+                result.error = "invalid access mode";
+                return result;
+            }
+            chat.access = *text_value;
+        }
+        if (const auto *value = member(object, "reasoning")) {
+            const auto *text_value = value->as_string();
+            if (!text_value ||
+                (!text_value->empty() && *text_value != "minimal" && *text_value != "low" &&
+                 *text_value != "medium" && *text_value != "high" && *text_value != "none" &&
+                 *text_value != "adaptive" && *text_value != "xhigh" && *text_value != "max")) {
+                result.error = "invalid reasoning level";
+                return result;
+            }
+            chat.reasoning = *text_value;
+        }
+        if (const auto *value = member(object, "replace_turn_id")) {
+            const auto *replacement = value->as_string();
+            if (!replacement || replacement->empty() || replacement->size() > 128) {
+                result.error = "replace_turn_id must be a non-empty bounded string";
+                return result;
+            }
+            chat.replace_turn_id = *replacement;
+        }
         result.body = std::move(chat);
+    } else if (*op == "model.get") {
+        result.body = GetModelRequest{};
+    } else if (*op == "model.set") {
+        const auto settings = string_member(object, "settings");
+        if (!settings || settings->size() > 65536) {
+            result.error = "model.set requires bounded settings";
+            return result;
+        }
+        SetModelRequest request{*settings};
+        if (const auto *value = member(object, "api_key")) {
+            const auto *key = value->as_string();
+            if (!key || key->size() > 2048 ||
+                std::any_of(key->begin(), key->end(),
+                            [](unsigned char c) { return c < 33 || c > 126; })) {
+                result.error = "invalid API Key";
+                return result;
+            }
+            request.api_key = *key;
+        }
+        result.body = std::move(request);
+    } else if (*op == "session.chat.cancel") {
+        const auto session = string_member(object, "session_id");
+        if (!session || session->empty()) {
+            result.error = "cancel requires session_id";
+            return result;
+        }
+        result.body = CancelChatRequest{*session};
     } else if (*op == kOpSessionChatHistory) {
         ChatHistoryRequest history;
         const auto session_id = string_member(object, "session_id");
@@ -1390,7 +1572,34 @@ ResponseDecode decode_response(std::string_view payload) {
             }
             identity.policy = *flag;
         }
+        if (member(object, "tray")) {
+            const auto tray = boolean_member(object, "tray");
+            if (!tray) {
+                result.error = "hello tray must be boolean";
+                return result;
+            }
+            identity.tray = *tray;
+        }
         response.payload = std::move(identity);
+    } else if (member(object, "product")) {
+        const auto product = boolean_member(object, "product");
+        const auto pid = integer_member(object, "frontend_pid");
+        const auto window = integer_member(object, "window_epoch");
+        const auto epoch = integer_member(object, "exit_epoch");
+        const auto active = integer_member(object, "active_work");
+        const auto pending = boolean_member(object, "exit_pending");
+        const auto ready = boolean_member(object, "frontend_ready");
+        if (!product || !*product || !pid || *pid < 0 || !window || *window < 0 || !epoch ||
+            *epoch < 0 || !active || *active < 0 || !pending || !ready) {
+            result.error = "invalid product state";
+            return result;
+        }
+        response.payload = ProductState{*pid,
+                                        static_cast<std::uint64_t>(*window),
+                                        static_cast<std::uint64_t>(*epoch),
+                                        static_cast<std::size_t>(*active),
+                                        *pending,
+                                        *ready};
     } else if (const auto *task_id = member(object, "task_id"); task_id != nullptr) {
         auto id_text = string_member(object, "task_id");
         if (!id_text || id_text->empty()) {
@@ -1614,6 +1823,13 @@ ResponseDecode decode_response(std::string_view payload) {
             history.entries.push_back(std::move(entry));
         }
         response.payload = std::move(history);
+    } else if (const auto settings = string_member(object, "model_settings")) {
+        if (settings->size() > 65536) {
+            result.error = "model settings exceed budget";
+            return result;
+        }
+        response.payload =
+            ModelConfiguration{*settings, string_member(object, "warning").value_or("")};
     } else if (const auto *rules = member(object, "rules"); rules != nullptr) {
         // PolicyView discriminates on "rules".
         if (!rules->is_object() || rules->as_object() == nullptr) {
@@ -1658,7 +1874,16 @@ ResponseDecode decode_response(std::string_view payload) {
             result.error = "session.chat response requires a non-empty 'turn_id'";
             return result;
         }
-        response.payload = DialogTurnAccepted{std::move(*id_text)};
+        DialogTurnAccepted accepted{std::move(*id_text)};
+        if (const auto *value = member(object, "replaces_turn_id")) {
+            const auto *replacement = value->as_string();
+            if (!replacement || replacement->empty() || replacement->size() > 128) {
+                result.error = "invalid replaces_turn_id";
+                return result;
+            }
+            accepted.replaces_turn_id = *replacement;
+        }
+        response.payload = std::move(accepted);
     } else if (const auto *turns = member(object, "turns"); turns != nullptr) {
         if (!turns->is_array()) {
             result.error = "session.chat.history 'turns' must be an array";
@@ -1689,7 +1914,14 @@ ResponseDecode decode_response(std::string_view payload) {
             result.error = "session.open response requires a non-empty 'session_id'";
             return result;
         }
-        if (const auto *state = member(object, "state"); state != nullptr) {
+        if (const auto *deleted = member(object, "deleted")) {
+            const auto flag = deleted->as_boolean();
+            if (!flag || !*flag) {
+                result.error = "session.delete reply requires deleted=true";
+                return result;
+            }
+            response.payload = SessionDeleted{*id_text};
+        } else if (const auto *state = member(object, "state"); state != nullptr) {
             // The closed reply adds "state" to the same envelope shape
             // (mirrors the workflow.cancel / workflow.run discrimination).
             auto state_text = string_member(object, "state");
@@ -2050,6 +2282,8 @@ const char *event_name(const EventPayload &payload) {
     if (std::holds_alternative<WorkflowRunUpdatedEvent>(payload)) {
         return kEventWorkflowRunUpdated;
     }
+    if (std::holds_alternative<ChatPreviewEvent>(payload))
+        return kEventChatPreview;
     if (std::holds_alternative<ChatTurnUpdatedEvent>(payload)) {
         return kEventChatTurnUpdated;
     }
@@ -2117,8 +2351,20 @@ std::string encode_event(const Event &event) {
                 if (value.summary) {
                     put(object, "summary", *value.summary);
                 }
+            } else if constexpr (std::is_same_v<T, ChatPreviewEvent>) {
+                put(object, "event", kEventChatPreview);
+                put(object, "session_id", value.session_id);
+                put(object, "turn_id", value.turn_id);
+                put(object, "request_id", value.request_id);
+                put(object, "text", value.text);
+                put(object, "sequence", static_cast<std::int64_t>(value.sequence));
+                put(object, "truncated", value.truncated);
             } else if constexpr (std::is_same_v<T, ChatTurnUpdatedEvent>) {
                 put(object, "event", kEventChatTurnUpdated);
+                if (!value.replaces_turn_id.empty())
+                    put(object, "replaces_turn_id", value.replaces_turn_id);
+                if (value.context_usage)
+                    put(object, "context_usage", encode_context_usage(*value.context_usage));
                 put(object, "session_id", value.session_id);
                 put(object, "turn_id", value.turn_id);
                 put(object, "status", value.status);
@@ -2359,6 +2605,22 @@ EventDecode decode_event(std::string_view payload) {
             run.summary = *text;
         }
         result.event.payload = std::move(run);
+    } else if (*name == kEventChatPreview) {
+        const auto session = string_member(object, "session_id");
+        const auto turn = string_member(object, "turn_id");
+        const auto request = string_member(object, "request_id");
+        const auto text = string_member(object, "text");
+        const auto sequence = integer_member(object, "sequence");
+        const auto *flag = member(object, "truncated");
+        const auto truncated = flag ? flag->as_boolean() : std::nullopt;
+        if (!session || session->empty() || session->size() > 128 || !turn || turn->empty() ||
+            turn->size() > 128 || !request || request->empty() || request->size() > 128 || !text ||
+            text->size() > 16 * 1024 || !sequence || *sequence < 1 || !truncated) {
+            result.error = "invalid bounded session.chat_preview snapshot";
+            return result;
+        }
+        result.event.payload = ChatPreviewEvent{
+            *session, *turn, *request, *text, static_cast<std::uint64_t>(*sequence), *truncated};
     } else if (*name == kEventChatTurnUpdated) {
         ChatTurnUpdatedEvent chat;
         const auto session_id = string_member(object, "session_id");
@@ -2382,6 +2644,14 @@ EventDecode decode_event(std::string_view payload) {
         chat.status = std::move(*status);
         chat.user_text = std::move(*user_text);
         chat.sequence = static_cast<std::uint64_t>(*sequence);
+        if (const auto *value = member(object, "replaces_turn_id")) {
+            const auto *id = value->as_string();
+            if (!id || id->empty() || id->size() > 128 || *id == chat.turn_id) {
+                result.error = "invalid replaces_turn_id";
+                return result;
+            }
+            chat.replaces_turn_id = *id;
+        }
         if (const auto *reply = member(object, "reply_text"); reply != nullptr) {
             const auto text = reply->as_string();
             if (!text || chat.status != "ok") {
@@ -2410,6 +2680,8 @@ EventDecode decode_event(std::string_view payload) {
                            "when status is 'failed'";
             return result;
         }
+        if (!decode_context_usage(object, chat.status, chat.context_usage, result.error))
+            return result;
         result.event.payload = std::move(chat);
     } else {
         result.error = "unknown event '" + *name + "'";

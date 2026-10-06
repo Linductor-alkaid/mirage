@@ -1,5 +1,10 @@
 # Mirage：Linux / Windows 桌面端设计方案
 
+> 2026-10-03 更新：UI 产品方向按 [DEC-033](../decisions/DEC-033-native-agent-frontend.md)
+> 迁移到 EUI-NEO 原生前端，首步会话页面见 [原生设计](native-agent-frontend.md)。
+> 本文既有 CEF UI 实现记录作为迁移前基线保留；Runtime/Provider/IPC/Executor
+> 分层约束继续生效。整体入口与托盘生命周期尚待 M6-04 验收。
+
 ## 1. 项目概述
 
 Mirage 是基于 Mira 构建的 Linux / Windows 桌面端产品，为 Mira 提供完整的 PC 运行环境、桌面交互能力与产品界面，使通用 Agent 能够进入用户真实的桌面工作环境执行任务。
@@ -546,25 +551,28 @@ Mira Host（`runtime/mira_host`）是 pinned `MiraRuntime` 实例的唯一 owner
 
 桌面 Agent 需要支持长时间任务，因此 Mirage Runtime 应独立于主窗口运行。
 
-推荐采用：
+当前产品进程形态由 [DEC-045](../decisions/DEC-045-tray-runtime-owner.md) 固定：
 
 ```mermaid
 graph LR
-    GUI["Desktop GUI"]
-    Tray["System Tray"]
-    CLI["CLI"]
-
+    Entry["mirage start"] --> Tray
+    subgraph Resident["mirage-tray 常驻进程"]
+        Tray["System Tray"] --> Service["Runtime Service / 唯一 Executor owner"]
+        Service --> Mira["Mira Host"]
+        Service --> Desktop["Desktop Environment"]
+    end
+    Service -->|启动与回收| GUI["mirage-native 独立进程"]
     GUI --> IPC["Local IPC"]
-    Tray --> IPC
-    CLI --> IPC
-
-    IPC --> Service["Mirage Service"]
-
-    Service --> Mira["Mira Host"]
-    Service --> Desktop["Desktop Environment"]
+    CLI["CLI"] --> IPC
+    IPC --> Service
 ```
 
-关闭主窗口后，已经运行的 Agent Task 可以继续执行。Tray 用于显示运行状态、暂停任务和快速进入 Mirage；CLI 则为开发者提供脚本化入口。
+统一入口等待真实托盘注册，随后托盘启动前端。前端必须由在线托盘持有，创建窗口前
+校验能力与子进程身份，宿主断开后退出。关闭主窗口保留任务与托盘；重复启动复用
+常驻进程并激活窗口。托盘退出检查活动桌面任务、Agent 轮次与非终态 Workflow；有
+活动时前端显示当前退出 epoch 的确认，取消保留工作，确认按现有取消和 shutdown
+顺序结束 Runtime 与前端。托盘 SDK 回调只投递有界动作，业务经 Runtime Executor
+串行化；窗口子进程创建/回收位于 Platform Backend。系统信号或宿主失败直接安全收敛。
 
 例如：
 
@@ -579,7 +587,7 @@ mirage agent run <agent> "<goal>"
 ### 12.1 M1 落地形态（DEC-007）
 
 M1 阶段 Local IPC 的落地形态由 [DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md)
-冻结：
+冻结（以下进程形态为历史基线；产品已由 DEC-045 替代，headless 开发入口保留）：
 
 - **传输**：Linux 使用 Unix domain socket（默认
   `$XDG_RUNTIME_DIR/mirage/mirage-service.sock`，回退 `/tmp/mirage-<uid>/`，目录

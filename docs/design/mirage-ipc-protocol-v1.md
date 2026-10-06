@@ -7,14 +7,11 @@
 > 依据：[DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md)（协议 v1 与传输冻结）、
 > [DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)（事件订阅扩展，已
 > Accepted）、[DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md)（UI 唯一耦合面）
-> 一致性门禁：`tests/runtime/data/ipc_protocol_golden.json`（golden vectors，C++ 与 TypeScript
-> 双端测试消费同一文件）
+> 一致性门禁：`tests/runtime/data/ipc_protocol_golden.json`（C++ golden；TS 镜像已按 DEC-037 退役）
 
-本文档是 Mirage Local IPC 协议 v1 的**权威 wire 契约**（DEC-012 决策 1）。两端实现——
-`runtime/ipc` 的 C++ 编解码（`protocol.hpp` / `protocol.cpp` / `framing.hpp`）与 `ui/contracts`
-的 TypeScript 镜像——都必须与本文档一致；一致性由共享 golden vectors 的双端测试锁定，
-漂移即测试失败。变更流程：先改本文档（注明版本与兼容性影响），同一变更内同步 golden
-vectors 与两端实现及测试（工程规范第 8 节）。
+本文档是 Mirage Local IPC v1 的权威 wire 契约。`runtime/ipc` C++ 编解码与
+客户端均以此为准，golden vectors 锁定规范字节与错误语义；原 TS 镜像按 DEC-037
+退役。变更时同步本文档、golden、实现与测试（工程规范第 8 节）。
 
 ## 1. 传输与帧格式（DEC-007 冻结，本文档仅转录）
 
@@ -73,6 +70,7 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 
 | op | 参数（按 wire 顺序） | 成功载荷 | 主要错误 |
 | --- | --- | --- | --- |
+| `product.control` | `action`, `exit_epoch`；ready 附 `frontend_pid` | `ProductState`（DEC-045 增量） | — |
 | `hello` | 无 | `ServiceIdentity`（§6.1） | — |
 | `task.submit` | `goal`（string，非空），`steps`（array，可省略 = 空任务），`step_timeout_ms`（可选正整数，毫秒），`session_id`（可选 string，非空；会话绑定，M5-04 落地，缺席落主会话） | `{"task_id"}`（非空），`session_id`（可选 string，非空；任务会话归属的回执，M5-04 落地，服务端恒写出） | `invalid_argument`（空 goal、goal 超长、步数超上限、单步 argument 超长）、`invalid_state`（注册表容量满，提交回滚）、`not_found`（显式 `session_id` 未知）、`pinned_runtime`（pinned 控制面拒绝，透传） |
 | `task.list` | 无 | `{"tasks":[{"id","goal","progress"}...]}` | — |
@@ -148,6 +146,7 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 | `observation` | boolean（可选） | DEC-026 观察面能力通告（`desktop.observe` 请求面可用）：语义与 `events` 相同。置于 `workflows` 之后 |
 | `chat` | boolean（可选） | DEC-027 对话面能力通告（模型层已配置，`session.chat` 请求面可用）：语义与 `events` 相同。置于 `observation` 之后 |
 | `policy` | boolean（可选） | DEC-028 策略面能力通告（`policy.get` / `policy.set` 请求面可用）：语义与 `events` 相同。置于 `chat` 之后 |
+| `tray` | boolean（可选） | DEC-045 产品准入；缺失为 headless/旧服务，true 为已注册在线托盘；wire 置于 protocol 后、events 前 |
 
 ### 6.2 `InspectTask`（task.inspect 响应载荷，嵌于 `task` 成员）
 
@@ -564,3 +563,158 @@ TypeScript 消费者 `ui/contracts/test/golden-vectors.test.ts` 读取**同一�
 - 2026-09-16（`M1.5-01`）：初版。按 `runtime/ipc` 现状（`protocol.hpp` / `protocol.cpp` /
   `framing.hpp`、`runtime_service.cpp` 错误面）与 DEC-012 事件扩展（Accepted）整理；
   golden vectors 门禁随本变更落地（C++ + TypeScript 双端测试）。
+
+
+## DEC-034 原生模型与通用 harness 附加面
+
+v1加法扩展，旧session.chat缺省仍是单次纯文字推理，旧编码不增加agent:false。
+新客户端发送`agent:true`启用通用harness；此值必须是bool。接纳仍返回turn_id，
+终态通过session.chat_updated及session.chat.history呈现，接纳不代表执行成功。
+
+| 请求op | 参数 | 成功payload与约束 |
+| --- | --- | --- |
+| model.get | 无 | model_settings：schema=1 LocalSettings JSON字符串，仅model块 |
+| model.set | settings：上述JSON字符串，最多65536字节 | 同model.get；只允许model块，有活动轮次时invalid_state |
+| session.chat.cancel | session_id | turn_id；协作取消，终态通过原有轮次事件/历史返回 |
+
+服务校验origin、prefix、model ID、dialect、凭据引用/旧环境变量名及字段预算；
+DEC-038 直接密钥只通过本地 model.set 的 write-only api_key 参数进入，不进入响应或普通设置。
+保存保留既有配置其他块，写入失败不替换当前模型。agent轮次以MiraRuntime任务身份执行，
+全服务同时最多一个agent轮次；有活动agent时旧dialog也忙拒绝。当前wait工具的受限
+文本反馈契约及依赖缺口见DEC-034 / MIRA-20261004-001。无屏幕/RPA工具，不能据此
+宣称task.submit设备闭环已迁入原生UI。旧golden仍兼容，新面由native_agent_integration_test覆盖。
+
+
+### DEC-036：可选上下文用量投影（M6-06）
+
+`session.chat.history`各turn及`session.chat_updated`可选携带`context_usage`：
+`{"input_tokens":391,"window_tokens":128000,"model":"Qwen/Qwen3.5-4B"}`。
+仅成功`ok`轮次携带；input_tokens为最后一次模型请求的Exact/ProviderReported输入用量，
+范围0–2000000000；window_tokens为显式配置预算（0表示未知，非零2048–2000000），
+model为非空≤1024bytes模型ID。未知用量整对象省略，旧帧不变；缺字段可解析。
+有对象时错误类型/负值/越界/错误状态拒绝。不得从轮次累计或bytes推算Token。
+用量随现有事件推送，可经history补读；服务重启恢复的旧轮次暂不保留该可选投影。
+
+`model.set`请求的settings及`model.get/set`响应的model_settings（均为JSON字符串）
+中model块新增可选
+`context_window_tokens`整数；缺失/0表示未知，其余2048–2000000。非零预算应用至Mira
+ProfileLimits。未配置保留原运行默认，前端仍报告分母未知，不把默认当供应商容量。
+保存/停用沿既有模型设置与Executor路径；活动会话运行中不允许修改模型配置。
+
+
+### DEC-037 增量：原生配置目录与提交选项
+
+`model.get/set` 的schema=1 JSON字符串新增可选 `models` 数组（至多12个ModelSettings）。
+每项display_name非空、至多128bytes且唯一，字段各至多2048bytes；整文档至多64KiB。
+`model`仍表示当前应用配置；`supports_reasoning`为可选布尔，默认false。
+目录保存和活动配置同一model.set完成，保留其他配置块。DEC-042更新：省略models保留已有目录，显式空数组清空目录，
+支持旧客户端；每次切换拒绝活动模型任务。重启从service.json恢复目录。
+
+`session.chat`新增可选`access`（default/read_only，缺省default）、`reasoning`
+（空字符串/minimal/low/medium/high，缺省空）。未知值/错误类型decode拒绝；
+未声明supports_reasoning时带reasoning的请求在admission前回unavailable。
+read_only不提供工具，default仅当前注册wait；不映射到桌面PermissionPolicy。
+选择和文本随请求冻结，对已有运行轮次不生效。文本附件使用现有text载荷，受同一16KiB
+限制，明确来源为用户主动选择的文本，并非文件上传协议或自动文件访问。
+
+
+### DEC-038 增量：直接凭据与持久化删除
+
+| 请求 op | 参数 | 成功载荷与失败语义 |
+| --- | --- | --- |
+| model.set | settings 同前；可选 api_key string | 同 model.get，可选 warning string 表示配置已应用但旧凭据清理失败 |
+| session.delete | 非空 session_id | {session_id, deleted:true}；not_found、invalid_state（活动轮次/任务）、internal（持久化失败） |
+
+api_key 为 write-only，最多2048个ASCII字节（33–126）；缺省保留凭据，空字符串显式移除。
+settings/model_settings 的 model 与 models 项新增可选32位小写十六进制 credential_ref，
+以及布尔 api_key_configured（服务端投影，不代表凭据已通过供应商验证）。无明文 key 成员。
+旧 credential_env 继续兼容；界面改用直接 Key。密钥仅存系统 Secret Service / Credential Manager；
+新引用写入后原子保存配置，保存失败清理新引用并保留原活动模型，清理失败对调用方可见。
+成功后的旧引用清理失败通过 warning 提示，调用方必须呈现；不得把 warning 当作保存失败。
+
+session.delete 对无活动任务/对话的普通会话复用 pinned Mira close 并清除服务注册、产品对话与
+持久化快照。历史遗留主会话保留身份和任务审计，只清除产品对话。写盘失败返回错误并保留可见历史；
+成功后普通会话不再出现在 session.list，主会话仍存在但对话为空。与 session.close 的原有语义分开。
+UI 对空列表和空对话不建立历史行；新草稿首次发送才 session.open，已删除本地 ID 不接受迟到更新。
+新增 wire golden 覆盖写 Key、移除 Key、删除请求/响应和带 warning 的配置响应。
+
+### DEC-039 增量：最后一轮替换
+
+| 面 | 新增可选字段 | 语义 |
+| --- | --- | --- |
+| session.chat 请求 | replace_turn_id:string | 非空且≤128字节；只能精确匹配当前会话最后已终结轮次 |
+| session.chat 成功ACK | replaces_turn_id:string | 被替换旧轮次ID；turn_id为新轮次 |
+| session.chat_updated 事件 | replaces_turn_id:string | pending和终态均携带，订阅者据此移除旧消息对 |
+
+字段缺省时保持旧v1 canonical编码。非法类型、空值、超长ID在解码层拒绝；目标过期、
+非末轮或正在运行返回invalid_state。先完成Mira Task接纳、Executor提交与替换持久化，
+才发布pending和ACK；失败恢复旧记录并返回unavailable，绝不提前删除调用方历史。
+
+新轮次sequence继续单调增长。模型transcript排除旧轮次用户文字/回复，更早历史保留；
+这不是外部工具事务回滚，旧Task审计保留。新轮次推理失败仍是被接纳轮次的失败。
+UI用替换ID和序列抵御迟到旧回复，session.chat.history为事实快照，旧ID不再存在。
+持久化不需要新字段：保存的是已替换后的有界轮次，重启后用稳定产品ID继续历史harness。
+运行Mira会话由串行服务延迟重新打开并映射，Task/OperationContext使用当前运行ID；
+session.close/delete关闭映射目标，旧桌面task.submit面不在该恢复范围内。
+
+Wire golden覆盖缺省兼容、替换请求/ACK/事件及非法目标，服务集成测试检查Mira真实请求
+和写盘拒绝、并发拒绝、取消、重启编辑/续聊/删除。见
+[DEC-039](../decisions/DEC-039-conversation-selection-and-revision.md)与
+[Linux验收](../compatibility/native-conversation-revision-20261005.md)。
+
+
+## DEC-041：可选会话流式预览
+
+`events.subscribe`新增可选boolean `chat_preview`（缺省false，旧编码不增加字段）。
+仅声明true的连接收到`session.chat_preview`；未知类型/非法bool拒绝。旧服务忽略此可选
+字段，客户端仍可依赖最终会话事件工作；当前服务对旧客户端过滤预览且不增加其事件seq。
+
+事件字段为session_id、turn_id、request_id（非空，各≤128bytes）、sequence（正整数，
+轮内递增）、text（≤16384bytes完整快照）、truncated（bool）。预览来自Mira的非权威
+公开sink，经既有有界Topic/服务循环传递。队列溢出沿用events.overflow与历史恢复。
+每次推理重试先发空快照；客户端仅替换匹配pending轮，拒绝旧序列/终态/取消后的内容。
+预览不存盘、不推动工具、不修改context_usage；最终成功ChatTurnUpdated才携带规范reply_text。
+协议版本仍为1，其他请求/终态契约不变。测试覆盖新旧订阅同场及字段拒绝。
+
+
+### DEC-042增量：服务商元数据与目录存在性
+
+model/models条目增加可选provider_id/provider_name（字符串）；无字段的旧目录视为单模型服务。model.get回送所选模型的服务元数据和显式models数组。同provider_id共享Base URL（endpoint/api_prefix）、dialect和credential_ref/credential_env；model.set以当前model的连接字段为准统一更新同服务条目。模型目录仍限制12条，display_name为稳定且独立的模型配置身份。空模型服务以enabled=false保存，选择真实模型后才可运行。缺失models保持旧目录；空数组表示清空，旧客户端无字段行为保留。持久化成功后才切换应用状态并清理不再引用的Key，清理失败以warning回送。
+
+## DEC-045 增量：托盘产品控制（M6-25 / golden v13）
+
+协议版本仍为 1，已有 canonical 不变。`hello` 增加可选布尔 `tray`，wire 顺序位于
+`protocol` 后、`events` 前：缺失表示 headless/旧宿主，false 表示产品托盘尚未注册，
+true 仅在真实注册且存活时返回。原生前端只接受 true，并验证自己为该托盘持有的 PID。
+
+请求顺序为 `v,id,op,action,exit_epoch`，`op` 为 `product.control`；`frontend_ready`
+另在末尾携带正整数 `frontend_pid`，其 `exit_epoch` 必须为 0。action 闭集：
+
+| action | 语义 |
+| --- | --- |
+| status | 获取事实快照 |
+| open | 启动或复用单个前端，递增 window_epoch 并激活 |
+| frontend_ready | 仅当前所属前端 PID 可报告 UI/IPC 就绪 |
+| quit | 无活动工作时退出；有活动时产生待确认 exit_epoch 并打开前端 |
+| confirm_quit | 仅当前待确认 epoch 有效，取消工作并关闭应用 |
+| cancel_quit | 仅当前待确认 epoch 有效，清除确认并保留工作 |
+
+成功响应字段按序为 `v,id,ok,product,frontend_pid,window_epoch,exit_epoch,active_work,
+exit_pending,frontend_ready`。product 必须为 true；三个整数状态及计数非负，两个布尔
+字段必需；PID=0 表示无前端。active_work 包括未终态任务、在途 Agent 轮次与非终态
+Workflow（无法查询的工作保守计为活动）。状态由 Runtime 串行上下文生成，客户端
+通过既有 HostStatus Topic 通知/重同步取快照，不根据事件自行推断退出资格。
+
+未知 action/负 epoch 解码错误为 `invalid product action or exit epoch`；ready 缺失或
+非法 PID、非零 epoch 为 `frontend_ready requires a positive frontend_pid and zero
+exit_epoch`；非法快照为 `invalid product state`；hello 非布尔 tray 为 `hello tray must
+be boolean`。运行中无托盘、错误前端 PID、过期确认均按既有失败响应返回
+invalid_state 与诊断。退出和通知区故障不绕过 Runtime 有序取消/shutdown。
+
+### M6-26 思考选项投影（DEC-046）
+
+模型配置 settings_json 的 model 与 models 条目可含 reasoning_options 字符串数组，
+最多8项、每项最多16字节。空字符串表示提供商默认，其他值由服务推导。
+这是只读投影，model.set 忽略客户端列表；session.chat.reasoning 经实际模型能力校验。
+当前新增 none/adaptive/xhigh/max；是否提供由具体模型决定。新增字段要求同步升级原生前端的设置解码器；
+新 UI 缺失列表时只显示默认，不猜测未知厂商能力。wire version 保持 v1。

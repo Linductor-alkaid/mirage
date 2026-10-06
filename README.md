@@ -9,18 +9,26 @@ Mirage 是基于 [Mira](https://github.com/Linductor-alkaid/mira) 构建的 Linu
 
 设计文档：[docs/design/Mirage：Linux - Windows 桌面端设计方案.md](docs/design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)。
 
+已采用 EUI-NEO 原生前端；旧 TS/CEF 与 Web 调试桥已按 DEC-037 退役。构建并打开：
+`cmake --preset native-release`，
+`cmake --build --preset native-release --target mirage mirage-tray mirage-native`，
+`./build/native-release/apps/mirage start`。
+托盘内嵌 Agent Runtime，持有独立前端子进程；窗口关闭保留任务，托盘退出有活动工作时
+要求确认。无在线托盘不能打开前端，Linux 需要 SNI 通知区宿主。模型设置与无屏幕通用
+harness 已接入；RPA 和 Windows/安装包验收继续独立推进，见
+[原生前端说明](apps/native/README.md) 与 [DEC-045](docs/decisions/DEC-045-tray-runtime-owner.md)。
+
 ## 仓库结构
 
 ```text
 mirage/
-├── apps/          # 可执行入口：cli、service（已有）、desktop / tray（M5）
+├── apps/          # 可执行入口：cli、service、tray、native（EUI）
 ├── runtime/       # Mira Host、Runtime Service、IPC、持久化、权限
 ├── desktop/       # 跨平台 Desktop Environment（Provider 接口与 Observation）
 ├── platform/      # Linux（AT-SPI2 / X11 / Wayland）与 Windows（UIA / Win32）后端
 ├── integration/   # pinned mira / mirador / mcp 的适配边界
-├── ui/            # 桌面产品界面（M5）
 ├── tests/         # 测试（自研轻量 harness，ctest 标签驱动）
-├── third_party/   # pinned 依赖：mira、mirador（git submodule）
+├── third_party/   # pinned 依赖：mira、mirador、UI 专用 eui-neo（git submodule）
 └── docs/          # 设计、决策、计划、规范与验证记录
 ```
 

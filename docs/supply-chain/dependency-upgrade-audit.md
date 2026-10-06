@@ -299,3 +299,59 @@ asan / ubsan / tsan 五预设构建+测试、format 与公共头边界、fronten
 shift_estimation）零报告。上游 M7 目标跟踪 Experimental 契约
 （`object_tracker.hpp`）与 mira 的 DEC-040 工具引用层均为后续 Mirage 工作项
 的候选能力，按需另行引入消费。
+
+## 2026-10-05：M6-16/18授权IME与流式依赖修复（DEC-041）
+
+Mira `1348515`→PR#76 `3716dbf`→`0a099ba3b2d9911b5b9f1e17d38c8a27c4f61fb2`：
+公开ConversationLoop、规范工具回填、SNI与同digest版本修复，再加真实有界预览及Chat SSE。
+[修复PR#79](https://github.com/Linductor-alkaid/mira/pull/79)已提交未合并；不改内嵌Executor
+`2ae4fc8`/mbedtls或sqlite。当前master的kairo迁移未引入，保留用户要求的Executor约定。
+公开适配只在integration层；不把平台或UI类型下沉Mira。该基线新增LICENSE，锁记录从
+UNLICENSED更新为AGPL-3.0及license_file；分发审计应沿当前LICENSE核对源代码交付义务，
+不得沿用历史“无许可证变化”的结论。本轮未创建发行包或release。
+
+EUI `4691fc0`→dev `123f0c5`→`df8ab1ce73c2cf50a1cdac9b2ccbfa3a380db777`：
+上游dev更新加Linux XIM caret定位，其他平台fallback保留。许可Apache-2.0不变，内嵌
+GLFW仍zlib。本次明确授权修改GLFW平台适配，新增公开入口/能力宏；不在产品层读取XIC。
+[上游PR#88](https://github.com/sudoevolve/EUI-NEO/pull/88)已提交未合并。为干净checkout可获取
+锁定提交，.gitmodules/lock改指维护者fork并另记原上游URL；branch记录仍为dev基线，
+完整SHA为唯一版本事实。Mirage GLFW hash门禁同步，配置不注入补丁。
+
+Linux Debug五项、Release/ASAN/UBSAN各四项、TSAN关闭ASLR后的协议/集成通过；Mira六项
+Debug与架构检查通过；EUI bundled Debug与真实私有IBus候选移动/中文提交通过。
+Windows、Wayland/物理高DPI/其他IM及上游Mira当前依赖CI未覆盖，负责人维护者在目标环境
+补跑。完整[验收证据](../compatibility/native-conversation-progress-20261005.md)。
+
+
+## M6-19：EUI Vulkan生命周期修复及dev同步
+
+EUI df8ab1c→ed1deb6：普通merge上游dev88a9ec1并新增独立生命周期探针提交。上游7文件
+涵盖已接受的GLFW3.3标识兼容、平台无异常临时目录失败处理、DSL启动异常策略及对应
+测试；自研补丁仅移除GLAD/复用已配置RenderApi。Apache-2.0/GLFW zlib与其他依赖不变，
+同一PR#88可审查，gitlink/lock同步。Mirage删除库层异常覆写，应用自身Executor异常处理
+保留，不改变实际产品GLFW/OpenGL后端。两种Vulkan各33/33和SDK消费通过，远程矩阵
+及Mirage回归见[验收](../compatibility/eui-vulkan-followup-20261005.md)，未验证平台不作保证。
+
+
+## M6-20：EUI受控滚动修复
+
+EUI ed1deb6→ff1e7572132a7ff8fc70c8e52f7778fce4dd976f：单独修复重新compose的offset
+同步、惯性回写与viewport失效，附ui_state单测/公共组件说明；反馈EUI-20261006-001。
+依维护者既有授权更新PR#88，普通push、未合并，gitlink/lock一致；其他依赖、嵌套Executor
+与许可证不变。没有引入新包、并发设施或改变产品后端。[验收](../compatibility/native-conversation-finish-20261006.md)。
+
+
+## 2026-10-06：Messages模型协议增量（MIRA-20261006-001）
+
+Mira `0a099ba3b2d9911b5b9f1e17d38c8a27c4f61fb2` →
+`7795e13cd6b8169f4936016c169702c2c60e876c`：独立Messages方言、严格SSE及SecretRef ApiKey认证；
+[上游PR#80](https://github.com/Linductor-alkaid/mira/pull/80)堆叠于PR#79，已提交未合并。
+保持pre-kairo基线，Executor2ae4fc8/mbedtls与其他直接依赖、许可证AGPL-3.0均不变。
+原协议默认Bearer兼容；新增public enum/mapper/parser与HttpRequest默认成员，消费者需重编译。
+未引入厂商SDK或第二份并发设施，gitlink与lock精确同步。
+
+Linux本地完整Debug50/50通过；会话/持久化相关Debug/Release/ASAN/UBSAN各3/3，
+受控ASLR的TSAN2/2；Messages独立协议集7/7及三种sanitizer解析/认证/变异种子通过。
+MiniMax-M3两张合成图片及工具往返真实互操作通过，不证明其他厂商/平台。
+首次usage元数据失败保留上游兼容性记录；上游Windows/Android和完整矩阵CI另行跟踪。
+负责人维护者在目标环境补跑未覆盖范围。反馈台账已回写收敛；本升级独立评审，UI预设为后续消费。

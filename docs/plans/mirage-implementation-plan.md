@@ -4,7 +4,7 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-09-27（2026-09-26 依赖升级批能力消费路由，DEC-022）
+> 更新日期：2026-10-07（M6-27 会话到底部鼠标操作）
 
 ## 当前状态
 
@@ -211,8 +211,8 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 `AGENTS.md` 与工程规范第 9.3 节。
 
 - [ ] `EXEC-01` Runtime Service 是每进程唯一的 Executor owner：初始化、任务准入、
-      排空与 `shutdown(true)` 顺序由其负责；GUI、CLI、Tray 均经 IPC 与之交互，不得
-      自行创建 Executor。
+      排空与 `shutdown(true)` 顺序由其负责；产品由托盘内嵌 Runtime，Tray 复用该 owner；
+      GUI/CLI 经 IPC 调用。原生 UI 的独立 IPC Executor 边界按 DEC-033/045 管理。
 - [ ] `EXEC-02` Mira Host 的任务提交、Agent 事件流转发使用 Executor 公开能力与
       `executor::comm` 组件；事件到 UI 的分发映射为 `Topic` / `LatestMailbox`，不得
       自建广播队列。
@@ -291,3 +291,98 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
   求；经 IPC 镜像 pinned DEC-040 发布生命周期与 DEC-039 接纳契约，不自建
   skill 存储；路由见
   [DEC-022](../decisions/DEC-022-upstream-capability-adoption.md) 决策 2。
+
+## 2026-10-03 原生前端接手
+
+维护者要求轻量原生窗口与 ZCode 参考的会话页，按 [DEC-033](../decisions/DEC-033-native-agent-frontend.md) 新建 [M6](m6-native-frontend.md)（In Progress）。先实施 EUI dev 锁定和本地预览；真实 IPC 与整体托盘退出分别归 M6-03/04。既有 M5/CEF 验收保留，不作为原生端功能等价证据。
+
+
+2026-10-04 / M6-03：按维护者澄清，先交付通用Agent harness，RPA workflow暂不接入。
+DEC-034在单一integration Adapter中复用Mira模型/工具/运行控制面；依赖缺口
+MIRA-20261004-001（通用入口/工具输入）与002（TLS SNI）保留台账。本机SiliconFlow
+实际问答与工具回填通过，MiniMax未通过；M6-04入口/托盘整体退出仍按原计划。
+具体状态和验证见[M6](m6-native-frontend.md)及[验收](../compatibility/native-harness-20261004.md)。
+
+M6-03 Linux通用harness首步已完成，真实模型/取消/背压/关闭与界面验收见上述证据；
+M6整体仍In Progress，M6-04统一入口/托盘与Windows运行取证未完成。
+
+2026-10-04 / M6-05：Linux原生会话页按ZCode源码对齐完成，包含Agent Markdown、
+增长输入、引用原文/来源检查及真实上下文入口；测试与独立修正评分见
+[会话验收](../compatibility/native-zcode-conversation-20261004.md)。
+M6整体与M6-04状态不变，未将Wayland截图限制或Windows/IME待验收标记完成。
+
+
+2026-10-04：M6-06 Linux首步上下文占用圆环完成，真实最后请求输入Token/显式窗口预算
+经现有IPC展示；Debug/Release、ASAN/UBSAN、TSAN、真实模型和上下文扩展视觉复核通过。
+详见[M6](m6-native-frontend.md)及[验收](../compatibility/native-context-usage-20261004.md)。
+窗口未知和重启旧历史明确展示未知；M6整体与Windows/统一入口进程任务状态不变。
+
+2026-10-05：维护者要求 ZCode 模型配置/指定输入栏顺序并清除旧 TS 前端，按 [DEC-037](../decisions/DEC-037-native-model-composer-and-web-retirement.md) 新增 M6-07/08。旧 CEF/TS 技术路线已退役，M5 历史验收保留；当前前端为 EUI 原生。完整入口/托盘退出确认仍在 M6-04。
+
+M6-07/08 Linux首步已完成，模型目录、真实文本附件、权限/推理请求与指定工具栏接通，
+旧Web源码/构建/打包已清除。Debug空闲回归48/48，原生针对与sanitizers通过，Linux
+原生DEB生成和提取启动通过；负载下旧订阅测试失败和Windows等未执行项保留记录。
+[模型与输入验收](../compatibility/native-model-composer-20261005.md) /
+[退役验收](../compatibility/native-retirement-20261005.md)。M6整体与M6-04状态不变。
+
+
+2026-10-05 / M6-15至18完成Linux范围：紧凑会话、右侧模型/用量、真实流式与用时，
+Linux XIM候选光标跟随及公开Mira ConversationLoop；两项依赖修复分别提交上游PR，
+原Executor版本保留，锁与供应链审计同步。[验收](../compatibility/native-conversation-progress-20261005.md)。
+M6整体/入口托盘M6-04仍未完成，Windows/Wayland/物理高DPI另验。
+
+
+M6-19完成Linux依赖收尾：EUI四种窗口/渲染CI组合全部通过，Vulkan生命周期修复与
+SDK消费、Mirage原生回归通过。同步最新dev修复并移除库层异常临时覆写；Mira流式PR
+12项CI也已成功。未合并依赖PR，完整入口/托盘M6-04保持后续工作。
+[验收](../compatibility/eui-vulkan-followup-20261005.md)。
+
+
+2026-10-06 / M6-20完成Linux会话复验：真实窗口IME/多行、真实流式/用时、右侧工具组，
+补齐长回复阅读保位与返回底部、空闲关闭唤醒。EUI公开offset修复更新PR#88/pin与锁，
+当前head四项CI及原生Debug/Release/ASAN/UBSAN回归通过；无新增Executor并发路径。
+[最终验收](../compatibility/native-conversation-finish-20261006.md)。M6整体仍In Progress，M6-04保持Planned。
+
+2026-10-06 / M6-21完成Linux侧栏与模型服务编辑：统一图标/文字轴、未命名草稿、服务/模型分层、实际Key保存/刷新/调用；来源对照与未覆盖的完整ZCode能力见[验收](../compatibility/native-provider-editor-20261006.md)。M6整体状态和M6-04不变。
+
+2026-10-06：M6-22按DEC-043完成Linux本地范围的侧栏/服务标题间距、11项厂商预设和Messages真实模型接入；MiniMax-M3真实识图使用公开Provider，图片附件产品面尚未立项。M6整体仍In Progress。
+
+M6-22 Linux本地验收完成：Debug50/50及相关Release/ASAN/UBSAN、受控ASLR TSAN均通过；MiniMax-M3真实图片2/2及工具/流式通过。上游MessagesPR#80独立提交，详见[证据和未覆盖范围](../compatibility/provider-presets-and-vision-20261006.md)。M6保持In Progress。
+
+2026-10-06：M6-23按DEC-044修复原生模型设置事务与按键逻辑；真实Release设置35/35、renderer324 checks及Debug/Release/ASAN/UBSAN相关回归通过。离线取消、断线失败保留、重连继续保存取证；目标平台/Windows既有CI问题另验，M6整体保持In Progress，见[验收](../compatibility/model-settings-interactions-20261006.md)。
+
+
+2026-10-06：M6-25 按 [DEC-045](../decisions/DEC-045-tray-runtime-owner.md) 完成 Linux
+托盘内嵌 Runtime 与独立前端生命周期；18 项真实产品检查、8/8 回归、ASAN/UBSAN
+各 3/3、TSAN 关闭 ASLR 后 1/1。旧开发 headless 入口保留；产品前端不允许脱离
+托盘。证据见 [托盘验收](../compatibility/tray-runtime-owner-20261006.md)，M6-04 保持
+In Progress，等待 Windows、原生 Wayland 和安装包补验。
+
+
+2026-10-06 / M6-25 补验：BUG-20261006-006 的最小化恢复由所属 FrontendProcess
+平台边界处理，GNOME 条目恢复、私有 WM 21/21 和有界 PID 平台测试通过。窗口
+更新通知不再是恢复的前提，Linux 范围 Completed；Windows/包装仍未验收。
+
+
+2026-10-06 / M6-25 菜单增量：按维护者要求左键显示“打开应用”“退出应用”，修正
+Linux DBusMenu 宿主格式，保持 Runtime 活动退出确认。Linux 协议/私有真实产品
+23/23、相关 Release 3/3、ASAN/UBSAN/受控 ASLR TSAN 各 1/1 通过；真实通知区鼠标
+与 Windows 补验仍未执行，不改变 M6-04 范围。当前用户实例待重启，
+[证据](../compatibility/tray-runtime-owner-20261006.md)。
+
+
+2026-10-06 / M6-25 应用列表入口补验：BUG-20261006-007 的旧 GNOME 入口通过原生
+bootstrap exec 转发到统一启动器，真实窗口仍只由已注册托盘创建。维护者实机点击
+确认，当前/旧入口私有验收分别 24/24、28/28，ASAN/UBSAN 入口分支各 6/6。
+Linux 入口范围 Completed，Windows/原生 Wayland/包装范围保持待验收，见
+[入口补充](../compatibility/tray-runtime-owner-20261006.md)。
+
+2026-10-07：M6-26 Linux X11 交付：会话栏按模型选择思考方式/深度，设置页重复开关移除；
+空内部会话不进入持久化/恢复，非空历史 ID 与自定义容量门禁保留。默认 25 槽预留 1 主会话。
+Mira Messages 自适应思考/签名工具回填经上游 PR#81 和精确 pin 交付，Executor 未变。
+真实 MiniMax 原生开关/预览、工具循环及 Release/消毒器验证见[验收](../compatibility/session-thinking-20261007.md)。
+整体 M6 的 Windows/Wayland 与包装边界继续未完成。
+
+2026-10-07：M6-27 修复会话到底部按钮层级，真实指针点击、正文移动、恢复末尾跟随在
+Linux 原生正常/最小明暗通过；Release/ASAN/UBSAN 相关各 2/2。正式桌面入口加载新版，
+同时完成 M6-26 锁屏后重启补验；[证据](../compatibility/conversation-scroll-20261007.md)。

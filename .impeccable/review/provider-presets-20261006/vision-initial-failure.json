@@ -1,0 +1,23 @@
+{
+  "model": "MiniMax-M3",
+  "protocol": "anthropic.messages.v1",
+  "cases": [
+    {
+      "case": 1,
+      "expected": {
+        "code": "K5Q3RM",
+        "left_color": "blue",
+        "right_shape": "circle"
+      },
+      "actual": {},
+      "passed": false,
+      "image_bytes": 5508,
+      "previews": 5,
+      "terminal_seen": false,
+      "ok": false,
+      "error_domain": "mira.model",
+      "error_code": 10,
+      "safe_message": "invalid Messages SSE lifecycle or budget"
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "model": "MiniMax-M3",
+  "protocol": "anthropic.messages.v1",
+  "cases": [
+    {
+      "case": 1,
+      "expected": {
+        "code": "7G3PDH",
+        "left_color": "blue",
+        "right_shape": "circle"
+      },
+      "actual": {
+        "code": "7G3PDH",
+        "left_color": "blue",
+        "right_shape": "circle"
+      },
+      "passed": true,
+      "image_bytes": 4580,
+      "previews": 4,
+      "terminal_seen": true,
+      "ok": true,
+      "input_tokens": 385
+    },
+    {
+      "case": 2,
+      "expected": {
+        "code": "0X5JJ9",
+        "left_color": "green",
+        "right_shape": "triangle"
+      },
+      "actual": {
+        "code": "0X5JJ9",
+        "left_color": "green",
+        "right_shape": "triangle"
+      },
+      "passed": true,
+      "image_bytes": 5304,
+      "previews": 6,
+      "terminal_seen": true,
+      "ok": true,
+      "input_tokens": 385
+    }
+  ]
+}

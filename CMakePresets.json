@@ -57,14 +57,18 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_CXX_FLAGS_INIT": "-fsanitize=thread -fno-omit-frame-pointer"
       }
-    }
+    },
+    {"name": "native-debug", "inherits": "debug", "displayName": "Native UI Debug", "cacheVariables": {"MIRAGE_ENABLE_NATIVE_FRONTEND": "ON"}},
+    {"name": "native-release", "inherits": "release", "displayName": "Native UI Release", "cacheVariables": {"MIRAGE_ENABLE_NATIVE_FRONTEND": "ON"}}
   ],
   "buildPresets": [
     {"name": "debug", "configurePreset": "debug"},
     {"name": "release", "configurePreset": "release"},
     {"name": "asan", "configurePreset": "asan"},
     {"name": "ubsan", "configurePreset": "ubsan"},
-    {"name": "tsan", "configurePreset": "tsan"}
+    {"name": "tsan", "configurePreset": "tsan"},
+    {"name": "native-debug", "configurePreset": "native-debug"},
+    {"name": "native-release", "configurePreset": "native-release"}
   ],
   "testPresets": [
     {
@@ -96,6 +100,8 @@
       "configurePreset": "tsan",
       "output": {"outputOnFailure": true},
       "execution": {"noTestsAction": "error", "timeout": 300}
-    }
+    },
+    {"name": "native-debug", "configurePreset": "native-debug", "output": {"outputOnFailure": true}, "execution": {"noTestsAction": "error", "timeout": 300}},
+    {"name": "native-release", "configurePreset": "native-release", "output": {"outputOnFailure": true}, "execution": {"noTestsAction": "error", "timeout": 300}}
   ]
 }

@@ -4,9 +4,9 @@
 
 ## Platform
 
-web
+native desktop（Linux / Windows）
 
-（渲染形态：桌面应用自有窗口内的嵌入式 Web 前端，壳为 CEF【暂定默认值，DEC-006 决策 3，M3 冻结】；开发期以浏览器形态 + Vite dev server 运行。）
+2026-10-03 起按 DEC-033 迁移到 EUI-NEO 原生独立窗口，首步入口 apps/native / mirage-native。当前已接入独立 Runtime Service 的真实 IPC、模型设置与通用 Agent harness（M6-03、DEC-034）；整体入口与托盘生命周期仍由 M6-04 推进。2026-10-05 按 DEC-037 删除旧 ui/app、CEF 和 Web devbridge 的源码、构建及打包路径；现行前端仅为原生 EUI，旧设计文档保留为历史。
 
 ## Users
 
@@ -25,34 +25,41 @@ Mirage 是基于 Mira 构建的桌面端产品，为 Mira 通用 Agent 提供完
 
 ## Operating Context
 
-- 单机桌面应用：托盘常驻、全局快捷键、紧急停止（Human Takeover：阻止新自主动作、收敛进行中输入、恢复前重新观察）。
-- 事件驱动：hello 握手（五态 host）、task.submit/inspect、事件订阅（seq 单调、有界队列 drop-oldest + overflow 事件）；服务端可能不支持事件订阅（降级轮询）。
-- 会话页是 harness 主界面：SessionsSidebar + ThreadView（消息流 + 活动卡 + 批准卡）+ Composer（对话/执行双模式）+ RunDrawer（运行时间线 + 观察流）。
-- 另有工作流页（库/编辑器/运行三联）、资源页（M2+ 占位）、设置页（常规/外观/模型/记忆/技能/MCP/权限/运行时 八类）与全局层（状态栏、命令面板 Ctrl+K、通知/批准中心、紧急停止）。
-- 开发与验收以 mock transport 先行（以 M1 真实服务 wire 行为为模板），契约由 golden vectors 双端锁定。
+- 当前原生进程经 Local IPC 连接 Runtime Service，显示会话历史、真实通用 harness 回复、运行/停止状态和上下文用量。
+- 会话页为侧栏、消息区与输入栏；设置页提供外观和模型配置。工作流、资源、技能、MCP、批准中心及全局紧急停止仍属于后续产品范围。
+- `mirage start` 启动服务、独立原生窗口与托盘。活动会话退出确认和统一生命周期尚由 M6-04 实现验收；启动入口不等于这一闭环已完成。
+- IPC v1 的 C++ golden 与运行时测试锁定契约，UI 只展示服务确认或明确标记未知的状态。
 
-（来源：`docs/design/Mirage 前端设计规范与信息架构.md` §3、`docs/design/mirage-ipc-protocol-v1.md`、`ui/README.md`。）
+（现行来源：`apps/native/README.md`、`docs/design/native-agent-frontend.md`、`docs/design/mirage-ipc-protocol-v1.md`；目标架构见桌面端总体设计与 M6 计划。）
 
 ## Capabilities and Constraints
 
-- 技术栈：npm workspaces + Vite + TypeScript；`ui/contracts` 为协议 v1 的 TS 镜像（纯 TS 零运行时依赖，golden 测试锁定，**不改**）；`ui/app` 为前端应用。视图层原为 vanilla TS 极简三 tab 壳，本次推倒重写为完整 harness；组件框架/组件素材由本次调研定选并固定（用户已委托）。
-- 设计系统：三层 token（L1 primitives → L2 语义值集 → 组件），TS 单一事实源注入 CSS；5 套内置主题 + 明暗三态 + localStorage 持久化是已交付机制（M1.5-08），重写必须保留该机制与 golden/契约测试。
-- 契约现状：会话列表/消息流/工作流管理尚无 IPC 面——UI 一律以 transport 接口 + mock 先行，不阻塞视觉与交互定型；执行模式提交 = `task.submit` 已满足最小闭环。
-- 平台边界：Agent 行为层与平台解耦（Platform Backend 承载 UIA/AT-SPI2/X11/Wayland），UI 不出现平台细节。
-- 明确未决：渲染壳 CEF vs Tauri（M3 PoC）；组件框架原定"实现评审时定选"，本次定选后回写 DEC-006 决策 6 相关文档。
+- 新原生前端：C++20 + pinned EUI-NEO dev（GLFW/OpenGL），无 Chromium；依赖只在 UI 层使用，不使用 EUI async/network/audio 承载业务并发。
+- 当前原生界面：新建/切换服务会话、独立草稿、随文字增高的14EM多行输入、中文粘贴、通用 Agent harness、真实发送/回复/停止状态、Markdown回复、整条复制、文字引用与可检查来源/逐条删除的引用弹层、真实上下文容量、滚动、明暗、侧栏调宽与收起、窗口控制。UI 最多显示 24 个会话、每会话最近 40 轮（80 条消息），草稿最多 16 KiB；草稿、主题与侧栏宽度只保留在当前 UI 进程。会话历史由服务持有；服务重启后首次harness提交延迟打开当前Mira会话，继续使用稳定历史ID。
+- 原生引用最多4段、原文合计8KiB；草稿与编码后引用共同受16KiB提交上限，拒绝保留草稿。ACK按引用实例清除本次提交项，保护新草稿/新引用与重新引用。上下文圆环与详情展示最近成功请求的模型输入Token / 显式配置窗口预算，只接受Mira的Exact / ProviderReported用量；工具循环取最终回复调用输入，不累计调用或计入输出，不从草稿/bytes估算。默认窗口未知，缺用量或分母显示未知；已知零显示0%，超额保留原始数字/百分比、图形钳制100%。失败/取消保留此前成功值，新成功缺用量重置未知，旧序列不覆盖新值；服务重启旧历史的用量未知（M6-06、DEC-036）。支持同一消息拖选引用；跨消息选择、自动滚动与链接打开尚不支持；EUI连续CJK间距临时经公共DSL Adapter修正，上游保守换行保留（DEC-035、EUI-20261004-004）。
+- 设置 → 模型提供服务 origin、API 路径、模型 ID、直接 API Key 输入、可选上下文窗口预算（Token）与 Responses / Chat Completions 协议。窗口预算留空为未知，非零整数范围2048–2000000；保存后的配置同时映射Mira ProfileLimits，未配置保留既有Mira默认运行预算，UI不宣称自动发现供应商窗口。保存经 model.set 合并写入服务配置并应用；活动轮次时忙拒绝，失败保留已应用模型。API Key 默认遮蔽，保存在系统钥匙环，普通配置仅保存引用；已存 Key 不回传，留空保留、显式移除后保存清除。旧环境变量配置保留兼容读取；composer 显示服务确认的模型，未保存表单不会冒充已应用配置。
+- Agent 模式入口经 session.chat(agent=true) 使用 MiraRuntime、ModelGateway 和 Mira 自带 wait 工具；当前不提供截图、桌面工具、RPA 或 workflow。通用循环复用公开ConversationLoop与规范工具回填，MIRA-20261004-001已升级复验；只注册权限允许的wait。
+- RuntimeBridge 经 Executor 管理有界 IPC 请求与事件投递，服务断开可在模型页重新连接；退出 UI 停止自身 IPC 与 Executor，不关闭外部已有 Runtime Service。真实流式预览、等待动效与用时已接入；统一入口/托盘与活动退出确认仍待后续交付。
+- 2026-10-05 按维护者要求删除旧 TS/CEF、npm 工具链与 Web 调试桥；原生前端继续消费版本化 Local IPC，C++ golden 和服务测试保留。后台工作由 Mira Executor 管理。
+- 平台与供应商验收：Linux X11/XWayland 为当前验收范围；SiliconFlow和MiniMax真实文字/规范工具循环与提前流式预览通过，SNI已升级复验；Linux XIM/IBus候选光标跟随与中文提交通过。Windows 真机窗口/IME与物理高DPI未验收，不宣称原生 Wayland 支持。
+- 当前原生会话基线按用户指定的 ZCode 整页参考：中性明暗背景、672px居中空态、右对齐用户气泡、无卡片Markdown回复、最大800px活动阅读列与16px圆角增长composer，工具顺序为附件/访问权限/上下文占比/模型/思考深度/发送。Linux原生截图与ZCode源码/布局对齐已复核，两项指定修正评分均resolved；运行中Wayland ZCode截图因ScreenshotWindow AccessDenied未完成像素对照。旧 mission-console 风格不约束新原生页面。
 
 ## Brand Commitments
 
-- 名称：Mirage；现有实现用品牌字标 "M" + "Mirage 控制台"（zh-CN 文案）。
+- 名称：Mirage；原生界面使用 Mira 原始角色图与 "Mirage" 字标，保留已记录资源来源；legacy Web 的 "M" + "Mirage 控制台" 仅描述其旧实现。
 - 界面文案语言：简体中文为主（现有视图与设置页均为 zh-CN；推断项：维持 zh-CN 为默认）。
-- 用户对视觉的明确要求（本次委托原文）："有特色，风格化，灵动"——即拒绝平庸的通用后台观感，要求风格化、有生命力；允许为个性承担适度的表达性。
+- 当前视觉要求：用户指定参考 ZCode 的对话页面；既往 Web 前端的风格化要求仅作为历史，不覆盖这次原生方向。
 
 ## Evidence on Hand
 
+- 原生当前事实：`apps/native/app.cpp`、`chat_model.cpp`、`runtime_bridge.cpp`；设计与边界见 `docs/design/native-agent-frontend.md`、DEC-034/035/036/037，原生视觉系统见 `apps/native/DESIGN.md`。
+
+- 上下文占用证据：`docs/compatibility/native-context-usage-20261004.md`、`.impeccable/review/native-context-finish-verdict.md` 与 `.impeccable/review/native-context-live-usage.json`。Linux正常/最小窗口明暗及未知态已复核；真实SiliconFlow请求391输入Token / 显式测试预算128000，UI显示0.3%，不代表供应商窗口自动发现。
+
 - 设计规范与 IA：`docs/design/Mirage 前端设计规范与信息架构.md`（拓扑树、路由表、会话页/工作流页/设置页构成、全局层）。
 - 协议事实源：`docs/design/mirage-ipc-protocol-v1.md` + `tests/runtime/data/ipc_protocol_golden.json`。
-- 现有实现：`ui/app`（shell/workspace/tasks/execution/appearance 视图、主题系统、StatusBadge/StepCard/ActivityCard/ApprovalCard/Composer 组件）——作为产品事实证据，视觉上按用户要求整体替换。
-- 无真实用户数据/测试imonial/截图素材；演示数据一律以 mock 生成，不得虚构商业声明。
+- 旧 Web/CEF 实现已按 DEC-037 退役，源码可从 Git 历史回溯；旧前端 IA 仅记录产品演进，不是现行能力证据。
+- 现行证据包含 Linux 原生实机截图和获授权本机模型的真实测试回复；测试配置以“验证用配置”标记。无真实用户研究或商业背书；离线夹具与真实供应商结果分别记录。
 
 ## Product Principles
 
@@ -66,4 +73,27 @@ Mirage 是基于 Mira 构建的桌面端产品，为 Mira 通用 Agent 提供完
 
 - 遵循设计规范 §2.4：动效尊重 `prefers-reduced-motion`；对比度门槛（已按 WCAG 校准状态四色）。
 - 键盘可达：命令面板、快捷键体系（桌面应用形态的既有预期）。
-- 无产品特定的无障碍强制标准记录；对比度校准值见 `ui/app/src/theme/`。
+- 无产品特定的无障碍强制标准记录；现行调色与字号以 `apps/native/DESIGN.md` 和对应 Linux 截图为证据。
+
+2026-10-05（DEC-037）：模型设置采用服务商导航/右侧配置分栏，至多 12 个命名配置，切换需服务确认；凭据仍为服务端环境变量。附件为用户选择的 UTF-8 普通文本，至多 4 个、合计 8 KiB；只读隐藏工具，默认仅 wait，未开放桌面/RPA。思考档位在供应商明确启用 reasoning_effort 后传入每轮请求；默认不传。
+
+2026-10-05（DEC-038）：新建为本地草稿，首次发送后才进入历史；重复新建复用未开始的空白草稿。
+历史行提供垃圾桶与删除确认，活动会话须先停止；服务确认并持久化成功后移除，重启不恢复。
+模型页直接填写 API Key，存 Linux Secret Service / Windows Credential Manager，普通配置仅存引用；
+系统凭据不可用/锁定时明确失败。Linux 首步已验证，Windows 由目标环境另验。
+
+2026-10-05（DEC-039 / M6-11）：会话气泡和Markdown减重，正文16/24；复制仅悬停/键盘聚焦时显示，
+移除整条引用按钮，拖选实际渲染文字后弹出引用。最后一条已终结输入支持修改重发；接纳与保存成功
+才替换其用户/Agent消息，实际模型输入排除旧轮次，失败拒绝保留原历史。该操作不撤销工具外部副作用。
+[验收证据](docs/compatibility/native-conversation-revision-20261005.md)使用显式合成会话和真实Mira请求夹具，
+不作为运行中ZCode的像素对比或本轮供应商在线测试。
+
+2026-10-05 / M6-12：原生界面统一使用随应用交付的 Noto Sans SC 简体中文字面，
+修正Markdown行内文字高低不齐；字体与OFL许可离线构建/打包。Linux验证见
+[字体验收](docs/compatibility/native-typography-20261005.md)。Windows/真实IME待补跑。
+
+2026-10-07（DEC-046 / M6-26）：思考选择只在会话输入栏，选项由服务端根据模型能力提供；
+MiniMax-M3 为默认/关闭/开启，M3.1 Flash Preview 为默认及低到最高深度，不能关闭。
+设置页不再要求开启思考支持。空的内部会话不计为可恢复历史；默认 24 历史槽及 1 主会话槽，
+容量满时明确提示删除历史并保留输入草稿。当前 Linux 原生 MiniMax 开关、流式正文与 wait 工具循环
+已验收，参见[记录](docs/compatibility/session-thinking-20261007.md)。

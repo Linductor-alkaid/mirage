@@ -1,0 +1,48 @@
+{
+  "date": "2026-10-04",
+  "scope": "M6-02 native Mira icon inheritance, Linux XWayland at scale 2",
+  "source_sha256": "e615d7e768c532e9966e97fbbaeefc4b7212ef386521bef6be680ed3d250bbed",
+  "ui_sha256": "c6756133885ecd1ce9bcf01657380a6d13a52c83315914b0dd707fbfa30a047d",
+  "source_import_byte_exact": true,
+  "derived_rgba_pixel_exact": true,
+  "net_wm_icon_dimensions": [
+    1254,
+    1254
+  ],
+  "net_wm_icon_all_argb_pixels_match_source": true,
+  "build_asset_copies_debug_release_exact": true,
+  "launch_working_directory": "/tmp",
+  "screenshots": {
+    "native-mira-icon-light.png": {
+      "physical_dimensions": [
+        2360,
+        1600
+      ],
+      "sha256": "55ace27f1e25d7acbaa330c6b05825498fd8137cb6cc69c2619dbf49c8e890bb"
+    },
+    "native-mira-icon-dark.png": {
+      "physical_dimensions": [
+        2360,
+        1600
+      ],
+      "sha256": "0c1c204bc99a75a4386c0c9d14b28d2380d06de54a815a05ad6c3874e7d5fce1"
+    },
+    "native-mira-icon-min-light.png": {
+      "physical_dimensions": [
+        1720,
+        1240
+      ],
+      "sha256": "c55fa9ece250bed59b77799903c8f6f2d1877f6bc7a3010220d31a29e5e9aa88"
+    },
+    "native-mira-icon-min-dark.png": {
+      "physical_dimensions": [
+        1720,
+        1240
+      ],
+      "sha256": "493b4ca5175cf65084dd6a3717f230d267bfb301d038ba992def764c867b4017"
+    }
+  },
+  "windows": "resource configured, not built or run",
+  "sanitizers": "not repeated for this asset-only change; prior GUI result belongs to 2026-10-03",
+  "upstream_source_changes": false
+}

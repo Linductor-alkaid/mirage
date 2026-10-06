@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Mirage
+Comment=Agent desktop workbench
+Comment[zh_CN]=Agent 桌面工作台
+Exec="$<TARGET_FILE:mirage>" start --shell "$<TARGET_FILE:mirage-native>" --tray "$<TARGET_FILE:mirage-tray>"
+Icon=$<TARGET_FILE_DIR:mirage-native>/assets/mira.png
+Terminal=false
+Categories=Development;
+StartupWMClass=org.mirage.native

@@ -47,7 +47,9 @@ void publish_permission_request_best_effort(const std::shared_ptr<ServiceCore> &
 /// Worker-thread-safe session state persist (M5-08, DEC-021 backlog ①):
 /// snapshots the session registry, dialog threads and raw journal appends
 /// into the state document. Called after journal appends; never throws.
-void persist_session_state(const std::shared_ptr<ServiceCore> &core);
+bool persist_session_state(const std::shared_ptr<ServiceCore> &core,
+                           const std::string &omit_session = {}, bool keep_identity = false,
+                           bool caller_holds_state_lock = false);
 
 /// Driver-thread entry for the DEC-021 session event set (session.updated /
 /// session.message / session.turn / session.output): the same serial-domain

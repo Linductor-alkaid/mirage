@@ -4,7 +4,9 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
+#include <vector>
 
 namespace executor {
 class Executor;
@@ -26,6 +28,7 @@ namespace mirage::integration {
 /// for equipment-dependent faces).
 struct ModelLayerConfig {
     bool enabled = false;
+    bool supports_reasoning = false;
     /// Pinned wire dialect of the profile (pinned protocol_dialect_from
     /// vocabulary): "openai.responses.v1" or "openai.chat-completions.v1".
     std::string dialect = "openai.responses.v1";
@@ -41,19 +44,30 @@ struct ModelLayerConfig {
     /// SecretRef at the transport boundary only (never logged, never stored
     /// in events). Empty means the profile carries no credential.
     std::string credential_env;
+    std::string credential_ref;
+    std::function<std::optional<std::string>(const std::string &)> credential_lookup;
     /// Whole-request budget mirrored into the profile transport deadlines.
     std::chrono::milliseconds request_deadline{120'000};
-    /// Per-turn generation bound.
+    /// Per-request generation bound (1..16384); harness also has a whole-loop token budget.
     std::uint64_t max_output_tokens = 2048;
+    std::uint64_t context_window_tokens = 0; ///< DEC-036: explicit window budget; 0 unknown
     /// Per-turn input text budget (user text plus rendered transcript).
     std::size_t max_input_bytes = 64ULL * 1024ULL;
 
     /// Fail-closed validation for an enabled layer: a known dialect and a
     /// model selector are mandatory; the endpoint origin is required only
     /// when the pinned socket stack is assembled (an override provider does
-    /// not dial any origin). A disabled layer needs nothing.
+    /// not dial any origin). Disabled layers still validate bounded field syntax.
     [[nodiscard]] bool valid(std::string &error) const;
 };
+
+/// Composer choices are derived from documented model capabilities (DEC-046).
+struct ReasoningOption {
+    std::string value;
+    std::string label;
+};
+[[nodiscard]] std::vector<ReasoningOption>
+reasoning_options(const std::string &dialect, const std::string &model, bool declared = false);
 
 /// Outcome of one dialog inference (DEC-027). `ok` carries `reply_text`;
 /// `failed` marks a settled turn with a stable `error` reason (safe for UI);
@@ -64,6 +78,11 @@ struct DialogCompletion {
     bool cancelled = false;
     std::string error;
     std::string reply_text;
+    std::uint32_t model_steps = 0;
+    std::uint32_t tool_calls = 0;
+    std::optional<std::uint64_t> input_tokens; // final successful request, provider reported
+    std::uint64_t context_window_tokens = 0;
+    std::string usage_model;
 };
 
 /// Opaque carrier for a caller-supplied pinned model provider (DEC-027 test
@@ -91,6 +110,11 @@ class ModelProviderOverride {
   private:
     Factory factory_;
 };
+
+/// Full transient snapshot, at most 16KiB. Invoked on the transport context;
+/// consumers perform bounded delivery only. Canonical results settle separately.
+using DialogPreviewSink =
+    std::function<void(const std::string &request_id, const std::string &text, bool truncated)>;
 
 /// The service-side model layer (DEC-027): assembles the pinned model stack —
 /// ModelProfile + ModelRouter + OpenAiCompatibleProvider over the pinned
@@ -126,9 +150,16 @@ class ModelLayer {
     /// earlier-conversation block (may be empty); `user_text` is the new
     /// user message. Bounded by the context deadline / cancellation probe
     /// and the profile transport deadlines.
-    DialogCompletion complete_dialog_turn(const std::string &transcript,
-                                          const std::string &user_text,
-                                          const mira::OperationContext &context);
+    DialogCompletion
+    complete_dialog_turn(const std::string &transcript, const std::string &user_text,
+                         const mira::OperationContext &context, const std::string &reasoning = "",
+                         bool tools_allowed = true, DialogPreviewSink preview = {});
+
+    // MIRA-20261004-001: bounded conversational harness, no desktop observation.
+    DialogCompletion
+    complete_harness_turn(const std::string &transcript, const std::string &user_text,
+                          const mira::OperationContext &context, const std::string &reasoning = "",
+                          bool tools_allowed = true, DialogPreviewSink preview = {});
 
     /// Ordered teardown: waits out any in-flight dialog completion (bounded
     /// by the profile transport deadlines), then settles the transport's

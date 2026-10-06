@@ -1,0 +1,140 @@
+{
+  "date": "2026-10-05",
+  "environment": "Linux / XWayland, isolated service configuration",
+  "reference_commit": "29628c9acdb81b703bbd4080c207a0e7ce5e276e",
+  "model": "Qwen/Qwen3.5-4B",
+  "provider": "SiliconFlow",
+  "evidence_kind": "Observed live UI captures; not a retained session.history export",
+  "attachment_bytes": 77,
+  "user_task": "提取附件中的颜色校验值，只回复精确文本。",
+  "observed_reply": "青柠-37",
+  "observed_context": {
+    "input_tokens": 432,
+    "configured_window_tokens": 128000,
+    "display_percent": "0.3%"
+  },
+  "production_model_switch_ack": true,
+  "reasoning_levels": "Offline canonical request assertions and explicitly configured screenshot fixture only; vendor interoperability not verified",
+  "screenshots": [
+    {
+      "path": "native-model-attachment-loaded.png",
+      "bytes": 91103,
+      "sha256": "836867456869f8cac0b748f3da11829522401c29993933f4859af7b41140fe29"
+    },
+    {
+      "path": "native-model-attachment-menu.png",
+      "bytes": 94875,
+      "sha256": "98c96f91744f2d4adf973025db928d0e45fdd5e65812cdcbf4e4cfa7c179f2d1"
+    },
+    {
+      "path": "native-model-attachment-preview.png",
+      "bytes": 93701,
+      "sha256": "7071100da885b344e1f1e3d65af9aaadaa30441178bc99e07aab77279e8c6284"
+    },
+    {
+      "path": "native-model-attachment-reply.png",
+      "bytes": 119818,
+      "sha256": "0c988108c2ef05c57e8a8508f5f33193f804bd17198dbf336819d4163f3e21ad"
+    },
+    {
+      "path": "native-model-composer-light.png",
+      "bytes": 87437,
+      "sha256": "09afb5aa391f89f3d09b8edd2c7bd5475cbb7ff9391a30be9b0b051ed3a9d403"
+    },
+    {
+      "path": "native-model-composer-min-dark.png",
+      "bytes": 86091,
+      "sha256": "66993b29983e62da90e4e75223e2f81da016f619916a532e2d119e9a6025e669"
+    },
+    {
+      "path": "native-model-composer-min-light.png",
+      "bytes": 88826,
+      "sha256": "ed0287a520f98e76551e3d4d8af8d8a50c05a2cd649897013007209d2c97892b"
+    },
+    {
+      "path": "native-model-context.png",
+      "bytes": 138151,
+      "sha256": "69acd8cec9464455cfa1d2f650a60215d0e8c54b3dd7b1c415961d2010016c21"
+    },
+    {
+      "path": "native-model-permissions.png",
+      "bytes": 87219,
+      "sha256": "65d572755b32ad02fae35c80fecee4c7d0bec096993cf40306a72f5917222dff"
+    },
+    {
+      "path": "native-model-picker.png",
+      "bytes": 95780,
+      "sha256": "4c6cd4699bc9a9c95a61e83cce5c8bb6db1d6b4d26eb7aa511b0a4917155f71d"
+    },
+    {
+      "path": "native-model-readonly.png",
+      "bytes": 86507,
+      "sha256": "62b2c49e9faa9d345606ca0879fb37a745d1e2a0a2b05a145fdf95a8202a938a"
+    },
+    {
+      "path": "native-model-reasoning-levels.png",
+      "bytes": 103158,
+      "sha256": "a67eac6f8d50f412b3834e69779e84fdc034148836e800ea3dec70503461c6d8"
+    },
+    {
+      "path": "native-model-reasoning-unavailable-min.png",
+      "bytes": 90392,
+      "sha256": "c30a1f8fdeef1e797ab728c413c42ce7fb53122621ec7b4d80936d5770bd1958"
+    },
+    {
+      "path": "native-model-reasoning-unavailable.png",
+      "bytes": 104140,
+      "sha256": "07a9e987c842025bc09f04d79580c10a9ea58a55e108276b08125921aac3ab80"
+    },
+    {
+      "path": "native-model-settings-dark.png",
+      "bytes": 137678,
+      "sha256": "ecf9c6904a70603eab4371fbfd0e623d77021d75674ebc2d5480a751c527bc69"
+    },
+    {
+      "path": "native-model-settings-discard.png",
+      "bytes": 129775,
+      "sha256": "7b67be46cfbf6535b24bc59abc34ac70f41e81f78c3bbfb19e2e78fed7617c8e"
+    },
+    {
+      "path": "native-model-settings-light.png",
+      "bytes": 126718,
+      "sha256": "03c984159886bb2d990ee2f740f5ca4f0d300ab9412e4523f1ed7111d920fe3a"
+    },
+    {
+      "path": "native-model-settings-lower-dark.png",
+      "bytes": 142014,
+      "sha256": "f1d53523e9d25a6de9723f0f85296fd496cf8122a2dbf1447991b5f0192a7639"
+    },
+    {
+      "path": "native-model-settings-min-dark-closed.png",
+      "bytes": 95348,
+      "sha256": "7ef0b7eaee291eaa4b10dabbba18f8e181853611dd695019591ee7350f5504c7"
+    },
+    {
+      "path": "native-model-settings-min-dark.png",
+      "bytes": 93153,
+      "sha256": "fb96792acdffef39232ed874f64cee03c9802e1ec9ababb5519e1ae95c5dcac5"
+    },
+    {
+      "path": "native-model-settings-min-light-closed.png",
+      "bytes": 95761,
+      "sha256": "09e360a2e8b97685e46e02658d1abb63b7c6238b405b70d9a61e9cc45eac8dbc"
+    },
+    {
+      "path": "native-model-settings-min-light.png",
+      "bytes": 93591,
+      "sha256": "b2b8d3f3a5adf5855b47b6042967bad5efbf9f5389d0d53ddd7922c000cf4bb7"
+    },
+    {
+      "path": "native-model-settings-min-selected.png",
+      "bytes": 103210,
+      "sha256": "8a81ac424da669b47f3e2aede1f5bcd509c59e61b4f70577cd45f425dbcfdf41"
+    },
+    {
+      "path": "native-model-settings-saved.png",
+      "bytes": 130288,
+      "sha256": "2a70f7a613afe44724a523ceb05060e9f8360a338c46cae1cd522d6e39ee2055"
+    }
+  ]
+}

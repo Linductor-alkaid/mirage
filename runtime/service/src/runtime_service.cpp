@@ -22,8 +22,10 @@
 #include "service_core.hpp"
 #include "service_loop.hpp"
 #include "task_driver.hpp"
+#include "tray_presenter.hpp"
 
 #include <executor/blocking_io.hpp>
+#include <executor/comm.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -142,6 +144,9 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
         status = "ok";
         event.reply_text = completion.reply_text;
         event.has_reply = true;
+        if (completion.input_tokens)
+            event.context_usage = ipc::ContextUsage{
+                *completion.input_tokens, completion.context_window_tokens, completion.usage_model};
     } else {
         status = "failed";
         event.error =
@@ -158,11 +163,15 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
         bool settled = false;
         for (auto &record : log.turns) {
             if (record.turn_id == turn_id) {
+                if (record.status != "pending")
+                    return; // terminal settlement is idempotent
                 record.status = status;
                 record.reply_text = event.reply_text;
+                record.context_usage = event.context_usage;
                 record.error = event.error;
                 event.status = status;
                 event.user_text = record.user_text;
+                event.replaces_turn_id = record.replaces_turn_id;
                 event.sequence = record.sequence;
                 settled = true;
                 break;
@@ -180,22 +189,57 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
 }
 
 /// Body of one dialog turn task (DEC-027): the bounded model completion and
-/// its settlement. Never throws.
+/// its settlement; driver wrapper reports unexpected exceptions to Executor.
 void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::string session_id,
                      std::string turn_id, const std::string &transcript, const std::string &text,
-                     executor::StopToken stop) {
+                     executor::StopToken stop, bool agent, const std::string &agent_task_id,
+                     const std::string &reasoning, bool tools_allowed,
+                     const std::string &host_session_id) {
     mira::OperationContext context;
-    context.session = mira::SessionId::parse(session_id).value_or(mira::SessionId{});
+    context.session = mira::SessionId::parse(host_session_id).value_or(mira::SessionId{});
+    context.task = mira::TaskId::parse(agent_task_id).value_or(mira::TaskId{});
     context.operation = mira::OperationId::generate();
     context.started_at = mira::Timestamp::now();
     context.deadline = std::chrono::steady_clock::now() + core->model.request_deadline;
-    context.cancellation_requested = [stop]() { return stop.stop_requested(); };
+    context.cancellation_requested = [stop, deadline = *context.deadline]() {
+        return stop.stop_requested() || std::chrono::steady_clock::now() >= deadline;
+    };
+    // Transport callback only performs bounded validation and Topic delivery.
+    // Per-infer callbacks are sequential; the shared atomic also covers retries safely.
+    auto preview_sequence = std::make_shared<std::atomic<std::uint64_t>>(0);
+    integration::DialogPreviewSink preview = [core, session_id, turn_id, stop, preview_sequence](
+                                                 const std::string &request,
+                                                 const std::string &preview_text, bool truncated) {
+        if (stop.stop_requested() || request.empty() || request.size() > 128 ||
+            preview_text.size() > 16 * 1024)
+            return;
+        core->events.publish_chat_preview({session_id, turn_id, request, preview_text,
+                                           preview_sequence->fetch_add(1) + 1, truncated});
+    };
     mirage::integration::DialogCompletion completion =
-        core->model_layer ? core->model_layer->complete_dialog_turn(transcript, text, context)
-                          : mirage::integration::DialogCompletion{};
-    {
-        std::lock_guard lock(core->drivers_mutex);
-        core->drivers.erase("dialog-" + turn_id);
+        core->model_layer
+            ? (agent ? core->model_layer->complete_harness_turn(transcript, text, context,
+                                                                reasoning, tools_allowed, preview)
+                     : core->model_layer->complete_dialog_turn(transcript, text, context, reasoning,
+                                                               tools_allowed, preview))
+            : mirage::integration::DialogCompletion{};
+    if (!agent_task_id.empty()) {
+        const auto settled =
+            core->executor
+                .submit_on(core->serial,
+                           [core, agent_task_id, completion] {
+                               return completion.cancelled
+                                          ? core->host.cancel_task(TaskIdentity{agent_task_id})
+                                          : core->host.complete_task(TaskIdentity{agent_task_id},
+                                                                     completion.ok,
+                                                                     completion.error);
+                           })
+                .get();
+        if (!settled.ok) {
+            completion.ok = false;
+            completion.failed = true;
+            completion.error = "Agent control-plane settlement failed: " + settled.error.message;
+        }
     }
     settle_dialog_turn(core, session_id, turn_id, completion);
 }
@@ -209,14 +253,18 @@ namespace detail {
 /// into the state document. File IO on the calling thread matches the
 /// recovery persist precedent; failures are recorded on stderr once per
 /// change of reason and never propagate.
-void persist_session_state(const std::shared_ptr<ServiceCore> &core) {
+bool persist_session_state(const std::shared_ptr<ServiceCore> &core,
+                           const std::string &omit_session, bool keep_identity,
+                           bool caller_holds_state_lock) {
     if (core->session_state_store == nullptr) {
-        return;
+        return true;
     }
     // Serializes concurrent persist entry (serial context, task drivers,
     // dialog settle): the store's temp file name carries only the pid, so
     // unsynchronized saves would collide on O_EXCL and skip a snapshot.
-    std::lock_guard state_lock(core->session_state_mutex);
+    std::unique_lock state_lock(core->session_state_mutex, std::defer_lock);
+    if (!caller_holds_state_lock)
+        state_lock.lock();
     static std::mutex report_mutex;
     static std::string last_error;
     persistence::SessionState state;
@@ -230,6 +278,8 @@ void persist_session_state(const std::shared_ptr<ServiceCore> &core) {
         std::lock_guard dialogs_lock(core->dialogs.mutex);
         std::lock_guard raw_lock(core->journal_raw_mutex);
         for (const auto &[session_id, created] : core->sessions.created_at_ms) {
+            if (session_id == omit_session && !keep_identity)
+                continue;
             persistence::PersistedSession session;
             session.id = session_id;
             session.created_at_ms = created;
@@ -238,7 +288,7 @@ void persist_session_state(const std::shared_ptr<ServiceCore> &core) {
                 session.journal = raw->second;
             }
             const auto dialogs = core->dialogs.sessions.find(session_id);
-            if (dialogs != core->dialogs.sessions.end()) {
+            if (dialogs != core->dialogs.sessions.end() && session_id != omit_session) {
                 for (const auto &record : dialogs->second.turns) {
                     if (record.status == "pending") {
                         continue; // in-flight turns are not persisted
@@ -254,7 +304,9 @@ void persist_session_state(const std::shared_ptr<ServiceCore> &core) {
                     session.chat_turns.push_back(std::move(turn));
                 }
             }
-            state.sessions.push_back(std::move(session));
+            // DEC-046: empty runtime equipment is not conversation history.
+            if (!session.journal.empty() || !session.chat_turns.empty())
+                state.sessions.push_back(std::move(session));
         }
     }
     const auto saved = core->session_state_store->save(persistence::encode_session_state(state));
@@ -265,6 +317,7 @@ void persist_session_state(const std::shared_ptr<ServiceCore> &core) {
             std::cerr << "mirage-service: session state persist failed: " << saved.error << '\n';
         }
     }
+    return saved.ok;
 }
 
 } // namespace detail
@@ -308,6 +361,12 @@ struct RuntimeService::Impl {
     /// before this member is destroyed.
     std::unique_ptr<detail::OverlayPresenter> overlay;
     executor::WorkerHandle overlay_worker;
+    std::unique_ptr<detail::TrayPresenter> tray;
+    executor::WorkerHandle tray_worker, tray_actions_worker;
+    std::atomic_bool product_failed{false}, product_stopping{false};
+    executor::TimerHandle product_maintenance;
+    // Serialized context only: UI window activation and exit prompt epochs.
+    ipc::ProductState product;
     std::promise<void> loop_done;
     std::future<void> loop_done_future;
     std::atomic<Lifecycle> lifecycle{Lifecycle::New};
@@ -450,10 +509,149 @@ struct RuntimeService::Impl {
         result.observation = true;
         // DEC-027: the dialog face rides the configured model layer
         // (equipment-dependent, like the `permissions` bit).
-        result.chat = core->model_layer != nullptr && core->model_layer->running();
+        result.chat = core->model_available.load();
         // M5-07: the policy face is core equipment — always served.
         result.policy = true;
+        if (tray)
+            result.tray = tray->ready();
         return result;
+    }
+
+    std::size_t active_product_work() {
+        std::size_t active = 0;
+        {
+            std::lock_guard lock(core->registry.mutex);
+            for (const auto &[id, record] : core->registry.tasks) {
+                (void)id;
+                if (!record.driver_done && record.final_progress.empty())
+                    ++active;
+            }
+        }
+        {
+            std::lock_guard lock(core->dialogs.mutex);
+            for (const auto &[id, dialog] : core->dialogs.sessions) {
+                (void)id;
+                if (!dialog.in_flight_turn_id.empty())
+                    ++active;
+            }
+        }
+        {
+            std::lock_guard lock(core->workflow_runs.mutex);
+            for (const auto &[id, record] : core->workflow_runs.runs) {
+                (void)record;
+                const auto view = core->host.workflow_run_view(id);
+                if (!view.ok || (view.view.state != "completed" && view.view.state != "failed" &&
+                                 view.view.state != "cancelled"))
+                    ++active;
+            }
+        }
+        return active;
+    }
+    ipc::ProductState product_snapshot() {
+        auto result = product;
+        result.frontend_pid = config.frontend ? config.frontend->pid() : 0;
+        if (result.frontend_pid == 0)
+            product.frontend_ready = false;
+        result.frontend_ready = product.frontend_ready;
+        result.active_work = active_product_work();
+        return result;
+    }
+    bool product_open(std::string &diagnostic) {
+        if (!tray || !tray->ready() || !config.frontend) {
+            diagnostic = "tray runtime is not ready";
+            return false;
+        }
+        if (!config.frontend->pid())
+            product.frontend_ready = false;
+        if (!config.frontend->open(socket_path, diagnostic))
+            return false;
+        ++product.window_epoch;
+        publish_host_status(core->host.status()); // wake subscribers; snapshot holds state
+        return true;
+    }
+    bool product_action(const ipc::ProductControlRequest &request, std::string &diagnostic) {
+        if (!tray || !tray->ready()) {
+            diagnostic = "product actions require a registered tray runtime";
+            return false;
+        }
+        if (request.action == "frontend_ready") {
+            if (!config.frontend || config.frontend->pid() != request.frontend_pid) {
+                diagnostic = "frontend is not owned by this tray";
+                return false;
+            }
+            product.frontend_ready = true;
+        }
+        if (request.action == "open")
+            return product_open(diagnostic);
+        if (request.action == "quit") {
+            if (active_product_work() == 0) {
+                request_loop_stop();
+                return true;
+            }
+            if (!product.exit_pending)
+                ++product.exit_epoch;
+            product.exit_pending = true;
+            return product_open(diagnostic); // also reopens a closed UI for confirmation
+        }
+        if (request.action == "confirm_quit" || request.action == "cancel_quit") {
+            if (!product.exit_pending || request.exit_epoch != product.exit_epoch) {
+                diagnostic = "exit confirmation is stale";
+                return false;
+            }
+            product.exit_pending = false;
+            if (request.action == "confirm_quit")
+                request_loop_stop();
+            else
+                publish_host_status(core->host.status());
+        }
+        return true;
+    }
+    HostOutcome command_pause_resume(const std::string &task_id, bool pause) {
+        {
+            std::lock_guard lock(core->registry.mutex);
+            const auto found = core->registry.tasks.find(task_id);
+            if (found == core->registry.tasks.end())
+                return {false, {"not_found", "unknown task id"}};
+            if (found->second.from_recovery)
+                return {false,
+                        {"invalid_state",
+                         "task belongs to a previous service run and is already settled"}};
+        }
+        if (!pause) {
+            const auto view = core->host.task_view(TaskIdentity{task_id});
+            if (view.ok && view.view.progress != TaskProgress::Paused &&
+                !terminal_progress(view.view.progress))
+                return {false, {"invalid_state", "task is not paused"}};
+        }
+        return pause ? core->host.pause_task(TaskIdentity{task_id})
+                     : core->host.resume_task(TaskIdentity{task_id});
+    }
+
+    void handle_tray_action(detail::TrayPresenter::Action action) {
+        // ActionWorker, never SDK callback: bounded admission, consumed future.
+        auto future = core->executor.submit_on(core->serial, [this, action = std::move(action)] {
+            std::string diagnostic;
+            if (action.kind == desktop::TrayAction::OpenShell ||
+                action.kind == desktop::TrayAction::Quit) {
+                if (!product_action({action.kind == desktop::TrayAction::Quit ? "quit" : "open", 0},
+                                    diagnostic))
+                    std::cerr << "mirage-tray: " << diagnostic << '\n';
+            } else if (!action.task_id.empty()) {
+                const auto result =
+                    command_pause_resume(action.task_id, action.kind == desktop::TrayAction::Pause);
+                if (!result.ok)
+                    std::cerr << "mirage-tray: " << result.error.message << '\n';
+                else
+                    detail::publish_task_updated(core, action.task_id);
+            }
+        });
+        try {
+            future.get();
+        } catch (const std::exception &error) {
+            std::cerr << "mirage-tray: action failed: " << error.what() << '\n';
+            product_failed.store(true);
+            request_loop_stop();
+        }
     }
 
     // --- response helpers (loop thread via posted payloads) ---------------
@@ -558,6 +756,14 @@ struct RuntimeService::Impl {
             respond(connection_id, correlation_id, identity());
             return;
         }
+        if (auto *request = std::get_if<ipc::ProductControlRequest>(&decoded.body)) {
+            std::string diagnostic;
+            if (!product_action(*request, diagnostic))
+                fail(connection_id, correlation_id, "invalid_state", diagnostic);
+            else
+                respond(connection_id, correlation_id, product_snapshot());
+            return;
+        }
         if (auto *request = std::get_if<ipc::SubmitTaskRequest>(&decoded.body)) {
             handle_submit(connection_id, correlation_id, std::move(*request));
             return;
@@ -596,8 +802,7 @@ struct RuntimeService::Impl {
             return;
         }
         if (auto *request = std::get_if<ipc::SubscribeEventsRequest>(&decoded.body)) {
-            (void)request;
-            handle_subscribe(connection_id, correlation_id);
+            handle_subscribe(connection_id, correlation_id, request->chat_preview);
             return;
         }
         if (auto *request = std::get_if<ipc::UnsubscribeEventsRequest>(&decoded.body)) {
@@ -624,8 +829,41 @@ struct RuntimeService::Impl {
             handle_session_open(connection_id, correlation_id);
             return;
         }
+        if (auto *request = std::get_if<ipc::DeleteSessionRequest>(&decoded.body)) {
+            handle_session_delete(connection_id, correlation_id, request->session_id);
+            return;
+        }
         if (auto *request = std::get_if<ipc::CloseSessionRequest>(&decoded.body)) {
             handle_session_close(connection_id, correlation_id, std::move(request->session_id));
+            return;
+        }
+        if (std::holds_alternative<ipc::GetModelRequest>(decoded.body)) {
+            handle_model_get(connection_id, correlation_id);
+            return;
+        }
+        if (auto *request = std::get_if<ipc::SetModelRequest>(&decoded.body)) {
+            handle_model_set(connection_id, correlation_id, *request);
+            return;
+        }
+        if (auto *request = std::get_if<ipc::CancelChatRequest>(&decoded.body)) {
+            std::string turn;
+            {
+                std::lock_guard lock(core->dialogs.mutex);
+                const auto it = core->dialogs.sessions.find(request->session_id);
+                if (it != core->dialogs.sessions.end())
+                    turn = it->second.in_flight_turn_id;
+            }
+            if (turn.empty()) {
+                fail(connection_id, correlation_id, "invalid_state", "no active turn");
+                return;
+            }
+            {
+                std::lock_guard lock(core->drivers_mutex);
+                const auto it = core->drivers.find("dialog-" + turn);
+                if (it != core->drivers.end())
+                    core->executor.request_task_cancel(it->second.handle);
+            }
+            respond(connection_id, correlation_id, ipc::DialogTurnAccepted{turn});
             return;
         }
         if (auto *request = std::get_if<ipc::SessionChatRequest>(&decoded.body)) {
@@ -970,42 +1208,8 @@ struct RuntimeService::Impl {
     /// next operation boundary.
     void handle_pause_resume(std::uint64_t connection_id, std::uint64_t correlation_id,
                              std::string task_id, bool pause) {
-        bool known = false;
-        bool from_recovery = false;
-        {
-            std::lock_guard lock(core->registry.mutex);
-            auto entry = core->registry.tasks.find(task_id);
-            known = entry != core->registry.tasks.end();
-            from_recovery = known && entry->second.from_recovery;
-        }
-        if (!known) {
-            fail(connection_id, correlation_id, "not_found", "unknown task id");
-            return;
-        }
-        if (from_recovery) {
-            fail(connection_id, correlation_id, "invalid_state",
-                 "task belongs to a previous service run and is already "
-                 "settled");
-            return;
-        }
-        // Product-side state gate for resume (verification round 1,
-        // defect 5): the pinned control plane admits Idle→Observing, so a
-        // resume of a merely-running (never paused) task would be accepted
-        // with an epoch bump — refused here instead, making the wire
-        // contract's "resume of a non-paused task surfaces invalid_state"
-        // true at the product boundary. Terminal-era tasks fall through to
-        // the pinned judgement (their rejection is the verbatim
-        // pinned_runtime passthrough), and pause stays pinned-judged.
-        if (!pause) {
-            const TaskViewResult pre = core->host.task_view(TaskIdentity{task_id});
-            if (pre.ok && pre.view.progress != TaskProgress::Paused &&
-                !terminal_progress(pre.view.progress)) {
-                fail(connection_id, correlation_id, "invalid_state", "task is not paused");
-                return;
-            }
-        }
-        const HostOutcome commanded = pause ? core->host.pause_task(TaskIdentity{task_id})
-                                            : core->host.resume_task(TaskIdentity{task_id});
+        // Shared with the tray: recovery/unknown/state guards cannot diverge.
+        const HostOutcome commanded = command_pause_resume(task_id, pause);
         if (!commanded.ok) {
             fail(connection_id, correlation_id, commanded.error.code, commanded.error.message);
             return;
@@ -1032,7 +1236,8 @@ struct RuntimeService::Impl {
     /// subscription; the loop drains it after the responses of each pass.
     /// The current host status seeds the stream (seq 1) so a fresh
     /// subscriber starts from the live state, mirroring the frontend mock.
-    void handle_subscribe(std::uint64_t connection_id, std::uint64_t correlation_id) {
+    void handle_subscribe(std::uint64_t connection_id, std::uint64_t correlation_id,
+                          bool chat_preview) {
         detail::ServiceLoop *active = loop.load(std::memory_order_acquire);
         if (active == nullptr) {
             fail(connection_id, correlation_id, "internal", "service loop is not running");
@@ -1044,7 +1249,8 @@ struct RuntimeService::Impl {
             seed = ipc::EventPayload{std::move(*status)};
         }
         respond(connection_id, correlation_id, ipc::ShutdownAccepted{});
-        active->post_attach_events(connection_id, std::move(subscription), std::move(seed));
+        active->post_attach_events(connection_id, std::move(subscription), std::move(seed),
+                                   chat_preview);
     }
 
     /// Serial thread: drop the connection's subscription; idempotent.
@@ -1122,7 +1328,9 @@ struct RuntimeService::Impl {
             ipc::SessionSummary summary;
             summary.id = session.first;
             summary.created_at_ms = session.second;
-            const SessionViewResult view = core->host.session_view(SessionIdentity{session.first});
+            const auto rebound = core->harness_sessions.find(session.first);
+            const SessionViewResult view = core->host.session_view(SessionIdentity{
+                rebound == core->harness_sessions.end() ? session.first : rebound->second});
             summary.state = view.ok ? view.view.state : "failed";
             list.sessions.push_back(std::move(summary));
         }
@@ -1138,8 +1346,8 @@ struct RuntimeService::Impl {
             std::lock_guard lock(core->sessions.mutex);
             if (core->sessions.full()) {
                 fail(connection_id, correlation_id, "unavailable",
-                     "session capacity exhausted (" + std::to_string(core->sessions.capacity) +
-                         ")");
+                     "会话名额已满（" + std::to_string(core->sessions.capacity - 1) +
+                         "）。请删除不再需要的历史会话后重试，输入草稿已保留。");
                 return;
             }
         }
@@ -1214,13 +1422,15 @@ struct RuntimeService::Impl {
                 }
             }
         }
-        // Hydrated sessions (M5-08): a previous-era session has no pinned
-        // counterpart, so there is nothing to close pinned-side — the close
-        // is a pure product-state removal. Live sessions go through the
-        // pinned close (which cancels their non-terminal pinned tasks).
+        // A hydrated session has no pinned counterpart until the native
+        // harness lazily reopens one (DEC-039). Close that target when present;
+        // otherwise remove only product state. Live sessions use their own ID.
         const bool hydrated = core->hydrated_sessions.count(session_id) != 0;
-        if (!hydrated) {
-            const HostOutcome closed = core->host.close_session(SessionIdentity{session_id});
+        const auto rebound = core->harness_sessions.find(session_id);
+        const std::string pinned_id =
+            rebound == core->harness_sessions.end() ? session_id : rebound->second;
+        if (!hydrated || rebound != core->harness_sessions.end()) {
+            const HostOutcome closed = core->host.close_session(SessionIdentity{pinned_id});
             if (!closed.ok) {
                 fail(connection_id, correlation_id, closed.error.code, closed.error.message);
                 return;
@@ -1231,7 +1441,7 @@ struct RuntimeService::Impl {
             core->sessions.created_at_ms.erase(session_id);
         }
         core->hydrated_sessions.erase(session_id);
-        detail::persist_session_state(core);
+        core->harness_sessions.erase(session_id);
         detail::persist_session_state(core);
         // The dialog thread dies with the session (DEC-027): the log entry is
         // removed (freeing the dialog registry slot for reuse) and any
@@ -1266,7 +1476,7 @@ struct RuntimeService::Impl {
         // settled post-condition is Closed, so a failed view read still
         // reports the command's outcome rather than an invented state.
         std::string state = "closed";
-        const SessionViewResult view = core->host.session_view(SessionIdentity{session_id});
+        const SessionViewResult view = core->host.session_view(SessionIdentity{pinned_id});
         if (view.ok) {
             state = view.view.state;
         }
@@ -1275,6 +1485,295 @@ struct RuntimeService::Impl {
         event.state = state;
         core->events.publish_session_update(std::move(event));
         respond(connection_id, correlation_id, ipc::SessionClosed{std::move(session_id), state});
+    }
+
+    void handle_session_delete(std::uint64_t connection, std::uint64_t correlation,
+                               const std::string &id) {
+        {
+            std::lock_guard lock(core->sessions.mutex);
+            if (!core->sessions.contains(id)) {
+                fail(connection, correlation, "not_found", "unknown session id");
+                return;
+            }
+        }
+        {
+            std::lock_guard lock(core->dialogs.mutex);
+            const auto found = core->dialogs.sessions.find(id);
+            if (found != core->dialogs.sessions.end() && !found->second.in_flight_turn_id.empty()) {
+                fail(connection, correlation, "invalid_state",
+                     "stop active turns before deleting session");
+                return;
+            }
+        }
+        {
+            std::lock_guard lock(core->registry.mutex);
+            for (const auto &[task, record] : core->registry.tasks) {
+                (void)task;
+                if (record.session_id == id && !record.driver_done) {
+                    fail(connection, correlation, "invalid_state",
+                         "stop active tasks before deleting session");
+                    return;
+                }
+            }
+        }
+        std::unique_lock state_lock(core->session_state_mutex);
+        const bool primary = id == core->host.primary_session().id;
+        // Write the intended state before mutating identities. A failed disk
+        // write leaves both the runtime and the visible history untouched.
+        if (!detail::persist_session_state(core, id, primary, true)) {
+            fail(connection, correlation, "internal", "cannot persist session deletion");
+            return;
+        }
+        const auto rebound = core->harness_sessions.find(id);
+        if (!primary &&
+            (!core->hydrated_sessions.count(id) || rebound != core->harness_sessions.end())) {
+            const auto pinned_id = rebound == core->harness_sessions.end() ? id : rebound->second;
+            const auto closed = core->host.close_session(SessionIdentity{pinned_id});
+            if (!closed.ok) {
+                const bool restored = detail::persist_session_state(core, {}, false, true);
+                fail(connection, correlation, closed.error.code,
+                     restored ? closed.error.message
+                              : "cannot close session or restore persisted history");
+                return;
+            }
+        }
+        if (!primary) {
+            {
+                std::lock_guard lock(core->sessions.mutex);
+                core->sessions.created_at_ms.erase(id);
+            }
+            core->hydrated_sessions.erase(id);
+            core->harness_sessions.erase(id);
+        }
+        {
+            std::lock_guard lock(core->dialogs.mutex);
+            core->dialogs.sessions.erase(id);
+        }
+        if (!primary) {
+            std::lock_guard lock(core->journal_raw_mutex);
+            core->journal_raw.erase(id);
+        }
+        ipc::SessionUpdatedEvent event;
+        event.session_id = id;
+        event.state = primary ? "autonomous" : "closed";
+        core->events.publish_session_update(std::move(event));
+        respond(connection, correlation, ipc::SessionDeleted{id});
+    }
+
+    void handle_model_get(std::uint64_t connection, std::uint64_t correlation,
+                          std::string warning = {}) {
+        persistence::LocalSettings document;
+        const auto &m = core->model;
+        document.model =
+            persistence::ModelSettings{m.enabled,
+                                       m.dialect,
+                                       m.display_name,
+                                       m.endpoint_origin,
+                                       m.api_prefix,
+                                       m.model_selector,
+                                       m.credential_env,
+                                       m.context_window_tokens,
+                                       m.supports_reasoning,
+                                       m.credential_ref,
+                                       !m.credential_ref.empty() || !m.credential_env.empty()};
+        const auto catalog = persistence::decode_settings(config.model_catalog_json);
+        if (catalog.ok)
+            document.models = catalog.settings.models;
+        document.models_present = true;
+        for (const auto &profile : document.models)
+            if (profile.display_name == document.model->display_name) {
+                document.model->provider_id = profile.provider_id;
+                document.model->provider_name = profile.provider_name;
+            }
+        for (auto &profile : document.models)
+            profile.api_key_configured =
+                !profile.credential_ref.empty() || !profile.credential_env.empty();
+        auto project_options = [](auto &model) {
+            model.reasoning_options.clear();
+            for (const auto &option : mirage::integration::reasoning_options(
+                     model.dialect, model.model_selector, model.supports_reasoning))
+                model.reasoning_options.push_back(option.value);
+        };
+        project_options(*document.model);
+        for (auto &model : document.models)
+            project_options(model);
+        respond(
+            connection, correlation,
+            ipc::ModelConfiguration{persistence::encode_settings(document), std::move(warning)});
+    }
+
+    void handle_model_set(std::uint64_t connection, std::uint64_t correlation,
+                          const ipc::SetModelRequest &request) {
+        auto decoded = persistence::decode_settings(request.settings_json);
+        if (decoded.ok) {
+            if (decoded.settings.model)
+                decoded.settings.model->reasoning_options.clear();
+            for (auto &model : decoded.settings.models)
+                model.reasoning_options.clear();
+        }
+        if (!decoded.ok || !decoded.settings.model || !decoded.settings.socket_path.empty() ||
+            !decoded.settings.read_roots.empty() || !decoded.settings.permission_rules.empty() ||
+            decoded.settings.confirmation || decoded.settings.runtime) {
+            fail(connection, correlation, "invalid_argument",
+                 "model.set requires only a valid model block");
+            return;
+        }
+        {
+            std::lock_guard lock(core->dialogs.mutex);
+            for (const auto &[id, log] : core->dialogs.sessions) {
+                (void)id;
+                if (!log.in_flight_turn_id.empty()) {
+                    fail(connection, correlation, "invalid_state",
+                         "stop active turns before changing model");
+                    return;
+                }
+            }
+        }
+        if (request.api_key && !core->settings_store) {
+            fail(connection, correlation, "unavailable", "model settings storage is unavailable");
+            return;
+        }
+        auto &m = *decoded.settings.model;
+        if (!request.api_key && m.credential_ref.empty() &&
+            m.display_name == core->model.display_name && !core->model.credential_ref.empty()) {
+            m.credential_ref = core->model.credential_ref;
+            m.credential_env.clear();
+        }
+        const auto previous_catalog = persistence::decode_settings(config.model_catalog_json);
+        const auto old_reference = m.credential_ref;
+        if (request.api_key && !config.credential_write) {
+            fail(connection, correlation, "unavailable",
+                 "system credential storage is unavailable");
+            return;
+        }
+        if (request.api_key) {
+            m.credential_ref =
+                request.api_key->empty() ? "" : mira::ModelProfileId::generate().to_string();
+            m.credential_env.clear();
+        }
+        m.api_key_configured = !m.credential_ref.empty() || !m.credential_env.empty();
+        for (auto &profile : decoded.settings.models)
+            if (profile.display_name == m.display_name)
+                profile = m;
+            else if (!m.provider_id.empty() && profile.provider_id == m.provider_id) {
+                profile.provider_name = m.provider_name;
+                profile.endpoint_origin = m.endpoint_origin;
+                profile.api_prefix = m.api_prefix;
+                profile.dialect = m.dialect;
+                profile.credential_ref = m.credential_ref;
+                profile.credential_env = m.credential_env;
+                profile.api_key_configured = m.api_key_configured;
+            }
+        auto next_config = core->model;
+        next_config.enabled = m.enabled;
+        next_config.supports_reasoning = m.supports_reasoning;
+        next_config.dialect = m.dialect.empty() ? "openai.responses.v1" : m.dialect;
+        next_config.display_name = m.display_name;
+        next_config.endpoint_origin = m.endpoint_origin;
+        next_config.api_prefix = m.api_prefix;
+        next_config.model_selector = m.model_selector;
+        next_config.credential_env = m.credential_env;
+        next_config.credential_ref = m.credential_ref;
+        next_config.context_window_tokens = m.context_window_tokens;
+        std::string reason;
+        if (!next_config.valid(reason) || (m.enabled && m.endpoint_origin.empty())) {
+            fail(connection, correlation, "invalid_argument",
+                 reason.empty() ? "endpoint is required" : reason);
+            return;
+        }
+        std::unique_ptr<mirage::integration::ModelLayer> next;
+        if (m.enabled) {
+            try {
+                next = std::make_unique<mirage::integration::ModelLayer>(
+                    core->executor, next_config, config.model_provider_override.get());
+            } catch (...) {
+                fail(connection, correlation, "internal", "cannot assemble model layer");
+                return;
+            }
+            if (!next->running()) {
+                fail(connection, correlation, "unavailable", "cannot start model layer");
+                return;
+            }
+        }
+        persistence::LocalSettings saved;
+        if (core->settings_store) {
+            const auto loaded = core->settings_store->load();
+            if (loaded.status == persistence::LoadStatus::Loaded) {
+                const auto old = persistence::decode_settings(loaded.body);
+                if (!old.ok) {
+                    fail(connection, correlation, "invalid_state", "existing settings are invalid");
+                    return;
+                }
+                saved = old.settings;
+            } else if (loaded.status != persistence::LoadStatus::Absent) {
+                fail(connection, correlation, "internal", "cannot read existing settings");
+                return;
+            }
+            saved.model = m;
+            if (decoded.settings.models_present || !decoded.settings.models.empty()) {
+                saved.models = decoded.settings.models;
+                saved.models_present = true;
+            }
+            for (auto &profile : saved.models)
+                if (profile.display_name == m.display_name)
+                    profile = m;
+            if (request.api_key && !request.api_key->empty()) {
+                const auto stored = config.credential_write(m.credential_ref, *request.api_key);
+                if (!stored.ok) {
+                    fail(connection, correlation, "unavailable", stored.error);
+                    return;
+                }
+            }
+            const auto written = core->settings_store->save(persistence::encode_settings(saved));
+            if (!written.ok) {
+                std::string error = written.error;
+                if (request.api_key && !request.api_key->empty() &&
+                    !config.credential_write(m.credential_ref, "").ok)
+                    error += "; cannot remove unused credential";
+                fail(connection, correlation, "internal", error);
+                return;
+            }
+        }
+        core->model_layer = std::move(next);
+        core->model = next_config;
+        core->model_available.store(m.enabled);
+        config.model = next_config;
+        if (core->settings_store)
+            config.model_catalog_json = persistence::encode_settings(saved);
+        else if (decoded.settings.models_present || !decoded.settings.models.empty())
+            config.model_catalog_json = persistence::encode_settings(decoded.settings);
+        std::string warning;
+        if (request.api_key && !old_reference.empty() && old_reference != m.credential_ref) {
+            const bool retained =
+                std::any_of(saved.models.begin(), saved.models.end(), [&](const auto &profile) {
+                    return profile.credential_ref == old_reference;
+                });
+            if (!retained && !config.credential_write(old_reference, "").ok)
+                warning =
+                    "配置已保存；旧 API Key 清理失败，可在系统钥匙环中移除未使用的 Mirage 凭据。";
+        }
+        // DEC-042: deleting a provider also releases keys that no remaining
+        // provider/model or active configuration references, after persistence.
+        if (previous_catalog.ok && config.credential_write) {
+            std::vector<std::string> cleaned;
+            for (const auto &profile : previous_catalog.settings.models) {
+                const auto &reference = profile.credential_ref;
+                if (reference.empty() || reference == old_reference ||
+                    reference == m.credential_ref ||
+                    std::find(cleaned.begin(), cleaned.end(), reference) != cleaned.end())
+                    continue;
+                const bool retained =
+                    std::any_of(saved.models.begin(), saved.models.end(), [&](const auto &entry) {
+                        return entry.credential_ref == reference;
+                    });
+                if (!retained) {
+                    cleaned.push_back(reference);
+                    if (!config.credential_write(reference, "").ok)
+                        warning = "配置已保存；已删除服务的API Key清理失败";
+                }
+            }
+        }
+        handle_model_get(connection, correlation, std::move(warning));
     }
 
     /// Serial thread: accept one dialog turn (DEC-027, M5-06; DEC-025
@@ -1286,8 +1785,33 @@ struct RuntimeService::Impl {
     /// settles through the model layer's own deadlines and cancellation.
     void handle_session_chat(std::uint64_t connection_id, std::uint64_t correlation_id,
                              ipc::SessionChatRequest request) {
+        { // Consume finished task outcomes before reusing bounded driver slots.
+            std::lock_guard lock(core->drivers_mutex);
+            for (auto it = core->drivers.begin(); it != core->drivers.end();) {
+                if (it->first.starts_with("dialog-") && it->second.future.valid() &&
+                    it->second.future.wait_for(std::chrono::milliseconds{0}) ==
+                        std::future_status::ready) {
+                    try {
+                        it->second.future.get();
+                    } catch (...) {
+                        std::cerr << "mirage-service: model driver failed\n";
+                    }
+                    it = core->drivers.erase(it);
+                } else
+                    ++it;
+            }
+        }
         if (core->model_layer == nullptr || !core->model_layer->running()) {
             fail(connection_id, correlation_id, "unavailable", "model layer is not configured");
+            return;
+        }
+        const auto options = mirage::integration::reasoning_options(
+            core->model.dialect, core->model.model_selector, core->model.supports_reasoning);
+        if ((request.access != "default" && request.access != "read_only") ||
+            std::none_of(options.begin(), options.end(),
+                         [&](const auto &entry) { return entry.value == request.reasoning; })) {
+            fail(connection_id, correlation_id, "invalid_argument",
+                 "selected thinking option is not supported by this model");
             return;
         }
         if (request.text.size() > kMaxDialogTextBytes) {
@@ -1296,7 +1820,32 @@ struct RuntimeService::Impl {
             return;
         }
         std::string turn_id;
+        std::string agent_task_id;
+        std::string host_session_id = request.session_id;
         std::uint64_t sequence = 0;
+        std::optional<detail::SessionDialogLog> previous_log;
+        // DEC-039: no persist caller may observe a provisional replacement.
+        std::unique_lock state_lock(core->session_state_mutex, std::defer_lock);
+        if (!request.replace_turn_id.empty())
+            state_lock.lock();
+        {
+            std::lock_guard lock(core->dialogs.mutex);
+            for (const auto &[id, log] : core->dialogs.sessions) {
+                (void)id;
+                if (log.in_flight_turn_id.empty())
+                    continue;
+                const auto active =
+                    std::find_if(log.turns.begin(), log.turns.end(), [&log](const auto &turn) {
+                        return turn.turn_id == log.in_flight_turn_id;
+                    });
+                if (request.agent ||
+                    (active != log.turns.end() && !active->agent_task_id.empty())) {
+                    fail(connection_id, correlation_id, "invalid_state",
+                         "another model turn is active");
+                    return;
+                }
+            }
+        }
         {
             std::lock_guard lock(core->sessions.mutex);
             if (!core->sessions.contains(request.session_id)) {
@@ -1328,10 +1877,46 @@ struct RuntimeService::Impl {
                      "a dialog turn is already in flight for this session");
                 return;
             }
-            if (log.turns.size() >= log.max_turns) {
-                log.turns.erase(log.turns.begin());
+            if (!request.replace_turn_id.empty()) {
+                if (log.turns.empty() || log.turns.back().turn_id != request.replace_turn_id ||
+                    log.turns.back().status == "pending") {
+                    fail(connection_id, correlation_id, "invalid_state",
+                         "only the latest settled turn can be replaced");
+                    return;
+                }
+                previous_log = log;
             }
+            if (request.agent) {
+                if (core->hydrated_sessions.contains(request.session_id)) {
+                    auto rebound = core->harness_sessions.find(request.session_id);
+                    if (rebound == core->harness_sessions.end()) {
+                        const auto opened = core->host.open_session();
+                        if (!opened.ok) {
+                            fail(connection_id, correlation_id, opened.error.code,
+                                 opened.error.message);
+                            return;
+                        }
+                        rebound =
+                            core->harness_sessions.emplace(request.session_id, opened.session.id)
+                                .first;
+                    }
+                    host_session_id = rebound->second;
+                }
+                const auto hosted =
+                    core->host.submit_task(SessionIdentity{host_session_id}, request.text);
+                if (!hosted.ok) {
+                    fail(connection_id, correlation_id, hosted.error.code, hosted.error.message);
+                    return;
+                }
+                agent_task_id = hosted.task.id;
+            }
+            if (previous_log)
+                log.turns.pop_back();
+            else if (log.turns.size() >= log.max_turns)
+                log.turns.erase(log.turns.begin());
             detail::DialogTurnRecord record;
+            record.agent_task_id = agent_task_id;
+            record.replaces_turn_id = request.replace_turn_id;
             record.turn_id = make_turn_id();
             record.status = "pending";
             record.user_text = request.text;
@@ -1342,6 +1927,81 @@ struct RuntimeService::Impl {
             turn_id = record.turn_id;
             sequence = record.sequence;
         }
+        // Bounded worker: the pinned model stack enforces its own transport
+        // deadlines; the executor stop token ends the wait on teardown.
+        const std::string session_id = request.session_id;
+        const std::string transcript = render_dialog_transcript(core, session_id);
+        auto ready = std::make_shared<executor::comm::PhaseGate>("dialog-admission");
+        auto dialog_submission = core->executor.submit_cancellable(
+            [core = core, ready, session_id, turn_id, transcript, text = request.text,
+             agent = request.agent, agent_task_id, host_session_id, reasoning = request.reasoning,
+             tools_allowed = request.access != "read_only"](executor::StopToken stop) {
+                // Startup coordination belongs to Executor; no private queue or waiter.
+                while (!ready->has_reached(1)) {
+                    if (ready->is_closed() || stop.stop_requested())
+                        return;
+                    (void)ready->wait_for(1, std::chrono::milliseconds{10});
+                }
+                try {
+                    run_dialog_turn(core, session_id, turn_id, transcript, text, stop, agent,
+                                    agent_task_id, reasoning, tools_allowed, host_session_id);
+                } catch (...) {
+                    mirage::integration::DialogCompletion failed;
+                    failed.failed = true;
+                    failed.error = "model task failed unexpectedly";
+                    if (!agent_task_id.empty()) {
+                        (void)core->executor
+                            .submit_on(core->serial,
+                                       [core, agent_task_id] {
+                                           return core->host.complete_task(
+                                               TaskIdentity{agent_task_id}, false,
+                                               "Agent driver exception");
+                                       })
+                            .get();
+                    }
+                    settle_dialog_turn(core, session_id, turn_id, failed);
+                    throw; // Executor failure remains observable.
+                }
+            });
+        bool admitted = true;
+        if (dialog_submission.future.wait_for(std::chrono::milliseconds{0}) ==
+            std::future_status::ready) {
+            try {
+                dialog_submission.future.get();
+                admitted = false;
+            } catch (...) {
+                admitted = false;
+            }
+        }
+        const bool persisted =
+            admitted && (!previous_log || detail::persist_session_state(core, {}, false, true));
+        if (!persisted) {
+            {
+                std::lock_guard lock(core->dialogs.mutex);
+                auto &log = core->dialogs.sessions.at(session_id);
+                if (previous_log)
+                    log = std::move(*previous_log);
+                else {
+                    std::erase_if(log.turns,
+                                  [&turn_id](const auto &turn) { return turn.turn_id == turn_id; });
+                    log.in_flight_turn_id.clear();
+                }
+            }
+            ready->close();
+            if (dialog_submission.future.valid()) {
+                std::lock_guard lock(core->drivers_mutex);
+                core->drivers.emplace("dialog-" + turn_id, std::move(dialog_submission));
+            }
+            if (!agent_task_id.empty())
+                (void)core->host.complete_task(TaskIdentity{agent_task_id}, false,
+                                               "Dialog admission failed");
+            fail(connection_id, correlation_id, "unavailable",
+                 admitted ? "conversation replacement could not be persisted"
+                          : "model task admission failed");
+            return;
+        }
+        if (state_lock.owns_lock())
+            state_lock.unlock();
         // The pending notification leaves before the acknowledgement so a
         // subscriber never observes the ack for a turn whose creation event
         // is still queued (DEC-012 decision 3 ordering precedent).
@@ -1351,24 +2011,20 @@ struct RuntimeService::Impl {
         pending.status = "pending";
         pending.user_text = request.text;
         pending.sequence = sequence;
+        pending.replaces_turn_id = request.replace_turn_id;
         core->events.publish_chat_turn(std::move(pending));
         ipc::DialogTurnAccepted accepted;
         accepted.turn_id = turn_id;
+        accepted.replaces_turn_id = request.replace_turn_id;
         respond(connection_id, correlation_id, std::move(accepted));
 
-        // Bounded worker: the pinned model stack enforces its own transport
-        // deadlines; the executor stop token ends the wait on teardown.
-        const std::string session_id = request.session_id;
-        const std::string transcript = render_dialog_transcript(core, session_id);
-        auto dialog_submission =
-            core->executor.submit_cancellable([core = core, session_id, turn_id, transcript,
-                                               text = request.text](executor::StopToken stop) {
-                run_dialog_turn(core, session_id, turn_id, transcript, text, stop);
-            });
         {
             std::lock_guard lock(core->drivers_mutex);
             core->drivers.emplace("dialog-" + turn_id, std::move(dialog_submission));
         }
+        const auto advanced = ready->advance();
+        if (!advanced)
+            throw std::runtime_error("dialog admission gate failed");
     }
 
     /// Serial thread: one session's dialog thread snapshot (DEC-027) — the
@@ -1408,6 +2064,7 @@ struct RuntimeService::Impl {
                 entry.has_error = record.status == "failed";
                 entry.sequence = record.sequence;
                 entry.recorded_at_ms = record.recorded_at_ms;
+                entry.context_usage = record.context_usage;
                 history.turns.push_back(std::move(entry));
             }
             history.truncated = log.total_recorded > history.turns.size();
@@ -2062,6 +2719,16 @@ struct RuntimeService::Impl {
     }
 
     void teardown() {
+        product_stopping.store(true);
+        if (product_maintenance.valid())
+            (void)product_maintenance.cancel();
+        // Product producers stop first; no action worker may submit during drain.
+        if (tray_actions_worker.started())
+            tray_actions_worker.stop();
+        if (tray_worker.started())
+            tray_worker.stop();
+        tray_actions_worker = executor::WorkerHandle{};
+        tray_worker = executor::WorkerHandle{};
         // Ordered shutdown (AGENTS.md rule 7): producers are already stopped
         // (loop exited, listener closed by run()). Recover the blocking
         // worker, cancel drivers and tasks, drain the executor, then release
@@ -2132,6 +2799,24 @@ struct RuntimeService::Impl {
                 // rejections here; the drain below settles the rest.
             }
         }
+        bool frontend_clean = true;
+        if (config.frontend) {
+            // Loop has closed all UI connections. Child normally exits itself;
+            // the platform fallback and OS-handle reaping are bounded.
+            auto stopped = core->executor.submit_on(core->serial, [this] {
+                std::string diagnostic;
+                const bool clean = config.frontend->stop(diagnostic);
+                if (!clean)
+                    std::cerr << "mirage-tray: " << diagnostic << '\n';
+                return clean;
+            });
+            try {
+                frontend_clean = stopped.get();
+            } catch (const std::exception &error) {
+                frontend_clean = false;
+                std::cerr << "mirage-tray: frontend shutdown failed: " << error.what() << '\n';
+            }
+        }
         // The workflow surface converges before its Executor (DEC-023 pinned
         // order: WorkflowRuntime shutdown -> MiraRuntime stop -> Executor
         // shutdown): cancel active runs and drain their drives while the
@@ -2140,6 +2825,7 @@ struct RuntimeService::Impl {
         // The model layer's transport workers are executor-backed (DEC-027):
         // settle their in-flight exchanges while the executor can still
         // drain them, before the executor itself shuts down.
+        core->model_available.store(false);
         if (core->model_layer) {
             core->model_layer->shutdown();
         }
@@ -2169,11 +2855,14 @@ struct RuntimeService::Impl {
         publish_host_status(host_shutdown.ok && host_shutdown.report.clean ? HostStatus::Stopped
                                                                            : HostStatus::Failed);
         core->serial.shutdown();
-        run_report.clean = host_shutdown.ok && host_shutdown.report.clean;
+        run_report.clean = host_shutdown.ok && host_shutdown.report.clean && frontend_clean &&
+                           !product_failed.load();
         if (!run_report.clean) {
             run_report.diagnostic =
                 host_shutdown.ok ? host_shutdown.report.diagnostic : host_shutdown.error.message;
         }
+        if (!frontend_clean || product_failed.load())
+            run_report.diagnostic = "product carrier/action/frontend teardown failed";
         run_report.host_shutdown = host_shutdown.report;
         lifecycle.store(Lifecycle::Terminal, std::memory_order_release);
     }
@@ -2328,6 +3017,8 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                 mirage::runtime::persistence::kMaxSettingsFileBytes * 8);
     }
 
+    impl_->core->model_available.store(impl_->core->model_layer &&
+                                       impl_->core->model_layer->running());
     impl_->publish_host_status(HostStatus::Starting);
 
     // M5-08 session state hydration (DEC-021 backlog ①): re-register the
@@ -2347,17 +3038,37 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                           << (session_directory / "session-state.json").string()
                           << "' is invalid: " << decoded.error << "\n";
             } else {
+                const auto history_count = static_cast<std::size_t>(std::count_if(
+                    decoded.state.sessions.begin(), decoded.state.sessions.end(),
+                    [](const auto &session) {
+                        return !session.journal.empty() || !session.chat_turns.empty();
+                    }));
+                if (history_count >= impl_->core->sessions.capacity) {
+                    outcome.error = {"unavailable",
+                                     "saved conversation history exceeds configured session "
+                                     "capacity; increase the configured limit before restarting"};
+                    if (impl_->core->model_layer)
+                        impl_->core->model_layer->shutdown();
+                    impl_->core->executor.shutdown(true);
+                    impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
+                    return outcome; // Never partially restore and overwrite nonempty history.
+                }
+                std::size_t restored_count = 0;
                 for (const auto &session : decoded.state.sessions) {
-                    const auto admitted = impl_->core->sessions.full() == false;
+                    if (session.journal.empty() && session.chat_turns.empty())
+                        continue;
+                    // Reserve the primary equipment slot before restoring histories.
+                    const auto admitted = impl_->core->sessions.created_at_ms.size() + 1 <
+                                          impl_->core->sessions.capacity;
                     if (!admitted) {
                         break;
                     }
                     impl_->core->sessions.created_at_ms.emplace(session.id, session.created_at_ms);
+                    ++restored_count;
                     // The pinned counterpart is gone with the previous era:
-                    // the hydrated session is product state only. Its close
-                    // is handled service-side (DEC-028 close face without a
-                    // pinned call), and task submit has no pinned session to
-                    // reach (honest limitation of hydration).
+                    // history is product state. Native session.chat lazily
+                    // reopens a pinned harness target (DEC-039); desktop
+                    // task.submit still has no recovered pinned session.
                     impl_->core->hydrated_sessions.insert(session.id);
                     for (const auto &entry : session.journal) {
                         if (entry.kind == "user") {
@@ -2389,7 +3100,7 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                     }
                 }
                 if (!decoded.state.sessions.empty()) {
-                    std::cerr << "mirage-service: hydrated " << decoded.state.sessions.size()
+                    std::cerr << "mirage-service: hydrated " << restored_count
                               << " session(s) from "
                               << (session_directory / "session-state.json").string() << '\n';
                 }
@@ -2468,6 +3179,15 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         impl_->core->sessions.created_at_ms.emplace(primary.id, wall_now_ms());
     }
 
+    if (impl_->config.tray_carrier) {
+        impl_->tray = std::make_unique<detail::TrayPresenter>(
+            impl_->config.tray_carrier, impl_->core->events.subscribe(128),
+            [raw = impl_.get()] {
+                raw->product_failed.store(true);
+                raw->request_loop_stop();
+            },
+            impl_->config.tray_icon_path);
+    }
     std::string diagnostic;
     impl_->listener = ipc::IpcListener::bind(impl_->socket_path, diagnostic);
     if (!impl_->listener.valid()) {
@@ -2532,6 +3252,76 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         }
     }
     impl_->lifecycle.store(Impl::Lifecycle::Running, std::memory_order_release);
+    if (impl_->tray) {
+        // Registration readiness != worker admission. Gate belongs to Executor.
+        executor::BlockingWorkerSpec pump;
+        pump.name = "mirage-tray-carrier";
+        pump.config.thread_name = "mirage-tray-carrier";
+        struct Pump final : executor::IBlockingIoWorker {
+            detail::TrayPresenter *tray;
+            explicit Pump(detail::TrayPresenter *value) : tray(value) {}
+            void run(executor::StopToken stop) override { tray->run(stop); }
+            void wakeup() noexcept override { tray->wakeup(); }
+        };
+        pump.worker = std::make_unique<Pump>(impl_->tray.get());
+        impl_->tray_worker = impl_->core->executor.start_worker(std::move(pump));
+        executor::BlockingWorkerSpec actions;
+        actions.name = "mirage-tray-actions";
+        actions.config.thread_name = "mirage-tray-actions";
+        actions.worker = std::make_unique<detail::TrayPresenter::ActionWorker>(
+            *impl_->tray,
+            [raw = impl_.get()](auto action) { raw->handle_tray_action(std::move(action)); });
+        impl_->tray_actions_worker = impl_->core->executor.start_worker(std::move(actions));
+        impl_->product_maintenance =
+            impl_->core->executor.submit_periodic_with_handle(500, [raw = impl_.get()] {
+                if (raw->product_stopping.load())
+                    return;
+                try {
+                    auto reaped = raw->core->executor.submit_on(raw->core->serial, [raw] {
+                        if (raw->product_stopping.load() || !raw->config.frontend)
+                            return;
+                        raw->tray->set_active_work(raw->active_product_work());
+                        if (!raw->config.frontend->pid() && raw->product.frontend_ready) {
+                            raw->product.frontend_ready = false;
+                            raw->publish_host_status(raw->core->host.status());
+                        }
+                    });
+                    reaped.get();
+                } catch (...) {
+                    raw->product_failed.store(true);
+                    raw->request_loop_stop();
+                    throw; // Executor periodic failure is the fact source
+                }
+            });
+        std::string failure;
+        if (!impl_->product_maintenance.valid())
+            failure = "frontend monitor timer admission failed";
+        else if (!impl_->tray_worker.started() || !impl_->tray_actions_worker.started())
+            failure = "tray worker admission failed";
+        else if (!impl_->tray->wait_ready() || !impl_->tray->ready())
+            failure = "tray indicator registration failed or timed out";
+        else if (impl_->config.open_frontend) {
+            auto opened = impl_->core->executor.submit_on(impl_->core->serial, [raw = impl_.get()] {
+                std::string open_diagnostic;
+                if (!raw->product_open(open_diagnostic))
+                    return open_diagnostic;
+                return std::string{};
+            });
+            try {
+                failure = opened.get();
+            } catch (const std::exception &error) {
+                failure = error.what();
+            }
+        }
+        if (!failure.empty()) {
+            impl_->request_loop_stop();
+            impl_->loop_done_future.get();
+            impl_->listener.close();
+            impl_->teardown();
+            outcome.error = {"unavailable", failure};
+            return outcome;
+        }
+    }
     outcome.ok = true;
     return outcome;
 }

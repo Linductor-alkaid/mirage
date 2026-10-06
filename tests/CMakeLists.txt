@@ -1,6 +1,24 @@
 # Test binaries follow the pinned mira house style: one plain main() per
 # binary using tests/support/test.hpp; labels drive CI selection (docs/
 # project/project-standards.md section 11).
+add_executable(native_chat_model_test desktop/native_chat_model_test.cpp
+    ${CMAKE_SOURCE_DIR}/apps/native/chat_model.cpp ${CMAKE_SOURCE_DIR}/apps/native/attachment.cpp)
+target_include_directories(native_chat_model_test PRIVATE ${CMAKE_SOURCE_DIR}/apps/native)
+target_compile_features(native_chat_model_test PRIVATE cxx_std_20)
+mirage_enable_warnings(native_chat_model_test)
+add_test(NAME native_chat_model_test COMMAND native_chat_model_test)
+set_tests_properties(native_chat_model_test PROPERTIES LABELS "unit;ui" TIMEOUT 30)
+
+add_executable(credential_store_test platform/credential_store_test.cpp)
+target_compile_features(credential_store_test PRIVATE cxx_std_20)
+mirage_enable_warnings(credential_store_test)
+target_link_libraries(credential_store_test PRIVATE Mirage::platform Mira::core)
+target_include_directories(credential_store_test SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include")
+target_link_libraries(credential_store_test PRIVATE $<TARGET_FILE:executor::executor>)
+add_test(NAME credential_store_test COMMAND credential_store_test)
+set_tests_properties(credential_store_test PROPERTIES LABELS "unit;platform" TIMEOUT 30)
+
 add_executable(dependency_wiring_test smoke/dependency_wiring_test.cpp)
 target_compile_features(dependency_wiring_test PUBLIC cxx_std_20)
 mirage_enable_warnings(dependency_wiring_test)
@@ -48,23 +66,6 @@ mirage_enable_warnings(desktop_observation_test)
 target_link_libraries(desktop_observation_test PRIVATE Mirage::desktop)
 add_test(NAME desktop_observation_test COMMAND desktop_observation_test)
 
-# M5-02: the desktop shell bridge core (renderer transport ↔ Local IPC
-# session mapping) is CEF-free by construction, so its mapping tests run on
-# every platform without a browser. The single source file is compiled into
-# the test directly (the shell target itself is opt-in and CEF-linked).
-add_executable(bridge_core_test desktop/bridge_core_test.cpp
-    ${CMAKE_SOURCE_DIR}/apps/desktop/src/bridge_core.cpp)
-target_compile_features(bridge_core_test PUBLIC cxx_std_20)
-mirage_enable_warnings(bridge_core_test)
-target_include_directories(bridge_core_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/apps/desktop/src
-)
-target_link_libraries(bridge_core_test PRIVATE Mirage::ipc)
-add_test(NAME bridge_core_test COMMAND bridge_core_test)
-set_tests_properties(bridge_core_test PROPERTIES
-    LABELS "unit"
-    TIMEOUT 60
-)
 set_tests_properties(desktop_observation_test PROPERTIES
     LABELS "unit"
     TIMEOUT 60
@@ -111,6 +112,16 @@ find_package(PkgConfig QUIET)
 if(PKG_CONFIG_FOUND)
     pkg_check_modules(ATSPI_TEST QUIET IMPORTED_TARGET atspi-2 gobject-2.0 gio-2.0)
 endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND X11_FOUND AND X11_Xtst_FOUND AND X11_Xrandr_FOUND)
+    add_executable(frontend_activation_test platform/frontend_activation_test.cpp)
+    target_compile_features(frontend_activation_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(frontend_activation_test)
+    target_include_directories(frontend_activation_test PRIVATE ${X11_INCLUDE_DIR})
+    target_link_libraries(frontend_activation_test PRIVATE Mirage::platform ${X11_X11_LIB})
+    add_test(NAME frontend_activation_test COMMAND frontend_activation_test)
+    set_tests_properties(frontend_activation_test PROPERTIES LABELS "integration;platform" TIMEOUT 20)
+endif()
+
 if(X11_FOUND AND X11_Xtst_FOUND)
     add_executable(x11_backend_test platform/x11_backend_test.cpp)
     target_compile_features(x11_backend_test PUBLIC cxx_std_20)
@@ -989,39 +1000,6 @@ set_tests_properties(task_pause_test PROPERTIES
 )
 endif()
 
-# M1.5-03 dev bridge: the codec tests are pure byte machinery; the relay
-# tests run a real DevBridgeLoop on the Executor against a scripted echo
-# upstream over a temporary Unix socket. Both link only mirage_devbridge_core
-# (executor headers come through its SYSTEM include dir, executor symbols
-# through its LINK_ONLY interface).
-# POSIX-only: the devbridge transport (see apps/CMakeLists.txt).
-# 
-if(UNIX)
-add_executable(websocket_test devbridge/websocket_test.cpp)
-target_compile_features(websocket_test PUBLIC cxx_std_20)
-mirage_enable_warnings(websocket_test)
-target_link_libraries(websocket_test PRIVATE mirage_devbridge_core)
-add_test(NAME websocket_test COMMAND websocket_test)
-set_tests_properties(websocket_test PROPERTIES
-    LABELS "unit"
-    TIMEOUT 60
-)
-endif()
-
-# POSIX-only: the devbridge transport (see apps/CMakeLists.txt).
-# 
-if(UNIX)
-add_executable(bridge_relay_test devbridge/bridge_relay_test.cpp)
-target_compile_features(bridge_relay_test PUBLIC cxx_std_20)
-mirage_enable_warnings(bridge_relay_test)
-target_link_libraries(bridge_relay_test PRIVATE mirage_devbridge_core)
-add_test(NAME bridge_relay_test COMMAND bridge_relay_test)
-set_tests_properties(bridge_relay_test PROPERTIES
-    LABELS "integration"
-    TIMEOUT 120
-)
-endif()
-
 # M3-01 visual contract (DEC-016): VisualSnapshot render forms and the
 # VisualReferenceRegistry publication contract, including a concurrent
 # writer/reader atomicity scenario (a TSAN target).
@@ -1208,3 +1186,46 @@ set_tests_properties(dependency_lock_gate_test PROPERTIES
     LABELS "unit;smoke"
     TIMEOUT 60
 )
+
+if(UNIX)
+    add_executable(native_agent_integration_test runtime/native_agent_integration_test.cpp
+        ${CMAKE_SOURCE_DIR}/apps/native/runtime_bridge.cpp ${CMAKE_SOURCE_DIR}/apps/native/attachment.cpp)
+    target_include_directories(native_agent_integration_test PRIVATE
+        ${CMAKE_SOURCE_DIR}/apps/native)
+    target_include_directories(native_agent_integration_test SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include)
+    target_link_libraries(native_agent_integration_test PRIVATE Mirage::runtime_service
+        Mirage::ipc Mirage::persistence Mirage::integration_mira executor)
+    mirage_enable_warnings(native_agent_integration_test)
+    add_test(NAME native_agent_integration_test COMMAND native_agent_integration_test)
+    set_tests_properties(native_agent_integration_test PROPERTIES LABELS "integration;runtime;ui" TIMEOUT 40)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_ENABLE_NATIVE_FRONTEND)
+    add_executable(native_conversation_view_test desktop/native_conversation_view_test.cpp
+        ${CMAKE_SOURCE_DIR}/apps/native/chat_model.cpp
+        ${CMAKE_SOURCE_DIR}/apps/native/window_controls.cpp
+        ${CMAKE_SOURCE_DIR}/apps/native/runtime_bridge.cpp
+        ${CMAKE_SOURCE_DIR}/apps/native/attachment.cpp)
+    add_dependencies(native_conversation_view_test mirage-native)
+    target_include_directories(native_conversation_view_test PRIVATE ${CMAKE_SOURCE_DIR}/apps/native)
+    target_include_directories(native_conversation_view_test SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/eui-neo ${CMAKE_SOURCE_DIR}/third_party/eui-neo/include
+        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include)
+    target_link_libraries(native_conversation_view_test PRIVATE eui::neo Mirage::ipc Mirage::persistence executor)
+    mirage_enable_warnings(native_conversation_view_test)
+    add_test(NAME native_conversation_view_test COMMAND native_conversation_view_test)
+    set_tests_properties(native_conversation_view_test PROPERTIES LABELS "integration;ui" TIMEOUT 30
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/apps/native")
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(tray_runtime_test runtime/tray_runtime_test.cpp)
+    target_compile_features(tray_runtime_test PRIVATE cxx_std_20)
+    target_include_directories(tray_runtime_test SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include")
+    target_link_libraries(tray_runtime_test PRIVATE Mirage::runtime_service Mirage::integration_mira)
+    mirage_enable_warnings(tray_runtime_test)
+    add_test(NAME tray_runtime_test COMMAND tray_runtime_test)
+    set_tests_properties(tray_runtime_test PROPERTIES LABELS "integration;runtime;lifecycle" TIMEOUT 30)
+endif()

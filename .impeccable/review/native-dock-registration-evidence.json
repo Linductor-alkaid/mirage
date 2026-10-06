@@ -1,0 +1,349 @@
+{
+  "date": "2026-10-04",
+  "desktop_id": "org.mirage.native.desktop",
+  "startup_wm_class": "org.mirage.native",
+  "window_wm_class": [
+    "org.mirage.native",
+    "org.mirage.native"
+  ],
+  "desktop_file_validate_debug_release": "passed",
+  "gio_identity_executable_and_icon_resolution": "passed",
+  "desktop_entry": "/home/linductor/.local/share/applications/org.mirage.native.desktop",
+  "icon": "/home/linductor/mirage/build/native-release/apps/native/assets/mira.png",
+  "gnome_accessible_nodes": [
+    {
+      "role": "label",
+      "name": "Mirage",
+      "path": [
+        [
+          "application",
+          "gnome-shell"
+        ],
+        [
+          "window",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          "概览"
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "push button",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "label",
+          "Mirage"
+        ]
+      ]
+    },
+    {
+      "role": "label",
+      "name": "Mirage",
+      "path": [
+        [
+          "application",
+          "gnome-shell"
+        ],
+        [
+          "window",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          "概览"
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "push button",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "label",
+          "Mirage"
+        ]
+      ]
+    },
+    {
+      "role": "push button",
+      "name": "Mirage",
+      "path": [
+        [
+          "application",
+          "gnome-shell"
+        ],
+        [
+          "window",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          "概览"
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "push button",
+          "Mirage"
+        ]
+      ]
+    },
+    {
+      "role": "push button",
+      "name": "Mirage",
+      "path": [
+        [
+          "application",
+          "gnome-shell"
+        ],
+        [
+          "window",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "push button",
+          "Mirage"
+        ]
+      ]
+    },
+    {
+      "role": "label",
+      "name": "审查 Mirage 项目",
+      "path": [
+        [
+          "application",
+          "gnome-shell"
+        ],
+        [
+          "window",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "panel",
+          ""
+        ],
+        [
+          "menu item",
+          ""
+        ],
+        [
+          "label",
+          "审查 Mirage 项目"
+        ]
+      ]
+    }
+  ],
+  "gnome_mirage_button_showing": true,
+  "dock_pixels": "not captured; GNOME Screenshot denied; no bypass attempted",
+  "gnome_accessible_nodes_with_states": [
+    {
+      "name": "Mirage",
+      "role": "label",
+      "showing": false,
+      "screen_bounds": [
+        2098,
+        3268,
+        91,
+        36
+      ]
+    },
+    {
+      "name": "Mirage",
+      "role": "label",
+      "showing": false,
+      "screen_bounds": [
+        -2147483648,
+        -2147483648,
+        -2147483648,
+        -2147483648
+      ]
+    },
+    {
+      "name": "Mirage",
+      "role": "push button",
+      "showing": false,
+      "screen_bounds": [
+        -2147483648,
+        -2147483648,
+        -2147483648,
+        -2147483648
+      ]
+    },
+    {
+      "name": "Mirage",
+      "role": "push button",
+      "showing": true,
+      "screen_bounds": [
+        0,
+        1106,
+        132,
+        120
+      ]
+    }
+  ]
+}

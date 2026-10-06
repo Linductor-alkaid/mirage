@@ -1,5 +1,7 @@
 # 壳二进制与前端依赖的锁定、SBOM 与更新通道机制复核（DEC-006 M3-06）
 
+> 2026-10-05：本文 CEF/TS 选型及 npm/CEF 载荷锁定部分已由 [DEC-037](../decisions/DEC-037-native-model-composer-and-web-retirement.md) 替代；保留历史证据。当前前端为 EUI，依赖锁 schema 3，无 Chromium 下载消费。
+
 > 状态：Mechanism landed（M3-06 机制复核；§2 锁定机制已随 M5-01 落地为
 > `dependencies.lock.json` schema v2 与 configure 门禁——工件结构校验、npm 锁哈希
 > 活动门禁、`mirage_require_locked_artifact()` 消费门禁，回归见

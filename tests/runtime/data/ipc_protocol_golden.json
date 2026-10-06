@@ -1,13 +1,12 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 10,
+    "version": 13,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
-    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted)",
+    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted), DEC-038 (Accepted), DEC-039 (Accepted), DEC-045 (Accepted)",
     "consumers": [
-      "tests/runtime/ipc_protocol_golden_test.cpp",
-      "ui/contracts/test/golden-vectors.test.ts"
+      "tests/runtime/ipc_protocol_golden_test.cpp"
     ],
     "notes": [
       "canonical strings are byte-exact: compact JSON, members in the wire order pinned by the schema doc sections 4-7.",
@@ -21,7 +20,10 @@
       "v7 (M5-06): session.close management face (DEC-026 backlog item 2) - session.close request (non-empty session_id) with the SessionClosed reply (session_id + post-close state, mirroring the workflow.cancel reply shape; state from the pinned session state vocabulary); primary session refused invalid_state product-side, unknown id not_found, registry entry removed on success. wire order pinned by schema doc sections 4, 6.4 and 10.",
       "v8 (M5-06): dialog mode face (DEC-027) - session.chat / session.chat.history requests with the DialogTurnAccepted / DialogHistory payloads (turns carry pending/ok/failed closed status vocabulary, reply_text / error encode-when-set exactly at ok / failed), session.chat_updated event (pending / ok / failed lifecycle), hello 'chat' capability member (model-layer equipment, permissions-bit precedent); wire order pinned by schema doc sections 4, 6.1, 6.7 and 7.2.",
       "v9 (M5-07): permission policy face (DEC-020/DEC-011 evolution) - policy.get / policy.set requests with the PolicyView payload (full DEC-010 rule set, optional read_roots resource scope), hello 'policy' capability member (always served); wire order pinned by schema doc sections 4, 6.1, 6.8 and 10.",
-    "v10 (M5-10): task pause/resume face (DEC-030) - task.pause / task.resume requests with the TaskPaused / TaskResumed replies (task_id + post-command progress snapshot, mirroring the task.cancel reply shape); progress stays inside the task.updated / task.inspect vocabulary. wire order pinned by schema doc sections 4, 6.9 and 10."
+      "v10 (M5-10): task pause/resume face (DEC-030) - task.pause / task.resume requests with the TaskPaused / TaskResumed replies (task_id + post-command progress snapshot, mirroring the task.cancel reply shape); progress stays inside the task.updated / task.inspect vocabulary. wire order pinned by schema doc sections 4, 6.9 and 10.",
+      "v11 (M6-09): direct API Key write-only model.set field and optional cleanup warning; session.delete acknowledged persistence boundary. Existing v1 request/response canonical strings remain compatible; schema doc DEC-038 increment.",
+      "v12 (M6-11): optional last-turn replacement guard and replacement provenance in acknowledgement/events. Absent fields retain previous canonical strings.",
+      "v13 (M6-25): tray capability and product.control actions/state; readiness binds the owned frontend PID, quit confirmation uses a separate exit epoch; old v1 vectors unchanged."
     ]
   },
   "requests": [
@@ -375,6 +377,107 @@
         ]
       },
       "canonical": "{\"v\":1,\"id\":35,\"op\":\"policy.set\",\"rules\":{\"application.launch\":\"allow\",\"application.terminate\":\"confirm\",\"clipboard.read\":\"allow\",\"clipboard.write\":\"confirm\",\"filesystem.read\":\"allow\",\"filesystem.write\":\"deny\",\"input.inject\":\"confirm\",\"notification.post\":\"allow\",\"process.execute\":\"confirm\",\"screen.capture\":\"allow\",\"window.activate\":\"allow\"},\"read_roots\":[\"/home/user/work\",\"/tmp/scratch\"]}"
+    },
+    {
+      "name": "session-delete",
+      "id": 91,
+      "body": {
+        "op": "session.delete",
+        "session_id": "session-1"
+      },
+      "canonical": "{\"v\":1,\"id\":91,\"op\":\"session.delete\",\"session_id\":\"session-1\"}"
+    },
+    {
+      "name": "model-key-write-only",
+      "id": 92,
+      "body": {
+        "op": "model.set",
+        "settings": "{\"schema\":1,\"model\":{\"enabled\":false}}",
+        "api_key": "synthetic-key"
+      },
+      "canonical": "{\"v\":1,\"id\":92,\"op\":\"model.set\",\"settings\":\"{\\\"schema\\\":1,\\\"model\\\":{\\\"enabled\\\":false}}\",\"api_key\":\"synthetic-key\"}"
+    },
+    {
+      "name": "model-key-remove",
+      "id": 93,
+      "body": {
+        "op": "model.set",
+        "settings": "{\"schema\":1,\"model\":{\"enabled\":false}}",
+        "api_key": ""
+      },
+      "canonical": "{\"v\":1,\"id\":93,\"op\":\"model.set\",\"settings\":\"{\\\"schema\\\":1,\\\"model\\\":{\\\"enabled\\\":false}}\",\"api_key\":\"\"}"
+    },
+    {
+      "name": "session-chat-replace",
+      "id": 91,
+      "body": {
+        "op": "session.chat",
+        "session_id": "session-1",
+        "text": "revised input",
+        "replace_turn_id": "old-turn"
+      },
+      "canonical": "{\"v\":1,\"id\":91,\"op\":\"session.chat\",\"session_id\":\"session-1\",\"text\":\"revised input\",\"replace_turn_id\":\"old-turn\"}"
+    },
+    {
+      "name": "product-status",
+      "id": 101,
+      "body": {
+        "op": "product.control",
+        "action": "status",
+        "exit_epoch": 0
+      },
+      "canonical": "{\"v\":1,\"id\":101,\"op\":\"product.control\",\"action\":\"status\",\"exit_epoch\":0}"
+    },
+    {
+      "name": "product-open",
+      "id": 102,
+      "body": {
+        "op": "product.control",
+        "action": "open",
+        "exit_epoch": 0
+      },
+      "canonical": "{\"v\":1,\"id\":102,\"op\":\"product.control\",\"action\":\"open\",\"exit_epoch\":0}"
+    },
+    {
+      "name": "product-quit",
+      "id": 103,
+      "body": {
+        "op": "product.control",
+        "action": "quit",
+        "exit_epoch": 0
+      },
+      "canonical": "{\"v\":1,\"id\":103,\"op\":\"product.control\",\"action\":\"quit\",\"exit_epoch\":0}"
+    },
+    {
+      "name": "product-confirm_quit",
+      "id": 104,
+      "body": {
+        "op": "product.control",
+        "action": "confirm_quit",
+        "exit_epoch": 4
+      },
+      "canonical": "{\"v\":1,\"id\":104,\"op\":\"product.control\",\"action\":\"confirm_quit\",\"exit_epoch\":4}"
+    },
+    {
+      "name": "product-cancel_quit",
+      "id": 105,
+      "body": {
+        "op": "product.control",
+        "action": "cancel_quit",
+        "exit_epoch": 4
+      },
+      "canonical": "{\"v\":1,\"id\":105,\"op\":\"product.control\",\"action\":\"cancel_quit\",\"exit_epoch\":4}"
+    },
+    {
+      "name": "product-frontend_ready",
+      "id": 106,
+      "body": {
+        "op": "product.control",
+        "action": "frontend_ready",
+        "exit_epoch": 0,
+        "frontend_pid": 777
+      },
+      "canonical": "{\"v\":1,\"id\":106,\"op\":\"product.control\",\"action\":\"frontend_ready\",\"exit_epoch\":0,\"frontend_pid\":777}"
     }
   ],
   "request_failures": [
@@ -607,6 +710,41 @@
       "name": "policy-set-root-empty",
       "payload": "{\"v\":1,\"id\":9,\"op\":\"policy.set\",\"rules\":{\"input.inject\":\"allow\"},\"read_roots\":[\"\"]}",
       "error": "policy.set 'read_roots' entries must be strings of at most 4096 bytes"
+    },
+    {
+      "name": "invalid-replacement-0",
+      "payload": "{\"v\":1,\"id\":91,\"op\":\"session.chat\",\"session_id\":\"session-1\",\"text\":\"test\",\"replace_turn_id\":\"\"}",
+      "error": "replace_turn_id must be a non-empty bounded string"
+    },
+    {
+      "name": "invalid-replacement-1",
+      "payload": "{\"v\":1,\"id\":91,\"op\":\"session.chat\",\"session_id\":\"session-1\",\"text\":\"test\",\"replace_turn_id\":7}",
+      "error": "replace_turn_id must be a non-empty bounded string"
+    },
+    {
+      "name": "invalid-replacement-129",
+      "payload": "{\"v\":1,\"id\":91,\"op\":\"session.chat\",\"session_id\":\"session-1\",\"text\":\"test\",\"replace_turn_id\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      "error": "replace_turn_id must be a non-empty bounded string"
+    },
+    {
+      "name": "product-unknown-action",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"product.control\",\"action\":\"unknown\",\"exit_epoch\":0}",
+      "error": "invalid product action or exit epoch"
+    },
+    {
+      "name": "product-negative-epoch",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"product.control\",\"action\":\"quit\",\"exit_epoch\":-1}",
+      "error": "invalid product action or exit epoch"
+    },
+    {
+      "name": "product-ready-missing-pid",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"product.control\",\"action\":\"frontend_ready\",\"exit_epoch\":0}",
+      "error": "frontend_ready requires a positive frontend_pid and zero exit_epoch"
+    },
+    {
+      "name": "product-ready-nonzero-epoch",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"product.control\",\"action\":\"frontend_ready\",\"exit_epoch\":3,\"frontend_pid\":777}",
+      "error": "frontend_ready requires a positive frontend_pid and zero exit_epoch"
     }
   ],
   "responses": [
@@ -1532,6 +1670,88 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":37,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1,\"events\":true,\"permissions\":true,\"sessions\":true,\"workflows\":true,\"observation\":true,\"chat\":true,\"policy\":true}"
+    },
+    {
+      "name": "session-deleted",
+      "response": {
+        "id": 91,
+        "ok": true,
+        "payload": {
+          "kind": "session-deleted",
+          "value": {
+            "session_id": "session-1"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":91,\"ok\":true,\"session_id\":\"session-1\",\"deleted\":true}"
+    },
+    {
+      "name": "model-configuration-warning",
+      "response": {
+        "id": 92,
+        "ok": true,
+        "payload": {
+          "kind": "model-configuration",
+          "value": {
+            "settings": "{\"schema\":1}",
+            "warning": "cleanup pending"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":92,\"ok\":true,\"model_settings\":\"{\\\"schema\\\":1}\",\"warning\":\"cleanup pending\"}"
+    },
+    {
+      "name": "session-chat-replacement-accepted",
+      "response": {
+        "id": 91,
+        "ok": true,
+        "payload": {
+          "kind": "session-chat-accepted",
+          "value": {
+            "turn_id": "new-turn",
+            "replaces_turn_id": "old-turn"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":91,\"ok\":true,\"turn_id\":\"new-turn\",\"replaces_turn_id\":\"old-turn\"}"
+    },
+    {
+      "name": "product-pending",
+      "response": {
+        "id": 105,
+        "ok": true,
+        "payload": {
+          "kind": "product-state",
+          "value": {
+            "frontend_pid": 777,
+            "window_epoch": 2,
+            "exit_epoch": 4,
+            "active_work": 1,
+            "exit_pending": true,
+            "frontend_ready": true
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":105,\"ok\":true,\"product\":true,\"frontend_pid\":777,\"window_epoch\":2,\"exit_epoch\":4,\"active_work\":1,\"exit_pending\":true,\"frontend_ready\":true}"
+    },
+    {
+      "name": "hello-registered-tray",
+      "response": {
+        "id": 7,
+        "ok": true,
+        "payload": {
+          "kind": "identity",
+          "value": {
+            "service": "mirage-service",
+            "mirage_version": "0.1.0",
+            "mira_core_version": "0.4.0",
+            "host_status": "running",
+            "protocol": 1,
+            "tray": true
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":7,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1,\"tray\":true}"
     }
   ],
   "response_failures": [
@@ -1749,6 +1969,16 @@
       "name": "policy-view-root-too-long",
       "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"rules\":{\"application.launch\":\"allow\",\"application.terminate\":\"allow\",\"clipboard.read\":\"allow\",\"clipboard.write\":\"allow\",\"filesystem.read\":\"allow\",\"filesystem.write\":\"deny\",\"input.inject\":\"allow\",\"notification.post\":\"allow\",\"process.execute\":\"allow\",\"screen.capture\":\"allow\",\"window.activate\":\"allow\"},\"read_roots\":[\"/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]}",
       "error": "policy.get 'read_roots' entries must be strings of at most 4096 bytes"
+    },
+    {
+      "name": "product-negative-pid",
+      "payload": "{\"v\":1,\"id\":1,\"ok\":true,\"product\":true,\"frontend_pid\":-1,\"window_epoch\":2,\"exit_epoch\":4,\"active_work\":1,\"exit_pending\":true,\"frontend_ready\":true}",
+      "error": "invalid product state"
+    },
+    {
+      "name": "hello-tray-nonboolean",
+      "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1,\"tray\":\"yes\"}",
+      "error": "hello tray must be boolean"
     }
   ],
   "events": [
@@ -1922,6 +2152,21 @@
         "sequence": 2
       },
       "canonical": "{\"v\":1,\"seq\":13,\"event\":\"session.chat_updated\",\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"turn_id\":\"8c9e66794742f64b6f4b1c9d2e0f1a3b\",\"status\":\"pending\",\"user_text\":\"第二个问题\",\"sequence\":2}"
+    },
+    {
+      "name": "session-chat-replacement-pending",
+      "event": {
+        "v": 1,
+        "seq": 91,
+        "event": "session.chat_updated",
+        "replaces_turn_id": "old-turn",
+        "session_id": "session-1",
+        "turn_id": "new-turn",
+        "status": "pending",
+        "user_text": "revised input",
+        "sequence": 3
+      },
+      "canonical": "{\"v\":1,\"seq\":91,\"event\":\"session.chat_updated\",\"replaces_turn_id\":\"old-turn\",\"session_id\":\"session-1\",\"turn_id\":\"new-turn\",\"status\":\"pending\",\"user_text\":\"revised input\",\"sequence\":3}"
     }
   ],
   "event_failures": [

@@ -136,12 +136,28 @@ std::string encode_settings(const LocalSettings &settings) {
     if (settings.model.has_value()) {
         const ModelSettings &model = *settings.model;
         JsonValue model_object = make_object();
+        if (!model.credential_ref.empty())
+            put(model_object, "credential_ref", JsonValue{model.credential_ref});
+        if (model.api_key_configured)
+            put(model_object, "api_key_configured", JsonValue{true});
+        if (!model.reasoning_options.empty()) {
+            JsonValue::Array options;
+            for (const auto &value : model.reasoning_options)
+                options.emplace_back(value);
+            put(model_object, "reasoning_options", JsonValue{std::move(options)});
+        }
+        if (model.supports_reasoning)
+            put(model_object, "supports_reasoning", JsonValue{true});
         if (model.enabled) {
             put(model_object, "enabled", JsonValue{true});
         }
         if (!model.dialect.empty()) {
             put(model_object, "dialect", JsonValue{model.dialect});
         }
+        if (!model.provider_id.empty())
+            put(model_object, "provider_id", JsonValue{model.provider_id});
+        if (!model.provider_name.empty())
+            put(model_object, "provider_name", JsonValue{model.provider_name});
         if (!model.display_name.empty()) {
             put(model_object, "display_name", JsonValue{model.display_name});
         }
@@ -154,10 +170,23 @@ std::string encode_settings(const LocalSettings &settings) {
         if (!model.model_selector.empty()) {
             put(model_object, "model", JsonValue{model.model_selector});
         }
+        if (model.context_window_tokens)
+            put(model_object, "context_window_tokens",
+                JsonValue{static_cast<std::int64_t>(model.context_window_tokens)});
         if (!model.credential_env.empty()) {
             put(model_object, "credential_env", JsonValue{model.credential_env});
         }
         put(object, "model", std::move(model_object));
+    }
+    if (settings.models_present || !settings.models.empty()) {
+        JsonValue::Array models;
+        for (const auto &profile : settings.models) {
+            LocalSettings single;
+            single.model = profile;
+            auto encoded = mira::parse_json(encode_settings(single));
+            models.push_back(*member(encoded.value(), "model"));
+        }
+        put(object, "models", JsonValue{std::move(models)});
     }
     if (settings.runtime.has_value()) {
         const RuntimeSettings &runtime = *settings.runtime;
@@ -177,6 +206,10 @@ std::string encode_settings(const LocalSettings &settings) {
 
 SettingsDecode decode_settings(std::string_view body) {
     SettingsDecode result;
+    if (body.size() > kMaxSettingsFileBytes) {
+        result.error = "settings exceeds 64 KiB";
+        return result;
+    }
     auto parsed = mira::parse_json(body);
     if (!parsed) {
         result.error = "invalid JSON: " + parsed.error().safe_message;
@@ -188,7 +221,7 @@ SettingsDecode decode_settings(std::string_view body) {
         return result;
     }
     if (has_unknown_member(document, {"schema", "socket", "read_roots", "permission",
-                                      "confirmation", "model", "runtime"})) {
+                                      "confirmation", "model", "models", "runtime"})) {
         result.error = "settings document contains an unknown member";
         return result;
     }
@@ -257,6 +290,44 @@ SettingsDecode decode_settings(std::string_view body) {
             return result;
         }
         ModelSettings model;
+        if (has_unknown_member(*model_value,
+                               {"enabled", "supports_reasoning", "dialect", "display_name",
+                                "endpoint", "api_prefix", "model", "credential_env",
+                                "credential_ref", "api_key_configured", "context_window_tokens",
+                                "provider_id", "provider_name", "reasoning_options"})) {
+            result.error = "unknown model field";
+            return result;
+        }
+        if (const auto *value = member(*model_value, "reasoning_options")) {
+            const auto *options = value->as_array();
+            if (!options || options->size() > 8) {
+                result.error = "invalid reasoning options";
+                return result;
+            }
+            for (const auto &entry : *options) {
+                if (!entry.is_string() || entry.as_string()->size() > 16) {
+                    result.error = "invalid reasoning option";
+                    return result;
+                }
+                model.reasoning_options.push_back(*entry.as_string());
+            }
+        }
+        if (const auto *value = member(*model_value, "supports_reasoning")) {
+            const auto flag = value->as_boolean();
+            if (!flag) {
+                result.error = "supports_reasoning must be boolean";
+                return result;
+            }
+            model.supports_reasoning = *flag;
+        }
+        if (const auto *value = member(*model_value, "api_key_configured")) {
+            const auto flag = value->as_boolean();
+            if (!flag) {
+                result.error = "api_key_configured must be boolean";
+                return result;
+            }
+            model.api_key_configured = *flag;
+        }
         if (const auto *enabled = member(*model_value, "enabled"); enabled != nullptr) {
             const auto flag = enabled->as_boolean();
             if (!flag) {
@@ -275,6 +346,10 @@ SettingsDecode decode_settings(std::string_view body) {
                 result.error = "member 'model." + std::string(key) + "' must be a string";
                 return false;
             }
+            if (text->size() > 2048) {
+                result.error = "model field exceeds 2048 bytes";
+                return false;
+            }
             target = *text;
             return true;
         };
@@ -283,10 +358,57 @@ SettingsDecode decode_settings(std::string_view body) {
             !copy_string("endpoint", model.endpoint_origin) ||
             !copy_string("api_prefix", model.api_prefix) ||
             !copy_string("model", model.model_selector) ||
-            !copy_string("credential_env", model.credential_env)) {
+            !copy_string("credential_env", model.credential_env) ||
+            !copy_string("credential_ref", model.credential_ref) ||
+            !copy_string("provider_id", model.provider_id) ||
+            !copy_string("provider_name", model.provider_name)) {
+            return result;
+        }
+        if (const auto *value = member(*model_value, "context_window_tokens")) {
+            const auto number = value->as_integer();
+            if (!number || (*number != 0 && (*number < 2048 || *number > 2000000))) {
+                result.error =
+                    "model.context_window_tokens must be 0 or an integer between 2048 and 2000000";
+                return result;
+            }
+            model.context_window_tokens = static_cast<std::uint64_t>(*number);
+        }
+        if (!model.credential_ref.empty() &&
+            (model.credential_ref.size() != 32 ||
+             model.credential_ref.find_first_not_of("0123456789abcdef") != std::string::npos)) {
+            result.error = "invalid credential reference";
             return result;
         }
         settings.model = std::move(model);
+    }
+    if (const auto *catalog = member(document, "models")) {
+        settings.models_present = true;
+        const auto *array = catalog->as_array();
+        if (!array || array->size() > 12) {
+            result.error = "models must be an array of at most 12 profiles";
+            return result;
+        }
+        for (const auto &entry : *array) {
+            JsonValue single = make_object();
+            put(single, "schema", JsonValue{1});
+            put(single, "model", entry);
+            auto decoded = decode_settings(mira::to_json_string(single));
+            if (!decoded.ok || !decoded.settings.model) {
+                result.error = "invalid models entry: " + decoded.error;
+                return result;
+            }
+            const auto &name = decoded.settings.model->display_name;
+            if (name.empty() || name.size() > 128) {
+                result.error = "catalog profile name must contain 1..128 bytes";
+                return result;
+            }
+            for (const auto &previous : settings.models)
+                if (previous.display_name == name) {
+                    result.error = "duplicate catalog profile name";
+                    return result;
+                }
+            settings.models.push_back(*decoded.settings.model);
+        }
     }
     if (const JsonValue *runtime_value = member(document, "runtime"); runtime_value != nullptr) {
         if (!runtime_value->is_object()) {

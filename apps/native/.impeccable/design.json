@@ -1,0 +1,1519 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-05T18:57:05.180634+00:00",
+  "title": "Design System: Mirage 原生 Agent 对话页",
+  "extensions": {
+    "scope": {
+      "surface": "apps/native / mirage-native",
+      "designDocument": "apps/native/DESIGN.md",
+      "sourceFiles": [
+        "apps/native/app.cpp",
+        "apps/native/window_controls.cpp",
+        "apps/native/chat_model.cpp",
+        "apps/native/runtime_bridge.cpp",
+        "apps/native/chat_model.hpp",
+        "apps/native/markdown_adapter.hpp",
+        "apps/native/context_usage.hpp",
+        "apps/native/secret_input.hpp",
+        "apps/native/secret_edit.hpp",
+        "apps/native/conversation_preview.hpp",
+        "apps/native/selection_adapter.hpp",
+        "apps/native/text_selection.hpp",
+        "apps/native/CMakeLists.txt",
+        "apps/native/assets/fonts/provenance.json",
+        "apps/native/typography.hpp",
+        "apps/native/provider_presets.hpp"
+      ],
+      "directionContract": "docs/design/native-agent-frontend.md",
+      "legacyDesignDocument": "DESIGN.md",
+      "previewOnly": false,
+      "runtime": "Separate Runtime Service via versioned Local IPC; UI owns its Executor-managed bridge.",
+      "workItem": "M6-22",
+      "decision": "docs/decisions/DEC-043-provider-presets-and-anthropic.md",
+      "visualAuthority": {
+        "seed": "user-zcode-native",
+        "mode": "code-led",
+        "purpose": "Operate",
+        "referenceRevision": "29628c9acdb81b703bbd4080c207a0e7ce5e276e",
+        "comparison": "ZCode source and official page content; browser navigation timed out. Native captures are synthetic public EUI renders on isolated Xvfb, not live ZCode pixel comparison."
+      },
+      "priorWorkItems": [
+        "M6-01",
+        "M6-02",
+        "M6-03",
+        "M6-05",
+        "M6-06",
+        "M6-07",
+        "M6-08",
+        "M6-09",
+        "M6-11"
+      ],
+      "priorDecisions": [
+        "DEC-033",
+        "DEC-034",
+        "DEC-035",
+        "DEC-036",
+        "DEC-037",
+        "DEC-038",
+        "DEC-039"
+      ],
+      "contractDocuments": [
+        "docs/design/native-agent-frontend.md",
+        "docs/design/mirage-ipc-protocol-v1.md",
+        "docs/decisions/DEC-038-api-keys-and-draft-sessions.md",
+        "docs/decisions/DEC-039-conversation-selection-and-revision.md",
+        "docs/decisions/DEC-040-native-typography.md",
+        "docs/decisions/DEC-041-native-conversation-density-and-progress.md"
+      ],
+      "liveAcceptance": "docs/compatibility/native-provider-editor-20261006.md"
+    },
+    "colorMeta": {
+      "light-background": {
+        "role": "neutral",
+        "displayName": "light background",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "light-sidebar": {
+        "role": "neutral",
+        "displayName": "light sidebar",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "light-surface": {
+        "role": "neutral",
+        "displayName": "light surface",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "light-hover": {
+        "role": "neutral",
+        "displayName": "light hover",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "light-selected": {
+        "role": "neutral",
+        "displayName": "light selected",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "light-text": {
+        "role": "neutral",
+        "displayName": "light text",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "light-muted": {
+        "role": "neutral",
+        "displayName": "light muted",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "light-border": {
+        "role": "neutral",
+        "displayName": "light border",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "light-action": {
+        "role": "primary",
+        "displayName": "light action",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "light-inverse": {
+        "role": "neutral",
+        "displayName": "light inverse",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "dark-background": {
+        "role": "neutral",
+        "displayName": "dark background",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "dark-sidebar": {
+        "role": "neutral",
+        "displayName": "dark sidebar",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "dark-surface": {
+        "role": "neutral",
+        "displayName": "dark surface",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "dark-hover": {
+        "role": "neutral",
+        "displayName": "dark hover",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "dark-selected": {
+        "role": "neutral",
+        "displayName": "dark selected",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "dark-text": {
+        "role": "neutral",
+        "displayName": "dark text",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "dark-muted": {
+        "role": "neutral",
+        "displayName": "dark muted",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "dark-border": {
+        "role": "neutral",
+        "displayName": "dark border",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "dark-action": {
+        "role": "primary",
+        "displayName": "dark action",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "dark-inverse": {
+        "role": "neutral",
+        "displayName": "dark inverse",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "light-user": {
+        "role": "neutral",
+        "displayName": "light user",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "dark-user": {
+        "role": "neutral",
+        "displayName": "dark user",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "dark-composer": {
+        "role": "neutral",
+        "displayName": "dark composer",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "light-markdown-accent": {
+        "role": "primary",
+        "displayName": "light markdown accent",
+        "tonalRamp": [
+          "oklch(15.00% 0.1367 249.46)",
+          "oklch(26.43% 0.1367 249.46)",
+          "oklch(37.86% 0.1367 249.46)",
+          "oklch(49.29% 0.1367 249.46)",
+          "oklch(60.71% 0.1367 249.46)",
+          "oklch(72.14% 0.1367 249.46)",
+          "oklch(83.57% 0.1367 249.46)",
+          "oklch(95.00% 0.1367 249.46)"
+        ],
+        "rampProvenance": "Synthesized panel-only OKLCH lightness ramp; source hex remains the normative implemented color."
+      },
+      "dark-markdown-accent": {
+        "role": "primary",
+        "displayName": "dark markdown accent",
+        "tonalRamp": [
+          "oklch(15.00% 0.1132 250.55)",
+          "oklch(26.43% 0.1132 250.55)",
+          "oklch(37.86% 0.1132 250.55)",
+          "oklch(49.29% 0.1132 250.55)",
+          "oklch(60.71% 0.1132 250.55)",
+          "oklch(72.14% 0.1132 250.55)",
+          "oklch(83.57% 0.1132 250.55)",
+          "oklch(95.00% 0.1132 250.55)"
+        ],
+        "rampProvenance": "Synthesized panel-only OKLCH lightness ramp; source hex remains the normative implemented color."
+      },
+      "light-code-background": {
+        "role": "neutral",
+        "displayName": "light code background",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "dark-code-background": {
+        "role": "neutral",
+        "displayName": "dark code background",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "light-quote-background": {
+        "role": "neutral",
+        "displayName": "light quote background",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "dark-quote-background": {
+        "role": "neutral",
+        "displayName": "dark quote background",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#969696",
+          "#b2b2b2",
+          "#cecece",
+          "#f2f2f2"
+        ]
+      },
+      "light-context-ring": {
+        "role": "neutral",
+        "displayName": "light context ring",
+        "purpose": "Track at 25% opacity and usage arc at 70% opacity; unknown keeps track only."
+      },
+      "dark-context-ring": {
+        "role": "neutral",
+        "displayName": "dark context ring",
+        "purpose": "Track at 25% opacity and usage arc at 70% opacity; unknown keeps track only."
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Empty-state headline",
+        "purpose": "空态问题，Noto Sans SC 中文文字；没有独立装饰 display face。"
+      },
+      "input": {
+        "displayName": "Draft input",
+        "purpose": "14EM dynamic multiline draft; EUI line height 24.3264px, minimum input height 50px."
+      },
+      "button-label": {
+        "displayName": "Dialog action",
+        "purpose": "确认与取消按钮的操作文字。"
+      },
+      "settings-heading": {
+        "displayName": "Settings heading",
+        "purpose": "外观/模型服务页24EM标题。"
+      },
+      "model-field": {
+        "displayName": "Model field",
+        "purpose": "14px标签与32px输入；18px服务标题。"
+      },
+      "message": {
+        "displayName": "Conversation body",
+        "purpose": "14EM / 22px user body and public EUI Markdown body."
+      },
+      "markdown-code": {
+        "displayName": "Markdown code",
+        "purpose": "13px monospace, independent of Noto SC EM conversion."
+      },
+      "model-heading": {
+        "displayName": "Model services heading",
+        "purpose": "模型服务页24EM、600标题；服务商详情标题20EM。"
+      },
+      "provider-selector": {
+        "displayName": "Compact current-provider selector",
+        "purpose": "Visible 18px provider name and 14px chevron replace compact anonymous icon rail."
+      }
+    },
+    "shadows": [],
+    "motion": [],
+    "breakpoints": [
+      {
+        "name": "model-provider-navigation",
+        "value": "700px",
+        "scope": "Settings content column: 176px labeled rail at or above threshold, full-width named selector below."
+      }
+    ],
+    "layout": {
+      "units": "logical px",
+      "startup": {
+        "width": 1180,
+        "height": 800
+      },
+      "minimum": {
+        "width": 860,
+        "height": 620
+      },
+      "initialScalePolicy": "content-scale × window width / framebuffer width",
+      "sidebarWidth": 260,
+      "headerHeight": 60,
+      "headerTitle": "顶部60px标题栏左侧显示当前会话标题（14EM、现有500权重请求），空标题回退“新对话”，随当前会话切换更新；左边距为侧栏右侧28px，侧栏收起时从x=116px开始，右侧预留146px用于窗口按钮；收起侧栏的设置页右侧预留286px避开返回对话按钮。标题按字体度量省略且不改变原始值，文字不拦截标题栏拖动。",
+      "manualSidebarCollapse": true,
+      "composerToolbar": {
+        "top": "composer_y + composer_height - 44",
+        "iconControlSize": 36,
+        "iconSize": 17,
+        "modeWidth": 110,
+        "labelControlHeight": 32,
+        "modelWidth": "clamp(measuredLabel + buttonInsets, 96, min(180, max(96, column - 342)))",
+        "labelSize": 13,
+        "chevronSize": 9,
+        "order": [
+          "attachment",
+          "access",
+          "context",
+          "model",
+          "reasoning",
+          "send"
+        ],
+        "contextControlSize": [
+          36,
+          32
+        ],
+        "reasoningSize": [
+          88,
+          32
+        ],
+        "anchors": {
+          "attachment": 8,
+          "access": 48,
+          "context": "column - 180 - model_width",
+          "model": "column - 140 - model_width",
+          "reasoning": "column - 136",
+          "send": "column - 44"
+        }
+      },
+      "sessionRowHeight": 40,
+      "threadTop": 72,
+      "dialog": {
+        "width": 460,
+        "height": 252,
+        "bodyLineHeight": 28,
+        "actionWidth": 76,
+        "actionHeight": 38,
+        "delete": {
+          "height": 316,
+          "titleTop": 22,
+          "titleSize": 21,
+          "titleWeight": 600,
+          "targetTop": 67,
+          "latestMessageTop": 94,
+          "excerptHeight": 26,
+          "excerptSize": 14,
+          "bodyTop": 131,
+          "bodySize": 17,
+          "actionTop": "height - 60"
+        }
+      },
+      "sidebarResize": {
+        "defaultWidth": 260,
+        "minimumWidth": 224,
+        "maximumWidth": 400,
+        "effectiveMaximum": "max(224, min(400, screen.width - 520))",
+        "memory": "Requested width is kept in process; displayed width is clamped to the current window.",
+        "hitWidth": 8,
+        "hitTop": 60,
+        "hitX": "sidebar - 4",
+        "keyStep": 8,
+        "hover": "border",
+        "pressed": "muted",
+        "mouseDrag": true,
+        "keyboard": "Focusable divider handles Left/Right.",
+        "cursor": "Private GLFW adapter creates HRESIZE cursor; hover/drag end restores it and onShutdown releases it."
+      },
+      "appearance": {
+        "heading": {
+          "top": 104,
+          "height": 48
+        },
+        "description": {
+          "top": 160,
+          "height": 32
+        },
+        "panelTop": 232,
+        "stackBelowContentWidth": 600,
+        "panelHeight": 100,
+        "narrowPanelHeight": 126,
+        "label": {
+          "xInset": 24,
+          "topInset": 16,
+          "height": 30
+        },
+        "descriptionInset": {
+          "x": 24,
+          "y": 50,
+          "height": 26,
+          "visible": "content width >= 600"
+        },
+        "themeOptions": {
+          "width": 116,
+          "height": 40,
+          "horizontalStep": 124,
+          "iconSize": 16,
+          "widePosition": {
+            "x": "panel right - 264",
+            "yInset": 30
+          },
+          "narrowPosition": {
+            "xInset": 24,
+            "yInset": 62
+          }
+        },
+        "notice": {
+          "fontRole": "label",
+          "height": 30,
+          "topInset": 120,
+          "narrowTopInset": 136
+        }
+      },
+      "modelSettings": {
+        "formTop": 250,
+        "formHeight": "screen.height - 402",
+        "fieldRowHeight": 92,
+        "labelHeight": 28,
+        "fieldGap": 8,
+        "inputHeight": 44,
+        "inputInset": 12,
+        "protocolRowHeight": 94,
+        "protocolWidths": [
+          128,
+          172
+        ],
+        "protocolHeight": 40,
+        "protocolGap": 8,
+        "helpHeight": 60,
+        "scrollbarWidth": 4,
+        "scrollbarGap": 12,
+        "footer": {
+          "top": "screen.height - 110",
+          "statusHeight": 28,
+          "buttonTopInset": 38,
+          "buttonHeight": 40,
+          "reconnectWidth": "detail width < 480 ? 36 : 104",
+          "disableWidth": 100,
+          "applyWidth": 112,
+          "reconnectIconSize": 16,
+          "discardWidth": 80
+        },
+        "singleLineFieldCount": 6,
+        "headingTop": 90,
+        "headingSize": 28,
+        "descriptionTop": 140,
+        "descriptionSize": 15,
+        "panelTop": 194,
+        "panelHeight": "screen.height - 334",
+        "navigationWidth": "content width >= 700 ? 176 : 0",
+        "navigationRowHeight": 44,
+        "navigationGap": 6,
+        "detailInset": 24,
+        "reasoningToggleHeight": 40,
+        "reasoningHelpHeight": 64,
+        "detailWidth": "content width - (content width >= 700 ? 176 : 0) - 48",
+        "compactProviderSelector": {
+          "shownBelowContentWidth": 700,
+          "top": "panel_y + 12",
+          "width": "content_width - 48",
+          "height": 40,
+          "labelSize": 18,
+          "iconSize": 14,
+          "currentProviderNameVisible": true
+        },
+        "providerChooser": {
+          "xInset": 16,
+          "top": "panel_y + 58",
+          "width": "content_width - 32",
+          "height": "min(max(88, screen.height - 390), 16 + 50 * profile_count)",
+          "radius": 10,
+          "inset": 8,
+          "rowHeight": 44,
+          "gap": 6,
+          "labelSize": 14,
+          "iconSize": 16,
+          "dismissZ": 20,
+          "panelZ": 21,
+          "dismiss": "Outer click, Escape, return to conversation, or selecting a named row. Escape dismisses chooser before leaving settings; selector callbacks respect existing modal guards."
+        },
+        "apiKey": {
+          "rowHeight": 92,
+          "labelHeight": 28,
+          "fieldGap": 8,
+          "inputHeight": 44,
+          "fontSize": 16,
+          "inputWidth": "field width - 44",
+          "visibilitySize": [
+            36,
+            36
+          ],
+          "visibilityPosition": [
+            "field width - 40",
+            4
+          ],
+          "removeSize": [
+            64,
+            28
+          ],
+          "removePosition": [
+            "field width - 70",
+            0
+          ]
+        }
+      },
+      "settingsColumn": "min(800, main_width - 64)",
+      "emptyColumn": "min(672, main_width - 48)",
+      "activeColumn": "min(800, main_width - (main_width >= 864 ? 96 : 48))",
+      "threadHeight": "max(48, composer_y - 88)",
+      "threadGap": 14,
+      "threadScrollbar": {
+        "width": 4,
+        "gap": 8
+      },
+      "inputHeight": "clamp(measure(draft, column - 40, ui_font_size(14), ui_input_line_height(14)) + 24, 50, 168)",
+      "composerHeight": "input_height + 56 + (references.empty && attachments.empty ? 0 : 36) + (edit_turn_id.empty ? 0 : 32)",
+      "composerTop": "min(empty ? max(188, screen.height * 0.29 + 106) : screen.height - composer_height - 28, screen.height - composer_height - 28)",
+      "greeting": {
+        "top": "max(80, composer_y - 104)",
+        "titleHeight": 54,
+        "descriptionHeight": 28,
+        "titleSize": 26,
+        "descriptionSize": 14,
+        "suggestions": false
+      },
+      "userBubble": {
+        "align": "right",
+        "width": "min(min(576, thread_width), max(80, measured_text_width + 24))",
+        "paddingX": 12,
+        "paddingY": 8,
+        "radius": 10,
+        "borderWidth": 0
+      },
+      "assistantReply": {
+        "card": false,
+        "bodyWidth": "thread_width - 16",
+        "bodySize": 14,
+        "bodyLineHeight": 22,
+        "h1Size": 18,
+        "h2Size": 16,
+        "h3Size": 15,
+        "codeSize": 13,
+        "blockGap": 8,
+        "radius": 8
+      },
+      "contextPopovers": {
+        "width": "min(320, column)",
+        "referenceHeight": "min(352, screen.height - 160)",
+        "contextHeight": 224,
+        "modelHeight": "min(352, 68 + 44 * model_count)",
+        "actionsOrModeHeight": 164,
+        "top": "max(68, composer_y - popup_height - 8)",
+        "radius": 12,
+        "dismissZ": 20,
+        "panelZ": 21,
+        "referenceList": {
+          "top": 48,
+          "insetX": 12,
+          "bottomInset": 12,
+          "gap": 16,
+          "scrollbarWidth": 4,
+          "scrollbarGap": 6,
+          "bodySize": 14,
+          "bodyLineHeight": 22,
+          "removeSize": [
+            28,
+            26
+          ],
+          "removeIconSize": 12
+        },
+        "referencePill": {
+          "size": [
+            176,
+            28
+          ],
+          "inset": [
+            12,
+            8
+          ],
+          "radius": 14,
+          "fontSize": 12,
+          "iconSize": 11
+        },
+        "contextX": "composer_x + clamp(column - 180 - model_width, 8, column - popup_width - 8)",
+        "contextDetail": {
+          "titleAndPercentSize": 16,
+          "titleAndPercentWeight": 500,
+          "tokenSummarySize": 14,
+          "summaryLineBox": 28,
+          "progressTop": 88,
+          "progressHeight": 6,
+          "progressRadius": 3,
+          "sourceModelReferenceSize": 13,
+          "sourceModelReferenceLineBox": 24,
+          "sourceTop": 106,
+          "modelTop": 134,
+          "dividerTop": 170,
+          "referenceTop": 182,
+          "insetX": 16,
+          "backgroundRoles": {
+            "light": "light-surface",
+            "dark": "dark-composer"
+          }
+        },
+        "contextRing": {
+          "displaySize": [
+            20,
+            20
+          ],
+          "viewBox": [
+            0,
+            0,
+            24,
+            24
+          ],
+          "radius": 10,
+          "strokeWidth": 4,
+          "trackOpacity": 0.25,
+          "arcOpacity": 0.7,
+          "implementation": "SVG path arcs; no dash-array dependency.",
+          "position": "composer_x + 170, toolbar_y + 6"
+        },
+        "reasoningHeight": {
+          "supported": 244,
+          "unsupported": 148
+        },
+        "anchor": {
+          "attachmentsAndReferences": 8,
+          "access": 48,
+          "context": 162,
+          "model": 202,
+          "reasoning": "column - 136"
+        }
+      },
+      "sidebarHistory": {
+        "emptyTitle": "暂无历史对话",
+        "emptyTitleSize": 14,
+        "emptyHelp": "发送消息后将显示在这里",
+        "emptyHelpSize": 13,
+        "emptyTextRole": "muted",
+        "titleWidth": "row width - 100",
+        "deleteButtonSize": [
+          36,
+          36
+        ],
+        "deleteButtonPosition": [
+          "row width - 40",
+          6
+        ]
+      },
+      "messageActions": {
+        "heightReserved": 28,
+        "buttonSize": [
+          28,
+          26
+        ],
+        "iconSize": 12,
+        "radius": 5,
+        "visibility": "message/action hover or keyboard focus",
+        "lastInputEdit": true
+      },
+      "selectionAction": {
+        "size": [
+          100,
+          32
+        ],
+        "labelSize": 13,
+        "iconSize": 12,
+        "radius": 7,
+        "borderWidth": 1,
+        "placement": "Above selection, below when first row has no room; clamp between title and composer."
+      },
+      "providerEditor": {
+        "navigationWidth": 224,
+        "compactNavigationWidth": 56,
+        "compactWhenContentBelow": 700,
+        "navigationRowHeight": 32,
+        "detailInset": 24,
+        "fieldHeight": 32,
+        "modelRowHeight": 36,
+        "saveSize": [
+          80,
+          32
+        ]
+      },
+      "sidebarAlignment": {
+        "outerInset": 20,
+        "iconCenterX": 44,
+        "textX": 64,
+        "brandImage": [
+          32,
+          20,
+          24,
+          24
+        ]
+      }
+    },
+    "overlay": {
+      "scrim": "rgba(0, 0, 0, 0.25)",
+      "zIndex": 30
+    },
+    "previewTranslation": {
+      "nativeRuntime": "EUI-NEO DSL; HTML/CSS snippets are panel-only visual translations.",
+      "iconSource": "Font Awesome 7 Free Solid loaded by app configuration; preview SVG is an equivalent inline silhouette.",
+      "focus": "Native focus/disabled behavior is delegated to EUI; sample button focus outlines are browser-preview affordances, not native tokens."
+    },
+    "knownDrift": [],
+    "assetProvenance": {
+      "shippingRasters": [
+        {
+          "path": "apps/native/assets/mira.png",
+          "provenance": "apps/native/assets/provenance.json",
+          "source": "Mira docs/mira.png",
+          "sourceRepository": "https://github.com/Linductor-alkaid/mira",
+          "sourceCommit": "472e43010485131790ca300c574d0ba17e50a711",
+          "sha256": "e615d7e768c532e9966e97fbbaeefc4b7212ef386521bef6be680ed3d250bbed",
+          "importedOn": "2026-10-04",
+          "transformation": "Byte-for-byte original transparent PNG; no repaint or recoloring.",
+          "use": "Original PNG for window icon; tray icon is configured but tray remains disabled.",
+          "upstreamLicense": "AGPL-3.0 per source repository LICENSE; no artwork-specific license found."
+        },
+        {
+          "path": "apps/native/assets/mira-ui.png",
+          "provenance": "apps/native/assets/provenance.json",
+          "derivedFrom": "apps/native/assets/mira.png",
+          "sourceCommit": "472e43010485131790ca300c574d0ba17e50a711",
+          "sha256": "c6756133885ecd1ce9bcf01657380a6d13a52c83315914b0dd707fbfa30a047d",
+          "dimensions": [
+            1254,
+            1254
+          ],
+          "transformation": "Lossless RGBA PNG re-encode without ancillary metadata; every pixel including alpha is identical. Original mira.png retains source metadata. EUI-20261004-003: embedded SVG metadata causes upstream PNG/SVG misclassification.",
+          "use": "Sidebar brand image only.",
+          "upstreamLicense": "AGPL-3.0 per source repository LICENSE; no artwork-specific license found."
+        }
+      ],
+      "visualReference": {
+        "name": "ZCode Zai Light/Dark",
+        "url": "https://github.com/zai-org/ZCode",
+        "use": "Visual and layout inspiration only; no shipping raster from reference."
+      },
+      "shippingFonts": [
+        {
+          "family": "Noto Sans SC",
+          "style": "Regular",
+          "version": "2.004",
+          "archive": "apps/native/assets/fonts/noto-sans-sc-2.004.tar.xz",
+          "runtimePath": "assets/NotoSansSC-Regular.otf",
+          "provenance": "apps/native/assets/fonts/provenance.json",
+          "license": "OFL-1.1",
+          "licenseFile": "apps/native/assets/fonts/OFL-NotoSansSC.txt"
+        }
+      ]
+    },
+    "textAlignment": {
+      "singleLine": "EUI ink-center within shared row bounds; no font-size-based y offsets.",
+      "icons": "Horizontal and vertical center; glyph line height equals icon font size.",
+      "titleFit": "Measure actual text width; remove UTF-8 code points and append ellipsis until it fits; preserve the underlying session title.",
+      "markdownInline": "Top aligned within a shared line box, with max(0, (lineHeight - fontSize) / 2) padding; avoids per-segment ink centering. EUI-20261005-006. Inline code keeps its independent logical size and whole-run center alignment."
+    },
+    "brandImage": {
+      "source": "assets/mira-ui.png",
+      "character": "Mira red-haired blue-eyed character from the user-selected local latest source.",
+      "sidebar": {
+        "position": {
+          "x": 24,
+          "y": 16
+        },
+        "size": {
+          "width": 28,
+          "height": 28
+        },
+        "fit": "contain",
+        "hitTest": "none",
+        "wordmark": {
+          "x": 64,
+          "y": 12,
+          "width": "sidebar - 132",
+          "height": 36
+        }
+      },
+      "windowIcon": "assets/mira.png",
+      "trayIcon": "assets/mira.png",
+      "trayEnabled": false,
+      "deployment": "Build copies original and UI-derived PNGs into assets beside the executable; no runtime dependency on the local Mira source directory.",
+      "windowsExecutableIcon": {
+        "source": "apps/native/assets/mira.ico",
+        "conversion": "ICO container conversion only; original artwork preserved.",
+        "replaces": "EUI example icon resource",
+        "validation": "Windows resource build and real-device display unverified."
+      },
+      "originalSource": "assets/mira.png",
+      "compatibilityAdapter": {
+        "feedback": "EUI-20261004-003",
+        "cause": "EUI PNG/SVG sniff searches the first 511 bytes for <svg; original PNG caBX/C2PA metadata includes an SVG thumbnail at byte 305, causing misclassification and sidebar decode failure.",
+        "transform": "Lossless RGBA PNG re-encode without ancillary metadata; every pixel including alpha is identical. Original mira.png retains source metadata. EUI-20261004-003: embedded SVG metadata causes upstream PNG/SVG misclassification.",
+        "pixelAndAlphaIdentity": true,
+        "originalMetadataRetained": true,
+        "layering": "No zIndex workaround; existing image and wordmark placement preserved."
+      },
+      "linuxDesktopRegistration": {
+        "entryTemplate": "apps/native/org.mirage.native.desktop.in",
+        "registrationScript": "apps/native/register_desktop.cmake",
+        "entryFile": "org.mirage.native.desktop",
+        "applicationId": "org.mirage.native",
+        "startupWMClass": "org.mirage.native",
+        "exec": "Absolute build-tree mirage-native executable path.",
+        "icon": "Absolute build-tree assets/mira.png path.",
+        "registrationTarget": "mirage-native-register-desktop",
+        "registrationDirectory": "$XDG_DATA_HOME/applications, falling back to $HOME/.local/share/applications.",
+        "databaseRefresh": "Runs update-desktop-database when available.",
+        "ordinaryBuildWritesUserProfile": false,
+        "validation": {
+          "releaseRegisteredAndRestarted": true,
+          "gioIconAndExecResolution": "passed",
+          "windowWMClassMatch": "passed",
+          "gnomeAccessibility": "Mirage button observed with SHOWING=true via AT-SPI.",
+          "dockPixelScreenshot": "Not completed: screenshot permission unavailable.",
+          "dockVisualVerification": "unverified"
+        }
+      }
+    },
+    "appearanceBehavior": {
+      "entry": "Sidebar footer gear; collapsed header gear.",
+      "navigation": "Settings sidebar shows Return to conversation and Appearance / Model; selected category uses selected fill; collapsed header has a 124x36 return button.",
+      "themes": [
+        "light",
+        "dark"
+      ],
+      "apply": "Immediate full-page Palette refresh.",
+      "memory": "Process lifetime only.",
+      "systemThemeSync": false,
+      "persistence": false,
+      "backgroundTasks": false,
+      "chatDuringSettings": "Chat input/composer are not composed; session and draft preserved; Ctrl+N/Ctrl+Enter do not modify background chat.",
+      "shortcuts": {
+        "open": "Ctrl+, unless a modal is open.",
+        "escape": "Close modal first; otherwise return from settings to conversation."
+      }
+    },
+    "modelBehavior": {
+      "fields": [
+        "provider_id",
+        "provider_name",
+        "base_url",
+        "api_key",
+        "model_selector",
+        "context_window_tokens",
+        "dialect",
+        "supports_reasoning"
+      ],
+      "protocols": [
+        "openai.chat-completions.v1",
+        "openai.responses.v1",
+        "anthropic.messages.v1"
+      ],
+      "draftAndApplied": "Separate editor/catalog/live_model; ACK is authoritative. Empty directory exposes an unnamed local provider.",
+      "saving": "Save whole provider; shared connection/key, model-specific context/reasoning. Failed save keeps editor and applied model.",
+      "saveDisabled": "Not loaded, pending save, or unchanged; opacity0.45.",
+      "persistence": "Optional provider metadata; models_present distinguishes explicit empty catalog from old-client absence. Keys in OS keyring, never settings.",
+      "reference": "ZCode29628c9 SectionLayout/Navigation/ProviderCardSections/ProviderApiFormatSelect",
+      "unsupportedParity": [
+        "OAuth/plans",
+        "model connectivity probe",
+        "extra model metadata",
+        "extended thinking / signed block echo"
+      ],
+      "evidence": "docs/compatibility/provider-presets-and-vision-20261006.md",
+      "presets": {
+        "count": 11,
+        "source": "ZCode29628c9 config/provider/zcode-builtin.json + official MiniMax international endpoint",
+        "selection": "Fill editable draft; enter key and save; catalog only after ACK",
+        "verified": "MiniMax-M3 Messages, separate provider image probe; other vendors not live-tested"
+      }
+    },
+    "chatBehavior": {
+      "entry": "session.chat carries session access and reasoning captured at submission; read_only registers no tools, default registers only wait.",
+      "roles": [
+        "right-aligned user bubble",
+        "cardless completed Mira Markdown",
+        "Mira 正在处理",
+        "任务已停止或失败"
+      ],
+      "runningControl": "Send arrow becomes stop square; session.chat.cancel requests cancellation.",
+      "replyPresentation": "Trim only edge CR/LF blank lines; preserve internal formatting and raw service history.",
+      "tools": "Mira builtin wait only; no screen observation, desktop tools or RPA.",
+      "shutdown": "Stop bridge worker, consume request futures, shutdown UI Executor; external Runtime Service remains alive.",
+      "deferred": [
+        "Windows acceptance",
+        "streaming replies",
+        "M6-04 unified entry/tray/active-exit confirmation"
+      ],
+      "submitKeys": {
+        "send": [
+          "Enter",
+          "Ctrl+Enter"
+        ],
+        "newline": "Shift+Enter",
+        "composition": "Composition state prevents premature send; real Chinese IME acceptance remains unverified."
+      },
+      "copy": "Whole-message copy on hover or keyboard focus; Ctrl+C copies selected excerpt. Link opening remains unsupported.",
+      "references": {
+        "source": "Drag-selected rendered text excerpt with stable source message ID; per-instance removal and ACK consumption.",
+        "maxCount": 4,
+        "maxTextBytes": 8192,
+        "combinedEncodedWireBytes": 16384,
+        "inspection": "Count pill opens scrollable text/source role/message-ID preview with individual removal.",
+        "ack": "Each reference has a unique monotonic instance ID; ACK removes submitted instances only, preserving new/re-added references and changed draft.",
+        "wire": "Expanded references and attachments are explicitly marked user text context, using TextPart; no binary/image uploads."
+      },
+      "context": "Last successful model input_tokens / explicit configured context-window budget, with 上次请求 source label, model and current reference count. Missing provider usage or denominator is unknown; no draft/byte estimator.",
+      "markdownCompatibility": {
+        "publicAPI": "EUI MarkdownBuilder / existing md4c",
+        "adapter": "apps/native/markdown_adapter.hpp",
+        "feedback": "EUI-20261004-004",
+        "scope": "Only source-adjacent CJK segments compacted via public DSL; upstream conservative wrapping and height budget retained.",
+        "removeOn": "Pinned EUI upgrade resolves the documented gap."
+      },
+      "contextUsage": {
+        "source": "Mira ModelResponse.usage Exact / ProviderReported only",
+        "toolLoop": "Input tokens from final reply call; not summed calls or output tokens.",
+        "zero": "Known zero plus known budget displays 0%.",
+        "overBudget": "Preserve raw counts and percentage; clamp only ring/bar fill to 100%.",
+        "failureOrCancel": "Preserve previous successful usage.",
+        "successMissingUsage": "Reset to unknown.",
+        "ordering": "Older sequence cannot overwrite newer usage.",
+        "restart": "Old persisted history has no usage and remains unknown.",
+        "wire": "Optional context_usage with input_tokens, window_tokens and model; older messages remain compatible.",
+        "revision": "Accepted replacement resets usage to unknown until a new successful provider response."
+      },
+      "attachments": {
+        "selection": "EUI public synchronous file dialog; explicit user selection only",
+        "read": "Frontend sole Executor finite task; future consumed",
+        "maxCount": 4,
+        "maxTextBytes": 8192,
+        "combinedEncodedWireBytes": 16384,
+        "accepted": "Regular UTF-8 text; binary/control bytes and invalid UTF-8 rejected; Linux rejects symlink/FIFO",
+        "inspection": "Shared attachment/reference preview includes filename, byte count, full text and removal",
+        "ordering": "Generation guards late reads; monotonic attachment IDs let ACK remove submitted instances only",
+        "trust": "Explicitly untrusted text context"
+      },
+      "requestIntent": "Access and reasoning choices are captured for each request; later local selection does not mutate in-flight intent.",
+      "disabledSend": "Filled disabled icon control uses hover background and muted icon; pending submission/read, no text/context, no connection disables it; a remote session is created at first submission.",
+      "title": "Skip leading space/tab/CR/LF, whitespace-only becomes 新对话; use at most 16 UTF-8 codepoints of first line.",
+      "submissionOrder": "User draft first, serialized references next, explicitly untrusted attachments last. Attachment-only begins 附件：filename.",
+      "draftHistory": {
+        "new": "Local draft only; no session.open until first submission.",
+        "reuse": "Reuse message-free local draft with no remote ID, submitting or deleting state.",
+        "visibility": "Only sessions with actual messages have sidebar history rows; admission precedes first submitted message.",
+        "firstSubmit": "Freeze prompt/access/reasoning, open remote session if needed, then submit after open ACK.",
+        "emptyHistory": "No phantom 新对话 row; centered empty composer uses existing layout."
+      },
+      "historyDeletion": {
+        "target": "Stable local ID captured when opening confirmation; excerpts are rendered from that target, independent of current selection.",
+        "disabled": "Running, submitting or deleting session.",
+        "confirmationTitle": "删除这段对话？",
+        "confirmationBody": "这段对话及其上下文将被删除，无法恢复。其他对话会保留。",
+        "excerpt": "First input plus latest message role/text; stop at first CR/LF or 256 bytes, preserve complete UTF-8 codepoints, replace control bytes with spaces, append ellipsis if truncated, then fit by measured font width.",
+        "completion": "Remove history only after service deletion ACK; refresh remote list. Failure preserves visible record.",
+        "selection": "Deleting selected history returns to a draft; deleting another retains current selection/draft.",
+        "reconciliation": "Remove stable history missing from service list or with empty snapshot; preserve local drafts and running/submitting/deleting records.",
+        "staleResponses": "History discovery epoch and stable local ID protect against late updates."
+      },
+      "selection": {
+        "adapter": "apps/native/selection_adapter.hpp",
+        "feedback": "EUI-20261005-005",
+        "limits": "One message; no auto-scroll or cross-message selection; 16KiB / 8192 shaped runs per message, 80 current messages. Geometry collected only on press; retired cache scopes released.",
+        "dismiss": "Escape, scroll, session change, edit, settings/modal/popover, source removal, background click."
+      },
+      "lastInputRevision": {
+        "entry": "Hover/focus edit action on last settled user input; compact 32px composer banner.",
+        "draft": "Cancel restores prior draft; original messages remain until acceptance.",
+        "wire": "session.chat replace_turn_id targets exactly last settled turn; pending/final events and ACK carry replaces_turn_id.",
+        "rollback": "Executor admission and replacement persistence before ACK; refusal keeps old history. Model transcript excludes old user/reply and preserves earlier turns. External tool side effects and old task audit are retained.",
+        "restart": "Stable product session lazily maps to a new current Mira session for native harness; close/delete removes mapping. Desktop task.submit is not extended."
+      },
+      "streaming": {
+        "source": "Mira SSE preview snapshots -> service bounded Topic -> UI MpscChannel",
+        "budgetBytes": 16384,
+        "authority": "UI only; no history, tools or usage authority",
+        "ordering": "Per-turn sequence; new request resets; terminal/retired turns reject late preview",
+        "waiting": "Three restrained dots; real monotonic elapsed; one status line",
+        "duration": "Freeze observed run at terminal; omit for historical runs with no local timing",
+        "refresh": "Executor cancellable periodic TimerHandle, 100ms while active; cancel before drain/shutdown",
+        "scrolling": "Follow while at bottom; scrolling up pauses following; terminal preserves reading position; arrow or keyboard returns to latest; new turn resumes.",
+        "latestControl": "36x36, centered above composer; neutral surface, 1px border, 14px arrow; visible only while reading older content; Enter/Space."
+      }
+    },
+    "reviewEvidence": {
+      "initialVerdict": ".impeccable/review/native-zcode-finish-verdict.md",
+      "initialDisposition": "fix",
+      "localizedCorrections": "Inspectable quote popover implemented; icon-only buttons explicitly clear fallback text.",
+      "finalVisualStatus": "Two listed material fixes resolved; final disposition ship at that scope. Source-only ZCode comparison and platform/interaction limits retained.",
+      "platform": "Linux GNOME Wayland / XWayland, GLFW/OpenGL; no HTML detector or iOS/Android assumptions.",
+      "finalVerdict": ".impeccable/review/native-zcode-final-verdict.md",
+      "finalDisposition": "ship",
+      "finalScope": "Two material fixes resolved: inspectable actual references and icon-only default label removal; original source-only/platform limitations retained.",
+      "contextUsage": {
+        "workItem": "M6-06",
+        "decision": "DEC-036",
+        "finishVerdict": ".impeccable/review/native-context-finish-verdict.md",
+        "disposition": "ship",
+        "scope": "Narrow context ring/detail and optional window-budget model field; incumbent native world preserved.",
+        "documentation": ".impeccable/review/native-context-documentation.md",
+        "captures": [
+          ".impeccable/review/native-context-unknown-light.png",
+          ".impeccable/review/native-context-usage-light.png",
+          ".impeccable/review/native-context-usage-dark.png",
+          ".impeccable/review/native-context-usage-min-light.png",
+          ".impeccable/review/native-context-usage-min-dark.png",
+          ".impeccable/review/native-context-model-window-light.png",
+          ".impeccable/review/native-context-model-window-invalid.png",
+          ".impeccable/review/native-context-final-light.png"
+        ],
+        "liveUsage": ".impeccable/review/native-context-live-usage.json",
+        "observed": {
+          "input_tokens": 391,
+          "window_tokens": 128000,
+          "percent": "0.3%",
+          "model": "Qwen/Qwen3.5-4B"
+        },
+        "budgetSource": "Explicit configured test budget; not provider discovery.",
+        "settingsValidation": "abc rejected with visible integer range notice; 128000 restored, saved and confirmed by model.get.",
+        "limits": "Windows/real IME not newly verified; live ZCode pixel comparison remains unavailable."
+      },
+      "modelConfiguration": {
+        "workItems": [
+          "M6-07",
+          "M6-08"
+        ],
+        "decision": "DEC-037",
+        "captures": "Repository .impeccable/review/native-model-*.png; first inspection only, final review remains separate",
+        "documentationSource": "apps/native/app.cpp, chat_model.cpp, attachment.cpp, runtime_bridge.cpp",
+        "limits": "Windows GUI, real IME and full desktop access are not established by these captures."
+      },
+      "credentialsAndHistory": {
+        "workItem": "M6-09",
+        "decision": "DEC-038",
+        "source": "apps/native/app.cpp, chat_model.cpp, secret_input.hpp, secret_edit.hpp, conversation_preview.hpp; protocol and native frontend contracts.",
+        "captures": [
+          ".impeccable/review/native-keys-empty-draft.png",
+          ".impeccable/review/native-keys-configured-min-light.png",
+          ".impeccable/review/native-keys-delete-confirm-min-dark.png"
+        ],
+        "documentationPass": "Current task differences only; incumbent native palette, type, radius and structure preserved.",
+        "limits": "Existing Windows, real IME, full desktop tools and live ZCode pixel-comparison limits remain; no new guarantee from this documentation pass."
+      },
+      "conversationRevision": {
+        "workItem": "M6-11",
+        "decision": "DEC-039",
+        "captures": ".impeccable/review/conversation-20261005/*.png",
+        "finishReview": ".impeccable/review/conversation-20261005/finish-review.md",
+        "finishVerdict": ".impeccable/review/conversation-20261005/finish-verdict.md",
+        "documentation": ".impeccable/review/conversation-20261005/documentation.md",
+        "reviewMode": "Inline degraded finish-reviewer/documenter substitution; no independent reviewer.",
+        "limits": "Synthetic EUI framebuffer captures; no live ZCode screenshot, Windows or real IME acceptance."
+      },
+      "conversationProgress": "docs/compatibility/native-conversation-progress-20261005.md",
+      "providerEditor": {
+        "workItem": "M6-21",
+        "evidence": "docs/compatibility/native-provider-editor-20261006.md",
+        "scope": "Linux X11 source comparison and actual native renderer; no ZCode window pixel comparison",
+        "verdict": ".impeccable/review/provider-editor-20261006/finish-verdict.md"
+      }
+    },
+    "typographyDelivery": {
+      "family": "Noto Sans SC",
+      "source": "Full official Regular 2.004 OTF; offline archive extraction, verified archive/font SHA256 in CMake.",
+      "fontWeight": "Existing numeric weight semantics retained; pinned EUI resolves this default face for all weights. No independent bold-face claim.",
+      "fallback": "EUI retains system monospace/emoji and missing-glyph fallback; product no longer selects system TTC or decorative example font.",
+      "evidence": "docs/compatibility/native-typography-20261005.md",
+      "captures": ".impeccable/review/typography-20261005/*.png",
+      "reviewMode": "Inline degraded finish review and document extraction; no independent agent review.",
+      "reference": "ZCode uses Tailwind system sans; local fontconfig Chinese fallback is Noto Sans CJK SC. Noto Sans SC is the matching official SC regional face, not a unique built-in ZCode font or a Chromium raster match.",
+      "emConversion": {
+        "factor": 1.448,
+        "metrics": {
+          "unitsPerEm": 1000,
+          "ascender": 1160,
+          "descender": -288
+        },
+        "appliesTo": "Noto SC drawing/measurement/wrapping/input/selection; excludes icons and monospace",
+        "bodyRequestPx": 20.272,
+        "bodyLineHeightPx": 22,
+        "inputLineHeightPx": 24.3264,
+        "headingLineHeight": "Converted request font size + 6, per EUI",
+        "feedback": "EUI-20261005-007"
+      },
+      "inlineCodeWidth": "Measured with restored independent monospace size; shrink chip and shift same-row following runs, retain upstream wrap/height budget.",
+      "finishVerdict": ".impeccable/review/typography-20261005/finish-verdict.md",
+      "minimumInputHeightPx": 50
+    },
+    "providerPresetsLayout": {
+      "sidebarOuterInset": 24,
+      "iconLeft": 36,
+      "iconCenter": 48,
+      "textLeft": 68,
+      "nameInputInset": 8,
+      "nameInputLeft": 28,
+      "nameStaticTextLeft": 36,
+      "navigationPresetRowHeight": 32,
+      "protocolMenuHeight": 116,
+      "visionBoundary": "Mira public Provider tested; product attachments remain text-only",
+      "brandAssets": "apps/native/assets/providers/provenance.json",
+      "compactNavigation": "56px icon rail; 2px scrollbar, hover names"
+    }
+  },
+  "components": [
+    {
+      "name": "Ghost icon control",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "原生已实现组件的浅色 HTML/CSS 示意；原生交互与焦点由 EUI 管理。",
+      "html": "<button class=\"ds-ghost\" aria-label=\"展开\"><svg viewBox=\"0 0 16 16\" width=\"17\" height=\"17\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M7 13V5L4 8 2.6 6.6 8 1.2l5.4 5.4L12 8 9 5v8z\"/></svg></button>",
+      "css": ".ds-ghost{width:36px;height:36px;border:0;border-radius:7px;background:transparent;color:#202020;display:inline-grid;place-items:center;cursor:pointer}.ds-ghost:hover{background:#e8e8e8}.ds-ghost:active{background:#e2e2e2}.ds-ghost:focus-visible{outline:2px solid currentColor;outline-offset:2px}"
+    },
+    {
+      "name": "Filled send control",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "原生已实现组件的浅色 HTML/CSS 示意；原生交互与焦点由 EUI 管理。 禁用发送以 hover 底色和 muted 图标表达不可提交。",
+      "html": "<button class=\"ds-send\" aria-label=\"发送给 Mira\"><svg viewBox=\"0 0 16 16\" width=\"17\" height=\"17\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M7 13V5L4 8 2.6 6.6 8 1.2l5.4 5.4L12 8 9 5v8z\"/></svg></button>",
+      "css": ".ds-send{width:36px;height:36px;border:0;border-radius:7px;background:#222222;color:#fff;display:inline-grid;place-items:center;cursor:pointer}.ds-send:hover{background:#6d6d6d}.ds-send:active{background:#e2e2e2}.ds-send:focus-visible{outline:2px solid #202020;outline-offset:2px} .ds-send:disabled{background:#e8e8e8;color:#6d6d6d;cursor:default}"
+    },
+    {
+      "name": "Selected history row",
+      "kind": "nav",
+      "refersTo": "session-row-selected",
+      "description": "有真实消息的选中历史行与垃圾桶静态示意；空草稿不生成历史行，实际删除等待service ACK。",
+      "html": "<div class=\"ds-session\"><button class=\"ds-session-select\">整理今天的工作</button><button class=\"ds-session-delete\" aria-label=\"删除这段对话\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M3 4h10M6 2h4M5 6v7h6V6M7 7v5M9 7v5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg></button></div>",
+      "css": ".ds-session{position:relative;height:40px;width:236px;border-radius:7px;background:#e2e2e2;color:#202020;font-family:Noto Sans SC,sans-serif}.ds-session button{border:0;border-radius:7px;background:transparent;color:inherit;font-family:inherit;cursor:pointer}.ds-session-select{width:100%;height:40px;padding:0 56px 0 44px;text-align:left;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-session-delete{position:absolute;right:4px;top:2px;width:36px;height:36px;display:inline-grid;place-items:center}.ds-session button:hover{background:#e8e8e8}.ds-session button:active{background:#e2e2e2}.ds-session button:focus-visible{outline:2px solid #202020;outline-offset:2px}.ds-session button:disabled{color:#6d6d6d;cursor:default}"
+    },
+    {
+      "name": "Multiline draft",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "原生已实现组件的浅色 HTML/CSS 示意；原生交互与焦点由 EUI 管理。",
+      "html": "<textarea class=\"ds-input\" aria-label=\"任务草稿\" placeholder=\"向 Mira 提问，或描述一个任务…\"></textarea>",
+      "css": ".ds-input{font-family:Noto Sans SC, sans-serif;min-height:50px;max-height:168px;width:100%;box-sizing:border-box;padding:12px;border:0;border-radius:4px;background:#fff;color:#202020;font-size:14px;resize:none;overflow:auto}.ds-input::placeholder{color:#6d6d6d}.ds-input:hover,.ds-input:focus-visible{background:#fff;outline:0}"
+    },
+    {
+      "name": "User message bubble",
+      "kind": "card",
+      "refersTo": "user-bubble",
+      "description": "原生已实现组件的浅色 HTML/CSS 示意；原生交互与焦点由 EUI 管理。",
+      "html": "<article class=\"ds-user\">请描述你要完成的任务。</article>",
+      "css": ".ds-user{font-family:Noto Sans SC, sans-serif;margin-left:auto;box-sizing:border-box;width:fit-content;max-width:576px;padding:8px 12px;border:none;border-radius:10px;background:#f0f0f0;color:#202020;font-size:14px;line-height:22px;white-space:pre-wrap;overflow-wrap:anywhere}"
+    },
+    {
+      "name": "Composer panel",
+      "kind": "custom",
+      "refersTo": "composer",
+      "description": "原生增长 composer 的浅色静态示意；附件、权限、上下文、模型、思考、发送的顺序与源一致。HTML 不实现 IPC、IME、附件读取或测量。",
+      "html": "<section class=\"ds-composer\"><textarea class=\"ds-composer-draft\" aria-label=\"任务草稿\" placeholder=\"向 Mira 提问，或描述一个任务…\"></textarea><div class=\"ds-toolbar\"><button aria-label=\"添加\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M8 2v12M2 8h12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button><button class=\"ds-access\">默认权限</button><button class=\"ds-context-control\" aria-label=\"上下文\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\" fill=\"none\" stroke=\"#737373\" stroke-opacity=\"0.25\" stroke-width=\"4\"/></svg></button><button class=\"ds-model\">选择模型</button><button class=\"ds-reasoning\">默认思考</button><button class=\"ds-send\" aria-label=\"发送\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M8 13V3M3 8l5-5 5 5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button></div></section>",
+      "css": ".ds-composer{font-family:Noto Sans SC, sans-serif;width:100%;max-width:672px;box-sizing:border-box;padding:4px 4px 8px;border:1px solid #dfdfdf;border-radius:16px;background:#fff;color:#202020}.ds-composer:focus-within{border-color:#6d6d6d}.ds-composer-draft{display:block;box-sizing:border-box;width:100%;height:50px;max-height:168px;padding:12px;border:0;border-radius:4px;background:#fff;color:#202020;font-family:inherit;font-size:14px;resize:none}.ds-composer-draft::placeholder{color:#6d6d6d}.ds-composer-draft:focus-visible{outline:0}.ds-toolbar{height:36px;margin-top:8px;display:flex;align-items:center;gap:4px;padding:0 4px}.ds-toolbar button{height:32px;border:0;border-radius:6px;background:transparent;color:#202020;font-family:inherit;font-size:13px;cursor:pointer}.ds-toolbar button[aria-label]{width:36px;height:36px;border-radius:7px;display:inline-grid;place-items:center}.ds-toolbar .ds-model{flex:0 1 auto;text-align:left;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ds-toolbar .ds-send{background:#222222;color:white}.ds-toolbar button:hover{background:#e8e8e8}.ds-toolbar .ds-send:hover{background:#6d6d6d}.ds-toolbar button:active{background:#e2e2e2}.ds-toolbar button:focus-visible{outline:2px solid #202020;outline-offset:2px} .ds-toolbar .ds-context-control{height:32px} .ds-toolbar .ds-access{width:110px;flex:none}.ds-toolbar .ds-reasoning{width:88px;flex:none}.ds-toolbar .ds-context-control{width:36px;flex:none;margin-left:auto}.ds-toolbar .ds-model{min-width:96px} .ds-toolbar .ds-send:disabled{background:#e8e8e8;color:#6d6d6d;cursor:default}"
+    },
+    {
+      "name": "Theme choice",
+      "kind": "button",
+      "refersTo": "theme-option",
+      "description": "外观页浅色/深色选择的浅色示意；原生即时刷新与偏好由 UI 进程持有。",
+      "html": "<div class=\"ds-theme-options\"><button class=\"ds-theme-option\" aria-pressed=\"true\"><svg viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"3\" fill=\"currentColor\"/><path d=\"M8 0v3M8 13v3M0 8h3M13 8h3M2.3 2.3l2.1 2.1m7.2 7.2l2.1 2.1M2.3 13.7l2.1-2.1m7.2-7.2l2.1-2.1\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg>浅色</button><button class=\"ds-theme-option\" aria-pressed=\"false\"><svg viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M14.2 10.3A6.5 6.5 0 0 1 5.7 1.8a6.6 6.6 0 1 0 8.5 8.5z\"/></svg>深色</button></div>",
+      "css": ".ds-theme-options{display:flex;gap:8px}.ds-theme-option{font-family:Noto Sans SC, sans-serif;width:116px;height:40px;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:16px;border:1px solid #dfdfdf;border-radius:7px;background:#fff;color:#202020;cursor:pointer}.ds-theme-option[aria-pressed=\"true\"]{background:#e2e2e2}.ds-theme-option:hover{background:#e8e8e8}.ds-theme-option:active{background:#e2e2e2}.ds-theme-option:focus-visible{outline:2px solid #202020;outline-offset:2px}"
+    },
+    {
+      "name": "Model setting input",
+      "kind": "input",
+      "refersTo": "model-input",
+      "description": "模型表单的16px标签/输入与focus描边示意；原生编辑、草稿和保存由EUI及IPC管理。",
+      "html": "<label class=\"ds-model-field\">模型名称<input class=\"ds-model-input\" value=\"provider/model-id\" aria-label=\"模型名称\" /></label>",
+      "css": ".ds-model-field{display:flex;flex-direction:column;gap:8px;height:92px;width:300px;font-family:Noto Sans SC, sans-serif;font-size:16px;color:#202020;line-height:28px}.ds-model-input{height:32px;box-sizing:border-box;padding:12px;font-family:Noto Sans SC, sans-serif;font-size:16px;border:1px solid #dfdfdf;border-radius:7px;background:#fff;color:#202020}.ds-model-input:hover{background:#fff}.ds-model-input:focus-visible{outline:0;border-color:#222222}.ds-model-input:disabled{cursor:default}"
+    },
+    {
+      "name": "Cardless assistant reply",
+      "kind": "custom",
+      "refersTo": "agent-reply",
+      "description": "已完成回复的无卡片文字/代码视觉示意；实际原生渲染使用 EUI Markdown。",
+      "html": "<article class=\"ds-reply\"><p>和 Mira 一起，把想法变成下一步。</p><pre><code>const auto result = run();</code></pre></article>",
+      "css": ".ds-reply{font-family:Noto Sans SC, sans-serif;font-size:14px;line-height:22px;color:#202020;background:transparent}.ds-reply p{margin:0 0 8px}.ds-reply pre{margin:0;padding:12px;border-radius:8px;background:#eee;font-size:13px;overflow:auto}"
+    },
+    {
+      "name": "Inspectable attachments and references",
+      "kind": "chip",
+      "refersTo": "reference-popover",
+      "description": "共享计数 pill 和有界文本预览的浅色静态示意；附件读取、删除与 ACK 由原生 Executor/ChatModel 管理。",
+      "html": "<div class=\"ds-reference\"><button class=\"ds-reference-pill\">附件 0 · 引用 1</button><section class=\"ds-reference-panel\"><h3>附件与引用</h3><div class=\"ds-reference-list\"><header><span>Mira · 消息 #1</span><button aria-label=\"移除此引用\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M3 4h10M6 2h4M5 6v7h6V6M7 7v5M9 7v5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg></button></header><p>请描述你要完成的任务。</p></div></section></div>",
+      "css": ".ds-reference{font-family:Noto Sans SC, sans-serif;color:#202020}.ds-reference-pill{width:176px;height:28px;border:0;border-radius:14px;background:#e8e8e8;color:#202020;font-family:inherit;font-size:12px;cursor:pointer}.ds-reference-panel{width:320px;max-width:100%;height:352px;box-sizing:border-box;margin-top:8px;padding:12px;border:1px solid #dfdfdf;border-radius:12px;background:#fff}.ds-reference-panel h3{margin:0 4px 8px;font-size:16px;font-weight:500;line-height:28px}.ds-reference-list{height:292px;overflow:auto}.ds-reference-list header{height:26px;display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#6d6d6d}.ds-reference-list button{width:28px;height:26px;border:0;border-radius:7px;background:transparent;color:#202020;display:inline-grid;place-items:center;cursor:pointer}.ds-reference-list p{margin:6px 4px 0;font-size:14px;line-height:22px;white-space:pre-wrap;overflow-wrap:anywhere}.ds-reference button:hover{background:#e8e8e8}.ds-reference button:active{background:#e2e2e2}.ds-reference button:focus-visible{outline:2px solid #202020;outline-offset:2px}"
+    },
+    {
+      "name": "Context usage detail",
+      "kind": "custom",
+      "refersTo": "context-popover",
+      "description": "最近成功请求的浅色静态示意；391/128000来自真实请求与显式测试预算，不是供应商自动发现。原生数据/键盘交互由IPC及EUI管理。",
+      "html": "<section class=\"ds-context-panel\"><header><span>上下文</span><span>0.3%</span></header><p class=\"ds-context-tokens\">391 / 128,000 Token</p><div class=\"ds-context-track\"><div class=\"ds-context-fill\"></div></div><p class=\"ds-context-source\">上次请求 · 模型输入用量</p><p class=\"ds-context-model\">Qwen/Qwen3.5-4B</p><p class=\"ds-context-refs\">本次引用 0 段文字</p></section>",
+      "css": ".ds-context-panel{position:relative;box-sizing:border-box;width:320px;max-width:100%;height:224px;border:1px solid #dfdfdf;border-radius:12px;background:#fff;color:#202020;font-family:Noto Sans SC, sans-serif}.ds-context-panel header{position:absolute;top:12px;left:16px;right:16px;height:28px;display:flex;align-items:center;justify-content:space-between;font-size:16px;font-weight:500}.ds-context-panel p{position:absolute;margin:0;left:16px;right:16px;display:flex;align-items:center}.ds-context-tokens{top:48px;height:28px;font-size:14px}.ds-context-track{position:absolute;top:88px;left:16px;right:16px;height:6px;border-radius:3px;background:#dfdfdf;overflow:hidden}.ds-context-fill{width:0.3%;height:6px;border-radius:3px;background:#6d6d6d}.ds-context-source,.ds-context-model,.ds-context-refs{height:24px;font-size:13px;color:#6d6d6d}.ds-context-source{top:106px}.ds-context-model{top:134px}.ds-context-refs{top:182px}.ds-context-panel::after{content:\"\";position:absolute;left:16px;right:16px;top:170px;height:1px;background:#dfdfdf}"
+    },
+    {
+      "name": "Compact provider selector",
+      "kind": "nav",
+      "refersTo": "provider-selector",
+      "description": "224/56px服务导航、32px行。无目录时有未命名草稿，保存ACK后更新名称。",
+      "html": "<nav class=\"ds-provider-nav\"><button aria-current=\"true\">未命名服务</button><button>本地服务</button></nav>",
+      "css": ".ds-provider-nav{width:224px;padding:12px;border-right:1px solid #dfdfdf;background:#fff}.ds-provider-nav button{display:block;width:100%;height:32px;padding:0 8px;border:0;border-radius:8px;background:transparent;text-align:left;font:500 14px Noto Sans SC,sans-serif;color:#202020}.ds-provider-nav button[aria-current]{background:#e2e2e2}.ds-provider-nav button:hover{background:#e8e8e8}"
+    },
+    {
+      "name": "Configured API Key field",
+      "kind": "input",
+      "refersTo": "model-input",
+      "description": "已配置但不回传Key的静态示意；眼睛只显示本次输入，移除需保存。原生密钥编辑由EUI Adapter管理。",
+      "html": "<section class=\"ds-secret-field\"><div class=\"ds-secret-label\"><span>API Key</span><button class=\"ds-secret-remove\">移除</button></div><div class=\"ds-secret-entry\"><input class=\"ds-secret-input\" type=\"password\" autocomplete=\"off\" placeholder=\"已配置；填写新 Key 可替换\" aria-label=\"API Key\"/><button class=\"ds-secret-visible\" aria-label=\"显示本次输入\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 20 20\" aria-hidden=\"true\"><path d=\"M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/><circle cx=\"10\" cy=\"10\" r=\"2.5\" fill=\"currentColor\"/></svg></button></div></section>",
+      "css": ".ds-secret-field{width:420px;max-width:100%;height:92px;color:#202020;font-family:Noto Sans SC,sans-serif;font-size:16px}.ds-secret-label{height:28px;display:flex;align-items:center;justify-content:space-between;padding-right:6px}.ds-secret-field button{border:0;border-radius:7px;background:transparent;color:#202020;font-family:inherit;cursor:pointer}.ds-secret-remove{width:64px;height:28px;font-size:13px}.ds-secret-entry{position:relative;margin-top:8px;height:32px}.ds-secret-input{width:calc(100% - 44px);height:32px;padding:12px;box-sizing:border-box;border:1px solid #dfdfdf;border-radius:7px;background:#fff;color:#202020;font-family:inherit;font-size:16px}.ds-secret-input::placeholder{color:#6d6d6d}.ds-secret-input:focus-visible{outline:0;border-color:#222222}.ds-secret-visible{position:absolute;right:4px;top:4px;width:36px;height:36px;display:inline-grid;place-items:center}.ds-secret-field button:hover{background:#e8e8e8}.ds-secret-field button:active{background:#e2e2e2}.ds-secret-field button:focus-visible{outline:2px solid #202020;outline-offset:2px}.ds-secret-field button:disabled{color:#6d6d6d;cursor:default}"
+    },
+    {
+      "name": "History deletion confirmation",
+      "kind": "custom",
+      "refersTo": "dialog-delete",
+      "description": "460×316px删除确认静态示意，固定目标的首条输入和最近消息提供辨识；真实删除在service ACK后完成。",
+      "html": "<section class=\"ds-delete-dialog\"><h2>删除这段对话？</h2><p class=\"ds-delete-target\">对话：整理今天的工作</p><p class=\"ds-delete-preview\">最近消息 · Mira：已整理完成。</p><p class=\"ds-delete-body\">这段对话及其上下文将被删除，无法恢复。其他对话会保留。</p><button class=\"ds-delete-cancel\">取消</button><button class=\"ds-delete-confirm\">删除</button></section>",
+      "css": ".ds-delete-dialog{position:relative;width:460px;max-width:100%;height:316px;box-sizing:border-box;border:1px solid #dfdfdf;border-radius:12px;background:#fff;color:#202020;font-family:Noto Sans SC,sans-serif}.ds-delete-dialog h2{position:absolute;left:24px;right:24px;top:22px;height:36px;margin:0;font-size:21px;font-weight:600;line-height:36px}.ds-delete-dialog p{position:absolute;left:24px;right:24px;margin:0}.ds-delete-target,.ds-delete-preview{height:26px;font-size:14px;line-height:26px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-delete-target{top:67px}.ds-delete-preview{top:94px;color:#6d6d6d}.ds-delete-body{top:131px;height:85px;color:#6d6d6d;font-size:17px;line-height:28px}.ds-delete-dialog button{position:absolute;bottom:22px;width:76px;height:38px;border:0;border-radius:7px;font-family:inherit;font-size:15px;cursor:pointer}.ds-delete-cancel{right:112px;background:transparent;color:#202020}.ds-delete-confirm{right:24px;background:#222222;color:#fff}.ds-delete-cancel:hover{background:#e8e8e8}.ds-delete-confirm:hover{background:#6d6d6d}.ds-delete-dialog button:active{background:#e2e2e2}.ds-delete-dialog button:focus-visible{outline:2px solid #202020;outline-offset:2px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "桌面 Agent 的对话工作台",
+    "overview": "当前表面经独立 Runtime Service 展示真实 Agent 会话，并在设置页配置模型。本地草稿在首次提交获接纳并产生实际消息后进入历史，删除经服务确认后移除。会话标题、草稿、轮次状态与服务提示保持既有信息层级；发送、运行、回复、停止或失败来自服务回执与事件。本原生系统是 DEC-037 旧 TS/CEF 前端退役后的现行视觉契约，仓库根目录同步此记录；原 Web Mission Console 的炭蓝/奶油/琥珀、仪表 caps 和灯阵仅保留为历史设计背景，既有版本可从 Git 历史查看。\n",
+    "keyCharacteristics": [
+      "明暗两态共享中性灰角色；默认浅色。",
+      "随应用交付的 Noto Sans SC 中文无衬线文字与 Font Awesome Solid 操作图标；品牌继承 Mira 原始角色图。",
+      "可调宽并收起的侧栏、右对齐用户气泡、无卡片 Markdown 回复与随文字增高的 composer。",
+      "设置入口集中外观与模型；主题即时应用且仅在当前运行中保留，模型配置由服务保存并确认，API Key 直接输入并默认遮蔽。",
+      "平面容器、细描边、有限圆角。",
+      "清晰展示实际轮次状态、已应用模型、附件/引用来源与服务连接结果；上下文比例取最近成功请求的输入 Token 与显式窗口预算，未知时明确说明。"
+    ],
+    "rules": [
+      {
+        "name": "The Native Scope Rule",
+        "body": "现行产品页面复用原生 Palette；已退役 Web/CEF 的琥珀控制台 tokens 不迁入新表面。",
+        "section": "colors"
+      },
+      {
+        "name": "The Reading Column Rule",
+        "body": "空态与活动态各按实际列宽策略居中；消息与活动 composer 共用列。设置保留 800px 上限；所有列受主区可用空间限制。",
+        "section": "layout"
+      },
+      {
+        "name": "The Flat Surface Rule",
+        "body": "自定义按钮、用户气泡和输入不添加阴影；层级靠中性色阶与细描边表达。",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do 使用同一 Palette 角色切换明暗，让文字、边界与操作同时变化。",
+      "Do 保持文字与图标的职责分离；操作图标使用随应用配置加载的 Font Awesome Solid。",
+      "Do 保留 Mira 品牌图的原始画作、比例、透明背景与来源记录。",
+      "Do 按服务回执显示发送、运行与终态；composer 只显示服务确认的模型。",
+      "Do 保持附件/引用文本、来源与删除入口可检查；上下文用量标明上次请求和配置预算，缺少事实源或分母时明确未知。",
+      "Do 将新原生页面的视觉扩展同步到本目录和仓库根目录的现行设计记录。"
+    ],
+    "donts": [
+      "Don't 将设置草稿包装成已应用模型，或将通用文字/工具轮次包装成桌面任务执行。",
+      "Don't 以 ZCode 参考截图作为应用内素材；应用品牌继承 Mira；厂商图标以独立来源/许可证记录交付。",
+      "Don't 将 Web/CEF 的仪表 caps、琥珀主色与灯阵语法默认套入原生对话页。"
+    ]
+  }
+}

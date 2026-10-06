@@ -1,0 +1,19 @@
+{
+  "status": "completed after desktop unlock",
+  "entry": "org.mirage.native.desktop via GIO",
+  "old_product_running": false,
+  "current_saved_nonempty_records": 1,
+  "current_saved_empty_records": 0,
+  "failed_launch_reason": "GNOME ScreenSaver.GetActive=true; StatusNotifierWatcher absent; all desktop extensions inactive while locked",
+  "system_change": "installed Ubuntu AppIndicators enabled; activation awaits unlock",
+  "product_history_modified": false,
+  "followup": {
+    "entry": "GIO org.mirage.native.desktop",
+    "frontend_ready": true,
+    "historical_ids_preserved": true,
+    "saved_nonempty_count": 1,
+    "registry_count": 2,
+    "empty_session_open_and_delete": true,
+    "empty_primary_not_saved": true
+  }
+}
