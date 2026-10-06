@@ -296,15 +296,37 @@ const auto model = "Mirage";
         glFinish();
         // Exclude the arrow and composer: observe movement of the reading
         // viewport, rather than only checking the requested DSL offset.
-        std::vector<unsigned char> pixels(700 * 330 * 3);
+        const auto viewport_frame = element(thread_key)->frame;
+        const int sample_x = static_cast<int>(viewport_frame.x) + 12;
+        const int sample_y = static_cast<int>(viewport_frame.y) + 40;
+        const int sample_width = std::min(700, static_cast<int>(viewport_frame.width) - 24);
+        const int sample_height = std::min(330, static_cast<int>(viewport_frame.height) - 112);
+        std::vector<unsigned char> pixels(
+            static_cast<std::size_t>(sample_width * sample_height * 3));
         glPixelStorei(GL_PACK_ALIGNMENT, 1);
-        glReadPixels(320, height - 550, 700, 330, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+        glReadPixels(sample_x, height - sample_y - sample_height, sample_width, sample_height,
+                     GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
         return pixels;
     };
     const auto reading_pixels = visible_text_pixels();
     capture("stream-reading-light");
     auto *latest_hit = element("thread.latest.bg");
     MIRAGE_CHECK(latest_hit->focusable);
+    const auto latest_bounds = latest_hit->frame;
+    core::queuePointerMotion(handle, latest_bounds.x + 18, latest_bounds.y + 18, {}, {});
+    core::queuePointerButton(handle, latest_bounds.x + 18, latest_bounds.y + 18,
+                             core::PointerButton::Left, core::PointerAction::Press, {});
+    frame();
+    core::queuePointerButton(handle, latest_bounds.x + 18, latest_bounds.y + 18,
+                             core::PointerButton::Left, core::PointerAction::Release, {});
+    frame();
+    MIRAGE_CHECK(page.chat.current().follow_output && !view->find("thread.latest"));
+    MIRAGE_CHECK(
+        std::abs(element(thread_key)->scrollOffset - element(thread_key)->scrollMaxOffset) < 1);
+    MIRAGE_CHECK(visible_text_pixels() != reading_pixels);
+    element(thread_key)->onScrollOffsetChanged(40);
+    frame();
+    latest_hit = element("thread.latest.bg");
     eui::KeyEvent latest_enter;
     latest_enter.key = eui::InputKey::Enter;
     latest_enter.action = eui::KeyAction::Press;
@@ -315,6 +337,36 @@ const auto model = "Mirage";
         std::abs(element(thread_key)->scrollOffset - element(thread_key)->scrollMaxOffset) < 1);
     MIRAGE_CHECK(visible_text_pixels() != reading_pixels);
     capture("stream-following-light");
+    // Real pointer dispatch must reach the overlay across supported viewports/themes.
+    for (const int viewport : {1180, 860}) {
+        width = viewport;
+        height = viewport == 1180 ? 800 : 620;
+        glfwSetWindowSize(window, width, height);
+        for (const bool dark : {false, true}) {
+            page.dark = dark;
+            element(thread_key)->onScrollOffsetChanged(40);
+            frame();
+            MIRAGE_CHECK(!page.chat.current().follow_output && view->find("thread.latest"));
+            const auto before_click = visible_text_pixels();
+            const auto arrow_bounds = element("thread.latest.bg")->frame;
+            core::queuePointerMotion(handle, arrow_bounds.x + 18, arrow_bounds.y + 18, {}, {});
+            core::queuePointerButton(handle, arrow_bounds.x + 18, arrow_bounds.y + 18,
+                                     core::PointerButton::Left, core::PointerAction::Press, {});
+            frame();
+            core::queuePointerButton(handle, arrow_bounds.x + 18, arrow_bounds.y + 18,
+                                     core::PointerButton::Left, core::PointerAction::Release, {});
+            frame();
+            MIRAGE_CHECK(page.chat.current().follow_output && !view->find("thread.latest"));
+            MIRAGE_CHECK(std::abs(element(thread_key)->scrollOffset -
+                                  element(thread_key)->scrollMaxOffset) < 1);
+            MIRAGE_CHECK(visible_text_pixels() != before_click);
+        }
+    }
+    page.dark = false;
+    width = 1180;
+    height = 800;
+    glfwSetWindowSize(window, width, height);
+    frame();
     page.chat.current().messages.back().text = "滚动验证完成。";
     frame();
     // Compact model labels must remain readable and leave the adjacent actions clear.

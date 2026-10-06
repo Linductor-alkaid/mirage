@@ -1,0 +1,9 @@
+{
+  "entry": "GIO org.mirage.native.desktop",
+  "frontend_ready": true,
+  "historical_ids_preserved": true,
+  "saved_nonempty_count": 1,
+  "registry_count": 2,
+  "empty_session_open_and_delete": true,
+  "empty_primary_not_saved": true
+}

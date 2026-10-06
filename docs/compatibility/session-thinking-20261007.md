@@ -99,7 +99,7 @@ python3 -B tests/manual/native_conversation_acceptance.py \
 从正式应用列表 desktop entry 启动遇到锁屏环境：GNOME ScreenSaver.GetActive=true，
 StatusNotifierWatcher 不存在，Dock/AppIndicators 均处于 INACTIVE，程序按准入规则拒绝创建窗口。
 本机已安装的 Ubuntu AppIndicators 原为未启用，现已启用；其激活仍需解锁。
-本机重新启动验收保持未完成，负责人维护者/Codex，补跑条件为解锁后 watcher 在线，再由
+该次本机重新启动验收未完成，负责人维护者/Codex，补跑条件为解锁后 watcher 在线，再由
 GIO 入口启动、核对非空历史 ID、空主会话不保存、会话 admission 与独立窗口。
 [当前结果](../../.impeccable/review/session-thinking-20261007/restart-results.json)只记录元数据；
 没有删除或读取非空历史正文/Key。私有桌面的上述原生验证不能代替这项验收。
@@ -108,3 +108,7 @@ GIO 入口启动、核对非空历史 ID、空主会话不保存、会话 admiss
 历史保存或思考正文 UI；当前签名回填范围为同一轮 harness 的工具循环。产品图片附件仍不在范围内。
 Windows、Wayland、其他厂商真实凭据与当前 kairo 主干未运行；负责人维护者取得相应构建/桌面/
 凭据环境后补验，不能用 Linux/MiniMax 结果替代。整体 M6 保持 In Progress。
+
+2026-10-07 后续：桌面解锁后，经 M6-27 的正式 GIO 入口加载新版，托盘/独立前端正常，
+1 个非空历史 ID 保留、注册表 2 个会话、新建/删除空会话成功、空主会话不保存。
+此前重新启动待验项已完成，见[启动补验](conversation-scroll-20261007.md#本机产品加载)。
