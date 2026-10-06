@@ -64,3 +64,23 @@ Executor 有界动作通道，不改变业务生命周期。
 [DBusMenu XML](https://github.com/Alexays/Waybar/blob/master/protocol/dbus-menu.xml)，以及本机
 ubuntu-appindicators 的 interfaces.js / dbusMenu.js / indicatorStatusIcon.js。验证区别
 标准签名互通与真实通知区鼠标点击；未执行后者时不以协议测试替代像素验收。
+
+
+## 2026-10-06 旧桌面入口兼容
+
+应用列表统一入口的产品行为保持：无在线托盘时先启动并等待托盘真实注册，再由
+托盘创建前端；已有托盘时只复用/打开前端。GNOME 当前缓存仍直接执行旧的
+mirage-native，造成新准入拒绝，即使磁盘 .desktop 已写成 mirage start。
+
+Linux 原生入口仅在识别 GIO_LAUNCHED_DESKTOP_FILE 为 Mirage 已登记的桌面文件、
+且没有托盘注入的 MIRAGE_NATIVE_SOCKET 时，直接 exec 同一安装/构建树的 mirage
+start --shell 本程序；不初始化窗口/Executor，也不自建驻留服务。托盘创建的子进程
+带明确端点，继续原有注册/所属 PID 准入，不再次转发。直接 CLI、其他桌面文件和
+显式端点的非所属调用仍拒绝。桌面环境标记只用于兼容路由，不替代 IPC 所有权核验。
+同文件目标/缺失启动器拒绝，避免误配置 exec 循环。Windows 行为不变。
+
+
+GIO 桌面调用标记依据 [AppInfo.launch 官方契约](https://gnome.pages.gitlab.gnome.org/gtk/gio/method.AppInfo.launch.html)。
+旧命令现场证据为 GNOME Shell 日志中的原生程序路径及 tray runtime 未运行诊断，
+不是仅凭缓存推测。转发后维护者确认应用列表同时出现窗口和托盘；旧/新入口的
+私有完整 lifecycle 与 exec 拒绝守卫结果见托盘兼容性记录。

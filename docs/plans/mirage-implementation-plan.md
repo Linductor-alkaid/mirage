@@ -369,3 +369,10 @@ Linux DBusMenu 宿主格式，保持 Runtime 活动退出确认。Linux 协议/�
 23/23、相关 Release 3/3、ASAN/UBSAN/受控 ASLR TSAN 各 1/1 通过；真实通知区鼠标
 与 Windows 补验仍未执行，不改变 M6-04 范围。当前用户实例待重启，
 [证据](../compatibility/tray-runtime-owner-20261006.md)。
+
+
+2026-10-06 / M6-25 应用列表入口补验：BUG-20261006-007 的旧 GNOME 入口通过原生
+bootstrap exec 转发到统一启动器，真实窗口仍只由已注册托盘创建。维护者实机点击
+确认，当前/旧入口私有验收分别 24/24、28/28，ASAN/UBSAN 入口分支各 6/6。
+Linux 入口范围 Completed，Windows/原生 Wayland/包装范围保持待验收，见
+[入口补充](../compatibility/tray-runtime-owner-20261006.md)。

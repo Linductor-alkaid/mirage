@@ -5,6 +5,7 @@ import os
 import select
 import subprocess
 import sys
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -29,6 +30,12 @@ def session(args):
 
     def command(*arguments):
         return subprocess.run([str(args.build / 'apps/mirage'), *arguments], env=env,
+                              capture_output=True, text=True, timeout=20)
+
+    def desktop_open():
+        entry = output / 'org.mirage.native.desktop' if args.legacy_desktop else args.build / 'apps/native/org.mirage.native.desktop'
+        script = "from gi.repository import Gio; import sys; assert Gio.DesktopAppInfo.new_from_filename(sys.argv[1]).launch([],None)"
+        return subprocess.run(['/usr/bin/python3', '-c', script, str(entry)], env=env,
                               capture_output=True, text=True, timeout=20)
 
     def control(action='status', epoch=0):
@@ -62,6 +69,34 @@ bus.call_sync(sys.argv[1],'/org/mirage/tray/menu','com.canonical.dbusmenu','Even
                                 capture_output=True, text=True, timeout=5)
         check('native refuses missing tray before display initialization', denied.returncode == 1 and 'tray runtime' in denied.stderr)
         check('product refuses no-tray frontend option', command('start', '--no-tray').returncode == 2)
+        if args.legacy_desktop:
+            unrelated = dict(absent, GIO_LAUNCHED_DESKTOP_FILE='/tmp/unrelated.desktop')
+            unrelated.pop('MIRAGE_NATIVE_SOCKET', None)
+            denied = subprocess.run([str(args.build / 'apps/native/mirage-native')], env=unrelated,
+                                    capture_output=True, text=True, timeout=5)
+            check('unrelated desktop marker cannot bypass frontend ownership', denied.returncode == 1 and 'tray runtime' in denied.stderr)
+            explicit = dict(absent, GIO_LAUNCHED_DESKTOP_FILE='/tmp/org.mirage.native.desktop')
+            denied = subprocess.run([str(args.build / 'apps/native/mirage-native')], env=explicit,
+                                    capture_output=True, text=True, timeout=5)
+            check('explicit endpoint blocks desktop rebootstrap', denied.returncode == 1 and 'tray runtime' in denied.stderr)
+            isolated = output / 'isolated-entry'
+            isolated.mkdir(exist_ok=True)
+            binary = isolated / 'mirage-native'
+            shutil.copy2(args.build / 'apps/native/mirage-native', binary)
+            marker = dict(unrelated, GIO_LAUNCHED_DESKTOP_FILE='/tmp/org.mirage.native.desktop')
+            denied = subprocess.run([str(binary)], env=marker, capture_output=True, text=True, timeout=5)
+            check('missing launcher refuses before window initialization', denied.returncode == 1 and 'launcher unavailable' in denied.stderr)
+            launcher = isolated / 'mirage'
+            launcher.symlink_to(binary)
+            denied = subprocess.run([str(binary)], env=marker, capture_output=True, text=True, timeout=5)
+            check('same-image launcher refuses exec cycle', denied.returncode == 1 and 'launcher unavailable' in denied.stderr)
+            launcher.unlink(); binary.unlink(); isolated.rmdir()
+            if args.bootstrap_only:
+                results['scope'] = 'native bootstrap rejection paths; private XDG; no window or inference'
+                results['inference_requests'] = 0
+                (output / 'lifecycle-results.json').write_text(json.dumps(results, indent=2))
+                return
+
         # A headless developer service does not authorize a product window.
         headless_endpoint = str(Path(env['XDG_RUNTIME_DIR']) / 'headless.sock')
         headless = subprocess.Popen([str(args.build / 'apps/mirage-service'), '--socket', headless_endpoint,
@@ -83,7 +118,7 @@ bus.call_sync(sys.argv[1],'/org/mirage/tray/menu','com.canonical.dbusmenu','Even
                                               '--record', str(ready)], env=env,
                                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
             await_value(lambda: ready.exists(), bool)
-        tray, ui, endpoint = launch(args.build, env, children, output)
+        tray, ui, endpoint = launch(args.build, env, children, output, legacy=args.legacy_desktop)
         wire = Wire(endpoint)
         first = control()
         check('two processes with ready native child', first['frontend_pid'] == ui.pid and first['frontend_ready'])
@@ -117,6 +152,10 @@ print(json.dumps(dict(root_id=root[0],children=root[2],menu=menu,about=about,
               exported['about'] is False and exported['version'] == 3)
 
         check('repeat application open reuses tray and window', command('start').returncode == 0 and control()['frontend_pid'] == ui.pid)
+        opened = desktop_open()
+        check('desktop reopen reuses existing tray and owned frontend',
+              opened.returncode == 0 and control()['frontend_pid'] == ui.pid and tray.poll() is None)
+
         D = display.Display()
         root = D.screen().root
         w = None
@@ -168,9 +207,10 @@ print(json.dumps(dict(root_id=root[0],children=root[2],menu=menu,about=about,
         click(1150, 30)
         closed = await_value(control, lambda p: p['frontend_pid'] == 0)
         check('closing native leaves tray and Runtime running; child reaped', closed['frontend_pid'] == 0 and tray.poll() is None)
-        menu(5)
+        opened = desktop_open()
         reopened = await_value(control, lambda p: p['frontend_ready'])
-        check('tray Open Application reopens a new child', reopened['frontend_pid'] != ui.pid)
+        check('desktop entry reopens closed frontend without replacing tray',
+              opened.returncode == 0 and reopened['frontend_pid'] != ui.pid and tray.poll() is None)
         w = window(reopened['frontend_pid'])
         task = wire.call('task.submit', goal='退出确认测试：私有 sleep 任务', steps=[dict(op='process.execute', arg='sleep 30')])['task_id']
         check('incomplete task is counted by Runtime', control()['active_work'] >= 1)
@@ -223,8 +263,12 @@ def main():
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--xvfb', default='Xvfb')
     p.add_argument('--session', action='store_true')
+    p.add_argument('--bootstrap-only', action='store_true', help='Only rejection/exec-cycle probes; requires --legacy-desktop')
+    p.add_argument('--legacy-desktop', action='store_true', help='Reproduce cached desktop Exec of mirage-native')
     p.add_argument('--window-manager', action='store_true', help='Private ICCCM/EWMH peer validates minimized restore')
     args = p.parse_args()
+    if args.bootstrap_only and not args.legacy_desktop:
+        p.error('--bootstrap-only requires --legacy-desktop')
     args.build, args.output = args.build.resolve(), args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
     if args.session:
@@ -246,7 +290,7 @@ def main():
             assert select.select([read_fd],[],[],5)[0], 'Xvfb timeout'
             env['DISPLAY']=':'+os.read(read_fd,32).decode().strip()
             completed = subprocess.run(['dbus-run-session','--',sys.executable,str(Path(__file__).resolve()),
-                '--build',str(args.build),'--output',str(args.output),'--session', *(['--window-manager'] if args.window_manager else [])],env=env,timeout=120)
+                '--build',str(args.build),'--output',str(args.output),'--session', *(['--window-manager'] if args.window_manager else []), *(['--legacy-desktop'] if args.legacy_desktop else []), *(['--bootstrap-only'] if args.bootstrap_only else [])],env=env,timeout=120)
             assert completed.returncode == 0, 'private lifecycle acceptance failed'
         finally:
             os.close(read_fd);xvfb.terminate();xvfb.wait(timeout=5)

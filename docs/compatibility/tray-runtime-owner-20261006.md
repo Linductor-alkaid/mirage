@@ -189,3 +189,56 @@ GMainLoop。回调改用 borrowed 字符串，GetProperty 返回值引用平衡�
 GNOME 通知区左键像素/鼠标菜单验收；Windows 构建/通知区亦未执行，负责人 Mirage
 维护者，补跑条件为加载新实例后点击通知区和目标 Windows SDK/桌面。此记录不以
 协议测试冒充实际通知区呈现，也不将未执行项标为通过。
+
+
+## BUG-20261006-007：GNOME 应用列表仍调用旧前端命令
+
+维护者再次明确统一入口：冷启动先托盘后窗口，托盘已驻留时只打开窗口。现场
+GNOME 46.0 / GIO 2.80.0 / XWayland，磁盘唯一 Mirage 条目已执行 mirage start，
+但实际应用列表点击在用户 journal 留下原生程序直接调用和“tray runtime is not
+running”诊断。临时 .desktop 启动跟踪未被该点击执行，而新 GIO 对象读到已更新
+命令；因此之前 GIO 文件启动验收遗漏了现存桌面缓存的旧调用。
+
+按 DEC-045，Linux 原生入口在已登记 GIO 桌面标记且未指定托盘端点时，在窗口/
+Executor 初始化前 exec 同树 mirage start。正常前端由托盘附带明确端点并严格
+核验注册和所属 PID，不递归转发。未知桌面标记、显式端点非所属、缺少启动器和
+启动器指向同程序都明确拒绝；新桌面文件继续直接执行统一启动器。
+
+维护者随后从真实应用列表点击，明确反馈“窗口和托盘都出现了”；现场只读 IPC
+验证 frontend_ready、UI parent 为托盘，再经正式注册条目的 GIO 打开测得相同
+托盘与前端 PID 复用。未捕获用户会话、输入或 Key，没有发出模型请求。正式开发
+注册目标重新运行；临时诊断入口已恢复，不留 /tmp wrapper 的运行依赖。
+
+```bash
+cmake --build build/native-release --target mirage-native mirage mirage-tray \
+  mirage-native-register-desktop mirage-format-check mirage-boundary-check -j6
+ctest --test-dir build/native-release \
+  -R '^(tray_runtime_test|frontend_activation_test|native_agent_integration_test)$' --output-on-failure
+python3 -B tests/manual/tray_runtime_acceptance.py --build build/native-release \
+  --legacy-desktop --window-manager --output /tmp/mirage-legacy-desktop-final-v2 \
+  --xvfb /home/linductor/.local/mirage-sysroot/usr/bin/Xvfb
+python3 -B tests/manual/tray_runtime_acceptance.py --build build/native-release \
+  --window-manager --output /tmp/mirage-new-desktop-final-v2 \
+  --xvfb /home/linductor/.local/mirage-sysroot/usr/bin/Xvfb
+cmake --build build/asan --target mirage-native mirage -j4
+ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 python3 -B tests/manual/tray_runtime_acceptance.py \
+  --build build/asan --legacy-desktop --bootstrap-only --output /tmp/mirage-desktop-bootstrap-asan \
+  --xvfb /home/linductor/.local/mirage-sysroot/usr/bin/Xvfb
+cmake --build build/ubsan --target mirage-native mirage -j4
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 python3 -B tests/manual/tray_runtime_acceptance.py \
+  --build build/ubsan --legacy-desktop --bootstrap-only --output /tmp/mirage-desktop-bootstrap-ubsan \
+  --xvfb /home/linductor/.local/mirage-sysroot/usr/bin/Xvfb
+```
+
+Release 相关 3/3，当前入口 24/24，旧 GIO desktop Exec 入口 28/28。包含冷启动、
+先注册后真实 UI、已有托盘/窗口复用、关闭前端后从桌面条目重开而不换托盘、最小化
+恢复、菜单与活动退出等既有链路；旧入口额外验证四个拒绝/循环守卫。ASAN/UBSAN
+原生入口构建与拒绝路径各 6/6，无诊断；不把 bootstrap-only 结果当成完整 sanitizer
+GUI 验收。脚本初次替换旧行匹配失败，文件未写入，其后旧脚本复跑不计为新增
+桌面重开验收；改正匹配后 v2 按新矩阵完整通过。
+
+公开结果在证据目录 legacy-entry/current-entry/bootstrap-asan/bootstrap-ubsan-results.json
+与 desktop-entry-results.json。此次没有新增跨线程路径，沿用既有 Runtime Executor
+和生命周期测试，未修改依赖。Windows 兼容入口、原生 Wayland和安装包仍待维护者
+目标 SDK/桌面补验，不以 Linux 结果关闭这些范围。GNOME 旧缓存保留时也可使用
+新版兼容入口，当前窗口和托盘已运行，不再强制重启用户实例。

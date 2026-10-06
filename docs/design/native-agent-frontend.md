@@ -259,3 +259,10 @@ FrontendProcess 平台实现直接匹配所属子进程窗口，请求 WM 恢复
 Agent/任务/Workflow 时先恢复前端显示退出确认，取消保留工作，确认后取消并收敛。
 Linux 菜单由 StatusNotifierItem/DBusMenu 宿主呈现，Windows 使用平台弹出菜单；
 状态保留在 tooltip，菜单不展示暂停/恢复。既有 Executor owner/有界动作通道不变。
+
+
+Linux 应用列表的新条目执行 mirage start。为兼容 GNOME 缓存的旧 mirage-native
+命令，未携带托盘端点的已登记 GIO 桌面调用在任何窗口初始化前 exec 同树统一
+启动器。启动器先等待托盘注册，再由托盘创建所属前端；已有托盘只发 open。
+托盘子进程带明确端点，继续注册/所属 PID 准入，不转发或递归启动。依据 DEC-045，
+BUG-20261006-007；此兼容只用于产品桌面入口，未放宽直接 CLI 的前端准入。

@@ -56,19 +56,27 @@ def start_watcher(env, children, output):
     return watcher
 
 
-def launch(build, env, children, output):
+def launch(build, env, children, output, legacy=False):
     # The launcher exits after detaching product faces. This external driver
     # adopts them so it can verify exit statuses and clean its private session.
     assert ctypes.CDLL(None).prctl(36, 1, 0, 0, 0) == 0, 'private test subreaper'
     watcher = start_watcher(env, children, output)
     entry = build / 'apps/native/org.mirage.native.desktop'
+    expected_binary = build / 'apps/mirage'
+    if legacy:
+        # Reproduce GNOME's cached pre-tray Exec while keeping the real GIO
+        # desktop-launch environment; the native bootstrap must forward.
+        entry = output / 'org.mirage.native.desktop'
+        expected_binary = build / 'apps/native/mirage-native'
+        entry.write_text('[Desktop Entry]\nType=Application\nName=Mirage\nExec="' +
+                         str(expected_binary) + '"\nTerminal=false\n')
     script = '''import sys
 from gi.repository import Gio, GLib
 info = Gio.DesktopAppInfo.new_from_filename(sys.argv[1])
 assert info and GLib.shell_parse_argv(info.get_commandline())[1][0] == sys.argv[2], 'desktop entry bypasses product launcher'
 assert info.launch([], None), 'desktop launch failed'
 '''
-    started = subprocess.run(['/usr/bin/python3', '-c', script, str(entry), str(build / 'apps/mirage')],
+    started = subprocess.run(['/usr/bin/python3', '-c', script, str(entry), str(expected_binary)],
                              env=env, capture_output=True, text=True, timeout=25)
     (output / 'desktop-launch.log').write_text(started.stdout + started.stderr)
     assert started.returncode == 0, 'desktop entry launch failed'
@@ -85,7 +93,7 @@ assert info.launch([], None), 'desktop launch failed'
     assert parent == tray.pid, 'UI is not owned by tray'
     assert len(json.loads(watcher.read_text())['items']) == 1
     result = dict(scope='GIO launches generated desktop entry; private XDG/DBus/Xvfb; embedded Runtime',
-                  tray_started=True, native_started=True, service_embedded=True,
+                  legacy_desktop_forwarded=legacy, tray_started=True, native_started=True, service_embedded=True,
                   separate_processes=tray.pid != ui.pid, frontend_owned_by_tray=True)
     (output / 'desktop-results.json').write_text(json.dumps(result, indent=2) + '\n')
     endpoint = str(Path(env['XDG_RUNTIME_DIR']) / 'mirage/mirage-service.sock')
