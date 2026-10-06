@@ -348,3 +348,5 @@ SDK消费、Mirage原生回归通过。同步最新dev修复并移除库层异�
 2026-10-06：M6-22按DEC-043完成Linux本地范围的侧栏/服务标题间距、11项厂商预设和Messages真实模型接入；MiniMax-M3真实识图使用公开Provider，图片附件产品面尚未立项。M6整体仍In Progress。
 
 M6-22 Linux本地验收完成：Debug50/50及相关Release/ASAN/UBSAN、受控ASLR TSAN均通过；MiniMax-M3真实图片2/2及工具/流式通过。上游MessagesPR#80独立提交，详见[证据和未覆盖范围](../compatibility/provider-presets-and-vision-20261006.md)。M6保持In Progress。
+
+2026-10-06：M6-23按DEC-044修复原生模型设置事务与按键逻辑；真实Release设置35/35、renderer324 checks及Debug/Release/ASAN/UBSAN相关回归通过。离线取消、断线失败保留、重连继续保存取证；目标平台/Windows既有CI问题另验，M6整体保持In Progress，见[验收](../compatibility/model-settings-interactions-20261006.md)。

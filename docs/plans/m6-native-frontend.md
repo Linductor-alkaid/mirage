@@ -39,6 +39,7 @@
 | M6-18 | Completed（Linux） | 接入Mira PR#76修复与公开ConversationLoop，保持Executor版本；依赖审计/回填/取消回归 |
 | M6-22 | Completed | 会话侧栏/服务名输入间距、厂商预设、Anthropic Messages接入与MiniMax-M3真实识图；DEC-043 |
 | M6-21 | Completed（Linux X11） | 侧栏统一内容缩进/图标轴；ZCode服务导航、未命名草稿、连接配置和模型列表；保存ACK、失败保留、真实配置重载验收，依据DEC-042 |
+| M6-23 | Completed（Linux X11） | 实际模型页35项交互修复/复验；DEC-044，324项renderer、ACK、断线重连与最小明暗证据 |
 | M6-10 | Completed | 依工程规范9.4整理Mira/Mirador独立反馈台账，复核已登记问题并向Mira上游提交可复现反馈；不修改依赖或升级pin |
 
 ## 测试矩阵与退出条件
@@ -307,3 +308,7 @@ M6-21 Linux支持能力范围验收完成：Debug/Release/ASAN/UBSAN各3/3，原
 2026-10-06 / M6-22 follow-up（In Progress）：维护者报告输入API Key后保存仍灰。定位遮蔽编辑回调捕获上一compose的raw值；连续输入不能稳定落入当前草稿。按DEC-043/既有凭据边界修复最新编辑值与按钮刷新，不改变保存ACK和model_loaded门禁；补验键盘连续输入、粘贴、已保存服务替换与实际保存。
 
 2026-10-06 / M6-22 follow-up Completed（Linux本地，BUG-20261006-001）：修复密钥Adapter批次/快照和刷新，Debug相关3/3、Release/ASAN/UBSAN各renderer1/1；真实Release窗口合成Key粘贴保存/键盘替换ACK通过，不发起模型请求。证据见[API Key保存修复](../compatibility/provider-presets-and-vision-20261006.md#api-key保存按钮修复bug-20261006-001)。
+
+2026-10-06 / M6-23 In Progress：维护者要求自行打开模型设置页全面实测并修复。沿用DEC-042/043服务草稿、ACK、Key边界；在私有Xvfb/DBus/钥匙环运行真实Release进程，逐项检查新增/编辑/切换/删除服务与模型、预算/协议/开关、Key显示/清除、保存/取消、错误/重连和最小窗口键盘交互。使用合成配置/Key、不发起模型推理，不操作用户现有状态。确认缺陷后冻结DEC-044交互修复，补自动化与实际窗口复验；不扩展Agent/RPA能力。
+
+2026-10-06 / M6-23 Completed（Linux X11，BUG-20261006-002）：真实Release应用35/35设置交互通过，修复取消跳服务、模型参数丢失、禁用状态、重复ID、未保存导航、菜单/内联取消、删除确认及Key校验。Debug/Release相关各3/3，ASAN/UBSAN renderer各1/1，renderer324 checks；断线保存保留、离线取消和重连继续保存取证。格式/49公共头边界通过，原生CI补齐CURL/Xvfb并加入renderer。依赖/Executor不变，目标平台和CI限制明确保留，[验收](../compatibility/model-settings-interactions-20261006.md)；M6整体不关闭。

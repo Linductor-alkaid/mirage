@@ -12,7 +12,8 @@ namespace mirage::native_ui {
 inline void secret_input(core::dsl::Ui &ui, const std::string &id, float width, std::string &value,
                          bool visible, const std::string &placeholder,
                          const components::InputStyle &style,
-                         std::function<void(const std::string &)> change) {
+                         std::function<void(const std::string &)> change,
+                         std::function<void()> invalid = {}) {
     using Model = components::input_detail::InputModel;
     auto &editing = ui.state<Model::InputState>(id);
     components::input(ui, id)
@@ -22,7 +23,7 @@ inline void secret_input(core::dsl::Ui &ui, const std::string &id, float width, 
         .fontSize(ui_font_size(14))
         .inset(12)
         .style(style)
-        .onChange([&editing, visible, &value, change](const std::string &next) {
+        .onChange([&editing, visible, &value, change, invalid](const std::string &next) {
             std::optional<std::string> result;
             if (visible) {
                 if (next.size() <= 2048 &&
@@ -45,9 +46,23 @@ inline void secret_input(core::dsl::Ui &ui, const std::string &id, float width, 
             editing.redoStack.clear();
             if (result)
                 change(*result);
+            else if (invalid)
+                invalid();
         })
         .build();
     if (auto *hit = ui.find(id + ".hit")) {
+        auto input = hit->onTextInput;
+        hit->onTextInput = [input](const core::TextInputEvent &event) {
+            auto clean = event;
+            const auto first = clean.pasteText.find_first_not_of(" \t\r\n");
+            const auto last = clean.pasteText.find_last_not_of(" \t\r\n");
+            if (!clean.pasteText.empty())
+                clean.pasteText = first == std::string::npos
+                                      ? ""
+                                      : clean.pasteText.substr(first, last - first + 1);
+            if (input)
+                input(clean);
+        };
         auto handler = hit->onKeyEvent;
         hit->onKeyEvent = [handler](const core::KeyEvent &event) {
             if (event.isDown() && event.modifiers.shortcut() &&

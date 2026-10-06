@@ -120,7 +120,9 @@ def session(args):
             env['MIRAGE_ACCEPTANCE_KEY'] = test_key
         endpoint = str(Path(os.environ['XDG_RUNTIME_DIR']) / 'mirage.sock')
         service_log = open(output / 'service.log', 'w')
-        children.append(subprocess.Popen([str(args.build / 'apps/mirage-service'), '--socket', endpoint, '--config', str(config_path), '--state-dir', os.environ['XDG_STATE_HOME'], '--no-recovery'], env=env, stdout=service_log, stderr=service_log))
+        service_command = [str(args.build / 'apps/mirage-service'), '--socket', endpoint, '--config', str(config_path), '--state-dir', os.environ['XDG_STATE_HOME'], '--no-recovery']
+        service = subprocess.Popen(service_command, env=env, stdout=service_log, stderr=service_log)
+        children.append(service)
         deadline = time.monotonic() + 10
         while not Path(endpoint).exists() and time.monotonic() < deadline:
             time.sleep(0.1)
@@ -237,6 +239,7 @@ def session(args):
                 click(750, 564)
                 paste(cfg['model'])
                 click(790, 604)
+                click(1035, 220)  # Explicitly enable the initially disabled custom service.
             click(1060, 744)
             deadline = time.monotonic() + 8
             saved = None
@@ -263,6 +266,28 @@ def session(args):
             # Refresh must restore the acknowledged name and configured-key state.
             click(977, 152)
             capture('model-refreshed-live')
+            if args.settings_audit:
+                from model_settings_audit import run
+                def service_lifecycle(action):
+                    nonlocal service, wire
+                    if action == 'stop':
+                        service.terminate()
+                        service.wait(timeout=8)
+                        wire.sock.close()
+                        time.sleep(.3)
+                    else:
+                        service = subprocess.Popen(service_command, env=env, stdout=service_log, stderr=service_log)
+                        children.append(service)
+                        deadline = time.monotonic() + 8
+                        while not Path(endpoint).exists() and time.monotonic() < deadline:
+                            time.sleep(.1)
+                        wire = Wire(endpoint)
+                        return wire
+                run(click, paste, key, capture, wire, output, saved, args.expect_fixed, service_lifecycle)
+                click(1150, 30)
+                app.wait(timeout=8)
+                assert app.returncode == 0
+                return
             if args.settings_only:
                 # Replace only the key of an acknowledged, otherwise clean
                 # service. A new reference proves the UI submitted this edit.
@@ -417,6 +442,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--build', type=Path, required=True)
     p.add_argument('--provider', type=Path, required=True)
+    p.add_argument('--settings-audit', action='store_true', help='Audit real model setting controls without inference')
+    p.add_argument('--expect-fixed', action='store_true', help='Drive repaired confirmation flows')
     p.add_argument('--settings-only', action='store_true', help='With --model-settings, stop after paste/save and typed key replacement; no inference request')
     p.add_argument('--no-captures', action='store_true')
     p.add_argument('--preset-minimax', action='store_true', help='With --model-settings, configure the MiniMax preset by entering only its key')
@@ -425,8 +452,14 @@ def main():
     p.add_argument('--xvfb', default='Xvfb')
     p.add_argument('--session', action='store_true', help=argparse.SUPPRESS)
     args = p.parse_args()
-    if args.settings_only and not args.model_settings:
-        p.error('--settings-only requires --model-settings')
+    if (args.settings_only or args.settings_audit) and not args.model_settings:
+        p.error('--settings-only and --settings-audit require --model-settings')
+    if args.settings_audit and not args.preset_minimax:
+        p.error('--settings-audit requires --preset-minimax for its synthetic catalog layout')
+    if args.expect_fixed and not args.settings_audit:
+        p.error('--expect-fixed requires --settings-audit')
+    if args.settings_only and args.settings_audit:
+        p.error('choose either --settings-only or --settings-audit')
     args.build = args.build.resolve()
     args.provider = args.provider.resolve()
     args.output = args.output.resolve()
@@ -457,9 +490,11 @@ def main():
                  *(['--no-captures'] if args.no_captures else []),
                  *(['--model-settings'] if args.model_settings else []),
                  *(['--preset-minimax'] if args.preset_minimax else []),
-                 *(['--settings-only'] if args.settings_only else [])],
+                 *(['--settings-only'] if args.settings_only else []),
+                 *(['--settings-audit'] if args.settings_audit else []),
+                 *(['--expect-fixed'] if args.expect_fixed else [])],
                 env=env, start_new_session=True)
-            if driver.wait(timeout=110) != 0:
+            if driver.wait(timeout=240 if args.settings_audit else 110) != 0:
                 raise RuntimeError('private acceptance session failed')
         finally:
             if driver is not None and driver.poll() is None:
