@@ -218,3 +218,15 @@ MIRA-20261005-001的上游PR#79尚未合并；本地修复通过不冒充上游�
 M6-19收尾回读：Mira PR#79的pull_request run37332976997在当前pin 0a099ba上12/12 jobs
 成功，含Windows/Android、GCC/Clang、sanitizers与quality；同SHA push另有未完quality，
 未合并PR。依赖CI通过不替代Mirage Windows界面真机验证。
+
+## MIRA-20261006-001：Anthropic Messages方言缺口
+
+- 状态：Resolved（Linux本地验收范围）；负责人：Mirage维护者；[上游PR#80](https://github.com/Linductor-alkaid/mira/pull/80)已创建未合并。
+- 基线：0a099ba；公开model_profile.hpp仅有Responses/Chat Completions，model_dialect.hpp无Messages mapper；本机最新公开头亦无Anthropic能力。
+- 复现：protocol_dialect_from("anthropic.messages.v1")返回nullopt；ModelLayer拒绝配置，不存在可选公开映射器。不是URL或Key配置错误。
+- 影响：维护者要求的Messages与仅提供此协议的厂商无法接入；延期会使预设入口成为假功能。
+- 最小能力：固定方言、/messages路径、SecretRef认证模式、文本/图片/工具往返、严格SSE终态/预算与错误；复用现有transport和Executor。
+- 验收：离线协议/SSE/认证fixture及MiniMax-M3真实图片和工具请求；不隐式fallback到其他协议，不吞掉未知行为/extended thinking。
+- 临时措施：无；按明确授权在Mira独立分支修复并提交PR，随后同步Mirage pin/lock/回归。嵌套Executor不改。
+
+2026-10-06：Mira 7795e13交付Messages公开方言、认证与SSE/工具/图片映射；7/7协议回归，ASAN/UBSAN/TSAN解析/认证及变异种子通过，MiniMax-M3两图与工具往返实测通过。Mirage同步gitlink/lock，50/50 Debug及相关Release/ASAN/UBSAN回归通过；TSAN受控ASLR两项通过。其他厂商/平台不在本记录互操作结论内，负责人维护者按各自授权环境补跑；上游CI另行跟踪。无临时私有循环，Executor不改。

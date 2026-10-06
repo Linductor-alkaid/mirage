@@ -339,3 +339,19 @@ EUI ed1deb6→ff1e7572132a7ff8fc70c8e52f7778fce4dd976f：单独修复重新compo
 同步、惯性回写与viewport失效，附ui_state单测/公共组件说明；反馈EUI-20261006-001。
 依维护者既有授权更新PR#88，普通push、未合并，gitlink/lock一致；其他依赖、嵌套Executor
 与许可证不变。没有引入新包、并发设施或改变产品后端。[验收](../compatibility/native-conversation-finish-20261006.md)。
+
+
+## 2026-10-06：Messages模型协议增量（MIRA-20261006-001）
+
+Mira `0a099ba3b2d9911b5b9f1e17d38c8a27c4f61fb2` →
+`7795e13cd6b8169f4936016c169702c2c60e876c`：独立Messages方言、严格SSE及SecretRef ApiKey认证；
+[上游PR#80](https://github.com/Linductor-alkaid/mira/pull/80)堆叠于PR#79，已提交未合并。
+保持pre-kairo基线，Executor2ae4fc8/mbedtls与其他直接依赖、许可证AGPL-3.0均不变。
+原协议默认Bearer兼容；新增public enum/mapper/parser与HttpRequest默认成员，消费者需重编译。
+未引入厂商SDK或第二份并发设施，gitlink与lock精确同步。
+
+Linux本地完整Debug50/50通过；会话/持久化相关Debug/Release/ASAN/UBSAN各3/3，
+受控ASLR的TSAN2/2；Messages独立协议集7/7及三种sanitizer解析/认证/变异种子通过。
+MiniMax-M3两张合成图片及工具往返真实互操作通过，不证明其他厂商/平台。
+首次usage元数据失败保留上游兼容性记录；上游Windows/Android和完整矩阵CI另行跟踪。
+负责人维护者在目标环境补跑未覆盖范围。反馈台账已回写收敛；本升级独立评审，UI预设为后续消费。
