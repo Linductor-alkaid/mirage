@@ -1,3 +1,4 @@
+#include "../common/environment.hpp"
 #include "chat_model.hpp"
 #include "conversation_preview.hpp"
 #include "markdown_adapter.hpp"
@@ -612,8 +613,8 @@ void delete_history() {
 }
 void start_runtime() {
     auto &s = state();
-    if (const auto *endpoint = std::getenv("MIRAGE_NATIVE_SOCKET"))
-        s.runtime_endpoint = endpoint;
+    if (const auto endpoint = mirage::apps::environment_variable("MIRAGE_NATIVE_SOCKET"))
+        s.runtime_endpoint = *endpoint;
     if (s.runtime)
         s.runtime->shutdown();
     s.runtime = std::make_unique<RuntimeBridge>([] { app::requestUpdate(); }, s.runtime_endpoint);
@@ -917,7 +918,7 @@ void modal(eui::Ui &ui, const eui::Screen &screen, const Palette &p) {
     auto &s = state();
     if (!s.about && !s.confirm_clear && !s.confirm_delete)
         return;
-    const float height = s.confirm_delete ? 316 : 252;
+    const float height = s.confirm_delete ? 316.0f : 252.0f;
     const float width = 460, x = (screen.width - width) / 2, y = (screen.height - height) / 2;
     ui.stack("dialog")
         .size(screen.width, screen.height)
@@ -1285,7 +1286,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
         .disabled(model_editor_blocked() || s.models.size() >= 12)
         .onClick([] { navigate_model({PageState::ModelDestination::New, "", 0}); })
         .build();
-    const float nav_width = width < 700 ? 56 : 224;
+    const float nav_width = width < 700 ? 56.0f : 224.0f;
     const float panel_y = 184, panel_height = screen.height - 216;
     ui.rect("model.panel")
         .position(x, panel_y)
@@ -1765,7 +1766,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                                 : i    ? "openai.responses.v1"
                                                        : "openai.chat-completions.v1";
                     components::button(ui, "model.protocol." + std::to_string(i))
-                        .position(4, 4 + i * 36)
+                        .position(4, 4.0f + static_cast<float>(i) * 36.0f)
                         .size(width - 8, 36)
                         .text(i == 2 ? "Anthropic Messages"
                               : i    ? "OpenAI Responses"
@@ -1928,7 +1929,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         text_height(session.draft, column - 40, 14, ui_input_line_height(14)) + 24, 50.0f, 168.0f);
     const float refs_height =
         session.references.empty() && session.attachments.empty() ? 0.0f : 36.0f;
-    const float edit_height = session.edit_turn_id.empty() ? 0 : 32;
+    const float edit_height = session.edit_turn_id.empty() ? 0.0f : 32.0f;
     const float composer_height = input_height + refs_height + edit_height + 56;
     const float wanted_y =
         empty ? std::max(188.0f, screen.height * .29f + 106) : screen.height - composer_height - 28;
@@ -2118,16 +2119,20 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                             selection.row_y = row->frame.y;
                                         }
                                         selection.anchor = selection.caret = rendered->hit(
-                                            (event.x - selection.origin_x) / selection.scale,
-                                            (event.y - selection.origin_y) / selection.scale);
+                                            static_cast<float>((event.x - selection.origin_x) /
+                                                               selection.scale),
+                                            static_cast<float>((event.y - selection.origin_y) /
+                                                               selection.scale));
                                         selection.dragging = true;
                                     })
                                     .onDrag([rendered, id](const auto &event) {
                                         auto &selection = state().selection;
                                         if (selection.dragging && selection.message == id)
                                             selection.caret = rendered->hit(
-                                                (event.x - selection.origin_x) / selection.scale,
-                                                (event.y - selection.origin_y) / selection.scale);
+                                                static_cast<float>((event.x - selection.origin_x) /
+                                                                   selection.scale),
+                                                static_cast<float>((event.y - selection.origin_y) /
+                                                                   selection.scale));
                                     })
                                     .onRelease([rendered, id](const auto &event, const auto &) {
                                         auto &selection = state().selection;
@@ -2138,11 +2143,15 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                             return;
                                         }
                                         selection.caret = rendered->hit(
-                                            (event.x - selection.origin_x) / selection.scale,
-                                            (event.y - selection.origin_y) / selection.scale);
+                                            static_cast<float>((event.x - selection.origin_x) /
+                                                               selection.scale),
+                                            static_cast<float>((event.y - selection.origin_y) /
+                                                               selection.scale));
                                         selection.finish(*rendered);
-                                        selection.popup_x = event.x / selection.scale;
-                                        selection.popup_y = event.y / selection.scale;
+                                        selection.popup_x =
+                                            static_cast<float>(event.x / selection.scale);
+                                        selection.popup_y =
+                                            static_cast<float>(event.y / selection.scale);
                                     })
                                     .onKeyEvent([](const auto &event) {
                                         auto &selection = state().selection;
@@ -2207,7 +2216,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                 auto wire_action = [&](const std::string &action) {
                                     if (auto *button = list.find(action)) {
                                         button->opacity =
-                                            visible || list.isFocused(action + ".bg") ? 1 : 0;
+                                            visible || list.isFocused(action + ".bg") ? 1.0f : 0.0f;
                                     }
                                     if (auto *button = list.find(action + ".bg")) {
                                         button->focusable = true;
@@ -2224,7 +2233,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                 };
                                 list.rect(key + ".actions.hit")
                                     .position(action_x, action_y)
-                                    .size(can_edit ? 60 : 28, 26)
+                                    .size(can_edit ? 60.0f : 28.0f, 26)
                                     .color({0, 0, 0, 0})
                                     .onHover([id](bool entered) {
                                         auto &page = state();
