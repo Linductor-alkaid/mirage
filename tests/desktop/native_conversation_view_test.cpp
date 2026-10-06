@@ -420,6 +420,46 @@ const auto model = "Mirage";
     page.model_dirty = false;
     persistence::LocalSettings empty_catalog;
     empty_catalog.models_present = true;
+    // BUG-20261006-003: initial connection failure must not block local previews.
+    page.model_loaded = false;
+    frame();
+    MIRAGE_CHECK(!element("model.preset.0.bg")->disabled);
+    element("model.preset.0.bg")->onClick();
+    MIRAGE_CHECK(page.preview_preset == 0 && !page.model_dirty &&
+                 page.model.provider_id == "preset:openai");
+    frame();
+    MIRAGE_CHECK(element("model.save.bg")->disabled && element("model.add.model.bg")->disabled);
+    eui::TextInputEvent preview_key;
+    preview_key.pasteText = "fixture-preview-key";
+    element("model.key.hit")->onTextInput(preview_key);
+    MIRAGE_CHECK(page.api_key.empty());
+    eui::KeyEvent preview_enter;
+    preview_enter.key = eui::InputKey::Enter;
+    preview_enter.action = eui::KeyAction::Press;
+    MIRAGE_CHECK(element("model.preset.2.bg")->onKeyEvent(preview_enter));
+    MIRAGE_CHECK(page.preview_preset == 2 && !page.model_dirty && page.models.empty());
+    accept_model_configuration(empty_catalog, "model", "");
+    MIRAGE_CHECK(page.model_loaded && !page.preview_preset && page.model_dirty &&
+                 page.model.provider_id == "preset:minimax");
+    discard_model_edits();
+    page.model_loaded = false;
+    select_preset(2);
+    auto saved_preview = page.model;
+    saved_preview.display_name = "saved-preview-model";
+    saved_preview.endpoint_origin = "https://example.com";
+    saved_preview.api_prefix = "/custom";
+    saved_preview.model_selector = "saved-preview";
+    saved_preview.credential_ref = "fixture-ref";
+    persistence::LocalSettings saved_preview_catalog;
+    saved_preview_catalog.model = saved_preview;
+    saved_preview_catalog.models_present = true;
+    saved_preview_catalog.models = {saved_preview};
+    accept_model_configuration(saved_preview_catalog, "model", "");
+    MIRAGE_CHECK(!page.preview_preset && !page.model_dirty &&
+                 page.model_base_url == "https://example.com/custom" &&
+                 page.model.model_selector == "saved-preview" &&
+                 page.model.credential_ref == "fixture-ref" && page.models.size() == 1);
+    page.model_dirty = false;
     accept_model_configuration(empty_catalog, "model", "");
     frame();
     MIRAGE_CHECK(page.model_loaded && page.models.empty() && !page.live_model.enabled);
@@ -731,6 +771,20 @@ const auto model = "Mirage";
                  element("model.provider.enabled.hit")->disabled);
     element("model.key.hit")->onTextInput(blocked_input);
     MIRAGE_CHECK(page.api_key.empty());
+    const auto gap_provider = page.model.provider_id;
+    page.model_dirty = true;
+    select_preset(0);
+    MIRAGE_CHECK(!page.preview_preset && page.model.provider_id == gap_provider &&
+                 page.model_dirty);
+    page.model_dirty = false;
+    page.saving_model = true;
+    select_preset(0);
+    MIRAGE_CHECK(!page.preview_preset && page.model.provider_id == gap_provider);
+    page.saving_model = false;
+    page.model_dialog = PageState::ModelDialog::Discard;
+    select_preset(0);
+    MIRAGE_CHECK(!page.preview_preset && page.model.provider_id == gap_provider);
+    page.model_dialog = PageState::ModelDialog::None;
     page.model_loaded = true;
     frame();
     input_key("  fixture-key \t", true);

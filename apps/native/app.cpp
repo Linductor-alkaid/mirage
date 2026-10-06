@@ -22,6 +22,7 @@
 #include <filesystem>
 #include <functional>
 #include <string>
+#include <utility>
 
 namespace mirage::native_ui {
 namespace {
@@ -81,6 +82,7 @@ struct PageState {
     bool saving_model = false;
     bool model_loaded = false;
     bool model_dirty = false;
+    std::optional<std::size_t> preview_preset;
     std::unique_ptr<RuntimeBridge> runtime;
     mirage::runtime::persistence::ModelSettings model;
     mirage::runtime::persistence::ModelSettings live_model;
@@ -168,6 +170,7 @@ void load_provider(const persistence::ModelSettings &profile) {
     s.model_scroll = 0;
     s.model_notice.clear();
 }
+void select_preset(std::size_t index);
 void accept_model_configuration(const persistence::LocalSettings &document, const std::string &tag,
                                 const std::string &warning) {
     auto &s = state();
@@ -211,13 +214,16 @@ void accept_model_configuration(const persistence::LocalSettings &document, cons
                          : warning.empty() ? "已保存，配置已生效"
                                            : warning;
     }
+    if (const auto preview = std::exchange(s.preview_preset, std::nullopt))
+        select_preset(*preview);
 }
 // DEC-044: all editor transitions stay on the UI owner thread.
-bool model_editor_blocked() {
+bool preset_selection_blocked() {
     const auto &s = state();
-    return !s.model_loaded || s.saving_model || s.about || s.confirm_clear || s.confirm_delete ||
+    return s.saving_model || s.about || s.confirm_clear || s.confirm_delete ||
            s.model_dialog != PageState::ModelDialog::None;
 }
+bool model_editor_blocked() { return !state().model_loaded || preset_selection_blocked(); }
 bool pending_model_edits() {
     const auto &s = state();
     return s.model_dirty || (s.adding_model && !s.new_model_id.empty());
@@ -239,7 +245,6 @@ void discard_model_edits() {
     acknowledged.models_present = true;
     accept_model_configuration(acknowledged, "discard", "");
 }
-void select_preset(std::size_t index);
 void execute_model_navigation(const PageState::ModelNavigation &navigation) {
     auto &s = state();
     switch (navigation.destination) {
@@ -450,9 +455,13 @@ bool set_base_url(const std::string &url) {
 }
 void select_preset(std::size_t index) {
     auto &v = state();
-    if (model_editor_blocked() || index >= provider_presets.size())
+    if (preset_selection_blocked() || index >= provider_presets.size())
         return;
     if (pending_model_edits()) {
+        if (!v.model_loaded) {
+            v.model_notice = "正在读取配置；连接后可切换预设，当前修改已保留。";
+            return;
+        }
         navigate_model({PageState::ModelDestination::Preset, "", index});
         return;
     }
@@ -460,7 +469,7 @@ void select_preset(std::size_t index) {
     const auto id = "preset:" + std::string(preset.id);
     const auto existing = std::find_if(v.models.begin(), v.models.end(),
                                        [&](const auto &entry) { return entry.provider_id == id; });
-    if (existing != v.models.end()) {
+    if (v.model_loaded && existing != v.models.end()) {
         load_provider(*existing);
         return;
     }
@@ -477,8 +486,10 @@ void select_preset(std::size_t index) {
     set_base_url(std::string(preset.base_url));
     v.provider_models = {v.model};
     v.editing_provider_name = false;
-    v.model_dirty = true;
-    v.model_notice = "填写 API Key 后保存即可使用，地址与模型可按需修改。";
+    v.model_dirty = v.model_loaded;
+    v.preview_preset = v.model_loaded ? std::nullopt : std::optional{index};
+    v.model_notice = v.model_loaded ? "填写 API Key 后保存即可使用，地址与模型可按需修改。"
+                                    : "预设已选择；连接 Runtime Service 后可填写并保存。";
 }
 bool call_runtime(ipc::Request request, const std::string &tag, std::uint64_t id = 0) {
     auto &s = state();
@@ -1052,10 +1063,12 @@ void keyboard_activation(eui::Ui &ui, const std::string &id) {
         target->focusable = true;
         if (id.starts_with("model.") && !id.starts_with("model.dialog.") &&
             id != "model.refresh.bg") {
-            target->disabled = target->disabled || model_editor_blocked();
+            const bool preset = id.starts_with("model.preset.");
+            target->disabled =
+                target->disabled || (preset ? preset_selection_blocked() : model_editor_blocked());
             auto handler = target->onClick;
-            target->onClick = [handler] {
-                if (!model_editor_blocked() && handler)
+            target->onClick = [handler, preset] {
+                if (!(preset ? preset_selection_blocked() : model_editor_blocked()) && handler)
                     handler();
             };
         }

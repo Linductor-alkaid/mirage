@@ -1,0 +1,42 @@
+{
+  "scope": "BUG-20261006-003; native X11 preset selection; inline review",
+  "runtime_ui_builds": [
+    "native-debug",
+    "native-release"
+  ],
+  "checks": {
+    "actual_online": {
+      "passed": 23,
+      "total": 23
+    },
+    "actual_offline_and_reconnect": {
+      "passed": 27,
+      "total": 27
+    },
+    "renderer": {
+      "passed": 341,
+      "failures": 0,
+      "configurations": [
+        "Debug",
+        "Release",
+        "ASAN"
+      ]
+    },
+    "debug_related_ctest": "3/3",
+    "release_related_ctest": "3/3",
+    "asan_renderer_ctest": "1/1",
+    "public_headers": "49 checked; 0 violations",
+    "format": "passed",
+    "diff_check": "passed",
+    "python_syntax": "passed",
+    "impeccable_detector": []
+  },
+  "limitation": "Windows/Wayland/physical high-DPI/screen readers need target environment; no new UBSAN/TSAN run; no inference requests",
+  "prior_ci": {
+    "head": "fa8f192",
+    "run": 37446382775,
+    "linux": "all jobs passed",
+    "windows": "existing MSVC warning failures"
+  },
+  "new_commit_ci": "pending after push"
+}

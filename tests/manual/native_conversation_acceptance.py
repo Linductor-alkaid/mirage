@@ -130,7 +130,8 @@ def session(args):
         wire.call('events.subscribe', chat_preview=True)
         initial_sessions = len(wire.call('session.list')['sessions'])
         env.pop('MIRAGE_ACCEPTANCE_KEY', None)
-        env['MIRAGE_NATIVE_SOCKET'] = endpoint
+        ui_endpoint = endpoint + '.offline' if args.offline_start else endpoint
+        env['MIRAGE_NATIVE_SOCKET'] = ui_endpoint
         app_log = open(output / 'native.log', 'w')
         app = subprocess.Popen([str(args.build / 'apps/native/mirage-native')], env=env, stdout=app_log, stderr=app_log)
         children.append(app)
@@ -214,11 +215,60 @@ def session(args):
             owner.destroy()
             D.sync()
 
+        def service_lifecycle(action):
+            nonlocal service, wire, endpoint
+            if action == 'stop':
+                service.terminate()
+                service.wait(timeout=8)
+                wire.sock.close()
+                time.sleep(.3)
+            else:
+                if action == 'restart_for_ui':
+                    endpoint = ui_endpoint
+                    service_command[2] = endpoint
+                service = subprocess.Popen(service_command, env=env, stdout=service_log, stderr=service_log)
+                children.append(service)
+                deadline = time.monotonic() + 8
+                while not Path(endpoint).exists() and time.monotonic() < deadline:
+                    time.sleep(.1)
+                wire = Wire(endpoint)
+                return wire
+
+        def clipboard_text():
+            # Observe only the copied public Base URL, never the key control.
+            key('c', ctrl=True)
+            requestor = root.create_window(-10, -10, 1, 1, 0, D.screen().root_depth)
+            prop = D.intern_atom('MIRAGE_PRESET_URL')
+            requestor.convert_selection(D.intern_atom('CLIPBOARD'), D.intern_atom('UTF8_STRING'), prop, X.CurrentTime)
+            D.flush()
+            deadline = time.monotonic() + 2
+            try:
+                while time.monotonic() < deadline:
+                    if not D.pending_events():
+                        select.select([D], [], [], .02)
+                        continue
+                    event = D.next_event()
+                    if event.type == X.SelectionNotify and event.requestor == requestor:
+                        result = requestor.get_full_property(prop, X.AnyPropertyType)
+                        return bytes(result.value).decode() if result else ''
+                raise TimeoutError('public URL clipboard observation')
+            finally:
+                requestor.destroy()
+                D.sync()
+
         if args.model_settings:
             engine('xkb:us::eng')
             click(226, 756)
             click(90, 226)
             capture('model-empty-live')
+            if args.preset_selection_only:
+                from native_preset_acceptance import run
+                run(click, paste, key, capture, clipboard_text, wire, service_lifecycle,
+                    output, args.offline_start, args.expect_fixed)
+                click(1150, 30)
+                app.wait(timeout=8)
+                assert app.returncode == 0
+                return
             if args.preset_minimax:
                 click(420, 360)  # MiniMax built-in template in the service navigation.
                 capture('model-preset-live')
@@ -270,21 +320,6 @@ def session(args):
             capture('model-refreshed-live')
             if args.settings_audit:
                 from model_settings_audit import run
-                def service_lifecycle(action):
-                    nonlocal service, wire
-                    if action == 'stop':
-                        service.terminate()
-                        service.wait(timeout=8)
-                        wire.sock.close()
-                        time.sleep(.3)
-                    else:
-                        service = subprocess.Popen(service_command, env=env, stdout=service_log, stderr=service_log)
-                        children.append(service)
-                        deadline = time.monotonic() + 8
-                        while not Path(endpoint).exists() and time.monotonic() < deadline:
-                            time.sleep(.1)
-                        wire = Wire(endpoint)
-                        return wire
                 run(click, paste, key, capture, wire, output, saved, args.expect_fixed, service_lifecycle)
                 click(1150, 30)
                 app.wait(timeout=8)
@@ -444,6 +479,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--build', type=Path, required=True)
     p.add_argument('--provider', type=Path, required=True)
+    p.add_argument('--preset-selection-only', action='store_true', help='Exercise preset click/dirty navigation without saving or inference')
+    p.add_argument('--offline-start', action='store_true', help='With preset-selection-only, launch UI before its Service socket exists')
     p.add_argument('--settings-audit', action='store_true', help='Audit real model setting controls without inference')
     p.add_argument('--expect-fixed', action='store_true', help='Drive repaired confirmation flows')
     p.add_argument('--settings-only', action='store_true', help='With --model-settings, stop after paste/save and typed key replacement; no inference request')
@@ -454,12 +491,16 @@ def main():
     p.add_argument('--xvfb', default='Xvfb')
     p.add_argument('--session', action='store_true', help=argparse.SUPPRESS)
     args = p.parse_args()
-    if (args.settings_only or args.settings_audit) and not args.model_settings:
-        p.error('--settings-only and --settings-audit require --model-settings')
+    if (args.settings_only or args.settings_audit or args.preset_selection_only) and not args.model_settings:
+        p.error('settings-only/audit/preset-selection-only require --model-settings')
     if args.settings_audit and not args.preset_minimax:
         p.error('--settings-audit requires --preset-minimax for its synthetic catalog layout')
-    if args.expect_fixed and not args.settings_audit:
-        p.error('--expect-fixed requires --settings-audit')
+    if args.expect_fixed and not (args.settings_audit or args.preset_selection_only):
+        p.error('--expect-fixed requires a settings audit or preset selection run')
+    if args.offline_start and not args.preset_selection_only:
+        p.error('--offline-start requires --preset-selection-only')
+    if args.preset_selection_only and (args.settings_only or args.settings_audit):
+        p.error('preset-selection-only is a separate settings run')
     if args.settings_only and args.settings_audit:
         p.error('choose either --settings-only or --settings-audit')
     args.build = args.build.resolve()
@@ -494,6 +535,8 @@ def main():
                  *(['--preset-minimax'] if args.preset_minimax else []),
                  *(['--settings-only'] if args.settings_only else []),
                  *(['--settings-audit'] if args.settings_audit else []),
+                 *(['--preset-selection-only'] if args.preset_selection_only else []),
+                 *(['--offline-start'] if args.offline_start else []),
                  *(['--expect-fixed'] if args.expect_fixed else [])],
                 env=env, start_new_session=True)
             if driver.wait(timeout=240 if args.settings_audit else 110) != 0:

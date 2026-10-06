@@ -1,0 +1,11 @@
+{
+  "scope": "actual native window, XTest/public URL clipboard, private Service/keyring",
+  "offline_start": true,
+  "checks": [
+    {
+      "name": "preset can be selected before initial service connection",
+      "passed": false
+    }
+  ],
+  "inference_requests": 0
+}

@@ -5,6 +5,8 @@
 > 负责人：Mirage维护者
 > 依据：[DEC-044](../decisions/DEC-044-model-editor-interactions.md)、[M6计划](../plans/m6-native-frontend.md)
 
+后续BUG-20261006-003补验并修复首次连接前预设入口被禁用，见[预设选择验收](preset-selection-20261006.md)；本文件保留此前35项设置交互的结果。
+
 ## 问题与修复
 
 本轮实际启动Release原生应用及Runtime Service，通过XTest操作鼠标、键盘和剪贴板，观察窗口像素及Service ACK。全部进程使用私有Xvfb、DBus、IBus、系统钥匙环与临时XDG目录，使用公开合成Key，不读取或修改用户现有模型配置，不发起推理。代码追踪和状态回归补充了实际窗口发现的问题，登记为BUG-20261006-002。

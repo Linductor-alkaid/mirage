@@ -312,3 +312,5 @@ M6-21 Linux支持能力范围验收完成：Debug/Release/ASAN/UBSAN各3/3，原
 2026-10-06 / M6-23 In Progress：维护者要求自行打开模型设置页全面实测并修复。沿用DEC-042/043服务草稿、ACK、Key边界；在私有Xvfb/DBus/钥匙环运行真实Release进程，逐项检查新增/编辑/切换/删除服务与模型、预算/协议/开关、Key显示/清除、保存/取消、错误/重连和最小窗口键盘交互。使用合成配置/Key、不发起模型推理，不操作用户现有状态。确认缺陷后冻结DEC-044交互修复，补自动化与实际窗口复验；不扩展Agent/RPA能力。
 
 2026-10-06 / M6-23 Completed（Linux X11，BUG-20261006-002）：真实Release应用35/35设置交互通过，修复取消跳服务、模型参数丢失、禁用状态、重复ID、未保存导航、菜单/内联取消、删除确认及Key校验。Debug/Release相关各3/3，ASAN/UBSAN renderer各1/1，renderer324 checks；断线保存保留、离线取消和重连继续保存取证。格式/49公共头边界通过，原生CI补齐CURL/Xvfb并加入renderer。依赖/Executor不变，目标平台和CI限制明确保留，[验收](../compatibility/model-settings-interactions-20261006.md)；M6整体不关闭。
+
+2026-10-06 / M6-23 follow-up Completed（Linux X11，BUG-20261006-003）：真实窗口复现首次未连接时预设被加载门禁禁用；按DEC-044修订允许本地预览，首次ACK后保持预设选择及已有保存配置，字段/保存门禁和草稿保护不变。断线/恢复27项、正常连接23项实际点击通过；Debug/Release相关各3/3、ASAN renderer1/1，renderer341 checks，格式/49公共头边界通过。[验收](../compatibility/preset-selection-20261006.md)。无依赖或并发变更；目标平台限制保留，M6整体不关闭。
