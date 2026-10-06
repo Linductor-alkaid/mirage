@@ -1588,6 +1588,15 @@ struct RuntimeService::Impl {
         for (auto &profile : document.models)
             profile.api_key_configured =
                 !profile.credential_ref.empty() || !profile.credential_env.empty();
+        auto project_options = [](auto &model) {
+            model.reasoning_options.clear();
+            for (const auto &option : mirage::integration::reasoning_options(
+                     model.dialect, model.model_selector, model.supports_reasoning))
+                model.reasoning_options.push_back(option.value);
+        };
+        project_options(*document.model);
+        for (auto &model : document.models)
+            project_options(model);
         respond(
             connection, correlation,
             ipc::ModelConfiguration{persistence::encode_settings(document), std::move(warning)});
@@ -1596,6 +1605,12 @@ struct RuntimeService::Impl {
     void handle_model_set(std::uint64_t connection, std::uint64_t correlation,
                           const ipc::SetModelRequest &request) {
         auto decoded = persistence::decode_settings(request.settings_json);
+        if (decoded.ok) {
+            if (decoded.settings.model)
+                decoded.settings.model->reasoning_options.clear();
+            for (auto &model : decoded.settings.models)
+                model.reasoning_options.clear();
+        }
         if (!decoded.ok || !decoded.settings.model || !decoded.settings.socket_path.empty() ||
             !decoded.settings.read_roots.empty() || !decoded.settings.permission_rules.empty() ||
             decoded.settings.confirmation || decoded.settings.runtime) {
@@ -1790,16 +1805,13 @@ struct RuntimeService::Impl {
             fail(connection_id, correlation_id, "unavailable", "model layer is not configured");
             return;
         }
+        const auto options = mirage::integration::reasoning_options(
+            core->model.dialect, core->model.model_selector, core->model.supports_reasoning);
         if ((request.access != "default" && request.access != "read_only") ||
-            (!request.reasoning.empty() && request.reasoning != "minimal" &&
-             request.reasoning != "low" && request.reasoning != "medium" &&
-             request.reasoning != "high")) {
-            fail(connection_id, correlation_id, "invalid_argument", "invalid composer options");
-            return;
-        }
-        if (!request.reasoning.empty() && !core->model.supports_reasoning) {
-            fail(connection_id, correlation_id, "unavailable",
-                 "model does not declare reasoning_effort support");
+            std::none_of(options.begin(), options.end(),
+                         [&](const auto &entry) { return entry.value == request.reasoning; })) {
+            fail(connection_id, correlation_id, "invalid_argument",
+                 "selected thinking option is not supported by this model");
             return;
         }
         if (request.text.size() > kMaxDialogTextBytes) {

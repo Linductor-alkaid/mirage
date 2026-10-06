@@ -91,3 +91,9 @@ Mirage 是基于 Mira 构建的桌面端产品，为 Mira 通用 Agent 提供完
 2026-10-05 / M6-12：原生界面统一使用随应用交付的 Noto Sans SC 简体中文字面，
 修正Markdown行内文字高低不齐；字体与OFL许可离线构建/打包。Linux验证见
 [字体验收](docs/compatibility/native-typography-20261005.md)。Windows/真实IME待补跑。
+
+2026-10-07（DEC-046 / M6-26）：思考选择只在会话输入栏，选项由服务端根据模型能力提供；
+MiniMax-M3 为默认/关闭/开启，M3.1 Flash Preview 为默认及低到最高深度，不能关闭。
+设置页不再要求开启思考支持。空的内部会话不计为可恢复历史；默认 24 历史槽及 1 主会话槽，
+容量满时明确提示删除历史并保留输入草稿。当前 Linux 原生 MiniMax 开关、流式正文与 wait 工具循环
+已验收，参见[记录](docs/compatibility/session-thinking-20261007.md)。

@@ -1,0 +1,8 @@
+{
+  "scope": "live MiniMax-M3 adaptive thinking, read-only wait tool; synthetic prompt",
+  "ok": true,
+  "model_steps": 2,
+  "tool_calls": 1,
+  "stream_metadata": "stream_updates=2 largest_snapshot=7 delivered_before_return=1",
+  "reply_matches": true
+}

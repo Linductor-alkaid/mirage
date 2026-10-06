@@ -33,6 +33,7 @@ class HarnessEnvironment final : public mirage::desktop::DesktopEnvironment {
 class Provider final : public mira::IModelProvider {
   public:
     explicit Provider(const mira::ModelProfile &profile) : profile_(profile) {}
+    std::atomic<bool> saw_adaptive{false}, saw_disabled{false};
     const mira::ModelProfile &profile() const override { return profile_; }
     mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
                                             const mira::OperationContext &context,
@@ -46,6 +47,8 @@ class Provider final : public mira::IModelProvider {
         const int number = ++calls;
         last_tools.store(static_cast<int>(request.tools.size()));
         saw_high.store(request.generation.reasoning_effort == mira::ReasoningEffort::High);
+        saw_adaptive.store(request.generation.thinking == mira::ThinkingMode::Adaptive);
+        saw_disabled.store(request.generation.thinking == mira::ThinkingMode::Disabled);
         bool image = false;
         for (const auto &item : request.input)
             for (const auto &part : item.content) {
@@ -164,7 +167,8 @@ int main(int argc, char **argv) {
             context.deadline = std::chrono::steady_clock::now() + 60s;
             std::size_t updates = 0, largest = 0;
             bool before_terminal = false;
-            result = model.complete_harness_turn({}, read("MIRAGE_PROBE_PROMPT"), context, "", true,
+            result = model.complete_harness_turn({}, read("MIRAGE_PROBE_PROMPT"), context,
+                                                 read("MIRAGE_PROBE_REASONING"), true,
                                                  [&](const auto &, const auto &text, bool) {
                                                      if (!text.empty()) {
                                                          ++updates;
@@ -181,8 +185,8 @@ int main(int argc, char **argv) {
         std::printf("%s\n", result.ok ? result.reply_text.c_str() : result.error.c_str());
         return result.ok ? 0 : 1;
     }
-    // M6-22: Messages is a real pinned dialect; unsupported thinking fails at
-    // configuration validation, before admitting a model request.
+    // M6-26: Messages is a real pinned dialect; composer options come from
+    // explicit model capabilities rather than a settings-page enable switch.
     {
         integration::ModelLayerConfig config;
         config.enabled = true;
@@ -192,7 +196,14 @@ int main(int argc, char **argv) {
         std::string error;
         MIRAGE_CHECK(config.valid(error));
         config.supports_reasoning = true;
-        MIRAGE_CHECK(!config.valid(error) && error.find("thinking") != std::string::npos);
+        MIRAGE_CHECK(config.valid(error));
+        MIRAGE_CHECK(integration::reasoning_options(config.dialect, "MiniMax-M3").size() == 3);
+        const auto flash =
+            integration::reasoning_options(config.dialect, "MiniMax-M3.1-Flash-Preview");
+        MIRAGE_CHECK(flash.size() == 6 && flash.back().value == "max");
+        MIRAGE_CHECK(std::none_of(flash.begin(), flash.end(),
+                                  [](const auto &option) { return option.value == "none"; }));
+        MIRAGE_CHECK(integration::reasoning_options(config.dialect, "unknown", true).size() == 1);
         config.supports_reasoning = false;
         config.dialect = "unknown.messages";
         MIRAGE_CHECK(!config.valid(error));
@@ -829,6 +840,35 @@ int main(int argc, char **argv) {
                  std::none_of(persisted_sessions.state.sessions.begin(),
                               persisted_sessions.state.sessions.end(),
                               [&](const auto &item) { return item.id == disposable; }));
+    // Capability options originate in the service; the full IPC path reaches Mira.
+    auto messages_settings = settings;
+    messages_settings.model->dialect = "anthropic.messages.v1";
+    messages_settings.model->model_selector = "MiniMax-M3";
+    messages_settings.model->supports_reasoning = false;
+    messages_settings.model->reasoning_options = {"max"}; // Client cannot invent capabilities.
+    const auto messages_ack =
+        client.call(ipc::SetModelRequest{persistence::encode_settings(messages_settings)}, 2s);
+    MIRAGE_CHECK(messages_ack.ok);
+    const auto messages_projection = persistence::decode_settings(
+        std::get<ipc::ModelConfiguration>(messages_ack.payload).settings_json);
+    MIRAGE_CHECK(messages_projection.ok && messages_projection.settings.model->reasoning_options ==
+                                               std::vector<std::string>({"", "none", "adaptive"}));
+    MIRAGE_CHECK(
+        client
+            .call(ipc::SessionChatRequest{session, "自适应思考", true, "read_only", "adaptive"}, 2s)
+            .ok);
+    const auto thought_turn = wait_turn(client, session);
+    MIRAGE_CHECK(thought_turn && thought_turn->status == "ok" && provider->saw_adaptive.load());
+    MIRAGE_CHECK(
+        client.call(ipc::SessionChatRequest{session, "关闭思考", true, "read_only", "none"}, 2s)
+            .ok);
+    const auto no_thought_turn = wait_turn(client, session);
+    MIRAGE_CHECK(no_thought_turn && no_thought_turn->status == "ok" &&
+                 provider->saw_disabled.load());
+    MIRAGE_CHECK(
+        !client.call(ipc::SessionChatRequest{session, "M3不支持深度", true, "read_only", "max"}, 2s)
+             .ok);
+    MIRAGE_CHECK(client.call(ipc::SetModelRequest{serialized}, 2s).ok);
     const auto active_provider = provider;
     const auto before_corrupt = client.call(ipc::GetModelRequest{}, 2s);
     persistence::LocalStateStore disk(config.settings_directory, "service.json", 65536);

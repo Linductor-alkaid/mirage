@@ -535,6 +535,30 @@ void new_session() {
     if (!s.about && !s.confirm_clear && !s.confirm_delete)
         s.chat.new_draft();
 }
+struct ComposerThinkingOption {
+    std::string value;
+    std::string label;
+};
+std::vector<ComposerThinkingOption>
+composer_thinking_options(const mirage::runtime::persistence::ModelSettings &model) {
+    std::vector<ComposerThinkingOption> options;
+    for (const auto &value : model.reasoning_options) {
+        const std::string label = value.empty()         ? "默认"
+                                  : value == "none"     ? "关闭"
+                                  : value == "adaptive" ? "开启"
+                                  : value == "minimal"  ? "最少"
+                                  : value == "low"      ? "低"
+                                  : value == "medium"   ? "中"
+                                  : value == "high"     ? "高"
+                                  : value == "xhigh"    ? "极高"
+                                  : value == "max"      ? "最高"
+                                                        : "默认";
+        options.push_back({value, label});
+    }
+    if (options.empty())
+        options.push_back({"", "默认"});
+    return options;
+}
 bool send_prepared(LocalSession &session) {
     return call_runtime(ipc::SessionChatRequest{session.remote_id, session.pending_prompt,
                                                 state().agent_mode, session.pending_access,
@@ -554,7 +578,11 @@ void submit_turn() {
     }
     session.pending_prompt = prompt;
     session.pending_access = session.access;
-    session.pending_reasoning = s.live_model.supports_reasoning ? session.reasoning : "";
+    const auto options = composer_thinking_options(s.live_model);
+    if (std::none_of(options.begin(), options.end(),
+                     [&](const auto &entry) { return entry.value == session.reasoning; }))
+        session.reasoning.clear();
+    session.pending_reasoning = session.reasoning;
     session.submitted_text = session.draft;
     session.submitted_attachments.clear();
     for (const auto &attachment : session.attachments)
@@ -1666,23 +1694,6 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
             if (!s.provider_models.empty()) {
                 field("model.window", "上下文窗口（Token）", s.model_window, "留空表示未知",
                       [](const auto &v) { state().model_window = v; });
-                components::button(list, "model.reasoning.support")
-                    .size(w, 32)
-                    .text(s.model.dialect == "anthropic.messages.v1" ? "此协议的扩展思考尚未接入"
-                          : s.model.supports_reasoning ? "思考深度 · 已启用"
-                                                       : "启用思考深度")
-                    .icon(s.model.supports_reasoning ? 0xf14a : 0xf0c8)
-                    .iconSize(14)
-                    .fontSize(ui_font_size(14))
-                    .style(button_style(p))
-                    .disabled(model_editor_blocked() || s.model.dialect == "anthropic.messages.v1")
-                    .onClick([] {
-                        if (state().model.dialect == "anthropic.messages.v1")
-                            return;
-                        state().model.supports_reasoning = !state().model.supports_reasoning;
-                        state().model_dirty = true;
-                    })
-                    .build();
             }
         })
         .build();
@@ -2441,12 +2452,12 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         .disabled(s.saving_model)
         .onClick([toggle] { toggle(PageState::Popup::Model); })
         .build();
-    const std::string effort = !s.live_model.supports_reasoning || session.reasoning.empty()
-                                   ? "默认"
-                               : session.reasoning == "minimal" ? "最少"
-                               : session.reasoning == "low"     ? "低"
-                               : session.reasoning == "medium"  ? "中"
-                                                                : "高";
+    const auto thinking_options = composer_thinking_options(s.live_model);
+    const auto selected_effort =
+        std::find_if(thinking_options.begin(), thinking_options.end(),
+                     [&](const auto &entry) { return entry.value == session.reasoning; });
+    const std::string effort =
+        selected_effort == thinking_options.end() ? "默认" : selected_effort->label;
     components::button(ui, "composer.reasoning")
         .position(x + column - 136, toolbar_y)
         .size(88, 32)
@@ -2484,8 +2495,11 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
             : popup == PageState::Popup::Context  ? 224
             : popup == PageState::Popup::Model
                 ? std::min(352.0f, 68.0f + 44.0f * static_cast<float>(s.models.size()))
-            : popup == PageState::Popup::Reasoning ? (s.live_model.supports_reasoning ? 244 : 148)
-                                                   : 164;
+            : popup == PageState::Popup::Reasoning
+                ? (thinking_options.size() > 1
+                       ? static_cast<float>(thinking_options.size()) * 44 + 24
+                       : 112)
+                : 164;
         const float anchor = popup == PageState::Popup::Context     ? context_x
                              : popup == PageState::Popup::Model     ? model_x
                              : popup == PageState::Popup::Reasoning ? column - 136
@@ -2550,25 +2564,19 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                     text(ui, "composer.popup.access.help", "只读不调用工具；默认仅开放等待工具。",
                          16, 112, popup_width - 32, 36, 12, p.muted);
                 } else if (popup == PageState::Popup::Reasoning) {
-                    if (!s.live_model.supports_reasoning) {
-                        text(ui, "composer.popup.reasoning.help", "此模型尚未启用思考深度。", 16,
-                             16, popup_width - 32, 32, 15, p.text);
-                        text(ui, "composer.popup.reasoning.note",
-                             "确认模型支持后，在模型设置中启用。", 16, 50, popup_width - 32, 32, 13,
-                             p.muted);
-                        row("reasoning.settings", "模型设置", 0xf013, 96, [] {
-                            state().settings = state().model_page = true;
-                            state().popup = PageState::Popup::None;
-                        });
+                    if (thinking_options.size() == 1) {
+                        text(ui, "composer.popup.reasoning.help", "使用模型默认思考方式", 16, 16,
+                             popup_width - 32, 32, 14, p.text);
+                        text(ui, "composer.popup.reasoning.note", "此模型未提供可验证的思考选项。",
+                             16, 50, popup_width - 32, 40, 12, p.muted);
                     } else {
-                        const std::array<std::string, 5> values{"", "minimal", "low", "medium",
-                                                                "high"};
-                        const std::array<std::string, 5> labels{"默认（不传参数）", "最少", "低",
-                                                                "中", "高"};
-                        for (std::size_t i = 0; i < values.size(); ++i)
+                        for (std::size_t i = 0; i < thinking_options.size(); ++i)
                             row("effort." + std::to_string(i),
-                                labels[i] + (session.reasoning == values[i] ? " · 已选择" : ""),
-                                0xf5dc, 12 + static_cast<float>(i) * 44, [value = values[i]] {
+                                thinking_options[i].label +
+                                    (session.reasoning == thinking_options[i].value ? " · 已选择"
+                                                                                    : ""),
+                                0xf5dc, 12 + static_cast<float>(i) * 44,
+                                [value = thinking_options[i].value] {
                                     state().chat.current().reasoning = value;
                                     state().popup = PageState::Popup::None;
                                 });

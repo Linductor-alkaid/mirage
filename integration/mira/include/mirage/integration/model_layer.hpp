@@ -6,6 +6,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace executor {
 class Executor;
@@ -59,6 +60,14 @@ struct ModelLayerConfig {
     /// not dial any origin). Disabled layers still validate bounded field syntax.
     [[nodiscard]] bool valid(std::string &error) const;
 };
+
+/// Composer choices are derived from documented model capabilities (DEC-046).
+struct ReasoningOption {
+    std::string value;
+    std::string label;
+};
+[[nodiscard]] std::vector<ReasoningOption>
+reasoning_options(const std::string &dialect, const std::string &model, bool declared = false);
 
 /// Outcome of one dialog inference (DEC-027). `ok` carries `reply_text`;
 /// `failed` marks a settled turn with a stable `error` reason (safe for UI);

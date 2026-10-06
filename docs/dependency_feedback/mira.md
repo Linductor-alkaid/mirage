@@ -2,7 +2,7 @@
 
 > 状态：Active
 > 负责人：Mirage维护者；处理方：Mira上游
-> 更新日期：2026-10-05
+> 更新日期：2026-10-07
 > 工作项：[M6-10](../plans/m6-native-frontend.md)
 > 总入口：[依赖反馈](ledger.md)；维护规则：[工程规范9.4](../project/project-standards.md)
 
@@ -230,3 +230,17 @@ M6-19收尾回读：Mira PR#79的pull_request run37332976997在当前pin 0a099ba
 - 临时措施：无；按明确授权在Mira独立分支修复并提交PR，随后同步Mirage pin/lock/回归。嵌套Executor不改。
 
 2026-10-06：Mira 7795e13交付Messages公开方言、认证与SSE/工具/图片映射；7/7协议回归，ASAN/UBSAN/TSAN解析/认证及变异种子通过，MiniMax-M3两图与工具往返实测通过。Mirage同步gitlink/lock，50/50 Debug及相关Release/ASAN/UBSAN回归通过；TSAN受控ASLR两项通过。其他厂商/平台不在本记录互操作结论内，负责人维护者按各自授权环境补跑；上游CI另行跟踪。无临时私有循环，Executor不改。
+
+<a id="mira-20261006-002"></a>
+
+## MIRA-20261006-002：Messages 思考控制与签名回填
+
+- 状态：Resolved（Linux 本地范围）；负责人：Linductor-alkaid；关联 Mirage M6-26 / DEC-046。
+- 版本：7795e13；已核对 model_contracts.hpp、model_dialect.hpp、ConversationLoop 与 m3_anthropic_test。现有 GenerationOptions 只有 reasoning_effort，Messages 明确拒绝；SSE 对 thinking block 返回 CapabilityMismatch。
+- 复现：设置 Messages generation.reasoning_effort=High，encode_request 拒绝；输入 thinking content_block_start 同样拒绝。不是 Mirage 参数选型错误：公开契约没有 thinking mode 或签名内容。
+- 影响：MiniMax-M3 的 adaptive thinking 与 Claude 扩展思考无法从会话启用；不能丢弃签名后继续工具调用。
+- 最小能力：明确的 thinking mode；有界 thinking/redacted blocks；规范序列化及完整 assistant block 工具回填；保留不支持方言的显式拒绝。
+- 验收：同步与 SSE 内容/签名一致，工具请求回填顺序不变，非法模式/角色/越界/缺终态拒绝，真实 MiniMax 开关可用。延期则会话栏只能显示已确认可用能力。依赖修复按已有授权实施并提交上游 PR。
+
+- 获批修复：Mira fbc644be2fabfaa2f8257e579fbc1d368537224c；[上游 PR#81](https://github.com/Linductor-alkaid/mira/pull/81)，基于 Messages PR#80，尚未合并。Executor 与其他内嵌 pin 未变。
+- 收敛：DEC-051 的 ThinkingMode / ThinkingPart、SSE 有界签名与 redacted 回填由 Mira 承载，Mirage 仅负责模型选项投影。7 项上游协议测试、Mirage 52 项 Release 回归与真实 MiniMax 开关/工具循环通过；[完整验收](../compatibility/session-thinking-20261007.md)。没有临时并发或协议实现。其他厂商在线/Windows 与当前 kairo 主干未复验，维护者取得目标环境后补跑。

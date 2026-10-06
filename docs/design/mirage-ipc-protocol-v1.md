@@ -710,3 +710,11 @@ Workflow（无法查询的工作保守计为活动）。状态由 Runtime 串行
 exit_epoch`；非法快照为 `invalid product state`；hello 非布尔 tray 为 `hello tray must
 be boolean`。运行中无托盘、错误前端 PID、过期确认均按既有失败响应返回
 invalid_state 与诊断。退出和通知区故障不绕过 Runtime 有序取消/shutdown。
+
+### M6-26 思考选项投影（DEC-046）
+
+模型配置 settings_json 的 model 与 models 条目可含 reasoning_options 字符串数组，
+最多8项、每项最多16字节。空字符串表示提供商默认，其他值由服务推导。
+这是只读投影，model.set 忽略客户端列表；session.chat.reasoning 经实际模型能力校验。
+当前新增 none/adaptive/xhigh/max；是否提供由具体模型决定。新增字段要求同步升级原生前端的设置解码器；
+新 UI 缺失列表时只显示默认，不猜测未知厂商能力。wire version 保持 v1。

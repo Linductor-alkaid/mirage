@@ -2,7 +2,7 @@
 
 > 状态：Active
 > 负责人：Mirage维护者
-> 更新日期：2026-10-05
+> 更新日期：2026-10-07
 > 维护规则：[工程规范9.4](../project/project-standards.md)
 > 本轮工作项：[M6-10](../plans/m6-native-frontend.md)
 
@@ -10,7 +10,7 @@
 
 | 依赖 | 详细台账 | 已确认问题 | 说明 |
 | --- | --- | --- | --- |
-| Mira | [Mira台账](mira.md) | 1项Open、3项Resolved、1项Accepted | Runtime/模型/工具/workflow及随Mira交付的Executor；本轮先向Mira反馈 |
+| Mira | [Mira台账](mira.md) | 1项Open、5项Resolved、1项Accepted | Runtime/模型/工具/workflow及随Mira交付的Executor；本轮先向Mira反馈 |
 | Mirador | [Mirador台账](mirador.md) | 0项 | 明确初始化为空；有可复现证据后登记，不推断不存在未来问题 |
 
 executor经pinned Mira传递引入，编号使用`MIRA-YYYYMMDD-NNN`，不直接向Executor提交。
@@ -48,3 +48,7 @@ Mirador使用`MIRADOR-YYYYMMDD-NNN`。EUI是用户授权的UI依赖，其既有�
 ## MIRA-20261006-001：Messages协议
 
 公开API核对、影响和验收见[Mira台账](mira.md#mira-20261006-001anthropic-messages方言缺口)。本轮Resolved（Linux本地范围），[上游PR#80](https://github.com/Linductor-alkaid/mira/pull/80)已创建未合并；无临时调度设施。
+
+## MIRA-20261006-002：Messages 思考控制与签名回填
+
+详见 [Mira 台账](mira.md#mira-20261006-002)。Linux 本地修复与授权 pin 复验完成；[上游 PR#81](https://github.com/Linductor-alkaid/mira/pull/81) 未合并。
