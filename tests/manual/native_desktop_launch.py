@@ -47,6 +47,7 @@ class AdoptedProcess:
 
 def start_watcher(env, children, output):
     watcher = output / 'sni-watcher.json'
+    watcher.unlink(missing_ok=True)  # A previous run's record is not readiness.
     children.append(subprocess.Popen(['/usr/bin/python3', str(Path(__file__).with_name('sni_fixture.py')),
                                      '--record', str(watcher)], env=env,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))

@@ -30,6 +30,10 @@ std::optional<mira::ReasoningEffort> reasoning_value(const std::string &value) {
         return mira::ReasoningEffort::Low;
     if (value == "medium")
         return mira::ReasoningEffort::Medium;
+    if (value == "xhigh")
+        return mira::ReasoningEffort::XHigh;
+    if (value == "max")
+        return mira::ReasoningEffort::Max;
     if (value == "high")
         return mira::ReasoningEffort::High;
     return {};
@@ -69,6 +73,56 @@ class ProfileSecretResolver final : public mira::ISecretResolver {
     std::function<std::optional<std::string>(const std::string &)> lookup_;
 };
 
+} // namespace
+
+std::vector<ReasoningOption> reasoning_options(const std::string &dialect, const std::string &model,
+                                               bool declared) {
+    std::vector<ReasoningOption> result{{"", "默认"}};
+    if (dialect == "anthropic.messages.v1") {
+        if (model == "MiniMax-M3")
+            result.insert(result.end(), {{"none", "关闭"}, {"adaptive", "开启"}});
+        else if (model == "MiniMax-M3.1-Flash-Preview")
+            result.insert(result.end(), {{"low", "低"},
+                                         {"medium", "中"},
+                                         {"high", "高"},
+                                         {"xhigh", "极高"},
+                                         {"max", "最高"}});
+        else if (model.starts_with("claude-opus-4-6") || model.starts_with("claude-sonnet-4-6"))
+            result.insert(result.end(), {{"none", "关闭"},
+                                         {"adaptive", "自适应"},
+                                         {"low", "低"},
+                                         {"medium", "中"},
+                                         {"high", "高"},
+                                         {"max", "最高"}});
+        else if (model == "claude-fable-5-1")
+            result.insert(result.end(), {{"low", "低"},
+                                         {"medium", "中"},
+                                         {"high", "高"},
+                                         {"xhigh", "极高"},
+                                         {"max", "最高"}});
+    } else if (declared || model == "gpt-5")
+        result.insert(result.end(),
+                      {{"minimal", "最少"}, {"low", "低"}, {"medium", "中"}, {"high", "高"}});
+    return result;
+}
+namespace {
+bool accepts_reasoning(const ModelLayerConfig &config, const std::string &value) {
+    const auto options =
+        reasoning_options(config.dialect, config.model_selector, config.supports_reasoning);
+    return std::any_of(options.begin(), options.end(),
+                       [&](const auto &entry) { return entry.value == value; });
+}
+std::optional<mira::ThinkingMode> thinking_value(const ModelLayerConfig &config,
+                                                 const std::string &value) {
+    if (config.dialect != "anthropic.messages.v1" || value.empty())
+        return {};
+    return value == "none" ? mira::ThinkingMode::Disabled : mira::ThinkingMode::Adaptive;
+}
+std::uint64_t generation_budget(const ModelLayerConfig &config, const std::string &value) {
+    return thinking_value(config, value) == mira::ThinkingMode::Adaptive
+               ? std::max<std::uint64_t>(config.max_output_tokens, 8192)
+               : config.max_output_tokens;
+}
 } // namespace
 
 void capture_context_usage(DialogCompletion &completion, const mira::ModelResponse &response,
@@ -121,10 +175,6 @@ bool ModelLayerConfig::valid(std::string &error) const {
     if (!api_prefix.empty() &&
         (!api_prefix.starts_with("/") || api_prefix.find_first_of("?#\r\n") != std::string::npos)) {
         error = "API prefix must be an absolute URL path";
-        return false;
-    }
-    if (dialect == "anthropic.messages.v1" && supports_reasoning) {
-        error = "Anthropic extended thinking is not supported by this adapter";
         return false;
     }
     if (!enabled) {
@@ -213,8 +263,15 @@ struct ModelLayer::Impl {
                                                           : "mirage:" + config.credential_ref};
         // Pure-dialog needs text only; capabilities are declared at the
         // evidence the pinned fixtures provide, never claimed beyond that.
-        if (config.supports_reasoning)
+        if (reasoning_options(config.dialect, config.model_selector, config.supports_reasoning)
+                .size() > 1)
             record.capabilities.generation.reasoning_effort = mira::ParamMapping::OmitIfUnset;
+        if (config.dialect == "anthropic.messages.v1")
+            record.capabilities.generation.thinking = mira::ParamMapping::OmitIfUnset;
+        if (config.dialect == "anthropic.messages.v1" &&
+            reasoning_options(config.dialect, config.model_selector).size() > 1)
+            record.capabilities.limits.max_output_tokens =
+                65536; // Bounded whole-loop thinking envelope.
         record.capabilities.text =
             mira::CapabilityFlag{true, mira::CapabilityEvidence::FixtureVerified, ""};
         record.capabilities.function_tools =
@@ -312,8 +369,7 @@ DialogCompletion ModelLayer::complete_dialog_turn(const std::string &transcript,
     // The drain lock makes shutdown wait out this inference (bounded by the
     // profile transport deadlines) instead of destroying the pinned pieces
     // under it.
-    if (!reasoning.empty() &&
-        (!impl_ || !impl_->config.supports_reasoning || !reasoning_value(reasoning))) {
+    if (!reasoning.empty() && (!impl_ || !accepts_reasoning(impl_->config, reasoning))) {
         completion.failed = true;
         completion.error = "unsupported reasoning effort";
         return completion;
@@ -379,8 +435,9 @@ DialogCompletion ModelLayer::complete_dialog_turn(const std::string &transcript,
     // Pure dialog: Text output, no tools, one request per turn.
     request.output_contract.mode = mira::OutputMode::Text;
     request.generation.reasoning_effort = reasoning_value(reasoning);
-    request.generation.max_output_tokens = impl_->config.max_output_tokens;
-    request.budget.max_output_tokens = impl_->config.max_output_tokens;
+    request.generation.thinking = thinking_value(impl_->config, reasoning);
+    request.generation.max_output_tokens = generation_budget(impl_->config, reasoning);
+    request.budget.max_output_tokens = generation_budget(impl_->config, reasoning);
     request.budget.max_requests = 1;
     request.data_policy.store = false;
     request.prompt_provenance.system_template_digest =
@@ -466,8 +523,7 @@ DialogCompletion ModelLayer::complete_harness_turn(const std::string &transcript
                                                    const std::string &reasoning, bool tools_allowed,
                                                    DialogPreviewSink preview) {
     DialogCompletion completion;
-    if (!impl_ || (!reasoning.empty() &&
-                   (!impl_->config.supports_reasoning || !reasoning_value(reasoning)))) {
+    if (!impl_ || (!reasoning.empty() && !accepts_reasoning(impl_->config, reasoning))) {
         completion.failed = true;
         completion.error = "unsupported reasoning effort";
         return completion;
@@ -492,11 +548,13 @@ DialogCompletion ModelLayer::complete_harness_turn(const std::string &transcript
     config.max_recoveries = 0;
     config.max_tool_executions = 32;
     const auto budget = impl_->profile->capabilities.limits.max_output_tokens;
-    config.max_output_tokens_per_turn = std::min(impl_->config.max_output_tokens, budget / 2);
+    config.max_output_tokens_per_turn =
+        std::min(generation_budget(impl_->config, reasoning), budget / 2);
     config.max_turns = static_cast<std::uint32_t>(
         std::min<std::uint64_t>(16, budget / config.max_output_tokens_per_turn - 1));
     config.model_call_deadline = impl_->config.request_deadline;
     config.reasoning_effort = reasoning_value(reasoning);
+    config.thinking = thinking_value(impl_->config, reasoning);
     config.inference.stream = static_cast<bool>(preview);
     if (preview)
         config.inference.preview_sink = [preview = std::move(preview)](const auto &id,

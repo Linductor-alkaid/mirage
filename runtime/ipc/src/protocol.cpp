@@ -1180,7 +1180,8 @@ RequestDecode decode_request(std::string_view payload) {
             const auto *text_value = value->as_string();
             if (!text_value ||
                 (!text_value->empty() && *text_value != "minimal" && *text_value != "low" &&
-                 *text_value != "medium" && *text_value != "high")) {
+                 *text_value != "medium" && *text_value != "high" && *text_value != "none" &&
+                 *text_value != "adaptive" && *text_value != "xhigh" && *text_value != "max")) {
                 result.error = "invalid reasoning level";
                 return result;
             }
