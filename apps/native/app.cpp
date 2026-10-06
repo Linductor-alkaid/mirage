@@ -2,6 +2,7 @@
 #include "chat_model.hpp"
 #include "conversation_preview.hpp"
 #include "markdown_adapter.hpp"
+#include "provider_presets.hpp"
 #include "runtime_bridge.hpp"
 #include "secret_input.hpp"
 #include "selection_adapter.hpp"
@@ -22,6 +23,7 @@
 #include <filesystem>
 #include <functional>
 #include <string>
+#include <utility>
 
 namespace mirage::native_ui {
 namespace {
@@ -56,6 +58,16 @@ struct PageState {
     std::size_t model_index = 0;
     std::vector<mirage::runtime::persistence::ModelSettings> provider_models;
     std::size_t provider_model_index = 0;
+    enum class ModelDialog { None, Discard, Delete };
+    enum class ModelDestination { Provider, Preset, New, Appearance, Conversation };
+    struct ModelNavigation {
+        ModelDestination destination = ModelDestination::Conversation;
+        std::string provider;
+        std::size_t preset = 0;
+    };
+    ModelDialog model_dialog = ModelDialog::None;
+    ModelNavigation model_navigation;
+    std::string delete_provider_id;
     bool adding_model = false;
     bool model_format_open = false;
     bool provider_actions = false;
@@ -71,6 +83,7 @@ struct PageState {
     bool saving_model = false;
     bool model_loaded = false;
     bool model_dirty = false;
+    std::optional<std::size_t> preview_preset;
     std::unique_ptr<RuntimeBridge> runtime;
     mirage::runtime::persistence::ModelSettings model;
     mirage::runtime::persistence::ModelSettings live_model;
@@ -156,22 +169,44 @@ void load_provider(const persistence::ModelSettings &profile) {
     s.editing_provider_name = s.model.provider_name.empty();
     s.new_model_id.clear();
     s.model_scroll = 0;
+    s.model_notice.clear();
 }
+void load_preset(std::size_t index);
+void select_preset(std::size_t index);
 void accept_model_configuration(const persistence::LocalSettings &document, const std::string &tag,
                                 const std::string &warning) {
     auto &s = state();
+    const auto preview = std::exchange(s.preview_preset, std::nullopt);
+    auto preview_key = preview ? std::move(s.api_key) : std::string{};
+    const bool preview_visible = s.show_api_key;
     s.live_model = document.model.value_or(persistence::ModelSettings{});
-    if (!s.model_dirty || tag == "save" || tag == "discard") {
-        s.models = document.models;
-        if (s.models.empty() && !document.models_present && !s.live_model.model_selector.empty())
-            s.models.push_back(s.live_model);
+    // The ACK catalog remains authoritative even while a draft is protected.
+    const auto previous_provider = s.model.provider_id;
+    const auto previous_model = s.model.display_name;
+    s.models = document.models;
+    if (s.models.empty() && !document.models_present && !s.live_model.model_selector.empty())
+        s.models.push_back(s.live_model);
+    if (!preview && ((!s.model_dirty && !(s.adding_model && !s.new_model_id.empty())) ||
+                     tag == "save" || tag == "discard")) {
         auto selected = s.live_model;
-        if ((document.models_present && std::none_of(s.models.begin(), s.models.end(),
-                                                     [&](const auto &entry) {
-                                                         return entry.display_name ==
-                                                                selected.display_name;
-                                                     })) ||
-            (selected.model_selector.empty() && selected.provider_id.empty()))
+        if (tag != "save") {
+            const auto previous =
+                std::find_if(s.models.begin(), s.models.end(), [&](const auto &m) {
+                    return provider_key(m) == previous_provider && m.display_name == previous_model;
+                });
+            if (previous != s.models.end())
+                selected = *previous;
+            else {
+                const auto provider =
+                    std::find_if(s.models.begin(), s.models.end(), [&](const auto &m) {
+                        return provider_key(m) == previous_provider;
+                    });
+                if (provider != s.models.end())
+                    selected = *provider;
+            }
+        }
+        if (std::none_of(s.models.begin(), s.models.end(),
+                         [&](const auto &m) { return m.display_name == selected.display_name; }))
             selected = s.models.empty() ? unnamed_provider() : s.models.front();
         load_provider(selected);
     }
@@ -179,10 +214,117 @@ void accept_model_configuration(const persistence::LocalSettings &document, cons
     if (tag == "save" || tag == "discard") {
         s.saving_model = false;
         s.model_dirty = false;
+        s.model_dialog = PageState::ModelDialog::None;
         s.model_notice = tag == "discard"  ? "已放弃未保存的修改"
                          : warning.empty() ? "已保存，配置已生效"
                                            : warning;
     }
+    if (preview) {
+        s.model_dirty = false;
+        load_preset(*preview);
+        if (!preview_key.empty()) {
+            s.api_key = std::move(preview_key);
+            s.show_api_key = preview_visible;
+            s.model_dirty = true;
+            s.model_notice = "已连接；新输入的 Key 已保留，请保存以应用。";
+        }
+    }
+}
+// DEC-044: all editor transitions stay on the UI owner thread.
+bool preset_selection_blocked() {
+    const auto &s = state();
+    return s.saving_model || s.about || s.confirm_clear || s.confirm_delete ||
+           s.model_dialog != PageState::ModelDialog::None;
+}
+bool model_editor_blocked() { return !state().model_loaded || preset_selection_blocked(); }
+bool pending_model_edits() {
+    const auto &s = state();
+    return s.model_dirty || (s.adding_model && !s.new_model_id.empty());
+}
+std::string trim_model_text(std::string value) {
+    const auto first = value.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos)
+        return {};
+    const auto last = value.find_last_not_of(" \t\r\n");
+    return value.substr(first, last - first + 1);
+}
+void discard_model_edits() {
+    auto &s = state();
+    if (s.saving_model)
+        return;
+    if (!s.model_loaded && s.preview_preset) {
+        s.api_key.clear();
+        s.model_dirty = false;
+        load_preset(*s.preview_preset);
+        return;
+    }
+    const bool loaded = s.model_loaded;
+    persistence::LocalSettings acknowledged;
+    acknowledged.model = s.live_model;
+    acknowledged.models = s.models;
+    acknowledged.models_present = true;
+    accept_model_configuration(acknowledged, "discard", "");
+    s.model_loaded = loaded;
+}
+void execute_model_navigation(const PageState::ModelNavigation &navigation) {
+    auto &s = state();
+    switch (navigation.destination) {
+    case PageState::ModelDestination::Provider: {
+        const auto found = std::find_if(s.models.begin(), s.models.end(), [&](const auto &m) {
+            return provider_key(m) == navigation.provider;
+        });
+        if (found != s.models.end())
+            load_provider(*found);
+        break;
+    }
+    case PageState::ModelDestination::Preset:
+        select_preset(navigation.preset);
+        break;
+    case PageState::ModelDestination::New:
+        load_provider(unnamed_provider());
+        s.model_dirty = true;
+        break;
+    case PageState::ModelDestination::Appearance:
+        s.model_page = false;
+        break;
+    case PageState::ModelDestination::Conversation:
+        s.settings = false;
+        s.model_chooser = false;
+        break;
+    }
+}
+void navigate_model(PageState::ModelNavigation navigation) {
+    auto &s = state();
+    if (preset_selection_blocked() ||
+        (!s.model_loaded && (navigation.destination == PageState::ModelDestination::Provider ||
+                             navigation.destination == PageState::ModelDestination::New)))
+        return;
+    if (navigation.destination == PageState::ModelDestination::Provider &&
+        navigation.provider == s.model.provider_id)
+        return;
+    if (pending_model_edits()) {
+        s.model_navigation = std::move(navigation);
+        s.model_dialog = PageState::ModelDialog::Discard;
+        s.provider_actions = s.model_format_open = false;
+    } else
+        execute_model_navigation(navigation);
+}
+void leave_settings(bool conversation) {
+    auto &s = state();
+    if (s.model_page && (pending_model_edits() || s.saving_model))
+        navigate_model({conversation ? PageState::ModelDestination::Conversation
+                                     : PageState::ModelDestination::Appearance,
+                        "", 0});
+    else if (conversation) {
+        s.settings = false;
+        s.model_chooser = false;
+    } else
+        s.model_page = false;
+}
+void cancel_model_add() {
+    state().adding_model = false;
+    state().new_model_id.clear();
+    state().model_notice.clear();
 }
 bool remember_model_edits() {
     auto &s = state();
@@ -205,6 +347,11 @@ bool remember_model_edits() {
 }
 std::optional<persistence::LocalSettings> provider_document(bool enabled) {
     auto &s = state();
+    if (s.adding_model && !s.new_model_id.empty()) {
+        s.model_notice = "请先添加模型，或取消模型 ID 输入。";
+        return {};
+    }
+    s.model.provider_name = trim_model_text(s.model.provider_name);
     if (s.model.provider_name.empty()) {
         s.model_notice = "请填写服务名称后保存。";
         return {};
@@ -244,14 +391,129 @@ std::optional<persistence::LocalSettings> provider_document(bool enabled) {
     document.model = entries[std::min(s.provider_model_index, entries.size() - 1)];
     return document;
 }
+void select_editor_model(std::size_t index) {
+    auto &v = state();
+    if (index >= v.provider_models.size())
+        return;
+    v.provider_model_index = index;
+    const auto &m = v.provider_models[index];
+    v.model.display_name = m.display_name;
+    v.model.model_selector = m.model_selector;
+    v.model.supports_reasoning = m.supports_reasoning;
+    v.model_window = m.context_window_tokens ? std::to_string(m.context_window_tokens) : "";
+}
+std::size_t editor_model_count() {
+    const auto &s = state();
+    return s.provider_models.size() + static_cast<std::size_t>(std::count_if(
+                                          s.models.begin(), s.models.end(), [&](const auto &m) {
+                                              return provider_key(m) != s.model.provider_id;
+                                          }));
+}
+void add_editor_model() {
+    auto &v = state();
+    if (model_editor_blocked() || !v.adding_model)
+        return;
+    auto id = trim_model_text(v.new_model_id);
+    if (id.empty() || id.find_first_of(" \t\r\n") != std::string::npos) {
+        v.model_notice = "请填写不含空白的模型 ID。";
+        return;
+    }
+    if (editor_model_count() >= 12) {
+        v.model_notice = "最多保存12个模型配置。";
+        return;
+    }
+    if (std::any_of(v.provider_models.begin(), v.provider_models.end(),
+                    [&](const auto &m) { return m.model_selector == id; })) {
+        v.model_notice = "该模型已存在。";
+        return;
+    }
+    if (!remember_model_edits())
+        return;
+    auto profile = v.model;
+    profile.display_name = local_profile_id("model");
+    profile.model_selector = std::move(id);
+    profile.context_window_tokens = 0;
+    profile.supports_reasoning = false;
+    v.provider_models.push_back(std::move(profile));
+    select_editor_model(v.provider_models.size() - 1);
+    cancel_model_add();
+    v.model_dirty = true;
+    v.model_notice.clear();
+}
+void delete_editor_model(const std::string &id) {
+    auto &v = state();
+    if (model_editor_blocked())
+        return;
+    const auto target = std::find_if(v.provider_models.begin(), v.provider_models.end(),
+                                     [&](const auto &m) { return m.display_name == id; });
+    if (target == v.provider_models.end() || !remember_model_edits())
+        return;
+    const auto selected = v.model.display_name;
+    v.provider_models.erase(target);
+    if (v.provider_models.empty()) {
+        v.provider_model_index = 0;
+        v.model.model_selector.clear();
+        v.model_window.clear();
+        v.model.supports_reasoning = false;
+        v.model.enabled = false;
+    } else {
+        const auto remaining =
+            std::find_if(v.provider_models.begin(), v.provider_models.end(),
+                         [&](const auto &m) { return m.display_name == selected; });
+        select_editor_model(remaining == v.provider_models.end()
+                                ? 0
+                                : static_cast<std::size_t>(remaining - v.provider_models.begin()));
+    }
+    v.model_dirty = true;
+}
 bool set_base_url(const std::string &url) {
     auto &s = state();
-    s.model_base_url = url;
-    const auto scheme = url.find("://");
-    const auto path = scheme == std::string::npos ? std::string::npos : url.find('/', scheme + 3);
-    s.model.endpoint_origin = url.substr(0, path);
-    s.model.api_prefix = path == std::string::npos ? "" : url.substr(path);
+    const auto clean = trim_model_text(url);
+    s.model_base_url = clean;
+    const auto scheme = clean.find("://");
+    const auto path = scheme == std::string::npos ? std::string::npos : clean.find('/', scheme + 3);
+    s.model.endpoint_origin = clean.substr(0, path);
+    s.model.api_prefix = path == std::string::npos ? "" : clean.substr(path);
     return scheme != std::string::npos;
+}
+void select_preset(std::size_t index) {
+    if (preset_selection_blocked() || index >= provider_presets.size())
+        return;
+    if (pending_model_edits()) {
+        navigate_model({PageState::ModelDestination::Preset, "", index});
+        return;
+    }
+    load_preset(index);
+}
+void load_preset(std::size_t index) {
+    auto &v = state();
+    if (index >= provider_presets.size())
+        return;
+    const auto &preset = provider_presets[index];
+    const auto id = "preset:" + std::string(preset.id);
+    const auto existing = std::find_if(v.models.begin(), v.models.end(),
+                                       [&](const auto &entry) { return entry.provider_id == id; });
+    if (v.model_loaded && existing != v.models.end()) {
+        load_provider(*existing);
+        return;
+    }
+    auto profile = unnamed_provider();
+    profile.provider_id = id;
+    profile.provider_name = preset.name;
+    profile.display_name = local_profile_id("model");
+    profile.model_selector = preset.model;
+    profile.dialect = preset.dialect;
+    if (preset.id == "minimax" || preset.id == "minimax-intl")
+        profile.context_window_tokens = 1000000;
+    profile.enabled = true;
+    load_provider(profile);
+    set_base_url(std::string(preset.base_url));
+    v.provider_models = {v.model};
+    v.editing_provider_name = false;
+    v.model_dirty = v.model_loaded;
+    v.preview_preset = v.model_loaded ? std::nullopt : std::optional{index};
+    v.model_notice = v.model_loaded ? "填写 API Key 后保存即可使用，地址与模型可按需修改。"
+                                    : "可先填写 API Key；连接 Runtime Service 后保存。";
 }
 bool call_runtime(ipc::Request request, const std::string &tag, std::uint64_t id = 0) {
     auto &s = state();
@@ -739,7 +1001,7 @@ std::optional<ContextUsage> native_usage(const std::optional<ipc::ContextUsage> 
 }
 void apply_model(bool enabled) {
     auto &v = state();
-    if (v.about || v.confirm_clear || v.confirm_delete || v.saving_model)
+    if (model_editor_blocked())
         return;
     const auto document = provider_document(enabled);
     if (!document)
@@ -787,37 +1049,157 @@ void add_attachment() {
     }
     v.popup = PageState::Popup::None;
 }
-void delete_provider() {
-    if (state().saving_model || state().model_dirty)
-        return;
+void confirm_delete_provider() {
     auto &v = state();
+    if (v.saving_model || v.model_dirty)
+        return;
+    const auto target = v.delete_provider_id;
+    if (std::none_of(v.models.begin(), v.models.end(),
+                     [&](const auto &m) { return provider_key(m) == target; }))
+        return;
     persistence::LocalSettings document;
     document.models_present = true;
     document.model = v.live_model;
-    if (provider_key(v.live_model) == v.model.provider_id) {
+    if (provider_key(v.live_model) == target) {
         document.model = persistence::ModelSettings{};
     }
     for (const auto &entry : v.models)
-        if (provider_key(entry) != v.model.provider_id)
+        if (provider_key(entry) != target)
             document.models.push_back(entry);
     v.saving_model =
         call_runtime(ipc::SetModelRequest{persistence::encode_settings(document)}, "save");
+    if (!v.saving_model)
+        v.model_notice = v.runtime_notice;
+}
+void delete_provider() {
+    auto &v = state();
+    if (model_editor_blocked() || pending_model_edits())
+        return;
+    if (std::none_of(v.models.begin(), v.models.end(),
+                     [&](const auto &m) { return provider_key(m) == v.model.provider_id; }))
+        return;
+    v.delete_provider_id = v.model.provider_id;
+    v.provider_actions = false;
+    v.model_dialog = PageState::ModelDialog::Delete;
 }
 void keyboard_activation(eui::Ui &ui, const std::string &id) {
     if (auto *target = ui.find(id)) {
         target->focusable = true;
+        if (id.starts_with("model.") && !id.starts_with("model.dialog.") &&
+            id != "model.refresh.bg") {
+            const bool local = id.starts_with("model.preset.") || id == "model.key.visible.bg" ||
+                               id == "model.discard.bg";
+            target->disabled =
+                target->disabled || (local ? preset_selection_blocked() : model_editor_blocked());
+            auto handler = target->onClick;
+            target->onClick = [handler, local] {
+                if (!(local ? preset_selection_blocked() : model_editor_blocked()) && handler)
+                    handler();
+            };
+        }
         auto click = target->onClick;
         const bool disabled = target->disabled;
-        target->onKeyEvent = [click, disabled](const eui::KeyEvent &event) {
+        target->onKeyEvent = [click, disabled, id](const eui::KeyEvent &event) {
             if (!event.isDown() ||
                 (event.key != eui::InputKey::Enter && event.key != eui::InputKey::Space))
                 return false;
             const auto &s = state();
-            if (!disabled && !s.about && !s.confirm_clear && !s.confirm_delete && click)
+            if (event.action == eui::KeyAction::Press && !disabled && !s.about &&
+                !s.confirm_clear && !s.confirm_delete &&
+                (s.model_dialog == PageState::ModelDialog::None ||
+                 id.starts_with("model.dialog.")) &&
+                click)
                 click();
             return true;
         };
     }
+}
+void model_editor_modal(eui::Ui &ui, const eui::Screen &screen, const Palette &p) {
+    auto &s = state();
+    if (s.model_dialog == PageState::ModelDialog::None)
+        return;
+    const bool deleting = s.model_dialog == PageState::ModelDialog::Delete;
+    const float width = 460, height = 240;
+    const float x = (screen.width - width) / 2, y = (screen.height - height) / 2;
+    ui.stack("model.dialog")
+        .size(screen.width, screen.height)
+        .zIndex(50)
+        .content([&] {
+            ui.rect("model.dialog.scrim")
+                .size(screen.width, screen.height)
+                .color({0, 0, 0, 0.25f})
+                .onClick([] { state().model_dialog = PageState::ModelDialog::None; })
+                .build();
+            ui.rect("model.dialog.panel")
+                .position(x, y)
+                .size(width, height)
+                .color(p.surface)
+                .radius(12)
+                .border(1, p.border)
+                .onClick([] {})
+                .build();
+            text(ui, "model.dialog.title", deleting ? "删除模型服务？" : "有未保存的修改", x + 24,
+                 y + 22, width - 48, 36, 20, p.text, 600);
+            ui.text("model.dialog.body")
+                .position(x + 24, y + 70)
+                .size(width - 48, 80)
+                .text(deleting
+                          ? "删除“" + provider_label(s.model) + "”及其模型配置。其他服务会保留。"
+                          : "当前服务有未保存的修改。继续编辑，或放弃后继续。")
+                .fontSize(ui_font_size(15))
+                .lineHeight(24)
+                .wrap()
+                .color(p.muted)
+                .build();
+            components::button(ui, "model.dialog.cancel")
+                .position(x + 230, y + height - 60)
+                .size(104, 40)
+                .text(deleting ? "取消" : "继续编辑")
+                .fontSize(ui_font_size(14))
+                .style(button_style(p))
+                .onClick([] { state().model_dialog = PageState::ModelDialog::None; })
+                .build();
+            components::button(ui, "model.dialog.confirm")
+                .position(x + 344, y + height - 60)
+                .size(92, 40)
+                .text(deleting ? "删除服务" : "放弃并继续")
+                .fontSize(ui_font_size(13))
+                .style(button_style(p, true))
+                .onClick([] {
+                    auto &v = state();
+                    const auto dialog = v.model_dialog;
+                    v.model_dialog = PageState::ModelDialog::None;
+                    if (dialog == PageState::ModelDialog::Delete)
+                        confirm_delete_provider();
+                    else if (dialog == PageState::ModelDialog::Discard) {
+                        const auto navigation = v.model_navigation;
+                        discard_model_edits();
+                        execute_model_navigation(navigation);
+                    }
+                })
+                .build();
+        })
+        .build();
+    keyboard_activation(ui, "model.dialog.cancel.bg");
+    keyboard_activation(ui, "model.dialog.confirm.bg");
+}
+void provider_icon(eui::Ui &ui, const std::string &key, const std::string &provider_id, float x,
+                   float y, float size, const Palette &p) {
+    const auto preset =
+        std::find_if(provider_presets.begin(), provider_presets.end(), [&](const auto &entry) {
+            return provider_id == "preset:" + std::string(entry.id);
+        });
+    if (preset == provider_presets.end()) {
+        icon(ui, key, 0xf1b2, x, y, size, 32, p.text);
+        return;
+    }
+    ui.image(key)
+        .position(x + (24 - size) / 2, y + (32 - size) / 2)
+        .size(size, size)
+        .source(std::string(preset->icon))
+        .contain()
+        .hitTestMode(eui::dsl::HitTestMode::None)
+        .build();
 }
 void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float width,
                          const Palette &p, const components::theme::ThemeColorTokens &tokens) {
@@ -834,7 +1216,9 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
         .icon(0xf021)
         .iconSize(14)
         .style(button_style(p))
-        .disabled(s.saving_model || (s.model_dirty && s.runtime && s.runtime->connected()))
+        .disabled(s.saving_model || s.about || s.confirm_clear || s.confirm_delete ||
+                  s.model_dialog != PageState::ModelDialog::None ||
+                  (s.model_loaded && pending_model_edits() && s.runtime && s.runtime->connected()))
         .onClick([] {
             if (state().runtime && state().runtime->connected())
                 call_runtime(ipc::GetModelRequest{}, "model");
@@ -850,12 +1234,8 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
         .iconSize(14)
         .fontSize(ui_font_size(14))
         .style(button_style(p))
-        .disabled(s.saving_model || s.models.size() >= 12 || s.model_dirty)
-        .onClick([] {
-            load_provider(unnamed_provider());
-            state().model_dirty = true;
-            state().model_notice.clear();
-        })
+        .disabled(model_editor_blocked() || s.models.size() >= 12)
+        .onClick([] { navigate_model({PageState::ModelDestination::New, "", 0}); })
         .build();
     const float nav_width = width < 700 ? 56.0f : 224.0f;
     const float panel_y = 184, panel_height = screen.height - 216;
@@ -881,12 +1261,15 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
             return provider_key(entry) == s.model.provider_id;
         })) {
         auto draft = s.model;
-        draft.provider_name = "未命名服务";
+        if (!draft.provider_id.starts_with("preset:"))
+            draft.provider_name = "未命名服务";
         providers.push_back(std::move(draft));
     }
     components::scrollView(ui, "model.providers")
         .position(x + 12, panel_y + 12)
         .size(nav_width - 24, panel_height - 24)
+        .scrollbarWidth(2)
+        .scrollbarGap(2)
         .theme(tokens)
         .gap(4)
         .content([&](eui::Ui &list, float w, float) {
@@ -905,17 +1288,48 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                             .focusable()
                             .cursor(eui::CursorShape::Hand)
                             .onClick([profile] {
-                                if (state().saving_model || state().model_dirty)
-                                    return;
-                                load_provider(profile);
-                                state().model_notice.clear();
+                                navigate_model({PageState::ModelDestination::Provider,
+                                                provider_key(profile), 0});
                             })
                             .build();
-                        icon(list, key + ".icon", 0xf1b2, 4, 0, 16, 32, p.text);
+                        provider_icon(list, key + ".icon", profile.provider_id, 0, 0, 20, p);
                         if (nav_width > 56)
                             text(list, key + ".label",
                                  fitted_title(provider_label(profile), w - 48, 14), 32, 0, w - 48,
                                  32, 14, p.text, 500);
+                    })
+                    .build();
+            }
+            list.text("model.presets.label")
+                .size(w, 36)
+                .text(nav_width > 56 ? "预设服务" : "")
+                .fontSize(ui_font_size(12))
+                .color(p.muted)
+                .build();
+            for (std::size_t i = 0; i < provider_presets.size(); ++i) {
+                const auto &preset = provider_presets[i];
+                if (std::any_of(providers.begin(), providers.end(), [&](const auto &entry) {
+                        return entry.provider_id == "preset:" + std::string(preset.id);
+                    }))
+                    continue;
+                const auto key = "model.preset." + std::to_string(i);
+                list.stack(key)
+                    .size(w, 32)
+                    .content([&] {
+                        list.rect(key + ".bg")
+                            .size(w, 32)
+                            .radius(8)
+                            .states({0, 0, 0, 0}, p.hover, p.selected)
+                            .focusable()
+                            .cursor(eui::CursorShape::Hand)
+                            .onClick([i] { select_preset(i); })
+                            .build();
+                        provider_icon(list, key + ".icon", "preset:" + std::string(preset.id), 0, 0,
+                                      20, p);
+                        if (nav_width > 56)
+                            text(list, key + ".label",
+                                 fitted_title(std::string(preset.name), w - 32, 14), 32, 0, w - 32,
+                                 32, 14, p.text);
                     })
                     .build();
             }
@@ -945,7 +1359,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
             list.stack("model.provider.header")
                 .size(w, 40)
                 .content([&] {
-                    icon(list, "model.provider.logo", 0xf1b2, 0, 0, 20, 32, p.text);
+                    provider_icon(list, "model.provider.logo", s.model.provider_id, 0, 0, 20, p);
                     if (s.editing_provider_name) {
                         components::input(list, "model.name")
                             .position(28, 0)
@@ -953,7 +1367,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                             .value(s.model.provider_name)
                             .placeholder("未命名服务")
                             .fontSize(ui_font_size(18))
-                            .inset(0)
+                            .inset(8)
                             .style([&] {
                                 auto style = input_style;
                                 style.border = {0, 0, 0, 0};
@@ -968,7 +1382,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                             .build();
                     } else {
                         text(list, "model.provider.title",
-                             fitted_title(provider_label(s.model), w - 124, 18), 28, 0, w - 124, 32,
+                             fitted_title(provider_label(s.model), w - 132, 18), 36, 0, w - 132, 32,
                              18, p.text, 600);
                     }
                     components::button(list, "model.provider.actions")
@@ -978,48 +1392,12 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                         .icon(0xf141)
                         .iconSize(16)
                         .style(button_style(p))
-                        .disabled(s.saving_model)
-                        .onClick([] { state().provider_actions = !state().provider_actions; })
+                        .disabled(model_editor_blocked())
+                        .onClick([] {
+                            state().provider_actions = !state().provider_actions;
+                            state().model_format_open = false;
+                        })
                         .build();
-                    if (s.provider_actions) {
-                        list.stack("model.provider.menu")
-                            .position(w - 144, 36)
-                            .size(144, 80)
-                            .zIndex(31)
-                            .content([&] {
-                                list.rect("model.provider.menu.border")
-                                    .size(144, 80)
-                                    .radius(8)
-                                    .border(1, p.border)
-                                    .color(p.surface)
-                                    .build();
-                                components::button(list, "model.provider.rename")
-                                    .position(4, 4)
-                                    .size(136, 36)
-                                    .text("重命名")
-                                    .icon(0xf303)
-                                    .iconSize(13)
-                                    .fontSize(ui_font_size(14))
-                                    .style(button_style(p))
-                                    .onClick([] {
-                                        state().editing_provider_name = true;
-                                        state().provider_actions = false;
-                                    })
-                                    .build();
-                                components::button(list, "model.provider.delete")
-                                    .position(4, 40)
-                                    .size(136, 36)
-                                    .text("删除服务")
-                                    .icon(0xf2ed)
-                                    .iconSize(13)
-                                    .fontSize(ui_font_size(14))
-                                    .style(button_style(p))
-                                    .disabled(s.model_dirty || s.models.empty())
-                                    .onClick(delete_provider)
-                                    .build();
-                            })
-                            .build();
-                    }
                     list.stack("model.provider.toggle")
                         .position(w - 84, 0)
                         .size(48, 32)
@@ -1035,7 +1413,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                 .style(style)
                                 .onChange([](bool enabled) {
                                     auto &v = state();
-                                    if (v.saving_model || v.provider_models.empty())
+                                    if (model_editor_blocked() || v.provider_models.empty())
                                         return;
                                     v.model.enabled = enabled;
                                     v.model_dirty = true;
@@ -1066,11 +1444,12 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                             .fontSize(ui_font_size(14))
                             .inset(12)
                             .style(input_style)
-                            .onChange([change](const auto &next) {
+                            .onChange([change, id](const auto &next) {
                                 if (state().saving_model || next.size() > 2048)
                                     return;
                                 change(next);
-                                state().model_dirty = true;
+                                if (std::string(id) != "model.add.id")
+                                    state().model_dirty = true;
                                 state().model_notice.clear();
                             })
                             .build();
@@ -1089,47 +1468,20 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                     components::button(list, "model.protocol.control")
                         .position(0, 24)
                         .size(w, 32)
-                        .text(s.model.dialect == "openai.responses.v1"
+                        .text(s.model.dialect == "anthropic.messages.v1"
+                                  ? "Anthropic Messages (/messages)"
+                              : s.model.dialect == "openai.responses.v1"
                                   ? "OpenAI Responses (/responses)"
                                   : "OpenAI Chat Completions (/chat/completions)")
                         .fontSize(ui_font_size(13))
                         .style(style)
-                        .disabled(s.saving_model)
-                        .onClick([] { state().model_format_open = !state().model_format_open; })
+                        .disabled(model_editor_blocked())
+                        .onClick([] {
+                            state().model_format_open = !state().model_format_open;
+                            state().provider_actions = false;
+                        })
                         .build();
                     icon(list, "model.protocol.chevron", 0xf078, w - 28, 24, 12, 32, p.muted);
-                    if (s.model_format_open) {
-                        list.stack("model.protocol.menu")
-                            .position(0, 60)
-                            .size(w, 80)
-                            .zIndex(30)
-                            .content([&] {
-                                list.rect("model.protocol.menu.border")
-                                    .size(w, 80)
-                                    .radius(8)
-                                    .color(p.surface)
-                                    .border(1, p.border)
-                                    .build();
-                                for (int i = 0; i < 2; ++i) {
-                                    const std::string dialect =
-                                        i ? "openai.responses.v1" : "openai.chat-completions.v1";
-                                    components::button(list, "model.protocol." + std::to_string(i))
-                                        .position(4, 4.0f + static_cast<float>(i) * 36.0f)
-                                        .size(w - 8, 36)
-                                        .text(i ? "OpenAI Responses" : "OpenAI Chat Completions")
-                                        .fontSize(ui_font_size(13))
-                                        .style(button_style(p))
-                                        .disabled(s.saving_model)
-                                        .onClick([dialect] {
-                                            state().model.dialect = dialect;
-                                            state().model_dirty = true;
-                                            state().model_format_open = false;
-                                        })
-                                        .build();
-                                }
-                            })
-                            .build();
-                    }
                 })
                 .build();
             list.column("model.key.row")
@@ -1147,7 +1499,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                     .text(s.remove_api_key ? "已移除" : "移除")
                                     .fontSize(ui_font_size(12))
                                     .style(button_style(p))
-                                    .disabled(s.saving_model)
+                                    .disabled(model_editor_blocked())
                                     .onClick([] {
                                         state().api_key.clear();
                                         state().remove_api_key = true;
@@ -1159,17 +1511,30 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                     list.stack("model.key.control")
                         .size(w, 32)
                         .content([&] {
-                            secret_input(list, "model.key", w - 36, s.api_key, s.show_api_key,
-                                         s.remove_api_key             ? "保存后移除 Key"
-                                         : s.model.api_key_configured ? "已配置；留空保留"
-                                                                      : "输入 API Key",
-                                         input_style, [](const auto &key) {
-                                             if (state().saving_model)
-                                                 return;
-                                             state().api_key = key;
-                                             state().remove_api_key = false;
-                                             state().model_dirty = true;
-                                         });
+                            secret_input(
+                                list, "model.key", w - 36, s.api_key, s.show_api_key,
+                                s.remove_api_key             ? "保存后移除 Key"
+                                : s.model.api_key_configured ? "已配置；留空保留"
+                                                             : "输入 API Key",
+                                input_style,
+                                [](const auto &key) {
+                                    if (state().saving_model)
+                                        return;
+                                    state().api_key = key;
+                                    state().remove_api_key = false;
+                                    state().model_dirty = true;
+                                    state().model_notice =
+                                        state().model_loaded
+                                            ? "有未保存的修改"
+                                            : "Key "
+                                              "草稿已保留；连接服务后可保存，点击上方刷新重试。";
+                                    app::requestUpdate();
+                                },
+                                [] {
+                                    state().model_notice =
+                                        "API Key 不能包含空白、非 ASCII 字符或超过2048字节。";
+                                    app::requestUpdate();
+                                });
                             components::button(list, "model.key.visible")
                                 .position(w - 32, 0)
                                 .size(32, 32)
@@ -1177,7 +1542,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                 .icon(s.show_api_key ? 0xf070 : 0xf06e)
                                 .iconSize(14)
                                 .style(button_style(p))
-                                .disabled(s.saving_model)
+                                .disabled(preset_selection_blocked())
                                 .onClick([] { state().show_api_key = !state().show_api_key; })
                                 .build();
                         })
@@ -1196,8 +1561,12 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                         .iconSize(14)
                         .fontSize(ui_font_size(13))
                         .style(button_style(p))
-                        .disabled(s.saving_model || s.provider_models.size() >= 12)
-                        .onClick([] { state().adding_model = true; })
+                        .disabled(model_editor_blocked() || editor_model_count() >= 12 ||
+                                  s.adding_model)
+                        .onClick([] {
+                            if (!model_editor_blocked())
+                                state().adding_model = true;
+                        })
                         .build();
                 })
                 .build();
@@ -1228,35 +1597,16 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                     p.selected)
                             .focusable()
                             .cursor(eui::CursorShape::Hand)
-                            .onClick([i] {
+                            .onClick([id = profile.display_name] {
                                 auto &v = state();
-                                if (v.saving_model)
+                                if (model_editor_blocked() || !remember_model_edits())
                                     return;
-                                if (v.provider_model_index < v.provider_models.size()) {
-                                    std::uint64_t budget = 0;
-                                    auto r = std::from_chars(
-                                        v.model_window.data(),
-                                        v.model_window.data() + v.model_window.size(), budget);
-                                    if (!v.model_window.empty() &&
-                                        (r.ec != std::errc{} ||
-                                         r.ptr != v.model_window.data() + v.model_window.size() ||
-                                         (budget && (budget < 2048 || budget > 2000000)))) {
-                                        v.model_notice = "请先修正上下文窗口。";
-                                        return;
-                                    }
-                                    v.provider_models[v.provider_model_index]
-                                        .context_window_tokens = budget;
-                                    v.provider_models[v.provider_model_index].supports_reasoning =
-                                        v.model.supports_reasoning;
-                                }
-                                v.provider_model_index = i;
-                                v.model.model_selector = v.provider_models[i].model_selector;
-                                v.model.supports_reasoning =
-                                    v.provider_models[i].supports_reasoning;
-                                v.model_window =
-                                    v.provider_models[i].context_window_tokens
-                                        ? std::to_string(v.provider_models[i].context_window_tokens)
-                                        : "";
+                                const auto found = std::find_if(
+                                    v.provider_models.begin(), v.provider_models.end(),
+                                    [&](const auto &m) { return m.display_name == id; });
+                                if (found != v.provider_models.end())
+                                    select_editor_model(static_cast<std::size_t>(
+                                        found - v.provider_models.begin()));
                             })
                             .build();
                         text(list, key + ".label", fitted_title(profile.model_selector, w - 58, 14),
@@ -1268,26 +1618,8 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                             .icon(0xf2ed)
                             .iconSize(13)
                             .style(button_style(p))
-                            .disabled(s.saving_model)
-                            .onClick([i] {
-                                auto &v = state();
-                                v.provider_models.erase(v.provider_models.begin() +
-                                                        static_cast<std::ptrdiff_t>(i));
-                                v.provider_model_index = 0;
-                                v.model_window.clear();
-                                v.model.model_selector = v.provider_models.empty()
-                                                             ? ""
-                                                             : v.provider_models[0].model_selector;
-                                v.model.supports_reasoning =
-                                    v.provider_models.empty()
-                                        ? false
-                                        : v.provider_models[0].supports_reasoning;
-                                if (!v.provider_models.empty() &&
-                                    v.provider_models[0].context_window_tokens)
-                                    v.model_window =
-                                        std::to_string(v.provider_models[0].context_window_tokens);
-                                v.model_dirty = true;
-                            })
+                            .disabled(model_editor_blocked())
+                            .onClick([id = profile.display_name] { delete_editor_model(id); })
                             .build();
                     })
                     .build();
@@ -1300,33 +1632,15 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                     .text("添加")
                     .fontSize(ui_font_size(14))
                     .style(button_style(p))
-                    .disabled(s.saving_model || s.new_model_id.empty())
-                    .onClick([] {
-                        auto &v = state();
-                        if (!remember_model_edits())
-                            return;
-                        if (std::any_of(v.provider_models.begin(), v.provider_models.end(),
-                                        [&](const auto &m) {
-                                            return m.model_selector == v.new_model_id;
-                                        })) {
-                            v.model_notice = "该模型已存在。";
-                            return;
-                        }
-                        auto profile = v.model;
-                        profile.display_name = local_profile_id("model");
-                        profile.model_selector = v.new_model_id;
-                        profile.context_window_tokens = 0;
-                        profile.supports_reasoning = false;
-                        v.provider_models.push_back(profile);
-                        v.provider_model_index = v.provider_models.size() - 1;
-                        v.model.model_selector = profile.model_selector;
-                        v.model.supports_reasoning = false;
-                        v.model_window.clear();
-                        v.model.enabled = true;
-                        v.new_model_id.clear();
-                        v.adding_model = false;
-                        v.model_dirty = true;
-                    })
+                    .disabled(model_editor_blocked() || s.new_model_id.empty())
+                    .onClick(add_editor_model)
+                    .build();
+                components::button(list, "model.add.cancel")
+                    .size(w, 28)
+                    .text("取消添加")
+                    .fontSize(ui_font_size(12))
+                    .style(button_style(p))
+                    .onClick(cancel_model_add)
                     .build();
             }
             if (!s.provider_models.empty()) {
@@ -1334,13 +1648,17 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                       [](const auto &v) { state().model_window = v; });
                 components::button(list, "model.reasoning.support")
                     .size(w, 32)
-                    .text(s.model.supports_reasoning ? "思考深度 · 已启用" : "启用思考深度")
+                    .text(s.model.dialect == "anthropic.messages.v1" ? "此协议的扩展思考尚未接入"
+                          : s.model.supports_reasoning ? "思考深度 · 已启用"
+                                                       : "启用思考深度")
                     .icon(s.model.supports_reasoning ? 0xf14a : 0xf0c8)
                     .iconSize(14)
                     .fontSize(ui_font_size(14))
                     .style(button_style(p))
-                    .disabled(s.saving_model)
+                    .disabled(model_editor_blocked() || s.model.dialect == "anthropic.messages.v1")
                     .onClick([] {
+                        if (state().model.dialect == "anthropic.messages.v1")
+                            return;
                         state().model.supports_reasoning = !state().model.supports_reasoning;
                         state().model_dirty = true;
                     })
@@ -1348,6 +1666,97 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
             }
         })
         .build();
+    if (s.provider_actions || s.model_format_open) {
+        ui.rect("model.menu.dismiss")
+            .size(screen.width, screen.height)
+            .color({0, 0, 0, 0})
+            .zIndex(29)
+            .onClick([] { state().provider_actions = state().model_format_open = false; })
+            .build();
+    }
+    if (s.provider_actions) {
+        ui.stack("model.provider.menu")
+            .position(x + width - 144, panel_y + 56 - s.model_scroll)
+            .size(144, 80)
+            .zIndex(31)
+            .content([&] {
+                ui.rect("model.provider.menu.border")
+                    .size(144, 80)
+                    .radius(8)
+                    .border(1, p.border)
+                    .color(p.surface)
+                    .build();
+                components::button(ui, "model.provider.rename")
+                    .position(4, 4)
+                    .size(136, 36)
+                    .text("重命名")
+                    .icon(0xf303)
+                    .iconSize(13)
+                    .fontSize(ui_font_size(14))
+                    .style(button_style(p))
+                    .onClick([] {
+                        state().editing_provider_name = true;
+                        state().provider_actions = false;
+                    })
+                    .build();
+                components::button(ui, "model.provider.delete")
+                    .position(4, 40)
+                    .size(136, 36)
+                    .text("删除服务")
+                    .icon(0xf2ed)
+                    .iconSize(13)
+                    .fontSize(ui_font_size(14))
+                    .style(button_style(p))
+                    .disabled(pending_model_edits() ||
+                              std::none_of(s.models.begin(), s.models.end(),
+                                           [&](const auto &m) {
+                                               return provider_key(m) == s.model.provider_id;
+                                           }))
+                    .onClick(delete_provider)
+                    .build();
+            })
+            .build();
+    }
+    if (s.model_format_open) {
+        ui.stack("model.protocol.menu")
+            .position(x, std::clamp(panel_y + 204 - s.model_scroll, 64.0f, screen.height - 128))
+            .size(width, 116)
+            .zIndex(30)
+            .content([&] {
+                ui.rect("model.protocol.menu.border")
+                    .size(width, 116)
+                    .radius(8)
+                    .color(p.surface)
+                    .border(1, p.border)
+                    .build();
+                for (int i = 0; i < 3; ++i) {
+                    const std::string dialect = i == 2 ? "anthropic.messages.v1"
+                                                : i    ? "openai.responses.v1"
+                                                       : "openai.chat-completions.v1";
+                    components::button(ui, "model.protocol." + std::to_string(i))
+                        .position(4, 4.0f + static_cast<float>(i) * 36.0f)
+                        .size(width - 8, 36)
+                        .text(i == 2 ? "Anthropic Messages"
+                              : i    ? "OpenAI Responses"
+                                     : "OpenAI Chat Completions")
+                        .fontSize(ui_font_size(13))
+                        .style(button_style(p))
+                        .disabled(model_editor_blocked())
+                        .onClick([dialect] {
+                            state().model.dialect = dialect;
+                            if (dialect == "anthropic.messages.v1") {
+                                state().model.supports_reasoning = false;
+                                for (auto &entry : state().provider_models)
+                                    entry.supports_reasoning = false;
+                            }
+                            state().model_dirty = true;
+                            state().model_format_open = false;
+                        })
+                        .build();
+                }
+            })
+            .build();
+    }
     const float y = screen.height - 104;
     text(ui, "model.status",
          fitted_title(s.model_notice.empty() ? s.runtime_notice : s.model_notice, width, 12), x, y,
@@ -1358,8 +1767,8 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
         .text("取消修改")
         .fontSize(ui_font_size(13))
         .style(button_style(p))
-        .disabled(!s.model_dirty || s.saving_model)
-        .onClick([] { state().saving_model = call_runtime(ipc::GetModelRequest{}, "discard"); })
+        .disabled(!pending_model_edits() || s.saving_model)
+        .onClick(discard_model_edits)
         .build();
     components::button(ui, "model.save")
         .position(x + width - 80, y + 32)
@@ -1375,18 +1784,56 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
         .disabled(!s.model_loaded || s.saving_model || !s.model_dirty)
         .onClick([] { apply_model(state().model.enabled); })
         .build();
-    for (const auto *id : {"model.refresh.bg", "model.add.provider.bg", "model.provider.actions.bg",
-                           "model.provider.rename.bg", "model.provider.delete.bg",
-                           "model.provider.enabled.hit", "model.protocol.control.bg",
-                           "model.protocol.0.bg", "model.protocol.1.bg", "model.key.visible.bg",
-                           "model.key.remove.bg", "model.add.model.bg", "model.add.confirm.bg",
-                           "model.reasoning.support.bg", "model.discard.bg", "model.save.bg"})
+    if (s.provider_models.empty() || model_editor_blocked()) {
+        if (auto *hit = ui.find("model.provider.enabled.hit"))
+            hit->disabled = true;
+        if (auto *track = ui.find("model.provider.enabled.track"))
+            track->opacity = 0.45f;
+        if (auto *knob = ui.find("model.provider.enabled.knob"))
+            knob->opacity = 0.45f;
+    }
+    for (const auto *id :
+         {"model.refresh.bg", "model.add.provider.bg", "model.provider.actions.bg",
+          "model.provider.rename.bg", "model.provider.delete.bg", "model.provider.enabled.hit",
+          "model.protocol.control.bg", "model.protocol.0.bg", "model.protocol.1.bg",
+          "model.protocol.2.bg", "model.key.visible.bg", "model.key.remove.bg",
+          "model.add.model.bg", "model.add.confirm.bg", "model.add.cancel.bg",
+          "model.reasoning.support.bg", "model.discard.bg", "model.save.bg"})
         keyboard_activation(ui, id);
+    for (std::size_t i = 0; i < provider_presets.size(); ++i)
+        keyboard_activation(ui, "model.preset." + std::to_string(i) + ".bg");
     for (std::size_t i = 0; i < providers.size(); ++i)
         keyboard_activation(ui, "model.provider." + std::to_string(i) + ".bg");
     for (std::size_t i = 0; i < s.provider_models.size(); ++i) {
         keyboard_activation(ui, "model.entry." + std::to_string(i) + ".bg");
         keyboard_activation(ui, "model.entry." + std::to_string(i) + ".delete.bg");
+    }
+    if (nav_width == 56) {
+        auto tooltip = [&](const std::string &key, const std::string &label) {
+            if (const auto *anchor = ui.find(key + ".bg")) {
+                const auto bounds = anchor->frame;
+                ui.stack(key + ".tooltip")
+                    .position(bounds.x + bounds.width + 8, bounds.y)
+                    .size(224, 32)
+                    .hoverOpacityFrom(key + ".bg")
+                    .zIndex(40)
+                    .hitTestMode(eui::dsl::HitTestMode::None)
+                    .content([&] {
+                        ui.rect(key + ".tooltip.bg")
+                            .size(224, 32)
+                            .radius(8)
+                            .color(p.surface)
+                            .border(1, p.border)
+                            .build();
+                        text(ui, key + ".tooltip.label", label, 12, 0, 200, 32, 13, p.text);
+                    })
+                    .build();
+            }
+        };
+        for (std::size_t i = 0; i < providers.size(); ++i)
+            tooltip("model.provider." + std::to_string(i), provider_label(providers[i]));
+        for (std::size_t i = 0; i < provider_presets.size(); ++i)
+            tooltip("model.preset." + std::to_string(i), std::string(provider_presets[i].name));
     }
     // Input state is retained by EUI; gate dispatch as well as onChange while
     // a modal or save transaction owns interaction (including IME commits).
@@ -1395,20 +1842,23 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
         if (auto *hit = ui.find(std::string(id) + ".hit")) {
             auto key = hit->onKeyEvent;
             auto input = hit->onTextInput;
-            hit->onKeyEvent = [key](const eui::KeyEvent &event) {
+            const bool local_key = std::string_view(id) == "model.key";
+            hit->onKeyEvent = [key, local_key](const eui::KeyEvent &event) {
                 if (event.key == eui::InputKey::Escape ||
                     (event.modifiers.control && event.key == eui::InputKey::Comma))
                     return false;
                 const auto &v = state();
                 if (!v.settings || !v.model_page || v.about || v.confirm_clear ||
-                    v.confirm_delete || v.saving_model)
+                    v.confirm_delete || v.model_dialog != PageState::ModelDialog::None ||
+                    (!local_key && !v.model_loaded) || v.saving_model)
                     return true;
                 return key ? key(event) : false;
             };
-            hit->onTextInput = [input](const eui::TextInputEvent &event) {
+            hit->onTextInput = [input, local_key](const eui::TextInputEvent &event) {
                 const auto &v = state();
                 if (v.settings && v.model_page && !v.about && !v.confirm_clear &&
-                    !v.confirm_delete && !v.saving_model && input)
+                    !v.confirm_delete && v.model_dialog == PageState::ModelDialog::None &&
+                    (local_key || v.model_loaded) && !v.saving_model && input)
                     input(event);
             };
         }
@@ -2389,30 +2839,27 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                     .build();
                 // EUI-20261004-003: metadata-free, pixel-identical UI copy.
                 ui.image("brand.mira")
-                    .position(32, 20)
+                    .position(36, 20)
                     .size(24, 24)
                     .source("assets/mira-ui.png")
                     .contain()
                     .hitTestMode(eui::dsl::HitTestMode::None)
                     .build();
-                text(ui, "brand", "Mirage", 64, 14, sidebar - 132, 36, 18, p.text, 600);
+                text(ui, "brand", "Mirage", 68, 14, sidebar - 132, 36, 18, p.text, 600);
                 icon_button(ui, "sidebar.hide", 0xf0db, sidebar - 52, 12, p,
                             [] { state().sidebar = false; });
                 if (s.settings) {
                     ui.stack("settings.back")
-                        .position(20, 76)
-                        .size(sidebar - 40, 36)
+                        .position(24, 76)
+                        .size(sidebar - 48, 36)
                         .content([&] {
                             ui.rect("settings.back.bg")
-                                .size(sidebar - 40, 36)
+                                .size(sidebar - 48, 36)
                                 .radius(8)
                                 .states(p.sidebar, p.hover, p.selected)
                                 .focusable()
                                 .cursor(eui::CursorShape::Hand)
-                                .onClick([] {
-                                    state().settings = false;
-                                    state().model_chooser = false;
-                                })
+                                .onClick([] { leave_settings(true); })
                                 .build();
                             icon(ui, "settings.back.icon", 0xf060, 12, 0, 16, 36, p.text);
                             text(ui, "settings.back.label", "返回对话", 44, 0, sidebar - 96, 36, 14,
@@ -2424,29 +2871,32 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                         const float y = 152 + static_cast<float>(i) * 56;
                         const auto key = "settings.nav." + std::to_string(i);
                         ui.rect(key)
-                            .position(20, y)
-                            .size(sidebar - 40, 36)
+                            .position(24, y)
+                            .size(sidebar - 48, 36)
                             .radius(7)
                             .states(s.model_page == model ? p.selected : eui::Color{0, 0, 0, 0},
                                     p.hover, p.selected)
                             .focusable()
                             .cursor(eui::CursorShape::Hand)
                             .onClick([model] {
-                                state().model_page = model;
+                                if (model)
+                                    state().model_page = true;
+                                else
+                                    leave_settings(false);
                                 state().model_chooser = false;
                             })
                             .build();
-                        icon(ui, key + ".icon", model ? 0xf544 : 0xf53f, 32, y, 16, 36, p.text);
-                        text(ui, key + ".label", model ? "模型" : "外观", 64, y, sidebar - 88, 36,
+                        icon(ui, key + ".icon", model ? 0xf544 : 0xf53f, 36, y, 16, 36, p.text);
+                        text(ui, key + ".label", model ? "模型" : "外观", 68, y, sidebar - 88, 36,
                              14, p.text, 500);
                     }
                 } else {
                     ui.stack("session.new")
-                        .position(20, 76)
-                        .size(sidebar - 40, 36)
+                        .position(24, 76)
+                        .size(sidebar - 48, 36)
                         .content([&] {
                             ui.rect("session.new.bg")
-                                .size(sidebar - 40, 36)
+                                .size(sidebar - 48, 36)
                                 .radius(8)
                                 .states(p.sidebar, p.hover, p.selected)
                                 .focusable()
@@ -2459,14 +2909,14 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                         })
                         .build();
                     ui.rect("sidebar.divider")
-                        .position(20, 140)
-                        .size(sidebar - 40, 1)
+                        .position(24, 140)
+                        .size(sidebar - 48, 1)
                         .color(p.border)
                         .build();
-                    text(ui, "session.label", "会话", 32, 156, 180, 28, 14, p.muted);
+                    text(ui, "session.label", "会话", 36, 156, 180, 28, 14, p.muted);
                     components::scrollView(ui, "session.list")
-                        .position(20, 196)
-                        .size(sidebar - 40, screen.height - 296)
+                        .position(24, 196)
+                        .size(sidebar - 48, screen.height - 296)
                         .gap(4)
                         .offset(s.session_scroll)
                         .theme(tokens)
@@ -2527,13 +2977,13 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                      {"settings.back.bg", "session.new.bg", "settings.nav.0", "settings.nav.1"})
                     keyboard_activation(ui, id);
                 ui.rect("sidebar.footer.line")
-                    .position(16, screen.height - 86)
-                    .size(sidebar - 32, 1)
+                    .position(24, screen.height - 86)
+                    .size(sidebar - 48, 1)
                     .color(p.border)
                     .build();
-                icon_button(ui, "about", 0xf05a, 24, screen.height - 62, p,
+                icon_button(ui, "about", 0xf05a, 30, screen.height - 62, p,
                             [] { state().about = true; });
-                text(ui, "preview.label", "Mira", 64, screen.height - 62, sidebar - 112, 36, 14,
+                text(ui, "preview.label", "Mira", 68, screen.height - 62, sidebar - 112, 36, 14,
                      p.muted);
                 icon_button(ui, "settings.open", 0xf013, sidebar - 52, screen.height - 62, p,
                             [] { state().settings = true; });
@@ -2618,10 +3068,7 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                         .icon(0xf060)
                         .fontSize(ui_font_size(14))
                         .style(button_style(p))
-                        .onClick([] {
-                            state().settings = false;
-                            state().model_chooser = false;
-                        })
+                        .onClick([] { leave_settings(true); })
                         .build();
                 }
                 if (s.model_page)
@@ -2633,6 +3080,7 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
             }
             resize_edges(ui, screen);
             modal(ui, screen, p);
+            model_editor_modal(ui, screen, p);
         })
         .build();
     if (!s.sidebar || s.about || s.confirm_clear || s.confirm_delete)
@@ -2674,7 +3122,8 @@ const DslAppConfig &dslAppConfig() {
                 if (event.action == eui::KeyAction::Press && event.modifiers.control &&
                     event.key == eui::InputKey::Comma) {
                     auto &s = mirage::native_ui::state();
-                    if (!s.about && !s.confirm_clear && !s.confirm_delete) {
+                    if (!s.about && !s.confirm_clear && !s.confirm_delete &&
+                        s.model_dialog == mirage::native_ui::PageState::ModelDialog::None) {
                         s.settings = true;
                         s.popup = mirage::native_ui::PageState::Popup::None;
                     }
@@ -2692,6 +3141,8 @@ const DslAppConfig &dslAppConfig() {
                     auto &s = mirage::native_ui::state();
                     if (s.selection.ready || s.selection.dragging)
                         s.selection.clear();
+                    else if (s.model_dialog != mirage::native_ui::PageState::ModelDialog::None)
+                        s.model_dialog = mirage::native_ui::PageState::ModelDialog::None;
                     else if (s.about || s.confirm_clear || s.confirm_delete)
                         s.about = s.confirm_clear = s.confirm_delete = false;
                     else if (s.popup != mirage::native_ui::PageState::Popup::None)
@@ -2700,13 +3151,15 @@ const DslAppConfig &dslAppConfig() {
                         s.provider_actions = false;
                     else if (s.model_format_open)
                         s.model_format_open = false;
+                    else if (s.adding_model)
+                        mirage::native_ui::cancel_model_add();
                     else if (s.model_chooser)
                         s.model_chooser = false;
                     else if (!s.chat.current().edit_turn_id.empty() &&
                              !s.chat.current().submitting && !s.chat.current().running)
                         s.chat.cancel_edit();
                     else
-                        s.settings = false;
+                        mirage::native_ui::leave_settings(true);
                     app::requestUpdate();
                 }
             });

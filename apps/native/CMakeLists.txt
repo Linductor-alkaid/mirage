@@ -53,6 +53,9 @@ add_custom_target(mirage-native-assets
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/mira-ui.png"
         "$<TARGET_FILE_DIR:mirage-native>/assets/mira-ui.png"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/providers"
+        "$<TARGET_FILE_DIR:mirage-native>/assets/providers"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${mirage_font_file}" "$<TARGET_FILE_DIR:mirage-native>/assets/NotoSansSC-Regular.otf"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -76,7 +79,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         COMMAND ${CMAKE_COMMAND}
             "-DMIRAGE_DESKTOP_ENTRY=$<TARGET_FILE_DIR:mirage-native>/org.mirage.native.desktop"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/register_desktop.cmake"
-        DEPENDS mirage-native
+        DEPENDS mirage mirage-service mirage-tray mirage-native
         VERBATIM)
 endif()
 # Public upstream component headers contain their own implementation; don't

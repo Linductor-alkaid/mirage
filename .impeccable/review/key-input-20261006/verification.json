@@ -1,0 +1,34 @@
+{
+  "scope": "BUG-20261006-004; actual Release app and Service; synthetic keys only; inline review",
+  "actual_offline": {
+    "passed": 39,
+    "total": 39,
+    "inference_requests": 0
+  },
+  "actual_online": {
+    "scope": "real Release window, private keyring, synthetic key, no model request",
+    "pasted_key_saved": true,
+    "typed_replacement_saved": true,
+    "secret_not_in_settings": true,
+    "network_requests": 0
+  },
+  "regression": {
+    "renderer_checks": 349,
+    "failures": 0,
+    "configurations": [
+      "Debug",
+      "Release",
+      "ASAN"
+    ],
+    "debug_related_ctest": "3/3",
+    "release_related_ctest": "3/3",
+    "asan_renderer_ctest": "1/1",
+    "public_headers": "49 checked; 0 violations",
+    "format": "passed",
+    "python_syntax": "passed",
+    "diff_check": "passed",
+    "impeccable_detector": []
+  },
+  "untested": "Windows/Wayland/physical high-DPI/screen readers; no new UBSAN/TSAN run; no lifecycle entry changes",
+  "remote_ci": "pending after new commit push"
+}

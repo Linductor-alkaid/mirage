@@ -21,14 +21,15 @@
         "apps/native/text_selection.hpp",
         "apps/native/CMakeLists.txt",
         "apps/native/assets/fonts/provenance.json",
-        "apps/native/typography.hpp"
+        "apps/native/typography.hpp",
+        "apps/native/provider_presets.hpp"
       ],
       "directionContract": "docs/design/native-agent-frontend.md",
       "legacyDesignDocument": "DESIGN.md",
       "previewOnly": false,
       "runtime": "Separate Runtime Service via versioned Local IPC; UI owns its Executor-managed bridge.",
-      "workItem": "M6-21",
-      "decision": "docs/decisions/DEC-042-native-provider-editor.md",
+      "workItem": "M6-22",
+      "decision": "docs/decisions/DEC-043-provider-presets-and-anthropic.md",
       "visualAuthority": {
         "seed": "user-zcode-native",
         "mode": "code-led",
@@ -1105,7 +1106,8 @@
       ],
       "protocols": [
         "openai.chat-completions.v1",
-        "openai.responses.v1"
+        "openai.responses.v1",
+        "anthropic.messages.v1"
       ],
       "draftAndApplied": "Separate editor/catalog/live_model; ACK is authoritative. Empty directory exposes an unnamed local provider.",
       "saving": "Save whole provider; shared connection/key, model-specific context/reasoning. Failed save keeps editor and applied model.",
@@ -1113,12 +1115,18 @@
       "persistence": "Optional provider metadata; models_present distinguishes explicit empty catalog from old-client absence. Keys in OS keyring, never settings.",
       "reference": "ZCode29628c9 SectionLayout/Navigation/ProviderCardSections/ProviderApiFormatSelect",
       "unsupportedParity": [
-        "Anthropic",
         "OAuth/plans",
         "model connectivity probe",
-        "extra model metadata"
+        "extra model metadata",
+        "extended thinking / signed block echo"
       ],
-      "evidence": "docs/compatibility/native-provider-editor-20261006.md"
+      "evidence": "docs/compatibility/provider-presets-and-vision-20261006.md",
+      "presets": {
+        "count": 11,
+        "source": "ZCode29628c9 config/provider/zcode-builtin.json + official MiniMax international endpoint",
+        "selection": "Fill editable draft; enter key and save; catalog only after ACK",
+        "verified": "MiniMax-M3 Messages, separate provider image probe; other vendors not live-tested"
+      }
     },
     "chatBehavior": {
       "entry": "session.chat carries session access and reasoning captured at submission; read_only registers no tools, default registers only wait.",
@@ -1336,6 +1344,20 @@
       "inlineCodeWidth": "Measured with restored independent monospace size; shrink chip and shift same-row following runs, retain upstream wrap/height budget.",
       "finishVerdict": ".impeccable/review/typography-20261005/finish-verdict.md",
       "minimumInputHeightPx": 50
+    },
+    "providerPresetsLayout": {
+      "sidebarOuterInset": 24,
+      "iconLeft": 36,
+      "iconCenter": 48,
+      "textLeft": 68,
+      "nameInputInset": 8,
+      "nameInputLeft": 28,
+      "nameStaticTextLeft": 36,
+      "navigationPresetRowHeight": 32,
+      "protocolMenuHeight": 116,
+      "visionBoundary": "Mira public Provider tested; product attachments remain text-only",
+      "brandAssets": "apps/native/assets/providers/provenance.json",
+      "compactNavigation": "56px icon rail; 2px scrollbar, hover names"
     }
   },
   "components": [
@@ -1490,7 +1512,7 @@
     ],
     "donts": [
       "Don't 将设置草稿包装成已应用模型，或将通用文字/工具轮次包装成桌面任务执行。",
-      "Don't 以 ZCode 参考截图作为应用内素材；交付的品牌 raster 仅来自已记录来源的 Mira 原始角色图。",
+      "Don't 以 ZCode 参考截图作为应用内素材；应用品牌继承 Mira；厂商图标以独立来源/许可证记录交付。",
       "Don't 将 Web/CEF 的仪表 caps、琥珀主色与灯阵语法默认套入原生对话页。"
     ]
   }

@@ -1,0 +1,115 @@
+{
+  "scope": "actual native window, XTest/public URL clipboard, private Service/keyring",
+  "offline_start": true,
+  "checks": [
+    {
+      "name": "preset can be selected before initial service connection",
+      "passed": true
+    },
+    {
+      "name": "offline preview can switch to another preset",
+      "passed": true
+    },
+    {
+      "name": "offline preview does not accept key edits",
+      "passed": true
+    },
+    {
+      "name": "connection restores selected saved preset configuration",
+      "passed": true
+    },
+    {
+      "name": "preview retains saved catalog and credentials without writing",
+      "passed": true
+    },
+    {
+      "name": "preset selection applies public URL OpenAI",
+      "passed": true
+    },
+    {
+      "name": "dirty preset navigation shows recovery choices Anthropic",
+      "passed": true
+    },
+    {
+      "name": "keep editing retains selected preset",
+      "passed": true
+    },
+    {
+      "name": "preset selection applies public URL Anthropic",
+      "passed": true
+    },
+    {
+      "name": "dirty preset navigation shows recovery choices MiniMax",
+      "passed": true
+    },
+    {
+      "name": "preset selection applies public URL MiniMax",
+      "passed": true
+    },
+    {
+      "name": "preset selection applies public URL MiniMax\uff08\u56fd\u9645\uff09",
+      "passed": true
+    },
+    {
+      "name": "dirty preset navigation shows recovery choices DeepSeek",
+      "passed": true
+    },
+    {
+      "name": "preset selection applies public URL DeepSeek",
+      "passed": true
+    },
+    {
+      "name": "dirty preset navigation shows recovery choices Kimi",
+      "passed": true
+    },
+    {
+      "name": "preset selection applies public URL Kimi",
+      "passed": true
+    },
+    {
+      "name": "dirty preset navigation shows recovery choices \u963f\u91cc\u4e91\u767e\u70bc\uff08\u4e2d\u56fd\uff09",
+      "passed": true
+    },
+    {
+      "name": "preset selection applies public URL \u963f\u91cc\u4e91\u767e\u70bc\uff08\u4e2d\u56fd\uff09",
+      "passed": true
+    },
+    {
+      "name": "dirty preset navigation shows recovery choices \u963f\u91cc\u4e91\u767e\u70bc\uff08\u56fd\u9645\uff09",
+      "passed": true
+    },
+    {
+      "name": "preset selection applies public URL \u963f\u91cc\u4e91\u767e\u70bc\uff08\u56fd\u9645\uff09",
+      "passed": true
+    },
+    {
+      "name": "dirty preset navigation shows recovery choices Z.ai API",
+      "passed": true
+    },
+    {
+      "name": "preset selection applies public URL Z.ai API",
+      "passed": true
+    },
+    {
+      "name": "dirty preset navigation shows recovery choices BigModel API",
+      "passed": true
+    },
+    {
+      "name": "preset selection applies public URL BigModel API",
+      "passed": true
+    },
+    {
+      "name": "dirty preset navigation shows recovery choices Xiaomi MiMo",
+      "passed": true
+    },
+    {
+      "name": "preset selection applies public URL Xiaomi MiMo",
+      "passed": true
+    },
+    {
+      "name": "preset selection does not persist or delete configurations",
+      "passed": true
+    }
+  ],
+  "inference_requests": 0
+}

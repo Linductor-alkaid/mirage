@@ -1,0 +1,22 @@
+{
+  "scope": "M6-23 Linux X11 native settings",
+  "disposition": "ship within verified scope",
+  "review": "primary agent inline verification, no independent reviewer",
+  "real_window_checks": 35,
+  "debug_related": "3/3",
+  "release_related": "3/3",
+  "asan_renderer": "1/1",
+  "ubsan_renderer": "1/1",
+  "native_renderer_checks": 324,
+  "native_renderer_failures": 0,
+  "inference_requests": 0,
+  "dependency_changes": false,
+  "executor_changes": false,
+  "format": "pass",
+  "public_boundary": "49 headers / 0 violations",
+  "limitations": [
+    "Windows native/IME/high-DPI and screen-reader need target host verification",
+    "Existing Windows MSVC warning failures remain; native CI dependency fix awaits runner",
+    "Impeccable design.json was reported stale; no incidental artifact migration"
+  ]
+}
