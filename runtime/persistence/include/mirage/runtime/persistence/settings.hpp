@@ -36,6 +36,8 @@ struct ModelSettings {
     bool api_key_configured = false; ///< UI projection; recalculated by service
     std::string provider_id = {};    ///< DEC-042: stable product service identity
     std::string provider_name = {};  ///< DEC-042: service label, separate from model identity
+    std::vector<std::string> reasoning_options =
+        {}; ///< Service projection; never trusted as capability input.
 };
 
 /// Runtime configuration settings (M5-08 Runtime Configuration 类目):

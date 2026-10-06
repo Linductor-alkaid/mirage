@@ -273,6 +273,19 @@ def session(args):
                 requestor.destroy()
                 D.sync()
 
+        # Mapping/registration precedes the first rendered frame. Wait for visual
+        # readiness so CPU-heavy sanitizer builds cannot swallow initial clicks.
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            frame = capture('startup-live')
+            extrema = frame.getextrema()
+            if any(hi - lo > 32 for lo, hi in extrema) and max(hi for lo, hi in extrema) > 200:
+                break
+            time.sleep(0.2)
+        else:
+            raise RuntimeError('native first frame did not render')
+        time.sleep(0.4)
+
         if args.model_settings:
             engine('xkb:us::eng')
             click(226, 756)
@@ -373,6 +386,14 @@ def session(args):
                 assert app.returncode in (0, -999)
                 return
             click(86, 94)
+
+        if args.thinking_only:
+            from native_thinking_acceptance import run
+            run(click, paste, key, capture, wire, output)
+            click(1150, 30)
+            app.wait(timeout=8)
+            assert app.returncode in (0, -999)
+            return
 
         def candidate():
             deadline = time.monotonic() + 3
@@ -506,6 +527,7 @@ def main():
     p.add_argument('--offline-start', action='store_true', help='With preset-selection-only, launch UI before its Service socket exists')
     p.add_argument('--settings-audit', action='store_true', help='Audit real model setting controls without inference')
     p.add_argument('--expect-fixed', action='store_true', help='Drive repaired confirmation flows')
+    p.add_argument('--thinking-only', action='store_true', help='Two live MiniMax thinking turns via composer; requires --model-settings --preset-minimax')
     p.add_argument('--settings-only', action='store_true', help='With --model-settings, stop after paste/save and typed key replacement; no inference request')
     p.add_argument('--no-captures', action='store_true')
     p.add_argument('--preset-minimax', action='store_true', help='With --model-settings, configure the MiniMax preset by entering only its key')
@@ -514,6 +536,8 @@ def main():
     p.add_argument('--xvfb', default='Xvfb')
     p.add_argument('--session', action='store_true', help=argparse.SUPPRESS)
     args = p.parse_args()
+    if args.thinking_only and not (args.model_settings and args.preset_minimax and not args.settings_only):
+        p.error('--thinking-only requires --model-settings --preset-minimax without --settings-only')
     if args.offline_start or args.settings_audit:
         p.error('DEC-045 requires a live tray-owned frontend; the former offline/headless-replacement audit is historical. Use tray_runtime_acceptance.py for host-loss/startup gates.')
     if args.desktop_launch and not (args.model_settings and args.settings_only and args.preset_minimax):
@@ -564,12 +588,13 @@ def main():
                  *(['--desktop-launch'] if args.desktop_launch else []),
                  *(['--preset-minimax'] if args.preset_minimax else []),
                  *(['--settings-only'] if args.settings_only else []),
+                 *(['--thinking-only'] if args.thinking_only else []),
                  *(['--settings-audit'] if args.settings_audit else []),
                  *(['--preset-selection-only'] if args.preset_selection_only else []),
                  *(['--offline-start'] if args.offline_start else []),
                  *(['--expect-fixed'] if args.expect_fixed else [])],
                 env=env, start_new_session=True)
-            if driver.wait(timeout=240 if args.settings_audit else 110) != 0:
+            if driver.wait(timeout=240 if args.settings_audit or args.thinking_only else 110) != 0:
                 raise RuntimeError('private acceptance session failed')
         finally:
             if driver is not None and driver.poll() is None:

@@ -4,7 +4,7 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-10-06（M6-21 模型服务编辑）
+> 更新日期：2026-10-07（M6-26 会话思考与空历史恢复）
 
 ## 当前状态
 
@@ -376,3 +376,9 @@ bootstrap exec 转发到统一启动器，真实窗口仍只由已注册托盘�
 确认，当前/旧入口私有验收分别 24/24、28/28，ASAN/UBSAN 入口分支各 6/6。
 Linux 入口范围 Completed，Windows/原生 Wayland/包装范围保持待验收，见
 [入口补充](../compatibility/tray-runtime-owner-20261006.md)。
+
+2026-10-07：M6-26 Linux X11 交付：会话栏按模型选择思考方式/深度，设置页重复开关移除；
+空内部会话不进入持久化/恢复，非空历史 ID 与自定义容量门禁保留。默认 25 槽预留 1 主会话。
+Mira Messages 自适应思考/签名工具回填经上游 PR#81 和精确 pin 交付，Executor 未变。
+真实 MiniMax 原生开关/预览、工具循环及 Release/消毒器验证见[验收](../compatibility/session-thinking-20261007.md)。
+整体 M6 的 Windows/Wayland 与包装边界继续未完成。

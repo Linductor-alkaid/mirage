@@ -1,0 +1,23 @@
+{
+  "scope": "real native composer, private tray/Xvfb/DBus/keyring; live MiniMax-M3",
+  "choices_from_service": [
+    "",
+    "none",
+    "adaptive"
+  ],
+  "same_session": true,
+  "turns": [
+    {
+      "option": "adaptive",
+      "status": "ok",
+      "reply_matches": true,
+      "progress_events_observed": 1
+    },
+    {
+      "option": "none",
+      "status": "ok",
+      "reply_matches": true,
+      "progress_events_observed": 2
+    }
+  ]
+}

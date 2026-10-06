@@ -3,7 +3,7 @@
 > 状态：In Progress
 > 负责人：Mirage 维护者
 > 所属计划：[实施总计划](mirage-implementation-plan.md)
-> 更新日期：2026-10-06
+> 更新日期：2026-10-07
 > 决策：[DEC-033](../decisions/DEC-033-native-agent-frontend.md)
 > 前置：既有 M5 服务与 IPC；本轮交付不依赖完整 M5 发布验收。
 > 建议发布点：暂不新增发布标签。
@@ -40,6 +40,7 @@
 | M6-22 | Completed | 会话侧栏/服务名输入间距、厂商预设、Anthropic Messages接入与MiniMax-M3真实识图；DEC-043 |
 | M6-21 | Completed（Linux X11） | 侧栏统一内容缩进/图标轴；ZCode服务导航、未命名草稿、连接配置和模型列表；保存ACK、失败保留、真实配置重载验收，依据DEC-042 |
 | M6-23 | Completed（Linux X11） | 实际模型页35项交互修复/复验；DEC-044，324项renderer、ACK、断线重连与最小明暗证据 |
+| M6-26 | Completed（Linux X11） | 会话思考按模型选择、Messages 自适应/签名回填与空历史恢复；DEC-046，真实 MiniMax 与多次重启验收 |
 | M6-25 | Completed（Linux X11） | 托盘内嵌Runtime、独立前端准入/复用、左键两项菜单、整体退出与活动确认；DEC-045 |
 | M6-24 | Completed（Linux X11） | 修复开发desktop入口绕过Service；真实GIO冷启动、Key保存/替换与服务复用验收 |
 | M6-28 | In Progress | 原生前端 PR 栈 CI 验收、按依赖合并与已合并分支/过期 build 清理；[维护计划](maintenance-ci-acceptance-20261007.md) |
@@ -372,3 +373,15 @@ BUG-20261006-007 / M6-25 入口补验 Completed（Linux）：维护者实机应�
 ASAN/UBSAN 原生入口拒绝/exec 循环分支各 6/6。临时诊断条目已撤除，开发注册目标
 重新写入正式 mirage start，未修改 pinned 依赖。证据和剩余平台范围见
 [托盘验收入口补充](../compatibility/tray-runtime-owner-20261006.md)。
+
+## M6-26：会话思考与空会话恢复
+
+- [x] Completed（Linux X11）：会话栏按模型展示思考方式/深度；移除设置页重复开关；修复空会话重启累积；真实 MiniMax 请求验证。依据 DEC-046，依赖缺口 MIRA-20261006-002。验收覆盖空历史多次重启、非空历史保留、参数编码/SSE/工具回填与容量拒绝。
+
+2026-10-07 / M6-26 Completed（Linux X11）：输入栏按服务端能力投影展示思考开关/深度，移除设置页开关。
+旧实例 17 个会话均为空历史；恢复/保存排除空记录，默认 25 槽含 24 历史及 1 主会话，
+自定义限额继续严格拒绝；保留非空稳定 ID，超量非空历史拒绝启动并保留磁盘。16 空记录迁移、
+3 次重启及非空编辑/续聊通过。真实 MiniMax-M3 同一原生会话开启/关闭回复及预览通过，
+adaptive wait 工具循环 2 步/1 工具成功。Release 52/52、ASAN/UBSAN 相关各 3/3、
+TSAN 208 checks（关闭 ASLR）、Mira 协议 7/7。Mira [PR#81](https://github.com/Linductor-alkaid/mira/pull/81)
+及锁文件同步，详见[验收与迁移](../compatibility/session-thinking-20261007.md)。不关闭整体 M6。

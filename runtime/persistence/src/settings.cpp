@@ -140,6 +140,12 @@ std::string encode_settings(const LocalSettings &settings) {
             put(model_object, "credential_ref", JsonValue{model.credential_ref});
         if (model.api_key_configured)
             put(model_object, "api_key_configured", JsonValue{true});
+        if (!model.reasoning_options.empty()) {
+            JsonValue::Array options;
+            for (const auto &value : model.reasoning_options)
+                options.emplace_back(value);
+            put(model_object, "reasoning_options", JsonValue{std::move(options)});
+        }
         if (model.supports_reasoning)
             put(model_object, "supports_reasoning", JsonValue{true});
         if (model.enabled) {
@@ -288,9 +294,23 @@ SettingsDecode decode_settings(std::string_view body) {
                                {"enabled", "supports_reasoning", "dialect", "display_name",
                                 "endpoint", "api_prefix", "model", "credential_env",
                                 "credential_ref", "api_key_configured", "context_window_tokens",
-                                "provider_id", "provider_name"})) {
+                                "provider_id", "provider_name", "reasoning_options"})) {
             result.error = "unknown model field";
             return result;
+        }
+        if (const auto *value = member(*model_value, "reasoning_options")) {
+            const auto *options = value->as_array();
+            if (!options || options->size() > 8) {
+                result.error = "invalid reasoning options";
+                return result;
+            }
+            for (const auto &entry : *options) {
+                if (!entry.is_string() || entry.as_string()->size() > 16) {
+                    result.error = "invalid reasoning option";
+                    return result;
+                }
+                model.reasoning_options.push_back(*entry.as_string());
+            }
         }
         if (const auto *value = member(*model_value, "supports_reasoning")) {
             const auto flag = value->as_boolean();
