@@ -44,3 +44,7 @@ Mirador使用`MIRADOR-YYYYMMDD-NNN`。EUI是用户授权的UI依赖，其既有�
 ## MIRA-20261005-001：真实流式预览与Chat Completions SSE
 
 详见[该条目](mira.md#mira-20261005-001)。
+
+## MIRA-20261006-001：Messages协议
+
+公开API核对、影响和验收见[Mira台账](mira.md#mira-20261006-001anthropic-messages方言缺口)。本轮Resolved（Linux本地范围），[上游PR#80](https://github.com/Linductor-alkaid/mira/pull/80)已创建未合并；无临时调度设施。
