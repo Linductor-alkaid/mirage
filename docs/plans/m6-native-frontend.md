@@ -331,3 +331,14 @@ M6-25 Linux 交付已完成：真实双进程/托盘注册、关闭重开、退�
 关闭 ASLR 后 1/1。托盘为 Runtime 唯一 owner，前端需在线托盘且为其所属子进程；
 先前 Key 保存在新拓扑下再次通过。详见 [托盘验收](../compatibility/tray-runtime-owner-20261006.md)。
 Windows/Wayland/真实通知区像素与安装包仍由 M6-04 继续验收，不关闭整体 M6。
+
+
+2026-10-06 / M6-25 重新打开：维护者反馈 Dock/应用列表打不开窗口。实机确认窗口处于
+_NET_WM_STATE_HIDDEN；EUI 最小化跳过 compose，原恢复请求放在 compose 内不能被消费。
+在 FrontendProcess 平台边界直接激活所属子进程窗口，补最小化恢复/宿主退出验证后再关闭。
+
+
+BUG-20261006-006 已修复：托盘通过 Platform Backend 恢复自己持有的前端，不依赖
+最小化时暂停的 compose。GNOME 应用列表条目实际恢复、私有 WM 21/21、所属 PID/
+错误 PID/256 窗口预算平台测试通过；Release 相关 4/4 加平台 1/1、ASAN/UBSAN
+相关各 2/2 加平台各 1/1。Linux 范围恢复 Completed，未更改 Windows/包装验收状态。

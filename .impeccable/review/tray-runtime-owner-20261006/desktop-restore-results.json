@@ -1,0 +1,11 @@
+{
+  "scope": "current user GNOME/XWayland; metadata only, no conversation or key capture",
+  "desktop_entry_launch": true,
+  "tray_runtime_online": true,
+  "frontend_ready": true,
+  "owned_frontend_reused": true,
+  "minimized_state_observed": true,
+  "desktop_entry_cleared_hidden_state": true,
+  "foreground_focus_claimed": false,
+  "inference_requests": 0
+}

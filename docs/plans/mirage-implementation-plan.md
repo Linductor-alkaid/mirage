@@ -357,3 +357,8 @@ M6-22 Linux本地验收完成：Debug50/50及相关Release/ASAN/UBSAN、受控AS
 各 3/3、TSAN 关闭 ASLR 后 1/1。旧开发 headless 入口保留；产品前端不允许脱离
 托盘。证据见 [托盘验收](../compatibility/tray-runtime-owner-20261006.md)，M6-04 保持
 In Progress，等待 Windows、原生 Wayland 和安装包补验。
+
+
+2026-10-06 / M6-25 补验：BUG-20261006-006 的最小化恢复由所属 FrontendProcess
+平台边界处理，GNOME 条目恢复、私有 WM 21/21 和有界 PID 平台测试通过。窗口
+更新通知不再是恢复的前提，Linux 范围 Completed；Windows/包装仍未验收。

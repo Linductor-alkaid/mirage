@@ -9,6 +9,8 @@ namespace mirage::desktop {
 class FrontendProcess {
   public:
     virtual ~FrontendProcess() = default;
+    // Starts a child or requests restoration/activation of the existing owned window.
+    // Restoration must not depend on the child consuming a paint-loop message.
     virtual bool open(const std::string &endpoint, std::string &diagnostic) = 0;
     virtual std::int64_t pid() = 0;                 // reaps an exited child; zero means absent
     virtual bool stop(std::string &diagnostic) = 0; // bounded, idempotent

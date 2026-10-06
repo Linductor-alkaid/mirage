@@ -1,3 +1,4 @@
+#include "frontend_activation.hpp"
 #include <chrono>
 #include <cwchar>
 #include <filesystem>
@@ -27,8 +28,9 @@ class OwnedFrontend final : public desktop::FrontendProcess {
         (void)stop(diagnostic);
     }
     bool open(const std::string &endpoint, std::string &diagnostic) override {
-        if (pid() != 0)
-            return true;
+        // BUG-20261006-006: activation must work while the UI paint loop is suspended.
+        if (const auto child = pid(); child != 0)
+            return detail::activate_frontend(child, diagnostic);
         if (binary_.empty() || !std::filesystem::is_regular_file(binary_)) {
             diagnostic = "frontend executable is missing";
             return false;

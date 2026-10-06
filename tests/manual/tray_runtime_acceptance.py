@@ -77,6 +77,12 @@ bus.call_sync(sys.argv[1],'/org/mirage/tray/menu','com.canonical.dbusmenu','Even
         headless.terminate(); headless.wait(timeout=8)
         # Without a watcher no frontend or persistent Runtime is allowed.
         check('missing notification host fails startup', command('start', '--wait', '4').returncode == 1)
+        if args.window_manager:
+            ready = output / 'wm-fixture.json'
+            children.append(subprocess.Popen([sys.executable, str(Path(__file__).with_name('x11_wm_fixture.py')),
+                                              '--record', str(ready)], env=env,
+                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            await_value(lambda: ready.exists(), bool)
         tray, ui, endpoint = launch(args.build, env, children, output)
         wire = Wire(endpoint)
         first = control()
@@ -112,6 +118,24 @@ bus.call_sync(sys.argv[1],'/org/mirage/tray/menu','com.canonical.dbusmenu','Even
             Image.frombytes('RGB', (size.width, size.height), raw.data, 'raw', 'BGRX').save(output / (name + '.png'))
 
         w = window(ui.pid)
+        if args.window_manager:
+            hidden = D.intern_atom('_NET_WM_STATE_HIDDEN')
+            state_atom = D.intern_atom('_NET_WM_STATE')
+            def minimized():
+                value = w.get_full_property(state_atom, X.AnyPropertyType)
+                return value is not None and hidden in value.value
+            click(1068, 30)
+            await_value(minimized, bool)
+            check('native minimize stops painting and stays owned', minimized() and ui.poll() is None)
+            opened = command('start')
+            await_value(minimized, lambda value: not value)
+            check('launcher restores minimized child without a paint-loop ACK',
+                  opened.returncode == 0 and control()['frontend_pid'] == ui.pid)
+            click(1068, 30)
+            await_value(minimized, bool)
+            menu(5)
+            await_value(minimized, lambda value: not value)
+            check('tray Open restores the same minimized child', control()['frontend_pid'] == ui.pid)
         click(1150, 30)
         closed = await_value(control, lambda p: p['frontend_pid'] == 0)
         check('closing native leaves tray and Runtime running; child reaped', closed['frontend_pid'] == 0 and tray.poll() is None)
@@ -170,6 +194,7 @@ def main():
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--xvfb', default='Xvfb')
     p.add_argument('--session', action='store_true')
+    p.add_argument('--window-manager', action='store_true', help='Private ICCCM/EWMH peer validates minimized restore')
     args = p.parse_args()
     args.build, args.output = args.build.resolve(), args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
@@ -192,7 +217,7 @@ def main():
             assert select.select([read_fd],[],[],5)[0], 'Xvfb timeout'
             env['DISPLAY']=':'+os.read(read_fd,32).decode().strip()
             completed = subprocess.run(['dbus-run-session','--',sys.executable,str(Path(__file__).resolve()),
-                '--build',str(args.build),'--output',str(args.output),'--session'],env=env,timeout=120)
+                '--build',str(args.build),'--output',str(args.output),'--session', *(['--window-manager'] if args.window_manager else [])],env=env,timeout=120)
             assert completed.returncode == 0, 'private lifecycle acceptance failed'
         finally:
             os.close(read_fd);xvfb.terminate();xvfb.wait(timeout=5)

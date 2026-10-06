@@ -95,7 +95,7 @@ python3 tests/manual/native_conversation_acceptance.py --build build/native-rele
 开发注册目标 mirage-native-register-desktop 已执行，启动条目仍匹配原 WM_CLASS/Mira
 图标并改用托盘入口。用户当前 DBus 只读探测：StatusNotifierWatcher 名称存在，
 IsStatusNotifierHostRegistered=true；未将此探测当作真实 GNOME 托盘像素验收。
-当前旧用户窗口和 headless 服务保留，防止丢弃未确认的 API Key/输入草稿；新入口
+首次验收时旧用户窗口和 headless 服务保留，防止丢弃未确认的 API Key/输入草稿；新入口
 遇到旧服务会明确要求关闭旧实例再启动，没有自动杀进程或读取实际 Key。
 
 ## 后续目标平台验证
@@ -104,3 +104,47 @@ M6-25 的 Linux 私有实际产品验收完成；M6-04 / M6 保持 In Progress�
 CreateProcess/通知区、原生 Wayland/高 DPI、真实通知区像素和安装包未执行，负责人
 为 Mirage 维护者，补跑条件为目标机器及对应 SDK/桌面宿主；复用本次 gate/关闭重开/
 活动退出矩阵并核对图标资源。依赖 pin 和设置/凭据/会话磁盘格式不变。
+
+
+## BUG-20261006-006：应用条目不能恢复最小化窗口
+
+维护者确认失败入口为应用列表/Dock。在当前 GNOME/XWayland 会话复现：产品
+frontend_ready=true、窗口仍映射，但 _NET_WM_STATE_HIDDEN=true，重复启动 epoch
+增长而窗口不恢复。EUI GLFW runner 在 iconified 时跳过 compose；原恢复位于
+compose 的 IPC 消费内，窗口暂停绘制后无法执行。此为 Mirage 产品打开职责，
+不需要修改 EUI，也不属于 Mira/Mirador 能力缺口。
+
+FrontendProcess.open 的既有子进程分支现在直接在 Runtime 串行任务内请求平台
+恢复。Linux 查询有界 EWMH 客户端列表，以 _NET_WM_PID 匹配所属 child；明确用户
+打开用 _NET_ACTIVE_WINDOW 的 pager source，WM-less 使用所属顶层窗口 map/raise。
+Windows 对所属 PID 请求 ShowWindowAsync。候选预算 256，超限拒绝且有诊断；
+不选择其他 PID 的窗口，不扫描/终止别的进程。初次尚未映射时继续既有启动就绪等待。
+公开 open 契约和 DEC-045 同步，窗口自身的 IPC/UI show 保留为可绘制时的补充。
+
+本机实际操作：已关闭旧窗口、无活动任务/Workflow；启动产品后人工协议最小化当前
+所属前端，再通过 Gio 的 org.mirage.native.desktop 打开，hidden 标记清除且相同
+前端 PID 复用。托盘/前端新实例已运行，未捕获用户会话正文/Key。系统可能拒绝前台
+焦点，所以只承诺此次窗口恢复，不把 active-window=false 表述为焦点验收通过。
+公开布尔取证为 desktop-restore-results.json。
+
+```bash
+python3 tests/manual/tray_runtime_acceptance.py --build build/native-release   --window-manager --output /tmp/mirage-tray-restore-private   --xvfb /home/linductor/.local/mirage-sysroot/usr/bin/Xvfb
+cmake --build build/native-release --target frontend_activation_test mirage-format-check -j3
+ctest --test-dir build/native-release -R '^frontend_activation_test$' --output-on-failure
+ctest --test-dir build/native-release   -R '^(tray_runtime_test|native_agent_integration_test|native_conversation_view_test|tray_backend_test)$'   --output-on-failure
+```
+
+私有 WM 为外部 ICCCM/EWMH 测试对端，接受真正 minimize/unmap/map/activate 请求，
+不会代替产品消费队列。21/21 全部通过，新增窗口暂停绘制、启动入口恢复、托盘恢复
+三项；restore-results.json 保留结果。平台单测验证 WM-less map/focus、精确 PID
+选择、非所属 PID 无动作、257 候选拒绝且不发恢复请求。Release 平台 1/1 和相关
+4/4 通过；ASAN/UBSAN build 中相关各 2/2，新增实际平台各 1/1，无诊断。命令为在
+各 build/asan、build/ubsan 构建 frontend_activation_test 后执行同名 CTest；实际
+开窗夹具仍使用 Release。构建/格式/51 个公共头边界复验通过。
+
+首个私有脚本编辑尝试匹配旧行失败（未运行产品测试），改正 fixture 插入位置后
+完整执行退出码 0；不将脚本编辑失败计为产品通过。当前用户窗口已更新并恢复。
+首个 PR head 4c76e5b 的 CI Linux debug/release/ASAN/UBSAN、格式/边界、native
+均通过；TSAN 的 event_subscription_test 末尾 Completed 计时断言失败，Windows
+MSVC 全树 getenv/C4244 门禁失败，均记录为未完成，不声称全 CI 通过。此次修复不
+将 M6-04 的 Windows/包装验收关闭，后续按目标门禁单独处理。
