@@ -430,7 +430,27 @@ const auto model = "Mirage";
     MIRAGE_CHECK(std::abs(brand_bounds.x + brand_bounds.width / 2 - nav_bounds.x -
                           nav_bounds.width / 2) < 1);
     MIRAGE_CHECK(element("settings.nav.1.label")->frame.x == element("brand")->frame.x);
+    MIRAGE_CHECK(element("model.name")->frame.x > element("model.provider.logo")->frame.x + 20);
+    MIRAGE_CHECK(view->find("model.preset.0.bg") && view->find("model.preset.2.bg"));
     capture("provider-empty-light");
+    select_preset(2); // MiniMax: complete connection/model, key is the only missing value.
+    frame();
+    MIRAGE_CHECK(page.models.empty() && !page.live_model.enabled && page.model_dirty);
+    MIRAGE_CHECK(page.model.provider_name == "MiniMax" &&
+                 page.model.model_selector == "MiniMax-M3");
+    MIRAGE_CHECK(page.model_base_url == "https://api.minimaxi.com/anthropic/v1");
+    MIRAGE_CHECK(page.model.dialect == "anthropic.messages.v1" && page.provider_models.size() == 1);
+    MIRAGE_CHECK(page.api_key.empty() && page.model.credential_ref.empty() &&
+                 page.model.credential_env.empty());
+    auto preset_document = provider_document(true);
+    MIRAGE_CHECK(preset_document && preset_document->model->enabled &&
+                 preset_document->models[0].provider_id == "preset:minimax");
+    capture("provider-preset-minimax-light");
+    select_preset(0); // Unsaved key/service edits cannot silently disappear.
+    MIRAGE_CHECK(page.model.provider_id == "preset:minimax");
+    page.model_dirty = false;
+    accept_model_configuration(empty_catalog, "discard", "");
+    frame();
     page.model.provider_name = "本地测试服务";
     set_base_url("https://api.example.test/v1");
     page.model_dirty = true;
@@ -466,6 +486,15 @@ const auto model = "Mirage";
     element("model.protocol.0.bg")->onClick();
     frame();
     MIRAGE_CHECK(page.model.dialect == "openai.chat-completions.v1");
+    element("model.protocol.control.bg")->onClick();
+    frame();
+    element("model.protocol.2.bg")->onClick();
+    frame();
+    MIRAGE_CHECK(page.model.dialect == "anthropic.messages.v1" && !page.model.supports_reasoning);
+    element("model.protocol.control.bg")->onClick();
+    frame();
+    element("model.protocol.0.bg")->onClick();
+    frame();
 
     element("model.add.model.bg")->onClick();
     frame();

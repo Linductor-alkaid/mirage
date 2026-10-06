@@ -1,6 +1,7 @@
 #include "chat_model.hpp"
 #include "conversation_preview.hpp"
 #include "markdown_adapter.hpp"
+#include "provider_presets.hpp"
 #include "runtime_bridge.hpp"
 #include "secret_input.hpp"
 #include "selection_adapter.hpp"
@@ -251,6 +252,36 @@ bool set_base_url(const std::string &url) {
     s.model.endpoint_origin = url.substr(0, path);
     s.model.api_prefix = path == std::string::npos ? "" : url.substr(path);
     return scheme != std::string::npos;
+}
+void select_preset(std::size_t index) {
+    auto &v = state();
+    if (v.saving_model || v.model_dirty || index >= provider_presets.size()) {
+        v.model_notice = "请先保存或取消当前服务的修改。";
+        return;
+    }
+    const auto &preset = provider_presets[index];
+    const auto id = "preset:" + std::string(preset.id);
+    const auto existing = std::find_if(v.models.begin(), v.models.end(),
+                                       [&](const auto &entry) { return entry.provider_id == id; });
+    if (existing != v.models.end()) {
+        load_provider(*existing);
+        return;
+    }
+    auto profile = unnamed_provider();
+    profile.provider_id = id;
+    profile.provider_name = preset.name;
+    profile.display_name = local_profile_id("model");
+    profile.model_selector = preset.model;
+    profile.dialect = preset.dialect;
+    if (preset.id == "minimax" || preset.id == "minimax-intl")
+        profile.context_window_tokens = 1000000;
+    profile.enabled = true;
+    load_provider(profile);
+    set_base_url(std::string(preset.base_url));
+    v.provider_models = {v.model};
+    v.editing_provider_name = false;
+    v.model_dirty = true;
+    v.model_notice = "填写 API Key 后保存即可使用，地址与模型可按需修改。";
 }
 bool call_runtime(ipc::Request request, const std::string &tag, std::uint64_t id = 0) {
     auto &s = state();
@@ -818,6 +849,24 @@ void keyboard_activation(eui::Ui &ui, const std::string &id) {
         };
     }
 }
+void provider_icon(eui::Ui &ui, const std::string &key, const std::string &provider_id, float x,
+                   float y, float size, const Palette &p) {
+    const auto preset =
+        std::find_if(provider_presets.begin(), provider_presets.end(), [&](const auto &entry) {
+            return provider_id == "preset:" + std::string(entry.id);
+        });
+    if (preset == provider_presets.end()) {
+        icon(ui, key, 0xf1b2, x, y, size, 32, p.text);
+        return;
+    }
+    ui.image(key)
+        .position(x + (24 - size) / 2, y + (32 - size) / 2)
+        .size(size, size)
+        .source(std::string(preset->icon))
+        .contain()
+        .hitTestMode(eui::dsl::HitTestMode::None)
+        .build();
+}
 void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float width,
                          const Palette &p, const components::theme::ThemeColorTokens &tokens) {
     auto &s = state();
@@ -880,12 +929,15 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
             return provider_key(entry) == s.model.provider_id;
         })) {
         auto draft = s.model;
-        draft.provider_name = "未命名服务";
+        if (!draft.provider_id.starts_with("preset:"))
+            draft.provider_name = "未命名服务";
         providers.push_back(std::move(draft));
     }
     components::scrollView(ui, "model.providers")
         .position(x + 12, panel_y + 12)
         .size(nav_width - 24, panel_height - 24)
+        .scrollbarWidth(2)
+        .scrollbarGap(2)
         .theme(tokens)
         .gap(4)
         .content([&](eui::Ui &list, float w, float) {
@@ -910,11 +962,44 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                 state().model_notice.clear();
                             })
                             .build();
-                        icon(list, key + ".icon", 0xf1b2, 4, 0, 16, 32, p.text);
+                        provider_icon(list, key + ".icon", profile.provider_id, 0, 0, 20, p);
                         if (nav_width > 56)
                             text(list, key + ".label",
                                  fitted_title(provider_label(profile), w - 48, 14), 32, 0, w - 48,
                                  32, 14, p.text, 500);
+                    })
+                    .build();
+            }
+            list.text("model.presets.label")
+                .size(w, 36)
+                .text(nav_width > 56 ? "预设服务" : "")
+                .fontSize(ui_font_size(12))
+                .color(p.muted)
+                .build();
+            for (std::size_t i = 0; i < provider_presets.size(); ++i) {
+                const auto &preset = provider_presets[i];
+                if (std::any_of(providers.begin(), providers.end(), [&](const auto &entry) {
+                        return entry.provider_id == "preset:" + std::string(preset.id);
+                    }))
+                    continue;
+                const auto key = "model.preset." + std::to_string(i);
+                list.stack(key)
+                    .size(w, 32)
+                    .content([&] {
+                        list.rect(key + ".bg")
+                            .size(w, 32)
+                            .radius(8)
+                            .states({0, 0, 0, 0}, p.hover, p.selected)
+                            .focusable()
+                            .cursor(eui::CursorShape::Hand)
+                            .onClick([i] { select_preset(i); })
+                            .build();
+                        provider_icon(list, key + ".icon", "preset:" + std::string(preset.id), 0, 0,
+                                      20, p);
+                        if (nav_width > 56)
+                            text(list, key + ".label",
+                                 fitted_title(std::string(preset.name), w - 32, 14), 32, 0, w - 32,
+                                 32, 14, p.text);
                     })
                     .build();
             }
@@ -944,7 +1029,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
             list.stack("model.provider.header")
                 .size(w, 40)
                 .content([&] {
-                    icon(list, "model.provider.logo", 0xf1b2, 0, 0, 20, 32, p.text);
+                    provider_icon(list, "model.provider.logo", s.model.provider_id, 0, 0, 20, p);
                     if (s.editing_provider_name) {
                         components::input(list, "model.name")
                             .position(28, 0)
@@ -952,7 +1037,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                             .value(s.model.provider_name)
                             .placeholder("未命名服务")
                             .fontSize(ui_font_size(18))
-                            .inset(0)
+                            .inset(8)
                             .style([&] {
                                 auto style = input_style;
                                 style.border = {0, 0, 0, 0};
@@ -967,7 +1052,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                             .build();
                     } else {
                         text(list, "model.provider.title",
-                             fitted_title(provider_label(s.model), w - 124, 18), 28, 0, w - 124, 32,
+                             fitted_title(provider_label(s.model), w - 132, 18), 36, 0, w - 132, 32,
                              18, p.text, 600);
                     }
                     components::button(list, "model.provider.actions")
@@ -1088,7 +1173,9 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                     components::button(list, "model.protocol.control")
                         .position(0, 24)
                         .size(w, 32)
-                        .text(s.model.dialect == "openai.responses.v1"
+                        .text(s.model.dialect == "anthropic.messages.v1"
+                                  ? "Anthropic Messages (/messages)"
+                              : s.model.dialect == "openai.responses.v1"
                                   ? "OpenAI Responses (/responses)"
                                   : "OpenAI Chat Completions (/chat/completions)")
                         .fontSize(ui_font_size(13))
@@ -1100,27 +1187,35 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                     if (s.model_format_open) {
                         list.stack("model.protocol.menu")
                             .position(0, 60)
-                            .size(w, 80)
+                            .size(w, 116)
                             .zIndex(30)
                             .content([&] {
                                 list.rect("model.protocol.menu.border")
-                                    .size(w, 80)
+                                    .size(w, 116)
                                     .radius(8)
                                     .color(p.surface)
                                     .border(1, p.border)
                                     .build();
-                                for (int i = 0; i < 2; ++i) {
-                                    const std::string dialect =
-                                        i ? "openai.responses.v1" : "openai.chat-completions.v1";
+                                for (int i = 0; i < 3; ++i) {
+                                    const std::string dialect = i == 2 ? "anthropic.messages.v1"
+                                                                : i    ? "openai.responses.v1"
+                                                                    : "openai.chat-completions.v1";
                                     components::button(list, "model.protocol." + std::to_string(i))
                                         .position(4, 4 + i * 36)
                                         .size(w - 8, 36)
-                                        .text(i ? "OpenAI Responses" : "OpenAI Chat Completions")
+                                        .text(i == 2 ? "Anthropic Messages"
+                                              : i    ? "OpenAI Responses"
+                                                     : "OpenAI Chat Completions")
                                         .fontSize(ui_font_size(13))
                                         .style(button_style(p))
                                         .disabled(s.saving_model)
                                         .onClick([dialect] {
                                             state().model.dialect = dialect;
+                                            if (dialect == "anthropic.messages.v1") {
+                                                state().model.supports_reasoning = false;
+                                                for (auto &entry : state().provider_models)
+                                                    entry.supports_reasoning = false;
+                                            }
                                             state().model_dirty = true;
                                             state().model_format_open = false;
                                         })
@@ -1333,13 +1428,17 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                       [](const auto &v) { state().model_window = v; });
                 components::button(list, "model.reasoning.support")
                     .size(w, 32)
-                    .text(s.model.supports_reasoning ? "思考深度 · 已启用" : "启用思考深度")
+                    .text(s.model.dialect == "anthropic.messages.v1" ? "此协议的扩展思考尚未接入"
+                          : s.model.supports_reasoning ? "思考深度 · 已启用"
+                                                       : "启用思考深度")
                     .icon(s.model.supports_reasoning ? 0xf14a : 0xf0c8)
                     .iconSize(14)
                     .fontSize(ui_font_size(14))
                     .style(button_style(p))
-                    .disabled(s.saving_model)
+                    .disabled(s.saving_model || s.model.dialect == "anthropic.messages.v1")
                     .onClick([] {
+                        if (state().model.dialect == "anthropic.messages.v1")
+                            return;
                         state().model.supports_reasoning = !state().model.supports_reasoning;
                         state().model_dirty = true;
                     })
@@ -1374,18 +1473,48 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
         .disabled(!s.model_loaded || s.saving_model || !s.model_dirty)
         .onClick([] { apply_model(state().model.enabled); })
         .build();
-    for (const auto *id : {"model.refresh.bg", "model.add.provider.bg", "model.provider.actions.bg",
-                           "model.provider.rename.bg", "model.provider.delete.bg",
-                           "model.provider.enabled.hit", "model.protocol.control.bg",
-                           "model.protocol.0.bg", "model.protocol.1.bg", "model.key.visible.bg",
-                           "model.key.remove.bg", "model.add.model.bg", "model.add.confirm.bg",
-                           "model.reasoning.support.bg", "model.discard.bg", "model.save.bg"})
+    for (const auto *id :
+         {"model.refresh.bg", "model.add.provider.bg", "model.provider.actions.bg",
+          "model.provider.rename.bg", "model.provider.delete.bg", "model.provider.enabled.hit",
+          "model.protocol.control.bg", "model.protocol.0.bg", "model.protocol.1.bg",
+          "model.protocol.2.bg", "model.key.visible.bg", "model.key.remove.bg",
+          "model.add.model.bg", "model.add.confirm.bg", "model.reasoning.support.bg",
+          "model.discard.bg", "model.save.bg"})
         keyboard_activation(ui, id);
+    for (std::size_t i = 0; i < provider_presets.size(); ++i)
+        keyboard_activation(ui, "model.preset." + std::to_string(i) + ".bg");
     for (std::size_t i = 0; i < providers.size(); ++i)
         keyboard_activation(ui, "model.provider." + std::to_string(i) + ".bg");
     for (std::size_t i = 0; i < s.provider_models.size(); ++i) {
         keyboard_activation(ui, "model.entry." + std::to_string(i) + ".bg");
         keyboard_activation(ui, "model.entry." + std::to_string(i) + ".delete.bg");
+    }
+    if (nav_width == 56) {
+        auto tooltip = [&](const std::string &key, const std::string &label) {
+            if (const auto *anchor = ui.find(key + ".bg")) {
+                const auto bounds = anchor->frame;
+                ui.stack(key + ".tooltip")
+                    .position(bounds.x + bounds.width + 8, bounds.y)
+                    .size(224, 32)
+                    .hoverOpacityFrom(key + ".bg")
+                    .zIndex(40)
+                    .hitTestMode(eui::dsl::HitTestMode::None)
+                    .content([&] {
+                        ui.rect(key + ".tooltip.bg")
+                            .size(224, 32)
+                            .radius(8)
+                            .color(p.surface)
+                            .border(1, p.border)
+                            .build();
+                        text(ui, key + ".tooltip.label", label, 12, 0, 200, 32, 13, p.text);
+                    })
+                    .build();
+            }
+        };
+        for (std::size_t i = 0; i < providers.size(); ++i)
+            tooltip("model.provider." + std::to_string(i), provider_label(providers[i]));
+        for (std::size_t i = 0; i < provider_presets.size(); ++i)
+            tooltip("model.preset." + std::to_string(i), std::string(provider_presets[i].name));
     }
     // Input state is retained by EUI; gate dispatch as well as onChange while
     // a modal or save transaction owns interaction (including IME commits).
@@ -2380,22 +2509,22 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                     .build();
                 // EUI-20261004-003: metadata-free, pixel-identical UI copy.
                 ui.image("brand.mira")
-                    .position(32, 20)
+                    .position(36, 20)
                     .size(24, 24)
                     .source("assets/mira-ui.png")
                     .contain()
                     .hitTestMode(eui::dsl::HitTestMode::None)
                     .build();
-                text(ui, "brand", "Mirage", 64, 14, sidebar - 132, 36, 18, p.text, 600);
+                text(ui, "brand", "Mirage", 68, 14, sidebar - 132, 36, 18, p.text, 600);
                 icon_button(ui, "sidebar.hide", 0xf0db, sidebar - 52, 12, p,
                             [] { state().sidebar = false; });
                 if (s.settings) {
                     ui.stack("settings.back")
-                        .position(20, 76)
-                        .size(sidebar - 40, 36)
+                        .position(24, 76)
+                        .size(sidebar - 48, 36)
                         .content([&] {
                             ui.rect("settings.back.bg")
-                                .size(sidebar - 40, 36)
+                                .size(sidebar - 48, 36)
                                 .radius(8)
                                 .states(p.sidebar, p.hover, p.selected)
                                 .focusable()
@@ -2415,8 +2544,8 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                         const float y = 152 + static_cast<float>(i) * 56;
                         const auto key = "settings.nav." + std::to_string(i);
                         ui.rect(key)
-                            .position(20, y)
-                            .size(sidebar - 40, 36)
+                            .position(24, y)
+                            .size(sidebar - 48, 36)
                             .radius(7)
                             .states(s.model_page == model ? p.selected : eui::Color{0, 0, 0, 0},
                                     p.hover, p.selected)
@@ -2427,17 +2556,17 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                                 state().model_chooser = false;
                             })
                             .build();
-                        icon(ui, key + ".icon", model ? 0xf544 : 0xf53f, 32, y, 16, 36, p.text);
-                        text(ui, key + ".label", model ? "模型" : "外观", 64, y, sidebar - 88, 36,
+                        icon(ui, key + ".icon", model ? 0xf544 : 0xf53f, 36, y, 16, 36, p.text);
+                        text(ui, key + ".label", model ? "模型" : "外观", 68, y, sidebar - 88, 36,
                              14, p.text, 500);
                     }
                 } else {
                     ui.stack("session.new")
-                        .position(20, 76)
-                        .size(sidebar - 40, 36)
+                        .position(24, 76)
+                        .size(sidebar - 48, 36)
                         .content([&] {
                             ui.rect("session.new.bg")
-                                .size(sidebar - 40, 36)
+                                .size(sidebar - 48, 36)
                                 .radius(8)
                                 .states(p.sidebar, p.hover, p.selected)
                                 .focusable()
@@ -2450,14 +2579,14 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                         })
                         .build();
                     ui.rect("sidebar.divider")
-                        .position(20, 140)
-                        .size(sidebar - 40, 1)
+                        .position(24, 140)
+                        .size(sidebar - 48, 1)
                         .color(p.border)
                         .build();
-                    text(ui, "session.label", "会话", 32, 156, 180, 28, 14, p.muted);
+                    text(ui, "session.label", "会话", 36, 156, 180, 28, 14, p.muted);
                     components::scrollView(ui, "session.list")
-                        .position(20, 196)
-                        .size(sidebar - 40, screen.height - 296)
+                        .position(24, 196)
+                        .size(sidebar - 48, screen.height - 296)
                         .gap(4)
                         .offset(s.session_scroll)
                         .theme(tokens)
@@ -2518,13 +2647,13 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                      {"settings.back.bg", "session.new.bg", "settings.nav.0", "settings.nav.1"})
                     keyboard_activation(ui, id);
                 ui.rect("sidebar.footer.line")
-                    .position(16, screen.height - 86)
-                    .size(sidebar - 32, 1)
+                    .position(24, screen.height - 86)
+                    .size(sidebar - 48, 1)
                     .color(p.border)
                     .build();
-                icon_button(ui, "about", 0xf05a, 24, screen.height - 62, p,
+                icon_button(ui, "about", 0xf05a, 30, screen.height - 62, p,
                             [] { state().about = true; });
-                text(ui, "preview.label", "Mira", 64, screen.height - 62, sidebar - 112, 36, 14,
+                text(ui, "preview.label", "Mira", 68, screen.height - 62, sidebar - 112, 36, 14,
                      p.muted);
                 icon_button(ui, "settings.open", 0xf013, sidebar - 52, screen.height - 62, p,
                             [] { state().settings = true; });

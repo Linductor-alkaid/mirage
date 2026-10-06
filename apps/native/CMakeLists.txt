@@ -53,6 +53,9 @@ add_custom_target(mirage-native-assets
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/mira-ui.png"
         "$<TARGET_FILE_DIR:mirage-native>/assets/mira-ui.png"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/providers"
+        "$<TARGET_FILE_DIR:mirage-native>/assets/providers"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${mirage_font_file}" "$<TARGET_FILE_DIR:mirage-native>/assets/NotoSansSC-Regular.otf"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different

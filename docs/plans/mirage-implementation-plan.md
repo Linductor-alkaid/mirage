@@ -344,3 +344,7 @@ SDK消费、Mirage原生回归通过。同步最新dev修复并移除库层异�
 [最终验收](../compatibility/native-conversation-finish-20261006.md)。M6整体仍In Progress，M6-04保持Planned。
 
 2026-10-06 / M6-21完成Linux侧栏与模型服务编辑：统一图标/文字轴、未命名草稿、服务/模型分层、实际Key保存/刷新/调用；来源对照与未覆盖的完整ZCode能力见[验收](../compatibility/native-provider-editor-20261006.md)。M6整体状态和M6-04不变。
+
+2026-10-06：M6-22按DEC-043完成Linux本地范围的侧栏/服务标题间距、11项厂商预设和Messages真实模型接入；MiniMax-M3真实识图使用公开Provider，图片附件产品面尚未立项。M6整体仍In Progress。
+
+M6-22 Linux本地验收完成：Debug50/50及相关Release/ASAN/UBSAN、受控ASLR TSAN均通过；MiniMax-M3真实图片2/2及工具/流式通过。上游MessagesPR#80独立提交，详见[证据和未覆盖范围](../compatibility/provider-presets-and-vision-20261006.md)。M6保持In Progress。

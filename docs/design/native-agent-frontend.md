@@ -229,3 +229,7 @@ X11/IBus/libpinyin候选移动和中文提交已实测，原生Wayland/物理高
 本轮基于公开源码逐项对照和原生实渲染取证；未取得运行中ZCode原生窗口截图，不宣称像素级1:1。Mirage尚未接入的Anthropic、OAuth/套餐、模型连通性探测和额外模型元数据不展示伪实现，差异及补齐条件见M6-21验收记录。
 
 侧栏采用20px行外缩进，品牌/导航/历史图标中心x=44、文字x=64。保存经既有RuntimeBridge/Executor IPC，未新增任务或平台设施。配置存在性与provider元数据是Mirage产品职责，Mira模型网关/公开Profile和生命周期保持复用。
+
+## M6-22：预设与Messages接入
+
+DEC-043在既有ACK/密钥事务下增加11项API Key预设及anthropic.messages.v1，来源固定ZCode config/provider模板与MiniMax官方文档。用户选择预设后只需Key保存，其他连接字段仍可编辑；未知窗口预算保持0，MiniMax-M3按官方1M窗口填充。模型层Messages普通文本/工具/SSE已接入；extended thinking明确停用。侧栏24px外边距/48px图标中心/68px文字轴，服务标题8px内边距且静态显示同轴。MiniMax图片测试使用Mira公开Provider发送合成PNG；当前会话文本附件边界不变，不宣称图片上传已交付。

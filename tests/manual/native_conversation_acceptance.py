@@ -215,33 +215,44 @@ def session(args):
             click(226, 756)
             click(90, 226)
             capture('model-empty-live')
-            click(750, 220)
-            paste('Acceptance service')
-            click(720, 284)
-            paste(provider['base_url'].rstrip('/'))
-            if provider['wire_api'] == 'responses':
-                click(780, 348)
-                click(780, 422)
+            if args.preset_minimax:
+                click(420, 360)  # MiniMax built-in template in the service navigation.
+                capture('model-preset-live')
+                expected_name = 'MiniMax'
+            else:
+                expected_name = 'Acceptance service'
+                click(750, 220)
+                paste(expected_name)
+                click(720, 284)
+                paste(provider['base_url'].rstrip('/'))
+                if provider['wire_api'] == 'responses':
+                    click(780, 348)
+                    click(780, 422)
             click(750, 412)
             paste(test_key)
-            click(1030, 456)
-            click(750, 564)
-            paste(cfg['model'])
-            click(790, 604)
+            if not args.preset_minimax:
+                click(1030, 456)
+                click(750, 564)
+                paste(cfg['model'])
+                click(790, 604)
             click(1060, 744)
             deadline = time.monotonic() + 8
             saved = None
             while time.monotonic() < deadline:
                 result = wire.call('model.get')
                 saved = json.loads(result['model_settings'])
-                if saved.get('model', {}).get('provider_name') == 'Acceptance service':
+                if saved.get('model', {}).get('provider_name') == expected_name:
                     break
                 time.sleep(0.1)
             capture('model-after-save-live')
-            assert saved and saved['model'].get('provider_name') == 'Acceptance service', 'model UI did not save'
+            assert saved and saved['model'].get('provider_name') == expected_name, 'model UI did not save'
             assert saved['model']['enabled'] and saved['model']['model'] == cfg['model']
             assert saved['model']['api_key_configured'] and len(saved['model']['credential_ref']) == 32
             assert len(saved['models']) == 1 and 'credential_env' not in saved['model']
+            if args.preset_minimax:
+                assert saved['model']['dialect'] == 'anthropic.messages.v1'
+                assert saved['model']['api_prefix'] == '/anthropic/v1'
+                assert saved['model']['provider_id'] == 'preset:minimax'
             assert test_key not in json.dumps(saved)
             stored = list(Path(os.environ['XDG_CONFIG_HOME']).rglob('service.json'))
             assert stored and any(saved['model']['credential_ref'] in path.read_text() for path in stored), 'saved reference missing from disk'
@@ -365,6 +376,7 @@ def session(args):
         assert app.returncode == 0, 'native window exit failed'
         results = {'scope': 'real Release window, private Xvfb/DBus/IBus, real provider', 'model': cfg['model'], 'candidate_positions': [first, second], 'ime_draft_did_not_create_session': True, 'waiting_frames_changed': True, 'preview_count': len(previews), 'preview_max_bytes': max((p['bytes'] for p in previews)), 'terminal_status': terminal['status'], 'final_bytes': len(terminal['reply_text'].encode()), 'history_verified': True, 'idle_native_window_closed': True}
         results['modelSettingsFromEmpty'] = args.model_settings
+        results['presetMinimaxKeyOnly'] = args.preset_minimax
         (output / 'results.json').write_text(json.dumps(results, ensure_ascii=False, indent=2) + '\n')
         print(json.dumps(results, ensure_ascii=False), flush=True)
     finally:
@@ -377,6 +389,7 @@ def main():
     p.add_argument('--build', type=Path, required=True)
     p.add_argument('--provider', type=Path, required=True)
     p.add_argument('--no-captures', action='store_true')
+    p.add_argument('--preset-minimax', action='store_true', help='With --model-settings, configure the MiniMax preset by entering only its key')
     p.add_argument('--model-settings', action='store_true', help='Start empty; configure the model through the UI and a private system keyring')
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--xvfb', default='Xvfb')
@@ -410,7 +423,8 @@ def main():
                  '--build', str(args.build), '--provider', str(args.provider),
                  '--output', str(args.output), '--session',
                  *(['--no-captures'] if args.no_captures else []),
-                 *(['--model-settings'] if args.model_settings else [])],
+                 *(['--model-settings'] if args.model_settings else []),
+                 *(['--preset-minimax'] if args.preset_minimax else [])],
                 env=env, start_new_session=True)
             if driver.wait(timeout=110) != 0:
                 raise RuntimeError('private acceptance session failed')
