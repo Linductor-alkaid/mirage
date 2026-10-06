@@ -1114,7 +1114,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                     const std::string dialect =
                                         i ? "openai.responses.v1" : "openai.chat-completions.v1";
                                     components::button(list, "model.protocol." + std::to_string(i))
-                                        .position(4, 4 + i * 36)
+                                        .position(4, 4.0f + static_cast<float>(i) * 36.0f)
                                         .size(w - 8, 36)
                                         .text(i ? "OpenAI Responses" : "OpenAI Chat Completions")
                                         .fontSize(ui_font_size(13))
