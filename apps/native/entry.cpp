@@ -1,3 +1,4 @@
+#include "../common/environment.hpp"
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -53,8 +54,8 @@ int main() {
         return forward_desktop_launch();
 #endif
     namespace ipc = mirage::runtime::ipc;
-    const auto *override = std::getenv("MIRAGE_NATIVE_SOCKET");
-    ipc::IpcClient client(override ? override : ipc::default_socket_path());
+    const auto override = mirage::apps::environment_variable("MIRAGE_NATIVE_SOCKET");
+    ipc::IpcClient client(override ? *override : ipc::default_socket_path());
     const auto hello = client.call(ipc::HelloRequest{}, std::chrono::milliseconds{1500});
     const auto *identity = std::get_if<ipc::ServiceIdentity>(&hello.payload);
     if (!hello.ok || !identity || !identity->tray.value_or(false)) {
