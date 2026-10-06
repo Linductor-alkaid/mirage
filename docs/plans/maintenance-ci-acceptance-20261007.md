@@ -19,3 +19,7 @@ UI 指针 double、条件整数字面量到 float 的 C4244。保留 warnings-as
 环境值和显式布局坐标转换，不关闭警告。#67 native configure 日志确认缺少 CURL_LIBRARY/CURL_INCLUDE_DIR；native job 补装 libcurl4-openssl-dev 和 Xvfb，保留原有配置门禁。
 Mira #81 原基础全部 CI 成功；当前主干已经迁移 kairo，需在新合并 head 重新取证。
 EUI #88 OpenGL/Vulkan × GLFW/SDL2 四项成功，仓库权限 push=false、maintain=false。
+
+## 修复复验
+
+基础及最终组合的本地 Release/native 构建、format/boundary 与三项 native 测试均 3/3 成功；Mira 当前主干 Debug 全量 104/104 和 format/docs/SBOM/platform/architecture 成功。Windows #67 复验日志另指向基础协议菜单循环坐标的 int→float C4244（app.cpp:1117），补齐显式转换；后续厂商预设分支相应位置已经修正。完整 CI 仍待最新 head 取证。
