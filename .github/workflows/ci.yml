@@ -169,7 +169,7 @@ jobs:
         with:
           submodules: recursive
       - name: Install native UI build prerequisites
-        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libcurl4-openssl-dev xvfb
       - name: Configure native frontend
         run: cmake --preset native-debug -DMIRAGE_FETCH_DEPENDENCIES=OFF
       - name: Build native UI and harness tests
