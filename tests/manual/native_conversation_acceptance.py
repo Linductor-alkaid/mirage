@@ -120,13 +120,15 @@ def session(args):
             env['MIRAGE_ACCEPTANCE_KEY'] = test_key
         endpoint = str(Path(os.environ['XDG_RUNTIME_DIR']) / 'mirage.sock')
         service_log = open(output / 'service.log', 'w')
-        service_command = [str(args.build / 'apps/mirage-service'), '--socket', endpoint, '--config', str(config_path), '--state-dir', os.environ['XDG_STATE_HOME'], '--no-recovery']
+        service_command = [str(args.build / 'apps/tray/mirage-tray'), '--socket', endpoint, '--config', str(config_path), '--state-dir', os.environ['XDG_STATE_HOME'], '--no-recovery', '--shell', str(args.build / 'apps/native/mirage-native')]
         if args.desktop_launch:
             from native_desktop_launch import launch
             env.pop('MIRAGE_NATIVE_SOCKET', None)
             env.pop('MIRAGE_TRAY_SOCKET', None)
             service, app, endpoint = launch(args.build, env, children, output)
         else:
+            from native_desktop_launch import start_watcher
+            start_watcher(env, children, output)
             service = subprocess.Popen(service_command, env=env, stdout=service_log, stderr=service_log)
             children.append(service)
         deadline = time.monotonic() + 10
@@ -140,7 +142,15 @@ def session(args):
         env['MIRAGE_NATIVE_SOCKET'] = ui_endpoint
         app_log = open(output / 'native.log', 'w')
         if not args.desktop_launch:
-            app = subprocess.Popen([str(args.build / 'apps/native/mirage-native')], env=env, stdout=app_log, stderr=app_log)
+            from native_desktop_launch import AdoptedProcess
+            deadline = time.monotonic() + 10
+            product = {}
+            while time.monotonic() < deadline:
+                product = wire.call('product.control', action='status', exit_epoch=0)
+                if product.get('frontend_ready'): break
+                time.sleep(.05)
+            assert product.get('frontend_ready'), 'tray-owned frontend did not become ready'
+            app = AdoptedProcess(product['frontend_pid'])
             children.append(app)
         deadline = time.monotonic() + 10
         w = None
@@ -274,7 +284,7 @@ def session(args):
                     output, args.offline_start, args.expect_fixed)
                 click(1150, 30)
                 app.wait(timeout=8)
-                assert app.returncode == 0
+                assert app.returncode in (0, -999)
                 return
             if args.preset_minimax:
                 click(420, 360)  # MiniMax built-in template in the service navigation.
@@ -330,7 +340,7 @@ def session(args):
                 run(click, paste, key, capture, wire, output, saved, args.expect_fixed, service_lifecycle)
                 click(1150, 30)
                 app.wait(timeout=8)
-                assert app.returncode == 0
+                assert app.returncode in (0, -999)
                 return
             if args.settings_only:
                 # Replace only the key of an acknowledged, otherwise clean
@@ -360,7 +370,7 @@ def session(args):
                     verify_reuse(args.build, env, service, endpoint, output)
                 click(1150, 30)
                 app.wait(timeout=8)
-                assert app.returncode == 0
+                assert app.returncode in (0, -999)
                 return
             click(86, 94)
 
@@ -474,16 +484,15 @@ def session(args):
         capture('minimum-dark')
         click(832, 30)
         app.wait(timeout=8)
-        assert app.returncode == 0, 'native window exit failed'
+        assert app.returncode in (0, -999), 'native window exit failed'
         results = {'scope': 'real Release window, private Xvfb/DBus/IBus, real provider', 'model': cfg['model'], 'candidate_positions': [first, second], 'ime_draft_did_not_create_session': True, 'waiting_frames_changed': True, 'preview_count': len(previews), 'preview_max_bytes': max((p['bytes'] for p in previews)), 'terminal_status': terminal['status'], 'final_bytes': len(terminal['reply_text'].encode()), 'history_verified': True, 'idle_native_window_closed': True}
         results['modelSettingsFromEmpty'] = args.model_settings
         results['presetMinimaxKeyOnly'] = args.preset_minimax
         (output / 'results.json').write_text(json.dumps(results, ensure_ascii=False, indent=2) + '\n')
         print(json.dumps(results, ensure_ascii=False), flush=True)
     finally:
-        if args.desktop_launch:
-            from native_desktop_launch import adopt_remaining
-            adopt_remaining(args.build, os.environ, children)
+        from native_desktop_launch import adopt_remaining
+        adopt_remaining(args.build, os.environ, children)
         if wire:
             wire.sock.close()
         stop(children)
@@ -505,6 +514,8 @@ def main():
     p.add_argument('--xvfb', default='Xvfb')
     p.add_argument('--session', action='store_true', help=argparse.SUPPRESS)
     args = p.parse_args()
+    if args.offline_start or args.settings_audit:
+        p.error('DEC-045 requires a live tray-owned frontend; the former offline/headless-replacement audit is historical. Use tray_runtime_acceptance.py for host-loss/startup gates.')
     if args.desktop_launch and not (args.model_settings and args.settings_only and args.preset_minimax):
         p.error('--desktop-launch requires --model-settings --settings-only --preset-minimax')
     if args.desktop_launch and (args.offline_start or args.settings_audit or args.preset_selection_only):

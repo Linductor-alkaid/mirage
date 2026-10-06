@@ -5,7 +5,7 @@
 # The backend implements the desktop provider interfaces (adapter depends on
 # the desktop core interfaces, DEC-008); the product call direction stays
 # runtime -> desktop interfaces.
-add_library(mirage_platform STATIC)
+add_library(mirage_platform STATIC common/src/frontend_process.cpp)
 add_library(Mirage::platform ALIAS mirage_platform)
 
 target_include_directories(mirage_platform
@@ -21,6 +21,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/linux/include>
     )
     target_sources(mirage_platform PRIVATE
+        linux/src/frontend_activation.cpp
         linux/src/platform_linux.cpp
         linux/src/linux_desktop_environment.cpp
         linux/src/credential_store.cpp
@@ -102,6 +103,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/windows/include>
     )
     target_sources(mirage_platform PRIVATE
+        windows/src/frontend_activation.cpp
         windows/src/platform_windows.cpp
         windows/src/credential_store.cpp
         windows/src/windows_desktop_environment.cpp

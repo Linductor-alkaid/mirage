@@ -16,7 +16,16 @@ class AdoptedProcess:
 
     def poll(self):
         if self.returncode is None:
-            pid, status = os.waitpid(self.pid, os.WNOHANG)
+            try:
+                pid, status = os.waitpid(self.pid, os.WNOHANG)
+            except ChildProcessError:
+                # UI is the tray's child and is reaped by its product owner.
+                # -999 denotes observed disappearance, not an OS exit status.
+                try:
+                    state = Path(f'/proc/{self.pid}/stat').read_text().split(') ', 1)[1].split()[0]
+                    if state == 'Z': self.returncode = -999
+                except FileNotFoundError: self.returncode = -999
+                return self.returncode
             if pid:
                 self.returncode = os.waitstatus_to_exitcode(status)
         return self.returncode
@@ -36,37 +45,59 @@ class AdoptedProcess:
         os.kill(self.pid, signal.SIGKILL)
 
 
-def launch(build, env, children, output):
+def start_watcher(env, children, output):
+    watcher = output / 'sni-watcher.json'
+    children.append(subprocess.Popen(['/usr/bin/python3', str(Path(__file__).with_name('sni_fixture.py')),
+                                     '--record', str(watcher)], env=env,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+    deadline = time.monotonic() + 5
+    while not watcher.exists() and time.monotonic() < deadline: time.sleep(.05)
+    assert watcher.exists(), 'private watcher did not start'
+    return watcher
+
+
+def launch(build, env, children, output, legacy=False):
     # The launcher exits after detaching product faces. This external driver
     # adopts them so it can verify exit statuses and clean its private session.
     assert ctypes.CDLL(None).prctl(36, 1, 0, 0, 0) == 0, 'private test subreaper'
+    watcher = start_watcher(env, children, output)
     entry = build / 'apps/native/org.mirage.native.desktop'
+    expected_binary = build / 'apps/mirage'
+    if legacy:
+        # Reproduce GNOME's cached pre-tray Exec while keeping the real GIO
+        # desktop-launch environment; the native bootstrap must forward.
+        entry = output / 'org.mirage.native.desktop'
+        expected_binary = build / 'apps/native/mirage-native'
+        entry.write_text('[Desktop Entry]\nType=Application\nName=Mirage\nExec="' +
+                         str(expected_binary) + '"\nTerminal=false\n')
     script = '''import sys
 from gi.repository import Gio, GLib
 info = Gio.DesktopAppInfo.new_from_filename(sys.argv[1])
 assert info and GLib.shell_parse_argv(info.get_commandline())[1][0] == sys.argv[2], 'desktop entry bypasses product launcher'
 assert info.launch([], None), 'desktop launch failed'
 '''
-    started = subprocess.run(['/usr/bin/python3', '-c', script, str(entry), str(build / 'apps/mirage')],
+    started = subprocess.run(['/usr/bin/python3', '-c', script, str(entry), str(expected_binary)],
                              env=env, capture_output=True, text=True, timeout=25)
     (output / 'desktop-launch.log').write_text(started.stdout + started.stderr)
     assert started.returncode == 0, 'desktop entry launch failed'
-    service_match = re.search(r'service ready at .+ \(pid (\d+)\)', started.stdout)
+    tray_match = re.search(r'tray runtime ready at .+ \(pid (\d+)\)', started.stdout)
     ui_match = re.search(r'mirage-native running \(pid (\d+)\)', started.stdout)
-    tray_match = re.search(r'mirage-tray running \(pid (\d+)\)', started.stdout)
-    assert service_match and ui_match and tray_match, 'desktop startup did not report three processes'
-    service, ui, tray = [AdoptedProcess(int(m[1])) for m in (service_match, ui_match, tray_match)]
-    for child in (service, ui, tray):
+    assert tray_match and ui_match, 'desktop startup did not report tray and UI'
+    tray, ui = [AdoptedProcess(int(m[1])) for m in (tray_match, ui_match)]
+    for child in (tray, ui):
         fields = Path(f'/proc/{child.pid}/environ').read_bytes().split(b'\0')
         assert ('XDG_RUNTIME_DIR=' + env['XDG_RUNTIME_DIR']).encode() in fields, 'child escaped private session'
         children.append(child)
         assert child.poll() is None, 'desktop process exited during startup'
-    result = dict(scope='GIO launches generated desktop entry; no prestarted service; private XDG/DBus/Xvfb',
-                  service_started=True, native_started=True, tray_started=True,
-                  separate_processes=len({service.pid, ui.pid, tray.pid}) == 3)
+    parent = int(Path(f'/proc/{ui.pid}/stat').read_text().split(') ', 1)[1].split()[1])
+    assert parent == tray.pid, 'UI is not owned by tray'
+    assert len(json.loads(watcher.read_text())['items']) == 1
+    result = dict(scope='GIO launches generated desktop entry; private XDG/DBus/Xvfb; embedded Runtime',
+                  legacy_desktop_forwarded=legacy, tray_started=True, native_started=True, service_embedded=True,
+                  separate_processes=tray.pid != ui.pid, frontend_owned_by_tray=True)
     (output / 'desktop-results.json').write_text(json.dumps(result, indent=2) + '\n')
     endpoint = str(Path(env['XDG_RUNTIME_DIR']) / 'mirage/mirage-service.sock')
-    return service, ui, endpoint
+    return tray, ui, endpoint
 
 
 def adopt_remaining(build, env, children):
@@ -86,12 +117,12 @@ def adopt_remaining(build, env, children):
 
 
 def verify_reuse(build, env, service, endpoint, output):
-    started = subprocess.run([str(build / 'apps/mirage'), 'start', '--no-tray', '--no-shell'],
+    started = subprocess.run([str(build / 'apps/mirage'), 'start', '--no-shell'],
                              env=env, capture_output=True, text=True, timeout=15)
-    assert started.returncode == 0 and 'service already running' in started.stdout
+    assert started.returncode == 0 and 'tray runtime reused' in started.stdout
     assert service.poll() is None and Path(endpoint).exists()
     path = output / 'desktop-results.json'
     result = json.loads(path.read_text())
-    result['existing_service_reused'] = True
+    result['existing_tray_reused'] = True
     result['inference_requests'] = 0
     path.write_text(json.dumps(result, indent=2) + '\n')

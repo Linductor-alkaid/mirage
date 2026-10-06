@@ -11,14 +11,15 @@ enum class TrayAction {
     Pause,     ///< pause the tracked task (task.pause)
     Resume,    ///< resume the tracked task (task.resume)
     OpenShell, ///< 快速进入 Mirage: launch the desktop shell binary
-    Quit,      ///< quit the tray process
+    Quit,      ///< request whole-product exit (DEC-045)
 };
 
 /// One complete tray presentation state (M5-10, DEC-030): a full snapshot
 /// published latest-state-wins by the owning process. `status` is the
-/// one-line state (icon tooltip and the menu's header entry, e.g.
+/// one-line state (icon tooltip, e.g.
 /// "Mirage：空闲" / "运行中：clean the cache — Active" / "与 mirage-service
-/// 失联"); the booleans enable the corresponding menu entries. Clamped by
+/// 失联"); can_open_shell enables Open. Pause/Resume flags are retained for
+/// task-control compatibility and are not visible menu entries (DEC-045). Clamped by
 /// kMaxStatusBytes (RULE-07).
 struct TrayState {
     std::string status;
@@ -37,6 +38,9 @@ void clamp_tray_status(std::string &status);
 /// Inputs the carrier's run() loop consumes (DEC-030). Every callback is
 /// bounded, must not throw and must not re-enter the carrier.
 struct TrayCarrierContext {
+    /// Called once only after the platform accepted indicator registration.
+    std::function<void()> on_ready;
+    std::string icon_path = {}; // product artwork; empty retains platform default
     /// Loads the newest presentation state (pump thread; called once per
     /// iteration and after wakeup()). Cheap by contract — the owner keeps
     /// the latest state ready.
@@ -47,7 +51,8 @@ struct TrayCarrierContext {
 };
 
 /// Platform carrier of the tray indicator surface (M5-10, DEC-030): the
-/// notification-area icon with its menu, implemented by the platform
+/// notification-area icon; a left single click opens a two-action menu
+/// (OpenShell / Quit, DEC-045), implemented by the platform
 /// backends — Windows through the Shell_NotifyIcon carrier DEC-018 landed
 /// (M4-05), its productized menu extension; Linux through the session-bus
 /// StatusNotifierItem indicator. A session without the platform's indicator

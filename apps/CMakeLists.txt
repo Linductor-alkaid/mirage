@@ -16,26 +16,19 @@ target_link_libraries(mirage
         Mirage::update
 )
 
-# The background Runtime Service host (design doc section 12, DEC-007):
-# GUI, Tray and CLI talk to it exclusively over Local IPC.
-add_executable(mirage-service
-    service/main.cpp
-)
-
-target_compile_features(mirage-service PUBLIC cxx_std_20)
-target_compile_definitions(mirage-service PRIVATE MIRAGE_VERSION="${PROJECT_VERSION}")
+# Shared embedding keeps credentials/settings/platform bindings identical for
+# the headless developer service and the product's tray-owned Runtime.
+add_library(mirage_service_host STATIC service/host.cpp)
+target_compile_features(mirage_service_host PUBLIC cxx_std_20)
+target_compile_definitions(mirage_service_host PRIVATE MIRAGE_VERSION="${PROJECT_VERSION}")
+mirage_enable_warnings(mirage_service_host)
+target_link_libraries(mirage_service_host PRIVATE Mirage::runtime_service
+    Mirage::integration_mira Mirage::persistence Mirage::platform)
+add_executable(mirage-service service/main.cpp)
+target_link_libraries(mirage-service PRIVATE mirage_service_host)
 mirage_enable_warnings(mirage-service)
 
-target_link_libraries(mirage-service
-    PRIVATE
-        Mirage::runtime_service
-        Mirage::integration_mira
-        Mirage::persistence
-        Mirage::platform
-)
-
-# The tray process form (M5-10, DEC-030): runs on every platform; the
-# carrier inside degrades honestly where the platform has no indicator.
+# DEC-045: the product tray embeds Runtime; missing carriers refuse startup.
 add_subdirectory(tray)
 
 # Native UI, DEC-037: the sole product frontend.

@@ -20,7 +20,7 @@ add_subdirectory("${CMAKE_SOURCE_DIR}/third_party/eui-neo"
 # EUI-20261003-002: upstream dev 88a9ec1 supplies the no-exceptions platform fix.
 # Keep upstream library flags; the application retains exceptions for Executor.
 
-add_executable(mirage-native app.cpp chat_model.cpp window_controls.cpp runtime_bridge.cpp attachment.cpp)
+add_executable(mirage-native entry.cpp app.cpp chat_model.cpp window_controls.cpp runtime_bridge.cpp attachment.cpp)
 # Replace EUI's example executable icon with the imported Mira artwork.
 if(WIN32)
     set_property(GLOBAL PROPERTY EUI_NEO_APP_ICON_RESOURCE "")
@@ -31,6 +31,9 @@ if(WIN32)
     target_sources(mirage-native PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/mirage_icon.rc")
 endif()
 eui_neo_configure_app(mirage-native)
+get_property(mirage_eui_entry GLOBAL PROPERTY EUI_NEO_APP_MAIN_SOURCE)
+set_source_files_properties("${mirage_eui_entry}" TARGET_DIRECTORY mirage-native
+    PROPERTIES COMPILE_DEFINITIONS "main=mirage_eui_main")
 # DEC-040: keep the complete official font compressed in Git; extract offline.
 set(mirage_font_archive "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/noto-sans-sc-2.004.tar.xz")
 file(SHA256 "${mirage_font_archive}" mirage_font_archive_sha)
@@ -50,6 +53,9 @@ add_custom_target(mirage-native-assets
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/mira.png"
         "$<TARGET_FILE_DIR:mirage-native>/assets/mira.png"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/mira.ico"
+        "$<TARGET_FILE_DIR:mirage-native>/assets/mira.ico"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/mira-ui.png"
         "$<TARGET_FILE_DIR:mirage-native>/assets/mira-ui.png"
@@ -79,7 +85,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         COMMAND ${CMAKE_COMMAND}
             "-DMIRAGE_DESKTOP_ENTRY=$<TARGET_FILE_DIR:mirage-native>/org.mirage.native.desktop"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/register_desktop.cmake"
-        DEPENDS mirage mirage-service mirage-tray mirage-native
+        DEPENDS mirage mirage-tray mirage-native
         VERBATIM)
 endif()
 # Public upstream component headers contain their own implementation; don't

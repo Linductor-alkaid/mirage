@@ -22,6 +22,7 @@
 #include "service_core.hpp"
 #include "service_loop.hpp"
 #include "task_driver.hpp"
+#include "tray_presenter.hpp"
 
 #include <executor/blocking_io.hpp>
 #include <executor/comm.hpp>
@@ -358,6 +359,12 @@ struct RuntimeService::Impl {
     /// before this member is destroyed.
     std::unique_ptr<detail::OverlayPresenter> overlay;
     executor::WorkerHandle overlay_worker;
+    std::unique_ptr<detail::TrayPresenter> tray;
+    executor::WorkerHandle tray_worker, tray_actions_worker;
+    std::atomic_bool product_failed{false}, product_stopping{false};
+    executor::TimerHandle product_maintenance;
+    // Serialized context only: UI window activation and exit prompt epochs.
+    ipc::ProductState product;
     std::promise<void> loop_done;
     std::future<void> loop_done_future;
     std::atomic<Lifecycle> lifecycle{Lifecycle::New};
@@ -503,7 +510,146 @@ struct RuntimeService::Impl {
         result.chat = core->model_available.load();
         // M5-07: the policy face is core equipment — always served.
         result.policy = true;
+        if (tray)
+            result.tray = tray->ready();
         return result;
+    }
+
+    std::size_t active_product_work() {
+        std::size_t active = 0;
+        {
+            std::lock_guard lock(core->registry.mutex);
+            for (const auto &[id, record] : core->registry.tasks) {
+                (void)id;
+                if (!record.driver_done && record.final_progress.empty())
+                    ++active;
+            }
+        }
+        {
+            std::lock_guard lock(core->dialogs.mutex);
+            for (const auto &[id, dialog] : core->dialogs.sessions) {
+                (void)id;
+                if (!dialog.in_flight_turn_id.empty())
+                    ++active;
+            }
+        }
+        {
+            std::lock_guard lock(core->workflow_runs.mutex);
+            for (const auto &[id, record] : core->workflow_runs.runs) {
+                (void)record;
+                const auto view = core->host.workflow_run_view(id);
+                if (!view.ok || (view.view.state != "completed" && view.view.state != "failed" &&
+                                 view.view.state != "cancelled"))
+                    ++active;
+            }
+        }
+        return active;
+    }
+    ipc::ProductState product_snapshot() {
+        auto result = product;
+        result.frontend_pid = config.frontend ? config.frontend->pid() : 0;
+        if (result.frontend_pid == 0)
+            product.frontend_ready = false;
+        result.frontend_ready = product.frontend_ready;
+        result.active_work = active_product_work();
+        return result;
+    }
+    bool product_open(std::string &diagnostic) {
+        if (!tray || !tray->ready() || !config.frontend) {
+            diagnostic = "tray runtime is not ready";
+            return false;
+        }
+        if (!config.frontend->pid())
+            product.frontend_ready = false;
+        if (!config.frontend->open(socket_path, diagnostic))
+            return false;
+        ++product.window_epoch;
+        publish_host_status(core->host.status()); // wake subscribers; snapshot holds state
+        return true;
+    }
+    bool product_action(const ipc::ProductControlRequest &request, std::string &diagnostic) {
+        if (!tray || !tray->ready()) {
+            diagnostic = "product actions require a registered tray runtime";
+            return false;
+        }
+        if (request.action == "frontend_ready") {
+            if (!config.frontend || config.frontend->pid() != request.frontend_pid) {
+                diagnostic = "frontend is not owned by this tray";
+                return false;
+            }
+            product.frontend_ready = true;
+        }
+        if (request.action == "open")
+            return product_open(diagnostic);
+        if (request.action == "quit") {
+            if (active_product_work() == 0) {
+                request_loop_stop();
+                return true;
+            }
+            if (!product.exit_pending)
+                ++product.exit_epoch;
+            product.exit_pending = true;
+            return product_open(diagnostic); // also reopens a closed UI for confirmation
+        }
+        if (request.action == "confirm_quit" || request.action == "cancel_quit") {
+            if (!product.exit_pending || request.exit_epoch != product.exit_epoch) {
+                diagnostic = "exit confirmation is stale";
+                return false;
+            }
+            product.exit_pending = false;
+            if (request.action == "confirm_quit")
+                request_loop_stop();
+            else
+                publish_host_status(core->host.status());
+        }
+        return true;
+    }
+    HostOutcome command_pause_resume(const std::string &task_id, bool pause) {
+        {
+            std::lock_guard lock(core->registry.mutex);
+            const auto found = core->registry.tasks.find(task_id);
+            if (found == core->registry.tasks.end())
+                return {false, {"not_found", "unknown task id"}};
+            if (found->second.from_recovery)
+                return {false,
+                        {"invalid_state",
+                         "task belongs to a previous service run and is already settled"}};
+        }
+        if (!pause) {
+            const auto view = core->host.task_view(TaskIdentity{task_id});
+            if (view.ok && view.view.progress != TaskProgress::Paused &&
+                !terminal_progress(view.view.progress))
+                return {false, {"invalid_state", "task is not paused"}};
+        }
+        return pause ? core->host.pause_task(TaskIdentity{task_id})
+                     : core->host.resume_task(TaskIdentity{task_id});
+    }
+
+    void handle_tray_action(detail::TrayPresenter::Action action) {
+        // ActionWorker, never SDK callback: bounded admission, consumed future.
+        auto future = core->executor.submit_on(core->serial, [this, action = std::move(action)] {
+            std::string diagnostic;
+            if (action.kind == desktop::TrayAction::OpenShell ||
+                action.kind == desktop::TrayAction::Quit) {
+                if (!product_action({action.kind == desktop::TrayAction::Quit ? "quit" : "open", 0},
+                                    diagnostic))
+                    std::cerr << "mirage-tray: " << diagnostic << '\n';
+            } else if (!action.task_id.empty()) {
+                const auto result =
+                    command_pause_resume(action.task_id, action.kind == desktop::TrayAction::Pause);
+                if (!result.ok)
+                    std::cerr << "mirage-tray: " << result.error.message << '\n';
+                else
+                    detail::publish_task_updated(core, action.task_id);
+            }
+        });
+        try {
+            future.get();
+        } catch (const std::exception &error) {
+            std::cerr << "mirage-tray: action failed: " << error.what() << '\n';
+            product_failed.store(true);
+            request_loop_stop();
+        }
     }
 
     // --- response helpers (loop thread via posted payloads) ---------------
@@ -606,6 +752,14 @@ struct RuntimeService::Impl {
         if (auto *request = std::get_if<ipc::HelloRequest>(&decoded.body)) {
             (void)request;
             respond(connection_id, correlation_id, identity());
+            return;
+        }
+        if (auto *request = std::get_if<ipc::ProductControlRequest>(&decoded.body)) {
+            std::string diagnostic;
+            if (!product_action(*request, diagnostic))
+                fail(connection_id, correlation_id, "invalid_state", diagnostic);
+            else
+                respond(connection_id, correlation_id, product_snapshot());
             return;
         }
         if (auto *request = std::get_if<ipc::SubmitTaskRequest>(&decoded.body)) {
@@ -1052,42 +1206,8 @@ struct RuntimeService::Impl {
     /// next operation boundary.
     void handle_pause_resume(std::uint64_t connection_id, std::uint64_t correlation_id,
                              std::string task_id, bool pause) {
-        bool known = false;
-        bool from_recovery = false;
-        {
-            std::lock_guard lock(core->registry.mutex);
-            auto entry = core->registry.tasks.find(task_id);
-            known = entry != core->registry.tasks.end();
-            from_recovery = known && entry->second.from_recovery;
-        }
-        if (!known) {
-            fail(connection_id, correlation_id, "not_found", "unknown task id");
-            return;
-        }
-        if (from_recovery) {
-            fail(connection_id, correlation_id, "invalid_state",
-                 "task belongs to a previous service run and is already "
-                 "settled");
-            return;
-        }
-        // Product-side state gate for resume (verification round 1,
-        // defect 5): the pinned control plane admits Idle→Observing, so a
-        // resume of a merely-running (never paused) task would be accepted
-        // with an epoch bump — refused here instead, making the wire
-        // contract's "resume of a non-paused task surfaces invalid_state"
-        // true at the product boundary. Terminal-era tasks fall through to
-        // the pinned judgement (their rejection is the verbatim
-        // pinned_runtime passthrough), and pause stays pinned-judged.
-        if (!pause) {
-            const TaskViewResult pre = core->host.task_view(TaskIdentity{task_id});
-            if (pre.ok && pre.view.progress != TaskProgress::Paused &&
-                !terminal_progress(pre.view.progress)) {
-                fail(connection_id, correlation_id, "invalid_state", "task is not paused");
-                return;
-            }
-        }
-        const HostOutcome commanded = pause ? core->host.pause_task(TaskIdentity{task_id})
-                                            : core->host.resume_task(TaskIdentity{task_id});
+        // Shared with the tray: recovery/unknown/state guards cannot diverge.
+        const HostOutcome commanded = command_pause_resume(task_id, pause);
         if (!commanded.ok) {
             fail(connection_id, correlation_id, commanded.error.code, commanded.error.message);
             return;
@@ -2586,6 +2706,16 @@ struct RuntimeService::Impl {
     }
 
     void teardown() {
+        product_stopping.store(true);
+        if (product_maintenance.valid())
+            (void)product_maintenance.cancel();
+        // Product producers stop first; no action worker may submit during drain.
+        if (tray_actions_worker.started())
+            tray_actions_worker.stop();
+        if (tray_worker.started())
+            tray_worker.stop();
+        tray_actions_worker = executor::WorkerHandle{};
+        tray_worker = executor::WorkerHandle{};
         // Ordered shutdown (AGENTS.md rule 7): producers are already stopped
         // (loop exited, listener closed by run()). Recover the blocking
         // worker, cancel drivers and tasks, drain the executor, then release
@@ -2656,6 +2786,24 @@ struct RuntimeService::Impl {
                 // rejections here; the drain below settles the rest.
             }
         }
+        bool frontend_clean = true;
+        if (config.frontend) {
+            // Loop has closed all UI connections. Child normally exits itself;
+            // the platform fallback and OS-handle reaping are bounded.
+            auto stopped = core->executor.submit_on(core->serial, [this] {
+                std::string diagnostic;
+                const bool clean = config.frontend->stop(diagnostic);
+                if (!clean)
+                    std::cerr << "mirage-tray: " << diagnostic << '\n';
+                return clean;
+            });
+            try {
+                frontend_clean = stopped.get();
+            } catch (const std::exception &error) {
+                frontend_clean = false;
+                std::cerr << "mirage-tray: frontend shutdown failed: " << error.what() << '\n';
+            }
+        }
         // The workflow surface converges before its Executor (DEC-023 pinned
         // order: WorkflowRuntime shutdown -> MiraRuntime stop -> Executor
         // shutdown): cancel active runs and drain their drives while the
@@ -2694,11 +2842,14 @@ struct RuntimeService::Impl {
         publish_host_status(host_shutdown.ok && host_shutdown.report.clean ? HostStatus::Stopped
                                                                            : HostStatus::Failed);
         core->serial.shutdown();
-        run_report.clean = host_shutdown.ok && host_shutdown.report.clean;
+        run_report.clean = host_shutdown.ok && host_shutdown.report.clean && frontend_clean &&
+                           !product_failed.load();
         if (!run_report.clean) {
             run_report.diagnostic =
                 host_shutdown.ok ? host_shutdown.report.diagnostic : host_shutdown.error.message;
         }
+        if (!frontend_clean || product_failed.load())
+            run_report.diagnostic = "product carrier/action/frontend teardown failed";
         run_report.host_shutdown = host_shutdown.report;
         lifecycle.store(Lifecycle::Terminal, std::memory_order_release);
     }
@@ -2994,6 +3145,15 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         impl_->core->sessions.created_at_ms.emplace(primary.id, wall_now_ms());
     }
 
+    if (impl_->config.tray_carrier) {
+        impl_->tray = std::make_unique<detail::TrayPresenter>(
+            impl_->config.tray_carrier, impl_->core->events.subscribe(128),
+            [raw = impl_.get()] {
+                raw->product_failed.store(true);
+                raw->request_loop_stop();
+            },
+            impl_->config.tray_icon_path);
+    }
     std::string diagnostic;
     impl_->listener = ipc::IpcListener::bind(impl_->socket_path, diagnostic);
     if (!impl_->listener.valid()) {
@@ -3058,6 +3218,76 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         }
     }
     impl_->lifecycle.store(Impl::Lifecycle::Running, std::memory_order_release);
+    if (impl_->tray) {
+        // Registration readiness != worker admission. Gate belongs to Executor.
+        executor::BlockingWorkerSpec pump;
+        pump.name = "mirage-tray-carrier";
+        pump.config.thread_name = "mirage-tray-carrier";
+        struct Pump final : executor::IBlockingIoWorker {
+            detail::TrayPresenter *tray;
+            explicit Pump(detail::TrayPresenter *value) : tray(value) {}
+            void run(executor::StopToken stop) override { tray->run(stop); }
+            void wakeup() noexcept override { tray->wakeup(); }
+        };
+        pump.worker = std::make_unique<Pump>(impl_->tray.get());
+        impl_->tray_worker = impl_->core->executor.start_worker(std::move(pump));
+        executor::BlockingWorkerSpec actions;
+        actions.name = "mirage-tray-actions";
+        actions.config.thread_name = "mirage-tray-actions";
+        actions.worker = std::make_unique<detail::TrayPresenter::ActionWorker>(
+            *impl_->tray,
+            [raw = impl_.get()](auto action) { raw->handle_tray_action(std::move(action)); });
+        impl_->tray_actions_worker = impl_->core->executor.start_worker(std::move(actions));
+        impl_->product_maintenance =
+            impl_->core->executor.submit_periodic_with_handle(500, [raw = impl_.get()] {
+                if (raw->product_stopping.load())
+                    return;
+                try {
+                    auto reaped = raw->core->executor.submit_on(raw->core->serial, [raw] {
+                        if (raw->product_stopping.load() || !raw->config.frontend)
+                            return;
+                        raw->tray->set_active_work(raw->active_product_work());
+                        if (!raw->config.frontend->pid() && raw->product.frontend_ready) {
+                            raw->product.frontend_ready = false;
+                            raw->publish_host_status(raw->core->host.status());
+                        }
+                    });
+                    reaped.get();
+                } catch (...) {
+                    raw->product_failed.store(true);
+                    raw->request_loop_stop();
+                    throw; // Executor periodic failure is the fact source
+                }
+            });
+        std::string failure;
+        if (!impl_->product_maintenance.valid())
+            failure = "frontend monitor timer admission failed";
+        else if (!impl_->tray_worker.started() || !impl_->tray_actions_worker.started())
+            failure = "tray worker admission failed";
+        else if (!impl_->tray->wait_ready() || !impl_->tray->ready())
+            failure = "tray indicator registration failed or timed out";
+        else if (impl_->config.open_frontend) {
+            auto opened = impl_->core->executor.submit_on(impl_->core->serial, [raw = impl_.get()] {
+                std::string open_diagnostic;
+                if (!raw->product_open(open_diagnostic))
+                    return open_diagnostic;
+                return std::string{};
+            });
+            try {
+                failure = opened.get();
+            } catch (const std::exception &error) {
+                failure = error.what();
+            }
+        }
+        if (!failure.empty()) {
+            impl_->request_loop_stop();
+            impl_->loop_done_future.get();
+            impl_->listener.close();
+            impl_->teardown();
+            outcome.error = {"unavailable", failure};
+            return outcome;
+        }
+    }
     outcome.ok = true;
     return outcome;
 }
