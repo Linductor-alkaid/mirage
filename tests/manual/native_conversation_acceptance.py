@@ -121,8 +121,14 @@ def session(args):
         endpoint = str(Path(os.environ['XDG_RUNTIME_DIR']) / 'mirage.sock')
         service_log = open(output / 'service.log', 'w')
         service_command = [str(args.build / 'apps/mirage-service'), '--socket', endpoint, '--config', str(config_path), '--state-dir', os.environ['XDG_STATE_HOME'], '--no-recovery']
-        service = subprocess.Popen(service_command, env=env, stdout=service_log, stderr=service_log)
-        children.append(service)
+        if args.desktop_launch:
+            from native_desktop_launch import launch
+            env.pop('MIRAGE_NATIVE_SOCKET', None)
+            env.pop('MIRAGE_TRAY_SOCKET', None)
+            service, app, endpoint = launch(args.build, env, children, output)
+        else:
+            service = subprocess.Popen(service_command, env=env, stdout=service_log, stderr=service_log)
+            children.append(service)
         deadline = time.monotonic() + 10
         while not Path(endpoint).exists() and time.monotonic() < deadline:
             time.sleep(0.1)
@@ -133,8 +139,9 @@ def session(args):
         ui_endpoint = endpoint + '.offline' if args.offline_start else endpoint
         env['MIRAGE_NATIVE_SOCKET'] = ui_endpoint
         app_log = open(output / 'native.log', 'w')
-        app = subprocess.Popen([str(args.build / 'apps/native/mirage-native')], env=env, stdout=app_log, stderr=app_log)
-        children.append(app)
+        if not args.desktop_launch:
+            app = subprocess.Popen([str(args.build / 'apps/native/mirage-native')], env=env, stdout=app_log, stderr=app_log)
+            children.append(app)
         deadline = time.monotonic() + 10
         w = None
         while time.monotonic() < deadline and app.poll() is None:
@@ -348,6 +355,9 @@ def session(args):
                                secret_not_in_settings=True, network_requests=0)
                 (output / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
                 print(json.dumps(results), flush=True)
+                if args.desktop_launch:
+                    from native_desktop_launch import verify_reuse
+                    verify_reuse(args.build, env, service, endpoint, output)
                 click(1150, 30)
                 app.wait(timeout=8)
                 assert app.returncode == 0
@@ -471,6 +481,9 @@ def session(args):
         (output / 'results.json').write_text(json.dumps(results, ensure_ascii=False, indent=2) + '\n')
         print(json.dumps(results, ensure_ascii=False), flush=True)
     finally:
+        if args.desktop_launch:
+            from native_desktop_launch import adopt_remaining
+            adopt_remaining(args.build, os.environ, children)
         if wire:
             wire.sock.close()
         stop(children)
@@ -478,6 +491,7 @@ def session(args):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--build', type=Path, required=True)
+    p.add_argument('--desktop-launch', action='store_true', help='Launch generated desktop entry; verify service bootstrap and key save')
     p.add_argument('--provider', type=Path, required=True)
     p.add_argument('--preset-selection-only', action='store_true', help='Exercise preset click/dirty navigation without saving or inference')
     p.add_argument('--offline-start', action='store_true', help='With preset-selection-only, launch UI before its Service socket exists')
@@ -491,6 +505,10 @@ def main():
     p.add_argument('--xvfb', default='Xvfb')
     p.add_argument('--session', action='store_true', help=argparse.SUPPRESS)
     args = p.parse_args()
+    if args.desktop_launch and not (args.model_settings and args.settings_only and args.preset_minimax):
+        p.error('--desktop-launch requires --model-settings --settings-only --preset-minimax')
+    if args.desktop_launch and (args.offline_start or args.settings_audit or args.preset_selection_only):
+        p.error('--desktop-launch is a separate settings-only run')
     if (args.settings_only or args.settings_audit or args.preset_selection_only) and not args.model_settings:
         p.error('settings-only/audit/preset-selection-only require --model-settings')
     if args.settings_audit and not args.preset_minimax:
@@ -532,6 +550,7 @@ def main():
                  '--output', str(args.output), '--session',
                  *(['--no-captures'] if args.no_captures else []),
                  *(['--model-settings'] if args.model_settings else []),
+                 *(['--desktop-launch'] if args.desktop_launch else []),
                  *(['--preset-minimax'] if args.preset_minimax else []),
                  *(['--settings-only'] if args.settings_only else []),
                  *(['--settings-audit'] if args.settings_audit else []),

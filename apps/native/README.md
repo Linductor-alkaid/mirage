@@ -69,7 +69,7 @@ cmake --build --preset native-release --target mirage-native-register-desktop
 ```
 
 目标写入 `$XDG_DATA_HOME/applications/org.mirage.native.desktop`（未设置时为
-`~/.local/share/applications/`），引用当前构建的可执行文件和 PNG。普通构建不会修改
+`~/.local/share/applications/`），引用当前构建的 `mirage start` 启动器、独立前端/托盘路径和 PNG。普通构建不会修改
 用户桌面配置。重新打开应用后生效，应用列表也可通过 Mirage 启动；清理构建树或更换
 路径后需重新注册。此开发入口不等于 M6-04 的安装包/托盘入口。
 

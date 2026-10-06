@@ -79,7 +79,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         COMMAND ${CMAKE_COMMAND}
             "-DMIRAGE_DESKTOP_ENTRY=$<TARGET_FILE_DIR:mirage-native>/org.mirage.native.desktop"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/register_desktop.cmake"
-        DEPENDS mirage-native
+        DEPENDS mirage mirage-service mirage-tray mirage-native
         VERBATIM)
 endif()
 # Public upstream component headers contain their own implementation; don't

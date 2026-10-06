@@ -56,7 +56,8 @@ provenance.json。临时兼容边界与移除条件见 EUI-20261004-003，未修
 Linux Dock 的图标身份由 org.mirage.native.desktop 关联，StartupWMClass 与 EUI
 appId/WM_CLASS 均为 org.mirage.native，Icon 引用构建目录的原 PNG。用户级开发
 注册通过显式 CMake 目标完成，遵循 XDG_DATA_HOME，不在普通构建中写用户配置；
-随构建路径变化需重新注册，不替代后续正式安装包入口。
+随构建路径变化需重新注册，不替代后续正式安装包入口。开发条目经 `mirage start`
+先确保Service就绪再启动独立Tray/UI，避免绕过服务导致模型保存一直禁用（BUG-20261006-005）。
 
 ## 可调侧栏与设置（2026-10-04）
 
