@@ -71,7 +71,7 @@ struct ServiceConfig {
     /// Session registry capacity (DEC-021): session.open fails closed with
     /// the stable `unavailable` error at the bound instead of growing
     /// without bound. The primary session counts against it.
-    std::size_t max_sessions = 16;
+    std::size_t max_sessions = 25;
     /// Upper bound for one session.history response; larger requested limits
     /// are clamped to it.
     std::size_t max_history_entries = 200;

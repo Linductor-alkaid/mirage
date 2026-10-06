@@ -304,7 +304,9 @@ bool persist_session_state(const std::shared_ptr<ServiceCore> &core,
                     session.chat_turns.push_back(std::move(turn));
                 }
             }
-            state.sessions.push_back(std::move(session));
+            // DEC-046: empty runtime equipment is not conversation history.
+            if (!session.journal.empty() || !session.chat_turns.empty())
+                state.sessions.push_back(std::move(session));
         }
     }
     const auto saved = core->session_state_store->save(persistence::encode_session_state(state));
@@ -1344,8 +1346,8 @@ struct RuntimeService::Impl {
             std::lock_guard lock(core->sessions.mutex);
             if (core->sessions.full()) {
                 fail(connection_id, correlation_id, "unavailable",
-                     "session capacity exhausted (" + std::to_string(core->sessions.capacity) +
-                         ")");
+                     "会话名额已满（" + std::to_string(core->sessions.capacity - 1) +
+                         "）。请删除不再需要的历史会话后重试，输入草稿已保留。");
                 return;
             }
         }
@@ -1440,7 +1442,6 @@ struct RuntimeService::Impl {
         }
         core->hydrated_sessions.erase(session_id);
         core->harness_sessions.erase(session_id);
-        detail::persist_session_state(core);
         detail::persist_session_state(core);
         // The dialog thread dies with the session (DEC-027): the log entry is
         // removed (freeing the dialog registry slot for reuse) and any
@@ -3025,12 +3026,33 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                           << (session_directory / "session-state.json").string()
                           << "' is invalid: " << decoded.error << "\n";
             } else {
+                const auto history_count = static_cast<std::size_t>(std::count_if(
+                    decoded.state.sessions.begin(), decoded.state.sessions.end(),
+                    [](const auto &session) {
+                        return !session.journal.empty() || !session.chat_turns.empty();
+                    }));
+                if (history_count >= impl_->core->sessions.capacity) {
+                    outcome.error = {"unavailable",
+                                     "saved conversation history exceeds configured session "
+                                     "capacity; increase the configured limit before restarting"};
+                    if (impl_->core->model_layer)
+                        impl_->core->model_layer->shutdown();
+                    impl_->core->executor.shutdown(true);
+                    impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
+                    return outcome; // Never partially restore and overwrite nonempty history.
+                }
+                std::size_t restored_count = 0;
                 for (const auto &session : decoded.state.sessions) {
-                    const auto admitted = impl_->core->sessions.full() == false;
+                    if (session.journal.empty() && session.chat_turns.empty())
+                        continue;
+                    // Reserve the primary equipment slot before restoring histories.
+                    const auto admitted = impl_->core->sessions.created_at_ms.size() + 1 <
+                                          impl_->core->sessions.capacity;
                     if (!admitted) {
                         break;
                     }
                     impl_->core->sessions.created_at_ms.emplace(session.id, session.created_at_ms);
+                    ++restored_count;
                     // The pinned counterpart is gone with the previous era:
                     // history is product state. Native session.chat lazily
                     // reopens a pinned harness target (DEC-039); desktop
@@ -3066,7 +3088,7 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                     }
                 }
                 if (!decoded.state.sessions.empty()) {
-                    std::cerr << "mirage-service: hydrated " << decoded.state.sessions.size()
+                    std::cerr << "mirage-service: hydrated " << restored_count
                               << " session(s) from "
                               << (session_directory / "session-state.json").string() << '\n';
                 }

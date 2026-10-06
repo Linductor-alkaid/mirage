@@ -844,6 +844,19 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "关闭路径", true}, 2s).ok);
     service.request_shutdown();
     MIRAGE_CHECK(service.run().clean);
+    // DEC-046 regression: old releases persisted empty primary sessions at every restart.
+    persistence::LocalStateStore recovered_disk(config.session_state_directory,
+                                                "session-state.json",
+                                                persistence::kMaxSettingsFileBytes * 8);
+    auto ghost_recovery = persistence::decode_session_state(recovered_disk.load().body);
+    MIRAGE_CHECK(ghost_recovery.ok);
+    for (int i = 0; i < 16; ++i) {
+        persistence::PersistedSession ghost;
+        ghost.id = mira::SessionId::generate().to_string();
+        ghost.created_at_ms = i + 1;
+        ghost_recovery.state.sessions.push_back(std::move(ghost));
+    }
+    MIRAGE_CHECK(recovered_disk.save(persistence::encode_session_state(ghost_recovery.state)).ok);
     {
         mirage::runtime::RuntimeService restarted(config);
         MIRAGE_CHECK(restarted.start(binding).ok);
@@ -852,6 +865,22 @@ int main(int argc, char **argv) {
         const auto &restored_sessions = std::get<ipc::SessionList>(restored_list.payload).sessions;
         MIRAGE_CHECK(std::none_of(restored_sessions.begin(), restored_sessions.end(),
                                   [&](const auto &item) { return item.id == disposable; }));
+        MIRAGE_CHECK(std::none_of(
+            restored_sessions.begin(), restored_sessions.end(), [&](const auto &entry) {
+                return std::any_of(ghost_recovery.state.sessions.begin(),
+                                   ghost_recovery.state.sessions.end(), [&](const auto &old) {
+                                       return old.id == entry.id && old.journal.empty() &&
+                                              old.chat_turns.empty();
+                                   });
+            }));
+        const auto fresh = restored_client.call(ipc::OpenSessionRequest{}, 2s);
+        MIRAGE_CHECK(fresh.ok);
+        MIRAGE_CHECK(restored_client
+                         .call(
+                             ipc::DeleteSessionRequest{
+                                 std::get<ipc::SessionOpened>(fresh.payload).session_id},
+                             2s)
+                         .ok);
         const auto restored_history =
             restored_client.call(ipc::ChatHistoryRequest{session, 40}, 2s);
         const auto &restored_turns = std::get<ipc::DialogHistory>(restored_history.payload).turns;
@@ -885,6 +914,22 @@ int main(int argc, char **argv) {
         MIRAGE_CHECK(!restored_client.call(ipc::ChatHistoryRequest{session, 40}, 2s).ok);
         restarted.request_shutdown();
         MIRAGE_CHECK(restarted.run().clean);
+    }
+    for (int restart = 0; restart < 3; ++restart) {
+        const auto before = persistence::decode_session_state(recovered_disk.load().body);
+        MIRAGE_CHECK(before.ok);
+        mirage::runtime::RuntimeService restarted(config);
+        MIRAGE_CHECK(restarted.start(binding).ok);
+        ipc::IpcClient restored_client(config.socket_path);
+        const auto list = restored_client.call(ipc::ListSessionsRequest{}, 2s);
+        MIRAGE_CHECK(list.ok && std::get<ipc::SessionList>(list.payload).sessions.size() ==
+                                    before.state.sessions.size() + 1);
+        const auto reopened_draft = restored_client.call(ipc::OpenSessionRequest{}, 2s);
+        MIRAGE_CHECK(reopened_draft.ok);
+        restarted.request_shutdown();
+        MIRAGE_CHECK(restarted.run().clean);
+        const auto after = persistence::decode_session_state(recovered_disk.load().body);
+        MIRAGE_CHECK(after.ok && after.state.sessions.size() == before.state.sessions.size());
     }
     mirage::native_ui::RuntimeBridge unavailable([] {}, (dir.root() / "absent.sock").string());
     deadline = std::chrono::steady_clock::now() + 2s;
