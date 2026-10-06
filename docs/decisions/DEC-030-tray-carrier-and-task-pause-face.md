@@ -141,3 +141,9 @@
   [DEC-024](DEC-024-desktop-atom-toolset.md) / DEC-029（缝与承载先例形态）。
 - 工作项：[M5 计划](../plans/m5-desktop-product.md) `M5-10`（本记录即"Linux
   状态指示器机制随实现定案并记录"义务的兑现）。
+
+## 2026-10-06 产品进程所有权修订
+
+[DEC-045](DEC-045-tray-runtime-owner.md) 替代本决策中产品托盘作为独立 Service
+客户端的部分：托盘内嵌 RuntimeService，复用其唯一 Executor，并持有独立前端
+子进程。本文其他 API/平台/任务语义及历史验收保留；新拓扑以 M6-25 证据为准。

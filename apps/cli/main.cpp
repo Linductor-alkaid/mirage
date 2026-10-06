@@ -478,7 +478,8 @@ std::optional<std::string> sibling_binary(const std::string &name) {
 /// launcher and must not hold its stdio (the same pipe-EOF discipline as the
 /// service daemon, BUG-20260916-001). Returns the child pid, or nullopt when
 /// the spawn itself failed.
-std::optional<long> spawn_detached_face(const std::string &binary, const std::string &socket_path) {
+std::optional<long> spawn_product_tray(const std::string &binary, const std::string &socket_path,
+                                       const std::string &shell, bool open_frontend) {
 #ifdef _WIN32
     auto quote = [](const std::string &value) {
         std::string result = "\"";
@@ -498,6 +499,10 @@ std::optional<long> spawn_detached_face(const std::string &binary, const std::st
         return result + "\"";
     };
     std::string command = quote(binary);
+    if (!shell.empty())
+        command += " --shell " + quote(shell);
+    if (!open_frontend)
+        command += " --no-shell";
     if (!socket_path.empty())
         command += " --socket " + quote(socket_path);
     STARTUPINFOA startup{};
@@ -537,11 +542,12 @@ std::optional<long> spawn_detached_face(const std::string &binary, const std::st
         }
         if (!socket_path.empty() && ::setenv("MIRAGE_NATIVE_SOCKET", socket_path.c_str(), 1) != 0)
             ::_exit(127);
-        if (socket_path.empty())
-            ::execl(binary.c_str(), binary.c_str(), static_cast<char *>(nullptr));
+        if (open_frontend)
+            ::execl(binary.c_str(), binary.c_str(), "--socket", socket_path.c_str(), "--shell",
+                    shell.c_str(), static_cast<char *>(nullptr));
         else
-            ::execl(binary.c_str(), binary.c_str(), "--socket", socket_path.c_str(),
-                    static_cast<char *>(nullptr));
+            ::execl(binary.c_str(), binary.c_str(), "--socket", socket_path.c_str(), "--shell",
+                    shell.c_str(), "--no-shell", static_cast<char *>(nullptr));
         ::_exit(127);
     }
     return static_cast<long>(child);
@@ -567,11 +573,8 @@ bool spawned_face_alive(long pid) {
 #endif
 }
 
-/// `mirage start`: the one-command product boot. Ensures the runtime service
-/// is up (idempotent — a live endpoint is reused, not respawned), then
-/// launches the tray and native UI as separate processes.
-/// Runtime workers belong to their service/UI owners; this synchronous
-/// command only bootstraps and exits. Whole-product exit is tracked in M6-04.
+/// DEC-045: bootstrap/reuse the tray-owned Runtime; the tray owns its UI child.
+/// This finite launcher waits for registration plus frontend readiness and exits.
 int command_start(int argc, char **argv) {
     GlobalOptions options;
     std::chrono::milliseconds wait{10000};
@@ -614,91 +617,122 @@ int command_start(int argc, char **argv) {
         return kExitUsage;
     }
 
-    // 1) Service: reuse a live endpoint, otherwise bootstrap the daemon via
-    // the proven `service start` path (spawn + readiness probe).
-    {
+    if (wait <= std::chrono::milliseconds{0}) {
+        std::cerr << "mirage: --wait must be positive\n";
+        return kExitUsage;
+    }
+    if (!with_tray) {
+        if (with_shell) {
+            std::cerr << "mirage: frontend requires the tray; --no-tray only supports --no-shell\n";
+            return kExitUsage;
+        }
+        // Explicit developer/headless mode. It never opens the product UI.
         auto probe = client_for(options);
-        const auto hello =
-            probe.call(mirage::runtime::ipc::HelloRequest{}, std::chrono::milliseconds{1000});
-        if (hello.ok) {
-            const std::string socket = options.socket_path.empty()
-                                           ? mirage::runtime::ipc::default_socket_path()
-                                           : options.socket_path;
-            std::cout << "service already running at " << socket << '\n';
-        } else {
-            std::vector<char *> service_argv{const_cast<char *>("mirage"),
-                                             const_cast<char *>("service"),
-                                             const_cast<char *>("start")};
-            std::string wait_arg;
-            if (!options.socket_path.empty()) {
-                service_argv.push_back(const_cast<char *>("--socket"));
-                service_argv.push_back(options.socket_path.data());
-            }
-            service_argv.push_back(const_cast<char *>("--wait"));
-            wait_arg =
-                std::to_string(std::chrono::duration_cast<std::chrono::seconds>(wait).count());
-            service_argv.push_back(wait_arg.data());
-            service_argv.push_back(nullptr);
-            const int code = command_service_start(static_cast<int>(service_argv.size() - 1),
-                                                   service_argv.data());
-            if (code != kExitOk) {
-                return code;
-            }
+        if (probe.call(mirage::runtime::ipc::HelloRequest{}, std::chrono::milliseconds{500}).ok)
+            return kExitOk;
+        std::vector<std::string> values{
+            "mirage", "service", "start", "--wait",
+            std::to_string(std::chrono::duration_cast<std::chrono::seconds>(wait).count())};
+        if (!options.socket_path.empty()) {
+            values.push_back("--socket");
+            values.push_back(options.socket_path);
         }
+        std::vector<char *> arguments;
+        for (auto &value : values)
+            arguments.push_back(value.data());
+        return command_service_start(static_cast<int>(arguments.size()), arguments.data());
     }
-
-    // 2) Product faces: detached spawns with a best-effort liveness check. A
-    // face that dies immediately is a hard error — the command asked for a
-    // working desktop, not a silent flash.
-    struct Face {
-        const char *name;
-        bool enabled;
-        const std::string &override_path;
-    };
-    const Face faces[] = {
-        {"mirage-tray", with_tray, tray_binary},
-        {"mirage-native", with_shell, shell_binary},
-    };
-    std::vector<std::pair<std::string, long>> spawned;
-    for (const Face &face : faces) {
-        if (!face.enabled) {
-            continue;
-        }
-        std::optional<std::string> binary;
-        if (!face.override_path.empty()) {
-            // An explicit override is validated too: a typo'd path must fail
-            // the command, not flash a silent exec-127.
-            if (!std::filesystem::exists(face.override_path)) {
-                std::cerr << kProgramName << ": " << face.override_path << " does not exist\n";
-                return kExitFailure;
-            }
-            binary = face.override_path;
-        } else {
-            binary = sibling_binary(face.name);
-        }
-        if (!binary) {
-            std::cerr << kProgramName << ": " << face.name
-                      << " not found next to the mirage binary (was it packaged?)\n";
+    if (options.socket_path.empty())
+        options.socket_path = mirage::runtime::ipc::default_socket_path();
+    auto probe = client_for(options);
+    auto hello = probe.call(mirage::runtime::ipc::HelloRequest{}, std::chrono::milliseconds{500});
+    bool reused = false;
+    std::optional<long> tray_pid;
+    if (hello.ok) {
+        const auto *identity = std::get_if<mirage::runtime::ipc::ServiceIdentity>(&hello.payload);
+        if (!identity || !identity->tray.has_value()) {
+            std::cerr << "mirage: endpoint is owned by a headless/old service; close that service "
+                         "before starting the tray product\n";
             return kExitFailure;
         }
-        const std::optional<long> pid = spawn_detached_face(*binary, options.socket_path);
-        if (!pid) {
-            std::cerr << kProgramName << ": spawning " << face.name << " failed\n";
+        reused = true;
+    } else {
+        const auto tray = tray_binary.empty() ? sibling_binary("mirage-tray")
+                                              : std::optional<std::string>{tray_binary};
+        const auto shell = shell_binary.empty() ? sibling_binary("mirage-native")
+                                                : std::optional<std::string>{shell_binary};
+        if (!tray || !std::filesystem::is_regular_file(*tray) || !shell ||
+            !std::filesystem::is_regular_file(*shell)) {
+            std::cerr << "mirage: tray/frontend executable missing; startup refused\n";
             return kExitFailure;
         }
-        spawned.emplace_back(face.name, *pid);
-    }
-    for (const auto &[name, pid] : spawned) {
-        if (!spawned_face_alive(pid)) {
-            std::cerr << kProgramName << ": " << name << " exited immediately\n";
+        tray_pid = spawn_product_tray(*tray, options.socket_path, *shell, with_shell);
+        if (!tray_pid) {
+            std::cerr << "mirage: tray spawn failed\n";
             return kExitFailure;
         }
-        std::cout << name << " running (pid " << pid << ")\n";
     }
-    if (spawned.empty()) {
-        std::cout << "product started (no faces requested)\n";
+    bool requested_open = !reused || !with_shell;
+    const auto deadline = std::chrono::steady_clock::now() + wait;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (tray_pid && !spawned_face_alive(*tray_pid)) {
+            std::cerr << "mirage: tray exited during startup (notification host, settings or "
+                         "frontend failure)\n";
+            return kExitFailure;
+        }
+        hello = probe.call(mirage::runtime::ipc::HelloRequest{}, std::chrono::milliseconds{500});
+        const auto *identity = std::get_if<mirage::runtime::ipc::ServiceIdentity>(&hello.payload);
+        if (hello.ok && identity && identity->tray.value_or(false)) {
+            if (!requested_open) {
+                const auto opened =
+                    probe.call(mirage::runtime::ipc::ProductControlRequest{"open", 0},
+                               std::chrono::milliseconds{2000});
+                if (!opened.ok) {
+                    std::cerr << "mirage: frontend open refused: " << opened.error.message << '\n';
+                    return kExitFailure;
+                }
+                requested_open = true;
+            }
+            const auto response = probe.call(mirage::runtime::ipc::ProductControlRequest{},
+                                             std::chrono::milliseconds{1000});
+            const auto *product =
+                std::get_if<mirage::runtime::ipc::ProductState>(&response.payload);
+            if (response.ok && product && (!with_shell || product->frontend_ready)) {
+                std::cout << (reused ? "tray runtime reused at " : "tray runtime ready at ")
+                          << options.socket_path;
+                if (tray_pid)
+                    std::cout << " (pid " << *tray_pid << ")";
+                std::cout << '\n';
+                if (with_shell)
+                    std::cout << "mirage-native running (pid " << product->frontend_pid << ")\n";
+                return kExitOk;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{100});
     }
-    return kExitOk;
+    // Only the newly spawned child belongs to this launcher. Never stop a reused host.
+    if (tray_pid) {
+#ifdef _WIN32
+        const HANDLE child =
+            ::OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, static_cast<DWORD>(*tray_pid));
+        if (child) {
+            ::TerminateProcess(child, 1);
+            ::WaitForSingleObject(child, 3000);
+            ::CloseHandle(child);
+        }
+#else
+        ::kill(static_cast<pid_t>(*tray_pid), SIGTERM);
+        const auto stop_deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+        while (spawned_face_alive(*tray_pid) && std::chrono::steady_clock::now() < stop_deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds{50});
+        if (spawned_face_alive(*tray_pid)) {
+            ::kill(static_cast<pid_t>(*tray_pid), SIGKILL);
+            (void)::waitpid(static_cast<pid_t>(*tray_pid), nullptr, 0);
+        }
+#endif
+    }
+    std::cerr << "mirage: tray/frontend readiness timed out\n";
+    return kExitFailure;
 }
 
 // --- task commands ----------------------------------------------------------
@@ -1327,9 +1361,8 @@ void print_usage(std::ostream &out) {
         << "  --help                       Print this help\n"
         << "  start [--socket P] [--wait S] [--no-tray] [--no-shell]\n"
         << "        [--tray PATH] [--shell PATH]\n"
-        << "                               Start the product: runtime service (reused\n"
-        << "                               when already running) plus the tray and\n"
-        << "                               desktop shell faces\n"
+        << "                               Start/reuse the tray-owned Agent Runtime\n"
+        << "                               and its separate native frontend\n"
         << "  service start [--socket P] [--wait S] [--read-root DIR]...\n"
         << "                [--perm CAP=allow|confirm|deny]...\n"
         << "                [--confirm allow|deny] [--config PATH]\n"

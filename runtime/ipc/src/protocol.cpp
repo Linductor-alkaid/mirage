@@ -533,6 +533,8 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 put(object, "mira_core_version", value.mira_core_version);
                 put(object, "host_status", value.host_status);
                 put(object, "protocol", static_cast<std::int64_t>(value.protocol));
+                if (value.tray)
+                    put(object, "tray", *value.tray);
                 if (value.events.has_value()) {
                     put(object, "events", *value.events);
                 }
@@ -557,6 +559,14 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 if (value.policy.has_value()) {
                     put(object, "policy", *value.policy);
                 }
+            } else if constexpr (std::is_same_v<T, ProductState>) {
+                put(object, "product", true);
+                put(object, "frontend_pid", value.frontend_pid);
+                put(object, "window_epoch", static_cast<std::int64_t>(value.window_epoch));
+                put(object, "exit_epoch", static_cast<std::int64_t>(value.exit_epoch));
+                put(object, "active_work", static_cast<std::int64_t>(value.active_work));
+                put(object, "exit_pending", value.exit_pending);
+                put(object, "frontend_ready", value.frontend_ready);
             } else if constexpr (std::is_same_v<T, TaskSubmitted>) {
                 put(object, "task_id", value.task_id);
                 if (value.session_id) {
@@ -829,6 +839,12 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                 put(object, "task_id", value.task_id);
             } else if constexpr (std::is_same_v<T, ShutdownRequest>) {
                 put(object, "op", kOpShutdown);
+            } else if constexpr (std::is_same_v<T, ProductControlRequest>) {
+                put(object, "op", "product.control");
+                put(object, "action", value.action);
+                put(object, "exit_epoch", static_cast<std::int64_t>(value.exit_epoch));
+                if (value.action == "frontend_ready")
+                    put(object, "frontend_pid", value.frontend_pid);
             } else if constexpr (std::is_same_v<T, SubscribeEventsRequest>) {
                 put(object, "op", kOpSubscribe);
                 if (value.chat_preview)
@@ -981,6 +997,29 @@ RequestDecode decode_request(std::string_view payload) {
         result.body = ListTasksRequest{};
     } else if (*op == kOpShutdown) {
         result.body = ShutdownRequest{};
+    } else if (*op == "product.control") {
+        const auto action = string_member(object, "action");
+        const auto epoch = integer_member(object, "exit_epoch");
+        if (!action ||
+            (*action != "status" && *action != "open" && *action != "quit" &&
+             *action != "confirm_quit" && *action != "cancel_quit" &&
+             *action != "frontend_ready") ||
+            !epoch || *epoch < 0) {
+            result.error = "invalid product action or exit epoch";
+            return result;
+        }
+        std::int64_t frontend_pid = 0;
+        if (*action == "frontend_ready") {
+            const auto pid = integer_member(object, "frontend_pid");
+            if (!pid || *pid <= 0 || *epoch != 0) {
+                result.error =
+                    "frontend_ready requires a positive frontend_pid and zero exit_epoch";
+                return result;
+            }
+            frontend_pid = *pid;
+        }
+        result.body =
+            ProductControlRequest{*action, static_cast<std::uint64_t>(*epoch), frontend_pid};
     } else if (*op == kOpSubscribe) {
         SubscribeEventsRequest subscribe;
         if (member(object, "chat_preview")) {
@@ -1532,7 +1571,34 @@ ResponseDecode decode_response(std::string_view payload) {
             }
             identity.policy = *flag;
         }
+        if (member(object, "tray")) {
+            const auto tray = boolean_member(object, "tray");
+            if (!tray) {
+                result.error = "hello tray must be boolean";
+                return result;
+            }
+            identity.tray = *tray;
+        }
         response.payload = std::move(identity);
+    } else if (member(object, "product")) {
+        const auto product = boolean_member(object, "product");
+        const auto pid = integer_member(object, "frontend_pid");
+        const auto window = integer_member(object, "window_epoch");
+        const auto epoch = integer_member(object, "exit_epoch");
+        const auto active = integer_member(object, "active_work");
+        const auto pending = boolean_member(object, "exit_pending");
+        const auto ready = boolean_member(object, "frontend_ready");
+        if (!product || !*product || !pid || *pid < 0 || !window || *window < 0 || !epoch ||
+            *epoch < 0 || !active || *active < 0 || !pending || !ready) {
+            result.error = "invalid product state";
+            return result;
+        }
+        response.payload = ProductState{*pid,
+                                        static_cast<std::uint64_t>(*window),
+                                        static_cast<std::uint64_t>(*epoch),
+                                        static_cast<std::size_t>(*active),
+                                        *pending,
+                                        *ready};
     } else if (const auto *task_id = member(object, "task_id"); task_id != nullptr) {
         auto id_text = string_member(object, "task_id");
         if (!id_text || id_text->empty()) {

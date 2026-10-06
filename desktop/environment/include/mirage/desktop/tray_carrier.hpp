@@ -11,7 +11,7 @@ enum class TrayAction {
     Pause,     ///< pause the tracked task (task.pause)
     Resume,    ///< resume the tracked task (task.resume)
     OpenShell, ///< 快速进入 Mirage: launch the desktop shell binary
-    Quit,      ///< quit the tray process
+    Quit,      ///< request whole-product exit (DEC-045)
 };
 
 /// One complete tray presentation state (M5-10, DEC-030): a full snapshot
@@ -37,6 +37,9 @@ void clamp_tray_status(std::string &status);
 /// Inputs the carrier's run() loop consumes (DEC-030). Every callback is
 /// bounded, must not throw and must not re-enter the carrier.
 struct TrayCarrierContext {
+    /// Called once only after the platform accepted indicator registration.
+    std::function<void()> on_ready;
+    std::string icon_path = {}; // product artwork; empty retains platform default
     /// Loads the newest presentation state (pump thread; called once per
     /// iteration and after wakeup()). Cheap by contract — the owner keeps
     /// the latest state ready.

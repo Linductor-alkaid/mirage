@@ -211,8 +211,8 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 `AGENTS.md` 与工程规范第 9.3 节。
 
 - [ ] `EXEC-01` Runtime Service 是每进程唯一的 Executor owner：初始化、任务准入、
-      排空与 `shutdown(true)` 顺序由其负责；GUI、CLI、Tray 均经 IPC 与之交互，不得
-      自行创建 Executor。
+      排空与 `shutdown(true)` 顺序由其负责；产品由托盘内嵌 Runtime，Tray 复用该 owner；
+      GUI/CLI 经 IPC 调用。原生 UI 的独立 IPC Executor 边界按 DEC-033/045 管理。
 - [ ] `EXEC-02` Mira Host 的任务提交、Agent 事件流转发使用 Executor 公开能力与
       `executor::comm` 组件；事件到 UI 的分发映射为 `Topic` / `LatestMailbox`，不得
       自建广播队列。
@@ -350,3 +350,10 @@ SDK消费、Mirage原生回归通过。同步最新dev修复并移除库层异�
 M6-22 Linux本地验收完成：Debug50/50及相关Release/ASAN/UBSAN、受控ASLR TSAN均通过；MiniMax-M3真实图片2/2及工具/流式通过。上游MessagesPR#80独立提交，详见[证据和未覆盖范围](../compatibility/provider-presets-and-vision-20261006.md)。M6保持In Progress。
 
 2026-10-06：M6-23按DEC-044修复原生模型设置事务与按键逻辑；真实Release设置35/35、renderer324 checks及Debug/Release/ASAN/UBSAN相关回归通过。离线取消、断线失败保留、重连继续保存取证；目标平台/Windows既有CI问题另验，M6整体保持In Progress，见[验收](../compatibility/model-settings-interactions-20261006.md)。
+
+
+2026-10-06：M6-25 按 [DEC-045](../decisions/DEC-045-tray-runtime-owner.md) 完成 Linux
+托盘内嵌 Runtime 与独立前端生命周期；18 项真实产品检查、8/8 回归、ASAN/UBSAN
+各 3/3、TSAN 关闭 ASLR 后 1/1。旧开发 headless 入口保留；产品前端不允许脱离
+托盘。证据见 [托盘验收](../compatibility/tray-runtime-owner-20261006.md)，M6-04 保持
+In Progress，等待 Windows、原生 Wayland 和安装包补验。

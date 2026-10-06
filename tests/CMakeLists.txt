@@ -1208,3 +1208,14 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_ENABLE_NATIVE_FRONTEND)
     set_tests_properties(native_conversation_view_test PROPERTIES LABELS "integration;ui" TIMEOUT 30
         WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/apps/native")
 endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(tray_runtime_test runtime/tray_runtime_test.cpp)
+    target_compile_features(tray_runtime_test PRIVATE cxx_std_20)
+    target_include_directories(tray_runtime_test SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include")
+    target_link_libraries(tray_runtime_test PRIVATE Mirage::runtime_service Mirage::integration_mira)
+    mirage_enable_warnings(tray_runtime_test)
+    add_test(NAME tray_runtime_test COMMAND tray_runtime_test)
+    set_tests_properties(tray_runtime_test PROPERTIES LABELS "integration;runtime;lifecycle" TIMEOUT 30)
+endif()

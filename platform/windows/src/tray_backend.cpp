@@ -50,6 +50,7 @@ struct TrayPumpState {
     HWND window = nullptr;
     NOTIFYICONDATAW icon{}; ///< Shell_NotifyIcon state of the resident icon
     bool icon_added = false;
+    bool icon_owned = false;
     TrayCarrierContext context;
     TrayState state;     ///< newest loaded presentation state
     std::wstring status; ///< UTF-16 of state.status (tooltip budget clamped)
@@ -186,7 +187,16 @@ Win32TrayCarrier::run(const TrayCarrierContext &context,
     pump.icon.uCallbackMessage = kIconCallbackMessage;
     // MAKEINTRESOURCEW explicitly: without UNICODE the IDI_APPLICATION
     // macro maps to the ANSI resource cast (DEC-017 macro-neutral W discipline).
-    pump.icon.hIcon = ::LoadIconW(nullptr, MAKEINTRESOURCEW(32512)); // shared stock icon
+    if (!context.icon_path.empty()) {
+        const auto path = win32_util::utf8_to_utf16(context.icon_path);
+        if (path) {
+            pump.icon.hIcon = static_cast<HICON>(::LoadImageW(nullptr, path->c_str(), IMAGE_ICON, 0,
+                                                              0, LR_LOADFROMFILE | LR_DEFAULTSIZE));
+            pump.icon_owned = pump.icon.hIcon != nullptr;
+        }
+    }
+    if (!pump.icon.hIcon)
+        pump.icon.hIcon = ::LoadIconW(nullptr, MAKEINTRESOURCEW(32512));
     if (pump.icon.hIcon == nullptr) {
         report.diagnostic = "tray icon load failed" + last_error_suffix();
         ::DestroyWindow(pump.window);
@@ -202,10 +212,14 @@ Win32TrayCarrier::run(const TrayCarrierContext &context,
         // surface honestly does not exist in this session (DEC-018's
         // capability-honesty posture).
         report.diagnostic = "notification area refused the tray icon" + last_error_suffix();
+        if (pump.icon_owned)
+            ::DestroyIcon(pump.icon.hIcon);
         ::DestroyWindow(pump.window);
         return report;
     }
     pump.icon_added = true;
+    if (context.on_ready)
+        context.on_ready();
     callback_window_.store(pump.window, std::memory_order_release);
 
     report.clean = true;
@@ -243,6 +257,8 @@ Win32TrayCarrier::run(const TrayCarrierContext &context,
     if (pump.icon_added) {
         ::Shell_NotifyIconW(NIM_DELETE, &pump.icon);
     }
+    if (pump.icon_owned)
+        ::DestroyIcon(pump.icon.hIcon);
     ::DestroyWindow(pump.window);
     return report;
 }

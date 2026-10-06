@@ -204,9 +204,8 @@ GVariant *get_property(GDBusConnection *, const gchar *, const gchar *, const gc
         return g_variant_new_string("Active");
     }
     if (g_strcmp0(property, "IconName") == 0) {
-        // The icon asset ships with packaging (M5-11); development sessions
-        // show the indicator host's placeholder (declared in DEC-030).
-        return g_variant_new_string(kItemId);
+        return g_variant_new_string(
+            surface->carrier.icon_path.empty() ? kItemId : surface->carrier.icon_path.c_str());
     }
     if (g_strcmp0(property, "ToolTip") == 0) {
         return g_variant_new_parsed("('%s', @a(iiidd) [], 'Mirage', %s)", kItemId,
@@ -525,6 +524,8 @@ GioTrayCarrier::run(const TrayCarrierContext &context,
             }
         } else {
             g_variant_unref(registered);
+            if (context.on_ready)
+                context.on_ready();
         }
     }
 

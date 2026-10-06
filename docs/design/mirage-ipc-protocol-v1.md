@@ -7,14 +7,11 @@
 > 依据：[DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md)（协议 v1 与传输冻结）、
 > [DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)（事件订阅扩展，已
 > Accepted）、[DEC-006](../decisions/DEC-006-ui-web-frontend-packaging.md)（UI 唯一耦合面）
-> 一致性门禁：`tests/runtime/data/ipc_protocol_golden.json`（golden vectors，C++ 与 TypeScript
-> 双端测试消费同一文件）
+> 一致性门禁：`tests/runtime/data/ipc_protocol_golden.json`（C++ golden；TS 镜像已按 DEC-037 退役）
 
-本文档是 Mirage Local IPC 协议 v1 的**权威 wire 契约**（DEC-012 决策 1）。两端实现——
-`runtime/ipc` 的 C++ 编解码（`protocol.hpp` / `protocol.cpp` / `framing.hpp`）与 `ui/contracts`
-的 TypeScript 镜像——都必须与本文档一致；一致性由共享 golden vectors 的双端测试锁定，
-漂移即测试失败。变更流程：先改本文档（注明版本与兼容性影响），同一变更内同步 golden
-vectors 与两端实现及测试（工程规范第 8 节）。
+本文档是 Mirage Local IPC v1 的权威 wire 契约。`runtime/ipc` C++ 编解码与
+客户端均以此为准，golden vectors 锁定规范字节与错误语义；原 TS 镜像按 DEC-037
+退役。变更时同步本文档、golden、实现与测试（工程规范第 8 节）。
 
 ## 1. 传输与帧格式（DEC-007 冻结，本文档仅转录）
 
@@ -73,6 +70,7 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 
 | op | 参数（按 wire 顺序） | 成功载荷 | 主要错误 |
 | --- | --- | --- | --- |
+| `product.control` | `action`, `exit_epoch`；ready 附 `frontend_pid` | `ProductState`（DEC-045 增量） | — |
 | `hello` | 无 | `ServiceIdentity`（§6.1） | — |
 | `task.submit` | `goal`（string，非空），`steps`（array，可省略 = 空任务），`step_timeout_ms`（可选正整数，毫秒），`session_id`（可选 string，非空；会话绑定，M5-04 落地，缺席落主会话） | `{"task_id"}`（非空），`session_id`（可选 string，非空；任务会话归属的回执，M5-04 落地，服务端恒写出） | `invalid_argument`（空 goal、goal 超长、步数超上限、单步 argument 超长）、`invalid_state`（注册表容量满，提交回滚）、`not_found`（显式 `session_id` 未知）、`pinned_runtime`（pinned 控制面拒绝，透传） |
 | `task.list` | 无 | `{"tasks":[{"id","goal","progress"}...]}` | — |
@@ -148,6 +146,7 @@ vectors 与两端实现及测试（工程规范第 8 节）。
 | `observation` | boolean（可选） | DEC-026 观察面能力通告（`desktop.observe` 请求面可用）：语义与 `events` 相同。置于 `workflows` 之后 |
 | `chat` | boolean（可选） | DEC-027 对话面能力通告（模型层已配置，`session.chat` 请求面可用）：语义与 `events` 相同。置于 `observation` 之后 |
 | `policy` | boolean（可选） | DEC-028 策略面能力通告（`policy.get` / `policy.set` 请求面可用）：语义与 `events` 相同。置于 `chat` 之后 |
+| `tray` | boolean（可选） | DEC-045 产品准入；缺失为 headless/旧服务，true 为已注册在线托盘；wire 置于 protocol 后、events 前 |
 
 ### 6.2 `InspectTask`（task.inspect 响应载荷，嵌于 `task` 成员）
 
@@ -681,3 +680,33 @@ Wire golden覆盖缺省兼容、替换请求/ACK/事件及非法目标，服务�
 ### DEC-042增量：服务商元数据与目录存在性
 
 model/models条目增加可选provider_id/provider_name（字符串）；无字段的旧目录视为单模型服务。model.get回送所选模型的服务元数据和显式models数组。同provider_id共享Base URL（endpoint/api_prefix）、dialect和credential_ref/credential_env；model.set以当前model的连接字段为准统一更新同服务条目。模型目录仍限制12条，display_name为稳定且独立的模型配置身份。空模型服务以enabled=false保存，选择真实模型后才可运行。缺失models保持旧目录；空数组表示清空，旧客户端无字段行为保留。持久化成功后才切换应用状态并清理不再引用的Key，清理失败以warning回送。
+
+## DEC-045 增量：托盘产品控制（M6-25 / golden v13）
+
+协议版本仍为 1，已有 canonical 不变。`hello` 增加可选布尔 `tray`，wire 顺序位于
+`protocol` 后、`events` 前：缺失表示 headless/旧宿主，false 表示产品托盘尚未注册，
+true 仅在真实注册且存活时返回。原生前端只接受 true，并验证自己为该托盘持有的 PID。
+
+请求顺序为 `v,id,op,action,exit_epoch`，`op` 为 `product.control`；`frontend_ready`
+另在末尾携带正整数 `frontend_pid`，其 `exit_epoch` 必须为 0。action 闭集：
+
+| action | 语义 |
+| --- | --- |
+| status | 获取事实快照 |
+| open | 启动或复用单个前端，递增 window_epoch 并激活 |
+| frontend_ready | 仅当前所属前端 PID 可报告 UI/IPC 就绪 |
+| quit | 无活动工作时退出；有活动时产生待确认 exit_epoch 并打开前端 |
+| confirm_quit | 仅当前待确认 epoch 有效，取消工作并关闭应用 |
+| cancel_quit | 仅当前待确认 epoch 有效，清除确认并保留工作 |
+
+成功响应字段按序为 `v,id,ok,product,frontend_pid,window_epoch,exit_epoch,active_work,
+exit_pending,frontend_ready`。product 必须为 true；三个整数状态及计数非负，两个布尔
+字段必需；PID=0 表示无前端。active_work 包括未终态任务、在途 Agent 轮次与非终态
+Workflow（无法查询的工作保守计为活动）。状态由 Runtime 串行上下文生成，客户端
+通过既有 HostStatus Topic 通知/重同步取快照，不根据事件自行推断退出资格。
+
+未知 action/负 epoch 解码错误为 `invalid product action or exit epoch`；ready 缺失或
+非法 PID、非零 epoch 为 `frontend_ready requires a positive frontend_pid and zero
+exit_epoch`；非法快照为 `invalid product state`；hello 非布尔 tray 为 `hello tray must
+be boolean`。运行中无托盘、错误前端 PID、过期确认均按既有失败响应返回
+invalid_state 与诊断。退出和通知区故障不绕过 Runtime 有序取消/shutdown。

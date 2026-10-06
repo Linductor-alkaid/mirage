@@ -5,7 +5,7 @@
 # The backend implements the desktop provider interfaces (adapter depends on
 # the desktop core interfaces, DEC-008); the product call direction stays
 # runtime -> desktop interfaces.
-add_library(mirage_platform STATIC)
+add_library(mirage_platform STATIC common/src/frontend_process.cpp)
 add_library(Mirage::platform ALIAS mirage_platform)
 
 target_include_directories(mirage_platform

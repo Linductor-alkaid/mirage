@@ -373,6 +373,14 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
     if (op == "hello") {
         return ipc::HelloRequest{};
     }
+    if (op == "product.control") {
+        ipc::ProductControlRequest request{
+            vector_string(body, "action"),
+            static_cast<std::uint64_t>(vector_integer(body, "exit_epoch"))};
+        if (body.find("frontend_pid"))
+            request.frontend_pid = vector_integer(body, "frontend_pid");
+        return request;
+    }
     if (op == "task.list") {
         return ipc::ListTasksRequest{};
     }
@@ -622,6 +630,11 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                           std::is_same_v<T, ipc::WorkflowAtomCatalogRequest> ||
                           std::is_same_v<T, ipc::WorkflowRunsRequest>) {
                 // Stateless bodies: the variant index comparison above suffices.
+            } else if constexpr (std::is_same_v<T, ipc::ProductControlRequest>) {
+                const auto &request = std::get<T>(actual);
+                MIRAGE_CHECK(request.action == expected_value.action);
+                MIRAGE_CHECK(request.exit_epoch == expected_value.exit_epoch);
+                MIRAGE_CHECK(request.frontend_pid == expected_value.frontend_pid);
             } else if constexpr (std::is_same_v<T, ipc::SubmitTaskRequest>) {
                 const auto &submit = std::get<ipc::SubmitTaskRequest>(actual);
                 check_string_equal(name, "submit goal", submit.goal, expected_value.goal);
@@ -800,7 +813,17 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
             MIRAGE_CHECK(flag.has_value());
             identity.policy = flag;
         }
+        if (value.find("tray"))
+            identity.tray = vector_boolean(value, "tray");
         response.payload = std::move(identity);
+    } else if (kind == "product-state") {
+        response.payload =
+            ipc::ProductState{vector_integer(value, "frontend_pid"),
+                              static_cast<std::uint64_t>(vector_integer(value, "window_epoch")),
+                              static_cast<std::uint64_t>(vector_integer(value, "exit_epoch")),
+                              static_cast<std::size_t>(vector_integer(value, "active_work")),
+                              vector_boolean(value, "exit_pending"),
+                              vector_boolean(value, "frontend_ready")};
     } else if (kind == "submitted") {
         ipc::TaskSubmitted submitted;
         submitted.task_id = vector_string(value, "task_id");
@@ -1148,7 +1171,15 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
             const auto &actual_value = std::get<T>(actual.payload);
             if constexpr (std::is_same_v<T, ipc::ShutdownAccepted>) {
                 // Nothing beyond the ok envelope.
+            } else if constexpr (std::is_same_v<T, ipc::ProductState>) {
+                MIRAGE_CHECK(actual_value.frontend_pid == expected_value.frontend_pid);
+                MIRAGE_CHECK(actual_value.window_epoch == expected_value.window_epoch);
+                MIRAGE_CHECK(actual_value.exit_epoch == expected_value.exit_epoch);
+                MIRAGE_CHECK(actual_value.active_work == expected_value.active_work);
+                MIRAGE_CHECK(actual_value.exit_pending == expected_value.exit_pending);
+                MIRAGE_CHECK(actual_value.frontend_ready == expected_value.frontend_ready);
             } else if constexpr (std::is_same_v<T, ipc::ServiceIdentity>) {
+                MIRAGE_CHECK(actual_value.tray == expected_value.tray);
                 check_string_equal(name, "service name", actual_value.name, expected_value.name);
                 MIRAGE_CHECK(actual_value.mirage_version == expected_value.mirage_version);
                 MIRAGE_CHECK(actual_value.mira_core_version == expected_value.mira_core_version);

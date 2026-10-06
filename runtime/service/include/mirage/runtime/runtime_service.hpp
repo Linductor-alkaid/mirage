@@ -7,7 +7,9 @@
 #include <memory>
 #include <string>
 
+#include <mirage/desktop/frontend_process.hpp>
 #include <mirage/desktop/overlay_carrier.hpp>
+#include <mirage/desktop/tray_carrier.hpp>
 #include <mirage/desktop/visual_reference_registry.hpp>
 #include <mirage/integration/mira_adapter.hpp>
 #include <mirage/integration/model_layer.hpp>
@@ -39,6 +41,11 @@ struct CredentialWriteResult {
 /// registry, the step count, the step wall clock and the per-step result
 /// size all reject or truncate explicitly instead of growing without bound.
 struct ServiceConfig {
+    // DEC-045 product embedding. Null keeps the headless developer host.
+    std::shared_ptr<desktop::TrayCarrier> tray_carrier;
+    std::shared_ptr<desktop::FrontendProcess> frontend;
+    bool open_frontend = true;
+    std::string tray_icon_path;
     /// DEC-038: finite platform save/remove, called only by the serialized
     /// Executor handler. Empty value removes; failure does not activate a new ref.
     std::function<CredentialWriteResult(const std::string &, const std::string &)> credential_write;

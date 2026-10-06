@@ -4,6 +4,7 @@ add_library(mirage_runtime_service STATIC
     src/runtime_service.cpp
     src/service_loop.cpp
     src/task_driver.cpp
+    src/tray_presenter.cpp
 )
 add_library(Mirage::runtime_service ALIAS mirage_runtime_service)
 

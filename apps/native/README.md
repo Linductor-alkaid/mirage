@@ -8,10 +8,9 @@ ZCode 的侧栏、阅读列和 composer，C++20 / GLFW / OpenGL，没有 Chromiu
 ```bash
 git submodule update --init --recursive
 cmake --preset native-release
-cmake --build --preset native-release --target mirage-native mirage-service
-# 先在一个终端启动服务，再在另一个终端启动前端
-./build/native-release/apps/mirage-service
-./build/native-release/apps/native/mirage-native
+cmake --build --preset native-release --target mirage mirage-native mirage-tray
+# 统一入口启动托盘内的 Runtime，再由托盘启动独立前端
+./build/native-release/apps/mirage start
 ```
 
 Debug 使用 native-debug。Linux 需要 OpenGL/Mesa、X11 开发包及常见 CJK 字体，
@@ -44,7 +43,11 @@ Linux 已验证系统凭据与重启调用；Windows 凭据路径尚待目标环
 当前正文/输入14EM、22px行距，上下文/模型归入右侧组；等待有动效及真实用时。
 Linux XIM/IBus候选跟随光标并已验证中文提交；原生Wayland、物理高DPI与其他IM待验。
 依赖修复PR与完整证据见[本轮验收](../../docs/compatibility/native-conversation-progress-20261005.md)。
-关闭仅退出前端进程；托盘联动及整程序退出属于M6-04。
+关闭窗口仅退出前端；Agent 服务和任务在托盘继续驻留。托盘“打开 Mirage”重开或激活
+单个窗口；“退出”有活动 Agent/Workflow 时显示取消/停止确认，再回收整个应用。
+`mirage start --no-shell` 仅驻留托盘，普通启动会复用它。前端在创建窗口前验证托盘
+及所属子进程身份，不能直接启动或连接 headless Service。Linux 需要 SNI 通知区宿主；
+注册失败会明确拒绝启动，不打开孤立窗口。进程契约见 DEC-045；安装包/Windows 仍属 M6-04。
 
 源码：app.cpp（视图）、chat_model.*（UI线程有界服务状态投影）、window_controls.*
 （私有GLFW窗口适配）、runtime_bridge.*（Executor IPC owner）。任何后续后台任务必须使用 Mira Executor，禁止调用 EUI
@@ -85,9 +88,11 @@ EUI Markdown通过公开排版适配支持同一消息拖选；尚不支持跨�
 
 
 2026-10-05 / DEC-037：旧 `ui/`、CEF 壳与 Web devbridge 已删除，native 是唯一前端。
-`mirage start` 启动服务、托盘与原生窗口；开发树自动寻找 `apps/native/mirage-native`，
-可用 `--no-tray` 关闭托盘启动，`--shell PATH` 指定原生二进制。原生前端支持
-环境变量 `MIRAGE_NATIVE_SOCKET` 指定 IPC 路径；`mirage start --socket PATH` 通过子进程环境传递端点（经该入口启动的托盘再次打开窗口也继承它）。完整活动退出确认仍在 M6-04，不由本次退役验收。
+该退役工作原为三进程入口；2026-10-06 由 DEC-045 改为托盘内嵌 Runtime 加独立
+前端。`--shell PATH` 可指定前端，`--no-shell` 仅驻留托盘；`--no-tray` 必须同时
+`--no-shell`，只用于 headless 开发。`MIRAGE_NATIVE_SOCKET` 指定 IPC 路径但不能
+绕过所属进程准入；托盘再次打开窗口沿用原端点。Linux 生命周期证据见
+[托盘验收](../../docs/compatibility/tray-runtime-owner-20261006.md)。
 
 模型页采用 ZCode 服务商分栏，可添加至多 12 个命名模型配置。保存并应用会合并持久化目录，
 活动轮次中切换被拒绝，失败保留已应用配置。输入栏从左到右为附件、访问权限、上下文圆环、
