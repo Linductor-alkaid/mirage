@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
   "project": "mirage",
-  "updated": "2026-10-06",
+  "updated": "2026-10-07",
   "notes": "Schema v3 (DEC-037): native EUI frontend replaces retired npm/CEF. All dependency gitlinks and nested pins remain mandatory. artifacts is empty; no Chromium binary is acquired or packaged.",
   "dependencies": [
     {
@@ -9,8 +9,8 @@
       "source": "https://github.com/Linductor-alkaid/mira.git",
       "path": "third_party/mira",
       "version": "0.1.0",
-      "commit": "7795e13cd6b8169f4936016c169702c2c60e876c",
-      "notes": "M6-22 / DEC-043: explicit Anthropic Messages mapper/SSE and SecretRef ApiKey, layered on streaming PR#79; upstream Messages PR#80 https://github.com/Linductor-alkaid/mira/pull/80. Pre-kairo base retains Executor 2ae4fc8 and other nested pins; AGPL-3.0 unchanged.",
+      "commit": "fbc644be2fabfaa2f8257e579fbc1d368537224c",
+      "notes": "M6-26: declared Messages adaptive/disabled thinking and bounded signed/redacted assistant tool replay; upstream PR#81 https://github.com/Linductor-alkaid/mira/pull/81 on Messages PR#80. Pre-kairo base retains Executor 2ae4fc8 and all nested pins; AGPL-3.0 unchanged. Audit: docs/supply-chain/mira-thinking-20261007.md.",
       "license": "AGPL-3.0",
       "consumption": "add_subdirectory；Mirage::core 经由别名 Mira::core 链接",
       "nested_pins": [
