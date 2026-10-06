@@ -420,6 +420,59 @@ const auto model = "Mirage";
     page.model_dirty = false;
     persistence::LocalSettings empty_catalog;
     empty_catalog.models_present = true;
+    // BUG-20261006-003: initial connection failure must not block local previews.
+    page.model_loaded = false;
+    frame();
+    MIRAGE_CHECK(!element("model.preset.0.bg")->disabled);
+    element("model.preset.0.bg")->onClick();
+    MIRAGE_CHECK(page.preview_preset == 0 && !page.model_dirty &&
+                 page.model.provider_id == "preset:openai");
+    frame();
+    MIRAGE_CHECK(element("model.save.bg")->disabled && element("model.add.model.bg")->disabled);
+    eui::TextInputEvent preview_key;
+    preview_key.pasteText = "fixture-preview-key";
+    element("model.key.hit")->onTextInput(preview_key);
+    MIRAGE_CHECK(page.api_key == "fixture-preview-key" && page.model_dirty && !page.model_loaded);
+    discard_model_edits();
+    MIRAGE_CHECK(page.api_key.empty() && !page.model_dirty && !page.model_loaded);
+    eui::KeyEvent preview_enter;
+    preview_enter.key = eui::InputKey::Enter;
+    preview_enter.action = eui::KeyAction::Press;
+    MIRAGE_CHECK(element("model.preset.2.bg")->onKeyEvent(preview_enter));
+    MIRAGE_CHECK(page.preview_preset == 2 && !page.model_dirty && page.models.empty());
+    frame();
+    element("model.key.hit")->onTextInput(preview_key);
+    accept_model_configuration(empty_catalog, "model", "");
+    MIRAGE_CHECK(page.model_loaded && !page.preview_preset && page.model_dirty &&
+                 page.model.provider_id == "preset:minimax" &&
+                 page.api_key == "fixture-preview-key");
+    discard_model_edits();
+    page.model_loaded = false;
+    select_preset(2);
+    frame();
+    element("model.key.hit")->onTextInput(preview_key);
+    auto saved_preview = page.model;
+    saved_preview.display_name = "saved-preview-model";
+    saved_preview.endpoint_origin = "https://example.com";
+    saved_preview.api_prefix = "/custom";
+    saved_preview.model_selector = "saved-preview";
+    saved_preview.credential_ref = "fixture-ref";
+    persistence::LocalSettings saved_preview_catalog;
+    saved_preview_catalog.model = saved_preview;
+    saved_preview_catalog.models_present = true;
+    saved_preview_catalog.models = {saved_preview};
+    accept_model_configuration(saved_preview_catalog, "model", "");
+    MIRAGE_CHECK(!page.preview_preset && page.model_dirty &&
+                 page.model_base_url == "https://example.com/custom" &&
+                 page.model.model_selector == "saved-preview" &&
+                 page.model.credential_ref == "fixture-ref" && page.models.size() == 1 &&
+                 page.api_key == "fixture-preview-key");
+    frame();
+    page.saving_model = true;
+    element("model.key.hit")->onTextInput(preview_key);
+    MIRAGE_CHECK(page.api_key == "fixture-preview-key");
+    page.saving_model = false;
+    page.model_dirty = false;
     accept_model_configuration(empty_catalog, "model", "");
     frame();
     MIRAGE_CHECK(page.model_loaded && page.models.empty() && !page.live_model.enabled);
@@ -430,7 +483,68 @@ const auto model = "Mirage";
     MIRAGE_CHECK(std::abs(brand_bounds.x + brand_bounds.width / 2 - nav_bounds.x -
                           nav_bounds.width / 2) < 1);
     MIRAGE_CHECK(element("settings.nav.1.label")->frame.x == element("brand")->frame.x);
+    MIRAGE_CHECK(element("model.name")->frame.x > element("model.provider.logo")->frame.x + 20);
+    MIRAGE_CHECK(view->find("model.preset.0.bg") && view->find("model.preset.2.bg"));
     capture("provider-empty-light");
+    select_preset(2); // MiniMax: complete connection/model, key is the only missing value.
+    frame();
+    MIRAGE_CHECK(page.models.empty() && !page.live_model.enabled && page.model_dirty);
+    MIRAGE_CHECK(page.model.provider_name == "MiniMax" &&
+                 page.model.model_selector == "MiniMax-M3");
+    MIRAGE_CHECK(page.model_base_url == "https://api.minimaxi.com/anthropic/v1");
+    MIRAGE_CHECK(page.model.dialect == "anthropic.messages.v1" && page.provider_models.size() == 1);
+    MIRAGE_CHECK(page.api_key.empty() && page.model.credential_ref.empty() &&
+                 page.model.credential_env.empty());
+    auto preset_document = provider_document(true);
+    MIRAGE_CHECK(preset_document && preset_document->model->enabled &&
+                 preset_document->models[0].provider_id == "preset:minimax");
+    capture("provider-preset-minimax-light");
+    // Drive the actual masked input handler on a clean, acknowledged service.
+    // Multiple text events can arrive before the next compose (fast typing).
+    accept_model_configuration(*preset_document, "save", "");
+    frame();
+    MIRAGE_CHECK(element("model.save.bg")->disabled && !page.model_dirty);
+    auto input_key = [&](const std::string &text, bool paste = false) {
+        eui::TextInputEvent event;
+        if (paste)
+            event.pasteText = text;
+        else
+            event.text = text;
+        element("model.key.hit")->onTextInput(event);
+    };
+    eui::TextInputEvent combined;
+    combined.text = "s";
+    combined.pasteText = "k-test";
+    element("model.key.hit")->onTextInput(combined);
+    MIRAGE_CHECK(page.api_key == "sk-test" && page.model_dirty);
+    frame();
+    MIRAGE_CHECK(!element("model.save.bg")->disabled);
+    accept_model_configuration(*preset_document, "save", "");
+    frame();
+    for (const auto *part : {"s", "k", "-", "test"})
+        input_key(part);
+    MIRAGE_CHECK(page.api_key == "sk-test" && page.model_dirty);
+    frame();
+    MIRAGE_CHECK(!element("model.save.bg")->disabled);
+    auto &key_edit = view->state<components::input_detail::InputModel::InputState>("model.key");
+    MIRAGE_CHECK(key_edit.text == "*******" && key_edit.undoStack.empty());
+    key_edit.selectionStart = 0;
+    key_edit.selectionEnd = key_edit.cursor = static_cast<int>(key_edit.text.size());
+    input_key("replacement-key", true);
+    MIRAGE_CHECK(page.api_key == "replacement-key");
+    frame();
+    MIRAGE_CHECK(!element("model.save.bg")->disabled);
+    // A refresh reply cannot erase a key draft; saving still waits for ACK.
+    accept_model_configuration(*preset_document, "model", "");
+    MIRAGE_CHECK(page.api_key == "replacement-key" && page.model_dirty);
+    accept_model_configuration(empty_catalog, "discard", "");
+    select_preset(2);
+    frame();
+    select_preset(0); // Unsaved key/service edits cannot silently disappear.
+    MIRAGE_CHECK(page.model.provider_id == "preset:minimax");
+    page.model_dirty = false;
+    accept_model_configuration(empty_catalog, "discard", "");
+    frame();
     page.model.provider_name = "本地测试服务";
     set_base_url("https://api.example.test/v1");
     page.model_dirty = true;
@@ -466,6 +580,15 @@ const auto model = "Mirage";
     element("model.protocol.0.bg")->onClick();
     frame();
     MIRAGE_CHECK(page.model.dialect == "openai.chat-completions.v1");
+    element("model.protocol.control.bg")->onClick();
+    frame();
+    element("model.protocol.2.bg")->onClick();
+    frame();
+    MIRAGE_CHECK(page.model.dialect == "anthropic.messages.v1" && !page.model.supports_reasoning);
+    element("model.protocol.control.bg")->onClick();
+    frame();
+    element("model.protocol.0.bg")->onClick();
+    frame();
 
     element("model.add.model.bg")->onClick();
     frame();
@@ -537,6 +660,220 @@ const auto model = "Mirage";
     MIRAGE_CHECK(page.model_window == "wrong");
     accept_model_configuration(*renamed_document, "discard", "");
     MIRAGE_CHECK(page.model_window == "64000" && !page.model_dirty);
+    // M6-23 / DEC-044: source-level state regressions complement XTest of the
+    // actual Release process. No test hooks, network, or production keyring.
+    auto service_a = *renamed_document;
+    auto service_b = service_a.models.front();
+    service_b.provider_id = "synthetic-b";
+    service_b.provider_name = "Sandbox B";
+    service_b.display_name = "synthetic-model-b";
+    service_b.model_selector = "fixture-b";
+    service_b.enabled = false;
+    service_b.context_window_tokens = 65536;
+    service_a.models.push_back(service_b);
+    accept_model_configuration(service_a, "save", "");
+    page.model_notice = "已保存，配置已生效";
+    load_provider(service_b);
+    MIRAGE_CHECK(page.model_notice.empty());
+    page.model.provider_name = "changed B";
+    page.model_dirty = true;
+    discard_model_edits();
+    MIRAGE_CHECK(page.model.provider_id == "synthetic-b" &&
+                 page.model.provider_name == "Sandbox B");
+    MIRAGE_CHECK(page.live_model.provider_id != "synthetic-b" && !page.model_dirty);
+    page.adding_model = true;
+    page.new_model_id = "  fixture-b2  ";
+    add_editor_model();
+    MIRAGE_CHECK(page.provider_models.size() == 2 && !page.model.enabled && !page.adding_model);
+    MIRAGE_CHECK(page.provider_models.back().model_selector == "fixture-b2");
+    page.model_window = "96000";
+    MIRAGE_CHECK(remember_model_edits());
+    select_editor_model(0);
+    page.model_window = "32000";
+    page.model.supports_reasoning = true;
+    const auto deleted_id = page.provider_models.back().display_name;
+    delete_editor_model(deleted_id);
+    delete_editor_model(deleted_id); // An event from the old frame is idempotent.
+    MIRAGE_CHECK(page.provider_models.size() == 1 && page.provider_model_index == 0);
+    MIRAGE_CHECK(page.model_window == "32000" && page.model.display_name == service_b.display_name);
+    auto preserved = provider_document(false);
+    MIRAGE_CHECK(preserved && preserved->models.back().context_window_tokens == 32000 &&
+                 preserved->models.back().supports_reasoning && !preserved->models.back().enabled);
+    page.adding_model = true;
+    page.new_model_id = "  fixture-b  ";
+    add_editor_model();
+    MIRAGE_CHECK(page.adding_model && page.provider_models.size() == 1 &&
+                 page.model_notice == "该模型已存在。");
+    MIRAGE_CHECK(!provider_document(false)); // Pending IDs are never silently omitted.
+    cancel_model_add();
+    MIRAGE_CHECK(page.model_notice.empty());
+    page.adding_model = true;
+    page.new_model_id = "  ";
+    add_editor_model();
+    MIRAGE_CHECK(page.adding_model && page.provider_models.size() == 1);
+    cancel_model_add();
+    page.model.provider_name = " \t ";
+    MIRAGE_CHECK(!provider_document(false));
+    page.model.provider_name = "  Sandbox B  ";
+    MIRAGE_CHECK(provider_document(false) && page.model.provider_name == "Sandbox B");
+    page.model_window = "999";
+    delete_editor_model(service_b.display_name);
+    MIRAGE_CHECK(page.provider_models.size() == 1 && page.model_window == "999");
+    auto newer_catalog = service_a;
+    newer_catalog.models.front().provider_name = "ACK update";
+    accept_model_configuration(newer_catalog, "model", "");
+    MIRAGE_CHECK(page.models.front().provider_name == "ACK update" && page.model_window == "999");
+    discard_model_edits();
+    MIRAGE_CHECK(page.model.provider_id == "synthetic-b" && page.model_window == "65536");
+    page.model_window = "72000";
+    page.model_dirty = true;
+    navigate_model(
+        {PageState::ModelDestination::Provider, service_a.models.front().provider_id, 0});
+    MIRAGE_CHECK(page.model_dialog == PageState::ModelDialog::Discard &&
+                 page.model.provider_id == "synthetic-b");
+    frame();
+    capture("model-dirty-navigation-light");
+    eui::TextInputEvent blocked_input;
+    blocked_input.pasteText = "111111";
+    element("model.window.hit")->onTextInput(blocked_input);
+    MIRAGE_CHECK(page.model_window == "72000");
+    element("model.dialog.cancel.bg")->onClick();
+    MIRAGE_CHECK(page.model_dirty && page.model_window == "72000");
+    leave_settings(false);
+    MIRAGE_CHECK(page.model_dialog == PageState::ModelDialog::Discard && page.model_page);
+    frame();
+    element("model.dialog.confirm.bg")->onClick();
+    MIRAGE_CHECK(!page.model_page && !page.model_dirty && page.model_window == "65536");
+    page.model_page = true;
+    page.adding_model = true;
+    page.new_model_id = "pending";
+    leave_settings(true);
+    MIRAGE_CHECK(page.model_dialog == PageState::ModelDialog::Discard && page.settings);
+    frame();
+    element("model.dialog.confirm.bg")->onClick();
+    MIRAGE_CHECK(!page.settings && !page.adding_model && !page.model_dirty);
+    page.settings = page.model_page = true;
+    load_provider(service_b);
+    delete_provider();
+    MIRAGE_CHECK(page.model_dialog == PageState::ModelDialog::Delete && page.models.size() == 2);
+    frame();
+    capture("model-delete-confirm-light");
+    element("model.dialog.cancel.bg")->onClick();
+    MIRAGE_CHECK(!page.saving_model && page.models.size() == 2);
+    delete_provider();
+    frame();
+    element("model.dialog.confirm.bg")->onClick(); // Disconnected: preserve catalog/editor.
+    MIRAGE_CHECK(!page.saving_model && page.models.size() == 2 &&
+                 page.model.provider_id == "synthetic-b");
+    frame();
+    auto repeat_delete = element("model.entry.0.delete.bg")->onKeyEvent;
+    eui::KeyEvent repeat;
+    repeat.key = eui::InputKey::Enter;
+    repeat.action = eui::KeyAction::Repeat;
+    MIRAGE_CHECK(repeat_delete(repeat) && page.provider_models.size() == 1);
+    page.saving_model = true;
+    page.model_window = "65536";
+    delete_editor_model(service_b.display_name);
+    navigate_model({PageState::ModelDestination::New, "", 0});
+    MIRAGE_CHECK(page.provider_models.size() == 1 &&
+                 page.model_dialog == PageState::ModelDialog::None);
+    page.saving_model = false;
+    page.model_loaded = false;
+    frame();
+    MIRAGE_CHECK(element("model.add.model.bg")->disabled &&
+                 element("model.provider.enabled.hit")->disabled);
+    element("model.key.hit")->onTextInput(blocked_input);
+    MIRAGE_CHECK(page.api_key == "111111" && page.model_dirty);
+    const auto gap_provider = page.model.provider_id;
+    page.model_dirty = true;
+    select_preset(0);
+    MIRAGE_CHECK(!page.preview_preset && page.model.provider_id == gap_provider &&
+                 page.model_dirty && page.model_dialog == PageState::ModelDialog::Discard);
+    frame();
+    element("model.dialog.cancel.bg")->onClick();
+    page.model_dirty = false;
+    page.api_key.clear();
+    page.saving_model = true;
+    select_preset(0);
+    MIRAGE_CHECK(!page.preview_preset && page.model.provider_id == gap_provider);
+    page.saving_model = false;
+    page.model_dialog = PageState::ModelDialog::Discard;
+    select_preset(0);
+    MIRAGE_CHECK(!page.preview_preset && page.model.provider_id == gap_provider);
+    page.model_dialog = PageState::ModelDialog::None;
+    page.model_loaded = true;
+    frame();
+    input_key("  fixture-key \t", true);
+    MIRAGE_CHECK(page.api_key == "fixture-key" && page.model_dirty);
+    input_key("invalid key", true);
+    MIRAGE_CHECK(page.api_key == "fixture-key" &&
+                 page.model_notice.find("API Key") != std::string::npos);
+    discard_model_edits();
+    // An initially unnamed service keeps its key while receiving other providers.
+    page.model_loaded = false;
+    load_provider(unnamed_provider());
+    page.models.clear();
+    page.model_dirty = false;
+    frame();
+    input_key("fixture-unnamed", true);
+    const auto unnamed_id = page.model.provider_id;
+    accept_model_configuration(service_a, "model", "");
+    MIRAGE_CHECK(page.model.provider_id == unnamed_id && page.api_key == "fixture-unnamed" &&
+                 page.model_dirty && page.models.size() == service_a.models.size());
+    discard_model_edits();
+    frame();
+    element("model.protocol.control.bg")->onClick();
+    frame();
+    MIRAGE_CHECK(view->find("model.menu.dismiss"));
+    element("model.menu.dismiss")->onClick();
+    MIRAGE_CHECK(!page.model_format_open && !page.provider_actions);
+    // Every preset is a new draft with its own connection and no copied key.
+    for (std::size_t preset = 0; preset < provider_presets.size(); ++preset) {
+        discard_model_edits();
+        select_preset(preset);
+        MIRAGE_CHECK(page.model.provider_id ==
+                     "preset:" + std::string(provider_presets[preset].id));
+        MIRAGE_CHECK(page.api_key.empty() && page.model.credential_ref.empty());
+    }
+    discard_model_edits();
+    load_provider(service_b);
+    // Capacity includes models belonging to other services.
+    while (page.models.size() < 12) {
+        auto extra = service_b;
+        extra.provider_id = "extra-" + std::to_string(page.models.size());
+        extra.display_name = extra.provider_id;
+        page.models.push_back(extra);
+    }
+    page.adding_model = true;
+    page.new_model_id = "over-budget";
+    add_editor_model();
+    MIRAGE_CHECK(page.provider_models.size() == 1 && page.adding_model);
+    cancel_model_add();
+    discard_model_edits();
+    frame();
+    MIRAGE_CHECK(element("model.add.model.bg")->disabled);
+    delete_editor_model(service_b.display_name);
+    MIRAGE_CHECK(page.provider_models.empty() && !page.model.enabled && page.model_window.empty());
+    frame();
+    MIRAGE_CHECK(element("model.provider.enabled.hit")->disabled);
+    accept_model_configuration(service_a, "save", "");
+    load_provider(service_b);
+    for (const bool dark : {false, true}) {
+        width = 860;
+        height = 620;
+        page.dark = dark;
+        page.model_window = "72000";
+        page.model_dirty = true;
+        leave_settings(true);
+        frame();
+        MIRAGE_CHECK(element("model.dialog.panel")->frame.x >= 0 &&
+                     element("model.dialog.confirm.bg")->frame.y + 40 <= height);
+        capture(dark ? "model-recovery-minimum-dark" : "model-recovery-minimum-light");
+        element("model.dialog.cancel.bg")->onClick();
+        discard_model_edits();
+    }
+    width = 1180;
+    height = 800;
     glfwPollEvents();
     window::close();
     glfwWaitEvents();

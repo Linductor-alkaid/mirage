@@ -123,6 +123,10 @@ bool ModelLayerConfig::valid(std::string &error) const {
         error = "API prefix must be an absolute URL path";
         return false;
     }
+    if (dialect == "anthropic.messages.v1" && supports_reasoning) {
+        error = "Anthropic extended thinking is not supported by this adapter";
+        return false;
+    }
     if (!enabled) {
         return true;
     }

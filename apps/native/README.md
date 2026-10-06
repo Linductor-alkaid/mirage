@@ -32,6 +32,8 @@ bundled 源码，不在 configure 时获取浮动依赖。Windows preset 可配�
 API Key 保存在 Linux Secret Service / Windows Credential Manager，service.json 仅保存引用。
 已存 Key 不回传界面；留空保留，点击“移除”后保存才清除。系统钥匙环不可用/锁定时提示失败，
 请解锁后重试；不使用明文后备存储。旧 credential_env 配置保留读取兼容，新增配置直接填 Key。
+服务首次未连接时可先选择预设、输入或粘贴Key草稿，切换/取消提供未保存确认；点击模型页上方刷新重连。
+连接后保留新Key并恢复该服务保存的配置，再点击保存应用。未连接时不写入配置或钥匙环。
 保存会合并写入服务的 service.json 并应用；已有活动轮次时先停止。
 Linux 已验证系统凭据与重启调用；Windows 凭据路径尚待目标环境验证。
 当前 EUI 临时密码适配不支持撤销/重做，遮蔽时复制只得到掩码，见 EUI-20261005-004。
@@ -67,7 +69,7 @@ cmake --build --preset native-release --target mirage-native-register-desktop
 ```
 
 目标写入 `$XDG_DATA_HOME/applications/org.mirage.native.desktop`（未设置时为
-`~/.local/share/applications/`），引用当前构建的可执行文件和 PNG。普通构建不会修改
+`~/.local/share/applications/`），引用当前构建的 `mirage start` 启动器、独立前端/托盘路径和 PNG。普通构建不会修改
 用户桌面配置。重新打开应用后生效，应用列表也可通过 Mirage 启动；清理构建树或更换
 路径后需重新注册。此开发入口不等于 M6-04 的安装包/托盘入口。
 

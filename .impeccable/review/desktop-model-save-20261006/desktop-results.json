@@ -1,0 +1,9 @@
+{
+  "scope": "GIO launches generated desktop entry; no prestarted service; private XDG/DBus/Xvfb",
+  "service_started": true,
+  "native_started": true,
+  "tray_started": true,
+  "separate_processes": true,
+  "existing_service_reused": true,
+  "inference_requests": 0
+}

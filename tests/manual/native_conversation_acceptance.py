@@ -2,7 +2,9 @@
 
 Requires python-xlib, Pillow, Xvfb, DBus, IBus/libpinyin and system PyGObject.
 --provider selects an already authorized local Mira model_provider directory;
-it makes one paid model request. Credentials are read only into the service
+it makes one paid model request unless --settings-only is selected.
+The settings-only mode checks paste/save and typed replacement without inference.
+Credentials are read only into the service
 child environment, never printed or stored in the temporary settings file.
 All windows, clipboard input, service state and IM settings are private.
 This is a bounded external test driver, not a product task/executor path.
@@ -118,7 +120,15 @@ def session(args):
             env['MIRAGE_ACCEPTANCE_KEY'] = test_key
         endpoint = str(Path(os.environ['XDG_RUNTIME_DIR']) / 'mirage.sock')
         service_log = open(output / 'service.log', 'w')
-        children.append(subprocess.Popen([str(args.build / 'apps/mirage-service'), '--socket', endpoint, '--config', str(config_path), '--state-dir', os.environ['XDG_STATE_HOME'], '--no-recovery'], env=env, stdout=service_log, stderr=service_log))
+        service_command = [str(args.build / 'apps/mirage-service'), '--socket', endpoint, '--config', str(config_path), '--state-dir', os.environ['XDG_STATE_HOME'], '--no-recovery']
+        if args.desktop_launch:
+            from native_desktop_launch import launch
+            env.pop('MIRAGE_NATIVE_SOCKET', None)
+            env.pop('MIRAGE_TRAY_SOCKET', None)
+            service, app, endpoint = launch(args.build, env, children, output)
+        else:
+            service = subprocess.Popen(service_command, env=env, stdout=service_log, stderr=service_log)
+            children.append(service)
         deadline = time.monotonic() + 10
         while not Path(endpoint).exists() and time.monotonic() < deadline:
             time.sleep(0.1)
@@ -126,10 +136,12 @@ def session(args):
         wire.call('events.subscribe', chat_preview=True)
         initial_sessions = len(wire.call('session.list')['sessions'])
         env.pop('MIRAGE_ACCEPTANCE_KEY', None)
-        env['MIRAGE_NATIVE_SOCKET'] = endpoint
+        ui_endpoint = endpoint + '.offline' if args.offline_start else endpoint
+        env['MIRAGE_NATIVE_SOCKET'] = ui_endpoint
         app_log = open(output / 'native.log', 'w')
-        app = subprocess.Popen([str(args.build / 'apps/native/mirage-native')], env=env, stdout=app_log, stderr=app_log)
-        children.append(app)
+        if not args.desktop_launch:
+            app = subprocess.Popen([str(args.build / 'apps/native/mirage-native')], env=env, stdout=app_log, stderr=app_log)
+            children.append(app)
         deadline = time.monotonic() + 10
         w = None
         while time.monotonic() < deadline and app.poll() is None:
@@ -210,38 +222,101 @@ def session(args):
             owner.destroy()
             D.sync()
 
+        def service_lifecycle(action):
+            nonlocal service, wire, endpoint
+            if action == 'stop':
+                service.terminate()
+                service.wait(timeout=8)
+                wire.sock.close()
+                time.sleep(.3)
+            else:
+                if action == 'restart_for_ui':
+                    endpoint = ui_endpoint
+                    service_command[2] = endpoint
+                service = subprocess.Popen(service_command, env=env, stdout=service_log, stderr=service_log)
+                children.append(service)
+                deadline = time.monotonic() + 8
+                while not Path(endpoint).exists() and time.monotonic() < deadline:
+                    time.sleep(.1)
+                wire = Wire(endpoint)
+                return wire
+
+        def clipboard_text():
+            # Observe only the copied public Base URL, never the key control.
+            key('c', ctrl=True)
+            requestor = root.create_window(-10, -10, 1, 1, 0, D.screen().root_depth)
+            prop = D.intern_atom('MIRAGE_PRESET_URL')
+            requestor.convert_selection(D.intern_atom('CLIPBOARD'), D.intern_atom('UTF8_STRING'), prop, X.CurrentTime)
+            D.flush()
+            deadline = time.monotonic() + 2
+            try:
+                while time.monotonic() < deadline:
+                    if not D.pending_events():
+                        select.select([D], [], [], .02)
+                        continue
+                    event = D.next_event()
+                    if event.type == X.SelectionNotify and event.requestor == requestor:
+                        result = requestor.get_full_property(prop, X.AnyPropertyType)
+                        return bytes(result.value).decode() if result else ''
+                raise TimeoutError('public URL clipboard observation')
+            finally:
+                requestor.destroy()
+                D.sync()
+
         if args.model_settings:
             engine('xkb:us::eng')
             click(226, 756)
             click(90, 226)
             capture('model-empty-live')
-            click(750, 220)
-            paste('Acceptance service')
-            click(720, 284)
-            paste(provider['base_url'].rstrip('/'))
-            if provider['wire_api'] == 'responses':
-                click(780, 348)
-                click(780, 422)
+            if args.preset_selection_only:
+                from native_preset_acceptance import run
+                run(click, paste, key, capture, clipboard_text, wire, service_lifecycle,
+                    output, args.offline_start, args.expect_fixed)
+                click(1150, 30)
+                app.wait(timeout=8)
+                assert app.returncode == 0
+                return
+            if args.preset_minimax:
+                click(420, 360)  # MiniMax built-in template in the service navigation.
+                capture('model-preset-live')
+                expected_name = 'MiniMax'
+            else:
+                expected_name = 'Acceptance service'
+                click(750, 220)
+                paste(expected_name)
+                click(720, 284)
+                paste(provider['base_url'].rstrip('/'))
+                if provider['wire_api'] == 'responses':
+                    click(780, 348)
+                    click(780, 438)
             click(750, 412)
             paste(test_key)
-            click(1030, 456)
-            click(750, 564)
-            paste(cfg['model'])
-            click(790, 604)
+            if not args.preset_minimax:
+                click(1030, 456)
+                click(750, 564)
+                paste(cfg['model'])
+                click(790, 604)
+                click(1035, 220)  # Explicitly enable the initially disabled custom service.
             click(1060, 744)
             deadline = time.monotonic() + 8
             saved = None
             while time.monotonic() < deadline:
                 result = wire.call('model.get')
                 saved = json.loads(result['model_settings'])
-                if saved.get('model', {}).get('provider_name') == 'Acceptance service':
+                if saved.get('model', {}).get('provider_name') == expected_name:
                     break
                 time.sleep(0.1)
             capture('model-after-save-live')
-            assert saved and saved['model'].get('provider_name') == 'Acceptance service', 'model UI did not save'
+            assert saved and saved['model'].get('provider_name') == expected_name, 'model UI did not save'
             assert saved['model']['enabled'] and saved['model']['model'] == cfg['model']
             assert saved['model']['api_key_configured'] and len(saved['model']['credential_ref']) == 32
             assert len(saved['models']) == 1 and 'credential_env' not in saved['model']
+            if args.preset_minimax:
+                assert saved['model']['dialect'] == 'anthropic.messages.v1'
+                assert saved['model']['api_prefix'] == '/anthropic/v1'
+                assert saved['model']['provider_id'] == 'preset:minimax'
+            else:
+                assert saved['model']['dialect'] == ('openai.responses.v1' if provider['wire_api'] == 'responses' else 'openai.chat-completions.v1')
             assert test_key not in json.dumps(saved)
             stored = list(Path(os.environ['XDG_CONFIG_HOME']).rglob('service.json'))
             assert stored and any(saved['model']['credential_ref'] in path.read_text() for path in stored), 'saved reference missing from disk'
@@ -250,6 +325,43 @@ def session(args):
             # Refresh must restore the acknowledged name and configured-key state.
             click(977, 152)
             capture('model-refreshed-live')
+            if args.settings_audit:
+                from model_settings_audit import run
+                run(click, paste, key, capture, wire, output, saved, args.expect_fixed, service_lifecycle)
+                click(1150, 30)
+                app.wait(timeout=8)
+                assert app.returncode == 0
+                return
+            if args.settings_only:
+                # Replace only the key of an acknowledged, otherwise clean
+                # service. A new reference proves the UI submitted this edit.
+                old_reference = saved['model']['credential_ref']
+                click(750, 412)
+                for char in 'replacementkey':
+                    key(char)
+                capture('key-typed-save-enabled')
+                click(1060, 744)
+                deadline = time.monotonic() + 8
+                while time.monotonic() < deadline:
+                    updated = json.loads(wire.call('model.get')['model_settings'])
+                    if updated['model']['credential_ref'] != old_reference:
+                        break
+                    time.sleep(0.1)
+                assert updated['model']['credential_ref'] != old_reference, 'typed key did not enable save'
+                assert updated['model']['api_key_configured'], 'typed key not configured'
+                capture('key-typed-saved')
+                results = dict(scope='real Release window, private keyring, synthetic key, no model request',
+                               pasted_key_saved=True, typed_replacement_saved=True,
+                               secret_not_in_settings=True, network_requests=0)
+                (output / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
+                print(json.dumps(results), flush=True)
+                if args.desktop_launch:
+                    from native_desktop_launch import verify_reuse
+                    verify_reuse(args.build, env, service, endpoint, output)
+                click(1150, 30)
+                app.wait(timeout=8)
+                assert app.returncode == 0
+                return
             click(86, 94)
 
         def candidate():
@@ -365,9 +477,13 @@ def session(args):
         assert app.returncode == 0, 'native window exit failed'
         results = {'scope': 'real Release window, private Xvfb/DBus/IBus, real provider', 'model': cfg['model'], 'candidate_positions': [first, second], 'ime_draft_did_not_create_session': True, 'waiting_frames_changed': True, 'preview_count': len(previews), 'preview_max_bytes': max((p['bytes'] for p in previews)), 'terminal_status': terminal['status'], 'final_bytes': len(terminal['reply_text'].encode()), 'history_verified': True, 'idle_native_window_closed': True}
         results['modelSettingsFromEmpty'] = args.model_settings
+        results['presetMinimaxKeyOnly'] = args.preset_minimax
         (output / 'results.json').write_text(json.dumps(results, ensure_ascii=False, indent=2) + '\n')
         print(json.dumps(results, ensure_ascii=False), flush=True)
     finally:
+        if args.desktop_launch:
+            from native_desktop_launch import adopt_remaining
+            adopt_remaining(args.build, os.environ, children)
         if wire:
             wire.sock.close()
         stop(children)
@@ -375,13 +491,36 @@ def session(args):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--build', type=Path, required=True)
+    p.add_argument('--desktop-launch', action='store_true', help='Launch generated desktop entry; verify service bootstrap and key save')
     p.add_argument('--provider', type=Path, required=True)
+    p.add_argument('--preset-selection-only', action='store_true', help='Exercise preset click/dirty navigation without saving or inference')
+    p.add_argument('--offline-start', action='store_true', help='With preset-selection-only, launch UI before its Service socket exists')
+    p.add_argument('--settings-audit', action='store_true', help='Audit real model setting controls without inference')
+    p.add_argument('--expect-fixed', action='store_true', help='Drive repaired confirmation flows')
+    p.add_argument('--settings-only', action='store_true', help='With --model-settings, stop after paste/save and typed key replacement; no inference request')
     p.add_argument('--no-captures', action='store_true')
+    p.add_argument('--preset-minimax', action='store_true', help='With --model-settings, configure the MiniMax preset by entering only its key')
     p.add_argument('--model-settings', action='store_true', help='Start empty; configure the model through the UI and a private system keyring')
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--xvfb', default='Xvfb')
     p.add_argument('--session', action='store_true', help=argparse.SUPPRESS)
     args = p.parse_args()
+    if args.desktop_launch and not (args.model_settings and args.settings_only and args.preset_minimax):
+        p.error('--desktop-launch requires --model-settings --settings-only --preset-minimax')
+    if args.desktop_launch and (args.offline_start or args.settings_audit or args.preset_selection_only):
+        p.error('--desktop-launch is a separate settings-only run')
+    if (args.settings_only or args.settings_audit or args.preset_selection_only) and not args.model_settings:
+        p.error('settings-only/audit/preset-selection-only require --model-settings')
+    if args.settings_audit and not args.preset_minimax:
+        p.error('--settings-audit requires --preset-minimax for its synthetic catalog layout')
+    if args.expect_fixed and not (args.settings_audit or args.preset_selection_only):
+        p.error('--expect-fixed requires a settings audit or preset selection run')
+    if args.offline_start and not args.preset_selection_only:
+        p.error('--offline-start requires --preset-selection-only')
+    if args.preset_selection_only and (args.settings_only or args.settings_audit):
+        p.error('preset-selection-only is a separate settings run')
+    if args.settings_only and args.settings_audit:
+        p.error('choose either --settings-only or --settings-audit')
     args.build = args.build.resolve()
     args.provider = args.provider.resolve()
     args.output = args.output.resolve()
@@ -410,9 +549,16 @@ def main():
                  '--build', str(args.build), '--provider', str(args.provider),
                  '--output', str(args.output), '--session',
                  *(['--no-captures'] if args.no_captures else []),
-                 *(['--model-settings'] if args.model_settings else [])],
+                 *(['--model-settings'] if args.model_settings else []),
+                 *(['--desktop-launch'] if args.desktop_launch else []),
+                 *(['--preset-minimax'] if args.preset_minimax else []),
+                 *(['--settings-only'] if args.settings_only else []),
+                 *(['--settings-audit'] if args.settings_audit else []),
+                 *(['--preset-selection-only'] if args.preset_selection_only else []),
+                 *(['--offline-start'] if args.offline_start else []),
+                 *(['--expect-fixed'] if args.expect_fixed else [])],
                 env=env, start_new_session=True)
-            if driver.wait(timeout=110) != 0:
+            if driver.wait(timeout=240 if args.settings_audit else 110) != 0:
                 raise RuntimeError('private acceptance session failed')
         finally:
             if driver is not None and driver.poll() is None:

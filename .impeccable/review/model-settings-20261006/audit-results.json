@@ -1,0 +1,182 @@
+{
+  "scope": "real Release window / XTest / private Service and keyring",
+  "expected_fixed": true,
+  "inference_requests": 0,
+  "checks": [
+    {
+      "name": "preset key-only saved and acknowledged",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "deleting other model preserves unsaved selected budget",
+      "passed": true,
+      "details": "reported budget=32000"
+    },
+    {
+      "name": "cancel restores selected service rather than active service",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "adding a model keeps disabled service disabled",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "invalid budget does not alter acknowledged configuration",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "valid correction can be saved after validation failure",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "trimmed duplicate model rejected without catalog change",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "escape closes inline editor without leaving settings",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "outside click dismisses protocol menu",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "dirty service switch offers explicit recovery choices",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "keep editing retains current service",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "service deletion requires confirmation",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "cancel delete keeps acknowledged service",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "confirm delete removes only the target service",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "cancel key removal retains original credential",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "save key removal clears acknowledged credential",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "pasted key tolerates surrounding clipboard whitespace",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "protocol selection persists openai.responses.v1",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "protocol selection persists openai.chat-completions.v1",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "protocol selection persists anthropic.messages.v1",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "service switch persists disabled state",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "service switch can enable again",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "invalid connection does not overwrite acknowledged configuration",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "connection correction saves after failure",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "blank service name rejected without catalog change",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "service rename updates acknowledged catalog",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "eye button reveals only current key draft",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "replacement key produces new credential reference",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "empty service saves disabled without inventing a model",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "first model can be added to an empty disabled service",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "last model deletion retains disabled service",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "failed save retains current key draft",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "offline cancel restores acknowledged editor",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "failed and cancelled saves leave disk configuration unchanged",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "reconnect preserves editable key draft and can save",
+      "passed": true,
+      "details": ""
+    }
+  ]
+}

@@ -56,7 +56,8 @@ provenance.json。临时兼容边界与移除条件见 EUI-20261004-003，未修
 Linux Dock 的图标身份由 org.mirage.native.desktop 关联，StartupWMClass 与 EUI
 appId/WM_CLASS 均为 org.mirage.native，Icon 引用构建目录的原 PNG。用户级开发
 注册通过显式 CMake 目标完成，遵循 XDG_DATA_HOME，不在普通构建中写用户配置；
-随构建路径变化需重新注册，不替代后续正式安装包入口。
+随构建路径变化需重新注册，不替代后续正式安装包入口。开发条目经 `mirage start`
+先确保Service就绪再启动独立Tray/UI，避免绕过服务导致模型保存一直禁用（BUG-20261006-005）。
 
 ## 可调侧栏与设置（2026-10-04）
 
@@ -224,8 +225,20 @@ X11/IBus/libpinyin候选移动和中文提交已实测，原生Wayland/物理高
 
 服务配置严格对照ZCode 29628c9的SectionLayout、Navigation、ProviderCardSections与ProviderApiFormatSelect。内部服务导航为224px；详情可用宽小于700px时保留56px图标栏，不再切成全宽选择器。导航32px行高、12px面板内缩进；详情24px内缩进。右侧服务标题18px，空服务直接编辑名称，已保存服务在标题更多菜单中重命名/删除。Base URL包含origin和路径，API格式使用下拉菜单（OpenAI Chat Completions / Responses），随后是默认遮蔽的API Key、模型列表、添加模型及当前模型的上下文/思考配置。标签14px，输入32px、inset12px；模型行36px，外层40px。页底状态、取消修改和80×32px保存固定于详情内；保存未就绪时降低按钮不透明度。
 
-服务与模型分别呈现，settings.models仍有12条总预算；provider_id/provider_name是可选产品元数据，旧display_name单模型配置兼容。没有目录时左侧显示本地“未命名服务”；填名称后先保留该草稿行，保存成功ACK才更新左侧名称、目录与live_model。无模型服务允许保存为停用。添加/删除模型在独立编辑副本中进行；共享连接与Key按服务一致更新。显式models空数组清空目录，缺失表示旧客户端保持目录。删除服务释放不再被目录/活动模型引用的Key；清理失败返回警告。保存失败保留全部编辑、Key草稿及已应用模型；取消修改仅在读取成功后丢弃。新增模型前保留当前模型的窗口与思考编辑。支持reasoning_effort时可开启思考深度，默认不传参数。
+服务与模型分别呈现，settings.models仍有12条总预算；provider_id/provider_name是可选产品元数据，旧display_name单模型配置兼容。没有目录时左侧显示本地“未命名服务”；填名称后先保留该草稿行，保存成功ACK才更新左侧名称、目录与live_model。无模型服务允许保存为停用。添加/删除模型在独立编辑副本中进行；共享连接与Key按服务一致更新。显式models空数组清空目录，缺失表示旧客户端保持目录。删除服务释放不再被目录/活动模型引用的Key；清理失败返回警告。保存失败保留全部编辑、Key草稿及已应用模型；取消修改按DEC-044从最近已确认目录恢复当前服务，不依赖再次读取。新增模型前保留当前模型的窗口与思考编辑。支持reasoning_effort时可开启思考深度，默认不传参数。
 
 本轮基于公开源码逐项对照和原生实渲染取证；未取得运行中ZCode原生窗口截图，不宣称像素级1:1。Mirage尚未接入的Anthropic、OAuth/套餐、模型连通性探测和额外模型元数据不展示伪实现，差异及补齐条件见M6-21验收记录。
 
 侧栏采用20px行外缩进，品牌/导航/历史图标中心x=44、文字x=64。保存经既有RuntimeBridge/Executor IPC，未新增任务或平台设施。配置存在性与provider元数据是Mirage产品职责，Mira模型网关/公开Profile和生命周期保持复用。
+
+## M6-22：预设与Messages接入
+
+DEC-043在既有ACK/密钥事务下增加11项API Key预设及anthropic.messages.v1，来源固定ZCode config/provider模板与MiniMax官方文档。用户选择预设后只需Key保存，其他连接字段仍可编辑；未知窗口预算保持0，MiniMax-M3按官方1M窗口填充。模型层Messages普通文本/工具/SSE已接入；extended thinking明确停用。侧栏24px外边距/48px图标中心/68px文字轴，服务标题8px内边距且静态显示同轴。MiniMax图片测试使用Mira公开Provider发送合成PNG；当前会话文本附件边界不变，不宣称图片上传已交付。
+
+M6-22 / BUG-20261006-001：密钥遮蔽Adapter的回调读取当前owner持有草稿值；同批次输入从首个undo快照重建整体编辑。成功编辑置dirty并请求页面刷新，保留加载/保存门禁与ACK权威；组件隐藏状态仍仅含掩码。
+
+## M6-23：模型编辑器交互恢复
+
+依据DEC-044，ACK目录与当前编辑副本分别更新；取消恢复当前服务/模型，离线可用。模型增删使用稳定ID并保留选中参数；新模型继承服务开关，容量含其他服务。未保存导航提供继续编辑/放弃选择，服务删除单独确认。内联添加有取消入口，未确认ID不能被保存遗漏；菜单在表单外收起/互斥，加载/保存/弹窗期间门禁覆盖键鼠及IME，键盘Repeat不再次激活。Key粘贴仅处理首尾空白，非法字符有可恢复提示；不增加API/持久化/并发设施。[Linux真实交互与边界验收](../compatibility/model-settings-interactions-20261006.md)。
+
+BUG-20261006-003/004修订加载门禁：初次连接前允许本地预设选择及API Key草稿输入/显隐，其他配置与保存等待ACK。Key草稿参与本地取消、切换和离开页面的未保存确认；首次ACK恢复所选预设已有的地址、模型和凭据引用，同时保留新Key及未保存提示，不自动提交。未命名服务的Key草稿也不被目录加载覆盖。保存或弹窗期间仍禁止键鼠/IME编辑，已有ACK目录独立更新，不引入其他凭据副本或后台设施。

@@ -181,6 +181,22 @@ int main(int argc, char **argv) {
         std::printf("%s\n", result.ok ? result.reply_text.c_str() : result.error.c_str());
         return result.ok ? 0 : 1;
     }
+    // M6-22: Messages is a real pinned dialect; unsupported thinking fails at
+    // configuration validation, before admitting a model request.
+    {
+        integration::ModelLayerConfig config;
+        config.enabled = true;
+        config.model_selector = "fixture";
+        config.endpoint_origin = "https://api.example.test";
+        config.dialect = "anthropic.messages.v1";
+        std::string error;
+        MIRAGE_CHECK(config.valid(error));
+        config.supports_reasoning = true;
+        MIRAGE_CHECK(!config.valid(error) && error.find("thinking") != std::string::npos);
+        config.supports_reasoning = false;
+        config.dialect = "unknown.messages";
+        MIRAGE_CHECK(!config.valid(error));
+    }
     // Exercise the production transport admission path, without any network
     // request or credentials. Provider fixtures do not start blocking workers.
     {

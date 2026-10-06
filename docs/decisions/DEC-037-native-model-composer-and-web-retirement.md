@@ -20,3 +20,5 @@ Linux Debug/Release、IPC/配置/权限/reasoning 和附件边界测试；ASAN/U
 
 2026-10-05 Linux 首步已执行，结果和限制见[模型/输入栏验收](../compatibility/native-model-composer-20261005.md)
 及[退役验收](../compatibility/native-retirement-20261005.md)。
+
+2026-10-06 / BUG-20261006-005：开发注册入口仍直接运行mirage-native，偏离安装入口已有的mirage start路径，导致无Service时保存一直未就绪。开发desktop entry复用现有启动器并传入构建产物的绝对UI/Tray路径；注册目标依赖完整启动产物。Service由既有启动器探测/复用/拉起，各进程保留现有唯一Executor owner；不在UI中创建守护线程或隐式自启动。M6-24验证实际desktop启动及Key保存，M6-04整体退出/活动确认仍独立验收。

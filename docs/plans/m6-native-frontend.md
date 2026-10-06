@@ -37,7 +37,10 @@
 | M6-19 | Completed（Linux） | 修复EUI Vulkan生命周期探针，四种窗口/渲染组合CI与SDK消费复验；维护者2026-10-05明确授权，沿用DEC-041 |
 | M6-20 | Completed（Linux X11） | 在真实原生窗口补验输入框IME、真实服务流式回复与等待计时，修正验收中发现的会话体验问题；沿用DEC-041，维护者2026-10-06再次明确范围 |
 | M6-18 | Completed（Linux） | 接入Mira PR#76修复与公开ConversationLoop，保持Executor版本；依赖审计/回填/取消回归 |
+| M6-22 | Completed | 会话侧栏/服务名输入间距、厂商预设、Anthropic Messages接入与MiniMax-M3真实识图；DEC-043 |
 | M6-21 | Completed（Linux X11） | 侧栏统一内容缩进/图标轴；ZCode服务导航、未命名草稿、连接配置和模型列表；保存ACK、失败保留、真实配置重载验收，依据DEC-042 |
+| M6-23 | Completed（Linux X11） | 实际模型页35项交互修复/复验；DEC-044，324项renderer、ACK、断线重连与最小明暗证据 |
+| M6-24 | Completed（Linux X11） | 修复开发desktop入口绕过Service；真实GIO冷启动、Key保存/替换与服务复用验收 |
 | M6-28 | In Progress | 原生前端 PR 栈 CI 验收、按依赖合并与已合并分支/过期 build 清理；[维护计划](maintenance-ci-acceptance-20261007.md) |
 | M6-10 | Completed | 依工程规范9.4整理Mira/Mirador独立反馈台账，复核已登记问题并向Mira上游提交可复现反馈；不修改依赖或升级pin |
 
@@ -299,3 +302,23 @@ Mira PR#79 pull_request 12项CI成功。pin ed1deb6与锁/审计同步，无forc
 2026-10-06 / M6-21：维护者要求严格对照ZCode模型管理与侧栏。参考源码固定29628c9；先补齐服务与模型的分层、空目录草稿、保存ACK权威状态，再调整224/56px服务导航、32px控件、连接字段顺序及模型行。旧配置保持兼容，凭据仍由系统钥匙环承载，任务仍由RuntimeBridge/Executor管理。计划验收空目录、命名保存/重载、多模型切换、删除与失败回滚、正常/最小明暗截图。
 
 M6-21 Linux支持能力范围验收完成：Debug/Release/ASAN/UBSAN各3/3，原生渲染203 checks；TSAN170+287 checks，无诊断。真实空配置直接Key保存/刷新/磁盘引用/模型请求通过，241次预览及持久历史一致。格式、锁和49公共头边界通过。严格源码对照与未达到完整1:1的差异（包括连接探测/元数据弹窗/自动保存/排序）明确记录，Windows/Wayland/高DPI另验；不把本项扩展成完整ZCode或M6整体完成。见[完整验收](../compatibility/native-provider-editor-20261006.md)。Runtime提交e3645ae，UI/证据范围化提交单独交付，依赖pin不变。
+
+2026-10-06 / M6-22：维护者要求继续对照ZCode调整间距，提供国内外厂商预设与Anthropic协议，并使用本机Mira MiniMax配置验证识图。先核对公开能力，Mira当前仅有两种OpenAI方言；按MIRA-20261006-001登记并经既有依赖修复/PR授权补齐最小Messages方言，保持Executor pin。验收包括真实协议/图片输入、取消和错误、预设保存重载与原生窗口正常/最小明暗状态；不声明未测试厂商可用。
+
+2026-10-06 / M6-22验收：24px侧栏/8px标题输入内边距、11项厂商预设和Messages已交付。完整Debug50/50，相关Release/ASAN/UBSAN各3/3，受控ASLR TSAN2/2；真实MiniMax只填Key保存/刷新/流式会话、工具往返及随机图片2/2通过。来源许可、失败证据、上游PR#80与pin同步。闭合本项Linux本地交付，M6整体不关闭；图片附件产品入口、扩展思考、其他厂商/平台不在本项完成声明内，详见[验收与限制](../compatibility/provider-presets-and-vision-20261006.md)。
+
+2026-10-06 / M6-22 follow-up（In Progress）：维护者报告输入API Key后保存仍灰。定位遮蔽编辑回调捕获上一compose的raw值；连续输入不能稳定落入当前草稿。按DEC-043/既有凭据边界修复最新编辑值与按钮刷新，不改变保存ACK和model_loaded门禁；补验键盘连续输入、粘贴、已保存服务替换与实际保存。
+
+2026-10-06 / M6-22 follow-up Completed（Linux本地，BUG-20261006-001）：修复密钥Adapter批次/快照和刷新，Debug相关3/3、Release/ASAN/UBSAN各renderer1/1；真实Release窗口合成Key粘贴保存/键盘替换ACK通过，不发起模型请求。证据见[API Key保存修复](../compatibility/provider-presets-and-vision-20261006.md#api-key保存按钮修复bug-20261006-001)。
+
+2026-10-06 / M6-23 In Progress：维护者要求自行打开模型设置页全面实测并修复。沿用DEC-042/043服务草稿、ACK、Key边界；在私有Xvfb/DBus/钥匙环运行真实Release进程，逐项检查新增/编辑/切换/删除服务与模型、预算/协议/开关、Key显示/清除、保存/取消、错误/重连和最小窗口键盘交互。使用合成配置/Key、不发起模型推理，不操作用户现有状态。确认缺陷后冻结DEC-044交互修复，补自动化与实际窗口复验；不扩展Agent/RPA能力。
+
+2026-10-06 / M6-23 Completed（Linux X11，BUG-20261006-002）：真实Release应用35/35设置交互通过，修复取消跳服务、模型参数丢失、禁用状态、重复ID、未保存导航、菜单/内联取消、删除确认及Key校验。Debug/Release相关各3/3，ASAN/UBSAN renderer各1/1，renderer324 checks；断线保存保留、离线取消和重连继续保存取证。格式/49公共头边界通过，原生CI补齐CURL/Xvfb并加入renderer。依赖/Executor不变，目标平台和CI限制明确保留，[验收](../compatibility/model-settings-interactions-20261006.md)；M6整体不关闭。
+
+2026-10-06 / M6-23 follow-up Completed（Linux X11，BUG-20261006-003）：真实窗口复现首次未连接时预设被加载门禁禁用；按DEC-044修订允许本地预览，首次ACK后保持预设选择及已有保存配置，字段/保存门禁和草稿保护不变。断线/恢复27项、正常连接23项实际点击通过；Debug/Release相关各3/3、ASAN renderer1/1，renderer341 checks，格式/49公共头边界通过。[验收](../compatibility/preset-selection-20261006.md)。无依赖或并发变更；目标平台限制保留，M6整体不关闭。
+
+2026-10-06 / M6-23 follow-up Completed（Linux X11，BUG-20261006-004）：实际窗口复现初次未连接时API Key事件仍被加载门禁拦截，改为可键入/粘贴/显隐的本地草稿，取消与未保存导航闭合；首次ACK恢复已存连接/模型/凭据引用并保留新Key，显式保存后ACK生效且其他服务不变。断线/恢复39项及正常连接Key保存/替换通过，无推理；Debug/Release相关各3/3、ASAN renderer1/1，renderer349 checks、格式/49公共头边界通过。[验收](../compatibility/api-key-input-20261006.md)。不改依赖、并发或M6-04整体入口，目标平台限制保留，M6整体不关闭。
+
+2026-10-06 / M6-24 Completed（Linux X11，BUG-20261006-005）：维护者报告Key后保存仍灰。当前注册的开发desktop entry直接运行mirage-native，实际只存在UI进程；依DEC-007/037将其接入已交付mirage start，先确保Service就绪再启动独立UI/Tray。注册目标同时构建启动器/Service/Tray，保持Dock身份。从生成的desktop entry真实启动、无需手动预启Service完成Key保存/替换，核实Service复用；不扩展UI任务设施或托盘整体退出确认。
+
+M6-24验收：真实desktop冷启动三个独立进程，Key-only保存、替换、凭据不落明文及Service复用通过；Release相关4/4。详见[入口保存验收](../compatibility/desktop-model-save-20261006.md)。维护者随后要求托盘内嵌Runtime；本记录保留为旧拓扑修复证据，新拓扑由DEC-045另立项。
