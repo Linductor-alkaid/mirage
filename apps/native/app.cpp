@@ -170,10 +170,14 @@ void load_provider(const persistence::ModelSettings &profile) {
     s.model_scroll = 0;
     s.model_notice.clear();
 }
+void load_preset(std::size_t index);
 void select_preset(std::size_t index);
 void accept_model_configuration(const persistence::LocalSettings &document, const std::string &tag,
                                 const std::string &warning) {
     auto &s = state();
+    const auto preview = std::exchange(s.preview_preset, std::nullopt);
+    auto preview_key = preview ? std::move(s.api_key) : std::string{};
+    const bool preview_visible = s.show_api_key;
     s.live_model = document.model.value_or(persistence::ModelSettings{});
     // The ACK catalog remains authoritative even while a draft is protected.
     const auto previous_provider = s.model.provider_id;
@@ -181,8 +185,8 @@ void accept_model_configuration(const persistence::LocalSettings &document, cons
     s.models = document.models;
     if (s.models.empty() && !document.models_present && !s.live_model.model_selector.empty())
         s.models.push_back(s.live_model);
-    if ((!s.model_dirty && !(s.adding_model && !s.new_model_id.empty())) || tag == "save" ||
-        tag == "discard") {
+    if (!preview && ((!s.model_dirty && !(s.adding_model && !s.new_model_id.empty())) ||
+                     tag == "save" || tag == "discard")) {
         auto selected = s.live_model;
         if (tag != "save") {
             const auto previous =
@@ -214,8 +218,16 @@ void accept_model_configuration(const persistence::LocalSettings &document, cons
                          : warning.empty() ? "已保存，配置已生效"
                                            : warning;
     }
-    if (const auto preview = std::exchange(s.preview_preset, std::nullopt))
-        select_preset(*preview);
+    if (preview) {
+        s.model_dirty = false;
+        load_preset(*preview);
+        if (!preview_key.empty()) {
+            s.api_key = std::move(preview_key);
+            s.show_api_key = preview_visible;
+            s.model_dirty = true;
+            s.model_notice = "已连接；新输入的 Key 已保留，请保存以应用。";
+        }
+    }
 }
 // DEC-044: all editor transitions stay on the UI owner thread.
 bool preset_selection_blocked() {
@@ -237,13 +249,21 @@ std::string trim_model_text(std::string value) {
 }
 void discard_model_edits() {
     auto &s = state();
-    if (!s.model_loaded || s.saving_model)
+    if (s.saving_model)
         return;
+    if (!s.model_loaded && s.preview_preset) {
+        s.api_key.clear();
+        s.model_dirty = false;
+        load_preset(*s.preview_preset);
+        return;
+    }
+    const bool loaded = s.model_loaded;
     persistence::LocalSettings acknowledged;
     acknowledged.model = s.live_model;
     acknowledged.models = s.models;
     acknowledged.models_present = true;
     accept_model_configuration(acknowledged, "discard", "");
+    s.model_loaded = loaded;
 }
 void execute_model_navigation(const PageState::ModelNavigation &navigation) {
     auto &s = state();
@@ -274,7 +294,9 @@ void execute_model_navigation(const PageState::ModelNavigation &navigation) {
 }
 void navigate_model(PageState::ModelNavigation navigation) {
     auto &s = state();
-    if (model_editor_blocked())
+    if (preset_selection_blocked() ||
+        (!s.model_loaded && (navigation.destination == PageState::ModelDestination::Provider ||
+                             navigation.destination == PageState::ModelDestination::New)))
         return;
     if (navigation.destination == PageState::ModelDestination::Provider &&
         navigation.provider == s.model.provider_id)
@@ -454,17 +476,18 @@ bool set_base_url(const std::string &url) {
     return scheme != std::string::npos;
 }
 void select_preset(std::size_t index) {
-    auto &v = state();
     if (preset_selection_blocked() || index >= provider_presets.size())
         return;
     if (pending_model_edits()) {
-        if (!v.model_loaded) {
-            v.model_notice = "正在读取配置；连接后可切换预设，当前修改已保留。";
-            return;
-        }
         navigate_model({PageState::ModelDestination::Preset, "", index});
         return;
     }
+    load_preset(index);
+}
+void load_preset(std::size_t index) {
+    auto &v = state();
+    if (index >= provider_presets.size())
+        return;
     const auto &preset = provider_presets[index];
     const auto id = "preset:" + std::string(preset.id);
     const auto existing = std::find_if(v.models.begin(), v.models.end(),
@@ -489,7 +512,7 @@ void select_preset(std::size_t index) {
     v.model_dirty = v.model_loaded;
     v.preview_preset = v.model_loaded ? std::nullopt : std::optional{index};
     v.model_notice = v.model_loaded ? "填写 API Key 后保存即可使用，地址与模型可按需修改。"
-                                    : "预设已选择；连接 Runtime Service 后可填写并保存。";
+                                    : "可先填写 API Key；连接 Runtime Service 后保存。";
 }
 bool call_runtime(ipc::Request request, const std::string &tag, std::uint64_t id = 0) {
     auto &s = state();
@@ -1063,12 +1086,13 @@ void keyboard_activation(eui::Ui &ui, const std::string &id) {
         target->focusable = true;
         if (id.starts_with("model.") && !id.starts_with("model.dialog.") &&
             id != "model.refresh.bg") {
-            const bool preset = id.starts_with("model.preset.");
+            const bool local = id.starts_with("model.preset.") || id == "model.key.visible.bg" ||
+                               id == "model.discard.bg";
             target->disabled =
-                target->disabled || (preset ? preset_selection_blocked() : model_editor_blocked());
+                target->disabled || (local ? preset_selection_blocked() : model_editor_blocked());
             auto handler = target->onClick;
-            target->onClick = [handler, preset] {
-                if (!(preset ? preset_selection_blocked() : model_editor_blocked()) && handler)
+            target->onClick = [handler, local] {
+                if (!(local ? preset_selection_blocked() : model_editor_blocked()) && handler)
                     handler();
             };
         }
@@ -1193,7 +1217,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
         .style(button_style(p))
         .disabled(s.saving_model || s.about || s.confirm_clear || s.confirm_delete ||
                   s.model_dialog != PageState::ModelDialog::None ||
-                  (pending_model_edits() && s.runtime && s.runtime->connected()))
+                  (s.model_loaded && pending_model_edits() && s.runtime && s.runtime->connected()))
         .onClick([] {
             if (state().runtime && state().runtime->connected())
                 call_runtime(ipc::GetModelRequest{}, "model");
@@ -1498,7 +1522,11 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                     state().api_key = key;
                                     state().remove_api_key = false;
                                     state().model_dirty = true;
-                                    state().model_notice = "有未保存的修改";
+                                    state().model_notice =
+                                        state().model_loaded
+                                            ? "有未保存的修改"
+                                            : "Key "
+                                              "草稿已保留；连接服务后可保存，点击上方刷新重试。";
                                     app::requestUpdate();
                                 },
                                 [] {
@@ -1513,7 +1541,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                 .icon(s.show_api_key ? 0xf070 : 0xf06e)
                                 .iconSize(14)
                                 .style(button_style(p))
-                                .disabled(model_editor_blocked())
+                                .disabled(preset_selection_blocked())
                                 .onClick([] { state().show_api_key = !state().show_api_key; })
                                 .build();
                         })
@@ -1813,22 +1841,23 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
         if (auto *hit = ui.find(std::string(id) + ".hit")) {
             auto key = hit->onKeyEvent;
             auto input = hit->onTextInput;
-            hit->onKeyEvent = [key](const eui::KeyEvent &event) {
+            const bool local_key = std::string_view(id) == "model.key";
+            hit->onKeyEvent = [key, local_key](const eui::KeyEvent &event) {
                 if (event.key == eui::InputKey::Escape ||
                     (event.modifiers.control && event.key == eui::InputKey::Comma))
                     return false;
                 const auto &v = state();
                 if (!v.settings || !v.model_page || v.about || v.confirm_clear ||
                     v.confirm_delete || v.model_dialog != PageState::ModelDialog::None ||
-                    !v.model_loaded || v.saving_model)
+                    (!local_key && !v.model_loaded) || v.saving_model)
                     return true;
                 return key ? key(event) : false;
             };
-            hit->onTextInput = [input](const eui::TextInputEvent &event) {
+            hit->onTextInput = [input, local_key](const eui::TextInputEvent &event) {
                 const auto &v = state();
                 if (v.settings && v.model_page && !v.about && !v.confirm_clear &&
                     !v.confirm_delete && v.model_dialog == PageState::ModelDialog::None &&
-                    v.model_loaded && !v.saving_model && input)
+                    (local_key || v.model_loaded) && !v.saving_model && input)
                     input(event);
             };
         }

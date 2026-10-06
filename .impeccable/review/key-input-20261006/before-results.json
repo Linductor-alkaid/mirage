@@ -1,0 +1,19 @@
+{
+  "scope": "actual native window, XTest/public URL clipboard, private Service/keyring",
+  "offline_start": true,
+  "checks": [
+    {
+      "name": "preset can be selected before initial service connection",
+      "passed": true
+    },
+    {
+      "name": "offline preview can switch to another preset",
+      "passed": true
+    },
+    {
+      "name": "offline preset accepts continuous keyboard key input",
+      "passed": false
+    }
+  ],
+  "inference_requests": 0
+}

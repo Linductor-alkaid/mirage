@@ -432,18 +432,25 @@ const auto model = "Mirage";
     eui::TextInputEvent preview_key;
     preview_key.pasteText = "fixture-preview-key";
     element("model.key.hit")->onTextInput(preview_key);
-    MIRAGE_CHECK(page.api_key.empty());
+    MIRAGE_CHECK(page.api_key == "fixture-preview-key" && page.model_dirty && !page.model_loaded);
+    discard_model_edits();
+    MIRAGE_CHECK(page.api_key.empty() && !page.model_dirty && !page.model_loaded);
     eui::KeyEvent preview_enter;
     preview_enter.key = eui::InputKey::Enter;
     preview_enter.action = eui::KeyAction::Press;
     MIRAGE_CHECK(element("model.preset.2.bg")->onKeyEvent(preview_enter));
     MIRAGE_CHECK(page.preview_preset == 2 && !page.model_dirty && page.models.empty());
+    frame();
+    element("model.key.hit")->onTextInput(preview_key);
     accept_model_configuration(empty_catalog, "model", "");
     MIRAGE_CHECK(page.model_loaded && !page.preview_preset && page.model_dirty &&
-                 page.model.provider_id == "preset:minimax");
+                 page.model.provider_id == "preset:minimax" &&
+                 page.api_key == "fixture-preview-key");
     discard_model_edits();
     page.model_loaded = false;
     select_preset(2);
+    frame();
+    element("model.key.hit")->onTextInput(preview_key);
     auto saved_preview = page.model;
     saved_preview.display_name = "saved-preview-model";
     saved_preview.endpoint_origin = "https://example.com";
@@ -455,10 +462,16 @@ const auto model = "Mirage";
     saved_preview_catalog.models_present = true;
     saved_preview_catalog.models = {saved_preview};
     accept_model_configuration(saved_preview_catalog, "model", "");
-    MIRAGE_CHECK(!page.preview_preset && !page.model_dirty &&
+    MIRAGE_CHECK(!page.preview_preset && page.model_dirty &&
                  page.model_base_url == "https://example.com/custom" &&
                  page.model.model_selector == "saved-preview" &&
-                 page.model.credential_ref == "fixture-ref" && page.models.size() == 1);
+                 page.model.credential_ref == "fixture-ref" && page.models.size() == 1 &&
+                 page.api_key == "fixture-preview-key");
+    frame();
+    page.saving_model = true;
+    element("model.key.hit")->onTextInput(preview_key);
+    MIRAGE_CHECK(page.api_key == "fixture-preview-key");
+    page.saving_model = false;
     page.model_dirty = false;
     accept_model_configuration(empty_catalog, "model", "");
     frame();
@@ -770,13 +783,16 @@ const auto model = "Mirage";
     MIRAGE_CHECK(element("model.add.model.bg")->disabled &&
                  element("model.provider.enabled.hit")->disabled);
     element("model.key.hit")->onTextInput(blocked_input);
-    MIRAGE_CHECK(page.api_key.empty());
+    MIRAGE_CHECK(page.api_key == "111111" && page.model_dirty);
     const auto gap_provider = page.model.provider_id;
     page.model_dirty = true;
     select_preset(0);
     MIRAGE_CHECK(!page.preview_preset && page.model.provider_id == gap_provider &&
-                 page.model_dirty);
+                 page.model_dirty && page.model_dialog == PageState::ModelDialog::Discard);
+    frame();
+    element("model.dialog.cancel.bg")->onClick();
     page.model_dirty = false;
+    page.api_key.clear();
     page.saving_model = true;
     select_preset(0);
     MIRAGE_CHECK(!page.preview_preset && page.model.provider_id == gap_provider);
@@ -792,6 +808,18 @@ const auto model = "Mirage";
     input_key("invalid key", true);
     MIRAGE_CHECK(page.api_key == "fixture-key" &&
                  page.model_notice.find("API Key") != std::string::npos);
+    discard_model_edits();
+    // An initially unnamed service keeps its key while receiving other providers.
+    page.model_loaded = false;
+    load_provider(unnamed_provider());
+    page.models.clear();
+    page.model_dirty = false;
+    frame();
+    input_key("fixture-unnamed", true);
+    const auto unnamed_id = page.model.provider_id;
+    accept_model_configuration(service_a, "model", "");
+    MIRAGE_CHECK(page.model.provider_id == unnamed_id && page.api_key == "fixture-unnamed" &&
+                 page.model_dirty && page.models.size() == service_a.models.size());
     discard_model_edits();
     frame();
     element("model.protocol.control.bg")->onClick();
