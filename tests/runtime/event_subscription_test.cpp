@@ -967,6 +967,14 @@ void scenario_disconnect_mid_task_cleans_up() {
     MIRAGE_CHECK(follow_up_id.has_value());
     if (follow_up_id) {
         const auto done = wait_terminal(config.socket_path, *follow_up_id);
+        if (!done || done->progress != "Completed") {
+            std::fprintf(stderr, "[disconnect_mid_task] follow-up terminal=%s\n",
+                         done ? done->progress.c_str() : "missing");
+            if (done)
+                for (const auto &step : done->steps)
+                    std::fprintf(stderr, "  step=%d status=%s exit=%d error=%s\n", step.index,
+                                 step.status.c_str(), step.exit_code, step.error.c_str());
+        }
         MIRAGE_CHECK(done.has_value() && done->progress == "Completed");
     }
 
