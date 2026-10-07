@@ -1199,7 +1199,9 @@ if(UNIX)
         Mirage::ipc Mirage::persistence Mirage::integration_mira executor)
     mirage_enable_warnings(native_agent_integration_test)
     add_test(NAME native_agent_integration_test COMMAND native_agent_integration_test)
-    set_tests_properties(native_agent_integration_test PROPERTIES LABELS "integration;runtime;ui" TIMEOUT 40)
+    # Includes escaped multi-MiB persistence/recovery; fully instrumented Debug
+    # builds need a larger harness budget. Individual operation deadlines stay bounded.
+    set_tests_properties(native_agent_integration_test PROPERTIES LABELS "integration;runtime;ui" TIMEOUT 120)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_ENABLE_NATIVE_FRONTEND)

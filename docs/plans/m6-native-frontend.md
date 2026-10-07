@@ -451,3 +451,8 @@ M6-31验收：Release全部52/52、UI模型388、集成298、原生渲染14,019 
 思考在模型步骤返回时出现，当前仅wait工具；Windows/Wayland/高DPI待对应环境补验，
 负责人Codex，详见[验收与能力限制](../compatibility/conversation-process-rendering-20261007.md)。
 不关闭整体M6。
+
+M6-31 / PR#75补验：首轮ASAN/TSAN均因新增大文件恢复用例触及40秒CTest总时限；
+总时限改为120秒，保留操作期限及全部断言。本机完整Debug ASAN 298 checks、
+0失败（26.28秒），Release相关1/1及格式/公开头边界通过。
+最终CI与合并证据见[PR#75](https://github.com/Linductor-alkaid/mirage/pull/75)。

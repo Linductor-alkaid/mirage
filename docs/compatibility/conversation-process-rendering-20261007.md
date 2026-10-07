@@ -70,6 +70,28 @@ TSAN完整插桩自研和Mira/Executor依赖通过（298 checks、无诊断、�
 
 当前公开ModelPreviewSink只有正文：思考在每次完整模型步骤响应后出现，不是逐token流式思考。
 当前会话工具仍仅wait，未接入桌面/RPA工具。历史中的无过程旧轮不会补造过程。
-Windows/Wayland/高DPI、全依赖ASAN/UBSAN及vptr未执行；负责人Codex，补跑条件为对应
+Windows/Wayland/高DPI、全UI依赖ASAN/UBSAN及vptr未执行；负责人Codex，补跑条件为对应
 平台或完整可插桩依赖构建环境。Linux X11验收不关闭整体M6。
 新可执行文件已构建；当前常驻托盘服务和前端须完整退出后重新启动，才能加载过程推送。
+
+## PR CI总时限补验（2026-10-07）
+
+提交16c8bc5的[首次CI](https://github.com/Linductor-alkaid/mirage/actions/runs/37636001827)
+中，Debug、Release、UBSAN、格式及原生前端通过；ASAN和TSAN均为43/44通过，
+唯一失败是native_agent_integration_test触及40秒CTest总时限，无消毒器诊断。
+该目标新增了12轮转义长思考及大于4MiB文件持久化/恢复，完整Debug插桩的工作量扩大。
+测试总时限调整到120秒；保留原有操作期限、全部断言、取消和故障注入，不跳过测试。
+
+本机Ubuntu 24.04 / GCC 13.3的完整Debug ASAN（自研及pinned依赖）复验：
+
+```bash
+cmake --preset asan -DMIRAGE_FETCH_DEPENDENCIES=OFF
+cmake --build --preset asan --target native_agent_integration_test -j 4
+ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 ctest --preset asan -R '^native_agent_integration_test$' --output-on-failure -V
+```
+
+298 checks、0失败，26.28秒，无ASAN诊断；不扩大到全UI依赖或UBSAN vptr覆盖。
+原生Release相同目标复验1/1通过（8.36秒），格式/52个公开头边界检查通过。
+本机日志：/tmp/mirage-pr75-full-asan-{configure,build,test}.log、
+/tmp/mirage-pr75-targeted-release-test.log及/tmp/mirage-pr75-reconfigure.log。
+最终提交的CI结论、run链接及合并状态记录在[PR#75](https://github.com/Linductor-alkaid/mirage/pull/75)。
