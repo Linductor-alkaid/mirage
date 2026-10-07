@@ -15,6 +15,7 @@
 #include <mirage/integration/model_layer.hpp>
 #include <mirage/runtime/ipc/client.hpp>
 #include <mirage/runtime/ipc/endpoint.hpp>
+#include <mirage/runtime/ipc/framing.hpp>
 #include <mirage/runtime/persistence/session_state.hpp>
 #include <mirage/runtime/persistence/settings.hpp>
 #include <mirage/runtime/persistence/store.hpp>
@@ -83,6 +84,14 @@ class Provider final : public mira::IModelProvider {
             throw std::runtime_error("scripted failure");
         if (reply.status == mira::ModelCompletionStatus::Cancelled)
             return reply;
+        if (large_thinking.load()) {
+            for (int i = 0; i < 4; ++i)
+                reply.output.emplace_back(
+                    mira::ThinkingPart{std::string(20000, '\1'), "opaque-signature", false});
+        } else
+            reply.output.emplace_back(
+                mira::ThinkingPart{"先核实请求，再执行必要的工具。", "opaque-signature", false});
+        reply.output.emplace_back(mira::ThinkingPart{"redacted-secret-payload", "", true});
         if (bad_tool.load()) {
             mira::ToolCallOutput bad;
             bad.provider_call_id.value = "bad";
@@ -92,14 +101,17 @@ class Provider final : public mira::IModelProvider {
             reply.output.emplace_back(std::move(bad));
             return reply;
         }
-        if ((number == 1 && tool_first.load()) || always_tool.load()) {
+        if ((number == 1 && tool_first.load()) || force_tool.exchange(false) ||
+            always_tool.load()) {
             for (const auto &tool : request.tools)
                 if (tool.wire_name == "wait") {
                     mira::ToolCallOutput call;
                     call.provider_call_id.value = "call-1";
                     call.tool_id = tool.tool_id;
                     call.provider_name = tool.wire_name;
-                    call.arguments = mira::parse_json(R"({"duration_ms":1})").value();
+                    call.arguments = mira::JsonValue{mira::JsonValue::Object{
+                        {"duration_ms",
+                         mira::JsonValue{static_cast<std::int64_t>(wait_duration.load())}}}};
                     call.arguments_digest = mira::canonical_json_digest(call.arguments);
                     reply.output.emplace_back(std::move(call));
                     return reply;
@@ -123,6 +135,8 @@ class Provider final : public mira::IModelProvider {
     std::atomic_int calls{0}, last_tools{0};
     std::atomic_bool saw_high{false}, old_reply{false};
     std::atomic_bool report_usage{true};
+    std::atomic_int wait_duration{1};
+    std::atomic_bool force_tool{false}, large_thinking{false};
     std::atomic_bool hold{false}, tool_first{true}, saw_image{false}, saw_tool_result{false},
         throw_now{false}, always_tool{false}, bad_tool{false};
 };
@@ -240,7 +254,7 @@ int main(int argc, char **argv) {
     mirage::runtime::ServiceConfig config;
     config.socket_path = (dir.root() / "service.sock").string();
     config.settings_directory = dir.root() / "settings";
-    config.model.request_deadline = 300ms;
+    config.model.request_deadline = 1s;
     config.model.max_output_tokens = 512;
     config.persist_recovery_state = false;
     config.persist_session_state = true;
@@ -339,8 +353,18 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "解释一个概念", true}, 2s).ok);
     auto turn = wait_turn(client, session);
     MIRAGE_CHECK(turn && turn->status == "ok");
-    if (turn)
+    if (turn) {
         MIRAGE_CHECK(turn->reply_text == "Mira 已完成通用工具调用。");
+        MIRAGE_CHECK(turn->parts.size() == 3 && turn->parts[0].kind == "thinking" &&
+                     turn->parts[1].kind == "tool" && turn->parts[2].kind == "thinking");
+        MIRAGE_CHECK(turn->parts[1].name == "wait" && turn->parts[1].status == "complete" &&
+                     turn->parts[1].input.find("duration_ms") != std::string::npos &&
+                     !turn->parts[1].output.empty() && turn->process_sequence >= 4);
+        MIRAGE_CHECK(mirage::conversation::encode_parts(turn->parts).find("opaque-signature") ==
+                     std::string::npos);
+        MIRAGE_CHECK(mirage::conversation::encode_parts(turn->parts).find("redacted-secret") ==
+                     std::string::npos);
+    }
     MIRAGE_CHECK(provider->calls.load() == 2 && !provider->saw_image.load() &&
                  provider->saw_tool_result.load());
     MIRAGE_CHECK(provider->profile_.capabilities.limits.max_context_tokens == 32768);
@@ -356,11 +380,16 @@ int main(int argc, char **argv) {
         update.has_reply = true;
         update.sequence = turn->sequence;
         update.context_usage = turn->context_usage;
+        update.parts = turn->parts;
+        update.process_sequence = turn->process_sequence;
         ipc::Event envelope;
         envelope.seq = 1;
         envelope.payload = update;
         const auto json = ipc::encode_event(envelope);
         const auto decoded = ipc::decode_event(json);
+        MIRAGE_CHECK(decoded.ok &&
+                     std::get<ipc::ChatTurnUpdatedEvent>(decoded.event.payload).parts ==
+                         turn->parts);
         MIRAGE_CHECK(decoded.ok && std::get<ipc::ChatTurnUpdatedEvent>(decoded.event.payload)
                                            .context_usage->input_tokens == 2468);
         auto corrupt = json;
@@ -440,6 +469,8 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "非法提案", true}, 2s).ok);
     turn = wait_turn(client, session);
     MIRAGE_CHECK(turn && turn->status == "failed");
+    MIRAGE_CHECK(turn && !turn->parts.empty() && turn->parts.back().kind == "tool" &&
+                 turn->parts.back().status == "failed");
     provider->bad_tool.store(false);
     provider->hold.store(true);
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "等待停止", true}, 2s).ok);
@@ -642,6 +673,60 @@ int main(int argc, char **argv) {
         (void)::poll(nullptr, 0, 1);
     }
     MIRAGE_CHECK(legacy_terminal && !legacy_preview);
+    // DEC-049: actual wait handler progress crosses Topic + IPC + frontend bridge.
+    for (const bool cancel_tool : {false, true}) {
+        provider->wait_duration.store(cancel_tool ? 10000 : 60);
+        provider->force_tool.store(true);
+        const std::string prompt = cancel_tool ? "取消执行中的工具" : "验证工具过程事件";
+        MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, prompt, true}, 2s).ok);
+        bool running = false, terminal = false, complete = false, waiting = false;
+        std::string call_id;
+        std::uint64_t process_sequence = 0;
+        deadline = std::chrono::steady_clock::now() + 3s;
+        while (std::chrono::steady_clock::now() < deadline && !terminal) {
+            while (bridge.receive(message)) {
+                if (!message.event)
+                    continue;
+                const auto *update =
+                    std::get_if<ipc::ChatTurnUpdatedEvent>(&message.event->payload);
+                if (!update || update->user_text != prompt)
+                    continue;
+                if (update->process_sequence) {
+                    MIRAGE_CHECK(update->process_sequence > process_sequence);
+                    process_sequence = update->process_sequence;
+                }
+                for (const auto &part : update->parts) {
+                    if (part.kind != "tool")
+                        continue;
+                    if (call_id.empty())
+                        call_id = part.id;
+                    MIRAGE_CHECK(call_id == part.id);
+                    waiting |= part.status == "pending";
+                    complete |= part.status == "complete";
+                    if (part.status == "running" && !running) {
+                        running = true;
+                        if (cancel_tool)
+                            MIRAGE_CHECK(client.call(ipc::CancelChatRequest{session}, 2s).ok);
+                    }
+                }
+                terminal |= update->status != "pending";
+            }
+            (void)::poll(nullptr, 0, 1);
+        }
+        MIRAGE_CHECK(waiting && running && terminal && (cancel_tool || complete));
+        const auto result = wait_turn(client, session);
+        MIRAGE_CHECK(result && result->status == (cancel_tool ? "failed" : "ok"));
+        if (result) {
+            const auto tool = std::find_if(result->parts.begin(), result->parts.end(),
+                                           [](const auto &part) { return part.kind == "tool"; });
+            MIRAGE_CHECK(tool != result->parts.end() && tool->id == call_id &&
+                         tool->status == (cancel_tool ? "cancelled" : "complete"));
+        }
+    }
+    provider->wait_duration.store(1);
+    MIRAGE_CHECK(
+        client.call(ipc::SessionChatRequest{session, "取消后继续会话", true, "read_only"}, 2s).ok);
+    MIRAGE_CHECK(wait_turn(client, session)->status == "ok");
     // Intentionally stop draining the UI inbox: overflow must be observable and recoverable.
     bool admitted = true;
     for (int batch = 0; batch < 12; ++batch) {
@@ -666,6 +751,41 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(!bridge.load_attachment(attachment_path, 7));
     turn = wait_turn(client, session);
     MIRAGE_CHECK(turn && turn->status == "ok");
+    // Escaped thinking fills the projection budget and must not break history frames/storage.
+    legacy.shutdown();
+    const auto budget_open = client.call(ipc::OpenSessionRequest{}, 2s);
+    MIRAGE_CHECK(budget_open.ok);
+    const auto budget_session = std::get<ipc::SessionOpened>(budget_open.payload).session_id;
+    provider->large_thinking.store(true);
+    for (int i = 0; i < 12; ++i) {
+        MIRAGE_CHECK(
+            client
+                .call(ipc::SessionChatRequest{budget_session, "长过程容量验证", true, "read_only"},
+                      2s)
+                .ok);
+        const auto result = wait_turn(client, budget_session);
+        MIRAGE_CHECK(result && result->status == "ok" && result->parts.size() == 4);
+        if (result) {
+            MIRAGE_CHECK(mirage::conversation::valid_parts(result->parts));
+            MIRAGE_CHECK(
+                std::all_of(result->parts.begin(), result->parts.end(), [](const auto &part) {
+                    return part.truncated &&
+                           part.text.size() == mirage::conversation::max_part_text;
+                }));
+        }
+    }
+    provider->large_thinking.store(false);
+    const auto bounded_history = client.call(ipc::ChatHistoryRequest{budget_session, 40}, 2s);
+    MIRAGE_CHECK(bounded_history.ok &&
+                 ipc::encode_response(bounded_history).size() <= ipc::kMaxFrameBytes);
+    if (bounded_history.ok) {
+        const auto &history = std::get<ipc::DialogHistory>(bounded_history.payload);
+        MIRAGE_CHECK(history.truncated && !history.turns.empty() && history.turns.size() < 12);
+        MIRAGE_CHECK(history.turns.back().sequence == 12);
+        MIRAGE_CHECK(std::is_sorted(
+            history.turns.begin(), history.turns.end(),
+            [](const auto &left, const auto &right) { return left.sequence < right.sequence; }));
+    }
     // Write-only keys: keys live in the injected OS store, never settings/get.
     const auto key_packet = ipc::SetModelRequest{serialized, "mirage-synthetic-api-key"};
     const auto key_roundtrip = ipc::decode_request(ipc::encode_request(18, key_packet));
@@ -827,13 +947,13 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(
         client.call(ipc::SessionChatRequest{primary_session, "主会话旧历史", true}, 2s).ok);
     MIRAGE_CHECK(wait_turn(client, primary_session).has_value());
-    MIRAGE_CHECK(client.call(ipc::DeleteSessionRequest{primary_session}, 2s).ok);
+    MIRAGE_CHECK(client.call(ipc::DeleteSessionRequest{primary_session}, 8s).ok);
     const auto primary_history = client.call(ipc::ChatHistoryRequest{primary_session, 40}, 2s);
     MIRAGE_CHECK(primary_history.ok &&
                  std::get<ipc::DialogHistory>(primary_history.payload).turns.empty());
     const auto persisted_sessions = persistence::decode_session_state(
         persistence::LocalStateStore(config.session_state_directory, "session-state.json",
-                                     1024 * 1024)
+                                     persistence::kMaxSessionStateFileBytes)
             .load()
             .body);
     MIRAGE_CHECK(persisted_sessions.ok &&
@@ -887,8 +1007,11 @@ int main(int argc, char **argv) {
     // DEC-046 regression: old releases persisted empty primary sessions at every restart.
     persistence::LocalStateStore recovered_disk(config.session_state_directory,
                                                 "session-state.json",
-                                                persistence::kMaxSettingsFileBytes * 8);
-    auto ghost_recovery = persistence::decode_session_state(recovered_disk.load().body);
+                                                persistence::kMaxSessionStateFileBytes);
+    const auto large_recovery = recovered_disk.load();
+    MIRAGE_CHECK(large_recovery.status == persistence::LoadStatus::Loaded &&
+                 large_recovery.body.size() > 4 * 1024 * 1024);
+    auto ghost_recovery = persistence::decode_session_state(large_recovery.body);
     MIRAGE_CHECK(ghost_recovery.ok);
     for (int i = 0; i < 16; ++i) {
         persistence::PersistedSession ghost;
@@ -928,6 +1051,17 @@ int main(int argc, char **argv) {
             !restored_turns.empty() &&
             std::none_of(restored_turns.begin(), restored_turns.end(),
                          [&obsolete](const auto &item) { return item.turn_id == obsolete; }));
+        MIRAGE_CHECK(
+            std::any_of(restored_turns.begin(), restored_turns.end(), [](const auto &entry) {
+                return std::any_of(entry.parts.begin(), entry.parts.end(),
+                                   [](const auto &part) { return part.kind == "thinking"; });
+            }));
+        const auto restored_budget =
+            restored_client.call(ipc::ChatHistoryRequest{budget_session, 40}, 2s);
+        MIRAGE_CHECK(restored_budget.ok &&
+                     std::get<ipc::DialogHistory>(restored_budget.payload).turns.back().sequence ==
+                         12);
+        MIRAGE_CHECK(restored_client.call(ipc::DeleteSessionRequest{budget_session}, 2s).ok);
         const auto restored_last = restored_turns.back().turn_id;
         MIRAGE_CHECK(restored_client.call(ipc::SetModelRequest{serialized}, 2s).ok);
         provider->hold.store(false);

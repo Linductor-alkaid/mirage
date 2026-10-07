@@ -1,4 +1,5 @@
 #pragma once
+#include "control_metrics.hpp"
 #include "secret_edit.hpp"
 #include "typography.hpp"
 #include <components/input.h>
@@ -21,7 +22,7 @@ inline void secret_input(core::dsl::Ui &ui, const std::string &id, float width, 
         .value(visible ? value : std::string(value.size(), '*'))
         .placeholder(placeholder)
         .fontSize(ui_font_size(14))
-        .inset(12)
+        .inset(control_text_inset)
         .style(style)
         .onChange([&editing, visible, &value, change, invalid](const std::string &next) {
             std::optional<std::string> result;

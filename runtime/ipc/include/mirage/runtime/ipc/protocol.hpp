@@ -1,4 +1,5 @@
 #pragma once
+#include <mirage/conversation.hpp>
 
 #include <chrono>
 #include <cstddef>
@@ -569,6 +570,8 @@ struct DialogTurnEntry {
     std::uint64_t sequence = 0;
     std::int64_t recorded_at_ms = 0;
     std::optional<ContextUsage> context_usage;
+    std::vector<conversation::Part> parts = {};
+    std::uint64_t process_sequence = 0;
 };
 
 /// One session's dialog thread as reported by session.chat.history
@@ -974,6 +977,8 @@ struct ChatTurnUpdatedEvent {
     std::uint64_t sequence = 0;
     std::optional<ContextUsage> context_usage;
     std::string replaces_turn_id = {};
+    std::vector<conversation::Part> parts = {};
+    std::uint64_t process_sequence = 0;
 };
 
 // DEC-041: ephemeral bounded FULL snapshot, never history/usage/tool authority.

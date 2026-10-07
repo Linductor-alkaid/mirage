@@ -1,0 +1,35 @@
+{
+  "date": "2026-10-07",
+  "work_item": "M6-31",
+  "decision": "DEC-049",
+  "source": "working tree on 4c3271c926d8a7ba29d651dc81dcc52d0b1d3c0e",
+  "reference": "/home/linductor/ZCode @ 29628c9acdb81b703bbd4080c207a0e7ce5e276e",
+  "fixture": "scripted IModelProvider + actual Mira ConversationLoop/wait handler, real IPC/Executor/native renderer; no remote model request",
+  "release_tests": {
+    "passed": 52,
+    "failed": 0
+  },
+  "renderer_checks": 14019,
+  "native_model_checks": 388,
+  "integration_checks": 298,
+  "asan_ubsan": "passed all own source dependencies of three targets; pinned dependency binaries reused; vptr excluded",
+  "tsan": "passed full Mirage + pinned Mira/Executor source instrumentation; per-process ASLR disabled; no suppressions",
+  "final_contract_rebuild": "passed; release 52/52 and sanitizer checks on final code",
+  "capacity_checks": "12 escaped 64KiB thinking turns; <=1MiB latest history frame with truncation; >4MiB file restart within 8MiB budget",
+  "logs": [
+    "/tmp/mirage-process-final-budget-tests.log",
+    "/tmp/mirage-process-final-budget-asan.log",
+    "/tmp/mirage-process-final-budget-tsan-test.log",
+    "/tmp/mirage-process-final-checks.log",
+    "/tmp/mirage-process-verified-render.log"
+  ],
+  "platforms_verified": [
+    "Linux X11 software OpenGL"
+  ],
+  "platforms_pending": [
+    "Windows",
+    "Wayland",
+    "high DPI"
+  ],
+  "thinking_stream": "canonical full step response only; public preview carries text only"
+}

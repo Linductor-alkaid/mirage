@@ -359,6 +359,47 @@ void ChatModel::apply_turn(std::uint64_t id, const std::string &turn, const std:
         session->scroll_offset = 10000000.0f;
 }
 
+void ChatModel::apply_process(std::uint64_t id, const std::string &turn,
+                              const std::vector<conversation::Part> &parts, std::uint64_t sequence,
+                              bool pending) {
+    auto *session = find(id);
+    if (!session || !sequence || !conversation::valid_parts(parts))
+        return;
+    const auto message =
+        std::find_if(session->messages.begin(), session->messages.end(),
+                     [&](const auto &item) { return item.turn_id == turn && item.role == "Mira"; });
+    if (message == session->messages.end() || sequence <= message->process_sequence ||
+        (pending && message->status != "运行中"))
+        return;
+    if (pending && std::any_of(parts.begin() + static_cast<std::ptrdiff_t>(
+                                                   std::min(parts.size(), message->parts.size())),
+                               parts.end(), [](const auto &part) { return part.kind == "tool"; }))
+        message->text.clear(); // completed tool-producing response supersedes its ephemeral preview
+    message->parts = parts;
+    message->process_sequence = sequence;
+    std::erase_if(message->expanded_parts, [&](const auto &part) {
+        return std::none_of(parts.begin(), parts.end(),
+                            [&](const auto &item) { return item.id == part; });
+    });
+}
+void ChatModel::toggle_part(std::uint64_t id, std::uint64_t message_id, const std::string &part) {
+    auto *session = find(id);
+    if (!session)
+        return;
+    const auto message = std::find_if(session->messages.begin(), session->messages.end(),
+                                      [&](const auto &item) { return item.id == message_id; });
+    if (message == session->messages.end() ||
+        std::none_of(message->parts.begin(), message->parts.end(),
+                     [&](const auto &item) { return item.id == part && item.kind != "text"; }))
+        return;
+    auto &expanded = message->expanded_parts;
+    const auto found = std::find(expanded.begin(), expanded.end(), part);
+    if (found == expanded.end())
+        expanded.push_back(part);
+    else
+        expanded.erase(found);
+}
+
 void ChatModel::apply_preview(std::uint64_t id, const std::string &turn, const std::string &request,
                               std::uint64_t sequence, const std::string &text, bool truncated) {
     auto *session = find(id);

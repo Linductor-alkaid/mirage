@@ -13,6 +13,7 @@
 #include <mira/adapters/net/openssl_tls.hpp>
 #endif
 
+#include "conversation_capture.hpp"
 #include "model_layer_env.hpp"
 
 #include <algorithm>
@@ -239,7 +240,8 @@ struct ModelLayer::Impl {
         gateway = std::make_unique<mira::ModelGateway>(executor, std::move(router),
                                                        /*artifacts=*/nullptr, mira::PriceTable{},
                                                        mira::ModelGatewayConfig{});
-        gateway->register_provider(provider);
+        observed = std::make_shared<detail::ObservedProvider>(provider);
+        gateway->register_provider(observed);
         gateway->set_event_store(events, mira::RuntimeId::generate(), mira::SessionId::generate());
         return true;
     }
@@ -316,6 +318,7 @@ struct ModelLayer::Impl {
     std::shared_ptr<mira::ISecretResolver> secrets;
     std::shared_ptr<pinned_net::SocketHttpTransport> transport;
     std::shared_ptr<mira::IModelProvider> provider;
+    std::shared_ptr<detail::ObservedProvider> observed;
     std::unique_ptr<mira::ModelGateway> gateway;
     std::shared_ptr<mira::MemoryEventStore> events = std::make_shared<mira::MemoryEventStore>();
     bool running = false;
@@ -356,6 +359,7 @@ void ModelLayer::shutdown() {
         impl_->transport.reset();
     }
     impl_->gateway.reset();
+    impl_->observed.reset();
     impl_->provider.reset();
     impl_->running = false;
 }
@@ -364,7 +368,8 @@ DialogCompletion ModelLayer::complete_dialog_turn(const std::string &transcript,
                                                   const std::string &user_text,
                                                   const mira::OperationContext &context,
                                                   const std::string &reasoning, bool tools_allowed,
-                                                  DialogPreviewSink preview) {
+                                                  DialogPreviewSink preview,
+                                                  DialogProcessSink process) {
     DialogCompletion completion;
     // The drain lock makes shutdown wait out this inference (bounded by the
     // profile transport deadlines) instead of destroying the pinned pieces
@@ -392,6 +397,13 @@ DialogCompletion ModelLayer::complete_dialog_turn(const std::string &transcript,
         return completion;
     }
 
+    detail::ConversationCapture capture(std::move(process));
+    detail::CaptureScope capture_scope(*impl_->observed, capture);
+    auto finish = [&] {
+        capture.settle(completion.cancelled);
+        completion.parts = std::move(capture.parts);
+        return completion;
+    };
     mira::ModelRequest request;
     request.contract_version = mira::SchemaVersion{1, 0};
     request.request_id = mira::ModelRequestId::generate();
@@ -453,24 +465,24 @@ DialogCompletion ModelLayer::complete_dialog_turn(const std::string &transcript,
     if (!outcome) {
         completion.failed = true;
         completion.error = "model layer request failed: " + outcome.error().safe_message;
-        return completion;
+        return finish();
     }
     if (context.cancelled()) {
         completion.cancelled = true;
-        return completion;
+        return finish();
     }
     const auto &response = outcome.value().response;
     if (outcome.value().admitted == false) {
         completion.failed = true;
         completion.error = "model layer rejected the request: " + outcome.value().rejection_reason;
-        return completion;
+        return finish();
     }
     switch (response.status) {
     case mira::ModelCompletionStatus::Completed:
         break;
     case mira::ModelCompletionStatus::Cancelled:
         completion.cancelled = true;
-        return completion;
+        return finish();
     case mira::ModelCompletionStatus::Refused:
     case mira::ModelCompletionStatus::ContentFiltered:
     case mira::ModelCompletionStatus::Failed:
@@ -479,7 +491,7 @@ DialogCompletion ModelLayer::complete_dialog_turn(const std::string &transcript,
         completion.failed = true;
         completion.error = "model layer did not complete the turn (status " +
                            std::to_string(static_cast<int>(response.status)) + ")";
-        return completion;
+        return finish();
     }
 
     // Extract the assistant text: MessageOutput's OutputTextPart parts joined
@@ -496,24 +508,24 @@ DialogCompletion ModelLayer::complete_dialog_turn(const std::string &transcript,
                 } else if (auto *refusal = std::get_if<mira::OutputRefusalPart>(&part)) {
                     completion.failed = true;
                     completion.error = "model refused the request: " + refusal->safe_summary;
-                    return completion;
+                    return finish();
                 }
             }
         } else if (auto *model_refusal = std::get_if<mira::RefusalOutput>(&item)) {
             completion.failed = true;
             completion.error = "model refused the request: " + model_refusal->safe_summary;
-            return completion;
+            return finish();
         }
     }
     if (reply.empty()) {
         completion.failed = true;
         completion.error = "model returned no reply text";
-        return completion;
+        return finish();
     }
     capture_context_usage(completion, response, impl_->config);
     completion.ok = true;
     completion.reply_text = std::move(reply);
-    return completion;
+    return finish();
 }
 
 // MIRA-20261004-001: use the delivered no-observation ConversationLoop (PR #76).
@@ -521,7 +533,8 @@ DialogCompletion ModelLayer::complete_harness_turn(const std::string &transcript
                                                    const std::string &user_text,
                                                    const mira::OperationContext &context,
                                                    const std::string &reasoning, bool tools_allowed,
-                                                   DialogPreviewSink preview) {
+                                                   DialogPreviewSink preview,
+                                                   DialogProcessSink process) {
     DialogCompletion completion;
     if (!impl_ || (!reasoning.empty() && !accepts_reasoning(impl_->config, reasoning))) {
         completion.failed = true;
@@ -534,14 +547,34 @@ DialogCompletion ModelLayer::complete_harness_turn(const std::string &transcript
         completion.error = "harness unavailable or input budget exceeded";
         return completion;
     }
+    detail::ConversationCapture capture(std::move(process));
+    detail::CaptureScope capture_scope(*impl_->observed, capture);
+    auto finish = [&] {
+        capture.settle(completion.cancelled);
+        completion.parts = std::move(capture.parts);
+        return completion;
+    };
     auto registry = std::make_shared<mira::BuiltinToolRegistry>();
     if (tools_allowed) {
         auto wait = mira::make_wait_tool();
-        auto registered = registry->register_tool(wait.spec, wait.handler);
+        auto registered =
+            registry->register_tool(wait.spec, [handler = std::move(wait.handler),
+                                                &capture](const auto &arguments, const auto &ctx) {
+                auto *part = capture.start_tool("wait");
+                try {
+                    auto result = handler(arguments, ctx);
+                    capture.finish_tool(part, result);
+                    return result;
+                } catch (...) {
+                    if (part)
+                        part->status = "failed";
+                    throw; // Mira registry owns exception conversion; service reports failure.
+                }
+            });
         if (!registered) {
             completion.failed = true;
             completion.error = registered.error().safe_message;
-            return completion;
+            return finish();
         }
     }
     mira::ConversationLoopConfig config;
@@ -578,7 +611,7 @@ DialogCompletion ModelLayer::complete_harness_turn(const std::string &transcript
         completion.cancelled = result.error().code == mira::ErrorCode::Cancelled;
         completion.failed = !completion.cancelled;
         completion.error = result.error().safe_message;
-        return completion;
+        return finish();
     }
     const auto &value = result.value();
     completion.cancelled = value.outcome == mira::ConversationOutcome::Cancelled ||
@@ -600,7 +633,7 @@ DialogCompletion ModelLayer::complete_harness_turn(const std::string &transcript
             capture_context_usage(completion, response, impl_->config);
         }
     }
-    return completion;
+    return finish();
 }
 
 } // namespace mirage::integration

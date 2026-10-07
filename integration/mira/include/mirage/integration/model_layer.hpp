@@ -1,4 +1,5 @@
 #pragma once
+#include <mirage/conversation.hpp>
 
 #include <chrono>
 #include <cstdint>
@@ -83,6 +84,7 @@ struct DialogCompletion {
     std::optional<std::uint64_t> input_tokens; // final successful request, provider reported
     std::uint64_t context_window_tokens = 0;
     std::string usage_model;
+    std::vector<conversation::Part> parts = {};
 };
 
 /// Opaque carrier for a caller-supplied pinned model provider (DEC-027 test
@@ -115,6 +117,10 @@ class ModelProviderOverride {
 /// consumers perform bounded delivery only. Canonical results settle separately.
 using DialogPreviewSink =
     std::function<void(const std::string &request_id, const std::string &text, bool truncated)>;
+
+/// Bounded full process snapshot on the caller task; consumers only validate/deliver.
+/// The service owns update sequences; final canonical parts are returned in completion.
+using DialogProcessSink = std::function<void(const std::vector<conversation::Part> &)>;
 
 /// The service-side model layer (DEC-027): assembles the pinned model stack —
 /// ModelProfile + ModelRouter + OpenAiCompatibleProvider over the pinned
@@ -150,16 +156,19 @@ class ModelLayer {
     /// earlier-conversation block (may be empty); `user_text` is the new
     /// user message. Bounded by the context deadline / cancellation probe
     /// and the profile transport deadlines.
-    DialogCompletion
-    complete_dialog_turn(const std::string &transcript, const std::string &user_text,
-                         const mira::OperationContext &context, const std::string &reasoning = "",
-                         bool tools_allowed = true, DialogPreviewSink preview = {});
+    DialogCompletion complete_dialog_turn(const std::string &transcript,
+                                          const std::string &user_text,
+                                          const mira::OperationContext &context,
+                                          const std::string &reasoning = "",
+                                          bool tools_allowed = true, DialogPreviewSink preview = {},
+                                          DialogProcessSink process = {});
 
     // MIRA-20261004-001: bounded conversational harness, no desktop observation.
     DialogCompletion
     complete_harness_turn(const std::string &transcript, const std::string &user_text,
                           const mira::OperationContext &context, const std::string &reasoning = "",
-                          bool tools_allowed = true, DialogPreviewSink preview = {});
+                          bool tools_allowed = true, DialogPreviewSink preview = {},
+                          DialogProcessSink process = {});
 
     /// Ordered teardown: waits out any in-flight dialog completion (bounded
     /// by the profile transport deadlines), then settles the transport's

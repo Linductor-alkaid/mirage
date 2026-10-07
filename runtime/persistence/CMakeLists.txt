@@ -26,3 +26,5 @@ target_link_libraries(mirage_runtime_persistence
     PRIVATE
         Mira::core
 )
+
+target_link_libraries(mirage_runtime_persistence PUBLIC Mirage::conversation)

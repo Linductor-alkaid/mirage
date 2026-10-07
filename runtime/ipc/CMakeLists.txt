@@ -30,3 +30,5 @@ target_link_libraries(mirage_ipc
 
 # The named pipe transport uses kernel base APIs only: no new import
 # library beyond the pinned JSON codec consumption above.
+
+target_link_libraries(mirage_ipc PUBLIC Mirage::conversation)

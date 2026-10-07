@@ -1,4 +1,5 @@
 #pragma once
+#include <mirage/conversation.hpp>
 
 // Internal service module surface (not installed, never included from
 // public headers): the in-memory task registry, the shared service core and
@@ -182,6 +183,8 @@ struct DialogTurnRecord {
     std::string error;
     std::uint64_t sequence = 0;
     std::int64_t recorded_at_ms = 0;
+    std::vector<conversation::Part> parts = {};
+    std::uint64_t process_sequence = 0;
 };
 
 /// One session's dialog thread (DEC-027): the bounded turn log plus the

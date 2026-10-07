@@ -53,3 +53,5 @@ if(TARGET Mira::openssl_transport)
     target_link_libraries(mirage_integration_mira PRIVATE Mira::openssl_transport)
     target_compile_definitions(mirage_integration_mira PRIVATE MIRAGE_HAVE_OPENSSL_TLS)
 endif()
+
+target_link_libraries(mirage_integration_mira PUBLIC Mirage::conversation)

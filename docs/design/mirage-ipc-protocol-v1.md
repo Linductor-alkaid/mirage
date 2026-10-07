@@ -718,3 +718,28 @@ invalid_state 与诊断。退出和通知区故障不绕过 Runtime 有序取消
 这是只读投影，model.set 忽略客户端列表；session.chat.reasoning 经实际模型能力校验。
 当前新增 none/adaptive/xhigh/max；是否提供由具体模型决定。新增字段要求同步升级原生前端的设置解码器；
 新 UI 缺失列表时只显示默认，不猜测未知厂商能力。wire version 保持 v1。
+
+## 会话过程快照（2026-10-07，DEC-049）
+
+`session.chat.history` 的 turn 与 `session.chat_updated` 增加可选 `parts` 数组和
+`process_sequence` 非负整数。缺省为空/0；原 `sequence` 仍表示轮在会话中的位置。
+process_sequence 按同轮更新递增；pending可重复发布，ok/failed终态只收敛一次。
+消费者用 process_sequence 丢弃过期快照，终态后拒绝 pending 更新；丢事件用历史恢复。
+
+每段有 `id`（1..128字节）、`kind`（thinking/text/tool）、`status`
+（pending/running/complete/failed/cancelled），可选 text/name/input/output 与 truncated 布尔。
+非工具段只允许 complete 与 text；工具必须有 name，不携带 text。ID 在一轮内唯一。
+最多96段；name最多128字节，text/input/output各16KiB、总内容64KiB。
+超限显示投影截断且标记 truncated，wire超限/错误类型/重复ID拒绝。
+思考签名和 redacted 数据不投影，不从一般正文识别工具或思考标签。
+
+完整快照经既有 Executor Topic 推送，服务记录始终可从历史读取。参数只是工具请求，
+只有 handler 开始才标 running，返回结果才标 complete；未执行/异常/取消明确收敛。
+纯文本预览仍是瞬态 ChatPreviewEvent；工具响应完成后清除其过期正文预览。
+过程与终态同存于 session-state 的每轮可选字段；旧记录不含字段仍可加载，旧版严格
+持久化读取器遇到新增字段会拒绝，禁止以旧版覆盖新记录。
+公开 ModelPreviewSink 仅有正文，思考在模型步骤规范响应到达后出现。
+
+带过程的历史按实际编码后的1MiB帧预算保留最新轮、维持轮序，truncated同时表示因
+条数或帧预算而省略旧轮；最新单轮超限明确unavailable。会话存储文件与JSON
+读取同限8MiB，超过时沿用显式存储失败，不增大到无界容量。

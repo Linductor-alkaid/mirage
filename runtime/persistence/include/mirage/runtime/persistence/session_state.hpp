@@ -1,4 +1,5 @@
 #pragma once
+#include <mirage/conversation.hpp>
 
 #include <cstdint>
 #include <optional>
@@ -19,6 +20,8 @@ inline constexpr std::size_t kMaxSessionStateSessions = 64;
 inline constexpr std::size_t kMaxSessionStateTurnsPerSession = 256;
 inline constexpr std::size_t kMaxSessionStateEntriesPerSession = 1024;
 inline constexpr std::size_t kMaxSessionStateTextBytes = 16 * 1024;
+// DEC-049: includes bounded reasoning/tool histories, not just final reply text.
+inline constexpr std::size_t kMaxSessionStateFileBytes = 8 * 1024 * 1024;
 
 /// One conversation journal entry of a persisted session (DEC-021 hydration
 /// surface): raw append inputs, so re-appending reproduces the projected
@@ -41,6 +44,8 @@ struct PersistedChatTurn {
     std::string error;
     std::uint64_t sequence = 0;
     std::int64_t recorded_at_ms = 0;
+    std::vector<conversation::Part> parts = {};
+    std::uint64_t process_sequence = 0;
 };
 
 /// One persisted session: registry identity plus the conversation and

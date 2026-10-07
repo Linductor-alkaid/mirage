@@ -1,5 +1,6 @@
 #include "../common/environment.hpp"
 #include "chat_model.hpp"
+#include "control_button.hpp"
 #include "conversation_preview.hpp"
 #include "markdown_adapter.hpp"
 #include "provider_presets.hpp"
@@ -48,6 +49,7 @@ struct PageState {
     ChatModel chat;
     TextSelection selection;
     std::uint64_t hovered_message = 0;
+    std::uint64_t hovered_session = 0;
     std::vector<std::uint64_t> selection_cache_ids;
     bool dark = false;
     bool sidebar = true;
@@ -771,10 +773,13 @@ void drain_runtime() {
                         newest = std::max(newest, turn.sequence);
                     }
                     s.chat.reconcile_turns(session->id, ids, newest);
-                    for (const auto &turn : snapshot->turns)
+                    for (const auto &turn : snapshot->turns) {
                         s.chat.apply_turn(session->id, turn.turn_id, turn.status, turn.user_text,
                                           turn.reply_text, display_error(turn.error),
                                           native_usage(turn.context_usage), turn.sequence);
+                        s.chat.apply_process(session->id, turn.turn_id, turn.parts,
+                                             turn.process_sequence);
+                    }
                 }
             } else if (std::holds_alternative<ipc::DialogTurnAccepted>(payload) &&
                        message.tag == "send") {
@@ -799,6 +804,8 @@ void drain_runtime() {
                                           turn->reply_text, display_error(turn->error),
                                           native_usage(turn->context_usage), turn->sequence,
                                           turn->replaces_turn_id);
+                        s.chat.apply_process(session.id, turn->turn_id, turn->parts,
+                                             turn->process_sequence, turn->status == "pending");
                         s.runtime_notice = turn->status == "pending" ? "Mira 正在运行…"
                                            : turn->status == "ok"    ? "Mira 已回复"
                                                                      : display_error(turn->error);
@@ -851,22 +858,7 @@ void text(eui::Ui &ui, const std::string &id, const std::string &value, float x,
 }
 // Fit the display title to its actual font metrics without changing the session title.
 std::string fitted_title(const std::string &value, float width, float size) {
-    core::TextStyle style;
-    style.fontSize = ui_font_size(size);
-    style.text = value;
-    if (core::TextPrimitive::measureTextSize(style).x <= width)
-        return value;
-    std::string prefix = value;
-    while (!prefix.empty()) {
-        std::size_t last = prefix.size() - 1;
-        while (last > 0 && (static_cast<unsigned char>(prefix[last]) & 0xc0) == 0x80)
-            --last;
-        prefix.resize(last);
-        style.text = prefix + "…";
-        if (core::TextPrimitive::measureTextSize(style).x <= width)
-            return style.text;
-    }
-    return "…";
+    return fit_control_text(value, width, ui_font_size(size));
 }
 void icon(eui::Ui &ui, const std::string &id, unsigned int value, float x, float y, float size,
           float row_height, eui::Color ink) {
@@ -897,18 +889,18 @@ components::ButtonStyle button_style(const Palette &p, bool filled = false) {
 }
 void icon_button(eui::Ui &ui, const std::string &id, unsigned int glyph, float x, float y,
                  const Palette &p, std::function<void()> action, bool filled = false,
-                 bool disabled = false) {
+                 bool disabled = false, float size = 36, float icon_size = 17) {
     auto style = button_style(p, filled);
     if (disabled) {
         style.normal = filled ? p.hover : eui::Color{0, 0, 0, 0};
         style.text = style.icon = p.muted;
     }
-    components::button(ui, id)
+    control_button(ui, id)
         .position(x, y)
-        .size(36, 36)
+        .size(size, size)
         .text("")
         .icon(glyph)
-        .iconSize(17)
+        .iconSize(icon_size)
         .style(style)
         .disabled(disabled)
         .onClick(std::move(action))
@@ -974,7 +966,7 @@ void modal(eui::Ui &ui, const eui::Screen &screen, const Palette &p) {
                 .color(p.muted)
                 .build();
             if (clearing || deleting) {
-                components::button(ui, "dialog.cancel")
+                control_button(ui, "dialog.cancel")
                     .position(x + width - 188, y + height - 60)
                     .size(76, 38)
                     .text("取消")
@@ -983,7 +975,7 @@ void modal(eui::Ui &ui, const eui::Screen &screen, const Palette &p) {
                     .onClick([] { state().confirm_clear = state().confirm_delete = false; })
                     .build();
             }
-            components::button(ui, "dialog.confirm")
+            control_button(ui, "dialog.confirm")
                 .position(x + width - 100, y + height - 60)
                 .size(76, 38)
                 .text(deleting   ? "删除"
@@ -1004,24 +996,24 @@ void modal(eui::Ui &ui, const eui::Screen &screen, const Palette &p) {
         .build();
 }
 void appearance_page(eui::Ui &ui, float x, float width, const Palette &p) {
-    text(ui, "settings.title", "外观", x, 104, width, 48, 24, p.text, 600);
-    text(ui, "settings.description", "调整 Mirage 的显示方式。", x, 160, width, 32, 17, p.muted);
-    const float row_y = 232;
+    text(ui, "settings.title", "外观", x, 90, width, 32, 20, p.text, 600);
+    text(ui, "settings.description", "调整 Mirage 的显示方式。", x, 128, width, 24, 14, p.muted);
+    const float row_y = 176;
     const bool narrow = width < 600;
     ui.rect("settings.theme.panel")
         .position(x, row_y)
-        .size(width, narrow ? 126.0f : 100.0f)
+        .size(width, narrow ? 104.0f : 80.0f)
         .color(p.surface)
         .radius(12)
         .border(1, p.border)
         .build();
-    text(ui, "settings.theme.label", "主题", x + 24, row_y + 16, width - 48, 30, 17, p.text, 500);
+    text(ui, "settings.theme.label", "主题", x + 24, row_y + 16, width - 48, 24, 14, p.text, 500);
     // Narrow windows stack the control below its label instead of compressing the choices.
-    const float control_x = narrow ? x + 24 : x + width - 264;
-    const float control_y = narrow ? row_y + 62 : row_y + 30;
+    const float control_x = narrow ? x + 24 : x + width - 216;
+    const float control_y = narrow ? row_y + 56 : row_y + 26;
     if (!narrow) {
-        text(ui, "settings.theme.description", "选择浅色或深色界面", x + 24, row_y + 50,
-             width - 312, 26, 14, p.muted);
+        text(ui, "settings.theme.description", "选择浅色或深色界面", x + 24, row_y + 42,
+             width - 264, 22, 14, p.muted);
     }
     for (int i = 0; i < 2; ++i) {
         const bool dark = i == 1;
@@ -1029,19 +1021,19 @@ void appearance_page(eui::Ui &ui, float x, float width, const Palette &p) {
         auto style = button_style(p);
         style.normal = selected ? p.selected : p.surface;
         style.border = {1, p.border};
-        components::button(ui, dark ? "settings.theme.dark" : "settings.theme.light")
-            .position(control_x + static_cast<float>(i) * 124, control_y)
-            .size(116, 40)
+        control_button(ui, dark ? "settings.theme.dark" : "settings.theme.light")
+            .position(control_x + static_cast<float>(i) * 96, control_y)
+            .size(88, 28)
             .text(dark ? "深色" : "浅色")
             .icon(dark ? 0xf186 : 0xf185)
-            .iconSize(16)
-            .fontSize(ui_font_size(16))
+            .iconSize(14)
+            .fontSize(ui_font_size(14))
             .style(style)
             .onClick([dark] { state().dark = dark; })
             .build();
     }
     text(ui, "settings.theme.notice", "即时应用 · 本次运行内保留外观偏好", x,
-         row_y + (narrow ? 136 : 120), width, 30, 14, p.muted);
+         row_y + (narrow ? 116 : 92), width, 30, 14, p.muted);
 }
 std::optional<ContextUsage> native_usage(const std::optional<ipc::ContextUsage> &usage) {
     if (!usage)
@@ -1200,7 +1192,7 @@ void model_editor_modal(eui::Ui &ui, const eui::Screen &screen, const Palette &p
                 .wrap()
                 .color(p.muted)
                 .build();
-            components::button(ui, "model.dialog.cancel")
+            control_button(ui, "model.dialog.cancel")
                 .position(x + 230, y + height - 60)
                 .size(104, 40)
                 .text(deleting ? "取消" : "继续编辑")
@@ -1208,7 +1200,7 @@ void model_editor_modal(eui::Ui &ui, const eui::Screen &screen, const Palette &p
                 .style(button_style(p))
                 .onClick([] { state().model_dialog = PageState::ModelDialog::None; })
                 .build();
-            components::button(ui, "model.dialog.confirm")
+            control_button(ui, "model.dialog.confirm")
                 .position(x + 344, y + height - 60)
                 .size(92, 40)
                 .text(deleting ? "删除服务" : "放弃并继续")
@@ -1255,12 +1247,12 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
     auto &s = state();
     if (s.model.provider_id.empty())
         load_provider(s.models.empty() ? unnamed_provider() : s.models.front());
-    text(ui, "model.title", "模型服务", x, 90, width, 40, 24, p.text, 600);
-    text(ui, "model.description", "配置模型服务，管理可用模型。", x, 136, width - 136, 32, 14,
+    text(ui, "model.title", "模型服务", x, 90, width, 32, 20, p.text, 600);
+    text(ui, "model.description", "配置模型服务，管理可用模型。", x, 128, width - 136, 28, 14,
          p.muted);
-    components::button(ui, "model.refresh")
-        .position(x + width - 156, 136)
-        .size(32, 32)
+    control_button(ui, "model.refresh")
+        .position(x + width - 144, 128)
+        .size(28, 28)
         .text("")
         .icon(0xf021)
         .iconSize(14)
@@ -1275,9 +1267,9 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                 start_runtime();
         })
         .build();
-    components::button(ui, "model.add.provider")
-        .position(x + width - 116, 136)
-        .size(116, 32)
+    control_button(ui, "model.add.provider")
+        .position(x + width - 108, 128)
+        .size(108, 28)
         .text("添加服务")
         .icon(0xf067)
         .iconSize(14)
@@ -1287,7 +1279,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
         .onClick([] { navigate_model({PageState::ModelDestination::New, "", 0}); })
         .build();
     const float nav_width = width < 700 ? 56.0f : 224.0f;
-    const float panel_y = 184, panel_height = screen.height - 216;
+    const float panel_y = 168, panel_height = screen.height - 200;
     ui.rect("model.panel")
         .position(x, panel_y)
         .size(width, panel_height)
@@ -1415,8 +1407,8 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                             .size(w - 124, 32)
                             .value(s.model.provider_name)
                             .placeholder("未命名服务")
-                            .fontSize(ui_font_size(18))
-                            .inset(8)
+                            .fontSize(ui_font_size(16))
+                            .inset(control_text_inset)
                             .style([&] {
                                 auto style = input_style;
                                 style.border = {0, 0, 0, 0};
@@ -1431,10 +1423,10 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                             .build();
                     } else {
                         text(list, "model.provider.title",
-                             fitted_title(provider_label(s.model), w - 132, 18), 36, 0, w - 132, 32,
-                             18, p.text, 600);
+                             fitted_title(provider_label(s.model), w - 132, 16), 36, 0, w - 132, 32,
+                             16, p.text, 600);
                     }
-                    components::button(list, "model.provider.actions")
+                    control_button(list, "model.provider.actions")
                         .position(w - 32, 0)
                         .size(32, 32)
                         .text("")
@@ -1491,7 +1483,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                             .value(value)
                             .placeholder(placeholder)
                             .fontSize(ui_font_size(14))
-                            .inset(12)
+                            .inset(control_text_inset)
                             .style(input_style)
                             .onChange([change, id](const auto &next) {
                                 if (state().saving_model || next.size() > 2048)
@@ -1514,9 +1506,11 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                     auto style = button_style(p);
                     style.normal = p.surface;
                     style.border = {1, p.border};
-                    components::button(list, "model.protocol.control")
+                    control_button(list, "model.protocol.control")
                         .position(0, 24)
                         .size(w, 32)
+                        .trailingIcon(0xf078)
+                        .iconSize(12)
                         .text(s.model.dialect == "anthropic.messages.v1"
                                   ? "Anthropic Messages (/messages)"
                               : s.model.dialect == "openai.responses.v1"
@@ -1530,7 +1524,6 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                             state().provider_actions = false;
                         })
                         .build();
-                    icon(list, "model.protocol.chevron", 0xf078, w - 28, 24, 12, 32, p.muted);
                 })
                 .build();
             list.column("model.key.row")
@@ -1542,7 +1535,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                         .content([&] {
                             text(list, "model.key.label", "API Key", 0, 0, w - 52, 20, 14, p.muted);
                             if (s.model.api_key_configured || s.remove_api_key)
-                                components::button(list, "model.key.remove")
+                                control_button(list, "model.key.remove")
                                     .position(w - 48, 0)
                                     .size(48, 20)
                                     .text(s.remove_api_key ? "已移除" : "移除")
@@ -1584,7 +1577,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                         "API Key 不能包含空白、非 ASCII 字符或超过2048字节。";
                                     app::requestUpdate();
                                 });
-                            components::button(list, "model.key.visible")
+                            control_button(list, "model.key.visible")
                                 .position(w - 32, 0)
                                 .size(32, 32)
                                 .text("")
@@ -1602,9 +1595,9 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                 .size(w, 36)
                 .content([&] {
                     text(list, "model.models.label", "模型", 0, 0, w - 100, 32, 14, p.muted);
-                    components::button(list, "model.add.model")
+                    control_button(list, "model.add.model")
                         .position(w - 100, 0)
-                        .size(100, 32)
+                        .size(100, 28)
                         .text("添加模型")
                         .icon(0xf067)
                         .iconSize(14)
@@ -1660,7 +1653,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                             .build();
                         text(list, key + ".label", fitted_title(profile.model_selector, w - 58, 14),
                              12, 0, w - 58, 36, 14, p.text);
-                        components::button(list, key + ".delete")
+                        control_button(list, key + ".delete")
                             .position(w - 36, 2)
                             .size(32, 32)
                             .text("")
@@ -1676,7 +1669,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
             if (s.adding_model) {
                 field("model.add.id", "模型 ID", s.new_model_id, "供应商提供的模型 ID",
                       [](const auto &v) { state().new_model_id = v; });
-                components::button(list, "model.add.confirm")
+                control_button(list, "model.add.confirm")
                     .size(w, 32)
                     .text("添加")
                     .fontSize(ui_font_size(14))
@@ -1684,7 +1677,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                     .disabled(model_editor_blocked() || s.new_model_id.empty())
                     .onClick(add_editor_model)
                     .build();
-                components::button(list, "model.add.cancel")
+                control_button(list, "model.add.cancel")
                     .size(w, 28)
                     .text("取消添加")
                     .fontSize(ui_font_size(12))
@@ -1709,18 +1702,18 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
     if (s.provider_actions) {
         ui.stack("model.provider.menu")
             .position(x + width - 144, panel_y + 56 - s.model_scroll)
-            .size(144, 80)
+            .size(144, 72)
             .zIndex(31)
             .content([&] {
                 ui.rect("model.provider.menu.border")
-                    .size(144, 80)
+                    .size(144, 72)
                     .radius(8)
                     .border(1, p.border)
                     .color(p.surface)
                     .build();
-                components::button(ui, "model.provider.rename")
+                control_button(ui, "model.provider.rename")
                     .position(4, 4)
-                    .size(136, 36)
+                    .size(136, 32)
                     .text("重命名")
                     .icon(0xf303)
                     .iconSize(13)
@@ -1731,9 +1724,9 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                         state().provider_actions = false;
                     })
                     .build();
-                components::button(ui, "model.provider.delete")
-                    .position(4, 40)
-                    .size(136, 36)
+                control_button(ui, "model.provider.delete")
+                    .position(4, 36)
+                    .size(136, 32)
                     .text("删除服务")
                     .icon(0xf2ed)
                     .iconSize(13)
@@ -1752,11 +1745,11 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
     if (s.model_format_open) {
         ui.stack("model.protocol.menu")
             .position(x, std::clamp(panel_y + 204 - s.model_scroll, 64.0f, screen.height - 128))
-            .size(width, 116)
+            .size(width, 104)
             .zIndex(30)
             .content([&] {
                 ui.rect("model.protocol.menu.border")
-                    .size(width, 116)
+                    .size(width, 104)
                     .radius(8)
                     .color(p.surface)
                     .border(1, p.border)
@@ -1765,9 +1758,9 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                     const std::string dialect = i == 2 ? "anthropic.messages.v1"
                                                 : i    ? "openai.responses.v1"
                                                        : "openai.chat-completions.v1";
-                    components::button(ui, "model.protocol." + std::to_string(i))
-                        .position(4, 4.0f + static_cast<float>(i) * 36.0f)
-                        .size(width - 8, 36)
+                    control_button(ui, "model.protocol." + std::to_string(i))
+                        .position(4, 4.0f + static_cast<float>(i) * 32.0f)
+                        .size(width - 8, 32)
                         .text(i == 2 ? "Anthropic Messages"
                               : i    ? "OpenAI Responses"
                                      : "OpenAI Chat Completions")
@@ -1793,18 +1786,18 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
     text(ui, "model.status",
          fitted_title(s.model_notice.empty() ? s.runtime_notice : s.model_notice, width, 12), x, y,
          width, 24, 12, p.muted);
-    components::button(ui, "model.discard")
+    control_button(ui, "model.discard")
         .position(x, y + 32)
-        .size(80, 32)
+        .size(80, 28)
         .text("取消修改")
         .fontSize(ui_font_size(13))
         .style(button_style(p))
         .disabled(!pending_model_edits() || s.saving_model)
         .onClick(discard_model_edits)
         .build();
-    components::button(ui, "model.save")
+    control_button(ui, "model.save")
         .position(x + width - 80, y + 32)
-        .size(80, 32)
+        .size(80, 28)
         .text(s.saving_model ? "保存中…" : "保存")
         .fontSize(ui_font_size(14))
         .style([&] {
@@ -1904,6 +1897,129 @@ float text_height(const std::string &value, float width, float size = 16, float 
     style.lineHeight = line;
     return std::max(line, core::TextPrimitive::measureTextSize(style).y);
 }
+bool part_expanded(const LocalMessage &message, const conversation::Part &part) {
+    return std::find(message.expanded_parts.begin(), message.expanded_parts.end(), part.id) !=
+           message.expanded_parts.end();
+}
+std::string process_detail(const conversation::Part &part) {
+    if (part.kind != "tool")
+        return part.text;
+    return "参数\n" + (part.input.empty() ? "无" : part.input) + "\n\n结果\n" +
+           (part.output.empty() ? (part.status == "running"   ? "正在执行…"
+                                   : part.status == "pending" ? "等待执行"
+                                                              : "无输出")
+                                : part.output);
+}
+float process_part_height(const LocalMessage &message, const conversation::Part &part, float width,
+                          const components::MarkdownStyle &markdown) {
+    if (part.kind == "text")
+        return std::max(22.0f, components::MarkdownBuilder::estimateHeight(part.text, width - 16,
+                                                                           markdown)) +
+               8;
+    const float detail =
+        part_expanded(message, part)
+            ? std::min(240.0f, text_height(process_detail(part), width - 32, 13, 20)) + 12
+            : 0;
+    return 28 + detail + 4;
+}
+void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &message,
+                    std::uint64_t session, float width, float y, const Palette &p,
+                    const components::theme::ThemeColorTokens &tokens,
+                    const components::MarkdownStyle &markdown) {
+    for (const auto &part : message.parts) {
+        const auto id = key + ".part." + part.id;
+        const auto height = process_part_height(message, part, width, markdown);
+        if (part.kind == "text") {
+            components::markdown(ui, id + ".markdown")
+                .position(0, y)
+                .width(width - 16)
+                .height(height - 8)
+                .markdown(part.text)
+                .style(markdown)
+                .build();
+            if (auto *view = ui.find(id + ".markdown"))
+                compact_markdown_cjk(*view, part.text);
+        } else {
+            const bool expanded = part_expanded(message, part);
+            const auto label = (part.kind == "thinking" ? std::string{"思考过程"}
+                                : part.name == "wait"   ? "等待 · wait"
+                                                        : part.name) +
+                               (part.truncated ? "（已截断）" : "");
+            auto style = button_style(p);
+            style.text = p.muted;
+            style.radius = 5;
+            control_button(ui, id + ".toggle")
+                .position(0, y)
+                .size(width - (expanded ? 112 : 80), 28)
+                .text(label)
+                .icon(expanded ? 0xf078 : 0xf054)
+                .iconSize(11)
+                .fontSize(ui_font_size(13))
+                .style(style)
+                .onClick([session, message_id = message.id, part_id = part.id] {
+                    state().chat.toggle_part(session, message_id, part_id);
+                    state().selection.clear();
+                    app::requestUpdate();
+                })
+                .build();
+            const std::string status = part.kind == "thinking"      ? "已完成"
+                                       : part.status == "pending"   ? "待执行"
+                                       : part.status == "running"   ? "执行中"
+                                       : part.status == "cancelled" ? "已取消"
+                                       : part.status == "failed"    ? "失败"
+                                                                    : "已完成";
+            text(ui, id + ".status", status, width - (expanded ? 104 : 72), y, 64, 28, 12, p.muted);
+            if (expanded) {
+                const auto detail = process_detail(part);
+                control_button(ui, id + ".copy")
+                    .position(width - 28, y)
+                    .size(28, 28)
+                    .icon(0xf0c5)
+                    .iconSize(12)
+                    .style(style)
+                    .onClick([detail] {
+                        window::copy_text(detail);
+                        state().runtime_notice = "已复制过程内容";
+                    })
+                    .build();
+                auto &offset = ui.state<float>(id + ".detail.offset");
+                const auto full_height = text_height(detail, width - 32, 13, 20);
+                ui.rect(id + ".panel")
+                    .position(control_text_inset, y + 28)
+                    .size(width - 16, height - 32)
+                    .color(state().dark ? color(0x202020) : color(0xf3f3f3))
+                    .radius(6)
+                    .hitTestMode(eui::dsl::HitTestMode::None)
+                    .build();
+                components::scrollView(ui, id + ".detail")
+                    .position(2 * control_text_inset, y + 34)
+                    .size(width - 32, std::min(240.0f, full_height))
+                    .offset(offset)
+                    .onChange([&offset](float value) {
+                        offset = value;
+                        app::requestUpdate();
+                    })
+                    .theme(tokens)
+                    .scrollbarWidth(4)
+                    .scrollbarGap(4)
+                    .content([&](eui::Ui &detail_ui, float detail_width, float) {
+                        detail_ui.text(id + ".detail.body")
+                            .size(detail_width, text_height(detail, detail_width, 13, 20))
+                            .text(detail)
+                            .fontSize(ui_font_size(13))
+                            .lineHeight(20)
+                            .wrap()
+                            .color(p.muted)
+                            .hitTestMode(eui::dsl::HitTestMode::None)
+                            .build();
+                    })
+                    .build();
+            }
+        }
+        y += height;
+    }
+}
+
 void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, const Palette &p,
                        const components::theme::ThemeColorTokens &tokens) {
     auto &s = state();
@@ -1911,7 +2027,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
     for (const auto cached : s.selection_cache_ids)
         if (std::none_of(session.messages.begin(), session.messages.end(),
                          [cached](const auto &message) { return message.id == cached; }))
-            ui.releaseStateScope("message." + std::to_string(cached) + ".text.geometry");
+            ui.releaseStateScope("message." + std::to_string(cached));
     s.selection_cache_ids.clear();
     for (const auto &message : session.messages)
         s.selection_cache_ids.push_back(message.id);
@@ -1930,11 +2046,11 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
     const float refs_height =
         session.references.empty() && session.attachments.empty() ? 0.0f : 36.0f;
     const float edit_height = session.edit_turn_id.empty() ? 0.0f : 32.0f;
-    const float composer_height = input_height + refs_height + edit_height + 56;
+    const float composer_height = input_height + refs_height + edit_height + 48;
     const float wanted_y =
         empty ? std::max(188.0f, screen.height * .29f + 106) : screen.height - composer_height - 28;
     const float y = std::min(wanted_y, screen.height - composer_height - 28);
-    const float toolbar_y = y + composer_height - 44;
+    const float toolbar_y = y + composer_height - 36;
     const std::string input_id = "composer.input." + std::to_string(session.id);
     const auto session_id = session.id;
     if (empty) {
@@ -2004,6 +2120,14 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                             ? text_height(message.text, body_width, 14, 22)
                             : std::max(22.0f, components::MarkdownBuilder::estimateHeight(
                                                   message.text, body_width, markdown));
+                    const bool tool_running = std::any_of(
+                        message.parts.begin(), message.parts.end(), [](const auto &part) {
+                            return part.kind == "tool" && part.status == "running";
+                        });
+                    const bool tool_pending = std::any_of(
+                        message.parts.begin(), message.parts.end(), [](const auto &part) {
+                            return part.kind == "tool" && part.status == "pending";
+                        });
                     const float elapsed =
                         message.started
                             ? static_cast<float>(
@@ -2017,7 +2141,12 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                         static_cast<unsigned long long>(std::max(0.0f, elapsed) * 10);
                     const std::string elapsed_label =
                         std::to_string(tenths / 10) + "." + std::to_string(tenths % 10) + " 秒";
-                    const float body_y = user ? 8.0f : pending || failed ? 28.0f : 0.0f;
+                    float process_height = 0;
+                    if (!user)
+                        for (const auto &part : message.parts)
+                            process_height += process_part_height(message, part, width, markdown);
+                    const float process_y = pending || failed ? 28.0f : 0.0f;
+                    const float body_y = user ? 8.0f : process_y + process_height;
                     const float row_height =
                         body_height + body_y + (user ? 8 : 0) + (pending ? 4 : 28);
                     list.stack(key)
@@ -2049,12 +2178,17 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                 } else
                                     icon(list, key + ".state.icon", 0xf06a, 0, 0, 13, 24, p.muted);
                                 text(list, key + ".state",
-                                     pending
-                                         ? (message.text.empty() ? "思考中 · " : "正在回复 · ") +
-                                               elapsed_label
-                                         : "任务已停止或失败",
+                                     pending ? (tool_running           ? "工具执行中 · "
+                                                : tool_pending         ? "等待工具执行 · "
+                                                : message.text.empty() ? "思考中 · "
+                                                                       : "正在回复 · ") +
+                                                   elapsed_label
+                                             : "任务已停止或失败",
                                      28, 0, width - 28, 24, 12, p.muted);
                             }
+                            if (!user)
+                                render_process(list, key, message, session_id, width, process_y, p,
+                                               tokens, markdown);
                             if (user || failed)
                                 list.text(key + ".body")
                                     .position(left + (user ? 12 : 0), body_y)
@@ -2243,7 +2377,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                             page.hovered_message = 0;
                                     })
                                     .build();
-                                components::button(list, key + ".copy")
+                                control_button(list, key + ".copy")
                                     .position(action_x, action_y)
                                     .size(28, 26)
                                     .text("")
@@ -2257,7 +2391,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                     .build();
                                 wire_action(key + ".copy");
                                 if (can_edit) {
-                                    components::button(list, key + ".edit")
+                                    control_button(list, key + ".edit")
                                         .position(action_x + 32, action_y)
                                         .size(28, 26)
                                         .text("")
@@ -2293,7 +2427,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                 state().chat.current().scroll_offset = 10000000.0f;
                 app::requestUpdate();
             };
-            components::button(ui, "thread.latest")
+            control_button(ui, "thread.latest")
                 .position(x + column / 2 - 18, y - 58)
                 .size(36, 36)
                 .text("")
@@ -2330,7 +2464,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         auto pill = button_style(p);
         pill.normal = p.hover;
         pill.radius = 14;
-        components::button(ui, "context.references")
+        control_button(ui, "context.references")
             .position(x + 12, y + 8)
             .size(176, 28)
             .text("附件 " + std::to_string(session.attachments.size()) + " · 引用 " +
@@ -2345,7 +2479,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
     if (edit_height) {
         text(ui, "composer.edit.label", "编辑最后一条输入 · 重发后替换上一轮", x + 16,
              y + refs_height + 6, column - 88, 24, 12, p.muted);
-        components::button(ui, "composer.edit.cancel")
+        control_button(ui, "composer.edit.cancel")
             .position(x + column - 68, y + refs_height + 4)
             .size(56, 26)
             .text("取消")
@@ -2371,7 +2505,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         .multiline()
         .scrollbar()
         .fontSize(ui_font_size(14))
-        .inset(12)
+        .inset(control_text_inset)
         .style(input_style)
         .onFocus([](bool focused) {
             state().composer_focused = focused;
@@ -2414,75 +2548,77 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         auto &value = state();
         value.popup = value.popup == popup ? PageState::Popup::None : popup;
     };
-    icon_button(ui, "composer.add", 0xf067, x + 8, toolbar_y, p,
-                [toggle] { toggle(PageState::Popup::Actions); });
+    icon_button(
+        ui, "composer.add", 0xf067, x + 8, toolbar_y, p,
+        [toggle] { toggle(PageState::Popup::Actions); }, false, false, 28, 14);
     auto toolbar = button_style(p);
     toolbar.radius = 6;
-    components::button(ui, "composer.mode")
-        .position(x + 48, toolbar_y)
-        .size(110, 32)
+    control_button(ui, "composer.mode")
+        .position(x + 40, toolbar_y)
+        .size(100, 28)
         .text(session.access == "read_only" ? "只读模式" : "默认权限")
-        .icon(0xf078)
+        .trailingIcon(0xf078)
         .iconSize(9)
         .fontSize(ui_font_size(13))
         .style(toolbar)
         .onClick([toggle] { toggle(PageState::Popup::Mode); })
         .build();
+    const auto thinking_options = composer_thinking_options(s.live_model);
+    float reasoning_width = 84;
+    for (const auto &option : thinking_options)
+        reasoning_width =
+            std::max(reasoning_width, control_button_width(option.label + "思考", 13, 9));
+    const float send_x = column - control_text_inset - 28;
+    const float reasoning_x = send_x - control_icon_gap - reasoning_width;
     const std::string model_label = s.live_model.enabled ? s.live_model.model_selector : "选择模型";
-    core::TextStyle model_text;
-    model_text.fontSize = ui_font_size(13);
-    model_text.text = model_label;
-    // Match ButtonBuilder's icon, gap and horizontal insets when fitting the label.
-    const components::theme::ThemeMetricTokens button_metrics;
-    const float model_insets = 9 * 1.15f + std::max(button_metrics.spacing.small, 32 * 0.12f) +
-                               button_metrics.spacing.section * 2;
-    const float model_width =
-        std::clamp(core::TextPrimitive::measureTextSize(model_text).x + model_insets, 96.0f,
-                   std::min(180.0f, std::max(96.0f, column - 342)));
-    const float model_x = column - 140 - model_width;
-    const float context_x = model_x - 40;
+    const float mode_right = 40 + 100;
+    const float model_max_width =
+        std::max(96.0f, reasoning_x - 2 * control_icon_gap - 28 - mode_right - control_text_inset);
+    const float model_width = std::clamp(control_button_width(model_label, 13, 9), 96.0f,
+                                         std::min(180.0f, model_max_width));
+    const float model_x = reasoning_x - control_icon_gap - model_width;
+    const float context_x = model_x - control_icon_gap - 28;
     const auto usage_ratio = context_ratio(session.context_usage);
-    components::button(ui, "composer.context")
+    control_button(ui, "composer.context")
         .position(x + context_x, toolbar_y)
-        .size(36, 32)
+        .size(28, 28)
         .text("")
         .style(toolbar)
         .onClick([toggle] { toggle(PageState::Popup::Context); })
         .build();
     ui.svg("composer.context.ring")
         .source(context_ring_svg(usage_ratio, s.dark))
-        .position(x + context_x + 8, toolbar_y + 6)
-        .size(20, 20)
+        .position(x + context_x + 6, toolbar_y + 6)
+        .size(16, 16)
         .build();
-    components::button(ui, "composer.model")
+    control_button(ui, "composer.model")
         .position(x + model_x, toolbar_y)
-        .size(model_width, 32)
-        .text(fitted_title(model_label, model_width - model_insets, 13))
-        .icon(0xf078)
+        .size(model_width, 28)
+        .text(model_label)
+        .trailingIcon(0xf078)
         .iconSize(9)
         .fontSize(ui_font_size(13))
         .style(toolbar)
         .disabled(s.saving_model)
         .onClick([toggle] { toggle(PageState::Popup::Model); })
         .build();
-    const auto thinking_options = composer_thinking_options(s.live_model);
     const auto selected_effort =
         std::find_if(thinking_options.begin(), thinking_options.end(),
                      [&](const auto &entry) { return entry.value == session.reasoning; });
     const std::string effort =
         selected_effort == thinking_options.end() ? "默认" : selected_effort->label;
-    components::button(ui, "composer.reasoning")
-        .position(x + column - 136, toolbar_y)
-        .size(88, 32)
+    control_button(ui, "composer.reasoning")
+        .position(x + reasoning_x, toolbar_y)
+        .size(reasoning_width, 28)
         .text(effort + "思考")
-        .icon(0xf078)
+        .trailingIcon(0xf078)
         .iconSize(9)
         .fontSize(ui_font_size(13))
         .style(toolbar)
         .onClick([toggle] { toggle(PageState::Popup::Reasoning); })
         .build();
     icon_button(
-        ui, "composer.send", session.running ? 0xf04d : 0xf062, x + column - 44, toolbar_y, p,
+        ui, "composer.send", session.running ? 0xf04d : 0xf062, x + send_x, toolbar_y, p,
         [] {
             auto &value = state();
             auto &active = value.chat.current();
@@ -2494,7 +2630,8 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         true,
         session.submitting || session.attachment_loading || s.saving_model || !s.runtime ||
             !s.runtime->connected() || session.deleting ||
-            (!session.running && s.chat.submission_text().empty()));
+            (!session.running && s.chat.submission_text().empty()),
+        28, 14);
     const auto notice = !s.chat.notice().empty() ? s.chat.notice() : s.runtime_notice;
     text(ui, "composer.notice", fitted_title(notice, column - 168, 12), x, y + composer_height + 4,
          column - 168, 24, 12, p.muted);
@@ -2502,20 +2639,23 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
          y + composer_height + 4, 168, 24, 11, p.muted);
     if (s.popup != PageState::Popup::None) {
         const auto popup = s.popup;
-        const float popup_width = std::min(320.0f, column);
+        const float popup_width = std::min(
+            popup == PageState::Popup::References || popup == PageState::Popup::Context ? 320.0f
+                                                                                        : 280.0f,
+            column);
         const float popup_height =
             popup == PageState::Popup::References ? std::min(352.0f, screen.height - 160)
             : popup == PageState::Popup::Context  ? 224
             : popup == PageState::Popup::Model
-                ? std::min(352.0f, 68.0f + 44.0f * static_cast<float>(s.models.size()))
+                ? std::min(352.0f, 56.0f + 36.0f * static_cast<float>(s.models.size()))
             : popup == PageState::Popup::Reasoning
                 ? (thinking_options.size() > 1
-                       ? static_cast<float>(thinking_options.size()) * 44 + 24
+                       ? static_cast<float>(thinking_options.size()) * 36 + 16
                        : 112)
-                : 164;
+                : 132;
         const float anchor = popup == PageState::Popup::Context     ? context_x
                              : popup == PageState::Popup::Model     ? model_x
-                             : popup == PageState::Popup::Reasoning ? column - 136
+                             : popup == PageState::Popup::Reasoning ? reasoning_x
                              : popup == PageState::Popup::Mode      ? 48
                                                                     : 8;
         const float popup_x = x + std::clamp(anchor, 8.0f, column - popup_width - 8);
@@ -2540,13 +2680,13 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                     .build();
                 auto row = [&](const std::string &id, const std::string &label, unsigned int glyph,
                                float top, std::function<void()> action, bool disabled = false) {
-                    components::button(ui, "composer.popup." + id)
+                    control_button(ui, "composer.popup." + id)
                         .position(8, top)
-                        .size(popup_width - 16, 40)
+                        .size(popup_width - 16, 32)
                         .text(label)
                         .icon(glyph)
                         .iconSize(14)
-                        .fontSize(ui_font_size(14))
+                        .fontSize(ui_font_size(13))
                         .style(button_style(p))
                         .disabled(disabled)
                         .onClick(std::move(action))
@@ -2554,28 +2694,28 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                 };
                 if (popup == PageState::Popup::Actions) {
                     row("attach", session.attachment_loading ? "正在读取附件…" : "添加文本附件",
-                        0xf0c6, 12, add_attachment,
+                        0xf0c6, 8, add_attachment,
                         session.attachment_loading || session.attachments.size() >= 4);
                     row(
-                        "attachments", "查看附件与引用", 0xf15c, 60,
+                        "attachments", "查看附件与引用", 0xf15c, 44,
                         [] { state().popup = PageState::Popup::References; },
                         session.attachments.empty() && session.references.empty());
                     text(ui, "composer.popup.attach.help", "UTF-8 文本 · 最多 4 个 · 合计 8 KiB",
-                         16, 112, popup_width - 32, 28, 12, p.muted);
+                         16, 84, popup_width - 32, 28, 12, p.muted);
                 } else if (popup == PageState::Popup::Mode) {
                     row("readonly",
-                        session.access == "read_only" ? "只读模式 · 已选择" : "只读模式", 0xf06e,
-                        12, [] {
+                        session.access == "read_only" ? "只读模式 · 已选择" : "只读模式", 0xf06e, 8,
+                        [] {
                             state().chat.current().access = "read_only";
                             state().popup = PageState::Popup::None;
                         });
                     row("default", session.access == "default" ? "默认权限 · 已选择" : "默认权限",
-                        0xf3ed, 60, [] {
+                        0xf3ed, 44, [] {
                             state().chat.current().access = "default";
                             state().popup = PageState::Popup::None;
                         });
                     text(ui, "composer.popup.access.help", "只读不调用工具；默认仅开放等待工具。",
-                         16, 112, popup_width - 32, 36, 12, p.muted);
+                         16, 84, popup_width - 32, 36, 12, p.muted);
                 } else if (popup == PageState::Popup::Reasoning) {
                     if (thinking_options.size() == 1) {
                         text(ui, "composer.popup.reasoning.help", "使用模型默认思考方式", 16, 16,
@@ -2588,7 +2728,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                 thinking_options[i].label +
                                     (session.reasoning == thinking_options[i].value ? " · 已选择"
                                                                                     : ""),
-                                0xf5dc, 12 + static_cast<float>(i) * 44,
+                                0xf5dc, 8 + static_cast<float>(i) * 36,
                                 [value = thinking_options[i].value] {
                                     state().chat.current().reasoning = value;
                                     state().popup = PageState::Popup::None;
@@ -2597,7 +2737,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                 } else if (popup == PageState::Popup::Model) {
                     components::scrollView(ui, "composer.popup.models")
                         .position(8, 8)
-                        .size(popup_width - 16, popup_height - 60)
+                        .size(popup_width - 16, popup_height - 48)
                         .theme(tokens)
                         .gap(4)
                         .content([&](eui::Ui &list, float w, float) {
@@ -2605,9 +2745,8 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                 const auto &model = s.models[i];
                                 if (model.model_selector.empty())
                                     continue;
-                                components::button(list,
-                                                   "composer.model.option." + std::to_string(i))
-                                    .size(w, 40)
+                                control_button(list, "composer.model.option." + std::to_string(i))
+                                    .size(w, 32)
                                     .text(fitted_title(provider_label(model) +
                                                            (model.model_selector.empty()
                                                                 ? ""
@@ -2625,7 +2764,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                             }
                         })
                         .build();
-                    row("settings", "管理模型", 0xf013, popup_height - 48, [] {
+                    row("settings", "管理模型", 0xf013, popup_height - 40, [] {
                         state().settings = state().model_page = true;
                         state().popup = PageState::Popup::None;
                     });
@@ -2634,7 +2773,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                          popup_width - 32, 28, 16, p.text, 500);
                     components::scrollView(ui, "composer.popup.references.list")
                         .position(12, 48)
-                        .size(popup_width - 24, popup_height - 60)
+                        .size(popup_width - 24, popup_height - 48)
                         .theme(tokens)
                         .gap(16)
                         .scrollbarWidth(4)
@@ -2646,8 +2785,8 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                     .height(40 + text_height(attachment.text, width, 13, 22))
                                     .gap(4)
                                     .content([&] {
-                                        components::button(list, "attachment.remove." +
-                                                                     std::to_string(attachment.id))
+                                        control_button(list, "attachment.remove." +
+                                                                 std::to_string(attachment.id))
                                             .size(width, 32)
                                             .text(fitted_title(
                                                 attachment.name + " · " +
@@ -2686,7 +2825,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                              reference.role + " · 消息 #" +
                                                  std::to_string(source_id),
                                              4, 0, width - 40, 26, 12, p.muted);
-                                        components::button(list, key + ".remove")
+                                        control_button(list, key + ".remove")
                                             .position(width - 32, 0)
                                             .size(28, 26)
                                             .text("")
@@ -2782,7 +2921,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                     .radius(7)
                     .border(1, p.border)
                     .build();
-                components::button(ui, "selection.quote")
+                control_button(ui, "selection.quote")
                     .size(100, 32)
                     .text("引用选段")
                     .icon(0xf10d)
@@ -2983,23 +3122,47 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                                                 state().chat.select_session(id);
                                                 history(id);
                                             })
+                                            .onHover([id](bool entered) {
+                                                auto &page = state();
+                                                if (entered)
+                                                    page.hovered_session = id;
+                                                else if (page.hovered_session == id)
+                                                    page.hovered_session = 0;
+                                            })
                                             .build();
                                         icon(list, key + ".icon", 0xf075, 12, 0, 14, 40, p.muted);
                                         text(list, key + ".title",
                                              fitted_title(session.title, width - 100, 14), 44, 0,
                                              width - 100, 40, 14, p.text);
-                                        icon_button(
-                                            list, key + ".delete", 0xf2ed, width - 40, 2, p,
-                                            [id] {
-                                                auto &v = state();
-                                                if (v.about || v.confirm_clear || v.confirm_delete)
-                                                    return;
-                                                v.delete_target = id;
-                                                v.confirm_delete = true;
-                                            },
-                                            false,
-                                            session.running || session.submitting ||
-                                                session.deleting);
+                                        list.stack(key + ".delete.visibility")
+                                            .position(width - 40, 2)
+                                            .size(36, 36)
+                                            .opacity(s.hovered_session == id ? 1.0f : 0.0f)
+                                            .content([&] {
+                                                icon_button(
+                                                    list, key + ".delete", 0xf2ed, 0, 0, p,
+                                                    [id] {
+                                                        auto &v = state();
+                                                        if (v.about || v.confirm_clear ||
+                                                            v.confirm_delete)
+                                                            return;
+                                                        v.delete_target = id;
+                                                        v.confirm_delete = true;
+                                                    },
+                                                    false,
+                                                    session.running || session.submitting ||
+                                                        session.deleting);
+                                            })
+                                            .build();
+                                        if (auto *button = list.find(key + ".delete.bg")) {
+                                            button->onHoverChanged = [id](bool entered) {
+                                                auto &page = state();
+                                                if (entered)
+                                                    page.hovered_session = id;
+                                                else if (page.hovered_session == id)
+                                                    page.hovered_session = 0;
+                                            };
+                                        }
                                     })
                                     .build();
                             }
@@ -3094,7 +3257,7 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                     .build();
             if (s.settings) {
                 if (!s.sidebar) {
-                    components::button(ui, "settings.back.collapsed")
+                    control_button(ui, "settings.back.collapsed")
                         .position(screen.width - 270, 12)
                         .size(124, 36)
                         .text("返回对话")
@@ -3146,7 +3309,7 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                             .wrap()
                             .color(p.muted)
                             .build();
-                        components::button(ui, "product.exit.cancel")
+                        control_button(ui, "product.exit.cancel")
                             .position(x + 224, y + 180)
                             .size(88, 36)
                             .text("继续运行")
@@ -3158,7 +3321,7 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                                     "product");
                             })
                             .build();
-                        components::button(ui, "product.exit.confirm")
+                        control_button(ui, "product.exit.confirm")
                             .position(x + 324, y + 180)
                             .size(112, 36)
                             .text("停止并退出")

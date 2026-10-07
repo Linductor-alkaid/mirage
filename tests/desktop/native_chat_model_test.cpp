@@ -378,5 +378,64 @@ int main() {
         !mirage::native_ui::read_text_attachment((directory / "link").string()).attachment);
 #endif
     std::filesystem::remove_all(directory);
+    {
+        using mirage::conversation::Part;
+        std::vector<Part> parts{{"thought-1", "thinking", "complete", "实际思考内容"},
+                                {"call-1", "tool", "running", "", "wait", "{\"duration_ms\":1}"}};
+        std::string error;
+        std::vector<Part> decoded;
+        MIRAGE_CHECK(mirage::conversation::decode_parts(mirage::conversation::encode_parts(parts),
+                                                        decoded, error));
+        MIRAGE_CHECK(decoded == parts);
+        MIRAGE_CHECK(!mirage::conversation::decode_parts("{}", decoded, error));
+        auto invalid = parts;
+        invalid.push_back(parts.front());
+        MIRAGE_CHECK(!mirage::conversation::valid_parts(invalid));
+        invalid = parts;
+        invalid.front().text = std::string(mirage::conversation::max_part_text + 1, 'x');
+        MIRAGE_CHECK(!mirage::conversation::valid_parts(invalid));
+        invalid = parts;
+        invalid.front().kind = "unknown";
+        MIRAGE_CHECK(!mirage::conversation::valid_parts(invalid));
+        invalid = parts;
+        invalid.back().status = "pretend";
+        MIRAGE_CHECK(!mirage::conversation::valid_parts(invalid));
+        invalid = parts;
+        invalid.resize(mirage::conversation::max_parts + 1);
+        MIRAGE_CHECK(!mirage::conversation::valid_parts(invalid));
+        invalid.clear();
+        for (int i = 0; i < 5; ++i)
+            invalid.push_back({std::to_string(i), "thinking", "complete",
+                               std::string(mirage::conversation::max_part_text, 'x')});
+        MIRAGE_CHECK(!mirage::conversation::valid_parts(invalid));
+        std::string utf8 = "中文abc";
+        MIRAGE_CHECK(mirage::conversation::truncate_text(utf8, 4) && utf8 == "中");
+        ChatModel process;
+        const auto id = process.current().id;
+        process.apply_turn(id, "process", "pending", "问题", {}, {}, {}, 1);
+        process.apply_process(id, "process", parts, 1, true);
+        const auto process_message = process.current().messages.back().id;
+        MIRAGE_CHECK(process.current().messages.back().expanded_parts.empty());
+        process.toggle_part(id, process_message, "call-1");
+        parts.back().status = "complete";
+        parts.back().output = "真实结果";
+        process.apply_process(id, "process", parts, 2, true);
+        MIRAGE_CHECK(process.current().messages.back().expanded_parts ==
+                     std::vector<std::string>{"call-1"});
+        process.apply_process(id, "process", {}, 1, true);
+        MIRAGE_CHECK(process.current().messages.back().parts == parts);
+        process.apply_turn(id, "process", "ok", "问题", "最终回复", {}, {}, 1);
+        process.apply_process(id, "process", {}, 3, true); // late pending update
+        MIRAGE_CHECK(process.current().messages.back().parts == parts);
+        process.toggle_part(id, process_message, "call-1");
+        MIRAGE_CHECK(process.current().messages.back().expanded_parts.empty());
+        process.toggle_part(id, process_message, "not-a-real-part");
+        MIRAGE_CHECK(process.current().messages.back().expanded_parts.empty());
+        process.apply_process(id, "process", parts, 3); // settled history hydration
+        MIRAGE_CHECK(process.current().messages.back().process_sequence == 3);
+        process.clear_current();
+        process.apply_process(id, "process", parts, 4);
+        MIRAGE_CHECK(process.current().messages.empty());
+    }
     return mirage::testing::finish("native_chat_model_test");
 }

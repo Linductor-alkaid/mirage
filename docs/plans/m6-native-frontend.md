@@ -398,3 +398,56 @@ In Progress：维护者报告会话箭头点击无响应（BUG-20261007-001）�
 通过。Release/ASAN/UBSAN 相关各 2/2，renderer 421 checks、format/文档链接通过。
 正式 GIO 入口已加载新版，保留 1 个非空历史，新建/删除空会话成功；M6-26 锁屏后启动
 补验完成。无依赖、协议或并发变更。[验收](../compatibility/conversation-scroll-20261007.md)。
+
+## 2026-10-07 / M6-28：会话删除按钮悬停
+
+状态：Completed（Linux X11）。负责人：Codex。维护者要求侧栏会话标题的删除按钮仅悬停时出现。
+沿用原生前端侧栏契约与现有删除确认流程；验收覆盖默认隐藏、标题悬停显示、
+移到删除按钮保持显示、移出隐藏及既有会话回归。无第三方或并发变更。
+
+验收：`cmake --build --preset native-release --target native_conversation_view_test -j 2`
+成功；`ctest --test-dir build/native-release -R '^native_conversation_view_test$' --output-on-failure`
+1/1通过（431 checks），含新增四项悬停状态检查。`git diff --check`通过。
+设计同步至`docs/design/native-agent-frontend.md`。Windows/Wayland及消毒器本次未执行，
+负责人Codex，补跑条件为对应平台/消毒器构建环境可用；不扩大本次验证声明或关闭整体M6。
+
+## 2026-10-07 / M6-29：ZCode 控件密度对齐
+
+状态：Completed（Linux X11）。负责人：Codex。维护者指定 https://zcode.z.ai/cn 的应用UI设计，
+要求缩小会话与设置中偏大的控件。沿用DEC-041/042/046，不改变业务行为与依赖。
+参考官网当前应用展示及固定ZCode公开源码29628c9的28px按钮/32px输入框/14px文字。
+范围：输入栏工具、菜单行、外观页主题控件、模型页标题及操作；正文与输入14px保留。
+验收：1180×800与860×620明暗原生渲染、长模型名/菜单/主题/保存取消/会话悬停回归。
+
+M6-29验收：Release相关2/2、原生渲染479 checks通过；限定自研目标ASAN/UBSAN（vptr除外）
+479 checks无诊断，明暗/常规/最小窗口菜单与实际主题点击验证通过。格式及diff检查通过。
+详细来源、尺寸对照、截图与消毒器边界见[验收记录](../compatibility/native-control-density-20261007.md)。
+Windows/Wayland/高DPI及全Debug依赖vptr另验，负责人Codex、补跑条件见记录；M6整体不关闭。
+
+## 2026-10-07 / M6-30：统一控件文字内边距
+
+状态：Completed（Linux X11）。负责人：Codex。维护者反馈思考按钮右侧留白不足，要求各模块一致并预防复发。
+按DEC-048在Mirage UI边界封装现有EUI按钮，统一8px文字内边距与4px图文间隔，
+按字体测量宽度并在受限宽度内省略；输入框复用同一内边距。工具组按内容与相邻控件推导位置。
+保留现有事件/禁用/确认/草稿流程，不修改依赖。验收覆盖所有按钮文字边界、
+不同思考值、长中英文、明暗/最小窗口及已有操作回归。
+
+M6-30验收：Release相关2/2、原生渲染13,151 checks通过，覆盖所有按钮与输入的文字边界、
+九种思考值及明暗/最小窗口；设置/会话操作回归通过。尺寸、边距token和决策同步。
+[验收与平台限制](../compatibility/native-control-insets-20261007.md)记录插桩与截图边界；M6整体不关闭。
+
+## 2026-10-07 / M6-31：思考与工具过程渲染
+
+状态：Completed（Linux X11）。负责人：Codex。维护者要求参考本机 ZCode 直接实现并验证。
+依据 DEC-049：产品拥有的有界过程投影贯通 Mira Adapter、IPC、历史与原生 UI；
+思考/工具默认折叠，参数与结果展开，稳定 ID 保持展开状态。使用既有 Executor 任务和 Topic；
+不修改 pinned 依赖，不解析正文伪造工具状态。验收覆盖实际工具循环、取消/失败、历史恢复、
+协议容量校验及明暗/最小窗口原生渲染。
+
+M6-31验收：Release全部52/52、UI模型388、集成298、原生渲染14,019 checks通过。
+三个目标的全部自研依赖ASAN/UBSAN插桩通过（复用pinned Release，排除vptr）；
+完整自研及Mira/Executor TSAN插桩298 checks、无诊断，无抑制规则。
+长过程按实际JSON帧预算保留最新轮、显式截断，超过4MiB会话文件在8MiB预算内重启恢复。
+思考在模型步骤返回时出现，当前仅wait工具；Windows/Wayland/高DPI待对应环境补验，
+负责人Codex，详见[验收与能力限制](../compatibility/conversation-process-rendering-20261007.md)。
+不关闭整体M6。
