@@ -5,6 +5,7 @@ add_executable(native_chat_model_test desktop/native_chat_model_test.cpp
     ${CMAKE_SOURCE_DIR}/apps/native/chat_model.cpp ${CMAKE_SOURCE_DIR}/apps/native/attachment.cpp)
 target_include_directories(native_chat_model_test PRIVATE ${CMAKE_SOURCE_DIR}/apps/native)
 target_compile_features(native_chat_model_test PRIVATE cxx_std_20)
+target_link_libraries(native_chat_model_test PRIVATE Mirage::conversation)
 mirage_enable_warnings(native_chat_model_test)
 add_test(NAME native_chat_model_test COMMAND native_chat_model_test)
 set_tests_properties(native_chat_model_test PROPERTIES LABELS "unit;ui" TIMEOUT 30)
@@ -1198,7 +1199,9 @@ if(UNIX)
         Mirage::ipc Mirage::persistence Mirage::integration_mira executor)
     mirage_enable_warnings(native_agent_integration_test)
     add_test(NAME native_agent_integration_test COMMAND native_agent_integration_test)
-    set_tests_properties(native_agent_integration_test PROPERTIES LABELS "integration;runtime;ui" TIMEOUT 40)
+    # Includes escaped multi-MiB persistence/recovery; fully instrumented Debug
+    # builds need a larger harness budget. Individual operation deadlines stay bounded.
+    set_tests_properties(native_agent_integration_test PROPERTIES LABELS "integration;runtime;ui" TIMEOUT 120)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_ENABLE_NATIVE_FRONTEND)

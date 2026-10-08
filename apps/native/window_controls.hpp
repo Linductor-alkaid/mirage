@@ -9,6 +9,8 @@ void minimize();
 void show();
 void toggle_maximize();
 bool maximized();
+// Framebuffer / composed logical width includes display DPI and EUI UI scale.
+float render_scale(float logical_width);
 void close();
 void copy_text(const std::string &text);
 void begin_move();

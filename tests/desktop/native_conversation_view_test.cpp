@@ -16,7 +16,7 @@ void requestUpdate() {}
 } // namespace app
 
 int main(int argc, char **argv) {
-    mirage::testing::XvfbDisplay display(mirage::testing::find_xvfb(), "1400x1000x24");
+    mirage::testing::XvfbDisplay display(mirage::testing::find_xvfb(), "2600x1800x24");
     ::setenv("DISPLAY", display.display_name().c_str(), 1);
     ::unsetenv("WAYLAND_DISPLAY");
     MIRAGE_CHECK(glfwInit());
@@ -67,35 +67,95 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(runtime.initialize(handle));
     eui::Ui *view = nullptr;
     int width = 1180, height = 800;
+    float dpi_scale = 1;
     auto compose = [&] {
         runtime.compose("test", static_cast<float>(width), static_cast<float>(height),
                         [&](auto &ui, const auto &screen) {
                             view = &ui;
                             compose_page(ui, screen);
                         });
+        // Validate rendered geometry across every product button and every state.
+        // This catches regressions from new controls and dependency layout changes.
+        auto audit = [&](auto &&self, const core::dsl::Element &node) -> void {
+            if (node.id.ends_with(".text")) {
+                const auto base = node.id.substr(0, node.id.size() - 5);
+                const auto *background = view->find(base + ".bg");
+                const auto *content = view->find(base + ".content");
+                if (background && content) {
+                    core::TextStyle measured;
+                    measured.fontSize = node.fontSize;
+                    measured.text = node.text;
+                    MIRAGE_CHECK(core::TextPrimitive::measureTextSize(measured).x <=
+                                 node.frame.width + 0.5f);
+                    const auto *glyph = view->find(base + ".icon");
+                    const float first_x =
+                        glyph ? std::min(glyph->frame.x, node.frame.x) : node.frame.x;
+                    const float left_inset = first_x - background->frame.x;
+                    const float content_right = glyph
+                                                    ? std::max(glyph->frame.x + glyph->frame.width,
+                                                               node.frame.x + node.frame.width)
+                                                    : node.frame.x + node.frame.width;
+                    const float right_inset =
+                        background->frame.x + background->frame.width - content_right;
+                    MIRAGE_CHECK(std::abs(left_inset - control_text_inset) < 0.5f);
+                    MIRAGE_CHECK(std::abs(right_inset - control_text_inset) < 0.5f);
+                    if (glyph) {
+                        const float gap = glyph->frame.x < node.frame.x
+                                              ? node.frame.x - glyph->frame.x - glyph->frame.width
+                                              : glyph->frame.x - node.frame.x - node.frame.width;
+                        MIRAGE_CHECK(std::abs(gap - control_icon_gap) < 0.5f);
+                    }
+                }
+            }
+            if (node.id.ends_with(".textViewport")) {
+                const auto base = node.id.substr(0, node.id.size() - 13);
+                if (const auto *hit = view->find(base + ".hit")) {
+                    MIRAGE_CHECK(std::abs(node.frame.x - hit->frame.x - control_text_inset) < 0.5f);
+                    MIRAGE_CHECK(hit->frame.x + hit->frame.width - node.frame.x -
+                                     node.frame.width >=
+                                 control_text_inset - 0.5f);
+                }
+            }
+            for (const auto &child : node.children)
+                self(self, *child);
+        };
+        for (const auto &root : view->roots())
+            audit(audit, *root);
     };
     auto frame = [&] {
+        int actual_width = 0, actual_height = 0;
+        glfwGetWindowSize(window, &actual_width, &actual_height);
+        const auto pixels_width = static_cast<int>(std::lround(width * dpi_scale));
+        const auto pixels_height = static_cast<int>(std::lround(height * dpi_scale));
+        if (actual_width != pixels_width || actual_height != pixels_height) {
+            glfwSetWindowSize(window, pixels_width, pixels_height);
+            glfwPollEvents();
+            glfwSwapBuffers(window); // Realize resized GLX back buffers before rendering.
+        }
         compose();
-        runtime.update(handle, 1, 1, 1);
+        runtime.update(handle, 1, dpi_scale, 1);
         compose();
-        runtime.update(handle, 1, 1, 1);
+        runtime.update(handle, 1, dpi_scale, 1);
         compose();
     };
     auto capture = [&](const std::string &name) {
         if (argc < 2)
             return;
         runtime.requestFullPaint();
-        runtime.render(width, height, 1, palette(page.dark).background);
+        const auto pixels_width = static_cast<int>(std::lround(width * dpi_scale));
+        const auto pixels_height = static_cast<int>(std::lround(height * dpi_scale));
+        runtime.render(pixels_width, pixels_height, dpi_scale, palette(page.dark).background);
         glFinish();
-        std::vector<unsigned char> pixels(static_cast<std::size_t>(width * height * 3));
+        std::vector<unsigned char> pixels(
+            static_cast<std::size_t>(pixels_width * pixels_height * 3));
         glPixelStorei(GL_PACK_ALIGNMENT, 1);
-        glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+        glReadPixels(0, 0, pixels_width, pixels_height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
         std::filesystem::create_directories(argv[1]);
         std::ofstream output(std::filesystem::path(argv[1]) / (name + ".ppm"), std::ios::binary);
-        output << "P6\n" << width << " " << height << "\n255\n";
-        for (int row = height - 1; row >= 0; --row)
-            output.write(reinterpret_cast<const char *>(pixels.data() + row * width * 3),
-                         width * 3);
+        output << "P6\n" << pixels_width << " " << pixels_height << "\n255\n";
+        for (int row = pixels_height - 1; row >= 0; --row)
+            output.write(reinterpret_cast<const char *>(pixels.data() + row * pixels_width * 3),
+                         pixels_width * 3);
     };
     frame();
     const auto user = page.chat.current().messages.front().id;
@@ -105,9 +165,154 @@ int main(int argc, char **argv) {
         MIRAGE_CHECK(found);
         return found;
     };
+    {
+        std::vector<mirage::conversation::Part> parts{
+            {"thought", "thinking", "complete", "先检查当前状态，再执行工具。"},
+            {"call", "tool", "running", "", "wait", "{\"duration_ms\":1000}"}};
+        page.chat.current().follow_output = false;
+        page.chat.current().scroll_offset = 0;
+        page.chat.apply_process(session_id, "first", parts, 1);
+        frame();
+        const auto root = "message." + std::to_string(assistant) + ".part.";
+        MIRAGE_CHECK(!view->find(root + "thought.detail.body"));
+        MIRAGE_CHECK(!view->find(root + "call.detail.body"));
+        MIRAGE_CHECK(element(root + "call.status")->text == "执行中");
+        capture("process-collapsed-light");
+        const auto before = element("message." + std::to_string(assistant) + ".select")->frame.y;
+        auto bounds = element(root + "thought.toggle.bg")->frame;
+        core::queuePointerButton(handle, bounds.x + 30, bounds.y + 14, core::PointerButton::Left,
+                                 core::PointerAction::Press, {});
+        frame();
+        core::queuePointerButton(handle, bounds.x + 30, bounds.y + 14, core::PointerButton::Left,
+                                 core::PointerAction::Release, {});
+        frame();
+        MIRAGE_CHECK(element(root + "thought.detail.body")->text == parts.front().text);
+        MIRAGE_CHECK(element("message." + std::to_string(assistant) + ".select")->frame.y > before);
+        element(root + "call.toggle.bg")->onClick();
+        frame();
+        MIRAGE_CHECK(element(root + "call.detail.body")->text.find("参数") != std::string::npos);
+        element(root + "call.copy.bg")->onClick();
+        const auto *copied = glfwGetClipboardString(window);
+        MIRAGE_CHECK(copied && std::string(copied).find("参数") != std::string::npos);
+        parts.back().status = "complete";
+        parts.back().output = "{\"waited_ms\":1000}";
+        page.chat.apply_process(session_id, "first", parts, 2);
+        frame();
+        MIRAGE_CHECK(element(root + "call.status")->text == "已完成");
+        MIRAGE_CHECK(element(root + "call.detail.body")->text.find("waited_ms") !=
+                     std::string::npos);
+        capture("process-expanded-light");
+        page.dark = true;
+        frame();
+        capture("process-expanded-dark");
+        width = 860;
+        height = 620;
+        frame();
+        capture("process-expanded-small-dark");
+        MIRAGE_CHECK(element(root + "thought.toggle.bg")->frame.width > 200);
+        parts.back().status = "failed";
+        parts.back().output = "输入不合法";
+        page.chat.apply_process(session_id, "first", parts, 3);
+        frame();
+        MIRAGE_CHECK(element(root + "call.status")->text == "失败");
+        parts.back().status = "cancelled";
+        page.chat.apply_process(session_id, "first", parts, 4);
+        frame();
+        MIRAGE_CHECK(element(root + "call.status")->text == "已取消");
+        parts.front().text = std::string(4000, 'x');
+        parts.front().truncated = true;
+        page.chat.apply_process(session_id, "first", parts, 5);
+        frame();
+        MIRAGE_CHECK(element(root + "thought.detail")->frame.height <= 240);
+        MIRAGE_CHECK(element(root + "thought.detail")->scrollMaxOffset > 40);
+        element(root + "thought.detail")->onScrollOffsetChanged(40);
+        frame();
+        MIRAGE_CHECK(std::abs(element(root + "thought.detail")->scrollOffset - 40) < 1);
+        parts.back().output += "新增结果";
+        page.chat.apply_process(session_id, "first", parts, 6);
+        frame();
+        MIRAGE_CHECK(std::abs(element(root + "thought.detail")->scrollOffset - 40) < 1);
+        page.chat.apply_process(session_id, "first", {}, 7);
+        page.dark = false;
+        width = 1180;
+        height = 800;
+        frame();
+    }
     const auto key = "message." + std::to_string(user);
+    const auto original_user_text = page.chat.current().messages.front().text;
+    std::string long_cjk;
+    for (int i = 0; i < 80; ++i)
+        long_cjk += "中";
+    const std::vector<std::string> bubble_cases = {"你会做什么",
+                                                   "你会做什么？",
+                                                   "你好 / Mirage 12345",
+                                                   std::string(160, 'W'),
+                                                   long_cjk,
+                                                   "第一行\n第二行\n",
+                                                   "emoji 👩‍💻 / 中文\n\n第三行"};
+    for (const bool dark : {false, true})
+        for (const int logical_width : {1180, 860})
+            for (const float scale : {1.0f, 1.25f, 1.5f, 2.0f}) {
+                page.dark = dark;
+                width = logical_width;
+                height = logical_width == 1180 ? 800 : 620;
+                dpi_scale = scale;
+                for (const auto &value : bubble_cases) {
+                    page.chat.current().messages.front().text = value;
+                    frame();
+                    const auto *body = element(key + ".body");
+                    const auto *bubble = element(key + ".bubble");
+                    core::TextStyle emitted;
+                    emitted.text = body->text;
+                    emitted.fontFamily = body->fontFamily;
+                    emitted.fontSize = body->fontSize * scale;
+                    emitted.fontWeight = body->fontWeight;
+                    emitted.maxWidth = body->maxWidth * scale;
+                    emitted.lineHeight = body->lineHeight * scale;
+                    emitted.wrap = body->wrap;
+                    core::TextPrimitive actual;
+                    actual.setStyle(emitted);
+                    const auto size = actual.measuredSize();
+                    MIRAGE_CHECK(std::abs(page.render_scale - scale) < 0.001f);
+                    MIRAGE_CHECK(size.y <= body->frame.height * scale + 0.01f);
+                    MIRAGE_CHECK(size.x <= body->frame.width * scale + 0.01f);
+                    MIRAGE_CHECK(std::abs(body->frame.x - bubble->frame.x - 12) < 0.01f);
+                    MIRAGE_CHECK(std::abs(body->frame.y - bubble->frame.y - 8) < 0.01f);
+                    MIRAGE_CHECK(body->frame.x + body->frame.width <=
+                                 bubble->frame.x + bubble->frame.width - 12 + 0.01f);
+                    MIRAGE_CHECK(body->frame.y + size.y / scale <=
+                                 bubble->frame.y + bubble->frame.height - 8 + 0.01f);
+                    MIRAGE_CHECK(element(key + ".select")->frame.height == body->frame.height);
+                    if (value == "你会做什么") {
+                        MIRAGE_CHECK(std::abs(size.y / scale - 22) < 0.01f);
+                        if (logical_width == 1180 && scale == 2)
+                            capture(dark ? "bubble-short-dark-2x" : "bubble-short-light-2x");
+                    }
+                }
+            }
+    page.chat.current().messages.front().text = original_user_text;
+    page.dark = false;
+    width = 1180;
+    height = 800;
+    dpi_scale = 1;
+    frame();
     MIRAGE_CHECK(element("thread.title")->text == page.chat.current().title);
     capture("title-history");
+    const auto session_key = "session." + std::to_string(session_id);
+    auto *delete_visibility = element(session_key + ".delete.visibility");
+    MIRAGE_CHECK(delete_visibility && delete_visibility->opacity == 0);
+    const auto title_bounds = element(session_key + ".title")->frame;
+    core::queuePointerMotion(handle, title_bounds.x + 8, title_bounds.y + 10, {}, {});
+    frame();
+    MIRAGE_CHECK(element(session_key + ".delete.visibility")->opacity == 1);
+    const auto delete_bounds = element(session_key + ".delete.bg")->frame;
+    core::queuePointerMotion(handle, delete_bounds.x + 18, delete_bounds.y + 18, {}, {});
+    frame();
+    MIRAGE_CHECK(element(session_key + ".delete.visibility")->opacity == 1);
+    core::queuePointerMotion(handle, 700, 450, {}, {});
+    frame();
+    MIRAGE_CHECK(element(session_key + ".delete.visibility")->opacity == 0);
+
     const auto history_count = page.chat.history_count();
     MIRAGE_CHECK(page.chat.new_draft());
     frame();
@@ -394,6 +599,71 @@ const auto model = "Mirage";
     MIRAGE_CHECK(page.popup == PageState::Popup::Model && view->find("composer.popup.settings"));
     page.popup = PageState::Popup::None;
     page.live_model.enabled = false;
+    page.live_model.reasoning_options = {"",       "none", "adaptive", "minimal", "low",
+                                         "medium", "high", "xhigh",    "max"};
+    for (const auto &effort : page.live_model.reasoning_options) {
+        page.chat.current().reasoning = effort;
+        frame();
+        const auto *label = element("composer.reasoning.text");
+        MIRAGE_CHECK(label && !label->text.ends_with("…"));
+        MIRAGE_CHECK(element("composer.model")->frame.x + element("composer.model")->frame.width +
+                         control_icon_gap <=
+                     element("composer.reasoning")->frame.x + 0.5f);
+    }
+    page.chat.current().reasoning.clear();
+    // Density changes must preserve menu containment and mouse operation in both themes.
+    for (const int viewport : {1180, 860}) {
+        width = viewport;
+        height = viewport == 1180 ? 800 : 620;
+        glfwSetWindowSize(window, width, height);
+        for (const bool dark : {false, true}) {
+            page.dark = dark;
+            page.live_model.supports_reasoning = true;
+            page.live_model.dialect = "openai.chat_completions.v1";
+            page.live_model.reasoning_options = {"", "none", "adaptive"};
+            for (const auto popup :
+                 {PageState::Popup::Actions, PageState::Popup::Mode, PageState::Popup::Reasoning}) {
+                page.popup = popup;
+                frame();
+                const auto menu_bounds = element("composer.popup")->frame;
+                MIRAGE_CHECK(menu_bounds.x >= 0 && menu_bounds.y >= 0 &&
+                             menu_bounds.x + menu_bounds.width <= width &&
+                             menu_bounds.y + menu_bounds.height <= height);
+                if (popup == PageState::Popup::Reasoning) {
+                    const auto last = element("composer.popup.effort.2")->frame;
+                    MIRAGE_CHECK(last.y + last.height <= menu_bounds.y + menu_bounds.height);
+                }
+                capture("compact-menu-" + std::to_string(static_cast<int>(popup)) + "-" +
+                        std::to_string(viewport) + (dark ? "-dark" : "-light"));
+            }
+            page.popup = PageState::Popup::None;
+            page.settings = true;
+            page.model_page = false;
+            frame();
+            const auto theme_bounds = element("settings.theme.dark.bg")->frame;
+            const auto panel = element("settings.theme.panel")->frame;
+            MIRAGE_CHECK(theme_bounds.x >= panel.x &&
+                         theme_bounds.x + theme_bounds.width <= panel.x + panel.width &&
+                         theme_bounds.y + theme_bounds.height <= panel.y + panel.height);
+            core::queuePointerMotion(handle, theme_bounds.x + theme_bounds.width / 2,
+                                     theme_bounds.y + theme_bounds.height / 2, {}, {});
+            core::queuePointerButton(handle, theme_bounds.x + theme_bounds.width / 2,
+                                     theme_bounds.y + theme_bounds.height / 2,
+                                     core::PointerButton::Left, core::PointerAction::Press, {});
+            frame();
+            core::queuePointerButton(handle, theme_bounds.x + theme_bounds.width / 2,
+                                     theme_bounds.y + theme_bounds.height / 2,
+                                     core::PointerButton::Left, core::PointerAction::Release, {});
+            frame();
+            MIRAGE_CHECK(page.dark);
+            page.dark = dark;
+            frame();
+            capture("compact-appearance-" + std::to_string(viewport) + (dark ? "-dark" : "-light"));
+            page.settings = false;
+        }
+    }
+    page.live_model.supports_reasoning = false;
+    page.live_model.reasoning_options.clear();
     page.dark = false;
     width = 1180;
     height = 800;

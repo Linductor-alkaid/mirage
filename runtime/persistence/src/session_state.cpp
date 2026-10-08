@@ -105,6 +105,12 @@ std::string encode_session_state(const SessionState &state) {
             put(turn_object, "sequence", JsonValue{static_cast<std::int64_t>(turn.sequence)});
             put(turn_object, "recorded_at_ms",
                 JsonValue{static_cast<std::int64_t>(turn.recorded_at_ms)});
+            if (!turn.parts.empty())
+                put(turn_object, "parts",
+                    mira::parse_json(conversation::encode_parts(turn.parts)).value());
+            if (turn.process_sequence)
+                put(turn_object, "process_sequence",
+                    JsonValue{static_cast<std::int64_t>(turn.process_sequence)});
             turns.emplace_back(std::move(turn_object));
         }
         put(session_object, "chat_turns", JsonValue{std::move(turns)});
@@ -116,7 +122,9 @@ std::string encode_session_state(const SessionState &state) {
 
 SessionStateDecode decode_session_state(std::string_view body) {
     SessionStateDecode result;
-    auto parsed = mira::parse_json(body);
+    mira::JsonLimits limits;
+    limits.max_document_bytes = kMaxSessionStateFileBytes;
+    auto parsed = mira::parse_json(body, limits);
     if (!parsed) {
         result.error = "invalid JSON: " + parsed.error().safe_message;
         return result;
@@ -271,12 +279,26 @@ SessionStateDecode decode_session_state(std::string_view body) {
             for (const JsonValue &entry : *turns) {
                 if (!entry.is_object() ||
                     has_unknown_member(entry, {"turn_id", "status", "user_text", "reply_text",
-                                               "error", "sequence", "recorded_at_ms"})) {
+                                               "error", "sequence", "recorded_at_ms", "parts",
+                                               "process_sequence"})) {
                     result.error = "chat turns must carry only 'turn_id', 'status', 'user_text', "
-                                   "'reply_text', 'error', 'sequence' and 'recorded_at_ms'";
+                                   "'reply_text', 'error', 'sequence', 'recorded_at_ms', 'parts' "
+                                   "and 'process_sequence'";
                     return result;
                 }
                 PersistedChatTurn turn;
+                if (const auto *field = member(entry, "parts"))
+                    if (!conversation::decode_parts(mira::to_json_string(*field), turn.parts,
+                                                    result.error))
+                        return result;
+                if (const auto *field = member(entry, "process_sequence")) {
+                    const auto value = field->as_integer();
+                    if (!value || *value < 0) {
+                        result.error = "invalid process_sequence";
+                        return result;
+                    }
+                    turn.process_sequence = static_cast<std::uint64_t>(*value);
+                }
                 if (const auto *field = member(entry, "turn_id"); field != nullptr) {
                     if (const auto text = bounded_string(*field, result.error)) {
                         turn.turn_id = *text;

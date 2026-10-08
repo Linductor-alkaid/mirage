@@ -83,7 +83,7 @@ typography:
     fontWeight: 400
   settings-heading:
     fontFamily: Noto Sans SC, sans-serif
-    fontSize: 24px
+    fontSize: 20px
     fontWeight: 600
     lineHeight: 1.5
   provider-selector:
@@ -92,7 +92,7 @@ typography:
     fontWeight: 400
   model-heading:
     fontFamily: Noto Sans SC, sans-serif
-    fontSize: 24px
+    fontSize: 20px
     fontWeight: 600
     lineHeight: 1.5
   model-field:
@@ -138,7 +138,7 @@ rounded:
 spacing:
   session-gap: 4px
   text-gap: 8px
-  input-inset: 12px
+  input-inset: 8px
   sidebar-inset: 20px
   dialog-inset: 24px
   user-horizontal: 12px
@@ -206,9 +206,9 @@ components:
   theme-panel:
     backgroundColor: '{colors.light-surface}'
     rounded: '{rounded.panel}'
-    height: 100px
+    height: 80px
   theme-panel-narrow:
-    height: 126px
+    height: 104px
   provider-selector:
     backgroundColor: transparent
     textColor: '{colors.light-text}'
@@ -472,11 +472,11 @@ Enter 发送、Shift+Enter 换行、Ctrl+Enter 保留发送兼容；composition 
 
 加号提供“添加文本附件”和“查看附件与引用”，明确说明 UTF-8、最多 4 个与合计 8 KiB。同步系统文件对话框只接收用户主动选择的文件，读取交给前端唯一 Executor 的有限任务；拒绝非普通文件、二进制、无效 UTF-8 与超限，Linux 还拒绝符号链接/FIFO，取消选择无错误。附件以文件名与完整文本加入明确标记的不可信用户 TextPart 上下文，不提供图像/二进制上传或自动目录读取。附件和引用出现后展示 176×28px“附件 N · 引用 N”计数 pill，图标 11px、文字 12px；点击打开宽 `min(320px, column)`、高 `min(352px, screen.height - 160px)` 的滚动预览。附件展示文件名、字节数、13px / 22px 文本和移除入口；引用展示完整文字、来源角色、消息 ID，并可逐条删除，文字 14px / 22px、行间距 16px、滚动条宽 4px / gap 6px。引用最多 4 段、合计 8 KiB；附件另有相同上限，二者与草稿一起受编码后 16 KiB wire 上限。引用/附件实例有独立单调 ID，ACK 仅清除该次提交实例；附件 generation 防止已清空会话接纳迟到读取结果。
 
-上下文圆环采用 24×24 SVG 视框、半径 10、描边 4，原生显示为 20×20px；用 SVG 路径弧绘制占用，避免依赖 dash-array 支持。点击或经 EUI 键盘操作展开宽 `min(320px, column)`、高 224px 的详情，浅色使用 surface、深色使用 dark-composer，按上下文工具的 `column - 180 - model_width` 锚点定位并钳制到 composer 可用宽度；与 composer 间隔 8px、顶部至少 68px。标题与百分比在顶部，下一行展示带千位分隔的“输入 / 窗口 Token”；下方是 6px 高、3px 圆角的比例条，以及来源、模型、本次引用数三行。未知时显示灰色空环、“未知”与“Token 用量尚不可用 / 等待模型返回 Token 用量”；已有输入但分母未知时显示“输入 / 未知 Token”，提示到模型设置填写窗口预算。真实零用量配合已知分母显示 0%；原始 Token 数和百分比可以超过 100%，仅圆环与进度条图形钳制到 100%。
+上下文圆环采用 24×24 SVG 视框、半径 10、描边 4，原生显示为 20×20px；用 SVG 路径弧绘制占用，避免依赖 dash-array 支持。点击或经 EUI 键盘操作展开宽 `min(320px, column)`、高 224px 的详情，浅色使用 surface、深色使用 dark-composer，按上下文工具的 `column - 156 - model_width` 锚点定位并钳制到 composer 可用宽度；与 composer 间隔 8px、顶部至少 68px。标题与百分比在顶部，下一行展示带千位分隔的“输入 / 窗口 Token”；下方是 6px 高、3px 圆角的比例条，以及来源、模型、本次引用数三行。未知时显示灰色空环、“未知”与“Token 用量尚不可用 / 等待模型返回 Token 用量”；已有输入但分母未知时显示“输入 / 未知 Token”，提示到模型设置填写窗口预算。真实零用量配合已知分母显示 0%；原始 Token 数和百分比可以超过 100%，仅圆环与进度条图形钳制到 100%。
 
 分子仅来自 Mira ModelResponse.usage 的 Exact / ProviderReported input_tokens，按最近一次成功请求显示“上次请求 · 模型输入用量”；工具循环取最终回复调用的输入，不累计各次调用，不计输出 Token，不从草稿或 bytes 估算。失败/取消保留前一次成功值；新成功轮次缺少用量则回到未知；迟到的旧序列不能覆盖较新的用量。服务重启后的旧历史不持久化用量，显示未知。截图中的 391 / 128,000 Token = 0.3% 来自真实请求与显式测试预算，128,000 不是自动发现的供应商窗口。
 
-模型 popover 高 `min(352px, 68px + 44px × 配置数)`，动作/权限 popover 高 164px，思考 popover 按服务端选项数确定高度；各面板按对应工具的横向锚点定位（附件/引用 8px、权限 48px、上下文 `column - 180 - model_width`、模型 `column - 140 - model_width`、思考 `column - 136px`），再钳制到 composer 边界；共用 12px 圆角、1px 边界，透明 dismiss 层 z=20、面板 z=21，位于 composer 上方且顶部不小于 68px。
+模型 popover 高 `min(352px, 56px + 36px × 配置数)`，动作/权限 popover 高 132px，思考 popover 按服务端选项数确定高度；各面板按对应工具的横向锚点定位（附件/引用 8px、权限 48px、上下文 `column - 156 - model_width`、模型 `column - 124 - model_width`、思考 `column - 120px`），再钳制到 composer 边界；共用 12px 圆角、1px 边界，透明 dismiss 层 z=20、面板 z=21，位于 composer 上方且顶部不小于 68px。
 
 ### Dialog
 
@@ -566,3 +566,26 @@ M6-22厂商导航采用有来源记录的品牌资产，窄窗口以56px图标�
 滚动条贡献的整个内容子树（z=1），低于弹层；绘制与鼠标命中使用同一层级。
 保持原有位置/36px 外观和 Enter/Space 操作。鼠标回归通过真实 Runtime 按下/松开派发，
 同时断言正文像素移动、末尾位置及恢复跟随，不能只调用 onClick/onKeyEvent 替代点击。
+
+
+## 2026-10-07 控件密度修订（DEC-047 / M6-29）
+
+按维护者指定ZCode官网应用展示与固定公开组件尺寸，输入栏添加/发送与工具控件统一28px，
+添加/发送图标14px，上下文圆环16px。普通下拉宽280px、选项行32px，引用/用量详情仍320px。
+正文及输入字号14px不变，字体EM修正不变。设置标题20px、服务标题16px；主题按钮88×28px、
+14px文字，主题面板80px（窄窗口104px）。模型输入32px，添加/保存/取消操作28px；
+服务/协议菜单32px行。保留侧栏、窗口控制、模型保存ACK和取消保护、删除确认流程。
+
+
+## 2026-10-07 控件文字留白修订（DEC-048 / M6-30）
+
+所有产品按钮通过`control_button.hpp`复用EUI，按钮和输入统一`control_text_inset=8px`，
+图文间隔`control_icon_gap=4px`。文字按实际字体测量在安全文字框内省略；有尾部箭头的选择器
+把箭头纳入同一图文组，避免额外图标占用文字区域。模型与思考工具组根据内容和邻居尺寸布局。
+正文、面板、导航分组保留原层级缩进；8px规则用于同类可交互控件内部。
+原生渲染测试检查所有状态的按钮文字不越界、图文组两侧8px及输入文字视口留白，
+并覆盖全部思考值和长模型名、常规/最小窗口与明暗主题。
+
+会话过程（DEC-049）：28px折叠摘要行，思考/工具按实际顺序；详情13px/20px，
+最多240px独立滚动，面板文字内边距复用8px token。思考正文、工具参数/结果可复制，
+默认折叠且以段稳定ID保留展开状态。失败/取消显式状态，redacted思考/签名不展示。

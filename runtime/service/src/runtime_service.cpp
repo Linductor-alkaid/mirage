@@ -165,6 +165,14 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
             if (record.turn_id == turn_id) {
                 if (record.status != "pending")
                     return; // terminal settlement is idempotent
+                event.parts = completion.parts.empty() ? record.parts : completion.parts;
+                for (auto &part : event.parts)
+                    if (part.status == "pending" || part.status == "running")
+                        part.status = completion.cancelled ? "cancelled" : "failed";
+                record.parts = event.parts;
+                if (!event.parts.empty() || record.process_sequence)
+                    ++record.process_sequence;
+                event.process_sequence = record.process_sequence;
                 record.status = status;
                 record.reply_text = event.reply_text;
                 record.context_usage = event.context_usage;
@@ -216,12 +224,39 @@ void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::stri
         core->events.publish_chat_preview({session_id, turn_id, request, preview_text,
                                            preview_sequence->fetch_add(1) + 1, truncated});
     };
+    integration::DialogProcessSink process = [core, session_id, turn_id, stop](const auto &parts) {
+        if (stop.stop_requested() || !conversation::valid_parts(parts))
+            return;
+        ipc::ChatTurnUpdatedEvent event;
+        {
+            std::lock_guard lock(core->dialogs.mutex);
+            const auto found = core->dialogs.sessions.find(session_id);
+            if (found == core->dialogs.sessions.end())
+                return;
+            auto &log = found->second;
+            const auto record =
+                std::find_if(log.turns.begin(), log.turns.end(),
+                             [&](const auto &turn) { return turn.turn_id == turn_id; });
+            if (record == log.turns.end() || record->status != "pending")
+                return;
+            record->parts = parts;
+            event.session_id = session_id;
+            event.turn_id = turn_id;
+            event.status = "pending";
+            event.user_text = record->user_text;
+            event.sequence = record->sequence;
+            event.replaces_turn_id = record->replaces_turn_id;
+            event.parts = parts;
+            event.process_sequence = ++record->process_sequence;
+        }
+        core->events.publish_chat_turn(std::move(event));
+    };
     mirage::integration::DialogCompletion completion =
         core->model_layer
-            ? (agent ? core->model_layer->complete_harness_turn(transcript, text, context,
-                                                                reasoning, tools_allowed, preview)
+            ? (agent ? core->model_layer->complete_harness_turn(
+                           transcript, text, context, reasoning, tools_allowed, preview, process)
                      : core->model_layer->complete_dialog_turn(transcript, text, context, reasoning,
-                                                               tools_allowed, preview))
+                                                               tools_allowed, preview, process))
             : mirage::integration::DialogCompletion{};
     if (!agent_task_id.empty()) {
         const auto settled =
@@ -298,6 +333,8 @@ bool persist_session_state(const std::shared_ptr<ServiceCore> &core,
                     turn.status = record.status;
                     turn.user_text = record.user_text;
                     turn.reply_text = record.reply_text;
+                    turn.parts = record.parts;
+                    turn.process_sequence = record.process_sequence;
                     turn.error = record.error;
                     turn.sequence = record.sequence;
                     turn.recorded_at_ms = record.recorded_at_ms;
@@ -2052,8 +2089,17 @@ struct RuntimeService::Impl {
             auto &log = found->second;
             const std::size_t count = std::min(requested, log.turns.size());
             history.turns.reserve(count);
-            for (std::size_t index = log.turns.size() - count; index < log.turns.size(); ++index) {
-                const detail::DialogTurnRecord &record = log.turns[index];
+            auto encoded_size = [correlation_id](const ipc::DialogHistory &snapshot) {
+                ipc::Response response;
+                response.ok = true;
+                response.id = correlation_id;
+                response.payload = snapshot;
+                return ipc::encode_response(response).size();
+            };
+            const auto envelope_bytes = encoded_size(history);
+            std::size_t wire_bytes = envelope_bytes;
+            for (std::size_t index = log.turns.size(); index > log.turns.size() - count; --index) {
+                const detail::DialogTurnRecord &record = log.turns[index - 1];
                 ipc::DialogTurnEntry entry;
                 entry.turn_id = record.turn_id;
                 entry.status = record.status;
@@ -2065,9 +2111,27 @@ struct RuntimeService::Impl {
                 entry.sequence = record.sequence;
                 entry.recorded_at_ms = record.recorded_at_ms;
                 entry.context_usage = record.context_usage;
+                entry.parts = record.parts;
+                entry.process_sequence = record.process_sequence;
+                ipc::DialogHistory sample;
+                sample.session_id = history.session_id;
+                sample.turns.push_back(entry);
+                const auto entry_bytes =
+                    encoded_size(sample) - envelope_bytes + (history.turns.empty() ? 0 : 1);
+                if (wire_bytes + entry_bytes > ipc::kMaxFrameBytes) {
+                    if (history.turns.empty()) {
+                        fail(connection_id, correlation_id, "unavailable",
+                             "latest chat turn exceeds IPC response budget");
+                        return;
+                    }
+                    break;
+                }
+                wire_bytes += entry_bytes;
                 history.turns.push_back(std::move(entry));
             }
-            history.truncated = log.total_recorded > history.turns.size();
+            std::reverse(history.turns.begin(), history.turns.end());
+            history.truncated = log.turns.size() > history.turns.size() ||
+                                log.total_recorded > history.turns.size();
         }
         respond(connection_id, correlation_id, std::move(history));
     }
@@ -3014,7 +3078,7 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         impl_->core->session_state_store =
             std::make_unique<mirage::runtime::persistence::LocalStateStore>(
                 session_directory, "session-state.json",
-                mirage::runtime::persistence::kMaxSettingsFileBytes * 8);
+                mirage::runtime::persistence::kMaxSessionStateFileBytes);
     }
 
     impl_->core->model_available.store(impl_->core->model_layer &&
@@ -3089,6 +3153,8 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                             record.status = turn.status;
                             record.user_text = turn.user_text;
                             record.reply_text = turn.reply_text;
+                            record.parts = turn.parts;
+                            record.process_sequence = turn.process_sequence;
                             record.error = turn.error;
                             record.sequence = turn.sequence;
                             record.recorded_at_ms = turn.recorded_at_ms;

@@ -1,4 +1,5 @@
 #pragma once
+#include <mirage/conversation.hpp>
 
 #include "attachment.hpp"
 #include "context_usage.hpp"
@@ -21,6 +22,9 @@ struct LocalMessage {
     std::uint64_t preview_sequence = 0;
     std::string preview_request = {};
     bool preview_truncated = false;
+    std::vector<conversation::Part> parts = {};
+    std::uint64_t process_sequence = 0;
+    std::vector<std::string> expanded_parts = {};
 };
 
 struct ContextReference {
@@ -100,6 +104,10 @@ class ChatModel {
                     const std::string &user, const std::string &reply, const std::string &error,
                     std::optional<ContextUsage> usage = {}, std::uint64_t sequence = 0,
                     const std::string &replaces = {});
+    void apply_process(std::uint64_t session, const std::string &turn,
+                       const std::vector<conversation::Part> &parts, std::uint64_t sequence,
+                       bool pending = false);
+    void toggle_part(std::uint64_t session, std::uint64_t message, const std::string &part);
     void apply_preview(std::uint64_t id, const std::string &turn, const std::string &request,
                        std::uint64_t sequence, const std::string &text, bool truncated);
     LocalSession &current();
