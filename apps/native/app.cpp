@@ -2873,10 +2873,12 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         .onClick([toggle] { toggle(PageState::Popup::Mode); })
         .build();
     const auto thinking_options = composer_thinking_options(s.live_model);
-    float reasoning_width = 84;
-    for (const auto &option : thinking_options)
-        reasoning_width =
-            std::max(reasoning_width, control_button_width(option.label + "思考", 13, 9));
+    const auto selected_effort =
+        std::find_if(thinking_options.begin(), thinking_options.end(),
+                     [&](const auto &entry) { return entry.value == session.reasoning; });
+    const std::string effort =
+        selected_effort == thinking_options.end() ? "默认" : selected_effort->label;
+    const float reasoning_width = std::max(84.0f, control_button_width(effort, 13, 9));
     const float send_x = column - control_text_inset - 28;
     const float reasoning_x = send_x - control_icon_gap - reasoning_width;
     const std::string model_label = s.live_model.enabled ? s.live_model.model_selector : "选择模型";
@@ -2911,15 +2913,10 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         .disabled(s.saving_model)
         .onClick([toggle] { toggle(PageState::Popup::Model); })
         .build();
-    const auto selected_effort =
-        std::find_if(thinking_options.begin(), thinking_options.end(),
-                     [&](const auto &entry) { return entry.value == session.reasoning; });
-    const std::string effort =
-        selected_effort == thinking_options.end() ? "默认" : selected_effort->label;
     control_button(ui, "composer.reasoning")
         .position(x + reasoning_x, toolbar_y)
         .size(reasoning_width, 28)
-        .text(effort + "思考")
+        .text(effort)
         .trailingIcon(0xe136)
         .iconSize(9)
         .fontSize(ui_font_size(13))
