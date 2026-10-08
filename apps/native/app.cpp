@@ -914,6 +914,19 @@ void icon_button(eui::Ui &ui, const std::string &id, unsigned int glyph, float x
         .onClick(std::move(action))
         .build();
 }
+// Sidebar toggle after ZCode's panel-left pair: a left-partitioned panel with a
+// caret that points at the panel when expanded (hide) and outward when hidden (show).
+void sidebar_toggle_button(eui::Ui &ui, const std::string &id, bool expanded, float x, float y,
+                           const Palette &p, std::function<void()> action) {
+    ui.stack(id)
+        .position(x, y)
+        .size(36, 36)
+        .content([&] {
+            icon_button(ui, id + ".panel", 0xec24, 0, 0, p, std::move(action));
+            icon(ui, id + ".caret", expanded ? 0xe138 : 0xe13a, 9, 0, 8, 36, p.text);
+        })
+        .build();
+}
 void modal(eui::Ui &ui, const eui::Screen &screen, const Palette &p) {
     auto &s = state();
     if (!s.about && !s.confirm_clear && !s.confirm_delete)
@@ -3119,8 +3132,8 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                     .radius(1)
                     .color(p.accent)
                     .build();
-                icon_button(ui, "sidebar.hide", 0xe546, sidebar - 52, 12, p,
-                            [] { state().sidebar = false; });
+                sidebar_toggle_button(ui, "sidebar.toggle", true, sidebar - 52, 12, p,
+                                      [] { state().sidebar = false; });
                 if (s.settings) {
                     ui.stack("settings.back")
                         .position(24, 76)
@@ -3333,7 +3346,8 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                 .onDrag([](const auto &) { window::move(); })
                 .build();
             if (!s.sidebar) {
-                icon_button(ui, "sidebar.show", 0xe546, 16, 12, p, [] { state().sidebar = true; });
+                sidebar_toggle_button(ui, "sidebar.toggle.collapsed", false, 16, 12, p,
+                                      [] { state().sidebar = true; });
                 icon_button(ui, "settings.collapsed", 0xe270, 60, 12, p,
                             [] { state().settings = true; });
             }
@@ -3499,6 +3513,12 @@ const DslAppConfig &dslAppConfig() {
                         mirage::native_ui::state().confirm_clear)
                         return;
                     mirage::native_ui::new_session();
+                    app::requestUpdate();
+                }
+                if (event.action == eui::KeyAction::Press && event.modifiers.control &&
+                    event.key == eui::InputKey::B) {
+                    // Same binding as ZCode's workspace sidebar toggle.
+                    mirage::native_ui::state().sidebar = !mirage::native_ui::state().sidebar;
                     app::requestUpdate();
                 }
                 if (event.action == eui::KeyAction::Press && event.key == eui::InputKey::Escape) {

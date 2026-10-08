@@ -692,6 +692,61 @@ const auto model = "Mirage";
                     (dark ? "-dark" : "-light"));
         }
     }
+    // Sidebar toggle redesign: a Phosphor sidebar-simple panel composite with an
+    // overlay caret (U+E138 caret-left when expanded, U+E13A caret-right when
+    // collapsed), mirroring ZCode's PanelLeftClose/PanelLeftOpen semantics.
+    {
+        const std::string panel_glyph = "\xee\xb0\xa4"; // U+EC24 sidebar-simple
+        const std::string caret_left = "\xee\x84\xb8";  // U+E138
+        const std::string caret_right = "\xee\x84\xba"; // U+E13A
+        const float sidebar_extent =
+            std::clamp(page.sidebar_width, 224.0f,
+                       std::max(224.0f, std::min(400.0f, static_cast<float>(width) - 520.0f)));
+        page.sidebar = true;
+        page.dark = false;
+        frame();
+        MIRAGE_CHECK(!view->find("sidebar.toggle.collapsed"));
+        MIRAGE_CHECK(element("sidebar.toggle.panel.icon")->text == panel_glyph);
+        MIRAGE_CHECK(element("sidebar.toggle.caret")->text == caret_left);
+        MIRAGE_CHECK(element("sidebar.toggle.panel")->frame.width == 36);
+        const auto expanded = element("sidebar.toggle")->frame;
+        MIRAGE_CHECK(expanded.width == 36 && expanded.height == 36);
+        MIRAGE_CHECK(expanded.x + expanded.width <= sidebar_extent + 0.01f);
+        MIRAGE_CHECK(std::abs(expanded.y - 12) < 0.01f);
+        capture("sidebar-toggle-expanded");
+        // Clicking the expanded toggle collapses the sidebar.
+        element("sidebar.toggle.panel.bg")->onClick();
+        frame();
+        MIRAGE_CHECK(!page.sidebar && view->find("sidebar.toggle.collapsed") != nullptr);
+        // Collapsed state: the composite moves to the window's top-left corner.
+        MIRAGE_CHECK(!view->find("sidebar.toggle"));
+        MIRAGE_CHECK(element("sidebar.toggle.collapsed.panel.icon")->text == panel_glyph);
+        MIRAGE_CHECK(element("sidebar.toggle.collapsed.caret")->text == caret_right);
+        const auto collapsed = element("sidebar.toggle.collapsed")->frame;
+        MIRAGE_CHECK(collapsed.width == 36 && collapsed.height == 36);
+        MIRAGE_CHECK(std::abs(collapsed.x - 16) < 0.01f && std::abs(collapsed.y - 12) < 0.01f);
+        capture("sidebar-toggle-collapsed");
+        // Ctrl+B toggles the sidebar like ZCode's workspace binding.
+        eui::KeyEvent ctrl_b;
+        ctrl_b.key = eui::InputKey::B;
+        ctrl_b.action = eui::KeyAction::Press;
+        ctrl_b.modifiers.control = true;
+        app::dslAppConfig().keyEventHandler(ctrl_b);
+        frame();
+        MIRAGE_CHECK(page.sidebar && !view->find("sidebar.toggle.collapsed"));
+        app::dslAppConfig().keyEventHandler(ctrl_b);
+        frame();
+        MIRAGE_CHECK(!page.sidebar && view->find("sidebar.toggle.collapsed") != nullptr);
+        // Clicking the collapsed toggle expands the sidebar again.
+        element("sidebar.toggle.collapsed.panel.bg")->onClick();
+        frame();
+        MIRAGE_CHECK(page.sidebar && !view->find("sidebar.toggle.collapsed") &&
+                     view->find("sidebar.toggle.caret"));
+        // Restore the collapsed state the surrounding sections expect.
+        page.sidebar = false;
+        frame();
+        MIRAGE_CHECK(view->find("sidebar.toggle.collapsed.caret"));
+    }
     page.settings = true;
     frame();
     MIRAGE_CHECK(element("thread.title")->text == "设置");
