@@ -95,3 +95,25 @@ ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 ctest --preset asan -R '^native_agen
 本机日志：/tmp/mirage-pr75-full-asan-{configure,build,test}.log、
 /tmp/mirage-pr75-targeted-release-test.log及/tmp/mirage-pr75-reconfigure.log。
 最终提交的CI结论、run链接及合并状态记录在[PR#75](https://github.com/Linductor-alkaid/mirage/pull/75)。
+
+## 容量夹具隔离补验（2026-10-08）
+
+提交61cce6b的[第二轮CI](https://github.com/Linductor-alkaid/mirage/actions/runs/37637754707)
+中7/8个job通过（含Windows MSVC及原生前端）；TSAN在49.32秒遇到bad_variant_access，
+无竞态诊断。多MiB合成状态混入正常密钥/删除/恢复夹具，造成2秒响应超时后读取非成功payload。
+容量场景改为独立RuntimeService、状态目录及脚本Provider，仍执行12轮转义长过程、
+完整文件恢复和1MiB最新历史验证；响应改为get_if防护，异常时打印合成轮次诊断。
+容量I/O及模型期限明确为8秒，等待只查询最新一轮以减少重复编码；正常场景2秒期限保持。
+
+UI收件箱溢出回归改为有界等待16个在途任务的准入/完成后继续填充128个收件槽，
+并有界等待gap及恢复响应；不再假定固定300ms足以完成一批请求。仍验证168个请求、
+溢出可观察、恢复可用及shutdown，不改变产品队列/期限，不跳过断言。
+
+本机完整Debug TSAN（自研及Mira/Executor）303 checks、0失败，24.80秒，无诊断或抑制规则：
+
+```bash
+cmake --build build/tsan --target native_agent_integration_test -j 2
+setarch x86_64 -R ctest --preset tsan -R '^native_agent_integration_test$' --output-on-failure -V
+```
+
+日志：/tmp/mirage-final-debug-tsan-{build,test}.log。
