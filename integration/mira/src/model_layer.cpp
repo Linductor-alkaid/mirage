@@ -78,6 +78,10 @@ class ProfileSecretResolver final : public mira::ISecretResolver {
 
 std::vector<ReasoningOption> reasoning_options(const std::string &dialect, const std::string &model,
                                                bool declared) {
+    // Labels mirror the pinned dialect vocabulary. Thinking content itself is
+    // only surfaced as ThinkingPart by the Messages dialect (see feedback
+    // ledger entry MIRA-20261008-001); the other dialects change upstream
+    // generation behavior only, without a displayable thinking trail.
     std::vector<ReasoningOption> result{{"", "默认"}};
     if (dialect == "anthropic.messages.v1") {
         if (model == "MiniMax-M3")

@@ -77,11 +77,11 @@
       "path": "third_party/eui-neo",
       "version": "0.6.0-dev",
       "branch": "dev",
-      "commit": "ff1e7572132a7ff8fc70c8e52f7778fce4dd976f",
+      "commit": "fd9c1a983e74d2a85afc3b156274afd4d8532c14",
       "license": "Apache-2.0",
       "license_file": "third_party/eui-neo/LICENSE",
       "consumption": "UI-only; opt-in apps/native; bundled GLFW/OpenGL; DEC-033",
-      "notes": "Dev 88a9ec1 plus authorized XIM caret, backend-neutral lifecycle and controlled scroll repairs. Upstream PR#88 https://github.com/sudoevolve/EUI-NEO/pull/88; DEC-041 / M6-19/20. Full commit reachable from maintainer fork; Mirage remains OpenGL.",
+      "notes": "Dev c444e53 plus compositor-mediated window move/resize (upstream PR#91 https://github.com/sudoevolve/EUI-NEO/pull/91, issue #89) and transparent framebuffer support (upstream PR#92 https://github.com/sudoevolve/EUI-NEO/pull/92, issue #90); pin is the integration merge of both PR branches, reachable from maintainer fork. OpenGL consumption unchanged. DEC-033 / DEC-041.",
       "upstream": "https://github.com/sudoevolve/EUI-NEO.git"
     }
   ],

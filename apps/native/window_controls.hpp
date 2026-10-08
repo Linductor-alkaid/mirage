@@ -15,6 +15,8 @@ void close();
 void copy_text(const std::string &text);
 void begin_move();
 void move();
+// True when the platform granted an alpha framebuffer (rounded window chrome).
+bool transparent_framebuffer();
 enum Edge { left = 1, right = 2, top = 4, bottom = 8 };
 void begin_resize(int edges);
 void resize();

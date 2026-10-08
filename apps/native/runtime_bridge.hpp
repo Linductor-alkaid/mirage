@@ -25,7 +25,7 @@ class RuntimeBridge {
                          std::uint64_t generation = 0);
     bool connected() const;
     bool take_gap();
-    void set_activity(bool active);
+    void set_activity(bool active, bool animating = false);
     void shutdown();
 
   private:

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <eui/window.h>
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -29,6 +30,7 @@ int resize_edges = 0;
 int minimum_width = 860, minimum_height = 620;
 GLFWcursor *sidebar_cursor = nullptr;
 bool sidebar_cursor_active = false;
+bool fallback_move_armed = false;
 
 void begin() {
     glfwGetWindowPos(handle, &start_x, &start_y);
@@ -73,6 +75,7 @@ void initialize() {
 bool primary_pointer_down() {
     return handle && glfwGetMouseButton(handle, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
 }
+bool transparent_framebuffer() { return handle && eui::window::framebufferTransparent(handle); }
 float render_scale(float logical_width) {
     int width = 0, height = 0;
     if (handle)
@@ -131,11 +134,18 @@ void copy_text(const std::string &text) {
         glfwSetClipboardString(handle, text.c_str());
 }
 void begin_move() {
-    if (handle && !maximized())
-        begin();
+    if (!handle || maximized()) {
+        fallback_move_armed = false;
+        return;
+    }
+    // Hand the drag to the window manager: programmatic per-frame moves are
+    // clamped into the workarea by X11 WMs (Mutter) and impossible on Wayland.
+    fallback_move_armed = !eui::window::beginWindowMove(handle);
+    if (fallback_move_armed)
+        begin(); // fallback: drive the move per frame
 }
 void move() {
-    if (!handle || maximized())
+    if (!handle || maximized() || !fallback_move_armed)
         return;
     int dx = 0, dy = 0;
     delta(dx, dy);

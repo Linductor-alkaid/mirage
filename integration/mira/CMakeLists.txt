@@ -6,6 +6,7 @@ add_library(mirage_integration_mira STATIC
     src/desktop_atom_toolset.cpp
     src/mira_environment_binding.cpp
     src/model_layer.cpp
+    src/model_catalog.cpp
     src/session_journal.cpp
     src/workflow_event_bridge.cpp
     # The model layer's credential resolver reads the environment per

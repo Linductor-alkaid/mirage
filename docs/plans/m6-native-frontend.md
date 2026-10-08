@@ -3,7 +3,7 @@
 > 状态：In Progress
 > 负责人：Mirage 维护者
 > 所属计划：[实施总计划](mirage-implementation-plan.md)
-> 更新日期：2026-10-07
+> 更新日期：2026-10-08
 > 决策：[DEC-033](../decisions/DEC-033-native-agent-frontend.md)
 > 前置：既有 M5 服务与 IPC；本轮交付不依赖完整 M5 发布验收。
 > 建议发布点：暂不新增发布标签。
@@ -45,6 +45,7 @@
 | M6-25 | Completed（Linux X11） | 托盘内嵌Runtime、独立前端准入/复用、左键两项菜单、整体退出与活动确认；DEC-045 |
 | M6-24 | Completed（Linux X11） | 修复开发desktop入口绕过Service；真实GIO冷启动、Key保存/替换与服务复用验收 |
 | M6-28 | Blocked | 自有 PR 全绿合并、功能分支及过期 build 已清理；仅 EUI #88 待上游有权限者合并，验收记录分支随 PR 交付；[维护计划](maintenance-ci-acceptance-20261007.md)、[进程 EOF 修复](maintenance-linux-process-eof-20261007.md) |
+| M6-33 | Completed（Linux X11） | 侧栏/主题过渡、逐模型思考设置、按URL获取候选；Release52/52、ASAN/TSAN、真实公开目录与原生渲染通过；DEC-051 |
 | M6-10 | Completed | 依工程规范9.4整理Mira/Mirador独立反馈台账，复核已登记问题并向Mira上游提交可复现反馈；不修改依赖或升级pin |
 
 ## 测试矩阵与退出条件
@@ -478,3 +479,20 @@ M6-32验收：依据DEC-050使用实际渲染比例下的EUI字形布局，五�
 M6-31 / 2026-10-08故障注入补验：第三轮CI原生渲染通过，集成测试搬动活跃持久化目录
 存在竞争；替换/删除两处故障注入改为原子占用独占临时路径，有界等待并检查建立与清理。
 本机Release/完整Debug TSAN各307 checks、0失败，产品代码不变。详情及最终CI链接见M6-31验收记录。
+
+## 2026-10-08 / M6-33：原生交互渐动与模型目录
+
+状态：Completed（Linux适用范围）。负责人：Codex。依据 DEC-051。Linux 范围为侧栏开合与主题的连续过渡、
+逐模型思考声明、保存前按 Base URL/Key 请求模型目录并手选添加。现有已保存配置、
+Key 保密边界、12 模型上限和非兼容服务手填入口保留。
+
+验收要求：正常/最小明暗窗口开合、拖拽与快捷键中断；模型切换后思考选项与保存 ACK；
+协议编解码、凭据不回传、拒绝/超时/取消/关闭和候选列表去重/上限；真实供应商目录在有
+授权凭据时补验。Linux/Windows 分别记录完成情况，未执行项不标完成。
+
+
+2026-10-08验收：Release52/52，ASAN/TSAN各IPC golden与agent集成2/2；
+原生渲染及自研ASAN+UBSAN各21412 checks、0失败。真实OpenRouter目录使用synthetic Key
+获取成功，无推理调用。模型开关、保存与原生正常/最小明暗页面通过；
+[完整命令、失败修复与平台补验](../compatibility/native-motion-model-discovery-20261008.md)。
+Windows、物理显示器帧率及Anthropic真实目录保持补验，不关闭M6整体。

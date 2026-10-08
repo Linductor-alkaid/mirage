@@ -201,6 +201,17 @@ struct CancelChatRequest {
     std::string session_id;
 };
 struct GetModelRequest {};
+/// Explicit model discovery; draft Key is write-only and never echoed.
+struct ListModelsRequest {
+    std::string provider_id;
+    std::string endpoint_origin;
+    std::string api_prefix;
+    std::string dialect;
+    std::optional<std::string> api_key;
+};
+struct ModelList {
+    std::vector<std::string> ids;
+};
 // Settings schema v1 document with model/catalog; optional key is write-only.
 struct SetModelRequest {
     std::string settings_json;
@@ -347,7 +358,7 @@ using Request = std::variant<
     WorkflowListRequest, WorkflowSaveRequest, WorkflowPublishRequest, WorkflowDeleteRequest,
     WorkflowAtomCatalogRequest, WorkflowRunsRequest, WorkflowRunRequest, WorkflowCancelRunRequest,
     WorkflowGetRequest, DesktopObserveRequest, GetPolicyRequest, SetPolicyRequest, GetModelRequest,
-    SetModelRequest, CancelChatRequest>;
+    SetModelRequest, ListModelsRequest, CancelChatRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -799,7 +810,7 @@ using ResponsePayload =
                  DialogTurnAccepted, DialogHistory, SessionHistory, WorkflowList, WorkflowSaved,
                  WorkflowPublished, WorkflowDeleted, WorkflowAtomCatalog, WorkflowRunList,
                  WorkflowRunStarted, WorkflowRunCancelled, WorkflowDefinitionView, ObservationView,
-                 PolicyView, ModelConfiguration>;
+                 PolicyView, ModelConfiguration, ModelList>;
 
 /// Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc
 /// domain ("protocol_error", "unsupported", "invalid_argument", "not_found",

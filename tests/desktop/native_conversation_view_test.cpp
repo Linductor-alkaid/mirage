@@ -124,6 +124,10 @@ int main(int argc, char **argv) {
             audit(audit, *root);
     };
     auto frame = [&] {
+        // Static layout assertions inspect settled endpoints; motion itself is
+        // exercised with a deterministic clock below.
+        page.sidebar_motion.initialized = false;
+        page.theme_motion.initialized = false;
         int actual_width = 0, actual_height = 0;
         glfwGetWindowSize(window, &actual_width, &actual_height);
         const auto pixels_width = static_cast<int>(std::lround(width * dpi_scale));
@@ -139,6 +143,21 @@ int main(int argc, char **argv) {
         runtime.update(handle, 1, dpi_scale, 1);
         compose();
     };
+    {
+        MotionValue motion;
+        const auto start = std::chrono::steady_clock::now();
+        MIRAGE_CHECK(!motion.step(260.0f, start, 0.22f));
+        MIRAGE_CHECK(motion.step(0.0f, start, 0.22f));
+        MIRAGE_CHECK(motion.step(0.0f, start + std::chrono::milliseconds{110}, 0.22f));
+        MIRAGE_CHECK(motion.current > 0.0f && motion.current < 260.0f);
+        const float reversed_from = motion.current;
+        MIRAGE_CHECK(motion.step(260.0f, start + std::chrono::milliseconds{110}, 0.22f));
+        MIRAGE_CHECK(std::abs(motion.current - reversed_from) < 0.01f);
+        MIRAGE_CHECK(!motion.step(260.0f, start + std::chrono::milliseconds{400}, 0.22f));
+        MIRAGE_CHECK(motion.current == 260.0f);
+        MIRAGE_CHECK(!motion.step(0.0f, start + std::chrono::milliseconds{410}, 0));
+        MIRAGE_CHECK(motion.current == 0.0f);
+    }
     auto capture = [&](const std::string &name) {
         if (argc < 2)
             return;
@@ -1027,6 +1046,10 @@ const auto model = "Mirage";
     element("model.add.confirm.bg")->onClick();
     frame();
     MIRAGE_CHECK(page.provider_models.size() == 1 && page.model.model_selector == "first-model");
+    MIRAGE_CHECK(view->find("model.fetch.models.bg") != nullptr);
+    element("model.reasoning.supported.hit")->onClick();
+    frame();
+    MIRAGE_CHECK(page.model.supports_reasoning);
     page.model_window = "128000";
     auto first_document = provider_document(true);
     MIRAGE_CHECK(first_document && first_document->models.size() == 1 &&
@@ -1047,6 +1070,41 @@ const auto model = "Mirage";
     frame();
     MIRAGE_CHECK(!view->find("model.provider.1.label"));
     MIRAGE_CHECK(element("model.entry.1.label")->text == "second-model");
+    {
+        // A catalog revision can equal a session ID; failures cannot settle that session.
+        auto &session = page.chat.current();
+        const bool submitting = session.submitting, deleting = session.deleting;
+        session.submitting = session.deleting = true;
+        page.fetched_revision = page.model_catalog_revision = session.id;
+        page.fetching_models = true;
+        RuntimeMessage catalog;
+        catalog.tag = "catalog";
+        catalog.local_id = session.id;
+        catalog.response.error = {"unavailable", "catalog failure"};
+        accept_catalog_response(catalog);
+        MIRAGE_CHECK(!page.fetching_models && page.model_notice == "catalog failure");
+        MIRAGE_CHECK(session.submitting && session.deleting);
+        session.submitting = submitting;
+        session.deleting = deleting;
+        ++page.model_catalog_revision;
+        page.fetched_revision = page.model_catalog_revision;
+        page.fetching_models = true;
+        accept_catalog_response(catalog); // old failure after the editor changed
+        MIRAGE_CHECK(page.fetching_models);
+        catalog.local_id = page.fetched_revision;
+        catalog.response.ok = true;
+        catalog.response.payload = ipc::ModelList{{"downloaded-model", "other-model"}};
+        accept_catalog_response(catalog);
+        MIRAGE_CHECK(!page.fetching_models && page.fetched_model_ids.size() == 2);
+        MIRAGE_CHECK(page.provider_models.size() == 2 && !page.model_dirty);
+        frame();
+        MIRAGE_CHECK(element("model.fetched.list")->frame.height <= 160);
+        element("model.fetched.0.bg")->onClick();
+        MIRAGE_CHECK(page.provider_models.size() == 3 && page.model_dirty);
+        MIRAGE_CHECK(page.live_model.model_selector == "second-model");
+        accept_model_configuration(*second_document, "discard", "");
+        frame();
+    }
     capture("provider-models-light");
     for (const bool dark : {false, true}) {
         page.dark = dark;

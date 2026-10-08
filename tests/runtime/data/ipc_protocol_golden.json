@@ -1,10 +1,10 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 13,
+    "version": 14,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
-    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted), DEC-038 (Accepted), DEC-039 (Accepted), DEC-045 (Accepted)",
+    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted), DEC-038 (Accepted), DEC-039 (Accepted), DEC-045 (Accepted), DEC-051 (Accepted)",
     "consumers": [
       "tests/runtime/ipc_protocol_golden_test.cpp"
     ],
@@ -23,7 +23,8 @@
       "v10 (M5-10): task pause/resume face (DEC-030) - task.pause / task.resume requests with the TaskPaused / TaskResumed replies (task_id + post-command progress snapshot, mirroring the task.cancel reply shape); progress stays inside the task.updated / task.inspect vocabulary. wire order pinned by schema doc sections 4, 6.9 and 10.",
       "v11 (M6-09): direct API Key write-only model.set field and optional cleanup warning; session.delete acknowledged persistence boundary. Existing v1 request/response canonical strings remain compatible; schema doc DEC-038 increment.",
       "v12 (M6-11): optional last-turn replacement guard and replacement provenance in acknowledgement/events. Absent fields retain previous canonical strings.",
-      "v13 (M6-25): tray capability and product.control actions/state; readiness binds the owned frontend PID, quit confirmation uses a separate exit epoch; old v1 vectors unchanged."
+      "v13 (M6-25): tray capability and product.control actions/state; readiness binds the owned frontend PID, quit confirmation uses a separate exit epoch; old v1 vectors unchanged.",
+      "v14 (M6-33): explicit model.list with write-only draft Key and bounded model_ids candidates; existing wire strings unchanged."
     ]
   },
   "requests": [
@@ -478,6 +479,31 @@
         "frontend_pid": 777
       },
       "canonical": "{\"v\":1,\"id\":106,\"op\":\"product.control\",\"action\":\"frontend_ready\",\"exit_epoch\":0,\"frontend_pid\":777}"
+    },
+    {
+      "name": "model-list-saved-key",
+      "id": 110,
+      "body": {
+        "op": "model.list",
+        "provider_id": "catalog",
+        "endpoint_origin": "https://api.example.com",
+        "api_prefix": "/v1",
+        "dialect": "openai.chat-completions.v1"
+      },
+      "canonical": "{\"v\":1,\"id\":110,\"op\":\"model.list\",\"provider_id\":\"catalog\",\"endpoint_origin\":\"https://api.example.com\",\"api_prefix\":\"/v1\",\"dialect\":\"openai.chat-completions.v1\"}"
+    },
+    {
+      "name": "model-list-draft-key",
+      "id": 111,
+      "body": {
+        "op": "model.list",
+        "provider_id": "catalog",
+        "endpoint_origin": "https://api.example.com",
+        "api_prefix": "/v1",
+        "dialect": "openai.chat-completions.v1",
+        "api_key": "synthetic-key"
+      },
+      "canonical": "{\"v\":1,\"id\":111,\"op\":\"model.list\",\"provider_id\":\"catalog\",\"endpoint_origin\":\"https://api.example.com\",\"api_prefix\":\"/v1\",\"dialect\":\"openai.chat-completions.v1\",\"api_key\":\"synthetic-key\"}"
     }
   ],
   "request_failures": [
@@ -745,6 +771,11 @@
       "name": "product-ready-nonzero-epoch",
       "payload": "{\"v\":1,\"id\":1,\"op\":\"product.control\",\"action\":\"frontend_ready\",\"exit_epoch\":3,\"frontend_pid\":777}",
       "error": "frontend_ready requires a positive frontend_pid and zero exit_epoch"
+    },
+    {
+      "name": "model-list-missing-endpoint",
+      "payload": "{\"v\":1,\"id\":110,\"op\":\"model.list\",\"provider_id\":\"catalog\"}",
+      "error": "model.list requires bounded provider and endpoint fields"
     }
   ],
   "responses": [
@@ -1752,6 +1783,23 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":7,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1,\"tray\":true}"
+    },
+    {
+      "name": "model-list",
+      "response": {
+        "ok": true,
+        "id": 110,
+        "payload": {
+          "kind": "model-list",
+          "value": {
+            "ids": [
+              "alpha",
+              "beta"
+            ]
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":110,\"ok\":true,\"model_ids\":[\"alpha\",\"beta\"]}"
     }
   ],
   "response_failures": [
@@ -1979,6 +2027,11 @@
       "name": "hello-tray-nonboolean",
       "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1,\"tray\":\"yes\"}",
       "error": "hello tray must be boolean"
+    },
+    {
+      "name": "model-list-not-array",
+      "payload": "{\"v\":1,\"id\":110,\"ok\":true,\"model_ids\":\"alpha\"}",
+      "error": "model_ids must be a bounded array"
     }
   ],
   "events": [

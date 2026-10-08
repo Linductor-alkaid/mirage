@@ -2,7 +2,7 @@
 
 > 状态：Active
 > 负责人：Mirage维护者
-> 更新日期：2026-10-07
+> 更新日期：2026-10-08
 > 维护规则：[工程规范9.4](../project/project-standards.md)
 > 本轮工作项：[M6-10](../plans/m6-native-frontend.md)
 
@@ -52,3 +52,7 @@ Mirador使用`MIRADOR-YYYYMMDD-NNN`。EUI是用户授权的UI依赖，其既有�
 ## MIRA-20261006-002：Messages 思考控制与签名回填
 
 详见 [Mira 台账](mira.md#mira-20261006-002)。Linux 本地修复与授权 pin 复验完成；[上游 PR#81](https://github.com/Linductor-alkaid/mira/pull/81) 未合并。
+
+## MIRA-20261008-001：Responses / Chat Completions 方言丢弃思考输出
+
+详见 [Mira 台账](mira.md#mira-20261008-001)。两服务在线对照确认：Messages 方言思考内容端到端可见，Chat Completions 的 `reasoning_content` 只留摘要或被丢弃。Open；[上游 issue#83](https://github.com/Linductor-alkaid/mira/issues/83) 已提交。

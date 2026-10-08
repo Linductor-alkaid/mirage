@@ -422,6 +422,16 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
     }
     if (op == "session.delete")
         return ipc::DeleteSessionRequest{vector_string(body, "session_id")};
+    if (op == "model.list") {
+        ipc::ListModelsRequest request{vector_string(body, "provider_id"),
+                                       vector_string(body, "endpoint_origin"),
+                                       vector_string(body, "api_prefix"),
+                                       vector_string(body, "dialect"),
+                                       {}};
+        if (body.find("api_key"))
+            request.api_key = vector_string(body, "api_key");
+        return request;
+    }
     if (op == "model.set") {
         ipc::SetModelRequest request{vector_string(body, "settings")};
         if (body.find("api_key"))
@@ -630,6 +640,13 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                           std::is_same_v<T, ipc::WorkflowAtomCatalogRequest> ||
                           std::is_same_v<T, ipc::WorkflowRunsRequest>) {
                 // Stateless bodies: the variant index comparison above suffices.
+            } else if constexpr (std::is_same_v<T, ipc::ListModelsRequest>) {
+                const auto &request = std::get<T>(actual);
+                MIRAGE_CHECK(request.provider_id == expected_value.provider_id);
+                MIRAGE_CHECK(request.endpoint_origin == expected_value.endpoint_origin);
+                MIRAGE_CHECK(request.api_prefix == expected_value.api_prefix);
+                MIRAGE_CHECK(request.dialect == expected_value.dialect);
+                MIRAGE_CHECK(request.api_key == expected_value.api_key);
             } else if constexpr (std::is_same_v<T, ipc::ProductControlRequest>) {
                 const auto &request = std::get<T>(actual);
                 MIRAGE_CHECK(request.action == expected_value.action);
@@ -923,6 +940,11 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
         response.payload = ipc::SessionOpened{vector_string(value, "session_id")};
     } else if (kind == "session-deleted") {
         response.payload = ipc::SessionDeleted{vector_string(value, "session_id")};
+    } else if (kind == "model-list") {
+        ipc::ModelList list;
+        for (const auto &id : *vector_member(value, "ids").as_array())
+            list.ids.push_back(*id.as_string());
+        response.payload = std::move(list);
     } else if (kind == "model-configuration") {
         response.payload =
             ipc::ModelConfiguration{vector_string(value, "settings"),
@@ -1171,6 +1193,8 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
             const auto &actual_value = std::get<T>(actual.payload);
             if constexpr (std::is_same_v<T, ipc::ShutdownAccepted>) {
                 // Nothing beyond the ok envelope.
+            } else if constexpr (std::is_same_v<T, ipc::ModelList>) {
+                MIRAGE_CHECK(actual_value.ids == expected_value.ids);
             } else if constexpr (std::is_same_v<T, ipc::ProductState>) {
                 MIRAGE_CHECK(actual_value.frontend_pid == expected_value.frontend_pid);
                 MIRAGE_CHECK(actual_value.window_epoch == expected_value.window_epoch);

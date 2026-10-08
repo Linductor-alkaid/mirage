@@ -386,3 +386,8 @@ Mira Messages 自适应思考/签名工具回填经上游 PR#81 和精确 pin �
 2026-10-07：M6-27 修复会话到底部按钮层级，真实指针点击、正文移动、恢复末尾跟随在
 Linux 原生正常/最小明暗通过；Release/ASAN/UBSAN 相关各 2/2。正式桌面入口加载新版，
 同时完成 M6-26 锁屏后重启补验；[证据](../compatibility/conversation-scroll-20261007.md)。
+
+
+2026-10-08 / M6-33：按DEC-051完成Linux原生侧栏/主题过渡、逐模型思考声明和显式模型
+目录获取；Release52/52与相应sanitizer/真实公开目录验证通过。
+[验收和补验边界](../compatibility/native-motion-model-discovery-20261008.md)；M6整体保持In Progress。
