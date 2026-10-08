@@ -1,9 +1,9 @@
 #include "runtime_bridge.hpp"
 #include <atomic>
+#include <future>
 #include <kairo/comm.hpp>
 #include <kairo/executor.hpp>
 #include <kairo/serial_execution_context.hpp>
-#include <future>
 #include <mirage/runtime/ipc/endpoint.hpp>
 #include <mirage/runtime/ipc/session_client.hpp>
 #include <vector>
@@ -15,8 +15,7 @@ struct RuntimeBridge::Impl {
     kairo::SerialExecutionContext serial;
     std::shared_ptr<ipc::SessionClient> client;
     std::shared_ptr<ipc::SessionClient> catalog_client;
-    kairo::comm::MpscChannel<RuntimeMessage> inbox{
-        {.capacity = 128, .name = "native-ui-events"}};
+    kairo::comm::MpscChannel<RuntimeMessage> inbox{{.capacity = 128, .name = "native-ui-events"}};
     std::atomic_bool live{false}, gap{false}, active{false};
     std::atomic_bool animating{false};
     kairo::TimerHandle activity_timer;
@@ -207,8 +206,8 @@ void RuntimeBridge::set_activity(bool active, bool animating) {
         return;
     }
     p.timer_failures = 0;
-    p.activity_timer = p.executor.submit_periodic_cancellable(
-        animating ? 16 : 100, [&p](kairo::StopToken stop) {
+    p.activity_timer =
+        p.executor.submit_periodic_cancellable(animating ? 16 : 100, [&p](kairo::StopToken stop) {
             if (!stop.stop_requested() && (p.active.load() || p.animating.load()))
                 p.wake();
         });

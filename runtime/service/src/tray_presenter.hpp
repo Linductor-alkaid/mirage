@@ -1,11 +1,11 @@
 #pragma once
 #include "event_hub.hpp"
 #include <atomic>
+#include <functional>
 #include <kairo/blocking_io.hpp>
 #include <kairo/comm/channel.hpp>
 #include <kairo/comm/mailbox.hpp>
 #include <kairo/comm/phase_gate.hpp>
-#include <functional>
 #include <memory>
 #include <mirage/desktop/tray_carrier.hpp>
 

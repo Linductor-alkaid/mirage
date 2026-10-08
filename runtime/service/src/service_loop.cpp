@@ -144,9 +144,9 @@ void ServiceLoop::post_response_and_close(std::uint64_t connection_id, std::stri
     }
 }
 
-void ServiceLoop::post_attach_events(
-    std::uint64_t connection_id, kairo::comm::TopicSubscription<ipc::EventPayload> subscription,
-    std::optional<ipc::EventPayload> seed, bool chat_preview) {
+void ServiceLoop::post_attach_events(std::uint64_t connection_id,
+                                     kairo::comm::TopicSubscription<ipc::EventPayload> subscription,
+                                     std::optional<ipc::EventPayload> seed, bool chat_preview) {
     OutboundMessage message;
     message.kind = OutboundMessage::Kind::AttachEvents;
     message.connection_id = connection_id;

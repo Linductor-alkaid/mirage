@@ -22,8 +22,7 @@ class Carrier final : public desktop::TrayCarrier {
   public:
     bool refuse = false;
     std::atomic_bool break_now{false};
-    kairo::comm::MpscChannel<desktop::TrayAction> commands{
-        {.capacity = 8, .name = "fixture-tray"}};
+    kairo::comm::MpscChannel<desktop::TrayAction> commands{{.capacity = 8, .name = "fixture-tray"}};
     RunReport run(const desktop::TrayCarrierContext &context,
                   const std::function<bool()> &stop) override {
         if (refuse)
