@@ -89,3 +89,12 @@ value包装导致测试失败，修正夹具后golden及52项全量回归通过�
 补充复核：目录响应按编辑revision独立处理，避免revision与会话ID相同时，失败响应误清
 会话提交/删除状态。新增失败与迟到响应隔离、候选不自动保存、实际点击添加候选测试，
 原生渲染回归通过；该修复保持页面布局和wire契约。
+
+
+提交`5f7bd7a`的[CI run 37740380823](https://github.com/Linductor-alkaid/mirage/actions/runs/37740380823)
+八项全部通过，包含Linux五种构建/测试、原生EUI、格式/边界及Windows全量编译/平台测试和
+named-pipe进程回环。Windows交互手感仍未真机验收。早一轮Windows只有Start Menu测试
+目录清理断言失败，最新完整运行通过，未改动该平台测试以掩盖失败。
+
+最后补充目录重试边界：事件队列缺口清除加载状态并使旧revision失效；每次获取都有新的
+revision，旧请求不会覆盖同一地址的后续重试。沿用迟到响应与原生回归门禁。

@@ -916,6 +916,8 @@ void drain_runtime() {
         }
     }
     if (s.runtime->take_gap()) {
+        ++s.model_catalog_revision;
+        s.fetching_models = false;
         for (const auto &entry : s.chat.sessions())
             s.chat.find(entry.id)->attachment_loading = false;
         s.saving_model = false;
@@ -1717,7 +1719,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                 v.model.dialect,
                                 v.api_key.empty() ? std::optional<std::string>{}
                                                   : std::optional<std::string>{v.api_key}};
-                            v.fetched_revision = v.model_catalog_revision;
+                            v.fetched_revision = ++v.model_catalog_revision;
                             v.fetching_models =
                                 call_runtime(std::move(request), "catalog", v.fetched_revision);
                             if (!v.fetching_models)
