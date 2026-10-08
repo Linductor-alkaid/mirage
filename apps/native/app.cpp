@@ -705,6 +705,16 @@ std::string display_error(const std::string &error) {
         return "有模型任务正在运行，请先停止后重试。";
     if (error == "endpoint must be an HTTP(S) origin; put its path in API prefix")
         return "服务地址仅填写 http(s)://主机；路径请填在 API 路径中。";
+    if (error.find("tls handshake failed") != std::string::npos)
+        return "连接模型服务失败（TLS 握手未完成）。多为网络或代理瞬断，请重试。";
+    if (error.find("tls certificate verification failed") != std::string::npos)
+        return "模型服务证书校验未通过，请检查系统时间与代理后重试。";
+    if (error.find("overloaded_error") != std::string::npos ||
+        error.find("retryable server failure") != std::string::npos)
+        return "模型服务暂时过载，请稍后重试。";
+    if (error.find("SSE stream ended") != std::string::npos ||
+        error.find("stream ended without") != std::string::npos)
+        return "模型服务的流式响应提前中断，请重试。";
     return error;
 }
 void accept_catalog_response(const RuntimeMessage &message) {
