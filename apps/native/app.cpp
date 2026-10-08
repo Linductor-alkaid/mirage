@@ -3349,40 +3349,48 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                 .onClick([] { state().selection.clear(); })
                 .build();
             if (sidebar > 1.0f) {
+                // The window's left corners are transparent arcs, so the sidebar chrome
+                // (background, corner patches, border) must stay pinned to the window
+                // edge while only the contents slide: a sliding background would paint
+                // over the arcs and the left edge would flash square mid-animation.
+                const bool square_right_edge =
+                    !rounded_window || sidebar >= 2.0f * chrome_radius + 1.0f;
                 ui.stack("sidebar.viewport")
                     .size(sidebar, screen.height)
                     .clip()
                     .content([&] {
+                        ui.rect("sidebar.background")
+                            .size(sidebar, screen.height)
+                            .radius(chrome_radius)
+                            .color(p.sidebar)
+                            .build();
+                        if (rounded_window && square_right_edge) {
+                            // The sidebar's right edge meets the content area, so its
+                            // corners there must stay square: patch the uniform radius
+                            // with sidebar-colored squares (border column excluded) while
+                            // the rounded left corners still fit beside them.
+                            ui.rect("sidebar.square.top")
+                                .position(sidebar - chrome_radius, 0)
+                                .size(std::max(0.0f, chrome_radius - 1.0f), chrome_radius)
+                                .color(p.sidebar)
+                                .build();
+                            ui.rect("sidebar.square.bottom")
+                                .position(sidebar - chrome_radius, screen.height - chrome_radius)
+                                .size(std::max(0.0f, chrome_radius - 1.0f), chrome_radius)
+                                .color(p.sidebar)
+                                .build();
+                        }
+                        if (square_right_edge) {
+                            ui.rect("sidebar.border")
+                                .position(sidebar - 1, 0)
+                                .size(1, screen.height)
+                                .color(p.border)
+                                .build();
+                        }
                         ui.stack("sidebar.contents")
                             .position(sidebar - sidebar_width, 0)
                             .size(sidebar_width, screen.height)
                             .content([&] {
-                                ui.rect("sidebar.background")
-                                    .size(sidebar_width, screen.height)
-                                    .radius(chrome_radius)
-                                    .color(p.sidebar)
-                                    .build();
-                                if (rounded_window && chrome_radius > 0.0f) {
-                                    // The sidebar's right edge meets the content area, so its
-                                    // corners there must stay square: patch the uniform radius
-                                    // with sidebar-colored squares (border column excluded).
-                                    ui.rect("sidebar.square.top")
-                                        .position(sidebar_width - chrome_radius, 0)
-                                        .size(std::max(0.0f, chrome_radius - 1.0f), chrome_radius)
-                                        .color(p.sidebar)
-                                        .build();
-                                    ui.rect("sidebar.square.bottom")
-                                        .position(sidebar_width - chrome_radius,
-                                                  screen.height - chrome_radius)
-                                        .size(std::max(0.0f, chrome_radius - 1.0f), chrome_radius)
-                                        .color(p.sidebar)
-                                        .build();
-                                }
-                                ui.rect("sidebar.border")
-                                    .position(sidebar_width - 1, 0)
-                                    .size(1, screen.height)
-                                    .color(p.border)
-                                    .build();
                                 // EUI-20261004-003: metadata-free, pixel-identical UI copy.
                                 ui.image("brand.mira")
                                     .position(36, 20)
