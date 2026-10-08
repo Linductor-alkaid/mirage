@@ -2,7 +2,7 @@
 
 > 状态：Active
 > 负责人：Mirage维护者；处理方：Mira上游
-> 更新日期：2026-10-07
+> 更新日期：2026-10-08
 > 工作项：[M6-10](../plans/m6-native-frontend.md)
 > 总入口：[依赖反馈](ledger.md)；维护规则：[工程规范9.4](../project/project-standards.md)
 
@@ -23,6 +23,7 @@
 | MIRA-20260927-001 | 同digest草稿遮蔽已验证workflow记录 | 版本语义缺陷 | Resolved | 公共版本API离线复现 | [#74](https://github.com/Linductor-alkaid/mira/issues/74)，已提交 |
 | MIRA-20261004-001 | 无屏幕通用harness与规范工具回填入口 | P2：harness边界结构性缺口 | Resolved | 无屏幕环境在模型路由前失败；核对输入契约 | [#73](https://github.com/Linductor-alkaid/mira/issues/73)，已提交 |
 | MIRA-20261004-002 | OpenSSL ClientHello缺少SNI | 传输缺陷 | Resolved | socketpair捕获真实adapter ClientHello，无server_name | [#72](https://github.com/Linductor-alkaid/mira/issues/72)，已提交 |
+| MIRA-20261008-001 | Responses/Chat Completions方言丢弃思考输出 | P2：方言能力缺口 | Open | 双服务在线对照：Messages思考可见，Chat Completions reasoning_content留摘要/丢弃 | [#83](https://github.com/Linductor-alkaid/mira/issues/83)，已提交 |
 
 ## 2026-10-05复核证据
 
@@ -187,6 +188,7 @@ Mirage恢复设计。不把该现象直接登记为Mira缺陷，也不要求终�
 | 2026-10-05 | MIRA-20261004-001 | 复核pinned与master、离线复现并提交[#73](https://github.com/Linductor-alkaid/mira/issues/73)；API回读确认作者/编号/完整正文/Open | Mira上游处理；Mirage维护者在上游交付后评估授权升级并按该条验收复跑 |
 | 2026-10-05 | MIRA-20260927-001 | 复核pinned与master、离线复现并提交[#74](https://github.com/Linductor-alkaid/mira/issues/74)；API回读确认作者/编号/完整正文/Open | Mira上游处理；Mirage维护者在上游交付后评估授权升级并按该条验收复跑 |
 | 2026-10-05 | MIRA-20260922-001 | 复核pinned与master、离线复现并提交[#75](https://github.com/Linductor-alkaid/mira/issues/75)；API回读确认作者/编号/完整正文/Open | Mira上游处理；Mirage维护者在上游交付后评估授权升级并按该条验收复跑 |
+| 2026-10-08 | MIRA-20261008-001 | 复核pinned fbc644b与master d5c7d06（含PR#79/80/81合并）、源码路径核对与真实服务在线对照后提交[#83](https://github.com/Linductor-alkaid/mira/issues/83)；API回读确认作者/编号/完整正文/Open | Mira上游处理；Mirage维护者在上游交付后评估授权升级并按该条验收复跑 |
 
 本轮仅反馈，四项均保持Open。未修改Mira/Executor/Mirador源码或pin，未向Executor或Mirador提交issue。
 
@@ -244,3 +246,16 @@ M6-19收尾回读：Mira PR#79的pull_request run37332976997在当前pin 0a099ba
 
 - 获批修复：Mira fbc644be2fabfaa2f8257e579fbc1d368537224c；[上游 PR#81](https://github.com/Linductor-alkaid/mira/pull/81)，基于 Messages PR#80，尚未合并。Executor 与其他内嵌 pin 未变。
 - 收敛：DEC-051 的 ThinkingMode / ThinkingPart、SSE 有界签名与 redacted 回填由 Mira 承载，Mirage 仅负责模型选项投影。7 项上游协议测试、Mirage 52 项 Release 回归与真实 MiniMax 开关/工具循环通过；[完整验收](../compatibility/session-thinking-20261007.md)。没有临时并发或协议实现。其他厂商在线/Windows 与当前 kairo 主干未复验，维护者取得目标环境后补跑。
+
+<a id="mira-20261008-001"></a>
+
+## MIRA-20261008-001：Responses / Chat Completions 方言丢弃思考输出
+
+- 状态：Open；负责人：Linductor-alkaid；关联 Mirage M6-26 / DEC-046、MIRA-20261006-002。
+- 版本：pinned fbc644be2fabfaa2f8257e579fbc1d368537224c（2026-10-07）。已核对 `model_dialect.cpp`、`model_chat_sse.cpp`、`model_anthropic.cpp`/`model_anthropic_sse.cpp` 及 model_contracts 回放解码。
+- 复现：Anthropic Messages 方言把 `thinking` block 与 `thinking_delta` 映射为 `ThinkingPart`（model_anthropic.cpp:368、model_anthropic_sse.cpp:160）；Chat Completions 方言把非流式 `message.reasoning_content` 归入 `UnknownOutput` 且只留 payload digest（model_dialect.cpp:1109-1113），流式 `delta.reasoning_content` 在 `ChatCompletionsSseParser::reduce` 中被直接丢弃（model_chat_sse.cpp:104-106 只累积 content/refusal）；Responses 终态解码对 `reasoning` item 无分支，落入 UnknownOutput 摘要（model_dialect.cpp `decode_responses_terminal_body`）。已排除 Mirage 选型/配置问题：`reasoning_effort` 三方言均正常编码上线，MiniMax（Messages）思考内容端到端可见，Chat Completions 服务在带 `reasoning_effort` 请求下返回的思考文本无法到达 `ThinkingPart`。
+- 影响：仅在 Chat Completions / Responses 方言上提供思考输出的模型（DeepSeek-R1 系、经 Responses 代理的 reasoning 模型等）无法在会话过程展示"思考过程"；文本被静默降级为摘要，用户感知为"开启思考无效果"。
+- 最小能力：两方言把 reasoning 增量/终态映射为有界 `ThinkingPart` 输出（与 Messages 方言同语义：预算截断、redacted 保留摘要、不做权威历史输入）。
+- 延期影响：这两类服务的思考档位仅影响上游生成行为，无可见思考内容；Mirage 侧不私自解析协议重复 Mira 职责。
+- 验收：两方言 fixture 覆盖增量/终态/越界丢弃/redacted 语义；真实 reasoning 模型各一轮增量可见；Messages 行为不回退。
+- 临时措施：无（不旁路解析 SSE）。
