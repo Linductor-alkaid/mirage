@@ -977,8 +977,7 @@ void wired_perception_above_declared_sources_is_refused(kairo::Executor &executo
     MIRAGE_CHECK(fixture.detector->calls() == 0);
 }
 
-void wired_screen_capture_failure_degrades_optional_and_fails_required(
-    kairo::Executor &executor) {
+void wired_screen_capture_failure_degrades_optional_and_fails_required(kairo::Executor &executor) {
     WiredVisualFixture fixture = make_wired_visual_fixture(executor);
     fixture.env->failures.capture_error = true;
 

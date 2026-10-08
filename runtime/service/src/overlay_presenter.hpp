@@ -101,8 +101,7 @@ class OverlayPresenter final : public kairo::IBlockingIoWorker {
 
     Dependencies dependencies_;
     kairo::comm::LatestMailbox<ActionUpdate> action_;
-    kairo::comm::LatestMailbox<std::optional<mirage::desktop::OverlayConfirmation>>
-        confirmation_;
+    kairo::comm::LatestMailbox<std::optional<mirage::desktop::OverlayConfirmation>> confirmation_;
     kairo::comm::LatestMailbox<ObservationUpdate> observation_;
     std::uint64_t action_seq_ = 0;
     std::uint64_t confirmation_seq_ = 0;
