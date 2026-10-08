@@ -3,6 +3,7 @@
 #include "control_button.hpp"
 #include "conversation_preview.hpp"
 #include "markdown_adapter.hpp"
+#include "plain_text_layout.hpp"
 #include "provider_presets.hpp"
 #include "runtime_bridge.hpp"
 #include "secret_input.hpp"
@@ -47,6 +48,8 @@ Palette palette(bool dark) {
 }
 struct PageState {
     ChatModel chat;
+    PlainTextLayout plain_text;
+    float render_scale = 1;
     TextSelection selection;
     std::uint64_t hovered_message = 0;
     std::uint64_t hovered_session = 0;
@@ -1889,13 +1892,9 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
         }
 }
 float text_height(const std::string &value, float width, float size = 16, float line = 26) {
-    core::TextStyle style;
-    style.text = value;
-    style.fontSize = ui_font_size(size);
-    style.maxWidth = width;
-    style.wrap = true;
-    style.lineHeight = line;
-    return std::max(line, core::TextPrimitive::measureTextSize(style).y);
+    auto &page = state();
+    return std::max(
+        line, std::ceil(page.plain_text.measure(value, width, size, line, page.render_scale).y));
 }
 bool part_expanded(const LocalMessage &message, const conversation::Part &part) {
     return std::find(message.expanded_parts.begin(), message.expanded_parts.end(), part.id) !=
@@ -2106,12 +2105,13 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                     const bool failed = message.status == "已停止或失败";
                     float bubble_width = width;
                     if (user) {
-                        core::TextStyle measured;
-                        measured.text = message.text;
-                        measured.fontSize = ui_font_size(14);
-                        bubble_width = std::min(
-                            std::min(576.0f, width),
-                            std::max(80.0f, core::TextPrimitive::measureTextSize(measured).x + 24));
+                        const auto measured =
+                            s.plain_text.measure(message.text, 0, 14, 22, s.render_scale);
+                        // Round in physical pixels and keep one pixel of shaping slack.
+                        const float natural_width =
+                            (std::ceil(measured.x * s.render_scale) + 1) / s.render_scale;
+                        bubble_width =
+                            std::min(std::min(576.0f, width), std::max(80.0f, natural_width + 24));
                     }
                     const float body_width = user ? bubble_width - 24 : width - 16;
                     const float body_height =
@@ -2193,6 +2193,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                 list.text(key + ".body")
                                     .position(left + (user ? 12 : 0), body_y)
                                     .size(body_width, body_height)
+                                    .maxWidth(body_width)
                                     .text(message.text)
                                     .fontSize(ui_font_size(14))
                                     .lineHeight(22)
@@ -2981,6 +2982,7 @@ void resize_edges(eui::Ui &ui, const eui::Screen &screen) {
 } // namespace
 
 void compose_page(eui::Ui &ui, const eui::Screen &screen) {
+    state().render_scale = window::render_scale(screen.width);
     drain_runtime();
     auto &s = state();
     if (s.runtime)

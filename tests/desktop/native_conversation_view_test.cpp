@@ -16,7 +16,7 @@ void requestUpdate() {}
 } // namespace app
 
 int main(int argc, char **argv) {
-    mirage::testing::XvfbDisplay display(mirage::testing::find_xvfb(), "1400x1000x24");
+    mirage::testing::XvfbDisplay display(mirage::testing::find_xvfb(), "2600x1800x24");
     ::setenv("DISPLAY", display.display_name().c_str(), 1);
     ::unsetenv("WAYLAND_DISPLAY");
     MIRAGE_CHECK(glfwInit());
@@ -67,6 +67,7 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(runtime.initialize(handle));
     eui::Ui *view = nullptr;
     int width = 1180, height = 800;
+    float dpi_scale = 1;
     auto compose = [&] {
         runtime.compose("test", static_cast<float>(width), static_cast<float>(height),
                         [&](auto &ui, const auto &screen) {
@@ -122,27 +123,39 @@ int main(int argc, char **argv) {
             audit(audit, *root);
     };
     auto frame = [&] {
+        int actual_width = 0, actual_height = 0;
+        glfwGetWindowSize(window, &actual_width, &actual_height);
+        const auto pixels_width = static_cast<int>(std::lround(width * dpi_scale));
+        const auto pixels_height = static_cast<int>(std::lround(height * dpi_scale));
+        if (actual_width != pixels_width || actual_height != pixels_height) {
+            glfwSetWindowSize(window, pixels_width, pixels_height);
+            glfwPollEvents();
+            glfwSwapBuffers(window); // Realize resized GLX back buffers before rendering.
+        }
         compose();
-        runtime.update(handle, 1, 1, 1);
+        runtime.update(handle, 1, dpi_scale, 1);
         compose();
-        runtime.update(handle, 1, 1, 1);
+        runtime.update(handle, 1, dpi_scale, 1);
         compose();
     };
     auto capture = [&](const std::string &name) {
         if (argc < 2)
             return;
         runtime.requestFullPaint();
-        runtime.render(width, height, 1, palette(page.dark).background);
+        const auto pixels_width = static_cast<int>(std::lround(width * dpi_scale));
+        const auto pixels_height = static_cast<int>(std::lround(height * dpi_scale));
+        runtime.render(pixels_width, pixels_height, dpi_scale, palette(page.dark).background);
         glFinish();
-        std::vector<unsigned char> pixels(static_cast<std::size_t>(width * height * 3));
+        std::vector<unsigned char> pixels(
+            static_cast<std::size_t>(pixels_width * pixels_height * 3));
         glPixelStorei(GL_PACK_ALIGNMENT, 1);
-        glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+        glReadPixels(0, 0, pixels_width, pixels_height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
         std::filesystem::create_directories(argv[1]);
         std::ofstream output(std::filesystem::path(argv[1]) / (name + ".ppm"), std::ios::binary);
-        output << "P6\n" << width << " " << height << "\n255\n";
-        for (int row = height - 1; row >= 0; --row)
-            output.write(reinterpret_cast<const char *>(pixels.data() + row * width * 3),
-                         width * 3);
+        output << "P6\n" << pixels_width << " " << pixels_height << "\n255\n";
+        for (int row = pixels_height - 1; row >= 0; --row)
+            output.write(reinterpret_cast<const char *>(pixels.data() + row * pixels_width * 3),
+                         pixels_width * 3);
     };
     frame();
     const auto user = page.chat.current().messages.front().id;
@@ -226,6 +239,63 @@ int main(int argc, char **argv) {
         frame();
     }
     const auto key = "message." + std::to_string(user);
+    const auto original_user_text = page.chat.current().messages.front().text;
+    std::string long_cjk;
+    for (int i = 0; i < 80; ++i)
+        long_cjk += "中";
+    const std::vector<std::string> bubble_cases = {"你会做什么",
+                                                   "你会做什么？",
+                                                   "你好 / Mirage 12345",
+                                                   std::string(160, 'W'),
+                                                   long_cjk,
+                                                   "第一行\n第二行\n",
+                                                   "emoji 👩‍💻 / 中文\n\n第三行"};
+    for (const bool dark : {false, true})
+        for (const int logical_width : {1180, 860})
+            for (const float scale : {1.0f, 1.25f, 1.5f, 2.0f}) {
+                page.dark = dark;
+                width = logical_width;
+                height = logical_width == 1180 ? 800 : 620;
+                dpi_scale = scale;
+                for (const auto &value : bubble_cases) {
+                    page.chat.current().messages.front().text = value;
+                    frame();
+                    const auto *body = element(key + ".body");
+                    const auto *bubble = element(key + ".bubble");
+                    core::TextStyle emitted;
+                    emitted.text = body->text;
+                    emitted.fontFamily = body->fontFamily;
+                    emitted.fontSize = body->fontSize * scale;
+                    emitted.fontWeight = body->fontWeight;
+                    emitted.maxWidth = body->maxWidth * scale;
+                    emitted.lineHeight = body->lineHeight * scale;
+                    emitted.wrap = body->wrap;
+                    core::TextPrimitive actual;
+                    actual.setStyle(emitted);
+                    const auto size = actual.measuredSize();
+                    MIRAGE_CHECK(std::abs(page.render_scale - scale) < 0.001f);
+                    MIRAGE_CHECK(size.y <= body->frame.height * scale + 0.01f);
+                    MIRAGE_CHECK(size.x <= body->frame.width * scale + 0.01f);
+                    MIRAGE_CHECK(std::abs(body->frame.x - bubble->frame.x - 12) < 0.01f);
+                    MIRAGE_CHECK(std::abs(body->frame.y - bubble->frame.y - 8) < 0.01f);
+                    MIRAGE_CHECK(body->frame.x + body->frame.width <=
+                                 bubble->frame.x + bubble->frame.width - 12 + 0.01f);
+                    MIRAGE_CHECK(body->frame.y + size.y / scale <=
+                                 bubble->frame.y + bubble->frame.height - 8 + 0.01f);
+                    MIRAGE_CHECK(element(key + ".select")->frame.height == body->frame.height);
+                    if (value == "你会做什么") {
+                        MIRAGE_CHECK(std::abs(size.y / scale - 22) < 0.01f);
+                        if (logical_width == 1180 && scale == 2)
+                            capture(dark ? "bubble-short-dark-2x" : "bubble-short-light-2x");
+                    }
+                }
+            }
+    page.chat.current().messages.front().text = original_user_text;
+    page.dark = false;
+    width = 1180;
+    height = 800;
+    dpi_scale = 1;
+    frame();
     MIRAGE_CHECK(element("thread.title")->text == page.chat.current().title);
     capture("title-history");
     const auto session_key = "session." + std::to_string(session_id);

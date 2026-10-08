@@ -73,6 +73,12 @@ void initialize() {
 bool primary_pointer_down() {
     return handle && glfwGetMouseButton(handle, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
 }
+float render_scale(float logical_width) {
+    int width = 0, height = 0;
+    if (handle)
+        glfwGetFramebufferSize(handle, &width, &height);
+    return width > 0 && logical_width > 0 ? static_cast<float>(width) / logical_width : 1.0f;
+}
 void sidebar_resize_cursor(bool active) {
     if (!handle)
         return;
