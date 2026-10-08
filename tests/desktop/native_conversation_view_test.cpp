@@ -52,8 +52,9 @@ int main(int argc, char **argv) {
     }
     if (font_library)
         FT_Done_FreeType(font_library);
-    core::TextPrimitive::setDefaultFontFiles(text_font(),
-                                             "assets/Font Awesome 7 Free-Solid-900.otf");
+    // Match the product's shipped icon face (dslAppConfig().fonts) so Phosphor
+    // codepoints render exactly as they do in the application.
+    core::TextPrimitive::setDefaultFontFiles(text_font(), "assets/Phosphor-Regular.ttf");
     auto &page = state();
     page.runtime_notice = "合成测试会话 · 不连接模型";
     const auto session_id = page.chat.current().id;
@@ -162,6 +163,8 @@ int main(int argc, char **argv) {
     const auto assistant = page.chat.current().messages.back().id;
     auto element = [&](const std::string &key) {
         auto *found = view->find(key);
+        if (!found)
+            std::fprintf(stderr, "element lookup failed: %s\n", key.c_str());
         MIRAGE_CHECK(found);
         return found;
     };
@@ -689,6 +692,61 @@ const auto model = "Mirage";
                     (dark ? "-dark" : "-light"));
         }
     }
+    // Sidebar toggle redesign: a Phosphor sidebar-simple panel composite with an
+    // overlay caret (U+E138 caret-left when expanded, U+E13A caret-right when
+    // collapsed), mirroring ZCode's PanelLeftClose/PanelLeftOpen semantics.
+    {
+        const std::string panel_glyph = "\xee\xb0\xa4"; // U+EC24 sidebar-simple
+        const std::string caret_left = "\xee\x84\xb8";  // U+E138
+        const std::string caret_right = "\xee\x84\xba"; // U+E13A
+        const float sidebar_extent =
+            std::clamp(page.sidebar_width, 224.0f,
+                       std::max(224.0f, std::min(400.0f, static_cast<float>(width) - 520.0f)));
+        page.sidebar = true;
+        page.dark = false;
+        frame();
+        MIRAGE_CHECK(!view->find("sidebar.toggle.collapsed"));
+        MIRAGE_CHECK(element("sidebar.toggle.panel.icon")->text == panel_glyph);
+        MIRAGE_CHECK(element("sidebar.toggle.caret")->text == caret_left);
+        MIRAGE_CHECK(element("sidebar.toggle.panel")->frame.width == 36);
+        const auto expanded = element("sidebar.toggle")->frame;
+        MIRAGE_CHECK(expanded.width == 36 && expanded.height == 36);
+        MIRAGE_CHECK(expanded.x + expanded.width <= sidebar_extent + 0.01f);
+        MIRAGE_CHECK(std::abs(expanded.y - 12) < 0.01f);
+        capture("sidebar-toggle-expanded");
+        // Clicking the expanded toggle collapses the sidebar.
+        element("sidebar.toggle.panel.bg")->onClick();
+        frame();
+        MIRAGE_CHECK(!page.sidebar && view->find("sidebar.toggle.collapsed") != nullptr);
+        // Collapsed state: the composite moves to the window's top-left corner.
+        MIRAGE_CHECK(!view->find("sidebar.toggle"));
+        MIRAGE_CHECK(element("sidebar.toggle.collapsed.panel.icon")->text == panel_glyph);
+        MIRAGE_CHECK(element("sidebar.toggle.collapsed.caret")->text == caret_right);
+        const auto collapsed = element("sidebar.toggle.collapsed")->frame;
+        MIRAGE_CHECK(collapsed.width == 36 && collapsed.height == 36);
+        MIRAGE_CHECK(std::abs(collapsed.x - 16) < 0.01f && std::abs(collapsed.y - 12) < 0.01f);
+        capture("sidebar-toggle-collapsed");
+        // Ctrl+B toggles the sidebar like ZCode's workspace binding.
+        eui::KeyEvent ctrl_b;
+        ctrl_b.key = eui::InputKey::B;
+        ctrl_b.action = eui::KeyAction::Press;
+        ctrl_b.modifiers.control = true;
+        app::dslAppConfig().keyEventHandler(ctrl_b);
+        frame();
+        MIRAGE_CHECK(page.sidebar && !view->find("sidebar.toggle.collapsed"));
+        app::dslAppConfig().keyEventHandler(ctrl_b);
+        frame();
+        MIRAGE_CHECK(!page.sidebar && view->find("sidebar.toggle.collapsed") != nullptr);
+        // Clicking the collapsed toggle expands the sidebar again.
+        element("sidebar.toggle.collapsed.panel.bg")->onClick();
+        frame();
+        MIRAGE_CHECK(page.sidebar && !view->find("sidebar.toggle.collapsed") &&
+                     view->find("sidebar.toggle.caret"));
+        // Restore the collapsed state the surrounding sections expect.
+        page.sidebar = false;
+        frame();
+        MIRAGE_CHECK(view->find("sidebar.toggle.collapsed.caret"));
+    }
     page.settings = true;
     frame();
     MIRAGE_CHECK(element("thread.title")->text == "设置");
@@ -745,8 +803,12 @@ const auto model = "Mirage";
     // BUG-20261006-003: initial connection failure must not block local previews.
     page.model_loaded = false;
     frame();
-    MIRAGE_CHECK(!element("model.preset.0.bg")->disabled);
-    element("model.preset.0.bg")->onClick();
+    // DEC-047: preset selection moved behind the 添加服务 dropdown, whose button
+    // is gated while disconnected. The offline preview itself survives at the
+    // state layer through select_preset — the exact handler each menu row
+    // invokes — so the BUG-20261006-003 projection stays exercisable.
+    MIRAGE_CHECK(element("model.add.provider.bg")->disabled);
+    select_preset(0);
     MIRAGE_CHECK(page.preview_preset == 0 && !page.model_dirty &&
                  page.model.provider_id == "preset:openai");
     frame();
@@ -757,10 +819,9 @@ const auto model = "Mirage";
     MIRAGE_CHECK(page.api_key == "fixture-preview-key" && page.model_dirty && !page.model_loaded);
     discard_model_edits();
     MIRAGE_CHECK(page.api_key.empty() && !page.model_dirty && !page.model_loaded);
-    eui::KeyEvent preview_enter;
-    preview_enter.key = eui::InputKey::Enter;
-    preview_enter.action = eui::KeyAction::Press;
-    MIRAGE_CHECK(element("model.preset.2.bg")->onKeyEvent(preview_enter));
+    // Dropdown rows are not wired into keyboard_activation yet, so the second
+    // preview drives select_preset directly instead of a row key event.
+    select_preset(2);
     MIRAGE_CHECK(page.preview_preset == 2 && !page.model_dirty && page.models.empty());
     frame();
     element("model.key.hit")->onTextInput(preview_key);
@@ -806,10 +867,48 @@ const auto model = "Mirage";
                           nav_bounds.width / 2) < 1);
     MIRAGE_CHECK(element("settings.nav.1.label")->frame.x == element("brand")->frame.x);
     MIRAGE_CHECK(element("model.name")->frame.x > element("model.provider.logo")->frame.x + 20);
-    MIRAGE_CHECK(view->find("model.preset.0.bg") && view->find("model.preset.2.bg"));
     capture("provider-empty-light");
-    select_preset(2); // MiniMax: complete connection/model, key is the only missing value.
+    // DEC-047: presets live behind the 添加服务 dropdown. Nothing is saved yet,
+    // so every preset is offered (the height budget clips the last row) plus a
+    // manual configuration entry anchored under the button.
+    element("model.add.provider.bg")->onClick();
     frame();
+    MIRAGE_CHECK(page.add_provider_menu && !page.provider_actions && !page.model_format_open);
+    const auto add_button = element("model.add.provider")->frame;
+    const auto add_menu = element("model.add.menu")->frame;
+    const auto form_bounds = element("model.form")->frame;
+    // Height budgets every registered preset even though the row guard clips
+    // the last one at this viewport.
+    MIRAGE_CHECK(add_menu.width == 256 &&
+                 add_menu.height == 4 + provider_presets.size() * 36 + 1 + 36 + 4);
+    MIRAGE_CHECK(std::abs(add_menu.y - (add_button.y + add_button.height + 8)) < 0.5f);
+    MIRAGE_CHECK(std::abs(add_menu.x + add_menu.width - (form_bounds.x + form_bounds.width)) <
+                 0.5f);
+    MIRAGE_CHECK(add_menu.x >= 0 && add_menu.y >= 0 && add_menu.x + add_menu.width <= width &&
+                 add_menu.y + add_menu.height <= height);
+    MIRAGE_CHECK(!view->find("model.add.menu.preset.10.bg")); // clipped by the height budget
+    MIRAGE_CHECK(view->find("model.add.menu.preset.0.bg") &&
+                 view->find("model.add.menu.preset.2.bg"));
+    for (std::size_t i = 0; i < 10; ++i)
+        MIRAGE_CHECK(element("model.add.menu.preset." + std::to_string(i) + ".label")->text ==
+                     fitted_title(std::string(provider_presets[i].name), 200, 14));
+    MIRAGE_CHECK(element("model.add.menu.manual.label")->text == "手动配置");
+    capture("provider-add-menu-light");
+    // 手动配置 falls through to a blank unnamed draft instead of copying a preset.
+    element("model.add.menu.manual.bg")->onClick();
+    frame();
+    MIRAGE_CHECK(!page.add_provider_menu && !page.model.provider_id.starts_with("preset:") &&
+                 page.model_dirty && page.editing_provider_name && page.models.empty());
+    discard_model_edits();
+    frame();
+    MIRAGE_CHECK(!page.model_dirty && page.models.empty());
+    element("model.add.provider.bg")->onClick();
+    frame();
+    MIRAGE_CHECK(page.add_provider_menu);
+    // MiniMax: complete connection/model, key is the only missing value.
+    element("model.add.menu.preset.2.bg")->onClick();
+    frame();
+    MIRAGE_CHECK(!page.add_provider_menu);
     MIRAGE_CHECK(page.models.empty() && !page.live_model.enabled && page.model_dirty);
     MIRAGE_CHECK(page.model.provider_name == "MiniMax" &&
                  page.model.model_selector == "MiniMax-M3");
@@ -842,6 +941,15 @@ const auto model = "Mirage";
     frame();
     MIRAGE_CHECK(!element("model.save.bg")->disabled);
     accept_model_configuration(*preset_document, "save", "");
+    frame();
+    // A saved preset leaves the dropdown; the shared scrim closes the menu and
+    // only that menu.
+    element("model.add.provider.bg")->onClick();
+    frame();
+    MIRAGE_CHECK(page.add_provider_menu && !view->find("model.add.menu.preset.2.bg") &&
+                 view->find("model.add.menu.preset.0.bg"));
+    element("model.menu.dismiss")->onClick();
+    MIRAGE_CHECK(!page.add_provider_menu && !page.provider_actions && !page.model_format_open);
     frame();
     for (const auto *part : {"s", "k", "-", "test"})
         input_key(part);
