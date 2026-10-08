@@ -707,6 +707,23 @@ std::string display_error(const std::string &error) {
         return "服务地址仅填写 http(s)://主机；路径请填在 API 路径中。";
     return error;
 }
+void accept_catalog_response(const RuntimeMessage &message) {
+    auto &s = state();
+    if (message.local_id != s.fetched_revision || s.fetched_revision != s.model_catalog_revision)
+        return;
+    s.fetching_models = false;
+    if (!message.response.ok) {
+        s.model_notice = display_error(message.response.error.message);
+        return;
+    }
+    if (const auto *catalog = std::get_if<ipc::ModelList>(&message.response.payload)) {
+        s.fetched_model_ids = catalog->ids;
+        s.model_notice = catalog->ids.empty() ? "服务未返回可用模型；可手动填写模型 ID。"
+                                              : "已获取 " + std::to_string(catalog->ids.size()) +
+                                                    " 个模型；选择后仍需保存。";
+    } else
+        s.model_notice = "服务返回的模型列表无法读取。";
+}
 void drain_runtime() {
     auto &s = state();
     if (!s.runtime)
@@ -745,6 +762,11 @@ void drain_runtime() {
                 session->attachment_loading = false;
             }
         } else if (message.kind == RuntimeMessage::Kind::Response) {
+            // Catalog ids are editor revisions, not local conversation identities.
+            if (message.tag == "catalog") {
+                accept_catalog_response(message);
+                continue;
+            }
             auto *session = s.chat.find(message.local_id);
             if (!message.response.ok) {
                 s.runtime_notice = display_error(message.response.error.message);
@@ -756,28 +778,13 @@ void drain_runtime() {
                     s.saving_model = false;
                     s.model_notice = display_error(message.response.error.message);
                 }
-                if (message.tag == "catalog" && message.local_id == s.fetched_revision &&
-                    s.fetched_revision == s.model_catalog_revision) {
-                    s.fetching_models = false;
-                    s.model_notice = display_error(message.response.error.message);
-                }
                 continue;
             }
             if (message.tag == "subscribe") {
                 call_runtime(ipc::GetModelRequest{}, "model");
             }
             const auto &payload = message.response.payload;
-            if (const auto *catalog = std::get_if<ipc::ModelList>(&payload)) {
-                if (message.tag == "catalog" && message.local_id == s.fetched_revision &&
-                    s.fetched_revision == s.model_catalog_revision) {
-                    s.fetching_models = false;
-                    s.fetched_model_ids = catalog->ids;
-                    s.model_notice = catalog->ids.empty()
-                                         ? "服务未返回可用模型；可手动填写模型 ID。"
-                                         : "已获取 " + std::to_string(catalog->ids.size()) +
-                                               " 个模型；选择后仍需保存。";
-                }
-            } else if (const auto *product = std::get_if<ipc::ProductState>(&payload)) {
+            if (const auto *product = std::get_if<ipc::ProductState>(&payload)) {
                 s.confirm_exit = product->exit_pending;
                 s.exit_epoch = product->exit_epoch;
                 s.active_work = product->active_work;

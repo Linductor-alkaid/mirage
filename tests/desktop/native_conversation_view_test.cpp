@@ -1070,6 +1070,41 @@ const auto model = "Mirage";
     frame();
     MIRAGE_CHECK(!view->find("model.provider.1.label"));
     MIRAGE_CHECK(element("model.entry.1.label")->text == "second-model");
+    {
+        // A catalog revision can equal a session ID; failures cannot settle that session.
+        auto &session = page.chat.current();
+        const bool submitting = session.submitting, deleting = session.deleting;
+        session.submitting = session.deleting = true;
+        page.fetched_revision = page.model_catalog_revision = session.id;
+        page.fetching_models = true;
+        RuntimeMessage catalog;
+        catalog.tag = "catalog";
+        catalog.local_id = session.id;
+        catalog.response.error = {"unavailable", "catalog failure"};
+        accept_catalog_response(catalog);
+        MIRAGE_CHECK(!page.fetching_models && page.model_notice == "catalog failure");
+        MIRAGE_CHECK(session.submitting && session.deleting);
+        session.submitting = submitting;
+        session.deleting = deleting;
+        ++page.model_catalog_revision;
+        page.fetched_revision = page.model_catalog_revision;
+        page.fetching_models = true;
+        accept_catalog_response(catalog); // old failure after the editor changed
+        MIRAGE_CHECK(page.fetching_models);
+        catalog.local_id = page.fetched_revision;
+        catalog.response.ok = true;
+        catalog.response.payload = ipc::ModelList{{"downloaded-model", "other-model"}};
+        accept_catalog_response(catalog);
+        MIRAGE_CHECK(!page.fetching_models && page.fetched_model_ids.size() == 2);
+        MIRAGE_CHECK(page.provider_models.size() == 2 && !page.model_dirty);
+        frame();
+        MIRAGE_CHECK(element("model.fetched.list")->frame.height <= 160);
+        element("model.fetched.0.bg")->onClick();
+        MIRAGE_CHECK(page.provider_models.size() == 3 && page.model_dirty);
+        MIRAGE_CHECK(page.live_model.model_selector == "second-model");
+        accept_model_configuration(*second_document, "discard", "");
+        frame();
+    }
     capture("provider-models-light");
     for (const bool dark : {false, true}) {
         page.dark = dark;

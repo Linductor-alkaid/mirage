@@ -84,3 +84,8 @@ value包装导致测试失败，修正夹具后golden及52项全量回归通过�
 
 [原生设计](../design/native-agent-frontend.md)、[IPC契约](../design/mirage-ipc-protocol-v1.md)、
 [决策](../decisions/DEC-051-native-motion-and-model-discovery.md)。
+
+
+补充复核：目录响应按编辑revision独立处理，避免revision与会话ID相同时，失败响应误清
+会话提交/删除状态。新增失败与迟到响应隔离、候选不自动保存、实际点击添加候选测试，
+原生渲染回归通过；该修复保持页面布局和wire契约。
