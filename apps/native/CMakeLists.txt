@@ -67,6 +67,9 @@ add_custom_target(mirage-native-assets
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/OFL-NotoSansSC.txt"
         "$<TARGET_FILE_DIR:mirage-native>/assets/OFL-NotoSansSC.txt"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/Phosphor-Regular.ttf"
+        "$<TARGET_FILE_DIR:mirage-native>/assets/Phosphor-Regular.ttf"
     VERBATIM)
 add_dependencies(mirage-native mirage-native-assets)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
