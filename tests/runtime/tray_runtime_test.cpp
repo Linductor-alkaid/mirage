@@ -1,6 +1,6 @@
 #include "../support/ipc_io.hpp"
 #include <atomic>
-#include <executor/comm/channel.hpp>
+#include <kairo/comm/channel.hpp>
 #include <memory>
 #include <mira/model_provider.hpp>
 #include <mirage/integration/mira_environment_binding.hpp>
@@ -22,7 +22,7 @@ class Carrier final : public desktop::TrayCarrier {
   public:
     bool refuse = false;
     std::atomic_bool break_now{false};
-    executor::comm::MpscChannel<desktop::TrayAction> commands{
+    kairo::comm::MpscChannel<desktop::TrayAction> commands{
         {.capacity = 8, .name = "fixture-tray"}};
     RunReport run(const desktop::TrayCarrierContext &context,
                   const std::function<bool()> &stop) override {

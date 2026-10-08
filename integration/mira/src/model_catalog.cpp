@@ -100,7 +100,7 @@ ModelCatalogResult parse_model_catalog(const std::string &body) {
     }
     return result;
 }
-ModelCatalogResult fetch_model_catalog(executor::Executor &executor, const ModelCatalogQuery &query,
+ModelCatalogResult fetch_model_catalog(kairo::Executor &executor, const ModelCatalogQuery &query,
                                        const std::function<bool()> &cancelled) {
     auto secrets = std::make_shared<CatalogSecrets>(query);
     std::shared_ptr<mira::ITlsChannelFactory> tls;

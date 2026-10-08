@@ -1,7 +1,7 @@
 #include <mirage/integration/visual_session_host.hpp>
 
-#include <executor/comm/mailbox.hpp>
-#include <executor/stop_token.hpp>
+#include <kairo/comm/mailbox.hpp>
+#include <kairo/stop_token.hpp>
 
 #include <mirador/crop.hpp>
 #include <mirador/evidence.hpp>
@@ -135,7 +135,7 @@ mirador::Result<mirador::ImageBuffer> crop_patch(const mirador::Frame &frame,
 /// State shared between the host (admission, supersede, stop) and the
 /// blocking worker (execution). Mutex and condition variable are the sleep /
 /// wakeup primitive the blocking-worker contract requires; the request
-/// payload itself travels through the executor::comm LatestMailbox, never
+/// payload itself travels through the kairo::comm LatestMailbox, never
 /// through the lock (AGENTS.md rule 4).
 struct detail::VisualSessionCore {
     VisualSessionCore(std::string host_source_id, VisualSessionConfig host_config,
@@ -160,7 +160,7 @@ struct detail::VisualSessionCore {
     std::condition_variable cv;
     /// Latest-wins transport of requests; overwritten slots are observable
     /// in the mailbox statistics (overwritten-request count).
-    executor::comm::LatestMailbox<std::shared_ptr<RequestState>> mailbox{"mirage-visual-request"};
+    kairo::comm::LatestMailbox<std::shared_ptr<RequestState>> mailbox{"mirage-visual-request"};
     /// Queued (published, not yet picked up) and executing requests, kept
     /// for explicit supersede and shutdown settlement (RULE-10).
     std::shared_ptr<RequestState> queued;
@@ -482,12 +482,12 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
 /// picks up the newest request, executes it serially on the session, and
 /// settles every request exactly once. run() touches nothing after it
 /// returns; the executor joins it through the worker handle.
-class VisualSessionWorker final : public executor::IBlockingIoWorker {
+class VisualSessionWorker final : public kairo::IBlockingIoWorker {
   public:
     explicit VisualSessionWorker(std::shared_ptr<detail::VisualSessionCore> core)
         : core_(std::move(core)) {}
 
-    void run(executor::StopToken stop_token) override {
+    void run(kairo::StopToken stop_token) override {
         std::uint64_t seen = 0;
         for (;;) {
             {
@@ -546,7 +546,7 @@ class VisualSessionWorker final : public executor::IBlockingIoWorker {
 
 } // namespace
 
-VisualSessionHost::VisualSessionHost(executor::Executor &executor, std::string source_id,
+VisualSessionHost::VisualSessionHost(kairo::Executor &executor, std::string source_id,
                                      VisualSessionConfig config)
     : executor_(executor), source_id_(std::move(source_id)), config_(std::move(config)) {}
 
@@ -583,7 +583,7 @@ bool VisualSessionHost::start(std::string &error) {
     }
     auto core = std::make_shared<detail::VisualSessionCore>(
         source_id_, config_, session.take_value(), templates.take_value());
-    executor::BlockingWorkerSpec spec;
+    kairo::BlockingWorkerSpec spec;
     spec.name = "mirage-visual-" + source_id_;
     spec.config.thread_name = spec.name;
     spec.worker = std::make_unique<VisualSessionWorker>(core);

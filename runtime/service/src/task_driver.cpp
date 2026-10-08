@@ -304,7 +304,7 @@ constexpr std::chrono::milliseconds kPausePollSlice{100};
 /// fired (the caller then takes its existing refusal path).
 bool wait_for_resume(ServiceCore &core, const std::string &task_id,
                      const mirage::desktop::CancelToken &cancel,
-                     const executor::StopToken &stop_token) {
+                     const kairo::StopToken &stop_token) {
     for (;;) {
         auto view =
             post_host(core, [&core, task_id] { return core.host.task_view(identity_of(task_id)); });
@@ -525,7 +525,7 @@ void publish_session_event_best_effort(const std::shared_ptr<ServiceCore> &core,
     }
 }
 
-void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> core,
+void run_driver(kairo::StopToken stop_token, std::shared_ptr<ServiceCore> core,
                 std::string task_id) {
     if (!core) {
         return;

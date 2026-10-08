@@ -317,14 +317,14 @@ API、持久化格式、事件 schema 或兼容性承诺；核心契约；安全
 Mirage 的直接依赖只有两个 pinned 仓库：
 
 - **mira**（`third_party/mira`，C++20 Agent Runtime）：Mirage 的 Agent Harness Core。
-  其内嵌的 `third_party/mira/third_party/executor`（C++20 并发与生命周期库）是项目唯一
+  其内嵌的 `third_party/mira/third_party/kairo`（C++20 并发与生命周期库）是项目唯一
   的并发基础设施，Mirage 不单独 pin 第二份 Executor。
 - **mirador**（`third_party/mirador`，C++20 视觉基础设施）：桌面视觉信息的 OCR、检测、
   几何与视觉 Cache 能力来源。
 
 锁定方式为 **Git submodule + 锁文件**：`.gitmodules` 声明 `third_party/mira` 与
 `third_party/mirador`；`dependencies.lock.json` 记录 source、精确 commit、版本号、
-许可证及许可文件路径，并登记关键的嵌套 pin（executor、mbedtls、googletest）；
+许可证及许可文件路径，并登记关键的嵌套 pin（kairo、mbedtls、googletest）；
 `cmake/MirageDependencies.cmake` 在 configure 时校验 commit，并按
 `MIRAGE_FETCH_DEPENDENCIES` 决定是否自动同步缺失的子模块（`OFF` 为只校验路径，供
 离线/CI 构建使用）。嵌套 pin 与父仓库 HEAD 记录的 gitlink 不一致时 configure 失败。
@@ -335,7 +335,7 @@ Mirage 的直接依赖只有两个 pinned 仓库：
 ### 9.2 Executor 强制规则
 
 Executor（mira 交付、随其传递引入的并发能力组件）的定位与全部强制规则见根 `AGENTS.md`
-的"并发与生命周期：使用 mira 交付的 executor 能力"一节，此处不重复。计划与设计必须
+的"并发与生命周期：使用 mira 交付的 kairo 能力（v0.6.0 前名 executor）"一节，此处不重复。计划与设计必须
 写明每类工作由依赖的哪种能力承载、任务句柄由谁持有、如何取消以及关闭顺序（总计划
 `EXEC-NN` 条目）。
 
@@ -345,15 +345,15 @@ Executor（mira 交付、随其传递引入的并发能力组件）的定位与�
 优先复用依赖已交付的能力，不得重复实现；涉及并发行为时，再使用 pinned 版本自带资源，
 本地资源与依赖版本一致、优先于其他版本的文档：
 
-- 应用集成：`third_party/mira/third_party/executor/docs/skill/executor-integration/SKILL.md`。
+- 应用集成：`third_party/mira/third_party/kairo/docs/skill/kairo-integration/SKILL.md`。
   按其路由表（Quick start / By scenario / By requirement / By API）只加载一个 router
   和一张 capability card，遵循 card 的集成陷阱，通过其声明的
   future/result/status/callback 观察成功。
 - 修改 Executor 本体：仅在获得明确指示后使用
-  `third_party/mira/third_party/executor/docs/skill/executor-maintainer/SKILL.md`，
+  `third_party/mira/third_party/kairo/docs/skill/kairo-maintainer/SKILL.md`，
   遵循其 source、invariant、test 和 documentation 检查。maintainer skill 不是修改依赖
   的隐式授权。
-- 用户指南：`third_party/mira/third_party/executor/website/`（zh/en）中 lifecycle、
+- 用户指南：`third_party/mira/third_party/kairo/website/`（zh/en）中 lifecycle、
   submission、communication、monitoring、failure、realtime 与 reliability 各节；公开
   头文件与 pinned 指南是应用使用的权威，优先公共 facade 而非实现细节。
 

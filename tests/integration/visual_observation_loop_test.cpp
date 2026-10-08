@@ -21,7 +21,7 @@
 #include <mirage/desktop/visual_reference_registry.hpp>
 #include <mirage/desktop/visual_snapshot.hpp>
 
-#include <executor/executor.hpp>
+#include <kairo/executor.hpp>
 
 #include <mirador/image_view.hpp>
 #include <mirador/ocr_backend.hpp>
@@ -302,7 +302,7 @@ void over_budget_publish_refuses_without_touching_the_active_set() {
 
 // ---- end-to-end loop (no display server) --------------------------------------
 
-void fusion_flows_through_publish_observe_and_click(executor::Executor &executor) {
+void fusion_flows_through_publish_observe_and_click(kairo::Executor &executor) {
     FakeOcrConfig ocr_config;
     ocr_config.info.accepted_formats = {mirador::PixelFormat::kBgra8};
     FakeOcrBackend ocr(ocr_config);
@@ -442,8 +442,8 @@ int main() {
 
     // The loop scenario runs a real VisualSessionHost on an Executor blocking
     // worker (same consumption form as visual_session_test).
-    executor::Executor executor;
-    const bool executor_ready = executor.initialize_ex(executor::ExecutorConfig{}).ok;
+    kairo::Executor executor;
+    const bool executor_ready = executor.initialize(kairo::ExecutorConfig{}).ok;
     MIRAGE_CHECK(executor_ready);
     if (executor_ready) {
         run_scenario("fusion_flows_through_publish_observe_and_click",

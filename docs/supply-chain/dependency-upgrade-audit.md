@@ -355,3 +355,39 @@ Linux本地完整Debug50/50通过；会话/持久化相关Debug/Release/ASAN/UBS
 MiniMax-M3两张合成图片及工具往返真实互操作通过，不证明其他厂商/平台。
 首次usage元数据失败保留上游兼容性记录；上游Windows/Android和完整矩阵CI另行跟踪。
 负责人维护者在目标环境补跑未覆盖范围。反馈台账已回写收敛；本升级独立评审，UI预设为后续消费。
+
+## 2026-10-08：mira → bfcb8e7（方言思考输出 + kairo 迁移，MIRA-20261008-001）
+
+- **动机**：上游 PR#84（DEC-052，issue [#83](https://github.com/Linductor-alkaid/mira/issues/83)）
+  交付 MIRA-20261008-001 的修复：Chat Completions 与 Responses 方言把 reasoning 输出
+  映射为有界 `ThinkingPart`（此前非流式 `reasoning_content` 只留摘要、流式增量被丢弃、
+  Responses reasoning item/SSE 事件族落入未知回退）。升级同时带入 kairo 迁移
+  （上游 DEC-048）与 PR#82 辅助去重。维护者授权本轮升级复验。
+- **版本差异**：
+
+| 依赖 | 旧 pin | 新 pin | 说明 |
+| --- | --- | --- | --- |
+| mira | `fbc644be`（PR#81 分支头，pre-kairo 基线） | `bfcb8e7`（master，PR#84 合并后） | PR#77/#78 kairo 迁移、PR#79 流式预览、PR#80/#81 Messages、PR#82 去重、PR#84 方言思考输出 |
+| mira → kairo | `third_party/executor` `2ae4fc8`（Executor v0.5.0） | `third_party/kairo` `ef821dc`（kairo v0.6.0） | 命名空间 `executor::`→`kairo::`、include `<executor/…>`→`<kairo/…>`、CMake `executor::executor`→`kairo::kairo`、弱 API 清理（`initialize_ex`→`initialize`、`*_with_handle` 主名化等；DEC-048 迁移指南） |
+| mira → mbedtls | `068ff08`（v3.6.7） | 不变 | — |
+| mirador | `fb0dc3f` | 不变 | mirador 公开头与 CMake 零 executor/kairo 引用，独立于本次更名 |
+
+- **Mirage 接触面适配**（33 个源文件、7 个 CMake 文件，机械更名 + 两处 API 主名化）：
+  `executor::`→`kairo::`、`<executor/…>`→`<kairo/…>`、链接目标 `executor`/`executor::executor`→`kairo`/`kairo::kairo`、
+  `initialize_ex(`→`initialize(`、`submit_periodic{,_cancellable}_with_handle(`→`submit_periodic{,_cancellable}(`。
+  `TimerHandle.valid()/id()/cancel()`、`submit_auto/submit_on/submit_cancellable/SerialExecutionContext/BlockingWorkerSpec`
+  逐一核对与 kairo v0.6.0 公开头一致（DEC-048 第 3 条"保留面"清单吻合）。生命周期规则不变：
+  唯一外部 owner、协作取消、关闭顺序照旧，仅库名与符号面更名。
+- **构建摩擦（新台账 MIRA-20261008-002）**：pinned `core_contracts.hpp` 纳秒转换在
+  GCC/libstdc++ 下触发 `-Wuseless-cast`（上游为 libc++ 刻意保留 cast）。Mirage 临时将
+  GCC 的 `-Wuseless-cast` 降为停用，移除条件见台账；未改 pinned 代码。
+- **许可证**：mira AGPL-3.0 不变；kairo MIT；mbedtls/sqlite 不变。
+- **验证**：native-release / native-debug / asan / ubsan / tsan 五预设全量构建通过；
+  native-release ctest 52/52、asan 51/51、ubsan 51/51；tsan 49/51 二进制通过
+  （受控 ASLR `setarch -R` + 既有 `tsan-glib.supp`；其余 2 项为 ctest 与二进制计数差异），
+  与既有 TSAN 口径一致。真机复验（DT-04 宿主侧）：SiliconFlow `Qwen/Qwen3.5-4B`
+  （chat-completions）一轮思考 1059 字符完整进入 `ThinkingPart`（修复前该供应商类返回被
+  丢弃/摘要化）；MiniMax-M3（Messages，adaptive）回归正常；Responses 方言无真实
+  reasoning 供应商（SiliconFlow 无 /v1/responses，HUA 上游剥离 reasoning），
+  该方言以上游 fixture（增量/终态/逐字节切点/redacted/预算失败闭合）为验收依据，
+  真实供应商留待具备条件后补跑。

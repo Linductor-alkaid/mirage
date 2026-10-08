@@ -23,7 +23,8 @@
 | MIRA-20260927-001 | 同digest草稿遮蔽已验证workflow记录 | 版本语义缺陷 | Resolved | 公共版本API离线复现 | [#74](https://github.com/Linductor-alkaid/mira/issues/74)，已提交 |
 | MIRA-20261004-001 | 无屏幕通用harness与规范工具回填入口 | P2：harness边界结构性缺口 | Resolved | 无屏幕环境在模型路由前失败；核对输入契约 | [#73](https://github.com/Linductor-alkaid/mira/issues/73)，已提交 |
 | MIRA-20261004-002 | OpenSSL ClientHello缺少SNI | 传输缺陷 | Resolved | socketpair捕获真实adapter ClientHello，无server_name | [#72](https://github.com/Linductor-alkaid/mira/issues/72)，已提交 |
-| MIRA-20261008-001 | Responses/Chat Completions方言丢弃思考输出 | P2：方言能力缺口 | Open | 双服务在线对照：Messages思考可见，Chat Completions reasoning_content留摘要/丢弃 | [#83](https://github.com/Linductor-alkaid/mira/issues/83)，已提交 |
+| MIRA-20261008-001 | Responses/Chat Completions方言丢弃思考输出 | P2：方言能力缺口 | Resolved | 双服务在线对照 + 升级后真机复验（chat-completions 1059字符思考可见，Messages回归正常） | [#83](https://github.com/Linductor-alkaid/mira/issues/83)，PR[#84](https://github.com/Linductor-alkaid/mira/pull/84)已合并 |
+| MIRA-20261008-002 | core_contracts纳秒转换触发-Wuseless-cast | 构建摩擦 | Open | GCC/libstdc++全量消费TU复现useless_cast错误 | 未提交 |
 
 ## 2026-10-05复核证据
 
@@ -259,3 +260,18 @@ M6-19收尾回读：Mira PR#79的pull_request run37332976997在当前pin 0a099ba
 - 延期影响：这两类服务的思考档位仅影响上游生成行为，无可见思考内容；Mirage 侧不私自解析协议重复 Mira 职责。
 - 验收：两方言 fixture 覆盖增量/终态/越界丢弃/redacted 语义；真实 reasoning 模型各一轮增量可见；Messages 行为不回退。
 - 临时措施：无（不旁路解析 SSE）。
+
+2026-10-08 复验收口：授权升级 pin 至 master bfcb8e7（[上游 PR#84](https://github.com/Linductor-alkaid/mira/pull/84) 已合并，DEC-052；内嵌 kairo ef821dc 同步，DEC-048）。真机复验按 DT-04 宿主侧口径执行：chat-completions（SiliconFlow Qwen/Qwen3.5-4B，默认档）思考 1059 字符经 `ThinkingPart` 端到端可见，修复前同形态供应商返回被丢弃；Messages（MiniMax-M3，adaptive）回归正常。Responses 方言暂无真实 reasoning 供应商（SiliconFlow 无 /v1/responses，HUA 上游剥离 reasoning），以该方言上游 fixture 为验收依据，真实供应商补跑条件与 DT-04 一致。构建与回归证据见[依赖升级审计](../supply-chain/dependency-upgrade-audit.md)；真实 UI 端到端展示验收（默认折叠行 + 点击展开）见[会话思考展示验收](../compatibility/native-dialect-thinking-20261008.md)。状态改记 Resolved（chat-completions/Messages 真机 + Responses fixture 范围）。
+
+<a id="mira-20261008-002"></a>
+
+## MIRA-20261008-002：core_contracts.hpp 纳秒转换在 GCC/libstdc++ 下触发 -Wuseless-cast
+
+- 状态：Open；负责人：Linductor-alkaid；关联 Mirage 消费构建（MirageWarnings `-Wuseless-cast`）。
+- 版本：pinned bfcb8e77f8092b14a73cf4f1951f7d6123b5f9d5（2026-10-08，PR#84 之后）。已核对 `include/mira/core_contracts.hpp:186-197`。
+- 复现：GCC/libstdc++（nanoseconds::rep 即 int64_t）下，任一 Mirage 目样包含该头即报 `useless_cast`：`wall_nanos`/`monotonic_nanos` 对 `duration_cast<nanoseconds>(...).count()` 再做 `static_cast<std::int64_t>`。上游注释表明该 cast 为 libc++（rep 非 int64_t）刻意保留。不是 Mirage 误用：旧 pin 无该代码。
+- 影响：Mirage 自有目标以 `-Werror -Wuseless-cast` 作为质量门禁，pinned 头在所有消费 TU 触发错误；无法在消费侧按头抑制。
+- 最小能力：与 libc++ 兼容且 libstdc++ 下无冗余 cast 的写法（例如以 `std::chrono::nanoseconds::rep` 为目标类型的条件转换，或隔离到非 inline 辅助）。
+- 延期影响：Mirage 在 GCC 下停用 `-Wuseless-cast`（见 `cmake/MirageWarnings.cmake` 注释）；自有代码少一项冗余转换检查。
+- 验收：Mirage 恢复 `-Wuseless-cast -Werror` 全量构建通过；上游交付后按授权升级复验并移除临时措施。
+- 临时措施：`MirageWarnings.cmake` 对 GCC 改为 `-Wno-useless-cast`（含移除条件注释）；仅影响 Mirage 自有目标的告警面，不改 pinned 代码。

@@ -14,11 +14,11 @@
 // composes the newest OverlaySurfaceFrame for the carrier. All overlay
 // state lives on the pump thread.
 
-#include <executor/blocking_io.hpp>
-#include <executor/comm/mailbox.hpp>
-#include <executor/comm/topic.hpp>
-#include <executor/stop_token.hpp>
-#include <executor/types.hpp>
+#include <kairo/blocking_io.hpp>
+#include <kairo/comm/mailbox.hpp>
+#include <kairo/comm/topic.hpp>
+#include <kairo/stop_token.hpp>
+#include <kairo/types.hpp>
 
 #include <mirage/desktop/overlay_carrier.hpp>
 #include <mirage/desktop/overlay_surface.hpp>
@@ -36,7 +36,7 @@ namespace mirage::runtime::detail {
 /// Presents the Desktop Overlay surface for the service (M5-09, DEC-029).
 /// Owns no threads; run()/wakeup() are driven by the owning executor's
 /// blocking worker through OverlayPumpWorker.
-class OverlayPresenter final : public executor::IBlockingIoWorker {
+class OverlayPresenter final : public kairo::IBlockingIoWorker {
   public:
     struct Dependencies {
         /// The platform carrier (not owned; must outlive run()).
@@ -44,7 +44,7 @@ class OverlayPresenter final : public executor::IBlockingIoWorker {
         /// Service event subscription (task / host / permission events):
         /// drained by the pump for the banner state, same bounded
         /// drop-oldest mechanism as an IPC connection's queue.
-        executor::comm::TopicSubscription<mirage::runtime::ipc::EventPayload> events;
+        kairo::comm::TopicSubscription<mirage::runtime::ipc::EventPayload> events;
         /// Click delivery, invoked on the pump thread; the service routes
         /// it onto its serial domain (wired by RuntimeService).
         std::function<void(const mirage::desktop::OverlayClick &)> on_click;
@@ -75,8 +75,8 @@ class OverlayPresenter final : public executor::IBlockingIoWorker {
     /// dependency enabled the debug face.
     void show_observation(const mirage::desktop::SemanticSnapshot &snapshot);
 
-    // executor::IBlockingIoWorker
-    void run(executor::StopToken stop_token) override;
+    // kairo::IBlockingIoWorker
+    void run(kairo::StopToken stop_token) override;
     void wakeup() noexcept override;
 
   private:
@@ -100,10 +100,10 @@ class OverlayPresenter final : public executor::IBlockingIoWorker {
     bool compose_frame(mirage::desktop::OverlaySurfaceFrame &frame);
 
     Dependencies dependencies_;
-    executor::comm::LatestMailbox<ActionUpdate> action_;
-    executor::comm::LatestMailbox<std::optional<mirage::desktop::OverlayConfirmation>>
+    kairo::comm::LatestMailbox<ActionUpdate> action_;
+    kairo::comm::LatestMailbox<std::optional<mirage::desktop::OverlayConfirmation>>
         confirmation_;
-    executor::comm::LatestMailbox<ObservationUpdate> observation_;
+    kairo::comm::LatestMailbox<ObservationUpdate> observation_;
     std::uint64_t action_seq_ = 0;
     std::uint64_t confirmation_seq_ = 0;
     std::uint64_t observation_seq_ = 0;
@@ -127,11 +127,11 @@ class OverlayPresenter final : public executor::IBlockingIoWorker {
 /// hub publish hook and the atom feed can hold a stable raw pointer),
 /// teardown joins the worker before the presenter is destroyed (DEC-029
 /// decision 6).
-class OverlayPumpWorker final : public executor::IBlockingIoWorker {
+class OverlayPumpWorker final : public kairo::IBlockingIoWorker {
   public:
     explicit OverlayPumpWorker(OverlayPresenter *presenter) : presenter_(presenter) {}
 
-    void run(executor::StopToken stop_token) override {
+    void run(kairo::StopToken stop_token) override {
         if (presenter_ != nullptr) {
             presenter_->run(std::move(stop_token));
         }

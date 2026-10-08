@@ -1,5 +1,5 @@
 #include "../support/test.hpp"
-#include <executor/executor.hpp>
+#include <kairo/executor.hpp>
 #include <mira/model_profile.hpp>
 #include <mirage/platform/credential_store.hpp>
 #include <string>
@@ -13,10 +13,10 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(!write_credential(ref, "synthetic key").ok);
     MIRAGE_CHECK(!write_credential(ref, "synthetic\nkey").ok);
     if (argc == 2 && std::string(argv[1]) == "--probe-keyring") {
-        executor::Executor owner;
-        executor::ExecutorConfig config;
+        kairo::Executor owner;
+        kairo::ExecutorConfig config;
         config.min_threads = config.max_threads = 1;
-        MIRAGE_CHECK(owner.initialize_ex(config));
+        MIRAGE_CHECK(owner.initialize(config));
         auto result = owner.submit_auto([] {
             const auto identity = mira::ModelProfileId::generate().to_string();
             const auto write = write_credential(identity, "mirage-synthetic-credential-probe");

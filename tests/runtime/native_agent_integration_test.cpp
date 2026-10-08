@@ -4,8 +4,8 @@
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
-#include <executor/comm.hpp>
-#include <executor/executor.hpp>
+#include <kairo/comm.hpp>
+#include <kairo/executor.hpp>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -132,7 +132,7 @@ class Provider final : public mira::IModelProvider {
         reply.output.emplace_back(std::move(message));
         return reply;
     }
-    executor::comm::LatestMailbox<std::string> wire{"test-model-wire"};
+    kairo::comm::LatestMailbox<std::string> wire{"test-model-wire"};
     mira::ModelProfile profile_;
     std::atomic_int calls{0}, last_tools{0};
     std::atomic_bool saw_high{false}, old_reply{false};
@@ -183,11 +183,11 @@ int main(int argc, char **argv) {
         live.dialect = read("MIRAGE_PROBE_DIALECT");
         live.credential_env = "MIRAGE_PROBE_KEY";
         live.request_deadline = 60s;
-        executor::Executor owner;
-        executor::ExecutorConfig limits;
+        kairo::Executor owner;
+        kairo::ExecutorConfig limits;
         limits.min_threads = limits.max_threads = 4;
         limits.queue_capacity = 16;
-        if (!owner.initialize_ex(limits))
+        if (!owner.initialize(limits))
             return 1;
         integration::DialogCompletion result;
         {
@@ -242,10 +242,10 @@ int main(int argc, char **argv) {
     // Exercise the production transport admission path, without any network
     // request or credentials. Provider fixtures do not start blocking workers.
     {
-        executor::Executor owner;
-        executor::ExecutorConfig limits;
+        kairo::Executor owner;
+        kairo::ExecutorConfig limits;
         limits.min_threads = limits.max_threads = 2;
-        MIRAGE_CHECK(owner.initialize_ex(limits));
+        MIRAGE_CHECK(owner.initialize(limits));
         integration::ModelLayerConfig live;
         live.enabled = true;
         live.endpoint_origin = "http://example.com";
@@ -1254,14 +1254,14 @@ int main(int argc, char **argv) {
         }
     }
     // Force the finite model driver admission path to refuse before model work starts.
-    executor::Executor limited;
-    executor::ExecutorConfig small;
+    kairo::Executor limited;
+    kairo::ExecutorConfig small;
     small.min_threads = small.max_threads = 1;
     small.queue_capacity = 1;
     small.max_in_flight_tasks = 1;
-    MIRAGE_CHECK(static_cast<bool>(limited.initialize_ex(small)));
+    MIRAGE_CHECK(static_cast<bool>(limited.initialize(small)));
     std::atomic_bool blocker_started{false};
-    auto blocked = limited.submit_cancellable([&blocker_started](executor::StopToken stop) {
+    auto blocked = limited.submit_cancellable([&blocker_started](kairo::StopToken stop) {
         blocker_started.store(true);
         while (!stop.stop_requested())
             (void)::poll(nullptr, 0, 1);
@@ -1280,7 +1280,7 @@ int main(int argc, char **argv) {
         integration::ModelLayer layer(limited, model_config, &fixture);
         mira::OperationContext context;
         context.deadline = std::chrono::steady_clock::now() + 300ms;
-        auto refused = limited.submit_cancellable([&layer, context](executor::StopToken) {
+        auto refused = limited.submit_cancellable([&layer, context](kairo::StopToken) {
             return layer.complete_harness_turn({}, "admission", context);
         });
         try {
@@ -1296,7 +1296,7 @@ int main(int argc, char **argv) {
     // Consume either running completion or queued cancellation even if the start check fails.
     try {
         blocked.future.get();
-    } catch (const executor::TaskCancelled &) {
+    } catch (const kairo::TaskCancelled &) {
     }
     limited.shutdown(true);
     // Catalog work owns its transport worker and settles cancellation/shutdown.
@@ -1307,10 +1307,10 @@ int main(int argc, char **argv) {
     query.dialect = "openai.chat-completions.v1";
     query.api_key = "synthetic-key";
     MIRAGE_CHECK(!integration::fetch_model_catalog(limited, query, [] { return false; }).ok());
-    executor::Executor catalog_owner;
-    MIRAGE_CHECK(catalog_owner.initialize_ex(small));
+    kairo::Executor catalog_owner;
+    MIRAGE_CHECK(catalog_owner.initialize(small));
     std::atomic_bool catalog_started{false};
-    auto cancellation = catalog_owner.submit_cancellable([&](executor::StopToken stop) {
+    auto cancellation = catalog_owner.submit_cancellable([&](kairo::StopToken stop) {
         return integration::fetch_model_catalog(catalog_owner, query, [&] {
             catalog_started.store(true);
             while (!stop.stop_requested())

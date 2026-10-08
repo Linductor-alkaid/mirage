@@ -5,9 +5,9 @@
 // subscription (DEC-012 decision 5, EXEC-02). Pinned executor types are
 // confined to the internal headers and their translation units.
 
-#include <executor/comm/mailbox.hpp>
-#include <executor/comm/topic.hpp>
-#include <executor/comm/types.hpp>
+#include <kairo/comm/mailbox.hpp>
+#include <kairo/comm/topic.hpp>
+#include <kairo/comm/types.hpp>
 
 #include <cstddef>
 #include <optional>
@@ -112,18 +112,18 @@ class EventHub {
     /// One bounded drop-oldest per-connection queue. The caller (the IPC
     /// loop) drains it and assigns per-connection `seq` values at
     /// write-out; drops surface as `events.overflow` markers there.
-    executor::comm::TopicSubscription<ipc::EventPayload> subscribe(std::size_t capacity) {
-        executor::comm::TopicSubscriptionOptions options;
+    kairo::comm::TopicSubscription<ipc::EventPayload> subscribe(std::size_t capacity) {
+        kairo::comm::TopicSubscriptionOptions options;
         options.capacity = capacity == 0 ? 1 : capacity;
-        options.drop_policy = executor::comm::DropPolicy::DropOldest;
+        options.drop_policy = kairo::comm::DropPolicy::DropOldest;
         options.enable_stats = true;
         options.name = "mirage.ipc.events";
         return topic_.subscribe(std::move(options));
     }
 
   private:
-    executor::comm::Topic<ipc::EventPayload> topic_;
-    executor::comm::LatestMailbox<ipc::EventPayload> host_status_;
+    kairo::comm::Topic<ipc::EventPayload> topic_;
+    kairo::comm::LatestMailbox<ipc::EventPayload> host_status_;
 };
 
 } // namespace mirage::runtime::detail

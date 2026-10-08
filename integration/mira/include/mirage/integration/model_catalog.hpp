@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace executor {
+namespace kairo {
 class Executor;
 }
 
@@ -31,6 +31,6 @@ ModelCatalogResult parse_model_catalog(const std::string &body);
 
 /// Bounded, explicit discovery over Mira's Executor-backed HTTP transport.
 /// The caller runs this on an Executor task and owns its cancellation probe.
-ModelCatalogResult fetch_model_catalog(executor::Executor &executor, const ModelCatalogQuery &query,
+ModelCatalogResult fetch_model_catalog(kairo::Executor &executor, const ModelCatalogQuery &query,
                                        const std::function<bool()> &cancelled);
 } // namespace mirage::integration

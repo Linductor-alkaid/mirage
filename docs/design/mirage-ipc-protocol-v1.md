@@ -449,7 +449,7 @@ M1.5 事件集（封闭集合，M2+ 新事件以附加方式进入，不改既�
 - 事件是通知，不是可靠投递：`task.list` / `task.inspect` 快照始终是事实源。客户端检测
   到 `seq` 跳跃、`events.overflow` 或重连时**必须 resync**（重新 list/inspect），不得把
   事件流当作完整状态。
-- 服务端承载（Executor 路由，`EXEC-02`）：`executor::comm::Topic<TaskEvent>` 多订阅广播
+- 服务端承载（Executor 路由，`EXEC-02`）：`kairo::comm::Topic<TaskEvent>` 多订阅广播
   （容量与 DropPolicy 显式配置）；host 状态以 `LatestMailbox` 语义进入同一发布路径；每
   连接有界 `MpscChannel`（drop-oldest）投递到连接 blocking I/O worker。写出口径：响应帧
   优先于事件帧；溢出以 `events.overflow` 显式呈现，不静默丢弃（`RULE-07`）。

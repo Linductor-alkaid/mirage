@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
   "project": "mirage",
-  "updated": "2026-10-07",
+  "updated": "2026-10-08",
   "notes": "Schema v3 (DEC-037): native EUI frontend replaces retired npm/CEF. All dependency gitlinks and nested pins remain mandatory. artifacts is empty; no Chromium binary is acquired or packaged.",
   "dependencies": [
     {
@@ -9,17 +9,17 @@
       "source": "https://github.com/Linductor-alkaid/mira.git",
       "path": "third_party/mira",
       "version": "0.1.0",
-      "commit": "fbc644be2fabfaa2f8257e579fbc1d368537224c",
-      "notes": "M6-26: declared Messages adaptive/disabled thinking and bounded signed/redacted assistant tool replay; upstream PR#81 https://github.com/Linductor-alkaid/mira/pull/81 on Messages PR#80. Pre-kairo base retains Executor 2ae4fc8 and all nested pins; AGPL-3.0 unchanged. Audit: docs/supply-chain/mira-thinking-20261007.md.",
+      "commit": "bfcb8e77f8092b14a73cf4f1951f7d6123b5f9d5",
+      "notes": "M6-26+M6-34: dialect reasoning output mapped to bounded ThinkingPart on Chat Completions/Responses (upstream PR#84 https://github.com/Linductor-alkaid/mira/pull/84, DEC-052, resolves MIRA-20261008-001) and helper single-sourcing PR#82. Base includes the kairo migration (Executor 2ae4fc8 -> kairo v0.6.0 ef821dc, DEC-048: namespace/include/target rename, weak-API cleanup) plus Messages thinking PR#80/#81. AGPL-3.0 unchanged. Audit: docs/supply-chain/mira-thinking-20261007.md.",
       "license": "AGPL-3.0",
       "consumption": "add_subdirectory；Mirage::core 经由别名 Mira::core 链接",
       "nested_pins": [
         {
-          "name": "executor",
-          "source": "https://github.com/Linductor-alkaid/executor.git",
-          "path": "third_party/executor",
-          "version": "0.5.0",
-          "commit": "2ae4fc8985af8962e08e3282a9330de5445d0d10",
+          "name": "kairo",
+          "source": "https://github.com/Linductor-alkaid/kairo.git",
+          "path": "third_party/kairo",
+          "version": "0.6.0",
+          "commit": "ef821dcca05bbf9038409a2ff9acc5ed729936bc",
           "license": "MIT"
         },
         {

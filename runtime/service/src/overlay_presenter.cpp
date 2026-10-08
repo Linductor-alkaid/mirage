@@ -183,7 +183,7 @@ bool OverlayPresenter::compose_frame(mirage::desktop::OverlaySurfaceFrame &frame
     return true;
 }
 
-void OverlayPresenter::run(executor::StopToken stop_token) {
+void OverlayPresenter::run(kairo::StopToken stop_token) {
     if (dependencies_.carrier == nullptr) {
         return; // wired null: the owner decided against a surface
     }

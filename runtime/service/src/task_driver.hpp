@@ -1,6 +1,6 @@
 #pragma once
 
-#include <executor/stop_token.hpp>
+#include <kairo/stop_token.hpp>
 
 #include <memory>
 #include <string>
@@ -19,7 +19,7 @@ namespace mirage::runtime::detail {
 /// cancellation is observed between steps. The function never throws:
 /// unexpected failures are recorded on the task and settle it failed, and
 /// the pinned task state stays authoritative via MiraHost.
-void run_driver(executor::StopToken stop_token, std::shared_ptr<ServiceCore> core,
+void run_driver(kairo::StopToken stop_token, std::shared_ptr<ServiceCore> core,
                 std::string task_id);
 
 /// Publishes one `task.updated` snapshot for the task (DEC-012 decision 3).

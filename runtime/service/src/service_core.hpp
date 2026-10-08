@@ -8,8 +8,8 @@
 #include <string>
 #include <vector>
 
-#include <executor/executor.hpp>
-#include <executor/serial_execution_context.hpp>
+#include <kairo/executor.hpp>
+#include <kairo/serial_execution_context.hpp>
 
 #include <mirage/desktop/desktop_environment.hpp>
 #include <mirage/desktop/visual_reference_registry.hpp>
@@ -36,10 +36,10 @@ namespace mirage::runtime::detail {
 struct ServiceCore {
     /// The process's only Executor instance (EXEC-01): the service owns it,
     /// initializes it in start() and shuts it down in the ordered teardown.
-    executor::Executor executor;
+    kairo::Executor executor;
     /// Serialization context for every MiraHost operation; the host's
     /// single-owner discipline is expressed through it.
-    executor::SerialExecutionContext serial;
+    kairo::SerialExecutionContext serial;
     MiraHost host;
     TaskRegistry registry;
     /// Sessions the service knows (DEC-021): primary + session.open ones.
@@ -153,7 +153,7 @@ struct ServiceCore {
     /// Driver handles per active task (guarded by its own mutex; the
     /// registry mutex is never held while touching executor types).
     std::mutex drivers_mutex;
-    std::map<std::string, executor::TaskSubmission<void>> drivers;
+    std::map<std::string, kairo::TaskSubmission<void>> drivers;
 
     ServiceCore() = default;
     ServiceCore(const ServiceCore &) = delete;

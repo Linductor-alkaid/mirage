@@ -186,7 +186,7 @@ struct ServiceRunReport {
 /// Long-running host for the pinned Mira instance plus the Local IPC server
 /// (design doc section 12, DEC-007).
 ///
-/// Process shape: the service owns this process's only executor::Executor
+/// Process shape: the service owns this process's only kairo::Executor
 /// instance (EXEC-01). The IPC accept/read/write loop runs on an Executor
 /// blocking I/O worker; every MiraHost operation is serialized through one
 /// Executor SerialExecutionContext (the single-owner discipline MiraHost

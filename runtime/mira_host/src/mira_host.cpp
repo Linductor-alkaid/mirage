@@ -574,7 +574,7 @@ HostOutcome MiraHost::admit_operation_completion(const OperationTicket &ticket) 
 }
 
 HostOutcome MiraHost::attach_workflow_surface(
-    executor::Executor &executor,
+    kairo::Executor &executor,
     std::shared_ptr<mirage::integration::WorkflowEventBridge> event_bridge,
     std::shared_ptr<mirage::integration::DesktopAtomToolset> atom_toolset) {
     const HostStatus current = impl_->status.load();

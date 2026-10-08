@@ -54,9 +54,9 @@ constexpr long kMaxWaitSliceMs = 25;
 
 ServiceLoop::ServiceLoop(Dependencies dependencies)
     : dependencies_(std::move(dependencies)),
-      outbound_(executor::comm::ChannelOptions{
+      outbound_(kairo::comm::ChannelOptions{
           .capacity = 1024,
-          .drop_policy = executor::comm::DropPolicy::RejectNewest,
+          .drop_policy = kairo::comm::DropPolicy::RejectNewest,
           .enable_stats = true,
           .name = "mirage.ipc.outbound",
       }) {
@@ -145,7 +145,7 @@ void ServiceLoop::post_response_and_close(std::uint64_t connection_id, std::stri
 }
 
 void ServiceLoop::post_attach_events(
-    std::uint64_t connection_id, executor::comm::TopicSubscription<ipc::EventPayload> subscription,
+    std::uint64_t connection_id, kairo::comm::TopicSubscription<ipc::EventPayload> subscription,
     std::optional<ipc::EventPayload> seed, bool chat_preview) {
     OutboundMessage message;
     message.kind = OutboundMessage::Kind::AttachEvents;
@@ -449,7 +449,7 @@ void ServiceLoop::close_all() { connections_.clear(); }
 
 #ifndef _WIN32
 
-void ServiceLoop::run(executor::StopToken stop_token) {
+void ServiceLoop::run(kairo::StopToken stop_token) {
     std::vector<pollfd> descriptors;
     std::vector<std::map<std::uint64_t, Connection>::iterator> owners;
 
@@ -570,7 +570,7 @@ void ServiceLoop::run(executor::StopToken stop_token) {
 
 #else
 
-void ServiceLoop::run(executor::StopToken stop_token) {
+void ServiceLoop::run(kairo::StopToken stop_token) {
     // The named-pipe stream is zero-wait non-blocking on both directions,
     // so this loop is level-driven: every pass reads, flushes, drains and
     // settles every connection, then bounds its wait with the wake event /

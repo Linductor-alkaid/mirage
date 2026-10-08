@@ -9,7 +9,7 @@
 #include <mirage/integration/mira_adapter.hpp>
 #include <mirage/integration/workflow_event_bridge.hpp>
 
-namespace executor {
+namespace kairo {
 class Executor;
 }
 
@@ -352,7 +352,7 @@ class MiraHost {
     /// only instance (EXEC-01); the bridge handle is kept by the host, so it
     /// must outlive shutdown_workflow_surface().
     HostOutcome
-    attach_workflow_surface(executor::Executor &executor,
+    attach_workflow_surface(kairo::Executor &executor,
                             std::shared_ptr<mirage::integration::WorkflowEventBridge> event_bridge,
                             std::shared_ptr<mirage::integration::DesktopAtomToolset> atom_toolset);
 

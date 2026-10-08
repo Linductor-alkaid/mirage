@@ -15,8 +15,8 @@ target_compile_features(credential_store_test PRIVATE cxx_std_20)
 mirage_enable_warnings(credential_store_test)
 target_link_libraries(credential_store_test PRIVATE Mirage::platform Mira::core)
 target_include_directories(credential_store_test SYSTEM PRIVATE
-    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include")
-target_link_libraries(credential_store_test PRIVATE $<TARGET_FILE:executor::executor>)
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+target_link_libraries(credential_store_test PRIVATE $<TARGET_FILE:kairo::kairo>)
 add_test(NAME credential_store_test COMMAND credential_store_test)
 set_tests_properties(credential_store_test PROPERTIES LABELS "unit;platform" TIMEOUT 30)
 
@@ -46,14 +46,14 @@ mirage_enable_warnings(mira_host_test)
 # its own Executor instance: SYSTEM headers plus a by-file-path link, same
 # form as the visual unit tests.
 target_include_directories(mira_host_test SYSTEM PRIVATE
-    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include"
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include"
 )
 target_link_libraries(mira_host_test
     PRIVATE
         Mirage::mira_host
         Mira::core
         Mira::simulator_adapter
-        $<TARGET_FILE:executor::executor>
+        $<TARGET_FILE:kairo::kairo>
 )
 add_test(NAME mira_host_test COMMAND mira_host_test)
 set_tests_properties(mira_host_test PROPERTIES
@@ -422,10 +422,10 @@ if(ATSPI_TEST_FOUND AND X11_FOUND)
     # library is linked by file path (same consumption form as the visual
     # unit tests).
     target_include_directories(visual_observation_e2e_test SYSTEM PRIVATE
-        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include"
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include"
     )
     target_link_libraries(visual_observation_e2e_test PRIVATE
-        $<TARGET_FILE:executor::executor>
+        $<TARGET_FILE:kairo::kairo>
     )
     add_test(NAME visual_observation_e2e_test COMMAND visual_observation_e2e_test)
     set_tests_properties(visual_observation_e2e_test PROPERTIES
@@ -533,10 +533,10 @@ target_link_libraries(mira_binding_test
 # Executor directly (the per-source blocking worker), consumed as SYSTEM
 # headers and linked by file path (same form as the visual unit tests).
 target_include_directories(mira_binding_test SYSTEM PRIVATE
-    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include"
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include"
 )
 target_link_libraries(mira_binding_test PRIVATE
-    $<TARGET_FILE:executor::executor>
+    $<TARGET_FILE:kairo::kairo>
 )
 add_test(NAME mira_binding_test COMMAND mira_binding_test)
 set_tests_properties(mira_binding_test PROPERTIES
@@ -826,8 +826,8 @@ set_tests_properties(permission_test PROPERTIES
 # dedup, budgets, the hub-probe confirmation revalidation and the
 # stop/failure paths. The presenter is an internal module (runtime/service/
 # src): the test reaches it through the source-tree include path, and the
-# executor headers enter as SYSTEM exactly like the service target consumes
-# them; the executor library links by file path so its interface include
+# kairo headers enter as SYSTEM exactly like the service target consumes
+# them; the kairo library links by file path so its interface include
 # dirs do not leak.
 add_executable(overlay_presenter_test runtime/overlay_presenter_test.cpp)
 target_compile_features(overlay_presenter_test PUBLIC cxx_std_20)
@@ -836,12 +836,12 @@ target_include_directories(overlay_presenter_test PRIVATE
     ${CMAKE_SOURCE_DIR}/runtime/service/src
 )
 target_include_directories(overlay_presenter_test SYSTEM PRIVATE
-    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include"
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include"
 )
 target_link_libraries(overlay_presenter_test
     PRIVATE
         Mirage::runtime_service
-        $<TARGET_FILE:executor::executor>
+        $<TARGET_FILE:kairo::kairo>
 )
 add_test(NAME overlay_presenter_test COMMAND overlay_presenter_test)
 set_tests_properties(overlay_presenter_test PROPERTIES
@@ -1052,10 +1052,10 @@ target_link_libraries(visual_session_test
 # blocking worker); headers are consumed as SYSTEM headers and the library is
 # linked by file path (same consumption form as mirage_devbridge_core).
 target_include_directories(visual_session_test SYSTEM PRIVATE
-    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include"
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include"
 )
 target_link_libraries(visual_session_test PRIVATE
-    $<TARGET_FILE:executor::executor>
+    $<TARGET_FILE:kairo::kairo>
 )
 add_test(NAME visual_session_test COMMAND visual_session_test)
 set_tests_properties(visual_session_test PROPERTIES
@@ -1096,10 +1096,10 @@ target_link_libraries(visual_observation_loop_test
 # blocking worker); headers are consumed as SYSTEM headers and the library is
 # linked by file path (same consumption form as visual_session_test).
 target_include_directories(visual_observation_loop_test SYSTEM PRIVATE
-    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include"
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include"
 )
 target_link_libraries(visual_observation_loop_test PRIVATE
-    $<TARGET_FILE:executor::executor>
+    $<TARGET_FILE:kairo::kairo>
 )
 add_test(NAME visual_observation_loop_test COMMAND visual_observation_loop_test)
 set_tests_properties(visual_observation_loop_test PROPERTIES
@@ -1142,10 +1142,10 @@ target_link_libraries(visual_cache_geometry_test
 # blocking worker); headers are consumed as SYSTEM headers and the library is
 # linked by file path (same consumption form as visual_session_test).
 target_include_directories(visual_cache_geometry_test SYSTEM PRIVATE
-    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include"
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include"
 )
 target_link_libraries(visual_cache_geometry_test PRIVATE
-    $<TARGET_FILE:executor::executor>
+    $<TARGET_FILE:kairo::kairo>
 )
 add_test(NAME visual_cache_geometry_test COMMAND visual_cache_geometry_test)
 set_tests_properties(visual_cache_geometry_test PROPERTIES
@@ -1194,9 +1194,9 @@ if(UNIX)
     target_include_directories(native_agent_integration_test PRIVATE
         ${CMAKE_SOURCE_DIR}/apps/native)
     target_include_directories(native_agent_integration_test SYSTEM PRIVATE
-        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include)
+        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
     target_link_libraries(native_agent_integration_test PRIVATE Mirage::runtime_service
-        Mirage::ipc Mirage::persistence Mirage::integration_mira executor)
+        Mirage::ipc Mirage::persistence Mirage::integration_mira kairo)
     mirage_enable_warnings(native_agent_integration_test)
     add_test(NAME native_agent_integration_test COMMAND native_agent_integration_test)
     # Includes escaped multi-MiB persistence/recovery; fully instrumented Debug
@@ -1214,8 +1214,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_ENABLE_NATIVE_FRONTEND)
     target_include_directories(native_conversation_view_test PRIVATE ${CMAKE_SOURCE_DIR}/apps/native)
     target_include_directories(native_conversation_view_test SYSTEM PRIVATE
         ${CMAKE_SOURCE_DIR}/third_party/eui-neo ${CMAKE_SOURCE_DIR}/third_party/eui-neo/include
-        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include)
-    target_link_libraries(native_conversation_view_test PRIVATE eui::neo Mirage::ipc Mirage::persistence executor)
+        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
+    target_link_libraries(native_conversation_view_test PRIVATE eui::neo Mirage::ipc Mirage::persistence kairo)
     mirage_enable_warnings(native_conversation_view_test)
     add_test(NAME native_conversation_view_test COMMAND native_conversation_view_test)
     set_tests_properties(native_conversation_view_test PROPERTIES LABELS "integration;ui" TIMEOUT 30
@@ -1226,7 +1226,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_executable(tray_runtime_test runtime/tray_runtime_test.cpp)
     target_compile_features(tray_runtime_test PRIVATE cxx_std_20)
     target_include_directories(tray_runtime_test SYSTEM PRIVATE
-        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include")
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
     target_link_libraries(tray_runtime_test PRIVATE Mirage::runtime_service Mirage::integration_mira)
     mirage_enable_warnings(tray_runtime_test)
     add_test(NAME tray_runtime_test COMMAND tray_runtime_test)

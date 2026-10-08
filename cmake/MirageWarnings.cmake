@@ -35,8 +35,14 @@ function(mirage_enable_warnings target)
         if(MIRAGE_WARNINGS_AS_ERRORS)
             target_compile_options(${target} PRIVATE -Werror)
         endif()
+        # -Wuseless-cast is retired for GCC: the pinned mira headers now carry
+        # deliberate static_casts for libc++ compatibility (for example the
+        # Timestamp nanoseconds helpers in core_contracts.hpp), and GCC flags
+        # them in every consuming translation unit. Pinned code cannot change;
+        # see feedback ledger entry MIRA-20261008-002 for the removal
+        # condition (upstream drops the libstdc++-redundant cast).
         if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-            target_compile_options(${target} PRIVATE -Wuseless-cast)
+            target_compile_options(${target} PRIVATE -Wno-useless-cast)
         endif()
     endif()
 endfunction()

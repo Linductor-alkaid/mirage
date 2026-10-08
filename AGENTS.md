@@ -37,14 +37,14 @@ Mirage 是基于 Mira 构建的 Linux / Windows 桌面端产品，为 Mira 提�
 - `ElementReference` / `VisualReference`：为 Snapshot 中的可交互对象提供可执行、可
   解析的临时引用，由 Mirage 在行为执行时解析为平台对象或坐标。
 
-## 并发与生命周期：使用 mira 交付的 executor 能力
+## 并发与生命周期：使用 mira 交付的 kairo（Executor）能力
 
 Mirage 的核心直接依赖为 pinned `mira` 与 `mirador`；UI 专用依赖 `eui-neo`（dev 完整提交锁定）由维护者明确授权，边界见 DEC-033，不使用其 async/network/audio 承载业务并发。executor 是 mira 交付、随其传递引入
-的并发能力组件（`third_party/mira/third_party/executor`，下称 Executor），不是独立的
+的并发能力组件（`third_party/mira/third_party/kairo`，上游 v0.6.0 起由 Executor 更名而来，下称 kairo），不是独立的
 第三个依赖：Mirage 通过 pinned mira 使用其能力管理所有并发任务和运行生命周期，不自建、
 不单独 pin 第二份 Executor。集成时以其公开头文件、
-`third_party/mira/third_party/executor/docs/API.md`
-和 `third_party/mira/third_party/executor/docs/skill/executor-integration/SKILL.md`
+`third_party/mira/third_party/kairo/docs/API.md`
+和 `third_party/mira/third_party/kairo/docs/skill/kairo-integration/SKILL.md`
 为准；本地资源与 pinned 版本一致，优先于其他版本的文档。
 
 以下规则是强制要求：
@@ -104,26 +104,26 @@ Mirage 的功能优先复用 pinned `mira` 与 `mirador` 已交付的对应能�
 设计和实现并发行为前，先使用 pinned 依赖自带的资源，按其路由说明只加载相关的 router 和
 capability card，不读取无关卡片或实现源码：
 
-- 应用集成：`third_party/mira/third_party/executor/docs/skill/executor-integration/SKILL.md`。
+- 应用集成：`third_party/mira/third_party/kairo/docs/skill/kairo-integration/SKILL.md`。
 - 仅在获得修改 Executor 本体的明确指示后，才使用
-  `third_party/mira/third_party/executor/docs/skill/executor-maintainer/SKILL.md`，并
+  `third_party/mira/third_party/kairo/docs/skill/kairo-maintainer/SKILL.md`，并
   遵循其 source、invariant、test 和 documentation 检查。maintainer skill 不是修改依赖
   的隐式授权。
-- 用户指南：`third_party/mira/third_party/executor/website/`（zh/en）中 lifecycle、
+- 用户指南：`third_party/mira/third_party/kairo/website/`（zh/en）中 lifecycle、
   submission、communication、monitoring、failure、realtime 与 reliability 各节。公开
   头文件与 pinned 指南是权威，优先公共 facade 和文档化组件，而非本地抽象或实现细节。
 
 ## 依赖能力缺口与反馈台账
 
-Mirage 的核心直接依赖为 pinned `mira` 与 `mirador`，另有 UI 专用 `eui-neo`（DEC-033）；executor（含于 mira）经 mira 传递引入。
+Mirage 的核心直接依赖为 pinned `mira` 与 `mirador`，另有 UI 专用 `eui-neo`（DEC-033）；kairo（含于 mira，前名 executor）经 mira 传递引入。
 不得为了绕过依赖的能力边界而静默引入另一套并发或生命周期设施。当确认 mira / mirador 无法
 满足 Mirage 的合理需求时，必须按工程规范第 9.4 节执行反馈流程：
 
 1. 先核对依赖当前版本的公开头文件、API 文档、集成指南及相关测试，排除 API 选型错误、配置
-   错误、平台限制和应用层职责；涉及 executor 时，先确认其公开接口确实无法承载。
+   错误、平台限制和应用层职责；涉及 kairo 时，先确认其公开接口确实无法承载。
 2. 在 `docs/dependency_feedback/ledger.md` 中新增唯一编号（`MIRA-YYYYMMDD-NNN` 或
    `MIRADOR-YYYYMMDD-NNN`）的反馈记录，附可复现证据、影响范围、期望语义、建议的最小能力、
-   延期影响和可验收结果。只写"依赖不支持"不构成有效记录。executor 层缺口以 `MIRA-*` 条目
+   延期影响和可验收结果。只写"依赖不支持"不构成有效记录。kairo 层缺口以 `MIRA-*` 条目
    登记（executor 由 mira pin 并交付，Mira 上游经其自身的 executor 反馈流程消化），不直接
    向 executor 反馈。
 3. 在相关代码、测试或设计文档中引用该反馈编号。

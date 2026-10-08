@@ -18,7 +18,7 @@ constexpr std::chrono::seconds kDefaultAnalysisBound{10};
 
 } // namespace
 
-VisualObservationPipeline::VisualObservationPipeline(executor::Executor &executor,
+VisualObservationPipeline::VisualObservationPipeline(kairo::Executor &executor,
                                                      desktop::ScreenProvider &screen,
                                                      desktop::VisualReferenceRegistry &registry,
                                                      VisualObservationPipelineConfig config)

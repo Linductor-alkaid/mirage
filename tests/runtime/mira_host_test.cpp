@@ -10,7 +10,7 @@
 
 #include "../support/fake_desktop_environment.hpp"
 
-#include <executor/executor.hpp>
+#include <kairo/executor.hpp>
 
 #include <atomic>
 #include <chrono>
@@ -409,8 +409,8 @@ std::string minimal_definition(const std::string &workflow_id, const std::string
 
 void scenario_workflow_surface_lifecycle() {
     MiraHost host;
-    executor::Executor executor;
-    MIRAGE_CHECK(executor.initialize_ex(executor::ExecutorConfig{}).ok);
+    kairo::Executor executor;
+    MIRAGE_CHECK(executor.initialize(kairo::ExecutorConfig{}).ok);
 
     // The pinned SimulatorBinding carries no mirage desktop environment, so
     // this surface attaches with the empty atom toolset (zero atoms; the
@@ -556,7 +556,7 @@ std::string tool_call_definition(const std::string &workflow_id, const std::stri
 
 void scenario_tool_call_steps_dispatch_desktop_atoms() {
     MiraHost host;
-    executor::Executor executor;
+    kairo::Executor executor;
     // The pinned drive occupies one worker for the whole run while its step
     // monitor and the nested tool-dispatch / verification-observation
     // futures need workers of their own (pinned WorkflowRuntimeConfig:
@@ -565,10 +565,10 @@ void scenario_tool_call_steps_dispatch_desktop_atoms() {
     // pool starts under-provisioned and the first ToolCall run deadlocks
     // (DEC-024). Four is the service's configured floor; the test proves it
     // suffices.
-    executor::ExecutorConfig executor_config;
+    kairo::ExecutorConfig executor_config;
     executor_config.min_threads = 4;
     executor_config.max_threads = 4;
-    MIRAGE_CHECK(executor.initialize_ex(executor_config).ok);
+    MIRAGE_CHECK(executor.initialize(executor_config).ok);
 
     mirage::testing::FakeDesktopEnvironment environment;
 
