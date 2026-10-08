@@ -1852,9 +1852,9 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                 navigate_model({PageState::ModelDestination::New, "", 0});
                             })
                             .build();
-                        icon(ui, "model.add.menu.manual.icon", 0xe3ae, 8, row_y, 16, 32, p.muted);
-                        text(ui, "model.add.menu.manual.label", "手动配置", 40, row_y,
-                             menu_width - 48, 32, 14, p.muted);
+                        icon(ui, "model.add.menu.manual.icon", 0xe3ae, 8, 0, 16, 32, p.muted);
+                        text(ui, "model.add.menu.manual.label", "手动配置", 40, 0, menu_width - 48,
+                             32, 14, p.muted);
                     })
                     .build();
             })
