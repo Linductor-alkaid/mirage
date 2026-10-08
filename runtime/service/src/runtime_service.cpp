@@ -25,8 +25,8 @@
 #include "task_driver.hpp"
 #include "tray_presenter.hpp"
 
-#include <executor/blocking_io.hpp>
-#include <executor/comm.hpp>
+#include <kairo/blocking_io.hpp>
+#include <kairo/comm.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -201,7 +201,7 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
 /// its settlement; driver wrapper reports unexpected exceptions to Executor.
 void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::string session_id,
                      std::string turn_id, const std::string &transcript, const std::string &text,
-                     executor::StopToken stop, bool agent, const std::string &agent_task_id,
+                     kairo::StopToken stop, bool agent, const std::string &agent_task_id,
                      const std::string &reasoning, bool tools_allowed,
                      const std::string &host_session_id) {
     mira::OperationContext context;
@@ -391,18 +391,18 @@ struct RuntimeService::Impl {
     /// the teardown that detaches and destroys the loop.
     std::mutex loop_mutex;
     ipc::IpcListener listener;
-    executor::WorkerHandle loop_worker;
+    kairo::WorkerHandle loop_worker;
     /// Desktop Overlay presentation (M5-09, DEC-029): null without
     /// config.overlay_carrier. The presenter is owned here so the hub
     /// publish hook and the atom overlay feed hold stable raw pointers;
     /// the pump worker (executor-owned adapter) is joined by teardown()
     /// before this member is destroyed.
     std::unique_ptr<detail::OverlayPresenter> overlay;
-    executor::WorkerHandle overlay_worker;
+    kairo::WorkerHandle overlay_worker;
     std::unique_ptr<detail::TrayPresenter> tray;
-    executor::WorkerHandle tray_worker, tray_actions_worker;
+    kairo::WorkerHandle tray_worker, tray_actions_worker;
     std::atomic_bool product_failed{false}, product_stopping{false};
-    executor::TimerHandle product_maintenance;
+    kairo::TimerHandle product_maintenance;
     // Serialized context only: UI window activation and exit prompt epochs.
     ipc::ProductState product;
     std::promise<void> loop_done;
@@ -1055,7 +1055,7 @@ struct RuntimeService::Impl {
             core->registry.tasks.emplace(record.id, std::move(record));
         }
         auto driver_submission = core->executor.submit_cancellable(
-            [core = core, id = submission.task.id](executor::StopToken stop) {
+            [core = core, id = submission.task.id](kairo::StopToken stop) {
                 detail::run_driver(stop, core, id);
             });
         {
@@ -1671,7 +1671,7 @@ struct RuntimeService::Impl {
         auto settled = std::make_shared<std::atomic_bool>(false);
         auto submission = core->executor.submit_cancellable(
             [this, shared = core, connection, correlation, settled,
-             query = std::move(query)](executor::StopToken stop) {
+             query = std::move(query)](kairo::StopToken stop) {
                 try {
                     const auto result = mirage::integration::fetch_model_catalog(
                         shared->executor, query, [&stop] { return stop.stop_requested(); });
@@ -2074,11 +2074,11 @@ struct RuntimeService::Impl {
         // deadlines; the executor stop token ends the wait on teardown.
         const std::string session_id = request.session_id;
         const std::string transcript = render_dialog_transcript(core, session_id);
-        auto ready = std::make_shared<executor::comm::PhaseGate>("dialog-admission");
+        auto ready = std::make_shared<kairo::comm::PhaseGate>("dialog-admission");
         auto dialog_submission = core->executor.submit_cancellable(
             [core = core, ready, session_id, turn_id, transcript, text = request.text,
              agent = request.agent, agent_task_id, host_session_id, reasoning = request.reasoning,
-             tools_allowed = request.access != "read_only"](executor::StopToken stop) {
+             tools_allowed = request.access != "read_only"](kairo::StopToken stop) {
                 // Startup coordination belongs to Executor; no private queue or waiter.
                 while (!ready->has_reached(1)) {
                     if (ready->is_closed() || stop.stop_requested())
@@ -2897,8 +2897,8 @@ struct RuntimeService::Impl {
             tray_actions_worker.stop();
         if (tray_worker.started())
             tray_worker.stop();
-        tray_actions_worker = executor::WorkerHandle{};
-        tray_worker = executor::WorkerHandle{};
+        tray_actions_worker = kairo::WorkerHandle{};
+        tray_worker = kairo::WorkerHandle{};
         // Ordered shutdown (AGENTS.md rule 7): producers are already stopped
         // (loop exited, listener closed by run()). Recover the blocking
         // worker, cancel drivers and tasks, drain the executor, then release
@@ -2921,9 +2921,9 @@ struct RuntimeService::Impl {
             if (overlay_worker.started()) {
                 overlay_worker.stop();
             }
-            overlay_worker = executor::WorkerHandle{};
+            overlay_worker = kairo::WorkerHandle{};
         }
-        std::vector<executor::TaskHandle> handles;
+        std::vector<kairo::TaskHandle> handles;
         std::vector<std::future<void>> driver_futures;
         {
             std::lock_guard lock(core->drivers_mutex);
@@ -3124,7 +3124,7 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         return outcome;
     }
 
-    executor::ExecutorConfig executor_config;
+    kairo::ExecutorConfig executor_config;
     if (impl_->config.executor_threads > 0) {
         // A fixed pool: the floor is the point. With an adaptive minimum the
         // pool may start with as few as two workers on a small machine, and
@@ -3133,7 +3133,7 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         executor_config.min_threads = impl_->config.executor_threads;
         executor_config.max_threads = impl_->config.executor_threads;
     }
-    const auto initialized = impl_->core->executor.initialize_ex(executor_config);
+    const auto initialized = impl_->core->executor.initialize(executor_config);
     if (!initialized.ok) {
         outcome.error = {"internal", "executor initialization failed: " + initialized.message};
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
@@ -3384,7 +3384,7 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
     }
     impl_->loop.store(owned_loop.get(), std::memory_order_release);
 
-    executor::BlockingWorkerSpec spec;
+    kairo::BlockingWorkerSpec spec;
     spec.name = "mirage-ipc-loop";
     spec.config.thread_name = "mirage-ipc-loop";
     // The executor's blocking worker owns the loop from here on; Impl keeps
@@ -3411,7 +3411,7 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
     // capability the service's faces depend on (the DEC-011 loud-degradation
     // posture).
     if (impl_->overlay != nullptr) {
-        executor::BlockingWorkerSpec overlay_spec;
+        kairo::BlockingWorkerSpec overlay_spec;
         overlay_spec.name = "mirage-overlay";
         overlay_spec.config.thread_name = "mirage-overlay";
         overlay_spec.worker = std::make_unique<detail::OverlayPumpWorker>(impl_->overlay.get());
@@ -3420,24 +3420,24 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
             std::cerr << "mirage-service: overlay worker start failed ("
                       << impl_->overlay_worker.start_result().message
                       << "); the service continues without the overlay surface\n";
-            impl_->overlay_worker = executor::WorkerHandle{};
+            impl_->overlay_worker = kairo::WorkerHandle{};
         }
     }
     impl_->lifecycle.store(Impl::Lifecycle::Running, std::memory_order_release);
     if (impl_->tray) {
         // Registration readiness != worker admission. Gate belongs to Executor.
-        executor::BlockingWorkerSpec pump;
+        kairo::BlockingWorkerSpec pump;
         pump.name = "mirage-tray-carrier";
         pump.config.thread_name = "mirage-tray-carrier";
-        struct Pump final : executor::IBlockingIoWorker {
+        struct Pump final : kairo::IBlockingIoWorker {
             detail::TrayPresenter *tray;
             explicit Pump(detail::TrayPresenter *value) : tray(value) {}
-            void run(executor::StopToken stop) override { tray->run(stop); }
+            void run(kairo::StopToken stop) override { tray->run(stop); }
             void wakeup() noexcept override { tray->wakeup(); }
         };
         pump.worker = std::make_unique<Pump>(impl_->tray.get());
         impl_->tray_worker = impl_->core->executor.start_worker(std::move(pump));
-        executor::BlockingWorkerSpec actions;
+        kairo::BlockingWorkerSpec actions;
         actions.name = "mirage-tray-actions";
         actions.config.thread_name = "mirage-tray-actions";
         actions.worker = std::make_unique<detail::TrayPresenter::ActionWorker>(
@@ -3445,7 +3445,7 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
             [raw = impl_.get()](auto action) { raw->handle_tray_action(std::move(action)); });
         impl_->tray_actions_worker = impl_->core->executor.start_worker(std::move(actions));
         impl_->product_maintenance =
-            impl_->core->executor.submit_periodic_with_handle(500, [raw = impl_.get()] {
+            impl_->core->executor.submit_periodic(500, [raw = impl_.get()] {
                 if (raw->product_stopping.load())
                     return;
                 try {

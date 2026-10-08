@@ -24,12 +24,12 @@ target_include_directories(mirage_integration_mira
 target_compile_features(mirage_integration_mira PUBLIC cxx_std_20)
 mirage_enable_warnings(mirage_integration_mira)
 
-# The pinned socket transport's public header includes the pinned executor
+# The pinned socket transport's public header includes the pinned kairo
 # fabric directly (model_layer.cpp consumes it); the headers are consumed as
 # system headers so the pinned library's own warning hygiene stays out of
 # Mirage's -Werror build (same consumption form as mira_core / the service).
 target_include_directories(mirage_integration_mira SYSTEM PRIVATE
-    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include"
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include"
 )
 
 # The concrete binding header implements the pinned environment contract, so

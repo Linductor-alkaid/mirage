@@ -16,7 +16,7 @@
 #include <mirage/platform/linux/linux_desktop_environment.hpp>
 #include <mirage/runtime/mira_host.hpp>
 
-#include <executor/executor.hpp>
+#include <kairo/executor.hpp>
 
 #include <mirador/pixel_format.hpp>
 
@@ -708,7 +708,7 @@ struct WiredVisualFixture {
 
 /// One 640x480 primary display "d1" at the origin, a seeded focused window
 /// and (optionally) the full visual wiring, pipeline started per options.
-WiredVisualFixture make_wired_visual_fixture(executor::Executor &executor,
+WiredVisualFixture make_wired_visual_fixture(kairo::Executor &executor,
                                              const WiredVisualOptions &options = {}) {
     WiredVisualFixture fixture;
     fixture.env->displays.push_back({"d1", {0, 0, 640, 480}, true});
@@ -757,7 +757,7 @@ bool is_nonzero_digest(const mira::Sha256Digest &digest) {
     return false;
 }
 
-void wired_visual_capabilities_are_reported_honestly(executor::Executor &executor) {
+void wired_visual_capabilities_are_reported_honestly(kairo::Executor &executor) {
     // The whole cycle must be wired and live: pipeline + artifact store +
     // started session + screen provider. Each missing piece keeps the visual
     // surface undeclared.
@@ -798,7 +798,7 @@ void wired_visual_capabilities_are_reported_honestly(executor::Executor &executo
     }
 }
 
-void wired_required_screen_delivers_a_validator_clean_frame(executor::Executor &executor) {
+void wired_required_screen_delivers_a_validator_clean_frame(kairo::Executor &executor) {
     WiredVisualFixture fixture = make_wired_visual_fixture(executor);
 
     mira::ObservationRequest request;
@@ -871,7 +871,7 @@ void wired_required_screen_delivers_a_validator_clean_frame(executor::Executor &
     MIRAGE_CHECK(fixture.registry->size() == 0); // nothing was published
 }
 
-void wired_required_perception_projects_published_regions(executor::Executor &executor) {
+void wired_required_perception_projects_published_regions(kairo::Executor &executor) {
     WiredVisualFixture fixture = make_wired_visual_fixture(executor);
 
     mira::ObservationRequest request;
@@ -927,7 +927,7 @@ void wired_required_perception_projects_published_regions(executor::Executor &ex
     }
 }
 
-void wired_screen_and_perception_share_one_refresh(executor::Executor &executor) {
+void wired_screen_and_perception_share_one_refresh(kairo::Executor &executor) {
     WiredVisualFixture fixture = make_wired_visual_fixture(executor);
 
     mira::ObservationRequest request;
@@ -962,7 +962,7 @@ void wired_screen_and_perception_share_one_refresh(executor::Executor &executor)
     MIRAGE_CHECK(observation.quality.degradations.empty());
 }
 
-void wired_perception_above_declared_sources_is_refused(executor::Executor &executor) {
+void wired_perception_above_declared_sources_is_refused(kairo::Executor &executor) {
     WiredVisualFixture fixture = make_wired_visual_fixture(executor);
 
     mira::ObservationRequest request;
@@ -978,7 +978,7 @@ void wired_perception_above_declared_sources_is_refused(executor::Executor &exec
 }
 
 void wired_screen_capture_failure_degrades_optional_and_fails_required(
-    executor::Executor &executor) {
+    kairo::Executor &executor) {
     WiredVisualFixture fixture = make_wired_visual_fixture(executor);
     fixture.env->failures.capture_error = true;
 
@@ -1014,7 +1014,7 @@ void wired_screen_capture_failure_degrades_optional_and_fails_required(
 }
 
 void wired_perception_analysis_failure_degrades_optional_and_fails_required(
-    executor::Executor &executor) {
+    kairo::Executor &executor) {
     // run_ocr enabled with no OCR backend wired: the session settles the
     // analysis with kBackendUnavailable, surfaced as "io_error".
     WiredVisualOptions options;
@@ -1050,7 +1050,7 @@ void wired_perception_analysis_failure_degrades_optional_and_fails_required(
     }
 }
 
-void wired_perception_without_analysis_stages_yields_empty_evidence(executor::Executor &executor) {
+void wired_perception_without_analysis_stages_yields_empty_evidence(kairo::Executor &executor) {
     // Fusion-only refresh (both backend stages disabled): the pinned fusion
     // emits zero regions for zero evidence, so an optional perception request
     // (a minimum-count hint on the required surface) observes an empty but
@@ -1086,7 +1086,7 @@ void wired_perception_without_analysis_stages_yields_empty_evidence(executor::Ex
     }
 }
 
-void wired_required_screen_fails_when_the_store_budget_is_exhausted(executor::Executor &executor) {
+void wired_required_screen_fails_when_the_store_budget_is_exhausted(kairo::Executor &executor) {
     WiredVisualOptions options;
     options.store_bytes = 1024; // far below one 640x480 BGRA frame
     WiredVisualFixture fixture = make_wired_visual_fixture(executor, options);
@@ -1100,7 +1100,7 @@ void wired_required_screen_fails_when_the_store_budget_is_exhausted(executor::Ex
     }
 }
 
-void wired_observation_without_visual_requests_stays_dark(executor::Executor &executor) {
+void wired_observation_without_visual_requests_stays_dark(kairo::Executor &executor) {
     WiredVisualFixture fixture = make_wired_visual_fixture(executor);
 
     // A request without screen/perception components triggers no capture
@@ -1187,8 +1187,8 @@ int main() {
     // fake environment's screen provider, its fake backends served by a real
     // Executor blocking worker (EXEC-01: the executor stays with this test's
     // main as its external owner).
-    executor::Executor executor;
-    const bool executor_ready = executor.initialize_ex(executor::ExecutorConfig{}).ok;
+    kairo::Executor executor;
+    const bool executor_ready = executor.initialize(kairo::ExecutorConfig{}).ok;
     MIRAGE_CHECK(executor_ready);
     if (executor_ready) {
         run_executor_scenario("wired_visual_capabilities_are_reported_honestly",

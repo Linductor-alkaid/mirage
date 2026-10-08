@@ -201,4 +201,4 @@ ui_state单测、原生实际视口像素和Debug/Release/ASAN/UBSAN各2/2通过
 - 限制：原生窗口 map/swap 不是原子操作，无合成器的直接 XGetImage 仍可能读取短暂
   空表面；没有承诺全部平台/驱动绝对无黑帧。Windows/原生 Wayland 待维护者补验。
 - 无新增线程、队列、调度器或依赖；证据与复跑方式见
-  [依赖升级审计](../supply-chain/eui-frame-presentation-20261008.md)。
+  [窗口呈现验收](../compatibility/native-frame-presentation-20261008.md)。

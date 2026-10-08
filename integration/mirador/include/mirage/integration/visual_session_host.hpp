@@ -9,8 +9,8 @@
 #include <string>
 #include <vector>
 
-#include <executor/blocking_io.hpp>
-#include <executor/executor.hpp>
+#include <kairo/blocking_io.hpp>
+#include <kairo/executor.hpp>
 
 #include <mirador/detector_backend.hpp>
 #include <mirador/frame.hpp>
@@ -212,7 +212,7 @@ struct VisualSessionConfig {
 /// executor reference must outlive the host; the process-wide executor
 /// ownership stays with the Runtime Service (EXEC-01).
 ///
-/// Concurrency model: submissions publish into an executor::comm
+/// Concurrency model: submissions publish into an kairo::comm
 /// LatestMailbox (latest-wins transport; overwrites are observable in its
 /// statistics) and wake the worker. At most one analysis executes at a time;
 /// a newer submission supersedes the queued predecessor (settled kCancelled)
@@ -225,7 +225,7 @@ class VisualSessionHost {
   public:
     /// `executor` must be initialized; it is not owned. `source_id` must be
     /// non-empty and names both the session and the executor worker.
-    VisualSessionHost(executor::Executor &executor, std::string source_id,
+    VisualSessionHost(kairo::Executor &executor, std::string source_id,
                       VisualSessionConfig config = {});
     ~VisualSessionHost();
     VisualSessionHost(const VisualSessionHost &) = delete;
@@ -251,12 +251,12 @@ class VisualSessionHost {
     [[nodiscard]] const std::string &source_id() const noexcept { return source_id_; }
 
   private:
-    executor::Executor &executor_;
+    kairo::Executor &executor_;
     std::string source_id_;
     VisualSessionConfig config_;
     enum class Lifecycle { New, Running, Stopped };
     std::atomic<Lifecycle> lifecycle_{Lifecycle::New};
-    executor::WorkerHandle worker_;
+    kairo::WorkerHandle worker_;
     std::shared_ptr<detail::VisualSessionCore> core_;
 };
 

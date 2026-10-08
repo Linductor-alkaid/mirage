@@ -1,9 +1,9 @@
 #pragma once
 
-#include <executor/blocking_io.hpp>
-#include <executor/comm/channel.hpp>
-#include <executor/stop_token.hpp>
-#include <executor/types.hpp>
+#include <kairo/blocking_io.hpp>
+#include <kairo/comm/channel.hpp>
+#include <kairo/stop_token.hpp>
+#include <kairo/types.hpp>
 
 #include <atomic>
 #include <cstdint>
@@ -12,7 +12,7 @@
 #include <optional>
 #include <string>
 
-#include <executor/comm/topic.hpp>
+#include <kairo/comm/topic.hpp>
 
 #include <mirage/runtime/ipc/protocol.hpp>
 #include <mirage/runtime/ipc/stream.hpp>
@@ -29,7 +29,7 @@ namespace mirage::runtime::detail {
 /// shared; only the readiness mechanism is platform-selected (poll over
 /// Unix sockets on Linux, zero-wait named-pipe passes with a bounded wait
 /// slice on Windows, M4-06).
-class ServiceLoop final : public executor::IBlockingIoWorker {
+class ServiceLoop final : public kairo::IBlockingIoWorker {
   public:
     struct Dependencies {
         /// The bound transport endpoint (not owned; must outlive run()).
@@ -48,8 +48,8 @@ class ServiceLoop final : public executor::IBlockingIoWorker {
     ServiceLoop(const ServiceLoop &) = delete;
     ServiceLoop &operator=(const ServiceLoop &) = delete;
 
-    // executor::IBlockingIoWorker
-    void run(executor::StopToken stop_token) override;
+    // kairo::IBlockingIoWorker
+    void run(kairo::StopToken stop_token) override;
     void wakeup() noexcept override;
 
     /// Queues one response frame for a connection; thread-safe. When the
@@ -68,7 +68,7 @@ class ServiceLoop final : public executor::IBlockingIoWorker {
     /// status at subscribe time. A subscription for a connection that has
     /// died in the meantime is dropped here.
     void post_attach_events(std::uint64_t connection_id,
-                            executor::comm::TopicSubscription<ipc::EventPayload> subscription,
+                            kairo::comm::TopicSubscription<ipc::EventPayload> subscription,
                             std::optional<ipc::EventPayload> seed, bool chat_preview = false);
 
     /// Detaches a connection's event subscription; idempotent. Queued
@@ -96,7 +96,7 @@ class ServiceLoop final : public executor::IBlockingIoWorker {
         bool close_after_write = false; ///< protocol violation / capacity
         /// Event stream state (DEC-012); loop-thread only. The
         /// subscription is the bounded drop-oldest per-connection queue.
-        std::optional<executor::comm::TopicSubscription<ipc::EventPayload>> events;
+        std::optional<kairo::comm::TopicSubscription<ipc::EventPayload>> events;
         bool chat_preview = false;           ///< explicit preview capability
         std::uint64_t event_seq = 0;         ///< last written event's seq
         std::uint64_t overflow_reported = 0; ///< drops already surfaced
@@ -113,7 +113,7 @@ class ServiceLoop final : public executor::IBlockingIoWorker {
         /// subscription (current host status at subscribe time).
         std::optional<ipc::EventPayload> seed;
         /// AttachEvents only: the per-connection bounded queue.
-        executor::comm::TopicSubscription<ipc::EventPayload> subscription;
+        kairo::comm::TopicSubscription<ipc::EventPayload> subscription;
     };
 
     void drain_outbound();
@@ -148,7 +148,7 @@ class ServiceLoop final : public executor::IBlockingIoWorker {
     std::atomic<bool> overflow_{false};
     std::uint64_t next_connection_id_ = 1;
     std::map<std::uint64_t, Connection> connections_;
-    executor::comm::MpscChannel<OutboundMessage> outbound_;
+    kairo::comm::MpscChannel<OutboundMessage> outbound_;
 };
 
 } // namespace mirage::runtime::detail

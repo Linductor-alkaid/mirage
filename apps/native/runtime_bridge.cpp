@@ -1,8 +1,8 @@
 #include "runtime_bridge.hpp"
 #include <atomic>
-#include <executor/comm.hpp>
-#include <executor/executor.hpp>
-#include <executor/serial_execution_context.hpp>
+#include <kairo/comm.hpp>
+#include <kairo/executor.hpp>
+#include <kairo/serial_execution_context.hpp>
 #include <future>
 #include <mirage/runtime/ipc/endpoint.hpp>
 #include <mirage/runtime/ipc/session_client.hpp>
@@ -11,19 +11,19 @@
 namespace mirage::native_ui {
 namespace ipc = mirage::runtime::ipc;
 struct RuntimeBridge::Impl {
-    executor::Executor executor;
-    executor::SerialExecutionContext serial;
+    kairo::Executor executor;
+    kairo::SerialExecutionContext serial;
     std::shared_ptr<ipc::SessionClient> client;
     std::shared_ptr<ipc::SessionClient> catalog_client;
-    executor::comm::MpscChannel<RuntimeMessage> inbox{
+    kairo::comm::MpscChannel<RuntimeMessage> inbox{
         {.capacity = 128, .name = "native-ui-events"}};
     std::atomic_bool live{false}, gap{false}, active{false};
     std::atomic_bool animating{false};
-    executor::TimerHandle activity_timer;
+    kairo::TimerHandle activity_timer;
     std::uint64_t timer_failures = 0;
     std::function<void()> wake;
-    executor::WorkerHandle worker;
-    executor::WorkerHandle catalog_worker;
+    kairo::WorkerHandle worker;
+    kairo::WorkerHandle catalog_worker;
     std::vector<std::future<void>> calls; // UI-only ownership, capacity 16
     bool stopping = false;
     void post(RuntimeMessage message) {
@@ -31,10 +31,10 @@ struct RuntimeBridge::Impl {
             gap.store(true);
         wake(); // EUI documented atomic requestUiUpdate/platform wake boundary
     }
-    class Worker final : public executor::IBlockingIoWorker {
+    class Worker final : public kairo::IBlockingIoWorker {
       public:
         explicit Worker(Impl &owner) : owner_(owner) {}
-        void run(executor::StopToken stop) override {
+        void run(kairo::StopToken stop) override {
             std::string reason;
             if (!owner_.client->connect(std::chrono::milliseconds{500}, reason)) {
                 owner_.post({RuntimeMessage::Kind::Lost, reason, 0, {}, {}});
@@ -56,10 +56,10 @@ struct RuntimeBridge::Impl {
       private:
         Impl &owner_;
     };
-    class CatalogWorker final : public executor::IBlockingIoWorker {
+    class CatalogWorker final : public kairo::IBlockingIoWorker {
       public:
         explicit CatalogWorker(Impl &owner) : owner_(owner) {}
-        void run(executor::StopToken stop) override {
+        void run(kairo::StopToken stop) override {
             std::string reason;
             if (!owner_.catalog_client->connect(std::chrono::milliseconds{500}, reason)) {
                 owner_.post(
@@ -91,15 +91,15 @@ RuntimeBridge::RuntimeBridge(std::function<void()> wake_ui, std::string endpoint
         message.event = event;
         p.post(std::move(message));
     });
-    executor::ExecutorConfig config;
+    kairo::ExecutorConfig config;
     config.min_threads = config.max_threads = 2; // catalog has its own IPC session
     config.queue_capacity = 16;
     config.max_in_flight_tasks = 16;
-    if (!p.executor.initialize_ex(config)) {
+    if (!p.executor.initialize(config)) {
         p.post({RuntimeMessage::Kind::Lost, "Executor 初始化失败", 0, {}, {}});
         return;
     }
-    executor::BlockingWorkerSpec spec;
+    kairo::BlockingWorkerSpec spec;
     spec.name = "mirage-native-ipc";
     spec.config.thread_name = "mirage-native-ipc";
     spec.worker = std::make_unique<Impl::Worker>(p);
@@ -110,7 +110,7 @@ RuntimeBridge::RuntimeBridge(std::function<void()> wake_ui, std::string endpoint
                 0,
                 {},
                 {}});
-    executor::BlockingWorkerSpec catalog_spec;
+    kairo::BlockingWorkerSpec catalog_spec;
     catalog_spec.name = "mirage-native-catalog-ipc";
     catalog_spec.config.thread_name = "mirage-native-catalog-ipc";
     catalog_spec.worker = std::make_unique<Impl::CatalogWorker>(p);
@@ -207,8 +207,8 @@ void RuntimeBridge::set_activity(bool active, bool animating) {
         return;
     }
     p.timer_failures = 0;
-    p.activity_timer = p.executor.submit_periodic_cancellable_with_handle(
-        animating ? 16 : 100, [&p](executor::StopToken stop) {
+    p.activity_timer = p.executor.submit_periodic_cancellable(
+        animating ? 16 : 100, [&p](kairo::StopToken stop) {
             if (!stop.stop_requested() && (p.active.load() || p.animating.load()))
                 p.wake();
         });

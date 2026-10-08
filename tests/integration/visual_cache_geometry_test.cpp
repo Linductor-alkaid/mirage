@@ -31,7 +31,7 @@
 #include <mirage/desktop/visual_reference_registry.hpp>
 #include <mirage/desktop/visual_snapshot.hpp>
 
-#include <executor/executor.hpp>
+#include <kairo/executor.hpp>
 
 #include <mirador/frame.hpp>
 #include <mirador/geometric_proposal.hpp>
@@ -231,7 +231,7 @@ const desktop::VisualRegionEntry *find_template_entry(const desktop::VisualSnaps
 
 // ---- A. enroll -> probe -> fuse -> map -> publish -> click ----------------------
 
-void template_identity_flows_through_the_whole_pipeline(executor::Executor &executor) {
+void template_identity_flows_through_the_whole_pipeline(kairo::Executor &executor) {
     FakeDetectorBackend detector = regions_detector({box(8.0F, 8.0F, 16.0F, 16.0F)});
 
     VisualSessionConfig config;
@@ -337,7 +337,7 @@ void template_identity_flows_through_the_whole_pipeline(executor::Executor &exec
 
 // ---- B. geometry proposals --------------------------------------------------------
 
-void geometry_stage_proposes_the_painted_rectangle(executor::Executor &executor) {
+void geometry_stage_proposes_the_painted_rectangle(kairo::Executor &executor) {
     VisualSessionHost host(executor, "geometry-src", VisualSessionConfig{});
     std::string error;
     MIRAGE_CHECK(host.start(error));
@@ -389,7 +389,7 @@ void geometry_stage_proposes_the_painted_rectangle(executor::Executor &executor)
 
 // ---- C. detector ROI per proposal ---------------------------------------------------
 
-void detector_roi_from_geometry_runs_one_call_per_proposal(executor::Executor &executor) {
+void detector_roi_from_geometry_runs_one_call_per_proposal(kairo::Executor &executor) {
     FakeDetectorBackend detector = bgra_detector();
     VisualSessionConfig config;
     config.detector_backend = &detector;
@@ -442,7 +442,7 @@ void detector_roi_from_geometry_runs_one_call_per_proposal(executor::Executor &e
 
 // ---- D. proposals as fusion evidence --------------------------------------------------
 
-void fuse_proposals_adds_semantics_free_geometry_evidence(executor::Executor &executor) {
+void fuse_proposals_adds_semantics_free_geometry_evidence(kairo::Executor &executor) {
     VisualSessionHost host(executor, "geometry-fuse-src", VisualSessionConfig{});
     std::string error;
     MIRAGE_CHECK(host.start(error));
@@ -501,7 +501,7 @@ void fuse_proposals_adds_semantics_free_geometry_evidence(executor::Executor &ex
 
 // ---- E. cache stats --------------------------------------------------------------------
 
-void cache_stats_report_the_configured_budgets(executor::Executor &executor) {
+void cache_stats_report_the_configured_budgets(kairo::Executor &executor) {
     FakeDetectorBackend detector = regions_detector({box(8.0F, 8.0F, 16.0F, 16.0F)});
     VisualSessionConfig config;
     config.frame_cache_bytes = std::int64_t{1} * 1024 * 1024;
@@ -541,7 +541,7 @@ void cache_stats_report_the_configured_budgets(executor::Executor &executor) {
 
 // ---- F. admission rejections -------------------------------------------------------------
 
-void admission_rejects_broken_pixel_stage_requests(executor::Executor &executor) {
+void admission_rejects_broken_pixel_stage_requests(kairo::Executor &executor) {
     FakeDetectorBackend detector = regions_detector({box(8.0F, 8.0F, 16.0F, 16.0F)});
     VisualSessionConfig config;
     config.detector_backend = &detector;
@@ -623,7 +623,7 @@ void admission_rejects_broken_pixel_stage_requests(executor::Executor &executor)
 
 // ---- G. enrollment negative paths -----------------------------------------------------------
 
-void enrollment_outside_the_frame_fails_without_state(executor::Executor &executor) {
+void enrollment_outside_the_frame_fails_without_state(kairo::Executor &executor) {
     FakeDetectorBackend detector = regions_detector({box(8.0F, 8.0F, 16.0F, 16.0F)});
     VisualSessionConfig config;
     config.detector_backend = &detector;
@@ -662,7 +662,7 @@ void enrollment_outside_the_frame_fails_without_state(executor::Executor &execut
     host.stop();
 }
 
-void enrollment_fails_closed_on_a_tiny_fingerprint_budget(executor::Executor &executor) {
+void enrollment_fails_closed_on_a_tiny_fingerprint_budget(kairo::Executor &executor) {
     FakeDetectorBackend detector = regions_detector({box(8.0F, 8.0F, 16.0F, 16.0F)});
     VisualSessionConfig config;
     // Above one raw 16x16 Bgra8 crop (1024 bytes, so the enrollment crop and
@@ -695,7 +695,7 @@ void enrollment_fails_closed_on_a_tiny_fingerprint_budget(executor::Executor &ex
     host.stop();
 }
 
-void precancelled_request_settles_before_any_side_effect(executor::Executor &executor) {
+void precancelled_request_settles_before_any_side_effect(kairo::Executor &executor) {
     FakeDetectorBackend detector = regions_detector({box(8.0F, 8.0F, 16.0F, 16.0F)});
     VisualSessionConfig config;
     config.detector_backend = &detector;
@@ -731,7 +731,7 @@ void precancelled_request_settles_before_any_side_effect(executor::Executor &exe
 
 // ---- H. failure keeps completed stage products ------------------------------------------------
 
-void failed_detection_keeps_the_geometry_products(executor::Executor &executor) {
+void failed_detection_keeps_the_geometry_products(kairo::Executor &executor) {
     VisualSessionConfig config; // no detector backend: run_detector must fail
     VisualSessionHost host(executor, "stage-failure-src", config);
     std::string error;
@@ -760,7 +760,7 @@ void failed_detection_keeps_the_geometry_products(executor::Executor &executor) 
 
 // ---- I. cross-frame relocation ------------------------------------------------------------------
 
-void enrolled_template_relocates_across_frames(executor::Executor &executor) {
+void enrolled_template_relocates_across_frames(kairo::Executor &executor) {
     // One static fake detector announcing both candidate boxes; the icon is
     // found at whichever box currently holds it.
     FakeDetectorBackend detector =
@@ -871,8 +871,8 @@ int main() {
     // Every scenario runs a real VisualSessionHost on an Executor blocking
     // worker (same consumption form as visual_session_test); each owns a
     // unique source id and stops itself before the ordered shutdown below.
-    executor::Executor executor;
-    const bool executor_ready = executor.initialize_ex(executor::ExecutorConfig{}).ok;
+    kairo::Executor executor;
+    const bool executor_ready = executor.initialize(kairo::ExecutorConfig{}).ok;
     MIRAGE_CHECK(executor_ready);
     if (executor_ready) {
         run_scenario("template_identity_flows_through_the_whole_pipeline",

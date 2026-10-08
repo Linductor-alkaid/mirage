@@ -32,7 +32,7 @@ desktop::TrayState TrayPresenter::state() {
     desktop::clamp_tray_status(result.status);
     return result;
 }
-void TrayPresenter::run(executor::StopToken stop) {
+void TrayPresenter::run(kairo::StopToken stop) {
     desktop::TrayCarrierContext context;
     context.icon_path = icon_path_;
     context.on_ready = [this] {

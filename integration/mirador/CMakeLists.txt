@@ -47,8 +47,8 @@ target_link_libraries(mirage_integration_mirador
 # non-SYSTEM interface include dirs do not leak into this target (same
 # consumption form as the runtime service).
 target_include_directories(mirage_integration_mirador SYSTEM PRIVATE
-    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/executor/include"
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include"
 )
 target_link_libraries(mirage_integration_mirador PRIVATE
-    $<TARGET_FILE:executor::executor>
+    $<TARGET_FILE:kairo::kairo>
 )

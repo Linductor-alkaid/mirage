@@ -205,7 +205,7 @@ bool ModelLayerConfig::valid(std::string &error) const {
 }
 
 struct ModelLayer::Impl {
-    explicit Impl(executor::Executor &owner_executor, const ModelLayerConfig &layer_config,
+    explicit Impl(kairo::Executor &owner_executor, const ModelLayerConfig &layer_config,
                   ModelProviderOverride::Factory factory)
         : config(layer_config), executor(owner_executor), override_factory(std::move(factory)) {}
 
@@ -310,7 +310,7 @@ struct ModelLayer::Impl {
     }
 
     ModelLayerConfig config;
-    executor::Executor &executor;
+    kairo::Executor &executor;
     /// Serializes complete_dialog_turn against shutdown: an in-flight
     /// inference finishes (bounded by the profile transport deadlines) before
     /// the gateway/provider/transport are released — destroying them under a
@@ -328,7 +328,7 @@ struct ModelLayer::Impl {
     bool running = false;
 };
 
-ModelLayer::ModelLayer(executor::Executor &executor, const ModelLayerConfig &config,
+ModelLayer::ModelLayer(kairo::Executor &executor, const ModelLayerConfig &config,
                        const ModelProviderOverride *provider_override)
     : impl_(std::make_unique<Impl>(executor, config,
                                    provider_override != nullptr ? provider_override->factory()

@@ -64,7 +64,7 @@ class VisualObservationPipeline final : public EnvironmentVisualPipeline {
     /// `executor` must be initialized and outlive the pipeline (EXEC-01:
     /// the process-wide executor stays with its external owner); `screen`
     /// and `registry` must outlive the pipeline.
-    VisualObservationPipeline(executor::Executor &executor, desktop::ScreenProvider &screen,
+    VisualObservationPipeline(kairo::Executor &executor, desktop::ScreenProvider &screen,
                               desktop::VisualReferenceRegistry &registry,
                               VisualObservationPipelineConfig config = {});
     ~VisualObservationPipeline() override;
@@ -88,7 +88,7 @@ class VisualObservationPipeline final : public EnvironmentVisualPipeline {
             const std::optional<std::chrono::steady_clock::time_point> &deadline) override;
 
   private:
-    executor::Executor &executor_;
+    kairo::Executor &executor_;
     desktop::ScreenProvider &screen_;
     desktop::VisualReferenceRegistry &registry_;
     VisualObservationPipelineConfig config_;

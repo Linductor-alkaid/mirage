@@ -405,6 +405,13 @@ def session(args):
                     return [g.x - origin.x, g.y - origin.y]
                 time.sleep(0.05)
             raise RuntimeError('candidate window absent')
+        if args.dialect_thinking:
+            from native_dialect_thinking_acceptance import run
+            run(click, paste, key, capture, wire, output)
+            click(1150, 30)
+            app.wait(timeout=8)
+            assert app.returncode in (0, -999)
+            return
         click(470, 361)
         engine('libpinyin')
         for char in 'nihao':
@@ -528,6 +535,7 @@ def main():
     p.add_argument('--settings-audit', action='store_true', help='Audit real model setting controls without inference')
     p.add_argument('--expect-fixed', action='store_true', help='Drive repaired confirmation flows')
     p.add_argument('--thinking-only', action='store_true', help='Two live MiniMax thinking turns via composer; requires --model-settings --preset-minimax')
+    p.add_argument('--dialect-thinking', action='store_true', help='One live chat-completions thinking turn via composer; collapsed row and expand check (plain --provider mode)')
     p.add_argument('--settings-only', action='store_true', help='With --model-settings, stop after paste/save and typed key replacement; no inference request')
     p.add_argument('--no-captures', action='store_true')
     p.add_argument('--preset-minimax', action='store_true', help='With --model-settings, configure the MiniMax preset by entering only its key')
@@ -538,6 +546,8 @@ def main():
     args = p.parse_args()
     if args.thinking_only and not (args.model_settings and args.preset_minimax and not args.settings_only):
         p.error('--thinking-only requires --model-settings --preset-minimax without --settings-only')
+    if args.dialect_thinking and args.model_settings:
+        p.error('--dialect-thinking runs against a plain --provider config file, not --model-settings')
     if args.offline_start or args.settings_audit:
         p.error('DEC-045 requires a live tray-owned frontend; the former offline/headless-replacement audit is historical. Use tray_runtime_acceptance.py for host-loss/startup gates.')
     if args.desktop_launch and not (args.model_settings and args.settings_only and args.preset_minimax):
@@ -589,12 +599,13 @@ def main():
                  *(['--preset-minimax'] if args.preset_minimax else []),
                  *(['--settings-only'] if args.settings_only else []),
                  *(['--thinking-only'] if args.thinking_only else []),
+                 *(['--dialect-thinking'] if args.dialect_thinking else []),
                  *(['--settings-audit'] if args.settings_audit else []),
                  *(['--preset-selection-only'] if args.preset_selection_only else []),
                  *(['--offline-start'] if args.offline_start else []),
                  *(['--expect-fixed'] if args.expect_fixed else [])],
                 env=env, start_new_session=True)
-            if driver.wait(timeout=240 if args.settings_audit or args.thinking_only else 110) != 0:
+            if driver.wait(timeout=240 if args.settings_audit or args.thinking_only or args.dialect_thinking else 110) != 0:
                 raise RuntimeError('private acceptance session failed')
         finally:
             if driver is not None and driver.poll() is None:

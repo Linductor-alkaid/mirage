@@ -607,10 +607,10 @@ M1 阶段 Local IPC 的落地形态由 [DEC-007](../decisions/DEC-007-local-ipc-
 - **进程形态**：Runtime Service 由 `apps/service`（`mirage-service`）托管，前台运行
   至 `service.shutdown` 或 SIGINT/SIGTERM；`mirage service start` 经 fork + exec
   拉起兄弟二进制并等待就绪。GUI、Tray、CLI 只经 Local IPC 与之交互。
-- **并发承载**：Service 进程内由 RuntimeService 持有唯一的 `executor::Executor`
+- **并发承载**：Service 进程内由 RuntimeService 持有唯一的 `kairo::Executor`
   实例（`EXEC-01`）：IPC 事件循环为专属 blocking I/O worker，全部 MiraHost 操作经
   一个 SerialExecutionContext 串行化，任务驱动为可取消任务（step 间检查停止令牌），
-  响应回投使用 `executor::comm::MpscChannel`。任务取消（`task.cancel` 与有序
+  响应回投使用 `kairo::comm::MpscChannel`。任务取消（`task.cancel` 与有序
   停机）按 desktop cancel token → 驱动停止令牌 → pinned cancel 的顺序传播，
   使在途桌面动作有界中断（`M1-05`，DEC-009）。
 
@@ -628,7 +628,7 @@ M1 阶段 Local IPC 的落地形态由 [DEC-007](../decisions/DEC-007-local-ipc-
   `task.inspect` 同源）、`host.status`（宿主五态变化）、`events.overflow`
   （连接级队列溢出的合成标记，`dropped` 计数）。事件是通知不是可靠投递，
   `task.list` / `task.inspect` 快照始终是事实源。
-- **承载**：RuntimeService 持有 `executor::comm::Topic<EventPayload>` 作为多订阅
+- **承载**：RuntimeService 持有 `kairo::comm::Topic<EventPayload>` 作为多订阅
   广播点，host 状态以 `LatestMailbox` 语义（订阅 seed 取最新值）进入同一发布
   路径；每连接投递队列为订阅自带的 `MpscChannel`（有界、drop-oldest）。IPC
   循环每轮先写出响应帧、后写出事件帧（响应优先），溢出以 `events.overflow`

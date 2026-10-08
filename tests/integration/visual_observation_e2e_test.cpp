@@ -27,7 +27,7 @@
 #include <mirage/integration/visual_observation_pipeline.hpp>
 #include <mirage/platform/linux/linux_desktop_environment.hpp>
 
-#include <executor/executor.hpp>
+#include <kairo/executor.hpp>
 
 #include <mirador/pixel_format.hpp>
 
@@ -177,8 +177,8 @@ int main() {
         }
 
         // ---- the M3-05 wiring: executor, fake backends, store, pipeline ----
-        executor::Executor executor;
-        const bool executor_ready = executor.initialize_ex(executor::ExecutorConfig{}).ok;
+        kairo::Executor executor;
+        const bool executor_ready = executor.initialize(kairo::ExecutorConfig{}).ok;
         MIRAGE_CHECK(executor_ready);
         if (!executor_ready) {
             XCloseDisplay(xdisplay);

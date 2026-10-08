@@ -20,7 +20,7 @@
 #include <mirage/desktop/cancellation.hpp>
 #include <mirage/desktop/screen_provider.hpp>
 
-#include <executor/executor.hpp>
+#include <kairo/executor.hpp>
 
 #include <mirador/change_detection.hpp>
 #include <mirador/execution_context.hpp>
@@ -495,7 +495,7 @@ void registry_is_capacity_bounded() {
 
 // ---- E. session happy path ---------------------------------------------------------
 
-void session_completes_a_full_analysis_with_fusion(executor::Executor &executor) {
+void session_completes_a_full_analysis_with_fusion(kairo::Executor &executor) {
     FakeOcrBackend ocr = bgra_ocr();
     FakeDetectorBackend detector = bgra_detector();
     VisualSessionConfig config;
@@ -553,7 +553,7 @@ void session_completes_a_full_analysis_with_fusion(executor::Executor &executor)
 
 // ---- F. capability cache hit -------------------------------------------------------
 
-void session_serves_a_repeated_request_from_the_cache(executor::Executor &executor) {
+void session_serves_a_repeated_request_from_the_cache(kairo::Executor &executor) {
     FakeOcrBackend ocr = bgra_ocr();
     FakeDetectorBackend detector = bgra_detector();
     VisualSessionConfig config;
@@ -595,7 +595,7 @@ void session_serves_a_repeated_request_from_the_cache(executor::Executor &execut
 
 // ---- G. negative paths -------------------------------------------------------------
 
-void session_reports_null_backend_as_failure(executor::Executor &executor) {
+void session_reports_null_backend_as_failure(kairo::Executor &executor) {
     VisualSessionHost host(executor, "g-null-ocr-src", VisualSessionConfig{});
     std::string error;
     MIRAGE_CHECK(host.start(error));
@@ -611,7 +611,7 @@ void session_reports_null_backend_as_failure(executor::Executor &executor) {
     host.stop();
 }
 
-void session_reports_an_unreachable_backend_format(executor::Executor &executor) {
+void session_reports_an_unreachable_backend_format(kairo::Executor &executor) {
     FakeOcrConfig config;
     config.info.accepted_formats = {mirador::PixelFormat::kNv12}; // Bgra8 has no kernel into NV12
     FakeOcrBackend nv12_ocr(config);
@@ -633,7 +633,7 @@ void session_reports_an_unreachable_backend_format(executor::Executor &executor)
     host.stop();
 }
 
-void session_reports_a_backend_budget_overflow(executor::Executor &executor) {
+void session_reports_a_backend_budget_overflow(kairo::Executor &executor) {
     FakeOcrConfig config; // more regions than the backend's output budget
     config.max_regions = 4;
     for (int index = 0; index < 5; ++index) {
@@ -662,7 +662,7 @@ void session_reports_a_backend_budget_overflow(executor::Executor &executor) {
     host.stop();
 }
 
-void session_requires_the_display_transform_for_fusion(executor::Executor &executor) {
+void session_requires_the_display_transform_for_fusion(kairo::Executor &executor) {
     VisualSessionHost host(executor, "g-fusion-src", VisualSessionConfig{});
     std::string error;
     MIRAGE_CHECK(host.start(error));
@@ -679,7 +679,7 @@ void session_requires_the_display_transform_for_fusion(executor::Executor &execu
     host.stop();
 }
 
-void session_reports_an_expired_deadline_without_side_effects(executor::Executor &executor) {
+void session_reports_an_expired_deadline_without_side_effects(kairo::Executor &executor) {
     FakeOcrBackend ocr = bgra_ocr();
     VisualSessionConfig config;
     config.ocr_backend = &ocr;
@@ -699,7 +699,7 @@ void session_reports_an_expired_deadline_without_side_effects(executor::Executor
     host.stop();
 }
 
-void session_reports_pre_cancelled_requests_without_side_effects(executor::Executor &executor) {
+void session_reports_pre_cancelled_requests_without_side_effects(kairo::Executor &executor) {
     FakeOcrBackend ocr = bgra_ocr();
     VisualSessionConfig config;
     config.ocr_backend = &ocr;
@@ -724,7 +724,7 @@ void session_reports_pre_cancelled_requests_without_side_effects(executor::Execu
 /// Non-positive cache budgets are rejected by the mirador session creation
 /// (never clamped): start fails closed with a reason, and a legal host on
 /// the same executor is unaffected.
-void session_rejects_invalid_cache_budgets(executor::Executor &executor) {
+void session_rejects_invalid_cache_budgets(kairo::Executor &executor) {
     VisualSessionConfig zero_frame;
     zero_frame.frame_cache_bytes = 0;
     VisualSessionHost zero_host(executor, "g-zero-frame-budget-src", zero_frame);
@@ -750,7 +750,7 @@ void session_rejects_invalid_cache_budgets(executor::Executor &executor) {
 
 // ---- H. admission rejection --------------------------------------------------------
 
-void session_rejects_requests_it_cannot_accept(executor::Executor &executor) {
+void session_rejects_requests_it_cannot_accept(kairo::Executor &executor) {
     VisualSessionHost never_started(executor, "h-cold-src", VisualSessionConfig{});
     VisualAnalysisRequest cold;
     cold.frame = session_frame("h-cold-src", 1);
@@ -785,7 +785,7 @@ void session_rejects_requests_it_cannot_accept(executor::Executor &executor) {
 
 // ---- I. latest wins ----------------------------------------------------------------
 
-void session_supersedes_an_in_flight_analysis(executor::Executor &executor) {
+void session_supersedes_an_in_flight_analysis(kairo::Executor &executor) {
     SpinningOcrBackend slow("slow-ocr");
     VisualSessionConfig config;
     config.ocr_backend = &slow;
@@ -818,7 +818,7 @@ void session_supersedes_an_in_flight_analysis(executor::Executor &executor) {
 
 // ---- J. stop settlement ------------------------------------------------------------
 
-void session_settles_an_in_flight_analysis_on_stop(executor::Executor &executor) {
+void session_settles_an_in_flight_analysis_on_stop(kairo::Executor &executor) {
     SpinningOcrBackend slow("slow-ocr-stop");
     VisualSessionConfig config;
     config.ocr_backend = &slow;
@@ -855,7 +855,7 @@ void session_settles_an_in_flight_analysis_on_stop(executor::Executor &executor)
 /// is either queued (settled by the stop path) or already in flight
 /// (cancelled through its token); both outcomes are kCancelled, and each
 /// future settles exactly once (settle_within consumes each future once).
-void session_settles_a_queued_analysis_on_stop(executor::Executor &executor) {
+void session_settles_a_queued_analysis_on_stop(kairo::Executor &executor) {
     SpinningOcrBackend slow("slow-ocr-stop-queued");
     VisualSessionConfig config;
     config.ocr_backend = &slow;
@@ -890,7 +890,7 @@ void session_settles_a_queued_analysis_on_stop(executor::Executor &executor) {
 
 // ---- K. first-frame semantics ------------------------------------------------------
 
-void session_reports_the_first_frame_as_a_global_change(executor::Executor &executor) {
+void session_reports_the_first_frame_as_a_global_change(kairo::Executor &executor) {
     VisualSessionHost host(executor, "first-frame-src", VisualSessionConfig{});
     std::string error;
     MIRAGE_CHECK(host.start(error));
@@ -939,8 +939,8 @@ int main() {
     // its own isolated ExecutorManager; every host owns a unique source id
     // (and therefore a unique lifetime-registered worker name) and stops
     // itself before the ordered executor shutdown below.
-    executor::Executor executor;
-    const bool executor_ready = executor.initialize_ex(executor::ExecutorConfig{}).ok;
+    kairo::Executor executor;
+    const bool executor_ready = executor.initialize(kairo::ExecutorConfig{}).ok;
     MIRAGE_CHECK(executor_ready);
     if (executor_ready) {
         run_scenario("session_completes_a_full_analysis_with_fusion",

@@ -81,7 +81,7 @@ class ScriptedCarrier final : public desktop::OverlayCarrier {
 
 OverlayPresenterDependencies
 base_dependencies(ScriptedCarrier &carrier,
-                  executor::comm::TopicSubscription<ipc::EventPayload> events) {
+                  kairo::comm::TopicSubscription<ipc::EventPayload> events) {
     OverlayPresenterDependencies dependencies;
     dependencies.carrier = &carrier;
     dependencies.events = std::move(events);
@@ -98,7 +98,7 @@ void scenario_null_carrier_is_a_dark_no_op() {
     dependencies.carrier = nullptr;
     OverlayPresenter presenter(std::move(dependencies));
     presenter.show_action("activating \"Save\"", {highlight(0, 0, 10, 10, "Save")});
-    executor::StopSource source;
+    kairo::StopSource source;
     presenter.run(source.get_token()); // must return, nothing to drive
     presenter.wakeup();                // must be a safe no-op
     presenter.clear_action();
@@ -108,7 +108,7 @@ void scenario_stop_before_run_enters_but_never_presents() {
     ScriptedCarrier carrier;
     carrier.iterations = 5;
     OverlayPresenter presenter(base_dependencies(carrier, {}));
-    executor::StopSource source;
+    kairo::StopSource source;
     source.request_stop();
     presenter.run(source.get_token());
     MIRAGE_CHECK(carrier.entered);
@@ -135,7 +135,7 @@ void scenario_action_publishes_once_and_dedups() {
             presenter.show_action("activating \"Save\"", {highlight(1, 2, 30, 40, "Save")});
         }
     };
-    executor::StopSource source;
+    kairo::StopSource source;
     presenter.run(source.get_token());
 
     MIRAGE_CHECK(carrier.presented.size() == 1);
@@ -166,7 +166,7 @@ void scenario_clear_action_hides_the_face() {
             presenter.clear_action();
         }
     };
-    executor::StopSource source;
+    kairo::StopSource source;
     presenter.run(source.get_token());
 
     MIRAGE_CHECK(carrier.presented.size() == 2);
@@ -191,7 +191,7 @@ void scenario_action_budgets_are_enforced() {
     }
     hub.publish_task_update({"t1", "Deploy", "Active", false, false});
     presenter.show_action(std::string(400, 'h'), std::move(oversized));
-    executor::StopSource source;
+    kairo::StopSource source;
     presenter.run(source.get_token());
 
     MIRAGE_CHECK(carrier.presented.size() == 1);
@@ -228,7 +228,7 @@ void scenario_task_banner_tracks_events_and_terminal_retires() {
             hub.publish_task_update({"t1", "Deploy", "Active", false, false});
         }
     };
-    executor::StopSource source;
+    kairo::StopSource source;
     presenter.run(source.get_token());
 
     MIRAGE_CHECK(carrier.presented.size() == 3);
@@ -258,7 +258,7 @@ void scenario_action_hint_wins_over_the_banner() {
             presenter.show_action("typing into \"Editor\"", {});
         }
     };
-    executor::StopSource source;
+    kairo::StopSource source;
     presenter.run(source.get_token());
 
     MIRAGE_CHECK(carrier.presented.size() == 2);
@@ -276,7 +276,7 @@ void scenario_banner_text_is_clamped() {
     carrier.on_iteration = [&hub](std::size_t) {
         hub.publish_task_update({"t1", std::string(400, 'g'), "Running", false, false});
     };
-    executor::StopSource source;
+    kairo::StopSource source;
     presenter.run(source.get_token());
 
     MIRAGE_CHECK(carrier.presented.size() == 1);
@@ -307,7 +307,7 @@ void scenario_confirmation_clears_once_through_the_hub_probe() {
             pending["req-1"] = false;
         }
     };
-    executor::StopSource source;
+    kairo::StopSource source;
     presenter.run(source.get_token());
 
     MIRAGE_CHECK(carrier.presented.size() == 2);
@@ -335,7 +335,7 @@ void scenario_confirmation_without_probe_stays() {
             presenter.show_confirmation({"req-1", "input.inject", "hello", 5000});
         }
     };
-    executor::StopSource source;
+    kairo::StopSource source;
     presenter.run(source.get_token());
 
     MIRAGE_CHECK(carrier.presented.size() == 1);
@@ -368,7 +368,7 @@ void scenario_reshown_confirmation_publishes_again() {
             pending["req-1"] = false; // resolved between the raises
         }
     };
-    executor::StopSource source;
+    kairo::StopSource source;
     presenter.run(source.get_token());
 
     MIRAGE_CHECK(carrier.presented.size() == 4);
@@ -407,7 +407,7 @@ void scenario_observation_face_is_explicit_and_bounded() {
     snapshot.nodes.push_back(node("@e2", "", 0, 0, 0, 0)); // no geometry: skipped
     snapshot.nodes.push_back(node("@e3", "Save", 7, 8, 20, 20));
     presenter.show_observation(snapshot);
-    executor::StopSource source;
+    kairo::StopSource source;
     presenter.run(source.get_token());
 
     MIRAGE_CHECK(carrier.presented.size() == 1);
@@ -428,7 +428,7 @@ void scenario_observation_face_is_explicit_and_bounded() {
     dark_carrier.iterations = 1;
     OverlayPresenter dark(base_dependencies(dark_carrier, {}));
     dark.show_observation(snapshot);
-    executor::StopSource dark_source;
+    kairo::StopSource dark_source;
     dark.run(dark_source.get_token());
     MIRAGE_CHECK(dark_carrier.presented.empty());
 
@@ -447,7 +447,7 @@ void scenario_observation_face_is_explicit_and_bounded() {
         oversized.nodes.push_back(node("@e1", "", index, 0, 10, 10));
     }
     bounded.show_observation(oversized);
-    executor::StopSource bounded_source;
+    kairo::StopSource bounded_source;
     bounded.run(bounded_source.get_token());
     MIRAGE_CHECK(bounded_carrier.presented.size() == 1);
     if (bounded_carrier.presented.size() == 1) {
@@ -471,7 +471,7 @@ void scenario_observation_labels_are_clamped() {
     node.geometry = mirage::desktop::WindowGeometry{0, 0, 10, 10};
     snapshot.nodes.push_back(node);
     presenter.show_observation(snapshot);
-    executor::StopSource source;
+    kairo::StopSource source;
     presenter.run(source.get_token());
 
     MIRAGE_CHECK(carrier.presented.size() == 1);
@@ -491,7 +491,7 @@ void scenario_clicks_forward_to_the_service_route() {
     };
     OverlayPresenter presenter(std::move(dependencies));
     carrier.deliver.push_back(desktop::OverlayClick{"req-9", true});
-    executor::StopSource source;
+    kairo::StopSource source;
     presenter.run(source.get_token());
 
     // Click routing is independent of any composed frame: the queued click
@@ -515,7 +515,7 @@ void scenario_wakeup_forwards_and_failure_degrades() {
     broken.iterations = 0;
     broken.report = desktop::OverlayCarrier::RunReport{false, "surface refused in test"};
     OverlayPresenter broken_presenter(base_dependencies(broken, {}));
-    executor::StopSource source;
+    kairo::StopSource source;
     broken_presenter.run(source.get_token()); // prints the diagnostic loudly
     MIRAGE_CHECK(broken.entered);
 }

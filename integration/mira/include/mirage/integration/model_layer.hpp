@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace executor {
+namespace kairo {
 class Executor;
 }
 
@@ -143,7 +143,7 @@ class ModelLayer {
     /// `provider_override` is set, the socket stack is skipped and the
     /// scripted provider serves the gateway instead (tests; the pinned
     /// production provider denies private/loopback endpoints by design).
-    ModelLayer(executor::Executor &executor, const ModelLayerConfig &config,
+    ModelLayer(kairo::Executor &executor, const ModelLayerConfig &config,
                const ModelProviderOverride *provider_override = nullptr);
     ~ModelLayer();
     ModelLayer(const ModelLayer &) = delete;

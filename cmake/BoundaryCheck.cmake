@@ -1,6 +1,6 @@
 # Public-header boundary check (RULE-01): the public include trees of
 # desktop, runtime and platform must not contain pinned third-party
-# includes (mira / mirador / executor). integration/ is the designated
+# includes (mira / mirador / kairo). integration/ is the designated
 # boundary layer and is deliberately not checked. Gated on the
 # mirage-boundary-check custom target so dependency builds are never
 # touched.
@@ -14,7 +14,7 @@ set(MIRAGE_BOUNDARY_VIOLATIONS "")
 foreach(FILE_PATH IN LISTS MIRAGE_PUBLIC_HEADERS)
     file(READ "${FILE_PATH}" MIRAGE_HEADER_CONTENT)
     if(MIRAGE_HEADER_CONTENT MATCHES
-       "#[ \t]*include[ \t]*[<\"](mira|mirador|executor)/")
+       "#[ \t]*include[ \t]*[<\"](mira|mirador|kairo)/")
         list(APPEND MIRAGE_BOUNDARY_VIOLATIONS "${FILE_PATH}")
     endif()
 endforeach()
