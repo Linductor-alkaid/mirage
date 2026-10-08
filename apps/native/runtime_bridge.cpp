@@ -2,6 +2,7 @@
 #include <atomic>
 #include <executor/comm.hpp>
 #include <executor/executor.hpp>
+#include <executor/serial_execution_context.hpp>
 #include <future>
 #include <mirage/runtime/ipc/endpoint.hpp>
 #include <mirage/runtime/ipc/session_client.hpp>
@@ -11,14 +12,18 @@ namespace mirage::native_ui {
 namespace ipc = mirage::runtime::ipc;
 struct RuntimeBridge::Impl {
     executor::Executor executor;
+    executor::SerialExecutionContext serial;
     std::shared_ptr<ipc::SessionClient> client;
+    std::shared_ptr<ipc::SessionClient> catalog_client;
     executor::comm::MpscChannel<RuntimeMessage> inbox{
         {.capacity = 128, .name = "native-ui-events"}};
     std::atomic_bool live{false}, gap{false}, active{false};
+    std::atomic_bool animating{false};
     executor::TimerHandle activity_timer;
     std::uint64_t timer_failures = 0;
     std::function<void()> wake;
     executor::WorkerHandle worker;
+    executor::WorkerHandle catalog_worker;
     std::vector<std::future<void>> calls; // UI-only ownership, capacity 16
     bool stopping = false;
     void post(RuntimeMessage message) {
@@ -51,6 +56,27 @@ struct RuntimeBridge::Impl {
       private:
         Impl &owner_;
     };
+    class CatalogWorker final : public executor::IBlockingIoWorker {
+      public:
+        explicit CatalogWorker(Impl &owner) : owner_(owner) {}
+        void run(executor::StopToken stop) override {
+            std::string reason;
+            if (!owner_.catalog_client->connect(std::chrono::milliseconds{500}, reason)) {
+                owner_.post(
+                    {RuntimeMessage::Kind::Diagnostic, "模型目录连接失败: " + reason, 0, {}, {}});
+                return;
+            }
+            if (stop.stop_requested()) {
+                owner_.catalog_client->stop();
+                return;
+            }
+            (void)owner_.catalog_client->run(reason);
+        }
+        void wakeup() noexcept override { owner_.catalog_client->stop(); }
+
+      private:
+        Impl &owner_;
+    };
 };
 RuntimeBridge::RuntimeBridge(std::function<void()> wake_ui, std::string endpoint)
     : impl_(std::make_unique<Impl>()) {
@@ -58,6 +84,7 @@ RuntimeBridge::RuntimeBridge(std::function<void()> wake_ui, std::string endpoint
     p.wake = std::move(wake_ui);
     p.client = std::make_shared<ipc::SessionClient>(endpoint.empty() ? ipc::default_socket_path()
                                                                      : endpoint);
+    p.catalog_client = std::make_shared<ipc::SessionClient>(p.client->address());
     p.client->set_event_sink([&p](const ipc::Event &event) {
         RuntimeMessage message;
         message.kind = RuntimeMessage::Kind::Event;
@@ -65,8 +92,7 @@ RuntimeBridge::RuntimeBridge(std::function<void()> wake_ui, std::string endpoint
         p.post(std::move(message));
     });
     executor::ExecutorConfig config;
-    config.min_threads = config.max_threads =
-        1; // SessionClient permits one outstanding wire request
+    config.min_threads = config.max_threads = 2; // catalog has its own IPC session
     config.queue_capacity = 16;
     config.max_in_flight_tasks = 16;
     if (!p.executor.initialize_ex(config)) {
@@ -81,6 +107,17 @@ RuntimeBridge::RuntimeBridge(std::function<void()> wake_ui, std::string endpoint
     if (!p.worker.started())
         p.post({RuntimeMessage::Kind::Lost,
                 "IPC worker 提交被拒绝: " + p.worker.start_result().message,
+                0,
+                {},
+                {}});
+    executor::BlockingWorkerSpec catalog_spec;
+    catalog_spec.name = "mirage-native-catalog-ipc";
+    catalog_spec.config.thread_name = "mirage-native-catalog-ipc";
+    catalog_spec.worker = std::make_unique<Impl::CatalogWorker>(p);
+    p.catalog_worker = p.executor.start_worker(std::move(catalog_spec));
+    if (!p.catalog_worker.started())
+        p.post({RuntimeMessage::Kind::Diagnostic,
+                "模型目录连接未启动: " + p.catalog_worker.start_result().message,
                 0,
                 {},
                 {}});
@@ -101,11 +138,17 @@ bool RuntimeBridge::call(ipc::Request request, std::string tag, std::uint64_t lo
     }
     if (p.stopping || !p.live.load() || p.calls.size() >= 16)
         return false;
-    p.calls.push_back(
-        p.executor.submit_auto([&p, request = std::move(request), tag = std::move(tag), local_id] {
-            const auto response = p.client->call(request, std::chrono::milliseconds{4000}).get();
-            p.post({RuntimeMessage::Kind::Response, tag, local_id, response, {}});
-        }));
+    const bool catalog = std::holds_alternative<ipc::ListModelsRequest>(request);
+    auto action = [&p, request = std::move(request), tag = std::move(tag), local_id, catalog] {
+        const auto timeout =
+            catalog ? std::chrono::milliseconds{25000} : std::chrono::milliseconds{4000};
+        const auto response = (catalog ? p.catalog_client : p.client)->call(request, timeout).get();
+        p.post({RuntimeMessage::Kind::Response, tag, local_id, response, {}});
+    };
+    if (catalog)
+        p.calls.push_back(p.executor.submit_auto(std::move(action)));
+    else
+        p.calls.push_back(p.executor.submit_on(p.serial, std::move(action)));
     return true;
 }
 bool RuntimeBridge::load_attachment(const std::string &path, std::uint64_t session_id,
@@ -151,20 +194,22 @@ bool RuntimeBridge::receive(RuntimeMessage &out) {
 }
 bool RuntimeBridge::connected() const { return impl_->live.load(); }
 bool RuntimeBridge::take_gap() { return impl_->gap.exchange(false); }
-void RuntimeBridge::set_activity(bool active) {
+void RuntimeBridge::set_activity(bool active, bool animating) {
     auto &p = *impl_;
-    if (p.stopping || p.active.exchange(active) == active)
+    if (p.stopping || (p.active.load() == active && p.animating.load() == animating))
         return;
-    if (!active) {
-        if (p.activity_timer.valid())
-            (void)p.activity_timer.cancel();
-        p.activity_timer = {};
+    p.active.store(active);
+    p.animating.store(animating);
+    if (p.activity_timer.valid())
+        (void)p.activity_timer.cancel();
+    p.activity_timer = {};
+    if (!active && !animating) {
         return;
     }
     p.timer_failures = 0;
-    p.activity_timer =
-        p.executor.submit_periodic_cancellable_with_handle(100, [&p](executor::StopToken stop) {
-            if (!stop.stop_requested() && p.active.load())
+    p.activity_timer = p.executor.submit_periodic_cancellable_with_handle(
+        animating ? 16 : 100, [&p](executor::StopToken stop) {
+            if (!stop.stop_requested() && (p.active.load() || p.animating.load()))
                 p.wake();
         });
     if (!p.activity_timer.valid())
@@ -181,8 +226,11 @@ void RuntimeBridge::shutdown() {
         (void)p.activity_timer.cancel();
     p.live.store(false);
     p.client->stop();
+    p.catalog_client->stop();
     if (p.worker.started())
         p.worker.stop();
+    if (p.catalog_worker.started())
+        p.catalog_worker.stop();
     for (auto &future : p.calls) {
         try {
             future.get();
@@ -191,6 +239,7 @@ void RuntimeBridge::shutdown() {
         }
     }
     p.calls.clear();
+    p.serial.shutdown();
     p.executor.shutdown(true);
     p.inbox.close();
 }

@@ -124,6 +124,10 @@ int main(int argc, char **argv) {
             audit(audit, *root);
     };
     auto frame = [&] {
+        // Static layout assertions inspect settled endpoints; motion itself is
+        // exercised with a deterministic clock below.
+        page.sidebar_motion.initialized = false;
+        page.theme_motion.initialized = false;
         int actual_width = 0, actual_height = 0;
         glfwGetWindowSize(window, &actual_width, &actual_height);
         const auto pixels_width = static_cast<int>(std::lround(width * dpi_scale));
@@ -139,6 +143,21 @@ int main(int argc, char **argv) {
         runtime.update(handle, 1, dpi_scale, 1);
         compose();
     };
+    {
+        MotionValue motion;
+        const auto start = std::chrono::steady_clock::now();
+        MIRAGE_CHECK(!motion.step(260.0f, start, 0.22f));
+        MIRAGE_CHECK(motion.step(0.0f, start, 0.22f));
+        MIRAGE_CHECK(motion.step(0.0f, start + std::chrono::milliseconds{110}, 0.22f));
+        MIRAGE_CHECK(motion.current > 0.0f && motion.current < 260.0f);
+        const float reversed_from = motion.current;
+        MIRAGE_CHECK(motion.step(260.0f, start + std::chrono::milliseconds{110}, 0.22f));
+        MIRAGE_CHECK(std::abs(motion.current - reversed_from) < 0.01f);
+        MIRAGE_CHECK(!motion.step(260.0f, start + std::chrono::milliseconds{400}, 0.22f));
+        MIRAGE_CHECK(motion.current == 260.0f);
+        MIRAGE_CHECK(!motion.step(0.0f, start + std::chrono::milliseconds{410}, 0));
+        MIRAGE_CHECK(motion.current == 0.0f);
+    }
     auto capture = [&](const std::string &name) {
         if (argc < 2)
             return;
@@ -1027,6 +1046,10 @@ const auto model = "Mirage";
     element("model.add.confirm.bg")->onClick();
     frame();
     MIRAGE_CHECK(page.provider_models.size() == 1 && page.model.model_selector == "first-model");
+    MIRAGE_CHECK(view->find("model.fetch.models.bg") != nullptr);
+    element("model.reasoning.supported.hit")->onClick();
+    frame();
+    MIRAGE_CHECK(page.model.supports_reasoning);
     page.model_window = "128000";
     auto first_document = provider_document(true);
     MIRAGE_CHECK(first_document && first_document->models.size() == 1 &&

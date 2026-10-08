@@ -13,6 +13,7 @@
 #include <mira/model_digest.hpp>
 #include <mira/model_provider.hpp>
 #include <mirage/integration/mira_environment_binding.hpp>
+#include <mirage/integration/model_catalog.hpp>
 #include <mirage/integration/model_layer.hpp>
 #include <mirage/runtime/ipc/client.hpp>
 #include <mirage/runtime/ipc/endpoint.hpp>
@@ -793,6 +794,50 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(!ipc::decode_request(
                       R"({"v":1,"id":1,"op":"model.set","settings":"{}","api_key":"bad key"})")
                       .ok);
+    const ipc::ListModelsRequest list_packet{"provider-test", "https://api.example.com", "/v1",
+                                             "openai.responses.v1", "synthetic-key"};
+    const auto list_roundtrip = ipc::decode_request(ipc::encode_request(19, list_packet));
+    MIRAGE_CHECK(list_roundtrip.ok &&
+                 std::get<ipc::ListModelsRequest>(list_roundtrip.body).api_key ==
+                     list_packet.api_key);
+    MIRAGE_CHECK(
+        !ipc::decode_request(
+             R"({"v":1,"id":19,"op":"model.list","provider_id":"p","endpoint_origin":"https://example.com","api_prefix":"/v1","dialect":"openai.responses.v1","api_key":"bad key"})")
+             .ok);
+    const auto list_response = ipc::decode_response(ipc::encode_response(ipc::Response{
+        .ok = true, .id = 19, .payload = ipc::ModelList{{"alpha", "beta"}}, .error = {}}));
+    MIRAGE_CHECK(list_response.ok && list_response.response.ok &&
+                 std::get<ipc::ModelList>(list_response.response.payload).ids.size() == 2);
+    const auto missing_key = client.call(
+        ipc::ListModelsRequest{
+            "unsaved", "https://api.example.com", "/v1", "openai.responses.v1", {}},
+        2s);
+    MIRAGE_CHECK(!missing_key.ok && missing_key.error.code == "invalid_argument");
+    // Opt-in live smoke only: public directory, synthetic Key, no inference or spend.
+    if (std::getenv("MIRAGE_CATALOG_SMOKE")) {
+        const auto live_catalog = client.call(
+            ipc::ListModelsRequest{"public-catalog", "https://openrouter.ai", "/api/v1",
+                                   "openai.chat-completions.v1", "synthetic-catalog-key"},
+            25s);
+        if (!live_catalog.ok)
+            std::fprintf(stderr, "catalog smoke: %s: %s\n", live_catalog.error.code.c_str(),
+                         live_catalog.error.message.c_str());
+        MIRAGE_CHECK(live_catalog.ok);
+        MIRAGE_CHECK(std::holds_alternative<ipc::ModelList>(live_catalog.payload));
+        if (live_catalog.ok && std::holds_alternative<ipc::ModelList>(live_catalog.payload)) {
+            const auto &ids = std::get<ipc::ModelList>(live_catalog.payload).ids;
+            MIRAGE_CHECK(!ids.empty() && ids.size() <= 256);
+        }
+    }
+    const auto openai_catalog = integration::parse_model_catalog(
+        R"({"data":[{"id":"alpha"},{"id":"alpha"},{"id":"beta"},{"id":""},{"id":"bad\nname"}]})");
+    MIRAGE_CHECK(openai_catalog.ok() &&
+                 openai_catalog.ids == std::vector<std::string>({"alpha", "beta"}));
+    const auto alternate_catalog =
+        integration::parse_model_catalog(R"({"models":[{"slug":"glm-5"},{"id":"fallback"},7]})");
+    MIRAGE_CHECK(alternate_catalog.ok() &&
+                 alternate_catalog.ids == std::vector<std::string>({"glm-5", "fallback"}));
+    MIRAGE_CHECK(!integration::parse_model_catalog(R"({"error":"unavailable"})").ok());
     key_write_failure.store(true);
     MIRAGE_CHECK(!client.call(key_packet, 2s).ok);
     key_write_failure.store(false);
@@ -1254,5 +1299,32 @@ int main(int argc, char **argv) {
     } catch (const executor::TaskCancelled &) {
     }
     limited.shutdown(true);
+    // Catalog work owns its transport worker and settles cancellation/shutdown.
+    integration::ModelCatalogQuery query;
+    query.request_id = "lifecycle-test";
+    query.endpoint_origin = "https://api.example.com";
+    query.api_prefix = "/v1";
+    query.dialect = "openai.chat-completions.v1";
+    query.api_key = "synthetic-key";
+    MIRAGE_CHECK(!integration::fetch_model_catalog(limited, query, [] { return false; }).ok());
+    executor::Executor catalog_owner;
+    MIRAGE_CHECK(catalog_owner.initialize_ex(small));
+    std::atomic_bool catalog_started{false};
+    auto cancellation = catalog_owner.submit_cancellable([&](executor::StopToken stop) {
+        return integration::fetch_model_catalog(catalog_owner, query, [&] {
+            catalog_started.store(true);
+            while (!stop.stop_requested())
+                (void)::poll(nullptr, 0, 1);
+            return true;
+        });
+    });
+    deadline = std::chrono::steady_clock::now() + 2s;
+    while (!catalog_started.load() && std::chrono::steady_clock::now() < deadline)
+        (void)::poll(nullptr, 0, 1);
+    MIRAGE_CHECK(catalog_started.load());
+    MIRAGE_CHECK(catalog_owner.request_task_cancel(cancellation.handle).accepted());
+    const auto cancelled_catalog = cancellation.future.get();
+    MIRAGE_CHECK(!cancelled_catalog.ok() && cancelled_catalog.ids.empty());
+    catalog_owner.shutdown(true);
     return mirage::testing::finish("native_agent_integration_test");
 }

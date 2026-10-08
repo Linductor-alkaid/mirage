@@ -1,6 +1,7 @@
 #include <mirage/runtime/runtime_service.hpp>
 
 #include <mirage/desktop/observation_assembler.hpp>
+#include <mirage/integration/model_catalog.hpp>
 #include <mirage/integration/session_journal.hpp>
 #include <mirage/runtime/ipc/endpoint.hpp>
 #include <mirage/runtime/ipc/framing.hpp>
@@ -878,6 +879,10 @@ struct RuntimeService::Impl {
             handle_model_get(connection_id, correlation_id);
             return;
         }
+        if (auto *request = std::get_if<ipc::ListModelsRequest>(&decoded.body)) {
+            handle_model_list(connection_id, correlation_id, *request);
+            return;
+        }
         if (auto *request = std::get_if<ipc::SetModelRequest>(&decoded.body)) {
             handle_model_set(connection_id, correlation_id, *request);
             return;
@@ -1595,6 +1600,107 @@ struct RuntimeService::Impl {
         event.state = primary ? "autonomous" : "closed";
         core->events.publish_session_update(std::move(event));
         respond(connection, correlation, ipc::SessionDeleted{id});
+    }
+
+    void handle_model_list(std::uint64_t connection, std::uint64_t correlation,
+                           const ipc::ListModelsRequest &request) {
+        mirage::integration::ModelLayerConfig validation;
+        validation.endpoint_origin = request.endpoint_origin;
+        validation.api_prefix = request.api_prefix;
+        validation.dialect = request.dialect;
+        validation.model_selector = "catalog";
+        std::string reason;
+        if (!validation.valid(reason) || request.endpoint_origin.empty() ||
+            (request.dialect != "openai.responses.v1" &&
+             request.dialect != "openai.chat-completions.v1" &&
+             request.dialect != "anthropic.messages.v1")) {
+            fail(connection, correlation, "invalid_argument",
+                 reason.empty() ? "invalid model catalog endpoint" : reason);
+            return;
+        }
+        mirage::integration::ModelCatalogQuery query;
+        query.request_id = std::to_string(connection) + "-" + std::to_string(correlation);
+        query.endpoint_origin = request.endpoint_origin;
+        query.api_prefix = request.api_prefix;
+        query.dialect = request.dialect;
+        query.api_key = request.api_key;
+        if (!query.api_key) {
+            const auto saved = persistence::decode_settings(config.model_catalog_json);
+            if (saved.ok) {
+                const auto profile =
+                    std::find_if(saved.settings.models.begin(), saved.settings.models.end(),
+                                 [&](const auto &entry) {
+                                     return entry.provider_id == request.provider_id &&
+                                            entry.endpoint_origin == request.endpoint_origin &&
+                                            entry.api_prefix == request.api_prefix &&
+                                            entry.dialect == request.dialect;
+                                 });
+                if (profile != saved.settings.models.end()) {
+                    query.credential_ref = profile->credential_ref;
+                    query.credential_env = profile->credential_env;
+                    query.credential_lookup = core->model.credential_lookup;
+                }
+            }
+            if (query.credential_ref.empty() && query.credential_env.empty()) {
+                fail(connection, correlation, "invalid_argument",
+                     "请先填写 API Key；未保存的地址不能使用已存 Key。");
+                return;
+            }
+        }
+        {
+            std::lock_guard lock(core->drivers_mutex);
+            for (auto it = core->drivers.begin(); it != core->drivers.end();) {
+                if (it->first.starts_with("catalog-") &&
+                    it->second.future.wait_for(std::chrono::milliseconds{0}) ==
+                        std::future_status::ready) {
+                    try {
+                        it->second.future.get();
+                    } catch (...) {
+                    }
+                    it = core->drivers.erase(it);
+                } else
+                    ++it;
+            }
+            if (std::count_if(core->drivers.begin(), core->drivers.end(), [](const auto &entry) {
+                    return entry.first.starts_with("catalog-");
+                }) >= 2) {
+                fail(connection, correlation, "unavailable", "模型列表请求繁忙，请稍后重试。");
+                return;
+            }
+        }
+        auto settled = std::make_shared<std::atomic_bool>(false);
+        auto submission = core->executor.submit_cancellable(
+            [this, shared = core, connection, correlation, settled,
+             query = std::move(query)](executor::StopToken stop) {
+                try {
+                    const auto result = mirage::integration::fetch_model_catalog(
+                        shared->executor, query, [&stop] { return stop.stop_requested(); });
+                    if (stop.stop_requested())
+                        return;
+                    settled->store(true);
+                    if (result.ok())
+                        respond(connection, correlation, ipc::ModelList{result.ids});
+                    else
+                        fail(connection, correlation, "unavailable", result.error);
+                } catch (...) {
+                    if (!settled->exchange(true))
+                        fail(connection, correlation, "internal", "获取模型列表时发生错误。");
+                    throw;
+                }
+            });
+        if (submission.future.wait_for(std::chrono::milliseconds{0}) == std::future_status::ready) {
+            try {
+                submission.future.get();
+            } catch (...) {
+                if (!settled->exchange(true))
+                    fail(connection, correlation, "unavailable", "模型列表任务未能进入 Executor。");
+            }
+            return;
+        }
+        std::lock_guard lock(core->drivers_mutex);
+        core->drivers.emplace("catalog-" + std::to_string(connection) + "-" +
+                                  std::to_string(correlation),
+                              std::move(submission));
     }
 
     void handle_model_get(std::uint64_t connection, std::uint64_t correlation,

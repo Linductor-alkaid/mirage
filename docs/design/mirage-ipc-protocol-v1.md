@@ -743,3 +743,14 @@ process_sequence 按同轮更新递增；pending可重复发布，ok/failed终�
 带过程的历史按实际编码后的1MiB帧预算保留最新轮、维持轮序，truncated同时表示因
 条数或帧预算而省略旧轮；最新单轮超限明确unavailable。会话存储文件与JSON
 读取同限8MiB，超过时沿用显式存储失败，不增大到无界容量。
+
+### M6-33 模型目录发现（DEC-051）
+
+`model.list` 请求：`provider_id`（至多256字节）、`endpoint_origin` 与 `api_prefix`
+（各至多2048字节）、`dialect`（至多64字节），可带 write-only `api_key`
+（至多2048个可打印ASCII字符）。成功响应为 `model_ids` 字符串数组，最多256项，
+每项1–1024字节；不会返回 Key。错误沿用 `invalid_argument`、`unavailable`、`internal`。
+未传 Key 时，服务仅从已保存目录中精确匹配 provider_id、origin、prefix 和方言后解析凭据；
+地址编辑后不能借用旧服务 Key。请求显式触发、候选不自动落盘，旧客户端不受影响。
+Mira 公共传输强制响应大小、期限和端点策略；Runtime Service 使用 Executor 任务执行，
+关闭时协作取消与排空。`model.get/set` 的原语义保持。

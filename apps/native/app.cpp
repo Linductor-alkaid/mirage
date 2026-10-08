@@ -50,6 +50,50 @@ Palette palette(bool dark) {
             color(0x202020), color(0x6d6d6d), color(0xdfdfdf), color(0x222222), color(0xffffff),
             color(0xd94f38), color(0xc44030), color(0xffffff)};
 }
+eui::Color mix_color(eui::Color a, eui::Color b, float t) {
+    return {a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t,
+            a.a + (b.a - a.a) * t};
+}
+Palette mixed_palette(float dark) {
+    const auto light = palette(false), deep = palette(true);
+    return {mix_color(light.background, deep.background, dark),
+            mix_color(light.sidebar, deep.sidebar, dark),
+            mix_color(light.surface, deep.surface, dark),
+            mix_color(light.hover, deep.hover, dark),
+            mix_color(light.selected, deep.selected, dark),
+            mix_color(light.text, deep.text, dark),
+            mix_color(light.muted, deep.muted, dark),
+            mix_color(light.border, deep.border, dark),
+            mix_color(light.action, deep.action, dark),
+            mix_color(light.inverse, deep.inverse, dark),
+            mix_color(light.accent, deep.accent, dark),
+            mix_color(light.accent_hover, deep.accent_hover, dark),
+            mix_color(light.accent_text, deep.accent_text, dark)};
+}
+struct MotionValue {
+    float current = 0, from = 0, target = 0;
+    bool initialized = false;
+    std::chrono::steady_clock::time_point started;
+    bool step(float next, std::chrono::steady_clock::time_point now, float seconds) {
+        if (!initialized || seconds <= 0) {
+            current = from = target = next;
+            initialized = true;
+            return false;
+        }
+        if (next != target) {
+            from = current;
+            target = next;
+            started = now;
+        }
+        if (current == target)
+            return false;
+        const float t =
+            std::clamp(std::chrono::duration<float>(now - started).count() / seconds, 0.0f, 1.0f);
+        const float eased = 1.0f - std::pow(1.0f - t, 3.0f);
+        current = t >= 1.0f ? target : from + (target - from) * eased;
+        return t < 1.0f;
+    }
+};
 struct PageState {
     ChatModel chat;
     PlainTextLayout plain_text;
@@ -59,6 +103,7 @@ struct PageState {
     std::uint64_t hovered_session = 0;
     std::vector<std::uint64_t> selection_cache_ids;
     bool dark = false;
+    bool reduced_motion = false;
     bool sidebar = true;
     bool settings = false;
     bool model_page = false;
@@ -97,6 +142,10 @@ struct PageState {
     bool saving_model = false;
     bool model_loaded = false;
     bool model_dirty = false;
+    bool fetching_models = false;
+    std::uint64_t model_catalog_revision = 0;
+    std::uint64_t fetched_revision = 0;
+    std::vector<std::string> fetched_model_ids;
     std::optional<std::size_t> preview_preset;
     std::unique_ptr<RuntimeBridge> runtime;
     mirage::runtime::persistence::ModelSettings model;
@@ -111,6 +160,8 @@ struct PageState {
     float sidebar_drag_scale = 1;
     bool sidebar_hover = false;
     bool sidebar_dragging = false;
+    MotionValue sidebar_motion;
+    MotionValue theme_motion;
     bool about = false;
     bool confirm_clear = false;
     std::uint64_t clear_target = 0;
@@ -152,6 +203,9 @@ persistence::ModelSettings unnamed_provider() {
 }
 void load_provider(const persistence::ModelSettings &profile) {
     auto &s = state();
+    ++s.model_catalog_revision;
+    s.fetched_model_ids.clear();
+    s.fetching_models = false;
     s.model = profile;
     if (s.model.provider_id.empty()) {
         s.model.provider_id = provider_key(profile);
@@ -482,6 +536,9 @@ void delete_editor_model(const std::string &id) {
 }
 bool set_base_url(const std::string &url) {
     auto &s = state();
+    ++s.model_catalog_revision;
+    s.fetched_model_ids.clear();
+    s.fetching_models = false;
     const auto clean = trim_model_text(url);
     s.model_base_url = clean;
     const auto scheme = clean.find("://");
@@ -680,6 +737,7 @@ void drain_runtime() {
             if (!s.runtime->connected())
                 window::close();
             s.saving_model = false;
+            s.fetching_models = false;
             for (const auto &item : s.chat.sessions()) {
                 auto *session = s.chat.find(item.id);
                 session->submitting = false;
@@ -698,13 +756,28 @@ void drain_runtime() {
                     s.saving_model = false;
                     s.model_notice = display_error(message.response.error.message);
                 }
+                if (message.tag == "catalog" && message.local_id == s.fetched_revision &&
+                    s.fetched_revision == s.model_catalog_revision) {
+                    s.fetching_models = false;
+                    s.model_notice = display_error(message.response.error.message);
+                }
                 continue;
             }
             if (message.tag == "subscribe") {
                 call_runtime(ipc::GetModelRequest{}, "model");
             }
             const auto &payload = message.response.payload;
-            if (const auto *product = std::get_if<ipc::ProductState>(&payload)) {
+            if (const auto *catalog = std::get_if<ipc::ModelList>(&payload)) {
+                if (message.tag == "catalog" && message.local_id == s.fetched_revision &&
+                    s.fetched_revision == s.model_catalog_revision) {
+                    s.fetching_models = false;
+                    s.fetched_model_ids = catalog->ids;
+                    s.model_notice = catalog->ids.empty()
+                                         ? "服务未返回可用模型；可手动填写模型 ID。"
+                                         : "已获取 " + std::to_string(catalog->ids.size()) +
+                                               " 个模型；选择后仍需保存。";
+                }
+            } else if (const auto *product = std::get_if<ipc::ProductState>(&payload)) {
                 s.confirm_exit = product->exit_pending;
                 s.exit_epoch = product->exit_epoch;
                 s.active_work = product->active_work;
@@ -1055,6 +1128,35 @@ void appearance_page(eui::Ui &ui, float x, float width, const Palette &p) {
     }
     text(ui, "settings.theme.notice", "即时应用 · 本次运行内保留外观偏好", x,
          row_y + (narrow ? 108 : 84), width, 28, 13, p.muted);
+    const float motion_y = row_y + (narrow ? 148 : 124);
+    ui.rect("settings.motion.panel")
+        .position(x, motion_y)
+        .size(width, 72)
+        .color(p.surface)
+        .radius(12)
+        .border(1, p.border)
+        .build();
+    text(ui, "settings.motion.label", "减少动态效果", x + 24, motion_y + 12, width - 120, 24, 14,
+         p.text, 500);
+    text(ui, "settings.motion.description", "直接切换侧栏和主题", x + 24, motion_y + 36,
+         width - 120, 22, 13, p.muted);
+    ui.stack("settings.motion.control")
+        .position(x + width - 72, motion_y + 24)
+        .size(48, 24)
+        .content([&] {
+            auto style = components::SwitchStyle();
+            style.on = p.action;
+            style.off = p.border;
+            style.knob = p.inverse;
+            components::toggleSwitch(ui, "settings.motion.reduced")
+                .size(48, 24)
+                .trackSize(32, 18)
+                .style(style)
+                .checked(state().reduced_motion)
+                .onChange([](bool checked) { state().reduced_motion = checked; })
+                .build();
+        })
+        .build();
 }
 std::optional<ContextUsage> native_usage(const std::optional<ipc::ContextUsage> &usage) {
     if (!usage)
@@ -1556,6 +1658,9 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                     if (state().saving_model)
                                         return;
                                     state().api_key = key;
+                                    ++state().model_catalog_revision;
+                                    state().fetched_model_ids.clear();
+                                    state().fetching_models = false;
                                     state().remove_api_key = false;
                                     state().model_dirty = true;
                                     state().model_notice =
@@ -1587,7 +1692,31 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
             list.stack("model.models.heading")
                 .size(w, 36)
                 .content([&] {
-                    text(list, "model.models.label", "模型", 0, 0, w - 100, 32, 14, p.muted);
+                    text(list, "model.models.label", "模型", 0, 0, w - 208, 32, 14, p.muted);
+                    control_button(list, "model.fetch.models")
+                        .position(w - 208, 0)
+                        .size(100, 28)
+                        .text(s.fetching_models ? "获取中…" : "获取模型")
+                        .fontSize(ui_font_size(13))
+                        .style(button_style(p))
+                        .disabled(s.fetching_models || !s.runtime || !s.runtime->connected() ||
+                                  s.model.endpoint_origin.empty() ||
+                                  (s.api_key.empty() &&
+                                   (!s.model.api_key_configured || s.remove_api_key)))
+                        .onClick([] {
+                            auto &v = state();
+                            ipc::ListModelsRequest request{
+                                v.model.provider_id, v.model.endpoint_origin, v.model.api_prefix,
+                                v.model.dialect,
+                                v.api_key.empty() ? std::optional<std::string>{}
+                                                  : std::optional<std::string>{v.api_key}};
+                            v.fetched_revision = v.model_catalog_revision;
+                            v.fetching_models =
+                                call_runtime(std::move(request), "catalog", v.fetched_revision);
+                            if (!v.fetching_models)
+                                v.model_notice = "模型列表请求未被接纳，请稍后重试。";
+                        })
+                        .build();
                     control_button(list, "model.add.model")
                         .position(w - 100, 0)
                         .size(100, 28)
@@ -1605,6 +1734,35 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                         .build();
                 })
                 .build();
+            if (!s.fetched_model_ids.empty()) {
+                const float list_height =
+                    std::min(160.0f, static_cast<float>(s.fetched_model_ids.size()) * 32.0f + 8.0f);
+                components::scrollView(list, "model.fetched.list")
+                    .size(w, list_height)
+                    .theme(tokens)
+                    .gap(0)
+                    .content([&](eui::Ui &items, float item_width, float) {
+                        for (std::size_t i = 0; i < s.fetched_model_ids.size(); ++i) {
+                            const auto id = s.fetched_model_ids[i];
+                            control_button(items, "model.fetched." + std::to_string(i))
+                                .size(item_width, 32)
+                                .text(fitted_title(id, item_width - 16, 13))
+                                .fontSize(ui_font_size(13))
+                                .style(button_style(p))
+                                .disabled(model_editor_blocked() || editor_model_count() >= 12)
+                                .onClick([id] {
+                                    auto &v = state();
+                                    if (model_editor_blocked())
+                                        return;
+                                    v.adding_model = true;
+                                    v.new_model_id = id;
+                                    add_editor_model();
+                                })
+                                .build();
+                        }
+                    })
+                    .build();
+            }
             if (s.provider_models.empty())
                 list.stack("model.models.empty")
                     .size(w, 48)
@@ -1681,6 +1839,43 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
             if (!s.provider_models.empty()) {
                 field("model.window", "上下文窗口（Token）", s.model_window, "留空表示未知",
                       [](const auto &v) { state().model_window = v; });
+                list.stack("model.reasoning.row")
+                    .size(w, 48)
+                    .content([&] {
+                        text(list, "model.reasoning.label", "思考强度", 0, 0, w - 68, 22, 14,
+                             p.text, 500);
+                        text(list, "model.reasoning.help",
+                             s.model.dialect == "anthropic.messages.v1"
+                                 ? "按模型 ID 使用已验证的思考选项"
+                                 : "声明此模型可按轮设置思考强度",
+                             0, 22, w - 68, 20, 12, p.muted);
+                        if (s.model.dialect != "anthropic.messages.v1") {
+                            auto style = components::SwitchStyle(tokens);
+                            style.on = p.action;
+                            style.off = p.border;
+                            style.knob = p.inverse;
+                            list.stack("model.reasoning.toggle")
+                                .position(w - 48, 8)
+                                .size(48, 32)
+                                .content([&] {
+                                    components::toggleSwitch(list, "model.reasoning.supported")
+                                        .size(48, 32)
+                                        .trackSize(32, 18)
+                                        .checked(s.model.supports_reasoning)
+                                        .style(style)
+                                        .onChange([](bool supported) {
+                                            auto &v = state();
+                                            if (model_editor_blocked())
+                                                return;
+                                            v.model.supports_reasoning = supported;
+                                            v.model_dirty = true;
+                                        })
+                                        .build();
+                                })
+                                .build();
+                        }
+                    })
+                    .build();
             }
         })
         .build();
@@ -1765,6 +1960,9 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                         .disabled(model_editor_blocked())
                         .onClick([dialect] {
                             state().model.dialect = dialect;
+                            ++state().model_catalog_revision;
+                            state().fetched_model_ids.clear();
+                            state().fetching_models = false;
                             if (dialect == "anthropic.messages.v1") {
                                 state().model.supports_reasoning = false;
                                 for (auto &entry : state().provider_models)
@@ -3090,14 +3288,34 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
     state().render_scale = window::render_scale(screen.width);
     drain_runtime();
     auto &s = state();
+    const auto now = std::chrono::steady_clock::now();
+    const float sidebar_limit = std::max(224.0f, std::min(400.0f, screen.width - 520));
+    const float sidebar_width = std::clamp(s.sidebar_width, 224.0f, sidebar_limit);
+    if (s.sidebar_dragging) {
+        s.sidebar_motion.current = s.sidebar_motion.from = s.sidebar_motion.target = sidebar_width;
+    }
+    const bool sidebar_animating =
+        s.sidebar_motion.step(s.sidebar ? sidebar_width : 0.0f, now, s.reduced_motion ? 0 : 0.22f);
+    const bool theme_animating =
+        s.theme_motion.step(s.dark ? 1.0f : 0.0f, now, s.reduced_motion ? 0 : 0.24f);
     if (s.runtime)
         s.runtime->set_activity(
             std::any_of(s.chat.sessions().begin(), s.chat.sessions().end(),
-                        [](const auto &session) { return session.running || session.submitting; }));
-    const auto p = palette(s.dark);
-    const auto tokens = s.dark ? components::theme::dark() : components::theme::light();
-    const float sidebar_limit = std::max(224.0f, std::min(400.0f, screen.width - 520));
-    const float sidebar = s.sidebar ? std::clamp(s.sidebar_width, 224.0f, sidebar_limit) : 0.0f;
+                        [](const auto &session) { return session.running || session.submitting; }),
+            sidebar_animating || theme_animating);
+    const auto p = mixed_palette(s.theme_motion.current);
+    auto tokens = s.dark ? components::theme::dark() : components::theme::light();
+    const auto light_tokens = components::theme::light();
+    const auto dark_tokens = components::theme::dark();
+    const float tint = s.theme_motion.current;
+    tokens.background = mix_color(light_tokens.background, dark_tokens.background, tint);
+    tokens.primary = mix_color(light_tokens.primary, dark_tokens.primary, tint);
+    tokens.surface = mix_color(light_tokens.surface, dark_tokens.surface, tint);
+    tokens.surfaceHover = mix_color(light_tokens.surfaceHover, dark_tokens.surfaceHover, tint);
+    tokens.surfaceActive = mix_color(light_tokens.surfaceActive, dark_tokens.surfaceActive, tint);
+    tokens.text = mix_color(light_tokens.text, dark_tokens.text, tint);
+    tokens.border = mix_color(light_tokens.border, dark_tokens.border, tint);
+    const float sidebar = s.sidebar_motion.current;
     const float main_width = screen.width - sidebar;
     const float column_width = std::min(800.0f, main_width - 64);
     const float column_x = sidebar + (main_width - column_width) / 2;
@@ -3109,233 +3327,274 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                 .color(p.background)
                 .onClick([] { state().selection.clear(); })
                 .build();
-            if (s.sidebar) {
-                ui.rect("sidebar.background").size(sidebar, screen.height).color(p.sidebar).build();
-                ui.rect("sidebar.border")
-                    .position(sidebar - 1, 0)
-                    .size(1, screen.height)
-                    .color(p.border)
-                    .build();
-                // EUI-20261004-003: metadata-free, pixel-identical UI copy.
-                ui.image("brand.mira")
-                    .position(36, 20)
-                    .size(24, 24)
-                    .source("assets/mira-ui.png")
-                    .contain()
-                    .hitTestMode(eui::dsl::HitTestMode::None)
-                    .build();
-                text(ui, "brand", "Mirage", 68, 14, sidebar - 132, 36, 18, p.text, 600);
-                // Mira brand accent line — a narrow coral stripe below the title bar.
-                ui.rect("brand.accent")
-                    .position(24, 57)
-                    .size(sidebar - 48, 2)
-                    .radius(1)
-                    .color(p.accent)
-                    .build();
-                sidebar_toggle_button(ui, "sidebar.toggle", true, sidebar - 52, 12, p,
-                                      [] { state().sidebar = false; });
-                if (s.settings) {
-                    ui.stack("settings.back")
-                        .position(24, 76)
-                        .size(sidebar - 48, 36)
-                        .content([&] {
-                            ui.rect("settings.back.bg")
-                                .size(sidebar - 48, 36)
-                                .radius(8)
-                                .states(p.sidebar, p.hover, p.selected)
-                                .focusable()
-                                .cursor(eui::CursorShape::Hand)
-                                .onClick([] { leave_settings(true); })
-                                .build();
-                            icon(ui, "settings.back.icon", 0xe058, 12, 0, 16, 36, p.text);
-                            text(ui, "settings.back.label", "返回对话", 44, 0, sidebar - 96, 36, 14,
-                                 p.text);
-                        })
-                        .build();
-                    for (int i = 0; i < 2; ++i) {
-                        const bool model = i == 1;
-                        const float y = 152 + static_cast<float>(i) * 56;
-                        const auto key = "settings.nav." + std::to_string(i);
-                        ui.rect(key)
-                            .position(24, y)
-                            .size(sidebar - 48, 36)
-                            .radius(7)
-                            .states(s.model_page == model ? p.selected : eui::Color{0, 0, 0, 0},
-                                    p.hover, p.selected)
-                            .focusable()
-                            .cursor(eui::CursorShape::Hand)
-                            .onClick([model] {
-                                if (model)
-                                    state().model_page = true;
-                                else
-                                    leave_settings(false);
-                                state().model_chooser = false;
+            if (sidebar > 1.0f) {
+                ui.stack("sidebar.viewport")
+                    .size(sidebar, screen.height)
+                    .clip()
+                    .content([&] {
+                        ui.stack("sidebar.contents")
+                            .position(sidebar - sidebar_width, 0)
+                            .size(sidebar_width, screen.height)
+                            .content([&] {
+                                ui.rect("sidebar.background")
+                                    .size(sidebar_width, screen.height)
+                                    .color(p.sidebar)
+                                    .build();
+                                ui.rect("sidebar.border")
+                                    .position(sidebar_width - 1, 0)
+                                    .size(1, screen.height)
+                                    .color(p.border)
+                                    .build();
+                                // EUI-20261004-003: metadata-free, pixel-identical UI copy.
+                                ui.image("brand.mira")
+                                    .position(36, 20)
+                                    .size(24, 24)
+                                    .source("assets/mira-ui.png")
+                                    .contain()
+                                    .hitTestMode(eui::dsl::HitTestMode::None)
+                                    .build();
+                                text(ui, "brand", "Mirage", 68, 14, sidebar_width - 132, 36, 18,
+                                     p.text, 600);
+                                // Mira brand accent line — a narrow coral stripe below the title
+                                // bar.
+                                ui.rect("brand.accent")
+                                    .position(24, 57)
+                                    .size(sidebar_width - 48, 2)
+                                    .radius(1)
+                                    .color(p.accent)
+                                    .build();
+                                sidebar_toggle_button(ui, "sidebar.toggle", true,
+                                                      sidebar_width - 52, 12, p,
+                                                      [] { state().sidebar = false; });
+                                if (s.settings) {
+                                    ui.stack("settings.back")
+                                        .position(24, 76)
+                                        .size(sidebar_width - 48, 36)
+                                        .content([&] {
+                                            ui.rect("settings.back.bg")
+                                                .size(sidebar_width - 48, 36)
+                                                .radius(8)
+                                                .states(p.sidebar, p.hover, p.selected)
+                                                .focusable()
+                                                .cursor(eui::CursorShape::Hand)
+                                                .onClick([] { leave_settings(true); })
+                                                .build();
+                                            icon(ui, "settings.back.icon", 0xe058, 12, 0, 16, 36,
+                                                 p.text);
+                                            text(ui, "settings.back.label", "返回对话", 44, 0,
+                                                 sidebar_width - 96, 36, 14, p.text);
+                                        })
+                                        .build();
+                                    for (int i = 0; i < 2; ++i) {
+                                        const bool model = i == 1;
+                                        const float y = 152 + static_cast<float>(i) * 56;
+                                        const auto key = "settings.nav." + std::to_string(i);
+                                        ui.rect(key)
+                                            .position(24, y)
+                                            .size(sidebar_width - 48, 36)
+                                            .radius(7)
+                                            .states(s.model_page == model ? p.selected
+                                                                          : eui::Color{0, 0, 0, 0},
+                                                    p.hover, p.selected)
+                                            .focusable()
+                                            .cursor(eui::CursorShape::Hand)
+                                            .onClick([model] {
+                                                if (model)
+                                                    state().model_page = true;
+                                                else
+                                                    leave_settings(false);
+                                                state().model_chooser = false;
+                                            })
+                                            .build();
+                                        icon(ui, key + ".icon", model ? 0xe762 : 0xe6c8, 36, y, 16,
+                                             36, p.text);
+                                        text(ui, key + ".label", model ? "模型" : "外观", 68, y,
+                                             sidebar_width - 88, 36, 14, p.text, 500);
+                                    }
+                                } else {
+                                    ui.stack("session.new")
+                                        .position(24, 76)
+                                        .size(sidebar_width - 48, 36)
+                                        .content([&] {
+                                            ui.rect("session.new.bg")
+                                                .size(sidebar_width - 48, 36)
+                                                .radius(8)
+                                                .states(p.sidebar, p.hover, p.selected)
+                                                .focusable()
+                                                .cursor(eui::CursorShape::Hand)
+                                                .onClick([] { new_session(); })
+                                                .build();
+                                            icon(ui, "session.new.icon", 0xe3d4, 12, 0, 16, 36,
+                                                 p.text);
+                                            text(ui, "session.new.label", "新建对话", 44, 0,
+                                                 sidebar_width - 96, 36, 14, p.text);
+                                        })
+                                        .build();
+                                    ui.rect("sidebar.divider")
+                                        .position(24, 140)
+                                        .size(sidebar_width - 48, 1)
+                                        .color(p.border)
+                                        .build();
+                                    text(ui, "session.label", "会话", 36, 156, 180, 24, 13,
+                                         p.muted);
+                                    components::scrollView(ui, "session.list")
+                                        .position(24, 196)
+                                        .size(sidebar_width - 48, screen.height - 296)
+                                        .gap(4)
+                                        .offset(s.session_scroll)
+                                        .theme(tokens)
+                                        .scrollbarWidth(3)
+                                        .scrollbarGap(2)
+                                        .onChange(
+                                            [](float offset) { state().session_scroll = offset; })
+                                        .content([&](eui::Ui &list, float width, float) {
+                                            if (s.chat.history_count() == 0) {
+                                                text(list, "session.empty", "暂无历史对话", 12, 8,
+                                                     width - 24, 28, 14, p.muted);
+                                                text(list, "session.empty.help",
+                                                     "发送消息后将显示在这里", 12, 38, width - 24,
+                                                     28, 13, p.muted);
+                                            }
+                                            for (const auto &session : s.chat.sessions()) {
+                                                if (session.messages.empty())
+                                                    continue;
+                                                const auto id = session.id;
+                                                const bool selected = id == s.chat.current().id;
+                                                const std::string key =
+                                                    "session." + std::to_string(id);
+                                                list.stack(key)
+                                                    .size(width, 40)
+                                                    .content([&] {
+                                                        list.rect(key + ".hit")
+                                                            .size(width, 40)
+                                                            .radius(7)
+                                                            .states(selected
+                                                                        ? p.selected
+                                                                        : eui::Color{0, 0, 0, 0},
+                                                                    p.hover, p.selected)
+                                                            .cursor(eui::CursorShape::Hand)
+                                                            .focusable()
+                                                            .onClick([id] {
+                                                                state().chat.select_session(id);
+                                                                history(id);
+                                                            })
+                                                            .onHover([id](bool entered) {
+                                                                auto &page = state();
+                                                                if (entered)
+                                                                    page.hovered_session = id;
+                                                                else if (page.hovered_session == id)
+                                                                    page.hovered_session = 0;
+                                                            })
+                                                            .build();
+                                                        icon(list, key + ".icon", 0xe168, 12, 0, 14,
+                                                             40, p.muted);
+                                                        text(list, key + ".title",
+                                                             fitted_title(session.title,
+                                                                          width - 100, 14),
+                                                             44, 0, width - 100, 40, 14, p.text);
+                                                        list.stack(key + ".delete.visibility")
+                                                            .position(width - 40, 2)
+                                                            .size(36, 36)
+                                                            .opacity(s.hovered_session == id ? 1.0f
+                                                                                             : 0.0f)
+                                                            .content([&] {
+                                                                icon_button(
+                                                                    list, key + ".delete", 0xe4a6,
+                                                                    0, 0, p,
+                                                                    [id] {
+                                                                        auto &v = state();
+                                                                        if (v.about ||
+                                                                            v.confirm_clear ||
+                                                                            v.confirm_delete)
+                                                                            return;
+                                                                        v.delete_target = id;
+                                                                        v.confirm_delete = true;
+                                                                    },
+                                                                    false,
+                                                                    session.running ||
+                                                                        session.submitting ||
+                                                                        session.deleting);
+                                                            })
+                                                            .build();
+                                                        if (auto *button =
+                                                                list.find(key + ".delete.bg")) {
+                                                            button->onHoverChanged =
+                                                                [id](bool entered) {
+                                                                    auto &page = state();
+                                                                    if (entered)
+                                                                        page.hovered_session = id;
+                                                                    else if (page.hovered_session ==
+                                                                             id)
+                                                                        page.hovered_session = 0;
+                                                                };
+                                                        }
+                                                    })
+                                                    .build();
+                                            }
+                                        })
+                                        .build();
+                                }
+                                for (const auto *id : {"settings.back.bg", "session.new.bg",
+                                                       "settings.nav.0", "settings.nav.1"})
+                                    keyboard_activation(ui, id);
+                                ui.rect("sidebar.footer.line")
+                                    .position(24, screen.height - 86)
+                                    .size(sidebar_width - 48, 1)
+                                    .color(p.border)
+                                    .build();
+                                icon_button(ui, "about", 0xe2ce, 30, screen.height - 62, p,
+                                            [] { state().about = true; });
+                                text(ui, "preview.label", "Mira", 68, screen.height - 62,
+                                     sidebar_width - 112, 36, 14, p.muted);
+                                icon_button(ui, "settings.open", 0xe270, sidebar_width - 52,
+                                            screen.height - 62, p, [] { state().settings = true; });
+                                ui.rect("sidebar.resize")
+                                    .position(sidebar_width - 4, 60)
+                                    .size(8, screen.height - 60)
+                                    .states({0, 0, 0, 0}, p.border, p.muted)
+                                    .zIndex(12)
+                                    .focusable()
+                                    .onHover([](bool hovered) {
+                                        state().sidebar_hover = hovered;
+                                        if (!hovered && !state().sidebar_dragging)
+                                            window::sidebar_resize_cursor(false);
+                                    })
+                                    .onPress([sidebar_width](const auto &,
+                                                             const eui::Rect &bounds) {
+                                        auto &value = state();
+                                        value.sidebar_drag_width = sidebar_width;
+                                        value.sidebar_drag_scale = std::max(1.0f, bounds.width / 8);
+                                        value.sidebar_dragging = true;
+                                    })
+                                    .onDrag([sidebar_limit](const auto &event) {
+                                        auto &value = state();
+                                        value.sidebar_width =
+                                            std::clamp(value.sidebar_drag_width +
+                                                           static_cast<float>(event.totalX) /
+                                                               value.sidebar_drag_scale,
+                                                       224.0f, sidebar_limit);
+                                    })
+                                    .onRelease([](const auto &, const auto &) {
+                                        state().sidebar_dragging = false;
+                                        if (!state().sidebar_hover)
+                                            window::sidebar_resize_cursor(false);
+                                    })
+                                    .onKeyEvent([sidebar_width,
+                                                 sidebar_limit](const eui::KeyEvent &event) {
+                                        if (!event.isDown() || (event.key != eui::InputKey::Left &&
+                                                                event.key != eui::InputKey::Right))
+                                            return false;
+                                        state().sidebar_width = std::clamp(
+                                            sidebar_width +
+                                                (event.key == eui::InputKey::Left ? -8 : 8),
+                                            224.0f, sidebar_limit);
+                                        return true;
+                                    })
+                                    .cursor(eui::CursorShape::Arrow)
+                                    .build();
                             })
                             .build();
-                        icon(ui, key + ".icon", model ? 0xe762 : 0xe6c8, 36, y, 16, 36, p.text);
-                        text(ui, key + ".label", model ? "模型" : "外观", 68, y, sidebar - 88, 36,
-                             14, p.text, 500);
-                    }
-                } else {
-                    ui.stack("session.new")
-                        .position(24, 76)
-                        .size(sidebar - 48, 36)
-                        .content([&] {
-                            ui.rect("session.new.bg")
-                                .size(sidebar - 48, 36)
-                                .radius(8)
-                                .states(p.sidebar, p.hover, p.selected)
-                                .focusable()
-                                .cursor(eui::CursorShape::Hand)
-                                .onClick([] { new_session(); })
-                                .build();
-                            icon(ui, "session.new.icon", 0xe3d4, 12, 0, 16, 36, p.text);
-                            text(ui, "session.new.label", "新建对话", 44, 0, sidebar - 96, 36, 14,
-                                 p.text);
-                        })
-                        .build();
-                    ui.rect("sidebar.divider")
-                        .position(24, 140)
-                        .size(sidebar - 48, 1)
-                        .color(p.border)
-                        .build();
-                    text(ui, "session.label", "会话", 36, 156, 180, 24, 13, p.muted);
-                    components::scrollView(ui, "session.list")
-                        .position(24, 196)
-                        .size(sidebar - 48, screen.height - 296)
-                        .gap(4)
-                        .offset(s.session_scroll)
-                        .theme(tokens)
-                        .scrollbarWidth(3)
-                        .scrollbarGap(2)
-                        .onChange([](float offset) { state().session_scroll = offset; })
-                        .content([&](eui::Ui &list, float width, float) {
-                            if (s.chat.history_count() == 0) {
-                                text(list, "session.empty", "暂无历史对话", 12, 8, width - 24, 28,
-                                     14, p.muted);
-                                text(list, "session.empty.help", "发送消息后将显示在这里", 12, 38,
-                                     width - 24, 28, 13, p.muted);
-                            }
-                            for (const auto &session : s.chat.sessions()) {
-                                if (session.messages.empty())
-                                    continue;
-                                const auto id = session.id;
-                                const bool selected = id == s.chat.current().id;
-                                const std::string key = "session." + std::to_string(id);
-                                list.stack(key)
-                                    .size(width, 40)
-                                    .content([&] {
-                                        list.rect(key + ".hit")
-                                            .size(width, 40)
-                                            .radius(7)
-                                            .states(selected ? p.selected : eui::Color{0, 0, 0, 0},
-                                                    p.hover, p.selected)
-                                            .cursor(eui::CursorShape::Hand)
-                                            .focusable()
-                                            .onClick([id] {
-                                                state().chat.select_session(id);
-                                                history(id);
-                                            })
-                                            .onHover([id](bool entered) {
-                                                auto &page = state();
-                                                if (entered)
-                                                    page.hovered_session = id;
-                                                else if (page.hovered_session == id)
-                                                    page.hovered_session = 0;
-                                            })
-                                            .build();
-                                        icon(list, key + ".icon", 0xe168, 12, 0, 14, 40, p.muted);
-                                        text(list, key + ".title",
-                                             fitted_title(session.title, width - 100, 14), 44, 0,
-                                             width - 100, 40, 14, p.text);
-                                        list.stack(key + ".delete.visibility")
-                                            .position(width - 40, 2)
-                                            .size(36, 36)
-                                            .opacity(s.hovered_session == id ? 1.0f : 0.0f)
-                                            .content([&] {
-                                                icon_button(
-                                                    list, key + ".delete", 0xe4a6, 0, 0, p,
-                                                    [id] {
-                                                        auto &v = state();
-                                                        if (v.about || v.confirm_clear ||
-                                                            v.confirm_delete)
-                                                            return;
-                                                        v.delete_target = id;
-                                                        v.confirm_delete = true;
-                                                    },
-                                                    false,
-                                                    session.running || session.submitting ||
-                                                        session.deleting);
-                                            })
-                                            .build();
-                                        if (auto *button = list.find(key + ".delete.bg")) {
-                                            button->onHoverChanged = [id](bool entered) {
-                                                auto &page = state();
-                                                if (entered)
-                                                    page.hovered_session = id;
-                                                else if (page.hovered_session == id)
-                                                    page.hovered_session = 0;
-                                            };
-                                        }
-                                    })
-                                    .build();
-                            }
-                        })
-                        .build();
-                }
-                for (const auto *id :
-                     {"settings.back.bg", "session.new.bg", "settings.nav.0", "settings.nav.1"})
-                    keyboard_activation(ui, id);
-                ui.rect("sidebar.footer.line")
-                    .position(24, screen.height - 86)
-                    .size(sidebar - 48, 1)
-                    .color(p.border)
-                    .build();
-                icon_button(ui, "about", 0xe2ce, 30, screen.height - 62, p,
-                            [] { state().about = true; });
-                text(ui, "preview.label", "Mira", 68, screen.height - 62, sidebar - 112, 36, 14,
-                     p.muted);
-                icon_button(ui, "settings.open", 0xe270, sidebar - 52, screen.height - 62, p,
-                            [] { state().settings = true; });
-                ui.rect("sidebar.resize")
-                    .position(sidebar - 4, 60)
-                    .size(8, screen.height - 60)
-                    .states({0, 0, 0, 0}, p.border, p.muted)
-                    .zIndex(12)
-                    .focusable()
-                    .onHover([](bool hovered) {
-                        state().sidebar_hover = hovered;
-                        if (!hovered && !state().sidebar_dragging)
-                            window::sidebar_resize_cursor(false);
                     })
-                    .onPress([sidebar](const auto &, const eui::Rect &bounds) {
-                        auto &value = state();
-                        value.sidebar_drag_width = sidebar;
-                        value.sidebar_drag_scale = std::max(1.0f, bounds.width / 8);
-                        value.sidebar_dragging = true;
-                    })
-                    .onDrag([sidebar_limit](const auto &event) {
-                        auto &value = state();
-                        value.sidebar_width =
-                            std::clamp(value.sidebar_drag_width + static_cast<float>(event.totalX) /
-                                                                      value.sidebar_drag_scale,
-                                       224.0f, sidebar_limit);
-                    })
-                    .onRelease([](const auto &, const auto &) {
-                        state().sidebar_dragging = false;
-                        if (!state().sidebar_hover)
-                            window::sidebar_resize_cursor(false);
-                    })
-                    .onKeyEvent([sidebar, sidebar_limit](const eui::KeyEvent &event) {
-                        if (!event.isDown() ||
-                            (event.key != eui::InputKey::Left && event.key != eui::InputKey::Right))
-                            return false;
-                        state().sidebar_width =
-                            std::clamp(sidebar + (event.key == eui::InputKey::Left ? -8 : 8),
-                                       224.0f, sidebar_limit);
-                        return true;
-                    })
-                    .cursor(eui::CursorShape::Arrow)
                     .build();
             }
             ui.rect("title.drag")
@@ -3345,14 +3604,14 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                 .onPress([](const eui::PointerEvent &, const eui::Rect &) { window::begin_move(); })
                 .onDrag([](const auto &) { window::move(); })
                 .build();
-            if (!s.sidebar) {
+            if (sidebar < 56.0f) {
                 sidebar_toggle_button(ui, "sidebar.toggle.collapsed", false, 16, 12, p,
                                       [] { state().sidebar = true; });
                 icon_button(ui, "settings.collapsed", 0xe270, 60, 12, p,
                             [] { state().settings = true; });
             }
-            const float title_x = sidebar + (s.sidebar ? 28 : 116);
-            const float title_right = screen.width - (s.settings && !s.sidebar ? 286 : 146);
+            const float title_x = sidebar + (sidebar >= 56.0f ? 28 : 116);
+            const float title_right = screen.width - (s.settings && sidebar < 56.0f ? 286 : 146);
             const float title_width = std::max(0.0f, title_right - title_x);
             const auto &session_title = s.chat.current().title;
             const std::string title = s.settings              ? "设置"

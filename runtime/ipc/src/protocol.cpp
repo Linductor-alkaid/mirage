@@ -757,6 +757,11 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 put(object, "model_settings", value.settings_json);
                 if (!value.warning.empty())
                     put(object, "warning", value.warning);
+            } else if constexpr (std::is_same_v<T, ModelList>) {
+                mira::JsonValue::Array models;
+                for (const auto &id : value.ids)
+                    models.emplace_back(id);
+                put(object, "model_ids", mira::JsonValue{std::move(models)});
             } else if constexpr (std::is_same_v<T, PolicyView>) {
                 mira::JsonValue rules = make_object();
                 for (const auto &[capability, rule] : value.rules) {
@@ -908,6 +913,14 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                     put(object, "replace_turn_id", value.replace_turn_id);
             } else if constexpr (std::is_same_v<T, GetModelRequest>) {
                 put(object, "op", "model.get");
+            } else if constexpr (std::is_same_v<T, ListModelsRequest>) {
+                put(object, "op", "model.list");
+                put(object, "provider_id", value.provider_id);
+                put(object, "endpoint_origin", value.endpoint_origin);
+                put(object, "api_prefix", value.api_prefix);
+                put(object, "dialect", value.dialect);
+                if (value.api_key)
+                    put(object, "api_key", *value.api_key);
             } else if constexpr (std::is_same_v<T, SetModelRequest>) {
                 put(object, "op", "model.set");
                 put(object, "settings", value.settings_json);
@@ -1225,6 +1238,32 @@ RequestDecode decode_request(std::string_view payload) {
         result.body = std::move(chat);
     } else if (*op == "model.get") {
         result.body = GetModelRequest{};
+    } else if (*op == "model.list") {
+        ListModelsRequest request;
+        const auto provider = string_member(object, "provider_id");
+        const auto origin = string_member(object, "endpoint_origin");
+        const auto prefix = string_member(object, "api_prefix");
+        const auto dialect = string_member(object, "dialect");
+        if (!provider || provider->size() > 256 || !origin || origin->size() > 2048 || !prefix ||
+            prefix->size() > 2048 || !dialect || dialect->size() > 64) {
+            result.error = "model.list requires bounded provider and endpoint fields";
+            return result;
+        }
+        request.provider_id = *provider;
+        request.endpoint_origin = *origin;
+        request.api_prefix = *prefix;
+        request.dialect = *dialect;
+        if (const auto *value = member(object, "api_key")) {
+            const auto *key = value->as_string();
+            if (!key || key->size() > 2048 ||
+                std::any_of(key->begin(), key->end(),
+                            [](unsigned char c) { return c < 33 || c > 126; })) {
+                result.error = "invalid API Key";
+                return result;
+            }
+            request.api_key = *key;
+        }
+        result.body = std::move(request);
     } else if (*op == "model.set") {
         const auto settings = string_member(object, "settings");
         if (!settings || settings->size() > 65536) {
@@ -1850,6 +1889,21 @@ ResponseDecode decode_response(std::string_view payload) {
             history.entries.push_back(std::move(entry));
         }
         response.payload = std::move(history);
+    } else if (const auto *ids = member(object, "model_ids")) {
+        if (!ids->as_array() || ids->as_array()->size() > 256) {
+            result.error = "model_ids must be a bounded array";
+            return result;
+        }
+        ModelList list;
+        for (const auto &entry : *ids->as_array()) {
+            if (!entry.as_string() || entry.as_string()->empty() ||
+                entry.as_string()->size() > 1024) {
+                result.error = "invalid model id";
+                return result;
+            }
+            list.ids.push_back(*entry.as_string());
+        }
+        response.payload = std::move(list);
     } else if (const auto settings = string_member(object, "model_settings")) {
         if (settings->size() > 65536) {
             result.error = "model settings exceed budget";
