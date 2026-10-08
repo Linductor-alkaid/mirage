@@ -52,8 +52,9 @@ int main(int argc, char **argv) {
     }
     if (font_library)
         FT_Done_FreeType(font_library);
-    core::TextPrimitive::setDefaultFontFiles(text_font(),
-                                             "assets/Font Awesome 7 Free-Solid-900.otf");
+    // Match the product's shipped icon face (dslAppConfig().fonts) so Phosphor
+    // codepoints render exactly as they do in the application.
+    core::TextPrimitive::setDefaultFontFiles(text_font(), "assets/Phosphor-Regular.ttf");
     auto &page = state();
     page.runtime_notice = "合成测试会话 · 不连接模型";
     const auto session_id = page.chat.current().id;
@@ -162,6 +163,8 @@ int main(int argc, char **argv) {
     const auto assistant = page.chat.current().messages.back().id;
     auto element = [&](const std::string &key) {
         auto *found = view->find(key);
+        if (!found)
+            std::fprintf(stderr, "element lookup failed: %s\n", key.c_str());
         MIRAGE_CHECK(found);
         return found;
     };
