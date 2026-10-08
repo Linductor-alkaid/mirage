@@ -192,3 +192,9 @@
   会话页全部数据面接契约路径、模拟域退役，消费语义见
   [DEC-025](DEC-025-session-page-productization.md)；wire 契约零变更）、
   `M5-07`（批准中心复用事件纪律）。
+
+2026-10-08 M6-36 结算通知顺序修正：脚本任务的 outcome 写入、会话状态持久化与
+串行域通知投递完成后，才发布终态 task.updated。消费者收到终态即可提交后续任务，
+旧驱动不得在该通知后继续等待同一串行域，否则两 worker 配置可能占满普通池，
+使新驱动 begin_operation 的有界等待失败。wire、取消契约、序号与背压策略不变。
+验收见 [任务终态通知](../compatibility/task-terminal-notification-20261008.md)。

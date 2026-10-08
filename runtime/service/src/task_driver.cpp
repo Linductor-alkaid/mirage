@@ -227,7 +227,6 @@ void mark_driver_done(const std::shared_ptr<ServiceCore> &core, const std::strin
         }
     }
     service.recovery.persist(service.registry);
-    publish_task_updated_best_effort(core, task_id);
     // DEC-021 conversation settlement: the outcome enters the session journal
     // (the store is the fact) and its notification rides the established
     // best-effort path. `progress` is the pinned terminal name vocabulary
@@ -265,6 +264,10 @@ void mark_driver_done(const std::shared_ptr<ServiceCore> &core, const std::strin
             }
         }
     }
+    // Keep the terminal notification last: clients may immediately submit
+    // another task. No further serial-context wait may retain this worker
+    // after that notification while the next driver waits for the same pool.
+    publish_task_updated_best_effort(core, task_id);
 }
 
 /// Admits one desktop operation for the task; false means the pinned
