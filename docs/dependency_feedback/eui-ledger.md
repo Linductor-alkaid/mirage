@@ -180,3 +180,25 @@ EUI 为维护者授权的 UI 专用依赖（DEC-033），不属于 Mira / Mirado
 EUI-20261006-001验收补充：ff1e757已普通push；PR#88当前head的
 [run37348553548](https://github.com/sudoevolve/EUI-NEO/actions/runs/37348553548)整体success、四项job全成功。
 ui_state单测、原生实际视口像素和Debug/Release/ASAN/UBSAN各2/2通过，反馈保持Accepted待上游合并。
+
+## EUI-20261008-001：首帧显示和更新期尺寸失效
+
+- 状态：Accepted；负责人：Mirage 维护者；工作项：M6-35；依据：DEC-033。
+- 授权：2026-10-08 维护者要求定位、向上游提交中文 issue、修复并提 PR。
+- 版本：旧 Mirage pin fd9c1a9；上游 dev c444e53 同样存在；修复集成 pin a7e625f。
+- 上游：[中文 issue #93](https://github.com/sudoevolve/EUI-NEO/issues/93)、
+  [PR #94](https://github.com/sudoevolve/EUI-NEO/pull/94)，尚未合并。
+- 独立框架缺陷：窗口创建已显示，初始化和首次绘制尚未完成；输入/compose 回调改变
+  drawable 后，App runner 继续按更新前尺寸绘制和 present，并清除回调的待重绘。
+- 复现：320×240 在 update 后改为 480×360，未修复探针稳定报
+  `presented old-size frame after resize during update` 和 `resize lost pending repaint`。
+- 修复：主/子窗口隐藏创建，首次有效绘制后、紧接 present 前显示；帧节拍等待后重读
+  尺寸，更新后复核尺寸/DPI/指针比例，零时间重排一次；再次失效则保留重绘并唤醒。
+- 验证：四组合独立 Release 配置/构建/ctest 各 34/34；新增探针 ASAN+UBSAN 通过。
+- 责任边界修正：框架修复单独接入后，真实 XWayland 拖拽仍捕获 149/300 黑色中心
+  样本；主要整窗频闪还涉及 Mirage 未复用既有 `beginWindowResize`。应用侧改为系统
+  接管后，维护者物理鼠标验证拖拽顺畅、无频闪。不能把本 PR 单独称为该症状的完整修复。
+- 限制：原生窗口 map/swap 不是原子操作，无合成器的直接 XGetImage 仍可能读取短暂
+  空表面；没有承诺全部平台/驱动绝对无黑帧。Windows/原生 Wayland 待维护者补验。
+- 无新增线程、队列、调度器或依赖；证据与复跑方式见
+  [依赖升级审计](../supply-chain/eui-frame-presentation-20261008.md)。

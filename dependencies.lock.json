@@ -77,11 +77,11 @@
       "path": "third_party/eui-neo",
       "version": "0.6.0-dev",
       "branch": "dev",
-      "commit": "fd9c1a983e74d2a85afc3b156274afd4d8532c14",
+      "commit": "a7e625fecc1db1c1acb4850a14fb785e20600041",
       "license": "Apache-2.0",
       "license_file": "third_party/eui-neo/LICENSE",
       "consumption": "UI-only; opt-in apps/native; bundled GLFW/OpenGL; DEC-033",
-      "notes": "Dev c444e53 plus compositor-mediated window move/resize (upstream PR#91 https://github.com/sudoevolve/EUI-NEO/pull/91, issue #89) and transparent framebuffer support (upstream PR#92 https://github.com/sudoevolve/EUI-NEO/pull/92, issue #90); pin is the integration merge of both PR branches, reachable from maintainer fork. OpenGL consumption unchanged. DEC-033 / DEC-041.",
+      "notes": "Dev c444e53 plus compositor-mediated window move/resize (upstream PR#91 https://github.com/sudoevolve/EUI-NEO/pull/91, issue #89) and transparent framebuffer support (upstream PR#92 https://github.com/sudoevolve/EUI-NEO/pull/92, issue #90); pin includes both PR branches plus the first-frame/drawable-size repair (upstream PR#94 https://github.com/sudoevolve/EUI-NEO/pull/94, issue #93, EUI-20261008-001 / M6-35), reachable from maintainer fork. OpenGL consumption unchanged. DEC-033 / DEC-041.",
       "upstream": "https://github.com/sudoevolve/EUI-NEO.git"
     }
   ],
