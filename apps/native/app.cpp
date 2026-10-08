@@ -3335,11 +3335,16 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
     const float main_width = screen.width - sidebar;
     const float column_width = std::min(800.0f, main_width - 64);
     const float column_x = sidebar + (main_width - column_width) / 2;
+    // Rounded window chrome requires an alpha framebuffer; without one the
+    // corners would composite as black, so keep square edges in that case.
+    const bool rounded_window = window::transparent_framebuffer();
+    const float chrome_radius = rounded_window ? 12.0f : 0.0f;
     ui.stack("root")
         .size(screen.width, screen.height)
         .content([&] {
             ui.rect("background")
                 .size(screen.width, screen.height)
+                .radius(chrome_radius)
                 .color(p.background)
                 .onClick([] { state().selection.clear(); })
                 .build();
@@ -3354,8 +3359,25 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                             .content([&] {
                                 ui.rect("sidebar.background")
                                     .size(sidebar_width, screen.height)
+                                    .radius(chrome_radius)
                                     .color(p.sidebar)
                                     .build();
+                                if (rounded_window && chrome_radius > 0.0f) {
+                                    // The sidebar's right edge meets the content area, so its
+                                    // corners there must stay square: patch the uniform radius
+                                    // with sidebar-colored squares (border column excluded).
+                                    ui.rect("sidebar.square.top")
+                                        .position(sidebar_width - chrome_radius, 0)
+                                        .size(std::max(0.0f, chrome_radius - 1.0f), chrome_radius)
+                                        .color(p.sidebar)
+                                        .build();
+                                    ui.rect("sidebar.square.bottom")
+                                        .position(sidebar_width - chrome_radius,
+                                                  screen.height - chrome_radius)
+                                        .size(std::max(0.0f, chrome_radius - 1.0f), chrome_radius)
+                                        .color(p.sidebar)
+                                        .build();
+                                }
                                 ui.rect("sidebar.border")
                                     .position(sidebar_width - 1, 0)
                                     .size(1, screen.height)
@@ -3746,13 +3768,14 @@ const DslAppConfig &dslAppConfig() {
             .windowSize(1180, 800)
             .minWindowSize(860, 620)
             .decorated(false)
+            .transparent(true)
             .resizable(true)
             .tray(false)
             .iconPath("assets/mira.png")
             .trayIcon("assets/mira.png")
             .showDebugStatsInTitle(false)
             .showDebugOverlay(false)
-            .clearColor({0.973f, 0.973f, 0.973f, 1})
+            .clearColor({0, 0, 0, 0})
             .fonts(mirage::native_ui::text_font(), "assets/Phosphor-Regular.ttf")
             .onStart([] {
                 mirage::native_ui::window::initialize();
