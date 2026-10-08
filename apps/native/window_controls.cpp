@@ -1,10 +1,10 @@
 #include "window_controls.hpp"
 
 #include <GLFW/glfw3.h>
-#include <eui/window.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <eui/window.h>
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -75,9 +75,7 @@ void initialize() {
 bool primary_pointer_down() {
     return handle && glfwGetMouseButton(handle, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
 }
-bool transparent_framebuffer() {
-    return handle && eui::window::framebufferTransparent(handle);
-}
+bool transparent_framebuffer() { return handle && eui::window::framebufferTransparent(handle); }
 float render_scale(float logical_width) {
     int width = 0, height = 0;
     if (handle)
