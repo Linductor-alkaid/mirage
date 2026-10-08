@@ -2,7 +2,7 @@
   "date": "2026-10-08",
   "work_item": "M6-32",
   "decision": "DEC-050",
-  "source": "working tree on 77e8ac8; included in PR #75",
+  "source": "working tree on ded7e15; included in PR #75",
   "fixture": "synthetic user messages; real shipped Noto Sans SC + public EUI TextPrimitive + X11 software OpenGL; no remote model",
   "window_sizes": [
     [
@@ -33,9 +33,9 @@
     "failed": 0
   },
   "native_model_checks": 388,
-  "integration_checks": 303,
+  "integration_checks": 307,
   "asan_ubsan": "all own source dependencies of three targets passed; pinned Release reused; vptr excluded",
-  "full_debug_tsan": "Mirage + pinned Mira/Executor passed 303 checks in 24.80 seconds; per-process ASLR disabled; no suppressions",
+  "full_debug_tsan": "Mirage + pinned Mira/Executor passed 307 checks in 25.10 seconds; per-process ASLR disabled; no suppressions",
   "screenshots": "2360x1600 synthetic 2x light/dark captures; resized GLX backbuffer realized before rendering; visually inspected",
   "platforms_pending": [
     "Windows/Wayland real displays",
@@ -43,8 +43,8 @@
   ],
   "logs": [
     "/tmp/mirage-bubble-final-render.log",
-    "/tmp/mirage-bubble-final-all-tests.log",
-    "/tmp/mirage-bubble-final-asan-ubsan.log",
-    "/tmp/mirage-final-debug-tsan-test.log"
+    "/tmp/mirage-pr75-blocker-all-tests.log",
+    "/tmp/mirage-pr75-blocker-asan-ubsan.log",
+    "/tmp/mirage-pr75-blocker-tsan-test.log"
   ]
 }

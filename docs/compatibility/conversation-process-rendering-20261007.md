@@ -117,3 +117,21 @@ setarch x86_64 -R ctest --preset tsan -R '^native_agent_integration_test$' --out
 ```
 
 日志：/tmp/mirage-final-debug-tsan-{build,test}.log。
+
+## 持久化故障注入稳定性补验（2026-10-08）
+
+提交ded7e15的[第三轮CI](https://github.com/Linductor-alkaid/mirage/actions/runs/37711583120)
+中原生气泡渲染通过（12.20秒），但集成夹具在删除持久化故障注入处失败并抛出
+Directory not empty。终态历史先于后台持久化结束可见；测试搬走整个目录后，
+并发save可能重新创建目录，随后ofstream阻塞文件写入失败而测试未检测，导致删除成功。
+前面的替换故障注入也使用同一不稳定方法。
+
+两处夹具改为有界等待并原子创建保存的独占临时路径目录，利用既有O_EXCL保证保存失败；
+不搬动运行中的状态目录。明确验证阻塞创建及清理，原拒绝/上下文保留/恢复删除断言保留。
+未改变产品保存逻辑或错误语义，不使用延长固定sleep掩盖竞争。
+本机Release集成307 checks、0失败（5.28秒），完整Debug TSAN307 checks、
+0失败（25.10秒），无诊断/抑制规则。日志：/tmp/mirage-pr75-blocker-{release,tsan}-test.log。
+
+最终Release全套52/52通过（27.73秒）；自研ASAN/UBSAN三个目标388/307/20,013 checks
+均0失败（pinned Release复用，排除vptr）。格式、52个公开头边界及diff检查通过。
+日志：/tmp/mirage-pr75-blocker-all-tests.log、/tmp/mirage-pr75-blocker-asan-ubsan.log。

@@ -36,9 +36,10 @@ git diff --check
 Windows/Wayland实际显示器、多显示器DPI迁移未验证；负责人Codex，补跑条件为对应显示环境。
 最终CI与合并记录见[PR#75](https://github.com/Linductor-alkaid/mirage/pull/75)。
 
-最终native-release全套52/52通过（26.74秒）；原生渲染20,013、UI模型388、
-集成303 checks，均0失败。ASAN/UBSAN对三个目标的全部自研依赖翻译单元插桩通过，
+最终native-release全套52/52通过（27.73秒）；原生渲染20,013、UI模型388、
+集成307 checks，均0失败。ASAN/UBSAN对三个目标的全部自研依赖翻译单元插桩通过，
 复用pinned Release库，EUI无RTTI故排除vptr；不声明全依赖/vptr覆盖。
-日志：/tmp/mirage-bubble-final-all-{build,tests}.log、/tmp/mirage-bubble-final-asan-ubsan.log。
+日志：/tmp/mirage-bubble-final-all-build.log、/tmp/mirage-pr75-blocker-all-tests.log、
+/tmp/mirage-pr75-blocker-asan-ubsan.log。
 格式、52个公开头边界、六份受影响文档链接与diff检查通过。
-完整Debug TSAN集成303 checks、24.80秒，无诊断/抑制规则，参见M6-31补验。
+完整Debug TSAN集成307 checks、25.10秒，无诊断/抑制规则，参见M6-31补验。

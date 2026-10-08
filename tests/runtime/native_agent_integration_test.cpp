@@ -156,6 +156,18 @@ std::optional<ipc::DialogTurnEntry> wait_turn(ipc::IpcClient &client, const std:
     }
     return {};
 }
+// Reserve the store's exclusive temporary path without renaming a live state directory.
+// A completed turn may still be finishing its durable save; wait for that file to leave.
+bool reserve_save_blocker(const std::filesystem::path &path) {
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::error_code error;
+        if (std::filesystem::create_directory(path, error))
+            return true;
+        (void)::poll(nullptr, 0, 1);
+    }
+    return false;
+}
 int main(int argc, char **argv) {
     if (argc == 2 && std::string(argv[1]) == "--probe-live") {
         auto read = [](const char *name) {
@@ -440,18 +452,17 @@ int main(int argc, char **argv) {
              .call(ipc::SessionChatRequest{session, "过期编辑", true, "default", "", obsolete}, 2s)
              .ok);
     // Fail persistence before acknowledgement: old context remains intact.
-    const auto state_directory = config.session_state_directory;
-    const auto saved_directory = state_directory.string() + "-saved";
-    std::filesystem::rename(state_directory, saved_directory);
-    {
-        std::ofstream blocker(state_directory);
-        blocker << "fixture blocker";
-    }
+    const auto save_blocker =
+        config.session_state_directory /
+        ("session-state.json.tmp." + std::to_string(static_cast<long>(::getpid())));
+    const bool replacement_blocked = reserve_save_blocker(save_blocker);
+    MIRAGE_CHECK(replacement_blocked);
+    if (!replacement_blocked)
+        return mirage::testing::finish("native_agent_integration_test");
     const auto persist_refused = client.call(
         ipc::SessionChatRequest{session, "不应替换", true, "read_only", "", replaced->turn_id}, 2s);
     MIRAGE_CHECK(!persist_refused.ok && persist_refused.error.code == "unavailable");
-    std::filesystem::remove(state_directory);
-    std::filesystem::rename(saved_directory, state_directory);
+    MIRAGE_CHECK(std::filesystem::remove(save_blocker));
     const auto after_failure = client.call(ipc::ChatHistoryRequest{session, 40}, 2s);
     MIRAGE_CHECK(std::get<ipc::DialogHistory>(after_failure.payload).turns.back().turn_id ==
                  replaced->turn_id);
@@ -918,15 +929,13 @@ int main(int argc, char **argv) {
     const auto disposable = std::get<ipc::SessionOpened>(disposable_open.payload).session_id;
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{disposable, "可删除的历史", true}, 2s).ok);
     MIRAGE_CHECK(wait_turn(client, disposable).has_value());
-    const auto state_backup = dir.root() / "state-backup";
-    std::filesystem::rename(config.session_state_directory, state_backup);
-    std::ofstream(config.session_state_directory) << "directory blocked";
+    const bool deletion_blocked = reserve_save_blocker(save_blocker);
+    MIRAGE_CHECK(deletion_blocked);
+    if (!deletion_blocked)
+        return mirage::testing::finish("native_agent_integration_test");
     MIRAGE_CHECK(!client.call(ipc::DeleteSessionRequest{disposable}, 2s).ok);
     MIRAGE_CHECK(client.call(ipc::ChatHistoryRequest{disposable, 40}, 2s).ok);
-    std::filesystem::remove(config.session_state_directory);
-    std::filesystem::remove(
-        state_backup / ("session-state.json.tmp." + std::to_string(static_cast<long>(::getpid()))));
-    std::filesystem::rename(state_backup, config.session_state_directory);
+    MIRAGE_CHECK(std::filesystem::remove(save_blocker));
     const auto removed = client.call(ipc::DeleteSessionRequest{disposable}, 2s);
     MIRAGE_CHECK(removed.ok && std::holds_alternative<ipc::SessionDeleted>(removed.payload));
     MIRAGE_CHECK(ipc::decode_response(ipc::encode_response(removed)).ok);
