@@ -22,7 +22,7 @@
 
 ## 已执行验证与责任边界
 
-上游 dev 分支修复 ef8661c：独立 Release GLFW/OpenGL、SDL2/OpenGL、GLFW/Vulkan、SDL2/Vulkan
+上游 dev 分支修复 8818129（功能提交 ef8661c）：独立 Release GLFW/OpenGL、SDL2/OpenGL、GLFW/Vulkan、SDL2/Vulkan
 四组合配置、全量 fixture 构建和 ctest 均各 34/34；新 frame_presentation_probe 的 Debug ASAN+UBSAN 通过。
 命令使用私有 Xvfb，未关闭 leak 检测。四种 empty_window 实际窗口执行并捕获初始图像。
 这些结果验证框架路径，不等同于真实合成器的持续拖拽验收。
@@ -33,6 +33,8 @@
 不能把本依赖 PR 单独称为该症状的完整修复。
 
 原工作区 Release 首轮 51/52，事件订阅压力测试两项终态断言失败，降低负载后重跑 1/1 通过。
-全量回归在基于 origin/master 的独立工作树复跑后补录；当前不宣称独立工作树全部通过。
+基于 origin/master 的独立工作树（本依赖 pin 与应用修复组合）完整配置/构建、Release 全量 ctest 52/52；
+日志 /tmp/mirage-frame-clean-{configure,build,tests}.log。原生最终程序化 resize 诊断启动 365、resize 300 次采样均无黑色中心，
+仅代表私有 Xvfb renderer 路径。最终托盘生命周期 24 项检查全部通过（/tmp/mirage-frame-clean-tray/lifecycle-results.json）。
 托盘生命周期、最小化/恢复和同进程复用通过；最终原生 UI 两项测试 2/2 通过。
-Windows/原生 Wayland：负责人维护者，目标环境可用后使用实际鼠标补验；上游 PR #94 的 [CI 四组合](https://github.com/sudoevolve/EUI-NEO/actions/runs/37789872908) 全部成功；评审仍开放。
+Windows/原生 Wayland：负责人维护者，目标环境可用后使用实际鼠标补验；上游 PR #94 的 [CI 四组合](https://github.com/sudoevolve/EUI-NEO/actions/runs/37791651376) 全部成功；评审仍开放。
