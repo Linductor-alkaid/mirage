@@ -31,6 +31,7 @@ int minimum_width = 860, minimum_height = 620;
 GLFWcursor *sidebar_cursor = nullptr;
 bool sidebar_cursor_active = false;
 bool fallback_move_armed = false;
+bool fallback_resize_armed = false;
 
 void begin() {
     glfwGetWindowPos(handle, &start_x, &start_y);
@@ -98,10 +99,15 @@ void shutdown() {
         glfwDestroyCursor(sidebar_cursor);
     sidebar_cursor = nullptr;
     sidebar_cursor_active = false;
+    fallback_move_armed = false;
+    fallback_resize_armed = false;
     handle = nullptr;
 }
 void show() {
-    if (handle) {
+    // EUI-20261008-001: the runner maps the initial window after its first frame.
+    // A product-state reply can arrive during that frame; it must not map early.
+    if (handle && (glfwGetWindowAttrib(handle, GLFW_VISIBLE) ||
+                   glfwGetWindowAttrib(handle, GLFW_ICONIFIED))) {
         glfwShowWindow(handle);
         if (glfwGetWindowAttrib(handle, GLFW_ICONIFIED))
             glfwRestoreWindow(handle);
@@ -152,13 +158,45 @@ void move() {
     glfwSetWindowPos(handle, start_x + dx, start_y + dy);
 }
 void begin_resize(int edges) {
+    fallback_resize_armed = false;
     if (!handle || maximized())
         return;
     resize_edges = edges;
-    begin();
+    eui::window::WindowResizeEdge direction;
+    switch (edges) {
+    case top | left:
+        direction = eui::window::WindowResizeEdge::TopLeft;
+        break;
+    case top:
+        direction = eui::window::WindowResizeEdge::Top;
+        break;
+    case top | right:
+        direction = eui::window::WindowResizeEdge::TopRight;
+        break;
+    case right:
+        direction = eui::window::WindowResizeEdge::Right;
+        break;
+    case bottom | right:
+        direction = eui::window::WindowResizeEdge::BottomRight;
+        break;
+    case bottom:
+        direction = eui::window::WindowResizeEdge::Bottom;
+        break;
+    case bottom | left:
+        direction = eui::window::WindowResizeEdge::BottomLeft;
+        break;
+    case left:
+        direction = eui::window::WindowResizeEdge::Left;
+        break;
+    default:
+        return;
+    }
+    fallback_resize_armed = !eui::window::beginWindowResize(handle, direction);
+    if (fallback_resize_armed)
+        begin();
 }
 void resize() {
-    if (!handle || maximized())
+    if (!handle || maximized() || !fallback_resize_armed)
         return;
     int dx = 0, dy = 0;
     delta(dx, dy);
@@ -170,8 +208,12 @@ void resize() {
         horizontal ? std::max(minimum_width, start_width + (from_left ? -dx : dx)) : start_width;
     const int height =
         vertical ? std::max(minimum_height, start_height + (from_top ? -dy : dy)) : start_height;
-    glfwSetWindowPos(handle, from_left ? start_x + start_width - width : start_x,
-                     from_top ? start_y + start_height - height : start_y);
-    glfwSetWindowSize(handle, width, height);
+    if (from_left || from_top)
+        glfwSetWindowPos(handle, from_left ? start_x + start_width - width : start_x,
+                         from_top ? start_y + start_height - height : start_y);
+    int current_width = 0, current_height = 0;
+    glfwGetWindowSize(handle, &current_width, &current_height);
+    if (current_width != width || current_height != height)
+        glfwSetWindowSize(handle, width, height);
 }
 } // namespace mirage::native_ui::window
