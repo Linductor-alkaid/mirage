@@ -955,6 +955,13 @@ void scenario_disconnect_mid_task_cleans_up() {
         },
         kEventBudget);
     MIRAGE_CHECK(terminal.has_value());
+    // A terminal task notification must follow its settlement notification:
+    // reacting to it by submitting work must not strand the old driver on
+    // another serial-context wait while the two-worker pool starts that work.
+    MIRAGE_CHECK(std::any_of(staying_log.begin(), staying_log.end(), [&](const ipc::Event &event) {
+        const auto *message = std::get_if<ipc::SessionMessageEvent>(&event.payload);
+        return message != nullptr && message->task_id == *task_id && message->kind == "outcome";
+    }));
     check_seq_from("disconnect_mid_task staying", staying_log, 2);
 
     // The service answers new work without a hiccup after the cleanup.
