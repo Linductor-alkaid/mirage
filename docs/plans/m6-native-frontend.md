@@ -46,7 +46,7 @@
 | M6-24 | Completed（Linux X11） | 修复开发desktop入口绕过Service；真实GIO冷启动、Key保存/替换与服务复用验收 |
 | M6-28 | Blocked | 自有 PR 全绿合并、功能分支及过期 build 已清理；仅 EUI #88 待上游有权限者合并，验收记录分支随 PR 交付；[维护计划](maintenance-ci-acceptance-20261007.md)、[进程 EOF 修复](maintenance-linux-process-eof-20261007.md) |
 | M6-33 | Completed（Linux X11） | 侧栏/主题过渡、逐模型思考设置、按URL获取候选；Release52/52、ASAN/TSAN、真实公开目录与原生渲染通过；DEC-051 |
-| M6-35 | In Progress | 真实 XWayland 持续拖拽改为系统原生接管，维护者实测无黑闪；EUI issue #93/PR #94 四组合本机/CI通过；组合 Release52/52、最终程序化采样365+300无黑色中心；上游评审与 Windows 实际拖拽保持开放；[证据](../compatibility/native-frame-presentation-20261008.md) |
+| M6-35 | Completed（Linux X11/XWayland） | 真实 XWayland 持续拖拽改为系统原生接管，维护者实测无黑闪；EUI issue #93/PR #94 四组合本机/CI通过；组合 Release52/52、最终程序化采样365+300无黑色中心；Mirage 两个PR八项CI全成功，维护者授权合入；上游评审与 Windows 实际拖拽保持开放；[证据](../compatibility/native-frame-presentation-20261008.md) |
 | M6-10 | Completed | 依工程规范9.4整理Mira/Mirador独立反馈台账，复核已登记问题并向Mira上游提交可复现反馈；不修改依赖或升级pin |
 
 ## 测试矩阵与退出条件
@@ -505,3 +505,9 @@ Windows、物理显示器帧率及Anthropic真实目录保持补验，不关闭M
 [issue #93](https://github.com/sudoevolve/EUI-NEO/issues/93) 与
 [PR #94](https://github.com/sudoevolve/EUI-NEO/pull/94)。完整证据、失败及平台补验见
 [窗口呈现验收](../compatibility/native-frame-presentation-20261008.md)。
+
+2026-10-08 M6-35 合入验收：依赖 [PR #79](https://github.com/Linductor-alkaid/mirage/pull/79)
+已合入 master；应用 [PR #80](https://github.com/Linductor-alkaid/mirage/pull/80)
+已同步 master，维护者明确授权合入及清理本次 Mirage 工作分支。两份原提交的八项 CI
+全部成功，含 Windows MSVC、Debug/Release、ASAN/UBSAN/TSAN 与原生界面。Linux
+功能范围完成；Windows 编译/自动测试不替代物理拖拽验收，上游 #94 评审保持开放。

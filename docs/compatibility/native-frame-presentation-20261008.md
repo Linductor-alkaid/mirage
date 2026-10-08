@@ -1,7 +1,7 @@
 # 窗口呈现与持续拖拽验收
 
 > 日期：2026-10-08
-> 状态：Validated（Linux X11/XWayland），Mirage CI/上游评审与其他平台开放
+> 状态：Validated（Linux X11/XWayland），Mirage 原提交 CI 全成功；上游评审与其他平台实际拖拽开放
 > 工作项：M6-35；负责人：Mirage 维护者
 > 依据：[DEC-033](../decisions/DEC-033-native-agent-frontend.md)
 
@@ -81,7 +81,8 @@ python3 tests/manual/tray_runtime_acceptance.py --build build/native-release \
 ```
 
 依工程规范 10.7，依赖升级为独立 [PR #79](https://github.com/Linductor-alkaid/mirage/pull/79)，
-应用修复堆叠在其分支上；不包含原工作区的 Mira/kairo 迁移。
+依赖已合入 master，应用 [PR #80](https://github.com/Linductor-alkaid/mirage/pull/80)
+已同步 master，维护者授权合入；不包含原工作区的 Mira/kairo 迁移。
 
 ## 开放验证
 
@@ -90,3 +91,12 @@ python3 tests/manual/tray_runtime_acceptance.py --build build/native-release \
 - 上游 #94 [CI 四组合](https://github.com/sudoevolve/EUI-NEO/actions/runs/37791651376)
   全部成功；Review 与合入由维护者跟进，合入后同步正式 pin 并删除分支说明。
 - 真机多 DPI/驱动、其他合成器和原生 Wayland：目标环境可用后补验；不作跨平台保证。
+
+## Mirage 合入依据
+
+维护者于 2026-10-08 明确授权合并 Mirage 更新并清理本次工作分支。
+PR #79 的 [CI](https://github.com/Linductor-alkaid/mirage/actions/runs/37792640519)
+与 PR #80 原功能提交 fea6760 的 [CI](https://github.com/Linductor-alkaid/mirage/actions/runs/37792740647)
+均八项全部成功，包含 Windows MSVC full tree、Debug/Release、ASAN/UBSAN/TSAN、
+原生界面与格式/头文件边界。同步最新 master 的 merge 没有源码变化；本次仅更新
+验收状态。最终分支 CI 仍作为合入门禁，不因原提交通过而跳过。
