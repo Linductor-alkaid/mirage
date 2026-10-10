@@ -485,6 +485,156 @@
         "role": "neutral",
         "displayName": "dark context ring",
         "purpose": "Track at 25% opacity and usage arc at 70% opacity; unknown keeps track only."
+      },
+      "light-brand": {
+        "role": "accent",
+        "displayName": "Mira brand rose (light)",
+        "purpose": "Primary interactive accent: active indicators, focus rings, links. OKLCH hue ~15 — warm rose echoing Mira's red-hair character; lively and approachable, distinct from ZCode sky-blue hue ~212.",
+        "tonalRamp": [
+          "oklch(18% 0.17 15)",
+          "oklch(29% 0.17 15)",
+          "oklch(40% 0.18 15)",
+          "oklch(50% 0.19 15)",
+          "oklch(58% 0.20 15)",
+          "oklch(68% 0.18 15)",
+          "oklch(80% 0.12 15)",
+          "oklch(95% 0.04 15)"
+        ]
+      },
+      "dark-brand": {
+        "role": "accent",
+        "displayName": "Mira brand rose (dark)",
+        "purpose": "Primary interactive accent in dark theme. Slightly lower chroma, higher lightness for WCAG AA against dark surfaces.",
+        "tonalRamp": [
+          "oklch(12% 0.15 15)",
+          "oklch(22% 0.17 15)",
+          "oklch(33% 0.18 15)",
+          "oklch(44% 0.19 15)",
+          "oklch(55% 0.19 15)",
+          "oklch(65% 0.18 15)",
+          "oklch(76% 0.14 15)",
+          "oklch(92% 0.05 15)"
+        ]
+      },
+      "light-brand-subtle": {
+        "role": "accent",
+        "displayName": "Brand tint surface (light)",
+        "purpose": "Low-emphasis accent surface: selected states, active row tints, focus halos."
+      },
+      "dark-brand-subtle": {
+        "role": "accent",
+        "displayName": "Brand tint surface (dark)"
+      },
+      "light-success": {
+        "role": "semantic",
+        "displayName": "Success (light)",
+        "purpose": "Positive outcome text and icon. Must be paired with label or icon, never hue-only."
+      },
+      "dark-success": {
+        "role": "semantic",
+        "displayName": "Success (dark)"
+      },
+      "light-success-subtle": {
+        "role": "semantic",
+        "displayName": "Success tint (light)"
+      },
+      "dark-success-subtle": {
+        "role": "semantic",
+        "displayName": "Success tint (dark)"
+      },
+      "light-warning": {
+        "role": "semantic",
+        "displayName": "Warning (light)"
+      },
+      "dark-warning": {
+        "role": "semantic",
+        "displayName": "Warning (dark)"
+      },
+      "light-warning-subtle": {
+        "role": "semantic",
+        "displayName": "Warning tint (light)"
+      },
+      "dark-warning-subtle": {
+        "role": "semantic",
+        "displayName": "Warning tint (dark)"
+      },
+      "light-error": {
+        "role": "semantic",
+        "displayName": "Error (light)",
+        "purpose": "Destructive action confirm, inline validation error. Always paired with error icon or label text."
+      },
+      "dark-error": {
+        "role": "semantic",
+        "displayName": "Error (dark)"
+      },
+      "light-error-subtle": {
+        "role": "semantic",
+        "displayName": "Error tint (light)"
+      },
+      "dark-error-subtle": {
+        "role": "semantic",
+        "displayName": "Error tint (dark)"
+      },
+      "light-find-highlight": {
+        "role": "accent",
+        "displayName": "Find highlight (light)",
+        "purpose": "Text search result background at 18% opacity; must not rely on color alone."
+      },
+      "dark-find-highlight": {
+        "role": "accent",
+        "displayName": "Find highlight (dark)"
+      },
+      "light-find-highlight-active": {
+        "role": "accent",
+        "displayName": "Active find match (light)"
+      },
+      "dark-find-highlight-active": {
+        "role": "accent",
+        "displayName": "Active find match (dark)"
+      },
+      "terminal-palette": {
+        "role": "terminal",
+        "displayName": "ANSI 16-color palette",
+        "purpose": "Fixed palette for terminal/shell output surfaces only. Not for conversation UI controls. Shares brand indigo as terminal-blue/bright-blue to maintain color coherence.",
+        "colors": {
+          "black": "#2e2e2e",
+          "red": "#c42828",
+          "green": "#1a7f4b",
+          "yellow": "#9a6400",
+          "blue": "#5d4ee8",
+          "magenta": "#8b3db5",
+          "cyan": "#1a8f90",
+          "white": "#c2c2c2",
+          "bright-black": "#737373",
+          "bright-red": "#f47171",
+          "bright-green": "#4ade80",
+          "bright-yellow": "#fbbf24",
+          "bright-blue": "#9b8ff8",
+          "bright-magenta": "#c084fc",
+          "bright-cyan": "#2dd4bf",
+          "bright-white": "#f0f0f0"
+        }
+      },
+      "git-status-palette": {
+        "role": "semantic",
+        "displayName": "Git status colors",
+        "purpose": "File tree and diff view status indicators. Reuses semantic success/warning/error hues for consistency. Always paired with a status icon.",
+        "light": {
+          "added": "#1a7f4b",
+          "modified": "#9a6400",
+          "deleted": "#c42828",
+          "renamed": "#5d4ee8",
+          "untracked": "#737373",
+          "ignored": "#ababab"
+        },
+        "dark": {
+          "added": "#4ade80",
+          "modified": "#fbbf24",
+          "deleted": "#f47171",
+          "renamed": "#9b8ff8",
+          "untracked": "#a0a0a0",
+          "ignored": "#555555"
+        }
       }
     },
     "typographyMeta": {
@@ -525,8 +675,73 @@
         "purpose": "Visible 18px provider name and 14px chevron replace compact anonymous icon rail."
       }
     },
-    "shadows": [],
-    "motion": [],
+    "shadows": [
+      {
+        "name": "shadow-popover",
+        "value": "0 2px 8px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.06)",
+        "darkValue": "0 2px 8px rgba(0,0,0,0.40), 0 0 0 1px rgba(0,0,0,0.20)",
+        "use": "Context popovers, model/reference panels, autocomplete overlays. Prefer border + subtle blur over heavy drop shadow."
+      },
+      {
+        "name": "shadow-dialog",
+        "value": "0 8px 32px rgba(0,0,0,0.16), 0 0 0 1px rgba(0,0,0,0.08)",
+        "darkValue": "0 8px 32px rgba(0,0,0,0.60), 0 0 0 1px rgba(0,0,0,0.24)",
+        "use": "Modal dialogs (confirmation, delete). Stronger blur signals genuine blocking overlay."
+      },
+      {
+        "name": "shadow-composer",
+        "value": "0 -1px 0 rgba(0,0,0,0.06)",
+        "darkValue": "0 -1px 0 rgba(0,0,0,0.20)",
+        "use": "Composer top edge separator — a hairline upward shadow replaces a hard border."
+      }
+    ],
+    "motion": [
+      {
+        "name": "duration-micro",
+        "value": "120ms",
+        "use": "Icon state swap, checkbox check, badge count. Instant feel with just enough feedback."
+      },
+      {
+        "name": "duration-fast",
+        "value": "180ms",
+        "use": "Button hover/active, selection highlight, popover arrow. Default for most interactive feedback."
+      },
+      {
+        "name": "duration-standard",
+        "value": "220ms",
+        "use": "Sidebar open/close (already implemented per DEC-051), panel slide-in/out."
+      },
+      {
+        "name": "duration-theme",
+        "value": "240ms",
+        "use": "Theme palette interpolation across all color roles (already implemented per DEC-051)."
+      },
+      {
+        "name": "ease-standard",
+        "value": "cubic-bezier(0.4, 0, 0.2, 1)",
+        "use": "General easing for enter and exit. Matches Material Design standard easing; comfortable for most UI motion."
+      },
+      {
+        "name": "ease-enter",
+        "value": "cubic-bezier(0, 0, 0.2, 1)",
+        "use": "Elements entering the screen: popovers, dialogs expanding. Decelerates into final position."
+      },
+      {
+        "name": "ease-exit",
+        "value": "cubic-bezier(0.4, 0, 1, 1)",
+        "use": "Elements leaving the screen: dismiss, collapse. Accelerates away quickly."
+      },
+      {
+        "name": "properties",
+        "value": "transform, opacity",
+        "use": "Animate only these properties. Never animate width, height, padding, margin, or color directly — use opacity for show/hide and transform for position/scale."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "duration: 0ms; transition: none",
+        "use": "Applied under prefers-reduced-motion: reduce. Remove movement entirely, keep instant state feedback (color, opacity snap)."
+      }
+    ],
     "breakpoints": [
       {
         "name": "model-provider-navigation",
@@ -1082,10 +1297,33 @@
         "light",
         "dark"
       ],
-      "apply": "Immediate full-page Palette refresh.",
-      "memory": "Process lifetime only.",
-      "systemThemeSync": false,
-      "persistence": false,
+      "apply": "Immediate full-page Palette refresh. All color roles transition together at duration-theme (240ms) with ease-standard.",
+      "memory": "Persisted to user preference store (XDG_CONFIG_HOME/mirage/preferences.json on Linux, AppData/Roaming/mirage/preferences.json on Windows). Theme is restored on next launch. Falls back to 'light' if file is missing or unreadable.",
+      "systemThemeSync": {
+        "supported": true,
+        "option": "Follow system",
+        "mechanism": "Subscribes to platform dark-mode change signal (org.freedesktop.portal.Settings on Linux, WM_COLORSCHEME on Windows). Re-evaluates on signal; manual override disables sync until user explicitly re-selects Follow system.",
+        "default": false
+      },
+      "persistence": true,
+      "fontSizePreference": {
+        "supported": true,
+        "label": "文字大小",
+        "steps": [
+          {"label": "小", "uiFontSize": 12, "description": "紧凑布局，适合高分屏"},
+          {"label": "默认", "uiFontSize": 14, "description": "标准大小"},
+          {"label": "大", "uiFontSize": 16, "description": "适合低分屏或视觉辅助需求"}
+        ],
+        "default": "默认",
+        "note": "uiFontSize 值传入 typography.hpp 的 ui_font_size(); 所有排版角色均相对此值偏移，不改变根字号。持久化至 preferences.json。"
+      },
+      "reduceMotion": {
+        "supported": true,
+        "label": "减少动画",
+        "default": false,
+        "systemSync": "读取 prefers-reduced-motion 媒体查询（经 EUI 平台 API 桥接）；用户手动开关优先于系统信号。",
+        "effect": "所有 motion token 的 duration 归零；保留即时状态反馈（颜色、不透明度切换）。持久化至 preferences.json。"
+      },
       "backgroundTasks": false,
       "chatDuringSettings": "Chat input/composer are not composed; session and draft preserved; Ctrl+N/Ctrl+Enter do not modify background chat.",
       "shortcuts": {
@@ -1129,7 +1367,7 @@
       }
     },
     "chatBehavior": {
-      "entry": "session.chat carries session access and reasoning captured at submission; read_only registers no tools, default registers only wait.",
+      "entry": "session.chat freezes access/reasoning at submission. read_only retains supported observations and authorized capture for explicitly enabled image models; default additionally admits permission-gated mutations, readonly action verification and wait.",
       "roles": [
         "right-aligned user bubble",
         "cardless completed Mira Markdown",
@@ -1138,7 +1376,14 @@
       ],
       "runningControl": "Send arrow becomes stop square; session.chat.cancel requests cancellation.",
       "replyPresentation": "Trim only edge CR/LF blank lines; preserve internal formatting and raw service history.",
-      "tools": "Mira builtin wait only; no screen observation, desktop tools or RPA.",
+      "tools": "Supported desktop Providers supply scoped observations and complete input; supports_images enables authorized PNG capture/supplier. DEC-056 fixes local postconditions before mutations, observes afterwards and gates terminal success; workflow tools are not exposed.",
+      "desktopEvidence": {
+        "authority": "Host receipts and fresh observations; UI projection is display-only.",
+        "row": "Existing 28px summary, target window after tool name; dispatched/verified/unverified/uncertain/rejected labels.",
+        "detail": "Existing 13px/20px text, 8px inset and 240px scrolling; action/evidence identity, observed digest and timestamp stay copyable.",
+        "limits": "Declared local conditions only. Three real X11 app tasks passed; real semantic forms, OCR/Canvas and Windows/Wayland remain unverified.",
+        "evidence": "docs/compatibility/post-action-verification-20261009.md"
+      },
       "shutdown": "Stop bridge worker, consume request futures, shutdown UI Executor; external Runtime Service remains alive.",
       "deferred": [
         "Windows acceptance",

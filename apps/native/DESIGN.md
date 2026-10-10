@@ -33,6 +33,70 @@ colors:
   dark-quote-background: '#202020'
   light-context-ring: '#737373'
   dark-context-ring: '#b1b1b1'
+  # 品牌强调色 — Mira 暖玫瑰（OKLCH hue ~15，呼应红发角色的温暖活力；区别于 ZCode sky-blue hue ~212）
+  light-brand: '#c94560'
+  dark-brand: '#f07585'
+  light-brand-subtle: '#fdeef1'
+  dark-brand-subtle: '#2e0d14'
+  light-brand-foreground: '#ffffff'
+  dark-brand-foreground: '#1a060b'
+  # 状态语义色 — success / warning / error
+  light-success: '#1a7f4b'
+  dark-success: '#4ade80'
+  light-success-subtle: '#e8f8ee'
+  dark-success-subtle: '#0c2918'
+  light-warning: '#9a6400'
+  dark-warning: '#fbbf24'
+  light-warning-subtle: '#fef5e0'
+  dark-warning-subtle: '#2b1d00'
+  light-error: '#c42828'
+  dark-error: '#f47171'
+  light-error-subtle: '#fdecea'
+  dark-error-subtle: '#2d0d0d'
+  # 查找 / 高亮
+  light-find-highlight: 'rgba(201, 69, 96, 0.15)'
+  dark-find-highlight: 'rgba(240, 117, 133, 0.20)'
+  light-find-highlight-active: 'rgba(201, 69, 96, 0.38)'
+  dark-find-highlight-active: 'rgba(240, 117, 133, 0.44)'
+  # 终端 ANSI 调色板（供终端展示表面使用；非对话 UI 控件色）
+  # terminal-blue/bright-blue 使用呼应蓝眼的独立蓝，与暖玫瑰品牌色形成色彩对话
+  light-terminal-bg: '#f2f2f2'
+  dark-terminal-bg: '#161616'
+  light-terminal-fg: '#1e1e1e'
+  dark-terminal-fg: '#e0e0e0'
+  terminal-black: '#2e2e2e'
+  terminal-red: '#c42828'
+  terminal-green: '#1a7f4b'
+  terminal-yellow: '#9a6400'
+  terminal-blue: '#3a72d0'
+  terminal-magenta: '#8b3db5'
+  terminal-cyan: '#1a8f90'
+  terminal-white: '#c2c2c2'
+  terminal-bright-black: '#737373'
+  terminal-bright-red: '#f47171'
+  terminal-bright-green: '#4ade80'
+  terminal-bright-yellow: '#fbbf24'
+  terminal-bright-blue: '#6ea8f5'
+  terminal-bright-magenta: '#c084fc'
+  terminal-bright-cyan: '#2dd4bf'
+  terminal-bright-white: '#f0f0f0'
+  terminal-cursor: '#c94560'
+  terminal-cursor-dark: '#f07585'
+  terminal-selection: 'rgba(201, 69, 96, 0.22)'
+  terminal-selection-dark: 'rgba(240, 117, 133, 0.22)'
+  # Git 状态色（供文件树与差异视图使用）
+  light-git-added: '#1a7f4b'
+  dark-git-added: '#4ade80'
+  light-git-modified: '#9a6400'
+  dark-git-modified: '#fbbf24'
+  light-git-deleted: '#c42828'
+  dark-git-deleted: '#f47171'
+  light-git-renamed: '#c94560'
+  dark-git-renamed: '#f07585'
+  light-git-untracked: '#737373'
+  dark-git-untracked: '#a0a0a0'
+  light-git-ignored: '#ababab'
+  dark-git-ignored: '#555555'
 typography:
   headline:
     fontFamily: Noto Sans SC, sans-serif
@@ -288,13 +352,23 @@ components:
 - 明暗两态共享中性灰角色；默认浅色。
 - 随应用交付的 Noto Sans SC 中文无衬线文字与 Phosphor Regular 操作图标；品牌继承 Mira 原始角色图。
 - 可调宽并收起的侧栏、右对齐用户气泡、无卡片 Markdown 回复与随文字增高的 composer。
-- 设置入口集中外观与模型；主题即时应用且仅在当前运行中保留，模型配置由服务保存并确认，API Key 直接输入并默认遮蔽。
+- 设置入口集中外观与模型；主题、文字大小与减少动画即时应用并持久化，模型配置由服务保存并确认，API Key 直接输入并默认遮蔽。
 - 平面容器、细描边、有限圆角。
 - 清晰展示实际轮次状态、已应用模型、附件/引用来源与服务连接结果；上下文比例取最近成功请求的输入 Token 与显式窗口预算，未知时明确说明。
 
 ## Colors
 
-两套控件 Palette 都使用中性灰，颜色原始值以 frontmatter 为准。Mira 角色图保留原始红发蓝眼色彩，这些图片颜色不扩展为控件强调色 token。
+两套控件 Palette 保留全部中性灰，同时引入基于 Mira 角色气质的品牌强调色和语义反馈色。颜色原始值以 frontmatter 为准。Mira 角色图保留原始红发蓝眼色彩，这些图片颜色不扩展为控件强调色 token。
+
+**品牌强调色：** `light-brand` / `dark-brand` 使用暖玫瑰（OKLCH hue ~15），呼应 Mira 红发角色的温暖活力，区别于 ZCode 的冷静天空蓝（hue ~212）。用于活跃状态指示、焦点环、链接与强调操作。`*-brand-subtle` 用于选中行背景、hover 染色和焦点光晕等低强度场景。
+
+**语义反馈色：** `*-success`（绿）/ `*-warning`（琥珀）/ `*-error`（红）用于操作结果、验证错误和危险操作确认。语义色始终与图标或文字标签配合，不单独依赖色相传递状态。
+
+**查找与高亮：** `*-find-highlight` 和 `*-find-highlight-active` 使用品牌色的透明变体，在文本搜索结果和当前匹配之间形成层次差异。
+
+**终端 ANSI 调色板：** 供终端/Shell 输出表面使用，独立于对话 UI 控件。`terminal-blue` / `terminal-bright-blue` 使用呼应 Mira 蓝眼的独立蓝（#3a72d0 / #6ea8f5），与暖玫瑰品牌色构成视觉上的角色色彩对话，而不是简单复用品牌色。
+
+**Git 状态色：** 供未来文件树与差异视图使用，复用语义色的色相以保持一致性。
 
 ### Primary
 
@@ -423,10 +497,18 @@ AT-SPI 中 GNOME Mirage 按钮的 SHOWING=true。Dock 像素截图因权限限�
 hover 使用 hover、pressed 使用 selected。宽屏按钮组从面板右侧 264px 开始、y=30；
 窄屏在 (24, 62) 排于标签下方。
 
-选择即时刷新整页 Palette；面板下方 14px 声明“即时应用 · 本次运行内保留外观偏好”，
-宽屏距面板顶部 120px、窄屏 136px。没有系统主题同步、磁盘持久化或后台任务。
+选择即时刷新整页 Palette，所有颜色角色以 240ms `ease-standard` 同步过渡；面板下方 14px 声明”即时应用 · 外观偏好已保留”，宽屏距面板顶部 120px、窄屏 136px。
+
+**持久化：** 外观偏好（主题、文字大小、减少动画）写入 `XDG_CONFIG_HOME/mirage/preferences.json`（Linux）或 `AppData\Roaming\mirage\preferences.json`（Windows），下次启动时恢复；文件缺失或无法读取时回退浅色主题。
+
+**跟随系统：** 提供”跟随系统”选项，订阅平台深色模式信号（Linux：`org.freedesktop.portal.Settings`，Windows：`WM_COLORSCHEME`）；用户手动选主题后停止同步，直到重新选择”跟随系统”。默认关闭。
+
+**文字大小：** 外观页提供小 / 默认 / 大三档，分别对应 `ui_font_size()` 12 / 14 / 16。调整即时生效并持久化，所有排版角色相对此值偏移，不改变根字号或布局基准。
+
+**减少动画：** 切换后将所有 motion token 的 duration 归零，即时生效并持久化；也读取平台 `prefers-reduced-motion` 信号，手动开关优先于系统信号。
+
 设置打开时不合成对话输入和 composer，保留会话及草稿；Ctrl+N 与 Ctrl+Enter 不修改背景会话。
-Ctrl+, 在没有弹层时打开设置；Escape 先关闭弹层，再返回对话。
+Ctrl+, 在没有弹层时打开设置；Escape 先关闭弹层，再返回对话。没有后台任务。
 
 侧栏横向调整光标由私有 GLFW Adapter 创建和切换，悬停/拖动结束后复原，
 应用 onShutdown 释放；该平台类型不进入设计 token 或公开产品接口。
@@ -590,10 +672,18 @@ M6-22厂商导航采用有来源记录的品牌资产，窄窗口以56px图标�
 最多240px独立滚动，面板文字内边距复用8px token。思考正文、工具参数/结果可复制，
 默认折叠且以段稳定ID保留展开状态。失败/取消显式状态，redacted思考/签名不展示。
 
+2026-10-09（DEC-056 / M7-08）：桌面修改摘要复用上述28px行、13px/20px文字及
+8px内边距；名称后追加目标窗口，右侧区分已派发/已核验/未验证/不确定/已拒绝。
+证据只来自有效宿主回执，旧回执或无法解析的截断证据不显示已核验。展开结果保留
+action_id、evidence_id、观察摘要与时间，继续使用既有独立滚动和复制。
+宿主终态以规范工具结果与新观察判定，UI文字不作为任务完成事实源。浅/深色
+1180×800 renderer 已检查，验证见
+[动作后核验](../../docs/compatibility/post-action-verification-20261009.md)。
+
 
 2026-10-08（DEC-051 / M6-33）：侧栏开合采用220ms三次减速，主列随可见宽度连续定位；
 明暗主题在240ms内同步插值文字、底色和边界。反向切换从当前值继续，拖动侧栏直接跟手。
-外观页“减少动态效果”可直接切换，偏好只在本次运行内保留。
+外观页”减少动态效果”可直接切换，偏好持久化到 preferences.json；也读取系统信号，手动设置优先。
 模型页可逐模型声明OpenAI思考能力，Anthropic选项沿用按模型ID核验的配置；保存后会话页
 显示服务确认的思考档位。填写Base URL和Key后点击“获取模型”，候选最多256项，点击加入
 编辑副本再保存。已存Key只用于完全匹配的服务地址/协议，地址或Key变更会使旧候选失效。

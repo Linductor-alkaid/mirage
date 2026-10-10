@@ -10,6 +10,7 @@
 #include "selection_adapter.hpp"
 #include "typography.hpp"
 #include "window_controls.hpp"
+#include <mirage/runtime/persistence/paths.hpp>
 #include <mirage/runtime/persistence/settings.hpp>
 
 #include <algorithm>
@@ -23,13 +24,130 @@
 #include <eui/platform.h>
 #include <eui_neo.h>
 #include <filesystem>
+#include <fstream>
 #include <functional>
+#include <sstream>
 #include <string>
 #include <utility>
 
 namespace mirage::native_ui {
 std::uint64_t process_id();
 namespace {
+
+// ---------------------------------------------------------------------------
+// Appearance preferences — persisted to $XDG_CONFIG_HOME/mirage/preferences.json
+// Serialized as minimal hand-written JSON; mira/json.hpp is not available here.
+// ---------------------------------------------------------------------------
+struct AppPreferences {
+    // Appearance
+    bool dark = false;
+    bool reduced_motion = false;
+    int font_size_step = 1;     // 0=小(12EM), 1=默认(14EM), 2=大(16EM)
+    // Session defaults (applied to each new session's initial access/reasoning)
+    std::string default_access = "default";     // "default" | "read_only"
+    std::string default_reasoning = "";         // "" | model-specific value
+    // Code block display
+    int code_font_size_step = 1;  // 0=小(11), 1=默认(13), 2=大(15)
+};
+
+std::filesystem::path preferences_path() {
+    return mirage::runtime::persistence::default_config_directory() / "preferences.json";
+}
+
+AppPreferences load_preferences() {
+    AppPreferences prefs;
+    const auto path = preferences_path();
+    std::ifstream f(path);
+    if (!f)
+        return prefs;
+    std::string src((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    // Minimal key-value extraction: find "key": value patterns.
+    auto read_bool = [&](const std::string &key, bool &out) {
+        const auto pos = src.find('"' + key + '"');
+        if (pos == std::string::npos)
+            return;
+        const auto colon = src.find(':', pos);
+        if (colon == std::string::npos)
+            return;
+        const auto start = src.find_first_not_of(" \t\r\n", colon + 1);
+        if (start == std::string::npos)
+            return;
+        if (src.substr(start, 4) == "true")
+            out = true;
+        else if (src.substr(start, 5) == "false")
+            out = false;
+    };
+    auto read_int = [&](const std::string &key, int &out) {
+        const auto pos = src.find('"' + key + '"');
+        if (pos == std::string::npos)
+            return;
+        const auto colon = src.find(':', pos);
+        if (colon == std::string::npos)
+            return;
+        const auto start = src.find_first_not_of(" \t\r\n", colon + 1);
+        if (start == std::string::npos)
+            return;
+        int v = 0;
+        const auto [ptr, ec] =
+            std::from_chars(src.data() + start, src.data() + src.size(), v);
+        if (ec == std::errc{})
+            out = v;
+    };
+    auto read_string = [&](const std::string &key, std::string &out) {
+        const auto pos = src.find('"' + key + '"');
+        if (pos == std::string::npos)
+            return;
+        const auto colon = src.find(':', pos);
+        if (colon == std::string::npos)
+            return;
+        const auto q1 = src.find('"', colon + 1);
+        if (q1 == std::string::npos)
+            return;
+        const auto q2 = src.find('"', q1 + 1);
+        if (q2 == std::string::npos)
+            return;
+        out = src.substr(q1 + 1, q2 - q1 - 1);
+    };
+    read_bool("dark", prefs.dark);
+    read_bool("reduced_motion", prefs.reduced_motion);
+    read_int("font_size_step", prefs.font_size_step);
+    prefs.font_size_step = std::clamp(prefs.font_size_step, 0, 2);
+    read_string("default_access", prefs.default_access);
+    read_string("default_reasoning", prefs.default_reasoning);
+    read_int("code_font_size_step", prefs.code_font_size_step);
+    prefs.code_font_size_step = std::clamp(prefs.code_font_size_step, 0, 2);
+    return prefs;
+}
+
+void save_preferences(const AppPreferences &prefs) {
+    const auto path = preferences_path();
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    if (ec)
+        return;
+    std::ofstream f(path, std::ios::trunc);
+    if (!f)
+        return;
+    f << "{\n"
+      << "  \"dark\": " << (prefs.dark ? "true" : "false") << ",\n"
+      << "  \"reduced_motion\": " << (prefs.reduced_motion ? "true" : "false") << ",\n"
+      << "  \"font_size_step\": " << prefs.font_size_step << ",\n"
+      << "  \"default_access\": \"" << prefs.default_access << "\",\n"
+      << "  \"default_reasoning\": \"" << prefs.default_reasoning << "\",\n"
+      << "  \"code_font_size_step\": " << prefs.code_font_size_step << "\n"
+      << "}\n";
+}
+
+// Returns the base EM value for ui_font_size() given the preference step.
+constexpr float font_size_em(int step) {
+    if (step == 0) return 12.0f;
+    if (step == 2) return 16.0f;
+    return 14.0f; // default
+}
+
+// Runtime-scaled font size: declared here, defined after state() below.
+float scaled_em(float base_em);
+
 eui::Color color(unsigned int rgb) {
     return {static_cast<float>((rgb >> 16) & 255) / 255.0f,
             static_cast<float>((rgb >> 8) & 255) / 255.0f, static_cast<float>(rgb & 255) / 255.0f,
@@ -37,18 +155,29 @@ eui::Color color(unsigned int rgb) {
 }
 struct Palette {
     eui::Color background, sidebar, surface, hover, selected, text, muted, border, action, inverse;
-    eui::Color accent;       // Mira brand coral-red — send button, save, active selection ring
-    eui::Color accent_hover; // lighter on dark, darker on light
+    eui::Color accent;       // Mira brand rose — send button, save, active selection ring
+    eui::Color accent_hover; // slightly lighter on dark, slightly darker on light
     eui::Color accent_text;  // text/icon on accent surfaces
+    eui::Color user;         // user bubble background
+    eui::Color composer;     // composer / context-popover background (dark has own value)
+    eui::Color success;      // positive outcome indicator
+    eui::Color warning;      // caution indicator
+    eui::Color error;        // destructive / validation error indicator
 };
 Palette palette(bool dark) {
     if (dark)
-        return {color(0x161616), color(0x1d1d1d), color(0x222222), color(0x2c2c2c), color(0x2e2020),
+        //        bg       sidebar  surface  hover    selected text     muted    border   action   inverse
+        return {color(0x161616), color(0x1d1d1d), color(0x222222), color(0x2c2c2c), color(0x333333),
                 color(0xeeeeee), color(0xa1a1a1), color(0x353535), color(0xeeeeee), color(0x161616),
-                color(0xd94f38), color(0xe06450), color(0xffffff)};
-    return {color(0xf8f8f8), color(0xf0f0f0), color(0xffffff), color(0xe8e8e8), color(0xf5e8e6),
+                //        accent   acc_hov  acc_txt  user     composer success  warning  error
+                color(0xf07585), color(0xf59aa6), color(0xffffff),
+                color(0x222222), color(0x2b2b2b), color(0x4ade80), color(0xfbbf24), color(0xf47171)};
+    //        bg       sidebar  surface  hover    selected text     muted    border   action   inverse
+    return {color(0xf8f8f8), color(0xf0f0f0), color(0xffffff), color(0xe8e8e8), color(0xe2e2e2),
             color(0x202020), color(0x6d6d6d), color(0xdfdfdf), color(0x222222), color(0xffffff),
-            color(0xd94f38), color(0xc44030), color(0xffffff)};
+            //        accent   acc_hov  acc_txt  user     composer success  warning  error
+            color(0xc94560), color(0xad3450), color(0xffffff),
+            color(0xf0f0f0), color(0xffffff), color(0x1a7f4b), color(0x9a6400), color(0xc42828)};
 }
 eui::Color mix_color(eui::Color a, eui::Color b, float t) {
     return {a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t,
@@ -68,7 +197,12 @@ Palette mixed_palette(float dark) {
             mix_color(light.inverse, deep.inverse, dark),
             mix_color(light.accent, deep.accent, dark),
             mix_color(light.accent_hover, deep.accent_hover, dark),
-            mix_color(light.accent_text, deep.accent_text, dark)};
+            mix_color(light.accent_text, deep.accent_text, dark),
+            mix_color(light.user, deep.user, dark),
+            mix_color(light.composer, deep.composer, dark),
+            mix_color(light.success, deep.success, dark),
+            mix_color(light.warning, deep.warning, dark),
+            mix_color(light.error, deep.error, dark)};
 }
 struct MotionValue {
     float current = 0, from = 0, target = 0;
@@ -104,6 +238,8 @@ struct PageState {
     std::vector<std::uint64_t> selection_cache_ids;
     bool dark = false;
     bool reduced_motion = false;
+    int font_size_step = 1;      // 0=小(12EM), 1=默认(14EM), 2=大(16EM); see font_size_em()
+    int code_font_size_step = 1; // 0=小(11px), 1=默认(13px), 2=大(15px)
     bool sidebar = true;
     bool settings = false;
     bool model_page = false;
@@ -178,6 +314,11 @@ PageState &state() {
 }
 namespace ipc = mirage::runtime::ipc;
 namespace persistence = mirage::runtime::persistence;
+// Defined after state() so it can read state().font_size_step at runtime.
+float scaled_em(float base_em) {
+    const float offset = font_size_em(state().font_size_step) - 14.0f;
+    return ui_font_size(base_em + offset);
+}
 std::optional<ContextUsage> native_usage(const std::optional<ipc::ContextUsage> &usage);
 // DEC-042: editable provider copy is separate from the acknowledged catalog.
 std::string provider_key(const persistence::ModelSettings &profile) {
@@ -410,6 +551,7 @@ bool remember_model_edits() {
     if (s.provider_model_index < s.provider_models.size()) {
         s.provider_models[s.provider_model_index].context_window_tokens = budget;
         s.provider_models[s.provider_model_index].supports_reasoning = s.model.supports_reasoning;
+        s.provider_models[s.provider_model_index].supports_images = s.model.supports_images;
     }
     return true;
 }
@@ -468,6 +610,7 @@ void select_editor_model(std::size_t index) {
     v.model.display_name = m.display_name;
     v.model.model_selector = m.model_selector;
     v.model.supports_reasoning = m.supports_reasoning;
+    v.model.supports_images = m.supports_images;
     v.model_window = m.context_window_tokens ? std::to_string(m.context_window_tokens) : "";
 }
 std::size_t editor_model_count() {
@@ -502,6 +645,7 @@ void add_editor_model() {
     profile.model_selector = std::move(id);
     profile.context_window_tokens = 0;
     profile.supports_reasoning = false;
+    profile.supports_images = false;
     v.provider_models.push_back(std::move(profile));
     select_editor_model(v.provider_models.size() - 1);
     cancel_model_add();
@@ -523,6 +667,7 @@ void delete_editor_model(const std::string &id) {
         v.model.model_selector.clear();
         v.model_window.clear();
         v.model.supports_reasoning = false;
+        v.model.supports_images = false;
         v.model.enabled = false;
     } else {
         const auto remaining =
@@ -948,7 +1093,7 @@ void text(eui::Ui &ui, const std::string &id, const std::string &value, float x,
         .position(x, y)
         .size(width, height)
         .text(value)
-        .fontSize(ui_font_size(size))
+        .fontSize(scaled_em(size))
         .lineHeight(size * 1.5f)
         .verticalAlign(eui::VerticalAlign::Center)
         .fontWeight(weight)
@@ -958,7 +1103,7 @@ void text(eui::Ui &ui, const std::string &id, const std::string &value, float x,
 }
 // Fit the display title to its actual font metrics without changing the session title.
 std::string fitted_title(const std::string &value, float width, float size) {
-    return fit_control_text(value, width, ui_font_size(size));
+    return fit_control_text(value, width, scaled_em(size));
 }
 void icon(eui::Ui &ui, const std::string &id, unsigned int value, float x, float y, float size,
           float row_height, eui::Color ink) {
@@ -1142,12 +1287,56 @@ void appearance_page(eui::Ui &ui, float x, float width, const Palette &p) {
             .iconSize(14)
             .fontSize(ui_font_size(14))
             .style(style)
-            .onClick([dark] { state().dark = dark; })
+            .onClick([dark] {
+                state().dark = dark;
+                const auto &session = state().chat.current();
+                save_preferences({dark, state().reduced_motion, state().font_size_step,
+                                   session.access, session.reasoning,
+                                   state().code_font_size_step});
+            })
             .build();
     }
-    text(ui, "settings.theme.notice", "即时应用 · 本次运行内保留外观偏好", x,
+    text(ui, "settings.theme.notice", "即时应用 · 外观偏好已保留", x,
          row_y + (narrow ? 108 : 84), width, 28, 13, p.muted);
-    const float motion_y = row_y + (narrow ? 148 : 124);
+    // --- Font size preference ---
+    const float font_y = row_y + (narrow ? 148 : 124);
+    ui.rect("settings.font.panel")
+        .position(x, font_y)
+        .size(width, narrow ? 96.0f : 72.0f)
+        .color(p.surface)
+        .radius(12)
+        .border(1, p.border)
+        .build();
+    text(ui, "settings.font.label", "文字大小", x + 24, font_y + 14, width - 48, 22, 14, p.text, 500);
+    const float font_ctrl_x = narrow ? x + 24 : x + width - 284;
+    const float font_ctrl_y = narrow ? font_y + 48 : font_y + 22;
+    if (!narrow) {
+        text(ui, "settings.font.description", "调整界面文字大小", x + 24, font_y + 36,
+             width - 320, 22, 13, p.muted);
+    }
+    const std::array<const char *, 3> font_labels = {"小", "默认", "大"};
+    for (int i = 0; i < 3; ++i) {
+        const bool sel = state().font_size_step == i;
+        auto fstyle = button_style(p);
+        fstyle.normal = sel ? p.selected : p.surface;
+        fstyle.border = {1, p.border};
+        control_button(ui, "settings.font.step" + std::to_string(i))
+            .position(font_ctrl_x + static_cast<float>(i) * 92, font_ctrl_y)
+            .size(84, 28)
+            .text(font_labels[i])
+            .fontSize(ui_font_size(14))
+            .style(fstyle)
+            .onClick([i] {
+                state().font_size_step = i;
+                const auto &session = state().chat.current();
+                save_preferences({state().dark, state().reduced_motion, i,
+                                   session.access, session.reasoning,
+                                   state().code_font_size_step});
+            })
+            .build();
+    }
+    // --- Motion preference ---
+    const float motion_y = font_y + (narrow ? 148 : 124);
     ui.rect("settings.motion.panel")
         .position(x, motion_y)
         .size(width, 72)
@@ -1172,10 +1361,54 @@ void appearance_page(eui::Ui &ui, float x, float width, const Palette &p) {
                 .trackSize(32, 18)
                 .style(style)
                 .checked(state().reduced_motion)
-                .onChange([](bool checked) { state().reduced_motion = checked; })
+                .onChange([](bool checked) {
+                    state().reduced_motion = checked;
+                    const auto &session = state().chat.current();
+                    save_preferences({state().dark, checked, state().font_size_step,
+                                       session.access, session.reasoning,
+                                       state().code_font_size_step});
+                })
                 .build();
         })
         .build();
+    // --- Code font size preference ---
+    const float code_font_y = motion_y + 124;
+    ui.rect("settings.codefont.panel")
+        .position(x, code_font_y)
+        .size(width, narrow ? 96.0f : 72.0f)
+        .color(p.surface)
+        .radius(12)
+        .border(1, p.border)
+        .build();
+    text(ui, "settings.codefont.label", "代码字号", x + 24, code_font_y + 14, width - 48, 22, 14,
+         p.text, 500);
+    const float cf_ctrl_x = narrow ? x + 24 : x + width - 284;
+    const float cf_ctrl_y = narrow ? code_font_y + 48 : code_font_y + 22;
+    if (!narrow) {
+        text(ui, "settings.codefont.description", "代码块、内联代码的字号", x + 24, code_font_y + 36,
+             width - 320, 22, 13, p.muted);
+    }
+    const std::array<const char *, 3> cf_labels = {"小", "默认", "大"};
+    for (int i = 0; i < 3; ++i) {
+        const bool cf_sel = state().code_font_size_step == i;
+        auto cstyle = button_style(p);
+        cstyle.normal = cf_sel ? p.selected : p.surface;
+        cstyle.border = {1, p.border};
+        control_button(ui, "settings.codefont.step" + std::to_string(i))
+            .position(cf_ctrl_x + static_cast<float>(i) * 92, cf_ctrl_y)
+            .size(84, 28)
+            .text(cf_labels[i])
+            .fontSize(ui_font_size(14))
+            .style(cstyle)
+            .onClick([i] {
+                state().code_font_size_step = i;
+                const auto &session = state().chat.current();
+                save_preferences({state().dark, state().reduced_motion,
+                                   state().font_size_step, session.access,
+                                   session.reasoning, i});
+            })
+            .build();
+    }
 }
 std::optional<ContextUsage> native_usage(const std::optional<ipc::ContextUsage> &usage) {
     if (!usage)
@@ -1858,6 +2091,37 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
             if (!s.provider_models.empty()) {
                 field("model.window", "上下文窗口（Token）", s.model_window, "留空表示未知",
                       [](const auto &v) { state().model_window = v; });
+                list.stack("model.images.row")
+                    .size(w, 48)
+                    .content([&] {
+                        text(list, "model.images.label", "识图", 0, 0, w - 68, 22, 14, p.text, 500);
+                        text(list, "model.images.help", "模型支持识图；仅发送经授权的截图", 0, 22,
+                             w - 68, 20, 12, p.muted);
+                        auto style = components::SwitchStyle(tokens);
+                        style.on = p.action;
+                        style.off = p.border;
+                        style.knob = p.inverse;
+                        list.stack("model.images.toggle")
+                            .position(w - 48, 8)
+                            .size(48, 32)
+                            .content([&] {
+                                components::toggleSwitch(list, "model.images.supported")
+                                    .size(48, 32)
+                                    .trackSize(32, 18)
+                                    .checked(s.model.supports_images)
+                                    .style(style)
+                                    .onChange([](bool supported) {
+                                        auto &v = state();
+                                        if (model_editor_blocked())
+                                            return;
+                                        v.model.supports_images = supported;
+                                        v.model_dirty = true;
+                                    })
+                                    .build();
+                            })
+                            .build();
+                    })
+                    .build();
                 list.stack("model.reasoning.row")
                     .size(w, 48)
                     .content([&] {
@@ -2248,9 +2512,11 @@ void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &mes
                 compact_markdown_cjk(*view, part.text);
         } else {
             const bool expanded = part_expanded(message, part);
+            const auto evidence = conversation::desktop_evidence(part);
             const auto label = (part.kind == "thinking" ? std::string{"思考过程"}
                                 : part.name == "wait"   ? "等待 · wait"
                                                         : part.name) +
+                               (evidence ? " · 窗口 " + evidence->window_id : "") +
                                (part.truncated ? "（已截断）" : "");
             auto style = button_style(p);
             style.text = p.muted;
@@ -2269,12 +2535,22 @@ void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &mes
                     app::requestUpdate();
                 })
                 .build();
-            const std::string status = part.kind == "thinking"      ? "已完成"
-                                       : part.status == "pending"   ? "待执行"
-                                       : part.status == "running"   ? "执行中"
-                                       : part.status == "cancelled" ? "已取消"
-                                       : part.status == "failed"    ? "失败"
-                                                                    : "已完成";
+            const std::string status =
+                evidence ? (evidence->status == "verified"    ? "已核验"
+                            : evidence->status == "uncertain" ? "不确定"
+                            : evidence->status == "rejected"  ? "已拒绝"
+                                                              : "未验证")
+                : (part.name == "desktop.window.activate" ||
+                   part.name.starts_with("desktop.input.")) &&
+                        part.status == "complete"
+                    ? "已派发"
+                : part.name == "desktop.action.verify" && part.status == "complete" ? "未验证"
+                : part.kind == "thinking"                                           ? "已完成"
+                : part.status == "pending"                                          ? "待执行"
+                : part.status == "running"                                          ? "执行中"
+                : part.status == "cancelled"                                        ? "已取消"
+                : part.status == "failed"                                           ? "失败"
+                                                                                    : "已完成";
             text(ui, id + ".status", status, width - (expanded ? 104 : 72), y, 64, 28, 12, p.muted);
             if (expanded) {
                 const auto detail = process_detail(part);
@@ -2378,12 +2654,15 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         markdown.codeBackground = s.dark ? color(0x222222) : color(0xeeeeee);
         markdown.quoteBackground = s.dark ? color(0x202020) : color(0xf0f0f0);
         markdown.divider = p.border;
-        markdown.bodySize = ui_font_size(14);
+        markdown.bodySize = scaled_em(14);
         markdown.bodyLineHeight = 22;
         markdown.h1Size = ui_font_size(18);
         markdown.h2Size = ui_font_size(16);
         markdown.h3Size = ui_font_size(15);
-        markdown.codeSize = 13;
+        // Code font size tracks its own preference step: 0=11px, 1=13px, 2=15px.
+        markdown.codeSize = (s.code_font_size_step == 0) ? 11.0f
+                          : (s.code_font_size_step == 2) ? 15.0f
+                          : 13.0f;
         markdown.blockGap = 8;
         markdown.radius = 8;
         components::scrollView(ui, "thread." + std::to_string(session_id))
@@ -2465,7 +2744,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                 list.rect(key + ".bubble")
                                     .position(left, 0)
                                     .size(bubble_width, body_height + 16)
-                                    .color(s.dark ? color(0x222222) : color(0xf0f0f0))
+                                    .color(s.dark ? p.user : p.user)
                                     .radius(10)
                                     .build();
                             if (pending || failed) {
@@ -2761,7 +3040,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
             }
         }
     }
-    const auto input_fill = s.dark ? color(0x2b2b2b) : p.surface;
+    const auto input_fill = p.composer;
     ui.rect("composer.panel")
         .position(x, y)
         .size(column, composer_height)
@@ -2993,7 +3272,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
             .content([&] {
                 ui.rect("composer.popup.panel")
                     .size(popup_width, popup_height)
-                    .color(s.dark ? color(0x2b2b2b) : p.surface)
+                    .color(p.composer)
                     .radius(12)
                     .border(1, p.border)
                     .onClick([] {})
@@ -3028,11 +3307,19 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                         [] {
                             state().chat.current().access = "read_only";
                             state().popup = PageState::Popup::None;
+                            save_preferences({state().dark, state().reduced_motion,
+                                              state().font_size_step, "read_only",
+                                              state().chat.current().reasoning,
+                                              state().code_font_size_step});
                         });
                     row("default", session.access == "default" ? "默认权限 · 已选择" : "默认权限",
                         0xe2e2, 44, [] {
                             state().chat.current().access = "default";
                             state().popup = PageState::Popup::None;
+                            save_preferences({state().dark, state().reduced_motion,
+                                              state().font_size_step, "default",
+                                              state().chat.current().reasoning,
+                                              state().code_font_size_step});
                         });
                     text(ui, "composer.popup.access.help", "只读不调用工具；默认仅开放等待工具。",
                          16, 84, popup_width - 32, 36, 12, p.muted);
@@ -3052,6 +3339,10 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                 [value = thinking_options[i].value] {
                                     state().chat.current().reasoning = value;
                                     state().popup = PageState::Popup::None;
+                                    save_preferences({state().dark, state().reduced_motion,
+                                                      state().font_size_step,
+                                                      state().chat.current().access, value,
+                                                      state().code_font_size_step});
                                 });
                     }
                 } else if (popup == PageState::Popup::Model) {
@@ -3787,6 +4078,21 @@ const DslAppConfig &dslAppConfig() {
             .fonts(mirage::native_ui::text_font(), "assets/Phosphor-Regular.ttf")
             .onStart([] {
                 mirage::native_ui::window::initialize();
+                // Restore appearance preferences before first render.
+                const auto prefs = mirage::native_ui::load_preferences();
+                auto &s = mirage::native_ui::state();
+                s.dark = prefs.dark;
+                s.reduced_motion = prefs.reduced_motion;
+                s.font_size_step = prefs.font_size_step;
+                s.code_font_size_step = prefs.code_font_size_step;
+                // Restore session defaults to current session.
+                if (s.chat.sessions().size() > 0) {
+                    auto &session = s.chat.current();
+                    if (!prefs.default_access.empty())
+                        session.access = prefs.default_access;
+                    if (!prefs.default_reasoning.empty())
+                        session.reasoning = prefs.default_reasoning;
+                }
                 mirage::native_ui::start_runtime();
             })
             .onShutdown([] {
