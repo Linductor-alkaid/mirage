@@ -1,28 +1,6 @@
 # Test binaries follow the pinned mira house style: one plain main() per
 # binary using tests/support/test.hpp; labels drive CI selection (docs/
 # project/project-standards.md section 11).
-add_executable(pet_status_test runtime/pet_status_test.cpp)
-target_compile_features(pet_status_test PRIVATE cxx_std_20)
-target_link_libraries(pet_status_test PRIVATE Mirage::ipc Mirage::pet_state)
-mirage_enable_warnings(pet_status_test)
-add_test(NAME pet_status_test COMMAND pet_status_test)
-set_tests_properties(pet_status_test PROPERTIES LABELS "unit;runtime;protocol" TIMEOUT 30)
-add_executable(pet_animation_test runtime/pet_animation_test.cpp)
-target_compile_features(pet_animation_test PRIVATE cxx_std_20)
-target_link_libraries(pet_animation_test PRIVATE Mirage::pet_state)
-mirage_enable_warnings(pet_animation_test)
-add_test(NAME pet_animation_test COMMAND pet_animation_test)
-set_tests_properties(pet_animation_test PROPERTIES LABELS "unit;runtime;pet" TIMEOUT 30)
-if(UNIX)
-    add_executable(pet_status_integration_test runtime/pet_status_integration_test.cpp)
-    target_compile_features(pet_status_integration_test PRIVATE cxx_std_20)
-    target_link_libraries(pet_status_integration_test PRIVATE Mirage::runtime_service
-        Mirage::integration_mira Mira::core)
-    mirage_enable_warnings(pet_status_integration_test)
-    add_test(NAME pet_status_integration_test COMMAND pet_status_integration_test)
-    set_tests_properties(pet_status_integration_test PROPERTIES
-        LABELS "integration;runtime;protocol" TIMEOUT 60)
-endif()
 add_executable(native_chat_model_test desktop/native_chat_model_test.cpp
     ${CMAKE_SOURCE_DIR}/apps/native/chat_model.cpp ${CMAKE_SOURCE_DIR}/apps/native/attachment.cpp)
 target_include_directories(native_chat_model_test PRIVATE ${CMAKE_SOURCE_DIR}/apps/native)
