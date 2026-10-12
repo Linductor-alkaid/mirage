@@ -23,7 +23,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--lock", type=Path, required=True)
     args = parser.parse_args()
-    lock = json.loads(args.lock.read_text())
+    lock = json.loads(args.lock.read_text(encoding="utf-8"))
     commit = lock["commit"]
     if commit != PIN:
         raise SystemExit("source pin differs from the audited conversion")
@@ -68,7 +68,7 @@ def main():
         outputs[f"{stage}_param"] = ("\n".join(lines) + "\n").encode()
         outputs[f"{stage}_bin"] = weights
     dictionary_path = args.source / "app/src/main/jni/ppocrv5_dict.h"
-    dictionary_source = dictionary_path.read_text()
+    dictionary_source = dictionary_path.read_text(encoding="utf-8")
     entries = re.findall(r'^\s*("(?:[^"\\]|\\.)*")\s*,?\s*$', dictionary_source, re.M)
     chars = [json.loads(item) for item in entries]
     if len(chars) != 18383 or any("\n" in item or not item for item in chars):
