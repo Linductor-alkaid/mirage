@@ -28,6 +28,10 @@ AtspiBackend::activate_element(const mirage::desktop::ElementTarget &,
     return {};
 }
 
+std::unique_ptr<mirage::desktop::WindowProvider> AtspiBackend::open_window_provider() {
+    return nullptr; // fail closed: no AT-SPI2 support in this build (DEC-015)
+}
+
 mirage::desktop::ElementActionOutcome AtspiBackend::set_text(const mirage::desktop::ElementTarget &,
                                                              const std::string &,
                                                              const mirage::desktop::InputLimits &,
