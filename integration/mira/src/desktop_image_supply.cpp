@@ -57,14 +57,17 @@ mira::Result<std::vector<std::byte>> DesktopImageSource::fetch(const mira::Artif
 
 DesktopImageTurn::DesktopImageTurn(std::shared_ptr<DesktopImageSource> source,
                                    DesktopToolContext desktop, mira::OperationContext owner,
-                                   mirage::desktop::CancelToken cancel, bool supply_images)
+                                   mirage::desktop::CancelToken cancel, bool supply_images,
+                                   std::chrono::milliseconds acquire_budget,
+                                   std::chrono::milliseconds image_max_age)
     : source_(std::move(source)),
       store_(std::make_shared<mira::MemoryArtifactStore>(desktop_image_bytes)),
       desktop_(std::move(desktop)), owner_(std::move(owner)),
       cancel_([owner = owner_, parent = std::move(cancel)] {
           return parent.cancelled() || owner.cancelled_or_expired(mira::Timestamp::now());
       }),
-      supply_images_(supply_images) {
+      supply_images_(supply_images), acquire_budget_(acquire_budget),
+      image_max_age_(image_max_age) {
     if (!source_->bind(store_))
         throw std::runtime_error("desktop image store admission rejected");
 }
@@ -676,8 +679,7 @@ mira::Result<JsonValue> DesktopImageTurn::capture(const JsonValue &args,
         return error(ErrorCode::Cancelled, "desktop capture cancelled");
     const auto start = std::chrono::steady_clock::now();
     const mirage::desktop::CancelToken bounded([this, start] {
-        return cancel_.cancelled() ||
-               std::chrono::steady_clock::now() - start >= std::chrono::seconds{5};
+        return cancel_.cancelled() || std::chrono::steady_clock::now() - start >= acquire_budget_;
     });
     const auto epoch = desktop_.actions->epoch();
     auto &screen = *desktop_.environment->screen();
@@ -911,7 +913,7 @@ DesktopImageTurn::publish_image(const desktop::ImageFrame &frame, const Geometry
         {"captured_at_ms", std::chrono::duration_cast<std::chrono::milliseconds>(
                                std::chrono::system_clock::now().time_since_epoch())
                                .count()},
-        {"max_age_ms", std::int64_t{5000}},
+        {"max_age_ms", static_cast<std::int64_t>(image_max_age_.count())},
         {"verified", false}}};
     auto object = *metadata_.as_object();
     for (auto &field : extra)
@@ -944,7 +946,7 @@ DesktopImageTurn::supply(const mira::AgentLoopSpec &spec) {
     mira::ModelInputItem item;
     item.role = mira::ModelRole::User;
     if (desktop_.actions->epoch() != epoch_ ||
-        std::chrono::steady_clock::now() - captured_ >= std::chrono::seconds{5}) {
+        std::chrono::steady_clock::now() - captured_ >= image_max_age_) {
         clear();
         item.content.emplace_back(mira::TextPart{
             "Previous desktop image retired: age or environment epoch changed. Capture again "
@@ -985,7 +987,7 @@ mira::Result<void> DesktopImageTurn::validate_request(const mira::ModelRequest &
     if (!expect_image_)
         return {};
     if (!image_ || epoch_ != desktop_.actions->epoch() ||
-        std::chrono::steady_clock::now() - captured_ >= std::chrono::seconds{5})
+        std::chrono::steady_clock::now() - captured_ >= image_max_age_)
         return error(ErrorCode::InvalidArgument, "desktop image invalidated before inference");
     for (const auto &item : request.input)
         for (const auto &part : item.content)

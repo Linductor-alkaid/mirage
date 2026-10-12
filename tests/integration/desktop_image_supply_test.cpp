@@ -16,6 +16,19 @@
 #include <source_location>
 #include <stdexcept>
 
+// Full-frame PNG encode exceeds the production 5 s acquisition budget under
+// ThreadSanitizer; keep the production default elsewhere.
+#if defined(__SANITIZE_THREAD__)
+#define MIRAGE_TSAN_SLOW 1
+#elif defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+#define MIRAGE_TSAN_SLOW 1
+#endif
+#endif
+#ifndef MIRAGE_TSAN_SLOW
+#define MIRAGE_TSAN_SLOW 0
+#endif
+
 namespace detail = mirage::integration::detail;
 namespace integration = mirage::integration;
 using JsonValue = mira::JsonValue;
@@ -1653,7 +1666,10 @@ void contracts(kairo::Executor &executor) {
     (void)tools.actions->resume();
     env->displays.front().geometry = {0, 0, 3200, 2000};
     {
-        detail::DesktopImageTurn turn(source, tools, ctx, {});
+        // The full-frame PNG encode exceeds the production 5 s acquisition
+        // budget under ThreadSanitizer; keep the production default elsewhere.
+        const auto acquire_budget = std::chrono::seconds{MIRAGE_TSAN_SLOW ? 60 : 5};
+        detail::DesktopImageTurn turn(source, tools, ctx, {}, true, acquire_budget);
         mira::BuiltinToolRegistry registry;
         turn.register_tool(registry, {});
         const auto exposed = registry.exposed_tools().front();

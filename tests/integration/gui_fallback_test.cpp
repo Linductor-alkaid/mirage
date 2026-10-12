@@ -37,7 +37,25 @@ mira::OperationContext owner() {
     c.task = mira::TaskId::generate();
     c.session = mira::SessionId::generate();
     c.task_epoch = 7;
+// Full-frame PNG encode and scenario wall time routinely exceed the tight
+// production budgets under ThreadSanitizer; only the expired-deadline and
+// stale-image mutations need tight values, and they set them explicitly.
+#if defined(__SANITIZE_THREAD__)
+#define MIRAGE_TSAN_SLOW 1
+#elif defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+#define MIRAGE_TSAN_SLOW 1
+#endif
+#endif
+#ifndef MIRAGE_TSAN_SLOW
+#define MIRAGE_TSAN_SLOW 0
+#endif
+
+#if MIRAGE_TSAN_SLOW
+    c.deadline = std::chrono::steady_clock::now() + std::chrono::seconds{240};
+#else
     c.deadline = std::chrono::steady_clock::now() + std::chrono::seconds{20};
+#endif
     return c;
 }
 // Application shortcuts and semantic access are deliberately unavailable.
@@ -150,8 +168,14 @@ struct Fixture {
             return cap != "input.inject" || !deny;
         };
         verifier = std::make_unique<detail::DesktopActionVerification>(tools, ctx, cancel);
+        // Full-frame PNG encode and the supply freshness window both exceed
+        // their 5 s production budgets under ThreadSanitizer; only the
+        // expired-deadline and stale-image mutations need tight values, and
+        // they override the context/lease explicitly.
+        const auto sanitizer_budget = std::chrono::milliseconds{MIRAGE_TSAN_SLOW ? 60000 : 5000};
         image = std::make_unique<detail::DesktopImageTurn>(
-            std::make_shared<detail::DesktopImageSource>(), tools, ctx, cancel);
+            std::make_shared<detail::DesktopImageSource>(), tools, ctx, cancel, true,
+            sanitizer_budget, sanitizer_budget);
         auto decorate = [&](const auto &name, mira::BuiltinToolHandler handler) {
             return mira::BuiltinToolHandler{[&, name, handler](const auto &args, const auto &c) {
                 return detail::DesktopActionVerification::mutation(name)

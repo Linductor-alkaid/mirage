@@ -25,9 +25,16 @@ class DesktopImageSource final : public mira::IArtifactSource {
 // Scoped to one serialized harness task; no image state survives the turn.
 class DesktopImageTurn {
   public:
+    /// `acquire_budget` bounds one capture acquisition; `image_max_age` is the
+    /// freshness window `supply()`/`validate_request()` enforce from the
+    /// capture start. Both default to the production values. Sanitizer builds
+    /// pass larger values because the same work (PNG/DEFLATE on a full frame)
+    /// runs several times slower.
     DesktopImageTurn(std::shared_ptr<DesktopImageSource>, DesktopToolContext,
                      mira::OperationContext, mirage::desktop::CancelToken,
-                     bool supply_images = true);
+                     bool supply_images = true,
+                     std::chrono::milliseconds acquire_budget = std::chrono::seconds{5},
+                     std::chrono::milliseconds image_max_age = std::chrono::seconds{5});
     ~DesktopImageTurn();
     DesktopImageTurn(const DesktopImageTurn &) = delete;
     DesktopImageTurn &operator=(const DesktopImageTurn &) = delete;
@@ -102,6 +109,8 @@ class DesktopImageTurn {
     bool native_input_enabled_ = false;
     std::uint64_t native_newer_than_sequence_ = 0;
     bool supply_images_ = true;
+    std::chrono::milliseconds acquire_budget_ = std::chrono::seconds{5};
+    std::chrono::milliseconds image_max_age_ = std::chrono::seconds{5};
     std::size_t captures_ = 0;
     std::unique_ptr<desktop::DesktopCaptureSession> native_session_;
     std::uint64_t native_authority_ = 0;
