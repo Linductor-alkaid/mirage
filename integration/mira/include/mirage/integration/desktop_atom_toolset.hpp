@@ -4,6 +4,7 @@
 
 #include <mirage/desktop/desktop_environment.hpp>
 #include <mirage/desktop/overlay_surface.hpp>
+#include <mirage/integration/desktop_tool_context.hpp>
 
 #include <functional>
 #include <memory>
@@ -11,45 +12,6 @@
 #include <vector>
 
 namespace mirage::integration {
-
-/// Cancellation probe the permission gate polls while it waits (DEC-020
-/// discipline: bounded wait, poll the caller's probe, silence never
-/// approves). Same shape as the runtime permission face's CancelProbe; kept
-/// a distinct alias because this layer does not include runtime headers.
-using AtomCancelProbe = std::function<bool()>;
-
-/// RULE-05 seam between the atom execution path and the host's permission
-/// face (DEC-024): judged before an atom handler touches its provider.
-/// `capability` is a stable permission vocabulary name ("clipboard.write",
-/// "process.execute", ...); `resource` is the atom's primary target (path,
-/// command line, window id, ...) already capped by the tool input budget.
-/// Returns true when the capability use is allowed. A null gate denies
-/// every gated atom (fail closed); observation atoms without a capability
-/// entry are never judged through it.
-using AtomPermissionGate = std::function<bool(
-    const std::string &capability, const std::string &resource, const AtomCancelProbe &cancelled)>;
-
-/// One upcoming desktop action mirrored onto the Desktop Overlay (M5-09,
-/// DEC-029): the "即将执行操作提示" line plus the target highlights. An
-/// empty update clears the action face (published after the action
-/// settles).
-struct AtomOverlayAction {
-    std::string hint;
-    std::vector<mirage::desktop::OverlayHighlight> highlights;
-};
-
-/// Overlay seam between the atom execution path and the service's Desktop
-/// Overlay presenter (M5-09, DEC-029): wired per build, null members keep
-/// the mirror dark with zero per-call cost (the AtomPermissionGate seam
-/// precedent). `show_action` fires after the permission judgement and
-/// before the provider side effect; `show_observation` fires when an
-/// observation atom delivered a snapshot (the Observation debug face
-/// consumes it only when the service enabled that face). Both callbacks
-/// must be bounded and must not throw.
-struct AtomOverlayFeed {
-    std::function<void(const AtomOverlayAction &)> show_action;
-    std::function<void(const mirage::desktop::SemanticSnapshot &)> show_observation;
-};
 
 /// Wire-facing projection of one registered desktop atom — the
 /// `mirage.ipc` ExposedTool shape (DEC-023), pinned-free. `version` is the
@@ -66,8 +28,9 @@ struct DesktopAtomView final {
 /// The desktop atom toolset (DEC-024): builds the pinned BuiltIn tool
 /// registry that carries Mirage's desktop capability atoms, so workflow
 /// ToolCall steps dispatch real provider actions and
-/// `workflow.atom.catalog` projects the exposed view. One atom per provider
-/// call; atoms for absent providers are simply not registered — the catalog
+/// `workflow.atom.catalog` projects the exposed view. Provider atoms and the
+/// DEC-067 local semantic composite register only when their prerequisites
+/// are present — the catalog
 /// reports what the bound environment can actually deliver, never what a
 /// static table claims.
 ///
@@ -85,9 +48,30 @@ class DesktopAtomToolset final {
     /// `gate` may be null, which denies every gated atom. `feed` may be
     /// default (dark members): the desktop-position atoms then mirror
     /// nothing onto the Desktop Overlay (M5-09, DEC-029).
+    /// With scoped Accessibility, Window and `actions`, also registers
+    /// desktop.knowledge.activate: fresh local resolution, one gated semantic
+    /// activation and a new verified postcondition. It stores no execution refs.
     static std::shared_ptr<DesktopAtomToolset>
     build(mirage::desktop::DesktopEnvironment *environment, AtomPermissionGate gate,
-          const AtomOverlayFeed &feed = {});
+          const AtomOverlayFeed &feed = {},
+          std::shared_ptr<mirage::desktop::ActionCoordinator> actions = {});
+
+    /// DEC-069: same provider atoms plus workflow-only OCR/template knowledge when
+    /// the external context supplies the running vision and complete action path.
+    static std::shared_ptr<DesktopAtomToolset> build(const DesktopToolContext &desktop);
+
+    using Decorator =
+        std::function<mira::BuiltinToolHandler(const std::string &, mira::BuiltinToolHandler)>;
+
+    /// M7-02: fresh per-turn registry; four observation atoms and, when
+    /// allowed, scoped window activation, semantic click and complete key/text
+    /// into an explicit focused window. Input providers must opt in to cleanup.
+    /// No process, filesystem, clipboard, raw pointer or held-key tools.
+    /// Registration failure throws; callers settle it as a failed turn.
+    static void register_harness_tools(mira::BuiltinToolRegistry &registry,
+                                       const DesktopToolContext &desktop, bool allow_mutations,
+                                       const mirage::desktop::CancelToken &cancel,
+                                       const Decorator &decorate);
 
     ~DesktopAtomToolset();
     DesktopAtomToolset(const DesktopAtomToolset &) = delete;

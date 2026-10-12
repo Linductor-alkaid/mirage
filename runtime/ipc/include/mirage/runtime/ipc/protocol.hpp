@@ -193,7 +193,7 @@ struct SessionChatRequest {
     std::string session_id;
     std::string text;
     bool agent = false; ///< DEC-034: conversational harness; absent preserves legacy dialog.
-    std::string access = "default";   ///< DEC-037: read_only hides all tools
+    std::string access = "default";   ///< DEC-080: chat_only=dialog, read_only=observation, default=full
     std::string reasoning = "";       ///< empty/default or minimal/low/medium/high
     std::string replace_turn_id = {}; ///< DEC-039: replace exactly the latest settled turn
 };
@@ -201,6 +201,28 @@ struct CancelChatRequest {
     std::string session_id;
 };
 struct GetModelRequest {};
+struct GetDesktopAuthorizationRequest {};
+struct SetDesktopAuthorizationRequest {
+    bool remember = false;
+};
+struct DesktopAuthorizationConfiguration {
+    bool supported = false;
+    bool remember = false;
+    bool remembered = false;
+    std::string state = "unsupported";
+    std::string notice;
+};
+struct GetVisionRequest {};
+struct SetVisionRequest {
+    std::string ocr_manifest; ///< Empty disables OCR at next start.
+};
+struct VisionConfiguration {
+    std::string ocr_manifest;    ///< Persisted value (or startup value when absent).
+    std::string active_manifest; ///< Actual startup override, independent of saved value.
+    bool supported = false;
+    bool running = false;
+    bool restart_required = false;
+};
 /// Explicit model discovery; draft Key is write-only and never echoed.
 struct ListModelsRequest {
     std::string provider_id;
@@ -358,7 +380,8 @@ using Request = std::variant<
     WorkflowListRequest, WorkflowSaveRequest, WorkflowPublishRequest, WorkflowDeleteRequest,
     WorkflowAtomCatalogRequest, WorkflowRunsRequest, WorkflowRunRequest, WorkflowCancelRunRequest,
     WorkflowGetRequest, DesktopObserveRequest, GetPolicyRequest, SetPolicyRequest, GetModelRequest,
-    SetModelRequest, ListModelsRequest, CancelChatRequest>;
+    SetModelRequest, ListModelsRequest, CancelChatRequest, GetVisionRequest, SetVisionRequest,
+    GetDesktopAuthorizationRequest, SetDesktopAuthorizationRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -810,7 +833,8 @@ using ResponsePayload =
                  DialogTurnAccepted, DialogHistory, SessionHistory, WorkflowList, WorkflowSaved,
                  WorkflowPublished, WorkflowDeleted, WorkflowAtomCatalog, WorkflowRunList,
                  WorkflowRunStarted, WorkflowRunCancelled, WorkflowDefinitionView, ObservationView,
-                 PolicyView, ModelConfiguration, ModelList>;
+                 PolicyView, ModelConfiguration, ModelList, VisionConfiguration,
+                 DesktopAuthorizationConfiguration>;
 
 /// Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc
 /// domain ("protocol_error", "unsupported", "invalid_argument", "not_found",

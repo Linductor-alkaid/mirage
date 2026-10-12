@@ -13,6 +13,7 @@ target_include_directories(mirage_runtime_service
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/integration/mirador/src
 )
 # Service internals drive the pinned Executor fabric directly; the headers
 # are consumed as system headers so the pinned library's own warning hygiene
@@ -35,6 +36,7 @@ target_link_libraries(mirage_runtime_service
         Mirage::permission
     PRIVATE
         Mirage::integration_mira
+        Mirage::integration_mirador
         Mirage::persistence
         $<TARGET_FILE:kairo::kairo>
 )

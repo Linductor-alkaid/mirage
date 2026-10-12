@@ -1273,7 +1273,35 @@ void scenario_chat_preview() {
     MIRAGE_CHECK(!ipc::decode_event(ipc::encode_event({8, preview})).ok);
 }
 
+void scenario_vision_configuration() {
+    MIRAGE_CHECK(ipc::decode_request(ipc::encode_request(1, ipc::GetVisionRequest{})).ok);
+    const auto request = ipc::decode_request(
+        ipc::encode_request(2, ipc::SetVisionRequest{"/tmp/visual resources/a.json"}));
+    MIRAGE_CHECK(request.ok && std::get<ipc::SetVisionRequest>(request.body).ocr_manifest ==
+                                   "/tmp/visual resources/a.json");
+    for (const auto *bad :
+         {R"({"id":1,"op":"vision.set"})", R"({"id":1,"op":"vision.set","ocr_manifest":1})",
+          R"({"id":1,"op":"vision.set","ocr_manifest":"/a\u0000b"})"})
+        MIRAGE_CHECK(!ipc::decode_request(bad).ok);
+    MIRAGE_CHECK(
+        !ipc::decode_request(ipc::encode_request(3, ipc::SetVisionRequest{std::string(4097, 'a')}))
+             .ok);
+    ipc::Response response;
+    response.id = 1;
+    response.ok = true;
+    response.payload = ipc::VisionConfiguration{"/tmp/new.json", "/tmp/old.json", true, true, true};
+    const auto encoded = ipc::encode_response(response);
+    const auto decoded = ipc::decode_response(encoded);
+    MIRAGE_CHECK(decoded.ok);
+    MIRAGE_CHECK(decoded.ok && ipc::encode_response(decoded.response) == encoded);
+    response.payload = ipc::VisionConfiguration{"", "", false, false, false};
+    MIRAGE_CHECK(ipc::decode_response(ipc::encode_response(response)).ok);
+    response.payload = ipc::VisionConfiguration{std::string(4097, 'a'), "", false, false, false};
+    MIRAGE_CHECK(!ipc::decode_response(ipc::encode_response(response)).ok);
+}
+
 int main() {
+    scenario_vision_configuration();
     run_scenario("chat_preview", scenario_chat_preview);
     run_scenario("framing_round_trip", scenario_framing_round_trip);
     run_scenario("framing_little_endian_header", scenario_framing_little_endian_header);

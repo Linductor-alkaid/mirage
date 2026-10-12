@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -21,6 +22,14 @@ struct Part {
     bool truncated = false;
     friend bool operator==(const Part &, const Part &) = default;
 };
+struct DesktopEvidence {
+    std::string status, window_id, evidence_id;
+    std::string application_id;
+    std::string display_id = {};
+    bool shared_desktop = false;
+};
+// Read-only display projection of DEC-056 metadata; does not confer tool authority.
+std::optional<DesktopEvidence> desktop_evidence(const Part &);
 bool valid_parts(const std::vector<Part> &parts);
 // JSON is hidden behind product types; both IPC and persistence use this codec.
 std::string encode_parts(const std::vector<Part> &parts);

@@ -1,10 +1,10 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 14,
+    "version": 17,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
-    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted), DEC-038 (Accepted), DEC-039 (Accepted), DEC-045 (Accepted), DEC-051 (Accepted)",
+    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted), DEC-038 (Accepted), DEC-039 (Accepted), DEC-045 (Accepted), DEC-051 (Accepted), DEC-066 (Accepted), DEC-080 (Accepted)",
     "consumers": [
       "tests/runtime/ipc_protocol_golden_test.cpp"
     ],
@@ -24,7 +24,10 @@
       "v11 (M6-09): direct API Key write-only model.set field and optional cleanup warning; session.delete acknowledged persistence boundary. Existing v1 request/response canonical strings remain compatible; schema doc DEC-038 increment.",
       "v12 (M6-11): optional last-turn replacement guard and replacement provenance in acknowledgement/events. Absent fields retain previous canonical strings.",
       "v13 (M6-25): tray capability and product.control actions/state; readiness binds the owned frontend PID, quit confirmation uses a separate exit epoch; old v1 vectors unchanged.",
-      "v14 (M6-33): explicit model.list with write-only draft Key and bounded model_ids candidates; existing wire strings unchanged."
+      "v14 (M6-33): explicit model.list with write-only draft Key and bounded model_ids candidates; existing wire strings unchanged.",
+      "v15 (M7-12): vision.get/set persisted resource settings; response distinguishes saved path, active startup path, compiled support, running and restart requirement.",
+      "v16 (M7-10 / DEC-078): desktop.authorization.get/set settings state, no restore tokens on the wire; existing forms unchanged.",
+      "v17 (M6-38): chat_only selects tool-free conversation; default/full and read_only/visual remain compatible."
     ]
   },
   "requests": [
@@ -504,6 +507,70 @@
         "api_key": "synthetic-key"
       },
       "canonical": "{\"v\":1,\"id\":111,\"op\":\"model.list\",\"provider_id\":\"catalog\",\"endpoint_origin\":\"https://api.example.com\",\"api_prefix\":\"/v1\",\"dialect\":\"openai.chat-completions.v1\",\"api_key\":\"synthetic-key\"}"
+    },
+    {
+      "name": "vision.get-112",
+      "id": 112,
+      "body": {
+        "op": "vision.get"
+      },
+      "canonical": "{\"v\":1,\"id\":112,\"op\":\"vision.get\"}"
+    },
+    {
+      "name": "vision.set-113",
+      "id": 113,
+      "body": {
+        "op": "vision.set",
+        "ocr_manifest": "/tmp/visual resources/manifest.json"
+      },
+      "canonical": "{\"v\":1,\"id\":113,\"op\":\"vision.set\",\"ocr_manifest\":\"/tmp/visual resources/manifest.json\"}"
+    },
+    {
+      "name": "vision.set-114",
+      "id": 114,
+      "body": {
+        "op": "vision.set",
+        "ocr_manifest": ""
+      },
+      "canonical": "{\"v\":1,\"id\":114,\"op\":\"vision.set\",\"ocr_manifest\":\"\"}"
+    },
+    {
+      "name": "desktop-authorization-get",
+      "id": 78,
+      "body": {
+        "op": "desktop.authorization.get"
+      },
+      "canonical": "{\"v\":1,\"id\":78,\"op\":\"desktop.authorization.get\"}"
+    },
+    {
+      "name": "desktop-authorization-remember",
+      "id": 78,
+      "body": {
+        "op": "desktop.authorization.set",
+        "remember": true
+      },
+      "canonical": "{\"v\":1,\"id\":78,\"op\":\"desktop.authorization.set\",\"remember\":true}"
+    },
+    {
+      "name": "desktop-authorization-forget",
+      "id": 78,
+      "body": {
+        "op": "desktop.authorization.set",
+        "remember": false
+      },
+      "canonical": "{\"v\":1,\"id\":78,\"op\":\"desktop.authorization.set\",\"remember\":false}"
+    },
+    {
+      "name": "session-chat-conversation-mode",
+      "id": 98,
+      "body": {
+        "op": "session.chat",
+        "session_id": "session-1",
+        "text": "只讨论，不读取桌面",
+        "agent": true,
+        "access": "chat_only"
+      },
+      "canonical": "{\"v\":1,\"id\":98,\"op\":\"session.chat\",\"session_id\":\"session-1\",\"text\":\"只讨论，不读取桌面\",\"agent\":true,\"access\":\"chat_only\"}"
     }
   ],
   "request_failures": [
@@ -776,6 +843,26 @@
       "name": "model-list-missing-endpoint",
       "payload": "{\"v\":1,\"id\":110,\"op\":\"model.list\",\"provider_id\":\"catalog\"}",
       "error": "model.list requires bounded provider and endpoint fields"
+    },
+    {
+      "name": "vision-missing-path",
+      "payload": "{\"v\":1,\"id\":113,\"op\":\"vision.set\"}",
+      "error": "vision.set requires a bounded ocr_manifest string"
+    },
+    {
+      "name": "authorization-bad-remember-null",
+      "payload": "{\"v\":1,\"id\":78,\"op\":\"desktop.authorization.set\",\"remember\":null}",
+      "error": "desktop.authorization.set requires boolean remember"
+    },
+    {
+      "name": "authorization-bad-remember-1",
+      "payload": "{\"v\":1,\"id\":78,\"op\":\"desktop.authorization.set\",\"remember\":1}",
+      "error": "desktop.authorization.set requires boolean remember"
+    },
+    {
+      "name": "authorization-bad-remember-\"true\"",
+      "payload": "{\"v\":1,\"id\":78,\"op\":\"desktop.authorization.set\",\"remember\":\"true\"}",
+      "error": "desktop.authorization.set requires boolean remember"
     }
   ],
   "responses": [
@@ -1800,6 +1887,78 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":110,\"ok\":true,\"model_ids\":[\"alpha\",\"beta\"]}"
+    },
+    {
+      "name": "vision-configuration",
+      "response": {
+        "ok": true,
+        "id": 113,
+        "payload": {
+          "kind": "vision-configuration",
+          "value": {
+            "ocr_manifest": "/tmp/new.json",
+            "active_manifest": "/tmp/old.json",
+            "supported": true,
+            "running": true,
+            "restart_required": true
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":113,\"ok\":true,\"vision_manifest\":\"/tmp/new.json\",\"active_manifest\":\"/tmp/old.json\",\"vision_supported\":true,\"vision_running\":true,\"restart_required\":true}"
+    },
+    {
+      "name": "desktop-authorization-remembered",
+      "response": {
+        "ok": true,
+        "id": 78,
+        "payload": {
+          "kind": "desktop-authorization",
+          "value": {
+            "supported": true,
+            "remember": true,
+            "remembered": true,
+            "state": "remembered",
+            "notice": ""
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":78,\"ok\":true,\"desktop_authorization\":\"remembered\",\"supported\":true,\"remember\":true,\"remembered\":true,\"notice\":\"\"}"
+    },
+    {
+      "name": "desktop-authorization-needs_authorization",
+      "response": {
+        "ok": true,
+        "id": 78,
+        "payload": {
+          "kind": "desktop-authorization",
+          "value": {
+            "supported": true,
+            "remember": true,
+            "remembered": false,
+            "state": "needs_authorization",
+            "notice": ""
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":78,\"ok\":true,\"desktop_authorization\":\"needs_authorization\",\"supported\":true,\"remember\":true,\"remembered\":false,\"notice\":\"\"}"
+    },
+    {
+      "name": "desktop-authorization-unsupported",
+      "response": {
+        "ok": true,
+        "id": 78,
+        "payload": {
+          "kind": "desktop-authorization",
+          "value": {
+            "supported": false,
+            "remember": false,
+            "remembered": false,
+            "state": "unsupported",
+            "notice": ""
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":78,\"ok\":true,\"desktop_authorization\":\"unsupported\",\"supported\":false,\"remember\":false,\"remembered\":false,\"notice\":\"\"}"
     }
   ],
   "response_failures": [
@@ -2032,6 +2191,16 @@
       "name": "model-list-not-array",
       "payload": "{\"v\":1,\"id\":110,\"ok\":true,\"model_ids\":\"alpha\"}",
       "error": "model_ids must be a bounded array"
+    },
+    {
+      "name": "vision-missing-status",
+      "payload": "{\"v\":1,\"id\":113,\"ok\":true,\"vision_manifest\":\"\"}",
+      "error": "invalid vision configuration"
+    },
+    {
+      "name": "authorization-invalid-state",
+      "payload": "{\"v\":1,\"id\":78,\"ok\":true,\"desktop_authorization\":\"forever\",\"supported\":true,\"remember\":true,\"remembered\":true,\"notice\":\"\"}",
+      "error": "invalid desktop authorization configuration"
     }
   ],
   "events": [

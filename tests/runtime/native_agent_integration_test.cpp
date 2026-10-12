@@ -49,6 +49,7 @@ class Provider final : public mira::IModelProvider {
         wire.publish(std::move(input_text));
         const int number = ++calls;
         last_tools.store(static_cast<int>(request.tools.size()));
+        last_output_tokens.store(request.generation.max_output_tokens.value_or(0));
         saw_high.store(request.generation.reasoning_effort == mira::ReasoningEffort::High);
         saw_adaptive.store(request.generation.thinking == mira::ThinkingMode::Adaptive);
         saw_disabled.store(request.generation.thinking == mira::ThinkingMode::Disabled);
@@ -68,6 +69,7 @@ class Provider final : public mira::IModelProvider {
         }
         while (hold.load() && !context.cancelled_or_expired(mira::Timestamp::now()))
             (void)::poll(nullptr, 0, 1);
+        last_caller_cancelled.store(context.cancelled());
         mira::ModelResponse reply;
         reply.contract_version = {1, 0};
         reply.request_id = request.request_id;
@@ -104,11 +106,12 @@ class Provider final : public mira::IModelProvider {
             return reply;
         }
         if ((number == 1 && tool_first.load()) || force_tool.exchange(false) ||
-            always_tool.load()) {
+            always_tool.load() ||
+            (remaining_tools.load() > 0 && remaining_tools.fetch_sub(1) > 0)) {
             for (const auto &tool : request.tools)
                 if (tool.wire_name == "wait") {
                     mira::ToolCallOutput call;
-                    call.provider_call_id.value = "call-1";
+                    call.provider_call_id.value = "call-" + std::to_string(number);
                     call.tool_id = tool.tool_id;
                     call.provider_name = tool.wire_name;
                     call.arguments = mira::JsonValue{mira::JsonValue::Object{
@@ -135,9 +138,10 @@ class Provider final : public mira::IModelProvider {
     kairo::comm::LatestMailbox<std::string> wire{"test-model-wire"};
     mira::ModelProfile profile_;
     std::atomic_int calls{0}, last_tools{0};
-    std::atomic_bool saw_high{false}, old_reply{false};
+    std::atomic<std::uint64_t> last_output_tokens{0};
+    std::atomic_bool saw_high{false}, old_reply{false}, last_caller_cancelled{false};
     std::atomic_bool report_usage{true};
-    std::atomic_int wait_duration{1};
+    std::atomic_int wait_duration{1}, remaining_tools{0};
     std::atomic_bool force_tool{false}, large_thinking{false};
     std::atomic_bool hold{false}, tool_first{true}, saw_image{false}, saw_tool_result{false},
         throw_now{false}, always_tool{false}, bad_tool{false};
@@ -226,6 +230,12 @@ int main(int argc, char **argv) {
         config.dialect = "anthropic.messages.v1";
         std::string error;
         MIRAGE_CHECK(config.valid(error));
+        config.harness_deadline = 0ms;
+        MIRAGE_CHECK(!config.valid(error));
+        config.harness_deadline = 600001ms;
+        MIRAGE_CHECK(!config.valid(error));
+        config.harness_deadline = 10min;
+        MIRAGE_CHECK(config.valid(error));
         config.supports_reasoning = true;
         MIRAGE_CHECK(config.valid(error));
         MIRAGE_CHECK(integration::reasoning_options(config.dialect, "MiniMax-M3").size() == 3);
@@ -272,6 +282,7 @@ int main(int argc, char **argv) {
     config.socket_path = (dir.root() / "service.sock").string();
     config.settings_directory = dir.root() / "settings";
     config.model.request_deadline = 1s;
+    config.model.harness_deadline = 3s;
     config.model.max_output_tokens = 512;
     config.persist_recovery_state = false;
     config.persist_session_state = true;
@@ -319,6 +330,39 @@ int main(int argc, char **argv) {
         if (!fixture_service.start(binding).ok)
             return 1;
         return fixture_service.run().clean ? 0 : 1;
+    }
+    // Whole-task expiry reaches the caller cancellation probe even when a
+    // model call still has time. Shut down this owner before the main fixture.
+    {
+        auto deadline_config = config;
+        deadline_config.socket_path = (dir.root() / "deadline.sock").string();
+        deadline_config.persist_settings = deadline_config.persist_session_state = false;
+        deadline_config.model.enabled = true;
+        deadline_config.model.model_selector = "MiniMax-M3";
+        deadline_config.model.dialect = "anthropic.messages.v1";
+        deadline_config.model.endpoint_origin = "https://fixture.example";
+        deadline_config.model.request_deadline = 1s;
+        deadline_config.model.harness_deadline = 250ms;
+        std::shared_ptr<Provider> deadline_provider;
+        deadline_config.model_provider_override =
+            std::make_shared<integration::ModelProviderOverride>([&](const auto &profile) {
+                deadline_provider = std::make_shared<Provider>(profile);
+                deadline_provider->hold.store(true);
+                return deadline_provider;
+            });
+        mirage::runtime::RuntimeService deadline_service(deadline_config);
+        MIRAGE_CHECK(deadline_service.start(binding).ok);
+        ipc::IpcClient deadline_client(deadline_config.socket_path);
+        const auto deadline_session = std::get<ipc::SessionList>(
+            deadline_client.call(ipc::ListSessionsRequest{}, 2s).payload).sessions.front().id;
+        MIRAGE_CHECK(deadline_client.call(
+            ipc::SessionChatRequest{deadline_session, "整任务超时", true}, 2s).ok);
+        const auto expired = wait_turn(deadline_client, deadline_session);
+        MIRAGE_CHECK(expired && expired->status == "failed" &&
+                     expired->error.find("cancelled") != std::string::npos &&
+                     deadline_provider->last_caller_cancelled.load());
+        deadline_service.request_shutdown();
+        MIRAGE_CHECK(deadline_service.run().clean);
     }
     mirage::runtime::RuntimeService service(config);
     MIRAGE_CHECK(service.start(binding).ok);
@@ -511,10 +555,14 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(provider->calls.load() - before_budget == 16);
     provider->always_tool.store(false);
     provider->hold.store(true);
-    MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "超时路径", true}, 2s).ok);
+    const auto per_call_started = std::chrono::steady_clock::now();
+    const auto per_call_count = provider->calls.load();
+    MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "单次模型超时路径", true}, 2s).ok);
     turn = wait_turn(client, session);
-    MIRAGE_CHECK(turn && turn->status == "failed" &&
-                 turn->error.find("cancelled") != std::string::npos);
+    MIRAGE_CHECK(turn && turn->status == "failed" && !turn->error.empty() &&
+                 !provider->last_caller_cancelled.load() &&
+                 provider->calls.load() - per_call_count == 1 &&
+                 std::chrono::steady_clock::now() - per_call_started >= config.model.request_deadline);
     provider->hold.store(false);
     MIRAGE_CHECK(
         !client.call(ipc::SessionChatRequest{session, "unsupported", true, "default", "high"}, 2s)
@@ -550,6 +598,12 @@ int main(int argc, char **argv) {
     turn = wait_turn(client, session);
     MIRAGE_CHECK(turn && turn->status == "ok" && provider->last_tools.load() == 0 &&
                  provider->saw_high.load());
+    // DEC-080: the service enforces dialog mode even against agent=true.
+    MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "纯对话权限验证", true,
+                                                    "chat_only"}, 2s).ok);
+    turn = wait_turn(client, session);
+    MIRAGE_CHECK(turn && turn->status == "ok" && provider->last_tools.load() == 0 &&
+                 !provider->saw_image.load());
     auto duplicates = settings;
     duplicates.models.back().display_name = duplicates.models.front().display_name;
     MIRAGE_CHECK(!persistence::decode_settings(persistence::encode_settings(duplicates)).ok);
@@ -1015,18 +1069,56 @@ int main(int argc, char **argv) {
         std::get<ipc::ModelConfiguration>(messages_ack.payload).settings_json);
     MIRAGE_CHECK(messages_projection.ok && messages_projection.settings.model->reasoning_options ==
                                                std::vector<std::string>({"", "none", "adaptive"}));
+    // DEC-082: the model-aware default uses structured thinking in pure
+    // dialog as well as the harness. Final text never contains that process.
+    MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "默认直接对话", false,
+                                                   "chat_only", ""}, 2s).ok);
+    const auto default_dialog = wait_turn(client, session);
+    MIRAGE_CHECK(default_dialog && default_dialog->status == "ok" &&
+                 provider->saw_adaptive.load() && provider->last_tools.load() == 0 &&
+                 provider->last_output_tokens.load() == 8192 &&
+                 provider->profile_.capabilities.limits.max_output_tokens == 17 * 8192 &&
+                 default_dialog->reply_text == "Mira 已完成通用工具调用。" &&
+                 std::any_of(default_dialog->parts.begin(), default_dialog->parts.end(),
+                             [](const auto &part) { return part.kind == "thinking"; }));
+    // Nine distinct tool round trips exceed the former seven-call ceiling.
+    // Their total time exceeds one request's limit, within the task limit.
+    provider->remaining_tools.store(9);
+    provider->wait_duration.store(150);
+    const auto many_start = std::chrono::steady_clock::now();
+    const auto many_calls = provider->calls.load();
+    MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "默认多轮工具", true,
+                                                   "default", ""}, 2s).ok);
+    const auto many_turn = wait_turn(client, session);
+    MIRAGE_CHECK(many_turn && many_turn->status == "ok" &&
+                 provider->saw_adaptive.load() && provider->calls.load() - many_calls == 10 &&
+                 many_turn->reply_text == "Mira 已完成通用工具调用。" &&
+                 std::chrono::steady_clock::now() - many_start > config.model.request_deadline);
+    provider->wait_duration.store(1);
+    provider->remaining_tools.store(9);
+    const auto adaptive_calls = provider->calls.load();
     MIRAGE_CHECK(
         client
-            .call(ipc::SessionChatRequest{session, "自适应思考", true, "read_only", "adaptive"}, 2s)
+            .call(ipc::SessionChatRequest{session, "自适应思考", true, "default", "adaptive"}, 2s)
             .ok);
     const auto thought_turn = wait_turn(client, session);
-    MIRAGE_CHECK(thought_turn && thought_turn->status == "ok" && provider->saw_adaptive.load());
+    MIRAGE_CHECK(thought_turn && thought_turn->status == "ok" && provider->saw_adaptive.load() &&
+                 provider->calls.load() - adaptive_calls == 10);
+    provider->always_tool.store(true);
+    const auto m3_budget_calls = provider->calls.load();
+    MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "思考轮次预算", true,
+                                                   "default", "adaptive"}, 2s).ok);
+    const auto m3_budget_turn = wait_turn(client, session);
+    MIRAGE_CHECK(m3_budget_turn && m3_budget_turn->status == "failed" &&
+                 m3_budget_turn->error.find("turn") != std::string::npos &&
+                 provider->calls.load() - m3_budget_calls == 16);
+    provider->always_tool.store(false);
     MIRAGE_CHECK(
         client.call(ipc::SessionChatRequest{session, "关闭思考", true, "read_only", "none"}, 2s)
             .ok);
     const auto no_thought_turn = wait_turn(client, session);
     MIRAGE_CHECK(no_thought_turn && no_thought_turn->status == "ok" &&
-                 provider->saw_disabled.load());
+                 provider->saw_disabled.load() && provider->last_output_tokens.load() == 512);
     MIRAGE_CHECK(
         !client.call(ipc::SessionChatRequest{session, "M3不支持深度", true, "read_only", "max"}, 2s)
              .ok);

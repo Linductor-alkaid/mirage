@@ -94,6 +94,7 @@ void print_usage(std::ostream &out) {
         << "SIGINT/SIGTERM.\n"
         << "\n"
         << "Options:\n"
+        << "  --ocr-manifest PATH  Verified local PP-OCR resources (opt-in build)\n"
         << "  --socket PATH     IPC endpoint (default: XDG runtime dir)\n"
         << "  --read-root PATH  Filesystem path tasks may read (repeatable;\n"
         << "                    without one, filesystem reads are denied)\n"
@@ -193,6 +194,7 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
     bool model_from_flags = false;
     bool runtime_from_flags = false;
     bool overlay_from_flags = false;
+    bool ocr_from_flags = false;
     bool overlay_debug = false;
     std::optional<std::filesystem::path> config_file;
 
@@ -221,6 +223,17 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
         if (argument == "--read-root" && index + 1 < argc) {
             read_roots.emplace_back(argv[++index]);
             read_roots_from_flags = true;
+            continue;
+        }
+        if (argument == "--ocr-manifest" && index + 1 < argc) {
+            const std::string path = argv[++index];
+            if (!mirage::runtime::persistence::valid_ocr_manifest_path(path)) {
+                std::cerr << kProgramName
+                          << ": OCR manifest requires an absolute bounded path or an empty value\n";
+                return 2;
+            }
+            ocr_from_flags = true;
+            config.ocr_manifest = path;
             continue;
         }
         if (argument == "--config" && index + 1 < argc) {
@@ -314,6 +327,18 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
         return 2;
     }
 
+#if defined(MIRAGE_BUNDLED_VISION) && !defined(_WIN32)
+    // DEC-068: relocatable product assets; settings and CLI below retain precedence.
+    if (product && !ocr_from_flags) {
+        const auto parent =
+            std::filesystem::path(mirage::platform::current_executable_path()).parent_path();
+        auto prefix = parent.parent_path();
+        if (parent.filename() == "tray" && prefix.filename() == "apps")
+            prefix = prefix.parent_path();
+        const auto resources = prefix / "share/mirage/vision/ppocrv5-mobile-v1/manifest.json";
+        config.ocr_manifest = resources;
+    }
+#endif
     if (product) {
 #ifdef _WIN32
         config.tray_carrier = mirage::platform::windows_backend::open_tray_carrier();
@@ -375,6 +400,8 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
                 return 1;
             }
             const auto &settings = decoded.settings;
+            if (settings.vision && !ocr_from_flags)
+                config.ocr_manifest = settings.vision->ocr_manifest;
             if (!settings.socket_path.empty()) {
                 config.socket_path = settings.socket_path;
             }
@@ -410,6 +437,7 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
                 config.model.credential_ref = settings.model->credential_ref;
                 config.model.context_window_tokens = settings.model->context_window_tokens;
                 config.model.supports_reasoning = settings.model->supports_reasoning;
+                config.model.supports_images = settings.model->supports_images;
                 config.model_catalog_json = mirage::runtime::persistence::encode_settings(settings);
             }
             if (settings.runtime.has_value() && !runtime_from_flags) {
@@ -450,6 +478,8 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
                     return 1;
                 }
                 const auto &settings = decoded.settings;
+                if (settings.vision && !ocr_from_flags)
+                    config.ocr_manifest = settings.vision->ocr_manifest;
                 if (!settings.socket_path.empty()) {
                     config.socket_path = settings.socket_path;
                 }
@@ -482,6 +512,7 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
                     config.model.credential_ref = settings.model->credential_ref;
                     config.model.context_window_tokens = settings.model->context_window_tokens;
                     config.model.supports_reasoning = settings.model->supports_reasoning;
+                    config.model.supports_images = settings.model->supports_images;
                     config.model_catalog_json =
                         mirage::runtime::persistence::encode_settings(settings);
                 }
@@ -560,7 +591,11 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
         read_scope.emplace_back(root);
     }
     auto environment = std::make_shared<mirage::platform::linux_backend::LinuxDesktopEnvironment>(
-        std::move(read_scope));
+        std::move(read_scope),
+        mirage::platform::linux_backend::X11Options{product || !config.ocr_manifest.empty(), {}},
+        mirage::platform::linux_backend::AtspiOptions{product},
+        mirage::platform::linux_backend::ApplicationOptions{product},
+        mirage::platform::linux_backend::NotificationsOptions{product});
     if (overlay_from_flags) {
         // M5-09 (DEC-029): the X11 shape overlay carrier. Null without an
         // X/XWayland connection (e.g. a Wayland-native session) — loud

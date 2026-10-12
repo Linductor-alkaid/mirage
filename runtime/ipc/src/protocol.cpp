@@ -753,6 +753,18 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 put(object, "workflow_id", value.workflow_id);
                 put(object, "digest", value.digest);
                 put(object, "definition", embedded_json(value.definition_json));
+            } else if constexpr (std::is_same_v<T, DesktopAuthorizationConfiguration>) {
+                put(object, "desktop_authorization", value.state);
+                put(object, "supported", value.supported);
+                put(object, "remember", value.remember);
+                put(object, "remembered", value.remembered);
+                put(object, "notice", value.notice);
+            } else if constexpr (std::is_same_v<T, VisionConfiguration>) {
+                put(object, "vision_manifest", value.ocr_manifest);
+                put(object, "active_manifest", value.active_manifest);
+                put(object, "vision_supported", value.supported);
+                put(object, "vision_running", value.running);
+                put(object, "restart_required", value.restart_required);
             } else if constexpr (std::is_same_v<T, ModelConfiguration>) {
                 put(object, "model_settings", value.settings_json);
                 if (!value.warning.empty())
@@ -911,6 +923,16 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                     put(object, "reasoning", value.reasoning);
                 if (!value.replace_turn_id.empty())
                     put(object, "replace_turn_id", value.replace_turn_id);
+            } else if constexpr (std::is_same_v<T, GetDesktopAuthorizationRequest>) {
+                put(object, "op", "desktop.authorization.get");
+            } else if constexpr (std::is_same_v<T, SetDesktopAuthorizationRequest>) {
+                put(object, "op", "desktop.authorization.set");
+                put(object, "remember", value.remember);
+            } else if constexpr (std::is_same_v<T, GetVisionRequest>) {
+                put(object, "op", "vision.get");
+            } else if constexpr (std::is_same_v<T, SetVisionRequest>) {
+                put(object, "op", "vision.set");
+                put(object, "ocr_manifest", value.ocr_manifest);
             } else if constexpr (std::is_same_v<T, GetModelRequest>) {
                 put(object, "op", "model.get");
             } else if constexpr (std::is_same_v<T, ListModelsRequest>) {
@@ -1210,7 +1232,8 @@ RequestDecode decode_request(std::string_view payload) {
         }
         if (const auto *value = member(object, "access")) {
             const auto *text_value = value->as_string();
-            if (!text_value || (*text_value != "default" && *text_value != "read_only")) {
+            if (!text_value || (*text_value != "default" && *text_value != "read_only" &&
+                                *text_value != "chat_only")) {
                 result.error = "invalid access mode";
                 return result;
             }
@@ -1236,6 +1259,26 @@ RequestDecode decode_request(std::string_view payload) {
             chat.replace_turn_id = *replacement;
         }
         result.body = std::move(chat);
+    } else if (*op == "desktop.authorization.get") {
+        result.body = GetDesktopAuthorizationRequest{};
+    } else if (*op == "desktop.authorization.set") {
+        const auto remember = boolean_member(object, "remember");
+        if (!remember) {
+            result.error = "desktop.authorization.set requires boolean remember";
+            return result;
+        }
+        result.body = SetDesktopAuthorizationRequest{*remember};
+    } else if (*op == "vision.get") {
+        result.body = GetVisionRequest{};
+    } else if (*op == "vision.set") {
+        const auto path = string_member(object, "ocr_manifest");
+        if (!path || path->size() > 4096 ||
+            std::any_of(path->begin(), path->end(),
+                        [](unsigned char c) { return c < 32 || c == 127; })) {
+            result.error = "vision.set requires a bounded ocr_manifest string";
+            return result;
+        }
+        result.body = SetVisionRequest{*path};
     } else if (*op == "model.get") {
         result.body = GetModelRequest{};
     } else if (*op == "model.list") {
@@ -1904,6 +1947,39 @@ ResponseDecode decode_response(std::string_view payload) {
             list.ids.push_back(*entry.as_string());
         }
         response.payload = std::move(list);
+    } else if (const auto authorization_state = string_member(object, "desktop_authorization")) {
+        const auto supported = boolean_member(object, "supported");
+        const auto remember = boolean_member(object, "remember");
+        const auto remembered = boolean_member(object, "remembered");
+        const auto notice = string_member(object, "notice");
+        const std::vector<std::string> states{
+            "unsupported",       "ask",      "authorizing", "remembered", "needs_authorization",
+            "store_unavailable", "cancelled"};
+        if (!supported || !remember || !remembered || !notice || notice->size() > 512 ||
+            std::find(states.begin(), states.end(), *authorization_state) == states.end() ||
+            (*remembered && (!*remember || !*supported || *authorization_state != "remembered"))) {
+            result.error = "invalid desktop authorization configuration";
+            return result;
+        }
+        response.payload = DesktopAuthorizationConfiguration{*supported, *remember, *remembered,
+                                                             *authorization_state, *notice};
+    } else if (const auto *manifest = member(object, "vision_manifest")) {
+        const auto *path = manifest->as_string();
+        const auto active = string_member(object, "active_manifest");
+        const auto supported = boolean_member(object, "vision_supported");
+        const auto running = boolean_member(object, "vision_running");
+        const auto restart = boolean_member(object, "restart_required");
+        const auto valid = [](const std::string &v) {
+            return v.size() <= 4096 && std::none_of(v.begin(), v.end(), [](unsigned char c) {
+                       return c < 32 || c == 127;
+                   });
+        };
+        if (!path || !active || !supported || !running || !restart || !valid(*path) ||
+            !valid(*active)) {
+            result.error = "invalid vision configuration";
+            return result;
+        }
+        response.payload = VisionConfiguration{*path, *active, *supported, *running, *restart};
     } else if (const auto settings = string_member(object, "model_settings")) {
         if (settings->size() > 65536) {
             result.error = "model settings exceed budget";

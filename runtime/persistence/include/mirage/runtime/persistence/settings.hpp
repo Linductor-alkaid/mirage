@@ -37,7 +37,8 @@ struct ModelSettings {
     std::string provider_id = {};    ///< DEC-042: stable product service identity
     std::string provider_name = {};  ///< DEC-042: service label, separate from model identity
     std::vector<std::string> reasoning_options =
-        {}; ///< Service projection; never trusted as capability input.
+        {};                       ///< Service projection; never trusted as capability input.
+    bool supports_images = false; ///< Explicit declaration; screenshot permissions still apply.
 };
 
 /// Runtime configuration settings (M5-08 Runtime Configuration 类目):
@@ -47,6 +48,13 @@ struct RuntimeSettings {
     std::size_t event_queue_capacity = 0;
     std::size_t max_connections = 0;
 };
+
+struct VisionSettings {
+    std::string ocr_manifest; ///< DEC-066: absolute local path; empty disables OCR on restart.
+};
+
+/// Bounded absolute manifest path, without control characters; empty disables OCR.
+bool valid_ocr_manifest_path(std::string_view path);
 
 /// Mirage's local configuration for the runtime service (design doc section
 /// 16, DEC-011): the M1-configurable surface of Application Settings,
@@ -81,6 +89,8 @@ struct LocalSettings {
     /// Runtime configuration block (M5-08 Runtime Configuration 类目);
     /// nullopt keeps the built-in bounds.
     std::optional<RuntimeSettings> runtime;
+    std::optional<VisionSettings> vision;        ///< Resource changes take effect at next start.
+    bool remember_desktop_authorization = false; ///< DEC-078; token stays in OS credential store.
 };
 
 /// Serializes the document (compact JSON, schema field included).

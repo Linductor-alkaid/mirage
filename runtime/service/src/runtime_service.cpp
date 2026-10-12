@@ -18,6 +18,7 @@
 // pinned core transitively through the integration adapter).
 #include <mira/environment.hpp>
 #include <mira/model_contracts.hpp>
+#include <stop_token>
 
 #include "overlay_presenter.hpp"
 #include "service_core.hpp"
@@ -175,6 +176,7 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
                     ++record.process_sequence;
                 event.process_sequence = record.process_sequence;
                 record.status = status;
+                record.recorded_at_ms = wall_now_ms(); // DEC-079: last canonical record update.
                 record.reply_text = event.reply_text;
                 record.context_usage = event.context_usage;
                 record.error = event.error;
@@ -209,10 +211,14 @@ void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::stri
     context.task = mira::TaskId::parse(agent_task_id).value_or(mira::TaskId{});
     context.operation = mira::OperationId::generate();
     context.started_at = mira::Timestamp::now();
-    context.deadline = std::chrono::steady_clock::now() + core->model.request_deadline;
+    context.deadline = std::chrono::steady_clock::now() +
+                       (agent ? core->model.harness_deadline : core->model.request_deadline);
     context.cancellation_requested = [stop, deadline = *context.deadline]() {
         return stop.stop_requested() || std::chrono::steady_clock::now() >= deadline;
     };
+    mirage::desktop::CancelToken desktop_cancel;
+    std::stop_callback desktop_stop(
+        stop, [desktop_cancel]() mutable { desktop_cancel.request_cancel(); });
     // Transport callback only performs bounded validation and Topic delivery.
     // Per-infer callbacks are sequential; the shared atomic also covers retries safely.
     auto preview_sequence = std::make_shared<std::atomic<std::uint64_t>>(0);
@@ -254,8 +260,9 @@ void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::stri
     };
     mirage::integration::DialogCompletion completion =
         core->model_layer
-            ? (agent ? core->model_layer->complete_harness_turn(
-                           transcript, text, context, reasoning, tools_allowed, preview, process)
+            ? (agent ? core->model_layer->complete_harness_turn(transcript, text, context,
+                                                                reasoning, tools_allowed, preview,
+                                                                process, desktop_cancel)
                      : core->model_layer->complete_dialog_turn(transcript, text, context, reasoning,
                                                                tools_allowed, preview, process))
             : mirage::integration::DialogCompletion{};
@@ -369,6 +376,7 @@ ServiceInfo runtime_service_info() {
 struct RuntimeService::Impl {
     enum class Lifecycle { New, Running, Terminal };
 
+    std::atomic_bool desktop_authorization_pending{false};
     ServiceConfig config;
     std::string socket_path;
     /// Fail-closed hook used when the config carries neither the DEC-020
@@ -402,6 +410,7 @@ struct RuntimeService::Impl {
     std::unique_ptr<detail::TrayPresenter> tray;
     kairo::WorkerHandle tray_worker, tray_actions_worker;
     std::atomic_bool product_failed{false}, product_stopping{false};
+    std::atomic_bool product_maintenance_active{false};
     kairo::TimerHandle product_maintenance;
     // Serialized context only: UI window activation and exit prompt epochs.
     ipc::ProductState product;
@@ -522,6 +531,64 @@ struct RuntimeService::Impl {
             });
         }
         loop_done_future = loop_done.get_future();
+    }
+
+    integration::DesktopToolContext harness_desktop_context() const {
+        integration::DesktopToolContext desktop;
+        desktop.environment = core->environment;
+        desktop.actions = core->actions;
+        if (core->ocr_pipeline && core->ocr_pipeline->running()) {
+            desktop.mark = [pipeline = core->ocr_pipeline.get()](
+                               const auto &crop, const auto &cancel, const auto &deadline) {
+                return pipeline->mark(crop, cancel, deadline);
+            };
+            desktop.with_visual_reference =
+                [pipeline = core->ocr_pipeline.get()](const auto &scope, const auto &ref,
+                                                      const auto &action) {
+                    return pipeline->registry().with_reference(scope, ref, action);
+                };
+            desktop.with_visual_references =
+                [pipeline = core->ocr_pipeline.get()](const auto &scope, const auto &from,
+                                                      const auto &to, const auto &action) {
+                    return pipeline->registry().with_references(scope, from, to, action);
+                };
+            desktop.ocr_image = [pipeline = core->ocr_pipeline.get()](
+                                    const auto &image, const auto &cancel, const auto &deadline) {
+                return pipeline->read_image_ocr(image, cancel, deadline);
+            };
+            desktop.ocr = [pipeline = core->ocr_pipeline.get()](const auto &cancel,
+                                                                const auto &deadline) {
+                const auto begin = std::chrono::steady_clock::now();
+                const auto fresh = pipeline->refresh(true, cancel, deadline);
+                integration::DesktopOcrResult result;
+                result.ok = fresh.captured && fresh.analyzed;
+                result.cancelled = fresh.capture_cancelled || fresh.analysis_cancelled;
+                result.error = fresh.captured ? fresh.analysis_error : fresh.capture_error;
+                result.snapshot = fresh.publish.snapshot;
+                result.display_id = fresh.display_id;
+                result.model_revision = pipeline->model_revision();
+                result.backend_calls = pipeline->backend_calls();
+                result.display_geometry = fresh.display_geometry;
+                result.capture_begin = begin;
+                result.capture_end = std::chrono::steady_clock::now();
+                return result;
+            };
+        }
+        desktop.authorize = [permission = core->permission](
+                                const std::string &capability, const std::string &resource,
+                                const integration::AtomCancelProbe &cancelled,
+                                const std::string &task_id, const std::string &operation_id) {
+            const auto parsed = permission::capability_from_name(capability);
+            if (!permission || !parsed)
+                return false;
+            permission::PermissionRequest request;
+            request.capability = *parsed;
+            request.resource = resource;
+            request.task_id = task_id;
+            request.operation_id = operation_id;
+            return permission->authorize(request, cancelled).allowed;
+        };
+        return desktop;
     }
 
     ipc::ServiceIdentity identity() const {
@@ -873,6 +940,22 @@ struct RuntimeService::Impl {
         }
         if (auto *request = std::get_if<ipc::CloseSessionRequest>(&decoded.body)) {
             handle_session_close(connection_id, correlation_id, std::move(request->session_id));
+            return;
+        }
+        if (std::holds_alternative<ipc::GetDesktopAuthorizationRequest>(decoded.body)) {
+            handle_desktop_authorization(connection_id, correlation_id, nullptr);
+            return;
+        }
+        if (const auto *request = std::get_if<ipc::SetDesktopAuthorizationRequest>(&decoded.body)) {
+            handle_desktop_authorization(connection_id, correlation_id, request);
+            return;
+        }
+        if (std::holds_alternative<ipc::GetVisionRequest>(decoded.body)) {
+            handle_vision(connection_id, correlation_id, nullptr);
+            return;
+        }
+        if (const auto *request = std::get_if<ipc::SetVisionRequest>(&decoded.body)) {
+            handle_vision(connection_id, correlation_id, request);
             return;
         }
         if (std::holds_alternative<ipc::GetModelRequest>(decoded.body)) {
@@ -1703,6 +1786,175 @@ struct RuntimeService::Impl {
                               std::move(submission));
     }
 
+    // DEC-078: serial-context preference publication; finite cancellable Portal I/O.
+    void handle_desktop_authorization(std::uint64_t connection, std::uint64_t correlation,
+                                      const ipc::SetDesktopAuthorizationRequest *request) {
+        auto *screen = core->environment ? core->environment->screen() : nullptr;
+        if (!screen) {
+            if (!request)
+                respond(connection, correlation, ipc::DesktopAuthorizationConfiguration{});
+            else
+                fail(connection, correlation, "unavailable", "当前桌面没有系统授权能力。");
+            return;
+        }
+        {
+            std::lock_guard lock(core->drivers_mutex);
+            for (auto it = core->drivers.begin(); it != core->drivers.end();) {
+                if (it->first.starts_with("desktop-authorization-") &&
+                    it->second.future.wait_for(std::chrono::milliseconds{0}) ==
+                        std::future_status::ready) {
+                    try {
+                        it->second.future.get();
+                    } catch (...) {
+                    }
+                    it = core->drivers.erase(it);
+                } else
+                    ++it;
+            }
+        }
+        if (desktop_authorization_pending.load()) {
+            fail(connection, correlation, "desktop_authorization_busy",
+                 "桌面授权正在处理，请稍后刷新。");
+            return;
+        }
+        if (request) {
+            if (!core->settings_store ||
+                (request->remember && !screen->desktop_interaction_supported())) {
+                fail(connection, correlation, "unavailable",
+                     "当前桌面不支持记住授权或配置无法保存。");
+                return;
+            }
+            const auto policy = core->permission->policy();
+            if (request->remember &&
+                (policy.rule_for(permission::Capability::ScreenCapture) == permission::Rule::Deny ||
+                 policy.rule_for(permission::Capability::InputInject) == permission::Rule::Deny)) {
+                fail(connection, correlation, "permission_denied",
+                     "服务读屏或输入权限被禁止，请先调整权限策略。");
+                return;
+            }
+            persistence::LocalSettings settings;
+            const auto loaded = core->settings_store->load();
+            if (loaded.status == persistence::LoadStatus::Loaded) {
+                const auto decoded = persistence::decode_settings(loaded.body);
+                if (!decoded.ok) {
+                    fail(connection, correlation, "invalid_state",
+                         "现有配置无效，未更改桌面授权。");
+                    return;
+                }
+                settings = decoded.settings;
+            } else if (loaded.status != persistence::LoadStatus::Absent) {
+                fail(connection, correlation, "internal", "无法读取桌面授权配置。");
+                return;
+            }
+            settings.remember_desktop_authorization = request->remember;
+            if (!core->settings_store->save(persistence::encode_settings(settings)).ok) {
+                fail(connection, correlation, "internal", "无法保存桌面授权偏好。");
+                return;
+            }
+            screen->configure_desktop_authorization(request->remember);
+        }
+        const std::optional<bool> manage =
+            request ? std::optional<bool>{request->remember} : std::nullopt;
+        desktop_authorization_pending.store(true);
+        auto settled = std::make_shared<std::atomic_bool>(false);
+        auto submission = core->executor.submit_cancellable([this, shared = core, screen,
+                                                             connection, correlation, manage,
+                                                             settled](kairo::StopToken stop) {
+            struct Pending {
+                std::atomic_bool &value;
+                bool finished = false;
+                void finish() {
+                    if (!finished) {
+                        value.store(false);
+                        finished = true;
+                    }
+                }
+                ~Pending() { finish(); }
+            } pending{desktop_authorization_pending};
+            try {
+                const desktop::CancelToken cancel([&] { return stop.stop_requested(); });
+                if (manage) {
+                    const auto error = screen->manage_desktop_authorization(*manage, cancel);
+                    if (!error.code.empty()) {
+                        settled->store(true);
+                        pending.finish();
+                        fail(connection, correlation, error.code, error.message);
+                        return;
+                    }
+                }
+                const auto view = screen->desktop_authorization(cancel);
+                settled->store(true);
+                pending.finish();
+                respond(connection, correlation,
+                        ipc::DesktopAuthorizationConfiguration{view.supported, view.remember,
+                                                               view.remembered, view.state,
+                                                               view.error.message});
+            } catch (...) {
+                pending.finish();
+                if (!settled->exchange(true))
+                    fail(connection, correlation, "internal", "桌面授权操作发生异常，请刷新状态。");
+                throw;
+            }
+        });
+        if (submission.future.wait_for(std::chrono::milliseconds{0}) == std::future_status::ready) {
+            try {
+                submission.future.get();
+            } catch (...) {
+                desktop_authorization_pending.store(false);
+                if (!settled->exchange(true))
+                    fail(connection, correlation, "unavailable", "桌面授权任务未能进入 Executor。");
+            }
+            return;
+        }
+        std::lock_guard lock(core->drivers_mutex);
+        core->drivers.emplace("desktop-authorization-" + std::to_string(connection) + "-" +
+                                  std::to_string(correlation),
+                              std::move(submission));
+    }
+
+    // DEC-066: configuration only; the active pipeline stays owned until service shutdown.
+    void handle_vision(std::uint64_t connection, std::uint64_t correlation,
+                       const ipc::SetVisionRequest *request) {
+        persistence::LocalSettings settings;
+        if (request && !persistence::valid_ocr_manifest_path(request->ocr_manifest)) {
+            fail(connection, correlation, "invalid_argument",
+                 "OCR manifest must be an absolute bounded path or empty");
+            return;
+        }
+        if (request && !core->settings_store) {
+            fail(connection, correlation, "unavailable", "vision settings storage is unavailable");
+            return;
+        }
+        if (core->settings_store) {
+            const auto loaded = core->settings_store->load();
+            if (loaded.status == persistence::LoadStatus::Loaded) {
+                const auto decoded = persistence::decode_settings(loaded.body);
+                if (!decoded.ok) {
+                    fail(connection, correlation, "invalid_state", "existing settings are invalid");
+                    return;
+                }
+                settings = decoded.settings;
+            } else if (loaded.status != persistence::LoadStatus::Absent) {
+                fail(connection, correlation, "internal", "cannot read vision settings");
+                return;
+            }
+        }
+        if (request) {
+            settings.vision = persistence::VisionSettings{request->ocr_manifest};
+            const auto saved = core->settings_store->save(persistence::encode_settings(settings));
+            if (!saved.ok) {
+                fail(connection, correlation, "internal", "cannot save vision settings");
+                return;
+            }
+        }
+        const auto active = config.ocr_manifest.string();
+        const auto path = settings.vision ? settings.vision->ocr_manifest : active;
+        respond(connection, correlation,
+                ipc::VisionConfiguration{path, active, integration::PpOcrPipeline::supported(),
+                                         core->ocr_pipeline && core->ocr_pipeline->running(),
+                                         path != active});
+    }
+
     void handle_model_get(std::uint64_t connection, std::uint64_t correlation,
                           std::string warning = {}) {
         persistence::LocalSettings document;
@@ -1719,6 +1971,7 @@ struct RuntimeService::Impl {
                                        m.supports_reasoning,
                                        m.credential_ref,
                                        !m.credential_ref.empty() || !m.credential_env.empty()};
+        document.model->supports_images = m.supports_images;
         const auto catalog = persistence::decode_settings(config.model_catalog_json);
         if (catalog.ok)
             document.models = catalog.settings.models;
@@ -1756,7 +2009,7 @@ struct RuntimeService::Impl {
         }
         if (!decoded.ok || !decoded.settings.model || !decoded.settings.socket_path.empty() ||
             !decoded.settings.read_roots.empty() || !decoded.settings.permission_rules.empty() ||
-            decoded.settings.confirmation || decoded.settings.runtime) {
+            decoded.settings.confirmation || decoded.settings.runtime || decoded.settings.vision) {
             fail(connection, correlation, "invalid_argument",
                  "model.set requires only a valid model block");
             return;
@@ -1810,6 +2063,7 @@ struct RuntimeService::Impl {
         auto next_config = core->model;
         next_config.enabled = m.enabled;
         next_config.supports_reasoning = m.supports_reasoning;
+        next_config.supports_images = m.supports_images;
         next_config.dialect = m.dialect.empty() ? "openai.responses.v1" : m.dialect;
         next_config.display_name = m.display_name;
         next_config.endpoint_origin = m.endpoint_origin;
@@ -1828,7 +2082,8 @@ struct RuntimeService::Impl {
         if (m.enabled) {
             try {
                 next = std::make_unique<mirage::integration::ModelLayer>(
-                    core->executor, next_config, config.model_provider_override.get());
+                    core->executor, next_config, config.model_provider_override.get(),
+                    harness_desktop_context());
             } catch (...) {
                 fail(connection, correlation, "internal", "cannot assemble model layer");
                 return;
@@ -1950,7 +2205,8 @@ struct RuntimeService::Impl {
         }
         const auto options = mirage::integration::reasoning_options(
             core->model.dialect, core->model.model_selector, core->model.supports_reasoning);
-        if ((request.access != "default" && request.access != "read_only") ||
+        if ((request.access != "default" && request.access != "read_only" &&
+             request.access != "chat_only") ||
             std::none_of(options.begin(), options.end(),
                          [&](const auto &entry) { return entry.value == request.reasoning; })) {
             fail(connection_id, correlation_id, "invalid_argument",
@@ -1962,6 +2218,9 @@ struct RuntimeService::Impl {
                  "dialog text exceeds the " + std::to_string(kMaxDialogTextBytes) + " byte budget");
             return;
         }
+        // DEC-080: chat_only selects the tool-free path even if an IPC caller
+        // asks for an agent. It never creates a desktop harness task.
+        request.agent = request.agent && request.access != "chat_only";
         std::string turn_id;
         std::string agent_task_id;
         std::string host_session_id = request.session_id;
@@ -2078,7 +2337,7 @@ struct RuntimeService::Impl {
         auto dialog_submission = core->executor.submit_cancellable(
             [core = core, ready, session_id, turn_id, transcript, text = request.text,
              agent = request.agent, agent_task_id, host_session_id, reasoning = request.reasoning,
-             tools_allowed = request.access != "read_only"](kairo::StopToken stop) {
+             tools_allowed = request.access == "default"](kairo::StopToken stop) {
                 // Startup coordination belongs to Executor; no private queue or waiter.
                 while (!ready->has_reached(1)) {
                     if (ready->is_closed() || stop.stop_requested())
@@ -2701,6 +2960,43 @@ struct RuntimeService::Impl {
             fail(connection_id, correlation_id, "unavailable", "no desktop environment bound");
             return;
         }
+        if (request.visual && core->ocr_pipeline) {
+            permission::PermissionRequest gate;
+            gate.capability = permission::Capability::ScreenCapture;
+            gate.resource = "ocr:configured-display";
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+            const desktop::CancelToken bounded(
+                [deadline] { return std::chrono::steady_clock::now() >= deadline; });
+            const auto epoch = core->actions->epoch();
+            if (!core->permission->authorize(gate, [bounded] { return bounded.cancelled(); })
+                     .allowed) {
+                fail(connection_id, correlation_id, "permission_denied", "OCR capture denied");
+                return;
+            }
+            const auto fresh = core->ocr_pipeline->refresh(true, bounded, deadline);
+            if (!fresh.captured || !fresh.analyzed || bounded.cancelled() ||
+                core->actions->epoch() != epoch) {
+                std::string detail = "OCR capture or analysis failed";
+                if (bounded.cancelled() || fresh.capture_cancelled || fresh.analysis_cancelled)
+                    detail += ": cancelled_or_expired";
+                else if (core->actions->epoch() != epoch)
+                    detail += ": desktop_epoch_changed";
+                else {
+                    const auto &error = fresh.captured ? fresh.analysis_error : fresh.capture_error;
+                    if (!error.code.empty())
+                        detail += ": " + error.code;
+                    if (!error.message.empty()) {
+                        std::size_t bytes = std::min<std::size_t>(512, error.message.size());
+                        while (bytes > 0 && bytes < error.message.size() &&
+                               (static_cast<unsigned char>(error.message[bytes]) & 0xc0) == 0x80)
+                            --bytes;
+                        detail += ": " + error.message.substr(0, bytes);
+                    }
+                }
+                fail(connection_id, correlation_id, "unavailable", std::move(detail));
+                return;
+            }
+        }
         mirage::desktop::ObservationComponents components;
         components.active_window = true;
         components.pointer_state = true;
@@ -2876,6 +3172,7 @@ struct RuntimeService::Impl {
     // --- lifecycle ---------------------------------------------------------
 
     void request_loop_stop() {
+        core->actions->takeover();
         if (lifecycle.load(std::memory_order_acquire) != Lifecycle::Running) {
             return;
         }
@@ -2999,6 +3296,8 @@ struct RuntimeService::Impl {
         if (core->model_layer) {
             core->model_layer->shutdown();
         }
+        if (core->ocr_pipeline)
+            core->ocr_pipeline->stop();
         // M5-08: the final session state snapshot lands while the executor
         // can still settle the write (same ordering rationale as recovery).
         persist_session_state(core);
@@ -3026,13 +3325,15 @@ struct RuntimeService::Impl {
                                                                            : HostStatus::Failed);
         core->serial.shutdown();
         run_report.clean = host_shutdown.ok && host_shutdown.report.clean && frontend_clean &&
-                           !product_failed.load();
+                           !product_failed.load() && core->actions->input_released();
         if (!run_report.clean) {
             run_report.diagnostic =
                 host_shutdown.ok ? host_shutdown.report.diagnostic : host_shutdown.error.message;
         }
         if (!frontend_clean || product_failed.load())
             run_report.diagnostic = "product carrier/action/frontend teardown failed";
+        if (!core->actions->input_released())
+            run_report.diagnostic = "desktop input release did not complete";
         run_report.host_shutdown = host_shutdown.report;
         lifecycle.store(Lifecycle::Terminal, std::memory_order_release);
     }
@@ -3053,6 +3354,11 @@ RuntimeService::~RuntimeService() {
 const std::string &RuntimeService::socket_path() const { return impl_->socket_path; }
 
 void RuntimeService::request_shutdown() { impl_->request_loop_stop(); }
+void RuntimeService::request_desktop_takeover() { impl_->core->actions->takeover(); }
+bool RuntimeService::resume_desktop() {
+    return impl_->lifecycle.load(std::memory_order_acquire) == Impl::Lifecycle::Running &&
+           impl_->core->actions->resume();
+}
 
 void RuntimeService::register_shutdown_fd(int fd) { impl_->shutdown_fd = fd; }
 
@@ -3140,6 +3446,36 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         return outcome;
     }
 
+    if (!impl_->config.ocr_manifest.empty()) {
+        if (impl_->config.visual_registry || !impl_->core->environment->screen()) {
+            outcome.error = {"invalid_argument",
+                             "OCR requires Screen Provider and an owned registry"};
+            if (impl_->core->ocr_pipeline)
+                impl_->core->ocr_pipeline->stop();
+            impl_->core->executor.shutdown(true);
+            impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
+            return outcome;
+        }
+        std::string error;
+        try {
+            auto initialized_ocr = impl_->core->executor.submit_auto([&] {
+                return integration::PpOcrPipeline::create(impl_->core->executor,
+                                                          *impl_->core->environment->screen(),
+                                                          impl_->config.ocr_manifest, error);
+            });
+            impl_->core->ocr_pipeline = initialized_ocr.get();
+        } catch (...) {
+            error = "OCR initialization rejected or failed";
+        }
+        if (!impl_->core->ocr_pipeline) {
+            outcome.error = {"unavailable", error};
+            impl_->core->executor.shutdown(true);
+            impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
+            return outcome;
+        }
+        impl_->core->visual_registry = &impl_->core->ocr_pipeline->registry();
+    }
+
     // Model layer (DEC-027): assembled once the executor is up (its pinned
     // transport runs blocking I/O workers on it) and before the host starts.
     // An enabled-but-invalid config fails start() closed; an enabled-but-
@@ -3150,13 +3486,21 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         std::string model_error;
         if (!impl_->core->model.valid(model_error)) {
             outcome.error = {"invalid_argument", model_error};
+            if (impl_->core->ocr_pipeline)
+                impl_->core->ocr_pipeline->stop();
+            impl_->core->executor.shutdown(true);
             impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
             return outcome;
         }
         impl_->core->model_layer = std::make_unique<mirage::integration::ModelLayer>(
-            impl_->core->executor, impl_->core->model, impl_->config.model_provider_override.get());
+            impl_->core->executor, impl_->core->model, impl_->config.model_provider_override.get(),
+            impl_->harness_desktop_context());
         if (!impl_->core->model_layer->running()) {
             outcome.error = {"internal", "model layer assembly failed"};
+            impl_->core->model_layer->shutdown();
+            if (impl_->core->ocr_pipeline)
+                impl_->core->ocr_pipeline->stop();
+            impl_->core->executor.shutdown(true);
             impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
             return outcome;
         }
@@ -3174,6 +3518,15 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
             std::make_unique<mirage::runtime::persistence::LocalStateStore>(
                 impl_->config.settings_directory, impl_->config.settings_file_name,
                 mirage::runtime::persistence::kMaxSettingsFileBytes);
+    }
+    if (impl_->core->settings_store && impl_->core->environment->screen()) {
+        const auto loaded = impl_->core->settings_store->load();
+        if (loaded.status == persistence::LoadStatus::Loaded) {
+            const auto decoded = persistence::decode_settings(loaded.body);
+            if (decoded.ok)
+                impl_->core->environment->screen()->configure_desktop_authorization(
+                    decoded.settings.remember_desktop_authorization);
+        }
     }
     // M5-08 session state store (DEC-021 backlog ①): the conversation and
     // dialog thread write-back document lives in the state directory.
@@ -3219,6 +3572,8 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                                      "capacity; increase the configured limit before restarting"};
                     if (impl_->core->model_layer)
                         impl_->core->model_layer->shutdown();
+                    if (impl_->core->ocr_pipeline)
+                        impl_->core->ocr_pipeline->stop();
                     impl_->core->executor.shutdown(true);
                     impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
                     return outcome; // Never partially restore and overwrite nonempty history.
@@ -3286,6 +3641,8 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         if (impl_->core->model_layer) {
             impl_->core->model_layer->shutdown();
         }
+        if (impl_->core->ocr_pipeline)
+            impl_->core->ocr_pipeline->stop();
         impl_->core->executor.shutdown(false);
         outcome.error = hosted.error;
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
@@ -3312,29 +3669,31 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                 overlay->show_observation(snapshot);
             };
     }
-    impl_->core->workflow_tools = mirage::integration::DesktopAtomToolset::build(
-        impl_->core->environment.get(),
-        [permission =
-             impl_->core->permission](const std::string &capability, const std::string &resource,
-                                      const mirage::integration::AtomCancelProbe &cancelled) {
-            if (!permission) {
-                return false; // Fail closed: no controller, no capability use.
-            }
-            const auto parsed = permission::capability_from_name(capability);
-            if (!parsed) {
-                return false; // Fail closed: outside the judged vocabulary.
-            }
-            permission::PermissionRequest request;
-            request.capability = *parsed;
-            request.resource = resource;
-            return permission->authorize(request, cancelled).allowed;
-        },
-        overlay_feed);
+    auto workflow_desktop = impl_->harness_desktop_context();
+    workflow_desktop.overlay = overlay_feed;
+    workflow_desktop.gate = [permission = impl_->core->permission](
+                                const std::string &capability, const std::string &resource,
+                                const mirage::integration::AtomCancelProbe &cancelled) {
+        if (!permission) {
+            return false; // Fail closed: no controller, no capability use.
+        }
+        const auto parsed = permission::capability_from_name(capability);
+        if (!parsed) {
+            return false; // Fail closed: outside the judged vocabulary.
+        }
+        permission::PermissionRequest request;
+        request.capability = *parsed;
+        request.resource = resource;
+        return permission->authorize(request, cancelled).allowed;
+    };
+    impl_->core->workflow_tools = mirage::integration::DesktopAtomToolset::build(workflow_desktop);
     const HostOutcome workflow_surface = impl_->core->host.attach_workflow_surface(
         impl_->core->executor, impl_->core->workflow_bridge, impl_->core->workflow_tools);
     if (!workflow_surface.ok) {
         impl_->core->host.shutdown();
         impl_->publish_host_status(impl_->core->host.status());
+        if (impl_->core->ocr_pipeline)
+            impl_->core->ocr_pipeline->stop();
         impl_->core->executor.shutdown(false);
         outcome.error = workflow_surface.error;
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
@@ -3365,6 +3724,8 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
     if (!impl_->listener.valid()) {
         impl_->core->host.shutdown();
         impl_->publish_host_status(impl_->core->host.status());
+        if (impl_->core->ocr_pipeline)
+            impl_->core->ocr_pipeline->stop();
         impl_->core->executor.shutdown(false);
         outcome.error = {"internal", std::move(diagnostic)};
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
@@ -3396,6 +3757,8 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         impl_->listener.close();
         impl_->core->host.shutdown();
         impl_->publish_host_status(impl_->core->host.status());
+        if (impl_->core->ocr_pipeline)
+            impl_->core->ocr_pipeline->stop();
         impl_->core->executor.shutdown(false);
         outcome.error = {"internal", "blocking worker start failed: " +
                                          impl_->loop_worker.start_result().message};
@@ -3448,6 +3811,17 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
             impl_->core->executor.submit_periodic(500, [raw = impl_.get()] {
                 if (raw->product_stopping.load())
                     return;
+                // Periodic callbacks may overlap. One maintenance waiter leaves
+                // capacity for the workflow drive, monitor and nested observation
+                // in the fixed four-worker pool (DEC-069). Skip obsolete ticks;
+                // the admitted callback reads current product state on the serial
+                // context, so there is no queued state or missed transition.
+                if (raw->product_maintenance_active.exchange(true))
+                    return;
+                struct ReleaseAdmission {
+                    std::atomic_bool &active;
+                    ~ReleaseAdmission() { active.store(false); }
+                } release{raw->product_maintenance_active};
                 try {
                     auto reaped = raw->core->executor.submit_on(raw->core->serial, [raw] {
                         if (raw->product_stopping.load() || !raw->config.frontend)

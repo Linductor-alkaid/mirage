@@ -1,5 +1,6 @@
 #pragma once
 #include <mirage/conversation.hpp>
+#include <mirage/integration/desktop_tool_context.hpp>
 
 #include <chrono>
 #include <cstdint>
@@ -47,13 +48,20 @@ struct ModelLayerConfig {
     std::string credential_env;
     std::string credential_ref;
     std::function<std::optional<std::string>(const std::string &)> credential_lookup;
-    /// Whole-request budget mirrored into the profile transport deadlines.
+    /// Single-request budget mirrored into the profile transport deadlines.
     std::chrono::milliseconds request_deadline{120'000};
+    /// DEC-082: whole Agent task bound (0..10 minutes, exclusive lower bound).
+    /// Independent of the per-model-call deadline; owned by Runtime Service.
+    std::chrono::milliseconds harness_deadline{600'000};
     /// Per-request generation bound (1..16384); harness also has a whole-loop token budget.
     std::uint64_t max_output_tokens = 2048;
     std::uint64_t context_window_tokens = 0; ///< DEC-036: explicit window budget; 0 unknown
     /// Per-turn input text budget (user text plus rendered transcript).
     std::size_t max_input_bytes = 64ULL * 1024ULL;
+
+    /// Explicit host declaration; default denies desktop images. Requires screen.capture
+    /// permission.
+    bool supports_images = false;
 
     /// Fail-closed validation for an enabled layer: a known dialect and a
     /// model selector are mandatory; the endpoint origin is required only
@@ -85,6 +93,9 @@ struct DialogCompletion {
     std::uint64_t context_window_tokens = 0;
     std::string usage_model;
     std::vector<conversation::Part> parts = {};
+    std::uint32_t supplied_input_items = 0;
+    std::uint32_t supplied_input_dropped = 0;
+    std::uint32_t supply_degradations = 0;
 };
 
 /// Opaque carrier for a caller-supplied pinned model provider (DEC-027 test
@@ -126,11 +137,10 @@ using DialogProcessSink = std::function<void(const std::vector<conversation::Par
 /// ModelProfile + ModelRouter + OpenAiCompatibleProvider over the pinned
 /// SocketHttpTransport (+ the OpenSSL TLS channel when the pinned adapter was
 /// built; https endpoints fail closed without it, never downgrade) + the
-/// ModelGateway — and serves one bounded pure-dialog completion per call:
-/// a Text-mode ModelRequest with the dialog system prompt, the caller-rendered
-/// transcript block and the new user text. No tools, no desktop observation —
-/// the desktop agent loop stays a separate pinned surface (DEC-008 step 2's
-/// pure-dialog form).
+/// ModelGateway. Pure dialog serves a bounded Text-mode request; the harness
+/// uses the pinned ConversationLoop with injected desktop tools. Declared
+/// image support enables authorized PNG captures and per-request ImagePart
+/// supply (DEC-055), without a second agent loop.
 ///
 /// Threading: constructed and shut down by the service owner (the same
 /// Executor that backs the transport's blocking I/O workers, EXEC-01);
@@ -144,7 +154,8 @@ class ModelLayer {
     /// scripted provider serves the gateway instead (tests; the pinned
     /// production provider denies private/loopback endpoints by design).
     ModelLayer(kairo::Executor &executor, const ModelLayerConfig &config,
-               const ModelProviderOverride *provider_override = nullptr);
+               const ModelProviderOverride *provider_override = nullptr,
+               DesktopToolContext desktop = {});
     ~ModelLayer();
     ModelLayer(const ModelLayer &) = delete;
     ModelLayer &operator=(const ModelLayer &) = delete;
@@ -163,12 +174,21 @@ class ModelLayer {
                                           bool tools_allowed = true, DialogPreviewSink preview = {},
                                           DialogProcessSink process = {});
 
-    // MIRA-20261004-001: bounded conversational harness, no desktop observation.
+    /// Bounded ConversationLoop; M7-02 installs the available desktop atoms
+    /// from the injected context. tools_allowed=false retains observation
+    /// atoms but omits mutations and wait. Pure dialog remains tool-free.
+    /// supports_images enables display discovery and authorized capture;
+    /// completion reports supply drops/degradations as failures.
+    /// M7-08 fixes mutation postconditions before dispatch and observes after
+    /// lease settlement. Unverified/uncertain effects prevent success; passing
+    /// evidence establishes declared local conditions, not arbitrary intent.
+    /// The caller bridges task cancellation into cancel for provider calls.
     DialogCompletion
     complete_harness_turn(const std::string &transcript, const std::string &user_text,
                           const mira::OperationContext &context, const std::string &reasoning = "",
                           bool tools_allowed = true, DialogPreviewSink preview = {},
-                          DialogProcessSink process = {});
+                          DialogProcessSink process = {},
+                          const mirage::desktop::CancelToken &cancel = {});
 
     /// Ordered teardown: waits out any in-flight dialog completion (bounded
     /// by the profile transport deadlines), then settles the transport's

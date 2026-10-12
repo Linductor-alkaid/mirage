@@ -43,7 +43,7 @@ struct PersistedChatTurn {
     std::string reply_text;
     std::string error;
     std::uint64_t sequence = 0;
-    std::int64_t recorded_at_ms = 0;
+    std::int64_t recorded_at_ms = 0; // DEC-079: canonical record time, updated at settlement.
     std::vector<conversation::Part> parts = {};
     std::uint64_t process_sequence = 0;
 };

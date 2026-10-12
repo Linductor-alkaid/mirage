@@ -1,5 +1,7 @@
 #include <mirage/runtime/persistence/settings.hpp>
 
+#include <algorithm>
+#include <filesystem>
 #include <mira/json.hpp>
 
 namespace mirage::runtime::persistence {
@@ -107,6 +109,13 @@ std::optional<std::vector<std::string>> read_roots_member(const JsonValue &objec
 
 } // namespace
 
+bool valid_ocr_manifest_path(std::string_view path) {
+    return path.size() <= kMaxPathBytes &&
+           std::none_of(path.begin(), path.end(),
+                        [](unsigned char c) { return c < 32 || c == 127; }) &&
+           (path.empty() || std::filesystem::path(path).is_absolute());
+}
+
 std::string encode_settings(const LocalSettings &settings) {
     JsonValue object = make_object();
     put(object, "schema", JsonValue{static_cast<std::int64_t>(settings.schema)});
@@ -121,6 +130,8 @@ std::string encode_settings(const LocalSettings &settings) {
         }
         put(object, "read_roots", JsonValue{std::move(roots)});
     }
+    if (settings.remember_desktop_authorization)
+        put(object, "remember_desktop_authorization", true);
     if (!settings.permission_rules.empty()) {
         // std::map iterates in key order: the encoded member order is
         // deterministic (and matches the capability vocabulary order).
@@ -146,6 +157,8 @@ std::string encode_settings(const LocalSettings &settings) {
                 options.emplace_back(value);
             put(model_object, "reasoning_options", JsonValue{std::move(options)});
         }
+        if (model.supports_images)
+            put(model_object, "supports_images", JsonValue{true});
         if (model.supports_reasoning)
             put(model_object, "supports_reasoning", JsonValue{true});
         if (model.enabled) {
@@ -201,6 +214,11 @@ std::string encode_settings(const LocalSettings &settings) {
         }
         put(object, "runtime", std::move(runtime_object));
     }
+    if (settings.vision) {
+        JsonValue vision = make_object();
+        put(vision, "ocr_manifest", settings.vision->ocr_manifest);
+        put(object, "vision", std::move(vision));
+    }
     return mira::to_json_string(object);
 }
 
@@ -220,12 +238,30 @@ SettingsDecode decode_settings(std::string_view body) {
         result.error = "settings document must be a JSON object";
         return result;
     }
-    if (has_unknown_member(document, {"schema", "socket", "read_roots", "permission",
-                                      "confirmation", "model", "models", "runtime"})) {
+    if (has_unknown_member(document,
+                           {"schema", "socket", "read_roots", "permission", "confirmation", "model",
+                            "models", "runtime", "vision", "remember_desktop_authorization"})) {
         result.error = "settings document contains an unknown member";
         return result;
     }
     LocalSettings settings;
+    if (const auto *flag = member(document, "remember_desktop_authorization")) {
+        const auto value = flag->as_boolean();
+        if (!value) {
+            result.error = "remember_desktop_authorization must be boolean";
+            return result;
+        }
+        settings.remember_desktop_authorization = *value;
+    }
+    if (const auto *vision = member(document, "vision")) {
+        const auto path = string_member(*vision, "ocr_manifest", kMaxPathBytes);
+        if (!vision->is_object() || has_unknown_member(*vision, {"ocr_manifest"}) || !path ||
+            !valid_ocr_manifest_path(*path)) {
+            result.error = "vision requires an absolute bounded ocr_manifest path or empty string";
+            return result;
+        }
+        settings.vision = VisionSettings{*path};
+    }
     if (const JsonValue *schema = member(document, "schema")) {
         const auto version = schema->as_integer();
         if (!version || *version != kSettingsSchema) {
@@ -291,8 +327,8 @@ SettingsDecode decode_settings(std::string_view body) {
         }
         ModelSettings model;
         if (has_unknown_member(*model_value,
-                               {"enabled", "supports_reasoning", "dialect", "display_name",
-                                "endpoint", "api_prefix", "model", "credential_env",
+                               {"enabled", "supports_reasoning", "supports_images", "dialect",
+                                "display_name", "endpoint", "api_prefix", "model", "credential_env",
                                 "credential_ref", "api_key_configured", "context_window_tokens",
                                 "provider_id", "provider_name", "reasoning_options"})) {
             result.error = "unknown model field";
@@ -311,6 +347,14 @@ SettingsDecode decode_settings(std::string_view body) {
                 }
                 model.reasoning_options.push_back(*entry.as_string());
             }
+        }
+        if (const auto *value = member(*model_value, "supports_images")) {
+            const auto flag = value->as_boolean();
+            if (!flag) {
+                result.error = "supports_images must be boolean";
+                return result;
+            }
+            model.supports_images = *flag;
         }
         if (const auto *value = member(*model_value, "supports_reasoning")) {
             const auto flag = value->as_boolean();
