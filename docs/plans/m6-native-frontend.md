@@ -627,6 +627,20 @@ tests/desktop/native_conversation_view_test.cpp。clang-format 相对 HEAD
 无新增违规（测试文件 1489/1495 行为 HEAD 既有违规，属无关改动未处理）。
 负责人：Mirage 维护者；待验：Windows 平台与真实桌面像素级视觉验证另验。
 
+## 2026-10-12 / M6-04、M6-22、M6-39、M6-40：最新修复安装包
+
+维护者要求重新打包最近修复。Native Release 基于 adfe65b 与已有 DeepSeek 工作树
+修复重建，全量 76/76 通过；补齐 Linux DEB 的 Phosphor 字体、MIT 许可证和厂商
+图标目录。四程序、17 项界面资源与五项 OCR 资源解包校验通过，已原子更新
+out/packages/mirage_0.1.0_amd64.deb 并保留旧包。未安装/启动用户产品或在线调用模型；
+原会话、真实桌面与 Windows 门禁保持开放，工作项总状态不变。
+见[安装包验收记录](../compatibility/native-package-refresh-20261012.md)。
+
+2026-10-12 本机更新：维护者进一步授权直接更新本机。现有桌面入口指向本仓库
+Native Release，已同步程序/资源并重新注册入口；四程序和 17 项界面资源与验证包
+SHA 一致，desktop-file-validate 与 CLI 版本检查通过。无运行中产品，不需关闭；
+未安装系统 DEB或启动产品，原会话实测门禁保持开放。
+
 ## 2026-10-12 / M6-41：HUA 工具名拒绝修复
 
 最新 HUA gpt-6.1-sol 会话首轮 invalid_request_error 已由受控对照定位为点号工具名。

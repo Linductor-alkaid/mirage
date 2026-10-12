@@ -36,7 +36,11 @@ install(TARGETS mirage-native RUNTIME DESTINATION bin)
 install(FILES "${CMAKE_SOURCE_DIR}/apps/native/assets/mira.png" "${CMAKE_SOURCE_DIR}/apps/native/assets/mira-ui.png"
     "${CMAKE_SOURCE_DIR}/third_party/eui-neo/assets/Font Awesome 7 Free-Solid-900.otf"
     "${CMAKE_BINARY_DIR}/apps/native/font-assets/NotoSansSC-Regular.otf"
-    "${CMAKE_SOURCE_DIR}/apps/native/assets/fonts/OFL-NotoSansSC.txt" DESTINATION bin/assets)
+    "${CMAKE_SOURCE_DIR}/apps/native/assets/fonts/OFL-NotoSansSC.txt"
+    "${CMAKE_SOURCE_DIR}/apps/native/assets/Phosphor-Regular.ttf"
+    "${CMAKE_SOURCE_DIR}/apps/native/assets/fonts/MIT-Phosphor.txt" DESTINATION bin/assets)
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/apps/native/assets/providers/"
+    DESTINATION bin/assets/providers)
 configure_file("${CMAKE_SOURCE_DIR}/apps/native/org.mirage.native.installed.desktop.in"
     "${CMAKE_BINARY_DIR}/org.mirage.native.installed.desktop" @ONLY)
 install(FILES "${CMAKE_BINARY_DIR}/org.mirage.native.installed.desktop"

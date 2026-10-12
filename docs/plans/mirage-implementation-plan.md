@@ -623,6 +623,12 @@ Debug 70/70、Native 76/76、ASAN/UBSAN/TSAN 选路各 5/5，源码稳定性与�
 四程序校验通过。本地提交不关闭既有真实平台/原用户任务门禁，未推送或合并。
 完整范围与证据见[Git 交付记录](../compatibility/m7-git-delivery-20261012.md)。
 
+2026-10-12 安装包更新：按维护者要求将 adfe65b 网络恢复修复与已有 DeepSeek
+兼容修复纳入 Native Release，补齐 DEB 的 Phosphor 字体/许可证与厂商图标。
+全量 76/76 通过，四程序、17 项界面资源和五项 OCR 资源解包校验通过，已更新
+out/packages/mirage_0.1.0_amd64.deb。未安装/重启用户产品；真实会话与目标平台
+开放门禁不变，见[安装包验收](../compatibility/native-package-refresh-20261012.md)。
+
 2026-10-12 / M6-41：HUA Chat Completions 点号工具名引发首轮请求拒绝，已复用
 Provider 别名适配并更新本机。定向 Debug/Release/ASAN/UBSAN 与真实 HUA 调用/
 回放对照通过；共享工作树的同期目标稳定性全量五项视觉失败仍开放，未覆盖已验

@@ -1,0 +1,85 @@
+{
+  "date": "2026-10-12",
+  "head": "adfe65b005547e8c13a9df3523e2f589afade25d",
+  "source_state": "HEAD plus existing DeepSeek fixes and packaging assets correction",
+  "package": "/home/linductor/mirage/out/packages/mirage_0.1.0_amd64.deb",
+  "sha256": "3746fe1b2935adfbcdb5a76714d62893804d6e249cc83792f398417614833790",
+  "bytes": 55292900,
+  "previous_package_sha256": "df90dbab9577b7cea1dfdc7bf765041e79d36c5ccac0e61f27528b3e3c9470ad",
+  "binaries": {
+    "mirage": {
+      "sha256": "ca282870f2daf9cd2f827c2d02d61701029342269cb1ab98a3bbc04c4af2c26d",
+      "matches_release": true,
+      "dependencies_resolved": true
+    },
+    "mirage-service": {
+      "sha256": "45f182ed3ddab6dee6c8fd634a5a9067869af3ff2c7bbcfea0acd9d0bc28ee41",
+      "matches_release": true,
+      "dependencies_resolved": true
+    },
+    "mirage-tray": {
+      "sha256": "e3adb410e638e5d5abcc08d9264833514d74ba6bd245f3a01d3c0718ae0fffab",
+      "matches_release": true,
+      "dependencies_resolved": true
+    },
+    "mirage-native": {
+      "sha256": "d0825b183d8ea805897ff666a8e17cf7bdd3300634a8808f90f711aa4e007337",
+      "matches_release": true,
+      "dependencies_resolved": true
+    }
+  },
+  "ui_assets": {
+    "Phosphor-Regular.ttf": "06b91e022b7ee899a63efced879392a74f0bacbda54e4467e9f663220d173a10",
+    "MIT-Phosphor.txt": "6918b72504641180600cbbd4a86b0dfa9dfccf788775694325b71b9a029f6eb4",
+    "NotoSansSC-Regular.otf": "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9",
+    "OFL-NotoSansSC.txt": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+    "mira.png": "e615d7e768c532e9966e97fbbaeefc4b7212ef386521bef6be680ed3d250bbed",
+    "mira-ui.png": "c6756133885ecd1ce9bcf01657380a6d13a52c83315914b0dd707fbfa30a047d",
+    "providers/LICENSE-ZCode-Apache-2.0.txt": "606c36baf38b973227273df12a74930e4b4137280eea835c5cd623aa4553c13b",
+    "providers/logo-bigmodel.svg": "63d72de1b988ab15000f8e5c495d9a9da39272748c8fef103a4b39fda6605847",
+    "providers/model-provider-alibaba-cloud.png": "2b272099aa7f8815b63bb070fde4fd2340b2214d14d33e5aa815c0584c834996",
+    "providers/model-provider-anthropic.png": "4161ba60dfd4ba79c7fd1cffdc1153a38504b1f0da201b717a71cc17ba7cf22c",
+    "providers/model-provider-deepseek.png": "d230d76fb02be92a84f2b634896a358db5399632ab671af738751b45690af863",
+    "providers/model-provider-minimax.png": "55169f0e4796d9a2ed52250426c593201bc3768604823c817037185d3ffd71cd",
+    "providers/model-provider-moonshot-kimi.png": "4fe1f8f64defd29b267f9396705f723a15191717bdb55705dc15b3a5260970f8",
+    "providers/model-provider-openai.png": "5eda220a8219ecbbd571e6132702e91c8d85194c6b4e39b1921356789e6a9c5d",
+    "providers/model-provider-xiaomi-mimo.png": "ba518bd54bbb067bd85edf5ee9c14c5c191c00b2b23c33abe9528e664588bdea",
+    "providers/model-provider-zai.png": "9fd3cb324dcace295da0069949065c3d2919eb76140d2c20201583de47c8eb8d",
+    "providers/provenance.json": "71abd7443a286c22d13ef5e542d890fcb5e1bb8587c870d98fdf724886703d1b"
+  },
+  "vision_artifacts_verified": 5,
+  "cli_version": "mirage 0.1.0\nmira core 0.1.0\nplatform linux\nruntime service mirage-runtime (background: yes)",
+  "installed": false,
+  "user_test_pending": true,
+  "native_release_tests": {
+    "passed": 76,
+    "total": 76,
+    "failed": 0,
+    "seconds": 220.9
+  },
+  "environment": {
+    "os": "Ubuntu 24.04.5 LTS",
+    "architecture": "x86_64",
+    "compiler": "GCC 13.3.0",
+    "build_type": "Release",
+    "vision_bundle": true,
+    "ppocr": true,
+    "pipewire": true
+  },
+  "validation_logs": {
+    "configure.log": "2cda6cfa909379555ba522a22b12ea7813a65146157530c4a06065a8523f4c87",
+    "build.log": "34fe164f0eb9782b13d031f93b2be93b25e2afc903e62de46c529e422199e621",
+    "build-final.log": "3f06f522fb7c8dfc299ad4b3dee30e3c85a6e2f8ec00f8e619a21eff8a98b964",
+    "ctest.log": "f0df8938d3725be2dddcbb4b9bf90f71fc654f098b2b003a5a8fecdefebe72b0",
+    "cpack.log": "4dac8ce8cdd9387c6ff44dc4b8cea59d5d71fe6a2a0014ee241930b10e1e0e43"
+  },
+  "local_development_update": {
+    "completed": true,
+    "date": "2026-10-12",
+    "desktop_entry": "/home/linductor/.local/share/applications/org.mirage.native.desktop",
+    "programs_verified": 4,
+    "ui_assets_verified": 17,
+    "desktop_entry_validated": true,
+    "product_started": false
+  }
+}
