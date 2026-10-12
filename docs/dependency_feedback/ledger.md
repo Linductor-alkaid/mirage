@@ -2,7 +2,7 @@
 
 > 状态：Active
 > 负责人：Mirage维护者
-> 更新日期：2026-10-09
+> 更新日期：2026-10-12
 > 维护规则：[工程规范9.4](../project/project-standards.md)
 > 本轮工作项：[M7-06](../plans/m7-visual-tools-and-input.md)；既有 M6 记录保留
 
@@ -10,7 +10,7 @@
 
 | 依赖 | 详细台账 | 已确认问题 | 说明 |
 | --- | --- | --- | --- |
-| Mira | [Mira台账](mira.md) | 既有状态见详细台账；M7新增2项：1项Resolved（Linux 合成图范围）、1项Resolved（Messages SSE 截断流，PR#87 合并并消费复验） | Runtime/模型/工具/workflow及随Mira交付的Executor；PR#86 已消费，三方言 fixture 与 MiniMax 截图工具在线 2/2 |
+| Mira | [Mira台账](mira.md) | 既有状态见详细台账；M7新增3项：3项Resolved（Linux 合成图范围；Messages SSE 截断流 PR#87；网络阶段超时可重试 PR#88，均合并并消费复验） | Runtime/模型/工具/workflow及随Mira交付的Executor；PR#86 已消费，三方言 fixture 与 MiniMax 截图工具在线 2/2 |
 | Mirador | [Mirador台账](mirador.md) | 1项 Open | M7-06：常量缩放失真；公开复现，待上游提交 |
 
 executor经pinned Mira传递引入，编号使用`MIRA-YYYYMMDD-NNN`，不直接向Executor提交。
@@ -24,6 +24,18 @@ Mirador使用`MIRADOR-YYYYMMDD-NNN`。EUI是用户授权的UI依赖，其既有�
 ## 历史编号入口
 
 以下标题保留原锚点，已有代码/文档引用仍有效；详细证据和跟进在分依赖台账维护。
+
+## MIRA-20261012-001：网络阶段超时不可重试，单次网络停滞判死整轮
+
+详见 [Mira 台账](mira.md#mira-20261012-001)。Resolved；真实 DeepSeek 会话
+（2026-10-12 09:56）单次 TLS/write 阶段停滞 ≥10s 使第 6 次模型调用以
+"exchange stage deadline exceeded" 判死整轮，与同会话 10 秒前 4 次成功带图请求对照，
+排除负载与工具因素。上游 [PR#88](https://github.com/Linductor-alkaid/mira/pull/88)
+经维护者授权合并（57c3062）：阶段 deadline 携带 retryable 提示、total 预算约束保持
+不可重试、循环恢复白名单 admitting 该码；pin 已消费并复验：mira 105/105（Debug+ASAN），
+Mirage 71/71 全量 + 集成 356 checks（含 retryable 重试成功/不可重试立即失败/post-write
+恢复预算恰好用尽三个行为用例），ASAN/UBSAN 干净。Mirage 侧配套放宽 profile
+tls/write deadline 至 20s/30s 并按 RULE-08 信封阈值启用恢复预算（capacity ≥ 10）。
 
 ## MIRA-20261009-002：Messages SSE 解析器对 max_tokens 截断流 fail-closed
 

@@ -2,7 +2,7 @@
 
 > 状态：Active
 > 负责人：Mirage维护者；处理方：Mira上游
-> 更新日期：2026-10-09
+> 更新日期：2026-10-12
 > 工作项：[M6-10](../plans/m6-native-frontend.md)
 > 总入口：[依赖反馈](ledger.md)；维护规则：[工程规范9.4](../project/project-standards.md)
 
@@ -27,6 +27,7 @@
 | MIRA-20261008-002 | core_contracts纳秒转换触发-Wuseless-cast | 构建摩擦 | Open | GCC/libstdc++全量消费TU复现useless_cast错误 | 未提交 |
 | MIRA-20261009-001 | ConversationLoop 工具产生图片的逐轮结构化输入入口 | P2：多模态工具接入能力缺口 | Resolved | 授权消费 698fc77；三方言 fixture、MiniMax 截图工具在线识图 2/2（Linux 合成图） | [#85](https://github.com/Linductor-alkaid/mira/issues/85)，[PR#86](https://github.com/Linductor-alkaid/mira/pull/86) |
 | MIRA-20261009-002 | Messages SSE 解析器对 max_tokens 截断流 fail-closed | P1：真实供应商截断流不可解码 | Resolved | 真实 MiniMax 抓流复现；PR#87 合并后 pin 消费 c75378b，mira 105/105 + Mirage 全量回归 + 真实抓流 4/4 解码为 Incomplete 终态 | [PR#87](https://github.com/Linductor-alkaid/mira/pull/87)，已合并 |
+| MIRA-20261012-001 | 网络阶段超时被标记不可重试，单次停滞判死整轮 | P2：传输错误分类与重试语义缺口 | Resolved | 真实会话复现（DeepSeek 单轮 turn 失败）；上游 CI 24/24 + 本地 mira 105/105；pin 消费 57c3062 后 mirage 71/71 全量 + 集成 356 checks 行为复验 | [PR#88](https://github.com/Linductor-alkaid/mira/pull/88)，已合并 |
 
 <a id="mira-20261009-001"></a>
 
@@ -403,3 +404,44 @@ M6-19收尾回读：Mira PR#79的pull_request run37332976997在当前pin 0a099ba
   A/B/C 均解码为 Incomplete/MaxOutputTokens 终态，真实抓流 4 条（orphan-0/1、
   toolcut-none-32/64）由修复前的 FEED-ERROR code 18 全部转为解码。协议层即真实
   MiniMax 截断回合字节；产品内截断回合的会话终态随下次在线验收（opt-in 付费）补跑。
+
+<a id="mira-20261012-001"></a>
+
+## MIRA-20261012-001：网络阶段超时被标记不可重试，单次网络停滞判死整轮
+
+- 状态：Resolved（上游 PR#88 合并 57c3062，授权消费并复验）；日期：2026-10-12；负责人：Mirage 维护者，处理方：Mira 上游。
+  关联 DeepSeek 修复包验收会话（docs/compatibility/deepseek-package-20261012.md）与 [DEC-043](../decisions/DEC-043-provider-presets-and-anthropic.md)。
+- 现象与复现：2026-10-12 09:56 真实会话（本地状态 `~/.local/state/mirage/session-state.json`
+  会话 `80612890…` turn `ab1ef22…`）中，桌面任务第 6 次模型调用在前 5 次全部成功后
+  约 10.2s 失败，turn 落盘为 `model call failed: exchange stage deadline exceeded`
+  （错误串出自 pinned c75378b 的 `adapters/net/socket_transport.cpp` poll_wait）。
+  时间与 TLS/write 阶段 10s deadline 吻合，为 `api.deepseek.com` 路径上的单次瞬时停滞；
+  同会话 10 秒前 4 次带图请求（单图供给，体积恒定）全部成功，排除负载增长与桌面工具因素。
+- 首次反馈核对版本：`c75378ba1374450ae667af64561f86db1f90f4c4`。已核对
+  `adapters/net/socket_transport.cpp`（阶段 deadline 一律 `retryable=false`）、
+  `src/model/loop_support.hpp`（恢复白名单仅 RateLimited/ProviderOverloaded/TransportFailed）、
+  `src/model/model_supervisor.cpp`（PreWrite 分支要求 `failure.retryable`）、
+  `docs/design/llm-api-protocol-design.md` §10.2（设计已允许 request bytes 前
+  DNS/connect/TLS 失败在预算内重试）——实现与设计相悖；网关重试决策表与幂等策略本身无缺口。
+- 应用职责排除：Mirage 侧 deadline 覆盖、循环配置、代理链路均属应用层；"阶段超时不可恢复"
+  是 pinned 传输与循环的分类语义，应用层无法在不绕过 ModelGateway 重试设施的情况下恢复。
+- 影响：一次瞬时网络停滞（代理抖动、供应商瞬时卡顿）击穿两层有界重试预算，整轮 turn 判死；
+  与主流 SDK 默认对超时类错误做有界重试的行为相悖。
+- 最小期望能力：网络阶段 deadline 错误携带 `retryable=true` 机制提示（total 预算约束的等待
+  保持不可重试），循环恢复白名单承认该提示；重试决策表、幂等策略、预算与 circuit 不变。
+- 延期影响：不修复则图像化桌面任务在网络抖动下持续出现整轮失败，用户可感知且无法自愈。
+- 上游修复：[PR#88](https://github.com/Linductor-alkaid/mira/pull/88)（分支
+  `fix/net-stage-deadline-retryable`，提交 1d19dee，merge 57c3062）：poll-wait 链路携带
+  调用方计算的 `deadline_retryable`（`stage_deadline < total_deadline`），total 约束的等待
+  仍报不可重试（header 等待回卷为既有 total 消息）；`loop_support` 白名单加入 retryable 的
+  `ModelDeadlineExceeded`；设计 §10.1/§11 同步。CI 24/24 通过。
+- 消费与复验（2026-10-12）：维护者授权合并并升级 pin 至 57c3062（dependencies.lock.json
+  同步，工作分支已删除）。复验：上游侧 m3 全量 105/105（Debug 与 ASAN-only，含新增
+  transport/supervisor/conversation/agent loop 的 deadline 正反向用例）；消费侧
+  `integration/mira/src/model_layer.cpp` 放宽 profile `tls=20s`/`write=30s` 并按 RULE-08
+  信封启用阈值化循环恢复预算（capacity ≥ 10 时 recoveries=2 且 turns ≥ 7，稀缺预算保持
+  原状），`tests/runtime/native_agent_integration_test.cpp` 新增 deadline 恢复行为用例
+  （retryable 单次失败经真实 gateway/supervisor/loop 重试成功、不可重试立即失败、post-write
+  场景恰好消耗 2 次恢复预算），356 checks 0 failures，Mirage 全量 71/71，ASAN/UBSAN
+  通过（[兼容性文档](../compatibility/model-network-retry-20261012.md)）。
+- 临时措施：无（维护者指示直接上游修复；Mirage 不旁路网关重试、不自建重试层）。

@@ -12,6 +12,7 @@
 #include <mira/json.hpp>
 #include <mira/model_digest.hpp>
 #include <mira/model_provider.hpp>
+#include <mira/model_tool.hpp>
 #include <mirage/integration/mira_environment_binding.hpp>
 #include <mirage/integration/model_catalog.hpp>
 #include <mirage/integration/model_layer.hpp>
@@ -37,7 +38,15 @@ class Provider final : public mira::IModelProvider {
   public:
     explicit Provider(const mira::ModelProfile &profile) : profile_(profile) {}
     std::atomic<bool> saw_adaptive{false}, saw_disabled{false};
+    // MIRA-20261012-001 scripting: the next armed infer calls return a
+    // network-stage ModelDeadlineExceeded error instead of a response.
+    // deadline_post_write flags the trace as bytes-written, so the pinned
+    // supervisor must refuse the automatic resend and the loop recovery
+    // budget drives the resend instead.
+    std::atomic_int deadline_failures{0};
+    std::atomic_bool deadline_retryable{true}, deadline_post_write{false};
     const mira::ModelProfile &profile() const override { return profile_; }
+    const mira::TransportTrace &last_trace() const override { return trace_; }
     mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
                                             const mira::OperationContext &context,
                                             const mira::ProviderInferOptions &options) override {
@@ -70,6 +79,15 @@ class Provider final : public mira::IModelProvider {
         while (hold.load() && !context.cancelled_or_expired(mira::Timestamp::now()))
             (void)::poll(nullptr, 0, 1);
         last_caller_cancelled.store(context.cancelled());
+        if (hold.load() && !context.cancelled() && context.expired(mira::Timestamp::now())) {
+            // Held until the whole-operation budget expired: the pinned
+            // transport surfaces this as a non-retryable stage deadline
+            // error, never as a cancelled terminal response, so the loop's
+            // recovery budget must not be spent on it (MIRA-20261012-001).
+            return mira::make_model_error(mira::ModelDomainCode::ModelDeadlineExceeded,
+                                          "model call budget deadline exceeded", false,
+                                          context.operation);
+        }
         mira::ModelResponse reply;
         reply.contract_version = {1, 0};
         reply.request_id = request.request_id;
@@ -88,6 +106,13 @@ class Provider final : public mira::IModelProvider {
             throw std::runtime_error("scripted failure");
         if (reply.status == mira::ModelCompletionStatus::Cancelled)
             return reply;
+        trace_ = mira::TransportTrace{};
+        if (deadline_failures.load() > 0 && deadline_failures.fetch_sub(1) > 0) {
+            trace_.write_started = trace_.write_completed = deadline_post_write.load();
+            return mira::make_model_error(mira::ModelDomainCode::ModelDeadlineExceeded,
+                                          "exchange stage deadline exceeded",
+                                          deadline_retryable.load(), std::nullopt);
+        }
         if (large_thinking.load()) {
             for (int i = 0; i < 4; ++i)
                 reply.output.emplace_back(
@@ -137,6 +162,7 @@ class Provider final : public mira::IModelProvider {
     }
     kairo::comm::LatestMailbox<std::string> wire{"test-model-wire"};
     mira::ModelProfile profile_;
+    mira::TransportTrace trace_;
     std::atomic_int calls{0}, last_tools{0};
     std::atomic<std::uint64_t> last_output_tokens{0};
     std::atomic_bool saw_high{false}, old_reply{false}, last_caller_cancelled{false};
@@ -145,6 +171,34 @@ class Provider final : public mira::IModelProvider {
     std::atomic_bool force_tool{false}, large_thinking{false};
     std::atomic_bool hold{false}, tool_first{true}, saw_image{false}, saw_tool_result{false},
         throw_now{false}, always_tool{false}, bad_tool{false};
+};
+class AliasProbeProvider final : public mira::IModelProvider {
+  public:
+    explicit AliasProbeProvider(const mira::ModelProfile &profile) : profile_(profile) {}
+    const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        ++calls;
+        exposed = request.tools.front().wire_name;
+        for (const auto &item : request.input)
+            for (const auto &part : item.content)
+                if (const auto *call = std::get_if<mira::ToolCallPart>(&part))
+                    replay = call->wire_name;
+        mira::ModelResponse response;
+        response.status = mira::ModelCompletionStatus::Completed;
+        mira::ToolCallOutput call;
+        call.provider_call_id.value = "alias-probe";
+        call.tool_id = request.tools.front().tool_id;
+        call.provider_name = exposed;
+        call.arguments = mira::JsonValue{mira::JsonValue::Object{}};
+        call.arguments_digest = mira::canonical_json_digest(call.arguments);
+        response.output.emplace_back(std::move(call));
+        return response;
+    }
+    mira::ModelProfile profile_;
+    int calls = 0;
+    std::string exposed, replay;
 };
 std::optional<ipc::DialogTurnEntry> wait_turn(ipc::IpcClient &client, const std::string &session,
                                               std::chrono::milliseconds call_budget = 2s,
@@ -364,6 +418,116 @@ int main(int argc, char **argv) {
         deadline_service.request_shutdown();
         MIRAGE_CHECK(deadline_service.run().clean);
     }
+    // MIRA-20261012-001 regression harness: profile transport deadlines and
+    // stage-deadline recovery semantics, isolated on a dedicated fixture
+    // service. request_deadline sits above the 60s first-byte ceiling so the
+    // profile clamp is observable (first_byte 60s, total 90s).
+    {
+        mirage::testing::TempDir recovery_dir;
+        auto recovery_config = config;
+        recovery_config.socket_path = (recovery_dir.root() / "recovery.sock").string();
+        recovery_config.settings_directory = recovery_dir.root() / "settings";
+        recovery_config.session_state_directory = recovery_dir.root() / "session-state";
+        recovery_config.persist_settings = recovery_config.persist_session_state = false;
+        recovery_config.model.enabled = true;
+        recovery_config.model.model_selector = "deadline-recovery-fixture";
+        recovery_config.model.dialect = "openai.responses.v1";
+        recovery_config.model.endpoint_origin = "https://fixture.example";
+        recovery_config.model.max_output_tokens = 512;
+        recovery_config.model.request_deadline = 90s;
+        recovery_config.model.harness_deadline = 30s;
+        std::shared_ptr<Provider> recovery_provider;
+        recovery_config.model_provider_override =
+            std::make_shared<integration::ModelProviderOverride>(
+                [&](const mira::ModelProfile &profile) {
+                    recovery_provider = std::make_shared<Provider>(profile);
+                    recovery_provider->tool_first.store(false);
+                    return recovery_provider;
+                });
+        mirage::runtime::RuntimeService recovery_service(recovery_config);
+        MIRAGE_CHECK(recovery_service.start(binding).ok);
+        ipc::IpcClient recovery_client(recovery_config.socket_path);
+        const auto recovery_open = recovery_client.call(ipc::OpenSessionRequest{}, 2s);
+        MIRAGE_CHECK(recovery_open.ok);
+        const std::string recovery_session =
+            std::get<ipc::SessionOpened>(recovery_open.payload).session_id;
+        // Profile deadlines: TLS and write stages widened to 20s/30s, total
+        // tracking the request deadline, first_byte clamped by the 60s ceiling.
+        MIRAGE_CHECK(
+            recovery_provider &&
+            recovery_provider->profile_.deadlines.tls == std::chrono::milliseconds{20'000} &&
+            recovery_provider->profile_.deadlines.write == std::chrono::milliseconds{30'000} &&
+            recovery_provider->profile_.deadlines.total == recovery_config.model.request_deadline &&
+            recovery_provider->profile_.deadlines.first_byte ==
+                std::min<std::chrono::milliseconds>(recovery_config.model.request_deadline, 60s) &&
+            recovery_provider->profile_.deadlines.first_byte == std::chrono::milliseconds{60'000});
+        // One retryable stage-deadline failure is resent by the pinned
+        // supervisor's pre-write table; the turn completes on the retry
+        // instead of dying on the first stall.
+        recovery_provider->deadline_failures.store(1);
+        recovery_provider->deadline_retryable.store(true);
+        const auto retry_base = recovery_provider->calls.load();
+        MIRAGE_CHECK(
+            recovery_client
+                .call(ipc::SessionChatRequest{recovery_session, "可重试阶段超时", true}, 2s)
+                .ok);
+        const auto retried = wait_turn(recovery_client, recovery_session);
+        MIRAGE_CHECK(retried && retried->status == "ok" &&
+                     retried->reply_text == "Mira 已完成通用工具调用。" &&
+                     recovery_provider->calls.load() - retry_base == 2);
+        // A non-retryable stage deadline still fails the turn immediately on
+        // the first failure, with the provider's safe message surfaced.
+        recovery_provider->deadline_failures.store(1);
+        recovery_provider->deadline_retryable.store(false);
+        const auto fatal_base = recovery_provider->calls.load();
+        MIRAGE_CHECK(
+            recovery_client
+                .call(ipc::SessionChatRequest{recovery_session, "不可重试阶段超时", true}, 2s)
+                .ok);
+        const auto fatal = wait_turn(recovery_client, recovery_session);
+        MIRAGE_CHECK(fatal && fatal->status == "failed" &&
+                     fatal->error.find("exchange stage deadline exceeded") != std::string::npos &&
+                     recovery_provider->calls.load() - fatal_base == 1);
+        // The pinned circuit breaker counts consecutive provider failures
+        // across turns; settle one clean turn so the post-write cases below
+        // start from a circuit that still admits requests.
+        const auto settle_base = recovery_provider->calls.load();
+        MIRAGE_CHECK(
+            recovery_client.call(ipc::SessionChatRequest{recovery_session, "恢复前清零", true}, 2s)
+                .ok);
+        const auto settled = wait_turn(recovery_client, recovery_session);
+        MIRAGE_CHECK(settled && settled->status == "ok" &&
+                     recovery_provider->calls.load() - settle_base == 1);
+        // Bytes already written: the supervisor refuses an automatic resend,
+        // so the loop's bounded recovery budget drives the resend. Two
+        // post-write stage stalls recover; the third completion answers.
+        recovery_provider->deadline_failures.store(2);
+        recovery_provider->deadline_retryable.store(true);
+        recovery_provider->deadline_post_write.store(true);
+        const auto recover_base = recovery_provider->calls.load();
+        MIRAGE_CHECK(
+            recovery_client
+                .call(ipc::SessionChatRequest{recovery_session, "恢复预算内重试", true}, 2s)
+                .ok);
+        const auto recovered_turn = wait_turn(recovery_client, recovery_session);
+        MIRAGE_CHECK(recovered_turn && recovered_turn->status == "ok" &&
+                     recovery_provider->calls.load() - recover_base == 3);
+        // The recovery budget is bounded: the third post-write deadline
+        // failure (budget 2) fails the turn after exactly two recoveries.
+        recovery_provider->deadline_failures.store(3);
+        const auto exhausted_base = recovery_provider->calls.load();
+        MIRAGE_CHECK(recovery_client
+                         .call(ipc::SessionChatRequest{recovery_session, "恢复预算耗尽", true}, 2s)
+                         .ok);
+        const auto exhausted = wait_turn(recovery_client, recovery_session);
+        MIRAGE_CHECK(exhausted && exhausted->status == "failed" &&
+                     exhausted->error.find("exchange stage deadline exceeded") !=
+                         std::string::npos &&
+                     recovery_provider->calls.load() - exhausted_base == 3);
+        recovery_provider->deadline_post_write.store(false);
+        recovery_service.request_shutdown();
+        MIRAGE_CHECK(recovery_service.run().clean);
+    }
     mirage::runtime::RuntimeService service(config);
     MIRAGE_CHECK(service.start(binding).ok);
     ipc::IpcClient client(config.socket_path);
@@ -429,6 +593,14 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(provider->calls.load() == 2 && !provider->saw_image.load() &&
                  provider->saw_tool_result.load());
     MIRAGE_CHECK(provider->profile_.capabilities.limits.max_context_tokens == 32768);
+    // MIRA-20261012-001: the widened TLS/write stage deadlines ride every
+    // applied configuration; total tracks the request deadline and first_byte
+    // stays its minimum with the 60s ceiling (1s request deadline here).
+    MIRAGE_CHECK(provider->profile_.deadlines.total == config.model.request_deadline &&
+                 provider->profile_.deadlines.first_byte ==
+                     std::min<std::chrono::milliseconds>(config.model.request_deadline, 60s) &&
+                 provider->profile_.deadlines.tls == std::chrono::milliseconds{20'000} &&
+                 provider->profile_.deadlines.write == std::chrono::milliseconds{30'000});
     MIRAGE_CHECK(turn && turn->context_usage && turn->context_usage->input_tokens == 2468);
     MIRAGE_CHECK(turn && turn->context_usage && turn->context_usage->window_tokens == 32768);
     if (turn) {
@@ -1109,9 +1281,12 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "思考轮次预算", true,
                                                    "default", "adaptive"}, 2s).ok);
     const auto m3_budget_turn = wait_turn(client, session);
+    // MIRA-20261012-001: the desktop profile reserves 17x the generation cap,
+    // so the envelope trades two turns for the two recoveries: 14 tool-only
+    // turns exhaust the turn budget (the openai profile above keeps 16).
     MIRAGE_CHECK(m3_budget_turn && m3_budget_turn->status == "failed" &&
                  m3_budget_turn->error.find("turn") != std::string::npos &&
-                 provider->calls.load() - m3_budget_calls == 16);
+                 provider->calls.load() - m3_budget_calls == 14);
     provider->always_tool.store(false);
     MIRAGE_CHECK(
         client.call(ipc::SessionChatRequest{session, "关闭思考", true, "read_only", "none"}, 2s)

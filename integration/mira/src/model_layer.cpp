@@ -15,6 +15,7 @@
 #endif
 
 #include "conversation_capture.hpp"
+#include "deepseek_tool_alias_provider.hpp"
 #include "desktop_action_verification.hpp"
 #include "desktop_image_supply.hpp"
 #include "desktop_ocr_tool.hpp"
@@ -258,6 +259,10 @@ struct ModelLayer::Impl {
         } else {
             provider = override_factory(*profile);
         }
+        if (config.endpoint_origin == "https://api.deepseek.com" &&
+            config.dialect == "anthropic.messages.v1" &&
+            (config.api_prefix == "/anthropic" || config.api_prefix == "/anthropic/v1"))
+            provider = detail::make_deepseek_tool_alias_provider(std::move(provider));
         gateway = std::make_unique<mira::ModelGateway>(executor, std::move(router),
                                                        /*artifacts=*/images, mira::PriceTable{},
                                                        mira::ModelGatewayConfig{});
@@ -310,6 +315,13 @@ struct ModelLayer::Impl {
         record.deadlines.total = config.request_deadline;
         record.deadlines.first_byte = std::chrono::milliseconds{
             std::min<std::int64_t>(config.request_deadline.count(), 60'000)};
+        // MIRA-20261012-001: desktop requests carry multi-megabyte screenshot
+        // bodies over home uplinks and proxy chains, so the upstream 10s
+        // defaults for TLS and write are too tight; image-bearing calls
+        // regularly stalled right at them. Stage stalls remain recoverable
+        // upstream, so these widen the window instead of masking failures.
+        record.deadlines.tls = std::chrono::milliseconds{20'000};
+        record.deadlines.write = std::chrono::milliseconds{30'000};
         record.default_data_policy.store = false;
         return record;
     }
@@ -654,13 +666,23 @@ DialogCompletion ModelLayer::complete_harness_turn(const std::string &transcript
         }
     }
     mira::ConversationLoopConfig config;
-    config.max_recoveries = 0;
-    config.max_tool_executions = 32;
     const auto budget = impl_->profile->capabilities.limits.max_output_tokens;
     config.max_output_tokens_per_turn =
         std::min(generation_budget(impl_->config, reasoning), budget / 2);
+    // MIRA-20261012-001: the conversation turn is a read-only resend from the
+    // desktop side, so transient network failures (rate limit, transport,
+    // stage-deadline stall) may use the upstream bounded recovery budget
+    // instead of failing the whole turn on the first hiccup. The envelope
+    // invariant (RULE-08, conversation_loop.hpp) is per_turn x (turns +
+    // recoveries + 1) <= budget, so recoveries are only enabled when the
+    // profile can fund them while keeping at least seven usable turns; scarce
+    // budgets keep the full turn count and fail fast exactly as before.
+    const std::uint64_t turn_capacity = budget / config.max_output_tokens_per_turn;
+    config.max_recoveries = static_cast<std::uint32_t>(
+        turn_capacity >= 10 ? std::min<std::uint64_t>(2, turn_capacity - 2) : 0);
     config.max_turns = static_cast<std::uint32_t>(
-        std::min<std::uint64_t>(16, budget / config.max_output_tokens_per_turn - 1));
+        std::min<std::uint64_t>(16, turn_capacity - 1 - config.max_recoveries));
+    config.max_tool_executions = 32;
     config.model_call_deadline = impl_->config.request_deadline;
     config.reasoning_effort = reasoning_value(reasoning);
     config.thinking = thinking_value(impl_->config, reasoning);
