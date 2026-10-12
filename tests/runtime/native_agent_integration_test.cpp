@@ -1,3 +1,5 @@
+#include "../../integration/mira/src/tool_alias_provider.hpp"
+#include "../support/fake_desktop_environment.hpp"
 #include "../support/ipc_io.hpp"
 #include "runtime_bridge.hpp"
 #include <algorithm>
@@ -180,16 +182,37 @@ class AliasProbeProvider final : public mira::IModelProvider {
                                             const mira::OperationContext &,
                                             const mira::ProviderInferOptions &) override {
         ++calls;
-        exposed = request.tools.front().wire_name;
+        const auto window =
+            std::find_if(request.tools.begin(), request.tools.end(), [](const auto &tool) {
+                return tool.wire_name == "desktop.window.list" ||
+                       tool.wire_name == "desktop_window_list";
+            });
+        const auto &tool = window == request.tools.end() ? request.tools.front() : *window;
+        if (calls == 1)
+            exposed = tool.wire_name;
         for (const auto &item : request.input)
             for (const auto &part : item.content)
-                if (const auto *call = std::get_if<mira::ToolCallPart>(&part))
+                if (const auto *text = std::get_if<mira::TextPart>(&part); text && calls == 1)
+                    first_text += text->text + "\n";
+                else if (const auto *call = std::get_if<mira::ToolCallPart>(&part))
                     replay = call->wire_name;
+                else if (std::holds_alternative<mira::ToolResultPart>(part))
+                    saw_result = true;
         mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
         response.status = mira::ModelCompletionStatus::Completed;
+        if (finish_after_call && calls > 1) {
+            mira::MessageOutput message;
+            message.content.emplace_back(
+                mira::OutputTextPart{"Alias roundtrip complete.", std::nullopt});
+            response.output.emplace_back(std::move(message));
+            return response;
+        }
         mira::ToolCallOutput call;
         call.provider_call_id.value = "alias-probe";
-        call.tool_id = request.tools.front().tool_id;
+        call.tool_id = tool.tool_id;
         call.provider_name = exposed;
         call.arguments = mira::JsonValue{mira::JsonValue::Object{}};
         call.arguments_digest = mira::canonical_json_digest(call.arguments);
@@ -198,7 +221,9 @@ class AliasProbeProvider final : public mira::IModelProvider {
     }
     mira::ModelProfile profile_;
     int calls = 0;
-    std::string exposed, replay;
+    bool finish_after_call = false;
+    std::string exposed, replay, first_text;
+    bool saw_result = false;
 };
 std::optional<ipc::DialogTurnEntry> wait_turn(ipc::IpcClient &client, const std::string &session,
                                               std::chrono::milliseconds call_budget = 2s,
@@ -325,6 +350,78 @@ int main(int argc, char **argv) {
             }
             active.shutdown();
             MIRAGE_CHECK(!active.running());
+        }
+        owner.shutdown(true);
+    }
+    // M6-41: exercise ModelLayer's production selection and the real Mira
+    // loop/registry boundary, including assistant replay and canonical UI records.
+    {
+        kairo::Executor owner;
+        kairo::ExecutorConfig limits;
+        limits.min_threads = limits.max_threads = 2;
+        MIRAGE_CHECK(owner.initialize(limits));
+        for (const auto &[dialect, origin, prefix, expected] :
+             std::vector<std::tuple<std::string, std::string, std::string, std::string>>{
+                 {"openai.chat-completions.v1", "https://huablog.org", "/v1",
+                  "desktop_window_list"},
+                 {"openai.chat-completions.v1", "https://other.example", "/custom",
+                  "desktop_window_list"},
+                 {"anthropic.messages.v1", "https://api.deepseek.com", "/anthropic",
+                  "desktop_window_list"},
+                 {"anthropic.messages.v1", "https://other.example", "/v1", "desktop_window_list"},
+                 {"anthropic.messages.v1", "https://api.anthropic.com", "/v1",
+                  "desktop_window_list"},
+                 {"openai.responses.v1", "https://api.openai.com", "/v1", "desktop_window_list"},
+                 {"openai.responses.v1", "https://huablog.org", "/v1", "desktop_window_list"}}) {
+            integration::ModelLayerConfig layer_config;
+            layer_config.enabled = true;
+            layer_config.dialect = dialect;
+            layer_config.endpoint_origin = origin;
+            layer_config.api_prefix = prefix;
+            layer_config.model_selector = "alias-fixture";
+            std::shared_ptr<AliasProbeProvider> delegate;
+            integration::ModelProviderOverride factory([&](const auto &profile) {
+                delegate = std::make_shared<AliasProbeProvider>(profile);
+                delegate->finish_after_call = true;
+                return delegate;
+            });
+            integration::DesktopToolContext tools;
+            tools.environment = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+            tools.gate = [](const auto &, const auto &, const auto &) { return true; };
+            integration::ModelLayer layer(owner, layer_config, &factory, tools);
+            mira::OperationContext context;
+            context.operation = mira::OperationId::generate();
+            context.started_at = mira::Timestamp::now();
+            context.deadline = std::chrono::steady_clock::now() + 5s;
+            const auto result = owner
+                                    .submit_auto([&] {
+                                        return layer.complete_harness_turn(
+                                            "Earlier literal desktop.window.list",
+                                            "User literal desktop.window.list", context, {}, true);
+                                    })
+                                    .get();
+            MIRAGE_CHECK(result.ok && result.model_steps == 2 && result.tool_calls == 1);
+            MIRAGE_CHECK(delegate->exposed == expected && delegate->replay == expected &&
+                         delegate->saw_result);
+            MIRAGE_CHECK(delegate->first_text.find("Earlier literal desktop.window.list") !=
+                             std::string::npos &&
+                         delegate->first_text.find("User literal desktop.window.list") !=
+                             std::string::npos);
+            const auto list_begin =
+                delegate->first_text.find("Available tools for THIS turn (closed set):");
+            MIRAGE_CHECK(list_begin != std::string::npos);
+            if (list_begin != std::string::npos) {
+                const auto list = delegate->first_text.substr(
+                    list_begin, delegate->first_text.find('\n', list_begin) - list_begin);
+                MIRAGE_CHECK(list.find("desktop_window_list") != std::string::npos &&
+                             list.find("desktop.window.list") == std::string::npos);
+            }
+            MIRAGE_CHECK(
+                std::any_of(result.parts.begin(), result.parts.end(), [](const auto &part) {
+                    return part.kind == "tool" && part.name == "desktop.window.list" &&
+                           part.status == "complete";
+                }));
+            layer.shutdown();
         }
         owner.shutdown(true);
     }
@@ -706,8 +803,12 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "非法提案", true}, 2s).ok);
     turn = wait_turn(client, session);
     MIRAGE_CHECK(turn && turn->status == "failed");
-    MIRAGE_CHECK(turn && !turn->parts.empty() && turn->parts.back().kind == "tool" &&
-                 turn->parts.back().status == "failed");
+    // DEC-043 unified aliasing: an undeclared returned tool name is rejected
+    // at the adapter boundary as a non-retryable protocol error, so the turn
+    // fails without ever forming an executable proposal or tool part.
+    MIRAGE_CHECK(turn && turn->error.find("未声明的工具名称") != std::string::npos &&
+                 std::none_of(turn->parts.begin(), turn->parts.end(),
+                              [](const auto &part) { return part.kind == "tool"; }));
     provider->bad_tool.store(false);
     provider->hold.store(true);
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "等待停止", true}, 2s).ok);
@@ -724,13 +825,17 @@ int main(int argc, char **argv) {
     turn = wait_turn(client, session);
     MIRAGE_CHECK(turn && turn->status == "failed");
     provider->throw_now.store(false);
-    // The scripted provider throws above can open the pinned gateway's
-    // provider circuit (3 consecutive failures, 5s cooldown); the budget and
-    // per-call scenarios below then fail fast with "provider circuit is
-    // open" before their first model call, and service recovery can record
-    // further failures while the cooldown elapses. Probe with plain text
-    // turns until the circuit admits again (bounded), so those scenarios
-    // start from a closed circuit regardless of sanitizer-load timing.
+    // The failure scenarios above (adapter-rejected proposals, cancelled
+    // in-flight calls) can trip the pinned gateway's provider circuit with
+    // three consecutive failures. The pinned ProviderCircuit never leaves
+    // OpenCircuit on a timer - the configured cooldown is not implemented
+    // (MIRA-20261012-002) - so the only recovery is a fresh ModelLayer:
+    // re-apply the model settings, which rebuilds the layer and its gateway
+    // with clean circuits (the override factory rebinds `provider`). The
+    // bounded probe loop still re-checks admission so the budget and
+    // per-call scenarios below start from a closed circuit regardless of
+    // sanitizer-load timing.
+    MIRAGE_CHECK(client.call(ipc::SetModelRequest{serialized}, 2s).ok);
     provider->tool_first.store(false);
     for (int probe = 0; probe < 30; ++probe) {
         if (probe)
@@ -738,7 +843,11 @@ int main(int argc, char **argv) {
         MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "熔断探针", true}, 2s).ok);
         const auto probe_turn = wait_turn(client, session);
         std::cerr << "circuit probe " << probe << ": "
-                  << (probe_turn ? probe_turn->status : std::string("none")) << "\n";
+                  << (probe_turn ? probe_turn->status : std::string("none"))
+                  << (probe_turn && probe_turn->status != "ok"
+                          ? " error='" + probe_turn->error + "'"
+                          : "")
+                  << "\n";
         if (probe_turn && probe_turn->status == "ok")
             break;
     }
@@ -1092,6 +1201,51 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(alternate_catalog.ok() &&
                  alternate_catalog.ids == std::vector<std::string>({"glm-5", "fallback"}));
     MIRAGE_CHECK(!integration::parse_model_catalog(R"({"error":"unavailable"})").ok());
+    mira::ModelProfile alias_profile;
+    auto alias_delegate = std::make_shared<AliasProbeProvider>(alias_profile);
+    auto alias_provider = integration::detail::make_tool_alias_provider(alias_delegate);
+    mira::ModelRequest alias_request;
+    mira::ExposedToolSpec window_tool;
+    window_tool.tool_id = mira::ToolId::generate();
+    window_tool.wire_name = "desktop.window.list";
+    alias_request.tools.push_back(window_tool);
+    mira::ToolCallPart prior_call;
+    prior_call.wire_name = window_tool.wire_name;
+    mira::ModelInputItem prior_assistant;
+    prior_assistant.role = mira::ModelRole::Assistant;
+    prior_assistant.content.emplace_back(std::move(prior_call));
+    alias_request.input.push_back(std::move(prior_assistant));
+    const auto alias_response = alias_provider->infer(alias_request, {}, {});
+    MIRAGE_CHECK(alias_response.has_value() && alias_delegate->calls == 1 &&
+                 alias_delegate->exposed == "desktop_window_list" &&
+                 alias_delegate->replay == "desktop_window_list");
+    MIRAGE_CHECK(
+        std::get<mira::ToolCallOutput>(alias_response.value().output.front()).provider_name ==
+            "desktop.window.list" &&
+        alias_request.tools.front().wire_name == "desktop.window.list");
+    const auto resolved_alias = mira::resolve_tool_calls(alias_request, alias_response.value());
+    MIRAGE_CHECK(resolved_alias.has_value() && resolved_alias.value().proposals.size() == 1 &&
+                 resolved_alias.value().proposals.front().wire_name == "desktop.window.list");
+    mira::ExposedToolSpec collision_tool;
+    collision_tool.tool_id = mira::ToolId::generate();
+    collision_tool.wire_name = "desktop_window_list";
+    alias_request.tools.push_back(std::move(collision_tool));
+    MIRAGE_CHECK(!alias_provider->infer(alias_request, {}, {}).has_value() &&
+                 alias_delegate->calls == 1);
+    alias_request.tools.pop_back();
+    for (const auto &invalid_name :
+         std::vector<std::string>{"", std::string(65, 'a'), "desktop/window", "工具"}) {
+        alias_request.tools.front().wire_name = invalid_name;
+        const auto rejected = alias_provider->infer(alias_request, {}, {});
+        MIRAGE_CHECK(!rejected.has_value() &&
+                     rejected.error().code == mira::ErrorCode::InvalidArgument &&
+                     alias_delegate->calls == 1);
+    }
+    alias_request.tools.front().wire_name = "desktop.window.list";
+    std::get<mira::ToolCallPart>(alias_request.input.front().content.front()).wire_name =
+        "desktop_window_list";
+    MIRAGE_CHECK(!alias_provider->infer(alias_request, {}, {}).has_value() &&
+                 alias_delegate->calls == 1);
     key_write_failure.store(true);
     MIRAGE_CHECK(!client.call(key_packet, 2s).ok);
     key_write_failure.store(false);

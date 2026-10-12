@@ -273,7 +273,7 @@ class OcrScript final : public mira::IModelProvider {
         response.status = mira::ModelCompletionStatus::Completed;
         if (step_++ == 0) {
             for (const auto &tool : request.tools) {
-                if (tool.wire_name != "desktop.vision.ocr")
+                if (tool.wire_name != "desktop_vision_ocr")
                     continue;
                 exposed = true;
                 mira::ToolCallOutput call;

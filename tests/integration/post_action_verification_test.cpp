@@ -1,5 +1,6 @@
 #include "../../integration/mira/src/desktop_action_verification.hpp"
 #include "../support/fake_desktop_environment.hpp"
+#include "../support/provider_tool_name.hpp"
 #include <atomic>
 #include <fstream>
 #include <functional>
@@ -50,8 +51,10 @@ struct Script : mira::IModelProvider {
         response.status = mira::ModelCompletionStatus::Completed;
         if (step < steps.size()) {
             auto [name, args] = steps[step];
-            const auto tool = std::find_if(request.tools.begin(), request.tools.end(),
-                                           [&](const auto &t) { return t.wire_name == name; });
+            const auto tool =
+                std::find_if(request.tools.begin(), request.tools.end(), [&](const auto &t) {
+                    return t.wire_name == mirage::testing::fixture_tool_name(name);
+                });
             check(tool != request.tools.end());
             Json latest, action;
             for (const auto &item : request.input)
@@ -78,7 +81,7 @@ struct Script : mira::IModelProvider {
             }
             mira::ToolCallOutput call;
             call.tool_id = tool->tool_id;
-            call.provider_name = name;
+            call.provider_name = tool->wire_name;
             call.provider_call_id.value = "step-" + std::to_string(step);
             call.arguments = Json{std::move(fields)};
             call.arguments_digest = mira::digest_string(mira::to_json_string(call.arguments));

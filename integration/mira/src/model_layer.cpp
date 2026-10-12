@@ -15,11 +15,11 @@
 #endif
 
 #include "conversation_capture.hpp"
-#include "deepseek_tool_alias_provider.hpp"
 #include "desktop_action_verification.hpp"
 #include "desktop_image_supply.hpp"
 #include "desktop_ocr_tool.hpp"
 #include "model_layer_env.hpp"
+#include "tool_alias_provider.hpp"
 
 #include <algorithm>
 #include <mutex>
@@ -130,9 +130,8 @@ std::optional<mira::ThinkingMode> thinking_value(const ModelLayerConfig &config,
     // DEC-082: M3 defaults to a distinct native thinking channel. Other
     // models retain their provider default; explicit "none" remains disabled.
     if (value.empty())
-        return config.model_selector == "MiniMax-M3"
-                   ? std::optional{mira::ThinkingMode::Adaptive}
-                   : std::nullopt;
+        return config.model_selector == "MiniMax-M3" ? std::optional{mira::ThinkingMode::Adaptive}
+                                                     : std::nullopt;
     return value == "none" ? mira::ThinkingMode::Disabled : mira::ThinkingMode::Adaptive;
 }
 std::uint64_t generation_budget(const ModelLayerConfig &config, const std::string &value) {
@@ -259,10 +258,7 @@ struct ModelLayer::Impl {
         } else {
             provider = override_factory(*profile);
         }
-        if (config.endpoint_origin == "https://api.deepseek.com" &&
-            config.dialect == "anthropic.messages.v1" &&
-            (config.api_prefix == "/anthropic" || config.api_prefix == "/anthropic/v1"))
-            provider = detail::make_deepseek_tool_alias_provider(std::move(provider));
+        provider = detail::make_tool_alias_provider(std::move(provider));
         gateway = std::make_unique<mira::ModelGateway>(executor, std::move(router),
                                                        /*artifacts=*/images, mira::PriceTable{},
                                                        mira::ModelGatewayConfig{});
@@ -643,10 +639,10 @@ DialogCompletion ModelLayer::complete_harness_turn(const std::string &transcript
         image_turn = std::make_unique<detail::DesktopImageTurn>(
             source, impl_->desktop, turn_context, cancel, bool(impl_->images));
         image_turn->register_tool(*registry, decorate, tools_allowed);
-        verification.set_shared_observation([&image_turn](const auto &kind, const auto &text,
-                                                          const auto &ctx) {
-            return image_turn->observe_shared(kind, text, ctx);
-        });
+        verification.set_shared_observation(
+            [&image_turn](const auto &kind, const auto &text, const auto &ctx) {
+                return image_turn->observe_shared(kind, text, ctx);
+            });
     }
     impl_->observed->request_guard = [&](const auto &request,
                                          const auto &ctx) -> mira::Result<void> {
@@ -742,7 +738,8 @@ DialogCompletion ModelLayer::complete_harness_turn(const std::string &transcript
         "are exposed. Never retry "
         "uncertain input automatically. "
         "Only semantic_snapshot issues actionable @e refs; window.list and screenshots do not. "
-        "Native Wayland input is available ONLY when desktop.session tools are listed and capture "
+        "Native Wayland input is available ONLY when image-bound session tools are listed and "
+        "capture "
         "returns input_actionable=true. For GUI work request interaction=true on the first "
         "source=desktop capture and follow system consent. Use image-bound session input; refresh "
         "and inspect results. An input_actionable=true tool result establishes task-local input "
@@ -815,7 +812,7 @@ DialogCompletion ModelLayer::complete_harness_turn(const std::string &transcript
     spec.goal += "\nAvailable tools for THIS turn (closed set):";
     bool shared_click_available = false;
     for (const auto &tool : registry->exposed_tools()) {
-        spec.goal += " " + tool.wire_name;
+        spec.goal += " " + detail::model_tool_name(tool.wire_name);
         shared_click_available |= tool.wire_name == "desktop.session.click";
     }
     spec.goal += ". Never call a name absent from this list, even if earlier turns used it.\n";

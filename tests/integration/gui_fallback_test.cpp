@@ -1,6 +1,7 @@
 #include "../../integration/mira/src/desktop_action_verification.hpp"
 #include "../../integration/mira/src/desktop_image_supply.hpp"
 #include "../support/fake_desktop_environment.hpp"
+#include "../support/provider_tool_name.hpp"
 #include <atomic>
 #include <iostream>
 #include <kairo/comm/mailbox.hpp>
@@ -370,8 +371,8 @@ struct Script final : mira::IModelProvider {
                                             const mira::OperationContext &,
                                             const mira::ProviderInferOptions &) override {
         check(std::none_of(request.tools.begin(), request.tools.end(), [](const auto &s) {
-            return s.wire_name == "desktop.application.launch" ||
-                   s.wire_name == "desktop.application.open_uri";
+            return s.wire_name == "desktop_application_launch" ||
+                   s.wire_name == "desktop_application_open_uri";
         }));
         if (wait)
             wait(step);
@@ -440,12 +441,14 @@ struct Script final : mira::IModelProvider {
             ++step;
             return response;
         }
-        const auto spec = std::find_if(request.tools.begin(), request.tools.end(),
-                                       [&](const auto &s) { return s.wire_name == name; });
+        const auto spec =
+            std::find_if(request.tools.begin(), request.tools.end(), [&](const auto &s) {
+                return s.wire_name == mirage::testing::fixture_tool_name(name);
+            });
         check(spec != request.tools.end());
         mira::ToolCallOutput call;
         call.tool_id = spec->tool_id;
-        call.provider_name = name;
+        call.provider_name = spec->wire_name;
         call.provider_call_id.value = "gui-" + std::to_string(step);
         call.arguments = args;
         call.arguments_digest = mira::digest_string(mira::to_json_string(args));

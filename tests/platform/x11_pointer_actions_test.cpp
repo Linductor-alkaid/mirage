@@ -1,3 +1,4 @@
+#include "../support/provider_tool_name.hpp"
 #include "../support/test.hpp"
 #include "../support/xvfb_display.hpp"
 #include <algorithm>
@@ -392,8 +393,9 @@ class Script final : public mira::IModelProvider {
                               : requests == 1 ? operation
                                               : std::string{"desktop.action.verify"};
             const auto spec =
-                std::find_if(request.tools.begin(), request.tools.end(),
-                             [&](const auto &tool) { return tool.wire_name == name; });
+                std::find_if(request.tools.begin(), request.tools.end(), [&](const auto &tool) {
+                    return tool.wire_name == mirage::testing::fixture_tool_name(name);
+                });
             MIRAGE_CHECK(spec != request.tools.end());
             if (spec == request.tools.end())
                 throw std::runtime_error("pointer tool unavailable");
@@ -422,7 +424,7 @@ class Script final : public mira::IModelProvider {
             }
             mira::ToolCallOutput call;
             call.tool_id = spec->tool_id;
-            call.provider_name = name;
+            call.provider_name = spec->wire_name;
             call.provider_call_id.value = "pointer-" + std::to_string(requests);
             call.arguments = Json{std::move(arguments)};
             call.arguments_digest = mira::digest_string(mira::to_json_string(call.arguments));

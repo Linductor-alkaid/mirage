@@ -622,3 +622,13 @@ M6 本地增量完成，M7 原用户任务/授权恢复保持开放；默认异�
 Debug 70/70、Native 76/76、ASAN/UBSAN/TSAN 选路各 5/5，源码稳定性与包内
 四程序校验通过。本地提交不关闭既有真实平台/原用户任务门禁，未推送或合并。
 完整范围与证据见[Git 交付记录](../compatibility/m7-git-delivery-20261012.md)。
+
+2026-10-12 / M6-41：HUA Chat Completions 点号工具名引发首轮请求拒绝，已复用
+Provider 别名适配并更新本机。定向 Debug/Release/ASAN/UBSAN 与真实 HUA 调用/
+回放对照通过；共享工作树的同期目标稳定性全量五项视觉失败仍开放，未覆盖已验
+安装包或自动重跑原任务，见[验收](../compatibility/hua-tool-alias-20261012.md)。
+
+2026-10-12 / M6-41：按供应商调研和维护者授权，统一三方言的模型侧工具名称、Host
+指令及回放/返回适配；121 项协议检查、七配置 loop/registry 与消毒器定向通过。
+本机 Native Release 已更新；共享工作树全量 75/78，三个桌面视觉测试失败由同期
+修改补验，整包和原任务门禁保持开放。见[统一适配验收](../compatibility/unified-tool-alias-20261012.md)。

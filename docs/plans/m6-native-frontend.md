@@ -49,6 +49,7 @@
 | M6-33 | Completed（Linux X11） | 侧栏/主题过渡、逐模型思考设置、按URL获取候选；Release52/52、ASAN/TSAN、真实公开目录与原生渲染通过；DEC-051 |
 | M6-39 | In Progress | DeepSeek 模型列表路径与 Messages 工具名兼容；DEC-051/043，Debug/ASAN/Release 及隔离服务实测通过；Native Release 安装包已更新并校验，维护者原会话测试待验收 |
 | M6-40 | In Progress | 全视觉元素独立图标：集中 icons.hpp 登记（Phosphor 2.1.1 溯源补全）、思考深度分档、权限三模式、附件文件/图片、任务类型、运行会话与对话框语义图标；DESIGN.md 图标目录，渲染审计与图标断言测试待验收 |
+| M6-41 | In Progress | HUA Chat Completions 工具名拒绝已修复并更新本机：HTTP 对照/真实工具回放、五配置 loop 回归及 Debug/Release/ASAN/UBSAN 定向通过；同期目标稳定性修改导致全量五项视觉失败，原任务与完整发布门禁保持开放；依据 DEC-043 |
 | M6-35 | Completed（Linux X11/XWayland） | 真实 XWayland 持续拖拽改为系统原生接管，维护者实测无黑闪；EUI issue #93/PR #94 四组合本机/CI通过；组合 Release52/52、最终程序化采样365+300无黑色中心；Mirage 两个PR八项CI全成功，维护者授权合入；上游评审与 Windows 实际拖拽保持开放；[证据](../compatibility/native-frame-presentation-20261008.md) |
 | M6-37 | Completed（Linux 本地） | 最近内容更新会话置顶，选择/草稿保留、历史稳定恢复；DEC-079，Debug定向6/6、Native8/8、sanitizer各4/4，原生渲染22,978检查与包内四程序校验通过；Windows真机另验 |
 | M6-38 | Completed（Linux 本地） | 会话输入框三种桌面访问模式与授权联动；DEC-080 / DEC-078，纯对话/视觉/完全访问权限、明暗/最小窗口及共享状态门禁验证 |
@@ -625,3 +626,33 @@ Phosphor-Regular.ttf 此前无溯源记录；本轮核实其为 npm @phosphor-ic
 tests/desktop/native_conversation_view_test.cpp。clang-format 相对 HEAD
 无新增违规（测试文件 1489/1495 行为 HEAD 既有违规，属无关改动未处理）。
 负责人：Mirage 维护者；待验：Windows 平台与真实桌面像素级视觉验证另验。
+
+## 2026-10-12 / M6-41：HUA 工具名拒绝修复
+
+最新 HUA gpt-6.1-sol 会话首轮 invalid_request_error 已由受控对照定位为点号工具名。
+复用 Provider 别名适配至 Chat Completions，五配置 loop/registry 往返及非法名称/
+碰撞拒绝验证通过。Debug/Native Release/ASAN/UBSAN 定向通过；真实 HUA 别名
+工具调用和 assistant 回放 HTTP 200，隔离服务 minimal 两轮 ok。保留两次网络阶段
+超时事实，未修改思考设置或用户会话。已更新本机 Native Release 和桌面入口。
+同期 DEC-083 稳定性修改的全量五项视觉回归未通过，M6-41 保持 In Progress；
+原任务与整包门禁待维护者补验，未覆盖已验 DEB。详见
+[验收记录](../compatibility/hua-tool-alias-20261012.md)。
+
+2026-10-12 / M6-41 供应商名称约束调研：已核对主流官方文档及公开 schema，
+确认 Chat/多数 Messages 入口排除点号，64/128 上限与首字符约束随入口变化，
+Google 原生声明及 Bedrock Agent/Runtime 另有差异。记录未明示约束的服务与
+Responses 顶层规则补证项；建议模型侧默认采用字母开头、字母数字下划线、最长
+64 的保守别名。文档调研完成，不将建议自动扩展为代码交付或关闭 M6-41 门禁。
+见[调研报告](../research/2026-10-12-provider-tool-name-contracts.md)。
+
+2026-10-12 / M6-41 统一适配准入：维护者明确授权开始适配；DEC-043 固定三方言
+统一模型侧保守别名与冲突拒绝。验证普通/强制工具选择、返回解析、历史回放、结果
+关联 ID、名称首字符/长度及三方言 loop/registry；公开接口和用户配置不迁移。
+
+统一适配本地收尾：三方言协议 121 项检查通过，七配置真实 loop/registry 往返通过；
+Debug/ASAN/UBSAN 定向各 4/4。补齐 PP-OCR/X11 模拟 Provider 名称后追加定向通过。
+最终 Native Release 全量 75/78，剩余两个 GTK 与共享图像直接 Registry 验证失败，
+尚未进入模型适配路径；M6-41 保持 In Progress，负责人 Mirage 维护者，补跑条件为
+同期 DEC-083 实现/夹具一致后重新构建全量。已更新本机四程序与桌面入口，保留已验
+旧 DEB。真实供应商/SSE/Windows/原任务门禁未扩大声明，见
+[统一适配验收](../compatibility/unified-tool-alias-20261012.md)。

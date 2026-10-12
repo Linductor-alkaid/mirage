@@ -1,5 +1,6 @@
 #include "../support/fake_desktop_environment.hpp"
 #include "../support/ipc_io.hpp"
+#include "../support/provider_tool_name.hpp"
 
 #include <kairo/executor.hpp>
 #include <mira/model_digest.hpp>
@@ -84,8 +85,9 @@ class Script final : public mira::IModelProvider {
         if (step < actions.size()) {
             const auto &[name, arguments] = actions[step];
             const auto tool =
-                std::find_if(request.tools.begin(), request.tools.end(),
-                             [&](const auto &entry) { return entry.wire_name == name; });
+                std::find_if(request.tools.begin(), request.tools.end(), [&](const auto &entry) {
+                    return entry.wire_name == mirage::testing::fixture_tool_name(name);
+                });
             if (tool == request.tools.end()) {
                 mira::Error error;
                 error.code = mira::ErrorCode::UnsupportedCapability;
@@ -95,7 +97,7 @@ class Script final : public mira::IModelProvider {
             mira::ToolCallOutput call;
             call.provider_call_id.value = "call-" + std::to_string(step + 1);
             call.tool_id = tool->tool_id;
-            call.provider_name = name;
+            call.provider_name = tool->wire_name;
             call.arguments = mira::parse_json(arguments).value();
             if (tool->has_side_effects && name != "wait") {
                 mira::JsonValue latest;
@@ -261,8 +263,8 @@ void layer_scenario(const std::string &scenario) {
                      capabilities.end());
     MIRAGE_CHECK(script->requests.front().tools.size() == (read_only ? 4u : 12u));
     for (const auto &tool : script->requests.front().tools) {
-        MIRAGE_CHECK(tool.wire_name != "desktop.process.execute");
-        MIRAGE_CHECK(tool.wire_name != "desktop.clipboard.write_text");
+        MIRAGE_CHECK(tool.wire_name != "desktop_process_execute");
+        MIRAGE_CHECK(tool.wire_name != "desktop_clipboard_write_text");
         if (read_only)
             MIRAGE_CHECK(!tool.has_side_effects && tool.wire_name != "wait");
     }

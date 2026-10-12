@@ -10,6 +10,13 @@ mirage_enable_warnings(native_chat_model_test)
 add_test(NAME native_chat_model_test COMMAND native_chat_model_test)
 set_tests_properties(native_chat_model_test PROPERTIES LABELS "unit;ui" TIMEOUT 30)
 
+add_executable(tool_alias_provider_test integration/tool_alias_provider_test.cpp)
+target_compile_features(tool_alias_provider_test PRIVATE cxx_std_20)
+target_link_libraries(tool_alias_provider_test PRIVATE Mirage::integration_mira Mira::core)
+mirage_enable_warnings(tool_alias_provider_test)
+add_test(NAME tool_alias_provider_test COMMAND tool_alias_provider_test)
+set_tests_properties(tool_alias_provider_test PROPERTIES LABELS "integration;runtime;protocol" TIMEOUT 30)
+
 add_executable(credential_store_test platform/credential_store_test.cpp)
 target_compile_features(credential_store_test PRIVATE cxx_std_20)
 mirage_enable_warnings(credential_store_test)

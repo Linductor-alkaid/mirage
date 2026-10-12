@@ -1,0 +1,217 @@
+{
+  "date": "2026-10-12",
+  "work_item": "M6-41",
+  "status": "In Progress",
+  "owner": "Mirage 维护者",
+  "head": "adfe65b005547e8c13a9df3523e2f589afade25d",
+  "branch": "feat/m7-conversation-desktop-tools",
+  "dependencies_lock_sha256": "a2095f715c4447c08cd363013e0eef2315145787c2bf1aeeb78f6deabe81477d",
+  "dirty_shared_tree": true,
+  "policy": {
+    "dialects": [
+      "openai.chat-completions.v1",
+      "anthropic.messages.v1",
+      "openai.responses.v1"
+    ],
+    "portable_name_pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$",
+    "invalid_collision_or_overlength": "reject before provider inference",
+    "unexpected_tool_name_or_id": "nonretryable ProtocolViolation before proposal"
+  },
+  "results": {
+    "protocol_checks": {
+      "passed": 121,
+      "failed": 0
+    },
+    "model_layer_loop_configurations": 7,
+    "debug_targeted": {
+      "passed": 4,
+      "total": 4
+    },
+    "asan_targeted": {
+      "passed": 4,
+      "total": 4
+    },
+    "ubsan_targeted": {
+      "passed": 4,
+      "total": 4
+    },
+    "release_fixture_recheck": {
+      "passed": 4,
+      "total": 4
+    },
+    "debug_fixture_recheck": {
+      "passed": 4,
+      "total": 4
+    },
+    "release_full_initial": {
+      "passed": 73,
+      "total": 78
+    },
+    "release_full_final": {
+      "passed": 75,
+      "total": 78,
+      "seconds": 214.49,
+      "failed": [
+        "gtk_pointer_effects_test",
+        "gtk_pointer_scaled_test",
+        "desktop_image_supply_test"
+      ]
+    },
+    "debug_full_initial": {
+      "passed": 70,
+      "total": 72,
+      "rerun_full": false
+    }
+  },
+  "source_sha256": {
+    "integration/mira/src/tool_alias_provider.cpp": "231d4a5f782acb9ebc4c8e8ec42b38898c272756336d867f360eb3dbae5c9e7f",
+    "integration/mira/src/tool_alias_provider.hpp": "a3e9902da12d0c0b09cf356a253f4f8b66b23cdf1c142f2e66ce92d083c6d035",
+    "integration/mira/src/model_layer.cpp": "e9c6028dbe52ac1e9ebfad8a817ad7996e76d4c3572984d72966c69a693fffc5",
+    "tests/integration/tool_alias_provider_test.cpp": "4b44262075a75aa787ca2a42ecd08256508e872d355701cc892f9f2757f1dc75",
+    "tests/runtime/native_agent_integration_test.cpp": "913e182e4018f40120a7ff12d3ee029acc5526916dcfe488732460854fc9e227",
+    "tests/support/provider_tool_name.hpp": "d23dbf11dfbc3250f30555e639f54edb68e33ca8e320f03838101a814a400afe",
+    "integration/mira/CMakeLists.txt": "93adeb446a43dbad59c6803c1221de3c560da76beedfa522cfa2a66548af9d59",
+    "tests/CMakeLists.txt": "075498968ca548d3ffe90cbdbbaa2e1e8ddb563f251c9c54ffb4767b3d9f20fe",
+    "tests/integration/ppocr_pipeline_test.cpp": "db01831c718b17c189532385a6594ac0be80b19a6ac31a5c521af23485b477aa",
+    "tests/platform/x11_pointer_actions_test.cpp": "5cb7c740f847093745ea81885bd522d18f4d8cebac6baf52b4664a692194696f",
+    "tests/runtime/harness_desktop_tools_test.cpp": "db498cf95f6060146fd6cc6ae5d884c2ff3ec9532ae996193ef4d11da640a404",
+    "tests/integration/post_action_verification_test.cpp": "629a163d0fdbc76f0e11ba84fce7f3aec5385d93754e8784cdd868050a1d8017",
+    "tests/integration/gui_fallback_test.cpp": "e47eb53b8039ca0e1655ac47daccb08c68ab9645dc8642e761a3d7bcb3f79786",
+    "tests/integration/visual_marks_test.cpp": "609be119e7647e3e83c8796cd51bc6353b1555e770b76b7952599a93313a2fc2",
+    "tests/integration/desktop_image_supply_test.cpp": "092996b6c3766444229f0471fd2e2d461cf5d4f9afc2321f52be144a7d4401b1"
+  },
+  "original_six_file_snapshot_unchanged": true,
+  "logs": {
+    "build-asan-final.log": {
+      "sha256": "d1fd0c1cf3618b5dedb65d290f29987f33081b08c94231f186782621fc0fec20",
+      "bytes": 227
+    },
+    "build-asan.log": {
+      "sha256": "53db89dcddff31df7b0f6ce90d5facc3adf49bbf4b0ee650bbfd485753f6f1ee",
+      "bytes": 472
+    },
+    "build-debug-final.log": {
+      "sha256": "d1fd0c1cf3618b5dedb65d290f29987f33081b08c94231f186782621fc0fec20",
+      "bytes": 227
+    },
+    "build-debug-fixtures.log": {
+      "sha256": "9d29fc46fea70f3164bd48e3a880aff6053761e610f71b105d46a50b4c726d3c",
+      "bytes": 678
+    },
+    "build-debug-wire.log": {
+      "sha256": "78980db9075acdc26cc0f134fd5b0eef045ec197917e27c672e770b82a7b175c",
+      "bytes": 2644
+    },
+    "build-debug.log": {
+      "sha256": "e3d104417728f3a7b0caeb7dc1d68958314f6a3a1a50a144ce6e4502c62af5f1",
+      "bytes": 8217
+    },
+    "build-first.log": {
+      "sha256": "634ccbfff76e36fee813c19c3f119478ff2ff580a3deacd54eff503d9e021b8a",
+      "bytes": 12786
+    },
+    "build-local-refresh.log": {
+      "sha256": "d5afcc368a669cdf9b6ee018765bf22f5a4df0b107fa39f5d2c93cca47ae36f6",
+      "bytes": 2104
+    },
+    "build-release-final.log": {
+      "sha256": "a0412a2fe19f4b5de63ee3365330e50d052f39de1bffc0ca44a13ad27c530159",
+      "bytes": 1818
+    },
+    "build-release.log": {
+      "sha256": "d96d010ee3d0b2292f7f267b8d77231e24e8e9e2decebc3cab5bd846211ace8c",
+      "bytes": 5210
+    },
+    "build-remaining-fixtures.log": {
+      "sha256": "38ec65c30f80c7f0879a49aee27ab518e6ad7db01df07be79a1b855333881822",
+      "bytes": 573
+    },
+    "build-ubsan-final.log": {
+      "sha256": "d1fd0c1cf3618b5dedb65d290f29987f33081b08c94231f186782621fc0fec20",
+      "bytes": 227
+    },
+    "build-ubsan.log": {
+      "sha256": "ca1b7370c38ed46e2d09e927244824c10fe9d0bb5d4adb16c1e023836cab5d39",
+      "bytes": 2834
+    },
+    "build-wire.log": {
+      "sha256": "48a8e26d1f473955108657946cdb6b11e4355010a39072fb81135fd7fb867d27",
+      "bytes": 295
+    },
+    "test-asan-final.log": {
+      "sha256": "6bc7fcb02b184a8eff6b42172e4b01cdcc5d1932324194d4d01e66aa8ef489ca",
+      "bytes": 938
+    },
+    "test-asan.log": {
+      "sha256": "6627e2a44c714f9da8f3b052169c1c01b11ba7b1b19db9a55efefa09e604a8f5",
+      "bytes": 1705
+    },
+    "test-debug-final.log": {
+      "sha256": "4af0bc098891811fc19840185977bdc79a9249a8195e87d13ea0c471a56890d4",
+      "bytes": 940
+    },
+    "test-debug-fixtures.log": {
+      "sha256": "ade7c2882fb3911d07843f1f8c565f3c5d506093decec742cbec75025a2085e4",
+      "bytes": 884
+    },
+    "test-debug-full.log": {
+      "sha256": "7e3f7a9838778ac369ce4f75f248d57a8cce3aa80af74dfbea1946dcca3d907f",
+      "bytes": 48467
+    },
+    "test-release-final.log": {
+      "sha256": "95a85e1b3e8fd2e84327cb1800ae9647a08a808662c973b5b8f94bd6ea54be98",
+      "bytes": 57258
+    },
+    "test-release-full.log": {
+      "sha256": "8e77f65f5509df92dca6a5b866176ff8166b343e139bebc890ecfeb0de5037a6",
+      "bytes": 98226
+    },
+    "test-release-targeted.log": {
+      "sha256": "954db5fdf0f636e5e13e0331a7c9a97b2f1d8d27f0b861d573978000bd48dc52",
+      "bytes": 2843
+    },
+    "test-remaining-fixtures.log": {
+      "sha256": "238c5a34ebac83350c73e086e2aedf46d73757746a42e699e8a063f4ba5449a8",
+      "bytes": 902
+    },
+    "test-ubsan-final.log": {
+      "sha256": "420e2ebefe45b9b9f883381492a09521fb188cb3041113c4216c84ac6978030d",
+      "bytes": 940
+    },
+    "test-ubsan.log": {
+      "sha256": "0746313cd936cfef3337a008d6e18fe668b2b3a0eb2fdae415eda1b5b2e77faa",
+      "bytes": 2346
+    },
+    "test-wire.log": {
+      "sha256": "12fa1fdba5f6af02e5ae336b96a335980cc6915ebfa628f7d670cabd4adbf1c6",
+      "bytes": 907
+    }
+  },
+  "local_refresh": {
+    "build_exit": 0,
+    "desktop_file_validate_exit": 0,
+    "cli_version_exit": 0,
+    "git_diff_check_exit": 0,
+    "user_processes_running_at_end": false,
+    "program_sha256": {
+      "build/native-release/apps/mirage": "6382c91e071dfc8705dd1e3989baff058c98af9313de72a3012369b1d0eb4730",
+      "build/native-release/apps/mirage-service": "7eb164b8b1b8055948f5a2c57ceff94e7ca5c4dd588abb14dc5c6755999f00ef",
+      "build/native-release/apps/tray/mirage-tray": "77a41c64ce81383a037f7614d1b06de29f200dbeb8832c3499ccac50cb3c5236",
+      "build/native-release/apps/native/mirage-native": "d0825b183d8ea805897ff666a8e17cf7bdd3300634a8808f90f711aa4e007337"
+    },
+    "desktop_entry_sha256": "2d27da75746ffb9c8939c3b6b68fafc739df297143339faf7159e1fcd32a060d"
+  },
+  "package": {
+    "rewritten_this_increment": false,
+    "sha256": "3746fe1b2935adfbcdb5a76714d62893804d6e249cc83792f398417614833790"
+  },
+  "not_executed": [
+    "new live supplier requests",
+    "online SSE chunk/reducer test",
+    "Windows",
+    "original user task",
+    "new TSAN run",
+    "system package installation"
+  ],
+  "open_gate_retest_condition": "Mirage 维护者完成同期 DEC-083 桌面稳定性/裁剪实现与夹具一致后重建并运行全量"
+}
