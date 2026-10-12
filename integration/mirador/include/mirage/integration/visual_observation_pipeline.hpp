@@ -38,11 +38,20 @@ struct VisualObservationPipelineConfig {
     bool analyze_change = true;
     bool run_ocr = false;
     bool run_detector = false;
+    /// Bypass approximate OCR result reuse through the backend's public Refresh
+    /// policy; product OCR enables this for text freshness (DEC-057).
+    bool refresh_ocr = false;
+    /// DEC-060: semantics-free closed-region candidates only for marked refreshes.
+    /// Disabled by default; ordinary OCR and postconditions keep their original path.
+    bool geometry_marks = false;
+    /// DEC-063: capture explicit mark crops before analysis. Default preserves
+    /// whole-display analysis and subsequent crop numbering.
+    bool roi_capture = false;
 };
 
 /// Concrete EnvironmentVisualPipeline over one ScreenProvider and one
 /// VisualSessionHost (plan item `M3-05`): each perception refresh captures
-/// the configured display, hands the frame to the session's serialized
+/// the configured display or explicit ROI, hands the frame to the session's serialized
 /// Executor blocking worker (DEC-016 decision 4 — the analysis never runs
 /// on the caller's thread), and publishes the fused kDisplay snapshot into
 /// the registry. The registry is shared by design: the binding observes
@@ -50,7 +59,7 @@ struct VisualObservationPipelineConfig {
 /// `@vN` references against the same generation.
 ///
 /// The display transform (kOriented -> kDisplay) is built from the captured
-/// display's placement on every refresh and passed even when it is the
+/// pixel area's placement on every refresh and passed even when it is the
 /// identity — the fused bounds are global desktop coordinates exactly
 /// because of it (DEC-016 decision 3).
 ///
@@ -87,7 +96,25 @@ class VisualObservationPipeline final : public EnvironmentVisualPipeline {
     refresh(bool analyze, const desktop::CancelToken &cancel,
             const std::optional<std::chrono::steady_clock::time_point> &deadline) override;
 
+    /// Analyze an already-authorized <=8 MiB preview on the existing worker,
+    /// without display enumeration or registry publication (DEC-075).
+    ImageOcrOutcome read_image_ocr(const desktop::ImageFrame &, const desktop::CancelToken &,
+                                   const std::optional<std::chrono::steady_clock::time_point> &);
+
+    EnvironmentVisualRefresh
+    refresh_marked(const std::optional<desktop::WindowGeometry> &crop,
+                   const desktop::CancelToken &cancel,
+                   const std::optional<std::chrono::steady_clock::time_point> &deadline);
+    /// Owner-selected ROI observation; never falls back to a display.
+    EnvironmentVisualRefresh
+    refresh_region(const desktop::WindowGeometry &, bool analyze, const desktop::CancelToken &,
+                   const std::optional<std::chrono::steady_clock::time_point> &deadline);
+
   private:
+    EnvironmentVisualRefresh
+    refresh_impl(bool analyze, bool marks, const std::optional<desktop::WindowGeometry> &crop,
+                 const desktop::CancelToken &cancel,
+                 const std::optional<std::chrono::steady_clock::time_point> &deadline);
     kairo::Executor &executor_;
     desktop::ScreenProvider &screen_;
     desktop::VisualReferenceRegistry &registry_;

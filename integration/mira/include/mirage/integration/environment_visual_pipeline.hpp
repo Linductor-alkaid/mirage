@@ -16,8 +16,15 @@ namespace mirage::integration {
 /// evidence keeps what succeeded instead of losing the captured frame to an
 /// analysis failure — required components still fail the whole request at
 /// the binding, optional ones degrade per component.
+struct VisualMark {
+    std::uint32_t number = 0;
+    std::string ref;
+    desktop::PointerState anchor;
+    bool selectable = false; ///< Whole region visible; no interactive semantics.
+};
+
 struct EnvironmentVisualRefresh {
-    /// Capture stage (ScreenProvider capture of the configured display).
+    /// Capture stage (ScreenProvider capture of the display or explicit ROI).
     bool captured = false;
     bool capture_cancelled = false;
     desktop::ProviderError capture_error; ///< meaningful when !captured && !capture_cancelled
@@ -26,6 +33,14 @@ struct EnvironmentVisualRefresh {
     std::string display_id;
     /// The captured frame; meaningful only when captured.
     desktop::ImageFrame frame;
+    desktop::WindowGeometry display_geometry, image_geometry;
+    /// DEC-063: frame contains exactly this global ROI when set; otherwise
+    /// the entire display. Publication retains the physical display identity.
+    std::optional<desktop::WindowGeometry> capture_roi;
+    bool display_primary = false;
+    desktop::ImageFrame marked_frame;
+    std::vector<VisualMark> marks;
+    std::uint64_t visual_generation = 0, frame_sequence = 0;
 
     /// Analysis stage (session analysis + registry publication); only run
     /// when the caller asks for perception evidence. `analyzed` implies a
@@ -36,6 +51,23 @@ struct EnvironmentVisualRefresh {
     desktop::VisualPublishOutcome publish;
     desktop::ProviderError
         analysis_error; ///< meaningful when analysis ran && !analyzed && !analysis_cancelled
+};
+
+/// DEC-075: read-only OCR in the supplied image's pixel space. These are not
+/// global desktop coordinates or executable references.
+struct ImageTextRegion {
+    std::string text;
+    double confidence = 0, x = 0, y = 0, width = 0, height = 0;
+};
+struct ImageOcrOutcome {
+    bool ok = false, cancelled = false;
+    desktop::ProviderError error;
+    std::vector<ImageTextRegion> regions;
+    std::string model_revision;
+    std::uint64_t backend_calls = 0;
+    /// DEC-076: count before the native adapter's 128-region prefix.
+    /// Zero means the producer supplied its entire regions vector.
+    std::uint64_t total_region_count = 0;
 };
 
 /// Pinned-free visual observation surface the MiraEnvironmentBinding drives

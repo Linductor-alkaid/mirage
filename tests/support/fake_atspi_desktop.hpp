@@ -12,12 +12,15 @@
 // code stays thread-free (RULE-03 exemption boundary, same shape as the
 // original atspi_backend_test.cpp topology).
 
+#include <atomic>
 #include <cstdio>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
+
+#include <mirage/desktop/cancellation.hpp>
 
 #include <atspi/atspi.h>
 #include <gio/gio.h>
@@ -43,6 +46,10 @@ struct FakeNode {
 class FakeAtspiDesktop {
   public:
     std::vector<FakeNode> nodes;
+    // Inject cancellation from a real protocol reply while traversal is active.
+    mirage::desktop::CancelToken cancel_on_panel_read;
+    std::atomic<bool> cancel_on_panel_role{false};
+    std::atomic<bool> panel_cancel_injected{false};
     // Observations are written from the dispatch thread and read from the
     // test thread; the mutex keeps that handoff clean.
     std::mutex observation_mutex;
@@ -214,6 +221,10 @@ class FakeAtspiDesktop {
             g_variant_builder_init(&builder, G_VARIANT_TYPE("a{ss}"));
             g_dbus_method_invocation_return_value(invocation, g_variant_new("(a{ss})", &builder));
         } else if (name == "GetRole") {
+            if (node.path == "/org/fake/root/window/pane" && self.cancel_on_panel_role.load()) {
+                self.cancel_on_panel_read.request_cancel();
+                self.panel_cancel_injected.store(true);
+            }
             g_dbus_method_invocation_return_value(invocation, g_variant_new("(u)", node.role));
         } else if (name == "GetRoleName" || name == "GetLocalizedRoleName") {
             g_dbus_method_invocation_return_value(invocation, g_variant_new("(s)", "role"));

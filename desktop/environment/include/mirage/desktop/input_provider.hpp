@@ -28,7 +28,8 @@ struct KeySym {
 using MouseButton = std::string;
 
 /// Budget for one input action (RULE-07). Injection itself is fast; the
-/// timeout bounds platform round-trips that would otherwise hang the caller.
+/// timeout is cooperative: backends check it between platform steps; it does
+/// not forcibly interrupt a blocked platform round-trip or suppress cleanup.
 struct InputLimits {
     std::chrono::milliseconds timeout{1000};
     /// Cap for type_text payloads; longer text is refused before any
@@ -39,7 +40,9 @@ struct InputLimits {
 struct InputOutcome {
     bool ok = false;
     bool cancelled = false;
-    ProviderError error; ///< meaningful only when ok is false
+    ProviderError error;                        ///< meaningful only when ok is false
+    bool side_effect_may_have_occurred = false; ///< no automatic retry when true
+    bool input_released = true;                 ///< false fences further mutations and shutdown
 };
 
 /// Outcome of one pointer position query. `position` is meaningful only
@@ -50,6 +53,21 @@ struct PointerQueryOutcome {
     PointerState position;
     ProviderError error; ///< meaningful only when ok is false
 };
+
+/// DEC-064: resolved, window-bound pointer action. A scope is execution
+/// evidence, never a model-supplied coordinate or authorization.
+struct PointerActionScope {
+    std::string window_id;
+    WindowGeometry geometry;
+};
+struct PointerPoint {
+    std::int32_t x = 0, y = 0;
+};
+
+/// Common, overflow-safe preflight for bounded complete pointer paths.
+bool valid_pointer_scope(const PointerActionScope &, PointerPoint, const InputLimits &);
+bool valid_scroll_steps(std::int32_t horizontal, std::int32_t vertical);
+bool valid_drag_path(PointerPoint from, PointerPoint to);
 
 /// Keyboard and pointer injection (design doc section 5).
 ///
@@ -64,6 +82,23 @@ struct PointerQueryOutcome {
 class InputProvider {
   public:
     virtual ~InputProvider() = default;
+    /// Complete discrete actions require explicit backend opt-in. The backend
+    /// preflights physical input, owns its presses and reports cleanup failure.
+    /// This includes type_text. Cancellation/deadline never suppress release;
+    /// backend exceptions must also settle owned presses before propagation.
+    virtual bool complete_actions_supported() const { return false; }
+    /// Separate opt-in: existing complete clicks do not imply scroll/drag.
+    virtual bool bounded_pointer_actions_supported() const { return false; }
+    virtual InputOutcome scroll_at(const PointerActionScope &, PointerPoint,
+                                   std::int32_t horizontal, std::int32_t vertical,
+                                   const InputLimits &, const CancelToken &);
+    /// Left-button complete action, 16 linear segments, no held-button API.
+    virtual InputOutcome drag_to(const PointerActionScope &, PointerPoint from, PointerPoint to,
+                                 const InputLimits &, const CancelToken &);
+    virtual InputOutcome key_chord(const KeySym &key, const InputLimits &limits,
+                                   const CancelToken &cancel);
+    virtual InputOutcome click_at(std::int32_t x, std::int32_t y, const MouseButton &button,
+                                  const InputLimits &limits, const CancelToken &cancel);
 
     /// Presses or releases a key per the KeySym vocabulary. Combination
     /// names ("ctrl+c") inject the full chord.

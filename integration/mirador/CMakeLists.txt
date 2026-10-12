@@ -1,9 +1,11 @@
 add_library(mirage_integration_mirador STATIC
     src/fake_visual_backend.cpp
     src/mirador_service.cpp
+    src/ppocr_pipeline.cpp
     src/visual_backend_registry.cpp
     src/visual_execution_context.cpp
     src/visual_frame.cpp
+    src/visual_mark_renderer.cpp
     src/visual_observation_mapper.cpp
     src/visual_observation_pipeline.cpp
     src/visual_session_host.cpp
@@ -38,6 +40,7 @@ target_link_libraries(mirage_integration_mirador
     PRIVATE
         mirador::fusion
         mirador::geometry
+        mirador::render
 )
 
 # The M3-02 session adapter drives the pinned Executor fabric directly (the
@@ -52,3 +55,7 @@ target_include_directories(mirage_integration_mirador SYSTEM PRIVATE
 target_link_libraries(mirage_integration_mirador PRIVATE
     $<TARGET_FILE:kairo::kairo>
 )
+if(MIRAGE_WITH_PPOCR)
+    target_compile_definitions(mirage_integration_mirador PRIVATE MIRAGE_WITH_PPOCR=1)
+    target_link_libraries(mirage_integration_mirador PRIVATE mirador_ocr_ppocr)
+endif()

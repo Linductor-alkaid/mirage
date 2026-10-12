@@ -59,6 +59,8 @@ struct SnapshotOutcome {
     bool cancelled = false;
     SemanticSnapshot snapshot; ///< meaningful only when ok
     ProviderError error;       ///< meaningful only when ok is false
+    /// Backend generation, validated under the same lock as element execution.
+    std::string scope;
 };
 
 /// Renders a snapshot in the compact line-per-node form shown in design doc

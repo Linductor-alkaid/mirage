@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -41,6 +42,19 @@ class VisualReferenceRegistry {
     /// stale or unknown handle: the caller reports not_found as a traceable
     /// degraded-resolution event (DEC-016 decision 6).
     [[nodiscard]] std::optional<VisualRegionEntry> resolve(const std::string &ref) const;
+
+    /// M7 scoped action boundary: validation, lookup and callback share the
+    /// publication lock. The callback must be bounded, must not reenter this
+    /// registry, and must not retain the entry. Stale scope never falls back.
+    ProviderError
+    with_reference(const std::string &scope, const std::string &ref,
+                   const std::function<void(const VisualRegionEntry &)> &action) const;
+
+    /// Both endpoints are resolved under one publication lock. Callback has
+    /// the same bounded, non-reentrant lifetime as with_reference.
+    ProviderError with_references(
+        const std::string &scope, const std::string &from, const std::string &to,
+        const std::function<void(const VisualRegionEntry &, const VisualRegionEntry &)> &) const;
 
     /// The active snapshot as published (scope and refs assigned); returned
     /// by value — publications swap the whole set, never mutate in place.

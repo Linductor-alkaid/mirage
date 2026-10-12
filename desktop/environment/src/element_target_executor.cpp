@@ -1,3 +1,4 @@
+#include <limits>
 #include <mirage/desktop/element_target_executor.hpp>
 
 namespace mirage::desktop {
@@ -68,6 +69,38 @@ TargetResolution ElementTargetExecutor::click(const ElementTarget &target,
         return outcome;
     }
 
+    if (!target.snapshot_scope.empty() && is_visual_reference(target.reference.id)) {
+        if (!visual_registry_ || !input_ || !input_->complete_actions_supported()) {
+            outcome.error = {"unsupported_platform", "scoped pointer actions are unavailable"};
+            return outcome;
+        }
+        const auto failure = visual_registry_->with_reference(
+            target.snapshot_scope, target.reference.id, [&](const auto &region) {
+                const auto x = static_cast<std::int64_t>(region.bounds.x) + region.bounds.width / 2;
+                const auto y =
+                    static_cast<std::int64_t>(region.bounds.y) + region.bounds.height / 2;
+                if (region.bounds.width <= 0 || region.bounds.height <= 0 ||
+                    x > std::numeric_limits<std::int32_t>::max() ||
+                    y > std::numeric_limits<std::int32_t>::max()) {
+                    outcome.error = {"invalid_argument", "visual target bounds are not executable"};
+                    return;
+                }
+                outcome.point = bounds_center(region.bounds);
+                const auto result =
+                    input_->click_at(outcome.point.x, outcome.point.y, "left", limits, cancel);
+                outcome.ok = result.ok;
+                outcome.cancelled = result.cancelled;
+                outcome.error = result.error;
+                outcome.side_effect_may_have_occurred = result.side_effect_may_have_occurred;
+                outcome.input_released = result.input_released;
+            });
+        if (!failure.code.empty())
+            outcome.error = failure;
+        outcome.ring = ResolutionRing::kVisualReference;
+        outcome.steps.push_back({outcome.ring, outcome.ok, outcome.error});
+        return outcome;
+    }
+
     // ---- accessibility rings (DEC-005: reference, then semantic/structural)
     // Only accessibility-owned hints are offered: a masked target keeps the
     // "@v"/visual/spatial/raw groups from tripping the provider's
@@ -78,6 +111,7 @@ TargetResolution ElementTargetExecutor::click(const ElementTarget &target,
         !target.structural.path.empty();
     if (accessibility_addressed) {
         ElementTarget masked;
+        masked.snapshot_scope = target.snapshot_scope;
         if (!target.reference.id.empty() && !is_visual_reference(target.reference.id)) {
             masked.reference = target.reference;
         }
@@ -241,6 +275,16 @@ TargetResolution ElementTargetExecutor::click(const ElementTarget &target,
         outcome.error = {"cancelled", "click cancelled before injection"};
         return outcome;
     }
+    if (input_->complete_actions_supported()) {
+        const auto result =
+            input_->click_at(outcome.point.x, outcome.point.y, "left", limits, cancel);
+        outcome.ok = result.ok;
+        outcome.cancelled = result.cancelled;
+        outcome.error = result.error;
+        outcome.side_effect_may_have_occurred = result.side_effect_may_have_occurred;
+        outcome.input_released = result.input_released;
+        return outcome;
+    }
     const InputOutcome move =
         input_->pointer_move(outcome.point.x, outcome.point.y, limits, cancel);
     if (!move.ok) {
@@ -249,24 +293,34 @@ TargetResolution ElementTargetExecutor::click(const ElementTarget &target,
         outcome.error = move.error;
         return outcome;
     }
+    if (cancel.cancelled()) {
+        outcome.ok = false;
+        outcome.cancelled = true;
+        outcome.error = {"cancelled", "click cancelled before press"};
+        return outcome;
+    }
     const InputOutcome press = input_->pointer_button("left", true, limits, cancel);
     if (!press.ok) {
         outcome.ok = false;
         outcome.cancelled = press.cancelled;
         outcome.error = press.error;
-        return outcome; // no press landed: the input state stays consistent
+        outcome.side_effect_may_have_occurred = true;
+        const auto cleanup = input_->pointer_button("left", false, limits, CancelToken{});
+        outcome.input_released = cleanup.ok;
+        if (!cleanup.ok)
+            outcome.error = {"input_release_failed", "failed press cleanup did not release input"};
+        return outcome;
     }
     const InputOutcome release = input_->pointer_button("left", false, limits, cancel);
     if (!release.ok) {
-        if (release.cancelled) {
-            // Converge the input state before reporting the cancellation
-            // (design doc section 13): a takeover must not leave the button
-            // held, so the release retries on a token no one can cancel.
-            static_cast<void>(input_->pointer_button("left", false, limits, CancelToken{}));
-        }
+        const auto cleanup = input_->pointer_button("left", false, limits, CancelToken{});
+        outcome.side_effect_may_have_occurred = true;
+        outcome.input_released = cleanup.ok;
         outcome.ok = false;
         outcome.cancelled = release.cancelled;
-        outcome.error = release.error;
+        outcome.error = cleanup.ok
+                            ? release.error
+                            : ProviderError{"input_release_failed", "release cleanup failed"};
         return outcome;
     }
     return outcome;

@@ -139,6 +139,11 @@ int main() {
         const Window xwindow =
             XCreateSimpleWindow(xdisplay, DefaultRootWindow(xdisplay), 10, 10, 200, 150, 0, 0, 0);
         XStoreName(xdisplay, xwindow, kWindowTitle);
+        const std::string utf8_title = kWindowTitle;
+        XChangeProperty(xdisplay, xwindow, XInternAtom(xdisplay, "_NET_WM_NAME", False),
+                        XInternAtom(xdisplay, "UTF8_STRING", False), 8, PropModeReplace,
+                        reinterpret_cast<const unsigned char *>(utf8_title.data()),
+                        static_cast<int>(utf8_title.size()));
         XMapWindow(xdisplay, xwindow);
         XSync(xdisplay, False);
 
@@ -197,6 +202,37 @@ int main() {
         std::string start_error;
         MIRAGE_CHECK(pipeline.start(start_error));
         MIRAGE_CHECK(pipeline.running());
+
+        // DEC-076: native read-only analysis admits a bounded prefix of
+        // valid candidates, without publishing globally actionable refs.
+        auto native_image = environment->screen()->capture_display(display.id, {}, {});
+        MIRAGE_CHECK(native_image.ok);
+        for (const std::size_t count : {128u, 160u, 512u, 513u}) {
+            FakeOcrConfig candidates;
+            candidates.info.accepted_formats = {mirador::PixelFormat::kBgra8};
+            candidates.max_regions = 513;
+            for (std::size_t n = 0; n < count; ++n)
+                candidates.regions.push_back(
+                    {{0, 0, 1, 1}, "candidate-" + std::to_string(n), 0.9F, {}});
+            FakeOcrBackend native_ocr(candidates);
+            VisualObservationPipelineConfig native_config;
+            native_config.source_id = "mirage.native.ocr.prefix-" + std::to_string(count);
+            native_config.run_ocr = true;
+            native_config.session.ocr_backend = &native_ocr;
+            desktop::VisualReferenceRegistry native_registry;
+            VisualObservationPipeline native_pipeline(executor, *environment->screen(),
+                                                      native_registry, native_config);
+            MIRAGE_CHECK(native_pipeline.start(start_error));
+            const auto read = native_pipeline.read_image_ocr(native_image.frame, {}, {});
+            MIRAGE_CHECK(read.ok == (count <= 512));
+            if (read.ok) {
+                MIRAGE_CHECK(read.total_region_count == count && read.regions.size() == 128);
+                MIRAGE_CHECK(read.regions.front().text == "candidate-0" &&
+                             read.regions.back().text == "candidate-127");
+            }
+            MIRAGE_CHECK(native_registry.size() == 0);
+            native_pipeline.stop();
+        }
 
         mirage::integration::MiraEnvironmentBinding::VisualWiring wiring;
         wiring.pipeline = &pipeline;

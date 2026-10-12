@@ -2,6 +2,7 @@
 
 #include <mirador/patch_fingerprint.hpp>
 
+#include <algorithm>
 #include <utility>
 #include <vector>
 
@@ -88,6 +89,10 @@ mirador::Result<void> VisualTemplateIndex::enroll(const std::string &template_id
 mirador::Result<std::optional<VisualTemplateHit>>
 VisualTemplateIndex::probe(const mirador::ImageView &patch,
                            const mirador::VisualQueryParams &params, double reuse_threshold) {
+    if (params.max_candidates < 0 ||
+        static_cast<std::size_t>(params.max_candidates) < index_.entry_count())
+        return mirador::Status{mirador::ErrorCode::kInvalidArgument,
+                               "template ambiguity requires an exhaustive candidate budget"};
     const mirador::Result<mirador::VisualPatchFingerprint> built = fingerprint(patch, config_);
     if (!built.ok()) {
         return built.status();
@@ -105,7 +110,9 @@ VisualTemplateIndex::probe(const mirador::ImageView &patch,
     // candidate must reach the threshold and no runner-up may reach it too;
     // ambiguous patches stay unclaimed for real recognition.
     if (!(hits[0].similarity >= reuse_threshold) ||
-        (hits.size() > 1 && hits[1].similarity >= reuse_threshold)) {
+        std::any_of(hits.begin() + 1, hits.end(), [reuse_threshold](const auto &hit) {
+            return hit.similarity >= reuse_threshold;
+        })) {
         return std::optional<VisualTemplateHit>{};
     }
     const auto identity = identities_by_entry_.find(hits[0].entry_id);

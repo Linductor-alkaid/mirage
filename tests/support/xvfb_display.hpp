@@ -71,7 +71,8 @@ inline std::string find_xvfb() {
 /// reports its ready display number; failures throw (loud, per DOD-03).
 class XvfbDisplay {
   public:
-    explicit XvfbDisplay(std::string xvfb_binary, std::string geometry = "640x480x24")
+    explicit XvfbDisplay(std::string xvfb_binary, std::string geometry = "640x480x24",
+                         bool resource_extension = true)
         : binary_(std::move(xvfb_binary)) {
         int ready_fd[2] = {-1, -1};
         if (::pipe(ready_fd) != 0) {
@@ -93,6 +94,12 @@ class XvfbDisplay {
             ::close(ready_fd[1]);
             ::setpgid(0, 0);
             const std::string fd_arg = std::to_string(kReadyFd);
+            if (!resource_extension) {
+                ::execl(binary_.c_str(), binary_.c_str(), "-displayfd", fd_arg.c_str(), "-screen",
+                        "0", geometry.c_str(), "-nolisten", "tcp", "-extension", "X-Resource",
+                        static_cast<char *>(nullptr));
+                _exit(127);
+            }
             ::execl(binary_.c_str(), binary_.c_str(), "-displayfd", fd_arg.c_str(), "-screen", "0",
                     geometry.c_str(), "-nolisten", "tcp", static_cast<char *>(nullptr));
             _exit(127);

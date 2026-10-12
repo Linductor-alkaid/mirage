@@ -30,18 +30,19 @@ enum class VisualRegionSource {
 /// `click(@v2)`. `bounds` is in global desktop coordinates — the same space
 /// as `window_geometry` and `pointer_state` — because the producing fusion
 /// targets the display space with a Mirage-supplied transform, so the
-/// reference is directly executable as an input action.
+/// coordinates can be mapped without a platform-specific reinterpretation.
+/// A region does not declare interactive semantics; DEC-058 gates numbered clicks.
 struct VisualRegionEntry {
     /// Snapshot-issued handle, e.g. "@v3". Never empty in a valid snapshot.
     std::string ref;
     VisualRegionSource source = VisualRegionSource::kGeometry;
-    /// Global desktop coordinates; directly drives input actions.
+    /// Global desktop coordinates; action admission still needs scope and freshness.
     WindowGeometry bounds;
     /// OCR text, or the detector label; empty for template/geometry entries
     /// without one.
     std::string text;
     /// Template / capability-cache identifier; non-empty only for
-    /// kTemplate entries.
+    /// kTemplate entries or OCR entries with additional matched template evidence.
     std::string template_id;
     /// Producer confidence in [0, 1]; 0 when unknown.
     double confidence = 0.0;

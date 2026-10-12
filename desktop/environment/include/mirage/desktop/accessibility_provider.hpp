@@ -27,6 +27,7 @@ struct ElementActionOutcome {
 class AccessibilityProvider {
   public:
     virtual ~AccessibilityProvider() = default;
+    virtual bool scoped_references_supported() const { return false; }
 
     /// Generates the SemanticSnapshot for one window (by WindowProvider id).
     /// Fails closed with stable ProviderError codes: unknown window

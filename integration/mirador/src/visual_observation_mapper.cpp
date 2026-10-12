@@ -16,6 +16,9 @@ mirage::desktop::VisualRegionEntry map_region(const mirador::VisualRegion &regio
                     round_component(region.bounds.width), round_component(region.bounds.height)};
     entry.confidence = static_cast<double>(region.confidence);
 
+    if (mirador::has_source(region.source_mask, mirador::RegionSource::kTemplate) &&
+        !region.label.empty())
+        entry.template_id = region.label;
     if (mirador::has_source(region.source_mask, mirador::RegionSource::kOcr)) {
         entry.source = mirage::desktop::VisualRegionSource::kOcr;
         entry.text = region.text.empty() ? region.label : region.text;

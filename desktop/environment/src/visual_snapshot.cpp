@@ -82,9 +82,47 @@ VisualSnapshot VisualReferenceRegistry::current() const {
     return active_;
 }
 
+ProviderError VisualReferenceRegistry::with_reference(
+    const std::string &scope, const std::string &ref,
+    const std::function<void(const VisualRegionEntry &)> &action) const {
+    const std::lock_guard guard(mutex_);
+    if (scope.empty() || scope != active_.scope_ref)
+        return {"stale_observation", "visual snapshot scope changed"};
+    for (const auto &region : active_.regions) {
+        if (region.ref == ref) {
+            if (!action)
+                return {"invalid_argument", "scoped action is missing"};
+            action(region);
+            return {};
+        }
+    }
+    return {"not_found", "visual reference is not in this snapshot"};
+}
+
 std::size_t VisualReferenceRegistry::size() const {
     const std::lock_guard<std::mutex> guard(mutex_);
     return active_.regions.size();
+}
+
+ProviderError VisualReferenceRegistry::with_references(
+    const std::string &scope, const std::string &from, const std::string &to,
+    const std::function<void(const VisualRegionEntry &, const VisualRegionEntry &)> &action) const {
+    const std::lock_guard guard(mutex_);
+    if (scope.empty() || scope != active_.scope_ref)
+        return {"stale_observation", "visual snapshot scope changed"};
+    const VisualRegionEntry *first = nullptr, *second = nullptr;
+    for (const auto &region : active_.regions) {
+        if (region.ref == from)
+            first = &region;
+        if (region.ref == to)
+            second = &region;
+    }
+    if (!first || !second)
+        return {"not_found", "visual endpoint is not in this snapshot"};
+    if (!action)
+        return {"invalid_argument", "scoped action is missing"};
+    action(*first, *second);
+    return {};
 }
 
 void VisualReferenceRegistry::clear() {
