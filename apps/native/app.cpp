@@ -11,10 +11,10 @@
 #include "selection_adapter.hpp"
 #include "typography.hpp"
 #include "window_controls.hpp"
-#include <mirage/runtime/persistence/paths.hpp>
 #include <mirage/runtime/persistence/app_preferences.hpp>
-#include <mirage/runtime/persistence/store.hpp>
+#include <mirage/runtime/persistence/paths.hpp>
 #include <mirage/runtime/persistence/settings.hpp>
+#include <mirage/runtime/persistence/store.hpp>
 
 #include <algorithm>
 #include <array>
@@ -695,10 +695,10 @@ void request_desktop_authorization(std::optional<bool> remember = std::nullopt) 
     auto &s = state();
     if (s.desktop_authorization_pending)
         return;
-    if (remember && (!s.desktop_authorization_loaded ||
-                     (*remember ? (!s.desktop_authorization.supported ||
-                                   s.chat.current().access != "default")
-                                : !s.desktop_authorization.remember)))
+    if (remember &&
+        (!s.desktop_authorization_loaded ||
+         (*remember ? (!s.desktop_authorization.supported || s.chat.current().access != "default")
+                    : !s.desktop_authorization.remember)))
         return;
     s.desktop_authorization_notice.clear();
     const auto revision = ++s.desktop_authorization_revision;
@@ -734,8 +734,8 @@ std::string desktop_authorization_status() {
            : !s.desktop_authorization_loaded ? "尚未读取授权状态，请刷新。"
            : !authorization.supported        ? "当前桌面不支持记住系统授权。"
            : authorization.remembered ? "已记住授权，后续任务及重启后尝试恢复。"
-           : authorization.remember ? "尚未完成授权，请重新授权。"
-                                    : "每个任务单独询问系统授权。";
+           : authorization.remember   ? "尚未完成授权，请重新授权。"
+                                      : "每个任务单独询问系统授权。";
 }
 void history(std::uint64_t id) {
     const auto *session = state().chat.find(id);
