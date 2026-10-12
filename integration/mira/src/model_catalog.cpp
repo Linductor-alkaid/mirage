@@ -39,10 +39,17 @@ class CatalogSecrets final : public mira::ISecretResolver {
     const ModelCatalogQuery &query_;
 };
 
-std::vector<std::string> candidates(const ModelCatalogQuery &query) {
+} // namespace
+
+std::vector<std::string> model_catalog_urls(const ModelCatalogQuery &query) {
     std::string base = query.endpoint_origin + query.api_prefix;
     while (!base.empty() && base.back() == '/')
         base.pop_back();
+    // DeepSeek's Messages path includes /v1, but its working catalog routes
+    // are the same ones reached from the SDK-style /anthropic base URL.
+    if (query.endpoint_origin == "https://api.deepseek.com" &&
+        query.dialect == "anthropic.messages.v1" && query.api_prefix == "/anthropic/v1")
+        base = query.endpoint_origin + "/anthropic";
     std::vector<std::string> urls;
     if (query.api_prefix.empty()) {
         urls.push_back(base + "/v1/models");
@@ -66,8 +73,6 @@ std::vector<std::string> candidates(const ModelCatalogQuery &query) {
     }
     return urls;
 }
-
-} // namespace
 
 ModelCatalogResult parse_model_catalog(const std::string &body) {
     const auto parsed = mira::parse_json(body, {.max_depth = 16,
@@ -117,7 +122,7 @@ ModelCatalogResult fetch_model_catalog(kairo::Executor &executor, const ModelCat
     if (!transport.start())
         return {{}, "模型列表请求未能进入 Executor。"};
     ModelCatalogResult last{{}, "无法获取模型列表，请检查 Base URL 与服务支持情况。"};
-    for (const auto &url : candidates(query)) {
+    for (const auto &url : model_catalog_urls(query)) {
         if (cancelled()) {
             last.error = "模型列表请求已取消。";
             break;

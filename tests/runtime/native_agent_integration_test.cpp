@@ -1201,6 +1201,20 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(alternate_catalog.ok() &&
                  alternate_catalog.ids == std::vector<std::string>({"glm-5", "fallback"}));
     MIRAGE_CHECK(!integration::parse_model_catalog(R"({"error":"unavailable"})").ok());
+    integration::ModelCatalogQuery deepseek_catalog;
+    deepseek_catalog.endpoint_origin = "https://api.deepseek.com";
+    deepseek_catalog.api_prefix = "/anthropic/v1";
+    deepseek_catalog.dialect = "anthropic.messages.v1";
+    MIRAGE_CHECK(integration::model_catalog_urls(deepseek_catalog) ==
+                 std::vector<std::string>({"https://api.deepseek.com/anthropic/models",
+                                           "https://api.deepseek.com/v1/models"}));
+    const auto deepseek_catalog_urls = integration::model_catalog_urls(deepseek_catalog);
+    deepseek_catalog.api_prefix = "/anthropic";
+    MIRAGE_CHECK(integration::model_catalog_urls(deepseek_catalog) == deepseek_catalog_urls);
+    deepseek_catalog.api_prefix = "/anthropic/v1";
+    deepseek_catalog.endpoint_origin = "https://other.example.com";
+    MIRAGE_CHECK(integration::model_catalog_urls(deepseek_catalog) ==
+                 std::vector<std::string>({"https://other.example.com/anthropic/v1/models"}));
     mira::ModelProfile alias_profile;
     auto alias_delegate = std::make_shared<AliasProbeProvider>(alias_profile);
     auto alias_provider = integration::detail::make_tool_alias_provider(alias_delegate);
