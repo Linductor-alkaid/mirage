@@ -391,3 +391,20 @@ MiniMax-M3两张合成图片及工具往返真实互操作通过，不证明其�
   reasoning 供应商（SiliconFlow 无 /v1/responses，HUA 上游剥离 reasoning），
   该方言以上游 fixture（增量/终态/逐字节切点/redacted/预算失败闭合）为验收依据，
   真实供应商留待具备条件后补跑。
+
+## 2026-10-09：Mira 图片供给入口（M7-05 前置）
+
+维护者明确授权升级，Mira 从 `bfcb8e77f8092b14a73cf4f1951f7d6123b5f9d5`
+固定到 `698fc77c151fa93b1b52ea4dd25cb95a3a60bee5`（已合并 PR#86）；gitlink/lock
+同步。新增逐请求 `set_model_input_supplier` 与预算/drop/degrade 事实源，消费者重编译。
+AGPL-3.0、kairo/mbedtls、Mirador/EUI 及其嵌套 pin 不变；没有新增包或并发设施。
+实际 API 探针、上游供给 fixture 与 Mirage 回归结果见
+[独立升级审计](mira-image-supply-20261009.md)。M7-04/05 图片产出/source 接线及真实
+识图尚未实施，MIRA-20261009-001 保持 Accepted。升级提交/MR 应独立于桌面工具实现。
+
+## 2026-10-11 / M7-13 默认资源包（DEC-068）
+
+Mira / Mirador / eui-neo gitlink 不发生本轮升级。沿用 Mirador 的 ncnn 20260526 pin，
+新增 resources.lock.json 固定已验 PP-OCRv5 mobile 源与转换哈希；原生产品默认构建并
+安装资源/归属/许可证，运行期无下载。新增源文件、转换、坏包/恢复及离线产品验收，
+见 [供应链记录](bundled-vision-20261011.md)。

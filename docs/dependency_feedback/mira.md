@@ -2,7 +2,7 @@
 
 > 状态：Active
 > 负责人：Mirage维护者；处理方：Mira上游
-> 更新日期：2026-10-08
+> 更新日期：2026-10-09
 > 工作项：[M6-10](../plans/m6-native-frontend.md)
 > 总入口：[依赖反馈](ledger.md)；维护规则：[工程规范9.4](../project/project-standards.md)
 
@@ -25,6 +25,80 @@
 | MIRA-20261004-002 | OpenSSL ClientHello缺少SNI | 传输缺陷 | Resolved | socketpair捕获真实adapter ClientHello，无server_name | [#72](https://github.com/Linductor-alkaid/mira/issues/72)，已提交 |
 | MIRA-20261008-001 | Responses/Chat Completions方言丢弃思考输出 | P2：方言能力缺口 | Resolved | 双服务在线对照 + 升级后真机复验（chat-completions 1059字符思考可见，Messages回归正常） | [#83](https://github.com/Linductor-alkaid/mira/issues/83)，PR[#84](https://github.com/Linductor-alkaid/mira/pull/84)已合并 |
 | MIRA-20261008-002 | core_contracts纳秒转换触发-Wuseless-cast | 构建摩擦 | Open | GCC/libstdc++全量消费TU复现useless_cast错误 | 未提交 |
+| MIRA-20261009-001 | ConversationLoop 工具产生图片的逐轮结构化输入入口 | P2：多模态工具接入能力缺口 | Resolved | 授权消费 698fc77；三方言 fixture、MiniMax 截图工具在线识图 2/2（Linux 合成图） | [#85](https://github.com/Linductor-alkaid/mira/issues/85)，[PR#86](https://github.com/Linductor-alkaid/mira/pull/86) |
+| MIRA-20261009-002 | Messages SSE 解析器对 max_tokens 截断流 fail-closed | P1：真实供应商截断流不可解码 | Resolved | 真实 MiniMax 抓流复现；PR#87 合并后 pin 消费 c75378b，mira 105/105 + Mirage 全量回归 + 真实抓流 4/4 解码为 Incomplete 终态 | [PR#87](https://github.com/Linductor-alkaid/mira/pull/87)，已合并 |
+
+<a id="mira-20261009-001"></a>
+
+## MIRA-20261009-001：ConversationLoop 工具产生图片的逐轮结构化输入入口
+
+- 状态：Resolved（Linux 合成图范围，授权消费及下游/在线复验通过）；日期：2026-10-09；负责人：Mirage 维护者，处理方：Mira 上游。
+  关联 [M7-05](../plans/m7-visual-tools-and-input.md)、[DEC-052](../decisions/DEC-052-visual-tools-and-input.md)。
+- 需求：通用会话可调用截图工具，截图经宿主权限、编码与受控 artifact 发布后，在
+  下一轮作为规范 ImagePart 进入 ModelRequest，保持原生 ToolCallPart/ToolResultPart
+  对应关系、预算、取消、admission 与纯文本终态语义。
+- 首次反馈核对版本：`bfcb8e77f8092b14a73cf4f1951f7d6123b5f9d5`；公开
+  `conversation_loop.hpp` 仅提供 event store、registry 和 run(spec, context)；
+  `AgentLoopSpec` 没有结构化输入字段；`BuiltinToolHandler` 返回 `Result<JsonValue>`；
+  `ToolResultPart` 的 result 为 JSON，large_payload 是可选 ArtifactRef，不是 ImagePart
+  输入供给入口。`model_contracts.hpp` 已有 ImagePart，网关/Provider 能表达图片。
+  API 文档的 ConversationLoop、BuiltIn 执行边界及
+  `tests/m3/m3_conversation_loop_test.cpp` 的原生工具往返同时核对。
+- 可复现证据：公开 API 形状探针
+  [conversation-image-api.cpp](repro/conversation-image-api.cpp)，Linux x86_64/GCC 13.3.0：
+
+  ```bash
+  c++ -std=c++20 -fsyntax-only -Ithird_party/mira/include -Ithird_party/mira/third_party/kairo/include docs/dependency_feedback/repro/conversation-image-api.cpp
+  ```
+
+  2026-10-09 退出 0：handler 固定 JSON，ModelInputItem 不能转换为 JSON，模型内容
+  variant 可构造 ImagePart。探针只证实类型边界；公共类声明核对证实无宿主逐轮输入
+  供给缝。本轮未执行图片工具运行测试，未宣称供应商不支持图片。
+- 应用职责排除：截图、编码、权限、坐标、artifact source 注入属于 Mirage。
+  注入 store 只能让 Provider 获取已经进入请求的 ImagePart，不能将工具 JSON 自动
+  转成图片输入；artifact 元数据/base64 字符串不能代替此语义。直接使用 ModelGateway
+  自建 model/tool 循环会重复 ConversationLoop。AgentLoop 设备入口有观察，但与当前
+  无设备决策 schema 的通用工具会话需求不同；不是参数配置错误或平台权限限制。
+- 建议最小能力：提供宿主可控、每轮有界的结构化输入供给入口，或等价的多模态工具
+  结果契约；在工具完成后、下次模型调用前接纳同任务/epoch 的 ModelInputItem。
+  不替宿主采屏、不固定桌面策略、不将工具外部内容提升为指令权限。
+- 验收：合成截图工具→artifact→下一轮真实 ImagePart；工具 call/result 不丢失；
+  三方言 fixture、预算与图片保留/淘汰策略、取消/迟到/epoch 失配/供给失败均可观测；
+  文本会话零变更；至少一家已声明识图能力的模型端到端验证。
+- 影响与延期：阻塞 M7-05/07 的 VLM 看图能力，不阻塞 M7-02/03 的结构化观察、
+  语义输入和真实 OCR 文本工具。当前不做私有循环临时方案、不修改 pinned 代码。
+  上游交付后须授权消费、同步锁与供应链、移除限制并按上述验收复跑后才记 Resolved。
+- 上游提交：维护者于本会话明确要求提交，已创建
+  [Mira issue #85](https://github.com/Linductor-alkaid/mira/issues/85)。回读确认编号、
+  作者 Linductor-alkaid、完整正文与 Open 状态；未修改 pinned 代码或升级依赖。
+
+| 日期 | 跟进 | 下一步 |
+| --- | --- | --- |
+| 2026-10-09 | 公共 API/文档/测试核对及编译探针；登记 Proposed | M7-01 冻结需求后，由维护者安排上游反馈与消费验收 |
+| 2026-10-09 | 维护者授权提交；gh 身份确认、上游 master/API 与现有 issues 核对，探针复跑退出 0；创建 #85 并回读全文，状态改为 Open | Mira 上游定案公开扩展；Mirage 维护者跟进交付、授权消费与 M7-05 验收 |
+
+2026-10-09 上游更新核对：PR#86 已合并至 d5e6673，最新 master 为 698fc77，交付
+set_model_input_supplier、每请求预算与 drop/degrade 事件/计数。两轮 CI 各 12/12 jobs
+成功；本机原 pin 的缺入口探针、新 master 的入口/签名探针均退出 0。该正向探针仅使用
+临时导出的上游公共头，不构成 Mirage 动态消费。#85 回读仍 Open；条目改 Accepted，
+该次核对时 gitlink/lock 仍 bfcb8e7，不宣称下游图片闭环完成。候选 SHA、契约、CI 与下一步
+见[更新核对](../compatibility/mira-image-supply-review-20261009.md)。
+
+2026-10-09 授权升级：维护者明确授权依赖升级，gitlink/lock 固定到 698fc77；
+实际 pinned 公共头正向探针、上游 `mira_m3_conversation_input_supply_test` 本机运行通过。
+供给 fixture 验证规范图片/工具往返、预算/drop/degrade、重试、取消、能力与 Messages
+约束，但不构成 Mirage 截图/source 接线或真实模型验收。回归结果见
+[供应链审计](../supply-chain/mira-image-supply-20261009.md)，条目保持 Accepted。
+授权升级回归完成：native-debug/release 各 54/54，联合 ASAN/UBSAN 6/6，
+TSAN 两项 0 failures、无竞态报告，公共头/格式通过；没有完成 Mirage 图片端到端。
+
+2026-10-09 下游收口：M7-04/05 PNG artifact/source/每请求 ImagePart 与显式识图配置
+交付，三方言 fixture、MiniMax-M3/adaptive 实际截图工具在线识图 2/2。最终
+native-debug/release 各 55/55，联合 ASAN/UBSAN 5/5、TSAN 图片 112 checks/无竞态，
+PNG 独立解码与设置 renderer 通过；范围、精确命令和失败记录见
+[图片验收](../compatibility/desktop-image-supply-20261009.md)。本地改 Resolved；未操作
+上游 #85，沿用最后回读 Open。未新增第三方源码补丁或并发绕行；其他平台与业务验收
+仍由 M7-08/10 负责，不扩大该反馈的解决范围。
 
 ## 2026-10-05复核证据
 
@@ -275,3 +349,57 @@ M6-19收尾回读：Mira PR#79的pull_request run37332976997在当前pin 0a099ba
 - 延期影响：Mirage 在 GCC 下停用 `-Wuseless-cast`（见 `cmake/MirageWarnings.cmake` 注释）；自有代码少一项冗余转换检查。
 - 验收：Mirage 恢复 `-Wuseless-cast -Werror` 全量构建通过；上游交付后按授权升级复验并移除临时措施。
 - 临时措施：`MirageWarnings.cmake` 对 GCC 改为 `-Wno-useless-cast`（含移除条件注释）；仅影响 Mirage 自有目标的告警面，不改 pinned 代码。
+
+<a id="mira-20261009-002"></a>
+
+## MIRA-20261009-002：Messages SSE 解析器对 max_tokens 截断流 fail-closed
+
+- 状态：Resolved（上游 PR#87 合并 c75378b，已授权消费并复验）；负责人：Linductor-alkaid。关联 Mirage M7 会话桌面工具（harness 路径）、MIRA-20261008-001 的 Messages 思考链路。
+- 上游：[mira PR#87](https://github.com/Linductor-alkaid/mira/pull/87)（分支
+  `fix/messages-sse-cutoff-tolerance`，提交 c8915fd）：孤立 `content_block_stop` 合成空文本块闭环；
+  `tool_use` 参数校验移至 `finish()`，仅 `stop_reason=max_tokens` 容忍截断并保留空参块（解码为
+  Incomplete/MaxOutputTokens）；未 start 块 delta、重复 stop、其他终态下的截断仍 fail-closed。
+- 版本：pinned 698fc77c151fa93b1b52ea4dd25cb95a3a60bee5（2026-10-09）。已核对
+  `src/model/model_anthropic_sse.cpp`（`reduce` 的块生命周期校验与 `content_block_stop`
+  的 `tool_use` 参数解析）、`src/model/conversation_loop.cpp:264`（每步请求
+  `max_tokens = config_.max_output_tokens_per_turn`）。
+- 复现：真实 MiniMax-M3（`api.minimaxi.com/anthropic`，2026-10-09 授权在线抓流）在
+  `max_tokens` 截断时发出两类非规范流，均被 `AnthropicMessagesSseParser` 以同一条
+  `invalid()`（"invalid Messages SSE lifecycle or budget"，ProtocolViolation）拒绝：
+  1. 孤立 `content_block_stop`：截断落在块调度与首个 `content_block_start` 之间时，
+     服务端发出从未 start 的块的 stop（`reduce` 中 `position >= blocks_.size()` →
+     invalid）。max_tokens=1 时 4/4 复现。
+  2. `tool_use` 参数 JSON 截断：截断落在 `input_json_delta` 内部时，块以不完整 JSON
+     （如 `{"path":"/tmp`）收口，`content_block_stop` 的 `parse_json` 失败 → invalid。
+     tools + max_tokens=32/64 时 2/2 复现。
+  入库离线复现（合成流固定形状，逐字节喂入）：
+  [minimax-cutoff-sse.cpp](repro/minimax-cutoff-sse.cpp)，输出 A/B 均
+  FEED-ERROR: invalid Messages SSE lifecycle or budget，规范截断对照（截在 thinking
+  块内部）可解码。已排除 Mirage 侧职责：请求编码为 pinned mapper 产物，三档思考
+  （默认/adaptive/disabled）与历史组合在线 20+ 轮均未触发；用户报告的"思考模式变化"
+  相关性实为档位切换改变每轮输出预算（2048↔8192），截断概率随之变化，重放原失败
+  上下文三档均不触发，模式切换本身无服务端错误。
+- 影响：Messages 方言 + 工具（Mirage 通用会话 harness 默认路径）下，任何生成触及
+  每轮 `max_tokens` 的回合都可能整轮失败，用户可见 "model call failed: invalid
+  Messages SSE lifecycle or budget"，无重试价值（同类长生成复现概率高）；会话无法
+  自愈，属于产品级可用性缺陷。纯文本截断不受影响（规范流可解码为 length 终态）。
+- 最小能力：`AnthropicMessagesSseParser` 对截断形态宽容——(a) 忽略针对未 start 块的
+  `content_block_stop`（视为空块闭环）；(b) `tool_use` 参数在截断（stop_reason=
+  max_tokens）下不可解析时，产出有界的 length/incomplete 完成态或可诊断的专用错误
+  （"tool arguments truncated by output budget"），而非生命周期违规。不放宽其他
+  生命周期校验（乱序 start、用量回退、缺失 message_stop 等仍 fail-closed）。
+- 延期影响：Mirage 以适配层缓解（harness 每轮输出下限提高至 8192，引用本编号），
+  截断概率下降但未消除；长工具参数（大文本写入类动作）仍可能整轮失败。
+- 验收：入库复现 A/B 改为可解码（A 为空 length 完成、B 为可诊断截断结果或带
+  digest 的 length 完成），既有 Messages SSE fixture（签名/redacted/预算/切点）全部
+  不回退；真实 MiniMax 截断回合可终态到达会话（失败也须带正确 stop_reason 语义）。
+- 临时措施：无（维护者指示直接上游修复；Mirage 不旁路 SSE 解析、不调每轮预算）。
+- 消费与复验（2026-10-09）：维护者授权合并 [PR#87](https://github.com/Linductor-alkaid/mira/pull/87)
+  （merge commit c75378ba1374450ae667af64561f86db1f90f4c4，仅 model_sse.hpp /
+  model_anthropic_sse.cpp / m3_anthropic_test.cpp，无嵌套 pin 变化），Mirage pin
+  同步升级至该提交（dependencies.lock.json 同步，工作分支已删除，验证用 build 树已清理）。
+  复验：上游侧 m3 全量 105/105、ASAN/UBSAN 干净（[PR#87 CI](https://github.com/Linductor-alkaid/mira/pull/87) 24/24）；
+  消费侧入库复验工件 [minimax-cutoff-sse.cpp](repro/minimax-cutoff-sse.cpp)
+  A/B/C 均解码为 Incomplete/MaxOutputTokens 终态，真实抓流 4 条（orphan-0/1、
+  toolcut-none-32/64）由修复前的 FEED-ERROR code 18 全部转为解码。协议层即真实
+  MiniMax 截断回合字节；产品内截断回合的会话终态随下次在线验收（opt-in 付费）补跑。

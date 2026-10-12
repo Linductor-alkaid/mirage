@@ -1,0 +1,28 @@
+Mirage bundled vision ppocrv5-mobile-v1 (DEC-068)
+
+PP-OCRv5 mobile detection and recognition models: PaddlePaddle / PaddleOCR.
+Official publisher model cards declare Apache-2.0:
+https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_det
+https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_rec
+License: Apache-2.0.txt. Publisher metadata checked 2026-10-11.
+
+The ncnn exports come from nihui/ncnn-android-ppocrv5, commit
+671ac4a72299a86ddee160131ba88fed748df425. Its pinned README documents
+conversion from PaddleX official_models/PP-OCRv5_mobile_det and
+PP-OCRv5_mobile_rec. Model weights retain the upstream model license;
+no model license is inferred from the dictionary's BSD header.
+
+Mirage modifications: detection input affine normalization and blob names;
+recognition removal of weightless Softmax and CHW logits reshape; dictionary
+extraction with final ASCII space. Trained weights are unchanged except
+24-byte detection affine coefficients. resources.lock.json fixes source and
+converted hashes. conversion.json records the exact converted artifacts.
+
+Dictionary source: Copyright (C) 2025 THL A29 Limited, a Tencent company.
+Licensed under BSD-3-Clause; see ncnn-BSD-3-Clause.txt for the license terms.
+
+ncnn: Tencent / THL A29 Limited; BSD-3-Clause, version 20260526,
+e54f7b1f88434e1d844ea0551b880a1cfb079ce1 (delivered via pinned Mirador).
+Mirador: MIT, ae8cf87581c1ebe393a67374d9977a38354d0911.
+Mirage resource preparation code is in tools/prepare_vision_bundle.py.
+No runtime download, Python, Paddle, ONNX or Android/OpenCV dependency.

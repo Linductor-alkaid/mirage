@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "bundle": "ppocrv5-mobile-v1",
+  "source": "https://github.com/nihui/ncnn-android-ppocrv5",
+  "commit": "671ac4a72299a86ddee160131ba88fed748df425",
+  "source_artifacts": {
+    "app/src/main/assets/PP_OCRv5_mobile_det.ncnn.param": "358f459680ae0e7a73e477469e529ce116f68c629019ec7a0b6457d2d9117934",
+    "app/src/main/assets/PP_OCRv5_mobile_det.ncnn.bin": "857a96bc963725105b78a178dfcc3c0c3db1a7b9eef32244367b2cb105ccf60b",
+    "app/src/main/assets/PP_OCRv5_mobile_rec.ncnn.param": "f52a6586ac3338d8c350db0c9f3c55ff2ecd3763327f9bc7f0efc091f8a63e74",
+    "app/src/main/assets/PP_OCRv5_mobile_rec.ncnn.bin": "49d9907a55ba20fa6637f9f788f66ab00793bc8ce57a733a09dbe86b9a2e3db0",
+    "app/src/main/jni/ppocrv5_dict.h": "bb7397a57300fccbf86cf527ad199b12a0a2e3ccec8afc636af2f9ee695bbd11"
+  },
+  "output_artifacts": {
+    "det_param": {
+      "path": "det_param",
+      "sha256": "7e0aaccc1da4181ce793536f2bb6e8ee854204997974b6be4a26cce4769be2dc",
+      "bytes": 24827
+    },
+    "det_bin": {
+      "path": "det_bin",
+      "sha256": "75acc15cc388e52c6278e7b77c9af1345292ad5405ee1c57f853dcfa3770b462",
+      "bytes": 2357240
+    },
+    "rec_param": {
+      "path": "rec_param",
+      "sha256": "cc0165c63b9017f287e56c1c2073d57184fd8777053c6e14163f3d32637adfdf",
+      "bytes": 20029
+    },
+    "rec_bin": {
+      "path": "rec_bin",
+      "sha256": "49d9907a55ba20fa6637f9f788f66ab00793bc8ce57a733a09dbe86b9a2e3db0",
+      "bytes": 8242276
+    },
+    "charset": {
+      "path": "charset",
+      "sha256": "e5f8ca61ba03d3a247d06b013119982fa6de2bd48a846018b67bca57ffc56de1",
+      "bytes": 74014
+    }
+  }
+}
