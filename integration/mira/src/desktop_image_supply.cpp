@@ -136,10 +136,12 @@ void DesktopImageTurn::register_tool(mira::BuiltinToolRegistry &registry,
     }
     mira::BuiltinToolSpec spec;
     spec.wire_name = "desktop.screen.capture";
-    spec.version = {1, 4, 0};
+    spec.version = {1, 5, 0};
     spec.description =
         "Capture an authorized display, window, or display-contained ROI as PNG. "
-        "Window/display captures are read-only previews (longest side <=1600); ROI is 1:1. "
+        "Captures longer than 1600 on a side are downscaled read-only previews with exact "
+        "origin/scale metadata; smaller captures (including small ROIs) are 1:1 for precise "
+        "grounding. "
         "Only source=roi accepts x/y/width/height (all required, desktop pixels). "
         "Max raw acquisition 32 MiB, ROI/PNG 8 MiB, four acquisitions per turn. "
         "The latest image is supplied to the next model request. "
@@ -160,22 +162,30 @@ void DesktopImageTurn::register_tool(mira::BuiltinToolRegistry &registry,
     if (observation_only) {
         spec.description =
             "Capture a read-only native desktop image through system authorization. "
-            "Use source=desktop with no other fields. The system may show a sharing "
+            "source=desktop takes no other fields. source=roi takes x/y/width/height in shared "
+            "monitor pixels for a smaller observation of one region. source=window takes "
+            "source_id from desktop.window.list and crops that window's rectangle (approximated "
+            "from window geometry; overlapping content included). The system may show a sharing "
             "prompt; cancellation/denial or platform failure must be explained, "
             "not retried in this turn. A successful ScreenCast session is reused for at most eight "
             "fresh frames in this task, without another sharing prompt. This image has no "
             "executable coordinates, "
             "display/window IDs or input mapping. No click or typing capability "
             "may be inferred. The image is supplied to the next model request.";
-        spec.parameters_schema = mira::JsonSchema{JsonValue{JsonValue::Object{
-            {"type", "object"},
-            {"properties",
-             JsonValue{JsonValue::Object{
-                 {"source",
-                  JsonValue{JsonValue::Object{
-                      {"type", "string"}, {"enum", JsonValue{JsonValue::Array{"desktop"}}}}}}}}},
-            {"required", JsonValue{JsonValue::Array{"source"}}},
-            {"additionalProperties", false}}}};
+        JsonValue::Object observation_properties{
+            {"source", JsonValue{JsonValue::Object{
+                           {"type", "string"},
+                           {"enum", JsonValue{JsonValue::Array{"desktop", "roi", "window"}}}}}},
+            {"source_id", JsonValue{JsonValue::Object{{"type", "string"}, {"maxLength", 256}}}},
+            {"x", JsonValue{JsonValue::Object{{"type", "integer"}}}},
+            {"y", JsonValue{JsonValue::Object{{"type", "integer"}}}},
+            {"width", JsonValue{JsonValue::Object{{"type", "integer"}}}},
+            {"height", JsonValue{JsonValue::Object{{"type", "integer"}}}}};
+        spec.parameters_schema = mira::JsonSchema{JsonValue{
+            JsonValue::Object{{"type", "object"},
+                              {"properties", JsonValue{std::move(observation_properties)}},
+                              {"required", JsonValue{JsonValue::Array{"source"}}},
+                              {"additionalProperties", false}}}};
     }
     if (native_input_enabled_) {
         spec.description =
@@ -184,19 +194,28 @@ void DesktopImageTurn::register_tool(mira::BuiltinToolRegistry &registry,
             "monitor sharing together through system "
             "consent. "
             "Omit interaction for read-only sharing. Session mode cannot change within a task. "
+            "source=roi takes x/y/width/height in shared monitor pixels for a smaller observation "
+            "of one region; source=window takes source_id from desktop.window.list and crops that "
+            "window's rectangle (approximated from window geometry; overlapping content "
+            "included). "
             "Only input_actionable=true permits desktop.session tools. No global/window "
             "coordinates. "
             "At most 32 captures in an interactive task, eight in a read-only task.";
-        spec.parameters_schema = mira::JsonSchema{JsonValue{JsonValue::Object{
-            {"type", "object"},
-            {"properties",
-             JsonValue{JsonValue::Object{
-                 {"source",
-                  JsonValue{JsonValue::Object{{"type", "string"},
-                                              {"enum", JsonValue{JsonValue::Array{"desktop"}}}}}},
-                 {"interaction", JsonValue{JsonValue::Object{{"type", "boolean"}}}}}}},
-            {"required", JsonValue{JsonValue::Array{"source"}}},
-            {"additionalProperties", false}}}};
+        JsonValue::Object interactive_properties{
+            {"source", JsonValue{JsonValue::Object{
+                           {"type", "string"},
+                           {"enum", JsonValue{JsonValue::Array{"desktop", "roi", "window"}}}}}},
+            {"interaction", JsonValue{JsonValue::Object{{"type", "boolean"}}}},
+            {"source_id", JsonValue{JsonValue::Object{{"type", "string"}, {"maxLength", 256}}}},
+            {"x", JsonValue{JsonValue::Object{{"type", "integer"}}}},
+            {"y", JsonValue{JsonValue::Object{{"type", "integer"}}}},
+            {"width", JsonValue{JsonValue::Object{{"type", "integer"}}}},
+            {"height", JsonValue{JsonValue::Object{{"type", "integer"}}}}};
+        spec.parameters_schema = mira::JsonSchema{JsonValue{
+            JsonValue::Object{{"type", "object"},
+                              {"properties", JsonValue{std::move(interactive_properties)}},
+                              {"required", JsonValue{JsonValue::Array{"source"}}},
+                              {"additionalProperties", false}}}};
     }
     mira::BuiltinToolHandler handler = [this](const auto &args, const auto &ctx) {
         try {
@@ -377,11 +396,43 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
                                                           const mira::OperationContext &ctx) {
     const auto *interactive = args.find("interaction");
     const bool requested = interactive && interactive->as_boolean() && *interactive->as_boolean();
-    if (text(args, "source") != "desktop" || !args.as_object() ||
-        args.as_object()->size() != (interactive ? 2u : 1u) ||
-        (interactive && (!interactive->as_boolean() || !native_input_enabled_)))
+    const auto source_kind = text(args, "source");
+    const bool region_source = source_kind == "roi" || source_kind == "window";
+    if ((source_kind != "desktop" && !region_source) || !args.as_object() ||
+        (interactive && (!interactive->as_boolean() || !native_input_enabled_)) ||
+        (requested && source_kind != "desktop"))
         return error(ErrorCode::InvalidArgument,
-                     "native desktop capture requires only source=desktop");
+                     "native desktop capture requires source=desktop|roi|window");
+    std::int64_t roi_x = 0, roi_y = 0, roi_width = 0, roi_height = 0;
+    std::string window_id;
+    if (source_kind == "desktop") {
+        if (args.as_object()->size() != (interactive ? 2u : 1u))
+            return error(ErrorCode::InvalidArgument,
+                         "source=desktop takes only source and interaction");
+    } else if (source_kind == "roi") {
+        const auto field_int = [&](const char *key) -> std::optional<std::int64_t> {
+            const auto *v = args.find(key);
+            return v && v->as_integer() ? std::optional<std::int64_t>{*v->as_integer()}
+                                        : std::nullopt;
+        };
+        const auto x = field_int("x"), y = field_int("y"), width = field_int("width"),
+                   height = field_int("height");
+        if (args.as_object()->size() != 5u || !x || !y || !width || !height || *x < 0 || *y < 0 ||
+            *width <= 0 || *height <= 0 || *x > 1048576 || *y > 1048576 || *width > 1048576 ||
+            *height > 1048576 || !text(args, "source_id").empty() || interactive)
+            return error(ErrorCode::InvalidArgument,
+                         "source=roi requires only x/y/width/height in shared monitor pixels");
+        roi_x = *x;
+        roi_y = *y;
+        roi_width = *width;
+        roi_height = *height;
+    } else {
+        window_id = text(args, "source_id");
+        if (args.as_object()->size() != 2u || window_id.empty() || window_id.size() > 256 ||
+            interactive)
+            return error(ErrorCode::InvalidArgument,
+                         "source=window requires source_id from desktop.window.list");
+    }
     if (!desktop_.capture_scope.empty())
         return error(ErrorCode::UnsupportedCapability,
                      "native desktop observation cannot satisfy a window capture scope");
@@ -467,7 +518,67 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
         frame.stride > desktop_capture_bytes / std::size_t(frame.height) ||
         frame.pixels.size() != frame.stride * std::size_t(frame.height))
         return error(ErrorCode::InvalidArgument, "invalid native desktop frame");
-    const Geometry area{0, 0, frame.width, frame.height};
+    // M7-18: region sources crop the fresh shared-monitor frame locally — no
+    // extra authorization, no extra stream, one frame budget per capture.
+    Geometry area{0, 0, frame.width, frame.height};
+    std::string kind = "desktop";
+    std::string kind_id;
+    if (region_source) {
+        if (source_kind == "window") {
+            auto *windows = desktop_.environment->window();
+            if (windows == nullptr)
+                return error(ErrorCode::UnsupportedCapability,
+                             "window enumeration is unavailable on this desktop");
+            desktop::WindowListLimits unlimited;
+            unlimited.max_windows = 4096;
+            const auto listed = windows->list_windows(unlimited, active);
+            if (!listed.ok)
+                return error(ErrorCode::PlatformError,
+                             listed.error.code + ": window enumeration failed");
+            const auto *match = static_cast<const desktop::WindowInfo *>(nullptr);
+            for (const auto &window : listed.windows)
+                if (window.id == window_id)
+                    match = &window;
+            if (match == nullptr)
+                return error(ErrorCode::InvalidArgument, "no such window");
+            roi_x = match->geometry.x;
+            roi_y = match->geometry.y;
+            roi_width = match->geometry.width;
+            roi_height = match->geometry.height;
+            kind_id = window_id;
+        }
+        // Screen-coordinate geometry can fall outside the shared monitor
+        // (multi-monitor setups): intersect, then fail closed on an empty
+        // intersection instead of guessing an offset.
+        const auto clip_left = std::max<std::int64_t>(roi_x, 0);
+        const auto clip_top = std::max<std::int64_t>(roi_y, 0);
+        const auto clip_right =
+            std::min<std::int64_t>(roi_x + roi_width, static_cast<std::int64_t>(frame.width));
+        const auto clip_bottom =
+            std::min<std::int64_t>(roi_y + roi_height, static_cast<std::int64_t>(frame.height));
+        if (clip_left >= clip_right || clip_top >= clip_bottom)
+            return error(ErrorCode::InvalidArgument,
+                         "capture region lies outside the shared monitor");
+        area = Geometry{static_cast<std::int32_t>(clip_left), static_cast<std::int32_t>(clip_top),
+                        static_cast<std::int32_t>(clip_right - clip_left),
+                        static_cast<std::int32_t>(clip_bottom - clip_top)};
+        desktop::ImageFrame part;
+        part.format = frame.format;
+        part.width = area.width;
+        part.height = area.height;
+        part.stride = static_cast<std::size_t>(area.width) * 4;
+        part.source_sequence = frame.source_sequence;
+        part.pixels.resize(part.stride * std::size_t(area.height));
+        for (std::int32_t row = 0; row < area.height; ++row)
+            std::memcpy(part.pixels.data() + std::size_t(row) * part.stride,
+                        frame.pixels.data() + std::size_t(area.y + row) * frame.stride +
+                            std::size_t(area.x) * 4,
+                        part.stride);
+        frame = std::move(part);
+        kind = source_kind;
+        if (source_kind == "roi")
+            kind_id.clear();
+    }
     if (std::max(frame.width, frame.height) > 1600) {
         mirador::ImageView view;
         view.data = reinterpret_cast<const std::byte *>(frame.pixels.data());
@@ -488,19 +599,29 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
         frame.pixels.resize(frame.stride * std::size_t(h));
         std::memcpy(frame.pixels.data(), pixels.data, frame.pixels.size());
     }
+    return finish_native_publish(std::move(frame), out.frame, area, kind, kind_id,
+                                 out.frame.source_sequence, epoch);
+}
+
+mira::Result<JsonValue>
+DesktopImageTurn::finish_native_publish(desktop::ImageFrame frame,
+                                        const desktop::ImageFrame &raw_frame, const Geometry &area,
+                                        const std::string &kind, const std::string &kind_id,
+                                        std::uint64_t source_sequence, std::uint64_t epoch) {
     const auto captured = std::chrono::steady_clock::now();
     const desktop::CancelToken bounded([this, captured] {
         return cancel_.cancelled() ||
                std::chrono::steady_clock::now() - captured >= std::chrono::seconds(5);
     });
-    auto result = publish_image(frame, area, "desktop", "", epoch, captured, bounded);
+    auto result = publish_image(frame, area, kind, kind_id, epoch, captured, bounded);
     if (!result)
         return result;
     auto fields = *metadata_.as_object();
-    std::erase_if(fields, [](const auto &item) {
-        return item.first.starts_with("desktop_per_image_") || item.first.starts_with("origin_") ||
-               item.first.starts_with("scale_");
-    });
+    if (kind == "desktop")
+        std::erase_if(fields, [](const auto &item) {
+            return item.first.starts_with("desktop_per_image_") ||
+                   item.first.starts_with("origin_") || item.first.starts_with("scale_");
+        });
     metadata_ = JsonValue{std::move(fields)};
     metadata_.set("region_actionable", false);
     metadata_.set("desktop_coordinates_available", false);
@@ -516,11 +637,13 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
                   [](const auto &field) { return field.first == "captured_at_ms"; });
     metadata_ = JsonValue{std::move(received_fields)};
     metadata_.set("capture_timestamp_known", false);
-    metadata_.set("source_sequence", static_cast<std::int64_t>(
-                                         std::min(out.frame.source_sequence, std::uint64_t(INT64_MAX))));
+    metadata_.set("source_sequence",
+                  static_cast<std::int64_t>(std::min(source_sequence, std::uint64_t(INT64_MAX))));
     native_newer_than_sequence_ = 0;
+    // The guard's comparison baseline is always the RAW FULL frame — never the
+    // preview-scaled or region-cropped image the model sees (M7-18/M7-19).
     if (native_session_ && native_session_->input_supported())
-        native_input_frame_ = out.frame;
+        native_input_frame_ = raw_frame;
     if (desktop_.ocr_image || native_input_enabled_)
         native_frame_ = std::move(frame);
     return metadata_;
@@ -697,7 +820,9 @@ mira::Result<JsonValue> DesktopImageTurn::capture(const JsonValue &args,
         }
         return metadata_;
     };
-    if (kind == "roi" || std::max(frame.width, frame.height) <= 1600)
+    // M7-17: large ROIs preview-scale like display/window captures (exact
+    // origin/scale metadata keeps click_region mapping); small ROIs stay 1:1.
+    if (std::max(frame.width, frame.height) <= 1600)
         return publish(frame);
     if (frame.format != desktop::ImageFormat::Bgra8 ||
         frame.stride < std::size_t(frame.width) * 4 ||

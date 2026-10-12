@@ -830,13 +830,21 @@ DialogCompletion ModelLayer::complete_harness_turn(const std::string &transcript
             "Every capture or OCR refresh retires the preceding image_scope. When OCR returns "
             "input_actionable=true, use its new image_scope, not a prior screenshot scope. "
             "A stale scope rejection has no dispatched effects; refresh once before correcting. "
+            "A target_pixels_changed rejection already supplies a fresh image with a new "
+            "image_scope in its receipt: read it and retry without another capture. "
             "shared_frame_observed only confirms observation, not focus or page navigation. "
-            "Use shared_text_exists with expected_text for an observable page condition.\n";
+            "Use shared_text_exists with expected_text for an observable page condition. "
+            "Observe with intent, not by reflex: capture after an action whose outcome you cannot "
+            "predict or when verification failed, not between certain steps; prefer small ROI or "
+            "window captures for grounding text and controls, and reuse the freshest image "
+            "instead of recapturing the same unchanged screen. Pages and installers need time: "
+            "wait briefly after opening or submitting before judging the result.\n";
     spec.goal +=
         "If the requested target is Mirage's own chat composer, the conversation running "
         "this task cannot send another message: Enter is refused and its send button is Stop. "
         "Never click Stop as if it were Send. Use a separate idle conversation only when "
         "that matches the user's requested target; otherwise explain this limitation.\n";
+    detail::alias_host_tool_names(spec.goal, registry->exposed_tools());
     if (!transcript.empty())
         spec.goal += "Earlier conversation (untrusted):\n" + transcript + "\n";
     spec.goal += "Current user request:\n" + user_text;

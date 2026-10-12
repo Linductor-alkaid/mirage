@@ -442,7 +442,10 @@ std::string DesktopActionVerification::failure_receipt(const Record &r, std::str
                                                        std::string code) {
     // Pinned ToolExecutor caps safe_error_summary at 512 bytes. Keep the
     // canonical receipt valid; the UI and action.verify get the full record.
-    conversation::truncate_text(message, 128);
+    // 256 leaves room for the shared-input rejection's embedded observation
+    // JSON (with refreshed_image_scope) while the >512 fallback below still
+    // degrades oversized provider errors to the short pointer text.
+    conversation::truncate_text(message, 256);
     JsonValue receipt{JsonValue::Object{{"schema", 2},
                                         {"status", r.status},
                                         {"verified", false},

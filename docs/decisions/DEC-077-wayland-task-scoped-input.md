@@ -42,7 +42,7 @@ keysym 返回 D-Bus 成功但丢弃字符，因此非 ASCII 在动作前返回 t
 与用户取消分开；无输入副作用，不重弹授权。
 
 产品工具绑定本任务最近已供模型的 image_scope/epoch 与图内矩形，允许 60 秒意图，
-动作前重新采集并逐像素核对目标矩形；动作后从同一共享会话取得新图。
+动作前重新采集并核对目标矩形（逐像素核对由 [DEC-083](DEC-083-target-region-stability-reverification.md) 修订为分层主体稳定判定）；动作后从同一共享会话取得新图。
 shared_frame_observed 只证明动作释放及新图取得；shared_text_exists 可用同源默认 OCR
 核对声明文字。二者均不证明焦点身份或整个业务任务完成。Wayland 无可靠前台查询，
 因此禁止伪造 X11 焦点保证；模型必须依据新画面确认业务结果，用户接管立即撤销 authority。

@@ -336,7 +336,12 @@ int main(int argc, char **argv) {
     config.socket_path = (dir.root() / "service.sock").string();
     config.settings_directory = dir.root() / "settings";
     config.model.request_deadline = 1s;
-    config.model.harness_deadline = 3s;
+    // Ceiling, not a timing assertion: the main fixture's budget paths (16/14
+    // model calls, the held-turn busy probes) only need the ceiling far above
+    // their own bounded work. 3s clipped them under ASAN load; 10s keeps a
+    // bounded ceiling with sanitizer headroom (dedicated timeout scenarios
+    // below configure their own shorter deadlines).
+    config.model.harness_deadline = 10s;
     config.model.max_output_tokens = 512;
     config.persist_recovery_state = false;
     config.persist_session_state = true;
@@ -719,10 +724,33 @@ int main(int argc, char **argv) {
     turn = wait_turn(client, session);
     MIRAGE_CHECK(turn && turn->status == "failed");
     provider->throw_now.store(false);
+    // The scripted provider throws above can open the pinned gateway's
+    // provider circuit (3 consecutive failures, 5s cooldown); the budget and
+    // per-call scenarios below then fail fast with "provider circuit is
+    // open" before their first model call, and service recovery can record
+    // further failures while the cooldown elapses. Probe with plain text
+    // turns until the circuit admits again (bounded), so those scenarios
+    // start from a closed circuit regardless of sanitizer-load timing.
+    provider->tool_first.store(false);
+    for (int probe = 0; probe < 30; ++probe) {
+        if (probe)
+            (void)::poll(nullptr, 0, 1000);
+        MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "熔断探针", true}, 2s).ok);
+        const auto probe_turn = wait_turn(client, session);
+        std::cerr << "circuit probe " << probe << ": "
+                  << (probe_turn ? probe_turn->status : std::string("none")) << "\n";
+        if (probe_turn && probe_turn->status == "ok")
+            break;
+    }
     provider->always_tool.store(true);
     const auto before_budget = provider->calls.load();
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "预算路径", true}, 2s).ok);
     turn = wait_turn(client, session);
+    if (!turn || turn->status != "failed" || turn->error.find("turn") == std::string::npos)
+        std::cerr << "budget-path diagnostic: status="
+                  << (turn ? turn->status : std::string("missing"))
+                  << " error=" << (turn ? turn->error : std::string("-"))
+                  << " calls=" << (provider->calls.load() - before_budget) << "\n";
     MIRAGE_CHECK(turn && turn->status == "failed" && turn->error.find("turn") != std::string::npos);
     MIRAGE_CHECK(provider->calls.load() - before_budget == 16);
     provider->always_tool.store(false);

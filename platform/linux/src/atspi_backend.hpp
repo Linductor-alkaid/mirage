@@ -26,6 +26,13 @@ class AtspiBackend final : public mirage::desktop::AccessibilityProvider {
     /// working.
     static std::unique_ptr<AtspiBackend> open(mirage::desktop::WindowProvider *windows);
 
+    /// Wayland window enumeration over the accessibility tree (M7-18):
+    /// top-level frames and dialogs with screen-coordinate extents back the
+    /// window-geometry approximation behind Portal window captures. Returns
+    /// null without an accessibility bus (capability honesty, DEC-015).
+    /// Activation is not expressible over AT-SPI v1 and fails closed.
+    static std::unique_ptr<mirage::desktop::WindowProvider> open_window_provider();
+
     ~AtspiBackend() override;
     AtspiBackend(const AtspiBackend &) = delete;
     AtspiBackend &operator=(const AtspiBackend &) = delete;

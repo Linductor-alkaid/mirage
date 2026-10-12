@@ -1,4 +1,5 @@
 #include "desktop_image_supply.hpp"
+#include "desktop_stability_guard.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -12,17 +13,20 @@ std::string field(const Json &v, const char *key) {
     const auto *p = v.find(key);
     return p && p->as_string() ? *p->as_string() : "";
 }
-mira::Error rejected(std::string code, bool effects = false, bool released = true) {
+mira::Error rejected(std::string code, bool effects = false, bool released = true,
+                     const std::string &refreshed_scope = {}) {
     mira::Error e;
     e.code = code == "cancelled"           ? mira::ErrorCode::Cancelled
              : code == "permission_denied" ? mira::ErrorCode::PermissionDenied
                                            : mira::ErrorCode::PlatformError;
     e.domain = "mirage.desktop.shared";
-    e.safe_message =
-        mira::to_json_string(Json{Json::Object{{"error_code", code.substr(0, 64)},
-                                               {"side_effect_may_have_occurred", effects},
-                                               {"input_released", released},
-                                               {"verified", false}}});
+    Json::Object fields{{"error_code", code.substr(0, 64)},
+                        {"side_effect_may_have_occurred", effects},
+                        {"input_released", released},
+                        {"verified", false}};
+    if (!refreshed_scope.empty())
+        fields.emplace_back("refreshed_image_scope", refreshed_scope);
+    e.safe_message = mira::to_json_string(Json{std::move(fields)});
     return e;
 }
 bool valid_frame(const desktop::ImageFrame &f) {
@@ -38,15 +42,17 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
         mira::BuiltinToolSpec spec;
         spec.wire_name = std::string("desktop.session.") + operation;
         spec.has_side_effects = true;
-        const std::string use = std::string_view(operation) == "click"
-                                    ? "Click a visible control, or a clearly non-interactive area "
-                                      "of the intended window to focus it; no window API is needed. "
-                                : std::string_view(operation) == "key"
-                                    ? "Send one key chord to the focused UI, such as ctrl+l or enter. "
-                                : std::string_view(operation) == "type_text"
-                                    ? "Type text into the focused field after confirming focus. "
-                                    : "Scroll a visible UI region to reveal more content. ";
-        spec.description = use +
+        const std::string use =
+            std::string_view(operation) == "click"
+                ? "Click a visible control, or a clearly non-interactive area "
+                  "of the intended window to focus it; no window API is needed. "
+            : std::string_view(operation) == "key"
+                ? "Send one key chord to the focused UI, such as ctrl+l or enter. "
+            : std::string_view(operation) == "type_text"
+                ? "Type text into the focused field after confirming focus. "
+                : "Scroll a visible UI region to reveal more content. ";
+        spec.description =
+            use +
             "Wayland complete input on a system-authorized interactive shared monitor. "
             "Requires latest supplied image_scope and environment_epoch; x/y/width/height identify "
             "the target rectangle in IMAGE pixels, revalidated from fresh stream pixels before "
@@ -61,6 +67,8 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
             "fresh frame only, or shared_text_exists with expected_text checks same-stream OCR. "
             "Neither proves the full task nor focus identity; inspect the new image before "
             "continuing. "
+            "A target_pixels_changed rejection already supplies the fresh frame with a new "
+            "image_scope in its receipt: retry against that scope without recapturing. "
             "Do not retry uncertain effects.";
         Json::Object props;
         for (const auto *key : {"image_scope", "key_name", "text", "button", "expected_text"})
@@ -197,23 +205,67 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
     const auto &old = *native_input_frame_;
     if (!valid_frame(old) || old.width != fresh.frame.width || old.height != fresh.frame.height)
         return rejected("shared_source_changed");
-    const int left = static_cast<int>(*x * old.width / native_frame_->width);
-    const int top = static_cast<int>(*y * old.height / native_frame_->height);
-    const int right = static_cast<int>((*x + *w) * old.width / native_frame_->width);
-    const int bottom = static_cast<int>((*y + *h) * old.height / native_frame_->height);
-    for (int row = top; row < bottom; ++row) {
-        if (bounded.cancelled())
-            return rejected("cancelled");
-        if (std::memcmp(old.pixels.data() + std::size_t(row) * old.stride + std::size_t(left) * 4,
-                        fresh.frame.pixels.data() + std::size_t(row) * fresh.frame.stride +
-                            std::size_t(left) * 4,
-                        std::size_t(right - left) * 4))
-            return rejected("target_pixels_changed");
+    // M7-18: image pixels map into shared-monitor pixels through the published
+    // origin and per-image scale when present (ROI and window crops); full
+    // desktop images predate that metadata and keep the frame-ratio mapping.
+    const auto metadata_int = [&](const char *key) -> std::optional<std::int64_t> {
+        const auto *v = metadata_.find(key);
+        return v && v->as_integer() ? std::optional<std::int64_t>{*v->as_integer()} : std::nullopt;
+    };
+    const std::int64_t num_x = metadata_int("desktop_per_image_x_numerator").value_or(old.width);
+    const std::int64_t den_x =
+        metadata_int("desktop_per_image_x_denominator").value_or(native_frame_->width);
+    const std::int64_t num_y = metadata_int("desktop_per_image_y_numerator").value_or(old.height);
+    const std::int64_t den_y =
+        metadata_int("desktop_per_image_y_denominator").value_or(native_frame_->height);
+    const std::int64_t origin_x = metadata_int("origin_x").value_or(0);
+    const std::int64_t origin_y = metadata_int("origin_y").value_or(0);
+    if (den_x <= 0 || den_y <= 0)
+        return rejected("stale_or_invalid_target");
+    const auto to_monitor_x = [&](std::int64_t image_x) {
+        return origin_x + std::int64_t(double(image_x) * double(num_x) / double(den_x));
+    };
+    const auto to_monitor_y = [&](std::int64_t image_y) {
+        return origin_y + std::int64_t(double(image_y) * double(num_y) / double(den_y));
+    };
+    const std::int64_t monitor_left = to_monitor_x(*x);
+    const std::int64_t monitor_top = to_monitor_y(*y);
+    const std::int64_t monitor_right = to_monitor_x(*x + *w);
+    const std::int64_t monitor_bottom = to_monitor_y(*y + *h);
+    if (monitor_left < 0 || monitor_top < 0 || monitor_right > old.width ||
+        monitor_bottom > old.height || monitor_right - monitor_left <= 0 ||
+        monitor_bottom - monitor_top <= 0)
+        return rejected("stale_or_invalid_target");
+    const int left = static_cast<int>(monitor_left);
+    const int top = static_cast<int>(monitor_top);
+    const int right = static_cast<int>(monitor_right);
+    const int bottom = static_cast<int>(monitor_bottom);
+    if (bounded.cancelled())
+        return rejected("cancelled");
+    // M7-16 / DEC-082: the target must be stable, not byte-identical. Edge
+    // animation and same-subject noise (caret, launch pulse) proceed; a moved
+    // or replaced subject, a global scene change, or any unprovable comparison
+    // rejects exactly like the previous byte comparison.
+    if (assess_target_stability(old, fresh.frame, {left, top, right, bottom}) ==
+        TargetStability::kChanged) {
+        // M7-19: the guard's frame is already a fresh observation — publish it
+        // so the model retries against current pixels without a recapture
+        // round trip. The receipt carries the new image_scope.
+        std::string refreshed;
+        if (native_input_enabled_ && !bounded.cancelled()) {
+            if (finish_native_publish(
+                    fresh.frame, fresh.frame,
+                    desktop::WindowGeometry{0, 0, fresh.frame.width, fresh.frame.height}, "desktop",
+                    "", fresh.frame.source_sequence, epoch_)) {
+                const auto *scope = metadata_.find("image_scope");
+                if (scope && scope->as_string())
+                    refreshed = *scope->as_string();
+            }
+        }
+        return rejected("target_pixels_changed", false, true, refreshed);
     }
-    action.x =
-        (static_cast<double>(*x) + static_cast<double>(*w) / 2) * old.width / native_frame_->width;
-    action.y = (static_cast<double>(*y) + static_cast<double>(*h) / 2) * old.height /
-               native_frame_->height;
+    action.x = double(to_monitor_x(*x + *w / 2));
+    action.y = double(to_monitor_y(*y + *h / 2));
     action.image_width = old.width;
     action.image_height = old.height;
     auto lease = desktop_.actions->try_begin(bounded, epoch_);

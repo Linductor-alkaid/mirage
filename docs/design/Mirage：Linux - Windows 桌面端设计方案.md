@@ -609,6 +609,12 @@ graph LR
 顺序结束 Runtime 与前端。托盘 SDK 回调只投递有界动作，业务经 Runtime Executor
 串行化；窗口子进程创建/回收位于 Platform Backend。系统信号或宿主失败直接安全收敛。
 
+M8 规划新增由同一托盘 Runtime owner 持有的 `mira_pet` 独立子进程，作为主窗口之外的
+常驻状态显示面；不承载第二份 Mira。它经 Local IPC 消费真实阶段及终态，主窗口关闭
+后继续呈现，桌宠自身失败不取消 Agent。此拓扑扩展尚未实施，状态恢复、启动 bootstrap、
+子进程准入和有界退出见 [DEC-084 提案](../decisions/DEC-084-mira-pet-process-and-animation.md)
+与 [mira_pet 设计](mira-pet.md)，实施状态由 [M8](../plans/m8-mira-pet.md) 跟踪。
+
 例如：
 
 ```text
@@ -801,6 +807,16 @@ Overlay 用于展示 Agent 当前关注的窗口或元素、即将执行的操�
 ```
 
 Overlay 同时可以用于调试 Desktop Observation，让开发者查看当前 Accessibility Element、Visual Reference 和 Agent 实际选择的目标。
+
+### 14.1 mira_pet 状态窗口（M8 规划）
+
+`mira_pet` 为独立透明置顶窗口，展示启动、待机、思考、观察、鼠标、键入、任务成功、
+任务失败及退出；暂停、接管、确认与断连以明确文字补充。运行动画分别定义进入、
+持续循环和离开区间，启动/退出当前采用单次播放，安全状态可立即打断。角色窗口与 Overlay 的目标高亮职责
+分别保留。桌宠占位与输入目标或采集范围冲突时须避让/有界隐藏并重新观察，不能忽略
+实际遮挡或把角色识别为桌面目标。当前 v3 九态素材中 looking/typing 已确认使用，
+启动/退出临时使用待调整，以 once 播放并允许安全期限打断；素材状态和历史见
+[M8](../plans/m8-mira-pet.md)。运行动画的精确循环区间和平台效果尚待验收。
 
 ## 15. 权限与桌面安全
 
@@ -1048,7 +1064,7 @@ artifact/source/supplier；工具结果只含定位元数据，不输出 OCR 全
 Runtime 向会话提供有界 mark 回调和 registry 同锁引用回调；公开接口仅使用 Mirage
 类型。只在支持图片、配置真实 OCR、授权和能力齐备时暴露 mark；完整输入、窗口和
 会话修改策略再决定 click 是否暴露。目标必须完整可见且位于当前窗口内，点击前
-同显示器新采集像素严格一致、显示器/窗口几何稳定，epoch/age/scope 均有效。通过
+同显示器新采集像素严格一致（M7-16 起由 [DEC-083](../decisions/DEC-083-target-region-stability-reverification.md) 的目标矩形主体稳定判定承接：边距环动画忽略、核心区主体相似放行、不确定即拒）、显示器/窗口几何稳定，epoch/age/scope 均有效。通过
 单写者 lease 执行完整 click，取消/清理失败和不确定副作用沿用 DEC-054/056。
 
 新输入会退休本轮图和旧编号；完成仍取决于动作前固定的局部后条件与新观察。当前
@@ -1350,7 +1366,7 @@ Linux Portal 后端私有地映射为 Start 返回 size 的流内 compositor 坐
 或设备授权。Window/Input 全局 Provider 继续缺失，不伪装 X11 坐标或焦点身份。
 
 Mira DesktopImageTurn 拥有会话，授权同任务 source=desktop 的 screen.capture / input.inject；
-通过图像已供给证明、task/session/epoch/authority、60 秒意图和动作前目标矩形逐像素重验
+通过图像已供给证明、task/session/epoch/authority、60 秒意图和动作前目标矩形重验（逐像素承诺由 [DEC-083](../decisions/DEC-083-target-region-stability-reverification.md) 修订为主体稳定判定）
 保护输入。普通动作保留共享但淘汰旧图；接管/取消/失败关闭会话。32 帧预算包含
 前置重验和后置取图；只读八帧不变。当前 Portal 文本最多 4096 字节 printable ASCII，
 禁止控制字符；非 ASCII 返回 text_transport_unavailable，无部分输入。按键通知不证明
@@ -1387,3 +1403,16 @@ ScreenProvider 追加平台无关的授权状态、配置偏好和管理接口�
 能力限制。原生源帧最多缓存一个 32 MiB 自有副本，缓冲立即归还生产者；源帧
 source_sequence 与 CaptureLimits.newer_than_sequence 区分静态读屏和动作后新帧。
 轮次图引用独立于内容摘要；OCR 替代引用明确回流模型。详细方案见两项决策。
+
+2026-10-12 / DEC-043、M6-41：Chat Completions 与既有官方 DeepSeek Messages
+在 Mirage Provider Adapter 中将规范工具名的点号映射为下划线。工具声明、assistant
+回放和返回调用使用同一有界别名表，内部工具 ID、Registry 名称、动作权限与用户
+记录保留规范名称。名称非法或别名冲突在网络调用前拒绝，未知返回仍由 Mira 解析
+拒绝；不切换用户所选方言或改动 pinned Mapper/ConversationLoop。
+
+2026-10-12 / DEC-043 统一适配增量：模型侧的三种已支持方言均使用字母开头、
+字母数字下划线、总长不超过 64 的别名。点号/横线替换为下划线，数字/下划线开头
+加 tool_ 前缀；空名、其他字符、超长及冲突在调用前拒绝。Adapter 对返回调用的
+名称与 ToolId 精确匹配，未知调用在形成提案前拒绝，不执行动作。宿主工具列表、
+说明和指名提示同步使用别名，随后追加的用户正文/历史以及参数、结果、思考签名
+不做改写。命名工具选择和结果关联保留 ToolId/call ID，经 pinned Mapper 编解码。

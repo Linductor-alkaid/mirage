@@ -101,6 +101,10 @@ LinuxDesktopEnvironment::LinuxDesktopEnvironment(std::vector<std::filesystem::pa
         // The accessibility backend maps window ids by title through the X
         // window surface when present (M2-03); it works without X too.
         atspi_ = AtspiBackend::open(x11_.get() != nullptr ? x11_->window() : nullptr);
+        if (x11_.get() == nullptr)
+            // M7-18: pure Wayland has no X window surface; accessibility
+            // frames provide window geometry for Portal window captures.
+            atspi_windows_ = AtspiBackend::open_window_provider();
     }
     if (application_options.enabled) {
         // Discovery and launch resolve per call, so open() cannot fail;
@@ -121,7 +125,9 @@ mirage::desktop::EnvironmentInfo LinuxDesktopEnvironment::info() const {
 }
 
 mirage::desktop::WindowProvider *LinuxDesktopEnvironment::window() {
-    return x11_ != nullptr ? x11_->window() : nullptr;
+    if (x11_ != nullptr)
+        return x11_->window();
+    return atspi_windows_.get();
 }
 
 mirage::desktop::ScreenProvider *LinuxDesktopEnvironment::screen() {

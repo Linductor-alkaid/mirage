@@ -54,6 +54,14 @@ class DesktopImageTurn {
     publish_image(const desktop::ImageFrame &, const desktop::WindowGeometry &, const std::string &,
                   const std::string &, std::uint64_t, std::chrono::steady_clock::time_point,
                   const desktop::CancelToken &, mira::JsonValue::Object extra = {});
+    /// M7-19: preview-scales, publishes and retires one raw native frame with
+    /// the full observation tail (shared by capture_desktop and the
+    /// target_pixels_changed rejection refresh).
+    mira::Result<mira::JsonValue>
+    finish_native_publish(desktop::ImageFrame publish_frame, const desktop::ImageFrame &raw_frame,
+                          const desktop::WindowGeometry &area, const std::string &kind,
+                          const std::string &kind_id, std::uint64_t source_sequence,
+                          std::uint64_t epoch);
     void register_mark_tools(mira::BuiltinToolRegistry &, const DesktopAtomToolset::Decorator &,
                              bool);
     void register_region_tool(mira::BuiltinToolRegistry &, const DesktopAtomToolset::Decorator &,

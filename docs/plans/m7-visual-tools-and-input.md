@@ -60,6 +60,10 @@ M7-08 已闭合 Linux X11 动作后新观察与局部条件门禁；真实语义
 | M7-13 | Completed（Linux 默认包） | DEC-068 固定已验 Mirador / ncnn / PP-OCRv5；原生默认加载与离线安装 | 源/产物锁定、默认实际 OCR、关闭恢复、坏包/缺失拒绝；两种分辨率产品各 25/25，见[验收](../compatibility/bundled-vision-and-tool-recovery-20261011.md) | 当前已验 Mirador / ncnn / PP-OCRv5 |
 | M7-14 | In Progress（最新会话复验） | DEC-068 首增量已验；DEC-070 第二增量本地修复已验，原在线任务及提交评审待闭合 | 512 字节 canonical 回执、字段诊断、拒绝→新观察→已验证纠正、旧失败卡片收尾、未知/不确定负例及 ROI；见[新验收](../compatibility/desktop-rejection-recovery-20261011.md)，[首增量证据](../compatibility/bundled-vision-and-tool-recovery-20261011.md)保留 | 用户会话脱敏诊断及现有工具契约 |
 | M7-15 | In Progress | DEC-072：快捷能力不可达的 GUI 路线、绑定截图区域点击与前台/显示局部条件 | 无应用/语义 Provider 的真实 X11 启动器→键盘网址→新证据；比例、像素/焦点/权限/取消与不确定负例；在线自主选路另验 | M7-03/04/05/08，复用 M7-06 OCR及 M7-11 本地知识 |
+| M7-16 | Completed（Linux） | [DEC-083](../decisions/DEC-083-target-region-stability-reverification.md)：输入守卫从逐像素比较改为目标矩形主体稳定判定（边距环忽略 + 核心区相似放行 + 不确定即拒），shared_input 与 X11 编号指针路径同语义 | 稳定判定单元用例（ identical/全局/边缘环/噪声放行/主体替换/越界/确定性）；shared 与编号点击回归；真实 X11 任务不回归 | M7-07/14/15 既有守卫契约 |
+| M7-17 | Completed（Linux） | 截图降耗：desktop_png 压缩 DEFLATE（fixed Huffman + LZ77 + 自适应滤波，不可压缩回退 stored，输出不劣于旧编码）、大 ROI 预览缩放（≤1600 保持 1:1）、工具描述更新 | 独立解码器扩展 fixed-Huffman 后全像素回读；多类内容压缩比；ROI 缩放断言与坐标映射；全量回归 | M7-04 |
+| M7-18 | In Progress（Portal fake 全过） | Wayland Portal ROI 捕获（共享帧本地裁剪）与窗口几何近似（AT-SPI WindowProvider 门面，遮挡内容包含、语义与 X11 framebuffer 裁剪一致）；Portal schema 放开三源；shared_input 坐标映射改 origin/scale 元数据驱动 | Portal fake ROI/窗口裁剪正确性与越界/未知窗口 fail-closed；授权计数不变；AT-SPI 不可用路径；真实 Wayland 会话另验 | M7-10（DEC-074/077） |
+| M7-19 | In Progress（拒绝回执链路已验） | 观察节奏：target_pixels_changed 拒绝即发布守卫新鲜帧并在回执附 refreshed_image_scope（拒绝→免重截重试）；CUA 式观察纪律写入桌面指引与工具描述 | 拒绝回执含新 scope 且下一次免重试；canonical 回执 ≤512B 语义保持；真实会话往返减少另验 | M7-14/16 |
 
 2026-10-10 顺序调整：认可 M7-07 已验证的受控 X11 基础能力阶段，保留该项
 In Progress 与慢模型在线/完整权重 TSAN/其他平台等未完成范围。下一主线为

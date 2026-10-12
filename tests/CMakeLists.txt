@@ -1351,6 +1351,18 @@ mirage_enable_warnings(desktop_image_supply_test)
 add_test(NAME desktop_image_supply_test COMMAND desktop_image_supply_test)
 set_tests_properties(desktop_image_supply_test PROPERTIES LABELS "integration;runtime" TIMEOUT 30)
 
+# M7-17: independent PNG round trip. The Python decoder re-runs the
+# desktop_image_supply_test binary in a private directory and verifies every
+# exported fixture (own CRC/Adler, own fixed-Huffman inflate, own unfilter)
+# against the raw RGB companions — no production encoder logic involved.
+find_program(MIRAGE_PNG_CHECK_PYTHON NAMES python3 PATHS /usr/bin NO_DEFAULT_PATH)
+if(MIRAGE_PNG_CHECK_PYTHON)
+    add_test(NAME desktop_png_decode_check COMMAND ${MIRAGE_PNG_CHECK_PYTHON}
+        "${CMAKE_CURRENT_SOURCE_DIR}/manual/desktop_png_decode_check.py"
+        "$<TARGET_FILE:desktop_image_supply_test>")
+    set_tests_properties(desktop_png_decode_check PROPERTIES LABELS "integration;runtime" TIMEOUT 300)
+endif()
+
 add_executable(post_action_verification_test integration/post_action_verification_test.cpp)
 target_include_directories(post_action_verification_test SYSTEM PRIVATE
     ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
@@ -1379,6 +1391,23 @@ target_link_libraries(visual_marks_test PRIVATE Mirage::integration_mirador mira
 mirage_enable_warnings(visual_marks_test)
 add_test(NAME visual_marks_test COMMAND visual_marks_test)
 set_tests_properties(visual_marks_test PROPERTIES LABELS "integration;runtime;security" TIMEOUT 30)
+
+# M7-16 / DEC-083: the target-region stability guard shared by the Wayland
+# shared-input and X11 numbered-pointer re-verification, as a header-only
+# unit over synthetic BGRA8 frames. The pinned mirador detection symbols are
+# consumed through the static Mirage::integration_mirador archive; mirador::core
+# re-exports the pinned include dirs (same shape as fake_visual_backend_test).
+add_executable(desktop_stability_guard_test integration/desktop_stability_guard_test.cpp)
+target_compile_features(desktop_stability_guard_test PUBLIC cxx_std_20)
+mirage_enable_warnings(desktop_stability_guard_test)
+target_link_libraries(desktop_stability_guard_test
+    PRIVATE
+        Mirage::desktop
+        Mirage::integration_mirador
+        mirador::core
+)
+add_test(NAME desktop_stability_guard_test COMMAND desktop_stability_guard_test)
+set_tests_properties(desktop_stability_guard_test PROPERTIES LABELS "unit;integration" TIMEOUT 60)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND X11_FOUND AND X11_Xtst_FOUND AND X11_Xrandr_FOUND)
     add_executable(x11_visual_marks_test platform/x11_visual_marks_test.cpp)

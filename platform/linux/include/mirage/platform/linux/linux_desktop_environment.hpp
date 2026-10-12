@@ -133,6 +133,8 @@ class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment
   private:
     mirage::desktop::PathScope read_scope_;
     std::unique_ptr<X11Backend> x11_;
+    /// M7-18: Wayland fallback window enumeration over the accessibility tree.
+    std::unique_ptr<::mirage::desktop::WindowProvider> atspi_windows_;
     std::unique_ptr<PortalScreenBackend> portal_screen_;
     std::unique_ptr<AtspiBackend> atspi_;
     std::unique_ptr<ApplicationBackend> application_backend_;

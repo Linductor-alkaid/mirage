@@ -1,4 +1,5 @@
 #include "desktop_image_supply.hpp"
+#include "desktop_stability_guard.hpp"
 #include <algorithm>
 #include <stdexcept>
 
@@ -431,8 +432,25 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
                              "visual revalidation capture failed"});
     const auto &source = marks_->frame;
     if (!valid_frame(fresh.frame) || fresh.frame.width != source.width ||
-        fresh.frame.height != source.height || fresh.frame.stride != source.stride ||
-        fresh.frame.pixels != source.pixels || !stable_display() || !stable_front())
+        fresh.frame.height != source.height || !stable_display() || !stable_front())
+        return action_error({"stale_observation", "visual source pixels or geometry changed"});
+    // M7-16 / DEC-082: re-verify the operated marks' region for stability
+    // instead of whole-frame byte equality. Animation outside the target, or
+    // same-subject noise inside it, proceeds; a moved or replaced target still
+    // rejects as stale.
+    const auto frame_rect = [&](const Geometry &bounds) {
+        return TargetRegion{bounds.x - marks_->image_geometry.x,
+                            bounds.y - marks_->image_geometry.y,
+                            bounds.x - marks_->image_geometry.x + bounds.width,
+                            bounds.y - marks_->image_geometry.y + bounds.height};
+    };
+    TargetRegion target = frame_rect(region.bounds);
+    if (drag) {
+        const auto to = frame_rect(to_region.bounds);
+        target = {std::min(target.left, to.left), std::min(target.top, to.top),
+                  std::max(target.right, to.right), std::max(target.bottom, to.bottom)};
+    }
+    if (assess_target_stability(source, fresh.frame, target) == TargetStability::kChanged)
         return action_error({"stale_observation", "visual source pixels or geometry changed"});
     desktop::InputOutcome outcome;
     bool entered = false;

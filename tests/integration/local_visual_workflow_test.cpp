@@ -302,10 +302,24 @@ void negative(kairo::Executor &executor, const std::string &mode) {
             f.desktop.actions->takeover();
     };
     if (mode == "pixels") {
+        // M7-16 / DEC-083: a single off-target pixel no longer proves
+        // staleness. Keep the scenario's original fault-matrix intent
+        // (changed pixels reject the click) by replacing the subject
+        // structurally across the frame, which the layered guard fails
+        // closed on wherever the cropped target sits.
         int captures = 0;
         f.env->fake.capture_frame_edit = [captures](auto &frame) mutable {
             if (++captures > 1)
-                frame.pixels[0] = 99;
+                for (int y = 0; y < frame.height; ++y)
+                    for (int x = 0; x < frame.width; ++x) {
+                        const auto value =
+                            static_cast<std::uint8_t>(((x / 4 + y / 4) % 2) ? 230 : 25);
+                        const auto offset = static_cast<std::size_t>(y) * frame.stride +
+                                            static_cast<std::size_t>(x) * 4;
+                        frame.pixels[offset] = frame.pixels[offset + 1] = frame.pixels[offset + 2] =
+                            value;
+                        frame.pixels[offset + 3] = 255;
+                    }
         };
     }
     f.env->on_click = [&] {

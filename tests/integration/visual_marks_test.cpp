@@ -1,6 +1,7 @@
 #include "../../integration/mira/src/desktop_action_verification.hpp"
 #include "../../integration/mira/src/desktop_image_supply.hpp"
 #include "../support/fake_desktop_environment.hpp"
+#include "../support/provider_tool_name.hpp"
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -22,6 +23,21 @@ void check(bool value, const std::source_location where = std::source_location::
     ++checks;
     if (!value)
         throw std::runtime_error("visual marks check at line " + std::to_string(where.line()));
+}
+// M7-16 / DEC-083 injection helper: a 4px-cell checkerboard replaces the
+// subject's texture inside the rect, so the frame fingerprint and the block
+// diffs both move (a replaced control). The old uniform redraws only shifted
+// brightness — the gradient-based guard legitimately passes those, so
+// rejection scenarios must inject structure inside the operated region.
+void paint_structural(mirage::desktop::ImageFrame &frame, int x0, int y0, int x1, int y1) {
+    for (int y = y0; y < y1; ++y)
+        for (int x = x0; x < x1; ++x) {
+            const auto value = static_cast<std::uint8_t>(((x / 4 + y / 4) % 2) ? 230 : 25);
+            const auto offset =
+                static_cast<std::size_t>(y) * frame.stride + static_cast<std::size_t>(x) * 4;
+            frame.pixels[offset] = frame.pixels[offset + 1] = frame.pixels[offset + 2] = value;
+            frame.pixels[offset + 3] = 255;
+        }
 }
 mira::OperationContext owner() {
     auto ctx = mira::make_control_context();
@@ -303,7 +319,11 @@ void contracts(kairo::Executor &executor) {
             check(f.visual.publish(f.visual.current()).ok);
             break; // Same @v1, new scope.
         case 2:
-            f.env->fake.set_pixel_value(0x77);
+            // Structural replacement of the marked subject (the fake OCR
+            // region {20,20,40,20} in frame coordinates).
+            f.env->fake.capture_frame_edit = [](auto &frame) {
+                paint_structural(frame, 20, 20, 60, 40);
+            };
             break;
         case 3:
             f.env->fake.windows.front().geometry.x += 1;
@@ -771,20 +791,26 @@ class Script final : public mira::IModelProvider {
         const bool call_tool = requests == 1 || (requests == 2 && failure_ != 2);
         if (call_tool) {
             const std::string name = requests == 1 ? "desktop.vision.mark" : "desktop.vision.click";
-            auto exposed = std::find_if(request.tools.begin(), request.tools.end(),
-                                        [&](const auto &t) { return t.wire_name == name; });
+            auto exposed =
+                std::find_if(request.tools.begin(), request.tools.end(), [&](const auto &t) {
+                    return t.wire_name == mirage::testing::fixture_tool_name(name);
+                });
             check(exposed != request.tools.end());
             mira::ToolCallOutput call;
             call.provider_call_id.value = "visual-" + std::to_string(requests);
             call.tool_id = exposed->tool_id;
-            call.provider_name = name;
+            call.provider_name = exposed->wire_name;
             if (requests == 1)
                 call.arguments = Json{Json::Object{}};
             else {
                 check(mark_result && images == 1);
                 call.arguments = fixture_.target(*mark_result);
                 if (failure_ == 1)
-                    fixture_.env->fake.set_pixel_value(0x77);
+                    // Structural replacement of the marked subject between
+                    // mark and click; the layered guard must reject it.
+                    fixture_.env->fake.capture_frame_edit = [](auto &frame) {
+                        paint_structural(frame, 20, 20, 60, 40);
+                    };
             }
             call.arguments_digest = mira::digest_string(mira::to_json_string(call.arguments));
             response.output.emplace_back(std::move(call));
@@ -864,7 +890,11 @@ void reobserve_before_input(kairo::Executor &executor) {
         check(supplied && supplied.value().size() == 1);
         const auto old_image = std::get<mira::ImagePart>(supplied.value().front().content.back());
         check(static_cast<bool>(f.source->fetch(old_image.source)));
-        f.env->fake.set_pixel_value(0x77);
+        // Structural replacement of the marked subject; the pre-change whole
+        // frame only shifted brightness, which DEC-083 legitimately passes.
+        f.env->fake.capture_frame_edit = [](auto &frame) {
+            paint_structural(frame, 20, 20, 60, 40);
+        };
         if (rejected_first) {
             const auto denied =
                 invoke(registry, "desktop.vision.click", f.target(first.result), f.ctx);
@@ -1058,7 +1088,11 @@ void regional_capture(kairo::Executor &executor) {
         f.env->fake.displays[0].geometry = {-200, -40, 3840, 2160};
         const auto marked = f.mark();
         check(!marked.failed);
-        f.env->fake.set_pixel_value(static_cast<std::uint8_t>(f.env->fake.pixel_value() + 1));
+        // Structural replacement of the marked subject inside the ROI (the
+        // brightness-only redraw is legitimately passed since DEC-083).
+        f.env->fake.capture_frame_edit = [](auto &frame) {
+            paint_structural(frame, 20, 20, 60, 40);
+        };
         check(f.click(f.target(marked.result)).failed && f.env->injector.calls == 0);
     }
     {
@@ -1113,8 +1147,9 @@ void pointer_actions(kairo::Executor &executor) {
     for (const auto *operation : {"scroll", "drag"}) {
         const bool drag = std::string_view{operation} == "drag";
         const std::string name = std::string{"desktop.vision."} + operation;
-        for (const auto *mode : {"good", "unchanged", "denied", "changed", "destination", "budget",
-                                 "exception", "release", "io", "cancel", "takeover"}) {
+        for (const auto *mode :
+             {"good", "unchanged", "denied", "changed", "edge_animation", "uniform_drift",
+              "destination", "budget", "exception", "release", "io", "cancel", "takeover"}) {
             Fixture f(executor, true, "source", "w1", false, false, true);
             detail::DesktopActionVerification verification(f.tools, f.ctx, f.cancel);
             mira::BuiltinToolRegistry registry;
@@ -1147,7 +1182,23 @@ void pointer_actions(kairo::Executor &executor) {
             if (scenario == "denied")
                 f.allow_input = false;
             if (scenario == "changed")
-                f.env->fake.capture_frame_edit = [](auto &frame) { frame.pixels[0] ^= 0x77; };
+                // Structural replacement of the operated source mark; the
+                // drag target spans both marks, so half of its core moving
+                // still rejects.
+                f.env->fake.capture_frame_edit = [](auto &frame) {
+                    paint_structural(frame, 20, 20, 60, 40);
+                };
+            if (scenario == "edge_animation")
+                // Animation outside the operated region's padded rectangle
+                // (left frame band; the marks start at frame x=20 with an
+                // 8px margin) never blocks under DEC-083.
+                f.env->fake.capture_frame_edit = [](auto &frame) {
+                    paint_structural(frame, 0, 0, 12, 80);
+                };
+            if (scenario == "uniform_drift")
+                // Layout-preserving brightness shift; the subject stays put.
+                f.env->fake.set_pixel_value(
+                    static_cast<std::uint8_t>(f.env->fake.pixel_value() + 1));
             if (scenario == "destination") {
                 if (drag) {
                     for (auto &[key, value] : fields)
@@ -1177,7 +1228,8 @@ void pointer_actions(kairo::Executor &executor) {
                 f.tools.actions->takeover();
             const Json args{std::move(fields)};
             const auto action = invoke(registry, name, args, f.ctx);
-            const bool dispatched = scenario == "good" || scenario == "unchanged";
+            const bool dispatched = scenario == "good" || scenario == "unchanged" ||
+                                    scenario == "edge_animation" || scenario == "uniform_drift";
             const bool called = dispatched || scenario == "exception" || scenario == "release" ||
                                 scenario == "io" || scenario == "cancel";
             check(f.env->injector.calls == (called ? 1 : 0));
