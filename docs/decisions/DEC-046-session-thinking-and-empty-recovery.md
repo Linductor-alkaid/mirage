@@ -22,3 +22,6 @@ Mira 的 Messages 缺口按 MIRA-20261006-002 登记，补齐有界自适应思�
 本决策替代 DEC-043 中“首阶段 thinking 拒绝”的局部边界，其他协议/凭据/视觉决策继续生效。
 验收：[M6-26](../plans/m6-native-frontend.md#m6-26会话思考与空会话恢复)、
 [迁移记录](../compatibility/session-thinking-20261007.md)。
+
+2026-10-12：MiniMax-M3 默认档的实际请求映射由 DEC-082 更新为显式 Adaptive；
+三选项与每轮冻结契约保留，其他型号默认行为不变。

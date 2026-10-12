@@ -1,0 +1,46 @@
+# DEC-059：动作后的固定 OCR 文本条件
+
+> 状态：Accepted（维护者授权继续推进）
+> 日期：2026-10-10
+> 负责人：Mirage 维护者
+> 工作项：[M7-07/08](../plans/m7-visual-tools-and-input.md)
+> 扩展：[DEC-056](DEC-056-post-action-verification.md)、[DEC-058](DEC-058-scoped-visual-marks.md)
+
+## 选择与依据
+
+纯 Canvas 的业务结果不能由窗口标题或无障碍树覆盖。新增产品后条件
+`visual_text_exists`，使用服务已拥有的 PP-OCR Pipeline，复用 Mirador 的
+`CachePolicy::kRefresh` 与既有 kairo blocking worker。Mira 的观察新鲜度评估和
+ConversationLoop 终态门禁继续沿用。没有新增识别器、调度器或依赖修改。
+
+## 契约
+
+动作前声明 `verify_kind=visual_text_exists` 和非空 `expected_text`（最多 1024 UTF-8
+字节）。四个窗口/输入工具升至 2.2.0；视觉点击升至 1.1.0。缺失服务 OCR 或 Screen
+Provider 时在派发前拒绝该条件。验证工具只能重验原条件，不能改变预期文本。
+
+每次后观察、只读重验和终态核验都重新授权 `screen.capture`，再重新截图和识别；
+授权使用所属任务与操作身份。单次协作预算 5 秒并受 owner deadline/取消限制，普通
+窗口/语义条件仍为 1 秒。最多 64 次视觉后观察/轮；拒绝与失败消耗预算，不自动重试。
+动作可能已经发生而后观察权限被拒绝，此时保持未验证并禁止重发输入。
+
+服务 OCR 回执携带配置显示器的全局几何、采集/分析单调时间区间和实际 backend 调用
+计数。该区间须完全位于本次请求内；scope 不得重复，调用计数须严格增加。首次接受
+的显示器与模型 revision 固定到该动作；重验不得换源。目标窗口须完整位于捕获显示器
+内，采集前后焦点、窗口标题/几何与 ActionCoordinator epoch 不变。
+
+最多 128 个区域；文本最多 1024 UTF-8 字节，引用/来源身份有界，几何和 confidence
+有效。只统计完整位于目标窗口内、来源为 OCR、confidence ≥ 0.8、文本精确相等的
+区域；恰好一处命中才通过。重复、裁切、低置信度、Detector 标签及缓存旧结果不能
+冒充成功。不做文本归一化、模糊匹配、VLM 主观判定或因果保证。
+
+证据保留 scope、显示器、模型 revision、backend 调用计数和事实摘要；预期文本与
+原始识别结果不进入普通过程投影。识别错误、超时、取消、权限拒绝、环境变化和预算
+耗尽均产生明确 reason；原有 uncertain/释放失败围栏与终态门禁不变。
+
+## 验证与限制
+
+用注入测试覆盖权限、身份/新鲜度、重复/低置信度/跨窗区域、坏预算、取消、异常和
+重验不派发输入。Linux Xvfb Canvas 验收使用实际 Screen/XTest 与外部真实 PP-OCR
+权重，点击后仅绘制业务文本，不改标题或提供 a11y。模型选号由可复现脚本驱动；在线
+模型选择、用户宿主、混合 DPI、Windows/Wayland 与图标产品配置仍各自待验。

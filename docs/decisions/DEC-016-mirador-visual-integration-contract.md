@@ -249,3 +249,13 @@ M3 将 pinned mirador（v0.3.0-2）的视觉能力接入 Desktop Observation：O
 - 工作项：[M3 计划](../plans/m3-mirador-integration.md) `M3-01`（本决策）；
   `M3-02` 集成层适配；`M3-03` 组件转正与解析闭环；`M3-04` 缓存与几何；
   `M3-05` runtime 接线与 e2e。
+
+
+## 2026-10-10 模板身份与全库歧义约束
+
+[DEC-061](DEC-061-geometric-template-resources.md)扩展 M7-07 本地模板资产装配。
+VisualTemplateIndex adapter 的 probe 要求 max_candidates 覆盖当前库，否则返回
+kInvalidArgument；唯一命中策略检查全部返回层级的其他强命中，防止截断/层级排序
+隐藏歧义。产品在既有 worker 匹配闭合几何 patch，融合冲突或扩大框不发布身份。
+VisualObservation mapper 将有效 Template evidence 的 ID 独立映射到 template_id；
+OCR 混合证据保留 kOcr 来源和原文本，身份不替代来源、可执行引用或业务证明。

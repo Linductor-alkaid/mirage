@@ -4,9 +4,149 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-10-07（M6-27 会话到底部鼠标操作）
+> 更新日期：2026-10-12（M7-01～06、08 Linux 首交付；M7-07/09/11 进行中；M7-12～14 Linux 产品默认视觉包与工具修复交付）
 
 ## 当前状态
+
+下一阶段新增 [M7：视觉工具与键鼠输入闭环](m7-visual-tools-and-input.md)
+（In Progress，M7-01～06、08 Linux 首交付 Completed）。当前原生会话已接结构化观察、安全完整输入、标准 PNG/每请求图片、可选真实 OCR、
+同源编号图与动作后核验，已补固定 OCR 文本条件，继续推进平台与宿主验收；依据为 [能力核对](../research/2026-10-09-visual-tools-and-input-capability-review.md)
+与 [DEC-052 提案](../decisions/DEC-052-visual-tools-and-input.md)。M2/M3 的历史验收
+不等于当前会话已接真实视觉后端；M6 既有状态与未验收项不变。
+
+维护者已明确授权 Mira 升级至 698fc77，PR#86 的逐轮图片供给入口可供 Adapter 消费，
+见[升级审计](../supply-chain/mira-image-supply-20261009.md)。M7-05 上游 API 阻塞解除，
+M7-04 artifact 与 M7-05 source/supplier/识图接线已完成，三方言 fixture 和 MiniMax
+合成截图在线 2/2，反馈本地 Resolved。范围及未验证项见
+[图片验收](../compatibility/desktop-image-supply-20261009.md)。
+
+M7-08 按 [DEC-056](../decisions/DEC-056-post-action-verification.md) 固定动作前后条件，
+强制新观察、只读重验与宿主终态门禁。真实 X11 应用的激活、文本回显、提交落盘
+三类任务通过，见[核验证据](../compatibility/post-action-verification-20261009.md)。
+只证明本轮声明的局部条件；真实语义表单、在线业务规划、用户宿主与 Windows/Wayland
+仍未完成。M7-06 已完成 Linux 首交付：正式 Mirador pin ae8cf87 包含三项 OCR 修复，
+真实语料字符与位置 4/4，见[正确性复验](../compatibility/real-ocr-correctness-20261009.md)。
+宿主 DPI/桌面、彩色多行场景与权重分发许可继续由后续门禁承接。
+M7-07 按 [DEC-058](../decisions/DEC-058-scoped-visual-marks.md) 进行同源编号图、局部
+裁剪及有 scope 的视觉点击首增量已接通，Debug/Release 59/59、opt-in PP-OCR 58/58，
+见[验证记录](../compatibility/scoped-visual-marks-20261010.md)。M7-07 仍 In Progress，
+第二增量按 [DEC-059](../decisions/DEC-059-visual-text-postconditions.md) 补固定 OCR 文本
+后条件，实际 Xvfb Canvas 正/负例 5/5，见 [Canvas 验收](../compatibility/visual-text-canvas-20261010.md)。
+第三增量按 [DEC-060](../decisions/DEC-060-geometric-visual-marks.md)接显式闭合几何编号，
+受控无文字按钮两目标与不重绘负例已验，见
+[几何编号验收](../compatibility/geometric-visual-marks-20261010.md)。第四增量按
+[DEC-061](../decisions/DEC-061-geometric-template-resources.md)装配本地模板并匹配几何
+候选；受控双模板、位置交换与不重绘负例见
+[模板验收](../compatibility/geometric-template-resources-20261010.md)。第五增量用实际
+MiniMax-M3 从无身份提示的编号图选号，位置交换与不重绘门禁 3/3，见
+[在线验收](../compatibility/online-visual-canvas-20261010.md)。第六增量按
+[DEC-062](../decisions/DEC-062-visual-capture-scope.md)把视觉供给范围化到 scope
+窗口并交付宿主验收入口（实际摆放几何、遮挡守卫、焦点宽限），离线回归全绿；
+XWayland 预跑守卫按实际摆放生效，mutter 拒绝为合成点击移交焦点、harness
+fail-closed，正式宿主在线取证待操作者配合，见
+[宿主取证](../compatibility/user-host-visual-canvas-20261010.md)。其他在线模型、
+无轮廓图标、跨主题/尺度等仍保留门禁，高分辨率局部预采集由第七增量承接。
+
+第七增量按 [DEC-063](../decisions/DEC-063-regional-visual-pre-capture.md)接可选局部
+预采集、同范围像素重验与 owner regional OCR，默认整屏路径和预算保持。
+正常/ASAN 实际权重各 12/12，默认路径回归通过；在线补证因 DNS 失败、完整权重
+TSAN 期限门禁仍开放，见[4K 小窗口验收](../compatibility/regional-visual-capture-20261010.md)；
+完整 4K/DPI、跨屏、用户宿主与原生 Wayland 门禁仍独立验收。第八增量已确认
+人工取焦并修复 WM 映射时 fixture 全白问题；切换真实 Xorg 后受控离线三例与
+权限/焦点门禁分别 3/3、2/2。实际 MiniMax 宿主闭环 1/2、选号 2/2，第二例因
+五秒引用过期拒绝输入，第三例未运行；在线与完整权重 TSAN 门禁继续保留，见
+[宿主取证](../compatibility/user-host-visual-canvas-20261010.md)。
+
+第九增量复用现有 Mira Disabled/Adaptive 配置，验收入口默认值保持；输入前
+显式重观察与失败不恢复边界已验，五配置定向各 3/3、普通/ASAN 实际权重各
+12/12。MiniMax none 补跑仅不重绘负例通过，两个选号后的请求在五秒内，但
+网络间歇失败阻止正例闭环；私有三例与宿主 none 门禁仍开放，见
+[模型视觉耗时取证](../compatibility/model-visual-latency-20261010.md)。
+
+维护者调整网络后新增一次私有 none 补证：验收 2/3、选号 3/3，本批无 DNS
+错误，右目标与不重绘负例闭合；左目标标注完成到点击请求 7408 ms，五秒期限
+拒绝且零输入。真实 Xorg none 前置仍未通过，M7-07 保持 In Progress；下一步
+先补公开模型请求生命周期耗时取证，再据证据改进请求路径，原期限与失败门禁
+不变。历史失败与本批[独立回执](../compatibility/data/network-adjusted-online-visual-canvas-20261010.json)
+分别保留，无代码/依赖变更或新回归声明。
+
+后续顺序经维护者要求重新评估：认可受控 X11 视觉/输入/验证基础阶段，下一
+主线推进 M7-09 滚动/完整拖拽；M7-07 总状态和未完成增强门禁保留，不要求所有
+在线模型逐步满足五秒回合时间。2026-10-10 时 M7-11 列 Proposed，核对本地知识目标解析
+与已承载 Mira workflow 的组合：保存语义/步骤，执行时重新观察取得新引用，
+通过本地已知步骤减少模型往返。当轮未实现该组合，见
+[阶段定位与推进路线](../research/2026-10-10-local-grounding-and-m7-sequencing.md)。
+
+2026-10-11 维护者明确授权 M7-11 后，DEC-067 语义首增量已通过实际产品 workflow +
+GTK/AT-SPI2：本地知识新解析、权限门禁、一次激活和新证据，不需模型往返。Debug/Release
+全量各 66/66，sanitizer 定向各 6/6，实际产品两构建各 20/20。M7-11 仍 In Progress，
+当轮会话选择及跨重启自动恢复保留后续；OCR/模板第二增量已准入，见
+[验收与边界](../compatibility/local-semantic-workflow-20261011.md)。
+
+2026-10-11 的 DEC-069 第二增量接入本地 OCR/模板 workflow，同一知识在窗口移动、
+模板换位后新解析，唯一页面/目标门禁与新后条件由已有视觉动作闭环承载，无模型请求。
+实际产品同时修复周期维护重叠占满四 worker 导致观察/IPC 等待的问题；未改 pinned
+依赖、提高动作期限或线程数。范围和验证见
+[第二增量验收](../compatibility/local-visual-workflow-20261011.md)。M7-11 保持 In Progress，
+下一步为原生会话资产选择/恢复边界及可持久恢复的资产装配。
+
+M7-09 首增量按 [DEC-064](../decisions/DEC-064-bounded-scroll-and-drag.md)接通
+Linux X11 同源编号滚动和完整左键拖拽，复用既有 Executor、动作 lease 与固定
+后条件门禁。双引用在同一 registry 锁内解析，限制轮步/距离/时长，运行中取消、
+接管、焦点变化和超时后仍释放自有按钮；不确定结果禁止重发。实际 XTest 与
+Mira fixture 的证据、目标平台补跑条件见
+[验收记录](../compatibility/bounded-scroll-and-drag-20261010.md)。M7-09 全范围
+保持 In Progress，Windows/原生 Wayland、用户宿主和任意 DPI/跨屏仍待各自验收。
+
+第二增量通过系统 GTK3 原生滚动/分隔条的实际效果与失败门禁，工具/核验组合
+六场景已验；X11 拖拽使用有界 8 ms 平台输入步进、清理仍零延迟。原生列表
+XDND 暴露拖放图层与归属守卫兼容性问题，拒绝/释放负例已验但正例尚未交付；
+未保留形状尝试或按 PID/类型绕过。Debug/Release 62/62、sanitizer 定向各
+9/9，详见[应用效果验收](../compatibility/gtk-pointer-effects-20261010.md)。
+
+第三增量按 [DEC-065](../decisions/DEC-065-x11-drag-helper-ownership.md)接入可选
+系统 XRes：服务端确认辅助图层与目标是同连接，且图层下方仍命中原目标。
+GTK 原生列表重排与新后条件正例已验；中途取消/焦点变化、图标上下外来遮挡、
+重父窗口与内部遮挡、容量拒绝以及缺扩展严格回退见
+[原生拖放证据](../compatibility/x11-native-dnd-20261010.md)。M7-09 仍 In Progress。
+
+第四增量在用户实际 Xorg 3200×2000、GTK 整数 2× 下，经人工取焦/松键取得
+滚动、列表重排、禁止重排与首段拖动后取消四类独立证据，原生状态、后条件及
+按钮/owner 释放分别核对。不是连续同批 4/4；间歇像素变化、较晚取消前遮挡
+拒绝仍开放，失败历史见[宿主验收](../compatibility/user-host-gtk-pointer-20261011.md)。
+新增私有 2× 与管道交接回归，修正旧超时 fixture 的空请求访问；不放宽产品
+期限或输入守卫。M7-09 总状态不变，其他平台与任意应用兼容性继续另验。
+
+第五增量交付测试边界的有界拒绝诊断、已知像素变化负例与 2× 管道交接回归；
+宿主另取得一次 50 逻辑像素后的取消/释放证据。Debug/Release 各 65/65、两种
+sanitizer 串行定向各 12/12，缺 XRes 保持严格回退。诊断增加查询会改变时序，
+未把单次通过解释为间歇根因修复，详见
+[诊断验收](../compatibility/x11-pointer-diagnostics-20261011.md)。M7-09 仍 In Progress。
+
+2026-10-11 / M7-12 Linux 产品启用预览已闭合：产品 Provider 探测、原生桌面工具设置、
+OCR 清单持久化/启动覆盖及坏资源恢复已接通；实际原生 MiniMax OCR/编号图任务完成，
+完整产品检查 23/23、OCR OFF 恢复 11/11。独立 native-vision-release 已构建，普通
+native 构建仍默认关闭 OCR。回归、失败历史与使用入口见
+[产品启用验收](../compatibility/product-desktop-vision-20261011.md)。M7-07/09 全范围、
+其他平台/任意应用可靠性、完整权重 TSAN 与 M7-11 组合路线保留各自状态，后续围绕
+具体应用任务效果与停止/接管取证推进。
+
+2026-10-11 / M7-13、14：Linux 原生产品默认固定封装已验 Mirador / ncnn / PP-OCRv5，
+已修复用户两次会话暴露的工具预算、无副作用拒绝恢复与 X11 标题编码问题；
+默认启动、安装布局、坏包与关闭恢复已在私有实际产品中验收。
+该增量由 DEC-068 承载，见[验收记录](../compatibility/bundled-vision-and-tool-recovery-20261011.md)。
+既有明确视觉设置仍优先；原始两次在线业务任务未重跑，完整 M7 各开放门禁不改变。
+
+2026-10-11 / M7-14 第二增量：最新会话默认截图/OCR 已成功，参数拒绝的完整 JSON
+在 Mira 512 字节错误摘要处截断，误封锁纠正；已修复有界回执与旧失败卡片收尾判定，
+补齐字段/编号阶段诊断。Release 68/68、Debug 62/62、两组 sanitizer 定向各 9/9，
+真实 ToolExecutor/X11 恢复及实际构建/DEB 产品各 37/37 已验，见
+[DEC-070 验收](../compatibility/desktop-rejection-recovery-20261011.md)。M7-14 重新打开
+In Progress，保留首轮证据；原用户在线任务、提交评审待闭合，M7-11 不因此关闭。
+
+同日收尾审计补齐旧测试默认持久化目录隔离。最终 Release 70/70、Debug 64/64、
+sanitizer 定向各 11/11，均包括 2 个隔离 fixture；隔离后的回归不再改变用户历史文件
+摘要/mtime，测试目录正常回收。早期回归的历史元数据变更保留在验收，不覆盖或删除。
 
 项目骨架与依赖接线已初始化（pinned `mira` / `mirador`，见
 [DEC-001](../decisions/DEC-001-dependency-pinning.md)）；M1 里程碑计划已建立，见
@@ -233,6 +373,8 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | [M3](m3-mirador-integration.md) | Mirador 集成：OCR / 检测 / 几何 / Visual Cache、Visual Reference | `release-gamma` | Completed | M2 |
 | [M4](m4-windows-backend.md) | Windows Backend（UIA / Win32 / Capture / Input） | `release-delta` | Completed | M2 |
 | [M5](m5-desktop-product.md) | Desktop Product：Workspace、Workflow UI、Execution Trace、Overlay、权限 | `release-epsilon` | In Progress | M3、M4 |
+| [M6](m6-native-frontend.md) | 原生前端与桌面进程形态重构 | 暂不新增标签 | In Progress | 既有 M5 服务/IPC |
+| [M7](m7-visual-tools-and-input.md) | 会话桌面工具、真实视觉与完整键鼠输入 | 桌面工具预览版（标签未定） | In Progress | M2/M3、M6 Runtime owner |
 
 拆分与合并顺序：先契约后实现（Desktop Environment 接口先于任何 Backend）、先骨架后
 功能（每个 Backend 先以最小动作打通 Observation -> Action -> Observation 闭环）、
@@ -391,3 +533,92 @@ Linux 原生正常/最小明暗通过；Release/ASAN/UBSAN 相关各 2/2。正�
 2026-10-08 / M6-33：按DEC-051完成Linux原生侧栏/主题过渡、逐模型思考声明和显式模型
 目录获取；Release52/52与相应sanitizer/真实公开目录验证通过。
 [验收和补验边界](../compatibility/native-motion-model-discovery-20261008.md)；M6整体保持In Progress。
+
+2026-10-11：M7-14 第三增量修复缺失凭据清理误报，避免新 Key 写入已知 GNOME 临时
+默认集合；会话增加固定应用启动与 HTTP(S) 交付，沿既有权限/取消/验证链。Release
+71/71、Debug 65/65、sanitizer 定向各 9/9、实际产品与新 DEB 各 37/37，用户配置与
+历史保持。活动 Key 需新版重新保存一次以持久化；网页业务和提交评审仍待验，M7-14
+整体保持 In Progress。详见 [DEC-071](../decisions/DEC-071-credential-cleanup-and-application-uri.md)
+及 [验收](../compatibility/credential-and-application-uri-20261011.md)。
+
+2026-10-11 / M7-15 准入：维护者授权补齐快捷工具不可达时的通用 GUI 路线。
+DEC-072 冻结截图区域操作、窗口/显示上下文及界面推进条件；Linux X11 首验，
+复用现有 Mira 循环、Mirador 变换/OCR 和 Runtime owner，不修改 pinned 依赖。
+工作项与真实验证状态由 [M7 计划](m7-visual-tools-and-input.md)跟踪。
+
+2026-10-11 / M7-15：通用 GUI 首增量完成本地验收，截图区域点击、桌面上下文及
+新后条件进入默认工具链；真实 X11 GUI-only 测试闭环 243 checks。Debug 66/66、
+Native Release 72/72、sanitizer 各 11/11、产品/包各 37/37；在线自主选路与真实
+浏览器目标、其他平台和提交评审未闭合，M7-15 维持 In Progress。
+[验收](../compatibility/general-gui-fallback-20261011.md)。
+
+2026-10-11 / M7-10 首增量：维护者授权原生 Wayland 接入，DEC-073 冻结默认只读
+Portal 观察与能力收缩。GNOME Screenshot 已保存 PNG 但未返回 URI，改用授权的
+ScreenCast/PipeWire 单帧；真实宿主返回 3200×2000。现有 Mira 供图与 Mirador 缩放
+复用，X11 业务路径保留。M7-10 In Progress：输入、持续会话、坐标与业务验收未闭合，
+详见[M7 计划](m7-visual-tools-and-input.md)及[验收](../compatibility/wayland-portal-observation-20261011.md)。
+
+2026-10-11 / M7-10 第二增量：DEC-074 将成功的 Wayland 共享绑定到任务，后续新观察
+复用一次授权；应用操作本地重新核对候选，终态区分派发前拒绝和派发后不确定结果。
+真实 GNOME 连续新图与接管关闭 22 checks 已验；完整键鼠/浏览器业务仍开放，见
+[M7 计划](m7-visual-tools-and-input.md)与[验收](../compatibility/task-scoped-wayland-observation-20261011.md)。
+
+2026-10-11 / M7-10 第三增量准入：最新用户记录暴露 Portal OCR 错走显示器路径，
+按 DEC-075 接入已有 PP-OCR/ncnn 的任务内只读图像分析，并纠正当前能力说明。
+实现及验证状态见 [M7 计划](m7-visual-tools-and-input.md)；键鼠和在线业务仍开放。
+
+2026-10-11 / M7-10 第三增量本地验收：Debug 67/67、Native Release 73/73，
+ASAN/UBSAN/TSAN 定向各 7/7、Portal 各 3/3；Release/DEB 产品各 37/37。
+真实 GNOME OCR 探针待一次系统共享，在线视频业务与 RemoteDesktop 输入未关闭，
+见[验收](../compatibility/native-shared-frame-ocr-20261011.md)。
+
+2026-10-11 / M7-10 第四增量：DEC-076 修复原生 OCR JSON/候选预算的整次拒绝，
+输出显式只读前缀；实机独立探针一次共享连续三次 ncnn OCR 与接管关闭 58/58。
+原共享取图超时未复现，已增阶段诊断，稳定性、Wayland 输入与业务仍开放，详见
+[M7 计划](m7-visual-tools-and-input.md)与
+[验收](../compatibility/native-ocr-budget-and-capture-diagnostics-20261011.md)。
+
+2026-10-11 / M7-10 第五增量（DEC-077）：任务内 RemoteDesktop + ScreenCast 完整
+click/key/text/scroll 接入产品图像绑定工具与局部验证。隔离 Portal、完整动作和 Mira loop
+自动验证见本轮记录；GNOME 解锁、开启系统控制且英文输入状态下，动态公共窗口
+六次完整动作及连续回图、精确 ASCII URL/Enter、接管与 Unicode 拒绝 11/11。
+其他输入法、静态画面取图仍开放，非 ASCII 派发前明确拒绝。
+仍 In Progress，最终构建/消毒器与范围见 [本轮记录](../compatibility/wayland-task-input-20261011.md)。
+
+第五增量本地收尾：Debug 68/68、Native Release 74/74，ASAN/UBSAN/TSAN 定向各 7/7，
+默认 PP-OCR/ncnn 零模型产品验收 37/37；DEB 二进制与最终 Release 匹配，用户状态
+六份 SHA 不变。TSAN 聚合测试期限修正及先前失败保留在证据中，未扩产品预算。
+
+2026-10-11 / M7-10 第六增量（DEC-078）：设置入口、系统钥匙环单次令牌轮换与
+任务/重启恢复协议已接入，管理等待受 Runtime Executor 管理；默认逐任务询问。
+维护者要求先完成自动验证、暂缓系统授权，GNOME 跨任务/跨进程免弹窗验收保持
+未完成，由 Mirage 维护者在解锁桌面并允许控制和记住选择后补验。自动结果见
+[记住授权验收](../compatibility/remembered-desktop-authorization-20261011.md)，M7-10 保持 In Progress。
+
+2026-10-11 / M6-37：维护者要求左侧会话最近更新者置顶，DEC-079 采用原生有界排序
+投影与历史规范记录时间，保留选择和草稿，查询历史不计更新。具体自动/原生渲染及
+打包验收见 M6 计划与[会话排序记录](../compatibility/session-activity-order-20261011.md)。
+
+2026-10-12 / M6-38、M7-10 第七增量：DEC-080 提供会话三种访问模式及授权联动，
+DEC-081 修复最新会话工具清单、OCR 新引用和静态 PipeWire 最新帧所有权；
+动作后源水位禁止缓存替代新证据。M6-38 Linux 本地 Completed；M7-10 真实
+GNOME 共享、授权恢复及浏览器目标门禁仍 In Progress。自动验证和包证据见
+[本轮验收](../compatibility/conversation-access-and-cua-continuity-20261012.md)，
+外部方案依据见[官方 CUA 调研](../research/2026-10-12-cua-native-access-and-observation.md)。
+
+2026-10-12 / M6-38 同日界面澄清：会话访问菜单只保留三个模式，删除该处授权设置，
+选择后收起。Linux 定向渲染、交互和包匹配通过，见
+[菜单验收](../compatibility/conversation-mode-selector-20261012.md)。
+
+2026-10-12 / M6-26、M6-38、M7-07、M7-10：三模式菜单按 ZCode 锚定按钮上方；
+DEC-082 对 MiniMax-M3 默认显式使用独立思考通道，并分离单调用与整任务预算，
+修复开启思考时 7 轮提前结束。Debug 70/70、Native 76/76、sanitizer 各 6/6，
+三档合成在线复验 3/3，9 工具/10 调用任务完成，最终 DEB 四程序 SHA 匹配。
+M6 本地增量完成，M7 原用户任务/授权恢复保持开放；默认异常尚未在线稳定复现。
+未安装/重启产品或提交/推送，见[验证记录](../compatibility/reasoning-and-menu-anchor-20261012.md)。
+
+2026-10-12 Git 交付：维护者要求整理提交，并明确授权将同期选路修改一起核验。
+依赖、桌面、平台、原生 UI 与 Runtime 分组提交，代码终点 6703251；最终组合
+Debug 70/70、Native 76/76、ASAN/UBSAN/TSAN 选路各 5/5，源码稳定性与包内
+四程序校验通过。本地提交不关闭既有真实平台/原用户任务门禁，未推送或合并。
+完整范围与证据见[Git 交付记录](../compatibility/m7-git-delivery-20261012.md)。

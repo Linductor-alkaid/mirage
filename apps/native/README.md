@@ -37,7 +37,8 @@ API Key 保存在 Linux Secret Service / Windows Credential Manager，service.js
 Linux 已验证系统凭据与重启调用；Windows 凭据路径尚待目标环境验证。
 当前 EUI 临时密码适配不支持撤销/重做，遮蔽时复制只得到掩码，见 EUI-20261005-004。
 
-当前接入真实IPC和通用模型/工具harness，只注册Mira自带wait，不观察屏幕或执行RPA。
+当前接入真实 IPC 和 Mira ConversationLoop。Linux 产品托盘按实际 Provider 注册桌面观察、
+完整键鼠输入与 wait；截图须为模型显式开启「识图」，OCR/编号图须另配置本地资源。
 通用循环由Mira公开ConversationLoop承载，使用规范工具part回填；MIRA-20261004-001/002
 已升级复验。SiliconFlow与MiniMax真实文字、工具往返与提前流式预览均通过。
 当前正文/输入14EM、22px行距，上下文/模型归入右侧组；等待有动效及真实用时。
@@ -100,8 +101,8 @@ EUI Markdown通过公开排版适配支持同一消息拖选；尚不支持跨�
 
 模型页采用 ZCode 服务商分栏，可添加至多 12 个命名模型配置。保存并应用会合并持久化目录，
 活动轮次中切换被拒绝，失败保留已应用配置。输入栏从左到右为附件、访问权限、上下文圆环、
-模型选择、思考深度、发送。默认权限只开放当前注册的 wait 工具；只读不开放任何工具。
-权限不授予文件系统、命令、桌面或 RPA 能力。每个会话保留自己的权限与思考档位。
+模型选择、思考深度、发送。只读保留已注册的观察工具；默认权限可调用已注册的修改工具。
+实际权限仍由服务策略判定，文件读取另受已配置路径范围限制。每个会话保留自己的权限与思考档位。
 
 附件选择需 Linux 的 zenity/kdialog（Windows 使用系统对话框）；只接受 UTF-8 普通文本，
 最多 4 个、合计 8 KiB。附件与引用、草稿受 16 KiB 总请求上限；展开可查看并移除，
@@ -138,3 +139,42 @@ M3.1 Flash Preview 提供官方深度。服务投影可用选项；OpenAI兼容�
 目录请求由Runtime Service的Executor与Mira HTTP传输承载；独立IPC连接隔离网络等待，
 会话控制按Executor SerialExecutionContext保持提交顺序。验收见
 [验证记录](../../docs/compatibility/native-motion-model-discovery-20261008.md)。
+
+
+<a id="桌面工具预览m7-12--linux-xorg"></a>
+
+### 桌面工具预览（M7-12～14 / Linux Xorg）
+
+原生产品默认自带固定 Mirador / ncnn CPU / PP-OCRv5 资源，无需配置 OCR 环境：
+
+```bash
+cmake --preset native-release
+cmake --build --preset native-release --target mirage mirage-tray mirage-native
+./build/native-release/apps/mirage start
+```
+
+首次启动且没有 vision 设置时，自动加载包内资源。模型与字典在构建期固定和校验，
+安装包运行不下载、不需要 Python/Paddle。模型页开启“识图”后，截图及编号图可进入
+模型请求；桌面权限按会话策略判定。
+
+“设置 → 桌面工具”保留自定义清单入口。修改后从托盘退出整个应用并重启，仅关闭窗口
+不会应用变更；明确保存空清单则保持关闭。资源与许可证见
+[默认包审计](../../docs/supply-chain/bundled-vision-20261011.md)。
+
+也可首次启动时传递 `mirage start --ocr-manifest /absolute/path/manifest.json`。
+这个覆盖只作用于新托盘，已有托盘时明确拒绝；普通 start 继续复用。配置了损坏/丢失的
+资源导致启动失败时，先 `mirage start --ocr-manifest ""` 暂停 OCR，进入设置清空或修正路径，
+保存后正常退出、重启。空覆盖不改写原配置。原生 native-debug/release 默认带资源；开发者如需瘦构建，可同时设置
+`MIRAGE_WITH_PPOCR=OFF` 和 `MIRAGE_BUNDLE_VISION=OFF`，瘦构建不能用于产品打包。
+
+会话选择默认权限后可以描述桌面任务，选择只读时保留观察并禁用修改。工具过程展示调用、
+目标及证据；派发不等于任务完成。Linux Xorg 是当前预览范围；完整 Windows/原生 Wayland、
+本地知识/workflow 产品面以及跨应用可靠性另验，不由此入口宣称交付。
+
+Linux 产品启用检查、原生 MiniMax OCR/编号图轮次与坏配置恢复已取证，见
+[验收记录](../../docs/compatibility/product-desktop-vision-20261011.md)。本项不覆盖任意应用的
+任务可靠性；先从观察类任务试用，再按目标应用单独验收修改与后条件。
+
+M7-11 的本地语义与 OCR/模板知识已能经同一 Runtime 的 workflow CLI/IPC 执行，无需
+模型逐次定位；默认视觉包直接提供 OCR。原生对话自动选择资产与恢复尚未接入，当前
+使用[视觉 workflow 示例](../../docs/examples/local-visual-workflow.md)。

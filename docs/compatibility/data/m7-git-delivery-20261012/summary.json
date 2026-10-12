@@ -1,0 +1,179 @@
+{
+  "date": "2026-10-12",
+  "branch": "feat/m7-conversation-desktop-tools",
+  "base": "c786df7e047f03864f03f3bb1facd413f5111c03",
+  "code_commit": "67032517b26aee7919957c729df714b1805642f2",
+  "code_commits": [
+    {
+      "sha": "167546496d7ecf1916ad7c9009f7c82c2ec80776",
+      "subject": "chore(build): ignore Python test-driver bytecode"
+    },
+    {
+      "sha": "5296409763706502e0a8a3d28e1c80b956b10b38",
+      "subject": "build(deps): pin approved Mira and Mirador visual APIs"
+    },
+    {
+      "sha": "e3e901822c9822ede6b0edb095744939f4c89ff5",
+      "subject": "feat(desktop): add scoped input actions and visual perception"
+    },
+    {
+      "sha": "a0b637ca431712e2f1f24a4ebe46146e5a66c268",
+      "subject": "feat(platform): add guarded X11 and Wayland desktop backends"
+    },
+    {
+      "sha": "393670ad66584bce5d5ce5a1fc184f50669beb25",
+      "subject": "feat(ui): bind conversation access modes to desktop capabilities"
+    },
+    {
+      "sha": "67032517b26aee7919957c729df714b1805642f2",
+      "subject": "feat(runtime): connect scoped desktop tools to conversations"
+    }
+  ],
+  "combined_concurrent_changes_authorized": true,
+  "automatic": {
+    "debug": {
+      "passed": 70,
+      "total": 70,
+      "seconds": 111.63,
+      "log": "/tmp/mirage-git-debug-full.log",
+      "log_sha256": "5123482c1cc32f2998488ff4c2bfed33796e6c19ef96b3559afe566b171eb70b"
+    },
+    "native_release": {
+      "passed": 76,
+      "total": 76,
+      "seconds": 110.52,
+      "log": "/tmp/mirage-git-native-full.log",
+      "log_sha256": "c3be85bcbe0b9eb03a2517adc6472fb0a95a78865d90126cb74e43276c9516f7"
+    },
+    "asan": {
+      "passed": 5,
+      "total": 5,
+      "seconds": 16.81,
+      "log": "/tmp/mirage-git-asan-test.log",
+      "log_sha256": "a50245c12774baf3d6b6be8fdc0873925527425e793fb4f82ec9938327d82008"
+    },
+    "ubsan": {
+      "passed": 5,
+      "total": 5,
+      "seconds": 16.57,
+      "log": "/tmp/mirage-git-ubsan-test.log",
+      "log_sha256": "50348d23eae5227ab40fc179c98e76868d352de133b58eba95a6f6270dacd7c5"
+    },
+    "tsan": {
+      "passed": 5,
+      "total": 5,
+      "seconds": 23.03,
+      "log": "/tmp/mirage-git-tsan-test.log",
+      "log_sha256": "964d643a40b4e17cffd7ccba20558f80ace1bf581648df9ef879aa0ce2141b37"
+    }
+  },
+  "source_stability": {
+    "snapshot_file": "/tmp/mirage-git-verified-source-start.json",
+    "changed_during_verification": []
+  },
+  "pushed": false,
+  "installed": false,
+  "host_authorization_requested": false,
+  "package": {
+    "path": "/home/linductor/mirage/out/packages/mirage_0.1.0_amd64.deb",
+    "sha256": "8ab2ef2504f883db0f634a035c2b453e691b5790450f9693196bcd3419a660c7",
+    "binaries": {
+      "mirage": {
+        "sha256": "e0d1e7aa6dfa31c54e4f88624e2549be999e094f4e645d7636cca648ceddccec",
+        "matches_release": true
+      },
+      "mirage-service": {
+        "sha256": "9e99b1b5d261276b433e592e0173b7c454e2f30c57672e90b9be4bd0f9397bcf",
+        "matches_release": true
+      },
+      "mirage-tray": {
+        "sha256": "6a4a8de4ed172b4c7fa4d09aa1b9fcb8b3009d989d108caecee7f98def8bc685",
+        "matches_release": true
+      },
+      "mirage-native": {
+        "sha256": "12ee1bb0cfd41f25bc904c70333538fe5dd0f2408efad07d3b771b5cbb5a7c6c",
+        "matches_release": true
+      }
+    }
+  },
+  "pending_source_sha256": {
+    "cmake/MirageVisionBundle.cmake": "761ee53dc2d83a93df393a94f180ff71b109604b2d7bad1ff02ecd3f28e98aa4",
+    "integration/mira/include/mirage/integration/desktop_tool_context.hpp": "e91cb0295402c593fd7c51428efb8c3f53ab8c9f3f37638785e06ad6dcc7448d",
+    "integration/mira/src/desktop_action_verification.cpp": "abba4fad599261004d756e9d6e768c303c81f63db6938868ac35a5a4c67c87c7",
+    "integration/mira/src/desktop_action_verification.hpp": "5fc10735d3d61b9e978558438fe1b2ae583218f1ad20fa4e52ac58f7892d20ac",
+    "integration/mira/src/desktop_image_supply.cpp": "a5a94d40d650046736954bc8992f177915f129dc428dee50ee2614b6f9ede20e",
+    "integration/mira/src/desktop_image_supply.hpp": "c3425a68c32b1744b59ff54f661dcf22fd6d14745890c67c4e9c90dc46f184a9",
+    "integration/mira/src/desktop_ocr_tool.cpp": "4267d9b14c364ec11392b099a2e4ebb8fd65f2fbd160d0e3f55b9b9fe1c4f654",
+    "integration/mira/src/desktop_ocr_tool.hpp": "87f70c3261991d86ecf38510cd3d63b7918467887bc8efefa31d69bbdf9ed5d8",
+    "integration/mira/src/desktop_png.cpp": "7b287595ea0f1801d224912baad6bed3bd6aeeb6467feb793b00b5854ee69781",
+    "integration/mira/src/desktop_region_tools.cpp": "3a9d1928cf53cbf13de438e181efc53eb472b373d6ee52b0a9ffb3a7f50574a3",
+    "integration/mira/src/desktop_shared_input.cpp": "f0fb49fb99e9c91eb69826f90ba39a5f1ed5a89fc8b27a305c93ee0ba4bf6bb2",
+    "integration/mira/src/desktop_visual_knowledge.cpp": "0230e420537d5aa4148a129391340c3a9519fdbcdd6c37647720db433bfc75f7",
+    "integration/mira/src/desktop_visual_knowledge.hpp": "7dca60df79e5d57f9c3d56287bd1df072d84d3919be6b3f6eb11e7de466d3635",
+    "integration/mira/src/desktop_visual_tools.cpp": "19f34964e1de9ae75193b263efc61194a05035df2b48e6193c3ce678c5596977",
+    "runtime/persistence/include/mirage/runtime/persistence/app_preferences.hpp": "c8ca0e3ac8354607b60a2ee1b4f0e0e40ae3c92a59fb933e17bddfbf89733e85",
+    "runtime/persistence/src/app_preferences.cpp": "55da1bb292f4b4ec8f4f86c7817a3d68f5bf21b64e2a0f85d774280fa72a718d",
+    "tests/desktop/data/m7_desktop_tools_schema.json": "ae6cd25c11cc9d51f300677b23e5de2a582cc4cd9009cf2bc5e62ff129bce285",
+    "tests/integration/bundled_vision_resources_test.py": "ac8c79fa408cf7df53b5d7a844234f22bc42e402f032d45db9088276775d5554",
+    "tests/integration/desktop_image_supply_test.cpp": "e67ef8441d8f93ada58fcaf8a719da5c909fef074ffbd94518bee4b0c5e67a1b",
+    "tests/integration/gui_fallback_test.cpp": "dd399b3be84f9140b6843cb4993c8ee62588d8921d3b8d95f0fed8e054b2c02d",
+    "tests/integration/local_semantic_workflow_test.cpp": "93d55010c04950e839b12dac6bbb9964bb7531496f309ab436fea9864b427ad4",
+    "tests/integration/local_visual_workflow_test.cpp": "f4ecb80f645b51a070e8d811696e3faf46520b482667c1cac993b83f3ce8a329",
+    "tests/integration/post_action_verification_test.cpp": "2b8c17394ee1e187bc8d73c0d99a7684bee65ed57c440c9ec0a87833c6e76ed9",
+    "tests/integration/visual_marks_test.cpp": "64d02b3cbabb44664f3ca31d392725a121db2c094c870a889e4cb9e7195983e7",
+    "tests/integration/visual_text_verification_test.cpp": "41a016bf7590c86c8f10a946d31ab9d625f8ba7626155b6e0fd3392b9fe65ea5",
+    "tests/manual/desktop_image_supply_acceptance.py": "0b081542ec389868c29d0f231b71ef8334d2b758250cf2972206a6d411f21a3e",
+    "tests/manual/desktop_png_decode_check.py": "939313132960c2c223dff5d03f06691ad7542cc3e9a83908da903c0ac3f129f7",
+    "tests/manual/gtk_pointer_fixture.py": "c517a6366b54520f9e2a008ec5d765445425d0dd723f1cb4f804657fb59e08e4",
+    "tests/manual/gtk_pointer_host_acceptance.py": "db3a553a35aaf4f22fe964235a083c483de5e73d9b59ae420dcc8aab1f841704",
+    "tests/manual/local_semantic_workflow_acceptance.py": "df884f6407f55990e61caef9cfaf68414567ffda5bde06f85dd16039844e3b49",
+    "tests/manual/local_visual_workflow_acceptance.py": "eccb6c56accc056964be6979ad6189d975519855648acf2a26980e8c08470e19",
+    "tests/manual/model_reasoning_acceptance.py": "ed99a7f323161da60a8a4b65890c7e5175db375773e064145a4c50f2b5229924",
+    "tests/manual/ppocr_quality_acceptance.py": "4bbc761b8061a0acf84a4603668aebc10875989cc878fd175c6f0b9e1ffb08a3",
+    "tests/manual/prepare_ppocrv5_reference.py": "c84f3872faff7d68707a7ccde1e905e3b0997e657a503fa04226f8241cba6d97",
+    "tests/manual/visual_canvas_acceptance.py": "68f777b0f651fddfc87e88412a9dff9dfb8c9733923f6e903f30eda6f76ad5a9",
+    "tests/manual/visual_geometry_acceptance.py": "64ebceb22fd9d4c1132e908b3b0ef8fd03efabb25c8ad662f8c100dc7ef80817",
+    "tests/manual/visual_host_acceptance.py": "be990e63b5de0340d49ffa13f19fda9f7b530bbff3cdc51016124b2ac1a17a8c",
+    "tests/manual/visual_online_acceptance.py": "3939d9b7e1bbcb2a49d06ba41d58db605d135af57528f702925685d34872a840",
+    "tests/manual/visual_regional_acceptance.py": "ff5ca0e1fba0efbc544643fcab20a795e7e6768475c9e335d7485759687ec44c",
+    "tests/manual/visual_template_acceptance.py": "6701919ba30674e796cf95ddb01c04133fafaad194123b09c8b22d4b71739155",
+    "tests/manual/wayland_input_fixture.py": "b4f50d11fa524a4638188d32f52cfcb309ce4658887055db9ddd1627ec3af548",
+    "tests/runtime/harness_desktop_tools_test.cpp": "cb2e4920772ad5f736390d749fd900078cbeb5a7097745ce0c26385e8f9af550",
+    "tools/prepare_vision_bundle.py": "00bb0fe22102bdfea11169d70ea8297596ee50baa14006d13b57dde073cf77bf",
+    "CMakeLists.txt": "946a56aa9b45e064726691af2fd2f67b3b8366a140d954fe365461305c202c99",
+    "CMakePresets.json": "825cb1a96077e62c9f96ecc81fc84401d9cfce0bb4786c2397d872e0fda15521",
+    "apps/CMakeLists.txt": "daeba442cc48205a15f399bf615309e6f4747c2481eca2cb15c946b912d38b22",
+    "apps/cli/main.cpp": "04ce9177ecddd51fc8dd5c1ab1a037a1e6a9539137e64d2bedbf7ce259c5dc70",
+    "apps/native/DESIGN.md": "b1dcc0c56a3f345738cc7d2f6b4479ac9f02a50242fefda9b776756bb179e42c",
+    "apps/native/README.md": "fb31dd545c1bc96287f06edd966e3e3c37e602ddcc18f93dd736832a326029bc",
+    "apps/service/host.cpp": "49cf48888c5ce2a070028526a410a28700e007ac94d6632b6a1f6e1797b389e2",
+    "integration/mira/CMakeLists.txt": "e85b398f8789a177cea494d76f25e6121ca8b29b4a70dea23f72bf2bc81e52bb",
+    "integration/mira/include/mirage/integration/desktop_atom_toolset.hpp": "5f044f8f9f134c0b76c5c3fe9f748502b3f1aa904b33a21c50f2d518830acc66",
+    "integration/mira/include/mirage/integration/model_layer.hpp": "bdf8781100b0789ac557d19800e661e9363553f5a6454162fb7a8356bef0568b",
+    "integration/mira/src/conversation_capture.hpp": "6623a45d7c58808e998e719b589edd746f19843b3c4c30428f10d665d80da328",
+    "integration/mira/src/desktop_atom_toolset.cpp": "e1b76f147a4d8f5ca557ce6f6ecd34a1536faf3bc528703a580b8bdcb2327a0c",
+    "integration/mira/src/model_layer.cpp": "296f45e68e68e4c80c5cded9d8504c0845de2a0218fea4f091a57abb80a8fe5c",
+    "packaging/linux/packaging-deb.cmake": "cdcb4a2a52e9687a6ceec69f8588227555ba28f50ad09b3a4712a8abf56df20b",
+    "runtime/conversation/include/mirage/conversation.hpp": "9f5affaa2e36ba252008ed6c58723cb5f659d6b9781d65a328c4640ff407b359",
+    "runtime/conversation/src/conversation.cpp": "9219667e8501a4af2d1ba668089fa5193842a2c0c2ad5c7996ca817114841680",
+    "runtime/ipc/include/mirage/runtime/ipc/protocol.hpp": "d7aceb3650d83c513c6508d8d5b86ded9e3ba92ba12162b000dc89d96dcf4342",
+    "runtime/ipc/src/protocol.cpp": "448221a02edd3e088192e10ea01d8c738eb005f8f87057d11106926a4009fd0d",
+    "runtime/persistence/CMakeLists.txt": "69561fcf815e80842ce7f87b562bd7358184c99bea8d93fe580eda45a7c75186",
+    "runtime/persistence/include/mirage/runtime/persistence/session_state.hpp": "bae01294e695cb3957b933fc870a43d738e42b60a5f91d27618096f8d57764d3",
+    "runtime/persistence/include/mirage/runtime/persistence/settings.hpp": "40cdae16f8e01875ebc482cbca088b9b5f974a8c874e1a5b301d43c50ec7ffd2",
+    "runtime/persistence/src/settings.cpp": "160e3b0adae1a9690ffb97f1b0db742ef8027a00e76ccd8ccf47e5b3488ecda5",
+    "runtime/service/CMakeLists.txt": "c01943ca809466edbf9973b9c45e4c9ea7fe16de95c782a082bd64824611bb88",
+    "runtime/service/include/mirage/runtime/runtime_service.hpp": "77f55e8463b35a0265cf3868ac5af5b1b84a89a5ec65d4566dc33ac627e20748",
+    "runtime/service/src/runtime_service.cpp": "08fd5a1c8c6ffe20212ab1786e9e6ca0a7f9bc4a4d940d8ab5c6da7ae6767b68",
+    "runtime/service/src/service_core.hpp": "ab1ad05c3b79ece4116e2b4314228ff8ad012288867827999355d36d403e4326",
+    "tests/CMakeLists.txt": "29ef5241f067b2a57796310720fa3d9f52ae3cde6684e991b0fe7ba9b066bfc4",
+    "tests/runtime/data/ipc_protocol_golden.json": "34e839f28bd5d2f116ec6681f624603fc864cb5751ba5616a40b90a35af6fe43",
+    "tests/runtime/ipc_protocol_golden_test.cpp": "974560d78342d59164e40deae1e7eaf1c65c10d2cbd23515414228c8ea463f07",
+    "tests/runtime/ipc_protocol_test.cpp": "40af6ad234847ff1de6837e85eeb04df4a2d07fa868165d1bc60d9c6331cc888",
+    "tests/runtime/native_agent_integration_test.cpp": "9879b5cbcd89316e8fd06374d93902cb68f10c3edbe5bf952a47ce57a1cd73fe",
+    "tests/runtime/observation_face_test.cpp": "396f8e472365ca948fe8cf92c6f87c733b68d5e6862c6c6328c89abaad0e19a5",
+    "tests/runtime/persistence_test.cpp": "477bfd86c3f9d6ef52c9839c55d64c3123dad8445d42b8daa869d710bd62a115",
+    "tests/runtime/runtime_service_test.cpp": "f8c701b869fb0f20b1bfc156531869e9881d41af4fa26e082aff1f045e2722bf",
+    "tests/runtime/tray_runtime_test.cpp": "f198e8d5ccf52d22d97c8372bbff25384e26c612b5fbfe8b491d5b25bd3f9926"
+  }
+}

@@ -1,0 +1,143 @@
+{
+  "schema": 1,
+  "date": "2026-10-11",
+  "work_item": "M7-14 second increment",
+  "decision": "DEC-070",
+  "state": "Local implementation verified; original online business task and commit/review pending",
+  "revision": {
+    "base": "c786df7e047f03864f03f3bb1facd413f5111c03",
+    "branch": "feat/m7-conversation-desktop-tools",
+    "uncommitted": true
+  },
+  "environment": {
+    "os": "Linux 7.0.0-38-generic x86_64",
+    "compiler": "Ubuntu GCC 13.3.0",
+    "cmake": "3.28.3",
+    "X11": "private Xvfb, no user desktop interaction"
+  },
+  "sources": {
+    "tests/CMakeLists.txt": "96e8dd41c73375d29b9568c90d3133a2f7411d24efe01a863a648bdfeb3e5493",
+    "integration/mira/src/conversation_capture.hpp": "56ac43a89b0ea30af7838b655fa11bee4d5ef6071b6c71db1665af54d1785ed9",
+    "integration/mira/src/desktop_action_verification.hpp": "e5b3eabbeb665a873082e999ee16222a081f9836627edf94122d8a2da6d14bdc",
+    "integration/mira/src/desktop_action_verification.cpp": "a6be23b0b23d62e3957f8004be4265c908cd5336426a3cbf5916d880f9b37df5",
+    "integration/mira/src/model_layer.cpp": "00407015b109b7021f4e643bb40c9aab38336128701d654ed49fdf76306072d7",
+    "integration/mira/src/desktop_visual_tools.cpp": "19f34964e1de9ae75193b263efc61194a05035df2b48e6193c3ce678c5596977",
+    "tests/integration/post_action_verification_test.cpp": "63dcc250cb596a7f1537ca95709a68876ae2a12418441d37817e1c313c4cad76",
+    "tests/integration/visual_marks_test.cpp": "64d02b3cbabb44664f3ca31d392725a121db2c094c870a889e4cb9e7195983e7",
+    "tests/runtime/harness_desktop_tools_test.cpp": "4a8835f7d4c32c7d7c291260a1774128daa9129ff9884e32124cc37fb5d5b55a"
+  },
+  "dependencies": {
+    "third_party/mira": "c75378ba1374450ae667af64561f86db1f90f4c4",
+    "third_party/mirador": "ae8cf87581c1ebe393a67374d9977a38354d0911"
+  },
+  "tests": [
+    {
+      "name": "native-release full",
+      "passed": 70,
+      "total": 70,
+      "business_tests": 68,
+      "isolation_fixtures": 2,
+      "environment": "native/PP-OCR/bundled vision ON",
+      "log_sha256": "10c40e68c5512c4c778c13b0c817417b1787bbe70ad41e59763a492cdbbe09d8"
+    },
+    {
+      "name": "Debug full",
+      "passed": 64,
+      "total": 64,
+      "business_tests": 62,
+      "isolation_fixtures": 2,
+      "environment": "existing Debug configuration",
+      "log_sha256": "a572a52e49c12f7025bc3fb814d8b9f20a2c1e818c0f8d069ad70bf8e9b8143d"
+    },
+    {
+      "name": "ASAN+UBSAN targeted",
+      "passed": 11,
+      "total": 11,
+      "business_tests": 9,
+      "isolation_fixtures": 2,
+      "environment": "detect_leaks=1:halt_on_error=1; UBSAN halt_on_error=1",
+      "log_sha256": "598c85980637f5bee9b48c6b152db1771d712b1750b349a78dd66f685bed03a4"
+    },
+    {
+      "name": "TSAN targeted",
+      "passed": 11,
+      "total": 11,
+      "business_tests": 9,
+      "isolation_fixtures": 2,
+      "environment": "setarch x86_64 -R; outer halt_on_error=1; existing per-test system GLib/GIO suppression",
+      "log_sha256": "3b1d317cb88f9719fbd5747e9461fa304785573d28d16e58c04cb19d1b9c3a11"
+    },
+    {
+      "name": "product-release",
+      "passed": 37,
+      "total": 37,
+      "report": "product-release.json",
+      "report_sha256": "05b51febd37b890abb57d5b2e55c52decffe3971f2fff1274ad0535687766384"
+    },
+    {
+      "name": "product-deb",
+      "passed": 37,
+      "total": 37,
+      "report": "product-deb.json",
+      "report_sha256": "bdb110eca9e3ce4e530b1f2ef5a24ba13b9d80e81cf4834bcf8967149114ff52"
+    }
+  ],
+  "regressions": {
+    "post_action_checks": 261,
+    "real_X11_tasks": 4,
+    "harness_checks": 478,
+    "harness_failures": 0,
+    "visual_marks_checks": 679,
+    "boundary_headers": 53,
+    "boundary_violations": 0,
+    "formatted_cpp_files": 8,
+    "canonical_receipt_max_bytes": 512
+  },
+  "test_state_audit": {
+    "legacy_test_persistence_was_not_isolated": true,
+    "state_changed_before_isolation_fix": true,
+    "diagnosed_latest_turn_retained": true,
+    "state_digest_after_isolation": "c5f917565e9146838833d6348a1604c65ba5595555e44c4cde1733f3786eb34b",
+    "isolated_final_runs_preserved_state_digest_and_mtime": true,
+    "isolated_state_dirs_cleaned": true,
+    "manual_history_restore_or_deletion": false,
+    "service_config_mtime": "2026-10-11 02:16:13 +0800"
+  },
+  "package": {
+    "path": "out/packages/mirage_0.1.0_amd64.deb",
+    "bytes": 54460854,
+    "sha256": "6b64bb3a62e0b6aef16192b067082e6d21e6d2946ef763b61f776ffe19e9f312",
+    "tray_sha256": "a91ff21fbe5f33085718f8367bbe446b0a3a0e4da496face48685f6bced7b08d",
+    "extracted_tray_matches_build": true,
+    "installed_to_user_system": false
+  },
+  "initial_failures": [
+    {
+      "phase": "build",
+      "cause": "previous audited temporary XRes SDK missing; restored exact package hash"
+    },
+    {
+      "phase": "focused recovery",
+      "log_sha256": "b7688f391e358cd7de09fd712e15f5ef6642b058052bff36cb5c9b637c0d88e2",
+      "cause": "intermediate fixture key-event count expectation; fixed before final verification"
+    },
+    {
+      "phase": "initial release full",
+      "passed": 67,
+      "total": 68,
+      "log_sha256": "b5f733b9bb74f6cbe7291d15d27d4af6f2c65e429635da256db6423653624eef",
+      "cause": "temporary locked OCR source cache absent; five files restored from hash-verified persistent cache"
+    },
+    {
+      "phase": "isolation prototype listing",
+      "cause": "TEST_INCLUDE_FILES runs before test definitions; replaced by configure-time CTest fixtures; no tests executed in rejected prototype"
+    }
+  ],
+  "limitations": [
+    "Original invalid parameter field/value not recoverable from old redacted history.",
+    "Old generic mark failures do not identify exact stage.",
+    "Original user online browser task not rerun.",
+    "Windows/native Wayland/user GNOME focus/fullscreen DPI and full real OCR weight sanitizers not verified.",
+    "No commit, push, release or user installation."
+  ]
+}

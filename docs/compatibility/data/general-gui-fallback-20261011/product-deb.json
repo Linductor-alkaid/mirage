@@ -1,0 +1,442 @@
+{
+  "scope": "Linux private Xvfb; actual embedded product Runtime, PP-OCR/ncnn and public Canvas",
+  "model_enabled": false,
+  "checks": [
+    {
+      "name": "product registers visual knowledge atom",
+      "passed": true
+    },
+    {
+      "name": "bundled vision runs without manual settings",
+      "passed": true
+    },
+    {
+      "name": "DryRun publishes without Canvas input",
+      "passed": true
+    },
+    {
+      "name": "strict -> completed",
+      "passed": true
+    },
+    {
+      "name": "actual Canvas click count 1",
+      "passed": true
+    },
+    {
+      "name": "physical target is Save",
+      "passed": true
+    },
+    {
+      "name": "actual Canvas postcondition changed",
+      "passed": true
+    },
+    {
+      "name": "recoverable -> waiting_agent",
+      "passed": true
+    },
+    {
+      "name": "actual Canvas click count 1",
+      "passed": true
+    },
+    {
+      "name": "strict -> completed",
+      "passed": true
+    },
+    {
+      "name": "actual Canvas click count 2",
+      "passed": true
+    },
+    {
+      "name": "physical target is Save",
+      "passed": true
+    },
+    {
+      "name": "recoverable -> waiting_agent",
+      "passed": true
+    },
+    {
+      "name": "actual Canvas click count 2",
+      "passed": true
+    },
+    {
+      "name": "recoverable -> waiting_agent",
+      "passed": true
+    },
+    {
+      "name": "actual Canvas click count 2",
+      "passed": true
+    },
+    {
+      "name": "recoverable -> waiting_agent",
+      "passed": true
+    },
+    {
+      "name": "actual Canvas click count 2",
+      "passed": true
+    },
+    {
+      "name": "recoverable -> waiting_agent",
+      "passed": true
+    },
+    {
+      "name": "actual Canvas click count 3",
+      "passed": true
+    },
+    {
+      "name": "physical target is Save",
+      "passed": true
+    },
+    {
+      "name": "strict -> failed",
+      "passed": true
+    },
+    {
+      "name": "actual Canvas click count 3",
+      "passed": true
+    },
+    {
+      "name": "Runtime owner exits cleanly",
+      "passed": true
+    },
+    {
+      "name": "product registers visual knowledge atom",
+      "passed": true
+    },
+    {
+      "name": "DryRun publishes without Canvas input",
+      "passed": true
+    },
+    {
+      "name": "strict -> completed",
+      "passed": true
+    },
+    {
+      "name": "actual Canvas click count 4",
+      "passed": true
+    },
+    {
+      "name": "physical target is cross-icon",
+      "passed": true
+    },
+    {
+      "name": "strict -> completed",
+      "passed": true
+    },
+    {
+      "name": "actual Canvas click count 5",
+      "passed": true
+    },
+    {
+      "name": "physical target is cross-icon",
+      "passed": true
+    },
+    {
+      "name": "recoverable -> waiting_agent",
+      "passed": true
+    },
+    {
+      "name": "actual Canvas click count 6",
+      "passed": true
+    },
+    {
+      "name": "physical target is cross-icon",
+      "passed": true
+    },
+    {
+      "name": "model stays disabled through all workflows",
+      "passed": true
+    },
+    {
+      "name": "Runtime owner exits cleanly",
+      "passed": true
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "ce954e9aa55d46b7aab89cd1ea6703f2",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7110",
+      "state": "completed",
+      "run_epoch": 2,
+      "created_at_ms": 1791690330026
+    },
+    {
+      "run_id": "283886be3a644c79a391f4f8aa27b9ec",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7110",
+      "state": "waiting_agent",
+      "run_epoch": 2,
+      "created_at_ms": 1791690330742
+    },
+    {
+      "run_id": "c2b3ca96dcc64e0eaffa1ee36705e7f2",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7110",
+      "state": "completed",
+      "run_epoch": 2,
+      "created_at_ms": 1791690331046
+    },
+    {
+      "run_id": "2f82f00526784250be8d8952d836eb7e",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7110",
+      "state": "waiting_agent",
+      "run_epoch": 2,
+      "created_at_ms": 1791690331786
+    },
+    {
+      "run_id": "d5db4afbe24044578abd640b889ce753",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7110",
+      "state": "waiting_agent",
+      "run_epoch": 2,
+      "created_at_ms": 1791690332062
+    },
+    {
+      "run_id": "be15bc0a311d449eb071b0992d8ab61a",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7110",
+      "state": "waiting_agent",
+      "run_epoch": 2,
+      "created_at_ms": 1791690332319
+    },
+    {
+      "run_id": "58ef025acbee498a91cbad42b2913f19",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7110",
+      "state": "waiting_agent",
+      "run_epoch": 2,
+      "created_at_ms": 1791690332525
+    },
+    {
+      "run_id": "504a37f239954ac0bd241b7a5ec185ec",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7110",
+      "state": "failed",
+      "run_epoch": 2,
+      "created_at_ms": 1791690333394
+    },
+    {
+      "run_id": "38eb1f6fe27d49b9983e9ea19fea491d",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7112",
+      "state": "completed",
+      "run_epoch": 2,
+      "created_at_ms": 1791690333891
+    },
+    {
+      "run_id": "102749429d394921ac8a2ab64fa9f7f7",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7112",
+      "state": "completed",
+      "run_epoch": 2,
+      "created_at_ms": 1791690334709
+    },
+    {
+      "run_id": "58f58192abf44e849c3789a06970a308",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7112",
+      "state": "waiting_agent",
+      "run_epoch": 2,
+      "created_at_ms": 1791690335407
+    }
+  ],
+  "events": [
+    {
+      "v": 1,
+      "seq": 1,
+      "event": "host.status",
+      "status": "running"
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "event": "workflow.run_updated",
+      "run_id": "a1b394352f064b4aaff91b4c186194a3",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7110",
+      "state": "running",
+      "run_epoch": 0
+    },
+    {
+      "v": 1,
+      "seq": 3,
+      "event": "workflow.run_updated",
+      "run_id": "a1b394352f064b4aaff91b4c186194a3",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7110",
+      "state": "completed",
+      "run_epoch": 2,
+      "summary": "workflow completed: 1 steps settled"
+    },
+    {
+      "v": 1,
+      "seq": 4,
+      "event": "workflow.run_updated",
+      "run_id": "ce954e9aa55d46b7aab89cd1ea6703f2",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7110",
+      "state": "running",
+      "run_epoch": 0
+    },
+    {
+      "v": 1,
+      "seq": 5,
+      "event": "workflow.run_updated",
+      "run_id": "ce954e9aa55d46b7aab89cd1ea6703f2",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7110",
+      "state": "completed",
+      "run_epoch": 2,
+      "summary": "workflow completed: 1 steps settled"
+    },
+    {
+      "v": 1,
+      "seq": 6,
+      "event": "workflow.run_updated",
+      "run_id": "283886be3a644c79a391f4f8aa27b9ec",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7110",
+      "state": "running",
+      "run_epoch": 0
+    },
+    {
+      "v": 1,
+      "seq": 7,
+      "event": "workflow.run_updated",
+      "run_id": "c2b3ca96dcc64e0eaffa1ee36705e7f2",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7110",
+      "state": "running",
+      "run_epoch": 0
+    },
+    {
+      "v": 1,
+      "seq": 8,
+      "event": "workflow.run_updated",
+      "run_id": "c2b3ca96dcc64e0eaffa1ee36705e7f2",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7110",
+      "state": "completed",
+      "run_epoch": 2,
+      "summary": "workflow completed: 1 steps settled"
+    },
+    {
+      "v": 1,
+      "seq": 9,
+      "event": "workflow.run_updated",
+      "run_id": "2f82f00526784250be8d8952d836eb7e",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7110",
+      "state": "running",
+      "run_epoch": 0
+    },
+    {
+      "v": 1,
+      "seq": 10,
+      "event": "workflow.run_updated",
+      "run_id": "d5db4afbe24044578abd640b889ce753",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7110",
+      "state": "running",
+      "run_epoch": 0
+    },
+    {
+      "v": 1,
+      "seq": 11,
+      "event": "workflow.run_updated",
+      "run_id": "be15bc0a311d449eb071b0992d8ab61a",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7110",
+      "state": "running",
+      "run_epoch": 0
+    },
+    {
+      "v": 1,
+      "seq": 12,
+      "event": "workflow.run_updated",
+      "run_id": "58ef025acbee498a91cbad42b2913f19",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7110",
+      "state": "running",
+      "run_epoch": 0
+    },
+    {
+      "v": 1,
+      "seq": 13,
+      "event": "workflow.run_updated",
+      "run_id": "504a37f239954ac0bd241b7a5ec185ec",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7110",
+      "state": "running",
+      "run_epoch": 0
+    },
+    {
+      "v": 1,
+      "seq": 1,
+      "event": "host.status",
+      "status": "running"
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "event": "workflow.run_updated",
+      "run_id": "65061dc335a941148f8b6a06bdcec03e",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7112",
+      "state": "running",
+      "run_epoch": 0
+    },
+    {
+      "v": 1,
+      "seq": 3,
+      "event": "workflow.run_updated",
+      "run_id": "65061dc335a941148f8b6a06bdcec03e",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7112",
+      "state": "completed",
+      "run_epoch": 2,
+      "summary": "workflow completed: 1 steps settled"
+    },
+    {
+      "v": 1,
+      "seq": 4,
+      "event": "workflow.run_updated",
+      "run_id": "38eb1f6fe27d49b9983e9ea19fea491d",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7112",
+      "state": "running",
+      "run_epoch": 0
+    },
+    {
+      "v": 1,
+      "seq": 5,
+      "event": "workflow.run_updated",
+      "run_id": "38eb1f6fe27d49b9983e9ea19fea491d",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7112",
+      "state": "completed",
+      "run_epoch": 2,
+      "summary": "workflow completed: 1 steps settled"
+    },
+    {
+      "v": 1,
+      "seq": 6,
+      "event": "workflow.run_updated",
+      "run_id": "102749429d394921ac8a2ab64fa9f7f7",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7112",
+      "state": "running",
+      "run_epoch": 0
+    },
+    {
+      "v": 1,
+      "seq": 7,
+      "event": "workflow.run_updated",
+      "run_id": "102749429d394921ac8a2ab64fa9f7f7",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7112",
+      "state": "completed",
+      "run_epoch": 2,
+      "summary": "workflow completed: 1 steps settled"
+    },
+    {
+      "v": 1,
+      "seq": 8,
+      "event": "workflow.run_updated",
+      "run_id": "58f58192abf44e849c3789a06970a308",
+      "workflow_id": "75c0d069a3be49a99297e83c65ce7112",
+      "state": "running",
+      "run_epoch": 0
+    }
+  ],
+  "templates": [
+    {
+      "id": "line-icon",
+      "format": "bgra8",
+      "width": 72,
+      "height": 72,
+      "bytes": 20736,
+      "sha256": "46bec979a98c9f0e22603f0daff4a6f42f90f2e131cc4831d8ed627be96cb3c4"
+    },
+    {
+      "id": "cross-icon",
+      "format": "bgra8",
+      "width": 72,
+      "height": 72,
+      "bytes": 20736,
+      "sha256": "ec235e4597055457370b413cb736518f58d16839a3be4046e8a9a89748a3fb85"
+    }
+  ]
+}

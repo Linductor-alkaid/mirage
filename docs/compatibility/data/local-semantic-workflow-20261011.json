@@ -1,0 +1,145 @@
+{
+  "schema": 1,
+  "date": "2026-10-11",
+  "work_item": "M7-11 first increment",
+  "decision": "DEC-067",
+  "scope": "Linux X11/AT-SPI2; workflow local semantic activation; no model",
+  "environment": {
+    "kernel": "7.0.0-34-generic",
+    "compiler": "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+    "cmake": "cmake version 3.28.3"
+  },
+  "tests": [
+    {
+      "name": "Debug full",
+      "passed": 66,
+      "total": 66,
+      "summary": "100% tests passed, 0 tests failed out of 66",
+      "log_sha256": "08b4d326ad6807e1ee697e272fe88369f9b1bd7dd2239ab1e2614b08621aa88a"
+    },
+    {
+      "name": "Release full",
+      "passed": 66,
+      "total": 66,
+      "summary": "100% tests passed, 0 tests failed out of 66",
+      "log_sha256": "02af3e2712fe41fa0814fd3be077f73bb1ee6ef6ba7b8a6296c63c0df7bd7f28"
+    },
+    {
+      "name": "ASAN+UBSAN targeted",
+      "passed": 6,
+      "total": 6,
+      "summary": "100% tests passed, 0 tests failed out of 6",
+      "log_sha256": "ec584704c88e90831054489286d030a6f7db79bfd5e884131a0a1883f60c4b9c"
+    },
+    {
+      "name": "TSAN targeted (setarch x86_64 -R)",
+      "passed": 6,
+      "total": 6,
+      "summary": "100% tests passed, 0 tests failed out of 6",
+      "log_sha256": "7f11eb2dd10ce538839ec195b191f4c15d81b05606a6901f195e6db68c1e0d57"
+    }
+  ],
+  "platform": [
+    {
+      "name": "debug",
+      "checks_passed": 20,
+      "checks_total": 20,
+      "model_enabled": false,
+      "runs": [
+        "completed",
+        "waiting_agent",
+        "completed",
+        "waiting_agent",
+        "waiting_agent",
+        "waiting_agent",
+        "failed"
+      ],
+      "report": "docs/compatibility/data/local-semantic-workflow-20261011/debug-product.json",
+      "sha256": "658dd97bda4b1c4384301e7685b432cb41a14d2717d9dfbf33032fcad6edd58a"
+    },
+    {
+      "name": "release",
+      "checks_passed": 20,
+      "checks_total": 20,
+      "model_enabled": false,
+      "runs": [
+        "completed",
+        "waiting_agent",
+        "completed",
+        "waiting_agent",
+        "waiting_agent",
+        "waiting_agent",
+        "failed"
+      ],
+      "report": "docs/compatibility/data/local-semantic-workflow-20261011/release-product.json",
+      "sha256": "d6339b42dff43c80d582b431ec01d63e279a3782ef32eac6628cb938fcdbacd8"
+    }
+  ],
+  "sources": [
+    {
+      "path": "integration/mira/src/desktop_atom_toolset.cpp",
+      "sha256": "7052e18e2b0ce9ce9852f5fbfb63b714ce8fe23e4314bb6a1a30e203adabb208"
+    },
+    {
+      "path": "integration/mira/src/desktop_action_verification.cpp",
+      "sha256": "f66c9a0586a976b5346029c6663d968281f5347f38156c2da8c7c48339ecadd4"
+    },
+    {
+      "path": "integration/mira/src/desktop_action_verification.hpp",
+      "sha256": "d7cb2fbd9d060ee9ef43d543366330d327f0cc1e5a3a2b5e969c1de22d29a961"
+    },
+    {
+      "path": "integration/mira/include/mirage/integration/desktop_atom_toolset.hpp",
+      "sha256": "65ae45def9bb6ca884e23afa99aae10a38f03c0c547e55ee4aa6349b3a3a73ad"
+    },
+    {
+      "path": "tests/integration/local_semantic_workflow_test.cpp",
+      "sha256": "93d55010c04950e839b12dac6bbb9964bb7531496f309ab436fea9864b427ad4"
+    },
+    {
+      "path": "tests/manual/local_semantic_workflow_acceptance.py",
+      "sha256": "8eefb02bac71d51e439913be63aec27efbd5a0a4339a0f3ef1f5307caeb1aeb6"
+    },
+    {
+      "path": "docs/examples/local-semantic-save.workflow.json",
+      "sha256": "32d8f66342116a1c91d34d72c36764ee5eddc15d00fe918322979c501e9f9355"
+    }
+  ],
+  "history": [
+    {
+      "attempt": "debug",
+      "interpretation": "Initial fixture included hidden duplicate and mismatched application: safe rejection before effects",
+      "passed_checks": 2,
+      "checks": 3,
+      "sha256": "b3182ab6d5f3b98349d2de3f44a6f34d728d210a8d38233035d3f5f33c372776"
+    },
+    {
+      "attempt": "debug3",
+      "interpretation": "17 product checks passed; test expected non-existent enabled wire member",
+      "passed_checks": 17,
+      "checks": 17,
+      "sha256": "cc22892f7cb5f5d29ba7e8f3a3ca4f3a483154fd0d5e889ccca9d0aeaaa52ba0"
+    },
+    {
+      "attempt": "release-final",
+      "interpretation": "18 checks passed; active workflows correctly required product quit confirmation",
+      "passed_checks": 18,
+      "checks": 18,
+      "sha256": "2d284e5f25826e62180ae5fdc3759ec14ade829750af7447b45bd849ed571923"
+    },
+    {
+      "attempt": "release-verified",
+      "interpretation": "Example had 33-character IDs: schema rejected publication",
+      "passed_checks": 1,
+      "checks": 1,
+      "sha256": "4421557608219d9071f9af65a2abf78439a2907a5119c905d1d20da20e8e3e73"
+    }
+  ],
+  "limitations": [
+    "M7-11 remains In Progress",
+    "No automatic native conversation selection or Agent recovery",
+    "Process-local workflow library; IR file must be republished after restart",
+    "OCR/templates, AppModel navigation, user host and non-Linux platforms pending"
+  ],
+  "unit_checks": 125
+}

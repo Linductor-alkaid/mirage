@@ -1,0 +1,146 @@
+{
+  "schema": 1,
+  "date": "2026-10-11",
+  "decision": "DEC-076",
+  "work_items": [
+    "M7-10",
+    "M7-14"
+  ],
+  "status": "In Progress",
+  "user_session": "5c555168634944d8b708b81b7e7b6668",
+  "latest_turn": "d7929f5eaac6caa9530671a6197f6560",
+  "loaded_before_change_matches_DEC075": true,
+  "user_failures": [
+    "native OCR JSON budget exceeded",
+    "portal_timeout on later capture",
+    "stale application references recovered after refresh",
+    "404 navigation"
+  ],
+  "contracts": {
+    "native_detection_candidate_cap": 512,
+    "x11_detection_candidate_cap": 128,
+    "native_region_prefix_cap": 128,
+    "wire_bytes_cap": 16384,
+    "analysis_seconds_cap": 5,
+    "whole_utf8_regions": true,
+    "explicit_truncated_and_total_count": true,
+    "canonical_ocr_cases": 18,
+    "pipeline_prefix_cases": [
+      128,
+      160,
+      512,
+      513
+    ],
+    "new_worker_or_scheduler": false,
+    "pinned_dependencies_modified": false
+  },
+  "host_runs": [
+    {
+      "name": "host",
+      "checks": 31,
+      "failures": 1,
+      "condition": "detector candidate cap",
+      "log_sha256": "4dcb105fa0d0d9ffda655e0e70a2a25979d0e37fd6b8afbb8fae875d3d1593d9",
+      "saved_user_pixels": false,
+      "online_model": false
+    },
+    {
+      "name": "host-final",
+      "checks": 41,
+      "failures": 1,
+      "condition": "analysis expiry while regressions running",
+      "log_sha256": "cfe00cb6e29068547d41328db6f44a8b19ffcac64938d7ae186b8b9df1b8108b",
+      "saved_user_pixels": false,
+      "online_model": false
+    },
+    {
+      "name": "host-quiet",
+      "checks": 58,
+      "failures": 0,
+      "condition": "standalone after build and tests completed",
+      "log_sha256": "f4a5e49f0c229b8978f322a910e588e38b0d7fdb6a8b9ca30d334e401a5846df",
+      "saved_user_pixels": false,
+      "online_model": false,
+      "shares": 1,
+      "ocr_calls": 3,
+      "regions_per_result": [
+        106,
+        106,
+        106
+      ],
+      "backend_calls": [
+        1,
+        2,
+        3
+      ],
+      "matched_source_image": true,
+      "takeover_old_session_rejected": true
+    }
+  ],
+  "tests": [
+    {
+      "configuration": "debug-full-final",
+      "passed": 67,
+      "total": 67,
+      "log_sha256": "7c783488e51160f062d1c6b545bbecae8f0ddc87bc9ed17d175689d847926d14"
+    },
+    {
+      "configuration": "native-release-full-final",
+      "passed": 73,
+      "total": 73,
+      "log_sha256": "8351b95d687b04ba9d96d1c416d4af118bb5647bef319043478b1d1d1dba74fc"
+    },
+    {
+      "configuration": "asan-suite-final",
+      "passed": 7,
+      "total": 7,
+      "log_sha256": "71b8902a39a9e0d4ed038f87cd841bfe764927447a73fb8be07b99da1ff73993"
+    },
+    {
+      "configuration": "ubsan-suite-final",
+      "passed": 7,
+      "total": 7,
+      "log_sha256": "6d8a52f6b590676efe07c90c09b49008a4516c50ca4aae40405c6208596f6187"
+    },
+    {
+      "configuration": "tsan-suite-final",
+      "passed": 7,
+      "total": 7,
+      "log_sha256": "9314cb092c081e78e86529cdc17668998c421beb731515063f4fa5b788d417cf"
+    }
+  ],
+  "product": [
+    {
+      "configuration": "release",
+      "passed": 37,
+      "total": 37,
+      "model_enabled": false,
+      "report_sha256": "c1a8273e509dcbccd7f8d1781d39ee238521e83280418c16be830245b5db78f6"
+    },
+    {
+      "configuration": "package",
+      "passed": 37,
+      "total": 37,
+      "model_enabled": false,
+      "report_sha256": "e9550754389cace905c76e0a833507c0586f7699cc3dc4582cbf2d4b4d7bea15"
+    }
+  ],
+  "package": {
+    "path": "out/packages/mirage_0.1.0_amd64.deb",
+    "sha256": "41300be2de9f8915eb00abcf67e2c6cfc7e194a54a1904a548be94301e3858f9",
+    "binary_sha256": {
+      "mirage": "53a27dd9e0d55c74da39f08eb525f71575e0018226aabbfed3c11ebf09b6b5ac",
+      "mirage-service": "6761ec324bc1712040dc0172b6130908537d8eecdb20964e9f8213fd5559e129",
+      "mirage-tray": "f3354206796c8044d89a354dc8c76745b0f170f32d7938243b4f6999bc05f9b0",
+      "mirage-native": "ff3bfb0ebe7cbefefaa4bd52c46e556ddde9a2643dbcd7e5c06fb655faed0e09"
+    }
+  },
+  "user_state_unchanged": true,
+  "remaining": [
+    "original portal_timeout not reproduced or fixed; bounded stage diagnostics added",
+    "five-second inference deadline can expire under load",
+    "Wayland RemoteDesktop input missing",
+    "original online video task not completed",
+    "not committed or reviewed"
+  ]
+}

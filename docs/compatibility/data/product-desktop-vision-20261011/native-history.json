@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "scope": "private Xvfb public synthetic product task, summarized for Git",
+  "ok": true,
+  "truncated": false,
+  "turns": [
+    {
+      "status": "ok",
+      "reply_present": true,
+      "parts": [
+        {
+          "kind": "text",
+          "status": "complete",
+          "truncated": false,
+          "text_chars": 44
+        },
+        {
+          "kind": "tool",
+          "status": "complete",
+          "name": "desktop.vision.ocr",
+          "truncated": false,
+          "result": {
+            "source": "ocr",
+            "region_count": 22,
+            "verified": false,
+            "backend_calls": 2,
+            "environment_epoch": 1
+          }
+        },
+        {
+          "kind": "tool",
+          "status": "complete",
+          "name": "desktop.vision.mark",
+          "truncated": false,
+          "result": {
+            "schema": 1,
+            "source": "som",
+            "verified": false,
+            "width": 1500,
+            "height": 1000,
+            "byte_size": 4501408,
+            "environment_epoch": 1,
+            "max_age_ms": 5000,
+            "mark_count": 26
+          }
+        }
+      ]
+    }
+  ]
+}

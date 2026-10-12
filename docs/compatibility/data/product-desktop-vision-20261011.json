@@ -1,0 +1,451 @@
+{
+  "date": "2026-10-11",
+  "work_item": "M7-12",
+  "scope": "Linux Xorg product enablement preview; private Xvfb 1500x1000; no host desktop input",
+  "head": "c786df7e047f03864f03f3bb1facd413f5111c03",
+  "source": {
+    "apps/native/app.cpp": "ecdb9cddc32f5758e7110dd7604280afa280cb006e74f7d014266262fa31f4fb",
+    "apps/cli/main.cpp": "04ce9177ecddd51fc8dd5c1ab1a037a1e6a9539137e64d2bedbf7ce259c5dc70",
+    "apps/service/host.cpp": "86ebbdfed61d39470656f818bb990328d0844511dac28564e5b62f47a0035841",
+    "runtime/service/src/runtime_service.cpp": "a2ee1c5bce8379c49c3baa49cf37ea2deba9395e447460bdb086fa5c178688cf",
+    "runtime/ipc/src/protocol.cpp": "469f55a5a0ac825ccb83da4256b3c666db7c5348cc6c0f5346b81beffe271ef1",
+    "runtime/persistence/src/settings.cpp": "d2ad8c946365c75318d67c8dfb1321110b153cc49716e037a639caac0a7b9374",
+    "tests/runtime/runtime_service_test.cpp": "fa2d192a8f3e301f25122e1a5d40432195d86ef32c85e8c684d8748369c8541b",
+    "tests/manual/product_vision_acceptance.py": "6fffa1ff44d402475038ec1e7c5b20f90aa2bbc907d23d0cfda1cbcd87e3351b",
+    "CMakePresets.json": "66f89225b0ae9ba455b2b339a8cd2b30539a16e62ffaa85a33e99d2d77d5f26b",
+    "dependencies.lock.json": "3c1e8b734f57772a295e164cb0dddbdc151afeb0d71a41850895b9bd57966c5c"
+  },
+  "dependencies": {
+    "mira": "c75378ba1374450ae667af64561f86db1f90f4c4",
+    "mirador": "ae8cf87581c1ebe393a67374d9977a38354d0911",
+    "eui-neo": "a7e625fecc1db1c1acb4850a14fb785e20600041"
+  },
+  "product": {
+    "scope": "Linux private Xvfb; actual launcher/tray/native and PP-OCR; optional one authorized MiniMax native turn",
+    "checks": [
+      {
+        "name": "relative startup path rejected before launch",
+        "passed": true
+      },
+      {
+        "name": "missing startup path rejected before launch",
+        "passed": true
+      },
+      {
+        "name": "headless launcher rejects product OCR override",
+        "passed": true
+      },
+      {
+        "name": "actual launcher start",
+        "passed": true
+      },
+      {
+        "name": "compiled OCR supported but initially disabled",
+        "passed": true
+      },
+      {
+        "name": "native save persists without activating pipeline",
+        "passed": true
+      },
+      {
+        "name": "native save preserves model configuration",
+        "passed": true
+      },
+      {
+        "name": "actual launcher start",
+        "passed": true
+      },
+      {
+        "name": "normal product restart consumes saved manifest",
+        "passed": true
+      },
+      {
+        "name": "startup override refuses existing tray",
+        "passed": true
+      },
+      {
+        "name": "ordinary startup still reuses tray",
+        "passed": true
+      },
+      {
+        "name": "actual product observation recognizes public Canvas text",
+        "passed": true
+      },
+      {
+        "name": "actual native composer submission admitted",
+        "passed": true
+      },
+      {
+        "name": "real native model turn completes",
+        "passed": true
+      },
+      {
+        "name": "real native conversation invokes OCR and mark",
+        "passed": true
+      },
+      {
+        "name": "read-only task issues no desktop mutations",
+        "passed": true
+      },
+      {
+        "name": "clearing manifest waits for restart",
+        "passed": true
+      },
+      {
+        "name": "actual launcher start with OCR override",
+        "passed": true
+      },
+      {
+        "name": "explicit launcher override forwarded despite saved disable",
+        "passed": true
+      },
+      {
+        "name": "invalid persisted resource refuses startup",
+        "passed": true
+      },
+      {
+        "name": "actual launcher start",
+        "passed": true
+      },
+      {
+        "name": "empty startup override recovers settings access",
+        "passed": true
+      },
+      {
+        "name": "recovery can persist disabled OCR",
+        "passed": true
+      }
+    ],
+    "model": "MiniMax-M3",
+    "dialect": "anthropic.messages.v1",
+    "native_turn": {
+      "status": "ok",
+      "tools": [
+        {
+          "name": "desktop.vision.ocr",
+          "status": "complete"
+        },
+        {
+          "name": "desktop.vision.mark",
+          "status": "complete"
+        }
+      ]
+    },
+    "resource_manifest": "/tmp/mirage-ppocrv5-resources-logits-20261009/manifest.json"
+  },
+  "ocr_off": {
+    "scope": "Linux private Xvfb; actual launcher/tray/native and PP-OCR; optional one authorized MiniMax native turn",
+    "checks": [
+      {
+        "name": "relative startup path rejected before launch",
+        "passed": true
+      },
+      {
+        "name": "missing startup path rejected before launch",
+        "passed": true
+      },
+      {
+        "name": "headless launcher rejects product OCR override",
+        "passed": true
+      },
+      {
+        "name": "actual launcher start",
+        "passed": true
+      },
+      {
+        "name": "compiled OCR supported but initially disabled",
+        "passed": true
+      },
+      {
+        "name": "native save persists without activating pipeline",
+        "passed": true
+      },
+      {
+        "name": "native save preserves model configuration",
+        "passed": true
+      },
+      {
+        "name": "OCR configuration refuses unsupported build at restart",
+        "passed": true
+      },
+      {
+        "name": "actual launcher start",
+        "passed": true
+      },
+      {
+        "name": "unsupported build recovery shows disabled status",
+        "passed": true
+      },
+      {
+        "name": "unsupported build can clear pending resource path",
+        "passed": true
+      }
+    ]
+  },
+  "no_provider": {
+    "scope": "Linux private Xvfb; actual launcher/tray/native and PP-OCR; optional one authorized MiniMax native turn",
+    "checks": [
+      {
+        "name": "relative startup path rejected before launch",
+        "passed": true
+      },
+      {
+        "name": "missing startup path rejected before launch",
+        "passed": true
+      },
+      {
+        "name": "headless launcher rejects product OCR override",
+        "passed": true
+      },
+      {
+        "name": "actual launcher start",
+        "passed": true
+      },
+      {
+        "name": "compiled OCR supported but initially disabled",
+        "passed": true
+      },
+      {
+        "name": "native save persists without activating pipeline",
+        "passed": true
+      },
+      {
+        "name": "native save preserves model configuration",
+        "passed": true
+      },
+      {
+        "name": "actual launcher start",
+        "passed": true
+      },
+      {
+        "name": "normal product restart consumes saved manifest",
+        "passed": true
+      },
+      {
+        "name": "startup override refuses existing tray",
+        "passed": true
+      },
+      {
+        "name": "ordinary startup still reuses tray",
+        "passed": true
+      },
+      {
+        "name": "actual product observation recognizes public Canvas text",
+        "passed": true
+      },
+      {
+        "name": "clearing manifest waits for restart",
+        "passed": true
+      },
+      {
+        "name": "actual launcher start with OCR override",
+        "passed": true
+      },
+      {
+        "name": "explicit launcher override forwarded despite saved disable",
+        "passed": true
+      },
+      {
+        "name": "invalid persisted resource refuses startup",
+        "passed": true
+      },
+      {
+        "name": "actual launcher start",
+        "passed": true
+      },
+      {
+        "name": "empty startup override recovers settings access",
+        "passed": true
+      },
+      {
+        "name": "recovery can persist disabled OCR",
+        "passed": true
+      }
+    ],
+    "resource_manifest": "/tmp/mirage-ppocrv5-resources-logits-20261009/manifest.json"
+  },
+  "debug_observation_failure": {
+    "scope": "Linux private Xvfb; actual launcher/tray/native and PP-OCR; optional one authorized MiniMax native turn",
+    "checks": [
+      {
+        "name": "relative startup path rejected before launch",
+        "passed": true
+      },
+      {
+        "name": "missing startup path rejected before launch",
+        "passed": true
+      },
+      {
+        "name": "headless launcher rejects product OCR override",
+        "passed": true
+      },
+      {
+        "name": "actual launcher start",
+        "passed": true
+      },
+      {
+        "name": "compiled OCR supported but initially disabled",
+        "passed": true
+      },
+      {
+        "name": "native save persists without activating pipeline",
+        "passed": true
+      },
+      {
+        "name": "native save preserves model configuration",
+        "passed": true
+      },
+      {
+        "name": "actual launcher start",
+        "passed": true
+      },
+      {
+        "name": "normal product restart consumes saved manifest",
+        "passed": true
+      },
+      {
+        "name": "startup override refuses existing tray",
+        "passed": true
+      },
+      {
+        "name": "ordinary startup still reuses tray",
+        "passed": true
+      }
+    ],
+    "last_ipc_error": {
+      "code": "unavailable",
+      "message": "OCR capture or analysis failed: cancelled_or_expired"
+    }
+  },
+  "artifacts": [
+    {
+      "path": "docs/compatibility/data/product-desktop-vision-20261011/settings-min-light.png",
+      "sha256": "1b79157fc1196b32193f0cd86fa540e2e70aefbd4c246824549447bbbfb0aa00",
+      "bytes": 71662
+    },
+    {
+      "path": "docs/compatibility/data/product-desktop-vision-20261011/settings-min-dark.png",
+      "sha256": "61e73999b136f6d11ac028c1c9495978696ee2d719e27af042eb846b7146932e",
+      "bytes": 71566
+    },
+    {
+      "path": "docs/compatibility/data/product-desktop-vision-20261011/settings-saved-light.png",
+      "sha256": "f727203ad9fb2ffe53e610f29cd5c02e579d1d9fa7be667181a8254bbf3e27dd",
+      "bytes": 80511
+    },
+    {
+      "path": "docs/compatibility/data/product-desktop-vision-20261011/conversation-result.png",
+      "sha256": "0e2bb84914e4b3a47c5a381b79e30ba59259a40c157f75cd8d333ef0bf029ef6",
+      "bytes": 51707
+    },
+    {
+      "path": "docs/compatibility/data/product-desktop-vision-20261011/native-history.json",
+      "sha256": "440f2a72a9b4a94051ca3c94b5a2d14e95cc5bfb8ae205af517df2275efa73f5",
+      "bytes": 5397
+    },
+    {
+      "path": "docs/compatibility/data/product-desktop-vision-20261011/observation.json",
+      "sha256": "66c3b07154a36e3a4557fd12fd016caf01eba860724e8ae129e04fafe22673fc",
+      "bytes": 6111
+    }
+  ],
+  "logs": [
+    {
+      "path": "/tmp/mirage-m7-product-debug-finaltest.log",
+      "sha256": "819fe2e5d44ac5ec3fb10f21fa48561d9ec0361742ee45a6c8caaa3bad9b49bf",
+      "ctest_summary": [
+        "100% tests passed, 0 tests failed out of 65",
+        "Total Test time (real) =  29.12 sec"
+      ]
+    },
+    {
+      "path": "/tmp/mirage-m7-product-release-finaltest.log",
+      "sha256": "6c48eeba6bfb53d2f4bbce193d8e6ac77ecfb882f6b1d170d0066d729166b6f2",
+      "ctest_summary": [
+        "100% tests passed, 0 tests failed out of 65",
+        "Total Test time (real) =  20.76 sec"
+      ]
+    },
+    {
+      "path": "/tmp/mirage-m7-product-debug-recheck-test.log",
+      "sha256": "7eb781430a45d0b7c9f965827ed28bb21c6b47b8060e9c4dbe99d32d9a3fd36c",
+      "ctest_summary": [
+        "100% tests passed, 0 tests failed out of 5",
+        "Total Test time (real) =  13.04 sec"
+      ]
+    },
+    {
+      "path": "/tmp/mirage-m7-product-release-recheck-test.log",
+      "sha256": "3d9f439c7e374fa1c529054736e209e30f76ce41b63bd6a6a24b7536d8ec83a6",
+      "ctest_summary": [
+        "100% tests passed, 0 tests failed out of 5",
+        "Total Test time (real) =  11.72 sec"
+      ]
+    },
+    {
+      "path": "/tmp/mirage-m7-product-asan-recheck-test.log",
+      "sha256": "a09390249c56550704698c95702b3284f922543e59216bc7cc1aab1baed26f24",
+      "ctest_summary": [
+        "100% tests passed, 0 tests failed out of 5",
+        "Total Test time (real) =  17.02 sec"
+      ]
+    },
+    {
+      "path": "/tmp/mirage-m7-product-tsan-recheck-test.log",
+      "sha256": "59cb1237be3a7e59de8b361d21a62c5390582f4d83e55e8a868fa99745336052",
+      "ctest_summary": [
+        "100% tests passed, 0 tests failed out of 5",
+        "Total Test time (real) =  18.79 sec"
+      ]
+    },
+    {
+      "path": "/tmp/mirage-m7-product-vision-release-test.log",
+      "sha256": "be5beefdc11e293b87e2d44f0a1aee1118abea9d94c2a32517f7b7368c14c2c7",
+      "ctest_summary": [
+        "100% tests passed, 0 tests failed out of 61",
+        "Total Test time (real) =  77.56 sec"
+      ]
+    },
+    {
+      "path": "/tmp/mirage-m7-product-vision-release-service-test.log",
+      "sha256": "6247e1f86e1d57194297c748d2b1a293a6385637b5e382c68814ac685e0d8da0",
+      "ctest_summary": [
+        "100% tests passed, 0 tests failed out of 1",
+        "Total Test time (real) =   9.69 sec"
+      ]
+    },
+    {
+      "path": "/tmp/mirage-product-vision-release-live3.log",
+      "sha256": "000aa24ab2f5817861a1a9c8f194c20831bb23c0e054d6f38e54063ac01f3d35",
+      "ctest_summary": []
+    },
+    {
+      "path": "/tmp/mirage-product-vision-off2.log",
+      "sha256": "5afa34a18c29475daf6b01883f0def22053f9ffbf8954f8734f35fccefb7e162",
+      "ctest_summary": []
+    }
+  ],
+  "static_checks": {
+    "public_headers": 53,
+    "new_third_party_api_exposures": 0,
+    "baseline_kairo_signature": "runtime/mira_host/include/mirage/runtime/mira_host.hpp: attach_workflow_surface(kairo::Executor &executor, ...)",
+    "formatted_translation_units_and_headers": 11,
+    "native_changed_line_format_violations": 0,
+    "native_baseline_format_diagnostics": 30,
+    "python_compile": "passed; pyc in /tmp",
+    "diff_check": "passed"
+  },
+  "remaining": [
+    "M7-07/M7-09 existing acceptance gates unchanged",
+    "Windows/native Wayland, arbitrary applications/DPI/multiscreen not accepted",
+    "Debug full-screen OCR deadline failure retained",
+    "Full real-weight OCR TSAN gate not closed",
+    "No weight distribution, local workflow integration, install/release/merge claimed"
+  ],
+  "cleanup": {
+    "private_product_sockets_remaining": 0,
+    "user_configuration_changed": false,
+    "dependency_changes_in_this_increment": false,
+    "commit_or_push": false
+  }
+}

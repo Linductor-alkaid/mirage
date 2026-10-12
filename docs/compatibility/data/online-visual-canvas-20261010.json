@@ -1,0 +1,457 @@
+{
+  "schema": 1,
+  "date": "2026-10-10",
+  "work_item": "M7-07",
+  "decisions": [
+    "DEC-055",
+    "DEC-058",
+    "DEC-059",
+    "DEC-060"
+  ],
+  "scope": "Linux private Xvfb; public drawings only; real MiniMax-M3 online selection via Mira Gateway/Provider; real Screen/XTest/PP-OCR; host terminal gate",
+  "pins": {
+    "mira": "c75378ba1374450ae667af64561f86db1f90f4c4",
+    "mirador": "ae8cf87581c1ebe393a67374d9977a38354d0911",
+    "kairo": "ef821dcca05bbf9038409a2ff9acc5ed729936bc",
+    "eui-neo": "a7e625fecc1db1c1acb4850a14fb785e20600041",
+    "ncnn": "e54f7b1f88434e1d844ea0551b880a1cfb079ce1"
+  },
+  "external": {
+    "provider": "existing reviewed MiniMax config (config.toml/auth.json); credential only via child env and SecretRef; no key stored here",
+    "model": "MiniMax-M3",
+    "dialect": "anthropic.messages.v1",
+    "reasoning": "adaptive",
+    "origin": "https://api.minimaxi.com",
+    "ocr_manifest_source_sha256": "0210022d7f85dc0f7e0f8caebf1b5e5a9af89db49c87c25ab877d3a39e9ce6a4",
+    "ocr_manifest_configured_sha256": "1f69ede65687a09af3addb555a96e1365a06eb7773f090576626a4fad02a5213",
+    "ocr_manifest_notes": "geometry_marks=true; templates removed before model exposure; candidate template_id empty",
+    "font_sha256": "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9",
+    "ocr_resources": {
+      "det_param": {
+        "sha256": "7e0aaccc1da4181ce793536f2bb6e8ee854204997974b6be4a26cce4769be2dc",
+        "bytes": 24827
+      },
+      "det_bin": {
+        "sha256": "75acc15cc388e52c6278e7b77c9af1345292ad5405ee1c57f853dcfa3770b462",
+        "bytes": 2357240
+      },
+      "rec_param": {
+        "sha256": "cc0165c63b9017f287e56c1c2073d57184fd8777053c6e14163f3d32637adfdf",
+        "bytes": 20029
+      },
+      "rec_bin": {
+        "sha256": "49d9907a55ba20fa6637f9f788f66ab00793bc8ce57a733a09dbe86b9a2e3db0",
+        "bytes": 8242276
+      },
+      "charset": {
+        "sha256": "e5f8ca61ba03d3a247d06b013119982fa6de2bd48a846018b67bca57ffc56de1",
+        "bytes": 74014
+      }
+    }
+  },
+  "limits": {
+    "owner_seconds": 30,
+    "reference_seconds": 5,
+    "observation_seconds": 5
+  },
+  "online_report": {
+    "window": "480x180 at (20,20) on private Xvfb 520x220; title Canvas; no a11y",
+    "prompt_inputs": "fixed Canvas window_id, target drawing, expected business text, tool order only; positions/answers/ground truth not supplied",
+    "passed": 3,
+    "selection_passed": 3,
+    "total": 3,
+    "samples": [
+      {
+        "sample": "cross-right",
+        "mode": "update",
+        "swapped": false,
+        "passed": true,
+        "selection_passed": true,
+        "exit_code": 0,
+        "selection": {
+          "mark": 2,
+          "ref": "@v2",
+          "template_id": "",
+          "selectable": true,
+          "x": 344,
+          "y": 74,
+          "width": 72,
+          "height": 72
+        },
+        "mark_calls": 1,
+        "click_calls": 1,
+        "verify_calls": 1,
+        "pressed": true,
+        "released": true,
+        "presses": 1,
+        "releases": 1,
+        "wrong_presses": 0,
+        "ok": true,
+        "failed": false,
+        "cancelled": false,
+        "elapsed_ms": 16806,
+        "click_age_ms": 3902,
+        "model_steps": 4,
+        "tool_calls": 3,
+        "supplied_input_items": 4,
+        "supplied_input_dropped": 0,
+        "supply_degradations": 0,
+        "backend_calls": 4,
+        "evidence": [
+          {
+            "tool": "desktop.vision.mark",
+            "status": "complete",
+            "input": {},
+            "verification": {
+              "verified": false,
+              "visual_scope": "@vs1",
+              "environment_epoch": 1,
+              "captured_at_ms": 1791599108693
+            }
+          },
+          {
+            "tool": "desktop.vision.click",
+            "status": "complete",
+            "input": {
+              "environment_epoch": 1,
+              "mark": 2,
+              "verify_kind": "visual_text_exists",
+              "visual_scope": "@vs1",
+              "window_id": "2097153",
+              "condition_digest": "f184b47ccb458f5f4620a96688798a91925f5c8f803c9a7980b00ae47b1aeb1c"
+            },
+            "verification": {
+              "action": "desktop.vision.click",
+              "status": "verified",
+              "reason": "condition_matched",
+              "verified": true,
+              "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+              "observed_digest": "a31ae39682000901e0036c47e0c38464d5a569934435a7d3076c6746a6a05470",
+              "evidence_id": "9df01437dfd0401db5bcba7fd4f135bb",
+              "ocr_backend_calls": 4,
+              "visual_scope": "@vs4",
+              "environment_epoch": 3,
+              "verify_kind": "visual_text_exists",
+              "captured_at_ms": 1791599118870
+            }
+          },
+          {
+            "tool": "desktop.action.verify",
+            "status": "complete",
+            "input": {
+              "action_id": "241f40f921834914962d033470e5a624"
+            },
+            "verification": {
+              "action": "desktop.vision.click",
+              "status": "verified",
+              "reason": "condition_matched",
+              "verified": true,
+              "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+              "observed_digest": "582625d59ffd397f6dbc1879f6edcf1aa48ac538f19a227c44c24eb3c69b16ba",
+              "evidence_id": "b4ee9388884049d4bcd01491aeebd904",
+              "ocr_backend_calls": 3,
+              "visual_scope": "@vs3",
+              "environment_epoch": 3,
+              "verify_kind": "visual_text_exists",
+              "captured_at_ms": 1791599116526
+            }
+          }
+        ],
+        "sample_sha256": [
+          "ae75da1f302d3947a667d2adb1c2e509da831b28b8ed4429903b78b7de8ce712",
+          "071f6a1c08ac0f49bd7854e6ae03d9852552217b2d32e81094bfaaed3031bdc5"
+        ]
+      },
+      {
+        "sample": "cross-left",
+        "mode": "update",
+        "swapped": true,
+        "passed": true,
+        "selection_passed": true,
+        "exit_code": 0,
+        "selection": {
+          "mark": 1,
+          "ref": "@v1",
+          "template_id": "",
+          "selectable": true,
+          "x": 84,
+          "y": 74,
+          "width": 72,
+          "height": 72
+        },
+        "mark_calls": 1,
+        "click_calls": 1,
+        "verify_calls": 1,
+        "pressed": true,
+        "released": true,
+        "presses": 1,
+        "releases": 1,
+        "wrong_presses": 0,
+        "ok": true,
+        "failed": false,
+        "cancelled": false,
+        "elapsed_ms": 11366,
+        "click_age_ms": 4177,
+        "model_steps": 4,
+        "tool_calls": 3,
+        "supplied_input_items": 4,
+        "supplied_input_dropped": 0,
+        "supply_degradations": 0,
+        "backend_calls": 4,
+        "evidence": [
+          {
+            "tool": "desktop.vision.mark",
+            "status": "complete",
+            "input": {},
+            "verification": {
+              "verified": false,
+              "visual_scope": "@vs1",
+              "environment_epoch": 1,
+              "captured_at_ms": 1791599122796
+            }
+          },
+          {
+            "tool": "desktop.vision.click",
+            "status": "complete",
+            "input": {
+              "environment_epoch": 1,
+              "mark": 1,
+              "verify_kind": "visual_text_exists",
+              "visual_scope": "@vs1",
+              "window_id": "2097153",
+              "condition_digest": "07e6b3bc917ba7acbd77398bd4dade49033e30538ddc7295dd406875b9e09349"
+            },
+            "verification": {
+              "action": "desktop.vision.click",
+              "status": "verified",
+              "reason": "condition_matched",
+              "verified": true,
+              "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+              "observed_digest": "a31ae39682000901e0036c47e0c38464d5a569934435a7d3076c6746a6a05470",
+              "evidence_id": "0391691500db4824a763a2f8c6e3b61a",
+              "ocr_backend_calls": 4,
+              "visual_scope": "@vs4",
+              "environment_epoch": 3,
+              "verify_kind": "visual_text_exists",
+              "captured_at_ms": 1791599130981
+            }
+          },
+          {
+            "tool": "desktop.action.verify",
+            "status": "complete",
+            "input": {
+              "action_id": "98cd9ce88ee1430f87c0d555911f57a1"
+            },
+            "verification": {
+              "action": "desktop.vision.click",
+              "status": "verified",
+              "reason": "condition_matched",
+              "verified": true,
+              "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+              "observed_digest": "582625d59ffd397f6dbc1879f6edcf1aa48ac538f19a227c44c24eb3c69b16ba",
+              "evidence_id": "6c145f03867341f1bba37209fff61672",
+              "ocr_backend_calls": 3,
+              "visual_scope": "@vs3",
+              "environment_epoch": 3,
+              "verify_kind": "visual_text_exists",
+              "captured_at_ms": 1791599129584
+            }
+          }
+        ],
+        "sample_sha256": [
+          "38eb9bf27980bf45f0691289c3dcabe7ba741258b4f837aa5ee345928afa9586",
+          "071f6a1c08ac0f49bd7854e6ae03d9852552217b2d32e81094bfaaed3031bdc5"
+        ]
+      },
+      {
+        "sample": "unchanged",
+        "mode": "unchanged",
+        "swapped": true,
+        "passed": true,
+        "selection_passed": true,
+        "exit_code": 0,
+        "selection": {
+          "mark": 1,
+          "ref": "@v1",
+          "template_id": "",
+          "selectable": true,
+          "x": 84,
+          "y": 74,
+          "width": 72,
+          "height": 72
+        },
+        "mark_calls": 1,
+        "click_calls": 1,
+        "verify_calls": 1,
+        "pressed": true,
+        "released": true,
+        "presses": 1,
+        "releases": 1,
+        "wrong_presses": 0,
+        "ok": false,
+        "failed": true,
+        "cancelled": false,
+        "elapsed_ms": 11825,
+        "click_age_ms": 3108,
+        "model_steps": 4,
+        "tool_calls": 3,
+        "supplied_input_items": 4,
+        "supplied_input_dropped": 0,
+        "supply_degradations": 0,
+        "backend_calls": 4,
+        "evidence": [
+          {
+            "tool": "desktop.vision.mark",
+            "status": "complete",
+            "input": {},
+            "verification": {
+              "verified": false,
+              "visual_scope": "@vs1",
+              "environment_epoch": 1,
+              "captured_at_ms": 1791599135802
+            }
+          },
+          {
+            "tool": "desktop.vision.click",
+            "status": "complete",
+            "input": {
+              "environment_epoch": 1,
+              "mark": 1,
+              "verify_kind": "visual_text_exists",
+              "visual_scope": "@vs1",
+              "window_id": "2097153",
+              "condition_digest": "07e6b3bc917ba7acbd77398bd4dade49033e30538ddc7295dd406875b9e09349"
+            },
+            "verification": {
+              "action": "desktop.vision.click",
+              "status": "unverified",
+              "reason": "condition_not_matched",
+              "verified": false,
+              "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+              "observed_digest": "4fd89d8a5a0875b5ec0873a660b5f45be5297cf00db5fa7ae21b6c8673359220",
+              "evidence_id": "e170af93f9674789a371ff786496eb16",
+              "ocr_backend_calls": 4,
+              "visual_scope": "@vs4",
+              "environment_epoch": 3,
+              "verify_kind": "visual_text_exists",
+              "captured_at_ms": 1791599143452
+            }
+          },
+          {
+            "tool": "desktop.action.verify",
+            "status": "complete",
+            "input": {
+              "action_id": "21d6b9503d08438f9195a656b058a7b3"
+            },
+            "verification": {
+              "action": "desktop.vision.click",
+              "status": "unverified",
+              "reason": "condition_not_matched",
+              "verified": false,
+              "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+              "observed_digest": "fd6ec40ccf5d6c49a50be181ea60b5d4fb83af967926357700584ac0874d45da",
+              "evidence_id": "3056f7e0f9504da8afe29542e64d47a2",
+              "ocr_backend_calls": 3,
+              "visual_scope": "@vs3",
+              "environment_epoch": 3,
+              "verify_kind": "visual_text_exists",
+              "captured_at_ms": 1791599141770
+            }
+          }
+        ],
+        "sample_sha256": [
+          "38eb9bf27980bf45f0691289c3dcabe7ba741258b4f837aa5ee345928afa9586",
+          "071f6a1c08ac0f49bd7854e6ae03d9852552217b2d32e81094bfaaed3031bdc5"
+        ]
+      }
+    ],
+    "canvas_summary_note": "first online version printed the supplied-item count as images= in the CANVAS summary; source now prints supplied_items= in live mode; LIVE JSON field supplied_input_items retained here"
+  },
+  "timeline": "online samples 10:25 on the pre-label-fix harness binary; after diagnostic-only changes the binary was rebuilt 10:27 and all regressions/static checks ran 10:27-10:29; product tools/model/network stack and deadlines unchanged; no repeat paid requests",
+  "regressions": {
+    "geometry_canvas": {
+      "passed": 3,
+      "total": 3
+    },
+    "text_canvas": {
+      "passed": 5,
+      "total": 5
+    },
+    "template_canvas": {
+      "passed": 4,
+      "total": 4
+    },
+    "template_canvas_asan_ubsan": {
+      "passed": 4,
+      "total": 4
+    }
+  },
+  "builds": {
+    "native-debug": {
+      "passed": 60,
+      "total": 60,
+      "elapsed_seconds": 27.51,
+      "ppocr": false
+    },
+    "native-release": {
+      "passed": 60,
+      "total": 60,
+      "elapsed_seconds": 22.39,
+      "ppocr": false
+    },
+    "ocr-debug": {
+      "passed": 59,
+      "total": 59,
+      "elapsed_seconds": 24.01,
+      "ppocr": true
+    },
+    "ocr-asan targeted": {
+      "passed": 4,
+      "total": 4,
+      "elapsed_seconds": 8.06,
+      "ppocr": true,
+      "tests": [
+        "post_action_verification_test",
+        "visual_text_verification_test",
+        "visual_marks_test",
+        "x11_visual_marks_test"
+      ]
+    },
+    "ocr-tsan targeted": {
+      "passed": 4,
+      "total": 4,
+      "elapsed_seconds": 8.71,
+      "ppocr": true,
+      "tsan_workaround": "setarch x86_64 -R",
+      "tests": [
+        "post_action_verification_test",
+        "visual_text_verification_test",
+        "visual_marks_test",
+        "x11_visual_marks_test"
+      ]
+    }
+  },
+  "static_checks": {
+    "clang_format": "clang-format --dry-run --Werror tests/platform/x11_visual_marks_test.cpp pass (clang-format 18.1.8)",
+    "git_diff_check": "pass; staging area empty"
+  },
+  "unverified": [
+    "user host acceptance (native Wayland session reports XDG_SESSION_TYPE=wayland; private Xvfb result is no substitute for native Wayland authorization, permission revocation or real host verification)",
+    "other online models/dialects",
+    "free contour icons without geometry candidates",
+    "cross theme/scale robustness and high-resolution partial capture",
+    "host DPI and desktop variations",
+    "Windows and native Wayland platform acceptance",
+    "full-weight TSAN business-path rerun under original 5s observation / 30s owner deadlines",
+    "external weight distribution license follow-up"
+  ],
+  "git": "Online increment remains uncommitted; existing M7 worktree and parallel UI work preserved. Only tests/platform/x11_visual_marks_test.cpp rebuilt after the online run; product sources untouched.",
+  "worktree_head": "c786df7e047f03864f03f3bb1facd413f5111c03",
+  "environment": {
+    "os": "Ubuntu 24.04 Linux 7.0.0-34-generic x86_64",
+    "compiler": "GCC 13.3.0",
+    "cmake": "3.28.3",
+    "cxx_standard": 20,
+    "session": "XDG_SESSION_TYPE=wayland (DISPLAY=:0); private Xvfb for Canvas samples"
+  }
+}

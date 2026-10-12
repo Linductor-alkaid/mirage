@@ -1,0 +1,152 @@
+{
+  "date": "2026-10-11",
+  "decision": "DEC-077",
+  "work_item": "M7-10",
+  "status": "In Progress",
+  "scope": "Task-owned single-monitor RemoteDesktop input and ScreenCast observation; GNOME 46 native Wayland public dynamic fixture, English input",
+  "automated": {
+    "debug": {
+      "passed": 68,
+      "total": 68
+    },
+    "native_release": {
+      "passed": 74,
+      "total": 74
+    },
+    "asan_targeted": {
+      "passed": 7,
+      "total": 7,
+      "detect_leaks": false
+    },
+    "ubsan_targeted": {
+      "passed": 7,
+      "total": 7
+    },
+    "tsan_targeted": {
+      "status": "passed",
+      "aggregate_fixture_timeout_seconds": 180,
+      "prior_attempts": "Core and state tests passed; Portal aggregate exceeded 120 seconds on parallel and serial attempts",
+      "passed": 7,
+      "total": 7,
+      "portal_fixture_elapsed_seconds": 123.96,
+      "new_suppressions": false,
+      "product_deadlines_changed": false
+    },
+    "portal_scenarios": 50,
+    "input_protocol_checks": 37,
+    "shared_input_contract_modes": 19
+  },
+  "host": {
+    "attempt": "result-14",
+    "checks": 11,
+    "failures": 0,
+    "native_wayland": true,
+    "system_remote_control_enabled": true,
+    "input_mode": "English; GTK simple IM context",
+    "dynamic_fixture": true,
+    "successful_input_actions": 6,
+    "all_inputs_released": true,
+    "all_local_receipts_verified": true,
+    "ascii_url_exact_and_enter_submitted": true,
+    "button_delta": 1,
+    "scroll_delta_positive": true,
+    "non_ascii_rejected_without_effect": true,
+    "takeover_closes_session": true,
+    "fixture_closed_after_test": true
+  },
+  "prior_host_failures": {
+    "locked_desktop": "Mutter Session creation inhibited; no input",
+    "static_frame": "stream_state=3, formatted=1, buffer_ready=0 timeout; unresolved",
+    "unicode": "Unmapped Unicode keysyms silently dropped by GNOME; now rejected before effects",
+    "input_method": "Prior ASCII period and Enter failed; final English case passed",
+    "results_12_13": "Device grant 0; user confirmed control switch was off"
+  },
+  "product": {
+    "checks_passed": 37,
+    "checks_total": 37,
+    "workflow_runs": 11,
+    "model_enabled": false,
+    "default_ppocr_ncnn": true,
+    "scope": "Linux private Xvfb; actual embedded product Runtime, PP-OCR/ncnn and public Canvas",
+    "canvas_clicks": 6
+  },
+  "package": {
+    "path": "out/packages/mirage_0.1.0_amd64.deb",
+    "sha256": "c4085b367a4997395e1b0c6d28886e58d55a4014a9c294497695761c621dda8a",
+    "binary_matches": [
+      {
+        "binary": "mirage",
+        "same": true,
+        "sha256": "6bb9428bda43820a567c9e242b9c2920858cbc91177a30b002f29bab2f2a6df1"
+      },
+      {
+        "binary": "mirage-service",
+        "same": true,
+        "sha256": "cf9d6993ccee1a58df411fc463dfbc26d6cd34b5db60eb6ceb861564117992de"
+      },
+      {
+        "binary": "mirage-tray",
+        "same": true,
+        "sha256": "bb949d747b9314e9168febbec127deaf19f7335c3f187029b274e4fc708d830e"
+      },
+      {
+        "binary": "mirage-native",
+        "same": true,
+        "sha256": "842f4d58d01dbe287d77ac52b3869e885d0fb84d5eb407e1822158b56bd27ed2"
+      }
+    ]
+  },
+  "user_state": {
+    "files_checked": 6,
+    "all_unchanged": true
+  },
+  "limitations": [
+    "Static frames not validated without fixture animation",
+    "Arbitrary Unicode transport unavailable",
+    "Other IM modes, compositors and Windows not validated",
+    "Multiple monitors, drag and dynamic DPI not validated",
+    "Real browser/model business completion not validated",
+    "Local receipt does not prove focus or complete business goal",
+    "No commit, push or release this increment"
+  ],
+  "privacy": "No user desktop pixels, OCR text, credentials or private input stored in this evidence",
+  "schema": 1,
+  "evidence_logs": [
+    {
+      "name": "result-14.log",
+      "sha256": "8d348316f6901fc60ca4a592fe265f7de6cceec058bc87d54cda3c60d71def2d"
+    },
+    {
+      "name": "mirage-dec077-debug-suite.log",
+      "sha256": "3a25a69693e91353a52e108cbb43e599b481a54a636db7d1a62a032650cc0028"
+    },
+    {
+      "name": "mirage-dec077-release-suite.log",
+      "sha256": "3e911d55c522cee270d7b2e3a34c3710ba7608a427fd7b3c6580be612b4026db"
+    },
+    {
+      "name": "mirage-dec077-asan-suite.log",
+      "sha256": "b71a420571a50ba909e318c8c7a17e148055f90b75300b15c45511ed6d2a843c"
+    },
+    {
+      "name": "mirage-dec077-ubsan-suite.log",
+      "sha256": "32e3766465eae4e5f1138bdfbbf184b1a76b6cffe9aebe0fd989d91d41ee35d4"
+    },
+    {
+      "name": "mirage-dec077-tsan-suite.log",
+      "sha256": "360d74a446cd77dd457b3902c2504a02e404666e0396b45cfac6cdc8348acbcb"
+    },
+    {
+      "name": "mirage-dec077-tsan-suite-retry.log",
+      "sha256": "5c2e19545ce1c435656956763089550ee47987cf840779fce9b931a49500069b"
+    },
+    {
+      "name": "report.json",
+      "sha256": "1d53b6addd30840259930606ab1b0a3b559ad91119438fd0e795a6ce8ef53fd5"
+    },
+    {
+      "name": "mirage-dec077-tsan-suite-final.log",
+      "sha256": "80b2433c4c0c1af7748695f8a28effb228f3d08eaae281c477fb8c01cdc596ea"
+    }
+  ]
+}

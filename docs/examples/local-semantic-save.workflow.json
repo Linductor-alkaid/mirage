@@ -1,0 +1,31 @@
+{
+  "schema_version": {"major": 1, "minor": 0},
+  "workflow_id": "75c0d066a3be49a99297e83c65ce7110",
+  "name": "Local semantic Save",
+  "summary": "DEC-067: save in the controlled GTK Knowledge Editor without a model request",
+  "parameters": [],
+  "steps": [
+    {
+      "step_id": "75c0d066a3be49a99297e83c65ce7111",
+      "kind": "tool_call",
+      "max_attempts": 1,
+      "arguments": {
+        "tool": "desktop.knowledge.activate",
+        "knowledge_schema": 1,
+        "application": "mirage-knowledge-fixture",
+        "window_title": "Knowledge Editor",
+        "role": "button",
+        "name": "Save",
+        "expected_role": "label",
+        "expected_name": "Saved"
+      },
+      "verification": {
+        "signal": "step_result:75c0d066a3be49a99297e83c65ce7111",
+        "op": "contains",
+        "value": "\"verified\":true"
+      }
+    }
+  ],
+  "default_policy": "recoverable",
+  "allowed_policies": ["strict", "recoverable", "dry_run"]
+}

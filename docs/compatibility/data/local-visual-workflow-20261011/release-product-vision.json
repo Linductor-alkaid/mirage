@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "id": 6,
+  "ok": true,
+  "vision_manifest": "/home/linductor/mirage/build/native-release/share/mirage/vision/ppocrv5-mobile-v1/manifest.json",
+  "active_manifest": "/home/linductor/mirage/build/native-release/share/mirage/vision/ppocrv5-mobile-v1/manifest.json",
+  "vision_supported": true,
+  "vision_running": true,
+  "restart_required": false
+}

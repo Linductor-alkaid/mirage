@@ -1,0 +1,2930 @@
+{
+  "schema": 1,
+  "work_item": "M7-09",
+  "decision": "DEC-065",
+  "date": "2026-10-11",
+  "status": "four distinct host scenarios evidenced; not one consecutive 4/4 run",
+  "environment": {
+    "session": "Xorg",
+    "display": ":0",
+    "screen": "eDP-1 3200x2000",
+    "gtk": "3.24.41",
+    "scale": 2,
+    "fixture_pixels": [
+      1248,
+      720
+    ],
+    "head": "c786df7e047f03864f03f3bb1facd413f5111c03",
+    "branch": "feat/m7-conversation-desktop-tools"
+  },
+  "accepted": [
+    {
+      "run": "round2",
+      "sample": "scroll"
+    },
+    {
+      "run": "round2",
+      "sample": "native-dnd"
+    },
+    {
+      "run": "round2",
+      "sample": "native-blocked"
+    },
+    {
+      "run": "cancel4",
+      "sample": "native-cancel"
+    }
+  ],
+  "runs": [
+    {
+      "schema": 1,
+      "work_item": "M7-09",
+      "decision": "DEC-065",
+      "recorded_at": "2026-10-10T16:11:40.346583+00:00",
+      "session_type": "x11",
+      "display": ":0",
+      "operator_required": true,
+      "source": "own GTK3 fixture, real root ScreenProvider window ROI",
+      "model": "canonical tool registry; no inference; native allocation candidates",
+      "limits": {
+        "packet_bytes": 4096,
+        "operator_seconds": 120,
+        "driver_seconds": 45,
+        "owner_seconds": 30,
+        "reference_seconds": 5
+      },
+      "samples": [
+        {
+          "sample": "scroll",
+          "passed": true,
+          "driver_started": true,
+          "initial_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": false,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0.0,
+            "vertical": 0.0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "ready"
+          },
+          "operator_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": true,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0.0,
+            "vertical": 0.0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "operator_release"
+          },
+          "exit_code": 0,
+          "log_sha256": "ac23bd54b5e5f0495edde6a6dad1e7024a224c0ce323b13d41fb0c236a7237cf",
+          "dispatch_failed": false,
+          "dispatch": {
+            "schema": 2,
+            "status": "dispatched",
+            "window_id": "104857603",
+            "visual_scope": "@vs1",
+            "mark": 1,
+            "ref": "@v1",
+            "verified": true,
+            "side_effect_may_have_occurred": true,
+            "input_released": true,
+            "horizontal_steps": 2,
+            "vertical_steps": 3,
+            "action_id": "58836fc0385f42f8bfbba08677b40296",
+            "verification": {
+              "action_id": "58836fc0385f42f8bfbba08677b40296",
+              "action": "desktop.vision.scroll",
+              "window_id": "104857603",
+              "status": "verified",
+              "reason": "condition_matched",
+              "verify_kind": "window_title_equals",
+              "verified": true,
+              "condition_digest": "7aaf7b24608ce02a336cfac2fab4cddd2e102f9a2ac78f06478afe107c810f43",
+              "evidence_id": "df90debf504942689fc4f82c4ff62107",
+              "observed_digest": "2d5b323434fa4eb8c28d187c37a0052a69c1b657bcac7d61aad096f0e377bac6",
+              "captured_at_ms": 1791648712226,
+              "visual_scope": "",
+              "display_id": "",
+              "model_revision": "",
+              "ocr_backend_calls": 0,
+              "environment_epoch": 3
+            }
+          },
+          "physical_released": true,
+          "owner_released": true,
+          "final_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": true,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 89.62809493114328,
+            "vertical": 144.99313483152656,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Scrolled",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "state"
+          },
+          "verified": true,
+          "checks": {
+            "total": 11,
+            "failures": 0
+          },
+          "action_summary": "",
+          "pixel_diagnostic": ""
+        },
+        {
+          "sample": "native-dnd",
+          "passed": false,
+          "driver_started": true,
+          "initial_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": false,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0.0,
+            "vertical": 0.0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "ready"
+          },
+          "operator_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": true,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0.0,
+            "vertical": 0.0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "operator_release"
+          },
+          "exit_code": 1,
+          "log_sha256": "9ce5078637e05073be2f4616736aaae0752aa0972d2decb59955a5aec3038529",
+          "dispatch_failed": true,
+          "dispatch": null,
+          "physical_released": true,
+          "owner_released": true,
+          "final_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": true,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "state"
+          },
+          "verified": true,
+          "diagnostic": "CHECK failed at /home/linductor/mirage/tests/platform/gtk_pointer_effects_test.cpp:401: !dispatched.failed\nCHECK failed at /home/linductor/mirage/tests/platform/gtk_pointer_effects_test.cpp:404: mira::to_json_string(*state.find(\"order\")) == mira::to_json_string(expected)\nCHECK failed at /home/linductor/mirage/tests/platform/gtk_pointer_effects_test.cpp:406: number(*state.find(\"drag_signals\"), \"drop\") == 1 && number(*state.find(\"drag_signals\"), \"failed\") == 0\nCHECK failed at /home/linductor/mirage/tests/platform/gtk_pointer_effects_test.cpp:431: verification.settle() == expected_success\nGTK_DISPATCH native-dnd failed=1 null\nGTK_RELEASE native-dnd physical=1 owner=1\nGTK_EFFECT native-dnd {\"window\":104857603,\"rows\":[{\"x\":44,\"y\":42,\"width\":280,\"height\":56},{\"x\":44,\"y\":142,\"width\":280,\"height\":56},{\"x\":44,\"y\":242,\"width\":280,\"height\":56},{\"x\":44,\"y\":342,\"width\":280,\"height\":56},{\"x\":44,\"y\":442,\"width\":280,\"height\":56}],\"handle\":{\"x\":284,\"y\":24,\"width\":10,\"height\":672},\"position\":130,\"scroll_target\":{\"x\":684,\"y\":84,\"width\":160,\"height\":80},\"scale\":2,\"pixel_width\":1248,\"pixel_height\":720,\"operator_release\":true,\"operator_mode\":true,\"operator_target\":{\"x\":294,\"y\":24,\"width\":290,\"height\":672},\"horizontal\":0,\"vertical\":0,\"order\":[\"Alpha\",\"Bravo\",\"Charlie\",\"Delta\",\"Echo\"],\"title\":\"Mirage M7-09 | Ready\",\"events\":[],\"drag_signals\":{\"begin\":0,\"drop\":0,\"end\":0,\"failed\":0,\"data\":0},\"gtk\":[3,24,41],\"kind\":\"state\"}\nGTK_ACTION native-dnd verified=1 {\"code\":\"stale_observation\",\"side_effect_may_have_occurred\":false,\"input_released\":true,\"verified\":false,\"window_id\":\"104857603\",\"action_id\":\"2d02029f3780467a8a5753f761294133\",\"verification\":{\"action_id\":\"2d02029f3780467a8a5753f761294133\",\"action\":\"desktop.vision.drag\",\"window_id\":\"104857603\",\"status\":\"rejected\",\"reason\":\"action_failed\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"79506aad7ef4c07d56be7920d2312f9de8dc27e3b3b5901f5b062cf56ac6e163\",\"evidence_id\":\"\",\"observed_digest\"...\n[gtk_pointer_effects] 11 checks, 4 failures\n",
+          "checks": {
+            "total": 11,
+            "failures": 4
+          },
+          "action_summary": "{\"code\":\"stale_observation\",\"side_effect_may_have_occurred\":false,\"input_released\":true,\"verified\":false,\"window_id\":\"104857603\",\"action_id\":\"2d02029f3780467a8a5753f761294133\",\"verification\":{\"action_id\":\"2d02029f3780467a8a5753f761294133\",\"action\":\"desktop.vision.drag\",\"window_id\":\"104857603\",\"status\":\"rejected\",\"reason\":\"action_failed\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"79506aad7ef4c07d56be7920d2312f9de8dc27e3b3b5901f5b062cf56ac6e163\",\"evidence_id\":\"\",\"observed_digest\"...",
+          "pixel_diagnostic": ""
+        }
+      ],
+      "passed": 1,
+      "attempted": 2,
+      "total": 4,
+      "binary_sha256": "aabacda397125cfebf3aa3a4929e2c50014d06d5a2c2d224d0dd50cb70ede871",
+      "fixture_sha256": "0554f1b655d27d51e4894676d96e2c45c700de9180da669bad227db208726ed0",
+      "preflight": "ready for operator",
+      "run": "round1"
+    },
+    {
+      "schema": 1,
+      "work_item": "M7-09",
+      "decision": "DEC-065",
+      "recorded_at": "2026-10-10T16:13:01.342802+00:00",
+      "session_type": "x11",
+      "display": ":0",
+      "operator_required": true,
+      "source": "own GTK3 fixture, real root ScreenProvider window ROI",
+      "model": "canonical tool registry; no inference; native allocation candidates",
+      "limits": {
+        "packet_bytes": 4096,
+        "operator_seconds": 120,
+        "driver_seconds": 45,
+        "owner_seconds": 30,
+        "reference_seconds": 5
+      },
+      "samples": [
+        {
+          "sample": "scroll",
+          "passed": true,
+          "driver_started": true,
+          "initial_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": false,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0.0,
+            "vertical": 0.0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "ready"
+          },
+          "operator_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": true,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0.0,
+            "vertical": 0.0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "operator_release"
+          },
+          "compositor_settle_seconds": 0.5,
+          "exit_code": 0,
+          "log_sha256": "37b5133687864f4d287ef546ad47f3753b3a9ffaa3197bcb55c0de84526f76fc",
+          "dispatch_failed": false,
+          "dispatch": {
+            "schema": 2,
+            "status": "dispatched",
+            "window_id": "104857603",
+            "visual_scope": "@vs1",
+            "mark": 1,
+            "ref": "@v1",
+            "verified": false,
+            "side_effect_may_have_occurred": true,
+            "input_released": true,
+            "horizontal_steps": 2,
+            "vertical_steps": 3,
+            "action_id": "7f37fe5f23554fcbbfec40b186cc15f8",
+            "verification": {
+              "action_id": "7f37fe5f23554fcbbfec40b186cc15f8",
+              "action": "desktop.vision.scroll",
+              "window_id": "104857603",
+              "status": "unverified",
+              "reason": "condition_not_matched",
+              "verify_kind": "window_title_equals",
+              "verified": false,
+              "condition_digest": "7aaf7b24608ce02a336cfac2fab4cddd2e102f9a2ac78f06478afe107c810f43",
+              "evidence_id": "33a8e4b29e044ac9b116f06735d10075",
+              "observed_digest": "1eca75d746b2f5365205b9a2c66784a518471dc4356dbc9dc431da5443fa4d5f",
+              "captured_at_ms": 1791648785080,
+              "visual_scope": "",
+              "display_id": "",
+              "model_revision": "",
+              "ocr_backend_calls": 0,
+              "environment_epoch": 3
+            }
+          },
+          "physical_released": true,
+          "owner_released": true,
+          "final_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": true,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 89.62809493114328,
+            "vertical": 144.99313483152656,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Scrolled",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "state"
+          },
+          "verified": true,
+          "checks": {
+            "total": 11,
+            "failures": 0
+          },
+          "action_summary": "",
+          "pixel_diagnostic": ""
+        },
+        {
+          "sample": "native-dnd",
+          "passed": true,
+          "driver_started": true,
+          "initial_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": false,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0.0,
+            "vertical": 0.0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "ready"
+          },
+          "operator_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": true,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0.0,
+            "vertical": 0.0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "operator_release"
+          },
+          "compositor_settle_seconds": 0.5,
+          "exit_code": 0,
+          "log_sha256": "5bbc25e6354d21e6ccf01ff92cac8055f3ea5182f73229157e063c85684f1bf4",
+          "dispatch_failed": false,
+          "dispatch": {
+            "schema": 2,
+            "status": "dispatched",
+            "window_id": "104857603",
+            "visual_scope": "@vs1",
+            "mark": 1,
+            "ref": "@v1",
+            "verified": true,
+            "side_effect_may_have_occurred": true,
+            "input_released": true,
+            "destination_mark": 2,
+            "action_id": "bca873458349429194c171b2a6e4f11e",
+            "verification": {
+              "action_id": "bca873458349429194c171b2a6e4f11e",
+              "action": "desktop.vision.drag",
+              "window_id": "104857603",
+              "status": "verified",
+              "reason": "condition_matched",
+              "verify_kind": "window_title_equals",
+              "verified": true,
+              "condition_digest": "79506aad7ef4c07d56be7920d2312f9de8dc27e3b3b5901f5b062cf56ac6e163",
+              "evidence_id": "99fd7dbf657f4d01b6a0eb3395472386",
+              "observed_digest": "19a7e29968746fd7979b866d32ce67f187e17a7e0b9b289d4c3d80cf23cf5e52",
+              "captured_at_ms": 1791648788487,
+              "visual_scope": "",
+              "display_id": "",
+              "model_revision": "",
+              "ocr_backend_calls": 0,
+              "environment_epoch": 3
+            }
+          },
+          "physical_released": true,
+          "owner_released": true,
+          "final_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": true,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Bravo",
+              "Charlie",
+              "Alpha",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Dropped",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 581901663
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 581901664
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 42,
+                "time": 581901684
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 15
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "state"
+          },
+          "verified": true,
+          "checks": {
+            "total": 12,
+            "failures": 0
+          },
+          "action_summary": "",
+          "pixel_diagnostic": ""
+        },
+        {
+          "sample": "native-blocked",
+          "passed": true,
+          "driver_started": true,
+          "initial_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": false,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0.0,
+            "vertical": 0.0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "ready"
+          },
+          "operator_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": true,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0.0,
+            "vertical": 0.0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 84,
+                "y": 166,
+                "time": 581903449
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 86,
+                "y": 165,
+                "time": 581903456
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 88,
+                "y": 162,
+                "time": 581903464
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 91,
+                "y": 160,
+                "time": 581903471
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 93,
+                "y": 158,
+                "time": 581903478
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 96,
+                "y": 155,
+                "time": 581903485
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 99,
+                "y": 153,
+                "time": 581903492
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 102,
+                "y": 152,
+                "time": 581903499
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 106,
+                "y": 151,
+                "time": 581903507
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 109,
+                "y": 150,
+                "time": 581903514
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 113,
+                "y": 151,
+                "time": 581903521
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 116,
+                "y": 151,
+                "time": 581903528
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 119,
+                "y": 151,
+                "time": 581903535
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 121,
+                "y": 152,
+                "time": 581903543
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 124,
+                "y": 154,
+                "time": 581903550
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 127,
+                "y": 155,
+                "time": 581903557
+              }
+            ],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "operator_release"
+          },
+          "compositor_settle_seconds": 0.5,
+          "exit_code": 0,
+          "log_sha256": "c368834a9398d1a227f49d9eb21a3a5d8a93f418862b24dd68a188b28ed74bed",
+          "dispatch_failed": false,
+          "dispatch": {
+            "schema": 2,
+            "status": "dispatched",
+            "window_id": "104857603",
+            "visual_scope": "@vs1",
+            "mark": 1,
+            "ref": "@v1",
+            "verified": false,
+            "side_effect_may_have_occurred": true,
+            "input_released": true,
+            "destination_mark": 2,
+            "action_id": "a15b991149c54552a1e0ea9d95a65b21",
+            "verification": {
+              "action_id": "a15b991149c54552a1e0ea9d95a65b21",
+              "action": "desktop.vision.drag",
+              "window_id": "104857603",
+              "status": "unverified",
+              "reason": "condition_not_matched",
+              "verify_kind": "window_title_equals",
+              "verified": false,
+              "condition_digest": "79506aad7ef4c07d56be7920d2312f9de8dc27e3b3b5901f5b062cf56ac6e163",
+              "evidence_id": "53eed0b100034a39b55d3abac83f1479",
+              "observed_digest": "091e1ca45a965aaa01afa8467d5eacb077b7623544d99bded3fcbed2bfdef059",
+              "captured_at_ms": 1791648792008,
+              "visual_scope": "",
+              "display_id": "",
+              "model_revision": "",
+              "ocr_backend_calls": 0,
+              "environment_epoch": 3
+            }
+          },
+          "physical_released": true,
+          "owner_released": true,
+          "final_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": true,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 84,
+                "y": 166,
+                "time": 581903449
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 86,
+                "y": 165,
+                "time": 581903456
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 88,
+                "y": 162,
+                "time": 581903464
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 91,
+                "y": 160,
+                "time": 581903471
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 93,
+                "y": 158,
+                "time": 581903478
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 96,
+                "y": 155,
+                "time": 581903485
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 99,
+                "y": 153,
+                "time": 581903492
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 102,
+                "y": 152,
+                "time": 581903499
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 106,
+                "y": 151,
+                "time": 581903507
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 109,
+                "y": 150,
+                "time": 581903514
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 113,
+                "y": 151,
+                "time": 581903521
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 116,
+                "y": 151,
+                "time": 581903528
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 119,
+                "y": 151,
+                "time": 581903535
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 121,
+                "y": 152,
+                "time": 581903543
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 124,
+                "y": 154,
+                "time": 581903550
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 127,
+                "y": 155,
+                "time": 581903557
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 581905199
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 581905200
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 581905211
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 42,
+                "time": 581905220
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 51,
+                "time": 581905228
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 60,
+                "time": 581905237
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 70,
+                "time": 581905246
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 79,
+                "time": 581905255
+              }
+            ],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "state"
+          },
+          "verified": false,
+          "checks": {
+            "total": 11,
+            "failures": 0
+          },
+          "action_summary": "",
+          "pixel_diagnostic": ""
+        },
+        {
+          "sample": "native-cancel",
+          "passed": false,
+          "driver_started": true,
+          "initial_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": false,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0.0,
+            "vertical": 0.0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "ready"
+          },
+          "operator_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": true,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0.0,
+            "vertical": 0.0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 82,
+                "y": 172,
+                "time": 581906895
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 86,
+                "y": 170,
+                "time": 581906902
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 90,
+                "y": 168,
+                "time": 581906909
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 95,
+                "y": 167,
+                "time": 581906916
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 100,
+                "y": 167,
+                "time": 581906923
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 105,
+                "y": 167,
+                "time": 581906930
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 109,
+                "y": 169,
+                "time": 581906938
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 115,
+                "y": 170,
+                "time": 581906945
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 121,
+                "y": 173,
+                "time": 581906952
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 126,
+                "y": 176,
+                "time": 581906959
+              }
+            ],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "operator_release"
+          },
+          "compositor_settle_seconds": 0.5,
+          "exit_code": 1,
+          "log_sha256": "d9fb54e1ee7309e3380b2af7a238e00835b9a988666cf89b360f5b9c21b59a44",
+          "dispatch_failed": true,
+          "dispatch": null,
+          "physical_released": true,
+          "owner_released": true,
+          "final_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": true,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 82,
+                "y": 172,
+                "time": 581906895
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 86,
+                "y": 170,
+                "time": 581906902
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 90,
+                "y": 168,
+                "time": 581906909
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 95,
+                "y": 167,
+                "time": 581906916
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 100,
+                "y": 167,
+                "time": 581906923
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 105,
+                "y": 167,
+                "time": 581906930
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 109,
+                "y": 169,
+                "time": 581906938
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 115,
+                "y": 170,
+                "time": 581906945
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 121,
+                "y": 173,
+                "time": 581906952
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 126,
+                "y": 176,
+                "time": 581906959
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 581908690
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 581908691
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 581908702
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 4
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "state"
+          },
+          "verified": false,
+          "diagnostic": "CHECK failed at /home/linductor/mirage/tests/platform/gtk_pointer_effects_test.cpp:390: dispatched.failed && dispatched.safe_error_summary.find(expected_error) != std::string::npos\nCHECK failed at /home/linductor/mirage/tests/platform/gtk_pointer_effects_test.cpp:393: interrupted\nCHECK failed at /home/linductor/mirage/tests/platform/gtk_pointer_effects_test.cpp:396: cancelled_held\nGTK_DISPATCH native-cancel failed=1 null\nGTK_RELEASE native-cancel physical=1 owner=1\nGTK_EFFECT native-cancel {\"window\":104857603,\"rows\":[{\"x\":44,\"y\":42,\"width\":280,\"height\":56},{\"x\":44,\"y\":142,\"width\":280,\"height\":56},{\"x\":44,\"y\":242,\"width\":280,\"height\":56},{\"x\":44,\"y\":342,\"width\":280,\"height\":56},{\"x\":44,\"y\":442,\"width\":280,\"height\":56}],\"handle\":{\"x\":284,\"y\":24,\"width\":10,\"height\":672},\"position\":130,\"scroll_target\":{\"x\":684,\"y\":84,\"width\":160,\"height\":80},\"scale\":2,\"pixel_width\":1248,\"pixel_height\":720,\"operator_release\":true,\"operator_mode\":true,\"operator_target\":{\"x\":294,\"y\":24,\"width\":290,\"height\":672},\"horizontal\":0,\"vertical\":0,\"order\":[\"Alpha\",\"Bravo\",\"Charlie\",\"Delta\",\"Echo\"],\"title\":\"Mirage M7-09 | Ready\",\"events\":[{\"type\":\"<enum GDK_MOTION_NOTIFY of type Gdk.EventType>\",\"x\":82,\"y\":172,\"time\":581906895},{\"type\":\"<enum GDK_MOTION_NOTIFY of type Gdk.EventType>\",\"x\":86,\"y\":170,\"time\":581906902},{\"type\":\"<enum GDK_MOTION_NOTIFY of type Gdk.EventType>\",\"x\":90,\"y\":168,\"time\":581906909},{\"type\":\"<enum GDK_MOTION_NOTIFY of type Gdk.EventType>\",\"x\":95,\"y\":167,\"time\":581906916},{\"type\":\"<enum GDK_MOTION_NOTIFY of type Gdk.EventType>\",\"x\":100,\"y\":167,\"time\":581906923},{\"type\":\"<enum GDK_MOTION_NOTIFY of type Gdk.EventType>\",\"x\":105,\"y\":167,\"time\":581906930},{\"type\":\"<enum GDK_MOTION_NOTIFY of type Gdk.EventType>\",\"x\":109,\"y\":169,\"time\":581906938},{\"type\":\"<enum GDK_MOTION_NOTIFY of type Gdk.EventType>\",\"x\":115,\"y\":170,\"time\":581906945},{\"type\":\"<enum GDK_MOTION_NOTIFY of type Gdk.EventType>\",\"x\":121,\"y\":173,\"time\":581906952},{\"type\":\"<enum GDK_MOTION_NOTIFY of type Gdk.EventType>\",\"x\":126,\"y\":176,\"time\":581906959},{\"type\":\"<enum GDK_MOTION_NOTIFY of type Gdk.EventType>\",\"x\":80,\"y\":23,\"time\":581908690},{\"type\":\"<enum GDK_BUTTON_PRESS of type Gdk.EventType>\",\"x\":80,\"y\":23,\"time\":581908691},{\"type\":\"<enum GDK_MOTION_NOTIFY of type Gdk.EventType>\",\"x\":80,\"y\":32,\"time\":581908702}],\"drag_signals\":{\"begin\":1,\"drop\":1,\"end\":1,\"failed\":0,\"data\":4},\"gtk\":[3,24,41],\"kind\":\"state\"}\nGTK_ACTION native-cancel verified=0 {\"code\":\"target_obscured\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"104857603\",\"action_id\":\"c6ac0efa76784a44b875bea78dd13caf\",\"verification\":{\"action_id\":\"c6ac0efa76784a44b875bea78dd13caf\",\"action\":\"desktop.vision.drag\",\"window_id\":\"104857603\",\"status\":\"uncertain\",\"reason\":\"observation_changed_or_expired\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"79506aad7ef4c07d56be7920d2312f9de8dc27e3b3b5901f5b062cf56ac6e163\",\"evidence_id\":\"\",\"o...\n[gtk_pointer_effects] 12 checks, 3 failures\n",
+          "checks": {
+            "total": 12,
+            "failures": 3
+          },
+          "action_summary": "{\"code\":\"target_obscured\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"104857603\",\"action_id\":\"c6ac0efa76784a44b875bea78dd13caf\",\"verification\":{\"action_id\":\"c6ac0efa76784a44b875bea78dd13caf\",\"action\":\"desktop.vision.drag\",\"window_id\":\"104857603\",\"status\":\"uncertain\",\"reason\":\"observation_changed_or_expired\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"79506aad7ef4c07d56be7920d2312f9de8dc27e3b3b5901f5b062cf56ac6e163\",\"evidence_id\":\"\",\"o...",
+          "pixel_diagnostic": ""
+        }
+      ],
+      "passed": 3,
+      "attempted": 4,
+      "total": 4,
+      "binary_sha256": "5b9f7f3c2d7f57891a0fbaa9aa7ca383d72fe7d5faaec5887948d70b977fae24",
+      "fixture_sha256": "0554f1b655d27d51e4894676d96e2c45c700de9180da669bad227db208726ed0",
+      "preflight": "ready for operator",
+      "run": "round2"
+    },
+    {
+      "schema": 1,
+      "work_item": "M7-09",
+      "decision": "DEC-065",
+      "recorded_at": "2026-10-10T16:14:31.915504+00:00",
+      "session_type": "x11",
+      "display": ":0",
+      "operator_required": true,
+      "source": "own GTK3 fixture, real root ScreenProvider window ROI",
+      "model": "canonical tool registry; no inference; native allocation candidates",
+      "limits": {
+        "packet_bytes": 4096,
+        "operator_seconds": 120,
+        "driver_seconds": 45,
+        "owner_seconds": 30,
+        "reference_seconds": 5
+      },
+      "samples": [
+        {
+          "sample": "native-cancel",
+          "passed": false,
+          "driver_started": true,
+          "initial_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": false,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0.0,
+            "vertical": 0.0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "ready"
+          },
+          "operator_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": true,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0.0,
+            "vertical": 0.0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "operator_release"
+          },
+          "compositor_settle_seconds": 0.5,
+          "exit_code": 1,
+          "log_sha256": "49bb360ac6b23bba538447adbd291a0d5d49ac08394d57a452868ed48ad94693",
+          "dispatch_failed": true,
+          "dispatch": null,
+          "physical_released": true,
+          "owner_released": true,
+          "final_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": true,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "state"
+          },
+          "verified": false,
+          "diagnostic": "CHECK failed at /home/linductor/mirage/tests/platform/gtk_pointer_effects_test.cpp:392: dispatched.failed && dispatched.safe_error_summary.find(expected_error) != std::string::npos\nCHECK failed at /home/linductor/mirage/tests/platform/gtk_pointer_effects_test.cpp:395: interrupted\nCHECK failed at /home/linductor/mirage/tests/platform/gtk_pointer_effects_test.cpp:396: number(*state.find(\"drag_signals\"), \"begin\") == 1\nCHECK failed at /home/linductor/mirage/tests/platform/gtk_pointer_effects_test.cpp:398: cancelled_held\nGTK_DISPATCH native-cancel failed=1 null\nGTK_RELEASE native-cancel physical=1 owner=1\nGTK_EFFECT native-cancel {\"window\":104857603,\"rows\":[{\"x\":44,\"y\":42,\"width\":280,\"height\":56},{\"x\":44,\"y\":142,\"width\":280,\"height\":56},{\"x\":44,\"y\":242,\"width\":280,\"height\":56},{\"x\":44,\"y\":342,\"width\":280,\"height\":56},{\"x\":44,\"y\":442,\"width\":280,\"height\":56}],\"handle\":{\"x\":284,\"y\":24,\"width\":10,\"height\":672},\"position\":130,\"scroll_target\":{\"x\":684,\"y\":84,\"width\":160,\"height\":80},\"scale\":2,\"pixel_width\":1248,\"pixel_height\":720,\"operator_release\":true,\"operator_mode\":true,\"operator_target\":{\"x\":294,\"y\":24,\"width\":290,\"height\":672},\"horizontal\":0,\"vertical\":0,\"order\":[\"Alpha\",\"Bravo\",\"Charlie\",\"Delta\",\"Echo\"],\"title\":\"Mirage M7-09 | Ready\",\"events\":[],\"drag_signals\":{\"begin\":0,\"drop\":0,\"end\":0,\"failed\":0,\"data\":0},\"gtk\":[3,24,41],\"kind\":\"state\"}\nGTK_ACTION native-cancel verified=0 {\"code\":\"stale_observation\",\"side_effect_may_have_occurred\":false,\"input_released\":true,\"verified\":false,\"window_id\":\"104857603\",\"action_id\":\"31a3bf342567446aa4afe946e738211e\",\"verification\":{\"action_id\":\"31a3bf342567446aa4afe946e738211e\",\"action\":\"desktop.vision.drag\",\"window_id\":\"104857603\",\"status\":\"rejected\",\"reason\":\"action_failed\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"79506aad7ef4c07d56be7920d2312f9de8dc27e3b3b5901f5b062cf56ac6e163\",\"evidence_id\":\"\",\"observed_digest\"...\n[gtk_pointer_effects] 12 checks, 4 failures\n",
+          "checks": {
+            "total": 12,
+            "failures": 4
+          },
+          "action_summary": "{\"code\":\"stale_observation\",\"side_effect_may_have_occurred\":false,\"input_released\":true,\"verified\":false,\"window_id\":\"104857603\",\"action_id\":\"31a3bf342567446aa4afe946e738211e\",\"verification\":{\"action_id\":\"31a3bf342567446aa4afe946e738211e\",\"action\":\"desktop.vision.drag\",\"window_id\":\"104857603\",\"status\":\"rejected\",\"reason\":\"action_failed\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"79506aad7ef4c07d56be7920d2312f9de8dc27e3b3b5901f5b062cf56ac6e163\",\"evidence_id\":\"\",\"observed_digest\"...",
+          "pixel_diagnostic": ""
+        }
+      ],
+      "passed": 0,
+      "attempted": 1,
+      "total": 1,
+      "binary_sha256": "36b57999a93d0af3c206631cb378e71be026105f2eb7910b563b384c39375bc1",
+      "fixture_sha256": "0554f1b655d27d51e4894676d96e2c45c700de9180da669bad227db208726ed0",
+      "preflight": "ready for operator",
+      "run": "cancel3"
+    },
+    {
+      "schema": 1,
+      "work_item": "M7-09",
+      "decision": "DEC-065",
+      "recorded_at": "2026-10-10T16:16:54.455715+00:00",
+      "session_type": "x11",
+      "display": ":0",
+      "operator_required": true,
+      "source": "own GTK3 fixture, real root ScreenProvider window ROI",
+      "model": "canonical tool registry; no inference; native allocation candidates",
+      "limits": {
+        "packet_bytes": 4096,
+        "operator_seconds": 120,
+        "driver_seconds": 45,
+        "owner_seconds": 30,
+        "reference_seconds": 5
+      },
+      "samples": [
+        {
+          "sample": "native-cancel",
+          "passed": true,
+          "driver_started": true,
+          "initial_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": false,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0.0,
+            "vertical": 0.0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "ready"
+          },
+          "operator_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": true,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0.0,
+            "vertical": 0.0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "operator_release"
+          },
+          "compositor_settle_seconds": 0.5,
+          "exit_code": 0,
+          "log_sha256": "d1c996282c12c64c7d749ba8ae7e1bf8060a308dad31eca77d0265da6199d0d7",
+          "dispatch_failed": true,
+          "dispatch": null,
+          "physical_released": true,
+          "owner_released": true,
+          "final_state": {
+            "window": 104857603,
+            "rows": [
+              {
+                "x": 44,
+                "y": 42,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 142,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 242,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 342,
+                "width": 280,
+                "height": 56
+              },
+              {
+                "x": 44,
+                "y": 442,
+                "width": 280,
+                "height": 56
+              }
+            ],
+            "handle": {
+              "x": 284,
+              "y": 24,
+              "width": 10,
+              "height": 672
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 684,
+              "y": 84,
+              "width": 160,
+              "height": 80
+            },
+            "scale": 2,
+            "pixel_width": 1248,
+            "pixel_height": 720,
+            "operator_release": true,
+            "operator_mode": true,
+            "operator_target": {
+              "x": 294,
+              "y": 24,
+              "width": 290,
+              "height": 672
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Mirage M7-09 | Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 582131738
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 582131739
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 582131751
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 0,
+              "end": 1,
+              "failed": 1,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ],
+            "kind": "state"
+          },
+          "verified": false,
+          "checks": {
+            "total": 12,
+            "failures": 0
+          },
+          "action_summary": "tool execution was cancelled",
+          "pixel_diagnostic": ""
+        }
+      ],
+      "passed": 1,
+      "attempted": 1,
+      "total": 1,
+      "binary_sha256": "59e7589550a21baf3c21776d7f9c2c738547f3324f77a277734694d555eb94f4",
+      "fixture_sha256": "0554f1b655d27d51e4894676d96e2c45c700de9180da669bad227db208726ed0",
+      "preflight": "ready for operator",
+      "run": "cancel4"
+    }
+  ],
+  "limits": {
+    "operator_wait_seconds": 120,
+    "driver_seconds": 45,
+    "packet_bytes": 4096,
+    "action_milliseconds": 1000,
+    "reference_seconds": 5,
+    "owner_seconds": 30,
+    "root_capture": "own fixture window ROI only"
+  },
+  "remaining": [
+    "intermittent host stale_observation and early target_obscured cause not isolated",
+    "late 50-logical-pixel host cancellation gate not reached",
+    "Windows / native Wayland / arbitrary applications / mixed DPI and cross-screen",
+    "OCR localization and online model selection",
+    "full-weight TSAN and M7-07 slow model gates"
+  ],
+  "tests": [
+    {
+      "configuration": "native-debug",
+      "total": 64,
+      "failures": 0,
+      "seconds": 48.19,
+      "parallelism": 2,
+      "log_sha256": "ec5df931a1e3995e46ef23d80446ff039eb518faa72b7b2a355bea0c927c9267",
+      "gtk_default_checks": 102,
+      "gtk_scaled_checks": 102,
+      "gtk_handshake_checks": 71,
+      "x11_pointer_checks": 474
+    },
+    {
+      "configuration": "native-release",
+      "total": 64,
+      "failures": 0,
+      "seconds": 44.15,
+      "parallelism": 2,
+      "log_sha256": "7161cc9b32e91dc40961c33ab75a8ba3689b1576b6275b9de1295ca8646be62d",
+      "gtk_default_checks": 102,
+      "gtk_scaled_checks": 102,
+      "gtk_handshake_checks": 71,
+      "x11_pointer_checks": 474
+    },
+    {
+      "configuration": "ocr-asan",
+      "total": 11,
+      "failures": 0,
+      "seconds": 37.12,
+      "parallelism": 2,
+      "log_sha256": "5299167b8440136f80a229f2e402c0d31165a5500eda0a76b819ff2aae70cea3",
+      "gtk_default_checks": 102,
+      "gtk_scaled_checks": 102,
+      "gtk_handshake_checks": 71,
+      "x11_pointer_checks": 474
+    },
+    {
+      "configuration": "ocr-tsan",
+      "total": 11,
+      "failures": 0,
+      "seconds": 69.4,
+      "parallelism": 1,
+      "log_sha256": "15a287e71b86d7225d0c0a0422ce21587b8b7dd5e0d8d40746047d7cb1134f74",
+      "gtk_default_checks": 102,
+      "gtk_scaled_checks": 102,
+      "gtk_handshake_checks": 71,
+      "x11_pointer_checks": 474
+    }
+  ],
+  "test_failures": [
+    {
+      "configuration": "ocr-asan",
+      "total": 11,
+      "failures": 1,
+      "cause": "old expired fixture dereferenced empty requests after admission consumed its 20ms budget; test fixed",
+      "log_sha256": "a8461bde6788d3021b11855d91ecc462d71879503f2b6ab036aa0537f97abc62"
+    },
+    {
+      "configuration": "ocr-tsan",
+      "total": 11,
+      "failures": 1,
+      "cause": "parallel scaled GTK mark returned cancelled under existing observation budget; unchanged serial run passed; no TSAN race warning",
+      "log_sha256": "7be3da9010346bb715d00e803bdd8c6ab3c03a1877d3d29ebe7efd392961a594"
+    }
+  ],
+  "static_checks": {
+    "public_headers": 53,
+    "boundary_violations": 0,
+    "cpp_format_files": 2,
+    "python_compiled_files": 2,
+    "diff_check": "passed"
+  },
+  "source_sha256": {
+    "tests/platform/gtk_pointer_effects_test.cpp": "52ee3f3a3db6e1a168b11bf0892abffaeb2e390b7f3775726502623b164635d7",
+    "tests/runtime/harness_desktop_tools_test.cpp": "284045b1e715b72223200e7f99b1c86864d72f97536a9c57a66f412d7ec2a41c",
+    "tests/manual/gtk_pointer_fixture.py": "0554f1b655d27d51e4894676d96e2c45c700de9180da669bad227db208726ed0",
+    "tests/manual/gtk_pointer_host_acceptance.py": "8f13a636015be4c98330ba7b13c98c66f138d43fb4c56d40162b8a34bd4fa234"
+  }
+}

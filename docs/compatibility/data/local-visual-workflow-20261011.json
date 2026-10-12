@@ -1,0 +1,109 @@
+{
+  "schema": 1,
+  "date": "2026-10-11",
+  "work_item": "M7-11 second increment",
+  "decision": "DEC-069",
+  "scope": "Linux X11 private Canvas; actual embedded Runtime; bundled PP-OCR/ncnn; installed public template assets; zero model requests",
+  "sources": {
+    "integration/mira/src/desktop_visual_knowledge.cpp": "0230e420537d5aa4148a129391340c3a9519fdbcdd6c37647720db433bfc75f7",
+    "integration/mira/src/desktop_visual_knowledge.hpp": "7dca60df79e5d57f9c3d56287bd1df072d84d3919be6b3f6eb11e7de466d3635",
+    "integration/mira/src/desktop_action_verification.cpp": "d593a7858d39e928184267024849c534a89a6f606ffc3fca770a2d83b198981b",
+    "integration/mira/src/desktop_visual_tools.cpp": "f1ac8c1312eace8b0e928848f49d3ef17645b2bfa125cd3315a48bc4e86c3f4f",
+    "integration/mira/src/desktop_atom_toolset.cpp": "24a3a2977cbb047bb9c333837356c7b18556f20daf69a971cc6bb5d35869c4a2",
+    "runtime/service/src/runtime_service.cpp": "7064973dcd6d541aca210e7932e3e35650b465e515a5fe6efb83a7c0e5ee3497",
+    "tests/integration/local_visual_workflow_test.cpp": "f4ecb80f645b51a070e8d811696e3faf46520b482667c1cac993b83f3ce8a329",
+    "tests/runtime/tray_runtime_test.cpp": "f198e8d5ccf52d22d97c8372bbff25384e26c612b5fbfe8b491d5b25bd3f9926",
+    "tests/manual/local_visual_workflow_acceptance.py": "3e998de980e65675f7918dbe545303da0ac5d0999b55f038e8ace11dc135b34f",
+    "docs/examples/local-visual-save.workflow.json": "869882ca653cfeb5b7ee1dbb8b304c41e031e2718bf2bf267ba7f8965515c697"
+  },
+  "tests": [
+    {
+      "name": "release full",
+      "passed": 68,
+      "total": 68,
+      "log_sha256": "ca79210b2535969c73b1b5f6f60fa431ac22c2821e2adf0d2a7a634ca3046f5b"
+    },
+    {
+      "name": "debug full",
+      "passed": 62,
+      "total": 62,
+      "log_sha256": "0aaf171ebdba68999ea473f43c510495a1212db4db92fb9322c0427520bb13c4"
+    },
+    {
+      "name": "ASAN+UBSAN targeted",
+      "passed": 10,
+      "total": 10,
+      "environment": "detect_leaks=1:halt_on_error=1; UBSAN halt_on_error=1",
+      "log_sha256": "436cfd55b09bc1598a981fd2e4e71bb6ae9c0ddcb1a2aa330679adf7f7207d10"
+    },
+    {
+      "name": "TSAN targeted",
+      "passed": 10,
+      "total": 10,
+      "environment": "setarch x86_64 -R; halt_on_error=1; system GLib/GIO suppression only",
+      "log_sha256": "fe983ab47a87202342615a4c0488a13ab7f9330e751443df0a23455fded622ef"
+    }
+  ],
+  "unit_checks": {
+    "local_visual_workflow": 177,
+    "failures": 0
+  },
+  "public_boundary": {
+    "headers": 53,
+    "violations": 0
+  },
+  "pins": {
+    "mira": "c75378ba1374450ae667af64561f86db1f90f4c4",
+    "mirador": "ae8cf87581c1ebe393a67374d9977a38354d0911"
+  },
+  "platform": [
+    {
+      "name": "release-product",
+      "checks_passed": 37,
+      "total": 37,
+      "workflow_runs": 11,
+      "physical_clicks": 6,
+      "model_enabled": false,
+      "clean_owner_exits": 2,
+      "report_sha256": "1ca6246db7c764463e13cd312d24a51055f43d45514bf39b38dddee6cebf77dc"
+    },
+    {
+      "name": "installed-product",
+      "checks_passed": 37,
+      "total": 37,
+      "workflow_runs": 11,
+      "physical_clicks": 6,
+      "model_enabled": false,
+      "clean_owner_exits": 2,
+      "report_sha256": "4285af515411cfbc42a142a1f5d8e69a0aa83de1871c890760ca56a5b5521a8d"
+    }
+  ],
+  "package": {
+    "path": "out/packages/mirage_0.1.0_amd64.deb",
+    "bytes": 54456812,
+    "sha256": "645c1dea987acc1b6210ac43af59c92c7b1e0278843ef050e5d59942cbc4c450",
+    "extracted_tray_matches_rebuilt_product": true,
+    "installed_product_checks": 37
+  },
+  "initial_failures": [
+    "Initial post capture preceded Canvas repaint; fixed bounded read-only recheck, never repeated input.",
+    "Repeated actual product status query timeouts at 5s and diagnostic 20s; four service workers occupied by workflow drive + monitor + two overlapping maintenance waiters. Fixed single maintenance admission.",
+    "Regression publish gate rejected Exists against absent step_result; fixture changed to ne scalar, DryRun unevaluable allowed.",
+    "Initial parallel Debug DBus properties_changed wait failed; final full suite passed.",
+    "Initial TSAN without setarch failed unexpected memory mapping; final setarch run passed."
+  ],
+  "unverified": {
+    "owner": "Mirage maintainer",
+    "scope": [
+      "user desktop",
+      "Windows",
+      "native Wayland",
+      "arbitrary apps/DPI/screens",
+      "full OCR weights under sanitizers",
+      "native conversation asset selection and recovery",
+      "automatic cross-restart workflow asset hydration",
+      "multi-page AppModel navigation"
+    ],
+    "rerun_conditions": "Target platform, supported app initial state and permissions available."
+  }
+}

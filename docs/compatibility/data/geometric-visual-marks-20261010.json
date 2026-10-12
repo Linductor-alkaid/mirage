@@ -1,0 +1,893 @@
+{
+  "schema": 1,
+  "normal": {
+    "manifest_sha256": "1f69ede65687a09af3addb555a96e1365a06eb7773f090576626a4fad02a5213",
+    "source_manifest_sha256": "0210022d7f85dc0f7e0f8caebf1b5e5a9af89db49c87c25ab877d3a39e9ce6a4",
+    "font_sha256": "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9",
+    "passed": 3,
+    "total": 3,
+    "source": "private Xvfb 520x220; Canvas 480x180 at (20,20); no initial text/a11y",
+    "model": "scripted Mira provider; live visual model not tested",
+    "samples": [
+      {
+        "sample": "left",
+        "side": "left",
+        "mode": "update",
+        "expected": "Task saved",
+        "exit_code": 0,
+        "passed": true,
+        "target": {
+          "mark": 1,
+          "ref": "@v1",
+          "selectable": true,
+          "x": 84,
+          "y": 74,
+          "width": 72,
+          "height": 72
+        },
+        "summary": "CANVAS update=1 ok=1 pressed=1 released=1 images=1 backend_calls=4 geometry=1 title=Canvas a11y=0",
+        "evidence": [
+          {
+            "tool": "desktop.vision.click",
+            "result": {
+              "schema": 2,
+              "status": "dispatched",
+              "window_id": "2097153",
+              "visual_scope": "@vs1",
+              "mark": 1,
+              "ref": "@v1",
+              "verified": true,
+              "side_effect_may_have_occurred": true,
+              "input_released": true,
+              "action_id": "2f6fc55dcfbd4813a5fdfb41bb4aa61b",
+              "verification": {
+                "action_id": "2f6fc55dcfbd4813a5fdfb41bb4aa61b",
+                "action": "desktop.vision.click",
+                "window_id": "2097153",
+                "status": "verified",
+                "reason": "condition_matched",
+                "verify_kind": "visual_text_exists",
+                "verified": true,
+                "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+                "evidence_id": "9e9d66d734cd419a8a3a86ad2687b450",
+                "observed_digest": "a31ae39682000901e0036c47e0c38464d5a569934435a7d3076c6746a6a05470",
+                "captured_at_ms": 1791597050931,
+                "visual_scope": "@vs4",
+                "display_id": "screen",
+                "model_revision": "6364328632e0ff6bd31cc22744a51307b2c5ecfb8961d44cd51fc227d1d0344b",
+                "ocr_backend_calls": 4,
+                "environment_epoch": 3
+              }
+            }
+          },
+          {
+            "tool": "desktop.action.verify",
+            "result": {
+              "action_id": "2f6fc55dcfbd4813a5fdfb41bb4aa61b",
+              "action": "desktop.vision.click",
+              "window_id": "2097153",
+              "status": "verified",
+              "reason": "condition_matched",
+              "verify_kind": "visual_text_exists",
+              "verified": true,
+              "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+              "evidence_id": "ed317d3fde8943fcb9bd7bbdcb1a9902",
+              "observed_digest": "582625d59ffd397f6dbc1879f6edcf1aa48ac538f19a227c44c24eb3c69b16ba",
+              "captured_at_ms": 1791597050292,
+              "visual_scope": "@vs3",
+              "display_id": "screen",
+              "model_revision": "6364328632e0ff6bd31cc22744a51307b2c5ecfb8961d44cd51fc227d1d0344b",
+              "ocr_backend_calls": 3,
+              "environment_epoch": 3
+            }
+          }
+        ],
+        "sample_sha256": [
+          "97d30b8597959db2e6bc31368127759570322767806b091aea6250f60296e30e",
+          "071f6a1c08ac0f49bd7854e6ae03d9852552217b2d32e81094bfaaed3031bdc5"
+        ]
+      },
+      {
+        "sample": "right",
+        "side": "right",
+        "mode": "update",
+        "expected": "Task saved",
+        "exit_code": 0,
+        "passed": true,
+        "target": {
+          "mark": 2,
+          "ref": "@v2",
+          "selectable": true,
+          "x": 344,
+          "y": 74,
+          "width": 72,
+          "height": 72
+        },
+        "summary": "CANVAS update=1 ok=1 pressed=1 released=1 images=1 backend_calls=4 geometry=1 title=Canvas a11y=0",
+        "evidence": [
+          {
+            "tool": "desktop.vision.click",
+            "result": {
+              "schema": 2,
+              "status": "dispatched",
+              "window_id": "2097153",
+              "visual_scope": "@vs1",
+              "mark": 2,
+              "ref": "@v2",
+              "verified": true,
+              "side_effect_may_have_occurred": true,
+              "input_released": true,
+              "action_id": "a35f2b2c76af4824a7456a11cb2e2e5a",
+              "verification": {
+                "action_id": "a35f2b2c76af4824a7456a11cb2e2e5a",
+                "action": "desktop.vision.click",
+                "window_id": "2097153",
+                "status": "verified",
+                "reason": "condition_matched",
+                "verify_kind": "visual_text_exists",
+                "verified": true,
+                "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+                "evidence_id": "eebcf2143972416491947182c2339645",
+                "observed_digest": "a31ae39682000901e0036c47e0c38464d5a569934435a7d3076c6746a6a05470",
+                "captured_at_ms": 1791597053268,
+                "visual_scope": "@vs4",
+                "display_id": "screen",
+                "model_revision": "6364328632e0ff6bd31cc22744a51307b2c5ecfb8961d44cd51fc227d1d0344b",
+                "ocr_backend_calls": 4,
+                "environment_epoch": 3
+              }
+            }
+          },
+          {
+            "tool": "desktop.action.verify",
+            "result": {
+              "action_id": "a35f2b2c76af4824a7456a11cb2e2e5a",
+              "action": "desktop.vision.click",
+              "window_id": "2097153",
+              "status": "verified",
+              "reason": "condition_matched",
+              "verify_kind": "visual_text_exists",
+              "verified": true,
+              "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+              "evidence_id": "51be55504bc74074925ed6fa0dd88fff",
+              "observed_digest": "582625d59ffd397f6dbc1879f6edcf1aa48ac538f19a227c44c24eb3c69b16ba",
+              "captured_at_ms": 1791597052864,
+              "visual_scope": "@vs3",
+              "display_id": "screen",
+              "model_revision": "6364328632e0ff6bd31cc22744a51307b2c5ecfb8961d44cd51fc227d1d0344b",
+              "ocr_backend_calls": 3,
+              "environment_epoch": 3
+            }
+          }
+        ],
+        "sample_sha256": [
+          "97d30b8597959db2e6bc31368127759570322767806b091aea6250f60296e30e",
+          "071f6a1c08ac0f49bd7854e6ae03d9852552217b2d32e81094bfaaed3031bdc5"
+        ]
+      },
+      {
+        "sample": "unchanged",
+        "side": "right",
+        "mode": "unchanged",
+        "expected": "Task saved",
+        "exit_code": 0,
+        "passed": true,
+        "target": {
+          "mark": 2,
+          "ref": "@v2",
+          "selectable": true,
+          "x": 344,
+          "y": 74,
+          "width": 72,
+          "height": 72
+        },
+        "summary": "CANVAS update=0 ok=0 pressed=1 released=1 images=1 backend_calls=4 geometry=1 title=Canvas a11y=0",
+        "evidence": [
+          {
+            "tool": "desktop.vision.click",
+            "result": {
+              "schema": 2,
+              "status": "dispatched",
+              "window_id": "2097153",
+              "visual_scope": "@vs1",
+              "mark": 2,
+              "ref": "@v2",
+              "verified": false,
+              "side_effect_may_have_occurred": true,
+              "input_released": true,
+              "action_id": "af220a20bab54fbfb1d572aee5770571",
+              "verification": {
+                "action_id": "af220a20bab54fbfb1d572aee5770571",
+                "action": "desktop.vision.click",
+                "window_id": "2097153",
+                "status": "unverified",
+                "reason": "condition_not_matched",
+                "verify_kind": "visual_text_exists",
+                "verified": false,
+                "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+                "evidence_id": "cdcbd933777c4433ad1dc80374bde690",
+                "observed_digest": "4fd89d8a5a0875b5ec0873a660b5f45be5297cf00db5fa7ae21b6c8673359220",
+                "captured_at_ms": 1791597055191,
+                "visual_scope": "@vs4",
+                "display_id": "screen",
+                "model_revision": "6364328632e0ff6bd31cc22744a51307b2c5ecfb8961d44cd51fc227d1d0344b",
+                "ocr_backend_calls": 4,
+                "environment_epoch": 3
+              }
+            }
+          },
+          {
+            "tool": "desktop.action.verify",
+            "result": {
+              "action_id": "af220a20bab54fbfb1d572aee5770571",
+              "action": "desktop.vision.click",
+              "window_id": "2097153",
+              "status": "unverified",
+              "reason": "condition_not_matched",
+              "verify_kind": "visual_text_exists",
+              "verified": false,
+              "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+              "evidence_id": "bc3876780c2d4e72a950d43188543944",
+              "observed_digest": "fd6ec40ccf5d6c49a50be181ea60b5d4fb83af967926357700584ac0874d45da",
+              "captured_at_ms": 1791597054897,
+              "visual_scope": "@vs3",
+              "display_id": "screen",
+              "model_revision": "6364328632e0ff6bd31cc22744a51307b2c5ecfb8961d44cd51fc227d1d0344b",
+              "ocr_backend_calls": 3,
+              "environment_epoch": 3
+            }
+          }
+        ],
+        "sample_sha256": [
+          "97d30b8597959db2e6bc31368127759570322767806b091aea6250f60296e30e",
+          "071f6a1c08ac0f49bd7854e6ae03d9852552217b2d32e81094bfaaed3031bdc5"
+        ]
+      }
+    ]
+  },
+  "asan_ubsan": {
+    "manifest_sha256": "1f69ede65687a09af3addb555a96e1365a06eb7773f090576626a4fad02a5213",
+    "source_manifest_sha256": "0210022d7f85dc0f7e0f8caebf1b5e5a9af89db49c87c25ab877d3a39e9ce6a4",
+    "font_sha256": "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9",
+    "passed": 3,
+    "total": 3,
+    "source": "private Xvfb 520x220; Canvas 480x180 at (20,20); no initial text/a11y",
+    "model": "scripted Mira provider; live visual model not tested",
+    "samples": [
+      {
+        "sample": "left",
+        "side": "left",
+        "mode": "update",
+        "expected": "Task saved",
+        "exit_code": 0,
+        "passed": true,
+        "target": {
+          "mark": 1,
+          "ref": "@v1",
+          "selectable": true,
+          "x": 84,
+          "y": 74,
+          "width": 72,
+          "height": 72
+        },
+        "summary": "CANVAS update=1 ok=1 pressed=1 released=1 images=1 backend_calls=4 geometry=1 title=Canvas a11y=0",
+        "evidence": [
+          {
+            "tool": "desktop.vision.click",
+            "result": {
+              "schema": 2,
+              "status": "dispatched",
+              "window_id": "2097153",
+              "visual_scope": "@vs1",
+              "mark": 1,
+              "ref": "@v1",
+              "verified": true,
+              "side_effect_may_have_occurred": true,
+              "input_released": true,
+              "action_id": "7169ab7ea9f94e248b299b6964a49f81",
+              "verification": {
+                "action_id": "7169ab7ea9f94e248b299b6964a49f81",
+                "action": "desktop.vision.click",
+                "window_id": "2097153",
+                "status": "verified",
+                "reason": "condition_matched",
+                "verify_kind": "visual_text_exists",
+                "verified": true,
+                "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+                "evidence_id": "82bfcd15defd43008b5910c686750b46",
+                "observed_digest": "dc03f232ded077f900f4ace956ec563c152b95dba372e80032e72bf601318f18",
+                "captured_at_ms": 1791597055042,
+                "visual_scope": "@vs4",
+                "display_id": "screen",
+                "model_revision": "6364328632e0ff6bd31cc22744a51307b2c5ecfb8961d44cd51fc227d1d0344b",
+                "ocr_backend_calls": 4,
+                "environment_epoch": 3
+              }
+            }
+          },
+          {
+            "tool": "desktop.action.verify",
+            "result": {
+              "action_id": "7169ab7ea9f94e248b299b6964a49f81",
+              "action": "desktop.vision.click",
+              "window_id": "2097153",
+              "status": "verified",
+              "reason": "condition_matched",
+              "verify_kind": "visual_text_exists",
+              "verified": true,
+              "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+              "evidence_id": "1f568594756648c49330de5d0b55a8c4",
+              "observed_digest": "8bd2b0cc15412aa8fd7dbdad6c49f2d0ad375743d200ef8dd40f53016c14d1ef",
+              "captured_at_ms": 1791597053795,
+              "visual_scope": "@vs3",
+              "display_id": "screen",
+              "model_revision": "6364328632e0ff6bd31cc22744a51307b2c5ecfb8961d44cd51fc227d1d0344b",
+              "ocr_backend_calls": 3,
+              "environment_epoch": 3
+            }
+          }
+        ],
+        "sample_sha256": [
+          "97d30b8597959db2e6bc31368127759570322767806b091aea6250f60296e30e",
+          "071f6a1c08ac0f49bd7854e6ae03d9852552217b2d32e81094bfaaed3031bdc5"
+        ]
+      },
+      {
+        "sample": "right",
+        "side": "right",
+        "mode": "update",
+        "expected": "Task saved",
+        "exit_code": 0,
+        "passed": true,
+        "target": {
+          "mark": 2,
+          "ref": "@v2",
+          "selectable": true,
+          "x": 344,
+          "y": 74,
+          "width": 72,
+          "height": 72
+        },
+        "summary": "CANVAS update=1 ok=1 pressed=1 released=1 images=1 backend_calls=4 geometry=1 title=Canvas a11y=0",
+        "evidence": [
+          {
+            "tool": "desktop.vision.click",
+            "result": {
+              "schema": 2,
+              "status": "dispatched",
+              "window_id": "2097153",
+              "visual_scope": "@vs1",
+              "mark": 2,
+              "ref": "@v2",
+              "verified": true,
+              "side_effect_may_have_occurred": true,
+              "input_released": true,
+              "action_id": "a8dda9ffcd344ccd95b0138ae6be92f8",
+              "verification": {
+                "action_id": "a8dda9ffcd344ccd95b0138ae6be92f8",
+                "action": "desktop.vision.click",
+                "window_id": "2097153",
+                "status": "verified",
+                "reason": "condition_matched",
+                "verify_kind": "visual_text_exists",
+                "verified": true,
+                "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+                "evidence_id": "e96f081ae9e5461d8be24d6feeb023bf",
+                "observed_digest": "dc03f232ded077f900f4ace956ec563c152b95dba372e80032e72bf601318f18",
+                "captured_at_ms": 1791597061288,
+                "visual_scope": "@vs4",
+                "display_id": "screen",
+                "model_revision": "6364328632e0ff6bd31cc22744a51307b2c5ecfb8961d44cd51fc227d1d0344b",
+                "ocr_backend_calls": 4,
+                "environment_epoch": 3
+              }
+            }
+          },
+          {
+            "tool": "desktop.action.verify",
+            "result": {
+              "action_id": "a8dda9ffcd344ccd95b0138ae6be92f8",
+              "action": "desktop.vision.click",
+              "window_id": "2097153",
+              "status": "verified",
+              "reason": "condition_matched",
+              "verify_kind": "visual_text_exists",
+              "verified": true,
+              "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+              "evidence_id": "32b7456490384e38b1a6a67599786bf6",
+              "observed_digest": "8bd2b0cc15412aa8fd7dbdad6c49f2d0ad375743d200ef8dd40f53016c14d1ef",
+              "captured_at_ms": 1791597060074,
+              "visual_scope": "@vs3",
+              "display_id": "screen",
+              "model_revision": "6364328632e0ff6bd31cc22744a51307b2c5ecfb8961d44cd51fc227d1d0344b",
+              "ocr_backend_calls": 3,
+              "environment_epoch": 3
+            }
+          }
+        ],
+        "sample_sha256": [
+          "97d30b8597959db2e6bc31368127759570322767806b091aea6250f60296e30e",
+          "071f6a1c08ac0f49bd7854e6ae03d9852552217b2d32e81094bfaaed3031bdc5"
+        ]
+      },
+      {
+        "sample": "unchanged",
+        "side": "right",
+        "mode": "unchanged",
+        "expected": "Task saved",
+        "exit_code": 0,
+        "passed": true,
+        "target": {
+          "mark": 2,
+          "ref": "@v2",
+          "selectable": true,
+          "x": 344,
+          "y": 74,
+          "width": 72,
+          "height": 72
+        },
+        "summary": "CANVAS update=0 ok=0 pressed=1 released=1 images=1 backend_calls=4 geometry=1 title=Canvas a11y=0",
+        "evidence": [
+          {
+            "tool": "desktop.vision.click",
+            "result": {
+              "schema": 2,
+              "status": "dispatched",
+              "window_id": "2097153",
+              "visual_scope": "@vs1",
+              "mark": 2,
+              "ref": "@v2",
+              "verified": false,
+              "side_effect_may_have_occurred": true,
+              "input_released": true,
+              "action_id": "6fb12294337047ae876c18d200f38397",
+              "verification": {
+                "action_id": "6fb12294337047ae876c18d200f38397",
+                "action": "desktop.vision.click",
+                "window_id": "2097153",
+                "status": "unverified",
+                "reason": "condition_not_matched",
+                "verify_kind": "visual_text_exists",
+                "verified": false,
+                "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+                "evidence_id": "8e20df22f786430ab7e53271ea33fcb8",
+                "observed_digest": "4fd89d8a5a0875b5ec0873a660b5f45be5297cf00db5fa7ae21b6c8673359220",
+                "captured_at_ms": 1791597066885,
+                "visual_scope": "@vs4",
+                "display_id": "screen",
+                "model_revision": "6364328632e0ff6bd31cc22744a51307b2c5ecfb8961d44cd51fc227d1d0344b",
+                "ocr_backend_calls": 4,
+                "environment_epoch": 3
+              }
+            }
+          },
+          {
+            "tool": "desktop.action.verify",
+            "result": {
+              "action_id": "6fb12294337047ae876c18d200f38397",
+              "action": "desktop.vision.click",
+              "window_id": "2097153",
+              "status": "unverified",
+              "reason": "condition_not_matched",
+              "verify_kind": "visual_text_exists",
+              "verified": false,
+              "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+              "evidence_id": "0874b053fca74a139ba94f4ef879e4c2",
+              "observed_digest": "fd6ec40ccf5d6c49a50be181ea60b5d4fb83af967926357700584ac0874d45da",
+              "captured_at_ms": 1791597065982,
+              "visual_scope": "@vs3",
+              "display_id": "screen",
+              "model_revision": "6364328632e0ff6bd31cc22744a51307b2c5ecfb8961d44cd51fc227d1d0344b",
+              "ocr_backend_calls": 3,
+              "environment_epoch": 3
+            }
+          }
+        ],
+        "sample_sha256": [
+          "97d30b8597959db2e6bc31368127759570322767806b091aea6250f60296e30e",
+          "071f6a1c08ac0f49bd7854e6ae03d9852552217b2d32e81094bfaaed3031bdc5"
+        ]
+      }
+    ]
+  },
+  "text_regression": {
+    "manifest_sha256": "0210022d7f85dc0f7e0f8caebf1b5e5a9af89db49c87c25ab877d3a39e9ce6a4",
+    "font_sha256": "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9",
+    "passed": 5,
+    "total": 5,
+    "source": "private Xvfb ScreenProvider capture, 520x220, window 480x180 at (20,20)",
+    "model": "scripted Mira provider; live visual model not tested",
+    "samples": [
+      {
+        "sample": "english",
+        "before": "Submit task",
+        "expected": "Task saved",
+        "mode": "update",
+        "exit_code": 0,
+        "passed": true,
+        "summary": "CANVAS update=1 ok=1 pressed=1 released=1 images=1 backend_calls=4 geometry=0 title=Canvas a11y=0",
+        "evidence": [
+          {
+            "tool": "desktop.vision.click",
+            "result": {
+              "schema": 2,
+              "status": "dispatched",
+              "window_id": "2097153",
+              "visual_scope": "@vs1",
+              "mark": 1,
+              "ref": "@v1",
+              "verified": true,
+              "side_effect_may_have_occurred": true,
+              "input_released": true,
+              "action_id": "b0cb3c6040994d83bdde0800a2cbaf53",
+              "verification": {
+                "action_id": "b0cb3c6040994d83bdde0800a2cbaf53",
+                "action": "desktop.vision.click",
+                "window_id": "2097153",
+                "status": "verified",
+                "reason": "condition_matched",
+                "verify_kind": "visual_text_exists",
+                "verified": true,
+                "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+                "evidence_id": "f09789dd67cf45d4879f61b80fe1b785",
+                "observed_digest": "777d1a38e8d17cbc9cb5400e7e9ee400a2fe46e8f445c17cc5cfd2310895e7b2",
+                "captured_at_ms": 1791597051347,
+                "visual_scope": "@vs4",
+                "display_id": "screen",
+                "model_revision": "51769fd8e9146ef45e7455d27e6f60b4de76ccf2e1a14bc4ede784e2db2322d1",
+                "ocr_backend_calls": 4,
+                "environment_epoch": 3
+              }
+            }
+          },
+          {
+            "tool": "desktop.action.verify",
+            "result": {
+              "action_id": "b0cb3c6040994d83bdde0800a2cbaf53",
+              "action": "desktop.vision.click",
+              "window_id": "2097153",
+              "status": "verified",
+              "reason": "condition_matched",
+              "verify_kind": "visual_text_exists",
+              "verified": true,
+              "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+              "evidence_id": "1c4e7ad1877d4883909f59781670ecc5",
+              "observed_digest": "69931fee7586353db7cd2ba6b1cc19f7dbc4f7e140fbee119e848874e585b3c9",
+              "captured_at_ms": 1791597050611,
+              "visual_scope": "@vs3",
+              "display_id": "screen",
+              "model_revision": "51769fd8e9146ef45e7455d27e6f60b4de76ccf2e1a14bc4ede784e2db2322d1",
+              "ocr_backend_calls": 3,
+              "environment_epoch": 3
+            }
+          }
+        ],
+        "sample_sha256": [
+          "4c28c4beee47d1d5ae975aeff027ba39b3ae839242fc2d0bde489efd8a44c32f",
+          "071f6a1c08ac0f49bd7854e6ae03d9852552217b2d32e81094bfaaed3031bdc5"
+        ]
+      },
+      {
+        "sample": "chinese",
+        "before": "提交任务",
+        "expected": "任务完成",
+        "mode": "update",
+        "exit_code": 0,
+        "passed": true,
+        "summary": "CANVAS update=1 ok=1 pressed=1 released=1 images=1 backend_calls=4 geometry=0 title=Canvas a11y=0",
+        "evidence": [
+          {
+            "tool": "desktop.vision.click",
+            "result": {
+              "schema": 2,
+              "status": "dispatched",
+              "window_id": "2097153",
+              "visual_scope": "@vs1",
+              "mark": 1,
+              "ref": "@v1",
+              "verified": true,
+              "side_effect_may_have_occurred": true,
+              "input_released": true,
+              "action_id": "22ab65d509494acd93021318d2ff46d2",
+              "verification": {
+                "action_id": "22ab65d509494acd93021318d2ff46d2",
+                "action": "desktop.vision.click",
+                "window_id": "2097153",
+                "status": "verified",
+                "reason": "condition_matched",
+                "verify_kind": "visual_text_exists",
+                "verified": true,
+                "condition_digest": "e266a6a27a8829179ba132b0bd21f7be554eefede77595ee80c4979e0820c711",
+                "evidence_id": "83071415e46546eca069fc32ea0451e9",
+                "observed_digest": "302d16fd974fb64ce892d2314c57f866f90339dac6cf81543d7e454229b5d065",
+                "captured_at_ms": 1791597053502,
+                "visual_scope": "@vs4",
+                "display_id": "screen",
+                "model_revision": "51769fd8e9146ef45e7455d27e6f60b4de76ccf2e1a14bc4ede784e2db2322d1",
+                "ocr_backend_calls": 4,
+                "environment_epoch": 3
+              }
+            }
+          },
+          {
+            "tool": "desktop.action.verify",
+            "result": {
+              "action_id": "22ab65d509494acd93021318d2ff46d2",
+              "action": "desktop.vision.click",
+              "window_id": "2097153",
+              "status": "verified",
+              "reason": "condition_matched",
+              "verify_kind": "visual_text_exists",
+              "verified": true,
+              "condition_digest": "e266a6a27a8829179ba132b0bd21f7be554eefede77595ee80c4979e0820c711",
+              "evidence_id": "48709765babc48e0a35b464f8ace7be9",
+              "observed_digest": "209bb9f212a7d340a91e7ee252c916024d7f2efd1611513dfddad53a63228318",
+              "captured_at_ms": 1791597053156,
+              "visual_scope": "@vs3",
+              "display_id": "screen",
+              "model_revision": "51769fd8e9146ef45e7455d27e6f60b4de76ccf2e1a14bc4ede784e2db2322d1",
+              "ocr_backend_calls": 3,
+              "environment_epoch": 3
+            }
+          }
+        ],
+        "sample_sha256": [
+          "1cbdf244e2421690fc3325eadcb0505f758479621301fb6c745e19e969c8be7a",
+          "c07b8839a3bd5ac7c5646dcd7ccbe5745aa0ec2df7ed3ceb8713340079d89b90"
+        ]
+      },
+      {
+        "sample": "small",
+        "before": "保存文件",
+        "expected": "文件已保存",
+        "mode": "update",
+        "exit_code": 0,
+        "passed": true,
+        "summary": "CANVAS update=1 ok=1 pressed=1 released=1 images=1 backend_calls=4 geometry=0 title=Canvas a11y=0",
+        "evidence": [
+          {
+            "tool": "desktop.vision.click",
+            "result": {
+              "schema": 2,
+              "status": "dispatched",
+              "window_id": "2097153",
+              "visual_scope": "@vs1",
+              "mark": 1,
+              "ref": "@v1",
+              "verified": true,
+              "side_effect_may_have_occurred": true,
+              "input_released": true,
+              "action_id": "a647b0f2f4fc40d8b6bde848272b0d2f",
+              "verification": {
+                "action_id": "a647b0f2f4fc40d8b6bde848272b0d2f",
+                "action": "desktop.vision.click",
+                "window_id": "2097153",
+                "status": "verified",
+                "reason": "condition_matched",
+                "verify_kind": "visual_text_exists",
+                "verified": true,
+                "condition_digest": "91e68971b7ad2681a621c4744c2b7c82bbf555f1d57e1c9d0f0d7d7bbb0215e2",
+                "evidence_id": "ee53381e8a18428f87d5b3f9b68bac6b",
+                "observed_digest": "23ab8a911467b8b1ca6242534c8bb47a8d51818f977cf23e598ea178d7bbfd34",
+                "captured_at_ms": 1791597055647,
+                "visual_scope": "@vs4",
+                "display_id": "screen",
+                "model_revision": "51769fd8e9146ef45e7455d27e6f60b4de76ccf2e1a14bc4ede784e2db2322d1",
+                "ocr_backend_calls": 4,
+                "environment_epoch": 3
+              }
+            }
+          },
+          {
+            "tool": "desktop.action.verify",
+            "result": {
+              "action_id": "a647b0f2f4fc40d8b6bde848272b0d2f",
+              "action": "desktop.vision.click",
+              "window_id": "2097153",
+              "status": "verified",
+              "reason": "condition_matched",
+              "verify_kind": "visual_text_exists",
+              "verified": true,
+              "condition_digest": "91e68971b7ad2681a621c4744c2b7c82bbf555f1d57e1c9d0f0d7d7bbb0215e2",
+              "evidence_id": "1fd505cb1b824460917bc15ff6c9f72e",
+              "observed_digest": "15a0af05b65d02d03dbc364567d15394ada4966fe72b9cb884cce4bdba790260",
+              "captured_at_ms": 1791597055278,
+              "visual_scope": "@vs3",
+              "display_id": "screen",
+              "model_revision": "51769fd8e9146ef45e7455d27e6f60b4de76ccf2e1a14bc4ede784e2db2322d1",
+              "ocr_backend_calls": 3,
+              "environment_epoch": 3
+            }
+          }
+        ],
+        "sample_sha256": [
+          "70284e111f4c9625e8c6d18989a58690bdba70b63e7123d2baf86deb70db207a",
+          "9df3ca4024404f49214f2a120bf38871e3f2f468b721c390990b5a3e72ef7010"
+        ]
+      },
+      {
+        "sample": "mixed",
+        "before": "提交 Submit",
+        "expected": "完成 Done",
+        "mode": "update",
+        "exit_code": 0,
+        "passed": true,
+        "summary": "CANVAS update=1 ok=1 pressed=1 released=1 images=1 backend_calls=4 geometry=0 title=Canvas a11y=0",
+        "evidence": [
+          {
+            "tool": "desktop.vision.click",
+            "result": {
+              "schema": 2,
+              "status": "dispatched",
+              "window_id": "2097153",
+              "visual_scope": "@vs1",
+              "mark": 1,
+              "ref": "@v1",
+              "verified": true,
+              "side_effect_may_have_occurred": true,
+              "input_released": true,
+              "action_id": "c336cc89ffe64353b5ee76fd3c9acc95",
+              "verification": {
+                "action_id": "c336cc89ffe64353b5ee76fd3c9acc95",
+                "action": "desktop.vision.click",
+                "window_id": "2097153",
+                "status": "verified",
+                "reason": "condition_matched",
+                "verify_kind": "visual_text_exists",
+                "verified": true,
+                "condition_digest": "67117867558b213c3c11aae4c8502873f79d1c3def9e2143dd688a2533e92719",
+                "evidence_id": "46700a43588547f58ec17729b07fb5ac",
+                "observed_digest": "87defa035c004c92de54771c54d8186d3782f5843023f4a92fc4ae2904858928",
+                "captured_at_ms": 1791597057955,
+                "visual_scope": "@vs4",
+                "display_id": "screen",
+                "model_revision": "51769fd8e9146ef45e7455d27e6f60b4de76ccf2e1a14bc4ede784e2db2322d1",
+                "ocr_backend_calls": 4,
+                "environment_epoch": 3
+              }
+            }
+          },
+          {
+            "tool": "desktop.action.verify",
+            "result": {
+              "action_id": "c336cc89ffe64353b5ee76fd3c9acc95",
+              "action": "desktop.vision.click",
+              "window_id": "2097153",
+              "status": "verified",
+              "reason": "condition_matched",
+              "verify_kind": "visual_text_exists",
+              "verified": true,
+              "condition_digest": "67117867558b213c3c11aae4c8502873f79d1c3def9e2143dd688a2533e92719",
+              "evidence_id": "a09a4488d10c4b89b5be7ad35b9c1e03",
+              "observed_digest": "cb513f034cd573868be2e9508bdd16a0c58f494d7295acf3996c8424af0c5076",
+              "captured_at_ms": 1791597057579,
+              "visual_scope": "@vs3",
+              "display_id": "screen",
+              "model_revision": "51769fd8e9146ef45e7455d27e6f60b4de76ccf2e1a14bc4ede784e2db2322d1",
+              "ocr_backend_calls": 3,
+              "environment_epoch": 3
+            }
+          }
+        ],
+        "sample_sha256": [
+          "4e0de6a127c876258b8600f1a2aedeec01c78a84bdfd3dddb159b1519d4f5af2",
+          "d122a3cee994d541ba095a5cf678793de3c05eb7af1449caeb69e19fa8ab6b0d"
+        ]
+      },
+      {
+        "sample": "unchanged",
+        "before": "Submit task",
+        "expected": "Task saved",
+        "mode": "unchanged",
+        "exit_code": 0,
+        "passed": true,
+        "summary": "CANVAS update=0 ok=0 pressed=1 released=1 images=1 backend_calls=4 geometry=0 title=Canvas a11y=0",
+        "evidence": [
+          {
+            "tool": "desktop.vision.click",
+            "result": {
+              "schema": 2,
+              "status": "dispatched",
+              "window_id": "2097153",
+              "visual_scope": "@vs1",
+              "mark": 1,
+              "ref": "@v1",
+              "verified": false,
+              "side_effect_may_have_occurred": true,
+              "input_released": true,
+              "action_id": "a4b93a6c5a95443f98fe4698279758e5",
+              "verification": {
+                "action_id": "a4b93a6c5a95443f98fe4698279758e5",
+                "action": "desktop.vision.click",
+                "window_id": "2097153",
+                "status": "unverified",
+                "reason": "condition_not_matched",
+                "verify_kind": "visual_text_exists",
+                "verified": false,
+                "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+                "evidence_id": "4c9cf28db88540d4b9df68127c57a03c",
+                "observed_digest": "de4b6cb1e082ea09f75862b22500c09fb3c3f356d58f2f9cc45b2c62537b24c4",
+                "captured_at_ms": 1791597060467,
+                "visual_scope": "@vs4",
+                "display_id": "screen",
+                "model_revision": "51769fd8e9146ef45e7455d27e6f60b4de76ccf2e1a14bc4ede784e2db2322d1",
+                "ocr_backend_calls": 4,
+                "environment_epoch": 3
+              }
+            }
+          },
+          {
+            "tool": "desktop.action.verify",
+            "result": {
+              "action_id": "a4b93a6c5a95443f98fe4698279758e5",
+              "action": "desktop.vision.click",
+              "window_id": "2097153",
+              "status": "unverified",
+              "reason": "condition_not_matched",
+              "verify_kind": "visual_text_exists",
+              "verified": false,
+              "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+              "evidence_id": "a68d93d715c04d59803428efca3780b4",
+              "observed_digest": "aa47e3b16db2f71ffb7c64540731401d8739c1fb37d3f3e03c287feac6a96852",
+              "captured_at_ms": 1791597060011,
+              "visual_scope": "@vs3",
+              "display_id": "screen",
+              "model_revision": "51769fd8e9146ef45e7455d27e6f60b4de76ccf2e1a14bc4ede784e2db2322d1",
+              "ocr_backend_calls": 3,
+              "environment_epoch": 3
+            }
+          }
+        ],
+        "sample_sha256": [
+          "4c28c4beee47d1d5ae975aeff027ba39b3ae839242fc2d0bde489efd8a44c32f",
+          "071f6a1c08ac0f49bd7854e6ae03d9852552217b2d32e81094bfaaed3031bdc5"
+        ]
+      }
+    ]
+  },
+  "full_weight_tsan": "Not run in this increment; prior 0/5 budget limitation remains open.",
+  "pins": {
+    "mira": "c75378ba1374450ae667af64561f86db1f90f4c4",
+    "mirador": "ae8cf87581c1ebe393a67374d9977a38354d0911",
+    "kairo": "ef821dcca05bbf9038409a2ff9acc5ed729936bc",
+    "eui_neo": "a7e625fecc1db1c1acb4850a14fb785e20600041",
+    "ncnn": "e54f7b1f88434e1d844ea0551b880a1cfb079ce1"
+  },
+  "regression": {
+    "headless-debug": {
+      "passed": 59,
+      "total": 59,
+      "seconds": 26.57
+    },
+    "headless-release": {
+      "passed": 59,
+      "total": 59,
+      "seconds": 23.35
+    },
+    "native-debug": {
+      "passed": 60,
+      "total": 60,
+      "seconds": 26.16
+    },
+    "native-release": {
+      "passed": 60,
+      "total": 60,
+      "seconds": 22.07
+    },
+    "ocr-debug": {
+      "passed": 59,
+      "total": 59,
+      "seconds": 24.02
+    },
+    "asan_ubsan_targeted": {
+      "passed": 7,
+      "total": 7,
+      "seconds": 14.07
+    },
+    "tsan_targeted": {
+      "passed": 7,
+      "total": 7,
+      "seconds": 14.57
+    }
+  }
+}

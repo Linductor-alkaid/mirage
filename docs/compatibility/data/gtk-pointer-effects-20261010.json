@@ -1,0 +1,2022 @@
+{
+  "schema": 1,
+  "recorded_at": "2026-10-10T09:32:15.384772+00:00",
+  "work_item": "M7-09",
+  "decision": "DEC-064",
+  "scope": "GTK3 native ScrolledWindow/Paned effects and negative gates on private Xvfb",
+  "work_item_status": "In Progress",
+  "branch": "feat/m7-conversation-desktop-tools",
+  "baseline_head": "c786df7e047f03864f03f3bb1facd413f5111c03",
+  "committed": false,
+  "dependencies_changed": false,
+  "gtk_runtime": [
+    3,
+    24,
+    41
+  ],
+  "inference": "not used; canonical BuiltinToolRegistry executes real Mirage visual tools",
+  "candidate_localization": "FakeOcrBackend derived from native widget allocation; no real OCR quality claim",
+  "screenshot_and_injection": "real ScreenProvider ROI + XTest",
+  "verification": "actual GTK adjustment/Paned position oracle + fixed title condition + fresh readonly verify + settle",
+  "results": [
+    {
+      "configuration": "debug",
+      "build_directory": "native-debug",
+      "passed": 62,
+      "failed": 0,
+      "elapsed_seconds": 40.97,
+      "gtk_scenarios": [
+        {
+          "scenario": "scroll",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 89.62809493114328,
+            "vertical": 144.99313483152656,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Scrolled",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": true,
+          "native_dnd_supported": false
+        },
+        {
+          "scenario": "scroll-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 1249,
+            "vertical": 1564,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": false,
+          "native_dnd_supported": false
+        },
+        {
+          "scenario": "splitter",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 198,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 190,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Resized",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": true,
+          "native_dnd_supported": false
+        },
+        {
+          "scenario": "splitter-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": false,
+          "native_dnd_supported": false
+        },
+        {
+          "scenario": "drag-cancel",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": false,
+          "native_dnd_supported": false
+        },
+        {
+          "scenario": "native-dnd",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 563454830
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 563454830
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 41,
+                "time": 563454846
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 3
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": false,
+          "native_dnd_supported": false
+        }
+      ],
+      "gtk_checks": 469,
+      "log": "/tmp/mirage-m7-gtk-debug-test-final.log"
+    },
+    {
+      "configuration": "release",
+      "build_directory": "native-release",
+      "passed": 62,
+      "failed": 0,
+      "elapsed_seconds": 35.35,
+      "gtk_scenarios": [
+        {
+          "scenario": "scroll",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 89.62809493114328,
+            "vertical": 144.99313483152656,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Scrolled",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": true,
+          "native_dnd_supported": false
+        },
+        {
+          "scenario": "scroll-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 1249,
+            "vertical": 1564,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": false,
+          "native_dnd_supported": false
+        },
+        {
+          "scenario": "splitter",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 194,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 190,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Resized",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": true,
+          "native_dnd_supported": false
+        },
+        {
+          "scenario": "splitter-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": false,
+          "native_dnd_supported": false
+        },
+        {
+          "scenario": "drag-cancel",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": false,
+          "native_dnd_supported": false
+        },
+        {
+          "scenario": "native-dnd",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 563449216
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 563449216
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 41,
+                "time": 563449232
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 3
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": false,
+          "native_dnd_supported": false
+        }
+      ],
+      "gtk_checks": 469,
+      "log": "/tmp/mirage-m7-gtk-release-test-final.log"
+    },
+    {
+      "configuration": "asan",
+      "build_directory": "ocr-asan",
+      "passed": 9,
+      "failed": 0,
+      "elapsed_seconds": 36.36,
+      "gtk_scenarios": [
+        {
+          "scenario": "scroll",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 89.62809493114328,
+            "vertical": 144.99313483152656,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Scrolled",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": true,
+          "native_dnd_supported": false
+        },
+        {
+          "scenario": "scroll-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 1249,
+            "vertical": 1564,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": false,
+          "native_dnd_supported": false
+        },
+        {
+          "scenario": "splitter",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 198,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 190,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Resized",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": true,
+          "native_dnd_supported": false
+        },
+        {
+          "scenario": "splitter-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": false,
+          "native_dnd_supported": false
+        },
+        {
+          "scenario": "drag-cancel",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": false,
+          "native_dnd_supported": false
+        },
+        {
+          "scenario": "native-dnd",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 563419215
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 563419215
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 41,
+                "time": 563419231
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 3
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": false,
+          "native_dnd_supported": false
+        }
+      ],
+      "gtk_checks": 469,
+      "log": "/tmp/mirage-m7-gtk-asan-test-final.log"
+    },
+    {
+      "configuration": "tsan",
+      "build_directory": "ocr-tsan",
+      "passed": 9,
+      "failed": 0,
+      "elapsed_seconds": 42.07,
+      "gtk_scenarios": [
+        {
+          "scenario": "scroll",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 89.62809493114328,
+            "vertical": 144.99313483152656,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Scrolled",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": true,
+          "native_dnd_supported": false
+        },
+        {
+          "scenario": "scroll-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 1249,
+            "vertical": 1564,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": false,
+          "native_dnd_supported": false
+        },
+        {
+          "scenario": "splitter",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 198,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 190,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Resized",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": true,
+          "native_dnd_supported": false
+        },
+        {
+          "scenario": "splitter-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": false,
+          "native_dnd_supported": false
+        },
+        {
+          "scenario": "drag-cancel",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": false,
+          "native_dnd_supported": false
+        },
+        {
+          "scenario": "native-dnd",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 563420377
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 563420377
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 563420386
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 3
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "business_success_expected": false,
+          "native_dnd_supported": false
+        }
+      ],
+      "gtk_checks": 469,
+      "log": "/tmp/mirage-m7-gtk-tsan-test-final.log"
+    }
+  ],
+  "product_change": {
+    "drag_motion_delivery_delay_ms": 8,
+    "segments": 16,
+    "max_action_ms": 1000,
+    "cleanup_release_delay_ms": 0,
+    "new_scheduler_or_worker": false,
+    "shape_hit_test_attempt_retained": false
+  },
+  "initial_native_dnd_positive_failure": {
+    "observed": {
+      "begin": 1,
+      "drop": 0,
+      "failed": 1,
+      "data": 0,
+      "order_changed": false
+    },
+    "mechanical_dispatch_was_successful": true,
+    "status": "application compatibility still unverified; negative rejection tested",
+    "logs": [
+      "/tmp/mirage-m7-gtk-initial-test.log",
+      "/tmp/mirage-m7-gtk-trace-test.log",
+      "/tmp/mirage-m7-gtk-paced-test.log",
+      "/tmp/mirage-m7-gtk-shape-test.log"
+    ]
+  },
+  "fixture_repairs": [
+    "wait for GTK after-paint/sync before ready",
+    "disable fixture animations",
+    "use verification decorator only for mutation tools",
+    "explicit float candidate geometry and correct verify registration API"
+  ],
+  "checks": {
+    "changed_cpp_format": true,
+    "python_compile": true,
+    "public_headers": {
+      "count": 53,
+      "violations": 0
+    },
+    "diff_check": true,
+    "whole_repository_format": "previous untouched apps/native/app.cpp violation remains",
+    "documents": {
+      "files": 9,
+      "local_links": 316,
+      "passed": true,
+      "titles_and_fences": true
+    }
+  },
+  "remaining": [
+    "native GTK TreeView XDND positive acceptance and safe recipient contract",
+    "user Xorg host application",
+    "Windows/native Wayland",
+    "live model/real OCR localization",
+    "arbitrary DPI/multi-display",
+    "production OCR weight TSAN deadline gate"
+  ]
+}

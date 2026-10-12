@@ -1,0 +1,383 @@
+{
+  "schema": 1,
+  "date": "2026-10-10",
+  "work_item": "M7-07",
+  "status": "In Progress",
+  "branch": "feat/m7-conversation-desktop-tools",
+  "base": "c786df7e047f03864f03f3bb1facd413f5111c03",
+  "uncommitted": true,
+  "trigger": "Maintainer reported network adjustment and authorized continuation; one new private three-case run",
+  "scope": "Private Xvfb 3840x2160 with window ROI; public drawings; real model and Screen/XTest/PP-OCR",
+  "reasoning": "none",
+  "budgets": {
+    "owner_seconds": 30,
+    "reference_seconds": 5,
+    "observation_seconds": 5,
+    "captures": 4,
+    "tool_timings": 32,
+    "parent_seconds": 90,
+    "input": "at most once; no retries"
+  },
+  "source_sha256": {
+    "tests/platform/x11_visual_marks_test.cpp": "88dba0a5bcbab1e598d6e475855f6692c255346ecb99732aa94466f65e250797",
+    "tests/integration/visual_marks_test.cpp": "c5281392a2adcc2e53f48ecbfae98cf1ab9374c05f189316f26e4e6563b01f00",
+    "tests/runtime/harness_desktop_tools_test.cpp": "d93c82c2f7fb45f873fa5ea65a0d77b6d9152060e05f39863c6aca0fa4d839f6",
+    "tests/manual/visual_online_acceptance.py": "3939d9b7e1bbcb2a49d06ba41d58db605d135af57528f702925685d34872a840"
+  },
+  "binary": {
+    "path": "build/ocr-debug/tests/x11_visual_marks_test",
+    "sha256": "a00901eccbad46d67510443e96d3565aed20eba0e37497844741275933171e7e"
+  },
+  "network_probe": {
+    "display": ":0",
+    "session_type": "x11",
+    "source": "Unauthenticated direct TLS HEAD /; no credentials or proxy",
+    "origin": "https://api.minimaxi.com",
+    "dns": true,
+    "http": true,
+    "dns_seconds": 0.024,
+    "status_line": "HTTP/1.1 404 Not Found",
+    "elapsed_seconds": 0.167
+  },
+  "online": {
+    "schema": 1,
+    "model": "MiniMax-M3",
+    "dialect": "anthropic.messages.v1",
+    "reasoning": "none",
+    "origin": "https://api.minimaxi.com",
+    "scope": "Private Xvfb 3840x2160 with window ROI; public drawings; real model and Screen/XTest/PP-OCR",
+    "source_manifest_sha256": "608070f1e9b07f02cdd4e27cdb68bcb38ee8fe35a934d47c034b8967ba64d0ba",
+    "manifest_sha256": "608070f1e9b07f02cdd4e27cdb68bcb38ee8fe35a934d47c034b8967ba64d0ba",
+    "font_sha256": "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9",
+    "limits": {
+      "owner_seconds": 30,
+      "reference_seconds": 5,
+      "observation_seconds": 5
+    },
+    "samples": [
+      {
+        "sample": "cross-right",
+        "mode": "update",
+        "swapped": false,
+        "passed": true,
+        "selection_passed": true,
+        "exit_code": 0,
+        "timed_out": false,
+        "mark_calls": 1,
+        "click_calls": 1,
+        "verify_calls": 1,
+        "selected": {
+          "mark": 2,
+          "ref": "@v2",
+          "template_id": "",
+          "selectable": true,
+          "x": 344,
+          "y": 74,
+          "width": 72,
+          "height": 72
+        },
+        "result": {
+          "ok": true,
+          "failed": false,
+          "cancelled": false,
+          "error": "model returned a terminal text answer",
+          "reasoning": "none",
+          "timings": [
+            {
+              "tool": "desktop.vision.mark",
+              "status": "complete",
+              "started_ms": 1515,
+              "finished_ms": 1849,
+              "mark_to_click_ms": -1,
+              "mark_ready_to_click_ms": -1
+            },
+            {
+              "tool": "desktop.vision.click",
+              "status": "complete",
+              "started_ms": 3881,
+              "finished_ms": 4223,
+              "mark_to_click_ms": 2366,
+              "mark_ready_to_click_ms": 2032
+            },
+            {
+              "tool": "desktop.action.verify",
+              "status": "complete",
+              "started_ms": 9929,
+              "finished_ms": 10261,
+              "mark_to_click_ms": -1,
+              "mark_ready_to_click_ms": -1
+            }
+          ],
+          "answer": "已核对本轮声明的动作后条件；这不代表任意业务目标均已完成。\n\n已完成。点击编号 2（白色交叉 X 图案所在黑色方框），verify 返回 verified=true，文本 \"Task saved\" 已通过 fresh OCR 验证。",
+          "pressed": true,
+          "released": true,
+          "presses": 1,
+          "releases": 1,
+          "wrong_presses": 0,
+          "elapsed_ms": 15992,
+          "click_age_ms": 2061,
+          "model_steps": 4,
+          "tool_calls": 3,
+          "supplied_input_items": 4,
+          "supplied_input_dropped": 0,
+          "supply_degradations": 0,
+          "backend_calls": 4,
+          "display": "private-xvfb",
+          "capture_scope": "2097153",
+          "origin": {
+            "x": 20,
+            "y": 20
+          },
+          "tools": [
+            {
+              "tool": "desktop.vision.mark",
+              "input": "{}",
+              "output": "{\"schema\":1,\"source\":\"som\",\"source_id\":\"screen\",\"artifact_id\":\"8e89a6abd5f0398c334225a75213a8ad\",\"sha256\":\"8e89a6abd5f0398c334225a75213a8ad15c2c2509cf797388a24040718aa594c\",\"media_type\":\"image/png\",\"sensitivity\":\"sensitive\",\"byte_size\":259463,\"width\":480,\"height\":180,\"origin_x\":20,\"origin_y\":20,\"scale_numerator\":1,\"scale_denominator\":1,\"environment_epoch\":1,\"task_epoch\":1,\"captured_at_ms\":1791620707589,\"max_age_ms\":5000,\"verified\":false,\"visual_scope\":\"@vs1\",\"visual_generation\":1,\"frame_sequence\":1,\"window_id\":\"2097153\",\"marks\":[{\"mark\":1,\"ref\":\"@v1\",\"template_id\":\"\",\"selectable\":true,\"x\":84,\"y\":74,\"width\":72,\"height\":72},{\"mark\":2,\"ref\":\"@v2\",\"template_id\":\"\",\"selectable\":true,\"x\":344,\"y\":74,\"width\":72,\"height\":72}]}",
+              "status": "complete"
+            },
+            {
+              "tool": "desktop.vision.click",
+              "input": "{\"environment_epoch\":1,\"mark\":2,\"verify_kind\":\"visual_text_exists\",\"visual_scope\":\"@vs1\",\"window_id\":\"2097153\",\"condition_digest\":\"f184b47ccb458f5f4620a96688798a91925f5c8f803c9a7980b00ae47b1aeb1c\"}",
+              "output": "{\"schema\":2,\"status\":\"dispatched\",\"window_id\":\"2097153\",\"visual_scope\":\"@vs1\",\"mark\":2,\"ref\":\"@v2\",\"verified\":true,\"side_effect_may_have_occurred\":true,\"input_released\":true,\"action_id\":\"669350e03e8c44408451c940bc02cd4f\",\"verification\":{\"action_id\":\"669350e03e8c44408451c940bc02cd4f\",\"action\":\"desktop.vision.click\",\"window_id\":\"2097153\",\"status\":\"verified\",\"reason\":\"condition_matched\",\"verify_kind\":\"visual_text_exists\",\"verified\":true,\"condition_digest\":\"bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644\",\"evidence_id\":\"61b8c443f617493cb90fbbd0d2271aab\",\"observed_digest\":\"fa49e58cacd9c37bbafb0cefa6dbcc88c5e28bc38a423faaaaf32acd9a4072e6\",\"captured_at_ms\":1791620721732,\"visual_scope\":\"@vs4\",\"display_id\":\"screen\",\"model_revision\":\"b7882adcb701961606fbeecd49296c214c148d9e10c0863948db2b7a12901b2b\",\"ocr_backend_calls\":4,\"environment_epoch\":3}}",
+              "status": "complete"
+            },
+            {
+              "tool": "desktop.action.verify",
+              "input": "{\"action_id\":\"669350e03e8c44408451c940bc02cd4f\"}",
+              "output": "{\"action_id\":\"669350e03e8c44408451c940bc02cd4f\",\"action\":\"desktop.vision.click\",\"window_id\":\"2097153\",\"status\":\"verified\",\"reason\":\"condition_matched\",\"verify_kind\":\"visual_text_exists\",\"verified\":true,\"condition_digest\":\"bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644\",\"evidence_id\":\"ecdcbf9f5e95433394d99fe478f6cccf\",\"observed_digest\":\"2b9e7a10171a65ea7af6b245f498cbd80cc3404aeb20004090cebefcb8d8e6ff\",\"captured_at_ms\":1791620716001,\"visual_scope\":\"@vs3\",\"display_id\":\"screen\",\"model_revision\":\"b7882adcb701961606fbeecd49296c214c148d9e10c0863948db2b7a12901b2b\",\"ocr_backend_calls\":3,\"environment_epoch\":3}",
+              "status": "complete"
+            }
+          ]
+        },
+        "sample_sha256": [
+          "ae75da1f302d3947a667d2adb1c2e509da831b28b8ed4429903b78b7de8ce712",
+          "071f6a1c08ac0f49bd7854e6ae03d9852552217b2d32e81094bfaaed3031bdc5"
+        ]
+      },
+      {
+        "sample": "cross-left",
+        "mode": "update",
+        "swapped": true,
+        "passed": false,
+        "selection_passed": true,
+        "exit_code": 0,
+        "timed_out": false,
+        "mark_calls": 1,
+        "click_calls": 1,
+        "verify_calls": 0,
+        "selected": {
+          "mark": 1,
+          "ref": "@v1",
+          "template_id": "",
+          "selectable": true,
+          "x": 84,
+          "y": 74,
+          "width": 72,
+          "height": 72
+        },
+        "result": {
+          "ok": false,
+          "failed": true,
+          "cancelled": false,
+          "error": "桌面操作结果未验证或存在不确定副作用，请检查工具证据。",
+          "reasoning": "none",
+          "timings": [
+            {
+              "tool": "desktop.vision.mark",
+              "status": "complete",
+              "started_ms": 1843,
+              "finished_ms": 2133,
+              "mark_to_click_ms": -1,
+              "mark_ready_to_click_ms": -1
+            },
+            {
+              "tool": "desktop.vision.click",
+              "status": "failed",
+              "started_ms": 9541,
+              "finished_ms": 9541,
+              "mark_to_click_ms": 7698,
+              "mark_ready_to_click_ms": 7408
+            }
+          ],
+          "answer": "",
+          "pressed": false,
+          "released": false,
+          "presses": 0,
+          "releases": 0,
+          "wrong_presses": 0,
+          "elapsed_ms": 16446,
+          "click_age_ms": -1,
+          "model_steps": 3,
+          "tool_calls": 2,
+          "supplied_input_items": 3,
+          "supplied_input_dropped": 0,
+          "supply_degradations": 0,
+          "backend_calls": 1,
+          "display": "private-xvfb",
+          "capture_scope": "2097153",
+          "origin": {
+            "x": 20,
+            "y": 20
+          },
+          "tools": [
+            {
+              "tool": "desktop.vision.mark",
+              "input": "{}",
+              "output": "{\"schema\":1,\"source\":\"som\",\"source_id\":\"screen\",\"artifact_id\":\"5ed711cca8e5943567399e27336269e6\",\"sha256\":\"5ed711cca8e5943567399e27336269e6a3ccb6c1baaadadfc5deb92ab62d0718\",\"media_type\":\"image/png\",\"sensitivity\":\"sensitive\",\"byte_size\":259463,\"width\":480,\"height\":180,\"origin_x\":20,\"origin_y\":20,\"scale_numerator\":1,\"scale_denominator\":1,\"environment_epoch\":1,\"task_epoch\":1,\"captured_at_ms\":1791620724513,\"max_age_ms\":5000,\"verified\":false,\"visual_scope\":\"@vs1\",\"visual_generation\":1,\"frame_sequence\":1,\"window_id\":\"2097153\",\"marks\":[{\"mark\":1,\"ref\":\"@v1\",\"template_id\":\"\",\"selectable\":true,\"x\":84,\"y\":74,\"width\":72,\"height\":72},{\"mark\":2,\"ref\":\"@v2\",\"template_id\":\"\",\"selectable\":true,\"x\":344,\"y\":74,\"width\":72,\"height\":72}]}",
+              "status": "complete"
+            },
+            {
+              "tool": "desktop.vision.click",
+              "input": "{\"environment_epoch\":1,\"mark\":1,\"verify_kind\":\"visual_text_exists\",\"visual_scope\":\"@vs1\",\"window_id\":\"2097153\",\"condition_digest\":\"07e6b3bc917ba7acbd77398bd4dade49033e30538ddc7295dd406875b9e09349\"}",
+              "output": "{\"code\":\"stale_observation\",\"side_effect_may_have_occurred\":false,\"input_released\":true,\"verified\":false,\"window_id\":\"2097153\",\"action_id\":\"1acdd0a29e1846a3842fc9c3c3130316\",\"verification\":{\"action_id\":\"1acdd0a29e1846a3842fc9c3c3130316\",\"action\":\"desktop.vision.click\",\"window_id\":\"2097153\",\"status\":\"rejected\",\"reason\":\"action_failed\",\"verify_kind\":\"visual_text_exists\",\"verified\":false,\"condition_digest\":\"bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644\",\"evidence_id\":\"\",\"observed_digest\":\"\",\"captured_at_ms\":0,\"visual_scope\":\"\",\"display_id\":\"\",\"model_revision\":\"\",\"ocr_backend_calls\":0,\"environment_epoch\":1}}",
+              "status": "failed"
+            }
+          ]
+        },
+        "sample_sha256": [
+          "38eb9bf27980bf45f0691289c3dcabe7ba741258b4f837aa5ee345928afa9586",
+          "071f6a1c08ac0f49bd7854e6ae03d9852552217b2d32e81094bfaaed3031bdc5"
+        ]
+      },
+      {
+        "sample": "unchanged",
+        "mode": "unchanged",
+        "swapped": true,
+        "passed": true,
+        "selection_passed": true,
+        "exit_code": 0,
+        "timed_out": false,
+        "mark_calls": 1,
+        "click_calls": 1,
+        "verify_calls": 1,
+        "selected": {
+          "mark": 1,
+          "ref": "@v1",
+          "template_id": "",
+          "selectable": true,
+          "x": 84,
+          "y": 74,
+          "width": 72,
+          "height": 72
+        },
+        "result": {
+          "ok": false,
+          "failed": true,
+          "cancelled": false,
+          "error": "桌面操作结果未验证或存在不确定副作用，请检查工具证据。",
+          "reasoning": "none",
+          "timings": [
+            {
+              "tool": "desktop.vision.mark",
+              "status": "complete",
+              "started_ms": 6502,
+              "finished_ms": 6833,
+              "mark_to_click_ms": -1,
+              "mark_ready_to_click_ms": -1
+            },
+            {
+              "tool": "desktop.vision.click",
+              "status": "complete",
+              "started_ms": 9358,
+              "finished_ms": 9612,
+              "mark_to_click_ms": 2856,
+              "mark_ready_to_click_ms": 2525
+            },
+            {
+              "tool": "desktop.action.verify",
+              "status": "complete",
+              "started_ms": 10876,
+              "finished_ms": 11118,
+              "mark_to_click_ms": -1,
+              "mark_ready_to_click_ms": -1
+            }
+          ],
+          "answer": "",
+          "pressed": true,
+          "released": true,
+          "presses": 1,
+          "releases": 1,
+          "wrong_presses": 0,
+          "elapsed_ms": 12636,
+          "click_age_ms": 2553,
+          "model_steps": 4,
+          "tool_calls": 3,
+          "supplied_input_items": 4,
+          "supplied_input_dropped": 0,
+          "supply_degradations": 0,
+          "backend_calls": 4,
+          "display": "private-xvfb",
+          "capture_scope": "2097153",
+          "origin": {
+            "x": 20,
+            "y": 20
+          },
+          "tools": [
+            {
+              "tool": "desktop.vision.mark",
+              "input": "{}",
+              "output": "{\"schema\":1,\"source\":\"som\",\"source_id\":\"screen\",\"artifact_id\":\"5ed711cca8e5943567399e27336269e6\",\"sha256\":\"5ed711cca8e5943567399e27336269e6a3ccb6c1baaadadfc5deb92ab62d0718\",\"media_type\":\"image/png\",\"sensitivity\":\"sensitive\",\"byte_size\":259463,\"width\":480,\"height\":180,\"origin_x\":20,\"origin_y\":20,\"scale_numerator\":1,\"scale_denominator\":1,\"environment_epoch\":1,\"task_epoch\":1,\"captured_at_ms\":1791620746267,\"max_age_ms\":5000,\"verified\":false,\"visual_scope\":\"@vs1\",\"visual_generation\":1,\"frame_sequence\":1,\"window_id\":\"2097153\",\"marks\":[{\"mark\":1,\"ref\":\"@v1\",\"template_id\":\"\",\"selectable\":true,\"x\":84,\"y\":74,\"width\":72,\"height\":72},{\"mark\":2,\"ref\":\"@v2\",\"template_id\":\"\",\"selectable\":true,\"x\":344,\"y\":74,\"width\":72,\"height\":72}]}",
+              "status": "complete"
+            },
+            {
+              "tool": "desktop.vision.click",
+              "input": "{\"environment_epoch\":1,\"mark\":1,\"verify_kind\":\"visual_text_exists\",\"visual_scope\":\"@vs1\",\"window_id\":\"2097153\",\"condition_digest\":\"07e6b3bc917ba7acbd77398bd4dade49033e30538ddc7295dd406875b9e09349\"}",
+              "output": "{\"schema\":2,\"status\":\"dispatched\",\"window_id\":\"2097153\",\"visual_scope\":\"@vs1\",\"mark\":1,\"ref\":\"@v1\",\"verified\":false,\"side_effect_may_have_occurred\":true,\"input_released\":true,\"action_id\":\"78152d353d6342a099b7e6e080a7b56c\",\"verification\":{\"action_id\":\"78152d353d6342a099b7e6e080a7b56c\",\"action\":\"desktop.vision.click\",\"window_id\":\"2097153\",\"status\":\"unverified\",\"reason\":\"condition_not_matched\",\"verify_kind\":\"visual_text_exists\",\"verified\":false,\"condition_digest\":\"bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644\",\"evidence_id\":\"21fabb2b79d94b8cb0138b426c59dc3a\",\"observed_digest\":\"acc1ccac889d26f5bc9f68c203937a78de51f8cae650f4220dd8a2051b06c99e\",\"captured_at_ms\":1791620752069,\"visual_scope\":\"@vs4\",\"display_id\":\"screen\",\"model_revision\":\"b7882adcb701961606fbeecd49296c214c148d9e10c0863948db2b7a12901b2b\",\"ocr_backend_calls\":4,\"environment_epoch\":3}}",
+              "status": "complete"
+            },
+            {
+              "tool": "desktop.action.verify",
+              "input": "{\"action_id\":\"78152d353d6342a099b7e6e080a7b56c\"}",
+              "output": "{\"action_id\":\"78152d353d6342a099b7e6e080a7b56c\",\"action\":\"desktop.vision.click\",\"window_id\":\"2097153\",\"status\":\"unverified\",\"reason\":\"condition_not_matched\",\"verify_kind\":\"visual_text_exists\",\"verified\":false,\"condition_digest\":\"bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644\",\"evidence_id\":\"b84bb2f36fe74674a54162933c5b3845\",\"observed_digest\":\"1f58d42e109923aa33f3048861d52aa7570355a880e6f13ac7839d5edae999f4\",\"captured_at_ms\":1791620750552,\"visual_scope\":\"@vs3\",\"display_id\":\"screen\",\"model_revision\":\"b7882adcb701961606fbeecd49296c214c148d9e10c0863948db2b7a12901b2b\",\"ocr_backend_calls\":3,\"environment_epoch\":3}",
+              "status": "complete"
+            }
+          ]
+        },
+        "sample_sha256": [
+          "38eb9bf27980bf45f0691289c3dcabe7ba741258b4f837aa5ee345928afa9586",
+          "071f6a1c08ac0f49bd7854e6ae03d9852552217b2d32e81094bfaaed3031bdc5"
+        ]
+      }
+    ],
+    "passed": 2,
+    "selection_passed": 3,
+    "attempted": 3,
+    "total": 3
+  },
+  "logs": {
+    "cross-left.log": {
+      "sha256": "5625543bbd0d52ccebe8e613752c67bd5acbf3fc0d8753fd795dc7caccc14242",
+      "bytes": 5161,
+      "diagnostic": "TIMINGS [{\"tool\":\"desktop.vision.mark\",\"status\":\"complete\",\"started_ms\":1843,\"finished_ms\":2133,\"mark_to_click_ms\":-1,\"mark_ready_to_click_ms\":-1},{\"tool\":\"desktop.vision.click\",\"status\":\"failed\",\"started_ms\":9541,\"finished_ms\":9541,\"mark_to_click_ms\":7698,\"mark_ready_to_click_ms\":7408}]\nEVIDENCE desktop.vision.click {\"code\":\"stale_observation\",\"side_effect_may_have_occurred\":false,\"input_released\":true,\"verified\":false,\"window_id\":\"2097153\",\"action_id\":\"1acdd0a29e1846a3842fc9c3c3130316\",\"verification\":{\"action_id\":\"1acdd0a29e1846a3842fc9c3c3130316\",\"action\":\"desktop.vision.click\",\"window_id\":\"2097153\",\"status\":\"rejected\",\"reason\":\"action_failed\",\"verify_kind\":\"visual_text_exists\",\"verified\":false,\"condition_digest\":\"bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644\",\"evidence_id\":\"\",\"observed_digest\":\"\",\"captured_at_ms\":0,\"visual_scope\":\"\",\"display_id\":\"\",\"model_revision\":\"\",\"ocr_backend_calls\":0,\"environment_epoch\":1}}\nLIVE {\"ok\":false,\"failed\":true,\"cancelled\":false,\"error\":\"桌面操作结果未验证或存在不确定副作用，请检查工具证据。\",\"reasoning\":\"none\",\"timings\":[{\"tool\":\"desktop.vision.mark\",\"status\":\"complete\",\"started_ms\":1843,\"finished_ms\":2133,\"mark_to_click_ms\":-1,\"mark_ready_to_click_ms\":-1},{\"tool\":\"desktop.vision.click\",\"status\":\"failed\",\"started_ms\":9541,\"finished_ms\":9541,\"mark_to_click_ms\":7698,\"mark_ready_to_click_ms\":7408}],\"answer\":\"\",\"pressed\":false,\"released\":false,\"presses\":0,\"releases\":0,\"wrong_presses\":0,\"elapsed_ms\":16446,\"click_age_ms\":-1,\"model_steps\":3,\"tool_calls\":2,\"supplied_input_items\":3,\"supplied_input_dropped\":0,\"supply_degradations\":0,\"backend_calls\":1,\"display\":\"private-xvfb\",\"capture_scope\":\"2097153\",\"origin\":{\"x\":20,\"y\":20},\"tools\":[{\"tool\":\"desktop.vision.mark\",\"input\":\"{}\",\"output\":\"{\\\"schema\\\":1,\\\"source\\\":\\\"som\\\",\\\"source_id\\\":\\\"screen\\\",\\\"artifact_id\\\":\\\"5ed711cca8e5943567399e27336269e6\\\",\\\"sha256\\\":\\\"5ed711cca8e5943567399e27336269e6a3ccb6c1baaadadfc5deb92ab62d0718\\\",\\\"media_type\\\":\\\"image/png\\\",\\\"sensitivity\\\":\\\"sensitive\\\",\\\"byte_size\\\":259463,\\\"width\\\":480,\\\"height\\\":180,\\\"origin_x\\\":20,\\\"origin_y\\\":20,\\\"scale_numerator\\\":1,\\\"scale_denominator\\\":1,\\\"environment_epoch\\\":1,\\\"task_epoch\\\":1,\\\"captured_at_ms\\\":1791620724513,\\\"max_age_ms\\\":5000,\\\"verified\\\":false,\\\"visual_scope\\\":\\\"@vs1\\\",\\\"visual_generation\\\":1,\\\"frame_sequence\\\":1,\\\"window_id\\\":\\\"2097153\\\",\\\"marks\\\":[{\\\"mark\\\":1,\\\"ref\\\":\\\"@v1\\\",\\\"template_id\\\":\\\"\\\",\\\"selectable\\\":true,\\\"x\\\":84,\\\"y\\\":74,\\\"width\\\":72,\\\"height\\\":72},{\\\"mark\\\":2,\\\"ref\\\":\\\"@v2\\\",\\\"template_id\\\":\\\"\\\",\\\"selectable\\\":true,\\\"x\\\":344,\\\"y\\\":74,\\\"width\\\":72,\\\"height\\\":72}]}\",\"status\":\"complete\"},{\"tool\":\"desktop.vision.click\",\"input\":\"{\\\"environment_epoch\\\":1,\\\"mark\\\":1,\\\"verify_kind\\\":\\\"visual_text_exists\\\",\\\"visual_scope\\\":\\\"@vs1\\\",\\\"window_id\\\":\\\"2097153\\\",\\\"condition_digest\\\":\\\"07e6b3bc917ba7acbd77398bd4dade49033e30538ddc7295dd406875b9e09349\\\"}\",\"output\":\"{\\\"code\\\":\\\"stale_observation\\\",\\\"side_effect_may_have_occurred\\\":false,\\\"input_released\\\":true,\\\"verified\\\":false,\\\"window_id\\\":\\\"2097153\\\",\\\"action_id\\\":\\\"1acdd0a29e1846a3842fc9c3c3130316\\\",\\\"verification\\\":{\\\"action_id\\\":\\\"1acdd0a29e1846a3842fc9c3c3130316\\\",\\\"action\\\":\\\"desktop.vision.click\\\",\\\"window_id\\\":\\\"2097153\\\",\\\"status\\\":\\\"rejected\\\",\\\"reason\\\":\\\"action_failed\\\",\\\"verify_kind\\\":\\\"visual_text_exists\\\",\\\"verified\\\":false,\\\"condition_digest\\\":\\\"bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644\\\",\\\"evidence_id\\\":\\\"\\\",\\\"observed_digest\\\":\\\"\\\",\\\"captured_at_ms\\\":0,\\\"visual_scope\\\":\\\"\\\",\\\"display_id\\\":\\\"\\\",\\\"model_revision\\\":\\\"\\\",\\\"ocr_backend_calls\\\":0,\\\"environment_epoch\\\":1}}\",\"status\":\"failed\"}]}\nCANVAS update=1 ok=0 pressed=0 released=0 supplied_items=3 backend_calls=1 geometry=1 template= title=Canvas window=2097153 origin=20,20 display=private-xvfb a11y=0 roi_capture=1\nX11 visual marks: 40 checks passed\n_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed\n_XSERVTransMakeAllCOTSServerListeners: server already running\nThe XKEYBOARD keymap compiler (xkbcomp) reports:\n> Warning:          Could not resolve keysym XF86CameraAccessEnable\n> Warning:          Could not resolve keysym XF86CameraAccessDisable\n> Warning:          Could not resolve keysym XF86CameraAccessToggle\n> Warning:          Could not resolve keysym XF86NextElement\n> Warning:          Could not resolve keysym XF86PreviousElement\n> Warning:          Could not resolve keysym XF86AutopilotEngageToggle\n> Warning:          Could not resolve keysym XF86MarkWaypoint\n> Warning:          Could not resolve keysym XF86Sos\n> Warning:          Could not resolve keysym XF86NavChart\n> Warning:          Could not resolve keysym XF86FishingChart\n> Warning:          Could not resolve keysym XF86SingleRangeRadar\n> Warning:          Could not resolve keysym XF86DualRangeRadar\n> Warning:          Could not resolve keysym XF86RadarOverlay\n> Warning:          Could not resolve keysym XF86TraditionalSonar\n> Warning:          Could not resolve keysym XF86ClearvuSonar\n> Warning:          Could not resolve keysym XF86SidevuSonar\n> Warning:          Could not resolve keysym XF86NavInfo\nErrors from xkbcomp are not fatal to the X server\n"
+    },
+    "unchanged.log": {
+      "sha256": "f7243d29db8a9b7c7dd72c9eb24c5b68314f8b52130b039e5914781facc84f09",
+      "bytes": 7423,
+      "diagnostic": "TIMINGS [{\"tool\":\"desktop.vision.mark\",\"status\":\"complete\",\"started_ms\":6502,\"finished_ms\":6833,\"mark_to_click_ms\":-1,\"mark_ready_to_click_ms\":-1},{\"tool\":\"desktop.vision.click\",\"status\":\"complete\",\"started_ms\":9358,\"finished_ms\":9612,\"mark_to_click_ms\":2856,\"mark_ready_to_click_ms\":2525},{\"tool\":\"desktop.action.verify\",\"status\":\"complete\",\"started_ms\":10876,\"finished_ms\":11118,\"mark_to_click_ms\":-1,\"mark_ready_to_click_ms\":-1}]\nEVIDENCE desktop.vision.click {\"schema\":2,\"status\":\"dispatched\",\"window_id\":\"2097153\",\"visual_scope\":\"@vs1\",\"mark\":1,\"ref\":\"@v1\",\"verified\":false,\"side_effect_may_have_occurred\":true,\"input_released\":true,\"action_id\":\"78152d353d6342a099b7e6e080a7b56c\",\"verification\":{\"action_id\":\"78152d353d6342a099b7e6e080a7b56c\",\"action\":\"desktop.vision.click\",\"window_id\":\"2097153\",\"status\":\"unverified\",\"reason\":\"condition_not_matched\",\"verify_kind\":\"visual_text_exists\",\"verified\":false,\"condition_digest\":\"bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644\",\"evidence_id\":\"21fabb2b79d94b8cb0138b426c59dc3a\",\"observed_digest\":\"acc1ccac889d26f5bc9f68c203937a78de51f8cae650f4220dd8a2051b06c99e\",\"captured_at_ms\":1791620752069,\"visual_scope\":\"@vs4\",\"display_id\":\"screen\",\"model_revision\":\"b7882adcb701961606fbeecd49296c214c148d9e10c0863948db2b7a12901b2b\",\"ocr_backend_calls\":4,\"environment_epoch\":3}}\nEVIDENCE desktop.action.verify {\"action_id\":\"78152d353d6342a099b7e6e080a7b56c\",\"action\":\"desktop.vision.click\",\"window_id\":\"2097153\",\"status\":\"unverified\",\"reason\":\"condition_not_matched\",\"verify_kind\":\"visual_text_exists\",\"verified\":false,\"condition_digest\":\"bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644\",\"evidence_id\":\"b84bb2f36fe74674a54162933c5b3845\",\"observed_digest\":\"1f58d42e109923aa33f3048861d52aa7570355a880e6f13ac7839d5edae999f4\",\"captured_at_ms\":1791620750552,\"visual_scope\":\"@vs3\",\"display_id\":\"screen\",\"model_revision\":\"b7882adcb701961606fbeecd49296c214c148d9e10c0863948db2b7a12901b2b\",\"ocr_backend_calls\":3,\"environment_epoch\":3}\nLIVE {\"ok\":false,\"failed\":true,\"cancelled\":false,\"error\":\"桌面操作结果未验证或存在不确定副作用，请检查工具证据。\",\"reasoning\":\"none\",\"timings\":[{\"tool\":\"desktop.vision.mark\",\"status\":\"complete\",\"started_ms\":6502,\"finished_ms\":6833,\"mark_to_click_ms\":-1,\"mark_ready_to_click_ms\":-1},{\"tool\":\"desktop.vision.click\",\"status\":\"complete\",\"started_ms\":9358,\"finished_ms\":9612,\"mark_to_click_ms\":2856,\"mark_ready_to_click_ms\":2525},{\"tool\":\"desktop.action.verify\",\"status\":\"complete\",\"started_ms\":10876,\"finished_ms\":11118,\"mark_to_click_ms\":-1,\"mark_ready_to_click_ms\":-1}],\"answer\":\"\",\"pressed\":true,\"released\":true,\"presses\":1,\"releases\":1,\"wrong_presses\":0,\"elapsed_ms\":12636,\"click_age_ms\":2553,\"model_steps\":4,\"tool_calls\":3,\"supplied_input_items\":4,\"supplied_input_dropped\":0,\"supply_degradations\":0,\"backend_calls\":4,\"display\":\"private-xvfb\",\"capture_scope\":\"2097153\",\"origin\":{\"x\":20,\"y\":20},\"tools\":[{\"tool\":\"desktop.vision.mark\",\"input\":\"{}\",\"output\":\"{\\\"schema\\\":1,\\\"source\\\":\\\"som\\\",\\\"source_id\\\":\\\"screen\\\",\\\"artifact_id\\\":\\\"5ed711cca8e5943567399e27336269e6\\\",\\\"sha256\\\":\\\"5ed711cca8e5943567399e27336269e6a3ccb6c1baaadadfc5deb92ab62d0718\\\",\\\"media_type\\\":\\\"image/png\\\",\\\"sensitivity\\\":\\\"sensitive\\\",\\\"byte_size\\\":259463,\\\"width\\\":480,\\\"height\\\":180,\\\"origin_x\\\":20,\\\"origin_y\\\":20,\\\"scale_numerator\\\":1,\\\"scale_denominator\\\":1,\\\"environment_epoch\\\":1,\\\"task_epoch\\\":1,\\\"captured_at_ms\\\":1791620746267,\\\"max_age_ms\\\":5000,\\\"verified\\\":false,\\\"visual_scope\\\":\\\"@vs1\\\",\\\"visual_generation\\\":1,\\\"frame_sequence\\\":1,\\\"window_id\\\":\\\"2097153\\\",\\\"marks\\\":[{\\\"mark\\\":1,\\\"ref\\\":\\\"@v1\\\",\\\"template_id\\\":\\\"\\\",\\\"selectable\\\":true,\\\"x\\\":84,\\\"y\\\":74,\\\"width\\\":72,\\\"height\\\":72},{\\\"mark\\\":2,\\\"ref\\\":\\\"@v2\\\",\\\"template_id\\\":\\\"\\\",\\\"selectable\\\":true,\\\"x\\\":344,\\\"y\\\":74,\\\"width\\\":72,\\\"height\\\":72}]}\",\"status\":\"complete\"},{\"tool\":\"desktop.vision.click\",\"input\":\"{\\\"environment_epoch\\\":1,\\\"mark\\\":1,\\\"verify_kind\\\":\\\"visual_text_exists\\\",\\\"visual_scope\\\":\\\"@vs1\\\",\\\"window_id\\\":\\\"2097153\\\",\\\"condition_digest\\\":\\\"07e6b3bc917ba7acbd77398bd4dade49033e30538ddc7295dd406875b9e09349\\\"}\",\"output\":\"{\\\"schema\\\":2,\\\"status\\\":\\\"dispatched\\\",\\\"window_id\\\":\\\"2097153\\\",\\\"visual_scope\\\":\\\"@vs1\\\",\\\"mark\\\":1,\\\"ref\\\":\\\"@v1\\\",\\\"verified\\\":false,\\\"side_effect_may_have_occurred\\\":true,\\\"input_released\\\":true,\\\"action_id\\\":\\\"78152d353d6342a099b7e6e080a7b56c\\\",\\\"verification\\\":{\\\"action_id\\\":\\\"78152d353d6342a099b7e6e080a7b56c\\\",\\\"action\\\":\\\"desktop.vision.click\\\",\\\"window_id\\\":\\\"2097153\\\",\\\"status\\\":\\\"unverified\\\",\\\"reason\\\":\\\"condition_not_matched\\\",\\\"verify_kind\\\":\\\"visual_text_exists\\\",\\\"verified\\\":false,\\\"condition_digest\\\":\\\"bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644\\\",\\\"evidence_id\\\":\\\"21fabb2b79d94b8cb0138b426c59dc3a\\\",\\\"observed_digest\\\":\\\"acc1ccac889d26f5bc9f68c203937a78de51f8cae650f4220dd8a2051b06c99e\\\",\\\"captured_at_ms\\\":1791620752069,\\\"visual_scope\\\":\\\"@vs4\\\",\\\"display_id\\\":\\\"screen\\\",\\\"model_revision\\\":\\\"b7882adcb701961606fbeecd49296c214c148d9e10c0863948db2b7a12901b2b\\\",\\\"ocr_backend_calls\\\":4,\\\"environment_epoch\\\":3}}\",\"status\":\"complete\"},{\"tool\":\"desktop.action.verify\",\"input\":\"{\\\"action_id\\\":\\\"78152d353d6342a099b7e6e080a7b56c\\\"}\",\"output\":\"{\\\"action_id\\\":\\\"78152d353d6342a099b7e6e080a7b56c\\\",\\\"action\\\":\\\"desktop.vision.click\\\",\\\"window_id\\\":\\\"2097153\\\",\\\"status\\\":\\\"unverified\\\",\\\"reason\\\":\\\"condition_not_matched\\\",\\\"verify_kind\\\":\\\"visual_text_exists\\\",\\\"verified\\\":false,\\\"condition_digest\\\":\\\"bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644\\\",\\\"evidence_id\\\":\\\"b84bb2f36fe74674a54162933c5b3845\\\",\\\"observed_digest\\\":\\\"1f58d42e109923aa33f3048861d52aa7570355a880e6f13ac7839d5edae999f4\\\",\\\"captured_at_ms\\\":1791620750552,\\\"visual_scope\\\":\\\"@vs3\\\",\\\"display_id\\\":\\\"screen\\\",\\\"model_revision\\\":\\\"b7882adcb701961606fbeecd49296c214c148d9e10c0863948db2b7a12901b2b\\\",\\\"ocr_backend_calls\\\":3,\\\"environment_epoch\\\":3}\",\"status\":\"complete\"}]}\nCANVAS update=0 ok=0 pressed=1 released=1 supplied_items=4 backend_calls=4 geometry=1 template= title=Canvas window=2097153 origin=20,20 display=private-xvfb a11y=0 roi_capture=1\nX11 visual marks: 46 checks passed\n_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed\n_XSERVTransMakeAllCOTSServerListeners: server already running\nThe XKEYBOARD keymap compiler (xkbcomp) reports:\n> Warning:          Could not resolve keysym XF86CameraAccessEnable\n> Warning:          Could not resolve keysym XF86CameraAccessDisable\n> Warning:          Could not resolve keysym XF86CameraAccessToggle\n> Warning:          Could not resolve keysym XF86NextElement\n> Warning:          Could not resolve keysym XF86PreviousElement\n> Warning:          Could not resolve keysym XF86AutopilotEngageToggle\n> Warning:          Could not resolve keysym XF86MarkWaypoint\n> Warning:          Could not resolve keysym XF86Sos\n> Warning:          Could not resolve keysym XF86NavChart\n> Warning:          Could not resolve keysym XF86FishingChart\n> Warning:          Could not resolve keysym XF86SingleRangeRadar\n> Warning:          Could not resolve keysym XF86DualRangeRadar\n> Warning:          Could not resolve keysym XF86RadarOverlay\n> Warning:          Could not resolve keysym XF86TraditionalSonar\n> Warning:          Could not resolve keysym XF86ClearvuSonar\n> Warning:          Could not resolve keysym XF86SidevuSonar\n> Warning:          Could not resolve keysym XF86NavInfo\nErrors from xkbcomp are not fatal to the X server\n"
+    },
+    "cross-right.log": {
+      "sha256": "77bef6875d94b44a4badf4e2a2ff5013171ce62c36a0a8a99cd4daa1e04f5f7b",
+      "bytes": 7645,
+      "diagnostic": "TIMINGS [{\"tool\":\"desktop.vision.mark\",\"status\":\"complete\",\"started_ms\":1515,\"finished_ms\":1849,\"mark_to_click_ms\":-1,\"mark_ready_to_click_ms\":-1},{\"tool\":\"desktop.vision.click\",\"status\":\"complete\",\"started_ms\":3881,\"finished_ms\":4223,\"mark_to_click_ms\":2366,\"mark_ready_to_click_ms\":2032},{\"tool\":\"desktop.action.verify\",\"status\":\"complete\",\"started_ms\":9929,\"finished_ms\":10261,\"mark_to_click_ms\":-1,\"mark_ready_to_click_ms\":-1}]\nEVIDENCE desktop.vision.click {\"schema\":2,\"status\":\"dispatched\",\"window_id\":\"2097153\",\"visual_scope\":\"@vs1\",\"mark\":2,\"ref\":\"@v2\",\"verified\":true,\"side_effect_may_have_occurred\":true,\"input_released\":true,\"action_id\":\"669350e03e8c44408451c940bc02cd4f\",\"verification\":{\"action_id\":\"669350e03e8c44408451c940bc02cd4f\",\"action\":\"desktop.vision.click\",\"window_id\":\"2097153\",\"status\":\"verified\",\"reason\":\"condition_matched\",\"verify_kind\":\"visual_text_exists\",\"verified\":true,\"condition_digest\":\"bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644\",\"evidence_id\":\"61b8c443f617493cb90fbbd0d2271aab\",\"observed_digest\":\"fa49e58cacd9c37bbafb0cefa6dbcc88c5e28bc38a423faaaaf32acd9a4072e6\",\"captured_at_ms\":1791620721732,\"visual_scope\":\"@vs4\",\"display_id\":\"screen\",\"model_revision\":\"b7882adcb701961606fbeecd49296c214c148d9e10c0863948db2b7a12901b2b\",\"ocr_backend_calls\":4,\"environment_epoch\":3}}\nEVIDENCE desktop.action.verify {\"action_id\":\"669350e03e8c44408451c940bc02cd4f\",\"action\":\"desktop.vision.click\",\"window_id\":\"2097153\",\"status\":\"verified\",\"reason\":\"condition_matched\",\"verify_kind\":\"visual_text_exists\",\"verified\":true,\"condition_digest\":\"bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644\",\"evidence_id\":\"ecdcbf9f5e95433394d99fe478f6cccf\",\"observed_digest\":\"2b9e7a10171a65ea7af6b245f498cbd80cc3404aeb20004090cebefcb8d8e6ff\",\"captured_at_ms\":1791620716001,\"visual_scope\":\"@vs3\",\"display_id\":\"screen\",\"model_revision\":\"b7882adcb701961606fbeecd49296c214c148d9e10c0863948db2b7a12901b2b\",\"ocr_backend_calls\":3,\"environment_epoch\":3}\nLIVE {\"ok\":true,\"failed\":false,\"cancelled\":false,\"error\":\"model returned a terminal text answer\",\"reasoning\":\"none\",\"timings\":[{\"tool\":\"desktop.vision.mark\",\"status\":\"complete\",\"started_ms\":1515,\"finished_ms\":1849,\"mark_to_click_ms\":-1,\"mark_ready_to_click_ms\":-1},{\"tool\":\"desktop.vision.click\",\"status\":\"complete\",\"started_ms\":3881,\"finished_ms\":4223,\"mark_to_click_ms\":2366,\"mark_ready_to_click_ms\":2032},{\"tool\":\"desktop.action.verify\",\"status\":\"complete\",\"started_ms\":9929,\"finished_ms\":10261,\"mark_to_click_ms\":-1,\"mark_ready_to_click_ms\":-1}],\"answer\":\"已核对本轮声明的动作后条件；这不代表任意业务目标均已完成。\\n\\n已完成。点击编号 2（白色交叉 X 图案所在黑色方框），verify 返回 verified=true，文本 \\\"Task saved\\\" 已通过 fresh OCR 验证。\",\"pressed\":true,\"released\":true,\"presses\":1,\"releases\":1,\"wrong_presses\":0,\"elapsed_ms\":15992,\"click_age_ms\":2061,\"model_steps\":4,\"tool_calls\":3,\"supplied_input_items\":4,\"supplied_input_dropped\":0,\"supply_degradations\":0,\"backend_calls\":4,\"display\":\"private-xvfb\",\"capture_scope\":\"2097153\",\"origin\":{\"x\":20,\"y\":20},\"tools\":[{\"tool\":\"desktop.vision.mark\",\"input\":\"{}\",\"output\":\"{\\\"schema\\\":1,\\\"source\\\":\\\"som\\\",\\\"source_id\\\":\\\"screen\\\",\\\"artifact_id\\\":\\\"8e89a6abd5f0398c334225a75213a8ad\\\",\\\"sha256\\\":\\\"8e89a6abd5f0398c334225a75213a8ad15c2c2509cf797388a24040718aa594c\\\",\\\"media_type\\\":\\\"image/png\\\",\\\"sensitivity\\\":\\\"sensitive\\\",\\\"byte_size\\\":259463,\\\"width\\\":480,\\\"height\\\":180,\\\"origin_x\\\":20,\\\"origin_y\\\":20,\\\"scale_numerator\\\":1,\\\"scale_denominator\\\":1,\\\"environment_epoch\\\":1,\\\"task_epoch\\\":1,\\\"captured_at_ms\\\":1791620707589,\\\"max_age_ms\\\":5000,\\\"verified\\\":false,\\\"visual_scope\\\":\\\"@vs1\\\",\\\"visual_generation\\\":1,\\\"frame_sequence\\\":1,\\\"window_id\\\":\\\"2097153\\\",\\\"marks\\\":[{\\\"mark\\\":1,\\\"ref\\\":\\\"@v1\\\",\\\"template_id\\\":\\\"\\\",\\\"selectable\\\":true,\\\"x\\\":84,\\\"y\\\":74,\\\"width\\\":72,\\\"height\\\":72},{\\\"mark\\\":2,\\\"ref\\\":\\\"@v2\\\",\\\"template_id\\\":\\\"\\\",\\\"selectable\\\":true,\\\"x\\\":344,\\\"y\\\":74,\\\"width\\\":72,\\\"height\\\":72}]}\",\"status\":\"complete\"},{\"tool\":\"desktop.vision.click\",\"input\":\"{\\\"environment_epoch\\\":1,\\\"mark\\\":2,\\\"verify_kind\\\":\\\"visual_text_exists\\\",\\\"visual_scope\\\":\\\"@vs1\\\",\\\"window_id\\\":\\\"2097153\\\",\\\"condition_digest\\\":\\\"f184b47ccb458f5f4620a96688798a91925f5c8f803c9a7980b00ae47b1aeb1c\\\"}\",\"output\":\"{\\\"schema\\\":2,\\\"status\\\":\\\"dispatched\\\",\\\"window_id\\\":\\\"2097153\\\",\\\"visual_scope\\\":\\\"@vs1\\\",\\\"mark\\\":2,\\\"ref\\\":\\\"@v2\\\",\\\"verified\\\":true,\\\"side_effect_may_have_occurred\\\":true,\\\"input_released\\\":true,\\\"action_id\\\":\\\"669350e03e8c44408451c940bc02cd4f\\\",\\\"verification\\\":{\\\"action_id\\\":\\\"669350e03e8c44408451c940bc02cd4f\\\",\\\"action\\\":\\\"desktop.vision.click\\\",\\\"window_id\\\":\\\"2097153\\\",\\\"status\\\":\\\"verified\\\",\\\"reason\\\":\\\"condition_matched\\\",\\\"verify_kind\\\":\\\"visual_text_exists\\\",\\\"verified\\\":true,\\\"condition_digest\\\":\\\"bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644\\\",\\\"evidence_id\\\":\\\"61b8c443f617493cb90fbbd0d2271aab\\\",\\\"observed_digest\\\":\\\"fa49e58cacd9c37bbafb0cefa6dbcc88c5e28bc38a423faaaaf32acd9a4072e6\\\",\\\"captured_at_ms\\\":1791620721732,\\\"visual_scope\\\":\\\"@vs4\\\",\\\"display_id\\\":\\\"screen\\\",\\\"model_revision\\\":\\\"b7882adcb701961606fbeecd49296c214c148d9e10c0863948db2b7a12901b2b\\\",\\\"ocr_backend_calls\\\":4,\\\"environment_epoch\\\":3}}\",\"status\":\"complete\"},{\"tool\":\"desktop.action.verify\",\"input\":\"{\\\"action_id\\\":\\\"669350e03e8c44408451c940bc02cd4f\\\"}\",\"output\":\"{\\\"action_id\\\":\\\"669350e03e8c44408451c940bc02cd4f\\\",\\\"action\\\":\\\"desktop.vision.click\\\",\\\"window_id\\\":\\\"2097153\\\",\\\"status\\\":\\\"verified\\\",\\\"reason\\\":\\\"condition_matched\\\",\\\"verify_kind\\\":\\\"visual_text_exists\\\",\\\"verified\\\":true,\\\"condition_digest\\\":\\\"bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644\\\",\\\"evidence_id\\\":\\\"ecdcbf9f5e95433394d99fe478f6cccf\\\",\\\"observed_digest\\\":\\\"2b9e7a10171a65ea7af6b245f498cbd80cc3404aeb20004090cebefcb8d8e6ff\\\",\\\"captured_at_ms\\\":1791620716001,\\\"visual_scope\\\":\\\"@vs3\\\",\\\"display_id\\\":\\\"screen\\\",\\\"model_revision\\\":\\\"b7882adcb701961606fbeecd49296c214c148d9e10c0863948db2b7a12901b2b\\\",\\\"ocr_backend_calls\\\":3,\\\"environment_epoch\\\":3}\",\"status\":\"complete\"}]}\nCANVAS update=1 ok=1 pressed=1 released=1 supplied_items=4 backend_calls=4 geometry=1 template= title=Canvas window=2097153 origin=20,20 display=private-xvfb a11y=0 roi_capture=1\nX11 visual marks: 52 checks passed\n_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed\n_XSERVTransMakeAllCOTSServerListeners: server already running\nThe XKEYBOARD keymap compiler (xkbcomp) reports:\n> Warning:          Could not resolve keysym XF86CameraAccessEnable\n> Warning:          Could not resolve keysym XF86CameraAccessDisable\n> Warning:          Could not resolve keysym XF86CameraAccessToggle\n> Warning:          Could not resolve keysym XF86NextElement\n> Warning:          Could not resolve keysym XF86PreviousElement\n> Warning:          Could not resolve keysym XF86AutopilotEngageToggle\n> Warning:          Could not resolve keysym XF86MarkWaypoint\n> Warning:          Could not resolve keysym XF86Sos\n> Warning:          Could not resolve keysym XF86NavChart\n> Warning:          Could not resolve keysym XF86FishingChart\n> Warning:          Could not resolve keysym XF86SingleRangeRadar\n> Warning:          Could not resolve keysym XF86DualRangeRadar\n> Warning:          Could not resolve keysym XF86RadarOverlay\n> Warning:          Could not resolve keysym XF86TraditionalSonar\n> Warning:          Could not resolve keysym XF86ClearvuSonar\n> Warning:          Could not resolve keysym XF86SidevuSonar\n> Warning:          Could not resolve keysym XF86NavInfo\nErrors from xkbcomp are not fatal to the X server\nCanvas presentation matched attempts=1 elapsed_ms=1\n"
+    }
+  },
+  "conclusions": {
+    "online_passed": 2,
+    "online_total": 3,
+    "selection_passed": 3,
+    "dns_error_observed": false,
+    "stale_click_rejected_without_input": true,
+    "host_none": "Not run: private three-case prerequisite did not pass",
+    "causal_limit": "Tool timings include model request and transport; they do not separate provider inference, DNS, TLS or network latency",
+    "prior_evidence": "model-visual-latency-20261010.json (retained unchanged)",
+    "regressions": "No source or binary changes; prior five-configuration 3/3 and ordinary/ASAN real-weight 12/12 results retained, not rerun",
+    "full_weight_tsan": "Prior business-deadline failures remain open"
+  },
+  "next_step": {
+    "owner": "Mirage maintainer",
+    "work_item": "M7-07",
+    "work": "Project existing Mira model-request lifecycle events in the bounded harness diagnostics to distinguish local delay from request duration before choosing a request-path optimization",
+    "constraints": "No deadline increase, implicit reference renewal, failed-action revival, input resend, pinned modification or new scheduler",
+    "acceptance": "Preserve delayed-request no-input failure; rerun private cases after a concrete configuration/request-path change; all three pass before Xorg none operator cases"
+  }
+}

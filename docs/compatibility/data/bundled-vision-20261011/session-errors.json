@@ -1,0 +1,123 @@
+{
+  "scope": "Only error metadata from the two user-selected local sessions; no prompts, replies, titles, images or credentials copied",
+  "sessions": [
+    {
+      "session_sha256": "a88134135b8a169196e467f65409eb2990743b8f3b4b53dcc273c8d171f4ea87",
+      "failed_tools": [
+        {
+          "tool": "desktop.screen.capture",
+          "category": "raw pixel budget"
+        },
+        {
+          "tool": "desktop.screen.capture",
+          "category": "ROI fields require source=roi"
+        },
+        {
+          "tool": "desktop.accessibility.semantic_snapshot",
+          "category": "unsupported_window"
+        },
+        {
+          "tool": "desktop.screen.capture",
+          "category": "raw pixel budget"
+        },
+        {
+          "tool": "desktop.screen.capture",
+          "category": "ROI fields require source=roi"
+        },
+        {
+          "tool": "desktop.screen.capture",
+          "category": "capture count exceeds"
+        },
+        {
+          "tool": "desktop.accessibility.semantic_snapshot",
+          "category": "unsupported_window"
+        },
+        {
+          "tool": "desktop.screen.capture",
+          "category": "raw pixel budget"
+        },
+        {
+          "tool": "desktop.screen.capture",
+          "category": "ROI fields require source=roi"
+        },
+        {
+          "tool": "desktop.input.click",
+          "category": "visual postcondition unavailable"
+        },
+        {
+          "tool": "desktop.input.click",
+          "category": "verify the previous action"
+        }
+      ]
+    },
+    {
+      "session_sha256": "c9b03ee7d65c466da18481d1e2e7dc05e69eb7cdeb58011c0ce22694015dab4b",
+      "failed_tools": [
+        {
+          "tool": "desktop.input.key",
+          "category": "visual postcondition unavailable"
+        },
+        {
+          "tool": "desktop.input.key",
+          "category": "verify the previous action"
+        },
+        {
+          "tool": "desktop.accessibility.semantic_snapshot",
+          "category": "snapshot_too_large"
+        },
+        {
+          "tool": "desktop.screen.capture",
+          "category": "raw pixel budget"
+        },
+        {
+          "tool": "desktop.screen.capture",
+          "category": "ROI fields require source=roi"
+        },
+        {
+          "tool": "desktop.input.key",
+          "category": "verify the previous action"
+        },
+        {
+          "tool": "desktop.input.key",
+          "category": "verify the previous action"
+        },
+        {
+          "tool": "desktop.input.key",
+          "category": "verify the previous action"
+        },
+        {
+          "tool": "desktop.accessibility.semantic_snapshot",
+          "category": "snapshot_too_large"
+        },
+        {
+          "tool": "desktop.screen.capture",
+          "category": "raw pixel budget"
+        },
+        {
+          "tool": "desktop.screen.capture",
+          "category": "ROI fields require source=roi"
+        },
+        {
+          "tool": "desktop.input.click",
+          "category": "structured rejection"
+        },
+        {
+          "tool": "desktop.accessibility.semantic_snapshot",
+          "category": "snapshot_too_large"
+        },
+        {
+          "tool": "desktop.input.click",
+          "category": "verify the previous action"
+        },
+        {
+          "tool": "desktop.input.click",
+          "category": "verify the previous action"
+        },
+        {
+          "tool": "desktop.screen.capture",
+          "category": "capture count exceeds"
+        }
+      ]
+    }
+  ]
+}

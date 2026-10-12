@@ -1,0 +1,144 @@
+{
+  "schema": 1,
+  "date": "2026-10-11",
+  "work_items": [
+    "M7-10",
+    "M7-14"
+  ],
+  "decision": "DEC-075",
+  "status": "In Progress",
+  "user_failure": {
+    "session_id": "1a6b966e3a734347ab039b37fb32d782",
+    "turn_id": "478f15f14c380204f39827833ce916b4",
+    "recorded_at": "2026-10-11T16:57:52.097000+08:00",
+    "application_open_uri": "process_verified",
+    "target_revalidated": true,
+    "screen_captures_succeeded": 2,
+    "native_ocr_failures": 2,
+    "cause": "configured-display OCR on native Portal without global display mapping",
+    "source_dimensions": [
+      3200,
+      2000
+    ],
+    "preview_dimensions": [
+      1600,
+      1000
+    ]
+  },
+  "tests": [
+    {
+      "configuration": "debug-full",
+      "passed": 67,
+      "total": 67,
+      "log_sha256": "3af799902aaad0b321b1c1222a22bbaa83a0b1b0653787da80f1783fc5940c76"
+    },
+    {
+      "configuration": "native-release-full",
+      "passed": 73,
+      "total": 73,
+      "log_sha256": "96a418b165508829d7d8ae5e7659ceecc12a92497458c027987df368e08430b8"
+    },
+    {
+      "configuration": "asan-tests",
+      "passed": 7,
+      "total": 7,
+      "log_sha256": "25b9fe32b4329468cbe82a05851deda9f42d6aa44b73f365896cf7872c367a54"
+    },
+    {
+      "configuration": "ubsan-tests",
+      "passed": 7,
+      "total": 7,
+      "log_sha256": "46ba5538db82e47c3a760dc1b00221b7449fd552ac88211b5d64668766b0ccbc"
+    },
+    {
+      "configuration": "tsan-tests",
+      "passed": 7,
+      "total": 7,
+      "log_sha256": "5d8711bfcdc70c190ea42ca89b5581d10205b78f5575364405bc692b0f593ec8"
+    },
+    {
+      "configuration": "asan-portal",
+      "passed": 3,
+      "total": 3,
+      "log_sha256": "895c0130a17cea5edb04d969960653a0dfff61835b8585989a0090c6faec4b43"
+    },
+    {
+      "configuration": "ubsan-portal",
+      "passed": 3,
+      "total": 3,
+      "log_sha256": "bd1d6776b1a8108893aff360a9f5ab6b72ef8accc6bcc55295353c69b1ac0430"
+    },
+    {
+      "configuration": "tsan-portal",
+      "passed": 3,
+      "total": 3,
+      "log_sha256": "a96974a05575fa0540e3e7140adfd6387d1fe960c5240c911f3894d4a3ba61d7"
+    }
+  ],
+  "contracts": {
+    "canonical_native_ocr_cases": 16,
+    "configured_display_enumeration_for_native_ocr": false,
+    "actionable_ocr_refs": false,
+    "same_source_image": true,
+    "text_model_supported": true,
+    "new_executor_worker": false
+  },
+  "host": {
+    "status": "completed_after_DEC076",
+    "owner": "Mirage maintainer",
+    "condition": "one sharing and three consecutive OCR, standalone after regression/build completion",
+    "user_pixels_saved": false,
+    "canonical_tool_checks": 58,
+    "failures": 0
+  },
+  "product": [
+    {
+      "configuration": "release",
+      "passed": 37,
+      "total": 37,
+      "model_enabled": false,
+      "report_sha256": "24b947ac98516a28aec70e58162dc16bcc460bfdac01ba4c0fd7df878ca84fba"
+    },
+    {
+      "configuration": "package",
+      "passed": 37,
+      "total": 37,
+      "model_enabled": false,
+      "report_sha256": "39c44e2d16470691934853005772d531c511366a843b08ee54b0d9f610e501fc"
+    }
+  ],
+  "package": {
+    "path": "out/packages/mirage_0.1.0_amd64.deb",
+    "sha256": "ef2b73472bc5f199efb42a08df860912a681ea42b5fbbf84f435140820b04d25",
+    "binary_sha256": {
+      "mirage": "78ec5ca35b506dc2412a4cc41a715c3e145a9122e791321b3300e360b3919997",
+      "mirage-service": "38beec3028bdfae83a3a4fbb215f10c98201e10548137330567454110bcc5309",
+      "mirage-tray": "0434df8554daf1a562ae536226c21e293ddede0cc39564fdf6ebbcecae24d2e3",
+      "mirage-native": "ff3bfb0ebe7cbefefaa4bd52c46e556ddde9a2643dbcd7e5c06fb655faed0e09"
+    }
+  },
+  "limitations": [
+    "RemoteDesktop input not implemented",
+    "original online video task not verified",
+    "sanitizer configurations do not enable PP-OCR/ncnn; inference verified in Native Release",
+    "not committed or reviewed"
+  ],
+  "user_state_sha256_unchanged": true,
+  "public_core_platform_headers_checked": 27,
+  "format_checked": true,
+  "diff_check_passed": true,
+  "subsequent_product_host_evidence": {
+    "session_id": "5c555168634944d8b708b81b7e7b6668",
+    "turn_id": "49ad94f913d2fa3ef6e9d0dcb5b1ec6f",
+    "native_ocr": "complete",
+    "region_count": 106,
+    "backend_calls": 2,
+    "coordinate_space": "image_pixels",
+    "loaded_tray_matches_release": true,
+    "remaining_issues": [
+      "output_budget",
+      "later_portal_timeout"
+    ],
+    "followup_decision": "DEC-076"
+  }
+}

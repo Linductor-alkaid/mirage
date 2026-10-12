@@ -1,0 +1,6298 @@
+{
+  "schema": 1,
+  "recorded_at": "2026-10-10T09:54:12.226825+00:00",
+  "work_item": "M7-09",
+  "decision": "DEC-065",
+  "work_item_status": "In Progress",
+  "scope": "Optional XRes private GTK3 native TreeView drag/drop and safety gates",
+  "branch": "feat/m7-conversation-desktop-tools",
+  "baseline_head": "c786df7e047f03864f03f3bb1facd413f5111c03",
+  "committed": false,
+  "pinned_dependencies_changed_this_increment": false,
+  "physical_desktop_used": false,
+  "online_model_used": false,
+  "real_ocr_localization": false,
+  "native_dnd_supported_in_verified_configuration": true,
+  "application_trust_boundary": "X11 server resource connection, not PID/title; no actual pointer grab receiver query",
+  "budgets": {
+    "root_children": 128,
+    "additional_descendants": 128,
+    "depth": 32,
+    "xres_clients": 256,
+    "skipped_helpers": 1
+  },
+  "results": [
+    {
+      "configuration": "debug",
+      "tests_passed": 62,
+      "tests_failed": 0,
+      "elapsed_seconds": 42.07,
+      "gtk_checks": 102,
+      "pointer_checks": 474,
+      "gtk_scenarios": [
+        {
+          "scenario": "scroll",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 89.62809493114328,
+            "vertical": 144.99313483152656,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Scrolled",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=1 ",
+          "expected_success": true
+        },
+        {
+          "scenario": "scroll-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 1249,
+            "vertical": 1564,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 ",
+          "expected_success": false
+        },
+        {
+          "scenario": "splitter",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 202,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 190,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Resized",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=1 ",
+          "expected_success": true
+        },
+        {
+          "scenario": "splitter-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 ",
+          "expected_success": false
+        },
+        {
+          "scenario": "drag-cancel",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 tool execution was cancelled",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-dnd",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Bravo",
+              "Charlie",
+              "Alpha",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Dropped",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564611922
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564611923
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564611932
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 15
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=1 ",
+          "expected_success": true
+        },
+        {
+          "scenario": "native-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564612251
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564612251
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 41,
+                "time": 564612267
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 51,
+                "time": 564612277
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 60,
+                "time": 564612285
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 69,
+                "time": 564612294
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 79,
+                "time": 564612302
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 88,
+                "time": 564612314
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 98,
+                "time": 564612322
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 107,
+                "time": 564612334
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 116,
+                "time": 564612343
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 126,
+                "time": 564612351
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 135,
+                "time": 564612361
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 144,
+                "time": 564612369
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 154,
+                "time": 564612377
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 163,
+                "time": 564612387
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 173,
+                "time": 564612395
+              },
+              {
+                "type": "<enum GDK_BUTTON_RELEASE of type Gdk.EventType>",
+                "x": 80,
+                "y": 173,
+                "time": 564612395
+              }
+            ],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 ",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-cancel",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564612706
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564612706
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564612716
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 5
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 tool execution was cancelled",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-focus",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564613096
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564613097
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564613105
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 6
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"focus_changed\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"d474addac568400c8ef7f5c6073da7c3\",\"verification\":{\"action_id\":\"d474addac568400c8ef7f5c6073da7c3\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"focus_changed_or_unavailable\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"\",\"observed_...",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-overlay-above",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564613341
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564613341
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564613349
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 5
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"target_obscured\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"d3d0a79194524b1387680dd0bc8e53e5\",\"verification\":{\"action_id\":\"d3d0a79194524b1387680dd0bc8e53e5\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"effect_uncertain\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"444b81c47438497fb84667...",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-overlay-below",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564613641
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564613642
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564613650
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 5
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"target_obscured\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"a2cf4a99d88d4dc49e9df7ba81db819e\",\"verification\":{\"action_id\":\"a2cf4a99d88d4dc49e9df7ba81db819e\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"effect_uncertain\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"f497068f2df7474eb6a691...",
+          "expected_success": false
+        }
+      ]
+    },
+    {
+      "configuration": "release",
+      "tests_passed": 62,
+      "tests_failed": 0,
+      "elapsed_seconds": 35.95,
+      "gtk_checks": 102,
+      "pointer_checks": 474,
+      "gtk_scenarios": [
+        {
+          "scenario": "scroll",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 89.62809493114328,
+            "vertical": 144.99313483152656,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Scrolled",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=1 ",
+          "expected_success": true
+        },
+        {
+          "scenario": "scroll-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 1249,
+            "vertical": 1564,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 ",
+          "expected_success": false
+        },
+        {
+          "scenario": "splitter",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 194,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 190,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Resized",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=1 ",
+          "expected_success": true
+        },
+        {
+          "scenario": "splitter-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 ",
+          "expected_success": false
+        },
+        {
+          "scenario": "drag-cancel",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 tool execution was cancelled",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-dnd",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Bravo",
+              "Charlie",
+              "Alpha",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Dropped",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564646398
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564646398
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 41,
+                "time": 564646416
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 14
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=1 ",
+          "expected_success": true
+        },
+        {
+          "scenario": "native-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564646673
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564646674
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 41,
+                "time": 564646691
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 51,
+                "time": 564646699
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 60,
+                "time": 564646708
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 69,
+                "time": 564646717
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 79,
+                "time": 564646726
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 88,
+                "time": 564646734
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 98,
+                "time": 564646743
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 107,
+                "time": 564646752
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 126,
+                "time": 564646770
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 135,
+                "time": 564646778
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 144,
+                "time": 564646787
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 154,
+                "time": 564646795
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 163,
+                "time": 564646805
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 173,
+                "time": 564646814
+              },
+              {
+                "type": "<enum GDK_BUTTON_RELEASE of type Gdk.EventType>",
+                "x": 80,
+                "y": 173,
+                "time": 564646814
+              }
+            ],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 ",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-cancel",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564646968
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564646969
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564646978
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 5
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 tool execution was cancelled",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-focus",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564647156
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564647156
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564647164
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 5
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"focus_changed\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"febce55193174786bbc29dc4cdbcaf8b\",\"verification\":{\"action_id\":\"febce55193174786bbc29dc4cdbcaf8b\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"focus_changed_or_unavailable\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"\",\"observed_...",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-overlay-above",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564647348
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564647348
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 41,
+                "time": 564647364
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 4
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"target_obscured\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"280bcc8093fe4ffd8c5496cb95b9d6c6\",\"verification\":{\"action_id\":\"280bcc8093fe4ffd8c5496cb95b9d6c6\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"observation_changed_or_expired\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"\",\"obser...",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-overlay-below",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564647534
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564647534
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 41,
+                "time": 564647550
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 4
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"target_obscured\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"7e9c130086c348e088ec6dd9d45edd1e\",\"verification\":{\"action_id\":\"7e9c130086c348e088ec6dd9d45edd1e\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"effect_uncertain\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"dc259c5e039a4b79bc1e90...",
+          "expected_success": false
+        }
+      ]
+    },
+    {
+      "configuration": "asan",
+      "tests_passed": 9,
+      "tests_failed": 0,
+      "elapsed_seconds": 40.2,
+      "gtk_checks": 102,
+      "pointer_checks": 474,
+      "gtk_scenarios": [
+        {
+          "scenario": "scroll",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 89.62809493114328,
+            "vertical": 144.99313483152656,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Scrolled",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=1 ",
+          "expected_success": true
+        },
+        {
+          "scenario": "scroll-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 1249,
+            "vertical": 1564,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 ",
+          "expected_success": false
+        },
+        {
+          "scenario": "splitter",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 198,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 190,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Resized",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=1 ",
+          "expected_success": true
+        },
+        {
+          "scenario": "splitter-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 ",
+          "expected_success": false
+        },
+        {
+          "scenario": "drag-cancel",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 tool execution was cancelled",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-dnd",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Bravo",
+              "Charlie",
+              "Alpha",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Dropped",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564590436
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564590437
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564590446
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 15
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=1 ",
+          "expected_success": true
+        },
+        {
+          "scenario": "native-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564590879
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564590880
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 41,
+                "time": 564590897
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 60,
+                "time": 564590914
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 79,
+                "time": 564590931
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 88,
+                "time": 564590939
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 98,
+                "time": 564590949
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 107,
+                "time": 564590960
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 126,
+                "time": 564590977
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 135,
+                "time": 564590985
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 144,
+                "time": 564590993
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 154,
+                "time": 564591002
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 163,
+                "time": 564591011
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 173,
+                "time": 564591019
+              },
+              {
+                "type": "<enum GDK_BUTTON_RELEASE of type Gdk.EventType>",
+                "x": 80,
+                "y": 173,
+                "time": 564591019
+              }
+            ],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 ",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-cancel",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564591351
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564591351
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 41,
+                "time": 564591368
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 4
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 tool execution was cancelled",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-focus",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564591712
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564591713
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 41,
+                "time": 564591730
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 4
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"focus_changed\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"6a49f41a2d13413396fc81d2a4c42fdb\",\"verification\":{\"action_id\":\"6a49f41a2d13413396fc81d2a4c42fdb\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"focus_changed_or_unavailable\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"\",\"observed_...",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-overlay-above",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564592070
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564592070
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564592078
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 5
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"target_obscured\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"3ea1ca274ecb4e09bb22eb5436b2f029\",\"verification\":{\"action_id\":\"3ea1ca274ecb4e09bb22eb5436b2f029\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"effect_uncertain\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"692676c72656430d9bc591...",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-overlay-below",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564592442
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564592443
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 41,
+                "time": 564592460
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 4
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"target_obscured\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"227462dc5caf423a845382444071e9e2\",\"verification\":{\"action_id\":\"227462dc5caf423a845382444071e9e2\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"observation_changed_or_expired\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"\",\"obser...",
+          "expected_success": false
+        }
+      ]
+    },
+    {
+      "configuration": "tsan",
+      "tests_passed": 9,
+      "tests_failed": 0,
+      "elapsed_seconds": 46.54,
+      "gtk_checks": 102,
+      "pointer_checks": 474,
+      "gtk_scenarios": [
+        {
+          "scenario": "scroll",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 89.62809493114328,
+            "vertical": 144.99313483152656,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Scrolled",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=1 ",
+          "expected_success": true
+        },
+        {
+          "scenario": "scroll-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 1249,
+            "vertical": 1564,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 ",
+          "expected_success": false
+        },
+        {
+          "scenario": "splitter",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 198,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 190,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Resized",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=1 ",
+          "expected_success": true
+        },
+        {
+          "scenario": "splitter-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 ",
+          "expected_success": false
+        },
+        {
+          "scenario": "drag-cancel",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 tool execution was cancelled",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-dnd",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Bravo",
+              "Charlie",
+              "Alpha",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Dropped",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564590623
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564590624
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564590632
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 15
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=1 ",
+          "expected_success": true
+        },
+        {
+          "scenario": "native-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564591235
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564591236
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 41,
+                "time": 564591252
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 60,
+                "time": 564591270
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 69,
+                "time": 564591278
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 79,
+                "time": 564591287
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 88,
+                "time": 564591296
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 98,
+                "time": 564591305
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 107,
+                "time": 564591314
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 126,
+                "time": 564591333
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 135,
+                "time": 564591341
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 144,
+                "time": 564591350
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 154,
+                "time": 564591360
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 163,
+                "time": 564591369
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 173,
+                "time": 564591378
+              },
+              {
+                "type": "<enum GDK_BUTTON_RELEASE of type Gdk.EventType>",
+                "x": 80,
+                "y": 173,
+                "time": 564591379
+              }
+            ],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 ",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-cancel",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564591936
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564591937
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564591948
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 5
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 tool execution was cancelled",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-focus",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564592484
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564592485
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564592493
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 0,
+              "end": 1,
+              "failed": 1,
+              "data": 3
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"focus_changed\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"db31c2d253094bbf98e48ac2ae682d9b\",\"verification\":{\"action_id\":\"db31c2d253094bbf98e48ac2ae682d9b\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"focus_changed_or_unavailable\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"\",\"observed_...",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-overlay-above",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564593033
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564593034
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564593042
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 5
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"target_obscured\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"508c0c9901de45c4ab830b9c094d3819\",\"verification\":{\"action_id\":\"508c0c9901de45c4ab830b9c094d3819\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"effect_uncertain\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"bc58a1f77be1446ca67aa6...",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-overlay-below",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564593597
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564593598
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 41,
+                "time": 564593615
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 4
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"target_obscured\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"95839ffd71134138ade103b10b6f341e\",\"verification\":{\"action_id\":\"95839ffd71134138ade103b10b6f341e\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"effect_uncertain\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"6f73226f301744e1b150c3...",
+          "expected_success": false
+        }
+      ]
+    }
+  ],
+  "fallbacks": [
+    {
+      "configuration": "compile_disabled",
+      "gtk_checks": 95,
+      "pointer_checks": 442,
+      "gtk_scenarios": [
+        {
+          "scenario": "scroll",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 89.62809493114328,
+            "vertical": 144.99313483152656,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Scrolled",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=1 ",
+          "expected_success": true
+        },
+        {
+          "scenario": "scroll-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 1249,
+            "vertical": 1564,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 ",
+          "expected_success": false
+        },
+        {
+          "scenario": "splitter",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 194,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 190,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Resized",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=1 ",
+          "expected_success": true
+        },
+        {
+          "scenario": "splitter-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 ",
+          "expected_success": false
+        },
+        {
+          "scenario": "drag-cancel",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 tool execution was cancelled",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-dnd",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564588146
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564588147
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564588159
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 0,
+              "end": 1,
+              "failed": 1,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"target_obscured\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"74b88a0fcb6040fdb0b56c8adfabe083\",\"verification\":{\"action_id\":\"74b88a0fcb6040fdb0b56c8adfabe083\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"effect_uncertain\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"088deb261bb247d58fbf65...",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564588417
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564588419
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 41,
+                "time": 564588436
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 51,
+                "time": 564588444
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 60,
+                "time": 564588453
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 69,
+                "time": 564588461
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 79,
+                "time": 564588469
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 88,
+                "time": 564588477
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 98,
+                "time": 564588486
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 107,
+                "time": 564588494
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 116,
+                "time": 564588503
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 126,
+                "time": 564588511
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 135,
+                "time": 564588519
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 144,
+                "time": 564588527
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 154,
+                "time": 564588536
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 173,
+                "time": 564588556
+              },
+              {
+                "type": "<enum GDK_BUTTON_RELEASE of type Gdk.EventType>",
+                "x": 80,
+                "y": 173,
+                "time": 564588556
+              }
+            ],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 ",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-cancel",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564588856
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564588857
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564588865
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 3
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"target_obscured\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"f682f6f4a2124c43a2631a93b7bc8004\",\"verification\":{\"action_id\":\"f682f6f4a2124c43a2631a93b7bc8004\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"effect_uncertain\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"f283cc5717c04aca950cfc...",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-focus",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564589117
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564589117
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564589126
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 0,
+              "end": 1,
+              "failed": 1,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"target_obscured\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"064801346d7a495994fcf1f3fc727d14\",\"verification\":{\"action_id\":\"064801346d7a495994fcf1f3fc727d14\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"effect_uncertain\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"daeea221781246818cfd36...",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-overlay-above",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564589292
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564589292
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 41,
+                "time": 564589308
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 3
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"target_obscured\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"742d4b61bfcb47bca4e36d7e74ae6cd6\",\"verification\":{\"action_id\":\"742d4b61bfcb47bca4e36d7e74ae6cd6\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"effect_uncertain\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"60d4cfa1b32246f5993ce7...",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-overlay-below",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564589593
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564589593
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 41,
+                "time": 564589609
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 3
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"target_obscured\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"e600ce5906014df2af15e6f6b698fd02\",\"verification\":{\"action_id\":\"e600ce5906014df2af15e6f6b698fd02\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"observation_changed_or_expired\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"\",\"obser...",
+          "expected_success": false
+        }
+      ],
+      "native_dnd_safely_rejected": true
+    },
+    {
+      "configuration": "runtime_extension_absent",
+      "gtk_checks": 95,
+      "pointer_checks": null,
+      "gtk_scenarios": [
+        {
+          "scenario": "scroll",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 89.62809493114328,
+            "vertical": 144.99313483152656,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Scrolled",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=1 ",
+          "expected_success": true
+        },
+        {
+          "scenario": "scroll-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 1249,
+            "vertical": 1564,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 ",
+          "expected_success": false
+        },
+        {
+          "scenario": "splitter",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 198,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 190,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Resized",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=1 ",
+          "expected_success": true
+        },
+        {
+          "scenario": "splitter-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 ",
+          "expected_success": false
+        },
+        {
+          "scenario": "drag-cancel",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 tool execution was cancelled",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-dnd",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564508228
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564508229
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564508238
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 1,
+              "end": 1,
+              "failed": 0,
+              "data": 3
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"target_obscured\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"1400a8b5326247298ef951a1a0319b3b\",\"verification\":{\"action_id\":\"1400a8b5326247298ef951a1a0319b3b\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"effect_uncertain\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"cb43d2835bb348c1b80625...",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-blocked",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564508427
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564508428
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564508436
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 51,
+                "time": 564508453
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 69,
+                "time": 564508471
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 79,
+                "time": 564508480
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 88,
+                "time": 564508488
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 98,
+                "time": 564508497
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 107,
+                "time": 564508505
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 116,
+                "time": 564508515
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 126,
+                "time": 564508523
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 135,
+                "time": 564508532
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 144,
+                "time": 564508541
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 154,
+                "time": 564508549
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 173,
+                "time": 564508567
+              },
+              {
+                "type": "<enum GDK_BUTTON_RELEASE of type Gdk.EventType>",
+                "x": 80,
+                "y": 173,
+                "time": 564508568
+              }
+            ],
+            "drag_signals": {
+              "begin": 0,
+              "drop": 0,
+              "end": 0,
+              "failed": 0,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 ",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-cancel",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564508773
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564508774
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564508782
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 0,
+              "end": 1,
+              "failed": 1,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"target_obscured\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"f5701dec0a854da48c5cbe40f3749be8\",\"verification\":{\"action_id\":\"f5701dec0a854da48c5cbe40f3749be8\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"effect_uncertain\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"bc128608a3cd407b9aa191...",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-focus",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564508968
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564508968
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564508976
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 0,
+              "end": 1,
+              "failed": 1,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"target_obscured\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"1a477b64172243f69d2b961c782ba26f\",\"verification\":{\"action_id\":\"1a477b64172243f69d2b961c782ba26f\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"effect_uncertain\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"0f399c1dbc654953a3e526...",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-overlay-above",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564509159
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564509159
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564509168
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 0,
+              "end": 1,
+              "failed": 1,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"target_obscured\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"45ae3634306f42b48ada651bd73be857\",\"verification\":{\"action_id\":\"45ae3634306f42b48ada651bd73be857\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"effect_uncertain\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"152165fe126b451d992eda...",
+          "expected_success": false
+        },
+        {
+          "scenario": "native-overlay-below",
+          "state": {
+            "window": 6291459,
+            "rows": [
+              {
+                "x": 22,
+                "y": 21,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 71,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 121,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 171,
+                "width": 140,
+                "height": 28
+              },
+              {
+                "x": 22,
+                "y": 221,
+                "width": 140,
+                "height": 28
+              }
+            ],
+            "handle": {
+              "x": 142,
+              "y": 12,
+              "width": 5,
+              "height": 336
+            },
+            "position": 130,
+            "scroll_target": {
+              "x": 342,
+              "y": 42,
+              "width": 80,
+              "height": 40
+            },
+            "horizontal": 0,
+            "vertical": 0,
+            "order": [
+              "Alpha",
+              "Bravo",
+              "Charlie",
+              "Delta",
+              "Echo"
+            ],
+            "title": "Ready",
+            "events": [
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564509351
+              },
+              {
+                "type": "<enum GDK_BUTTON_PRESS of type Gdk.EventType>",
+                "x": 80,
+                "y": 23,
+                "time": 564509351
+              },
+              {
+                "type": "<enum GDK_MOTION_NOTIFY of type Gdk.EventType>",
+                "x": 80,
+                "y": 32,
+                "time": 564509360
+              }
+            ],
+            "drag_signals": {
+              "begin": 1,
+              "drop": 0,
+              "end": 1,
+              "failed": 1,
+              "data": 0
+            },
+            "gtk": [
+              3,
+              24,
+              41
+            ]
+          },
+          "action_summary": "verified=0 {\"code\":\"target_obscured\",\"side_effect_may_have_occurred\":true,\"input_released\":true,\"verified\":false,\"window_id\":\"6291459\",\"action_id\":\"41ac48bc1f964e4a9960d81630217526\",\"verification\":{\"action_id\":\"41ac48bc1f964e4a9960d81630217526\",\"action\":\"desktop.vision.drag\",\"window_id\":\"6291459\",\"status\":\"uncertain\",\"reason\":\"effect_uncertain\",\"verify_kind\":\"window_title_equals\",\"verified\":false,\"condition_digest\":\"99791d3b4f7565241336254f7185fabfcd6c5c9c226ee286508835e35f8999f4\",\"evidence_id\":\"c72268cd14a148679f3420...",
+          "expected_success": false
+        }
+      ],
+      "native_dnd_safely_rejected": true
+    }
+  ],
+  "failure_history": [
+    "GTK input shape is full rectangle; diagnostic bypass reorders but is not a product safety proof",
+    "CMake subdirectory capability flag did not reach tests; 99 checks / 20 failures; fixed target property",
+    "Occluded reparent frame QueryPointer ancestry rejected; fixed bounded stacking geometry traversal and added sibling/budget negatives",
+    "Werror shadow prevented build; old binary results excluded; final builds all succeeded before validation"
+  ],
+  "static_checks": {
+    "cpp_format_files": 4,
+    "python_compile": 1,
+    "public_headers": 53,
+    "boundary_violations": 0,
+    "documentation_files": 11,
+    "local_links": 333,
+    "diff_check": true
+  },
+  "remaining_gates": [
+    "user Xorg native application acceptance",
+    "Windows/native Wayland",
+    "real OCR and text postconditions for native drag",
+    "arbitrary app / multi-screen / DPI",
+    "full-weight TSAN task deadline",
+    "M7-07 online stale reference history remains"
+  ],
+  "dynamic_dependency_probe": {
+    "service_dt_needed": "libXRes.so.1",
+    "dpkg_shlibdeps": "libxres1 (>= 2:1.2.1)",
+    "package_install_tested": false
+  }
+}

@@ -3,7 +3,7 @@
 > 状态：In Progress
 > 负责人：Mirage 维护者
 > 所属计划：[实施总计划](mirage-implementation-plan.md)
-> 更新日期：2026-10-08
+> 更新日期：2026-10-12
 > 决策：[DEC-033](../decisions/DEC-033-native-agent-frontend.md)
 > 前置：既有 M5 服务与 IPC；本轮交付不依赖完整 M5 发布验收。
 > 建议发布点：暂不新增发布标签。
@@ -48,6 +48,8 @@
 | M6-36 | Completed（Linux 本地；CI为合入门禁） | 修复黑闪 PR 合入 CI 暴露的既有任务终态过早通知；两worker下旧驱动等待串行域与新驱动竞争，独立 runtime PR 交付；Release52/52、事件用例重复5次、ASAN+UBSAN与TSan各1/1；[证据](../compatibility/task-terminal-notification-20261008.md) |
 | M6-33 | Completed（Linux X11） | 侧栏/主题过渡、逐模型思考设置、按URL获取候选；Release52/52、ASAN/TSAN、真实公开目录与原生渲染通过；DEC-051 |
 | M6-35 | Completed（Linux X11/XWayland） | 真实 XWayland 持续拖拽改为系统原生接管，维护者实测无黑闪；EUI issue #93/PR #94 四组合本机/CI通过；组合 Release52/52、最终程序化采样365+300无黑色中心；Mirage 两个PR八项CI全成功，维护者授权合入；上游评审与 Windows 实际拖拽保持开放；[证据](../compatibility/native-frame-presentation-20261008.md) |
+| M6-37 | Completed（Linux 本地） | 最近内容更新会话置顶，选择/草稿保留、历史稳定恢复；DEC-079，Debug定向6/6、Native8/8、sanitizer各4/4，原生渲染22,978检查与包内四程序校验通过；Windows真机另验 |
+| M6-38 | Completed（Linux 本地） | 会话输入框三种桌面访问模式与授权联动；DEC-080 / DEC-078，纯对话/视觉/完全访问权限、明暗/最小窗口及共享状态门禁验证 |
 | M6-10 | Completed | 依工程规范9.4整理Mira/Mirador独立反馈台账，复核已登记问题并向Mira上游提交可复现反馈；不修改依赖或升级pin |
 
 ## 测试矩阵与退出条件
@@ -512,3 +514,45 @@ Windows、物理显示器帧率及Anthropic真实目录保持补验，不关闭M
 已同步 master，维护者明确授权合入及清理本次 Mirage 工作分支。两份原提交的八项 CI
 全部成功，含 Windows MSVC、Debug/Release、ASAN/UBSAN/TSAN 与原生界面。Linux
 功能范围完成；Windows 编译/自动测试不替代物理拖拽验收，上游 #94 评审保持开放。
+
+## 2026-10-11 / M6-37：会话按最近内容更新排序
+
+状态 Completed（Linux 本地）；负责人 Mirage 维护者。维护者要求左侧最新更新的会话位于最上方，
+按 DEC-079 提供有界排序投影、实时更新与历史时间恢复，保留当前选择/草稿/阅读位置。
+验收包括乱序恢复、重复历史、迟到事件、流式/工具过程、同毫秒、清空/删除及相关回归。
+
+M6-37 本地验收：模型412检查、原生最终渲染22,978检查，均零失败；Debug定向6/6、
+Native定向8/8，ASAN/UBSAN/TSAN定向各4/4（含状态fixture），最终自带隔离的原生
+夹具另3/3。DEB四程序与Release SHA一致，最终六份用户状态SHA与操作前一致；
+直接截图遗漏隔离造成外观偏好写入已按原SHA恢复，夹具现自行隔离配置。见
+[完整验收](../compatibility/session-activity-order-20261011.md)。未提交/推送，Windows
+真机另验，不关闭M6整体；权限实机补验仍按维护者要求暂缓。
+
+## 2026-10-12 / M6-38：会话三种桌面访问模式
+
+维护者明确指定对话、视觉、完全访问，按 DEC-080 接入会话按钮及授权联动；
+服务端强制对话模式工具/屏幕为空，视觉只观察，完全访问仍受系统/服务守卫。
+运行和授权等待期间锁定模式，保留草稿与旧默认偏好，损坏访问值不升权。
+Linux 本地 Completed：Debug 70/70、Native 76/76，sanitizer 定向各 8/8，
+原生渲染 24,934 检查零失败，DEB 四程序与 Release 匹配。
+[证据与限制](../compatibility/conversation-access-and-cua-continuity-20261012.md)。
+不以 Linux 渲染关闭 Windows 真机或 M7-10 GNOME 授权/恢复门禁；未提交/推送。
+
+2026-10-12 / M6-38 界面澄清（Completed，Linux 本地）：维护者要求选择菜单只有三个选项。
+删除会话内授权区域及说明，收窄至 280×120、选中后收起；保留能力限制和完全访问
+授权联动。DEC-080 和界面契约已更新；Native 定向 6/6、原生渲染 24,005 检查
+零失败，DEB 四程序匹配最终 Release。见[仅三模式菜单验收](../compatibility/conversation-mode-selector-20261012.md)。
+
+2026-10-12 / M6-26、M6-38 同日修正（Completed，Linux 本地增量）：按 ZCode
+29628c9 将三模式菜单移到实际按钮正上方，左对齐、间隔 4px；原生明暗/最小窗口
+24,009 检查零失败。DEC-082 对精确 MiniMax-M3 默认显式 Adaptive，关闭仍 Disabled，
+正文与独立思考分离；实际合成三档 3/3。历史默认正文异常未稳定复现，原用户任务
+仍需新版复验，不宣称全部供应商输出已保证。Debug 70/70、Native 76/76，sanitizer
+各 6/6；四个 DEB 内程序校验匹配，未安装/启动产品或提交/推送。详见
+[验收](../compatibility/reasoning-and-menu-anchor-20261012.md)。
+
+2026-10-12 Git 交付：维护者要求整理提交，并明确授权将同期选路修改一起核验。
+依赖、桌面、平台、原生 UI 与 Runtime 分组提交，代码终点 6703251；最终组合
+Debug 70/70、Native 76/76、ASAN/UBSAN/TSAN 选路各 5/5，源码稳定性与包内
+四程序校验通过。本地提交不关闭既有真实平台/原用户任务门禁，未推送或合并。
+完整范围与证据见[Git 交付记录](../compatibility/m7-git-delivery-20261012.md)。

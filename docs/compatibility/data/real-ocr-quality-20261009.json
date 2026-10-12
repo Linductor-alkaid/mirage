@@ -1,0 +1,56 @@
+{
+  "manifest_sha256": "0210022d7f85dc0f7e0f8caebf1b5e5a9af89db49c87c25ab877d3a39e9ce6a4",
+  "font_sha256": "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9",
+  "passed": 0,
+  "total": 4,
+  "samples": [
+    {
+      "sample": "english",
+      "expected": "Submit task",
+      "observed": "cY",
+      "exact_match": false,
+      "exit_code": 1,
+      "pixels": [
+        480,
+        180
+      ],
+      "sample_sha256": "4c28c4beee47d1d5ae975aeff027ba39b3ae839242fc2d0bde489efd8a44c32f"
+    },
+    {
+      "sample": "chinese",
+      "expected": "提交任务",
+      "observed": "calwb",
+      "exact_match": false,
+      "exit_code": 1,
+      "pixels": [
+        480,
+        180
+      ],
+      "sample_sha256": "1cbdf244e2421690fc3325eadcb0505f758479621301fb6c745e19e969c8be7a"
+    },
+    {
+      "sample": "small",
+      "expected": "保存文件",
+      "observed": "cw",
+      "exact_match": false,
+      "exit_code": 1,
+      "pixels": [
+        480,
+        180
+      ],
+      "sample_sha256": "70284e111f4c9625e8c6d18989a58690bdba70b63e7123d2baf86deb70db207a"
+    },
+    {
+      "sample": "mixed-2x",
+      "expected": "提交 Submit",
+      "observed": "alsubnitwb",
+      "exact_match": false,
+      "exit_code": 1,
+      "pixels": [
+        960,
+        360
+      ],
+      "sample_sha256": "97bfaa6aa5a99ea152baf2c794efe9d4712da75ffadc963639ef06924a91d24d"
+    }
+  ]
+}

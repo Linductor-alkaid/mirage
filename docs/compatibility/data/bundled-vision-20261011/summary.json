@@ -1,0 +1,98 @@
+{
+  "date": "2026-10-11",
+  "work_items": [
+    "M7-13",
+    "M7-14"
+  ],
+  "decision": "DEC-068",
+  "checks": {
+    "release": {
+      "passed": 67,
+      "total": 67,
+      "seconds": 90.72,
+      "log_sha256": "06cb1ad153bc80f9ae826123ed854b6c270d25cac75a51990090873528438789"
+    },
+    "debug": {
+      "passed": 61,
+      "total": 61,
+      "seconds": 86.78,
+      "log_sha256": "2ed921eb560d33e58abd0bca54e09c0d3ad947bc83e29898bed6734b0737334c"
+    },
+    "asan-ubsan": {
+      "passed": 12,
+      "total": 12,
+      "seconds": 33.4,
+      "log_sha256": "96aab9d8f13b95140c6de1c65685869ad20cc75e3d4e16c4abba92ba13003452"
+    },
+    "tsan": {
+      "passed": 9,
+      "total": 9,
+      "seconds": 37.15,
+      "log_sha256": "1891945ead6d207bfe4dd5718102992a24fbb35f459c357e833a74de8fd4b906"
+    }
+  },
+  "public_headers": {
+    "checked": 53,
+    "violations": 0
+  },
+  "format": {
+    "changed_cpp_files": 18,
+    "passed": true,
+    "repository_wide": "Failed in apps/native/app.cpp, not edited by this increment; no unrelated formatting applied"
+  },
+  "source_sha256": {
+    "CMakeLists.txt": "946a56aa9b45e064726691af2fd2f67b3b8366a140d954fe365461305c202c99",
+    "CMakePresets.json": "825cb1a96077e62c9f96ecc81fc84401d9cfce0bb4786c2397d872e0fda15521",
+    "dependencies.lock.json": "4282ccadff896da7771382aa506a88c10a413a80b9094cb8d4d2f82ddee8ef13",
+    "cmake/MirageVisionBundle.cmake": "761ee53dc2d83a93df393a94f180ff71b109604b2d7bad1ff02ecd3f28e98aa4",
+    "packaging/vision/resources.lock.json": "2f8ecba090ba3744f7ac357a149d157750d664490fdb23a3f3282d5cfea00e97",
+    "tools/prepare_vision_bundle.py": "00bb0fe22102bdfea11169d70ea8297596ee50baa14006d13b57dde073cf77bf",
+    "apps/service/host.cpp": "49cf48888c5ce2a070028526a410a28700e007ac94d6632b6a1f6e1797b389e2",
+    "integration/mira/src/desktop_image_supply.cpp": "9c6812d3d0396712293e0142a6711eab3d738a8a2a52ba603915da7f1ab2dd57",
+    "integration/mira/src/desktop_action_verification.cpp": "870df3cc0c6d527eb3ef2ed8bd5eecdbf1a35ff5a4d9ca043ff40dc9d372eb9c",
+    "platform/linux/src/x11_backend.cpp": "45f7144b42cf1afc73e804552f2f53a4f7371d0b1c5ee0aeae8ac9803c0f3446",
+    "integration/mirador/src/ppocr_pipeline.cpp": "254742723947bab7f5e4c72ee528914b026a9d54e48e5fd8a092e2df2f1cedd3",
+    "platform/linux/src/atspi_backend.cpp": "7f312dcddbeddd80c272cc4acca268f91618e0867804d5b6713546da964e5d47",
+    "tests/support/fake_atspi_desktop.hpp": "c78065580d7478c2a9dbc510007368bc27ba90f9c51b34d3523c7cdebd21b96b",
+    "tests/platform/atspi_backend_test.cpp": "73be717ee95875a5ce1ff6d40fe97a60fcd9a2e04f4bb6acf5033f8ab232d6b6",
+    "tests/manual/product_vision_acceptance.py": "5fe2a3c04a7a58a2b3e8acba60c95046e7b015fc387966d04544810404734ae5"
+  },
+  "package": {
+    "path": "out/packages/mirage_0.1.0_amd64.deb",
+    "bytes": 54376968,
+    "sha256": "9cb3af86bcd05a59c308797050c4f47d9213bd5ecbc922d80cee77281d25ee65"
+  },
+  "models": {
+    "source_commit": "671ac4a72299a86ddee160131ba88fed748df425",
+    "mirador": "ae8cf87581c1ebe393a67374d9977a38354d0911",
+    "ncnn": "e54f7b1f88434e1d844ea0551b880a1cfb079ce1",
+    "weights_changed_from_verified_version": false
+  },
+  "user_settings_modified": false,
+  "online_user_tasks_replayed": false,
+  "release_published": false,
+  "failures_preserved": [
+    "Initial preflight fixture reused an operation id; fixed fixture identity",
+    "Old visual mark test expected permanent no-effect fencing; updated per DEC-068 with uncertain negatives retained",
+    "Fresh default product emitted Latin-1 WM_NAME into JSON; fixed platform decoding",
+    "Four old fixtures wrote UTF-8 bytes as XA_STRING; fixed EWMH UTF8_STRING; AT-SPI timeout history retained outside Git",
+    "Repository-wide format check failed in untouched apps/native/app.cpp",
+    "Final private harness initially selected system Python lacking Xlib; rerun with existing configured Python",
+    "Final private harness initially used default manifest as replacement and expected restart_required; corrected to distinct previously verified custom manifest, product no-op semantics retained"
+  ],
+  "scope": {
+    "installed_private_display": [
+      3200,
+      2000
+    ],
+    "installed_product_checks": 25,
+    "installed_product_passed": 25,
+    "quality_passed": 4,
+    "quality_total": 4,
+    "offline_resources_checks": 13,
+    "atspi_mid_traversal_cancel": "Real GDBus GetRole reply injects shared cancellation; no partial publication; subsequent valid snapshot succeeds; covered in Release/Debug/ASAN+UBSAN/TSAN",
+    "installed_1500": "Earlier same-increment pass; final backend cancellation change rechecked with current installed 3200x2000 run",
+    "full_real_ocr_weights_tsan": false
+  },
+  "tsan_glib_suppression": "Existing system libglib/libgio suppression only for AT-SPI fixture; Mirage frames are not exempt"
+}

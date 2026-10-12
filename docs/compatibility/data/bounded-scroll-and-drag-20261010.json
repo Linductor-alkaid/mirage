@@ -1,0 +1,109 @@
+{
+  "schema": 1,
+  "recorded_at": "2026-10-10T09:07:58.613627+00:00",
+  "work_item": "M7-09",
+  "decision": "DEC-064",
+  "scope": "controlled Linux X11 first increment",
+  "global_work_item_status": "In Progress",
+  "branch": "feat/m7-conversation-desktop-tools",
+  "baseline_head": "c786df7e047f03864f03f3bb1facd413f5111c03",
+  "working_tree_changes": true,
+  "committed": false,
+  "dependencies_changed_this_increment": false,
+  "tools": [
+    "desktop.vision.scroll@1.0.0",
+    "desktop.vision.drag@1.0.0"
+  ],
+  "tests": [
+    {
+      "configuration": "native-debug",
+      "tests": 61,
+      "passed": 61,
+      "failed": 0,
+      "elapsed_seconds": 39.58,
+      "log": "/tmp/mirage-m7-scroll-drag-debug-all-test.log"
+    },
+    {
+      "configuration": "native-release",
+      "tests": 61,
+      "passed": 61,
+      "failed": 0,
+      "elapsed_seconds": 34.54,
+      "log": "/tmp/mirage-m7-scroll-drag-release-all-test.log"
+    },
+    {
+      "configuration": "asan-ubsan",
+      "tests": 8,
+      "passed": 8,
+      "failed": 0,
+      "elapsed_seconds": 33.65,
+      "log": "/tmp/mirage-m7-scroll-drag-asan-test.log"
+    },
+    {
+      "configuration": "tsan",
+      "tests": 8,
+      "passed": 8,
+      "failed": 0,
+      "elapsed_seconds": 38.96,
+      "log": "/tmp/mirage-m7-scroll-drag-tsan-test.log"
+    }
+  ],
+  "x11_pointer_checks": 299,
+  "visual_marks_checks": 669,
+  "action_contract_checks": 63,
+  "mira_composed_scenarios": {
+    "scroll_positive": true,
+    "scroll_no_effect_negative": true,
+    "drag_positive": true,
+    "drag_no_effect_negative": true,
+    "provider": "IModelProvider fixture",
+    "live_network": false,
+    "observation": "real X11 Screen + Mirador geometry/fusion/SoM"
+  },
+  "checks": {
+    "changed_cpp_format": {
+      "files": 14,
+      "passed": true
+    },
+    "public_header_boundary": {
+      "headers": 53,
+      "violations": 0
+    },
+    "whole_repository_format": {
+      "passed": false,
+      "failure_file": "apps/native/app.cpp",
+      "modified_this_increment": false
+    },
+    "git_diff_check": {
+      "passed": true
+    },
+    "documentation": {
+      "files": 9,
+      "local_links": 322,
+      "passed": true,
+      "fences_balanced": true,
+      "titles_present": true
+    }
+  },
+  "initial_test_failure": {
+    "tests": 7,
+    "passed": 6,
+    "failed": 1,
+    "new_target_checks": 243,
+    "new_target_failures": 14,
+    "causes": [
+      "fixture ToolCallOutput digest mismatch",
+      "reused fixture visual worker source ID"
+    ],
+    "repaired": true,
+    "log": "/tmp/mirage-m7-scroll-drag-debug-test.log"
+  },
+  "unverified": [
+    "Windows",
+    "native Wayland",
+    "user Xorg application acceptance",
+    "online model planning",
+    "arbitrary DPI/multi-display",
+    "full production OCR weight TSAN deadline acceptance"
+  ]
+}

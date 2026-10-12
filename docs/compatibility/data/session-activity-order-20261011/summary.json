@@ -1,0 +1,82 @@
+{
+  "date": "2026-10-11",
+  "work_item": "M6-37",
+  "decision": "DEC-079",
+  "status": "Completed (Linux local validation)",
+  "automatic": {
+    "debug_targeted": {
+      "passed": 6,
+      "total": 6
+    },
+    "native_release_targeted": {
+      "passed": 8,
+      "total": 8
+    },
+    "final_private_view_rerun": {
+      "passed": 3,
+      "total": 3
+    },
+    "asan_targeted": {
+      "passed": 4,
+      "total": 4
+    },
+    "ubsan_targeted": {
+      "passed": 4,
+      "total": 4
+    },
+    "tsan_targeted": {
+      "passed": 4,
+      "total": 4
+    },
+    "includes_state_setup_cleanup": true,
+    "model_checks": 412,
+    "model_failures": 0,
+    "final_render_checks": 22978,
+    "final_render_failures": 0
+  },
+  "screenshots": [
+    "/tmp/mirage-dec079-ui-final/session-activity-light.png",
+    "/tmp/mirage-dec079-ui-final/session-activity-minimum-dark.png"
+  ],
+  "package": {
+    "package": "/home/linductor/mirage/out/packages/mirage_0.1.0_amd64.deb",
+    "package_sha256": "4aaab529cf909696e6f8a998bc6b15e22ec0521d59a448f9bda365a840f950b2",
+    "binaries": [
+      {
+        "binary": "mirage",
+        "sha256": "b992851ac8b5ad84209f064f2692dcbd7638f7cdfa9bf4b4d195f091938214ce",
+        "matches_release": true
+      },
+      {
+        "binary": "mirage-service",
+        "sha256": "5c3482c11fbab143630316c51d60cf3a518777a4c94101cda4f5b2f044ea8cc1",
+        "matches_release": true
+      },
+      {
+        "binary": "mirage-tray",
+        "sha256": "2cce74175bff9428cdf93f73ff65af75b296bef8178e15efa4766514bbeedfd3",
+        "matches_release": true
+      },
+      {
+        "binary": "mirage-native",
+        "sha256": "196f5b1efc9cfe94ce4b275dd35475432dd82e28351d65ec2da5ba065b9ca918",
+        "matches_release": true
+      }
+    ]
+  },
+  "user_state": {
+    "files": 6,
+    "final_sha256_matches_baseline": true,
+    "preferences_incident": "Direct screenshot run lacked XDG isolation and overwrote preferences. Original bytes restored using exact baseline SHA-256 match. Final test owns temporary CONFIG/STATE/DATA directories even when run directly; final user state verified unchanged."
+  },
+  "pending": [
+    {
+      "scope": "Windows physical UI",
+      "owner": "Mirage maintainer",
+      "condition": "Windows native preset and desktop available"
+    }
+  ],
+  "committed": false,
+  "pushed": false,
+  "dependency_changed_this_increment": false
+}
