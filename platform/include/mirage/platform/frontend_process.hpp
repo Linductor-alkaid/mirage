@@ -5,4 +5,5 @@
 namespace mirage::platform {
 std::string current_executable_path();
 std::shared_ptr<desktop::FrontendProcess> make_frontend_process(std::string binary);
+std::shared_ptr<desktop::FrontendProcess> make_pet_process(std::string binary);
 } // namespace mirage::platform

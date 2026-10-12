@@ -403,12 +403,10 @@ void ModelLayer::shutdown() {
     impl_->running = false;
 }
 
-DialogCompletion ModelLayer::complete_dialog_turn(const std::string &transcript,
-                                                  const std::string &user_text,
-                                                  const mira::OperationContext &context,
-                                                  const std::string &reasoning, bool tools_allowed,
-                                                  DialogPreviewSink preview,
-                                                  DialogProcessSink process) {
+DialogCompletion ModelLayer::complete_dialog_turn(
+    const std::string &transcript, const std::string &user_text,
+    const mira::OperationContext &context, const std::string &reasoning, bool tools_allowed,
+    DialogPreviewSink preview, DialogProcessSink process, DialogModelActivitySink activity) {
     DialogCompletion completion;
     // The drain lock makes shutdown wait out this inference (bounded by the
     // profile transport deadlines) instead of destroying the pinned pieces
@@ -437,7 +435,7 @@ DialogCompletion ModelLayer::complete_dialog_turn(const std::string &transcript,
     }
 
     detail::ConversationCapture capture(std::move(process));
-    detail::CaptureScope capture_scope(*impl_->observed, capture);
+    detail::CaptureScope capture_scope(*impl_->observed, capture, std::move(activity));
     auto finish = [&] {
         capture.settle(completion.cancelled);
         completion.parts = std::move(capture.parts);
@@ -570,13 +568,11 @@ DialogCompletion ModelLayer::complete_dialog_turn(const std::string &transcript,
 }
 
 // MIRA-20261004-001: use the delivered no-observation ConversationLoop (PR #76).
-DialogCompletion ModelLayer::complete_harness_turn(const std::string &transcript,
-                                                   const std::string &user_text,
-                                                   const mira::OperationContext &context,
-                                                   const std::string &reasoning, bool tools_allowed,
-                                                   DialogPreviewSink preview,
-                                                   DialogProcessSink process,
-                                                   const mirage::desktop::CancelToken &cancel) {
+DialogCompletion ModelLayer::complete_harness_turn(
+    const std::string &transcript, const std::string &user_text,
+    const mira::OperationContext &context, const std::string &reasoning, bool tools_allowed,
+    DialogPreviewSink preview, DialogProcessSink process,
+    const mirage::desktop::CancelToken &cancel, DialogModelActivitySink activity) {
     DialogCompletion completion;
     if (!impl_ || (!reasoning.empty() && !accepts_reasoning(impl_->config, reasoning))) {
         completion.failed = true;
@@ -593,7 +589,7 @@ DialogCompletion ModelLayer::complete_harness_turn(const std::string &transcript
     if (turn_context.task.is_nil())
         turn_context.task = mira::TaskId::generate();
     detail::ConversationCapture capture(std::move(process));
-    detail::CaptureScope capture_scope(*impl_->observed, capture);
+    detail::CaptureScope capture_scope(*impl_->observed, capture, std::move(activity));
     detail::DesktopActionVerification verification(impl_->desktop, turn_context, cancel);
     auto finish = [&] {
         capture.settle(completion.cancelled);
@@ -863,8 +859,8 @@ DialogCompletion ModelLayer::complete_harness_turn(const std::string &transcript
         return finish();
     }
     const auto &value = result.value();
-    completion.cancelled = value.outcome == mira::ConversationOutcome::Cancelled ||
-                           context.cancelled_or_expired(mira::Timestamp::now());
+    const bool explicit_cancel = cancel.cancelled() || context.cancelled();
+    completion.cancelled = explicit_cancel || value.outcome == mira::ConversationOutcome::Cancelled;
     completion.ok = !completion.cancelled && value.outcome == mira::ConversationOutcome::Answered;
     completion.failed = !completion.ok && !completion.cancelled;
     completion.error = value.safe_summary;
@@ -888,12 +884,12 @@ DialogCompletion ModelLayer::complete_harness_turn(const std::string &transcript
                            : verification.no_effect_rejection()
                                ? "最后一次桌面操作在派发前被拒绝，未产生该次操作的副作用；请根据工"
                                  "具回执刷新观察或修正参数。"
-                               : "桌面操作结果未验证或存在不确定副作用，请检查工具证据。";
+                               : "桌面操作结果未验证或存在不确定副作用,请检查工具证据。";
     }
-    if (cancel.cancelled() || turn_context.cancelled_or_expired(mira::Timestamp::now())) {
+    if (explicit_cancel) {
         completion.ok = completion.failed = false;
         completion.cancelled = true;
-        completion.error = "桌面任务已取消或超时。";
+        completion.error = "桌面任务已取消。";
     }
     if (completion.ok) {
         if (value.answer.size() > 64 * 1024 || value.answer.empty()) {

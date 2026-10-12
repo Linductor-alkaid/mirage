@@ -132,6 +132,9 @@ using DialogPreviewSink =
 /// Bounded full process snapshot on the caller task; consumers only validate/deliver.
 /// The service owns update sequences; final canonical parts are returned in completion.
 using DialogProcessSink = std::function<void(const std::vector<conversation::Part> &)>;
+// DEC-084: actual provider-call boundaries, independent of returned thinking text.
+// Called on the existing serialized infer task. Must be bounded and non-throwing.
+using DialogModelActivitySink = std::function<void(bool active)>;
 
 /// The service-side model layer (DEC-027): assembles the pinned model stack —
 /// ModelProfile + ModelRouter + OpenAiCompatibleProvider over the pinned
@@ -167,12 +170,11 @@ class ModelLayer {
     /// earlier-conversation block (may be empty); `user_text` is the new
     /// user message. Bounded by the context deadline / cancellation probe
     /// and the profile transport deadlines.
-    DialogCompletion complete_dialog_turn(const std::string &transcript,
-                                          const std::string &user_text,
-                                          const mira::OperationContext &context,
-                                          const std::string &reasoning = "",
-                                          bool tools_allowed = true, DialogPreviewSink preview = {},
-                                          DialogProcessSink process = {});
+    DialogCompletion
+    complete_dialog_turn(const std::string &transcript, const std::string &user_text,
+                         const mira::OperationContext &context, const std::string &reasoning = "",
+                         bool tools_allowed = true, DialogPreviewSink preview = {},
+                         DialogProcessSink process = {}, DialogModelActivitySink activity = {});
 
     /// Bounded ConversationLoop; M7-02 installs the available desktop atoms
     /// from the injected context. tools_allowed=false retains observation
@@ -183,12 +185,11 @@ class ModelLayer {
     /// lease settlement. Unverified/uncertain effects prevent success; passing
     /// evidence establishes declared local conditions, not arbitrary intent.
     /// The caller bridges task cancellation into cancel for provider calls.
-    DialogCompletion
-    complete_harness_turn(const std::string &transcript, const std::string &user_text,
-                          const mira::OperationContext &context, const std::string &reasoning = "",
-                          bool tools_allowed = true, DialogPreviewSink preview = {},
-                          DialogProcessSink process = {},
-                          const mirage::desktop::CancelToken &cancel = {});
+    DialogCompletion complete_harness_turn(
+        const std::string &transcript, const std::string &user_text,
+        const mira::OperationContext &context, const std::string &reasoning = "",
+        bool tools_allowed = true, DialogPreviewSink preview = {}, DialogProcessSink process = {},
+        const mirage::desktop::CancelToken &cancel = {}, DialogModelActivitySink activity = {});
 
     /// Ordered teardown: waits out any in-flight dialog completion (bounded
     /// by the profile transport deadlines), then settles the transport's

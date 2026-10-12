@@ -44,6 +44,7 @@ struct ServiceConfig {
     // DEC-045 product embedding. Null keeps the headless developer host.
     std::shared_ptr<desktop::TrayCarrier> tray_carrier;
     std::shared_ptr<desktop::FrontendProcess> frontend;
+    std::shared_ptr<desktop::FrontendProcess> pet;
     bool open_frontend = true;
     std::string tray_icon_path;
     /// DEC-038: finite platform save/remove, called only by the serialized

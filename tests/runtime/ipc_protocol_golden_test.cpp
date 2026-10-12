@@ -174,11 +174,27 @@ std::string to_hex(const std::string &bytes) {
 /// Structured expectation for one `events` vector: the vectors file carries
 /// the decoded event object (`{v, seq, event, ...payload}`); dispatch on the
 /// stable event name and map it onto the codec's Event value.
+mirage::runtime::pet::Status pet_from_vector(const mira::JsonValue &body) {
+    return {static_cast<int>(vector_integer(body, "schema_version")),
+            vector_string(body, "owner_epoch"),
+            static_cast<std::uint64_t>(vector_integer(body, "revision")),
+            vector_string(body, "host_state"),
+            vector_string(body, "display_state"),
+            vector_string(body, "source_kind"),
+            vector_string(body, "source_id"),
+            vector_string(body, "session_id"),
+            static_cast<std::size_t>(vector_integer(body, "active_count")),
+            vector_string(body, "summary"),
+            vector_string(body, "reason_code"),
+            static_cast<std::uint64_t>(vector_integer(body, "elapsed_ms"))};
+}
 ipc::Event event_from_vector(const std::string &name, const mira::JsonValue &body) {
     ipc::Event event;
     event.seq = static_cast<std::uint64_t>(vector_integer(body, "seq"));
     const auto kind = vector_string(body, "event");
-    if (kind == "task.updated") {
+    if (kind == "pet.updated") {
+        event.payload = ipc::PetUpdatedEvent{pet_from_vector(body)};
+    } else if (kind == "task.updated") {
         ipc::TaskUpdatedEvent payload;
         payload.task_id = vector_string(body, "task_id");
         payload.goal = vector_string(body, "goal");
@@ -290,7 +306,9 @@ void check_event_equal(const std::string &name, const ipc::Event &expected,
     if (actual.payload.index() != expected.payload.index()) {
         return;
     }
-    if (const auto *task = std::get_if<ipc::TaskUpdatedEvent>(&expected.payload)) {
+    if (const auto *pet = std::get_if<ipc::PetUpdatedEvent>(&expected.payload)) {
+        MIRAGE_CHECK(std::get<ipc::PetUpdatedEvent>(actual.payload).status == pet->status);
+    } else if (const auto *task = std::get_if<ipc::TaskUpdatedEvent>(&expected.payload)) {
         const auto &decoded = std::get<ipc::TaskUpdatedEvent>(actual.payload);
         check_string_equal(name, "task_id", decoded.task_id, task->task_id);
         check_string_equal(name, "goal", decoded.goal, task->goal);
@@ -373,6 +391,8 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
     if (op == "hello") {
         return ipc::HelloRequest{};
     }
+    if (op == "pet.status")
+        return ipc::PetStatusRequest{};
     if (op == "product.control") {
         ipc::ProductControlRequest request{
             vector_string(body, "action"),
@@ -388,7 +408,12 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
         return ipc::ShutdownRequest{};
     }
     if (op == "events.subscribe") {
-        return ipc::SubscribeEventsRequest{};
+        ipc::SubscribeEventsRequest request;
+        if (body.find("chat_preview"))
+            request.chat_preview = vector_boolean(body, "chat_preview");
+        if (body.find("pet_status"))
+            request.pet_status = vector_boolean(body, "pet_status");
+        return request;
     }
     if (op == "events.unsubscribe") {
         return ipc::UnsubscribeEventsRequest{};
@@ -645,7 +670,7 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
             if constexpr (std::is_same_v<T, ipc::HelloRequest> ||
                           std::is_same_v<T, ipc::ListTasksRequest> ||
                           std::is_same_v<T, ipc::ShutdownRequest> ||
-                          std::is_same_v<T, ipc::SubscribeEventsRequest> ||
+                          std::is_same_v<T, ipc::PetStatusRequest> ||
                           std::is_same_v<T, ipc::UnsubscribeEventsRequest> ||
                           std::is_same_v<T, ipc::ListPermissionsRequest> ||
                           std::is_same_v<T, ipc::ListSessionsRequest> ||
@@ -656,6 +681,9 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                           std::is_same_v<T, ipc::WorkflowAtomCatalogRequest> ||
                           std::is_same_v<T, ipc::WorkflowRunsRequest>) {
                 // Stateless bodies: the variant index comparison above suffices.
+            } else if constexpr (std::is_same_v<T, ipc::SubscribeEventsRequest>) {
+                MIRAGE_CHECK(std::get<T>(actual).chat_preview == expected_value.chat_preview);
+                MIRAGE_CHECK(std::get<T>(actual).pet_status == expected_value.pet_status);
             } else if constexpr (std::is_same_v<T, ipc::SetDesktopAuthorizationRequest>) {
                 MIRAGE_CHECK(std::get<T>(actual).remember == expected_value.remember);
             } else if constexpr (std::is_same_v<T, ipc::SetVisionRequest>) {
@@ -725,8 +753,7 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                 check_string_equal(name, "chat text", chat.text, expected_value.text);
                 MIRAGE_CHECK(chat.agent == expected_value.agent);
                 check_string_equal(name, "chat access", chat.access, expected_value.access);
-                check_string_equal(name, "chat reasoning", chat.reasoning,
-                                   expected_value.reasoning);
+                check_string_equal(name, "chat reasoning", chat.reasoning, expected_value.reasoning);
                 check_string_equal(name, "replace_turn_id", chat.replace_turn_id,
                                    expected_value.replace_turn_id);
             } else if constexpr (std::is_same_v<T, ipc::ChatHistoryRequest>) {
@@ -802,7 +829,9 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
         return response;
     }
     const auto &value = vector_member(payload, "value");
-    if (kind == "identity") {
+    if (kind == "pet") {
+        response.payload = pet_from_vector(value);
+    } else if (kind == "identity") {
         // The wire member is "service"; the C++ struct member is `name`.
         ipc::ServiceIdentity identity;
         identity.name = vector_string(value, "service");
@@ -858,13 +887,17 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
             identity.tray = vector_boolean(value, "tray");
         response.payload = std::move(identity);
     } else if (kind == "product-state") {
-        response.payload =
-            ipc::ProductState{vector_integer(value, "frontend_pid"),
-                              static_cast<std::uint64_t>(vector_integer(value, "window_epoch")),
-                              static_cast<std::uint64_t>(vector_integer(value, "exit_epoch")),
-                              static_cast<std::size_t>(vector_integer(value, "active_work")),
-                              vector_boolean(value, "exit_pending"),
-                              vector_boolean(value, "frontend_ready")};
+        ipc::ProductState state{vector_integer(value, "frontend_pid"),
+                                static_cast<std::uint64_t>(vector_integer(value, "window_epoch")),
+                                static_cast<std::uint64_t>(vector_integer(value, "exit_epoch")),
+                                static_cast<std::size_t>(vector_integer(value, "active_work")),
+                                vector_boolean(value, "exit_pending"),
+                                vector_boolean(value, "frontend_ready"),
+                                {}};
+        if (const auto *pet = value.find("pet_pid"); pet != nullptr) {
+            state.pet_pid = vector_integer(value, "pet_pid");
+        }
+        response.payload = state;
     } else if (kind == "submitted") {
         ipc::TaskSubmitted submitted;
         submitted.task_id = vector_string(value, "task_id");
@@ -1229,6 +1262,8 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                 // Nothing beyond the ok envelope.
             } else if constexpr (std::is_same_v<T, ipc::ModelList>) {
                 MIRAGE_CHECK(actual_value.ids == expected_value.ids);
+            } else if constexpr (std::is_same_v<T, mirage::runtime::pet::Status>) {
+                MIRAGE_CHECK(std::get<T>(actual.payload) == expected_value);
             } else if constexpr (std::is_same_v<T, ipc::ProductState>) {
                 MIRAGE_CHECK(actual_value.frontend_pid == expected_value.frontend_pid);
                 MIRAGE_CHECK(actual_value.window_epoch == expected_value.window_epoch);
@@ -1236,6 +1271,7 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                 MIRAGE_CHECK(actual_value.active_work == expected_value.active_work);
                 MIRAGE_CHECK(actual_value.exit_pending == expected_value.exit_pending);
                 MIRAGE_CHECK(actual_value.frontend_ready == expected_value.frontend_ready);
+                MIRAGE_CHECK(actual_value.pet_pid == expected_value.pet_pid);
             } else if constexpr (std::is_same_v<T, ipc::ServiceIdentity>) {
                 MIRAGE_CHECK(actual_value.tray == expected_value.tray);
                 check_string_equal(name, "service name", actual_value.name, expected_value.name);

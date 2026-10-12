@@ -1,5 +1,6 @@
 #pragma once
 #include <mirage/conversation.hpp>
+#include <mirage/runtime/pet/status.hpp>
 
 #include <chrono>
 #include <cstddef>
@@ -43,6 +44,7 @@ struct TaskStep {
 };
 
 struct HelloRequest {};
+struct PetStatusRequest {};
 
 struct SubmitTaskRequest {
     std::string goal;
@@ -111,6 +113,7 @@ struct ProductState {
     std::size_t active_work = 0;
     bool exit_pending = false;
     bool frontend_ready = false;
+    std::optional<std::int64_t> pet_pid; // present only for a tray with an owned pet carrier
 };
 
 /// Subscribes the connection to the service event stream (DEC-012 decision
@@ -119,6 +122,7 @@ struct ProductState {
 /// stable protocol_error, which clients translate into polling fallback.
 struct SubscribeEventsRequest {
     bool chat_preview = false; ///< DEC-041: transient previews understood by this client
+    bool pet_status = false;   ///< DEC-084: explicitly opt into pet.updated events
 };
 
 /// Drops the connection's event subscription; idempotent. Events already
@@ -193,9 +197,8 @@ struct SessionChatRequest {
     std::string session_id;
     std::string text;
     bool agent = false; ///< DEC-034: conversational harness; absent preserves legacy dialog.
-    std::string access =
-        "default";              ///< DEC-080: chat_only=dialog, read_only=observation, default=full
-    std::string reasoning = ""; ///< empty/default or minimal/low/medium/high
+    std::string access = "default";   ///< DEC-080: chat_only=dialog, read_only=observation, default=full
+    std::string reasoning = "";       ///< empty/default or minimal/low/medium/high
     std::string replace_turn_id = {}; ///< DEC-039: replace exactly the latest settled turn
 };
 struct CancelChatRequest {
@@ -373,8 +376,8 @@ struct DesktopObserveRequest {
 };
 
 using Request = std::variant<
-    HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest, CancelTaskRequest,
-    PauseTaskRequest, ResumeTaskRequest, ShutdownRequest, ProductControlRequest,
+    HelloRequest, PetStatusRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest,
+    CancelTaskRequest, PauseTaskRequest, ResumeTaskRequest, ShutdownRequest, ProductControlRequest,
     SubscribeEventsRequest, UnsubscribeEventsRequest, RespondPermissionRequest,
     ListPermissionsRequest, ListSessionsRequest, OpenSessionRequest, SessionHistoryRequest,
     CloseSessionRequest, DeleteSessionRequest, SessionChatRequest, ChatHistoryRequest,
@@ -424,6 +427,7 @@ struct ServiceIdentity {
     /// from this service generation on. Placed after `chat`.
     std::optional<bool> policy;
     std::optional<bool> tray{}; // true only after embedded tray registration
+    std::optional<bool> pet_status{}; // DEC-084 read-only presentation face
 };
 
 struct TaskSubmitted {
@@ -828,8 +832,8 @@ struct ObservationView {
 };
 
 using ResponsePayload =
-    std::variant<ServiceIdentity, ProductState, TaskSubmitted, TaskList, InspectTask, TaskCancelled,
-                 TaskPaused, TaskResumed, ShutdownAccepted, PermissionResponded,
+    std::variant<ServiceIdentity, ProductState, pet::Status, TaskSubmitted, TaskList, InspectTask,
+                 TaskCancelled, TaskPaused, TaskResumed, ShutdownAccepted, PermissionResponded,
                  PermissionPendingList, SessionList, SessionOpened, SessionClosed, SessionDeleted,
                  DialogTurnAccepted, DialogHistory, SessionHistory, WorkflowList, WorkflowSaved,
                  WorkflowPublished, WorkflowDeleted, WorkflowAtomCatalog, WorkflowRunList,
@@ -1029,10 +1033,13 @@ struct ChatPreviewEvent {
 };
 
 /// Closed event set; new events join additively (DEC-012).
+struct PetUpdatedEvent {
+    pet::Status status;
+};
 using EventPayload =
     std::variant<TaskUpdatedEvent, HostStatusEvent, EventsOverflowEvent, PermissionRequestedEvent,
                  SessionUpdatedEvent, SessionMessageEvent, SessionTurnEvent, SessionOutputEvent,
-                 WorkflowRunUpdatedEvent, ChatTurnUpdatedEvent, ChatPreviewEvent>;
+                 WorkflowRunUpdatedEvent, ChatTurnUpdatedEvent, ChatPreviewEvent, PetUpdatedEvent>;
 
 /// One decoded event frame minus its envelope bookkeeping: the per-connection
 /// `seq` plus the payload. `seq` is assigned by the sender per connection,

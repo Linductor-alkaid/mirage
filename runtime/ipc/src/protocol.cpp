@@ -548,6 +548,48 @@ mira::JsonValue encode_inspect(const InspectTask &task) {
     return object;
 }
 
+void put_pet_status(mira::JsonValue &object, const pet::Status &status) {
+    put(object, "schema_version", static_cast<std::int64_t>(status.schema_version));
+    put(object, "owner_epoch", status.owner_epoch);
+    put(object, "revision", static_cast<std::int64_t>(status.revision));
+    put(object, "host_state", status.host_state);
+    put(object, "display_state", status.display_state);
+    put(object, "source_kind", status.source_kind);
+    put(object, "source_id", status.source_id);
+    put(object, "session_id", status.session_id);
+    put(object, "active_count", static_cast<std::int64_t>(status.active_count));
+    put(object, "summary", status.summary);
+    put(object, "reason_code", status.reason_code);
+    put(object, "elapsed_ms", static_cast<std::int64_t>(status.elapsed_ms));
+}
+
+std::optional<pet::Status> read_pet_status(const mira::JsonValue &object) {
+    if (mira::to_json_string(object).size() > pet::max_status_wire_bytes)
+        return std::nullopt;
+    const auto schema = integer_member(object, "schema_version");
+    const auto epoch = string_member(object, "owner_epoch");
+    const auto revision = integer_member(object, "revision");
+    const auto host = string_member(object, "host_state");
+    const auto state = string_member(object, "display_state");
+    const auto kind = string_member(object, "source_kind");
+    const auto id = string_member(object, "source_id");
+    const auto session = string_member(object, "session_id");
+    const auto count = integer_member(object, "active_count");
+    const auto summary = string_member(object, "summary");
+    const auto reason = string_member(object, "reason_code");
+    const auto elapsed = integer_member(object, "elapsed_ms");
+    if (!schema || *schema != 1 || !epoch || !revision || *revision <= 0 || !host || !state ||
+        !kind || !id || !session || !count || *count < 0 ||
+        *count > static_cast<std::int64_t>(pet::max_work_items) || !summary || !reason ||
+        !elapsed || *elapsed < 0)
+        return std::nullopt;
+    pet::Status result{1,        *epoch,   static_cast<std::uint64_t>(*revision),
+                       *host,    *state,   *kind,
+                       *id,      *session, static_cast<std::size_t>(*count),
+                       *summary, *reason,  static_cast<std::uint64_t>(*elapsed)};
+    return pet::valid_status(result) ? std::optional{std::move(result)} : std::nullopt;
+}
+
 mira::JsonValue encode_payload(const ResponsePayload &payload) {
     auto object = make_object();
     std::visit(
@@ -561,6 +603,8 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 put(object, "protocol", static_cast<std::int64_t>(value.protocol));
                 if (value.tray)
                     put(object, "tray", *value.tray);
+                if (value.pet_status)
+                    put(object, "pet_status", *value.pet_status);
                 if (value.events.has_value()) {
                     put(object, "events", *value.events);
                 }
@@ -585,6 +629,9 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 if (value.policy.has_value()) {
                     put(object, "policy", *value.policy);
                 }
+            } else if constexpr (std::is_same_v<T, pet::Status>) {
+                put(object, "pet", true);
+                put_pet_status(object, value);
             } else if constexpr (std::is_same_v<T, ProductState>) {
                 put(object, "product", true);
                 put(object, "frontend_pid", value.frontend_pid);
@@ -593,6 +640,8 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 put(object, "active_work", static_cast<std::int64_t>(value.active_work));
                 put(object, "exit_pending", value.exit_pending);
                 put(object, "frontend_ready", value.frontend_ready);
+                if (value.pet_pid)
+                    put(object, "pet_pid", *value.pet_pid);
             } else if constexpr (std::is_same_v<T, TaskSubmitted>) {
                 put(object, "task_id", value.task_id);
                 if (value.session_id) {
@@ -883,6 +932,8 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                 put(object, "task_id", value.task_id);
             } else if constexpr (std::is_same_v<T, ShutdownRequest>) {
                 put(object, "op", kOpShutdown);
+            } else if constexpr (std::is_same_v<T, PetStatusRequest>) {
+                put(object, "op", "pet.status");
             } else if constexpr (std::is_same_v<T, ProductControlRequest>) {
                 put(object, "op", "product.control");
                 put(object, "action", value.action);
@@ -893,6 +944,8 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                 put(object, "op", kOpSubscribe);
                 if (value.chat_preview)
                     put(object, "chat_preview", true);
+                if (value.pet_status)
+                    put(object, "pet_status", true);
             } else if constexpr (std::is_same_v<T, UnsubscribeEventsRequest>) {
                 put(object, "op", kOpUnsubscribe);
             } else if constexpr (std::is_same_v<T, RespondPermissionRequest>) {
@@ -1059,6 +1112,8 @@ RequestDecode decode_request(std::string_view payload) {
         result.body = ListTasksRequest{};
     } else if (*op == kOpShutdown) {
         result.body = ShutdownRequest{};
+    } else if (*op == "pet.status") {
+        result.body = PetStatusRequest{};
     } else if (*op == "product.control") {
         const auto action = string_member(object, "action");
         const auto epoch = integer_member(object, "exit_epoch");
@@ -1091,6 +1146,14 @@ RequestDecode decode_request(std::string_view payload) {
                 return result;
             }
             subscribe.chat_preview = *flag;
+        }
+        if (member(object, "pet_status")) {
+            const auto flag = boolean_member(object, "pet_status");
+            if (!flag) {
+                result.error = "events.subscribe pet_status must be boolean";
+                return result;
+            }
+            subscribe.pet_status = *flag;
         }
         result.body = subscribe;
     } else if (*op == kOpUnsubscribe) {
@@ -1689,7 +1752,23 @@ ResponseDecode decode_response(std::string_view payload) {
             }
             identity.tray = *tray;
         }
+        if (member(object, "pet_status")) {
+            const auto flag = boolean_member(object, "pet_status");
+            if (!flag) {
+                result.error = "hello pet_status must be boolean";
+                return result;
+            }
+            identity.pet_status = *flag;
+        }
         response.payload = std::move(identity);
+    } else if (member(object, "pet")) {
+        const auto marker = boolean_member(object, "pet");
+        const auto status = read_pet_status(object);
+        if (!marker || !*marker || !status) {
+            result.error = "invalid pet status";
+            return result;
+        }
+        response.payload = *status;
     } else if (member(object, "product")) {
         const auto product = boolean_member(object, "product");
         const auto pid = integer_member(object, "frontend_pid");
@@ -1698,6 +1777,14 @@ ResponseDecode decode_response(std::string_view payload) {
         const auto active = integer_member(object, "active_work");
         const auto pending = boolean_member(object, "exit_pending");
         const auto ready = boolean_member(object, "frontend_ready");
+        std::optional<std::int64_t> pet_pid;
+        if (member(object, "pet_pid")) {
+            pet_pid = integer_member(object, "pet_pid");
+            if (!pet_pid || *pet_pid < 0) {
+                result.error = "invalid product pet pid";
+                return result;
+            }
+        }
         if (!product || !*product || !pid || *pid < 0 || !window || *window < 0 || !epoch ||
             *epoch < 0 || !active || *active < 0 || !pending || !ready) {
             result.error = "invalid product state";
@@ -1708,7 +1795,8 @@ ResponseDecode decode_response(std::string_view payload) {
                                         static_cast<std::uint64_t>(*epoch),
                                         static_cast<std::size_t>(*active),
                                         *pending,
-                                        *ready};
+                                        *ready,
+                                        pet_pid};
     } else if (const auto *task_id = member(object, "task_id"); task_id != nullptr) {
         auto id_text = string_member(object, "task_id");
         if (!id_text || id_text->empty()) {
@@ -2415,6 +2503,8 @@ ResponseDecode decode_response(std::string_view payload) {
 }
 
 const char *event_name(const EventPayload &payload) {
+    if (std::holds_alternative<PetUpdatedEvent>(payload))
+        return "pet.updated";
     if (std::holds_alternative<TaskUpdatedEvent>(payload)) {
         return kEventTaskUpdated;
     }
@@ -2461,6 +2551,9 @@ std::string encode_event(const Event &event) {
                 put(object, "progress", value.progress);
                 put(object, "has_success", value.has_success);
                 put(object, "success", value.success);
+            } else if constexpr (std::is_same_v<T, PetUpdatedEvent>) {
+                put(object, "event", "pet.updated");
+                put_pet_status(object, value.status);
             } else if constexpr (std::is_same_v<T, HostStatusEvent>) {
                 put(object, "event", kEventHostStatus);
                 put(object, "status", value.status);
@@ -2594,6 +2687,13 @@ EventDecode decode_event(std::string_view payload) {
         task.has_success = *has_success_flag;
         task.success = *success_flag;
         result.event.payload = std::move(task);
+    } else if (*name == "pet.updated") {
+        const auto status = read_pet_status(object);
+        if (!status) {
+            result.error = "invalid pet status";
+            return result;
+        }
+        result.event.payload = PetUpdatedEvent{*status};
     } else if (*name == kEventHostStatus) {
         HostStatusEvent status;
         auto status_name = string_member(object, "status");

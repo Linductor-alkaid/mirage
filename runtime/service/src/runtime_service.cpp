@@ -34,6 +34,7 @@
 #include <chrono>
 #include <cstdio>
 #include <ctime>
+#include <functional>
 #include <future>
 #include <iostream>
 #include <memory>
@@ -176,6 +177,13 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
                     ++record.process_sequence;
                 event.process_sequence = record.process_sequence;
                 record.status = status;
+                record.model_in_flight = false;
+                record.pet_tool_phase.clear();
+                // M8: was_cancelled tracks user-initiated cancel, not deadline expiry.
+                // cancel_requested is set only when the user explicitly sends CancelChatRequest.
+                // completion.cancelled may also be true on deadline; that should show task_failure.
+                record.was_cancelled = record.cancel_requested;
+                record.pet_completion_order = core->pet_completion_order.fetch_add(1) + 1;
                 record.recorded_at_ms = wall_now_ms(); // DEC-079: last canonical record update.
                 record.reply_text = event.reply_text;
                 record.context_usage = event.context_usage;
@@ -205,7 +213,8 @@ void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::stri
                      std::string turn_id, const std::string &transcript, const std::string &text,
                      kairo::StopToken stop, bool agent, const std::string &agent_task_id,
                      const std::string &reasoning, bool tools_allowed,
-                     const std::string &host_session_id) {
+                     const std::string &host_session_id,
+                     const std::function<void()> &refresh_pet) {
     mira::OperationContext context;
     context.session = mira::SessionId::parse(host_session_id).value_or(mira::SessionId{});
     context.task = mira::TaskId::parse(agent_task_id).value_or(mira::TaskId{});
@@ -231,10 +240,12 @@ void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::stri
         core->events.publish_chat_preview({session_id, turn_id, request, preview_text,
                                            preview_sequence->fetch_add(1) + 1, truncated});
     };
-    integration::DialogProcessSink process = [core, session_id, turn_id, stop](const auto &parts) {
+    integration::DialogProcessSink process = [core, session_id, turn_id, stop,
+                                              refresh_pet](const auto &parts) {
         if (stop.stop_requested() || !conversation::valid_parts(parts))
             return;
         ipc::ChatTurnUpdatedEvent event;
+        bool phase_changed = false;
         {
             std::lock_guard lock(core->dialogs.mutex);
             const auto found = core->dialogs.sessions.find(session_id);
@@ -247,6 +258,15 @@ void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::stri
             if (record == log.turns.end() || record->status != "pending")
                 return;
             record->parts = parts;
+            const auto previous_phase = record->pet_tool_phase;
+            record->pet_tool_phase.clear();
+            for (const auto &part : parts) {
+                if (part.kind == "tool" && part.status == "running") {
+                    record->pet_tool_phase = pet::running_tool_phase(part.name);
+                    break;
+                }
+            }
+            phase_changed = previous_phase != record->pet_tool_phase;
             event.session_id = session_id;
             event.turn_id = turn_id;
             event.status = "pending";
@@ -257,14 +277,38 @@ void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::stri
             event.process_sequence = ++record->process_sequence;
         }
         core->events.publish_chat_turn(std::move(event));
+        if (phase_changed)
+            refresh_pet();
+    };
+    integration::DialogModelActivitySink activity = [core, session_id, turn_id, stop,
+                                                     refresh_pet](bool active) {
+        bool phase_changed = false;
+        {
+            std::lock_guard lock(core->dialogs.mutex);
+            const auto found = core->dialogs.sessions.find(session_id);
+            if (found == core->dialogs.sessions.end())
+                return;
+            auto &log = found->second;
+            const auto record =
+                std::find_if(log.turns.begin(), log.turns.end(),
+                             [&](const auto &turn) { return turn.turn_id == turn_id; });
+            if (record == log.turns.end() || record->status != "pending")
+                return;
+            const bool next = active && !record->cancel_requested && !stop.stop_requested();
+            phase_changed = record->model_in_flight != next;
+            record->model_in_flight = next;
+        }
+        if (phase_changed)
+            refresh_pet();
     };
     mirage::integration::DialogCompletion completion =
         core->model_layer
             ? (agent ? core->model_layer->complete_harness_turn(transcript, text, context,
                                                                 reasoning, tools_allowed, preview,
-                                                                process, desktop_cancel)
+                                                                process, desktop_cancel, activity)
                      : core->model_layer->complete_dialog_turn(transcript, text, context, reasoning,
-                                                               tools_allowed, preview, process))
+                                                               tools_allowed, preview, process,
+                                                               activity))
             : mirage::integration::DialogCompletion{};
     if (!agent_task_id.empty()) {
         const auto settled =
@@ -285,6 +329,7 @@ void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::stri
         }
     }
     settle_dialog_turn(core, session_id, turn_id, completion);
+    refresh_pet();
 }
 
 } // namespace
@@ -414,6 +459,8 @@ struct RuntimeService::Impl {
     kairo::TimerHandle product_maintenance;
     // Serialized context only: UI window activation and exit prompt epochs.
     ipc::ProductState product;
+    pet::Projection pet_projection{make_turn_id()}; // serial context, one presentation only
+    std::uint64_t published_pet_revision = 0;
     std::promise<void> loop_done;
     std::future<void> loop_done_future;
     std::atomic<Lifecycle> lifecycle{Lifecycle::New};
@@ -471,6 +518,14 @@ struct RuntimeService::Impl {
             event.run_id = view.run_id;
             event.workflow_id = view.workflow_id;
             event.state = view.state;
+            if (view.state == "completed" || view.state == "failed" || view.state == "cancelled") {
+                std::lock_guard lock(live_core->workflow_runs.mutex);
+                const auto found = live_core->workflow_runs.runs.find(view.run_id);
+                if (found != live_core->workflow_runs.runs.end() &&
+                    !found->second.pet_completion_order)
+                    found->second.pet_completion_order =
+                        live_core->pet_completion_order.fetch_add(1) + 1;
+            }
             event.run_epoch = view.run_epoch;
             if (!view.summary.empty()) {
                 event.summary = view.summary;
@@ -617,6 +672,7 @@ struct RuntimeService::Impl {
         result.chat = core->model_available.load();
         // M5-07: the policy face is core equipment — always served.
         result.policy = true;
+        result.pet_status = true;
         if (tray)
             result.tray = tray->ready();
         return result;
@@ -652,9 +708,150 @@ struct RuntimeService::Impl {
         }
         return active;
     }
+    pet::Status pet_snapshot() {
+        std::vector<pet::Work> work;
+        // Registries are already capacity-bounded; cap this ephemeral view too.
+        const auto append = [&](pet::Work item) {
+            if (work.size() <= pet::max_work_items)
+                work.push_back(std::move(item)); // one extra marks capacity rejection
+        };
+        {
+            std::vector<pet::Work> tasks;
+            {
+                std::lock_guard lock(core->registry.mutex);
+                for (const auto &[id, record] : core->registry.tasks) {
+                    if (record.from_recovery)
+                        continue;
+                    if (!record.final_progress.empty() &&
+                        record.pet_completion_order <= pet_projection.completed_seen() &&
+                        (pet_projection.current().source_kind != "task" ||
+                         pet_projection.current().source_id != id))
+                        continue;
+                    if (tasks.size() > pet::max_work_items)
+                        break;
+                    tasks.push_back({"task", id, record.session_id,
+                                     record.cancel.cancelled() && record.final_progress.empty()
+                                         ? "cancelling"
+                                     : record.final_progress == "Completed" &&
+                                             (!record.has_success || !record.success)
+                                         ? "Failed"
+                                         : record.final_progress,
+                                     "unknown", false, record.pet_completion_order});
+                }
+            }
+            for (auto &item : tasks) {
+                if (item.state.empty()) {
+                    const auto view = core->host.task_view(TaskIdentity{item.source_id});
+                    item.state = view.ok ? progress_name(view.view.progress) : "Unknown";
+                    if (view.ok && item.state == "Completed" && !view.view.success)
+                        item.state = "Failed";
+                }
+                item.state = item.state == "Completed"    ? "completed"
+                             : item.state == "Failed"     ? "failed"
+                             : item.state == "Cancelled"  ? "cancelled"
+                             : item.state == "Paused"     ? "paused"
+                             : item.state == "cancelling" ? "cancelling"
+                                                          : "active";
+                append(std::move(item));
+            }
+        }
+        {
+            std::lock_guard lock(core->dialogs.mutex);
+            for (const auto &[session, log] : core->dialogs.sessions) {
+                for (const auto &record : log.turns) {
+                    // Live work, unseen settlements and the displayed terminal only;
+                    // restored history has no current-owner completion watermark.
+                    if (record.status != "pending" &&
+                        record.pet_completion_order <= pet_projection.completed_seen() &&
+                        (pet_projection.current().source_kind != "turn" ||
+                         pet_projection.current().source_id != record.turn_id))
+                        continue;
+                    const auto state = record.status == "pending"
+                                           ? (record.cancel_requested ? "cancelling" : "active")
+                                       : record.was_cancelled  ? "cancelled"
+                                       : record.status == "ok" ? "completed"
+                                                               : "failed";
+                    const auto phase = !record.pet_tool_phase.empty()
+                                           ? record.pet_tool_phase
+                                           : record.model_in_flight ? "thinking" : "unknown";
+                    append({"turn", record.turn_id, session, state, phase,
+                            record.status == "pending" && phase != "unknown",
+                            record.pet_completion_order});
+                    if (work.size() > pet::max_work_items)
+                        break;
+                }
+                if (work.size() > pet::max_work_items)
+                    break;
+            }
+        }
+        std::vector<std::string> runs;
+        {
+            std::lock_guard lock(core->workflow_runs.mutex);
+            for (const auto &[id, record] : core->workflow_runs.runs) {
+                (void)record;
+                if (runs.size() > pet::max_work_items)
+                    break;
+                runs.push_back(id);
+            }
+        }
+        bool waiting = confirmation_hub && !confirmation_hub->pending().empty();
+        for (const auto &id : runs) {
+            const auto view = core->host.workflow_run_view(id);
+            std::string state = view.ok ? view.view.state : "running";
+            std::uint64_t completion_order = 0;
+            const bool terminal = state == "completed" || state == "failed" || state == "cancelled";
+            if (terminal) {
+                std::lock_guard lock(core->workflow_runs.mutex);
+                auto &record = core->workflow_runs.runs.at(id);
+                if (!record.pet_completion_order)
+                    record.pet_completion_order = core->pet_completion_order.fetch_add(1) + 1;
+                completion_order = record.pet_completion_order;
+            }
+            if ((state == "completed" || state == "failed" || state == "cancelled") &&
+                completion_order <= pet_projection.completed_seen() &&
+                (pet_projection.current().source_kind != "workflow" ||
+                 pet_projection.current().source_id != id))
+                continue;
+            waiting = waiting || state == "waiting_user";
+            if (state != "completed" && state != "failed" && state != "cancelled" &&
+                state != "paused")
+                state = "active";
+            append({"workflow", id, {}, state, "unknown", false, completion_order});
+        }
+        const auto snapshot =
+            pet_projection.update(host_status_name(core->host.status()), work,
+                                  core->actions && core->actions->authority_epoch() == 0, waiting,
+                                  pet::Projection::Clock::now());
+        if (snapshot.revision != published_pet_revision) {
+            core->events.publish_pet_status({snapshot});
+            published_pet_revision = snapshot.revision;
+        }
+        return snapshot;
+    }
+
+    void refresh_pet_from_dialog() {
+        if (product_stopping.load())
+            return;
+        try {
+            auto result = core->executor.submit_on(core->serial, [this] {
+                if (!product_stopping.load())
+                    (void)pet_snapshot();
+            });
+            // This callback runs on the admitted dialog task, never the serial context.
+            // Consumption makes rejection/failure visible to the Executor owner.
+            result.get();
+        } catch (const std::exception &error) {
+            if (!product_stopping.load())
+                std::cerr << "mirage-service: pet projection refresh failed: " << error.what()
+                          << '\n';
+        }
+    }
+
     ipc::ProductState product_snapshot() {
         auto result = product;
         result.frontend_pid = config.frontend ? config.frontend->pid() : 0;
+        if (config.pet)
+            result.pet_pid = config.pet->pid();
         if (result.frontend_pid == 0)
             product.frontend_ready = false;
         result.frontend_ready = product.frontend_ready;
@@ -861,6 +1058,10 @@ struct RuntimeService::Impl {
             respond(connection_id, correlation_id, identity());
             return;
         }
+        if (std::holds_alternative<ipc::PetStatusRequest>(decoded.body)) {
+            respond(connection_id, correlation_id, pet_snapshot());
+            return;
+        }
         if (auto *request = std::get_if<ipc::ProductControlRequest>(&decoded.body)) {
             std::string diagnostic;
             if (!product_action(*request, diagnostic))
@@ -907,7 +1108,8 @@ struct RuntimeService::Impl {
             return;
         }
         if (auto *request = std::get_if<ipc::SubscribeEventsRequest>(&decoded.body)) {
-            handle_subscribe(connection_id, correlation_id, request->chat_preview);
+            handle_subscribe(connection_id, correlation_id, request->chat_preview,
+                             request->pet_status);
             return;
         }
         if (auto *request = std::get_if<ipc::UnsubscribeEventsRequest>(&decoded.body)) {
@@ -987,6 +1189,15 @@ struct RuntimeService::Impl {
                 const auto it = core->drivers.find("dialog-" + turn);
                 if (it != core->drivers.end())
                     core->executor.request_task_cancel(it->second.handle);
+            }
+            {
+                std::lock_guard lock(core->dialogs.mutex);
+                auto &log = core->dialogs.sessions.at(request->session_id);
+                for (auto &record : log.turns)
+                    if (record.turn_id == turn && record.status == "pending") {
+                        record.cancel_requested = true;
+                        record.model_in_flight = false;
+                    }
             }
             respond(connection_id, correlation_id, ipc::DialogTurnAccepted{turn});
             return;
@@ -1362,7 +1573,7 @@ struct RuntimeService::Impl {
     /// The current host status seeds the stream (seq 1) so a fresh
     /// subscriber starts from the live state, mirroring the frontend mock.
     void handle_subscribe(std::uint64_t connection_id, std::uint64_t correlation_id,
-                          bool chat_preview) {
+                          bool chat_preview, bool pet_status) {
         detail::ServiceLoop *active = loop.load(std::memory_order_acquire);
         if (active == nullptr) {
             fail(connection_id, correlation_id, "internal", "service loop is not running");
@@ -1375,7 +1586,7 @@ struct RuntimeService::Impl {
         }
         respond(connection_id, correlation_id, ipc::ShutdownAccepted{});
         active->post_attach_events(connection_id, std::move(subscription), std::move(seed),
-                                   chat_preview);
+                                   chat_preview, pet_status);
     }
 
     /// Serial thread: drop the connection's subscription; idempotent.
@@ -2337,7 +2548,7 @@ struct RuntimeService::Impl {
         auto dialog_submission = core->executor.submit_cancellable(
             [core = core, ready, session_id, turn_id, transcript, text = request.text,
              agent = request.agent, agent_task_id, host_session_id, reasoning = request.reasoning,
-             tools_allowed = request.access == "default"](kairo::StopToken stop) {
+             tools_allowed = request.access == "default", raw = this](kairo::StopToken stop) {
                 // Startup coordination belongs to Executor; no private queue or waiter.
                 while (!ready->has_reached(1)) {
                     if (ready->is_closed() || stop.stop_requested())
@@ -2346,7 +2557,8 @@ struct RuntimeService::Impl {
                 }
                 try {
                     run_dialog_turn(core, session_id, turn_id, transcript, text, stop, agent,
-                                    agent_task_id, reasoning, tools_allowed, host_session_id);
+                                    agent_task_id, reasoning, tools_allowed, host_session_id,
+                                    [raw] { raw->refresh_pet_from_dialog(); });
                 } catch (...) {
                     mirage::integration::DialogCompletion failed;
                     failed.failed = true;
@@ -2362,6 +2574,7 @@ struct RuntimeService::Impl {
                             .get();
                     }
                     settle_dialog_turn(core, session_id, turn_id, failed);
+                    raw->refresh_pet_from_dialog();
                     throw; // Executor failure remains observable.
                 }
             });
@@ -3267,6 +3480,20 @@ struct RuntimeService::Impl {
             }
         }
         bool frontend_clean = true;
+        bool pet_clean = true;
+        if (config.pet) {
+            try {
+                // teardown() runs on the external Runtime owner thread. The
+                // bounded 5.2 s exit clip must not occupy the serial worker.
+                std::string diagnostic;
+                pet_clean = config.pet->stop(diagnostic);
+                if (!pet_clean)
+                    std::cerr << "mirage-tray: pet shutdown failed: " << diagnostic << '\n';
+            } catch (const std::exception &error) {
+                pet_clean = false;
+                std::cerr << "mirage-tray: pet shutdown failed: " << error.what() << '\n';
+            }
+        }
         if (config.frontend) {
             // Loop has closed all UI connections. Child normally exits itself;
             // the platform fallback and OS-handle reaping are bounded.
@@ -3324,14 +3551,14 @@ struct RuntimeService::Impl {
         publish_host_status(host_shutdown.ok && host_shutdown.report.clean ? HostStatus::Stopped
                                                                            : HostStatus::Failed);
         core->serial.shutdown();
-        run_report.clean = host_shutdown.ok && host_shutdown.report.clean && frontend_clean &&
+        run_report.clean = host_shutdown.ok && host_shutdown.report.clean && frontend_clean && pet_clean &&
                            !product_failed.load() && core->actions->input_released();
         if (!run_report.clean) {
             run_report.diagnostic =
                 host_shutdown.ok ? host_shutdown.report.diagnostic : host_shutdown.error.message;
         }
-        if (!frontend_clean || product_failed.load())
-            run_report.diagnostic = "product carrier/action/frontend teardown failed";
+        if (!frontend_clean || !pet_clean || product_failed.load())
+            run_report.diagnostic = "product carrier/action/frontend/pet teardown failed";
         if (!core->actions->input_released())
             run_report.diagnostic = "desktop input release did not complete";
         run_report.host_shutdown = host_shutdown.report;
@@ -3824,6 +4051,8 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                 } release{raw->product_maintenance_active};
                 try {
                     auto reaped = raw->core->executor.submit_on(raw->core->serial, [raw] {
+                        if (!raw->product_stopping.load())
+                            (void)raw->pet_snapshot();
                         if (raw->product_stopping.load() || !raw->config.frontend)
                             return;
                         raw->tray->set_active_work(raw->active_product_work());
@@ -3866,6 +4095,20 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
             impl_->teardown();
             outcome.error = {"unavailable", failure};
             return outcome;
+        }
+        if (impl_->config.pet) {
+            auto opened = impl_->core->executor.submit_on(impl_->core->serial, [raw = impl_.get()] {
+                std::string pet_diagnostic;
+                const bool ok = raw->config.pet->open(raw->socket_path, pet_diagnostic);
+                return ok ? std::string{} : pet_diagnostic;
+            });
+            try {
+                const auto pet_diagnostic = opened.get();
+                if (!pet_diagnostic.empty())
+                    std::cerr << "mirage-tray: pet unavailable: " << pet_diagnostic << '\n';
+            } catch (const std::exception &error) {
+                std::cerr << "mirage-tray: pet admission failed: " << error.what() << '\n';
+            }
         }
     }
     outcome.ok = true;

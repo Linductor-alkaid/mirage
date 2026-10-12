@@ -439,7 +439,8 @@ void DesktopActionVerification::observe(Record &r, const mira::OperationContext 
 
 std::string DesktopActionVerification::failure_receipt(const Record &r, std::string message,
                                                        const std::string &invalid_field,
-                                                       std::string code) {
+                                                       std::string code,
+                                                       const std::string &refreshed_scope) {
     // Pinned ToolExecutor caps safe_error_summary at 512 bytes. Keep the
     // canonical receipt valid; the UI and action.verify get the full record.
     // 256 leaves room for the shared-input rejection's embedded observation
@@ -460,6 +461,8 @@ std::string DesktopActionVerification::failure_receipt(const Record &r, std::str
     conversation::truncate_text(code, 64);
     if (!code.empty())
         receipt.set("error_code", code);
+    if (!refreshed_scope.empty())
+        receipt.set("refreshed_image_scope", refreshed_scope);
     auto encoded = mira::to_json_string(receipt);
     if (encoded.size() > 512) {
         // Escaping control characters can expand even a short provider error.
@@ -523,7 +526,7 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
         r.reason = "validation_failed_before_dispatch";
         r.input_released = true;
         auto failure = error(mira::ErrorCode::InvalidArgument, message);
-        failure.safe_message = failure_receipt(r, message, invalid_field);
+        failure.safe_message = failure_receipt(r, message, invalid_field, {}, {});
         records_.push_back(std::move(r));
         return failure;
     };
@@ -699,9 +702,11 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
         provider_receipt ? field(provider_receipt.value(), "message") : "";
     const auto provider_code =
         provider_receipt ? field(provider_receipt.value(), "error_code") : "";
+    const auto provider_refreshed_scope =
+        provider_receipt ? field(provider_receipt.value(), "refreshed_image_scope") : "";
     failure.safe_message =
         failure_receipt(record, provider_message.empty() ? failure.safe_message : provider_message,
-                        {}, provider_code);
+                        {}, provider_code, provider_refreshed_scope);
     return failure;
 }
 

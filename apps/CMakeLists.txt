@@ -35,6 +35,13 @@ add_subdirectory(tray)
 # Native UI, DEC-037: the sole product frontend.
 add_subdirectory(native)
 
+# The v5 source is supplied as a local asset bundle; product packaging waits
+# for its controlled artifact handoff. Keep ordinary builds independent of ~/下载.
+option(MIRAGE_ENABLE_PET_PREVIEW "Build the local v5 mira_pet preview" OFF)
+if(MIRAGE_ENABLE_PET_PREVIEW)
+    add_subdirectory(pet)
+endif()
+
 if(MIRAGE_BUNDLE_VISION)
     target_compile_definitions(mirage_service_host PRIVATE MIRAGE_BUNDLED_VISION=1)
 endif()

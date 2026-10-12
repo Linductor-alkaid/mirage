@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "source": "mira_pet_v5_桌宠素材包",
+  "source_inventory": "mira-pet-assets-v5-20261012.json",
+  "status": "candidate; twenty-cycle visual seam and target-window acceptance pending",
+  "range_convention": "zero-based half-open source frame indices",
+  "playback_note": "intro plays once; only loop repeats; once clips never loop despite WebP ANIM loop_count=0; outro is reserved and not yet played by the runtime player",
+  "clips": [
+    {"state":"enter","file":"mira_enter.webp","sha256":"4f7bdccbcfc4c5be133577c22a12b26b6e714ef49763171b543687efbbb03219","frames":54,"frame_duration_ms":83,"playback":"once","once":[0,54]},
+    {"state":"rest","file":"mira_rest.webp","sha256":"2d59a265a48589af9b44b08600bfef24ea0c7a89244a2a660c3e05951613e38d","frames":50,"frame_duration_ms":167,"playback":"loop","intro":[0,8],"loop":[8,44],"outro":[44,50]},
+    {"state":"think","file":"mira_think.webp","sha256":"186c4fa8944ce0874ddde5582bf81906dea58972cf684f877afb3a298a1f8c34","frames":55,"frame_duration_ms":125,"playback":"loop","intro":[0,22],"loop":[22,33],"outro":[33,55]},
+    {"state":"look","file":"mira_look.webp","sha256":"a6b2a528bf0dd7e83bb24afcb61d2108aedff1b87521c435494890513fa75725","frames":96,"frame_duration_ms":100,"playback":"loop","intro":[0,22],"loop":[22,89],"outro":[89,96]},
+    {"state":"mouse","file":"mira_mouse.webp","sha256":"185b346420ddec073afa322f9e534af4a3e56873011792772a78cfb77b7a4426","frames":59,"frame_duration_ms":91,"playback":"loop","intro":[0,22],"loop":[22,33],"outro":[33,59]},
+    {"state":"typing","file":"mira_typing.webp","sha256":"03f4188652c4092a7a5d80ad91e31da5e4eedf1a427e2c9b8e8c8be4083ec5ec","frames":74,"frame_duration_ms":71,"playback":"loop","intro":[0,27],"loop":[27,51],"outro":[51,74]},
+    {"state":"done","file":"mira_done.webp","sha256":"911459ba4247b7dd5fd8df939c7869d6a08100b362ba0da0c247cca0a4b421d1","frames":56,"frame_duration_ms":83,"playback":"loop","intro":[0,46],"loop":[46,54],"outro":[54,56]},
+    {"state":"fail","file":"mira_fail.webp","sha256":"198a9e3041b836e6722af9a2af196225129ffe0d00005a530468b0bbc70de57c","frames":55,"frame_duration_ms":125,"playback":"loop","intro":[0,12],"loop":[12,25],"outro":[25,55]},
+    {"state":"exit","file":"mira_exit.webp","sha256":"e065f0cf7f5f7fb7d55987421179b63fc4f8d5ff6bcb685e16239e1b6f63ad64","frames":52,"frame_duration_ms":100,"playback":"once","once":[0,52]}
+  ]
+}

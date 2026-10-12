@@ -63,6 +63,7 @@ class Carrier final : public desktop::TrayCarrier {
 class Frontend final : public desktop::FrontendProcess {
   public:
     bool fail_open = false, throw_open = false, fail_stop = false;
+    std::int64_t spawned_pid = 777;
     int opened = 0, stopped = 0;
     std::int64_t current = 0;
     bool open(const std::string &, std::string &diagnostic) override {
@@ -73,7 +74,7 @@ class Frontend final : public desktop::FrontendProcess {
             return false;
         }
         if (!current) {
-            current = 777;
+            current = spawned_pid;
             ++opened;
         }
         return true;
@@ -154,6 +155,28 @@ void lifecycle() {
     MIRAGE_CHECK(service.run().clean);
     MIRAGE_CHECK(frontend->opened == 1 && frontend->stopped == 1 && frontend->current == 0);
     MIRAGE_CHECK(!std::filesystem::exists(options.socket_path));
+}
+void pet_lifecycle() {
+    for (const bool refuse : {false, true}) {
+        mirage::testing::TempDir dir;
+        auto carrier = std::make_shared<Carrier>();
+        auto frontend = std::make_shared<Frontend>();
+        auto pet = std::make_shared<Frontend>();
+        pet->spawned_pid = 888;
+        pet->fail_open = refuse;
+        auto options = config(dir, carrier, frontend);
+        options.pet = pet;
+        options.open_frontend = false;
+        mirage::runtime::RuntimeService service(options);
+        MIRAGE_CHECK(service.start(binding()).ok); // pet refusal does not stop Mira
+        ipc::IpcClient client(options.socket_path);
+        const auto product = state(client);
+        MIRAGE_CHECK(product.pet_pid == (refuse ? 0 : 888));
+        MIRAGE_CHECK(product.frontend_pid == 0);
+        MIRAGE_CHECK(client.call(ipc::ShutdownRequest{}, 2s).ok);
+        MIRAGE_CHECK(service.run().clean);
+        MIRAGE_CHECK(pet->opened == (refuse ? 0 : 1) && pet->stopped == 1);
+    }
 }
 void active_exit() {
     mirage::testing::TempDir dir;
@@ -349,7 +372,7 @@ void wire() {
                       .ok);
     ipc::Response response;
     response.ok = true;
-    response.payload = ipc::ProductState{777, 2, 3, 1, true, true};
+    response.payload = ipc::ProductState{777, 2, 3, 1, true, true, {}};
     const auto decoded = ipc::decode_response(ipc::encode_response(response));
     const auto *product = std::get_if<ipc::ProductState>(&decoded.response.payload);
     MIRAGE_CHECK(decoded.ok && product && product->exit_pending && product->frontend_ready &&
@@ -359,6 +382,7 @@ void wire() {
 int main() {
     wire();
     lifecycle();
+    pet_lifecycle();
     active_exit();
     workflow_exit();
     slow_workflow_maintenance();

@@ -1,10 +1,10 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 17,
+    "version": 19,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
-    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted), DEC-038 (Accepted), DEC-039 (Accepted), DEC-045 (Accepted), DEC-051 (Accepted), DEC-066 (Accepted), DEC-080 (Accepted)",
+    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted), DEC-038 (Accepted), DEC-039 (Accepted), DEC-045 (Accepted), DEC-051 (Accepted), DEC-066 (Accepted), DEC-080 (Accepted), DEC-084 (M8-01 first increment)",
     "consumers": [
       "tests/runtime/ipc_protocol_golden_test.cpp"
     ],
@@ -27,7 +27,8 @@
       "v14 (M6-33): explicit model.list with write-only draft Key and bounded model_ids candidates; existing wire strings unchanged.",
       "v15 (M7-12): vision.get/set persisted resource settings; response distinguishes saved path, active startup path, compiled support, running and restart requirement.",
       "v16 (M7-10 / DEC-078): desktop.authorization.get/set settings state, no restore tokens on the wire; existing forms unchanged.",
-      "v17 (M6-38): chat_only selects tool-free conversation; default/full and read_only/visual remain compatible."
+      "v17 (M6-38): chat_only selects tool-free conversation; default/full and read_only/visual remain compatible.",
+      "v18 (M8-01): pet.status and opt-in pet.updated carry a bounded display projection; legacy subscribers do not receive the new event."
     ]
   },
   "requests": [
@@ -571,6 +572,23 @@
         "access": "chat_only"
       },
       "canonical": "{\"v\":1,\"id\":98,\"op\":\"session.chat\",\"session_id\":\"session-1\",\"text\":\"只讨论，不读取桌面\",\"agent\":true,\"access\":\"chat_only\"}"
+    },
+    {
+      "name": "pet-status",
+      "id": 41,
+      "body": {
+        "op": "pet.status"
+      },
+      "canonical": "{\"v\":1,\"id\":41,\"op\":\"pet.status\"}"
+    },
+    {
+      "name": "subscribe-pet-status",
+      "id": 41,
+      "body": {
+        "op": "events.subscribe",
+        "pet_status": true
+      },
+      "canonical": "{\"v\":1,\"id\":41,\"op\":\"events.subscribe\",\"pet_status\":true}"
     }
   ],
   "request_failures": [
@@ -863,6 +881,11 @@
       "name": "authorization-bad-remember-\"true\"",
       "payload": "{\"v\":1,\"id\":78,\"op\":\"desktop.authorization.set\",\"remember\":\"true\"}",
       "error": "desktop.authorization.set requires boolean remember"
+    },
+    {
+      "name": "subscribe-pet-status-type",
+      "payload": "{\"v\":1,\"id\":41,\"op\":\"events.subscribe\",\"pet_status\":1}",
+      "error": "events.subscribe pet_status must be boolean"
     }
   ],
   "responses": [
@@ -1853,6 +1876,26 @@
       "canonical": "{\"v\":1,\"id\":105,\"ok\":true,\"product\":true,\"frontend_pid\":777,\"window_epoch\":2,\"exit_epoch\":4,\"active_work\":1,\"exit_pending\":true,\"frontend_ready\":true}"
     },
     {
+      "name": "product-owned-pet",
+      "response": {
+        "id": 107,
+        "ok": true,
+        "payload": {
+          "kind": "product-state",
+          "value": {
+            "frontend_pid": 777,
+            "window_epoch": 2,
+            "exit_epoch": 0,
+            "active_work": 0,
+            "exit_pending": false,
+            "frontend_ready": true,
+            "pet_pid": 888
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":107,\"ok\":true,\"product\":true,\"frontend_pid\":777,\"window_epoch\":2,\"exit_epoch\":0,\"active_work\":0,\"exit_pending\":false,\"frontend_ready\":true,\"pet_pid\":888}"
+    },
+    {
       "name": "hello-registered-tray",
       "response": {
         "id": 7,
@@ -1959,6 +2002,31 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":78,\"ok\":true,\"desktop_authorization\":\"unsupported\",\"supported\":false,\"remember\":false,\"remembered\":false,\"notice\":\"\"}"
+    },
+    {
+      "name": "pet-status-thinking",
+      "response": {
+        "id": 41,
+        "ok": true,
+        "payload": {
+          "kind": "pet",
+          "value": {
+            "schema_version": 1,
+            "owner_epoch": "owner-A",
+            "revision": 7,
+            "host_state": "running",
+            "display_state": "thinking",
+            "source_kind": "turn",
+            "source_id": "turn-A",
+            "session_id": "session-A",
+            "active_count": 1,
+            "summary": "思考中",
+            "reason_code": "",
+            "elapsed_ms": 123
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":41,\"ok\":true,\"pet\":true,\"schema_version\":1,\"owner_epoch\":\"owner-A\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"thinking\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":1,\"summary\":\"思考中\",\"reason_code\":\"\",\"elapsed_ms\":123}"
     }
   ],
   "response_failures": [
@@ -2183,6 +2251,11 @@
       "error": "invalid product state"
     },
     {
+      "name": "product-negative-pet-pid",
+      "payload": "{\"v\":1,\"id\":1,\"ok\":true,\"product\":true,\"frontend_pid\":777,\"window_epoch\":2,\"exit_epoch\":0,\"active_work\":0,\"exit_pending\":false,\"frontend_ready\":true,\"pet_pid\":-1}",
+      "error": "invalid product pet pid"
+    },
+    {
       "name": "hello-tray-nonboolean",
       "payload": "{\"v\":1,\"id\":7,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1,\"tray\":\"yes\"}",
       "error": "hello tray must be boolean"
@@ -2201,6 +2274,46 @@
       "name": "authorization-invalid-state",
       "payload": "{\"v\":1,\"id\":78,\"ok\":true,\"desktop_authorization\":\"forever\",\"supported\":true,\"remember\":true,\"remembered\":true,\"notice\":\"\"}",
       "error": "invalid desktop authorization configuration"
+    },
+    {
+      "name": "pet-invalid-schema_version",
+      "payload": "{\"v\":1,\"id\":41,\"ok\":true,\"pet\":true,\"schema_version\":2,\"owner_epoch\":\"owner-A\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"thinking\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":1,\"summary\":\"思考中\",\"reason_code\":\"\",\"elapsed_ms\":123}",
+      "error": "invalid pet status"
+    },
+    {
+      "name": "pet-invalid-revision",
+      "payload": "{\"v\":1,\"id\":41,\"ok\":true,\"pet\":true,\"schema_version\":1,\"owner_epoch\":\"owner-A\",\"revision\":0,\"host_state\":\"running\",\"display_state\":\"thinking\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":1,\"summary\":\"思考中\",\"reason_code\":\"\",\"elapsed_ms\":123}",
+      "error": "invalid pet status"
+    },
+    {
+      "name": "pet-invalid-owner_epoch",
+      "payload": "{\"v\":1,\"id\":41,\"ok\":true,\"pet\":true,\"schema_version\":1,\"owner_epoch\":\"\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"thinking\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":1,\"summary\":\"思考中\",\"reason_code\":\"\",\"elapsed_ms\":123}",
+      "error": "invalid pet status"
+    },
+    {
+      "name": "pet-invalid-display_state",
+      "payload": "{\"v\":1,\"id\":41,\"ok\":true,\"pet\":true,\"schema_version\":1,\"owner_epoch\":\"owner-A\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"invented\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":1,\"summary\":\"思考中\",\"reason_code\":\"\",\"elapsed_ms\":123}",
+      "error": "invalid pet status"
+    },
+    {
+      "name": "pet-invalid-source_id",
+      "payload": "{\"v\":1,\"id\":41,\"ok\":true,\"pet\":true,\"schema_version\":1,\"owner_epoch\":\"owner-A\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"thinking\",\"source_kind\":\"turn\",\"source_id\":\"\",\"session_id\":\"session-A\",\"active_count\":1,\"summary\":\"思考中\",\"reason_code\":\"\",\"elapsed_ms\":123}",
+      "error": "invalid pet status"
+    },
+    {
+      "name": "pet-invalid-active_count",
+      "payload": "{\"v\":1,\"id\":41,\"ok\":true,\"pet\":true,\"schema_version\":1,\"owner_epoch\":\"owner-A\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"thinking\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":1025,\"summary\":\"思考中\",\"reason_code\":\"\",\"elapsed_ms\":123}",
+      "error": "invalid pet status"
+    },
+    {
+      "name": "pet-invalid-elapsed_ms",
+      "payload": "{\"v\":1,\"id\":41,\"ok\":true,\"pet\":true,\"schema_version\":1,\"owner_epoch\":\"owner-A\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"thinking\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":1,\"summary\":\"思考中\",\"reason_code\":\"\",\"elapsed_ms\":-1}",
+      "error": "invalid pet status"
+    },
+    {
+      "name": "pet-invalid-summary",
+      "payload": "{\"v\":1,\"id\":41,\"ok\":true,\"pet\":true,\"schema_version\":1,\"owner_epoch\":\"owner-A\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"thinking\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":1,\"summary\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"reason_code\":\"\",\"elapsed_ms\":123}",
+      "error": "invalid pet status"
     }
   ],
   "events": [
@@ -2389,6 +2502,27 @@
         "sequence": 3
       },
       "canonical": "{\"v\":1,\"seq\":91,\"event\":\"session.chat_updated\",\"replaces_turn_id\":\"old-turn\",\"session_id\":\"session-1\",\"turn_id\":\"new-turn\",\"status\":\"pending\",\"user_text\":\"revised input\",\"sequence\":3}"
+    },
+    {
+      "name": "pet-updated-thinking",
+      "event": {
+        "v": 1,
+        "seq": 4,
+        "event": "pet.updated",
+        "schema_version": 1,
+        "owner_epoch": "owner-A",
+        "revision": 7,
+        "host_state": "running",
+        "display_state": "thinking",
+        "source_kind": "turn",
+        "source_id": "turn-A",
+        "session_id": "session-A",
+        "active_count": 1,
+        "summary": "思考中",
+        "reason_code": "",
+        "elapsed_ms": 123
+      },
+      "canonical": "{\"v\":1,\"seq\":4,\"event\":\"pet.updated\",\"schema_version\":1,\"owner_epoch\":\"owner-A\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"thinking\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":1,\"summary\":\"思考中\",\"reason_code\":\"\",\"elapsed_ms\":123}"
     }
   ],
   "event_failures": [
@@ -2496,6 +2630,46 @@
       "name": "chat-updated-reply-on-pending",
       "payload": "{\"v\":1,\"seq\":9,\"event\":\"session.chat_updated\",\"session_id\":\"s\",\"turn_id\":\"t\",\"status\":\"pending\",\"user_text\":\"q\",\"reply_text\":\"x\",\"sequence\":1}",
       "error": "session.chat_updated 'reply_text' must be a string present exactly when status is 'ok'"
+    },
+    {
+      "name": "pet-invalid-schema_version",
+      "payload": "{\"v\":1,\"seq\":4,\"event\":\"pet.updated\",\"schema_version\":2,\"owner_epoch\":\"owner-A\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"thinking\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":1,\"summary\":\"思考中\",\"reason_code\":\"\",\"elapsed_ms\":123}",
+      "error": "invalid pet status"
+    },
+    {
+      "name": "pet-invalid-revision",
+      "payload": "{\"v\":1,\"seq\":4,\"event\":\"pet.updated\",\"schema_version\":1,\"owner_epoch\":\"owner-A\",\"revision\":0,\"host_state\":\"running\",\"display_state\":\"thinking\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":1,\"summary\":\"思考中\",\"reason_code\":\"\",\"elapsed_ms\":123}",
+      "error": "invalid pet status"
+    },
+    {
+      "name": "pet-invalid-owner_epoch",
+      "payload": "{\"v\":1,\"seq\":4,\"event\":\"pet.updated\",\"schema_version\":1,\"owner_epoch\":\"\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"thinking\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":1,\"summary\":\"思考中\",\"reason_code\":\"\",\"elapsed_ms\":123}",
+      "error": "invalid pet status"
+    },
+    {
+      "name": "pet-invalid-display_state",
+      "payload": "{\"v\":1,\"seq\":4,\"event\":\"pet.updated\",\"schema_version\":1,\"owner_epoch\":\"owner-A\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"invented\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":1,\"summary\":\"思考中\",\"reason_code\":\"\",\"elapsed_ms\":123}",
+      "error": "invalid pet status"
+    },
+    {
+      "name": "pet-invalid-source_id",
+      "payload": "{\"v\":1,\"seq\":4,\"event\":\"pet.updated\",\"schema_version\":1,\"owner_epoch\":\"owner-A\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"thinking\",\"source_kind\":\"turn\",\"source_id\":\"\",\"session_id\":\"session-A\",\"active_count\":1,\"summary\":\"思考中\",\"reason_code\":\"\",\"elapsed_ms\":123}",
+      "error": "invalid pet status"
+    },
+    {
+      "name": "pet-invalid-active_count",
+      "payload": "{\"v\":1,\"seq\":4,\"event\":\"pet.updated\",\"schema_version\":1,\"owner_epoch\":\"owner-A\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"thinking\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":1025,\"summary\":\"思考中\",\"reason_code\":\"\",\"elapsed_ms\":123}",
+      "error": "invalid pet status"
+    },
+    {
+      "name": "pet-invalid-elapsed_ms",
+      "payload": "{\"v\":1,\"seq\":4,\"event\":\"pet.updated\",\"schema_version\":1,\"owner_epoch\":\"owner-A\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"thinking\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":1,\"summary\":\"思考中\",\"reason_code\":\"\",\"elapsed_ms\":-1}",
+      "error": "invalid pet status"
+    },
+    {
+      "name": "pet-invalid-summary",
+      "payload": "{\"v\":1,\"seq\":4,\"event\":\"pet.updated\",\"schema_version\":1,\"owner_epoch\":\"owner-A\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"thinking\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":1,\"summary\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"reason_code\":\"\",\"elapsed_ms\":123}",
+      "error": "invalid pet status"
     }
   ],
   "framing": [

@@ -34,6 +34,9 @@ class EventHub {
     void publish_task_update(ipc::TaskUpdatedEvent event) {
         topic_.publish(ipc::EventPayload{std::move(event)});
     }
+    void publish_pet_status(ipc::PetUpdatedEvent event) {
+        topic_.publish(ipc::EventPayload{std::move(event)});
+    }
 
     /// LatestMailbox semantics for the seed: only the newest status is
     /// kept. The change itself also enters the same Topic publish path.

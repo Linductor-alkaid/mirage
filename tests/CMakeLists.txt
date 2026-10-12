@@ -1342,6 +1342,33 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     mirage_enable_warnings(tray_runtime_test)
     add_test(NAME tray_runtime_test COMMAND tray_runtime_test)
     set_tests_properties(tray_runtime_test PROPERTIES LABELS "integration;runtime;lifecycle" TIMEOUT 30)
+
+    # M8-01: pet status projection (status.hpp contract: task/dialog state -> PetStatus).
+    add_executable(pet_status_test runtime/pet_status_test.cpp)
+    target_compile_features(pet_status_test PRIVATE cxx_std_20)
+    target_link_libraries(pet_status_test PRIVATE Mirage::pet_state Mirage::ipc)
+    mirage_enable_warnings(pet_status_test)
+    add_test(NAME pet_status_test COMMAND pet_status_test)
+    set_tests_properties(pet_status_test PROPERTIES LABELS "unit;pet" TIMEOUT 10)
+
+    # M8-02/M8-03: pet animation player (animation.hpp: frame sequencing, loop seams, transition timing).
+    add_executable(pet_animation_test runtime/pet_animation_test.cpp)
+    target_compile_features(pet_animation_test PRIVATE cxx_std_20)
+    target_link_libraries(pet_animation_test PRIVATE Mirage::pet_state)
+    mirage_enable_warnings(pet_animation_test)
+    add_test(NAME pet_animation_test COMMAND pet_animation_test)
+    set_tests_properties(pet_animation_test PROPERTIES LABELS "unit;pet" TIMEOUT 10)
+
+    # M8-01: end-to-end status projection (runtime_service dialog settlement -> IPC event -> pet status).
+    add_executable(pet_status_integration_test runtime/pet_status_integration_test.cpp)
+    target_compile_features(pet_status_integration_test PRIVATE cxx_std_20)
+    target_include_directories(pet_status_integration_test SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+    target_link_libraries(pet_status_integration_test PRIVATE
+        Mirage::runtime_service Mirage::integration_mira Mirage::pet_state)
+    mirage_enable_warnings(pet_status_integration_test)
+    add_test(NAME pet_status_integration_test COMMAND pet_status_integration_test)
+    set_tests_properties(pet_status_integration_test PROPERTIES LABELS "integration;runtime;pet" TIMEOUT 30)
 endif()
 
 add_executable(action_contract_test desktop/action_contract_test.cpp)
