@@ -445,3 +445,35 @@ M6-19收尾回读：Mira PR#79的pull_request run37332976997在当前pin 0a099ba
   场景恰好消耗 2 次恢复预算），356 checks 0 failures，Mirage 全量 71/71，ASAN/UBSAN
   通过（[兼容性文档](../compatibility/model-network-retry-20261012.md)）。
 - 临时措施：无（维护者指示直接上游修复；Mirage 不旁路网关重试、不自建重试层）。
+
+<a id="mira-20261012-002"></a>
+
+## MIRA-20261012-002：ProviderCircuit 开启后无时间恢复路径，cooldown 配置未实现
+
+- 状态：Open；日期：2026-10-12；负责人：Mirage 维护者，处理方：Mira 上游。
+- 首次反馈核对版本：pinned `57c3062`（MIRA-20261012-001 消费版本）。已核对
+  `include/mira/model_supervisor.hpp`（`CircuitConfig::cooldown{5'000}` 仅有配置声明）、
+  `src/model/model_supervisor.cpp`（`record_success` 在 `OpenCircuit` 态为空操作；
+  `record_failure` 仅在 `Probing` 态回开；`CircuitState::Probing` 全库无赋值点）、
+  `src/model/model_gateway.cpp`（open 电路上 `admits_requests()` 直接拒绝并 `continue`，
+  无任何定时器或延迟后转入 Probing 的路径；`submit_delayed` 仅用于重试间隔）——
+  熔断一旦 `OpenCircuit`，在本 ModelGateway 实例生命周期内永久拒绝，时间恢复语义缺失。
+- 应用职责排除：Mirage 通过公开 `ModelGateway`/`ModelLayer` 承载模型调用，不旁路网关、
+  不自建熔断或重试层；应用层既无 `circuits_` 的写入口，也无重建网关之外的恢复手段。
+- 现象与复现：`tests/runtime/native_agent_integration_test.cpp` 的脚本化失败场景
+  （适配层拒绝未声明工具名、取消在途调用）累计 3 次 provider 失败后熔断开启，
+  后续全部模型调用立即以 "provider circuit is open" 失败；间隔 1 秒的 30 次探针
+  （约 30 秒 ≫ 5 秒 cooldown）无一放行。同一二进制在失败计数未达 3 的运行中表现正常，
+  证明开启与否取决于场景时序，且开启后不可自愈。复现命令：
+  `ctest --test-dir build/native-debug -R '^native_agent_integration_test$' --output-on-failure`。
+- 影响：长生命周期宿主（产品 Runtime Service）一次 3 连失败即永久失去该 profile 的
+  模型能力，直到模型配置变更重建 ModelLayer；与 `CircuitConfig::cooldown` 声明的
+  半开恢复语义相悖，用户可感知且无法自愈。
+- 最小期望能力：`OpenCircuit` 经 cooldown 后进入 `Probing`（放行一次探测请求，
+  成功按 `consecutive_successes_to_close` 闭合，失败回开），cooldown 语义与现有
+  `CircuitConfig` 字段一致；或在该版本明确文档化"熔断为网关生命周期内永久态"，
+  由消费方按重建网关处理。
+- 延期影响：测试以 `model.set` 重建 ModelLayer 规避（见该测试熔断探针段注释）；
+  产品侧行为维持"配置变更前该 profile 持续不可用"，不放宽。
+- 验收：上游交付定时半开恢复或明确语义后，测试移除 `model.set` 重建并以真实
+  cooldown 恢复路径验证探针放行；Mirage 侧不新增并行熔断设施。

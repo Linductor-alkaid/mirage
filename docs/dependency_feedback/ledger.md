@@ -10,7 +10,7 @@
 
 | 依赖 | 详细台账 | 已确认问题 | 说明 |
 | --- | --- | --- | --- |
-| Mira | [Mira台账](mira.md) | 既有状态见详细台账；M7新增3项：3项Resolved（Linux 合成图范围；Messages SSE 截断流 PR#87；网络阶段超时可重试 PR#88，均合并并消费复验） | Runtime/模型/工具/workflow及随Mira交付的Executor；PR#86 已消费，三方言 fixture 与 MiniMax 截图工具在线 2/2 |
+| Mira | [Mira台账](mira.md) | 既有状态见详细台账；M7新增4项：3项Resolved（Linux 合成图范围；Messages SSE 截断流 PR#87；网络阶段超时可重试 PR#88，均合并并消费复验）；1项 Open（MIRA-20261012-002：ProviderCircuit 开启后无时间恢复路径，测试以重建 ModelLayer 规避） | Runtime/模型/工具/workflow及随Mira交付的Executor；PR#86 已消费，三方言 fixture 与 MiniMax 截图工具在线 2/2 |
 | Mirador | [Mirador台账](mirador.md) | 1项 Open | M7-06：常量缩放失真；公开复现，待上游提交 |
 
 executor经pinned Mira传递引入，编号使用`MIRA-YYYYMMDD-NNN`，不直接向Executor提交。
