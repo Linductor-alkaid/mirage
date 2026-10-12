@@ -1,6 +1,28 @@
 # Test binaries follow the pinned mira house style: one plain main() per
 # binary using tests/support/test.hpp; labels drive CI selection (docs/
 # project/project-standards.md section 11).
+add_executable(pet_status_test runtime/pet_status_test.cpp)
+target_compile_features(pet_status_test PRIVATE cxx_std_20)
+target_link_libraries(pet_status_test PRIVATE Mirage::ipc Mirage::pet_state)
+mirage_enable_warnings(pet_status_test)
+add_test(NAME pet_status_test COMMAND pet_status_test)
+set_tests_properties(pet_status_test PROPERTIES LABELS "unit;runtime;protocol" TIMEOUT 30)
+add_executable(pet_animation_test runtime/pet_animation_test.cpp)
+target_compile_features(pet_animation_test PRIVATE cxx_std_20)
+target_link_libraries(pet_animation_test PRIVATE Mirage::pet_state)
+mirage_enable_warnings(pet_animation_test)
+add_test(NAME pet_animation_test COMMAND pet_animation_test)
+set_tests_properties(pet_animation_test PROPERTIES LABELS "unit;runtime;pet" TIMEOUT 30)
+if(UNIX)
+    add_executable(pet_status_integration_test runtime/pet_status_integration_test.cpp)
+    target_compile_features(pet_status_integration_test PRIVATE cxx_std_20)
+    target_link_libraries(pet_status_integration_test PRIVATE Mirage::runtime_service
+        Mirage::integration_mira Mira::core)
+    mirage_enable_warnings(pet_status_integration_test)
+    add_test(NAME pet_status_integration_test COMMAND pet_status_integration_test)
+    set_tests_properties(pet_status_integration_test PROPERTIES
+        LABELS "integration;runtime;protocol" TIMEOUT 60)
+endif()
 add_executable(native_chat_model_test desktop/native_chat_model_test.cpp
     ${CMAKE_SOURCE_DIR}/apps/native/chat_model.cpp ${CMAKE_SOURCE_DIR}/apps/native/attachment.cpp)
 target_include_directories(native_chat_model_test PRIVATE ${CMAKE_SOURCE_DIR}/apps/native)
@@ -28,15 +50,19 @@ add_test(NAME credential_store_test COMMAND credential_store_test)
 set_tests_properties(credential_store_test PROPERTIES LABELS "unit;platform" TIMEOUT 30)
 
 add_executable(dependency_wiring_test smoke/dependency_wiring_test.cpp)
-add_executable(ppocr_pipeline_test integration/ppocr_pipeline_test.cpp)
-target_compile_features(ppocr_pipeline_test PRIVATE cxx_std_20)
-mirage_enable_warnings(ppocr_pipeline_test)
-target_link_libraries(ppocr_pipeline_test PRIVATE Mirage::integration_mirador
-    Mirage::runtime_service Mira::core $<TARGET_FILE:kairo::kairo>)
-target_include_directories(ppocr_pipeline_test SYSTEM PRIVATE
-    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
-add_test(NAME ppocr_pipeline_test COMMAND ppocr_pipeline_test)
-set_tests_properties(ppocr_pipeline_test PROPERTIES LABELS "integration;runtime" TIMEOUT 30)
+# POSIX-coupled: the scripted providers sleep through <poll.h>; Windows keeps
+# its own platform validation instead of compiling these Linux-flow tests.
+if(UNIX)
+    add_executable(ppocr_pipeline_test integration/ppocr_pipeline_test.cpp)
+    target_compile_features(ppocr_pipeline_test PRIVATE cxx_std_20)
+    mirage_enable_warnings(ppocr_pipeline_test)
+    target_link_libraries(ppocr_pipeline_test PRIVATE Mirage::integration_mirador
+        Mirage::runtime_service Mira::core $<TARGET_FILE:kairo::kairo>)
+    target_include_directories(ppocr_pipeline_test SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+    add_test(NAME ppocr_pipeline_test COMMAND ppocr_pipeline_test)
+    set_tests_properties(ppocr_pipeline_test PROPERTIES LABELS "integration;runtime" TIMEOUT 30)
+endif()
 target_compile_features(dependency_wiring_test PUBLIC cxx_std_20)
 mirage_enable_warnings(dependency_wiring_test)
 # Mira::core is a PRIVATE dependency of mirage_mira_host, so the pinned
@@ -1350,20 +1376,24 @@ mirage_enable_warnings(action_contract_test)
 add_test(NAME action_contract_test COMMAND action_contract_test)
 set_tests_properties(action_contract_test PROPERTIES LABELS "integration;runtime" TIMEOUT 30)
 
-add_executable(desktop_image_supply_test integration/desktop_image_supply_test.cpp)
-target_include_directories(desktop_image_supply_test SYSTEM PRIVATE
-    ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
-target_link_libraries(desktop_image_supply_test PRIVATE Mirage::integration_mira Mirage::persistence kairo)
-mirage_enable_warnings(desktop_image_supply_test)
-add_test(NAME desktop_image_supply_test COMMAND desktop_image_supply_test)
-set_tests_properties(desktop_image_supply_test PROPERTIES LABELS "integration;runtime" TIMEOUT 30)
+# POSIX-coupled: the pretimeout scenario sleeps through <poll.h>; see the
+# ppocr_pipeline_test note above.
+if(UNIX)
+    add_executable(desktop_image_supply_test integration/desktop_image_supply_test.cpp)
+    target_include_directories(desktop_image_supply_test SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
+    target_link_libraries(desktop_image_supply_test PRIVATE Mirage::integration_mira Mirage::persistence kairo)
+    mirage_enable_warnings(desktop_image_supply_test)
+    add_test(NAME desktop_image_supply_test COMMAND desktop_image_supply_test)
+    set_tests_properties(desktop_image_supply_test PROPERTIES LABELS "integration;runtime" TIMEOUT 30)
+endif()
 
 # M7-17: independent PNG round trip. The Python decoder re-runs the
 # desktop_image_supply_test binary in a private directory and verifies every
 # exported fixture (own CRC/Adler, own fixed-Huffman inflate, own unfilter)
 # against the raw RGB companions — no production encoder logic involved.
 find_program(MIRAGE_PNG_CHECK_PYTHON NAMES python3 PATHS /usr/bin NO_DEFAULT_PATH)
-if(MIRAGE_PNG_CHECK_PYTHON)
+if(UNIX AND MIRAGE_PNG_CHECK_PYTHON)
     add_test(NAME desktop_png_decode_check COMMAND ${MIRAGE_PNG_CHECK_PYTHON}
         "${CMAKE_CURRENT_SOURCE_DIR}/manual/desktop_png_decode_check.py"
         "$<TARGET_FILE:desktop_image_supply_test>")

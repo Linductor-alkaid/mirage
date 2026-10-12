@@ -177,7 +177,7 @@ void negative(kairo::Executor &executor, const std::string &mode) {
     if (mode == "control")
         args = replace(args, "name", "Save\n");
     if (mode == "utf8")
-        args = replace(args, "name", std::string(1, char(0xff)));
+        args = replace(args, "name", std::string(1, '\xff'));
     if (mode == "ref_argument") {
         auto object = *args.as_object();
         object.emplace_back("ref", "@e1");
