@@ -7,6 +7,7 @@ struct CredentialResult {
     bool ok = false;
     std::string value; // Only read returns plaintext; never a diagnostic.
     std::string error;
+    bool absent = false; // Missing item differs from a locked/unavailable store.
 };
 // Finite platform calls, made from an Executor-owned context. Empty value
 // removes the item; references are exactly 32 lowercase hexadecimal bytes.

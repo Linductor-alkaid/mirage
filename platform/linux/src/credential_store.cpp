@@ -118,17 +118,85 @@ GVariant *attributes(const std::string &ref) {
     return g_variant_builder_end(&b);
 }
 CredentialResult unavailable() { return {false, {}, "系统钥匙环不可用或已锁定，请解锁后重试。"}; }
-std::string item_path(SecretConnection &c, const std::string &ref) {
+// DEC-071: a missing entry is different from a locked or ambiguous entry.
+enum class ItemState { Available, Absent, Locked, Ambiguous, Unavailable };
+struct ItemLookup {
+    ItemState state = ItemState::Unavailable;
+    std::string path;
+};
+ItemLookup find_item(SecretConnection &c, const std::string &ref) {
     auto r = c.call("/org/freedesktop/secrets", "org.freedesktop.Secret.Service", "SearchItems",
                     g_variant_new("(@a{ss})", attributes(ref)), G_VARIANT_TYPE("(aoao)"));
     if (!r)
         return {};
     Variant unlocked(g_variant_get_child_value(r.get(), 0));
-    if (g_variant_n_children(unlocked.get()) != 1)
-        return {};
+    Variant locked(g_variant_get_child_value(r.get(), 1));
+    const auto readable = g_variant_n_children(unlocked.get());
+    const auto sealed = g_variant_n_children(locked.get());
+    if (readable + sealed == 0)
+        return {ItemState::Absent, {}};
+    if (readable + sealed != 1)
+        return {ItemState::Ambiguous, {}};
+    if (sealed != 0)
+        return {ItemState::Locked, {}};
     Variant item(g_variant_get_child_value(unlocked.get(), 0));
-    return g_variant_get_string(item.get(), nullptr);
+    const std::string path = g_variant_get_string(item.get(), nullptr);
+    return path == "/" ? ItemLookup{} : ItemLookup{ItemState::Available, path};
 }
+CredentialResult lookup_failure(ItemState state) {
+    if (state == ItemState::Absent)
+        return {false, {}, "钥匙环中没有这项 API Key，请为该服务重新保存密钥。"};
+    if (state == ItemState::Locked)
+        return {false, {}, "API Key 所在钥匙环已锁定，请解锁后重试。"};
+    if (state == ItemState::Ambiguous)
+        return {false, {}, "钥匙环中有重复凭据，请检查 Mirage 凭据后重试。"};
+    return unavailable();
+}
+ItemLookup persistent_collection(SecretConnection &c) {
+    auto alias = c.call("/org/freedesktop/secrets", "org.freedesktop.Secret.Service", "ReadAlias",
+                        g_variant_new("(s)", "default"), G_VARIANT_TYPE("(o)"));
+    if (!alias)
+        return {};
+    const gchar *path = nullptr;
+    g_variant_get(alias.get(), "(&o)", &path);
+    std::string selected(path);
+    // GNOME Keyring exposes its volatile collection at this documented
+    // platform path. Never save there, even if it is the system default.
+    if (selected == "/org/freedesktop/secrets/collection/session") {
+        auto properties =
+            c.call("/org/freedesktop/secrets", "org.freedesktop.DBus.Properties", "Get",
+                   g_variant_new("(ss)", "org.freedesktop.Secret.Service", "Collections"),
+                   G_VARIANT_TYPE("(v)"));
+        if (!properties)
+            return {};
+        Variant wrapped(g_variant_get_child_value(properties.get(), 0));
+        Variant collections(g_variant_get_variant(wrapped.get()));
+        if (!g_variant_is_of_type(collections.get(), G_VARIANT_TYPE("ao")) ||
+            g_variant_n_children(collections.get()) > 64)
+            return {};
+        selected.clear();
+        for (gsize i = 0; i < g_variant_n_children(collections.get()); ++i) {
+            Variant entry(g_variant_get_child_value(collections.get(), i));
+            if (std::string(g_variant_get_string(entry.get(), nullptr)) ==
+                "/org/freedesktop/secrets/collection/login")
+                selected = "/org/freedesktop/secrets/collection/login";
+        }
+    }
+    if (selected.empty() || selected == "/")
+        return {ItemState::Absent, {}};
+    auto properties = c.call(selected, "org.freedesktop.DBus.Properties", "Get",
+                             g_variant_new("(ss)", "org.freedesktop.Secret.Collection", "Locked"),
+                             G_VARIANT_TYPE("(v)"));
+    if (!properties)
+        return {};
+    Variant wrapped(g_variant_get_child_value(properties.get(), 0));
+    Variant locked(g_variant_get_variant(wrapped.get()));
+    if (!g_variant_is_of_type(locked.get(), G_VARIANT_TYPE_BOOLEAN))
+        return {};
+    return g_variant_get_boolean(locked.get()) ? ItemLookup{ItemState::Locked, {}}
+                                               : ItemLookup{ItemState::Available, selected};
+}
+
 #endif
 } // namespace
 CredentialResult read_credential(const std::string &ref) {
@@ -138,10 +206,16 @@ CredentialResult read_credential(const std::string &ref) {
     SecretConnection c;
     if (!c.open())
         return unavailable();
-    const auto item = item_path(c, ref);
-    if (item.empty())
-        return unavailable();
-    auto r = c.call(item, "org.freedesktop.Secret.Item", "GetSecret",
+    const auto item = find_item(c, ref);
+    if (item.state == ItemState::Absent)
+    {
+        auto missing = lookup_failure(item.state);
+        missing.absent = true;
+        return missing;
+    }
+    if (item.state != ItemState::Available)
+        return lookup_failure(item.state);
+    auto r = c.call(item.path, "org.freedesktop.Secret.Item", "GetSecret",
                     g_variant_new("(o)", c.session.c_str()), G_VARIANT_TYPE("((oayays))"));
     if (!r)
         return unavailable();
@@ -165,25 +239,24 @@ CredentialResult write_credential(const std::string &ref, const std::string &val
     if (!c.open())
         return unavailable();
     if (value.empty()) {
-        const auto item = item_path(c, ref);
-        if (item.empty())
-            return unavailable();
-        auto r =
-            c.call(item, "org.freedesktop.Secret.Item", "Delete", nullptr, G_VARIANT_TYPE("(o)"));
+        const auto item = find_item(c, ref);
+        if (item.state == ItemState::Absent)
+            return {true, {}, {}}; // Repeated cleanup is successful, without a Delete call.
+        if (item.state != ItemState::Available)
+            return lookup_failure(item.state);
+        auto r = c.call(item.path, "org.freedesktop.Secret.Item", "Delete", nullptr,
+                        G_VARIANT_TYPE("(o)"));
         if (!r)
             return unavailable();
         const gchar *prompt = nullptr;
         g_variant_get(r.get(), "(&o)", &prompt);
         return std::string(prompt) == "/" ? CredentialResult{true, {}, {}} : unavailable();
     }
-    auto alias = c.call("/org/freedesktop/secrets", "org.freedesktop.Secret.Service", "ReadAlias",
-                        g_variant_new("(s)", "default"), G_VARIANT_TYPE("(o)"));
-    if (!alias)
-        return unavailable();
-    const gchar *collection = nullptr;
-    g_variant_get(alias.get(), "(&o)", &collection);
-    if (std::string(collection) == "/")
-        return unavailable();
+    const auto collection = persistent_collection(c);
+    if (collection.state == ItemState::Absent)
+        return {false, {}, "未找到持久钥匙环，请在系统钥匙环中创建或选择持久集合。"};
+    if (collection.state != ItemState::Available)
+        return lookup_failure(collection.state);
     GVariantBuilder properties;
     g_variant_builder_init(&properties, G_VARIANT_TYPE("a{sv}"));
     g_variant_builder_add(&properties, "{sv}", "org.freedesktop.Secret.Item.Label",
@@ -191,7 +264,7 @@ CredentialResult write_credential(const std::string &ref, const std::string &val
     g_variant_builder_add(&properties, "{sv}", "org.freedesktop.Secret.Item.Attributes",
                           attributes(ref));
     auto r = c.call(
-        collection, "org.freedesktop.Secret.Collection", "CreateItem",
+        collection.path, "org.freedesktop.Secret.Collection", "CreateItem",
         g_variant_new("(@a{sv}(o@ay@ays)b)", g_variant_builder_end(&properties), c.session.c_str(),
                       g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE, nullptr, 0, 1),
                       g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE, value.data(), value.size(), 1),

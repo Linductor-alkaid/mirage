@@ -239,7 +239,7 @@ int main() {
     const std::string nodisplay_id = "mirage-m205-nodisplay-" + suffix + ".desktop";
     const std::string hidden_id = "mirage-m205-hidden-" + suffix + ".desktop";
 
-    write_desktop_entry(data_first, main_id, "Mirage Main Fixture", main_helper + " hold 3600");
+    write_desktop_entry(data_first, main_id, "Mirage Main Fixture", main_helper + " hold 3600 %u");
     write_desktop_entry(data_first, stuck_id, "Mirage Stuck Fixture",
                         stuck_helper + " ignore-term 3600 " + stuck_ready.string());
     write_desktop_entry(data_first, foreign_id, "Mirage Foreign Fixture",
@@ -258,6 +258,10 @@ int main() {
 
     // Redirect the whole application inventory to the fixture (this also
     // keeps the machine's real applications out of the enumeration).
+    const auto modules = fixture_root / "gio-modules";
+    std::filesystem::create_directories(modules);
+    ::setenv("GIO_MODULE_DIR", modules.c_str(), 1);
+    ::unsetenv("GIO_EXTRA_MODULES");
     ::setenv("XDG_DATA_HOME", data_home.c_str(), 1);
     const std::string xdg_data_dirs = data_first.string() + ":" + data_second.string();
     ::setenv("XDG_DATA_DIRS", xdg_data_dirs.c_str(), 1);
@@ -555,6 +559,58 @@ int main() {
         const auto reaped_again = apps->running_state(quick_id, {});
         MIRAGE_CHECK(reaped_again.ok);
         MIRAGE_CHECK(!reaped_again.running);
+
+        // DEC-071: a running application's URI handoff must still execute the
+        // fixed desktop entry, preserving a single argument without shell evaluation.
+        MIRAGE_CHECK(apps->supports_open_uri());
+        const auto uri_log = fixture_root / "uri-argv.log";
+        ::setenv("MIRAGE_TEST_URI_LOG", uri_log.c_str(), 1);
+        for (const auto &bad : {"file:///tmp/test", "javascript:alert(1)", "https://",
+                                "https://user:password@example.invalid",
+                                "https://example.invalid/a b", "https://example.invalid/\n"}) {
+            const auto refused = apps->open_uri(main_id, bad, {}, {});
+            MIRAGE_CHECK(!refused.ok && !refused.side_effect_may_have_occurred);
+        }
+        MIRAGE_CHECK(
+            !apps->open_uri(main_id, "https://example.invalid/" + std::string(2048, 'x'), {}, {})
+                 .ok);
+        MIRAGE_CHECK(apps->open_uri(foreign_id, "https://example.invalid/", {}, {}).error.code ==
+                     "unsupported_content");
+        desktop::ApplicationLaunchLimits invalid_uri_limits;
+        invalid_uri_limits.timeout = std::chrono::milliseconds(0);
+        const auto timed_uri =
+            apps->open_uri(main_id, "https://example.invalid/", invalid_uri_limits, {});
+        MIRAGE_CHECK(!timed_uri.ok && !timed_uri.side_effect_may_have_occurred);
+        desktop::CancelToken cancelled_uri;
+        cancelled_uri.request_cancel();
+        MIRAGE_CHECK(
+            apps->open_uri(main_id, "https://example.invalid/", {}, cancelled_uri).cancelled);
+        MIRAGE_CHECK(!std::filesystem::exists(uri_log));
+        const auto browser = apps->launch(main_id, {}, {});
+        MIRAGE_CHECK(browser.ok);
+        tracker.track(std::atoi(browser.instance_id.c_str()));
+        const std::string uri =
+            "https://example.invalid/watch?q=$(false)&x=`false`&encoded=%20#fragment";
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            const auto accepted = apps->open_uri(main_id, uri, {}, {});
+            MIRAGE_CHECK(accepted.ok && accepted.side_effect_may_have_occurred);
+            MIRAGE_CHECK(accepted.instance_id != browser.instance_id);
+            tracker.track(std::atoi(accepted.instance_id.c_str()));
+        }
+        const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        std::string delivered;
+        do {
+            std::ifstream file(uri_log);
+            delivered.assign(std::istreambuf_iterator<char>(file), {});
+            if (delivered == uri + "\n" + uri + "\n")
+                break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        } while (std::chrono::steady_clock::now() < until);
+        MIRAGE_CHECK(delivered == uri + "\n" + uri + "\n");
+        for (int instance = 0; instance < 3; ++instance)
+            MIRAGE_CHECK(apps->terminate(main_id, {}, {}).ok);
+        MIRAGE_CHECK(!apps->running_state(main_id, {}).running);
+        ::unsetenv("MIRAGE_TEST_URI_LOG");
 
         // Non-opt-in environments keep the accessors null (fail closed).
         mirage::platform::linux_backend::LinuxDesktopEnvironment closed_env;

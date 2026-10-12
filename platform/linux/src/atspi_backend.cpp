@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <limits>
 #include <map>
 #include <optional>
 #include <string>
@@ -184,6 +185,9 @@ struct AtspiBackend::Impl {
     /// policy v1 (M2 plan, DEC-005).
     std::map<std::string, AtspiAccessible *> registry;
 
+    std::uint64_t snapshot_generation = 0;
+    std::string snapshot_scope;
+
     void clear_registry() {
         for (auto &[ref, object] : registry) {
             adopt(object);
@@ -200,10 +204,23 @@ struct AtspiBackend::Impl {
     }
 
     /// Direct children of one accessible (owning references).
-    std::vector<AtspiAccessible *> children(AtspiAccessible *object) const {
+    std::vector<AtspiAccessible *>
+    children(AtspiAccessible *object, std::size_t limit = std::numeric_limits<std::size_t>::max(),
+             bool *refused = nullptr, const CancelToken *cancel = nullptr) {
         std::vector<AtspiAccessible *> result;
         const gint n = atspi_accessible_get_child_count(object, nullptr);
+        if (n > 0 && static_cast<std::size_t>(n) > limit) {
+            if (refused)
+                *refused = true;
+            return result;
+        }
         for (gint i = 0; i < n; ++i) {
+            if (cancel && cancel->cancelled()) {
+                if (refused)
+                    *refused = true;
+                adopt_all(result);
+                return result;
+            }
             AtspiAccessible *child = atspi_accessible_get_child_at_index(object, i, nullptr);
             if (child != nullptr) {
                 result.push_back(child);
@@ -227,20 +244,22 @@ struct AtspiBackend::Impl {
     /// nullopt as soon as collecting another node would exceed `budget`
     /// (refusal, never truncation). `nodes` collects owning references.
     std::optional<std::vector<SemanticNode>> collect_tree(AtspiAccessible *root, std::size_t budget,
-                                                          std::vector<AtspiAccessible *> &objects) {
+                                                          std::vector<AtspiAccessible *> &objects,
+                                                          const CancelToken &cancel) {
         std::vector<SemanticNode> nodes;
         std::vector<WalkNode> stack{{root, mirage::desktop::kNoParent}};
+        const auto reject = [&]() -> std::optional<std::vector<SemanticNode>> {
+            adopt_all(objects);
+            for (const WalkNode &pending : stack)
+                adopt(pending.object);
+            return std::nullopt;
+        };
         while (!stack.empty()) {
+            // Check before popping: refusal also releases the current pending object.
+            if (cancel.cancelled() || nodes.size() >= budget)
+                return reject();
             const WalkNode current = stack.back();
             stack.pop_back();
-            if (nodes.size() >= budget) {
-                adopt_all(objects);
-                // The stack still holds owning references from children().
-                for (const WalkNode &pending : stack) {
-                    adopt(pending.object);
-                }
-                return std::nullopt;
-            }
             SemanticNode node;
             gchar *name = atspi_accessible_get_name(current.object, nullptr);
             node.name = name != nullptr ? name : "";
@@ -270,7 +289,11 @@ struct AtspiBackend::Impl {
             objects.push_back(current.object); // registry keeps it alive
             // Children keep the DFS order; push reversed so the first child
             // is visited first (stable, deterministic snapshots).
-            auto kids = children(current.object);
+            bool refused = false;
+            auto kids =
+                children(current.object, budget - nodes.size() - stack.size(), &refused, &cancel);
+            if (refused)
+                return reject();
             for (auto it = kids.rbegin(); it != kids.rend(); ++it) {
                 stack.push_back({*it, nodes.size() - 1});
             }
@@ -490,10 +513,21 @@ SnapshotOutcome AtspiBackend::semantic_snapshot(const std::string &window_id,
     }
     auto [application_name, window_object] = *found;
     std::vector<AtspiAccessible *> objects;
-    auto nodes = impl_->collect_tree(window_object, limits.max_nodes, objects);
+    auto nodes = impl_->collect_tree(window_object, limits.max_nodes, objects, cancel);
     if (!nodes.has_value()) {
+        if (cancel.cancelled()) {
+            outcome.cancelled = true;
+            outcome.error = error("cancelled", "snapshot cancelled during traversal");
+            return outcome;
+        }
         outcome.error = error("snapshot_too_large", "snapshot exceeds the node budget of " +
                                                         std::to_string(limits.max_nodes));
+        return outcome;
+    }
+    if (cancel.cancelled()) {
+        impl_->adopt_all(objects);
+        outcome.cancelled = true;
+        outcome.error = error("cancelled", "snapshot cancelled before publication");
         return outcome;
     }
     // A fresh snapshot replaces the registry wholesale. `objects` is
@@ -504,6 +538,9 @@ SnapshotOutcome AtspiBackend::semantic_snapshot(const std::string &window_id,
     for (std::size_t i = 0; i < objects.size(); ++i) {
         impl_->registry[collected[i].ref] = objects[i];
     }
+    impl_->snapshot_scope =
+        "atspi:" + window_id + ":" + std::to_string(++impl_->snapshot_generation);
+    outcome.scope = impl_->snapshot_scope;
     outcome.ok = true;
     outcome.snapshot.application = std::move(application_name);
     outcome.snapshot.window_title = title;
@@ -515,6 +552,10 @@ ElementActionOutcome AtspiBackend::activate_element(const ElementTarget &target,
                                                     const CancelToken &cancel) {
     ElementActionOutcome outcome;
     std::lock_guard<std::mutex> guard(mutex_);
+    if (!target.snapshot_scope.empty() && target.snapshot_scope != impl_->snapshot_scope) {
+        outcome.error = error("stale_observation", "semantic snapshot generation changed");
+        return outcome;
+    }
     if (cancel.cancelled()) {
         outcome.cancelled = true;
         outcome.error = error("cancelled", "activation cancelled");
@@ -553,6 +594,10 @@ ElementActionOutcome AtspiBackend::set_text(const ElementTarget &target, const s
                                             const InputLimits &limits, const CancelToken &cancel) {
     ElementActionOutcome outcome;
     std::lock_guard<std::mutex> guard(mutex_);
+    if (!target.snapshot_scope.empty() && target.snapshot_scope != impl_->snapshot_scope) {
+        outcome.error = error("stale_observation", "semantic snapshot generation changed");
+        return outcome;
+    }
     if (cancel.cancelled()) {
         outcome.cancelled = true;
         outcome.error = error("cancelled", "text input cancelled");

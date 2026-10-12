@@ -1,4 +1,5 @@
 #include "x11_backend.hpp"
+#include <mirage/desktop/visual_snapshot.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -18,6 +19,9 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/extensions/XTest.h>
+#ifdef MIRAGE_LINUX_XRES
+#include <X11/extensions/XRes.h>
+#endif
 #include <X11/extensions/Xrandr.h>
 #include <X11/keysym.h>
 
@@ -51,6 +55,91 @@ using mirage::desktop::WindowQueryOutcome;
 /// the default Xlib handler's stderr noise is replaced with silence: call
 /// results already surface failures through X return codes / XSync.
 int quiet_x_error_handler(Display *, XErrorEvent *) { return 0; }
+
+// DEC-065: server resource ownership, never PID/title/property whitelists.
+// Only one newly visible same-connection helper may hide the target branch.
+struct DragHelpers {
+    std::array<Window, 128> visible{};
+    std::size_t visible_count = 0;
+    XID base = 0, resource_mask = 0;
+    bool available = false;
+
+    void prepare(Display *display, Window target, Window root) {
+#ifdef MIRAGE_LINUX_XRES
+        int event = 0, error_base = 0, count = 0;
+        XResClient *clients = nullptr;
+        if (!XResQueryExtension(display, &event, &error_base))
+            return;
+        const bool queried = XResQueryClients(display, &count, &clients);
+        if (queried && clients && count > 0 && count <= 256)
+            for (int n = 0; n < count; ++n)
+                if ((target & ~clients[n].resource_mask) == clients[n].resource_base) {
+                    base = clients[n].resource_base;
+                    resource_mask = clients[n].resource_mask;
+                    break;
+                }
+        if (clients)
+            XFree(clients);
+        if (!base)
+            return;
+        Window returned_root = None, parent = None, *children = nullptr;
+        unsigned int children_count = 0;
+        const bool tree =
+            XQueryTree(display, root, &returned_root, &parent, &children, &children_count);
+        bool valid = tree && children_count <= visible.size();
+        for (unsigned int n = 0; valid && n < children_count; ++n) {
+            XWindowAttributes attributes{};
+            valid = XGetWindowAttributes(display, children[n], &attributes) != 0;
+            if (valid && attributes.map_state == IsViewable)
+                visible[visible_count++] = children[n];
+        }
+        if (children)
+            XFree(children);
+        available = valid;
+#else
+        (void)display;
+        (void)target;
+        (void)root;
+#endif
+    }
+
+    template <class Walk>
+    bool target_below(Display *display, Window root, int x, int y, Walk &&walk) const {
+        if (!available)
+            return false;
+        Window returned_root = None, parent = None, *children = nullptr;
+        unsigned int count = 0;
+        const bool queried = XQueryTree(display, root, &returned_root, &parent, &children, &count);
+        bool result = false;
+        if (queried && count <= visible.size()) {
+            bool skipped = false;
+            // XQueryTree returns bottom-to-top stacking order.
+            for (unsigned int n = count; n > 0; --n) {
+                const auto child = children[n - 1];
+                XWindowAttributes a{};
+                if (!XGetWindowAttributes(display, child, &a))
+                    break;
+                if (a.map_state != IsViewable || x < std::int64_t{a.x} - a.border_width ||
+                    y < std::int64_t{a.y} - a.border_width ||
+                    x >= std::int64_t{a.x} + a.width + a.border_width ||
+                    y >= std::int64_t{a.y} + a.height + a.border_width)
+                    continue;
+                if (!skipped && a.override_redirect && a.c_class == InputOutput &&
+                    (child & ~resource_mask) == base &&
+                    std::find(visible.begin(), visible.begin() + visible_count, child) ==
+                        visible.begin() + visible_count) {
+                    skipped = true;
+                    continue;
+                }
+                result = skipped && walk(child);
+                break; // Never look through an unrelated receiver/occluder.
+            }
+        }
+        if (children)
+            XFree(children);
+        return result;
+    }
+};
 
 ProviderError error(std::string code, std::string message) {
     return {std::move(code), std::move(message)};
@@ -238,7 +327,7 @@ std::unique_ptr<X11Backend> X11Backend::open(const std::string &display_name) {
     Display *display = backend->connection_->display;
     backend->connection_->net_active_window = XInternAtom(display, "_NET_ACTIVE_WINDOW", True);
     backend->connection_->net_supported = XInternAtom(display, "_NET_SUPPORTED", True);
-    backend->connection_->net_wm_name = XInternAtom(display, "_NET_WM_NAME", True);
+    backend->connection_->net_wm_name = XInternAtom(display, "_NET_WM_NAME", False);
     // UTF8_STRING must be created when missing (only_if_exists = False): on
     // a fresh server no client has interned it yet, so `True` returns None
     // and every clipboard read would convert with an invalid None target
@@ -277,18 +366,42 @@ std::string window_title(X11Backend::XConnection &connection, Window window) {
             const char *text = reinterpret_cast<const char *>(data);
             std::string title(text, text + static_cast<std::size_t>(count));
             XFree(data);
-            if (!title.empty()) {
+            if (type == connection.utf8_string && format == 8 && remaining == 0 && !title.empty() &&
+                mirage::desktop::is_valid_utf8(title)) {
                 return title;
             }
         }
     }
-    char *classic = nullptr;
-    if (XFetchName(connection.display, window, &classic) && classic != nullptr) {
-        std::string title(classic);
-        XFree(classic);
-        return title;
+    // ICCCM WM_NAME/XA_STRING is Latin-1, not UTF-8. Bound the read before allocation.
+    Atom type = None;
+    int format = 0;
+    unsigned long count = 0, remaining = 0;
+    unsigned char *data = nullptr;
+    const auto status =
+        XGetWindowProperty(connection.display, window, XA_WM_NAME, 0, 4096, False, AnyPropertyType,
+                           &type, &format, &count, &remaining, &data);
+    std::string title;
+    if (status == Success && data && format == 8 && remaining == 0) {
+        if (type == XA_STRING) {
+            title.reserve(count * 2);
+            for (unsigned long n = 0; n < count; ++n) {
+                const auto byte = data[n];
+                if (byte < 128)
+                    title.push_back(static_cast<char>(byte));
+                else {
+                    title.push_back(static_cast<char>(0xc0 | (byte >> 6)));
+                    title.push_back(static_cast<char>(0x80 | (byte & 0x3f)));
+                }
+            }
+        } else if (type == connection.utf8_string) {
+            title.assign(reinterpret_cast<const char *>(data), count);
+            if (!mirage::desktop::is_valid_utf8(title))
+                title.clear();
+        }
     }
-    return {};
+    if (data)
+        XFree(data);
+    return title;
 }
 
 /// Global-coordinate geometry of one window.
@@ -796,6 +909,394 @@ InputOutcome X11Backend::inject_key(const KeySym &key, bool pressed, const Input
     return outcome;
 }
 
+// Complete actions own only keys/buttons observed released during preflight.
+InputOutcome X11Backend::key_chord(const KeySym &key, const InputLimits &limits,
+                                   const CancelToken &cancel) {
+    std::lock_guard guard(mutex_);
+    InputOutcome out;
+    const auto chord = mirage::desktop::parse_key_chord(key.name);
+    if (!chord || limits.timeout.count() <= 0) {
+        out.error = error("invalid_argument", "invalid key or input budget");
+        return out;
+    }
+    Display *display = connection_->display;
+    std::vector<KeyCode> codes;
+    const std::pair<const char *, bool> flags[4] = {
+        {"ctrl", chord->ctrl}, {"alt", chord->alt}, {"shift", chord->shift}, {"meta", chord->meta}};
+    for (const auto &[name, active] : flags)
+        if (active)
+            codes.push_back(XKeysymToKeycode(display, modifier_keysym(name)));
+    const auto symbol = chord->base.size() == 1
+                            ? codepoint_keysym(static_cast<unsigned char>(chord->base[0]))
+                            : XStringToKeysym(named_key_keysym_name(chord->base).c_str());
+    const auto base = XKeysymToKeycode(display, symbol);
+    if (chord->base.size() == 1 && base != 0 && XkbKeycodeToKeysym(display, base, 0, 0) != symbol) {
+        if (XkbKeycodeToKeysym(display, base, 0, 1) != symbol) {
+            out.error = error("unsupported_key", "key needs an unsupported keyboard level");
+            return out;
+        }
+        const auto shift = XKeysymToKeycode(display, XK_Shift_L);
+        if (std::find(codes.begin(), codes.end(), shift) == codes.end())
+            codes.push_back(shift);
+    }
+    codes.push_back(base);
+    char physical[32]{};
+    XQueryKeymap(display, physical);
+    for (const auto modifier_symbol : {XK_Control_L, XK_Control_R, XK_Alt_L, XK_Alt_R, XK_Shift_L,
+                                       XK_Shift_R, XK_Super_L, XK_Super_R}) {
+        const auto modifier = XKeysymToKeycode(display, modifier_symbol);
+        if (modifier && (physical[modifier / 8] & (1 << (modifier % 8)))) {
+            out.error = error("input_busy", "a modifier is already physically held");
+            return out;
+        }
+    }
+    for (const auto code : codes) {
+        if (!code) {
+            out.error = error("unsupported_key", "key is absent from the keymap");
+            return out;
+        }
+        if (physical[code / 8] & (1 << (code % 8))) {
+            out.error = error("input_busy", "requested key is already physically held");
+            return out;
+        }
+    }
+    if (cancel.cancelled()) {
+        out.cancelled = true;
+        out.error = error("cancelled", "key cancelled");
+        return out;
+    }
+    const auto deadline = std::chrono::steady_clock::now() + limits.timeout;
+    bool dispatched = true;
+    std::size_t owned = 0;
+    for (const auto code : codes) {
+        if (cancel.cancelled() || std::chrono::steady_clock::now() >= deadline) {
+            dispatched = false;
+            break;
+        }
+        ++owned; // An attempted down can have reached the server even on failure.
+        out.side_effect_may_have_occurred = true;
+        if (!XTestFakeKeyEvent(display, code, True, CurrentTime)) {
+            dispatched = false;
+            break;
+        }
+    }
+    bool released = true;
+    while (owned > 0)
+        released =
+            (XTestFakeKeyEvent(display, codes[--owned], False, CurrentTime) != 0) && released;
+    released = (XSync(display, False) != 0) && released;
+    out.input_released = released;
+    out.cancelled = cancel.cancelled();
+    out.ok =
+        dispatched && released && !out.cancelled && std::chrono::steady_clock::now() < deadline;
+    if (!out.ok)
+        out.error = error(!released                                      ? "input_release_failed"
+                          : out.cancelled                                ? "cancelled"
+                          : std::chrono::steady_clock::now() >= deadline ? "timeout"
+                                                                         : "io_error",
+                          "key action did not complete; do not retry uncertain input");
+    return out;
+}
+
+InputOutcome X11Backend::click_at(std::int32_t x, std::int32_t y, const MouseButton &button,
+                                  const InputLimits &limits, const CancelToken &cancel) {
+    std::lock_guard guard(mutex_);
+    InputOutcome out;
+    const auto code = mouse_button_code(button);
+    if (!code || limits.timeout.count() <= 0) {
+        out.error = error("invalid_argument", "invalid click");
+        return out;
+    }
+    Display *display = connection_->display;
+    Window root{}, child{};
+    int rx{}, ry{}, wx{}, wy{};
+    unsigned int mask{};
+    if (!XQueryPointer(display, DefaultRootWindow(display), &root, &child, &rx, &ry, &wx, &wy,
+                       &mask)) {
+        out.error = error("io_error", "pointer state unavailable");
+        return out;
+    }
+    if (code > 5) {
+        out.error = error("unsupported_key", "complete click supports primary buttons only");
+        return out;
+    }
+    if (mask & (Button1Mask << (code - 1))) {
+        out.error = error("input_busy", "button already physically held");
+        return out;
+    }
+    if (cancel.cancelled()) {
+        out.cancelled = true;
+        out.error = error("cancelled", "click cancelled");
+        return out;
+    }
+    const auto deadline = std::chrono::steady_clock::now() + limits.timeout;
+    out.side_effect_may_have_occurred = true;
+    bool sent = XTestFakeMotionEvent(display, -1, x, y, CurrentTime) != 0;
+    bool pressed = false;
+    if (sent && !cancel.cancelled() && std::chrono::steady_clock::now() < deadline) {
+        pressed = true;
+        sent = XTestFakeButtonEvent(display, code, True, CurrentTime) != 0;
+    } else
+        sent = false;
+    bool released = !pressed || XTestFakeButtonEvent(display, code, False, CurrentTime) != 0;
+    released = (XSync(display, False) != 0) && released;
+    out.input_released = released;
+    out.cancelled = cancel.cancelled();
+    out.ok = sent && released && !out.cancelled && std::chrono::steady_clock::now() < deadline;
+    if (!out.ok)
+        out.error = error(!released                                      ? "input_release_failed"
+                          : out.cancelled                                ? "cancelled"
+                          : std::chrono::steady_clock::now() >= deadline ? "timeout"
+                                                                         : "io_error",
+                          "click action did not complete; do not retry uncertain input");
+    return out;
+}
+
+InputOutcome X11Backend::scroll_at(const mirage::desktop::PointerActionScope &scope,
+                                   mirage::desktop::PointerPoint at, std::int32_t horizontal,
+                                   std::int32_t vertical, const InputLimits &limits,
+                                   const CancelToken &cancel) {
+    std::lock_guard guard(mutex_);
+    return pointer_path_locked(scope, at, at, horizontal, vertical, false, limits, cancel);
+}
+
+InputOutcome X11Backend::drag_to(const mirage::desktop::PointerActionScope &scope,
+                                 mirage::desktop::PointerPoint from,
+                                 mirage::desktop::PointerPoint to, const InputLimits &limits,
+                                 const CancelToken &cancel) {
+    std::lock_guard guard(mutex_);
+    return pointer_path_locked(scope, from, to, 0, 0, true, limits, cancel);
+}
+
+InputOutcome X11Backend::pointer_path_locked(const mirage::desktop::PointerActionScope &scope,
+                                             mirage::desktop::PointerPoint from,
+                                             mirage::desktop::PointerPoint to,
+                                             std::int32_t horizontal, std::int32_t vertical,
+                                             bool drag, const InputLimits &limits,
+                                             const CancelToken &cancel) {
+    InputOutcome out;
+    if (!mirage::desktop::valid_pointer_scope(scope, from, limits) ||
+        !mirage::desktop::valid_pointer_scope(scope, to, limits) ||
+        (drag ? !mirage::desktop::valid_drag_path(from, to)
+              : !mirage::desktop::valid_scroll_steps(horizontal, vertical))) {
+        out.error = error("invalid_argument", "invalid or over-budget pointer action");
+        return out;
+    }
+    const auto window = parse_window_id(scope.window_id);
+    if (!window) {
+        out.error = error("invalid_argument", "invalid pointer window");
+        return out;
+    }
+    Display *display = connection_->display;
+    const auto deadline = std::chrono::steady_clock::now() + limits.timeout;
+    // Walk actual focus ancestry without reentering a Provider (mutex held).
+    const auto focused = [&] {
+        Window current = None;
+        int revert = 0;
+        XGetInputFocus(display, &current, &revert);
+        for (int depth = 0; depth < 32 && current != None && current != PointerRoot; ++depth) {
+            if (current == *window)
+                return true;
+            Window root = None, parent = None, *children = nullptr;
+            unsigned int count = 0;
+            const bool queried = XQueryTree(display, current, &root, &parent, &children, &count);
+            if (children)
+                XFree(children);
+            if (!queried || current == parent)
+                break;
+            current = parent;
+        }
+        return false;
+    };
+    const auto stable = [&] {
+        const auto geometry = window_geometry(xconn(), *window);
+        const auto &expected = scope.geometry;
+        const auto active = active_window_property(xconn());
+        return geometry && is_viewable(xconn(), *window) && geometry->x == expected.x &&
+               geometry->y == expected.y && geometry->width == expected.width &&
+               geometry->height == expected.height && (active == None || active == *window) &&
+               focused();
+    };
+    unsigned int owned = 0;
+    DragHelpers helpers;
+    const auto pointer = [&](unsigned int &mask, bool check_owner) {
+        const auto walk = [&](Window current) {
+            for (int depth = 0; depth < 32; ++depth) {
+                Window root = None, child = None;
+                int rx = 0, ry = 0, wx = 0, wy = 0;
+                if (!XQueryPointer(display, current, &root, &child, &rx, &ry, &wx, &wy, &mask))
+                    return false;
+                if (current == *window)
+                    return true;
+                if (child == None)
+                    return false;
+                current = child;
+            }
+            return false;
+        };
+        const auto root = connection_->root();
+        Window returned_root = None, child = None;
+        int rx = 0, ry = 0, wx = 0, wy = 0;
+        if (!XQueryPointer(display, root, &returned_root, &child, &rx, &ry, &wx, &wy, &mask))
+            return false;
+        if (!check_owner || walk(root))
+            return true;
+        // QueryPointer follows the logical pointer ancestry: an occluded WM
+        // frame does not reveal its child. Resolve the first geometric hit
+        // within that branch instead, with an independent descendant budget.
+        unsigned int remaining = 128;
+        const auto below = [&](auto &&self, Window current, int depth) -> bool {
+            if (current == *window)
+                return true;
+            if (depth >= 32)
+                return false;
+            Window translated_child = None;
+            int local_x = 0, local_y = 0;
+            if (!XTranslateCoordinates(display, root, current, rx, ry, &local_x, &local_y,
+                                       &translated_child))
+                return false;
+            Window branch_root = None, parent = None, *children = nullptr, hit = None;
+            unsigned int count = 0;
+            const bool queried =
+                XQueryTree(display, current, &branch_root, &parent, &children, &count);
+            if (queried && count <= remaining) {
+                remaining -= count;
+                for (unsigned int n = count; n > 0; --n) {
+                    XWindowAttributes a{};
+                    if (!XGetWindowAttributes(display, children[n - 1], &a))
+                        break;
+                    if (a.map_state == IsViewable &&
+                        local_x >= std::int64_t{a.x} - a.border_width &&
+                        local_y >= std::int64_t{a.y} - a.border_width &&
+                        local_x < std::int64_t{a.x} + a.width + a.border_width &&
+                        local_y < std::int64_t{a.y} + a.height + a.border_width) {
+                        hit = children[n - 1];
+                        break;
+                    }
+                }
+            }
+            if (children)
+                XFree(children);
+            return hit != None && self(self, hit, depth + 1);
+        };
+        return drag && owned == Button1 &&
+               helpers.target_below(display, root, rx, ry,
+                                    [&](Window branch) { return below(below, branch, 0); });
+    };
+    unsigned int mask = 0;
+    constexpr unsigned int buttons =
+        Button1Mask | Button2Mask | Button3Mask | Button4Mask | Button5Mask;
+    if (!pointer(mask, false)) {
+        out.error = error("io_error", "pointer state unavailable");
+        return out;
+    }
+    char physical[32]{};
+    XQueryKeymap(display, physical);
+    bool modifier_held = false;
+    for (const auto symbol : {XK_Control_L, XK_Control_R, XK_Alt_L, XK_Alt_R, XK_Shift_L,
+                              XK_Shift_R, XK_Super_L, XK_Super_R}) {
+        const auto code = XKeysymToKeycode(display, symbol);
+        modifier_held |= code && (physical[code / 8] & (1 << (code % 8)));
+    }
+    if ((mask & buttons) || modifier_held) {
+        out.error = error("input_busy", "physical button or modifier already held");
+        return out;
+    }
+    // No allocation/throwing application callbacks while a button is owned.
+    // CancelToken probes are noexcept; cleanup ignores cancellation/deadline.
+    if (drag)
+        helpers.prepare(display, *window, connection_->root());
+    const char *failure = nullptr;
+    bool drag_press_attempted = false;
+    bool released = true;
+    const auto ready = [&](bool check_owner) {
+        if (cancel.cancelled())
+            failure = "cancelled";
+        else if (std::chrono::steady_clock::now() >= deadline)
+            failure = "timeout";
+        else if (!stable())
+            failure = "focus_changed";
+        else if (!pointer(mask, check_owner))
+            failure = "target_obscured";
+        else if (mask & (buttons & ~(owned == Button1 ? Button1Mask : 0u)))
+            failure = "input_busy";
+        else if (mask & (ShiftMask | ControlMask | Mod1Mask | Mod4Mask))
+            failure = "input_busy";
+        if (!failure && std::chrono::steady_clock::now() >= deadline)
+            failure = "timeout";
+        return failure == nullptr;
+    };
+    const auto move = [&](mirage::desktop::PointerPoint point) {
+        if (!ready(owned == Button1))
+            return false;
+        out.side_effect_may_have_occurred = true;
+        // DEC-064: XTEST's native delivery delay gives external toolkits time
+        // to establish their drag session instead of coalescing the entire
+        // gesture before release. This is one synchronous platform request,
+        // not a private timer/task; cleanup release always has zero delay.
+        const unsigned long delivery_delay = drag && owned == Button1 ? 8UL : CurrentTime;
+        if (!XTestFakeMotionEvent(display, -1, point.x, point.y, delivery_delay) ||
+            !XSync(display, False)) {
+            failure = "io_error";
+            return false;
+        }
+        return ready(true);
+    };
+    const auto release = [&] {
+        if (owned) {
+            const bool sent = XTestFakeButtonEvent(display, owned, False, CurrentTime) != 0;
+            released = sent && released;
+            owned = 0;
+        }
+        released = (XSync(display, False) != 0) && released;
+    };
+    if (move(from)) {
+        if (drag) {
+            owned = Button1; // attempted down may have reached the server
+            drag_press_attempted = true;
+            if (!XTestFakeButtonEvent(display, owned, True, CurrentTime) || !XSync(display, False))
+                failure = "io_error";
+            for (int step = 1; step <= 16 && !failure; ++step) {
+                const mirage::desktop::PointerPoint point{
+                    static_cast<std::int32_t>(std::int64_t{from.x} +
+                                              (std::int64_t{to.x} - from.x) * step / 16),
+                    static_cast<std::int32_t>(std::int64_t{from.y} +
+                                              (std::int64_t{to.y} - from.y) * step / 16)};
+                if (!move(point))
+                    break;
+            }
+        } else {
+            for (int axis = 0; axis < 2 && !failure; ++axis) {
+                const auto count = axis == 0 ? vertical : horizontal;
+                const auto code = axis == 0 ? (count < 0 ? 4u : 5u) : (count < 0 ? 6u : 7u);
+                for (int step = 0; step < (count < 0 ? -count : count) && !failure; ++step) {
+                    if (!ready(true))
+                        break;
+                    owned = code;
+                    if (!XTestFakeButtonEvent(display, owned, True, CurrentTime))
+                        failure = "io_error";
+                    release();
+                    if (!released)
+                        failure = "input_release_failed";
+                }
+            }
+        }
+    }
+    release();
+    unsigned int final_mask = 0;
+    if (drag_press_attempted && (!pointer(final_mask, false) || (final_mask & Button1Mask)))
+        released = false;
+    if (!failure)
+        (void)ready(false);
+    out.input_released = released;
+    out.cancelled = failure && std::strcmp(failure, "cancelled") == 0;
+    out.ok = !failure && released;
+    if (!out.ok)
+        out.error = error(released ? (failure ? failure : "io_error") : "input_release_failed",
+                          "pointer action did not complete; do not retry uncertain input");
+    return out;
+}
+
 InputOutcome X11Backend::type_text(const std::string &text, const InputLimits &limits,
                                    const CancelToken &cancel) {
     std::lock_guard<std::mutex> guard(mutex_);
@@ -825,12 +1326,12 @@ InputOutcome X11Backend::type_text(const std::string &text, const InputLimits &l
     std::size_t i = 0;
     while (i < text.size()) {
         const auto codepoint = decode_codepoint(text, i);
-        if (!codepoint.has_value() || *codepoint < 0x20 ||
+        if (!codepoint.has_value() || (*codepoint < 0x20 && *codepoint != 10) ||
             (*codepoint >= 0x7F && *codepoint < 0xA0)) {
             outcome.error = error("invalid_argument", "text contains non-printable characters");
             return outcome;
         }
-        const unsigned long keysym = codepoint_keysym(*codepoint);
+        const unsigned long keysym = *codepoint == 10 ? XK_Return : codepoint_keysym(*codepoint);
         const KeyCode keycode = XKeysymToKeycode(display, keysym);
         if (keycode == 0) {
             outcome.error =
@@ -849,19 +1350,59 @@ InputOutcome X11Backend::type_text(const std::string &text, const InputLimits &l
         }
     }
     const KeyCode shift_code = XKeysymToKeycode(display, XK_Shift_L);
-    for (const TextStroke &stroke : strokes) {
-        if (stroke.shift) {
-            XTestFakeKeyEvent(display, shift_code, True, CurrentTime);
+    char physical[32]{};
+    XQueryKeymap(display, physical);
+    for (const auto modifier_symbol : {XK_Control_L, XK_Control_R, XK_Alt_L, XK_Alt_R, XK_Shift_L,
+                                       XK_Shift_R, XK_Super_L, XK_Super_R}) {
+        const auto modifier = XKeysymToKeycode(display, modifier_symbol);
+        if (modifier && (physical[modifier / 8] & (1 << (modifier % 8)))) {
+            outcome.error = error("input_busy", "a modifier is already physically held");
+            return outcome;
         }
-        XTestFakeKeyEvent(display, stroke.keycode, True, CurrentTime);
-        XTestFakeKeyEvent(display, stroke.keycode, False, CurrentTime);
-        if (stroke.shift) {
-            XTestFakeKeyEvent(display, shift_code, False, CurrentTime);
+    }
+    for (const auto &stroke : strokes) {
+        if ((physical[stroke.keycode / 8] & (1 << (stroke.keycode % 8))) ||
+            (physical[shift_code / 8] & (1 << (shift_code % 8)))) {
+            outcome.error = error("input_busy", "text keys or shift are already physically held");
+            return outcome;
+        }
+    }
+    const auto deadline = std::chrono::steady_clock::now() + limits.timeout;
+    for (const TextStroke &stroke : strokes) {
+        if (cancel.cancelled() || std::chrono::steady_clock::now() >= deadline) {
+            outcome.cancelled = cancel.cancelled();
+            outcome.error = error(outcome.cancelled ? "cancelled" : "timeout",
+                                  "text input stopped between complete strokes");
+            XSync(display, False);
+            return outcome;
+        }
+        outcome.side_effect_may_have_occurred = true;
+        bool sent = true;
+        if (stroke.shift)
+            sent = XTestFakeKeyEvent(display, shift_code, True, CurrentTime) != 0;
+        sent = (XTestFakeKeyEvent(display, stroke.keycode, True, CurrentTime) != 0) && sent;
+        // Release even if down reported failure; cancellation cannot block cleanup.
+        bool released = XTestFakeKeyEvent(display, stroke.keycode, False, CurrentTime) != 0;
+        if (stroke.shift)
+            released =
+                (XTestFakeKeyEvent(display, shift_code, False, CurrentTime) != 0) && released;
+        if (!sent || !released) {
+            outcome.input_released = released;
+            outcome.error = error(released ? "io_error" : "input_release_failed",
+                                  "text stroke failed; input may have occurred");
+            XSync(display, False);
+            return outcome;
         }
     }
     outcome.ok = XSync(display, False) != 0;
     if (!outcome.ok) {
+        outcome.input_released = false;
         outcome.error = error("io_error", "text injection failed on the X server");
+    } else if (cancel.cancelled() || std::chrono::steady_clock::now() >= deadline) {
+        outcome.ok = false;
+        outcome.cancelled = cancel.cancelled();
+        outcome.error = error(outcome.cancelled ? "cancelled" : "timeout",
+                              "text input stopped after its last complete stroke");
     }
     return outcome;
 }

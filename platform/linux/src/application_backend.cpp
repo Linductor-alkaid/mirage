@@ -273,12 +273,23 @@ struct ApplicationState {
     /// enforced ("already_running"), so the table only grows with distinct
     /// ids up to its capacity (RULE-07).
     std::map<std::string, pid_t> instances;
+    // URI delivery may spawn a short-lived client for an already running app.
+    // Every such child remains waitable and counted against the same capacity.
+    std::map<pid_t, std::string> uri_children;
 };
 
 /// Launched children that exited on their own must not linger as zombies;
 /// called at every provider method entry so the table reflects reality
 /// without any background thread (RULE-03).
 void reap_locked(ApplicationState &state) {
+    for (auto it = state.uri_children.begin(); it != state.uri_children.end();) {
+        int status = 0;
+        const auto gone = waitpid(it->first, &status, WNOHANG);
+        if (gone == it->first || (gone < 0 && errno == ECHILD))
+            it = state.uri_children.erase(it);
+        else
+            ++it;
+    }
     for (auto it = state.instances.begin(); it != state.instances.end();) {
         int status = 0;
         const pid_t gone = waitpid(it->second, &status, WNOHANG);
@@ -310,6 +321,9 @@ std::optional<Instance> find_instance_locked(ApplicationState &state,
         }
         state.instances.erase(tracked);
     }
+    for (const auto &[pid, id] : state.uri_children)
+        if (id == application_id && proc_state(pid) != 'Z')
+            return Instance{pid, true};
     const auto matches = find_live_instances(binary);
     if (matches.empty()) {
         return std::nullopt;
@@ -421,6 +435,37 @@ ApplicationLaunchOutcome ApplicationBackend::launch(const std::string &applicati
                                                     const ApplicationLaunchLimits &limits,
                                                     const CancelToken &cancel) {
     std::lock_guard<std::mutex> guard(mutex_);
+    return launch_locked(application_id, {}, limits, cancel);
+}
+
+ApplicationLaunchOutcome ApplicationBackend::open_uri(const std::string &application_id,
+                                                      const std::string &uri,
+                                                      const ApplicationLaunchLimits &limits,
+                                                      const CancelToken &cancel) {
+    std::lock_guard<std::mutex> guard(mutex_);
+    if (!mirage::desktop::valid_application_uri(uri)) {
+        ApplicationLaunchOutcome outcome;
+        outcome.error =
+            error("invalid_argument", "expected a bounded HTTP(S) URI without userinfo");
+        return outcome;
+    }
+    GUri *parsed = g_uri_parse(uri.c_str(), G_URI_FLAGS_NONE, nullptr);
+    const bool valid =
+        parsed && g_uri_get_host(parsed) && *g_uri_get_host(parsed) && !g_uri_get_userinfo(parsed);
+    if (parsed)
+        g_uri_unref(parsed);
+    if (!valid) {
+        ApplicationLaunchOutcome outcome;
+        outcome.error = error("invalid_argument", "invalid HTTP(S) URI");
+        return outcome;
+    }
+    return launch_locked(application_id, uri, limits, cancel);
+}
+
+ApplicationLaunchOutcome ApplicationBackend::launch_locked(const std::string &application_id,
+                                                           const std::string &uri,
+                                                           const ApplicationLaunchLimits &limits,
+                                                           const CancelToken &cancel) {
     ApplicationLaunchOutcome outcome;
     reap_locked(*impl_);
     // Argument validation happens before any side effect, in the contract's
@@ -448,12 +493,17 @@ ApplicationLaunchOutcome ApplicationBackend::launch(const std::string &applicati
         return outcome;
     }
     const std::string binary = exec_binary(info);
-    if (find_instance_locked(*impl_, application_id, binary).has_value()) {
+    if (uri.empty() && find_instance_locked(*impl_, application_id, binary).has_value()) {
         g_object_unref(info);
         outcome.error = error("already_running", "application already has a live instance");
         return outcome;
     }
-    if (impl_->instances.size() >= kMaxTrackedInstances) {
+    if (!uri.empty() && !g_app_info_supports_uris(G_APP_INFO(info))) {
+        g_object_unref(info);
+        outcome.error = error("unsupported_content", "application does not accept URI arguments");
+        return outcome;
+    }
+    if (impl_->instances.size() + impl_->uri_children.size() >= kMaxTrackedInstances) {
         g_object_unref(info);
         outcome.error =
             error("result_too_large", "instance registry reached its capacity of " +
@@ -474,8 +524,9 @@ ApplicationLaunchOutcome ApplicationBackend::launch(const std::string &applicati
     }
     GAppLaunchContext *context = g_app_launch_context_new();
     GError *gio_error = nullptr;
+    GList uri_argument{const_cast<char *>(uri.c_str()), nullptr, nullptr};
     const gboolean spawned = g_desktop_app_info_launch_uris_as_manager(
-        info, nullptr, context, G_SPAWN_DO_NOT_REAP_CHILD,
+        info, uri.empty() ? nullptr : &uri_argument, context, G_SPAWN_DO_NOT_REAP_CHILD,
         [](gpointer user_data) {
             const int fd = GPOINTER_TO_INT(user_data);
             const pid_t self = getpid();
@@ -487,8 +538,16 @@ ApplicationLaunchOutcome ApplicationBackend::launch(const std::string &applicati
     ::close(pid_pipe[1]);
     g_object_unref(context);
     if (spawned == FALSE) {
+        // Even a failed GIO acknowledgement can follow child creation. Keep
+        // that PID owned and report uncertainty instead of authorizing a retry.
+        pid_t partial_pid = -1;
+        const auto partial = ::read(pid_pipe[0], &partial_pid, sizeof(partial_pid));
         ::close(pid_pipe[0]);
-        const std::string reason = gio_error != nullptr ? gio_error->message : "launch failed";
+        if (partial == static_cast<ssize_t>(sizeof(partial_pid)) && partial_pid > 0) {
+            impl_->uri_children.emplace(partial_pid, application_id);
+            outcome.side_effect_may_have_occurred = true;
+        }
+        const std::string reason = "installed application launch failed";
         if (gio_error != nullptr) {
             g_error_free(gio_error);
         }
@@ -496,6 +555,7 @@ ApplicationLaunchOutcome ApplicationBackend::launch(const std::string &applicati
         outcome.error = error("io_error", reason);
         return outcome;
     }
+    outcome.side_effect_may_have_occurred = true;
     pid_t pid = -1;
     const ssize_t got = ::read(pid_pipe[0], &pid, sizeof(pid));
     ::close(pid_pipe[0]);
@@ -504,7 +564,10 @@ ApplicationLaunchOutcome ApplicationBackend::launch(const std::string &applicati
         outcome.error = error("io_error", "spawned process pid was not reported");
         return outcome;
     }
-    impl_->instances.emplace(application_id, pid);
+    if (uri.empty())
+        impl_->instances.emplace(application_id, pid);
+    else
+        impl_->uri_children.emplace(pid, application_id);
     outcome.ok = true;
     outcome.instance_id = std::to_string(pid);
     return outcome;
@@ -551,7 +614,10 @@ ApplicationLaunchOutcome ApplicationBackend::terminate(const std::string &applic
     // that id may not even belong to the application.
     if (::kill(pid, SIGTERM) != 0 && errno == ESRCH) {
         if (instance->tracked) {
-            impl_->instances.erase(application_id);
+            if (const auto tracked = impl_->instances.find(application_id);
+                tracked != impl_->instances.end() && tracked->second == pid)
+                impl_->instances.erase(tracked);
+            impl_->uri_children.erase(pid);
         }
         outcome.ok = true;
         outcome.instance_id = instance_id;
@@ -575,7 +641,10 @@ ApplicationLaunchOutcome ApplicationBackend::terminate(const std::string &applic
         }
         if (!alive) {
             if (instance->tracked) {
-                impl_->instances.erase(application_id);
+                if (const auto tracked = impl_->instances.find(application_id);
+                    tracked != impl_->instances.end() && tracked->second == pid)
+                    impl_->instances.erase(tracked);
+                impl_->uri_children.erase(pid);
             }
             outcome.ok = true;
             outcome.instance_id = instance_id;

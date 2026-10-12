@@ -33,6 +33,15 @@ ApplicationBackend::launch(const std::string &, const mirage::desktop::Applicati
 }
 
 mirage::desktop::ApplicationLaunchOutcome
+ApplicationBackend::open_uri(const std::string &, const std::string &,
+                             const mirage::desktop::ApplicationLaunchLimits &,
+                             const mirage::desktop::CancelToken &) {
+    mirage::desktop::ApplicationLaunchOutcome outcome;
+    outcome.error = {"unsupported_platform", "application URI handoff is unavailable"};
+    return outcome;
+}
+
+mirage::desktop::ApplicationLaunchOutcome
 ApplicationBackend::terminate(const std::string &, const mirage::desktop::ApplicationLaunchLimits &,
                               const mirage::desktop::CancelToken &) {
     return {};

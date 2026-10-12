@@ -31,7 +31,14 @@ int main(int argc, char **argv) {
         // backend's cooperative wait runs into its deadline.
         ::signal(SIGTERM, SIG_IGN);
     }
-    if (argc >= 4) {
+    if (argc >= 4 && (std::string(argv[3]).starts_with("https://") ||
+                      std::string(argv[3]).starts_with("http://"))) {
+        if (const char *path = std::getenv("MIRAGE_TEST_URI_LOG"))
+            if (std::FILE *log = std::fopen(path, "a")) {
+                std::fprintf(log, "%s\n", argv[3]);
+                std::fclose(log);
+            }
+    } else if (argc >= 4) {
         // Readiness marker, written only after the disposition above.
         if (std::FILE *ready = std::fopen(argv[3], "w")) {
             std::fclose(ready);

@@ -49,6 +49,11 @@ class ApplicationBackend final : public mirage::desktop::ApplicationProvider {
     launch(const std::string &application_id,
            const mirage::desktop::ApplicationLaunchLimits &limits,
            const mirage::desktop::CancelToken &cancel) override;
+    bool supports_open_uri() const override { return true; }
+    mirage::desktop::ApplicationLaunchOutcome
+    open_uri(const std::string &application_id, const std::string &uri,
+             const mirage::desktop::ApplicationLaunchLimits &limits,
+             const mirage::desktop::CancelToken &cancel) override;
     mirage::desktop::ApplicationLaunchOutcome
     terminate(const std::string &application_id,
               const mirage::desktop::ApplicationLaunchLimits &limits,
@@ -56,6 +61,10 @@ class ApplicationBackend final : public mirage::desktop::ApplicationProvider {
 
   private:
     ApplicationBackend() = default;
+    mirage::desktop::ApplicationLaunchOutcome
+    launch_locked(const std::string &application_id, const std::string &uri,
+                  const mirage::desktop::ApplicationLaunchLimits &limits,
+                  const mirage::desktop::CancelToken &cancel);
 
     struct Impl;
     std::unique_ptr<Impl> impl_;

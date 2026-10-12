@@ -68,6 +68,25 @@ class X11Backend final : public mirage::desktop::WindowProvider,
     mirage::desktop::InputOutcome inject_key(const mirage::desktop::KeySym &key, bool pressed,
                                              const mirage::desktop::InputLimits &limits,
                                              const mirage::desktop::CancelToken &cancel) override;
+    bool complete_actions_supported() const override { return true; }
+    bool bounded_pointer_actions_supported() const override { return true; }
+    mirage::desktop::InputOutcome scroll_at(const mirage::desktop::PointerActionScope &,
+                                            mirage::desktop::PointerPoint, std::int32_t horizontal,
+                                            std::int32_t vertical,
+                                            const mirage::desktop::InputLimits &,
+                                            const mirage::desktop::CancelToken &) override;
+    mirage::desktop::InputOutcome drag_to(const mirage::desktop::PointerActionScope &,
+                                          mirage::desktop::PointerPoint from,
+                                          mirage::desktop::PointerPoint to,
+                                          const mirage::desktop::InputLimits &,
+                                          const mirage::desktop::CancelToken &) override;
+    mirage::desktop::InputOutcome key_chord(const mirage::desktop::KeySym &key,
+                                            const mirage::desktop::InputLimits &limits,
+                                            const mirage::desktop::CancelToken &cancel) override;
+    mirage::desktop::InputOutcome click_at(std::int32_t x, std::int32_t y,
+                                           const mirage::desktop::MouseButton &button,
+                                           const mirage::desktop::InputLimits &limits,
+                                           const mirage::desktop::CancelToken &cancel) override;
     mirage::desktop::InputOutcome type_text(const std::string &text,
                                             const mirage::desktop::InputLimits &limits,
                                             const mirage::desktop::CancelToken &cancel) override;
@@ -98,6 +117,11 @@ class X11Backend final : public mirage::desktop::WindowProvider,
     /// RandR monitor table (or the root geometry as one stable "screen"
     /// display on RandR-less servers). Caller must hold `mutex_`.
     std::vector<mirage::desktop::DisplayInfo> query_displays_locked();
+    mirage::desktop::InputOutcome
+    pointer_path_locked(const mirage::desktop::PointerActionScope &, mirage::desktop::PointerPoint,
+                        mirage::desktop::PointerPoint, std::int32_t horizontal,
+                        std::int32_t vertical, bool drag, const mirage::desktop::InputLimits &,
+                        const mirage::desktop::CancelToken &);
 
     /// Answers pending clipboard events for the selection we own (requests,
     /// ownership loss, incremental transfer rounds). Called on entry of every

@@ -44,6 +44,7 @@ class UiaBackend final : public mirage::desktop::AccessibilityProvider {
 
     mirage::desktop::AccessibilityProvider *accessibility() { return this; }
 
+    bool scoped_references_supported() const override { return true; }
     mirage::desktop::SnapshotOutcome
     semantic_snapshot(const std::string &window_id,
                       const mirage::desktop::SemanticSnapshotLimits &limits,
