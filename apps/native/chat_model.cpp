@@ -143,6 +143,7 @@ bool ChatModel::submit() {
     session.draft.clear();
     session.scroll_offset = 10000000.0f; // clamped by the scroll view on compose
     session.follow_output = true;
+    touch(session);
     notice_ = "消息已保留在本地预览中，尚未发送给 Agent。";
     return true;
 }
@@ -301,7 +302,8 @@ void ChatModel::acknowledge_submission(std::uint64_t id) {
 void ChatModel::apply_turn(std::uint64_t id, const std::string &turn, const std::string &status,
                            const std::string &user, const std::string &reply,
                            const std::string &error, std::optional<ContextUsage> usage,
-                           std::uint64_t sequence, const std::string &replaces) {
+                           std::uint64_t sequence, const std::string &replaces,
+                           std::optional<std::int64_t> recorded_at_ms) {
     auto *session = find(id);
     if (!session || std::find(session->retired_turns.begin(), session->retired_turns.end(), turn) !=
                         session->retired_turns.end())
@@ -332,10 +334,19 @@ void ChatModel::apply_turn(std::uint64_t id, const std::string &turn, const std:
         session->messages.push_back({next_message_++, {}, "Mira", {}, turn});
         it = session->messages.end() - 2;
     }
+    const bool newest = !sequence || sequence >= session->latest_sequence;
     session->latest_sequence = std::max(session->latest_sequence, sequence);
     auto &answer = *(it + 1);
     if (status == "pending" && !answer.status.empty() && answer.status != "运行中")
         return;
+    const auto display_status = status == "pending" ? "运行中"
+                                : status == "ok"    ? "已回复"
+                                                    : "已停止或失败";
+    const bool changed =
+        new_turn || answer.status != display_status ||
+        (status != "pending" && answer.text != (status == "ok" ? reply_for_display(reply) : error));
+    if (recorded_at_ms || (newest && changed))
+        touch(*session, recorded_at_ms);
     if (status == "ok" && sequence >= session->usage_sequence) {
         session->context_usage = std::move(usage);
         session->usage_sequence = sequence;
@@ -345,7 +356,7 @@ void ChatModel::apply_turn(std::uint64_t id, const std::string &turn, const std:
     if (status != "pending" && answer.started && !answer.duration)
         answer.duration = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - *answer.started);
-    answer.status = status == "pending" ? "运行中" : status == "ok" ? "已回复" : "已停止或失败";
+    answer.status = display_status;
     if (status != "pending")
         answer.text = status == "ok" ? reply_for_display(reply) : error;
     session->running =
@@ -361,7 +372,7 @@ void ChatModel::apply_turn(std::uint64_t id, const std::string &turn, const std:
 
 void ChatModel::apply_process(std::uint64_t id, const std::string &turn,
                               const std::vector<conversation::Part> &parts, std::uint64_t sequence,
-                              bool pending) {
+                              bool pending, bool live_update) {
     auto *session = find(id);
     if (!session || !sequence || !conversation::valid_parts(parts))
         return;
@@ -377,6 +388,8 @@ void ChatModel::apply_process(std::uint64_t id, const std::string &turn,
         message->text.clear(); // completed tool-producing response supersedes its ephemeral preview
     message->parts = parts;
     message->process_sequence = sequence;
+    if (live_update)
+        touch(*session);
     std::erase_if(message->expanded_parts, [&](const auto &part) {
         return std::none_of(parts.begin(), parts.end(),
                             [&](const auto &item) { return item.id == part; });
@@ -413,8 +426,39 @@ void ChatModel::apply_preview(std::uint64_t id, const std::string &turn, const s
     it->preview_request = request;
     it->preview_truncated = truncated;
     it->text = text;
+    touch(*session);
 }
 
+void ChatModel::touch(LocalSession &session, std::optional<std::int64_t> recorded_at_ms) {
+    if (recorded_at_ms) {
+        session.updated_at_ms = std::max(session.updated_at_ms, *recorded_at_ms);
+        latest_activity_ms_ = std::max(latest_activity_ms_, session.updated_at_ms);
+        return;
+    }
+    const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::system_clock::now().time_since_epoch())
+                         .count();
+    latest_activity_ms_ = std::max(latest_activity_ms_, now);
+    session.updated_at_ms = std::max(session.updated_at_ms, latest_activity_ms_);
+    session.activity_order = next_activity_++;
+}
+std::vector<const LocalSession *> ChatModel::history_sessions() const {
+    std::vector<const LocalSession *> result;
+    result.reserve(sessions_.size());
+    for (const auto &session : sessions_)
+        if (!session.messages.empty())
+            result.push_back(&session);
+    std::sort(result.begin(), result.end(), [](const auto *a, const auto *b) {
+        if (a->updated_at_ms != b->updated_at_ms)
+            return a->updated_at_ms > b->updated_at_ms;
+        if (a->activity_order != b->activity_order)
+            return a->activity_order > b->activity_order;
+        if (a->remote_id != b->remote_id)
+            return a->remote_id > b->remote_id;
+        return a->id > b->id;
+    });
+    return result;
+}
 LocalSession &ChatModel::current() { return sessions_[selected_]; }
 const LocalSession &ChatModel::current() const { return sessions_[selected_]; }
 } // namespace mirage::native_ui

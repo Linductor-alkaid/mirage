@@ -1,3 +1,4 @@
+#include "../support/ipc_io.hpp"
 #include "../support/test.hpp"
 #include "../support/xvfb_display.hpp"
 // Compile the product view into this isolated test translation unit, keeping
@@ -16,6 +17,14 @@ void requestUpdate() {}
 } // namespace app
 
 int main(int argc, char **argv) {
+    // Keep direct screenshot invocations private too; CTest's fixture is not
+    // involved when this binary is launched manually.
+    mirage::testing::TempDir private_state;
+    for (const auto *variable : {"XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME"}) {
+        const auto directory = private_state.root() / variable;
+        std::filesystem::create_directories(directory);
+        MIRAGE_CHECK(::setenv(variable, directory.c_str(), 1) == 0);
+    }
     mirage::testing::XvfbDisplay display(mirage::testing::find_xvfb(), "2600x1800x24");
     ::setenv("DISPLAY", display.display_name().c_str(), 1);
     ::unsetenv("WAYLAND_DISPLAY");
@@ -254,10 +263,35 @@ int main(int argc, char **argv) {
         page.chat.apply_process(session_id, "first", parts, 6);
         frame();
         MIRAGE_CHECK(std::abs(element(root + "thought.detail")->scrollOffset - 40) < 1);
-        page.chat.apply_process(session_id, "first", {}, 7);
+        parts.front().text = "检查新的桌面证据。";
+        parts.front().truncated = false;
+        parts.back().name = "desktop.input.key";
+        parts.back().status = "complete";
+        parts.back().output =
+            R"({"window_id":"w1","action_id":"action-1","verified":true,"verification":{"status":"verified","verified":true,"window_id":"w1","evidence_id":"observation-1"}})";
+        page.chat.apply_process(session_id, "first", parts, 7);
         page.dark = false;
         width = 1180;
         height = 800;
+        frame();
+        MIRAGE_CHECK(element(root + "call.status")->text == "已核验");
+        capture("post-action-verified-light");
+        page.dark = true;
+        frame();
+        capture("post-action-verified-dark");
+        parts.back().output =
+            R"({"verification":{"status":"unverified","verified":false,"window_id":"w1","evidence_id":""}})";
+        page.chat.apply_process(session_id, "first", parts, 8);
+        frame();
+        MIRAGE_CHECK(element(root + "call.status")->text == "未验证");
+        parts.back().status = "failed";
+        parts.back().output =
+            R"({"verification":{"status":"uncertain","verified":false,"window_id":"w1","evidence_id":"observation-1"}})";
+        page.chat.apply_process(session_id, "first", parts, 9);
+        frame();
+        MIRAGE_CHECK(element(root + "call.status")->text == "不确定");
+        page.chat.apply_process(session_id, "first", {}, 10);
+        page.dark = false;
         frame();
     }
     const auto key = "message." + std::to_string(user);
@@ -1050,10 +1084,14 @@ const auto model = "Mirage";
     element("model.reasoning.supported.hit")->onClick();
     frame();
     MIRAGE_CHECK(page.model.supports_reasoning);
+    element("model.images.supported.hit")->onClick();
+    MIRAGE_CHECK(page.model.supports_images && page.model_dirty);
     page.model_window = "128000";
     auto first_document = provider_document(true);
     MIRAGE_CHECK(first_document && first_document->models.size() == 1 &&
                  first_document->model->context_window_tokens == 128000);
+    MIRAGE_CHECK(first_document->model->supports_images &&
+                 first_document->models.front().supports_images);
     accept_model_configuration(*first_document, "save", "");
     page.model_window = "64000";
     page.model.supports_reasoning = true;
@@ -1385,6 +1423,121 @@ const auto model = "Mirage";
         MIRAGE_CHECK(page.chat.current().messages.size() == count && page.confirm_exit);
     }
     page.confirm_exit = false;
+    // DEC-079: inspect actual sidebar row geometry, with background updates.
+    page.settings = false;
+    page.sidebar = true;
+    page.selection.clear();
+    page.selection_cache_ids.clear();
+    page.hovered_message = page.hovered_session = 0;
+    for (const auto &item : page.chat.sessions())
+        page.chat.clear_session(item.id);
+    page.chat.new_draft();
+    const auto activity_first = page.chat.current().id;
+    page.chat.apply_turn(activity_first, "a", "ok", "较早会话", "回复", {}, {}, 1, {}, 100);
+    page.chat.create_session();
+    const auto activity_second = page.chat.current().id;
+    page.chat.apply_turn(activity_second, "b", "ok", "较新会话", "回复", {}, {}, 1, {}, 200);
+    page.chat.select_session(activity_first);
+    page.chat.set_draft("保持当前草稿");
+    const auto first_key = "session." + std::to_string(activity_first) + ".title";
+    const auto second_key = "session." + std::to_string(activity_second) + ".title";
+    for (const bool dark : {false, true}) {
+        width = dark ? 860 : 1180;
+        height = dark ? 620 : 800;
+        page.dark = dark;
+        frame();
+        MIRAGE_CHECK(element(second_key)->frame.y < element(first_key)->frame.y);
+        page.chat.apply_turn(activity_first, "a", "ok", "较早会话", dark ? "再次新回复" : "新回复",
+                             {}, {}, 1);
+        frame();
+        MIRAGE_CHECK(element(first_key)->frame.y < element(second_key)->frame.y);
+        MIRAGE_CHECK(page.chat.current().id == activity_first &&
+                     page.chat.current().draft == "保持当前草稿");
+        capture(dark ? "session-activity-minimum-dark" : "session-activity-light");
+        page.chat.apply_turn(activity_second, "b", "ok", "较新会话", dark ? "再次更新" : "新回复",
+                             {}, {}, 1);
+    }
+    // M6-38 clarification: the conversation selector contains only three modes.
+    // Its native pointer path and isolated preference save preserve the draft.
+    MIRAGE_CHECK(!page.runtime);
+    page.settings = page.model_page = page.desktop_page = false;
+    page.about = page.confirm_clear = page.confirm_delete = false;
+    page.popup = PageState::Popup::None;
+    page.chat.current().access = "default";
+    const auto permission_draft = page.chat.current().draft;
+    page.desktop_authorization_pending = false;
+    page.desktop_authorization_loaded = true;
+    page.desktop_authorization = {true, false, false, "ask", ""};
+    const auto initial_revision = page.desktop_authorization_revision;
+    for (const int viewport : {1180, 860}) {
+        width = viewport;
+        height = viewport == 1180 ? 800 : 620;
+        page.dark = viewport == 860;
+        frame();
+        element("composer.mode.bg")->onClick();
+        frame();
+        MIRAGE_CHECK(page.popup == PageState::Popup::Mode &&
+                     page.desktop_authorization_revision == initial_revision);
+        const auto mode_bounds = element("composer.popup")->frame;
+        MIRAGE_CHECK(mode_bounds.height == 120 && mode_bounds.width == 280);
+        const auto mode_trigger = element("composer.mode.bg")->frame;
+        MIRAGE_CHECK(mode_bounds.x == mode_trigger.x &&
+                     mode_bounds.y + mode_bounds.height == mode_trigger.y - 4);
+        for (const auto *id : {"conversation", "readonly", "default"}) {
+            const auto *button = element(std::string("composer.popup.") + id + ".bg");
+            MIRAGE_CHECK(button && !button->disabled && button->frame.y >= mode_bounds.y &&
+                         button->frame.y + button->frame.height <= mode_bounds.y + mode_bounds.height);
+        }
+        MIRAGE_CHECK(!view->find("composer.popup.authorization") &&
+                     !view->find("composer.popup.authorization.heading") &&
+                     !view->find("composer.popup.authorization.authorize.bg") &&
+                     !view->find("composer.popup.access.help"));
+        capture(viewport == 1180 ? "composer-three-modes-light" : "composer-three-modes-small-dark");
+        page.popup = PageState::Popup::None;
+    }
+    for (const auto *access : {"read_only", "chat_only"}) {
+        page.popup = PageState::Popup::Mode;
+        frame();
+        const auto *id = std::string(access) == "read_only" ? "readonly" : "conversation";
+        const auto hit = element(std::string("composer.popup.") + id + ".bg")->frame;
+        const auto px = hit.x + hit.width / 2;
+        const auto py = hit.y + hit.height / 2;
+        core::queuePointerMotion(handle, px, py, {}, {});
+        core::queuePointerButton(handle, px, py, core::PointerButton::Left,
+                                 core::PointerAction::Press, {});
+        frame();
+        core::queuePointerButton(handle, px, py, core::PointerButton::Left,
+                                 core::PointerAction::Release, {});
+        frame();
+        MIRAGE_CHECK(page.chat.current().access == access && page.popup == PageState::Popup::None &&
+                     page.desktop_authorization_revision == initial_revision &&
+                     page.chat.current().draft == permission_draft);
+        MIRAGE_CHECK(load_preferences().default_access == access);
+    }
+    page.popup = PageState::Popup::Mode;
+    page.desktop_authorization_pending = true;
+    frame();
+    for (const auto *id : {"conversation", "readonly", "default"})
+        MIRAGE_CHECK(element(std::string("composer.popup.") + id + ".bg")->disabled);
+    select_desktop_mode("default");
+    MIRAGE_CHECK(page.chat.current().access == "chat_only");
+    page.desktop_authorization_pending = false;
+    page.chat.current().running = true;
+    frame();
+    select_desktop_mode("default");
+    MIRAGE_CHECK(page.chat.current().access == "chat_only" &&
+                 element("composer.popup.default.bg")->disabled);
+    page.chat.current().running = false;
+    frame();
+    element("composer.popup.default.bg")->onClick();
+    frame();
+    MIRAGE_CHECK(page.chat.current().access == "default" && page.popup == PageState::Popup::None &&
+                 page.desktop_authorization_revision == initial_revision + 1 &&
+                 !page.desktop_authorization_notice.empty());
+    MIRAGE_CHECK(element("composer.notice")->text ==
+                     fitted_title(page.desktop_authorization_notice,
+                                  element("composer.notice")->frame.width, 12) &&
+                 page.chat.current().draft == permission_draft);
     width = 1180;
     height = 800;
     glfwPollEvents();

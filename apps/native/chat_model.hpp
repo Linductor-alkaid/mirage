@@ -64,6 +64,8 @@ struct LocalSession {
     std::vector<std::string> retired_turns = {};
     float scroll_extent = 0;
     bool follow_output = true;
+    std::int64_t updated_at_ms = 0;
+    std::uint64_t activity_order = 0;
 };
 
 // UI-thread-only, bounded preview state. IDs are never reused, and switching
@@ -103,16 +105,18 @@ class ChatModel {
     void apply_turn(std::uint64_t id, const std::string &turn, const std::string &status,
                     const std::string &user, const std::string &reply, const std::string &error,
                     std::optional<ContextUsage> usage = {}, std::uint64_t sequence = 0,
-                    const std::string &replaces = {});
+                    const std::string &replaces = {},
+                    std::optional<std::int64_t> recorded_at_ms = {});
     void apply_process(std::uint64_t session, const std::string &turn,
                        const std::vector<conversation::Part> &parts, std::uint64_t sequence,
-                       bool pending = false);
+                       bool pending = false, bool live_update = true);
     void toggle_part(std::uint64_t session, std::uint64_t message, const std::string &part);
     void apply_preview(std::uint64_t id, const std::string &turn, const std::string &request,
                        std::uint64_t sequence, const std::string &text, bool truncated);
     LocalSession &current();
     const LocalSession &current() const;
     const std::vector<LocalSession> &sessions() const { return sessions_; }
+    std::vector<const LocalSession *> history_sessions() const;
     const std::string &notice() const { return notice_; }
 
   private:
@@ -123,6 +127,9 @@ class ChatModel {
     std::uint64_t next_reference_ = 1;
     std::uint64_t next_attachment_ = 1;
     std::string notice_;
+    std::uint64_t next_activity_ = 1;
+    std::int64_t latest_activity_ms_ = 0;
+    void touch(LocalSession &session, std::optional<std::int64_t> recorded_at_ms = {});
 };
 
 } // namespace mirage::native_ui

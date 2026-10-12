@@ -11,6 +11,8 @@
 #include "typography.hpp"
 #include "window_controls.hpp"
 #include <mirage/runtime/persistence/paths.hpp>
+#include <mirage/runtime/persistence/app_preferences.hpp>
+#include <mirage/runtime/persistence/store.hpp>
 #include <mirage/runtime/persistence/settings.hpp>
 
 #include <algorithm>
@@ -36,112 +38,38 @@ namespace {
 
 // ---------------------------------------------------------------------------
 // Appearance preferences — persisted to $XDG_CONFIG_HOME/mirage/preferences.json
-// Serialized as minimal hand-written JSON; mira/json.hpp is not available here.
+// The pinned JSON implementation stays behind the persistence facade.
 // ---------------------------------------------------------------------------
-struct AppPreferences {
-    // Appearance
-    bool dark = false;
-    bool reduced_motion = false;
-    int font_size_step = 1;     // 0=小(12EM), 1=默认(14EM), 2=大(16EM)
-    // Session defaults (applied to each new session's initial access/reasoning)
-    std::string default_access = "default";     // "default" | "read_only"
-    std::string default_reasoning = "";         // "" | model-specific value
-    // Code block display
-    int code_font_size_step = 1;  // 0=小(11), 1=默认(13), 2=大(15)
-};
-
+using AppPreferences = mirage::runtime::persistence::AppPreferences;
+void preference_save_failed();
 std::filesystem::path preferences_path() {
     return mirage::runtime::persistence::default_config_directory() / "preferences.json";
 }
-
 AppPreferences load_preferences() {
-    AppPreferences prefs;
     const auto path = preferences_path();
-    std::ifstream f(path);
-    if (!f)
-        return prefs;
-    std::string src((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-    // Minimal key-value extraction: find "key": value patterns.
-    auto read_bool = [&](const std::string &key, bool &out) {
-        const auto pos = src.find('"' + key + '"');
-        if (pos == std::string::npos)
-            return;
-        const auto colon = src.find(':', pos);
-        if (colon == std::string::npos)
-            return;
-        const auto start = src.find_first_not_of(" \t\r\n", colon + 1);
-        if (start == std::string::npos)
-            return;
-        if (src.substr(start, 4) == "true")
-            out = true;
-        else if (src.substr(start, 5) == "false")
-            out = false;
-    };
-    auto read_int = [&](const std::string &key, int &out) {
-        const auto pos = src.find('"' + key + '"');
-        if (pos == std::string::npos)
-            return;
-        const auto colon = src.find(':', pos);
-        if (colon == std::string::npos)
-            return;
-        const auto start = src.find_first_not_of(" \t\r\n", colon + 1);
-        if (start == std::string::npos)
-            return;
-        int v = 0;
-        const auto [ptr, ec] =
-            std::from_chars(src.data() + start, src.data() + src.size(), v);
-        if (ec == std::errc{})
-            out = v;
-    };
-    auto read_string = [&](const std::string &key, std::string &out) {
-        const auto pos = src.find('"' + key + '"');
-        if (pos == std::string::npos)
-            return;
-        const auto colon = src.find(':', pos);
-        if (colon == std::string::npos)
-            return;
-        const auto q1 = src.find('"', colon + 1);
-        if (q1 == std::string::npos)
-            return;
-        const auto q2 = src.find('"', q1 + 1);
-        if (q2 == std::string::npos)
-            return;
-        out = src.substr(q1 + 1, q2 - q1 - 1);
-    };
-    read_bool("dark", prefs.dark);
-    read_bool("reduced_motion", prefs.reduced_motion);
-    read_int("font_size_step", prefs.font_size_step);
-    prefs.font_size_step = std::clamp(prefs.font_size_step, 0, 2);
-    read_string("default_access", prefs.default_access);
-    read_string("default_reasoning", prefs.default_reasoning);
-    read_int("code_font_size_step", prefs.code_font_size_step);
-    prefs.code_font_size_step = std::clamp(prefs.code_font_size_step, 0, 2);
-    return prefs;
+    const mirage::runtime::persistence::LocalStateStore store(
+        path.parent_path(), path.filename().string(),
+        mirage::runtime::persistence::kMaxAppPreferencesBytes);
+    const auto loaded = store.load();
+    if (loaded.status == mirage::runtime::persistence::LoadStatus::Absent)
+        return {};
+    return mirage::runtime::persistence::decode_app_preferences(loaded.body);
 }
-
 void save_preferences(const AppPreferences &prefs) {
     const auto path = preferences_path();
-    std::error_code ec;
-    std::filesystem::create_directories(path.parent_path(), ec);
-    if (ec)
-        return;
-    std::ofstream f(path, std::ios::trunc);
-    if (!f)
-        return;
-    f << "{\n"
-      << "  \"dark\": " << (prefs.dark ? "true" : "false") << ",\n"
-      << "  \"reduced_motion\": " << (prefs.reduced_motion ? "true" : "false") << ",\n"
-      << "  \"font_size_step\": " << prefs.font_size_step << ",\n"
-      << "  \"default_access\": \"" << prefs.default_access << "\",\n"
-      << "  \"default_reasoning\": \"" << prefs.default_reasoning << "\",\n"
-      << "  \"code_font_size_step\": " << prefs.code_font_size_step << "\n"
-      << "}\n";
+    const mirage::runtime::persistence::LocalStateStore store(
+        path.parent_path(), path.filename().string(),
+        mirage::runtime::persistence::kMaxAppPreferencesBytes);
+    if (!store.save(mirage::runtime::persistence::encode_app_preferences(prefs)).ok)
+        preference_save_failed();
 }
 
 // Returns the base EM value for ui_font_size() given the preference step.
 constexpr float font_size_em(int step) {
-    if (step == 0) return 12.0f;
-    if (step == 2) return 16.0f;
+    if (step == 0)
+        return 12.0f;
+    if (step == 2)
+        return 16.0f;
     return 14.0f; // default
 }
 
@@ -166,18 +94,19 @@ struct Palette {
 };
 Palette palette(bool dark) {
     if (dark)
-        //        bg       sidebar  surface  hover    selected text     muted    border   action   inverse
+        //        bg       sidebar  surface  hover    selected text     muted    border   action
+        //        inverse
         return {color(0x161616), color(0x1d1d1d), color(0x222222), color(0x2c2c2c), color(0x333333),
                 color(0xeeeeee), color(0xa1a1a1), color(0x353535), color(0xeeeeee), color(0x161616),
                 //        accent   acc_hov  acc_txt  user     composer success  warning  error
-                color(0xf07585), color(0xf59aa6), color(0xffffff),
-                color(0x222222), color(0x2b2b2b), color(0x4ade80), color(0xfbbf24), color(0xf47171)};
-    //        bg       sidebar  surface  hover    selected text     muted    border   action   inverse
+                color(0xf07585), color(0xf59aa6), color(0xffffff), color(0x222222), color(0x2b2b2b),
+                color(0x4ade80), color(0xfbbf24), color(0xf47171)};
+    //        bg       sidebar  surface  hover    selected text     muted    border   action inverse
     return {color(0xf8f8f8), color(0xf0f0f0), color(0xffffff), color(0xe8e8e8), color(0xe2e2e2),
             color(0x202020), color(0x6d6d6d), color(0xdfdfdf), color(0x222222), color(0xffffff),
             //        accent   acc_hov  acc_txt  user     composer success  warning  error
-            color(0xc94560), color(0xad3450), color(0xffffff),
-            color(0xf0f0f0), color(0xffffff), color(0x1a7f4b), color(0x9a6400), color(0xc42828)};
+            color(0xc94560), color(0xad3450), color(0xffffff), color(0xf0f0f0), color(0xffffff),
+            color(0x1a7f4b), color(0x9a6400), color(0xc42828)};
 }
 eui::Color mix_color(eui::Color a, eui::Color b, float t) {
     return {a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t,
@@ -243,6 +172,18 @@ struct PageState {
     bool sidebar = true;
     bool settings = false;
     bool model_page = false;
+    bool desktop_page = false;
+    mirage::runtime::ipc::VisionConfiguration vision;
+    std::string vision_path;
+    std::string vision_notice;
+    mirage::runtime::ipc::DesktopAuthorizationConfiguration desktop_authorization;
+    bool desktop_authorization_loaded = false;
+    bool desktop_authorization_pending = false;
+    std::string desktop_authorization_notice;
+    std::uint64_t desktop_authorization_revision = 0;
+    bool vision_loaded = false;
+    bool vision_pending = false;
+    std::uint64_t vision_revision = 0;
     bool model_chooser = false;
     bool agent_mode = true;
     std::vector<mirage::runtime::persistence::ModelSettings> models;
@@ -250,7 +191,7 @@ struct PageState {
     std::vector<mirage::runtime::persistence::ModelSettings> provider_models;
     std::size_t provider_model_index = 0;
     enum class ModelDialog { None, Discard, Delete };
-    enum class ModelDestination { Provider, Preset, New, Appearance, Conversation };
+    enum class ModelDestination { Provider, Preset, New, Appearance, Desktop, Conversation };
     struct ModelNavigation {
         ModelDestination destination = ModelDestination::Conversation;
         std::string provider;
@@ -311,6 +252,9 @@ struct PageState {
 PageState &state() {
     static PageState value;
     return value;
+}
+void preference_save_failed() {
+    state().runtime_notice = "偏好保存失败，请检查本机配置目录后重试。";
 }
 namespace ipc = mirage::runtime::ipc;
 namespace persistence = mirage::runtime::persistence;
@@ -493,7 +437,12 @@ void execute_model_navigation(const PageState::ModelNavigation &navigation) {
         load_provider(unnamed_provider());
         s.model_dirty = true;
         break;
+    case PageState::ModelDestination::Desktop:
+        s.model_page = false;
+        s.desktop_page = true;
+        break;
     case PageState::ModelDestination::Appearance:
+        s.desktop_page = false;
         s.model_page = false;
         break;
     case PageState::ModelDestination::Conversation:
@@ -527,8 +476,10 @@ void leave_settings(bool conversation) {
     else if (conversation) {
         s.settings = false;
         s.model_chooser = false;
-    } else
+    } else {
+        s.desktop_page = false;
         s.model_page = false;
+    }
 }
 void cancel_model_add() {
     state().adding_model = false;
@@ -738,6 +689,53 @@ bool call_runtime(ipc::Request request, const std::string &tag, std::uint64_t id
     s.runtime_notice = "服务未连接或请求已达上限，请重新连接后重试。";
     return false;
 }
+// DEC-078 / M6-38: both entry points share the bounded RuntimeBridge request path.
+void request_desktop_authorization(std::optional<bool> remember = std::nullopt) {
+    auto &s = state();
+    if (s.desktop_authorization_pending)
+        return;
+    if (remember && (!s.desktop_authorization_loaded ||
+                     (*remember ? (!s.desktop_authorization.supported ||
+                                   s.chat.current().access != "default")
+                                : !s.desktop_authorization.remember)))
+        return;
+    s.desktop_authorization_notice.clear();
+    const auto revision = ++s.desktop_authorization_revision;
+    s.desktop_authorization_pending =
+        remember ? call_runtime(ipc::SetDesktopAuthorizationRequest{*remember},
+                                "desktop.authorization.save", revision)
+                 : call_runtime(ipc::GetDesktopAuthorizationRequest{}, "desktop.authorization",
+                                revision);
+    if (!s.desktop_authorization_pending)
+        s.desktop_authorization_notice = s.runtime_notice;
+}
+std::string desktop_mode_label(const std::string &access) {
+    return access == "default" ? "完全访问" : access == "read_only" ? "视觉模式" : "对话模式";
+}
+void select_desktop_mode(const std::string &access) {
+    auto &s = state();
+    auto &session = s.chat.current();
+    if (session.running || session.submitting || s.desktop_authorization_pending ||
+        (access != "default" && access != "read_only" && access != "chat_only"))
+        return;
+    session.access = access;
+    s.popup = PageState::Popup::None;
+    save_preferences({s.dark, s.reduced_motion, s.font_size_step, access, session.reasoning,
+                      s.code_font_size_step});
+    if (access == "default" && s.desktop_authorization_loaded &&
+        s.desktop_authorization.supported && !s.desktop_authorization.remembered)
+        request_desktop_authorization(true);
+}
+std::string desktop_authorization_status() {
+    const auto &s = state();
+    const auto &authorization = s.desktop_authorization;
+    return s.desktop_authorization_pending ? "正在处理授权，请完成系统共享窗口中的操作。"
+           : !s.desktop_authorization_loaded ? "尚未读取授权状态，请刷新。"
+           : !authorization.supported        ? "当前桌面不支持记住系统授权。"
+           : authorization.remembered ? "已记住授权，后续任务及重启后尝试恢复。"
+           : authorization.remember ? "尚未完成授权，请重新授权。"
+                                    : "每个任务单独询问系统授权。";
+}
 void history(std::uint64_t id) {
     const auto *session = state().chat.find(id);
     if (session && !session->remote_id.empty())
@@ -909,6 +907,10 @@ void drain_runtime() {
             if (!s.runtime->connected())
                 window::close();
             s.saving_model = false;
+            s.vision_pending = false;
+            s.vision_loaded = false;
+            s.desktop_authorization_pending = false;
+            s.desktop_authorization_loaded = false;
             s.fetching_models = false;
             for (const auto &item : s.chat.sessions()) {
                 auto *session = s.chat.find(item.id);
@@ -920,6 +922,46 @@ void drain_runtime() {
             // Catalog ids are editor revisions, not local conversation identities.
             if (message.tag == "catalog") {
                 accept_catalog_response(message);
+                continue;
+            }
+            if (message.tag == "desktop.authorization" ||
+                message.tag == "desktop.authorization.save") {
+                if (message.local_id != s.desktop_authorization_revision)
+                    continue;
+                s.desktop_authorization_pending = false;
+                if (!message.response.ok) {
+                    s.desktop_authorization_notice = display_error(message.response.error.message);
+                    s.desktop_authorization_loaded = false;
+                } else if (const auto *view = std::get_if<ipc::DesktopAuthorizationConfiguration>(
+                               &message.response.payload)) {
+                    s.desktop_authorization = *view;
+                    s.desktop_authorization_loaded = true;
+                    s.desktop_authorization_notice = view->notice;
+                } else {
+                    s.desktop_authorization_loaded = false;
+                    s.desktop_authorization_notice = "无法读取桌面授权状态，请刷新重试。";
+                }
+                if (message.tag == "desktop.authorization.save" &&
+                    !s.desktop_authorization_notice.empty())
+                    s.runtime_notice = s.desktop_authorization_notice;
+                continue;
+            }
+            if (message.tag == "vision" || message.tag == "vision.save") {
+                if (message.local_id != s.vision_revision)
+                    continue;
+                s.vision_pending = false;
+                if (!message.response.ok) {
+                    s.vision_notice = display_error(message.response.error.message);
+                } else if (const auto *vision =
+                               std::get_if<ipc::VisionConfiguration>(&message.response.payload)) {
+                    s.vision = *vision;
+                    s.vision_path = vision->ocr_manifest;
+                    s.vision_loaded = true;
+                    s.vision_notice = message.tag == "vision.save"
+                                          ? "已保存。清单与权重将在下次启动时校验。"
+                                          : "";
+                } else
+                    s.vision_notice = "无法读取桌面视觉配置，请刷新重试。";
                 continue;
             }
             auto *session = s.chat.find(message.local_id);
@@ -937,6 +979,11 @@ void drain_runtime() {
             }
             if (message.tag == "subscribe") {
                 call_runtime(ipc::GetModelRequest{}, "model");
+                s.vision_pending =
+                    call_runtime(ipc::GetVisionRequest{}, "vision", ++s.vision_revision);
+                s.desktop_authorization_pending =
+                    call_runtime(ipc::GetDesktopAuthorizationRequest{}, "desktop.authorization",
+                                 ++s.desktop_authorization_revision);
             }
             const auto &payload = message.response.payload;
             if (const auto *product = std::get_if<ipc::ProductState>(&payload)) {
@@ -1019,9 +1066,10 @@ void drain_runtime() {
                     for (const auto &turn : snapshot->turns) {
                         s.chat.apply_turn(session->id, turn.turn_id, turn.status, turn.user_text,
                                           turn.reply_text, display_error(turn.error),
-                                          native_usage(turn.context_usage), turn.sequence);
+                                          native_usage(turn.context_usage), turn.sequence, {},
+                                          turn.recorded_at_ms);
                         s.chat.apply_process(session->id, turn.turn_id, turn.parts,
-                                             turn.process_sequence);
+                                             turn.process_sequence, false, false);
                     }
                 }
             } else if (std::holds_alternative<ipc::DialogTurnAccepted>(payload) &&
@@ -1253,6 +1301,184 @@ void modal(eui::Ui &ui, const eui::Screen &screen, const Palette &p) {
         })
         .build();
 }
+void desktop_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float width,
+                           const Palette &p, const components::theme::ThemeColorTokens &tokens) {
+    auto &s = state();
+    text(ui, "desktop.title", "桌面工具", x, 72, width, 32, 20, p.text, 600);
+    text(ui, "desktop.description", "让 Agent 观察桌面、操作目标并核验结果。", x, 108, width, 24,
+         14, p.muted);
+    components::scrollView(ui, "desktop.settings.scroll")
+        .position(x, 148)
+        .size(width, std::max(100.0f, screen.height - 180))
+        .theme(tokens)
+        .scrollbarWidth(4)
+        .scrollbarGap(8)
+        .gap(16)
+        .content([&](eui::Ui &list, float w, float) {
+            auto note = [&](const char *id, const std::string &value, float height, float size,
+                            eui::Color ink) {
+                list.text(id)
+                    .size(w, height)
+                    .text(value)
+                    .fontSize(scaled_em(size))
+                    .lineHeight(size * 1.5f)
+                    .wrap()
+                    .verticalAlign(eui::VerticalAlign::Center)
+                    .color(ink)
+                    .hitTestMode(eui::dsl::HitTestMode::None)
+                    .build();
+            };
+            std::string status = !s.vision_loaded ? "正在读取视觉配置…"
+                                 : !s.vision.supported
+                                     ? "当前构建未包含 OCR；截图识图仍可独立使用。"
+                                 : s.vision.running ? "OCR 与编号图管线已运行。"
+                                                    : "OCR 未启用；选择本地资源清单后保存并重启。";
+            note("desktop.status", status, 44, 14, p.text);
+            list.column("desktop.resources")
+                .size(w, 94)
+                .gap(6)
+                .content([&] {
+                    text(list, "desktop.resources.label", "本地视觉资源清单", 0, 0, w, 22, 14,
+                         p.text, 500);
+                    auto style = components::InputStyle(tokens);
+                    style.background = style.focused = p.surface;
+                    style.text = p.text;
+                    style.placeholder = p.muted;
+                    style.border = p.border;
+                    style.focusBorder = p.action;
+                    style.cursor = p.text;
+                    style.shadow = {};
+                    style.radius = 8;
+                    if (!s.vision_loaded || s.vision_pending)
+                        text(list, "desktop.resources.pending",
+                             s.vision_path.empty() ? "等待服务响应…"
+                                                   : fitted_title(s.vision_path, w, 14),
+                             0, 0, w, 36, 14, p.muted);
+                    else
+                        components::input(list, "desktop.resources.path")
+                            .size(w, 36)
+                            .value(s.vision_path)
+                            .placeholder("选择审核过的 JSON 清单；留空关闭 OCR")
+                            .fontSize(ui_font_size(14))
+                            .inset(control_text_inset)
+                            .style(style)
+                            .onChange([](const auto &value) {
+                                auto &v = state();
+                                if (v.vision_pending || value.size() > persistence::kMaxPathBytes)
+                                    return;
+                                v.vision_path = value;
+                                v.vision_notice = "有未保存的修改。";
+                            })
+                            .build();
+                    text(list, "desktop.resources.help",
+                         "资源保留在本机，不自动下载。保存后重启整个应用生效。", 0, 0, w, 24, 12,
+                         p.muted);
+                })
+                .build();
+            list.stack("desktop.controls")
+                .size(w, 32)
+                .content([&] {
+                    control_button(list, "desktop.resources.choose")
+                        .size(104, 32)
+                        .text("选择清单")
+                        .style(button_style(p))
+                        .disabled(!s.vision_loaded || s.vision_pending)
+                        .onClick([] {
+                            const auto chosen = eui::platform::openFileDialog(
+                                {"选择视觉资源清单", {".json"}, "", "JSON 清单"});
+                            if (chosen.selected() && !chosen.paths.empty()) {
+                                state().vision_path = chosen.paths.front();
+                                state().vision_notice = "有未保存的修改。";
+                            } else if (chosen.status == eui::platform::FileDialogStatus::Failed)
+                                state().vision_notice = "无法打开选择器；可直接填写清单绝对路径。";
+                        })
+                        .build();
+                    control_button(list, "desktop.resources.save")
+                        .position(116, 0)
+                        .size(88, 32)
+                        .text(s.vision_pending ? "处理中…" : "保存")
+                        .style(button_style(p, true))
+                        .disabled(!s.vision_loaded || s.vision_pending)
+                        .onClick([] {
+                            auto &v = state();
+                            if (!persistence::valid_ocr_manifest_path(v.vision_path)) {
+                                v.vision_notice = "请填写绝对路径，或留空关闭 OCR。";
+                                return;
+                            }
+                            v.vision_pending = call_runtime(ipc::SetVisionRequest{v.vision_path},
+                                                            "vision.save", ++v.vision_revision);
+                            if (!v.vision_pending)
+                                v.vision_notice = v.runtime_notice;
+                        })
+                        .build();
+                    control_button(list, "desktop.resources.refresh")
+                        .position(216, 0)
+                        .size(88, 32)
+                        .text("重新读取")
+                        .style(button_style(p))
+                        .disabled(s.vision_pending)
+                        .onClick([] {
+                            auto &v = state();
+                            v.vision_pending = call_runtime(ipc::GetVisionRequest{}, "vision",
+                                                            ++v.vision_revision);
+                            if (!v.vision_pending)
+                                v.vision_notice = v.runtime_notice;
+                        })
+                        .build();
+                })
+                .build();
+            note("desktop.notice", s.vision_notice, 44, 13, p.muted);
+            if (s.vision_loaded && s.vision.restart_required)
+                note("desktop.restart", "配置与当前运行不同。请从托盘退出应用后重新启动。", 44, 13,
+                     p.warning);
+            note("desktop.images", "截图识图：在「模型」中为支持图片的模型开启「识图」。", 44, 14,
+                 p.text);
+            note("desktop.permissions.heading", "桌面权限", 28, 16, p.text);
+            const auto &authorization = s.desktop_authorization;
+            note("desktop.permissions.status", desktop_authorization_status(), 48, 14, p.text);
+            list.row("desktop.permissions.controls")
+                .size(w, 36)
+                .gap(12)
+                .content([&] {
+                    control_button(list, "desktop.permissions.authorize")
+                        .size(132, 36)
+                        .text(authorization.remembered ? "重新授权" : "授权并记住")
+                        .style(button_style(p, true))
+                        .disabled(s.desktop_authorization_pending ||
+                                  !s.desktop_authorization_loaded || !authorization.supported ||
+                                  s.chat.current().access != "default")
+                        .onClick([] { request_desktop_authorization(true); })
+                        .build();
+                    control_button(list, "desktop.permissions.forget")
+                        .size(112, 36)
+                        .text("忘记授权")
+                        .style(button_style(p))
+                        .disabled(s.desktop_authorization_pending ||
+                                  !s.desktop_authorization_loaded || !authorization.remember)
+                        .onClick([] { request_desktop_authorization(false); })
+                        .build();
+                    control_button(list, "desktop.permissions.refresh")
+                        .size(88, 36)
+                        .text("刷新状态")
+                        .style(button_style(p))
+                        .disabled(s.desktop_authorization_pending)
+                        .onClick([] { request_desktop_authorization(); })
+                        .build();
+                })
+                .build();
+            note("desktop.permissions.notice", s.desktop_authorization_notice, 48, 13, p.warning);
+            note("desktop.permissions.help",
+                 "共享前打开「允许远程交互」，并允许记住选择。系统撤销授权或显示器变化时可能再次询"
+                 "问。完全访问模式可申请键鼠；视觉模式只观察，对话模式不读屏。",
+                 66, 13, p.muted);
+            note("desktop.scope",
+                 "支持 Linux Xorg 与已授权的 Wayland "
+                 "共享桌面。\n取消会释放本轮输入；工具过程展示动作及验证证据。",
+                 48, 13, p.muted);
+        })
+        .build();
+}
+
 void appearance_page(eui::Ui &ui, float x, float width, const Palette &p) {
     text(ui, "settings.title", "外观", x, 72, width, 32, 20, p.text, 600);
     text(ui, "settings.description", "调整 Mirage 的显示方式。", x, 108, width, 24, 14, p.muted);
@@ -1291,13 +1517,12 @@ void appearance_page(eui::Ui &ui, float x, float width, const Palette &p) {
                 state().dark = dark;
                 const auto &session = state().chat.current();
                 save_preferences({dark, state().reduced_motion, state().font_size_step,
-                                   session.access, session.reasoning,
-                                   state().code_font_size_step});
+                                  session.access, session.reasoning, state().code_font_size_step});
             })
             .build();
     }
-    text(ui, "settings.theme.notice", "即时应用 · 外观偏好已保留", x,
-         row_y + (narrow ? 108 : 84), width, 28, 13, p.muted);
+    text(ui, "settings.theme.notice", "即时应用 · 外观偏好已保留", x, row_y + (narrow ? 108 : 84),
+         width, 28, 13, p.muted);
     // --- Font size preference ---
     const float font_y = row_y + (narrow ? 148 : 124);
     ui.rect("settings.font.panel")
@@ -1307,12 +1532,13 @@ void appearance_page(eui::Ui &ui, float x, float width, const Palette &p) {
         .radius(12)
         .border(1, p.border)
         .build();
-    text(ui, "settings.font.label", "文字大小", x + 24, font_y + 14, width - 48, 22, 14, p.text, 500);
+    text(ui, "settings.font.label", "文字大小", x + 24, font_y + 14, width - 48, 22, 14, p.text,
+         500);
     const float font_ctrl_x = narrow ? x + 24 : x + width - 284;
     const float font_ctrl_y = narrow ? font_y + 48 : font_y + 22;
     if (!narrow) {
-        text(ui, "settings.font.description", "调整界面文字大小", x + 24, font_y + 36,
-             width - 320, 22, 13, p.muted);
+        text(ui, "settings.font.description", "调整界面文字大小", x + 24, font_y + 36, width - 320,
+             22, 13, p.muted);
     }
     const std::array<const char *, 3> font_labels = {"小", "默认", "大"};
     for (int i = 0; i < 3; ++i) {
@@ -1329,9 +1555,8 @@ void appearance_page(eui::Ui &ui, float x, float width, const Palette &p) {
             .onClick([i] {
                 state().font_size_step = i;
                 const auto &session = state().chat.current();
-                save_preferences({state().dark, state().reduced_motion, i,
-                                   session.access, session.reasoning,
-                                   state().code_font_size_step});
+                save_preferences({state().dark, state().reduced_motion, i, session.access,
+                                  session.reasoning, state().code_font_size_step});
             })
             .build();
     }
@@ -1364,9 +1589,8 @@ void appearance_page(eui::Ui &ui, float x, float width, const Palette &p) {
                 .onChange([](bool checked) {
                     state().reduced_motion = checked;
                     const auto &session = state().chat.current();
-                    save_preferences({state().dark, checked, state().font_size_step,
-                                       session.access, session.reasoning,
-                                       state().code_font_size_step});
+                    save_preferences({state().dark, checked, state().font_size_step, session.access,
+                                      session.reasoning, state().code_font_size_step});
                 })
                 .build();
         })
@@ -1385,8 +1609,8 @@ void appearance_page(eui::Ui &ui, float x, float width, const Palette &p) {
     const float cf_ctrl_x = narrow ? x + 24 : x + width - 284;
     const float cf_ctrl_y = narrow ? code_font_y + 48 : code_font_y + 22;
     if (!narrow) {
-        text(ui, "settings.codefont.description", "代码块、内联代码的字号", x + 24, code_font_y + 36,
-             width - 320, 22, 13, p.muted);
+        text(ui, "settings.codefont.description", "代码块、内联代码的字号", x + 24,
+             code_font_y + 36, width - 320, 22, 13, p.muted);
     }
     const std::array<const char *, 3> cf_labels = {"小", "默认", "大"};
     for (int i = 0; i < 3; ++i) {
@@ -1403,9 +1627,8 @@ void appearance_page(eui::Ui &ui, float x, float width, const Palette &p) {
             .onClick([i] {
                 state().code_font_size_step = i;
                 const auto &session = state().chat.current();
-                save_preferences({state().dark, state().reduced_motion,
-                                   state().font_size_step, session.access,
-                                   session.reasoning, i});
+                save_preferences({state().dark, state().reduced_motion, state().font_size_step,
+                                  session.access, session.reasoning, i});
             })
             .build();
     }
@@ -2513,11 +2736,18 @@ void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &mes
         } else {
             const bool expanded = part_expanded(message, part);
             const auto evidence = conversation::desktop_evidence(part);
-            const auto label = (part.kind == "thinking" ? std::string{"思考过程"}
-                                : part.name == "wait"   ? "等待 · wait"
-                                                        : part.name) +
-                               (evidence ? " · 窗口 " + evidence->window_id : "") +
-                               (part.truncated ? "（已截断）" : "");
+            const auto label =
+                (part.kind == "thinking" ? std::string{"思考过程"}
+                 : part.name == "wait"   ? "等待 · wait"
+                                         : part.name) +
+                (evidence
+                     ? (evidence->application_id.empty()
+                            ? (evidence->shared_desktop ? " · 授权共享桌面"
+                               : evidence->window_id.empty() ? " · 显示器 " + evidence->display_id
+                                                             : " · 窗口 " + evidence->window_id)
+                            : " · 应用进程 " + evidence->application_id)
+                     : "") +
+                (part.truncated ? "（已截断）" : "");
             auto style = button_style(p);
             style.text = p.muted;
             style.radius = 5;
@@ -2536,7 +2766,8 @@ void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &mes
                 })
                 .build();
             const std::string status =
-                evidence ? (evidence->status == "verified"    ? "已核验"
+                evidence ? (evidence->status == "verified"
+                                ? (evidence->shared_desktop ? "局部已核验" : "已核验")
                             : evidence->status == "uncertain" ? "不确定"
                             : evidence->status == "rejected"  ? "已拒绝"
                                                               : "未验证")
@@ -2660,9 +2891,9 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         markdown.h2Size = ui_font_size(16);
         markdown.h3Size = ui_font_size(15);
         // Code font size tracks its own preference step: 0=11px, 1=13px, 2=15px.
-        markdown.codeSize = (s.code_font_size_step == 0) ? 11.0f
-                          : (s.code_font_size_step == 2) ? 15.0f
-                          : 13.0f;
+        markdown.codeSize = (s.code_font_size_step == 0)   ? 11.0f
+                            : (s.code_font_size_step == 2) ? 15.0f
+                                                           : 13.0f;
         markdown.blockGap = 8;
         markdown.radius = 8;
         components::scrollView(ui, "thread." + std::to_string(session_id))
@@ -3144,7 +3375,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
     control_button(ui, "composer.mode")
         .position(x + 40, toolbar_y)
         .size(100, 28)
-        .text(session.access == "read_only" ? "只读模式" : "默认权限")
+        .text(desktop_mode_label(session.access))
         .trailingIcon(0xe136)
         .iconSize(9)
         .fontSize(ui_font_size(13))
@@ -3239,12 +3470,14 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
     if (s.popup != PageState::Popup::None) {
         const auto popup = s.popup;
         const float popup_width = std::min(
-            popup == PageState::Popup::References || popup == PageState::Popup::Context ? 320.0f
-                                                                                        : 280.0f,
+            popup == PageState::Popup::References || popup == PageState::Popup::Context
+                ? 320.0f
+                : 280.0f,
             column);
         const float popup_height =
             popup == PageState::Popup::References ? std::min(352.0f, screen.height - 160)
             : popup == PageState::Popup::Context  ? 224
+            : popup == PageState::Popup::Mode     ? 120
             : popup == PageState::Popup::Model
                 ? std::min(352.0f, 56.0f + 36.0f * static_cast<float>(s.models.size()))
             : popup == PageState::Popup::Reasoning
@@ -3255,10 +3488,12 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         const float anchor = popup == PageState::Popup::Context     ? context_x
                              : popup == PageState::Popup::Model     ? model_x
                              : popup == PageState::Popup::Reasoning ? reasoning_x
-                             : popup == PageState::Popup::Mode      ? 48
+                             : popup == PageState::Popup::Mode      ? 40
                                                                     : 8;
         const float popup_x = x + std::clamp(anchor, 8.0f, column - popup_width - 8);
-        const float popup_y = std::max(68.0f, y - popup_height - 8);
+        const float popup_y = std::max(68.0f, popup == PageState::Popup::Mode
+                                                    ? toolbar_y - popup_height - 4
+                                                    : y - popup_height - 8);
         ui.rect("composer.popup.dismiss")
             .size(screen.width, screen.height)
             .color({0, 0, 0, 0})
@@ -3302,27 +3537,16 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                     text(ui, "composer.popup.attach.help", "UTF-8 文本 · 最多 4 个 · 合计 8 KiB",
                          16, 84, popup_width - 32, 28, 12, p.muted);
                 } else if (popup == PageState::Popup::Mode) {
+                    const bool mode_busy = session.running || session.submitting ||
+                                           s.desktop_authorization_pending;
+                    row("conversation",
+                        session.access == "chat_only" ? "对话模式 · 已选择" : "对话模式", 0xe23a,
+                        8, [] { select_desktop_mode("chat_only"); }, mode_busy);
                     row("readonly",
-                        session.access == "read_only" ? "只读模式 · 已选择" : "只读模式", 0xe220, 8,
-                        [] {
-                            state().chat.current().access = "read_only";
-                            state().popup = PageState::Popup::None;
-                            save_preferences({state().dark, state().reduced_motion,
-                                              state().font_size_step, "read_only",
-                                              state().chat.current().reasoning,
-                                              state().code_font_size_step});
-                        });
-                    row("default", session.access == "default" ? "默认权限 · 已选择" : "默认权限",
-                        0xe2e2, 44, [] {
-                            state().chat.current().access = "default";
-                            state().popup = PageState::Popup::None;
-                            save_preferences({state().dark, state().reduced_motion,
-                                              state().font_size_step, "default",
-                                              state().chat.current().reasoning,
-                                              state().code_font_size_step});
-                        });
-                    text(ui, "composer.popup.access.help", "只读不调用工具；默认仅开放等待工具。",
-                         16, 84, popup_width - 32, 36, 12, p.muted);
+                        session.access == "read_only" ? "视觉模式 · 已选择" : "视觉模式", 0xe220,
+                        44, [] { select_desktop_mode("read_only"); }, mode_busy);
+                    row("default", session.access == "default" ? "完全访问 · 已选择" : "完全访问",
+                        0xe2e2, 80, [] { select_desktop_mode("default"); }, mode_busy);
                 } else if (popup == PageState::Popup::Reasoning) {
                     if (thinking_options.size() == 1) {
                         text(ui, "composer.popup.reasoning.help", "使用模型默认思考方式", 16, 16,
@@ -3376,6 +3600,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                         })
                         .build();
                     row("settings", "管理模型", 0xe270, popup_height - 40, [] {
+                        state().desktop_page = false;
                         state().settings = state().model_page = true;
                         state().popup = PageState::Popup::None;
                     });
@@ -3722,31 +3947,44 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                                                  sidebar_width - 96, 36, 14, p.text);
                                         })
                                         .build();
-                                    for (int i = 0; i < 2; ++i) {
+                                    for (int i = 0; i < 3; ++i) {
                                         const bool model = i == 1;
+                                        const bool selected =
+                                            i == 2 ? s.desktop_page
+                                                   : !s.desktop_page && s.model_page == model;
                                         const float y = 152 + static_cast<float>(i) * 56;
                                         const auto key = "settings.nav." + std::to_string(i);
                                         ui.rect(key)
                                             .position(24, y)
                                             .size(sidebar_width - 48, 36)
                                             .radius(7)
-                                            .states(s.model_page == model ? p.selected
-                                                                          : eui::Color{0, 0, 0, 0},
+                                            .states(selected ? p.selected : eui::Color{0, 0, 0, 0},
                                                     p.hover, p.selected)
                                             .focusable()
                                             .cursor(eui::CursorShape::Hand)
-                                            .onClick([model] {
-                                                if (model)
+                                            .onClick([i, model] {
+                                                if (i == 2)
+                                                    navigate_model(
+                                                        {PageState::ModelDestination::Desktop, "",
+                                                         0});
+                                                else if (model) {
+                                                    state().desktop_page = false;
                                                     state().model_page = true;
-                                                else
+                                                } else
                                                     leave_settings(false);
                                                 state().model_chooser = false;
                                             })
                                             .build();
-                                        icon(ui, key + ".icon", model ? 0xe762 : 0xe6c8, 36, y, 16,
-                                             36, p.text);
-                                        text(ui, key + ".label", model ? "模型" : "外观", 68, y,
-                                             sidebar_width - 88, 36, 14, p.text, 500);
+                                        icon(ui, key + ".icon",
+                                             i == 2  ? 0xe1f6
+                                             : model ? 0xe762
+                                                     : 0xe6c8,
+                                             36, y, 16, 36, p.text);
+                                        text(ui, key + ".label",
+                                             i == 2  ? "桌面工具"
+                                             : model ? "模型"
+                                                     : "外观",
+                                             68, y, sidebar_width - 88, 36, 14, p.text, 500);
                                     }
                                 } else {
                                     ui.stack("session.new")
@@ -3792,9 +4030,8 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                                                      "发送消息后将显示在这里", 12, 38, width - 24,
                                                      28, 13, p.muted);
                                             }
-                                            for (const auto &session : s.chat.sessions()) {
-                                                if (session.messages.empty())
-                                                    continue;
+                                            for (const auto *entry : s.chat.history_sessions()) {
+                                                const auto &session = *entry;
                                                 const auto id = session.id;
                                                 const bool selected = id == s.chat.current().id;
                                                 const std::string key =
@@ -3978,7 +4215,9 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                         .onClick([] { leave_settings(true); })
                         .build();
                 }
-                if (s.model_page)
+                if (s.desktop_page)
+                    desktop_settings_page(ui, screen, column_x, column_width, p, tokens);
+                else if (s.model_page)
                     model_settings_page(ui, screen, column_x, column_width, p, tokens);
                 else
                     appearance_page(ui, column_x, column_width, p);

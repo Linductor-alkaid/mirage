@@ -6,6 +6,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #ifndef _WIN32
 #include <sys/stat.h>
 #include <unistd.h>
@@ -13,6 +14,82 @@
 
 int main() {
     using mirage::native_ui::ChatModel;
+    // DEC-079: history projection must not move storage, drafts or current selection.
+    ChatModel ordered;
+    const auto older = ordered.current().id;
+    ordered.bind_remote(older, "a");
+    ordered.apply_turn(older, "old", "ok", "旧会话", "旧回复", {}, {}, 1, {}, 100);
+    ordered.create_session();
+    const auto newer = ordered.current().id;
+    ordered.bind_remote(newer, "b");
+    ordered.apply_turn(newer, "new", "ok", "新会话", "新回复", {}, {}, 1, {}, 200);
+    MIRAGE_CHECK(ordered.history_sessions().front()->id == newer);
+    ordered.select_session(older);
+    ordered.set_draft("保留草稿");
+    MIRAGE_CHECK(ordered.history_sessions().front()->id == newer);
+    auto *stable = ordered.find(older);
+    ordered.apply_turn(older, "active", "pending", "继续", {}, {}, {}, 2);
+    MIRAGE_CHECK(ordered.history_sessions().front()->id == older);
+    MIRAGE_CHECK(ordered.find(older) == stable && ordered.current().id == older &&
+                 ordered.current().draft == "保留草稿");
+    const auto old_activity = stable->activity_order;
+    ordered.apply_turn(newer, "new", "ok", "新会话", "新回复", {}, {}, 1, {}, 200);
+    ordered.apply_process(newer, "new", {{"p", "thinking", "complete", "历史过程"}}, 1, false,
+                          false);
+    MIRAGE_CHECK(ordered.history_sessions().front()->id == older &&
+                 stable->activity_order == old_activity);
+    ordered.apply_turn(older, "active", "pending", "继续", {}, {}, {}, 2);
+    MIRAGE_CHECK(stable->activity_order == old_activity); // Repeated pending acknowledgement.
+    ordered.apply_preview(older, "active", "r", 1, "流式输出", false);
+    const auto preview_activity = stable->activity_order;
+    MIRAGE_CHECK(preview_activity > old_activity);
+    ordered.apply_preview(older, "active", "r", 1, "重复", false);
+    MIRAGE_CHECK(stable->activity_order == preview_activity);
+    ordered.apply_turn(newer, "other", "pending", "其他更新", {}, {}, {}, 2);
+    MIRAGE_CHECK(ordered.history_sessions().front()->id == newer && ordered.current().id == older);
+    ordered.apply_process(older, "active", {{"tool", "tool", "running", {}, "screen"}}, 2, true);
+    MIRAGE_CHECK(ordered.history_sessions().front()->id == older);
+    ordered.apply_turn(older, "active", "ok", "继续", "完成", {}, {}, 2);
+    const auto settled_activity = stable->activity_order;
+    ordered.apply_preview(older, "active", "r", 2, "迟到", false);
+    ordered.apply_turn(older, "old", "ok", "旧会话", "迟到旧回复", {}, {}, 1);
+    MIRAGE_CHECK(stable->activity_order == settled_activity);
+    ordered.clear_session(older);
+    MIRAGE_CHECK(ordered.history_sessions().size() == 1 &&
+                 ordered.history_sessions().front()->id == newer);
+    // Recovery ordering is independent of arrival order, including missing/tied times.
+    auto recover = [](bool reverse) {
+        ChatModel result;
+        const auto a = result.current().id;
+        result.bind_remote(a, "a");
+        result.create_session();
+        const auto b = result.current().id;
+        result.bind_remote(b, "b");
+        auto fill = [&](auto id, auto time) {
+            result.apply_turn(id, "turn", "ok", "历史", "回复", {}, {}, 1, {}, time);
+        };
+        if (reverse) {
+            fill(b, 200);
+            fill(a, 100);
+        } else {
+            fill(a, 100);
+            fill(b, 200);
+        }
+        return result;
+    };
+    auto restored = recover(false), reverse_restored = recover(true);
+    MIRAGE_CHECK(restored.history_sessions().front()->remote_id == "b" &&
+                 reverse_restored.history_sessions().front()->remote_id == "b");
+    for (auto *item : restored.history_sessions())
+        restored.find(item->id)->updated_at_ms = 0;
+    MIRAGE_CHECK(restored.history_sessions().front()->remote_id == "b");
+    restored.find(restored.current().id)->updated_at_ms = 0;
+    // A future history timestamp/clock rollback cannot prevent the next live update rising.
+    restored.apply_turn(restored.current().id, "future", "ok", "未来历史", "回复", {}, {}, 2, {},
+                        std::numeric_limits<std::int64_t>::max() - 1);
+    const auto background = restored.sessions().front().id;
+    restored.apply_turn(background, "live", "pending", "现在更新", {}, {}, {}, 3);
+    MIRAGE_CHECK(restored.history_sessions().front()->id == background);
     using mirage::native_ui::conversation_preview;
     MIRAGE_CHECK(conversation_preview("短消息") == "短消息");
     MIRAGE_CHECK(conversation_preview("第一行\n第二行") == "第一行…");
@@ -387,6 +464,43 @@ int main() {
         MIRAGE_CHECK(mirage::conversation::decode_parts(mirage::conversation::encode_parts(parts),
                                                         decoded, error));
         MIRAGE_CHECK(decoded == parts);
+        Part action{
+            "action",
+            "tool",
+            "complete",
+            "",
+            "desktop.input.key",
+            "",
+            R"({"verification":{"status":"verified","verified":true,"window_id":"w1","evidence_id":"observation-1"}})"};
+        auto evidence = mirage::conversation::desktop_evidence(action);
+        MIRAGE_CHECK(evidence && evidence->status == "verified" && evidence->window_id == "w1");
+        action.output =
+            R"({"verification":{"status":"verified","verified":false,"window_id":"w1","evidence_id":"observation-1"}})";
+        MIRAGE_CHECK(!mirage::conversation::desktop_evidence(action));
+        action.output =
+            R"({"verification":{"status":"unverified","verified":false,"window_id":"w1","evidence_id":""}})";
+        MIRAGE_CHECK(mirage::conversation::desktop_evidence(action)->status == "unverified");
+        action.status = "pending";
+        MIRAGE_CHECK(!mirage::conversation::desktop_evidence(action));
+        action.status = "failed";
+        action.output =
+            R"({"verification":{"status":"uncertain","verified":false,"window_id":"w1","evidence_id":"observation-1"}})";
+        MIRAGE_CHECK(mirage::conversation::desktop_evidence(action)->status == "uncertain");
+        action.status = "complete";
+        action.output =
+            R"({"verification":{"action":"desktop.vision.click_region","status":"verified","verified":true,"window_id":"","display_id":"d1","verify_kind":"foreground_changed","evidence_id":"observation-2"}})";
+        evidence = mirage::conversation::desktop_evidence(action);
+        MIRAGE_CHECK(evidence && evidence->window_id.empty() && evidence->display_id == "d1");
+        action.output =
+            R"({"verification":{"action":"desktop.input.key","status":"verified","verified":true,"window_id":"","display_id":"d1","evidence_id":"observation-2"}})";
+        MIRAGE_CHECK(!mirage::conversation::desktop_evidence(action));
+        action.name = "desktop.session.click";
+        action.output =
+            R"({"verification":{"action":"desktop.session.click","status":"verified","verified":true,"verify_kind":"shared_frame_observed","evidence_id":"observation-3"}})";
+        evidence = mirage::conversation::desktop_evidence(action);
+        MIRAGE_CHECK(evidence && evidence->shared_desktop);
+        action.name = "desktop.input.key";
+        MIRAGE_CHECK(!mirage::conversation::desktop_evidence(action));
         MIRAGE_CHECK(!mirage::conversation::decode_parts("{}", decoded, error));
         auto invalid = parts;
         invalid.push_back(parts.front());
