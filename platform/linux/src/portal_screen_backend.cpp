@@ -590,7 +590,7 @@ struct NativeObservation {
 
 desktop::CaptureOutcome capture_portal(const desktop::CaptureLimits &limits,
                                        const desktop::CancelToken &cancel,
-                                       NativeObservation *retained) {
+                                       [[maybe_unused]] NativeObservation *retained) {
     if (cancel.cancelled())
         return failure("cancelled", "Portal capture cancelled before request");
     if (!limits.max_bytes)
