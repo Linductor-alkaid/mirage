@@ -207,8 +207,7 @@ CredentialResult read_credential(const std::string &ref) {
     if (!c.open())
         return unavailable();
     const auto item = find_item(c, ref);
-    if (item.state == ItemState::Absent)
-    {
+    if (item.state == ItemState::Absent) {
         auto missing = lookup_failure(item.state);
         missing.absent = true;
         return missing;

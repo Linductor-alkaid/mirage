@@ -797,14 +797,13 @@ AtomRegistration scoped_mutation(const std::string &name, const DesktopToolConte
     AtomRegistration registration;
     registration.spec.wire_name = name;
     registration.spec.version = {2, 2, 0};
-    const std::string use = name == "desktop.input.click"
-                                ? "Click a semantic @e reference from the latest snapshot. "
-                            : name == "desktop.input.key"
-                                ? "Send a key chord to the observed focused window. "
-                            : name == "desktop.input.type_text"
-                                ? "Type text into the observed focused field. "
-                                : "Activate an observed window. ";
-    registration.spec.description = use +
+    const std::string use =
+        name == "desktop.input.click" ? "Click a semantic @e reference from the latest snapshot. "
+        : name == "desktop.input.key" ? "Send a key chord to the observed focused window. "
+        : name == "desktop.input.type_text" ? "Type text into the observed focused field. "
+                                            : "Activate an observed window. ";
+    registration.spec.description =
+        use +
         "Complete desktop action bound to the latest observation. "
         "Declare verify_kind before dispatch: foreground_changed (UI progress only), "
         "foreground_title_equals (expected_title), display_text_exists (display_id/expected_text), "

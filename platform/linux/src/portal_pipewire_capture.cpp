@@ -1,9 +1,9 @@
 #include "portal_pipewire_capture.hpp"
 #include <algorithm>
 #include <cstring>
+#include <optional>
 #include <pipewire/pipewire.h>
 #include <poll.h>
-#include <optional>
 #include <spa/param/video/format-utils.h>
 #include <unistd.h>
 
