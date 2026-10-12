@@ -1,6 +1,6 @@
-#include <mirage/runtime/persistence/app_preferences.hpp>
-#include <mira/json.hpp>
 #include <algorithm>
+#include <mira/json.hpp>
+#include <mirage/runtime/persistence/app_preferences.hpp>
 namespace mirage::runtime::persistence {
 AppPreferences decode_app_preferences(std::string_view text) {
     AppPreferences out;
@@ -28,8 +28,10 @@ AppPreferences decode_app_preferences(std::string_view text) {
     step("code_font_size_step", out.code_font_size_step);
     if (const auto *v = root.find("default_access")) {
         const auto *access = v->as_string();
-        out.default_access = access && (*access == "default" || *access == "read_only" ||
-                                        *access == "chat_only") ? *access : "chat_only";
+        out.default_access =
+            access && (*access == "default" || *access == "read_only" || *access == "chat_only")
+                ? *access
+                : "chat_only";
     }
     if (const auto *v = root.find("default_reasoning");
         v && v->as_string() && v->as_string()->size() <= 64)
@@ -39,9 +41,11 @@ AppPreferences decode_app_preferences(std::string_view text) {
 std::string encode_app_preferences(const AppPreferences &prefs) {
     const auto access = prefs.default_access == "default" || prefs.default_access == "read_only" ||
                                 prefs.default_access == "chat_only"
-                            ? prefs.default_access : "chat_only";
+                            ? prefs.default_access
+                            : "chat_only";
     return mira::to_json_string(mira::JsonValue{mira::JsonValue::Object{
-        {"dark", prefs.dark}, {"reduced_motion", prefs.reduced_motion},
+        {"dark", prefs.dark},
+        {"reduced_motion", prefs.reduced_motion},
         {"font_size_step", std::int64_t(std::clamp(prefs.font_size_step, 0, 2))},
         {"default_access", access},
         {"default_reasoning", prefs.default_reasoning.size() <= 64 ? prefs.default_reasoning : ""},

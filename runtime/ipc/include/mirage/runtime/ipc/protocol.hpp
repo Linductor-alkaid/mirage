@@ -193,8 +193,9 @@ struct SessionChatRequest {
     std::string session_id;
     std::string text;
     bool agent = false; ///< DEC-034: conversational harness; absent preserves legacy dialog.
-    std::string access = "default";   ///< DEC-080: chat_only=dialog, read_only=observation, default=full
-    std::string reasoning = "";       ///< empty/default or minimal/low/medium/high
+    std::string access =
+        "default";              ///< DEC-080: chat_only=dialog, read_only=observation, default=full
+    std::string reasoning = ""; ///< empty/default or minimal/low/medium/high
     std::string replace_turn_id = {}; ///< DEC-039: replace exactly the latest settled turn
 };
 struct CancelChatRequest {

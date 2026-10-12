@@ -9,8 +9,8 @@
 
 #include "../support/test.hpp"
 
-#include <mirage/runtime/persistence/paths.hpp>
 #include <mirage/runtime/persistence/app_preferences.hpp>
+#include <mirage/runtime/persistence/paths.hpp>
 #include <mirage/runtime/persistence/recovery.hpp>
 #include <mirage/runtime/persistence/session_state.hpp>
 #include <mirage/runtime/persistence/settings.hpp>
@@ -835,16 +835,18 @@ int main() {
             prefs.default_access = mode;
             prefs.dark = true;
             prefs.default_reasoning = "quoted\"\\line\n";
-            const auto restored = persistence::decode_app_preferences(
-                persistence::encode_app_preferences(prefs));
+            const auto restored =
+                persistence::decode_app_preferences(persistence::encode_app_preferences(prefs));
             MIRAGE_CHECK(restored.default_access == mode && restored.dark &&
                          restored.default_reasoning == prefs.default_reasoning);
         }
         MIRAGE_CHECK(persistence::decode_app_preferences("broken").default_access == "chat_only");
-        MIRAGE_CHECK(persistence::decode_app_preferences(R"({"default_access":true})")
-                         .default_access == "chat_only");
-        MIRAGE_CHECK(persistence::decode_app_preferences(R"({"default_access":"unknown"})")
-                         .default_access == "chat_only");
+        MIRAGE_CHECK(
+            persistence::decode_app_preferences(R"({"default_access":true})").default_access ==
+            "chat_only");
+        MIRAGE_CHECK(
+            persistence::decode_app_preferences(R"({"default_access":"unknown"})").default_access ==
+            "chat_only");
         MIRAGE_CHECK(persistence::decode_app_preferences(std::string(4097, 'x')).default_access ==
                      "chat_only");
         const auto legacy = persistence::decode_app_preferences(

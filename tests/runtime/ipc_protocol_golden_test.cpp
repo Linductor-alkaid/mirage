@@ -725,7 +725,8 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                 check_string_equal(name, "chat text", chat.text, expected_value.text);
                 MIRAGE_CHECK(chat.agent == expected_value.agent);
                 check_string_equal(name, "chat access", chat.access, expected_value.access);
-                check_string_equal(name, "chat reasoning", chat.reasoning, expected_value.reasoning);
+                check_string_equal(name, "chat reasoning", chat.reasoning,
+                                   expected_value.reasoning);
                 check_string_equal(name, "replace_turn_id", chat.replace_turn_id,
                                    expected_value.replace_turn_id);
             } else if constexpr (std::is_same_v<T, ipc::ChatHistoryRequest>) {

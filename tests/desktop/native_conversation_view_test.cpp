@@ -1486,13 +1486,15 @@ const auto model = "Mirage";
         for (const auto *id : {"conversation", "readonly", "default"}) {
             const auto *button = element(std::string("composer.popup.") + id + ".bg");
             MIRAGE_CHECK(button && !button->disabled && button->frame.y >= mode_bounds.y &&
-                         button->frame.y + button->frame.height <= mode_bounds.y + mode_bounds.height);
+                         button->frame.y + button->frame.height <=
+                             mode_bounds.y + mode_bounds.height);
         }
         MIRAGE_CHECK(!view->find("composer.popup.authorization") &&
                      !view->find("composer.popup.authorization.heading") &&
                      !view->find("composer.popup.authorization.authorize.bg") &&
                      !view->find("composer.popup.access.help"));
-        capture(viewport == 1180 ? "composer-three-modes-light" : "composer-three-modes-small-dark");
+        capture(viewport == 1180 ? "composer-three-modes-light"
+                                 : "composer-three-modes-small-dark");
         page.popup = PageState::Popup::None;
     }
     for (const auto *access : {"read_only", "chat_only"}) {
