@@ -1,0 +1,57 @@
+{
+  "work_item": "M6-38",
+  "date": "2026-10-12",
+  "status": "Completed (Linux local)",
+  "selector_options": [
+    "对话模式",
+    "视觉模式",
+    "完全访问"
+  ],
+  "selector_size": [
+    280,
+    120
+  ],
+  "authorization_controls_in_selector": false,
+  "selection_closes_selector": true,
+  "automatic": {
+    "native_release_targeted": {
+      "passed": 6,
+      "total": 6,
+      "log": "/tmp/mirage-m6-38-compact-ctest-verified.log"
+    },
+    "native_renderer": {
+      "checks": 24005,
+      "failures": 0,
+      "log": "/tmp/mirage-m6-38-compact-ui.log",
+      "private_xdg": true,
+      "private_xvfb": true,
+      "runtime_bridge": false
+    },
+    "detector_findings": []
+  },
+  "package": {
+    "path": "/home/linductor/mirage/out/packages/mirage_0.1.0_amd64.deb",
+    "sha256": "7161ae1f95779498a2956c0cf103f5c392e157b7191b7339e927676ee3aa2713",
+    "binaries": {
+      "mirage": {
+        "sha256": "7d890a90020b400f4163b7cd48d1b0ebf0f6219fd79733e59aace885e0c254dd",
+        "matches_release": true
+      },
+      "mirage-service": {
+        "sha256": "cf428e3806bad085f977da4c4769aaa6d71a2365c09d0afad87149d1fa7492cb",
+        "matches_release": true
+      },
+      "mirage-tray": {
+        "sha256": "9e729e71d099fbf2c9de3c0522402f645cfbd51b12ad93e7d119f6309bde7f77",
+        "matches_release": true
+      },
+      "mirage-native": {
+        "sha256": "49c0e4b2dadb493cb63878832f3c99a8c2ecff1de6a1a908e450bdf7b009b7d7",
+        "matches_release": true
+      }
+    }
+  },
+  "host_permission_test": "deferred by maintainer; not requested",
+  "committed": false,
+  "pushed": false
+}

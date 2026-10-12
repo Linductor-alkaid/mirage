@@ -1,0 +1,321 @@
+{
+  "v": 1,
+  "id": 3,
+  "ok": true,
+  "active_application": "",
+  "active_window": "Mirage · Agent",
+  "window_geometry": {
+    "x": 10,
+    "y": 10,
+    "width": 1180,
+    "height": 820
+  },
+  "window_focused": true,
+  "focused_element": "",
+  "pointer_x": 110,
+  "pointer_y": 292,
+  "environment_state": "linux:filesystem,process,application,window,accessibility,screen,input,clipboard,notification",
+  "visual_snapshot_ref": "@vs1",
+  "visual_regions": [
+    {
+      "ref": "@v1",
+      "source": "ocr",
+      "geometry": {
+        "x": 293,
+        "y": 26,
+        "width": 39,
+        "height": 28
+      },
+      "text": "设置",
+      "template_id": ""
+    },
+    {
+      "ref": "@v2",
+      "source": "ocr",
+      "geometry": {
+        "x": 45,
+        "y": 26,
+        "width": 32,
+        "height": 31
+      },
+      "text": "は",
+      "template_id": ""
+    },
+    {
+      "ref": "@v3",
+      "source": "ocr",
+      "geometry": {
+        "x": 67,
+        "y": 27,
+        "width": 75,
+        "height": 31
+      },
+      "text": "Mirage",
+      "template_id": ""
+    },
+    {
+      "ref": "@v4",
+      "source": "ocr",
+      "geometry": {
+        "x": 224,
+        "y": 29,
+        "width": 26,
+        "height": 23
+      },
+      "text": "区",
+      "template_id": ""
+    },
+    {
+      "ref": "@v5",
+      "source": "ocr",
+      "geometry": {
+        "x": 1109,
+        "y": 30,
+        "width": 23,
+        "height": 16
+      },
+      "text": "51",
+      "template_id": ""
+    },
+    {
+      "ref": "@v6",
+      "source": "ocr",
+      "geometry": {
+        "x": 1154,
+        "y": 32,
+        "width": 19,
+        "height": 17
+      },
+      "text": "X",
+      "template_id": ""
+    },
+    {
+      "ref": "@v7",
+      "source": "ocr",
+      "geometry": {
+        "x": 669,
+        "y": 62,
+        "width": 379,
+        "height": 88
+      },
+      "text": "任务已保存",
+      "template_id": ""
+    },
+    {
+      "ref": "@v8",
+      "source": "ocr",
+      "geometry": {
+        "x": 326,
+        "y": 84,
+        "width": 88,
+        "height": 28
+      },
+      "text": "桌面工具",
+      "template_id": ""
+    },
+    {
+      "ref": "@v9",
+      "source": "ocr",
+      "geometry": {
+        "x": 44,
+        "y": 91,
+        "width": 94,
+        "height": 25
+      },
+      "text": "←返回对话",
+      "template_id": ""
+    },
+    {
+      "ref": "@v10",
+      "source": "ocr",
+      "geometry": {
+        "x": 326,
+        "y": 118,
+        "width": 267,
+        "height": 23
+      },
+      "text": "让Agent 观察桌面、操作目标并核验结果。",
+      "template_id": ""
+    },
+    {
+      "ref": "@v11",
+      "source": "ocr",
+      "geometry": {
+        "x": 325,
+        "y": 167,
+        "width": 172,
+        "height": 26
+      },
+      "text": "OCR与编号图管线已运行。",
+      "template_id": ""
+    },
+    {
+      "ref": "@v12",
+      "source": "ocr",
+      "geometry": {
+        "x": 44,
+        "y": 167,
+        "width": 68,
+        "height": 28
+      },
+      "text": " 外观",
+      "template_id": ""
+    },
+    {
+      "ref": "@v13",
+      "source": "ocr",
+      "geometry": {
+        "x": 326,
+        "y": 219,
+        "width": 119,
+        "height": 22
+      },
+      "text": "本地视觉资源清单",
+      "template_id": ""
+    },
+    {
+      "ref": "@v14",
+      "source": "ocr",
+      "geometry": {
+        "x": 43,
+        "y": 221,
+        "width": 70,
+        "height": 31
+      },
+      "text": "窗 模型",
+      "template_id": ""
+    },
+    {
+      "ref": "@v15",
+      "source": "ocr",
+      "geometry": {
+        "x": 44,
+        "y": 279,
+        "width": 94,
+        "height": 25
+      },
+      "text": " 桌面工具",
+      "template_id": ""
+    },
+    {
+      "ref": "@v16",
+      "source": "ocr",
+      "geometry": {
+        "x": 327,
+        "y": 290,
+        "width": 310,
+        "height": 19
+      },
+      "text": "资源保留在本机，不自动下载。保存后重启整个应用生效。",
+      "template_id": ""
+    },
+    {
+      "ref": "@v17",
+      "source": "ocr",
+      "geometry": {
+        "x": 474,
+        "y": 332,
+        "width": 32,
+        "height": 24
+      },
+      "text": "保存",
+      "template_id": ""
+    },
+    {
+      "ref": "@v18",
+      "source": "ocr",
+      "geometry": {
+        "x": 358,
+        "y": 333,
+        "width": 49,
+        "height": 21
+      },
+      "text": "选择清单",
+      "template_id": ""
+    },
+    {
+      "ref": "@v19",
+      "source": "ocr",
+      "geometry": {
+        "x": 566,
+        "y": 333,
+        "width": 49,
+        "height": 21
+      },
+      "text": "重新读取",
+      "template_id": ""
+    },
+    {
+      "ref": "@v20",
+      "source": "ocr",
+      "geometry": {
+        "x": 328,
+        "y": 446,
+        "width": 365,
+        "height": 23
+      },
+      "text": "截图识图：在「模型」中为支持图片的模型开启「识图」。",
+      "template_id": ""
+    },
+    {
+      "ref": "@v21",
+      "source": "ocr",
+      "geometry": {
+        "x": 329,
+        "y": 510,
+        "width": 490,
+        "height": 19
+      },
+      "text": "会，",
+      "template_id": ""
+    },
+    {
+      "ref": "@v22",
+      "source": "ocr",
+      "geometry": {
+        "x": 327,
+        "y": 561,
+        "width": 168,
+        "height": 26
+      },
+      "text": "当前预览范围：Linux Xorg。",
+      "template_id": ""
+    },
+    {
+      "ref": "@v23",
+      "source": "ocr",
+      "geometry": {
+        "x": 326,
+        "y": 582,
+        "width": 312,
+        "height": 23
+      },
+      "text": "取消会释放本轮输入；工具过程展示动作及验证证据。",
+      "template_id": ""
+    },
+    {
+      "ref": "@v24",
+      "source": "ocr",
+      "geometry": {
+        "x": 46,
+        "y": 774,
+        "width": 65,
+        "height": 24
+      },
+      "text": "① Mira",
+      "template_id": ""
+    },
+    {
+      "ref": "@v25",
+      "source": "ocr",
+      "geometry": {
+        "x": 227,
+        "y": 777,
+        "width": 21,
+        "height": 20
+      },
+      "text": "#",
+      "template_id": ""
+    }
+  ]
+}

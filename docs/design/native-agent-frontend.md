@@ -18,7 +18,7 @@ OWN-WORLD：参考 ZCode 的 Zai Light/Dark 中性灰、窄侧栏、细分隔线
 深色实心发送按钮；随应用交付的 Noto Sans SC 中文无衬线字体，图标使用 Font Awesome。
 
 STORY：用户在设置配置模型服务，返回会话提交文字任务，读取Mira回复或明确失败；
-必要时停止轮次。通用harness先于RPA，当前不提供屏幕操作或workflow功能。
+必要时停止轮次。Linux Xorg 已接桌面观察与输入工具；workflow 执行产品面另行推进。
 
 FIRST VIEWPORT：1180×800 无边框窗口，260px可调侧栏与60px原生标题条保留；
 空会话为居中问候与672px输入框。有消息后，右对齐轻灰用户气泡、无边框Markdown回复，
@@ -79,8 +79,15 @@ Responses/Chat Completions二选一。保存通过model.set应用并合并写入
 活动轮次时忙拒绝，配置校验或存盘失败保持当前模型。API Key 经 Mira SecretRef 从系统凭据读取；旧环境变量配置继续兼容。
 
 会话发送session.chat(agent=true)，使用MiraRuntime任务身份及公开ConversationLoop，
-规范ToolResultPart由Mira回填；只注册wait，权限禁止时不注册。最多16次推理、32次工具，
-实际推理轮数按Profile输出预算收紧（默认7），无自动截图或桌面工具。
+规范 ToolResultPart 由 Mira 回填。M7-01/02/03 按 DEC-053/054 增加按需桌面 Provider 工具，
+目录与权限边界见下文；最多16次推理、32次工具，实际推理轮数按 Profile 输出预算
+收紧；DEC-082 后已知 Messages 思考型号均支持 16 次，未知型号沿原预算。M7-04/05 按 DEC-055 为显式支持识图的模型加入显示器枚举与截图，
+授权 PNG 经每请求 supplier 进入下一轮；工具卡展示来源和 artifact 元数据。
+M7-08 按 DEC-056 为修改动作固定后条件并强制新观察；default 另有只读
+desktop.action.verify，重验最近动作而不重发输入。宿主读取规范工具失败和新观察，
+未验证、不确定或取消时抑制模型成功回答；局部核验通过的回复明确其范围。
+模型设置增加逐模型“识图”开关，默认关闭，说明为“模型支持识图；仅发送经授权的截图”。
+切换/新建/保存沿既有配置事务，不绕过截图权限；不新增用户图片上传面。
 M6-18已接入PR#76的通用loop及SNI修复，SiliconFlow与MiniMax均实测规范wait工具往返。
 流式预览由Mira提供，保持临时且非权威，终态回复才进入历史。
 
@@ -108,7 +115,13 @@ M6-06按[DEC-036](../decisions/DEC-036-context-usage-presentation.md)补齐上�
 至多12个命名配置，目录位于settings.models，活动配置位于settings.model。
 切换只在service ACK后更新composer，活动任务/存盘失败拒绝切换；API Key仍经环境SecretRef。
 
-每轮IPC携带access和reasoning；read_only不注册工具，default仅当前wait。
+每轮 IPC 携带 access 和 reasoning。按
+[DEC-054](../decisions/DEC-054-scoped-complete-desktop-actions.md)，read_only 保留窗口/
+应用/语义观察；default 另有 wait、窗口激活、语义引用点击与完整 key/text。
+缺 Provider 或完整释放/scope 能力不注册；动作经共享 PermissionController 逐次判定，
+共享租约避免会话与工作流交错输入。每次修改必须携带最新观察 scope/epoch 和目标窗口，
+派发成功仍显示 verified=false。工具过程沿用已有 Part 事件，输入文字仅投影目标、
+字节数和 scope/epoch；释放失败回执为 uncertain 并保持 fence，不自动重试。
 模型声明supports_reasoning后才提供Mira公开minimal/low/medium/high，默认省略。
 文本附件由前端Executor有限任务读取；只接受普通文件，8KiB/4个上限，UTF-8校验，
 拒绝FIFO/符号链接（Linux），借generation与单调附件ID保护清空/发送ACK竞态。
@@ -272,8 +285,8 @@ BUG-20261006-007；此兼容只用于产品桌面入口，未放宽直接 CLI �
 思考控件使用 Runtime 在 model.get/model.set 的 settings_json 中投影的
 model.reasoning_options；UI 不直接引用 Mira/Integration 类型，也不决定模型能力。
 服务按实际模型验证每轮 reasoning，回传字段只读，保存时忽略客户端能力列表。
-设置页移除重复启用按钮。MiniMax-M3 的默认/关闭/开启分别省略参数、发送 disabled、
-发送 adaptive；M3.1 Flash Preview 的深度映射 output_config.effort，不能关闭。
+设置页移除重复启用按钮。按 DEC-082（2026-10-12），MiniMax-M3 的默认/关闭/开启
+分别发送 adaptive、disabled、adaptive，默认与开启均使用独立思考通道；M3.1 Flash Preview 的深度映射 output_config.effort，不能关闭。
 已核对的 Claude 自适应模型提供相应档位，未知模型保留默认。选项切换后每轮重新验证，
 不支持的旧选择归零，草稿不受影响。可读思考通过下述M6-31过程区域展示。
 
@@ -309,7 +322,10 @@ z=2；设置/选择弹层仍在其上。点击恢复末尾与流式跟随的既�
 
 参考本机 ZCode 29628c9 的 ReasoningRowView 与 ToolLayout：思考/工具以28px摘要行
 默认折叠，点击箭头或标题展开。按响应顺序排布思考、中间正文和工具，最终正文继续
-使用既有 Markdown/选择/复制。工具显示待执行/执行中/已完成/失败/已取消；展开后
+使用既有 Markdown/选择/复制。普通工具显示待执行/执行中/已完成/失败/已取消；
+桌面修改卡另区分已派发、已核验、未验证、不确定和已拒绝，摘要含目标窗口。
+只有完整有效的宿主证据与成功 handler 才可显示已核验；旧回执或无法解析的截断证据保持已派发。
+展开可查 action_id、evidence_id、观察摘要与时间；UI 投影不参与宿主成功判定。展开后
 明确分出参数、结果，可复制整个过程段。展开状态以消息/段稳定ID保留，消息移除时释放。
 详情为13px文字、20px行高和最多240px独立滚动区域，保持滚动位置，统一8px内边距。
 正文跟随、滚动阅读和停止不改变；工具状态来自实际 handler，不从文本推测。
@@ -356,3 +372,62 @@ EUI App runner 隐藏创建窗口，首次有效绘制后再显示并立即提�
 
 本轮实测范围与失败记录见 [窗口呈现验收](../compatibility/native-frame-presentation-20261008.md)，
 不将 Xvfb 结果推广为所有合成器/驱动的无黑帧保证。
+
+## M7-06 OCR 工具过程
+
+Runtime 显式配置经过校验的 OCR manifest 后，Agent 模式可调用 desktop.vision.ocr。
+普通工具过程仅显示来源/框数等摘要，全文只回填模型规范结果；权限或读取失败保留
+失败终态，模型回复不能覆盖。没有新增原生设置项或视觉点击控件；默认仍不加载模型。
+装配与真实质量范围见[DEC-057](../decisions/DEC-057-real-ocr-composition.md)及
+[验证记录](../compatibility/real-ocr-composition-20261009.md)。
+
+
+## M7-12 桌面工具设置
+
+设置导航在外观、模型后增加「桌面工具」。沿用现有中性明暗、800px 阅读列与可滚动
+最小窗口布局。清单路径支持直接输入或本地 JSON 文件选择器，最多 4096 字节；保存/
+重新读取经 RuntimeBridge 的既有请求任务送往 vision.set/get。等待时冻结输入与保存，
+失败保留草稿；切换类别保留视觉草稿，离开有模型草稿的页面沿用已有未保存确认。
+请求使用递增修订号，迟到响应不覆盖较新操作；断开时取消本地等待状态。
+
+状态分为编译未包含、未启用、管线运行；保存成功仍提示重启和启动时校验。保存值与
+运行值不同显示重启提示；关闭窗口不等于退出托盘，用户须从托盘退出整个应用。
+模型「识图」沿用原入口。会话权限说明更新为只读观察、默认可调用操作工具，仍由
+服务权限与引用/目标守卫判定，不把设置入口当成输入授权。见
+[DEC-066](../decisions/DEC-066-product-desktop-vision-settings.md)。
+
+### 会话列表更新时间（DEC-079）
+
+ChatModel 保留稳定会话数组，以有界指针投影产生按更新时间降序的历史列表。
+实时规范回复、预览和工具过程推进本地活动时间及同毫秒序号；历史回填显式传入
+recorded_at_ms，过程回填不计作实时活动。旧消息和重复回执不推进列表。
+既有轮次记录时间在接纳/终态结算写入，沿现有持久化恢复；不增加 IPC 字段或异步
+任务。切换/草稿不计活动，列表排序不修改选择 ID、消息滚动或引用。
+
+### 会话内桌面授权入口（M6-38 / DEC-078）
+
+会话输入框菜单与桌面工具页共享 PageState 修订号、等待/错误，以及 RuntimeBridge
+既有有界请求路径。会话访问菜单只呈现三个模式选项，选择后收起；授权管理保留
+设置页。原两模式提案已由 DEC-080 替代，DEC-078 的令牌与生命周期规则继续适用。
+
+### 三种访问模式与最新会话修复（2026-10-12 / DEC-080、DEC-081）
+
+访问菜单使用对话/视觉/完全访问；模式在接纳轮次时冻结，运行与授权等待期间禁止
+切换。对话由服务端走纯模型对话，视觉只注册观察；完全访问仍由服务策略和系统
+授权缩限。模式选择与授权入口联动，系统令牌保留不授予视觉/对话模式键鼠。
+旧 default/read_only 保留，chat_only 为新 wire 值。偏好 codec 在 Persistence 中使用
+Mira JSON，原子文件保存有 4096 字节上限，损坏访问模式不升权。
+
+每轮宿主提示列出 registry.exposed_tools 的闭合集合；共享键鼠已存在时明确提供
+可见目标像素路线。OCR 刷新返回新的可交互 image_scope，旧引用保持拒绝。
+静态共享只持有一个自有最新源帧副本，原 PipeWire buffer 立即归还；源帧水位
+防止缓存用于动作后验证。坐标/epoch/authority/取消/释放守卫继续执行。
+
+2026-10-12 / DEC-082：已知 Messages 思考型号整环输出信封支持 16 次模型请求，
+每次开启思考至少 8192 token、关闭为配置值，工具最多 32 次、恢复为 0。单次请求
+默认 2 分钟，整项 Agent 任务默认 10 分钟（可由宿主 ModelLayerConfig 缩短）；
+对话模式使用单次请求期限，取消和 shutdown 继续受唯一 Runtime Executor 管理。
+默认 M3 可能增加思考用量，用户可选择关闭；其他型号默认不变。正文直接作答，
+不通过关键词删除不带类型的输出，也不自动重试可能已经执行的任务。
+
+会话访问菜单左对齐实际访问按钮，向上展开，距按钮顶 4px；仍只包含三种模式。

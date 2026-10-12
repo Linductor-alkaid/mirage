@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-12",
+  "package": "/home/linductor/mirage/out/packages/mirage_0.1.0_amd64.deb",
+  "sha256": "df90dbab9577b7cea1dfdc7bf765041e79d36c5ccac0e61f27528b3e3c9470ad",
+  "bytes": 55058546,
+  "binaries": {
+    "mirage": {
+      "sha256": "792b9f0d577b286f00922c0241db7fdba59af4153dae102dce69454142b1297b",
+      "matches_release": true
+    },
+    "mirage-service": {
+      "sha256": "43c0b7d8df0e7ff800a6edd07e5c1704e7673b65b01c0ef0ed61532f0b849d4e",
+      "matches_release": true
+    },
+    "mirage-tray": {
+      "sha256": "f7de48b65ca4b98edcd9dfaeed6e1ff54c155f3c1ce017c15176dd1404a069dc",
+      "matches_release": true
+    },
+    "mirage-native": {
+      "sha256": "12ee1bb0cfd41f25bc904c70333538fe5dd0f2408efad07d3b771b5cbb5a7c6c",
+      "matches_release": true
+    }
+  },
+  "vision_artifacts_verified": 5,
+  "ncnn_commit": "e54f7b1f88434e1d844ea0551b880a1cfb079ce1",
+  "native_release_integration": {
+    "passed": 3,
+    "total": 3
+  },
+  "installed": false,
+  "user_test_pending": true,
+  "previous_package_sha256": "8ab2ef2504f883db0f634a035c2b453e691b5790450f9693196bcd3419a660c7"
+}

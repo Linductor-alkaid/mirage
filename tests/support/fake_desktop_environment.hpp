@@ -11,6 +11,7 @@
 #include <mirage/desktop/path_scope.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -49,6 +50,11 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
     mirage::desktop::ClipboardProvider *clipboard() override { return &clipboard_; }
     mirage::desktop::NotificationProvider *notification() override { return &notification_; }
 
+    bool desktop_authorization_supported = false;
+    std::atomic_bool desktop_remember{false}, desktop_remembered{false};
+    std::function<mirage::desktop::ProviderError(bool, const mirage::desktop::CancelToken &)>
+        on_desktop_authorization;
+
     // ---- test-visible state ----
 
     /// Window table; id is "w1", "w2", ... in insertion order.
@@ -59,6 +65,13 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
     std::vector<mirage::desktop::DisplayInfo> displays;
     std::vector<mirage::desktop::ApplicationInfo> applications;
     std::map<std::string, std::string> application_instances; ///< app id -> instance id
+    std::vector<std::pair<std::string, std::string>> application_uri_log;
+    bool application_uri_supported = true;
+    bool application_uri_uncertain = false;
+    std::function<void()> on_application_uri;
+    std::function<void()> on_application_list;
+    std::string semantic_scope;
+    std::uint64_t semantic_generation = 0;
     std::string clipboard_text;
     bool clipboard_has_text = false;
     std::vector<std::pair<std::string, std::string>> notifications; ///< title, body
@@ -71,6 +84,7 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
     /// check; lets tests prove that a request triggered (or did not
     /// trigger) a visual refresh.
     std::size_t capture_calls = 0;
+    std::function<void(mirage::desktop::ImageFrame &)> capture_frame_edit;
 
     // ---- accessibility action test surface ----
 
@@ -181,6 +195,8 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
         list_applications(const mirage::desktop::ApplicationListLimits &limits,
                           const mirage::desktop::CancelToken &cancel) override {
             mirage::desktop::ApplicationListOutcome outcome;
+            if (env_.on_application_list)
+                env_.on_application_list();
             if (cancel.cancelled()) {
                 outcome.error = {"cancelled", "listing cancelled"};
                 return outcome;
@@ -250,6 +266,42 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
             mark_running(application_id, true);
             outcome.ok = true;
             outcome.instance_id = instance;
+            return outcome;
+        }
+
+        bool supports_open_uri() const override { return env_.application_uri_supported; }
+        mirage::desktop::ApplicationLaunchOutcome
+        open_uri(const std::string &application_id, const std::string &uri,
+                 const mirage::desktop::ApplicationLaunchLimits &limits,
+                 const mirage::desktop::CancelToken &cancel) override {
+            mirage::desktop::ApplicationLaunchOutcome outcome;
+            if (cancel.cancelled()) {
+                outcome.error = {"cancelled", "handoff cancelled"};
+                outcome.cancelled = true;
+                return outcome;
+            }
+            if (!supports_open_uri()) {
+                outcome.error = {"unsupported_platform", "URI unavailable"};
+                return outcome;
+            }
+            if (!mirage::desktop::valid_application_uri(uri) || limits.timeout.count() <= 0) {
+                outcome.error = {"invalid_argument", "invalid URI or budget"};
+                return outcome;
+            }
+            if (!find_application(application_id)) {
+                outcome.error = {"not_found", "unknown application"};
+                return outcome;
+            }
+            env_.application_uri_log.emplace_back(application_id, uri);
+            env_.application_instances[application_id] = "i-" + application_id;
+            mark_running(application_id, true);
+            outcome.side_effect_may_have_occurred = true;
+            outcome.ok = !env_.application_uri_uncertain;
+            outcome.error = outcome.ok
+                                ? mirage::desktop::ProviderError{}
+                                : mirage::desktop::ProviderError{"io_error", "uncertain handoff"};
+            if (env_.on_application_uri)
+                env_.on_application_uri();
             return outcome;
         }
 
@@ -392,6 +444,7 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
     class FakeAccessibility final : public mirage::desktop::AccessibilityProvider {
       public:
         explicit FakeAccessibility(FakeDesktopEnvironment &env) : env_(env) {}
+        bool scoped_references_supported() const override { return true; }
 
         mirage::desktop::SnapshotOutcome
         semantic_snapshot(const std::string &window_id,
@@ -429,6 +482,8 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
             }
             outcome.ok = true;
             outcome.snapshot = it->second;
+            env_.semantic_scope = "fake:" + std::to_string(++env_.semantic_generation);
+            outcome.scope = env_.semantic_scope;
             return outcome;
         }
 
@@ -436,6 +491,10 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
         activate_element(const mirage::desktop::ElementTarget &target,
                          const mirage::desktop::CancelToken &cancel) override {
             mirage::desktop::ElementActionOutcome outcome;
+            if (!target.snapshot_scope.empty() && target.snapshot_scope != env_.semantic_scope) {
+                outcome.error = {"stale_observation", "semantic generation changed"};
+                return outcome;
+            }
             if (cancel.cancelled()) {
                 outcome.cancelled = true;
                 outcome.error = {"cancelled", "activation cancelled"};
@@ -473,6 +532,10 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
                  const mirage::desktop::InputLimits &limits,
                  const mirage::desktop::CancelToken &cancel) override {
             mirage::desktop::ElementActionOutcome outcome;
+            if (!target.snapshot_scope.empty() && target.snapshot_scope != env_.semantic_scope) {
+                outcome.error = {"stale_observation", "semantic generation changed"};
+                return outcome;
+            }
             if (cancel.cancelled()) {
                 outcome.cancelled = true;
                 outcome.error = {"cancelled", "text input cancelled"};
@@ -607,6 +670,35 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
     class FakeScreen final : public mirage::desktop::ScreenProvider {
       public:
         explicit FakeScreen(FakeDesktopEnvironment &env) : env_(env) {}
+        bool desktop_interaction_supported() const override {
+            return env_.desktop_authorization_supported;
+        }
+        void configure_desktop_authorization(bool value) override {
+            env_.desktop_remember.store(value);
+        }
+        mirage::desktop::DesktopAuthorizationView
+        desktop_authorization(const mirage::desktop::CancelToken &) override {
+            const bool remember = env_.desktop_remember.load();
+            const bool remembered = remember && env_.desktop_remembered.load();
+            return {env_.desktop_authorization_supported,
+                    remember,
+                    remembered,
+                    !env_.desktop_authorization_supported ? "unsupported"
+                    : remembered                          ? "remembered"
+                    : remember                            ? "needs_authorization"
+                                                          : "ask",
+                    {}};
+        }
+        mirage::desktop::ProviderError
+        manage_desktop_authorization(bool remember,
+                                     const mirage::desktop::CancelToken &cancel) override {
+            if (env_.on_desktop_authorization)
+                return env_.on_desktop_authorization(remember, cancel);
+            if (cancel.cancelled())
+                return {"cancelled", "fixture cancelled"};
+            env_.desktop_remembered.store(remember);
+            return {};
+        }
 
         mirage::desktop::DisplayListOutcome
         list_displays(const mirage::desktop::DisplayListLimits &limits,
@@ -702,6 +794,8 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
             outcome.frame.height = area.height;
             outcome.frame.stride = stride;
             outcome.frame.pixels.assign(bytes, env_.capture_pixel);
+            if (env_.capture_frame_edit)
+                env_.capture_frame_edit(outcome.frame);
             return outcome;
         }
     };
@@ -709,6 +803,34 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
     class FakeInput final : public mirage::desktop::InputProvider {
       public:
         explicit FakeInput(FakeDesktopEnvironment &env) : env_(env) {}
+
+        bool complete_actions_supported() const override { return true; }
+        mirage::desktop::InputOutcome
+        key_chord(const mirage::desktop::KeySym &key, const mirage::desktop::InputLimits &limits,
+                  const mirage::desktop::CancelToken &cancel) override {
+            auto result = inject_key(key, true, limits, cancel);
+            if (!result.ok)
+                return result;
+            auto release = inject_key(key, false, limits, mirage::desktop::CancelToken{});
+            release.side_effect_may_have_occurred = true;
+            release.input_released = release.ok;
+            return release;
+        }
+        mirage::desktop::InputOutcome
+        click_at(std::int32_t x, std::int32_t y, const mirage::desktop::MouseButton &button,
+                 const mirage::desktop::InputLimits &limits,
+                 const mirage::desktop::CancelToken &cancel) override {
+            auto result = pointer_move(x, y, limits, cancel);
+            if (!result.ok)
+                return result;
+            result = pointer_button(button, true, limits, cancel);
+            if (!result.ok)
+                return result;
+            auto release = pointer_button(button, false, limits, mirage::desktop::CancelToken{});
+            release.side_effect_may_have_occurred = true;
+            release.input_released = release.ok;
+            return release;
+        }
 
         mirage::desktop::InputOutcome
         inject_key(const mirage::desktop::KeySym &key, bool pressed,

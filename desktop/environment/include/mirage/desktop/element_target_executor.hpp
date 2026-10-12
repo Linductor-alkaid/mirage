@@ -54,6 +54,8 @@ struct TargetResolution {
     /// empty only for the no-hint rejection.
     std::vector<ResolutionStep> steps;
     ProviderError error; ///< meaningful only when !ok
+    bool side_effect_may_have_occurred = false;
+    bool input_released = true;
 };
 
 /// True when `id` addresses the visual registry ("@v" prefix, DEC-016

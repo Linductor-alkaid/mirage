@@ -1,8 +1,10 @@
 #include "../support/ipc_io.hpp"
 #include <atomic>
+#include <iostream>
 #include <kairo/comm/channel.hpp>
 #include <memory>
 #include <mira/model_provider.hpp>
+#include <mirage/desktop/clipboard_provider.hpp>
 #include <mirage/integration/mira_environment_binding.hpp>
 #include <mirage/integration/model_layer.hpp>
 #include <mirage/runtime/ipc/client.hpp>
@@ -17,6 +19,25 @@ namespace {
 class Environment final : public desktop::DesktopEnvironment {
   public:
     desktop::EnvironmentInfo info() const override { return {"tray-test", "private"}; }
+};
+class SlowClipboard final : public desktop::DesktopEnvironment, public desktop::ClipboardProvider {
+  public:
+    std::atomic_int writes{0};
+    desktop::EnvironmentInfo info() const override { return {"slow-workflow", "private"}; }
+    desktop::ClipboardProvider *clipboard() override { return this; }
+    desktop::ClipboardReadOutcome read_text(const desktop::ClipboardReadLimits &,
+                                            const desktop::CancelToken &) override {
+        return {true, "fixture", {}};
+    }
+    desktop::ClipboardWriteOutcome write_text(const std::string &,
+                                              const desktop::ClipboardWriteLimits &,
+                                              const desktop::CancelToken &) override {
+        // Finite provider work on the workflow's Executor task. Several
+        // maintenance ticks arrive while drive + monitor + dispatch are busy.
+        (void)::poll(nullptr, 0, 1800);
+        ++writes;
+        return {true, false, {}};
+    }
 };
 class Carrier final : public desktop::TrayCarrier {
   public:
@@ -223,6 +244,67 @@ void workflow_exit() {
     MIRAGE_CHECK(service.run().clean);
 }
 
+void slow_workflow_maintenance() {
+    mirage::testing::TempDir dir;
+    auto carrier = std::make_shared<Carrier>();
+    auto frontend = std::make_shared<Frontend>();
+    auto options = config(dir, carrier, frontend);
+    MIRAGE_CHECK(options.executor_threads == 4);
+    auto environment = std::make_shared<SlowClipboard>();
+    mirage::runtime::RuntimeService service(options);
+    MIRAGE_CHECK(
+        service.start(std::make_shared<mirage::integration::MiraEnvironmentBinding>(environment))
+            .ok);
+    ipc::IpcClient client(options.socket_path);
+    const auto current = client.call(ipc::GetPolicyRequest{}, 5s);
+    const auto *policy = std::get_if<ipc::PolicyView>(&current.payload);
+    MIRAGE_CHECK(current.ok && policy);
+    if (policy) {
+        ipc::SetPolicyRequest allowed;
+        allowed.rules = policy->rules;
+        allowed.rules["clipboard.write"] = "allow";
+        MIRAGE_CHECK(client.call(allowed, 5s).ok);
+    }
+    const std::string definition = R"({"schema_version":{"major":1,"minor":0},
+        "workflow_id":"33333333333333333333333333333333","name":"slow provider maintenance",
+        "parameters":[],"steps":[{"step_id":"44444444444444444444444444444444",
+        "kind":"tool_call","max_attempts":1,
+        "arguments":{"tool":"desktop.clipboard.write_text","text":"fixture"},
+        "verification":{"signal":"step_result:44444444444444444444444444444444","op":"ne","value":"absent"}}],
+        "default_policy":"strict","allowed_policies":["strict","dry_run"]})";
+    const auto published = client.call(ipc::WorkflowPublishRequest{definition}, 5s);
+    MIRAGE_CHECK(published.ok);
+    if (!published.ok) {
+        std::cerr << "slow fixture publish: " << published.error.message << '\n';
+        service.request_shutdown();
+        MIRAGE_CHECK(service.run().clean);
+        return;
+    }
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        ipc::WorkflowRunRequest request;
+        request.workflow_id = "33333333333333333333333333333333";
+        request.policy = "strict";
+        MIRAGE_CHECK(client.call(request, 5s).ok);
+        bool completed = false;
+        const auto deadline = std::chrono::steady_clock::now() + 8s;
+        while (!completed && std::chrono::steady_clock::now() < deadline) {
+            const auto runs = client.call(ipc::WorkflowRunsRequest{}, 5s);
+            MIRAGE_CHECK(runs.ok);
+            if (const auto *list = std::get_if<ipc::WorkflowRunList>(&runs.payload)) {
+                int finished = 0;
+                for (const auto &run : list->runs)
+                    finished += run.state == "completed";
+                completed = finished == attempt + 1;
+            }
+            (void)::poll(nullptr, 0, 25);
+        }
+        MIRAGE_CHECK(completed);
+        MIRAGE_CHECK(environment->writes.load() == attempt + 1);
+    }
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
 void failures() {
     for (int mode = 0; mode != 5; ++mode) {
         mirage::testing::TempDir dir;
@@ -279,6 +361,7 @@ int main() {
     lifecycle();
     active_exit();
     workflow_exit();
+    slow_workflow_maintenance();
     failures();
     return mirage::testing::finish("tray_runtime_test");
 }

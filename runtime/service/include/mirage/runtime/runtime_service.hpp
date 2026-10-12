@@ -126,6 +126,9 @@ struct ServiceConfig {
     /// `unavailable` error (DEC-016 decision 2 — the surface is never
     /// claimed that is not wired).
     mirage::desktop::VisualReferenceRegistry *visual_registry = nullptr;
+    /// DEC-057: explicit local PP-OCR artifact manifest. Empty disables OCR;
+    /// unavailable build/resources fail start instead of claiming perception.
+    std::filesystem::path ocr_manifest;
     /// Model layer configuration (DEC-027, M5-06): when `enabled` and valid,
     /// start() assembles the pinned model stack and the session.chat dialog
     /// face is served (hello `chat` = true). An enabled-but-invalid config
@@ -224,6 +227,10 @@ class RuntimeService {
 
     /// Requests shutdown; safe from any thread, never from a signal handler.
     void request_shutdown();
+    /// Supervisor-only desktop emergency stop, safe from a non-signal context.
+    /// Resume refuses active/dirty input and invalidates old observations.
+    void request_desktop_takeover();
+    bool resume_desktop();
 
     /// Registers a pipe (or similar) file descriptor whose readability
     /// triggers shutdown; the signal self-pipe path for mirage-service. The

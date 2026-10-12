@@ -299,6 +299,18 @@ exhausted (N)"` / `"workflow run registry capacity exhausted (N)"`）。删除�
 重启即空，在此之上不宣称持久化（DEC-023）。`workflow.runs` 是运行状态快照事实源，
 事件是通知。
 
+M7-11 / DEC-067 在此目录条件注册 `desktop.knowledge.activate`（1.0.0，副作用工具）：
+需要 scoped Accessibility、Window 和共享 ActionCoordinator。实参为 knowledge_schema=1
+及 application/window_title/role/name/expected_role/expected_name 六个精确 UTF-8 文本；
+每项 1..1024 字节、不含 C0/DEL 控制字符，未知实参拒绝。工具执行时重新观察和唯一解析，再经
+input.inject 权限、单写者及取消门禁语义激活一次；成功只在新后条件成立时返回。
+成功 ToolExecutionRecord.result 是 canonical JSON **字符串**，内含 schema=2、verified、
+action_id、verification 与 knowledge_digest。该形式兼容 Mira 的标量 step_result Contains
+谓词；不扩展 IPC op 或 IR 语法，不将运行参数当作业务证据。DryRun 仅发布计划。
+歧义、页面失效、已存在后条件或拒绝不会产生动作；不确定效果失败，Recoverable 可停在
+waiting_agent。示例不声明 Retry/循环，当前不自动选择资产或恢复 Agent；版本目录重启
+仍为空。参见[示例与操作](../examples/local-semantic-workflow.md)。
+
 ### 6.6 观察面与定义读取面载荷（M5-06，DEC-026）
 
 `workflow.get` 成功载荷：`{"workflow_id","digest","definition"}`。`definition` 为
@@ -368,7 +380,7 @@ save / publish 内容；pinned 库仅存版本记录、无定义正文读取 API
 | `reply_text` | string（可选） | encode-when-set：恰在 `ok` 时携带 |
 | `error` | string（可选） | encode-when-set：恰在 `failed` 时携带（稳定失败原因，安全用于 UI） |
 | `sequence` | integer | 正整数；该轮在会话对话序列中的序号 |
-| `recorded_at_ms` | integer | 非负整数；受理墙钟时刻 |
+| `recorded_at_ms` | integer | 非负整数；规范记录写入时刻，受理初始化、终态结算更新（DEC-079） |
 
 `session.chat` 语义：对话轮由模型层异步执行（有界长任务，Executor 可取消任
 务承载），受理即回执；每会话同时至多一个在途轮（`invalid_state`），文本预
@@ -581,8 +593,9 @@ v1加法扩展，旧session.chat缺省仍是单次纯文字推理，旧编码不
 DEC-038 直接密钥只通过本地 model.set 的 write-only api_key 参数进入，不进入响应或普通设置。
 保存保留既有配置其他块，写入失败不替换当前模型。agent轮次以MiraRuntime任务身份执行，
 全服务同时最多一个agent轮次；有活动agent时旧dialog也忙拒绝。当前wait工具的受限
-文本反馈契约及依赖缺口见DEC-034 / MIRA-20261004-001。无屏幕/RPA工具，不能据此
-宣称task.submit设备闭环已迁入原生UI。旧golden仍兼容，新面由native_agent_integration_test覆盖。
+文本反馈契约及依赖缺口见DEC-034 / MIRA-20261004-001。M7 追加按需结构化桌面工具，
+DEC-055 另接授权截图与规范图片输入；不能据此
+宣称 task.submit 设备闭环或业务验证已迁入原生 UI。旧golden仍兼容，新面由native_agent_integration_test覆盖。
 
 
 ### DEC-036：可选上下文用量投影（M6-06）
@@ -610,10 +623,20 @@ ProfileLimits。未配置保留原运行默认，前端仍报告分母未知，�
 目录保存和活动配置同一model.set完成，保留其他配置块。DEC-042更新：省略models保留已有目录，显式空数组清空目录，
 支持旧客户端；每次切换拒绝活动模型任务。重启从service.json恢复目录。
 
-`session.chat`新增可选`access`（default/read_only，缺省default）、`reasoning`
+`session.chat`新增可选`access`（default/read_only/chat_only，缺省default）、`reasoning`
 （空字符串/minimal/low/medium/high，缺省空）。未知值/错误类型decode拒绝；
 未声明supports_reasoning时带reasoning的请求在admission前回unavailable。
-read_only不提供工具，default仅当前注册wait；不映射到桌面PermissionPolicy。
+M7-01/02/03 / [DEC-054](../decisions/DEC-054-scoped-complete-desktop-actions.md) 更新：
+read_only 仅提供实际可用的窗口/应用/语义观察；default 另有 wait、窗口激活、
+语义 click 与完整 key/type_text。目录取决于 Provider、完整释放/scope 能力与门禁，
+每次动作仍由共享 PermissionController 判定。
+此增量不新增 IPC 字段；会话工具 schema v2 要求 window_id、observation_scope、
+environment_epoch，click 使用当前语义 ref。输入 Part.input 不复制文本，仅含窗口、
+text_bytes 与 scope/epoch；output 为 schema=2 的结构化回执：status 为 rejected、
+dispatched 或 uncertain，verified=false、side_effect_may_have_occurred、input_released。
+错误还含稳定 error_code 和安全 message，经失败工具结果/既有 Part 输出投影。
+completed 工具过程状态表示 handler 结束，不能代替业务完成证据。原有 workflow schema
+保持兼容；四个修改工具 required 字段由 action_contract_test 的 golden 文件锁定。
 选择和文本随请求冻结，对已有运行轮次不生效。文本附件使用现有text载荷，受同一16KiB
 限制，明确来源为用户主动选择的文本，并非文件上传协议或自动文件访问。
 
@@ -719,6 +742,45 @@ invalid_state 与诊断。退出和通知区故障不绕过 Runtime 有序取消
 当前新增 none/adaptive/xhigh/max；是否提供由具体模型决定。新增字段要求同步升级原生前端的设置解码器；
 新 UI 缺失列表时只显示默认，不猜测未知厂商能力。wire version 保持 v1。
 
+### M7-04/05 识图声明与截图（DEC-055）
+
+schema=1 的 `model` 与 `models` 条目新增可选布尔 `supports_images`。缺失/false 为
+关闭；编码时 false 省略，保持旧 golden。错误类型严格拒绝；旧版严格解码器不能
+读取 true 字段，服务与前端须同步升级。model.get/set 持久化与投影包含该字段，
+它是用户能力声明，不代替截图权限，也不表示所有供应商已经在线验证。
+
+启用模型且实际 Screen Provider/门禁齐备时注册 `desktop.screen.list_displays` 和
+`desktop.screen.capture`；read_only 可执行经授权截图，default 的修改工具保持
+DEC-054。capture 参数为 source（display/window/roi）、source_id；roi 另有全局像素
+x/y/width/height，必须落在指定显示器内。示例和预算见
+[桌面安全契约](../security/desktop-actions.md#图片采集与模型输入)。
+工具 output 仅含 PNG artifact 身份、敏感级别、来源、尺寸/原点、1:1 变换与
+task/environment epoch、时间及 verified=false；Part 不携带图片/base64。真实图片
+在 Adapter 的规范 User ImagePart 中供给当前请求，不存入普通会话历史。缺图、错误
+身份、读取失败或 drop/degrade 不能产生识图成功；现有 failed 终态表达失败，无新增
+IPC 事件。Answered 仍只表示终态回答，修改动作还须通过下述宿主核验门禁。
+
+### M7-08 动作后条件与过程证据（DEC-056）
+
+四个会话修改工具版本为 2.1.0，v2 required 字段不变。新增可选 verify_kind
+（window_focused/window_title_equals/semantic_node_exists），后两者分别配
+expected_title 或 expected_role/expected_name，各最多 1024 UTF-8 字节。
+激活缺省检查前台窗口；其他动作无条件可派发，但不能以 Answered 结束为成功。
+default 且窗口/动作上下文可用时另注册只读 desktop.action.verify(action_id)，仅重验
+本轮最近动作的固定条件。未验证动作阻止下一修改，不确定副作用保持本轮拒绝。
+
+回执新增 action_id 和 verification 对象：status 为 verified/unverified/uncertain/rejected，
+含 reason、verify_kind、condition_digest、evidence_id、observed_digest、captured_at_ms
+与 environment_epoch。观察摘要来自实际窗口/几何/匹配数与固定条件，时间戳用于展示，
+新鲜度用单调时钟。文本/语义期望不复制到 Part.input；普通日志仅含摘要，规范模型
+往返仍含声明条件。各 Part 16 KiB、总内容 64 KiB，截断不可变成已核验。
+
+不增加 IPC 字段/事件或过程状态枚举；前端从既有 Part.output 解析证据状态与目标。
+宿主以规范失败 ToolResultPart 和新观察为事实源，过程投影耗尽不能绕过失败门禁。
+终态再次核验最近动作，拒绝/未验证/不确定/失败转现有 failed，Cancelled 优先，
+迟到响应不能恢复成功。通过时回答明确只核对声明的局部条件。范围与实际测试见
+[M7-08 验收](../compatibility/post-action-verification-20261009.md)。
+
 ## 会话过程快照（2026-10-07，DEC-049）
 
 `session.chat.history` 的 turn 与 `session.chat_updated` 增加可选 `parts` 数组和
@@ -754,3 +816,114 @@ process_sequence 按同轮更新递增；pending可重复发布，ok/failed终�
 地址编辑后不能借用旧服务 Key。请求显式触发、候选不自动落盘，旧客户端不受影响。
 Mira 公共传输强制响应大小、期限和端点策略；Runtime Service 使用 Executor 任务执行，
 关闭时协作取消与排空。`model.get/set` 的原语义保持。
+
+## M7-06 显式 OCR 装配（DEC-057）
+
+ServiceConfig.ocr_manifest / mirage-service --ocr-manifest 提供经过摘要与大小校验的
+本地模型、字典及配置。构建 MIRAGE_WITH_PPOCR=OFF（默认）或资源不合法时启动失败，
+不会默默把 OCR 标成可用。开启后 desktop.observe 的 visual 请求先走 screen.capture
+权限并刷新 Runtime 所有的单显示器 PP-OCR session；失败返回 permission_denied 或
+unavailable。取消/权限/分析共享 5 秒预算，显示器变化或 epoch 变化拒绝结果。
+原 IPC 类型不变，未配置模型时沿用既有外部 registry 行为。
+
+Agent 会话动态工具增加 desktop.vision.ocr（无参数、无输入副作用），返回 source=ocr、
+scope/revision、全局框、非可信文字和 verified=false；工具过程摘要不包含 OCR 全文。
+失败进入规范 ToolResult 和会话终态门禁。尚无视觉点击/SoM工具。资源契约、已执行验证
+和真实质量限制见[DEC-057](../decisions/DEC-057-real-ocr-composition.md)及
+[装配证据](../compatibility/real-ocr-composition-20261009.md)。
+
+## M7-07/09 会话视觉动作补充
+
+后续 DEC-058/064 增量已提供 `desktop.vision.mark` / `click` / `scroll` / `drag`。
+它们属于 Mira 会话动态工具，不新增直接 IPC 注入端点；沿现有 session chat 过程
+和动作 verification 回执传送状态。mark/click 及图片供给见设计文档 M7-07 小节。
+scroll/drag 1.0.0 请求/回执和错误契约见
+[桌面动作策略](../security/desktop-actions.md#有界滚动与完整拖拽)；权限、能力缺失
+不注册、取消与终态门禁不变。后端支持声明仅限本轮验证的 Linux X11，见
+[验收记录](../compatibility/bounded-scroll-and-drag-20261010.md)。
+
+
+## M7-12 桌面视觉设置（DEC-066）
+
+`vision.get` 无参数；`vision.set` 必须携带 `ocr_manifest` 字符串，最多 4096 字节，
+不得含控制字符，服务要求绝对路径或空字符串。空字符串在下次启动关闭 OCR。
+两者响应相同：`vision_manifest`（保存值，未保存时取启动值）、`active_manifest`
+（本次启动值）、`vision_supported`（编译能力）、`vision_running`（实际管线）、
+`restart_required`（保存路径与本次启动值不同）；这些字段始终写入，布尔不能用
+缺失代替 false。IPC v1 追加操作，既有操作和帧格式不变；golden v15 锁定顺序。
+
+```json
+{"v":1,"id":113,"op":"vision.set","ocr_manifest":"/home/user/vision/manifest.json"}
+```
+
+设置经现有服务 IPC owner 合并写回，保留模型、目录、权限及 Runtime 字段，不切换
+运行中管线。模型设置面拒绝夹带 vision 块；没有写回存储返回 unavailable，坏旧文件
+返回 invalid_state，读写失败返回 internal；失败不报告保存成功。路径有效不代表资源
+已审核/加载成功，权重身份仍在启动时严格校验。具体边界见
+[DEC-066](../decisions/DEC-066-product-desktop-vision-settings.md)。
+
+已启用 OCR 的 `desktop.observe(visual=true)` 保留五秒预算。失败仍返回 `unavailable`，
+消息可附 `cancelled_or_expired`、`desktop_epoch_changed` 或有界 backend 原因，不能把
+`vision_running=true` 解读为每次观察都成功。
+
+DEC-070 不增加 IPC envelope 字段。桌面动作的失败 Part.output 可包含本轮宿主
+投影的完整 verification；canonical 工具错误为最多 512 字节完整 JSON，含 action_id、
+派发/副作用/释放状态和有界原因。Part.input 的条件正文继续隐藏，并增加 condition_fields
+记录字段名及 string/empty_string/null/non_string 类型，不保存条件值。旧历史不迁移。
+早先失败卡片保持失败；后续已纠正并验证的动作可使轮次成功，最终未知或不确定结果仍失败。
+
+### DEC-071 增量：应用交付与凭据清理
+
+model.set 的成功响应和 warning 语义保持：配置已应用后才清理旧凭据；删除不存在的
+钥匙环条目返回成功。读取缺失/锁定/歧义与服务失败不同，不代表供应商 Key 失效。
+Linux GNOME 默认 session 集合改用服务枚举出的 login 持久集合保存新 Key；失败不
+降级到临时集合/文件。已有临时 Key 需新版重新保存，无用户配置 schema 迁移。
+
+会话工具 application.list v2 返回 observation_scope / environment_epoch / captured_at_ms；
+独立于窗口观察，绑定当前会话和五秒时效。application.launch v2 和可选 open_uri v2
+要求 application_id、同列表 scope/epoch，open_uri 另需 HTTP(S) uri，最多 2048 字节。
+两者固定 verify_kind=application_running，不接受窗口或页面后条件。派发/失败与
+action.verify 使用既有 schema2 和 ≤512 字节失败回执。verification 新增可选
+application_id，window_id 在应用动作中为空；原生卡片显示“应用进程”，局部 verified
+不证明页面或业务成功。工具输入持久投影移除 uri，保留 uri_digest/uri_bytes。
+
+### DEC-072：GUI 区域输入证据
+
+通用 harness 内部增加 desktop.vision.click_region；conversation.parts 继续承载其
+输入/回执，不增加 IPC 方法。verification 可带 display_id，显示上下文的 window_id
+可空；原生只读投影识别该动作并显示显示器目标。新 verify_kind 为 foreground_changed、
+foreground_title_equals、display_text_exists，均为局部条件，不能代表任意目标完成。
+工件、scope、比例和区域坐标都是本轮输入，不作为持久知识或跨会话执行权。
+
+## 记住桌面授权（DEC-078，v1 追加）
+
+请求 `desktop.authorization.get` 无附加参数；`desktop.authorization.set` 必须包含
+布尔 `remember`。true 保存偏好并请求系统授权，false 关闭复用、使旧会话输入失效并
+删除本机恢复令牌。设置操作严格合并现有配置，损坏配置拒绝改写。
+成功响应包含字符串 `desktop_authorization`、`supported`、`remember`、`remembered`
+与最长 512 字节的 `notice`。desktop_authorization 为 unsupported / ask / authorizing / remembered /
+needs_authorization / store_unavailable / cancelled。remembered 必须同时 supported、
+remember 且 desktop_authorization=remembered；其含义为可尝试恢复，并非系统权限永不失效。
+一个管理请求在途时返回 desktop_authorization_busy；存储、系统拒绝及取消返回明确
+错误。等待由 Runtime Executor 有限可取消任务承载，future 进入统一关闭与失败视图。
+UI 对此使用 40 秒 IPC 等待；Portal 自身 30 秒阶段总期限不改变。令牌不进入 IPC。
+
+### 历史记录时间与列表排序（DEC-079）
+
+DialogTurnEntry.recorded_at_ms 表示该轮规范记录写入时间：接纳时初始化，终态
+结算时更新，之后读取历史不改写。原生列表使用既有字段恢复最近更新顺序；
+较早版本持久化的值仍有效，无 schema 或 wire 字段变更。pending 不跨重启保存，
+实时流式及过程活动在 UI 内排序，终态结算记录时间随现有历史持久化。
+
+### DEC-080 / DEC-081：模式与原生源帧（2026-10-12）
+
+`session.chat.access` 闭集为 default（完全访问）、read_only（视觉模式）、chat_only
+（对话模式）。chat_only 在服务端强制走纯对话路径，即使 agent=true 也不创建桌面
+harness 任务、工具或图片供给；read_only 只注册已可用观察，不允许修改。旧值兼容，
+不认识新值的旧服务显式拒绝；golden v17 增加 chat_only，既有字段顺序不变。
+
+原生 capture / OCR 模型工具回执在可交互时返回本次独立 image_scope 与
+input_actionable。OCR 的 region actionable=false 仍只表示观察框不自带可执行引用。
+source_sequence 是会话内源帧序号，不是跨任务标识或已知捕获时间；动作后验证要求
+大于执行前序号，普通观察可读取当前流中最新自有画面。旧 image_scope 明确拒绝为
+stale_image_scope，不能自动将旧目标重绑定到新图。没有新增控制面 operation。

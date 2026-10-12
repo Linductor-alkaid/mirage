@@ -2,11 +2,13 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include <mirage/desktop/cancellation.hpp>
 #include <mirage/desktop/geometry.hpp>
+#include <mirage/desktop/input_provider.hpp>
 #include <mirage/desktop/provider_error.hpp>
 
 namespace mirage::desktop {
@@ -25,12 +27,17 @@ struct ImageFrame {
     std::int32_t height = 0;
     std::size_t stride = 0;
     std::vector<std::uint8_t> pixels;
+    /// DEC-081: session-local source frame sequence; zero means not provided.
+    std::uint64_t source_sequence = 0;
 };
 
 /// Budget for one capture (RULE-07). A capture that would exceed `max_bytes`
 /// of pixel data is refused — never silently truncated. Must be positive.
 struct CaptureLimits {
     std::size_t max_bytes = 8u << 20;
+    /// Optional watermark for a session reporting nonzero source_sequence.
+    /// A result must be newer; callers reject zero/older sequence themselves.
+    std::uint64_t newer_than_sequence = 0;
 };
 
 struct DisplayInfo {
@@ -56,6 +63,41 @@ struct CaptureOutcome {
     ProviderError error; ///< meaningful only when ok is false
 };
 
+/// DEC-078: application preference and recoverable grant, never a live input lease.
+struct DesktopAuthorizationView {
+    bool supported = false;
+    bool remember = false;
+    bool remembered = false;
+    std::string state = "unsupported";
+    ProviderError error;
+};
+
+/// DEC-077: stream-local complete input. Coordinates refer to a captured image,
+/// never to global desktop pixels. No held-press API is exposed.
+struct SharedInputAction {
+    enum class Kind { Click, Key, Text, Scroll };
+    Kind kind = Kind::Click;
+    double x = 0, y = 0;
+    std::int32_t image_width = 0, image_height = 0;
+    std::string value; // button, key chord or UTF-8 text
+    std::int32_t vertical_steps = 0, horizontal_steps = 0;
+};
+
+/// One caller-owned observation session (DEC-074). Calls must be serialized;
+/// no object may be shared across tasks. Creation does not authorize capture.
+/// Destruction closes platform sharing; a failed capture cannot re-authorize.
+class DesktopCaptureSession {
+  public:
+    virtual ~DesktopCaptureSession() = default;
+    virtual CaptureOutcome capture(const CaptureLimits &, const CancelToken &) = 0;
+    virtual bool reusable() const { return false; }
+    virtual bool input_supported() const { return false; }
+    virtual InputOutcome input(const SharedInputAction &, const InputLimits &,
+                               const CancelToken &) {
+        return {false, false, {"unsupported_capability", "shared input unavailable"}, false, true};
+    }
+};
+
 /// Screen capture (design doc section 5): whole displays, windows and
 /// arbitrary regions. Capture may surface sensitive on-screen content, so
 /// callers judge the `screen.capture` capability through the runtime
@@ -65,6 +107,26 @@ struct CaptureOutcome {
 class ScreenProvider {
   public:
     virtual ~ScreenProvider() = default;
+
+    /// A native shared desktop image has no executable global coordinates
+    /// or window/display IDs (DEC-073). Task input requires a separately authorized
+    /// interaction session (DEC-077); never infer it from captured pixels.
+    virtual bool desktop_observation_only() const { return false; }
+    virtual std::unique_ptr<DesktopCaptureSession> create_desktop_capture_session() { return {}; }
+    virtual bool desktop_interaction_supported() const { return false; }
+    virtual void configure_desktop_authorization(bool) {}
+    virtual DesktopAuthorizationView desktop_authorization(const CancelToken &) { return {}; }
+    /// remember=true requests one system grant; false forgets the stored grant.
+    /// Synchronous bounded work; callers own the Executor context and cancellation.
+    virtual ProviderError manage_desktop_authorization(bool, const CancelToken &) {
+        return {"unsupported_capability", "remembered desktop authorization unavailable"};
+    }
+    virtual std::unique_ptr<DesktopCaptureSession> create_desktop_interaction_session() {
+        return {};
+    }
+    virtual CaptureOutcome capture_desktop(const CaptureLimits &, const CancelToken &) {
+        return {false, false, {}, {"unsupported_capability", "desktop observation unavailable"}};
+    }
 
     /// Enumerates displays within the budget; refuses over-budget results
     /// instead of truncating.

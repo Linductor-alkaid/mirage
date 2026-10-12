@@ -23,6 +23,7 @@
 #include <mirador/visual_index.hpp>
 
 #include <mirage/desktop/cancellation.hpp>
+#include <mirage/integration/environment_visual_pipeline.hpp>
 #include <mirage/integration/visual_template_index.hpp>
 
 namespace mirage::integration {
@@ -33,10 +34,13 @@ struct VisualSessionCore;
 
 class VisualSessionHost;
 
-/// One template enrollment riding an analysis request (plan item `M3-04`):
-/// the patch is cropped from the request frame itself at `patch` (oriented
-/// pixel coordinates of the rotation-k0 capture form the adapter produces),
-/// so enrollment introduces no second pixel lifetime.
+/// DEC-061: verified external pixels owned by the session configuration.
+struct VisualTemplateAsset {
+    std::string template_id;
+    desktop::ImageFrame pixels;
+};
+
+/// A captured-frame enrollment (M3-04), cropped from the request's rotation-k0 frame.
 struct VisualTemplateEnrollment {
     /// Enrolled identity; non-empty. Re-enrolling an existing identity
     /// replaces its fingerprint.
@@ -70,6 +74,10 @@ struct VisualGeometryStage {
     /// with no platform semantics (empty role, non-interactive, confidence =
     /// closure_score) — the geometry-form observation entries.
     bool fuse_proposals = false;
+    /// Product candidate size policy, not a proposal budget: only fuse shapes
+    /// whose tight area is at most this fraction of the captured frame.
+    /// Raw proposals remain in the result; (0, 1], default preserves all.
+    double max_fused_area_fraction = 1.0;
     /// Budget of the frame-to-gray conversion (mirador `convert_color`);
     /// non-positive values reject the request at admission.
     std::int64_t gray_convert_max_bytes = std::int64_t{4} * 1024 * 1024;
@@ -108,6 +116,8 @@ struct VisualAnalysisRequest {
     /// the three index tiers; a clear-winner hit becomes template evidence.
     /// Requires `run_detector` with kOriented output.
     bool probe_templates = false;
+    /// DEC-061: match configured assets at eligible geometric proposals, no detector required.
+    bool probe_geometry_templates = false;
     /// Probe thresholds and candidate cap (mirador defaults when untouched).
     mirador::VisualQueryParams template_query;
     /// Clear-winner reuse threshold in [0, 1] (mirador example discipline:
@@ -129,6 +139,9 @@ struct VisualAnalysisRequest {
     /// Extra caller-side cancellation: the analysis is abandoned when either
     /// this token or the host's latest-wins replacement requests it.
     desktop::CancelToken external_cancel;
+    /// M7-07: render on this worker after fusion. ROI in oriented pixels.
+    bool render_marks = false;
+    std::optional<mirador::RectI> mark_roi;
 };
 
 /// Terminal state of one analysis request. Every admitted request settles
@@ -157,8 +170,8 @@ struct VisualAnalysisResult {
     mirador::ChangeReport change;
     std::vector<mirador::TextRegion> text;
     std::vector<mirador::DetectionRegion> detections;
-    /// Accepted template probes of this request, in detection order (when
-    /// `probe_templates` ran).
+    /// Accepted template probes in detection then geometry order; raw hits
+    /// remain diagnostic when fusion conflicts suppress the published identity.
     std::vector<VisualTemplateHit> template_hits;
     /// Closed-region proposals of this frame, in mirador's deterministic
     /// output order, bounds in the frame's oriented pixel space (when the
@@ -179,6 +192,8 @@ struct VisualAnalysisResult {
         std::size_t template_index_entries = 0;
     };
     CacheStats cache_stats;
+    desktop::ImageFrame marked_frame;
+    std::vector<VisualMark> marks;
 };
 
 /// Configuration of one visual session host (DEC-016 decision 4).
@@ -192,6 +207,8 @@ struct VisualSessionConfig {
     /// session: stopping the host discards every enrollment (a restarted
     /// host starts empty).
     VisualTemplateIndexConfig templates;
+    /// Immutable local product assets; bounded and validated at start, enrolled on worker.
+    std::vector<VisualTemplateAsset> template_assets;
     /// Upper bound of one idle worker wait; bounds stop latency and covers
     /// missed wakeups. Not a polling schedule: requests are delivered
     /// through the latest-value mailbox plus an immediate wakeup.

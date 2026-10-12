@@ -77,6 +77,9 @@ struct ElementTarget {
     VisualHint visual;
     SpatialHint spatial;
     RawPointHint raw;
+    /// M7 generation identity. A mismatch is terminal, without hint fallback.
+    /// Appended to preserve existing aggregate hint initialization.
+    std::string snapshot_scope;
 
     /// True when at least one hint group is set (non-empty string, or — for
     /// spatial/raw — an explicitly meaningful value).

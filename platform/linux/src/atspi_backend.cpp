@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <limits>
 #include <map>
 #include <optional>
 #include <string>
@@ -184,6 +185,9 @@ struct AtspiBackend::Impl {
     /// policy v1 (M2 plan, DEC-005).
     std::map<std::string, AtspiAccessible *> registry;
 
+    std::uint64_t snapshot_generation = 0;
+    std::string snapshot_scope;
+
     void clear_registry() {
         for (auto &[ref, object] : registry) {
             adopt(object);
@@ -200,10 +204,23 @@ struct AtspiBackend::Impl {
     }
 
     /// Direct children of one accessible (owning references).
-    std::vector<AtspiAccessible *> children(AtspiAccessible *object) const {
+    std::vector<AtspiAccessible *>
+    children(AtspiAccessible *object, std::size_t limit = std::numeric_limits<std::size_t>::max(),
+             bool *refused = nullptr, const CancelToken *cancel = nullptr) {
         std::vector<AtspiAccessible *> result;
         const gint n = atspi_accessible_get_child_count(object, nullptr);
+        if (n > 0 && static_cast<std::size_t>(n) > limit) {
+            if (refused)
+                *refused = true;
+            return result;
+        }
         for (gint i = 0; i < n; ++i) {
+            if (cancel && cancel->cancelled()) {
+                if (refused)
+                    *refused = true;
+                adopt_all(result);
+                return result;
+            }
             AtspiAccessible *child = atspi_accessible_get_child_at_index(object, i, nullptr);
             if (child != nullptr) {
                 result.push_back(child);
@@ -227,20 +244,22 @@ struct AtspiBackend::Impl {
     /// nullopt as soon as collecting another node would exceed `budget`
     /// (refusal, never truncation). `nodes` collects owning references.
     std::optional<std::vector<SemanticNode>> collect_tree(AtspiAccessible *root, std::size_t budget,
-                                                          std::vector<AtspiAccessible *> &objects) {
+                                                          std::vector<AtspiAccessible *> &objects,
+                                                          const CancelToken &cancel) {
         std::vector<SemanticNode> nodes;
         std::vector<WalkNode> stack{{root, mirage::desktop::kNoParent}};
+        const auto reject = [&]() -> std::optional<std::vector<SemanticNode>> {
+            adopt_all(objects);
+            for (const WalkNode &pending : stack)
+                adopt(pending.object);
+            return std::nullopt;
+        };
         while (!stack.empty()) {
+            // Check before popping: refusal also releases the current pending object.
+            if (cancel.cancelled() || nodes.size() >= budget)
+                return reject();
             const WalkNode current = stack.back();
             stack.pop_back();
-            if (nodes.size() >= budget) {
-                adopt_all(objects);
-                // The stack still holds owning references from children().
-                for (const WalkNode &pending : stack) {
-                    adopt(pending.object);
-                }
-                return std::nullopt;
-            }
             SemanticNode node;
             gchar *name = atspi_accessible_get_name(current.object, nullptr);
             node.name = name != nullptr ? name : "";
@@ -270,7 +289,11 @@ struct AtspiBackend::Impl {
             objects.push_back(current.object); // registry keeps it alive
             // Children keep the DFS order; push reversed so the first child
             // is visited first (stable, deterministic snapshots).
-            auto kids = children(current.object);
+            bool refused = false;
+            auto kids =
+                children(current.object, budget - nodes.size() - stack.size(), &refused, &cancel);
+            if (refused)
+                return reject();
             for (auto it = kids.rbegin(); it != kids.rend(); ++it) {
                 stack.push_back({*it, nodes.size() - 1});
             }
@@ -490,10 +513,21 @@ SnapshotOutcome AtspiBackend::semantic_snapshot(const std::string &window_id,
     }
     auto [application_name, window_object] = *found;
     std::vector<AtspiAccessible *> objects;
-    auto nodes = impl_->collect_tree(window_object, limits.max_nodes, objects);
+    auto nodes = impl_->collect_tree(window_object, limits.max_nodes, objects, cancel);
     if (!nodes.has_value()) {
+        if (cancel.cancelled()) {
+            outcome.cancelled = true;
+            outcome.error = error("cancelled", "snapshot cancelled during traversal");
+            return outcome;
+        }
         outcome.error = error("snapshot_too_large", "snapshot exceeds the node budget of " +
                                                         std::to_string(limits.max_nodes));
+        return outcome;
+    }
+    if (cancel.cancelled()) {
+        impl_->adopt_all(objects);
+        outcome.cancelled = true;
+        outcome.error = error("cancelled", "snapshot cancelled before publication");
         return outcome;
     }
     // A fresh snapshot replaces the registry wholesale. `objects` is
@@ -504,6 +538,9 @@ SnapshotOutcome AtspiBackend::semantic_snapshot(const std::string &window_id,
     for (std::size_t i = 0; i < objects.size(); ++i) {
         impl_->registry[collected[i].ref] = objects[i];
     }
+    impl_->snapshot_scope =
+        "atspi:" + window_id + ":" + std::to_string(++impl_->snapshot_generation);
+    outcome.scope = impl_->snapshot_scope;
     outcome.ok = true;
     outcome.snapshot.application = std::move(application_name);
     outcome.snapshot.window_title = title;
@@ -515,6 +552,10 @@ ElementActionOutcome AtspiBackend::activate_element(const ElementTarget &target,
                                                     const CancelToken &cancel) {
     ElementActionOutcome outcome;
     std::lock_guard<std::mutex> guard(mutex_);
+    if (!target.snapshot_scope.empty() && target.snapshot_scope != impl_->snapshot_scope) {
+        outcome.error = error("stale_observation", "semantic snapshot generation changed");
+        return outcome;
+    }
     if (cancel.cancelled()) {
         outcome.cancelled = true;
         outcome.error = error("cancelled", "activation cancelled");
@@ -553,6 +594,10 @@ ElementActionOutcome AtspiBackend::set_text(const ElementTarget &target, const s
                                             const InputLimits &limits, const CancelToken &cancel) {
     ElementActionOutcome outcome;
     std::lock_guard<std::mutex> guard(mutex_);
+    if (!target.snapshot_scope.empty() && target.snapshot_scope != impl_->snapshot_scope) {
+        outcome.error = error("stale_observation", "semantic snapshot generation changed");
+        return outcome;
+    }
     if (cancel.cancelled()) {
         outcome.cancelled = true;
         outcome.error = error("cancelled", "text input cancelled");
@@ -588,6 +633,143 @@ ElementActionOutcome AtspiBackend::set_text(const ElementTarget &target, const s
     }
     outcome.ok = true;
     return outcome;
+}
+
+// ---------------------------------------------------------------------------
+// M7-18: Wayland window enumeration over the accessibility tree. Top-level
+// frames and dialogs carry screen-coordinate extents, which back the Portal
+// window-capture geometry approximation. Activation is not expressible over
+// AT-SPI v1 and fails closed; wrapper ownership follows the same
+// process-lifetime pool discipline as the snapshot walk (M2-03).
+// ---------------------------------------------------------------------------
+namespace {
+class AtspiWindowProvider final : public mirage::desktop::WindowProvider {
+  public:
+    mirage::desktop::WindowListOutcome
+    list_windows(const mirage::desktop::WindowListLimits &limits,
+                 const mirage::desktop::CancelToken &cancel) override {
+        mirage::desktop::WindowListOutcome outcome;
+        std::lock_guard<std::mutex> guard(mutex_);
+        if (cancel.cancelled()) {
+            outcome.error = error("cancelled", "window enumeration cancelled");
+            return outcome;
+        }
+        AtspiAccessible *desktop = atspi_get_desktop(0); // borrowed singleton
+        if (desktop == nullptr) {
+            outcome.error = error("io_error", "accessibility desktop unavailable");
+            return outcome;
+        }
+        const gint n = atspi_accessible_get_child_count(desktop, nullptr);
+        if (n > 0 && static_cast<std::size_t>(n) > limits.max_windows) {
+            outcome.error = error("result_too_large", "window enumeration exceeds the budget");
+            return outcome;
+        }
+        std::map<std::string, std::size_t> seen;
+        for (gint i = 0; i < n; ++i) {
+            if (cancel.cancelled()) {
+                outcome.error = error("cancelled", "window enumeration cancelled");
+                return outcome;
+            }
+            AtspiAccessible *child = atspi_accessible_get_child_at_index(desktop, i, nullptr);
+            if (child == nullptr)
+                continue;
+            adopt(child);
+            const auto role = atspi_accessible_get_role(child, nullptr);
+            if (role != ATSPI_ROLE_FRAME && role != ATSPI_ROLE_WINDOW && role != ATSPI_ROLE_DIALOG)
+                continue;
+            AtspiComponent *component = atspi_accessible_get_component(child);
+            if (component == nullptr)
+                continue;
+            AtspiRect *extents =
+                atspi_component_get_extents(component, ATSPI_COORD_TYPE_SCREEN, nullptr);
+            if (extents == nullptr)
+                continue;
+            WindowGeometry geometry{static_cast<std::int32_t>(extents->x),
+                                    static_cast<std::int32_t>(extents->y),
+                                    static_cast<std::int32_t>(extents->width),
+                                    static_cast<std::int32_t>(extents->height)};
+            g_free(extents);
+            if (geometry.width <= 0 || geometry.height <= 0)
+                continue;
+            gchar *raw_title = atspi_accessible_get_name(child, nullptr);
+            const std::string title = raw_title != nullptr ? raw_title : "";
+            g_free(raw_title);
+            AtspiAccessible *application = atspi_accessible_get_application(child, nullptr);
+            adopt(application);
+            gchar *raw_application =
+                application != nullptr ? atspi_accessible_get_name(application, nullptr) : nullptr;
+            const std::string application_name = raw_application != nullptr ? raw_application : "";
+            g_free(raw_application);
+            std::string id = "atspi:" + application_name + "/" + title;
+            std::size_t occurrence = 0;
+            const auto replay = seen.find(id);
+            if (replay != seen.end()) {
+                occurrence = ++replay->second;
+            } else {
+                seen.emplace(id, 0);
+            }
+            if (occurrence > 0)
+                id += "#" + std::to_string(occurrence);
+            outcome.windows.push_back(mirage::desktop::WindowInfo{
+                std::move(id), title, geometry, state_set_has(child, ATSPI_STATE_ACTIVE)});
+            if (outcome.windows.size() >= limits.max_windows)
+                break;
+        }
+        outcome.ok = true;
+        return outcome;
+    }
+
+    mirage::desktop::WindowQueryOutcome front_window(const CancelToken &cancel) override {
+        mirage::desktop::WindowQueryOutcome outcome;
+        WindowListLimits unlimited;
+        unlimited.max_windows = 4096;
+        const auto listed = list_windows(unlimited, cancel);
+        if (!listed.ok) {
+            outcome.error = listed.error;
+            return outcome;
+        }
+        for (const auto &window : listed.windows) {
+            if (window.focused) {
+                outcome.ok = true;
+                outcome.found = true;
+                outcome.window = window;
+                return outcome;
+            }
+        }
+        outcome.ok = true; // no focused window is a result, not an error
+        return outcome;
+    }
+
+    mirage::desktop::WindowActionOutcome activate(const std::string &,
+                                                  const CancelToken &cancel) override {
+        mirage::desktop::WindowActionOutcome outcome;
+        outcome.error = error(cancel.cancelled() ? "cancelled" : "unsupported_window",
+                              "AT-SPI v1 cannot activate windows");
+        return outcome;
+    }
+
+  private:
+    void adopt(AtspiAccessible *object) {
+        if (object == nullptr)
+            return;
+        if (pool.size() >= kObjectPoolCap) {
+            g_object_unref(pool.front());
+            pool.erase(pool.begin());
+        }
+        pool.push_back(object);
+    }
+
+    std::mutex mutex_;
+    std::vector<AtspiAccessible *> pool;
+};
+} // namespace
+
+std::unique_ptr<WindowProvider> AtspiBackend::open_window_provider() {
+    const int init_status = atspi_init();
+    if (init_status < 0) {
+        return nullptr; // no accessibility bus: fail closed (DEC-015)
+    }
+    return std::make_unique<AtspiWindowProvider>();
 }
 
 } // namespace mirage::platform::linux_backend

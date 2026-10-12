@@ -19,6 +19,7 @@ option(MIRAGE_FETCH_DEPENDENCIES
     "Sync missing pinned submodules at configure time (OFF: verify-only)" ON)
 option(MIRAGE_WITH_MIRA_MBEDTLS
     "Build Mira's pinned Mbed TLS channel adapter (needs third_party/mira/third_party/mbedtls)" OFF)
+option(MIRAGE_WITH_PPOCR "Build pinned Mirador PP-OCR/ncnn backend" ${MIRAGE_ENABLE_NATIVE_FRONTEND})
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -58,6 +59,7 @@ add_subdirectory(third_party/mira EXCLUDE_FROM_ALL)
 set(MIRADOR_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(MIRADOR_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
 set(MIRADOR_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(MIRADOR_BUILD_INTEGRATIONS "${MIRAGE_WITH_PPOCR}" CACHE BOOL "" FORCE)
 add_subdirectory(third_party/mirador EXCLUDE_FROM_ALL)
 
 # ---- Mirage targets ----------------------------------------------------------
@@ -65,6 +67,7 @@ add_subdirectory(desktop)
 add_subdirectory(runtime)
 add_subdirectory(integration)
 add_subdirectory(platform)
+include(MirageVisionBundle)
 add_subdirectory(apps)
 
 if(MIRAGE_BUILD_TESTS)

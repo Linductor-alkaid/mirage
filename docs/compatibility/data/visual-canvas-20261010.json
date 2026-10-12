@@ -1,0 +1,389 @@
+{
+  "manifest_sha256": "0210022d7f85dc0f7e0f8caebf1b5e5a9af89db49c87c25ab877d3a39e9ce6a4",
+  "font_sha256": "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9",
+  "passed": 5,
+  "total": 5,
+  "source": "private Xvfb ScreenProvider capture, 520x220, window 480x180 at (20,20)",
+  "model": "scripted Mira provider; live visual model not tested",
+  "samples": [
+    {
+      "sample": "english",
+      "before": "Submit task",
+      "expected": "Task saved",
+      "mode": "update",
+      "exit_code": 0,
+      "passed": true,
+      "summary": "CANVAS update=1 ok=1 pressed=1 released=1 images=1 backend_calls=4 title=Canvas a11y=0",
+      "evidence": [
+        {
+          "tool": "desktop.vision.click",
+          "result": {
+            "schema": 2,
+            "status": "dispatched",
+            "window_id": "2097153",
+            "visual_scope": "@vs1",
+            "mark": 1,
+            "ref": "@v1",
+            "verified": true,
+            "side_effect_may_have_occurred": true,
+            "input_released": true,
+            "action_id": "4fc3ce8ba0ce46c8ac317db0f4a46ac6",
+            "verification": {
+              "action_id": "4fc3ce8ba0ce46c8ac317db0f4a46ac6",
+              "action": "desktop.vision.click",
+              "window_id": "2097153",
+              "status": "verified",
+              "reason": "condition_matched",
+              "verify_kind": "visual_text_exists",
+              "verified": true,
+              "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+              "evidence_id": "ae9fd750c1f9496f893f99ccddedb70d",
+              "observed_digest": "777d1a38e8d17cbc9cb5400e7e9ee400a2fe46e8f445c17cc5cfd2310895e7b2",
+              "captured_at_ms": 1791595076082,
+              "visual_scope": "@vs4",
+              "display_id": "screen",
+              "model_revision": "51769fd8e9146ef45e7455d27e6f60b4de76ccf2e1a14bc4ede784e2db2322d1",
+              "ocr_backend_calls": 4,
+              "environment_epoch": 3
+            }
+          }
+        },
+        {
+          "tool": "desktop.action.verify",
+          "result": {
+            "action_id": "4fc3ce8ba0ce46c8ac317db0f4a46ac6",
+            "action": "desktop.vision.click",
+            "window_id": "2097153",
+            "status": "verified",
+            "reason": "condition_matched",
+            "verify_kind": "visual_text_exists",
+            "verified": true,
+            "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+            "evidence_id": "cd7b01f641114050b01400496a09bc78",
+            "observed_digest": "69931fee7586353db7cd2ba6b1cc19f7dbc4f7e140fbee119e848874e585b3c9",
+            "captured_at_ms": 1791595075473,
+            "visual_scope": "@vs3",
+            "display_id": "screen",
+            "model_revision": "51769fd8e9146ef45e7455d27e6f60b4de76ccf2e1a14bc4ede784e2db2322d1",
+            "ocr_backend_calls": 3,
+            "environment_epoch": 3
+          }
+        }
+      ],
+      "sample_sha256": [
+        "4c28c4beee47d1d5ae975aeff027ba39b3ae839242fc2d0bde489efd8a44c32f",
+        "071f6a1c08ac0f49bd7854e6ae03d9852552217b2d32e81094bfaaed3031bdc5"
+      ]
+    },
+    {
+      "sample": "chinese",
+      "before": "提交任务",
+      "expected": "任务完成",
+      "mode": "update",
+      "exit_code": 0,
+      "passed": true,
+      "summary": "CANVAS update=1 ok=1 pressed=1 released=1 images=1 backend_calls=4 title=Canvas a11y=0",
+      "evidence": [
+        {
+          "tool": "desktop.vision.click",
+          "result": {
+            "schema": 2,
+            "status": "dispatched",
+            "window_id": "2097153",
+            "visual_scope": "@vs1",
+            "mark": 1,
+            "ref": "@v1",
+            "verified": true,
+            "side_effect_may_have_occurred": true,
+            "input_released": true,
+            "action_id": "49815d977301490a8d7d3850564dbbef",
+            "verification": {
+              "action_id": "49815d977301490a8d7d3850564dbbef",
+              "action": "desktop.vision.click",
+              "window_id": "2097153",
+              "status": "verified",
+              "reason": "condition_matched",
+              "verify_kind": "visual_text_exists",
+              "verified": true,
+              "condition_digest": "e266a6a27a8829179ba132b0bd21f7be554eefede77595ee80c4979e0820c711",
+              "evidence_id": "de985f77cd544b3081eb1b5848f5e8b7",
+              "observed_digest": "302d16fd974fb64ce892d2314c57f866f90339dac6cf81543d7e454229b5d065",
+              "captured_at_ms": 1791595079704,
+              "visual_scope": "@vs4",
+              "display_id": "screen",
+              "model_revision": "51769fd8e9146ef45e7455d27e6f60b4de76ccf2e1a14bc4ede784e2db2322d1",
+              "ocr_backend_calls": 4,
+              "environment_epoch": 3
+            }
+          }
+        },
+        {
+          "tool": "desktop.action.verify",
+          "result": {
+            "action_id": "49815d977301490a8d7d3850564dbbef",
+            "action": "desktop.vision.click",
+            "window_id": "2097153",
+            "status": "verified",
+            "reason": "condition_matched",
+            "verify_kind": "visual_text_exists",
+            "verified": true,
+            "condition_digest": "e266a6a27a8829179ba132b0bd21f7be554eefede77595ee80c4979e0820c711",
+            "evidence_id": "5b8c952fe9f34d50ba7e725a6ec62ca4",
+            "observed_digest": "209bb9f212a7d340a91e7ee252c916024d7f2efd1611513dfddad53a63228318",
+            "captured_at_ms": 1791595079017,
+            "visual_scope": "@vs3",
+            "display_id": "screen",
+            "model_revision": "51769fd8e9146ef45e7455d27e6f60b4de76ccf2e1a14bc4ede784e2db2322d1",
+            "ocr_backend_calls": 3,
+            "environment_epoch": 3
+          }
+        }
+      ],
+      "sample_sha256": [
+        "1cbdf244e2421690fc3325eadcb0505f758479621301fb6c745e19e969c8be7a",
+        "c07b8839a3bd5ac7c5646dcd7ccbe5745aa0ec2df7ed3ceb8713340079d89b90"
+      ]
+    },
+    {
+      "sample": "small",
+      "before": "保存文件",
+      "expected": "文件已保存",
+      "mode": "update",
+      "exit_code": 0,
+      "passed": true,
+      "summary": "CANVAS update=1 ok=1 pressed=1 released=1 images=1 backend_calls=4 title=Canvas a11y=0",
+      "evidence": [
+        {
+          "tool": "desktop.vision.click",
+          "result": {
+            "schema": 2,
+            "status": "dispatched",
+            "window_id": "2097153",
+            "visual_scope": "@vs1",
+            "mark": 1,
+            "ref": "@v1",
+            "verified": true,
+            "side_effect_may_have_occurred": true,
+            "input_released": true,
+            "action_id": "ba00ce32ab5e41c1998b2d5eeeaf79a4",
+            "verification": {
+              "action_id": "ba00ce32ab5e41c1998b2d5eeeaf79a4",
+              "action": "desktop.vision.click",
+              "window_id": "2097153",
+              "status": "verified",
+              "reason": "condition_matched",
+              "verify_kind": "visual_text_exists",
+              "verified": true,
+              "condition_digest": "91e68971b7ad2681a621c4744c2b7c82bbf555f1d57e1c9d0f0d7d7bbb0215e2",
+              "evidence_id": "1b08b238f8f94eb2b287227d6ba4f58c",
+              "observed_digest": "23ab8a911467b8b1ca6242534c8bb47a8d51818f977cf23e598ea178d7bbfd34",
+              "captured_at_ms": 1791595082178,
+              "visual_scope": "@vs4",
+              "display_id": "screen",
+              "model_revision": "51769fd8e9146ef45e7455d27e6f60b4de76ccf2e1a14bc4ede784e2db2322d1",
+              "ocr_backend_calls": 4,
+              "environment_epoch": 3
+            }
+          }
+        },
+        {
+          "tool": "desktop.action.verify",
+          "result": {
+            "action_id": "ba00ce32ab5e41c1998b2d5eeeaf79a4",
+            "action": "desktop.vision.click",
+            "window_id": "2097153",
+            "status": "verified",
+            "reason": "condition_matched",
+            "verify_kind": "visual_text_exists",
+            "verified": true,
+            "condition_digest": "91e68971b7ad2681a621c4744c2b7c82bbf555f1d57e1c9d0f0d7d7bbb0215e2",
+            "evidence_id": "1e7f103172f242a2930b43ed78166158",
+            "observed_digest": "15a0af05b65d02d03dbc364567d15394ada4966fe72b9cb884cce4bdba790260",
+            "captured_at_ms": 1791595081826,
+            "visual_scope": "@vs3",
+            "display_id": "screen",
+            "model_revision": "51769fd8e9146ef45e7455d27e6f60b4de76ccf2e1a14bc4ede784e2db2322d1",
+            "ocr_backend_calls": 3,
+            "environment_epoch": 3
+          }
+        }
+      ],
+      "sample_sha256": [
+        "70284e111f4c9625e8c6d18989a58690bdba70b63e7123d2baf86deb70db207a",
+        "9df3ca4024404f49214f2a120bf38871e3f2f468b721c390990b5a3e72ef7010"
+      ]
+    },
+    {
+      "sample": "mixed",
+      "before": "提交 Submit",
+      "expected": "完成 Done",
+      "mode": "update",
+      "exit_code": 0,
+      "passed": true,
+      "summary": "CANVAS update=1 ok=1 pressed=1 released=1 images=1 backend_calls=4 title=Canvas a11y=0",
+      "evidence": [
+        {
+          "tool": "desktop.vision.click",
+          "result": {
+            "schema": 2,
+            "status": "dispatched",
+            "window_id": "2097153",
+            "visual_scope": "@vs1",
+            "mark": 1,
+            "ref": "@v1",
+            "verified": true,
+            "side_effect_may_have_occurred": true,
+            "input_released": true,
+            "action_id": "50223374702a4467a4489b6a19c60e15",
+            "verification": {
+              "action_id": "50223374702a4467a4489b6a19c60e15",
+              "action": "desktop.vision.click",
+              "window_id": "2097153",
+              "status": "verified",
+              "reason": "condition_matched",
+              "verify_kind": "visual_text_exists",
+              "verified": true,
+              "condition_digest": "67117867558b213c3c11aae4c8502873f79d1c3def9e2143dd688a2533e92719",
+              "evidence_id": "578836ff42e040a2938d7b8a7321f557",
+              "observed_digest": "87defa035c004c92de54771c54d8186d3782f5843023f4a92fc4ae2904858928",
+              "captured_at_ms": 1791595086103,
+              "visual_scope": "@vs4",
+              "display_id": "screen",
+              "model_revision": "51769fd8e9146ef45e7455d27e6f60b4de76ccf2e1a14bc4ede784e2db2322d1",
+              "ocr_backend_calls": 4,
+              "environment_epoch": 3
+            }
+          }
+        },
+        {
+          "tool": "desktop.action.verify",
+          "result": {
+            "action_id": "50223374702a4467a4489b6a19c60e15",
+            "action": "desktop.vision.click",
+            "window_id": "2097153",
+            "status": "verified",
+            "reason": "condition_matched",
+            "verify_kind": "visual_text_exists",
+            "verified": true,
+            "condition_digest": "67117867558b213c3c11aae4c8502873f79d1c3def9e2143dd688a2533e92719",
+            "evidence_id": "15082d2724054527bf5d832f93833bc9",
+            "observed_digest": "cb513f034cd573868be2e9508bdd16a0c58f494d7295acf3996c8424af0c5076",
+            "captured_at_ms": 1791595085673,
+            "visual_scope": "@vs3",
+            "display_id": "screen",
+            "model_revision": "51769fd8e9146ef45e7455d27e6f60b4de76ccf2e1a14bc4ede784e2db2322d1",
+            "ocr_backend_calls": 3,
+            "environment_epoch": 3
+          }
+        }
+      ],
+      "sample_sha256": [
+        "4e0de6a127c876258b8600f1a2aedeec01c78a84bdfd3dddb159b1519d4f5af2",
+        "d122a3cee994d541ba095a5cf678793de3c05eb7af1449caeb69e19fa8ab6b0d"
+      ]
+    },
+    {
+      "sample": "unchanged",
+      "before": "Submit task",
+      "expected": "Task saved",
+      "mode": "unchanged",
+      "exit_code": 0,
+      "passed": true,
+      "summary": "CANVAS update=0 ok=0 pressed=1 released=1 images=1 backend_calls=4 title=Canvas a11y=0",
+      "evidence": [
+        {
+          "tool": "desktop.vision.click",
+          "result": {
+            "schema": 2,
+            "status": "dispatched",
+            "window_id": "2097153",
+            "visual_scope": "@vs1",
+            "mark": 1,
+            "ref": "@v1",
+            "verified": false,
+            "side_effect_may_have_occurred": true,
+            "input_released": true,
+            "action_id": "a7f0b56c0fe74434ba62593560db3164",
+            "verification": {
+              "action_id": "a7f0b56c0fe74434ba62593560db3164",
+              "action": "desktop.vision.click",
+              "window_id": "2097153",
+              "status": "unverified",
+              "reason": "condition_not_matched",
+              "verify_kind": "visual_text_exists",
+              "verified": false,
+              "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+              "evidence_id": "5c07fc02134b40929584782a68512672",
+              "observed_digest": "de4b6cb1e082ea09f75862b22500c09fb3c3f356d58f2f9cc45b2c62537b24c4",
+              "captured_at_ms": 1791595089214,
+              "visual_scope": "@vs4",
+              "display_id": "screen",
+              "model_revision": "51769fd8e9146ef45e7455d27e6f60b4de76ccf2e1a14bc4ede784e2db2322d1",
+              "ocr_backend_calls": 4,
+              "environment_epoch": 3
+            }
+          }
+        },
+        {
+          "tool": "desktop.action.verify",
+          "result": {
+            "action_id": "a7f0b56c0fe74434ba62593560db3164",
+            "action": "desktop.vision.click",
+            "window_id": "2097153",
+            "status": "unverified",
+            "reason": "condition_not_matched",
+            "verify_kind": "visual_text_exists",
+            "verified": false,
+            "condition_digest": "bff0ada82e65e42bc0ff1a0cd07f442788e2b5ac78b65eb5ec73990e0e919644",
+            "evidence_id": "e29c2c7fd13d44b881664a54f3751005",
+            "observed_digest": "aa47e3b16db2f71ffb7c64540731401d8739c1fb37d3f3e03c287feac6a96852",
+            "captured_at_ms": 1791595088365,
+            "visual_scope": "@vs3",
+            "display_id": "screen",
+            "model_revision": "51769fd8e9146ef45e7455d27e6f60b4de76ccf2e1a14bc4ede784e2db2322d1",
+            "ocr_backend_calls": 3,
+            "environment_epoch": 3
+          }
+        }
+      ],
+      "sample_sha256": [
+        "4c28c4beee47d1d5ae975aeff027ba39b3ae839242fc2d0bde489efd8a44c32f",
+        "071f6a1c08ac0f49bd7854e6ae03d9852552217b2d32e81094bfaaed3031bdc5"
+      ]
+    }
+  ],
+  "sanitizers": {
+    "asan_ubsan": {
+      "passed": 5,
+      "total": 5,
+      "manifest_sha256": "0210022d7f85dc0f7e0f8caebf1b5e5a9af89db49c87c25ab877d3a39e9ce6a4",
+      "font_sha256": "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9",
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "tsan": {
+      "passed": 0,
+      "total": 5,
+      "manifest_sha256": "0210022d7f85dc0f7e0f8caebf1b5e5a9af89db49c87c25ab877d3a39e9ce6a4",
+      "font_sha256": "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9",
+      "exit_codes": [
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "limitation": "Full-weight instrumented Canvas returned tool cancellation/unverified; 5s cooperative/30s owner budgets retained. Not a passed business acceptance; targeted TSAN CTest 6/6 passed."
+    }
+  },
+  "pins": {
+    "mira": "c75378ba1374450ae667af64561f86db1f90f4c4",
+    "mirador": "ae8cf87581c1ebe393a67374d9977a38354d0911",
+    "kairo": "ef821dcca05bbf9038409a2ff9acc5ed729936bc"
+  }
+}

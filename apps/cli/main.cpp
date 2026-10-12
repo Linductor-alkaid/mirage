@@ -3,6 +3,7 @@
 #include <mirage/runtime/ipc/client.hpp>
 #include <mirage/runtime/ipc/endpoint.hpp>
 #include <mirage/runtime/mira_host.hpp>
+#include <mirage/runtime/persistence/settings.hpp>
 #include <mirage/runtime/runtime_service.hpp>
 
 #include <chrono>
@@ -70,7 +71,7 @@ bool takes_value(const std::string &name) {
            name == "--read-root" || name == "--perm" || name == "--confirm" || name == "--config" ||
            name == "--state-dir" || name == "--session" || name == "--limit" || name == "--file" ||
            name == "--parameters-file" || name == "--digest" || name == "--policy" ||
-           name == "--shell" || name == "--tray";
+           name == "--shell" || name == "--tray" || name == "--ocr-manifest";
 }
 
 /// Splits `--name value` / `--name=value` pairs; returns false on usage
@@ -480,7 +481,8 @@ std::optional<std::string> sibling_binary(const std::string &name) {
 /// service daemon, BUG-20260916-001). Returns the child pid, or nullopt when
 /// the spawn itself failed.
 std::optional<long> spawn_product_tray(const std::string &binary, const std::string &socket_path,
-                                       const std::string &shell, bool open_frontend) {
+                                       const std::string &shell, bool open_frontend,
+                                       const std::optional<std::string> &ocr_manifest) {
 #ifdef _WIN32
     auto quote = [](const std::string &value) {
         std::string result = "\"";
@@ -506,6 +508,8 @@ std::optional<long> spawn_product_tray(const std::string &binary, const std::str
         command += " --no-shell";
     if (!socket_path.empty())
         command += " --socket " + quote(socket_path);
+    if (ocr_manifest.has_value())
+        command += " --ocr-manifest " + quote(*ocr_manifest);
     STARTUPINFOA startup{};
     startup.cb = sizeof(startup);
     PROCESS_INFORMATION process{};
@@ -543,12 +547,18 @@ std::optional<long> spawn_product_tray(const std::string &binary, const std::str
         }
         if (!socket_path.empty() && ::setenv("MIRAGE_NATIVE_SOCKET", socket_path.c_str(), 1) != 0)
             ::_exit(127);
-        if (open_frontend)
-            ::execl(binary.c_str(), binary.c_str(), "--socket", socket_path.c_str(), "--shell",
-                    shell.c_str(), static_cast<char *>(nullptr));
-        else
-            ::execl(binary.c_str(), binary.c_str(), "--socket", socket_path.c_str(), "--shell",
-                    shell.c_str(), "--no-shell", static_cast<char *>(nullptr));
+        std::vector<std::string> values{binary, "--socket", socket_path, "--shell", shell};
+        if (!open_frontend)
+            values.emplace_back("--no-shell");
+        if (ocr_manifest.has_value()) {
+            values.emplace_back("--ocr-manifest");
+            values.push_back(*ocr_manifest);
+        }
+        std::vector<char *> child_arguments;
+        for (auto &value : values)
+            child_arguments.push_back(value.data());
+        child_arguments.push_back(nullptr);
+        ::execv(binary.c_str(), child_arguments.data());
         ::_exit(127);
     }
     return static_cast<long>(child);
@@ -583,6 +593,7 @@ int command_start(int argc, char **argv) {
     bool with_tray = true;
     std::string shell_binary;
     std::string tray_binary;
+    std::optional<std::string> ocr_manifest;
     int index = 2; // skip the program name and "start"
     std::vector<std::string> extra;
     if (!consume_options(
@@ -604,6 +615,15 @@ int command_start(int argc, char **argv) {
                     shell_binary = value;
                     return true;
                 }
+                if (name == "--ocr-manifest") {
+                    if (!mirage::runtime::persistence::valid_ocr_manifest_path(value)) {
+                        std::cerr << "mirage: --ocr-manifest requires an absolute bounded path or "
+                                     "an empty value\n";
+                        return false;
+                    }
+                    ocr_manifest = value;
+                    return true;
+                }
                 if (name == "--tray") {
                     tray_binary = value;
                     return true;
@@ -620,6 +640,11 @@ int command_start(int argc, char **argv) {
 
     if (wait <= std::chrono::milliseconds{0}) {
         std::cerr << "mirage: --wait must be positive\n";
+        return kExitUsage;
+    }
+    if (!with_tray && ocr_manifest.has_value()) {
+        std::cerr << "mirage: --ocr-manifest requires the product tray; use mirage-service for "
+                     "headless OCR\n";
         return kExitUsage;
     }
     if (!with_tray) {
@@ -650,6 +675,11 @@ int command_start(int argc, char **argv) {
     bool reused = false;
     std::optional<long> tray_pid;
     if (hello.ok) {
+        if (ocr_manifest.has_value()) {
+            std::cerr << "mirage: OCR startup override requires restarting the existing service; "
+                         "close it first\n";
+            return kExitFailure;
+        }
         const auto *identity = std::get_if<mirage::runtime::ipc::ServiceIdentity>(&hello.payload);
         if (!identity || !identity->tray.has_value()) {
             std::cerr << "mirage: endpoint is owned by a headless/old service; close that service "
@@ -667,7 +697,7 @@ int command_start(int argc, char **argv) {
             std::cerr << "mirage: tray/frontend executable missing; startup refused\n";
             return kExitFailure;
         }
-        tray_pid = spawn_product_tray(*tray, options.socket_path, *shell, with_shell);
+        tray_pid = spawn_product_tray(*tray, options.socket_path, *shell, with_shell, ocr_manifest);
         if (!tray_pid) {
             std::cerr << "mirage: tray spawn failed\n";
             return kExitFailure;
@@ -1361,7 +1391,7 @@ void print_usage(std::ostream &out) {
         << "  --version                    Print Mirage, Mira core and platform versions\n"
         << "  --help                       Print this help\n"
         << "  start [--socket P] [--wait S] [--no-tray] [--no-shell]\n"
-        << "        [--tray PATH] [--shell PATH]\n"
+        << "        [--tray PATH] [--shell PATH] [--ocr-manifest PATH]\n"
         << "                               Start/reuse the tray-owned Agent Runtime\n"
         << "                               and its separate native frontend\n"
         << "  service start [--socket P] [--wait S] [--read-root DIR]...\n"

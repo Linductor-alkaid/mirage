@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "date": "2026-10-11",
+  "work_item": "M7-14 second increment",
+  "source_sha256": "1468f20d76b12cd54d4f6948ffc1d70bc703797de57380dc49eba3c8d4da2a23",
+  "session_digest": "a88134135b8a169196e467f65409eb2990743b8f3b4b53dcc273c8d171f4ea87",
+  "turn_digest": "0ee3067d5a501ec191544994a8f1654e5625601cd6b4132113818e8e4e3cbc32",
+  "recorded_at_ms": 1791681705570,
+  "turn_status": "failed",
+  "tools": [
+    {
+      "tool": "desktop.window.list",
+      "status": "complete"
+    },
+    {
+      "tool": "desktop.window.activate",
+      "status": "failed",
+      "verified": false,
+      "side_effect_may_have_occurred": false,
+      "diagnosis": "pre-dispatch invalid postcondition",
+      "persisted_receipt_bytes": 720,
+      "first_512_bytes_are_valid_json": false
+    },
+    {
+      "tool": "desktop.action.verify",
+      "status": "complete",
+      "verified": false,
+      "dispatched": false,
+      "side_effect_may_have_occurred": false
+    },
+    {
+      "tool": "desktop.screen.capture",
+      "status": "complete",
+      "verified": false
+    },
+    {
+      "tool": "desktop.vision.mark",
+      "status": "failed",
+      "diagnosis": "generic observation failure; exact provider stage absent in old history"
+    },
+    {
+      "tool": "desktop.vision.mark",
+      "status": "failed",
+      "diagnosis": "generic observation failure; exact provider stage absent in old history"
+    },
+    {
+      "tool": "desktop.vision.ocr",
+      "status": "complete",
+      "verified": false,
+      "region_count": 89,
+      "backend_calls": 3
+    },
+    {
+      "tool": "desktop.window.activate",
+      "status": "failed",
+      "diagnosis": "mutation fenced after prior rejection"
+    },
+    {
+      "tool": "desktop.window.list",
+      "status": "complete"
+    }
+  ],
+  "limitations": [
+    "Original invalid field/value cannot be recovered from redacted condition_digest.",
+    "Persisted UI receipt size is diagnostic, not a claim about captured network payload.",
+    "No private prompts, titles, text, screenshots, credentials or raw identifiers copied.",
+    "Online browser business task has not been rerun."
+  ]
+}

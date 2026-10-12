@@ -33,6 +33,69 @@ colors:
   dark-quote-background: '#202020'
   light-context-ring: '#737373'
   dark-context-ring: '#b1b1b1'
+  # 品牌强调色 — Mira 暖玫瑰（OKLCH hue ~15，呼应红发角色的温暖活力；区别于 ZCode sky-blue hue ~212）
+  light-brand: '#c94560'
+  dark-brand: '#f07585'
+  light-brand-subtle: '#fdeef1'
+  dark-brand-subtle: '#2e0d14'
+  light-brand-foreground: '#ffffff'
+  dark-brand-foreground: '#1a060b'
+  # 状态语义色 — success / warning / error
+  light-success: '#1a7f4b'
+  dark-success: '#4ade80'
+  light-success-subtle: '#e8f8ee'
+  dark-success-subtle: '#0c2918'
+  light-warning: '#9a6400'
+  dark-warning: '#fbbf24'
+  light-warning-subtle: '#fef5e0'
+  dark-warning-subtle: '#2b1d00'
+  light-error: '#c42828'
+  dark-error: '#f47171'
+  light-error-subtle: '#fdecea'
+  dark-error-subtle: '#2d0d0d'
+  # 查找 / 高亮
+  light-find-highlight: 'rgba(201, 69, 96, 0.15)'
+  dark-find-highlight: 'rgba(240, 117, 133, 0.20)'
+  light-find-highlight-active: 'rgba(201, 69, 96, 0.38)'
+  dark-find-highlight-active: 'rgba(240, 117, 133, 0.44)'
+  # 终端 ANSI 调色板（供终端展示表面使用；非对话 UI 控件色）
+  light-terminal-bg: '#f2f2f2'
+  dark-terminal-bg: '#161616'
+  light-terminal-fg: '#1e1e1e'
+  dark-terminal-fg: '#e0e0e0'
+  terminal-black: '#2e2e2e'
+  terminal-red: '#c42828'
+  terminal-green: '#1a7f4b'
+  terminal-yellow: '#9a6400'
+  terminal-blue: '#3a72d0'
+  terminal-magenta: '#8b3db5'
+  terminal-cyan: '#1a8f90'
+  terminal-white: '#c2c2c2'
+  terminal-bright-black: '#737373'
+  terminal-bright-red: '#f47171'
+  terminal-bright-green: '#4ade80'
+  terminal-bright-yellow: '#fbbf24'
+  terminal-bright-blue: '#6ea8f5'
+  terminal-bright-magenta: '#c084fc'
+  terminal-bright-cyan: '#2dd4bf'
+  terminal-bright-white: '#f0f0f0'
+  terminal-cursor: '#c94560'
+  terminal-cursor-dark: '#f07585'
+  terminal-selection: 'rgba(201, 69, 96, 0.22)'
+  terminal-selection-dark: 'rgba(240, 117, 133, 0.22)'
+  # Git 状态色（供文件树与差异视图使用）
+  light-git-added: '#1a7f4b'
+  dark-git-added: '#4ade80'
+  light-git-modified: '#9a6400'
+  dark-git-modified: '#fbbf24'
+  light-git-deleted: '#c42828'
+  dark-git-deleted: '#f47171'
+  light-git-renamed: '#c94560'
+  dark-git-renamed: '#f07585'
+  light-git-untracked: '#737373'
+  dark-git-untracked: '#a0a0a0'
+  light-git-ignored: '#ababab'
+  dark-git-ignored: '#555555'
 typography:
   headline:
     fontFamily: Noto Sans SC, sans-serif
@@ -290,7 +353,7 @@ components:
 - 明暗两态共享中性灰角色；默认浅色。
 - 随应用交付的 Noto Sans SC 中文无衬线文字与 Font Awesome Solid 操作图标；品牌继承 Mira 原始角色图。
 - 可调宽并收起的侧栏、右对齐用户气泡、无卡片 Markdown 回复与随文字增高的 composer。
-- 设置入口集中外观与模型；主题即时应用且仅在当前运行中保留，模型配置由服务保存并确认，API Key 直接输入并默认遮蔽。
+- 设置入口集中外观与模型；主题、文字大小与减少动画即时应用并持久化，模型配置由服务保存并确认，API Key 直接输入并默认遮蔽。
 - 平面容器、细描边、有限圆角。
 - 清晰展示实际轮次状态、已应用模型、附件/引用来源与服务连接结果；上下文比例取最近成功请求的输入 Token 与显式窗口预算，未知时明确说明。
 

@@ -1,3 +1,4 @@
+#include "visual_mark_renderer.hpp"
 #include <mirage/integration/visual_session_host.hpp>
 
 #include <kairo/comm/mailbox.hpp>
@@ -15,6 +16,7 @@
 #include <condition_variable>
 #include <future>
 #include <mutex>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -152,6 +154,7 @@ struct detail::VisualSessionCore {
     /// The template index shares the session's serial context (plan item
     /// `M3-04`); it dies with the core when the host stops.
     VisualTemplateIndex templates;
+    bool assets_enrolled = false; // Only touched by this source worker.
 
     std::mutex mutex;
     /// Wakes the worker for a published request, a stop, or the bounded
@@ -200,6 +203,49 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
     // pixel-space stages accept (submit() rejects the rest), so oriented
     // coordinates are the view's own pixel coordinates here.
     const mirador::RectI extent{0, 0, request.frame.image.width, request.frame.image.height};
+
+    const auto interrupted = [&] {
+        if (context.is_cancelled()) {
+            result.outcome =
+                map_status({mirador::ErrorCode::kCancelled, "template stage cancelled"});
+        } else if (context.deadline && std::chrono::steady_clock::now() >= *context.deadline) {
+            result.outcome = map_status({mirador::ErrorCode::kTimeout, "template stage expired"});
+        } else {
+            return false;
+        }
+        settle(state, std::move(result));
+        return true;
+    };
+    if (request.probe_geometry_templates) {
+        if (!core.assets_enrolled) {
+            for (const auto &asset : core.config.template_assets) {
+                if (interrupted())
+                    return;
+                const auto &p = asset.pixels;
+                mirador::ImageView view;
+                view.data = reinterpret_cast<const std::byte *>(p.pixels.data());
+                view.width = p.width;
+                view.height = p.height;
+                view.row_stride_bytes = static_cast<std::int64_t>(p.stride);
+                view.format = mirador::PixelFormat::kBgra8;
+                const auto enrolled = core.templates.enroll(asset.template_id, view);
+                if (!enrolled) {
+                    fail_result(result, enrolled.status());
+                    settle(state, std::move(result));
+                    return;
+                }
+            }
+            core.assets_enrolled = true;
+        }
+        for (const auto &asset : core.config.template_assets) {
+            if (!core.templates.contains(asset.template_id)) {
+                fail_result(result, mirador::ErrorCode::kInvalidArgument,
+                            "configured template identity was evicted");
+                settle(state, std::move(result));
+                return;
+            }
+        }
+    }
 
     // ---- template enrollment (explicit session-state mutation, fail closed)
     for (const VisualTemplateEnrollment &enrollment : request.enrollments) {
@@ -342,33 +388,44 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
     // ---- template probes at the detection regions (three-tier index match;
     // the reuse policy is the caller's clear-winner threshold)
     std::vector<TemplateProbe> template_probes;
-    if (request.probe_templates && request.run_detector) {
-        for (const mirador::DetectionRegion &region : result.detections) {
-            const mirador::RectI roi = clamp_region(region.bounds, extent);
-            if (roi.width <= 0 || roi.height <= 0) {
-                continue; // degenerate crop: no pixels to fingerprint
-            }
-            const mirador::Result<mirador::ImageBuffer> cropped =
-                crop_patch(request.frame, roi, core.config.templates);
-            if (!cropped.ok()) {
-                fail_result(result, cropped.status());
-                settle(state, std::move(result));
-                return;
-            }
-            mirador::Result<std::optional<VisualTemplateHit>> hit = core.templates.probe(
-                cropped.value().view(), request.template_query, request.template_reuse_threshold);
-            if (!hit.ok()) {
-                fail_result(result, hit.status());
-                settle(state, std::move(result));
-                return;
-            }
-            if (hit.value().has_value()) {
-                result.template_hits.push_back(*hit.value());
-                template_probes.push_back(TemplateProbe{hit.value()->entry_id, region.bounds,
-                                                        hit.value()->similarity, 0});
-            }
+    const auto probe_patch = [&](const mirador::RectF &bounds) {
+        if (interrupted())
+            return false;
+        const auto roi = clamp_region(bounds, extent);
+        if (roi.width <= 0 || roi.height <= 0)
+            return true;
+        const auto cropped = crop_patch(request.frame, roi, core.config.templates);
+        if (!cropped) {
+            fail_result(result, cropped.status());
+            settle(state, std::move(result));
+            return false;
         }
-    }
+        auto hit = core.templates.probe(cropped.value().view(), request.template_query,
+                                        request.template_reuse_threshold);
+        if (!hit) {
+            fail_result(result, hit.status());
+            settle(state, std::move(result));
+            return false;
+        }
+        if (hit.value()) {
+            result.template_hits.push_back(*hit.value());
+            template_probes.push_back({hit.value()->entry_id, bounds, hit.value()->similarity, 0});
+        }
+        return true;
+    };
+    if (request.probe_templates && request.run_detector)
+        for (const auto &region : result.detections)
+            if (!probe_patch(region.bounds))
+                return;
+    if (request.probe_geometry_templates)
+        for (const auto &proposal : proposals) {
+            const auto area =
+                static_cast<double>(proposal.tight_bounds.width) * proposal.tight_bounds.height;
+            if (area <= request.geometry.max_fused_area_fraction *
+                            static_cast<double>(extent.width) * extent.height &&
+                !probe_patch(to_rectf(proposal.tight_bounds)))
+                return;
+        }
 
     // ---- fusion of the produced visual evidence, then the enrolled template
     // identities are stamped onto the fused template regions (the fusion
@@ -383,6 +440,10 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
         }
         mirador::EvidenceSet evidence;
         for (const mirador::TextRegion &region : result.text) {
+            // Empty recognition is not a text fact; it can otherwise coalesce
+            // unrelated geometry candidates through an oversized OCR box (DEC-060).
+            if (region.utf8_text.empty())
+                continue;
             if (mirador::Result<std::uint64_t> added =
                     evidence.add_text(region, request.ocr.output_space);
                 !added.ok()) {
@@ -410,6 +471,11 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
         }
         if (request.geometry.run && request.geometry.fuse_proposals) {
             for (const mirador::GeometricRegionProposal &proposal : proposals) {
+                const auto area =
+                    static_cast<double>(proposal.tight_bounds.width) * proposal.tight_bounds.height;
+                const auto frame_area = static_cast<double>(extent.width) * extent.height;
+                if (area > request.geometry.max_fused_area_fraction * frame_area)
+                    continue; // Explicit candidate policy; raw proposals remain observable.
                 mirador::ExternalRegion region;
                 region.bounds = to_rectf(proposal.tight_bounds);
                 region.confidence = std::clamp(proposal.closure_score, 0.0F, 1.0F);
@@ -442,6 +508,13 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
                 continue;
             }
             bool identity_stamped = false;
+            bool conflicting = false;
+            std::string matched_identity;
+            std::optional<mirador::RectF> matched_bounds;
+            const auto same_bounds = [](const auto &a, const auto &b) {
+                return std::abs(a.x - b.x) < 0.01f && std::abs(a.y - b.y) < 0.01f &&
+                       std::abs(a.width - b.width) < 0.01f && std::abs(a.height - b.height) < 0.01f;
+            };
             for (const std::uint64_t evidence_id : region.evidence_ids) {
                 const auto probe = std::find_if(template_probes.begin(), template_probes.end(),
                                                 [evidence_id](const TemplateProbe &candidate) {
@@ -452,18 +525,39 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
                 }
                 if (const std::optional<std::string> identity =
                         core.templates.identity_for(probe->entry_id)) {
+                    const auto bounds =
+                        mirador::transform_rect(*request.display_transform, probe->bounds);
+                    if (identity_stamped &&
+                        (matched_identity != *identity ||
+                         (matched_bounds && !same_bounds(*matched_bounds, bounds))))
+                        conflicting = true;
+                    matched_bounds = bounds;
+                    matched_identity = *identity;
                     region.label = *identity;
                     identity_stamped = true;
                 }
-                break; // lowest evidence id decides, deterministically
+                if (!request.probe_geometry_templates)
+                    break; // Existing detector path: lowest evidence id decides.
             }
-            if (!identity_stamped) {
+            if (request.probe_geometry_templates && matched_bounds &&
+                !same_bounds(region.bounds, *matched_bounds))
+                conflicting = true; // A containing OCR/panel must not move the template anchor.
+            if (!identity_stamped || conflicting) {
                 // No enrolled identity behind the template bit: degrade to
                 // the geometry form instead of carrying a foreign label.
                 region.label.clear();
             }
         }
         result.snapshot = std::make_shared<const mirador::SemanticSnapshot>(std::move(enriched));
+    }
+
+    if (request.render_marks) {
+        const auto rendered = detail::render_marks(request, result, context);
+        if (!rendered) {
+            result.outcome = map_status(rendered.status());
+            settle(state, std::move(result));
+            return;
+        }
     }
 
     // ---- budget occupancy, read on the session's own scheduling context
@@ -564,6 +658,39 @@ bool VisualSessionHost::start(std::string &error) {
         error = "visual session source id must not be empty";
         return false;
     }
+    std::set<std::string> asset_ids;
+    std::size_t asset_bytes = 0;
+    for (const auto &asset : config_.template_assets) {
+        const auto &p = asset.pixels;
+        const bool valid_id =
+            !asset.template_id.empty() && asset.template_id.size() <= 64 &&
+            std::all_of(asset.template_id.begin(), asset.template_id.end(), [](unsigned char c) {
+                return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                       c == '.' || c == '_' || c == '-';
+            });
+        if (!valid_id || !asset_ids.insert(asset.template_id).second ||
+            config_.template_assets.size() > 16 || p.format != desktop::ImageFormat::Bgra8 ||
+            p.width < 8 || p.width > 256 || p.height < 8 || p.height > 256 ||
+            p.stride != static_cast<std::size_t>(p.width) * 4 ||
+            p.pixels.size() != p.stride * static_cast<std::size_t>(p.height)) {
+            lifecycle_.store(Lifecycle::New, std::memory_order_release);
+            error = "template asset identity/pixels/capacity invalid";
+            return false;
+        }
+        asset_bytes += p.pixels.size();
+    }
+    if (config_.templates.thumb_side < 8 || config_.templates.thumb_side > 64 ||
+        asset_bytes > (4u << 20) ||
+        config_.template_assets.size() > config_.templates.max_templates ||
+        static_cast<std::int64_t>(config_.template_assets.size()) *
+                (static_cast<std::int64_t>(config_.templates.thumb_side) *
+                     config_.templates.thumb_side +
+                 mirador::VisualIndex::kEntryOverheadBytes) >
+            config_.templates.max_bytes) {
+        lifecycle_.store(Lifecycle::New, std::memory_order_release);
+        error = "template asset index budget exceeded";
+        return false;
+    }
     mirador::Result<VisualTemplateIndex> templates = VisualTemplateIndex::create(config_.templates);
     if (!templates.ok()) {
         lifecycle_.store(Lifecycle::New, std::memory_order_release);
@@ -612,11 +739,16 @@ std::future<VisualAnalysisResult> VisualSessionHost::submit(VisualAnalysisReques
     // frame in oriented coordinates, which is only the view's own pixel
     // space for the adapter's rotation-k0 capture form.
     const VisualAnalysisRequest &analysis = state->request;
-    const bool pixel_space_stages =
-        !analysis.enrollments.empty() || analysis.probe_templates || analysis.geometry.run;
+    const bool pixel_space_stages = !analysis.enrollments.empty() || analysis.probe_templates ||
+                                    analysis.probe_geometry_templates || analysis.geometry.run ||
+                                    analysis.render_marks;
     if (pixel_space_stages && analysis.frame.image.rotation != mirador::Rotation::k0) {
         settle_rejected(*state,
                         "pixel-space stages require the adapter's rotation-k0 capture form");
+        return future;
+    }
+    if (analysis.render_marks && !analysis.fuse) {
+        settle_rejected(*state, "marks require fusion");
         return future;
     }
     for (const VisualTemplateEnrollment &enrollment : analysis.enrollments) {
@@ -624,6 +756,23 @@ std::future<VisualAnalysisResult> VisualSessionHost::submit(VisualAnalysisReques
             settle_rejected(*state, "enrollment identity must not be empty");
             return future;
         }
+    }
+    if (analysis.probe_geometry_templates &&
+        (!analysis.geometry.run || config_.template_assets.empty() ||
+         analysis.template_query.max_candidates <
+             static_cast<std::int32_t>(config_.template_assets.size()) ||
+         !(analysis.template_reuse_threshold >= 0.95) ||
+         !(analysis.template_reuse_threshold <= 1.0) ||
+         !(analysis.template_query.perceptual_similarity_threshold >= 0.95) ||
+         !(analysis.template_query.perceptual_similarity_threshold <= 1.0) ||
+         !(analysis.template_query.template_ncc_threshold >= 0.95) ||
+         !(analysis.template_query.template_ncc_threshold <= 1.0))) {
+        settle_rejected(*state, "geometry template policy/candidates invalid");
+        return future;
+    }
+    if (!config_.template_assets.empty() && !analysis.enrollments.empty()) {
+        settle_rejected(*state, "configured template library is immutable");
+        return future;
     }
     if (analysis.probe_templates) {
         if (!analysis.run_detector) {
@@ -639,6 +788,11 @@ std::future<VisualAnalysisResult> VisualSessionHost::submit(VisualAnalysisReques
             settle_rejected(*state, "template reuse threshold must be in [0, 1]");
             return future;
         }
+    }
+    if (analysis.geometry.run && (!(analysis.geometry.max_fused_area_fraction > 0.0) ||
+                                  !(analysis.geometry.max_fused_area_fraction <= 1.0))) {
+        settle_rejected(*state, "geometry fused area fraction must be in (0, 1]");
+        return future;
     }
     if (analysis.geometry.run && analysis.geometry.gray_convert_max_bytes <= 0) {
         settle_rejected(*state, "geometry stage requires a positive gray conversion budget");

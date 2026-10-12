@@ -29,3 +29,7 @@ sanitize_log/
 # Impeccable decision-server session state (not design artifacts)
 .impeccable/questions/
 **/.impeccable/questions/
+
+# Python test-driver bytecode
+__pycache__/
+*.py[cod]

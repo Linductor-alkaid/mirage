@@ -137,10 +137,15 @@ bool RuntimeBridge::call(ipc::Request request, std::string tag, std::uint64_t lo
     }
     if (p.stopping || !p.live.load() || p.calls.size() >= 16)
         return false;
-    const bool catalog = std::holds_alternative<ipc::ListModelsRequest>(request);
-    auto action = [&p, request = std::move(request), tag = std::move(tag), local_id, catalog] {
-        const auto timeout =
-            catalog ? std::chrono::milliseconds{25000} : std::chrono::milliseconds{4000};
+    const bool authorization =
+        std::holds_alternative<ipc::SetDesktopAuthorizationRequest>(request) ||
+        std::holds_alternative<ipc::GetDesktopAuthorizationRequest>(request);
+    const bool catalog = authorization || std::holds_alternative<ipc::ListModelsRequest>(request);
+    auto action = [&p, request = std::move(request), tag = std::move(tag), local_id, catalog,
+                   authorization] {
+        const auto timeout = authorization ? std::chrono::milliseconds{40000}
+                             : catalog     ? std::chrono::milliseconds{25000}
+                                           : std::chrono::milliseconds{4000};
         const auto response = (catalog ? p.catalog_client : p.client)->call(request, timeout).get();
         p.post({RuntimeMessage::Kind::Response, tag, local_id, response, {}});
     };

@@ -1,0 +1,244 @@
+{
+  "schema": 1,
+  "date": "2026-10-11",
+  "work_item": "M7-10",
+  "decision": "DEC-073",
+  "state": "native_wayland_observation_verified_input_pending",
+  "revision": "c786df7e047f03864f03f3bb1facd413f5111c03",
+  "sources": {
+    "platform/linux/src/portal_screen_backend.cpp": "052132efb8eb1c42667dc4ca61d0cf5d60f093d4f21336110ead78fd111527cd",
+    "platform/linux/src/portal_screen_backend.hpp": "1209492dfa0c937ffc342a2719800673b62965d59feb1d9e5faa10a1a29788f6",
+    "platform/linux/src/portal_pipewire_capture.cpp": "d2ea949302a7f9fcda79e18b2c7490a87acf38725ccf60f9773b5cd6a49b48cb",
+    "platform/linux/src/portal_pipewire_capture.hpp": "7f795b26c61cf43df7bd329cadb5d5575e7f89bfe8321ace2e5082bc4758da84",
+    "platform/linux/src/linux_desktop_environment.cpp": "8a9703105077aad14d237c9d7ae5bda1e65a786f4a502f038f710a00caae05e2",
+    "platform/linux/include/mirage/platform/linux/linux_desktop_environment.hpp": "adb0f5ca5381550af5abbbfed277191f079dc93d9588c45e5f33808d0f987ae9",
+    "desktop/environment/include/mirage/desktop/screen_provider.hpp": "606648c250f23cadd5130c29af08d8519ccdd00ac214a42d315e4ae23642972b",
+    "integration/mira/src/desktop_image_supply.cpp": "8c34c07b900f36acb82f035c75efc4bd4eaeb8ad2f4c4ce0dd3bb5ba97e61eed",
+    "integration/mira/src/desktop_image_supply.hpp": "cdcf063e083474fc340309c930123eb37126c0683012c779fe2e58bda2265157",
+    "integration/mira/src/model_layer.cpp": "8992a13838eea434cd8d378d77875848f70ee5c613cd09e5a456dd185a97c3c3",
+    "platform/CMakeLists.txt": "d89045bf852f2b4644ea3df17a28e4a8c3260bb0f91645d32387f78cc5ddb9c5",
+    "tests/CMakeLists.txt": "7d7cf965d82fddcddabd866c392cf4d162587356bbcaf37b2fda219f98cc3d11",
+    "tests/platform/portal_screen_test.cpp": "f2190c224bafabd7981cafa6969ec0fa0bba2c577316cbccdd063edaaee68774",
+    "tests/platform/portal_screen_fixture.py": "12af46d2ed704f6f83de7f3e57f536595aa40861b856c721beef64d179963bfc",
+    "packaging/linux/packaging-deb.cmake": "cdcb4a2a52e9687a6ceec69f8588227555ba28f50ad09b3a4712a8abf56df20b",
+    "tests/manual/local_visual_workflow_acceptance.py": "eccb6c56accc056964be6979ad6189d975519855648acf2a26980e8c08470e19",
+    "tests/manual/local_semantic_workflow_acceptance.py": "df884f6407f55990e61caef9cfaf68414567ffda5bde06f85dd16039844e3b49",
+    "tests/manual/product_vision_acceptance.py": "e9605752799c01523ee9f49aa277088978cb45fe0829db8b10a9402c7816b194",
+    "docs/decisions/DEC-073-wayland-portal-observation.md": "4449c998664de2923be5d23dc8f552f06eacaf72b79fc6e04d4884efc78d016e"
+  },
+  "tests": [
+    {
+      "name": "debug_full",
+      "passed": 67,
+      "total": 67,
+      "log": "/tmp/mirage-wayland-debug-full-stream.log",
+      "log_sha256": "e92db48e7ce942bce593632f062f007028913ed8a15bef38ef3c245eccd5c56b"
+    },
+    {
+      "name": "release_full",
+      "passed": 73,
+      "total": 73,
+      "log": "/tmp/mirage-wayland-release-final-tests.log",
+      "log_sha256": "c9610f53cd307038e22f614acf0f1b6987ccdc215cac58ca198a191719490708"
+    },
+    {
+      "name": "asan",
+      "passed": 7,
+      "total": 7,
+      "log": "/tmp/mirage-wayland-asan-final-tests.log",
+      "log_sha256": "6e09616bf780392f6cb7c8774fe3769ac44dc06442620e323111745d600b5f2c"
+    },
+    {
+      "name": "ubsan",
+      "passed": 7,
+      "total": 7,
+      "log": "/tmp/mirage-wayland-ubsan-final-tests.log",
+      "log_sha256": "65ff4e58933e587ae5f4b8daef7cac06978af30de4aa33966dea165f374693e2"
+    },
+    {
+      "name": "tsan",
+      "passed": 7,
+      "total": 7,
+      "log": "/tmp/mirage-wayland-tsan-final2-tests.log",
+      "log_sha256": "5ba4262617770f339fe69c67f7a57dacfc7b518c39bfb607af5d1c9951dd58bf"
+    }
+  ],
+  "product": [
+    {
+      "name": "release",
+      "passed": 37,
+      "total": 37,
+      "runs": 11,
+      "model_enabled": false,
+      "report_sha256": "37b7d67ffcd9217b86f33e109cc0117021c6cd3a3b874b5b29f37df8837de731"
+    },
+    {
+      "name": "deb",
+      "passed": 37,
+      "total": 37,
+      "runs": 11,
+      "model_enabled": false,
+      "report_sha256": "8f50576a6fd533743a57604008fb5f1dfc5cc5390eb26ec627fd8c2963022e39"
+    }
+  ],
+  "host": {
+    "session": "GNOME native Wayland",
+    "screenshot_response": 2,
+    "screenshot_saved_png": true,
+    "screenshot_bytes": 1100683,
+    "screenshot_dimensions": [
+      3200,
+      2000
+    ],
+    "screenshot_uri_received": false,
+    "screenshot_failure": "InteractiveScreenshot did not return a file",
+    "pipewire_sdk": "1.0.5-1ubuntu3.3",
+    "screencast_portal_version": 5,
+    "platform_probe_checks": 7,
+    "release_tool_probe_checks": 17,
+    "source_dimensions": [
+      3200,
+      2000
+    ],
+    "supplied_dimensions": [
+      1600,
+      1000
+    ],
+    "probe_log": "/tmp/mirage-wayland-host-tool-probe.log",
+    "probe_log_sha256": "2d134ed619fb2eccc0c52956b7f34eebe6d01706d473e47603c7646fea0bbb81",
+    "image_saved_by_mirage": false,
+    "raw_user_image_viewed": false
+  },
+  "fixture": {
+    "screenshot_scenarios": 24,
+    "screencast_scenarios": 17,
+    "cpu_pixel_checks": 18
+  },
+  "checks": {
+    "core_provider_public_headers": 53,
+    "boundary_violations": 0,
+    "formatted_cpp_files": 10,
+    "diff_check": true
+  },
+  "failures": [
+    {
+      "log": "/tmp/mirage-wayland-first-tests.log",
+      "log_sha256": "7e1ea897012d53414ce1062a63af921dce58a72c2adde0f00fca14e956675abb"
+    },
+    {
+      "log": "/tmp/mirage-wayland-stream-first-fixture.log",
+      "log_sha256": "b02b4a55a2a1f57e3aefb334bce410ac728b99d8727738d9391e4be2645e1dee"
+    },
+    {
+      "log": "/tmp/mirage-wayland-product-release.log",
+      "log_sha256": "68ef804dada2625ec89fc2136e9ff6dd6ea8f2fcf663a18f039669a63502f1d5"
+    },
+    {
+      "log": "/tmp/mirage-wayland-tsan-final-tests.log",
+      "log_sha256": "54fc0d075d587ab04e589afbf9ead1c1b4a22c0ae1bd6e3d143f81a6afad7c79"
+    }
+  ],
+  "user_state_guard": {
+    "configuration_and_history_unchanged": true,
+    "sha256_and_mtime": true
+  },
+  "scope": {
+    "observation_only": true,
+    "new_application_threads_or_schedulers": false,
+    "pinned_dependencies_modified_this_increment": false,
+    "system_sdk_installed": false,
+    "installed_or_released": false,
+    "committed_or_pushed": false
+  },
+  "remaining": [
+    "RemoteDesktop input and joint session lifecycle",
+    "persistent sharing/revocation restoration and mapping",
+    "multiple displays/DPI/hotplug/DMA-BUF",
+    "KDE/wlroots/Windows",
+    "online model visual planning and browser business goal",
+    "Git submission/review"
+  ],
+  "package": {
+    "path": "out/packages/mirage_0.1.0_amd64.deb",
+    "sha256": "8dca8770840d10f8430baf86fcd55c68304cb1f36efc29d4f226958ec95f4227",
+    "bytes": 54693700,
+    "binaries": {
+      "mirage": {
+        "built_sha256": "81bee530722fedbb157e106599abe9b9e7e458ef49c53ddc3dd22c0519db42e8",
+        "packaged_sha256": "81bee530722fedbb157e106599abe9b9e7e458ef49c53ddc3dd22c0519db42e8",
+        "matched": true
+      },
+      "mirage-service": {
+        "built_sha256": "934aa43a3dd3e949ac8822777cace4591be7c42bf68a042b6dade4f2da0b3a99",
+        "packaged_sha256": "934aa43a3dd3e949ac8822777cace4591be7c42bf68a042b6dade4f2da0b3a99",
+        "matched": true
+      },
+      "mirage-tray": {
+        "built_sha256": "0628d94fd0188e6a83b1a59fde16d6febe5189a37f68acbcb9d9e9d89d401751",
+        "packaged_sha256": "0628d94fd0188e6a83b1a59fde16d6febe5189a37f68acbcb9d9e9d89d401751",
+        "matched": true
+      },
+      "mirage-native": {
+        "built_sha256": "ff3bfb0ebe7cbefefaa4bd52c46e556ddde9a2643dbcd7e5c06fb655faed0e09",
+        "packaged_sha256": "ff3bfb0ebe7cbefefaa4bd52c46e556ddde9a2643dbcd7e5c06fb655faed0e09",
+        "matched": true
+      }
+    },
+    "pipewire_runtime_dependency": true,
+    "portal_backend_recommended": true,
+    "build_requires_pipewire_sdk": true
+  },
+  "sanitizer_limits": {
+    "asan_leak_detection": false,
+    "tsan_existing_system_glib_suppressions": true,
+    "persistent_pipewire_session_not_tested": true
+  },
+  "final_cleanup_verification": [
+    {
+      "name": "debug",
+      "passed": 3,
+      "total": 3,
+      "portal_scenarios": 41,
+      "cpu_pixel_checks": 18,
+      "log": "/tmp/mirage-wayland-debug-last-tests.log",
+      "log_sha256": "5f533efda5a7eb41e8108470a3b88a9d4fbc4528b30d09ddfd84998a7504944b"
+    },
+    {
+      "name": "release",
+      "passed": 3,
+      "total": 3,
+      "portal_scenarios": 41,
+      "cpu_pixel_checks": 18,
+      "log": "/tmp/mirage-wayland-release-last-tests.log",
+      "log_sha256": "da02193d6094e626219d42b7614c1b04466becd94cce524ceafeb7b9d883a550"
+    },
+    {
+      "name": "asan",
+      "passed": 3,
+      "total": 3,
+      "portal_scenarios": 41,
+      "cpu_pixel_checks": 18,
+      "log": "/tmp/mirage-wayland-asan-last-tests.log",
+      "log_sha256": "f2e5d8b34c43a43170a065d180a77bddd1989450fa54c4636d0b5af98c20f494"
+    },
+    {
+      "name": "ubsan",
+      "passed": 3,
+      "total": 3,
+      "portal_scenarios": 41,
+      "cpu_pixel_checks": 18,
+      "log": "/tmp/mirage-wayland-ubsan-last-tests.log",
+      "log_sha256": "e345a0e21d9b6f14aac7b39a8f70cfb9d3a7e3b11b46ac9cc00ca25be67150d3"
+    },
+    {
+      "name": "tsan",
+      "passed": 3,
+      "total": 3,
+      "portal_scenarios": 41,
+      "cpu_pixel_checks": 18,
+      "log": "/tmp/mirage-wayland-tsan-last-tests.log",
+      "log_sha256": "8223889750d58619a8640a12c2ef94aa9027639fbbea21ba63f1c68a188c348e"
+    }
+  ],
+  "compatibility_document_sha256": "615f371532f2611861e51986a773c1e52b86b78fa855636e8e6eba7c14668b18"
+}

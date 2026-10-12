@@ -1,0 +1,18 @@
+{
+  "family": "Phosphor Icons",
+  "style": "Regular",
+  "version": "2.1.1",
+  "license": "MIT",
+  "licenseFile": "MIT-Phosphor.txt",
+  "sourceRepository": "https://github.com/phosphor-icons/core",
+  "sourceTag": "v2.1.1",
+  "sourcePackage": "@phosphor-icons/web@2.1.1",
+  "sourcePackageURL": "https://registry.npmjs.org/@phosphor-icons/web/-/web-2.1.1.tgz",
+  "sourcePath": "package/src/regular/Phosphor.ttf",
+  "fontSha256": "06b91e022b7ee899a63efced879392a74f0bacbda54e4467e9f663220d173a10",
+  "fontBytes": 488636,
+  "transformation": "Byte-for-byte npm @phosphor-icons/web 2.1.1 regular TTF; no subsetting or glyph edits. Verified 2026-10-12 (M6-40): the package TTF sha256 matches the bundled file, and all 1530 named codepoints of the package's regular stylesheet resolve in the bundled font cmap.",
+  "importedOn": "2026-10-08",
+  "provenanceCompletedOn": "2026-10-12",
+  "usage": "操作图标唯一来源；码点集中登记于 apps/native/icons.hpp，调用点不得内联新码点。"
+}

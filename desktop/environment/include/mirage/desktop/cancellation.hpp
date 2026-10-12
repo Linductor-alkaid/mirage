@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <functional>
 #include <memory>
 
 namespace mirage::desktop {
@@ -13,8 +14,7 @@ namespace mirage::desktop {
 /// the pinned-free counterpart of the runtime's stop tokens: the runtime
 /// layer adapts its own cancellation onto it, providers only observe. Copies
 /// share one state, like the executor's StopToken; request_cancel() is safe
-/// from any thread and is idempotent. A default-constructed token can never
-/// be cancelled, so provider code may take one unconditionally.
+/// from any thread and is idempotent. A default token starts uncancelled.
 ///
 /// Requesting cancellation never interrupts anything by itself: providers
 /// observe the flag at bounded intervals on their own execution context and
@@ -22,11 +22,20 @@ namespace mirage::desktop {
 class CancelToken {
   public:
     CancelToken() = default;
+    /// A bounded caller-owned stop/deadline probe; no worker or timer. Copies
+    /// remain valid only while the synchronous provider operation is active.
+    explicit CancelToken(std::function<bool()> probe) : probe_(std::move(probe)) {}
 
     void request_cancel() noexcept { state->cancelled.store(true, std::memory_order_release); }
 
     [[nodiscard]] bool cancelled() const noexcept {
-        return state->cancelled.load(std::memory_order_acquire);
+        if (state->cancelled.load(std::memory_order_acquire))
+            return true;
+        try {
+            return probe_ && probe_();
+        } catch (...) {
+            return true;
+        }
     }
 
   private:
@@ -34,6 +43,7 @@ class CancelToken {
         std::atomic_bool cancelled{false};
     };
     std::shared_ptr<State> state = std::make_shared<State>();
+    std::function<bool()> probe_;
 };
 
 } // namespace mirage::desktop

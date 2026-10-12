@@ -9,6 +9,7 @@
 
 #include "../support/test.hpp"
 
+#include <mirage/runtime/persistence/app_preferences.hpp>
 #include <mirage/runtime/persistence/paths.hpp>
 #include <mirage/runtime/persistence/recovery.hpp>
 #include <mirage/runtime/persistence/session_state.hpp>
@@ -808,7 +809,64 @@ void scenario_session_state_strict_rejections() {
 
 } // namespace
 
+void scenario_vision_settings() {
+    namespace persistence = mirage::runtime::persistence;
+    persistence::LocalSettings settings;
+    settings.vision = persistence::VisionSettings{"/tmp/visual resources/清单.json"};
+    const auto decoded = persistence::decode_settings(persistence::encode_settings(settings));
+    MIRAGE_CHECK(decoded.ok && decoded.settings.vision &&
+                 decoded.settings.vision->ocr_manifest == settings.vision->ocr_manifest);
+    MIRAGE_CHECK(persistence::decode_settings(R"({"schema":1,"vision":{"ocr_manifest":""}})").ok);
+    for (const auto *body : {R"({"schema":1,"vision":[]})", R"({"schema":1,"vision":{}})",
+                             R"({"schema":1,"vision":{"ocr_manifest":1}})",
+                             R"({"schema":1,"vision":{"ocr_manifest":"relative.json"}})",
+                             R"({"schema":1,"vision":{"ocr_manifest":"/tmp/a\u0000b"}})",
+                             R"({"schema":1,"vision":{"ocr_manifest":"/tmp/a\nb"}})",
+                             R"({"schema":1,"vision":{"ocr_manifest":"/tmp/a","typo":true}})"})
+        MIRAGE_CHECK(!persistence::decode_settings(body).ok);
+    settings.vision->ocr_manifest = "/" + std::string(4096, 'a');
+    MIRAGE_CHECK(!persistence::decode_settings(persistence::encode_settings(settings)).ok);
+}
+
 int main() {
+    {
+        for (const auto *mode : {"default", "read_only", "chat_only"}) {
+            persistence::AppPreferences prefs;
+            prefs.default_access = mode;
+            prefs.dark = true;
+            prefs.default_reasoning = "quoted\"\\line\n";
+            const auto restored =
+                persistence::decode_app_preferences(persistence::encode_app_preferences(prefs));
+            MIRAGE_CHECK(restored.default_access == mode && restored.dark &&
+                         restored.default_reasoning == prefs.default_reasoning);
+        }
+        MIRAGE_CHECK(persistence::decode_app_preferences("broken").default_access == "chat_only");
+        MIRAGE_CHECK(
+            persistence::decode_app_preferences(R"({"default_access":true})").default_access ==
+            "chat_only");
+        MIRAGE_CHECK(
+            persistence::decode_app_preferences(R"({"default_access":"unknown"})").default_access ==
+            "chat_only");
+        MIRAGE_CHECK(persistence::decode_app_preferences(std::string(4097, 'x')).default_access ==
+                     "chat_only");
+        const auto legacy = persistence::decode_app_preferences(
+            R"({"dark":false,"default_access":"read_only","font_size_step":999999999999,"code_font_size_step":-5})");
+        MIRAGE_CHECK(!legacy.dark && legacy.default_access == "read_only" &&
+                     legacy.font_size_step == 2 && legacy.code_font_size_step == 0);
+    }
+    namespace persistence = mirage::runtime::persistence;
+    scenario_vision_settings();
+    {
+        persistence::LocalSettings settings;
+        settings.remember_desktop_authorization = true;
+        MIRAGE_CHECK(persistence::decode_settings(persistence::encode_settings(settings))
+                         .settings.remember_desktop_authorization);
+        MIRAGE_CHECK(!persistence::decode_settings(R"({"schema":1})")
+                          .settings.remember_desktop_authorization);
+        MIRAGE_CHECK(
+            !persistence::decode_settings(R"({"schema":1,"remember_desktop_authorization":"true"})")
+                 .ok);
+    }
     run_scenario("store_save_load_round_trip", scenario_store_save_load_round_trip);
     run_scenario("store_load_absent_without_file", scenario_store_load_absent_without_file);
     run_scenario("store_save_overwrites_previous_content",

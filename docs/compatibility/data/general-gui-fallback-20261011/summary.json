@@ -1,0 +1,178 @@
+{
+  "schema": 1,
+  "date": "2026-10-11",
+  "work_item": "M7-15",
+  "decision": "DEC-072",
+  "state": "local_verified_online_pending",
+  "revision": "c786df7e047f03864f03f3bb1facd413f5111c03",
+  "sources": {
+    "integration/mira/src/desktop_region_tools.cpp": "a33380e31b18ad59acd82e4ea26415b59cdb383e012f9b5d8ecf5d2b10d39aa9",
+    "integration/mira/src/desktop_image_supply.cpp": "ffac459e2b7efdf06c74cc6db51a413ef48f28f2e170a37b52a52e50822b7c63",
+    "integration/mira/src/desktop_image_supply.hpp": "75e5a2d63e75336bda7a789f43c9a4fcc74d25cca9c00f64f030526beb0cc6bb",
+    "integration/mira/src/desktop_action_verification.cpp": "d15e4d73ad3f0b53840d2c3701672fc54436b97d6fd516cd61bca9e824fa9e5a",
+    "integration/mira/src/desktop_action_verification.hpp": "b214074517c807af68ecc6db262fd417ebf31e768f02d9c0847533243ccb71c6",
+    "integration/mira/src/desktop_atom_toolset.cpp": "830ee009bb188dc3a4b153d9f7601b66c58fed150d74fda7c1e44f264f0cbc4e",
+    "integration/mira/src/model_layer.cpp": "6c64039a42e6b5e64ea89c84f9189123ce037657808c13680f009a7de8e67a74",
+    "integration/mira/CMakeLists.txt": "b09b41266c1555c008efcd6b5ff8532be9024a6fe38830043dd5481500735a0a",
+    "runtime/conversation/include/mirage/conversation.hpp": "3841016fa251a34fce3cf4951083dafe71189adf58edbfc672540ba1faa7ed3b",
+    "runtime/conversation/src/conversation.cpp": "459a001763976fb2ca2a367f99c182d9e30e7b9885e440caf5cd96b11edd3dc4",
+    "apps/native/app.cpp": "92459ab5d0f4bcf4d8e80cb2be6dc8be99f4b9f0676b80b2b719c5cbb510597a",
+    "tests/integration/gui_fallback_test.cpp": "dd399b3be84f9140b6843cb4993c8ee62588d8921d3b8d95f0fed8e054b2c02d",
+    "tests/integration/desktop_image_supply_test.cpp": "684d2ed53438009ce13716fe189d46596e45ac392fc5f0d45e3902e2b6435cbd",
+    "tests/desktop/native_chat_model_test.cpp": "f19868d72392e87f4918c6c2597f8629e15882e93446b0e525f6d048d0c18650",
+    "tests/CMakeLists.txt": "e016e56fcd25cfc7a4952eafc5b3447198e6b41abd216f248780c30f302a764e",
+    "docs/decisions/DEC-072-general-gui-fallback.md": "45d48509b4d69d8641a98e9dbbf9ea29b739489907177269c97081e3e59bbfee"
+  },
+  "tests": [
+    {
+      "name": "debug",
+      "passed": 66,
+      "total": 66,
+      "isolation_fixtures": 2,
+      "gui_checks": 243,
+      "log": "/tmp/mirage-dec072-debug-final-tests.log",
+      "log_sha256": "ab8f450aa1054a4a80d066fadca493a5c31e5407df0b17085a63e8671bb76971"
+    },
+    {
+      "name": "release",
+      "passed": 72,
+      "total": 72,
+      "isolation_fixtures": 2,
+      "gui_checks": 243,
+      "log": "/tmp/mirage-dec072-release-final-tests.log",
+      "log_sha256": "5d2386acc75e5373ae654f71a9345d995212cc4c3ea4fd5d9163667a7f713c56"
+    },
+    {
+      "name": "asan",
+      "passed": 11,
+      "total": 11,
+      "isolation_fixtures": 2,
+      "gui_checks": 243,
+      "log": "/tmp/mirage-dec072-asan-final-tests.log",
+      "log_sha256": "7f854c633588cf61224e9b9f9d5b053edc6bcbd8fc9680108639e7b9309a8c22"
+    },
+    {
+      "name": "tsan",
+      "passed": 11,
+      "total": 11,
+      "isolation_fixtures": 2,
+      "gui_checks": 243,
+      "log": "/tmp/mirage-dec072-tsan-final-tests.log",
+      "log_sha256": "79772997aeb0f77eb636854303eeb635bb6b0daf01522bd26514007e0086f3ca"
+    }
+  ],
+  "product": [
+    {
+      "name": "release",
+      "passed": 37,
+      "total": 37,
+      "runs": 11,
+      "model_enabled": false,
+      "report_sha256": "30848df075e507f45921d47d380e1037d64f3d77607c1cc65cadf6a66244a496"
+    },
+    {
+      "name": "deb",
+      "passed": 37,
+      "total": 37,
+      "runs": 11,
+      "model_enabled": false,
+      "report_sha256": "37457dd0b3dd4a9008045ef48b516484ffe5f2a84e6e94035972ad6c0a11f365"
+    }
+  ],
+  "package": {
+    "path": "out/packages/mirage_0.1.0_amd64.deb",
+    "sha256": "fc738257441204e2b059702dca29131e3955ccc9742fad466c0a95c231cb40d0",
+    "bytes": 54599960,
+    "binaries": {
+      "mirage": {
+        "built_sha256": "f39e7b341cee865ef3b209bfd7df79a371c9e77652c821b1833451f18d6bec23",
+        "packaged_sha256": "f39e7b341cee865ef3b209bfd7df79a371c9e77652c821b1833451f18d6bec23",
+        "matched": true
+      },
+      "mirage-service": {
+        "built_sha256": "a3d66871a95d7d335938108c8cc8dad9b210fc6bfbaa104972b4e01f1f1a99d5",
+        "packaged_sha256": "a3d66871a95d7d335938108c8cc8dad9b210fc6bfbaa104972b4e01f1f1a99d5",
+        "matched": true
+      },
+      "mirage-tray": {
+        "built_sha256": "e2d6655df54db19e31430c7484b7bfa9031a29f6cb79370c2c56fddb4b188c42",
+        "packaged_sha256": "e2d6655df54db19e31430c7484b7bfa9031a29f6cb79370c2c56fddb4b188c42",
+        "matched": true
+      },
+      "mirage-native": {
+        "built_sha256": "ff3bfb0ebe7cbefefaa4bd52c46e556ddde9a2643dbcd7e5c06fb655faed0e09",
+        "packaged_sha256": "ff3bfb0ebe7cbefefaa4bd52c46e556ddde9a2643dbcd7e5c06fb655faed0e09",
+        "matched": true
+      }
+    }
+  },
+  "user_state_guard": {
+    "configuration_and_history_unchanged": true,
+    "sha256_and_mtime": true,
+    "path_names_not_copied": true
+  },
+  "checks": {
+    "public_headers": 53,
+    "boundary_violations": 0,
+    "formatted_cpp_files": 12,
+    "native_card_regional_format": true,
+    "diff_check": true
+  },
+  "failures": [
+    {
+      "name": "mirage-dec072-first-build.log",
+      "log": "/tmp/mirage-dec072-first-build.log",
+      "log_sha256": "1c60b960aa12b02181428a196b3179af96ad2a64bf366a40ddcb2836dc147d98"
+    },
+    {
+      "name": "mirage-dec072-debug-build2.log",
+      "log": "/tmp/mirage-dec072-debug-build2.log",
+      "log_sha256": "2d44877518a81acd46d10516824f367174745513c45bd7c8fb81b700dd7759fd"
+    },
+    {
+      "name": "mirage-dec072-first-tests.log",
+      "log": "/tmp/mirage-dec072-first-tests.log",
+      "log_sha256": "ab89dac3f334c835422853c1a1a96cb3525340136dda53ce9e598f956964360d"
+    },
+    {
+      "name": "mirage-dec072-gui2-tests.log",
+      "log": "/tmp/mirage-dec072-gui2-tests.log",
+      "log_sha256": "3fa3f8a8308b99042f74198987b3b7d010755c2f50f6738e1699d9478421986a"
+    },
+    {
+      "name": "mirage-dec072-gui3-tests.log",
+      "log": "/tmp/mirage-dec072-gui3-tests.log",
+      "log_sha256": "a4c669f67e736b73b34b62d8c8a24f5c03e7e5e7c0a9e447bbec593d8e9281f4"
+    },
+    {
+      "name": "mirage-dec072-debug-tests.log",
+      "log": "/tmp/mirage-dec072-debug-tests.log",
+      "log_sha256": "c19ee74b9aaafe316a8f4c8562f2a70cce8a82455753d6b461430a4fa0732b80"
+    },
+    {
+      "name": "mirage-dec072-debug-tray-retry.log",
+      "log": "/tmp/mirage-dec072-debug-tray-retry.log",
+      "log_sha256": "7309af6bfb69e362cd94df7bd46d696a81ff94977e3f8bd885a6ba6714b56c18"
+    }
+  ],
+  "scope": {
+    "no_application_or_accessibility_provider": true,
+    "real_x11_input": true,
+    "fixture_browser_not_firefox": true,
+    "model_script_offline": true,
+    "model_seen_png": true,
+    "region_delay_5100ms": true,
+    "region_60s_wall_clock_expiry_tested": false,
+    "new_threads_or_schedulers": false,
+    "pinned_dependency_changes": false,
+    "installed_or_released": false,
+    "committed_or_pushed": false
+  },
+  "remaining": [
+    "online model autonomous route/target selection and real browser goal",
+    "moving target re-grounding and M7-11 conversation assets",
+    "arbitrary applications/menus, multiple displays/non-integer DPI",
+    "Windows/native Wayland",
+    "Git submission/review"
+  ]
+}

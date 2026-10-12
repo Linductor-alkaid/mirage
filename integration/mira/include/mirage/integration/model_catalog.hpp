@@ -29,6 +29,9 @@ struct ModelCatalogResult {
 /// Normalize the bounded OpenAI/Anthropic or models[] catalog response.
 ModelCatalogResult parse_model_catalog(const std::string &body);
 
+/// Derive model-list URLs without changing the inference endpoint or credential scope.
+std::vector<std::string> model_catalog_urls(const ModelCatalogQuery &query);
+
 /// Bounded, explicit discovery over Mira's Executor-backed HTTP transport.
 /// The caller runs this on an Executor task and owns its cancellation probe.
 ModelCatalogResult fetch_model_catalog(kairo::Executor &executor, const ModelCatalogQuery &query,

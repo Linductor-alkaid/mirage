@@ -89,6 +89,8 @@ class VisualTemplateIndex {
     /// Fingerprints `patch` and queries the index; a clear-winner hit is
     /// reported with its enrolled identity. A nullopt value (an ok Result)
     /// means "no unambiguous enrolled match", not a failure. Non-const: the
+    /// Candidate capacity must cover every live index entry; otherwise kInvalidArgument
+    /// prevents a truncated query from hiding ambiguity (DEC-061). The
     /// mirador query promotes touched entries between evidence tiers, one
     /// more reason the index stays in the session's serial context.
     [[nodiscard]] mirador::Result<std::optional<VisualTemplateHit>>

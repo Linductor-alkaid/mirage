@@ -25,6 +25,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         linux/src/platform_linux.cpp
         linux/src/linux_desktop_environment.cpp
         linux/src/credential_store.cpp
+        linux/src/portal_screen_backend.cpp
+        linux/src/portal_input.cpp
+        linux/src/portal_authorization.cpp
     )
     # The X11/XWayland frontend (M2-02) is optional so a machine without the
     # X11 dev packages still builds the platform library; the backend then
@@ -35,6 +38,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         target_link_libraries(mirage_platform PRIVATE ${X11_X11_LIB} ${X11_Xtst_LIB}
                                                       ${X11_Xrandr_LIB})
         target_compile_definitions(mirage_platform PRIVATE MIRAGE_LINUX_X11=1)
+        option(MIRAGE_ENABLE_X11_DRAG_HELPERS "Resolve same-client X11 drag helper windows" ON)
+        if(MIRAGE_ENABLE_X11_DRAG_HELPERS AND X11_XRes_FOUND)
+            target_link_libraries(mirage_platform PRIVATE X11::XRes)
+            target_compile_definitions(mirage_platform PRIVATE MIRAGE_LINUX_XRES=1)
+            set_property(TARGET mirage_platform PROPERTY MIRAGE_X11_DRAG_HELPERS_AVAILABLE TRUE)
+            message(STATUS "Linux X11 drag helper ownership enabled (XRes)")
+        else()
+            message(STATUS "Linux X11 drag helpers use strict rejection: XRes absent or disabled")
+        endif()
         message(STATUS "Linux X11 backend enabled (X11 ${X11_VERSION})")
     else()
         target_sources(mirage_platform PRIVATE linux/src/x11_backend_stub.cpp)
@@ -80,6 +92,31 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         pkg_check_modules(GIO_UNIX QUIET IMPORTED_TARGET gio-unix-2.0)
     endif()
     if(GIO_UNIX_FOUND)
+        find_package(PNG QUIET)
+        if(PNG_FOUND)
+            target_link_libraries(mirage_platform PRIVATE PNG::PNG)
+            target_compile_definitions(mirage_platform PRIVATE MIRAGE_LINUX_PORTAL=1)
+            set_property(TARGET mirage_platform PROPERTY MIRAGE_PORTAL_AVAILABLE TRUE)
+            pkg_check_modules(PIPEWIRE QUIET IMPORTED_TARGET libpipewire-0.3)
+            set(MIRAGE_PIPEWIRE_SDK_ROOT "" CACHE PATH "Optional extracted distribution PipeWire development SDK")
+            if(PIPEWIRE_FOUND)
+                target_link_libraries(mirage_platform PRIVATE PkgConfig::PIPEWIRE)
+            elseif(MIRAGE_PIPEWIRE_SDK_ROOT)
+                find_path(MIRAGE_PIPEWIRE_HEADERS pipewire/pipewire.h
+                    PATHS "${MIRAGE_PIPEWIRE_SDK_ROOT}/usr/include/pipewire-0.3" NO_DEFAULT_PATH REQUIRED)
+                find_path(MIRAGE_SPA_HEADERS spa/param/video/format-utils.h
+                    PATHS "${MIRAGE_PIPEWIRE_SDK_ROOT}/usr/include/spa-0.2" NO_DEFAULT_PATH REQUIRED)
+                find_library(MIRAGE_PIPEWIRE_LIBRARY NAMES pipewire-0.3 libpipewire-0.3.so.0 REQUIRED)
+                target_include_directories(mirage_platform SYSTEM PRIVATE ${MIRAGE_PIPEWIRE_HEADERS} ${MIRAGE_SPA_HEADERS})
+                target_link_libraries(mirage_platform PRIVATE ${MIRAGE_PIPEWIRE_LIBRARY})
+            endif()
+            if(PIPEWIRE_FOUND OR MIRAGE_PIPEWIRE_SDK_ROOT)
+                target_sources(mirage_platform PRIVATE linux/src/portal_pipewire_capture.cpp)
+                target_compile_definitions(mirage_platform PRIVATE MIRAGE_LINUX_PIPEWIRE=1)
+                set_property(TARGET mirage_platform PROPERTY MIRAGE_PIPEWIRE_AVAILABLE TRUE)
+                message(STATUS "Linux Wayland ScreenCast/PipeWire capture enabled")
+            endif()
+        endif()
         target_sources(mirage_platform PRIVATE
             linux/src/application_backend.cpp
             linux/src/notification_backend.cpp

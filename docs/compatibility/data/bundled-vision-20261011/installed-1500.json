@@ -1,0 +1,106 @@
+{
+  "scope": "Linux private Xvfb; actual launcher/tray/native and PP-OCR; optional one authorized MiniMax native turn",
+  "checks": [
+    {
+      "name": "relative startup path rejected before launch",
+      "passed": true
+    },
+    {
+      "name": "missing startup path rejected before launch",
+      "passed": true
+    },
+    {
+      "name": "headless launcher rejects product OCR override",
+      "passed": true
+    },
+    {
+      "name": "actual launcher start",
+      "passed": true
+    },
+    {
+      "name": "bundled OCR runs without vision configuration",
+      "passed": true
+    },
+    {
+      "name": "bundled manifest automatically selected",
+      "passed": true
+    },
+    {
+      "name": "default bundle recognizes public Canvas text",
+      "passed": true
+    },
+    {
+      "name": "native save persists without hot pipeline changes",
+      "passed": true
+    },
+    {
+      "name": "native save preserves model configuration",
+      "passed": true
+    },
+    {
+      "name": "actual launcher start",
+      "passed": true
+    },
+    {
+      "name": "normal product restart consumes saved manifest",
+      "passed": true
+    },
+    {
+      "name": "startup override refuses existing tray",
+      "passed": true
+    },
+    {
+      "name": "ordinary startup still reuses tray",
+      "passed": true
+    },
+    {
+      "name": "actual product observation recognizes public Canvas text",
+      "passed": true
+    },
+    {
+      "name": "clearing manifest waits for restart",
+      "passed": true
+    },
+    {
+      "name": "actual launcher start with OCR override",
+      "passed": true
+    },
+    {
+      "name": "explicit launcher override forwarded despite saved disable",
+      "passed": true
+    },
+    {
+      "name": "invalid persisted resource refuses startup",
+      "passed": true
+    },
+    {
+      "name": "actual launcher start",
+      "passed": true
+    },
+    {
+      "name": "empty startup override recovers settings access",
+      "passed": true
+    },
+    {
+      "name": "recovery can persist disabled OCR",
+      "passed": true
+    },
+    {
+      "name": "damaged bundled weight refuses normal startup",
+      "passed": true
+    },
+    {
+      "name": "actual launcher start",
+      "passed": true
+    },
+    {
+      "name": "explicit empty override recovers damaged bundle",
+      "passed": true
+    },
+    {
+      "name": "missing bundled weight refuses normal startup",
+      "passed": true
+    }
+  ],
+  "resource_manifest": "/tmp/mirage-ppocrv5-resources-logits-20261009/manifest.json"
+}

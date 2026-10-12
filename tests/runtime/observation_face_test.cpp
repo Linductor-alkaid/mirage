@@ -90,6 +90,11 @@ int main() {
     const Window xwindow =
         XCreateSimpleWindow(xdisplay, DefaultRootWindow(xdisplay), 10, 10, 200, 150, 0, 0, 0);
     XStoreName(xdisplay, xwindow, kWindowTitle);
+    const std::string utf8_title = kWindowTitle;
+    XChangeProperty(xdisplay, xwindow, XInternAtom(xdisplay, "_NET_WM_NAME", False),
+                    XInternAtom(xdisplay, "UTF8_STRING", False), 8, PropModeReplace,
+                    reinterpret_cast<const unsigned char *>(utf8_title.data()),
+                    static_cast<int>(utf8_title.size()));
     XMapWindow(xdisplay, xwindow);
     XSync(xdisplay, False);
 

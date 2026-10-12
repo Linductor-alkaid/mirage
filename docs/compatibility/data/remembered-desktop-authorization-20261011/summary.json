@@ -1,0 +1,131 @@
+{
+  "date": "2026-10-11",
+  "work_item": "M7-10 sixth increment",
+  "decision": "DEC-078",
+  "status": "In Progress",
+  "owner": "Mirage maintainer",
+  "host_acceptance": {
+    "status": "pending",
+    "reason": "Maintainer requested automated verification first; real authorization deferred",
+    "conditions": [
+      "unlocked GNOME Wayland desktop",
+      "RemoteDesktop v2",
+      "remote control and remember selection allowed",
+      "unlocked writable system keyring"
+    ],
+    "checks": [
+      "two independent tasks restore without repeated prompt",
+      "new product process restores after full exit",
+      "stable product AppID",
+      "revocation or source changes handled"
+    ]
+  },
+  "automatic": {
+    "debug": {
+      "passed": 69,
+      "total": 69
+    },
+    "native_release": {
+      "passed": 75,
+      "total": 75
+    },
+    "asan": {
+      "passed": 9,
+      "total": 9,
+      "includes_fixture_setup_cleanup": true
+    },
+    "ubsan": {
+      "passed": 9,
+      "total": 9,
+      "includes_fixture_setup_cleanup": true
+    },
+    "tsan": {
+      "passed": 9,
+      "total": 9,
+      "includes_fixture_setup_cleanup": true,
+      "duration_s": 164.47,
+      "existing_glib_suppression_only": true
+    },
+    "portal_fixture": {
+      "scenarios": 60,
+      "host_input": false,
+      "user_pixels": false
+    },
+    "token_state_unit": {
+      "checks": 23,
+      "failures": 0
+    },
+    "ipc_golden": {
+      "checks": 1374,
+      "failures": 0
+    },
+    "persistence": {
+      "checks": 300,
+      "failures": 0
+    },
+    "private_product": {
+      "checks": 37,
+      "passed": 37,
+      "workflow_runs": 11,
+      "canvas_clicks": 6,
+      "default_ppocr_ncnn": true,
+      "model_disabled": true
+    },
+    "private_ui": {
+      "light": true,
+      "dark": true,
+      "small_size": [
+        800,
+        650
+      ],
+      "refresh": true,
+      "graceful_shutdown": true,
+      "platform": "X11 fixture; authorization unsupported state"
+    }
+  },
+  "package": {
+    "package": "/home/linductor/mirage/out/packages/mirage_0.1.0_amd64.deb",
+    "package_sha256": "19850800cae0d39aa8da43ed27b7c47a339fce81bd549b8e2106cc3322434d1e",
+    "binaries": [
+      {
+        "binary": "mirage",
+        "sha256": "6396d34b31ce6fb1447b707996803c085c369a74ff65299ba2556107f4cea1e4",
+        "matches_release": true
+      },
+      {
+        "binary": "mirage-service",
+        "sha256": "c29ae9f9e3afc6d71e24532c72791f43628e08d176a687591b3a38725b7c0167",
+        "matches_release": true
+      },
+      {
+        "binary": "mirage-tray",
+        "sha256": "3bffb95c1cc7ad33ebe9c491cd5dffc9f2e180ac6e574fda13a37c14af4bc8ec",
+        "matches_release": true
+      },
+      {
+        "binary": "mirage-native",
+        "sha256": "7f21515529eeaa32e978e597fc10fe0bd5a7f3c55b501e158ac03c39521cee04",
+        "matches_release": true
+      }
+    ]
+  },
+  "user_state": {
+    "files": 6,
+    "sha256_unchanged": true
+  },
+  "dependency_pin_changed_this_increment": false,
+  "committed": false,
+  "pushed": false,
+  "initial_failures": [
+    {
+      "scope": "debug Portal fixture",
+      "cause": "new fixture modes used with old binary while rebuild in progress",
+      "resolution": "build completed then full Debug and Native Release suites passed"
+    },
+    {
+      "scope": "private visual product run",
+      "observation": "immediate subsequent workflow.run rejected after preceding terminal event during parallel load",
+      "resolution": "Separate final run 37/37; original error response unavailable, admission/receipt/settlement cause remains unconfirmed. Mirage maintainer to reproduce with response and event evidence under parallel load."
+    }
+  ]
+}

@@ -1,0 +1,136 @@
+{
+  "manifest_sha256": "7803492b0b5b21f9df5a9674f0e43dc7d8d574caaac11ee1daa09948b660f0b0",
+  "font_sha256": "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9",
+  "passed": 4,
+  "total": 4,
+  "samples": [
+    {
+      "sample": "english",
+      "expected": "Submit task",
+      "observed": "Submit task",
+      "text_box": [
+        28,
+        67,
+        206,
+        93
+      ],
+      "regions": [
+        {
+          "bounds": [
+            24,
+            60,
+            186,
+            40
+          ],
+          "confidence": 0.992278,
+          "text": "Submit task"
+        }
+      ],
+      "text_region_count": 1,
+      "exact_match": true,
+      "position_match": true,
+      "exit_code": 0,
+      "pixels": [
+        480,
+        180
+      ],
+      "sample_sha256": "4c28c4beee47d1d5ae975aeff027ba39b3ae839242fc2d0bde489efd8a44c32f"
+    },
+    {
+      "sample": "chinese",
+      "expected": "提交任务",
+      "observed": "提交任务",
+      "text_box": [
+        28,
+        65,
+        156,
+        97
+      ],
+      "regions": [
+        {
+          "bounds": [
+            23,
+            61,
+            136,
+            43
+          ],
+          "confidence": 0.984076,
+          "text": "提交任务"
+        }
+      ],
+      "text_region_count": 1,
+      "exact_match": true,
+      "position_match": true,
+      "exit_code": 0,
+      "pixels": [
+        480,
+        180
+      ],
+      "sample_sha256": "1cbdf244e2421690fc3325eadcb0505f758479621301fb6c745e19e969c8be7a"
+    },
+    {
+      "sample": "small",
+      "expected": "保存文件",
+      "observed": "保存文件",
+      "text_box": [
+        28,
+        60,
+        92,
+        76
+      ],
+      "regions": [
+        {
+          "bounds": [
+            25,
+            56,
+            70,
+            25
+          ],
+          "confidence": 0.985181,
+          "text": "保存文件"
+        }
+      ],
+      "text_region_count": 1,
+      "exact_match": true,
+      "position_match": true,
+      "exit_code": 0,
+      "pixels": [
+        480,
+        180
+      ],
+      "sample_sha256": "70284e111f4c9625e8c6d18989a58690bdba70b63e7123d2baf86deb70db207a"
+    },
+    {
+      "sample": "mixed-2x",
+      "expected": "提交 Submit",
+      "observed": "提交 Submit",
+      "text_box": [
+        56,
+        124,
+        326,
+        172
+      ],
+      "regions": [
+        {
+          "bounds": [
+            48,
+            114,
+            290,
+            68
+          ],
+          "confidence": 0.971383,
+          "text": "提交 Submit"
+        }
+      ],
+      "text_region_count": 1,
+      "exact_match": true,
+      "position_match": true,
+      "exit_code": 0,
+      "pixels": [
+        960,
+        360
+      ],
+      "sample_sha256": "97bfaa6aa5a99ea152baf2c794efe9d4712da75ffadc963639ef06924a91d24d"
+    }
+  ]
+}

@@ -55,3 +55,19 @@ IPC 编解码与非法 Key、无匹配凭据拒绝；原生模型编辑与渲染
 [M6 计划](../plans/m6-native-frontend.md)、
 [原生设计](../design/native-agent-frontend.md)、
 [IPC v1](../design/mirage-ipc-protocol-v1.md)。
+
+## 2026-10-12：DeepSeek Messages 地址与模型目录分离
+
+DeepSeek 预设保留 `/anthropic/v1` 作为直接 HTTP 调用 Messages 的版本化前缀；
+模型目录不沿用该前缀。对官方 `https://api.deepseek.com` 且方言为
+`anthropic.messages.v1` 的 `/anthropic/v1` 配置，目录请求复用此前
+`/anthropic` 配置可用的候选：`/anthropic/models`、`/v1/models`。
+推理地址、已保存配置、凭据匹配条件和同源范围均不改变；其他服务保持原候选顺序。
+此为 Mirage 目录路由修正，不要求更改 Mira 协议实现。
+依据：[DeepSeek Anthropic API](https://api-docs.deepseek.com/guides/anthropic_api/)、
+[DeepSeek 模型列表](https://api-docs.deepseek.com/api/list-models/)；候选顺序按用户实测
+`/anthropic` 配置的既有 Mirage 行为保留。
+
+2026-10-12 补验：使用用户已保存 Key 的最小 Messages 请求在
+`/anthropic/messages` 与 `/anthropic/v1/messages` 均得到 HTTP 200。因此用户随后
+出现的 `invalid_request_error` 不能归因于是否含 `/v1`；原因见 DEC-043 的工具名兼容修正。

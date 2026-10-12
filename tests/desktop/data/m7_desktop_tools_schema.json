@@ -1,0 +1,36 @@
+{
+  "desktop.window.activate": [
+    "window_id",
+    "observation_scope",
+    "environment_epoch"
+  ],
+  "desktop.input.type_text": [
+    "window_id",
+    "observation_scope",
+    "environment_epoch",
+    "text"
+  ],
+  "desktop.input.key": [
+    "window_id",
+    "observation_scope",
+    "environment_epoch",
+    "key"
+  ],
+  "desktop.input.click": [
+    "window_id",
+    "observation_scope",
+    "environment_epoch",
+    "ref"
+  ],
+  "desktop.application.launch": [
+    "application_id",
+    "observation_scope",
+    "environment_epoch"
+  ],
+  "desktop.application.open_uri": [
+    "application_id",
+    "observation_scope",
+    "environment_epoch",
+    "uri"
+  ]
+}

@@ -1380,6 +1380,7 @@ void scenario_session_chat_latch_and_failure() {
         }
     }
 
+    (void)::poll(nullptr, 0, 2); // Distinguish admission/settlement milliseconds (DEC-079).
     // Release the gate: the turn settles ok, the latch clears, and the
     // follow-up turn accepts.
     gated_provider->release();
@@ -1408,6 +1409,13 @@ void scenario_session_chat_latch_and_failure() {
         MIRAGE_CHECK(settled->has_reply);
         MIRAGE_CHECK(settled->reply_text == "门控回复正常。");
         MIRAGE_CHECK(!settled->has_error);
+        // DEC-079: the canonical timestamp advances at settlement, not on history reads.
+        if (pending_history && !pending_history->turns.empty())
+            MIRAGE_CHECK(settled->recorded_at_ms > pending_history->turns[0].recorded_at_ms);
+        const auto unchanged = client.call(ipc::ChatHistoryRequest{session_id, {}}, kCallBudget);
+        const auto *same = std::get_if<ipc::DialogHistory>(&unchanged.payload);
+        MIRAGE_CHECK(same && same->turns.size() == 1 &&
+                     same->turns[0].recorded_at_ms == settled->recorded_at_ms);
     }
 
     // Subsequent turns run in failure mode: the Failed model status settles
@@ -2315,7 +2323,199 @@ void scenario_session_open_capacity_fail_closed() {
     MIRAGE_CHECK(service.run().clean);
 }
 
+void scenario_vision_configuration_persistence() {
+    namespace persistence = mirage::runtime::persistence;
+    mirage::testing::TempDir dir;
+    auto config = make_config(dir);
+    config.settings_directory = dir.root() / "settings";
+    persistence::LocalStateStore store(config.settings_directory, config.settings_file_name,
+                                       persistence::kMaxSettingsFileBytes);
+    persistence::LocalSettings original;
+    original.permission_rules["input.inject"] = "deny";
+    original.model = persistence::ModelSettings{};
+    original.model->display_name = "preserved";
+    original.read_roots = {"/tmp/work"};
+    original.runtime = persistence::RuntimeSettings{32, 8};
+    MIRAGE_CHECK(store.save(persistence::encode_settings(original)).ok);
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+    ipc::IpcClient client(config.socket_path);
+    auto get = client.call(ipc::GetVisionRequest{}, kCallBudget);
+    MIRAGE_CHECK(get.ok);
+    const auto *initial = std::get_if<ipc::VisionConfiguration>(&get.payload);
+    MIRAGE_CHECK(initial && initial->ocr_manifest.empty() && !initial->running &&
+                 !initial->restart_required);
+    const auto applied =
+        client.call(ipc::SetVisionRequest{"/tmp/visual resources/清单.json"}, kCallBudget);
+    const auto *view = std::get_if<ipc::VisionConfiguration>(&applied.payload);
+    MIRAGE_CHECK(applied.ok && view && view->restart_required && !view->running &&
+                 view->active_manifest.empty());
+    const auto saved = persistence::decode_settings(store.load().body);
+    MIRAGE_CHECK(saved.ok && saved.settings.vision &&
+                 saved.settings.vision->ocr_manifest == "/tmp/visual resources/清单.json");
+    MIRAGE_CHECK(saved.ok && saved.settings.model &&
+                 saved.settings.model->display_name == "preserved");
+    MIRAGE_CHECK(saved.ok && saved.settings.read_roots == original.read_roots &&
+                 saved.settings.permission_rules == original.permission_rules);
+    MIRAGE_CHECK(saved.ok && saved.settings.runtime &&
+                 saved.settings.runtime->max_connections == 8);
+    const auto refused = client.call(ipc::SetVisionRequest{"relative.json"}, kCallBudget);
+    MIRAGE_CHECK(!refused.ok && refused.error.code == "invalid_argument");
+    get = client.call(ipc::GetVisionRequest{}, kCallBudget);
+    MIRAGE_CHECK(get.ok && std::get<ipc::VisionConfiguration>(get.payload).restart_required);
+    // A store publication failure must not acknowledge or replace the saved path.
+    const auto before_failure = store.load().body;
+    const auto temp = config.settings_directory /
+                      (config.settings_file_name + ".tmp." + std::to_string(::getpid()));
+    write_text_file(temp, "occupied");
+    const auto write_failure = client.call(ipc::SetVisionRequest{"/tmp/other.json"}, kCallBudget);
+    MIRAGE_CHECK(!write_failure.ok && write_failure.error.code == "internal");
+    MIRAGE_CHECK(store.load().body == before_failure);
+    std::filesystem::remove(temp);
+
+    // A directory in place of the document is an I/O failure, not fresh settings.
+    const auto backup = config.settings_directory / "previous.json";
+    std::filesystem::rename(store.file_path(), backup);
+    MIRAGE_CHECK(std::filesystem::create_directory(store.file_path()));
+    const auto read_failure = client.call(ipc::GetVisionRequest{}, kCallBudget);
+    MIRAGE_CHECK(!read_failure.ok && read_failure.error.code == "internal");
+    const auto read_before_write =
+        client.call(ipc::SetVisionRequest{"/tmp/other.json"}, kCallBudget);
+    MIRAGE_CHECK(!read_before_write.ok && read_before_write.error.code == "internal");
+    MIRAGE_CHECK(std::filesystem::is_directory(store.file_path()));
+    std::filesystem::remove(store.file_path());
+    std::filesystem::rename(backup, store.file_path());
+    const auto cleared = client.call(ipc::SetVisionRequest{""}, kCallBudget);
+    MIRAGE_CHECK(cleared.ok &&
+                 !std::get<ipc::VisionConfiguration>(cleared.payload).restart_required);
+    write_text_file(config.settings_directory / config.settings_file_name, "{oops");
+    const auto corrupt = client.call(ipc::SetVisionRequest{"/tmp/a.json"}, kCallBudget);
+    MIRAGE_CHECK(!corrupt.ok && corrupt.error.code == "invalid_state");
+    MIRAGE_CHECK(store.load().body == "{oops");
+    MIRAGE_CHECK(!client.call(ipc::GetVisionRequest{}, kCallBudget).ok);
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+
+    config.settings_directory.clear();
+    config.persist_settings = false;
+    RuntimeService memory(config);
+    MIRAGE_CHECK(memory.start(make_binding(dir)).ok);
+    ipc::IpcClient other(config.socket_path);
+    MIRAGE_CHECK(other.call(ipc::GetVisionRequest{}, kCallBudget).ok);
+    const auto unavailable = other.call(ipc::SetVisionRequest{""}, kCallBudget);
+    MIRAGE_CHECK(!unavailable.ok && unavailable.error.code == "unavailable");
+    memory.request_shutdown();
+    MIRAGE_CHECK(memory.run().clean);
+}
+
+void scenario_desktop_authorization_settings() {
+    namespace persistence = mirage::runtime::persistence;
+    mirage::testing::TempDir dir;
+    auto config = make_config(dir);
+    config.settings_directory = dir.root() / "settings";
+    persistence::LocalStateStore store(config.settings_directory, config.settings_file_name,
+                                       persistence::kMaxSettingsFileBytes);
+    persistence::LocalSettings original;
+    original.model = persistence::ModelSettings{};
+    original.model->display_name = "preserved";
+    original.vision = persistence::VisionSettings{"/tmp/fixture.json"};
+    MIRAGE_CHECK(store.save(persistence::encode_settings(original)).ok);
+    auto env = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    env->desktop_authorization_supported = true;
+    {
+        RuntimeService service(config);
+        MIRAGE_CHECK(service.start(std::make_shared<integration::MiraEnvironmentBinding>(env)).ok);
+        ipc::IpcClient client(config.socket_path);
+        const auto initial = client.call(ipc::GetDesktopAuthorizationRequest{}, kCallBudget);
+        MIRAGE_CHECK(initial.ok &&
+                     std::get<ipc::DesktopAuthorizationConfiguration>(initial.payload).state ==
+                         "ask");
+        const auto saved = client.call(ipc::SetDesktopAuthorizationRequest{true}, kCallBudget);
+        MIRAGE_CHECK(saved.ok &&
+                     std::get<ipc::DesktopAuthorizationConfiguration>(saved.payload).remembered);
+        const auto persisted = persistence::decode_settings(store.load().body);
+        MIRAGE_CHECK(persisted.ok && persisted.settings.remember_desktop_authorization &&
+                     persisted.settings.model->display_name == "preserved" &&
+                     persisted.settings.vision->ocr_manifest == "/tmp/fixture.json");
+        env->on_desktop_authorization = [](bool, const mirage::desktop::CancelToken &) {
+            return mirage::desktop::ProviderError{"portal_user_cancelled", "fixture cancel"};
+        };
+        MIRAGE_CHECK(
+            client.call(ipc::SetDesktopAuthorizationRequest{true}, kCallBudget).error.code ==
+            "portal_user_cancelled");
+        env->on_desktop_authorization =
+            [](bool, const mirage::desktop::CancelToken &) -> mirage::desktop::ProviderError {
+            throw std::runtime_error("fixture failure");
+        };
+        MIRAGE_CHECK(
+            client.call(ipc::SetDesktopAuthorizationRequest{true}, kCallBudget).error.code ==
+            "internal");
+        env->on_desktop_authorization = {};
+        write_text_file(store.file_path(), "corrupt");
+        MIRAGE_CHECK(
+            client.call(ipc::SetDesktopAuthorizationRequest{false}, kCallBudget).error.code ==
+            "invalid_state");
+        MIRAGE_CHECK(env->desktop_remember.load());
+        MIRAGE_CHECK(store.save(persistence::encode_settings(persisted.settings)).ok);
+        service.request_shutdown();
+        MIRAGE_CHECK(service.run().clean);
+    }
+    env->desktop_remember.store(false);
+    {
+        RuntimeService restarted(config);
+        MIRAGE_CHECK(
+            restarted.start(std::make_shared<integration::MiraEnvironmentBinding>(env)).ok);
+        MIRAGE_CHECK(env->desktop_remember.load());
+        ipc::IpcClient client(config.socket_path);
+        MIRAGE_CHECK(client.call(ipc::GetDesktopAuthorizationRequest{}, kCallBudget).ok);
+        const auto forgotten = client.call(ipc::SetDesktopAuthorizationRequest{false}, kCallBudget);
+        MIRAGE_CHECK(forgotten.ok &&
+                     !std::get<ipc::DesktopAuthorizationConfiguration>(forgotten.payload).remember);
+        MIRAGE_CHECK(!persistence::decode_settings(store.load().body)
+                          .settings.remember_desktop_authorization);
+        std::atomic_bool entered{false}, cancelled{false};
+        env->on_desktop_authorization = [&](bool, const mirage::desktop::CancelToken &cancel) {
+            entered.store(true);
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (!cancel.cancelled() && std::chrono::steady_clock::now() < deadline)
+                (void)::poll(nullptr, 0, 5);
+            cancelled.store(cancel.cancelled());
+            return mirage::desktop::ProviderError{"cancelled", "fixture cancelled"};
+        };
+        std::string diagnostic;
+        auto stream = ipc::connect_stream(config.socket_path, kCallBudget, diagnostic);
+        MIRAGE_CHECK(stream.valid());
+        MIRAGE_CHECK(mirage::testing::write_all(
+            stream,
+            ipc::make_frame(ipc::encode_request(78, ipc::SetDesktopAuthorizationRequest{true})),
+            kCallBudget));
+        const auto wait_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!entered.load() && std::chrono::steady_clock::now() < wait_deadline)
+            (void)::poll(nullptr, 0, 5);
+        MIRAGE_CHECK(entered.load());
+        MIRAGE_CHECK(client.call(ipc::GetDesktopAuthorizationRequest{}, kCallBudget).error.code ==
+                     "desktop_authorization_busy");
+        MIRAGE_CHECK(client.call(ipc::HelloRequest{}, kCallBudget)
+                         .ok); // Authorization did not block the control face.
+        restarted.request_shutdown();
+        MIRAGE_CHECK(restarted.run().clean && cancelled.load());
+        env->on_desktop_authorization = {};
+    }
+    config.permission_policy
+        .rules[static_cast<std::size_t>(mirage::runtime::permission::Capability::InputInject)] =
+        mirage::runtime::permission::Rule::Deny;
+    RuntimeService denied(config);
+    MIRAGE_CHECK(denied.start(std::make_shared<integration::MiraEnvironmentBinding>(env)).ok);
+    ipc::IpcClient client(config.socket_path);
+    MIRAGE_CHECK(client.call(ipc::SetDesktopAuthorizationRequest{true}, kCallBudget).error.code ==
+                 "permission_denied");
+    denied.request_shutdown();
+    MIRAGE_CHECK(denied.run().clean);
+}
+
 int main() {
+    scenario_desktop_authorization_settings();
+    scenario_vision_configuration_persistence();
     run_scenario("run_before_start_is_rejected", scenario_run_before_start_is_rejected);
     run_scenario("start_rejects_null_binding_fail_closed",
                  scenario_start_rejects_null_binding_fail_closed);

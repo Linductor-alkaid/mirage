@@ -4,9 +4,18 @@
 # between the pinned environment contract and mirage::desktop (DEC-008).
 add_library(mirage_integration_mira STATIC
     src/desktop_atom_toolset.cpp
+    src/desktop_action_verification.cpp
+    src/desktop_ocr_tool.cpp
+    src/desktop_image_supply.cpp
+    src/desktop_shared_input.cpp
+    src/desktop_visual_tools.cpp
+    src/desktop_region_tools.cpp
+    src/desktop_visual_knowledge.cpp
+    src/desktop_png.cpp
     src/mira_environment_binding.cpp
     src/model_layer.cpp
     src/model_catalog.cpp
+    src/tool_alias_provider.cpp
     src/session_journal.cpp
     src/workflow_event_bridge.cpp
     # The model layer's credential resolver reads the environment per
@@ -47,6 +56,7 @@ target_link_libraries(mirage_integration_mira
         # (POSIX + Winsock). https endpoints fail closed unless a TLS channel
         # adapter was built by the pinned dependency (OpenSSL adapter on UNIX
         # where its configure found OpenSSL); the layer never downgrades.
+        mirador::image
         Mira::net_transport
 )
 

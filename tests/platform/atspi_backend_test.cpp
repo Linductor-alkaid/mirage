@@ -69,6 +69,12 @@ int main() {
         const Window xwindow =
             XCreateSimpleWindow(xdisplay, DefaultRootWindow(xdisplay), 10, 10, 200, 150, 0, 0, 0);
         XStoreName(xdisplay, xwindow, "FakeWindow — main");
+        // Non-ASCII titles belong to EWMH UTF8_STRING; classic XA_STRING is Latin-1.
+        const std::string title = "FakeWindow — main";
+        XChangeProperty(xdisplay, xwindow, XInternAtom(xdisplay, "_NET_WM_NAME", False),
+                        XInternAtom(xdisplay, "UTF8_STRING", False), 8, PropModeReplace,
+                        reinterpret_cast<const unsigned char *>(title.data()),
+                        static_cast<int>(title.size()));
         XMapWindow(xdisplay, xwindow);
         const Window second_xwindow =
             XCreateSimpleWindow(xdisplay, DefaultRootWindow(xdisplay), 10, 10, 200, 150, 0, 0, 0);
@@ -99,6 +105,15 @@ int main() {
             }
         }
         MIRAGE_CHECK(!matched_id.empty());
+
+        desktop.cancel_on_panel_role.store(true);
+        const auto interrupted =
+            a11y.semantic_snapshot(matched_id, {}, desktop.cancel_on_panel_read);
+        MIRAGE_CHECK(desktop.panel_cancel_injected.load());
+        MIRAGE_CHECK(interrupted.cancelled && !interrupted.ok);
+        MIRAGE_CHECK(interrupted.error.code == "cancelled");
+        MIRAGE_CHECK(interrupted.scope.empty() && interrupted.snapshot.nodes.empty());
+        desktop.cancel_on_panel_role.store(false);
 
         const auto snapshot = a11y.semantic_snapshot(matched_id);
         MIRAGE_CHECK(snapshot.ok);
@@ -251,6 +266,13 @@ int main() {
         MIRAGE_CHECK(!second_id.empty());
         const auto second_snap = a11y.semantic_snapshot(second_id);
         MIRAGE_CHECK(second_snap.ok);
+        MIRAGE_CHECK(!exact_snap.scope.empty() && exact_snap.scope != second_snap.scope);
+        ElementTarget reused;
+        reused.reference.id = "@e2";
+        reused.snapshot_scope = exact_snap.scope;
+        MIRAGE_CHECK(a11y.activate_element(reused).error.code == "stale_observation");
+        MIRAGE_CHECK(a11y.set_text(reused, "never", {}, {}).error.code == "stale_observation");
+
         MIRAGE_CHECK(second_snap.snapshot.application == "SecondApp");
         MIRAGE_CHECK(second_snap.snapshot.window_title == "SecondWindow");
         MIRAGE_CHECK(second_snap.snapshot.nodes.size() == 3);

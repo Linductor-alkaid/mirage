@@ -317,6 +317,10 @@ void probe_threshold_gate_admits_only_the_exact_layer_at_one() {
 
     // At threshold 1.0 only the exact layer passes: the queried patch matches
     // its own enrollment and nothing else.
+    mirador::VisualQueryParams truncated;
+    truncated.max_candidates = 1;
+    const auto hidden = index.probe(view_of(horizontal), truncated, 0.95);
+    MIRAGE_CHECK(!hidden.ok() && hidden.status().code() == mirador::ErrorCode::kInvalidArgument);
     const auto exact_only = probe(index, horizontal, 1.0);
     MIRAGE_CHECK(exact_only.ok());
     if (!exact_only.ok()) {

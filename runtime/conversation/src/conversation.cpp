@@ -4,6 +4,46 @@
 #include <unordered_set>
 
 namespace mirage::conversation {
+std::optional<DesktopEvidence> desktop_evidence(const Part &part) {
+    if (part.kind != "tool" || (part.status != "complete" && part.status != "failed") ||
+        !part.name.starts_with("desktop.") || part.output.size() > max_part_text)
+        return std::nullopt;
+    const auto parsed = mira::parse_json(part.output);
+    if (!parsed)
+        return std::nullopt;
+    const auto *v = parsed.value().find("verification");
+    if (!v && part.name == "desktop.action.verify")
+        v = &parsed.value();
+    if (!v)
+        return std::nullopt;
+    const auto field = [&](const char *key, std::size_t bound) {
+        const auto *s = v->find(key);
+        return s && s->as_string() && s->as_string()->size() <= bound ? *s->as_string() : "";
+    };
+    DesktopEvidence view{field("status", 16), field("window_id", 256), field("evidence_id", 128),
+                         field("application_id", 256), field("display_id", 256)};
+    const auto action = field("action", 128);
+    const auto condition = field("verify_kind", 32);
+    const bool shared =
+        (action == "desktop.session.click" || action == "desktop.session.key" ||
+         action == "desktop.session.type_text" || action == "desktop.session.scroll") &&
+        part.name == action &&
+        (condition == "shared_frame_observed" || condition == "shared_text_exists");
+    const auto *verified = v->find("verified");
+    if ((view.status != "verified" && view.status != "unverified" && view.status != "uncertain" &&
+         view.status != "rejected") ||
+        (view.window_id.empty() && !shared &&
+         !(field("action", 128) == "desktop.vision.click_region" && !view.display_id.empty()) &&
+         (view.application_id.empty() || field("verify_kind", 32) != "application_running" ||
+          (field("action", 128) != "desktop.application.launch" &&
+           field("action", 128) != "desktop.application.open_uri"))) ||
+        (view.status == "verified" &&
+         (part.status != "complete" || !verified || !verified->as_boolean().value_or(false) ||
+          view.evidence_id.empty())))
+        return std::nullopt;
+    view.shared_desktop = shared;
+    return view;
+}
 bool truncate_text(std::string &text, std::size_t limit) {
     if (text.size() <= limit)
         return false;

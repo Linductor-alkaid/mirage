@@ -1,0 +1,212 @@
+{
+  "date": "2026-10-12",
+  "work_items": {
+    "M6-26": "Completed (Linux local increment)",
+    "M6-38": "Completed (Linux local)",
+    "M7-07": "In Progress",
+    "M7-10": "In Progress"
+  },
+  "decisions": [
+    "DEC-080",
+    "DEC-082"
+  ],
+  "latest_faults": {
+    "default_reply_is_canonical_text": true,
+    "default_fault_reproduced_in_synthetic_probe": false,
+    "task_terminal": "MaxTurns",
+    "model_calls": 7,
+    "successful_clicks": 2,
+    "input_text_or_enter_reached": false
+  },
+  "selector": {
+    "options": [
+      "对话模式",
+      "视觉模式",
+      "完全访问"
+    ],
+    "size": [
+      280,
+      120
+    ],
+    "anchor": "actual mode trigger, left aligned, above",
+    "gap_px": 4,
+    "zcode_reference": "29628c9acdb81b703bbd4080c207a0e7ce5e276e"
+  },
+  "budgets": {
+    "known_messages_thinking_max_model_calls": 16,
+    "max_tool_executions": 32,
+    "max_recoveries": 0,
+    "default_per_request_ms": 120000,
+    "default_agent_task_ms": 600000,
+    "per_call_adaptive_min_output_tokens": 8192,
+    "whole_envelope_multiplier": 17
+  },
+  "automatic": {
+    "debug": {
+      "passed": 70,
+      "total": 70,
+      "seconds": 108.41,
+      "log": "/tmp/mirage-dec082-debug-full-verified.log"
+    },
+    "native_release": {
+      "passed": 76,
+      "total": 76,
+      "seconds": 108.49,
+      "log": "/tmp/mirage-dec082-native-full-verified.log"
+    },
+    "asan": {
+      "passed": 6,
+      "total": 6,
+      "seconds": 30.24,
+      "log": "/tmp/mirage-dec082-asan-test-verified.log"
+    },
+    "ubsan": {
+      "passed": 6,
+      "total": 6,
+      "seconds": 23.62,
+      "log": "/tmp/mirage-dec082-ubsan-test.log"
+    },
+    "tsan": {
+      "passed": 6,
+      "total": 6,
+      "seconds": 39.84,
+      "log": "/tmp/mirage-dec082-tsan-test.log"
+    }
+  },
+  "native_agent": {
+    "checks": 334,
+    "failures": 0,
+    "completed_tool_round_trips": 9,
+    "completion_call": 10,
+    "independent_deadlines_verified": true,
+    "max_turns_exhaustion_verified": 16
+  },
+  "renderer": {
+    "checks": 24009,
+    "failures": 0,
+    "log": "/tmp/mirage-dec082-ui-verified.log",
+    "private_xdg": true,
+    "private_xvfb": true,
+    "runtime_bridge": false,
+    "screenshots": [
+      {
+        "file": "composer-three-modes-light.png",
+        "sha256": "8349e85e948cb086bd5ae87a48a5914bf2f82c5311be4d95336df3494844ae0e"
+      },
+      {
+        "file": "composer-three-modes-small-dark.png",
+        "sha256": "f19aee17f5f8cf34f2432f9548b5623209dbb0eb29db319ed7103af746030cea"
+      }
+    ]
+  },
+  "detector": [],
+  "online": {
+    "baseline": {
+      "synthetic_prompt": "17 + 25; answer only 42",
+      "results": [
+        {
+          "choice": "default",
+          "status": "ok",
+          "exact_answer": true,
+          "reply_chars": 2,
+          "thinking_parts": 0,
+          "thinking_chars": 0,
+          "elapsed_seconds": 2.51
+        },
+        {
+          "choice": "none",
+          "status": "ok",
+          "exact_answer": true,
+          "reply_chars": 2,
+          "thinking_parts": 0,
+          "thinking_chars": 0,
+          "elapsed_seconds": 1.5
+        },
+        {
+          "choice": "adaptive",
+          "status": "ok",
+          "exact_answer": true,
+          "reply_chars": 2,
+          "thinking_parts": 1,
+          "thinking_chars": 12,
+          "elapsed_seconds": 1.5
+        }
+      ]
+    },
+    "after": {
+      "synthetic_prompt": "17 + 25; answer only 42",
+      "desktop_access": false,
+      "user_history_supplied": false,
+      "results": [
+        {
+          "choice": "default",
+          "status": "ok",
+          "exact_answer": true,
+          "reply_chars": 2,
+          "thinking_parts": 1,
+          "thinking_chars": 260,
+          "elapsed_seconds": 2.5
+        },
+        {
+          "choice": "none",
+          "status": "ok",
+          "exact_answer": true,
+          "reply_chars": 2,
+          "thinking_parts": 0,
+          "thinking_chars": 0,
+          "elapsed_seconds": 1.5
+        },
+        {
+          "choice": "adaptive",
+          "status": "ok",
+          "exact_answer": true,
+          "reply_chars": 2,
+          "thinking_parts": 1,
+          "thinking_chars": 245,
+          "elapsed_seconds": 2.0
+        }
+      ],
+      "passed": true
+    },
+    "raw_text_saved": false,
+    "desktop_tools_used": false,
+    "authorization_requested": false,
+    "synthetic_only": true
+  },
+  "package": {
+    "path": "/home/linductor/mirage/out/packages/mirage_0.1.0_amd64.deb",
+    "sha256": "cc8fd3434da0bef8f4b5c63726a0584ea234c5488ac7add2ad7c4a64524a9b0c",
+    "binaries": {
+      "mirage": {
+        "sha256": "3bddf2d302dccf570ff1d84101b9e04667e3877f8dbfd7fe1b2ea6739ae9949b",
+        "matches_release": true
+      },
+      "mirage-service": {
+        "sha256": "e9ab67a0884a84b297e18cca4ce793d93e7c94981ddafe11b5e801c4e2420b46",
+        "matches_release": true
+      },
+      "mirage-tray": {
+        "sha256": "0b8cd203858906589213f73e3f407a1b55601788b75369fe3a544e059baa85cb",
+        "matches_release": true
+      },
+      "mirage-native": {
+        "sha256": "12ee1bb0cfd41f25bc904c70333538fe5dd0f2408efad07d3b771b5cbb5a7c6c",
+        "matches_release": true
+      }
+    }
+  },
+  "pending_host_validation": {
+    "owner": "Mirage maintainer",
+    "condition": "Install/start rebuilt product on an unlocked Wayland desktop; share/control only when ready.",
+    "items": [
+      "original desktop task",
+      "default direct dialogue with existing history",
+      "remembered authorization across tasks/restart"
+    ]
+  },
+  "installed": false,
+  "committed": true,
+  "pushed": false,
+  "code_commit": "67032517b26aee7919957c729df714b1805642f2",
+  "git_delivery_record": "../m7-git-delivery-20261012/summary.json"
+}

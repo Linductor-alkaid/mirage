@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -47,11 +48,25 @@ struct ApplicationLaunchLimits {
     std::size_t max_command_bytes = 4u << 10;
 };
 
+// DEC-071: URI is an argument to a fixed installed application, never a command.
+inline bool valid_application_uri(const std::string &uri) {
+    if (uri.size() > 2048 ||
+        std::any_of(uri.begin(), uri.end(), [](unsigned char c) { return c <= 32 || c == 127; }))
+        return false;
+    const auto prefix = uri.starts_with("https://") ? 8u : uri.starts_with("http://") ? 7u : 0u;
+    if (prefix == 0)
+        return false;
+    const auto end = uri.find_first_of("/?#", prefix);
+    const auto authority = uri.substr(prefix, end - prefix);
+    return !authority.empty() && authority.find_first_of("@\\") == std::string::npos;
+}
+
 struct ApplicationLaunchOutcome {
     bool ok = false;
     bool cancelled = false;
     std::string instance_id;
     ProviderError error; ///< meaningful only when ok is false
+    bool side_effect_may_have_occurred = false;
 };
 
 /// Application discovery, launch and termination (design doc section 5).
@@ -88,6 +103,18 @@ class ApplicationProvider {
     virtual ApplicationLaunchOutcome launch(const std::string &application_id,
                                             const ApplicationLaunchLimits &limits,
                                             const CancelToken &cancel) = 0;
+
+    /// Optional HTTP(S) handoff to this installed application, including a running one.
+    /// Success means platform acceptance, not navigation or business task completion.
+    /// Callers authorize application.launch before invoking. No command/environment input.
+    virtual bool supports_open_uri() const { return false; }
+    virtual ApplicationLaunchOutcome open_uri(const std::string &, const std::string &,
+                                              const ApplicationLaunchLimits &,
+                                              const CancelToken &) {
+        ApplicationLaunchOutcome outcome;
+        outcome.error = {"unsupported_platform", "application URI handoff is unavailable"};
+        return outcome;
+    }
 
     /// Asks the running instance to terminate and waits up to the launch
     /// budget for it to exit. Unknown ids fail with "not_found"; a live

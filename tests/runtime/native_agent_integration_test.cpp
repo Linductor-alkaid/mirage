@@ -1,3 +1,5 @@
+#include "../../integration/mira/src/tool_alias_provider.hpp"
+#include "../support/fake_desktop_environment.hpp"
 #include "../support/ipc_io.hpp"
 #include "runtime_bridge.hpp"
 #include <algorithm>
@@ -12,6 +14,7 @@
 #include <mira/json.hpp>
 #include <mira/model_digest.hpp>
 #include <mira/model_provider.hpp>
+#include <mira/model_tool.hpp>
 #include <mirage/integration/mira_environment_binding.hpp>
 #include <mirage/integration/model_catalog.hpp>
 #include <mirage/integration/model_layer.hpp>
@@ -37,7 +40,15 @@ class Provider final : public mira::IModelProvider {
   public:
     explicit Provider(const mira::ModelProfile &profile) : profile_(profile) {}
     std::atomic<bool> saw_adaptive{false}, saw_disabled{false};
+    // MIRA-20261012-001 scripting: the next armed infer calls return a
+    // network-stage ModelDeadlineExceeded error instead of a response.
+    // deadline_post_write flags the trace as bytes-written, so the pinned
+    // supervisor must refuse the automatic resend and the loop recovery
+    // budget drives the resend instead.
+    std::atomic_int deadline_failures{0};
+    std::atomic_bool deadline_retryable{true}, deadline_post_write{false};
     const mira::ModelProfile &profile() const override { return profile_; }
+    const mira::TransportTrace &last_trace() const override { return trace_; }
     mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
                                             const mira::OperationContext &context,
                                             const mira::ProviderInferOptions &options) override {
@@ -49,6 +60,7 @@ class Provider final : public mira::IModelProvider {
         wire.publish(std::move(input_text));
         const int number = ++calls;
         last_tools.store(static_cast<int>(request.tools.size()));
+        last_output_tokens.store(request.generation.max_output_tokens.value_or(0));
         saw_high.store(request.generation.reasoning_effort == mira::ReasoningEffort::High);
         saw_adaptive.store(request.generation.thinking == mira::ThinkingMode::Adaptive);
         saw_disabled.store(request.generation.thinking == mira::ThinkingMode::Disabled);
@@ -68,6 +80,16 @@ class Provider final : public mira::IModelProvider {
         }
         while (hold.load() && !context.cancelled_or_expired(mira::Timestamp::now()))
             (void)::poll(nullptr, 0, 1);
+        last_caller_cancelled.store(context.cancelled());
+        if (hold.load() && !context.cancelled() && context.expired(mira::Timestamp::now())) {
+            // Held until the whole-operation budget expired: the pinned
+            // transport surfaces this as a non-retryable stage deadline
+            // error, never as a cancelled terminal response, so the loop's
+            // recovery budget must not be spent on it (MIRA-20261012-001).
+            return mira::make_model_error(mira::ModelDomainCode::ModelDeadlineExceeded,
+                                          "model call budget deadline exceeded", false,
+                                          context.operation);
+        }
         mira::ModelResponse reply;
         reply.contract_version = {1, 0};
         reply.request_id = request.request_id;
@@ -86,6 +108,13 @@ class Provider final : public mira::IModelProvider {
             throw std::runtime_error("scripted failure");
         if (reply.status == mira::ModelCompletionStatus::Cancelled)
             return reply;
+        trace_ = mira::TransportTrace{};
+        if (deadline_failures.load() > 0 && deadline_failures.fetch_sub(1) > 0) {
+            trace_.write_started = trace_.write_completed = deadline_post_write.load();
+            return mira::make_model_error(mira::ModelDomainCode::ModelDeadlineExceeded,
+                                          "exchange stage deadline exceeded",
+                                          deadline_retryable.load(), std::nullopt);
+        }
         if (large_thinking.load()) {
             for (int i = 0; i < 4; ++i)
                 reply.output.emplace_back(
@@ -104,11 +133,12 @@ class Provider final : public mira::IModelProvider {
             return reply;
         }
         if ((number == 1 && tool_first.load()) || force_tool.exchange(false) ||
-            always_tool.load()) {
+            always_tool.load() ||
+            (remaining_tools.load() > 0 && remaining_tools.fetch_sub(1) > 0)) {
             for (const auto &tool : request.tools)
                 if (tool.wire_name == "wait") {
                     mira::ToolCallOutput call;
-                    call.provider_call_id.value = "call-1";
+                    call.provider_call_id.value = "call-" + std::to_string(number);
                     call.tool_id = tool.tool_id;
                     call.provider_name = tool.wire_name;
                     call.arguments = mira::JsonValue{mira::JsonValue::Object{
@@ -134,13 +164,66 @@ class Provider final : public mira::IModelProvider {
     }
     kairo::comm::LatestMailbox<std::string> wire{"test-model-wire"};
     mira::ModelProfile profile_;
+    mira::TransportTrace trace_;
     std::atomic_int calls{0}, last_tools{0};
-    std::atomic_bool saw_high{false}, old_reply{false};
+    std::atomic<std::uint64_t> last_output_tokens{0};
+    std::atomic_bool saw_high{false}, old_reply{false}, last_caller_cancelled{false};
     std::atomic_bool report_usage{true};
-    std::atomic_int wait_duration{1};
+    std::atomic_int wait_duration{1}, remaining_tools{0};
     std::atomic_bool force_tool{false}, large_thinking{false};
     std::atomic_bool hold{false}, tool_first{true}, saw_image{false}, saw_tool_result{false},
         throw_now{false}, always_tool{false}, bad_tool{false};
+};
+class AliasProbeProvider final : public mira::IModelProvider {
+  public:
+    explicit AliasProbeProvider(const mira::ModelProfile &profile) : profile_(profile) {}
+    const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        ++calls;
+        const auto window =
+            std::find_if(request.tools.begin(), request.tools.end(), [](const auto &tool) {
+                return tool.wire_name == "desktop.window.list" ||
+                       tool.wire_name == "desktop_window_list";
+            });
+        const auto &tool = window == request.tools.end() ? request.tools.front() : *window;
+        if (calls == 1)
+            exposed = tool.wire_name;
+        for (const auto &item : request.input)
+            for (const auto &part : item.content)
+                if (const auto *text = std::get_if<mira::TextPart>(&part); text && calls == 1)
+                    first_text += text->text + "\n";
+                else if (const auto *call = std::get_if<mira::ToolCallPart>(&part))
+                    replay = call->wire_name;
+                else if (std::holds_alternative<mira::ToolResultPart>(part))
+                    saw_result = true;
+        mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.status = mira::ModelCompletionStatus::Completed;
+        if (finish_after_call && calls > 1) {
+            mira::MessageOutput message;
+            message.content.emplace_back(
+                mira::OutputTextPart{"Alias roundtrip complete.", std::nullopt});
+            response.output.emplace_back(std::move(message));
+            return response;
+        }
+        mira::ToolCallOutput call;
+        call.provider_call_id.value = "alias-probe";
+        call.tool_id = tool.tool_id;
+        call.provider_name = exposed;
+        call.arguments = mira::JsonValue{mira::JsonValue::Object{}};
+        call.arguments_digest = mira::canonical_json_digest(call.arguments);
+        response.output.emplace_back(std::move(call));
+        return response;
+    }
+    mira::ModelProfile profile_;
+    int calls = 0;
+    bool finish_after_call = false;
+    std::string exposed, replay, first_text;
+    bool saw_result = false;
 };
 std::optional<ipc::DialogTurnEntry> wait_turn(ipc::IpcClient &client, const std::string &session,
                                               std::chrono::milliseconds call_budget = 2s,
@@ -226,6 +309,12 @@ int main(int argc, char **argv) {
         config.dialect = "anthropic.messages.v1";
         std::string error;
         MIRAGE_CHECK(config.valid(error));
+        config.harness_deadline = 0ms;
+        MIRAGE_CHECK(!config.valid(error));
+        config.harness_deadline = 600001ms;
+        MIRAGE_CHECK(!config.valid(error));
+        config.harness_deadline = 10min;
+        MIRAGE_CHECK(config.valid(error));
         config.supports_reasoning = true;
         MIRAGE_CHECK(config.valid(error));
         MIRAGE_CHECK(integration::reasoning_options(config.dialect, "MiniMax-M3").size() == 3);
@@ -264,6 +353,78 @@ int main(int argc, char **argv) {
         }
         owner.shutdown(true);
     }
+    // M6-41: exercise ModelLayer's production selection and the real Mira
+    // loop/registry boundary, including assistant replay and canonical UI records.
+    {
+        kairo::Executor owner;
+        kairo::ExecutorConfig limits;
+        limits.min_threads = limits.max_threads = 2;
+        MIRAGE_CHECK(owner.initialize(limits));
+        for (const auto &[dialect, origin, prefix, expected] :
+             std::vector<std::tuple<std::string, std::string, std::string, std::string>>{
+                 {"openai.chat-completions.v1", "https://huablog.org", "/v1",
+                  "desktop_window_list"},
+                 {"openai.chat-completions.v1", "https://other.example", "/custom",
+                  "desktop_window_list"},
+                 {"anthropic.messages.v1", "https://api.deepseek.com", "/anthropic",
+                  "desktop_window_list"},
+                 {"anthropic.messages.v1", "https://other.example", "/v1", "desktop_window_list"},
+                 {"anthropic.messages.v1", "https://api.anthropic.com", "/v1",
+                  "desktop_window_list"},
+                 {"openai.responses.v1", "https://api.openai.com", "/v1", "desktop_window_list"},
+                 {"openai.responses.v1", "https://huablog.org", "/v1", "desktop_window_list"}}) {
+            integration::ModelLayerConfig layer_config;
+            layer_config.enabled = true;
+            layer_config.dialect = dialect;
+            layer_config.endpoint_origin = origin;
+            layer_config.api_prefix = prefix;
+            layer_config.model_selector = "alias-fixture";
+            std::shared_ptr<AliasProbeProvider> delegate;
+            integration::ModelProviderOverride factory([&](const auto &profile) {
+                delegate = std::make_shared<AliasProbeProvider>(profile);
+                delegate->finish_after_call = true;
+                return delegate;
+            });
+            integration::DesktopToolContext tools;
+            tools.environment = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+            tools.gate = [](const auto &, const auto &, const auto &) { return true; };
+            integration::ModelLayer layer(owner, layer_config, &factory, tools);
+            mira::OperationContext context;
+            context.operation = mira::OperationId::generate();
+            context.started_at = mira::Timestamp::now();
+            context.deadline = std::chrono::steady_clock::now() + 5s;
+            const auto result = owner
+                                    .submit_auto([&] {
+                                        return layer.complete_harness_turn(
+                                            "Earlier literal desktop.window.list",
+                                            "User literal desktop.window.list", context, {}, true);
+                                    })
+                                    .get();
+            MIRAGE_CHECK(result.ok && result.model_steps == 2 && result.tool_calls == 1);
+            MIRAGE_CHECK(delegate->exposed == expected && delegate->replay == expected &&
+                         delegate->saw_result);
+            MIRAGE_CHECK(delegate->first_text.find("Earlier literal desktop.window.list") !=
+                             std::string::npos &&
+                         delegate->first_text.find("User literal desktop.window.list") !=
+                             std::string::npos);
+            const auto list_begin =
+                delegate->first_text.find("Available tools for THIS turn (closed set):");
+            MIRAGE_CHECK(list_begin != std::string::npos);
+            if (list_begin != std::string::npos) {
+                const auto list = delegate->first_text.substr(
+                    list_begin, delegate->first_text.find('\n', list_begin) - list_begin);
+                MIRAGE_CHECK(list.find("desktop_window_list") != std::string::npos &&
+                             list.find("desktop.window.list") == std::string::npos);
+            }
+            MIRAGE_CHECK(
+                std::any_of(result.parts.begin(), result.parts.end(), [](const auto &part) {
+                    return part.kind == "tool" && part.name == "desktop.window.list" &&
+                           part.status == "complete";
+                }));
+            layer.shutdown();
+        }
+        owner.shutdown(true);
+    }
     mirage::testing::TempDir dir;
     auto environment = std::make_shared<HarnessEnvironment>();
     auto binding = std::make_shared<integration::MiraEnvironmentBinding>(environment);
@@ -272,6 +433,12 @@ int main(int argc, char **argv) {
     config.socket_path = (dir.root() / "service.sock").string();
     config.settings_directory = dir.root() / "settings";
     config.model.request_deadline = 1s;
+    // Ceiling, not a timing assertion: the main fixture's budget paths (16/14
+    // model calls, the held-turn busy probes) only need the ceiling far above
+    // their own bounded work. 3s clipped them under ASAN load; 10s keeps a
+    // bounded ceiling with sanitizer headroom (dedicated timeout scenarios
+    // below configure their own shorter deadlines).
+    config.model.harness_deadline = 10s;
     config.model.max_output_tokens = 512;
     config.persist_recovery_state = false;
     config.persist_session_state = true;
@@ -319,6 +486,152 @@ int main(int argc, char **argv) {
         if (!fixture_service.start(binding).ok)
             return 1;
         return fixture_service.run().clean ? 0 : 1;
+    }
+    // Whole-task expiry reaches the caller cancellation probe even when a
+    // model call still has time. Shut down this owner before the main fixture.
+    {
+        auto deadline_config = config;
+        deadline_config.socket_path = (dir.root() / "deadline.sock").string();
+        deadline_config.persist_settings = deadline_config.persist_session_state = false;
+        deadline_config.model.enabled = true;
+        deadline_config.model.model_selector = "MiniMax-M3";
+        deadline_config.model.dialect = "anthropic.messages.v1";
+        deadline_config.model.endpoint_origin = "https://fixture.example";
+        deadline_config.model.request_deadline = 1s;
+        deadline_config.model.harness_deadline = 250ms;
+        std::shared_ptr<Provider> deadline_provider;
+        deadline_config.model_provider_override =
+            std::make_shared<integration::ModelProviderOverride>([&](const auto &profile) {
+                deadline_provider = std::make_shared<Provider>(profile);
+                deadline_provider->hold.store(true);
+                return deadline_provider;
+            });
+        mirage::runtime::RuntimeService deadline_service(deadline_config);
+        MIRAGE_CHECK(deadline_service.start(binding).ok);
+        ipc::IpcClient deadline_client(deadline_config.socket_path);
+        const auto deadline_session =
+            std::get<ipc::SessionList>(deadline_client.call(ipc::ListSessionsRequest{}, 2s).payload)
+                .sessions.front()
+                .id;
+        MIRAGE_CHECK(
+            deadline_client.call(ipc::SessionChatRequest{deadline_session, "整任务超时", true}, 2s)
+                .ok);
+        const auto expired = wait_turn(deadline_client, deadline_session);
+        MIRAGE_CHECK(expired && expired->status == "failed" &&
+                     expired->error.find("cancelled") != std::string::npos &&
+                     deadline_provider->last_caller_cancelled.load());
+        deadline_service.request_shutdown();
+        MIRAGE_CHECK(deadline_service.run().clean);
+    }
+    // MIRA-20261012-001 regression harness: profile transport deadlines and
+    // stage-deadline recovery semantics, isolated on a dedicated fixture
+    // service. request_deadline sits above the 60s first-byte ceiling so the
+    // profile clamp is observable (first_byte 60s, total 90s).
+    {
+        mirage::testing::TempDir recovery_dir;
+        auto recovery_config = config;
+        recovery_config.socket_path = (recovery_dir.root() / "recovery.sock").string();
+        recovery_config.settings_directory = recovery_dir.root() / "settings";
+        recovery_config.session_state_directory = recovery_dir.root() / "session-state";
+        recovery_config.persist_settings = recovery_config.persist_session_state = false;
+        recovery_config.model.enabled = true;
+        recovery_config.model.model_selector = "deadline-recovery-fixture";
+        recovery_config.model.dialect = "openai.responses.v1";
+        recovery_config.model.endpoint_origin = "https://fixture.example";
+        recovery_config.model.max_output_tokens = 512;
+        recovery_config.model.request_deadline = 90s;
+        recovery_config.model.harness_deadline = 30s;
+        std::shared_ptr<Provider> recovery_provider;
+        recovery_config.model_provider_override =
+            std::make_shared<integration::ModelProviderOverride>(
+                [&](const mira::ModelProfile &profile) {
+                    recovery_provider = std::make_shared<Provider>(profile);
+                    recovery_provider->tool_first.store(false);
+                    return recovery_provider;
+                });
+        mirage::runtime::RuntimeService recovery_service(recovery_config);
+        MIRAGE_CHECK(recovery_service.start(binding).ok);
+        ipc::IpcClient recovery_client(recovery_config.socket_path);
+        const auto recovery_open = recovery_client.call(ipc::OpenSessionRequest{}, 2s);
+        MIRAGE_CHECK(recovery_open.ok);
+        const std::string recovery_session =
+            std::get<ipc::SessionOpened>(recovery_open.payload).session_id;
+        // Profile deadlines: TLS and write stages widened to 20s/30s, total
+        // tracking the request deadline, first_byte clamped by the 60s ceiling.
+        MIRAGE_CHECK(
+            recovery_provider &&
+            recovery_provider->profile_.deadlines.tls == std::chrono::milliseconds{20'000} &&
+            recovery_provider->profile_.deadlines.write == std::chrono::milliseconds{30'000} &&
+            recovery_provider->profile_.deadlines.total == recovery_config.model.request_deadline &&
+            recovery_provider->profile_.deadlines.first_byte ==
+                std::min<std::chrono::milliseconds>(recovery_config.model.request_deadline, 60s) &&
+            recovery_provider->profile_.deadlines.first_byte == std::chrono::milliseconds{60'000});
+        // One retryable stage-deadline failure is resent by the pinned
+        // supervisor's pre-write table; the turn completes on the retry
+        // instead of dying on the first stall.
+        recovery_provider->deadline_failures.store(1);
+        recovery_provider->deadline_retryable.store(true);
+        const auto retry_base = recovery_provider->calls.load();
+        MIRAGE_CHECK(
+            recovery_client
+                .call(ipc::SessionChatRequest{recovery_session, "可重试阶段超时", true}, 2s)
+                .ok);
+        const auto retried = wait_turn(recovery_client, recovery_session);
+        MIRAGE_CHECK(retried && retried->status == "ok" &&
+                     retried->reply_text == "Mira 已完成通用工具调用。" &&
+                     recovery_provider->calls.load() - retry_base == 2);
+        // A non-retryable stage deadline still fails the turn immediately on
+        // the first failure, with the provider's safe message surfaced.
+        recovery_provider->deadline_failures.store(1);
+        recovery_provider->deadline_retryable.store(false);
+        const auto fatal_base = recovery_provider->calls.load();
+        MIRAGE_CHECK(
+            recovery_client
+                .call(ipc::SessionChatRequest{recovery_session, "不可重试阶段超时", true}, 2s)
+                .ok);
+        const auto fatal = wait_turn(recovery_client, recovery_session);
+        MIRAGE_CHECK(fatal && fatal->status == "failed" &&
+                     fatal->error.find("exchange stage deadline exceeded") != std::string::npos &&
+                     recovery_provider->calls.load() - fatal_base == 1);
+        // The pinned circuit breaker counts consecutive provider failures
+        // across turns; settle one clean turn so the post-write cases below
+        // start from a circuit that still admits requests.
+        const auto settle_base = recovery_provider->calls.load();
+        MIRAGE_CHECK(
+            recovery_client.call(ipc::SessionChatRequest{recovery_session, "恢复前清零", true}, 2s)
+                .ok);
+        const auto settled = wait_turn(recovery_client, recovery_session);
+        MIRAGE_CHECK(settled && settled->status == "ok" &&
+                     recovery_provider->calls.load() - settle_base == 1);
+        // Bytes already written: the supervisor refuses an automatic resend,
+        // so the loop's bounded recovery budget drives the resend. Two
+        // post-write stage stalls recover; the third completion answers.
+        recovery_provider->deadline_failures.store(2);
+        recovery_provider->deadline_retryable.store(true);
+        recovery_provider->deadline_post_write.store(true);
+        const auto recover_base = recovery_provider->calls.load();
+        MIRAGE_CHECK(
+            recovery_client
+                .call(ipc::SessionChatRequest{recovery_session, "恢复预算内重试", true}, 2s)
+                .ok);
+        const auto recovered_turn = wait_turn(recovery_client, recovery_session);
+        MIRAGE_CHECK(recovered_turn && recovered_turn->status == "ok" &&
+                     recovery_provider->calls.load() - recover_base == 3);
+        // The recovery budget is bounded: the third post-write deadline
+        // failure (budget 2) fails the turn after exactly two recoveries.
+        recovery_provider->deadline_failures.store(3);
+        const auto exhausted_base = recovery_provider->calls.load();
+        MIRAGE_CHECK(recovery_client
+                         .call(ipc::SessionChatRequest{recovery_session, "恢复预算耗尽", true}, 2s)
+                         .ok);
+        const auto exhausted = wait_turn(recovery_client, recovery_session);
+        MIRAGE_CHECK(exhausted && exhausted->status == "failed" &&
+                     exhausted->error.find("exchange stage deadline exceeded") !=
+                         std::string::npos &&
+                     recovery_provider->calls.load() - exhausted_base == 3);
+        recovery_provider->deadline_post_write.store(false);
+        recovery_service.request_shutdown();
+        MIRAGE_CHECK(recovery_service.run().clean);
     }
     mirage::runtime::RuntimeService service(config);
     MIRAGE_CHECK(service.start(binding).ok);
@@ -385,6 +698,14 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(provider->calls.load() == 2 && !provider->saw_image.load() &&
                  provider->saw_tool_result.load());
     MIRAGE_CHECK(provider->profile_.capabilities.limits.max_context_tokens == 32768);
+    // MIRA-20261012-001: the widened TLS/write stage deadlines ride every
+    // applied configuration; total tracks the request deadline and first_byte
+    // stays its minimum with the 60s ceiling (1s request deadline here).
+    MIRAGE_CHECK(provider->profile_.deadlines.total == config.model.request_deadline &&
+                 provider->profile_.deadlines.first_byte ==
+                     std::min<std::chrono::milliseconds>(config.model.request_deadline, 60s) &&
+                 provider->profile_.deadlines.tls == std::chrono::milliseconds{20'000} &&
+                 provider->profile_.deadlines.write == std::chrono::milliseconds{30'000});
     MIRAGE_CHECK(turn && turn->context_usage && turn->context_usage->input_tokens == 2468);
     MIRAGE_CHECK(turn && turn->context_usage && turn->context_usage->window_tokens == 32768);
     if (turn) {
@@ -485,8 +806,12 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "非法提案", true}, 2s).ok);
     turn = wait_turn(client, session);
     MIRAGE_CHECK(turn && turn->status == "failed");
-    MIRAGE_CHECK(turn && !turn->parts.empty() && turn->parts.back().kind == "tool" &&
-                 turn->parts.back().status == "failed");
+    // DEC-043 unified aliasing: an undeclared returned tool name is rejected
+    // at the adapter boundary as a non-retryable protocol error, so the turn
+    // fails without ever forming an executable proposal or tool part.
+    MIRAGE_CHECK(turn && turn->error.find("未声明的工具名称") != std::string::npos &&
+                 std::none_of(turn->parts.begin(), turn->parts.end(),
+                              [](const auto &part) { return part.kind == "tool"; }));
     provider->bad_tool.store(false);
     provider->hold.store(true);
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "等待停止", true}, 2s).ok);
@@ -503,18 +828,53 @@ int main(int argc, char **argv) {
     turn = wait_turn(client, session);
     MIRAGE_CHECK(turn && turn->status == "failed");
     provider->throw_now.store(false);
+    // The failure scenarios above (adapter-rejected proposals, cancelled
+    // in-flight calls) can trip the pinned gateway's provider circuit with
+    // three consecutive failures. The pinned ProviderCircuit never leaves
+    // OpenCircuit on a timer - the configured cooldown is not implemented
+    // (MIRA-20261012-002) - so the only recovery is a fresh ModelLayer:
+    // re-apply the model settings, which rebuilds the layer and its gateway
+    // with clean circuits (the override factory rebinds `provider`). The
+    // bounded probe loop still re-checks admission so the budget and
+    // per-call scenarios below start from a closed circuit regardless of
+    // sanitizer-load timing.
+    MIRAGE_CHECK(client.call(ipc::SetModelRequest{serialized}, 2s).ok);
+    provider->tool_first.store(false);
+    for (int probe = 0; probe < 30; ++probe) {
+        if (probe)
+            (void)::poll(nullptr, 0, 1000);
+        MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "熔断探针", true}, 2s).ok);
+        const auto probe_turn = wait_turn(client, session);
+        std::cerr << "circuit probe " << probe << ": "
+                  << (probe_turn ? probe_turn->status : std::string("none"))
+                  << (probe_turn && probe_turn->status != "ok"
+                          ? " error='" + probe_turn->error + "'"
+                          : "")
+                  << "\n";
+        if (probe_turn && probe_turn->status == "ok")
+            break;
+    }
     provider->always_tool.store(true);
     const auto before_budget = provider->calls.load();
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "预算路径", true}, 2s).ok);
     turn = wait_turn(client, session);
+    if (!turn || turn->status != "failed" || turn->error.find("turn") == std::string::npos)
+        std::cerr << "budget-path diagnostic: status="
+                  << (turn ? turn->status : std::string("missing"))
+                  << " error=" << (turn ? turn->error : std::string("-"))
+                  << " calls=" << (provider->calls.load() - before_budget) << "\n";
     MIRAGE_CHECK(turn && turn->status == "failed" && turn->error.find("turn") != std::string::npos);
     MIRAGE_CHECK(provider->calls.load() - before_budget == 16);
     provider->always_tool.store(false);
     provider->hold.store(true);
-    MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "超时路径", true}, 2s).ok);
+    const auto per_call_started = std::chrono::steady_clock::now();
+    const auto per_call_count = provider->calls.load();
+    MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "单次模型超时路径", true}, 2s).ok);
     turn = wait_turn(client, session);
-    MIRAGE_CHECK(turn && turn->status == "failed" &&
-                 turn->error.find("cancelled") != std::string::npos);
+    MIRAGE_CHECK(
+        turn && turn->status == "failed" && !turn->error.empty() &&
+        !provider->last_caller_cancelled.load() && provider->calls.load() - per_call_count == 1 &&
+        std::chrono::steady_clock::now() - per_call_started >= config.model.request_deadline);
     provider->hold.store(false);
     MIRAGE_CHECK(
         !client.call(ipc::SessionChatRequest{session, "unsupported", true, "default", "high"}, 2s)
@@ -550,6 +910,12 @@ int main(int argc, char **argv) {
     turn = wait_turn(client, session);
     MIRAGE_CHECK(turn && turn->status == "ok" && provider->last_tools.load() == 0 &&
                  provider->saw_high.load());
+    // DEC-080: the service enforces dialog mode even against agent=true.
+    MIRAGE_CHECK(
+        client.call(ipc::SessionChatRequest{session, "纯对话权限验证", true, "chat_only"}, 2s).ok);
+    turn = wait_turn(client, session);
+    MIRAGE_CHECK(turn && turn->status == "ok" && provider->last_tools.load() == 0 &&
+                 !provider->saw_image.load());
     auto duplicates = settings;
     duplicates.models.back().display_name = duplicates.models.front().display_name;
     MIRAGE_CHECK(!persistence::decode_settings(persistence::encode_settings(duplicates)).ok);
@@ -838,6 +1204,65 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(alternate_catalog.ok() &&
                  alternate_catalog.ids == std::vector<std::string>({"glm-5", "fallback"}));
     MIRAGE_CHECK(!integration::parse_model_catalog(R"({"error":"unavailable"})").ok());
+    integration::ModelCatalogQuery deepseek_catalog;
+    deepseek_catalog.endpoint_origin = "https://api.deepseek.com";
+    deepseek_catalog.api_prefix = "/anthropic/v1";
+    deepseek_catalog.dialect = "anthropic.messages.v1";
+    MIRAGE_CHECK(integration::model_catalog_urls(deepseek_catalog) ==
+                 std::vector<std::string>({"https://api.deepseek.com/anthropic/models",
+                                           "https://api.deepseek.com/v1/models"}));
+    const auto deepseek_catalog_urls = integration::model_catalog_urls(deepseek_catalog);
+    deepseek_catalog.api_prefix = "/anthropic";
+    MIRAGE_CHECK(integration::model_catalog_urls(deepseek_catalog) == deepseek_catalog_urls);
+    deepseek_catalog.api_prefix = "/anthropic/v1";
+    deepseek_catalog.endpoint_origin = "https://other.example.com";
+    MIRAGE_CHECK(integration::model_catalog_urls(deepseek_catalog) ==
+                 std::vector<std::string>({"https://other.example.com/anthropic/v1/models"}));
+    mira::ModelProfile alias_profile;
+    auto alias_delegate = std::make_shared<AliasProbeProvider>(alias_profile);
+    auto alias_provider = integration::detail::make_tool_alias_provider(alias_delegate);
+    mira::ModelRequest alias_request;
+    mira::ExposedToolSpec window_tool;
+    window_tool.tool_id = mira::ToolId::generate();
+    window_tool.wire_name = "desktop.window.list";
+    alias_request.tools.push_back(window_tool);
+    mira::ToolCallPart prior_call;
+    prior_call.wire_name = window_tool.wire_name;
+    mira::ModelInputItem prior_assistant;
+    prior_assistant.role = mira::ModelRole::Assistant;
+    prior_assistant.content.emplace_back(std::move(prior_call));
+    alias_request.input.push_back(std::move(prior_assistant));
+    const auto alias_response = alias_provider->infer(alias_request, {}, {});
+    MIRAGE_CHECK(alias_response.has_value() && alias_delegate->calls == 1 &&
+                 alias_delegate->exposed == "desktop_window_list" &&
+                 alias_delegate->replay == "desktop_window_list");
+    MIRAGE_CHECK(
+        std::get<mira::ToolCallOutput>(alias_response.value().output.front()).provider_name ==
+            "desktop.window.list" &&
+        alias_request.tools.front().wire_name == "desktop.window.list");
+    const auto resolved_alias = mira::resolve_tool_calls(alias_request, alias_response.value());
+    MIRAGE_CHECK(resolved_alias.has_value() && resolved_alias.value().proposals.size() == 1 &&
+                 resolved_alias.value().proposals.front().wire_name == "desktop.window.list");
+    mira::ExposedToolSpec collision_tool;
+    collision_tool.tool_id = mira::ToolId::generate();
+    collision_tool.wire_name = "desktop_window_list";
+    alias_request.tools.push_back(std::move(collision_tool));
+    MIRAGE_CHECK(!alias_provider->infer(alias_request, {}, {}).has_value() &&
+                 alias_delegate->calls == 1);
+    alias_request.tools.pop_back();
+    for (const auto &invalid_name :
+         std::vector<std::string>{"", std::string(65, 'a'), "desktop/window", "工具"}) {
+        alias_request.tools.front().wire_name = invalid_name;
+        const auto rejected = alias_provider->infer(alias_request, {}, {});
+        MIRAGE_CHECK(!rejected.has_value() &&
+                     rejected.error().code == mira::ErrorCode::InvalidArgument &&
+                     alias_delegate->calls == 1);
+    }
+    alias_request.tools.front().wire_name = "desktop.window.list";
+    std::get<mira::ToolCallPart>(alias_request.input.front().content.front()).wire_name =
+        "desktop_window_list";
+    MIRAGE_CHECK(!alias_provider->infer(alias_request, {}, {}).has_value() &&
+                 alias_delegate->calls == 1);
     key_write_failure.store(true);
     MIRAGE_CHECK(!client.call(key_packet, 2s).ok);
     key_write_failure.store(false);
@@ -1015,18 +1440,61 @@ int main(int argc, char **argv) {
         std::get<ipc::ModelConfiguration>(messages_ack.payload).settings_json);
     MIRAGE_CHECK(messages_projection.ok && messages_projection.settings.model->reasoning_options ==
                                                std::vector<std::string>({"", "none", "adaptive"}));
+    // DEC-082: the model-aware default uses structured thinking in pure
+    // dialog as well as the harness. Final text never contains that process.
     MIRAGE_CHECK(
-        client
-            .call(ipc::SessionChatRequest{session, "自适应思考", true, "read_only", "adaptive"}, 2s)
+        client.call(ipc::SessionChatRequest{session, "默认直接对话", false, "chat_only", ""}, 2s)
+            .ok);
+    const auto default_dialog = wait_turn(client, session);
+    MIRAGE_CHECK(default_dialog && default_dialog->status == "ok" &&
+                 provider->saw_adaptive.load() && provider->last_tools.load() == 0 &&
+                 provider->last_output_tokens.load() == 8192 &&
+                 provider->profile_.capabilities.limits.max_output_tokens == 17 * 8192 &&
+                 default_dialog->reply_text == "Mira 已完成通用工具调用。" &&
+                 std::any_of(default_dialog->parts.begin(), default_dialog->parts.end(),
+                             [](const auto &part) { return part.kind == "thinking"; }));
+    // Nine distinct tool round trips exceed the former seven-call ceiling.
+    // Their total time exceeds one request's limit, within the task limit.
+    provider->remaining_tools.store(9);
+    provider->wait_duration.store(150);
+    const auto many_start = std::chrono::steady_clock::now();
+    const auto many_calls = provider->calls.load();
+    MIRAGE_CHECK(
+        client.call(ipc::SessionChatRequest{session, "默认多轮工具", true, "default", ""}, 2s).ok);
+    const auto many_turn = wait_turn(client, session);
+    MIRAGE_CHECK(many_turn && many_turn->status == "ok" && provider->saw_adaptive.load() &&
+                 provider->calls.load() - many_calls == 10 &&
+                 many_turn->reply_text == "Mira 已完成通用工具调用。" &&
+                 std::chrono::steady_clock::now() - many_start > config.model.request_deadline);
+    provider->wait_duration.store(1);
+    provider->remaining_tools.store(9);
+    const auto adaptive_calls = provider->calls.load();
+    MIRAGE_CHECK(
+        client.call(ipc::SessionChatRequest{session, "自适应思考", true, "default", "adaptive"}, 2s)
             .ok);
     const auto thought_turn = wait_turn(client, session);
-    MIRAGE_CHECK(thought_turn && thought_turn->status == "ok" && provider->saw_adaptive.load());
+    MIRAGE_CHECK(thought_turn && thought_turn->status == "ok" && provider->saw_adaptive.load() &&
+                 provider->calls.load() - adaptive_calls == 10);
+    provider->always_tool.store(true);
+    const auto m3_budget_calls = provider->calls.load();
+    MIRAGE_CHECK(
+        client
+            .call(ipc::SessionChatRequest{session, "思考轮次预算", true, "default", "adaptive"}, 2s)
+            .ok);
+    const auto m3_budget_turn = wait_turn(client, session);
+    // MIRA-20261012-001: the desktop profile reserves 17x the generation cap,
+    // so the envelope trades two turns for the two recoveries: 14 tool-only
+    // turns exhaust the turn budget (the openai profile above keeps 16).
+    MIRAGE_CHECK(m3_budget_turn && m3_budget_turn->status == "failed" &&
+                 m3_budget_turn->error.find("turn") != std::string::npos &&
+                 provider->calls.load() - m3_budget_calls == 14);
+    provider->always_tool.store(false);
     MIRAGE_CHECK(
         client.call(ipc::SessionChatRequest{session, "关闭思考", true, "read_only", "none"}, 2s)
             .ok);
     const auto no_thought_turn = wait_turn(client, session);
     MIRAGE_CHECK(no_thought_turn && no_thought_turn->status == "ok" &&
-                 provider->saw_disabled.load());
+                 provider->saw_disabled.load() && provider->last_output_tokens.load() == 512);
     MIRAGE_CHECK(
         !client.call(ipc::SessionChatRequest{session, "M3不支持深度", true, "read_only", "max"}, 2s)
              .ok);

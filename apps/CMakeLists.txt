@@ -14,6 +14,7 @@ target_link_libraries(mirage
         Mirage::integration_mirador
         Mirage::platform
         Mirage::update
+        Mirage::persistence
 )
 
 # Shared embedding keeps credentials/settings/platform bindings identical for
@@ -33,3 +34,7 @@ add_subdirectory(tray)
 
 # Native UI, DEC-037: the sole product frontend.
 add_subdirectory(native)
+
+if(MIRAGE_BUNDLE_VISION)
+    target_compile_definitions(mirage_service_host PRIVATE MIRAGE_BUNDLED_VISION=1)
+endif()

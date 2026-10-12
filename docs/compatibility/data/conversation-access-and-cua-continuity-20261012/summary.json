@@ -1,0 +1,119 @@
+{
+  "date": "2026-10-12",
+  "work_items": {
+    "M6-38": "Completed (Linux local)",
+    "M7-10": "In Progress"
+  },
+  "decisions": [
+    "DEC-080",
+    "DEC-081"
+  ],
+  "automatic": {
+    "debug": {
+      "passed": 70,
+      "total": 70,
+      "log": "/tmp/mirage-dec081-debug-full.log",
+      "seconds": 108.99
+    },
+    "native_release": {
+      "passed": 76,
+      "total": 76,
+      "log": "/tmp/mirage-dec081-native-full.log",
+      "seconds": 109.03
+    },
+    "asan": {
+      "passed": 8,
+      "total": 8,
+      "log": "/tmp/mirage-dec081-asan-test.log",
+      "seconds": 29.93
+    },
+    "ubsan": {
+      "passed": 8,
+      "total": 8,
+      "log": "/tmp/mirage-dec081-ubsan-test.log",
+      "seconds": 25.96
+    },
+    "tsan": {
+      "passed": 8,
+      "total": 8,
+      "log": "/tmp/mirage-dec081-tsan-test.log",
+      "seconds": 49.57
+    }
+  },
+  "supplemental_route_checks": {
+    "debug": 3,
+    "native_release": 3,
+    "asan": 3,
+    "ubsan": 3,
+    "tsan": "included in 8/8"
+  },
+  "renderer": {
+    "checks": 24934,
+    "failures": 0,
+    "xdg": "private",
+    "display": "private Xvfb",
+    "runtime_bridge": false,
+    "screenshots": [
+      {
+        "file": "composer-permissions-light.png",
+        "sha256": "f932fce97bb0670310ccd798bcb6c791975bb23e4c4f87d5e3e876e22b23ae63"
+      },
+      {
+        "file": "composer-full-access-small-dark.png",
+        "sha256": "02b299cbfca6e5723c77a291c674bd0921e029e5c56fbd740c445b8a904f0828"
+      },
+      {
+        "file": "composer-conversation-small-dark.png",
+        "sha256": "f4913163529d4a7bbba00f40e9397d2b7386daebc9e2abfe75b14b9299b37f1d"
+      },
+      {
+        "file": "composer-permissions-error-scrolled-dark.png",
+        "sha256": "42ec1d34093f85ab32b51deaef3e49ba095d2452e22755079cec2bc64544ed57"
+      }
+    ]
+  },
+  "package": {
+    "package": "/home/linductor/mirage/out/packages/mirage_0.1.0_amd64.deb",
+    "package_sha256": "59e725bd45c456fbfe39b6d0c1c23d538c49817889ff610b7eff315f99a2ccd3",
+    "binaries": {
+      "mirage": {
+        "sha256": "7d890a90020b400f4163b7cd48d1b0ebf0f6219fd79733e59aace885e0c254dd",
+        "matches_release": true
+      },
+      "mirage-service": {
+        "sha256": "cf428e3806bad085f977da4c4769aaa6d71a2365c09d0afad87149d1fa7492cb",
+        "matches_release": true
+      },
+      "mirage-tray": {
+        "sha256": "9e729e71d099fbf2c9de3c0522402f645cfbd51b12ad93e7d119f6309bde7f77",
+        "matches_release": true
+      },
+      "mirage-native": {
+        "sha256": "df0e39d321bacc155497d2c7a621aaa8fa1f9e6517a2596222c7b64200fb2173",
+        "matches_release": true
+      }
+    }
+  },
+  "user_settings": {
+    "unchanged": [
+      "service.json",
+      "miragerc",
+      "accel_map",
+      "preferences.json"
+    ],
+    "state_hash_changed": [
+      "task-recovery.json",
+      "session-state.json"
+    ],
+    "state_restored": false
+  },
+  "host_grant_requested": false,
+  "pending": [
+    "GNOME static continuous capture/OCR and real browser input",
+    "cross-task and cross-process authorization restore",
+    "Unicode/IME, multiple displays, other compositors and Windows"
+  ],
+  "dependency_pin_changed_in_this_increment": false,
+  "committed": false,
+  "pushed": false
+}

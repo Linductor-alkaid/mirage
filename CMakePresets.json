@@ -58,8 +58,11 @@
         "CMAKE_CXX_FLAGS_INIT": "-fsanitize=thread -fno-omit-frame-pointer"
       }
     },
-    {"name": "native-debug", "inherits": "debug", "displayName": "Native UI Debug", "cacheVariables": {"MIRAGE_ENABLE_NATIVE_FRONTEND": "ON"}},
-    {"name": "native-release", "inherits": "release", "displayName": "Native UI Release", "cacheVariables": {"MIRAGE_ENABLE_NATIVE_FRONTEND": "ON"}}
+    {"name": "native-debug", "inherits": "debug", "displayName": "Native UI Debug", "cacheVariables": {"MIRAGE_ENABLE_NATIVE_FRONTEND": "ON", "MIRAGE_WITH_PPOCR": "ON", "MIRAGE_BUNDLE_VISION": "ON"}},
+    {"name": "native-release", "inherits": "release", "displayName": "Native UI Release", "cacheVariables": {"MIRAGE_ENABLE_NATIVE_FRONTEND": "ON", "MIRAGE_WITH_PPOCR": "ON", "MIRAGE_BUNDLE_VISION": "ON"}},
+    {"name": "ocr-debug", "inherits": "debug", "displayName": "Opt-in PP-OCR Debug", "cacheVariables": {"MIRAGE_WITH_PPOCR": "ON"}},
+    {"name": "native-vision-debug", "inherits": "native-debug", "displayName": "Native UI + PP-OCR Debug", "cacheVariables": {"MIRAGE_WITH_PPOCR": "ON"}},
+    {"name": "native-vision-release", "inherits": "native-release", "displayName": "Native UI + PP-OCR Release", "cacheVariables": {"MIRAGE_WITH_PPOCR": "ON"}}
   ],
   "buildPresets": [
     {"name": "debug", "configurePreset": "debug"},
@@ -68,7 +71,10 @@
     {"name": "ubsan", "configurePreset": "ubsan"},
     {"name": "tsan", "configurePreset": "tsan"},
     {"name": "native-debug", "configurePreset": "native-debug"},
-    {"name": "native-release", "configurePreset": "native-release"}
+    {"name": "native-release", "configurePreset": "native-release"},
+    {"name": "ocr-debug", "configurePreset": "ocr-debug"},
+    {"name": "native-vision-debug", "configurePreset": "native-vision-debug"},
+    {"name": "native-vision-release", "configurePreset": "native-vision-release"}
   ],
   "testPresets": [
     {
@@ -102,6 +108,9 @@
       "execution": {"noTestsAction": "error", "timeout": 300}
     },
     {"name": "native-debug", "configurePreset": "native-debug", "output": {"outputOnFailure": true}, "execution": {"noTestsAction": "error", "timeout": 300}},
-    {"name": "native-release", "configurePreset": "native-release", "output": {"outputOnFailure": true}, "execution": {"noTestsAction": "error", "timeout": 300}}
+    {"name": "native-release", "configurePreset": "native-release", "output": {"outputOnFailure": true}, "execution": {"noTestsAction": "error", "timeout": 300}},
+    {"name": "ocr-debug", "configurePreset": "ocr-debug", "output": {"outputOnFailure": true}, "execution": {"noTestsAction": "error", "timeout": 300}},
+    {"name": "native-vision-debug", "configurePreset": "native-vision-debug", "output": {"outputOnFailure": true}, "execution": {"noTestsAction": "error", "timeout": 300}},
+    {"name": "native-vision-release", "configurePreset": "native-vision-release", "output": {"outputOnFailure": true}, "execution": {"noTestsAction": "error", "timeout": 300}}
   ]
 }

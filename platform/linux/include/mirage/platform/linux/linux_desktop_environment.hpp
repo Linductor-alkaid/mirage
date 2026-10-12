@@ -20,6 +20,7 @@ class X11Backend;          // private in src/: no X11 types may appear here (RUL
 class AtspiBackend;        // ditto for the AT-SPI2 frontend (M2-03)
 class ApplicationBackend;  // ditto for the GIO application frontend (M2-05)
 class NotificationBackend; // ditto for the GDBus notification frontend (M2-05)
+class PortalScreenBackend; // private Wayland observation adapter (DEC-073)
 
 /// Desktop Overlay carrier of the Linux backend (M5-09, DEC-029): the X11
 /// shape overlay (topmost override-redirect window, shape-composed
@@ -41,14 +42,13 @@ open_overlay_carrier(const std::string &display = {});
 std::unique_ptr<mirage::desktop::TrayCarrier> open_tray_carrier();
 
 /// Opt-in X11/XWayland surface of the Linux backend (M2-02, DEC-015). When
-/// enabled the environment connects to `display` (empty = $DISPLAY) at
-/// construction and exposes the Window / Screen / Input / Clipboard
-/// providers; a failed connection (e.g. a Wayland-native session without
-/// XWayland) leaves those accessors null so consumers fail closed — it never
-/// silently degrades.
+/// enabled, an explicit display selects X11; an empty display auto-selects
+/// the session. Native Wayland exposes Portal Screen observation and task-owned
+/// interaction (DEC-077), with global Window / Input / Clipboard unavailable. Other sessions use
+/// $DISPLAY and expose X11 providers when the connection succeeds.
 struct X11Options {
     bool enabled = false;
-    /// X display name; empty uses the DISPLAY environment variable.
+    /// Explicit X display; empty selects the current session backend.
     std::string display;
 };
 
@@ -133,6 +133,9 @@ class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment
   private:
     mirage::desktop::PathScope read_scope_;
     std::unique_ptr<X11Backend> x11_;
+    /// M7-18: Wayland fallback window enumeration over the accessibility tree.
+    std::unique_ptr<::mirage::desktop::WindowProvider> atspi_windows_;
+    std::unique_ptr<PortalScreenBackend> portal_screen_;
     std::unique_ptr<AtspiBackend> atspi_;
     std::unique_ptr<ApplicationBackend> application_backend_;
     std::unique_ptr<NotificationBackend> notification_backend_;

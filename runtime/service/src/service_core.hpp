@@ -11,6 +11,7 @@
 #include <kairo/executor.hpp>
 #include <kairo/serial_execution_context.hpp>
 
+#include "ppocr_pipeline.hpp"
 #include <mirage/desktop/desktop_environment.hpp>
 #include <mirage/desktop/visual_reference_registry.hpp>
 #include <mirage/integration/desktop_atom_toolset.hpp>
@@ -53,11 +54,14 @@ struct ServiceCore {
     /// Desktop surface the M1 task drivers act on (mirrors the environment
     /// wrapped by the binding handed to start(); null until then).
     std::shared_ptr<mirage::desktop::DesktopEnvironment> environment;
+    std::shared_ptr<mirage::desktop::ActionCoordinator> actions =
+        std::make_shared<mirage::desktop::ActionCoordinator>();
 
     /// Visual reference registry the desktop.observe face projects the
     /// visual generation from (DEC-026); null until configured — the visual
     /// component then fails closed instead of capturing (DEC-016).
     mirage::desktop::VisualReferenceRegistry *visual_registry = nullptr;
+    std::unique_ptr<mirage::integration::PpOcrPipeline> ocr_pipeline;
 
     /// RULE-05 gate judged before every desktop action (DEC-010); owned
     /// here so the drivers and future request paths share one policy and

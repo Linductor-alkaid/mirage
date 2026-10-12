@@ -3,11 +3,13 @@
 #include "application_backend.hpp"
 #include "atspi_backend.hpp"
 #include "notification_backend.hpp"
+#include "portal_screen_backend.hpp"
 #include "x11_backend.hpp"
 
 #include <cerrno>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <system_error>
@@ -84,7 +86,12 @@ LinuxDesktopEnvironment::LinuxDesktopEnvironment(std::vector<std::filesystem::pa
                                                  ApplicationOptions application_options,
                                                  NotificationsOptions notifications_options)
     : read_scope_(std::move(read_roots)) {
-    if (x11_options.enabled) {
+    const char *session = std::getenv("XDG_SESSION_TYPE");
+    const bool native_wayland = x11_options.enabled && x11_options.display.empty() && session &&
+                                std::string_view(session) == "wayland";
+    if (native_wayland) {
+        portal_screen_ = PortalScreenBackend::open();
+    } else if (x11_options.enabled) {
         x11_ = X11Backend::open(x11_options.display);
         // A failed connection intentionally leaves x11_ null: the window /
         // screen / input accessors report an absent capability instead of
@@ -94,6 +101,10 @@ LinuxDesktopEnvironment::LinuxDesktopEnvironment(std::vector<std::filesystem::pa
         // The accessibility backend maps window ids by title through the X
         // window surface when present (M2-03); it works without X too.
         atspi_ = AtspiBackend::open(x11_.get() != nullptr ? x11_->window() : nullptr);
+        if (x11_.get() == nullptr)
+            // M7-18: pure Wayland has no X window surface; accessibility
+            // frames provide window geometry for Portal window captures.
+            atspi_windows_ = AtspiBackend::open_window_provider();
     }
     if (application_options.enabled) {
         // Discovery and launch resolve per call, so open() cannot fail;
@@ -114,10 +125,14 @@ mirage::desktop::EnvironmentInfo LinuxDesktopEnvironment::info() const {
 }
 
 mirage::desktop::WindowProvider *LinuxDesktopEnvironment::window() {
-    return x11_ != nullptr ? x11_->window() : nullptr;
+    if (x11_ != nullptr)
+        return x11_->window();
+    return atspi_windows_.get();
 }
 
 mirage::desktop::ScreenProvider *LinuxDesktopEnvironment::screen() {
+    if (portal_screen_)
+        return portal_screen_.get();
     return x11_ != nullptr ? x11_->screen() : nullptr;
 }
 

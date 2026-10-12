@@ -432,6 +432,14 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
             request.api_key = vector_string(body, "api_key");
         return request;
     }
+    if (op == "desktop.authorization.get")
+        return ipc::GetDesktopAuthorizationRequest{};
+    if (op == "desktop.authorization.set")
+        return ipc::SetDesktopAuthorizationRequest{vector_boolean(body, "remember")};
+    if (op == "vision.get")
+        return ipc::GetVisionRequest{};
+    if (op == "vision.set")
+        return ipc::SetVisionRequest{vector_string(body, "ocr_manifest")};
     if (op == "model.set") {
         ipc::SetModelRequest request{vector_string(body, "settings")};
         if (body.find("api_key"))
@@ -477,6 +485,12 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
         ipc::SessionChatRequest chat;
         chat.session_id = vector_string(body, "session_id");
         chat.text = vector_string(body, "text");
+        if (const auto *agent = body.find("agent"); agent && agent->as_boolean())
+            chat.agent = *agent->as_boolean();
+        if (body.find("access"))
+            chat.access = vector_string(body, "access");
+        if (body.find("reasoning"))
+            chat.reasoning = vector_string(body, "reasoning");
         if (body.find("replace_turn_id"))
             chat.replace_turn_id = vector_string(body, "replace_turn_id");
         return chat;
@@ -636,10 +650,16 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                           std::is_same_v<T, ipc::ListPermissionsRequest> ||
                           std::is_same_v<T, ipc::ListSessionsRequest> ||
                           std::is_same_v<T, ipc::OpenSessionRequest> ||
+                          std::is_same_v<T, ipc::GetVisionRequest> ||
+                          std::is_same_v<T, ipc::GetDesktopAuthorizationRequest> ||
                           std::is_same_v<T, ipc::WorkflowListRequest> ||
                           std::is_same_v<T, ipc::WorkflowAtomCatalogRequest> ||
                           std::is_same_v<T, ipc::WorkflowRunsRequest>) {
                 // Stateless bodies: the variant index comparison above suffices.
+            } else if constexpr (std::is_same_v<T, ipc::SetDesktopAuthorizationRequest>) {
+                MIRAGE_CHECK(std::get<T>(actual).remember == expected_value.remember);
+            } else if constexpr (std::is_same_v<T, ipc::SetVisionRequest>) {
+                MIRAGE_CHECK(std::get<T>(actual).ocr_manifest == expected_value.ocr_manifest);
             } else if constexpr (std::is_same_v<T, ipc::ListModelsRequest>) {
                 const auto &request = std::get<T>(actual);
                 MIRAGE_CHECK(request.provider_id == expected_value.provider_id);
@@ -703,6 +723,10 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                 check_string_equal(name, "chat session_id", chat.session_id,
                                    expected_value.session_id);
                 check_string_equal(name, "chat text", chat.text, expected_value.text);
+                MIRAGE_CHECK(chat.agent == expected_value.agent);
+                check_string_equal(name, "chat access", chat.access, expected_value.access);
+                check_string_equal(name, "chat reasoning", chat.reasoning,
+                                   expected_value.reasoning);
                 check_string_equal(name, "replace_turn_id", chat.replace_turn_id,
                                    expected_value.replace_turn_id);
             } else if constexpr (std::is_same_v<T, ipc::ChatHistoryRequest>) {
@@ -945,6 +969,16 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
         for (const auto &id : *vector_member(value, "ids").as_array())
             list.ids.push_back(*id.as_string());
         response.payload = std::move(list);
+    } else if (kind == "desktop-authorization") {
+        response.payload = ipc::DesktopAuthorizationConfiguration{
+            vector_boolean(value, "supported"), vector_boolean(value, "remember"),
+            vector_boolean(value, "remembered"), vector_string(value, "state"),
+            vector_string(value, "notice")};
+    } else if (kind == "vision-configuration") {
+        response.payload = ipc::VisionConfiguration{
+            vector_string(value, "ocr_manifest"), vector_string(value, "active_manifest"),
+            vector_boolean(value, "supported"), vector_boolean(value, "running"),
+            vector_boolean(value, "restart_required")};
     } else if (kind == "model-configuration") {
         response.payload =
             ipc::ModelConfiguration{vector_string(value, "settings"),

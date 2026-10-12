@@ -330,6 +330,9 @@ struct UiaBackend::Impl {
     /// by every later call (valid while the anchored MTA lives).
     ComPtr<IUIAutomation> automation;
 
+    std::uint64_t snapshot_generation = 0;
+    std::string snapshot_scope;
+
     void clear_registry() { registry.clear(); }
 
     /// Requires an open ComScope on the calling thread. Forms the anchor on
@@ -691,6 +694,8 @@ SnapshotOutcome UiaBackend::semantic_snapshot(const std::string &window_id,
     for (std::size_t i = 0; i < collected_nodes.size(); ++i) {
         impl_->registry[collected_nodes[i].ref] = std::move(collected_elements[i]);
     }
+    impl_->snapshot_scope = "uia:" + window_id + ":" + std::to_string(++impl_->snapshot_generation);
+    outcome.scope = impl_->snapshot_scope;
     outcome.ok = true;
     outcome.snapshot.application = application_name_for(*handle);
     outcome.snapshot.window_title = window_title_utf8(*handle);
@@ -706,6 +711,10 @@ ElementActionOutcome UiaBackend::activate_element(const ElementTarget &target,
     // holds this mutex, so later calls (cancellation included) queue
     // behind it — cancellation is observed before effects, not mid-call.
     std::lock_guard<std::mutex> guard(mutex_);
+    if (!target.snapshot_scope.empty() && target.snapshot_scope != impl_->snapshot_scope) {
+        outcome.error = error("stale_observation", "semantic snapshot generation changed");
+        return outcome;
+    }
     if (cancel.cancelled()) {
         outcome.cancelled = true;
         outcome.error = error("cancelled", "activation cancelled");
@@ -764,6 +773,10 @@ ElementActionOutcome UiaBackend::set_text(const ElementTarget &target, const std
     // holds this mutex, so later calls (cancellation included) queue
     // behind it — cancellation is observed before effects, not mid-call.
     std::lock_guard<std::mutex> guard(mutex_);
+    if (!target.snapshot_scope.empty() && target.snapshot_scope != impl_->snapshot_scope) {
+        outcome.error = error("stale_observation", "semantic snapshot generation changed");
+        return outcome;
+    }
     if (cancel.cancelled()) {
         outcome.cancelled = true;
         outcome.error = error("cancelled", "text input cancelled");

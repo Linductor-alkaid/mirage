@@ -3,7 +3,7 @@
 > 状态：In Progress
 > 负责人：Mirage 维护者
 > 所属计划：[实施总计划](mirage-implementation-plan.md)
-> 更新日期：2026-10-08
+> 更新日期：2026-10-12
 > 决策：[DEC-033](../decisions/DEC-033-native-agent-frontend.md)
 > 前置：既有 M5 服务与 IPC；本轮交付不依赖完整 M5 发布验收。
 > 建议发布点：暂不新增发布标签。
@@ -47,7 +47,12 @@
 | M6-28 | Blocked | 自有 PR 全绿合并、功能分支及过期 build 已清理；仅 EUI #88 待上游有权限者合并，验收记录分支随 PR 交付；[维护计划](maintenance-ci-acceptance-20261007.md)、[进程 EOF 修复](maintenance-linux-process-eof-20261007.md) |
 | M6-36 | Completed（Linux 本地；CI为合入门禁） | 修复黑闪 PR 合入 CI 暴露的既有任务终态过早通知；两worker下旧驱动等待串行域与新驱动竞争，独立 runtime PR 交付；Release52/52、事件用例重复5次、ASAN+UBSAN与TSan各1/1；[证据](../compatibility/task-terminal-notification-20261008.md) |
 | M6-33 | Completed（Linux X11） | 侧栏/主题过渡、逐模型思考设置、按URL获取候选；Release52/52、ASAN/TSAN、真实公开目录与原生渲染通过；DEC-051 |
+| M6-39 | In Progress | DeepSeek 模型列表路径与 Messages 工具名兼容；DEC-051/043，Debug/ASAN/Release 及隔离服务实测通过；Native Release 安装包已更新并校验，维护者原会话测试待验收 |
+| M6-40 | In Progress | 全视觉元素独立图标：集中 icons.hpp 登记（Phosphor 2.1.1 溯源补全）、思考深度分档、权限三模式、附件文件/图片、任务类型、运行会话与对话框语义图标；DESIGN.md 图标目录，渲染审计与图标断言测试待验收 |
+| M6-41 | In Progress | HUA Chat Completions 工具名拒绝已修复并更新本机：HTTP 对照/真实工具回放、五配置 loop 回归及 Debug/Release/ASAN/UBSAN 定向通过；同期目标稳定性修改导致全量五项视觉失败，原任务与完整发布门禁保持开放；依据 DEC-043 |
 | M6-35 | Completed（Linux X11/XWayland） | 真实 XWayland 持续拖拽改为系统原生接管，维护者实测无黑闪；EUI issue #93/PR #94 四组合本机/CI通过；组合 Release52/52、最终程序化采样365+300无黑色中心；Mirage 两个PR八项CI全成功，维护者授权合入；上游评审与 Windows 实际拖拽保持开放；[证据](../compatibility/native-frame-presentation-20261008.md) |
+| M6-37 | Completed（Linux 本地） | 最近内容更新会话置顶，选择/草稿保留、历史稳定恢复；DEC-079，Debug定向6/6、Native8/8、sanitizer各4/4，原生渲染22,978检查与包内四程序校验通过；Windows真机另验 |
+| M6-38 | Completed（Linux 本地） | 会话输入框三种桌面访问模式与授权联动；DEC-080 / DEC-078，纯对话/视觉/完全访问权限、明暗/最小窗口及共享状态门禁验证 |
 | M6-10 | Completed | 依工程规范9.4整理Mira/Mirador独立反馈台账，复核已登记问题并向Mira上游提交可复现反馈；不修改依赖或升级pin |
 
 ## 测试矩阵与退出条件
@@ -512,3 +517,156 @@ Windows、物理显示器帧率及Anthropic真实目录保持补验，不关闭M
 已同步 master，维护者明确授权合入及清理本次 Mirage 工作分支。两份原提交的八项 CI
 全部成功，含 Windows MSVC、Debug/Release、ASAN/UBSAN/TSAN 与原生界面。Linux
 功能范围完成；Windows 编译/自动测试不替代物理拖拽验收，上游 #94 评审保持开放。
+
+## 2026-10-11 / M6-37：会话按最近内容更新排序
+
+状态 Completed（Linux 本地）；负责人 Mirage 维护者。维护者要求左侧最新更新的会话位于最上方，
+按 DEC-079 提供有界排序投影、实时更新与历史时间恢复，保留当前选择/草稿/阅读位置。
+验收包括乱序恢复、重复历史、迟到事件、流式/工具过程、同毫秒、清空/删除及相关回归。
+
+M6-37 本地验收：模型412检查、原生最终渲染22,978检查，均零失败；Debug定向6/6、
+Native定向8/8，ASAN/UBSAN/TSAN定向各4/4（含状态fixture），最终自带隔离的原生
+夹具另3/3。DEB四程序与Release SHA一致，最终六份用户状态SHA与操作前一致；
+直接截图遗漏隔离造成外观偏好写入已按原SHA恢复，夹具现自行隔离配置。见
+[完整验收](../compatibility/session-activity-order-20261011.md)。未提交/推送，Windows
+真机另验，不关闭M6整体；权限实机补验仍按维护者要求暂缓。
+
+## 2026-10-12 / M6-38：会话三种桌面访问模式
+
+维护者明确指定对话、视觉、完全访问，按 DEC-080 接入会话按钮及授权联动；
+服务端强制对话模式工具/屏幕为空，视觉只观察，完全访问仍受系统/服务守卫。
+运行和授权等待期间锁定模式，保留草稿与旧默认偏好，损坏访问值不升权。
+Linux 本地 Completed：Debug 70/70、Native 76/76，sanitizer 定向各 8/8，
+原生渲染 24,934 检查零失败，DEB 四程序与 Release 匹配。
+[证据与限制](../compatibility/conversation-access-and-cua-continuity-20261012.md)。
+不以 Linux 渲染关闭 Windows 真机或 M7-10 GNOME 授权/恢复门禁；未提交/推送。
+
+2026-10-12 / M6-38 界面澄清（Completed，Linux 本地）：维护者要求选择菜单只有三个选项。
+删除会话内授权区域及说明，收窄至 280×120、选中后收起；保留能力限制和完全访问
+授权联动。DEC-080 和界面契约已更新；Native 定向 6/6、原生渲染 24,005 检查
+零失败，DEB 四程序匹配最终 Release。见[仅三模式菜单验收](../compatibility/conversation-mode-selector-20261012.md)。
+
+2026-10-12 / M6-26、M6-38 同日修正（Completed，Linux 本地增量）：按 ZCode
+29628c9 将三模式菜单移到实际按钮正上方，左对齐、间隔 4px；原生明暗/最小窗口
+24,009 检查零失败。DEC-082 对精确 MiniMax-M3 默认显式 Adaptive，关闭仍 Disabled，
+正文与独立思考分离；实际合成三档 3/3。历史默认正文异常未稳定复现，原用户任务
+仍需新版复验，不宣称全部供应商输出已保证。Debug 70/70、Native 76/76，sanitizer
+各 6/6；四个 DEB 内程序校验匹配，未安装/启动产品或提交/推送。详见
+[验收](../compatibility/reasoning-and-menu-anchor-20261012.md)。
+
+2026-10-12 Git 交付：维护者要求整理提交，并明确授权将同期选路修改一起核验。
+依赖、桌面、平台、原生 UI 与 Runtime 分组提交，代码终点 6703251；最终组合
+Debug 70/70、Native 76/76、ASAN/UBSAN/TSAN 选路各 5/5，源码稳定性与包内
+四程序校验通过。本地提交不关闭既有真实平台/原用户任务门禁，未推送或合并。
+完整范围与证据见[Git 交付记录](../compatibility/m7-git-delivery-20261012.md)。
+
+## 2026-10-12 / M6-39：DeepSeek目录与推理路径
+
+用户最初实测 `/anthropic/v1` 可用于推理而模型列表失败，`/anthropic` 可获取列表。
+Mira 的公开 `ModelProfile::request_path()` 对 Messages 只追加 `/messages`，预设保留
+`/anthropic/v1`；目录对官方 DeepSeek 地址使用与旧 `/anthropic` 配置相同的候选路径，
+已存凭据仍按用户原配置精确匹配，同源且不改变其他厂商路由；依据 DEC-051。
+随后用用户已保存 Key 补验，两条路径的最小 Messages 请求均返回 HTTP 200，说明当前
+会话的 `invalid_request_error` 另有原因：Mirage 的 `desktop.window.list` 工具名带点号，
+DeepSeek 返回 HTTP 400 和允许字符规则；映射为 `desktop_window_list` 后 HTTP 200。
+按 DEC-043 只在 DeepSeek Provider 边界映射工具名和回放，返回工具调用按原 ID/名称
+还原后交给 Mira 校验、执行和可见记录。
+
+验收：Debug/ASAN/Release 集成测试验证候选相同、非 DeepSeek 路由不变，且工具声明、
+assistant 回放与返回调用往返映射、碰撞拒绝；用已授权 Key 在隔离服务中以
+`/anthropic/v1` 获取模型列表，并发起一轮 Agent 只读对话。
+`cmake --build build/debug --target native_agent_integration_test -j 3`，以及
+`build/asan`、`build/release` 的同目标 `-j 2` 构建均通过；三者执行
+`ctest --test-dir build/<配置> -R '^native_agent_integration_test$' --output-on-failure`
+各 3/3 通过。现有 `build/native-release` 缓存指向已删除的
+`build/ocr-debug/_deps/mirador_ncnn-src`，重新配置失败；独立 `release` preset 可完成服务端
+验证。`git diff --check` 与变更行 clang-format 通过。通过临时配置、独立 socket、
+独立 XDG state 启动 Debug 服务，复用钥匙环中的既有 Key：`model.list` 返回 2 个 ID，
+`agent=true, access=read_only` 的“你好”会话终态 `ok`，无桌面修改，服务干净关闭。
+Key 未输出、写入仓库或传入命令参数。最初一次隔离服务启动未覆盖 XDG state，读取并
+重写了原会话状态文件；随后立即停止，原 9 个会话和该失败轮次仍在，正式探针使用独立
+XDG state。当前运行的 native-release 仍为旧构建，不能把隔离服务结果当作当前程序验证。
+负责人：Mirage 维护者；补跑条件：恢复 native-release 缺失的 OCR 依赖源码，部署此
+改动后重启当前程序并用现有 DeepSeek Key 复验。
+
+2026-10-12 安装包交付：维护者明确要求更新安装包并自行测试。恢复同一锁定提交的 ncnn
+构建源码后，Native Release 四程序构建与定向集成 3/3 通过；DEB 四程序与构建 SHA 一致，
+五项 OCR 资源匹配 manifest/资源锁，已更新 `out/packages/mirage_0.1.0_amd64.deb`。
+未安装/启动产品，原会话用户实测保持待验收。见[安装包证据](../compatibility/deepseek-package-20261012.md)。
+
+## 2026-10-12 / M6-40：全视觉元素独立图标
+
+维护者要求为所有按键、菜单与任务状态配独立图标，使窗口极小时仅凭图标可辨认
+功能，参照本机 ZCode 的图标语义（Brain、ShieldAlert/ShieldCheck 权限、
+Image/FileText 附件、按会话状态区分的列表图标）。本轮把散落在 app.cpp 的
+36 个内联 Phosphor 码点集中为 `apps/native/icons.hpp` 登记表并全部替换为命名
+常量；补齐缺口：思考深度各档独立图标（默认 sparkle、开启 brain、关闭 prohibit、
+最少 lightbulb、低 moon-stars、中 planet、高 star-four、极高 lightning、最高 sun），
+权限三模式（对话 chat-text / 视觉 eye / 完全访问 shield-warning 对齐 ZCode 高权限
+警示语义），桌面工具页与授权按钮（folder-notch-open / floppy-disk /
+arrows-clockwise / shield-check / shield-slash），模型页获取/保存/取消按钮，
+外观页字号与代码字号步进按钮，流程任务类型图标（brain / cursor-click /
+hourglass / wrench，行体右移 20px），运行会话 circle-notch 状态图标，附件按
+扩展名投影图片/文件类型图标并与引用行同构（独立移除按钮），三个对话框与退出
+确认的 24px 标题语义图标。设置导航「桌面工具」由 dice-three 改为 monitor。
+
+Phosphor-Regular.ttf 此前无溯源记录；本轮核实其为 npm @phosphor-icons/web
+2.1.1 `src/regular/Phosphor.ttf` 逐字节副本（sha256 一致），样式表 1530 个命名
+码点全部在打包字体 cmap 中解析，新增 `provenance-phosphor.json`。DESIGN.md
+新增「图标目录（M6-40）」并同步受影响几何（取消修改/保存 80→96px、附件/引用
+行结构、过程行缩进、对话框标题）。仓库纪律：无第三方代码修改，无新增依赖。
+
+验收（Independent-Verification-Agent，build/native-release + Xvfb）：
+`ctest -R 'native_conversation_view_test|native_chat_model_test'` 全部通过，
+26,393 / 412 项检查 0 失败；新增 82 条图标断言（思考九档互异、模式三行、
+会话运行态、对话框标题、桌面页六钮、模型/外观按钮、附件图片/文件类型、
+过程任务类型与 20px 缩进、桌面导航 monitor），并以变异测试证明断言真实
+比较渲染字形而非空转；逐按钮几何审计（文字测量、inset=8、图标间隙=4）
+全部通过，无按钮宽度不足。测试断言由该 agent 写入
+tests/desktop/native_conversation_view_test.cpp。clang-format 相对 HEAD
+无新增违规（测试文件 1489/1495 行为 HEAD 既有违规，属无关改动未处理）。
+负责人：Mirage 维护者；待验：Windows 平台与真实桌面像素级视觉验证另验。
+
+## 2026-10-12 / M6-04、M6-22、M6-39、M6-40：最新修复安装包
+
+维护者要求重新打包最近修复。Native Release 基于 adfe65b 与已有 DeepSeek 工作树
+修复重建，全量 76/76 通过；补齐 Linux DEB 的 Phosphor 字体、MIT 许可证和厂商
+图标目录。四程序、17 项界面资源与五项 OCR 资源解包校验通过，已原子更新
+out/packages/mirage_0.1.0_amd64.deb 并保留旧包。未安装/启动用户产品或在线调用模型；
+原会话、真实桌面与 Windows 门禁保持开放，工作项总状态不变。
+见[安装包验收记录](../compatibility/native-package-refresh-20261012.md)。
+
+2026-10-12 本机更新：维护者进一步授权直接更新本机。现有桌面入口指向本仓库
+Native Release，已同步程序/资源并重新注册入口；四程序和 17 项界面资源与验证包
+SHA 一致，desktop-file-validate 与 CLI 版本检查通过。无运行中产品，不需关闭；
+未安装系统 DEB或启动产品，原会话实测门禁保持开放。
+
+## 2026-10-12 / M6-41：HUA 工具名拒绝修复
+
+最新 HUA gpt-6.1-sol 会话首轮 invalid_request_error 已由受控对照定位为点号工具名。
+复用 Provider 别名适配至 Chat Completions，五配置 loop/registry 往返及非法名称/
+碰撞拒绝验证通过。Debug/Native Release/ASAN/UBSAN 定向通过；真实 HUA 别名
+工具调用和 assistant 回放 HTTP 200，隔离服务 minimal 两轮 ok。保留两次网络阶段
+超时事实，未修改思考设置或用户会话。已更新本机 Native Release 和桌面入口。
+同期 DEC-083 稳定性修改的全量五项视觉回归未通过，M6-41 保持 In Progress；
+原任务与整包门禁待维护者补验，未覆盖已验 DEB。详见
+[验收记录](../compatibility/hua-tool-alias-20261012.md)。
+
+2026-10-12 / M6-41 供应商名称约束调研：已核对主流官方文档及公开 schema，
+确认 Chat/多数 Messages 入口排除点号，64/128 上限与首字符约束随入口变化，
+Google 原生声明及 Bedrock Agent/Runtime 另有差异。记录未明示约束的服务与
+Responses 顶层规则补证项；建议模型侧默认采用字母开头、字母数字下划线、最长
+64 的保守别名。文档调研完成，不将建议自动扩展为代码交付或关闭 M6-41 门禁。
+见[调研报告](../research/2026-10-12-provider-tool-name-contracts.md)。
+
+2026-10-12 / M6-41 统一适配准入：维护者明确授权开始适配；DEC-043 固定三方言
+统一模型侧保守别名与冲突拒绝。验证普通/强制工具选择、返回解析、历史回放、结果
+关联 ID、名称首字符/长度及三方言 loop/registry；公开接口和用户配置不迁移。
+
+统一适配本地收尾：三方言协议 121 项检查通过，七配置真实 loop/registry 往返通过；
+Debug/ASAN/UBSAN 定向各 4/4。补齐 PP-OCR/X11 模拟 Provider 名称后追加定向通过。
+最终 Native Release 全量 75/78，剩余两个 GTK 与共享图像直接 Registry 验证失败，
+尚未进入模型适配路径；M6-41 保持 In Progress，负责人 Mirage 维护者，补跑条件为
+同期 DEC-083 实现/夹具一致后重新构建全量。已更新本机四程序与桌面入口，保留已验
+旧 DEB。真实供应商/SSE/Windows/原任务门禁未扩大声明，见
+[统一适配验收](../compatibility/unified-tool-alias-20261012.md)。

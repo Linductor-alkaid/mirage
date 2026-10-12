@@ -2,6 +2,7 @@ add_library(mirage_runtime_persistence STATIC
     src/recovery.cpp
     src/session_state.cpp
     src/settings.cpp
+    src/app_preferences.cpp
     # The DEC-011 store and its default paths are platform-selected
     # implementations of one shared surface (M4-06): atomic save / capped
     # load on both sides, platform-native durability and paths.

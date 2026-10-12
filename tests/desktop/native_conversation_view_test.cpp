@@ -1,3 +1,4 @@
+#include "../support/ipc_io.hpp"
 #include "../support/test.hpp"
 #include "../support/xvfb_display.hpp"
 // Compile the product view into this isolated test translation unit, keeping
@@ -16,6 +17,14 @@ void requestUpdate() {}
 } // namespace app
 
 int main(int argc, char **argv) {
+    // Keep direct screenshot invocations private too; CTest's fixture is not
+    // involved when this binary is launched manually.
+    mirage::testing::TempDir private_state;
+    for (const auto *variable : {"XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME"}) {
+        const auto directory = private_state.root() / variable;
+        std::filesystem::create_directories(directory);
+        MIRAGE_CHECK(::setenv(variable, directory.c_str(), 1) == 0);
+    }
     mirage::testing::XvfbDisplay display(mirage::testing::find_xvfb(), "2600x1800x24");
     ::setenv("DISPLAY", display.display_name().c_str(), 1);
     ::unsetenv("WAYLAND_DISPLAY");
@@ -254,10 +263,35 @@ int main(int argc, char **argv) {
         page.chat.apply_process(session_id, "first", parts, 6);
         frame();
         MIRAGE_CHECK(std::abs(element(root + "thought.detail")->scrollOffset - 40) < 1);
-        page.chat.apply_process(session_id, "first", {}, 7);
+        parts.front().text = "检查新的桌面证据。";
+        parts.front().truncated = false;
+        parts.back().name = "desktop.input.key";
+        parts.back().status = "complete";
+        parts.back().output =
+            R"({"window_id":"w1","action_id":"action-1","verified":true,"verification":{"status":"verified","verified":true,"window_id":"w1","evidence_id":"observation-1"}})";
+        page.chat.apply_process(session_id, "first", parts, 7);
         page.dark = false;
         width = 1180;
         height = 800;
+        frame();
+        MIRAGE_CHECK(element(root + "call.status")->text == "已核验");
+        capture("post-action-verified-light");
+        page.dark = true;
+        frame();
+        capture("post-action-verified-dark");
+        parts.back().output =
+            R"({"verification":{"status":"unverified","verified":false,"window_id":"w1","evidence_id":""}})";
+        page.chat.apply_process(session_id, "first", parts, 8);
+        frame();
+        MIRAGE_CHECK(element(root + "call.status")->text == "未验证");
+        parts.back().status = "failed";
+        parts.back().output =
+            R"({"verification":{"status":"uncertain","verified":false,"window_id":"w1","evidence_id":"observation-1"}})";
+        page.chat.apply_process(session_id, "first", parts, 9);
+        frame();
+        MIRAGE_CHECK(element(root + "call.status")->text == "不确定");
+        page.chat.apply_process(session_id, "first", {}, 10);
+        page.dark = false;
         frame();
     }
     const auto key = "message." + std::to_string(user);
@@ -1050,10 +1084,14 @@ const auto model = "Mirage";
     element("model.reasoning.supported.hit")->onClick();
     frame();
     MIRAGE_CHECK(page.model.supports_reasoning);
+    element("model.images.supported.hit")->onClick();
+    MIRAGE_CHECK(page.model.supports_images && page.model_dirty);
     page.model_window = "128000";
     auto first_document = provider_document(true);
     MIRAGE_CHECK(first_document && first_document->models.size() == 1 &&
                  first_document->model->context_window_tokens == 128000);
+    MIRAGE_CHECK(first_document->model->supports_images &&
+                 first_document->models.front().supports_images);
     accept_model_configuration(*first_document, "save", "");
     page.model_window = "64000";
     page.model.supports_reasoning = true;
@@ -1385,6 +1423,257 @@ const auto model = "Mirage";
         MIRAGE_CHECK(page.chat.current().messages.size() == count && page.confirm_exit);
     }
     page.confirm_exit = false;
+    // DEC-079: inspect actual sidebar row geometry, with background updates.
+    page.settings = false;
+    page.sidebar = true;
+    page.selection.clear();
+    page.selection_cache_ids.clear();
+    page.hovered_message = page.hovered_session = 0;
+    for (const auto &item : page.chat.sessions())
+        page.chat.clear_session(item.id);
+    page.chat.new_draft();
+    const auto activity_first = page.chat.current().id;
+    page.chat.apply_turn(activity_first, "a", "ok", "较早会话", "回复", {}, {}, 1, {}, 100);
+    page.chat.create_session();
+    const auto activity_second = page.chat.current().id;
+    page.chat.apply_turn(activity_second, "b", "ok", "较新会话", "回复", {}, {}, 1, {}, 200);
+    page.chat.select_session(activity_first);
+    page.chat.set_draft("保持当前草稿");
+    const auto first_key = "session." + std::to_string(activity_first) + ".title";
+    const auto second_key = "session." + std::to_string(activity_second) + ".title";
+    for (const bool dark : {false, true}) {
+        width = dark ? 860 : 1180;
+        height = dark ? 620 : 800;
+        page.dark = dark;
+        frame();
+        MIRAGE_CHECK(element(second_key)->frame.y < element(first_key)->frame.y);
+        page.chat.apply_turn(activity_first, "a", "ok", "较早会话", dark ? "再次新回复" : "新回复",
+                             {}, {}, 1);
+        frame();
+        MIRAGE_CHECK(element(first_key)->frame.y < element(second_key)->frame.y);
+        MIRAGE_CHECK(page.chat.current().id == activity_first &&
+                     page.chat.current().draft == "保持当前草稿");
+        capture(dark ? "session-activity-minimum-dark" : "session-activity-light");
+        page.chat.apply_turn(activity_second, "b", "ok", "较新会话", dark ? "再次更新" : "新回复",
+                             {}, {}, 1);
+    }
+    // M6-38 clarification: the conversation selector contains only three modes.
+    // Its native pointer path and isolated preference save preserve the draft.
+    MIRAGE_CHECK(!page.runtime);
+    page.settings = page.model_page = page.desktop_page = false;
+    page.about = page.confirm_clear = page.confirm_delete = false;
+    page.popup = PageState::Popup::None;
+    page.chat.current().access = "default";
+    const auto permission_draft = page.chat.current().draft;
+    page.desktop_authorization_pending = false;
+    page.desktop_authorization_loaded = true;
+    page.desktop_authorization = {true, false, false, "ask", ""};
+    const auto initial_revision = page.desktop_authorization_revision;
+    for (const int viewport : {1180, 860}) {
+        width = viewport;
+        height = viewport == 1180 ? 800 : 620;
+        page.dark = viewport == 860;
+        frame();
+        element("composer.mode.bg")->onClick();
+        frame();
+        MIRAGE_CHECK(page.popup == PageState::Popup::Mode &&
+                     page.desktop_authorization_revision == initial_revision);
+        const auto mode_bounds = element("composer.popup")->frame;
+        MIRAGE_CHECK(mode_bounds.height == 120 && mode_bounds.width == 280);
+        const auto mode_trigger = element("composer.mode.bg")->frame;
+        MIRAGE_CHECK(mode_bounds.x == mode_trigger.x &&
+                     mode_bounds.y + mode_bounds.height == mode_trigger.y - 4);
+        for (const auto *id : {"conversation", "readonly", "default"}) {
+            const auto *button = element(std::string("composer.popup.") + id + ".bg");
+            MIRAGE_CHECK(button && !button->disabled && button->frame.y >= mode_bounds.y &&
+                         button->frame.y + button->frame.height <=
+                             mode_bounds.y + mode_bounds.height);
+        }
+        MIRAGE_CHECK(!view->find("composer.popup.authorization") &&
+                     !view->find("composer.popup.authorization.heading") &&
+                     !view->find("composer.popup.authorization.authorize.bg") &&
+                     !view->find("composer.popup.access.help"));
+        capture(viewport == 1180 ? "composer-three-modes-light"
+                                 : "composer-three-modes-small-dark");
+        page.popup = PageState::Popup::None;
+    }
+    for (const auto *access : {"read_only", "chat_only"}) {
+        page.popup = PageState::Popup::Mode;
+        frame();
+        const auto *id = std::string(access) == "read_only" ? "readonly" : "conversation";
+        const auto hit = element(std::string("composer.popup.") + id + ".bg")->frame;
+        const auto px = hit.x + hit.width / 2;
+        const auto py = hit.y + hit.height / 2;
+        core::queuePointerMotion(handle, px, py, {}, {});
+        core::queuePointerButton(handle, px, py, core::PointerButton::Left,
+                                 core::PointerAction::Press, {});
+        frame();
+        core::queuePointerButton(handle, px, py, core::PointerButton::Left,
+                                 core::PointerAction::Release, {});
+        frame();
+        MIRAGE_CHECK(page.chat.current().access == access && page.popup == PageState::Popup::None &&
+                     page.desktop_authorization_revision == initial_revision &&
+                     page.chat.current().draft == permission_draft);
+        MIRAGE_CHECK(load_preferences().default_access == access);
+    }
+    page.popup = PageState::Popup::Mode;
+    page.desktop_authorization_pending = true;
+    frame();
+    for (const auto *id : {"conversation", "readonly", "default"})
+        MIRAGE_CHECK(element(std::string("composer.popup.") + id + ".bg")->disabled);
+    select_desktop_mode("default");
+    MIRAGE_CHECK(page.chat.current().access == "chat_only");
+    page.desktop_authorization_pending = false;
+    page.chat.current().running = true;
+    frame();
+    select_desktop_mode("default");
+    MIRAGE_CHECK(page.chat.current().access == "chat_only" &&
+                 element("composer.popup.default.bg")->disabled);
+    page.chat.current().running = false;
+    frame();
+    element("composer.popup.default.bg")->onClick();
+    frame();
+    MIRAGE_CHECK(page.chat.current().access == "default" && page.popup == PageState::Popup::None &&
+                 page.desktop_authorization_revision == initial_revision + 1 &&
+                 !page.desktop_authorization_notice.empty());
+    MIRAGE_CHECK(element("composer.notice")->text ==
+                     fitted_title(page.desktop_authorization_notice,
+                                  element("composer.notice")->frame.width, 12) &&
+                 page.chat.current().draft == permission_draft);
+    // M6-40: every visual element carries its own registered icon. The expected
+    // strings below are the UTF-8 encodings of the Phosphor codepoints kept in
+    // apps/native/icons.hpp; rendering already matches the product font setup.
+    {
+        page.dark = false;
+        width = 1180;
+        height = 800;
+        // Reasoning depth rows: one distinct glyph per thinking option.
+        page.live_model.reasoning_options = {"",       "none", "adaptive", "minimal", "low",
+                                             "medium", "high", "xhigh",    "max"};
+        page.popup = PageState::Popup::Reasoning;
+        frame();
+        const std::vector<std::string> effort_glyphs = {
+            "\xee\x9a\xa2", "\xee\x8f\x9e", "\xee\x9d\x8e", "\xee\x8b\x9c", "\xee\x96\x8e",
+            "\xee\x99\x92", "\xee\x9a\xa4", "\xee\x8b\x9e", "\xee\x91\xb2"};
+        for (std::size_t i = 0; i < effort_glyphs.size(); ++i) {
+            MIRAGE_CHECK(element("composer.popup.effort." + std::to_string(i) + ".icon")->text ==
+                         effort_glyphs[i]);
+            for (std::size_t j = 0; j < i; ++j)
+                MIRAGE_CHECK(effort_glyphs[i] != effort_glyphs[j]);
+        }
+        page.popup = PageState::Popup::None;
+        // Access mode rows: 对话 / 视觉 / 完全访问.
+        page.popup = PageState::Popup::Mode;
+        frame();
+        MIRAGE_CHECK(element("composer.popup.conversation.icon")->text == "\xee\x85\xba");
+        MIRAGE_CHECK(element("composer.popup.readonly.icon")->text == "\xee\x88\xa0");
+        MIRAGE_CHECK(element("composer.popup.default.icon")->text == "\xee\x90\x92");
+        page.popup = PageState::Popup::None;
+        frame();
+        // Session rows distinguish idle (chat-circle) from running (circle-notch).
+        const auto live_session = "session." + std::to_string(page.chat.current().id);
+        MIRAGE_CHECK(element(live_session + ".icon")->text == "\xee\x85\xa8");
+        page.chat.current().running = true;
+        frame();
+        MIRAGE_CHECK(element(live_session + ".icon")->text == "\xee\xad\x84");
+        page.chat.current().running = false;
+        frame();
+        // Reference popup: the attachment type glyph follows the file extension.
+        page.chat.current().attachments = {{1, "notes.txt", "纯文本附件"},
+                                           {2, "shot.png", "图片描述"}};
+        page.chat.current().references = {{user, "你", "被引用的选段", 7}};
+        page.popup = PageState::Popup::References;
+        frame();
+        MIRAGE_CHECK(element("attachment.1.type")->text == "\xee\x88\xba"); // file-text
+        MIRAGE_CHECK(element("attachment.2.type")->text == "\xee\x8b\x8a"); // image
+        MIRAGE_CHECK(element("attachment.1.name") != nullptr &&
+                     view->find("attachment.1.preview") != nullptr);
+        MIRAGE_CHECK(view->find("attachment.1.remove") != nullptr &&
+                     view->find("attachment.2.remove") != nullptr);
+        MIRAGE_CHECK(element("reference.preview.7.type")->text == "\xee\x99\xa0"); // quotes
+        page.popup = PageState::Popup::None;
+        page.chat.current().attachments.clear();
+        page.chat.current().references.clear();
+        frame();
+        // Process part rows carry a kind glyph and indent the toggle past it.
+        {
+            std::vector<mirage::conversation::Part> icon_parts{
+                {"think", "thinking", "complete", "先思考再执行。"},
+                {"hold", "tool", "complete", "", "wait", "{\"duration_ms\":5}"},
+                {"press", "tool", "complete", "", "desktop.input.key", "{}"},
+                {"seek", "tool", "complete", "", "browser.search", "{}"}};
+            page.chat.apply_process(page.chat.current().id, "a", icon_parts, 1);
+            frame();
+            const auto parts_message =
+                "message." + std::to_string(page.chat.current().messages.back().id);
+            MIRAGE_CHECK(element(parts_message + ".part.think.kind")->text == "\xee\x9d\x8e");
+            MIRAGE_CHECK(element(parts_message + ".part.hold.kind")->text == "\xee\x8a\xb2");
+            MIRAGE_CHECK(element(parts_message + ".part.press.kind")->text == "\xee\x9f\x88");
+            MIRAGE_CHECK(element(parts_message + ".part.seek.kind")->text == "\xee\x97\x94");
+            const auto *row = element(parts_message);
+            MIRAGE_CHECK(std::abs(element(parts_message + ".part.think.kind")->frame.x -
+                                  row->frame.x - 4) < 0.5f);
+            MIRAGE_CHECK(std::abs(element(parts_message + ".part.think.toggle")->frame.x -
+                                  row->frame.x - 20) < 0.5f);
+            page.chat.apply_process(page.chat.current().id, "a", {}, 2);
+            frame();
+        }
+        // Dialog titles and the exit confirmation carry their own glyphs.
+        page.confirm_delete = true;
+        frame();
+        MIRAGE_CHECK(element("dialog.title.icon")->text == "\xee\x92\xa6");
+        page.confirm_delete = false;
+        page.confirm_clear = true;
+        frame();
+        MIRAGE_CHECK(element("dialog.title.icon")->text == "\xee\xb1\x94");
+        page.confirm_clear = false;
+        page.about = true;
+        frame();
+        MIRAGE_CHECK(element("dialog.title.icon")->text == "\xee\x8b\x8e");
+        page.about = false;
+        page.confirm_exit = true;
+        frame();
+        MIRAGE_CHECK(element("product.exit.title.icon")->text == "\xee\x93\xa0");
+        page.confirm_exit = false;
+        frame();
+        // Desktop tools page: every action button keeps its guiding glyph.
+        page.settings = true;
+        page.desktop_page = true;
+        frame();
+        MIRAGE_CHECK(element("settings.nav.2.icon")->text == "\xee\x8c\xae"); // monitor
+        MIRAGE_CHECK(element("desktop.resources.choose.icon")->text == "\xee\x89\x96");
+        MIRAGE_CHECK(element("desktop.resources.save.icon")->text == "\xee\x89\x88");
+        MIRAGE_CHECK(element("desktop.resources.refresh.icon")->text == "\xee\x82\x94");
+        MIRAGE_CHECK(element("desktop.permissions.authorize.icon")->text == "\xee\x90\x8c");
+        MIRAGE_CHECK(element("desktop.permissions.forget.icon")->text == "\xee\x90\x90");
+        MIRAGE_CHECK(element("desktop.permissions.refresh.icon")->text == "\xee\x82\x94");
+        page.desktop_page = false;
+        // Model page: fetch/save/discard glyphs and the widened 96 px action row.
+        page.model_page = true;
+        frame();
+        MIRAGE_CHECK(element("model.fetch.models.icon")->text == "\xee\x88\x8c");
+        MIRAGE_CHECK(element("model.discard.icon")->text == "\xee\x93\xb6");
+        MIRAGE_CHECK(element("model.save.icon")->text == "\xee\x89\x88");
+        MIRAGE_CHECK(element("model.discard")->frame.width == 96);
+        MIRAGE_CHECK(element("model.save")->frame.width == 96);
+        MIRAGE_CHECK(std::abs(element("model.save")->frame.x + element("model.save")->frame.width -
+                              element("model.form")->frame.x - element("model.form")->frame.width) <
+                     0.5f);
+        page.model_dialog = PageState::ModelDialog::Delete;
+        frame();
+        MIRAGE_CHECK(element("model.dialog.title.icon")->text == "\xee\x92\xa6");
+        page.model_dialog = PageState::ModelDialog::Discard;
+        frame();
+        MIRAGE_CHECK(element("model.dialog.title.icon")->text == "\xee\x80\xb8");
+        page.model_dialog = PageState::ModelDialog::None;
+        page.model_page = false;
+        // Appearance page: the font steppers carry text-aa and code glyphs.
+        frame();
+        MIRAGE_CHECK(element("settings.font.step0.icon")->text == "\xee\x9b\xae");
+        MIRAGE_CHECK(element("settings.codefont.step0.icon")->text == "\xee\x86\xbc");
+        page.settings = false;
+        frame();
+    }
     width = 1180;
     height = 800;
     glfwPollEvents();

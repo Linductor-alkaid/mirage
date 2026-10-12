@@ -1,0 +1,156 @@
+{
+  "schema": 1,
+  "date": "2026-10-11",
+  "work_items": [
+    "M7-10",
+    "M7-14"
+  ],
+  "decision": "DEC-074",
+  "status": "In Progress",
+  "user_failure": {
+    "session_id": "1a6b966e3a734347ab039b37fb32d782",
+    "turn_id": "86ad31ab18972fb6fe032a4a273d44f4",
+    "screen_capture": "complete",
+    "source_dimensions": [
+      3200,
+      2000
+    ],
+    "preview_dimensions": [
+      1600,
+      1000
+    ],
+    "application_open_uri": "stale_observation",
+    "dispatched": false,
+    "side_effect_may_have_occurred": false
+  },
+  "host": {
+    "platform": "GNOME Wayland",
+    "canonical_tool_checks": 22,
+    "failures": 0,
+    "second_fresh_frame_after_ms": 6100,
+    "ordinary_action_epoch_changed": true,
+    "same_authorization": true,
+    "takeover_resume_rejected_old_session": true,
+    "user_pixels_saved": false,
+    "online_model_used": false,
+    "log_sha256": "fd83f65dbf9741f89dd9820dc0c444b4ccc2d132d72d93d69ac1c2294649888d"
+  },
+  "tests": [
+    {
+      "configuration": "debug-full",
+      "passed": 67,
+      "total": 67,
+      "log_sha256": "eb46d68004cf31f0c0d7ae785096ae98a2d804010e6f26e7bf116e3333105528"
+    },
+    {
+      "configuration": "release-full",
+      "passed": 73,
+      "total": 73,
+      "log_sha256": "27a063b4cbb0edf5dbeee16abdf4cbac0a1577cf2c682fc0ab571b1913f78329"
+    },
+    {
+      "configuration": "debug-last",
+      "passed": 7,
+      "total": 7,
+      "log_sha256": "ed4314f79e4fadc5016edced29e583d5aacc26b228db59023d7f8fc71aee524a"
+    },
+    {
+      "configuration": "release-last",
+      "passed": 7,
+      "total": 7,
+      "log_sha256": "74257d2fbfa0fa096bb4842512c4ec3209824f03e28f55fb5dd2fd84427dd223"
+    },
+    {
+      "configuration": "asan",
+      "passed": 7,
+      "total": 7,
+      "log_sha256": "09a05e14d98ea2b5b4440ed2d1a923955c6200e71be5da73fa0435d8c24697ee"
+    },
+    {
+      "configuration": "ubsan",
+      "passed": 7,
+      "total": 7,
+      "log_sha256": "a232c06fc83df9098741c1d001dbfbf4354b00f39824e4b4664a680a6f206556"
+    },
+    {
+      "configuration": "tsan",
+      "passed": 7,
+      "total": 7,
+      "log_sha256": "5a09b07fe34268881d7dd0f9e1ef545ca20e3ff77c0cabd759ad309aa0088df7"
+    }
+  ],
+  "contracts": {
+    "desktop_image_checks": 245,
+    "post_action_checks": 578,
+    "action_contract_checks": 72,
+    "gui_fallback_checks": 243,
+    "portal_scenarios": 43,
+    "packed_pixel_checks": 18,
+    "native_session_cases": 10,
+    "canonical_native_loop_cases": 5
+  },
+  "product": [
+    {
+      "configuration": "release",
+      "passed": 37,
+      "total": 37,
+      "runs": 11,
+      "model_enabled": false,
+      "report_sha256": "ca98c757f0ebfabb6f4a1f46d3c6493473312b774689104a73605942ce68a6a5"
+    },
+    {
+      "configuration": "package",
+      "passed": 37,
+      "total": 37,
+      "runs": 11,
+      "model_enabled": false,
+      "report_sha256": "7ed8a757242d9f48d555c84a82e5ca121ec5ea8f7f7eb29ecc2b6964b31c766b"
+    }
+  ],
+  "package": {
+    "path": "out/packages/mirage_0.1.0_amd64.deb",
+    "sha256": "3b126237f576f4d12f01455a08362cc4a450aa12ef91a22c904ebeb6bbcbd520",
+    "bytes": 54713544,
+    "binaries": {
+      "mirage": {
+        "built_sha256": "a480b753faaf4f3c8a13947feedf387c22d81a1c61773c05ac89cfc0a74fcc1a",
+        "packaged_sha256": "a480b753faaf4f3c8a13947feedf387c22d81a1c61773c05ac89cfc0a74fcc1a",
+        "matched": true
+      },
+      "mirage-service": {
+        "built_sha256": "c3d0937afeaa2b4c1788af4910090ec082aafaa9e72b3e8fb1756b345f901ae8",
+        "packaged_sha256": "c3d0937afeaa2b4c1788af4910090ec082aafaa9e72b3e8fb1756b345f901ae8",
+        "matched": true
+      },
+      "mirage-tray": {
+        "built_sha256": "53ab3c536e6bf48057feea68b0bb07de69a98e66a4300892717da4a34059417d",
+        "packaged_sha256": "53ab3c536e6bf48057feea68b0bb07de69a98e66a4300892717da4a34059417d",
+        "matched": true
+      },
+      "mirage-native": {
+        "built_sha256": "ff3bfb0ebe7cbefefaa4bd52c46e556ddde9a2643dbcd7e5c06fb655faed0e09",
+        "packaged_sha256": "ff3bfb0ebe7cbefefaa4bd52c46e556ddde9a2643dbcd7e5c06fb655faed0e09",
+        "matched": true
+      }
+    }
+  },
+  "user_state": {
+    "files_checked": 2,
+    "unchanged": true,
+    "credential_contents_exposed": false
+  },
+  "limits": {
+    "application_candidate_max_age_seconds": 60,
+    "initial_authorization_timeout_seconds": 30,
+    "reused_frame_timeout_seconds": 5,
+    "native_frames_per_turn": 8
+  },
+  "pending": [
+    "RemoteDesktop keyboard/pointer and release",
+    "logical coordinate mapping",
+    "original online browser task",
+    "KDE/wlroots and Windows",
+    "commit/review"
+  ],
+  "fixture_repair": "Package staging first missed the native executable directory and fixture font; corrected paths and reran 37/37; no product code repair required."
+}

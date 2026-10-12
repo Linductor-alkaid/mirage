@@ -1,16 +1,16 @@
 {
   "schema_version": 3,
   "project": "mirage",
-  "updated": "2026-10-08",
-  "notes": "Schema v3 (DEC-037): native EUI frontend replaces retired npm/CEF. All dependency gitlinks and nested pins remain mandatory. artifacts is empty; no Chromium binary is acquired or packaged.",
+  "updated": "2026-10-09",
+  "notes": "Schema v3 (DEC-037): native EUI frontend replaces retired npm/CEF. All dependency gitlinks and nested pins remain mandatory. artifacts is empty; no Chromium binary is acquired or packaged. M7-06 optional ncnn runtime is audited under pinned Mirador; no model artifacts are distributed.",
   "dependencies": [
     {
       "name": "mira",
       "source": "https://github.com/Linductor-alkaid/mira.git",
       "path": "third_party/mira",
       "version": "0.1.0",
-      "commit": "bfcb8e77f8092b14a73cf4f1951f7d6123b5f9d5",
-      "notes": "M6-26+M6-34: dialect reasoning output mapped to bounded ThinkingPart on Chat Completions/Responses (upstream PR#84 https://github.com/Linductor-alkaid/mira/pull/84, DEC-052, resolves MIRA-20261008-001) and helper single-sourcing PR#82. Base includes the kairo migration (Executor 2ae4fc8 -> kairo v0.6.0 ef821dc, DEC-048: namespace/include/target rename, weak-API cleanup) plus Messages thinking PR#80/#81. AGPL-3.0 unchanged. Audit: docs/supply-chain/mira-thinking-20261007.md.",
+      "commit": "57c3062cd97e08a83c61a3c9b19f9cb14989d4ff",
+      "notes": "M7-05 prerequisite: authorized upgrade consumes the per-request ConversationLoop model-input supplier (upstream PR#86, upstream DEC-053, MIRA-20261009-001); M7-04/05 PNG artifact/source/supplier wiring is verified by three dialect fixtures and two real MiniMax synthetic screenshot cases; docs/compatibility/desktop-image-supply-20261009.md. Audit: docs/supply-chain/mira-image-supply-20261009.md. M6-26+M6-34: dialect reasoning output mapped to bounded ThinkingPart on Chat Completions/Responses (upstream PR#84 https://github.com/Linductor-alkaid/mira/pull/84, DEC-052, resolves MIRA-20261008-001) and helper single-sourcing PR#82. Base includes the kairo migration (Executor 2ae4fc8 -> kairo v0.6.0 ef821dc, DEC-048: namespace/include/target rename, weak-API cleanup) plus Messages thinking PR#80/#81. AGPL-3.0 unchanged.; MIRA-20261009-002: Messages SSE parser decodes real-provider max_tokens cutoff streams (orphan content_block_stop synthesized as empty closed blocks; tool_use arguments validated in finish(), tolerated only under stop_reason=max_tokens as a bounded Incomplete/MaxOutputTokens completion; upstream PR#87 https://github.com/Linductor-alkaid/mira/pull/87) Audit: docs/supply-chain/mira-thinking-20261007.md. MIRA-20261012-001: network stage deadline errors (dns/connect/TLS/write/read) carry a retryable=true mechanism hint while total-budget waits stay non-retryable, and the loop recovery whitelist admits the retryable deadline code (upstream PR#88 https://github.com/Linductor-alkaid/mira/pull/88, merge 57c3062); Mirage widens profile tls/write deadlines to 20s/30s and enables the bounded conversation-loop recovery budget (2) whenever the RULE-08 output envelope can fund it while keeping at least seven usable turns (turn capacity >= 10); scarcer budgets keep the previous fail-fast shape.",
       "license": "AGPL-3.0",
       "consumption": "add_subdirectory；Mirage::core 经由别名 Mira::core 链接",
       "nested_pins": [
@@ -53,11 +53,11 @@
       "name": "mirador",
       "source": "https://github.com/Linductor-alkaid/mirador.git",
       "path": "third_party/mirador",
-      "version": "v0.3.0-80",
-      "commit": "fb0dc3f85393b77845de8bffeab4201dae97c5d9",
+      "version": "v0.3.0-121",
+      "commit": "ae8cf87581c1ebe393a67374d9977a38354d0911",
       "license": "MIT",
       "license_file": "third_party/mirador/LICENSE",
-      "notes": "fff7f15..fb0dc3f（78 commits，v0.3.0-80，无新 tag）：上游 M7-06 证据融合状态机、M7-07 全局运动补偿与生成扫掠、M7-08 级联重检测与身份复核、M7-09 合成目标跟踪 A/B/C/D 基准。include/ 纯增量（+1826/-4）：新头 object_tracker.hpp、shift_estimation.hpp；stable_id_tracker.hpp 的 advance() 增加第 4 个带默认值的 confirmed_associations 参数（默认行为逐位不变，源码兼容）；Mirage 直接接触面（pixel_format / backend_info 等）零 diff；嵌套 googletest（063de7e）gitlink 不变。新增 src/fusion/object_tracker.cpp 进入 mirador::fusion、src/image/shift_estimation.cpp 进入 mirador::image——两目标在 Mirage 构建图内（integration/mirador 经 mirador::fusion 链接）",
+      "notes": "fb0dc3f..ae8cf87（41 commits，v0.3.0-121，无新 tag）：上游 M7-10~M7-14（PR #30-#34：tracker backend SPI 冻结、NanoTrack ncnn 参考后端、D+ 基准列与 go/no-go 判定）+ PR #35 三项 OCR 链路修复（MIRADOR-20261009-001/002/003：resize_area 放大共享源像素权重按目标索引缓存、连通域 min_x/min_y 随洪泛更新、PP-OCR 参考预处理对齐 ppocrv5.cpp——det 限长缩放 + /32 画布 pad 114 + 阈值 0.3/0.6 + BGR，rec 保纵横比动态行宽）。include/ 增量（+569/-6）：新头 tracker_backend.hpp（Experimental tracker SPI）、object_tracker.hpp 池原语扩展；公开 image 行为修复：resize_area 放大逐位正确、db 后处理框边界完整。integrations/ocr_ppocr opt-in 头语义变更：det_side 为长边上限（不再放大）、rec_width 为行宽上限、det 后处理默认 0.3/0.6。嵌套 googletest（063de7e）与 integrations ncnn pin 不变",
       "consumption": "add_subdirectory；视觉后端契约经由别名 mirador::core 链接",
       "nested_pins": [
         {
@@ -68,6 +68,17 @@
           "commit": "063de7e9578f82b369302001269680b4b1553359",
           "license": "BSD-3-Clause",
           "usage": "test-only (mirador 自身测试；Mirage 测试不链接)"
+        }
+      ],
+      "audit_only": [
+        {
+          "name": "ncnn",
+          "source": "https://github.com/Tencent/ncnn.git",
+          "version": "20260526",
+          "commit": "e54f7b1f88434e1d844ea0551b880a1cfb079ce1",
+          "license": "BSD-3-Clause",
+          "consumption": "Optional MIRAGE_WITH_PPOCR only; transitive Mirador integrations/deps.lock.json; default graph excludes runtime",
+          "audit_record": "docs/supply-chain/real-ocr-resources-20261009.md"
         }
       ]
     },
@@ -91,5 +102,14 @@
     "kind": "native-cpp",
     "entry": "apps/native/app.cpp",
     "dependency": "eui-neo"
-  }
+  },
+  "runtime_resources": [
+    {
+      "name": "ppocrv5-mobile-v1",
+      "lock_file": "packaging/vision/resources.lock.json",
+      "audit": "docs/supply-chain/bundled-vision-20261011.md",
+      "build_default": "Linux native product",
+      "runtime_download": false
+    }
+  ]
 }

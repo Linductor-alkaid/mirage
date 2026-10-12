@@ -1,0 +1,180 @@
+{
+  "date": "2026-10-12",
+  "head": "adfe65b005547e8c13a9df3523e2f589afade25d",
+  "latest_failure_session_prefix": "ca6174e7",
+  "provider": "HUA",
+  "model": "gpt-6.1-sol",
+  "dialect": "openai.chat-completions.v1",
+  "probes": {
+    "probe-summary.json": [
+      {
+        "label": "plain",
+        "http_status": 200,
+        "has_choices": true
+      },
+      {
+        "label": "dotted-tool",
+        "http_status": 400,
+        "error_type": "invalid_request_error",
+        "error_code": null,
+        "message": "Upstream request failed"
+      },
+      {
+        "label": "valid-tool",
+        "http_status": 200,
+        "has_choices": true
+      }
+    ],
+    "probe-stream-summary.json": [
+      {
+        "label": "plain",
+        "http_status": 200,
+        "has_choices": true
+      },
+      {
+        "label": "dotted-tool",
+        "http_status": 400,
+        "error_type": "invalid_request_error",
+        "error_code": null,
+        "message": "Upstream request failed"
+      },
+      {
+        "label": "valid-tool",
+        "http_status": 200,
+        "has_choices": true
+      }
+    ],
+    "forced-tool-summary.json": [
+      {
+        "phase": "call",
+        "http_status": 200,
+        "tool_names": [
+          "desktop_window_list"
+        ],
+        "finish_reason": "tool_calls",
+        "reply_chars": 28
+      },
+      {
+        "phase": "replay",
+        "http_status": 200,
+        "tool_names": [],
+        "finish_reason": "stop",
+        "reply_chars": 2
+      }
+    ],
+    "product-summary.json": {
+      "results": [
+        {
+          "prompt_kind": "text-with-tools-declared",
+          "status": "failed",
+          "error": "model call failed: exchange stage deadline exceeded",
+          "tool_names": [],
+          "tool_statuses": [],
+          "reply_chars": 0,
+          "elapsed_seconds": 60.08
+        },
+        {
+          "prompt_kind": "wait-tool-roundtrip",
+          "status": "ok",
+          "error": "",
+          "tool_names": [],
+          "tool_statuses": [],
+          "reply_chars": 21,
+          "elapsed_seconds": 17.09
+        }
+      ],
+      "user_state_unchanged": true,
+      "images_disabled": true,
+      "private_state": true
+    },
+    "product-minimal-summary.json": {
+      "results": [
+        {
+          "prompt_kind": "text-with-tools-declared",
+          "status": "ok",
+          "error": "",
+          "tool_names": [],
+          "tool_statuses": [],
+          "reply_chars": 2,
+          "elapsed_seconds": 14.88
+        },
+        {
+          "prompt_kind": "wait-tool-roundtrip",
+          "status": "ok",
+          "error": "",
+          "tool_names": [],
+          "tool_statuses": [],
+          "reply_chars": 27,
+          "elapsed_seconds": 13.67
+        }
+      ],
+      "user_state_unchanged": true,
+      "images_disabled": true,
+      "private_state": true
+    },
+    "product-file-summary.json": {
+      "results": [
+        {
+          "prompt_kind": "dotted-filesystem-tool-roundtrip",
+          "status": "failed",
+          "error": "model call failed: exchange stage deadline exceeded",
+          "tool_names": [],
+          "tool_statuses": [],
+          "reply_chars": 0,
+          "fixture_text_seen": false,
+          "elapsed_seconds": 20.11
+        }
+      ],
+      "user_state_unchanged": true,
+      "images_disabled": true,
+      "private_state": true
+    }
+  },
+  "targeted_checks": {
+    "release": {
+      "native_agent_passed": true,
+      "log_sha256": "dcc692fcdfc5e7be9cf4a7d0e4f8ccbdb00a59a8218b6077492baa627499f42e"
+    },
+    "debug": {
+      "native_agent_passed": true,
+      "log_sha256": "f7e6019fd7838a38c89602711c588ab5d9da0378f58bf92df60901a3538c37ed"
+    },
+    "asan": {
+      "native_agent_passed": true,
+      "log_sha256": "1073cb3c50ccfd936274741467bc9db6ffbd53d96fbfc36f2e9bf414cd27d899"
+    },
+    "ubsan": {
+      "native_agent_passed": true,
+      "log_sha256": "f7264aa573b1c476b79581a9bcf1731073703ae81064116f79b5966768dd05a2"
+    }
+  },
+  "full_release": {
+    "passed": 71,
+    "total": 76,
+    "failed_tests": [
+      "gtk_pointer_effects_test",
+      "gtk_pointer_scaled_test",
+      "local_visual_workflow_test",
+      "desktop_image_supply_test",
+      "visual_marks_test"
+    ],
+    "log_sha256": "97021dd0ed5dc840a9b755efd4c8da06503f8ec8be9fb612538adc0ad628185d"
+  },
+  "source_sha256": {
+    "integration/mira/src/model_layer.cpp": "c53153bf4bcfec48c4f279f95ed7130b3f30ba462b2539585a5195ceb8b5e013",
+    "integration/mira/src/tool_alias_provider.cpp": "2d9409b5473b671935dac483a3e5002338e42c00180bdcd786d8d7e95e5edee4",
+    "integration/mira/src/tool_alias_provider.hpp": "01bbed47c2a93b552678f9a6d81e4c6ba63db05ed7e5a582a8fed9909b1a491d",
+    "integration/mira/CMakeLists.txt": "93adeb446a43dbad59c6803c1221de3c560da76beedfa522cfa2a66548af9d59",
+    "tests/runtime/native_agent_integration_test.cpp": "e678eb510352fdaaa0a2619f6202feded1c2099cd77feb1d4a5fff8e0934bff1",
+    "tests/integration/desktop_image_supply_test.cpp": "e9449bbd2f20f43b95f86655de70ec87de97e40e2c92b830ba5b9785a2c896bc"
+  },
+  "local_programs": {
+    "mirage": "eabe11e8901e175dfe32e95c47f41bbed5bc823397628e152491ae61b422e31b",
+    "mirage-service": "19e8ceccd46da70475c46e0dbc59ed2adb88da03c422bbd534421c80b8c9a9d2",
+    "mirage-tray": "952d2f7274e0691a0f8b0ebbd2f9fb1cf1a4ba063aa78a3f3278d77c6684a669",
+    "mirage-native": "d0825b183d8ea805897ff666a8e17cf7bdd3300634a8808f90f711aa4e007337"
+  },
+  "desktop_entry_validated": true,
+  "original_task_retried": false,
+  "package_regenerated": false
+}
