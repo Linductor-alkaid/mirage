@@ -47,6 +47,8 @@
 | M6-28 | Blocked | 自有 PR 全绿合并、功能分支及过期 build 已清理；仅 EUI #88 待上游有权限者合并，验收记录分支随 PR 交付；[维护计划](maintenance-ci-acceptance-20261007.md)、[进程 EOF 修复](maintenance-linux-process-eof-20261007.md) |
 | M6-36 | Completed（Linux 本地；CI为合入门禁） | 修复黑闪 PR 合入 CI 暴露的既有任务终态过早通知；两worker下旧驱动等待串行域与新驱动竞争，独立 runtime PR 交付；Release52/52、事件用例重复5次、ASAN+UBSAN与TSan各1/1；[证据](../compatibility/task-terminal-notification-20261008.md) |
 | M6-33 | Completed（Linux X11） | 侧栏/主题过渡、逐模型思考设置、按URL获取候选；Release52/52、ASAN/TSAN、真实公开目录与原生渲染通过；DEC-051 |
+| M6-39 | In Progress | DeepSeek 模型列表路径与 Messages 工具名兼容；DEC-051/043，Debug/ASAN/Release 及隔离服务实测通过；Native Release 安装包已更新并校验，维护者原会话测试待验收 |
+| M6-40 | In Progress | 全视觉元素独立图标：集中 icons.hpp 登记（Phosphor 2.1.1 溯源补全）、思考深度分档、权限三模式、附件文件/图片、任务类型、运行会话与对话框语义图标；DESIGN.md 图标目录，渲染审计与图标断言测试待验收 |
 | M6-35 | Completed（Linux X11/XWayland） | 真实 XWayland 持续拖拽改为系统原生接管，维护者实测无黑闪；EUI issue #93/PR #94 四组合本机/CI通过；组合 Release52/52、最终程序化采样365+300无黑色中心；Mirage 两个PR八项CI全成功，维护者授权合入；上游评审与 Windows 实际拖拽保持开放；[证据](../compatibility/native-frame-presentation-20261008.md) |
 | M6-37 | Completed（Linux 本地） | 最近内容更新会话置顶，选择/草稿保留、历史稳定恢复；DEC-079，Debug定向6/6、Native8/8、sanitizer各4/4，原生渲染22,978检查与包内四程序校验通过；Windows真机另验 |
 | M6-38 | Completed（Linux 本地） | 会话输入框三种桌面访问模式与授权联动；DEC-080 / DEC-078，纯对话/视觉/完全访问权限、明暗/最小窗口及共享状态门禁验证 |
@@ -556,3 +558,70 @@ Linux 本地 Completed：Debug 70/70、Native 76/76，sanitizer 定向各 8/8，
 Debug 70/70、Native 76/76、ASAN/UBSAN/TSAN 选路各 5/5，源码稳定性与包内
 四程序校验通过。本地提交不关闭既有真实平台/原用户任务门禁，未推送或合并。
 完整范围与证据见[Git 交付记录](../compatibility/m7-git-delivery-20261012.md)。
+
+## 2026-10-12 / M6-39：DeepSeek目录与推理路径
+
+用户最初实测 `/anthropic/v1` 可用于推理而模型列表失败，`/anthropic` 可获取列表。
+Mira 的公开 `ModelProfile::request_path()` 对 Messages 只追加 `/messages`，预设保留
+`/anthropic/v1`；目录对官方 DeepSeek 地址使用与旧 `/anthropic` 配置相同的候选路径，
+已存凭据仍按用户原配置精确匹配，同源且不改变其他厂商路由；依据 DEC-051。
+随后用用户已保存 Key 补验，两条路径的最小 Messages 请求均返回 HTTP 200，说明当前
+会话的 `invalid_request_error` 另有原因：Mirage 的 `desktop.window.list` 工具名带点号，
+DeepSeek 返回 HTTP 400 和允许字符规则；映射为 `desktop_window_list` 后 HTTP 200。
+按 DEC-043 只在 DeepSeek Provider 边界映射工具名和回放，返回工具调用按原 ID/名称
+还原后交给 Mira 校验、执行和可见记录。
+
+验收：Debug/ASAN/Release 集成测试验证候选相同、非 DeepSeek 路由不变，且工具声明、
+assistant 回放与返回调用往返映射、碰撞拒绝；用已授权 Key 在隔离服务中以
+`/anthropic/v1` 获取模型列表，并发起一轮 Agent 只读对话。
+`cmake --build build/debug --target native_agent_integration_test -j 3`，以及
+`build/asan`、`build/release` 的同目标 `-j 2` 构建均通过；三者执行
+`ctest --test-dir build/<配置> -R '^native_agent_integration_test$' --output-on-failure`
+各 3/3 通过。现有 `build/native-release` 缓存指向已删除的
+`build/ocr-debug/_deps/mirador_ncnn-src`，重新配置失败；独立 `release` preset 可完成服务端
+验证。`git diff --check` 与变更行 clang-format 通过。通过临时配置、独立 socket、
+独立 XDG state 启动 Debug 服务，复用钥匙环中的既有 Key：`model.list` 返回 2 个 ID，
+`agent=true, access=read_only` 的“你好”会话终态 `ok`，无桌面修改，服务干净关闭。
+Key 未输出、写入仓库或传入命令参数。最初一次隔离服务启动未覆盖 XDG state，读取并
+重写了原会话状态文件；随后立即停止，原 9 个会话和该失败轮次仍在，正式探针使用独立
+XDG state。当前运行的 native-release 仍为旧构建，不能把隔离服务结果当作当前程序验证。
+负责人：Mirage 维护者；补跑条件：恢复 native-release 缺失的 OCR 依赖源码，部署此
+改动后重启当前程序并用现有 DeepSeek Key 复验。
+
+2026-10-12 安装包交付：维护者明确要求更新安装包并自行测试。恢复同一锁定提交的 ncnn
+构建源码后，Native Release 四程序构建与定向集成 3/3 通过；DEB 四程序与构建 SHA 一致，
+五项 OCR 资源匹配 manifest/资源锁，已更新 `out/packages/mirage_0.1.0_amd64.deb`。
+未安装/启动产品，原会话用户实测保持待验收。见[安装包证据](../compatibility/deepseek-package-20261012.md)。
+
+## 2026-10-12 / M6-40：全视觉元素独立图标
+
+维护者要求为所有按键、菜单与任务状态配独立图标，使窗口极小时仅凭图标可辨认
+功能，参照本机 ZCode 的图标语义（Brain、ShieldAlert/ShieldCheck 权限、
+Image/FileText 附件、按会话状态区分的列表图标）。本轮把散落在 app.cpp 的
+36 个内联 Phosphor 码点集中为 `apps/native/icons.hpp` 登记表并全部替换为命名
+常量；补齐缺口：思考深度各档独立图标（默认 sparkle、开启 brain、关闭 prohibit、
+最少 lightbulb、低 moon-stars、中 planet、高 star-four、极高 lightning、最高 sun），
+权限三模式（对话 chat-text / 视觉 eye / 完全访问 shield-warning 对齐 ZCode 高权限
+警示语义），桌面工具页与授权按钮（folder-notch-open / floppy-disk /
+arrows-clockwise / shield-check / shield-slash），模型页获取/保存/取消按钮，
+外观页字号与代码字号步进按钮，流程任务类型图标（brain / cursor-click /
+hourglass / wrench，行体右移 20px），运行会话 circle-notch 状态图标，附件按
+扩展名投影图片/文件类型图标并与引用行同构（独立移除按钮），三个对话框与退出
+确认的 24px 标题语义图标。设置导航「桌面工具」由 dice-three 改为 monitor。
+
+Phosphor-Regular.ttf 此前无溯源记录；本轮核实其为 npm @phosphor-icons/web
+2.1.1 `src/regular/Phosphor.ttf` 逐字节副本（sha256 一致），样式表 1530 个命名
+码点全部在打包字体 cmap 中解析，新增 `provenance-phosphor.json`。DESIGN.md
+新增「图标目录（M6-40）」并同步受影响几何（取消修改/保存 80→96px、附件/引用
+行结构、过程行缩进、对话框标题）。仓库纪律：无第三方代码修改，无新增依赖。
+
+验收（Independent-Verification-Agent，build/native-release + Xvfb）：
+`ctest -R 'native_conversation_view_test|native_chat_model_test'` 全部通过，
+26,393 / 412 项检查 0 失败；新增 82 条图标断言（思考九档互异、模式三行、
+会话运行态、对话框标题、桌面页六钮、模型/外观按钮、附件图片/文件类型、
+过程任务类型与 20px 缩进、桌面导航 monitor），并以变异测试证明断言真实
+比较渲染字形而非空转；逐按钮几何审计（文字测量、inset=8、图标间隙=4）
+全部通过，无按钮宽度不足。测试断言由该 agent 写入
+tests/desktop/native_conversation_view_test.cpp。clang-format 相对 HEAD
+无新增违规（测试文件 1489/1495 行为 HEAD 既有违规，属无关改动未处理）。
+负责人：Mirage 维护者；待验：Windows 平台与真实桌面像素级视觉验证另验。

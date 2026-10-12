@@ -393,7 +393,7 @@ Markdown 链接/强调色、代码块与引用块背景使用对应专用角色�
 
 设计字号以EM记载；Noto SC的公开组件请求字号为设计值乘1.448（如正文16EM请求23.168）。文字测量、换行与输入使用同一换算，Phosphor/代码保持独立度量。Markdown标题行高沿用请求字号加6，H1/H2/H3约34.96/32.06/30.62px；正文行高24px。换算见 `apps/native/typography.hpp`，字体度量由原生测试校验（EUI-20261005-007）。
 
-**Character:** 简体中文为主，标题与正文共用 Noto Sans SC 无衬线文字。Phosphor Icons Regular（MIT，随应用交付 `assets/Phosphor-Regular.ttf`）单独加载图标；不以 Unicode 文字符号代替操作图标。
+**Character:** 简体中文为主，标题与正文共用 Noto Sans SC 无衬线文字。Phosphor Icons Regular（MIT，随应用交付 `assets/Phosphor-Regular.ttf`）单独加载图标；不以 Unicode 文字符号代替操作图标。全部操作图标码点集中登记于 `apps/native/icons.hpp`（来源与校验见 `assets/fonts/provenance-phosphor.json`），调用点不内联码点；目录见文末「图标目录（M6-40）」。
 
 ### Hierarchy
 
@@ -478,7 +478,7 @@ AT-SPI 中 GNOME Mirage 按钮的 SHOWING=true。Dock 像素截图因权限限�
 
 ### Navigation
 
-可调宽侧栏承载品牌、新建、会话列表、说明与设置入口。会话行有独立选中底色和 hover；标题 14px，Phosphor 对话图标 14px。侧栏切换对齐 ZCode 的 panel-left 语义：标题栏右侧为左侧分栏面板叠加内向箭头的 36×36px 合成图标（收起），侧栏收起后顶部保留同一面板叠加外向箭头的切换（展开）与设置齿轮，Ctrl+B 亦可切换侧栏。底部齿轮打开设置，主题操作集中在设置的外观页。设置侧栏以“返回对话”和“外观 / 模型”分类替代会话列表，当前分类填充 selected；收起侧栏时标题栏另有 124×36px 的返回按钮。会话行和窗口标题按实际字体测量可用宽度；超长标题逐个移除 UTF-8 码点并追加省略号，仅缩短显示文本，保留原始会话标题。首次用户提交生成标题时跳过开头空格、制表符与CR/LF，纯空白回退“新对话”；标题取第一行最多16个UTF-8码点。提交文本先保留用户草稿，再追加引用和附件，防止包装标签抢占标题；无草稿/引用的附件提交以“附件：文件名”开始。
+可调宽侧栏承载品牌、新建、会话列表、说明与设置入口。会话行有独立选中底色和 hover；标题 14px，Phosphor 对话图标 14px，运行中的会话改用 circle-notch 状态图标，其余会话用对话图标。侧栏切换对齐 ZCode 的 panel-left 语义：标题栏右侧为左侧分栏面板叠加内向箭头的 36×36px 合成图标（收起），侧栏收起后顶部保留同一面板叠加外向箭头的切换（展开）与设置齿轮，Ctrl+B 亦可切换侧栏。底部齿轮打开设置，主题操作集中在设置的外观页。设置侧栏以“返回对话”和“外观 / 模型”分类替代会话列表，当前分类填充 selected；收起侧栏时标题栏另有 124×36px 的返回按钮。会话行和窗口标题按实际字体测量可用宽度；超长标题逐个移除 UTF-8 码点并追加省略号，仅缩短显示文本，保留原始会话标题。首次用户提交生成标题时跳过开头空格、制表符与CR/LF，纯空白回退“新对话”；标题取第一行最多16个UTF-8码点。提交文本先保留用户草稿，再追加引用和附件，防止包装标签抢占标题；无草稿/引用的附件提交以“附件：文件名”开始。
 
 ### Draft Sessions / History
 
@@ -503,7 +503,7 @@ hover 使用 hover、pressed 使用 selected。宽屏按钮组从面板右侧 26
 
 **跟随系统：** 提供”跟随系统”选项，订阅平台深色模式信号（Linux：`org.freedesktop.portal.Settings`，Windows：`WM_COLORSCHEME`）；用户手动选主题后停止同步，直到重新选择”跟随系统”。默认关闭。
 
-**文字大小：** 外观页提供小 / 默认 / 大三档，分别对应 `ui_font_size()` 12 / 14 / 16。调整即时生效并持久化，所有排版角色相对此值偏移，不改变根字号或布局基准。
+**文字大小：** 外观页提供小 / 默认 / 大三档，分别对应 `ui_font_size()` 12 / 14 / 16。调整即时生效并持久化，所有排版角色相对此值偏移，不改变根字号或布局基准。三档按钮（84×28px）与代码字号三档同构，分别带 text-aa / code 14px 引导图标，档位仍由文字标签区分。
 
 **减少动画：** 切换后将所有 motion token 的 duration 归零，即时生效并持久化；也读取平台 `prefers-reduced-motion` 信号，手动开关优先于系统信号。
 
@@ -515,7 +515,7 @@ Ctrl+, 在没有弹层时打开设置；Escape 先关闭弹层，再返回对话
 
 ### Model Settings
 
-服务配置严格对照ZCode 29628c9的SectionLayout、Navigation、ProviderCardSections与ProviderApiFormatSelect。内部服务导航为224px；详情可用宽小于700px时保留56px图标栏，不再切成全宽选择器。导航32px行高、12px面板内缩进；详情24px内缩进。右侧服务标题18px，空服务直接编辑名称，已保存服务在标题更多菜单中重命名/删除。Base URL包含origin和路径，API格式使用下拉菜单（OpenAI Chat Completions / Responses），随后是默认遮蔽的API Key、模型列表、添加模型及当前模型的上下文/思考配置。标签14px，输入32px、inset12px；模型行36px，外层40px。页底状态、取消修改和80×32px保存固定于详情内；保存未就绪时降低按钮不透明度。
+服务配置严格对照ZCode 29628c9的SectionLayout、Navigation、ProviderCardSections与ProviderApiFormatSelect。内部服务导航为224px；详情可用宽小于700px时保留56px图标栏，不再切成全宽选择器。导航32px行高、12px面板内缩进；详情24px内缩进。右侧服务标题18px，空服务直接编辑名称，已保存服务在标题更多菜单中重命名/删除。Base URL包含origin和路径，API格式使用下拉菜单（OpenAI Chat Completions / Responses），随后是默认遮蔽的API Key、模型列表、添加模型及当前模型的上下文/思考配置。标签14px，输入32px、inset12px；模型行36px，外层40px。“获取模型”为100×28px并带下载引导图标。页底状态、取消修改（96×28px，× 图标）和保存（96×28px，软盘图标）固定于详情内；保存未就绪时降低按钮不透明度。
 
 服务与模型分别呈现，settings.models仍有12条总预算；provider_id/provider_name是可选产品元数据，旧display_name单模型配置兼容。没有目录时左侧显示本地“未命名服务”；填名称后先保留该草稿行，保存成功ACK才更新左侧名称、目录与live_model。无模型服务允许保存为停用。添加/删除模型在独立编辑副本中进行；共享连接与Key按服务一致更新。显式models空数组清空目录，缺失表示旧客户端保持目录。删除服务释放不再被目录/活动模型引用的Key；清理失败返回警告。保存失败保留全部编辑、Key草稿及已应用模型；取消修改仅在读取成功后丢弃。新增模型前保留当前模型的窗口与思考编辑。思考方式/深度在会话栏选择，选项以服务端模型能力投影为准，默认不传参数。
 
@@ -536,7 +536,7 @@ Linux Secret Service 为当前验收范围；Windows Credential Manager 的目�
 
 ### Messages / Markdown
 
-用户消息为右对齐轻灰气泡，10px 圆角、无 border、水平 12px / 垂直 8px 内边距。已完成助手回复直接使用 EUI 公共 MarkdownBuilder，无外层卡片或角色标题；运行/失败行保留图标与明确状态。展示只移除回复首尾 CR/LF 空行，保留内部格式与服务原始历史，没有桌面执行卡。非运行中消息下方预留28px动作区，复制仅在正文/动作区悬停或键盘聚焦时显示；最后一条用户消息另有编辑。按钮28×26px、图标12px、圆角5px、muted色，焦点时1px muted边界；没有整条引用按钮。所有 icon-only button 显式 `.text("")`，避免默认文字泄漏。
+用户消息为右对齐轻灰气泡，10px 圆角、无 border、水平 12px / 垂直 8px 内边距。已完成助手回复直接使用 EUI 公共 MarkdownBuilder，无外层卡片或角色标题；运行/失败行保留图标与明确状态。工具与思考过程行以 14px 任务类型图标（思考=brain、桌面动作=cursor-click、等待=hourglass、其余工具=wrench）起头，行体右移 20px，展开箭头与状态文字沿用既有几何。展示只移除回复首尾 CR/LF 空行，保留内部格式与服务原始历史，没有桌面执行卡。非运行中消息下方预留28px动作区，复制仅在正文/动作区悬停或键盘聚焦时显示；最后一条用户消息另有编辑。按钮28×26px、图标12px、圆角5px、muted色，焦点时1px muted边界；没有整条引用按钮。所有 icon-only button 显式 `.text("")`，避免默认文字泄漏。
 
 连续 CJK 段额外间距由单一 `markdown_adapter.hpp` 经公开 DSL 修正，反馈 EUI-20261004-004；保留上游解析、保守换行及高度预算，升级后按反馈移除。支持标题、列表、粗体、代码和表格。拖选同一消息的实际渲染文字后显示100×32px“引用选段”浮层，13px标签、12px图标、7px圆角、1px边界；空间不足时放在选区下方，避开标题和composer。单一选择适配器见EUI-20261005-005；Ctrl+C复制选段，Escape/滚动/切换/编辑/背景点击取消。尚不支持跨消息选择、拖选自动滚动或链接打开。
 
@@ -552,7 +552,7 @@ Enter 发送、Shift+Enter 换行、Ctrl+Enter 保留发送兼容；composition 
 
 浅色为 surface、深色为 dark-composer，16px 圆角、1px 边界。工具顺序为附件、访问权限、上下文比例、模型、思考深度、发送。加号/发送 36×36px、图标 17px；权限 110×32px；上下文入口 36×32px，内置 20×20px 圆环；模型按实际字宽加图标/内边距收紧，宽 96–180px（受剩余空间约束）、高 32px，长名称省略显示；完整模型 ID 可在“管理模型”设置中查看；思考 88×32px。标签 13px、下拉图标 9px。权限与思考各自保留于当前本地会话，提交时冻结；调整会话选择不改写已冻结的在途请求。只读不注册工具，默认只使用当前已注册 wait，不表示完整桌面访问。模型入口以“服务商名称 · 模型 ID”列出已保存配置，并提供“管理模型”；服务 ACK 后更新已应用模型，活动任务或保存失败拒绝切换。模型只有默认能力时入口说明该模型未提供其他思考选项，不能选择档位。运行期间发送改为停止，调用 session.chat.cancel；提交等待或附件读取期间禁用发送；空草稿/引用/附件、断开连接或删除等待时同样禁用；首次提交按需创建远端会话。禁用实心发送使用 hover 底色与 muted 图标，避免正常行动色暗示可提交。
 
-加号提供“添加文本附件”和“查看附件与引用”，明确说明 UTF-8、最多 4 个与合计 8 KiB。同步系统文件对话框只接收用户主动选择的文件，读取交给前端唯一 Executor 的有限任务；拒绝非普通文件、二进制、无效 UTF-8 与超限，Linux 还拒绝符号链接/FIFO，取消选择无错误。附件以文件名与完整文本加入明确标记的不可信用户 TextPart 上下文，不提供图像/二进制上传或自动目录读取。附件和引用出现后展示 176×28px“附件 N · 引用 N”计数 pill，图标 11px、文字 12px；点击打开宽 `min(320px, column)`、高 `min(352px, screen.height - 160px)` 的滚动预览。附件展示文件名、字节数、13px / 22px 文本和移除入口；引用展示完整文字、来源角色、消息 ID，并可逐条删除，文字 14px / 22px、行间距 16px、滚动条宽 4px / gap 6px。引用最多 4 段、合计 8 KiB；附件另有相同上限，二者与草稿一起受编码后 16 KiB wire 上限。引用/附件实例有独立单调 ID，ACK 仅清除该次提交实例；附件 generation 防止已清空会话接纳迟到读取结果。
+加号提供“添加文本附件”和“查看附件与引用”，明确说明 UTF-8、最多 4 个与合计 8 KiB。同步系统文件对话框只接收用户主动选择的文件，读取交给前端唯一 Executor 的有限任务；拒绝非普通文件、二进制、无效 UTF-8 与超限，Linux 还拒绝符号链接/FIFO，取消选择无错误。附件以文件名与完整文本加入明确标记的不可信用户 TextPart 上下文，不提供图像/二进制上传或自动目录读取。附件和引用出现后展示 176×28px“附件 N · 引用 N”计数 pill，图标 11px、文字 12px；点击打开宽 `min(320px, column)`、高 `min(352px, screen.height - 160px)` 的滚动预览。附件行与引用行同构：14px 类型图标按扩展名区分图片（image）与文件（file-text），旁为文件名与字节数，右侧 28×26px 垃圾桶按钮移除，下方 13px / 22px 预览文本；引用行来源文字前带 12px 引号图标。引用展示完整文字、来源角色、消息 ID，并可逐条删除，文字 14px / 22px、行间距 16px、滚动条宽 4px / gap 6px。引用最多 4 段、合计 8 KiB；附件另有相同上限，二者与草稿一起受编码后 16 KiB wire 上限。引用/附件实例有独立单调 ID，ACK 仅清除该次提交实例；附件 generation 防止已清空会话接纳迟到读取结果。
 
 上下文圆环采用 24×24 SVG 视框、半径 10、描边 4，原生显示为 20×20px；用 SVG 路径弧绘制占用，避免依赖 dash-array 支持。点击或经 EUI 键盘操作展开宽 `min(320px, column)`、高 224px 的详情，浅色使用 surface、深色使用 dark-composer，按上下文工具的 `column - 156 - model_width` 锚点定位并钳制到 composer 可用宽度；与 composer 间隔 8px、顶部至少 68px。标题与百分比在顶部，下一行展示带千位分隔的“输入 / 窗口 Token”；下方是 6px 高、3px 圆角的比例条，以及来源、模型、本次引用数三行。未知时显示灰色空环、“未知”与“Token 用量尚不可用 / 等待模型返回 Token 用量”；已有输入但分母未知时显示“输入 / 未知 Token”，提示到模型设置填写窗口预算。真实零用量配合已知分母显示 0%；原始 Token 数和百分比可以超过 100%，仅圆环与进度条图形钳制到 100%。
 
@@ -562,7 +562,7 @@ Enter 发送、Shift+Enter 换行、Ctrl+Enter 保留发送兼容；composition 
 
 ### Dialog
 
-对话框在全窗 scrim 上居中；标题、正文、确认/取消属于同一面板。确认清空和删除均固定到打开弹层时选定的会话 ID；切换当前选择不会改变目标。
+对话框在全窗 scrim 上居中；标题、正文、确认/取消属于同一面板。标题左侧配 24px 语义图标（删除=垃圾桶、清空=扫帚、放弃修改=逆时针箭头、退出警示=warning、关于=info），标题文字自 x=60 起。确认清空和删除均固定到打开弹层时选定的会话 ID；切换当前选择不会改变目标。
 scrim 点击与 Escape 关闭弹层；弹层打开期间快捷键和输入受保护，面板拦截点击，防止穿透关闭。
 
 删除确认使用 frontmatter 的 `dialog-delete`（其他确认沿用 `dialog`），标题“删除这段对话？”沿用21px / 600权重。
@@ -729,3 +729,41 @@ action_id、evidence_id、观察摘要与时间，继续使用既有独立滚动
 32 次工具、零恢复；每次输出仍受 8192 或更大的已配置预算限制。单次模型请求
 默认 2 分钟，Agent 整任务独立默认 10 分钟，可取消。此契约替代前述 M6 初版
 仅 wait / 7 次请求的阶段限制；实际工具及模式按 DEC-080/081 的当前注册表决定。
+
+## 图标目录（M6-40）
+
+全部操作图标使用随应用交付的 Phosphor Icons Regular v2.1.1（MIT；逐字节来源与
+cmap 校验记录见 `apps/native/assets/fonts/provenance-phosphor.json`），码点集中于
+`apps/native/icons.hpp`，每个视觉元素登记一个独立图标，调用点不得内联码点。目标：
+窗口极小时仅凭图标即可辨认控件功能。同表内同码点必须同语义；跨不相交菜单允许
+同形复用（如 eye 同时表示“显示密钥”与“视觉模式”，sun 同时表示“浅色主题”与
+“最高思考档”）。图文间隔 `control_icon_gap=4px`、行外缩进 `control_text_inset=8px`，
+新图标按钮宽度必须容纳 `2×inset + iconSize×1.15 + gap + 实测文字`，由原生渲染
+审计测试逐钮校验。
+
+**导航与窗口：** 侧栏切换=sidebar-simple+caret（ZCode panel-left 语义）、设置=gear、
+关于=info、外观=palette、模型=robot、桌面工具=monitor、返回=arrow-left、最小化=minus、
+最大化/还原=corners-out/corners-in、关闭=x。
+
+**会话与消息：** 会话行=chat-circle（运行中=circle-notch）、新建/添加=plus、
+删除/清空确认=trash/broom、失败与退出警示=warning、复制=copy、编辑=pencil、
+回到底部=arrow-down、引用=quotes、主题=moon/sun。
+
+**Composer：** 发送/停止=arrow-up/stop、添加附件=paperclip、附件与文件=file-text、
+图片=image（附件类型图标按扩展名投影）、下拉尾箭头=caret-down、
+模式行：对话=chat-text / 视觉=eye / 完全访问=shield-warning（键鼠风险警示语义，
+对齐 ZCode 高权限警示色约定）。
+
+**思考深度：** 每档独立图标，按亮度递增阶梯：
+默认=sparkle、开启(adaptive)=brain、关闭=prohibit、最少=lightbulb、低=moon-stars、
+中=planet、高=star-four、极高=lightning、最高=sun。档位仍以文字标签区分，
+图标承担极小窗口下的可辨识性。
+
+**桌面权限与工具页：** 授权并记住/重新授权=shield-check、忘记授权=shield-slash、
+刷新状态/重新读取/刷新=arrows-clockwise、选择清单=folder-notch-open、
+保存=floppy-disk、获取模型=download-simple、过程任务类型：思考=brain、
+桌面动作=cursor-click、等待=hourglass、其余工具=wrench。
+
+**对话框：** 标题左侧 24px 语义图标（删除=trash、清空=broom、放弃修改=
+arrow-counter-clockwise、退出=warning、关于=info），标题文字自 x=60 起；
+取消/确认按钮保持纯文字。

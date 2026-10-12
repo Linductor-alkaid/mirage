@@ -1538,6 +1538,140 @@ const auto model = "Mirage";
                      fitted_title(page.desktop_authorization_notice,
                                   element("composer.notice")->frame.width, 12) &&
                  page.chat.current().draft == permission_draft);
+    // M6-40: every visual element carries its own registered icon. The expected
+    // strings below are the UTF-8 encodings of the Phosphor codepoints kept in
+    // apps/native/icons.hpp; rendering already matches the product font setup.
+    {
+        page.dark = false;
+        width = 1180;
+        height = 800;
+        // Reasoning depth rows: one distinct glyph per thinking option.
+        page.live_model.reasoning_options = {"",       "none", "adaptive", "minimal", "low",
+                                             "medium", "high", "xhigh",    "max"};
+        page.popup = PageState::Popup::Reasoning;
+        frame();
+        const std::vector<std::string> effort_glyphs = {
+            "\xee\x9a\xa2", "\xee\x8f\x9e", "\xee\x9d\x8e", "\xee\x8b\x9c", "\xee\x96\x8e",
+            "\xee\x99\x92", "\xee\x9a\xa4", "\xee\x8b\x9e", "\xee\x91\xb2"};
+        for (std::size_t i = 0; i < effort_glyphs.size(); ++i) {
+            MIRAGE_CHECK(element("composer.popup.effort." + std::to_string(i) + ".icon")->text ==
+                         effort_glyphs[i]);
+            for (std::size_t j = 0; j < i; ++j)
+                MIRAGE_CHECK(effort_glyphs[i] != effort_glyphs[j]);
+        }
+        page.popup = PageState::Popup::None;
+        // Access mode rows: 对话 / 视觉 / 完全访问.
+        page.popup = PageState::Popup::Mode;
+        frame();
+        MIRAGE_CHECK(element("composer.popup.conversation.icon")->text == "\xee\x85\xba");
+        MIRAGE_CHECK(element("composer.popup.readonly.icon")->text == "\xee\x88\xa0");
+        MIRAGE_CHECK(element("composer.popup.default.icon")->text == "\xee\x90\x92");
+        page.popup = PageState::Popup::None;
+        frame();
+        // Session rows distinguish idle (chat-circle) from running (circle-notch).
+        const auto live_session = "session." + std::to_string(page.chat.current().id);
+        MIRAGE_CHECK(element(live_session + ".icon")->text == "\xee\x85\xa8");
+        page.chat.current().running = true;
+        frame();
+        MIRAGE_CHECK(element(live_session + ".icon")->text == "\xee\xad\x84");
+        page.chat.current().running = false;
+        frame();
+        // Reference popup: the attachment type glyph follows the file extension.
+        page.chat.current().attachments = {{1, "notes.txt", "纯文本附件"},
+                                           {2, "shot.png", "图片描述"}};
+        page.chat.current().references = {{user, "你", "被引用的选段", 7}};
+        page.popup = PageState::Popup::References;
+        frame();
+        MIRAGE_CHECK(element("attachment.1.type")->text == "\xee\x88\xba"); // file-text
+        MIRAGE_CHECK(element("attachment.2.type")->text == "\xee\x8b\x8a"); // image
+        MIRAGE_CHECK(element("attachment.1.name") != nullptr &&
+                     view->find("attachment.1.preview") != nullptr);
+        MIRAGE_CHECK(view->find("attachment.1.remove") != nullptr &&
+                     view->find("attachment.2.remove") != nullptr);
+        MIRAGE_CHECK(element("reference.preview.7.type")->text == "\xee\x99\xa0"); // quotes
+        page.popup = PageState::Popup::None;
+        page.chat.current().attachments.clear();
+        page.chat.current().references.clear();
+        frame();
+        // Process part rows carry a kind glyph and indent the toggle past it.
+        {
+            std::vector<mirage::conversation::Part> icon_parts{
+                {"think", "thinking", "complete", "先思考再执行。"},
+                {"hold", "tool", "complete", "", "wait", "{\"duration_ms\":5}"},
+                {"press", "tool", "complete", "", "desktop.input.key", "{}"},
+                {"seek", "tool", "complete", "", "browser.search", "{}"}};
+            page.chat.apply_process(page.chat.current().id, "a", icon_parts, 1);
+            frame();
+            const auto parts_message =
+                "message." + std::to_string(page.chat.current().messages.back().id);
+            MIRAGE_CHECK(element(parts_message + ".part.think.kind")->text == "\xee\x9d\x8e");
+            MIRAGE_CHECK(element(parts_message + ".part.hold.kind")->text == "\xee\x8a\xb2");
+            MIRAGE_CHECK(element(parts_message + ".part.press.kind")->text == "\xee\x9f\x88");
+            MIRAGE_CHECK(element(parts_message + ".part.seek.kind")->text == "\xee\x97\x94");
+            const auto *row = element(parts_message);
+            MIRAGE_CHECK(std::abs(element(parts_message + ".part.think.kind")->frame.x -
+                                  row->frame.x - 4) < 0.5f);
+            MIRAGE_CHECK(std::abs(element(parts_message + ".part.think.toggle")->frame.x -
+                                  row->frame.x - 20) < 0.5f);
+            page.chat.apply_process(page.chat.current().id, "a", {}, 2);
+            frame();
+        }
+        // Dialog titles and the exit confirmation carry their own glyphs.
+        page.confirm_delete = true;
+        frame();
+        MIRAGE_CHECK(element("dialog.title.icon")->text == "\xee\x92\xa6");
+        page.confirm_delete = false;
+        page.confirm_clear = true;
+        frame();
+        MIRAGE_CHECK(element("dialog.title.icon")->text == "\xee\xb1\x94");
+        page.confirm_clear = false;
+        page.about = true;
+        frame();
+        MIRAGE_CHECK(element("dialog.title.icon")->text == "\xee\x8b\x8e");
+        page.about = false;
+        page.confirm_exit = true;
+        frame();
+        MIRAGE_CHECK(element("product.exit.title.icon")->text == "\xee\x93\xa0");
+        page.confirm_exit = false;
+        frame();
+        // Desktop tools page: every action button keeps its guiding glyph.
+        page.settings = true;
+        page.desktop_page = true;
+        frame();
+        MIRAGE_CHECK(element("settings.nav.2.icon")->text == "\xee\x8c\xae"); // monitor
+        MIRAGE_CHECK(element("desktop.resources.choose.icon")->text == "\xee\x89\x96");
+        MIRAGE_CHECK(element("desktop.resources.save.icon")->text == "\xee\x89\x88");
+        MIRAGE_CHECK(element("desktop.resources.refresh.icon")->text == "\xee\x82\x94");
+        MIRAGE_CHECK(element("desktop.permissions.authorize.icon")->text == "\xee\x90\x8c");
+        MIRAGE_CHECK(element("desktop.permissions.forget.icon")->text == "\xee\x90\x90");
+        MIRAGE_CHECK(element("desktop.permissions.refresh.icon")->text == "\xee\x82\x94");
+        page.desktop_page = false;
+        // Model page: fetch/save/discard glyphs and the widened 96 px action row.
+        page.model_page = true;
+        frame();
+        MIRAGE_CHECK(element("model.fetch.models.icon")->text == "\xee\x88\x8c");
+        MIRAGE_CHECK(element("model.discard.icon")->text == "\xee\x93\xb6");
+        MIRAGE_CHECK(element("model.save.icon")->text == "\xee\x89\x88");
+        MIRAGE_CHECK(element("model.discard")->frame.width == 96);
+        MIRAGE_CHECK(element("model.save")->frame.width == 96);
+        MIRAGE_CHECK(std::abs(element("model.save")->frame.x + element("model.save")->frame.width -
+                              element("model.form")->frame.x - element("model.form")->frame.width) <
+                     0.5f);
+        page.model_dialog = PageState::ModelDialog::Delete;
+        frame();
+        MIRAGE_CHECK(element("model.dialog.title.icon")->text == "\xee\x92\xa6");
+        page.model_dialog = PageState::ModelDialog::Discard;
+        frame();
+        MIRAGE_CHECK(element("model.dialog.title.icon")->text == "\xee\x80\xb8");
+        page.model_dialog = PageState::ModelDialog::None;
+        page.model_page = false;
+        // Appearance page: the font steppers carry text-aa and code glyphs.
+        frame();
+        MIRAGE_CHECK(element("settings.font.step0.icon")->text == "\xee\x9b\xae");
+        MIRAGE_CHECK(element("settings.codefont.step0.icon")->text == "\xee\x86\xbc");
+        page.settings = false;
+        frame();
+    }
     width = 1180;
     height = 800;
     glfwPollEvents();

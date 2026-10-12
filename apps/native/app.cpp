@@ -2,6 +2,7 @@
 #include "chat_model.hpp"
 #include "control_button.hpp"
 #include "conversation_preview.hpp"
+#include "icons.hpp"
 #include "markdown_adapter.hpp"
 #include "plain_text_layout.hpp"
 #include "provider_presets.hpp"
@@ -1207,8 +1208,9 @@ void sidebar_toggle_button(eui::Ui &ui, const std::string &id, bool expanded, fl
         .position(x, y)
         .size(36, 36)
         .content([&] {
-            icon_button(ui, id + ".panel", 0xec24, 0, 0, p, std::move(action));
-            icon(ui, id + ".caret", expanded ? 0xe138 : 0xe13a, 9, 0, 8, 36, p.text);
+            icon_button(ui, id + ".panel", icons::sidebar_panel, 0, 0, p, std::move(action));
+            icon(ui, id + ".caret", expanded ? icons::caret_left : icons::caret_right, 9, 0, 8, 36,
+                 p.text);
         })
         .build();
 }
@@ -1238,11 +1240,16 @@ void modal(eui::Ui &ui, const eui::Screen &screen, const Palette &p) {
                 .build();
             const bool deleting = s.confirm_delete;
             const bool clearing = s.confirm_clear;
+            icon(ui, "dialog.title.icon",
+                 deleting   ? icons::remove
+                 : clearing ? icons::clear_history
+                            : icons::about,
+                 x + 24, y + 22, 24, 36, p.text);
             text(ui, "dialog.title",
                  deleting   ? "删除这段对话？"
                  : clearing ? "清空当前对话？"
                             : "Mirage · Mira",
-                 x + 24, y + 22, width - 48, 36, 21, p.text, 600);
+                 x + 60, y + 22, width - 84, 36, 21, p.text, 600);
             if (deleting) {
                 const auto *target = s.chat.find(s.delete_target);
                 const auto title = target && !target->messages.empty()
@@ -1381,6 +1388,9 @@ void desktop_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, floa
                     control_button(list, "desktop.resources.choose")
                         .size(104, 32)
                         .text("选择清单")
+                        .icon(icons::open_manifest)
+                        .iconSize(13)
+                        .fontSize(ui_font_size(13))
                         .style(button_style(p))
                         .disabled(!s.vision_loaded || s.vision_pending)
                         .onClick([] {
@@ -1397,6 +1407,9 @@ void desktop_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, floa
                         .position(116, 0)
                         .size(88, 32)
                         .text(s.vision_pending ? "处理中…" : "保存")
+                        .icon(icons::save)
+                        .iconSize(13)
+                        .fontSize(ui_font_size(13))
                         .style(button_style(p, true))
                         .disabled(!s.vision_loaded || s.vision_pending)
                         .onClick([] {
@@ -1415,6 +1428,9 @@ void desktop_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, floa
                         .position(216, 0)
                         .size(88, 32)
                         .text("重新读取")
+                        .icon(icons::refresh)
+                        .iconSize(13)
+                        .fontSize(ui_font_size(13))
                         .style(button_style(p))
                         .disabled(s.vision_pending)
                         .onClick([] {
@@ -1443,6 +1459,9 @@ void desktop_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, floa
                     control_button(list, "desktop.permissions.authorize")
                         .size(132, 36)
                         .text(authorization.remembered ? "重新授权" : "授权并记住")
+                        .icon(icons::authorize)
+                        .iconSize(13)
+                        .fontSize(ui_font_size(13))
                         .style(button_style(p, true))
                         .disabled(s.desktop_authorization_pending ||
                                   !s.desktop_authorization_loaded || !authorization.supported ||
@@ -1452,6 +1471,9 @@ void desktop_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, floa
                     control_button(list, "desktop.permissions.forget")
                         .size(112, 36)
                         .text("忘记授权")
+                        .icon(icons::forget_authorization)
+                        .iconSize(13)
+                        .fontSize(ui_font_size(13))
                         .style(button_style(p))
                         .disabled(s.desktop_authorization_pending ||
                                   !s.desktop_authorization_loaded || !authorization.remember)
@@ -1460,6 +1482,9 @@ void desktop_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, floa
                     control_button(list, "desktop.permissions.refresh")
                         .size(88, 36)
                         .text("刷新状态")
+                        .icon(icons::refresh)
+                        .iconSize(13)
+                        .fontSize(ui_font_size(13))
                         .style(button_style(p))
                         .disabled(s.desktop_authorization_pending)
                         .onClick([] { request_desktop_authorization(); })
@@ -1509,7 +1534,7 @@ void appearance_page(eui::Ui &ui, float x, float width, const Palette &p) {
             .position(control_x + static_cast<float>(i) * 96, control_y)
             .size(88, 28)
             .text(dark ? "深色" : "浅色")
-            .icon(dark ? 0xe330 : 0xe472)
+            .icon(dark ? icons::theme_dark : icons::theme_light)
             .iconSize(14)
             .fontSize(ui_font_size(14))
             .style(style)
@@ -1550,6 +1575,8 @@ void appearance_page(eui::Ui &ui, float x, float width, const Palette &p) {
             .position(font_ctrl_x + static_cast<float>(i) * 92, font_ctrl_y)
             .size(84, 28)
             .text(font_labels[i])
+            .icon(icons::font_size)
+            .iconSize(14)
             .fontSize(ui_font_size(14))
             .style(fstyle)
             .onClick([i] {
@@ -1622,6 +1649,8 @@ void appearance_page(eui::Ui &ui, float x, float width, const Palette &p) {
             .position(cf_ctrl_x + static_cast<float>(i) * 92, cf_ctrl_y)
             .size(84, 28)
             .text(cf_labels[i])
+            .icon(icons::code_font)
+            .iconSize(14)
             .fontSize(ui_font_size(14))
             .style(cstyle)
             .onClick([i] {
@@ -1777,8 +1806,10 @@ void model_editor_modal(eui::Ui &ui, const eui::Screen &screen, const Palette &p
                 .border(1, p.border)
                 .onClick([] {})
                 .build();
-            text(ui, "model.dialog.title", deleting ? "删除模型服务？" : "有未保存的修改", x + 24,
-                 y + 22, width - 48, 36, 20, p.text, 600);
+            icon(ui, "model.dialog.title.icon", deleting ? icons::remove : icons::discard, x + 24,
+                 y + 22, 24, 36, p.text);
+            text(ui, "model.dialog.title", deleting ? "删除模型服务？" : "有未保存的修改", x + 60,
+                 y + 22, width - 84, 36, 20, p.text, 600);
             ui.text("model.dialog.body")
                 .position(x + 24, y + 70)
                 .size(width - 48, 80)
@@ -1829,7 +1860,7 @@ void provider_icon(eui::Ui &ui, const std::string &key, const std::string &provi
             return provider_id == "preset:" + std::string(entry.id);
         });
     if (preset == provider_presets.end()) {
-        icon(ui, key, 0xe1da, x, y, size, 32, p.text);
+        icon(ui, key, icons::provider_fallback, x, y, size, 32, p.text);
         return;
     }
     ui.image(key)
@@ -1852,7 +1883,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
         .position(x + width - 144, 108)
         .size(28, 28)
         .text("")
-        .icon(0xe094)
+        .icon(icons::refresh)
         .iconSize(14)
         .style(button_style(p))
         .disabled(s.saving_model || s.about || s.confirm_clear || s.confirm_delete ||
@@ -1869,7 +1900,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
         .position(x + width - 108, 108)
         .size(108, 28)
         .text("添加服务")
-        .icon(0xe3d4)
+        .icon(icons::add)
         .iconSize(14)
         .fontSize(ui_font_size(14))
         .style(button_style(p))
@@ -2000,7 +2031,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                         .position(w - 32, 0)
                         .size(32, 32)
                         .text("")
-                        .icon(0xe1fe)
+                        .icon(icons::more)
                         .iconSize(16)
                         .style(button_style(p))
                         .disabled(model_editor_blocked())
@@ -2079,7 +2110,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                     control_button(list, "model.protocol.control")
                         .position(0, 22)
                         .size(w, 32)
-                        .trailingIcon(0xe136)
+                        .trailingIcon(icons::caret_down)
                         .iconSize(12)
                         .text(s.model.dialect == "anthropic.messages.v1"
                                   ? "Anthropic Messages (/messages)"
@@ -2154,7 +2185,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                 .position(w - 32, 0)
                                 .size(32, 32)
                                 .text("")
-                                .icon(s.show_api_key ? 0xe224 : 0xe220)
+                                .icon(s.show_api_key ? icons::hide_secret : icons::show_secret)
                                 .iconSize(14)
                                 .style(button_style(p))
                                 .disabled(preset_selection_blocked())
@@ -2172,6 +2203,8 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                         .position(w - 208, 0)
                         .size(100, 28)
                         .text(s.fetching_models ? "获取中…" : "获取模型")
+                        .icon(icons::fetch_models)
+                        .iconSize(13)
                         .fontSize(ui_font_size(13))
                         .style(button_style(p))
                         .disabled(s.fetching_models || !s.runtime || !s.runtime->connected() ||
@@ -2196,7 +2229,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                         .position(w - 100, 0)
                         .size(100, 28)
                         .text("添加模型")
-                        .icon(0xe3d4)
+                        .icon(icons::add)
                         .iconSize(14)
                         .fontSize(ui_font_size(13))
                         .style(button_style(p))
@@ -2283,7 +2316,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                             .position(w - 36, 2)
                             .size(32, 32)
                             .text("")
-                            .icon(0xe4a6)
+                            .icon(icons::remove)
                             .iconSize(13)
                             .style(button_style(p))
                             .disabled(model_editor_blocked())
@@ -2412,7 +2445,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                     .position(4, 4)
                     .size(136, 32)
                     .text("重命名")
-                    .icon(0xe3ae)
+                    .icon(icons::edit)
                     .iconSize(13)
                     .fontSize(ui_font_size(14))
                     .style(button_style(p))
@@ -2425,7 +2458,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                     .position(4, 36)
                     .size(136, 32)
                     .text("删除服务")
-                    .icon(0xe4a6)
+                    .icon(icons::remove)
                     .iconSize(13)
                     .fontSize(ui_font_size(14))
                     .style(button_style(p))
@@ -2569,7 +2602,7 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
                                 navigate_model({PageState::ModelDestination::New, "", 0});
                             })
                             .build();
-                        icon(ui, "model.add.menu.manual.icon", 0xe3ae, 8, 0, 16, 32, p.muted);
+                        icon(ui, "model.add.menu.manual.icon", icons::edit, 8, 0, 16, 32, p.muted);
                         text(ui, "model.add.menu.manual.label", "手动配置", 40, 0, menu_width - 48,
                              32, 14, p.muted);
                     })
@@ -2583,17 +2616,20 @@ void model_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float 
          width, 24, 12, p.muted);
     control_button(ui, "model.discard")
         .position(x, y + 32)
-        .size(80, 28)
+        .size(96, 28)
         .text("取消修改")
+        .icon(icons::close)
+        .iconSize(12)
         .fontSize(ui_font_size(13))
         .style(button_style(p))
         .disabled(!pending_model_edits() || s.saving_model)
         .onClick(discard_model_edits)
         .build();
     control_button(ui, "model.save")
-        .position(x + width - 80, y + 32)
-        .size(80, 28)
+        .position(x + width - 96, y + 32)
+        .size(96, 28)
         .text(s.saving_model ? "保存中…" : "保存")
+        .icon(icons::save)
         .fontSize(ui_font_size(14))
         .style([&] {
             auto style = button_style(p, true);
@@ -2751,11 +2787,14 @@ void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &mes
             auto style = button_style(p);
             style.text = p.muted;
             style.radius = 5;
+            // 任务类型独立图标：思考、桌面动作、等待，其余工具兜底（M6-40）。
+            icon(ui, id + ".kind", icons::part_kind(part.kind, part.name, evidence.has_value()), 4,
+                 y, 14, 28, p.muted);
             control_button(ui, id + ".toggle")
-                .position(0, y)
-                .size(width - (expanded ? 112 : 80), 28)
+                .position(20, y)
+                .size(width - 20 - (expanded ? 112 : 80), 28)
                 .text(label)
-                .icon(expanded ? 0xe136 : 0xe13a)
+                .icon(expanded ? icons::caret_down : icons::caret_right)
                 .iconSize(11)
                 .fontSize(ui_font_size(13))
                 .style(style)
@@ -2788,7 +2827,7 @@ void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &mes
                 control_button(ui, id + ".copy")
                     .position(width - 28, y)
                     .size(28, 28)
-                    .icon(0xe1ca)
+                    .icon(icons::copy)
                     .iconSize(12)
                     .style(style)
                     .onClick([detail] {
@@ -2994,7 +3033,8 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                             .build();
                                     }
                                 } else
-                                    icon(list, key + ".state.icon", 0xe4e0, 0, 0, 13, 24, p.muted);
+                                    icon(list, key + ".state.icon", icons::failure, 0, 0, 13, 24,
+                                         p.muted);
                                 text(list, key + ".state",
                                      pending ? (tool_running           ? "工具执行中 · "
                                                 : tool_pending         ? "等待工具执行 · "
@@ -3200,7 +3240,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                     .position(action_x, action_y)
                                     .size(28, 26)
                                     .text("")
-                                    .icon(0xe1ca)
+                                    .icon(icons::copy)
                                     .iconSize(12)
                                     .style(small)
                                     .onClick([copy = message.text] {
@@ -3214,7 +3254,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                         .position(action_x + 32, action_y)
                                         .size(28, 26)
                                         .text("")
-                                        .icon(0xe3ae)
+                                        .icon(icons::edit)
                                         .iconSize(12)
                                         .style(small)
                                         .disabled(session.running || session.submitting ||
@@ -3250,7 +3290,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                 .position(x + column / 2 - 18, y - 58)
                 .size(36, 36)
                 .text("")
-                .icon(0xe03e)
+                .icon(icons::jump_latest)
                 .iconSize(14)
                 .style(latest)
                 .onClick(follow)
@@ -3289,7 +3329,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
             .text("附件 " + std::to_string(session.attachments.size()) + " · 引用 " +
                   std::to_string(session.references.size()))
             .fontSize(ui_font_size(12))
-            .icon(0xe660)
+            .icon(icons::quote)
             .iconSize(11)
             .style(pill)
             .onClick([] { state().popup = PageState::Popup::References; })
@@ -3368,7 +3408,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         value.popup = value.popup == popup ? PageState::Popup::None : popup;
     };
     icon_button(
-        ui, "composer.add", 0xe3d4, x + 8, toolbar_y, p,
+        ui, "composer.add", icons::add, x + 8, toolbar_y, p,
         [toggle] { toggle(PageState::Popup::Actions); }, false, false, 28, 14);
     auto toolbar = button_style(p);
     toolbar.radius = 6;
@@ -3376,7 +3416,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         .position(x + 40, toolbar_y)
         .size(100, 28)
         .text(desktop_mode_label(session.access))
-        .trailingIcon(0xe136)
+        .trailingIcon(icons::caret_down)
         .iconSize(9)
         .fontSize(ui_font_size(13))
         .style(toolbar)
@@ -3416,7 +3456,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         .position(x + model_x, toolbar_y)
         .size(model_width, 28)
         .text(model_label)
-        .trailingIcon(0xe136)
+        .trailingIcon(icons::caret_down)
         .iconSize(9)
         .fontSize(ui_font_size(13))
         .style(toolbar)
@@ -3427,7 +3467,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         .position(x + reasoning_x, toolbar_y)
         .size(reasoning_width, 28)
         .text(effort)
-        .trailingIcon(0xe136)
+        .trailingIcon(icons::caret_down)
         .iconSize(9)
         .fontSize(ui_font_size(13))
         .style(toolbar)
@@ -3448,7 +3488,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
             .position(x + send_x, toolbar_y)
             .size(28, 28)
             .text("")
-            .icon(session.running ? 0xe46c : 0xe08e)
+            .icon(session.running ? icons::stop : icons::send)
             .iconSize(14)
             .style(style)
             .disabled(!send_enabled)
@@ -3470,9 +3510,8 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
     if (s.popup != PageState::Popup::None) {
         const auto popup = s.popup;
         const float popup_width = std::min(
-            popup == PageState::Popup::References || popup == PageState::Popup::Context
-                ? 320.0f
-                : 280.0f,
+            popup == PageState::Popup::References || popup == PageState::Popup::Context ? 320.0f
+                                                                                        : 280.0f,
             column);
         const float popup_height =
             popup == PageState::Popup::References ? std::min(352.0f, screen.height - 160)
@@ -3491,9 +3530,9 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                              : popup == PageState::Popup::Mode      ? 40
                                                                     : 8;
         const float popup_x = x + std::clamp(anchor, 8.0f, column - popup_width - 8);
-        const float popup_y = std::max(68.0f, popup == PageState::Popup::Mode
-                                                    ? toolbar_y - popup_height - 4
-                                                    : y - popup_height - 8);
+        const float popup_y =
+            std::max(68.0f, popup == PageState::Popup::Mode ? toolbar_y - popup_height - 4
+                                                            : y - popup_height - 8);
         ui.rect("composer.popup.dismiss")
             .size(screen.width, screen.height)
             .color({0, 0, 0, 0})
@@ -3528,25 +3567,29 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                 };
                 if (popup == PageState::Popup::Actions) {
                     row("attach", session.attachment_loading ? "正在读取附件…" : "添加文本附件",
-                        0xe39a, 8, add_attachment,
+                        icons::attach_file, 8, add_attachment,
                         session.attachment_loading || session.attachments.size() >= 4);
                     row(
-                        "attachments", "查看附件与引用", 0xe23a, 44,
+                        "attachments", "查看附件与引用", icons::attachment, 44,
                         [] { state().popup = PageState::Popup::References; },
                         session.attachments.empty() && session.references.empty());
                     text(ui, "composer.popup.attach.help", "UTF-8 文本 · 最多 4 个 · 合计 8 KiB",
                          16, 84, popup_width - 32, 28, 12, p.muted);
                 } else if (popup == PageState::Popup::Mode) {
-                    const bool mode_busy = session.running || session.submitting ||
-                                           s.desktop_authorization_pending;
-                    row("conversation",
-                        session.access == "chat_only" ? "对话模式 · 已选择" : "对话模式", 0xe23a,
-                        8, [] { select_desktop_mode("chat_only"); }, mode_busy);
-                    row("readonly",
-                        session.access == "read_only" ? "视觉模式 · 已选择" : "视觉模式", 0xe220,
-                        44, [] { select_desktop_mode("read_only"); }, mode_busy);
-                    row("default", session.access == "default" ? "完全访问 · 已选择" : "完全访问",
-                        0xe2e2, 80, [] { select_desktop_mode("default"); }, mode_busy);
+                    const bool mode_busy =
+                        session.running || session.submitting || s.desktop_authorization_pending;
+                    row(
+                        "conversation",
+                        session.access == "chat_only" ? "对话模式 · 已选择" : "对话模式",
+                        icons::mode_chat, 8, [] { select_desktop_mode("chat_only"); }, mode_busy);
+                    row(
+                        "readonly",
+                        session.access == "read_only" ? "视觉模式 · 已选择" : "视觉模式",
+                        icons::show_secret, 44, [] { select_desktop_mode("read_only"); },
+                        mode_busy);
+                    row(
+                        "default", session.access == "default" ? "完全访问 · 已选择" : "完全访问",
+                        icons::mode_full, 80, [] { select_desktop_mode("default"); }, mode_busy);
                 } else if (popup == PageState::Popup::Reasoning) {
                     if (thinking_options.size() == 1) {
                         text(ui, "composer.popup.reasoning.help", "使用模型默认思考方式", 16, 16,
@@ -3559,7 +3602,8 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                 thinking_options[i].label +
                                     (session.reasoning == thinking_options[i].value ? " · 已选择"
                                                                                     : ""),
-                                0xe6a2, 8 + static_cast<float>(i) * 36,
+                                icons::reasoning(thinking_options[i].value),
+                                8 + static_cast<float>(i) * 36,
                                 [value = thinking_options[i].value] {
                                     state().chat.current().reasoning = value;
                                     state().popup = PageState::Popup::None;
@@ -3587,8 +3631,9 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                                                 ? ""
                                                                 : " · " + model.model_selector),
                                                        w - 40, 14))
-                                    .icon(model.display_name == s.live_model.display_name ? 0xe182
-                                                                                          : 0xe1da)
+                                    .icon(model.display_name == s.live_model.display_name
+                                              ? icons::selected
+                                              : icons::provider_fallback)
                                     .iconSize(14)
                                     .fontSize(ui_font_size(14))
                                     .style(button_style(p))
@@ -3599,7 +3644,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                             }
                         })
                         .build();
-                    row("settings", "管理模型", 0xe270, popup_height - 40, [] {
+                    row("settings", "管理模型", icons::settings, popup_height - 40, [] {
                         state().desktop_page = false;
                         state().settings = state().model_page = true;
                         state().popup = PageState::Popup::None;
@@ -3616,34 +3661,42 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                         .scrollbarGap(6)
                         .content([&](eui::Ui &list, float width, float) {
                             for (const auto &attachment : session.attachments) {
-                                list.column("attachment." + std::to_string(attachment.id))
-                                    .width(width)
-                                    .height(40 + text_height(attachment.text, width, 13, 22))
-                                    .gap(4)
+                                const auto key = "attachment." + std::to_string(attachment.id);
+                                const float preview_height =
+                                    text_height(attachment.text, width - 8, 13, 22);
+                                // 文件/图片独立类型图标 + 名称，移除入口与引用行同构（M6-40）。
+                                list.stack(key)
+                                    .size(width, preview_height + 38)
                                     .content([&] {
-                                        control_button(list, "attachment.remove." +
-                                                                 std::to_string(attachment.id))
-                                            .size(width, 32)
-                                            .text(fitted_title(
-                                                attachment.name + " · " +
-                                                    std::to_string(attachment.text.size()) + " B",
-                                                width - 38, 14))
-                                            .icon(0xe4f6)
-                                            .fontSize(ui_font_size(14))
+                                        icon(list, key + ".type",
+                                             icons::attachment_type(attachment.name), 4, 0, 14, 26,
+                                             p.muted);
+                                        text(list, key + ".name",
+                                             fitted_title(
+                                                 attachment.name + " · " +
+                                                     std::to_string(attachment.text.size()) + " B",
+                                                 width - 72, 14),
+                                             24, 0, width - 72, 26, 14, p.text);
+                                        control_button(list, key + ".remove")
+                                            .position(width - 32, 0)
+                                            .size(28, 26)
+                                            .text("")
+                                            .icon(icons::remove)
+                                            .iconSize(12)
                                             .style(button_style(p))
                                             .onClick([id = attachment.id] {
                                                 state().chat.remove_attachment(id);
                                             })
                                             .build();
-                                        list.text("attachment.preview." +
-                                                  std::to_string(attachment.id))
-                                            .size(width,
-                                                  text_height(attachment.text, width, 13, 22))
+                                        list.text(key + ".preview")
+                                            .position(4, 32)
+                                            .size(width - 8, preview_height)
                                             .text(attachment.text)
                                             .fontSize(ui_font_size(13))
                                             .lineHeight(22)
                                             .wrap()
                                             .color(p.muted)
+                                            .hitTestMode(eui::dsl::HitTestMode::None)
                                             .build();
                                     })
                                     .build();
@@ -3657,15 +3710,17 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                 list.stack(key)
                                     .size(width, height + 38)
                                     .content([&] {
+                                        icon(list, key + ".type", icons::quote, 4, 0, 12, 26,
+                                             p.muted);
                                         text(list, key + ".source",
                                              reference.role + " · 消息 #" +
                                                  std::to_string(source_id),
-                                             4, 0, width - 40, 26, 12, p.muted);
+                                             22, 0, width - 58, 26, 12, p.muted);
                                         control_button(list, key + ".remove")
                                             .position(width - 32, 0)
                                             .size(28, 26)
                                             .text("")
-                                            .icon(0xe4a6)
+                                            .icon(icons::remove)
                                             .iconSize(12)
                                             .style(button_style(p))
                                             .onClick([reference_id] {
@@ -3760,7 +3815,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                 control_button(ui, "selection.quote")
                     .size(100, 32)
                     .text("引用选段")
-                    .icon(0xe660)
+                    .icon(icons::quote)
                     .iconSize(12)
                     .fontSize(ui_font_size(13))
                     .style(button_style(p))
@@ -3941,8 +3996,8 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                                                 .cursor(eui::CursorShape::Hand)
                                                 .onClick([] { leave_settings(true); })
                                                 .build();
-                                            icon(ui, "settings.back.icon", 0xe058, 12, 0, 16, 36,
-                                                 p.text);
+                                            icon(ui, "settings.back.icon", icons::back, 12, 0, 16,
+                                                 36, p.text);
                                             text(ui, "settings.back.label", "返回对话", 44, 0,
                                                  sidebar_width - 96, 36, 14, p.text);
                                         })
@@ -3976,9 +4031,9 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                                             })
                                             .build();
                                         icon(ui, key + ".icon",
-                                             i == 2  ? 0xe1f6
-                                             : model ? 0xe762
-                                                     : 0xe6c8,
+                                             i == 2  ? icons::desktop_tools
+                                             : model ? icons::models
+                                                     : icons::appearance,
                                              36, y, 16, 36, p.text);
                                         text(ui, key + ".label",
                                              i == 2  ? "桌面工具"
@@ -3999,7 +4054,7 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                                                 .cursor(eui::CursorShape::Hand)
                                                 .onClick([] { new_session(); })
                                                 .build();
-                                            icon(ui, "session.new.icon", 0xe3d4, 12, 0, 16, 36,
+                                            icon(ui, "session.new.icon", icons::add, 12, 0, 16, 36,
                                                  p.text);
                                             text(ui, "session.new.label", "新建对话", 44, 0,
                                                  sidebar_width - 96, 36, 14, p.text);
@@ -4060,8 +4115,11 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                                                                     page.hovered_session = 0;
                                                             })
                                                             .build();
-                                                        icon(list, key + ".icon", 0xe168, 12, 0, 14,
-                                                             40, p.muted);
+                                                        icon(list, key + ".icon",
+                                                             session.running
+                                                                 ? icons::session_running
+                                                                 : icons::session,
+                                                             12, 0, 14, 40, p.muted);
                                                         text(list, key + ".title",
                                                              fitted_title(session.title,
                                                                           width - 100, 14),
@@ -4073,8 +4131,8 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                                                                                              : 0.0f)
                                                             .content([&] {
                                                                 icon_button(
-                                                                    list, key + ".delete", 0xe4a6,
-                                                                    0, 0, p,
+                                                                    list, key + ".delete",
+                                                                    icons::remove, 0, 0, p,
                                                                     [id] {
                                                                         auto &v = state();
                                                                         if (v.about ||
@@ -4116,12 +4174,13 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                                     .size(sidebar_width - 48, 1)
                                     .color(p.border)
                                     .build();
-                                icon_button(ui, "about", 0xe2ce, 30, screen.height - 62, p,
+                                icon_button(ui, "about", icons::about, 30, screen.height - 62, p,
                                             [] { state().about = true; });
                                 text(ui, "preview.label", "Mira", 68, screen.height - 62,
                                      sidebar_width - 112, 36, 14, p.muted);
-                                icon_button(ui, "settings.open", 0xe270, sidebar_width - 52,
-                                            screen.height - 62, p, [] { state().settings = true; });
+                                icon_button(ui, "settings.open", icons::settings,
+                                            sidebar_width - 52, screen.height - 62, p,
+                                            [] { state().settings = true; });
                                 ui.rect("sidebar.resize")
                                     .position(sidebar_width - 4, 60)
                                     .size(8, screen.height - 60)
@@ -4181,7 +4240,7 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
             if (sidebar < 56.0f) {
                 sidebar_toggle_button(ui, "sidebar.toggle.collapsed", false, 16, 12, p,
                                       [] { state().sidebar = true; });
-                icon_button(ui, "settings.collapsed", 0xe270, 60, 12, p,
+                icon_button(ui, "settings.collapsed", icons::settings, 60, 12, p,
                             [] { state().settings = true; });
             }
             const float title_x = sidebar + (sidebar >= 56.0f ? 28 : 116);
@@ -4193,10 +4252,12 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                                                               : session_title;
             text(ui, "thread.title", fitted_title(title, title_width, 14), title_x, 0, title_width,
                  60, 14, p.text, 500);
-            icon_button(ui, "window.minimize", 0xe32a, screen.width - 130, 12, p, window::minimize);
-            icon_button(ui, "window.maximize", window::maximized() ? 0xe1ce : 0xe1d0,
-                        screen.width - 88, 12, p, window::toggle_maximize);
-            icon_button(ui, "window.close", 0xe4f6, screen.width - 46, 12, p, window::close);
+            icon_button(ui, "window.minimize", icons::minimize, screen.width - 130, 12, p,
+                        window::minimize);
+            icon_button(ui, "window.maximize",
+                        window::maximized() ? icons::restore : icons::maximize, screen.width - 88,
+                        12, p, window::toggle_maximize);
+            icon_button(ui, "window.close", icons::close, screen.width - 46, 12, p, window::close);
             if (s.settings)
                 ui.rect("header.line")
                     .position(sidebar, 60)
@@ -4209,7 +4270,7 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                         .position(screen.width - 270, 12)
                         .size(124, 36)
                         .text("返回对话")
-                        .icon(0xe058)
+                        .icon(icons::back)
                         .fontSize(ui_font_size(14))
                         .style(button_style(p))
                         .onClick([] { leave_settings(true); })
@@ -4246,8 +4307,10 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                             .border(1, p.border)
                             .onClick([] {})
                             .build();
-                        text(ui, "product.exit.title", "停止任务并退出 Mirage？", x + 24, y + 20,
-                             412, 36, 20, p.text, 600);
+                        icon(ui, "product.exit.title.icon", icons::failure, x + 24, y + 20, 24, 36,
+                             p.text);
+                        text(ui, "product.exit.title", "停止任务并退出 Mirage？", x + 60, y + 20,
+                             376, 36, 20, p.text, 600);
                         ui.text("product.exit.body")
                             .position(x + 24, y + 72)
                             .size(412, 78)
