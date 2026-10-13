@@ -9,6 +9,10 @@
 
 namespace mirage::platform::linux_backend {
 
+// The no-X11 destructor still instantiates unique_ptr<Surface>'s deleter.
+// Keep its pointee complete without introducing any platform SDK types.
+struct X11OverlayCarrier::Surface {};
+
 X11OverlayCarrier::~X11OverlayCarrier() = default;
 
 std::unique_ptr<X11OverlayCarrier> X11OverlayCarrier::open(const std::string &) {

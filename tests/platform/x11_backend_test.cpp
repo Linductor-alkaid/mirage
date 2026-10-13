@@ -1184,9 +1184,16 @@ void screen_capability_session_markers(XvfbDisplay &server) {
         session.set("wayland");
         bus.set("unix:path=/nonexistent-mirage-x11-test");
         LinuxDesktopEnvironment env({}, {.enabled = true, .display = {}});
+#ifdef MIRAGE_TEST_PORTAL
         MIRAGE_CHECK(env.screen() != nullptr);
-        MIRAGE_CHECK(env.screen()->desktop_observation_only());
+        if (env.screen())
+            MIRAGE_CHECK(env.screen()->desktop_observation_only());
         MIRAGE_CHECK(env.screen_capability() == mirage::desktop::ScreenCapability::PortalOnly);
+#else
+        // A bus marker cannot enable a Portal SDK omitted from this build.
+        MIRAGE_CHECK(env.screen() == nullptr);
+        MIRAGE_CHECK(env.screen_capability() == mirage::desktop::ScreenCapability::Unavailable);
+#endif
     }
     // Wayland marker with the Portal path unavailable and no X connection:
     // no screen backend answers at all, and the capability says so.

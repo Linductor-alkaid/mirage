@@ -43,3 +43,29 @@ CI native EUI 作业原先没有启用桌宠预览。本轮增加 `libwebp-dev`�
 `MIRAGE_ENABLE_PET_PREVIEW` 并构建 `mira_pet`、播放器、资源解码/加载与状态集成
 测试，沿用该作业的测试隔离 fixture。该门禁证明编译及自动回归，不替代 compositor
 目视验收；远端结果在 PR #86 中核验后再合并。
+
+## PR #86 CI 可选平台路径修复
+
+首轮 `9a3b7e2` CI 的 native EUI 构建因缺少 Xtst SDK 进入 Overlay stub，析构
+`unique_ptr<Surface>` 时遇到不完整类型。stub 补充无平台类型的空 `Surface` 定义；
+以 `c++ -std=c++20 -Iplatform/include -Iplatform/linux/include
+-Idesktop/environment/include -fsyntax-only platform/linux/src/overlay_backend_stub.cpp`
+原样复现失败，修复后加 `-Wall -Wextra -Wpedantic -Werror` 编译通过。CI 同时安装
+`libxtst-dev`，使 native 预览编译对应的真实 X11 平台入口。
+
+Debug/ASAN/UBSAN 的 `x11_backend_test` 则在未编译 Portal SDK 时错误要求其 Provider
+存在，并空指针解引用/超时。测试使用平台 target 的 `MIRAGE_PORTAL_AVAILABLE` 属性
+区分预期能力，SDK 缺席明确验证 `Unavailable`；不改变产品能力判断。带 Portal 的
+debug 与禁用 pkg-config 的隔离构建分别 CTest 3/3 通过（含 fixture，约 2 秒），
+覆盖两种编译路径。隔离命令：
+
+```bash
+cmake -S . -B build/ci-no-portal -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DPKG_CONFIG_EXECUTABLE=/bin/false -DMIRAGE_FETCH_DEPENDENCIES=OFF \
+  -DMIRAGE_ENABLE_NATIVE_FRONTEND=OFF -DMIRAGE_BUNDLE_VISION=OFF
+cmake --build build/ci-no-portal --target x11_backend_test -j 4
+ctest --test-dir build/ci-no-portal -R '^x11_backend_test$' --output-on-failure
+```
+
+上面的本地完整构建消费工作树，含同时存在的其他开发修改；远端 CI 只验证 PR head。
+所有远端门禁通过前不合并；不把上述局部验证标作 M8 平台验收完成。

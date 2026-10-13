@@ -215,6 +215,10 @@ if(X11_FOUND AND X11_Xtst_FOUND)
     add_executable(x11_backend_test platform/x11_backend_test.cpp)
     target_compile_features(x11_backend_test PUBLIC cxx_std_20)
     mirage_enable_warnings(x11_backend_test)
+    get_target_property(_mirage_x11_test_portal mirage_platform MIRAGE_PORTAL_AVAILABLE)
+    if(_mirage_x11_test_portal)
+        target_compile_definitions(x11_backend_test PRIVATE MIRAGE_TEST_PORTAL=1)
+    endif()
     target_link_libraries(x11_backend_test
         PRIVATE
             Mirage::platform
