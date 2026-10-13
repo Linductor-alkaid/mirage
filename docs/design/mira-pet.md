@@ -226,6 +226,14 @@ BUG-20261014-001：新桌宠进程通过 `AnimationPlayer::begin_startup` 建立
 播放；首份快照为活动状态时，随后到达的终态属于实时结果。此规则不修改 Runtime
 任务结果，也不增加持久化状态或并发路径。
 
+BUG-20261014-002：真实状态刷新由 Runtime owner 的私有 `PetProjectionRefresh` 管理。
+任务 worker 通过 kairo `LatestMailbox` 请求最新投影，最多一个
+`submit_on_with_handle` 串行任务在途，owner 保留并消费其 future；worker 不同步
+等待该派发。25 ms 普通 timer 负责消费已完成结果及补派最新请求，允许状态合并与
+调度抖动，不保证实时阶段呈现。失败/拒绝沿 Executor 生命周期记录并输出原有诊断。
+关闭先停止生产者、取消 timer 和在途任务，由外部 owner 消费结果，适配器保留至
+Executor 排空。此边界避免已公布终态的旧任务在等待投影时占满固定 worker 池。
+
 ## 6. 窗口、输入与感知边界
 
 - 默认置顶请求、透明 framebuffer、无边框、240 逻辑像素角色画布、边缘停靠，不定时

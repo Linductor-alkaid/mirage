@@ -1374,6 +1374,16 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_test(NAME pet_animation_test COMMAND pet_animation_test)
     set_tests_properties(pet_animation_test PROPERTIES LABELS "unit;pet" TIMEOUT 10)
 
+    # POSIX fixture waits; the product adapter itself remains portable.
+    add_executable(pet_projection_refresh_test runtime/pet_projection_refresh_test.cpp)
+    target_compile_features(pet_projection_refresh_test PRIVATE cxx_std_20)
+    target_include_directories(pet_projection_refresh_test SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+    target_link_libraries(pet_projection_refresh_test PRIVATE kairo)
+    mirage_enable_warnings(pet_projection_refresh_test)
+    add_test(NAME pet_projection_refresh_test COMMAND pet_projection_refresh_test)
+    set_tests_properties(pet_projection_refresh_test PROPERTIES LABELS "unit;pet;lifecycle" TIMEOUT 15)
+
     # M8-01: end-to-end status projection (runtime_service dialog settlement -> IPC event -> pet status).
     add_executable(pet_status_integration_test runtime/pet_status_integration_test.cpp)
     target_compile_features(pet_status_integration_test PRIVATE cxx_std_20)

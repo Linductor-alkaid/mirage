@@ -22,6 +22,7 @@
 
 #include "overlay_presenter.hpp"
 #include "pet_process.hpp"
+#include "pet_projection_refresh.hpp"
 #include "service_core.hpp"
 #include "service_loop.hpp"
 #include "task_driver.hpp"
@@ -444,6 +445,7 @@ struct RuntimeService::Impl {
     /// shared_ptr owns the hub.
     permission::AsyncConfirmationHub *confirmation_hub = nullptr;
     std::shared_ptr<detail::ServiceCore> core = std::make_shared<detail::ServiceCore>();
+    std::unique_ptr<detail::PetProjectionRefresh> pet_refresh;
     /// Non-owning observer of the loop object; the executor's blocking
     /// worker owns the loop itself. Valid from a successful start_worker()
     /// until the lifecycle leaves Running (the run()/destructor path joins
@@ -846,19 +848,7 @@ struct RuntimeService::Impl {
     void refresh_pet_from_dialog() {
         if (product_stopping.load())
             return;
-        try {
-            auto result = core->executor.submit_on(core->serial, [this] {
-                if (!product_stopping.load())
-                    (void)pet_snapshot();
-            });
-            // This callback runs on the admitted dialog task, never the serial context.
-            // Consumption makes rejection/failure visible to the Executor owner.
-            result.get();
-        } catch (const std::exception &error) {
-            if (!product_stopping.load())
-                std::cerr << "mirage-service: pet projection refresh failed: " << error.what()
-                          << '\n';
-        }
+        pet_refresh->request();
     }
 
     ipc::ProductState product_snapshot() {
@@ -3436,6 +3426,8 @@ struct RuntimeService::Impl {
 
     void teardown() {
         product_stopping.store(true);
+        if (pet_refresh)
+            pet_refresh->stop();
         if (product_maintenance.valid())
             (void)product_maintenance.cancel();
         // Product producers stop first; no action worker may submit during drain.
@@ -3715,6 +3707,23 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
     const auto initialized = impl_->core->executor.initialize(executor_config);
     if (!initialized.ok) {
         outcome.error = {"internal", "executor initialization failed: " + initialized.message};
+        impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
+        return outcome;
+    }
+
+    impl_->pet_refresh = std::make_unique<detail::PetProjectionRefresh>(
+        impl_->core->executor, impl_->core->serial,
+        [raw = impl_.get()] {
+            if (!raw->product_stopping.load())
+                (void)raw->pet_snapshot();
+        },
+        [](const std::exception &error) {
+            std::cerr << "mirage-service: pet projection refresh failed: " << error.what() << '\n';
+        });
+    if (!impl_->pet_refresh->start()) {
+        outcome.error = {"unavailable", "pet projection timer admission failed"};
+        impl_->pet_refresh->stop();
+        impl_->core->executor.shutdown(true);
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
         return outcome;
     }

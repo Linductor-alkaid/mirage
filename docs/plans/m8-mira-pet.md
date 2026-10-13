@@ -581,3 +581,10 @@ Debug/native-release/ASAN/UBSAN 播放器各 250 项检查无失败，CTest 各 
 fixture），native-release 桌宠重建成功。详细命令与未执行项见
 [重启回归记录](../compatibility/mira-pet-restart-20261014.md)。M8 整体及原开放门禁
 保持 In Progress，真实桌面重启目视验收由维护者在更新桌宠进程后补跑。
+
+同轮 PR CI 揭示 BUG-20261014-002：连续会话终态公布后，旧 driver 同步等待桌宠
+投影刷新，占满固定池并阻止新的串行派发。改用 LatestMailbox + 单个受管 future，
+普通 timer 消费完成结果，不增加线程或私有队列。Release 容量测试修复前重复超时，
+修复后连续三次约 7 秒通过；适配器异常、拒绝、排队/运行中取消、soft timeout、
+合并背压及关闭覆盖已加入。ASAN/UBSAN/TSAN 局部回归通过，远端全量门禁仍须通过
+后合并，见[同日记录](../compatibility/mira-pet-restart-20261014.md)。

@@ -69,3 +69,30 @@ ctest --test-dir build/ci-no-portal -R '^x11_backend_test$' --output-on-failure
 
 上面的本地完整构建消费工作树，含同时存在的其他开发修改；远端 CI 只验证 PR head。
 所有远端门禁通过前不合并；不把上述局部验证标作 M8 平台验收完成。
+
+## 连续会话的投影等待饥饿（BUG-20261014-002）
+
+`339434d` 的 Debug/ASAN/UBSAN/TSAN 全量门禁通过，Release 的容量测试在第 9 轮
+等待终态超时；本机 Release 两次复跑分别在第 11/10 轮复现，均被 120 秒期限
+终止。调试栈保存在 `/tmp/mirage-pr86-capacity-gdb.txt`：IPC blocking worker 与
+多个 dialog worker 等待串行 future，串行上下文空闲。独立公开 API 探针的
+10000 次串行及 30000 次并发调用均通过，不据此登记依赖缺口。
+
+旧 driver 的终态已公布，但末尾仍等待 `refresh_pet_from_dialog` 的嵌套派发；连续
+新轮次占用固定池，串行 ticket 的发布无法继续。私有投影适配器采用 kairo
+LatestMailbox 合并最新请求，保留一个 `submit_on_with_handle` 的结果与取消句柄。
+请求方不等待 future，25 ms 普通 timer 消费已就绪结果并补派最新请求；shutdown
+由外部 owner 停止/取消并消费结果，适配器活至 Executor 排空。拒绝、异常及取消
+仍沿 Executor 可观察设施记录，原有 stderr 诊断保留；不修改 pinned 代码。
+
+`native_agent_integration_test` 修复后本机 Release 连续三次通过（7.27/7.07/7.06
+秒）。新增 `pet_projection_refresh_test` 验证四个池 worker 在串行回调未完成时均
+能返回、80 次请求合并、任务异常、总量准入拒绝、排队取消、运行中停止请求、queued
+soft timeout 及 shutdown；Release 连续三次通过，ASAN/UBSAN/TSAN CTest 各 3/3
+通过（含隔离 fixture）。运行中回调是有限快照单元，停止等待其收敛，不强杀任务。
+queued soft timeout 在可出队时检查，不中断正在运行的 blocker。
+
+同轮 native EUI 已构建桌宠并通过四项 pet 测试，但既有会话视图触发 30 秒超时。
+本机该视图原样 Debug/Release 各 3/3 通过（5.16/1.86 秒）；将末尾无限
+`glfwWaitEvents` 改为 1 秒有界等待，并要求 900 ms 内收到关闭唤醒，保留断言而非
+放宽整套测试期限。远端仍需验证此修改。CI native 门禁同步加入投影适配器测试。
