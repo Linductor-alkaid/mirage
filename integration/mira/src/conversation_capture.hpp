@@ -1,11 +1,20 @@
 #pragma once
 #include <algorithm>
+#include <mutex>
+#include <optional>
+#include <map>
+#include <string>
+
 #include <mira/json.hpp>
+#include <mira/model_budget.hpp>
 #include <mira/model_digest.hpp>
 #include <mira/model_provider.hpp>
 #include <mirage/integration/model_layer.hpp>
 
 namespace mirage::integration::detail {
+// DEC-087: per-request context reserve shared with the model layer's
+// preflight budget (model-token-limits.ts parity).
+inline constexpr std::uint64_t kContextReserveTokens = 1000;
 // infer and BuiltinToolHandler execute inline on the same bounded caller task.
 // The layer's infer_mutex also serializes installation against shutdown.
 class ConversationCapture {
@@ -202,6 +211,10 @@ class ObservedProvider final : public mira::IModelProvider {
         request_guard;
     ConversationCapture *capture = nullptr; // scoped to the serialized caller task
     DialogModelActivitySink activity;
+    // DEC-087: the declared context window of the active model. Absent = no
+    // per-request preflight shrink (ZCode: resolveModelStepMaxOutputTokens
+    // keeps the baseline when the window is unknown).
+    std::optional<std::uint64_t> context_window;
     const mira::ModelProfile &profile() const override { return provider_->profile(); }
     mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
                                             const mira::OperationContext &context,
@@ -222,7 +235,17 @@ class ObservedProvider final : public mira::IModelProvider {
                             sink(false);
                     }
                 } end{activity};
-                return provider_->infer(request, context, options);
+                // DEC-087: the host request carries the declared baseline;
+                // the wire call carries the context-aware bound. Only ever
+                // shrinks, so the router admission (profile limit) stays
+                // truthful for both values. Deliberately touches only
+                // generation.max_output_tokens (the wire truth) — the
+                // request's budget block stays the whole-run declaration the
+                // host boundary admitted.
+                mira::ModelRequest wire_request = request;
+                if (auto wire = resolve_wire_budget(request, context))
+                    wire_request.generation.max_output_tokens = wire;
+                return provider_->infer(wire_request, context, options);
             } catch (...) {
                 mira::Error error;
                 error.code = mira::ErrorCode::PlatformError;
@@ -231,6 +254,7 @@ class ObservedProvider final : public mira::IModelProvider {
                 return error;
             }
         }();
+        record_usage_anchor(context, request, result);
         if (capture && result && result.value().status == mira::ModelCompletionStatus::Completed &&
             !context.cancelled_or_expired(mira::Timestamp::now()))
             capture->response(request, result.value());
@@ -245,7 +269,67 @@ class ObservedProvider final : public mira::IModelProvider {
     }
 
   private:
+    // ZCode preflight semantics (model-token-limits.ts): usable =
+    // window − estimatedCurrentUsage − 1000; a non-positive estimate keeps
+    // the baseline (the local estimate is not provider-authoritative), and
+    // otherwise the wire bound is min(baseline, usable). The usage estimate
+    // anchors on the previous provider-reported input size (the pinned
+    // dialects report the total current input including cache reads) plus
+    // the growth of the pinned byte estimator since that response — the
+    // same estimator on both sides cancels its systematic bias in the delta.
+    std::optional<std::uint64_t>
+    resolve_wire_budget(const mira::ModelRequest &request,
+                        const mira::OperationContext &context) const {
+        // Absent = the host did not declare a baseline; nothing to shrink.
+        if (!request.generation.max_output_tokens)
+            return std::nullopt;
+        const auto baseline = *request.generation.max_output_tokens;
+        if (!context_window)
+            return baseline;
+        const auto estimate = mira::estimate_input_tokens(request);
+        std::uint64_t used = estimate;
+        {
+            std::lock_guard<std::mutex> guard(anchor_mutex_);
+            if (const auto anchor = anchors_.find(context.session.to_string());
+                anchor != anchors_.end()) {
+                const auto growth =
+                    estimate > anchor->second.local_estimate
+                        ? estimate - anchor->second.local_estimate
+                        : 0;
+                used = anchor->second.provider_input + growth;
+            }
+        }
+        if (*context_window <= used || *context_window - used <= kContextReserveTokens)
+            return baseline;
+        return std::min(baseline, *context_window - used - kContextReserveTokens);
+    }
+    void record_usage_anchor(const mira::OperationContext &context,
+                             const mira::ModelRequest &request,
+                             const mira::Result<mira::ModelResponse> &result) {
+        if (!result || context.cancelled_or_expired(mira::Timestamp::now()))
+            return;
+        const auto &usage = result.value().usage;
+        if (usage.quality != mira::UsageQuality::Exact &&
+            usage.quality != mira::UsageQuality::ProviderReported)
+            return;
+        if (!usage.input_tokens || *usage.input_tokens > (std::uint64_t{1} << 32))
+            return;
+        std::lock_guard<std::mutex> guard(anchor_mutex_);
+        // RULE-07: the anchor table is bounded; sessions beyond the cap drop
+        // their anchors and fall back to the pure local estimate.
+        if (anchors_.size() >= 512)
+            anchors_.clear();
+        anchors_.insert_or_assign(
+            context.session.to_string(),
+            UsageAnchor{*usage.input_tokens, mira::estimate_input_tokens(request)});
+    }
+    struct UsageAnchor {
+        std::uint64_t provider_input = 0;
+        std::uint64_t local_estimate = 0;
+    };
     std::shared_ptr<mira::IModelProvider> provider_;
+    mutable std::mutex anchor_mutex_;
+    std::map<std::string, UsageAnchor> anchors_;
 };
 struct CaptureScope {
     ObservedProvider &provider;

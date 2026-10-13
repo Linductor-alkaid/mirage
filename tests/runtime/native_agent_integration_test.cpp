@@ -1446,19 +1446,25 @@ int main(int argc, char **argv) {
         client.call(ipc::SessionChatRequest{session, "默认直接对话", false, "chat_only", ""}, 2s)
             .ok);
     const auto default_dialog = wait_turn(client, session);
-    // DEC-085 follow-up: the adaptive-thinking wire budget floor is 32768
-    // (deepseek-flash reasons unconditionally and its reasoning tokens count
-    // against max_tokens; 16384 cut mid-thinking three turns in a row) and
-    // every profile funds the declared whole-run envelope (21x the
-    // worst-case per-call budget). This fixture declares a 32768-token
-    // context window, and generation_budget caps every per-call wire budget
-    // at half the declared window, so the floored 32768 lands on the wire
-    // as min(32768, max(4096, 32768 / 2)) = 16384 here; the unclamped floor
-    // is asserted by the harness thinking_budget_scenario.
+    // DEC-085 follow-up (DEC-087 alignment): the adaptive-thinking baseline
+    // is 32768 (deepseek-flash reasons unconditionally and its reasoning
+    // tokens count against max_tokens; 16384 cut mid-thinking three turns in
+    // a row) and every profile funds the declared whole-run envelope (22x
+    // the worst-case per-call budget: 16 turns + 2 recoveries + 3
+    // continuations + 1). This fixture declares a 32768-token context
+    // window, so the provider decorator's preflight shrinks the first wire
+    // call to window − estimated usage − 1000 (ZCode semantics; the old
+    // static window/2 clamp is gone). The install is fresh (the m3
+    // SetModelRequest above recreated the provider), so the anchor table is
+    // empty and used is the pinned local estimate of the fixed fixture
+    // input: 3 text parts totalling 1275 bytes -> Σ ⌊bytes/3⌋ + 3 =
+    // 424 + 3 = 427 tokens; wire = 32768 − 427 − 1000 = 31341. The fixture
+    // input is fixed and the pinned estimator is deterministic, so the
+    // bound is stable.
     MIRAGE_CHECK(default_dialog && default_dialog->status == "ok" &&
                  provider->saw_adaptive.load() && provider->last_tools.load() == 0 &&
-                 provider->last_output_tokens.load() == 16384 &&
-                 provider->profile_.capabilities.limits.max_output_tokens == 21 * 32768 &&
+                 provider->last_output_tokens.load() == 31341 &&
+                 provider->profile_.capabilities.limits.max_output_tokens == 22 * 32768 &&
                  default_dialog->reply_text == "Mira 已完成通用工具调用。" &&
                  std::any_of(default_dialog->parts.begin(), default_dialog->parts.end(),
                              [](const auto &part) { return part.kind == "thinking"; }));
@@ -1492,8 +1498,12 @@ int main(int argc, char **argv) {
             .ok);
     const auto m3_budget_turn = wait_turn(client, session);
     // DEC-085 follow-up: turns, recoveries and continuations are declared
-    // bounds (16 + 2 + 2) no longer derived from the token envelope: 16
-    // tool-only turns exhaust the turn budget.
+    // bounds (16 + 2 + 3) no longer derived from the token envelope: 16
+    // tool-only turns exhaust the turn budget. The 22x profile funding
+    // covers the declared whole-run envelope at the worst-case per-call
+    // baseline, and the per-request wire budget (per-turn x (16 + 2 + 1))
+    // stays far below it, so every turn is admitted and the count is
+    // insensitive to the continuation depth.
     MIRAGE_CHECK(m3_budget_turn && m3_budget_turn->status == "failed" &&
                  m3_budget_turn->error.find("turn") != std::string::npos &&
                  provider->calls.load() - m3_budget_calls == 16);
