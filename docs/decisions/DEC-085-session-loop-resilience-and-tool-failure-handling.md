@@ -330,3 +330,24 @@ complete、图像入模、失败分类与摘要生效），暴露出一个与本
 4. **环境发现（备案，非 Mirage 代码）**：`xdg-desktop-portal-gnome` 在无人应答的
    截图请求期间段错误崩溃（journal 16:43:22 SEGV，自动重启）；GNOME portal 授权框
    不可被 AT-SPI 自动化点击。建议向 GNOME 上游报告；授权点击由维护者人工完成。
+
+## 完整修复（2026-10-13 晚，按维护者"不计代价收口"指令）
+
+维护者评审指出 16384 地板只是缓解（截断证明需要更多预算，不证明 16384 就够），并给出
+ZCode 的两层处理作为参照（能力声明预算 + 剩余上下文收缩 + 截断识别 + 有界续写）与
+DeepSeek 的解耦事实（Anthropic 兼容端点忽略 `thinking.budget_tokens`）。据此收口：
+
+1. **预算模型重构（Mirage）**：每轮输出预算 = `generation_budget`（thinking 地板
+   16384；声明 context window 时按窗口收缩）与 **profile 准入上限取小，不再人为对半
+   砍**——旧包络下 DeepSeek（非 M3 名单模型）实际 wire 上限只有 2048，这才是现场
+   截断的真正约束。轮数 16 / 恢复 2 / 续写 2 改为独立声明；config 上限放宽至 65536；
+   思考强度与输出预算解耦（wire 只带模式标志，从不发送 thinking token 预算）。
+2. **续写策略（上游 mira PR #93，merge `1befa45`，CI 24/24）**：ConversationLoop 新增
+   `max_output_continuations`（默认 2，独立于恢复预算），对 `MaxOutputTokens` 截断
+   按三类形态处理——部分文本保留为 assistant 轮并要求"从截断处继续"；工具调用截断
+   丢弃且不执行（Incomplete 响应结构性不产生 proposals）并明确告知；仅思考截断要求
+   简短文本。耗尽后以 `output-limit continuation budget exhausted` settle。通用恢复
+   块保留对未上报 reason 截断的截断感知反馈。
+3. **排查备案（MIRA-20261013-001）**：`Result<T>::value()` 对 error 态的 UB 解引用
+   （本次排查中把测试侧非法 JSON 变成无符号栈段错误的根源）记入依赖反馈台账，建议
+   上游为 `value()`/`error()` 加显式防线。

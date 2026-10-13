@@ -106,11 +106,29 @@ bilibili 任务：
 
 **修复（三轮）**：
 1. Mirage：thinking 调用的 generation 地板 8192 → 16384，Messages profile 预算
-   同比放大（17×16384），RULE-08 包络下 max_turns 维持 14；
+   同比放大（RULE-08 包络改为声明性支出估计）；
 2. Mirage：`portal_timeout`（授权框超时/取消）从 Permanent `platform_limitation`
    细化为 Conditional `conditional_failure`——用户仍可授权下一次请求；
 3. 上游 mira PR #92：截断（Incomplete）场景的恢复反馈差异化（"仅用简洁纯文本回答，
    不调工具不长思考"），使紧预算下的重试有真实收敛机会。
+
+**维护者评审与完整收口（第四轮）**：维护者指出 16384 只是缓解（截断在 8192 只证明
+需要更多预算），并给出 ZCode 的两层参照与 DeepSeek 的解耦事实。诊断复核确认更深一层的
+约束：DeepSeek（非 M3 名单模型）不走 17x profile 分支，实际 wire 上限是
+`config.max_output_tokens`（2048）与 `budget/2` 的较小值——现场截断的真实约束是
+**2048**。收口修复：
+
+4. **预算模型重构**：每轮输出 = generation_budget（thinking 地板 16384，声明
+   context window 时按窗口收缩）与 profile 准入上限取小（不再对半砍）；轮数 16 /
+   恢复 2 / 续写 2 独立声明；config 上限 65536；思考强度与输出预算解耦。
+5. **上游续写策略**（mira PR #93，merge `1befa45`，CI 全绿）：`max_output_continuations`
+   （默认 2）——部分文本保留续写、工具调用截断丢弃不执行、仅思考要求简短文本、耗尽
+   后显式输出上限 settle。三类形态各有场景测试。
+6. **MIRA-20261013-001**：`Result<T>::value()` 对 error 态的 UB 解引用记入依赖台账
+   （排查中把测试侧非法 JSON 变成无符号栈段错误的根源；建议上游加显式防线）。
+7. **测试基础设施**：ConversationLoop 测试的共享 fixture（scripted providers、
+   gateway fixture、请求/事件助手）拆至 `tests/support/conversation_loop_support.hpp`
+   （1200 行架构预算），主文件与续写场景共用。
 
 **第三轮增量验证（PASS）**：
 - `reasoning_scenario`（扩展）：adaptive/"" → wire 16384 + thinking Adaptive；
