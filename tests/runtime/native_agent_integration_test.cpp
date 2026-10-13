@@ -1446,10 +1446,13 @@ int main(int argc, char **argv) {
         client.call(ipc::SessionChatRequest{session, "默认直接对话", false, "chat_only", ""}, 2s)
             .ok);
     const auto default_dialog = wait_turn(client, session);
+    // DEC-085 follow-up: the adaptive-thinking wire budget floor is 16384
+    // and every profile funds the declared whole-run envelope (21x the
+    // worst-case per-call budget).
     MIRAGE_CHECK(default_dialog && default_dialog->status == "ok" &&
                  provider->saw_adaptive.load() && provider->last_tools.load() == 0 &&
-                 provider->last_output_tokens.load() == 8192 &&
-                 provider->profile_.capabilities.limits.max_output_tokens == 17 * 8192 &&
+                 provider->last_output_tokens.load() == 16384 &&
+                 provider->profile_.capabilities.limits.max_output_tokens == 21 * 16384 &&
                  default_dialog->reply_text == "Mira 已完成通用工具调用。" &&
                  std::any_of(default_dialog->parts.begin(), default_dialog->parts.end(),
                              [](const auto &part) { return part.kind == "thinking"; }));
@@ -1482,12 +1485,12 @@ int main(int argc, char **argv) {
             .call(ipc::SessionChatRequest{session, "思考轮次预算", true, "default", "adaptive"}, 2s)
             .ok);
     const auto m3_budget_turn = wait_turn(client, session);
-    // MIRA-20261012-001: the desktop profile reserves 17x the generation cap,
-    // so the envelope trades two turns for the two recoveries: 14 tool-only
-    // turns exhaust the turn budget (the openai profile above keeps 16).
+    // DEC-085 follow-up: turns, recoveries and continuations are declared
+    // bounds (16 + 2 + 2) no longer derived from the token envelope: 16
+    // tool-only turns exhaust the turn budget.
     MIRAGE_CHECK(m3_budget_turn && m3_budget_turn->status == "failed" &&
                  m3_budget_turn->error.find("turn") != std::string::npos &&
-                 provider->calls.load() - m3_budget_calls == 14);
+                 provider->calls.load() - m3_budget_calls == 16);
     provider->always_tool.store(false);
     MIRAGE_CHECK(
         client.call(ipc::SessionChatRequest{session, "关闭思考", true, "read_only", "none"}, 2s)

@@ -551,8 +551,9 @@ void resilience_scenario(const std::string &scenario) {
         // exhausted, so each table covers exactly the model turns the
         // scenario needs: blocking runs answer after their 5 proposals, the
         // failure-summary run keeps proposing across the whole max_turns=16
-        // budget, the budget runs cover their max_turns=4.
-        const std::size_t proposals = budget ? 4 : (scenario == "failure_summary" ? 16 : 5);
+        // budget, and the budget runs cover all 16 declared turns.
+        const std::size_t proposals =
+            budget ? 16 : (scenario == "failure_summary" ? 16 : 5);
         if (budget)
             script->actions_override = std::vector<std::pair<std::string, std::string>>(
                 proposals, scenario == "budget_counts"
@@ -574,11 +575,11 @@ void resilience_scenario(const std::string &scenario) {
     integration::DesktopToolContext tools;
     tools.environment = desktop;
     tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    // DEC-085 final budget model: turn/recovery/continuation counts are
+    // declared bounds (16/2/2), so the default 512 per-call config routes on
+    // the fixture profile (512 x 19 <= 16384) and the budget notices ride
+    // turns 15 and 16 of that declared envelope.
     auto config = model_config();
-    if (budget)
-        // per-turn 3000 -> turn_capacity floor(16384/3000)=5 -> recoveries 0
-        // -> max_turns min(16, 5-1-0)=4.
-        config.max_output_tokens = 3000;
     integration::ModelLayer layer(owner, config, &provider, tools);
     auto context = mira::make_control_context();
     context.session = mira::SessionId::generate();
@@ -626,28 +627,30 @@ void resilience_scenario(const std::string &scenario) {
         MIRAGE_CHECK(result.error.find("已阻止后续调用") != std::string::npos);
         MIRAGE_CHECK(result.error.find("unsupported_window") != std::string::npos);
     } else if (scenario == "budget_counts") {
-        // The same spent budget, but every proposal hit the failing tool:
-        // the failed completion names the spent budget AND the blocked tool.
+        // The whole declared turn budget spent on a blocked tool: the failed
+        // completion names the spent budget AND the blocked tool.
         std::fprintf(stderr, "budget_counts error: %s\n", result.error.c_str());
-        MIRAGE_CHECK(script->requests.size() == 4);
+        MIRAGE_CHECK(script->requests.size() == 16);
         MIRAGE_CHECK(!result.ok && result.failed && !result.cancelled);
-        MIRAGE_CHECK(result.error.find("4 个模型步骤") != std::string::npos);
-        MIRAGE_CHECK(result.error.find("4 次工具调用") != std::string::npos);
+        MIRAGE_CHECK(result.model_steps == 16);
+        MIRAGE_CHECK(desktop->accessibility_.calls == 3);
+        MIRAGE_CHECK(result.error.find("16 个模型步骤") != std::string::npos);
+        MIRAGE_CHECK(result.error.find("16 次工具调用") != std::string::npos);
         MIRAGE_CHECK(result.error.find("工具失败摘要") != std::string::npos);
         MIRAGE_CHECK(result.error.find("已阻止后续调用") != std::string::npos);
         MIRAGE_CHECK(result.error.find("unsupported_window") != std::string::npos);
     } else if (budget) {
-        // max_turns=4: no notice on turns 1-2, the "one turn remains" notice
-        // on turn 3, the FINAL notice on turn 4 whose tool proposal is
-        // refused, then the loop settles without an answer.
-        MIRAGE_CHECK(script->requests.size() == 4);
+        // max_turns=16: no notice on turns 1-14, the "one turn remains"
+        // notice on turn 15, the FINAL notice on turn 16 whose tool proposal
+        // is refused, then the loop settles without an answer.
+        MIRAGE_CHECK(script->requests.size() == 16);
         MIRAGE_CHECK(!result.ok && result.failed);
-        if (script->requests.size() == 4) {
-            MIRAGE_CHECK(!request_text_contains(script->requests[0], "SYSTEM BUDGET NOTICE"));
-            MIRAGE_CHECK(!request_text_contains(script->requests[1], "SYSTEM BUDGET NOTICE"));
-            MIRAGE_CHECK(request_text_contains(script->requests[2],
+        if (script->requests.size() == 16) {
+            MIRAGE_CHECK(!request_text_contains(script->requests[13], "SYSTEM BUDGET NOTICE"));
+            MIRAGE_CHECK(request_text_contains(script->requests[14],
                                                "only one model turn remains"));
-            MIRAGE_CHECK(request_text_contains(script->requests[3], "FINAL model turn"));
+            MIRAGE_CHECK(request_text_contains(
+                script->requests[15], "FINAL model turn of this task's budget (16 turns)"));
         }
         bool refusal_seen = false;
         std::size_t front_complete = 0;
@@ -658,7 +661,7 @@ void resilience_scenario(const std::string &scenario) {
                 if (part.output.find("final_turn_tools_closed") != std::string::npos)
                     refusal_seen = true;
             }
-        MIRAGE_CHECK(front_complete == 3);
+        MIRAGE_CHECK(front_complete == 15);
         MIRAGE_CHECK(refusal_seen);
         // A turn without tool failures must not grow a failure digest.
         MIRAGE_CHECK(result.error.find("工具失败摘要") == std::string::npos);
@@ -1123,8 +1126,9 @@ void reasoning_scenario() {
         std::shared_ptr<Script> script;
         std::uint64_t profile_limit = 0;
         integration::ModelProviderOverride provider([&](const auto &profile) {
-            // DEC-085 follow-up: the Messages profile envelope scales with
-            // the 16384 thinking floor, independent of the reasoning choice.
+            // DEC-085 final budget model: the Messages profile limit scales
+            // with the 16384 thinking floor, independent of the reasoning
+            // choice, and funds the declared whole-run envelope.
             profile_limit = profile.capabilities.limits.max_output_tokens;
             script = std::make_shared<Script>(profile, true);
             return script;
@@ -1148,9 +1152,11 @@ void reasoning_scenario() {
         const bool valid = std::string{reasoning} != "low";
         MIRAGE_CHECK(result.ok == valid && result.failed == !valid);
         MIRAGE_CHECK(script && script->requests.size() == (valid ? 2u : 0u));
-        // 17 * 16384: the profile budget rides the raised thinking floor so
-        // the RULE-08 envelope still funds 14 model turns.
-        MIRAGE_CHECK(profile_limit == 278528u);
+        // 21 * 16384 = 344064: the profile limit is the router's per-call
+        // admission bound and funds the declared whole-run envelope (16 turns
+        // + 2 recoveries + 2 continuations + 1) at the unchanged 16384
+        // per-call wire budget — the budget is no longer halved.
+        MIRAGE_CHECK(profile_limit == 344064u);
         for (const auto &request : script->requests) {
             MIRAGE_CHECK(request.generation.thinking == (std::string{reasoning} == "none"
                                                              ? mira::ThinkingMode::Disabled
@@ -1164,14 +1170,15 @@ void reasoning_scenario() {
     }
 }
 
-// DEC-085 follow-up output-budget floor: an adaptive-thinking call floors
-// its per-request output budget at 16384 even when the configured value is
-// a larger-but-under-floor 8192 (the old floor), and the raised floor keeps
-// the RULE-08 envelope at 14 model turns: profile budget 17 * 16384 =
-// 278528 funds per-turn 16384 x (14 turns + 2 recoveries + 1).
+// DEC-085 final output-budget model: an adaptive-thinking call floors its
+// per-request output budget at 16384 even when the configured value is a
+// larger-but-under-floor 8192 (the old floor), the wire budget is the full
+// floor (no profile/2 halving), and the 344064 profile envelope funds the
+// declared whole-run spend: 16384 x (16 turns + 2 recoveries + 2
+// continuations + 1).
 void thinking_budget_scenario() {
     // (a) floor domination: config 8192 + adaptive -> 16384 on the wire
-    // (the old floor returned 8192 here) and the 278528 profile envelope.
+    // (the old floor returned 8192 here) and the 344064 profile envelope.
     {
         kairo::Executor owner;
         MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
@@ -1200,7 +1207,7 @@ void thinking_budget_scenario() {
                                 })
                                 .get();
         MIRAGE_CHECK(result.ok);
-        MIRAGE_CHECK(profile_limit == 278528u);
+        MIRAGE_CHECK(profile_limit == 344064u);
         MIRAGE_CHECK(script && script->requests.size() == 2u);
         for (const auto &request : script->requests) {
             MIRAGE_CHECK(request.generation.thinking == mira::ThinkingMode::Adaptive);
@@ -1210,9 +1217,10 @@ void thinking_budget_scenario() {
         owner.shutdown(true);
     }
     // (b) envelope turn count: with the default 512 config and adaptive
-    // thinking the loop still offers 14 model turns — 13 accepted read-only
+    // thinking the loop offers 16 model turns — 15 accepted read-only
     // proposals, the penultimate request carries the one-turn warning, and
-    // the 14th carries the FINAL notice naming 14 turns with tools closed.
+    // the 16th carries the FINAL notice naming 16 turns; the script then
+    // answers with text, so the run settles Answered inside the budget.
     {
         kairo::Executor owner;
         MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
@@ -1220,7 +1228,7 @@ void thinking_budget_scenario() {
         integration::ModelProviderOverride provider([&](const auto &profile) {
             script = std::make_shared<Script>(profile, true);
             script->actions_override = std::vector<std::pair<std::string, std::string>>(
-                13, {"desktop.window.front", "{}"});
+                15, {"desktop.window.front", "{}"});
             return script;
         });
         auto config = model_config();
@@ -1240,19 +1248,238 @@ void thinking_budget_scenario() {
                                 })
                                 .get();
         MIRAGE_CHECK(result.ok);
-        MIRAGE_CHECK(script && script->requests.size() == 14u);
-        MIRAGE_CHECK(result.tool_calls == 13u);
-        if (script->requests.size() == 14u) {
-            // Assembling request N marks turns_used = N: request 13 (index
-            // 12) warns one turn remains, request 14 (index 13) is final.
-            MIRAGE_CHECK(request_text_contains(script->requests[12], "only one model turn "
+        MIRAGE_CHECK(script && script->requests.size() == 16u);
+        MIRAGE_CHECK(result.tool_calls == 15u);
+        if (script->requests.size() == 16u) {
+            // Assembling request N marks turns_used = N: request 15 (index
+            // 14) warns one turn remains, request 16 (index 15) is final.
+            MIRAGE_CHECK(request_text_contains(script->requests[14], "only one model turn "
                                                                      "remains"));
-            MIRAGE_CHECK(request_text_contains(script->requests[13],
-                                               "FINAL model turn of this task's budget (14 "
+            MIRAGE_CHECK(request_text_contains(script->requests[15],
+                                               "FINAL model turn of this task's budget (16 "
                                                "turns)"));
-            MIRAGE_CHECK(!request_text_contains(script->requests[12],
+            MIRAGE_CHECK(!request_text_contains(script->requests[14],
                                                 "FINAL model turn of this task's budget"));
+            MIRAGE_CHECK(!request_text_contains(script->requests[13], "SYSTEM BUDGET NOTICE"));
         }
+        layer.shutdown();
+        owner.shutdown(true);
+    }
+}
+
+// DEC-085 upstream output continuation (mira PR#93, pin 1befa45): a tolerated
+// max_tokens cutoff (status Incomplete, incomplete_reason MaxOutputTokens)
+// settles by bounded continuation instead of recovery. The harness replays
+// the partial protocol-allowed text as an assistant turn and asks the model
+// to continue from the cut; a reply cut off mid tool call is discarded
+// unexecuted; the declared continuation budget (2) exhausts into an explicit
+// output-limit failure. None of it may spend the recovery budget.
+class ContinuationScript final : public mira::IModelProvider {
+  public:
+    explicit ContinuationScript(const mira::ModelProfile &profile) : profile_(profile) {}
+    const mira::ModelProfile &profile() const override { return profile_; }
+    std::vector<mira::ModelRequest> requests;
+    // Per request: a truncation carrying this partial text, a truncation
+    // carrying a cut-off tool call instead, or a terminal answer.
+    std::vector<std::string> partials;
+    std::vector<bool> cut_tool_calls;
+    std::string final_answer;
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        requests.push_back(request);
+        mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.requested_model = profile_.model_selector;
+        const auto step = requests.size() - 1;
+        if (step < partials.size() || step < cut_tool_calls.size()) {
+            response.status = mira::ModelCompletionStatus::Incomplete;
+            response.incomplete_reason = mira::IncompleteReason::MaxOutputTokens;
+            if (step < cut_tool_calls.size() && cut_tool_calls[step]) {
+                // The cut call must reference a declared tool identity: the
+                // gateway validates tool names/IDs before the loop ever sees
+                // the Incomplete response (the upstream fixture binds the
+                // same call to its registered echo tool).
+                const auto wire = mirage::testing::fixture_tool_name("desktop.window.front");
+                const auto tool = std::find_if(request.tools.begin(), request.tools.end(),
+                                               [&](const auto &entry) {
+                                                   return entry.wire_name == wire;
+                                               });
+                MIRAGE_CHECK(tool != request.tools.end());
+                mira::ToolCallOutput cut;
+                cut.provider_call_id.value = "cut-call-" + std::to_string(step + 1);
+                cut.tool_id = tool != request.tools.end() ? tool->tool_id : mira::ToolId{};
+                cut.provider_name = tool != request.tools.end() ? tool->wire_name : wire;
+                // The wire-level truncation is expressed by the Incomplete
+                // status; the arguments value itself stays valid JSON (the
+                // pinned parser rejects malformed argument bytes outright).
+                cut.arguments = mira::parse_json(R"({"window_id":"w1"})").value();
+                cut.arguments_digest = mira::digest_string(mira::to_json_string(cut.arguments));
+                response.output.emplace_back(std::move(cut));
+            } else {
+                mira::MessageOutput message;
+                message.role = mira::ModelRole::Assistant;
+                mira::OutputTextPart text;
+                text.text = step < partials.size() ? partials[step] : "";
+                message.content.emplace_back(std::move(text));
+                response.output.emplace_back(std::move(message));
+            }
+            return response;
+        }
+        response.status = mira::ModelCompletionStatus::Completed;
+        mira::MessageOutput message;
+        mira::OutputTextPart text;
+        text.text = final_answer;
+        message.content.emplace_back(std::move(text));
+        response.output.emplace_back(std::move(message));
+        return response;
+    }
+
+  private:
+    mira::ModelProfile profile_;
+};
+
+std::string assistant_partial(const mira::ModelRequest &request, std::size_t index) {
+    std::size_t seen = 0;
+    for (const auto &item : request.input)
+        if (item.role == mira::ModelRole::Assistant)
+            for (const auto &part : item.content) {
+                const auto *text = std::get_if<mira::TextPart>(&part);
+                if (text && seen++ == index)
+                    return text->text;
+            }
+    return "";
+}
+
+void output_continuation_scenario() {
+    // (a) partial text is kept as the assistant turn and continued: two
+    // tolerated cutoffs, the third response answers. Requests 2 and 3 carry
+    // the exact continuation feedback plus every earlier partial, and no
+    // recovery is spent (the request count stays at 3 and no recovery
+    // feedback text appears).
+    {
+        kairo::Executor owner;
+        MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
+        std::shared_ptr<ContinuationScript> script;
+        integration::ModelProviderOverride provider([&](const auto &profile) {
+            script = std::make_shared<ContinuationScript>(profile);
+            script->partials = {"The window list shows", " two windows open"};
+            script->final_answer = "Two windows are open.";
+            return script;
+        });
+        integration::DesktopToolContext tools;
+        tools.environment = environment();
+        tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+        integration::ModelLayer layer(owner, model_config(), &provider, tools);
+        auto context = mira::make_control_context();
+        context.session = mira::SessionId::generate();
+        context.deadline = std::chrono::steady_clock::now() + 30s;
+        mirage::desktop::CancelToken cancel;
+        const auto result =
+            owner
+                .submit_auto([&] {
+                    return layer.complete_harness_turn({}, "continuation probe", context, "",
+                                                       false, {}, {}, cancel);
+                })
+                .get();
+        MIRAGE_CHECK(result.ok && !result.failed && !result.cancelled);
+        MIRAGE_CHECK(result.reply_text == "Two windows are open.");
+        MIRAGE_CHECK(script && script->requests.size() == 3);
+        MIRAGE_CHECK(result.model_steps == 3);
+        MIRAGE_CHECK(result.tool_calls == 0);
+        if (script->requests.size() == 3) {
+            // The second request replays the first partial as an assistant
+            // TextPart and carries the exact continuation feedback.
+            MIRAGE_CHECK(assistant_partial(script->requests[1], 0) == "The window list shows");
+            MIRAGE_CHECK(request_text_contains(script->requests[1],
+                                               "Continue it exactly where it stopped"));
+            // The third request replays both partials in order plus the
+            // feedback again; no truncation-recovery wording ever appears.
+            MIRAGE_CHECK(assistant_partial(script->requests[2], 0) == "The window list shows");
+            MIRAGE_CHECK(assistant_partial(script->requests[2], 1) == " two windows open");
+            MIRAGE_CHECK(request_text_contains(script->requests[2],
+                                               "Continue it exactly where it stopped"));
+            for (const auto &request : script->requests)
+                MIRAGE_CHECK(!request_text_contains(request, "concise plain text"));
+        }
+        layer.shutdown();
+        owner.shutdown(true);
+    }
+    // (b) a reply cut off mid tool call is discarded unexecuted: the tool
+    // never runs, the discard is stated on the next request, and the final
+    // answer settles the turn.
+    {
+        kairo::Executor owner;
+        MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
+        std::shared_ptr<ContinuationScript> script;
+        integration::ModelProviderOverride provider([&](const auto &profile) {
+            script = std::make_shared<ContinuationScript>(profile);
+            script->cut_tool_calls = {true};
+            script->final_answer = "Cut call discarded.";
+            return script;
+        });
+        integration::DesktopToolContext tools;
+        tools.environment = environment();
+        tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+        integration::ModelLayer layer(owner, model_config(), &provider, tools);
+        auto context = mira::make_control_context();
+        context.session = mira::SessionId::generate();
+        context.deadline = std::chrono::steady_clock::now() + 30s;
+        mirage::desktop::CancelToken cancel;
+        const auto result =
+            owner
+                .submit_auto([&] {
+                    return layer.complete_harness_turn({}, "cut call probe", context, "", false,
+                                                       {}, {}, cancel);
+                })
+                .get();
+        MIRAGE_CHECK(result.ok);
+        MIRAGE_CHECK(result.tool_calls == 0);
+        MIRAGE_CHECK(script && script->requests.size() == 2);
+        MIRAGE_CHECK(result.model_steps == 2);
+        if (script->requests.size() == 2) {
+            MIRAGE_CHECK(request_text_contains(script->requests[1],
+                                               "discarded and NOT executed"));
+            MIRAGE_CHECK(request_text_contains(script->requests[1],
+                                               "output-token limit"));
+        }
+        layer.shutdown();
+        owner.shutdown(true);
+    }
+    // (c) the declared continuation budget is 2: a third cutoff settles the
+    // run with the explicit output-limit summary instead of looping.
+    {
+        kairo::Executor owner;
+        MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
+        std::shared_ptr<ContinuationScript> script;
+        integration::ModelProviderOverride provider([&](const auto &profile) {
+            script = std::make_shared<ContinuationScript>(profile);
+            script->partials = {"first cut", "second cut", "third cut"};
+            return script;
+        });
+        integration::DesktopToolContext tools;
+        tools.environment = environment();
+        tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+        integration::ModelLayer layer(owner, model_config(), &provider, tools);
+        auto context = mira::make_control_context();
+        context.session = mira::SessionId::generate();
+        context.deadline = std::chrono::steady_clock::now() + 30s;
+        mirage::desktop::CancelToken cancel;
+        const auto result =
+            owner
+                .submit_auto([&] {
+                    return layer.complete_harness_turn({}, "continuation budget probe", context,
+                                                       "", false, {}, {}, cancel);
+                })
+                .get();
+        MIRAGE_CHECK(!result.ok && result.failed && !result.cancelled);
+        MIRAGE_CHECK(result.error.find("output-limit continuation budget exhausted") !=
+                     std::string::npos);
+        // Three requests: two continuations, then the exhausted settle.
+        MIRAGE_CHECK(script && script->requests.size() == 3);
+        MIRAGE_CHECK(result.tool_calls == 0);
         layer.shutdown();
         owner.shutdown(true);
     }
@@ -1825,6 +2052,7 @@ int main() {
     registration_scenario();
     reasoning_scenario();
     thinking_budget_scenario();
+    output_continuation_scenario();
     for (const auto *scenario :
          {"block_permanent", "transient_not_blocked", "failure_summary", "budget_final_turn",
           "budget_counts"})
