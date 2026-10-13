@@ -1145,10 +1145,9 @@ void screen_capability_default_derivation() {
                        const mirage::desktop::CancelToken &) override {
             return {};
         }
-        mirage::desktop::CaptureOutcome
-        capture_roi(const mirage::desktop::WindowGeometry &,
-                    const mirage::desktop::CaptureLimits &,
-                    const mirage::desktop::CancelToken &) override {
+        mirage::desktop::CaptureOutcome capture_roi(const mirage::desktop::WindowGeometry &,
+                                                    const mirage::desktop::CaptureLimits &,
+                                                    const mirage::desktop::CancelToken &) override {
             return {};
         }
         bool desktop_observation_only() const override { return true; }

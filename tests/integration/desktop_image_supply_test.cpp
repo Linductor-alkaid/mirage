@@ -1910,9 +1910,7 @@ class CapabilityOverrideEnvironment final : public mirage::desktop::DesktopEnvir
     mirage::desktop::EnvironmentInfo info() const override { return inner_->info(); }
     mirage::desktop::FilesystemProvider *filesystem() override { return &inner_->filesystem_; }
     mirage::desktop::ProcessProvider *process() override { return &inner_->process_; }
-    mirage::desktop::ApplicationProvider *application() override {
-        return &inner_->application_;
-    }
+    mirage::desktop::ApplicationProvider *application() override { return &inner_->application_; }
     mirage::desktop::WindowProvider *window() override { return &inner_->window_; }
     mirage::desktop::AccessibilityProvider *accessibility() override {
         return &inner_->accessibility_;
@@ -1934,13 +1932,12 @@ class CapabilityOverrideEnvironment final : public mirage::desktop::DesktopEnvir
 // unchanged. The full-screen argument error degrades the same way.
 void capability_receipts() {
     mirage::desktop::ScreenCapability capabilities[] = {
-        mirage::desktop::ScreenCapability::PortalOnly,
-        mirage::desktop::ScreenCapability::Full};
+        mirage::desktop::ScreenCapability::PortalOnly, mirage::desktop::ScreenCapability::Full};
     for (const auto capability : capabilities) {
         const bool degraded = capability != mirage::desktop::ScreenCapability::Full;
         auto tools = desktop();
-        auto fake = std::static_pointer_cast<mirage::testing::FakeDesktopEnvironment>(
-            tools.environment);
+        auto fake =
+            std::static_pointer_cast<mirage::testing::FakeDesktopEnvironment>(tools.environment);
         fake->failures.capture_error = true;
         auto env = std::make_shared<CapabilityOverrideEnvironment>(fake);
         env->capability_ = capability;

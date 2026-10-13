@@ -764,9 +764,9 @@ mira::Result<JsonValue> DesktopImageTurn::capture(const JsonValue &args,
         if (!outcome.cancelled && capability != mirage::desktop::ScreenCapability::Full)
             return error(ErrorCode::UnsupportedCapability,
                          "platform_not_supported: direct " + kind +
-                         " capture failed in this Wayland session (" + outcome.error.code +
-                         "); use the authorized desktop observation capture or explain the "
-                         "limitation instead of retrying the same capture");
+                             " capture failed in this Wayland session (" + outcome.error.code +
+                             "); use the authorized desktop observation capture or explain the "
+                             "limitation instead of retrying the same capture");
         return error(outcome.cancelled ? ErrorCode::Cancelled : ErrorCode::PlatformError,
                      outcome.error.code);
     }

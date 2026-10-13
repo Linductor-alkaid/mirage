@@ -98,9 +98,9 @@ class Script final : public mira::IModelProvider {
         if (!actions_override.empty())
             actions = actions_override;
         const auto step = step_++;
-        if (coordinator != nullptr && std::find(advance_epoch_before_turn.begin(),
-                                                advance_epoch_before_turn.end(),
-                                                step) != advance_epoch_before_turn.end()) {
+        if (coordinator != nullptr &&
+            std::find(advance_epoch_before_turn.begin(), advance_epoch_before_turn.end(), step) !=
+                advance_epoch_before_turn.end()) {
             coordinator->takeover();
             (void)coordinator->resume();
         }
@@ -205,8 +205,7 @@ bool request_text_contains(const mira::ModelRequest &request, const std::string 
 // than inferred from tool receipts alone.
 class CountingAccessibility final : public mirage::desktop::AccessibilityProvider {
   public:
-    explicit CountingAccessibility(mirage::desktop::AccessibilityProvider *inner)
-        : inner_(inner) {}
+    explicit CountingAccessibility(mirage::desktop::AccessibilityProvider *inner) : inner_(inner) {}
     bool scoped_references_supported() const override {
         return inner_->scoped_references_supported();
     }
@@ -251,9 +250,7 @@ class SnapshotCountingEnvironment final : public mirage::desktop::DesktopEnviron
     mirage::desktop::EnvironmentInfo info() const override { return inner_->info(); }
     mirage::desktop::FilesystemProvider *filesystem() override { return &inner_->filesystem_; }
     mirage::desktop::ProcessProvider *process() override { return &inner_->process_; }
-    mirage::desktop::ApplicationProvider *application() override {
-        return &inner_->application_;
-    }
+    mirage::desktop::ApplicationProvider *application() override { return &inner_->application_; }
     mirage::desktop::WindowProvider *window() override { return &inner_->window_; }
     mirage::desktop::AccessibilityProvider *accessibility() override { return &accessibility_; }
     mirage::desktop::ScreenProvider *screen() override { return &inner_->screen_; }
@@ -264,9 +261,7 @@ class SnapshotCountingEnvironment final : public mirage::desktop::DesktopEnviron
     }
     /// DEC-085 declared capture capability, independent of the provider face
     /// (the fake screen always answers, so the default derivation is Full).
-    mirage::desktop::ScreenCapability screen_capability() override {
-        return screen_capability_;
-    }
+    mirage::desktop::ScreenCapability screen_capability() override { return screen_capability_; }
     mirage::desktop::ScreenCapability screen_capability_ = mirage::desktop::ScreenCapability::Full;
     std::shared_ptr<Environment> inner_;
     CountingAccessibility accessibility_;
@@ -343,9 +338,8 @@ class CaptureFailingScreen final : public mirage::desktop::ScreenProvider {
                 const mirage::desktop::CancelToken &cancel) override {
         return inner_->capture_roi(roi, limits, cancel);
     }
-    mirage::desktop::CaptureOutcome
-    capture_desktop(const mirage::desktop::CaptureLimits &,
-                    const mirage::desktop::CancelToken &) override {
+    mirage::desktop::CaptureOutcome capture_desktop(const mirage::desktop::CaptureLimits &,
+                                                    const mirage::desktop::CancelToken &) override {
         ++calls;
         mirage::desktop::CaptureOutcome outcome;
         outcome.error = {error_code, error_message};
@@ -368,9 +362,7 @@ class CaptureFailingEnvironment final : public mirage::desktop::DesktopEnvironme
     mirage::desktop::EnvironmentInfo info() const override { return inner_->info(); }
     mirage::desktop::FilesystemProvider *filesystem() override { return &inner_->filesystem_; }
     mirage::desktop::ProcessProvider *process() override { return &inner_->process_; }
-    mirage::desktop::ApplicationProvider *application() override {
-        return &inner_->application_;
-    }
+    mirage::desktop::ApplicationProvider *application() override { return &inner_->application_; }
     mirage::desktop::WindowProvider *window() override { return &inner_->window_; }
     mirage::desktop::AccessibilityProvider *accessibility() override {
         return &inner_->accessibility_;
@@ -552,20 +544,17 @@ void resilience_scenario(const std::string &scenario) {
         // scenario needs: blocking runs answer after their 5 proposals, the
         // failure-summary run keeps proposing across the whole max_turns=16
         // budget, and the budget runs cover all 16 declared turns.
-        const std::size_t proposals =
-            budget ? 16 : (scenario == "failure_summary" ? 16 : 5);
+        const std::size_t proposals = budget ? 16 : (scenario == "failure_summary" ? 16 : 5);
         if (budget)
             script->actions_override = std::vector<std::pair<std::string, std::string>>(
-                proposals, scenario == "budget_counts"
-                               ? std::pair<std::string, std::string>{
-                                     "desktop.accessibility.semantic_snapshot",
-                                     R"({"window_id":"w3"})"}
-                               : std::pair<std::string, std::string>{"desktop.window.front",
-                                                                     "{}"});
+                proposals,
+                scenario == "budget_counts"
+                    ? std::pair<std::string, std::string>{"desktop.accessibility.semantic_snapshot",
+                                                          R"({"window_id":"w3"})"}
+                    : std::pair<std::string, std::string>{"desktop.window.front", "{}"});
         else
             script->actions_override = std::vector<std::pair<std::string, std::string>>(
-                proposals,
-                {"desktop.accessibility.semantic_snapshot", R"({"window_id":"w3"})"});
+                proposals, {"desktop.accessibility.semantic_snapshot", R"({"window_id":"w3"})"});
         return script;
     });
     if (scenario == "transient_not_blocked")
@@ -612,8 +601,8 @@ void resilience_scenario(const std::string &scenario) {
         MIRAGE_CHECK(desktop->accessibility_.calls == 5);
         MIRAGE_CHECK(script->requests.size() == 6);
         for (int call = 1; call <= 5; ++call)
-            MIRAGE_CHECK(!failed_result(*script, "call-" + std::to_string(call),
-                                        "permanent_failure"));
+            MIRAGE_CHECK(
+                !failed_result(*script, "call-" + std::to_string(call), "permanent_failure"));
         MIRAGE_CHECK(failed_result(*script, "call-5", "permission_denied"));
     } else if (scenario == "failure_summary") {
         // The model never answers, the turn budget drains on refusals, and
@@ -647,8 +636,8 @@ void resilience_scenario(const std::string &scenario) {
         MIRAGE_CHECK(!result.ok && result.failed);
         if (script->requests.size() == 16) {
             MIRAGE_CHECK(!request_text_contains(script->requests[13], "SYSTEM BUDGET NOTICE"));
-            MIRAGE_CHECK(request_text_contains(script->requests[14],
-                                               "only one model turn remains"));
+            MIRAGE_CHECK(
+                request_text_contains(script->requests[14], "only one model turn remains"));
             MIRAGE_CHECK(request_text_contains(
                 script->requests[15], "FINAL model turn of this task's budget (16 turns)"));
         }
@@ -704,9 +693,8 @@ void epoch_reset_scenario() {
     mirage::desktop::CancelToken cancel;
     const auto result = owner
                             .submit_auto([&] {
-                                return layer.complete_harness_turn({}, "epoch reset probe",
-                                                                   context, "", false, {}, {},
-                                                                   cancel);
+                                return layer.complete_harness_turn({}, "epoch reset probe", context,
+                                                                   "", false, {}, {}, cancel);
                             })
                             .get();
     MIRAGE_CHECK(result.ok);
@@ -765,9 +753,8 @@ void tool_failure_record_scenario() {
     mirage::desktop::CancelToken cancel;
     const auto result = owner
                             .submit_auto([&] {
-                                return layer.complete_harness_turn({}, "failure record probe",
-                                                                   context, "", false, {}, {},
-                                                                   cancel);
+                                return layer.complete_harness_turn(
+                                    {}, "failure record probe", context, "", false, {}, {}, cancel);
                             })
                             .get();
     MIRAGE_CHECK(result.ok);
@@ -829,18 +816,16 @@ void tool_failure_stale_count_probe() {
     mirage::desktop::CancelToken cancel;
     const auto first = owner
                            .submit_auto([&] {
-                               return layer.complete_harness_turn({}, "stale probe turn one",
-                                                                  context, "", false, {}, {},
-                                                                  cancel);
+                               return layer.complete_harness_turn(
+                                   {}, "stale probe turn one", context, "", false, {}, {}, cancel);
                            })
                            .get();
     MIRAGE_CHECK(first.ok && script && script->requests.size() == 4);
     MIRAGE_CHECK(first.tool_failures.size() == 2);
     const auto second = owner
                             .submit_auto([&] {
-                                return layer.complete_harness_turn({}, "stale probe turn two",
-                                                                   context, "", false, {}, {},
-                                                                   cancel);
+                                return layer.complete_harness_turn(
+                                    {}, "stale probe turn two", context, "", false, {}, {}, cancel);
                             })
                             .get();
     MIRAGE_CHECK(second.ok);
@@ -926,13 +911,13 @@ void portal_timeout_scenario() {
         // The fourth proposal never reaches the handler: the session-scoped
         // block answers with the canonical receipt quoting all three
         // failures, and the classifier stays at the conditional class.
-        const auto blocked = owner
-                                 .submit_auto([&] {
-                                     return layer.complete_harness_turn({}, "portal probe blocked",
-                                                                        context, "", false, {}, {},
-                                                                        cancel);
-                                 })
-                                 .get();
+        const auto blocked =
+            owner
+                .submit_auto([&] {
+                    return layer.complete_harness_turn({}, "portal probe blocked", context, "",
+                                                       false, {}, {}, cancel);
+                })
+                .get();
         MIRAGE_CHECK(blocked.ok);
         MIRAGE_CHECK(desktop->screen_.calls == 3);
         MIRAGE_CHECK(script->requests.size() == 8u);
@@ -960,16 +945,15 @@ void capability_registration_scenario() {
                         text->text.find("Available tools for THIS turn (closed set):");
                     if (marker != std::string::npos) {
                         const auto end = text->text.find(". Never call a name absent", marker);
-                        return text->text.substr(marker, end == std::string::npos
-                                                             ? std::string::npos
-                                                             : end - marker);
+                        return text->text.substr(
+                            marker, end == std::string::npos ? std::string::npos : end - marker);
                     }
                 }
         return std::string{};
     };
-    for (const auto capability : {mirage::desktop::ScreenCapability::Unavailable,
-                                  mirage::desktop::ScreenCapability::PortalOnly,
-                                  mirage::desktop::ScreenCapability::Full}) {
+    for (const auto capability :
+         {mirage::desktop::ScreenCapability::Unavailable,
+          mirage::desktop::ScreenCapability::PortalOnly, mirage::desktop::ScreenCapability::Full}) {
         kairo::Executor owner;
         kairo::ExecutorConfig executor_config;
         executor_config.min_threads = executor_config.max_threads = 2;
@@ -977,9 +961,8 @@ void capability_registration_scenario() {
         auto desktop = std::make_shared<SnapshotCountingEnvironment>(environment());
         desktop->screen_capability_ = capability;
         std::shared_ptr<Script> script;
-        integration::ModelProviderOverride provider([&](const auto &profile) {
-            return script = std::make_shared<Script>(profile, true);
-        });
+        integration::ModelProviderOverride provider(
+            [&](const auto &profile) { return script = std::make_shared<Script>(profile, true); });
         integration::DesktopToolContext tools;
         tools.environment = desktop;
         tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
@@ -991,13 +974,13 @@ void capability_registration_scenario() {
         context.session = mira::SessionId::generate();
         context.deadline = std::chrono::steady_clock::now() + 30s;
         mirage::desktop::CancelToken cancel;
-        const auto result = owner
-                                .submit_auto([&] {
-                                    return layer.complete_harness_turn(
-                                        {}, "capability facts probe", context, "", false, {}, {},
-                                        cancel);
-                                })
-                                .get();
+        const auto result =
+            owner
+                .submit_auto([&] {
+                    return layer.complete_harness_turn({}, "capability facts probe", context, "",
+                                                       false, {}, {}, cancel);
+                })
+                .get();
         MIRAGE_CHECK(result.ok);
         MIRAGE_CHECK(script && !script->requests.empty());
         if (!script || script->requests.empty()) {
@@ -1050,12 +1033,10 @@ void dialog_sse_scenario(bool preview) {
             .submit_auto([&] {
                 return layer.complete_dialog_turn(
                     {}, "stream probe", context, "", true,
-                    preview
-                        ? integration::DialogPreviewSink(
-                            [&preview_text](const std::string &, const std::string &text, bool) {
-                                preview_text += text;
-                            })
-                        : integration::DialogPreviewSink{});
+                    preview ? integration::DialogPreviewSink(
+                                  [&preview_text](const std::string &, const std::string &text,
+                                                  bool) { preview_text += text; })
+                            : integration::DialogPreviewSink{});
             })
             .get();
     MIRAGE_CHECK(script && !script->stream_flags.empty());
@@ -1092,22 +1073,22 @@ void harness_sse_scenario() {
     context.session = mira::SessionId::generate();
     context.deadline = std::chrono::steady_clock::now() + 10s;
     mirage::desktop::CancelToken cancel;
-    const auto result =
-        owner
-            .submit_auto([&] {
-                return layer.complete_harness_turn(
-                    {}, "stream probe", context, "", true,
-                    integration::DialogPreviewSink(
-                        [](const std::string &, const std::string &, bool) {}),
-                    {}, cancel);
-            })
-            .get();
+    const auto result = owner
+                            .submit_auto([&] {
+                                return layer.complete_harness_turn(
+                                    {}, "stream probe", context, "", true,
+                                    integration::DialogPreviewSink(
+                                        [](const std::string &, const std::string &, bool) {}),
+                                    {}, cancel);
+                            })
+                            .get();
     MIRAGE_CHECK(script != nullptr);
     // Exactly one streaming attempt, then one non-streaming retry that
     // settles the turn.
     MIRAGE_CHECK(script->stream_flags.size() == 2);
-    std::fprintf(stderr, "sse harness: stream attempts=%zu ok=%d failed=%d cancelled=%d "
-                         "error=%s\n",
+    std::fprintf(stderr,
+                 "sse harness: stream attempts=%zu ok=%d failed=%d cancelled=%d "
+                 "error=%s\n",
                  script->stream_flags.size(), result.ok, result.failed, result.cancelled,
                  result.error.c_str());
     if (script->stream_flags.size() == 2) {
@@ -1200,12 +1181,12 @@ void thinking_budget_scenario() {
         context.task = mira::TaskId::generate();
         context.session = mira::SessionId::generate();
         context.deadline = std::chrono::steady_clock::now() + 10s;
-        const auto result = owner
-                                .submit_auto([&] {
-                                    return layer.complete_harness_turn({}, "floor probe", context,
-                                                                       "adaptive");
-                                })
-                                .get();
+        const auto result =
+            owner
+                .submit_auto([&] {
+                    return layer.complete_harness_turn({}, "floor probe", context, "adaptive");
+                })
+                .get();
         MIRAGE_CHECK(result.ok);
         MIRAGE_CHECK(profile_limit == 344064u);
         MIRAGE_CHECK(script && script->requests.size() == 2u);
@@ -1303,10 +1284,9 @@ class ContinuationScript final : public mira::IModelProvider {
                 // the Incomplete response (the upstream fixture binds the
                 // same call to its registered echo tool).
                 const auto wire = mirage::testing::fixture_tool_name("desktop.window.front");
-                const auto tool = std::find_if(request.tools.begin(), request.tools.end(),
-                                               [&](const auto &entry) {
-                                                   return entry.wire_name == wire;
-                                               });
+                const auto tool =
+                    std::find_if(request.tools.begin(), request.tools.end(),
+                                 [&](const auto &entry) { return entry.wire_name == wire; });
                 MIRAGE_CHECK(tool != request.tools.end());
                 mira::ToolCallOutput cut;
                 cut.provider_call_id.value = "cut-call-" + std::to_string(step + 1);
@@ -1380,8 +1360,8 @@ void output_continuation_scenario() {
         const auto result =
             owner
                 .submit_auto([&] {
-                    return layer.complete_harness_turn({}, "continuation probe", context, "",
-                                                       false, {}, {}, cancel);
+                    return layer.complete_harness_turn({}, "continuation probe", context, "", false,
+                                                       {}, {}, cancel);
                 })
                 .get();
         MIRAGE_CHECK(result.ok && !result.failed && !result.cancelled);
@@ -1393,14 +1373,14 @@ void output_continuation_scenario() {
             // The second request replays the first partial as an assistant
             // TextPart and carries the exact continuation feedback.
             MIRAGE_CHECK(assistant_partial(script->requests[1], 0) == "The window list shows");
-            MIRAGE_CHECK(request_text_contains(script->requests[1],
-                                               "Continue it exactly where it stopped"));
+            MIRAGE_CHECK(
+                request_text_contains(script->requests[1], "Continue it exactly where it stopped"));
             // The third request replays both partials in order plus the
             // feedback again; no truncation-recovery wording ever appears.
             MIRAGE_CHECK(assistant_partial(script->requests[2], 0) == "The window list shows");
             MIRAGE_CHECK(assistant_partial(script->requests[2], 1) == " two windows open");
-            MIRAGE_CHECK(request_text_contains(script->requests[2],
-                                               "Continue it exactly where it stopped"));
+            MIRAGE_CHECK(
+                request_text_contains(script->requests[2], "Continue it exactly where it stopped"));
             for (const auto &request : script->requests)
                 MIRAGE_CHECK(!request_text_contains(request, "concise plain text"));
         }
@@ -1428,22 +1408,19 @@ void output_continuation_scenario() {
         context.session = mira::SessionId::generate();
         context.deadline = std::chrono::steady_clock::now() + 30s;
         mirage::desktop::CancelToken cancel;
-        const auto result =
-            owner
-                .submit_auto([&] {
-                    return layer.complete_harness_turn({}, "cut call probe", context, "", false,
-                                                       {}, {}, cancel);
-                })
-                .get();
+        const auto result = owner
+                                .submit_auto([&] {
+                                    return layer.complete_harness_turn(
+                                        {}, "cut call probe", context, "", false, {}, {}, cancel);
+                                })
+                                .get();
         MIRAGE_CHECK(result.ok);
         MIRAGE_CHECK(result.tool_calls == 0);
         MIRAGE_CHECK(script && script->requests.size() == 2);
         MIRAGE_CHECK(result.model_steps == 2);
         if (script->requests.size() == 2) {
-            MIRAGE_CHECK(request_text_contains(script->requests[1],
-                                               "discarded and NOT executed"));
-            MIRAGE_CHECK(request_text_contains(script->requests[1],
-                                               "output-token limit"));
+            MIRAGE_CHECK(request_text_contains(script->requests[1], "discarded and NOT executed"));
+            MIRAGE_CHECK(request_text_contains(script->requests[1], "output-token limit"));
         }
         layer.shutdown();
         owner.shutdown(true);
@@ -1470,8 +1447,8 @@ void output_continuation_scenario() {
         const auto result =
             owner
                 .submit_auto([&] {
-                    return layer.complete_harness_turn({}, "continuation budget probe", context,
-                                                       "", false, {}, {}, cancel);
+                    return layer.complete_harness_turn({}, "continuation budget probe", context, "",
+                                                       false, {}, {}, cancel);
                 })
                 .get();
         MIRAGE_CHECK(!result.ok && result.failed && !result.cancelled);
@@ -2024,15 +2001,14 @@ void service_tool_error_scenario() {
         const auto &turn = std::get<ipc::ChatTurnUpdatedEvent>(settlement->payload);
         MIRAGE_CHECK(turn.status == "ok");
         // The classified event follows the authoritative turn settlement.
-        MIRAGE_CHECK(settlement->seq < (tool_error_events.empty()
-                                            ? settlement->seq + 1
-                                            : tool_error_events.front().seq));
+        MIRAGE_CHECK(settlement->seq < (tool_error_events.empty() ? settlement->seq + 1
+                                                                  : tool_error_events.front().seq));
     }
     if (tool_error_events.size() == 1) {
         const auto &error = std::get<ipc::ToolErrorEvent>(tool_error_events.front().payload);
         std::fprintf(stderr, "tool_error event: session=%s tool=%s code=%s count=%u message=%s\n",
-                     error.session_id.c_str(), error.tool_name.c_str(),
-                     error.error_code.c_str(), error.failure_count, error.message.c_str());
+                     error.session_id.c_str(), error.tool_name.c_str(), error.error_code.c_str(),
+                     error.failure_count, error.message.c_str());
         MIRAGE_CHECK(error.tool_name == "desktop.accessibility.semantic_snapshot");
         MIRAGE_CHECK(error.error_code == "permanent_failure");
         MIRAGE_CHECK(error.message.starts_with("工具不可用："));
@@ -2053,9 +2029,8 @@ int main() {
     reasoning_scenario();
     thinking_budget_scenario();
     output_continuation_scenario();
-    for (const auto *scenario :
-         {"block_permanent", "transient_not_blocked", "failure_summary", "budget_final_turn",
-          "budget_counts"})
+    for (const auto *scenario : {"block_permanent", "transient_not_blocked", "failure_summary",
+                                 "budget_final_turn", "budget_counts"})
         resilience_scenario(scenario);
     epoch_reset_scenario();
     tool_failure_record_scenario();

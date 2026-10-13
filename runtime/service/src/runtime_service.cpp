@@ -225,8 +225,7 @@ void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::stri
                      std::string turn_id, const std::string &transcript, const std::string &text,
                      kairo::StopToken stop, bool agent, const std::string &agent_task_id,
                      const std::string &reasoning, bool tools_allowed,
-                     const std::string &host_session_id,
-                     const std::function<void()> &refresh_pet) {
+                     const std::string &host_session_id, const std::function<void()> &refresh_pet) {
     mira::OperationContext context;
     context.session = mira::SessionId::parse(host_session_id).value_or(mira::SessionId{});
     context.task = mira::TaskId::parse(agent_task_id).value_or(mira::TaskId{});
@@ -786,9 +785,9 @@ struct RuntimeService::Impl {
                                        : record.was_cancelled  ? "cancelled"
                                        : record.status == "ok" ? "completed"
                                                                : "failed";
-                    const auto phase = !record.pet_tool_phase.empty()
-                                           ? record.pet_tool_phase
-                                           : record.model_in_flight ? "thinking" : "unknown";
+                    const auto phase = !record.pet_tool_phase.empty() ? record.pet_tool_phase
+                                       : record.model_in_flight       ? "thinking"
+                                                                      : "unknown";
                     append({"turn", record.turn_id, session, state, phase,
                             record.status == "pending" && phase != "unknown",
                             record.pet_completion_order});

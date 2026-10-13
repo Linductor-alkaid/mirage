@@ -201,8 +201,9 @@ struct SessionChatRequest {
     std::string session_id;
     std::string text;
     bool agent = false; ///< DEC-034: conversational harness; absent preserves legacy dialog.
-    std::string access = "default";   ///< DEC-080: chat_only=dialog, read_only=observation, default=full
-    std::string reasoning = "";       ///< empty/default or minimal/low/medium/high
+    std::string access =
+        "default";              ///< DEC-080: chat_only=dialog, read_only=observation, default=full
+    std::string reasoning = ""; ///< empty/default or minimal/low/medium/high
     std::string replace_turn_id = {}; ///< DEC-039: replace exactly the latest settled turn
 };
 struct CancelChatRequest {
@@ -430,7 +431,7 @@ struct ServiceIdentity {
     /// request face (`policy.get` / `policy.set`) is served — always true
     /// from this service generation on. Placed after `chat`.
     std::optional<bool> policy;
-    std::optional<bool> tray{}; // true only after embedded tray registration
+    std::optional<bool> tray{};       // true only after embedded tray registration
     std::optional<bool> pet_status{}; // DEC-084 read-only presentation face
 };
 

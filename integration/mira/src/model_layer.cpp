@@ -144,15 +144,13 @@ std::uint64_t generation_budget(const ModelLayerConfig &config, const std::strin
     // thinking calls. Thinking intensity itself is a separate axis: the
     // wire carries only the mode flag, never a token budget (DeepSeek-style
     // Anthropic endpoints ignore thinking.budget_tokens entirely).
-    const auto budget =
-        thinking_value(config, value) == mira::ThinkingMode::Adaptive
-            ? std::max<std::uint64_t>(config.max_output_tokens, 16384)
-            : config.max_output_tokens;
+    const auto budget = thinking_value(config, value) == mira::ThinkingMode::Adaptive
+                            ? std::max<std::uint64_t>(config.max_output_tokens, 16384)
+                            : config.max_output_tokens;
     // A declared context window caps the per-call output as well: the reply
     // must fit alongside the prompt.
     if (config.context_window_tokens)
-        return std::min(budget,
-                        std::max<std::uint64_t>(4096, config.context_window_tokens / 2));
+        return std::min(budget, std::max<std::uint64_t>(4096, config.context_window_tokens / 2));
     return budget;
 }
 } // namespace
@@ -306,8 +304,8 @@ class ToolFailureTracker final {
             if (!digest.empty())
                 digest += "；";
             digest += entry.first + " 连续失败 " + std::to_string(entry.second.total_failures) +
-                      " 次" + (entry.second.blocked ? "（已阻止后续调用）" : "") +
-                      "，最后错误：" + entry.second.last_error;
+                      " 次" + (entry.second.blocked ? "（已阻止后续调用）" : "") + "，最后错误：" +
+                      entry.second.last_error;
         }
         if (digest.size() > 512) {
             digest.resize(512);
@@ -822,9 +820,9 @@ DialogCompletion ModelLayer::complete_harness_turn(
     // budget-degradation flag shared between the tool decorator and the
     // model-input supplier (single-threaded within this turn).
     const std::string session_key = context.session.to_string();
-    const auto screen_capability =
-        impl_->desktop.environment ? impl_->desktop.environment->screen_capability()
-                                   : mirage::desktop::ScreenCapability::Unavailable;
+    const auto screen_capability = impl_->desktop.environment
+                                       ? impl_->desktop.environment->screen_capability()
+                                       : mirage::desktop::ScreenCapability::Unavailable;
     bool final_turn = false;
     bool tools_attempted = false;
     auto finish = [&] {
@@ -838,10 +836,9 @@ DialogCompletion ModelLayer::complete_harness_turn(
     };
     auto registry = std::make_shared<mira::BuiltinToolRegistry>();
     const DesktopAtomToolset::Decorator decorate =
-        [&capture, &verification, &tracker = impl_->failure_tracker, session_key,
-         screen_capability, &final_turn, &tools_attempted,
-         &desktop_context = impl_->desktop](const std::string &name,
-                                            mira::BuiltinToolHandler handler) {
+        [&capture, &verification, &tracker = impl_->failure_tracker, session_key, screen_capability,
+         &final_turn, &tools_attempted, &desktop_context = impl_->desktop](
+            const std::string &name, mira::BuiltinToolHandler handler) {
             return [name, handler = std::move(handler), &capture, &verification, &tracker,
                     session_key, screen_capability, &final_turn, &tools_attempted,
                     &desktop_context](const auto &arguments,
@@ -885,10 +882,10 @@ DialogCompletion ModelLayer::complete_harness_turn(
                     }
                 }();
                 if (!result && !refused)
-                    tracker.record(
-                        session_key,
-                        desktop_context.actions ? desktop_context.actions->epoch() : 0, name,
-                        classify_tool_failure(result.error(), screen_capability), result.error());
+                    tracker.record(session_key,
+                                   desktop_context.actions ? desktop_context.actions->epoch() : 0,
+                                   name, classify_tool_failure(result.error(), screen_capability),
+                                   result.error());
                 capture.finish_tool(part, result,
                                     [&verification](auto &parts) { verification.project(parts); });
                 return result;
@@ -906,8 +903,7 @@ DialogCompletion ModelLayer::complete_harness_turn(
     // DEC-085 capability honesty at registration time: with no screen
     // capability at all, capture-dependent tools are not registered instead
     // of being exposed to fail at every call.
-    const bool screen_usable =
-        screen_capability != mirage::desktop::ScreenCapability::Unavailable;
+    const bool screen_usable = screen_capability != mirage::desktop::ScreenCapability::Unavailable;
     if ((impl_->images && screen_usable) || native_ocr) {
         auto source =
             impl_->images ? impl_->images : std::make_shared<detail::DesktopImageSource>();
@@ -982,16 +978,14 @@ DialogCompletion ModelLayer::complete_harness_turn(
         final_turn = max_turns_value > 0 && turns_used >= max_turns_value;
         std::string notice;
         if (final_turn) {
-            notice =
-                "SYSTEM BUDGET NOTICE: this is the FINAL model turn of this task's budget (" +
-                std::to_string(max_turns_value) +
-                " turns). Tool calls are closed from here. Produce the final text answer now: "
-                "summarize what you attempted and explain what prevented completion, in the "
-                "user's language.";
+            notice = "SYSTEM BUDGET NOTICE: this is the FINAL model turn of this task's budget (" +
+                     std::to_string(max_turns_value) +
+                     " turns). Tool calls are closed from here. Produce the final text answer now: "
+                     "summarize what you attempted and explain what prevented completion, in the "
+                     "user's language.";
         } else if (max_turns_value >= 4 && turns_used + 1 == max_turns_value) {
-            notice =
-                "SYSTEM BUDGET NOTICE: only one model turn remains after this one. Wrap up: "
-                "avoid speculative tool retries and prepare the final answer for the user.";
+            notice = "SYSTEM BUDGET NOTICE: only one model turn remains after this one. Wrap up: "
+                     "avoid speculative tool retries and prepare the final answer for the user.";
         }
         if (!notice.empty()) {
             mira::ModelInputItem item;

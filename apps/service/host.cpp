@@ -374,8 +374,8 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
             pet_binary = pet_binary.parent_path().parent_path() / "pet" / "mira_pet";
 #endif
         if (std::filesystem::is_regular_file(pet_binary))
-            config.pet = mirage::platform::make_pet_process(
-                std::filesystem::absolute(pet_binary).string());
+            config.pet =
+                mirage::platform::make_pet_process(std::filesystem::absolute(pet_binary).string());
 #ifdef _WIN32
         config.tray_icon_path =
             (std::filesystem::path(shell_path).parent_path() / "assets/mira.ico").string();

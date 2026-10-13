@@ -2923,8 +2923,8 @@ EventDecode decode_event(std::string_view payload) {
             *session, *turn, *request, *text, static_cast<std::uint64_t>(*sequence), *truncated};
     } else if (*name == kEventToolError) {
         constexpr const char *kToolErrorCodes[] = {"platform_limitation", "permanent_failure",
-                                                   "invalid_arguments",    "permission_denied",
-                                                   "conditional_failure",  "transient_failure"};
+                                                   "invalid_arguments",   "permission_denied",
+                                                   "conditional_failure", "transient_failure"};
         const auto session = string_member(object, "session_id");
         const auto tool = string_member(object, "tool_name");
         const auto code = string_member(object, "error_code");
@@ -2942,8 +2942,8 @@ EventDecode decode_event(std::string_view payload) {
             result.error = "session.tool_error 'error_code' is not a known failure class";
             return result;
         }
-        result.event.payload = ToolErrorEvent{*session, *tool, *code, *message,
-                                              static_cast<std::uint32_t>(*count)};
+        result.event.payload =
+            ToolErrorEvent{*session, *tool, *code, *message, static_cast<std::uint32_t>(*count)};
     } else if (*name == kEventChatTurnUpdated) {
         ChatTurnUpdatedEvent chat;
         const auto session_id = string_member(object, "session_id");
