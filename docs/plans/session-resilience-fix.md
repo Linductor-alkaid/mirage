@@ -245,18 +245,18 @@ struct ToolFailureInfo {
 ToolFailureInfo classify_capture_error(const desktop::CaptureError& error,
                                        const desktop::DesktopEnvironment& env) {
     ToolFailureInfo info;
-    
+
     if (error.code == "x11_badmatch" && env.get_screen_capability() == PortalOnly) {
         info.level = ToolFailureLevel::Permanent;
         info.error_code = "platform_not_supported";
-        info.canonical_message = 
+        info.canonical_message =
             "Full-screen capture unavailable in Wayland session. "
             "Suggestion: use window-scoped capture or switch to X11 session.";
         info.user_message = "当前 Wayland 环境不支持全屏截图，请使用窗口截图";
         info.recovery_hint = "或在登录时选择 'Ubuntu on Xorg' 会话";
         return info;
     }
-    
+
     if (error.code == "permission_denied" && error.retriable) {
         info.level = ToolFailureLevel::Transient;
         info.error_code = "permission_pending";
@@ -265,7 +265,7 @@ ToolFailureInfo classify_capture_error(const desktop::CaptureError& error,
         info.recovery_hint = "请在弹出窗口中点击'共享'";
         return info;
     }
-    
+
     // ... 其他分类
 }
 ```
@@ -309,7 +309,7 @@ struct ToolFailureTracker {
     std::string current_epoch;
     std::unordered_map<std::string, int> failure_counts;  // tool_name -> count
     std::unordered_set<std::string> blocked_tools;        // permanently blocked
-    
+
     void on_new_observation(const std::string& new_epoch) {
         if (new_epoch != current_epoch) {
             current_epoch = new_epoch;
@@ -317,20 +317,20 @@ struct ToolFailureTracker {
             // blocked_tools 跨 epoch 保留
         }
     }
-    
+
     bool should_block(const std::string& tool_name, ToolFailureLevel last_level) {
         if (blocked_tools.count(tool_name))
             return true;
-        
+
         if (last_level == ToolFailureLevel::Permanent &&
             failure_counts[tool_name] >= 3) {
             blocked_tools.insert(tool_name);
             return true;
         }
-        
+
         return false;
     }
-    
+
     void record_failure(const std::string& tool_name) {
         failure_counts[tool_name]++;
     }
@@ -367,7 +367,7 @@ if (impl_->failure_tracker_.should_block(tool_name, last_failure_level)) {
 // 在 complete_harness_turn 返回时
 if (response.status == mira::ModelCompletionStatus::Completed) {
     const int remaining_turns = config.max_turns - current_turn_count;
-    
+
     if (remaining_turns <= 2 && !has_user_visible_reply) {
         completion.budget_warning = true;
         completion.remaining_turns = remaining_turns;
@@ -382,7 +382,7 @@ if (completion.budget_warning) {
         " turns remaining. Please summarize what you've attempted and "
         "explain what prevented task completion, rather than retrying "
         "failed actions. On your last turn, tools will be disabled.";
-    
+
     // 将 system_hint 附加到下次 transcript
     append_to_next_transcript(session_id, system_hint);
 }
@@ -417,13 +417,13 @@ if (completion.remaining_turns == 1) {
 // 会话恢复时
 void restore_session(const std::string& session_id) {
     auto& session = sessions_[session_id];
-    
+
     // 重建流式订阅
     if (session.stream_enabled) {
         session.preview_sink = create_preview_sink(session_id);
         session.process_sink = create_process_sink(session_id);
     }
-    
+
     // 验证订阅有效性
     if (session.preview_sink && !test_sink_reachability(session.preview_sink)) {
         log_warning("Preview sink unreachable for session " + session_id +

@@ -144,12 +144,12 @@ DialogCompletion ModelLayer::complete_harness_turn(...) {
         log_warning("Preview sink unhealthy, disabling streaming for this turn");
         preview = nullptr;  // 降级为非流式
     }
-    
+
     // 记录流状态用于诊断
     if (preview) {
         log_debug("Streaming enabled for turn");
     }
-    
+
     // ... 继续正常调用
 }
 
@@ -175,10 +175,10 @@ case mira::ModelCompletionStatus::Incomplete:
 case mira::ModelCompletionStatus::Failed:
     completion.failed = true;
     completion.error = ...;
-    
+
     // 新增：清理流状态，下次调用时重新初始化
     impl_->clear_stream_state();
-    
+
     return finish();
 ```
 
@@ -223,7 +223,7 @@ if (XOpenDisplay(display_name)) {
 **正确逻辑**：
 
 ```cpp
-bool is_wayland = std::getenv("WAYLAND_DISPLAY") || 
+bool is_wayland = std::getenv("WAYLAND_DISPLAY") ||
                   (std::getenv("XDG_SESSION_TYPE") == "wayland");
 
 if (XOpenDisplay(display_name)) {
@@ -262,7 +262,7 @@ if (!ximage) {
 ```cpp
 if (!ximage) {
     int x_error_code = /* 从 X11 错误处理器获取 */;
-    
+
     if (x_error_code == BadMatch && is_wayland_session) {
         return desktop::CaptureError{
             "platform_not_supported",  // ✅ 明确错误码
@@ -502,8 +502,8 @@ struct SessionState {
 session.first_turn_after_restore = true;
 
 // 调用模型层时
-DialogPreviewSink preview = session.first_turn_after_restore 
-    ? nullptr 
+DialogPreviewSink preview = session.first_turn_after_restore
+    ? nullptr
     : create_preview_sink(session_id);
 
 // 首轮成功后清除标志

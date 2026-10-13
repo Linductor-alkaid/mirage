@@ -144,14 +144,14 @@ Mirage 暴露两类韧性缺陷：
 当 `remaining_turns <= 2` 且尚未生成用户可见回复时：
 1. 模型层在 ConversationLoop 结果中附加 `budget_warning` 标志
 2. Runtime Service 检测到该标志后，向模型发送系统提示：
-   "You have 2 turns remaining. Please summarize progress and explain what 
+   "You have 2 turns remaining. Please summarize progress and explain what
    prevented task completion, rather than retrying failed actions."
 3. 最后一轮强制 `tools_allowed = false`，确保模型必须生成文本回复
 
 **实施**：
 - `model_layer.cpp` 在 `complete_harness_turn` 返回前检查 turn 计数
 - Runtime Service 在 turn 结果中检查 `budget_warning`，注入系统提示后继续循环
-- 最终失败时，completion.error 包含已执行动作摘要（"attempted 3 screenshots, 
+- 最终失败时，completion.error 包含已执行动作摘要（"attempted 3 screenshots,
   all failed due to platform limitation"）
 
 **方案 2.3：平台能力如实声明**

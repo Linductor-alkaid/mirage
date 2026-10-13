@@ -116,14 +116,14 @@
 1. **错误码不一致**：
    - 第 1/3 次："invalid capture source"
    - 第 2 次："io_error"
-   
+
    模型看到的是**不同的错误**，无法识别这是"同一类永久失败"。
 
 2. **模型尝试了不同的参数**：
    - `source: "desktop"` + `source_id: "eDP-1"`
    - `source: "display"` + `source_id: "eDP-1"`
    - `source: "desktop"` + `source_id: "desktop"`
-   
+
    这是**合理的尝试**，但平台根本不支持，应该在第一次失败时就明确告知。
 
 3. **预算耗尽**：

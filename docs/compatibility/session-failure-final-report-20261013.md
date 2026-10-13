@@ -85,7 +85,7 @@ DialogCompletion ModelLayer::complete_harness_turn(...) {
         log_warning("Preview sink unreachable, disabling streaming");
         preview = nullptr;  // 降级为非流式
     }
-    
+
     // ... 继续正常调用
 }
 ```
@@ -98,10 +98,10 @@ case mira::ModelCompletionStatus::Incomplete:
 case mira::ModelCompletionStatus::Failed:
     completion.failed = true;
     completion.error = ...;
-    
+
     // 新增：清理流状态
     impl_->reset_stream_state();
-    
+
     return finish();
 ```
 
@@ -189,7 +189,7 @@ case mira::ModelCompletionStatus::Failed:
 
 1. **Wayland 环境能力判定**：
    ```cpp
-   bool is_wayland = std::getenv("WAYLAND_DISPLAY") || 
+   bool is_wayland = std::getenv("WAYLAND_DISPLAY") ||
                      (std::getenv("XDG_SESSION_TYPE") == "wayland");
    if (XOpenDisplay() && is_wayland) {
        screen_capability_ = ScreenCapability::PortalOnly;
