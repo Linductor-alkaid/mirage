@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <cstring>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -1125,6 +1126,94 @@ void pointer_position_queries(XvfbDisplay &server, TestClient &client) {
     }
 }
 
+/// RAII environment-variable scope: every scenario manipulates the session
+/// markers the Linux backend reads at open() and restores the process state
+/// afterwards, whatever the assertions do.
+class EnvGuard {
+  public:
+    explicit EnvGuard(std::string name) : name_(std::move(name)) {
+        if (const char *value = std::getenv(name_.c_str()))
+            old_ = value;
+    }
+    ~EnvGuard() { restore(); }
+    EnvGuard(const EnvGuard &) = delete;
+    EnvGuard &operator=(const EnvGuard &) = delete;
+    void set(const std::string &value) { ::setenv(name_.c_str(), value.c_str(), 1); }
+    void unset() { ::unsetenv(name_.c_str()); }
+    void restore() {
+        if (restored_)
+            return;
+        restored_ = true;
+        if (old_)
+            ::setenv(name_.c_str(), old_->c_str(), 1);
+        else
+            ::unsetenv(name_.c_str());
+    }
+
+  private:
+    std::string name_;
+    std::optional<std::string> old_;
+    bool restored_ = false;
+};
+
+// DEC-085 capability honesty on the real backend: the declared capture
+// capability follows the session markers, and an explicitly configured
+// display pins the direct-capture (Full) contract on purpose.
+void screen_capability_session_markers(XvfbDisplay &server) {
+    // Explicit display + X11 session markers: direct X11 capture contract.
+    {
+        EnvGuard wayland("WAYLAND_DISPLAY"), session("XDG_SESSION_TYPE"),
+            bus("DBUS_SESSION_BUS_ADDRESS");
+        wayland.unset();
+        session.set("x11");
+        bus.unset();
+        LinuxDesktopEnvironment env({}, {.enabled = true, .display = server.display_name()});
+        MIRAGE_CHECK(env.window() != nullptr);
+        MIRAGE_CHECK(env.screen() != nullptr);
+        MIRAGE_CHECK(env.screen_capability() == mirage::desktop::ScreenCapability::Full);
+    }
+    // Wayland session marker with an auto-selected session: the Portal
+    // observation path is preferred and the capability degrades to
+    // PortalOnly even though no X server is involved. The bus address only
+    // needs to exist for the backend to open (connections are lazy), so a
+    // nonexistent path keeps the test free of real session services.
+    {
+        EnvGuard wayland("WAYLAND_DISPLAY"), session("XDG_SESSION_TYPE"),
+            bus("DBUS_SESSION_BUS_ADDRESS");
+        wayland.unset();
+        session.set("wayland");
+        bus.set("unix:path=/nonexistent-mirage-x11-test");
+        LinuxDesktopEnvironment env({}, {.enabled = true, .display = {}});
+        MIRAGE_CHECK(env.screen() != nullptr);
+        MIRAGE_CHECK(env.screen()->desktop_observation_only());
+        MIRAGE_CHECK(env.screen_capability() == mirage::desktop::ScreenCapability::PortalOnly);
+    }
+    // Wayland marker with the Portal path unavailable and no X connection:
+    // no screen backend answers at all, and the capability says so.
+    {
+        EnvGuard wayland("WAYLAND_DISPLAY"), session("XDG_SESSION_TYPE"),
+            bus("DBUS_SESSION_BUS_ADDRESS");
+        wayland.unset();
+        session.set("wayland");
+        bus.unset();
+        LinuxDesktopEnvironment env({}, {.enabled = true, .display = {}});
+        MIRAGE_CHECK(env.screen() == nullptr);
+        MIRAGE_CHECK(env.screen_capability() == mirage::desktop::ScreenCapability::Unavailable);
+    }
+    // WAYLAND_DISPLAY set but the display was pinned explicitly: the
+    // explicit X11 contract wins over the session marker.
+    {
+        EnvGuard wayland("WAYLAND_DISPLAY"), session("XDG_SESSION_TYPE"),
+            bus("DBUS_SESSION_BUS_ADDRESS");
+        wayland.set("wayland-0");
+        session.unset();
+        bus.unset();
+        LinuxDesktopEnvironment env({}, {.enabled = true, .display = server.display_name()});
+        MIRAGE_CHECK(env.screen() != nullptr);
+        MIRAGE_CHECK(env.screen_capability() == mirage::desktop::ScreenCapability::Full);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -1153,6 +1242,7 @@ int main() {
         negative_and_boundary_edges(server, client);
         environment_identity_and_defaults(server);
         clipboard_same_backend_roundtrips(server);
+        screen_capability_session_markers(server);
         clipboard_refusals_keep_state(server, client);
         clipboard_peer_requests_from_backend(server, client);
         clipboard_peer_owned_selection(server, client);

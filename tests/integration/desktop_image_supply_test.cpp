@@ -1899,6 +1899,101 @@ int live() {
               << '\n';
     return result.ok ? 0 : 1;
 }
+// DEC-085 capability honesty fixture: delegates every provider to the fake
+// environment but declares a settable screen capability, so the capture
+// receipt mapping can be observed for PortalOnly and Full independently.
+class CapabilityOverrideEnvironment final : public mirage::desktop::DesktopEnvironment {
+  public:
+    explicit CapabilityOverrideEnvironment(
+        std::shared_ptr<mirage::testing::FakeDesktopEnvironment> inner)
+        : inner_(std::move(inner)) {}
+    mirage::desktop::EnvironmentInfo info() const override { return inner_->info(); }
+    mirage::desktop::FilesystemProvider *filesystem() override { return &inner_->filesystem_; }
+    mirage::desktop::ProcessProvider *process() override { return &inner_->process_; }
+    mirage::desktop::ApplicationProvider *application() override {
+        return &inner_->application_;
+    }
+    mirage::desktop::WindowProvider *window() override { return &inner_->window_; }
+    mirage::desktop::AccessibilityProvider *accessibility() override {
+        return &inner_->accessibility_;
+    }
+    mirage::desktop::ScreenProvider *screen() override { return &inner_->screen_; }
+    mirage::desktop::InputProvider *input() override { return &inner_->input_; }
+    mirage::desktop::ClipboardProvider *clipboard() override { return &inner_->clipboard_; }
+    mirage::desktop::NotificationProvider *notification() override {
+        return &inner_->notification_;
+    }
+    mirage::desktop::ScreenCapability screen_capability() override { return capability_; }
+    std::shared_ptr<mirage::testing::FakeDesktopEnvironment> inner_;
+    mirage::desktop::ScreenCapability capability_ = mirage::desktop::ScreenCapability::Full;
+};
+
+// DEC-085 capability honesty: with a degraded (non-Full) screen capability a
+// failing direct capture becomes the canonical platform_not_supported receipt
+// naming the original error; with Full the plain provider error surfaces
+// unchanged. The full-screen argument error degrades the same way.
+void capability_receipts() {
+    mirage::desktop::ScreenCapability capabilities[] = {
+        mirage::desktop::ScreenCapability::PortalOnly,
+        mirage::desktop::ScreenCapability::Full};
+    for (const auto capability : capabilities) {
+        const bool degraded = capability != mirage::desktop::ScreenCapability::Full;
+        auto tools = desktop();
+        auto fake = std::static_pointer_cast<mirage::testing::FakeDesktopEnvironment>(
+            tools.environment);
+        fake->failures.capture_error = true;
+        auto env = std::make_shared<CapabilityOverrideEnvironment>(fake);
+        env->capability_ = capability;
+        tools.environment = env;
+        auto ctx = context();
+        mirage::desktop::CancelToken stop;
+        detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, ctx,
+                                      stop);
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, false);
+        const auto spec = registry.exposed_tools().front();
+        const auto invoke = [&](const std::string &source, const std::string &source_id) {
+            mira::ToolProposal call;
+            call.tool_id = spec.tool_id;
+            call.tool_version = spec.version;
+            call.wire_name = spec.wire_name;
+            call.operation_id = mira::OperationId::generate();
+            call.provider_call_id.value = "capability";
+            JsonValue::Object fields{{"source", JsonValue{source}}};
+            if (!source_id.empty())
+                fields.emplace_back("source_id", JsonValue{source_id});
+            call.arguments = JsonValue{JsonValue::Object{std::move(fields)}};
+            call.arguments_digest = mira::canonical_json_digest(call.arguments);
+            return registry.execute(call, ctx);
+        };
+        const auto window = invoke("window", "w1");
+        check(window && window.value().failed);
+        check(window.value().safe_error_summary.find("io_error") != std::string::npos);
+        check((window.value().safe_error_summary.find("platform_not_supported") !=
+               std::string::npos) == degraded);
+        check((window.value().safe_error_summary.find("window capture failed") !=
+               std::string::npos) == degraded);
+        const auto display = invoke("display", "d1");
+        check(display && display.value().failed);
+        check(display.value().safe_error_summary.find("io_error") != std::string::npos);
+        check((display.value().safe_error_summary.find("platform_not_supported") !=
+               std::string::npos) == degraded);
+        // The direct-path schema requires source and source_id; the
+        // full-screen receipt guards an out-of-schema source=desktop call
+        // that still carries an id.
+        const auto full_screen = invoke("desktop", "d1");
+        check(full_screen && full_screen.value().failed);
+        if (degraded) {
+            check(full_screen.value().safe_error_summary.find("platform_not_supported") !=
+                  std::string::npos);
+            check(full_screen.value().safe_error_summary.find(
+                      "full-screen X11 capture is unavailable") != std::string::npos);
+        } else {
+            check(full_screen.value().safe_error_summary.find("invalid capture source") !=
+                  std::string::npos);
+        }
+    }
+}
 } // namespace
 
 int main() {
@@ -1975,6 +2070,7 @@ int main() {
         rejected_layer.shutdown();
         png_content_matrix();
         native_region_sources();
+        capability_receipts();
         // Publish the fixture manifest for the independent Python decoder
         // (tests/manual/desktop_png_decode_check.py).
         JsonValue::Array manifest;

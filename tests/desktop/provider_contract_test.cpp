@@ -1124,10 +1124,64 @@ void screen_and_notification_edges() {
     MIRAGE_CHECK(env.notifications.size() == 1); // nothing extra landed
 }
 
+// DEC-085: the base screen_capability() derives the honest capture
+// capability from the provider face — null screen is Unavailable, an
+// observation-only provider is PortalOnly, a direct-capture provider is Full.
+void screen_capability_default_derivation() {
+    class ObservationOnlyScreen final : public mirage::desktop::ScreenProvider {
+      public:
+        mirage::desktop::DisplayListOutcome
+        list_displays(const mirage::desktop::DisplayListLimits &,
+                      const mirage::desktop::CancelToken &) override {
+            return {};
+        }
+        mirage::desktop::CaptureOutcome
+        capture_display(const std::string &, const mirage::desktop::CaptureLimits &,
+                        const mirage::desktop::CancelToken &) override {
+            return {};
+        }
+        mirage::desktop::CaptureOutcome
+        capture_window(const std::string &, const mirage::desktop::CaptureLimits &,
+                       const mirage::desktop::CancelToken &) override {
+            return {};
+        }
+        mirage::desktop::CaptureOutcome
+        capture_roi(const mirage::desktop::WindowGeometry &,
+                    const mirage::desktop::CaptureLimits &,
+                    const mirage::desktop::CancelToken &) override {
+            return {};
+        }
+        bool desktop_observation_only() const override { return true; }
+    };
+    class PortalOnlyEnvironment final : public mirage::desktop::DesktopEnvironment {
+      public:
+        mirage::desktop::EnvironmentInfo info() const override { return {"portal-only", "test"}; }
+        mirage::desktop::ScreenProvider *screen() override { return &screen_; }
+        ObservationOnlyScreen screen_;
+    } portal_only;
+
+    mirage::testing::FakeDesktopEnvironment full;
+    MIRAGE_CHECK(full.screen() != nullptr);
+    MIRAGE_CHECK(!full.screen()->desktop_observation_only());
+    MIRAGE_CHECK(full.screen_capability() == mirage::desktop::ScreenCapability::Full);
+
+    MIRAGE_CHECK(portal_only.screen() != nullptr);
+    MIRAGE_CHECK(portal_only.screen()->desktop_observation_only());
+    MIRAGE_CHECK(portal_only.screen_capability() == mirage::desktop::ScreenCapability::PortalOnly);
+
+    class BareCapabilityEnvironment final : public mirage::desktop::DesktopEnvironment {
+      public:
+        mirage::desktop::EnvironmentInfo info() const override { return {"bare-cap", "test"}; }
+    } bare;
+    MIRAGE_CHECK(bare.screen() == nullptr);
+    MIRAGE_CHECK(bare.screen_capability() == mirage::desktop::ScreenCapability::Unavailable);
+}
+
 } // namespace
 
 int main() {
     environment_accessors_fail_closed_by_default();
+    screen_capability_default_derivation();
     window_provider_contract();
     accessibility_provider_contract();
     accessibility_element_action_contract();

@@ -2,6 +2,15 @@
 #include "../support/ipc_io.hpp"
 #include "../support/provider_tool_name.hpp"
 
+// <X11/Xlib.h> (pulled in under MIRAGE_HARNESS_X11 below) defines `Status`
+// as a macro, so the frame-read discriminator cannot be spelled after those
+// headers; park the classification helper ahead of them instead.
+namespace {
+bool frame_message(const mirage::testing::FrameRead &read) {
+    return read.status == mirage::testing::FrameRead::Status::Message;
+}
+} // namespace
+
 #include <kairo/executor.hpp>
 #include <mira/model_digest.hpp>
 #include <mira/model_provider.hpp>
@@ -24,6 +33,7 @@
 #include <atomic>
 #include <chrono>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -56,6 +66,12 @@ class Script final : public mira::IModelProvider {
     std::vector<mira::ModelRequest> requests;
     std::string mutation_fault;
     std::vector<std::pair<std::string, std::string>> actions_override;
+    /// DEC-085 epoch-reset probe: coordinator whose environment epoch the
+    /// fixture advances (takeover + resume, a fresh observation) immediately
+    /// before serving the model turns listed here — i.e. between tool
+    /// executions, where no observation wrapper can see the change.
+    mirage::desktop::ActionCoordinator *coordinator = nullptr;
+    std::vector<std::size_t> advance_epoch_before_turn;
     mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
                                             const mira::OperationContext &,
                                             const mira::ProviderInferOptions &) override {
@@ -82,6 +98,12 @@ class Script final : public mira::IModelProvider {
         if (!actions_override.empty())
             actions = actions_override;
         const auto step = step_++;
+        if (coordinator != nullptr && std::find(advance_epoch_before_turn.begin(),
+                                                advance_epoch_before_turn.end(),
+                                                step) != advance_epoch_before_turn.end()) {
+            coordinator->takeover();
+            (void)coordinator->resume();
+        }
         if (step < actions.size()) {
             const auto &[name, arguments] = actions[step];
             const auto tool =
@@ -167,6 +189,125 @@ bool failed_result(const Script &script, const std::string &call_id, const std::
                     return true;
     return false;
 }
+
+bool request_text_contains(const mira::ModelRequest &request, const std::string &needle) {
+    for (const auto &item : request.input)
+        for (const auto &part : item.content)
+            if (const auto *text = std::get_if<mira::TextPart>(&part);
+                text && text->text.find(needle) != std::string::npos)
+                return true;
+    return false;
+}
+
+// DEC-085 failure-guard fixture: counts semantic_snapshot dispatches at the
+// provider boundary and injects one deterministic failure kind, so the
+// session-scoped blocking can be observed as "handler stopped running" rather
+// than inferred from tool receipts alone.
+class CountingAccessibility final : public mirage::desktop::AccessibilityProvider {
+  public:
+    explicit CountingAccessibility(mirage::desktop::AccessibilityProvider *inner)
+        : inner_(inner) {}
+    bool scoped_references_supported() const override {
+        return inner_->scoped_references_supported();
+    }
+    mirage::desktop::SnapshotOutcome
+    semantic_snapshot(const std::string &window_id,
+                      const mirage::desktop::SemanticSnapshotLimits &limits,
+                      const mirage::desktop::CancelToken &cancel) override {
+        ++calls;
+        mirage::desktop::SnapshotOutcome outcome;
+        if (failure == "permission_denied")
+            outcome.error = {"permission_denied", "fixture denied snapshot"};
+        else if (failure == "unsupported_window")
+            outcome.error = {"unsupported_window", "fixture has no accessibility tree"};
+        else
+            return inner_->semantic_snapshot(window_id, limits, cancel);
+        return outcome;
+    }
+    mirage::desktop::ElementActionOutcome
+    activate_element(const mirage::desktop::ElementTarget &target,
+                     const mirage::desktop::CancelToken &cancel) override {
+        return inner_->activate_element(target, cancel);
+    }
+    mirage::desktop::ElementActionOutcome
+    set_text(const mirage::desktop::ElementTarget &target, const std::string &text,
+             const mirage::desktop::InputLimits &limits,
+             const mirage::desktop::CancelToken &cancel) override {
+        return inner_->set_text(target, text, limits, cancel);
+    }
+    int calls = 0;
+    std::string failure; ///< "", "permission_denied" or "unsupported_window"
+
+  private:
+    mirage::desktop::AccessibilityProvider *inner_;
+};
+
+// Wraps the fake environment so only the accessibility provider is replaced;
+// every other provider stays the shared fake.
+class SnapshotCountingEnvironment final : public mirage::desktop::DesktopEnvironment {
+  public:
+    explicit SnapshotCountingEnvironment(std::shared_ptr<Environment> inner)
+        : inner_(std::move(inner)), accessibility_(inner_->accessibility()) {}
+    mirage::desktop::EnvironmentInfo info() const override { return inner_->info(); }
+    mirage::desktop::FilesystemProvider *filesystem() override { return &inner_->filesystem_; }
+    mirage::desktop::ProcessProvider *process() override { return &inner_->process_; }
+    mirage::desktop::ApplicationProvider *application() override {
+        return &inner_->application_;
+    }
+    mirage::desktop::WindowProvider *window() override { return &inner_->window_; }
+    mirage::desktop::AccessibilityProvider *accessibility() override { return &accessibility_; }
+    mirage::desktop::ScreenProvider *screen() override { return &inner_->screen_; }
+    mirage::desktop::InputProvider *input() override { return &inner_->input_; }
+    mirage::desktop::ClipboardProvider *clipboard() override { return &inner_->clipboard_; }
+    mirage::desktop::NotificationProvider *notification() override {
+        return &inner_->notification_;
+    }
+    /// DEC-085 declared capture capability, independent of the provider face
+    /// (the fake screen always answers, so the default derivation is Full).
+    mirage::desktop::ScreenCapability screen_capability() override {
+        return screen_capability_;
+    }
+    mirage::desktop::ScreenCapability screen_capability_ = mirage::desktop::ScreenCapability::Full;
+    std::shared_ptr<Environment> inner_;
+    CountingAccessibility accessibility_;
+};
+
+// DEC-085 SSE-recovery fixture: the first inference fails with the pinned
+// stream-lifecycle protocol violation, later ones answer with plain text.
+// The observed stream flag per call distinguishes the layer's non-streaming
+// retry from any other recovery path.
+class SseScript final : public mira::IModelProvider {
+  public:
+    explicit SseScript(const mira::ModelProfile &profile) : profile_(profile) {}
+    const mira::ModelProfile &profile() const override { return profile_; }
+    std::vector<bool> stream_flags;
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &options) override {
+        stream_flags.push_back(options.stream);
+        if (stream_flags.size() == 1) {
+            mira::Error error;
+            error.code = mira::ErrorCode::PlatformError;
+            error.domain = "mira.model";
+            error.safe_message = "provider stream broke: invalid Messages SSE lifecycle";
+            return error;
+        }
+        mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.status = mira::ModelCompletionStatus::Completed;
+        mira::MessageOutput message;
+        mira::OutputTextPart text;
+        text.text = "recovered answer";
+        message.content.emplace_back(std::move(text));
+        response.output.emplace_back(std::move(message));
+        return response;
+    }
+
+  private:
+    mira::ModelProfile profile_;
+};
 
 void layer_scenario(const std::string &scenario) {
     kairo::Executor owner;
@@ -310,6 +451,496 @@ void layer_scenario(const std::string &scenario) {
         MIRAGE_CHECK(script->requests[0].tools.front().tool_id !=
                      script->requests[10].tools.front().tool_id);
     }
+    layer.shutdown();
+    owner.shutdown(true);
+}
+
+// DEC-085 session resilience: the repeated-failure guard (block after 3
+// deterministic failures, transient never blocks), the failure digest on a
+// failed turn, and graceful budget degradation (bounded notices, final-turn
+// tool closure) driven through the same harness + scripted-provider pattern.
+void resilience_scenario(const std::string &scenario) {
+    kairo::Executor owner;
+    kairo::ExecutorConfig executor_config;
+    executor_config.min_threads = executor_config.max_threads = 2;
+    MIRAGE_CHECK(static_cast<bool>(owner.initialize(executor_config)));
+    auto desktop = std::make_shared<SnapshotCountingEnvironment>(environment());
+    std::shared_ptr<Script> script;
+    const bool budget = scenario == "budget_final_turn" || scenario == "budget_counts";
+    integration::ModelProviderOverride provider([&](const auto &profile) {
+        script = std::make_shared<Script>(profile, true);
+        // The scripted provider answers with text once its table is
+        // exhausted, so each table covers exactly the model turns the
+        // scenario needs: blocking runs answer after their 5 proposals, the
+        // failure-summary run keeps proposing across the whole max_turns=16
+        // budget, the budget runs cover their max_turns=4.
+        const std::size_t proposals = budget ? 4 : (scenario == "failure_summary" ? 16 : 5);
+        if (budget)
+            script->actions_override = std::vector<std::pair<std::string, std::string>>(
+                proposals, scenario == "budget_counts"
+                               ? std::pair<std::string, std::string>{
+                                     "desktop.accessibility.semantic_snapshot",
+                                     R"({"window_id":"w3"})"}
+                               : std::pair<std::string, std::string>{"desktop.window.front",
+                                                                     "{}"});
+        else
+            script->actions_override = std::vector<std::pair<std::string, std::string>>(
+                proposals,
+                {"desktop.accessibility.semantic_snapshot", R"({"window_id":"w3"})"});
+        return script;
+    });
+    if (scenario == "transient_not_blocked")
+        desktop->accessibility_.failure = "permission_denied";
+    else if (!budget || scenario == "budget_counts")
+        desktop->accessibility_.failure = "unsupported_window";
+    integration::DesktopToolContext tools;
+    tools.environment = desktop;
+    tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    auto config = model_config();
+    if (budget)
+        // per-turn 3000 -> turn_capacity floor(16384/3000)=5 -> recoveries 0
+        // -> max_turns min(16, 5-1-0)=4.
+        config.max_output_tokens = 3000;
+    integration::ModelLayer layer(owner, config, &provider, tools);
+    auto context = mira::make_control_context();
+    context.session = mira::SessionId::generate();
+    context.deadline = std::chrono::steady_clock::now() + 30s;
+    mirage::desktop::CancelToken cancel;
+    const auto result = owner
+                            .submit_auto([&] {
+                                return layer.complete_harness_turn({}, "resilience probe", context,
+                                                                   "", false, {}, {}, cancel);
+                            })
+                            .get();
+    MIRAGE_CHECK(script && !script->requests.empty());
+    if (scenario == "block_permanent") {
+        // Three deterministic failures block the tool; calls 4 and 5 are
+        // refused by the decorator and never reach the provider again.
+        MIRAGE_CHECK(result.ok);
+        MIRAGE_CHECK(result.tool_calls == 5);
+        MIRAGE_CHECK(desktop->accessibility_.calls == 3);
+        MIRAGE_CHECK(script->requests.size() == 6);
+        MIRAGE_CHECK(failed_result(*script, "call-1", "unsupported_window"));
+        MIRAGE_CHECK(!failed_result(*script, "call-1", "permanent_failure"));
+        MIRAGE_CHECK(!failed_result(*script, "call-3", "permanent_failure"));
+        MIRAGE_CHECK(failed_result(*script, "call-4", "permanent_failure"));
+        MIRAGE_CHECK(failed_result(*script, "call-5", "permanent_failure"));
+    } else if (scenario == "transient_not_blocked") {
+        // PermissionDenied failures stay recoverable: every call reaches the
+        // provider and no blocked receipt ever appears.
+        MIRAGE_CHECK(result.ok);
+        MIRAGE_CHECK(result.tool_calls == 5);
+        MIRAGE_CHECK(desktop->accessibility_.calls == 5);
+        MIRAGE_CHECK(script->requests.size() == 6);
+        for (int call = 1; call <= 5; ++call)
+            MIRAGE_CHECK(!failed_result(*script, "call-" + std::to_string(call),
+                                        "permanent_failure"));
+        MIRAGE_CHECK(failed_result(*script, "call-5", "permission_denied"));
+    } else if (scenario == "failure_summary") {
+        // The model never answers, the turn budget drains on refusals, and
+        // the failed completion carries the user-facing failure digest.
+        MIRAGE_CHECK(!result.ok && result.failed && !result.cancelled);
+        MIRAGE_CHECK(result.model_steps == 16);
+        MIRAGE_CHECK(script->requests.size() == 16);
+        MIRAGE_CHECK(desktop->accessibility_.calls == 3);
+        MIRAGE_CHECK(result.error.find("工具失败摘要") != std::string::npos);
+        MIRAGE_CHECK(result.error.find("连续失败 3 次") != std::string::npos);
+        MIRAGE_CHECK(result.error.find("已阻止后续调用") != std::string::npos);
+        MIRAGE_CHECK(result.error.find("unsupported_window") != std::string::npos);
+    } else if (scenario == "budget_counts") {
+        // The same spent budget, but every proposal hit the failing tool:
+        // the failed completion names the spent budget AND the blocked tool.
+        std::fprintf(stderr, "budget_counts error: %s\n", result.error.c_str());
+        MIRAGE_CHECK(script->requests.size() == 4);
+        MIRAGE_CHECK(!result.ok && result.failed && !result.cancelled);
+        MIRAGE_CHECK(result.error.find("4 个模型步骤") != std::string::npos);
+        MIRAGE_CHECK(result.error.find("4 次工具调用") != std::string::npos);
+        MIRAGE_CHECK(result.error.find("工具失败摘要") != std::string::npos);
+        MIRAGE_CHECK(result.error.find("已阻止后续调用") != std::string::npos);
+        MIRAGE_CHECK(result.error.find("unsupported_window") != std::string::npos);
+    } else if (budget) {
+        // max_turns=4: no notice on turns 1-2, the "one turn remains" notice
+        // on turn 3, the FINAL notice on turn 4 whose tool proposal is
+        // refused, then the loop settles without an answer.
+        MIRAGE_CHECK(script->requests.size() == 4);
+        MIRAGE_CHECK(!result.ok && result.failed);
+        if (script->requests.size() == 4) {
+            MIRAGE_CHECK(!request_text_contains(script->requests[0], "SYSTEM BUDGET NOTICE"));
+            MIRAGE_CHECK(!request_text_contains(script->requests[1], "SYSTEM BUDGET NOTICE"));
+            MIRAGE_CHECK(request_text_contains(script->requests[2],
+                                               "only one model turn remains"));
+            MIRAGE_CHECK(request_text_contains(script->requests[3], "FINAL model turn"));
+        }
+        bool refusal_seen = false;
+        std::size_t front_complete = 0;
+        for (const auto &part : result.parts)
+            if (part.kind == "tool" && part.name == "desktop.window.front") {
+                if (part.status == "complete")
+                    ++front_complete;
+                if (part.output.find("final_turn_tools_closed") != std::string::npos)
+                    refusal_seen = true;
+            }
+        MIRAGE_CHECK(front_complete == 3);
+        MIRAGE_CHECK(refusal_seen);
+        // A turn without tool failures must not grow a failure digest.
+        MIRAGE_CHECK(result.error.find("工具失败摘要") == std::string::npos);
+    }
+    layer.shutdown();
+    owner.shutdown(true);
+}
+
+// DEC-085 epoch semantics for the repeated-failure guard: two failures per
+// environment epoch never block, the third failure within one epoch does, and
+// an established block survives a further epoch change.
+void epoch_reset_scenario() {
+    kairo::Executor owner;
+    kairo::ExecutorConfig executor_config;
+    executor_config.min_threads = executor_config.max_threads = 2;
+    MIRAGE_CHECK(static_cast<bool>(owner.initialize(executor_config)));
+    auto desktop = std::make_shared<SnapshotCountingEnvironment>(environment());
+    desktop->accessibility_.failure = "unsupported_window";
+    auto actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    std::shared_ptr<Script> script;
+    integration::ModelProviderOverride provider([&](const auto &profile) {
+        script = std::make_shared<Script>(profile, true);
+        // Six snapshot proposals against the treeless window; the fixture
+        // advances the coordinator epoch immediately before model turns 3
+        // and 6 (0-based 2 and 5), simulating a fresh observation between
+        // retries.
+        script->actions_override = std::vector<std::pair<std::string, std::string>>(
+            6, {"desktop.accessibility.semantic_snapshot", R"({"window_id":"w3"})"});
+        script->coordinator = actions.get();
+        script->advance_epoch_before_turn = {2, 5};
+        return script;
+    });
+    integration::DesktopToolContext tools;
+    tools.environment = desktop;
+    tools.actions = actions;
+    integration::ModelLayer layer(owner, model_config(), &provider, tools);
+    auto context = mira::make_control_context();
+    context.session = mira::SessionId::generate();
+    context.deadline = std::chrono::steady_clock::now() + 30s;
+    mirage::desktop::CancelToken cancel;
+    const auto result = owner
+                            .submit_auto([&] {
+                                return layer.complete_harness_turn({}, "epoch reset probe",
+                                                                   context, "", false, {}, {},
+                                                                   cancel);
+                            })
+                            .get();
+    MIRAGE_CHECK(result.ok);
+    MIRAGE_CHECK(script && script->requests.size() == 7);
+    // The handler stopped after the block: five dispatches only, and the
+    // sixth proposal drew the canonical blocked receipt.
+    MIRAGE_CHECK(desktop->accessibility_.calls == 5);
+    MIRAGE_CHECK(result.tool_calls == 6);
+    // Failures 1-2 belong to the first epoch; the fixture advanced the epoch
+    // before turn 3, so failures 3-4 started a fresh per-epoch budget and
+    // still reached the handler.
+    MIRAGE_CHECK(failed_result(*script, "call-1", "unsupported_window"));
+    MIRAGE_CHECK(failed_result(*script, "call-2", "unsupported_window"));
+    MIRAGE_CHECK(failed_result(*script, "call-4", "unsupported_window"));
+    MIRAGE_CHECK(!failed_result(*script, "call-4", "permanent_failure"));
+    MIRAGE_CHECK(failed_result(*script, "call-5", "unsupported_window"));
+    // The third failure within the second epoch blocked the tool; the
+    // call-6 receipt is the canonical blocked form quoting all five
+    // failures, proving the block survived the epoch advance before turn 6.
+    MIRAGE_CHECK(failed_result(*script, "call-6", "permanent_failure"));
+    MIRAGE_CHECK(failed_result(*script, "call-6", "is blocked for this session after 5"));
+    // The reported per-epoch count is the current epoch's three failures.
+    MIRAGE_CHECK(result.tool_failures.size() == 1);
+    if (result.tool_failures.size() == 1)
+        MIRAGE_CHECK(result.tool_failures.front().count == 3);
+    layer.shutdown();
+    owner.shutdown(true);
+}
+
+// DEC-085 structured tool failures: with a non-Full declared capture
+// capability, an UnsupportedCapability failure classifies as
+// platform_limitation and the settled completion carries exactly one
+// ToolFailure with the user-facing message and the current-epoch count.
+void tool_failure_record_scenario() {
+    kairo::Executor owner;
+    kairo::ExecutorConfig executor_config;
+    executor_config.min_threads = executor_config.max_threads = 2;
+    MIRAGE_CHECK(static_cast<bool>(owner.initialize(executor_config)));
+    auto desktop = std::make_shared<SnapshotCountingEnvironment>(environment());
+    desktop->screen_capability_ = mirage::desktop::ScreenCapability::PortalOnly;
+    desktop->accessibility_.failure = "unsupported_window";
+    std::shared_ptr<Script> script;
+    integration::ModelProviderOverride provider([&](const auto &profile) {
+        script = std::make_shared<Script>(profile, true);
+        script->actions_override = std::vector<std::pair<std::string, std::string>>(
+            3, {"desktop.accessibility.semantic_snapshot", R"({"window_id":"w3"})"});
+        return script;
+    });
+    integration::DesktopToolContext tools;
+    tools.environment = desktop;
+    tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    integration::ModelLayer layer(owner, model_config(), &provider, tools);
+    auto context = mira::make_control_context();
+    context.session = mira::SessionId::generate();
+    context.deadline = std::chrono::steady_clock::now() + 30s;
+    mirage::desktop::CancelToken cancel;
+    const auto result = owner
+                            .submit_auto([&] {
+                                return layer.complete_harness_turn({}, "failure record probe",
+                                                                   context, "", false, {}, {},
+                                                                   cancel);
+                            })
+                            .get();
+    MIRAGE_CHECK(result.ok);
+    MIRAGE_CHECK(script && script->requests.size() == 4);
+    MIRAGE_CHECK(desktop->accessibility_.calls == 3);
+    MIRAGE_CHECK(result.tool_failures.size() == 1);
+    if (result.tool_failures.size() == 1) {
+        const auto &failure = result.tool_failures.front();
+        MIRAGE_CHECK(failure.tool == "desktop.accessibility.semantic_snapshot");
+        // UnsupportedCapability under a non-Full capability is a platform
+        // limitation, not a tool defect.
+        MIRAGE_CHECK(failure.code == "platform_limitation");
+        MIRAGE_CHECK(failure.message.starts_with("平台限制："));
+        MIRAGE_CHECK(failure.message.find("unsupported_window") != std::string::npos &&
+                     failure.message.find("fixture has no accessibility tree") !=
+                         std::string::npos);
+        MIRAGE_CHECK(failure.count == 3);
+    }
+    layer.shutdown();
+    owner.shutdown(true);
+}
+
+// DEC-085 defect probe: the tracker resets per-epoch counters lazily (at the
+// next record), so a tool that only failed in an older epoch can be reported
+// with count == 0 — a value the session.tool_error wire decoder rejects
+// (failure_count must be positive). Expected: either no stale entry or a
+// positive count.
+void tool_failure_stale_count_probe() {
+    kairo::Executor owner;
+    kairo::ExecutorConfig executor_config;
+    executor_config.min_threads = executor_config.max_threads = 2;
+    MIRAGE_CHECK(static_cast<bool>(owner.initialize(executor_config)));
+    auto desktop = std::make_shared<SnapshotCountingEnvironment>(environment());
+    desktop->accessibility_.failure = "unsupported_window";
+    auto actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    std::shared_ptr<Script> script;
+    integration::ModelProviderOverride provider([&](const auto &profile) {
+        script = std::make_shared<Script>(profile, true);
+        // Turn 1: the snapshot tool fails once, then a window enumeration
+        // failure registers a second tool; turn 2: after the fixture advanced
+        // the epoch, only the snapshot tool fails again — its record resets
+        // the enumeration tool's per-epoch counter to zero.
+        script->actions_override = {
+            {"desktop.accessibility.semantic_snapshot", R"({"window_id":"w3"})"},
+            {"desktop.window.list", "{}"},
+            {"desktop.accessibility.semantic_snapshot", R"({"window_id":"w3"})"}};
+        script->coordinator = actions.get();
+        script->advance_epoch_before_turn = {2};
+        return script;
+    });
+    desktop->inner_->failures.window_list_error = true;
+    integration::DesktopToolContext tools;
+    tools.environment = desktop;
+    tools.actions = actions;
+    integration::ModelLayer layer(owner, model_config(), &provider, tools);
+    auto context = mira::make_control_context();
+    context.session = mira::SessionId::generate();
+    context.deadline = std::chrono::steady_clock::now() + 30s;
+    mirage::desktop::CancelToken cancel;
+    const auto first = owner
+                           .submit_auto([&] {
+                               return layer.complete_harness_turn({}, "stale probe turn one",
+                                                                  context, "", false, {}, {},
+                                                                  cancel);
+                           })
+                           .get();
+    MIRAGE_CHECK(first.ok && script && script->requests.size() == 4);
+    MIRAGE_CHECK(first.tool_failures.size() == 2);
+    const auto second = owner
+                            .submit_auto([&] {
+                                return layer.complete_harness_turn({}, "stale probe turn two",
+                                                                   context, "", false, {}, {},
+                                                                   cancel);
+                            })
+                            .get();
+    MIRAGE_CHECK(second.ok);
+    for (const auto &failure : second.tool_failures) {
+        std::fprintf(stderr, "stale probe: tool=%s code=%s count=%u\n", failure.tool.c_str(),
+                     failure.code.c_str(), failure.count);
+        MIRAGE_CHECK(failure.count >= 1);
+    }
+    layer.shutdown();
+    owner.shutdown(true);
+}
+
+// DEC-085 capability honesty at registration time: with screen_capability()
+// == Unavailable the capture-dependent tools stay unregistered and the goal
+// declares the missing screen provider; PortalOnly keeps capture exposed and
+// declares the portal authorization facts; Full exposes capture with no
+// capability caveat.
+void capability_registration_scenario() {
+    const auto closed_set_of = [](const mira::ModelRequest &request) {
+        for (const auto &item : request.input)
+            for (const auto &part : item.content)
+                if (const auto *text = std::get_if<mira::TextPart>(&part)) {
+                    const auto marker =
+                        text->text.find("Available tools for THIS turn (closed set):");
+                    if (marker != std::string::npos) {
+                        const auto end = text->text.find(". Never call a name absent", marker);
+                        return text->text.substr(marker, end == std::string::npos
+                                                             ? std::string::npos
+                                                             : end - marker);
+                    }
+                }
+        return std::string{};
+    };
+    for (const auto capability : {mirage::desktop::ScreenCapability::Unavailable,
+                                  mirage::desktop::ScreenCapability::PortalOnly,
+                                  mirage::desktop::ScreenCapability::Full}) {
+        kairo::Executor owner;
+        kairo::ExecutorConfig executor_config;
+        executor_config.min_threads = executor_config.max_threads = 2;
+        MIRAGE_CHECK(static_cast<bool>(owner.initialize(executor_config)));
+        auto desktop = std::make_shared<SnapshotCountingEnvironment>(environment());
+        desktop->screen_capability_ = capability;
+        std::shared_ptr<Script> script;
+        integration::ModelProviderOverride provider([&](const auto &profile) {
+            return script = std::make_shared<Script>(profile, true);
+        });
+        integration::DesktopToolContext tools;
+        tools.environment = desktop;
+        tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+        tools.gate = [](const auto &, const auto &, const auto &) { return true; };
+        auto config = model_config();
+        config.supports_images = true; // would build the capture turn when usable
+        integration::ModelLayer layer(owner, config, &provider, tools);
+        auto context = mira::make_control_context();
+        context.session = mira::SessionId::generate();
+        context.deadline = std::chrono::steady_clock::now() + 30s;
+        mirage::desktop::CancelToken cancel;
+        const auto result = owner
+                                .submit_auto([&] {
+                                    return layer.complete_harness_turn(
+                                        {}, "capability facts probe", context, "", false, {}, {},
+                                        cancel);
+                                })
+                                .get();
+        MIRAGE_CHECK(result.ok);
+        MIRAGE_CHECK(script && !script->requests.empty());
+        if (!script || script->requests.empty()) {
+            layer.shutdown();
+            owner.shutdown(true);
+            return;
+        }
+        const auto &request = script->requests.front();
+        const auto closed_set = closed_set_of(request);
+        MIRAGE_CHECK(!closed_set.empty());
+        if (capability == mirage::desktop::ScreenCapability::Unavailable) {
+            MIRAGE_CHECK(request_text_contains(request, "no screen provider is available"));
+            MIRAGE_CHECK(closed_set.find("desktop_screen_capture") == std::string::npos);
+            MIRAGE_CHECK(closed_set.find("desktop_screen_list_displays") == std::string::npos);
+            MIRAGE_CHECK(closed_set.find("desktop_vision_ocr") == std::string::npos);
+            MIRAGE_CHECK(closed_set.find("desktop_window_list") != std::string::npos);
+        } else if (capability == mirage::desktop::ScreenCapability::PortalOnly) {
+            MIRAGE_CHECK(request_text_contains(request, "portal_only"));
+            MIRAGE_CHECK(request_text_contains(
+                request, "denial is recoverable once the user grants access"));
+            MIRAGE_CHECK(request_text_contains(request, "Do not retry a denied capture"));
+            MIRAGE_CHECK(closed_set.find("desktop_screen_capture") != std::string::npos);
+        } else {
+            MIRAGE_CHECK(closed_set.find("desktop_screen_capture") != std::string::npos);
+            MIRAGE_CHECK(!request_text_contains(request, "no screen provider is available"));
+            MIRAGE_CHECK(!request_text_contains(request, "portal_only"));
+        }
+        layer.shutdown();
+        owner.shutdown(true);
+    }
+}
+
+// DEC-085: a stream-lifecycle protocol violation on pure dialog retries once
+// without streaming (bounded, side-effect free); without a preview sink the
+// same violation surfaces after the single non-streaming attempt.
+void dialog_sse_scenario(bool preview) {
+    kairo::Executor owner;
+    kairo::ExecutorConfig executor_config;
+    executor_config.min_threads = executor_config.max_threads = 2;
+    MIRAGE_CHECK(static_cast<bool>(owner.initialize(executor_config)));
+    std::shared_ptr<SseScript> script;
+    integration::ModelProviderOverride provider(
+        [&](const auto &profile) { return script = std::make_shared<SseScript>(profile); });
+    integration::ModelLayer layer(owner, model_config(), &provider, {});
+    auto context = mira::make_control_context();
+    context.deadline = std::chrono::steady_clock::now() + 10s;
+    std::string preview_text;
+    const auto result =
+        owner
+            .submit_auto([&] {
+                return layer.complete_dialog_turn(
+                    {}, "stream probe", context, "", true,
+                    preview
+                        ? integration::DialogPreviewSink(
+                            [&preview_text](const std::string &, const std::string &text, bool) {
+                                preview_text += text;
+                            })
+                        : integration::DialogPreviewSink{});
+            })
+            .get();
+    MIRAGE_CHECK(script && !script->stream_flags.empty());
+    if (preview) {
+        MIRAGE_CHECK(result.ok && result.reply_text == "recovered answer");
+        MIRAGE_CHECK(script->stream_flags.size() == 2);
+        MIRAGE_CHECK(script->stream_flags[0] && !script->stream_flags[1]);
+    } else {
+        MIRAGE_CHECK(!result.ok && result.failed);
+        MIRAGE_CHECK(result.error.find("invalid Messages SSE lifecycle") != std::string::npos);
+        MIRAGE_CHECK(script->stream_flags.size() == 1);
+        MIRAGE_CHECK(!script->stream_flags[0]);
+    }
+    layer.shutdown();
+    owner.shutdown(true);
+}
+
+// DEC-085: the same violation on a harness turn retries exactly once with
+// streaming disabled, before any tool executed (no dispatched side effects).
+void harness_sse_scenario() {
+    kairo::Executor owner;
+    kairo::ExecutorConfig executor_config;
+    executor_config.min_threads = executor_config.max_threads = 2;
+    MIRAGE_CHECK(static_cast<bool>(owner.initialize(executor_config)));
+    auto desktop = environment();
+    std::shared_ptr<SseScript> script;
+    integration::ModelProviderOverride provider(
+        [&](const auto &profile) { return script = std::make_shared<SseScript>(profile); });
+    integration::DesktopToolContext tools;
+    tools.environment = desktop;
+    tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    integration::ModelLayer layer(owner, model_config(), &provider, tools);
+    auto context = mira::make_control_context();
+    context.session = mira::SessionId::generate();
+    context.deadline = std::chrono::steady_clock::now() + 10s;
+    mirage::desktop::CancelToken cancel;
+    const auto result =
+        owner
+            .submit_auto([&] {
+                return layer.complete_harness_turn(
+                    {}, "stream probe", context, "", true,
+                    integration::DialogPreviewSink(
+                        [](const std::string &, const std::string &, bool) {}),
+                    {}, cancel);
+            })
+            .get();
+    MIRAGE_CHECK(script != nullptr);
+    // Exactly one streaming attempt, then one non-streaming retry that
+    // settles the turn.
+    MIRAGE_CHECK(script->stream_flags.size() == 2);
+    std::fprintf(stderr, "sse harness: stream attempts=%zu ok=%d failed=%d cancelled=%d "
+                         "error=%s\n",
+                 script->stream_flags.size(), result.ok, result.failed, result.cancelled,
+                 result.error.c_str());
+    if (script->stream_flags.size() == 2) {
+        MIRAGE_CHECK(script->stream_flags[0]);
+        MIRAGE_CHECK(!script->stream_flags[1]);
+    }
+    MIRAGE_CHECK(result.ok && result.reply_text.find("recovered answer") != std::string::npos);
     layer.shutdown();
     owner.shutdown(true);
 }
@@ -806,6 +1437,113 @@ void service_release_failure(const std::string &fault) {
     const auto report = service.run();
     MIRAGE_CHECK(!report.clean && report.diagnostic == "desktop input release did not complete");
 }
+// DEC-085: the service projects a settled harness turn's classified tool
+// failures onto `session.tool_error` events, delivered after the
+// authoritative `session.chat_updated` settlement on a subscribed
+// connection.
+void service_tool_error_scenario() {
+    mirage::testing::TempDir temp;
+    auto desktop = std::make_shared<SnapshotCountingEnvironment>(environment());
+    desktop->accessibility_.failure = "unsupported_window";
+    mirage::runtime::ServiceConfig config;
+    config.socket_path = temp.root() / "tool-error.sock";
+    config.persist_recovery_state = config.persist_session_state = config.persist_settings = false;
+    config.model = model_config();
+    config.model_provider_override =
+        std::make_shared<integration::ModelProviderOverride>([](const auto &profile) {
+            auto script = std::make_shared<Script>(profile, true);
+            // Three deterministic failures block the tool; the scripted
+            // provider then answers, so the turn settles ok with one
+            // classified failure entry.
+            script->actions_override = std::vector<std::pair<std::string, std::string>>(
+                3, {"desktop.accessibility.semantic_snapshot", R"({"window_id":"w3"})"});
+            return script;
+        });
+    mirage::runtime::RuntimeService service(config);
+    MIRAGE_CHECK(service.start(std::make_shared<integration::MiraEnvironmentBinding>(desktop)).ok);
+
+    // Raw event connection: ipc::IpcClient decodes every inbound frame as a
+    // response and would misread event frames, so the subscriber uses the
+    // poll-driven stream helpers (same discipline as event_subscription_test).
+    ipc::IpcStream stream;
+    {
+        std::string diagnostic;
+        stream = ipc::connect_stream(config.socket_path, 5s, diagnostic);
+    }
+    MIRAGE_CHECK(stream.valid());
+    std::string buffer;
+    std::vector<ipc::Event> events;
+    const auto next_event = [&](std::chrono::milliseconds budget) -> std::optional<ipc::Event> {
+        const auto read = mirage::testing::read_frame(stream, buffer, budget);
+        if (!frame_message(read))
+            return std::nullopt;
+        const auto decoded = ipc::decode_event(read.message);
+        if (!decoded.ok)
+            return std::nullopt;
+        events.push_back(decoded.event);
+        return decoded.event;
+    };
+    {
+        const auto frame = ipc::make_frame(ipc::encode_request(1, ipc::SubscribeEventsRequest{}));
+        MIRAGE_CHECK(mirage::testing::write_all(stream, frame, 5s));
+        // Consume the subscribe acknowledgement (a response frame) and the
+        // seed host.status event before driving the chat turn.
+        const auto deadline = std::chrono::steady_clock::now() + 5s;
+        bool seeded = false;
+        while (!seeded && std::chrono::steady_clock::now() < deadline) {
+            const auto event = next_event(std::chrono::duration_cast<std::chrono::milliseconds>(
+                deadline - std::chrono::steady_clock::now()));
+            seeded = event.has_value();
+        }
+        MIRAGE_CHECK(seeded);
+    }
+
+    ipc::IpcClient client(config.socket_path);
+    const auto sessions = client.call(ipc::ListSessionsRequest{}, 5s);
+    MIRAGE_CHECK(sessions.ok);
+    const auto session = std::get<ipc::SessionList>(sessions.payload).sessions.front().id;
+    MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "tool error probe", true}, 5s).ok);
+    std::optional<ipc::Event> settlement;
+    std::vector<ipc::Event> tool_error_events;
+    const auto deadline = std::chrono::steady_clock::now() + 15s;
+    while (std::chrono::steady_clock::now() < deadline &&
+           (!settlement || tool_error_events.empty())) {
+        const auto event = next_event(std::chrono::duration_cast<std::chrono::milliseconds>(
+            deadline - std::chrono::steady_clock::now()));
+        if (!event)
+            break;
+        if (const auto *turn = std::get_if<ipc::ChatTurnUpdatedEvent>(&event->payload);
+            turn && turn->session_id == session)
+            settlement = event;
+        if (const auto *error = std::get_if<ipc::ToolErrorEvent>(&event->payload);
+            error && error->session_id == session)
+            tool_error_events.push_back(*event);
+    }
+    MIRAGE_CHECK(settlement.has_value());
+    MIRAGE_CHECK(tool_error_events.size() == 1);
+    if (settlement) {
+        const auto &turn = std::get<ipc::ChatTurnUpdatedEvent>(settlement->payload);
+        MIRAGE_CHECK(turn.status == "ok");
+        // The classified event follows the authoritative turn settlement.
+        MIRAGE_CHECK(settlement->seq < (tool_error_events.empty()
+                                            ? settlement->seq + 1
+                                            : tool_error_events.front().seq));
+    }
+    if (tool_error_events.size() == 1) {
+        const auto &error = std::get<ipc::ToolErrorEvent>(tool_error_events.front().payload);
+        std::fprintf(stderr, "tool_error event: session=%s tool=%s code=%s count=%u message=%s\n",
+                     error.session_id.c_str(), error.tool_name.c_str(),
+                     error.error_code.c_str(), error.failure_count, error.message.c_str());
+        MIRAGE_CHECK(error.tool_name == "desktop.accessibility.semantic_snapshot");
+        MIRAGE_CHECK(error.error_code == "permanent_failure");
+        MIRAGE_CHECK(error.message.starts_with("工具不可用："));
+        MIRAGE_CHECK(error.message.find("unsupported_window") != std::string::npos);
+        MIRAGE_CHECK(error.failure_count == 3);
+    }
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
 } // namespace
 
 int main() {
@@ -814,6 +1552,17 @@ int main() {
 #endif
     registration_scenario();
     reasoning_scenario();
+    for (const auto *scenario :
+         {"block_permanent", "transient_not_blocked", "failure_summary", "budget_final_turn",
+          "budget_counts"})
+        resilience_scenario(scenario);
+    epoch_reset_scenario();
+    tool_failure_record_scenario();
+    tool_failure_stale_count_probe();
+    capability_registration_scenario();
+    dialog_sse_scenario(true);
+    dialog_sse_scenario(false);
+    harness_sse_scenario();
     for (const auto *scenario :
          {"normal", "read_only", "denied", "focus_changed", "cancelled", "expired", "throwing",
           "stale_scope", "stale_epoch", "missing_scope", "epoch_during_gate", "backend_scope"})
@@ -829,6 +1578,7 @@ int main() {
     service_release_failure("failed");
     service_release_failure("exception");
     service_release_failure("inconsistent");
+    service_tool_error_scenario();
 #ifdef MIRAGE_HARNESS_X11
     x11_scenario();
 #endif
