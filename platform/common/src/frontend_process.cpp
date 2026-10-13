@@ -22,7 +22,10 @@ namespace mirage::platform {
 namespace {
 class OwnedFrontend final : public desktop::FrontendProcess {
   public:
-    explicit OwnedFrontend(std::string binary) : binary_(std::move(binary)) {}
+    explicit OwnedFrontend(std::string binary, bool activate_existing = true,
+                           std::string socket_environment = "MIRAGE_NATIVE_SOCKET")
+        : binary_(std::move(binary)), activate_existing_(activate_existing),
+          socket_environment_(std::move(socket_environment)) {}
     ~OwnedFrontend() override {
         std::string diagnostic;
         (void)stop(diagnostic);
@@ -30,7 +33,7 @@ class OwnedFrontend final : public desktop::FrontendProcess {
     bool open(const std::string &endpoint, std::string &diagnostic) override {
         // BUG-20261006-006: activation must work while the UI paint loop is suspended.
         if (const auto child = pid(); child != 0)
-            return detail::activate_frontend(child, diagnostic);
+            return activate_existing_ ? detail::activate_frontend(child, diagnostic) : true;
         if (binary_.empty() || !std::filesystem::is_regular_file(binary_)) {
             diagnostic = "frontend executable is missing";
             return false;
@@ -59,13 +62,13 @@ class OwnedFrontend final : public desktop::FrontendProcess {
         }
         for (const wchar_t *entry = inherited; *entry; entry += std::wcslen(entry) + 1) {
             const std::wstring value(entry);
-            if (value.starts_with(L"MIRAGE_NATIVE_SOCKET="))
+            if (value.starts_with(wide(socket_environment_) + L"="))
                 continue;
             environment.insert(environment.end(), value.begin(), value.end());
             environment.push_back(L'\0');
         }
         ::FreeEnvironmentStringsW(inherited);
-        const auto socket = L"MIRAGE_NATIVE_SOCKET=" + wide(endpoint);
+        const auto socket = wide(socket_environment_) + L"=" + wide(endpoint);
         environment.insert(environment.end(), socket.begin(), socket.end());
         environment.push_back(L'\0');
         environment.push_back(L'\0');
@@ -85,9 +88,9 @@ class OwnedFrontend final : public desktop::FrontendProcess {
         // posix_spawn avoids executing C++ or setenv in a forked multi-threaded host.
         std::vector<std::string> values;
         for (char **entry = environ; *entry; ++entry)
-            if (!std::string_view(*entry).starts_with("MIRAGE_NATIVE_SOCKET="))
+            if (!std::string_view(*entry).starts_with(socket_environment_ + "="))
                 values.emplace_back(*entry);
-        values.push_back("MIRAGE_NATIVE_SOCKET=" + endpoint);
+        values.push_back(socket_environment_ + "=" + endpoint);
         std::vector<char *> environment;
         for (auto &value : values)
             environment.push_back(value.data());
@@ -124,6 +127,10 @@ class OwnedFrontend final : public desktop::FrontendProcess {
         return static_cast<std::int64_t>(pid_);
     }
     bool stop(std::string &diagnostic) override {
+        // BUG-20261013-003: pid() also reaps an exited child. Never signal a zero PID: on POSIX
+        // kill(0, ...) targets the caller's entire process group.
+        if (pid() == 0)
+            return true;
         // IPC closure lets the frontend complete its normal UI teardown first.
         const auto wait = [this](std::chrono::milliseconds budget) {
             const auto deadline = std::chrono::steady_clock::now() + budget;
@@ -131,17 +138,36 @@ class OwnedFrontend final : public desktop::FrontendProcess {
                 std::this_thread::sleep_for(std::chrono::milliseconds{10});
             return pid() == 0;
         };
-        if (wait(std::chrono::milliseconds{500}))
+#ifndef _WIN32
+        if (!activate_existing_) {
+            const auto child = pid();
+            if (child == 0)
+                return true;
+            (void)::kill(static_cast<pid_t>(child), SIGUSR1);
+            if (wait(std::chrono::milliseconds{6000}))
+                return true;
+        }
+        if (activate_existing_ && wait(std::chrono::milliseconds{500}))
             return true;
+#else
+        if (wait(std::chrono::milliseconds{activate_existing_ ? 500 : 2000}))
+            return true;
+#endif
 #ifdef _WIN32
         (void)::TerminateProcess(handle_, 1);
 #else
-        (void)::kill(pid_, SIGTERM);
+        const auto child = pid();
+        if (child == 0)
+            return true;
+        (void)::kill(static_cast<pid_t>(child), SIGTERM);
 #endif
         if (wait(std::chrono::milliseconds{1000}))
             return true;
 #ifndef _WIN32
-        (void)::kill(pid_, SIGKILL);
+        const auto remaining = pid();
+        if (remaining == 0)
+            return true;
+        (void)::kill(static_cast<pid_t>(remaining), SIGKILL);
         if (wait(std::chrono::milliseconds{1000}))
             return true;
 #endif
@@ -151,6 +177,8 @@ class OwnedFrontend final : public desktop::FrontendProcess {
 
   private:
     std::string binary_;
+    bool activate_existing_ = true;
+    std::string socket_environment_;
 #ifdef _WIN32
     HANDLE handle_ = nullptr;
     DWORD pid_ = 0;
@@ -159,6 +187,13 @@ class OwnedFrontend final : public desktop::FrontendProcess {
 #endif
 };
 } // namespace
+std::int64_t current_process_id() {
+#ifdef _WIN32
+    return static_cast<std::int64_t>(::GetCurrentProcessId());
+#else
+    return static_cast<std::int64_t>(::getpid());
+#endif
+}
 std::string current_executable_path() {
 #ifdef _WIN32
     std::vector<wchar_t> path(32768);
@@ -181,5 +216,8 @@ std::string current_executable_path() {
 }
 std::shared_ptr<desktop::FrontendProcess> make_frontend_process(std::string binary) {
     return std::make_shared<OwnedFrontend>(std::move(binary));
+}
+std::shared_ptr<desktop::FrontendProcess> make_pet_process(std::string binary) {
+    return std::make_shared<OwnedFrontend>(std::move(binary), false, "MIRAGE_PET_SOCKET");
 }
 } // namespace mirage::platform

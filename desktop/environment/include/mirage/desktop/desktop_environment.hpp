@@ -21,6 +21,13 @@ struct EnvironmentInfo {
     std::string platform; ///< "linux" or "windows" (design doc section 10)
 };
 
+/// DEC-085: honest full-screen capture capability of the screen provider.
+/// `Full` means direct framebuffer capture (an Xorg session); `PortalOnly`
+/// means capture requires the system sharing authorization (a Wayland
+/// session, including XWayland where root-window reads fail); `Unavailable`
+/// mirrors a null screen provider (DEC-015 capability honesty).
+enum class ScreenCapability { Full, PortalOnly, Unavailable };
+
 /// Unified PC environment surface presented to Mira (design doc section 5).
 ///
 /// The provider accessors below return a null pointer when the environment
@@ -56,6 +63,22 @@ class DesktopEnvironment {
     virtual InputProvider *input() { return nullptr; }
     virtual ClipboardProvider *clipboard() { return nullptr; }
     virtual NotificationProvider *notification() { return nullptr; }
+
+    /// DEC-085: capture capability of the screen provider, declared before
+    /// any tool registers its prerequisites. The default derives from the
+    /// provider face: a null screen is `Unavailable`, an observation-only
+    /// (authorization-based) provider is `PortalOnly`, otherwise `Full`.
+    /// Concrete environments whose session type degrades direct capture
+    /// (Wayland with an XWayland display) override this to `PortalOnly`
+    /// even when an X11 provider answers. Non-const like the accessors it
+    /// derives from.
+    virtual ScreenCapability screen_capability() {
+        auto *provider = screen();
+        if (provider == nullptr)
+            return ScreenCapability::Unavailable;
+        return provider->desktop_observation_only() ? ScreenCapability::PortalOnly
+                                                    : ScreenCapability::Full;
+    }
 };
 
 } // namespace mirage::desktop

@@ -221,6 +221,8 @@ void mark_driver_done(const std::shared_ptr<ServiceCore> &core, const std::strin
         auto entry = service.registry.tasks.find(task_id);
         if (entry != service.registry.tasks.end()) {
             entry->second.driver_done = true;
+            if (!entry->second.pet_completion_order)
+                entry->second.pet_completion_order = core->pet_completion_order.fetch_add(1) + 1;
             entry->second.final_progress = progress;
             entry->second.has_success = has_success;
             entry->second.success = success;

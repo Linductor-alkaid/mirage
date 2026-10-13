@@ -135,6 +135,8 @@ struct ServiceCore {
     /// Dialog threads (DEC-027): the per-session bounded turn logs, the
     /// snapshot face of session.chat_updated.
     DialogRegistry dialogs;
+    // Presentation watermark only; existing registries remain the terminal facts.
+    std::atomic<std::uint64_t> pet_completion_order{0};
 
     std::string mirage_version;
     std::size_t max_steps_per_task = 64;

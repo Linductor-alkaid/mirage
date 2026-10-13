@@ -119,6 +119,12 @@ class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment
     mirage::desktop::ApplicationProvider *application() override;
     mirage::desktop::NotificationProvider *notification() override;
 
+    /// DEC-085 capability honesty: a Wayland session (including XWayland,
+    /// where an X11 connection enumerates windows but root-window capture
+    /// fails) never reports `Full`, even when only the X11 screen provider
+    /// answers because the Portal backend failed to open.
+    mirage::desktop::ScreenCapability screen_capability() override;
+
     // The three-argument overrides would hide the base conveniences.
     using mirage::desktop::FilesystemProvider::read_text_file;
     using mirage::desktop::ProcessProvider::execute;
@@ -139,6 +145,13 @@ class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment
     std::unique_ptr<AtspiBackend> atspi_;
     std::unique_ptr<ApplicationBackend> application_backend_;
     std::unique_ptr<NotificationBackend> notification_backend_;
+    /// DEC-085: WAYLAND_DISPLAY / XDG_SESSION_TYPE said "wayland" at open().
+    /// XWayland sessions land here too; direct X11 capture is then known
+    /// broken and the Portal observation path is preferred.
+    bool wayland_session_ = false;
+    /// An explicitly configured display pinned an X server on purpose
+    /// (tests, forced X11); it opts out of session-based capability marking.
+    bool x11_display_explicit_ = false;
 };
 
 } // namespace mirage::platform::linux_backend

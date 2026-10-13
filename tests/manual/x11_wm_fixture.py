@@ -6,17 +6,26 @@ from Xlib import display, X, Xatom, Xutil
 
 p = argparse.ArgumentParser()
 p.add_argument('--record', type=Path, required=True)
+p.add_argument('--advertise-compositor', action='store_true',
+               help='Own the compositor selection for framebuffer tests; does not compose root pixels')
 args = p.parse_args()
 d = display.Display()
 root = d.screen().root
 root.change_attributes(event_mask=X.SubstructureRedirectMask | X.SubstructureNotifyMask)
 atom = {name: d.intern_atom(name) for name in ['WM_STATE', 'WM_CHANGE_STATE', '_NET_ACTIVE_WINDOW',
-        '_NET_CLIENT_LIST', '_NET_SUPPORTED', '_NET_WM_STATE', '_NET_WM_STATE_HIDDEN', '_NET_SUPPORTING_WM_CHECK']}
+        '_NET_CLIENT_LIST', '_NET_SUPPORTED', '_NET_WM_STATE', '_NET_WM_STATE_HIDDEN',
+        '_NET_WM_STATE_SKIP_TASKBAR', '_NET_WM_STATE_SKIP_PAGER', '_NET_SUPPORTING_WM_CHECK']}
 check = root.create_window(0, 0, 1, 1, 0, X.CopyFromParent)
+if args.advertise_compositor:
+    from Xlib.ext import composite
+    root.composite_redirect_subwindows(composite.RedirectManual)
+    check.set_selection_owner(d.intern_atom('_NET_WM_CM_S0'), X.CurrentTime)
 root.change_property(atom['_NET_SUPPORTING_WM_CHECK'], Xatom.WINDOW, 32, [check.id])
 check.change_property(atom['_NET_SUPPORTING_WM_CHECK'], Xatom.WINDOW, 32, [check.id])
 root.change_property(atom['_NET_SUPPORTED'], Xatom.ATOM, 32,
-                     [atom[name] for name in ['_NET_ACTIVE_WINDOW', '_NET_CLIENT_LIST', '_NET_WM_STATE', '_NET_WM_STATE_HIDDEN']])
+                     [atom[name] for name in ['_NET_ACTIVE_WINDOW', '_NET_CLIENT_LIST', '_NET_WM_STATE',
+                                               '_NET_WM_STATE_HIDDEN', '_NET_WM_STATE_SKIP_TASKBAR',
+                                               '_NET_WM_STATE_SKIP_PAGER']])
 clients = []
 record = dict(ready=True, minimized=0, activated=0)
 
@@ -26,9 +35,14 @@ def save():
 def publish():
     root.change_property(atom['_NET_CLIENT_LIST'], Xatom.WINDOW, 32, clients)
 
+def states(w):
+    property_value = w.get_full_property(atom['_NET_WM_STATE'], Xatom.ATOM)
+    return list(property_value.value) if property_value else []
+
 def restore(w):
     w.change_property(atom['WM_STATE'], atom['WM_STATE'], 32, [Xutil.NormalState, 0])
-    w.change_property(atom['_NET_WM_STATE'], Xatom.ATOM, 32, [])
+    w.change_property(atom['_NET_WM_STATE'], Xatom.ATOM, 32,
+                      [value for value in states(w) if value != atom['_NET_WM_STATE_HIDDEN']])
     w.map()
     w.configure(stack_mode=X.Above)
     w.set_input_focus(X.RevertToParent, X.CurrentTime)
@@ -49,7 +63,8 @@ while True:
     elif e.type == X.ClientMessage:
         if e.client_type == atom['WM_CHANGE_STATE'] and e.data[1][0] == Xutil.IconicState:
             e.window.change_property(atom['WM_STATE'], atom['WM_STATE'], 32, [Xutil.IconicState, 0])
-            e.window.change_property(atom['_NET_WM_STATE'], Xatom.ATOM, 32, [atom['_NET_WM_STATE_HIDDEN']])
+            e.window.change_property(atom['_NET_WM_STATE'], Xatom.ATOM, 32,
+                                     [*states(e.window), atom['_NET_WM_STATE_HIDDEN']])
             e.window.unmap(); record['minimized'] += 1; save()
         elif e.client_type == atom['_NET_ACTIVE_WINDOW'] and e.window.id in clients:
             restore(e.window); record['activated'] += 1; save()

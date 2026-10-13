@@ -1,0 +1,22 @@
+{
+  "version": "v5",
+  "date": "2026-10-12",
+  "source": "维护者交付的 mira_pet_v5_桌宠素材包",
+  "inventory": "docs/compatibility/data/mira-pet-assets-v5-20261012.json",
+  "notes": [
+    "mira_enter.webp 和 mira_exit.webp 在 v5 中已确认为正式版本",
+    "其余 7 个文件与 v3 版本一致",
+    "全部 9 个文件的 SHA256 已与库存文件验证一致"
+  ],
+  "files": [
+    "mira_done.webp",
+    "mira_enter.webp",
+    "mira_exit.webp",
+    "mira_fail.webp",
+    "mira_look.webp",
+    "mira_mouse.webp",
+    "mira_rest.webp",
+    "mira_think.webp",
+    "mira_typing.webp"
+  ]
+}

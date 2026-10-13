@@ -1111,6 +1111,16 @@ void drain_runtime() {
                                              preview->sequence, preview->text, preview->truncated);
                         break;
                     }
+            } else if (const auto *tool_error =
+                           std::get_if<ipc::ToolErrorEvent>(&message.event->payload)) {
+                // DEC-085: classified tool failures surface next to the turn,
+                // not as an anonymous error.
+                for (const auto &session : s.chat.sessions())
+                    if (session.remote_id == tool_error->session_id) {
+                        s.runtime_notice =
+                            "工具失败（" + tool_error->tool_name + "）：" + tool_error->message;
+                        break;
+                    }
             } else if (std::holds_alternative<ipc::HostStatusEvent>(message.event->payload)) {
                 call_runtime(ipc::ProductControlRequest{}, "product");
             } else if (std::holds_alternative<ipc::EventsOverflowEvent>(message.event->payload)) {
@@ -2752,6 +2762,26 @@ float process_part_height(const LocalMessage &message, const conversation::Part 
             : 0;
     return 28 + detail + 4;
 }
+
+/// DEC-085: classification label for a failed tool part, derived from the
+/// canonical receipt prefixes the model layer writes (platform_not_supported,
+/// permanent_failure, final_turn_tools_closed, ...). Empty for failures the
+/// vocabulary does not cover — those keep the plain 失败 label.
+std::string tool_failure_label(const conversation::Part &part) {
+    const auto &output = part.output;
+    if (output.find("platform_not_supported") != std::string::npos ||
+        output.find("platform_limitation") != std::string::npos)
+        return "环境限制";
+    if (output.find("permission_denied") != std::string::npos)
+        return "需要授权";
+    if (output.find("permanent_failure") != std::string::npos)
+        return "已阻止";
+    if (output.find("final_turn_tools_closed") != std::string::npos)
+        return "预算收尾";
+    if (output.find("invalid_arguments") != std::string::npos)
+        return "参数无效";
+    return {};
+}
 void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &message,
                     std::uint64_t session, float width, float y, const Palette &p,
                     const components::theme::ThemeColorTokens &tokens,
@@ -2785,7 +2815,9 @@ void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &mes
                      : "") +
                 (part.truncated ? "（已截断）" : "");
             auto style = button_style(p);
-            style.text = p.muted;
+            const bool failed = part.status == "failed";
+            const auto fail_label = failed ? tool_failure_label(part) : std::string{};
+            style.text = failed ? p.error : p.muted;
             style.radius = 5;
             // 任务类型独立图标：思考、桌面动作、等待，其余工具兜底（M6-40）。
             icon(ui, id + ".kind", icons::part_kind(part.kind, part.name, evidence.has_value()), 4,
@@ -2821,7 +2853,8 @@ void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &mes
                 : part.status == "cancelled"                                        ? "已取消"
                 : part.status == "failed"                                           ? "失败"
                                                                                     : "已完成";
-            text(ui, id + ".status", status, width - (expanded ? 104 : 72), y, 64, 28, 12, p.muted);
+            text(ui, id + ".status", failed && !fail_label.empty() ? fail_label : status,
+                 width - (expanded ? 104 : 72), y, 64, 28, 12, failed ? p.error : p.muted);
             if (expanded) {
                 const auto detail = process_detail(part);
                 control_button(ui, id + ".copy")

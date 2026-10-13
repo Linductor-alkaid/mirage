@@ -48,6 +48,7 @@ struct StepRecord {
 };
 
 struct TaskRecord {
+    std::uint64_t pet_completion_order = 0; // volatile, never recovery state
     std::string id;
     std::string goal;
     /// Session the task's conversation lands in (DEC-021): the explicit
@@ -151,6 +152,7 @@ struct WorkflowRegistry {
 /// creation time; the state projects live from the pinned runtime at read
 /// time (workflow.runs / workflow.run_updated).
 struct WorkflowRunRecord {
+    std::uint64_t pet_completion_order = 0;
     std::string workflow_id;
     std::int64_t created_at_ms = 0;
 };
@@ -172,6 +174,12 @@ struct WorkflowRunRegistry {
 /// "ok" / "failed"; reply and error are encode-when-set exactly at their
 /// statuses (the wire vocabulary mirrors this record one to one).
 struct DialogTurnRecord {
+    std::uint64_t pet_completion_order = 0;
+    // DEC-084 volatile display metadata, protected by the existing dialog owner.
+    bool model_in_flight = false;
+    std::string pet_tool_phase; // running desktop tool only; empty when no tool is executing
+    bool cancel_requested = false;
+    bool was_cancelled = false;
     std::optional<ipc::ContextUsage> context_usage;
     std::string turn_id;
     std::string agent_task_id;

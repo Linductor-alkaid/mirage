@@ -35,6 +35,12 @@ add_subdirectory(tray)
 # Native UI, DEC-037: the sole product frontend.
 add_subdirectory(native)
 
+# Approved v5 sources live in apps/pet/assets. Preview/asset tests remain opt-in;
+# product installation and redistribution are covered separately by M8-08.
+option(MIRAGE_ENABLE_PET_PREVIEW "Build the local v5 mira_pet preview" OFF)
+option(MIRAGE_ENABLE_PET_ASSET_TESTS "Test approved v5 assets without building a UI" OFF)
+add_subdirectory(pet)
+
 if(MIRAGE_BUNDLE_VISION)
     target_compile_definitions(mirage_service_host PRIVATE MIRAGE_BUNDLED_VISION=1)
 endif()

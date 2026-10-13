@@ -927,3 +927,61 @@ input_actionable。OCR 的 region actionable=false 仍只表示观察框不自�
 source_sequence 是会话内源帧序号，不是跨任务标识或已知捕获时间；动作后验证要求
 大于执行前序号，普通观察可读取当前流中最新自有画面。旧 image_scope 明确拒绝为
 stale_image_scope，不能自动将旧目标重绑定到新图。没有新增控制面 operation。
+
+## M8-01：mira_pet 只读状态（DEC-084，v1 加法扩展）
+
+`hello` 响应可带布尔 `pet_status`。支持本扩展的 Runtime 写出 true，缺席的旧服务
+按不支持处理；非布尔值解码失败。`pet.status` 请求无参数，响应在成功信封后写出
+`"pet":true` 和完整 `PetStatus`。`events.subscribe` 可带布尔 `pet_status`，缺席或
+false 不订阅桌宠状态；编码端仅在 true 时写出此成员。订阅者收到的事件名为
+`pet.updated`，内容与 `pet.status` 响应中的状态字段相同。原有订阅和 golden
+编码保持不变。
+托盘配置了受管桌宠时，既有 `product.control(status)` 响应在原末字段之后追加非负
+整数 `pet_pid`；没有桌宠载体时缺席，旧客户端忽略该可选字段。桌宠进入 UI 前须核对
+`hello.tray`、`hello.pet_status` 和本机 PID 等于 `pet_pid`；这只是同一机器上的产品
+子进程身份检查，不是认证外部不可信 IPC 服务的机制。
+
+### M8-05：桌宠独立启停与 bootstrap（golden v20）
+
+配置了桌宠载体的 `ProductState` 在 `pet_pid` 后加 `pet_state`、`pet_diagnostic`。
+两字符串成对出现；state 闭集为 stopped/starting/running/stopping/failed，diagnostic
+最多 512 字节，可为空。无载体时三字段缺席；只有旧版 `pet_pid` 的响应仍可解码，旧
+客户端忽略新字段。`pet_state` 存在是独立控制能力标识，新客户端先检查再发操作。
+
+`product.control` 增加 `pet_start`、`pet_stop`、`pet_ready`，epoch 必须为 0；
+ready 在末字段携带正整数 `pet_pid`。start 复用 starting/running 的所属进程，stop
+重复请求复用同一个在途关闭；停止期间 start/ready 拒绝为 invalid_state。停止请求
+的成功响应只表示有限 Executor 任务已接纳，之后轮询 state；不表示进程已经退出。
+
+启动后 state=starting；只有当前所属存活 PID 在窗口平台准备、IPC 订阅及健康/动画
+timer 均建立后报告 ready，才进入 running。该状态不代表素材视觉验收或帧已解码。
+10 秒未收到 ready 时有界关闭并报告 failed，不自动重启。退出/崩溃也报告 failed，
+用户可显式 start 恢复。正常 stop 不取消 Agent、会话或主窗口；所有进程 handle 访问
+串行，关闭任务持有 handle 期间快照只读缓存 PID。owner shutdown 先停止生产者，
+经串行 fence 禁止新控制，再消费在途关闭 future，最后回收所属进程。
+
+非法 ready 为 `pet_ready requires a positive pet_pid and zero exit_epoch`；start/stop
+非零 epoch 为 `pet control requires zero exit_epoch`；非法/缺失诊断对或状态闭集为
+`invalid product pet lifecycle`。载体缺席、错误 PID、stopping/closing 冲突返回
+invalid_state 与明确诊断。服务端继续保留窗口/输入守卫，未将本控制面当作 M8-06
+的目标避让协议。
+
+`PetStatus` 字段按以下顺序写出，所有字段必有：`schema_version`（整数 1）、
+`owner_epoch`（非空 ≤128 字节）、`revision`（正整数）、`host_state`（stopped /
+starting / running / stopping / failed）、`display_state`（starting / idle / thinking /
+looking / mouse / typing / task_success / task_failure / exiting / waiting / paused /
+takeover / cancelled / disconnected / unknown）、`source_kind`（task / turn /
+workflow 或空）、`source_id`（与 source_kind 同时为空或同时非空，≤128 字节）、
+`session_id`（≤128 字节）、`active_count`（0～1024）、`summary`（≤256 字节）、
+`reason_code`（≤64 字节）、`elapsed_ms`（非负整数）。整数不能超过有符号 64 位
+上限；含状态的 JSON 对象编码后不得超过 4096 字节。字段类型、范围或 marker
+无效均拒绝为 `invalid pet status`，不使用部分字段继续显示。
+
+`owner_epoch` 标识本次 Runtime owner，`revision` 只在展示事实变化时增加；
+`elapsed_ms` 是服务端同一显示阶段的持续时长，不是可跨进程比较的时钟时间戳。
+`source_id` 用于结果归属，摘要只写阶段文字，不携带用户输入、思考正文、截图或凭据。
+旧 epoch、倒退 revision、断连与事件 seq 缺口由客户端丢弃并重新获取快照；订阅建立
+后再读快照，按 epoch/revision 合并。当前托盘 Runtime 的既有 500 ms 产品维护
+周期会发布变化；headless 服务无此产品周期，客户端须读取 `pet.status` 才推动
+快照与事件。此扩展不承诺实时性；looking/mouse/typing 只有真实子阶段证据进入后
+才会出现，未知执行显示 `unknown`。

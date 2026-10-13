@@ -663,8 +663,19 @@ mira::Result<JsonValue> DesktopImageTurn::capture(const JsonValue &args,
     const auto kind = text(args, "source"), id = text(args, "source_id");
     if (desktop_.environment->screen()->desktop_observation_only())
         return capture_desktop(args, ctx);
-    if ((kind != "display" && kind != "window" && kind != "roi") || id.empty() || id.size() > 256)
+    // DEC-085 capability honesty: a degraded (Wayland) screen capability
+    // must surface as a canonical platform limitation, never as a generic
+    // argument or I/O failure the model cannot tell apart from its own
+    // mistakes.
+    const auto capability = desktop_.environment->screen_capability();
+    if ((kind != "display" && kind != "window" && kind != "roi") || id.empty() || id.size() > 256) {
+        if (kind == "desktop" && capability != mirage::desktop::ScreenCapability::Full)
+            return error(ErrorCode::UnsupportedCapability,
+                         "platform_not_supported: full-screen X11 capture is unavailable in this "
+                         "Wayland session (root-window reads fail); use the authorized desktop "
+                         "observation capture or a window capture, or explain the limitation");
         return error(ErrorCode::InvalidArgument, "invalid capture source");
+    }
     if (captures_ == 4)
         return error(ErrorCode::ResourceExhausted, "desktop capture count exceeds 4 per turn");
     const auto allowed = desktop_.authorize ? desktop_.authorize(
@@ -749,9 +760,16 @@ mira::Result<JsonValue> DesktopImageTurn::capture(const JsonValue &args,
     const auto outcome = kind == "window"    ? screen.capture_window(id, limits, bounded)
                          : kind == "display" ? screen.capture_display(id, limits, bounded)
                                              : screen.capture_roi(area, limits, bounded);
-    if (!outcome.ok || outcome.cancelled)
+    if (!outcome.ok || outcome.cancelled) {
+        if (!outcome.cancelled && capability != mirage::desktop::ScreenCapability::Full)
+            return error(ErrorCode::UnsupportedCapability,
+                         "platform_not_supported: direct " + kind +
+                             " capture failed in this Wayland session (" + outcome.error.code +
+                             "); use the authorized desktop observation capture or explain the "
+                             "limitation instead of retrying the same capture");
         return error(outcome.cancelled ? ErrorCode::Cancelled : ErrorCode::PlatformError,
                      outcome.error.code);
+    }
     if (bounded.cancelled())
         return error(ErrorCode::Cancelled, "capture cancelled or expired before publication");
     const auto after = geometry();

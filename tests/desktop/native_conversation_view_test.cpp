@@ -1678,7 +1678,10 @@ const auto model = "Mirage";
     height = 800;
     glfwPollEvents();
     window::close();
-    glfwWaitEvents();
+    const auto close_wait = std::chrono::steady_clock::now();
+    glfwWaitEventsTimeout(1.0);
+    // A missing idle wakeup is an assertion failure, not an unbounded test hang.
+    MIRAGE_CHECK(std::chrono::steady_clock::now() - close_wait < std::chrono::milliseconds{900});
     MIRAGE_CHECK(glfwWindowShouldClose(window));
     window::shutdown();
     runtime.shutdown();

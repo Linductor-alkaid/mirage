@@ -1,5 +1,6 @@
 #pragma once
 #include <mirage/conversation.hpp>
+#include <mirage/runtime/pet/status.hpp>
 
 #include <chrono>
 #include <cstddef>
@@ -43,6 +44,7 @@ struct TaskStep {
 };
 
 struct HelloRequest {};
+struct PetStatusRequest {};
 
 struct SubmitTaskRequest {
     std::string goal;
@@ -100,9 +102,11 @@ struct ShutdownRequest {};
 // DEC-045: bounded product lifecycle face. confirm/cancel require the current
 // exit epoch, preventing delayed UI confirmations from closing a later prompt.
 struct ProductControlRequest {
-    std::string action = "status"; // status/open/quit/confirm_quit/cancel_quit/frontend_ready
+    std::string action =
+        "status"; // status/open/quit/confirm_quit/cancel_quit/frontend_ready/pet_start/pet_stop/pet_ready
     std::uint64_t exit_epoch = 0;
     std::int64_t frontend_pid = 0; // frontend_ready only
+    std::int64_t pet_pid = 0;      // pet_ready only
 };
 struct ProductState {
     std::int64_t frontend_pid = 0;
@@ -111,6 +115,9 @@ struct ProductState {
     std::size_t active_work = 0;
     bool exit_pending = false;
     bool frontend_ready = false;
+    std::optional<std::int64_t> pet_pid;    // present only for a tray with an owned pet carrier
+    std::optional<std::string> pet_state{}; // stopped/starting/running/stopping/failed
+    std::optional<std::string> pet_diagnostic{}; // bounded to 512 bytes
 };
 
 /// Subscribes the connection to the service event stream (DEC-012 decision
@@ -119,6 +126,7 @@ struct ProductState {
 /// stable protocol_error, which clients translate into polling fallback.
 struct SubscribeEventsRequest {
     bool chat_preview = false; ///< DEC-041: transient previews understood by this client
+    bool pet_status = false;   ///< DEC-084: explicitly opt into pet.updated events
 };
 
 /// Drops the connection's event subscription; idempotent. Events already
@@ -373,8 +381,8 @@ struct DesktopObserveRequest {
 };
 
 using Request = std::variant<
-    HelloRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest, CancelTaskRequest,
-    PauseTaskRequest, ResumeTaskRequest, ShutdownRequest, ProductControlRequest,
+    HelloRequest, PetStatusRequest, SubmitTaskRequest, ListTasksRequest, InspectTaskRequest,
+    CancelTaskRequest, PauseTaskRequest, ResumeTaskRequest, ShutdownRequest, ProductControlRequest,
     SubscribeEventsRequest, UnsubscribeEventsRequest, RespondPermissionRequest,
     ListPermissionsRequest, ListSessionsRequest, OpenSessionRequest, SessionHistoryRequest,
     CloseSessionRequest, DeleteSessionRequest, SessionChatRequest, ChatHistoryRequest,
@@ -423,7 +431,8 @@ struct ServiceIdentity {
     /// request face (`policy.get` / `policy.set`) is served — always true
     /// from this service generation on. Placed after `chat`.
     std::optional<bool> policy;
-    std::optional<bool> tray{}; // true only after embedded tray registration
+    std::optional<bool> tray{};       // true only after embedded tray registration
+    std::optional<bool> pet_status{}; // DEC-084 read-only presentation face
 };
 
 struct TaskSubmitted {
@@ -828,8 +837,8 @@ struct ObservationView {
 };
 
 using ResponsePayload =
-    std::variant<ServiceIdentity, ProductState, TaskSubmitted, TaskList, InspectTask, TaskCancelled,
-                 TaskPaused, TaskResumed, ShutdownAccepted, PermissionResponded,
+    std::variant<ServiceIdentity, ProductState, pet::Status, TaskSubmitted, TaskList, InspectTask,
+                 TaskCancelled, TaskPaused, TaskResumed, ShutdownAccepted, PermissionResponded,
                  PermissionPendingList, SessionList, SessionOpened, SessionClosed, SessionDeleted,
                  DialogTurnAccepted, DialogHistory, SessionHistory, WorkflowList, WorkflowSaved,
                  WorkflowPublished, WorkflowDeleted, WorkflowAtomCatalog, WorkflowRunList,
@@ -1028,11 +1037,32 @@ struct ChatPreviewEvent {
     bool truncated = false;
 };
 
+/// `session.tool_error` (DEC-085): one classified tool failure class of a
+/// settled harness turn, pushed so the UI can surface an actionable error
+/// card instead of a bare turn failure. `error_code` uses the stable
+/// classification vocabulary ("platform_limitation" | "permanent_failure" |
+/// "invalid_arguments" | "permission_denied" | "conditional_failure" |
+/// "transient_failure"); `message` is the user-facing composition;
+/// `failure_count` counts the tool's failures within the current
+/// environment epoch. No seed semantics — the event accompanies the
+/// authoritative `session.chat_updated` settlement.
+struct ToolErrorEvent {
+    std::string session_id;
+    std::string tool_name;
+    std::string error_code;
+    std::string message;
+    std::uint32_t failure_count = 0;
+};
+
 /// Closed event set; new events join additively (DEC-012).
+struct PetUpdatedEvent {
+    pet::Status status;
+};
 using EventPayload =
     std::variant<TaskUpdatedEvent, HostStatusEvent, EventsOverflowEvent, PermissionRequestedEvent,
                  SessionUpdatedEvent, SessionMessageEvent, SessionTurnEvent, SessionOutputEvent,
-                 WorkflowRunUpdatedEvent, ChatTurnUpdatedEvent, ChatPreviewEvent>;
+                 WorkflowRunUpdatedEvent, ChatTurnUpdatedEvent, ChatPreviewEvent, ToolErrorEvent,
+                 PetUpdatedEvent>;
 
 /// One decoded event frame minus its envelope bookkeeping: the per-connection
 /// `seq` plus the payload. `seq` is assigned by the sender per connection,

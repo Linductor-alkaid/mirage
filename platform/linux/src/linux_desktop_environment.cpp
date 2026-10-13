@@ -87,10 +87,25 @@ LinuxDesktopEnvironment::LinuxDesktopEnvironment(std::vector<std::filesystem::pa
                                                  NotificationsOptions notifications_options)
     : read_scope_(std::move(read_roots)) {
     const char *session = std::getenv("XDG_SESSION_TYPE");
-    const bool native_wayland = x11_options.enabled && x11_options.display.empty() && session &&
-                                std::string_view(session) == "wayland";
-    if (native_wayland) {
+    const char *wayland_display = std::getenv("WAYLAND_DISPLAY");
+    // DEC-085: a Wayland session is recognized from either session marker.
+    // XWayland keeps $DISPLAY set, so the previous "empty display plus
+    // XDG_SESSION_TYPE" probe alone misread XWayland as a full X11 session
+    // and let capture tools run into guaranteed XGetImage BadMatch failures.
+    wayland_session_ = (wayland_display && *wayland_display) ||
+                       (session && std::string_view(session) == "wayland");
+    const bool auto_session = x11_options.display.empty();
+    const bool session_is_wayland = session && std::string_view(session) == "wayland";
+    const bool native_wayland = x11_options.enabled && auto_session && session_is_wayland;
+    x11_display_explicit_ = x11_options.enabled && !auto_session;
+    if (x11_options.enabled && auto_session && wayland_session_) {
+        // Auto-selected session on Wayland: prefer the Portal observation
+        // path. An explicit display opts out of this selection entirely
+        // (tests and deliberate X11 forcing keep pure X11 semantics).
         portal_screen_ = PortalScreenBackend::open();
+    }
+    if (native_wayland) {
+        // Pure Wayland (no $DISPLAY): Portal only, exactly as before.
     } else if (x11_options.enabled) {
         x11_ = X11Backend::open(x11_options.display);
         // A failed connection intentionally leaves x11_ null: the window /
@@ -134,6 +149,19 @@ mirage::desktop::ScreenProvider *LinuxDesktopEnvironment::screen() {
     if (portal_screen_)
         return portal_screen_.get();
     return x11_ != nullptr ? x11_->screen() : nullptr;
+}
+
+mirage::desktop::ScreenCapability LinuxDesktopEnvironment::screen_capability() {
+    if (portal_screen_ == nullptr && x11_ == nullptr)
+        return mirage::desktop::ScreenCapability::Unavailable;
+    // An explicitly configured display pinned an X server on purpose; its
+    // contract is direct capture (tests, forced X11 sessions).
+    if (x11_ != nullptr && x11_display_explicit_)
+        return mirage::desktop::ScreenCapability::Full;
+    // DEC-085: a Wayland session never carries direct framebuffer capture —
+    // XWayland root-window reads fail even when window enumeration works.
+    return wayland_session_ ? mirage::desktop::ScreenCapability::PortalOnly
+                            : mirage::desktop::ScreenCapability::Full;
 }
 
 mirage::desktop::InputProvider *LinuxDesktopEnvironment::input() {

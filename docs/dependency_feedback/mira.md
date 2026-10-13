@@ -477,3 +477,22 @@ M6-19收尾回读：Mira PR#79的pull_request run37332976997在当前pin 0a099ba
   产品侧行为维持"配置变更前该 profile 持续不可用"，不放宽。
 - 验收：上游交付定时半开恢复或明确语义后，测试移除 `model.set` 重建并以真实
   cooldown 恢复路径验证探针放行；Mirage 侧不新增并行熔断设施。
+
+## MIRA-20261013-001：`Result<T>::value()` 对 error 态未定义行为解引用
+
+- 公开API核对：`include/mira/core_contracts.hpp` 的 `Result<T>::value()`（约 260-262 行）
+  对 error 态（`value_` 为空 `std::optional`）直接 `return *value_;`，无断言、无防线；
+  `error()` 同理返回空 optional 的解引用。属公开 API 形状，不是使用错误。
+- 现场证据：2026-10-13 DEC-085 续写特性测试中，测试侧
+  `parse_json(非法JSON).value()` 把 optional 原始存储重解释为 `JsonValue`（variant
+  index 为垃圾字节 0xff），析构经 GCC variant 跳表分发跳入未映射内存——SIGSEGV 且
+  无符号栈（gdb/unwind 全部失效），排查成本极高。布局敏感：ASAN 与部分运行下垃圾
+  字节恰好落在合法备选项上，问题呈随机隐匿形态（详见 mirage 侧排查记录：
+  docs/compatibility/session-resilience-fix-20261013.md 与上游 PR #93 排查段）。
+- 影响范围：仓库内测试与示例大量使用 `parse_json(...).value()` 惯用法；任何一处
+  输入非法即触发静默 UB，且崩溃点远离缺陷点。
+- 最小期望能力：`value()`/`error()` 在错误/空态显式失败（断言 + domain 标注的
+  abort，或返回带 diagnostics 的 Error 语义），使误用成为确定性问题。
+- 延期影响：Mirage 侧测试规范补充"`.value()` 只能用于字面量已验证合法的常量"
+  约定并自查；产品代码不受影响（error 路径均检查）。
+- 验收：上游交付防线后，本条归档；Mirage 测试中的 `.value()` 惯用法按新语义复核。

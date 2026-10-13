@@ -11,6 +11,8 @@ enum class TrayAction {
     Pause,     ///< pause the tracked task (task.pause)
     Resume,    ///< resume the tracked task (task.resume)
     OpenShell, ///< 快速进入 Mirage: launch the desktop shell binary
+    PetStart,  ///< start/recover the owned pet process (M8-05)
+    PetStop,   ///< stop the pet independently of Agent tasks (M8-05)
     Quit,      ///< request whole-product exit (DEC-045)
 };
 
@@ -26,6 +28,9 @@ struct TrayState {
     bool can_pause = false;
     bool can_resume = false;
     bool can_open_shell = false;
+    std::string pet_label; // empty when no pet carrier is configured
+    bool can_toggle_pet = false;
+    bool pet_running = false;
 
     /// Upper bound for the status line (bytes; RULE-07).
     static constexpr std::size_t kMaxStatusBytes = 256;
@@ -51,8 +56,8 @@ struct TrayCarrierContext {
 };
 
 /// Platform carrier of the tray indicator surface (M5-10, DEC-030): the
-/// notification-area icon; a left single click opens a two-action menu
-/// (OpenShell / Quit, DEC-045), implemented by the platform
+/// notification-area icon; a left single click opens a product menu
+/// (OpenShell / optional PetStart/PetStop / Quit, DEC-045/084), implemented by the platform
 /// backends — Windows through the Shell_NotifyIcon carrier DEC-018 landed
 /// (M4-05), its productized menu extension; Linux through the session-bus
 /// StatusNotifierItem indicator. A session without the platform's indicator

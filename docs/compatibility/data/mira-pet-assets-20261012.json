@@ -1,0 +1,135 @@
+{
+  "recorded_date": "2026-10-12",
+  "timezone": "Asia/Shanghai",
+  "baseline_commit": "adfe65b005547e8c13a9df3523e2f589afade25d",
+  "worktree": "Existing uncommitted M7 changes; planning-only documentation increment",
+  "source_path": "~/下载/mira_pet_v2_H3连续动作/",
+  "method": "Python 3 standard library, read-only RIFF/VP8X/ANIM/ANMF inspection and SHA-256",
+  "validated": [
+    "container metadata",
+    "frame duration fields",
+    "file SHA-256"
+  ],
+  "not_validated": [
+    "full frame decode",
+    "alpha cleanliness",
+    "loop segment selection",
+    "visual seam",
+    "runtime rendering"
+  ],
+  "missing_states": [
+    "starting",
+    "exiting"
+  ],
+  "pending_replacement_states": [
+    "looking",
+    "typing"
+  ],
+  "files": [
+    {
+      "file": "mira_done.webp",
+      "bytes": 2078968,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 56,
+      "duration_ms": 4648,
+      "frame_duration_ms": [
+        83
+      ],
+      "container_loop_count": 0,
+      "sha256": "911459ba4247b7dd5fd8df939c7869d6a08100b362ba0da0c247cca0a4b421d1"
+    },
+    {
+      "file": "mira_fail.webp",
+      "bytes": 1914408,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 55,
+      "duration_ms": 6875,
+      "frame_duration_ms": [
+        125
+      ],
+      "container_loop_count": 0,
+      "sha256": "198a9e3041b836e6722af9a2af196225129ffe0d00005a530468b0bbc70de57c"
+    },
+    {
+      "file": "mira_look.webp",
+      "bytes": 2254594,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 64,
+      "duration_ms": 5312,
+      "frame_duration_ms": [
+        83
+      ],
+      "container_loop_count": 0,
+      "sha256": "1474ba0cca1dc53602bd9e0b158c79af14a43c9d624eafd0bd05f9800e29c733"
+    },
+    {
+      "file": "mira_mouse.webp",
+      "bytes": 2118492,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 59,
+      "duration_ms": 5369,
+      "frame_duration_ms": [
+        91
+      ],
+      "container_loop_count": 0,
+      "sha256": "185b346420ddec073afa322f9e534af4a3e56873011792772a78cfb77b7a4426"
+    },
+    {
+      "file": "mira_rest.webp",
+      "bytes": 1779580,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 50,
+      "duration_ms": 8350,
+      "frame_duration_ms": [
+        167
+      ],
+      "container_loop_count": 0,
+      "sha256": "2d59a265a48589af9b44b08600bfef24ea0c7a89244a2a660c3e05951613e38d"
+    },
+    {
+      "file": "mira_think.webp",
+      "bytes": 2023042,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 55,
+      "duration_ms": 6875,
+      "frame_duration_ms": [
+        125
+      ],
+      "container_loop_count": 0,
+      "sha256": "186c4fa8944ce0874ddde5582bf81906dea58972cf684f877afb3a298a1f8c34"
+    },
+    {
+      "file": "mira_typing.webp",
+      "bytes": 2559838,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 74,
+      "duration_ms": 5254,
+      "frame_duration_ms": [
+        71
+      ],
+      "container_loop_count": 0,
+      "sha256": "3c12461bed3830206291708f02bf7f7f8aaef4ba5b953b0f077a6a141f6a4195"
+    }
+  ]
+}

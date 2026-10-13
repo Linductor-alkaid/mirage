@@ -201,6 +201,7 @@ class ObservedProvider final : public mira::IModelProvider {
     std::function<mira::Result<void>(const mira::ModelRequest &, const mira::OperationContext &)>
         request_guard;
     ConversationCapture *capture = nullptr; // scoped to the serialized caller task
+    DialogModelActivitySink activity;
     const mira::ModelProfile &profile() const override { return provider_->profile(); }
     mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
                                             const mira::OperationContext &context,
@@ -212,6 +213,15 @@ class ObservedProvider final : public mira::IModelProvider {
                     if (!allowed)
                         return allowed.error();
                 }
+                if (activity)
+                    activity(true);
+                struct EndActivity {
+                    DialogModelActivitySink &sink;
+                    ~EndActivity() {
+                        if (sink)
+                            sink(false);
+                    }
+                } end{activity};
                 return provider_->infer(request, context, options);
             } catch (...) {
                 mira::Error error;
@@ -240,12 +250,15 @@ class ObservedProvider final : public mira::IModelProvider {
 struct CaptureScope {
     ObservedProvider &provider;
     ConversationCapture &capture;
-    CaptureScope(ObservedProvider &p, ConversationCapture &c) : provider(p), capture(c) {
+    CaptureScope(ObservedProvider &p, ConversationCapture &c, DialogModelActivitySink activity = {})
+        : provider(p), capture(c) {
         provider.capture = &capture;
+        provider.activity = std::move(activity);
     }
     ~CaptureScope() {
         provider.request_guard = {};
         provider.capture = nullptr;
+        provider.activity = {};
     }
 };
 } // namespace mirage::integration::detail

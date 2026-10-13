@@ -1,0 +1,226 @@
+{
+  "recorded_date": "2026-10-12",
+  "timezone": "Asia/Shanghai",
+  "baseline_commit": "adfe65b005547e8c13a9df3523e2f589afade25d",
+  "worktree": "Existing uncommitted M7 and M8 planning changes; documentation-only v3 asset update",
+  "source_version": "3.0",
+  "source_path": "~/下载/mira_pet_v3_桌宠素材包/",
+  "previous_inventory": "mira-pet-assets-20261012.json",
+  "method": "Python 3 standard library, read-only RIFF/VP8X/ANIM/ANMF inspection and SHA-256; compare with v2 inventory and v3 metadata",
+  "user_confirmation": "v3 looking/typing confirmed for use; starting/exiting authorized as temporary pending adjustment",
+  "validated": [
+    "container metadata",
+    "frame duration fields",
+    "file SHA-256",
+    "v2 file comparison",
+    "declared playback comparison"
+  ],
+  "not_validated": [
+    "full frame decode",
+    "alpha cleanliness",
+    "loop segment selection",
+    "visual seam",
+    "runtime rendering"
+  ],
+  "missing_states": [],
+  "confirmed_source_states": [
+    "looking",
+    "typing"
+  ],
+  "temporary_pending_adjustment_states": [
+    "starting",
+    "exiting"
+  ],
+  "playback_conflict": "All nine containers specify loop count 0 (infinite), including enter/exit declared once; product player must explicitly enforce once and bounded interruption.",
+  "files": [
+    {
+      "file": "mira_done.webp",
+      "source_state": "done",
+      "product_state": "task_success",
+      "source_use_status": "provided",
+      "bytes": 2078968,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 56,
+      "duration_ms": 4648,
+      "frame_duration_ms": [
+        83
+      ],
+      "container_loop_count": 0,
+      "declared_playback": "loop",
+      "declared_duration_ms": 4667,
+      "sha256": "911459ba4247b7dd5fd8df939c7869d6a08100b362ba0da0c247cca0a4b421d1",
+      "v2_relation": "unchanged"
+    },
+    {
+      "file": "mira_enter.webp",
+      "source_state": "enter",
+      "product_state": "starting",
+      "source_use_status": "temporary_pending_adjustment",
+      "bytes": 2047310,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 54,
+      "duration_ms": 4482,
+      "frame_duration_ms": [
+        83
+      ],
+      "container_loop_count": 0,
+      "declared_playback": "once",
+      "declared_duration_ms": 4500,
+      "sha256": "3bba17d17f478c047f5267d666f378a012a06054da2962790762f36861afb626",
+      "v2_relation": "added"
+    },
+    {
+      "file": "mira_exit.webp",
+      "source_state": "exit",
+      "product_state": "exiting",
+      "source_use_status": "temporary_pending_adjustment",
+      "bytes": 2213930,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 52,
+      "duration_ms": 5200,
+      "frame_duration_ms": [
+        100
+      ],
+      "container_loop_count": 0,
+      "declared_playback": "once",
+      "declared_duration_ms": 5200,
+      "sha256": "6a7c8b9758b6b06a0d24e0c1614d51b9501798cf402d278baab444899941712d",
+      "v2_relation": "added"
+    },
+    {
+      "file": "mira_fail.webp",
+      "source_state": "fail",
+      "product_state": "task_failure",
+      "source_use_status": "provided",
+      "bytes": 1914408,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 55,
+      "duration_ms": 6875,
+      "frame_duration_ms": [
+        125
+      ],
+      "container_loop_count": 0,
+      "declared_playback": "loop",
+      "declared_duration_ms": 6875,
+      "sha256": "198a9e3041b836e6722af9a2af196225129ffe0d00005a530468b0bbc70de57c",
+      "v2_relation": "unchanged"
+    },
+    {
+      "file": "mira_look.webp",
+      "source_state": "look",
+      "product_state": "looking",
+      "source_use_status": "confirmed_by_user",
+      "bytes": 3325516,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 96,
+      "duration_ms": 9600,
+      "frame_duration_ms": [
+        100
+      ],
+      "container_loop_count": 0,
+      "declared_playback": "loop",
+      "declared_duration_ms": 9600,
+      "sha256": "a6b2a528bf0dd7e83bb24afcb61d2108aedff1b87521c435494890513fa75725",
+      "v2_relation": "replaced"
+    },
+    {
+      "file": "mira_mouse.webp",
+      "source_state": "mouse",
+      "product_state": "mouse",
+      "source_use_status": "provided",
+      "bytes": 2118492,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 59,
+      "duration_ms": 5369,
+      "frame_duration_ms": [
+        91
+      ],
+      "container_loop_count": 0,
+      "declared_playback": "loop",
+      "declared_duration_ms": 5364,
+      "sha256": "185b346420ddec073afa322f9e534af4a3e56873011792772a78cfb77b7a4426",
+      "v2_relation": "unchanged"
+    },
+    {
+      "file": "mira_rest.webp",
+      "source_state": "rest",
+      "product_state": "idle",
+      "source_use_status": "provided",
+      "bytes": 1779580,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 50,
+      "duration_ms": 8350,
+      "frame_duration_ms": [
+        167
+      ],
+      "container_loop_count": 0,
+      "declared_playback": "loop",
+      "declared_duration_ms": 8333,
+      "sha256": "2d59a265a48589af9b44b08600bfef24ea0c7a89244a2a660c3e05951613e38d",
+      "v2_relation": "unchanged"
+    },
+    {
+      "file": "mira_think.webp",
+      "source_state": "think",
+      "product_state": "thinking",
+      "source_use_status": "provided",
+      "bytes": 2023042,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 55,
+      "duration_ms": 6875,
+      "frame_duration_ms": [
+        125
+      ],
+      "container_loop_count": 0,
+      "declared_playback": "loop",
+      "declared_duration_ms": 6875,
+      "sha256": "186c4fa8944ce0874ddde5582bf81906dea58972cf684f877afb3a298a1f8c34",
+      "v2_relation": "unchanged"
+    },
+    {
+      "file": "mira_typing.webp",
+      "source_state": "typing",
+      "product_state": "typing",
+      "source_use_status": "confirmed_by_user",
+      "bytes": 2665808,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 74,
+      "duration_ms": 5254,
+      "frame_duration_ms": [
+        71
+      ],
+      "container_loop_count": 0,
+      "declared_playback": "loop",
+      "declared_duration_ms": 5286,
+      "sha256": "03f4188652c4092a7a5d80ad91e31da5e4eedf1a427e2c9b8e8c8be4083ec5ec",
+      "v2_relation": "replaced"
+    }
+  ]
+}

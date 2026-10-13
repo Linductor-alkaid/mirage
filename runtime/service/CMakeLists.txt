@@ -23,6 +23,11 @@ target_include_directories(mirage_runtime_service SYSTEM PRIVATE
 )
 target_compile_features(mirage_runtime_service PUBLIC cxx_std_20)
 mirage_enable_warnings(mirage_runtime_service)
+if(MSVC)
+    # Runtime IPC variants and tracked dispatch templates exceed COFF's
+    # default section count in Debug builds; retain the full warning gate.
+    target_compile_options(mirage_runtime_service PRIVATE /bigobj)
+endif()
 
 # Public surface (RuntimeService, ServiceConfig) is pinned-free; the
 # kairo fabric, the JSON codec and the pinned conversation journal are

@@ -34,6 +34,9 @@ class EventHub {
     void publish_task_update(ipc::TaskUpdatedEvent event) {
         topic_.publish(ipc::EventPayload{std::move(event)});
     }
+    void publish_pet_status(ipc::PetUpdatedEvent event) {
+        topic_.publish(ipc::EventPayload{std::move(event)});
+    }
 
     /// LatestMailbox semantics for the seed: only the newest status is
     /// kept. The change itself also enters the same Topic publish path.
@@ -93,6 +96,13 @@ class EventHub {
     }
 
     void publish_chat_turn(ipc::ChatTurnUpdatedEvent event) {
+        topic_.publish(ipc::EventPayload{std::move(event)});
+    }
+
+    /// Classified tool failure of a settled harness turn (DEC-085). Same
+    /// direct-publish discipline as the chat turn settlement: the Topic is
+    /// thread-safe and per-connection queues stay bounded. No seed semantics.
+    void publish_tool_error(ipc::ToolErrorEvent event) {
         topic_.publish(ipc::EventPayload{std::move(event)});
     }
 

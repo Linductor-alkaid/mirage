@@ -126,8 +126,19 @@ set_tests_properties(overlay_surface_test PROPERTIES
     TIMEOUT 60
 )
 
-# M2-02 Linux backend skeleton: exercised against a private headless Xvfb
-# (DEC-015). Built wherever the X11 dev packages exist; CI installs them.
+# Product child ownership, including the pet's absent/reaped shutdown path.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(frontend_process_test platform/frontend_process_test.cpp)
+    target_link_libraries(frontend_process_test PRIVATE Mirage::platform Mirage::ipc kairo)
+    target_include_directories(frontend_process_test SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+    mirage_enable_warnings(frontend_process_test)
+    add_test(NAME frontend_process_test COMMAND frontend_process_test)
+    set_tests_properties(frontend_process_test PROPERTIES LABELS "unit;platform;lifecycle" TIMEOUT 20)
+endif()
+
+# M2-02 Linux backend skeleton: private headless Xvfb (DEC-015).
+# Built wherever the X11 dev packages exist; CI installs them.
 find_package(X11 QUIET)
 find_package(PkgConfig QUIET)
 if(PKG_CONFIG_FOUND)
@@ -204,6 +215,10 @@ if(X11_FOUND AND X11_Xtst_FOUND)
     add_executable(x11_backend_test platform/x11_backend_test.cpp)
     target_compile_features(x11_backend_test PUBLIC cxx_std_20)
     mirage_enable_warnings(x11_backend_test)
+    get_target_property(_mirage_x11_test_portal mirage_platform MIRAGE_PORTAL_AVAILABLE)
+    if(_mirage_x11_test_portal)
+        target_compile_definitions(x11_backend_test PRIVATE MIRAGE_TEST_PORTAL=1)
+    endif()
     target_link_libraries(x11_backend_test
         PRIVATE
             Mirage::platform
@@ -1342,6 +1357,43 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     mirage_enable_warnings(tray_runtime_test)
     add_test(NAME tray_runtime_test COMMAND tray_runtime_test)
     set_tests_properties(tray_runtime_test PROPERTIES LABELS "integration;runtime;lifecycle" TIMEOUT 30)
+
+    # M8-01: pet status projection (status.hpp contract: task/dialog state -> PetStatus).
+    add_executable(pet_status_test runtime/pet_status_test.cpp)
+    target_compile_features(pet_status_test PRIVATE cxx_std_20)
+    target_link_libraries(pet_status_test PRIVATE Mirage::pet_state Mirage::ipc)
+    mirage_enable_warnings(pet_status_test)
+    add_test(NAME pet_status_test COMMAND pet_status_test)
+    set_tests_properties(pet_status_test PROPERTIES LABELS "unit;pet" TIMEOUT 10)
+
+    # M8-02/M8-03: pet animation player (animation.hpp: frame sequencing, loop seams, transition timing).
+    add_executable(pet_animation_test runtime/pet_animation_test.cpp)
+    target_compile_features(pet_animation_test PRIVATE cxx_std_20)
+    target_link_libraries(pet_animation_test PRIVATE Mirage::pet_state)
+    mirage_enable_warnings(pet_animation_test)
+    add_test(NAME pet_animation_test COMMAND pet_animation_test)
+    set_tests_properties(pet_animation_test PROPERTIES LABELS "unit;pet" TIMEOUT 10)
+
+    # POSIX fixture waits; the product adapter itself remains portable.
+    add_executable(pet_projection_refresh_test runtime/pet_projection_refresh_test.cpp)
+    target_compile_features(pet_projection_refresh_test PRIVATE cxx_std_20)
+    target_include_directories(pet_projection_refresh_test SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+    target_link_libraries(pet_projection_refresh_test PRIVATE kairo)
+    mirage_enable_warnings(pet_projection_refresh_test)
+    add_test(NAME pet_projection_refresh_test COMMAND pet_projection_refresh_test)
+    set_tests_properties(pet_projection_refresh_test PROPERTIES LABELS "unit;pet;lifecycle" TIMEOUT 15)
+
+    # M8-01: end-to-end status projection (runtime_service dialog settlement -> IPC event -> pet status).
+    add_executable(pet_status_integration_test runtime/pet_status_integration_test.cpp)
+    target_compile_features(pet_status_integration_test PRIVATE cxx_std_20)
+    target_include_directories(pet_status_integration_test SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+    target_link_libraries(pet_status_integration_test PRIVATE
+        Mirage::runtime_service Mirage::integration_mira Mirage::pet_state)
+    mirage_enable_warnings(pet_status_integration_test)
+    add_test(NAME pet_status_integration_test COMMAND pet_status_integration_test)
+    set_tests_properties(pet_status_integration_test PROPERTIES LABELS "integration;runtime;pet" TIMEOUT 30)
 endif()
 
 add_executable(action_contract_test desktop/action_contract_test.cpp)

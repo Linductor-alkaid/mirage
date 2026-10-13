@@ -178,6 +178,31 @@ int command_service_status(int argc, char **argv) {
     return kExitOk;
 }
 
+int command_pet_status(int argc, char **argv) {
+    GlobalOptions options;
+    int index = 3;
+    std::vector<std::string> extra;
+    if (!consume_options(
+            argc, argv, index,
+            [&options](const std::string &name, const std::string &value) {
+                return parse_common_option(name, value, options);
+            },
+            extra) ||
+        !extra.empty())
+        return kExitUsage;
+    auto client = client_for(options);
+    const auto response =
+        client.call(mirage::runtime::ipc::PetStatusRequest{}, options.call_timeout);
+    if (const int code = report_response(response); code != kExitOk)
+        return code;
+    if (!std::holds_alternative<mirage::runtime::pet::Status>(response.payload)) {
+        std::cerr << kProgramName << ": unexpected pet status response\n";
+        return kExitFailure;
+    }
+    std::cout << mirage::runtime::ipc::encode_response(response) << '\n';
+    return kExitOk;
+}
+
 int command_service_shutdown(int argc, char **argv) {
     GlobalOptions options;
     int index = 3; // skip "task/service" and the subcommand
@@ -1400,6 +1425,7 @@ void print_usage(std::ostream &out) {
         << "                [--state-dir PATH] [--no-recovery]\n"
         << "                               Start the background runtime service\n"
         << "  service status [--socket P]  Probe the running service\n"
+        << "  pet status [--socket P]      Read Mira's desktop pet display state (JSON)\n"
         << "  service shutdown [--socket P]\n"
         << "                               Ask the running service to stop\n"
         << "  task submit --goal TEXT [--read PATH] [--exec CMD]\n"
@@ -1477,6 +1503,8 @@ int main(int argc, char **argv) {
         if (command == "start") {
             return command_start(argc, argv);
         }
+        if (command == "pet" && argc >= 3 && std::string_view{argv[2]} == "status")
+            return command_pet_status(argc, argv);
         if (command == "service" && argc >= 3) {
             const std::string_view subcommand{argv[2]};
             if (subcommand == "start") {

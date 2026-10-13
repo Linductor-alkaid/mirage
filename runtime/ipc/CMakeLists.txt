@@ -32,3 +32,4 @@ target_link_libraries(mirage_ipc
 # library beyond the pinned JSON codec consumption above.
 
 target_link_libraries(mirage_ipc PUBLIC Mirage::conversation)
+target_link_libraries(mirage_ipc PUBLIC Mirage::pet_state)

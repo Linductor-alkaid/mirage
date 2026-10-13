@@ -1,0 +1,143 @@
+{
+  "version": "v5",
+  "date": "2026-10-12",
+  "source_dir": "~/下载/mira_pet_v5_桌宠素材包",
+  "files": [
+    {
+      "file": "mira_done.webp",
+      "bytes": 2078968,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 56,
+      "duration_ms": 4648,
+      "frame_durations": [
+        83
+      ],
+      "container_loop_count": 0,
+      "sha256": "911459ba4247b7dd5fd8df939c7869d6a08100b362ba0da0c247cca0a4b421d1"
+    },
+    {
+      "file": "mira_enter.webp",
+      "bytes": 1193380,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 54,
+      "duration_ms": 4482,
+      "frame_durations": [
+        83
+      ],
+      "container_loop_count": 0,
+      "sha256": "4f7bdccbcfc4c5be133577c22a12b26b6e714ef49763171b543687efbbb03219"
+    },
+    {
+      "file": "mira_exit.webp",
+      "bytes": 1151290,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 52,
+      "duration_ms": 5200,
+      "frame_durations": [
+        100
+      ],
+      "container_loop_count": 0,
+      "sha256": "e065f0cf7f5f7fb7d55987421179b63fc4f8d5ff6bcb685e16239e1b6f63ad64"
+    },
+    {
+      "file": "mira_fail.webp",
+      "bytes": 1914408,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 55,
+      "duration_ms": 6875,
+      "frame_durations": [
+        125
+      ],
+      "container_loop_count": 0,
+      "sha256": "198a9e3041b836e6722af9a2af196225129ffe0d00005a530468b0bbc70de57c"
+    },
+    {
+      "file": "mira_look.webp",
+      "bytes": 3325516,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 96,
+      "duration_ms": 9600,
+      "frame_durations": [
+        100
+      ],
+      "container_loop_count": 0,
+      "sha256": "a6b2a528bf0dd7e83bb24afcb61d2108aedff1b87521c435494890513fa75725"
+    },
+    {
+      "file": "mira_mouse.webp",
+      "bytes": 2118492,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 59,
+      "duration_ms": 5369,
+      "frame_durations": [
+        91
+      ],
+      "container_loop_count": 0,
+      "sha256": "185b346420ddec073afa322f9e534af4a3e56873011792772a78cfb77b7a4426"
+    },
+    {
+      "file": "mira_rest.webp",
+      "bytes": 1779580,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 50,
+      "duration_ms": 8350,
+      "frame_durations": [
+        167
+      ],
+      "container_loop_count": 0,
+      "sha256": "2d59a265a48589af9b44b08600bfef24ea0c7a89244a2a660c3e05951613e38d"
+    },
+    {
+      "file": "mira_think.webp",
+      "bytes": 2023042,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 55,
+      "duration_ms": 6875,
+      "frame_durations": [
+        125
+      ],
+      "container_loop_count": 0,
+      "sha256": "186c4fa8944ce0874ddde5582bf81906dea58972cf684f877afb3a298a1f8c34"
+    },
+    {
+      "file": "mira_typing.webp",
+      "bytes": 2665808,
+      "canvas": [
+        512,
+        512
+      ],
+      "frames": 74,
+      "duration_ms": 5254,
+      "frame_durations": [
+        71
+      ],
+      "container_loop_count": 0,
+      "sha256": "03f4188652c4092a7a5d80ad91e31da5e4eedf1a427e2c9b8e8c8be4083ec5ec"
+    }
+  ],
+  "missing_states": []
+}

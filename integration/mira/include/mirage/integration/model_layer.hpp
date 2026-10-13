@@ -78,6 +78,21 @@ struct ReasoningOption {
 [[nodiscard]] std::vector<ReasoningOption>
 reasoning_options(const std::string &dialect, const std::string &model, bool declared = false);
 
+/// DEC-085: one classified tool failure class observed in a settled turn.
+/// `code` is the stable IPC vocabulary shared with the `session.tool_error`
+/// event; `message` is the user-facing composition; `count` counts the
+/// failures of this tool within the current environment epoch, floored at 1
+/// for an entry that only predates the current epoch (the wire contract
+/// requires a positive count).
+struct ToolFailure {
+    std::string tool;
+    /// "platform_limitation" | "permanent_failure" | "invalid_arguments" |
+    /// "permission_denied" | "conditional_failure" | "transient_failure"
+    std::string code;
+    std::string message;
+    std::uint32_t count = 0;
+};
+
 /// Outcome of one dialog inference (DEC-027). `ok` carries `reply_text`;
 /// `failed` marks a settled turn with a stable `error` reason (safe for UI);
 /// `cancelled` mirrors the caller's cancellation probe.
@@ -96,6 +111,10 @@ struct DialogCompletion {
     std::uint32_t supplied_input_items = 0;
     std::uint32_t supplied_input_dropped = 0;
     std::uint32_t supply_degradations = 0;
+    /// DEC-085: classified tool failures of this session (bounded by the
+    /// tracker's per-session tool budget); the runtime service projects them
+    /// onto `session.tool_error` events.
+    std::vector<ToolFailure> tool_failures = {};
 };
 
 /// Opaque carrier for a caller-supplied pinned model provider (DEC-027 test
@@ -132,6 +151,9 @@ using DialogPreviewSink =
 /// Bounded full process snapshot on the caller task; consumers only validate/deliver.
 /// The service owns update sequences; final canonical parts are returned in completion.
 using DialogProcessSink = std::function<void(const std::vector<conversation::Part> &)>;
+// DEC-084: actual provider-call boundaries, independent of returned thinking text.
+// Called on the existing serialized infer task. Must be bounded and non-throwing.
+using DialogModelActivitySink = std::function<void(bool active)>;
 
 /// The service-side model layer (DEC-027): assembles the pinned model stack —
 /// ModelProfile + ModelRouter + OpenAiCompatibleProvider over the pinned
@@ -167,12 +189,11 @@ class ModelLayer {
     /// earlier-conversation block (may be empty); `user_text` is the new
     /// user message. Bounded by the context deadline / cancellation probe
     /// and the profile transport deadlines.
-    DialogCompletion complete_dialog_turn(const std::string &transcript,
-                                          const std::string &user_text,
-                                          const mira::OperationContext &context,
-                                          const std::string &reasoning = "",
-                                          bool tools_allowed = true, DialogPreviewSink preview = {},
-                                          DialogProcessSink process = {});
+    DialogCompletion
+    complete_dialog_turn(const std::string &transcript, const std::string &user_text,
+                         const mira::OperationContext &context, const std::string &reasoning = "",
+                         bool tools_allowed = true, DialogPreviewSink preview = {},
+                         DialogProcessSink process = {}, DialogModelActivitySink activity = {});
 
     /// Bounded ConversationLoop; M7-02 installs the available desktop atoms
     /// from the injected context. tools_allowed=false retains observation
@@ -183,12 +204,11 @@ class ModelLayer {
     /// lease settlement. Unverified/uncertain effects prevent success; passing
     /// evidence establishes declared local conditions, not arbitrary intent.
     /// The caller bridges task cancellation into cancel for provider calls.
-    DialogCompletion
-    complete_harness_turn(const std::string &transcript, const std::string &user_text,
-                          const mira::OperationContext &context, const std::string &reasoning = "",
-                          bool tools_allowed = true, DialogPreviewSink preview = {},
-                          DialogProcessSink process = {},
-                          const mirage::desktop::CancelToken &cancel = {});
+    DialogCompletion complete_harness_turn(
+        const std::string &transcript, const std::string &user_text,
+        const mira::OperationContext &context, const std::string &reasoning = "",
+        bool tools_allowed = true, DialogPreviewSink preview = {}, DialogProcessSink process = {},
+        const mirage::desktop::CancelToken &cancel = {}, DialogModelActivitySink activity = {});
 
     /// Ordered teardown: waits out any in-flight dialog completion (bounded
     /// by the profile transport deadlines), then settles the transport's
