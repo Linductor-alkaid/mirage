@@ -61,3 +61,10 @@ fixture 覆盖假成功、缺条件、拒绝、异常/取消/超时、环境/前
 
 [DEC-068](DEC-068-bundled-vision-and-recoverable-tool-rejection.md) 在 Linux 产品首范围
 更新本决定的以下部分：本轮自身可证明未派发且无副作用的拒绝允许纠正后再试；未知、已派发未验证与不确定回执仍封锁修改，最后动作未验证不得结算。 其余契约继续有效。
+
+## 2026-10-14 部分更新
+
+[DEC-086](DEC-086-dbus-activatable-launch-and-evidence-fence-lift.md) 修订"不确定副作用
+等待用户检查"的适用范围：`application_running` 条件事后取得机器证据（运行中 + 实例 id）
+时，记录落 verified、围栏解除、settle 通过；`canonical_failure_` 按记录当前状态派生。
+点击/窗口类条件的 uncertain 仍维持人工复核。其余契约继续有效。
