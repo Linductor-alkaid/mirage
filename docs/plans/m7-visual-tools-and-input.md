@@ -54,7 +54,7 @@ M7-08 已闭合 Linux X11 动作后新观察与局部条件门禁；真实语义
 | M7-07 | In Progress | 已接同源 SoM/crop/编号图、按 scope 视觉点击与后观察首增量；模板消费复用既有 session；已补固定 OCR 后条件与实际 Xvfb Canvas 5/5，显式闭合几何编号与本地模板匹配已接，双模板/位置交换/不重绘已验；实际 MiniMax 编号选择 3/3；供给范围化（DEC-062 capture_scope）、4K 小窗口 ROI 预采集/同范围重验和 owner 局部 OCR 已验；真实 Xorg 人工离线 3/3、权限/焦点门禁 2/2，在线闭环 1/2、选号 2/2，引用过期负例安全拒绝，第三例未运行 | 标记与同源图对应；换代/同名旧编号拒绝；窗口移动/负原点/缩放；纯 Canvas 控件点击闭环；宿主遮挡/权限/坐标变换取证 | M7-03/05/06 |
 | M7-08 | Completed（Linux X11 局部条件） | 修改前固定窗口/语义条件，副作用后强制新观察和只读重验；宿主终态门禁、工具卡目标/状态/证据 | 真实 X11 激活/回显/落盘三类任务；假成功、前台/epoch 变化与不确定重发拒绝；固定 OCR 条件/Xvfb Canvas 已另验；真实语义表单/用户宿主另验 | M7-02/03；视觉场景加 M7-07 |
 | M7-09 | In Progress | DEC-064 Linux X11 编号滚动/完整拖拽与机械事件已验；GTK 原生滚动/分隔条及 XRes 下列表重排正负效果已验；宿主 Xorg 2× 四类分别取证，间歇拒绝原因/其他平台仍另验 | 最大距离/次数/时长；拖拽中取消释放；滚动后旧引用拒绝；双平台真实输入 | M7-03/08；[DEC-064](../decisions/DEC-064-bounded-scroll-and-drag.md)、[DEC-065](../decisions/DEC-065-x11-drag-helper-ownership.md) |
-| M7-10 | In Progress | DEC-073/074 原生共享复用；DEC-077 产品键鼠已接入；GNOME 英文状态动态画面点击/组合键/完整 ASCII URL 与 Enter/滚动/回图及接管 11/11；Windows 采集分层升级（DEC-086：DXGI→WGC→BitBlt）已交付并本机取证；产品宿主 per-monitor DPI 声明已交付（DEC-086 变更记录，三屏混合 DPI 物理几何取证）；静态画面、Unicode 传输、其他输入法与 Windows UIPI 实机验收继续推进 | Windows UIPI/Unicode/多屏输入落点；Wayland 授权/拒绝/撤销/会话关闭；缺实现显式不可用 | 首增量证据；目标平台环境 |
+| M7-10 | In Progress | DEC-073/074 原生共享复用；DEC-077 产品键鼠已接入；GNOME 英文状态动态画面点击/组合键/完整 ASCII URL 与 Enter/滚动/回图及接管 11/11；Windows 采集分层升级（DEC-086：DXGI→WGC→BitBlt）已交付并本机取证；产品宿主 per-monitor DPI 声明已交付；Windows Unicode 文本传输与多屏输入落点已实机取证（win32_input_delivery_test，感知进程）；Windows UIPI（提升目标，需 UAC 配合）、其他输入法与静态画面继续推进 | Windows UIPI 提升目标；Wayland 授权/拒绝/撤销/会话关闭；缺实现显式不可用 | 首增量证据；目标平台环境 |
 | M7-11 | In Progress | DEC-067/069：语义与 OCR/模板知识均重新解析新目标，经既有动作/核验进入 workflow；会话选择/恢复和持久资产后续推进 | 语义首增量见[验收](../compatibility/local-semantic-workflow-20261011.md)；OCR/模板实际产品零模型与门禁见[第二增量](../compatibility/local-visual-workflow-20261011.md) | DEC-067/069 已冻结本地知识/新执行引用契约；现有 workflow，见[路线分析](../research/2026-10-10-local-grounding-and-m7-sequencing.md) |
 | M7-12 | Completed（Linux 产品启用预览） | 产品根启用 Linux Provider，启动清单转发、持久化视觉设置、原生桌面工具页与权限说明；DEC-066 | 带视觉 Release 产品检查 23/23、实际原生 MiniMax OCR/mark 完成；OCR OFF 恢复 11/11；[验收](../compatibility/product-desktop-vision-20261011.md) | M7-02/05/06/08；Linux Xorg 首范围 |
 | M7-13 | Completed（Linux 默认包） | DEC-068 固定已验 Mirador / ncnn / PP-OCRv5；原生默认加载与离线安装 | 源/产物锁定、默认实际 OCR、关闭恢复、坏包/缺失拒绝；两种分辨率产品各 25/25，见[验收](../compatibility/bundled-vision-and-tool-recovery-20261011.md) | 当前已验 Mirador / ncnn / PP-OCRv5 |
@@ -1048,3 +1048,29 @@ per-monitor v2 (declared)。
 传输、其他输入法与无 IddCx 干扰环境强制 DXGI 补证按 M7-10 既有记录推进；
 Linux 宿主行为不变。本轮未修改 pinned 依赖、未调用在线模型；提交于 feat
 分支，CI windows 门禁（MSVC 全树 + 测试）随 MR 复验。
+
+2026-10-14 / M7-10 Windows 输入实机取证增量：DEC-017 决策 5 的 Unicode 文本
+传输与宿主感知后的注入坐标面在真实 Windows 桌面完成取证。新增
+`win32_input_delivery_test`（真实交互桌面，DEC-017 决策 9 纪律）：测试进程
+经 PR #88 公共入口声明宿主 per-monitor DPI 感知后——(1) Unicode 序列投递：
+两轮 UTF-8 文本（CJK、全角标点、emoji 代理对与 ASCII 交错）经
+`type_text` 以 KEYEVENTF_UNICODE 到达自聚焦 fixture，WM_CHAR 单元序列与
+预期 UTF-16 逐单元一致；(2) 多屏指针落点：产品 `list_displays` 三屏
+（2560×1600@150% / 2560×1440@100% / 1080×1920 竖屏）逐屏中心
+`pointer_move` 后独立 `pointer_position` 回读全部 ±2px 内；(3) 按钮投递：
+fixture 中心左键单击以 WM_LBUTTONDOWN 到达，客户坐标 ±2px（端到端归一化
+→注入→命中测试链）；(4) 修饰键异步状态零滞留。
+
+前台锁事实与处理：shell 启动的测试进程被 OS 拒绝 SetForegroundWindow
+（win32_backend_test 同样跳过其焦点场景，CI runner 因无前台存在而放行）；
+测试以 AttachThreadInput 自有窗口回退取得前台——对提升前台该回退按 UIPI
+自然失败并大声跳过，即该边界按产品所见方式的呈现。UIPI 专项验收（提升
+目标 + UAC 配合）保持挂账，负责人 Mirage 维护者。
+
+证据：MSVC Debug 全树构建零错误（overlay_surface_test C4127 既有本地问题
+不变）；win32_input_delivery_test 31 checks/0 failures 连续三次；
+win32_backend_test 回归（0 failures，本地因前台上下文投递场景运行 134
+checks）；win32_capture_tier_test 193/0；CI 白名单 17 项本地 17/17。本轮
+无产品源码变更（仅新增测试、CMake 与 CI 白名单）及 M7 计划/记忆同步；
+未修改 pinned 依赖、未调用在线模型；提交于 feat 分支，CI windows 门禁随
+MR 复验。
