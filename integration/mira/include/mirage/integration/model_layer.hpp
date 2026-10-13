@@ -53,7 +53,7 @@ struct ModelLayerConfig {
     /// DEC-082: whole Agent task bound (0..10 minutes, exclusive lower bound).
     /// Independent of the per-model-call deadline; owned by Runtime Service.
     std::chrono::milliseconds harness_deadline{600'000};
-    /// Per-request generation bound (1..16384); harness also has a whole-loop token budget.
+    /// Per-request generation bound (1..65536); harness also has a whole-loop token budget.
     std::uint64_t max_output_tokens = 2048;
     std::uint64_t context_window_tokens = 0; ///< DEC-036: explicit window budget; 0 unknown
     /// Per-turn input text budget (user text plus rendered transcript).

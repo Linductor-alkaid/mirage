@@ -565,9 +565,9 @@ void resilience_scenario(const std::string &scenario) {
     tools.environment = desktop;
     tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
     // DEC-085 final budget model: turn/recovery/continuation counts are
-    // declared bounds (16/2/2), so the default 512 per-call config routes on
-    // the fixture profile (512 x 19 <= 16384) and the budget notices ride
-    // turns 15 and 16 of that declared envelope.
+    // declared bounds (16/2/2), so the default 512 per-call config spends
+    // 512 x 19 inside the profile envelope (21 x the thinking floor) and the
+    // budget notices ride turns 15 and 16 of that declared envelope.
     auto config = model_config();
     integration::ModelLayer layer(owner, config, &provider, tools);
     auto context = mira::make_control_context();
@@ -1108,7 +1108,7 @@ void reasoning_scenario() {
         std::uint64_t profile_limit = 0;
         integration::ModelProviderOverride provider([&](const auto &profile) {
             // DEC-085 final budget model: the Messages profile limit scales
-            // with the 16384 thinking floor, independent of the reasoning
+            // with the 32768 thinking floor, independent of the reasoning
             // choice, and funds the declared whole-run envelope.
             profile_limit = profile.capabilities.limits.max_output_tokens;
             script = std::make_shared<Script>(profile, true);
@@ -1133,18 +1133,18 @@ void reasoning_scenario() {
         const bool valid = std::string{reasoning} != "low";
         MIRAGE_CHECK(result.ok == valid && result.failed == !valid);
         MIRAGE_CHECK(script && script->requests.size() == (valid ? 2u : 0u));
-        // 21 * 16384 = 344064: the profile limit is the router's per-call
+        // 21 * 32768 = 688128: the profile limit is the router's per-call
         // admission bound and funds the declared whole-run envelope (16 turns
-        // + 2 recoveries + 2 continuations + 1) at the unchanged 16384
+        // + 2 recoveries + 2 continuations + 1) at the unchanged 32768
         // per-call wire budget — the budget is no longer halved.
-        MIRAGE_CHECK(profile_limit == 344064u);
+        MIRAGE_CHECK(profile_limit == 688128u);
         for (const auto &request : script->requests) {
             MIRAGE_CHECK(request.generation.thinking == (std::string{reasoning} == "none"
                                                              ? mira::ThinkingMode::Disabled
                                                              : mira::ThinkingMode::Adaptive));
             MIRAGE_CHECK(!request.generation.reasoning_effort);
             MIRAGE_CHECK(request.generation.max_output_tokens ==
-                         (std::string{reasoning} == "none" ? 512u : 16384u));
+                         (std::string{reasoning} == "none" ? 512u : 32768u));
         }
         layer.shutdown();
         owner.shutdown(true);
@@ -1152,14 +1152,14 @@ void reasoning_scenario() {
 }
 
 // DEC-085 final output-budget model: an adaptive-thinking call floors its
-// per-request output budget at 16384 even when the configured value is a
+// per-request output budget at 32768 even when the configured value is a
 // larger-but-under-floor 8192 (the old floor), the wire budget is the full
-// floor (no profile/2 halving), and the 344064 profile envelope funds the
-// declared whole-run spend: 16384 x (16 turns + 2 recoveries + 2
+// floor (no profile/2 halving), and the 688128 profile envelope funds the
+// declared whole-run spend: 32768 x (16 turns + 2 recoveries + 2
 // continuations + 1).
 void thinking_budget_scenario() {
-    // (a) floor domination: config 8192 + adaptive -> 16384 on the wire
-    // (the old floor returned 8192 here) and the 344064 profile envelope.
+    // (a) floor domination: config 8192 + adaptive -> 32768 on the wire
+    // (the old floor returned 8192 here) and the 688128 profile envelope.
     {
         kairo::Executor owner;
         MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
@@ -1188,11 +1188,11 @@ void thinking_budget_scenario() {
                 })
                 .get();
         MIRAGE_CHECK(result.ok);
-        MIRAGE_CHECK(profile_limit == 344064u);
+        MIRAGE_CHECK(profile_limit == 688128u);
         MIRAGE_CHECK(script && script->requests.size() == 2u);
         for (const auto &request : script->requests) {
             MIRAGE_CHECK(request.generation.thinking == mira::ThinkingMode::Adaptive);
-            MIRAGE_CHECK(request.generation.max_output_tokens == 16384u);
+            MIRAGE_CHECK(request.generation.max_output_tokens == 32768u);
         }
         layer.shutdown();
         owner.shutdown(true);

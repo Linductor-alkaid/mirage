@@ -1446,13 +1446,19 @@ int main(int argc, char **argv) {
         client.call(ipc::SessionChatRequest{session, "默认直接对话", false, "chat_only", ""}, 2s)
             .ok);
     const auto default_dialog = wait_turn(client, session);
-    // DEC-085 follow-up: the adaptive-thinking wire budget floor is 16384
-    // and every profile funds the declared whole-run envelope (21x the
-    // worst-case per-call budget).
+    // DEC-085 follow-up: the adaptive-thinking wire budget floor is 32768
+    // (deepseek-flash reasons unconditionally and its reasoning tokens count
+    // against max_tokens; 16384 cut mid-thinking three turns in a row) and
+    // every profile funds the declared whole-run envelope (21x the
+    // worst-case per-call budget). This fixture declares a 32768-token
+    // context window, and generation_budget caps every per-call wire budget
+    // at half the declared window, so the floored 32768 lands on the wire
+    // as min(32768, max(4096, 32768 / 2)) = 16384 here; the unclamped floor
+    // is asserted by the harness thinking_budget_scenario.
     MIRAGE_CHECK(default_dialog && default_dialog->status == "ok" &&
                  provider->saw_adaptive.load() && provider->last_tools.load() == 0 &&
                  provider->last_output_tokens.load() == 16384 &&
-                 provider->profile_.capabilities.limits.max_output_tokens == 21 * 16384 &&
+                 provider->profile_.capabilities.limits.max_output_tokens == 21 * 32768 &&
                  default_dialog->reply_text == "Mira 已完成通用工具调用。" &&
                  std::any_of(default_dialog->parts.begin(), default_dialog->parts.end(),
                              [](const auto &part) { return part.kind == "thinking"; }));
