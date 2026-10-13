@@ -3,6 +3,40 @@
 EUI 为维护者授权的 UI 专用依赖（DEC-033），不属于 Mira / Mirador 能力台账。
 以下逐项维护历史证据与上游状态；已提交或升级复验的条目分别记录链接。
 
+## EUI-20261013-001：RGBA8/BGRA8 转码只写每行首像素
+
+- 状态：Resolved（本地 pin 已消费根因修复；回归补充 PR 仍 Open）；负责人：Mirage 维护者；关联：M8-02/03、BUG-20261013-001。
+- 复现版本：旧 pinned dev `a7e625fecc1db1c1acb4850a14fb785e20600041`。2026-10-13
+  维护者授权处理，核对最新 dev 后确认根因已由上游 PR #97 / f8caff1 修复；Mirage
+  当前升级至 89c2d0f（完整 SHA 见锁文件），原窗口能力保留。
+- API 核对：公开 `eui::ImageFrame::convertToRgba8()` 与 `ImageStream` 文档说明
+  RGBA/BGRA CPU 帧经 RGBA fallback 绘制；OpenGL 原生动态纹理仅接受多平面 YUV。
+- 复现：2×1 RGBA 输入 `[255,0,0,255,0,255,0,255]`，转换返回 true，输出却是
+  `[0,255,0,255,0,0,0,0]`。逐列循环未递增目标指针；对于透明画布右边缘的桌宠帧，
+  每行首像素也被写成透明，导致整个角色不可见。UI 文字仍可见，不能用文字 alpha
+  断言代替角色区域像素验收。源码定位 `core/render/image_stream.cpp` 的公开方法。
+- 排除应用职责：最小复现不涉及 WebP、时钟、窗口、颜色管理或 Mirage；九态源 SHA、
+  解码尺寸/时长与 CPU RGBA alpha 均通过。RGBA 字节逐像素保留是该公开方法的语义。
+- 最小期望修复：目标地址按 `x*4` 推进，保留 stride/多行与 straight alpha；对
+  RGBA、BGRA、透明和不透明、多列与带 padding 的输入验证完整输出，而非只检查返回值。
+- 历史单一临时 Adapter（本轮已移除）：`apps/pet/texture.cpp` 在 UI 线程直接上传当前 RGBA 到一个
+  512×512 RGBA8 OpenGL 纹理，经公开 `gpuDevice()/importGpuImage()` 与
+  `image.texture(image, revision)` 接入。恢复原 GL unpack/binding 状态，生命周期由
+  GpuImage 的 owner 引用及 EUI GPU fence 持有；onShutdown 清除应用引用。无新增线程、
+  队列、调度器或解码器；当轮没有修改 pinned 代码。
+- 差异与风险：当前 Adapter 仅覆盖 OpenGL 预览；主图像纹理固定 1 MiB，驱动、字体、
+  framebuffer 与 EUI 自身资源另计。Vulkan/其他平台不据此标记通过。
+- 验收与移除：最小字节复现、真实角色区域/alpha/帧推进、切换与隐藏、GPU 关闭均
+  留存于 [M8 资源与生命周期证据](../compatibility/mira-pet-loading-and-lifecycle-20261013.md)。
+  本轮授权升级后删除 FrameTexture，恢复容量 1 的公开 ImageStream。中文
+  [issue #106](https://github.com/sudoevolve/EUI-NEO/issues/106) 与目标 dev 的
+  [PR #107](https://github.com/sudoevolve/EUI-NEO/pull/107) 补充 stride/透明 alpha
+  回归；生产根因修复复用已合入的
+  [PR #97](https://github.com/sudoevolve/EUI-NEO/pull/97)，不重复提交。
+  四组合 Release 配置/完整构建和 ctest 各 35/35；三类故障注入均被测试发现。
+  Mirage 升级后的实际角色与关闭结果见
+  [升级审计](../supply-chain/eui-rgba-upgrade-20261013.md)。
+
 ## EUI-20261003-001：GLFW IME 构建门禁使用 CRLF 摘要
 
 - 状态：Open；负责人：Mirage 维护者；影响：Linux native configure。

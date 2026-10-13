@@ -86,13 +86,13 @@
       "name": "eui-neo",
       "source": "https://github.com/Linductor-alkaid/EUI-NEO.git",
       "path": "third_party/eui-neo",
-      "version": "0.6.0-dev",
+      "version": "0.6.1-dev",
       "branch": "dev",
-      "commit": "a7e625fecc1db1c1acb4850a14fb785e20600041",
+      "commit": "89c2d0f1db41514e668c43f97f613ee9e3b9b700",
       "license": "Apache-2.0",
       "license_file": "third_party/eui-neo/LICENSE",
       "consumption": "UI-only; opt-in apps/native; bundled GLFW/OpenGL; DEC-033",
-      "notes": "Dev c444e53 plus compositor-mediated window move/resize (upstream PR#91 https://github.com/sudoevolve/EUI-NEO/pull/91, issue #89) and transparent framebuffer support (upstream PR#92 https://github.com/sudoevolve/EUI-NEO/pull/92, issue #90); pin includes both PR branches plus the first-frame/drawable-size repair (upstream PR#94 https://github.com/sudoevolve/EUI-NEO/pull/94, issue #93, EUI-20261008-001 / M6-35), reachable from maintainer fork. OpenGL consumption unchanged. DEC-033 / DEC-041.",
+      "notes": "Dev c444e53 plus compositor-mediated window move/resize (upstream PR#91 https://github.com/sudoevolve/EUI-NEO/pull/91, issue #89) and transparent framebuffer support (upstream PR#92 https://github.com/sudoevolve/EUI-NEO/pull/92, issue #90); pin includes both PR branches plus the first-frame/drawable-size repair (upstream PR#94 https://github.com/sudoevolve/EUI-NEO/pull/94, issue #93, EUI-20261008-001 / M6-35), reachable from maintainer fork. OpenGL consumption unchanged. DEC-033 / DEC-041. EUI-20261013-001: authorized upgrade to upstream dev v0.6.1 preparation includes merged PR#97 (f8caff1) fixing per-column RGBA8/BGRA8 output and PR#96 slider hit ordering; previous window move/transparency/frame repairs remain present. Mirage removes its temporary GPU upload adapter and consumes the bounded public ImageStream. Downstream issue #106 records stride/alpha regression follow-up; audit docs/supply-chain/eui-rgba-upgrade-20261013.md.",
       "upstream": "https://github.com/sudoevolve/EUI-NEO.git"
     }
   ],
