@@ -309,6 +309,84 @@ class SseScript final : public mira::IModelProvider {
     mira::ModelProfile profile_;
 };
 
+// DEC-085 portal-timeout fixture: delegates the four mandatory capture
+// entry points to the fake screen but fails native desktop capture with a
+// configurable provider error, so the classification of an
+// authorization-dialog timeout can be observed through the real
+// desktop.screen.capture path (provider failure -> PlatformError with the
+// "portal_timeout: ..." safe message).
+class CaptureFailingScreen final : public mirage::desktop::ScreenProvider {
+  public:
+    explicit CaptureFailingScreen(mirage::desktop::ScreenProvider *inner) : inner_(inner) {}
+    // Portal-style native observation: only this class of screen routes
+    // source=desktop captures through capture_desktop(), where portal
+    // authorization timeouts actually surface.
+    bool desktop_observation_only() const override { return true; }
+    mirage::desktop::DisplayListOutcome
+    list_displays(const mirage::desktop::DisplayListLimits &limits,
+                  const mirage::desktop::CancelToken &cancel) override {
+        return inner_->list_displays(limits, cancel);
+    }
+    mirage::desktop::CaptureOutcome
+    capture_display(const std::string &display_id, const mirage::desktop::CaptureLimits &limits,
+                    const mirage::desktop::CancelToken &cancel) override {
+        return inner_->capture_display(display_id, limits, cancel);
+    }
+    mirage::desktop::CaptureOutcome
+    capture_window(const std::string &window_id, const mirage::desktop::CaptureLimits &limits,
+                   const mirage::desktop::CancelToken &cancel) override {
+        return inner_->capture_window(window_id, limits, cancel);
+    }
+    mirage::desktop::CaptureOutcome
+    capture_roi(const mirage::desktop::WindowGeometry &roi,
+                const mirage::desktop::CaptureLimits &limits,
+                const mirage::desktop::CancelToken &cancel) override {
+        return inner_->capture_roi(roi, limits, cancel);
+    }
+    mirage::desktop::CaptureOutcome
+    capture_desktop(const mirage::desktop::CaptureLimits &,
+                    const mirage::desktop::CancelToken &) override {
+        ++calls;
+        mirage::desktop::CaptureOutcome outcome;
+        outcome.error = {error_code, error_message};
+        return outcome;
+    }
+    mirage::desktop::ScreenProvider *inner_;
+    std::string error_code = "portal_timeout";
+    std::string error_message = "Screenshot authorization cancelled or timed out; request closed";
+    int calls = 0;
+};
+
+// Wraps the fake environment so only the screen provider is replaced and the
+// declared capture capability is pinned to PortalOnly: the degraded class
+// where the portal-timeout branch is observable (a Full capability already
+// classified any PlatformError as conditional before DEC-085).
+class CaptureFailingEnvironment final : public mirage::desktop::DesktopEnvironment {
+  public:
+    explicit CaptureFailingEnvironment(std::shared_ptr<Environment> inner)
+        : inner_(std::move(inner)), screen_(inner_->screen()) {}
+    mirage::desktop::EnvironmentInfo info() const override { return inner_->info(); }
+    mirage::desktop::FilesystemProvider *filesystem() override { return &inner_->filesystem_; }
+    mirage::desktop::ProcessProvider *process() override { return &inner_->process_; }
+    mirage::desktop::ApplicationProvider *application() override {
+        return &inner_->application_;
+    }
+    mirage::desktop::WindowProvider *window() override { return &inner_->window_; }
+    mirage::desktop::AccessibilityProvider *accessibility() override {
+        return &inner_->accessibility_;
+    }
+    mirage::desktop::ScreenProvider *screen() override { return &screen_; }
+    mirage::desktop::InputProvider *input() override { return &inner_->input_; }
+    mirage::desktop::ClipboardProvider *clipboard() override { return &inner_->clipboard_; }
+    mirage::desktop::NotificationProvider *notification() override {
+        return &inner_->notification_;
+    }
+    mirage::desktop::ScreenCapability screen_capability() override { return capability_; }
+    std::shared_ptr<Environment> inner_;
+    CaptureFailingScreen screen_;
+    mirage::desktop::ScreenCapability capability_ = mirage::desktop::ScreenCapability::PortalOnly;
+};
+
 void layer_scenario(const std::string &scenario) {
     kairo::Executor owner;
     kairo::ExecutorConfig config;
@@ -772,6 +850,99 @@ void tool_failure_stale_count_probe() {
     owner.shutdown(true);
 }
 
+// DEC-085 portal-timeout classification: a desktop capture failure whose
+// safe message starts with "portal_timeout" is a conditional failure — the
+// user can still approve a later authorization request — not a platform
+// limitation. The distinction is observable under the non-Full declared
+// capability (PortalOnly), where any other PlatformError stays
+// platform_limitation. Three same-epoch failures still block the tool for
+// the session, and the blocked receipt quotes the portal timeout.
+void portal_timeout_scenario() {
+    for (const auto *error_code : {"portal_timeout", "io_error"}) {
+        const bool portal = std::string{error_code} == "portal_timeout";
+        kairo::Executor owner;
+        kairo::ExecutorConfig executor_config;
+        executor_config.min_threads = executor_config.max_threads = 2;
+        MIRAGE_CHECK(static_cast<bool>(owner.initialize(executor_config)));
+        auto desktop = std::make_shared<CaptureFailingEnvironment>(environment());
+        desktop->screen_.error_code = error_code;
+        // The portal variant carries the production timeout sentence; the
+        // control is an ordinary provider failure with no special prefix.
+        desktop->screen_.error_message =
+            portal ? "Screenshot authorization cancelled or timed out; request closed"
+                   : "injected capture failure";
+        std::shared_ptr<Script> script;
+        integration::ModelProviderOverride provider([&](const auto &profile) {
+            script = std::make_shared<Script>(profile, true);
+            script->actions_override = {{"desktop.screen.capture", R"({"source":"desktop"})"}};
+            return script;
+        });
+        integration::DesktopToolContext tools;
+        tools.environment = desktop;
+        tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+        tools.gate = [](const auto &, const auto &, const auto &) { return true; };
+        auto config = model_config();
+        config.supports_images = true;
+        integration::ModelLayer layer(owner, config, &provider, tools);
+        auto context = mira::make_control_context();
+        context.session = mira::SessionId::generate();
+        context.deadline = std::chrono::steady_clock::now() + 30s;
+        mirage::desktop::CancelToken cancel;
+        // Three turns in one environment epoch each propose one capture; the
+        // provider fails identically every time, so each attempt is recorded
+        // and the third record blocks the tool.
+        integration::DialogCompletion third;
+        for (int turn = 1; turn <= 3; ++turn) {
+            third = owner
+                        .submit_auto([&] {
+                            return layer.complete_harness_turn({}, "portal probe", context, "",
+                                                               false, {}, {}, cancel);
+                        })
+                        .get();
+            MIRAGE_CHECK(third.ok);
+            MIRAGE_CHECK(desktop->screen_.calls == turn);
+        }
+        MIRAGE_CHECK(script && script->requests.size() == 6u);
+        MIRAGE_CHECK(failed_result(*script, "call-1", error_code));
+        MIRAGE_CHECK(third.tool_failures.size() == 1u);
+        if (third.tool_failures.size() == 1u) {
+            const auto &failure = third.tool_failures.front();
+            MIRAGE_CHECK(failure.tool == "desktop.screen.capture");
+            // The fix under test: a portal authorization timeout is
+            // conditional_failure even with a degraded capability.
+            MIRAGE_CHECK(failure.code == (portal ? "conditional_failure" : "platform_limitation"));
+            MIRAGE_CHECK(failure.count == 3u);
+            if (portal) {
+                MIRAGE_CHECK(failure.message.starts_with("暂不可用：portal_timeout:"));
+                MIRAGE_CHECK(failure.message.find("Screenshot authorization cancelled or timed "
+                                                  "out; request closed") != std::string::npos);
+            } else {
+                MIRAGE_CHECK(failure.message.starts_with("平台限制：io_error:"));
+            }
+        }
+        // The fourth proposal never reaches the handler: the session-scoped
+        // block answers with the canonical receipt quoting all three
+        // failures, and the classifier stays at the conditional class.
+        const auto blocked = owner
+                                 .submit_auto([&] {
+                                     return layer.complete_harness_turn({}, "portal probe blocked",
+                                                                        context, "", false, {}, {},
+                                                                        cancel);
+                                 })
+                                 .get();
+        MIRAGE_CHECK(blocked.ok);
+        MIRAGE_CHECK(desktop->screen_.calls == 3);
+        MIRAGE_CHECK(script->requests.size() == 8u);
+        MIRAGE_CHECK(failed_result(*script, "call-1", "permanent_failure"));
+        MIRAGE_CHECK(failed_result(*script, "call-1", "is blocked for this session after 3"));
+        MIRAGE_CHECK(blocked.tool_failures.size() == 1u);
+        if (blocked.tool_failures.size() == 1u)
+            MIRAGE_CHECK(blocked.tool_failures.front().count == 3u);
+        layer.shutdown();
+        owner.shutdown(true);
+    }
+}
+
 // DEC-085 capability honesty at registration time: with screen_capability()
 // == Unavailable the capture-dependent tools stay unregistered and the goal
 // declares the missing screen provider; PortalOnly keeps capture exposed and
@@ -946,11 +1117,15 @@ void harness_sse_scenario() {
 }
 
 void reasoning_scenario() {
-    for (const auto *reasoning : {"none", "adaptive", "low"}) {
+    for (const auto *reasoning : {"", "none", "adaptive", "low"}) {
         kairo::Executor owner;
         MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
         std::shared_ptr<Script> script;
+        std::uint64_t profile_limit = 0;
         integration::ModelProviderOverride provider([&](const auto &profile) {
+            // DEC-085 follow-up: the Messages profile envelope scales with
+            // the 16384 thinking floor, independent of the reasoning choice.
+            profile_limit = profile.capabilities.limits.max_output_tokens;
             script = std::make_shared<Script>(profile, true);
             return script;
         });
@@ -973,13 +1148,110 @@ void reasoning_scenario() {
         const bool valid = std::string{reasoning} != "low";
         MIRAGE_CHECK(result.ok == valid && result.failed == !valid);
         MIRAGE_CHECK(script && script->requests.size() == (valid ? 2u : 0u));
+        // 17 * 16384: the profile budget rides the raised thinking floor so
+        // the RULE-08 envelope still funds 14 model turns.
+        MIRAGE_CHECK(profile_limit == 278528u);
         for (const auto &request : script->requests) {
             MIRAGE_CHECK(request.generation.thinking == (std::string{reasoning} == "none"
                                                              ? mira::ThinkingMode::Disabled
                                                              : mira::ThinkingMode::Adaptive));
             MIRAGE_CHECK(!request.generation.reasoning_effort);
             MIRAGE_CHECK(request.generation.max_output_tokens ==
-                         (std::string{reasoning} == "none" ? 512u : 8192u));
+                         (std::string{reasoning} == "none" ? 512u : 16384u));
+        }
+        layer.shutdown();
+        owner.shutdown(true);
+    }
+}
+
+// DEC-085 follow-up output-budget floor: an adaptive-thinking call floors
+// its per-request output budget at 16384 even when the configured value is
+// a larger-but-under-floor 8192 (the old floor), and the raised floor keeps
+// the RULE-08 envelope at 14 model turns: profile budget 17 * 16384 =
+// 278528 funds per-turn 16384 x (14 turns + 2 recoveries + 1).
+void thinking_budget_scenario() {
+    // (a) floor domination: config 8192 + adaptive -> 16384 on the wire
+    // (the old floor returned 8192 here) and the 278528 profile envelope.
+    {
+        kairo::Executor owner;
+        MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
+        std::shared_ptr<Script> script;
+        std::uint64_t profile_limit = 0;
+        integration::ModelProviderOverride provider([&](const auto &profile) {
+            profile_limit = profile.capabilities.limits.max_output_tokens;
+            script = std::make_shared<Script>(profile, true);
+            return script;
+        });
+        auto config = model_config();
+        config.max_output_tokens = 8192;
+        config.dialect = "anthropic.messages.v1";
+        config.model_selector = "MiniMax-M3";
+        integration::DesktopToolContext tools;
+        tools.environment = environment();
+        integration::ModelLayer layer(owner, config, &provider, tools);
+        auto context = mira::make_control_context();
+        context.task = mira::TaskId::generate();
+        context.session = mira::SessionId::generate();
+        context.deadline = std::chrono::steady_clock::now() + 10s;
+        const auto result = owner
+                                .submit_auto([&] {
+                                    return layer.complete_harness_turn({}, "floor probe", context,
+                                                                       "adaptive");
+                                })
+                                .get();
+        MIRAGE_CHECK(result.ok);
+        MIRAGE_CHECK(profile_limit == 278528u);
+        MIRAGE_CHECK(script && script->requests.size() == 2u);
+        for (const auto &request : script->requests) {
+            MIRAGE_CHECK(request.generation.thinking == mira::ThinkingMode::Adaptive);
+            MIRAGE_CHECK(request.generation.max_output_tokens == 16384u);
+        }
+        layer.shutdown();
+        owner.shutdown(true);
+    }
+    // (b) envelope turn count: with the default 512 config and adaptive
+    // thinking the loop still offers 14 model turns — 13 accepted read-only
+    // proposals, the penultimate request carries the one-turn warning, and
+    // the 14th carries the FINAL notice naming 14 turns with tools closed.
+    {
+        kairo::Executor owner;
+        MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
+        std::shared_ptr<Script> script;
+        integration::ModelProviderOverride provider([&](const auto &profile) {
+            script = std::make_shared<Script>(profile, true);
+            script->actions_override = std::vector<std::pair<std::string, std::string>>(
+                13, {"desktop.window.front", "{}"});
+            return script;
+        });
+        auto config = model_config();
+        config.dialect = "anthropic.messages.v1";
+        config.model_selector = "MiniMax-M3";
+        integration::DesktopToolContext tools;
+        tools.environment = environment();
+        integration::ModelLayer layer(owner, config, &provider, tools);
+        auto context = mira::make_control_context();
+        context.task = mira::TaskId::generate();
+        context.session = mira::SessionId::generate();
+        context.deadline = std::chrono::steady_clock::now() + 30s;
+        const auto result = owner
+                                .submit_auto([&] {
+                                    return layer.complete_harness_turn({}, "turn budget probe",
+                                                                       context, "adaptive", false);
+                                })
+                                .get();
+        MIRAGE_CHECK(result.ok);
+        MIRAGE_CHECK(script && script->requests.size() == 14u);
+        MIRAGE_CHECK(result.tool_calls == 13u);
+        if (script->requests.size() == 14u) {
+            // Assembling request N marks turns_used = N: request 13 (index
+            // 12) warns one turn remains, request 14 (index 13) is final.
+            MIRAGE_CHECK(request_text_contains(script->requests[12], "only one model turn "
+                                                                     "remains"));
+            MIRAGE_CHECK(request_text_contains(script->requests[13],
+                                               "FINAL model turn of this task's budget (14 "
+                                               "turns)"));
+            MIRAGE_CHECK(!request_text_contains(script->requests[12],
+                                                "FINAL model turn of this task's budget"));
         }
         layer.shutdown();
         owner.shutdown(true);
@@ -1552,6 +1824,7 @@ int main() {
 #endif
     registration_scenario();
     reasoning_scenario();
+    thinking_budget_scenario();
     for (const auto *scenario :
          {"block_permanent", "transient_not_blocked", "failure_summary", "budget_final_turn",
           "budget_counts"})
@@ -1559,6 +1832,7 @@ int main() {
     epoch_reset_scenario();
     tool_failure_record_scenario();
     tool_failure_stale_count_probe();
+    portal_timeout_scenario();
     capability_registration_scenario();
     dialog_sse_scenario(true);
     dialog_sse_scenario(false);
