@@ -22,6 +22,7 @@
 #include "tool_alias_provider.hpp"
 
 #include <algorithm>
+#include <map>
 #include <mutex>
 #include <utility>
 
@@ -139,6 +140,197 @@ std::uint64_t generation_budget(const ModelLayerConfig &config, const std::strin
                ? std::max<std::uint64_t>(config.max_output_tokens, 8192)
                : config.max_output_tokens;
 }
+} // namespace
+
+namespace {
+
+/// DEC-085 three-level tool failure classification. `None` covers
+/// caller-driven endings (cancellation, bounded-deadline waits) that are
+/// not tool defects; `Transient` failures recover after authorization or a
+/// fresh observation (DEC-068); `Conditional` failures need a missing
+/// precondition; `Permanent` failures repeat identically — platform limits
+/// and illegal arguments — and must never be retried into the turn budget.
+enum class ToolFailureLevel { None, Transient, Conditional, Permanent };
+
+/// Classified failure description: the level drives the blocking policy, the
+/// code is the stable IPC vocabulary shared by DialogCompletion and the
+/// `session.tool_error` event (DEC-085).
+struct FailureClassification {
+    ToolFailureLevel level = ToolFailureLevel::None;
+    std::string code;
+};
+
+FailureClassification classify_tool_failure(const mira::Error &value,
+                                            const mirage::desktop::ScreenCapability capability) {
+    using Level = ToolFailureLevel;
+    using mira::ErrorCode;
+    switch (value.code) {
+    case ErrorCode::Cancelled:
+    case ErrorCode::DeadlineExceeded:
+        return {Level::None, {}};
+    case ErrorCode::PermissionDenied:
+        return {Level::Transient, "permission_denied"};
+    case ErrorCode::UnsupportedCapability:
+        return capability != mirage::desktop::ScreenCapability::Full
+                   ? FailureClassification{Level::Permanent, "platform_limitation"}
+                   : FailureClassification{Level::Permanent, "permanent_failure"};
+    case ErrorCode::InvalidArgument:
+        return {Level::Permanent, "invalid_arguments"};
+    case ErrorCode::PlatformError:
+        return capability != mirage::desktop::ScreenCapability::Full
+                   ? FailureClassification{Level::Permanent, "platform_limitation"}
+                   : FailureClassification{Level::Conditional, "conditional_failure"};
+    default:
+        return {Level::Conditional, "conditional_failure"};
+    }
+}
+
+/// User-facing prefix for one failure code (IPC `session.tool_error`
+/// message composition); unknown codes fall back to a neutral label.
+std::string failure_user_prefix(const std::string &code) {
+    if (code == "platform_limitation")
+        return "平台限制：";
+    if (code == "permanent_failure")
+        return "工具不可用：";
+    if (code == "invalid_arguments")
+        return "参数无效：";
+    if (code == "permission_denied")
+        return "需要授权：";
+    if (code == "transient_failure")
+        return "暂时失败：";
+    return "暂不可用：";
+}
+
+/// DEC-085 repeated-failure guard with full epoch semantics: the third
+/// non-transient failure of one tool within one environment epoch blocks
+/// further calls with a canonical receipt; a new observation (a new
+/// `desktop.actions` epoch) resets the per-epoch counters while the block
+/// itself persists for the session — a deterministic platform limit does
+/// not heal without an environment change. Access is serialized by the
+/// Impl infer drain lock, like every other complete_* turn. Bounded at 32
+/// sessions (least recently seen evicted) and 64 tools per session.
+class ToolFailureTracker final {
+  public:
+    /// Canonical model-facing receipt for a blocked tool; empty when open.
+    std::optional<std::string> blocked_message(const std::string &session,
+                                               const std::string &tool) const {
+        const auto found = sessions_.find(session);
+        if (found == sessions_.end())
+            return std::nullopt;
+        const auto entry = found->second.tools.find(tool);
+        if (entry == found->second.tools.end() || !entry->second.blocked)
+            return std::nullopt;
+        return "permanent_failure: tool '" + tool + "' is blocked for this session after " +
+               std::to_string(entry->second.total_failures) +
+               " identical deterministic failures. Last error: " + entry->second.last_error +
+               " Do not call it again; produce a final answer that reports the limitation in "
+               "the user's language.";
+    }
+
+    void record(const std::string &session, const std::uint64_t epoch, const std::string &tool,
+                const FailureClassification &classification, const mira::Error &value) {
+        if (classification.level == ToolFailureLevel::None)
+            return;
+        auto &state = touch(session);
+        if (state.epoch != epoch) {
+            // A new observation epoch reopens the per-epoch retry budget;
+            // the block persists (DEC-085 level-3 semantics).
+            state.epoch = epoch;
+            for (auto &entry : state.tools)
+                entry.second.epoch_failures = 0;
+        }
+        auto &entry = state.tools[tool];
+        ++entry.total_failures;
+        ++entry.epoch_failures;
+        entry.code = classification.code;
+        entry.last_error = value.safe_message.substr(0, 200);
+        // Trim a trailing partial UTF-8 sequence introduced by the hard cut.
+        while (!entry.last_error.empty() && (entry.last_error.back() & 0xC0) == 0x80)
+            entry.last_error.pop_back();
+        if (entry.epoch_failures >= 3 && classification.level != ToolFailureLevel::Transient)
+            entry.blocked = true;
+    }
+
+    /// Structured failure classes for the IPC surface (one entry per failed
+    /// tool, newest error as the message). The wire contract requires
+    /// failure_count >= 1, so an entry whose per-epoch count was reset by a
+    /// newer observation mid-turn still publishes with count 1 — the class
+    /// is real, only its current-epoch tally restarted.
+    std::vector<ToolFailure> failures(const std::string &session) const {
+        const auto found = sessions_.find(session);
+        if (found == sessions_.end())
+            return {};
+        std::vector<ToolFailure> result;
+        for (const auto &entry : found->second.tools) {
+            if (entry.second.total_failures == 0)
+                continue;
+            ToolFailure failure;
+            failure.tool = entry.first;
+            failure.code = entry.second.code.empty() ? "conditional_failure" : entry.second.code;
+            failure.message = failure_user_prefix(failure.code) + entry.second.last_error;
+            failure.count = std::max(entry.second.epoch_failures, 1u);
+            result.push_back(std::move(failure));
+        }
+        return result;
+    }
+
+    /// User-facing digest of the session's repeated tool failures for the
+    /// final completion error (bounded, empty when nothing repeated).
+    std::string summary(const std::string &session) const {
+        const auto found = sessions_.find(session);
+        if (found == sessions_.end())
+            return {};
+        std::string digest;
+        for (const auto &entry : found->second.tools) {
+            if (entry.second.total_failures < 2)
+                continue;
+            if (!digest.empty())
+                digest += "；";
+            digest += entry.first + " 连续失败 " + std::to_string(entry.second.total_failures) +
+                      " 次" + (entry.second.blocked ? "（已阻止后续调用）" : "") +
+                      "，最后错误：" + entry.second.last_error;
+        }
+        if (digest.size() > 512) {
+            digest.resize(512);
+            while (!digest.empty() && (digest.back() & 0xC0) == 0x80)
+                digest.pop_back();
+        }
+        return digest;
+    }
+
+  private:
+    struct ToolEntry {
+        std::uint32_t epoch_failures = 0;
+        std::uint32_t total_failures = 0;
+        bool blocked = false;
+        std::string code;
+        std::string last_error;
+    };
+    struct SessionEntry {
+        std::uint64_t epoch = 0;
+        bool epoch_seen = false;
+        std::map<std::string, ToolEntry> tools;
+        std::uint64_t seen = 0;
+    };
+    SessionEntry &touch(const std::string &session) {
+        auto found = sessions_.find(session);
+        if (found == sessions_.end()) {
+            if (sessions_.size() >= 32) {
+                const auto oldest = std::min_element(
+                    sessions_.begin(), sessions_.end(),
+                    [](const auto &a, const auto &b) { return a.second.seen < b.second.seen; });
+                sessions_.erase(oldest);
+            }
+            found = sessions_.emplace(session, SessionEntry{}).first;
+        }
+        found->second.seen = ++clock_;
+        if (found->second.tools.size() > 64)
+            found->second.tools.clear();
+        return found->second;
+    }
+    std::map<std::string, SessionEntry> sessions_;
+    std::uint64_t clock_ = 0;
+};
 } // namespace
 
 void capture_context_usage(DialogCompletion &completion, const mira::ModelResponse &response,
@@ -358,6 +550,8 @@ struct ModelLayer::Impl {
     std::shared_ptr<detail::ObservedProvider> observed;
     std::unique_ptr<mira::ModelGateway> gateway;
     std::shared_ptr<mira::MemoryEventStore> events = std::make_shared<mira::MemoryEventStore>();
+    /// DEC-085 repeated-failure guard; infer_mutex serializes all access.
+    ToolFailureTracker failure_tracker;
     bool running = false;
 };
 
@@ -497,10 +691,19 @@ DialogCompletion ModelLayer::complete_dialog_turn(
     mira::InferOptions options;
     options.stream = static_cast<bool>(preview);
     if (preview)
-        options.preview_sink = [preview = std::move(preview)](const auto &id, const auto &value) {
+        options.preview_sink = [&preview](const auto &id, const auto &value) {
             preview(id.to_string(), value.text, value.truncated);
         };
-    const auto outcome = impl_->gateway->infer(request, context, options);
+    auto outcome = impl_->gateway->infer(request, context, options);
+    // DEC-085: a stream-lifecycle protocol violation is a per-request parser
+    // state problem; pure dialog has no side effects, so retry the turn once
+    // with streaming disabled instead of surfacing the raw violation.
+    if (!outcome && options.stream &&
+        outcome.error().safe_message.find("invalid Messages SSE lifecycle") != std::string::npos) {
+        mira::InferOptions retry_options;
+        retry_options.stream = false;
+        outcome = impl_->gateway->infer(request, context, retry_options);
+    }
     if (!outcome) {
         completion.failed = true;
         completion.error = "model layer request failed: " + outcome.error().safe_message;
@@ -591,19 +794,62 @@ DialogCompletion ModelLayer::complete_harness_turn(
     detail::ConversationCapture capture(std::move(process));
     detail::CaptureScope capture_scope(*impl_->observed, capture, std::move(activity));
     detail::DesktopActionVerification verification(impl_->desktop, turn_context, cancel);
+    // DEC-085 harness resilience state: the session-scoped repeated-failure
+    // guard, the declared capture capability, and the graceful
+    // budget-degradation flag shared between the tool decorator and the
+    // model-input supplier (single-threaded within this turn).
+    const std::string session_key = context.session.to_string();
+    const auto screen_capability =
+        impl_->desktop.environment ? impl_->desktop.environment->screen_capability()
+                                   : mirage::desktop::ScreenCapability::Unavailable;
+    bool final_turn = false;
+    bool tools_attempted = false;
     auto finish = [&] {
         capture.settle(completion.cancelled);
         verification.project(capture.parts);
         completion.parts = std::move(capture.parts);
+        // DEC-085: the classified tool failures ride the completion for the
+        // runtime service's `session.tool_error` projection.
+        completion.tool_failures = impl_->failure_tracker.failures(session_key);
         return completion;
     };
     auto registry = std::make_shared<mira::BuiltinToolRegistry>();
     const DesktopAtomToolset::Decorator decorate =
-        [&capture, &verification](const std::string &name, mira::BuiltinToolHandler handler) {
-            return [name, handler = std::move(handler), &capture,
-                    &verification](const auto &arguments, const auto &ctx) {
+        [&capture, &verification, &tracker = impl_->failure_tracker, session_key,
+         screen_capability, &final_turn, &tools_attempted,
+         &desktop_context = impl_->desktop](const std::string &name,
+                                            mira::BuiltinToolHandler handler) {
+            return [name, handler = std::move(handler), &capture, &verification, &tracker,
+                    session_key, screen_capability, &final_turn, &tools_attempted,
+                    &desktop_context](const auto &arguments,
+                                      const auto &ctx) -> mira::Result<mira::JsonValue> {
+                tools_attempted = true;
+                bool refused = false;
                 auto *part = capture.start_tool(name);
                 auto result = [&]() -> mira::Result<mira::JsonValue> {
+                    // DEC-085: once the turn budget is spent, tools close so
+                    // the model must settle with a text answer instead of
+                    // burning the remaining context on refused actions.
+                    if (final_turn) {
+                        refused = true;
+                        mira::Error closed;
+                        closed.code = mira::ErrorCode::UnsupportedCapability;
+                        closed.domain = "mirage.tool";
+                        closed.safe_message =
+                            "final_turn_tools_closed: the model turn budget is spent; tools are "
+                            "closed for this final turn. Produce the final text answer now, "
+                            "summarizing what was attempted and what blocked the task in the "
+                            "user's language.";
+                        return closed;
+                    }
+                    if (auto blocked = tracker.blocked_message(session_key, name)) {
+                        refused = true;
+                        mira::Error blocked_error;
+                        blocked_error.code = mira::ErrorCode::UnsupportedCapability;
+                        blocked_error.domain = "mirage.tool";
+                        blocked_error.safe_message = std::move(*blocked);
+                        return blocked_error;
+                    }
                     try {
                         return detail::DesktopActionVerification::mutation(name)
                                    ? verification.execute(name, arguments, ctx, handler)
@@ -615,6 +861,11 @@ DialogCompletion ModelLayer::complete_harness_turn(
                         return error;
                     }
                 }();
+                if (!result && !refused)
+                    tracker.record(
+                        session_key,
+                        desktop_context.actions ? desktop_context.actions->epoch() : 0, name,
+                        classify_tool_failure(result.error(), screen_capability), result.error());
                 capture.finish_tool(part, result,
                                     [&verification](auto &parts) { verification.project(parts); });
                 return result;
@@ -629,7 +880,12 @@ DialogCompletion ModelLayer::complete_harness_turn(
     const bool native_ocr = impl_->desktop.ocr_image && impl_->desktop.environment &&
                             impl_->desktop.environment->screen() &&
                             impl_->desktop.environment->screen()->desktop_observation_only();
-    if (impl_->images || native_ocr) {
+    // DEC-085 capability honesty at registration time: with no screen
+    // capability at all, capture-dependent tools are not registered instead
+    // of being exposed to fail at every call.
+    const bool screen_usable =
+        screen_capability != mirage::desktop::ScreenCapability::Unavailable;
+    if ((impl_->images && screen_usable) || native_ocr) {
         auto source =
             impl_->images ? impl_->images : std::make_shared<detail::DesktopImageSource>();
         image_turn = std::make_unique<detail::DesktopImageTurn>(
@@ -672,34 +928,58 @@ DialogCompletion ModelLayer::complete_harness_turn(
     const std::uint64_t turn_capacity = budget / config.max_output_tokens_per_turn;
     config.max_recoveries = static_cast<std::uint32_t>(
         turn_capacity >= 10 ? std::min<std::uint64_t>(2, turn_capacity - 2) : 0);
-    config.max_turns = static_cast<std::uint32_t>(
+    const auto max_turns_value = static_cast<std::uint32_t>(
         std::min<std::uint64_t>(16, turn_capacity - 1 - config.max_recoveries));
+    config.max_turns = max_turns_value;
     config.max_tool_executions = 32;
     config.model_call_deadline = impl_->config.request_deadline;
     config.reasoning_effort = reasoning_value(reasoning);
     config.thinking = thinking_value(impl_->config, reasoning);
-    config.inference.stream = static_cast<bool>(preview);
-    if (preview)
-        config.inference.preview_sink = [preview = std::move(preview)](const auto &id,
-                                                                       const auto &value) {
-            preview(id.to_string(), value.text, value.truncated);
-        };
-    mira::ConversationLoop loop(*impl_->gateway, config);
-    loop.set_tool_registry(registry);
-    loop.set_model_input_supplier(
+    // DEC-085 budget-aware supply seam: resolved exactly once per assembled
+    // request, so the invocation count is the current model turn number. As
+    // the budget runs out, bounded notices ask the model to wrap up, and the
+    // final turn's tool proposals are refused by the decorator above.
+    std::uint32_t turns_used = 0;
+    auto supply_input =
         [&](const auto &specification) -> mira::Result<std::vector<mira::ModelInputItem>> {
-            auto items = verification.supply(specification);
-            if (!items)
-                return items.error();
-            if (image_turn) {
-                auto images = image_turn->supply(specification);
-                if (!images)
-                    return images.error();
-                for (auto &item : images.value())
-                    items.value().push_back(std::move(item));
-            }
-            return items;
-        });
+        auto items = verification.supply(specification);
+        if (!items)
+            return items.error();
+        if (image_turn) {
+            auto images = image_turn->supply(specification);
+            if (!images)
+                return images.error();
+            for (auto &item : images.value())
+                items.value().push_back(std::move(item));
+        }
+        ++turns_used;
+        final_turn = max_turns_value > 0 && turns_used >= max_turns_value;
+        std::string notice;
+        if (final_turn) {
+            notice =
+                "SYSTEM BUDGET NOTICE: this is the FINAL model turn of this task's budget (" +
+                std::to_string(max_turns_value) +
+                " turns). Tool calls are closed from here. Produce the final text answer now: "
+                "summarize what you attempted and explain what prevented completion, in the "
+                "user's language.";
+        } else if (max_turns_value >= 4 && turns_used + 1 == max_turns_value) {
+            notice =
+                "SYSTEM BUDGET NOTICE: only one model turn remains after this one. Wrap up: "
+                "avoid speculative tool retries and prepare the final answer for the user.";
+        }
+        if (!notice.empty()) {
+            mira::ModelInputItem item;
+            item.role = mira::ModelRole::User;
+            item.provenance.source = "mirage.harness.budget.v1";
+            item.authority = mira::Sensitivity::Internal;
+            mira::TextPart text;
+            text.text = std::move(notice);
+            text.sensitivity = mira::Sensitivity::Internal;
+            item.content.emplace_back(std::move(text));
+            items.value().push_back(std::move(item));
+        }
+        return items;
+    };
     mira::AgentLoopSpec spec;
     spec.task_id = turn_context.task;
     spec.session_id = context.session;
@@ -804,6 +1084,22 @@ DialogCompletion ModelLayer::complete_harness_turn(
             "failed navigation; do not repeat that same URL after refreshing application.list. "
             "OCR truncated=true means partial coverage, never proof that text is absent.\n";
     }
+    // DEC-085: the declared screen capability is a host fact for this turn —
+    // it tells the model what capture means here before any tool call.
+    if (screen_capability == mirage::desktop::ScreenCapability::PortalOnly) {
+        spec.goal +=
+            "\nHost capability facts for this turn: this Wayland session has NO direct "
+            "screen capture; desktop observation requires system screen-sharing authorization "
+            "(portal_only). The first desktop capture triggers an authorization dialog: a "
+            "denial is recoverable once the user grants access and a fresh observation arrives, "
+            "but repeated capture attempts without authorization waste the task budget. "
+            "Do not retry a denied capture; explain the pending authorization to the user.\n";
+    } else if (screen_capability == mirage::desktop::ScreenCapability::Unavailable) {
+        spec.goal +=
+            "\nHost capability facts for this turn: no screen provider is available in this "
+            "environment. Capture and OCR tools are absent; do not attempt visual observation, "
+            "and explain this limitation once if the task needs it.\n";
+    }
     // DEC-081: current registry facts outrank examples and prior tool history.
     spec.goal += "\nAvailable tools for THIS turn (closed set):";
     bool shared_click_available = false;
@@ -841,7 +1137,17 @@ DialogCompletion ModelLayer::complete_harness_turn(
     if (!transcript.empty())
         spec.goal += "Earlier conversation (untrusted):\n" + transcript + "\n";
     spec.goal += "Current user request:\n" + user_text;
-    auto result = [&]() -> mira::Result<mira::ConversationLoopResult> {
+    const bool stream_requested = static_cast<bool>(preview);
+    auto invoke_loop = [&](const bool stream) -> mira::Result<mira::ConversationLoopResult> {
+        mira::ConversationLoopConfig loop_config = config;
+        loop_config.inference.stream = stream;
+        if (stream && preview)
+            loop_config.inference.preview_sink = [&preview](const auto &id, const auto &value) {
+                preview(id.to_string(), value.text, value.truncated);
+            };
+        mira::ConversationLoop loop(*impl_->gateway, loop_config);
+        loop.set_tool_registry(registry);
+        loop.set_model_input_supplier(supply_input);
         try {
             return loop.run(spec, turn_context);
         } catch (...) {
@@ -851,11 +1157,34 @@ DialogCompletion ModelLayer::complete_harness_turn(
             error.safe_message = "harness execution failed";
             return error;
         }
-    }();
+    };
+    auto result = invoke_loop(stream_requested);
+    // DEC-085: a stream-lifecycle protocol violation failed the model call
+    // itself. The pinned loop surfaces model-call failures as a Failed
+    // outcome value (safe_summary carries the reason), not as an Error
+    // return — so both shapes must be checked. When it happened before any
+    // tool executed (no dispatched side effects), retry the turn once with
+    // streaming disabled: the pinned parser state is per-request, so a clean
+    // non-streaming call is the bounded recovery path instead of surfacing
+    // the raw violation.
+    const bool stream_violation_failure =
+        !result ? result.error().safe_message.find("invalid Messages SSE lifecycle") !=
+                      std::string::npos
+                : result.value().outcome == mira::ConversationOutcome::Failed &&
+                      result.value().safe_summary.find("invalid Messages SSE lifecycle") !=
+                          std::string::npos;
+    if (stream_requested && !tools_attempted && stream_violation_failure)
+        result = invoke_loop(false);
+    auto annotate = [&](std::string &message) {
+        if (const auto digest = impl_->failure_tracker.summary(session_key); !digest.empty())
+            message += "（工具失败摘要：" + digest + "）";
+    };
     if (!result) {
         completion.cancelled = result.error().code == mira::ErrorCode::Cancelled;
         completion.failed = !completion.cancelled;
         completion.error = result.error().safe_message;
+        if (completion.failed)
+            annotate(completion.error);
         return finish();
     }
     const auto &value = result.value();
@@ -866,6 +1195,13 @@ DialogCompletion ModelLayer::complete_harness_turn(
     completion.error = value.safe_summary;
     completion.model_steps = static_cast<std::uint32_t>(value.turns.size());
     completion.tool_calls = value.tool_executions;
+    if (completion.failed) {
+        // DEC-085: the failure reason must be actionable — the spent budget
+        // and the repeated tool failures name what actually blocked the task.
+        completion.error += "（" + std::to_string(completion.model_steps) + " 个模型步骤、" +
+                            std::to_string(completion.tool_calls) + " 次工具调用）";
+        annotate(completion.error);
+    }
     completion.supplied_input_items = value.supplied_input_items;
     completion.supplied_input_dropped = value.supplied_input_dropped;
     completion.supply_degradations = value.supply_degradations;

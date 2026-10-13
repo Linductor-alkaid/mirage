@@ -78,6 +78,21 @@ struct ReasoningOption {
 [[nodiscard]] std::vector<ReasoningOption>
 reasoning_options(const std::string &dialect, const std::string &model, bool declared = false);
 
+/// DEC-085: one classified tool failure class observed in a settled turn.
+/// `code` is the stable IPC vocabulary shared with the `session.tool_error`
+/// event; `message` is the user-facing composition; `count` counts the
+/// failures of this tool within the current environment epoch, floored at 1
+/// for an entry that only predates the current epoch (the wire contract
+/// requires a positive count).
+struct ToolFailure {
+    std::string tool;
+    /// "platform_limitation" | "permanent_failure" | "invalid_arguments" |
+    /// "permission_denied" | "conditional_failure" | "transient_failure"
+    std::string code;
+    std::string message;
+    std::uint32_t count = 0;
+};
+
 /// Outcome of one dialog inference (DEC-027). `ok` carries `reply_text`;
 /// `failed` marks a settled turn with a stable `error` reason (safe for UI);
 /// `cancelled` mirrors the caller's cancellation probe.
@@ -96,6 +111,10 @@ struct DialogCompletion {
     std::uint32_t supplied_input_items = 0;
     std::uint32_t supplied_input_dropped = 0;
     std::uint32_t supply_degradations = 0;
+    /// DEC-085: classified tool failures of this session (bounded by the
+    /// tracker's per-session tool budget); the runtime service projects them
+    /// onto `session.tool_error` events.
+    std::vector<ToolFailure> tool_failures = {};
 };
 
 /// Opaque carrier for a caller-supplied pinned model provider (DEC-027 test
