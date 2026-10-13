@@ -22,6 +22,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     )
     target_sources(mirage_platform PRIVATE
         linux/src/frontend_activation.cpp
+        linux/src/host_environment.cpp
         linux/src/platform_linux.cpp
         linux/src/linux_desktop_environment.cpp
         linux/src/credential_store.cpp
@@ -141,6 +142,10 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     )
     target_sources(mirage_platform PRIVATE
         windows/src/frontend_activation.cpp
+        # The runtime host's process-wide DPI declaration (M7-10, DEC-086):
+        # enumeration, capture and injected input must share the desktop's
+        # physical pixel space.
+        windows/src/host_environment.cpp
         windows/src/platform_windows.cpp
         windows/src/credential_store.cpp
         windows/src/windows_desktop_environment.cpp

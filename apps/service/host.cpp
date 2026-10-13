@@ -2,6 +2,7 @@
 #include <mirage/integration/mira_environment_binding.hpp>
 #include <mirage/platform/credential_store.hpp>
 #include <mirage/platform/frontend_process.hpp>
+#include <mirage/platform/host_environment.hpp>
 #include <mirage/runtime/permission/confirmation_hub.hpp>
 #include <mirage/runtime/permission/permission.hpp>
 #include <mirage/runtime/persistence/paths.hpp>
@@ -326,6 +327,22 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
         print_usage(std::cerr);
         return 2;
     }
+
+    // M7-10 (DEC-086): the runtime host owns desktop enumeration, capture
+    // and input, and its process-wide DPI awareness decides whether those
+    // surfaces share the desktop's physical pixel space — declare it before
+    // the tray carrier, frontend or desktop environment open any window.
+    const auto dpi_awareness = mirage::platform::declare_host_dpi_awareness();
+    const char *dpi_mode = dpi_awareness == mirage::platform::DpiAwareness::per_monitor_v2
+                               ? "per-monitor v2 (declared)"
+                           : dpi_awareness == mirage::platform::DpiAwareness::system
+                               ? "system aware (declared)"
+                           : dpi_awareness == mirage::platform::DpiAwareness::prior_per_monitor
+                               ? "per-monitor v2 (already in effect)"
+                           : dpi_awareness == mirage::platform::DpiAwareness::unchanged
+                               ? "unchanged (fixed by manifest or earlier call)"
+                               : "not applicable on this platform";
+    std::cout << kProgramName << ": host dpi awareness " << dpi_mode << '\n';
 
 #if defined(MIRAGE_BUNDLED_VISION) && !defined(_WIN32)
     // DEC-068: relocatable product assets; settings and CLI below retain precedence.
