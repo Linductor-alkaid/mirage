@@ -50,12 +50,16 @@ std::filesystem::path executable_directory() {
 
 void write_desktop_entry(const std::filesystem::path &data_dir, const std::string &id,
                          const std::string &name, const std::string &exec_line,
-                         bool no_display = false, bool hidden = false) {
+                         bool no_display = false, bool hidden = false,
+                         bool dbus_activatable = false) {
     std::filesystem::create_directories(data_dir / "applications");
     std::ofstream out(data_dir / "applications" / id);
     out << "[Desktop Entry]\nType=Application\nName=" << name << "\n";
     if (!exec_line.empty()) {
         out << "Exec=" << exec_line << "\n";
+    }
+    if (dbus_activatable) {
+        out << "DBusActivatable=true\n";
     }
     if (no_display) {
         out << "NoDisplay=true\n";
@@ -221,6 +225,9 @@ int main() {
     const std::string stuck_helper = copy_helper("mirage-m205-stuck");
     const std::string foreign_helper = copy_helper("mirage-m205-foreign");
     const std::string quick_helper = copy_helper("mirage-m205-quick");
+    const std::string dbus_helper = copy_helper("mirage-m205-dbus");
+    const std::string plain_helper = copy_helper("mirage-m205-plain");
+    const std::string pct_helper = copy_helper("mirage-m205-pct");
 
     // Readiness markers for the stuck variant: the helper writes one after
     // installing SIG_IGN for SIGTERM (deleted before each stuck launch so
@@ -238,6 +245,16 @@ int main() {
     const std::string missing_id = "mirage-m205-missing-" + suffix + ".desktop";
     const std::string nodisplay_id = "mirage-m205-nodisplay-" + suffix + ".desktop";
     const std::string hidden_id = "mirage-m205-hidden-" + suffix + ".desktop";
+    // DEC-086 fixtures: DBusActivatable entries spawn their Exec argv
+    // directly instead of degrading a successful launch into an uncertain
+    // side effect. One entry per observable Exec shape, plus two entries
+    // whose Exec cannot expand and must fall back to the GIO path.
+    const std::string dbus_id = "mirage-m205-dbus-" + suffix + ".desktop";
+    const std::string plain_id = "mirage-m205-plain-" + suffix + ".desktop";
+    const std::string pct_id = "mirage-m205-pct-" + suffix + ".desktop";
+    const std::string dbus_noexec_id = "mirage-m205-dbus-noexec-" + suffix + ".desktop";
+    const std::string dbus_overflow_id = "mirage-m205-dbus-overflow-" + suffix + ".desktop";
+    const std::string dbus_quote_id = "mirage-m205-dbus-quote-" + suffix + ".desktop";
 
     write_desktop_entry(data_first, main_id, "Mirage Main Fixture", main_helper + " hold 3600 %u");
     write_desktop_entry(data_first, stuck_id, "Mirage Stuck Fixture",
@@ -255,6 +272,44 @@ int main() {
                         /*no_display=*/true);
     write_desktop_entry(data_first, hidden_id, "Mirage Hidden Fixture", "/bin/true",
                         /*no_display=*/false, /*hidden=*/true);
+    write_desktop_entry(data_first, dbus_id, "Mirage DBus Fixture", dbus_helper + " hold 3600 %U",
+                        /*no_display=*/false, /*hidden=*/false, /*dbus_activatable=*/true);
+    write_desktop_entry(data_first, pct_id, "Mirage Percent Fixture",
+                        pct_helper + " hold 3600 " + (fixture_root / "pct%%.ready").string(),
+                        /*no_display=*/false, /*hidden=*/false, /*dbus_activatable=*/true);
+    write_desktop_entry(data_first, dbus_noexec_id, "Mirage DBus NoExec Fixture", "",
+                        /*no_display=*/false, /*hidden=*/false, /*dbus_activatable=*/true);
+    // An Exec line past the expansion caps (33+ tokens) cannot become an
+    // argv, so the launch falls back to the GIO path; GIO keeps the entry
+    // enumerable and its launch fails in this fixture (no session-bus
+    // activation target), which is the honest outcome. The ready-file path
+    // sits at argv[3]: a wrongly taken direct spawn would create it.
+    {
+        std::string overflow_exec =
+            dbus_helper + " hold 3600 " + (fixture_root / "overflow-ready").string();
+        for (int token = 0; token < 40; ++token) {
+            overflow_exec += " pad";
+        }
+        write_desktop_entry(data_first, dbus_overflow_id, "Mirage DBus Overflow Fixture",
+                            overflow_exec,
+                            /*no_display=*/false, /*hidden=*/false, /*dbus_activatable=*/true);
+    }
+    // An Exec line that is not valid shell syntax: GIO refuses to load the
+    // entry at all, so it never becomes launchable (fail closed upstream).
+    write_desktop_entry(data_first, dbus_quote_id, "Mirage DBus Quote Fixture",
+                        dbus_helper + " hold \"3600",
+                        /*no_display=*/false, /*hidden=*/false, /*dbus_activatable=*/true);
+    // A %%u token survives expansion as the literal text "%u" (the escape,
+    // not the field code), so the URI lands appended after it instead of
+    // substituting; Path= proves the direct spawn honors the working
+    // directory. Written raw because of the extra keys.
+    {
+        std::ofstream out(data_first / "applications" / plain_id);
+        out << "[Desktop Entry]\nType=Application\nName=Mirage Plain Exec Fixture\n"
+            << "Exec=" << plain_helper << " hold 3600 %%u\n"
+            << "Path=" << fixture_root.string() << "\n"
+            << "DBusActivatable=true\n";
+    }
 
     // Redirect the whole application inventory to the fixture (this also
     // keeps the machine's real applications out of the enumeration).
@@ -285,7 +340,9 @@ int main() {
         // system/fixture coexistence relies on).
         const auto listed = apps->list_applications();
         MIRAGE_CHECK(listed.ok);
-        MIRAGE_CHECK(listed.applications.size() == 6);
+        // 6 pre-existing fixtures plus the 5 enumerable DEC-086 entries; the
+        // unparseable-Exec DBusActivatable entry is dropped by GIO itself.
+        MIRAGE_CHECK(listed.applications.size() == 11);
         bool sorted_by_id =
             std::is_sorted(listed.applications.begin(), listed.applications.end(),
                            [](const desktop::ApplicationInfo &a,
@@ -323,13 +380,13 @@ int main() {
         MIRAGE_CHECK(zero_list.error.code == "result_too_large");
         MIRAGE_CHECK(zero_list.applications.empty());
         desktop::ApplicationListLimits below_budget;
-        below_budget.max_applications = 5;
+        below_budget.max_applications = 10;
         MIRAGE_CHECK(apps->list_applications(below_budget, {}).error.code == "result_too_large");
         desktop::ApplicationListLimits exact_budget;
-        exact_budget.max_applications = 6;
+        exact_budget.max_applications = 11;
         const auto exact_list = apps->list_applications(exact_budget, {});
         MIRAGE_CHECK(exact_list.ok);
-        MIRAGE_CHECK(exact_list.applications.size() == 6);
+        MIRAGE_CHECK(exact_list.applications.size() == 11);
         // Cancelled before any work.
         desktop::CancelToken cancelled_list;
         cancelled_list.request_cancel();
@@ -611,6 +668,141 @@ int main() {
             MIRAGE_CHECK(apps->terminate(main_id, {}, {}).ok);
         MIRAGE_CHECK(!apps->running_state(main_id, {}).running);
         ::unsetenv("MIRAGE_TEST_URI_LOG");
+
+        std::fprintf(stderr,
+                     "[application_backend_test] scenario: dbus_activatable_direct_spawn\n");
+        // DEC-086: a DBusActivatable entry must not degrade a successful
+        // launch into an uncertain side effect. The Exec argv is spawned
+        // directly, the child reports its pid through the same pipe, and the
+        // instance is tracked, visible, and cooperatively terminable.
+        const auto launched_dbus = apps->launch(dbus_id, {}, {});
+        MIRAGE_CHECK(launched_dbus.ok);
+        MIRAGE_CHECK(all_decimal_digits(launched_dbus.instance_id));
+        const pid_t dbus_pid =
+            launched_dbus.instance_id.empty() ? -1 : std::atoi(launched_dbus.instance_id.c_str());
+        MIRAGE_CHECK(dbus_pid > 0);
+        tracker.track(dbus_pid);
+        MIRAGE_CHECK(process_alive(dbus_pid));
+        const auto dbus_running = apps->running_state(dbus_id, {});
+        MIRAGE_CHECK(dbus_running.ok);
+        MIRAGE_CHECK(dbus_running.running);
+        MIRAGE_CHECK(dbus_running.instance_id == launched_dbus.instance_id);
+        const auto dbus_listed = apps->list_applications();
+        MIRAGE_CHECK(dbus_listed.ok);
+        const desktop::ApplicationInfo *dbus_entry = find_entry(dbus_listed, dbus_id);
+        MIRAGE_CHECK(dbus_entry != nullptr);
+        if (dbus_entry != nullptr) {
+            MIRAGE_CHECK(dbus_entry->running);
+        }
+        // A second launch on the tracked direct-spawned instance is refused.
+        const auto dbus_duplicate = apps->launch(dbus_id, {}, {});
+        MIRAGE_CHECK(!dbus_duplicate.ok);
+        MIRAGE_CHECK(dbus_duplicate.error.code == "already_running");
+        const auto dbus_terminated = apps->terminate(dbus_id, terminate_budget, {});
+        MIRAGE_CHECK(dbus_terminated.ok);
+        MIRAGE_CHECK(dbus_terminated.instance_id == launched_dbus.instance_id);
+        errno = 0;
+        MIRAGE_CHECK(::kill(dbus_pid, 0) != 0 && errno == ESRCH);
+        const auto dbus_stopped = apps->running_state(dbus_id, {});
+        MIRAGE_CHECK(dbus_stopped.ok);
+        MIRAGE_CHECK(!dbus_stopped.running);
+        MIRAGE_CHECK(dbus_stopped.instance_id.empty());
+
+        // Field-code expansion, observed through the helper's URI log and its
+        // ready-file proxy: %U substitutes the validated URI, %%u survives as
+        // the literal text "%u" with the URI appended after it, and %% in a
+        // plain token collapses to a single %.
+        const std::filesystem::path dbus_uri_log = fixture_root / "dbus-uri-argv.log";
+        ::setenv("MIRAGE_TEST_URI_LOG", dbus_uri_log.c_str(), 1);
+        const std::string dbus_uri = "https://example.invalid/dbus-fixture";
+        const auto substituted = apps->open_uri(dbus_id, dbus_uri, {}, {});
+        MIRAGE_CHECK(substituted.ok);
+        tracker.track(std::atoi(substituted.instance_id.c_str()));
+        const auto until_dbus_uri = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        std::string delivered_dbus;
+        do {
+            std::ifstream file(dbus_uri_log);
+            delivered_dbus.assign(std::istreambuf_iterator<char>(file), {});
+            if (delivered_dbus == dbus_uri + "\n")
+                break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        } while (std::chrono::steady_clock::now() < until_dbus_uri);
+        MIRAGE_CHECK(delivered_dbus == dbus_uri + "\n");
+        const auto substituted_terminated = apps->terminate(dbus_id, terminate_budget, {});
+        MIRAGE_CHECK(substituted_terminated.ok);
+        MIRAGE_CHECK(substituted_terminated.instance_id == substituted.instance_id);
+        MIRAGE_CHECK(!apps->running_state(dbus_id, {}).running);
+
+        // %%u: no field code inserts, so the URI is appended as the last
+        // argument; the literal "%u" token doubles as the helper's ready
+        // file, written into the Path= working directory.
+        const auto appended = apps->open_uri(plain_id, dbus_uri, {}, {});
+        MIRAGE_CHECK(appended.ok);
+        tracker.track(std::atoi(appended.instance_id.c_str()));
+        MIRAGE_CHECK(wait_for_ready_file(fixture_root / "%u"));
+        std::ifstream appended_log(dbus_uri_log);
+        std::string delivered_appended;
+        delivered_appended.assign(std::istreambuf_iterator<char>(appended_log), {});
+        MIRAGE_CHECK(delivered_appended == dbus_uri + "\n" + dbus_uri + "\n");
+        const auto appended_terminated = apps->terminate(plain_id, terminate_budget, {});
+        MIRAGE_CHECK(appended_terminated.ok);
+        MIRAGE_CHECK(appended_terminated.instance_id == appended.instance_id);
+
+        // %% escape without any URI involved (plain launch, no field codes).
+        const auto escaped = apps->launch(pct_id, {}, {});
+        MIRAGE_CHECK(escaped.ok);
+        const pid_t pct_pid =
+            escaped.instance_id.empty() ? -1 : std::atoi(escaped.instance_id.c_str());
+        MIRAGE_CHECK(pct_pid > 0);
+        tracker.track(pct_pid);
+        MIRAGE_CHECK(wait_for_ready_file(fixture_root / "pct%.ready"));
+        const auto escaped_terminated = apps->terminate(pct_id, terminate_budget, {});
+        MIRAGE_CHECK(escaped_terminated.ok);
+        MIRAGE_CHECK(escaped_terminated.instance_id == escaped.instance_id);
+        ::unsetenv("MIRAGE_TEST_URI_LOG");
+
+        // Fallback: an Exec line past the expansion caps cannot become an
+        // argv, so the launch falls back to the GIO path instead of the
+        // direct spawn. The fallback never takes the direct-spawn branch:
+        // with a session bus the activation fails honestly (io_error),
+        // without one GIO spawns the Exec itself and keeps the uncertain
+        // side-effect semantics — the flag the direct branch never sets.
+        const std::filesystem::path overflow_ready = fixture_root / "overflow-ready";
+        const auto overflow_launch = apps->launch(dbus_overflow_id, {}, {});
+        if (overflow_launch.ok) {
+            MIRAGE_CHECK(overflow_launch.side_effect_may_have_occurred);
+            MIRAGE_CHECK(all_decimal_digits(overflow_launch.instance_id));
+            tracker.track(std::atoi(overflow_launch.instance_id.c_str()));
+            // launch returns once the pid is reported, which is before the
+            // child reached exec; wait for its startup marker instead.
+            MIRAGE_CHECK(wait_for_ready_file(overflow_ready));
+            MIRAGE_CHECK(apps->running_state(dbus_overflow_id, {}).running);
+            MIRAGE_CHECK(apps->terminate(dbus_overflow_id, terminate_budget, {}).ok);
+            MIRAGE_CHECK(!apps->running_state(dbus_overflow_id, {}).running);
+        } else {
+            MIRAGE_CHECK(overflow_launch.error.code == "io_error");
+            MIRAGE_CHECK(!overflow_launch.side_effect_may_have_occurred);
+            std::this_thread::sleep_for(std::chrono::milliseconds{200});
+            MIRAGE_CHECK(!std::filesystem::exists(overflow_ready));
+            MIRAGE_CHECK(!apps->running_state(dbus_overflow_id, {}).running);
+        }
+        // A DBusActivatable entry without Exec keeps the GIO activation path
+        // (and its uncertainty semantics): still no direct spawn, no false
+        // success, no instance.
+        const auto noexec_launch = apps->launch(dbus_noexec_id, {}, {});
+        MIRAGE_CHECK(!noexec_launch.ok);
+        MIRAGE_CHECK(noexec_launch.error.code == "io_error");
+        MIRAGE_CHECK(!noexec_launch.side_effect_may_have_occurred);
+        const auto noexec_state = apps->running_state(dbus_noexec_id, {});
+        MIRAGE_CHECK(noexec_state.ok);
+        MIRAGE_CHECK(!noexec_state.running);
+        // An Exec line that is not valid shell syntax never becomes an
+        // application: GIO drops the entry at load time, so discovery and
+        // launch both fail closed upstream of the backend.
+        MIRAGE_CHECK(find_entry(listed, dbus_quote_id) == nullptr);
+        const auto quote_launch = apps->launch(dbus_quote_id, {}, {});
+        MIRAGE_CHECK(!quote_launch.ok);
+        MIRAGE_CHECK(!apps->running_state(dbus_quote_id, {}).ok);
 
         // Non-opt-in environments keep the accessors null (fail closed).
         mirage::platform::linux_backend::LinuxDesktopEnvironment closed_env;

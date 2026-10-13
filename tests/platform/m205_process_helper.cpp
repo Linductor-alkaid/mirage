@@ -13,6 +13,11 @@
 // process reached its main loop (a terminate request before that point
 // would land on the exec chain with the default disposition and kill the
 // instance early).
+//
+// Every argument from argv[3] onward that looks like an HTTP(S) URI is
+// appended to $MIRAGE_TEST_URI_LOG (one line each), so tests can observe
+// the full delivered argv shape of a URI handoff — substituted field codes
+// and appended trailing arguments alike.
 
 #include <signal.h>
 #include <time.h>
@@ -31,14 +36,19 @@ int main(int argc, char **argv) {
         // backend's cooperative wait runs into its deadline.
         ::signal(SIGTERM, SIG_IGN);
     }
-    if (argc >= 4 && (std::string(argv[3]).starts_with("https://") ||
-                      std::string(argv[3]).starts_with("http://"))) {
-        if (const char *path = std::getenv("MIRAGE_TEST_URI_LOG"))
-            if (std::FILE *log = std::fopen(path, "a")) {
-                std::fprintf(log, "%s\n", argv[3]);
-                std::fclose(log);
+    if (const char *path = std::getenv("MIRAGE_TEST_URI_LOG")) {
+        for (int i = 3; i < argc; ++i) {
+            const std::string argument = argv[i];
+            if (argument.starts_with("https://") || argument.starts_with("http://")) {
+                if (std::FILE *log = std::fopen(path, "a")) {
+                    std::fprintf(log, "%s\n", argument.c_str());
+                    std::fclose(log);
+                }
             }
-    } else if (argc >= 4) {
+        }
+    }
+    if (argc >= 4 && !(std::string(argv[3]).starts_with("https://") ||
+                       std::string(argv[3]).starts_with("http://"))) {
         // Readiness marker, written only after the disposition above.
         if (std::FILE *ready = std::fopen(argv[3], "w")) {
             std::fclose(ready);
