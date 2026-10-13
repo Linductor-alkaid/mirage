@@ -310,3 +310,23 @@ Mirage 暴露两类韧性缺陷：
 - Xorg/Wayland 对照实验与 Portal 授权路径实测需真实桌面会话，见实施计划 Phase 3 验证
   项，环境限制未执行项按工程规范记录补跑条件
   （[验收证据](../compatibility/session-resilience-fix-20261013.md)）。
+
+## 真实验证与后续修复（2026-10-13 16:xx，维护者手动任务后）
+
+维护者在真实 Wayland 会话手动重跑任务：**采集与授权路径证实已修复**（两次 portal 截图
+complete、图像入模、失败分类与摘要生效），暴露出一个与本决策并行的既有预算约束并当场
+修复：
+
+1. **输出预算地板**：DeepSeek + 自适应 thinking + 多模态桌面任务的实际输出（含
+   thinking 通道）超过每轮 8192 地板，被按 MIRA-20261009-002 容忍为 Incomplete，
+   既有恢复反馈无法让模型变短，恢复预算耗尽整轮失败。修复：thinking 调用的
+   generation 地板提升至 16384，Messages profile 预算同比放大（RULE-08 包络下
+   max_turns 维持 14）。直接 API 探测证实 DeepSeek 接受 16384（end_turn，无硬上限）。
+2. **portal_timeout 分类细化**：授权框超时/取消从 Permanent `platform_limitation`
+   细化为 Conditional `conditional_failure`——用户稍后仍可授权。
+3. **上游恢复反馈差异化**（mira PR #92）：截断（Incomplete）场景的恢复反馈改为
+   "仅用简洁纯文本回答"，替代无法成立的"请直接以文本回答"，使紧预算重试有真实收敛
+   机会。
+4. **环境发现（备案，非 Mirage 代码）**：`xdg-desktop-portal-gnome` 在无人应答的
+   截图请求期间段错误崩溃（journal 16:43:22 SEGV，自动重启）；GNOME portal 授权框
+   不可被 AT-SPI 自动化点击。建议向 GNOME 上游报告；授权点击由维护者人工完成。

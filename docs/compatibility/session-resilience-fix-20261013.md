@@ -84,6 +84,64 @@
 - mira 全量 ctest 105/105（build-debug 与 build-release，GCC 13.3.0 本地）。
 - 上游 CI 24/24（linux gcc/clang、windows、android、ASAN/UBSAN/TSAN、quality）。
 
+## 真实 Wayland 手动验证与后续失败诊断（16:22-16:24 会话，16:12 构建）
+
+维护者在真实 Wayland 会话（XDG_SESSION_TYPE=wayland、XWayland、DBUS 可用）手动重跑
+bilibili 任务：
+
+**修复生效的证据**：
+- `desktop.screen.capture` 两次 **complete**（portal 授权路径出帧，模型真实读到图像，
+  supplied_input 5 条、0 丢弃）——上午「截图必然 io_error → 反复重试 → 预算耗尽」的
+  故障链已消除。
+- 失败摘要机制生效：错误带「（6 个模型步骤、6 次工具调用）」与分类码。
+
+**新瓶颈（与本修复无关的既有预算约束，现被前置障碍掩盖后暴露）**：
+- 错误 `model output remained incomplete after recovery budget`。链路：DeepSeek
+  （anthropic 兼容端点）+ 自适应 thinking + 多模态桌面上下文 → 输出（含 thinking）
+  超过每轮 8192 token 地板 → Messages 解析器按 MIRA-20261009-002 容忍为
+  `Incomplete`（stop_reason=max_tokens）→ 既有恢复反馈「请直接以文本回答」无法让
+  模型变短 → 两次恢复同样截断 → 恢复预算耗尽整轮失败。
+- 直接 API 探测证实 DeepSeek 接受 `max_tokens=16384` 且正常完成（end_turn）——
+  服务端无硬上限，约束在我方每轮预算。
+
+**修复（三轮）**：
+1. Mirage：thinking 调用的 generation 地板 8192 → 16384，Messages profile 预算
+   同比放大（17×16384），RULE-08 包络下 max_turns 维持 14；
+2. Mirage：`portal_timeout`（授权框超时/取消）从 Permanent `platform_limitation`
+   细化为 Conditional `conditional_failure`——用户仍可授权下一次请求；
+3. 上游 mira PR #92：截断（Incomplete）场景的恢复反馈差异化（"仅用简洁纯文本回答，
+   不调工具不长思考"），使紧预算下的重试有真实收敛机会。
+
+**第三轮增量验证（PASS）**：
+- `reasoning_scenario`（扩展）：adaptive/"" → wire 16384 + thinking Adaptive；
+  none → 512 直传 + Disabled；profile 包络 278528（17×16384）四种 reasoning 一致。
+- `thinking_budget_scenario`：地板语义（config=8192 + adaptive → 仍 16384）；端到端
+  14 轮包络（第 13 请求含还剩一轮提示、第 14 请求含 FINAL 提示，13 次工具调用后
+  Answered 收敛）。
+- `portal_timeout_scenario`（生产 capture 路径注入）：portal 变体 →
+  `conditional_failure` + `暂不可用：portal_timeout:` 前缀 + 同 epoch 3 次阻止保持；
+  io_error 对照 → 仍 `platform_limitation`。
+- 回归：harness 764 checks / 0（native-debug + ASAN + UBSAN），provider_contract
+  446/0，image supply 910，golden 1552/0；mira（PR #92 后含截断修复的 pin
+  `5791d2d`）重建后关键套件 9/9。
+- TSAN 本机不可运行（内核 ASLR 与 TSAN shadow 映射冲突，先于本次改动存在；涉面已由
+  ASAN+UBSAN 覆盖；补跑条件 `vm.mmap_rnd_bits=28`）。
+
+**环境发现（非 Mirage 代码问题，备案）**：
+- 16:43 探针期间 `xdg-desktop-portal-gnome` 段错误崩溃（SEGV core dump，journal
+  16:43:22），随后自动重启；崩溃前有多次 `InteractiveScreenshot didn't return a
+  file`（无人应答的授权请求）。疑似与并发/无人应答的截图请求相关，建议向 GNOME
+  上游报告。服务自身的采集（16:23）期间 portal 健康。
+- GNOME 的 portal 授权对话框不可被 AT-SPI 自动化点击（安全设计）；computer-use
+  在本执行环境不可用。授权点击需真人完成。
+
+### 真实 Wayland 已验证 / 未验证边界（更新）
+
+- 已验证（真实会话）：环境判定（生产形态 → PortalOnly + portal 路径，含
+  XDG_SESSION_TYPE 缺失的故障会话形态）、portal 授权与采集出帧（维护者手动点击）、
+  图像供给入模、失败分类与摘要、预算计数。
+- 未验证：拒绝→恢复路径的完整自动化（需交互点击）、真实 Xorg 会话对照、Windows。
+
 ## 补跑条件（环境限制，未执行）
 
 - Xorg 会话对照实验（重跑 2026-10-11 bilibili 任务）：需真实 Xorg 登录会话。
