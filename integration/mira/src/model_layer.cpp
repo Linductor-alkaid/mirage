@@ -136,8 +136,15 @@ std::optional<mira::ThinkingMode> thinking_value(const ModelLayerConfig &config,
     return value == "none" ? mira::ThinkingMode::Disabled : mira::ThinkingMode::Adaptive;
 }
 std::uint64_t generation_budget(const ModelLayerConfig &config, const std::string &value) {
+    // DEC-085 follow-up: an adaptive-thinking call spends its output budget
+    // on the native thinking channel before any visible text — a desktop
+    // task with screenshots comfortably exceeds the 8192 floor and the
+    // provider-side cut decodes as a tolerated Incomplete that recovery
+    // cannot fix (every retry truncates again). Raise the floor for
+    // thinking calls; the Messages profile budget scales with the same
+    // floor so the turn count survives the RULE-08 envelope.
     return thinking_value(config, value) == mira::ThinkingMode::Adaptive
-               ? std::max<std::uint64_t>(config.max_output_tokens, 8192)
+               ? std::max<std::uint64_t>(config.max_output_tokens, 16384)
                : config.max_output_tokens;
 }
 } // namespace
@@ -177,6 +184,10 @@ FailureClassification classify_tool_failure(const mira::Error &value,
     case ErrorCode::InvalidArgument:
         return {Level::Permanent, "invalid_arguments"};
     case ErrorCode::PlatformError:
+        // DEC-085: an authorization-dialog timeout is recoverable — the user
+        // can still approve the next request — not a platform limitation.
+        if (value.safe_message.starts_with("portal_timeout"))
+            return {Level::Conditional, "conditional_failure"};
         return capability != mirage::desktop::ScreenCapability::Full
                    ? FailureClassification{Level::Permanent, "platform_limitation"}
                    : FailureClassification{Level::Conditional, "conditional_failure"};
@@ -487,7 +498,7 @@ struct ModelLayer::Impl {
         if (config.dialect == "anthropic.messages.v1" &&
             reasoning_options(config.dialect, config.model_selector).size() > 1)
             record.capabilities.limits.max_output_tokens =
-                17 * std::max<std::uint64_t>(config.max_output_tokens, 8192);
+                17 * std::max<std::uint64_t>(config.max_output_tokens, 16384);
         // DEC-082: profile admission covers 16 calls plus Mira's extra
         // request envelope; generation_budget still bounds each wire call.
         record.capabilities.text =
