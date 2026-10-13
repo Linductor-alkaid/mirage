@@ -56,6 +56,7 @@ constexpr const char *kEventSessionOutput = "session.output";
 constexpr const char *kEventWorkflowRunUpdated = "workflow.run_updated";
 constexpr const char *kEventChatPreview = "session.chat_preview";
 constexpr const char *kEventChatTurnUpdated = "session.chat_updated";
+constexpr const char *kEventToolError = "session.tool_error";
 
 /// Closed Capability vocabulary (DEC-010 / DEC-020) carried by
 /// permission.request events and permission.list entries. Kept local so the
@@ -2531,6 +2532,8 @@ const char *event_name(const EventPayload &payload) {
     }
     if (std::holds_alternative<ChatPreviewEvent>(payload))
         return kEventChatPreview;
+    if (std::holds_alternative<ToolErrorEvent>(payload))
+        return kEventToolError;
     if (std::holds_alternative<ChatTurnUpdatedEvent>(payload)) {
         return kEventChatTurnUpdated;
     }
@@ -2609,6 +2612,13 @@ std::string encode_event(const Event &event) {
                 put(object, "text", value.text);
                 put(object, "sequence", static_cast<std::int64_t>(value.sequence));
                 put(object, "truncated", value.truncated);
+            } else if constexpr (std::is_same_v<T, ToolErrorEvent>) {
+                put(object, "event", kEventToolError);
+                put(object, "session_id", value.session_id);
+                put(object, "tool_name", value.tool_name);
+                put(object, "error_code", value.error_code);
+                put(object, "message", value.message);
+                put(object, "failure_count", static_cast<std::int64_t>(value.failure_count));
             } else if constexpr (std::is_same_v<T, ChatTurnUpdatedEvent>) {
                 put(object, "event", kEventChatTurnUpdated);
                 encode_process(object, value.parts, value.process_sequence);
@@ -2879,6 +2889,29 @@ EventDecode decode_event(std::string_view payload) {
         }
         result.event.payload = ChatPreviewEvent{
             *session, *turn, *request, *text, static_cast<std::uint64_t>(*sequence), *truncated};
+    } else if (*name == kEventToolError) {
+        constexpr const char *kToolErrorCodes[] = {"platform_limitation", "permanent_failure",
+                                                   "invalid_arguments",    "permission_denied",
+                                                   "conditional_failure",  "transient_failure"};
+        const auto session = string_member(object, "session_id");
+        const auto tool = string_member(object, "tool_name");
+        const auto code = string_member(object, "error_code");
+        const auto message = string_member(object, "message");
+        const auto count = integer_member(object, "failure_count");
+        if (!session || session->empty() || session->size() > 128 || !tool || tool->empty() ||
+            tool->size() > 256 || !code || code->empty() || code->size() > 64 || !message ||
+            message->size() > 2048 || !count || *count < 1) {
+            result.error = "session.tool_error requires 'session_id', 'tool_name', 'error_code', "
+                           "'message' and a positive 'failure_count'";
+            return result;
+        }
+        if (!in_stable_set(*code, kToolErrorCodes,
+                           sizeof(kToolErrorCodes) / sizeof(kToolErrorCodes[0]))) {
+            result.error = "session.tool_error 'error_code' is not a known failure class";
+            return result;
+        }
+        result.event.payload = ToolErrorEvent{*session, *tool, *code, *message,
+                                              static_cast<std::uint32_t>(*count)};
     } else if (*name == kEventChatTurnUpdated) {
         ChatTurnUpdatedEvent chat;
         const auto session_id = string_member(object, "session_id");

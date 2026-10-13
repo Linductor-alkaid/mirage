@@ -28,7 +28,8 @@
       "v15 (M7-12): vision.get/set persisted resource settings; response distinguishes saved path, active startup path, compiled support, running and restart requirement.",
       "v16 (M7-10 / DEC-078): desktop.authorization.get/set settings state, no restore tokens on the wire; existing forms unchanged.",
       "v17 (M6-38): chat_only selects tool-free conversation; default/full and read_only/visual remain compatible.",
-      "v18 (M8-01): pet.status and opt-in pet.updated carry a bounded display projection; legacy subscribers do not receive the new event."
+      "v18 (M8-01): pet.status and opt-in pet.updated carry a bounded display projection; legacy subscribers do not receive the new event.",
+      "v21 (DEC-085): session.tool_error carries one classified tool failure of a settled harness turn (stable error_code vocabulary); additive, legacy subscribers do not receive the new event."
     ]
   },
   "requests": [
@@ -2523,6 +2524,20 @@
         "elapsed_ms": 123
       },
       "canonical": "{\"v\":1,\"seq\":4,\"event\":\"pet.updated\",\"schema_version\":1,\"owner_epoch\":\"owner-A\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"thinking\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":1,\"summary\":\"思考中\",\"reason_code\":\"\",\"elapsed_ms\":123}"
+    },
+    {
+      "name": "tool-error-platform-limitation",
+      "event": {
+        "v": 1,
+        "seq": 5,
+        "event": "session.tool_error",
+        "session_id": "session-A",
+        "tool_name": "desktop.screen.capture",
+        "error_code": "platform_limitation",
+        "message": "平台限制：desktop capture unavailable in this Wayland session",
+        "failure_count": 3
+      },
+      "canonical": "{\"v\":1,\"seq\":5,\"event\":\"session.tool_error\",\"session_id\":\"session-A\",\"tool_name\":\"desktop.screen.capture\",\"error_code\":\"platform_limitation\",\"message\":\"平台限制：desktop capture unavailable in this Wayland session\",\"failure_count\":3}"
     }
   ],
   "event_failures": [
@@ -2550,6 +2565,16 @@
       "name": "unknown-event",
       "payload": "{\"v\":1,\"seq\":1,\"event\":\"task.deleted\"}",
       "error": "unknown event 'task.deleted'"
+    },
+    {
+      "name": "tool-error-missing-count",
+      "payload": "{\"v\":1,\"seq\":1,\"event\":\"session.tool_error\",\"session_id\":\"s\",\"tool_name\":\"t\",\"error_code\":\"platform_limitation\",\"message\":\"m\"}",
+      "error": "session.tool_error requires 'session_id', 'tool_name', 'error_code', 'message' and a positive 'failure_count'"
+    },
+    {
+      "name": "tool-error-unknown-code",
+      "payload": "{\"v\":1,\"seq\":1,\"event\":\"session.tool_error\",\"session_id\":\"s\",\"tool_name\":\"t\",\"error_code\":\"mystery\",\"message\":\"m\",\"failure_count\":2}",
+      "error": "session.tool_error 'error_code' is not a known failure class"
     },
     {
       "name": "task-updated-missing-success",

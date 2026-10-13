@@ -1032,6 +1032,23 @@ struct ChatPreviewEvent {
     bool truncated = false;
 };
 
+/// `session.tool_error` (DEC-085): one classified tool failure class of a
+/// settled harness turn, pushed so the UI can surface an actionable error
+/// card instead of a bare turn failure. `error_code` uses the stable
+/// classification vocabulary ("platform_limitation" | "permanent_failure" |
+/// "invalid_arguments" | "permission_denied" | "conditional_failure" |
+/// "transient_failure"); `message` is the user-facing composition;
+/// `failure_count` counts the tool's failures within the current
+/// environment epoch. No seed semantics — the event accompanies the
+/// authoritative `session.chat_updated` settlement.
+struct ToolErrorEvent {
+    std::string session_id;
+    std::string tool_name;
+    std::string error_code;
+    std::string message;
+    std::uint32_t failure_count = 0;
+};
+
 /// Closed event set; new events join additively (DEC-012).
 struct PetUpdatedEvent {
     pet::Status status;
@@ -1039,7 +1056,8 @@ struct PetUpdatedEvent {
 using EventPayload =
     std::variant<TaskUpdatedEvent, HostStatusEvent, EventsOverflowEvent, PermissionRequestedEvent,
                  SessionUpdatedEvent, SessionMessageEvent, SessionTurnEvent, SessionOutputEvent,
-                 WorkflowRunUpdatedEvent, ChatTurnUpdatedEvent, ChatPreviewEvent, PetUpdatedEvent>;
+                 WorkflowRunUpdatedEvent, ChatTurnUpdatedEvent, ChatPreviewEvent, ToolErrorEvent,
+                 PetUpdatedEvent>;
 
 /// One decoded event frame minus its envelope bookkeeping: the per-connection
 /// `seq` plus the payload. `seq` is assigned by the sender per connection,

@@ -259,6 +259,14 @@ ipc::Event event_from_vector(const std::string &name, const mira::JsonValue &bod
             }
         }
         event.payload = std::move(payload);
+    } else if (kind == "session.tool_error") {
+        ipc::ToolErrorEvent payload;
+        payload.session_id = vector_string(body, "session_id");
+        payload.tool_name = vector_string(body, "tool_name");
+        payload.error_code = vector_string(body, "error_code");
+        payload.message = vector_string(body, "message");
+        payload.failure_count = static_cast<std::uint32_t>(vector_integer(body, "failure_count"));
+        event.payload = std::move(payload);
     } else if (kind == "session.chat_updated") {
         ipc::ChatTurnUpdatedEvent payload;
         payload.session_id = vector_string(body, "session_id");
@@ -381,6 +389,14 @@ void check_event_equal(const std::string &name, const ipc::Event &expected,
             check_string_equal(name, "chat error", decoded.error, chat->error);
         }
         MIRAGE_CHECK(decoded.sequence == chat->sequence);
+    } else if (const auto *tool_error = std::get_if<ipc::ToolErrorEvent>(&expected.payload)) {
+        const auto &decoded = std::get<ipc::ToolErrorEvent>(actual.payload);
+        check_string_equal(name, "tool_error session_id", decoded.session_id,
+                           tool_error->session_id);
+        check_string_equal(name, "tool_name", decoded.tool_name, tool_error->tool_name);
+        check_string_equal(name, "error_code", decoded.error_code, tool_error->error_code);
+        check_string_equal(name, "message", decoded.message, tool_error->message);
+        MIRAGE_CHECK(decoded.failure_count == tool_error->failure_count);
     }
 }
 

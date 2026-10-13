@@ -99,6 +99,13 @@ class EventHub {
         topic_.publish(ipc::EventPayload{std::move(event)});
     }
 
+    /// Classified tool failure of a settled harness turn (DEC-085). Same
+    /// direct-publish discipline as the chat turn settlement: the Topic is
+    /// thread-safe and per-connection queues stay bounded. No seed semantics.
+    void publish_tool_error(ipc::ToolErrorEvent event) {
+        topic_.publish(ipc::EventPayload{std::move(event)});
+    }
+
     /// Newest host status, engaged once the hosted runtime reported its
     /// first transition; nullopt before that.
     std::optional<ipc::HostStatusEvent> current_host_status() const {

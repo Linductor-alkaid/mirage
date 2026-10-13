@@ -204,6 +204,17 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
         }
     }
     core->events.publish_chat_turn(std::move(event));
+    // DEC-085: classified tool failures surface as dedicated error events so
+    // the UI can show actionable tool error cards next to the turn failure.
+    for (auto &failure : completion.tool_failures) {
+        ipc::ToolErrorEvent tool_error;
+        tool_error.session_id = session_id;
+        tool_error.tool_name = failure.tool;
+        tool_error.error_code = failure.code;
+        tool_error.message = failure.message;
+        tool_error.failure_count = failure.count;
+        core->events.publish_tool_error(std::move(tool_error));
+    }
     persist_session_state(core);
 }
 
