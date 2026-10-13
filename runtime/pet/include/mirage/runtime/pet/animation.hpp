@@ -36,6 +36,9 @@ struct Frame {
 class AnimationPlayer {
   public:
     using Clock = std::chrono::steady_clock;
+    // Each new pet process enters once. The initial Runtime terminal snapshot
+    // is a baseline, not a completion that occurred during this presentation.
+    void begin_startup(Clock::time_point now);
     bool select(std::string_view owner_epoch, std::string_view display_state,
                 std::string_view source_id, Clock::time_point now);
     // The first frame starts its clock only after the asset is decoded. A
@@ -52,6 +55,10 @@ class AnimationPlayer {
     std::string source_id_;
     std::string consumed_failure_owner_;
     std::string consumed_failure_source_;
+    std::string startup_result_owner_;
+    std::string startup_result_source_;
+    std::string startup_result_state_;
+    bool awaiting_initial_status_ = false;
     const Clip *clip_ = nullptr;
     Clock::time_point entered_{};
     bool ready_ = false;

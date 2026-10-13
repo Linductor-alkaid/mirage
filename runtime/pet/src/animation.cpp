@@ -46,8 +46,24 @@ const Clip *clip_for_display(std::string_view display_state) {
                                     [state](const Clip &clip) { return clip.state == state; });
     return found == clips.end() ? nullptr : &*found;
 }
+void AnimationPlayer::begin_startup(Clock::time_point now) {
+    reset();
+    startup_result_owner_.clear();
+    startup_result_source_.clear();
+    startup_result_state_.clear();
+    awaiting_initial_status_ = true;
+    select("pet-local", "starting", {}, now);
+}
 bool AnimationPlayer::select(std::string_view owner_epoch, std::string_view display_state,
                              std::string_view source_id, Clock::time_point now) {
+    if (awaiting_initial_status_ && owner_epoch != "pet-local") {
+        awaiting_initial_status_ = false;
+        if (display_state == "task_failure" || display_state == "task_success") {
+            startup_result_owner_ = owner_epoch;
+            startup_result_source_ = source_id;
+            startup_result_state_ = display_state;
+        }
+    }
     if (owner_epoch_ == owner_epoch && display_state_ == display_state && source_id_ == source_id) {
         if (clip_ && clip_->state == "fail" && first_cycle_complete(now)) {
             // Keep the failure identity consumed while presenting idle. Later
@@ -66,12 +82,16 @@ bool AnimationPlayer::select(std::string_view owner_epoch, std::string_view disp
     if (display_state == "task_failure" && owner_epoch == consumed_failure_owner_ &&
         source_id == consumed_failure_source_)
         requested = clip_for_display("idle");
+    if (!startup_result_state_.empty() && owner_epoch == startup_result_owner_ &&
+        source_id == startup_result_source_ && display_state == startup_result_state_)
+        requested = clip_for_display("idle");
     const bool safety_interrupt =
         requested == nullptr || display_state == "exiting" ||
         (!owner_epoch_.empty() && owner_epoch_ != "pet-local" && owner_epoch_ != owner_epoch);
     // Only an animation that has actually started owns the first-cycle gate.
     // A state superseded during decode must never play after the action ended.
-    if (!safety_interrupt && ready_ && !first_cycle_complete(now))
+    const bool local_entrance = clip_ && clip_->state == "enter" && owner_epoch_ == "pet-local";
+    if (!safety_interrupt && (ready_ || local_entrance) && !first_cycle_complete(now))
         return false;
     owner_epoch_ = owner_epoch;
     display_state_ = display_state;

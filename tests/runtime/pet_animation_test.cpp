@@ -125,5 +125,57 @@ int main() {
     MIRAGE_CHECK(player.frame(now + 1s + 52 * 100ms).finished);
     MIRAGE_CHECK(player.frame(now + 1s + 52 * 100ms).index == 51);
     MIRAGE_CHECK(player.frame(now + 999ms).index == 0); // backwards clock clamps
+
+    // BUG-20261014-001: a fresh pet receives the previous task's terminal
+    // snapshot before its entrance asset is ready. It must enter, then idle,
+    // without treating that snapshot (or later refreshes) as a new result.
+    for (const auto result : {"task_failure", "task_success"}) {
+        pet::AnimationPlayer reopened;
+        reopened.begin_startup(now);
+        MIRAGE_CHECK(!reopened.select("owner", result, "old-task", now + 10ms));
+        MIRAGE_CHECK(reopened.frame(now + 10ms).clip->state == "enter");
+        MIRAGE_CHECK(!reopened.select("owner", result, "old-task", now + 10s));
+        reopened.asset_ready(now + 10s);
+        const auto end = now + 10s + 54 * 83ms;
+        MIRAGE_CHECK(!reopened.select("owner", result, "old-task", end - 1ms));
+        MIRAGE_CHECK(reopened.select("owner", result, "old-task", end));
+        MIRAGE_CHECK(reopened.frame(end).clip->state == "rest");
+        reopened.asset_ready(end);
+        MIRAGE_CHECK(!reopened.select("owner", result, "old-task", end + 1h));
+        reopened.reset(); // hiding must not forget the startup baseline
+        MIRAGE_CHECK(reopened.select("owner", result, "old-task", end + 2h));
+        MIRAGE_CHECK(reopened.frame(end + 2h).clip->state == "rest");
+        reopened.asset_ready(end + 2h);
+        MIRAGE_CHECK(reopened.select("owner", result, "new-task", end + 3h));
+        MIRAGE_CHECK(reopened.frame(end + 3h).clip == pet::clip_for_display(result));
+        reopened.reset();
+        MIRAGE_CHECK(reopened.select("new-owner", result, "old-task", end + 4h));
+        MIRAGE_CHECK(reopened.frame(end + 4h).clip == pet::clip_for_display(result));
+    }
+
+    // A failure that happens after an initially active snapshot is live,
+    // even if it arrives before the entrance completes.
+    pet::AnimationPlayer active_start;
+    active_start.begin_startup(now);
+    MIRAGE_CHECK(!active_start.select("owner", "thinking", "active-task", now + 10ms));
+    active_start.asset_ready(now + 100ms);
+    MIRAGE_CHECK(!active_start.select("owner", "task_failure", "active-task", now + 200ms));
+    MIRAGE_CHECK(active_start.select("owner", "task_failure", "active-task", now + 5s));
+    MIRAGE_CHECK(active_start.frame(now + 5s).clip->state == "fail");
+
+    // Startup never delays safe states or shutdown, and failed entrance
+    // decoding releases the gate instead of holding startup indefinitely.
+    for (const auto interrupt : {"takeover", "disconnected", "exiting"}) {
+        pet::AnimationPlayer startup;
+        startup.begin_startup(now);
+        MIRAGE_CHECK(startup.select("owner", interrupt, {}, now + 10ms));
+        MIRAGE_CHECK(startup.frame(now + 10ms).clip->state != "enter");
+    }
+    pet::AnimationPlayer missing_entrance;
+    missing_entrance.begin_startup(now);
+    MIRAGE_CHECK(!missing_entrance.select("owner", "task_failure", "old-task", now + 10ms));
+    missing_entrance.asset_failed(now + 20ms);
+    MIRAGE_CHECK(missing_entrance.select("owner", "task_failure", "old-task", now + 20ms));
+    MIRAGE_CHECK(missing_entrance.frame(now + 20ms).clip->state == "rest");
     return mirage::testing::finish("pet_animation_test");
 }

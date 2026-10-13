@@ -84,7 +84,7 @@ void start(const std::string &endpoint) {
         platform::pet_window::request_close();
         return;
     }
-    model.player.select("pet-local", "starting", {}, model.started);
+    model.player.begin_startup(model.started);
     clear_image(model); // schedule the first upload in the UI backend scope
 }
 void stop() {
@@ -142,11 +142,6 @@ void tick() {
         source = {};
     } else if (disconnected && display != "exiting") {
         display = "disconnected";
-        source = {};
-    } else if (display == "idle" && now - model.started < 4482ms) {
-        // Pet-local entrance is only retained while the service has no work.
-        display = "starting";
-        owner = "pet-local";
         source = {};
     }
     if (model.player.select(owner, display, source, now))
