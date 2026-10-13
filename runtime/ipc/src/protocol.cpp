@@ -643,6 +643,10 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                 put(object, "frontend_ready", value.frontend_ready);
                 if (value.pet_pid)
                     put(object, "pet_pid", *value.pet_pid);
+                if (value.pet_state)
+                    put(object, "pet_state", *value.pet_state);
+                if (value.pet_diagnostic)
+                    put(object, "pet_diagnostic", *value.pet_diagnostic);
             } else if constexpr (std::is_same_v<T, TaskSubmitted>) {
                 put(object, "task_id", value.task_id);
                 if (value.session_id) {
@@ -939,6 +943,8 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                 put(object, "op", "product.control");
                 put(object, "action", value.action);
                 put(object, "exit_epoch", static_cast<std::int64_t>(value.exit_epoch));
+                if (value.action == "pet_ready")
+                    put(object, "pet_pid", value.pet_pid);
                 if (value.action == "frontend_ready")
                     put(object, "frontend_pid", value.frontend_pid);
             } else if constexpr (std::is_same_v<T, SubscribeEventsRequest>) {
@@ -1120,10 +1126,23 @@ RequestDecode decode_request(std::string_view payload) {
         const auto epoch = integer_member(object, "exit_epoch");
         if (!action ||
             (*action != "status" && *action != "open" && *action != "quit" &&
-             *action != "confirm_quit" && *action != "cancel_quit" &&
-             *action != "frontend_ready") ||
+             *action != "confirm_quit" && *action != "cancel_quit" && *action != "frontend_ready" &&
+             *action != "pet_start" && *action != "pet_stop" && *action != "pet_ready") ||
             !epoch || *epoch < 0) {
             result.error = "invalid product action or exit epoch";
+            return result;
+        }
+        std::int64_t pet_pid = 0;
+        if (*action == "pet_ready") {
+            const auto pid = integer_member(object, "pet_pid");
+            if (!pid || *pid <= 0 || *epoch != 0) {
+                result.error = "pet_ready requires a positive pet_pid and zero exit_epoch";
+                return result;
+            }
+            pet_pid = *pid;
+        }
+        if ((*action == "pet_start" || *action == "pet_stop") && *epoch != 0) {
+            result.error = "pet control requires zero exit_epoch";
             return result;
         }
         std::int64_t frontend_pid = 0;
@@ -1136,8 +1155,8 @@ RequestDecode decode_request(std::string_view payload) {
             }
             frontend_pid = *pid;
         }
-        result.body =
-            ProductControlRequest{*action, static_cast<std::uint64_t>(*epoch), frontend_pid};
+        result.body = ProductControlRequest{*action, static_cast<std::uint64_t>(*epoch),
+                                            frontend_pid, pet_pid};
     } else if (*op == kOpSubscribe) {
         SubscribeEventsRequest subscribe;
         if (member(object, "chat_preview")) {
@@ -1786,6 +1805,17 @@ ResponseDecode decode_response(std::string_view payload) {
                 return result;
             }
         }
+        std::optional<std::string> pet_state, pet_diagnostic;
+        if (member(object, "pet_state") || member(object, "pet_diagnostic")) {
+            pet_state = string_member(object, "pet_state");
+            pet_diagnostic = string_member(object, "pet_diagnostic");
+            if (!pet_pid || !pet_state || !pet_diagnostic || pet_diagnostic->size() > 512 ||
+                (*pet_state != "stopped" && *pet_state != "starting" && *pet_state != "running" &&
+                 *pet_state != "stopping" && *pet_state != "failed")) {
+                result.error = "invalid product pet lifecycle";
+                return result;
+            }
+        }
         if (!product || !*product || !pid || *pid < 0 || !window || *window < 0 || !epoch ||
             *epoch < 0 || !active || *active < 0 || !pending || !ready) {
             result.error = "invalid product state";
@@ -1797,7 +1827,9 @@ ResponseDecode decode_response(std::string_view payload) {
                                         static_cast<std::size_t>(*active),
                                         *pending,
                                         *ready,
-                                        pet_pid};
+                                        pet_pid,
+                                        pet_state,
+                                        pet_diagnostic};
     } else if (const auto *task_id = member(object, "task_id"); task_id != nullptr) {
         auto id_text = string_member(object, "task_id");
         if (!id_text || id_text->empty()) {

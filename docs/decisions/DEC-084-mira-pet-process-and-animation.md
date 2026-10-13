@@ -29,18 +29,22 @@
    Desktop Action 状态投影产品显示状态；不新建任务状态机、推理循环或独立任务监控。
    提议增加只读 `pet.status` 快照与 `pet.updated` 通知，沿用 v1 加法扩展、能力探测、
    Topic 广播和溢出恢复纪律。wire schema 与 golden vectors 在 M8-01 同步落地。
-3. 显示启动、待机、思考、看、鼠标、键入、任务成功、任务失败、退出，另用状态文字明确
-   等待确认、暂停、取消、人工接管、断连和未知阶段。成功来自宿主已核验终态；可恢复的
-   单个工具失败不等同于整个任务失败。没有真实阶段证据时显示“执行中”。
+3. 用角色动作显示启动、待机、思考、看、鼠标、键入、任务成功、任务失败、退出。
+   桌宠窗口不绘制文字状态条；等待确认、暂停、取消、人工接管、断连和未知阶段
+   安全降级为静态姿态，详细原因留在主窗口与诊断。成功来自宿主已核验终态；可恢复的
+   单个工具失败不等同于整个任务失败。
 4. 运行状态动画分别记录 `intro`、`loop`、`outro` 帧区间及原始时长。进入动作可播放
-   一次 intro；状态持续期间只重复 loop，转换可以有界打断。当前 v5 enter/exit 按
-   素材声明设为 `once`，即使 WebP 容器 loop=0 也禁止重复；启动未 ready 时改用明确
-   文字/静态持有，正常退出按 owner 收尾期限播放或打断。紧急停止、取消和故障不得等待动画
+   一次 intro；五个运行中状态持续期间只重复 loop。普通转换等当前动画至少完成首轮，
+   只采用边界时仍有效的最新状态；中途已结束的短动作不排队补播。当前 v5
+   enter/exit 按素材声明、done/fail 按 2026-10-13 维护者要求设为 `once`，即使 WebP 容器 loop=0 也禁止重复；启动未 ready 时改用明确
+   静态持有末帧，正常退出按 owner 收尾期限播放或打断。紧急停止、取消和故障不得等待动画
    播完。源动作确认不等于分段播放及目标平台运行验收。
 5. 暂定复用已授权 pinned EUI-NEO 的本地渲染与窗口公开能力，不调用其 async/network/
    audio。公开接口提供透明 framebuffer、无边框和 always-on-top 请求；这些请求必须
    在目标窗口管理器实测。当前 Linux 预览用 libwebpdemux 有界解码当前状态的 WebP，
-   由 Mirage 播放器按 manifest 选择 RGBA 帧，EUI ImageStream 只接收选中帧；最终
+   由 Mirage 播放器按 manifest 选择 RGBA 帧；当前消费 dev 已合入 PR #97 的转码
+   修复，恢复容量为 1 的公开 ImageStream；临时 GPU 上传已移除，历史原因见
+   [EUI-20261013-001](../dependency_feedback/eui-ledger.md)。最终
    安装资源布局与 CPU/GPU 预算由 M8-02/03 验收冻结。不修改 pinned 依赖，
    不额外引入浏览器壳。
 6. 每个进程只设一个 Executor owner。托盘复用 Runtime Service owner；桌宠采用
@@ -100,8 +104,68 @@
 
 ## 关联文档和工作项
 
+2026-10-13：M8-02/03 工程收口采用单片 WebP 异步解码，不要求离线 PNG。复用桌宠
+进程 Executor 的可取消任务，保留/消费 future，最新目标在旧片释放后再接纳；请求
+期限暂定 2 秒，迟到 generation 丢弃。运行工件按现有原生安装目录置于
+`bin/assets/pet/`，字体沿用 `bin/assets/`，源摘要在构建时从 manifest 生成并在
+读取时重验。最小化暂停加载/动画 timer，恢复沿原时钟；隐藏退出走 Platform 的 X11
+关闭事件而不等待动画。维护者确认七态 20 圈尚未目视验收；GPU、真实 compositor、
+安装与其他平台仍未通过，整体决策保持 Proposed。实施证据见 M8 当日追加记录。
+EUI 转码缺陷经公开 API 最小字节复现确认，单一 UI Adapter 通过其公开 GPU 导入
+接口提供主图像 1 MiB 的固定纹理；所有 GPU 工作保持 UI 上下文亲和，设备销毁前
+按公开 fence 生命周期释放。该做法不授权修改 pinned EUI，移除条件见独立台账。
+
 - [M8：mira_pet 常驻状态展示](../plans/m8-mira-pet.md)，M8-01～10。
 - [mira_pet 设计](../design/mira-pet.md)。
 - [DEC-045：托盘 Runtime owner](DEC-045-tray-runtime-owner.md)。
 - [DEC-049：会话过程投影](DEC-049-conversation-process-rendering.md)。
 - [DEC-029：Desktop Overlay](DEC-029-desktop-overlay-carrier.md)。
+
+### 2026-10-13：M8-05 独立控制增量
+
+托盘提供条件式独立启停/恢复入口，进程状态为 stopped/starting/running/stopping/failed。
+所属 PID 在窗口/IPC/timer 初始化后显式 ready；10 秒 bootstrap 期限未到 ready 则
+关闭并报告 failed。关闭通过唯一 Runtime Executor 的保留 future 完成，不占用串行
+IPC handler；重复 Stop 复用任务、停止期间 Start 拒绝、崩溃不自动反复拉起。
+停桌宠保留 Agent/会话/主窗口；owner shutdown 先 fence 再消费 future 和回收句柄。
+持久化偏好与避让另在 M8-08/06 验收，不扩张本增量的完成范围。
+
+### 2026-10-13：维护者确认接缝及结果播放策略
+
+维护者确认七态候选区间各 20 圈无视觉接缝问题，结果独立登记于
+[人工验收证据](../compatibility/data/mira-pet-loop-visual-acceptance-20261013.json)。
+实际成功和失败改为全片单次播放，完成后保持末帧/真实结果文字，同一 source 不重播；
+新任务可以重新播放，安全状态及时打断。当前
+[运行 manifest](../compatibility/data/mira-pet-playback-v5-20261013.json) 为五态 loop、
+四态 once；保留旧七态候选用于追溯。成功 5 秒提示期与失败持续提示的原投影规则保留。
+本次确认只关闭接缝门禁；真实 compositor、GPU 峰值和其他窗口/平台门禁没有据此关闭。
+
+### 2026-10-13：XWayland 现场呈现与输入增量
+
+现场发现状态切换时短暂透明空帧、HiDPI 下角色下半身裁切、角色不能拖动。
+播放器在切片加载间隙改用已缓存的待机中性帧；窗口布局改用实际 framebuffer 尺寸；
+X11 Platform Window 根据已提交 RGBA 帧设置 ShapeInput，透明区域穿透而角色及
+状态条可拖动。维护者复验确认上述三项问题消失，实际任务状态/成功失败动画与主窗口
+一致，并确认主窗口关闭后桌宠持续显示且不抢焦、托盘独立启停不影响任务和主窗口。
+私有 X11 实进程/窗口验收为 27/27；范围与剩余门禁见当日验证记录。单屏 XWayland
+结果不代表全屏、多屏、原生 Wayland、Windows 或 GPU 峰值验收，整体决策仍为 Proposed。
+
+### 2026-10-13：维护者调整桌宠窗口与播放规则
+
+维护者要求重启继承上次退出前的位置、移除底部状态条、每个已开始动画至少播放一轮，
+同时跳过已错过的动作，并且不在左侧 Dock 中作为独立应用显示。
+X11 窗口改为 240×240 角色画布，实体可拖动；拖动结束经现有 LocalStateStore 原子
+保存坐标，重启按当前工作区约束恢复。设置 SKIP_TASKBAR/SKIP_PAGER；原生 Wayland
+和 Windows 的任务栏语义仍需分别验收。
+
+播放器仅保留最新服务状态。资源就绪后才开始计时，已开始的 loop 至少完成 intro
+加一轮 loop，once 完成全片；首轮结束后采用届时仍有效的最新状态，加载期间被替代
+或首轮期间已经结束的短动作不补播。视觉显示因此可落后于实际阶段，最大首轮为
+looking 的 8.9 秒；Runtime 事实和输入控制不受影响。安全状态、断连、owner 切换与
+退出仍立即打断。移除状态条后，九态之外的等待/暂停/接管/取消等共用安全静态姿态，
+具体原因由主窗口和诊断提供。
+
+维护者复验四项后反馈“通过”，随后指出失败动画结束后停在末帧的问题，要求改为
+空闲状态。失败全片 once 结束后改播待机，已消费 owner/source 身份独立保留，
+同次失败通知与隐藏恢复不会重新播放；新任务失败重新播放。Runtime 失败事实仍保留
+供主窗口查询。修复后维护者再次明确反馈“通过”。

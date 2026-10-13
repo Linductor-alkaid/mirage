@@ -126,8 +126,19 @@ set_tests_properties(overlay_surface_test PROPERTIES
     TIMEOUT 60
 )
 
-# M2-02 Linux backend skeleton: exercised against a private headless Xvfb
-# (DEC-015). Built wherever the X11 dev packages exist; CI installs them.
+# Product child ownership, including the pet's absent/reaped shutdown path.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(frontend_process_test platform/frontend_process_test.cpp)
+    target_link_libraries(frontend_process_test PRIVATE Mirage::platform Mirage::ipc kairo)
+    target_include_directories(frontend_process_test SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+    mirage_enable_warnings(frontend_process_test)
+    add_test(NAME frontend_process_test COMMAND frontend_process_test)
+    set_tests_properties(frontend_process_test PROPERTIES LABELS "unit;platform;lifecycle" TIMEOUT 20)
+endif()
+
+# M2-02 Linux backend skeleton: private headless Xvfb (DEC-015).
+# Built wherever the X11 dev packages exist; CI installs them.
 find_package(X11 QUIET)
 find_package(PkgConfig QUIET)
 if(PKG_CONFIG_FOUND)

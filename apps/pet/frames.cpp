@@ -1,7 +1,10 @@
 #include "frames.hpp"
+#include "asset_digests.hpp"
 
+#include <algorithm>
 #include <fstream>
 #include <limits>
+#include <mira/event_store.hpp>
 #include <webp/demux.h>
 
 namespace mirage::pet_ui {
@@ -14,16 +17,34 @@ constexpr std::size_t kMaxDecodedBytes = 96 * 1024 * 1024;
 } // namespace
 
 bool decode_clip(const std::filesystem::path &asset_root, const runtime::pet::Clip &clip,
-                 DecodedClip &out, std::string &diagnostic) {
+                 DecodedClip &out, std::string &diagnostic,
+                 const std::function<bool()> &cancelled) {
     out = {};
     diagnostic.clear();
     if (clip.frame_count == 0 || clip.frame_count > 96 || clip.frame_duration_ms == 0 ||
         static_cast<std::size_t>(clip.frame_count) * kFrameBytes > kMaxDecodedBytes ||
         clip.file.empty() || clip.file.find('/') != std::string_view::npos ||
-        clip.file.find('\\') != std::string_view::npos) {
+        clip.file.find('\\') != std::string_view::npos || clip.intro_end > clip.loop_end ||
+        clip.loop_end > clip.frame_count || (!clip.once && clip.intro_end == clip.loop_end) ||
+        (clip.once && (clip.intro_end != clip.frame_count || clip.loop_end != clip.frame_count))) {
         diagnostic = "invalid v5 clip bounds";
         return false;
     }
+    const auto digest =
+        std::find_if(pet_asset_digests.begin(), pet_asset_digests.end(),
+                     [&clip](const auto &entry) { return entry.first == clip.file; });
+    if (digest == pet_asset_digests.end()) {
+        diagnostic = "unapproved v5 asset path";
+        return false;
+    }
+    const auto stop = [&] {
+        if (!cancelled || !cancelled())
+            return false;
+        diagnostic = "v5 asset load cancelled";
+        return true;
+    };
+    if (stop())
+        return false;
     const auto file = asset_root / clip.file;
     std::error_code error;
     if (std::filesystem::is_symlink(file, error) || error ||
@@ -39,16 +60,36 @@ bool decode_clip(const std::filesystem::path &asset_root, const runtime::pet::Cl
     }
     std::vector<std::uint8_t> input(static_cast<std::size_t>(bytes));
     std::ifstream stream(file, std::ios::binary);
-    if (!stream.read(reinterpret_cast<char *>(input.data()), static_cast<std::streamsize>(bytes))) {
+    for (std::size_t offset = 0; offset < input.size();) {
+        if (stop())
+            return false;
+        const auto chunk = std::min<std::size_t>(64 * 1024, input.size() - offset);
+        if (!stream.read(reinterpret_cast<char *>(input.data() + offset),
+                         static_cast<std::streamsize>(chunk))) {
+            diagnostic = "v5 asset read failed";
+            return false;
+        }
+        offset += chunk;
+    }
+    if (stream.peek() != std::char_traits<char>::eof()) {
         diagnostic = "v5 asset read failed";
         return false;
     }
+    if (stop())
+        return false;
+    if (mira::digest_bytes(std::as_bytes(std::span(input))).to_string() != digest->second) {
+        diagnostic = "v5 asset digest mismatch";
+        return false;
+    }
+    if (stop())
+        return false;
     WebPAnimDecoderOptions options;
     if (!WebPAnimDecoderOptionsInit(&options)) {
         diagnostic = "WebP decoder initialization failed";
         return false;
     }
     options.color_mode = MODE_RGBA;
+    options.use_threads = 0; // the process Executor owns all decoding concurrency
     const WebPData data{input.data(), input.size()};
     std::unique_ptr<WebPAnimDecoder, decltype(&WebPAnimDecoderDelete)> decoder(
         WebPAnimDecoderNew(&data, &options), &WebPAnimDecoderDelete);
@@ -68,6 +109,8 @@ bool decode_clip(const std::filesystem::path &asset_root, const runtime::pet::Cl
     candidate.rgba_frames.reserve(clip.frame_count);
     int previous_timestamp = 0;
     while (WebPAnimDecoderHasMoreFrames(decoder.get())) {
+        if (stop())
+            return false;
         std::uint8_t *pixels = nullptr;
         int timestamp = 0;
         if (!WebPAnimDecoderGetNext(decoder.get(), &pixels, &timestamp) || !pixels ||
@@ -80,6 +123,8 @@ bool decode_clip(const std::filesystem::path &asset_root, const runtime::pet::Cl
         candidate.rgba_frames.push_back(
             std::make_shared<const std::vector<std::uint8_t>>(pixels, pixels + kFrameBytes));
     }
+    if (stop())
+        return false;
     if (candidate.rgba_frames.size() != clip.frame_count) {
         diagnostic = "v5 asset truncated frames";
         return false;

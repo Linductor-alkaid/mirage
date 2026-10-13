@@ -415,6 +415,8 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
             static_cast<std::uint64_t>(vector_integer(body, "exit_epoch"))};
         if (body.find("frontend_pid"))
             request.frontend_pid = vector_integer(body, "frontend_pid");
+        if (body.find("pet_pid"))
+            request.pet_pid = vector_integer(body, "pet_pid");
         return request;
     }
     if (op == "task.list") {
@@ -716,6 +718,7 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                 MIRAGE_CHECK(request.action == expected_value.action);
                 MIRAGE_CHECK(request.exit_epoch == expected_value.exit_epoch);
                 MIRAGE_CHECK(request.frontend_pid == expected_value.frontend_pid);
+                MIRAGE_CHECK(request.pet_pid == expected_value.pet_pid);
             } else if constexpr (std::is_same_v<T, ipc::SubmitTaskRequest>) {
                 const auto &submit = std::get<ipc::SubmitTaskRequest>(actual);
                 check_string_equal(name, "submit goal", submit.goal, expected_value.goal);
@@ -769,7 +772,8 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                 check_string_equal(name, "chat text", chat.text, expected_value.text);
                 MIRAGE_CHECK(chat.agent == expected_value.agent);
                 check_string_equal(name, "chat access", chat.access, expected_value.access);
-                check_string_equal(name, "chat reasoning", chat.reasoning, expected_value.reasoning);
+                check_string_equal(name, "chat reasoning", chat.reasoning,
+                                   expected_value.reasoning);
                 check_string_equal(name, "replace_turn_id", chat.replace_turn_id,
                                    expected_value.replace_turn_id);
             } else if constexpr (std::is_same_v<T, ipc::ChatHistoryRequest>) {
@@ -913,6 +917,10 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
         if (const auto *pet = value.find("pet_pid"); pet != nullptr) {
             state.pet_pid = vector_integer(value, "pet_pid");
         }
+        if (value.find("pet_state"))
+            state.pet_state = vector_string(value, "pet_state");
+        if (value.find("pet_diagnostic"))
+            state.pet_diagnostic = vector_string(value, "pet_diagnostic");
         response.payload = state;
     } else if (kind == "submitted") {
         ipc::TaskSubmitted submitted;
@@ -1288,6 +1296,8 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                 MIRAGE_CHECK(actual_value.exit_pending == expected_value.exit_pending);
                 MIRAGE_CHECK(actual_value.frontend_ready == expected_value.frontend_ready);
                 MIRAGE_CHECK(actual_value.pet_pid == expected_value.pet_pid);
+                MIRAGE_CHECK(actual_value.pet_state == expected_value.pet_state);
+                MIRAGE_CHECK(actual_value.pet_diagnostic == expected_value.pet_diagnostic);
             } else if constexpr (std::is_same_v<T, ipc::ServiceIdentity>) {
                 MIRAGE_CHECK(actual_value.tray == expected_value.tray);
                 check_string_equal(name, "service name", actual_value.name, expected_value.name);

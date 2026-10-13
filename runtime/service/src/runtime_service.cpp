@@ -21,6 +21,7 @@
 #include <stop_token>
 
 #include "overlay_presenter.hpp"
+#include "pet_process.hpp"
 #include "service_core.hpp"
 #include "service_loop.hpp"
 #include "task_driver.hpp"
@@ -470,6 +471,7 @@ struct RuntimeService::Impl {
     kairo::TimerHandle product_maintenance;
     // Serialized context only: UI window activation and exit prompt epochs.
     ipc::ProductState product;
+    std::unique_ptr<detail::PetProcess> pet_process;
     pet::Projection pet_projection{make_turn_id()}; // serial context, one presentation only
     std::uint64_t published_pet_revision = 0;
     std::promise<void> loop_done;
@@ -482,6 +484,8 @@ struct RuntimeService::Impl {
         : config(std::move(service_config)),
           socket_path(config.socket_path.empty() ? ipc::default_socket_path()
                                                  : config.socket_path) {
+        if (config.pet)
+            pet_process = std::make_unique<detail::PetProcess>(core->executor, config.pet);
         core->mirage_version = config.mirage_version;
         core->max_steps_per_task = config.max_steps_per_task;
         core->max_task_records = config.max_task_records;
@@ -861,8 +865,12 @@ struct RuntimeService::Impl {
     ipc::ProductState product_snapshot() {
         auto result = product;
         result.frontend_pid = config.frontend ? config.frontend->pid() : 0;
-        if (config.pet)
-            result.pet_pid = config.pet->pid();
+        if (pet_process) {
+            pet_process->poll();
+            result.pet_pid = pet_process->pid();
+            result.pet_state = pet_process->state();
+            result.pet_diagnostic = pet_process->diagnostic();
+        }
         if (result.frontend_pid == 0)
             product.frontend_ready = false;
         result.frontend_ready = product.frontend_ready;
@@ -886,6 +894,17 @@ struct RuntimeService::Impl {
         if (!tray || !tray->ready()) {
             diagnostic = "product actions require a registered tray runtime";
             return false;
+        }
+        if (request.action == "pet_start" || request.action == "pet_stop" ||
+            request.action == "pet_ready") {
+            if (product_stopping.load() || !pet_process) {
+                diagnostic = "pet carrier is unavailable or owner is closing";
+                return false;
+            }
+            if (request.action == "pet_ready")
+                return pet_process->ready(request.pet_pid, diagnostic);
+            return request.action == "pet_start" ? pet_process->start(socket_path, diagnostic)
+                                                 : pet_process->stop(diagnostic);
         }
         if (request.action == "frontend_ready") {
             if (!config.frontend || config.frontend->pid() != request.frontend_pid) {
@@ -948,6 +967,13 @@ struct RuntimeService::Impl {
                 action.kind == desktop::TrayAction::Quit) {
                 if (!product_action({action.kind == desktop::TrayAction::Quit ? "quit" : "open", 0},
                                     diagnostic))
+                    std::cerr << "mirage-tray: " << diagnostic << '\n';
+            } else if (action.kind == desktop::TrayAction::PetStart ||
+                       action.kind == desktop::TrayAction::PetStop) {
+                if (!product_action(
+                        {action.kind == desktop::TrayAction::PetStart ? "pet_start" : "pet_stop",
+                         0},
+                        diagnostic))
                     std::cerr << "mirage-tray: " << diagnostic << '\n';
             } else if (!action.task_id.empty()) {
                 const auto result =
@@ -3492,12 +3518,15 @@ struct RuntimeService::Impl {
         }
         bool frontend_clean = true;
         bool pet_clean = true;
-        if (config.pet) {
+        if (pet_process) {
             try {
+                auto fence = core->executor.submit_on(core->serial,
+                                                      [this] { pet_process->begin_shutdown(); });
+                fence.get();
                 // teardown() runs on the external Runtime owner thread. The
                 // bounded 5.2 s exit clip must not occupy the serial worker.
                 std::string diagnostic;
-                pet_clean = config.pet->stop(diagnostic);
+                pet_clean = pet_process->finish_shutdown(diagnostic);
                 if (!pet_clean)
                     std::cerr << "mirage-tray: pet shutdown failed: " << diagnostic << '\n';
             } catch (const std::exception &error) {
@@ -3562,8 +3591,8 @@ struct RuntimeService::Impl {
         publish_host_status(host_shutdown.ok && host_shutdown.report.clean ? HostStatus::Stopped
                                                                            : HostStatus::Failed);
         core->serial.shutdown();
-        run_report.clean = host_shutdown.ok && host_shutdown.report.clean && frontend_clean && pet_clean &&
-                           !product_failed.load() && core->actions->input_released();
+        run_report.clean = host_shutdown.ok && host_shutdown.report.clean && frontend_clean &&
+                           pet_clean && !product_failed.load() && core->actions->input_released();
         if (!run_report.clean) {
             run_report.diagnostic =
                 host_shutdown.ok ? host_shutdown.report.diagnostic : host_shutdown.error.message;
@@ -3607,6 +3636,13 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
     HostOutcome outcome;
     if (impl_->lifecycle.load(std::memory_order_acquire) != Impl::Lifecycle::New) {
         outcome.error = {"invalid_state", "service already started or terminal"};
+        return outcome;
+    }
+    if (impl_->config.pet &&
+        (!impl_->config.tray_carrier || impl_->config.pet == impl_->config.frontend)) {
+        outcome.error = {"invalid_argument",
+                         "pet needs a tray owner and a distinct process handle"};
+        impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
         return outcome;
     }
     if (!binding) {
@@ -4062,8 +4098,14 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                 } release{raw->product_maintenance_active};
                 try {
                     auto reaped = raw->core->executor.submit_on(raw->core->serial, [raw] {
-                        if (!raw->product_stopping.load())
+                        if (!raw->product_stopping.load()) {
                             (void)raw->pet_snapshot();
+                            if (raw->pet_process) {
+                                raw->pet_process->poll();
+                                raw->tray->set_pet_state(raw->pet_process->state(),
+                                                         raw->pet_process->pid() != 0);
+                            }
+                        }
                         if (raw->product_stopping.load() || !raw->config.frontend)
                             return;
                         raw->tray->set_active_work(raw->active_product_work());
@@ -4110,7 +4152,7 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         if (impl_->config.pet) {
             auto opened = impl_->core->executor.submit_on(impl_->core->serial, [raw = impl_.get()] {
                 std::string pet_diagnostic;
-                const bool ok = raw->config.pet->open(raw->socket_path, pet_diagnostic);
+                const bool ok = raw->pet_process->start(raw->socket_path, pet_diagnostic);
                 return ok ? std::string{} : pet_diagnostic;
             });
             try {

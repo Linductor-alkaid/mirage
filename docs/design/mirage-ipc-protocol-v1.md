@@ -941,6 +941,31 @@ false 不订阅桌宠状态；编码端仅在 true 时写出此成员。订阅�
 `hello.tray`、`hello.pet_status` 和本机 PID 等于 `pet_pid`；这只是同一机器上的产品
 子进程身份检查，不是认证外部不可信 IPC 服务的机制。
 
+### M8-05：桌宠独立启停与 bootstrap（golden v20）
+
+配置了桌宠载体的 `ProductState` 在 `pet_pid` 后加 `pet_state`、`pet_diagnostic`。
+两字符串成对出现；state 闭集为 stopped/starting/running/stopping/failed，diagnostic
+最多 512 字节，可为空。无载体时三字段缺席；只有旧版 `pet_pid` 的响应仍可解码，旧
+客户端忽略新字段。`pet_state` 存在是独立控制能力标识，新客户端先检查再发操作。
+
+`product.control` 增加 `pet_start`、`pet_stop`、`pet_ready`，epoch 必须为 0；
+ready 在末字段携带正整数 `pet_pid`。start 复用 starting/running 的所属进程，stop
+重复请求复用同一个在途关闭；停止期间 start/ready 拒绝为 invalid_state。停止请求
+的成功响应只表示有限 Executor 任务已接纳，之后轮询 state；不表示进程已经退出。
+
+启动后 state=starting；只有当前所属存活 PID 在窗口平台准备、IPC 订阅及健康/动画
+timer 均建立后报告 ready，才进入 running。该状态不代表素材视觉验收或帧已解码。
+10 秒未收到 ready 时有界关闭并报告 failed，不自动重启。退出/崩溃也报告 failed，
+用户可显式 start 恢复。正常 stop 不取消 Agent、会话或主窗口；所有进程 handle 访问
+串行，关闭任务持有 handle 期间快照只读缓存 PID。owner shutdown 先停止生产者，
+经串行 fence 禁止新控制，再消费在途关闭 future，最后回收所属进程。
+
+非法 ready 为 `pet_ready requires a positive pet_pid and zero exit_epoch`；start/stop
+非零 epoch 为 `pet control requires zero exit_epoch`；非法/缺失诊断对或状态闭集为
+`invalid product pet lifecycle`。载体缺席、错误 PID、stopping/closing 冲突返回
+invalid_state 与明确诊断。服务端继续保留窗口/输入守卫，未将本控制面当作 M8-06
+的目标避让协议。
+
 `PetStatus` 字段按以下顺序写出，所有字段必有：`schema_version`（整数 1）、
 `owner_epoch`（非空 ≤128 字节）、`revision`（正整数）、`host_state`（stopped /
 starting / running / stopping / failed）、`display_state`（starting / idle / thinking /

@@ -26,6 +26,14 @@ class TrayPresenter final : public kairo::IBlockingIoWorker {
     bool wait_ready() { return static_cast<bool>(readiness_.wait_for(1, std::chrono::seconds{6})); }
     bool ready() const { return live_.load(); }
     void set_active_work(std::size_t count) { (void)active_work_.try_publish(count); }
+    struct PetState {
+        std::string state;
+        bool present = false;
+    };
+    void set_pet_state(std::string state, bool present) {
+        (void)pet_state_.try_publish(PetState{std::move(state), present});
+        carrier_->wakeup();
+    }
     kairo::comm::MpscChannel<Action> actions{{.capacity = 8, .name = "tray-actions"}};
     class ActionWorker final : public kairo::IBlockingIoWorker {
       public:
@@ -55,6 +63,9 @@ class TrayPresenter final : public kairo::IBlockingIoWorker {
     std::atomic_bool live_{false};
     std::string task_id_, goal_, progress_;
     kairo::comm::LatestMailbox<std::size_t> active_work_{"tray-active-work"};
+    kairo::comm::LatestMailbox<PetState> pet_state_{"tray-pet-state"};
+    std::uint64_t pet_seq_ = 0;
+    PetState pet_current_;
     std::uint64_t active_seq_ = 0;
     std::size_t active_count_ = 0;
 };

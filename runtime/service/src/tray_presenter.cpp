@@ -29,6 +29,19 @@ desktop::TrayState TrayPresenter::state() {
             ? (active_count_ ? "Mirage：" + std::to_string(active_count_) + " 项任务运行中"
                              : "Mirage：Agent 服务运行中")
             : "Mirage：" + goal_ + " — " + progress_;
+    (void)pet_state_.try_load_newer_than(pet_seq_, pet_current_, pet_seq_);
+    if (!pet_current_.state.empty()) {
+        const auto &pet = pet_current_;
+        result.pet_running = pet.present;
+        result.can_toggle_pet = live_.load() && pet.state != "stopping" && pet.state != "starting";
+        result.pet_label = pet.state == "starting"   ? "桌宠正在启动"
+                           : pet.state == "stopping" ? "桌宠正在关闭"
+                           : pet.present             ? "关闭桌宠"
+                           : pet.state == "failed"   ? "重新启动桌宠"
+                                                     : "启动桌宠";
+        if (pet.state == "failed")
+            result.status += " — 桌宠不可用";
+    }
     desktop::clamp_tray_status(result.status);
     return result;
 }

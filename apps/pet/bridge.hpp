@@ -1,5 +1,6 @@
 #pragma once
 
+#include "loader.hpp"
 #include <memory>
 #include <mirage/runtime/pet/status.hpp>
 #include <string>
@@ -16,7 +17,9 @@ class Bridge {
     bool start(std::string &diagnostic);
     bool latest(runtime::pet::Status &out);
     bool connected() const;
+    ResourceLoader &loader();
     void set_animating(bool value);
+    void set_visible(bool value);
     void shutdown();
 
   private:

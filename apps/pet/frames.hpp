@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <mirage/runtime/pet/animation.hpp>
 #include <string>
@@ -16,5 +17,6 @@ struct DecodedClip {
 // Decode exactly one approved v5 state. The 96-frame cap is 96 MiB RGBA;
 // callers release the previous clip before loading another one.
 bool decode_clip(const std::filesystem::path &asset_root, const runtime::pet::Clip &clip,
-                 DecodedClip &out, std::string &diagnostic);
+                 DecodedClip &out, std::string &diagnostic,
+                 const std::function<bool()> &cancelled = {});
 } // namespace mirage::pet_ui

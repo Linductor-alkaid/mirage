@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-13",
+  "reviewer": "Mirage 维护者",
+  "result": "passed",
+  "scope": "seven candidate loops, twenty cycles each; offline 512x512 light-background videos",
+  "confirmation": "确认7个20轮播接缝视觉没有问题",
+  "source_manifest": "mira-pet-loop-candidates-v5-20261012.json",
+  "window_acceptance": "not covered by this confirmation",
+  "clips": [
+    {
+      "state": "rest",
+      "source_sha256": "2d59a265a48589af9b44b08600bfef24ea0c7a89244a2a660c3e05951613e38d",
+      "reviewed_range": [
+        8,
+        44
+      ],
+      "cycles": 20,
+      "frames": 720,
+      "frame_duration_ms": 167,
+      "video_sha256": "5ba855acb351929e917f08e6565b11046173214aa58f8bcc93bdb2d80c2d2dc5"
+    },
+    {
+      "state": "think",
+      "source_sha256": "186c4fa8944ce0874ddde5582bf81906dea58972cf684f877afb3a298a1f8c34",
+      "reviewed_range": [
+        22,
+        33
+      ],
+      "cycles": 20,
+      "frames": 220,
+      "frame_duration_ms": 125,
+      "video_sha256": "21cc924def1fdb52ce7f01de051f48f91d449ec5b73bfbc96e49d6df05c079f2"
+    },
+    {
+      "state": "look",
+      "source_sha256": "a6b2a528bf0dd7e83bb24afcb61d2108aedff1b87521c435494890513fa75725",
+      "reviewed_range": [
+        22,
+        89
+      ],
+      "cycles": 20,
+      "frames": 1340,
+      "frame_duration_ms": 100,
+      "video_sha256": "349ba67fc3d007e96962c803f993d34add83ce392ca8efdd83aac5334a5e5ba5"
+    },
+    {
+      "state": "mouse",
+      "source_sha256": "185b346420ddec073afa322f9e534af4a3e56873011792772a78cfb77b7a4426",
+      "reviewed_range": [
+        22,
+        33
+      ],
+      "cycles": 20,
+      "frames": 220,
+      "frame_duration_ms": 91,
+      "video_sha256": "a06166d0422cbdcb447e3fd6054135900010ff962df3e79f85407905cc286287"
+    },
+    {
+      "state": "typing",
+      "source_sha256": "03f4188652c4092a7a5d80ad91e31da5e4eedf1a427e2c9b8e8c8be4083ec5ec",
+      "reviewed_range": [
+        27,
+        51
+      ],
+      "cycles": 20,
+      "frames": 480,
+      "frame_duration_ms": 71,
+      "video_sha256": "eea3c7c6a96288f819ba4be6537620f31a0d3b6ef8b5568cdc13eed2940b698f"
+    },
+    {
+      "state": "done",
+      "source_sha256": "911459ba4247b7dd5fd8df939c7869d6a08100b362ba0da0c247cca0a4b421d1",
+      "reviewed_range": [
+        46,
+        54
+      ],
+      "cycles": 20,
+      "frames": 160,
+      "frame_duration_ms": 83,
+      "video_sha256": "d2996c0b412335e05d8bfd44506cd561dd4d800439dcb81ab11f5320e51f8b21"
+    },
+    {
+      "state": "fail",
+      "source_sha256": "198a9e3041b836e6722af9a2af196225129ffe0d00005a530468b0bbc70de57c",
+      "reviewed_range": [
+        12,
+        25
+      ],
+      "cycles": 20,
+      "frames": 260,
+      "frame_duration_ms": 125,
+      "video_sha256": "dd731b8b3c3af3f993a64d9507415cf7ff85895dc233248978243fbb0932439d"
+    }
+  ]
+}

@@ -6,12 +6,6 @@
 #include <mirage/platform/pet_window.hpp>
 #include <mirage/runtime/ipc/client.hpp>
 
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <unistd.h>
-#endif
-
 int mirage_pet_eui_main();
 int main() {
     std::string exit_diagnostic;
@@ -36,11 +30,7 @@ int main() {
     const auto product =
         client.call(mirage::runtime::ipc::ProductControlRequest{}, std::chrono::milliseconds{1500});
     const auto *state = std::get_if<mirage::runtime::ipc::ProductState>(&product.payload);
-#ifdef _WIN32
-    const auto self = static_cast<std::int64_t>(::GetCurrentProcessId());
-#else
-    const auto self = static_cast<std::int64_t>(::getpid());
-#endif
+    const auto self = mirage::platform::current_process_id();
     if (!product.ok || !state || !state->pet_pid || *state->pet_pid != self) {
         std::cerr << "mira_pet: process is not owned by this tray\n";
         return 1;

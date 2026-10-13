@@ -102,9 +102,11 @@ struct ShutdownRequest {};
 // DEC-045: bounded product lifecycle face. confirm/cancel require the current
 // exit epoch, preventing delayed UI confirmations from closing a later prompt.
 struct ProductControlRequest {
-    std::string action = "status"; // status/open/quit/confirm_quit/cancel_quit/frontend_ready
+    std::string action =
+        "status"; // status/open/quit/confirm_quit/cancel_quit/frontend_ready/pet_start/pet_stop/pet_ready
     std::uint64_t exit_epoch = 0;
     std::int64_t frontend_pid = 0; // frontend_ready only
+    std::int64_t pet_pid = 0;      // pet_ready only
 };
 struct ProductState {
     std::int64_t frontend_pid = 0;
@@ -113,7 +115,9 @@ struct ProductState {
     std::size_t active_work = 0;
     bool exit_pending = false;
     bool frontend_ready = false;
-    std::optional<std::int64_t> pet_pid; // present only for a tray with an owned pet carrier
+    std::optional<std::int64_t> pet_pid;    // present only for a tray with an owned pet carrier
+    std::optional<std::string> pet_state{}; // stopped/starting/running/stopping/failed
+    std::optional<std::string> pet_diagnostic{}; // bounded to 512 bytes
 };
 
 /// Subscribes the connection to the service event stream (DEC-012 decision

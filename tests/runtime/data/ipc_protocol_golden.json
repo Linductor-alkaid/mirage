@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 19,
+    "version": 20,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
     "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted), DEC-038 (Accepted), DEC-039 (Accepted), DEC-045 (Accepted), DEC-051 (Accepted), DEC-066 (Accepted), DEC-080 (Accepted), DEC-084 (M8-01 first increment)",
@@ -29,6 +29,7 @@
       "v16 (M7-10 / DEC-078): desktop.authorization.get/set settings state, no restore tokens on the wire; existing forms unchanged.",
       "v17 (M6-38): chat_only selects tool-free conversation; default/full and read_only/visual remain compatible.",
       "v18 (M8-01): pet.status and opt-in pet.updated carry a bounded display projection; legacy subscribers do not receive the new event.",
+      "v20 (M8-05): independent pet_start/pet_stop and owned pet_ready bootstrap; optional product pet_state/pet_diagnostic lifecycle, old vectors unchanged.",
       "v21 (DEC-085): session.tool_error carries one classified tool failure of a settled harness turn (stable error_code vocabulary); additive, legacy subscribers do not receive the new event."
     ]
   },
@@ -590,6 +591,40 @@
         "pet_status": true
       },
       "canonical": "{\"v\":1,\"id\":41,\"op\":\"events.subscribe\",\"pet_status\":true}"
+    },
+    {
+      "name": "product-pet_start",
+      "id": 1250,
+      "body": {
+        "v": 1,
+        "op": "product.control",
+        "action": "pet_start",
+        "exit_epoch": 0
+      },
+      "canonical": "{\"v\":1,\"id\":1250,\"op\":\"product.control\",\"action\":\"pet_start\",\"exit_epoch\":0}"
+    },
+    {
+      "name": "product-pet_stop",
+      "id": 1251,
+      "body": {
+        "v": 1,
+        "op": "product.control",
+        "action": "pet_stop",
+        "exit_epoch": 0
+      },
+      "canonical": "{\"v\":1,\"id\":1251,\"op\":\"product.control\",\"action\":\"pet_stop\",\"exit_epoch\":0}"
+    },
+    {
+      "name": "product-pet_ready",
+      "id": 1252,
+      "body": {
+        "v": 1,
+        "op": "product.control",
+        "action": "pet_ready",
+        "exit_epoch": 0,
+        "pet_pid": 888
+      },
+      "canonical": "{\"v\":1,\"id\":1252,\"op\":\"product.control\",\"action\":\"pet_ready\",\"exit_epoch\":0,\"pet_pid\":888}"
     }
   ],
   "request_failures": [
@@ -887,6 +922,21 @@
       "name": "subscribe-pet-status-type",
       "payload": "{\"v\":1,\"id\":41,\"op\":\"events.subscribe\",\"pet_status\":1}",
       "error": "events.subscribe pet_status must be boolean"
+    },
+    {
+      "name": "pet-ready-missing-pid",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"product.control\",\"action\":\"pet_ready\",\"exit_epoch\":0}",
+      "error": "pet_ready requires a positive pet_pid and zero exit_epoch"
+    },
+    {
+      "name": "pet-ready-negative-pid",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"product.control\",\"action\":\"pet_ready\",\"exit_epoch\":0,\"pet_pid\":-1}",
+      "error": "pet_ready requires a positive pet_pid and zero exit_epoch"
+    },
+    {
+      "name": "pet-start-nonzero-epoch",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"product.control\",\"action\":\"pet_start\",\"exit_epoch\":1}",
+      "error": "pet control requires zero exit_epoch"
     }
   ],
   "responses": [
@@ -2028,6 +2078,72 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":41,\"ok\":true,\"pet\":true,\"schema_version\":1,\"owner_epoch\":\"owner-A\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"thinking\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":1,\"summary\":\"思考中\",\"reason_code\":\"\",\"elapsed_ms\":123}"
+    },
+    {
+      "name": "product-pet-running",
+      "response": {
+        "id": 107,
+        "ok": true,
+        "payload": {
+          "kind": "product-state",
+          "value": {
+            "frontend_pid": 777,
+            "window_epoch": 2,
+            "exit_epoch": 0,
+            "active_work": 0,
+            "exit_pending": false,
+            "frontend_ready": true,
+            "pet_pid": 888,
+            "pet_state": "running",
+            "pet_diagnostic": ""
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":107,\"ok\":true,\"product\":true,\"frontend_pid\":777,\"window_epoch\":2,\"exit_epoch\":0,\"active_work\":0,\"exit_pending\":false,\"frontend_ready\":true,\"pet_pid\":888,\"pet_state\":\"running\",\"pet_diagnostic\":\"\"}"
+    },
+    {
+      "name": "product-pet-stopping",
+      "response": {
+        "id": 107,
+        "ok": true,
+        "payload": {
+          "kind": "product-state",
+          "value": {
+            "frontend_pid": 777,
+            "window_epoch": 2,
+            "exit_epoch": 0,
+            "active_work": 0,
+            "exit_pending": false,
+            "frontend_ready": true,
+            "pet_pid": 888,
+            "pet_state": "stopping",
+            "pet_diagnostic": ""
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":107,\"ok\":true,\"product\":true,\"frontend_pid\":777,\"window_epoch\":2,\"exit_epoch\":0,\"active_work\":0,\"exit_pending\":false,\"frontend_ready\":true,\"pet_pid\":888,\"pet_state\":\"stopping\",\"pet_diagnostic\":\"\"}"
+    },
+    {
+      "name": "product-pet-failed",
+      "response": {
+        "id": 107,
+        "ok": true,
+        "payload": {
+          "kind": "product-state",
+          "value": {
+            "frontend_pid": 777,
+            "window_epoch": 2,
+            "exit_epoch": 0,
+            "active_work": 0,
+            "exit_pending": false,
+            "frontend_ready": true,
+            "pet_pid": 0,
+            "pet_state": "failed",
+            "pet_diagnostic": "fixture launch refused"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":107,\"ok\":true,\"product\":true,\"frontend_pid\":777,\"window_epoch\":2,\"exit_epoch\":0,\"active_work\":0,\"exit_pending\":false,\"frontend_ready\":true,\"pet_pid\":0,\"pet_state\":\"failed\",\"pet_diagnostic\":\"fixture launch refused\"}"
     }
   ],
   "response_failures": [
@@ -2315,6 +2431,21 @@
       "name": "pet-invalid-summary",
       "payload": "{\"v\":1,\"id\":41,\"ok\":true,\"pet\":true,\"schema_version\":1,\"owner_epoch\":\"owner-A\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"thinking\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":1,\"summary\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"reason_code\":\"\",\"elapsed_ms\":123}",
       "error": "invalid pet status"
+    },
+    {
+      "name": "pet-bad-state",
+      "payload": "{\"v\":1,\"id\":107,\"ok\":true,\"product\":true,\"frontend_pid\":777,\"window_epoch\":2,\"exit_epoch\":0,\"active_work\":0,\"exit_pending\":false,\"frontend_ready\":true,\"pet_pid\":888,\"pet_state\":\"ready\",\"pet_diagnostic\":\"\"}",
+      "error": "invalid product pet lifecycle"
+    },
+    {
+      "name": "pet-missing-diagnostic",
+      "payload": "{\"v\":1,\"id\":107,\"ok\":true,\"product\":true,\"frontend_pid\":777,\"window_epoch\":2,\"exit_epoch\":0,\"active_work\":0,\"exit_pending\":false,\"frontend_ready\":true,\"pet_pid\":888,\"pet_state\":\"running\"}",
+      "error": "invalid product pet lifecycle"
+    },
+    {
+      "name": "pet-large-diagnostic",
+      "payload": "{\"v\":1,\"id\":107,\"ok\":true,\"product\":true,\"frontend_pid\":777,\"window_epoch\":2,\"exit_epoch\":0,\"active_work\":0,\"exit_pending\":false,\"frontend_ready\":true,\"pet_pid\":888,\"pet_state\":\"failed\",\"pet_diagnostic\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      "error": "invalid product pet lifecycle"
     }
   ],
   "events": [

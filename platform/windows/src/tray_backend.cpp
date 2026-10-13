@@ -34,6 +34,7 @@ constexpr UINT kWakeupMessage = WM_APP + 2;
 /// Menu command ids of the context menu (TrackPopupMenuEx returns the id).
 enum : int {
     kMenuOpenShell = 3,
+    kMenuPet = 4,
     kMenuQuit = 9,
 };
 
@@ -84,6 +85,12 @@ LRESULT CALLBACK tray_window_proc(HWND window, UINT message, WPARAM wparam, LPAR
             };
             append(MF_STRING | (state->state.can_open_shell ? MF_ENABLED : MF_GRAYED),
                    kMenuOpenShell, L"打开应用");
+            if (!state->state.pet_label.empty()) {
+                const auto pet_label =
+                    win32_util::utf8_to_utf16(state->state.pet_label).value_or(L"桌宠");
+                append(MF_STRING | (state->state.can_toggle_pet ? MF_ENABLED : MF_GRAYED), kMenuPet,
+                       pet_label.c_str());
+            }
             append(MF_STRING, kMenuQuit, L"退出应用");
             ::SetForegroundWindow(window);
             POINT cursor{};
@@ -95,6 +102,9 @@ LRESULT CALLBACK tray_window_proc(HWND window, UINT message, WPARAM wparam, LPAR
                                    cursor.y, window, nullptr);
             ::DestroyMenu(menu);
             ::PostMessageW(window, WM_NULL, 0, 0); // settle the foreground switch
+            if (command == kMenuPet && state->state.can_toggle_pet && state->context.on_action)
+                state->context.on_action(state->state.pet_running ? TrayAction::PetStop
+                                                                  : TrayAction::PetStart);
             if (command == kMenuOpenShell || command == kMenuQuit) {
                 const TrayAction action =
                     command == kMenuOpenShell ? TrayAction::OpenShell : TrayAction::Quit;
@@ -227,7 +237,10 @@ Win32TrayCarrier::run(const TrayCarrierContext &context,
             const TrayState newest = pump.context.load_state();
             if (newest.status != pump.state.status || newest.can_pause != pump.state.can_pause ||
                 newest.can_resume != pump.state.can_resume ||
-                newest.can_open_shell != pump.state.can_open_shell) {
+                newest.can_open_shell != pump.state.can_open_shell ||
+                newest.pet_label != pump.state.pet_label ||
+                newest.can_toggle_pet != pump.state.can_toggle_pet ||
+                newest.pet_running != pump.state.pet_running) {
                 pump.state = newest;
                 pump.status = win32_util::utf8_to_utf16(pump.state.status).value_or(std::wstring{});
                 refresh_tooltip(pump);

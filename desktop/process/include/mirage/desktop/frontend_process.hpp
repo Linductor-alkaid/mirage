@@ -4,8 +4,9 @@
 
 namespace mirage::desktop {
 // Product UI child ownership, not an Agent process.execute capability.
-// Runtime's serialized context calls open()/pid(); its owning teardown
-// calls stop() after closing IPC. Platform implementations own OS handles.
+// Runtime serializes all access. A retained finite Executor task may own
+// stop() while serial code reads only a cached snapshot; teardown joins that
+// task before using the handle. Platform implementations own OS handles.
 class FrontendProcess {
   public:
     virtual ~FrontendProcess() = default;

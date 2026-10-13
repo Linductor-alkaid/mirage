@@ -34,6 +34,7 @@ constexpr const char *kItemId = "mirage-tray";
 /// Menu item ids of the fixed layout (com.canonical.dbusmenu item ids).
 enum : guint {
     kItemOpenShell = 5,
+    kItemPet = 6,
     kItemQuit = 99,
 };
 
@@ -96,7 +97,7 @@ constexpr const char *kMenuXml = "<node>"
                                  "  </interface>"
                                  "</node>";
 
-constexpr guint kMenuLayout[] = {kItemOpenShell, kItemQuit};
+constexpr guint kMenuLayout[] = {kItemOpenShell, kItemPet, kItemQuit};
 
 GVariant *menu_props_for(const TrayState &state, guint id) {
     GVariantBuilder builder;
@@ -104,6 +105,11 @@ GVariant *menu_props_for(const TrayState &state, guint id) {
     if (id == 0) {
         g_variant_builder_add(&builder, "{sv}", "children-display",
                               g_variant_new_string("submenu"));
+    } else if (id == kItemPet && !state.pet_label.empty()) {
+        g_variant_builder_add(&builder, "{sv}", "label",
+                              g_variant_new_string(state.pet_label.c_str()));
+        g_variant_builder_add(&builder, "{sv}", "enabled",
+                              g_variant_new_boolean(state.can_toggle_pet));
     } else if (id == kItemOpenShell || id == kItemQuit) {
         g_variant_builder_add(&builder, "{sv}", "label",
                               g_variant_new_string(id == kItemOpenShell ? "打开应用" : "退出应用"));
@@ -213,7 +219,9 @@ void menu_method_call(GDBusConnection *, const gchar *, const gchar *, const gch
     if (g_strcmp0(method, "GetLayout") == 0) {
         gint parent = 0, depth = 0;
         g_variant_get(parameters, "(iias)", &parent, &depth, nullptr);
-        if ((parent != 0 && parent != kItemOpenShell && parent != kItemQuit) || depth < -1) {
+        if ((parent != 0 && parent != kItemOpenShell && parent != kItemQuit &&
+             (parent != kItemPet || current_state(*surface).pet_label.empty())) ||
+            depth < -1) {
             g_dbus_method_invocation_return_error(invocation, G_DBUS_ERROR,
                                                   G_DBUS_ERROR_INVALID_ARGS,
                                                   "unknown menu parent or depth");
@@ -223,6 +231,8 @@ void menu_method_call(GDBusConnection *, const gchar *, const gchar *, const gch
         g_variant_builder_init(&children, G_VARIANT_TYPE("av"));
         if (parent == 0 && depth != 0) {
             for (const guint id : kMenuLayout) {
+                if (id == kItemPet && current_state(*surface).pet_label.empty())
+                    continue;
                 GVariant *leaf[] = {g_variant_new_int32(id), menu_properties_variant(*surface, id),
                                     g_variant_new_array(G_VARIANT_TYPE("v"), nullptr, 0)};
                 g_variant_builder_add_value(&children,
@@ -256,7 +266,8 @@ void menu_method_call(GDBusConnection *, const gchar *, const gchar *, const gch
         GVariantBuilder properties;
         g_variant_builder_init(&properties, G_VARIANT_TYPE("a(ia{sv})"));
         while (g_variant_iter_loop(iterator, "i", &id)) {
-            if (id != 0 && id != kItemOpenShell && id != kItemQuit)
+            if (id != 0 && id != kItemOpenShell && id != kItemQuit &&
+                (id != kItemPet || current_state(*surface).pet_label.empty()))
                 continue;
             GVariant *props = menu_properties_variant(*surface, static_cast<guint>(id));
             GVariant *values[2] = {g_variant_new_int32(id), props};
@@ -295,9 +306,13 @@ void menu_method_call(GDBusConnection *, const gchar *, const gchar *, const gch
         const gchar *event_id = nullptr;
         g_variant_get(parameters, "(i&svu)", &id, &event_id, nullptr, nullptr);
         if (g_strcmp0(event_id, "clicked") == 0) {
+            const auto state = current_state(*surface);
+            if (id == static_cast<gint>(kItemPet) && !state.pet_label.empty() &&
+                state.can_toggle_pet && surface->carrier.on_action)
+                surface->carrier.on_action(state.pet_running ? TrayAction::PetStop
+                                                             : TrayAction::PetStart);
             if ((id == static_cast<gint>(kItemOpenShell) || id == static_cast<gint>(kItemQuit)) &&
                 surface->carrier.on_action) {
-                const auto state = current_state(*surface);
                 if (id == static_cast<gint>(kItemQuit) || state.can_open_shell)
                     surface->carrier.on_action(id == static_cast<gint>(kItemOpenShell)
                                                    ? TrayAction::OpenShell
@@ -325,8 +340,13 @@ void notify_state_changed(GioTrayCarrier::Surface &surface) {
     }
     GVariantBuilder updated;
     g_variant_builder_init(&updated, G_VARIANT_TYPE("a(ia{sv})"));
-    const guint ids[] = {kItemOpenShell, kItemQuit};
-    for (const guint id : ids) {
+    ++surface.revision;
+    g_dbus_connection_emit_signal(surface.connection, nullptr, kMenuPath, "com.canonical.dbusmenu",
+                                  "LayoutUpdated", g_variant_new("(ui)", surface.revision, 0),
+                                  nullptr);
+    for (const guint id : kMenuLayout) {
+        if (id == kItemPet && current_state(surface).pet_label.empty())
+            continue;
         GVariant *props = menu_properties_variant(surface, id);
         GVariant *values[2] = {g_variant_new_int32(id), props};
         g_variant_builder_add_value(&updated, g_variant_new_tuple(values, 2));

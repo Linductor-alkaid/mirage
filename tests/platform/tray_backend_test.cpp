@@ -600,6 +600,36 @@ void scenario_lifecycle_over_tolerant_watcher(FakeStatusNotifierWatcher &watcher
     MIRAGE_CHECK(wait_for([&pump] { return pump.actions().size() == 3; }));
     MIRAGE_CHECK(pump.actions().back() == TrayAction::Quit);
 
+    initial.pet_label = "启动桌宠";
+    initial.can_toggle_pet = true;
+    initial.pet_running = false;
+    pump.set_state(initial);
+    carrier->wakeup();
+    watcher.call_menu_event(carrier_sender, 6);
+    MIRAGE_CHECK(wait_for([&pump] { return pump.actions().size() == 4; }));
+    MIRAGE_CHECK(pump.actions().back() == TrayAction::PetStart);
+    GVariant *pet_layout = watcher.call_menu_get_layout(carrier_sender, nullptr);
+    MIRAGE_CHECK(pet_layout != nullptr);
+    if (pet_layout) {
+        GVariant *root = g_variant_get_child_value(pet_layout, 1);
+        GVariant *children = g_variant_get_child_value(root, 2);
+        MIRAGE_CHECK(g_variant_n_children(children) == 3);
+        g_variant_unref(children);
+        g_variant_unref(root);
+        g_variant_unref(pet_layout);
+    }
+    initial.pet_running = true;
+    initial.pet_label = "关闭桌宠";
+    pump.set_state(initial);
+    watcher.call_menu_event(carrier_sender, 6);
+    MIRAGE_CHECK(wait_for([&pump] { return pump.actions().size() == 5; }));
+    MIRAGE_CHECK(pump.actions().back() == TrayAction::PetStop);
+    initial.can_toggle_pet = false;
+    initial.pet_label = "桌宠正在关闭";
+    pump.set_state(initial);
+    watcher.call_menu_event(carrier_sender, 6);
+    MIRAGE_CHECK(pump.actions().size() == 5);
+
     watcher.unsubscribe_state_pushes();
 
     // Clean stop within one poll slice of the quit request.

@@ -4,7 +4,7 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-10-12（M7-01～06、08 Linux 首交付；M7-07/09/11 进行中；M7-12～14 Linux 产品默认视觉包与工具修复交付；M8 mira_pet 实施中）
+> 更新日期：2026-10-13（M7 原记录保留；M8 资源/渲染与窗口生命周期继续实施）
 
 ## 当前状态
 
@@ -12,9 +12,11 @@
 Runtime owner 持有的独立置顶状态窗口，主窗口退至后台时仍显示真实执行阶段；动画
 按运行动作分别截取 intro/loop/outro，运行时只循环持续段。v5 九态源素材已登记，
 looking/typing 与启动/退出已确认；once 不沿用容器无限循环。只读状态投影、IPC 与
-纯播放时钟已开始实施，独立进程和真实窗口尚未交付。进程、状态、
+纯播放时钟、异步资源加载与可选 Linux 独立窗口预览已接入；最小化/恢复和隐藏退出
+已通过单屏 GNOME XWayland 现场复验与七态 20 圈接缝验收；位置恢复、无状态条/Dock、
+首轮播放与失败后待机已按维护者要求落地。GPU/其他平台与目标避让仍待验收。进程、状态、
 窗口与播放契约见 [DEC-084 提案](../decisions/DEC-084-mira-pet-process-and-animation.md)
-和 [mira_pet 设计](../design/mira-pet.md)。当前不声明平台通过；
+和 [mira_pet 设计](../design/mira-pet.md)。现场结果仅适用于已记录的单屏 XWayland 条件；
 M6/M7 状态与原开放门禁保持原记录。
 
 下一阶段新增 [M7：视觉工具与键鼠输入闭环](m7-visual-tools-and-input.md)
@@ -419,8 +421,10 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | DEC-031 | M5-11 Windows 安装器生成器定案（NSIS）与打包/更新通道交付 | 已定案（[DEC-031](../decisions/DEC-031-windows-installer-generator.md)）：生成器 = NSIS（`packaging/windows/mirage.nsi` + build-installer.ps1，fail closed），WiX 否决（.NET 工具链绑定、MSI 特性超需）；载荷 = 四产品进程 + 可选桌面壳 CEF payload；AUMID 注册表键随安装器交付（DEC-018 载体半边成立，快捷方式属性插件留发布机）；Authenticode 签名脚本证书注入 fail closed（证书不入仓库）；Linux .deb = CPack DEB（shlibdeps 自动依赖 + postinst/prerm），apt 仓库 GPG 签名/验签脚本 + 更新清单 ed25519 签名与 fail-closed 验签（本地五步演练全过）| Mirage 维护者 | `M5-11`（已完成）；真实安装/升级/卸载取证 / makensis 构建 + Authenticode 签名取证 / 图标资产挂账后续 |
 | DEC-032 | M5-12 Windows 应用内更新器核心与通道 fail-closed 行为（runtime/update 库 + CLI，全量优先） | 已定案（[DEC-032](../decisions/DEC-032-update-client-fail-closed.md)）：runtime/update 库——清单严格解码（schema/字段/预算全 fail closed）、ed25519 验签（libcrypto EVP，OpenSSL 缺席构建整体 fail closed 于 crypto 面）、HTTP fetch（无 TLS，信任锚为清单签名+Authenticode 双层；3xx 不跟随；超预算 fail closed；POSIX/WinSock 双端口）、原子切换（staged 预检→备份→aside+rename→全成删备、败则逆序回滚）；CLI `mirage update check/apply`；托盘/壳触发面接同核（后续接线）；更新器零私钥（信任锚公钥随包分发）| Mirage 维护者 | `M5-12`（已完成）；Windows 运行级全量更新演练 / OpenSSL 运行时随包分发挂账后续 |
 
-`DEC-084` 的尚未冻结默认值：mira_pet 自动启用、约 200 逻辑像素、最小只读状态快照、
-PNG 分段资源和各平台窗口策略。负责人为 Mirage 维护者，分别在 M8-01/02/04 取证冻结，
+`DEC-084` 的尚未冻结默认值：mira_pet 自动启用、最小只读状态快照、
+各平台窗口策略。WebP 源 + 显式 RGBA 帧控制及可执行文件相对资源布局已用于预览，
+240 逻辑像素角色画布与 X11 位置恢复按维护者要求实现，安装与预算验收仍开放。
+负责人为 Mirage 维护者，分别在 M8-01/02/04 取证冻结，
 详见 [决策提案](../decisions/DEC-084-mira-pet-process-and-animation.md)。
 
 ## 跨里程碑通用完成定义

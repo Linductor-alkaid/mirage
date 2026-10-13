@@ -127,6 +127,10 @@ class OwnedFrontend final : public desktop::FrontendProcess {
         return static_cast<std::int64_t>(pid_);
     }
     bool stop(std::string &diagnostic) override {
+        // BUG-20261013-003: pid() also reaps an exited child. Never signal a zero PID: on POSIX
+        // kill(0, ...) targets the caller's entire process group.
+        if (pid() == 0)
+            return true;
         // IPC closure lets the frontend complete its normal UI teardown first.
         const auto wait = [this](std::chrono::milliseconds budget) {
             const auto deadline = std::chrono::steady_clock::now() + budget;
@@ -135,8 +139,11 @@ class OwnedFrontend final : public desktop::FrontendProcess {
             return pid() == 0;
         };
 #ifndef _WIN32
-        if (!activate_existing_ && pid()) {
-            (void)::kill(pid_, SIGUSR1);
+        if (!activate_existing_) {
+            const auto child = pid();
+            if (child == 0)
+                return true;
+            (void)::kill(static_cast<pid_t>(child), SIGUSR1);
             if (wait(std::chrono::milliseconds{6000}))
                 return true;
         }
@@ -149,12 +156,18 @@ class OwnedFrontend final : public desktop::FrontendProcess {
 #ifdef _WIN32
         (void)::TerminateProcess(handle_, 1);
 #else
-        (void)::kill(pid_, SIGTERM);
+        const auto child = pid();
+        if (child == 0)
+            return true;
+        (void)::kill(static_cast<pid_t>(child), SIGTERM);
 #endif
         if (wait(std::chrono::milliseconds{1000}))
             return true;
 #ifndef _WIN32
-        (void)::kill(pid_, SIGKILL);
+        const auto remaining = pid();
+        if (remaining == 0)
+            return true;
+        (void)::kill(static_cast<pid_t>(remaining), SIGKILL);
         if (wait(std::chrono::milliseconds{1000}))
             return true;
 #endif
@@ -174,6 +187,13 @@ class OwnedFrontend final : public desktop::FrontendProcess {
 #endif
 };
 } // namespace
+std::int64_t current_process_id() {
+#ifdef _WIN32
+    return static_cast<std::int64_t>(::GetCurrentProcessId());
+#else
+    return static_cast<std::int64_t>(::getpid());
+#endif
+}
 std::string current_executable_path() {
 #ifdef _WIN32
     std::vector<wchar_t> path(32768);

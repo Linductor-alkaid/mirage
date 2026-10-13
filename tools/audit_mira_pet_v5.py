@@ -17,7 +17,7 @@ import subprocess
 
 
 MANIFEST = (Path(__file__).resolve().parents[1] / "docs" / "compatibility" /
-            "data" / "mira-pet-loop-candidates-v5-20261012.json")
+            "data" / "mira-pet-playback-v5-20261013.json")
 
 
 def container(path: Path):
@@ -122,13 +122,15 @@ def render_preview(clip, path: Path, preview_dir: Path, loops: int):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-dir", required=True, type=Path)
+    parser.add_argument("--manifest", type=Path, default=MANIFEST,
+                        help="playback manifest; use the historical candidate manifest to reproduce seven-loop review")
     parser.add_argument("--preview-dir", type=Path)
     parser.add_argument("--preview-loops", type=int, default=1,
                         help="repetitions of each loop segment in previews; "
                              ">1 renders original-size mp4 (needs ffmpeg)")
     args = parser.parse_args()
     source_dir = args.source_dir.resolve(strict=True)
-    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     states = [clip["state"] for clip in manifest["clips"]]
     if (manifest["schema_version"] != 1 or len(states) != 9 or len(set(states)) != 9 or
             set(states) != {"enter", "rest", "think", "look", "mouse", "typing",

@@ -1,7 +1,9 @@
+#include "../../runtime/service/src/pet_process.hpp"
 #include "../support/ipc_io.hpp"
 #include <atomic>
 #include <iostream>
 #include <kairo/comm/channel.hpp>
+#include <kairo/comm/phase_gate.hpp>
 #include <memory>
 #include <mira/model_provider.hpp>
 #include <mirage/desktop/clipboard_provider.hpp>
@@ -63,6 +65,7 @@ class Carrier final : public desktop::TrayCarrier {
 class Frontend final : public desktop::FrontendProcess {
   public:
     bool fail_open = false, throw_open = false, fail_stop = false;
+    kairo::comm::PhaseGate *stop_gate = nullptr;
     std::int64_t spawned_pid = 777;
     int opened = 0, stopped = 0;
     std::int64_t current = 0;
@@ -81,6 +84,8 @@ class Frontend final : public desktop::FrontendProcess {
     }
     std::int64_t pid() override { return current; }
     bool stop(std::string &diagnostic) override {
+        if (stop_gate)
+            (void)stop_gate->wait_for(1, 5s);
         ++stopped;
         current = 0;
         if (fail_stop)
@@ -157,6 +162,18 @@ void lifecycle() {
     MIRAGE_CHECK(!std::filesystem::exists(options.socket_path));
 }
 void pet_lifecycle() {
+    for (const bool alias : {false, true}) {
+        mirage::testing::TempDir dir;
+        auto carrier = std::make_shared<Carrier>();
+        auto frontend = std::make_shared<Frontend>();
+        auto options = config(dir, carrier, frontend);
+        options.pet = alias ? frontend : std::make_shared<Frontend>();
+        if (!alias)
+            options.tray_carrier.reset();
+        mirage::runtime::RuntimeService service(options);
+        MIRAGE_CHECK(!service.start(binding()).ok);
+        MIRAGE_CHECK(!std::filesystem::exists(options.socket_path));
+    }
     for (const bool refuse : {false, true}) {
         mirage::testing::TempDir dir;
         auto carrier = std::make_shared<Carrier>();
@@ -177,6 +194,122 @@ void pet_lifecycle() {
         MIRAGE_CHECK(service.run().clean);
         MIRAGE_CHECK(pet->opened == (refuse ? 0 : 1) && pet->stopped == 1);
     }
+}
+void pet_controls() {
+    mirage::testing::TempDir dir;
+    auto carrier = std::make_shared<Carrier>();
+    auto frontend = std::make_shared<Frontend>();
+    auto pet = std::make_shared<Frontend>();
+    kairo::comm::PhaseGate release{"pet-stop-fixture"};
+    pet->spawned_pid = 888;
+    pet->stop_gate = &release;
+    auto options = config(dir, carrier, frontend);
+    options.pet = pet;
+    options.model.enabled = true;
+    options.model.endpoint_origin = "https://fixture.example";
+    options.model.model_selector = "held-agent";
+    options.model.request_deadline = 30s;
+    options.model_provider_override = std::make_shared<mirage::integration::ModelProviderOverride>(
+        [](const mira::ModelProfile &profile) { return std::make_shared<HeldProvider>(profile); });
+    mirage::runtime::RuntimeService service(options);
+    MIRAGE_CHECK(service.start(binding()).ok);
+    ipc::IpcClient client(options.socket_path);
+    const auto opened = client.call(ipc::OpenSessionRequest{}, 2s);
+    const auto *session = std::get_if<ipc::SessionOpened>(&opened.payload);
+    MIRAGE_CHECK(opened.ok && session);
+    if (session) {
+        ipc::SessionChatRequest chat;
+        chat.session_id = session->session_id;
+        chat.text = "held during independent pet stop";
+        chat.agent = true;
+        MIRAGE_CHECK(client.call(chat, 2s).ok);
+    }
+    MIRAGE_CHECK(state(client).active_work >= 1);
+    MIRAGE_CHECK(state(client).pet_state == "starting");
+    MIRAGE_CHECK(!client.call(ipc::ProductControlRequest{"pet_ready", 0, 0, 777}, 2s).ok);
+    MIRAGE_CHECK(client.call(ipc::ProductControlRequest{"pet_ready", 0, 0, 888}, 2s).ok);
+    MIRAGE_CHECK(state(client).pet_state == "running");
+    MIRAGE_CHECK(client.call(ipc::ProductControlRequest{"pet_start"}, 2s).ok);
+    const auto begin = std::chrono::steady_clock::now();
+    MIRAGE_CHECK(client.call(ipc::ProductControlRequest{"pet_stop"}, 2s).ok);
+    MIRAGE_CHECK(client.call(ipc::ProductControlRequest{"pet_stop"}, 2s).ok);
+    MIRAGE_CHECK(!client.call(ipc::ProductControlRequest{"pet_start"}, 2s).ok);
+    MIRAGE_CHECK(!client.call(ipc::ProductControlRequest{"pet_ready", 0, 0, 888}, 2s).ok);
+    MIRAGE_CHECK(state(client).pet_state == "stopping");
+    MIRAGE_CHECK(client.call(ipc::PetStatusRequest{}, 2s).ok);
+    MIRAGE_CHECK(state(client).active_work >= 1);
+    MIRAGE_CHECK(std::chrono::steady_clock::now() - begin < 1s);
+    (void)release.advance_to(1);
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (state(client).pet_state == "stopping" && std::chrono::steady_clock::now() < deadline)
+        (void)::poll(nullptr, 0, 5);
+    MIRAGE_CHECK(state(client).pet_state == "stopped" && state(client).pet_pid == 0);
+    MIRAGE_CHECK(state(client).active_work >= 1);
+    MIRAGE_CHECK(client.call(ipc::ProductControlRequest{"pet_start"}, 2s).ok);
+    MIRAGE_CHECK(state(client).pet_state == "starting");
+    MIRAGE_CHECK(client.call(ipc::ProductControlRequest{"pet_ready", 0, 0, 888}, 2s).ok);
+    MIRAGE_CHECK(client.call(ipc::ShutdownRequest{}, 2s).ok);
+    MIRAGE_CHECK(service.run().clean);
+    MIRAGE_CHECK(pet->opened == 2 && pet->stopped == 2);
+}
+void pet_faults() {
+    using Pet = mirage::runtime::detail::PetProcess;
+    kairo::Executor executor;
+    kairo::ExecutorConfig config;
+    config.min_threads = config.max_threads = 2;
+    MIRAGE_CHECK(executor.initialize(config));
+    auto process = std::make_shared<Frontend>();
+    Pet pet(executor, process);
+    std::string diagnostic;
+    process->fail_open = true;
+    MIRAGE_CHECK(!pet.start("fixture", diagnostic) && pet.state() == "failed");
+    MIRAGE_CHECK(!pet.diagnostic().empty());
+    process->fail_open = false;
+    process->throw_open = true;
+    MIRAGE_CHECK(!pet.start("fixture", diagnostic) && pet.state() == "failed");
+    process->throw_open = false;
+    const auto now = Pet::Clock::now();
+    MIRAGE_CHECK(pet.start("fixture", diagnostic, now));
+    // No ready: injected clock expires bootstrap without a ten-second test sleep.
+    pet.poll(now + 10s);
+    const auto wait_settle = [&] {
+        const auto deadline = Pet::Clock::now() + 2s;
+        while (pet.state() == "stopping" && Pet::Clock::now() < deadline) {
+            pet.poll();
+            (void)::poll(nullptr, 0, 5);
+        }
+    };
+    wait_settle();
+    MIRAGE_CHECK(pet.state() == "failed" && pet.pid() == 0 &&
+                 pet.diagnostic().find("readiness") != std::string::npos);
+    MIRAGE_CHECK(pet.start("fixture", diagnostic));
+    MIRAGE_CHECK(pet.ready(777, diagnostic));
+    process->current = 0; // no worker active: simulate the owned process crash
+    pet.poll();
+    MIRAGE_CHECK(pet.state() == "failed" &&
+                 pet.diagnostic().find("unexpectedly") != std::string::npos);
+    MIRAGE_CHECK(pet.start("fixture", diagnostic));
+    process->fail_stop = true;
+    (void)pet.stop(diagnostic);
+    wait_settle();
+    MIRAGE_CHECK(pet.state() == "failed" && !pet.diagnostic().empty());
+    MIRAGE_CHECK(executor.get_failure_status().task_exception_count >= 1);
+    process->fail_stop = false;
+    MIRAGE_CHECK(pet.start("fixture", diagnostic));
+    // Shutdown racing a retained stop: external owner consumes it first.
+    MIRAGE_CHECK(pet.stop(diagnostic));
+    pet.begin_shutdown();
+    MIRAGE_CHECK(!pet.start("fixture", diagnostic));
+    MIRAGE_CHECK(pet.finish_shutdown(diagnostic));
+    executor.shutdown(true);
+    // Closed Executor: queued stop rejection is an explicit failed result.
+    auto rejected_process = std::make_shared<Frontend>();
+    Pet rejected(executor, rejected_process);
+    MIRAGE_CHECK(rejected.start("fixture", diagnostic));
+    MIRAGE_CHECK(!rejected.stop(diagnostic));
+    MIRAGE_CHECK(rejected.state() == "failed" && !rejected.diagnostic().empty());
+    rejected.begin_shutdown();
+    MIRAGE_CHECK(rejected.finish_shutdown(diagnostic));
 }
 void active_exit() {
     mirage::testing::TempDir dir;
@@ -357,12 +490,13 @@ void failures() {
     }
 }
 void wire() {
-    for (const auto *action : {"status", "open", "quit", "confirm_quit", "cancel_quit"}) {
+    for (const auto *action :
+         {"status", "open", "quit", "confirm_quit", "cancel_quit", "pet_start", "pet_stop"}) {
         const auto decoded =
-            ipc::decode_request(ipc::encode_request(1, ipc::ProductControlRequest{action, 5}));
+            ipc::decode_request(ipc::encode_request(1, ipc::ProductControlRequest{action, 0}));
         const auto *request = std::get_if<ipc::ProductControlRequest>(&decoded.body);
         MIRAGE_CHECK(decoded.ok && request && request->action == action &&
-                     request->exit_epoch == 5);
+                     request->exit_epoch == 0);
     }
     MIRAGE_CHECK(!ipc::decode_request(
                       R"({"v":1,"id":1,"op":"product.control","action":"destroy","exit_epoch":0})")
@@ -383,6 +517,8 @@ int main() {
     wire();
     lifecycle();
     pet_lifecycle();
+    pet_controls();
+    pet_faults();
     active_exit();
     workflow_exit();
     slow_workflow_maintenance();
