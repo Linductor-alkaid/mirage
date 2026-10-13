@@ -121,6 +121,11 @@
 
 ## 变更记录
 
+- 2026-10-14（M7-10）：决策 6 的升级路径触发记录——维护者明确授权 Windows
+  采集升级（最优先 DXGI Desktop Duplication、Windows.Graphics.Capture 回退、
+  BitBlt 兜底），按 [DEC-086](DEC-086-windows-tiered-screen-capture.md) 落地；
+  本决策第 6 条的"GDI BitBlt 为首版"由 DEC-086 接续为分层末层，其余纪律
+  （决策 3 同步有界、决策 4 MTA 同型、RULE-01 零平台类型）不变。
 - 2026-09-22（`M4-03`）：决策 4 的升级路径裁决记录——UIA client 迁入
   Executor blocking worker 的结构性升级**已获维护者授权立项**，实施窗口由
   维护者指定（当前证据：live-tree 解析的三级兜底工作正常、structural 环可

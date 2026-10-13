@@ -279,6 +279,37 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         TIMEOUT 120
     )
 
+    # M7-10 tiered screen capture engine (DEC-086): drives the DXGI Desktop
+    # Duplication, Windows.Graphics.Capture and GDI BitBlt implementations
+    # each on their own against the session's real desktop (same DEC-017
+    # decision 9 discipline). Whitebox: it includes the engine's private src
+    # header, because tier identity is an implementation choice the provider
+    # contract deliberately hides. The test process declares DPI awareness so
+    # the DEC-086 gate lets the GPU tiers through regardless of the host
+    # display scale.
+    add_executable(win32_capture_tier_test platform/win32_capture_tier_test.cpp)
+    target_compile_features(win32_capture_tier_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(win32_capture_tier_test)
+    target_include_directories(win32_capture_tier_test
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/../platform/windows/src
+    )
+    target_link_libraries(win32_capture_tier_test
+        PRIVATE
+            Mirage::platform
+            Mirage::desktop
+            user32
+            gdi32
+    )
+    add_test(NAME win32_capture_tier_test COMMAND win32_capture_tier_test)
+    # The four tier scenario sets each take up to ~2s of bounded platform
+    # waits on a slow desktop; 120s leaves a wide margin like the sibling
+    # win32 tests.
+    set_tests_properties(win32_capture_tier_test PROPERTIES
+        LABELS "integration;platform"
+        TIMEOUT 120
+    )
+
     # M4-02 UIA accessibility frontend: exercised against the session's real
     # interactive desktop through the fixture windows this test creates (the
     # same DEC-017 decision 9 discipline as win32_backend_test). UIA itself

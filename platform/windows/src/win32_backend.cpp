@@ -185,77 +185,6 @@ bool collect_monitors(const DisplayListLimits &limits, EnumMonitorsContext &cont
     return !context.cancelled && !context.over_budget;
 }
 
-/// Grabs `rect` (virtual-screen coordinates) from the screen DC into a
-/// top-down 32bpp DIB and copies it as Bgra8 rows. Root-frame semantics,
-/// identical to the X11 backend: pixels are what the screen shows at those
-/// coordinates, overlapping content included (M2-02 contract clarification).
-CaptureOutcome capture_rect(const WindowGeometry &rect, const CaptureLimits &limits,
-                            const CancelToken &cancel) {
-    CaptureOutcome outcome;
-    const std::size_t stride = static_cast<std::size_t>(rect.width) * 4u;
-    const std::size_t bytes = stride * static_cast<std::size_t>(rect.height);
-    if (bytes > limits.max_bytes) {
-        outcome.error = error("capture_too_large", "capture exceeds the byte budget of " +
-                                                       std::to_string(limits.max_bytes) + " bytes");
-        return outcome;
-    }
-    if (cancel.cancelled()) {
-        outcome.cancelled = true;
-        outcome.error = error("cancelled", "capture cancelled");
-        return outcome;
-    }
-
-    BITMAPINFO info{};
-    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    info.bmiHeader.biWidth = rect.width;
-    info.bmiHeader.biHeight = -rect.height; // top-down rows
-    info.bmiHeader.biPlanes = 1;
-    info.bmiHeader.biBitCount = 32;
-    info.bmiHeader.biCompression = BI_RGB;
-
-    HDC screen_dc = ::GetDC(nullptr);
-    if (screen_dc == nullptr) {
-        outcome.error = error("io_error", "GetDC for the screen failed" + last_error_suffix());
-        return outcome;
-    }
-    HDC memory_dc = ::CreateCompatibleDC(screen_dc);
-    if (memory_dc == nullptr) {
-        ::ReleaseDC(nullptr, screen_dc);
-        outcome.error = error("io_error", "CreateCompatibleDC failed" + last_error_suffix());
-        return outcome;
-    }
-    void *bits = nullptr;
-    HBITMAP bitmap = ::CreateDIBSection(memory_dc, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
-    if (bitmap == nullptr || bits == nullptr) {
-        ::DeleteDC(memory_dc);
-        ::ReleaseDC(nullptr, screen_dc);
-        outcome.error = error("io_error", "CreateDIBSection failed" + last_error_suffix());
-        return outcome;
-    }
-    const HGDIOBJ previous = ::SelectObject(memory_dc, bitmap);
-    const BOOL blitted =
-        ::BitBlt(memory_dc, 0, 0, rect.width, rect.height, screen_dc, rect.x, rect.y, SRCCOPY);
-    ::GdiFlush();
-
-    if (blitted == 0) {
-        outcome.error = error("io_error", "BitBlt failed" + last_error_suffix());
-    } else {
-        outcome.frame.format = mirage::desktop::ImageFormat::Bgra8;
-        outcome.frame.width = rect.width;
-        outcome.frame.height = rect.height;
-        outcome.frame.stride = stride;
-        outcome.frame.pixels.resize(bytes);
-        std::memcpy(outcome.frame.pixels.data(), bits, bytes);
-        outcome.ok = true;
-    }
-
-    ::SelectObject(memory_dc, previous);
-    ::DeleteObject(bitmap);
-    ::DeleteDC(memory_dc);
-    ::ReleaseDC(nullptr, screen_dc);
-    return outcome;
-}
-
 /// Finds the monitor registered under `display_id` (the verbatim szDevice
 /// string reported by list_displays) and returns its virtual-screen rect.
 std::optional<WindowGeometry> monitor_rect_by_id(const std::string &display_id) {
@@ -376,11 +305,14 @@ std::unique_ptr<Win32Backend> Win32Backend::open() {
         ::GetSystemMetrics(SM_CYVIRTUALSCREEN) <= 0) {
         return nullptr;
     }
-    return std::unique_ptr<Win32Backend>(new Win32Backend());
+    auto backend = std::unique_ptr<Win32Backend>(new Win32Backend());
+    // The capture engine construction cannot fail (DEC-086): every platform
+    // refusal surfaces per call through the tier chain instead.
+    backend->capture_ = ScreenCaptureEngine::create();
+    return backend;
 }
 
 Win32Backend::~Win32Backend() = default;
-
 WindowListOutcome Win32Backend::list_windows(const WindowListLimits &limits,
                                              const CancelToken &cancel) {
     WindowListOutcome outcome;
@@ -495,7 +427,7 @@ CaptureOutcome Win32Backend::capture_display(const std::string &display_id,
         outcome.error = error("not_found", "no such display");
         return outcome;
     }
-    return capture_rect(*rect, limits, cancel);
+    return capture_->capture_rect(*rect, limits, cancel);
 }
 
 CaptureOutcome Win32Backend::capture_window(const std::string &window_id,
@@ -525,7 +457,7 @@ CaptureOutcome Win32Backend::capture_window(const std::string &window_id,
         outcome.error = error("not_found", "window has no on-screen extent");
         return outcome;
     }
-    return capture_rect(geometry, limits, cancel);
+    return capture_->capture_rect(geometry, limits, cancel);
 }
 
 CaptureOutcome Win32Backend::capture_roi(const WindowGeometry &roi, const CaptureLimits &limits,
@@ -536,7 +468,7 @@ CaptureOutcome Win32Backend::capture_roi(const WindowGeometry &roi, const Captur
         outcome.error = error("invalid_argument", "roi extents must be positive");
         return outcome;
     }
-    return capture_rect(roi, limits, cancel);
+    return capture_->capture_rect(roi, limits, cancel);
 }
 
 InputOutcome Win32Backend::inject_key(const mirage::desktop::KeySym &key, bool pressed,

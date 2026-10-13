@@ -54,7 +54,7 @@ M7-08 已闭合 Linux X11 动作后新观察与局部条件门禁；真实语义
 | M7-07 | In Progress | 已接同源 SoM/crop/编号图、按 scope 视觉点击与后观察首增量；模板消费复用既有 session；已补固定 OCR 后条件与实际 Xvfb Canvas 5/5，显式闭合几何编号与本地模板匹配已接，双模板/位置交换/不重绘已验；实际 MiniMax 编号选择 3/3；供给范围化（DEC-062 capture_scope）、4K 小窗口 ROI 预采集/同范围重验和 owner 局部 OCR 已验；真实 Xorg 人工离线 3/3、权限/焦点门禁 2/2，在线闭环 1/2、选号 2/2，引用过期负例安全拒绝，第三例未运行 | 标记与同源图对应；换代/同名旧编号拒绝；窗口移动/负原点/缩放；纯 Canvas 控件点击闭环；宿主遮挡/权限/坐标变换取证 | M7-03/05/06 |
 | M7-08 | Completed（Linux X11 局部条件） | 修改前固定窗口/语义条件，副作用后强制新观察和只读重验；宿主终态门禁、工具卡目标/状态/证据 | 真实 X11 激活/回显/落盘三类任务；假成功、前台/epoch 变化与不确定重发拒绝；固定 OCR 条件/Xvfb Canvas 已另验；真实语义表单/用户宿主另验 | M7-02/03；视觉场景加 M7-07 |
 | M7-09 | In Progress | DEC-064 Linux X11 编号滚动/完整拖拽与机械事件已验；GTK 原生滚动/分隔条及 XRes 下列表重排正负效果已验；宿主 Xorg 2× 四类分别取证，间歇拒绝原因/其他平台仍另验 | 最大距离/次数/时长；拖拽中取消释放；滚动后旧引用拒绝；双平台真实输入 | M7-03/08；[DEC-064](../decisions/DEC-064-bounded-scroll-and-drag.md)、[DEC-065](../decisions/DEC-065-x11-drag-helper-ownership.md) |
-| M7-10 | In Progress | DEC-073/074 原生共享复用；DEC-077 产品键鼠已接入；GNOME 英文状态动态画面点击/组合键/完整 ASCII URL 与 Enter/滚动/回图及接管 11/11；静态画面、Unicode 传输、其他输入法与 Windows 继续推进 | Windows UIPI/Unicode/多屏 DPI；Wayland 授权/拒绝/撤销/会话关闭；缺实现显式不可用 | 首增量证据；目标平台环境 |
+| M7-10 | In Progress | DEC-073/074 原生共享复用；DEC-077 产品键鼠已接入；GNOME 英文状态动态画面点击/组合键/完整 ASCII URL 与 Enter/滚动/回图及接管 11/11；Windows 采集分层升级（DEC-086：DXGI→WGC→BitBlt）已交付并本机取证；静态画面、Unicode 传输、其他输入法、Windows UIPI/Unicode/多屏 DPI 与产品宿主 DPI 声明继续推进 | Windows UIPI/Unicode/多屏 DPI；Wayland 授权/拒绝/撤销/会话关闭；缺实现显式不可用 | 首增量证据；目标平台环境 |
 | M7-11 | In Progress | DEC-067/069：语义与 OCR/模板知识均重新解析新目标，经既有动作/核验进入 workflow；会话选择/恢复和持久资产后续推进 | 语义首增量见[验收](../compatibility/local-semantic-workflow-20261011.md)；OCR/模板实际产品零模型与门禁见[第二增量](../compatibility/local-visual-workflow-20261011.md) | DEC-067/069 已冻结本地知识/新执行引用契约；现有 workflow，见[路线分析](../research/2026-10-10-local-grounding-and-m7-sequencing.md) |
 | M7-12 | Completed（Linux 产品启用预览） | 产品根启用 Linux Provider，启动清单转发、持久化视觉设置、原生桌面工具页与权限说明；DEC-066 | 带视觉 Release 产品检查 23/23、实际原生 MiniMax OCR/mark 完成；OCR OFF 恢复 11/11；[验收](../compatibility/product-desktop-vision-20261011.md) | M7-02/05/06/08；Linux Xorg 首范围 |
 | M7-13 | Completed（Linux 默认包） | DEC-068 固定已验 Mirador / ncnn / PP-OCRv5；原生默认加载与离线安装 | 源/产物锁定、默认实际 OCR、关闭恢复、坏包/缺失拒绝；两种分辨率产品各 25/25，见[验收](../compatibility/bundled-vision-and-tool-recovery-20261011.md) | 当前已验 Mirador / ncnn / PP-OCRv5 |
@@ -990,3 +990,32 @@ SHA-256 均为 `468e8c0701a71a800fcbde818498ded98e4b245021e8e990bfdddef2490d64ab
 Debug 70/70、Native 76/76、ASAN/UBSAN/TSAN 选路各 5/5，源码稳定性与包内
 四程序校验通过。本地提交不关闭既有真实平台/原用户任务门禁，未推送或合并。
 完整范围与证据见[Git 交付记录](../compatibility/m7-git-delivery-20261012.md)。
+
+## 2026-10-14：M7-10 Windows 采集分层升级（DEC-086）
+
+维护者明确触发 DEC-017 决策 6 预留的采集升级路径：Windows 屏幕采集最优先
+DXGI Desktop Duplication，Windows.Graphics.Capture 回退（支持多程序同时捕获），
+BitBlt 兜底；参考实现 NAW `ScreenCaptureWindows`。[DEC-086](../decisions/DEC-086-windows-tiered-screen-capture.md) 冻结逐调用无状态会话、无线程轮询
+（free-threaded 帧池，无 DispatcherQueue）、占位帧防御（零 present time 重试 +
+全零抽样兜底）、DPI 空间门禁与单输出边界；采集契约（Bgra8 根帧、预算、取消）
+不变。
+
+交付：私有引擎 `screen_capture_backend`（Pimpl，零平台类型出 src/），
+`capture_display/window/roi` 全部委托；链接面新增 `d3d11 dxgi windowsapp`。
+白盒分级测试 `win32_capture_tier_test` 对 Auto/DXGI/WGC/BitBlt 各自完成双色
+fixture 像素正确性（窗口 ROI 三轮 + 全显示器绝对坐标探针）、逐层入口拒绝与
+跨屏强制层拒绝；GPU 强制层按可用性探针门控（DEC-017 决策 9 跳过纪律）。
+
+本机取证（真实 Windows 11，RTX 3070 Ti Laptop + OrayIddDriver 三屏混合 DPI，
+128% 缩放）：MSVC Debug 全树配置 + platform/tests 构建零错误；
+`win32_capture_tier_test` 174 checks / 0 failures（连续三次，含一次强制 DXGI
+经占位帧重试取得真帧、两次 DXGI 如实失败后 Auto 落 WGC 取得正确像素）；
+既有 `win32_backend_test` 回归 127 checks / 0 failures。复制会话占位帧/超时
+为本机环境事实（IddCx 虚拟显示 + 远程工具占用），Auto 链按设计吸收，强制
+DXGI 的像素断言在其不可用时以记录在案的条件跳过，待无 IddCx 干扰的环境补跑。
+
+开放边界：Windows UIPI/Unicode/多屏 DPI 与产品宿主 per-monitor DPI 声明
+（激活 GPU 层于缩放桌面的前置）仍属 M7-10 后续，负责人 Mirage 维护者；
+Wayland 授权/撤销与会话关闭继续按既有记录推进。本轮未修改 pinned 依赖、
+未调用在线模型；提交于 feat 分支，CI windows 门禁（MSVC 全树 + 测试）随
+MR 复验。
