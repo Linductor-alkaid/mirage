@@ -52,3 +52,10 @@ Anthropic 兼容端点无条件思考、思考计入 `max_tokens`、`output_conf
 `db6b8942` 第三轮连续三次中途截断、续写耗尽失败），32768 下同一任务 21905
 输出 tokens 完整收尾。有界续写（2 次）保持不变作为兜底；测试锚定同步更新
 （21 x 32768 = 688128 信封）。
+
+## 2026-10-14 第二次部分更新
+
+[DEC-087](DEC-087-zcode-aligned-output-budget-and-context-preflight.md) 把本决定的
+预算模型升级为 ZCode 对齐形态：声明值优先（0=未声明→32000 基线）、静态窗口钳制
+替换为每请求 preflight（窗口−已用量−1000，provider usage 锚点 + pinned 估算器
+增量）、续写深度 3。本文的思考/预算分离轴不变。
