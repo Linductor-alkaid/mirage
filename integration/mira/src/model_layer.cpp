@@ -135,6 +135,16 @@ std::optional<mira::ThinkingMode> thinking_value(const ModelLayerConfig &config,
                                                      : std::nullopt;
     return value == "none" ? mira::ThinkingMode::Disabled : mira::ThinkingMode::Adaptive;
 }
+/// DEC-085 follow-up, probed 2026-10-14 on deepseek-flash via its
+/// Anthropic-compatible endpoint: the model reasons unconditionally, the
+/// reasoning tokens count against max_tokens, and output_config.effort=low
+/// still truncates — a storage-summary turn cut mid-thinking at 16384 three
+/// times in a row (session db6b8942 turn 3) finished inside 32768
+/// (stop=end_turn at 21905 output tokens). Thinking-mode calls floor their
+/// per-call budget here so deliberation plus the visible reply fit one call;
+/// the bounded continuation path remains the backstop.
+constexpr std::uint64_t kThinkingOutputFloor = 32768;
+
 std::uint64_t generation_budget(const ModelLayerConfig &config, const std::string &value) {
     // DEC-085 follow-up: an adaptive-thinking call spends its output budget
     // on the native thinking channel before any visible text — a desktop
@@ -145,7 +155,7 @@ std::uint64_t generation_budget(const ModelLayerConfig &config, const std::strin
     // wire carries only the mode flag, never a token budget (DeepSeek-style
     // Anthropic endpoints ignore thinking.budget_tokens entirely).
     const auto budget = thinking_value(config, value) == mira::ThinkingMode::Adaptive
-                            ? std::max<std::uint64_t>(config.max_output_tokens, 16384)
+                            ? std::max<std::uint64_t>(config.max_output_tokens, kThinkingOutputFloor)
                             : config.max_output_tokens;
     // A declared context window caps the per-call output as well: the reply
     // must fit alongside the prompt.
@@ -509,7 +519,7 @@ struct ModelLayer::Impl {
         // per-dialect 17x/21x scaling left default profiles unable to route
         // any model call.
         record.capabilities.limits.max_output_tokens =
-            21 * std::max<std::uint64_t>(config.max_output_tokens, 16384);
+            21 * std::max<std::uint64_t>(config.max_output_tokens, kThinkingOutputFloor);
         // DEC-082: generation_budget still bounds each wire call.
         record.capabilities.text =
             mira::CapabilityFlag{true, mira::CapabilityEvidence::FixtureVerified, ""};
