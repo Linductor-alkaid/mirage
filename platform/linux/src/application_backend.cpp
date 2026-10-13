@@ -183,6 +183,117 @@ std::string exec_binary(GDesktopAppInfo *info) {
     return binary;
 }
 
+/// Caps for Exec expansion (RULE-07): a desktop entry may name an argv only
+/// within these bounds; anything larger falls back to the GIO launch path.
+constexpr std::size_t kMaxExecArgc = 32;
+constexpr std::size_t kMaxExecArgBytes = 8192;
+
+/// Expands a desktop entry's Exec line into an argv with the Desktop Entry
+/// spec field codes applied, for the direct-spawn path of launch_locked.
+/// The validated URI substitutes once for %u/%U/%f/%F and is appended when
+/// the line carries none of them. %i expands only as its own token (the only
+/// real-world shape); %c/%k substitute the display name / desktop file path;
+/// deprecated codes are dropped. False when the line is absent, unparseable,
+/// or expands past the caps or to no argv at all.
+bool expand_exec_argv(GDesktopAppInfo *info, const std::string &uri,
+                      std::vector<std::string> &argv) {
+    gchar *exec = g_desktop_app_info_get_string(info, "Exec");
+    if (exec == nullptr) {
+        return false;
+    }
+    gchar **raw = nullptr;
+    gint raw_argc = 0;
+    GError *parse_error = nullptr;
+    const bool parsed = g_shell_parse_argv(exec, &raw_argc, &raw, &parse_error);
+    g_free(exec);
+    if (parse_error != nullptr) {
+        g_error_free(parse_error);
+    }
+    if (!parsed || raw == nullptr) {
+        return false;
+    }
+    const gchar *filename = g_desktop_app_info_get_filename(info);
+    const std::string desktop_file = filename != nullptr ? std::string(filename) : std::string();
+    gchar *icon = g_desktop_app_info_get_string(info, "Icon");
+    const std::string icon_value = icon != nullptr ? std::string(icon) : std::string();
+    g_free(icon);
+    const gchar *display = g_app_info_get_display_name(G_APP_INFO(info));
+    const std::string display_name = display != nullptr ? std::string(display) : std::string();
+    bool uri_inserted = false;
+    bool overflow = false;
+    for (gint index = 0; index < raw_argc && !overflow; ++index) {
+        const std::string_view token(raw[index]);
+        const bool has_field_code = token.find('%') != std::string_view::npos;
+        std::string argument;
+        bool icon_pair = false;
+        for (std::size_t position = 0; position < token.size() && !icon_pair; ++position) {
+            if (token[position] != '%') {
+                argument.push_back(token[position]);
+                continue;
+            }
+            if (++position >= token.size()) {
+                break;
+            }
+            switch (token[position]) {
+            case '%':
+                argument.push_back('%');
+                break;
+            case 'u':
+            case 'U':
+            case 'f':
+            case 'F':
+                if (!uri_inserted) {
+                    argument += uri;
+                    uri_inserted = true;
+                }
+                break;
+            case 'i':
+                if (token == "%i" && !icon_value.empty()) {
+                    icon_pair = true;
+                }
+                break;
+            case 'c':
+                argument += display_name;
+                break;
+            case 'k':
+                argument += desktop_file;
+                break;
+            default:
+                // Deprecated (%d/%D/%n/%N/%v/%m) and unknown codes drop the
+                // code itself; the rest of the token stays.
+                break;
+            }
+        }
+        if (icon_pair) {
+            if (!argument.empty())
+                argv.push_back(std::move(argument));
+            argv.push_back("--icon");
+            argv.push_back(icon_value);
+        } else if (!argument.empty() || !has_field_code) {
+            argv.push_back(std::move(argument));
+        }
+        if (argv.size() > kMaxExecArgc) {
+            overflow = true;
+            break;
+        }
+    }
+    g_strfreev(raw);
+    if (overflow) {
+        return false;
+    }
+    if (!uri_inserted && !uri.empty()) {
+        argv.push_back(uri);
+    }
+    std::size_t total = 0;
+    for (const std::string &entry : argv) {
+        total += entry.size();
+        if (total > kMaxExecArgBytes) {
+            return false;
+        }
+    }
+    return !argv.empty();
+}
+
 /// Live pids (bounded scan) whose candidate names contain `binary`, ordered
 /// oldest first (starttime, then pid). The calling process is excluded;
 /// zombies count as gone (they hold no live work).
@@ -520,6 +631,68 @@ ApplicationLaunchOutcome ApplicationBackend::launch_locked(const std::string &ap
     if (pipe2(pid_pipe, O_CLOEXEC) != 0) {
         g_object_unref(info);
         outcome.error = error("io_error", "pipe creation failed");
+        return outcome;
+    }
+    // DBusActivatable entries never fork inside this process: GIO hands the
+    // launch to session-bus activation and the session manager owns the child
+    // (observed live: baobab re-parented to systemd --user, session failure
+    // 2026-10-14). The pid pipe then stays empty and a fully successful
+    // launch degrades into an uncertain side effect, which fences every later
+    // mutation for the turn. Spawn the Exec argv directly so the
+    // pid-ownership model holds; GIO keeps the entries that need its launch
+    // machinery (Terminal=true, Exec lines that exceed the expansion caps).
+    gchar *entry_path_key = g_desktop_app_info_get_string(info, "Path");
+    const std::string working_directory =
+        entry_path_key != nullptr ? std::string(entry_path_key) : std::string();
+    g_free(entry_path_key);
+    std::vector<std::string> argv;
+    if (g_desktop_app_info_get_boolean(info, "DBusActivatable") &&
+        !g_desktop_app_info_get_boolean(info, "Terminal") &&
+        expand_exec_argv(info, uri, argv)) {
+        std::vector<char *> child_argv;
+        child_argv.reserve(argv.size() + 1);
+        for (auto &argument : argv)
+            child_argv.push_back(argument.data());
+        child_argv.push_back(nullptr);
+        GError *spawn_error = nullptr;
+        // A FALSE return here is provably side-effect free: GLib reports the
+        // failure only when the fork or the pipe plumbing failed, and a
+        // forked child that reached the setup always yields a pid below.
+        const gboolean spawned_direct = g_spawn_async_with_pipes(
+            working_directory.empty() ? nullptr : working_directory.c_str(), child_argv.data(),
+            nullptr,
+            static_cast<GSpawnFlags>(G_SPAWN_DO_NOT_REAP_CHILD | G_SPAWN_SEARCH_PATH),
+            [](gpointer user_data) {
+                const int fd = GPOINTER_TO_INT(user_data);
+                const pid_t self = getpid();
+                ssize_t ignored = ::write(fd, &self, sizeof(self));
+                (void)ignored;
+                ::setpgid(0, 0);
+            },
+            GINT_TO_POINTER(pid_pipe[1]), nullptr, nullptr, nullptr, nullptr, &spawn_error);
+        if (spawn_error != nullptr) {
+            g_error_free(spawn_error);
+        }
+        ::close(pid_pipe[1]);
+        g_object_unref(info);
+        if (spawned_direct == FALSE) {
+            ::close(pid_pipe[0]);
+            outcome.error = error("io_error", "direct application spawn failed");
+            return outcome;
+        }
+        pid_t direct_pid = -1;
+        const ssize_t direct_got = ::read(pid_pipe[0], &direct_pid, sizeof(direct_pid));
+        ::close(pid_pipe[0]);
+        if (direct_got != static_cast<ssize_t>(sizeof(direct_pid)) || direct_pid <= 0) {
+            outcome.error = error("io_error", "spawned process pid was not reported");
+            return outcome;
+        }
+        if (uri.empty())
+            impl_->instances.emplace(application_id, direct_pid);
+        else
+            impl_->uri_children.emplace(direct_pid, application_id);
+        outcome.ok = true;
+        outcome.instance_id = std::to_string(direct_pid);
         return outcome;
     }
     GAppLaunchContext *context = g_app_launch_context_new();
