@@ -141,11 +141,19 @@ std::uint64_t generation_budget(const ModelLayerConfig &config, const std::strin
     // task with screenshots comfortably exceeds the 8192 floor and the
     // provider-side cut decodes as a tolerated Incomplete that recovery
     // cannot fix (every retry truncates again). Raise the floor for
-    // thinking calls; the Messages profile budget scales with the same
-    // floor so the turn count survives the RULE-08 envelope.
-    return thinking_value(config, value) == mira::ThinkingMode::Adaptive
-               ? std::max<std::uint64_t>(config.max_output_tokens, 16384)
-               : config.max_output_tokens;
+    // thinking calls. Thinking intensity itself is a separate axis: the
+    // wire carries only the mode flag, never a token budget (DeepSeek-style
+    // Anthropic endpoints ignore thinking.budget_tokens entirely).
+    const auto budget =
+        thinking_value(config, value) == mira::ThinkingMode::Adaptive
+            ? std::max<std::uint64_t>(config.max_output_tokens, 16384)
+            : config.max_output_tokens;
+    // A declared context window caps the per-call output as well: the reply
+    // must fit alongside the prompt.
+    if (config.context_window_tokens)
+        return std::min(budget,
+                        std::max<std::uint64_t>(4096, config.context_window_tokens / 2));
+    return budget;
 }
 } // namespace
 
@@ -407,8 +415,8 @@ bool ModelLayerConfig::valid(std::string &error) const {
         error = "model layer dialect is not a known pinned dialect";
         return false;
     }
-    if (max_output_tokens == 0 || max_output_tokens > 16384) {
-        error = "model layer requires an output token bound between 1 and 16384";
+    if (max_output_tokens == 0 || max_output_tokens > 65536) {
+        error = "model layer requires an output token bound between 1 and 65536";
         return false;
     }
     if (harness_deadline.count() <= 0 || harness_deadline > std::chrono::minutes{10}) {
@@ -495,12 +503,16 @@ struct ModelLayer::Impl {
             record.capabilities.generation.reasoning_effort = mira::ParamMapping::OmitIfUnset;
         if (config.dialect == "anthropic.messages.v1")
             record.capabilities.generation.thinking = mira::ParamMapping::OmitIfUnset;
-        if (config.dialect == "anthropic.messages.v1" &&
-            reasoning_options(config.dialect, config.model_selector).size() > 1)
-            record.capabilities.limits.max_output_tokens =
-                17 * std::max<std::uint64_t>(config.max_output_tokens, 16384);
-        // DEC-082: profile admission covers 16 calls plus Mira's extra
-        // request envelope; generation_budget still bounds each wire call.
+        // DEC-085 follow-up: the profile limit funds the loop's declared
+        // whole-run envelope (16 model turns + 2 recoveries + 2 continuations
+        // + the admitting call) at the worst-case per-call budget — the
+        // router admits each request's envelope against this limit, so every
+        // profile must carry it, not only thinking-class ones. The previous
+        // per-dialect 17x/21x scaling left default profiles unable to route
+        // any model call.
+        record.capabilities.limits.max_output_tokens =
+            21 * std::max<std::uint64_t>(config.max_output_tokens, 16384);
+        // DEC-082: generation_budget still bounds each wire call.
         record.capabilities.text =
             mira::CapabilityFlag{true, mira::CapabilityEvidence::FixtureVerified, ""};
         if (config.supports_images)
@@ -925,22 +937,25 @@ DialogCompletion ModelLayer::complete_harness_turn(
         }
     }
     mira::ConversationLoopConfig config;
+    // DEC-085 follow-up budget model: the per-call output budget is what the
+    // caller funds (thinking calls carry the raised floor) capped by the
+    // profile limit the router actually admits — no artificial halving. A
+    // desktop task's thinking channel plus tool arguments legitimately
+    // exceed half of a single-response limit, and the shortfall decoded as
+    // tolerated max_tokens cutoffs that recovery could not fix. Whole-run
+    // output spend is bounded by the declared turn/recovery/continuation
+    // counts instead; the profile limit stays the per-call admission truth.
     const auto budget = impl_->profile->capabilities.limits.max_output_tokens;
     config.max_output_tokens_per_turn =
-        std::min(generation_budget(impl_->config, reasoning), budget / 2);
+        std::min(generation_budget(impl_->config, reasoning), budget);
     // MIRA-20261012-001: the conversation turn is a read-only resend from the
-    // desktop side, so transient network failures (rate limit, transport,
-    // stage-deadline stall) may use the upstream bounded recovery budget
-    // instead of failing the whole turn on the first hiccup. The envelope
-    // invariant (RULE-08, conversation_loop.hpp) is per_turn x (turns +
-    // recoveries + 1) <= budget, so recoveries are only enabled when the
-    // profile can fund them while keeping at least seven usable turns; scarce
-    // budgets keep the full turn count and fail fast exactly as before.
-    const std::uint64_t turn_capacity = budget / config.max_output_tokens_per_turn;
-    config.max_recoveries = static_cast<std::uint32_t>(
-        turn_capacity >= 10 ? std::min<std::uint64_t>(2, turn_capacity - 2) : 0);
-    const auto max_turns_value = static_cast<std::uint32_t>(
-        std::min<std::uint64_t>(16, turn_capacity - 1 - config.max_recoveries));
+    // desktop side, so transient network failures recover through the
+    // upstream bounded recovery budget. Truncated replies settle through the
+    // loop's separate bounded output-continuation budget. Both are declared
+    // bounds, independent of the per-call output size.
+    config.max_recoveries = 2;
+    config.max_output_continuations = 2;
+    const auto max_turns_value = std::uint32_t{16};
     config.max_turns = max_turns_value;
     config.max_tool_executions = 32;
     config.model_call_deadline = impl_->config.request_deadline;
