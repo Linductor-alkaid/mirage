@@ -378,3 +378,26 @@ preset 及相应 CTest
 本次软件渲染 VmHWM 224112 kB、VmRSS 172356 kB，可见/隐藏 CPU 26.66%/0.33%，
 隐藏正常退出 1.973 秒、owner 失联 6.437 秒；这些仍仅为该 fixture 的记录。
 全部构建、截图与运行日志留在 build 或 /tmp，提交仅含实现、源素材、测试和文档。
+
+## 同日本机 native-release 引用更新
+
+按维护者要求，本机 `native-release` 以代码提交
+`c33142b28a08923b64931d690e4ec76caa3e5a91` 重新构建主入口、托盘、主窗口和桌宠。
+配置启用 `MIRAGE_ENABLE_PET_PREVIEW=ON`，源素材为仓库 `apps/pet/assets`。
+首次 configure 被旧缓存中的已删除 `build/ocr-debug/_deps/mirador_ncnn-src` 阻断；
+改用已有 `build/native-debug/_deps/mirador_ncnn-src` 后通过，其 HEAD 和 clean 状态
+已核对为 Mirador 锁定的 `e54f7b1f88434e1d844ea0551b880a1cfb079ce1`。
+没有变更依赖 pin 或产品代码。
+
+执行 `cmake --build --preset native-release --target mirage-native-register-desktop
+mira_pet pet_animation_test pet_frames_test pet_resource_loader_test -j 4` 成功；
+桌面入口重新注册至 `~/.local/share/applications/org.mirage.native.desktop`，与生成入口
+逐字节一致，Gio 的 Exec/Icon 均解析到 native-release。CLI 版本仍为 Mirage 0.1.0 /
+Mira core 0.1.0；本次更新的是其代码构建。`build/native-release/local-build.json`
+记录代码提交及四个二进制 SHA-256，属于忽略的本机构建工件。
+
+Release 三项 M8 测试及 setup/cleanup 5/5；私有桌面检查 31/31，输出目录为
+`/tmp/mirage-native-release-pet-20261013`。按注册入口的相同参数启动后，托盘
+PID=1087001、主窗口 PID=1087020、桌宠 PID=1087021，`/proc/<pid>/exe` 全部位于
+native-release，frontend_ready=true、pet_state=running、active_work=0。
+真实启动范围为本机单屏 GNOME XWayland；其他原有 M8 平台与性能门禁保持开放。
