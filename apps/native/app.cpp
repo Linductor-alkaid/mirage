@@ -1117,8 +1117,8 @@ void drain_runtime() {
                 // not as an anonymous error.
                 for (const auto &session : s.chat.sessions())
                     if (session.remote_id == tool_error->session_id) {
-                        s.runtime_notice = "工具失败（" + tool_error->tool_name + "）：" +
-                                           tool_error->message;
+                        s.runtime_notice =
+                            "工具失败（" + tool_error->tool_name + "）：" + tool_error->message;
                         break;
                     }
             } else if (std::holds_alternative<ipc::HostStatusEvent>(message.event->payload)) {
@@ -2853,8 +2853,7 @@ void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &mes
                 : part.status == "cancelled"                                        ? "已取消"
                 : part.status == "failed"                                           ? "失败"
                                                                                     : "已完成";
-            text(ui, id + ".status",
-                 failed && !fail_label.empty() ? fail_label : status,
+            text(ui, id + ".status", failed && !fail_label.empty() ? fail_label : status,
                  width - (expanded ? 104 : 72), y, 64, 28, 12, failed ? p.error : p.muted);
             if (expanded) {
                 const auto detail = process_detail(part);
