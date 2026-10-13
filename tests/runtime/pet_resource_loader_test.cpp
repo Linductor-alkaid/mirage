@@ -15,8 +15,8 @@ namespace {
 bool decoded(const pet::Clip &clip, ui::DecodedClip &out, std::string &,
              const std::function<bool()> &) {
     out.clip = &clip;
-    out.rgba_frames.assign(clip.frame_count,
-                           std::make_shared<const std::vector<std::uint8_t>>(4, 0));
+    out.rgba_frames.assign(clip.frame_count, std::make_shared<const std::vector<std::uint8_t>>(
+                                                 std::size_t{4}, std::uint8_t{0}));
     return true;
 }
 bool await_update(ui::ResourceLoader &loader, ui::LoadUpdate &out) {

@@ -96,3 +96,9 @@ queued soft timeout 在可出队时检查，不中断正在运行的 blocker。
 本机该视图原样 Debug/Release 各 3/3 通过（5.16/1.86 秒）；将末尾无限
 `glfwWaitEvents` 改为 1 秒有界等待，并要求 900 ms 内收到关闭唤醒，保留断言而非
 放宽整套测试期限。远端仍需验证此修改。CI native 门禁同步加入投影适配器测试。
+
+Windows 同轮还报告 C1128（Runtime Service 对象节数超过默认 COFF 上限）和
+C4242（资源加载 fixture 的 `int` 填充值转 `uint8_t`）。为 Runtime Service target
+启用 MSVC `/bigobj`，fixture 显式使用 `size_t` 计数和 `uint8_t` 值，保留 Werror
+门禁；不变更 wire/运行语义。Windows 编译与执行结果须由最终 CI 验证，不以 Linux
+局部构建替代。
