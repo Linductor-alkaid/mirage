@@ -443,32 +443,39 @@ std::vector<mira::ModelInputItem> supply_image_as_text_description(
    - [ ] 压缩后利用率降至 < 60%
 
 3. **续写提示差异化**（Mira PR，可并行）：
-   - [ ] 思考截断场景，续写提示包含"concise plain-text"
-   - [ ] 续写成功率 ≥60%（当前基线 30%）
+   - [x] 思考截断场景，续写提示包含"concise plain-text"（PR#95 合并提交 9e7b729
+     交付三类分支；mira Debug 107/107 覆盖）
+   - [ ] 续写成功率 ≥60%（当前基线 30%）——需真实会话对照，未执行
 
 ### Phase 2：图片复用标注（3 天，等待 PR#95 合并）
 
 4. **输入去重标注集成**：
-   - [ ] PR#95 合并后更新 Mirage 的 pinned mira
-   - [ ] `DesktopImageTurn::supply_with_reuse_meta` 实现
-   - [ ] 相同截图连续 3 轮，第 3 轮请求包含 reuse 提示
-   - [ ] 对照实验：有/无标注的思考 token 差异 ≥10%
+   - [x] PR#95 合并后更新 Mirage 的 pinned mira（授权消费 9e7b729）
+   - [x] `DesktopImageTurn::supply_with_reuse_meta` 实现（落地形态：
+     `reuse_identity()` + `set_model_input_identity` 接线，语义同设计）
+   - [x] 相同截图连续 3 轮，第 3 轮请求包含 reuse 提示（脚本化 provider 端到端
+     fixture：仅第 4 请求/第 3 次同图供给渲染 Internal System note，计数可见）
+   - [ ] 对照实验：有/无标注的思考 token 差异 ≥10%（需真实模型，未执行）
 
 ### Phase 3：图片降级策略（2 天，可并行）
 
 5. **图片降级**：
-   - [ ] `supply_with_budget_awareness` 实现
-   - [ ] 余量 15000：图片保留 + 警告
-   - [ ] 余量 8000：图片降级为文本，任务继续
+   - [x] `supply_with_budget_awareness` 实现（落地形态：`set_budget_remaining`
+     注入 `anchored_remaining` 信号，supply 内三段阈值分支）
+   - [x] 余量 15000：图片保留 + 警告（fixture 断言含 20000/15000/10001 边界带）
+   - [x] 余量 8000：图片降级为文本，任务继续（fixture 断言无 ImagePart、
+     `validate_request` 通过、后续轮次正常）
 
 ### 端到端验收（全部能力，1 天）
 
-6. **真实任务回归**：
+6. **真实任务回归**（未执行：需真实模型 API + 桌面环境；负责人 Mirage 维护者，
+   补跑条件见
+   [证据文档](../compatibility/context-reuse-degradation-20261014.md)）：
    - [ ] Bilibili 视频查找任务（15 轮）成功，input tokens < 基线 60%
    - [ ] 30 轮图片密集任务成功完成（不超窗失败）
    - [ ] 任务成功率不降低（相比基线）
    
-7. **性能指标**：
+7. **性能指标**（未执行，同上）：
    - [ ] ContextManager::prepare 开销 < 50ms/轮
    - [ ] 压缩决策确定性（相同 request → 相同 selection digest）
 
@@ -501,14 +508,22 @@ std::vector<mira::ModelInputItem> supply_image_as_text_description(
 
 ## 上游交付状态
 
-- **PR#95**：输入复用标注（能力 1）
-  - 状态：Open
-  - 地址：mira PR#95
-  - 合并后更新 Mirage 的 pinned mira
-
-- **能力 4**：续写提示差异化
-  - 状态：待提交 PR
-  - 需先登记反馈台账（如果尚未登记）
+- **PR#95**：输入复用标注（能力 1）+ 续写锚点差异化（能力 4）
+  - 状态：已合并（2026-10-14，全部 checks 通过后经授权 squash 合并）
+  - 合并提交：`9e7b729d0861577b470d45385bdd08301bd1226d`
+  - 地址：[mira PR#95](https://github.com/Linductor-alkaid/mira/pull/95)
+  - 能力 1 缝形态：可选 `ModelInputIdentityProvider` / `set_model_input_identity`
+    （宿主持有跨轮 digest/count，循环仅在 `reuse_count >= 2` 且供给含图时渲染
+    Internal 权限 note；无回调时请求逐字节不变），与原设计"扩展 Supplier 返回
+    结构"的差别见实施计划进展记录。
+  - 能力 4 缝形态： tolerated max_tokens 截断的三类恢复反馈（部分文本末 50 字符
+    锚点 / 工具调用截断已丢弃重试 / 仅思考截断简洁纯文本）。
+  - Mirage 已授权消费该 pin（见
+    [消费审计](../supply-chain/mira-input-reuse-20261014.md)）。
+- **能力 2/3**：Layer 0 集成与桌面水位
+  - 状态：被 [MIRA-20261014-006](../dependency_feedback/mira.md#mira-20261014-006)
+    阻塞——ConversationLoop 工具历史回放无宿主可插入的压缩缝（pinned 9e7b729 核对），
+    待上游缝 PR；Mirage 不建平行压缩。
 
 ---
 

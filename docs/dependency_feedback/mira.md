@@ -551,8 +551,10 @@ M6-19收尾回读：Mira PR#79的pull_request run37332976997在当前pin 0a099ba
 
 ## MIRA-20261014-005：ConversationLoop 供给缝无跨轮输入复用身份标注入口
 
-- 状态：Open（上游已提交待合并）；日期：2026-10-14；负责人：Mirage 维护者，处理方：Mira 上游。
-  上游：[PR#95](https://github.com/Linductor-alkaid/mira/pull/95)。关联
+- 状态：Resolved；日期：2026-10-14；负责人：Mirage 维护者，处理方：Mira 上游。
+  上游：[PR#95](https://github.com/Linductor-alkaid/mira/pull/95)，已授权合并
+  （squash `9e7b729d0861577b470d45385bdd08301bd1226d`，合并前 checks 全绿）；
+  Mirage 已随 pin 消费并复验。关联
   [DEC-088](../decisions/DEC-088-conversation-context-compaction-and-input-deduplication.md)
   能力 1 与 [实施计划](../plans/context-compaction-implementation.md) Phase 1。
 - 核对版本：pinned `1befa451713e0eb635da6077410e284f7b8ea88b`，锁文件一致。
@@ -579,3 +581,66 @@ M6-19收尾回读：Mira PR#79的pull_request run37332976997在当前pin 0a099ba
   标注、事件与结果计数、无回调字节不变；Mirage 侧在授权消费新 pin 后接跨轮计数并
   做真实会话对照验收。未运行验证的负责人：Mirage 维护者；补跑条件：上游 PR 合并、
   pin 授权消费、真实任务对照实验。
+
+### 2026-10-14 解决与消费
+
+PR#95 经授权 squash 合并为 `9e7b729`（兼容性约束下身份元数据走独立的可选
+`ModelInputIdentityProvider` 回调，`ModelInputSupplier` 返回类型不变），mira Debug
+全量 107/107。Mirage pin 随授权消费（gitlink + lock 同步），`DesktopImageTurn`
+持有跨轮 digest/计数并经 `set_model_input_identity` 接线，
+`DialogCompletion.supplied_input_reuse_annotations` 透传计数。fixture 验证：
+连续 3 轮相同截图仅第 3 次渲染 Internal System note、计数与 digest 链语义、
+退役/降级轮暂停、端到端 `supplied_input_reuse_annotations == 1`；Mirage Debug
+81/81、ASAN 995 checks 无报告。真实会话对照实验（思考 token −10%~−20%）待
+真实 provider 环境补跑，见
+[消费验证](../compatibility/context-reuse-degradation-20261014.md) 与
+[消费审计](../supply-chain/mira-input-reuse-20261014.md)。
+
+<a id="mira-20261014-006"></a>
+
+## MIRA-20261014-006：ConversationLoop 工具历史回放无宿主可插入的压缩缝，Layer 0 无法接入
+
+- 状态：Open；日期：2026-10-14；负责人：Mirage 维护者，处理方：Mira 上游。关联
+  [DEC-088](../decisions/DEC-088-conversation-context-compaction-and-input-deduplication.md)
+  能力 2/3 与 [实施计划](../plans/context-compaction-implementation.md) Phase 1 的
+  Layer 0 集成项。
+- 核对版本：pinned `9e7b729d0861577b470d45385bdd08301bd1226d`（PR#95 合并提交），
+  锁文件一致。公开 `include/mira/conversation_loop.hpp` 的全部扩展面只有
+  `set_tool_registry` / `set_model_input_supplier` / `set_model_input_identity` /
+  `run`，无任何历史变换或压缩入口。`src/model/conversation_loop.cpp` 的 `run()`
+  以局部 `std::vector<ModelInputItem> history` 整轮累积 assistant 轮与
+  ToolCall/ToolResult 对，`build_request` 将其原样 insert 进每个请求（"Canonical
+  tool round-trip history rides after the request block"）；回放对宿主不可见。
+- 可复现证据：`third_party/mira/docs/api/model-agent-loop.md` 明确供给内容"只进入
+  当轮请求、不进入 tool-history 回放"（DEC-053 冻结契约），宿主既读不到也改不了
+  回放；`docs/api/context-memory.md` 的 `StandardContextManager::prepare` 要求调用方
+  提交全部候选 `ContextItem`，因此只对"持有全部内容的一方"可用——该方是循环而非宿主。
+- API 选型/配置/应用职责排除：`ModelInputSupplyOptions` 限额只约束当轮追加内容；
+  调小每轮输出预算或轮数不改变输入累积；DEC-087 preflight 只缩输出预算。Layer 0
+  组件本身无缺口（水位、引用替换、审计、确定性装配均已交付），缺的是把它接入
+  ConversationLoop 回放的缝；Mirage 不得自建平行压缩（仓库纪律），故登记本条。
+- 影响：DEC-088 能力 2/3（工具历史压缩 + 桌面水位特化）无法按修订版路径落地；
+  15+ 轮图片密集任务输入线性累积直至超窗（现状只能被动续写或显式失败）；
+  `DroppedByWatermark` / `SelectedByReference` 审计与确定性 selection digest 在
+  Mirage 不可用。
+- 最小期望能力：ConversationLoop 新增可选的宿主历史压缩缝——每轮装配时把循环持有
+  的规范化 history 交宿主提供的变换（宿主内部路由 Layer 0 `prepare`），以压缩结果
+  替代原始回放；无缝时请求逐字节不变；压缩结果经既有事件面可见（复用
+  `ModelInputSupplied` 或等价事件 + 结果计数）；回调异常按 DEC-053 纪律降级为可见
+  事件、取消安全，不阻塞循环。
+- 缝设计约束（9e7b729 渲染器核对）：`src/context/context_manager.cpp` 的
+  `role_for()` 只把 `ContextItemKind::ToolCall` 渲染为 `ModelRole::Assistant`，
+  其余 kind 一律渲染为 User——Layer 0 的装配目标是从结构化 ContextItem 组装请求，
+  `PreparedModelContext.input` 虽与循环回放同型，但 assistant 文本轮没有保真的
+  ContextItemKind，history 整体往返会把模型自身回复变形为 User 内容。因此缝的
+  候选形态有二：(a) 上游扩展契约（角色保真的会话 kind 或 ContextItem 显式 role）；
+  (b) 缝只覆盖工具往返段（ToolCall/ToolResult 对 + 大载荷），assistant 文本保持
+  循环原样回放。需上游按其契约纪律定夺，Mirage 不在集成层绕开。
+- 延期影响：DEC-088 Phase 1 的 Layer 0 集成与桌面水位两项保持未验收；超窗路径维持
+  DEC-087 现状；不阻塞能力 1/5（PR#95 已合并、Mirage 已消费）。
+- 临时措施：无——Mirage 侧不建平行压缩、不缓存回放副本，等待上游缝。
+- 可验收结果：mira 侧测试覆盖无缝字节不变、缝内压缩生效且审计可见、回调异常降级、
+  取消与关闭安全；Mirage 侧 `DesktopContextBuilder`（Goal pinned / CurrentObservation
+  / ToolHistory P5 + replaceable_by_reference、桌面水位 0.45/0.70/0.90）接入后，
+  15 轮任务 input tokens 相比基线下降可测且任务成功率不降。未运行验证的负责人：
+  Mirage 维护者；补跑条件：上游缝 PR 合并、授权消费、真实任务回归。

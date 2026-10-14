@@ -783,9 +783,9 @@ EXPECT_LT(elapsed, std::chrono::milliseconds(50));
 - [ ] 15 轮任务 input tokens < 基线 70%
 
 ### Phase 2 完成
-- [ ] PR#95 合并并更新 pinned mira
-- [ ] 图片复用标注集成
-- [ ] 图片降级策略实现
+- [x] PR#95 合并并更新 pinned mira（9e7b729，授权消费）
+- [x] 图片复用标注集成（`reuse_identity` + `set_model_input_identity`）
+- [x] 图片降级策略实现（`anchored_remaining` 信号 + 三段阈值带）
 
 ### Phase 3 完成
 - [ ] 真实任务回归通过
@@ -1670,3 +1670,36 @@ Result<std::vector<ModelInputCondition>> build_request_with_compaction() {
 - 待办：授权消费新 pin 后实施 Mirage 侧跨轮计数（desktop_image_supply 持有
   digest/count）与能力 5 图片降级（preflight 余量），再做真实会话对照验收
   （第 3 轮请求含复用提示、思考 token 下降 ≥10%）。能力 2/3（Phase 2）未实施。
+
+### 2026-10-14：PR#95 合并消费，能力 1/5 Mirage 侧落地
+
+- 上游 [PR#95](https://github.com/Linductor-alkaid/mira/pull/95) 经授权合并
+  （`9e7b729`），Mirage pin 与 dependencies.lock.json 同步消费（mira Debug
+  107/107；消费审计
+  [mira-input-reuse-20261014](../supply-chain/mira-input-reuse-20261014.md)）。
+- 能力 1 集成：`DesktopImageTurn` 持有跨轮 digest/计数，`reuse_identity()` 经
+  `loop.set_model_input_identity` 接线；计数只由真实含图供给推进，退役/降级轮
+  暂停，digest 变化清零；`DialogCompletion.supplied_input_reuse_annotations`
+  透传循环计数。
+- 能力 5 实现：`ObservedProvider::anchored_remaining`（DEC-087 锚点，上界语义）
+  供给了预算信号；阈值带 >20000 正常 / ≤20000 图片+警告 / ≤10000 扣图文字描述，
+  无窗口或无锚点 fail-open。与本文 Step 2.2.1 草稿的接口差异：mira 未（也无需）
+  在 `AgentLoopSpec` 暴露 preflight 余量——preflight 锚点表本来就在 Mirage
+  ObservedProvider 内，供给回调直接读取，未登记额外反馈条目。
+- 验证（Independent-Verification-Agent 两轮）：`desktop_image_supply_test`
+  新增 85 条断言（复用身份链、降级三段阈值带含边界、anchored_remaining 单元、
+  脚本化 provider 端到端第 3 轮渲染 System note 且
+  `supplied_input_reuse_annotations == 1`），负向对照有效；Mirage Debug 全量
+  81/81、ASAN 995 checks 无报告；格式/公共头边界门禁通过。证据：
+  [context-reuse-degradation-20261014](../compatibility/context-reuse-degradation-20261014.md)。
+- 契约同步：pin 9e7b729 部分文本续写反馈改为锚点式，
+  `harness_desktop_tools_test` 两条断言同步（`Continue from: "…"`），复验通过。
+- 台账：MIRA-20261014-005 → Resolved（真实会话对照待真实 provider 环境补跑）；
+  新增 [MIRA-20261014-006](../dependency_feedback/mira.md#mira-20261014-006)：
+  ConversationLoop 工具历史回放无宿主压缩缝，Layer 0 无法接入（含渲染器
+  role_for 只保真 ToolCall 的约束证据）——能力 2/3（本计划 Phase 1 的 Layer 0
+  集成与桌面水位两项）被此缝阻塞，待上游缝 PR，Mirage 不建平行压缩。
+- 构建修复：系统 PipeWire 包切换后干净树测试目标断链
+  （`pkg_check_modules` 导入目标改为 GLOBAL，platform/CMakeLists.txt）。
+- 未执行：真实会话对照验收（15/30 轮 tokens 曲线、思考 token −10%~−20%）
+  需真实模型 API 与桌面环境；负责人 Mirage 维护者，补跑条件见证据文档。
