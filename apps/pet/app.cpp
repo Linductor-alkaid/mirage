@@ -1,5 +1,6 @@
 #include "bridge.hpp"
 #include "frames.hpp"
+#include "presentation.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -21,19 +22,17 @@ using namespace std::chrono_literals;
 struct State {
     std::unique_ptr<Bridge> bridge;
     std::shared_ptr<eui::ImageStream> images = std::make_shared<eui::ImageStream>(1);
-    bool clear_needed = true;
+    FramePresentation presentation;
     runtime::pet::AnimationPlayer player;
     runtime::pet::Status status;
     runtime::persistence::LocalStateStore position_store{
         runtime::persistence::default_state_directory(), "pet-window-position.txt", 64};
     DecodedClip decoded;
-    std::shared_ptr<const std::vector<std::uint8_t>> neutral_frame;
     platform::pet_window::Layout layout;
     const runtime::pet::Clip *asset_attempt = nullptr;
     std::uint64_t asset_generation = 0;
     bool asset_failed = false;
     std::uint64_t frame_sequence = 0;
-    int last_frame = -1;
     Clock::time_point started{}, lost_at{}, exit_at{};
     bool have_status = false;
 };
@@ -43,7 +42,7 @@ State &state() {
 }
 void clear_image(State &model) {
     // Submit the transparent replacement on the next visible UI tick.
-    model.clear_needed = true;
+    model.presentation.clear();
 }
 } // namespace
 
@@ -94,6 +93,7 @@ void stop() {
     platform::pet_window::release_visibility();
     model.bridge.reset();
     model.decoded = {};
+    model.presentation.suspend();
     model.images.reset();
 }
 void tick() {
@@ -105,9 +105,8 @@ void tick() {
         model.bridge->set_animating(false);
         model.bridge->loader().cancel();
         model.decoded = {};
-        model.neutral_frame.reset();
+        model.presentation.suspend();
         model.asset_attempt = nullptr;
-        model.last_frame = -1;
         model.player.reset();
         clear_image(model);
         if (visible)
@@ -117,9 +116,11 @@ void tick() {
     if (platform::pet_window::exit_requested() && model.exit_at == Clock::time_point{})
         model.exit_at = now;
     runtime::pet::Status received;
+    bool owner_changed = false;
     if (model.bridge->latest(received)) {
         if (!model.have_status || received.owner_epoch != model.status.owner_epoch ||
             received.revision >= model.status.revision) {
+            owner_changed = model.have_status && received.owner_epoch != model.status.owner_epoch;
             model.status = std::move(received);
             model.have_status = true;
         }
@@ -145,14 +146,12 @@ void tick() {
         source = {};
     }
     if (model.player.select(owner, display, source, now))
-        model.last_frame = -1;
+        model.presentation.restart();
     auto frame = model.player.frame(now);
-    bool clip_changed = false;
     if (frame.clip != model.asset_attempt) {
-        clip_changed = true;
         model.asset_attempt = frame.clip;
         model.decoded = {}; // release the old <=96 MiB state before loading the next
-        model.last_frame = -1;
+        model.presentation.restart();
         model.asset_failed = false;
         model.asset_generation = model.bridge->loader().request(*frame.clip, now);
     }
@@ -162,14 +161,9 @@ void tick() {
         if (!model.asset_failed) {
             model.decoded = std::move(loaded.decoded);
             model.player.asset_ready(now);
-            if (model.decoded.clip && model.decoded.clip->state == "rest" &&
-                model.decoded.rgba_frames.size() > 8)
-                model.neutral_frame = model.decoded.rgba_frames[8];
         } else {
             std::cerr << "mira_pet: " << loaded.diagnostic << '\n';
             model.player.asset_failed(now);
-            if (!model.neutral_frame)
-                clear_image(model);
         }
     }
     if (model.decoded.clip == frame.clip)
@@ -191,23 +185,10 @@ void tick() {
         std::cerr << "mira_pet: RGBA ImageStream admission failed\n";
         return false;
     };
-    if (clip_changed && !model.clear_needed) {
-        if (model.neutral_frame)
-            (void)submit(model.neutral_frame);
-        else if (frame.static_fallback)
-            clear_image(model);
-    }
-    if (model.clear_needed) {
-        static const auto transparent =
-            std::make_shared<const std::vector<std::uint8_t>>(512 * 512 * 4, 0);
-        (void)submit(transparent);
-        model.clear_needed = false;
-    }
-    if (model.decoded.clip && frame.index < model.decoded.rgba_frames.size() &&
-        model.last_frame != frame.index) {
-        if (submit(model.decoded.rgba_frames[frame.index]))
-            model.last_frame = frame.index;
-        else {
+    const bool safe_fallback =
+        frame.static_fallback || model.asset_failed || owner_changed || display == "exiting";
+    if (auto pixels = model.presentation.next(frame, model.decoded, safe_fallback)) {
+        if (!submit(std::move(pixels))) {
             model.decoded = {};
             model.player.asset_failed(now);
             clear_image(model);
