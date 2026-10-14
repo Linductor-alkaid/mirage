@@ -67,3 +67,20 @@ GLFW/OpenGL 最终完整测试耗时 23.85 s。
 SDL2 的 false transparency 保持原契约；GLFW/Vulkan fixture 的 GL-current-context capture
 不构成 Vulkan alpha 授权证据，不声明新的 Vulkan/SDL2 透明保证。只验证本次 Windows 环境，
 其他 GPU/显示器由维护者在对应机器补跑同一 fixture 和 probe。
+
+## 2026-10-15：安装版黑角复发，修补范围更正
+
+维护者安装上一轮包后再次报告四角黑色。Program Files 的 mirage-native.exe 与该包
+SHA256 均为 `8DE1DF014AFCFFFF12DE1AF5DD227590DBD2D2CF615D849FD319B3DD3FB71CF6`，
+排除运行旧版本。前述 probe/fixture 的通过只证明受测路径中初始化生效，不能证明目标
+机器间歇性 alpha 问题全面解决。上游 Issue #109 / Draft PR #112 应保留未解决状态，并
+撤销 closes 声明；本次不再改变 EUI pin 或把 Mirage 的固定圆角策略下沉至通用 GLFW。
+
+[GLFW #2815](https://github.com/glfw/glfw/pull/2815) 仍未合入；另一个使用者的
+[最小样例反馈](https://github.com/Wixely/CupriFace/issues/212) 记录 WM_PAINT 清零确已执行
+仍为黑色，与本机现象相容，不能据此确定 Oray 或 NVIDIA 是本机因果来源。
+Mirage 在单一私有 Windows 窗口适配边界加产品轮廓保护：12 logical px 与 EUI 绘制半径
+保持一致，尺寸/DPI 更新时重设 Windows region，最大化移除 region。轮廓外不参与桌面
+合成，从而不依赖其 alpha 是否正确；这不是通用透明背景修复。代价是轮廓为整数像素
+裁剪，部分 DWM 系统阴影行为会变化。移除条件：上游 alpha 在同一目标机器冷启动、恢复、
+跨 DPI、缩放缓存帧重复验证后稳定，再删除该产品保护。关键轮廓/恢复测试见维护计划。

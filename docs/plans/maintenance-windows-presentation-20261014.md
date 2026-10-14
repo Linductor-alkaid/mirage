@@ -10,15 +10,16 @@
 
 - [ ] `BUG-20261014-004` Windows 图形启动入口不创建控制台，CLI 输出保持可用；覆盖安装、卸载和 payload。
 - [ ] `BUG-20261014-005` 通知承载图标隐藏，产品只显示可交互主托盘；通知受理/拒绝和 teardown 回归。
-- [ ] `BUG-20261014-006` 原生托盘菜单字号、行高、留白随 DPI 缩放，保持键盘、禁用态和原动作派发。
+- [ ] `BUG-20261014-006` 按 GPT 参考提供白色圆角、阴影、分组、悬停和 DPI 缩放，保持键盘、禁用态和原动作派发。
 - [ ] `BUG-20261014-007` 对照已安装程序、当前 Release 和上游透明 fixture 定位间歇黑角；确认上游归属后按 CONTRIBUTING 提交 Issue/PR。
 
 ## 设计与依赖边界
 
 图形入口复用既有 `mirage start` 控制面及托盘 Runtime owner，不新增并发路径。
-菜单继续使用 Win32 原生 HMENU 消息循环，回调只投递既有 Executor 动作。
+菜单使用现有 Win32 pump 上的 modeless 弹层，标准 BUTTON 保留可访问名称/禁用态，回调只投递既有 Executor 动作。
 通知继续使用 Shell_NotifyIcon，隐藏独立承载图标；产品默认值同步 DEC-018/045。
-透明问题先复现取证，不通过不透明背景或窗口裁剪掩盖呈现错误；尚未确定归属时不修改 pinned 依赖。
+透明问题先复现取证；上游通用 alpha 修补与 Mirage 产品固定圆角保护分别记录。
+已确认修补不能消除目标机器全部黑角，允许在单一 Windows 窗口适配边界按产品轮廓裁剪；不宣称通用透明问题已解决。
 
 ## 测试与退出条件
 
@@ -101,3 +102,39 @@ fix/nsis-native-registry-view 分支，只包含本次呈现差异。精确源�
 tray、native 与平铺资源。最新 launcher 的 null-terminated argv 也已重建并重新冷启动/关闭验证。
 NSIS 安装包为该目录下 `mirage-installer.exe`；本轮源码的四项修复可供维护者升级验证，
 现有 Program Files 安装及默认开始菜单未覆盖。没有合并 PR 或创建 release/tag。
+### 2026-10-15：安装版复发与 GPT 风格菜单跟进
+
+维护者安装上一轮包后仍报告四角黑色；Program Files 与上一轮 payload 的 native SHA256
+一致（8DE1DF014AFCFFFF12DE1AF5DD227590DBD2D2CF615D849FD319B3DD3FB71CF6）。因此先前
+fixture/probe 的通过不作为“间歇黑角完全解决”的验收，BUG-20261014-007 保持开放。
+已更新上游 #109 及 Draft #112，移除 closes 声明，明确 PatBlt 修补的证据范围；pin 不变。
+
+本轮采用单一 Windows 私有窗口轮廓保护（12 logical px，随 framebuffer/render scale，
+尺寸变化时更新，最大化清除；移除条件及整数边缘/阴影代价见升级审计）。这是产品保护，
+不将其称作上游通用 alpha 修复。维护者给出的 GPT 图片用于视觉参考；菜单仅呈现既有
+Mirage 动作，白色 300px 圆角弹层、40px 行、20px 文本留白、14px Segoe UI、灰色圆角
+选中/悬停与退出组分隔线。DWM 阴影/圆角及 Windows 10 轮廓降级由私有 Backend 实现。
+BUTTON 保留名称与禁用态；modeless pump 避免菜单期间阻塞停止，不新增并发设施。
+
+实际验证：
+- MSVC x64 Release native/tray/menu-test 重建成功。
+- Windows 6 项定向 CTest 6/6、0 failed。最终可见性/静止鼠标高亮修正后 menu-test 补跑通过。
+- 菜单/轮廓共 115 checks、0 failures：96/144/192 DPI；禁用项跳过、循环导航、Home/End、
+  Enter、鼠标命令、Escape、失焦关闭、显式回收、workarea 限位；四角剔除、边缘保留、
+  resize、最大化移除及恢复。
+- 同源 Win32 ASAN / RelWithDebInfo 115 checks、0 failures，无 ASAN 报告。x64 ASAN
+  运行库缺失的限制保持，Windows 10 和真实混合 DPI 跨屏未验收（维护者提供设备后补跑）。
+- 真实新 native 私有 named pipe 启动，四角可见背景；实际最大化为矩形，恢复后圆角重新
+  生效。私有 Runtime shutdown 后确认测试 native/tray 均退出，仅保留用户安装版。
+- --preview 实际查看白色圆角/分隔，UIA 返回“打开应用”“退出应用”按钮；Down 的选择
+  与可见灰色高亮一致，Return/Escape 关闭。静止鼠标生成的合成 move 不覆盖键盘选择。
+- format、public-header boundary（59 headers / 0 violations）和 git diff --check 通过。
+- 最新 payload 使用全新 build/windows-rounded-menu-20261015 目录；不重复拷贝 provider
+  目录、不包含产物入 Git。NSIS 安装包 16,307,753 bytes，SHA256
+  0A93F32D0DA5C85853E45473F2CDBA9375B58B4E32DC74E55BE1913EF799193A。
+  native SHA256 F6E971FA858CE5DFCFC606EA646819F7F69E5B52C0FDF929DFC5E119439C6E51；
+  tray SHA256 85EFE531BFADCA982FA8E7595DEC93C7CA1BB12CA89C85D66BE548DDF7C3EDB0。
+
+仍开放：维护者从真实安装/开始菜单复验新包的四角、菜单和卸载；上游通用 alpha 根因及
+Windows 10/混合 DPI/其他 GPU。上一轮 939c769 的 CI 是历史证据，不覆盖本轮新源码。
+本轮继续更新现有 Draft #95，不合并 PR、不创建 release/tag。新增 CI 另记精确 head。
