@@ -401,9 +401,15 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
     const bool requested = interactive && interactive->as_boolean() && *interactive->as_boolean();
     const auto source_kind = text(args, "source");
     const bool region_source = source_kind == "roi" || source_kind == "window";
+    if (requested && region_source)
+        // Name the actual rule: region captures ride the session established by
+        // the first source=desktop capture, so an interaction flag there is a
+        // distinct mistake, not a generic malformed source.
+        return error(ErrorCode::InvalidArgument,
+                     "interaction=true is only valid with source=desktop; roi/window capture "
+                     "reuses the sharing session and takes no interaction flag");
     if ((source_kind != "desktop" && !region_source) || !args.as_object() ||
-        (interactive && (!interactive->as_boolean() || !native_input_enabled_)) ||
-        (requested && source_kind != "desktop"))
+        (interactive && (!interactive->as_boolean() || !native_input_enabled_)))
         return error(ErrorCode::InvalidArgument,
                      "native desktop capture requires source=desktop|roi|window");
     std::int64_t roi_x = 0, roi_y = 0, roi_width = 0, roi_height = 0;

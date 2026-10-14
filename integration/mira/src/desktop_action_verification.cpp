@@ -215,6 +215,18 @@ void DesktopActionVerification::observe(Record &r, const mira::OperationContext 
             auto proof = shared_observation_(r.kind, r.text, local);
             if (!proof || bounded.cancelled() || r.epoch != desktop_.actions->epoch()) {
                 r.reason = "shared_observation_failed";
+                if (!proof) {
+                    // The receipt is the only place the model can read why the
+                    // shared frame died; keep the underlying capture diagnostic
+                    // visible instead of dropping it.
+                    auto message = proof.error().safe_message;
+                    message.erase(std::find_if(message.begin(), message.end(),
+                                                   [](char c) { return c == '\n' || c == '\r'; }),
+                                  message.end());
+                    if (message.size() > 160)
+                        message.resize(160);
+                    r.reason += ": " + message;
+                }
                 return;
             }
             const bool matched = flag(proof.value(), "matched");
