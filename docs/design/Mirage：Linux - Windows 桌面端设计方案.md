@@ -1297,7 +1297,9 @@ ScreenProvider 增加默认拒绝的 capture_desktop 和 desktop_observation_onl
 Linux 在自动选择的 Wayland 会话使用私有 PortalScreenBackend，窗口/输入/剪贴板
 Provider 不宣称 X11 全桌面能力。显式私有 X display 仍用于 Xorg/Xvfb 验证。
 
-平台在授权前选定 ScreenCast/PipeWire 或确认不可用的 Screenshot；前者拥有一次性
+平台在授权前选定 ScreenCast/PipeWire；Portal 或构建缺少 ScreenCast 能力时如实返回
+unsupported_capability，不回退到需要人工点击的交互截图（见
+wayland-capture-failclosed-20261014 记录）。前者拥有一次性
 Session，有限 Executor 调用中推进 GMainContext 与 pw_loop，第三方回调只接纳有界
 协议状态/一个 buffer，业务解码与供图在回调外进行。取消/超时/撤销/异常都关闭请求、
 Session、stream/core/context/loop 与私有总线连接；不保存恢复 token 或授权资产。
@@ -1313,7 +1315,7 @@ image_scope、可执行 VisualReference 或 ROI/SoM。授权等待不计入五�
 DesktopImageTurn 通过纯 std 的 DesktopCaptureSession 持有本轮 Platform 私有共享；
 ScreenProvider 默认不支持，创建不弹授权。ScreenCast 成功后保留专属总线、Session
 和 node，每次重新取得 PipeWire remote 与新帧，每帧销毁 stream/core/context/loop；
-没有后台 worker 或循环。Screenshot 仍一次性。任务对象持有 DesktopToolContext 的
+没有后台 worker 或循环。任务对象持有 DesktopToolContext 的
 环境 owner，先析构会话，再释放环境；会话禁止跨任务共享或并发调用。
 
 每轮最多八帧，每次重新检查权限；首授权失败不重复，后续失败、取消或授权代际失效

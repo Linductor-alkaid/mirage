@@ -7,15 +7,11 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
-#include <fcntl.h>
 #include <memory>
 #include <poll.h>
-#include <sys/stat.h>
-#include <unistd.h>
 #ifdef MIRAGE_LINUX_PORTAL
 #include <gio/gio.h>
 #include <gio/gunixsocketaddress.h>
-#include <png.h>
 #ifdef MIRAGE_LINUX_PIPEWIRE
 #include "portal_pipewire_capture.hpp"
 #include <pipewire/pipewire.h>
@@ -493,66 +489,6 @@ desktop::InputOutcome shared_input(CastSession &s, const desktop::SharedInputAct
 }
 #endif
 
-desktop::CaptureOutcome decode(const std::string &uri, const desktop::CaptureLimits &limits,
-                               const desktop::CancelToken &cancel) {
-    if (uri.size() > 4096 || !uri.starts_with("file:///") ||
-        uri.find_first_of("?#") != std::string::npos)
-        return failure("invalid_portal_image", "Portal returned a non-local image URI");
-    gchar *host = nullptr;
-    gchar *filename = g_filename_from_uri(uri.c_str(), &host, nullptr);
-    const bool local = filename && (!host || *host == '\0');
-    g_free(host);
-    const int fd = local ? ::open(filename, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK) : -1;
-    g_free(filename);
-    if (fd < 0)
-        return failure("invalid_portal_image", "Portal image is not an accessible regular file");
-    struct Fd {
-        int value;
-        ~Fd() { ::close(value); }
-    } owned{fd};
-    struct stat stat {};
-    if (fstat(fd, &stat) != 0 || !S_ISREG(stat.st_mode) || stat.st_uid != getuid() ||
-        stat.st_size <= 0 || stat.st_size > (16 << 20))
-        return failure("invalid_portal_image",
-                       "Portal image file exceeds the bounded PNG contract");
-    std::vector<unsigned char> bytes(static_cast<std::size_t>(stat.st_size));
-    std::size_t offset = 0;
-    while (offset < bytes.size()) {
-        if (cancel.cancelled())
-            return failure("cancelled", "Portal image read cancelled");
-        const auto read =
-            ::read(fd, bytes.data() + offset, std::min(bytes.size() - offset, std::size_t{65536}));
-        if (read <= 0)
-            return failure("invalid_portal_image", "Portal image read failed");
-        offset += static_cast<std::size_t>(read);
-    }
-    png_image image{};
-    image.version = PNG_IMAGE_VERSION;
-    struct Image {
-        png_image *value;
-        ~Image() { png_image_free(value); }
-    } owned_image{&image};
-    if (!png_image_begin_read_from_memory(&image, bytes.data(), bytes.size()))
-        return failure("invalid_portal_image", "Portal image is not a decodable PNG");
-    const auto pixels = std::uint64_t{image.width} * image.height;
-    if (!image.width || !image.height || image.width > 16384 || image.height > 16384 ||
-        pixels > std::min(limits.max_bytes, std::size_t{32u << 20}) / 4)
-        return failure("capture_too_large", "Portal image exceeds the raw pixel budget");
-    if (cancel.cancelled())
-        return failure("cancelled", "Portal image decode cancelled");
-    desktop::CaptureOutcome out;
-    image.format = PNG_FORMAT_BGRA;
-    out.frame.width = static_cast<std::int32_t>(image.width);
-    out.frame.height = static_cast<std::int32_t>(image.height);
-    out.frame.stride = std::size_t{image.width} * 4;
-    out.frame.pixels.resize(static_cast<std::size_t>(pixels) * 4);
-    if (!png_image_finish_read(&image, nullptr, out.frame.pixels.data(), 0, nullptr))
-        return failure("invalid_portal_image", "Portal PNG decode failed");
-    if (cancel.cancelled())
-        return failure("cancelled", "Portal image result arrived after cancellation");
-    out.ok = true;
-    return out;
-}
 #endif
 } // namespace
 
@@ -608,6 +544,7 @@ desktop::CaptureOutcome capture_portal(const desktop::CaptureLimits &limits,
     if (retained && retained->attempted)
         return failure("portal_session_closed",
                        "No reusable shared session; no reauthorization in this task");
+#ifdef MIRAGE_LINUX_PIPEWIRE
     if (retained)
         retained->attempted = true;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
@@ -636,13 +573,12 @@ desktop::CaptureOutcome capture_portal(const desktop::CaptureLimits &limits,
                 G_VARIANT_TYPE("(s)"), G_DBUS_CALL_FLAGS_NONE, 1000, nullptr, nullptr));
     }
     if (!owner)
-        return failure("portal_unavailable", "Screenshot Portal is not running in this session");
+        return failure("portal_unavailable", "Desktop portal is not running in this session");
     const gchar *sender = nullptr;
     g_variant_get(owner.get(), "(&s)", &sender);
     const gchar *unique = g_dbus_connection_get_unique_name(connection.get());
     std::string identity = unique ? unique + 1 : "";
     std::replace(identity.begin(), identity.end(), '.', '_');
-#ifdef MIRAGE_LINUX_PIPEWIRE
     auto *authorization = retained && retained->authorization && retained->authorization->enabled()
                               ? retained->authorization.get()
                               : nullptr;
@@ -709,92 +645,21 @@ desktop::CaptureOutcome capture_portal(const desktop::CaptureLimits &limits,
         return failure(
             capability_error,
             "ScreenCast capability could not be checked; no second authorization requested");
+    // The session portal verifiably lacks ScreenCast: no reusable authorized
+    // observation exists in this environment.
+    return failure("unsupported_capability",
+                   "This desktop session's portal does not provide ScreenCast; no reusable "
+                   "authorized observation is available");
 #endif
-    if (retained && retained->interaction)
-        return failure("unsupported_capability",
-                       "Shared input requires ScreenCast and RemoteDesktop");
-    gchar *random = g_uuid_string_random();
-    std::string token = "mirage_" + std::string(random);
-    g_free(random);
-    std::replace(token.begin(), token.end(), '-', '_');
-    const std::string path = std::string(root) + "/request/" + identity + "/" + token;
-    auto *context = g_main_context_new();
-    g_main_context_push_thread_default(context);
-    struct Context {
-        GMainContext *value;
-        ~Context() {
-            g_main_context_pop_thread_default(value);
-            g_main_context_unref(value);
-        }
-    } owned_context{context};
-    Response result;
-    const auto subscription = g_dbus_connection_signal_subscribe(
-        connection.get(), sender, request_interface, "Response", path.c_str(), nullptr,
-        G_DBUS_SIGNAL_FLAGS_NONE, response, &result, nullptr);
-    struct Subscription {
-        GDBusConnection *connection;
-        guint id;
-        ~Subscription() { g_dbus_connection_signal_unsubscribe(connection, id); }
-    } owned_subscription{connection.get(), subscription};
-    GVariantBuilder options;
-    g_variant_builder_init(&options, G_VARIANT_TYPE_VARDICT);
-    g_variant_builder_add(&options, "{sv}", "handle_token", g_variant_new_string(token.c_str()));
-    // GNOME may deny unattended Screenshot requests. Use the documented user
-    // capture UI; a selected area/window is still observation-only, no mapping.
-    g_variant_builder_add(&options, "{sv}", "interactive", g_variant_new_boolean(TRUE));
-    std::string request_failure = "portal_request_failed";
-    auto requested = call(connection.get(), root, "org.freedesktop.portal.Screenshot", "Screenshot",
-                          g_variant_new("(sa{sv})", "", &options), G_VARIANT_TYPE("(o)"), sender,
-                          &request_failure);
-    if (!requested) {
-        close_request(connection.get(), path, sender);
-        return failure(request_failure, "Screenshot Portal request failed; do not repeat "
-                                        "without checking desktop authorization");
-    }
-    const gchar *returned = nullptr;
-    g_variant_get(requested.get(), "(&o)", &returned);
-    if (path != returned) {
-        close_request(connection.get(), path, sender);
-        if (std::string_view(returned).starts_with(std::string(root) + "/request/" + identity +
-                                                   "/") &&
-            std::char_traits<char>::length(returned) <= 512)
-            close_request(connection.get(), returned, sender);
-        return failure("portal_protocol_error", "Screenshot Portal returned an unexpected request");
-    }
-    while (!result.received && !cancel.cancelled() && std::chrono::steady_clock::now() < deadline &&
-           !g_dbus_connection_is_closed(connection.get())) {
-        // At most one callback dispatch per slice; finite call remains in its
-        // Executor task, no timer source or parallel task admission.
-        (void)g_main_context_iteration(context, FALSE);
-        if (!result.received)
-            (void)::poll(nullptr, 0, 25);
-    }
-    if (cancel.cancelled() || !result.received) {
-        close_request(connection.get(), path, sender);
-        return failure(cancel.cancelled()                              ? "cancelled"
-                       : g_dbus_connection_is_closed(connection.get()) ? "portal_unavailable"
-                                                                       : "portal_timeout",
-                       "Screenshot authorization cancelled or timed out; request closed");
-    }
-    if (!result.body)
-        return failure("portal_protocol_error",
-                       "Screenshot Portal response exceeds its typed budget");
-    guint32 code = 2;
-    GVariant *results = nullptr;
-    g_variant_get(result.body.get(), "(u@a{sv})", &code, &results);
-    Variant data(results);
-    if (code != 0)
-        return failure(
-            code == 1   ? "portal_user_cancelled"
-            : code == 2 ? "portal_failed"
-                        : "portal_protocol_error",
-            "Desktop did not return a screenshot; check system capture UI or authorization");
-    const gchar *uri = nullptr;
-    if (!g_variant_lookup(data.get(), "uri", "&s", &uri))
-        return failure("portal_protocol_error", "Screenshot Portal response has no image URI");
-    const desktop::CancelToken bounded(
-        [&] { return cancel.cancelled() || std::chrono::steady_clock::now() >= deadline; });
-    return decode(uri, limits, bounded);
+    // Compiled without the PipeWire path: there is no reusable authorized
+    // observation, and the interactive Screenshot UI is not an autonomous
+    // observation path — it covers the user's desktop and returns an image
+    // with no coordinate mapping. Fail closed instead (DEC-015); see
+    // docs/compatibility/wayland-capture-failclosed-20261014.md.
+    return failure("unsupported_capability",
+                   "Wayland ScreenCast/PipeWire capture is not compiled into this build; "
+                   "install the libpipewire-0.3 development files or set "
+                   "MIRAGE_PIPEWIRE_SDK_ROOT and rebuild");
 #else
     return failure("unsupported_platform", "Wayland Portal support was not compiled");
 #endif

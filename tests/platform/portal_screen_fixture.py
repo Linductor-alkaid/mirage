@@ -1,27 +1,24 @@
-"""DEC-073: isolated Portal bus and synthetic pixels; never the user desktop."""
+"""DEC-073: isolated Portal bus and synthetic pixels; never the user desktop.
+
+DEC-015 fail-closed: outside cast_/rd_ modes the fixture portal object exposes
+no ScreenCast interface and no interactive Screenshot fallback, so every non-cast
+capture must fail closed — through introspected capability absence when PipeWire
+is compiled in, or before touching the bus at all otherwise.
+"""
 import os
 from pathlib import Path
-import struct
 import subprocess
 import sys
 import tempfile
-import zlib
-
-
-def png(width=4, height=2):
-    def chunk(kind, data):
-        return struct.pack('!I', len(data)) + kind + data + struct.pack('!I', zlib.crc32(kind + data))
-    raw = (b'\0' + bytes([10, 20, 30, 255]) * width) * height
-    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('!2I5B', width, height, 8, 6, 0, 0, 0))
-            + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
 
 
 def serve(directory):
     from gi.repository import Gio, GLib
-    xml = '''<node><interface name="org.freedesktop.portal.Screenshot">
-      <method name="Screenshot"><arg type="s" direction="in"/><arg type="a{sv}" direction="in"/>
-      <arg type="o" direction="out"/></method></interface>
-      <interface name="org.freedesktop.portal.Request"><method name="Close"/>
+    # Only the Request interface lives on the portal object by default: GDBus
+    # answers Introspect with node XML that lists no ScreenCast, which is the
+    # documented "capability verifiably absent" contract. cast_/rd_ modes add
+    # the ScreenCast/RemoteDesktop objects dynamically in the Mode handler.
+    xml = '''<node><interface name="org.freedesktop.portal.Request"><method name="Close"/>
       <signal name="Response"><arg type="u"/><arg type="a{sv}"/></signal></interface></node>'''
     node = Gio.DBusNodeInfo.new_for_xml(xml)
     conn = Gio.bus_get_sync(Gio.BusType.SESSION, None)
@@ -42,7 +39,7 @@ def serve(directory):
       <method name="SelectDevices"><arg type="o" direction="in"/><arg type="a{sv}" direction="in"/><arg type="o" direction="out"/></method>
       <method name="Start"><arg type="o" direction="in"/><arg type="s" direction="in"/><arg type="a{sv}" direction="in"/><arg type="o" direction="out"/></method>
       </interface></node>""")
-    state = {'cast_object': 0, 'calls': 0, 'closes': 0, 'mode': 'success'}
+    state = {'cast_object': 0, 'calls': 0, 'closes': 0, 'mode': 'noscreencast'}
     control = Gio.DBusNodeInfo.new_for_xml('''<node><interface name="org.mirage.PortalFixture">
       <method name="Mode"><arg type="s" direction="in"/></method></interface></node>''')
     def method(connection, sender, path, interface, name, params, invocation):
@@ -85,7 +82,7 @@ def serve(directory):
                 return
             options = params.unpack()[-1]
             handle = '/org/freedesktop/portal/desktop/request/' + sender[1:].replace('.', '_') + '/' + options['handle_token']
-            conn.register_object(handle, node.interfaces[1], method, None, None)
+            conn.register_object(handle, node.interfaces[0], method, None, None)
             session = ('/org/freedesktop/portal/desktop/session/' + sender[1:].replace('.', '_') + '/' + options['session_handle_token']) if name == 'CreateSession' else params.unpack()[0]
             if name == 'CreateSession':
                 conn.register_object(session, cast.interfaces[1], method, None, None)
@@ -130,35 +127,9 @@ def serve(directory):
             if name != 'Start' or mode not in ('cast_cancel', 'cast_timeout', 'cast_wrong_path'):
                 GLib.timeout_add(500 if mode == 'cast_late' and name == 'Start' else 20, cast_response)
             return
-        state['calls'] += 1
-        mode = state['mode']
-        if mode == 'method_denied':
-            invocation.return_dbus_error('org.freedesktop.DBus.Error.AccessDenied', 'synthetic denial')
-            return
-        _, options = params.unpack()
-        handle = '/org/freedesktop/portal/desktop/request/' + sender[1:].replace('.', '_') + '/' + options['handle_token']
-        conn.register_object(handle, node.interfaces[1], method, None, None)
-        (directory / 'counts').write_text(str(state['calls']))
-        def respond():
-            if mode == 'malformed':
-                conn.emit_signal(sender, handle, 'org.freedesktop.portal.Request', 'Response',
-                                 GLib.Variant('(s)', ('not a response',)))
-                return False
-            uri = (directory / ('hires.png' if mode == 'hires' else 'image.png')).as_uri()
-            if mode == 'remote_uri':
-                uri = 'https://example.invalid/private.png'
-            if mode in ('bad_png', 'symlink', 'fifo', 'large_file', 'truncated'):
-                uri = (directory / mode).as_uri()
-            values = {} if mode == 'missing_uri' else {'uri': GLib.Variant('s', uri)}
-            code = 2 if mode == 'deny' else 1 if mode == 'user_cancel' else 0
-            conn.emit_signal(sender, handle, 'org.freedesktop.portal.Request', 'Response',
-                             GLib.Variant('(ua{sv})', (code, values)))
-            return False
-        if mode == 'early':
-            respond()
-        invocation.return_value(GLib.Variant('(o)', (handle + '_wrong' if mode == 'wrong_path' else handle,)))
-        if mode not in ('early', 'cancel', 'timeout', 'wrong_path'):
-            GLib.timeout_add(6100 if mode == 'delayed_tool' else 500 if mode == 'late' else 20, respond)
+        # No other interface is registered on the portal object: a session
+        # without ScreenCast has no reusable authorized observation, and any
+        # unexpected method reaching here must not fabricate a response.
     conn.register_object('/org/freedesktop/portal/desktop', node.interfaces[0], method, None, None)
     conn.register_object('/org/mirage/PortalFixture', control.interfaces[0], method, None, None)
     (directory / 'ready').write_text('ready')
@@ -169,14 +140,6 @@ def run(binary, with_cast=False):
     from gi.repository import Gio, GLib
     with tempfile.TemporaryDirectory(prefix='mirage-portal-fixture-') as tmp:
         directory = Path(tmp)
-        (directory / 'image.png').write_bytes(png())
-        (directory / 'hires.png').write_bytes(png(3200, 2000))
-        (directory / 'bad_png').write_bytes(b'not PNG')
-        (directory / 'symlink').symlink_to(directory / 'image.png')
-        os.mkfifo(directory / 'fifo')
-        (directory / 'truncated').write_bytes(png()[:30])
-        with (directory / 'large_file').open('wb') as out:
-            out.truncate((16 << 20) + 1)
         bus = subprocess.Popen(['dbus-daemon', '--session', '--nofork', '--print-address=1'], stdout=subprocess.PIPE, text=True)
         env = os.environ.copy()
         env['DBUS_SESSION_BUS_ADDRESS'] = bus.stdout.readline().strip()
@@ -193,10 +156,10 @@ def run(binary, with_cast=False):
             assert (directory / 'ready').exists()
             conn = Gio.DBusConnection.new_for_address_sync(env['DBUS_SESSION_BUS_ADDRESS'],
                 Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None)
-            modes = ['success', 'early', 'deny', 'user_cancel', 'wrong_path', 'missing_uri',
-                     'remote_uri', 'bad_png', 'symlink', 'fifo', 'large_file', 'truncated',
-                     'budget', 'pre_cancel', 'cancel', 'timeout', 'tool', 'tool_denied', 'delayed_tool',
-                     'hires', 'malformed', 'late', 'method_denied']
+            # DEC-015 fail-closed: non-cast modes must fail with no second
+            # authorization; none of them may reach a portal method, so counts
+            # and closes bookkeeping must stay untouched across each run.
+            modes = ['budget', 'noscreencast', 'tool', 'tool_denied']
             if with_cast:
                 subprocess.run([binary, 'pixels'], env=env, check=True, timeout=5)
                 modes.extend(['cast_bad_session', 'cast_missing_session', 'cast_wrong_path',
@@ -211,14 +174,17 @@ def run(binary, with_cast=False):
                     'org.mirage.PortalFixture', 'Mode', GLib.Variant('(s)', (mode,)),
                     GLib.VariantType('()'), Gio.DBusCallFlags.NONE, 1000, None)
                 counts = (directory / 'counts').read_text() if (directory / 'counts').exists() else None
-                closes = int((directory / 'closed').read_text()) if (directory / 'closed').exists() else 0
+                closed = int((directory / 'closed').read_text()) if (directory / 'closed').exists() else 0
                 subprocess.run([binary, mode], env=env, check=True, timeout=40)
                 if mode == 'cast_retry':
                     assert int((directory / 'counts').read_text()) - int(counts or 0) == 4
-                if mode in ('tool_denied', 'pre_cancel', 'cast_pre_cancel_session', 'rd_pre_cancel', 'rd_persist_v1', 'rd_persist_pre_cancel'):
+                if mode in ('budget', 'noscreencast', 'tool', 'tool_denied'):
                     assert ((directory / 'counts').read_text() if (directory / 'counts').exists() else None) == counts
-                if mode in ('cancel', 'timeout', 'wrong_path', 'late') or (mode.startswith(('cast_', 'rd_')) and mode not in ('cast_pre_cancel_session', 'rd_pre_cancel', 'rd_persist_v1', 'rd_persist_pre_cancel')):
-                    assert int((directory / 'closed').read_text()) > closes
+                    assert (int((directory / 'closed').read_text()) if (directory / 'closed').exists() else 0) == closed
+                if mode in ('cast_pre_cancel_session', 'rd_pre_cancel', 'rd_persist_v1', 'rd_persist_pre_cancel'):
+                    assert ((directory / 'counts').read_text() if (directory / 'counts').exists() else None) == counts
+                if mode.startswith(('cast_', 'rd_')) and mode not in ('cast_pre_cancel_session', 'rd_pre_cancel', 'rd_persist_v1', 'rd_persist_pre_cancel'):
+                    assert int((directory / 'closed').read_text()) > closed
             service.terminate()
             service.wait(timeout=5)
             subprocess.run([binary, 'absent'], env=env, check=True, timeout=5)

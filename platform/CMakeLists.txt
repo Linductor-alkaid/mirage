@@ -115,6 +115,17 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
                 target_compile_definitions(mirage_platform PRIVATE MIRAGE_LINUX_PIPEWIRE=1)
                 set_property(TARGET mirage_platform PROPERTY MIRAGE_PIPEWIRE_AVAILABLE TRUE)
                 message(STATUS "Linux Wayland ScreenCast/PipeWire capture enabled")
+            else()
+                # A portal build without PipeWire has no reusable authorized
+                # observation; portal_screen_backend fails capture closed rather
+                # than degrading silently, but the product must not ship that way
+                # by accident. Make the gap loud at configure time.
+                message(WARNING
+                    "Linux Wayland ScreenCast/PipeWire capture DISABLED: libpipewire-0.3 dev "
+                    "files not found and MIRAGE_PIPEWIRE_SDK_ROOT is empty. Wayland desktop "
+                    "observation will fail closed (unsupported_capability) instead of sharing "
+                    "the screen. Install libpipewire-0.3 and libspa-0.2 development files or "
+                    "point MIRAGE_PIPEWIRE_SDK_ROOT at an extracted SDK, then reconfigure.")
             endif()
         endif()
         target_sources(mirage_platform PRIVATE
