@@ -69,6 +69,24 @@ NSIS / WiX-exe。约束面：
   Windows 机器/CI windows 作业取证（M5-11 验证记录补跑条件；DEC-017 证据
   分级）。
 
+## 变更记录
+
+- 2026-10-14（首次 Windows 实机取证，M5-11 补跑条件部分闭合）：在维护者
+  Windows 机器上首次真实执行 NSIS 通道：`stage-payload.ps1` 从 MSVC 构建
+  树组装产品载荷（四个产品进程 + 完整资产面，含此前脚本缺失的
+  `mira.ico`/Phosphor 字体对/providers 目录——tray 运行时按可执行文件
+  同级加载 `assets\mira.ico`），`build-installer.ps1` 经本机 makensis
+  产出 `mirage-installer.exe`；静默安装/卸载冒烟经测试期派生的 user 级
+  变体执行（非提权 shell 无法承载 admin 清单的 UAC；派生仅替换
+  RequestExecutionLevel 与 HKLM→HKCU 冒烟键名，机制面一致）：文件、
+  注册表、干净卸载全部通过，HKLM 管理员路径留待发布机。载荷布局同时是产品进程树的运行形态：tray 按可执行同级
+  解析 native/pet，安装目录即进程拓扑的正确聚合点；产品进程验证记录见
+  M7 计划同日记录。边界保持：Authenticode 签名仍需发布机证书
+  （fail-closed 脚本未变）；`mira_pet` 不入安装器（M8-08 单独承接，
+  Windows 预览尚被 pkg-config/libwebpdemux 阻塞）；Release 运行库
+  （/MD 的 VC++ Redistributable）为用户机前提，安装器暂不捆绑
+  vc_redist，留待发布增量决策。
+
 ## 关联文档和工作项
 
 - [DEC-006](DEC-006-ui-web-frontend-packaging.md)（决策 4/5）、

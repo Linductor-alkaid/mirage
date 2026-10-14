@@ -35,12 +35,21 @@ Section "Install"
     SetOutPath "$INSTDIR\assets"
     File "${MIRAGE_BIN_DIR}\assets\mira.png"
     File "${MIRAGE_BIN_DIR}\assets\mira-ui.png"
+    ; The tray carrier loads assets\mira.ico next to the executable
+    ; (apps/service/host.cpp tray_icon_path).
+    File "${MIRAGE_BIN_DIR}\assets\mira.ico"
     File "${MIRAGE_BIN_DIR}\assets\Font Awesome 7 Free-Solid-900.otf"
     File "${MIRAGE_BIN_DIR}\assets\NotoSansSC-Regular.otf"
     File "${MIRAGE_BIN_DIR}\assets\OFL-NotoSansSC.txt"
+    File "${MIRAGE_BIN_DIR}\assets\Phosphor-Regular.ttf"
+    File "${MIRAGE_BIN_DIR}\assets\MIT-Phosphor.txt"
+    ; Provider presets directory the frontend ships (same set as the DEB).
+    File /r "${MIRAGE_BIN_DIR}\assets\providers"
     SetOutPath "$INSTDIR"
 
-    ; Start Menu shortcut (快速进入 Mirage).
+    ; Start Menu shortcut (quick entry into Mirage). The script stays
+    ; pure ASCII on purpose: makensis reads BOM-less sources in the ANSI
+    ; code page, so non-ASCII comments break localized build machines.
     CreateDirectory "$SMPROGRAMS\Mirage"
     CreateShortcut "$SMPROGRAMS\Mirage\Mirage.lnk" "$INSTDIR\mirage.exe" "start" \
         "$INSTDIR\mirage-native.exe" 0 SW_SHOWNORMAL "" ""
@@ -49,7 +58,7 @@ Section "Install"
     ; DisplayName/IconUri. The shortcut's own System.AppUserModel.ID
     ; property requires the NSIS ApplicationID plugin (release machine);
     ; the runtime can also set the AUMID per-process. M5 ships no toast
-    ; (DEC-018 M5-11 re-evaluation: not re-opened — see the DEC-018
+    ; (DEC-018 M5-11 re-evaluation: not re-opened - see the DEC-018
     ; revision record).
     WriteRegStr HKCU "Software\Classes\AppUserModelId\${MIRAGE_AUMID}" \
         "DisplayName" "Mirage"
