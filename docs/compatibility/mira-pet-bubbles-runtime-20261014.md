@@ -80,3 +80,13 @@ Windows/Wayland-native、小工作区不能容纳的隐藏、整组目标/OCR避
 未执行/未交付；M8-06/10负责平台扩大实现和验收。当前逻辑窗口不可调整大小，工作区
 启动选择上/下布局，拖动只整组约束，不声明跨屏动态重排。负责人Mirage维护者；补跑需
 对应平台/在线配置与M8-06/10实现。M8-11整体保持In Progress，M8-06仍Planned。
+
+
+## 交付基线与评审
+
+[Mirage PR#91](https://github.com/Linductor-alkaid/mirage/pull/91) 叠在PR#90（3121dd8）之上，
+仅提交气泡增量及一份必要的既有fixture格式修正；未合并前置PR。重放后完整Debug
+80/80（并行约44秒）、原生view1/1与全仓format/boundary通过；气泡实现不变。
+三种sanitizer的上述结果来自重放前3bbe72a上的同一气泡实现。Mira PR#94 head ea720a6
+的24项CI已全部通过。Mirage PR#91创建后的CI仍在运行，其Windows/全native结果
+以checks为准，不在本记录预填通过。
