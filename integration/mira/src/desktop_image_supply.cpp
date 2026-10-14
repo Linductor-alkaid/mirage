@@ -55,6 +55,19 @@ mira::Result<std::vector<std::byte>> DesktopImageSource::fetch(const mira::Artif
     return opened.value().bytes();
 }
 
+mira::InputReuseMeta DesktopImageSource::record_input_reuse(const std::string &digest,
+                                                            std::uint64_t desktop_epoch) {
+    const std::lock_guard lock(reuse_mutex_);
+    if (desktop_epoch != reuse_epoch_ || digest != reuse_digest_) {
+        reuse_digest_ = digest;
+        reuse_epoch_ = desktop_epoch;
+        reuse_count_ = 0;
+    } else {
+        ++reuse_count_;
+    }
+    return {digest, reuse_count_, "screenshot"};
+}
+
 DesktopImageTurn::DesktopImageTurn(std::shared_ptr<DesktopImageSource> source,
                                    DesktopToolContext desktop, mira::OperationContext owner,
                                    mirage::desktop::CancelToken cancel, bool supply_images,
@@ -979,6 +992,24 @@ DesktopImageTurn::supply(const mira::AgentLoopSpec &spec) {
             mira::ImagePart{reference(*image_), mira::ImageDetail::Auto, "image/png"});
     }
     return std::vector<mira::ModelInputItem>{std::move(item)};
+}
+
+std::optional<mira::InputReuseMeta>
+DesktopImageTurn::input_reuse_identity(const mira::AgentLoopSpec &spec) const {
+    // The same owner/cancellation gate as supply(): an off-owner request is a
+    // wiring error answered with no identity, never with an annotation.
+    if (spec.task_id != owner_.task || spec.session_id != owner_.session ||
+        spec.task_epoch != owner_.task_epoch || cancel_.cancelled())
+        return std::nullopt;
+    // Only requests that actually carry this capture advance the count; the
+    // pinned loop annotates image-bearing supplies only, and a request whose
+    // image aged out offered no image to annotate.
+    if (!supply_images_ || !image_ || !expect_image_)
+        return std::nullopt;
+    // Content digest, not artifact id: a recapture of identical pixels is the
+    // same sight for the model (DEC-055 reuses the artifact for it), while a
+    // new artifact of changed content restarts the count.
+    return source_->record_input_reuse(image_->digest.to_string(), desktop_.actions->epoch());
 }
 
 mira::Result<void> DesktopImageTurn::validate_request(const mira::ModelRequest &request,
