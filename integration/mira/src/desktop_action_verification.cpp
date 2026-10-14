@@ -221,7 +221,7 @@ void DesktopActionVerification::observe(Record &r, const mira::OperationContext 
                     // visible instead of dropping it.
                     auto message = proof.error().safe_message;
                     message.erase(std::find_if(message.begin(), message.end(),
-                                                   [](char c) { return c == '\n' || c == '\r'; }),
+                                               [](char c) { return c == '\n' || c == '\r'; }),
                                   message.end());
                     if (message.size() > 160)
                         message.resize(160);
