@@ -84,6 +84,11 @@ xdg-desktop-portal 日志（11:36:15 `InteractiveScreenshot didn't return a file
   `strings` 命中 `OpenPipeWireRemote`、`ScreenCast`、`session_handle_token`；
   回退字符串 `Screenshot Portal request failed` 与平台库内 `interactive` 为 0
   （二进制中残留的 `interactive` 来自 runtime/ipc 协议关键词表，与截屏无关）。
+- 构建依赖收敛（同日）：维护者已通过 apt 安装 libpipewire-0.3-dev /
+  libspa-0.2-dev（1.0.5-1ubuntu3.3，与运行时同版本）；native-release 与 asan
+  两树经 `cmake -U MIRAGE_PIPEWIRE_SDK_ROOT` 切换到系统 pkg-config 探测，
+  configure 输出 "Linux Wayland ScreenCast/PipeWire capture enabled"，不再依赖
+  `/tmp` 下的手工解包 SDK。
 
 ## 影响范围
 
