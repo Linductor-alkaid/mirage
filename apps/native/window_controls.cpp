@@ -6,7 +6,9 @@
 #include <cstdint>
 #include <eui/window.h>
 #ifdef _WIN32
-#include <windows.h>
+#include "../../platform/windows/src/window_shape.hpp"
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
 #else
 #include <unistd.h>
 #endif
@@ -32,6 +34,9 @@ GLFWcursor *sidebar_cursor = nullptr;
 bool sidebar_cursor_active = false;
 bool fallback_move_armed = false;
 bool fallback_resize_armed = false;
+#ifdef _WIN32
+mirage::platform::windows_backend::RoundedWindowShape window_shape;
+#endif
 
 void begin() {
     glfwGetWindowPos(handle, &start_x, &start_y);
@@ -77,6 +82,24 @@ bool primary_pointer_down() {
     return handle && glfwGetMouseButton(handle, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
 }
 bool transparent_framebuffer() { return handle && eui::window::framebufferTransparent(handle); }
+float chrome_radius(float scale) {
+    if (!handle || maximized()) {
+#ifdef _WIN32
+        if (handle)
+            window_shape.update(glfwGetWin32Window(handle), 0);
+#endif
+        return 0;
+    }
+#ifdef _WIN32
+    return window_shape.update(glfwGetWin32Window(handle),
+                               std::max(1, static_cast<int>(std::lround(12 * scale))))
+               ? 12.0f
+               : 0.0f;
+#else
+    (void)scale;
+    return transparent_framebuffer() ? 12.0f : 0.0f;
+#endif
+}
 float render_scale(float logical_width) {
     int width = 0, height = 0;
     if (handle)
@@ -93,6 +116,9 @@ void sidebar_resize_cursor(bool active) {
     sidebar_cursor_active = active;
 }
 void shutdown() {
+#ifdef _WIN32
+    window_shape.reset();
+#endif
     if (handle)
         glfwSetCursor(handle, nullptr);
     if (sidebar_cursor)
