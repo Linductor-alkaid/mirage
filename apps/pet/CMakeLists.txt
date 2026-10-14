@@ -7,6 +7,11 @@ target_link_libraries(mirage_pet_loader PUBLIC Mirage::pet_state PRIVATE kairo)
 mirage_enable_warnings(mirage_pet_loader)
 
 if(MIRAGE_BUILD_TESTS)
+    add_executable(pet_frame_presentation_test "${CMAKE_SOURCE_DIR}/tests/runtime/pet_frame_presentation_test.cpp")
+    target_link_libraries(pet_frame_presentation_test PRIVATE Mirage::pet_state)
+    mirage_enable_warnings(pet_frame_presentation_test)
+    add_test(NAME pet_frame_presentation_test COMMAND pet_frame_presentation_test)
+    set_tests_properties(pet_frame_presentation_test PROPERTIES LABELS "unit;runtime;pet" TIMEOUT 10)
     add_executable(pet_resource_loader_test "${CMAKE_SOURCE_DIR}/tests/runtime/pet_resource_loader_test.cpp")
     target_link_libraries(pet_resource_loader_test PRIVATE mirage_pet_loader kairo)
     target_include_directories(pet_resource_loader_test SYSTEM PRIVATE
