@@ -31,7 +31,9 @@ bool valid_bubble(const Bubble &bubble);
 std::string bubble_line(std::string_view text, std::size_t bound = max_bubble_text_bytes);
 // Conservative extractive projection; empty when no complete short core phrase
 // can preserve its qualifications. Never merely cuts a sentence to N characters.
-std::string answer_summary(std::string_view text);
+// During streaming, only delimited sentences/lines are eligible. Canonical
+// replies may also use a complete trailing phrase without punctuation.
+std::string answer_summary(std::string_view text, bool complete = true);
 class BubbleProjection {
   public:
     using Clock = std::chrono::steady_clock;

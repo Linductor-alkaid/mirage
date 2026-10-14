@@ -96,5 +96,39 @@ int main() {
     value->request_id = "new-request";
     presentation.update("owner", "source", value, now + 4s, measure, 1);
     MIRAGE_CHECK(presentation.visible(now + 4s) && presentation.offset(now + 4s) == 0);
+    MIRAGE_CHECK(pet::answer_summary("-1", true) == "-1");
+    MIRAGE_CHECK(pet::answer_summary(".", true).empty());
+    MIRAGE_CHECK(pet::answer_summary("42", true) == "42");
+    MIRAGE_CHECK(pet::answer_summary("OK", true) == "OK");
+    MIRAGE_CHECK(pet::answer_summary("42", false).empty());
+    // The live preview must never present a token fragment as a complete reply.
+    MIRAGE_CHECK(pet::answer_summary("配置已修", false).empty());
+    MIRAGE_CHECK(pet::answer_summary("配置已修复。正在检", false) == "配置已修复");
+    MIRAGE_CHECK(pet::answer_summary("Fixed config. More det", false) == "Fixed config");
+    MIRAGE_CHECK(pet::answer_summary("I am not sure. Fixed config. Thanks.") == "Fixed config");
+    MIRAGE_CHECK(pet::answer_summary("If fixed, tests pass.").empty());
+    MIRAGE_CHECK(pet::answer_summary("结果如下：\n1. 配置未验证。\n2. 需要检查。") == "需要检查");
+    MIRAGE_CHECK(pet::answer_summary("Fixed config", false).empty());
+    MIRAGE_CHECK(pet::answer_summary("Fixed config", true) == "Fixed config");
+    MIRAGE_CHECK(pet::answer_summary("原因已找到，但是没有修复配置且需要进一步验证。") !=
+                 "原因已找到");
+    MIRAGE_CHECK(pet::answer_summary("Configuration has changed, not verified.") == "not verified");
+    MIRAGE_CHECK(pet::answer_summary(std::string(16384, 'a') + "配置已修复。").empty());
+    pet::BubbleProjection fragments;
+    status.display_state = "thinking";
+    pet::Preview fragment{"fresh", "配置已修", 1, false};
+    auto pending = fragments.update(status, true, {}, nullptr, &fragment, now);
+    MIRAGE_CHECK(pending && pending->content_origin == "status_hint");
+    fragment.text = "配置已修复。";
+    fragment.sequence = 2;
+    pending = fragments.update(status, true, {}, nullptr, &fragment, now + 501ms);
+    MIRAGE_CHECK(pending && pending->text == "配置已修复");
+    fragment.text += "正在检";
+    fragment.sequence = 3;
+    pending = fragments.update(status, true, {}, nullptr, &fragment, now + 1002ms);
+    MIRAGE_CHECK(pending && pending->text == "配置已修复");
+    status.display_state = "task_success";
+    pending = fragments.update(status, false, "配置尚未验证", nullptr, nullptr, now + 1100ms);
+    MIRAGE_CHECK(pending && pending->final && pending->text == "配置尚未验证");
     return mirage::testing::finish("pet_bubble_test");
 }

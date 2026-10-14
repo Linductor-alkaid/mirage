@@ -39,7 +39,7 @@ std::size_t characters(std::string_view value) {
 }
 std::string trim(std::string_view text) {
     while (!text.empty() && (text.front() == ' ' || text.front() == '#' || text.front() == '*' ||
-                             text.front() == '-'))
+                             (text.front() == '-' && text.size() > 1 && text[1] == ' ')))
         text.remove_prefix(1);
     while (!text.empty() && (text.back() == ' ' || text.back() == '*' || text.back() == '#'))
         text.remove_suffix(1);
@@ -92,17 +92,29 @@ bool valid_bubble(const Bubble &b) {
            (!b.final || b.remaining_ms > 0) &&
            (b.kind != "thinking" || b.content_origin != "answer_summary");
 }
-std::string answer_summary(std::string_view text) {
+std::string answer_summary(std::string_view text, bool complete) {
     // The original qualifiers remain in the selected sentence. If a long
     // sentence cannot fit, fall back rather than inventing a shorter claim.
-    if (text.size() > 16384)
-        text = text.substr(text.size() - 16384);
+    if (text.size() > 16384) {
+        text = text.substr(0, 16384);
+        complete = false; // a budget cut is never a completed trailing phrase
+        while (!text.empty() && (static_cast<unsigned char>(text.back()) & 0xc0U) == 0x80U)
+            text.remove_suffix(1);
+        if (!text.empty() && static_cast<unsigned char>(text.back()) >= 0xc0U)
+            text.remove_suffix(1);
+    }
     std::string candidate, best;
     int best_score = -1;
     bool code = false;
     auto qualified = [](std::string_view value) {
-        return has(value, {"不", "未", "无法", "需要", "尝试", "可能", "尚", "cannot", "not ",
-                           "need", "may "});
+        std::string lower{value};
+        for (auto &c : lower)
+            if (c >= 'A' && c <= 'Z')
+                c = static_cast<char>(c + ('a' - 'A'));
+        return has(lower, {"不",      "未",         "没",   "无法",  "需要",    "尝试",
+                           "可能",    "尚",         "待",   "计划",  "将",      "cannot",
+                           "not ",    "need",       "may ", "never", "unable",  "might",
+                           "pending", "unverified", "n't",  "will ", "plan to", "try "});
     };
     auto pick = [&](const std::string &value, bool require_qualification) {
         if (value.empty() || characters(value) > 24 || (require_qualification && !qualified(value)))
@@ -117,12 +129,29 @@ std::string answer_summary(std::string_view text) {
         }
         if (units > 16)
             return false;
-        const bool core = has(value, {"修复", "错误",  "原因",   "确认",  "完成",  "通过", "找到",
-                                      "发现", "配置",  "保存",   "创建",  "更新",  "检查", "失败",
-                                      "done", "fixed", "failed", "found", "saved", "need"});
-        if (characters(value) < 3 && value != "你好")
+        std::string lower{value};
+        for (auto &c : lower)
+            if (c >= 'A' && c <= 'Z')
+                c = static_cast<char>(c + ('a' - 'A'));
+        const bool core =
+            has(lower, {"修复",      "错误",  "原因",     "确认",    "完成",   "通过",
+                        "找到",      "发现",  "配置",     "保存",    "创建",   "更新",
+                        "检查",      "失败",  "done",     "fixed",   "failed", "found",
+                        "saved",     "need",  "verified", "check",   "create", "updated",
+                        "completed", "error", "config",   "blocked", "passed"});
+        const bool numeric = std::any_of(value.begin(), value.end(),
+                                         [](unsigned char c) { return c >= '0' && c <= '9'; }) &&
+                             std::all_of(value.begin(), value.end(), [](unsigned char c) {
+                                 return (c >= '0' && c <= '9') || c == '.' || c == '+' || c == '-';
+                             });
+        const bool scalar =
+            complete && (numeric || value == "OK" || value == "ok" || value == "是" ||
+                         value == "否" || value == "完成" || value == "通过" || value == "失败");
+        if (characters(value) < 3 && value != "你好" && !scalar)
             return false;
-        int score = (qualified(value) ? 4 : 0) + (core ? 2 : 0);
+        // Prefer a current core statement over a stale generic uncertainty
+        // preamble. Qualifications within a selected sentence stay intact.
+        int score = core ? 2 : 0;
         if (score >= best_score) {
             best = value;
             best_score = score;
@@ -132,7 +161,13 @@ std::string answer_summary(std::string_view text) {
     auto consider = [&] {
         auto value = trim(candidate);
         candidate.clear();
-        if (has(value, {"```", "http://", "https://", "如果", "假设", "例如", "比如", "if "}))
+        std::string lower{value};
+        for (auto &c : lower)
+            if (c >= 'A' && c <= 'Z')
+                c = static_cast<char>(c + ('a' - 'A'));
+        if (has(lower, {"```", "http://", "https://", "如果", "假设", "例如", "比如", "if ",
+                        "suppose ", "for example"}) ||
+            value.ends_with(":") || value.ends_with("："))
             return;
         for (const auto prefix : {"好的，", "好的。", "当然，", "首先，", "总之，"})
             if (value.starts_with(prefix))
@@ -158,12 +193,14 @@ std::string answer_summary(std::string_view text) {
         const bool require_qualification = qualified(value);
         std::size_t begin = 0;
         while (begin < value.size()) {
-            const auto comma = value.find("，", begin);
+            const auto chinese = value.find("，", begin);
+            const auto english = value.find(",", begin);
+            const auto comma = std::min(chinese, english);
             const auto end = comma == std::string::npos ? value.size() : comma;
             pick(trim(std::string_view(value).substr(begin, end - begin)), require_qualification);
             if (comma == std::string::npos)
                 break;
-            begin = comma + 3;
+            begin = comma + (comma == chinese ? 3 : 1);
         }
     };
     for (std::size_t pos = 0; pos < text.size();) {
@@ -181,13 +218,16 @@ std::string answer_summary(std::string_view text) {
         if (code)
             continue;
         if (part == "\n" || part == "。" || part == "！" || part == "？" || part == ";" ||
-            part == "；") {
+            part == "；" ||
+            ((part == "." || part == "!" || part == "?") &&
+             (pos == text.size() || text[pos] == ' ' || text[pos] == '\n'))) {
             consider();
             continue;
         }
         candidate.append(part);
     }
-    consider();
+    if (complete)
+        consider();
     return bubble_line(best, 256);
 }
 std::optional<Bubble> BubbleProjection::update(const Status &status, bool model_active,
@@ -266,7 +306,7 @@ std::optional<Bubble> BubbleProjection::update(const Status &status, bool model_
             bubble_ = {"dialog", "status_hint", request_, "正在回复…", consumed_, false, false, 0};
         if (summary_at_ == Clock::time_point{} ||
             now - summary_at_ >= std::chrono::milliseconds{500}) {
-            auto text = answer_summary(pending_answer_);
+            auto text = answer_summary(pending_answer_, false);
             if (!text.empty())
                 bubble_ = {
                     "dialog", "answer_summary", request_, std::move(text), consumed_, false, false,
