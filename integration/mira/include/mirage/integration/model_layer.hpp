@@ -117,6 +117,11 @@ struct DialogCompletion {
     /// DEC-088: requests that carried the input-reuse annotation (third
     /// consecutive identical image supply); zero without an identity seam.
     std::uint32_t supplied_input_reuse_annotations = 0;
+    /// DEC-088 capability 2/3: requests whose tool-history replay came from
+    /// the Layer 0 compaction seam and requests where the seam degraded to
+    /// the raw replay; zero without a declared context window.
+    std::uint32_t history_transforms = 0;
+    std::uint32_t history_transform_degradations = 0;
     /// DEC-085: classified tool failures of this session (bounded by the
     /// tracker's per-session tool budget); the runtime service projects them
     /// onto `session.tool_error` events.

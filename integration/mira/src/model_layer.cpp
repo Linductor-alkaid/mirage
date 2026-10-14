@@ -1297,6 +1297,8 @@ DialogCompletion ModelLayer::complete_harness_turn(
     completion.supplied_input_dropped = value.supplied_input_dropped;
     completion.supply_degradations = value.supply_degradations;
     completion.supplied_input_reuse_annotations = value.supplied_input_reuse_annotations;
+    completion.history_transforms = value.history_transforms;
+    completion.history_transform_degradations = value.history_transform_degradations;
     if ((image_turn || !verification.empty()) &&
         (value.supplied_input_dropped || value.supply_degradations)) {
         completion.ok = false;
