@@ -97,7 +97,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             target_link_libraries(mirage_platform PRIVATE PNG::PNG)
             target_compile_definitions(mirage_platform PRIVATE MIRAGE_LINUX_PORTAL=1)
             set_property(TARGET mirage_platform PROPERTY MIRAGE_PORTAL_AVAILABLE TRUE)
-            pkg_check_modules(PIPEWIRE QUIET IMPORTED_TARGET libpipewire-0.3)
+            # GLOBAL: tests/ links the same target (portal_stream_retention_test);
+            # a directory-scoped import is invisible to the sibling directory.
+            pkg_check_modules(PIPEWIRE QUIET IMPORTED_TARGET GLOBAL libpipewire-0.3)
             set(MIRAGE_PIPEWIRE_SDK_ROOT "" CACHE PATH "Optional extracted distribution PipeWire development SDK")
             if(PIPEWIRE_FOUND)
                 target_link_libraries(mirage_platform PRIVATE PkgConfig::PIPEWIRE)
