@@ -648,11 +648,34 @@ PR#95 经授权 squash 合并为 `9e7b729`（兼容性约束下身份元数据�
   15 轮任务 input tokens 相比基线下降可测且任务成功率不降。未运行验证的负责人：
   Mirage 维护者；补跑条件：上游缝 PR 合并、授权消费、真实任务回归。
 
+### 2026-10-14 解决与消费
+
+缝形态采用登记的候选 (b)（通用 history 变换，不改 Layer 0 契约），规避了
+`role_for` 角色保真约束。PR#96 经授权合并（mira Debug 108/108、全部门禁、
+24 项 checks 绿），Mirage pin 随授权消费（gitlink + lock 同步）。Mirage 侧
+`DesktopContextBuilder` 只把工具往返段映射 Layer 0（consumed、
+replaceable_by_reference=false 防引用标记破坏工具协议、配对键 provider_call_id），
+桌面水位 0.45/0.70/0.90，checkpoint 拆对按 audit 整对收缩，assistant 文本透传；
+`model_layer.cpp` 在声明窗口时接线（per-call 输出为 reserved，整 run 包络会在
+一切现实窗口触发 limits 拒绝——独立验证发现并已修复），`DialogCompletion`
+透传 history_transforms / history_transform_degradations。独立验证
+（两轮）：1205 项断言，覆盖透传逐字节一致、压缩真实触发（15 轮 capture、
+4096 窗口，早期配对整对消失且配对合法）、余量窗口全量保留、四类降级、
+取消安全（上游 m3）；Mirage Debug 82/82、ASAN 无报告。真实会话 token 验收项
+（-30%~40%）待真实 provider 环境补跑；登记时的精度缺口
+[MIRA-20261014-007](#mira-20261014-007) 已由上游 PR#97 解决并消费（见其解决
+与消费小节），水位精度恢复。见
+[消费审计](../supply-chain/mira-history-compaction-20261014.md) 与
+[消费验证](../compatibility/context-history-compaction-20261014.md)。
+
 <a id="mira-20261014-007"></a>
 
 ## MIRA-20261014-007：ConservativeTokenCounter 不计工具载荷字节，工具密集请求水位系统性低估
 
-- 状态：Open；日期：2026-10-14；负责人：Mirage 维护者，处理方：Mira 上游。关联
+- 状态：Resolved；日期：2026-10-14；负责人：Mirage 维护者，处理方：Mira 上游。
+  上游：[PR#97](https://github.com/Linductor-alkaid/mira/pull/97)，已授权合并
+  （squash `7391df70036cbdb035dea5ebaec99c46cbabe5ae`，合并前 24 项 checks 全绿）。
+  关联
   [DEC-088](../decisions/DEC-088-conversation-context-compaction-and-input-deduplication.md)
   能力 2/3（[MIRA-20261014-006](#mira-20261014-006) 缝的消费验证发现）。
 - 核对版本：pinned `93e2eae6ceb6d2d0ce99e41601fcaf7ed0d91e04`。
@@ -689,19 +712,22 @@ PR#95 经授权 squash 合并为 `9e7b729`（兼容性约束下身份元数据�
 
 ### 2026-10-14 解决与消费
 
-缝形态采用登记的候选 (b)（通用 history 变换，不改 Layer 0 契约），规避了
-`role_for` 角色保真约束。PR#96 经授权合并（mira Debug 108/108、全部门禁、
-24 项 checks 绿），Mirage pin 随授权消费（gitlink + lock 同步）。Mirage 侧
-`DesktopContextBuilder` 只把工具往返段映射 Layer 0（consumed、
-replaceable_by_reference=false 防引用标记破坏工具协议、配对键 provider_call_id），
-桌面水位 0.45/0.70/0.90，checkpoint 拆对按 audit 整对收缩，assistant 文本透传；
-`model_layer.cpp` 在声明窗口时接线（per-call 输出为 reserved，整 run 包络会在
-一切现实窗口触发 limits 拒绝——独立验证发现并已修复），`DialogCompletion`
-透传 history_transforms / history_transform_degradations。独立验证
-（两轮）：1205 项断言，覆盖透传逐字节一致、压缩真实触发（15 轮 capture、
-4096 窗口，早期配对整对消失且配对合法）、余量窗口全量保留、四类降级、
-取消安全（上游 m3）；Mirage Debug 82/82、ASAN 无报告。真实会话 token 验收项
-（-30%~40%）待真实 provider 环境补跑，且精度受
-[MIRA-20261014-007](#mira-20261014-007)（计数器不计工具载荷）影响。见
-[消费审计](../supply-chain/mira-history-compaction-20261014.md) 与
-[消费验证](../compatibility/context-history-compaction-20261014.md)。
+上游 PR#97 把 `ConservativeTokenCounter::estimate_item` 的计数范围扩展到全部
+回放 part 的 wire 载荷字节（沿用 bytes_per_token=4 密度与既有 margin 校准）：
+`ToolCallPart` 计 provider_call_id + wire_name + `arguments` 序列化字节；
+`ToolResultPart` 按 tool bridge 的 wire 形态计（inline result 计序列化 JSON、
+failed 只计 `safe_error_summary`、`large_payload` 只计工件引用——存储字节不上
+wire 不计入）；`ThinkingPart` 计 text + signature（同一缺陷类，一并修复）。
+`estimate_assembly_overhead` 语义不变。mira Debug 全量 108/108（新增 3 个
+估算用例：arguments 载荷线性进入上界、result 三形态镜像 wire、thinking 线性
+计入），format/docs/sbom/platform-boundary/architecture 门禁全过，PR#97
+24 项 checks 绿后授权合并 `7391df7`，API 文档 `docs/api/context-memory.md`
+同步计数器契约。Mirage pin 随授权消费（gitlink + lock 同步）：独立验证
+PASS——新增永久回归测试 `large_tool_receipts_drive_checkpoint_compaction`
+（5 对 8KiB 回执，新计数估算 10555 token 越过 checkpoint 水位 10035 必然
+触发整对收缩、配对合法、回执逐字节保真；旧地板算术同夹具仅 240 token、
+零触发的反证以真实 `StandardContextManager` 执行取证），二进制 1004 项
+断言全过，Debug 82/82、ASAN 无报告。压缩触发自此按真实载荷规模工作
+（约 44 倍于旧地板算术）。见
+[消费验证](../compatibility/context-history-compaction-20261014.md) 补跑
+章节与 [消费审计](../supply-chain/mira-history-compaction-20261014.md)。

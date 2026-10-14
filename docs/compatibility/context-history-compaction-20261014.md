@@ -52,12 +52,39 @@
   `desktop_image_supply_test` 加验通过。
 - 门禁：mirage-format-check、mirage-boundary-check 通过。
 
+## 复验：上游计数器修复（MIRA-20261014-007，PR#97）消费（2026-10-14）
+
+上游 [PR#97](https://github.com/Linductor-alkaid/mira/pull/97)（授权合并
+`7391df7`，pin 与 lock 同步）把 `ConservativeTokenCounter::estimate_item`
+扩展为计入全部回放载荷字节：`ToolCallPart.arguments` 序列化字节、
+`ToolResultPart` 按 tool bridge wire 形态（inline JSON / failed summary /
+工件引用）、`ThinkingPart` text+signature。本节记录修复后的 Mirage 消费
+复验（Independent-Verification-Agent，PASS）：
+
+- **判别性回归**：新增永久测试
+  `large_tool_receipts_drive_checkpoint_compaction`——5 对工具往返、每对
+  result 携带 8 KiB 文本回执，16384 窗口 / 1024 预留输出 → 输入预算
+  14336 token、checkpoint 水位 10035。新计数估算 **10555 token**（audit
+  逐项上界之和）：贪心预算全保留、checkpoint strip 必然触发，断言最老对
+  整对丢弃（reason `watermark_checkpoint_drop`）、配对合法、幸存回执逐字节
+  保真、desktop 水位 0.45/0.70/0.90 原样声明。
+- **旧算术反证**：以脚本化 ITokenCounter 精确复现修复前地板算术
+  （单 part 工具项恒 20 token），驱动真实 `StandardContextManager` 跑同一
+  夹具：估算 240 token（预算的 1.67%）、零丢弃、水位 Normal、checkpoint
+  不触发——证明该测试的压缩确实由载荷字节驱动（新估算约为旧值的 44 倍）。
+- 既有接线级测试全部保持：4096 窗口 15 轮 `history_transforms == 15`、
+  `degradations == 0`、每请求配对合法、首轮整对消失；余量窗口全量保留；
+  微小窗口诚实降级。两处依赖旧地板算术的测试注释已随修复更新。
+- 回归：Mirage Debug 全量 **82/82 通过**（本二进制 942 → **1004 项断言**）；
+  ASAN 下 `desktop_context_builder_test` + `harness_desktop_tools_test`
+  **4/4 通过、无 sanitizer 报告**。
+
 ## 已知限制与未执行项
 
-- **水位精度受 [MIRA-20261014-007](../dependency_feedback/mira.md#mira-20261014-007)
-  影响**（上游计数器不计工具载荷字节，单 part 工具项恒 20 token）：压缩触发
-  依赖条目数而非载荷字节数——大载荷少轮次任务（如 5 轮 16KiB OCR）暂不触发；
-  行为正确且对调用方可见，待上游估算修复后消化。
+- ~~**水位精度受 [MIRA-20261014-007](../dependency_feedback/mira.md#mira-20261014-007)
+  影响**~~ 已解决：上游 PR#97 计入工具载荷字节后，压缩触发由真实载荷规模
+  驱动（见上方复验章节）；大载荷少轮次任务（如 5 轮 16KiB OCR）现在按
+  载荷越过水位触发。
 - 真实会话验收（15 轮任务 input tokens −30%~−40%、DEC-088 Phase 3 端到端
   回归）未执行：需真实模型 API 与桌面环境。负责人：Mirage 维护者；补跑条件：
   真实 provider 桌面会话环境。

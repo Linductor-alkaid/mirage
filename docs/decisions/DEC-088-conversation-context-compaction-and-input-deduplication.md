@@ -536,6 +536,16 @@ std::vector<mira::ModelInputItem> supply_image_as_text_description(
     [消费审计](../supply-chain/mira-history-compaction-20261014.md)。
     [MIRA-20261014-006](../dependency_feedback/mira.md#mira-20261014-006) 的缝缺口
     由此闭合。
+- **PR#97**：能力 2/3 水位精度修复（消费验证发现的计数器缺口）
+  - 状态：已合并（2026-10-14，24 项 checks 通过后经授权 squash 合并）
+  - 合并提交：`7391df70036cbdb035dea5ebaec99c46cbabe5ae`
+  - 地址：[mira PR#97](https://github.com/Linductor-alkaid/mira/pull/97)
+  - 缝形态：`ConservativeTokenCounter::estimate_item` 计入全部回放载荷字节
+    （`ToolCallPart.arguments` 序列化、`ToolResultPart` 按 tool bridge wire
+    形态、`ThinkingPart` text+signature），桌面水位触发由真实载荷规模驱动；
+    [MIRA-20261014-007](../dependency_feedback/mira.md#mira-20261014-007)
+    由此闭合（消费复验见
+    [消费验证](../compatibility/context-history-compaction-20261014.md)）。
 
 ---
 

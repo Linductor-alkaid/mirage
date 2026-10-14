@@ -26,8 +26,10 @@ token 验收待真实 provider 环境补跑。
 
 DEC-088 能力 2/3 新增 [MIRA-20261014-007](mira.md#mira-20261014-007)：
 ConservativeTokenCounter 不计工具载荷字节（ToolCallPart.arguments /
-ToolResultPart.result），工具密集请求水位系统性低估、压缩触发偏晚；上游估算修复
-待提交，Mirage 侧无临时绕过。
+ToolResultPart.result），工具密集请求水位系统性低估、压缩触发偏晚；已由
+[PR#97](https://github.com/Linductor-alkaid/mira/pull/97) 解决（授权合并
+7391df7），Mirage 随 pin 消费并复验（载荷驱动压缩触发回归 + 旧算术反证），
+状态 Resolved。
 
 | 依赖 | 详细台账 | 已确认问题 | 说明 |
 | --- | --- | --- | --- |

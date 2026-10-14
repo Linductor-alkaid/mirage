@@ -397,120 +397,30 @@ TEST(ContextIntegrationTest, CompactsToolHistoryAt15Turns) {
 
 ---
 
-### 1.2 续写提示差异化（Mira 侧，可并行）
+### 1.2 续写提示差异化（Mira 侧，可并行）——已交付
 
-**工作量**：2 天  
-**位置**：`third_party/mira/src/model/provider_continuation.cpp`
+**交付说明**：本节为计划期的实现草案；实际交付早于草案且未走独立台账登记
+（草案占用的编号 MIRA-20261014-007 已被计数器缺口
+[登记](../dependency_feedback/mira.md#mira-20261014-007)使用）。落地形态：
 
-#### Step 1.2.1：登记反馈台账（0.5 天）
+- PR#93（合并 `1befa45`）：`IncompleteReason::MaxOutputTokens` 的有界续写按
+  响应结构区分三种反馈——部分文本截断（部分文本保留进 history 后继续）、
+  工具调用截断（废弃未执行调用，要求重发完整调用或改输出文本）、仅思考
+  截断（要求跳过冗长思考直接给出简洁文本）；续写预算耗尽以显式
+  output-limit 终态收口。
+- PR#95（合并 `9e7b729`）：部分文本分支增加截断锚点（末 50 字符
+  "Continue from: \"...\""），模型从精确尾部续写而非重推；Mirage 侧
+  `harness_desktop_tools_test` 按锚定格式断言。
 
-在 `docs/dependency_feedback/ledger.md` 登记（如果尚未登记）：
-
-```markdown
-## MIRA-20261014-007：续写提示缺少截断类型差异化
-
-**问题**：
-DEC-085/PR#93 已区分三类截断形态（部分文本 / 工具截断 / 仅思考截断），
-但恢复提示仍是通用的"continue from where you left off"。
-
-思考截断后，模型尝试"继续思考"，再次截断，3 次续写耗尽，整轮失败。
-
-**建议最小能力**：
-根据 `IncompleteReason::MaxOutputTokens` 的响应结构选择续写模板：
-- 仅思考截断：提示"concise plain-text response now"
-- 部分文本截断：提示"continue from: {last_50_chars}"
-- 工具调用截断：提示"retry with complete tool call"
-
-**验收**：
-- 思考截断后，续写成功率 ≥60%（当前 30%）
-- 不再出现"继续思考 → 截断"循环
-```
-
-#### Step 1.2.2：实现提示差异化（1 天）
-
-```cpp
-// third_party/mira/src/model/provider_continuation.cpp
-
-std::string make_continuation_prompt(
-    const ContinuationContext& ctx,
-    const ModelResponse& truncated_response) {
-    
-    // 分析截断类型
-    bool has_thinking = !truncated_response.thinking.empty();
-    bool has_text = !truncated_response.text.empty();
-    bool has_tool_use = !truncated_response.tool_use.empty();
-    
-    // 策略 1: 仅思考截断（最常见的问题场景）
-    if (has_thinking && !has_text && !has_tool_use) {
-        return "Your reasoning was cut off due to length. Please provide a "
-               "concise plain-text response now, without further extended thinking.";
-    }
-    
-    // 策略 2: 部分文本截断
-    if (has_text) {
-        std::string last_chars = truncated_response.text.substr(
-            std::max(0, static_cast<int>(truncated_response.text.size()) - 50));
-        return std::format("Your response was cut off. Continue from: \"{}...\"",
-                          last_chars);
-    }
-    
-    // 策略 3: 工具调用截断
-    if (has_tool_use) {
-        return "Your tool call was cut off and discarded. Please retry with a "
-               "complete, valid tool call, or provide a text response instead.";
-    }
-    
-    // 默认：通用提示
-    return "Your response was incomplete. Please continue or provide a "
-           "complete answer.";
-}
-```
-
-**修改文件**：
-- `third_party/mira/src/model/provider_continuation.cpp`
-- 可能需要扩展 `ContinuationContext` 结构（如果尚未包含截断响应信息）
-
-#### Step 1.2.3：单元测试（0.5 天）
-
-```cpp
-// third_party/mira/tests/model/continuation_test.cpp
-
-TEST(ContinuationPromptTest, ThinkingOnlyTruncation) {
-    ModelResponse truncated;
-    truncated.thinking = "Long reasoning...";
-    // no text, no tool_use
-    
-    auto prompt = make_continuation_prompt({}, truncated);
-    
-    EXPECT_THAT(prompt, HasSubstr("concise plain-text"));
-    EXPECT_THAT(prompt, HasSubstr("without further extended thinking"));
-}
-
-TEST(ContinuationPromptTest, PartialTextTruncation) {
-    ModelResponse truncated;
-    truncated.text = "The answer is that we should consider the following...";
-    
-    auto prompt = make_continuation_prompt({}, truncated);
-    
-    EXPECT_THAT(prompt, HasSubstr("Continue from"));
-    EXPECT_THAT(prompt, HasSubstr("following..."));
-}
-
-TEST(ContinuationPromptTest, ToolCallTruncation) {
-    ModelResponse truncated;
-    truncated.tool_use.push_back(ToolCallPart{/* incomplete */});
-    
-    auto prompt = make_continuation_prompt({}, truncated);
-    
-    EXPECT_THAT(prompt, HasSubstr("retry with a complete"));
-    EXPECT_THAT(prompt, HasSubstr("valid tool call"));
-}
-```
+实现位于 `third_party/mira/src/model/conversation_loop.cpp`（有界续写分支），
+非草案假设的 `provider_continuation.cpp` 独立函数。
 
 **验收标准**：
-- [ ] 单元测试通过
-- [ ] 思考截断场景的续写成功率 ≥60%
-- [ ] 不再出现"继续思考 → 截断"循环
+- [x] 单元测试通过（上游 `m3_conversation_loop_test` 覆盖三分支反馈与
+  预算耗尽终态）
+- [ ] 思考截断场景的续写成功率 ≥60%（真实会话指标，待真实 provider 环境；
+  负责人 Mirage 维护者）
+- [ ] 不再出现"继续思考 → 截断"循环（同上，待真实会话回归）
 
 ---
 
@@ -782,8 +692,8 @@ EXPECT_LT(elapsed, std::chrono::milliseconds(50));
 - [x] Layer 0 集成到 ModelLayer（声明窗口时接线；`DialogCompletion` 计数透传）
 - [x] 单元测试全部通过（`desktop_context_builder_test` 1205 项断言；全量 82/82、
   ASAN 干净）
-- [ ] 15 轮任务 input tokens < 基线 70%（真实会话，未执行；精度受
-  MIRA-20261014-007 影响）
+- [ ] 15 轮任务 input tokens < 基线 70%（真实会话，未执行；水位精度缺口
+  MIRA-20261014-007 已由上游 PR#97 修复并消费，压缩触发按真实载荷规模工作）
 
 ### Phase 2 完成
 - [x] PR#95 合并并更新 pinned mira（9e7b729，授权消费）
@@ -1733,3 +1643,23 @@ Result<std::vector<ModelInputCondition>> build_request_with_compaction() {
   压缩触发偏晚，行为正确，待上游估算修复）。
 - 未执行：真实会话 token 验收（-30%~40%）待真实 provider 环境，且精度受
   -007 影响。
+
+### 2026-10-14：上游计数器修复（PR#97）消费——压缩触发按真实载荷规模工作
+
+- 上游 [PR#97](https://github.com/Linductor-alkaid/mira/pull/97) 经授权合并
+  （`7391df7`）：`ConservativeTokenCounter::estimate_item` 计入全部回放载荷
+  字节（ToolCallPart.arguments 序列化、ToolResultPart 按 tool bridge wire
+  形态、ThinkingPart text+signature；沿用 bytes_per_token 密度与 margin
+  校准，`estimate_assembly_overhead` 不变）。mira Debug 108/108（新增 3 个
+  跨载荷规模估算用例）、全部门禁、24 项 checks 绿；API 文档
+  `docs/api/context-memory.md` 同步。pin 与 lock 同步消费，台账
+  MIRA-20261014-007 → Resolved。
+- Mirage 消费复验（Independent-Verification-Agent，PASS）：新增永久回归
+  `large_tool_receipts_drive_checkpoint_compaction`——5 对 8KiB 回执新估算
+  10555 token 越过 checkpoint 水位必然整对收缩，旧地板算术同夹具仅 240
+  token（1.67% 预算）零触发的反证以真实 `StandardContextManager` 取证；
+  既有接线级断言全部保持，本二进制 942 → 1004 项断言，Debug 82/82、
+  ASAN 无报告。证据：
+  [context-history-compaction-20261014](../compatibility/context-history-compaction-20261014.md)
+  复验章节。
+- 未执行：真实会话 token 验收待真实 provider 环境（精度缺口已闭合）。

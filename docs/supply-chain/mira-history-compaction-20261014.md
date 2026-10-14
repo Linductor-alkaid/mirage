@@ -45,3 +45,24 @@ Mirage 侧消费（集成层）：`DesktopContextBuilder` 只把工具往返段�
 四类降级、取消轮不调用）；format / docs / sbom / platform-boundary /
 architecture 门禁全部通过；PR#96 24 项 checks 全绿后经授权合并。
 Mirage 侧消费验证由 IVA 独立执行，结果见消费验证文档。
+
+## 追加消费：计数器载荷计数修复（MIRA-20261014-007，PR#97）
+
+- 上游变更（授权 squash 合并 `7391df70036cbdb035dea5ebaec99c46cbabe5ae`，合并前
+  24 项 checks 全绿）：`ConservativeTokenCounter::estimate_item` 计入全部回放
+  part 的 wire 载荷字节——`ToolCallPart`（provider_call_id + wire_name +
+  `arguments` 序列化）、`ToolResultPart` 按 tool bridge wire 形态（inline
+  result 序列化 JSON / failed 的 `safe_error_summary` / `large_payload` 工件
+  引用，存储字节不计）、`ThinkingPart`（text + signature）；沿用
+  bytes_per_token 密度与 margin 校准，`estimate_assembly_overhead` 不变。
+  新增 3 个跨载荷规模估算用例（mira Debug 108/108），API 文档
+  `docs/api/context-memory.md` 同步计数器契约。
+- Mirage 消费：pin 与 `dependencies.lock.json` 同步至 `7391df7`。独立验证
+  PASS：新增永久回归 `large_tool_receipts_drive_checkpoint_compaction`
+  （5 对 8KiB 回执估算 10555 token 越过 checkpoint 水位 10035 必然整对收缩，
+  旧地板算术 240 token 零触发的反证以真实 `StandardContextManager` 取证），
+  既有接线级断言保持，本二进制 942 → 1004 项断言，Debug 82/82、ASAN 无报告。
+  详见[消费验证](../compatibility/context-history-compaction-20261014.md)
+  复验章节。
+- 许可证与供应链面：变更仅为 mira 仓库内自研代码（AGPL-3.0 范围不变），
+  无新第三方引入，SBOM 门禁通过。
