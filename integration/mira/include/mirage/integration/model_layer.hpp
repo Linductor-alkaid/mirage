@@ -53,8 +53,11 @@ struct ModelLayerConfig {
     /// DEC-082: whole Agent task bound (0..10 minutes, exclusive lower bound).
     /// Independent of the per-model-call deadline; owned by Runtime Service.
     std::chrono::milliseconds harness_deadline{600'000};
-    /// Per-request generation bound (1..16384); harness also has a whole-loop token budget.
-    std::uint64_t max_output_tokens = 2048;
+    /// Declared per-request generation bound (0 = undeclared → the 32000
+    /// default baseline applies; 1..65536 is used verbatim, never clipped —
+    /// the ZCode-aligned declaration semantics). Harness also has a
+    /// whole-loop token budget.
+    std::uint64_t max_output_tokens = 0;
     std::uint64_t context_window_tokens = 0; ///< DEC-036: explicit window budget; 0 unknown
     /// Per-turn input text budget (user text plus rendered transcript).
     std::size_t max_input_bytes = 64ULL * 1024ULL;
@@ -148,6 +151,10 @@ class ModelProviderOverride {
 using DialogPreviewSink =
     std::function<void(const std::string &request_id, const std::string &text, bool truncated)>;
 
+/// Independent unvalidated, bounded thinking snapshot; consumers only validate/deliver.
+/// Empty snapshots clear an attempt, and final canonical parts remain independent.
+using DialogThinkingPreviewSink = DialogPreviewSink;
+
 /// Bounded full process snapshot on the caller task; consumers only validate/deliver.
 /// The service owns update sequences; final canonical parts are returned in completion.
 using DialogProcessSink = std::function<void(const std::vector<conversation::Part> &)>;
@@ -193,7 +200,8 @@ class ModelLayer {
     complete_dialog_turn(const std::string &transcript, const std::string &user_text,
                          const mira::OperationContext &context, const std::string &reasoning = "",
                          bool tools_allowed = true, DialogPreviewSink preview = {},
-                         DialogProcessSink process = {}, DialogModelActivitySink activity = {});
+                         DialogProcessSink process = {}, DialogModelActivitySink activity = {},
+                         DialogThinkingPreviewSink thinking_preview = {});
 
     /// Bounded ConversationLoop; M7-02 installs the available desktop atoms
     /// from the injected context. tools_allowed=false retains observation
@@ -208,7 +216,8 @@ class ModelLayer {
         const std::string &transcript, const std::string &user_text,
         const mira::OperationContext &context, const std::string &reasoning = "",
         bool tools_allowed = true, DialogPreviewSink preview = {}, DialogProcessSink process = {},
-        const mirage::desktop::CancelToken &cancel = {}, DialogModelActivitySink activity = {});
+        const mirage::desktop::CancelToken &cancel = {}, DialogModelActivitySink activity = {},
+        DialogThinkingPreviewSink thinking_preview = {});
 
     /// Ordered teardown: waits out any in-flight dialog completion (bounded
     /// by the profile transport deadlines), then settles the transport's

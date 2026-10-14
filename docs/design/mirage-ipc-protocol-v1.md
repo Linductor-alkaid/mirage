@@ -985,3 +985,27 @@ workflow 或空）、`source_id`（与 source_kind 同时为空或同时非空�
 周期会发布变化；headless 服务无此产品周期，客户端须读取 `pet.status` 才推动
 快照与事件。此扩展不承诺实时性；looking/mouse/typing 只有真实子阶段证据进入后
 才会出现，未知执行显示 `unknown`。
+
+
+<a id="pet-bubbles"></a>
+
+## M8-11：可选实时气泡（DEC-089）
+
+`hello` 可选布尔 `pet_bubbles`，本实现写 true。无字段为旧服务；非布尔拒绝。
+`PetStatus` 在 `elapsed_ms` 后可选对象 `bubble`，缺席表示清除气泡，旧向量编码字节不变。
+字段顺序为 kind、content_origin、request_id、text、sequence、truncated、final、remaining_ms。
+kind 为 thinking/dialog；origin 为 status_hint/model_preview/answer_summary（thinking 不允许 answer_summary）。
+request_id ≤128 字节且无 NUL，未知请求（初始提示/未曾读取的终态）允许空串，不用 turn ID 伪造；
+owner_epoch/source_kind/source_id 从外层状态继承。text 为非空有效 UTF-8 单行，≤2048 字节；
+sequence 为 0～INT64_MAX，布尔字段严格类型；remaining_ms 为 0～5000，final 只能用于 dialog 且期限>0。
+非法字段拒绝整个状态。完整 JSON 仍≤4096 字节，编码转义膨胀时 Runtime 减少模型思考文本并标截断。
+
+当前请求首正文使 dialog 优先，迟到 thinking 不闪回；新请求/空快照重置。工具、取消、失败、
+接管、暂停、等待确认、断连清除；正常完成以规范正文重算短句，5秒后过期。
+remaining_ms 是服务计算的相对期限；客户端单调期限只允许缩短，同一终态旧快照不能延长显示。
+展示事实（含气泡内容）变化使 revision 增加，经过时间/剩余期限不单独改变 revision。
+源序号、外层身份和事件 seq 不可互相替代。预览未经验证，不写入历史或充当任务成功证据。
+
+运输回调仅有界投递；Runtime 25ms 投影刷新与 Topic 消费，不再依赖动画首轮结算。
+正文概括为保守抽取，无法生成完整短句则 status_hint，不按前N字符虚构完成。
+Golden meta.version=21 增加思考/最终对话状态与 capability 三个向量；既有向量字节保持。

@@ -252,10 +252,15 @@ void DesktopActionVerification::observe(Record &r, const mira::OperationContext 
                                    std::chrono::system_clock::now().time_since_epoch())
                                    .count();
             const bool matched = queried.running && !queried.instance_id.empty();
-            r.status = r.uncertain ? "uncertain" : matched ? "verified" : "unverified";
-            r.reason = r.uncertain ? "effect_uncertain"
-                       : matched   ? "application_running_only"
-                                   : "condition_not_matched";
+            // DEC-086: an uncertain dispatch is a fence against unprovable
+            // effects, not against evidence — when its declared postcondition
+            // is machine-verified afterwards, the record settles and the turn
+            // can continue. Effects that stay unproven keep awaiting review.
+            r.status = matched ? "verified" : r.uncertain ? "uncertain" : "unverified";
+            r.reason = matched       ? (r.uncertain ? "application_running_confirmed"
+                                                    : "application_running_only")
+                       : r.uncertain ? "effect_uncertain"
+                                     : "condition_not_matched";
             return;
         }
         if (!desktop_.environment->window()) {
@@ -685,6 +690,11 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
     fenced_ = fenced_ || r.uncertain;
     r.epoch = desktop_.actions ? desktop_.actions->epoch() : 0;
     observe(r, ctx);
+    // At most one uncertain record can exist at a time (a new mutation needs
+    // records_.back() verified or cleanly rejected), so machine evidence on
+    // the newest record is exactly the fence's release condition (DEC-086).
+    if (r.status == "verified")
+        fenced_ = false;
     records_.push_back(std::move(r));
     const auto &record = records_.back();
     if (result) {
@@ -718,6 +728,10 @@ mira::Result<JsonValue> DesktopActionVerification::recheck(const std::string &ac
         ctx.task_epoch != owner_.task_epoch || records_.empty() || action_id != records_.back().id)
         return error(mira::ErrorCode::InvalidArgument, "foreign or retired action identity");
     observe(records_.back(), ctx);
+    // DEC-086: fresh machine evidence on the pending action releases the
+    // mutation fence; the next gate check re-examines the record anyway.
+    if (records_.back().status == "verified")
+        fenced_ = false;
     return summary(records_.back());
 }
 
@@ -831,6 +845,12 @@ mira::Result<void> DesktopActionVerification::validate_request(const mira::Model
         return error(mira::ErrorCode::InvalidArgument,
                      "desktop verification request owner mismatch");
     // Canonical history is authoritative even when the UI projection has hit its budget.
+    // Re-derived per request against the current record states (DEC-086): a
+    // failed mutation receipt stays disqualifying only while its record is
+    // neither machine-verified nor a clean pre-dispatch rejection — the same
+    // acceptance settle() applies. Unknown failures never enter records_ and
+    // always fail the check, so a hidden failure still fences the turn.
+    canonical_failure_ = false;
     for (const auto &item : request.input)
         for (const auto &part : item.content)
             if (const auto *call = std::get_if<mira::ToolCallPart>(&part);
@@ -856,8 +876,10 @@ mira::Result<void> DesktopActionVerification::validate_request(const mira::Model
                                     records_.begin(), records_.end(), [&](const auto &r) {
                                         return r.id == id && r.action == call->wire_name;
                                     });
-                                if (known == records_.end() || known->status != "rejected" ||
-                                    known->dispatched || known->uncertain)
+                                if (known == records_.end() ||
+                                    !(known->status == "verified" ||
+                                      (known->status == "rejected" && !known->dispatched &&
+                                       !known->uncertain)))
                                     canonical_failure_ = true;
                             }
                         }

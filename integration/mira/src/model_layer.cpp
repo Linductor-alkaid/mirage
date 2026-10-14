@@ -135,23 +135,44 @@ std::optional<mira::ThinkingMode> thinking_value(const ModelLayerConfig &config,
                                                      : std::nullopt;
     return value == "none" ? mira::ThinkingMode::Disabled : mira::ThinkingMode::Adaptive;
 }
-std::uint64_t generation_budget(const ModelLayerConfig &config, const std::string &value) {
+/// DEC-085 follow-up, probed 2026-10-14 on deepseek-flash via its
+/// Anthropic-compatible endpoint: the model reasons unconditionally, the
+/// reasoning tokens count against max_tokens, and output_config.effort=low
+/// still truncates — a storage-summary turn cut mid-thinking at 16384 three
+/// times in a row (session db6b8942 turn 3) finished inside 32768
+/// (stop=end_turn at 21905 output tokens). Thinking-mode calls floor their
+/// per-call budget here so deliberation plus the visible reply fit one call;
+/// the bounded continuation path remains the backstop. Divergence from
+/// ZCode (which has no floor): Mirage ships no context compaction, so an
+/// under-declared thinking model would death-spiral on continuations
+/// instead of compacting — the floor is the safety net for that gap.
+constexpr std::uint64_t kThinkingOutputFloor = 32768;
+/// DEC-087: the ZCode-aligned default baseline for an undeclared model
+/// output budget (model-token-limits.ts: the declared value is used
+/// verbatim; 32K is the default, not a global cap).
+constexpr std::uint64_t kDefaultMaxOutputTokens = 32000;
+/// DEC-087: per-request preflight reserve — the shrink keeps this much of
+/// the declared context window free beyond the estimated current usage.
+constexpr std::uint64_t kContextReserveTokens = 1000;
+
+/// The declared-or-default baseline for one wire call, before the
+/// per-request context preflight shrinks it. A declared value (1..65536) is
+/// used verbatim; 0 means undeclared and takes the 32000 default. Thinking
+/// calls then carry the safety floor.
+std::uint64_t baseline_output_budget(const ModelLayerConfig &config, const std::string &value) {
+    const auto base =
+        config.max_output_tokens != 0 ? config.max_output_tokens : kDefaultMaxOutputTokens;
     // DEC-085 follow-up: an adaptive-thinking call spends its output budget
     // on the native thinking channel before any visible text — a desktop
     // task with screenshots comfortably exceeds the 8192 floor and the
     // provider-side cut decodes as a tolerated Incomplete that recovery
-    // cannot fix (every retry truncates again). Raise the floor for
-    // thinking calls. Thinking intensity itself is a separate axis: the
-    // wire carries only the mode flag, never a token budget (DeepSeek-style
-    // Anthropic endpoints ignore thinking.budget_tokens entirely).
-    const auto budget = thinking_value(config, value) == mira::ThinkingMode::Adaptive
-                            ? std::max<std::uint64_t>(config.max_output_tokens, 16384)
-                            : config.max_output_tokens;
-    // A declared context window caps the per-call output as well: the reply
-    // must fit alongside the prompt.
-    if (config.context_window_tokens)
-        return std::min(budget, std::max<std::uint64_t>(4096, config.context_window_tokens / 2));
-    return budget;
+    // cannot fix (every retry truncates again). Thinking intensity itself is
+    // a separate axis: the wire carries only the mode flag, never a token
+    // budget (DeepSeek-style Anthropic endpoints ignore
+    // thinking.budget_tokens entirely).
+    return thinking_value(config, value) == mira::ThinkingMode::Adaptive
+               ? std::max<std::uint64_t>(base, kThinkingOutputFloor)
+               : base;
 }
 } // namespace
 
@@ -413,8 +434,8 @@ bool ModelLayerConfig::valid(std::string &error) const {
         error = "model layer dialect is not a known pinned dialect";
         return false;
     }
-    if (max_output_tokens == 0 || max_output_tokens > 65536) {
-        error = "model layer requires an output token bound between 1 and 65536";
+    if (max_output_tokens > 65536) {
+        error = "model layer requires a declared output token bound within 65536 (0 = undeclared)";
         return false;
     }
     if (harness_deadline.count() <= 0 || harness_deadline > std::chrono::minutes{10}) {
@@ -472,6 +493,10 @@ struct ModelLayer::Impl {
                                                        /*artifacts=*/images, mira::PriceTable{},
                                                        mira::ModelGatewayConfig{});
         observed = std::make_shared<detail::ObservedProvider>(provider);
+        // DEC-087: the declared context window drives the per-request
+        // output-budget preflight in the provider decorator.
+        if (config.context_window_tokens)
+            observed->context_window = config.context_window_tokens;
         gateway->register_provider(observed);
         gateway->set_event_store(events, mira::RuntimeId::generate(), mira::SessionId::generate());
         return true;
@@ -501,16 +526,20 @@ struct ModelLayer::Impl {
             record.capabilities.generation.reasoning_effort = mira::ParamMapping::OmitIfUnset;
         if (config.dialect == "anthropic.messages.v1")
             record.capabilities.generation.thinking = mira::ParamMapping::OmitIfUnset;
-        // DEC-085 follow-up: the profile limit funds the loop's declared
-        // whole-run envelope (16 model turns + 2 recoveries + 2 continuations
-        // + the admitting call) at the worst-case per-call budget — the
-        // router admits each request's envelope against this limit, so every
+        // DEC-087: the profile limit funds the loop's declared whole-run
+        // envelope (16 model turns + 2 recoveries + 3 continuations + the
+        // admitting call) at the worst-case per-call baseline — the router
+        // admits each request's envelope against this limit, so every
         // profile must carry it, not only thinking-class ones. The previous
         // per-dialect 17x/21x scaling left default profiles unable to route
         // any model call.
         record.capabilities.limits.max_output_tokens =
-            21 * std::max<std::uint64_t>(config.max_output_tokens, 16384);
-        // DEC-082: generation_budget still bounds each wire call.
+            22 * std::max<std::uint64_t>(config.max_output_tokens != 0 ? config.max_output_tokens
+                                                                       : kDefaultMaxOutputTokens,
+                                         kThinkingOutputFloor);
+        // DEC-082: baseline_output_budget still bounds each wire call; the
+        // provider decorator shrinks it per request against the declared
+        // context window (DEC-087 preflight).
         record.capabilities.text =
             mira::CapabilityFlag{true, mira::CapabilityEvidence::FixtureVerified, ""};
         if (config.supports_images)
@@ -621,7 +650,8 @@ void ModelLayer::shutdown() {
 DialogCompletion ModelLayer::complete_dialog_turn(
     const std::string &transcript, const std::string &user_text,
     const mira::OperationContext &context, const std::string &reasoning, bool tools_allowed,
-    DialogPreviewSink preview, DialogProcessSink process, DialogModelActivitySink activity) {
+    DialogPreviewSink preview, DialogProcessSink process, DialogModelActivitySink activity,
+    DialogThinkingPreviewSink thinking_preview) {
     DialogCompletion completion;
     // The drain lock makes shutdown wait out this inference (bounded by the
     // profile transport deadlines) instead of destroying the pinned pieces
@@ -702,18 +732,22 @@ DialogCompletion ModelLayer::complete_dialog_turn(
     request.output_contract.mode = mira::OutputMode::Text;
     request.generation.reasoning_effort = reasoning_value(reasoning);
     request.generation.thinking = thinking_value(impl_->config, reasoning);
-    request.generation.max_output_tokens = generation_budget(impl_->config, reasoning);
-    request.budget.max_output_tokens = generation_budget(impl_->config, reasoning);
+    request.generation.max_output_tokens = baseline_output_budget(impl_->config, reasoning);
+    request.budget.max_output_tokens = baseline_output_budget(impl_->config, reasoning);
     request.budget.max_requests = 1;
     request.data_policy.store = false;
     request.prompt_provenance.system_template_digest =
         mira::digest_string("mirage.dialog.system.v1");
 
     mira::InferOptions options;
-    options.stream = static_cast<bool>(preview);
+    options.stream = static_cast<bool>(preview) || static_cast<bool>(thinking_preview);
     if (preview)
         options.preview_sink = [&preview](const auto &id, const auto &value) {
             preview(id.to_string(), value.text, value.truncated);
+        };
+    if (thinking_preview)
+        options.thinking_preview_sink = [&thinking_preview](const auto &id, const auto &value) {
+            thinking_preview(id.to_string(), value.text, value.truncated);
         };
     auto outcome = impl_->gateway->infer(request, context, options);
     // DEC-085: a stream-lifecycle protocol violation is a per-request parser
@@ -796,7 +830,8 @@ DialogCompletion ModelLayer::complete_harness_turn(
     const std::string &transcript, const std::string &user_text,
     const mira::OperationContext &context, const std::string &reasoning, bool tools_allowed,
     DialogPreviewSink preview, DialogProcessSink process,
-    const mirage::desktop::CancelToken &cancel, DialogModelActivitySink activity) {
+    const mirage::desktop::CancelToken &cancel, DialogModelActivitySink activity,
+    DialogThinkingPreviewSink thinking_preview) {
     DialogCompletion completion;
     if (!impl_ || (!reasoning.empty() && !accepts_reasoning(impl_->config, reasoning))) {
         completion.failed = true;
@@ -941,16 +976,20 @@ DialogCompletion ModelLayer::complete_harness_turn(
     // tolerated max_tokens cutoffs that recovery could not fix. Whole-run
     // output spend is bounded by the declared turn/recovery/continuation
     // counts instead; the profile limit stays the per-call admission truth.
+    // DEC-087: the provider decorator additionally shrinks each wire call
+    // against the declared context window (ZCode preflight semantics), so
+    // the loop-level bound stays the declared baseline.
     const auto budget = impl_->profile->capabilities.limits.max_output_tokens;
     config.max_output_tokens_per_turn =
-        std::min(generation_budget(impl_->config, reasoning), budget);
+        std::min(baseline_output_budget(impl_->config, reasoning), budget);
     // MIRA-20261012-001: the conversation turn is a read-only resend from the
     // desktop side, so transient network failures recover through the
     // upstream bounded recovery budget. Truncated replies settle through the
     // loop's separate bounded output-continuation budget. Both are declared
     // bounds, independent of the per-call output size.
     config.max_recoveries = 2;
-    config.max_output_continuations = 2;
+    // DEC-087: the continuation budget matches the ZCode recovery depth (3).
+    config.max_output_continuations = 3;
     const auto max_turns_value = std::uint32_t{16};
     config.max_turns = max_turns_value;
     config.max_tool_executions = 32;
@@ -1157,7 +1196,7 @@ DialogCompletion ModelLayer::complete_harness_turn(
     if (!transcript.empty())
         spec.goal += "Earlier conversation (untrusted):\n" + transcript + "\n";
     spec.goal += "Current user request:\n" + user_text;
-    const bool stream_requested = static_cast<bool>(preview);
+    const bool stream_requested = static_cast<bool>(preview) || static_cast<bool>(thinking_preview);
     auto invoke_loop = [&](const bool stream) -> mira::Result<mira::ConversationLoopResult> {
         mira::ConversationLoopConfig loop_config = config;
         loop_config.inference.stream = stream;
@@ -1165,9 +1204,21 @@ DialogCompletion ModelLayer::complete_harness_turn(
             loop_config.inference.preview_sink = [&preview](const auto &id, const auto &value) {
                 preview(id.to_string(), value.text, value.truncated);
             };
+        if (stream && thinking_preview)
+            loop_config.inference.thinking_preview_sink = [&thinking_preview](const auto &id,
+                                                                              const auto &value) {
+                thinking_preview(id.to_string(), value.text, value.truncated);
+            };
         mira::ConversationLoop loop(*impl_->gateway, loop_config);
         loop.set_tool_registry(registry);
         loop.set_model_input_supplier(supply_input);
+        // DEC-088 capability 1: the persistent desktop source owns the
+        // cross-dialog-turn reuse count; the pinned loop renders the note from
+        // the third consecutive identical capture.
+        loop.set_model_input_identity([&image_turn](const mira::AgentLoopSpec &identity_spec) {
+            return image_turn ? image_turn->input_reuse_identity(identity_spec)
+                              : std::optional<mira::InputReuseMeta>{};
+        });
         try {
             return loop.run(spec, turn_context);
         } catch (...) {

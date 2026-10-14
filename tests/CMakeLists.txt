@@ -1680,3 +1680,23 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND _mirage_pipewire_available)
     add_test(NAME portal_stream_retention_test COMMAND portal_stream_retention_test)
     set_tests_properties(portal_stream_retention_test PROPERTIES LABELS "platform;wayland;unit" TIMEOUT 30)
 endif()
+
+add_executable(pet_bubble_test runtime/pet_bubble_test.cpp)
+target_compile_features(pet_bubble_test PRIVATE cxx_std_20)
+target_link_libraries(pet_bubble_test PRIVATE Mirage::pet_state Mirage::ipc)
+mirage_enable_warnings(pet_bubble_test)
+add_test(NAME pet_bubble_test COMMAND pet_bubble_test)
+set_tests_properties(pet_bubble_test PROPERTIES LABELS "unit;runtime;pet;protocol" TIMEOUT 10)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_ENABLE_PET_PREVIEW)
+    add_executable(pet_bubble_view_test desktop/pet_bubble_view_test.cpp)
+    add_dependencies(pet_bubble_view_test mira_pet)
+    target_include_directories(pet_bubble_view_test SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/eui-neo ${CMAKE_SOURCE_DIR}/third_party/eui-neo/include)
+    target_include_directories(pet_bubble_view_test PRIVATE ${CMAKE_SOURCE_DIR}/platform/pet/include)
+    target_link_libraries(pet_bubble_view_test PRIVATE eui::neo mirage_pet_frames Mirage::persistence Mirage::ipc PNG::PNG)
+    mirage_enable_warnings(pet_bubble_view_test)
+    add_test(NAME pet_bubble_view_test COMMAND pet_bubble_view_test)
+    set_tests_properties(pet_bubble_view_test PROPERTIES LABELS "integration;ui;pet" TIMEOUT 30
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/apps/pet")
+endif()

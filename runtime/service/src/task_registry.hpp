@@ -6,6 +6,7 @@
 // the loop/driver building blocks. Pinned executor types are confined to
 // these internal headers and their translation units.
 
+#include "pet_text_feed.hpp"
 #include <chrono>
 #include <cstddef>
 #include <map>
@@ -174,6 +175,7 @@ struct WorkflowRunRegistry {
 /// "ok" / "failed"; reply and error are encode-when-set exactly at their
 /// statuses (the wire vocabulary mirrors this record one to one).
 struct DialogTurnRecord {
+    std::shared_ptr<PetTextFeed> pet_text_feed{}; // transient; never persisted
     std::uint64_t pet_completion_order = 0;
     // DEC-084 volatile display metadata, protected by the existing dialog owner.
     bool model_in_flight = false;

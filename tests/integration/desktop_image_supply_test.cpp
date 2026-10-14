@@ -1026,6 +1026,122 @@ void native_region_sources() {
     }
 }
 
+// DEC-088 capability 1: the persistent desktop source counts consecutively
+// re-offered captures across requests and dialog turns; the turn resolves the
+// identity only for image-bearing, on-owner requests, keyed by content digest
+// (a recapture of identical pixels is the same sight; changed pixels restart).
+void input_reuse_identity() {
+    auto env = std::make_shared<NativeEnvironment>();
+    env->interactive = true;
+    env->frame_width = 8;
+    env->frame_height = 4;
+    const auto pixel = [](int x, int y) {
+        return std::array<std::uint8_t, 4>{
+            static_cast<std::uint8_t>(x * 13 + 3), static_cast<std::uint8_t>(y * 11 + 5),
+            static_cast<std::uint8_t>((x * 7 + y * 3) & 0xFF), std::uint8_t{255}};
+    };
+    env->session_pixels = [&] {
+        std::vector<std::uint8_t> pixels(std::size_t(env->frame_width) *
+                                         std::size_t(env->frame_height) * 4);
+        for (int y = 0; y < env->frame_height; ++y)
+            for (int x = 0; x < env->frame_width; ++x)
+                for (std::size_t channel = 0; channel < 4; ++channel)
+                    pixels[(std::size_t(y) * std::size_t(env->frame_width) + std::size_t(x)) * 4 +
+                           channel] = pixel(x, y)[channel];
+        return pixels;
+    };
+    auto tools = desktop();
+    tools.environment = env;
+    tools.gate = [](const auto &, const auto &, const auto &cancel) { return !cancel(); };
+    auto source = std::make_shared<detail::DesktopImageSource>();
+    auto ctx = context();
+    mirage::desktop::CancelToken stop;
+    mira::AgentLoopSpec spec;
+    spec.task_id = ctx.task;
+    spec.session_id = ctx.session;
+    spec.task_epoch = ctx.task_epoch;
+    const auto run_capture = [&](mira::BuiltinToolRegistry &registry, const char *json) {
+        const auto exposed = registry.exposed_tools();
+        const auto tool = std::find_if(exposed.begin(), exposed.end(), [](const auto &candidate) {
+            return candidate.wire_name == "desktop.screen.capture";
+        });
+        check(tool != exposed.end());
+        mira::ToolProposal call;
+        call.tool_id = tool->tool_id;
+        call.tool_version = tool->version;
+        call.wire_name = tool->wire_name;
+        call.operation_id = mira::OperationId::generate();
+        call.provider_call_id.value = "reuse-capture";
+        call.arguments = mira::parse_json(json).value();
+        call.arguments_digest = mira::canonical_json_digest(call.arguments);
+        return registry.execute(call, ctx);
+    };
+    std::string digest;
+    {
+        // One capture re-offered on three requests: the counts run 0, 1, 2.
+        detail::DesktopImageTurn turn(source, tools, ctx, stop);
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, true);
+        const auto captured =
+            run_capture(registry, R"({"source":"roi","x":0,"y":0,"width":4,"height":2})");
+        check(captured && !captured.value().failed);
+        for (std::uint32_t round = 0; round < 3; ++round) {
+            const auto supplied = turn.supply(spec);
+            check(supplied.has_value());
+            const auto identity = turn.input_reuse_identity(spec);
+            check(identity.has_value());
+            check(identity->semantic_label == "screenshot");
+            check(identity->reuse_count == round);
+            check(identity->content_digest.size() == std::size_t{64});
+            if (!round)
+                digest = identity->content_digest;
+            check(identity->content_digest == digest);
+        }
+    }
+    {
+        // A second dialog turn on the same persistent source continues the
+        // count; a text-only request neither carries an image nor advances it.
+        detail::DesktopImageTurn turn(source, tools, ctx, stop);
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, true);
+        {
+            const auto supplied = turn.supply(spec);
+            check(supplied.has_value());
+            check(!turn.input_reuse_identity(spec).has_value());
+        }
+        const auto captured =
+            run_capture(registry, R"({"source":"roi","x":0,"y":0,"width":4,"height":2})");
+        check(captured && !captured.value().failed);
+        const auto supplied = turn.supply(spec);
+        check(supplied.has_value());
+        const auto identity = turn.input_reuse_identity(spec);
+        check(identity.has_value());
+        check(identity->reuse_count == 3);
+        check(identity->content_digest == digest);
+        // An off-owner spec is a wiring error answered without an identity.
+        mira::AgentLoopSpec foreign;
+        foreign.task_id = mira::TaskId::generate();
+        foreign.session_id = ctx.session;
+        foreign.task_epoch = ctx.task_epoch;
+        check(!turn.input_reuse_identity(foreign).has_value());
+    }
+    {
+        // Changed pixels (different crop) restart the count at zero.
+        detail::DesktopImageTurn turn(source, tools, ctx, stop);
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, true);
+        const auto captured =
+            run_capture(registry, R"({"source":"roi","x":2,"y":1,"width":4,"height":2})");
+        check(captured && !captured.value().failed);
+        const auto supplied = turn.supply(spec);
+        check(supplied.has_value());
+        const auto identity = turn.input_reuse_identity(spec);
+        check(identity.has_value());
+        check(identity->reuse_count == 0);
+        check(identity->content_digest != digest);
+    }
+}
+
 class Script final : public mira::IModelProvider {
   public:
     explicit Script(mira::ModelProfile profile) : profile_(std::move(profile)) {}
@@ -2067,6 +2183,7 @@ int main() {
         rejected_layer.shutdown();
         png_content_matrix();
         native_region_sources();
+        input_reuse_identity();
         capability_receipts();
         // Publish the fixture manifest for the independent Python decoder
         // (tests/manual/desktop_png_decode_check.py).

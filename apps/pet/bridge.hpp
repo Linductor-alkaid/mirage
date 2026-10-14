@@ -2,6 +2,7 @@
 
 #include "loader.hpp"
 #include <memory>
+#include <mirage/runtime/persistence/app_preferences.hpp>
 #include <mirage/runtime/pet/status.hpp>
 #include <string>
 
@@ -17,6 +18,8 @@ class Bridge {
     bool start(std::string &diagnostic);
     bool latest(runtime::pet::Status &out);
     bool connected() const;
+    bool preferences(runtime::persistence::AppPreferences &out);
+    void set_bubble_expiry(std::uint64_t remaining_ms);
     ResourceLoader &loader();
     void set_animating(bool value);
     void set_visible(bool value);

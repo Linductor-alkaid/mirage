@@ -562,6 +562,19 @@ void put_pet_status(mira::JsonValue &object, const pet::Status &status) {
     put(object, "summary", status.summary);
     put(object, "reason_code", status.reason_code);
     put(object, "elapsed_ms", static_cast<std::int64_t>(status.elapsed_ms));
+    if (status.bubble) {
+        const auto &b = *status.bubble;
+        auto bubble = make_object();
+        put(bubble, "kind", b.kind);
+        put(bubble, "content_origin", b.content_origin);
+        put(bubble, "request_id", b.request_id);
+        put(bubble, "text", b.text);
+        put(bubble, "sequence", static_cast<std::int64_t>(b.sequence));
+        put(bubble, "truncated", b.truncated);
+        put(bubble, "final", b.final);
+        put(bubble, "remaining_ms", static_cast<std::int64_t>(b.remaining_ms));
+        put(object, "bubble", std::move(bubble));
+    }
 }
 
 std::optional<pet::Status> read_pet_status(const mira::JsonValue &object) {
@@ -588,6 +601,29 @@ std::optional<pet::Status> read_pet_status(const mira::JsonValue &object) {
                        *host,    *state,   *kind,
                        *id,      *session, static_cast<std::size_t>(*count),
                        *summary, *reason,  static_cast<std::uint64_t>(*elapsed)};
+    if (const auto *bubble = member(object, "bubble")) {
+        if (!bubble->is_object())
+            return std::nullopt;
+        const auto bubble_kind = string_member(*bubble, "kind");
+        const auto origin = string_member(*bubble, "content_origin");
+        const auto request = string_member(*bubble, "request_id");
+        const auto text = string_member(*bubble, "text");
+        const auto sequence = integer_member(*bubble, "sequence");
+        const auto truncated = boolean_member(*bubble, "truncated");
+        const auto final = boolean_member(*bubble, "final");
+        const auto remaining = integer_member(*bubble, "remaining_ms");
+        if (!bubble_kind || !origin || !request || !text || !sequence || *sequence < 0 ||
+            !truncated || !final || !remaining || *remaining < 0)
+            return std::nullopt;
+        result.bubble = pet::Bubble{*bubble_kind,
+                                    *origin,
+                                    *request,
+                                    *text,
+                                    static_cast<std::uint64_t>(*sequence),
+                                    *truncated,
+                                    *final,
+                                    static_cast<std::uint64_t>(*remaining)};
+    }
     return pet::valid_status(result) ? std::optional{std::move(result)} : std::nullopt;
 }
 
@@ -606,6 +642,8 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                     put(object, "tray", *value.tray);
                 if (value.pet_status)
                     put(object, "pet_status", *value.pet_status);
+                if (value.pet_bubbles)
+                    put(object, "pet_bubbles", *value.pet_bubbles);
                 if (value.events.has_value()) {
                     put(object, "events", *value.events);
                 }
@@ -1779,6 +1817,14 @@ ResponseDecode decode_response(std::string_view payload) {
                 return result;
             }
             identity.pet_status = *flag;
+        }
+        if (member(object, "pet_bubbles")) {
+            const auto flag = boolean_member(object, "pet_bubbles");
+            if (!flag) {
+                result.error = "hello pet_bubbles must be boolean";
+                return result;
+            }
+            identity.pet_bubbles = *flag;
         }
         response.payload = std::move(identity);
     } else if (member(object, "pet")) {

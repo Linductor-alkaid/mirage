@@ -79,7 +79,8 @@ def session(args):
                 with (args.output / ('lost.log' if abrupt else 'normal.log')).open('w') as log:
                     tray = subprocess.Popen([str(folder / 'mirage-tray'), '--socket', endpoint,
                         '--state-dir', str(folder / 'state'), '--no-recovery', '--no-shell',
-                        '--ocr-manifest', str(args.build / 'share/mirage/vision/ppocrv5-mobile-v1/manifest.json')],
+                        *(['--ocr-manifest', str(args.build / 'share/mirage/vision/ppocrv5-mobile-v1/manifest.json')]
+                          if (args.build / 'share/mirage/vision/ppocrv5-mobile-v1/manifest.json').exists() else [])],
                         cwd='/', env=env, stdout=log, stderr=log)
                     children.append(tray)
                     await_value(lambda: Path(endpoint).exists() or tray.poll() is not None, bool)
@@ -121,12 +122,12 @@ def session(args):
                         alpha = image.getchannel('A')
                         check('actual window framebuffer contains transparent and visible pixels', alpha.getextrema() == (0, 255))
                         check('actual framebuffer preserves transparent corner', image.getpixel((0, 0))[3] == 0)
-                        character = alpha.crop((0, 0, geometry.width, 220))
+                        character = alpha.crop((12, 70, 252, 290))
                         check('character region renders visible pixels', sum(character.histogram()[1:]) > 1000)
-                        feet = alpha.crop((0, 200, geometry.width, 232))
+                        feet = alpha.crop((12, 270, 252, 302))
                         check('full character reaches the lower image region', sum(feet.histogram()[1:]) > 200)
-                        check('pet window contains only the character canvas',
-                              geometry.width == geometry.height == 240)
+                        check('pet window reserves bubbles without reducing the 240px character canvas',
+                              geometry.width == 264 and geometry.height == 322)
                         wm_state = window.get_full_property(d.intern_atom('_NET_WM_STATE'), X.AnyPropertyType)
                         atoms = set(wm_state.value) if wm_state is not None else set()
                         check('pet is excluded from the dock and pager',
@@ -137,7 +138,9 @@ def session(args):
                             return any(r.x <= x < r.x + r.width and r.y <= y < r.y + r.height
                                        for r in input_rectangles)
                         check('transparent corner remains input-through', not hit(0, 0))
-                        body = next((r for r in input_rectangles if r.y < 145 and r.width >= 20), None)
+                        check('entire bubble and tail reserve remains input-through',
+                              not any(hit(x, y) for x in range(12, 252) for y in range(0, 70)))
+                        body = next((r for r in input_rectangles if r.y < 215 and r.width >= 20), None)
                         check('visible character has a drag region', body is not None)
                         if body:
                             before = window.get_geometry()
@@ -155,7 +158,7 @@ def session(args):
                             check('dragging visible character moves its window',
                                   after.x == before.x - 36 and after.y == before.y - 28)
                             stored = await_value(lambda: position_file.read_text() if position_file.exists() else '', bool)
-                            check('dragged position is persisted', stored.strip() == f'{after.x} {after.y}')
+                            check('dragged position is persisted', stored.strip() == f'{after.x + 12} {after.y + 70}')
                         time.sleep(.7)
                         following = window.get_image(0, 0, geometry.width, geometry.height, X.ZPixmap, 0xffffffff)
                         following = Image.frombytes('RGBA', image.size, following.data, 'raw', 'BGRA')
@@ -195,7 +198,8 @@ def session(args):
                         check('independent restart creates a new owned process', restarted.pid != pet.pid)
                         pet = restarted
                         window = await_value(find_window, bool)
-                        restored_position = window.get_geometry()
+                        restored_position = await_value(window.get_geometry,
+                            lambda value: value.x == after.x and value.y == after.y)
                         check('restarted pet restores last dragged position',
                               restored_position.x == after.x and restored_position.y == after.y)
                         os.kill(pet.pid, 9)

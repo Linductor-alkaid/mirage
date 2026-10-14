@@ -2,7 +2,7 @@
 
 > 状态：Active
 > 负责人：Mirage维护者；处理方：Mira上游
-> 更新日期：2026-10-12
+> 更新日期：2026-10-14
 > 工作项：[M6-10](../plans/m6-native-frontend.md)
 > 总入口：[依赖反馈](ledger.md)；维护规则：[工程规范9.4](../project/project-standards.md)
 
@@ -28,6 +28,9 @@
 | MIRA-20261009-001 | ConversationLoop 工具产生图片的逐轮结构化输入入口 | P2：多模态工具接入能力缺口 | Resolved | 授权消费 698fc77；三方言 fixture、MiniMax 截图工具在线识图 2/2（Linux 合成图） | [#85](https://github.com/Linductor-alkaid/mira/issues/85)，[PR#86](https://github.com/Linductor-alkaid/mira/pull/86) |
 | MIRA-20261009-002 | Messages SSE 解析器对 max_tokens 截断流 fail-closed | P1：真实供应商截断流不可解码 | Resolved | 真实 MiniMax 抓流复现；PR#87 合并后 pin 消费 c75378b，mira 105/105 + Mirage 全量回归 + 真实抓流 4/4 解码为 Incomplete 终态 | [PR#87](https://github.com/Linductor-alkaid/mira/pull/87)，已合并 |
 | MIRA-20261012-001 | 网络阶段超时被标记不可重试，单次停滞判死整轮 | P2：传输错误分类与重试语义缺口 | Resolved | 真实会话复现（DeepSeek 单轮 turn 失败）；上游 CI 24/24 + 本地 mira 105/105；pin 消费 57c3062 后 mirage 71/71 全量 + 集成 356 checks 行为复验 | [PR#88](https://github.com/Linductor-alkaid/mira/pull/88)，已合并 |
+| MIRA-20261014-004 | 无公开实时思考分类预览入口 | P2：呈现能力缺口 | Resolved | 独立 thinking sink；三方言分片、取消重试与 Runtime/IPC fixture 复验 | [PR#94](https://github.com/Linductor-alkaid/mira/pull/94)，授权消费合并提交22d9577 |
+
+| MIRA-20261014-005 | ConversationLoop 供给缝无跨轮输入复用身份标注入口 | P2：多轮上下文成本缺口 | Open | pin 1befa45 公开头核对：supplier 仅逐轮 items，无身份元数据；DEC-088 记录的重复识图浪费 | [PR#95](https://github.com/Linductor-alkaid/mira/pull/95)，已提交待合并 |
 
 <a id="mira-20261009-001"></a>
 
@@ -496,3 +499,89 @@ M6-19收尾回读：Mira PR#79的pull_request run37332976997在当前pin 0a099ba
 - 延期影响：Mirage 侧测试规范补充"`.value()` 只能用于字面量已验证合法的常量"
   约定并自查；产品代码不受影响（error 路径均检查）。
 - 验收：上游交付防线后，本条归档；Mirage 测试中的 `.value()` 惯用法按新语义复核。
+
+<a id="mira-20261014-004"></a>
+
+## MIRA-20261014-004：无公开实时思考分类预览入口
+
+- 状态：Resolved（公开能力和 fixture 范围）；日期：2026-10-14；负责人：Mirage 维护者，处理方：Mira 上游。
+  上游：[PR#94](https://github.com/Linductor-alkaid/mira/pull/94)，已授权合并；当前消费merge 22d9577，历史fixture head为ea720a6。关联 [M8-11](../plans/m8-mira-pet.md)、
+  [DEC-089](../decisions/DEC-089-mira-pet-bubbles.md) 和气泡设计第 6 节。
+- 缺口复现基线：`1befa451713e0eb635da6077410e284f7b8ea88b`（升级前）。
+  公开 `include/mira/model_sse.hpp` 的 `UnvalidatedModelPreview` 只有正文 `text`、
+  `dropped_updates`、`truncated`；`ModelPreviewSink` 无思考类别/内容字段。
+  `model_gateway.hpp` 与 `model_provider.hpp` 沿同一 sink；
+  `model_contracts.hpp` 的 `ThinkingPart` 仅规范响应内容。
+  `docs/api/model-agent-loop.md` 明确 Chat reasoning 与 Messages thinking 不进入正文预览。
+- 可复现证据：运行
+  `python3 docs/dependency_feedback/repro/mira-thinking-preview-contract.py`；它只读公开头、
+  API 和相关测试断言，输出当前能力形状。上游 `m3_sse_test.cpp` 的
+  `chat_reasoning_stream_maps_to_thinking()` 断言纯 reasoning 时 preview.text 为空、
+  终态才有 ThinkingPart；`m3_anthropic_test.cpp` 的 `thinking()` 对所有双片切点断言
+  思考只进入终态且 preview.text 为空。本轮只静态核对这些测试，未运行上游测试二进制，
+  不宣称供应商在线流或其他协议实测通过。
+- API 选型/配置/应用职责排除：ModelGateway 的 stream 与 preview_sink 已由 Mirage
+  ModelLayer 使用；打开 stream 无法让该 sink 返回思考类别。历史 DialogProcessSink
+  和完成后的 ThinkingPart 不能反映正在进行的流。不是未开启模型思考或平台窗口权限
+  问题；气泡形状、滚动、摘要和桌面避让仍属于 Mirage。此反馈请求区分正文与可展示
+  思考，不要求把 thinking 混入 answer preview，不请求 redacted/签名内容。
+- 影响：M8-11 能用正文生成输出概括，也能用模型活动事实滚动“正在思考…”提示，
+  但无法按公开契约实时渲染模型思考文字。旧正文预览语义正确，不把本条当解析器缺陷。
+- 最小期望能力：增加可选、分类且明确 unvalidated 的思考预览 sink/字段，提供请求/
+  尝试清空语义、至多有界完整文本快照、截断/drop 统计；取消停止、规范结果独立结算，
+  redacted/签名永不泄漏。回调维持传输上下文只投递的纪律，旧正文 sink 语义不变。
+- 延期影响：真实思考文字门禁保持未完成，不以历史终态回放充当实时流。思考状态提示
+  可先验收，角色/气泡几何契约可供 M8-06 使用，不因此阻塞全部避让设计。
+- 临时措施：仅在既有 Integration/呈现 Adapter 边界根据当前模型活动投影状态提示，
+  不解析 SSE、不读取私有实现、不创建线程/队列/调度器。差异为没有模型思考文字；
+  风险是被误解为正文，因此载荷标明 status_hint。公开能力经授权升级并复验后移除
+  “能力缺席才用提示”的限制；Provider 本身不供思考时仍保留明确提示降级。
+- 可验收结果：Chat/Messages 分片、纯思考与思考/正文混合、不支持供应商、UTF-8、
+  超限、重试清空、取消及迟到回调均有公开 fixture；正文预览不混入思考，规范历史与
+  工具执行语义不变。Mirage 经授权消费后补真实模型流→IPC→气泡与安全清除验收。
+  未运行验证的负责人：Mirage 维护者；补跑条件：上游公开入口及授权 pin 到位、完成
+  M8-11 实现并获得真实供应商/目标平台环境。
+
+
+### 2026-10-14 解决与消费
+
+独立 Mira worktree 增加 opt-in `ModelThinkingPreviewSink`，Chat reasoning_content、Messages thinking_delta、Responses reasoning_text.delta 生成最新有界 UTF-8 快照；redacted/signature 不暴露，原正文 sink 不变。Mira Debug 106/106 与专项 ASAN/UBSAN 均通过。Mirage 通过 ModelLayer 接入，Runtime 双 LatestMailbox 按请求隔离，端到端 fixture 验证推送与终态安全清除。没有 Mirage SSE 解析旁路。供应商在线流和实桌面门禁独立，未把 fixture 记成在线结果。详见 [消费审计](../supply-chain/mira-thinking-preview-20261014.md) 和 [M8-11 证据](../compatibility/mira-pet-bubbles-runtime-20261014.md)。
+
+<a id="mira-20261014-005"></a>
+
+## MIRA-20261014-005：ConversationLoop 供给缝无跨轮输入复用身份标注入口
+
+- 状态：Resolved（自动化范围）；日期：2026-10-14；负责人：Mirage 维护者，处理方：Mira 上游。
+  上游：[PR#95](https://github.com/Linductor-alkaid/mira/pull/95) 已合并（merge 9e7b729，
+  上游 CI 24/24），pin 已授权消费。关联
+  [DEC-088](../decisions/DEC-088-conversation-context-compaction-and-input-deduplication.md)
+  能力 1 与 [实施计划](../plans/context-compaction-implementation.md) Phase 1。
+- 核对版本：缺口核对于 pinned `1befa451713e0eb635da6077410e284f7b8ea88b`；交付与消费在
+  `9e7b729d0861577b470d45385bdd08301bd1226d`。
+  公开 `include/mira/conversation_loop.hpp` 的 `ModelInputSupplier` 每轮返回
+  `Result<std::vector<ModelInputItem>>`，`resolve_supplied_input` 只做校验/限额/展平；
+  无任何跨轮身份或复用元数据入口。DEC-053 明确历史回放不复制供给内容，宿主逐轮重发，
+  因此同一截图逐轮重现是契约内行为，模型与循环都无法得知"第 N 次看到同一内容"。
+- 可复现证据：Mirage 桌面任务会话诊断显示模型在相同 `artifact://` 引用上反复执行
+  "让我分析屏幕内容"思考；`m3_conversation_input_supply_test` 全部请求形状不含任何
+  复用提示。`ConversationLoop` 在 Mirage 侧逐 dialog turn 重建
+  （`integration/mira/src/model_layer.cpp` 的 `invoke_loop`），跨轮计数只能由宿主持有。
+- API 选型/配置/应用职责排除：打开 stream、调整 `ModelInputSupplyOptions`、宿主在
+  goal 文本内自行拼接提示均不满足——goal 属任务描述、宿主自拼会绕开 envelope
+  纪律与事件面；该能力必须由循环在受控 envelope 内渲染并计入事件/结果统计。
+- 影响：图片密集多轮任务中重复识图浪费思考 token（DEC-088 估计 10-20%）；
+  无标注时模型无法区分"同图"与"新拍恰好相同"，也不得不重复分析。
+- 最小期望能力：新增可选的宿主身份回调（digest/连续复用次数/语义标签），循环在
+  `reuse_count >= 2` 且本轮供给含图片时，把一条 Internal 权限的 System note 文本
+  作为 User envelope 最后一个 part 追加；`ModelInputSupplied` 事件与
+  `ConversationLoopResult` 增加可见计数；无回调时请求字节不变。
+- 延期影响：已消除——上游交付 `set_model_input_identity` 身份缝（兼容性约束下走独立
+  可选回调，不改变 supplier 返回类型），Mirage 侧由持久 `DesktopImageSource` 持有跨轮
+  计数、`DesktopImageTurn::input_reuse_identity` 在 supply 同门控下解析、model_layer
+  接线，消费记录见[同日验收](../compatibility/dec088-input-reuse-20261014.md)。
+- 可验收结果：mira 单测覆盖首次/第二次不标注、第三次标注、标签渲染、非图片供给不
+  标注、事件与结果计数、无回调字节不变（Debug 106/106、ASAN、architecture/format/docs
+  门禁，远端 CI 24/24）；Mirage 侧 desktop_image_supply_test 覆盖 0/1/2 计数、跨 turn
+  经相同内容重拍延续、纯文本跳过、错 owner 拒绝与内容变化重置。真实任务对照实验
+  （有/无标注的思考 token 差异 ≥10%）仍未运行；负责人：Mirage 维护者；补跑条件：
+  真实桌面任务会话与对照诊断。
