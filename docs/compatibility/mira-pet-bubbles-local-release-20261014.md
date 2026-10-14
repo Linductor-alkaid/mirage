@@ -71,3 +71,63 @@ None，导致movement断言失败；不是生产滚动缺失。改为比较RGB�
 
 物理DPI/多屏、真实compositor alpha、其他在线供应商和M8-06整组避让仍保持开放；
 本记录Completed只指本次授权的部署与Messages在线增量，不关闭整个M8-11/M8。
+
+
+## 多agent并行后的继续交付
+
+维护者提醒并行agent会修改工作区。核对时PR#90已合并到master eb20108；气泡独立
+分支以普通merge同步master（不改写已发布历史），冲突仅涉及已存在的气泡新增行/任务状态，
+合并后的源码树与先前气泡树相同。PR#91将改为以master评审，不合并该PR。
+
+主工作树后来由其他agent在b327b4b中合入气泡分支，并重编译native-release，同时持有
+两份桌面验证/供图代码的未提交改动。已读取确认pet app、bubble投影和Runtime代码与本轮
+先前交付一致；五个产物SHA已变化，但不代表气泡丢失。保留这些新产物和主入口，不用旧包
+覆盖或移除其他agent修改；前面的receipt为首次部署历史，不能当作这次共享构建的当前SHA。
+
+继续补强多行示例/引用/假设及Markdown嵌套节的概括范围，防止把示例里的“已修复”
+变成实际结论。新候选不足时保持提示/有效旧短句，直到实际结果段；不加模型调用或并发。
+新增专用入口 /home/linductor/.local/share/applications/org.mirage.bubbles.desktop，
+名称“Mirage（气泡预览）”，指向独立worktree的build/native-release。主Mirage入口不变，
+共享原产品单owner启动契约和配置；已有Runtime时会复用，加载新Runtime需正常退出托盘后再开。
+GIO descriptor及三条产品路径只读验证通过，未启动/停止用户正在运行的产品。
+
+本增量Release选择集6/6、纯投影新增ASAN/UBSAN各1/1，含中文/英文示例、假设、
+引用延续、Markdown嵌套和实际结果恢复。实现不新增跨线程状态；此前10/10在线证据
+是前一部署增量，不宣称已对本次段落规则重新在线调用模型。日志为
+/tmp/mirage-bubbles-context-{release-test,asan-test,ubsan-test}.log；最终文字变体Release6/6、ASAN1/1、UBSAN1/1以及格式/58头边界检查通过，
+日志使用context-final-*前缀；当前用户Runtime只读探测为未运行，没有终止用户进程。
+
+
+### 追加：后置限定保留
+
+新增“配置已修复。尚未测试。”、“配置已修复。还无法确定结果。”、英文No changes/
+Tests not run等语料，保证后置限定不会被前面的核心成功句压住；限定与动作句按同等
+优先级取较新完整句，旧不确定开场仍可被新事实替换，礼貌No problem不覆盖核心。
+初次英文No changes断言失败，发现否定词表缺no；补齐并排除礼貌表达后，最终Release
+6/6、ASAN1/1、UBSAN1/1通过，日志为 /tmp/mirage-bubbles-qualifier-final-*。
+仅更新独立worktree的native-release，未再复制到共享主产物；专用气泡预览入口加载
+这个后续版本。PR#91已改为master基线，补推保持普通非force方式。
+
+
+## PR#91授权合并前同步master
+
+维护者已明确授权合并PR#91。核对时该PR head cc8bf1d的8项CI全部通过，但
+master f71bedd已合入PR#92，引起Mira gitlink和lock冲突。在独立worktree中
+普通merge同步；Mira 9e7b729包含思考预览22d9577，保留新版本及两项升级notes，
+模型层自动合并保留输入复用identity和独立thinking sink。共享工作树和产物不替换。
+
+本地Debug全量81/81（104.06秒，包含本机可用的PipeWire门禁）；全仓format与
+58个public headers边界检查通过。首次全量构建暴露既有PipeWire测试target的
+PkgConfig导入target目录作用域问题，未收到头文件路径而失败；用本机明确
+MIRAGE_PIPEWIRE_HEADERS=/usr/include/pipewire-0.3、MIRAGE_SPA_HEADERS=/usr/include/spa-0.2、
+MIRAGE_PIPEWIRE_LIBRARY=/usr/lib/x86_64-linux-gnu/libpipewire-0.3.so配置后构建和测试通过，
+不以修气泡为由改动平台代码。初验失败日志保留于/tmp/mirage-pr91-master-sync-build.log；
+最终configure/build/test/quality日志为/tmp/mirage-pr91-master-sync-{configure-sdk,build-sdk,test,quality}.log。
+同步后的远端CI须以新head为准，不继承cc8bf1d的通过结论。
+
+同步后的独立native-release产品目标重建成功，气泡/IPC/Runtime/输入复用选择集8/8
+（15.98秒）。旧/tmp离线模型源已不存在，首次configure因此失败；复用本机已有
+build/native-debug/vision-source/671ac4a72299a86ddee160131ba88fed748df425，
+CMake按锁文件逐项验证SHA-256后构建成功。日志为/tmp/mirage-pr91-native-sync-
+{configure,build,configure-local,build-local,test}.log，保留首次缺文件记录。
+仅更新独立预览入口所指产物，不替换共享native-release。

@@ -3,6 +3,9 @@
 #include <mira/conversation_loop.hpp>
 #include <mira/model_dialect.hpp>
 #include <mirage/integration/desktop_atom_toolset.hpp>
+#include <mutex>
+#include <optional>
+#include <string>
 
 #include <functional>
 #include <optional>
@@ -20,9 +23,19 @@ class DesktopImageSource final : public mira::IArtifactSource {
     bool bind(Store value) { return current_.try_publish(std::move(value)); }
     kairo::comm::CommStats stats() const { return current_.stats(); }
     mira::Result<std::vector<std::byte>> fetch(const mira::ArtifactRef &) override;
+    // DEC-088 capability 1: identity of consecutively re-offered desktop
+    // captures. The ModelLayer's source outlives single harness turns, so the
+    // consecutive count survives across dialog turns; the pinned loop renders
+    // the annotation, this only counts. A different digest or desktop epoch
+    // restarts the count at zero (first supply).
+    mira::InputReuseMeta record_input_reuse(const std::string &digest, std::uint64_t desktop_epoch);
 
   private:
     kairo::comm::LatestMailbox<Store> current_;
+    mutable std::mutex reuse_mutex_;
+    std::string reuse_digest_;
+    std::uint64_t reuse_epoch_ = 0;
+    std::uint32_t reuse_count_ = 0;
 };
 
 // Scoped to one serialized harness task; no image state survives the turn.
@@ -49,13 +62,13 @@ class DesktopImageTurn {
     /// signal wired — degradation fails open.
     using BudgetRemaining = std::function<std::optional<std::int64_t>()>;
     void set_budget_remaining(BudgetRemaining provider);
-    /// DEC-088 capability 1: host-asserted cross-turn identity of the most
-    /// recent supply. Nullopt unless that supply actually offered the current
-    /// image; `reuse_count` is the number of consecutive identical re-offers
-    /// before this one (0 = first supply) and the digest names the identity
-    /// it refers to. Wire into ConversationLoop::set_model_input_identity.
-    std::optional<mira::InputReuseMeta> reuse_identity() const;
     mira::Result<std::vector<mira::ModelInputItem>> supply(const mira::AgentLoopSpec &);
+    /// DEC-088 capability 1: resolves the reuse identity of this request's
+    /// supplied capture under the same owner/cancellation gate as supply();
+    /// nullopt when the request carries no desktop image, so the count never
+    /// advances for text-only requests. Resolved once per assembled request,
+    /// right after supply().
+    std::optional<mira::InputReuseMeta> input_reuse_identity(const mira::AgentLoopSpec &) const;
     mira::Result<void> validate_request(const mira::ModelRequest &, const mira::OperationContext &);
     mira::Result<mira::JsonValue> observe_shared(const std::string &, const std::string &,
                                                  const mira::OperationContext &);
@@ -135,11 +148,5 @@ class DesktopImageTurn {
     bool region_tool_enabled_ = false;
     std::optional<mira::Error> supply_error_;
     BudgetRemaining budget_remaining_;
-    // DEC-088: identity of the image the model actually saw, held across
-    // supplies. Only offers that carried the image advance the count; a
-    // degraded or retired turn pauses it, and a digest change resets it.
-    std::optional<std::string> offered_digest_;
-    std::uint32_t reuse_count_ = 0;
-    bool offered_image_ = false;
 };
 } // namespace mirage::integration::detail

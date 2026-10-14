@@ -63,6 +63,19 @@ mira::Result<std::vector<std::byte>> DesktopImageSource::fetch(const mira::Artif
     return opened.value().bytes();
 }
 
+mira::InputReuseMeta DesktopImageSource::record_input_reuse(const std::string &digest,
+                                                            std::uint64_t desktop_epoch) {
+    const std::lock_guard lock(reuse_mutex_);
+    if (desktop_epoch != reuse_epoch_ || digest != reuse_digest_) {
+        reuse_digest_ = digest;
+        reuse_epoch_ = desktop_epoch;
+        reuse_count_ = 0;
+    } else {
+        ++reuse_count_;
+    }
+    return {digest, reuse_count_, "screenshot"};
+}
+
 DesktopImageTurn::DesktopImageTurn(std::shared_ptr<DesktopImageSource> source,
                                    DesktopToolContext desktop, mira::OperationContext owner,
                                    mirage::desktop::CancelToken cancel, bool supply_images,
@@ -958,7 +971,6 @@ mira::Result<std::vector<mira::ModelInputItem>>
 DesktopImageTurn::supply(const mira::AgentLoopSpec &spec) {
     supply_error_.reset();
     expect_image_ = false;
-    offered_image_ = false;
     if (spec.task_id != owner_.task || spec.session_id != owner_.session ||
         spec.task_epoch != owner_.task_epoch || cancel_.cancelled()) {
         supply_error_ =
@@ -1019,12 +1031,6 @@ DesktopImageTurn::supply(const mira::AgentLoopSpec &spec) {
                     "prefer direct text-based actions and a concise reply.",
                     mira::Sensitivity::Internal});
             }
-            // DEC-088 capability 1: only offers the model actually saw advance
-            // the reuse chain; a digest change restarts it at first supply.
-            auto digest = image_->digest.to_string();
-            reuse_count_ = offered_digest_ && *offered_digest_ == digest ? reuse_count_ + 1 : 0;
-            offered_digest_ = std::move(digest);
-            offered_image_ = true;
         }
     }
     return std::vector<mira::ModelInputItem>{std::move(item)};
@@ -1034,14 +1040,22 @@ void DesktopImageTurn::set_budget_remaining(BudgetRemaining provider) {
     budget_remaining_ = std::move(provider);
 }
 
-std::optional<mira::InputReuseMeta> DesktopImageTurn::reuse_identity() const {
-    if (!offered_image_ || !offered_digest_)
+std::optional<mira::InputReuseMeta>
+DesktopImageTurn::input_reuse_identity(const mira::AgentLoopSpec &spec) const {
+    // The same owner/cancellation gate as supply(): an off-owner request is a
+    // wiring error answered with no identity, never with an annotation.
+    if (spec.task_id != owner_.task || spec.session_id != owner_.session ||
+        spec.task_epoch != owner_.task_epoch || cancel_.cancelled())
         return std::nullopt;
-    mira::InputReuseMeta meta;
-    meta.content_digest = *offered_digest_;
-    meta.reuse_count = reuse_count_;
-    meta.semantic_label = "desktop screenshot";
-    return meta;
+    // Only requests that actually carry this capture advance the count; the
+    // pinned loop annotates image-bearing supplies only, and a request whose
+    // image aged out offered no image to annotate.
+    if (!supply_images_ || !image_ || !expect_image_)
+        return std::nullopt;
+    // Content digest, not artifact id: a recapture of identical pixels is the
+    // same sight for the model (DEC-055 reuses the artifact for it), while a
+    // new artifact of changed content restarts the count.
+    return source_->record_input_reuse(image_->digest.to_string(), desktop_.actions->epoch());
 }
 
 mira::Result<void> DesktopImageTurn::validate_request(const mira::ModelRequest &request,

@@ -1219,11 +1219,13 @@ DialogCompletion ModelLayer::complete_harness_turn(
         mira::ConversationLoop loop(*impl_->gateway, loop_config);
         loop.set_tool_registry(registry);
         loop.set_model_input_supplier(supply_input);
-        // DEC-088 capability 1: the host owns the cross-turn identity of the
-        // supplied image; the loop only renders the third-supply annotation.
-        if (image_turn)
-            loop.set_model_input_identity(
-                [&image_turn](const auto &) { return image_turn->reuse_identity(); });
+        // DEC-088 capability 1: the persistent desktop source owns the
+        // cross-dialog-turn reuse count; the pinned loop renders the note from
+        // the third consecutive identical capture.
+        loop.set_model_input_identity([&image_turn](const mira::AgentLoopSpec &identity_spec) {
+            return image_turn ? image_turn->input_reuse_identity(identity_spec)
+                              : std::optional<mira::InputReuseMeta>{};
+        });
         // DEC-088 capability 2/3 (MIRA-20261014-006): compact the canonical
         // tool-history replay through Mira's Layer 0 with the desktop
         // watermarks. An undeclared window keeps the raw replay (fail-open);

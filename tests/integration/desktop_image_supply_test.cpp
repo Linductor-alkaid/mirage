@@ -1027,6 +1027,122 @@ void native_region_sources() {
     }
 }
 
+// DEC-088 capability 1: the persistent desktop source counts consecutively
+// re-offered captures across requests and dialog turns; the turn resolves the
+// identity only for image-bearing, on-owner requests, keyed by content digest
+// (a recapture of identical pixels is the same sight; changed pixels restart).
+void input_reuse_identity() {
+    auto env = std::make_shared<NativeEnvironment>();
+    env->interactive = true;
+    env->frame_width = 8;
+    env->frame_height = 4;
+    const auto pixel = [](int x, int y) {
+        return std::array<std::uint8_t, 4>{
+            static_cast<std::uint8_t>(x * 13 + 3), static_cast<std::uint8_t>(y * 11 + 5),
+            static_cast<std::uint8_t>((x * 7 + y * 3) & 0xFF), std::uint8_t{255}};
+    };
+    env->session_pixels = [&] {
+        std::vector<std::uint8_t> pixels(std::size_t(env->frame_width) *
+                                         std::size_t(env->frame_height) * 4);
+        for (int y = 0; y < env->frame_height; ++y)
+            for (int x = 0; x < env->frame_width; ++x)
+                for (std::size_t channel = 0; channel < 4; ++channel)
+                    pixels[(std::size_t(y) * std::size_t(env->frame_width) + std::size_t(x)) * 4 +
+                           channel] = pixel(x, y)[channel];
+        return pixels;
+    };
+    auto tools = desktop();
+    tools.environment = env;
+    tools.gate = [](const auto &, const auto &, const auto &cancel) { return !cancel(); };
+    auto source = std::make_shared<detail::DesktopImageSource>();
+    auto ctx = context();
+    mirage::desktop::CancelToken stop;
+    mira::AgentLoopSpec spec;
+    spec.task_id = ctx.task;
+    spec.session_id = ctx.session;
+    spec.task_epoch = ctx.task_epoch;
+    const auto run_capture = [&](mira::BuiltinToolRegistry &registry, const char *json) {
+        const auto exposed = registry.exposed_tools();
+        const auto tool = std::find_if(exposed.begin(), exposed.end(), [](const auto &candidate) {
+            return candidate.wire_name == "desktop.screen.capture";
+        });
+        check(tool != exposed.end());
+        mira::ToolProposal call;
+        call.tool_id = tool->tool_id;
+        call.tool_version = tool->version;
+        call.wire_name = tool->wire_name;
+        call.operation_id = mira::OperationId::generate();
+        call.provider_call_id.value = "reuse-capture";
+        call.arguments = mira::parse_json(json).value();
+        call.arguments_digest = mira::canonical_json_digest(call.arguments);
+        return registry.execute(call, ctx);
+    };
+    std::string digest;
+    {
+        // One capture re-offered on three requests: the counts run 0, 1, 2.
+        detail::DesktopImageTurn turn(source, tools, ctx, stop);
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, true);
+        const auto captured =
+            run_capture(registry, R"({"source":"roi","x":0,"y":0,"width":4,"height":2})");
+        check(captured && !captured.value().failed);
+        for (std::uint32_t round = 0; round < 3; ++round) {
+            const auto supplied = turn.supply(spec);
+            check(supplied.has_value());
+            const auto identity = turn.input_reuse_identity(spec);
+            check(identity.has_value());
+            check(identity->semantic_label == "screenshot");
+            check(identity->reuse_count == round);
+            check(identity->content_digest.size() == std::size_t{64});
+            if (!round)
+                digest = identity->content_digest;
+            check(identity->content_digest == digest);
+        }
+    }
+    {
+        // A second dialog turn on the same persistent source continues the
+        // count; a text-only request neither carries an image nor advances it.
+        detail::DesktopImageTurn turn(source, tools, ctx, stop);
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, true);
+        {
+            const auto supplied = turn.supply(spec);
+            check(supplied.has_value());
+            check(!turn.input_reuse_identity(spec).has_value());
+        }
+        const auto captured =
+            run_capture(registry, R"({"source":"roi","x":0,"y":0,"width":4,"height":2})");
+        check(captured && !captured.value().failed);
+        const auto supplied = turn.supply(spec);
+        check(supplied.has_value());
+        const auto identity = turn.input_reuse_identity(spec);
+        check(identity.has_value());
+        check(identity->reuse_count == 3);
+        check(identity->content_digest == digest);
+        // An off-owner spec is a wiring error answered without an identity.
+        mira::AgentLoopSpec foreign;
+        foreign.task_id = mira::TaskId::generate();
+        foreign.session_id = ctx.session;
+        foreign.task_epoch = ctx.task_epoch;
+        check(!turn.input_reuse_identity(foreign).has_value());
+    }
+    {
+        // Changed pixels (different crop) restart the count at zero.
+        detail::DesktopImageTurn turn(source, tools, ctx, stop);
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, true);
+        const auto captured =
+            run_capture(registry, R"({"source":"roi","x":2,"y":1,"width":4,"height":2})");
+        check(captured && !captured.value().failed);
+        const auto supplied = turn.supply(spec);
+        check(supplied.has_value());
+        const auto identity = turn.input_reuse_identity(spec);
+        check(identity.has_value());
+        check(identity->reuse_count == 0);
+        check(identity->content_digest != digest);
+    }
+}
+
 class Script final : public mira::IModelProvider {
   public:
     explicit Script(mira::ModelProfile profile) : profile_(std::move(profile)) {}
@@ -1993,108 +2109,6 @@ void capability_receipts() {
     }
 }
 
-// DEC-088 capability 1: the host-asserted cross-turn identity of the supplied
-// desktop image. Only supplies that actually carried the image expose an
-// identity and advance the count; retired, foreign-spec and empty supplies
-// expose none while the digest chain is retained, so an identical re-offer
-// after such a turn continues the count instead of restarting it.
-void input_reuse_identity() {
-    auto tools = desktop();
-    auto env = std::static_pointer_cast<mirage::testing::FakeDesktopEnvironment>(tools.environment);
-    auto source = std::make_shared<detail::DesktopImageSource>();
-    const auto ctx = context();
-    mira::AgentLoopSpec spec;
-    spec.task_id = ctx.task;
-    spec.session_id = ctx.session;
-    spec.task_epoch = ctx.task_epoch;
-    const auto capture_once = [&](detail::DesktopImageTurn &turn) {
-        mira::BuiltinToolRegistry registry;
-        turn.register_tool(registry, {});
-        const auto exposed = registry.exposed_tools();
-        const auto capture = std::find_if(exposed.begin(), exposed.end(), [](const auto &tool) {
-            return tool.wire_name == "desktop.screen.capture";
-        });
-        check(capture != exposed.end());
-        mira::ToolProposal proposal;
-        proposal.tool_id = capture->tool_id;
-        proposal.tool_version = capture->version;
-        proposal.wire_name = capture->wire_name;
-        proposal.arguments = mira::parse_json(R"({"source":"display","source_id":"d1"})").value();
-        proposal.arguments_digest = mira::canonical_json_digest(proposal.arguments);
-        const auto outcome = registry.execute(proposal, ctx);
-        check(outcome && !outcome.value().failed);
-    };
-    const auto image_digest = [&](const std::vector<mira::ModelInputItem> &supplied) {
-        const auto &image = std::get<mira::ImagePart>(supplied.front().content.back());
-        return image.source.digest.to_string();
-    };
-    detail::DesktopImageTurn turn(source, tools, ctx, {});
-    // Before any capture and on empty supplies there is no identity.
-    check(!turn.reuse_identity());
-    check(turn.supply(spec).value().empty());
-    check(!turn.reuse_identity());
-    capture_once(turn);
-    const auto first = turn.supply(spec);
-    check(first && first.value().size() == 1);
-    auto identity = turn.reuse_identity();
-    check(identity.has_value());
-    check(identity->reuse_count == 0);
-    check(identity->semantic_label == "desktop screenshot");
-    check(!identity->content_digest.empty() &&
-          identity->content_digest == image_digest(first.value()));
-    const auto first_digest = identity->content_digest;
-    // Re-offering the same image without a recapture advances the count.
-    for (const auto expected : {1u, 2u}) {
-        const auto again = turn.supply(spec);
-        check(again && again.value().size() == 1);
-        identity = turn.reuse_identity();
-        check(identity.has_value() && identity->reuse_count == expected &&
-              identity->content_digest == first_digest);
-    }
-    // A changed image restarts the chain at zero under its own digest.
-    env->set_pixel_value(0xA5);
-    capture_once(turn);
-    const auto changed = turn.supply(spec);
-    check(changed && changed.value().size() == 1);
-    identity = turn.reuse_identity();
-    check(identity.has_value() && identity->reuse_count == 0);
-    check(identity->content_digest == image_digest(changed.value()));
-    check(identity->content_digest != first_digest);
-    const auto changed_digest = identity->content_digest;
-    // An epoch change retires the image: the retired round exposes no
-    // identity and does not advance the count.
-    tools.actions->takeover();
-    const auto retired = turn.supply(spec);
-    check(retired && retired.value().size() == 1 && retired.value().front().content.size() == 1);
-    check(std::holds_alternative<mira::TextPart>(retired.value().front().content.back()));
-    check(std::get<mira::TextPart>(retired.value().front().content.back()).text.find("retired") !=
-          std::string::npos);
-    check(!turn.reuse_identity());
-    // A fresh capture of identical pixels restores the same digest; the
-    // retained chain continues (retired rounds pause, not reset).
-    (void)tools.actions->resume();
-    capture_once(turn);
-    const auto restored = turn.supply(spec);
-    check(restored && restored.value().size() == 1);
-    identity = turn.reuse_identity();
-    check(identity.has_value() && identity->reuse_count == 1 &&
-          identity->content_digest == changed_digest);
-    // A supply that fails the owner check exposes no identity either.
-    auto foreign_spec = spec;
-    foreign_spec.task_epoch++;
-    check(!turn.supply(foreign_spec));
-    check(!turn.reuse_identity());
-    // A turn built without image supply never exposes an identity.
-    const auto other_ctx = context();
-    detail::DesktopImageTurn text_only(source, tools, other_ctx, {}, false);
-    mira::AgentLoopSpec other_spec;
-    other_spec.task_id = other_ctx.task;
-    other_spec.session_id = other_ctx.session;
-    other_spec.task_epoch = other_ctx.task_epoch;
-    check(text_only.supply(other_spec).value().empty());
-    check(!text_only.reuse_identity());
-}
-
 // DEC-088 capability 5: budget-aware image degradation against the injected
 // remaining-budget signal. Above the warn bound the image ships unchanged;
 // down to the degrade bound it ships with exactly one skip-analysis notice;
@@ -2165,15 +2179,18 @@ void budget_degradation() {
     const auto plain = turn.supply(spec);
     auto parts = scan(plain.value());
     check(parts.images == 1 && parts.warnings == 0);
+    check(turn.input_reuse_identity(spec).has_value());
     wired = true;
     const auto open = turn.supply(spec);
     parts = scan(open.value());
     check(parts.images == 1 && parts.warnings == 0);
+    check(turn.input_reuse_identity(spec).has_value());
     // Healthy budget: unchanged.
     remaining = 25'000;
     const auto healthy = turn.supply(spec);
     parts = scan(healthy.value());
     check(parts.images == 1 && parts.warnings == 0);
+    check(turn.input_reuse_identity(spec).has_value());
     // Warn band, both bounds included: image plus exactly one notice.
     for (const auto value : {20'000, 15'000, 10'001}) {
         remaining = value;
@@ -2181,6 +2198,7 @@ void budget_degradation() {
         parts = scan(warned.value());
         check(parts.images == 1 && parts.warnings == 1);
         check(parts.text.find("Skip detailed image analysis") != std::string::npos);
+        check(turn.input_reuse_identity(spec).has_value());
     }
     // Degrade band, boundary included: the image is withheld.
     for (const auto value : {10'000, 8'000}) {
@@ -2195,7 +2213,7 @@ void budget_degradation() {
         check(notice.text.find("withheld") != std::string::npos);
         check(notice.text.find(std::to_string(value)) != std::string::npos);
         check(notice.text.find("Last image: 128x64 pixels.") != std::string::npos);
-        check(!turn.reuse_identity());
+        check(!turn.input_reuse_identity(spec));
         // The withheld-image request validates without demanding an image.
         mira::ModelRequest request;
         request.task_id = ctx.task;
@@ -2208,7 +2226,7 @@ void budget_degradation() {
     const auto resumed = turn.supply(spec);
     parts = scan(resumed.value());
     check(parts.images == 1 && parts.warnings == 0);
-    const auto identity = turn.reuse_identity();
+    const auto identity = turn.input_reuse_identity(spec);
     check(identity.has_value());
     // Six image offers so far (counts 0..5); the degraded rounds did not
     // advance or reset the chain, so this offer continues at 6.
@@ -2389,7 +2407,6 @@ int main() {
             native_ocr_loop(executor, mode);
         shared_loop(executor);
         contracts(executor);
-        input_reuse_identity();
         budget_degradation();
         anchored_remaining_unit();
         reuse_annotation_end_to_end(executor);
@@ -2430,6 +2447,7 @@ int main() {
         rejected_layer.shutdown();
         png_content_matrix();
         native_region_sources();
+        input_reuse_identity();
         capability_receipts();
         // Publish the fixture manifest for the independent Python decoder
         // (tests/manual/desktop_png_decode_check.py).
