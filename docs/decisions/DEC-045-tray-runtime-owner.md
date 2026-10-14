@@ -27,6 +27,14 @@ Workflow，存在活动时打开前端退出确认，取消保持工作，确认
 
 ## 影响与验证边界
 
+2026-10-14（BUG-20261014-004/006）：Windows 安装的开始菜单改用 GUI 子系统
+`mirage-launcher`，共享 CLI 控制面并自动调用 start；CLI `mirage.exe` 继续是控制台程序。
+启动失败通过图形错误框展示已有错误文本。托盘进程本身也链接 GUI 子系统；所有权和
+IPC 准入保持既有契约。Windows 原生菜单使用 owner-draw 保留 HMENU 键盘/禁用/关闭行为，
+基准字号 16 px、最小行高 40 px、最小宽度 220 px、水平留白 20 px，随调用所在显示器 DPI
+缩放；颜色复用系统菜单/高亮/禁用调色板，退出项前分隔。原动作仍经既有 Executor 派发。
+验证见 [维护计划](../plans/maintenance-windows-presentation-20261014.md)。
+
 此决策替代DEC-007/030中产品Tray仅作为独立Service客户端的部分；开发headless
 Service契约保留。M6-24历史三进程证据不作为新拓扑通过依据。Linux私有真实DBus/
 SNI/X11验收与故障注入在本机执行；Windows/Wayland/真实通知区呈现需维护者目标

@@ -1,4 +1,5 @@
 #include "tray_backend.hpp"
+#include "tray_menu.hpp"
 
 #include "win32_util.hpp"
 
@@ -52,6 +53,7 @@ struct TrayPumpState {
     TrayCarrierContext context;
     TrayState state;     ///< newest loaded presentation state
     std::wstring status; ///< UTF-16 of state.status (tooltip budget clamped)
+    TrayMenuPresentation *menu_presentation = nullptr; // only during native menu tracking
 };
 
 /// Shell_NotifyIcon tooltip budget: szTip is 128 wchar_t including the
@@ -71,6 +73,16 @@ LRESULT CALLBACK tray_window_proc(HWND window, UINT message, WPARAM wparam, LPAR
     if (state == nullptr) {
         return ::DefWindowProcW(window, message, wparam, lparam);
     }
+    if (state->menu_presentation && message == WM_MEASUREITEM) {
+        auto *value = reinterpret_cast<MEASUREITEMSTRUCT *>(lparam);
+        if (value && state->menu_presentation->measure(*value))
+            return TRUE;
+    }
+    if (state->menu_presentation && message == WM_DRAWITEM) {
+        auto *value = reinterpret_cast<DRAWITEMSTRUCT *>(lparam);
+        if (value && state->menu_presentation->draw(*value))
+            return TRUE;
+    }
     if (message == kIconCallbackMessage) {
         // A click on the resident icon: show the context menu at the cursor
         // (the TrackPopupMenu focus discipline: SetForegroundWindow first,
@@ -80,27 +92,40 @@ LRESULT CALLBACK tray_window_proc(HWND window, UINT message, WPARAM wparam, LPAR
             if (menu == nullptr) {
                 return 0;
             }
-            const auto append = [&](UINT flags, UINT_PTR id, const wchar_t *text) {
-                ::AppendMenuW(menu, flags, id, text);
-            };
-            append(MF_STRING | (state->state.can_open_shell ? MF_ENABLED : MF_GRAYED),
-                   kMenuOpenShell, L"打开应用");
+            POINT cursor{};
+            ::GetCursorPos(&cursor);
+            // Place the hidden owner on the invoking monitor before querying DPI.
+            ::SetWindowPos(window, nullptr, cursor.x, cursor.y, 0, 0,
+                           SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            using GetDpi = UINT(WINAPI *)(HWND);
+            const auto get_dpi = reinterpret_cast<GetDpi>(
+                ::GetProcAddress(::GetModuleHandleW(L"user32.dll"), "GetDpiForWindow"));
+            TrayMenuPresentation presentation(get_dpi ? get_dpi(window) : 96);
+            state->menu_presentation = &presentation;
+            bool menu_ready =
+                presentation.append(menu, kMenuOpenShell, L"打开应用", state->state.can_open_shell);
             if (!state->state.pet_label.empty()) {
                 const auto pet_label =
                     win32_util::utf8_to_utf16(state->state.pet_label).value_or(L"桌宠");
-                append(MF_STRING | (state->state.can_toggle_pet ? MF_ENABLED : MF_GRAYED), kMenuPet,
-                       pet_label.c_str());
+                menu_ready =
+                    presentation.append(menu, kMenuPet, pet_label, state->state.can_toggle_pet) &&
+                    menu_ready;
             }
-            append(MF_STRING, kMenuQuit, L"退出应用");
+            menu_ready = (::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr) != 0) && menu_ready;
+            menu_ready = presentation.append(menu, kMenuQuit, L"退出应用", true) && menu_ready;
+            if (!menu_ready) {
+                state->menu_presentation = nullptr;
+                ::DestroyMenu(menu);
+                return 0;
+            }
             ::SetForegroundWindow(window);
-            POINT cursor{};
-            ::GetCursorPos(&cursor);
             // TrackPopupMenuEx returns BOOL (= int on both SDKs); with
             // TPM_RETURNCMD the value is the chosen command id.
             const int command =
                 ::TrackPopupMenuEx(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY, cursor.x,
                                    cursor.y, window, nullptr);
             ::DestroyMenu(menu);
+            state->menu_presentation = nullptr;
             ::PostMessageW(window, WM_NULL, 0, 0); // settle the foreground switch
             if (command == kMenuPet && state->state.can_toggle_pet && state->context.on_action)
                 state->context.on_action(state->state.pet_running ? TrayAction::PetStop
