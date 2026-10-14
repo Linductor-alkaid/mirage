@@ -1,9 +1,9 @@
 # M5-11 (DEC-031): build the Mirage Windows installer with NSIS.
 # FAIL CLOSED: makensis must be on PATH (choco install nsis on the release
 # machine); a missing toolchain aborts instead of producing a partial
-# installer. The product binaries must already sit in the release tree
-# (built by the MSVC release configuration; see the M5-11 verification
-# record for the payload layout).
+# installer. The payload directory must already hold the assembled layout —
+# produce it with stage-payload.ps1 (the build tree scatters the exes across
+# per-target directories; see the M5-11 verification record).
 param(
     [string]$BinDir = "..\..\build\release\bin",
     [string]$Version = "0.1.0"

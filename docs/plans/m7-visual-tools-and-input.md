@@ -1095,3 +1095,24 @@ win32_observation_e2e_test（CI runner 74 checks）继续承载。开放边界�
 「桌面工具」页与真实桌面任务/OCR 的 Windows 产品预览待后续增量（OCR 依赖
 M7-13 的 Windows 资源面）。本轮未修改 pinned 依赖、未调用在线模型；提交
 于 feat 分支，CI windows 门禁（MSVC 全树 + 测试 + 产品往返）随 MR 复验。
+
+2026-10-14 / M7-12 Windows 产品进程树与安装器取证：产品进程树首次在
+Windows 实机整体运行。`packaging/windows/stage-payload.ps1`（新增）从构建
+树组装产品载荷——四个产品进程与完整资产面（补齐此前 NSIS 脚本缺失的
+mira.ico/Phosphor 字体对/providers 目录）到一个目录，即 tray 运行时按
+可执行同级解析 native/pet 的正确聚合点。staged 载荷启动 mirage-tray
+（product，带 shell）：mirage-native 进程拉起且前台窗口 "Mirage · Agent"
+可见，产品运行时六面能力行全 on（PR #93 接线），service status / shutdown
+经命名管道退出 0，shutdown 后双进程全部干净退出。`mira_pet` 为第三进程的
+阻塞项：Windows 配置即失败（pet 预览经 pkg-config 找 libwebpdemux，本机
+无此设施），按 M8-08 单独承接，安装器暂不含 pet。
+
+安装器（DEC-031 Windows 侧补跑条件首证）：makensis 本机构建
+`mirage-installer.exe`；冒烟以测试期派生的 user 级变体执行（非提权 shell
+无法承载 admin 清单的 UAC，派生仅替换 RequestExecutionLevel 与
+HKLM→HKCU 冒烟键名，File/资产/快捷方式/卸载机制与正式脚本一致）：
+静默安装到独立目录后文件/注册表核验、安装目录内以 Release 载荷重复进程
+树冒烟、静默卸载后目录与注册表清理核验通过。HKLM 管理员路径与
+Authenticode 签名保持发布机边界（fail-closed 脚本未变）；Release 运行库（/MD）以
+用户机 VC++ Redistributable 为前提，安装器暂不捆绑 vc_redist，留待发布
+增量决策。本轮未修改 pinned 依赖、未调用在线模型；提交于 feat 分支。
