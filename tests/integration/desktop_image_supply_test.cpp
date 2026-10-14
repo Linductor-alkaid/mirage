@@ -1,3 +1,4 @@
+#include "../../integration/mira/src/conversation_capture.hpp"
 #include "../../integration/mira/src/desktop_action_verification.hpp"
 #include "../../integration/mira/src/desktop_image_supply.hpp"
 #include "../support/fake_desktop_environment.hpp"
@@ -1991,6 +1992,364 @@ void capability_receipts() {
         }
     }
 }
+
+// DEC-088 capability 1: the host-asserted cross-turn identity of the supplied
+// desktop image. Only supplies that actually carried the image expose an
+// identity and advance the count; retired, foreign-spec and empty supplies
+// expose none while the digest chain is retained, so an identical re-offer
+// after such a turn continues the count instead of restarting it.
+void input_reuse_identity() {
+    auto tools = desktop();
+    auto env = std::static_pointer_cast<mirage::testing::FakeDesktopEnvironment>(tools.environment);
+    auto source = std::make_shared<detail::DesktopImageSource>();
+    const auto ctx = context();
+    mira::AgentLoopSpec spec;
+    spec.task_id = ctx.task;
+    spec.session_id = ctx.session;
+    spec.task_epoch = ctx.task_epoch;
+    const auto capture_once = [&](detail::DesktopImageTurn &turn) {
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {});
+        const auto exposed = registry.exposed_tools();
+        const auto capture = std::find_if(exposed.begin(), exposed.end(), [](const auto &tool) {
+            return tool.wire_name == "desktop.screen.capture";
+        });
+        check(capture != exposed.end());
+        mira::ToolProposal proposal;
+        proposal.tool_id = capture->tool_id;
+        proposal.tool_version = capture->version;
+        proposal.wire_name = capture->wire_name;
+        proposal.arguments = mira::parse_json(R"({"source":"display","source_id":"d1"})").value();
+        proposal.arguments_digest = mira::canonical_json_digest(proposal.arguments);
+        const auto outcome = registry.execute(proposal, ctx);
+        check(outcome && !outcome.value().failed);
+    };
+    const auto image_digest = [&](const std::vector<mira::ModelInputItem> &supplied) {
+        const auto &image = std::get<mira::ImagePart>(supplied.front().content.back());
+        return image.source.digest.to_string();
+    };
+    detail::DesktopImageTurn turn(source, tools, ctx, {});
+    // Before any capture and on empty supplies there is no identity.
+    check(!turn.reuse_identity());
+    check(turn.supply(spec).value().empty());
+    check(!turn.reuse_identity());
+    capture_once(turn);
+    const auto first = turn.supply(spec);
+    check(first && first.value().size() == 1);
+    auto identity = turn.reuse_identity();
+    check(identity.has_value());
+    check(identity->reuse_count == 0);
+    check(identity->semantic_label == "desktop screenshot");
+    check(!identity->content_digest.empty() &&
+          identity->content_digest == image_digest(first.value()));
+    const auto first_digest = identity->content_digest;
+    // Re-offering the same image without a recapture advances the count.
+    for (const auto expected : {1u, 2u}) {
+        const auto again = turn.supply(spec);
+        check(again && again.value().size() == 1);
+        identity = turn.reuse_identity();
+        check(identity.has_value() && identity->reuse_count == expected &&
+              identity->content_digest == first_digest);
+    }
+    // A changed image restarts the chain at zero under its own digest.
+    env->set_pixel_value(0xA5);
+    capture_once(turn);
+    const auto changed = turn.supply(spec);
+    check(changed && changed.value().size() == 1);
+    identity = turn.reuse_identity();
+    check(identity.has_value() && identity->reuse_count == 0);
+    check(identity->content_digest == image_digest(changed.value()));
+    check(identity->content_digest != first_digest);
+    const auto changed_digest = identity->content_digest;
+    // An epoch change retires the image: the retired round exposes no
+    // identity and does not advance the count.
+    tools.actions->takeover();
+    const auto retired = turn.supply(spec);
+    check(retired && retired.value().size() == 1 && retired.value().front().content.size() == 1);
+    check(std::holds_alternative<mira::TextPart>(retired.value().front().content.back()));
+    check(std::get<mira::TextPart>(retired.value().front().content.back()).text.find("retired") !=
+          std::string::npos);
+    check(!turn.reuse_identity());
+    // A fresh capture of identical pixels restores the same digest; the
+    // retained chain continues (retired rounds pause, not reset).
+    (void)tools.actions->resume();
+    capture_once(turn);
+    const auto restored = turn.supply(spec);
+    check(restored && restored.value().size() == 1);
+    identity = turn.reuse_identity();
+    check(identity.has_value() && identity->reuse_count == 1 &&
+          identity->content_digest == changed_digest);
+    // A supply that fails the owner check exposes no identity either.
+    auto foreign_spec = spec;
+    foreign_spec.task_epoch++;
+    check(!turn.supply(foreign_spec));
+    check(!turn.reuse_identity());
+    // A turn built without image supply never exposes an identity.
+    const auto other_ctx = context();
+    detail::DesktopImageTurn text_only(source, tools, other_ctx, {}, false);
+    mira::AgentLoopSpec other_spec;
+    other_spec.task_id = other_ctx.task;
+    other_spec.session_id = other_ctx.session;
+    other_spec.task_epoch = other_ctx.task_epoch;
+    check(text_only.supply(other_spec).value().empty());
+    check(!text_only.reuse_identity());
+}
+
+// DEC-088 capability 5: budget-aware image degradation against the injected
+// remaining-budget signal. Above the warn bound the image ships unchanged;
+// down to the degrade bound it ships with exactly one skip-analysis notice;
+// at or below it the image is withheld for an Internal text description,
+// validate_request must not demand the withheld image, and the supply exposes
+// no reuse identity. Degraded rounds pause the chain instead of resetting it.
+void budget_degradation() {
+    auto tools = desktop();
+    auto env = std::static_pointer_cast<mirage::testing::FakeDesktopEnvironment>(tools.environment);
+    (void)env;
+    auto source = std::make_shared<detail::DesktopImageSource>();
+    const auto ctx = context();
+    mira::AgentLoopSpec spec;
+    spec.task_id = ctx.task;
+    spec.session_id = ctx.session;
+    spec.task_epoch = ctx.task_epoch;
+    struct Scan {
+        std::size_t images = 0;
+        std::size_t warnings = 0;
+        std::string text;
+    };
+    const auto scan = [&](const std::vector<mira::ModelInputItem> &supplied) {
+        Scan result;
+        for (const auto &item : supplied)
+            for (const auto &part : item.content) {
+                if (std::holds_alternative<mira::ImagePart>(part))
+                    ++result.images;
+                if (const auto *value = std::get_if<mira::TextPart>(&part)) {
+                    result.text += value->text + "\n";
+                    if (value->sensitivity == mira::Sensitivity::Internal &&
+                        value->text.find("[Context budget low]") != std::string::npos)
+                        ++result.warnings;
+                }
+            }
+        return result;
+    };
+    const auto capture_once = [&](detail::DesktopImageTurn &turn) {
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {});
+        const auto exposed = registry.exposed_tools();
+        const auto capture = std::find_if(exposed.begin(), exposed.end(), [](const auto &tool) {
+            return tool.wire_name == "desktop.screen.capture";
+        });
+        check(capture != exposed.end());
+        mira::ToolProposal proposal;
+        proposal.tool_id = capture->tool_id;
+        proposal.tool_version = capture->version;
+        proposal.wire_name = capture->wire_name;
+        proposal.arguments = mira::parse_json(R"({"source":"display","source_id":"d1"})").value();
+        proposal.arguments_digest = mira::canonical_json_digest(proposal.arguments);
+        const auto outcome = registry.execute(proposal, ctx);
+        check(outcome && !outcome.value().failed);
+    };
+    // Without any wired signal the image ships unchanged (fail open).
+    {
+        detail::DesktopImageTurn turn(source, tools, ctx, {});
+        capture_once(turn);
+        const auto supplied = turn.supply(spec);
+        const auto parts = scan(supplied.value());
+        check(parts.images == 1 && parts.warnings == 0);
+    }
+    detail::DesktopImageTurn turn(source, tools, ctx, {});
+    capture_once(turn);
+    std::optional<std::int64_t> remaining;
+    bool wired = false;
+    turn.set_budget_remaining([&] { return wired ? remaining : std::nullopt; });
+    // Unwired provider and an explicit nullopt both ship the plain image.
+    const auto plain = turn.supply(spec);
+    auto parts = scan(plain.value());
+    check(parts.images == 1 && parts.warnings == 0);
+    wired = true;
+    const auto open = turn.supply(spec);
+    parts = scan(open.value());
+    check(parts.images == 1 && parts.warnings == 0);
+    // Healthy budget: unchanged.
+    remaining = 25'000;
+    const auto healthy = turn.supply(spec);
+    parts = scan(healthy.value());
+    check(parts.images == 1 && parts.warnings == 0);
+    // Warn band, both bounds included: image plus exactly one notice.
+    for (const auto value : {20'000, 15'000, 10'001}) {
+        remaining = value;
+        const auto warned = turn.supply(spec);
+        parts = scan(warned.value());
+        check(parts.images == 1 && parts.warnings == 1);
+        check(parts.text.find("Skip detailed image analysis") != std::string::npos);
+    }
+    // Degrade band, boundary included: the image is withheld.
+    for (const auto value : {10'000, 8'000}) {
+        remaining = value;
+        const auto degraded = turn.supply(spec);
+        parts = scan(degraded.value());
+        check(parts.images == 0 && parts.warnings == 1);
+        check(degraded.value().size() == 1 && degraded.value().front().content.size() == 1);
+        const auto &notice = std::get<mira::TextPart>(degraded.value().front().content.front());
+        check(notice.sensitivity == mira::Sensitivity::Internal);
+        check(notice.text.find("[Context budget low]") != std::string::npos);
+        check(notice.text.find("withheld") != std::string::npos);
+        check(notice.text.find(std::to_string(value)) != std::string::npos);
+        check(notice.text.find("Last image: 128x64 pixels.") != std::string::npos);
+        check(!turn.reuse_identity());
+        // The withheld-image request validates without demanding an image.
+        mira::ModelRequest request;
+        request.task_id = ctx.task;
+        request.task_epoch = ctx.task_epoch;
+        request.input = degraded.value();
+        check(bool(turn.validate_request(request, ctx)));
+    }
+    // The chain pauses across degraded rounds: the next real offer continues.
+    remaining = 25'000;
+    const auto resumed = turn.supply(spec);
+    parts = scan(resumed.value());
+    check(parts.images == 1 && parts.warnings == 0);
+    const auto identity = turn.reuse_identity();
+    check(identity.has_value());
+    // Six image offers so far (counts 0..5); the degraded rounds did not
+    // advance or reset the chain, so this offer continues at 6.
+    check(identity->reuse_count == 6);
+}
+
+// Stub provider whose only job is to report a configurable usage line, so the
+// ObservedProvider anchor table can be exercised directly.
+class UsageStubProvider final : public mira::IModelProvider {
+  public:
+    mira::ModelProfile profile_;
+    std::optional<std::uint64_t> input_tokens;
+    mira::UsageQuality quality = mira::UsageQuality::ProviderReported;
+    explicit UsageStubProvider(mira::ModelProfile profile) : profile_(std::move(profile)) {}
+    const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.status = mira::ModelCompletionStatus::Completed;
+        response.usage.quality = quality;
+        response.usage.input_tokens = input_tokens;
+        mira::MessageOutput message;
+        message.content.emplace_back(mira::OutputTextPart{"ok", {}});
+        response.output.emplace_back(std::move(message));
+        return response;
+    }
+};
+
+// DEC-088 capability 5: the anchored remaining-budget signal fails open
+// (nullopt) without a declared window or without an anchor for the session,
+// anchors only on provider-reported/exact usage, and then reads
+// window − provider input − the DEC-087 reserve.
+void anchored_remaining_unit() {
+    mira::ModelProfile profile;
+    profile.id = mira::ModelProfileId::generate();
+    profile.model_selector = "usage-fixture";
+    auto stub = std::make_shared<UsageStubProvider>(profile);
+    detail::ObservedProvider observed(stub);
+    const auto ctx = context();
+    const std::string session_key = ctx.session.to_string();
+    // No declared window: fail open.
+    check(!observed.anchored_remaining(session_key).has_value());
+    observed.context_window = 50'000;
+    // Declared window but no anchor yet, and unknown sessions stay nullopt.
+    check(!observed.anchored_remaining(session_key).has_value());
+    check(!observed.anchored_remaining("unknown-session").has_value());
+    mira::ModelRequest request;
+    request.task_id = ctx.task;
+    request.task_epoch = ctx.task_epoch;
+    stub->input_tokens = 4'200;
+    // Estimated usage must not anchor the session.
+    stub->quality = mira::UsageQuality::Estimated;
+    check(bool(observed.infer(request, ctx, {})));
+    check(!observed.anchored_remaining(session_key).has_value());
+    // Provider-reported usage anchors it.
+    stub->quality = mira::UsageQuality::ProviderReported;
+    check(bool(observed.infer(request, ctx, {})));
+    const auto remaining = observed.anchored_remaining(session_key);
+    check(remaining.has_value() && *remaining == 50'000 - 4'200 - 1'000);
+    check(!observed.anchored_remaining("unknown-session").has_value());
+}
+
+// DEC-088 capability 1 end to end: identical pixels keep one content digest,
+// so three consecutive supplies annotate the third request through the loop
+// identity seam and the count surfaces on DialogCompletion.
+class ReuseScript final : public mira::IModelProvider {
+  public:
+    mira::ModelProfile profile_;
+    std::vector<mira::ModelRequest> requests;
+    explicit ReuseScript(mira::ModelProfile profile) : profile_(std::move(profile)) {}
+    const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        requests.push_back(request);
+        mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.status = mira::ModelCompletionStatus::Completed;
+        if (requests.size() <= 3) {
+            const auto tool =
+                std::find_if(request.tools.begin(), request.tools.end(), [&](const auto &value) {
+                    return value.wire_name == "desktop_screen_capture";
+                });
+            check(tool != request.tools.end());
+            mira::ToolCallOutput call;
+            call.provider_call_id.value = "reuse-capture-" + std::to_string(requests.size());
+            call.tool_id = tool->tool_id;
+            call.provider_name = tool->wire_name;
+            call.arguments = mira::parse_json(R"({"source":"display","source_id":"d1"})").value();
+            call.arguments_digest = mira::canonical_json_digest(call.arguments);
+            response.output.emplace_back(std::move(call));
+        } else {
+            mira::MessageOutput message;
+            message.content.emplace_back(mira::OutputTextPart{"observed", {}});
+            response.output.emplace_back(std::move(message));
+        }
+        return response;
+    }
+};
+
+void reuse_annotation_end_to_end(kairo::Executor &executor) {
+    auto tools = desktop();
+    std::shared_ptr<ReuseScript> script;
+    integration::ModelProviderOverride provider([&](const auto &profile) {
+        script = std::make_shared<ReuseScript>(profile);
+        return script;
+    });
+    integration::ModelLayerConfig config;
+    config.enabled = config.supports_images = true;
+    config.model_selector = "reuse-fixture";
+    integration::ModelLayer model(executor, config, &provider, tools);
+    const auto ctx = context();
+    auto result =
+        executor
+            .submit_auto([&] {
+                return model.complete_harness_turn("", "capture, then verify the screen", ctx);
+            })
+            .get();
+    check(result.ok);
+    check(script && script->requests.size() == 4);
+    check(result.supplied_input_reuse_annotations == 1);
+    // Only the third image-bearing request (count 2) renders the Internal
+    // system note as the last part of the primary user envelope.
+    for (std::size_t index = 0; index < script->requests.size(); ++index) {
+        bool note = false;
+        for (const auto &item : script->requests[index].input)
+            for (const auto &part : item.content)
+                if (const auto *text = std::get_if<mira::TextPart>(&part))
+                    note |= text->sensitivity == mira::Sensitivity::Internal &&
+                            text->text.find("[System note: The desktop screenshot above is the "
+                                            "same as in the previous 2 turns") != std::string::npos;
+        check(index + 1 == script->requests.size() ? note : !note);
+    }
+    model.shutdown();
+}
 } // namespace
 
 int main() {
@@ -2030,6 +2389,10 @@ int main() {
             native_ocr_loop(executor, mode);
         shared_loop(executor);
         contracts(executor);
+        input_reuse_identity();
+        budget_degradation();
+        anchored_remaining_unit();
+        reuse_annotation_end_to_end(executor);
         for (const auto &dialect :
              {"openai.responses.v1", "openai.chat-completions.v1", "anthropic.messages.v1"})
             layer(executor, dialect, true, true);
