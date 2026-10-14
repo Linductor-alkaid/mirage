@@ -29,8 +29,8 @@
 
 ## 验证记录
 
-工作项保持 In Progress：实现、本机运行与上游投稿已交付，真实安装升级和跨平台 CI
-补证尚未执行；不以工作树运行或安装器编译替代这些门禁。
+工作项保持 In Progress：实现、本机运行、跨平台 CI 与上游投稿已交付，真实安装升级
+及上游评审仍开放；不以工作树运行或安装器编译替代安装门禁。
 
 2026-10-14：工作前仓库干净，基线 cb973b2；新分支 codex/windows-desktop-polish。
 本机 Windows 11 / MSVC 19.44 / x64。已安装与当前 Release 的 mirage-native SHA256
@@ -77,6 +77,27 @@ NSIS 实际执行 `packaging/windows/stage-payload.ps1` 与 `build-installer.ps1
 
 - [ ] 维护者：退出旧托盘后安装新包，再从真实开始菜单冷启动/重复启动，检查唯一可交互
   图标、托盘打开/退出和圆角；包含卸载删除 launcher 的实际验证。补跑条件是允许安装升级的目标机器。
-- [ ] Mirage CI / Codex：本机只有 Windows，Linux/native、ASAN/UBSAN/TSAN 由本次 MR CI
-  补跑；失败则修复，未运行前不标通过。不新增并发路径，不声称其他 GPU/显示器已验收。
+- [x] Mirage CI / Codex：源码 `939c769` 的八项 CI 全部通过，包含 Windows 全树、Linux
+  Debug/Release/ASAN/UBSAN/TSAN、native 与 format/boundary；见下方精确验收记录。
+- [ ] 维护者：Windows x64 ASAN 运行库补齐后运行菜单定向测试；本机仅 x86 运行库可用，
+  x64 首次链接失败，不记为通过。现有 Win32 ASAN 的结果不替代 x64 覆盖。
 - [ ] 上游维护者：先评审 #111，再评审 #112；后者 draft 保留前置依赖，合并不在本次授权范围。
+
+### 2026-10-15：源码 CI 与最终交付
+
+[Mirage Draft PR #95](https://github.com/Linductor-alkaid/mirage/pull/95) 基于现有 #94 的
+fix/nsis-native-registry-view 分支，只包含本次呈现差异。精确源码验收 head 为
+`939c769`，[CI run 38605542146](https://github.com/Linductor-alkaid/mirage/actions/runs/38605542146)
+八项全部成功：format/public-header、Debug、Release、ASAN、UBSAN、TSAN、Windows full tree、native。
+本记录后续提交仅更新 Markdown 证据，不改变已验收代码或 pin。
+
+额外 Windows 菜单 ASAN：独立临时 CMake project 使用 `/fsanitize=address /utf-8 /Zi /W4 /WX`，
+链接 `/INCREMENTAL:NO`，复用真实 win32_tray_menu_test 源码和头文件。x64 配置/编译成功，
+链接失败于缺少 `clang_rt.asan_dynamic_runtime_thunk-x86_64.lib`；核对 SDK 只有 x86 ASAN
+运行库。以 `-A Win32`、RelWithDebInfo 重建并运行，51 checks / 0 failures，无 ASAN 报告。
+未安装或变更系统运行库；x64 补跑负责人和条件保持上方开放项。
+
+最终新 payload 位于 `build/windows-polish-final-20261015`，包含 GUI launcher、CLI、service、
+tray、native 与平铺资源。最新 launcher 的 null-terminated argv 也已重建并重新冷启动/关闭验证。
+NSIS 安装包为该目录下 `mirage-installer.exe`；本轮源码的四项修复可供维护者升级验证，
+现有 Program Files 安装及默认开始菜单未覆盖。没有合并 PR 或创建 release/tag。
