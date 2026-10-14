@@ -1447,6 +1447,16 @@ if(UNIX)
     mirage_enable_warnings(desktop_image_supply_test)
     add_test(NAME desktop_image_supply_test COMMAND desktop_image_supply_test)
     set_tests_properties(desktop_image_supply_test PROPERTIES LABELS "integration;runtime" TIMEOUT 30)
+
+    # DEC-088 capability 2/3: DesktopContextBuilder compaction mapping and its
+    # ConversationLoop seam wiring over the scripted-provider harness path.
+    add_executable(desktop_context_builder_test integration/desktop_context_builder_test.cpp)
+    target_include_directories(desktop_context_builder_test SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
+    target_link_libraries(desktop_context_builder_test PRIVATE Mirage::integration_mira kairo)
+    mirage_enable_warnings(desktop_context_builder_test)
+    add_test(NAME desktop_context_builder_test COMMAND desktop_context_builder_test)
+    set_tests_properties(desktop_context_builder_test PROPERTIES LABELS "integration;runtime" TIMEOUT 120)
 endif()
 
 # M7-17: independent PNG round trip. The Python decoder re-runs the

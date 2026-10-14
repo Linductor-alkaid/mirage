@@ -1227,12 +1227,17 @@ DialogCompletion ModelLayer::complete_harness_turn(
         // DEC-088 capability 2/3 (MIRA-20261014-006): compact the canonical
         // tool-history replay through Mira's Layer 0 with the desktop
         // watermarks. An undeclared window keeps the raw replay (fail-open);
-        // seam failures degrade inside the loop to the same raw replay.
+        // seam failures degrade inside the loop to the same raw replay. The
+        // compaction request reserves the per-call wire output (the same
+        // bound the DEC-087 preflight shrinks), not the whole-run envelope —
+        // the envelope would exceed any realistic window and every build
+        // would fail limits validation.
         if (impl_->config.context_window_tokens != 0) {
             auto counter = std::make_shared<mira::ConservativeTokenCounter>();
             auto manager = std::make_shared<mira::StandardContextManager>(std::move(counter));
-            detail::DesktopContextBuilder builder(std::move(manager),
-                                                  {impl_->config.context_window_tokens, budget});
+            detail::DesktopContextBuilder builder(
+                std::move(manager),
+                {impl_->config.context_window_tokens, config.max_output_tokens_per_turn});
             const detail::DesktopContextBuilder::RequestKeys keys{
                 spec.task_id, spec.session_id, spec.task_epoch, impl_->profile->id};
             loop.set_history_transformer([builder = std::move(builder), keys](const auto &history) {
