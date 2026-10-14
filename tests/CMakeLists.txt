@@ -320,6 +320,29 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         TIMEOUT 120
     )
 
+    # M7-10 input delivery evidence (DEC-017 decision 5 / DEC-086 host mode):
+    # Unicode text transport, pointer landing on every attached display and
+    # real button delivery to its own fixture window, in a process that
+    # declared the runtime host's per-monitor DPI awareness through the same
+    # public entry the product hosts use. Delivery scenarios gate on focus /
+    # SendInput acceptance and degrade to loud notes (same discipline as
+    # win32_backend_test); the contract rejections stay with that test.
+    add_executable(win32_input_delivery_test platform/win32_input_delivery_test.cpp)
+    target_compile_features(win32_input_delivery_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(win32_input_delivery_test)
+    target_link_libraries(win32_input_delivery_test
+        PRIVATE
+            Mirage::platform
+            Mirage::desktop
+            user32
+            gdi32
+    )
+    add_test(NAME win32_input_delivery_test COMMAND win32_input_delivery_test)
+    set_tests_properties(win32_input_delivery_test PROPERTIES
+        LABELS "integration;platform"
+        TIMEOUT 120
+    )
+
     # M4-02 UIA accessibility frontend: exercised against the session's real
     # interactive desktop through the fixture windows this test creates (the
     # same DEC-017 decision 9 discipline as win32_backend_test). UIA itself
