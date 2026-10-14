@@ -268,7 +268,30 @@ class ObservedProvider final : public mira::IModelProvider {
         return provider_->last_retry_after_hint();
     }
 
+    // DEC-088 capability 5: supply-time remaining-budget estimate for the
+    // session, anchored on the last provider-reported input (DEC-087). One
+    // turn of growth since that call is not subtracted, so callers must treat
+    // the value as an upper bound — the degradation bands absorb the lag.
+    // Nullopt without a declared window or without an anchor: degradation
+    // fails open and the image ships unchanged.
+    std::optional<std::int64_t>
+    anchored_remaining(const std::string &session_key) const {
+        if (!context_window)
+            return std::nullopt;
+        std::lock_guard<std::mutex> guard(anchor_mutex_);
+        const auto anchor = anchors_.find(session_key);
+        if (anchor == anchors_.end())
+            return std::nullopt;
+        return static_cast<std::int64_t>(*context_window) -
+               static_cast<std::int64_t>(anchor->second.provider_input) -
+               static_cast<std::int64_t>(kContextReserveTokens);
+    }
+
   private:
+    // window − estimatedCurrentUsage − 1000; a non-positive estimate keeps
+    // the baseline (the local estimate is not provider-authoritative), and
+    // otherwise the wire bound is min(baseline, usable). The usage estimate
+    // anchors on the previous provider-reported input size (the pinned
     // ZCode preflight semantics (model-token-limits.ts): usable =
     // window − estimatedCurrentUsage − 1000; a non-positive estimate keeps
     // the baseline (the local estimate is not provider-authoritative), and

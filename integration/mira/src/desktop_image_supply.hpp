@@ -4,6 +4,9 @@
 #include <mira/model_dialect.hpp>
 #include <mirage/integration/desktop_atom_toolset.hpp>
 
+#include <functional>
+#include <optional>
+
 namespace mirage::integration::detail {
 inline constexpr std::size_t desktop_image_bytes = 8u << 20;
 inline constexpr std::size_t desktop_capture_bytes = 32u << 20;
@@ -40,6 +43,18 @@ class DesktopImageTurn {
     DesktopImageTurn &operator=(const DesktopImageTurn &) = delete;
     void register_tool(mira::BuiltinToolRegistry &, const DesktopAtomToolset::Decorator &,
                        bool allow_mutations = true);
+    /// DEC-088 capability 5: supply-time context-budget signal, anchored on
+    /// the last provider-reported input of the session (DEC-087). A nullopt
+    /// return keeps the full image: no declared window, no anchor yet, or no
+    /// signal wired — degradation fails open.
+    using BudgetRemaining = std::function<std::optional<std::int64_t>()>;
+    void set_budget_remaining(BudgetRemaining provider);
+    /// DEC-088 capability 1: host-asserted cross-turn identity of the most
+    /// recent supply. Nullopt unless that supply actually offered the current
+    /// image; `reuse_count` is the number of consecutive identical re-offers
+    /// before this one (0 = first supply) and the digest names the identity
+    /// it refers to. Wire into ConversationLoop::set_model_input_identity.
+    std::optional<mira::InputReuseMeta> reuse_identity() const;
     mira::Result<std::vector<mira::ModelInputItem>> supply(const mira::AgentLoopSpec &);
     mira::Result<void> validate_request(const mira::ModelRequest &, const mira::OperationContext &);
     mira::Result<mira::JsonValue> observe_shared(const std::string &, const std::string &,
@@ -119,5 +134,12 @@ class DesktopImageTurn {
     bool supplied_image_ = false;
     bool region_tool_enabled_ = false;
     std::optional<mira::Error> supply_error_;
+    BudgetRemaining budget_remaining_;
+    // DEC-088: identity of the image the model actually saw, held across
+    // supplies. Only offers that carried the image advance the count; a
+    // degraded or retired turn pauses it, and a digest change resets it.
+    std::optional<std::string> offered_digest_;
+    std::uint32_t reuse_count_ = 0;
+    bool offered_image_ = false;
 };
 } // namespace mirage::integration::detail

@@ -114,6 +114,9 @@ struct DialogCompletion {
     std::uint32_t supplied_input_items = 0;
     std::uint32_t supplied_input_dropped = 0;
     std::uint32_t supply_degradations = 0;
+    /// DEC-088: requests that carried the input-reuse annotation (third
+    /// consecutive identical image supply); zero without an identity seam.
+    std::uint32_t supplied_input_reuse_annotations = 0;
     /// DEC-085: classified tool failures of this session (bounded by the
     /// tracker's per-session tool budget); the runtime service projects them
     /// onto `session.tool_error` events.

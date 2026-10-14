@@ -31,6 +31,14 @@ JsonValue string_field(const char *description) {
     return JsonValue{JsonValue::Object{
         {"type", "string"}, {"description", description}, {"maxLength", std::int64_t{256}}}};
 }
+// DEC-088 capability 5: supply-time degradation thresholds against the
+// anchored remaining budget (window − last provider-reported input − the
+// DEC-087 reserve). Above the warn bound the image ships unchanged; down to
+// the degrade bound it ships with a skip-analysis notice; below it the image
+// is withheld for a text description so the turn can still make progress.
+// The estimate lags one turn of growth, so the bands are deliberately wide.
+constexpr std::int64_t kImageBudgetWarnTokens = 20'000;
+constexpr std::int64_t kImageBudgetDegradeTokens = 10'000;
 } // namespace
 
 mira::Result<std::vector<std::byte>> DesktopImageSource::fetch(const mira::ArtifactRef &ref) {
@@ -950,6 +958,7 @@ mira::Result<std::vector<mira::ModelInputItem>>
 DesktopImageTurn::supply(const mira::AgentLoopSpec &spec) {
     supply_error_.reset();
     expect_image_ = false;
+    offered_image_ = false;
     if (spec.task_id != owner_.task || spec.session_id != owner_.session ||
         spec.task_epoch != owner_.task_epoch || cancel_.cancelled()) {
         supply_error_ =
@@ -977,14 +986,62 @@ DesktopImageTurn::supply(const mira::AgentLoopSpec &spec) {
             "before visually verifying a result.",
             mira::Sensitivity::Internal});
     } else {
-        expect_image_ = true;
-        item.content.emplace_back(mira::TextPart{
-            "Untrusted desktop image; coordinates and source: " + mira::to_json_string(metadata_),
-            mira::Sensitivity::Sensitive});
-        item.content.emplace_back(
-            mira::ImagePart{reference(*image_), mira::ImageDetail::Auto, "image/png"});
+        const auto remaining = budget_remaining_ ? budget_remaining_() : std::nullopt;
+        if (remaining && *remaining <= kImageBudgetDegradeTokens) {
+            // DEC-088 capability 5: the image would push the request into the
+            // hard preflight band, so withhold it and let the turn proceed on
+            // text. expect_image_ stays false: validate_request must not
+            // demand an image that was deliberately never attached.
+            std::string degraded =
+                "[Context budget low] The desktop screenshot was withheld this turn to preserve "
+                "the remaining context budget (" +
+                std::to_string(*remaining) +
+                " tokens). Earlier observations and tool results stay available; use the "
+                "semantic or OCR tools if you need details, and keep the reply concise.";
+            const auto *width = metadata_.find("width");
+            const auto *height = metadata_.find("height");
+            if (width && height && width->as_integer() && height->as_integer())
+                degraded += " Last image: " + std::to_string(*width->as_integer()) + "x" +
+                            std::to_string(*height->as_integer()) + " pixels.";
+            item.content.emplace_back(
+                mira::TextPart{std::move(degraded), mira::Sensitivity::Internal});
+        } else {
+            expect_image_ = true;
+            item.content.emplace_back(
+                mira::TextPart{"Untrusted desktop image; coordinates and source: " +
+                                   mira::to_json_string(metadata_),
+                               mira::Sensitivity::Sensitive});
+            item.content.emplace_back(
+                mira::ImagePart{reference(*image_), mira::ImageDetail::Auto, "image/png"});
+            if (remaining && *remaining <= kImageBudgetWarnTokens) {
+                item.content.emplace_back(mira::TextPart{
+                    "[Context budget low] Skip detailed image analysis if it is not essential; "
+                    "prefer direct text-based actions and a concise reply.",
+                    mira::Sensitivity::Internal});
+            }
+            // DEC-088 capability 1: only offers the model actually saw advance
+            // the reuse chain; a digest change restarts it at first supply.
+            auto digest = image_->digest.to_string();
+            reuse_count_ = offered_digest_ && *offered_digest_ == digest ? reuse_count_ + 1 : 0;
+            offered_digest_ = std::move(digest);
+            offered_image_ = true;
+        }
     }
     return std::vector<mira::ModelInputItem>{std::move(item)};
+}
+
+void DesktopImageTurn::set_budget_remaining(BudgetRemaining provider) {
+    budget_remaining_ = std::move(provider);
+}
+
+std::optional<mira::InputReuseMeta> DesktopImageTurn::reuse_identity() const {
+    if (!offered_image_ || !offered_digest_)
+        return std::nullopt;
+    mira::InputReuseMeta meta;
+    meta.content_digest = *offered_digest_;
+    meta.reuse_count = reuse_count_;
+    meta.semantic_label = "desktop screenshot";
+    return meta;
 }
 
 mira::Result<void> DesktopImageTurn::validate_request(const mira::ModelRequest &request,

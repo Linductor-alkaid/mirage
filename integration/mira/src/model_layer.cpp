@@ -944,6 +944,12 @@ DialogCompletion ModelLayer::complete_harness_turn(
             impl_->images ? impl_->images : std::make_shared<detail::DesktopImageSource>();
         image_turn = std::make_unique<detail::DesktopImageTurn>(
             source, impl_->desktop, turn_context, cancel, bool(impl_->images));
+        // DEC-088 capability 5: degrade the image supply from the anchored
+        // preflight signal of the same session; without a declared window or
+        // an anchor the reader yields nullopt and the image ships unchanged.
+        image_turn->set_budget_remaining([&observed = impl_->observed, session_key] {
+            return observed ? observed->anchored_remaining(session_key) : std::nullopt;
+        });
         image_turn->register_tool(*registry, decorate, tools_allowed);
         verification.set_shared_observation(
             [&image_turn](const auto &kind, const auto &text, const auto &ctx) {
@@ -1212,6 +1218,11 @@ DialogCompletion ModelLayer::complete_harness_turn(
         mira::ConversationLoop loop(*impl_->gateway, loop_config);
         loop.set_tool_registry(registry);
         loop.set_model_input_supplier(supply_input);
+        // DEC-088 capability 1: the host owns the cross-turn identity of the
+        // supplied image; the loop only renders the third-supply annotation.
+        if (image_turn)
+            loop.set_model_input_identity(
+                [&image_turn](const auto &) { return image_turn->reuse_identity(); });
         try {
             return loop.run(spec, turn_context);
         } catch (...) {
@@ -1269,6 +1280,7 @@ DialogCompletion ModelLayer::complete_harness_turn(
     completion.supplied_input_items = value.supplied_input_items;
     completion.supplied_input_dropped = value.supplied_input_dropped;
     completion.supply_degradations = value.supply_degradations;
+    completion.supplied_input_reuse_annotations = value.supplied_input_reuse_annotations;
     if ((image_turn || !verification.empty()) &&
         (value.supplied_input_dropped || value.supply_degradations)) {
         completion.ok = false;
