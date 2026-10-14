@@ -28,7 +28,7 @@
 | MIRA-20261009-001 | ConversationLoop 工具产生图片的逐轮结构化输入入口 | P2：多模态工具接入能力缺口 | Resolved | 授权消费 698fc77；三方言 fixture、MiniMax 截图工具在线识图 2/2（Linux 合成图） | [#85](https://github.com/Linductor-alkaid/mira/issues/85)，[PR#86](https://github.com/Linductor-alkaid/mira/pull/86) |
 | MIRA-20261009-002 | Messages SSE 解析器对 max_tokens 截断流 fail-closed | P1：真实供应商截断流不可解码 | Resolved | 真实 MiniMax 抓流复现；PR#87 合并后 pin 消费 c75378b，mira 105/105 + Mirage 全量回归 + 真实抓流 4/4 解码为 Incomplete 终态 | [PR#87](https://github.com/Linductor-alkaid/mira/pull/87)，已合并 |
 | MIRA-20261012-001 | 网络阶段超时被标记不可重试，单次停滞判死整轮 | P2：传输错误分类与重试语义缺口 | Resolved | 真实会话复现（DeepSeek 单轮 turn 失败）；上游 CI 24/24 + 本地 mira 105/105；pin 消费 57c3062 后 mirage 71/71 全量 + 集成 356 checks 行为复验 | [PR#88](https://github.com/Linductor-alkaid/mira/pull/88)，已合并 |
-| MIRA-20261014-004 | 无公开实时思考分类预览入口 | P2：呈现能力缺口 | Resolved | 独立 thinking sink；三方言分片、取消重试与 Runtime/IPC fixture 复验 | [PR#94](https://github.com/Linductor-alkaid/mira/pull/94)，消费开放 PR head ea720a6 |
+| MIRA-20261014-004 | 无公开实时思考分类预览入口 | P2：呈现能力缺口 | Resolved | 独立 thinking sink；三方言分片、取消重试与 Runtime/IPC fixture 复验 | [PR#94](https://github.com/Linductor-alkaid/mira/pull/94)，授权消费合并提交22d9577 |
 
 | MIRA-20261014-005 | ConversationLoop 供给缝无跨轮输入复用身份标注入口 | P2：多轮上下文成本缺口 | Open | pin 1befa45 公开头核对：supplier 仅逐轮 items，无身份元数据；DEC-088 记录的重复识图浪费 | [PR#95](https://github.com/Linductor-alkaid/mira/pull/95)，已提交待合并 |
 
@@ -505,7 +505,7 @@ M6-19收尾回读：Mira PR#79的pull_request run37332976997在当前pin 0a099ba
 ## MIRA-20261014-004：无公开实时思考分类预览入口
 
 - 状态：Resolved（公开能力和 fixture 范围）；日期：2026-10-14；负责人：Mirage 维护者，处理方：Mira 上游。
-  上游：[PR#94](https://github.com/Linductor-alkaid/mira/pull/94)，开放待评审；授权消费 head ea720a6。关联 [M8-11](../plans/m8-mira-pet.md)、
+  上游：[PR#94](https://github.com/Linductor-alkaid/mira/pull/94)，已授权合并；当前消费merge 22d9577，历史fixture head为ea720a6。关联 [M8-11](../plans/m8-mira-pet.md)、
   [DEC-089](../decisions/DEC-089-mira-pet-bubbles.md) 和气泡设计第 6 节。
 - 缺口复现基线：`1befa451713e0eb635da6077410e284f7b8ea88b`（升级前）。
   公开 `include/mira/model_sse.hpp` 的 `UnvalidatedModelPreview` 只有正文 `text`、

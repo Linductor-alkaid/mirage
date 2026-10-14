@@ -30,3 +30,11 @@ Mira Debug 全量 106/106；专项 Debug 5/5、ASAN 3/3（detect_leaks=0）、UB
 format/docs/SBOM/platform-boundary/architecture 本地全部通过。CI 状态以 PR 为准。
 Mirage 消费验证及未执行平台/供应商门禁见
 [Runtime 与原生气泡证据](../compatibility/mira-pet-bubbles-runtime-20261014.md)。
+
+
+## 维护者授权合并与产品消费
+
+2026-10-14维护者明确授权Mira侧合并，PR#94以squash合入
+`22d95776d701c92656ecd583f85982d5b0d303fe`，合并前head ea720a6的24项checks均通过。
+Mirage gitlink与lock同步到22d9577；与已测head的源码树一致，无新增嵌套依赖变更。
+本机native-release后续交付由 [气泡原生部署证据](../compatibility/mira-pet-bubbles-local-release-20261014.md) 跟踪。
