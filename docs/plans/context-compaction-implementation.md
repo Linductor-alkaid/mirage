@@ -970,3 +970,18 @@ Result<std::vector<ModelInputCondition>> build_request_with_compaction() {
 - 待办：授权消费新 pin 后实施 Mirage 侧跨轮计数（desktop_image_supply 持有
   digest/count）与能力 5 图片降级（preflight 余量），再做真实会话对照验收
   （第 3 轮请求含复用提示、思考 token 下降 ≥10%）。能力 2/3（Phase 2）未实施。
+
+### 2026-10-14：pin 消费 9e7b729 与 Mirage 侧跨轮计数（能力 1 收口）
+
+- 维护者授权合并上游 PR#95（merge 9e7b729）后，`chore(deps)` 采纳新 pin（子模块指针
+  与 dependencies.lock.json 同步）。Mirage 侧 Step 1.1.3 落地：持久
+  `DesktopImageSource` 以内容 digest + 桌面 epoch 持有跨 dialog turn 的连续复用计数
+  （相同像素重拍延续、像素或 epoch 变化清零），`DesktopImageTurn::input_reuse_identity`
+  在与 supply() 相同的 owner/取消门控下按请求恰一次解析（纯文本轮不计数），
+  model_layer 的 `invoke_loop` 接线；无图配置回调返回 nullopt，请求装配与既往字节一致。
+- 自动化验证：desktop_image_supply_test 新增 0/1/2 计数、跨 turn 相同内容重拍延续、
+  纯文本跳过、错 owner 拒绝、换 ROI 重置（945 checks）；native_agent_integration_test
+  406 checks 保持绿色。证据与边界见[同日验收](../compatibility/dec088-input-reuse-20261014.md)。
+- 待办：能力 5 图片降级（preflight 余量暴露）未实施；真实会话对照验收
+  （第 3 轮请求含复用提示、思考 token 下降 ≥10%）待维护者在真实桌面任务上补跑。
+  能力 2/3（Phase 2）未实施。
