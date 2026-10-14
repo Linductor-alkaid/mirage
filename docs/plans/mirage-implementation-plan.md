@@ -21,8 +21,9 @@ M6/M7 状态与原开放门禁保持原记录。
 
 M8-06 前新增 M8-11：思考气泡用一行连续横向滚动体现进行状态，回答气泡用一句
 简短核心概括；方案与示意见 [气泡设计](../design/mira-pet-bubbles.md)、
-[DEC-089](../decisions/DEC-089-mira-pet-bubbles.md)。Runtime/IPC/Linux 原生实现已交付并通过 fixture；真实思考入口消费 Mira PR#94 head，
-MIRA-20261014-004 在公开 API 范围解决。证据见 [实施记录](../compatibility/mira-pet-bubbles-runtime-20261014.md)；角色与气泡整组视觉占位纳入 M8-06，原编号和开放门禁保留。
+[DEC-089](../decisions/DEC-089-mira-pet-bubbles.md)。Runtime/IPC/Linux 原生实现已交付并通过 fixture；真实思考入口已消费Mira PR#94合并提交22d9577，
+MIRA-20261014-004在公开API范围解决；本机Release已更新，MiniMax公开算术在线10/10。
+证据见 [实施记录](../compatibility/mira-pet-bubbles-runtime-20261014.md)；角色与气泡整组视觉占位纳入 M8-06，原编号和开放门禁保留。
 
 下一阶段新增 [M7：视觉工具与键鼠输入闭环](m7-visual-tools-and-input.md)
 （In Progress，M7-01～06、08 Linux 首交付 Completed）。当前原生会话已接结构化观察、安全完整输入、标准 PNG/每请求图片、可选真实 OCR、

@@ -125,8 +125,8 @@ def session(args):
                     elif not movement:
                         image = capture('thinking-later')
                         # Only the clipped text viewport is compared, not animated actor pixels.
-                        movement = bool(ImageChops.difference(thought_image.crop((24, 32, 240, 52)),
-                                                             image.crop((24, 32, 240, 52))).getbbox())
+                        movement = bool(ImageChops.difference(thought_image.convert('RGB').crop((24, 32, 240, 52)),
+                                                             image.convert('RGB').crop((24, 32, 240, 52))).getbbox())
                 if bubble.get('final'):
                     final = bubble
                     time.sleep(.08)
@@ -143,6 +143,9 @@ def session(args):
         report['observations']['summary'] = final['text']
         report['observations']['final_remaining_ms'] = final['remaining_ms']
         time.sleep(5.2)
+        expired = capture('dialog-expired')
+        check('native bubble expires on its UI deadline',
+              expired.getchannel('A').crop((12, 24, 252, 60)).getbbox() is None)
         check('canonical bubble expires', not wire.call('pet.status').get('bubble'))
         history = wire.call('session.chat.history', session_id=sid, limit=1)['turns'][-1]
         check('canonical history stays complete', history['status'] == 'ok' and '42' in history['reply_text'])

@@ -90,3 +90,12 @@ Windows/Wayland-native、小工作区不能容纳的隐藏、整组目标/OCR避
 三种sanitizer的上述结果来自重放前3bbe72a上的同一气泡实现。Mira PR#94 head ea720a6
 的24项CI已全部通过。Mirage PR#91创建后的CI仍在运行，其Windows/全native结果
 以checks为准，不在本记录预填通过。
+
+
+### 追加：合并消费、本机Release与公开在线流
+
+维护者授权Mira PR#94合并，当前pin为merge 22d9577。本机native-release已发布，
+短句概括补充半句闭合、英文/列表/否定/数字，MiniMax Messages→Runtime→IPC→原生
+pet公开算术端到端10/10。详见 [本机部署记录](mira-pet-bubbles-local-release-20261014.md)。
+本条更新前文“在线未执行”的当前进度，保留原轮实际证据；其他在线协议/供应商、
+实compositor、多屏/DPI与整组避让门禁继续开放。

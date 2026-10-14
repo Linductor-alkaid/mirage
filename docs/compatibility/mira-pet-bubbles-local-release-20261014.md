@@ -1,6 +1,6 @@
 # M8-11：本机 native-release 与对话气泡推进
 
-> 状态：In Progress
+> 状态：Completed（本机部署与MiniMax Messages公开算术范围）
 > 日期：2026-10-14
 > 负责人：Mirage维护者
 > 授权：更新本机native-release、继续对话气泡，并明确授权合并Mira侧更新。
@@ -41,3 +41,33 @@ Messages、私有Xvfb/DBus/用户目录，GIO启动与快捷方式相同的生�
 核验实时思考→IPC→native pet、文字视口变化、最终短句、5秒消失、规范历史和关闭。
 JSON只写计数/合成短句；截图仅包含公开算术内容的私有窗口。真实compositor alpha/
 物理DPI/多屏和M8-06整组避让仍不由Xvfb结果证明，负责人/补跑条件沿基础证据记录。
+
+
+## 最终交付与验收
+
+产品源commit为88abbd7（功能commit 803ecf2，Mira pin 22d9577）；五个可执行文件、
+native/pet assets及vision bundle已复制到本机快捷方式使用的native-release路径，
+校验receipt位于 /home/linductor/mirage/build/native-release/bubble-release-receipt.json。
+旧产品文件在同目录.bubble-backup-*中保留；用户配置/凭据/会话及主工作树不变。
+新打开桌面入口即可运行更新，无需修改入口或手动切换Git分支。
+
+最终Debug全量80/80（并行44.8秒），Release专项6/6；ASAN/UBSAN/TSAN各4/4（bubble与Runtime集成+隔离夹具），
+ASAN detect_leaks=0、TSAN关闭ASLR。Public headers 58个0违规及全仓format通过。
+前一个已交付head 6ce42d1的Mirage CI八项全部通过，包括Windows和native EUI；
+本增量补推后CI以当前checks为准，不继承旧head的通过结论。
+
+本机已部署路径由GIO启动与安装入口等价的生成desktop文件；真实MiniMax-M3 Messages
+单轮公开算术端到端确认10/10：启动、模型/bubble能力、规范结算前思考预览、实际文字
+视口变化、核心短句、原生UI定时消失（先拍图，再查状态）、服务状态过期、规范历史、
+无raw preview字段和产品shutdown。最终短句“计算结果是42”，remaining_ms=5000；
+观察到17个thinking快照、3个model_preview、4个dialog、1个answer_summary。
+没有传入用户历史、截图或桌面工具，两个请求均为公开算术（初验+一次确认）。
+
+第一次在线请求已取得真实思考/对话截图，但RGBA差异图的相同alpha通道令getbbox返回
+None，导致movement断言失败；不是生产滚动缺失。改为比较RGB文本视口后一次确认通过。
+初验日志 /tmp/mirage-bubbles-live-release.log 和报告保留，不改写成通过；最终结果为
+/tmp/mirage-bubbles-live-release-confirm/online-results.json。DBus/GVfs的私有session清理
+警告不影响各项明确结果，未据此声明真实桌面compositor验收。
+
+物理DPI/多屏、真实compositor alpha、其他在线供应商和M8-06整组避让仍保持开放；
+本记录Completed只指本次授权的部署与Messages在线增量，不关闭整个M8-11/M8。

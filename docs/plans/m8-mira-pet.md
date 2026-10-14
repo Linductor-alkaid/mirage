@@ -645,3 +645,14 @@ Debug全量80/80、ASAN/UBSAN各专项6/6与原生view通过；TSAN关闭ASLR后
 private X11窗口32项通过（含穿透/非激活/拖动/锚点重启/隐藏shutdown）。详情及未运行原因/补跑条件见
 [实施证据](../compatibility/mira-pet-bubbles-runtime-20261014.md)。
 M8-11保持In Progress至实桌面/在线扩大门禁通过，M8-06保持Planned；未以fixture关闭平台验收。
+
+
+### 2026-10-14：M8-11本机Release与对话概括继续交付
+
+维护者要求更新本机native-release并授权合并Mira侧。PR#94合并到22d9577后锁定消费，
+从气泡worktree编译完整原生Release并发布五个产品文件及资源到既有快捷方式路径。
+对话概括拒绝流式半句、支持英文/列表/否定与规范短数字；Release6/6、三sanitizer
+各4/4与MiniMax Messages公开算术原生端到端10/10。状态、截图与复跑记录见
+[本机部署证据](../compatibility/mira-pet-bubbles-local-release-20261014.md)。
+M8-11保留整体In Progress，关闭本次本机部署/公开Messages在线子门禁；其他供应商、
+物理DPI/多屏及整组避让按既有责任人/条件补跑，M8-06仍Planned。
