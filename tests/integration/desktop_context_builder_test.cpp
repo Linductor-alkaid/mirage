@@ -240,6 +240,29 @@ class FailingManager final : public mira::IContextManager {
     }
 };
 
+// Forwards to the real Layer 0 unchanged and keeps the request it saw plus
+// the audit it returned, so a test can pin the watermark arithmetic (per-item
+// token estimates, dispositions, reasons, budget report) without altering a
+// single decision.
+class RecordingManager final : public mira::IContextManager {
+  public:
+    explicit RecordingManager(std::shared_ptr<const mira::IContextManager> inner)
+        : inner_(std::move(inner)) {}
+    mutable mira::ContextRequest seen;
+    mutable mira::PreparedModelContext prepared;
+    mira::Result<mira::PreparedModelContext>
+    prepare(const mira::ContextRequest &request) const override {
+        seen = request;
+        auto outcome = inner_->prepare(request);
+        if (outcome.has_value())
+            prepared = outcome.value();
+        return outcome;
+    }
+
+  private:
+    std::shared_ptr<const mira::IContextManager> inner_;
+};
+
 detail::DesktopContextBuilder::RequestKeys keys() {
     detail::DesktopContextBuilder::RequestKeys value;
     value.task_id = mira::TaskId::generate();
@@ -380,13 +403,13 @@ void budget_fits_verbatim() {
 // Compaction under a small window: the oldest pairs leave the replay whole,
 // the newest pair stays, every surviving item is byte-identical, and the
 // non-tool text entries keep their original content and relative order.
-// Layer 0 pressure arithmetic: ConservativeTokenCounter counts no payload
-// bytes on tool parts, so each single-part tool item costs 20 overhead tokens
-// plus 4 assembly tokens - 48 per call/result pair. 24 pairs = 1152 tokens
-// exceed the 1024-token input budget (4096 - 2048 reserved - 1024 safety), so
-// the greedy pass drops the oldest pairs and the checkpoint watermark then
-// strips items one by one (splitting a pair mid-way, which the builder must
-// collapse whole).
+// Layer 0 pressure arithmetic: the conservative counter counts the tool wire
+// payload bytes at 4 bytes per token (upstream PR#97), so each pair costs
+// roughly its receipt bytes plus overhead - 24 pairs with 400-byte receipts
+// far exceed the 1024-token input budget (4096 - 2048 reserved - 1024
+// safety), so the greedy pass drops the oldest pairs and the checkpoint
+// watermark then strips items one by one (splitting a pair mid-way, which
+// the builder must collapse whole).
 void compaction_drops_oldest_pairs() {
     detail::DesktopContextBuilder builder(standard_manager(), {4096, 2048});
     const std::string payload(400, 'x');
@@ -447,6 +470,122 @@ void compaction_drops_oldest_pairs() {
             note_found |= text->text == "wrap-up note";
     }
     check(goal_found && note_found);
+}
+
+// Payload bytes must drive compaction (MIRA-20261014-007, upstream PR#97).
+// The conservative counter used to estimate every single-part tool item at
+// its fixed overhead floor (~20 part/item tokens + 4 assembly tokens), so a
+// whole call/result pair cost ~48 tokens regardless of receipt size. The
+// counter now also counts the wire payload bytes at the 4-bytes-per-token
+// density, and this fixture pins the discriminating case: five pairs whose
+// receipts carry 8 KiB text each fit the Layer 0 input budget (the greedy
+// pass keeps everything) while their payload-driven estimate crosses the 70%
+// checkpoint watermark, so the checkpoint strip must drop the oldest pair.
+// Under the pre-fix floor arithmetic the same items estimate
+// 5 x 48 = 240 tokens - 1.7% of the budget, below even the 45% trim
+// watermark - no pass could fire and the replay would have stayed verbatim.
+void large_tool_receipts_drive_checkpoint_compaction() {
+    // 16384 window - 1024 reserved output - 1024 safety = 14336 input budget;
+    // the checkpoint watermark sits at 70% = 10035 tokens.
+    RecordingManager manager(standard_manager());
+    detail::DesktopContextBuilder builder(
+        std::shared_ptr<const mira::IContextManager>(&manager, [](const auto *) {}), {16384, 1024});
+    const std::string receipt(8192, 'x');
+    std::vector<mira::ModelInputItem> history;
+    history.emplace_back(text_item(mira::ModelRole::User, "capture goal"));
+    constexpr int rounds = 5;
+    for (int round = 0; round < rounds; ++round) {
+        history.emplace_back(
+            call_item("call-" + std::to_string(round),
+                      R"({"source":"display","n":)" + std::to_string(round) + "})"));
+        history.emplace_back(result_item("call-" + std::to_string(round),
+                                         R"({"v":)" + std::to_string(round) + R"(,"receipt":")" +
+                                             receipt + R"("})"));
+    }
+    history.emplace_back(text_item(mira::ModelRole::Assistant, "wrap-up note"));
+    const auto transformed = builder.transform(history, keys());
+    check(transformed.has_value());
+    const auto &replay = transformed.value();
+    // Compaction applied: the four younger pairs plus the untouched text
+    // entries are exactly what the replay carries.
+    check(replay.size() == 1 + 2 * (rounds - 1) + 1);
+    check_pairing(replay);
+    check(verbatim_subsequence(replay, history));
+    const auto present = [&replay](const std::string &id) {
+        for (const auto &item : replay) {
+            if (const auto *call = call_part(item); call && call->provider_call_id.value == id)
+                return true;
+            if (const auto *result = result_part(item);
+                result && result->provider_call_id.value == id)
+                return true;
+        }
+        return false;
+    };
+    // The oldest large-receipt pair left whole; every younger pair survived
+    // on both sides, and no orphan side remains anywhere.
+    check(!present("call-0"));
+    for (int round = 0; round < rounds; ++round) {
+        const auto id = "call-" + std::to_string(round);
+        bool call_present = false, result_present = false;
+        for (const auto &item : replay) {
+            if (const auto *call = call_part(item))
+                call_present |= call->provider_call_id.value == id;
+            if (const auto *result = result_part(item))
+                result_present |= result->provider_call_id.value == id;
+        }
+        check(call_present == result_present);
+    }
+    check(present("call-" + std::to_string(rounds - 1)));
+    // A surviving receipt keeps its full 8 KiB payload byte for byte.
+    const mira::ModelInputItem *newest_result = nullptr;
+    for (const auto &item : replay)
+        if (const auto *result = result_part(item);
+            result && result->provider_call_id.value == "call-" + std::to_string(rounds - 1))
+            newest_result = &item;
+    check(newest_result != nullptr);
+    check(mira::to_json_string(result_part(*newest_result)->result).find(receipt) !=
+          std::string::npos);
+    // Layer 0 saw only the tool segment under the desktop watermarks.
+    check(manager.seen.items.size() == 2 * rounds);
+    check(manager.seen.limits.context_window_tokens == 16384);
+    check(manager.seen.limits.reserved_output_tokens == 1024);
+    check(manager.seen.limits.trim_watermark == 0.45);
+    check(manager.seen.limits.checkpoint_watermark == 0.70);
+    // The payload-driven estimate crossed the checkpoint watermark inside the
+    // budget: the strip engaged, dropped exactly the oldest pair, and left
+    // the rest selected - not the greedy budget pass making the decision.
+    check(manager.prepared.budget.input_budget_tokens == 14336);
+    check(manager.prepared.budget.checkpoint_recommended);
+    check(manager.prepared.budget.dropped_items == 2);
+    check(manager.prepared.budget.selected_items == 2 * rounds - 2);
+    const auto disposition_of = [&](std::size_t index) {
+        return manager.prepared.item_audit[index].disposition;
+    };
+    check(disposition_of(0) == mira::ContextItemDisposition::Dropped);
+    check(disposition_of(1) == mira::ContextItemDisposition::Dropped);
+    for (std::size_t index = 2; index < 2 * rounds; ++index)
+        check(disposition_of(index) == mira::ContextItemDisposition::Selected);
+    check(manager.prepared.item_audit[0].reason == "watermark_checkpoint_drop");
+    check(manager.prepared.item_audit[1].reason == "watermark_checkpoint_drop");
+    // The assembled output drops the pair whole: neither side of call-0
+    // remains in it.
+    for (const auto &item : manager.prepared.input) {
+        for (const auto &part : item.content) {
+            if (const auto *call = std::get_if<mira::ToolCallPart>(&part))
+                check(call->provider_call_id.value != "call-0");
+            else if (const auto *result = std::get_if<mira::ToolResultPart>(&part))
+                check(result->provider_call_id.value != "call-0");
+        }
+    }
+    // Verification probe: the same tool items under the payload-counting
+    // counter versus the pre-fix per-item floor arithmetic.
+    std::uint64_t estimated_tokens = 0;
+    for (const auto &audit : manager.prepared.item_audit)
+        estimated_tokens += audit.estimated_tokens;
+    std::cout << "payload compaction probe: " << rounds
+              << " tool pairs with 8 KiB receipts estimate " << estimated_tokens
+              << " tokens against a " << manager.prepared.budget.input_budget_tokens
+              << "-token budget (pre-fix floor arithmetic: " << rounds * 48 << " tokens)\n";
 }
 
 // A pair the checkpoint watermark split collapses whole: a lone selected side
@@ -662,12 +801,12 @@ void harness_compaction(kairo::Executor &executor, bool declare_window) {
 // Real compaction through the harness path: a small declared window with a
 // per-call output that still leaves an input budget. 4096 window, per-call
 // output 2304 -> Layer 0 input budget = 4096 - 2304 - 1024 = 768 tokens,
-// checkpoint watermark 537.6. Tool pairs cost ~48 tokens each under the
-// conservative counter (no payload bytes counted; MIRA-20261014-007), so the
-// 15th round's replay (15 pairs, ~720 tokens) crosses the checkpoint: the
-// oldest pairs leave the replay and the pair the watermark split collapses
-// whole, while the newest pairs stay. The loop's 16-turn ceiling makes 15
-// capture rounds the most this path can accumulate.
+// checkpoint watermark 537.6. The conservative counter counts tool wire
+// payload bytes (upstream PR#97), so pairs cost their capture-receipt bytes
+// at 4 bytes per token plus overhead and the 15th round's replay crosses the
+// checkpoint: the oldest pairs leave the replay and the pair the watermark
+// split collapses whole, while the newest pairs stay. The loop's 16-turn
+// ceiling makes 15 capture rounds the most this path can accumulate.
 void harness_compaction_under_pressure(kairo::Executor &executor) {
     integration::DesktopToolContext tools;
     auto env = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
@@ -791,6 +930,7 @@ int main() {
         no_tool_items_pass_through();
         budget_fits_verbatim();
         compaction_drops_oldest_pairs();
+        large_tool_receipts_drive_checkpoint_compaction();
         split_pair_collapses_whole();
         manager_error_surfaces();
         kairo::Executor executor;
