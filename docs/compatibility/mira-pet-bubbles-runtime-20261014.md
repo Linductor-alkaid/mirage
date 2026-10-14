@@ -3,7 +3,8 @@
 > 状态：In Progress（Linux 实现和 fixture 已通过，实桌面扩大门禁开放）
 > 负责人：Mirage 维护者
 > 依据：[DEC-089](../decisions/DEC-089-mira-pet-bubbles.md)、[设计](../design/mira-pet-bubbles.md)
-> 工作树：feat/m8-realtime-bubbles，基线 3bbe72a；不包含另一个任务的 Mira 输入复用升级。
+> 工作树：feat/m8-realtime-bubbles；起始3bbe72a，交付重放到PR#90的3121dd8，便于独立评审气泡增量。
+> 未消费另一个任务的Mira输入复用pin；它已有的反馈记录按基线保留。
 
 ## 实现和依赖
 
@@ -41,7 +42,9 @@ Linux 原生窗口264×322，240px角色不缩小；12px透明阴影边缘，58p
 - 原生截图finish reviewer初评只有对话polygon缺少size/position而不可见；一次修复后
   同四张light/dark、1×/2×对话图尾尖均连接泡身指向头部，限定verdict为ship。
 - Public header boundary：58个头，0违规。改变的C++文件clang-format18.1.8通过。
-  全仓format-check遇到基线desktop_action_verification.cpp既有格式漂移，未扩大范围修复。
+  起始基线format-check发现三处既有漂移；前置PR#90已修正两个源文件，本PR仅以独立
+  chore提交规范化harness_desktop_tools_test.cpp的既有换行/缩进，无语义变化。全仓格式
+  与boundary随后通过。
 - 静态公开API探针通过；git diff --check通过；依赖gitlink与lock一致。
 
 日志与截图保留在本次工作环境的 /tmp/mirage-bubbles-* 和聊天visualization目录，不进入Git。
