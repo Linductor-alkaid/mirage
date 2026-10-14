@@ -15,7 +15,7 @@ if ($null -eq $makensis) {
     Write-Error "makensis not found on PATH (install NSIS: choco install nsis)"
     exit 1
 }
-foreach ($binary in @("mirage.exe", "mirage-service.exe", "mirage-tray.exe", "mirage-native.exe")) {
+foreach ($binary in @("mirage.exe", "mirage-launcher.exe", "mirage-service.exe", "mirage-tray.exe", "mirage-native.exe")) {
     if (-not (Test-Path (Join-Path $BinDir $binary))) {
         Write-Error "release tree is missing $binary (build the MSVC release configuration first)"
         exit 1

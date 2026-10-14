@@ -28,6 +28,7 @@ Section "Install"
     SetOutPath $INSTDIR
     ; Core product processes (always present in a release tree).
     File "${MIRAGE_BIN_DIR}\mirage.exe"
+    File "${MIRAGE_BIN_DIR}\mirage-launcher.exe"
     File "${MIRAGE_BIN_DIR}\mirage-service.exe"
     File "${MIRAGE_BIN_DIR}\mirage-tray.exe"
 
@@ -51,7 +52,7 @@ Section "Install"
     ; pure ASCII on purpose: makensis reads BOM-less sources in the ANSI
     ; code page, so non-ASCII comments break localized build machines.
     CreateDirectory "$SMPROGRAMS\Mirage"
-    CreateShortcut "$SMPROGRAMS\Mirage\Mirage.lnk" "$INSTDIR\mirage.exe" "start" \
+    CreateShortcut "$SMPROGRAMS\Mirage\Mirage.lnk" "$INSTDIR\mirage-launcher.exe" "" \
         "$INSTDIR\mirage-native.exe" 0 SW_SHOWNORMAL "" ""
 
     ; DEC-018 AUMID carrier, registry half: AppUserModelId key with
@@ -91,6 +92,7 @@ Section "Uninstall"
     DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Mirage"
     SetRegView lastused
     Delete "$INSTDIR\mirage.exe"
+    Delete "$INSTDIR\mirage-launcher.exe"
     Delete "$INSTDIR\mirage-service.exe"
     Delete "$INSTDIR\mirage-tray.exe"
     Delete "$INSTDIR\mirage-native.exe"

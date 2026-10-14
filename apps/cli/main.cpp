@@ -1478,7 +1478,7 @@ int command_update_check(int argc, char **argv);
 int command_update_apply(int argc, char **argv);
 } // namespace mirage::cli
 
-int main(int argc, char **argv) {
+int mirage_cli_main(int argc, char **argv) {
     if (argc >= 2) {
         const std::string_view command{argv[1]};
         if (command == "--version") {

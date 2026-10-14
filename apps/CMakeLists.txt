@@ -1,13 +1,13 @@
-add_executable(mirage
+add_library(mirage_cli STATIC
     cli/main.cpp
     cli/update_command.cpp
 )
 
-target_compile_features(mirage PUBLIC cxx_std_20)
-target_compile_definitions(mirage PRIVATE MIRAGE_VERSION="${PROJECT_VERSION}")
-mirage_enable_warnings(mirage)
+target_compile_features(mirage_cli PUBLIC cxx_std_20)
+target_compile_definitions(mirage_cli PRIVATE MIRAGE_VERSION="${PROJECT_VERSION}")
+mirage_enable_warnings(mirage_cli)
 
-target_link_libraries(mirage
+target_link_libraries(mirage_cli
     PRIVATE
         Mirage::runtime_service
         Mirage::integration_mira
@@ -16,6 +16,17 @@ target_link_libraries(mirage
         Mirage::update
         Mirage::persistence
 )
+add_executable(mirage cli/entry.cpp)
+target_link_libraries(mirage PRIVATE mirage_cli)
+mirage_enable_warnings(mirage)
+if(WIN32)
+    add_executable(mirage-launcher WIN32 cli/windows_launcher.cpp)
+    target_link_libraries(mirage-launcher PRIVATE mirage_cli shell32 user32)
+    if(MINGW)
+        target_link_options(mirage-launcher PRIVATE -municode)
+    endif()
+    mirage_enable_warnings(mirage-launcher)
+endif()
 
 # Shared embedding keeps credentials/settings/platform bindings identical for
 # the headless developer service and the product's tray-owned Runtime.
