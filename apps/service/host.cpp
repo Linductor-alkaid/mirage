@@ -607,8 +607,30 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
         std::cerr << kProgramName << ": --read-root is a Linux backend surface\n";
         return 2;
     }
+    // M7-12 (DEC-066 Windows side): the product host opens the platform's
+    // opt-in surfaces the same way the Linux branch passes `product` — the
+    // Win32 window/screen/input and UIA accessibility surfaces ride the
+    // product flag, and a probe that fails (no interactive desktop, no UIA
+    // core) leaves that accessor null and the rest alive. The headless
+    // developer service keeps the opt-in defaults, per DEC-066.
     auto environment =
-        std::make_shared<mirage::platform::windows_backend::WindowsDesktopEnvironment>();
+        std::make_shared<mirage::platform::windows_backend::WindowsDesktopEnvironment>(
+            mirage::platform::windows_backend::Win32Options{product},
+            mirage::platform::windows_backend::UiaOptions{product},
+            mirage::platform::windows_backend::ApplicationOptions{product},
+            mirage::platform::windows_backend::NotificationsOptions{product});
+    if (product) {
+        // Startup capability line (DEC-066 capability honesty): what the
+        // probes actually opened, not what was requested.
+        std::cout << kProgramName << ": desktop surfaces window="
+                  << (environment->window() != nullptr ? "on" : "off")
+                  << " screen=" << (environment->screen() != nullptr ? "on" : "off")
+                  << " input=" << (environment->input() != nullptr ? "on" : "off")
+                  << " accessibility=" << (environment->accessibility() != nullptr ? "on" : "off")
+                  << " application=" << (environment->application() != nullptr ? "on" : "off")
+                  << " notification=" << (environment->notification() != nullptr ? "on" : "off")
+                  << '\n';
+    }
     if (overlay_from_flags) {
         // M5-09 (DEC-029): the layered-window overlay carrier. A null probe
         // (no interactive desktop) degrades loudly — the service continues

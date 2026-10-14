@@ -56,7 +56,7 @@ M7-08 已闭合 Linux X11 动作后新观察与局部条件门禁；真实语义
 | M7-09 | In Progress | DEC-064 Linux X11 编号滚动/完整拖拽与机械事件已验；GTK 原生滚动/分隔条及 XRes 下列表重排正负效果已验；宿主 Xorg 2× 四类分别取证，间歇拒绝原因/其他平台仍另验 | 最大距离/次数/时长；拖拽中取消释放；滚动后旧引用拒绝；双平台真实输入 | M7-03/08；[DEC-064](../decisions/DEC-064-bounded-scroll-and-drag.md)、[DEC-065](../decisions/DEC-065-x11-drag-helper-ownership.md) |
 | M7-10 | In Progress | DEC-073/074 原生共享复用；DEC-077 产品键鼠已接入；GNOME 英文状态动态画面点击/组合键/完整 ASCII URL 与 Enter/滚动/回图及接管 11/11；Windows 采集分层升级（DEC-086：DXGI→WGC→BitBlt）已交付并本机取证；产品宿主 per-monitor DPI 声明已交付；Windows Unicode 文本传输与多屏输入落点已实机取证（win32_input_delivery_test，感知进程）；Windows UIPI（提升目标，需 UAC 配合）、其他输入法与静态画面继续推进 | Windows UIPI 提升目标；Wayland 授权/拒绝/撤销/会话关闭；缺实现显式不可用 | 首增量证据；目标平台环境 |
 | M7-11 | In Progress | DEC-067/069：语义与 OCR/模板知识均重新解析新目标，经既有动作/核验进入 workflow；会话选择/恢复和持久资产后续推进 | 语义首增量见[验收](../compatibility/local-semantic-workflow-20261011.md)；OCR/模板实际产品零模型与门禁见[第二增量](../compatibility/local-visual-workflow-20261011.md) | DEC-067/069 已冻结本地知识/新执行引用契约；现有 workflow，见[路线分析](../research/2026-10-10-local-grounding-and-m7-sequencing.md) |
-| M7-12 | Completed（Linux 产品启用预览） | 产品根启用 Linux Provider，启动清单转发、持久化视觉设置、原生桌面工具页与权限说明；DEC-066 | 带视觉 Release 产品检查 23/23、实际原生 MiniMax OCR/mark 完成；OCR OFF 恢复 11/11；[验收](../compatibility/product-desktop-vision-20261011.md) | M7-02/05/06/08；Linux Xorg 首范围 |
+| M7-12 | Completed（Linux 产品启用预览） | 产品根启用 Linux Provider，启动清单转发、持久化视觉设置、原生桌面工具页与权限说明；DEC-066；Windows 产品宿主已接线 opt-in 平台面（DEC-066 变更记录）：tray 进程六面全 on、非产品 service 默认保持 | 带视觉 Release 产品检查 23/23、实际原生 MiniMax OCR/mark 完成；OCR OFF 恢复 11/11；[验收](../compatibility/product-desktop-vision-20261011.md)；Windows tray 冒烟见 2026-10-14 记录 | M7-02/05/06/08；Linux Xorg 首范围 |
 | M7-13 | Completed（Linux 默认包） | DEC-068 固定已验 Mirador / ncnn / PP-OCRv5；原生默认加载与离线安装 | 源/产物锁定、默认实际 OCR、关闭恢复、坏包/缺失拒绝；两种分辨率产品各 25/25，见[验收](../compatibility/bundled-vision-and-tool-recovery-20261011.md) | 当前已验 Mirador / ncnn / PP-OCRv5 |
 | M7-14 | In Progress（最新会话复验） | DEC-068 首增量已验；DEC-070 第二增量本地修复已验，原在线任务及提交评审待闭合 | 512 字节 canonical 回执、字段诊断、拒绝→新观察→已验证纠正、旧失败卡片收尾、未知/不确定负例及 ROI；见[新验收](../compatibility/desktop-rejection-recovery-20261011.md)，[首增量证据](../compatibility/bundled-vision-and-tool-recovery-20261011.md)保留 | 用户会话脱敏诊断及现有工具契约 |
 | M7-15 | In Progress | DEC-072：快捷能力不可达的 GUI 路线、绑定截图区域点击与前台/显示局部条件 | 无应用/语义 Provider 的真实 X11 启动器→键盘网址→新证据；比例、像素/焦点/权限/取消与不确定负例；在线自主选路另验 | M7-03/04/05/08，复用 M7-06 OCR及 M7-11 本地知识 |
@@ -1077,3 +1077,21 @@ failures；win32_capture_tier_test 193/0；CI 白名单 17 项本地 17/17。本
 无产品源码变更（仅新增测试、CMake 与 CI 白名单）及 M7 计划/记忆同步；
 未修改 pinned 依赖、未调用在线模型；提交于 feat 分支，CI windows 门禁随
 MR 复验。
+
+2026-10-14 / M7-12 Windows 产品面接线：DEC-066 的 Windows 侧落地。产品宿主
+此前以全默认构造 WindowsDesktopEnvironment，四个 opt-in 面（Win32 窗口/屏幕/
+输入、UIA 可访问性、应用、通知）全部处于关闭默认——桌面工具链在 Windows
+产品进程内实际不可达。接线沿 Linux 分支的 product 语义：Win32/UIA/
+Application/Notifications 四选项传 product，探测失败的访问器保持 null
+（fail closed，其余面存活）；无头开发 service 保持 DEC-066 原默认。产品
+进程新增一行启动能力日志，记录实际打开的访问器而非请求意图。
+
+取证（真实 Windows 11）：mirage-tray（product，--no-shell）进程输出
+desktop surfaces window=on screen=on input=on accessibility=on
+application=on notification=on，service status / shutdown 经命名管道退出
+0、进程干净退出；mirage-service（非产品）输出无该行、往返 0/0/0（无头
+默认不变）。Runtime 级 observe→activate→click→set_text→新观察闭环由
+win32_observation_e2e_test（CI runner 74 checks）继续承载。开放边界：原生
+「桌面工具」页与真实桌面任务/OCR 的 Windows 产品预览待后续增量（OCR 依赖
+M7-13 的 Windows 资源面）。本轮未修改 pinned 依赖、未调用在线模型；提交
+于 feat 分支，CI windows 门禁（MSVC 全树 + 测试 + 产品往返）随 MR 复验。
