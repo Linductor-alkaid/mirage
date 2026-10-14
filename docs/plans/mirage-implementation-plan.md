@@ -8,6 +8,9 @@
 
 ## 当前状态
 
+Windows 安装后呈现问题按[维护计划](maintenance-windows-presentation-20261014.md)推进：
+图形启动入口、通知承载重复图标、托盘菜单尺寸与间歇黑角分别跟踪，未取证项保持开放。
+
 维护者推进 [M8：mira_pet 常驻状态展示](m8-mira-pet.md)（In Progress）：提供由托盘
 Runtime owner 持有的独立置顶状态窗口，主窗口退至后台时仍显示真实执行阶段；动画
 按运行动作分别截取 intro/loop/outro，运行时只循环持续段。v5 九态源素材已登记，
