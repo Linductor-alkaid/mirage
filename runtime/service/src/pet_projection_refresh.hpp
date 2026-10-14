@@ -25,10 +25,13 @@ class PetProjectionRefresh {
         return timer_.valid();
     }
     void request() {
+        post();
+        poll();
+    }
+    void post() {
         if (stopping_.load())
             return;
-        requests_.publish(true);
-        poll();
+        requests_.publish(true); // transport callbacks only post; timer owns dispatch
     }
     void poll() {
         std::lock_guard lock(mutex_); // ownership of the single task/future, not a message queue

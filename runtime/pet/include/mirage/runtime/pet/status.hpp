@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <mirage/runtime/pet/bubble.hpp>
 #include <span>
 #include <string>
 #include <string_view>
@@ -26,7 +27,8 @@ struct Status {
     std::size_t active_count = 0;
     std::string summary;
     std::string reason_code;
-    std::uint64_t elapsed_ms = 0; // elapsed duration, never an inter-process clock timestamp
+    std::uint64_t elapsed_ms = 0;   // elapsed duration, never an inter-process clock timestamp
+    std::optional<Bubble> bubble{}; // DEC-089 volatile current-request presentation
     friend bool operator==(const Status &, const Status &) = default;
 };
 

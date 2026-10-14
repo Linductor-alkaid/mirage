@@ -175,18 +175,31 @@ std::string to_hex(const std::string &bytes) {
 /// the decoded event object (`{v, seq, event, ...payload}`); dispatch on the
 /// stable event name and map it onto the codec's Event value.
 mirage::runtime::pet::Status pet_from_vector(const mira::JsonValue &body) {
-    return {static_cast<int>(vector_integer(body, "schema_version")),
-            vector_string(body, "owner_epoch"),
-            static_cast<std::uint64_t>(vector_integer(body, "revision")),
-            vector_string(body, "host_state"),
-            vector_string(body, "display_state"),
-            vector_string(body, "source_kind"),
-            vector_string(body, "source_id"),
-            vector_string(body, "session_id"),
-            static_cast<std::size_t>(vector_integer(body, "active_count")),
-            vector_string(body, "summary"),
-            vector_string(body, "reason_code"),
-            static_cast<std::uint64_t>(vector_integer(body, "elapsed_ms"))};
+    mirage::runtime::pet::Status result{
+        static_cast<int>(vector_integer(body, "schema_version")),
+        vector_string(body, "owner_epoch"),
+        static_cast<std::uint64_t>(vector_integer(body, "revision")),
+        vector_string(body, "host_state"),
+        vector_string(body, "display_state"),
+        vector_string(body, "source_kind"),
+        vector_string(body, "source_id"),
+        vector_string(body, "session_id"),
+        static_cast<std::size_t>(vector_integer(body, "active_count")),
+        vector_string(body, "summary"),
+        vector_string(body, "reason_code"),
+        static_cast<std::uint64_t>(vector_integer(body, "elapsed_ms"))};
+    if (const auto *bubble = body.find("bubble")) {
+        result.bubble = mirage::runtime::pet::Bubble{
+            vector_string(*bubble, "kind"),
+            vector_string(*bubble, "content_origin"),
+            vector_string(*bubble, "request_id"),
+            vector_string(*bubble, "text"),
+            static_cast<std::uint64_t>(vector_integer(*bubble, "sequence")),
+            vector_boolean(*bubble, "truncated"),
+            vector_boolean(*bubble, "final"),
+            static_cast<std::uint64_t>(vector_integer(*bubble, "remaining_ms"))};
+    }
+    return result;
 }
 ipc::Event event_from_vector(const std::string &name, const mira::JsonValue &body) {
     ipc::Event event;
@@ -905,6 +918,10 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
         }
         if (value.find("tray"))
             identity.tray = vector_boolean(value, "tray");
+        if (value.find("pet_status"))
+            identity.pet_status = vector_boolean(value, "pet_status");
+        if (value.find("pet_bubbles"))
+            identity.pet_bubbles = vector_boolean(value, "pet_bubbles");
         response.payload = std::move(identity);
     } else if (kind == "product-state") {
         ipc::ProductState state{vector_integer(value, "frontend_pid"),
@@ -1300,6 +1317,8 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                 MIRAGE_CHECK(actual_value.pet_diagnostic == expected_value.pet_diagnostic);
             } else if constexpr (std::is_same_v<T, ipc::ServiceIdentity>) {
                 MIRAGE_CHECK(actual_value.tray == expected_value.tray);
+                MIRAGE_CHECK(actual_value.pet_status == expected_value.pet_status);
+                MIRAGE_CHECK(actual_value.pet_bubbles == expected_value.pet_bubbles);
                 check_string_equal(name, "service name", actual_value.name, expected_value.name);
                 MIRAGE_CHECK(actual_value.mirage_version == expected_value.mirage_version);
                 MIRAGE_CHECK(actual_value.mira_core_version == expected_value.mira_core_version);

@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mira · 头顶气泡设计预览</title>
+<style>
+:root { color-scheme: light; --page:#f8f8f8; --text:#202020; --muted:#626262; --line:#dfdfdf; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--page); color:var(--text); font-family:"Noto Sans SC","Noto Sans CJK SC",system-ui,sans-serif; font-size:14px; line-height:1.6; }
+main { max-width:1000px; padding:44px 28px; margin:auto; }
+h1 { font-size:28px; line-height:1.3; margin:0 0 12px; font-weight:650; }
+p { margin:0 0 18px; max-width:72ch; }
+.intro { color:var(--muted); }
+.controls { display:flex; gap:18px; align-items:center; flex-wrap:wrap; margin:26px 0; }
+button { border:1px solid var(--line); border-radius:8px; padding:8px 12px; font:inherit; background:white; color:var(--text); cursor:pointer; }
+button:hover { background:#e8e8e8; }
+button:active { background:#e2e2e2; }
+button:focus-visible, input:focus-visible { outline:2px solid #c94560; outline-offset:4px; }
+label { display:flex; gap:8px; align-items:center; cursor:pointer; }
+input { accent-color:#c94560; width:16px; height:16px; }
+::selection { color:#202020; background:#fdeef1; }
+.themes { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+.theme { --surface:#fff; --ink:#202020; --sub:#626262; --shadow:rgba(0,0,0,.14); background:#ececec; border-radius:16px; overflow:hidden; padding-bottom:16px; }
+.theme.dark { --surface:#222; --ink:#eee; --sub:#b8b8b8; --shadow:rgba(0,0,0,.3); background:#161616; }
+.theme h2 { color:var(--ink); margin:0; padding:20px 24px 0; font-size:16px; font-weight:600; }
+.scene { position:relative; height:374px; display:flex; justify-content:center; }
+.scene + .scene { margin-top:12px; }
+.caption { position:absolute; bottom:16px; color:var(--sub); margin:0; font-size:12px; }
+.pet { position:absolute; top:94px; width:240px; height:240px; object-fit:contain; pointer-events:none; }
+.bubble { position:absolute; z-index:1; width:240px; top:45px; height:36px; padding:8px 12px; color:var(--ink); background:var(--surface); box-shadow:0 4px 12px var(--shadow); font-size:13px; line-height:20px; }
+.thinking { border-radius:18px; }
+.thinking::before, .thinking::after { content:""; position:absolute; background:var(--surface); border-radius:50%; }
+.thinking::before { width:10px; height:10px; bottom:-13px; left:123px; }
+.thinking::after { width:5px; height:5px; bottom:-22px; left:116px; }
+.dialog { border-radius:12px; }
+.dialog::after { content:""; position:absolute; left:110px; bottom:-9px; width:14px; height:14px; background:var(--surface); transform:rotate(45deg); border-radius:0 0 3px 0; }
+.viewport { overflow:hidden; white-space:nowrap; height:20px; }
+.track { display:flex; width:max-content; animation:flow 25s linear infinite; }
+.track span { display:block; padding-right:32px; }
+.dialog .viewport { text-align:center; }
+@keyframes flow { to { transform:translateX(-50%); } }
+.reduced .track { animation:none; }
+.reduced .track span { padding:0; width:216px; overflow:hidden; text-overflow:ellipsis; }
+.reduced .track span + span { display:none; }
+.notes { margin-top:30px; display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+.notes h3 { margin:0 0 8px; font-size:15px; }
+.notes p { color:var(--muted); margin:0; }
+footer { color:var(--muted); font-size:12px; margin-top:30px; padding-top:18px; border-top:1px solid var(--line); }
+@media (prefers-reduced-motion:reduce) { .track { animation:none; } .track span { padding:0; width:216px; overflow:hidden; text-overflow:ellipsis; } .track span + span { display:none; } }
+@media (max-width:650px) { main { padding:28px 20px; } .themes,.notes { grid-template-columns:1fr; } h1 { font-size:24px; } }
+</style>
+</head>
+<body>
+<main>
+<h1>Mira 的思考与对话气泡</h1>
+<p class="intro">思考是一行持续流动的状态；回答是一句停下来的核心大意。两种气泡都轻放在头顶，宽度与 240px 角色画布一致。</p>
+<p class="intro">设计示意 · 下方文字均为示例，角色来自现有 v5 素材；尚未接入真实模型或原生窗口。</p>
+<div class="controls">
+<label><input id="reduce" type="checkbox">气泡减少动态效果</label>
+<button id="example" type="button">查看否定语义示例</button>
+</div>
+<div class="themes">
+<section class="theme" aria-label="浅色气泡示例">
+<h2>浅色</h2>
+<div class="scene">
+<div class="bubble thinking" role="img" aria-label="思考中，示例文字连续横向滚动">
+<div class="viewport" aria-hidden="true"><div class="track"><span>正在检查路径与配置，确认问题发生的位置，再选择合适的修复方式。</span><span>正在检查路径与配置，确认问题发生的位置，再选择合适的修复方式。</span></div></div>
+</div>
+<img class="pet" src="../../../apps/pet/assets/mira_think.webp" alt="Mira 思考动画，现有角色素材">
+<p class="caption">思考气泡 · 连续横向滚动</p>
+</div>
+<div class="scene">
+<div class="bubble dialog"><div class="viewport summary">找到路径错误，正在修复。</div></div>
+<img class="pet" src="../../../apps/pet/assets/mira_rest.webp" alt="Mira 待机动画，示意回答时角色画布">
+<p class="caption">对话气泡 · 一句核心概括</p>
+</div>
+</section>
+<section class="theme dark" aria-label="深色气泡示例">
+<h2>深色</h2>
+<div class="scene">
+<div class="bubble thinking" role="img" aria-label="思考中，能力缺席时滚动状态提示">
+<div class="viewport" aria-hidden="true"><div class="track" style="animation-duration:8.6s"><span>正在思考…</span><span>正在思考…</span><span>正在思考…</span><span>正在思考…</span><span>正在思考…</span><span>正在思考…</span></div></div>
+</div>
+<img class="pet" src="../../../apps/pet/assets/mira_think.webp" alt="Mira 思考动画，现有角色素材">
+<p class="caption">无实时思考流 · 明确状态提示</p>
+</div>
+<div class="scene">
+<div class="bubble dialog"><div class="viewport summary">找到路径错误，正在修复。</div></div>
+<img class="pet" src="../../../apps/pet/assets/mira_rest.webp" alt="Mira 待机动画，示意回答时角色画布">
+<p class="caption">对话气泡 · 静止可扫读</p>
+</div>
+</section>
+</div>
+<div class="notes">
+<section><h3>让人知道还在进行</h3><p>思考泡用两个小圆尾连接头顶。一行文字向左匀速流动，表达工作仍在推进，无需等待或读完。</p></section>
+<section><h3>一句话知道核心意思</h3><p>对话泡用短尾尖连接角色，文字静止。概括保留“不确定、未验证、需要确认”，不给用户错误的完成印象。</p></section>
+</div>
+<footer>原生实现需另验：新片段追加与请求清空、气泡穿透不抢焦、角色位置固定、工作区/DPI，以及角色和气泡整体的目标与截图避让。本页不构成这些验收的证据。</footer>
+</main>
+<script>
+document.querySelectorAll('.track').forEach(node => {
+  node.style.animationDuration = `${node.scrollWidth / 2 / 24}s`;
+});
+const reduced = document.querySelector('#reduce');
+reduced.checked = matchMedia('(prefers-reduced-motion: reduce)').matches;
+reduced.addEventListener('change', () => document.body.classList.toggle('reduced', reduced.checked));
+let negative = false;
+document.querySelector('#example').addEventListener('click', event => {
+  negative = !negative;
+  document.querySelectorAll('.summary').forEach(node => { node.textContent = negative ? '原因未明，需要补充日志。' : '找到路径错误，正在修复。'; });
+  event.currentTarget.textContent = negative ? '查看修复语义示例' : '查看否定语义示例';
+});
+</script>
+</body>
+</html>
