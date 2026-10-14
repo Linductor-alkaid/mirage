@@ -30,6 +30,7 @@ function Resolve-Binary([string]$name, [string[]]$candidates) {
 $configApps = Join-Path $apps $Config
 $binaries = @(
     @{ Name = "mirage.exe"; Candidates = @($configApps) },
+    @{ Name = "mirage-launcher.exe"; Candidates = @($configApps) },
     @{ Name = "mirage-service.exe"; Candidates = @($configApps) },
     @{ Name = "mirage-tray.exe"; Candidates = @((Join-Path $apps "tray\$Config"), $configApps) },
     @{ Name = "mirage-native.exe"; Candidates = @((Join-Path $apps "native\$Config"), $configApps) }
