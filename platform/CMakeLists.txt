@@ -178,7 +178,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         windows/src/overlay_backend.cpp
         windows/src/tray_backend.cpp
     )
-    target_link_libraries(mirage_platform PRIVATE user32 gdi32 ole32 oleaut32 shell32 advapi32
+    target_link_libraries(mirage_platform PRIVATE user32 gdi32 dwmapi ole32 oleaut32 shell32 advapi32
                                                   d3d11 dxgi windowsapp)
     target_link_libraries(mirage_platform PUBLIC Mirage::desktop)
 else()

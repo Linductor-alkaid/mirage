@@ -1691,7 +1691,7 @@ set_tests_properties(pet_bubble_test PROPERTIES LABELS "unit;runtime;pet;protoco
 if(WIN32)
     add_executable(win32_tray_menu_test platform/win32_tray_menu_test.cpp)
     target_compile_features(win32_tray_menu_test PRIVATE cxx_std_20)
-    target_link_libraries(win32_tray_menu_test PRIVATE Mirage::desktop user32 gdi32)
+    target_link_libraries(win32_tray_menu_test PRIVATE Mirage::desktop user32 gdi32 dwmapi)
     mirage_enable_warnings(win32_tray_menu_test)
     add_test(NAME win32_tray_menu_test COMMAND win32_tray_menu_test)
 endif()
