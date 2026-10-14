@@ -647,8 +647,7 @@ ApplicationLaunchOutcome ApplicationBackend::launch_locked(const std::string &ap
     g_free(entry_path_key);
     std::vector<std::string> argv;
     if (g_desktop_app_info_get_boolean(info, "DBusActivatable") &&
-        !g_desktop_app_info_get_boolean(info, "Terminal") &&
-        expand_exec_argv(info, uri, argv)) {
+        !g_desktop_app_info_get_boolean(info, "Terminal") && expand_exec_argv(info, uri, argv)) {
         std::vector<char *> child_argv;
         child_argv.reserve(argv.size() + 1);
         for (auto &argument : argv)
@@ -660,8 +659,7 @@ ApplicationLaunchOutcome ApplicationBackend::launch_locked(const std::string &ap
         // forked child that reached the setup always yields a pid below.
         const gboolean spawned_direct = g_spawn_async_with_pipes(
             working_directory.empty() ? nullptr : working_directory.c_str(), child_argv.data(),
-            nullptr,
-            static_cast<GSpawnFlags>(G_SPAWN_DO_NOT_REAP_CHILD | G_SPAWN_SEARCH_PATH),
+            nullptr, static_cast<GSpawnFlags>(G_SPAWN_DO_NOT_REAP_CHILD | G_SPAWN_SEARCH_PATH),
             [](gpointer user_data) {
                 const int fd = GPOINTER_TO_INT(user_data);
                 const pid_t self = getpid();

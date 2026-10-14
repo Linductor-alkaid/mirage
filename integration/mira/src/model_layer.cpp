@@ -159,8 +159,7 @@ constexpr std::uint64_t kContextReserveTokens = 1000;
 /// per-request context preflight shrinks it. A declared value (1..65536) is
 /// used verbatim; 0 means undeclared and takes the 32000 default. Thinking
 /// calls then carry the safety floor.
-std::uint64_t baseline_output_budget(const ModelLayerConfig &config,
-                                     const std::string &value) {
+std::uint64_t baseline_output_budget(const ModelLayerConfig &config, const std::string &value) {
     const auto base =
         config.max_output_tokens != 0 ? config.max_output_tokens : kDefaultMaxOutputTokens;
     // DEC-085 follow-up: an adaptive-thinking call spends its output budget
@@ -535,10 +534,9 @@ struct ModelLayer::Impl {
         // per-dialect 17x/21x scaling left default profiles unable to route
         // any model call.
         record.capabilities.limits.max_output_tokens =
-            22 * std::max<std::uint64_t>(
-                     config.max_output_tokens != 0 ? config.max_output_tokens
-                                                   : kDefaultMaxOutputTokens,
-                     kThinkingOutputFloor);
+            22 * std::max<std::uint64_t>(config.max_output_tokens != 0 ? config.max_output_tokens
+                                                                       : kDefaultMaxOutputTokens,
+                                         kThinkingOutputFloor);
         // DEC-082: baseline_output_budget still bounds each wire call; the
         // provider decorator shrinks it per request against the declared
         // context window (DEC-087 preflight).
