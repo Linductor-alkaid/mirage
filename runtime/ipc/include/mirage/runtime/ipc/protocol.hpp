@@ -431,8 +431,9 @@ struct ServiceIdentity {
     /// request face (`policy.get` / `policy.set`) is served — always true
     /// from this service generation on. Placed after `chat`.
     std::optional<bool> policy;
-    std::optional<bool> tray{};       // true only after embedded tray registration
-    std::optional<bool> pet_status{}; // DEC-084 read-only presentation face
+    std::optional<bool> tray{};        // true only after embedded tray registration
+    std::optional<bool> pet_status{};  // DEC-084 read-only presentation face
+    std::optional<bool> pet_bubbles{}; // DEC-089 optional volatile bubble payload
 };
 
 struct TaskSubmitted {

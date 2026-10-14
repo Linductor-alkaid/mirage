@@ -1,6 +1,8 @@
 #include "bridge.hpp"
 #include <mirage/platform/frontend_process.hpp>
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <eui/app.h>
@@ -9,6 +11,8 @@
 #include <kairo/executor.hpp>
 #include <mirage/platform/pet_window.hpp>
 #include <mirage/runtime/ipc/session_client.hpp>
+#include <mirage/runtime/persistence/paths.hpp>
+#include <mirage/runtime/persistence/store.hpp>
 
 namespace mirage::pet_ui {
 namespace ipc = runtime::ipc;
@@ -28,6 +32,42 @@ struct Bridge::Impl {
     kairo::WorkerHandle worker;
     kairo::TimerHandle refresh;
     kairo::TimerHandle animation_wake;
+    std::array<kairo::TimerSubmission<void>, 3>
+        bubble_expiries; // UI-owned, bounded handle/future retention
+    void consume_bubble_timers(bool drain = false) {
+        for (auto &timer : bubble_expiries) {
+            if (!timer.future.valid() || (!drain && timer.future.wait_for(std::chrono::milliseconds{
+                                                        0}) != std::future_status::ready))
+                continue;
+            try {
+                timer.future.get();
+            } catch (const kairo::TaskCancelled &) {
+            } // visible cooperative cancellation
+            catch (const std::exception &error) {
+                stale.store(true);
+                std::cerr << "mira_pet: bubble timer failed: " << error.what() << '\n';
+            }
+        }
+    }
+    void cancel_bubble_timers() {
+        for (auto &timer : bubble_expiries)
+            if (timer.handle.valid())
+                (void)timer.handle.cancel();
+        consume_bubble_timers();
+    }
+    std::uint64_t consumed_status = 0, consumed_preferences = 0; // UI-owned
+    kairo::comm::LatestMailbox<runtime::persistence::AppPreferences> appearance{"pet-appearance"};
+    runtime::persistence::LocalStateStore preference_store{
+        runtime::persistence::default_config_directory(), "preferences.json", 4096};
+    void load_preferences() {
+        const auto stored = preference_store.load();
+        if (stored.status == runtime::persistence::LoadStatus::Loaded)
+            appearance.publish(runtime::persistence::decode_app_preferences(stored.body));
+        else if (stored.status == runtime::persistence::LoadStatus::Absent)
+            appearance.publish(runtime::persistence::AppPreferences{});
+        else
+            std::cerr << "mira_pet: appearance read failed: " << stored.error << '\n';
+    }
     std::atomic_bool live{false}, stale{false}, refreshing{false}, animating{false}, visible{true};
     std::atomic_uint64_t event_seq{0};
     std::atomic_int64_t lost_since_ms{0};
@@ -57,7 +97,7 @@ struct Bridge::Impl {
             std::cerr << "mira_pet: " << diagnostic << '\n';
     }
     bool arm_animation() {
-        animation_wake = executor.submit_periodic(50, [this] {
+        animation_wake = executor.submit_periodic(33, [this] {
             if (visible.load() && (animating.load() || !live.load() || stale.load() ||
                                    platform::pet_window::exit_requested()))
                 app::requestUpdate();
@@ -92,6 +132,7 @@ bool Bridge::start(std::string &diagnostic) {
         diagnostic = "mira_pet Executor 初始化失败";
         return false;
     }
+    p.load_preferences();
     p.client->set_event_sink([&p](const ipc::Event &event) {
         const auto previous = p.event_seq.exchange(event.seq);
         if (previous && event.seq != previous + 1)
@@ -132,6 +173,7 @@ bool Bridge::start(std::string &diagnostic) {
             std::atomic_bool &flag;
             ~Release() { flag.store(false); }
         } release{p.refreshing};
+        p.load_preferences();
         ipc::Response response;
         try {
             response = p.client->call(ipc::PetStatusRequest{}, 1500ms).get();
@@ -172,7 +214,41 @@ bool Bridge::start(std::string &diagnostic) {
 }
 bool Bridge::latest(runtime::pet::Status &out) {
     auto &p = *impl_;
-    return p.live.load() && !p.stale.load() && p.inbox.try_load(out);
+    p.consume_bubble_timers();
+    std::uint64_t sequence = 0;
+    const bool fresh = p.live.load() && !p.stale.load() &&
+                       p.inbox.try_load_newer_than(p.consumed_status, out, sequence);
+    if (fresh)
+        p.consumed_status = sequence;
+    return fresh;
+}
+bool Bridge::preferences(runtime::persistence::AppPreferences &out) {
+    auto &p = *impl_;
+    std::uint64_t sequence = 0;
+    const bool fresh = p.appearance.try_load_newer_than(p.consumed_preferences, out, sequence);
+    if (fresh)
+        p.consumed_preferences = sequence;
+    return fresh;
+}
+void Bridge::set_bubble_expiry(std::uint64_t remaining_ms) {
+    auto &p = *impl_;
+    p.cancel_bubble_timers();
+    if (!remaining_ms || !p.visible.load() || p.stopping)
+        return;
+    auto slot = std::find_if(p.bubble_expiries.begin(), p.bubble_expiries.end(),
+                             [](const auto &timer) { return !timer.future.valid(); });
+    if (slot == p.bubble_expiries.end()) {
+        p.stale.store(true);
+        std::cerr << "mira_pet: bubble timer retention capacity exceeded\n";
+        return;
+    }
+    *slot = p.executor.submit_delayed(
+        static_cast<std::int64_t>(std::min<std::uint64_t>(5000, remaining_ms)),
+        [] { app::requestUpdate(); });
+    if (!slot->handle.valid()) {
+        p.stale.store(true);
+        std::cerr << "mira_pet: bubble expiry timer admission failed\n";
+    }
 }
 bool Bridge::connected() const { return impl_->live.load() && !impl_->stale.load(); }
 ResourceLoader &Bridge::loader() { return impl_->resources; }
@@ -183,6 +259,7 @@ void Bridge::set_visible(bool value) {
         return;
     if (p.animation_wake.valid())
         (void)p.animation_wake.cancel();
+    p.cancel_bubble_timers();
     p.animation_wake = {};
     if (value && !p.arm_animation()) {
         p.stale.store(true);
@@ -198,6 +275,7 @@ void Bridge::shutdown() {
     p.animating.store(false);
     if (p.animation_wake.valid())
         (void)p.animation_wake.cancel();
+    p.cancel_bubble_timers();
     if (p.refresh.valid())
         (void)p.refresh.cancel();
     p.client->stop();
@@ -205,5 +283,6 @@ void Bridge::shutdown() {
         p.worker.stop();
     p.resources.stop();
     p.executor.shutdown(true);
+    p.consume_bubble_timers(true);
 }
 } // namespace mirage::pet_ui

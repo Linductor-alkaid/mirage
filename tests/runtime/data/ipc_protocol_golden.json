@@ -1,10 +1,10 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 20,
+    "version": 21,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
-    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted), DEC-038 (Accepted), DEC-039 (Accepted), DEC-045 (Accepted), DEC-051 (Accepted), DEC-066 (Accepted), DEC-080 (Accepted), DEC-084 (M8-01 first increment)",
+    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted), DEC-038 (Accepted), DEC-039 (Accepted), DEC-045 (Accepted), DEC-051 (Accepted), DEC-066 (Accepted), DEC-080 (Accepted), DEC-084 (M8-01 first increment), DEC-089 (Accepted)",
     "consumers": [
       "tests/runtime/ipc_protocol_golden_test.cpp"
     ],
@@ -30,7 +30,8 @@
       "v17 (M6-38): chat_only selects tool-free conversation; default/full and read_only/visual remain compatible.",
       "v18 (M8-01): pet.status and opt-in pet.updated carry a bounded display projection; legacy subscribers do not receive the new event.",
       "v20 (M8-05): independent pet_start/pet_stop and owned pet_ready bootstrap; optional product pet_state/pet_diagnostic lifecycle, old vectors unchanged.",
-      "v21 (DEC-085): session.tool_error carries one classified tool failure of a settled harness turn (stable error_code vocabulary); additive, legacy subscribers do not receive the new event."
+      "v21 (DEC-085): session.tool_error carries one classified tool failure of a settled harness turn (stable error_code vocabulary); additive, legacy subscribers do not receive the new event.",
+      "v21 (M8-11): optional hello.pet_bubbles and volatile pet bubble payload; old vectors keep byte-identical canonical strings. Thinking and final answer snapshots use independent model-request identity and a bounded relative hold duration."
     ]
   },
   "requests": [
@@ -2144,6 +2145,26 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":107,\"ok\":true,\"product\":true,\"frontend_pid\":777,\"window_epoch\":2,\"exit_epoch\":0,\"active_work\":0,\"exit_pending\":false,\"frontend_ready\":true,\"pet_pid\":0,\"pet_state\":\"failed\",\"pet_diagnostic\":\"fixture launch refused\"}"
+    },
+    {
+      "name": "hello-pet-bubbles-capability",
+      "response": {
+        "id": 7,
+        "ok": true,
+        "payload": {
+          "kind": "identity",
+          "value": {
+            "service": "mirage-service",
+            "mirage_version": "0.1.0",
+            "mira_core_version": "0.4.0",
+            "host_status": "running",
+            "protocol": 1,
+            "pet_status": true,
+            "pet_bubbles": true
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":7,\"ok\":true,\"service\":\"mirage-service\",\"mirage_version\":\"0.1.0\",\"mira_core_version\":\"0.4.0\",\"host_status\":\"running\",\"protocol\":1,\"pet_status\":true,\"pet_bubbles\":true}"
     }
   ],
   "response_failures": [
@@ -2669,6 +2690,68 @@
         "failure_count": 3
       },
       "canonical": "{\"v\":1,\"seq\":5,\"event\":\"session.tool_error\",\"session_id\":\"session-A\",\"tool_name\":\"desktop.screen.capture\",\"error_code\":\"platform_limitation\",\"message\":\"平台限制：desktop capture unavailable in this Wayland session\",\"failure_count\":3}"
+    },
+    {
+      "name": "pet-bubble-thinking",
+      "event": {
+        "v": 1,
+        "seq": 4,
+        "event": "pet.updated",
+        "schema_version": 1,
+        "owner_epoch": "owner-A",
+        "revision": 7,
+        "host_state": "running",
+        "display_state": "thinking",
+        "source_kind": "turn",
+        "source_id": "turn-A",
+        "session_id": "session-A",
+        "active_count": 1,
+        "summary": "思考中",
+        "reason_code": "",
+        "elapsed_ms": 123,
+        "bubble": {
+          "kind": "thinking",
+          "content_origin": "model_preview",
+          "request_id": "request-A",
+          "text": "正在核对配置",
+          "sequence": 5,
+          "truncated": false,
+          "final": false,
+          "remaining_ms": 0
+        }
+      },
+      "canonical": "{\"v\":1,\"seq\":4,\"event\":\"pet.updated\",\"schema_version\":1,\"owner_epoch\":\"owner-A\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"thinking\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":1,\"summary\":\"思考中\",\"reason_code\":\"\",\"elapsed_ms\":123,\"bubble\":{\"kind\":\"thinking\",\"content_origin\":\"model_preview\",\"request_id\":\"request-A\",\"text\":\"正在核对配置\",\"sequence\":5,\"truncated\":false,\"final\":false,\"remaining_ms\":0}}"
+    },
+    {
+      "name": "pet-bubble-dialog",
+      "event": {
+        "v": 1,
+        "seq": 4,
+        "event": "pet.updated",
+        "schema_version": 1,
+        "owner_epoch": "owner-A",
+        "revision": 7,
+        "host_state": "running",
+        "display_state": "task_success",
+        "source_kind": "turn",
+        "source_id": "turn-A",
+        "session_id": "session-A",
+        "active_count": 0,
+        "summary": "思考中",
+        "reason_code": "",
+        "elapsed_ms": 123,
+        "bubble": {
+          "kind": "dialog",
+          "content_origin": "answer_summary",
+          "request_id": "request-A",
+          "text": "配置尚未验证",
+          "sequence": 5,
+          "truncated": false,
+          "final": true,
+          "remaining_ms": 5000
+        }
+      },
+      "canonical": "{\"v\":1,\"seq\":4,\"event\":\"pet.updated\",\"schema_version\":1,\"owner_epoch\":\"owner-A\",\"revision\":7,\"host_state\":\"running\",\"display_state\":\"task_success\",\"source_kind\":\"turn\",\"source_id\":\"turn-A\",\"session_id\":\"session-A\",\"active_count\":0,\"summary\":\"思考中\",\"reason_code\":\"\",\"elapsed_ms\":123,\"bubble\":{\"kind\":\"dialog\",\"content_origin\":\"answer_summary\",\"request_id\":\"request-A\",\"text\":\"配置尚未验证\",\"sequence\":5,\"truncated\":false,\"final\":true,\"remaining_ms\":5000}}"
     }
   ],
   "event_failures": [

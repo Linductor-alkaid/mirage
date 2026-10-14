@@ -23,13 +23,30 @@ class Provider final : public mira::IModelProvider {
   public:
     explicit Provider(mira::ModelProfile profile) : profile_(std::move(profile)) {}
     const mira::ModelProfile &profile() const override { return profile_; }
-    std::atomic_bool hold{true}, fail{false};
+    std::atomic_bool hold{true}, fail{false}, show_answer{false};
     mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
                                             const mira::OperationContext &context,
-                                            const mira::ProviderInferOptions &) override {
-        // Simulated blocking transport remains on the Runtime Executor's task.
-        while (hold.load() && !context.cancelled_or_expired(mira::Timestamp::now()))
+                                            const mira::ProviderInferOptions &options) override {
+        // Simulated transport callbacks remain on the Runtime Executor's task.
+        if (options.preview_sink)
+            options.preview_sink(request.request_id, {});
+        if (options.thinking_preview_sink) {
+            options.thinking_preview_sink(request.request_id, {});
+            options.thinking_preview_sink(request.request_id, {"正在检查当前配置", 0, false});
+        }
+        bool answer_sent = false;
+        while (hold.load() && !context.cancelled_or_expired(mira::Timestamp::now())) {
+            if (show_answer.load() && !answer_sent) {
+                answer_sent = true;
+                if (options.preview_sink)
+                    options.preview_sink(request.request_id,
+                                         {"配置尚未验证，需要继续检查。", 0, false});
+                if (options.thinking_preview_sink)
+                    options.thinking_preview_sink(
+                        request.request_id, {"late thinking must not replace answer", 0, false});
+            }
             (void)::poll(nullptr, 0, 1);
+        }
         if (context.expired(mira::Timestamp::now()) && !context.cancelled())
             return mira::make_model_error(mira::ModelDomainCode::ModelDeadlineExceeded,
                                           "fixture model timeout", false, context.operation);
@@ -114,7 +131,8 @@ int main() {
     ipc::IpcClient client(config.socket_path);
     const auto hello = client.call(ipc::HelloRequest{}, 2s);
     MIRAGE_CHECK(hello.ok &&
-                 std::get<ipc::ServiceIdentity>(hello.payload).pet_status.value_or(false));
+                 std::get<ipc::ServiceIdentity>(hello.payload).pet_status.value_or(false) &&
+                 std::get<ipc::ServiceIdentity>(hello.payload).pet_bubbles.value_or(false));
     auto opted = subscribe(config.socket_path, true);
     auto legacy = subscribe(config.socket_path, false);
     auto idle = snapshot(client);
@@ -150,12 +168,27 @@ int main() {
     const auto active = wait_state(client, "thinking");
     MIRAGE_CHECK(active.active_count == 1 && active.source_kind == "turn" &&
                  active.session_id == session);
+    MIRAGE_CHECK(active.bubble && active.bubble->kind == "thinking" &&
+                 active.bubble->text == "正在检查当前配置");
+    provider->show_answer.store(true);
+    auto answer_status = snapshot(client);
+    const auto answer_deadline = std::chrono::steady_clock::now() + 2s;
+    while ((!answer_status.bubble || answer_status.bubble->kind != "dialog") &&
+           std::chrono::steady_clock::now() < answer_deadline) {
+        (void)::poll(nullptr, 0, 2);
+        answer_status = snapshot(client);
+    }
+    MIRAGE_CHECK(answer_status.bubble && answer_status.bubble->kind == "dialog" &&
+                 answer_status.bubble->content_origin == "answer_summary" &&
+                 answer_status.bubble->text.find("未验证") != std::string::npos);
     MIRAGE_CHECK(!client.call(ipc::SessionChatRequest{session, "duplicate", false}, 2s).ok);
     MIRAGE_CHECK(snapshot(client).source_id == active.source_id);
     provider->hold.store(false);
     const auto done = wait_state(client, "task_success");
     MIRAGE_CHECK(done.active_count == 0 && done.source_id == active.source_id);
+    MIRAGE_CHECK(done.bubble && done.bubble->final && done.bubble->text == "fixture complete");
     MIRAGE_CHECK(snapshot(client).revision == done.revision); // idempotent terminal
+    provider->show_answer.store(false);
 
     provider->hold.store(true);
     accepted = client.call(ipc::SessionChatRequest{session, "cancel work", false}, 2s);
@@ -169,19 +202,23 @@ int main() {
         (void)::poll(nullptr, 0, 2);
     MIRAGE_CHECK(snapshot(client).active_count == 0);
     MIRAGE_CHECK(snapshot(client).display_state == "cancelled");
+    MIRAGE_CHECK(!snapshot(client).bubble);
 
     provider->hold.store(true);
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "deadline work", false}, 2s).ok);
     (void)wait_state(client, "thinking");
     MIRAGE_CHECK(wait_state(client, "task_failure").active_count == 0);
+    MIRAGE_CHECK(!snapshot(client).bubble);
     provider->fail.store(true);
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "fail work", false}, 2s).ok);
     (void)wait_state(client, "thinking");
     provider->hold.store(false);
     MIRAGE_CHECK(wait_state(client, "task_failure").active_count == 0);
+    MIRAGE_CHECK(!snapshot(client).bubble);
 
     service.request_desktop_takeover();
     MIRAGE_CHECK(snapshot(client).display_state == "takeover");
+    MIRAGE_CHECK(!snapshot(client).bubble);
     MIRAGE_CHECK(service.resume_desktop());
     MIRAGE_CHECK(snapshot(client).display_state != "takeover");
     MIRAGE_CHECK(client.call(ipc::ShutdownRequest{}, 2s).ok);
@@ -191,7 +228,8 @@ int main() {
     mirage::runtime::RuntimeService restarted(config);
     MIRAGE_CHECK(restarted.start(binding).ok);
     const auto fresh = snapshot(client);
-    MIRAGE_CHECK(fresh.owner_epoch != idle.owner_epoch && fresh.display_state == "idle");
+    MIRAGE_CHECK(fresh.owner_epoch != idle.owner_epoch && fresh.display_state == "idle" &&
+                 !fresh.bubble);
     const auto restored_sessions = client.call(ipc::ListSessionsRequest{}, 2s);
     const auto restored_session =
         std::get<ipc::SessionList>(restored_sessions.payload).sessions.front().id;

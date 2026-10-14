@@ -180,6 +180,7 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
                 event.process_sequence = record.process_sequence;
                 record.status = status;
                 record.model_in_flight = false;
+                record.pet_text_feed.reset(); // release transient raw previews at settlement
                 record.pet_tool_phase.clear();
                 // M8: was_cancelled tracks user-initiated cancel, not deadline expiry.
                 // cancel_requested is set only when the user explicitly sends CancelChatRequest.
@@ -226,7 +227,8 @@ void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::stri
                      std::string turn_id, const std::string &transcript, const std::string &text,
                      kairo::StopToken stop, bool agent, const std::string &agent_task_id,
                      const std::string &reasoning, bool tools_allowed,
-                     const std::string &host_session_id, const std::function<void()> &refresh_pet) {
+                     const std::string &host_session_id, const std::function<void()> &refresh_pet,
+                     const std::shared_ptr<detail::PetTextFeed> &pet_feed) {
     mira::OperationContext context;
     context.session = mira::SessionId::parse(host_session_id).value_or(mira::SessionId{});
     context.task = mira::TaskId::parse(agent_task_id).value_or(mira::TaskId{});
@@ -243,15 +245,25 @@ void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::stri
     // Transport callback only performs bounded validation and Topic delivery.
     // Per-infer callbacks are sequential; the shared atomic also covers retries safely.
     auto preview_sequence = std::make_shared<std::atomic<std::uint64_t>>(0);
-    integration::DialogPreviewSink preview = [core, session_id, turn_id, stop, preview_sequence](
-                                                 const std::string &request,
-                                                 const std::string &preview_text, bool truncated) {
-        if (stop.stop_requested() || request.empty() || request.size() > 128 ||
-            preview_text.size() > 16 * 1024)
-            return;
-        core->events.publish_chat_preview({session_id, turn_id, request, preview_text,
-                                           preview_sequence->fetch_add(1) + 1, truncated});
-    };
+    integration::DialogPreviewSink preview =
+        [core, session_id, turn_id, stop, preview_sequence, pet_feed,
+         refresh_pet](const std::string &request, const std::string &preview_text, bool truncated) {
+            if (stop.stop_requested() || request.empty() || request.size() > 128 ||
+                preview_text.size() > 16 * 1024)
+                return;
+            pet_feed->publish(true, request, preview_text, truncated);
+            refresh_pet();
+            core->events.publish_chat_preview({session_id, turn_id, request, preview_text,
+                                               preview_sequence->fetch_add(1) + 1, truncated});
+        };
+    integration::DialogThinkingPreviewSink thinking_preview =
+        [pet_feed, stop, refresh_pet](const std::string &request, const std::string &thinking_text,
+                                      bool truncated) {
+            if (stop.stop_requested())
+                return;
+            pet_feed->publish(false, request, thinking_text, truncated);
+            refresh_pet();
+        };
     integration::DialogProcessSink process = [core, session_id, turn_id, stop,
                                               refresh_pet](const auto &parts) {
         if (stop.stop_requested() || !conversation::valid_parts(parts))
@@ -315,12 +327,12 @@ void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::stri
     };
     mirage::integration::DialogCompletion completion =
         core->model_layer
-            ? (agent ? core->model_layer->complete_harness_turn(transcript, text, context,
-                                                                reasoning, tools_allowed, preview,
-                                                                process, desktop_cancel, activity)
+            ? (agent ? core->model_layer->complete_harness_turn(
+                           transcript, text, context, reasoning, tools_allowed, preview, process,
+                           desktop_cancel, activity, thinking_preview)
                      : core->model_layer->complete_dialog_turn(transcript, text, context, reasoning,
                                                                tools_allowed, preview, process,
-                                                               activity))
+                                                               activity, thinking_preview))
             : mirage::integration::DialogCompletion{};
     if (!agent_task_id.empty()) {
         const auto settled =
@@ -475,6 +487,8 @@ struct RuntimeService::Impl {
     std::unique_ptr<detail::PetProcess> pet_process;
     pet::Projection pet_projection{make_turn_id()}; // serial context, one presentation only
     std::uint64_t published_pet_revision = 0;
+    pet::BubbleProjection bubble_projection; // serial-context-only
+    std::optional<pet::Status> published_pet;
     std::promise<void> loop_done;
     std::future<void> loop_done_future;
     std::atomic<Lifecycle> lifecycle{Lifecycle::New};
@@ -689,6 +703,7 @@ struct RuntimeService::Impl {
         // M5-07: the policy face is core equipment — always served.
         result.policy = true;
         result.pet_status = true;
+        result.pet_bubbles = true;
         if (tray)
             result.tray = tray->ready();
         return result;
@@ -834,21 +849,64 @@ struct RuntimeService::Impl {
                 state = "active";
             append({"workflow", id, {}, state, "unknown", false, completion_order});
         }
-        const auto snapshot =
+        auto snapshot =
             pet_projection.update(host_status_name(core->host.status()), work,
                                   core->actions && core->actions->authority_epoch() == 0, waiting,
                                   pet::Projection::Clock::now());
-        if (snapshot.revision != published_pet_revision) {
-            core->events.publish_pet_status({snapshot});
-            published_pet_revision = snapshot.revision;
+        pet::Preview thought, answer;
+        bool model_active = false;
+        std::string final_reply;
+        std::shared_ptr<detail::PetTextFeed> feed;
+        if (snapshot.source_kind == "turn") {
+            std::lock_guard lock(core->dialogs.mutex);
+            const auto session = core->dialogs.sessions.find(snapshot.session_id);
+            if (session != core->dialogs.sessions.end())
+                for (auto &record : session->second.turns)
+                    if (record.turn_id == snapshot.source_id) {
+                        model_active = record.model_in_flight && !record.cancel_requested;
+                        if (record.status == "ok")
+                            final_reply = record.reply_text;
+                        feed = record.pet_text_feed;
+                        if (record.status != "pending")
+                            record.pet_text_feed.reset();
+                        break;
+                    }
         }
+        const bool have_thought = feed && feed->thinking.try_load(thought);
+        const bool have_answer = feed && feed->answer.try_load(answer);
+        snapshot.bubble = bubble_projection.update(
+            snapshot, model_active, final_reply, have_thought ? &thought : nullptr,
+            have_answer ? &answer : nullptr, pet::BubbleProjection::Clock::now());
+        // The escaped wire size, not just UTF-8 bytes, must fit the existing cap.
+        while (snapshot.bubble && ipc::encode_event({1, ipc::PetUpdatedEvent{snapshot}}).size() >
+                                      pet::max_status_wire_bytes - 64) {
+            auto &bubble = *snapshot.bubble;
+            if (bubble.text.size() <= 128) {
+                snapshot.bubble.reset();
+                break;
+            }
+            bubble.text = pet::bubble_line(bubble.text, bubble.text.size() - 128);
+            bubble.truncated = true;
+        }
+        auto comparable = [](pet::Status value) {
+            value.revision = value.elapsed_ms = 0;
+            if (value.bubble)
+                value.bubble->remaining_ms = 0;
+            return value;
+        };
+        if (!published_pet || comparable(snapshot) != comparable(*published_pet)) {
+            snapshot.revision = ++published_pet_revision;
+            core->events.publish_pet_status({snapshot});
+            published_pet = snapshot;
+        } else
+            snapshot.revision = published_pet_revision;
         return snapshot;
     }
 
     void refresh_pet_from_dialog() {
         if (product_stopping.load())
             return;
-        pet_refresh->request();
+        pet_refresh->post();
     }
 
     ipc::ProductState product_snapshot() {
@@ -1223,6 +1281,8 @@ struct RuntimeService::Impl {
                     if (record.turn_id == turn && record.status == "pending") {
                         record.cancel_requested = true;
                         record.model_in_flight = false;
+                        record.pet_text_feed
+                            .reset(); // release transient raw previews at settlement
                     }
             }
             respond(connection_id, correlation_id, ipc::DialogTurnAccepted{turn});
@@ -2459,6 +2519,7 @@ struct RuntimeService::Impl {
         // asks for an agent. It never creates a desktop harness task.
         request.agent = request.agent && request.access != "chat_only";
         std::string turn_id;
+        auto pet_feed = std::make_shared<detail::PetTextFeed>();
         std::string agent_task_id;
         std::string host_session_id = request.session_id;
         std::uint64_t sequence = 0;
@@ -2554,6 +2615,7 @@ struct RuntimeService::Impl {
             else if (log.turns.size() >= log.max_turns)
                 log.turns.erase(log.turns.begin());
             detail::DialogTurnRecord record;
+            record.pet_text_feed = pet_feed;
             record.agent_task_id = agent_task_id;
             record.replaces_turn_id = request.replace_turn_id;
             record.turn_id = make_turn_id();
@@ -2572,7 +2634,7 @@ struct RuntimeService::Impl {
         const std::string transcript = render_dialog_transcript(core, session_id);
         auto ready = std::make_shared<kairo::comm::PhaseGate>("dialog-admission");
         auto dialog_submission = core->executor.submit_cancellable(
-            [core = core, ready, session_id, turn_id, transcript, text = request.text,
+            [core = core, ready, session_id, turn_id, transcript, pet_feed, text = request.text,
              agent = request.agent, agent_task_id, host_session_id, reasoning = request.reasoning,
              tools_allowed = request.access == "default", raw = this](kairo::StopToken stop) {
                 // Startup coordination belongs to Executor; no private queue or waiter.
@@ -2582,9 +2644,10 @@ struct RuntimeService::Impl {
                     (void)ready->wait_for(1, std::chrono::milliseconds{10});
                 }
                 try {
-                    run_dialog_turn(core, session_id, turn_id, transcript, text, stop, agent,
-                                    agent_task_id, reasoning, tools_allowed, host_session_id,
-                                    [raw] { raw->refresh_pet_from_dialog(); });
+                    run_dialog_turn(
+                        core, session_id, turn_id, transcript, text, stop, agent, agent_task_id,
+                        reasoning, tools_allowed, host_session_id,
+                        [raw] { raw->refresh_pet_from_dialog(); }, pet_feed);
                 } catch (...) {
                     mirage::integration::DialogCompletion failed;
                     failed.failed = true;

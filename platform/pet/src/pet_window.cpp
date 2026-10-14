@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <atomic>
 #include <eui/window.h>
+#include <limits>
 #include <vector>
 #ifndef _WIN32
 #include <csignal>
@@ -21,6 +22,9 @@ GLFWwindowiconifyfun previous_iconify = nullptr;
 std::function<void(bool)> visibility_sink;   // UI-thread owned
 std::function<void(Position)> position_sink; // UI-thread owned
 std::atomic_bool hidden{false}, exit_relayed{false};
+bool bubble_below = false; // UI-owned; fixed during a drag
+constexpr int bubble_reserve = 58;
+constexpr int bubble_gutter = 12;
 #ifndef _WIN32
 GLFWwindow *drag_window = nullptr;
 GLFWmousebuttonfun previous_mouse_button = nullptr;
@@ -173,6 +177,8 @@ bool prepare(std::optional<Position> saved_position, std::function<void(Position
                 if (dragging && position_sink) {
                     Position position;
                     glfwGetWindowPos(current, &position.x, &position.y);
+                    position.x += bubble_gutter;
+                    position.y += bubble_gutter + (bubble_below ? 0 : bubble_reserve);
                     position_sink(position);
                 }
                 dragging = false;
@@ -196,7 +202,25 @@ bool prepare(std::optional<Position> saved_position, std::function<void(Position
         return false;
     }
     if (saved_position) {
-        const auto position = clamped_position(window, *saved_position);
+        // Stored coordinates identify the character canvas, preserving older
+        // 240x240 records when the new transparent bubble reserve is added.
+        auto desired = *saved_position;
+        int count = 0;
+        auto **monitors = glfwGetMonitors(&count);
+        for (int i = 0; i < count; ++i) {
+            int left = 0, top = 0, width = 0, height = 0;
+            glfwGetMonitorWorkarea(monitors[i], &left, &top, &width, &height);
+            if (desired.x >= left && desired.x < left + width && desired.y >= top &&
+                desired.y < top + height)
+                bubble_below = desired.y - top < bubble_reserve;
+        }
+        desired.x = static_cast<int>(std::clamp<long long>(
+            static_cast<long long>(desired.x) - bubble_gutter, std::numeric_limits<int>::min(),
+            std::numeric_limits<int>::max()));
+        desired.y = static_cast<int>(std::clamp<long long>(
+            static_cast<long long>(desired.y) - bubble_gutter - (bubble_below ? 0 : bubble_reserve),
+            std::numeric_limits<int>::min(), std::numeric_limits<int>::max()));
+        const auto position = clamped_position(window, desired);
         glfwSetWindowPos(window, position.x, position.y);
     } else if (auto *monitor = glfwGetPrimaryMonitor()) {
         int x = 0, y = 0, width = 0, height = 0;
@@ -207,6 +231,11 @@ bool prepare(std::optional<Position> saved_position, std::function<void(Position
             glfwSetWindowPos(window, x + width - pet_width - 24, y + height - pet_height - 24);
     }
     return true;
+}
+Layout layout(float width, float height) {
+    const float scale = width / 264.0f;
+    const float side = 240 * scale, gutter = 12 * scale;
+    return {width, height, gutter, bubble_below ? gutter : gutter + 58 * scale, side, bubble_below};
 }
 void update_hit_region(std::span<const std::uint8_t> rgba, const Layout &layout) {
 #ifndef _WIN32
@@ -290,6 +319,8 @@ void release_visibility() {
     if (auto *window = glfwGetCurrentContext(); window && position_sink) {
         Position position;
         glfwGetWindowPos(window, &position.x, &position.y);
+        position.x += bubble_gutter;
+        position.y += bubble_gutter + (bubble_below ? 0 : bubble_reserve);
         position_sink(position);
     }
     if (observed_window)
