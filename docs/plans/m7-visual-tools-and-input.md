@@ -1116,3 +1116,14 @@ HKLM→HKCU 冒烟键名，File/资产/快捷方式/卸载机制与正式脚本�
 Authenticode 签名保持发布机边界（fail-closed 脚本未变）；Release 运行库（/MD）以
 用户机 VC++ Redistributable 为前提，安装器暂不捆绑 vc_redist，留待发布
 增量决策。本轮未修改 pinned 依赖、未调用在线模型；提交于 feat 分支。
+
+2026-10-14 / M7-12 Windows 正式安装取证：授权合并（#93 → master 893f706）
+后以 Release 载荷重建正式安装器（`out/packages/mirage-installer-0.1.0.exe`，
+sha-256 前缀 fe1db1620590703d），经 UAC 提权安装到 `C:\Program Files\Mirage`
+（四个产品进程 + uninstall.exe + assets）。已安装产品运行取证：tray/native
+双进程、六面能力行全 on、命名管道 status/shutdown 退出 0、干净退出；HKCU
+AUMID 与用户开始菜单 Mirage.lnk 就位。实机发现 makensis（32 位）构建的安装
+进程默认走 WOW64 注册表视图，首个正式安装的卸载项落在 WOW6432Node；mirage.nsi
+已修正（安装节 `SetRegView 64` 写卸载项，卸载节双视图清理以兼容修正前版本
+升级），本机经升级安装迁移至原生视图并清理旧键。未安装系统级依赖；Authenticode
+签名仍待发布机证书。

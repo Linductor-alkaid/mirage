@@ -87,6 +87,13 @@ NSIS / WiX-exe。约束面：
   （/MD 的 VC++ Redistributable）为用户机前提，安装器暂不捆绑
   vc_redist，留待发布增量决策。
 
+- 2026-10-14（正式 admin 安装与 SetRegView 修正）：经 UAC 提权在维护者机器
+  执行正式（admin）安装到 `C:\Program Files\Mirage`，HKCU AUMID、用户开始
+  菜单快捷方式与产品运行（tray/native 六面能力行、status/shutdown）全部
+  取证。发现并修复：makensis 皆为 32 位构建，安装进程走 WOW64，未显式
+  `SetRegView 64` 时卸载项落在 `WOW6432Node`（32 位视图）——安装节现显式
+  写 64 位视图，卸载节双视图清理（兼容修正前旧版升级）；本机旧键已随
+  升级安装清理。签名边界不变。
 ## 关联文档和工作项
 
 - [DEC-006](DEC-006-ui-web-frontend-packaging.md)（决策 4/5）、
