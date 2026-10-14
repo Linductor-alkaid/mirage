@@ -1572,11 +1572,9 @@ void preflight_budget_scenario() {
         integration::ModelLayer layer(owner, shrunk_config, &provider, {});
         auto context = mira::make_control_context();
         context.deadline = std::chrono::steady_clock::now() + 10s;
-        const auto result = owner
-                                .submit_auto([&] {
-                                    return layer.complete_dialog_turn({}, probe_text, context);
-                                })
-                                .get();
+        const auto result =
+            owner.submit_auto([&] { return layer.complete_dialog_turn({}, probe_text, context); })
+                .get();
         MIRAGE_CHECK(result.ok && result.reply_text == "preflight probe answer");
         MIRAGE_CHECK(script && script->requests.size() == 1);
         if (script && script->requests.size() == 1) {
@@ -1598,12 +1596,11 @@ void preflight_budget_scenario() {
         auto plain_config = model_config();
         plain_config.max_output_tokens = 8192;
         integration::ModelLayer plain_layer(owner, plain_config, &control_provider, {});
-        const auto plain_result = owner
-                                      .submit_auto([&] {
-                                          return plain_layer.complete_dialog_turn({}, probe_text,
-                                                                                  context);
-                                      })
-                                      .get();
+        const auto plain_result =
+            owner
+                .submit_auto(
+                    [&] { return plain_layer.complete_dialog_turn({}, probe_text, context); })
+                .get();
         MIRAGE_CHECK(plain_result.ok);
         MIRAGE_CHECK(control_script && control_script->requests.size() == 1 &&
                      control_script->requests.front().generation.max_output_tokens == 8192u);
@@ -1668,12 +1665,11 @@ void preflight_budget_scenario() {
             return script = std::make_shared<PreflightScript>(profile);
         });
         integration::ModelLayer measure_layer(owner, model_config(), &provider, {});
-        const auto probe = owner
-                               .submit_auto([&] {
-                                   return measure_layer.complete_dialog_turn({}, "margin probe",
-                                                                             context);
-                               })
-                               .get();
+        const auto probe =
+            owner
+                .submit_auto(
+                    [&] { return measure_layer.complete_dialog_turn({}, "margin probe", context); })
+                .get();
         MIRAGE_CHECK(probe.ok && script && script->requests.size() == 1);
         MIRAGE_CHECK(script->requests.front().generation.max_output_tokens == 512u);
         const auto estimate = mira::estimate_input_tokens(script->requests.front());
@@ -1688,12 +1684,11 @@ void preflight_budget_scenario() {
             return zero_script = std::make_shared<PreflightScript>(profile);
         });
         integration::ModelLayer zero_layer(owner, zero_config, &zero_provider, {});
-        const auto zero = owner
-                              .submit_auto([&] {
-                                  return zero_layer.complete_dialog_turn({}, "margin probe",
-                                                                         context);
-                              })
-                              .get();
+        const auto zero =
+            owner
+                .submit_auto(
+                    [&] { return zero_layer.complete_dialog_turn({}, "margin probe", context); })
+                .get();
         MIRAGE_CHECK(zero.ok);
         MIRAGE_CHECK(zero_script && zero_script->requests.size() == 1 &&
                      zero_script->requests.front().generation.max_output_tokens == 8192u);
