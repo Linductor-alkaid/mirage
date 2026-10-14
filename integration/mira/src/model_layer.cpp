@@ -16,6 +16,7 @@
 
 #include "conversation_capture.hpp"
 #include "desktop_action_verification.hpp"
+#include "desktop_context_builder.hpp"
 #include "desktop_image_supply.hpp"
 #include "desktop_ocr_tool.hpp"
 #include "model_layer_env.hpp"
@@ -1223,6 +1224,21 @@ DialogCompletion ModelLayer::complete_harness_turn(
         if (image_turn)
             loop.set_model_input_identity(
                 [&image_turn](const auto &) { return image_turn->reuse_identity(); });
+        // DEC-088 capability 2/3 (MIRA-20261014-006): compact the canonical
+        // tool-history replay through Mira's Layer 0 with the desktop
+        // watermarks. An undeclared window keeps the raw replay (fail-open);
+        // seam failures degrade inside the loop to the same raw replay.
+        if (impl_->config.context_window_tokens != 0) {
+            auto counter = std::make_shared<mira::ConservativeTokenCounter>();
+            auto manager = std::make_shared<mira::StandardContextManager>(std::move(counter));
+            detail::DesktopContextBuilder builder(std::move(manager),
+                                                  {impl_->config.context_window_tokens, budget});
+            const detail::DesktopContextBuilder::RequestKeys keys{
+                spec.task_id, spec.session_id, spec.task_epoch, impl_->profile->id};
+            loop.set_history_transformer([builder = std::move(builder), keys](const auto &history) {
+                return builder.transform(history, keys);
+            });
+        }
         try {
             return loop.run(spec, turn_context);
         } catch (...) {

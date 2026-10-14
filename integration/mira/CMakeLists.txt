@@ -5,6 +5,7 @@
 add_library(mirage_integration_mira STATIC
     src/desktop_atom_toolset.cpp
     src/desktop_action_verification.cpp
+    src/desktop_context_builder.cpp
     src/desktop_ocr_tool.cpp
     src/desktop_image_supply.cpp
     src/desktop_shared_input.cpp
