@@ -129,6 +129,16 @@ capture_window / capture_roi` 全部委托给它。分层顺序与边界如下�
 
 - 2026-10-14（M7-10 首交付）：决策随实现落地；本机取证见 M7 计划
   2026-10-14 记录。
+- 2026-10-14（M7-10 宿主 DPI 声明）：开放边界中的产品宿主 per-monitor DPI
+  声明落地。平台公共入口 `declare_host_dpi_awareness()`（PMv2 优先，幂等，
+  prior/unchanged 如实报告；Linux 无进程级声明返回 unavailable），
+  `run_service_host`（mirage-service 与产品 tray 的共同宿主入口）在参数解析
+  后、任何窗口创建前声明并记录生效模式。宿主感知把显示器/窗口枚举、采集像素
+  与 SendInput 注入坐标统一于物理像素空间（无感知宿主的 GetSystemMetrics
+  虚拟化值与 `MOUSEEVENTF_VIRTUALDESK` 物理归一化在混合 DPI 下系统性错位），
+  并按本决策的空间门禁解除缩放桌面上 GPU 层的禁用。tier 测试改用同一入口并
+  新增逐显示器物理几何取证；DPI API 的实测语义修正（awareness 枚举无 v2 值、
+  旧入口返回值在现代入口之后不可信）见 M7 计划同日验证记录。
 
 ## 关联文档和工作项
 

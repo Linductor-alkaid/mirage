@@ -27,6 +27,16 @@ target_link_libraries(credential_store_test PRIVATE $<TARGET_FILE:kairo::kairo>)
 add_test(NAME credential_store_test COMMAND credential_store_test)
 set_tests_properties(credential_store_test PROPERTIES LABELS "unit;platform" TIMEOUT 30)
 
+# M7-10 host DPI declaration (DEC-086): pins the public contract and the
+# idempotence the runtime hosts' startup log line relies on, on both
+# platforms (Windows lands per-monitor v2, Linux reports no declaration).
+add_executable(host_dpi_awareness_test platform/host_dpi_awareness_test.cpp)
+target_compile_features(host_dpi_awareness_test PRIVATE cxx_std_20)
+mirage_enable_warnings(host_dpi_awareness_test)
+target_link_libraries(host_dpi_awareness_test PRIVATE Mirage::platform)
+add_test(NAME host_dpi_awareness_test COMMAND host_dpi_awareness_test)
+set_tests_properties(host_dpi_awareness_test PROPERTIES LABELS "unit;platform" TIMEOUT 30)
+
 add_executable(dependency_wiring_test smoke/dependency_wiring_test.cpp)
 # POSIX-coupled: the scripted providers sleep through <poll.h>; Windows keeps
 # its own platform validation instead of compiling these Linux-flow tests.
