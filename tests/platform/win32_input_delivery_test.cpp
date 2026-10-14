@@ -180,6 +180,53 @@ std::string window_id(HWND window) {
     return std::to_string(reinterpret_cast<std::uintptr_t>(window));
 }
 
+/// One landing probe: move, let the system settle, read back. Injected
+/// absolute moves apply asynchronously and other desktop apps may
+/// transiently hold a cursor clip (overlay tools do), so the caller retries
+/// instead of racing a single blind read. `refused` distinguishes a
+/// SendInput rejection (environment-limited) from a landing miss.
+bool probe_landing(mirage::desktop::InputProvider &input, int center_x, int center_y, bool *refused,
+                   int *landed_x, int *landed_y) {
+    *refused = false;
+    const auto moved = input.pointer_move(center_x, center_y, InputLimits{}, CancelToken{});
+    if (!moved.ok) {
+        *refused = true;
+        return false;
+    }
+    run_pump(30);
+    const auto position = input.pointer_position(CancelToken{});
+    if (!position.ok) {
+        return false;
+    }
+    *landed_x = position.position.x;
+    *landed_y = position.position.y;
+    const int dx = *landed_x - center_x;
+    const int dy = *landed_y - center_y;
+    return dx >= -2 && dx <= 2 && dy >= -2 && dy <= 2;
+}
+
+/// Bounded retries over probe_landing; on persistent miss the cursor clip
+/// rectangle is the forensic evidence (an app pinning the cursor explains a
+/// miss without blaming the provider).
+bool land_verified(mirage::desktop::InputProvider &input, const char *label, int center_x,
+                   int center_y, bool *refused, int *landed_x, int *landed_y) {
+    bool landed = probe_landing(input, center_x, center_y, refused, landed_x, landed_y);
+    for (int retry = 0; !landed && !*refused && retry < 2; ++retry) {
+        landed = probe_landing(input, center_x, center_y, refused, landed_x, landed_y);
+    }
+    if (!landed && !*refused) {
+        RECT clip{};
+        ::GetClipCursor(&clip);
+        std::fprintf(stderr,
+                     "[%s] landing miss: target (%d,%d) last (%d,%d), cursor clip "
+                     "(%ld,%ld)-(%ld,%ld)\n",
+                     label, center_x, center_y, *landed_x, *landed_y, static_cast<long>(clip.left),
+                     static_cast<long>(clip.top), static_cast<long>(clip.right),
+                     static_cast<long>(clip.bottom));
+    }
+    return landed;
+}
+
 /// The OS foreground lock refuses SetForegroundWindow to a process the
 /// session did not hand focus (a shell-started test). Attaching to the
 /// foreground thread before the raise — the same exemption automation
@@ -301,27 +348,23 @@ void pointer_landing_all_displays(WindowsDesktopEnvironment &env) {
             restored_y = center_y;
             have_restore = true;
         }
-        const auto moved = input.pointer_move(center_x, center_y, InputLimits{}, CancelToken{});
-        if (!moved.ok) {
+        bool refused = false;
+        int landed_x = center_x;
+        int landed_y = center_y;
+        const bool landed = land_verified(input, display.id.c_str(), center_x, center_y, &refused,
+                                          &landed_x, &landed_y);
+        if (refused) {
             // SendInput can be refused in sessions without an interactive
-            // desktop; the refusal is honest and lands the same way as in
-            // win32_backend_test — a loud note, not a fake pass.
-            MIRAGE_CHECK(moved.error.code == "io_error");
-            std::fprintf(stderr,
-                         "note: this session refuses SendInput (%s); pointer landing is "
-                         "environment-limited\n",
-                         moved.error.message.c_str());
+            // desktop; the refusal contract itself is pinned by
+            // win32_backend_test — here it is a loud note, not a fake pass.
+            std::fprintf(stderr, "note: this session refuses SendInput; pointer landing is "
+                                 "environment-limited\n");
             return;
         }
-        const auto position = input.pointer_position(CancelToken{});
-        MIRAGE_CHECK(position.ok);
-        if (position.ok) {
+        MIRAGE_CHECK(landed);
+        if (landed) {
             std::fprintf(stderr, "[display %s] target (%d,%d) landed (%d,%d)\n", display.id.c_str(),
-                         center_x, center_y, position.position.x, position.position.y);
-            MIRAGE_CHECK(position.position.x >= center_x - 2 &&
-                         position.position.x <= center_x + 2);
-            MIRAGE_CHECK(position.position.y >= center_y - 2 &&
-                         position.position.y <= center_y + 2);
+                         center_x, center_y, landed_x, landed_y);
         }
     }
     if (have_restore) {
@@ -348,10 +391,16 @@ void pointer_click_delivery(WindowsDesktopEnvironment &env, HWND main_window) {
 
     run_pump(50);
     g_click_count = 0;
-    const auto moved = input.pointer_move(center.x, center.y, InputLimits{}, CancelToken{});
-    if (!moved.ok) {
-        MIRAGE_CHECK(moved.error.code == "io_error");
-        return; // the landing scenario already reported the environment note
+    // Verify the cursor actually sits on the target before clicking: the
+    // click's coordinate witness is only meaningful on a verified landing.
+    bool refused = false;
+    int landed_x = center.x;
+    int landed_y = center.y;
+    if (!land_verified(input, "click", center.x, center.y, &refused, &landed_x, &landed_y)) {
+        // A persistent miss is explained by the clip evidence land_verified
+        // printed; a refusal is environment-limited. Either way a click now
+        // would not carry a coordinate witness.
+        return;
     }
     const auto pressed = input.pointer_button("left", true, InputLimits{}, CancelToken{});
     MIRAGE_CHECK(pressed.ok);

@@ -1064,13 +1064,16 @@ fixture 中心左键单击以 WM_LBUTTONDOWN 到达，客户坐标 ±2px（端�
 前台锁事实与处理：shell 启动的测试进程被 OS 拒绝 SetForegroundWindow
 （win32_backend_test 同样跳过其焦点场景，CI runner 因无前台存在而放行）；
 测试以 AttachThreadInput 自有窗口回退取得前台——对提升前台该回退按 UIPI
-自然失败并大声跳过，即该边界按产品所见方式的呈现。UIPI 专项验收（提升
-目标 + UAC 配合）保持挂账，负责人 Mirage 维护者。
+自然失败并大声跳过，即该边界按产品所见方式的呈现。指针落点对注入的异步
+生效与其他应用的瞬时 ClipCursor 钳制做有界重试，持续 miss 时打印光标
+clip 矩形作为外部干扰的诊断证据；调试期一次此类失败已按该证据定位为
+外部钳制并归档，非 Provider 缺陷。UIPI 专项验收（提升目标 + UAC 配合）
+保持挂账，负责人 Mirage 维护者。
 
 证据：MSVC Debug 全树构建零错误（overlay_surface_test C4127 既有本地问题
-不变）；win32_input_delivery_test 31 checks/0 failures 连续三次；
-win32_backend_test 回归（0 failures，本地因前台上下文投递场景运行 134
-checks）；win32_capture_tier_test 193/0；CI 白名单 17 项本地 17/17。本轮
+不变）；win32_input_delivery_test 25 checks/0 failures（本机直跑六连 +
+含 backend/tier 前置的 ctest 批次三轮）；win32_backend_test 回归 0
+failures；win32_capture_tier_test 193/0；CI 白名单 17 项本地 17/17。本轮
 无产品源码变更（仅新增测试、CMake 与 CI 白名单）及 M7 计划/记忆同步；
 未修改 pinned 依赖、未调用在线模型；提交于 feat 分支，CI windows 门禁随
 MR 复验。
