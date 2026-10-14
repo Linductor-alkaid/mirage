@@ -1212,6 +1212,13 @@ DialogCompletion ModelLayer::complete_harness_turn(
         mira::ConversationLoop loop(*impl_->gateway, loop_config);
         loop.set_tool_registry(registry);
         loop.set_model_input_supplier(supply_input);
+        // DEC-088 capability 1: the persistent desktop source owns the
+        // cross-dialog-turn reuse count; the pinned loop renders the note from
+        // the third consecutive identical capture.
+        loop.set_model_input_identity([&image_turn](const mira::AgentLoopSpec &identity_spec) {
+            return image_turn ? image_turn->input_reuse_identity(identity_spec)
+                              : std::optional<mira::InputReuseMeta>{};
+        });
         try {
             return loop.run(spec, turn_context);
         } catch (...) {

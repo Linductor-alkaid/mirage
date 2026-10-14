@@ -551,11 +551,13 @@ M6-19收尾回读：Mira PR#79的pull_request run37332976997在当前pin 0a099ba
 
 ## MIRA-20261014-005：ConversationLoop 供给缝无跨轮输入复用身份标注入口
 
-- 状态：Open（上游已提交待合并）；日期：2026-10-14；负责人：Mirage 维护者，处理方：Mira 上游。
-  上游：[PR#95](https://github.com/Linductor-alkaid/mira/pull/95)。关联
+- 状态：Resolved（自动化范围）；日期：2026-10-14；负责人：Mirage 维护者，处理方：Mira 上游。
+  上游：[PR#95](https://github.com/Linductor-alkaid/mira/pull/95) 已合并（merge 9e7b729，
+  上游 CI 24/24），pin 已授权消费。关联
   [DEC-088](../decisions/DEC-088-conversation-context-compaction-and-input-deduplication.md)
   能力 1 与 [实施计划](../plans/context-compaction-implementation.md) Phase 1。
-- 核对版本：pinned `1befa451713e0eb635da6077410e284f7b8ea88b`，锁文件一致。
+- 核对版本：缺口核对于 pinned `1befa451713e0eb635da6077410e284f7b8ea88b`；交付与消费在
+  `9e7b729d0861577b470d45385bdd08301bd1226d`。
   公开 `include/mira/conversation_loop.hpp` 的 `ModelInputSupplier` 每轮返回
   `Result<std::vector<ModelInputItem>>`，`resolve_supplied_input` 只做校验/限额/展平；
   无任何跨轮身份或复用元数据入口。DEC-053 明确历史回放不复制供给内容，宿主逐轮重发，
@@ -573,9 +575,13 @@ M6-19收尾回读：Mira PR#79的pull_request run37332976997在当前pin 0a099ba
   `reuse_count >= 2` 且本轮供给含图片时，把一条 Internal 权限的 System note 文本
   作为 User envelope 最后一个 part 追加；`ModelInputSupplied` 事件与
   `ConversationLoopResult` 增加可见计数；无回调时请求字节不变。
-- 延期影响：DEC-088 能力 1 无法落地，Phase 1 验收（第 3 轮请求含复用提示、思考
-  token 下降）保持未验收；不阻塞能力 2/3/5。
+- 延期影响：已消除——上游交付 `set_model_input_identity` 身份缝（兼容性约束下走独立
+  可选回调，不改变 supplier 返回类型），Mirage 侧由持久 `DesktopImageSource` 持有跨轮
+  计数、`DesktopImageTurn::input_reuse_identity` 在 supply 同门控下解析、model_layer
+  接线，消费记录见[同日验收](../compatibility/dec088-input-reuse-20261014.md)。
 - 可验收结果：mira 单测覆盖首次/第二次不标注、第三次标注、标签渲染、非图片供给不
-  标注、事件与结果计数、无回调字节不变；Mirage 侧在授权消费新 pin 后接跨轮计数并
-  做真实会话对照验收。未运行验证的负责人：Mirage 维护者；补跑条件：上游 PR 合并、
-  pin 授权消费、真实任务对照实验。
+  标注、事件与结果计数、无回调字节不变（Debug 106/106、ASAN、architecture/format/docs
+  门禁，远端 CI 24/24）；Mirage 侧 desktop_image_supply_test 覆盖 0/1/2 计数、跨 turn
+  经相同内容重拍延续、纯文本跳过、错 owner 拒绝与内容变化重置。真实任务对照实验
+  （有/无标注的思考 token 差异 ≥10%）仍未运行；负责人：Mirage 维护者；补跑条件：
+  真实桌面任务会话与对照诊断。

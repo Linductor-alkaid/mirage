@@ -12,9 +12,10 @@ M8-11 新增 [MIRA-20261014-004](mira.md#mira-20261014-004)：公开正文预览
 实时思考分类入口；已由 [Mira PR#94](https://github.com/Linductor-alkaid/mira/pull/94) 的独立公开 thinking sink 解决，授权消费合并提交22d9577并复验fixture，状态Resolved。PR已合并；供应商在线与平台验证单独记录。
 
 DEC-088 Phase 1 新增 [MIRA-20261014-005](mira.md#mira-20261014-005)：ConversationLoop
-供给缝无跨轮输入复用身份标注入口，状态 Open、上游
-[PR#95](https://github.com/Linductor-alkaid/mira/pull/95) 待合并；相同截图逐轮重现
-属 DEC-053 契约内行为，但循环与模型无从得知复用身份，重复识图浪费思考 token。
+供给缝无跨轮输入复用身份标注入口，状态 Resolved（自动化范围；上游
+[PR#95](https://github.com/Linductor-alkaid/mira/pull/95) 合并 9e7b729，pin 已消费，
+Mirage 侧跨轮计数已接线）；相同截图逐轮重现属 DEC-053 契约内行为，循环与模型无从
+得知复用身份导致重复识图，真实任务对照实验仍待维护者补跑。
 
 | 依赖 | 详细台账 | 已确认问题 | 说明 |
 | --- | --- | --- | --- |

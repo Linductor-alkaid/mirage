@@ -38,3 +38,12 @@ Mirage 消费验证及未执行平台/供应商门禁见
 `22d95776d701c92656ecd583f85982d5b0d303fe`，合并前head ea720a6的24项checks均通过。
 Mirage gitlink与lock同步到22d9577；与已测head的源码树一致，无新增嵌套依赖变更。
 本机native-release后续交付由 [气泡原生部署证据](../compatibility/mira-pet-bubbles-local-release-20261014.md) 跟踪。
+
+
+## Mirage PR#91合并前同步
+
+维护者授权合并PR#91后，目标master已合入PR#92并消费Mira PR#95的
+`9e7b729d0861577b470d45385bdd08301bd1226d`。`git merge-base --is-ancestor`确认
+其包含思考预览merge22d9577，锁文件与gitlink同步保留较新版本；两项升级notes
+均保留。代码自动合并保留输入复用identity和独立思考sink接线，不修改依赖源码。
+验证及当前head门禁见[本机交付记录](../compatibility/mira-pet-bubbles-local-release-20261014.md)。

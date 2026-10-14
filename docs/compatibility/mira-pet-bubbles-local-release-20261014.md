@@ -107,3 +107,20 @@ Tests not run等语料，保证后置限定不会被前面的核心成功句压�
 6/6、ASAN1/1、UBSAN1/1通过，日志为 /tmp/mirage-bubbles-qualifier-final-*。
 仅更新独立worktree的native-release，未再复制到共享主产物；专用气泡预览入口加载
 这个后续版本。PR#91已改为master基线，补推保持普通非force方式。
+
+
+## PR#91授权合并前同步master
+
+维护者已明确授权合并PR#91。核对时该PR head cc8bf1d的8项CI全部通过，但
+master f71bedd已合入PR#92，引起Mira gitlink和lock冲突。在独立worktree中
+普通merge同步；Mira 9e7b729包含思考预览22d9577，保留新版本及两项升级notes，
+模型层自动合并保留输入复用identity和独立thinking sink。共享工作树和产物不替换。
+
+本地Debug全量81/81（104.06秒，包含本机可用的PipeWire门禁）；全仓format与
+58个public headers边界检查通过。首次全量构建暴露既有PipeWire测试target的
+PkgConfig导入target目录作用域问题，未收到头文件路径而失败；用本机明确
+MIRAGE_PIPEWIRE_HEADERS=/usr/include/pipewire-0.3、MIRAGE_SPA_HEADERS=/usr/include/spa-0.2、
+MIRAGE_PIPEWIRE_LIBRARY=/usr/lib/x86_64-linux-gnu/libpipewire-0.3.so配置后构建和测试通过，
+不以修气泡为由改动平台代码。初验失败日志保留于/tmp/mirage-pr91-master-sync-build.log；
+最终configure/build/test/quality日志为/tmp/mirage-pr91-master-sync-{configure-sdk,build-sdk,test,quality}.log。
+同步后的远端CI须以新head为准，不继承cc8bf1d的通过结论。

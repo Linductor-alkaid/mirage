@@ -128,6 +128,8 @@ owner/source/request 身份必须完整匹配；同一身份的序号单调增�
 现有正文 sink 与新增独立 `ModelThinkingPreviewSink` 分别传递至多 16KiB 的完整快照。
 授权消费 [Mira PR#94](https://github.com/Linductor-alkaid/mira/pull/94) merge `22d9577`，
 解决 [MIRA-20261014-004](../dependency_feedback/mira.md#mira-20261014-004)。PR 已于2026-10-14获维护者授权合并。
+2026-10-14同步master后pin为`9e7b729`（已包含PR#94，叠加PR#95输入复用能力），
+保留两项依赖升级的说明；详见本机交付记录的合并前同步证据。
 不在 Mirage 解析 SSE，不把终态 ThinkingPart 当成实时流。
 
 `hello.pet_bubbles=true` 可探测能力；`pet.status` / `pet.updated` 可选 `bubble` 承载

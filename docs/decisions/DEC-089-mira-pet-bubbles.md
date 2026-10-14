@@ -31,7 +31,7 @@
    占位，几何变化重新确认并观察，截图/OCR 与动作目标统一验收。
 
 尺寸、滚速、更新间隔及保持时间已用于 Linux 原生实现，wire 为可探测的可选扩展，
-授权消费 Mira PR#94 merge 22d9577。合成渲染与 fixture 通过不能替代真实桌面/在线供应商验收。
+思考能力来自授权合并的 Mira PR#94 merge 22d9577；同步master后消费其后继9e7b729。合成渲染与 fixture 通过不能替代真实桌面/在线供应商验收。
 实现与限定证据见 [M8-11 记录](../compatibility/mira-pet-bubbles-runtime-20261014.md)。
 
 ## 备选方案
