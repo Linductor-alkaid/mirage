@@ -101,6 +101,11 @@ int main() {
     MIRAGE_CHECK(
         pet::answer_summary("## 示例\n\n### 子示例\n配置已修复。\n\n### 说明\n检查通过。\n", false)
             .empty());
+    MIRAGE_CHECK(pet::answer_summary("配置已修复。尚未测试。") == "尚未测试");
+    MIRAGE_CHECK(pet::answer_summary("配置已修复。还无法确定结果。") == "还无法确定结果");
+    MIRAGE_CHECK(pet::answer_summary("Fixed config. No problem.") == "Fixed config");
+    MIRAGE_CHECK(pet::answer_summary("Fixed config. No changes made.") == "No changes made");
+    MIRAGE_CHECK(pet::answer_summary("Fixed config. Tests not run.") == "Tests not run");
     MIRAGE_CHECK(pet::answer_summary("E.g.:\nFixed config.\n", false).empty());
     MIRAGE_CHECK(pet::answer_summary("Assuming the path works:\nChecks passed.\n", false).empty());
     MIRAGE_CHECK(pet::answer_summary("假如修复成功：\n检查通过。\n", false).empty());

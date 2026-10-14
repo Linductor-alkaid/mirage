@@ -113,10 +113,13 @@ std::string answer_summary(std::string_view text, bool complete) {
         for (auto &c : lower)
             if (c >= 'A' && c <= 'Z')
                 c = static_cast<char>(c + ('a' - 'A'));
-        return has(lower, {"不",      "未",         "没",   "无法",  "需要",    "尝试",
-                           "可能",    "尚",         "待",   "计划",  "将",      "cannot",
-                           "not ",    "need",       "may ", "never", "unable",  "might",
-                           "pending", "unverified", "n't",  "will ", "plan to", "try "});
+        for (auto courtesy : {"no problem", "no worries"})
+            if (lower.starts_with(courtesy))
+                lower.erase(0, std::string_view{courtesy}.size());
+        return has(lower, {"不",   "未",    "没",      "无法",   "需要",   "尝试",    "可能",
+                           "尚",   "待",    "计划",    "将",     "cannot", "not ",    "no ",
+                           "need", "may ",  "never",   "unable", "might",  "pending", "unverified",
+                           "n't",  "will ", "plan to", "try "});
     };
     auto pick = [&](const std::string &value, bool require_qualification) {
         if (value.empty() || characters(value) > 24 || (require_qualification && !qualified(value)))
@@ -151,9 +154,10 @@ std::string answer_summary(std::string_view text, bool complete) {
                          value == "否" || value == "完成" || value == "通过" || value == "失败");
         if (characters(value) < 3 && value != "你好" && !scalar)
             return false;
-        // Prefer a current core statement over a stale generic uncertainty
-        // preamble. Qualifications within a selected sentence stay intact.
-        int score = core ? 2 : 0;
+        // Core facts and qualifiers share priority: a later complete fact
+        // can replace an unsure preamble, and a later limitation cannot be
+        // hidden behind an earlier success claim.
+        int score = (core || qualified(value)) ? 2 : 0;
         if (score >= best_score) {
             best = value;
             best_score = score;

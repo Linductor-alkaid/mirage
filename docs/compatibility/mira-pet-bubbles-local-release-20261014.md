@@ -96,3 +96,14 @@ GIO descriptor及三条产品路径只读验证通过，未启动/停止用户�
 是前一部署增量，不宣称已对本次段落规则重新在线调用模型。日志为
 /tmp/mirage-bubbles-context-{release-test,asan-test,ubsan-test}.log；最终文字变体Release6/6、ASAN1/1、UBSAN1/1以及格式/58头边界检查通过，
 日志使用context-final-*前缀；当前用户Runtime只读探测为未运行，没有终止用户进程。
+
+
+### 追加：后置限定保留
+
+新增“配置已修复。尚未测试。”、“配置已修复。还无法确定结果。”、英文No changes/
+Tests not run等语料，保证后置限定不会被前面的核心成功句压住；限定与动作句按同等
+优先级取较新完整句，旧不确定开场仍可被新事实替换，礼貌No problem不覆盖核心。
+初次英文No changes断言失败，发现否定词表缺no；补齐并排除礼貌表达后，最终Release
+6/6、ASAN1/1、UBSAN1/1通过，日志为 /tmp/mirage-bubbles-qualifier-final-*。
+仅更新独立worktree的native-release，未再复制到共享主产物；专用气泡预览入口加载
+这个后续版本。PR#91已改为master基线，补推保持普通非force方式。
