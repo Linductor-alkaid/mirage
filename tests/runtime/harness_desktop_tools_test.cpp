@@ -12,6 +12,7 @@ bool frame_message(const mirage::testing::FrameRead &read) {
 } // namespace
 
 #include <kairo/executor.hpp>
+#include <mira/model_budget.hpp>
 #include <mira/model_digest.hpp>
 #include <mira/model_provider.hpp>
 #include <mirage/integration/desktop_atom_toolset.hpp>
@@ -565,9 +566,9 @@ void resilience_scenario(const std::string &scenario) {
     tools.environment = desktop;
     tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
     // DEC-085 final budget model: turn/recovery/continuation counts are
-    // declared bounds (16/2/2), so the default 512 per-call config routes on
-    // the fixture profile (512 x 19 <= 16384) and the budget notices ride
-    // turns 15 and 16 of that declared envelope.
+    // declared bounds (16/2/2), so the default 512 per-call config spends
+    // 512 x 19 inside the profile envelope (21 x the thinking floor) and the
+    // budget notices ride turns 15 and 16 of that declared envelope.
     auto config = model_config();
     integration::ModelLayer layer(owner, config, &provider, tools);
     auto context = mira::make_control_context();
@@ -1108,7 +1109,7 @@ void reasoning_scenario() {
         std::uint64_t profile_limit = 0;
         integration::ModelProviderOverride provider([&](const auto &profile) {
             // DEC-085 final budget model: the Messages profile limit scales
-            // with the 16384 thinking floor, independent of the reasoning
+            // with the 32768 thinking floor, independent of the reasoning
             // choice, and funds the declared whole-run envelope.
             profile_limit = profile.capabilities.limits.max_output_tokens;
             script = std::make_shared<Script>(profile, true);
@@ -1133,33 +1134,34 @@ void reasoning_scenario() {
         const bool valid = std::string{reasoning} != "low";
         MIRAGE_CHECK(result.ok == valid && result.failed == !valid);
         MIRAGE_CHECK(script && script->requests.size() == (valid ? 2u : 0u));
-        // 21 * 16384 = 344064: the profile limit is the router's per-call
+        // 22 * 32768 = 720896: the profile limit is the router's per-call
         // admission bound and funds the declared whole-run envelope (16 turns
-        // + 2 recoveries + 2 continuations + 1) at the unchanged 16384
+        // + 2 recoveries + 3 continuations + 1) at the unchanged 32768
         // per-call wire budget — the budget is no longer halved.
-        MIRAGE_CHECK(profile_limit == 344064u);
+        MIRAGE_CHECK(profile_limit == 720896u);
         for (const auto &request : script->requests) {
             MIRAGE_CHECK(request.generation.thinking == (std::string{reasoning} == "none"
                                                              ? mira::ThinkingMode::Disabled
                                                              : mira::ThinkingMode::Adaptive));
             MIRAGE_CHECK(!request.generation.reasoning_effort);
             MIRAGE_CHECK(request.generation.max_output_tokens ==
-                         (std::string{reasoning} == "none" ? 512u : 16384u));
+                         (std::string{reasoning} == "none" ? 512u : 32768u));
         }
         layer.shutdown();
         owner.shutdown(true);
     }
 }
 
-// DEC-085 final output-budget model: an adaptive-thinking call floors its
-// per-request output budget at 16384 even when the configured value is a
-// larger-but-under-floor 8192 (the old floor), the wire budget is the full
-// floor (no profile/2 halving), and the 344064 profile envelope funds the
-// declared whole-run spend: 16384 x (16 turns + 2 recoveries + 2
-// continuations + 1).
+// DEC-085 final output-budget model (DEC-087 alignment): an adaptive-thinking
+// call floors its per-request output budget at 32768 even when the configured
+// value is a larger-but-under-floor 8192 (the old floor), the wire budget is
+// the full floor (no profile/2 halving; the fixture declares no context
+// window, so the per-request preflight does not shrink), and the 720896
+// profile envelope funds the declared whole-run spend: 32768 x (16 turns +
+// 2 recoveries + 3 continuations + 1).
 void thinking_budget_scenario() {
-    // (a) floor domination: config 8192 + adaptive -> 16384 on the wire
-    // (the old floor returned 8192 here) and the 344064 profile envelope.
+    // (a) floor domination: config 8192 + adaptive -> 32768 on the wire
+    // (the old floor returned 8192 here) and the 720896 profile envelope.
     {
         kairo::Executor owner;
         MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
@@ -1188,11 +1190,11 @@ void thinking_budget_scenario() {
                 })
                 .get();
         MIRAGE_CHECK(result.ok);
-        MIRAGE_CHECK(profile_limit == 344064u);
+        MIRAGE_CHECK(profile_limit == 720896u);
         MIRAGE_CHECK(script && script->requests.size() == 2u);
         for (const auto &request : script->requests) {
             MIRAGE_CHECK(request.generation.thinking == mira::ThinkingMode::Adaptive);
-            MIRAGE_CHECK(request.generation.max_output_tokens == 16384u);
+            MIRAGE_CHECK(request.generation.max_output_tokens == 32768u);
         }
         layer.shutdown();
         owner.shutdown(true);
@@ -1253,8 +1255,9 @@ void thinking_budget_scenario() {
 // settles by bounded continuation instead of recovery. The harness replays
 // the partial protocol-allowed text as an assistant turn and asks the model
 // to continue from the cut; a reply cut off mid tool call is discarded
-// unexecuted; the declared continuation budget (2) exhausts into an explicit
-// output-limit failure. None of it may spend the recovery budget.
+// unexecuted; the declared continuation budget (3, the ZCode-aligned depth)
+// exhausts into an explicit output-limit failure. None of it may spend the
+// recovery budget.
 class ContinuationScript final : public mira::IModelProvider {
   public:
     explicit ContinuationScript(const mira::ModelProfile &profile) : profile_(profile) {}
@@ -1425,8 +1428,9 @@ void output_continuation_scenario() {
         layer.shutdown();
         owner.shutdown(true);
     }
-    // (c) the declared continuation budget is 2: a third cutoff settles the
-    // run with the explicit output-limit summary instead of looping.
+    // (c) the declared continuation budget is 3 (the ZCode-aligned depth):
+    // three tolerated cutoffs are each continued, and the fourth response
+    // settles the run with every partial replayed.
     {
         kairo::Executor owner;
         MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
@@ -1434,6 +1438,7 @@ void output_continuation_scenario() {
         integration::ModelProviderOverride provider([&](const auto &profile) {
             script = std::make_shared<ContinuationScript>(profile);
             script->partials = {"first cut", "second cut", "third cut"};
+            script->final_answer = "Continued after three cutoffs.";
             return script;
         });
         integration::DesktopToolContext tools;
@@ -1451,13 +1456,261 @@ void output_continuation_scenario() {
                                                        false, {}, {}, cancel);
                 })
                 .get();
+        MIRAGE_CHECK(result.ok && !result.failed && !result.cancelled);
+        MIRAGE_CHECK(result.reply_text == "Continued after three cutoffs.");
+        // Four requests: three continuations, then the terminal answer.
+        MIRAGE_CHECK(script && script->requests.size() == 4);
+        MIRAGE_CHECK(result.model_steps == 4);
+        MIRAGE_CHECK(result.tool_calls == 0);
+        if (script->requests.size() == 4) {
+            MIRAGE_CHECK(assistant_partial(script->requests[3], 0) == "first cut");
+            MIRAGE_CHECK(assistant_partial(script->requests[3], 1) == "second cut");
+            MIRAGE_CHECK(assistant_partial(script->requests[3], 2) == "third cut");
+        }
+        layer.shutdown();
+        owner.shutdown(true);
+    }
+    // (d) a fourth cutoff exhausts the budget: the run settles with the
+    // explicit output-limit summary instead of looping.
+    {
+        kairo::Executor owner;
+        MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
+        std::shared_ptr<ContinuationScript> script;
+        integration::ModelProviderOverride provider([&](const auto &profile) {
+            script = std::make_shared<ContinuationScript>(profile);
+            script->partials = {"first cut", "second cut", "third cut", "fourth cut"};
+            return script;
+        });
+        integration::DesktopToolContext tools;
+        tools.environment = environment();
+        tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+        integration::ModelLayer layer(owner, model_config(), &provider, tools);
+        auto context = mira::make_control_context();
+        context.session = mira::SessionId::generate();
+        context.deadline = std::chrono::steady_clock::now() + 30s;
+        mirage::desktop::CancelToken cancel;
+        const auto result =
+            owner
+                .submit_auto([&] {
+                    return layer.complete_harness_turn({}, "continuation exhaustion probe", context,
+                                                       "", false, {}, {}, cancel);
+                })
+                .get();
         MIRAGE_CHECK(!result.ok && result.failed && !result.cancelled);
         MIRAGE_CHECK(result.error.find("output-limit continuation budget exhausted") !=
                      std::string::npos);
-        // Three requests: two continuations, then the exhausted settle.
-        MIRAGE_CHECK(script && script->requests.size() == 3);
+        // Four requests: the initial call plus three continuations; the
+        // fourth cutoff arrives on the last continuation's response and the
+        // exhausted settle makes no further model call (loop semantics:
+        // a continuation is only issued while budget remains).
+        MIRAGE_CHECK(script && script->requests.size() == 4);
         MIRAGE_CHECK(result.tool_calls == 0);
         layer.shutdown();
+        owner.shutdown(true);
+    }
+}
+
+// DEC-087 preflight fixture: a minimal dialog provider that records every
+// wire request and can attach a provider-reported usage to every response —
+// the anchor the decorator's usage estimate builds on.
+class PreflightScript final : public mira::IModelProvider {
+  public:
+    explicit PreflightScript(const mira::ModelProfile &profile) : profile_(profile) {}
+    const mira::ModelProfile &profile() const override { return profile_; }
+    std::vector<mira::ModelRequest> requests;
+    // When set, every response carries this provider-reported input size.
+    std::optional<std::uint64_t> reported_input;
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        requests.push_back(request);
+        mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.status = mira::ModelCompletionStatus::Completed;
+        if (reported_input) {
+            response.usage.quality = mira::UsageQuality::ProviderReported;
+            response.usage.input_tokens = *reported_input;
+            response.usage.output_tokens = 16;
+        }
+        mira::MessageOutput message;
+        mira::OutputTextPart text;
+        text.text = "preflight probe answer";
+        message.content.emplace_back(std::move(text));
+        response.output.emplace_back(std::move(message));
+        return response;
+    }
+
+  private:
+    mira::ModelProfile profile_;
+};
+
+// DEC-087 per-request output-budget preflight (ZCode model-token-limits
+// semantics) on the pure dialog path: one request per turn, a fixed system
+// persona plus the user text, no tools — the pinned estimator's result is
+// exactly computable from the recorded wire request, whose bytes the
+// decorator never touches. The declared window shrinks the wire budget to
+// window − estimate − 1000, the provider-reported usage anchors the next
+// request's usage estimate, and a non-positive margin keeps the baseline.
+// model_config() declares max_output_tokens = 512; these probes re-declare
+// 8192 so the shrink is observable against the small fixture input.
+void preflight_budget_scenario() {
+    // (a) a declared window shrinks the first wire call; no window leaves
+    // the baseline verbatim.
+    {
+        kairo::Executor owner;
+        MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
+        const std::string probe_text = "preflight shrink probe";
+        std::shared_ptr<PreflightScript> script;
+        integration::ModelProviderOverride provider([&](const auto &profile) {
+            return script = std::make_shared<PreflightScript>(profile);
+        });
+        auto shrunk_config = model_config();
+        shrunk_config.max_output_tokens = 8192;
+        shrunk_config.context_window_tokens = 6000;
+        integration::ModelLayer layer(owner, shrunk_config, &provider, {});
+        auto context = mira::make_control_context();
+        context.deadline = std::chrono::steady_clock::now() + 10s;
+        const auto result =
+            owner.submit_auto([&] { return layer.complete_dialog_turn({}, probe_text, context); })
+                .get();
+        MIRAGE_CHECK(result.ok && result.reply_text == "preflight probe answer");
+        MIRAGE_CHECK(script && script->requests.size() == 1);
+        if (script && script->requests.size() == 1) {
+            const auto estimate = mira::estimate_input_tokens(script->requests.front());
+            // Premise: the fixture input leaves a positive margin below the
+            // declared window and that margin sits under the baseline, so
+            // the shrink is observable at all.
+            MIRAGE_CHECK(6000u > estimate + 1000u && 6000u - estimate - 1000u < 8192u);
+            MIRAGE_CHECK(script->requests.front().generation.max_output_tokens ==
+                         6000u - estimate - 1000u);
+        }
+        layer.shutdown();
+        // Control: the same fixture without a declared window keeps the
+        // baseline untouched (no shrink without a window).
+        std::shared_ptr<PreflightScript> control_script;
+        integration::ModelProviderOverride control_provider([&](const auto &profile) {
+            return control_script = std::make_shared<PreflightScript>(profile);
+        });
+        auto plain_config = model_config();
+        plain_config.max_output_tokens = 8192;
+        integration::ModelLayer plain_layer(owner, plain_config, &control_provider, {});
+        const auto plain_result =
+            owner
+                .submit_auto(
+                    [&] { return plain_layer.complete_dialog_turn({}, probe_text, context); })
+                .get();
+        MIRAGE_CHECK(plain_result.ok);
+        MIRAGE_CHECK(control_script && control_script->requests.size() == 1 &&
+                     control_script->requests.front().generation.max_output_tokens == 8192u);
+        plain_layer.shutdown();
+        owner.shutdown(true);
+    }
+    // (b) the provider-reported usage anchors the next request: the second
+    // byte-identical turn is charged the reported provider input (7000)
+    // plus zero growth, so its wire budget lands on window − 7000 − 1000 =
+    // 4000, while the first turn (no anchor yet) keeps the baseline.
+    {
+        kairo::Executor owner;
+        MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
+        std::shared_ptr<PreflightScript> script;
+        integration::ModelProviderOverride provider([&](const auto &profile) {
+            return script = std::make_shared<PreflightScript>(profile);
+        });
+        auto config = model_config();
+        config.max_output_tokens = 8192;
+        config.context_window_tokens = 12000;
+        integration::ModelLayer layer(owner, config, &provider, {});
+        auto context = mira::make_control_context();
+        context.session = mira::SessionId::generate();
+        context.deadline = std::chrono::steady_clock::now() + 10s;
+        script->reported_input = 7000;
+        const auto first = owner
+                               .submit_auto([&] {
+                                   return layer.complete_dialog_turn({}, "anchor probe", context);
+                               })
+                               .get();
+        MIRAGE_CHECK(first.ok);
+        script->reported_input.reset(); // the second response reports no usage
+        const auto second = owner
+                                .submit_auto([&] {
+                                    return layer.complete_dialog_turn({}, "anchor probe", context);
+                                })
+                                .get();
+        MIRAGE_CHECK(second.ok);
+        MIRAGE_CHECK(script && script->requests.size() == 2);
+        if (script && script->requests.size() == 2) {
+            const auto first_estimate = mira::estimate_input_tokens(script->requests[0]);
+            // Premise: without an anchor the first call keeps the baseline.
+            MIRAGE_CHECK(12000u - first_estimate - 1000u >= 8192u);
+            MIRAGE_CHECK(script->requests[0].generation.max_output_tokens == 8192u);
+            MIRAGE_CHECK(script->requests[1].generation.max_output_tokens == 4000u);
+        }
+        layer.shutdown();
+        owner.shutdown(true);
+    }
+    // (c) a non-positive margin keeps the baseline: with the window exactly
+    // at estimate + 1000 the preflight has nothing to shave and must not
+    // drive the wire budget to zero; one spare token above that shrinks to
+    // exactly 1.
+    {
+        kairo::Executor owner;
+        MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
+        auto context = mira::make_control_context();
+        context.deadline = std::chrono::steady_clock::now() + 10s;
+        // Measure the fixture input size on an anchor-free layer first.
+        std::shared_ptr<PreflightScript> script;
+        integration::ModelProviderOverride provider([&](const auto &profile) {
+            return script = std::make_shared<PreflightScript>(profile);
+        });
+        integration::ModelLayer measure_layer(owner, model_config(), &provider, {});
+        const auto probe =
+            owner
+                .submit_auto(
+                    [&] { return measure_layer.complete_dialog_turn({}, "margin probe", context); })
+                .get();
+        MIRAGE_CHECK(probe.ok && script && script->requests.size() == 1);
+        MIRAGE_CHECK(script->requests.front().generation.max_output_tokens == 512u);
+        const auto estimate = mira::estimate_input_tokens(script->requests.front());
+        MIRAGE_CHECK(estimate > 0);
+        measure_layer.shutdown();
+        // usable == 0: the baseline is kept verbatim.
+        auto zero_config = model_config();
+        zero_config.max_output_tokens = 8192;
+        zero_config.context_window_tokens = estimate + 1000u;
+        std::shared_ptr<PreflightScript> zero_script;
+        integration::ModelProviderOverride zero_provider([&](const auto &profile) {
+            return zero_script = std::make_shared<PreflightScript>(profile);
+        });
+        integration::ModelLayer zero_layer(owner, zero_config, &zero_provider, {});
+        const auto zero =
+            owner
+                .submit_auto(
+                    [&] { return zero_layer.complete_dialog_turn({}, "margin probe", context); })
+                .get();
+        MIRAGE_CHECK(zero.ok);
+        MIRAGE_CHECK(zero_script && zero_script->requests.size() == 1 &&
+                     zero_script->requests.front().generation.max_output_tokens == 8192u);
+        zero_layer.shutdown();
+        // usable == 1: the shrink bottoms out at the single remaining token.
+        auto one_config = model_config();
+        one_config.max_output_tokens = 8192;
+        one_config.context_window_tokens = estimate + 1001u;
+        std::shared_ptr<PreflightScript> one_script;
+        integration::ModelProviderOverride one_provider([&](const auto &profile) {
+            return one_script = std::make_shared<PreflightScript>(profile);
+        });
+        integration::ModelLayer one_layer(owner, one_config, &one_provider, {});
+        const auto one = owner
+                             .submit_auto([&] {
+                                 return one_layer.complete_dialog_turn({}, "margin probe", context);
+                             })
+                             .get();
+        MIRAGE_CHECK(one.ok);
+        MIRAGE_CHECK(one_script && one_script->requests.size() == 1 &&
+                     one_script->requests.front().generation.max_output_tokens == 1u);
+        one_layer.shutdown();
         owner.shutdown(true);
     }
 }
@@ -2029,6 +2282,7 @@ int main() {
     reasoning_scenario();
     thinking_budget_scenario();
     output_continuation_scenario();
+    preflight_budget_scenario();
     for (const auto *scenario : {"block_permanent", "transient_not_blocked", "failure_summary",
                                  "budget_final_turn", "budget_counts"})
         resilience_scenario(scenario);

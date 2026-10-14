@@ -18,6 +18,11 @@
 // two different desktop entries sharing one binary name cannot be told
 // apart, and an instance that renamed or re-exec'd itself after start is
 // invisible to the name scan until it is tracked.
+//
+// Launch determinism (DEC-086): DBusActivatable entries spawn their Exec
+// argv directly — GIO would route them through session-bus activation, the
+// child re-parents to the session manager, no pid reaches this process, and
+// a fully successful launch would degrade into an uncertain side effect.
 
 #include <memory>
 #include <mutex>

@@ -177,9 +177,9 @@ jobs:
           cmake --build build/native-debug --target mirage-native mira_pet
           native_chat_model_test native_agent_integration_test native_conversation_view_test
           pet_animation_test pet_frames_test pet_resource_loader_test pet_status_integration_test
-          pet_projection_refresh_test
+          pet_projection_refresh_test pet_frame_presentation_test
       - name: Verify native state and IPC
         run: >-
           ctest --test-dir build/native-debug
-          -R '^(native_chat_model_test|native_agent_integration_test|native_conversation_view_test|pet_animation_test|pet_frames_test|pet_resource_loader_test|pet_status_integration_test|pet_projection_refresh_test)$'
+          -R '^(native_chat_model_test|native_agent_integration_test|native_conversation_view_test|pet_animation_test|pet_frames_test|pet_resource_loader_test|pet_status_integration_test|pet_projection_refresh_test|pet_frame_presentation_test)$'
           --output-on-failure

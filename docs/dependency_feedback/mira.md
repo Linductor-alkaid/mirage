@@ -2,7 +2,7 @@
 
 > 状态：Active
 > 负责人：Mirage维护者；处理方：Mira上游
-> 更新日期：2026-10-12
+> 更新日期：2026-10-14
 > 工作项：[M6-10](../plans/m6-native-frontend.md)
 > 总入口：[依赖反馈](ledger.md)；维护规则：[工程规范9.4](../project/project-standards.md)
 
@@ -28,6 +28,7 @@
 | MIRA-20261009-001 | ConversationLoop 工具产生图片的逐轮结构化输入入口 | P2：多模态工具接入能力缺口 | Resolved | 授权消费 698fc77；三方言 fixture、MiniMax 截图工具在线识图 2/2（Linux 合成图） | [#85](https://github.com/Linductor-alkaid/mira/issues/85)，[PR#86](https://github.com/Linductor-alkaid/mira/pull/86) |
 | MIRA-20261009-002 | Messages SSE 解析器对 max_tokens 截断流 fail-closed | P1：真实供应商截断流不可解码 | Resolved | 真实 MiniMax 抓流复现；PR#87 合并后 pin 消费 c75378b，mira 105/105 + Mirage 全量回归 + 真实抓流 4/4 解码为 Incomplete 终态 | [PR#87](https://github.com/Linductor-alkaid/mira/pull/87)，已合并 |
 | MIRA-20261012-001 | 网络阶段超时被标记不可重试，单次停滞判死整轮 | P2：传输错误分类与重试语义缺口 | Resolved | 真实会话复现（DeepSeek 单轮 turn 失败）；上游 CI 24/24 + 本地 mira 105/105；pin 消费 57c3062 后 mirage 71/71 全量 + 集成 356 checks 行为复验 | [PR#88](https://github.com/Linductor-alkaid/mira/pull/88)，已合并 |
+| MIRA-20261014-005 | ConversationLoop 供给缝无跨轮输入复用身份标注入口 | P2：多轮上下文成本缺口 | Open | pin 1befa45 公开头核对：supplier 仅逐轮 items，无身份元数据；DEC-088 记录的重复识图浪费 | [PR#95](https://github.com/Linductor-alkaid/mira/pull/95)，已提交待合并 |
 
 <a id="mira-20261009-001"></a>
 
@@ -496,3 +497,36 @@ M6-19收尾回读：Mira PR#79的pull_request run37332976997在当前pin 0a099ba
 - 延期影响：Mirage 侧测试规范补充"`.value()` 只能用于字面量已验证合法的常量"
   约定并自查；产品代码不受影响（error 路径均检查）。
 - 验收：上游交付防线后，本条归档；Mirage 测试中的 `.value()` 惯用法按新语义复核。
+
+<a id="mira-20261014-005"></a>
+
+## MIRA-20261014-005：ConversationLoop 供给缝无跨轮输入复用身份标注入口
+
+- 状态：Open（上游已提交待合并）；日期：2026-10-14；负责人：Mirage 维护者，处理方：Mira 上游。
+  上游：[PR#95](https://github.com/Linductor-alkaid/mira/pull/95)。关联
+  [DEC-088](../decisions/DEC-088-conversation-context-compaction-and-input-deduplication.md)
+  能力 1 与 [实施计划](../plans/context-compaction-implementation.md) Phase 1。
+- 核对版本：pinned `1befa451713e0eb635da6077410e284f7b8ea88b`，锁文件一致。
+  公开 `include/mira/conversation_loop.hpp` 的 `ModelInputSupplier` 每轮返回
+  `Result<std::vector<ModelInputItem>>`，`resolve_supplied_input` 只做校验/限额/展平；
+  无任何跨轮身份或复用元数据入口。DEC-053 明确历史回放不复制供给内容，宿主逐轮重发，
+  因此同一截图逐轮重现是契约内行为，模型与循环都无法得知"第 N 次看到同一内容"。
+- 可复现证据：Mirage 桌面任务会话诊断显示模型在相同 `artifact://` 引用上反复执行
+  "让我分析屏幕内容"思考；`m3_conversation_input_supply_test` 全部请求形状不含任何
+  复用提示。`ConversationLoop` 在 Mirage 侧逐 dialog turn 重建
+  （`integration/mira/src/model_layer.cpp` 的 `invoke_loop`），跨轮计数只能由宿主持有。
+- API 选型/配置/应用职责排除：打开 stream、调整 `ModelInputSupplyOptions`、宿主在
+  goal 文本内自行拼接提示均不满足——goal 属任务描述、宿主自拼会绕开 envelope
+  纪律与事件面；该能力必须由循环在受控 envelope 内渲染并计入事件/结果统计。
+- 影响：图片密集多轮任务中重复识图浪费思考 token（DEC-088 估计 10-20%）；
+  无标注时模型无法区分"同图"与"新拍恰好相同"，也不得不重复分析。
+- 最小期望能力：新增可选的宿主身份回调（digest/连续复用次数/语义标签），循环在
+  `reuse_count >= 2` 且本轮供给含图片时，把一条 Internal 权限的 System note 文本
+  作为 User envelope 最后一个 part 追加；`ModelInputSupplied` 事件与
+  `ConversationLoopResult` 增加可见计数；无回调时请求字节不变。
+- 延期影响：DEC-088 能力 1 无法落地，Phase 1 验收（第 3 轮请求含复用提示、思考
+  token 下降）保持未验收；不阻塞能力 2/3/5。
+- 可验收结果：mira 单测覆盖首次/第二次不标注、第三次标注、标签渲染、非图片供给不
+  标注、事件与结果计数、无回调字节不变；Mirage 侧在授权消费新 pin 后接跨轮计数并
+  做真实会话对照验收。未运行验证的负责人：Mirage 维护者；补跑条件：上游 PR 合并、
+  pin 授权消费、真实任务对照实验。

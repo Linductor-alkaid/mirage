@@ -41,3 +41,21 @@ agent 选择整体 deadline，既有 Executor StopToken、工具取消与关闭�
 Enter 拒绝新提交。宿主提示补充该产品事实：不要将停止误作发送，只在符合用户
 目标时选择另一空闲会话；否则明确说明限制。保留现有 UI 忙门禁，不开放并发写入
 同一活动会话，不宣称仅增加轮数即可保证该具体任务成功。
+
+## 2026-10-14 部分更新
+
+[DEC-085 跟进] 思考档每调用输出地板从 16384 提升至 32768（`kThinkingOutputFloor`，
+`generation_budget` 与 21x profile 资金化同源）。实证（真实端点探测，见
+[验收记录](../compatibility/thinking-output-budget-20261014.md)）：deepseek-flash 经
+Anthropic 兼容端点无条件思考、思考计入 `max_tokens`、`output_config.effort=low`
+仍截断、省略 thinking 参数也不关闭——16384 预算在纯思考阶段即耗尽（会话
+`db6b8942` 第三轮连续三次中途截断、续写耗尽失败），32768 下同一任务 21905
+输出 tokens 完整收尾。有界续写（2 次）保持不变作为兜底；测试锚定同步更新
+（21 x 32768 = 688128 信封）。
+
+## 2026-10-14 第二次部分更新
+
+[DEC-087](DEC-087-zcode-aligned-output-budget-and-context-preflight.md) 把本决定的
+预算模型升级为 ZCode 对齐形态：声明值优先（0=未声明→32000 基线）、静态窗口钳制
+替换为每请求 preflight（窗口−已用量−1000，provider usage 锚点 + pinned 估算器
+增量）、续写深度 3。本文的思考/预算分离轴不变。

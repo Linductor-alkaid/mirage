@@ -286,16 +286,21 @@ void application_scenario(kairo::Executor &executor, const std::string &mode) {
         if (lists == 2 && mode == "duplicate")
             env->applications.push_back(env->applications.front());
     };
-    env->application_uri_uncertain = mode == "uncertain";
+    env->application_uri_uncertain = mode == "uncertain" || mode == "uncertain_gone";
     if (mode == "running")
         env->application_instances["browser.desktop"] = "existing";
     env->on_application_uri = [&] {
         if (mode == "cancel_after")
             cancel.request_cancel();
-        if (mode == "not_running")
+        if (mode == "not_running" || mode == "uncertain_gone")
             env->application_instances.clear();
-        if (mode == "throw_after")
+        if (mode == "throw_after") {
+            // The exception must leave no machine evidence behind, so the
+            // uncertain record keeps awaiting human review (the fixture's
+            // intent; a confirmed running instance would settle it).
+            env->application_instances.clear();
             throw std::runtime_error("fixture");
+        }
     };
     std::shared_ptr<Script> script;
     const std::string uri = "https://example.invalid/private-query?fixture=123";
@@ -315,7 +320,15 @@ void application_scenario(kairo::Executor &executor, const std::string &mode) {
         if (mode == "good" || mode == "running" || mode == "launch" || mode == "interleaved" ||
             mode == "delayed_candidate" || mode == "gate_delayed")
             script->steps.emplace_back("desktop.action.verify", Json::Object{});
-        if (mode == "uncertain") {
+        // DEC-086 (uncertain): the first handoff fails as an uncertain side
+        // effect, but the fake keeps the application running, so the follow-up
+        // verify sees running=true + instance id and the record settles as
+        // machine-verified. The fence lifts: the second handoff dispatches and
+        // the turn completes.
+        // DEC-086 (uncertain_gone): without running evidence the same
+        // uncertain record keeps awaiting human review — the second handoff
+        // stays gated and the turn fails.
+        if (mode == "uncertain" || mode == "uncertain_gone") {
             script->steps.emplace_back("desktop.application.list", Json::Object{});
             script->steps.emplace_back(
                 "desktop.application.open_uri",
@@ -348,29 +361,43 @@ void application_scenario(kairo::Executor &executor, const std::string &mode) {
                       .get();
     const bool success = mode == "good" || mode == "running" || mode == "launch" ||
                          mode == "interleaved" || mode == "delayed_candidate" ||
-                         mode == "gate_delayed";
+                         mode == "gate_delayed" || mode == "uncertain";
     if (result.ok != success)
         std::cerr << "application " << mode << ": " << result.error << '\n';
     check(result.ok == success);
     check(success || result.failed || result.cancelled);
     const bool sent = mode == "good" || mode == "running" || mode == "interleaved" ||
-                      mode == "not_running" || mode == "uncertain" || mode == "throw_after" ||
-                      mode == "cancel_after" || mode == "delayed_candidate" ||
-                      mode == "gate_delayed";
-    check(env->application_uri_log.size() == (sent ? 1u : 0u));
+                      mode == "not_running" || mode == "uncertain" || mode == "uncertain_gone" ||
+                      mode == "throw_after" || mode == "cancel_after" ||
+                      mode == "delayed_candidate" || mode == "gate_delayed";
+    check(env->application_uri_log.size() == (mode == "uncertain" ? 2u : sent ? 1u : 0u));
     if (success)
-        check(lists == 3);
+        check(lists == (mode == "uncertain" ? 6 : 3));
     if (mode == "removed" || mode == "removed_during_gate" || mode == "lookup_throw" ||
         mode == "duplicate")
         check(result.error.find("未产生该次操作的副作用") != std::string::npos);
     check(env->input_log.empty());
     if (sent)
         check(env->application_uri_log.front().second == uri);
+    if (mode == "uncertain") {
+        // The uncertain dispatches' canonical receipts carry the machine
+        // confirmation, not the human-review verdict (DEC-086).
+        std::size_t uncertain_parts = 0;
+        for (const auto &part : result.parts) {
+            if (part.name == "desktop.application.open_uri" && part.status == "failed") {
+                ++uncertain_parts;
+                check(part.output.find("application_running_confirmed") != std::string::npos);
+                check(part.output.find("effect_uncertain") == std::string::npos);
+            }
+        }
+        check(uncertain_parts == 2);
+    }
     for (const auto &part : result.parts) {
         check(part.input.find(uri) == std::string::npos);
         check(part.output.find(uri) == std::string::npos);
-        if (success && (part.name == "desktop.application.launch" ||
-                        part.name == "desktop.application.open_uri")) {
+        if (success && part.status == "complete" &&
+            (part.name == "desktop.application.launch" ||
+             part.name == "desktop.application.open_uri")) {
             auto view = mirage::conversation::desktop_evidence(part);
             check(view && view->status == "verified" && view->window_id.empty() &&
                   view->application_id == "browser.desktop");
@@ -600,6 +627,139 @@ void contracts(kairo::Executor &executor) {
     check(!verifier.settle());
 }
 
+// DEC-086: an uncertain application mutation settles on machine evidence,
+// the fence lifts for the next mutation, and validate_request re-derives its
+// canonical failure per request instead of sticking to the oldest failure.
+void evidence_contracts() {
+    const Json args{Json::Object{{"application_id", "app.desktop"}}};
+    const auto ctx = context();
+    int dispatches = 0;
+    const auto uncertain_failure = [&](const auto &, const auto &) -> mira::Result<Json> {
+        ++dispatches;
+        mira::Error e;
+        e.code = mira::ErrorCode::PlatformError;
+        e.safe_message = R"({"side_effect_may_have_occurred":true,"input_released":true})";
+        return e;
+    };
+    const mira::BuiltinToolHandler ok_handler = [](const auto &,
+                                                   const auto &) -> mira::Result<Json> {
+        return Json{
+            Json::Object{{"status", "dispatched"}, {"input_released", true}, {"verified", false}}};
+    };
+    // Scenario A: running evidence after the uncertain launch settles the
+    // record as verified and releases the mutation fence.
+    auto running_env = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    running_env->applications = {{"app.desktop", "Fixture App", false}};
+    running_env->application_instances["app.desktop"] = "i-app";
+    i::DesktopToolContext running_tools;
+    running_tools.environment = running_env;
+    running_tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    i::detail::DesktopActionVerification confirmed(running_tools, ctx, {});
+    const auto launch =
+        confirmed.execute("desktop.application.launch", args, ctx,
+                          [&](const auto &a, const auto &c) { return uncertain_failure(a, c); });
+    check(!launch && dispatches == 1);
+    const auto receipt = mira::parse_json(launch.error().safe_message);
+    check(receipt.has_value());
+    check(field(receipt.value(), "status") == "verified");
+    check(field(receipt.value(), "reason") == "application_running_confirmed");
+    check(!field(receipt.value(), "action_id").empty());
+    const auto rechecked = confirmed.recheck(field(receipt.value(), "action_id"), ctx);
+    check(rechecked && field(rechecked.value(), "status") == "verified" &&
+          field(rechecked.value(), "reason") == "application_running_confirmed");
+    const auto next = confirmed.execute("desktop.application.launch", args, ctx,
+                                        [&](const auto &a, const auto &c) {
+                                            ++dispatches;
+                                            return ok_handler(a, c);
+                                        });
+    check(next && dispatches == 2);
+    const auto *verification = next.value().find("verification");
+    check(verification && field(*verification, "status") == "verified" &&
+          field(*verification, "reason") == "application_running_only");
+    check(confirmed.settle());
+    // Scenario C: the failed receipt in canonical history stops disqualifying
+    // once its record is machine-verified, and the derivation is per request.
+    mira::ModelInputItem launch_item;
+    mira::ToolCallPart launch_call;
+    launch_call.provider_call_id.value = "uncertain-launch";
+    launch_call.wire_name = "desktop.application.launch";
+    launch_item.content.emplace_back(launch_call);
+    mira::ToolResultPart launch_result;
+    launch_result.provider_call_id = launch_call.provider_call_id;
+    launch_result.failed = true;
+    launch_result.safe_error_summary = launch.error().safe_message;
+    launch_item.content.emplace_back(launch_result);
+    mira::ModelRequest verified_history;
+    verified_history.task_id = ctx.task;
+    verified_history.task_epoch = ctx.task_epoch;
+    verified_history.input.push_back(launch_item);
+    check(static_cast<bool>(confirmed.validate_request(verified_history, ctx)));
+    check(confirmed.settle());
+    // A failure receipt records_ never saw still fences the turn.
+    mira::ModelInputItem unknown_item = launch_item;
+    auto &unknown_result = std::get<mira::ToolResultPart>(unknown_item.content.back());
+    unknown_result.provider_call_id.value = "unknown-launch";
+    std::get<mira::ToolCallPart>(unknown_item.content.front()).provider_call_id.value =
+        "unknown-launch";
+    unknown_result.safe_error_summary =
+        R"({"schema":2,"status":"uncertain","verified":false,"dispatched":true,)"
+        R"("side_effect_may_have_occurred":true,"input_released":true,)"
+        R"("action_id":"unknown-action-id","reason":"action_failed"})";
+    mira::ModelRequest unknown_history;
+    unknown_history.task_id = ctx.task;
+    unknown_history.task_epoch = ctx.task_epoch;
+    unknown_history.input.push_back(unknown_item);
+    // validate_request itself only refuses cancelled/mismatched owners; the
+    // unknown canonical failure surfaces through settle() and the next
+    // terminal answer.
+    check(static_cast<bool>(confirmed.validate_request(unknown_history, ctx)));
+    check(!confirmed.settle());
+    // Re-derivation is per request: the verified history passes again after
+    // the unknown failure instead of staying fenced forever.
+    check(static_cast<bool>(confirmed.validate_request(verified_history, ctx)));
+    check(confirmed.settle());
+
+    // Scenario B: without running evidence the uncertain record keeps
+    // awaiting human review and the fence holds.
+    auto stopped_env = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    stopped_env->applications = {{"app.desktop", "Fixture App", false}};
+    i::DesktopToolContext stopped_tools;
+    stopped_tools.environment = stopped_env;
+    stopped_tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    i::detail::DesktopActionVerification unproven(stopped_tools, ctx, {});
+    const auto fenced =
+        unproven.execute("desktop.application.launch", args, ctx,
+                         [&](const auto &a, const auto &c) { return uncertain_failure(a, c); });
+    check(!fenced && dispatches == 3);
+    const auto fenced_receipt = mira::parse_json(fenced.error().safe_message);
+    check(fenced_receipt.has_value() && field(fenced_receipt.value(), "status") == "uncertain" &&
+          field(fenced_receipt.value(), "reason") == "effect_uncertain");
+    const auto still = unproven.recheck(field(fenced_receipt.value(), "action_id"), ctx);
+    check(still && field(still.value(), "status") == "uncertain" &&
+          field(still.value(), "reason") == "effect_uncertain");
+    check(!unproven.execute("desktop.application.launch", args, ctx,
+                            [&](const auto &a, const auto &c) { return ok_handler(a, c); }));
+    check(dispatches == 3);
+    check(!unproven.settle());
+    // Its canonical failure also stays disqualifying for the model request.
+    mira::ModelRequest fenced_history;
+    fenced_history.task_id = ctx.task;
+    fenced_history.task_epoch = ctx.task_epoch;
+    mira::ModelInputItem fenced_item;
+    mira::ToolCallPart fenced_call;
+    fenced_call.provider_call_id.value = "fenced-launch";
+    fenced_call.wire_name = "desktop.application.launch";
+    fenced_item.content.emplace_back(fenced_call);
+    mira::ToolResultPart fenced_result;
+    fenced_result.provider_call_id = fenced_call.provider_call_id;
+    fenced_result.failed = true;
+    fenced_result.safe_error_summary = fenced.error().safe_message;
+    fenced_item.content.emplace_back(fenced_result);
+    fenced_history.input.push_back(fenced_item);
+    check(static_cast<bool>(unproven.validate_request(fenced_history, ctx)));
+    check(!unproven.settle());
+}
+
 #ifdef MIRAGE_POST_ACTION_X11
 void real_tasks(kairo::Executor &executor) {
     check(XInitThreads() != 0);
@@ -756,16 +916,32 @@ int main() {
               "foreign", "retry", "visual_good", "visual_wrong", "visual_duplicate",
               "visual_denied", "rejected_then_corrected"})
             scenario(executor, mode);
-        for (const auto &mode : {"good",          "running",       "interleaved",
-                                 "launch",        "denied",        "invalid",
-                                 "unknown",       "stale",         "epoch",
-                                 "cancel_before", "cancel_after",  "uncertain",
-                                 "throw_after",   "not_running",   "delayed_candidate",
-                                 "gate_delayed",  "removed",       "removed_during_gate",
-                                 "lookup_throw",  "lookup_cancel", "lookup_epoch",
+        for (const auto &mode : {"good",
+                                 "running",
+                                 "interleaved",
+                                 "launch",
+                                 "denied",
+                                 "invalid",
+                                 "unknown",
+                                 "stale",
+                                 "epoch",
+                                 "cancel_before",
+                                 "cancel_after",
+                                 "uncertain",
+                                 "uncertain_gone",
+                                 "throw_after",
+                                 "not_running",
+                                 "delayed_candidate",
+                                 "gate_delayed",
+                                 "removed",
+                                 "removed_during_gate",
+                                 "lookup_throw",
+                                 "lookup_cancel",
+                                 "lookup_epoch",
                                  "duplicate"})
             application_scenario(executor, mode);
         contracts(executor);
+        evidence_contracts();
 #ifdef MIRAGE_POST_ACTION_X11
         real_tasks(executor);
 #endif
