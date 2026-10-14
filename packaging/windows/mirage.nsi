@@ -63,21 +63,33 @@ Section "Install"
     WriteRegStr HKCU "Software\Classes\AppUserModelId\${MIRAGE_AUMID}" \
         "DisplayName" "Mirage"
 
-    ; Uninstaller.
+    ; Uninstaller. The uninstall entry must live in the NATIVE registry
+    ; view: this installer is a 32-bit NSIS build (every makensis is), so
+    ; without SetRegView 64 the key lands under WOW6432Node and "Apps &
+    ; features" sees the 32-bit redirection instead.
     WriteUninstaller "$INSTDIR\uninstall.exe"
+    SetRegView 64
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Mirage" \
         "DisplayName" "Mirage"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Mirage" \
         "UninstallString" "$INSTDIR\uninstall.exe"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Mirage" \
         "DisplayVersion" "${MIRAGE_VERSION}"
+    SetRegView lastused
 SectionEnd
 
 Section "Uninstall"
     Delete "$SMPROGRAMS\Mirage\Mirage.lnk"
     RMDir "$SMPROGRAMS\Mirage"
     DeleteRegKey HKCU "Software\Classes\AppUserModelId\${MIRAGE_AUMID}"
+    ; Clean the uninstall entry from BOTH views: the native-view key this
+    ; build writes, and the WOW6432Node key pre-fix builds left behind on
+    ; machines that installed before the SetRegView correction.
+    SetRegView 64
     DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Mirage"
+    SetRegView 32
+    DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Mirage"
+    SetRegView lastused
     Delete "$INSTDIR\mirage.exe"
     Delete "$INSTDIR\mirage-service.exe"
     Delete "$INSTDIR\mirage-tray.exe"
