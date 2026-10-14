@@ -19,8 +19,15 @@ provider 环境补跑。相同截图逐轮重现属 DEC-053 契约内行为，�
 复用身份，重复识图浪费思考 token。
 
 DEC-088 能力 2/3 新增 [MIRA-20261014-006](mira.md#mira-20261014-006)：ConversationLoop
-工具历史回放无宿主可插入的压缩缝，已交付的 Layer 0 StandardContextManager 无法接入
-该回放；DEC-088 修订版的工具历史压缩与桌面水位路径被此缝阻塞，等待上游缝 PR。
+工具历史回放无宿主可插入的压缩缝，已由
+[PR#96](https://github.com/Linductor-alkaid/mira/pull/96) 解决（授权合并 93e2eae）；
+Mirage 随 pin 消费 DesktopContextBuilder 并复验 fixture，状态 Resolved；真实会话
+token 验收待真实 provider 环境补跑。
+
+DEC-088 能力 2/3 新增 [MIRA-20261014-007](mira.md#mira-20261014-007)：
+ConservativeTokenCounter 不计工具载荷字节（ToolCallPart.arguments /
+ToolResultPart.result），工具密集请求水位系统性低估、压缩触发偏晚；上游估算修复
+待提交，Mirage 侧无临时绕过。
 
 | 依赖 | 详细台账 | 已确认问题 | 说明 |
 | --- | --- | --- | --- |

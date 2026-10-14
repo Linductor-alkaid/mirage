@@ -432,15 +432,21 @@ std::vector<mira::ModelInputItem> supply_image_as_text_description(
 ### Phase 1：Mira 能力集成（1 周，P0）
 
 1. **Layer 0 集成**：
-   - [ ] `DesktopContextBuilder` 实现并测试
-   - [ ] 正确设置 `ContextItem` 属性（kind/priority/replaceable_by_reference）
-   - [ ] `item_audit` 显示 `DroppedByWatermark` 和 `SelectedByReference`
-   - [ ] 15 轮桌面任务 input tokens **-30% ~ -40%**
+   - [x] `DesktopContextBuilder` 实现并测试（落地形态：只路由工具往返段经
+     Layer 0，配对孤侧收缩，assistant 文本透传——Layer 0 出决策、循环原始条目
+     出渲染；见消费验证文档）
+   - [x] 正确设置 `ContextItem` 属性（kind/priority/replaceable_by_reference）；
+     `replaceable_by_reference=false` 是有意收紧——引用标记会丢弃
+     ToolCallPart/ToolResultPart 破坏工具协议，收缩改由配对丢弃承担
+   - [x] 压缩事件与计数可见（loop 侧 `HistoryTransformApplied`/
+     `HistoryTransformDegraded` 事件 + `DialogCompletion.history_transforms`/
+     `history_transform_degradations` 透传）
+   - [ ] 15 轮桌面任务 input tokens **-30% ~ -40%**——需真实会话测量，未执行
 
 2. **水位配置调整**：
-   - [ ] `trim_watermark = 0.45` 生效
-   - [ ] 10 轮任务触发 trim（水位 > 45%）
-   - [ ] 压缩后利用率降至 < 60%
+   - [x] `trim_watermark = 0.45` 生效（fixture 断言小窗口下旧配对被收缩）
+   - [ ] 10 轮任务触发 trim（水位 > 45%）——真实会话，未执行
+   - [ ] 压缩后利用率降至 < 60%——真实会话，未执行
 
 3. **续写提示差异化**（Mira PR，可并行）：
    - [x] 思考截断场景，续写提示包含"concise plain-text"（PR#95 合并提交 9e7b729
@@ -521,9 +527,15 @@ std::vector<mira::ModelInputItem> supply_image_as_text_description(
   - Mirage 已授权消费该 pin（见
     [消费审计](../supply-chain/mira-input-reuse-20261014.md)）。
 - **能力 2/3**：Layer 0 集成与桌面水位
-  - 状态：被 [MIRA-20261014-006](../dependency_feedback/mira.md#mira-20261014-006)
-    阻塞——ConversationLoop 工具历史回放无宿主可插入的压缩缝（pinned 9e7b729 核对），
-    待上游缝 PR；Mirage 不建平行压缩。
+  - 状态：缝已交付并消费。上游
+    [PR#96](https://github.com/Linductor-alkaid/mira/pull/96)（`set_history_transformer`
+    可选宿主历史压缩缝，通用 history 变换形态，规避渲染器角色保真约束）经授权
+    squash 合并为 `93e2eae`（24 项 checks 全绿），pin 已同步消费；Mirage 侧
+    `DesktopContextBuilder` 只路由工具往返段经 Layer 0（桌面水位 0.45/0.70/0.90、
+    配对孤侧收缩、assistant 文本透传），见
+    [消费审计](../supply-chain/mira-history-compaction-20261014.md)。
+    [MIRA-20261014-006](../dependency_feedback/mira.md#mira-20261014-006) 的缝缺口
+    由此闭合。
 
 ---
 

@@ -777,10 +777,13 @@ EXPECT_LT(elapsed, std::chrono::milliseconds(50));
 - [ ] 准备测试环境（真实模型 API）
 
 ### Phase 1 完成
-- [ ] DesktopContextBuilder 实现并测试
-- [ ] Layer 0 集成到 ModelLayer
-- [ ] 单元测试全部通过
-- [ ] 15 轮任务 input tokens < 基线 70%
+- [x] DesktopContextBuilder 实现并测试（落地形态：只路由工具往返段经 Layer 0，
+  配对整对收缩、assistant 文本透传；上游缝 PR#96 交付后消费）
+- [x] Layer 0 集成到 ModelLayer（声明窗口时接线；`DialogCompletion` 计数透传）
+- [x] 单元测试全部通过（`desktop_context_builder_test` 1205 项断言；全量 82/82、
+  ASAN 干净）
+- [ ] 15 轮任务 input tokens < 基线 70%（真实会话，未执行；精度受
+  MIRA-20261014-007 影响）
 
 ### Phase 2 完成
 - [x] PR#95 合并并更新 pinned mira（9e7b729，授权消费）
@@ -1703,3 +1706,30 @@ Result<std::vector<ModelInputCondition>> build_request_with_compaction() {
   （`pkg_check_modules` 导入目标改为 GLOBAL，platform/CMakeLists.txt）。
 - 未执行：真实会话对照验收（15/30 轮 tokens 曲线、思考 token −10%~−20%）
   需真实模型 API 与桌面环境；负责人 Mirage 维护者，补跑条件见证据文档。
+
+### 2026-10-14：能力 2/3 落地——上游历史压缩缝（PR#96）与 Mirage Layer 0 消费
+
+- 上游 [PR#96](https://github.com/Linductor-alkaid/mira/pull/96) 经授权合并
+  （`93e2eae`）：`ConversationLoop::set_history_transformer` 可选宿主历史压缩缝
+  （通用 history 变换形态，规避渲染器角色保真约束；协议契约、四类降级、
+  `HistoryTransformApplied/Degraded` 事件与结果计数、未接线逐字节不变）。
+  mira Debug 108/108、全部门禁、24 项 checks 绿后合并；pin 同步消费。审计：
+  [mira-history-compaction-20261014](../supply-chain/mira-history-compaction-20261014.md)。
+- Mirage 侧 `DesktopContextBuilder`：工具往返段 → Layer 0（consumed、
+  replaceable_by_reference=false、配对键、sequence）；桌面水位 0.45/0.70/0.90；
+  checkpoint 拆对按 audit 整对收缩；assistant 文本透传（Layer 0 出决策、原始
+  条目出渲染）。`model_layer.cpp` 声明窗口时接线，`DialogCompletion` 透传
+  `history_transforms / history_transform_degradations`。
+- 独立验证两轮：第一轮抓到高优先级接线缺陷（reserved 误用整 run 包络 ≥720896，
+  一切现实窗口下 limits 拒绝、压缩必然降级）——已修复为 per-call 输出基准并
+  复验 PASS。最终 1205 项断言：builder 映射/收缩/fail-open 逐字段断言、接线级
+  真实触发（15 轮 capture + 4096 窗口，早期配对整对消失、配对合法、观测值与
+  Layer 0 算术吻合）、余量窗口全量保留、微小窗口诚实降级；Mirage Debug 82/82、
+  ASAN 无报告。证据：
+  [context-history-compaction-20261014](../compatibility/context-history-compaction-20261014.md)。
+- 台账：MIRA-20261014-006 → Resolved；新登记
+  [MIRA-20261014-007](../dependency_feedback/mira.md#mira-20261014-007)（上游
+  ConservativeTokenCounter 不计工具载荷字节，水位系统性低估工具密集请求——
+  压缩触发偏晚，行为正确，待上游估算修复）。
+- 未执行：真实会话 token 验收（-30%~40%）待真实 provider 环境，且精度受
+  -007 影响。
