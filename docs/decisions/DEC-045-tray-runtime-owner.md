@@ -30,9 +30,13 @@ Workflow，存在活动时打开前端退出确认，取消保持工作，确认
 2026-10-14（BUG-20261014-004/006）：Windows 安装的开始菜单改用 GUI 子系统
 `mirage-launcher`，共享 CLI 控制面并自动调用 start；CLI `mirage.exe` 继续是控制台程序。
 启动失败通过图形错误框展示已有错误文本。托盘进程本身也链接 GUI 子系统；所有权和
-IPC 准入保持既有契约。Windows 原生菜单使用 owner-draw 保留 HMENU 键盘/禁用/关闭行为，
-基准字号 16 px、最小行高 40 px、最小宽度 220 px、水平留白 20 px，随调用所在显示器 DPI
-缩放；颜色复用系统菜单/高亮/禁用调色板，退出项前分隔。原动作仍经既有 Executor 派发。
+IPC 准入保持既有契约。Windows 菜单按维护者 2026-10-15 的 GPT 参考改为白色圆角弹层，
+基准字号 14 px、行高 40 px、宽度 300 px、文字水平留白 20 px，随调用所在显示器 DPI
+缩放；浅灰圆角悬停，退出项前使用淡色细分隔线。Windows 11 使用 DWM 圆角和阴影，
+Windows 10 使用轮廓/类阴影降级（目标机器尚未验证 Windows 10）。标准 BUTTON 保留
+可访问名称及禁用状态；上/下/Tab/Home/End 跳过禁用项，Enter/Space 激活，Escape 或
+点击外部关闭。弹层在既有 pump 上 modeless 运行，刷新状态和停止期间销毁，避免原生
+TrackPopupMenu 的嵌套等待阻断 shutdown。原动作仍经既有 Executor 派发，不创建线程/队列/调度器。
 验证见 [维护计划](../plans/maintenance-windows-presentation-20261014.md)。
 
 此决策替代DEC-007/030中产品Tray仅作为独立Service客户端的部分；开发headless
