@@ -124,3 +124,10 @@ MIRAGE_PIPEWIRE_LIBRARY=/usr/lib/x86_64-linux-gnu/libpipewire-0.3.so配置后构
 不以修气泡为由改动平台代码。初验失败日志保留于/tmp/mirage-pr91-master-sync-build.log；
 最终configure/build/test/quality日志为/tmp/mirage-pr91-master-sync-{configure-sdk,build-sdk,test,quality}.log。
 同步后的远端CI须以新head为准，不继承cc8bf1d的通过结论。
+
+同步后的独立native-release产品目标重建成功，气泡/IPC/Runtime/输入复用选择集8/8
+（15.98秒）。旧/tmp离线模型源已不存在，首次configure因此失败；复用本机已有
+build/native-debug/vision-source/671ac4a72299a86ddee160131ba88fed748df425，
+CMake按锁文件逐项验证SHA-256后构建成功。日志为/tmp/mirage-pr91-native-sync-
+{configure,build,configure-local,build-local,test}.log，保留首次缺文件记录。
+仅更新独立预览入口所指产物，不替换共享native-release。
