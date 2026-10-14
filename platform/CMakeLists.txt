@@ -168,13 +168,24 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         # no import library (its GUIDs are defined in the frontend, the
         # interfaces resolve via __uuidof).
         windows/src/win32_backend.cpp
+        # The tiered screen capture engine (M7-10, DEC-086): DXGI Desktop
+        # Duplication -> Windows.Graphics.Capture -> GDI BitBlt. Its platform
+        # link face is d3d11 (device + the WinRT Direct3D interop entry),
+        # dxgi (factory / output / duplication) and windowsapp (the WinRT
+        # activation / HSTRING umbrella, which carries combase's import
+        # surface — the SDK ships no standalone combase.lib) — system
+        # components of every Windows SDK, so like the rest of the Windows
+        # frontends the only honest failure mode is a per-call refusal,
+        # never a compile-time absence.
+        windows/src/screen_capture_backend.cpp
         windows/src/uia_backend.cpp
         windows/src/application_backend.cpp
         windows/src/notification_backend.cpp
         windows/src/overlay_backend.cpp
         windows/src/tray_backend.cpp
     )
-    target_link_libraries(mirage_platform PRIVATE user32 gdi32 ole32 oleaut32 shell32 advapi32)
+    target_link_libraries(mirage_platform PRIVATE user32 gdi32 ole32 oleaut32 shell32 advapi32
+                                                  d3d11 dxgi windowsapp)
     target_link_libraries(mirage_platform PUBLIC Mirage::desktop)
 else()
     message(FATAL_ERROR

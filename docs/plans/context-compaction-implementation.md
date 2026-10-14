@@ -948,3 +948,25 @@ Result<std::vector<ModelInputCondition>> build_request_with_compaction() {
    - 检测 cache hit rate
    - 低 hit rate 时更激进压缩
    - 高 hit rate 时保守压缩（保留前缀）
+
+---
+
+## 进展记录
+
+### 2026-10-14：能力 1/4 上游交付（PR 待合并）
+
+- 台账 [MIRA-20261014-005](../dependency_feedback/mira.md#mira-20261014-005) 已登记
+  （供给缝无跨轮复用身份入口；实际编号与上文草稿模板的 -003 不同，以台账为准）。
+  上游 mira [PR#95](https://github.com/Linductor-alkaid/mira/pull/95) 交付
+  `set_model_input_identity` 身份缝与 max_tokens 续写锚点：宿主持有跨轮连续复用
+  计数，循环在第三次相同图片供给时于 User 信封末尾渲染 Internal 权限的 System
+  note；事件与 `ConversationLoopResult` 计数可见；无回调时请求逐字节不变。
+  本地 Debug 全量 ctest 106/106、ASAN、architecture/format/docs 门禁通过；
+  远端 CI 通过并经维护者合并授权后方可采纳 pin。
+- 与本文 Step 1.1 的接口差异：兼容性约束下复用元数据走独立的可选
+  `ModelInputIdentityProvider` 回调，不改变 `ModelInputSupplier` 返回类型；
+  digest/count 由宿主持有的语义与 Step 1.1.3 一致。Step 1.2 的三类分支在
+  pin 1befa45 已存在，本次仅补部分文本续写锚点与 plain-text 措辞。
+- 待办：授权消费新 pin 后实施 Mirage 侧跨轮计数（desktop_image_supply 持有
+  digest/count）与能力 5 图片降级（preflight 余量），再做真实会话对照验收
+  （第 3 轮请求含复用提示、思考 token 下降 ≥10%）。能力 2/3（Phase 2）未实施。

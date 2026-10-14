@@ -102,7 +102,7 @@ bool valid_status(const Status &status) {
            fits(status.session_id, max_identity_bytes) &&
            (status.source_kind.empty() == status.source_id.empty()) &&
            status.active_count <= max_work_items && fits(status.summary, max_summary_bytes) &&
-           fits(status.reason_code, 64);
+           fits(status.reason_code, 64) && (!status.bubble || valid_bubble(*status.bubble));
 }
 
 Projection::Projection(std::string owner_epoch) {

@@ -159,8 +159,7 @@ constexpr std::uint64_t kContextReserveTokens = 1000;
 /// per-request context preflight shrinks it. A declared value (1..65536) is
 /// used verbatim; 0 means undeclared and takes the 32000 default. Thinking
 /// calls then carry the safety floor.
-std::uint64_t baseline_output_budget(const ModelLayerConfig &config,
-                                     const std::string &value) {
+std::uint64_t baseline_output_budget(const ModelLayerConfig &config, const std::string &value) {
     const auto base =
         config.max_output_tokens != 0 ? config.max_output_tokens : kDefaultMaxOutputTokens;
     // DEC-085 follow-up: an adaptive-thinking call spends its output budget
@@ -535,10 +534,9 @@ struct ModelLayer::Impl {
         // per-dialect 17x/21x scaling left default profiles unable to route
         // any model call.
         record.capabilities.limits.max_output_tokens =
-            22 * std::max<std::uint64_t>(
-                     config.max_output_tokens != 0 ? config.max_output_tokens
-                                                   : kDefaultMaxOutputTokens,
-                     kThinkingOutputFloor);
+            22 * std::max<std::uint64_t>(config.max_output_tokens != 0 ? config.max_output_tokens
+                                                                       : kDefaultMaxOutputTokens,
+                                         kThinkingOutputFloor);
         // DEC-082: baseline_output_budget still bounds each wire call; the
         // provider decorator shrinks it per request against the declared
         // context window (DEC-087 preflight).
@@ -652,7 +650,8 @@ void ModelLayer::shutdown() {
 DialogCompletion ModelLayer::complete_dialog_turn(
     const std::string &transcript, const std::string &user_text,
     const mira::OperationContext &context, const std::string &reasoning, bool tools_allowed,
-    DialogPreviewSink preview, DialogProcessSink process, DialogModelActivitySink activity) {
+    DialogPreviewSink preview, DialogProcessSink process, DialogModelActivitySink activity,
+    DialogThinkingPreviewSink thinking_preview) {
     DialogCompletion completion;
     // The drain lock makes shutdown wait out this inference (bounded by the
     // profile transport deadlines) instead of destroying the pinned pieces
@@ -741,10 +740,14 @@ DialogCompletion ModelLayer::complete_dialog_turn(
         mira::digest_string("mirage.dialog.system.v1");
 
     mira::InferOptions options;
-    options.stream = static_cast<bool>(preview);
+    options.stream = static_cast<bool>(preview) || static_cast<bool>(thinking_preview);
     if (preview)
         options.preview_sink = [&preview](const auto &id, const auto &value) {
             preview(id.to_string(), value.text, value.truncated);
+        };
+    if (thinking_preview)
+        options.thinking_preview_sink = [&thinking_preview](const auto &id, const auto &value) {
+            thinking_preview(id.to_string(), value.text, value.truncated);
         };
     auto outcome = impl_->gateway->infer(request, context, options);
     // DEC-085: a stream-lifecycle protocol violation is a per-request parser
@@ -827,7 +830,8 @@ DialogCompletion ModelLayer::complete_harness_turn(
     const std::string &transcript, const std::string &user_text,
     const mira::OperationContext &context, const std::string &reasoning, bool tools_allowed,
     DialogPreviewSink preview, DialogProcessSink process,
-    const mirage::desktop::CancelToken &cancel, DialogModelActivitySink activity) {
+    const mirage::desktop::CancelToken &cancel, DialogModelActivitySink activity,
+    DialogThinkingPreviewSink thinking_preview) {
     DialogCompletion completion;
     if (!impl_ || (!reasoning.empty() && !accepts_reasoning(impl_->config, reasoning))) {
         completion.failed = true;
@@ -1192,13 +1196,18 @@ DialogCompletion ModelLayer::complete_harness_turn(
     if (!transcript.empty())
         spec.goal += "Earlier conversation (untrusted):\n" + transcript + "\n";
     spec.goal += "Current user request:\n" + user_text;
-    const bool stream_requested = static_cast<bool>(preview);
+    const bool stream_requested = static_cast<bool>(preview) || static_cast<bool>(thinking_preview);
     auto invoke_loop = [&](const bool stream) -> mira::Result<mira::ConversationLoopResult> {
         mira::ConversationLoopConfig loop_config = config;
         loop_config.inference.stream = stream;
         if (stream && preview)
             loop_config.inference.preview_sink = [&preview](const auto &id, const auto &value) {
                 preview(id.to_string(), value.text, value.truncated);
+            };
+        if (stream && thinking_preview)
+            loop_config.inference.thinking_preview_sink = [&thinking_preview](const auto &id,
+                                                                              const auto &value) {
+                thinking_preview(id.to_string(), value.text, value.truncated);
             };
         mira::ConversationLoop loop(*impl_->gateway, loop_config);
         loop.set_tool_registry(registry);

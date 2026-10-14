@@ -1,8 +1,8 @@
 #pragma once
 #include <algorithm>
+#include <map>
 #include <mutex>
 #include <optional>
-#include <map>
 #include <string>
 
 #include <mira/json.hpp>
@@ -277,9 +277,8 @@ class ObservedProvider final : public mira::IModelProvider {
     // dialects report the total current input including cache reads) plus
     // the growth of the pinned byte estimator since that response — the
     // same estimator on both sides cancels its systematic bias in the delta.
-    std::optional<std::uint64_t>
-    resolve_wire_budget(const mira::ModelRequest &request,
-                        const mira::OperationContext &context) const {
+    std::optional<std::uint64_t> resolve_wire_budget(const mira::ModelRequest &request,
+                                                     const mira::OperationContext &context) const {
         // Absent = the host did not declare a baseline; nothing to shrink.
         if (!request.generation.max_output_tokens)
             return std::nullopt;
@@ -292,10 +291,9 @@ class ObservedProvider final : public mira::IModelProvider {
             std::lock_guard<std::mutex> guard(anchor_mutex_);
             if (const auto anchor = anchors_.find(context.session.to_string());
                 anchor != anchors_.end()) {
-                const auto growth =
-                    estimate > anchor->second.local_estimate
-                        ? estimate - anchor->second.local_estimate
-                        : 0;
+                const auto growth = estimate > anchor->second.local_estimate
+                                        ? estimate - anchor->second.local_estimate
+                                        : 0;
                 used = anchor->second.provider_input + growth;
             }
         }

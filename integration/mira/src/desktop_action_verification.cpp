@@ -256,11 +256,9 @@ void DesktopActionVerification::observe(Record &r, const mira::OperationContext 
             // effects, not against evidence — when its declared postcondition
             // is machine-verified afterwards, the record settles and the turn
             // can continue. Effects that stay unproven keep awaiting review.
-            r.status = matched      ? "verified"
-                       : r.uncertain ? "uncertain"
-                                     : "unverified";
-            r.reason = matched ? (r.uncertain ? "application_running_confirmed"
-                                              : "application_running_only")
+            r.status = matched ? "verified" : r.uncertain ? "uncertain" : "unverified";
+            r.reason = matched       ? (r.uncertain ? "application_running_confirmed"
+                                                    : "application_running_only")
                        : r.uncertain ? "effect_uncertain"
                                      : "condition_not_matched";
             return;

@@ -24,6 +24,8 @@
 #include <mirage/desktop/screen_provider.hpp>
 #include <mirage/desktop/window_provider.hpp>
 
+#include "screen_capture_backend.hpp"
+
 namespace mirage::platform::windows_backend {
 
 class Win32Backend final : public mirage::desktop::WindowProvider,
@@ -94,8 +96,11 @@ class Win32Backend final : public mirage::desktop::WindowProvider,
     Win32Backend() = default;
 
     // Serializes every provider method (DEC-017 decision 3); GDI objects and
-    // DCs are acquired per call inside the critical section.
+    // DCs are acquired per call inside the critical section. The capture
+    // engine (DEC-086 tier chain) runs inside the same critical section and
+    // owns no lock of its own.
     std::mutex mutex_;
+    std::unique_ptr<ScreenCaptureEngine> capture_;
 };
 
 } // namespace mirage::platform::windows_backend

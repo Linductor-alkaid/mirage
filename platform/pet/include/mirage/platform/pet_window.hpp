@@ -13,6 +13,7 @@ struct Layout {
     float image_x = 0;
     float image_y = 0;
     float image_side = 0;
+    bool bubble_below = false;
 };
 struct Position {
     int x = 0;
@@ -24,6 +25,7 @@ bool prepare(std::optional<Position> saved_position, std::function<void(Position
              std::string &diagnostic);
 // Update the draggable X11 input shape from the visible RGBA frame. Transparent
 // pixels remain click-through; the visible character remains a drag handle.
+Layout layout(float screen_width, float screen_height);
 void update_hit_region(std::span<const std::uint8_t> rgba, const Layout &layout);
 // Install after the runner's callbacks, on its UI thread. Chain its iconify
 // callback, and report suspension/restoration without exposing OS types.
