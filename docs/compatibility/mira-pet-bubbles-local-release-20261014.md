@@ -71,3 +71,28 @@ None，导致movement断言失败；不是生产滚动缺失。改为比较RGB�
 
 物理DPI/多屏、真实compositor alpha、其他在线供应商和M8-06整组避让仍保持开放；
 本记录Completed只指本次授权的部署与Messages在线增量，不关闭整个M8-11/M8。
+
+
+## 多agent并行后的继续交付
+
+维护者提醒并行agent会修改工作区。核对时PR#90已合并到master eb20108；气泡独立
+分支以普通merge同步master（不改写已发布历史），冲突仅涉及已存在的气泡新增行/任务状态，
+合并后的源码树与先前气泡树相同。PR#91将改为以master评审，不合并该PR。
+
+主工作树后来由其他agent在b327b4b中合入气泡分支，并重编译native-release，同时持有
+两份桌面验证/供图代码的未提交改动。已读取确认pet app、bubble投影和Runtime代码与本轮
+先前交付一致；五个产物SHA已变化，但不代表气泡丢失。保留这些新产物和主入口，不用旧包
+覆盖或移除其他agent修改；前面的receipt为首次部署历史，不能当作这次共享构建的当前SHA。
+
+继续补强多行示例/引用/假设及Markdown嵌套节的概括范围，防止把示例里的“已修复”
+变成实际结论。新候选不足时保持提示/有效旧短句，直到实际结果段；不加模型调用或并发。
+新增专用入口 /home/linductor/.local/share/applications/org.mirage.bubbles.desktop，
+名称“Mirage（气泡预览）”，指向独立worktree的build/native-release。主Mirage入口不变，
+共享原产品单owner启动契约和配置；已有Runtime时会复用，加载新Runtime需正常退出托盘后再开。
+GIO descriptor及三条产品路径只读验证通过，未启动/停止用户正在运行的产品。
+
+本增量Release选择集6/6、纯投影新增ASAN/UBSAN各1/1，含中文/英文示例、假设、
+引用延续、Markdown嵌套和实际结果恢复。实现不新增跨线程状态；此前10/10在线证据
+是前一部署增量，不宣称已对本次段落规则重新在线调用模型。日志为
+/tmp/mirage-bubbles-context-{release-test,asan-test,ubsan-test}.log；最终文字变体Release6/6、ASAN1/1、UBSAN1/1以及格式/58头边界检查通过，
+日志使用context-final-*前缀；当前用户Runtime只读探测为未运行，没有终止用户进程。

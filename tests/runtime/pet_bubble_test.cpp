@@ -96,6 +96,26 @@ int main() {
     value->request_id = "new-request";
     presentation.update("owner", "source", value, now + 4s, measure, 1);
     MIRAGE_CHECK(presentation.visible(now + 4s) && presentation.offset(now + 4s) == 0);
+    MIRAGE_CHECK(
+        pet::answer_summary("## 示例\n\n> 配置已修复。\n\n后续检查通过。\n", false).empty());
+    MIRAGE_CHECK(
+        pet::answer_summary("## 示例\n\n### 子示例\n配置已修复。\n\n### 说明\n检查通过。\n", false)
+            .empty());
+    MIRAGE_CHECK(pet::answer_summary("E.g.:\nFixed config.\n", false).empty());
+    MIRAGE_CHECK(pet::answer_summary("Assuming the path works:\nChecks passed.\n", false).empty());
+    MIRAGE_CHECK(pet::answer_summary("假如修复成功：\n检查通过。\n", false).empty());
+    MIRAGE_CHECK(pet::answer_summary("示例：\n配置已修复。\n", false).empty());
+    MIRAGE_CHECK(pet::answer_summary("## 示例\n\n配置已修复。\n\n", false).empty());
+    MIRAGE_CHECK(pet::answer_summary("> 配置已修复。\n后续检查通过。\n", false).empty());
+    MIRAGE_CHECK(pet::answer_summary("如果修复成功：\n配置已修复。\n", false).empty());
+    MIRAGE_CHECK(pet::answer_summary("## 示例\n\n配置已修复。\n\n## 实际结果\n配置尚未验证。") ==
+                 "配置尚未验证");
+    MIRAGE_CHECK(pet::answer_summary("示例：\n配置已修复。\n\n实际检查未完成。") ==
+                 "实际检查未完成");
+    MIRAGE_CHECK(pet::answer_summary("Examples:\nFixed config.\n\nActual checks failed.") ==
+                 "Actual checks failed");
+    MIRAGE_CHECK(pet::answer_summary("```\n示例：\n配置已修复。\n```\n实际检查未完成。") ==
+                 "实际检查未完成");
     MIRAGE_CHECK(pet::answer_summary("-1", true) == "-1");
     MIRAGE_CHECK(pet::answer_summary(".", true).empty());
     MIRAGE_CHECK(pet::answer_summary("42", true) == "42");

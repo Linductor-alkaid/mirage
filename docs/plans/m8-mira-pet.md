@@ -656,3 +656,13 @@ M8-11保持In Progress至实桌面/在线扩大门禁通过，M8-06保持Planned
 [本机部署证据](../compatibility/mira-pet-bubbles-local-release-20261014.md)。
 M8-11保留整体In Progress，关闭本次本机部署/公开Messages在线子门禁；其他供应商、
 物理DPI/多屏及整组避让按既有责任人/条件补跑，M8-06仍Planned。
+
+
+### 2026-10-14：并行工作下的气泡段落语义边界
+
+在独立气泡分支普通merge同步已合并master，保留其他agent工作树及未提交改动。
+读到共享主工作树已合入气泡并重编译产品，因此没有回写旧产品；保留主入口，额外
+注册“Mirage（气泡预览）”指向独立native-release，便于验证后续气泡迭代。
+概括跳过多行示例/引用/条件范围，Markdown嵌套不提前解除外层范围，实际结果段可
+恢复候选。Release6/6、新增ASAN/UBSAN各1/1；见 [本机与并行交付记录](../compatibility/mira-pet-bubbles-local-release-20261014.md)。
+M8-11整体仍In Progress，M8-06仍Planned；未把这一语义边界增量当作跨平台门禁完成。

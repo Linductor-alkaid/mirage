@@ -106,6 +106,8 @@ std::string answer_summary(std::string_view text, bool complete) {
     std::string candidate, best;
     int best_score = -1;
     bool code = false;
+    bool line_start = true, skip_context = false, skip_body = false;
+    std::size_t skip_heading = 0;
     auto qualified = [](std::string_view value) {
         std::string lower{value};
         for (auto &c : lower)
@@ -204,6 +206,59 @@ std::string answer_summary(std::string_view text, bool complete) {
         }
     };
     for (std::size_t pos = 0; pos < text.size();) {
+        if (line_start && !code) {
+            const auto end = text.find('\n', pos);
+            auto line =
+                text.substr(pos, end == std::string_view::npos ? text.size() - pos : end - pos);
+            while (!line.empty() &&
+                   (line.front() == ' ' || line.front() == '\t' || line.front() == '\r'))
+                line.remove_prefix(1);
+            while (!line.empty() &&
+                   (line.back() == ' ' || line.back() == '\t' || line.back() == '\r'))
+                line.remove_suffix(1);
+            std::size_t heading = 0;
+            while (heading < line.size() && line[heading] == '#')
+                ++heading;
+            if (heading && (heading == line.size() || line[heading] != ' '))
+                heading = 0;
+            std::string lower{trim(line)};
+            for (auto &c : lower)
+                if (c >= 'A' && c <= 'Z')
+                    c = static_cast<char>(c + ('a' - 'A'));
+            if (skip_context && heading && (!skip_heading || heading <= skip_heading)) {
+                skip_context = skip_body = false;
+                skip_heading = 0;
+            }
+            const bool example_header = (heading || line.ends_with(":") || line.ends_with("：")) &&
+                                        has(lower, {"示例", "例子", "例如", "比如", "引用", "原文",
+                                                    "example", "sample", "e.g."});
+            const bool condition = line.starts_with("如果") || line.starts_with("假设") ||
+                                   line.starts_with("假如") || line.starts_with("假定") ||
+                                   line.starts_with("只要") || line.starts_with("一旦") ||
+                                   (line.starts_with("若") && !line.starts_with("若干")) ||
+                                   lower.starts_with("if ") || lower.starts_with("suppose ") ||
+                                   lower.starts_with("assuming ") || lower.starts_with("once ") ||
+                                   lower.starts_with("when ") || lower.starts_with("provided ");
+            const bool quoted =
+                line.starts_with(">") || line.starts_with("“") || line.starts_with("\"");
+            if (example_header || condition || quoted) {
+                skip_context = true;
+                skip_body = skip_body || !example_header;
+                if (!skip_heading)
+                    skip_heading = heading; // preserve the outer example section
+            }
+            if (line.empty() && skip_context && skip_body && !skip_heading) {
+                skip_context = skip_body = false;
+            }
+            if (heading || skip_context || line.empty()) {
+                if (skip_context && !example_header && !line.empty())
+                    skip_body = true;
+                candidate.clear(); // a title/quote/example is never an agent outcome
+                pos = end == std::string_view::npos ? text.size() : end + 1;
+                continue;
+            }
+            line_start = false;
+        }
         if (text.substr(pos, 3) == "```") {
             consider();
             code = !code;
@@ -215,6 +270,8 @@ std::string answer_summary(std::string_view text, bool complete) {
             return {};
         const auto part = text.substr(pos, length);
         pos += length;
+        if (part == "\n")
+            line_start = true;
         if (code)
             continue;
         if (part == "\n" || part == "。" || part == "！" || part == "？" || part == ";" ||
