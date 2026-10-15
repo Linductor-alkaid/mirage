@@ -10,6 +10,17 @@ namespace {
 /// every platform libm that honors the C rounding contract).
 std::int32_t round_component(float value) { return static_cast<std::int32_t>(std::lroundf(value)); }
 
+desktop::VisualRegionSource map_source(const mirador::VisualRegion &region) {
+    if (mirador::has_source(region.source_mask, mirador::RegionSource::kOcr))
+        return desktop::VisualRegionSource::kOcr;
+    if (mirador::has_source(region.source_mask, mirador::RegionSource::kTemplate) &&
+        !region.label.empty())
+        return desktop::VisualRegionSource::kTemplate;
+    if (mirador::has_source(region.source_mask, mirador::RegionSource::kDetector))
+        return desktop::VisualRegionSource::kDetector;
+    return desktop::VisualRegionSource::kGeometry;
+}
+
 mirage::desktop::VisualRegionEntry map_region(const mirador::VisualRegion &region) {
     mirage::desktop::VisualRegionEntry entry;
     entry.bounds = {round_component(region.bounds.x), round_component(region.bounds.y),
@@ -46,6 +57,24 @@ desktop::VisualSnapshot to_visual_snapshot(const mirador::SemanticSnapshot &fusi
         snapshot.regions.push_back(map_region(region));
     }
     return snapshot;
+}
+
+desktop::VisualSceneObject to_visual_scene_object(const mirador::VisualRegion &region,
+                                                  std::uint64_t incarnation,
+                                                  std::uint64_t content_revision,
+                                                  bool identity_confirmed) {
+    desktop::VisualSceneObject object;
+    object.id = region.stable_id;
+    object.incarnation = incarnation;
+    object.content_revision = content_revision;
+    object.source = map_source(region);
+    object.bounds = {round_component(region.bounds.x), round_component(region.bounds.y),
+                     round_component(region.bounds.width), round_component(region.bounds.height)};
+    object.text = region.text;
+    object.label = region.label;
+    object.confidence = static_cast<double>(region.confidence);
+    object.identity_confirmed = identity_confirmed;
+    return object;
 }
 
 desktop::VisualPublishOutcome publish_visual_snapshot(const mirador::SemanticSnapshot &fusion,
