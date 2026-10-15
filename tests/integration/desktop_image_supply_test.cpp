@@ -1091,7 +1091,7 @@ void input_reuse_identity() {
             check(supplied.has_value());
             const auto identity = turn.input_reuse_identity(spec);
             check(identity.has_value());
-            check(identity->semantic_label == "screenshot");
+            check(identity->semantic_label == "desktop screenshot");
             check(identity->reuse_count == round);
             check(identity->content_digest.size() == std::size_t{64});
             if (!round)

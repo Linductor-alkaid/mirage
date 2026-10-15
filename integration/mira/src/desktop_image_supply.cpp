@@ -73,7 +73,7 @@ mira::InputReuseMeta DesktopImageSource::record_input_reuse(const std::string &d
     } else {
         ++reuse_count_;
     }
-    return {digest, reuse_count_, "screenshot"};
+    return {digest, reuse_count_, "desktop screenshot"};
 }
 
 DesktopImageTurn::DesktopImageTurn(std::shared_ptr<DesktopImageSource> source,
