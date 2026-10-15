@@ -112,8 +112,15 @@ struct Bridge::Impl {
         explicit SessionWorker(Impl &impl) : impl_(impl) {}
         void run(kairo::StopToken stop) override {
             std::string diagnostic;
-            (void)impl_.client->run(diagnostic);
+            const auto exit_reason = impl_.client->run(diagnostic);
             impl_.live.store(false);
+
+            // DEC-094: consume and log the exit reason
+            if (exit_reason == ipc::SessionClient::RunExit::ConnectionLost) {
+                std::cerr << "mira_pet: IPC connection lost: " << diagnostic << '\n';
+            }
+            // RunExit::Stopped is normal shutdown, no warning needed
+
             if (!stop.stop_requested())
                 app::requestUpdate();
         }

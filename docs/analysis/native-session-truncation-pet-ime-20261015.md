@@ -142,10 +142,22 @@ M8-03 覆盖新进程入口一次播放、bootstrap 期间状态变化、初始/
 
 详见 [第一阶段实施记录](../compatibility/pet-transport-staleness-fix-20261015.md)。
 
+**第二阶段修复**（commit TBD，2026-10-15）进行中：
+1. SessionClient 层面解耦"请求超时"与"连接失败"（DEC-094）
+   - 引入 `Health` 状态：`Healthy` / `SyncStale` / `Disconnected`
+   - `SyncStale` 表示同步请求超时，但事件流可能仍在工作
+   - 请求超时不再设置 `dead_`，而是设置 `health_`
+   - `finish_run()` 时将 `health_` 设为 `Disconnected`
+   - 响应成功时恢复 `health_` 为 `Healthy`
+2. 可观察关闭诊断：`run()` 返回 `RunExit` 和 `diagnostic`
+   - `RunExit::Stopped`：owner 显式停止
+   - `RunExit::ConnectionLost`：transport 失败或协议违规
+   - `diagnostic` 记录具体失败原因（超时、帧错误、解码失败等）
+3. 构建通过，等待完整验证
+
 **待完成事项**：
-- SessionClient 架构修改：解耦"请求超时"与"连接失败"（当前修复只在 bridge 层缓解）
+- 完整验证第二阶段修复（超时后恢复、关闭诊断可见）
 - 重连与恢复机制、序列异常通过快照恢复
-- 可观察关闭诊断（`SessionWorker::run` 返回的 `diagnostic`）
 - M8-03 启动入场时序与真实断联打断验证
 
 ## BUG-20261015-003：ASCII 键通知被输入法组合，缺查询和切换能力

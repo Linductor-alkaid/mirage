@@ -80,12 +80,23 @@ bool SessionClient::connect(std::chrono::milliseconds deadline, std::string &dia
     std::lock_guard<std::mutex> guard(mutex_);
     stream_ = std::move(stream);
     connected_ = true;
+    health_ = Health::Healthy; // DEC-094: start healthy
     return true;
 }
 
 bool SessionClient::connected() const {
     std::lock_guard<std::mutex> guard(mutex_);
     return connected_ && !dead_;
+}
+
+SessionClient::Health SessionClient::health() const {
+    std::lock_guard<std::mutex> guard(mutex_);
+    return health_;
+}
+
+std::string SessionClient::last_timeout_reason() const {
+    std::lock_guard<std::mutex> guard(mutex_);
+    return last_timeout_reason_;
 }
 
 void SessionClient::set_event_sink(EventSink sink) {
@@ -128,15 +139,17 @@ std::future<Response> SessionClient::call(const Request &body, std::chrono::mill
         pending_.erase(entry);
         Response timed_out;
         timed_out.ok = false;
-        timed_out.error = {"unavailable",
-                           "timed out waiting for the response (session closed fail-closed)"};
+        // DEC-094: Request timeout != connection failure. Mark sync as stale
+        // but do not close the transport — events may still be arriving.
+        // The frozen single-outstanding discipline still holds (one unanswered
+        // request forbids the next), but the timeout removes this request from
+        // the "unanswered" set, so the next call can proceed if transport lives.
+        last_timeout_reason_ = "request " + std::to_string(id) + " timed out after " +
+                               std::to_string(timeout.count()) + " ms";
+        health_ = Health::SyncStale;
+        timed_out.error = {"unavailable", last_timeout_reason_};
         expired.promise.set_value(std::move(timed_out));
-        // The frozen single-outstanding discipline forbids issuing the next
-        // request while one is unanswered, so the session ends here; the
-        // owner reconnects and resyncs from snapshots (DEC-012).
-        dead_ = true;
-        dead_reason_ = "request " + std::to_string(id) + " timed out after " +
-                       std::to_string(timeout.count()) + " ms";
+        // Do NOT set dead_ = true here (DEC-094 Phase 1)
     }
     return future;
 }
@@ -220,6 +233,7 @@ SessionClient::RunExit SessionClient::run(std::string &diagnostic) {
     const auto finish_run = [&]() {
         std::lock_guard<std::mutex> guard(mutex_);
         dead_ = true;
+        health_ = Health::Disconnected; // DEC-094
         if (dead_reason_.empty()) {
             dead_reason_ = diagnostic;
         }
@@ -286,6 +300,10 @@ SessionClient::RunExit SessionClient::run(std::string &diagnostic) {
                             entry->second.promise.set_value(decoded.response);
                             pending_.erase(entry);
                             known = true;
+                            // DEC-094: successful response clears SyncStale
+                            if (health_ == Health::SyncStale) {
+                                health_ = Health::Healthy;
+                            }
                         }
                     }
                     if (!known) {

@@ -35,6 +35,15 @@ namespace mirage::runtime::ipc {
 /// snapshots remain the source of truth (DEC-012).
 class SessionClient {
   public:
+    /// Session health (DEC-094): distinguishes transport failure from request
+    /// timeout. SyncStale means the last request timed out but events may still
+    /// be arriving; the caller decides whether to keep listening or reconnect.
+    enum class Health {
+        Healthy,      ///< Connected, sync requests completing within deadline
+        SyncStale,    ///< Last request timed out; transport may still be working
+        Disconnected  ///< Transport closed, run() finished
+    };
+
     /// Receives decoded service events on the run() thread. Must not throw
     /// and must not call back into this client; long work belongs on the
     /// owner's own execution context.
@@ -61,14 +70,20 @@ class SessionClient {
     /// correlate by id, so callers may overlap freely. The future resolves
     /// with the matched response, or ok=false carrying a stable local error
     /// code when the session is not connected / dies / the call times out.
-    /// A timeout also closes the session fail-closed (the frozen discipline
-    /// forbids issuing the next request while one is unanswered).
+    /// (DEC-094): A timeout marks the session SyncStale but does not close
+    /// the transport — events may still arrive. The caller decides whether
+    /// to keep using the event stream or reconnect.
     std::future<Response> call(const Request &body, std::chrono::milliseconds timeout);
+
+    /// Query current health (thread-safe).
+    Health health() const;
+
+    /// The last timeout diagnostic, if health() == SyncStale (thread-safe).
+    std::string last_timeout_reason() const;
 
     enum class RunExit {
         Stopped,        ///< stop() was requested by the owner
-        ConnectionLost, ///< transport loss, protocol violation or the
-                        ///< fail-closed close after a timed-out request
+        ConnectionLost, ///< transport loss or protocol violation
     };
 
     /// Drives the session until stop() or a fail-closed condition. Runs on
@@ -101,6 +116,8 @@ class SessionClient {
     bool connected_ = false;
     bool dead_ = false;       ///< fail-closed: run() must exit, calls refuse
     std::string dead_reason_; ///< why the session died (run()'s diagnostic)
+    Health health_ = Health::Disconnected; ///< DEC-094: current health
+    std::string last_timeout_reason_;      ///< DEC-094: last timeout diagnostic
     bool stop_requested_ = false;
     std::uint64_t next_id_ = 1;      ///< correlation ids, strictly increasing
     std::deque<std::string> outbox_; ///< complete frames awaiting the wire
