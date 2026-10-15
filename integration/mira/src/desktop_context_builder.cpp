@@ -121,9 +121,12 @@ DesktopContextBuilder::transform(const std::vector<mira::ModelInputItem> &histor
     // The audit keeps request order, so dispositions map back onto the tool
     // items by index. A pair split by the checkpoint watermark collapses
     // whole: rendering a call without its result (or the reverse) would be
-    // rejected by the provider dialects. Batches stay atomic too - an
-    // original item survives only when every tool part it carries survives,
-    // so a multi-call assistant turn never leaves an orphan side behind.
+    // rejected by the provider dialects. Layer 0 can split between sibling
+    // parts of one batched item (unequal payloads in the greedy pass, or the
+    // strip stopping inside a shared sequence), so collapse runs to a
+    // fixpoint: a multi-part item whose keys disagree drops whole, which
+    // falsifies its surviving keys, which in turn drops their paired result
+    // items - and so on until nothing orphaned remains.
     std::map<std::string, bool> pair_kept;
     const auto &audit = prepared.value().item_audit;
     for (std::size_t index = 0; index < request.items.size() && index < audit.size(); ++index) {
@@ -132,21 +135,35 @@ DesktopContextBuilder::transform(const std::vector<mira::ModelInputItem> &histor
         const auto found = pair_kept.find(key);
         pair_kept[key] = found == pair_kept.end() ? kept : found->second && kept;
     }
+    const auto item_whole = [&pair_kept](const mira::ModelInputItem &item) {
+        // Bind first: begin/end must come from the same vector.
+        const auto segment_keys = tool_segment_keys(item);
+        return std::all_of(segment_keys.begin(), segment_keys.end(),
+                           [&](const ToolSegmentKey &key) {
+                               const auto kept = pair_kept.find(key.call_key);
+                               return kept != pair_kept.end() && kept->second;
+                           });
+    };
+    for (bool changed = true; changed;) {
+        changed = false;
+        for (const auto &item : history) {
+            if (item_whole(item)) {
+                continue;
+            }
+            for (const auto &key : tool_segment_keys(item)) {
+                auto &kept = pair_kept[key.call_key];
+                if (kept) {
+                    kept = false;
+                    changed = true;
+                }
+            }
+        }
+    }
 
     std::vector<mira::ModelInputItem> replay;
     replay.reserve(history.size());
     for (auto &item : history) {
-        const auto segment_keys = tool_segment_keys(item);
-        if (segment_keys.empty()) {
-            replay.push_back(item);
-            continue;
-        }
-        const bool whole =
-            std::all_of(segment_keys.begin(), segment_keys.end(), [&](const ToolSegmentKey &key) {
-                const auto kept = pair_kept.find(key.call_key);
-                return kept != pair_kept.end() && kept->second;
-            });
-        if (whole) {
+        if (tool_segment_keys(item).empty() || item_whole(item)) {
             replay.push_back(item);
         }
     }
