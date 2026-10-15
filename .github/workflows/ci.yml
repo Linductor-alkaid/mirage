@@ -171,10 +171,10 @@ jobs:
       - name: Install native UI build prerequisites
         run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libx11-dev libxtst-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libcurl4-openssl-dev libwebp-dev xvfb
       - name: Configure native frontend
-        run: cmake --preset native-debug -DMIRAGE_FETCH_DEPENDENCIES=OFF -DMIRAGE_ENABLE_PET_PREVIEW=ON
+        run: cmake --preset native-debug -DMIRAGE_FETCH_DEPENDENCIES=OFF
       - name: Build native UI and harness tests
         run: >-
-          cmake --build build/native-debug --target mirage-native mira_pet
+          cmake --build build/native-debug --target mirage-native-product
           native_chat_model_test native_agent_integration_test native_conversation_view_test
           pet_animation_test pet_frames_test pet_resource_loader_test pet_status_integration_test
           pet_projection_refresh_test pet_frame_presentation_test
