@@ -127,8 +127,11 @@ int run(const Options &options) {
                " 次（每次都调用 desktop.screen.capture），每次截屏后用一句话报告"
                "屏幕内容是否变化。全部完成后报告结论并结束。";
     } else if (options.scenario == "continuation") {
-        task = "请用至少 300 字的中文详细说明：为什么桌面自动化在执行键鼠操作前"
-               "需要先观察屏幕状态。要求分点论述，内容充实，写满 300 字以上。";
+        // The demand must exceed the per-call output bound so the reply is
+        // genuinely cut and the anchored continuation carries the rest.
+        task = "请用至少 600 字的中文详细说明：为什么桌面自动化在执行键鼠操作前"
+               "需要先观察屏幕状态。要求分点论述，每点都要展开说明，内容充实，"
+               "写满 600 字以上再结束。";
     } else {
         std::cerr << "unknown scenario: " << options.scenario << "\n";
         return 2;

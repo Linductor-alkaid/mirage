@@ -1,8 +1,9 @@
 #include "desktop_context_builder.hpp"
 
+#include <algorithm>
 #include <map>
-#include <optional>
 #include <string>
+#include <vector>
 
 namespace mirage::integration::detail {
 namespace {
@@ -21,22 +22,24 @@ constexpr double kDesktopHardWatermark = 0.90;
 // the compaction request carry no inline images, so the cap is nominal headroom.
 constexpr std::uint64_t kDesktopImageBudgetTokens = 10'000;
 
-// The call identity and kind of one canonical tool item; nullopt for anything
-// that is not part of the round-trip segment (assistant text, thinking).
+// The call identity and kind of one canonical tool part; a history item can
+// carry several (providers batch multiple calls into one assistant turn), so
+// mapping and collapse work per part, never per item.
 struct ToolSegmentKey {
     ContextItemKind kind;
     std::string call_key;
 };
-std::optional<ToolSegmentKey> tool_segment_key(const mira::ModelInputItem &item) {
+std::vector<ToolSegmentKey> tool_segment_keys(const mira::ModelInputItem &item) {
+    std::vector<ToolSegmentKey> keys;
+    keys.reserve(item.content.size());
     for (const auto &part : item.content) {
         if (const auto *call = std::get_if<mira::ToolCallPart>(&part)) {
-            return ToolSegmentKey{ContextItemKind::ToolCall, call->provider_call_id.value};
-        }
-        if (const auto *result = std::get_if<mira::ToolResultPart>(&part)) {
-            return ToolSegmentKey{ContextItemKind::ToolResult, result->provider_call_id.value};
+            keys.push_back({ContextItemKind::ToolCall, call->provider_call_id.value});
+        } else if (const auto *result = std::get_if<mira::ToolResultPart>(&part)) {
+            keys.push_back({ContextItemKind::ToolResult, result->provider_call_id.value});
         }
     }
-    return std::nullopt;
+    return keys;
 }
 
 bool kept_disposition(ContextItemDisposition disposition) {
@@ -61,21 +64,35 @@ DesktopContextBuilder::transform(const std::vector<mira::ModelInputItem> &histor
     std::vector<ContextItem> items;
     items.reserve(history.size());
     for (std::size_t index = 0; index < history.size(); ++index) {
-        const auto segment = tool_segment_key(history[index]);
-        if (!segment) {
-            continue;
+        // One Layer 0 item per tool part: pairing, watermark estimates and
+        // the audit stay per provider_call_id even when a provider batched
+        // several calls (or a call and text) into one history item. The
+        // mapped item carries only its own part - the replay is rebuilt from
+        // the original items, so nothing here renders anywhere.
+        const auto &content = history[index].content;
+        for (std::size_t part_index = 0; part_index < content.size(); ++part_index) {
+            ToolSegmentKey segment;
+            if (const auto *call = std::get_if<mira::ToolCallPart>(&content[part_index])) {
+                segment = {ContextItemKind::ToolCall, call->provider_call_id.value};
+            } else if (const auto *result =
+                           std::get_if<mira::ToolResultPart>(&content[part_index])) {
+                segment = {ContextItemKind::ToolResult, result->provider_call_id.value};
+            } else {
+                continue;
+            }
+            ContextItem item;
+            item.id = mira::ContextItemId::generate();
+            item.kind = segment.kind;
+            item.authority =
+                ContextAuthority::VerifiedState; // renders the Internal tier the loop uses
+            item.priority = ContextPriority::Disposable;
+            item.content.push_back(content[part_index]);
+            item.consumed = true;                  // observed by a model turn; droppable in pairs
+            item.replaceable_by_reference = false; // markers would break tool protocol
+            item.tool_call_key = segment.call_key;
+            item.sequence = index;
+            items.push_back(std::move(item));
         }
-        ContextItem item;
-        item.id = mira::ContextItemId::generate();
-        item.kind = segment->kind;
-        item.authority = ContextAuthority::VerifiedState; // renders the Internal tier the loop uses
-        item.priority = ContextPriority::Disposable;
-        item.content = history[index].content;
-        item.consumed = true;                  // observed by a model turn; droppable in pairs
-        item.replaceable_by_reference = false; // markers would break tool protocol
-        item.tool_call_key = segment->call_key;
-        item.sequence = index;
-        items.push_back(std::move(item));
     }
     if (items.empty()) {
         return history;
@@ -104,7 +121,9 @@ DesktopContextBuilder::transform(const std::vector<mira::ModelInputItem> &histor
     // The audit keeps request order, so dispositions map back onto the tool
     // items by index. A pair split by the checkpoint watermark collapses
     // whole: rendering a call without its result (or the reverse) would be
-    // rejected by the provider dialects.
+    // rejected by the provider dialects. Batches stay atomic too - an
+    // original item survives only when every tool part it carries survives,
+    // so a multi-call assistant turn never leaves an orphan side behind.
     std::map<std::string, bool> pair_kept;
     const auto &audit = prepared.value().item_audit;
     for (std::size_t index = 0; index < request.items.size() && index < audit.size(); ++index) {
@@ -116,15 +135,19 @@ DesktopContextBuilder::transform(const std::vector<mira::ModelInputItem> &histor
 
     std::vector<mira::ModelInputItem> replay;
     replay.reserve(history.size());
-    for (std::size_t index = 0; index < history.size(); ++index) {
-        const auto segment = tool_segment_key(history[index]);
-        if (!segment) {
-            replay.push_back(history[index]);
+    for (auto &item : history) {
+        const auto segment_keys = tool_segment_keys(item);
+        if (segment_keys.empty()) {
+            replay.push_back(item);
             continue;
         }
-        const auto kept = pair_kept.find(segment->call_key);
-        if (kept != pair_kept.end() && kept->second) {
-            replay.push_back(history[index]);
+        const bool whole =
+            std::all_of(segment_keys.begin(), segment_keys.end(), [&](const ToolSegmentKey &key) {
+                const auto kept = pair_kept.find(key.call_key);
+                return kept != pair_kept.end() && kept->second;
+            });
+        if (whole) {
+            replay.push_back(item);
         }
     }
     return replay;
