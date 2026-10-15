@@ -84,6 +84,35 @@ mira::ModelInputItem result_item(const std::string &call_id, const std::string &
     return item;
 }
 
+// One assistant item carrying several tool calls: providers such as DeepSeek
+// batch a whole multi-call turn into a single history entry.
+mira::ModelInputItem batch_call_item(
+    const std::vector<std::pair<std::string, std::string>> &calls) {
+    mira::ModelInputItem item;
+    item.role = mira::ModelRole::Assistant;
+    for (const auto &[id, args_json] : calls) {
+        mira::ToolCallPart part;
+        part.provider_call_id.value = id;
+        part.wire_name = "desktop_screen_capture";
+        part.arguments = mira::parse_json(args_json).value();
+        part.arguments_digest = mira::canonical_json_digest(part.arguments);
+        item.content.emplace_back(std::move(part));
+    }
+    return item;
+}
+
+// An assistant item mixing prose with batched calls: the text must live and
+// die together with the calls it was emitted alongside.
+mira::ModelInputItem mixed_item(const std::string &text,
+                                const std::vector<std::pair<std::string, std::string>> &calls) {
+    mira::ModelInputItem item = batch_call_item(calls);
+    mira::TextPart part;
+    part.text = text;
+    part.sensitivity = mira::Sensitivity::Internal;
+    item.content.emplace(item.content.begin(), std::move(part));
+    return item;
+}
+
 const mira::ToolCallPart *call_part(const mira::ModelInputItem &item) {
     for (const auto &part : item.content)
         if (const auto *call = std::get_if<mira::ToolCallPart>(&part))
@@ -195,6 +224,16 @@ bool has_part_id(const mira::ModelRequest &request, const std::string &id) {
     const auto results = result_ids(request);
     return std::find(calls.begin(), calls.end(), id) != calls.end() ||
            std::find(results.begin(), results.end(), id) != results.end();
+}
+
+bool replay_has_id(const std::vector<mira::ModelInputItem> &replay, const std::string &id) {
+    for (const auto &item : replay) {
+        if (const auto *call = call_part(item); call && call->provider_call_id.value == id)
+            return true;
+        if (const auto *result = result_part(item); result && result->provider_call_id.value == id)
+            return true;
+    }
+    return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -659,6 +698,320 @@ void manager_error_surfaces() {
 }
 
 // ---------------------------------------------------------------------------
+// Batched tool calls: per-part mapping and whole-group collapse
+// ---------------------------------------------------------------------------
+
+// Providers such as DeepSeek emit several tool calls inside one assistant
+// turn, so one history item carries many ToolCallParts. The mapping must fan
+// every tool part out into its own Layer 0 item keyed by its own
+// provider_call_id (the pre-fix code mapped only the first part per item, so
+// sibling results entered Layer 0 without their calls and every such request
+// failed with ToolPairingBroken), and compaction must drop a batched turn as
+// a whole group. Fixture: two batched turns of three calls each; the oldest
+// turn's pairs exceed the input budget on their own, so the greedy pass
+// drops all three of its groups at once while the younger turn fits whole
+// below every watermark (Layer 0 input budget = 4096 - 2048 - 1024 = 1024).
+void batched_calls_map_per_part_and_compact_whole() {
+    RecordingManager manager(standard_manager());
+    detail::DesktopContextBuilder builder(
+        std::shared_ptr<const mira::IContextManager>(&manager, [](const auto *) {}), {4096, 2048});
+    const std::string large(2600, 'x');
+    const std::string small(80, 'y');
+    const auto batch_args = [](int n, const std::string &fill) {
+        return R"({"source":"display","n":)" + std::to_string(n) + R"(,"fill":")" + fill +
+               R"("})";
+    };
+    const auto batch_receipt = [](int n, const std::string &fill) {
+        return R"({"v":)" + std::to_string(n) + R"(,"receipt":")" + fill + R"("})";
+    };
+    const std::vector<std::string> oldest_ids{"batch0-a", "batch0-b", "batch0-c"};
+    const std::vector<std::string> newest_ids{"batch1-a", "batch1-b", "batch1-c"};
+    std::vector<mira::ModelInputItem> history;
+    history.emplace_back(text_item(mira::ModelRole::User, "batched capture goal"));
+    std::vector<std::pair<std::string, std::string>> oldest_calls;
+    for (std::size_t index = 0; index < oldest_ids.size(); ++index)
+        oldest_calls.emplace_back(oldest_ids[index], batch_args(static_cast<int>(index), large));
+    history.emplace_back(batch_call_item(oldest_calls));
+    for (std::size_t index = 0; index < oldest_ids.size(); ++index)
+        history.emplace_back(
+            result_item(oldest_ids[index], batch_receipt(static_cast<int>(index), large)));
+    std::vector<std::pair<std::string, std::string>> newest_calls;
+    for (std::size_t index = 0; index < newest_ids.size(); ++index)
+        newest_calls.emplace_back(newest_ids[index], batch_args(static_cast<int>(index), small));
+    history.emplace_back(batch_call_item(newest_calls));
+    for (std::size_t index = 0; index < newest_ids.size(); ++index)
+        history.emplace_back(
+            result_item(newest_ids[index], batch_receipt(static_cast<int>(index), small)));
+    history.emplace_back(text_item(mira::ModelRole::Assistant, "wrap-up note"));
+    check(history[1].content.size() == 3); // the oldest assistant turn batches 3 calls
+    const auto request_keys = keys();
+    const auto transformed = builder.transform(history, request_keys);
+    // The transform itself must succeed: pre-fix, the unmapped sibling results
+    // reached Layer 0 without their calls and the build failed with
+    // ToolPairingBroken.
+    check(transformed.has_value());
+    // Layer 0 received one item per tool part: 3 calls + 3 results per batched
+    // turn, 12 in total - each with its own key, exactly one content part, the
+    // history index as sequence and the fixed contract flags.
+    const auto &seen = manager.seen;
+    check(seen.items.size() == 12);
+    std::map<std::string, const mira::ContextItem *> calls_by_key, results_by_key;
+    for (const auto &item : seen.items) {
+        check(item.tool_call_key.has_value());
+        check(item.content.size() == 1);
+        check(item.authority == mira::ContextAuthority::VerifiedState);
+        check(item.priority == mira::ContextPriority::Disposable);
+        check(item.consumed);
+        check(!item.replaceable_by_reference);
+        (item.kind == mira::ContextItemKind::ToolCall ? calls_by_key : results_by_key)
+            [*item.tool_call_key] = &item;
+    }
+    // Six provider_call_ids; each owns exactly one mapped call item and one
+    // mapped result item.
+    check(calls_by_key.size() == 6);
+    check(results_by_key.size() == 6);
+    const auto mapped_call = [&](const std::string &id, std::uint64_t sequence,
+                                 const mira::ToolCallPart &origin) {
+        const auto found = calls_by_key.find(id);
+        check(found != calls_by_key.end());
+        const auto &item = *found->second;
+        check(item.sequence == sequence);
+        const auto *part = std::get_if<mira::ToolCallPart>(&item.content.front());
+        check(part != nullptr);
+        check(part->provider_call_id == origin.provider_call_id);
+        check(part->wire_name == origin.wire_name);
+        check(mira::to_json_string(part->arguments) == mira::to_json_string(origin.arguments));
+        check(part->arguments_digest == origin.arguments_digest);
+    };
+    const auto mapped_result = [&](const std::string &id, std::uint64_t sequence,
+                                   const mira::ToolResultPart &origin) {
+        const auto found = results_by_key.find(id);
+        check(found != results_by_key.end());
+        const auto &item = *found->second;
+        check(item.sequence == sequence);
+        const auto *part = std::get_if<mira::ToolResultPart>(&item.content.front());
+        check(part != nullptr);
+        check(part->provider_call_id == origin.provider_call_id);
+        check(mira::to_json_string(part->result) == mira::to_json_string(origin.result));
+    };
+    for (std::size_t index = 0; index < oldest_ids.size(); ++index)
+        mapped_call(oldest_ids[index], 1,
+                    *std::get_if<mira::ToolCallPart>(&history[1].content[index]));
+    for (std::size_t index = 0; index < oldest_ids.size(); ++index)
+        mapped_result(oldest_ids[index], 2 + index, *result_part(history[2 + index]));
+    for (std::size_t index = 0; index < newest_ids.size(); ++index)
+        mapped_call(newest_ids[index], 5,
+                    *std::get_if<mira::ToolCallPart>(&history[5].content[index]));
+    for (std::size_t index = 0; index < newest_ids.size(); ++index)
+        mapped_result(newest_ids[index], 6 + index, *result_part(history[6 + index]));
+    // The greedy pass dropped the three oldest groups together (each larger
+    // than the whole input budget) and kept the younger turn: six dropped,
+    // six selected, no watermark engaged.
+    check(manager.prepared.budget.input_budget_tokens == 1024);
+    check(manager.prepared.budget.dropped_items == 6);
+    check(manager.prepared.budget.selected_items == 6);
+    check(!manager.prepared.budget.checkpoint_recommended);
+    for (std::size_t index = 0; index < 6; ++index) {
+        check(manager.prepared.item_audit[index].disposition ==
+              mira::ContextItemDisposition::Dropped);
+        check(manager.prepared.item_audit[index].reason == "tool_pair_dropped");
+    }
+    for (std::size_t index = 6; index < 12; ++index) {
+        check(manager.prepared.item_audit[index].disposition ==
+              mira::ContextItemDisposition::Selected);
+        check(manager.prepared.item_audit[index].reason == "priority_fit");
+    }
+    // Whole-group collapse: the oldest batched turn and all three of its
+    // results left the replay together; the younger turn survived with all
+    // three pairs, byte for byte and in the original order.
+    const auto &replay = transformed.value();
+    check(replay.size() == 6);
+    check_pairing(replay);
+    check(verbatim_subsequence(replay, history));
+    for (const auto &id : oldest_ids)
+        check(!replay_has_id(replay, id));
+    for (const auto &id : newest_ids)
+        check(replay_has_id(replay, id));
+    check(same_item(replay[0], history[0]));
+    check(same_item(replay[1], history[5]));
+    check(same_item(replay[2], history[6]));
+    check(same_item(replay[3], history[7]));
+    check(same_item(replay[4], history[8]));
+    check(same_item(replay[5], history[9]));
+    check(replay[1].content.size() == 3); // the surviving batch kept all calls
+}
+
+// A batched turn can carry prose next to its calls. The item collapses whole:
+// losing either call key loses the prose with it, keeping both keys keeps it.
+// The scripted dispositions mirror what Layer 0 produces when its decision
+// boundary falls inside a batch (greedy keeps one call group and drops the
+// sibling, or the checkpoint strip stops after dropping one call).
+void mixed_text_and_batched_calls_collapse_atomically() {
+    const auto request_keys = keys();
+    const auto history = [&] {
+        std::vector<mira::ModelInputItem> items;
+        items.emplace_back(text_item(mira::ModelRole::User, "goal"));
+        items.emplace_back(mixed_item("probing both displays",
+                                      {{"mix-a", R"({"source":"display"})"},
+                                       {"mix-b", R"({"source":"window"})"}}));
+        items.emplace_back(result_item("mix-a", R"({"v":1})"));
+        items.emplace_back(result_item("mix-b", R"({"v":2})"));
+        items.emplace_back(text_item(mira::ModelRole::Assistant, "wrap-up note"));
+        return items;
+    }();
+    const auto replay_with = [&](std::vector<mira::ContextItemDisposition> dispositions) {
+        ScriptedAuditManager manager;
+        manager.dispositions = std::move(dispositions);
+        detail::DesktopContextBuilder builder(
+            std::shared_ptr<const mira::IContextManager>(&manager, [](const auto *) {}),
+            {4096, 2048});
+        auto transformed = builder.transform(history, request_keys);
+        check(transformed.has_value());
+        // The prose never enters Layer 0; each tool part maps to its own item:
+        // two call items first, then the two result items.
+        check(manager.seen.items.size() == 4);
+        for (std::size_t index = 0; index < manager.seen.items.size(); ++index)
+            check(manager.seen.items[index].kind ==
+                  (index < 2 ? mira::ContextItemKind::ToolCall
+                             : mira::ContextItemKind::ToolResult));
+        return transformed.value();
+    };
+    const auto prose_survived = [](const std::vector<mira::ModelInputItem> &replay) {
+        for (const auto &item : replay)
+            for (const auto &part : item.content)
+                if (const auto *text = std::get_if<mira::TextPart>(&part))
+                    if (text->text == "probing both displays")
+                        return true;
+        return false;
+    };
+    {
+        // Both call keys kept: the item survives with its prose and both calls.
+        const auto replay = replay_with({mira::ContextItemDisposition::Selected,
+                                         mira::ContextItemDisposition::Selected,
+                                         mira::ContextItemDisposition::Selected,
+                                         mira::ContextItemDisposition::Selected});
+        check(replay.size() == history.size());
+        check(same_item(replay[1], history[1]));
+        check(prose_survived(replay));
+        check_pairing(replay);
+    }
+    {
+        // One call key dropped: the whole batched item leaves, prose included.
+        const auto replay = replay_with({mira::ContextItemDisposition::Dropped,
+                                         mira::ContextItemDisposition::Selected,
+                                         mira::ContextItemDisposition::Selected,
+                                         mira::ContextItemDisposition::Selected});
+        check(!prose_survived(replay));
+        check(!replay_has_id(replay, "mix-a"));
+        // The replay must still satisfy the provider tool protocol.
+        check_pairing(replay);
+    }
+}
+
+// End-to-end probe with the real Layer 0: when the budget boundary falls
+// between two calls of one batched turn (unequal payload sizes make the
+// first call's pair fit and the sibling's not), the greedy pass keeps the
+// first pair and drops the second. The batched item then collapses whole -
+// its surviving call vanishes with the item - while the surviving key's
+// result item is kept on its own key alone: the replay reaches the provider
+// with a result that has no call, i.e. the same ToolPairingBroken failure
+// the per-part mapping was meant to eliminate, now one seam later.
+void batch_split_across_budget_breaks_pairing() {
+    RecordingManager recording(standard_manager());
+    detail::DesktopContextBuilder builder(
+        std::shared_ptr<const mira::IContextManager>(&recording, [](const auto *) {}),
+        {4096, 2048});
+    const std::string modest(700, 'a');
+    const std::string oversized(1600, 'b');
+    std::vector<mira::ModelInputItem> history;
+    history.emplace_back(text_item(mira::ModelRole::User, "goal"));
+    history.emplace_back(mixed_item("running two probes",
+                                    {{"split-a",
+                                      R"({"source":"display","fill":")" + modest + R"("})"},
+                                     {"split-b",
+                                      R"({"source":"window","fill":")" + oversized + R"("})"}}));
+    history.emplace_back(result_item("split-a", R"({"v":1,"receipt":")" + modest + R"("})"));
+    history.emplace_back(result_item("split-b", R"({"v":2,"receipt":")" + oversized + R"("})"));
+    history.emplace_back(text_item(mira::ModelRole::Assistant, "wrap-up note"));
+    const auto transformed = builder.transform(history, keys());
+    check(transformed.has_value()); // the Layer 0 build itself succeeds
+    const auto &replay = transformed.value();
+    // The surviving pair's result must not outlive its call.
+    check_pairing(replay);
+}
+
+// Estimate fidelity: a batched turn's Layer 0 cost is the sum of its parts'
+// standalone estimates - the per-part fan-out must not collapse several
+// payload-bearing parts into one fixed overhead floor, and each mapped
+// estimate must cover that part's own wire bytes.
+void multi_part_mapping_estimates_sum_parts() {
+    const std::string modest(700, 'a');
+    const std::string oversized(1600, 'b');
+    const auto audit_estimate_for = [](const RecordingManager &manager, std::size_t index) {
+        return manager.prepared.item_audit[index].estimated_tokens;
+    };
+    const auto batched_run = [&] {
+        RecordingManager manager(standard_manager());
+        detail::DesktopContextBuilder builder(
+            std::shared_ptr<const mira::IContextManager>(&manager, [](const auto *) {}),
+            {16384, 1024});
+        std::vector<mira::ModelInputItem> history;
+        history.emplace_back(text_item(mira::ModelRole::User, "goal"));
+        history.emplace_back(mixed_item("running two probes",
+                                        {{"est-a",
+                                          R"({"source":"display","fill":")" + modest + R"("})"},
+                                         {"est-b",
+                                          R"({"source":"window","fill":")" + oversized +
+                                              R"("})"}}));
+        history.emplace_back(result_item("est-a", R"({"v":1,"receipt":")" + modest + R"("})"));
+        history.emplace_back(result_item("est-b", R"({"v":2,"receipt":")" + oversized + R"("})"));
+        const auto transformed = builder.transform(history, keys());
+        check(transformed.has_value());
+        // Two call items then two result items; the estimates of the two call
+        // items are the first two audit entries.
+        check(manager.seen.items.size() == 4);
+        check(*manager.seen.items[0].tool_call_key == "est-a");
+        check(*manager.seen.items[1].tool_call_key == "est-b");
+        check(manager.seen.items[0].kind == mira::ContextItemKind::ToolCall);
+        check(manager.seen.items[1].kind == mira::ContextItemKind::ToolCall);
+        return std::make_pair(audit_estimate_for(manager, 0), audit_estimate_for(manager, 1));
+    }();
+    const auto single_run = [&](const std::string &id, const std::string &args_json,
+                                const std::string &result_json) {
+        RecordingManager manager(standard_manager());
+        detail::DesktopContextBuilder builder(
+            std::shared_ptr<const mira::IContextManager>(&manager, [](const auto *) {}),
+            {16384, 1024});
+        std::vector<mira::ModelInputItem> history;
+        history.emplace_back(text_item(mira::ModelRole::User, "goal"));
+        history.emplace_back(call_item(id, args_json));
+        history.emplace_back(result_item(id, result_json));
+        const auto transformed = builder.transform(history, keys());
+        check(transformed.has_value());
+        check(manager.seen.items.size() == 2);
+        check(*manager.seen.items[0].tool_call_key == id);
+        return audit_estimate_for(manager, 0);
+    };
+    const std::uint64_t modest_alone =
+        single_run("est-a", R"({"source":"display","fill":")" + modest + R"("})",
+                   R"({"v":1,"receipt":")" + modest + R"("})");
+    const std::uint64_t oversized_alone =
+        single_run("est-b", R"({"source":"window","fill":")" + oversized + R"("})",
+                   R"({"v":2,"receipt":")" + oversized + R"("})");
+    // The batched turn's mapped estimates equal the standalone estimates of
+    // its parts, and the turn's total is their sum.
+    check(batched_run.first == modest_alone);
+    check(batched_run.second == oversized_alone);
+    check(batched_run.first + batched_run.second == modest_alone + oversized_alone);
+    // Payload-driven, not the fixed overhead floor: the two estimates differ
+    // and each covers its own wire payload (the fill bytes alone) at the
+    // 4-bytes-per-token density.
+    check(batched_run.first != batched_run.second);
+    check(batched_run.first >= modest.size() / 4);
+    check(batched_run.second >= oversized.size() / 4);
+}
+
+// ---------------------------------------------------------------------------
 // Harness wiring: ModelLayer + scripted provider + fake desktop
 // ---------------------------------------------------------------------------
 
@@ -933,6 +1286,27 @@ int main() {
         large_tool_receipts_drive_checkpoint_compaction();
         split_pair_collapses_whole();
         manager_error_surfaces();
+        std::size_t failed_batches = 0;
+        for (const auto &[name, test] : std::vector<std::pair<const char *, void (*)()>>{
+                 {"batched_calls_map_per_part_and_compact_whole",
+                  batched_calls_map_per_part_and_compact_whole},
+                 {"mixed_text_and_batched_calls_collapse_atomically",
+                  mixed_text_and_batched_calls_collapse_atomically},
+                 {"batch_split_across_budget_breaks_pairing",
+                  batch_split_across_budget_breaks_pairing},
+                 {"multi_part_mapping_estimates_sum_parts",
+                  multi_part_mapping_estimates_sum_parts}}) {
+            try {
+                test();
+                std::cout << "batched-calls test " << name << ": PASS\n";
+            } catch (const std::exception &failure) {
+                ++failed_batches;
+                std::cout << "batched-calls test " << name << ": FAIL - " << failure.what()
+                          << '\n';
+            }
+        }
+        if (failed_batches != 0)
+            std::cerr << failed_batches << " batched-calls tests failed\n";
         kairo::Executor executor;
         kairo::ExecutorConfig executor_config;
         executor_config.min_threads = executor_config.max_threads = 3;
@@ -942,6 +1316,8 @@ int main() {
         harness_compaction_under_pressure(executor);
         tiny_window_without_input_budget_degrades(executor);
         executor.shutdown(true);
+        if (failed_batches != 0)
+            return 1; // every test above still ran; the failures stay visible
         std::cout << checks << " desktop context builder checks passed\n";
         return 0;
     } catch (const std::exception &failure) {
