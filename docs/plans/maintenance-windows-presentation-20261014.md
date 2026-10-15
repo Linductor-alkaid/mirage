@@ -11,7 +11,7 @@
 - [ ] `BUG-20261014-004` Windows 图形启动入口不创建控制台，CLI 输出保持可用；覆盖安装、卸载和 payload。
 - [ ] `BUG-20261014-005` 通知承载图标隐藏，产品只显示可交互主托盘；通知受理/拒绝和 teardown 回归。
 - [ ] `BUG-20261014-006` 按 GPT 参考提供白色圆角、阴影、分组、悬停和 DPI 缩放，保持键盘、禁用态和原动作派发。
-- [ ] `BUG-20261014-007` 对照已安装程序、当前 Release 和上游透明 fixture 定位间歇黑角；确认上游归属后按 CONTRIBUTING 提交 Issue/PR。
+- [ ] `BUG-20261014-007` 产品四角在冷启动、resize、最大化恢复时无黑底；通用 alpha 调查保留上游 Issue/PR，并明确产品轮廓保护的适用范围。
 
 ## 设计与依赖边界
 
@@ -138,3 +138,16 @@ BUTTON 保留名称与禁用态；modeless pump 避免菜单期间阻塞停止�
 仍开放：维护者从真实安装/开始菜单复验新包的四角、菜单和卸载；上游通用 alpha 根因及
 Windows 10/混合 DPI/其他 GPU。上一轮 939c769 的 CI 是历史证据，不覆盖本轮新源码。
 本轮继续更新现有 Draft #95，不合并 PR、不创建 release/tag。新增 CI 另记精确 head。
+### 2026-10-15：本轮源码 CI 收敛
+
+源码 head `929fb3a477ac8134b989b2b044d613937b5e7001` 的
+[CI run 38613543206](https://github.com/Linductor-alkaid/mirage/actions/runs/38613543206)
+八项全部成功：format/public-header、Debug、Release、ASAN、UBSAN、TSAN、Windows MSVC
+full tree、native EUI frontend。Windows job 的构建、定向 Test、frontend evidence 和
+真实 named pipe product-process round trip 全部 success。源代码和安装包未在本条记录后
+改变；后续提交仅补充本轮验收证据及 DEC-045 的轮廓决策说明，不用旧 CI 代替新源码验证。
+
+复核新安装包 hash 仍为 0A93F32D0DA5C85853E45473F2CDBA9375B58B4E32DC74E55BE1913EF799193A。
+同目录“验证说明.txt”提供从旧托盘退出后安装/开始菜单、四角、菜单与卸载的复验入口。
+工作项与计划保持 In Progress：真实新包安装/开始菜单/卸载需维护者验收，Windows 10、混合
+DPI 跨屏及通用 alpha 调查的开放条件保持；不以本机轮廓保护或 CI 冒充这些验收通过。
