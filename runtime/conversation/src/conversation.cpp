@@ -56,22 +56,44 @@ bool valid_parts(const std::vector<Part> &parts) {
     if (parts.size() > max_parts)
         return false;
     std::unordered_set<std::string> ids;
-    std::size_t bytes = 0;
+    std::size_t tool_bytes = 0, text_bytes = 0, thinking_bytes = 0;
     for (const auto &part : parts) {
+        // DEC-093: tool parts can have larger input/output; non-tool text is capped at max_part_text.
+        std::size_t text_limit = (part.kind == "tool") ? max_tool_budget : max_part_text;
+        std::size_t input_limit = (part.kind == "tool") ? max_tool_budget : max_part_text;
+        std::size_t output_limit = (part.kind == "tool") ? max_tool_budget : max_part_text;
+
         if (part.id.empty() || part.id.size() > 128 || !ids.insert(part.id).second ||
             (part.kind != "thinking" && part.kind != "text" && part.kind != "tool") ||
             (part.status != "pending" && part.status != "running" && part.status != "complete" &&
              part.status != "failed" && part.status != "cancelled") ||
-            part.name.size() > 128 || part.text.size() > max_part_text ||
-            part.input.size() > max_part_text || part.output.size() > max_part_text ||
+            part.name.size() > 128 ||
+            part.text.size() > text_limit ||
+            part.input.size() > input_limit ||
+            part.output.size() > output_limit ||
             (part.kind != "tool" && (part.status != "complete" || !part.name.empty() ||
                                      !part.input.empty() || !part.output.empty())) ||
             (part.kind == "tool" && (part.name.empty() || !part.text.empty())))
             return false;
-        bytes += part.text.size() + part.input.size() + part.output.size();
-        if (bytes > max_content_bytes)
-            return false;
+        // DEC-093: categorized budget.
+        std::size_t part_bytes = part.text.size() + part.input.size() + part.output.size();
+        if (part.kind == "tool") {
+            tool_bytes += part_bytes;
+            if (tool_bytes > max_tool_budget)
+                return false;
+        } else if (part.kind == "text") {
+            text_bytes += part_bytes;
+            if (text_bytes > max_text_budget)
+                return false;
+        } else if (part.kind == "thinking") {
+            thinking_bytes += part_bytes;
+            if (thinking_bytes > max_thinking_budget)
+                return false;
+        }
     }
+    // Total budget must not exceed max_content_bytes.
+    if (tool_bytes + text_bytes + thinking_bytes > max_content_bytes)
+        return false;
     return true;
 }
 std::string encode_parts(const std::vector<Part> &parts) {

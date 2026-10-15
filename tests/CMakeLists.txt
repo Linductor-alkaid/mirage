@@ -1,6 +1,20 @@
 # Test binaries follow the pinned mira house style: one plain main() per
 # binary using tests/support/test.hpp; labels drive CI selection (docs/
 # project/project-standards.md section 11).
+add_executable(visual_scene_test desktop/visual_scene_test.cpp)
+target_compile_features(visual_scene_test PRIVATE cxx_std_20)
+target_link_libraries(visual_scene_test PRIVATE Mirage::desktop)
+mirage_enable_warnings(visual_scene_test)
+add_test(NAME visual_scene_test COMMAND visual_scene_test)
+set_tests_properties(visual_scene_test PROPERTIES LABELS "unit;desktop;perception" TIMEOUT 30)
+
+add_executable(visual_scene_mapping_test integration/visual_scene_mapping_test.cpp)
+target_compile_features(visual_scene_mapping_test PRIVATE cxx_std_20)
+target_link_libraries(visual_scene_mapping_test PRIVATE Mirage::integration_mirador mirador::fusion)
+mirage_enable_warnings(visual_scene_mapping_test)
+add_test(NAME visual_scene_mapping_test COMMAND visual_scene_mapping_test)
+set_tests_properties(visual_scene_mapping_test PROPERTIES LABELS "integration;perception" TIMEOUT 30)
+
 add_executable(native_chat_model_test desktop/native_chat_model_test.cpp
     ${CMAKE_SOURCE_DIR}/apps/native/chat_model.cpp ${CMAKE_SOURCE_DIR}/apps/native/attachment.cpp)
 target_include_directories(native_chat_model_test PRIVATE ${CMAKE_SOURCE_DIR}/apps/native)
@@ -669,6 +683,17 @@ set_tests_properties(mira_binding_test PROPERTIES
     TIMEOUT 120
 )
 endif()
+
+# DEC-093 categorized budget allocation (M9-14 / BUG-20261015-001)
+add_executable(conversation_budget_test runtime/conversation_budget_test.cpp)
+target_compile_features(conversation_budget_test PRIVATE cxx_std_20)
+mirage_enable_warnings(conversation_budget_test)
+target_link_libraries(conversation_budget_test PRIVATE Mirage::conversation)
+add_test(NAME conversation_budget_test COMMAND conversation_budget_test)
+set_tests_properties(conversation_budget_test PROPERTIES
+    LABELS "unit;conversation;protocol"
+    TIMEOUT 30
+)
 
 # M5-04 session conversation journal (DEC-021): platform-neutral library
 # test over the pinned event store; the pinned include dirs propagate from
