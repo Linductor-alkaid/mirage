@@ -123,12 +123,15 @@ v5 替换了 enter/exit；其余七态主文件与 v3 摘要一致。
   保持 In Progress；启停偏好持久化另属 M8-08。
   2026-10-15 新增 BUG-20261015-002：状态请求回复延迟两秒、合法事件仍持续时，
   release 桌宠约 8.69 秒后自行退出；正常回复对照 22 秒仍存活，既有 32/32
-  隔离验收未覆盖该场景。**第一阶段修复**已交付：区分 transport/同步状态/owner，
+  隔离验收未覆盖该场景。**第一阶段修复**已交付（commit 944afcf）：区分 transport/同步状态/owner，
   降低轮询频率从 2s 到 30s，单次超时不关闭连接；探针复现 delay=2000ms 时 22 秒
-  存活（修复前 8.688s 退出），Debug 核心测试 6/6 通过。见 [阶段一证据](../compatibility/pet-transport-staleness-fix-20261015.md)。
-  **第二阶段**（SessionClient 解耦请求超时与连接失败）、重连恢复、关闭诊断与
+  存活（修复前 8.688s 退出），Debug 核心测试 6/6 通过。**第二阶段修复**已交付
+  （commit d3ec495，DEC-094）：SessionClient 解耦请求超时与连接失败，引入 Health
+  状态（Healthy/SyncStale/Disconnected），可观察关闭诊断（RunExit + diagnostic）；
+  探针验证 delay=2000ms 时 22s 存活、所有延迟请求完成、事件流持续工作。
+  见 [阶段一证据](../compatibility/pet-transport-staleness-fix-20261015.md) 和 [调查及复现](../analysis/native-session-truncation-pet-ime-20261015.md)。
+  重连恢复、序列异常快照恢复与
   M8-03 重启入场取证仍待实施；现场唯一退出原因尚未确认，M8-05/12 保持 In Progress。
-  详见 [调查及复现](../analysis/native-session-truncation-pet-ime-20261015.md)。
 - [ ] `M8-11` **In Progress**（执行顺序在 M8-06 前）：交付头顶思考/对话气泡。思考行
   高度一行、外宽等于角色画布，连续横向滚动，新片段不逐 token 重置；回答仅显示
   一句简短核心概括，保留否定/不确定/未验证。气泡跟随当前模型请求，不等待动画
