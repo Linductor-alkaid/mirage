@@ -4,9 +4,16 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-10-15（新增 M9 持续任务与本地语义感知；M8-12 跟踪 native pet 交付回归）
+> 更新日期：2026-10-16（新增 M10 基础 Agent 工具集提案；既有里程碑状态保留）
 
 ## 当前状态
+
+新增 [M10：基础 Agent 工具集](m10-basic-agent-tools.md)（Proposed）：按维护者要求，
+调研本地 ZCode / deepseek-harness、pi 固定提交与 OpenCode 官方文档，规划
+`exec` / `read` / `write` / `edit` 的 Provider 扩展、会话接入和 Linux/Windows 验收。
+M10-01 源码调研已完成，其他工作项未实施；公开契约、预算与默认权限待
+[DEC-095](../decisions/DEC-095-basic-agent-tools.md) 冻结，不改变当前产品授权与能力。
+参见[调研与差距表](../research/2026-10-16-basic-agent-tools-survey.md)。
 
 维护者确认新增 [M9：持续任务与本地语义感知闭环](m9-continuous-tasks-and-local-perception.md)
 （In Progress）：正常主任务不按累计模型/工具次数终止，感知优先返回文本事实与目标
@@ -358,6 +365,8 @@ closed，发布机取证补跑）；更新清单 ed25519 签名生成与 fail-cl
       （设计文档第 10 节）。
 - [ ] `SCOPE-08` mira_pet：独立受管进程、真实状态投影、透明置顶与分段循环动画；
       先交付 Linux X11 v5 九态预览，其他平台独立验收（M8）。
+- [ ] `SCOPE-09` 基础 Agent 工具：exec/read/write/edit 与桌面工具共存，具备文件
+      分页、修改前观察/冲突检查、进程取消及有界输出；M10 Proposed，待 DEC-095 冻结。
 
 明确不包含（由 pinned Mira 提供，Mirage 仅适配）：
 
@@ -408,6 +417,9 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 - [ ] `EXEC-06` mira_pet 复用托盘 Runtime 子进程 owner 与 IPC 事件织物；桌宠进程
       唯一 Executor owner 管理 IPC worker、有限资源加载和 timer 唤醒，持有并消费
       handle/future，UI 主线程持有播放/GPU 状态；取消与 shutdown 不等待动画收尾。
+- [ ] `EXEC-07` M10 基础工具复用 Runtime owner；有限准备/结果消费使用 Executor，
+      长文件/管道等待使用可唤醒 blocking worker，容量拒绝、提交点取消与回收可观察；
+      不自建文件等待队列、后台 job 调度器或平行监控系统（Proposed）。
 
 ## 里程碑索引
 
@@ -423,6 +435,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | [M7](m7-visual-tools-and-input.md) | 会话桌面工具、真实视觉与完整键鼠输入 | 桌面工具预览版（标签未定） | In Progress | M2/M3、M6 Runtime owner |
 | [M8](m8-mira-pet.md) | mira_pet 独立置顶状态窗口、逐动作循环片段与真实执行投影 | Linux X11 桌宠预览版（标签未定） | In Progress | M1 IPC、M6 Runtime owner、M7 动作/观察执行缝 |
 | [M9](m9-continuous-tasks-and-local-perception.md) | 持续任务、请求级 compact、文本观察、变化/跟踪与本地动作/等待闭环 | Linux 持续任务与文本观察预览（标签未定） | In Progress | M1/M3/M6/M7 已交付能力；M9-02 Linux pin 消费已完成，产品接线另列 M9-03 |
+| [M10](m10-basic-agent-tools.md) | exec/read/write/edit、文件版本/提交、cwd/输出、会话与产品接线 | Linux 基础工具预览 → Windows 四工具预览（标签未定） | Proposed | M1/M5/M6/M7 已交付能力；不等待 M8/M9 整体关闭 |
 
 拆分与合并顺序：先契约后实现（Desktop Environment 接口先于任何 Backend）、先骨架后
 功能（每个 Backend 先以最小动作打通 Observation -> Action -> Observation 闭环）、
@@ -432,6 +445,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 
 | 编号 | 主题 | 暂定默认值 | 负责人 | 最迟冻结 |
 | --- | --- | --- | --- | --- |
+| DEC-095 | 基础 Agent 工具集 | Proposed：四工具/alias、观察与提交点、预算、权限迁移和平台边界见提案 | Mirage 维护者 | M10-02 |
 | DEC-090 | 持续任务与有界资源 | 方向 Accepted；无进展判定、公开循环 API/准入及存量在实施前冻结 | Mira/Mirage 维护者 | M9-01～04 |
 | DEC-091 | 文本观察与本地闭环 | 方向 Accepted；观察/引用/增量字段、连续帧资源预算、对象语义标定/继承、跟踪及动作/等待 schema 待冻结 | Mirage 维护者 | M9-05/07/08/09/10/13 |
 | DEC-092 | Native pet 完整交付 | 默认携带/自动启动 Accepted；聚合目标、布局、能力/版本诊断在实施前冻结；显式偏好另属 M8-08 | Mirage 维护者 | M8-12/08 |

@@ -204,6 +204,11 @@ DesktopEnvironment
 
 这些 Provider 形成统一的环境接口，上层行为不直接包含平台实现信息。
 
+基础 Agent 四工具的后续扩展见 [M10 开发计划](../plans/m10-basic-agent-tools.md)、
+[调研](../research/2026-10-16-basic-agent-tools-survey.md)及
+[DEC-095 提案](../decisions/DEC-095-basic-agent-tools.md)（2026-10-16，Proposed）。
+其分页、文件修改、cwd 与会话接线尚未实现；本节现有 Provider 契约继续有效。
+
 Provider 以访问器形式挂载在 `DesktopEnvironment` 上（`filesystem()` / `process()` 等，
 返回空指针表示该环境不具备对应能力，消费方必须 fail closed）。M1 包含
 FilesystemProvider（只读文本读取）与 ProcessProvider（有界 shell 执行）；
