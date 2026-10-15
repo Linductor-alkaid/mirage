@@ -8,9 +8,13 @@
 
 ## 分依赖台账
 
-长程任务调查新增 [MIRA-20261015-001](mira.md#mira-20261015-001)：pinned
+长程任务调查新增 [MIRA-20261015-002](mira.md#mira-20261015-002)：pinned
 ConversationLoop 的 model/tool 累计上限没有公开的“不设总次数限制”模式；增大数值
-仍会终止正常长任务，`max_turns=0` 也不表示持续运行。状态 Open；只登记本地
+仍会终止正常长任务，`max_turns=0` 也不表示持续运行。状态 Open；上游已按维护者
+授权提交并合并 [PR #99](https://github.com/Linductor-alkaid/mira/pull/99)，24/24
+检查成功；pin 已升级至 a29374a 且 Linux 消费验收完成，公开能力缺口为 Resolved，见
+[审计](../supply-chain/mira-continuous-loop-20261015.md)。
+初次调查只登记本地
 API/源码与真实 16 步失败证据，未提交上游、未改依赖。方案见
 [持续任务与本地视觉闭环](../analysis/session-budget-and-native-pet-regression-20261015.md)。
 
