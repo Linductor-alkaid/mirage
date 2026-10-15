@@ -5,7 +5,7 @@
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：M1 Runtime/IPC、M6 的 DEC-045 owner 拓扑、M7 桌面工具与动作执行缝；不要求关闭这些里程碑的全部开放门禁
 > 建议发布点：Linux X11 v5 九态桌宠预览版（标签未定；启动/退出使用 v5 已确认动作）；最终动作与其他平台分别验收
-> 更新日期：2026-10-14
+> 更新日期：2026-10-15
 
 ## 目标
 
@@ -32,6 +32,8 @@
 
 ## 设计与决策依据
 
+- [DEC-092](../decisions/DEC-092-native-product-pet-delivery.md)：native 产品默认携带 pet，
+  完整构建与启动诊断由 M8-12 跟踪，安装/许可仍归 M8-08。
 - [mira_pet 设计](../design/mira-pet.md)：状态、进程、播放、平台和依赖路由。
 - [思考与对话气泡设计](../design/mira-pet-bubbles.md)、[DEC-089](../decisions/DEC-089-mira-pet-bubbles.md)：M8-11 的样式、实时滚动、输出概括和避让占位。
 - [DEC-084 提案](../decisions/DEC-084-mira-pet-process-and-animation.md)：独立窗口与分段动画；M8-01/02/04 冻结技术契约和暂定默认值。
@@ -119,6 +121,14 @@ v5 替换了 enter/exit；其余七态主文件与 v3 摘要一致。
   维护者确认主窗口关闭后桌宠仍显示且不抢焦，托盘独立停止/启动桌宠后任务和主窗口
   保持正常。完整 Agent 输入释放实机会话与其他平台门禁仍待 M8-07/10 取证，
   保持 In Progress；启停偏好持久化另属 M8-08。
+  2026-10-15 新增 BUG-20261015-002：状态请求回复延迟两秒、合法事件仍持续时，
+  release 桌宠约 8.69 秒后自行退出；正常回复对照 22 秒仍存活，既有 32/32
+  隔离验收未覆盖该场景。**第一阶段修复**已交付：区分 transport/同步状态/owner，
+  降低轮询频率从 2s 到 30s，单次超时不关闭连接；探针复现 delay=2000ms 时 22 秒
+  存活（修复前 8.688s 退出），Debug 核心测试 6/6 通过。见 [阶段一证据](../compatibility/pet-transport-staleness-fix-20261015.md)。
+  **第二阶段**（SessionClient 解耦请求超时与连接失败）、重连恢复、关闭诊断与
+  M8-03 重启入场取证仍待实施；现场唯一退出原因尚未确认，M8-05/12 保持 In Progress。
+  详见 [调查及复现](../analysis/native-session-truncation-pet-ime-20261015.md)。
 - [ ] `M8-11` **In Progress**（执行顺序在 M8-06 前）：交付头顶思考/对话气泡。思考行
   高度一行、外宽等于角色画布，连续横向滚动，新片段不逐 token 重置；回答仅显示
   一句简短核心概括，保留否定/不确定/未验证。气泡跟随当前模型请求，不等待动画
@@ -153,7 +163,20 @@ v5 替换了 enter/exit；其余七态主文件与 v3 摘要一致。
   能力的环境明确限制和产品降级，由维护者决定后续平台方案。验收：目标机器运行
   证据，不以 X11 或交叉编译结果冒充其他平台通过。
 
+- [ ] `M8-12` **In Progress**：修复 native-release pet 交付回归。冻结完整产品聚合
+  目标、native preset、资源布局、carrier/ready 与运行版本诊断，README/CI 使用
+  相同产品入口。缺件/损坏/启动失败不得静默忽略，也不得影响无关 Agent 任务。
+  验收：全新目录默认构建、不依赖残留 cache/下载目录；staging 搬迁与任意 cwd；
+  缺 pet/字体/素材、摘要错误、readiness 超时；旧 owner 复用与磁盘版本差异；
+  受管 PID、九态/气泡、独立启停和产品关闭。每个平台单列证据，Linux 自动化
+  不代替真实 compositor/Windows。许可/正式安装/升级/卸载及偏好归 M8-08，
+  目标避让归 M8-06，不以本项关闭。负责人：Mirage 维护者；补跑条件：完整产品
+  构建及隔离环境到位，再在授权的空闲真实桌面执行正常退出/干净启动。
+
 ## 拆分与建议交付顺序
+
+2026-10-15 新增 M8-12 可优先独立推进，不等待 M9 的上游循环能力。现有 M8-08
+安装/许可与 M8-10 平台门禁仍保留，原工作项不重编号。
 
 1. M8-01 与 M8-02 明确契约和素材；精确区间通过逐帧评审后进入播放器实现。
 2. M8-03/04 完成渲染与窗口 PoC，M8-05 接入既有 owner；v5 启动/退出用于九态预览。
@@ -666,3 +689,19 @@ M8-11保留整体In Progress，关闭本次本机部署/公开Messages在线子�
 概括跳过多行示例/引用/条件范围，Markdown嵌套不提前解除外层范围，实际结果段可
 恢复候选。Release6/6、新增ASAN/UBSAN各1/1；见 [本机与并行交付记录](../compatibility/mira-pet-bubbles-local-release-20261014.md)。
 M8-11整体仍In Progress，M8-06仍Planned；未把这一语义边界增量当作跨平台门禁完成。
+
+### 2026-10-15：Native-release pet 交付回归立项
+
+按会话与运行状态调查新增 DEC-092 和 M8-12（Planned），明确完整 native 构建、
+carrier/ready、缺件与旧 owner 版本诊断。M8-08 保留正式安装/许可/偏好职责。
+本轮仅文档建档与链接/编号检查；未重建、重启或替换产品，未将调查快照当作
+修复验收，现有平台和动画门禁保持开放。
+
+### 2026-10-15：M8-12 完整 native 构建与缺载体诊断首增量
+
+M8-12 转 In Progress：native presets 显式开启 pet，新增 mirage-native-product
+聚合与 README/CI 对齐；产品缺 pet 时给出 failed/诊断，状态投影继续可用。
+Debug、ASAN/UBSAN 与搬迁私有桌面 32/32 通过，范围和限制见
+[首增量记录](../compatibility/m9-incremental-scene-and-pet-build-20261015.md)。
+没有部署/重启用户 native-release，版本差异诊断、真实桌面、正式安装/许可及
+其他平台仍待相关工作项取证，不据本地构建关闭 M8-12 或 M8-08。
