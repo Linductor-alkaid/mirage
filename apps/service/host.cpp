@@ -362,6 +362,7 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
         }
         shell_path = std::filesystem::absolute(shell_path).string();
         config.frontend = mirage::platform::make_frontend_process(shell_path);
+        config.pet_expected = true;
         auto pet_binary =
             std::filesystem::path(mirage::platform::current_executable_path()).parent_path();
 #ifdef _WIN32

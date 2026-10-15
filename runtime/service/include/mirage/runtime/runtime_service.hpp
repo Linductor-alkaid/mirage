@@ -45,6 +45,9 @@ struct ServiceConfig {
     std::shared_ptr<desktop::TrayCarrier> tray_carrier;
     std::shared_ptr<desktop::FrontendProcess> frontend;
     std::shared_ptr<desktop::FrontendProcess> pet;
+    /// DEC-092: native product expects a pet even when discovery failed.
+    /// Headless callers leave false; availability differs from status projection.
+    bool pet_expected = false;
     bool open_frontend = true;
     std::string tray_icon_path;
     /// DEC-038: finite platform save/remove, called only by the serialized

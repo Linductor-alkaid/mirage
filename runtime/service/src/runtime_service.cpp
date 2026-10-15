@@ -50,6 +50,10 @@
 namespace mirage::runtime {
 namespace {
 
+constexpr const char *missing_pet_message =
+    "Desktop pet executable was not found at product startup; build mirage-native-product "
+    "and restart the tray.";
+
 namespace persistence = mirage::runtime::persistence;
 using detail::progress_name;
 using detail::WorkflowCatalogEntry;
@@ -917,6 +921,10 @@ struct RuntimeService::Impl {
             result.pet_pid = pet_process->pid();
             result.pet_state = pet_process->state();
             result.pet_diagnostic = pet_process->diagnostic();
+        } else if (config.pet_expected) {
+            result.pet_pid = 0;
+            result.pet_state = "failed";
+            result.pet_diagnostic = missing_pet_message;
         }
         if (result.frontend_pid == 0)
             product.frontend_ready = false;
@@ -945,7 +953,9 @@ struct RuntimeService::Impl {
         if (request.action == "pet_start" || request.action == "pet_stop" ||
             request.action == "pet_ready") {
             if (product_stopping.load() || !pet_process) {
-                diagnostic = "pet carrier is unavailable or owner is closing";
+                diagnostic = !product_stopping.load() && config.pet_expected && !pet_process
+                                 ? missing_pet_message
+                                 : "pet carrier is unavailable or owner is closing";
                 return false;
             }
             if (request.action == "pet_ready")
@@ -4175,6 +4185,8 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                                 raw->pet_process->poll();
                                 raw->tray->set_pet_state(raw->pet_process->state(),
                                                          raw->pet_process->pid() != 0);
+                            } else if (raw->config.pet_expected) {
+                                raw->tray->set_pet_state("failed", false);
                             }
                         }
                         if (raw->product_stopping.load() || !raw->config.frontend)
