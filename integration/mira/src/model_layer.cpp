@@ -23,6 +23,7 @@
 #include "tool_alias_provider.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <utility>
@@ -976,6 +977,7 @@ DialogCompletion ModelLayer::complete_harness_turn(
         }
     }
     mira::ConversationLoopConfig config;
+    config.limit_mode = mira::ConversationLimitMode::Finite;
     // DEC-085 follow-up budget model: the per-call output budget is what the
     // caller funds (thinking calls carry the raised floor) capped by the
     // profile limit the router actually admits — no artificial halving. A
@@ -1295,7 +1297,14 @@ DialogCompletion ModelLayer::complete_harness_turn(
     completion.failed = !completion.ok && !completion.cancelled;
     completion.error = value.safe_summary;
     completion.model_steps = static_cast<std::uint32_t>(value.turns.size());
-    completion.tool_calls = value.tool_executions;
+    // PR#99 widened upstream cumulative diagnostics to uint64. Keep the
+    // existing finite-mode product contract; never wrap at this boundary.
+    // M9-03 must widen the product counters before opting into Continuous.
+    const auto legacy_count = [](std::uint64_t count) {
+        return static_cast<std::uint32_t>(
+            std::min(count, static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max())));
+    };
+    completion.tool_calls = legacy_count(value.tool_executions);
     if (completion.failed) {
         // DEC-085: the failure reason must be actionable — the spent budget
         // and the repeated tool failures name what actually blocked the task.
@@ -1303,12 +1312,13 @@ DialogCompletion ModelLayer::complete_harness_turn(
                             std::to_string(completion.tool_calls) + " 次工具调用）";
         annotate(completion.error);
     }
-    completion.supplied_input_items = value.supplied_input_items;
-    completion.supplied_input_dropped = value.supplied_input_dropped;
-    completion.supply_degradations = value.supply_degradations;
-    completion.supplied_input_reuse_annotations = value.supplied_input_reuse_annotations;
-    completion.history_transforms = value.history_transforms;
-    completion.history_transform_degradations = value.history_transform_degradations;
+    completion.supplied_input_items = legacy_count(value.supplied_input_items);
+    completion.supplied_input_dropped = legacy_count(value.supplied_input_dropped);
+    completion.supply_degradations = legacy_count(value.supply_degradations);
+    completion.supplied_input_reuse_annotations =
+        legacy_count(value.supplied_input_reuse_annotations);
+    completion.history_transforms = legacy_count(value.history_transforms);
+    completion.history_transform_degradations = legacy_count(value.history_transform_degradations);
     if ((image_turn || !verification.empty()) &&
         (value.supplied_input_dropped || value.supply_degradations)) {
         completion.ok = false;

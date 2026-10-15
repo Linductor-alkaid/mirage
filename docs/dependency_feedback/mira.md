@@ -6,51 +6,31 @@
 > 工作项：[M6-10](../plans/m6-native-frontend.md)
 > 总入口：[依赖反馈](ledger.md)；维护规则：[工程规范9.4](../project/project-standards.md)
 
-## MIRA-20261015-001
+## MIRA-20261015-002
 
-主题：ConversationLoop 缺少不按累计步骤/工具次数终止的长程任务模式。
+主题：ConversationLoop 缺少不按累计模型轮次/工具次数终止的公开模式。
 
-- 状态：Open；负责人：Mirage 维护者；处理方：Mira 上游。
-- 上游：未提交；复核日期：2026-10-15。没有修改 pinned 代码或锁文件。
-- 关联：[长程任务与本地视觉闭环方案](../analysis/session-budget-and-native-pet-regression-20261015.md)、
-  [DEC-090](../decisions/DEC-090-continuous-task-execution.md)；实施工作项为
-  [M9-02/03](../plans/m9-continuous-tasks-and-local-perception.md)，维护者明确要求
-  正常长程任务不因模型步骤数停止。
-- 核对版本：pinned `7391df70036cbdb035dea5ebaec99c46cbabe5ae`。
-  已核对公开 `include/mira/conversation_loop.hpp`、`runtime.hpp`、
-  `task_checkpoint.hpp`、`docs/api/model-agent-loop.md`，以及现有循环实现和
-  Mirage 的 budget fixture。
-- 接口事实：`ConversationLoopConfig` 仅有有限整数 `max_turns` 和
-  `max_tool_executions`，没有 optional/unlimited 模式；`run` 只提供完整阻塞
-  调用，没有可持久化本次 loop history 的 step/resume 接口。`max_turns=0`
-  使循环零次执行；`max_tool_executions=0` 使首个非空工具批次超限，不是不限。
-  `build_request` 还由总轮次推导 max_requests/输出包络，单改宿主数值不足。
-- 实际证据：2026-10-15 09:56 +08:00 的本地会话记录显示
-  `turn budget exhausted before a final answer（16 个模型步骤、17 次工具调用）`。
-  Mirage 此处确实配置 16/32，说明宿主选型是直接触发因素；当前依赖接口没有
-  能满足新产品需求的显式无总次数上限配置。
-- 最小复现步骤：脚本 provider 前两次输出合法只读工具、第三次输出最终文本，
-  配置 max_turns=2，预期当前 loop 在第三次请求前返回 MaxTurns；再配置 0，
-  循环不发模型请求。工具上限同理用超过已配置批次数的合法调用复现。
-  新最小动态用例本轮未执行；接口与实现条件为静态证据，不填写测试通过。
-- 应用职责排除：Mirage 负责持续任务的产品默认值、内存窗口、权限和无进展策略；
-  但将计数上限改为最大整数只是延迟终止，且放大/溢出预算包络。不断重启
-  ConversationLoop 会丢失其私有历史和未完成协议上下文，不能作为透明续行。
-  MiraRuntime 的 resume_task 与 TaskCheckpoint 也不等于恢复该局部 loop。
-- 最小期望能力：公开显式的无累计步骤/工具次数上限模式，保留有限配置兼容性；
-  每次请求准入、输出与操作期限保持有限，恢复/输出续写仍有明确上限；持续循环
-  可取消/可关闭，历史压缩缝继续可用。累计统计、事件和 history 存储必须适合
-  长程运行，不以整数最大值或无限包络伪装资源预算。
-- 可接受的替代交付：公开可推进并可恢复同一 loop 的协议/状态契约，由 pinned
-  Mira 承载调度与状态；须证明不重放已执行副作用、不复活已终态任务。
-- 影响及延期：只在 Mirage 提高 16/32 无法满足维护者要求；默认长任务仍可能
-  在任意正常进度处失败。Mirador 文本观察可减少消耗，但不能消除此停止条件。
-- 临时措施：无依赖绕行。可独立推进本地语义观察和 pet 交付，不能宣称主循环
-  问题已解决。后续上游改动/依赖消费仍按授权与审计流程执行。
-- 验收：有限模式兼容；无总次数限制模式下超过原模型/工具上限仍能完成；长程
-  compact/统计/内存有界；模型/工具异常、准入拒绝、输出续写耗尽、执行中取消、
-  deadline、shutdown 均有明确结果。测试负责人：Mirage/Mira 维护者；补跑条件：
-  上游契约及实现交付、获准消费后执行集成回归与真实长程任务。
+- 编号修正：早期持续循环草稿与 UTF-8 续写项重用了 001；持续循环项改为唯一
+  002，保留既有 PR#98 / MIRA-20261015-001 的编号与验收记录。
+
+- 状态：Resolved（公开能力与 Linux pin 消费范围）；负责人：Mirage/Mira 维护者。
+- 证据：原 pin `560da5ec` 的公开配置仅有有限 max_turns/max_tool_executions，
+  `max_turns=0` 不表示不限。Mirage 的 16 模型轮/32 工具默认曾在正常长任务中
+  以 MaxTurns 结束；提高上限仍会截断，反复重建 loop 不能保留私有历史。
+- 上游：[PR #99](https://github.com/Linductor-alkaid/mira/pull/99)，24/24 checks
+  成功后按维护者授权 squash 合并至 `a29374aaf05b956cbd5ceeafc65bba4c6172675e`。
+- 最小能力：显式 Continuous、有限请求级预算、有界已提交历史和逐轮记录、
+  取消/期限/失败结算，累计诊断不回绕。Finite 和原零值语义保持兼容。
+- 消费：同步 gitlink/lock 到合并提交，保留显式 Finite 产品策略；上游诊断扩为
+  uint64 后，在旧产品字段边界饱和转换。具体审计、许可证和实际测试见
+  [升级审计](../supply-chain/mira-continuous-loop-20261015.md)。
+- 工作项：M9-02 的依赖消费子项。此项只解决公开能力缺口；M9-03 尚需替换
+  Mirage 的 16/32、最终轮收尾、请求包络和产品累计计数，不能因 pin 更新
+  宣称原长任务故障已修复。
+- 验收：消费侧链接新库运行同 task/epoch 的 1,025 轮/1,024 工具脚本，并验证
+  历史/记录存量、协议、恢复/续写段、取消与 shutdown；Mirage 全量回归及
+  Debug 82/82、当前工作区 84/84、ASAN/UBSAN 各 5/5 与完整 native 编译通过。
+  未验证平台以依赖升级 MR CI 与 M9 计划为准。
 
 ## M6-10历史核对基线与当前状态
 
@@ -65,7 +45,7 @@
 
 | 编号 | 主题 | 类型/分级 | 状态 | 本轮证据 | 上游 |
 | --- | --- | --- | --- | --- | --- |
-| MIRA-20261015-001 | ConversationLoop 缺少不按累计步骤/工具次数终止的模式 | P1：长程任务循环能力缺口 | Open | pinned 公开 API/循环及预算准入核对；真实 16 步失败；新最小动态用例待执行 | 未提交 |
+| MIRA-20261015-002 | ConversationLoop 缺少不按累计步骤/工具次数终止的模式 | P1：长程任务循环能力缺口 | Resolved | a29374a 消费：1,025 轮/1,024 工具契约、Debug 82/82；产品持续策略另行接线 | [PR #99](https://github.com/Linductor-alkaid/mira/pull/99)，已合并 |
 | MIRA-20260922-001 | Executor MinGW POSIX native_handle转换 | 构建缺陷 | Open | 最小编译复现同类错误 | [#75](https://github.com/Linductor-alkaid/mira/issues/75)，已提交 |
 | MIRA-20260927-001 | 同digest草稿遮蔽已验证workflow记录 | 版本语义缺陷 | Resolved | 公共版本API离线复现 | [#74](https://github.com/Linductor-alkaid/mira/issues/74)，已提交 |
 | MIRA-20261004-001 | 无屏幕通用harness与规范工具回填入口 | P2：harness边界结构性缺口 | Resolved | 无屏幕环境在模型路由前失败；核对输入契约 | [#73](https://github.com/Linductor-alkaid/mira/issues/73)，已提交 |

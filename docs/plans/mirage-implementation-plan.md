@@ -670,3 +670,10 @@ Provider 别名适配并更新本机。定向 Debug/Release/ASAN/UBSAN 与真实
 指令及回放/返回适配；121 项协议检查、七配置 loop/registry 与消毒器定向通过。
 本机 Native Release 已更新；共享工作树全量 75/78，三个桌面视觉测试失败由同期
 修改补验，整包和原任务门禁保持开放。见[统一适配验收](../compatibility/unified-tool-alias-20261012.md)。
+
+
+2026-10-15：M9-02 依赖消费子项按维护者授权合并 Mira PR #99（24/24 checks
+成功），升级至 `a29374aaf05b956cbd5ceeafc65bba4c6172675e`。pin、锁文件和
+必要计数类型适配走独立 MR，验收与许可证证据见
+[升级审计](../supply-chain/mira-continuous-loop-20261015.md)。本次保留 Finite
+产品行为；M9-03 的持续模式、容量与产品计数接线另行推进。
