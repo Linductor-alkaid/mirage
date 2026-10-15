@@ -1,6 +1,6 @@
 # Mira 持续循环能力 pin 升级审计
 
-> 状态：In Progress
+> 状态：Completed（公开能力与 Linux pin 消费范围；升级 MR 待评审）
 > 日期：2026-10-15
 > 授权：维护者明确要求“ci 全绿，合并并更新 mirage 的 pin”。
 > 工作项：M9-02 的依赖消费子项；M9-03 产品接线另行实施。
@@ -50,7 +50,7 @@ submodule 与 dependencies.lock.json 同步；本机从已有 checkout 复用对
 - [x] 离线 pin/嵌套 pin 校验及 Linux Debug 全量回归。
 - [x] 从消费侧实际链接的新 Mira 库验证持续循环契约。
 - [x] 适用 consumer sanitizer、native 编译与静态门禁。
-- [ ] 依赖 MR、反馈台账与当前工作区的计划状态同步。
+- [x] 依赖 MR、反馈台账与当前工作区的计划状态同步。
 
 完整命令、结果和平台限制在本节追加；未执行项不标为通过。
 
@@ -107,3 +107,13 @@ c++ -std=c++20 -g -Ithird_party/mira/include -Ithird_party/mira/tests \
 Mirage consumer TSAN（没有新增并发路径；上游 PR#99 的 TSAN 已全绿）。负责人
 为 Mirage 维护者；补跑条件分别为升级 MR 的 Windows CI、目标 compositor 与
 M9-03/12 接线验收。本次没有安装、发布或替换正在运行的 native-release。
+
+
+## 交付记录
+
+独立升级 [Mirage PR #97](https://github.com/Linductor-alkaid/mirage/pull/97) 已创建，
+base 为 `feat/m8-pet-resource-loading`，功能/pin 提交 `cbe67bb`，后续只补本文
+交付链接。当前开发工作区已同步同一 gitlink、锁文件和计数适配；原有 M9/pet
+改动保留。MIRA-20261015-002 的公开能力缺口已 Resolved，M9-02 消费验收完成；
+M9-03 及真实产品长任务验收保持开放。升级 MR 的跨平台 CI/评审以 PR 为准，
+本次仅按授权合并了 Mira PR #99，未合并 Mirage PR #97。
