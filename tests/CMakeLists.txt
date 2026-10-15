@@ -1715,3 +1715,54 @@ if(MIRAGE_BUILD_MANUAL_ACCEPTANCE)
     target_link_libraries(dec088_live_acceptance PRIVATE Mirage::integration_mira kairo)
     mirage_enable_warnings(dec088_live_acceptance)
 endif()
+
+# M10-03 (DEC-095): the additive FilesystemProvider / ProcessProvider
+# contracts default to fail-closed results; the legacy entry points and the
+# positional ProcessOutcome initializer shape stay untouched. Platform
+# headers kept out of the test (this is a pure desktop-layer unit).
+add_executable(basic_contract_default_test desktop/basic_contract_default_test.cpp)
+target_compile_features(basic_contract_default_test PRIVATE cxx_std_20)
+target_link_libraries(basic_contract_default_test PRIVATE Mirage::desktop)
+mirage_enable_warnings(basic_contract_default_test)
+add_test(NAME basic_contract_default_test COMMAND basic_contract_default_test)
+set_tests_properties(basic_contract_default_test PROPERTIES
+    LABELS "unit;desktop"
+    TIMEOUT 30
+)
+
+# M10-04/M10-05 (DEC-095): the Linux windowed file and exec surface against
+# real files in a per-run temp workspace. POSIX-only by nature (O_NOFOLLOW,
+# renameat2, /proc/self/fd, process groups).
+if(UNIX)
+add_executable(linux_file_actions_test platform/linux_file_actions_test.cpp)
+target_compile_features(linux_file_actions_test PUBLIC cxx_std_20)
+mirage_enable_warnings(linux_file_actions_test)
+target_link_libraries(linux_file_actions_test
+    PRIVATE
+        Mirage::desktop
+        Mirage::platform
+)
+add_test(NAME linux_file_actions_test COMMAND linux_file_actions_test)
+set_tests_properties(linux_file_actions_test PROPERTIES
+    LABELS "unit;platform"
+    TIMEOUT 120
+)
+endif()
+
+# M10-07 (DEC-095): the exec/read/write/edit session toolset over the pinned
+# registry dispatch path and the real Linux desktop environment; the pinned
+# include dirs propagate from Mirage::integration_mira by design.
+add_executable(basic_agent_toolset_test integration/basic_agent_toolset_test.cpp)
+target_compile_features(basic_agent_toolset_test PUBLIC cxx_std_20)
+mirage_enable_warnings(basic_agent_toolset_test)
+target_link_libraries(basic_agent_toolset_test
+    PRIVATE
+        Mirage::integration_mira
+        Mirage::desktop
+        Mirage::platform
+)
+add_test(NAME basic_agent_toolset_test COMMAND basic_agent_toolset_test)
+set_tests_properties(basic_agent_toolset_test PROPERTIES
+    LABELS "integration;runtime"
+    TIMEOUT 120
+)
