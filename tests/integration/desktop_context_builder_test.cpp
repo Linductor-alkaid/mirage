@@ -384,7 +384,7 @@ void budget_fits_verbatim() {
     for (int round = 0; round < 3; ++round) {
         history.emplace_back(
             call_item("call-" + std::to_string(round),
-                      R"({"source":"display","n":)" + std::to_string(round) + "})"));
+                      R"({"source":"display","n":)" + std::to_string(round) + R"(})"));
         history.emplace_back(text_item(mira::ModelRole::Assistant,
                                        "thinking between rounds " + std::to_string(round)));
         history.emplace_back(
@@ -419,7 +419,7 @@ void compaction_drops_oldest_pairs() {
     for (int round = 0; round < rounds; ++round) {
         history.emplace_back(
             call_item("call-" + std::to_string(round),
-                      R"({"source":"display","n":)" + std::to_string(round) + "})"));
+                      R"({"source":"display","n":)" + std::to_string(round) + R"(})"));
         history.emplace_back(result_item("call-" + std::to_string(round),
                                          R"({"v":)" + std::to_string(round) + R"(,"payload":")" +
                                              payload + R"("})"));
@@ -497,7 +497,7 @@ void large_tool_receipts_drive_checkpoint_compaction() {
     for (int round = 0; round < rounds; ++round) {
         history.emplace_back(
             call_item("call-" + std::to_string(round),
-                      R"({"source":"display","n":)" + std::to_string(round) + "})"));
+                      R"({"source":"display","n":)" + std::to_string(round) + R"(})"));
         history.emplace_back(result_item("call-" + std::to_string(round),
                                          R"({"v":)" + std::to_string(round) + R"(,"receipt":")" +
                                              receipt + R"("})"));
