@@ -2,6 +2,8 @@
 #include <mirage/conversation.hpp>
 #include <mirage/integration/desktop_tool_context.hpp>
 
+#include <mira/model_contracts.hpp>
+
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -65,6 +67,18 @@ struct ModelLayerConfig {
     /// Explicit host declaration; default denies desktop images. Requires screen.capture
     /// permission.
     bool supports_images = false;
+
+    /// DEC-088 capability 1 host switch: wire the capture-fed input-reuse
+    /// identity seam (set_model_input_identity). Off keeps requests
+    /// byte-identical to the pre-seam layer; acceptance A/B runs use it as
+    /// the unannotated control.
+    bool supply_input_reuse_identity = true;
+
+    /// Diagnostics sink invoked once per provider-reported model response
+    /// (usage only: token counts and quality, never request or reply
+    /// content). Acceptance tooling and budget diagnostics aggregate these
+    /// into per-request curves; unset keeps the layer silent.
+    std::function<void(const mira::ModelUsage &)> usage_observer;
 
     /// Fail-closed validation for an enabled layer: a known dialect and a
     /// model selector are mandatory; the endpoint origin is required only

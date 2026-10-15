@@ -211,6 +211,9 @@ class ObservedProvider final : public mira::IModelProvider {
         request_guard;
     ConversationCapture *capture = nullptr; // scoped to the serialized caller task
     DialogModelActivitySink activity;
+    // Diagnostics sink for provider-reported usage (counts only, no
+    // content); invoked from record_usage_anchor's quality gate.
+    std::function<void(const mira::ModelUsage &)> usage_observer;
     // DEC-087: the declared context window of the active model. Absent = no
     // per-request preflight shrink (ZCode: resolveModelStepMaxOutputTokens
     // keeps the baseline when the window is unknown).
@@ -274,8 +277,7 @@ class ObservedProvider final : public mira::IModelProvider {
     // the value as an upper bound — the degradation bands absorb the lag.
     // Nullopt without a declared window or without an anchor: degradation
     // fails open and the image ships unchanged.
-    std::optional<std::int64_t>
-    anchored_remaining(const std::string &session_key) const {
+    std::optional<std::int64_t> anchored_remaining(const std::string &session_key) const {
         if (!context_window)
             return std::nullopt;
         std::lock_guard<std::mutex> guard(anchor_mutex_);
@@ -343,6 +345,8 @@ class ObservedProvider final : public mira::IModelProvider {
         anchors_.insert_or_assign(
             context.session.to_string(),
             UsageAnchor{*usage.input_tokens, mira::estimate_input_tokens(request)});
+        if (usage_observer)
+            usage_observer(usage);
     }
     struct UsageAnchor {
         std::uint64_t provider_input = 0;

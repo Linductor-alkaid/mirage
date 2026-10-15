@@ -498,6 +498,7 @@ struct ModelLayer::Impl {
         // output-budget preflight in the provider decorator.
         if (config.context_window_tokens)
             observed->context_window = config.context_window_tokens;
+        observed->usage_observer = config.usage_observer;
         gateway->register_provider(observed);
         gateway->set_event_store(events, mira::RuntimeId::generate(), mira::SessionId::generate());
         return true;
@@ -1222,10 +1223,12 @@ DialogCompletion ModelLayer::complete_harness_turn(
         // DEC-088 capability 1: the persistent desktop source owns the
         // cross-dialog-turn reuse count; the pinned loop renders the note from
         // the third consecutive identical capture.
-        loop.set_model_input_identity([&image_turn](const mira::AgentLoopSpec &identity_spec) {
-            return image_turn ? image_turn->input_reuse_identity(identity_spec)
-                              : std::optional<mira::InputReuseMeta>{};
-        });
+        if (impl_->config.supply_input_reuse_identity) {
+            loop.set_model_input_identity([&image_turn](const mira::AgentLoopSpec &identity_spec) {
+                return image_turn ? image_turn->input_reuse_identity(identity_spec)
+                                  : std::optional<mira::InputReuseMeta>{};
+            });
+        }
         // DEC-088 capability 2/3 (MIRA-20261014-006): compact the canonical
         // tool-history replay through Mira's Layer 0 with the desktop
         // watermarks. An undeclared window keeps the raw replay (fail-open);

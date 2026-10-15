@@ -1677,3 +1677,16 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_ENABLE_PET_PREVIEW)
     set_tests_properties(pet_bubble_view_test PROPERTIES LABELS "integration;ui;pet" TIMEOUT 30
         WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/apps/pet")
 endif()
+
+# DEC-088 live acceptance driver: opt-in manual tool against the real
+# provider (network + API key required); never built or registered by the
+# default presets, so suites and CI never dial out.
+option(MIRAGE_BUILD_MANUAL_ACCEPTANCE "Build the opt-in live acceptance driver" OFF)
+if(MIRAGE_BUILD_MANUAL_ACCEPTANCE)
+    add_executable(dec088_live_acceptance manual/dec088_live_acceptance.cpp)
+    target_include_directories(dec088_live_acceptance SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
+    target_compile_features(dec088_live_acceptance PRIVATE cxx_std_20)
+    target_link_libraries(dec088_live_acceptance PRIVATE Mirage::integration_mira kairo)
+    mirage_enable_warnings(dec088_live_acceptance)
+endif()
