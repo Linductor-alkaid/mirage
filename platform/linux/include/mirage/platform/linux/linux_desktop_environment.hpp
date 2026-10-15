@@ -1,7 +1,10 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -76,6 +79,14 @@ struct NotificationsOptions {
     bool enabled = false;
 };
 
+/// M10-04 (DEC-095): write/edit containment roots, strictly separate from
+/// the read scope — read roots never imply write authority. Empty roots
+/// deny every mutation (fail closed). Append-only constructor option:
+/// existing call sites keep their behavior with no write surface at all.
+struct FilesystemWriteOptions {
+    std::vector<std::filesystem::path> roots;
+};
+
 /// Linux Desktop Environment (design doc sections 5 and 10): M1 scoped
 /// read-only filesystem access and bounded, cancellable shell execution,
 /// plus the M2 X11 window / capture / input surface (M2-02), the AT-SPI2
@@ -97,10 +108,11 @@ class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment
     /// constructor declares no roots and no desktop surface, so a
     /// default-constructed environment exposes no filesystem and no desktop
     /// surface at all (fail closed).
-    explicit LinuxDesktopEnvironment(std::vector<std::filesystem::path> filesystem_read_roots = {},
-                                     X11Options x11_options = {}, AtspiOptions atspi_options = {},
-                                     ApplicationOptions application_options = {},
-                                     NotificationsOptions notifications_options = {});
+    explicit LinuxDesktopEnvironment(
+        std::vector<std::filesystem::path> filesystem_read_roots = {}, X11Options x11_options = {},
+        AtspiOptions atspi_options = {}, ApplicationOptions application_options = {},
+        NotificationsOptions notifications_options = {},
+        FilesystemWriteOptions filesystem_write_options = {});
 
     ~LinuxDesktopEnvironment() override;
 
@@ -136,8 +148,57 @@ class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment
                                             const mirage::desktop::ProcessLimits &limits,
                                             const mirage::desktop::CancelToken &cancel) override;
 
+    // M10-04/05 (DEC-095): windowed reads with version facts, create /
+    // observed-replace / literal-edit commits, and exec with an explicit
+    // working directory plus bounded output retention.
+    [[nodiscard]] mirage::desktop::FilesystemCapabilities capabilities() const override;
+    mirage::desktop::TextWindowOutcome
+    read_text_window(const std::filesystem::path &path, std::uint64_t skip_lines,
+                     const mirage::desktop::TextWindowLimits &limits,
+                     const mirage::desktop::CancelToken &cancel) override;
+    mirage::desktop::FileWriteOutcome
+    create_file(const std::filesystem::path &path, const std::string &content,
+                const mirage::desktop::FileModifyLimits &limits,
+                const mirage::desktop::CancelToken &cancel) override;
+    mirage::desktop::FileWriteOutcome
+    replace_file(const std::filesystem::path &path, const std::string &content,
+                 const mirage::desktop::FileObservation &observation,
+                 const mirage::desktop::FileModifyLimits &limits,
+                 const mirage::desktop::CancelToken &cancel) override;
+    mirage::desktop::FileEditOutcome
+    edit_file(const std::filesystem::path &path, const std::string &old_string,
+              const std::string &new_string, bool replace_all,
+              const mirage::desktop::FileObservation &observation,
+              const mirage::desktop::FileModifyLimits &limits,
+              const mirage::desktop::CancelToken &cancel) override;
+
+    [[nodiscard]] bool supports_working_directory() const override { return true; }
+    [[nodiscard]] bool supports_output_retention() const override { return true; }
+    mirage::desktop::ProcessOutcome execute_request(const mirage::desktop::ProcessRequest &request,
+                                                    const mirage::desktop::ProcessLimits &limits,
+                                                    const mirage::desktop::CancelToken &cancel)
+        override;
+
   private:
     mirage::desktop::PathScope read_scope_;
+    mirage::desktop::PathScope write_scope_;
+    /// DEC-095: bounded single-writer leases per on-disk identity; a second
+    /// concurrent modify of one file reports busy instead of queueing.
+    struct FileLeaseTable {
+        std::mutex mutex;
+        std::map<std::pair<std::uint64_t, std::uint64_t>, bool> held;
+        bool try_acquire(std::uint64_t device, std::uint64_t index);
+        void release(std::uint64_t device, std::uint64_t index);
+    };
+    std::unique_ptr<FileLeaseTable> file_leases_;
+
+    /// Shared execution body of execute() and execute_request(): a negative
+    /// working_dir_fd inherits the caller's directory (legacy semantics), a
+    /// null output sink keeps preview-only capture.
+    [[nodiscard]] static mirage::desktop::ProcessOutcome
+    execute_common(const std::string &command, const mirage::desktop::ProcessLimits &limits,
+                   const mirage::desktop::CancelToken &cancel, int working_dir_fd,
+                   mirage::desktop::ProcessOutputSink *output_sink);
     std::unique_ptr<X11Backend> x11_;
     /// M7-18: Wayland fallback window enumeration over the accessibility tree.
     std::unique_ptr<::mirage::desktop::WindowProvider> atspi_windows_;

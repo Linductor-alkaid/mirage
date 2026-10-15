@@ -24,6 +24,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         linux/src/frontend_activation.cpp
         linux/src/platform_linux.cpp
         linux/src/linux_desktop_environment.cpp
+        linux/src/linux_file_actions.cpp
         linux/src/credential_store.cpp
         linux/src/portal_screen_backend.cpp
         linux/src/portal_input.cpp
