@@ -142,7 +142,7 @@ M8-03 覆盖新进程入口一次播放、bootstrap 期间状态变化、初始/
 
 详见 [第一阶段实施记录](../compatibility/pet-transport-staleness-fix-20261015.md)。
 
-**第二阶段修复**（commit TBD，2026-10-15）进行中：
+**第二阶段修复**（commit d3ec495，2026-10-15）已完成并通过验证：
 1. SessionClient 层面解耦"请求超时"与"连接失败"（DEC-094）
    - 引入 `Health` 状态：`Healthy` / `SyncStale` / `Disconnected`
    - `SyncStale` 表示同步请求超时，但事件流可能仍在工作
@@ -153,7 +153,12 @@ M8-03 覆盖新进程入口一次播放、bootstrap 期间状态变化、初始/
    - `RunExit::Stopped`：owner 显式停止
    - `RunExit::ConnectionLost`：transport 失败或协议违规
    - `diagnostic` 记录具体失败原因（超时、帧错误、解码失败等）
-3. 构建通过，等待完整验证
+   - `bridge.cpp` 消费并记录这些信息
+
+探针证据（phase 2）：
+- 延迟 2000ms：22.002s 存活 ✓
+- deferred_replies=0（所有延迟请求完成）✓
+- max_event_sequence=431（事件流持续工作）✓
 
 **待完成事项**：
 - 完整验证第二阶段修复（超时后恢复、关闭诊断可见）
