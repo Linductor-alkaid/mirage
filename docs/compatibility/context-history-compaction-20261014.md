@@ -64,7 +64,7 @@
 - **判别性回归**：新增永久测试
   `large_tool_receipts_drive_checkpoint_compaction`——5 对工具往返、每对
   result 携带 8 KiB 文本回执，16384 窗口 / 1024 预留输出 → 输入预算
-  14336 token、checkpoint 水位 10035。新计数估算 **10555 token**（audit
+  14336 token、checkpoint 水位 10035。新计数估算 **10585 token**（audit
   逐项上界之和）：贪心预算全保留、checkpoint strip 必然触发，断言最老对
   整对丢弃（reason `watermark_checkpoint_drop`）、配对合法、幸存回执逐字节
   保真、desktop 水位 0.45/0.70/0.90 原样声明。

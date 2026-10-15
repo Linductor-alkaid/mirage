@@ -727,7 +727,7 @@ wire 不计入）；`ThinkingPart` 计 text + signature（同一缺陷类，一�
 24 项 checks 绿后授权合并 `7391df7`，API 文档 `docs/api/context-memory.md`
 同步计数器契约。Mirage pin 随授权消费（gitlink + lock 同步）：独立验证
 PASS——新增永久回归测试 `large_tool_receipts_drive_checkpoint_compaction`
-（5 对 8KiB 回执，新计数估算 10555 token 越过 checkpoint 水位 10035 必然
+（5 对 8KiB 回执，新计数估算 10585 token 越过 checkpoint 水位 10035 必然
 触发整对收缩、配对合法、回执逐字节保真；旧地板算术同夹具仅 240 token、
 零触发的反证以真实 `StandardContextManager` 执行取证），二进制 1004 项
 断言全过，Debug 82/82、ASAN 无报告。压缩触发自此按真实载荷规模工作

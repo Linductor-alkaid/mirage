@@ -1656,7 +1656,7 @@ Result<std::vector<ModelInputCondition>> build_request_with_compaction() {
   MIRA-20261014-007 → Resolved。
 - Mirage 消费复验（Independent-Verification-Agent，PASS）：新增永久回归
   `large_tool_receipts_drive_checkpoint_compaction`——5 对 8KiB 回执新估算
-  10555 token 越过 checkpoint 水位必然整对收缩，旧地板算术同夹具仅 240
+  10585 token 越过 checkpoint 水位必然整对收缩，旧地板算术同夹具仅 240
   token（1.67% 预算）零触发的反证以真实 `StandardContextManager` 取证；
   既有接线级断言全部保持，本二进制 942 → 1004 项断言，Debug 82/82、
   ASAN 无报告。证据：

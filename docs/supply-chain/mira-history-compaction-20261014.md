@@ -59,7 +59,7 @@ Mirage 侧消费验证由 IVA 独立执行，结果见消费验证文档。
   `docs/api/context-memory.md` 同步计数器契约。
 - Mirage 消费：pin 与 `dependencies.lock.json` 同步至 `7391df7`。独立验证
   PASS：新增永久回归 `large_tool_receipts_drive_checkpoint_compaction`
-  （5 对 8KiB 回执估算 10555 token 越过 checkpoint 水位 10035 必然整对收缩，
+  （5 对 8KiB 回执估算 10585 token 越过 checkpoint 水位 10035 必然整对收缩，
   旧地板算术 240 token 零触发的反证以真实 `StandardContextManager` 取证），
   既有接线级断言保持，本二进制 942 → 1004 项断言，Debug 82/82、ASAN 无报告。
   详见[消费验证](../compatibility/context-history-compaction-20261014.md)
