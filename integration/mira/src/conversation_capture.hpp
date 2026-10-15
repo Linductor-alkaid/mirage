@@ -25,12 +25,51 @@ class ConversationCapture {
         if (sink_)
             sink_(parts);
     }
+    struct CategoryUsage {
+        std::size_t tool = 0;     // input + output
+        std::size_t text = 0;     // kind=text
+        std::size_t thinking = 0; // kind=thinking
+    };
+    CategoryUsage categorize_budget() const {
+        CategoryUsage usage;
+        for (const auto &item : parts) {
+            if (item.kind == "tool") {
+                usage.tool += item.input.size() + item.output.size();
+            } else if (item.kind == "text") {
+                usage.text += item.text.size();
+            } else if (item.kind == "thinking") {
+                usage.thinking += item.text.size();
+            }
+        }
+        return usage;
+    }
     void bound(std::string &value, conversation::Part &part) {
-        std::size_t used = 0;
-        for (const auto &item : parts)
-            used += item.text.size() + item.input.size() + item.output.size();
-        const auto budget =
-            std::min(conversation::max_part_text, conversation::max_content_bytes - used);
+        // Calculate current usage including the part being bounded if it's already in parts.
+        CategoryUsage usage = categorize_budget();
+        // If this part is already in parts (e.g., when updating output after input was added),
+        // we need to account for its current content in the budget calculation.
+        // The categorize_budget() already includes it, so we're good.
+
+        std::size_t budget = conversation::max_part_text;
+        // DEC-093: apply per-category budget limits.
+        if (part.kind == "tool") {
+            // For tool parts, input and output share the tool budget.
+            // When bounding output, the input is already counted in usage.tool.
+            const auto remaining = usage.tool < conversation::max_tool_budget
+                                       ? conversation::max_tool_budget - usage.tool
+                                       : 0;
+            budget = std::min(budget, remaining);
+        } else if (part.kind == "text") {
+            const auto remaining = usage.text < conversation::max_text_budget
+                                       ? conversation::max_text_budget - usage.text
+                                       : 0;
+            budget = std::min(budget, remaining);
+        } else if (part.kind == "thinking") {
+            const auto remaining = usage.thinking < conversation::max_thinking_budget
+                                       ? conversation::max_thinking_budget - usage.thinking
+                                       : 0;
+            budget = std::min(budget, remaining);
+        }
         part.truncated = conversation::truncate_text(value, budget) || part.truncated;
     }
     void add(conversation::Part part) {
