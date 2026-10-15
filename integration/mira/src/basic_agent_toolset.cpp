@@ -257,8 +257,10 @@ struct BasicToolSessionState::Impl {
         }
     }
 
-    std::map<std::filesystem::path, Entry> entries;
-    std::uint64_t clock = 0;
+    /// Mutable so `observation_of` can honor the LRU contract on queries
+    /// (a read path is a use; the clock never rewinds).
+    mutable std::map<std::filesystem::path, Entry> entries;
+    mutable std::uint64_t clock = 0;
 };
 
 BasicToolSessionState::BasicToolSessionState() : impl_(std::make_unique<Impl>()) {}
@@ -300,6 +302,7 @@ BasicToolSessionState::observation_of(const std::filesystem::path &path) const {
     if (found == impl_->entries.end()) {
         return std::nullopt;
     }
+    found->second.last_use = ++impl_->clock;
     return found->second.observation;
 }
 
