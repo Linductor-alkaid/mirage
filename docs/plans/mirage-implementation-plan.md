@@ -4,9 +4,33 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-10-14（M7 原记录保留；M8 增加 M8-06 前的头顶气泡设计与 M8-11）
+> 更新日期：2026-10-15（新增 M9 持续任务与本地语义感知；M8-12 跟踪 native pet 交付回归）
 
 ## 当前状态
+
+维护者确认新增 [M9：持续任务与本地语义感知闭环](m9-continuous-tasks-and-local-perception.md)
+（In Progress）：正常主任务不按累计模型/工具次数终止，感知优先返回文本事实与目标
+引用，本地完成变化检测、定位、等待和后条件核验，图片按需回退。依据为
+[DEC-090](../decisions/DEC-090-continuous-task-execution.md)、
+[DEC-091](../decisions/DEC-091-local-semantic-perception-and-action-loop.md)。
+M9-02 已获授权合并 Mira 持续循环 [PR #99](https://github.com/Linductor-alkaid/mira/pull/99)，
+a29374a 的 Linux 依赖消费验收已完成（独立升级 PR #97）；M9-03 产品接线后续推进。旧
+DEC-088 实施计划转为历史记录，未完成请求级与真实长任务验收统一由 M9 承接。
+
+DEC-091 同日补充连续帧性能/内存预算、按已提交基线增量更新和对象语义保留；
+M9-13 负责 LLM 对 OCR/detector/闭合/track 对象的来源可追溯标定，M9-07/12
+验证整条链路资源与慢消费者场景，未变化部分不重复识别/标定。
+
+最新 Native 会话的过程展示容量饥饿、输入法干扰和执行/失败期间用量缺失分别登记
+M9-14/15/16（Proposed）；
+桌宠状态请求延迟退出及重启入场回归归 M8-03/05/12。
+[调查记录](../analysis/native-session-truncation-pet-ime-20261015.md) 区分已确认缺口、
+隔离复现和现场待补证；尚未修改产品代码，不把既有门禁通过视为新问题已修复。
+
+Native-release pet 缺席回归按 [DEC-092](../decisions/DEC-092-native-product-pet-delivery.md)
+新增 M8-12（In Progress）：完整产品构建、缺件/运行版本诊断及干净启动验收；正式
+安装、许可和偏好继续归 M8-08。首增量的基础状态层、构建/诊断及限定验证见
+[实施记录](../compatibility/m9-incremental-scene-and-pet-build-20261015.md)；既有门禁保留。
 
 维护者推进 [M8：mira_pet 常驻状态展示](m8-mira-pet.md)（In Progress）：提供由托盘
 Runtime owner 持有的独立置顶状态窗口，主窗口退至后台时仍显示真实执行阶段；动画
@@ -398,6 +422,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | [M6](m6-native-frontend.md) | 原生前端与桌面进程形态重构 | 暂不新增标签 | In Progress | 既有 M5 服务/IPC |
 | [M7](m7-visual-tools-and-input.md) | 会话桌面工具、真实视觉与完整键鼠输入 | 桌面工具预览版（标签未定） | In Progress | M2/M3、M6 Runtime owner |
 | [M8](m8-mira-pet.md) | mira_pet 独立置顶状态窗口、逐动作循环片段与真实执行投影 | Linux X11 桌宠预览版（标签未定） | In Progress | M1 IPC、M6 Runtime owner、M7 动作/观察执行缝 |
+| [M9](m9-continuous-tasks-and-local-perception.md) | 持续任务、请求级 compact、文本观察、变化/跟踪与本地动作/等待闭环 | Linux 持续任务与文本观察预览（标签未定） | In Progress | M1/M3/M6/M7 已交付能力；M9-02 Linux pin 消费已完成，产品接线另列 M9-03 |
 
 拆分与合并顺序：先契约后实现（Desktop Environment 接口先于任何 Backend）、先骨架后
 功能（每个 Backend 先以最小动作打通 Observation -> Action -> Observation 闭环）、
@@ -407,6 +432,9 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 
 | 编号 | 主题 | 暂定默认值 | 负责人 | 最迟冻结 |
 | --- | --- | --- | --- | --- |
+| DEC-090 | 持续任务与有界资源 | 方向 Accepted；无进展判定、公开循环 API/准入及存量在实施前冻结 | Mira/Mirage 维护者 | M9-01～04 |
+| DEC-091 | 文本观察与本地闭环 | 方向 Accepted；观察/引用/增量字段、连续帧资源预算、对象语义标定/继承、跟踪及动作/等待 schema 待冻结 | Mirage 维护者 | M9-05/07/08/09/10/13 |
+| DEC-092 | Native pet 完整交付 | 默认携带/自动启动 Accepted；聚合目标、布局、能力/版本诊断在实施前冻结；显式偏好另属 M8-08 | Mirage 维护者 | M8-12/08 |
 | DEC-002 | Mira TLS 通道适配器 | 已定案（[DEC-002](../decisions/DEC-002-build-test-baseline.md) 变更记录）：`MIRA_WITH_MBEDTLS=OFF` 于 M2 复核冻结（运行面无模型网关/TLS 传输，mbedtls pinned 子模块在位可随时重开）；接入真实模型网关且通道要求 Mbed TLS 时按记录触发条件重开 | Mirage 维护者 | M2（已冻结） |
 | DEC-004 | Mira Host 状态集 | 已定案（[DEC-004](../decisions/DEC-004-mira-host-status-set.md)）：五态 `Stopped/Starting/Running/Stopping/Failed`，M1 冻结并写入设计文档第 11.1 节 | Mirage 维护者 | M1（已冻结） |
 | DEC-005 | DesktopObservation 契约 | 已定案（[DEC-005](../decisions/DEC-005-desktop-observation-contract.md)）：schema 1.0 字段集、结构化 SemanticSnapshot（预算 + 确定性渲染）、多提示 ElementTarget 与解析顺序契约（reference → accessibility → Mirador 视觉（M3）→ VLM 显式），M2-01 冻结 | Mirage 维护者 | M2（已冻结） |
@@ -427,8 +455,10 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | DEC-031 | M5-11 Windows 安装器生成器定案（NSIS）与打包/更新通道交付 | 已定案（[DEC-031](../decisions/DEC-031-windows-installer-generator.md)）：生成器 = NSIS（`packaging/windows/mirage.nsi` + build-installer.ps1，fail closed），WiX 否决（.NET 工具链绑定、MSI 特性超需）；载荷 = 四产品进程 + 可选桌面壳 CEF payload；AUMID 注册表键随安装器交付（DEC-018 载体半边成立，快捷方式属性插件留发布机）；Authenticode 签名脚本证书注入 fail closed（证书不入仓库）；Linux .deb = CPack DEB（shlibdeps 自动依赖 + postinst/prerm），apt 仓库 GPG 签名/验签脚本 + 更新清单 ed25519 签名与 fail-closed 验签（本地五步演练全过）| Mirage 维护者 | `M5-11`（已完成）；真实安装/升级/卸载取证 / makensis 构建 + Authenticode 签名取证 / 图标资产挂账后续 |
 | DEC-032 | M5-12 Windows 应用内更新器核心与通道 fail-closed 行为（runtime/update 库 + CLI，全量优先） | 已定案（[DEC-032](../decisions/DEC-032-update-client-fail-closed.md)）：runtime/update 库——清单严格解码（schema/字段/预算全 fail closed）、ed25519 验签（libcrypto EVP，OpenSSL 缺席构建整体 fail closed 于 crypto 面）、HTTP fetch（无 TLS，信任锚为清单签名+Authenticode 双层；3xx 不跟随；超预算 fail closed；POSIX/WinSock 双端口）、原子切换（staged 预检→备份→aside+rename→全成删备、败则逆序回滚）；CLI `mirage update check/apply`；托盘/壳触发面接同核（后续接线）；更新器零私钥（信任锚公钥随包分发）| Mirage 维护者 | `M5-12`（已完成）；Windows 运行级全量更新演练 / OpenSSL 运行时随包分发挂账后续 |
 
-`DEC-084` 的尚未冻结默认值：mira_pet 自动启用、最小只读状态快照、
-各平台窗口策略。WebP 源 + 显式 RGBA 帧控制及可执行文件相对资源布局已用于预览，
+`DEC-084` 的 native 产品携带/自动启动选择已由
+[DEC-092](../decisions/DEC-092-native-product-pet-delivery.md) 冻结，M8-12 尚未实施；
+最小只读状态快照、各平台窗口策略仍按 M8 原门禁验收。
+WebP 源 + 显式 RGBA 帧控制及可执行文件相对资源布局已用于预览，
 240 逻辑像素角色画布与 X11 位置恢复按维护者要求实现，安装与预算验收仍开放。
 负责人为 Mirage 维护者，分别在 M8-01/02/04 取证冻结，
 详见 [决策提案](../decisions/DEC-084-mira-pet-process-and-animation.md)。
@@ -667,3 +697,26 @@ Provider 别名适配并更新本机。定向 Debug/Release/ASAN/UBSAN 与真实
 指令及回放/返回适配；121 项协议检查、七配置 loop/registry 与消毒器定向通过。
 本机 Native Release 已更新；共享工作树全量 75/78，三个桌面视觉测试失败由同期
 修改补验，整包和原任务门禁保持开放。见[统一适配验收](../compatibility/unified-tool-alias-20261012.md)。
+
+2026-10-15：维护者确认长程任务不按步骤/工具累计次数终止，优先本地视觉语义
+与动作/等待闭环。建立 DEC-090/091/092、M9（Planned）及 M8-12（Planned）；
+M9-02 受 MIRA-20261015-002 阻塞。旧 DEC-088 与其实施清单转为历史，未完成
+验收迁入 M9。仅文档与静态一致性检查，未实施代码、升级依赖或重启用户产品。
+
+2026-10-15 / M9-01/05/13、M8-12 首增量：新增有界对象增量/语义状态层与 Mirador 映射；
+native 产品聚合、默认 pet 与缺载体诊断已接入，Debug/ASAN/UBSAN 与私有桌面
+32/32 取证见 [首增量记录](../compatibility/m9-incremental-scene-and-pet-build-20261015.md)。
+尚未接 native 语义观察/LLM 标定或取消步骤上限，不更新现有用户 release 实例。
+
+
+2026-10-15：维护者明确授权 Mira 原开发仓库修复及 PR 流程，已创建持续循环
+[上游 PR #99](https://github.com/Linductor-alkaid/mira/pull/99)（Debug 109/109，
+1,025 轮 / 1,024 工具脚本通过）。M9-02 等待交付/消费，Mirage pin 未变；
+反馈 MIRA-20261015-002 保持 Open，详见 M9 计划与依赖台账。
+
+
+2026-10-15：M9-02 的 Mira a29374a 消费验收完成，独立升级
+[PR #97](https://github.com/Linductor-alkaid/mirage/pull/97) 已创建。Debug 干净分支
+82/82、当前工作区 84/84，ASAN/UBSAN 各 5/5，持续契约与 native 产品编译通过。
+M9-03/04 与真实长任务验收保持开放；证据和平台限制见
+[pin 审计](../supply-chain/mira-continuous-loop-20261015.md)。

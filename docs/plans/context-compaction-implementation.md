@@ -1,5 +1,10 @@
 # 会话上下文压缩与输入去重：实施计划（修订版）
 
+> 状态：Superseded（2026-10-15；后续实施与验收由 M9 跟踪）
+> 后继：[M9 持续任务与本地语义感知](m9-continuous-tasks-and-local-perception.md)，
+> 决策为 DEC-090/091。下文保留历史设计、fixture 结果和未执行项，不作为当前
+> 并行实施清单；请求级预算与真实会话门禁分别由 M9-04/12 承接。
+>
 > 日期：2026-10-14（初版）/ 2026-10-14（修订：集成 Mira Layer 0）
 > 决策依据：[DEC-088](../decisions/DEC-088-conversation-context-compaction-and-input-deduplication.md)
 > 负责人：Mira/Mirage 维护者

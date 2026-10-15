@@ -7,6 +7,21 @@
 
 ## 1. 项目概述
 
+2026-10-15 决策增量（设计方向已接受，实现待交付）：
+[DEC-090](../decisions/DEC-090-continuous-task-execution.md) 定义主任务不按累计
+步骤/工具次数终止、单次推进及资源存量有界；
+[DEC-091](../decisions/DEC-091-local-semantic-perception-and-action-loop.md) 定义
+文本事实/目标引用优先、按变化感知和本地动作/等待闭环，图片按需回退；
+[DEC-092](../decisions/DEC-092-native-product-pet-delivery.md) 定义完整 native
+产品默认携带 pet 及启动诊断。分别由 [M9](../plans/m9-continuous-tasks-and-local-perception.md)
+和 [M8-12](../plans/m8-mira-pet.md) 跟踪，不改变平台/集成分层、权限、源帧水位
+与动作后证据要求；不把新设计写作当前已交付能力。
+
+DEC-091 同日补充：连续帧按最后已提交基线增量处理，限制像素拷贝、帧/ROI、
+快照旧代及 GPU/track/语义存量。Mirage 可接收 LLM 对 OCR/detector/闭合/track
+对象的语义标定，保留未受变化影响的绑定；目标身份和语义依赖变化分别处理，
+不将模型标注升级为平台事实或动作后证据。由 M9-05/07/08/13 冻结和实施。
+
 Mirage 是基于 Mira 构建的 Linux / Windows 桌面端产品，为 Mira 提供完整的 PC 运行环境、桌面交互能力与产品界面，使通用 Agent 能够进入用户真实的桌面工作环境执行任务。
 
 Mirage 直接使用 Mira 提供的 Agent Harness Core，包括 Agent 运行、上下文、记忆、Tool/MCP、Workflow、Subagent、行为组织与相关 Agent 基础能力，并负责将这些能力与 Linux / Windows 本地环境连接起来。在视觉层面，Mirage 使用 Mirador 提供的轻量视觉基础设施，对桌面截图和局部图像执行 OCR、目标检测、几何结构分析、视觉 Cache 等处理。

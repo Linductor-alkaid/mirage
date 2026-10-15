@@ -5,6 +5,11 @@
 > 负责人：Mirage 维护者
 > 工作项：M7-10 第七增量，关联 M6-38 / DEC-080
 
+2026-10-15 局部修订：[DEC-091](DEC-091-local-semantic-perception-and-action-loop.md)
+新增无需向模型供图的文本观察/目标引用路径；M9-05/06 在新契约下解耦
+input_actionable 与供图。旧 image_scope 路径的身份、新鲜度和源帧水位守卫保留，
+不得通过删除图片或延长旧引用冒充新能力。
+
 最新测试证据：一次调用未暴露的 desktop.window.list 被模型桥拒绝；另一轮在交互截图
 后 OCR 产生替代图，模型使用原 image_scope 点击被 interactive_image_required 拒绝。
 重新捕获后同轮一次点击成功，后续 OCR 因静态共享流无新 buffer 超时，并关闭本轮共享。
