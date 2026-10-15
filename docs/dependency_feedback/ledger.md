@@ -2,11 +2,17 @@
 
 > 状态：Active
 > 负责人：Mirage维护者
-> 更新日期：2026-10-14
+> 更新日期：2026-10-15
 > 维护规则：[工程规范9.4](../project/project-standards.md)
 > 本轮工作项：[M7-06](../plans/m7-visual-tools-and-input.md)；既有 M6 记录保留
 
 ## 分依赖台账
+
+长程任务调查新增 [MIRA-20261015-001](mira.md#mira-20261015-001)：pinned
+ConversationLoop 的 model/tool 累计上限没有公开的“不设总次数限制”模式；增大数值
+仍会终止正常长任务，`max_turns=0` 也不表示持续运行。状态 Open；只登记本地
+API/源码与真实 16 步失败证据，未提交上游、未改依赖。方案见
+[持续任务与本地视觉闭环](../analysis/session-budget-and-native-pet-regression-20261015.md)。
 
 M8-11 新增 [MIRA-20261014-004](mira.md#mira-20261014-004)：公开正文预览不提供
 实时思考分类入口；已由 [Mira PR#94](https://github.com/Linductor-alkaid/mira/pull/94) 的独立公开 thinking sink 解决，授权消费合并提交22d9577并复验fixture，状态Resolved。PR已合并；供应商在线与平台验证单独记录。
@@ -30,6 +36,14 @@ ToolResultPart.result），工具密集请求水位系统性低估、压缩触�
 [PR#97](https://github.com/Linductor-alkaid/mira/pull/97) 解决（授权合并
 7391df7），Mirage 随 pin 消费并复验（载荷驱动压缩触发回归 + 旧算术反证），
 状态 Resolved。
+
+DEC-088 能力 4 新增 [MIRA-20261015-001](mira.md#mira-20261015-001)：部分文本
+续写锚点按字节切取，多字节脚本下产生非法 UTF-8 feedback；真实会话验收发现，
+已由 [PR#98](https://github.com/Linductor-alkaid/mira/pull/98) 解决（授权合并
+560da5ec），Mirage 随 pin 消费，状态 Resolved。真实会话验收证据见
+[dec088-live-acceptance-20261015](../compatibility/dec088-live-acceptance-20261015.md)
+（能力 1 live PASS；能力 2/3 修复后 live 触发收缩、重放段约 −81%；能力 4 live
+触发受 provider 小 max_tokens 流式不稳定阻塞）。
 
 | 依赖 | 详细台账 | 已确认问题 | 说明 |
 | --- | --- | --- | --- |
