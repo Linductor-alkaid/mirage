@@ -1,6 +1,6 @@
 # M10：基础 Agent 工具集
 
-> 状态：Proposed
+> 状态：In Progress（增量 A 全部交付；增量 B 交付至 Linux 后端与会话接入）
 > 负责人：Mirage 维护者；平台验证由对应平台维护者执行
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：M1 Provider/权限、M5 异步确认、M6 会话 owner、M7 会话工具注册的已交付能力
@@ -13,8 +13,8 @@
 “读文件 → 修改/生成文件 → 运行程序 → 读取验证结果”，与桌面观察/输入工具组合。
 每次调用可取消、有预算、有明确权限与结构化结果，不复制 Mira 的 Agent 循环。
 
-本文件是开发计划；除 M10-01 调研外，任务未实施，以下契约与数值为待 M10-02 冻结的
-建议，不代表现有产品能力或已批准默认值。
+除 M10-01～05、07 已交付外，其余任务未实施；M10-02 前的"契约待冻结"说明已被
+DEC-095 冻结取代，冻结值见该决策与下文预算表。
 
 ## 范围与非目标
 
@@ -202,27 +202,40 @@ BlockingWorkerHandle 的 started 只是接纳，结果和回收分别观察；�
 
 - [x] `M10-01` **Completed**：完成四项目调研与 Mirage/pinned 依赖差距表。
   验收：固定版本、具体源码位置、可借鉴项/不采用项、证据等级与局限已入调研文档。
-- [ ] `M10-02` **Proposed**：冻结 DEC-095、四工具 schema/alias、错误码、版本/提交点、
-  预算和产品权限/迁移。同步主设计、安全说明、配置与测试样例。
-  验收：schema 在 Mira 支持子集通过；三方言名称与规范回放 round-trip；每个暂定值有结论。
-- [ ] `M10-03` **Proposed**：提供 pinned-free 文件分页/修改与 ProcessRequest 加法 API、
-  capability 查询及 fake Provider。Runtime 管理 cwd、文件根与有界观察记录。
-  验收：旧消费者仍编译、旧超限语义不变、fake 能确定性复现全部失败与提交点。
-- [ ] `M10-04` **Proposed**：交付 Linux 安全打开、分页、create-if-absent、版本校验、
+- [x] `M10-02` **Completed**：冻结 DEC-095、四工具 schema/alias、错误码、版本/提交点、
+  预算和产品权限/迁移；主设计差异经 DEC-095 契约表与 Provider 头文件承载。
+  验收证据：短名经 pinned `is_known_hosted_tool_name` 核对可用；四工具 schema 经
+  `BuiltinToolRegistry::register_tool` 子集门禁真实注册通过（basic_agent_toolset_test）；
+  ASCII 短名为 alias provider 恒等映射，三方言无转义冲突；每个暂定值在 DEC-095
+  有冻结结论（含否决 local.* 别名方案）。
+- [x] `M10-03` **Completed**：pinned-free 文件分页/修改与 ProcessRequest 加法 API、
+  capability 查询交付。偏差说明：计划中的 fake Provider 以"默认 fail-closed
+  实现 + 真实 Linux Provider 确定性测试"替代覆盖（basic_contract_default_test
+  钉住默认语义与旧消费者兼容；失败与提交点由 linux_file_actions_test 以真实
+  临时目录确定性复现），未再维护第二份 fake 实现。
+  验收：旧消费者仍编译、旧超限语义不变（既有 provider 测试回归通过）。
+- [x] `M10-04` **Completed**：Linux 安全打开、分页、create-if-absent、版本校验、
   字面编辑及临时文件提交；同文件租约有界。
-  验收：目标字节/属性正确，拒绝零写入，取消/注入失败不留半文件或临时文件。
-- [ ] `M10-05` **Proposed**：扩展 Linux exec 的 cwd、输出 sink 和可解除等待生命周期。
-  验收：退出码/EOF 独立、双流无死锁、进程组回收、取消/超时/shutdown 有界实测。
+  验收：linux_file_actions_test（448 checks）覆盖字节/属性、拒绝路径、
+  取消/并发注入无半文件无临时文件残留；busy 租约并发必现。
+- [x] `M10-05` **Completed**：Linux exec 的 cwd、输出 sink 和可解除等待生命周期。
+  验收：退出码/EOF 独立、双流无死锁、进程组回收、取消/超时/shutdown 语义
+  实测（linux_file_actions_test exec 场景，含空格/非 ASCII cwd 与输出留存）。
 - [ ] `M10-06` **Proposed**：Runtime 输出预算/有效期与 read(output_ref) 闭环。
   验收：截断预览可续读至保留边界，跨会话/过期拒绝，磁盘满/配额不足可复现，内存/磁盘有上界。
-- [ ] `M10-07` **Proposed**：四工具接入真实 ConversationLoop；共享 handler 修复旧
-  filesystem/process 原子的 CancelToken/deadline 桥；目录/权限按实际能力动态暴露。
-  验收：四工具多轮脚本与桌面工具混合调用、read-only、重复 operation、异常回填；不破坏工作流。
+  （Provider 侧 sink seam 已交付并被测试，留存 store 未实现。）
+- [x] `M10-07` **Completed**：四工具接入真实 ConversationLoop 路径（complete_harness_turn
+  经 DEC-095 装饰器注册）；共享 handler 复用既有 CancelToken/deadline 桥；目录/权限
+  按实际能力动态暴露。范围说明：产品开关 `DesktopToolContext::basic_tools` 默认
+  关闭，配置持久化与产品入口归 M10-08；read(output_ref) 归 M10-06。
+  验收：read→write(replace)→edit 字节级闭环、read-only 能力诚实注册、权限拒绝
+  零副作用、异常回填经 basic_agent_toolset_test 覆盖；既有工作流/桌面工具测试回归通过。
 - [ ] `M10-08` **Proposed**：交付 workspace cwd/write_roots 等配置持久化和产品入口；
   复用异步确认与过程 UI，显示修改事实/退出状态/有界 diff/输出引用。
   验收：现有 read_roots 不扩大写权限；重启配置兼容；缺配置有可操作提示；UI 取消贯穿实际进程。
 - [ ] `M10-09` **Proposed**：Linux 发布候选完成端到端与消毒器验收。
   验收：下表 Linux 门禁全部通过；未达项保留开放，不能以工具目录可见替代真实落盘。
+  （单元/集成与四类消毒器证据已具备；真实产品 E2E 未执行。）
 - [ ] `M10-10` **Proposed**：交付 Windows FilesystemProvider 和 exec cwd/编码/输出接线。
   验收：MSVC 构建及真实 Windows 文件/进程/Job Object 矩阵通过；无 Bash/rg 时四工具仍可用。
 - [ ] `M10-11` **Proposed**：完成跨平台安装产品回归、兼容性记录、例子与操作说明。
@@ -302,3 +315,31 @@ C 4～6 人日（不含外部评审排队）；M10-02 根据文件提交与 Wind
 文档校验：`git diff --check` 通过；Python3 静态检查新增三份文档的 27 个本地链接、
 单一一级标题、标题层级、代码围栏、行尾空格和 M10-01～12 连续唯一编号，0 错误。
 主设计与总计划新增入口已逐项核对。仅调研项勾选完成，其余功能与退出条件保持未完成。
+
+2026-10-16 / M10-02～05、07（分支 `feat/m10-basic-agent-tools`，提交
+d8f90a3～6fc602b）：增量 A（契约）与增量 B 的 Linux 后端、会话接入交付。
+独立验证代理（Independent-Verification-Agent）编写并执行三个测试套件，主循环仅修复
+其报告的三个产品缺陷（窗口版本缺文件身份导致全部 replace/edit 误报 stale_file；
+流式读取丢失无尾换行文件的末行；观察 LRU 查询未触新时钟）后复验通过：
+
+- `basic_contract_default_test`：74 checks / 0 failures——加法方法默认 fail-closed、
+  capabilities 默认全 false、execute_request 仅空请求委托旧路径、ProcessOutcome
+  位置初始化源兼容（static_assert）。
+- `linux_file_actions_test`：448 checks / 0 failures（UNIX）——分页/EOF/空文件/
+  offset 越界/CRLF 视图/BOM/巨行/二进制拒绝/扫描预算；版本身份+摘要变更检测；
+  create/replace/edit 成功与拒绝矩阵字节比对；临时文件零残留；提交前取消
+  applied=false 字节不变；mode 保留；读写范围隔离；SHA-256 已知向量；exec
+  cwd（空格/非 ASCII）、退出/信号/超时/取消事实、双流、输出留存、整组回收；
+  并发 replace 租约 6/6 轮 busy、无交错、无残留。
+- `basic_agent_toolset_test`：210 checks / 0 failures——能力诚实注册、权限拒绝
+  零副作用、workspace_required、read→write(replace)→edit 字节闭环（经 pinned
+  registry 真实调度，同时构成 M10-02 schema/名称门禁证据）、会话观察记录与 LRU。
+- preset 矩阵：debug / asan / ubsan / tsan 四个 preset 三套件全部 0 failures；
+  ASAN/LeakSan、UBSAN、TSAN 报告均为 0。TSAN preset 在本机因内核高熵 ASLR 需
+  `setarch $(uname -m) -R` 运行（环境限制，非产品问题）；5 秒扫描时间预算仅有
+  字节预算路径的确定性断言（时间路径未注入慢速文件系统装置）。
+- 全量回归：`ctest --preset debug` 88 项中 87 通过，唯一失败为 `session_client_test`
+  ——经干净 HEAD 复现确认属分支基线已存在问题，与本次改动无关。
+- 未执行项：Windows（M10-10，本机无 MSVC/Windows 环境）、真实产品 E2E 与
+  UI/配置接线（M10-08/09）、输出留存 store（M10-06）。补跑条件分别为对应
+  平台环境、产品入口可用与 M10-06 实现。
