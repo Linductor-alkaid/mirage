@@ -652,11 +652,15 @@ TextWindowOutcome window_from_lines(std::string_view content,
             break;
         }
         rendered += line.length;
-        outcome.lines.emplace_back(content.substr(line.start, line.length));
-        end_offset = line.start + line.length + (line.terminated ? 1u : 0u);
-        if (line.length > 0 && content[line.start + line.length - 1] == '\r') {
+        // The view strips the "\r" of a "\r\n" pair (the view is what
+        // edit_file matches on); raw facts keep the original bytes.
+        std::string_view view = content.substr(line.start, line.length);
+        if (line.terminated && !view.empty() && view.back() == '\r') {
+            view.remove_suffix(1);
             window_has_crlf = true;
         }
+        outcome.lines.emplace_back(view);
+        end_offset = line.start + line.length + (line.terminated ? 1u : 0u);
         ++index;
     }
     outcome.ok = true;
@@ -680,17 +684,18 @@ TextWindowOutcome window_from_lines(std::string_view content,
 
 /// Windowed read over a whole in-memory content (files within the modify
 /// budget): validates text, computes the version digest, serves the window.
+/// The version binds the real file identity from the caller's fstat — the
+/// digest alone cannot re-verify an observation (BUG-20261016-001).
 TextWindowOutcome window_from_content(std::string_view content, std::uint64_t skip_lines,
-                                      const TextWindowLimits &limits) {
+                                      const TextWindowLimits &limits, const struct stat &info) {
     if (!is_valid_utf8_text(content)) {
         TextWindowOutcome outcome;
         outcome.error =
             provider_error("unsupported_encoding", "file is not valid UTF-8 text");
         return outcome;
     }
-    FileVersion version;
-    version.size = content.size();
-    version.content_digest = content_digest_hex(content);
+    FileVersion version = version_from_stat(info, content_digest_hex(content));
+    version.size = static_cast<std::uint64_t>(content.size());
     std::vector<LineSpan> lines;
     split_lines(content, lines);
     return window_from_lines(content, lines, skip_lines, limits, std::move(version));
@@ -736,9 +741,10 @@ TextWindowOutcome window_from_stream(int fd, std::uint64_t skip_lines,
             return outcome;
         }
         if (received == 0) {
-            outcome.error = provider_error("invalid_argument",
-                                           "offset beyond end of file (file has " +
-                                               std::to_string(line_index) + " lines)");
+            outcome.error =
+                provider_error("invalid_argument", "offset beyond end of file (scanned " +
+                                                       std::to_string(line_index) +
+                                                       " complete lines)");
             return outcome;
         }
         scanned += static_cast<std::size_t>(received);
@@ -764,9 +770,11 @@ TextWindowOutcome window_from_stream(int fd, std::uint64_t skip_lines,
     bool window_has_crlf = false;
     bool hit_eof = false;
     bool stopped = false;
-    while (!stopped && !hit_eof) {
+    for (;;) {
         // Drain complete lines already assembled in `pending`; at eof the
-        // remaining bytes are the final unterminated line.
+        // remaining bytes are the final unterminated line. The drain runs
+        // at least once after hit_eof is set, so a file that does not end
+        // in a newline still reports its final line (BUG-20261016-002).
         for (;;) {
             const std::size_t at = pending.find('\n');
             const bool terminated = at != std::string::npos;
@@ -788,16 +796,20 @@ TextWindowOutcome window_from_stream(int fd, std::uint64_t skip_lines,
                 stopped = true;
                 break;
             }
-            const std::string_view line(pending.data(), length);
-            if (!is_valid_utf8_text(line)) {
+            const std::string_view raw_line(pending.data(), length);
+            // The view strips the "\r" of a "\r\n" pair (the view is what
+            // edit_file matches on); raw budget facts keep original bytes.
+            std::string_view view = raw_line;
+            if (terminated && !view.empty() && view.back() == '\r') {
+                view.remove_suffix(1);
+                window_has_crlf = true;
+            }
+            if (!is_valid_utf8_text(view)) {
                 outcome.error = provider_error("unsupported_encoding",
                                                "file is not valid UTF-8 text");
                 return outcome;
             }
-            outcome.lines.emplace_back(line);
-            if (length > 0 && line[length - 1] == '\r') {
-                window_has_crlf = true;
-            }
+            outcome.lines.emplace_back(view);
             rendered += length;
             window_bytes += length + (terminated ? 1u : 0u);
             ++line_index;
@@ -858,41 +870,47 @@ TextWindowOutcome window_from_stream(int fd, std::uint64_t skip_lines,
 // unmodified bytes keep their original form).
 // ---------------------------------------------------------------------------
 
-/// Builds the "\r\n" -> "\n" view of `content` and records the raw offsets
-/// of the removed bytes (ascending).
-std::string normalized_view(const std::string &content, std::vector<std::uint64_t> &removed) {
-    removed.clear();
+/// Builds the "\r\n" -> "\n" view of `content` together with the raw offset
+/// of every view byte (empty when the content has no "\r" and view positions
+/// are raw positions directly).
+std::string normalized_view(const std::string &content,
+                            std::vector<std::uint32_t> &view_to_raw) {
+    view_to_raw.clear();
     if (content.find('\r') == std::string::npos) {
         return content;
     }
     std::string view;
     view.reserve(content.size());
+    view_to_raw.reserve(content.size());
     for (std::size_t i = 0; i < content.size(); ++i) {
         if (content[i] == '\r' && i + 1 < content.size() && content[i + 1] == '\n') {
-            removed.push_back(static_cast<std::uint64_t>(i));
             continue;
         }
         view.push_back(content[i]);
+        view_to_raw.push_back(static_cast<std::uint32_t>(i));
     }
     return view;
 }
 
-/// Maps a normalized position onto the raw offset of the corresponding byte
-/// (`position == view.size()` maps onto the raw content length). Each
-/// removed byte shifts every later position by one, so the raw offset of
-/// `position` is `position + k` where `k` counts removed offsets below it.
-std::uint64_t raw_offset(const std::vector<std::uint64_t> &removed, std::size_t position,
-                         std::size_t raw_length) {
-    if (removed.empty()) {
-        return static_cast<std::uint64_t>(position);
+/// Raw span [begin, end) of the view match [begin, end): view byte at
+/// position p starts at map[p]; the exclusive end is one past the raw byte
+/// of view position end - 1 (every view byte is one raw byte; the removed
+/// "\r" bytes only precede later bytes).
+struct RawSpan {
+    std::uint64_t begin;
+    std::uint64_t end;
+};
+
+RawSpan raw_span(const std::vector<std::uint32_t> &view_to_raw, std::size_t begin,
+                 std::size_t end, std::size_t raw_length) {
+    if (view_to_raw.empty()) {
+        return {static_cast<std::uint64_t>(begin), static_cast<std::uint64_t>(end)};
     }
-    std::size_t k = 0;
-    while (k < removed.size() &&
-           removed[k] < static_cast<std::uint64_t>(position) + k + 1) {
-        ++k;
-    }
-    return std::min<std::uint64_t>(static_cast<std::uint64_t>(position) + k,
-                                   static_cast<std::uint64_t>(raw_length));
+    const std::uint64_t raw_begin = view_to_raw[begin];
+    const std::uint64_t raw_end =
+        end == 0 ? 0
+                 : static_cast<std::uint64_t>(view_to_raw[end - 1]) + 1;
+    return {raw_begin, std::min<std::uint64_t>(raw_end, raw_length)};
 }
 
 /// Finds every occurrence of `needle` (non-overlapping, leftmost-first) as
@@ -1050,7 +1068,7 @@ TextWindowOutcome LinuxDesktopEnvironment::read_text_window(const std::filesyste
         case ReadAllStatus::TooLarge:
             break;
         }
-        return window_from_content(content, skip_lines, limits);
+        return window_from_content(content, skip_lines, limits, info);
     }
     return window_from_stream(fd.fd, skip_lines, limits, cancel, info);
 }
@@ -1229,8 +1247,8 @@ FileEditOutcome LinuxDesktopEnvironment::edit_file(const std::filesystem::path &
 
     // Match in the "\r\n"-normalized view, act on raw bytes: every match
     // range must sit inside the caller's observation (DEC-095 decision 3).
-    std::vector<std::uint64_t> removed;
-    const std::string view = normalized_view(content, removed);
+    std::vector<std::uint32_t> view_to_raw;
+    const std::string view = normalized_view(content, view_to_raw);
     const auto matches = find_occurrences(view, old_string);
     if (matches.empty()) {
         return failed_edit(provider_error("match_not_found",
@@ -1245,20 +1263,15 @@ FileEditOutcome LinuxDesktopEnvironment::edit_file(const std::filesystem::path &
         return failed_edit(provider_error(
             "not_observed", "replace_all requires a full observation of the current content"));
     }
-    struct RawSpan {
-        std::uint64_t begin;
-        std::uint64_t end;
-    };
     std::vector<RawSpan> spans;
     spans.reserve(matches.size());
     for (const auto &match : matches) {
-        const std::uint64_t begin = raw_offset(removed, match.first, content.size());
-        const std::uint64_t end = raw_offset(removed, match.second, content.size());
-        if (!observation.covers(begin, end - begin)) {
+        const RawSpan span = raw_span(view_to_raw, match.first, match.second, content.size());
+        if (!observation.covers(span.begin, span.end - span.begin)) {
             return failed_edit(provider_error(
                 "not_observed", "the match range was not observed; re-read the file region"));
         }
-        spans.push_back({begin, end});
+        spans.push_back(span);
     }
     FileEditOutcome outcome;
     outcome.replacements = matches.size();

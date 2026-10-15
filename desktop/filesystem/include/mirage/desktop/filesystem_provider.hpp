@@ -111,9 +111,11 @@ struct FileModifyLimits {
 };
 
 /// Result of one windowed text read (DEC-095 contract table). Lines are the
-/// raw file bytes between terminators: a "\r\n" terminator contributes its
-/// "\r" to the preceding line's view so byte facts stay reconstructable, and
-/// a BOM stays in the first line. Line numbers are 1-based.
+/// UTF-8 view of the file: a "\r\n" terminator reads as "\n", so the line
+/// view matches what edit_file matches on, while the raw byte range recorded
+/// in observed_range stays authoritative for observation facts; a lone "\r"
+/// stays in its line's view, a BOM stays in the first line. Line numbers are
+/// 1-based.
 struct TextWindowOutcome {
     bool ok = false;
     ProviderError error; ///< meaningful only when ok is false
