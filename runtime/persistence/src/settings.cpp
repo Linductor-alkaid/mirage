@@ -4,52 +4,16 @@
 #include <filesystem>
 #include <mira/json.hpp>
 
+#include "json_document.hpp"
+
 namespace mirage::runtime::persistence {
 namespace {
 
+using json_doc::has_unknown_member;
+using json_doc::make_object;
+using json_doc::member;
+using json_doc::put;
 using mira::JsonValue;
-
-JsonValue make_object() { return JsonValue{JsonValue::Object{}}; }
-
-void put(JsonValue &object, std::string key, JsonValue value) {
-    object.set(std::move(key), std::move(value));
-}
-
-const JsonValue *member(const JsonValue &object, std::string_view key) {
-    const auto *entries = object.as_object();
-    if (entries == nullptr) {
-        return nullptr;
-    }
-    for (const auto &entry : *entries) {
-        if (entry.first == key) {
-            return &entry.second;
-        }
-    }
-    return nullptr;
-}
-
-/// True when the document carries a member the decoder does not know.
-/// Strictness is deliberate (DEC-011): a typoed key must fail loudly, not
-/// silently degrade to defaults.
-bool has_unknown_member(const JsonValue &object, std::initializer_list<std::string_view> known) {
-    const auto *entries = object.as_object();
-    if (entries == nullptr) {
-        return false;
-    }
-    for (const auto &entry : *entries) {
-        bool found = false;
-        for (const std::string_view name : known) {
-            if (entry.first == name) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            return true;
-        }
-    }
-    return false;
-}
 
 std::optional<std::string> string_member(const JsonValue &object, std::string_view key,
                                          std::size_t max_bytes) {
@@ -260,10 +224,9 @@ SettingsDecode decode_settings(std::string_view body) {
         result.error = "settings document must be a JSON object";
         return result;
     }
-    if (has_unknown_member(document,
-                           {"schema", "socket", "read_roots", "permission", "confirmation", "model",
-                            "models", "runtime", "vision", "basic_tools",
-                            "remember_desktop_authorization"})) {
+    if (has_unknown_member(document, {"schema", "socket", "read_roots", "permission",
+                                      "confirmation", "model", "models", "runtime", "vision",
+                                      "basic_tools", "remember_desktop_authorization"})) {
         result.error = "settings document contains an unknown member";
         return result;
     }
@@ -287,8 +250,8 @@ SettingsDecode decode_settings(std::string_view body) {
     }
     if (const auto *tools_value = member(document, "basic_tools")) {
         if (!tools_value->is_object() ||
-            has_unknown_member(*tools_value, {"enabled", "exec_enabled", "workspace",
-                                              "write_roots"})) {
+            has_unknown_member(*tools_value,
+                               {"enabled", "exec_enabled", "workspace", "write_roots"})) {
             result.error = "basic_tools must be an object with enabled/exec_enabled/workspace/"
                            "write_roots members only";
             return result;
@@ -322,8 +285,8 @@ SettingsDecode decode_settings(std::string_view body) {
                 return result;
             }
             if (roots->as_array()->size() > kMaxReadRoots) {
-                result.error = "basic_tools.write_roots exceeds " +
-                               std::to_string(kMaxReadRoots) + " entries";
+                result.error =
+                    "basic_tools.write_roots exceeds " + std::to_string(kMaxReadRoots) + " entries";
                 return result;
             }
             for (const auto &root : *roots->as_array()) {
@@ -394,8 +357,7 @@ SettingsDecode decode_settings(std::string_view body) {
         // product configuration can enable the confirmation surface without
         // a service flag; whether anything answers the requests stays with
         // the connected clients (fail closed on the wait budget).
-        if (text == nullptr ||
-            (*text != "allow" && *text != "deny" && *text != "ipc")) {
+        if (text == nullptr || (*text != "allow" && *text != "deny" && *text != "ipc")) {
             result.error = "member 'confirmation' must be \"allow\", \"deny\" or \"ipc\"";
             return result;
         }
