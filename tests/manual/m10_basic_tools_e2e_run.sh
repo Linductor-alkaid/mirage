@@ -25,6 +25,11 @@ scenario_enabled() { [[ "$SCENARIOS" == *"$1"* ]]; }
 
 printf 'meeting notes from the space project\nTODO: call alice about the launch window\nend of notes\n' > "$WORK/notes.txt"
 
+# XDG_STATE_HOME isolates the M5-08 session store and the basic-output
+# retention directory: --state-dir only moves the task recovery file, so
+# without this the run hydrates and writes back the user's real session
+# catalog (observed 2026-10-16: 23 test sessions accumulated there).
+XDG_STATE_HOME="$WORK/state" \
 "$SERVICE" --socket "$SOCK" --state-dir "$WORK/state" --no-recovery \
     --read-root "$WORK" --write-root "$WORK" --workspace "$WORK" \
     --enable-basic-tools --enable-exec \
