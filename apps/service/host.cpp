@@ -543,6 +543,19 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
                 const auto &settings = decoded.settings;
                 if (settings.vision && !ocr_from_flags)
                     config.ocr_manifest = settings.vision->ocr_manifest;
+                if (settings.basic_tools && !basic_tools_from_flags) {
+                    // M10-08 (DEC-095): the default config file the product
+                    // tray reads must carry the same basic-tools surface as
+                    // --config; the harness E2E passes flags and never sees
+                    // the divergence.
+                    basic_tools_enabled = settings.basic_tools->enabled;
+                    exec_enabled = settings.basic_tools->exec_enabled;
+                    workspace = settings.basic_tools->workspace;
+                    if (!workspace->empty()) {
+                        basic_tools_from_flags = true; // a configured workspace counts as intent
+                    }
+                    write_roots = settings.basic_tools->write_roots;
+                }
                 if (!settings.socket_path.empty()) {
                     config.socket_path = settings.socket_path;
                 }
@@ -751,6 +764,16 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
               << (config.overlay_carrier != nullptr ? (config.overlay_debug ? "debug" : "on")
                                                     : "off")
               << '\n';
+    if (config.basic_tools.enabled) {
+        // M10 operator diagnostics: the session tools are configuration
+        // driven and invisible at IPC level until a turn runs; state them
+        // at startup so a silent config divergence cannot recur unnoticed.
+        std::cout << "basic tools: read/write/edit exposed; exec "
+                  << (config.basic_tools.exec_enabled ? "enabled" : "off")
+                  << ", workspace "
+                  << (workspace && !workspace->empty() ? *workspace : "(none)") << ", "
+                  << write_roots.size() << " write root(s)\n";
+    }
     {
         const auto &rules = config.permission_policy.rules;
         std::cout << "permission policy:" << " filesystem.read="
