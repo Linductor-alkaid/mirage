@@ -425,9 +425,71 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
 #endif
         config.open_frontend = open_frontend;
     }
-    // M1-07 DEC-011 configuration: the settings file (when requested)
-    // provides the baseline, command-line flags override item by item. A
-    // settings file that exists but cannot be trusted fails closed.
+    // M1-07 DEC-011 configuration: the settings file (when requested, or the
+    // default document on first launch) provides the baseline, command-line
+    // flags override item by item. A settings file that exists but cannot be
+    // trusted fails closed. Both entry points share one application pass
+    // (REUSE-11) so the --config and default-document surfaces cannot drift;
+    // the guards below are the DEC-011 flag precedence, applied identically.
+    const auto apply_settings =
+        [&](const mirage::runtime::persistence::LocalSettings &settings) {
+            if (settings.vision && !ocr_from_flags)
+                config.ocr_manifest = settings.vision->ocr_manifest;
+            if (settings.basic_tools && !basic_tools_from_flags) {
+                // M10-08 (DEC-095): the same basic-tools surface as --config
+                // on both entry paths; the harness E2E passes flags and never
+                // sees the divergence.
+                basic_tools_enabled = settings.basic_tools->enabled;
+                exec_enabled = settings.basic_tools->exec_enabled;
+                workspace = settings.basic_tools->workspace;
+                if (!workspace->empty()) {
+                    basic_tools_from_flags = true; // a configured workspace counts as intent
+                }
+                write_roots = settings.basic_tools->write_roots;
+            }
+            if (!settings.socket_path.empty()) {
+                config.socket_path = settings.socket_path;
+            }
+            if (!settings.read_roots.empty() && !read_roots_from_flags) {
+                read_roots = settings.read_roots;
+            }
+            for (const auto &[capability, rule] : settings.permission_rules) {
+                const auto parsed = mirage::runtime::permission::capability_from_name(capability);
+                const auto parsed_rule = mirage::runtime::permission::rule_from_name(rule);
+                if (parsed && parsed_rule) {
+                    config.permission_policy.rules[static_cast<std::size_t>(*parsed)] =
+                        *parsed_rule;
+                }
+            }
+            if (settings.confirmation) {
+                flag_confirm = *settings.confirmation;
+            }
+            if (settings.model.has_value() && !model_from_flags) {
+                config.model = mirage::integration::ModelLayerConfig{};
+                config.model.enabled =
+                    settings.model->enabled && !settings.model->endpoint_origin.empty();
+                config.model.dialect = settings.model->dialect;
+                config.model.display_name = settings.model->display_name;
+                config.model.endpoint_origin = settings.model->endpoint_origin;
+                config.model.api_prefix = settings.model->api_prefix;
+                config.model.model_selector = settings.model->model_selector;
+                config.model.credential_env = settings.model->credential_env;
+                config.model.credential_ref = settings.model->credential_ref;
+                config.model.context_window_tokens = settings.model->context_window_tokens;
+                config.model.supports_reasoning = settings.model->supports_reasoning;
+                config.model.supports_images = settings.model->supports_images;
+                config.model_catalog_json =
+                    mirage::runtime::persistence::encode_settings(settings);
+            }
+            if (settings.runtime.has_value() && !runtime_from_flags) {
+                if (settings.runtime->event_queue_capacity > 0) {
+                    config.event_queue_capacity = settings.runtime->event_queue_capacity;
+                }
+                if (settings.runtime->max_connections > 0) {
+                    config.max_connections = settings.runtime->max_connections;
+                }
+            }
+        };
     if (config_file) {
         const std::filesystem::path parent = config_file->parent_path().empty()
                                                  ? std::filesystem::path(".")
@@ -453,64 +515,7 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
                           << "': " << decoded.error << '\n';
                 return 1;
             }
-            const auto &settings = decoded.settings;
-            if (settings.vision && !ocr_from_flags)
-                config.ocr_manifest = settings.vision->ocr_manifest;
-            if (settings.basic_tools && !basic_tools_from_flags) {
-                basic_tools_enabled = settings.basic_tools->enabled;
-                exec_enabled = settings.basic_tools->exec_enabled;
-                workspace = settings.basic_tools->workspace;
-                if (!workspace->empty()) {
-                    basic_tools_from_flags = true; // a configured workspace counts as intent
-                }
-                write_roots = settings.basic_tools->write_roots;
-            }
-            if (!settings.socket_path.empty()) {
-                config.socket_path = settings.socket_path;
-            }
-            if (!settings.read_roots.empty() && !read_roots_from_flags) {
-                read_roots = settings.read_roots;
-            }
-            const auto apply_rule = [&](const std::string &text,
-                                        mirage::runtime::permission::Capability capability) {
-                const auto rule = mirage::runtime::permission::rule_from_name(text);
-                if (rule) {
-                    config.permission_policy.rules[static_cast<std::size_t>(capability)] = *rule;
-                }
-            };
-            for (const auto &[capability, rule] : settings.permission_rules) {
-                if (const auto parsed =
-                        mirage::runtime::permission::capability_from_name(capability)) {
-                    apply_rule(rule, *parsed);
-                }
-            }
-            if (settings.confirmation) {
-                flag_confirm = *settings.confirmation;
-            }
-            if (settings.model.has_value() && !model_from_flags) {
-                config.model = mirage::integration::ModelLayerConfig{};
-                config.model.enabled =
-                    settings.model->enabled && !settings.model->endpoint_origin.empty();
-                config.model.dialect = settings.model->dialect;
-                config.model.display_name = settings.model->display_name;
-                config.model.endpoint_origin = settings.model->endpoint_origin;
-                config.model.api_prefix = settings.model->api_prefix;
-                config.model.model_selector = settings.model->model_selector;
-                config.model.credential_env = settings.model->credential_env;
-                config.model.credential_ref = settings.model->credential_ref;
-                config.model.context_window_tokens = settings.model->context_window_tokens;
-                config.model.supports_reasoning = settings.model->supports_reasoning;
-                config.model.supports_images = settings.model->supports_images;
-                config.model_catalog_json = mirage::runtime::persistence::encode_settings(settings);
-            }
-            if (settings.runtime.has_value() && !runtime_from_flags) {
-                if (settings.runtime->event_queue_capacity > 0) {
-                    config.event_queue_capacity = settings.runtime->event_queue_capacity;
-                }
-                if (settings.runtime->max_connections > 0) {
-                    config.max_connections = settings.runtime->max_connections;
-                }
-            }
+            apply_settings(decoded.settings);
         }
     }
     // DEC-011 flip (M5-07): with no explicit --config, the default settings
@@ -540,68 +545,7 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
                               << default_file.string() << "': " << decoded.error << '\n';
                     return 1;
                 }
-                const auto &settings = decoded.settings;
-                if (settings.vision && !ocr_from_flags)
-                    config.ocr_manifest = settings.vision->ocr_manifest;
-                if (settings.basic_tools && !basic_tools_from_flags) {
-                    // M10-08 (DEC-095): the default config file the product
-                    // tray reads must carry the same basic-tools surface as
-                    // --config; the harness E2E passes flags and never sees
-                    // the divergence.
-                    basic_tools_enabled = settings.basic_tools->enabled;
-                    exec_enabled = settings.basic_tools->exec_enabled;
-                    workspace = settings.basic_tools->workspace;
-                    if (!workspace->empty()) {
-                        basic_tools_from_flags = true; // a configured workspace counts as intent
-                    }
-                    write_roots = settings.basic_tools->write_roots;
-                }
-                if (!settings.socket_path.empty()) {
-                    config.socket_path = settings.socket_path;
-                }
-                if (!settings.read_roots.empty() && !read_roots_from_flags) {
-                    read_roots = settings.read_roots;
-                }
-                for (const auto &[capability, rule] : settings.permission_rules) {
-                    if (const auto parsed =
-                            mirage::runtime::permission::capability_from_name(capability)) {
-                        if (const auto parsed_rule =
-                                mirage::runtime::permission::rule_from_name(rule)) {
-                            config.permission_policy.rules[static_cast<std::size_t>(*parsed)] =
-                                *parsed_rule;
-                        }
-                    }
-                }
-                if (settings.confirmation) {
-                    flag_confirm = *settings.confirmation;
-                }
-                if (settings.model.has_value()) {
-                    config.model = mirage::integration::ModelLayerConfig{};
-                    config.model.enabled =
-                        settings.model->enabled && !settings.model->endpoint_origin.empty();
-                    config.model.dialect = settings.model->dialect;
-                    config.model.display_name = settings.model->display_name;
-                    config.model.endpoint_origin = settings.model->endpoint_origin;
-                    config.model.api_prefix = settings.model->api_prefix;
-                    config.model.model_selector = settings.model->model_selector;
-                    config.model.credential_env = settings.model->credential_env;
-                    config.model.credential_ref = settings.model->credential_ref;
-                    config.model.context_window_tokens = settings.model->context_window_tokens;
-                    config.model.supports_reasoning = settings.model->supports_reasoning;
-                    config.model.supports_images = settings.model->supports_images;
-                    config.model_catalog_json =
-                        mirage::runtime::persistence::encode_settings(settings);
-                }
-                if (settings.runtime.has_value()) {
-                    if (settings.runtime->event_queue_capacity > 0) {
-                        config.event_queue_capacity = settings.runtime->event_queue_capacity;
-                    }
-                    if (settings.runtime->max_connections > 0) {
-                        config.max_connections = settings.runtime->max_connections;
-                    }
-                }
-                config.settings_directory = default_file.parent_path();
-                config.settings_file_name = default_file.filename().string();
+                apply_settings(decoded.settings);
             }
         }
     }

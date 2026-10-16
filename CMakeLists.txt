@@ -55,6 +55,7 @@ mirage_resolve_pinned_dependencies()
 set(MIRA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(MIRA_WITH_MBEDTLS "${MIRAGE_WITH_MIRA_MBEDTLS}" CACHE BOOL "" FORCE)
 add_subdirectory(third_party/mira EXCLUDE_FROM_ALL)
+include(MirageKairoConsumer)
 
 set(MIRADOR_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(MIRADOR_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)

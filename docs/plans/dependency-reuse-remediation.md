@@ -21,20 +21,20 @@ mirador、状态机为 Mira::core 薄适配），但存在三类系统性缺口�
 
 ### A. 依赖能力重复整改（P1）
 
-- [ ] REUSE-01：`runtime/update` 更新下载器迁移到 pinned mira 的
+- [x] REUSE-01：`runtime/update` 更新下载器迁移到 pinned mira 的
   `mira::SocketHttpTransport`，删除 `update_fetcher_posix.cpp` /
   `update_fetcher_windows.cpp` 手写 HTTP/1.1 客户端；保持 DEC-032 fail-closed 语义
   （明文 HTTP 允许、不跟随 3xx、ed25519 信任锚、有界超时）不变。
-- [ ] REUSE-02：`runtime/update` 手写 SHA-256（`sha256.cpp` /
+- [x] REUSE-02：`runtime/update` 手写 SHA-256（`sha256.cpp` /
   `sha256_internal.hpp`）替换为 `mira::digest_bytes`，理由"MSVC 无 OpenSSL"不成立的
   注释一并移除。
-- [ ] REUSE-03：`platform/linux/src/linux_file_actions.cpp` 内 Sha256 按 runtime ->
+- [x] REUSE-03：`platform/linux/src/linux_file_actions.cpp` 内 Sha256 按 runtime ->
   desktop -> platform 层界处置：platform 层不可依赖 pinned mira，评估保留单份本地实现
   并注释层界原因，或将摘要职责上移至调用方所在层；消除与 REUSE-02 之后的重复。
 - [ ] REUSE-04：`integration/mira/src/desktop_png.cpp` 手写 PNG/DEFLATE 编码器按 9.4
   登记依赖缺口台账（RGBA→PNG 转码缝，`mira/observation.hpp` 明示留给 host），代码中
   引用编号；不改动 pinned 代码。
-- [ ] REUSE-05：UTF-8 校验 4 份（`desktop/environment`、`platform/linux` ×2、
+- [x] REUSE-05：UTF-8 校验 4 份（`desktop/environment`、`platform/linux` ×2、
   `apps/native`）收敛为单一内部工具头（置于 desktop 层，platform 经合法向下依赖复用），
   行为逐份比对后统一。
 
@@ -58,9 +58,9 @@ mirador、状态机为 Mira::core 薄适配），但存在三类系统性缺口�
 
 ### C. 内部重复收敛（P2）
 
-- [ ] REUSE-11：`apps/service/host.cpp` 两段 ~80 行 settings→ServiceConfig 映射
+- [x] REUSE-11：`apps/service/host.cpp` 两段 ~80 行 settings→ServiceConfig 映射
   合并为单一映射函数，消除 :547 注释自认的漂移点；E2E 走 flags 的路径行为不变。
-- [ ] REUSE-12：Windows env→UTF-8 助手 4 份收敛：`runtime/persistence/paths_windows.cpp`
+- [x] REUSE-12：Windows env→UTF-8 助手 4 份收敛：`runtime/persistence/paths_windows.cpp`
   与 `runtime/ipc/endpoint_windows.cpp` 合并为 runtime 内部共享头（消除已存在的空值
   分支语义漂移）；`integration/mira`、`apps/common` 两份因层界不可跨层共享，逐一注明
   归属与不可合并原因。
@@ -102,6 +102,45 @@ mirador、状态机为 Mira::core 薄适配），但存在三类系统性缺口�
 - 不改变 IPC wire 协议、错误码、更新签名信任锚等对外契约。
 - 不在本计划内将 runtime 平台传输实现整体搬迁至 platform/（仅登记与收口）。
 
+### 2026-10-16：REUSE-01/02/03/05/11/12（代码批次，独立验证通过）
+
+- 范围：runtime/update 摘要与下载器迁移 mira、platform/linux SHA-256 层界处置、UTF-8
+  收敛、Windows env 助手收敛、apps/service/host.cpp 双份映射合并。
+- 关键落地：
+  - REUSE-02：`sha256_hex` 改 `mira::digest_bytes`；删除 `sha256.cpp`/`sha256_internal.hpp`；
+    独立验证新增 8 条 FIPS 180-4 已知向量钉死与原实现逐字节一致（含空串/百万 'a'/内嵌 NUL）。
+  - REUSE-01：`http_get` 自由函数改为 `FetchSession`（PImpl，构造收 `kairo::Executor&`），
+    内部经 `mira::adapters::net::SocketHttpTransport`；DEC-032 语义保持——`max_redirects=0`
+    （3xx fail-closed，诊断为 transport 的 redirect-limit 文案）、`allow_private_endpoints=true`
+    （LAN/localhost 镜像源合法）、2GiB 硬预算、分阶段 deadline（DNS/connect 5s、首字节/空闲
+    30s、总 120s，较旧的 30s 切片更细）。`update_fetcher_posix/_windows.cpp` 删除，平台边界
+    归 pinned adapter。apps/cli 更新命令补进程唯一 Executor owner（DEC-030 EXEC-01），
+    经新建 `cmake/MirageKairoConsumer.cmake` 的 `Mirage::kairo_consumer` 消费面（SYSTEM
+    include + 文件路径链接，仿 runtime/service 纪律）。
+    与旧实现的记录差异：3xx 无 Location 时诊断为 "redirect carried no location header"；
+    超预算诊断为 transport cap 文案；慢服务器超时路径无自动化钉测（未做慢服务器 harness）。
+  - REUSE-03：platform/linux 的 Sha256 为树内唯一保留的本地实现（platform 层仅依赖
+    Mirage::desktop，pinned mira 不可达），注释写明层界原因与 REUSE-02 的去向。
+  - REUSE-05：`linux_file_actions` 的 `is_valid_utf8_text` 收敛为「NUL 策略 + desktop 层
+    `mirage::desktop::is_valid_utf8`」；`apps/native/attachment.cpp` 保留本地副本并注明
+    薄客户端不链 desktop 层的原因；x11 `decode_codepoint` 为解码器（已注明严格性镜像）。
+    实际收敛 4 份 → desktop 单一实现 + 2 个有记录的边界特例。
+  - REUSE-12：`runtime/internal/win32_environment.hpp` 承载 runtime 内共享实现（ipc 版死
+    分支消除，行为等价）；integration/mira 与 apps/common 两份因层界不可合并，注明归属。
+    Windows/MinGW 编译面本机无工具链，待 CI 兜底（NOT TESTED）。
+  - REUSE-11：`apply_settings` lambda 统一两条入口；行为修正一处——默认配置路径补齐
+    model/runtime 的 `*_from_flags` 守卫（此前注释自认的漂移点，现与 DEC-011 flags 优先
+    策略一致）；冗余 settings_directory 赋值删除（其后无条件重设，等价）。
+- 验证：Independent-Verification-Agent 两轮。第一轮发现产品缺陷一处（`mirage_update`
+  缺 kairo SYSTEM include 链接——net_transport 对 kairo 私有链接不传递 include），主循环
+  修复后第二轮官方树复验：`cmake --preset debug` + `cmake --build build/debug` 退出码 0、
+  warning/error 0；`ctest -R 'update|file_actions|persistence|ipc|desktop_environment|
+  linux_file'` 10/10 通过；CLI `mirage update check/apply` 冒烟（连接拒绝/坏公钥/DNS
+  失败三路径 fail-closed、退出码正确、无挂死）。全量 ctest 88/89，唯一失败
+  `session_client_test:594` 经 HEAD 基线复现确认为 pre-existing（与本批无关，归入
+  REUSE-09 工作项排查）。
+- 限制：Windows/MinGW 编译面待 CI；transport 慢服务器 deadline 路径无钉测；负责人
+  Mirage 维护者。
 ## 退出条件
 
 1. 全部 REUSE 项勾选完成或记录 Blocked 原因与补跑条件。

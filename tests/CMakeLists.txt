@@ -830,6 +830,7 @@ if(OPENSSL_FOUND)
     target_link_libraries(update_core_test
         PRIVATE
             Mirage::update
+            Mirage::kairo_consumer
             OpenSSL::Crypto
     )
     add_test(NAME update_core_test COMMAND update_core_test)
@@ -854,6 +855,7 @@ if(UNIX AND OPENSSL_FOUND)
     target_link_libraries(update_client_http_test
         PRIVATE
             Mirage::update
+            Mirage::kairo_consumer
             OpenSSL::Crypto
     )
     add_test(NAME update_client_http_test COMMAND update_client_http_test)

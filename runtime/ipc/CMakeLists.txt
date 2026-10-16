@@ -16,6 +16,10 @@ add_library(Mirage::ipc ALIAS mirage_ipc)
 target_include_directories(mirage_ipc
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    PRIVATE
+        # runtime/internal shared helpers (REUSE-12); Windows-only headers
+        # are included exclusively from the *_windows.cpp units.
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../internal>
 )
 target_compile_features(mirage_ipc PUBLIC cxx_std_20)
 mirage_enable_warnings(mirage_ipc)

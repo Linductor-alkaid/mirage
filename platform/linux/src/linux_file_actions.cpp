@@ -5,6 +5,7 @@
 // explicit working directory plus output retention. The mechanics live here
 // so linux_desktop_environment.cpp keeps the M1-M9 provider surface.
 
+#include <mirage/desktop/input_provider.hpp>
 #include <mirage/platform/linux/linux_desktop_environment.hpp>
 
 #include <algorithm>
@@ -77,7 +78,10 @@ struct FdGuard {
 
 // ---------------------------------------------------------------------------
 // SHA-256 (bounded content digest, DEC-095 decision 4). The algorithm is
-// backend-internal: version tokens never cross backends.
+// backend-internal: version tokens never cross backends. This is the one
+// remaining local SHA-256 in the tree (REUSE-02/03): the platform layer
+// depends only on Mirage::desktop, so pinned mira's digest_bytes is not
+// reachable here; runtime/update consumes the mira implementation instead.
 // ---------------------------------------------------------------------------
 
 class Sha256 {
@@ -343,52 +347,15 @@ ReadAllStatus read_all_bounded(int fd, std::size_t cap, const CancelToken &cance
     }
 }
 
-/// RFC 3629 UTF-8 validation; NUL bytes count as invalid too (DEC-095: text
-/// tools serve UTF-8 text, anything else fails with unsupported_encoding
-/// instead of feeding the model binary noise).
+/// DEC-095: text tools serve UTF-8 text; NUL bytes fail with
+/// unsupported_encoding instead of feeding the model binary noise. Core
+/// strictness rides the shared desktop validator (REUSE-05) — this wrapper
+/// only adds the NUL policy.
 bool is_valid_utf8_text(std::string_view content) {
     if (content.find('\0') != std::string_view::npos) {
         return false;
     }
-    std::size_t i = 0;
-    while (i < content.size()) {
-        const auto lead = static_cast<unsigned char>(content[i]);
-        std::size_t continuation = 0;
-        std::uint32_t codepoint = 0;
-        if (lead <= 0x7F) {
-            ++i;
-            continue;
-        }
-        if ((lead & 0xE0) == 0xC0) {
-            continuation = 1;
-            codepoint = lead & 0x1FU;
-        } else if ((lead & 0xF0) == 0xE0) {
-            continuation = 2;
-            codepoint = lead & 0x0FU;
-        } else if ((lead & 0xF8) == 0xF0) {
-            continuation = 3;
-            codepoint = lead & 0x07U;
-        } else {
-            return false;
-        }
-        if (i + continuation >= content.size()) {
-            return false;
-        }
-        for (std::size_t k = 1; k <= continuation; ++k) {
-            const auto trail = static_cast<unsigned char>(content[i + k]);
-            if ((trail & 0xC0) != 0x80) {
-                return false;
-            }
-            codepoint = (codepoint << 6) | (trail & 0x3FU);
-        }
-        if ((continuation == 1 && codepoint < 0x80) || (continuation == 2 && codepoint < 0x800) ||
-            (continuation == 3 && codepoint < 0x10000) || codepoint > 0x10FFFF ||
-            (codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
-            return false;
-        }
-        i += continuation + 1;
-    }
-    return true;
+    return mirage::desktop::is_valid_utf8(std::string(content));
 }
 
 /// Validates the shared mutation budgets (DEC-095: refuse before any side

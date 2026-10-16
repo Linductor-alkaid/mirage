@@ -12,6 +12,7 @@ target_link_libraries(mirage
         Mirage::runtime_service
         Mirage::integration_mira
         Mirage::integration_mirador
+        Mirage::kairo_consumer
         Mirage::platform
         Mirage::update
         Mirage::persistence
