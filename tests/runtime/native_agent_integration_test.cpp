@@ -1692,11 +1692,9 @@ int main(int argc, char **argv) {
                             MIRAGE_CHECK(result->parts.front().truncated &&
                                          result->parts.front().text.size() ==
                                              mirage::conversation::max_thinking_budget);
-                            MIRAGE_CHECK(std::all_of(result->parts.begin() + 1,
-                                                     result->parts.end(),
+                            MIRAGE_CHECK(std::all_of(result->parts.begin() + 1, result->parts.end(),
                                                      [](const auto &part) {
-                                                         return part.truncated &&
-                                                                part.text.empty();
+                                                         return part.truncated && part.text.empty();
                                                      }));
                         }
                     }
@@ -1742,8 +1740,7 @@ int main(int argc, char **argv) {
                     budget_client.call(ipc::ChatHistoryRequest{budget_session, 40}, 8s);
                 const auto *history = std::get_if<ipc::DialogHistory>(&response.payload);
                 MIRAGE_CHECK(response.ok && history && !history->truncated &&
-                             history->turns.size() == 12 &&
-                             history->turns.back().sequence == 12 &&
+                             history->turns.size() == 12 && history->turns.back().sequence == 12 &&
                              history->turns.back().parts.size() == 4 &&
                              history->turns.back().parts.front().text.size() ==
                                  mirage::conversation::max_thinking_budget);

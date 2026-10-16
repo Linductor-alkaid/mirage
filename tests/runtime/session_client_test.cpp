@@ -641,8 +641,7 @@ void scenario_request_timeout_keeps_session_alive() {
 
 /// Polls `predicate` until it holds or the budget elapses; returns the final
 /// predicate value (a liveness wait, not a latency assertion).
-template <typename Predicate>
-bool wait_for(std::chrono::milliseconds budget, Predicate predicate) {
+template <typename Predicate> bool wait_for(std::chrono::milliseconds budget, Predicate predicate) {
     const auto deadline = std::chrono::steady_clock::now() + budget;
     for (;;) {
         if (predicate()) {
@@ -724,21 +723,21 @@ struct ScriptedPeer {
         }
     }
 
-    void start_reader() { reader = std::thread([this] { read_loop(); }); }
+    void start_reader() {
+        reader = std::thread([this] { read_loop(); });
+    }
 
     /// Plans a hello-shaped response for request `id`, written by the reader
     /// `delay` from now (use a long delay for a genuinely late answer).
     void script_response(std::uint64_t id, std::chrono::milliseconds delay) {
         std::lock_guard<std::mutex> guard(mutex);
-        script.push_back(
-            Scripted{id, 0, false, std::chrono::steady_clock::now() + delay});
+        script.push_back(Scripted{id, 0, false, std::chrono::steady_clock::now() + delay});
     }
 
     /// Plans one host.status event, written by the reader `delay` from now.
     void script_event(std::uint64_t seq, std::chrono::milliseconds delay) {
         std::lock_guard<std::mutex> guard(mutex);
-        script.push_back(
-            Scripted{0, seq, true, std::chrono::steady_clock::now() + delay});
+        script.push_back(Scripted{0, seq, true, std::chrono::steady_clock::now() + delay});
     }
 
     /// Waits until the peer observed request `id` on the wire.
@@ -849,9 +848,8 @@ struct ScriptedPeer {
                 ++index; // the request has not reached the wire yet
                 continue;
             }
-            const bool sent = pending[index].is_event
-                                  ? write_host_status_event(pending[index].seq)
-                                  : write_hello_response(pending[index].id);
+            const bool sent = pending[index].is_event ? write_host_status_event(pending[index].seq)
+                                                      : write_hello_response(pending[index].id);
             if (!sent) {
                 return;
             }
@@ -925,8 +923,8 @@ void scenario_run_loop_survives_a_live_timeout() {
     // The pre-fix sweep exited run() within one 10 ms slice of the deadline;
     // a quiet window with the loop still up (and the transport still
     // connected) is the regression evidence.
-    MIRAGE_CHECK(!wait_for(std::chrono::milliseconds{300},
-                           [&] { return session.run_finished.load(); }));
+    MIRAGE_CHECK(
+        !wait_for(std::chrono::milliseconds{300}, [&] { return session.run_finished.load(); }));
     MIRAGE_CHECK(session.client->connected());
     MIRAGE_CHECK(session.client->health() == ipc::SessionClient::Health::SyncStale);
 
@@ -1089,9 +1087,8 @@ void scenario_overlapped_call_frame_survives_in_flight_window() {
     // Caller 1 goes in flight; the peer accepts the request and withholds
     // the answer (nothing is scripted for it yet).
     std::future<ipc::Response> first_future;
-    std::thread first_caller([&] {
-        first_future = session.client->call(ipc::HelloRequest{}, kCallBudget);
-    });
+    std::thread first_caller(
+        [&] { first_future = session.client->call(ipc::HelloRequest{}, kCallBudget); });
     MIRAGE_CHECK(peer.wait_for_request(1, kCallBudget));
 
     // Answer request 2 the moment its frame reaches the wire (fire_due's
@@ -1106,8 +1103,7 @@ void scenario_overlapped_call_frame_survives_in_flight_window() {
     std::future<ipc::Response> second_future;
     std::thread second_caller([&] {
         peer.script_response(1, std::chrono::milliseconds{400});
-        second_future = session.client->call(ipc::HelloRequest{},
-                                             std::chrono::milliseconds{2000});
+        second_future = session.client->call(ipc::HelloRequest{}, std::chrono::milliseconds{2000});
     });
     first_caller.join();
     second_caller.join();
@@ -1117,11 +1113,10 @@ void scenario_overlapped_call_frame_survives_in_flight_window() {
     MIRAGE_CHECK(first.id == 1);
     const ipc::Response second = second_future.get();
     if (!second.ok) {
-        std::fprintf(stderr,
-                     "[session_client_test] overlapped call resolved: %s: %s\n",
+        std::fprintf(stderr, "[session_client_test] overlapped call resolved: %s: %s\n",
                      second.error.code.c_str(), second.error.message.c_str());
     }
-    MIRAGE_CHECK(second.ok); // the frame survived: no timeout takeover
+    MIRAGE_CHECK(second.ok);      // the frame survived: no timeout takeover
     MIRAGE_CHECK(second.id == 2); // responses correlate with their callers
 
     // The peer served the withheld answer before the queued frame showed
@@ -1130,8 +1125,7 @@ void scenario_overlapped_call_frame_survives_in_flight_window() {
     const std::optional<std::size_t> replayed = peer.journal_index("req:2");
     MIRAGE_CHECK(answered.has_value());
     MIRAGE_CHECK(replayed.has_value());
-    MIRAGE_CHECK(!answered.has_value() || !replayed.has_value() ||
-                 *answered < *replayed);
+    MIRAGE_CHECK(!answered.has_value() || !replayed.has_value() || *answered < *replayed);
 
     session.join_and_stop();
     MIRAGE_CHECK(session.exit == ipc::SessionClient::RunExit::Stopped);
@@ -1158,8 +1152,8 @@ void scenario_repeated_overlapped_rounds_lose_no_frames() {
 
         std::future<ipc::Response> first_future;
         std::thread first_caller([&] {
-            first_future = session.client->call(ipc::HelloRequest{},
-                                                std::chrono::milliseconds{5000});
+            first_future =
+                session.client->call(ipc::HelloRequest{}, std::chrono::milliseconds{5000});
         });
         MIRAGE_CHECK(peer.wait_for_request(first_id, std::chrono::milliseconds{5000}));
         peer.script_response(second_id, std::chrono::milliseconds{0});
@@ -1167,8 +1161,8 @@ void scenario_repeated_overlapped_rounds_lose_no_frames() {
         std::future<ipc::Response> second_future;
         std::thread second_caller([&] {
             peer.script_response(first_id, std::chrono::milliseconds{400});
-            second_future = session.client->call(ipc::HelloRequest{},
-                                                 std::chrono::milliseconds{5000});
+            second_future =
+                session.client->call(ipc::HelloRequest{}, std::chrono::milliseconds{5000});
         });
         first_caller.join();
         second_caller.join();
@@ -1248,11 +1242,13 @@ int main() {
     run_scenario("hello_list_and_clean_stop", scenario_hello_list_and_clean_stop);
     run_scenario("overlapped_calls_serialize", scenario_overlapped_calls_serialize);
     run_scenario("events_flow_to_sink_until_terminal", scenario_events_flow_to_sink_until_terminal);
-    run_scenario("request_timeout_keeps_session_alive", scenario_request_timeout_keeps_session_alive);
+    run_scenario("request_timeout_keeps_session_alive",
+                 scenario_request_timeout_keeps_session_alive);
     run_scenario("run_loop_survives_a_live_timeout", scenario_run_loop_survives_a_live_timeout);
     run_scenario("late_response_and_events_keep_the_session",
                  scenario_late_response_and_events_keep_the_session);
-    run_scenario("midcall_transport_loss_fails_closed", scenario_midcall_transport_loss_fails_closed);
+    run_scenario("midcall_transport_loss_fails_closed",
+                 scenario_midcall_transport_loss_fails_closed);
     run_scenario("overlapped_call_frame_survives_in_flight_window",
                  scenario_overlapped_call_frame_survives_in_flight_window);
     run_scenario("repeated_overlapped_rounds_lose_no_frames",

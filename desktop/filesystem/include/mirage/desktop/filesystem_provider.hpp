@@ -142,7 +142,7 @@ struct TextWindowOutcome {
 /// Result of one file write (create or observed replace).
 struct FileWriteOutcome {
     bool ok = false;
-    ProviderError error; ///< meaningful only when ok is false
+    ProviderError error;   ///< meaningful only when ok is false
     bool created = false;  ///< new file was committed
     bool replaced = false; ///< observed file was atomically replaced
     /// True when the commit point was passed. A cancellation after the
@@ -239,16 +239,14 @@ class FilesystemProvider {
     /// (create-if-absent, DEC-095 decision 3). The parent directory must
     /// exist; it is never created implicitly.
     virtual FileWriteOutcome create_file(const std::filesystem::path &path,
-                                         const std::string &content,
-                                         const FileModifyLimits &limits,
+                                         const std::string &content, const FileModifyLimits &limits,
                                          const CancelToken &cancel) {
         (void)path;
         (void)content;
         (void)limits;
         (void)cancel;
         FileWriteOutcome outcome;
-        outcome.error = {"unsupported_platform",
-                         "file creation is not available on this provider"};
+        outcome.error = {"unsupported_platform", "file creation is not available on this provider"};
         return outcome;
     }
 
@@ -279,11 +277,9 @@ class FilesystemProvider {
     /// `new_string` deletes. Matching normalizes "\r\n" to "\n" in the file
     /// view while the commit keeps every unmodified byte as-is.
     virtual FileEditOutcome edit_file(const std::filesystem::path &path,
-                                      const std::string &old_string,
-                                      const std::string &new_string, bool replace_all,
-                                      const FileObservation &observation,
-                                      const FileModifyLimits &limits,
-                                      const CancelToken &cancel) {
+                                      const std::string &old_string, const std::string &new_string,
+                                      bool replace_all, const FileObservation &observation,
+                                      const FileModifyLimits &limits, const CancelToken &cancel) {
         (void)path;
         (void)old_string;
         (void)new_string;

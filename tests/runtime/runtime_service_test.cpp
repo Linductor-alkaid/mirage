@@ -1527,8 +1527,7 @@ void scenario_policy_set_preserves_basic_tools_block() {
     seeded.basic_tools = persistence::BasicToolsSettings{
         true, true, "/home/user/工作 区", {"/home/user/work", "/tmp/scratch"}};
     {
-        persistence::LocalStateStore store(config.settings_directory,
-                                           config.settings_file_name,
+        persistence::LocalStateStore store(config.settings_directory, config.settings_file_name,
                                            persistence::kMaxSettingsFileBytes);
         const auto saved = store.save(persistence::encode_settings(seeded));
         MIRAGE_CHECK(saved.ok);
@@ -1562,8 +1561,7 @@ void scenario_policy_set_preserves_basic_tools_block() {
 
     // The persisted document carries the new policy and the untouched
     // basic_tools block.
-    persistence::LocalStateStore store(config.settings_directory,
-                                       config.settings_file_name,
+    persistence::LocalStateStore store(config.settings_directory, config.settings_file_name,
                                        persistence::kMaxSettingsFileBytes);
     const auto loaded = store.load();
     MIRAGE_CHECK(loaded.status == persistence::LoadStatus::Loaded);
@@ -1578,8 +1576,8 @@ void scenario_policy_set_preserves_basic_tools_block() {
             MIRAGE_CHECK(tools.enabled);
             MIRAGE_CHECK(tools.exec_enabled);
             MIRAGE_CHECK(tools.workspace == "/home/user/工作 区");
-            MIRAGE_CHECK(tools.write_roots == std::vector<std::string>({"/home/user/work",
-                                                                        "/tmp/scratch"}));
+            MIRAGE_CHECK(tools.write_roots ==
+                         std::vector<std::string>({"/home/user/work", "/tmp/scratch"}));
         }
     }
 

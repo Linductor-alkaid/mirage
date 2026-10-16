@@ -45,9 +45,9 @@ using mirage::desktop::TextWindowOutcome;
 
 /// Service authorize seam (DesktopToolContext::authorize), aliased for the
 /// value-captured handler state.
-using AuthorizeFn = std::function<bool(const std::string &, const std::string &,
-                                       const AtomCancelProbe &, const std::string &,
-                                       const std::string &)>;
+using AuthorizeFn =
+    std::function<bool(const std::string &, const std::string &, const AtomCancelProbe &,
+                       const std::string &, const std::string &)>;
 
 /// Frozen DEC-095 budget table (M10-02): read windows and exec previews.
 constexpr std::size_t kReadWindowBytes = 50u << 10;
@@ -312,20 +312,16 @@ BasicToolSessionState::observation_of(const std::filesystem::path &path) const {
 // ---------------------------------------------------------------------------
 
 void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
-                                const DesktopToolContext &desktop,
-                                BasicToolSessionState &session,
-                                const BasicAgentToolsOptions &options,
-                                const CancelToken &cancel,
-                                const Decorator &decorate,
-                                const bool full_access) {
+                                const DesktopToolContext &desktop, BasicToolSessionState &session,
+                                const BasicAgentToolsOptions &options, const CancelToken &cancel,
+                                const Decorator &decorate, const bool full_access) {
     if (!options.enabled || !desktop.environment) {
         return;
     }
     auto *filesystem = desktop.environment->filesystem();
     auto *process = desktop.environment->process();
-    const FilesystemCapabilities caps = filesystem != nullptr
-                                            ? filesystem->capabilities()
-                                            : FilesystemCapabilities{};
+    const FilesystemCapabilities caps =
+        filesystem != nullptr ? filesystem->capabilities() : FilesystemCapabilities{};
     // Value-captured gate seam: handlers outlive this frame; the provider
     // pointers stay valid because the environment outlives the registry.
     const AtomPermissionGate gate = desktop.gate;
@@ -359,17 +355,17 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
             "output_ref",
             string_schema("Retained output reference from a previous exec result (same session)"));
         properties.emplace_back(
-            "offset", integer_schema(
-                          0, 1000000000,
-                          "Lines to skip before the window (use the previous next_offset)"));
-        properties.emplace_back("limit", integer_schema(1, static_cast<std::int64_t>(
-                                                             kReadWindowLines),
-                                                        "Maximum lines to return"));
+            "offset",
+            integer_schema(0, 1000000000,
+                           "Lines to skip before the window (use the previous next_offset)"));
+        properties.emplace_back("limit",
+                                integer_schema(1, static_cast<std::int64_t>(kReadWindowLines),
+                                               "Maximum lines to return"));
         spec.parameters_schema = mira::JsonSchema{object_schema(std::move(properties), {})};
         mira::BuiltinToolHandler handler =
-            [filesystem, retention, &session, options, gate, authorize, cancel](
-                const JsonValue &arguments,
-                const mira::OperationContext &context) -> Result<JsonValue> {
+            [filesystem, retention, &session, options, gate, authorize,
+             cancel](const JsonValue &arguments,
+                     const mira::OperationContext &context) -> Result<JsonValue> {
             if (context.cancelled() || cancel.cancelled()) {
                 return basic_error(ErrorCode::Cancelled, "run cancelled before the tool ran");
             }
@@ -385,9 +381,8 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
             limits.max_scan_bytes = static_cast<std::size_t>(kReadScanBytes);
             limits.max_scan_time = std::chrono::seconds(kReadScanSeconds);
             if (const auto limit = int_member(arguments, "limit")) {
-                limits.max_lines = static_cast<std::size_t>(
-                    std::clamp<std::int64_t>(*limit, 1,
-                                             static_cast<std::int64_t>(kReadWindowLines)));
+                limits.max_lines = static_cast<std::size_t>(std::clamp<std::int64_t>(
+                    *limit, 1, static_cast<std::int64_t>(kReadWindowLines)));
             }
             std::uint64_t offset = 0;
             if (const auto requested = int_member(arguments, "offset")) {
@@ -397,17 +392,17 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
                 JsonValue::Array lines;
                 for (std::size_t index = 0; index < window.lines.size(); ++index) {
                     JsonValue::Object line;
-                    line.emplace_back("number", json_int(static_cast<std::int64_t>(
-                                                                    window.first_line) +
-                                                         static_cast<std::int64_t>(index)));
+                    line.emplace_back("number",
+                                      json_int(static_cast<std::int64_t>(window.first_line) +
+                                               static_cast<std::int64_t>(index)));
                     line.emplace_back("text", json_string(window.lines[index]));
                     lines.push_back(JsonValue{std::move(line)});
                 }
                 JsonValue::Object result;
                 result.emplace_back("lines", JsonValue{std::move(lines)});
                 result.emplace_back("eof", json_bool(window.eof));
-                result.emplace_back(
-                    "next_offset", json_int(static_cast<std::int64_t>(window.next_offset)));
+                result.emplace_back("next_offset",
+                                    json_int(static_cast<std::int64_t>(window.next_offset)));
                 if (window.total_lines) {
                     result.emplace_back("total_lines",
                                         json_int(static_cast<std::int64_t>(*window.total_lines)));
@@ -458,8 +453,8 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
             }
             result.emplace_back("lines", JsonValue{std::move(lines)});
             result.emplace_back("eof", json_bool(window.eof));
-            result.emplace_back(
-                "next_offset", json_int(static_cast<std::int64_t>(window.next_offset)));
+            result.emplace_back("next_offset",
+                                json_int(static_cast<std::int64_t>(window.next_offset)));
             if (window.total_lines) {
                 result.emplace_back("total_lines",
                                     json_int(static_cast<std::int64_t>(*window.total_lines)));
@@ -487,9 +482,9 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
         spec.parameters_schema =
             mira::JsonSchema{object_schema(std::move(properties), {"path", "content"})};
         mira::BuiltinToolHandler handler =
-            [filesystem, &session, options, gate, authorize, cancel](
-                const JsonValue &arguments,
-                const mira::OperationContext &context) -> Result<JsonValue> {
+            [filesystem, &session, options, gate, authorize,
+             cancel](const JsonValue &arguments,
+                     const mira::OperationContext &context) -> Result<JsonValue> {
             if (context.cancelled() || cancel.cancelled()) {
                 return basic_error(ErrorCode::Cancelled, "run cancelled before the tool ran");
             }
@@ -513,8 +508,7 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
             // anything else stays create-if-absent (DEC-095 decision 3).
             const auto observation = session.observation_of(*path);
             mirage::desktop::FileWriteOutcome outcome;
-            if (observation && observation->full &&
-                observation->version.digest_available()) {
+            if (observation && observation->full && observation->version.digest_available()) {
                 outcome = filesystem->replace_file(*path, content, *observation, limits, cancel);
             } else {
                 outcome = filesystem->create_file(*path, content, limits, cancel);
@@ -535,8 +529,8 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
             result.emplace_back("applied", json_bool(outcome.applied));
             result.emplace_back("created", json_bool(outcome.created));
             result.emplace_back("replaced", json_bool(outcome.replaced));
-            result.emplace_back(
-                "bytes_written", json_int(static_cast<std::int64_t>(outcome.bytes_written)));
+            result.emplace_back("bytes_written",
+                                json_int(static_cast<std::int64_t>(outcome.bytes_written)));
             return JsonValue{std::move(result)};
         };
         register_tool(std::move(spec), std::move(handler));
@@ -556,16 +550,15 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
         properties.emplace_back(
             "path", string_schema("File path (absolute, or relative to the session workspace)"));
         properties.emplace_back("old_string", string_schema("Exact text to replace"));
-        properties.emplace_back("new_string",
-                                string_schema("Replacement text (empty deletes)"));
+        properties.emplace_back("new_string", string_schema("Replacement text (empty deletes)"));
         properties.emplace_back("replace_all",
                                 boolean_schema("Replace every occurrence (default false)"));
-        spec.parameters_schema = mira::JsonSchema{object_schema(
-            std::move(properties), {"path", "old_string", "new_string"})};
+        spec.parameters_schema = mira::JsonSchema{
+            object_schema(std::move(properties), {"path", "old_string", "new_string"})};
         mira::BuiltinToolHandler handler =
-            [filesystem, &session, options, gate, authorize, cancel](
-                const JsonValue &arguments,
-                const mira::OperationContext &context) -> Result<JsonValue> {
+            [filesystem, &session, options, gate, authorize,
+             cancel](const JsonValue &arguments,
+                     const mira::OperationContext &context) -> Result<JsonValue> {
             if (context.cancelled() || cancel.cancelled()) {
                 return basic_error(ErrorCode::Cancelled, "run cancelled before the tool ran");
             }
@@ -596,8 +589,8 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
             }
             JsonValue::Object result = file_facts(*path, outcome.version);
             result.emplace_back("applied", json_bool(outcome.applied));
-            result.emplace_back(
-                "replacements", json_int(static_cast<std::int64_t>(outcome.replacements)));
+            result.emplace_back("replacements",
+                                json_int(static_cast<std::int64_t>(outcome.replacements)));
             return JsonValue{std::move(result)};
         };
         register_tool(std::move(spec), std::move(handler));
@@ -618,17 +611,18 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
         properties.emplace_back("command", string_schema("Shell command line"));
         properties.emplace_back(
             "workdir", string_schema("Working directory relative to the session workspace"));
-        properties.emplace_back("timeout_ms", integer_schema(
-                                                   1000, static_cast<std::int64_t>(std::chrono::milliseconds(
-                                                             options.exec_timeout_max)
-                                                             .count()),
-                                                   "Wall-clock budget in milliseconds"));
+        properties.emplace_back(
+            "timeout_ms",
+            integer_schema(1000,
+                           static_cast<std::int64_t>(
+                               std::chrono::milliseconds(options.exec_timeout_max).count()),
+                           "Wall-clock budget in milliseconds"));
         spec.parameters_schema =
             mira::JsonSchema{object_schema(std::move(properties), {"command"})};
         mira::BuiltinToolHandler handler =
-            [process, retention, options, gate, authorize, cancel](
-                const JsonValue &arguments,
-                const mira::OperationContext &context) -> Result<JsonValue> {
+            [process, retention, options, gate, authorize,
+             cancel](const JsonValue &arguments,
+                     const mira::OperationContext &context) -> Result<JsonValue> {
             if (context.cancelled() || cancel.cancelled()) {
                 return basic_error(ErrorCode::Cancelled, "run cancelled before the tool ran");
             }
@@ -636,8 +630,9 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
             std::filesystem::path workdir = options.workspace;
             if (const auto requested = string_member(arguments, "workdir"); !requested.empty()) {
                 const std::filesystem::path relative(requested);
-                workdir = relative.is_absolute() ? relative
-                                                 : (options.workspace / relative).lexically_normal();
+                workdir = relative.is_absolute()
+                              ? relative
+                              : (options.workspace / relative).lexically_normal();
             }
             if (!authorized(gate, authorize, "process.execute", command, context)) {
                 return permission_denied("process.execute");
@@ -647,9 +642,8 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
             if (const auto timeout = int_member(arguments, "timeout_ms")) {
                 limits.timeout = std::chrono::milliseconds(std::clamp<std::int64_t>(
                     *timeout, 1000,
-                    static_cast<std::int64_t>(std::chrono::milliseconds(
-                                                  options.exec_timeout_max)
-                                                  .count())));
+                    static_cast<std::int64_t>(
+                        std::chrono::milliseconds(options.exec_timeout_max).count())));
             }
             limits.max_output_bytes = options.exec_preview_bytes;
             limits.max_command_bytes = 64u << 10;
@@ -661,10 +655,10 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
                 std::string refusal;
                 streams = retention->open(context.session.to_string(), &refusal);
                 if (!streams) {
-                    return basic_error(
-                        ErrorCode::ResourceExhausted,
-                        refusal + ": output retention budgets are spent; read or expire "
-                                  "retained output before running more commands");
+                    return basic_error(ErrorCode::ResourceExhausted,
+                                       refusal +
+                                           ": output retention budgets are spent; read or expire "
+                                           "retained output before running more commands");
                 }
             }
             ProcessRequest request;
@@ -685,15 +679,13 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
                 return provider_failure(outcome.error);
             }
             bool preview_truncated = outcome.output_truncated;
-            std::string standard_output =
-                trim_preview(outcome.standard_output, options.exec_preview_bytes,
-                             preview_truncated);
+            std::string standard_output = trim_preview(
+                outcome.standard_output, options.exec_preview_bytes, preview_truncated);
             std::string standard_error =
-                trim_preview(outcome.standard_error, options.exec_preview_bytes,
-                             preview_truncated);
+                trim_preview(outcome.standard_error, options.exec_preview_bytes, preview_truncated);
             JsonValue::Object result;
-            result.emplace_back(
-                "exit_code", json_int(outcome.exited_normally ? outcome.exit_code : -1));
+            result.emplace_back("exit_code",
+                                json_int(outcome.exited_normally ? outcome.exit_code : -1));
             std::string terminated = "exit";
             if (outcome.cancelled) {
                 terminated = "cancelled";
@@ -711,12 +703,10 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
             if (streams) {
                 result.emplace_back("stdout_ref", json_string(facts.stdout_ref));
                 result.emplace_back("stderr_ref", json_string(facts.stderr_ref));
-                result.emplace_back(
-                    "retained_stdout_bytes",
-                    json_int(static_cast<std::int64_t>(facts.stdout_bytes)));
-                result.emplace_back(
-                    "retained_stderr_bytes",
-                    json_int(static_cast<std::int64_t>(facts.stderr_bytes)));
+                result.emplace_back("retained_stdout_bytes",
+                                    json_int(static_cast<std::int64_t>(facts.stdout_bytes)));
+                result.emplace_back("retained_stderr_bytes",
+                                    json_int(static_cast<std::int64_t>(facts.stderr_bytes)));
                 result.emplace_back("retained_truncated",
                                     json_bool(facts.stdout_truncated || facts.stderr_truncated));
             }

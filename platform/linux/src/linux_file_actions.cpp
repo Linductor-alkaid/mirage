@@ -40,8 +40,8 @@ using mirage::desktop::FileEditOutcome;
 using mirage::desktop::FileModifyLimits;
 using mirage::desktop::FileObservation;
 using mirage::desktop::FilesystemCapabilities;
-using mirage::desktop::FileWriteOutcome;
 using mirage::desktop::FileVersion;
+using mirage::desktop::FileWriteOutcome;
 using mirage::desktop::ObservedByteRange;
 using mirage::desktop::ProcessLimits;
 using mirage::desktop::ProcessOutcome;
@@ -134,17 +134,16 @@ class Sha256 {
 
     void compress(const std::uint8_t *block) {
         static constexpr std::array<std::uint32_t, 64> kRoundConstants{
-            0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
-            0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
-            0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
-            0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-            0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
-            0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
-            0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
-            0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-            0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
-            0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
-            0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
+            0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+            0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+            0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+            0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+            0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+            0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+            0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+            0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+            0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+            0xc67178f2};
         std::array<std::uint32_t, 64> w{};
         for (int i = 0; i < 16; ++i) {
             const std::size_t base = static_cast<std::size_t>(i) * 4;
@@ -273,11 +272,11 @@ bool open_parent_directory(const std::filesystem::path &parent, int &parent_fd,
                 error = provider_error("not_found",
                                        "parent directory does not exist: " + parent.string());
             } else if (errno == EACCES || errno == EPERM) {
-                error = provider_error(
-                    "permission_denied", "parent directory is not accessible: " + parent.string());
+                error = provider_error("permission_denied",
+                                       "parent directory is not accessible: " + parent.string());
             } else {
-                error = provider_error("io_error",
-                                       "cannot open parent directory: " + parent.string());
+                error =
+                    provider_error("io_error", "cannot open parent directory: " + parent.string());
             }
             return false;
         }
@@ -362,9 +361,9 @@ bool is_valid_utf8_text(std::string_view content) {
 /// effect, never grow past the frozen bound).
 bool modify_limits_valid(const FileModifyLimits &limits, ProviderError &error) {
     if (limits.max_content_bytes == 0 || limits.max_content_bytes > kModifyContentBytes) {
-        error = provider_error("invalid_argument",
-                               "modify budget must be within " +
-                                   std::to_string(kModifyContentBytes) + " bytes");
+        error =
+            provider_error("invalid_argument", "modify budget must be within " +
+                                                   std::to_string(kModifyContentBytes) + " bytes");
         return false;
     }
     return true;
@@ -443,9 +442,8 @@ FileWriteOutcome commit_via_temp(int parent_fd, const std::filesystem::path &pat
                            O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW | O_CLOEXEC,
                            preserved_mode == 0 ? static_cast<mode_t>(0644) : preserved_mode);
         if (temp_fd < 0 && errno != EEXIST) {
-            return failed_write(
-                provider_error("io_error",
-                               "cannot create temporary file in " + path.parent_path().string()));
+            return failed_write(provider_error("io_error", "cannot create temporary file in " +
+                                                               path.parent_path().string()));
         }
     }
     if (temp_fd < 0) {
@@ -483,11 +481,10 @@ FileWriteOutcome commit_via_temp(int parent_fd, const std::filesystem::path &pat
         ::unlinkat(parent_fd, temp_name.c_str(), 0);
         return failed_write(provider_error("cancelled", "write was cancelled before commit"));
     }
-    const int result =
-        allow_replace
-            ? ::renameat(parent_fd, temp_name.c_str(), parent_fd, name.c_str())
-            : static_cast<int>(::syscall(SYS_renameat2, parent_fd, temp_name.c_str(), parent_fd,
-                                         name.c_str(), RENAME_NOREPLACE));
+    const int result = allow_replace
+                           ? ::renameat(parent_fd, temp_name.c_str(), parent_fd, name.c_str())
+                           : static_cast<int>(::syscall(SYS_renameat2, parent_fd, temp_name.c_str(),
+                                                        parent_fd, name.c_str(), RENAME_NOREPLACE));
     if (result != 0) {
         const int saved = errno;
         ::unlinkat(parent_fd, temp_name.c_str(), 0);
@@ -580,9 +577,9 @@ template <typename Table> class FileLeaseGuard {
 /// skip_lines at or beyond the line count is an invalid_argument: a stale
 /// continuation is a caller bug, and eof windows carry next_offset facts.
 /// An empty file with skip_lines zero is the legal empty eof window.
-TextWindowOutcome window_from_lines(std::string_view content,
-                                    const std::vector<LineSpan> &lines, std::uint64_t skip_lines,
-                                    const TextWindowLimits &limits, FileVersion version) {
+TextWindowOutcome window_from_lines(std::string_view content, const std::vector<LineSpan> &lines,
+                                    std::uint64_t skip_lines, const TextWindowLimits &limits,
+                                    FileVersion version) {
     TextWindowOutcome outcome;
     if (lines.empty() && skip_lines == 0) {
         outcome.ok = true;
@@ -593,9 +590,9 @@ TextWindowOutcome window_from_lines(std::string_view content,
         return outcome;
     }
     if (skip_lines >= lines.size()) {
-        outcome.error = provider_error("invalid_argument",
-                                       "offset beyond end of file (file has " +
-                                           std::to_string(lines.size()) + " lines)");
+        outcome.error =
+            provider_error("invalid_argument", "offset beyond end of file (file has " +
+                                                   std::to_string(lines.size()) + " lines)");
         return outcome;
     }
     const std::size_t begin = static_cast<std::size_t>(skip_lines);
@@ -609,10 +606,10 @@ TextWindowOutcome window_from_lines(std::string_view content,
             admit_line(line.length, rendered, outcome.lines.size(), limits);
         if (decision == LineDecision::TooLong) {
             outcome.error = provider_error(
-                "line_too_long",
-                "line " + std::to_string(static_cast<std::uint64_t>(index) + 1) + " has " +
-                    std::to_string(line.length) + " bytes, beyond the window budget of " +
-                    std::to_string(limits.max_bytes) + " bytes");
+                "line_too_long", "line " + std::to_string(static_cast<std::uint64_t>(index) + 1) +
+                                     " has " + std::to_string(line.length) +
+                                     " bytes, beyond the window budget of " +
+                                     std::to_string(limits.max_bytes) + " bytes");
             return outcome;
         }
         if (decision == LineDecision::Stop) {
@@ -643,9 +640,9 @@ TextWindowOutcome window_from_lines(std::string_view content,
                       static_cast<unsigned char>(content[2]) == 0xBF;
     outcome.has_crlf = window_has_crlf;
     outcome.version = std::move(version);
-    outcome.observed_range = ObservedByteRange{
-        static_cast<std::uint64_t>(lines[begin].start),
-        static_cast<std::uint64_t>(end_offset - lines[begin].start)};
+    outcome.observed_range =
+        ObservedByteRange{static_cast<std::uint64_t>(lines[begin].start),
+                          static_cast<std::uint64_t>(end_offset - lines[begin].start)};
     return outcome;
 }
 
@@ -657,8 +654,7 @@ TextWindowOutcome window_from_content(std::string_view content, std::uint64_t sk
                                       const TextWindowLimits &limits, const struct stat &info) {
     if (!is_valid_utf8_text(content)) {
         TextWindowOutcome outcome;
-        outcome.error =
-            provider_error("unsupported_encoding", "file is not valid UTF-8 text");
+        outcome.error = provider_error("unsupported_encoding", "file is not valid UTF-8 text");
         return outcome;
     }
     FileVersion version = version_from_stat(info, content_digest_hex(content));
@@ -693,8 +689,7 @@ TextWindowOutcome window_from_stream(int fd, std::uint64_t skip_lines,
             outcome.error = provider_error("cancelled", "read was cancelled");
             return outcome;
         }
-        if (scanned > limits.max_scan_bytes ||
-            std::chrono::steady_clock::now() > deadline) {
+        if (scanned > limits.max_scan_bytes || std::chrono::steady_clock::now() > deadline) {
             outcome.error = scan_exceeded();
             return outcome;
         }
@@ -708,10 +703,9 @@ TextWindowOutcome window_from_stream(int fd, std::uint64_t skip_lines,
             return outcome;
         }
         if (received == 0) {
-            outcome.error =
-                provider_error("invalid_argument", "offset beyond end of file (scanned " +
-                                                       std::to_string(line_index) +
-                                                       " complete lines)");
+            outcome.error = provider_error("invalid_argument",
+                                           "offset beyond end of file (scanned " +
+                                               std::to_string(line_index) + " complete lines)");
             return outcome;
         }
         scanned += static_cast<std::size_t>(received);
@@ -752,11 +746,11 @@ TextWindowOutcome window_from_stream(int fd, std::uint64_t skip_lines,
             const LineDecision decision =
                 admit_line(length, rendered, outcome.lines.size(), limits);
             if (decision == LineDecision::TooLong) {
-                outcome.error = provider_error(
-                    "line_too_long",
-                    "line " + std::to_string(line_index + 1) + " has " +
-                        std::to_string(length) + " bytes, beyond the window budget of " +
-                        std::to_string(limits.max_bytes) + " bytes");
+                outcome.error = provider_error("line_too_long",
+                                               "line " + std::to_string(line_index + 1) + " has " +
+                                                   std::to_string(length) +
+                                                   " bytes, beyond the window budget of " +
+                                                   std::to_string(limits.max_bytes) + " bytes");
                 return outcome;
             }
             if (decision == LineDecision::Stop) {
@@ -772,8 +766,8 @@ TextWindowOutcome window_from_stream(int fd, std::uint64_t skip_lines,
                 window_has_crlf = true;
             }
             if (!is_valid_utf8_text(view)) {
-                outcome.error = provider_error("unsupported_encoding",
-                                               "file is not valid UTF-8 text");
+                outcome.error =
+                    provider_error("unsupported_encoding", "file is not valid UTF-8 text");
                 return outcome;
             }
             outcome.lines.emplace_back(view);
@@ -792,8 +786,7 @@ TextWindowOutcome window_from_stream(int fd, std::uint64_t skip_lines,
             outcome.error = provider_error("cancelled", "read was cancelled");
             return outcome;
         }
-        if (scanned > limits.max_scan_bytes ||
-            std::chrono::steady_clock::now() > deadline) {
+        if (scanned > limits.max_scan_bytes || std::chrono::steady_clock::now() > deadline) {
             outcome.error = scan_exceeded();
             return outcome;
         }
@@ -826,9 +819,9 @@ TextWindowOutcome window_from_stream(int fd, std::uint64_t skip_lines,
     // window already carries next_offset for well-formed continuations).
     if (outcome.eof && outcome.lines.empty() && skip_lines > 0) {
         outcome = TextWindowOutcome{};
-        outcome.error = provider_error(
-            "invalid_argument", "offset beyond end of file (scanned " +
-                                    std::to_string(line_index) + " complete lines)");
+        outcome.error =
+            provider_error("invalid_argument", "offset beyond end of file (scanned " +
+                                                   std::to_string(line_index) + " complete lines)");
         return outcome;
     }
     outcome.has_bom = skip_lines == 0 && window_start == 0 && !outcome.lines.empty() &&
@@ -850,8 +843,7 @@ TextWindowOutcome window_from_stream(int fd, std::uint64_t skip_lines,
 /// Builds the "\r\n" -> "\n" view of `content` together with the raw offset
 /// of every view byte (empty when the content has no "\r" and view positions
 /// are raw positions directly).
-std::string normalized_view(const std::string &content,
-                            std::vector<std::uint32_t> &view_to_raw) {
+std::string normalized_view(const std::string &content, std::vector<std::uint32_t> &view_to_raw) {
     view_to_raw.clear();
     if (content.find('\r') == std::string::npos) {
         return content;
@@ -878,22 +870,21 @@ struct RawSpan {
     std::uint64_t end;
 };
 
-RawSpan raw_span(const std::vector<std::uint32_t> &view_to_raw, std::size_t begin,
-                 std::size_t end, std::size_t raw_length) {
+RawSpan raw_span(const std::vector<std::uint32_t> &view_to_raw, std::size_t begin, std::size_t end,
+                 std::size_t raw_length) {
     if (view_to_raw.empty()) {
         return {static_cast<std::uint64_t>(begin), static_cast<std::uint64_t>(end)};
     }
     const std::uint64_t raw_begin = view_to_raw[begin];
     const std::uint64_t raw_end =
-        end == 0 ? 0
-                 : static_cast<std::uint64_t>(view_to_raw[end - 1]) + 1;
+        end == 0 ? 0 : static_cast<std::uint64_t>(view_to_raw[end - 1]) + 1;
     return {raw_begin, std::min<std::uint64_t>(raw_end, raw_length)};
 }
 
 /// Finds every occurrence of `needle` (non-overlapping, leftmost-first) as
 /// [begin, end) positions in `haystack`.
-std::vector<std::pair<std::size_t, std::size_t>>
-find_occurrences(std::string_view haystack, std::string_view needle) {
+std::vector<std::pair<std::size_t, std::size_t>> find_occurrences(std::string_view haystack,
+                                                                  std::string_view needle) {
     std::vector<std::pair<std::size_t, std::size_t>> matches;
     std::size_t from = 0;
     while (from + needle.size() <= haystack.size()) {
@@ -1021,7 +1012,8 @@ TextWindowOutcome LinuxDesktopEnvironment::read_text_window(const std::filesyste
     if (static_cast<std::uint64_t>(info.st_size) <= kModifyContentBytes) {
         std::string content;
         bool truncated = false;
-        const auto status = read_all_bounded(fd.fd, kModifyContentBytes, cancel, content, truncated);
+        const auto status =
+            read_all_bounded(fd.fd, kModifyContentBytes, cancel, content, truncated);
         if (status == ReadAllStatus::TooLarge) {
             if (::lseek(fd.fd, 0, SEEK_SET) < 0) {
                 TextWindowOutcome outcome;
@@ -1061,14 +1053,12 @@ FileWriteOutcome LinuxDesktopEnvironment::create_file(const std::filesystem::pat
         return failed_write(std::move(error));
     }
     if (content.size() > limits.max_content_bytes) {
-        return failed_write(provider_error("file_too_large",
-                                           "content exceeds the modify budget of " +
-                                               std::to_string(limits.max_content_bytes) +
-                                               " bytes"));
+        return failed_write(provider_error(
+            "file_too_large", "content exceeds the modify budget of " +
+                                  std::to_string(limits.max_content_bytes) + " bytes"));
     }
     const struct stat untouched {};
-    auto outcome =
-        commit_via_temp(parent.fd, path, name, content, 0, false, cancel, -1, untouched);
+    auto outcome = commit_via_temp(parent.fd, path, name, content, 0, false, cancel, -1, untouched);
     return outcome;
 }
 
@@ -1088,17 +1078,15 @@ FileWriteOutcome LinuxDesktopEnvironment::replace_file(const std::filesystem::pa
             "not_observed", "replacing a file requires a full observation of its content"));
     }
     if (content.size() > limits.max_content_bytes) {
-        return failed_write(provider_error("file_too_large",
-                                           "content exceeds the modify budget of " +
-                                               std::to_string(limits.max_content_bytes) +
-                                               " bytes"));
+        return failed_write(provider_error(
+            "file_too_large", "content exceeds the modify budget of " +
+                                  std::to_string(limits.max_content_bytes) + " bytes"));
     }
-    const FdGuard target(
-        ::openat(parent.fd, name.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC));
+    const FdGuard target(::openat(parent.fd, name.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC));
     if (target.fd < 0) {
         if (errno == ELOOP) {
-            return failed_write(provider_error("invalid_argument",
-                                               "write target is a symbolic link: " + path.string()));
+            return failed_write(provider_error(
+                "invalid_argument", "write target is a symbolic link: " + path.string()));
         }
         if (errno == ENOENT) {
             return failed_write(
@@ -1117,14 +1105,13 @@ FileWriteOutcome LinuxDesktopEnvironment::replace_file(const std::filesystem::pa
     if (info.st_nlink > 1) {
         return failed_write(provider_error(
             "invalid_argument",
-            "target has multiple hard links; refusing to change link semantics: " +
-                path.string()));
+            "target has multiple hard links; refusing to change link semantics: " + path.string()));
     }
     if (static_cast<std::uint64_t>(info.st_size) > limits.max_content_bytes) {
-        return failed_write(provider_error("file_too_large",
-                                           "file exceeds the modify budget of " +
-                                               std::to_string(limits.max_content_bytes) +
-                                               " bytes: " + path.string()));
+        return failed_write(
+            provider_error("file_too_large", "file exceeds the modify budget of " +
+                                                 std::to_string(limits.max_content_bytes) +
+                                                 " bytes: " + path.string()));
     }
     std::string current;
     bool truncated = false;
@@ -1139,8 +1126,8 @@ FileWriteOutcome LinuxDesktopEnvironment::replace_file(const std::filesystem::pa
         return failed_write(provider_error("io_error", "read failed: " + path.string()));
     }
     if (!is_valid_utf8_text(current)) {
-        return failed_write(
-            provider_error("unsupported_encoding", "file is not valid UTF-8 text: " + path.string()));
+        return failed_write(provider_error("unsupported_encoding",
+                                           "file is not valid UTF-8 text: " + path.string()));
     }
     if (!observation_matches(observation, info, current, error)) {
         return failed_write(std::move(error));
@@ -1148,11 +1135,11 @@ FileWriteOutcome LinuxDesktopEnvironment::replace_file(const std::filesystem::pa
     FileLeaseGuard lease(*file_leases_, info.st_dev, info.st_ino,
                          file_leases_->try_acquire(info.st_dev, info.st_ino));
     if (!lease.held()) {
-        return failed_write(
-            provider_error("busy", "another write to this file is in progress"));
+        return failed_write(provider_error("busy", "another write to this file is in progress"));
     }
-    return commit_via_temp(parent.fd, path, name, content, static_cast<mode_t>(info.st_mode & 07777),
-                           true, cancel, target.fd, info);
+    return commit_via_temp(parent.fd, path, name, content,
+                           static_cast<mode_t>(info.st_mode & 07777), true, cancel, target.fd,
+                           info);
 }
 
 FileEditOutcome LinuxDesktopEnvironment::edit_file(const std::filesystem::path &path,
@@ -1170,8 +1157,7 @@ FileEditOutcome LinuxDesktopEnvironment::edit_file(const std::filesystem::path &
     if (old_string.empty()) {
         return failed_edit(provider_error("invalid_argument", "old_string must not be empty"));
     }
-    const FdGuard target(
-        ::openat(parent.fd, name.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC));
+    const FdGuard target(::openat(parent.fd, name.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC));
     if (target.fd < 0) {
         if (errno == ELOOP) {
             return failed_edit(provider_error("invalid_argument",
@@ -1197,10 +1183,10 @@ FileEditOutcome LinuxDesktopEnvironment::edit_file(const std::filesystem::path &
             "target has multiple hard links; refusing to change link semantics: " + path.string()));
     }
     if (static_cast<std::uint64_t>(info.st_size) > limits.max_content_bytes) {
-        return failed_edit(provider_error("file_too_large",
-                                          "file exceeds the modify budget of " +
-                                              std::to_string(limits.max_content_bytes) +
-                                              " bytes: " + path.string()));
+        return failed_edit(
+            provider_error("file_too_large", "file exceeds the modify budget of " +
+                                                 std::to_string(limits.max_content_bytes) +
+                                                 " bytes: " + path.string()));
     }
     std::string content;
     bool truncated = false;
@@ -1215,8 +1201,8 @@ FileEditOutcome LinuxDesktopEnvironment::edit_file(const std::filesystem::path &
         return failed_edit(provider_error("io_error", "read failed: " + path.string()));
     }
     if (!is_valid_utf8_text(content)) {
-        return failed_edit(
-            provider_error("unsupported_encoding", "file is not valid UTF-8 text: " + path.string()));
+        return failed_edit(provider_error("unsupported_encoding",
+                                          "file is not valid UTF-8 text: " + path.string()));
     }
     if (!observation_matches(observation, info, content, error)) {
         return failed_edit(std::move(error));
@@ -1228,8 +1214,8 @@ FileEditOutcome LinuxDesktopEnvironment::edit_file(const std::filesystem::path &
     const std::string view = normalized_view(content, view_to_raw);
     const auto matches = find_occurrences(view, old_string);
     if (matches.empty()) {
-        return failed_edit(provider_error("match_not_found",
-                                          "old_string does not occur in the observed content"));
+        return failed_edit(
+            provider_error("match_not_found", "old_string does not occur in the observed content"));
     }
     if (matches.size() > 1 && !replace_all) {
         return failed_edit(provider_error(
@@ -1272,8 +1258,7 @@ FileEditOutcome LinuxDesktopEnvironment::edit_file(const std::filesystem::path &
     if (updated.size() > limits.max_content_bytes) {
         return failed_edit(provider_error("file_too_large",
                                           "edited content would exceed the modify budget of " +
-                                              std::to_string(limits.max_content_bytes) +
-                                              " bytes"));
+                                              std::to_string(limits.max_content_bytes) + " bytes"));
     }
     FileLeaseGuard lease(*file_leases_, info.st_dev, info.st_ino,
                          file_leases_->try_acquire(info.st_dev, info.st_ino));
@@ -1304,37 +1289,34 @@ ProcessOutcome LinuxDesktopEnvironment::execute_request(const ProcessRequest &re
     if (!request.working_directory.empty()) {
         if (!request.working_directory.is_absolute()) {
             ProcessOutcome outcome;
-            outcome.error = provider_error("invalid_argument",
-                                           "working directory must be absolute: " +
-                                               request.working_directory.string());
+            outcome.error =
+                provider_error("invalid_argument", "working directory must be absolute: " +
+                                                       request.working_directory.string());
             return outcome;
         }
-        working_dir.fd = ::open(request.working_directory.c_str(),
-                                O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        working_dir.fd =
+            ::open(request.working_directory.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
         if (working_dir.fd < 0) {
             ProcessOutcome outcome;
             if (errno == ENOENT) {
-                outcome.error = provider_error(
-                    "not_found", "working directory does not exist: " +
-                                     request.working_directory.string());
+                outcome.error = provider_error("not_found", "working directory does not exist: " +
+                                                                request.working_directory.string());
             } else if (errno == ENOTDIR) {
-                outcome.error = provider_error(
-                    "not_regular_file",
-                    "working directory is not a directory: " + request.working_directory.string());
+                outcome.error =
+                    provider_error("not_regular_file", "working directory is not a directory: " +
+                                                           request.working_directory.string());
             } else if (errno == EACCES || errno == EPERM) {
-                outcome.error = provider_error(
-                    "permission_denied",
-                    "working directory is not accessible: " + request.working_directory.string());
+                outcome.error =
+                    provider_error("permission_denied", "working directory is not accessible: " +
+                                                            request.working_directory.string());
             } else {
-                outcome.error = provider_error("io_error",
-                                               "cannot open working directory: " +
-                                                   request.working_directory.string());
+                outcome.error = provider_error("io_error", "cannot open working directory: " +
+                                                               request.working_directory.string());
             }
             return outcome;
         }
     }
-    return execute_common(request.command, limits, cancel, working_dir.fd,
-                          request.output_sink);
+    return execute_common(request.command, limits, cancel, working_dir.fd, request.output_sink);
 }
 
 } // namespace mirage::platform::linux_backend

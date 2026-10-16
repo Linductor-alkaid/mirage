@@ -81,10 +81,11 @@ mirage::desktop::FileReadOutcome read_stream(int fd, std::uintmax_t declared_siz
 
 } // namespace
 
-LinuxDesktopEnvironment::LinuxDesktopEnvironment(
-    std::vector<std::filesystem::path> read_roots, X11Options x11_options,
-    AtspiOptions atspi_options, ApplicationOptions application_options,
-    NotificationsOptions notifications_options, FilesystemWriteOptions filesystem_write_options)
+LinuxDesktopEnvironment::LinuxDesktopEnvironment(std::vector<std::filesystem::path> read_roots,
+                                                 X11Options x11_options, AtspiOptions atspi_options,
+                                                 ApplicationOptions application_options,
+                                                 NotificationsOptions notifications_options,
+                                                 FilesystemWriteOptions filesystem_write_options)
     : read_scope_(std::move(read_roots)), write_scope_(filesystem_write_options.roots),
       file_leases_(std::make_unique<FileLeaseTable>()) {
     const char *session = std::getenv("XDG_SESSION_TYPE");
@@ -420,9 +421,8 @@ mirage::desktop::ProcessOutcome LinuxDesktopEnvironment::execute_common(
             // blocks the command or stops the drain; a failed retain marks
             // retained_truncated and the command keeps running.
             if (output_sink != nullptr) {
-                if (!output_sink->retain(index == 0,
-                                         std::string_view(buffer, static_cast<std::size_t>(
-                                                                        received)))) {
+                if (!output_sink->retain(
+                        index == 0, std::string_view(buffer, static_cast<std::size_t>(received)))) {
                     retained_truncated = true;
                 }
             }

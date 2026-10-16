@@ -101,9 +101,9 @@ struct LocalSettings {
     /// Runtime configuration block (M5-08 Runtime Configuration 类目);
     /// nullopt keeps the built-in bounds.
     std::optional<RuntimeSettings> runtime;
-    std::optional<VisionSettings> vision;        ///< Resource changes take effect at next start.
+    std::optional<VisionSettings> vision;          ///< Resource changes take effect at next start.
     std::optional<BasicToolsSettings> basic_tools; ///< M10-08 (DEC-095); next start.
-    bool remember_desktop_authorization = false; ///< DEC-078; token stays in OS credential store.
+    bool remember_desktop_authorization = false;   ///< DEC-078; token stays in OS credential store.
 };
 
 /// Serializes the document (compact JSON, schema field included).

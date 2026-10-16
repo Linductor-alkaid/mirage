@@ -123,8 +123,7 @@ class ProcessProvider {
     /// the legacy call; a request that needs cwd or retention fails closed
     /// on a backend that cannot deliver it.
     virtual ProcessOutcome execute_request(const ProcessRequest &request,
-                                           const ProcessLimits &limits,
-                                           const CancelToken &cancel) {
+                                           const ProcessLimits &limits, const CancelToken &cancel) {
         if (!request.working_directory.empty() || request.output_sink != nullptr) {
             ProcessOutcome outcome;
             outcome.error = {"unsupported_platform",

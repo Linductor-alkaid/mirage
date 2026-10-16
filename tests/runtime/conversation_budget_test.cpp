@@ -1,6 +1,6 @@
-#include <mirage/conversation.hpp>
 #include "../support/test.hpp"
 #include <cstdio>
+#include <mirage/conversation.hpp>
 
 // DEC-093: categorized budget allocation verification.
 namespace mirage::conversation {

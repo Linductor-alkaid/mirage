@@ -11,8 +11,8 @@
 #include <mirage/desktop/overlay_carrier.hpp>
 #include <mirage/desktop/tray_carrier.hpp>
 #include <mirage/desktop/visual_reference_registry.hpp>
-#include <mirage/integration/mira_adapter.hpp>
 #include <mirage/integration/desktop_tool_context.hpp>
+#include <mirage/integration/mira_adapter.hpp>
 #include <mirage/integration/model_layer.hpp>
 #include <mirage/runtime/ipc/protocol.hpp>
 #include <mirage/runtime/mira_host.hpp>

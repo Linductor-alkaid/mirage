@@ -86,8 +86,8 @@ mira::ModelInputItem result_item(const std::string &call_id, const std::string &
 
 // One assistant item carrying several tool calls: providers such as DeepSeek
 // batch a whole multi-call turn into a single history entry.
-mira::ModelInputItem batch_call_item(
-    const std::vector<std::pair<std::string, std::string>> &calls) {
+mira::ModelInputItem
+batch_call_item(const std::vector<std::pair<std::string, std::string>> &calls) {
     mira::ModelInputItem item;
     item.role = mira::ModelRole::Assistant;
     for (const auto &[id, args_json] : calls) {
@@ -718,8 +718,7 @@ void batched_calls_map_per_part_and_compact_whole() {
     const std::string large(2600, 'x');
     const std::string small(80, 'y');
     const auto batch_args = [](int n, const std::string &fill) {
-        return R"({"source":"display","n":)" + std::to_string(n) + R"(,"fill":")" + fill +
-               R"("})";
+        return R"({"source":"display","n":)" + std::to_string(n) + R"(,"fill":")" + fill + R"("})";
     };
     const auto batch_receipt = [](int n, const std::string &fill) {
         return R"({"v":)" + std::to_string(n) + R"(,"receipt":")" + fill + R"("})";
@@ -763,8 +762,9 @@ void batched_calls_map_per_part_and_compact_whole() {
         check(item.priority == mira::ContextPriority::Disposable);
         check(item.consumed);
         check(!item.replaceable_by_reference);
-        (item.kind == mira::ContextItemKind::ToolCall ? calls_by_key : results_by_key)
-            [*item.tool_call_key] = &item;
+        (item.kind == mira::ContextItemKind::ToolCall ? calls_by_key
+                                                      : results_by_key)[*item.tool_call_key] =
+            &item;
     }
     // Six provider_call_ids; each owns exactly one mapped call item and one
     // mapped result item.
@@ -851,9 +851,9 @@ void mixed_text_and_batched_calls_collapse_atomically() {
     const auto history = [&] {
         std::vector<mira::ModelInputItem> items;
         items.emplace_back(text_item(mira::ModelRole::User, "goal"));
-        items.emplace_back(mixed_item("probing both displays",
-                                      {{"mix-a", R"({"source":"display"})"},
-                                       {"mix-b", R"({"source":"window"})"}}));
+        items.emplace_back(
+            mixed_item("probing both displays", {{"mix-a", R"({"source":"display"})"},
+                                                 {"mix-b", R"({"source":"window"})"}}));
         items.emplace_back(result_item("mix-a", R"({"v":1})"));
         items.emplace_back(result_item("mix-b", R"({"v":2})"));
         items.emplace_back(text_item(mira::ModelRole::Assistant, "wrap-up note"));
@@ -871,9 +871,9 @@ void mixed_text_and_batched_calls_collapse_atomically() {
         // two call items first, then the two result items.
         check(manager.seen.items.size() == 4);
         for (std::size_t index = 0; index < manager.seen.items.size(); ++index)
-            check(manager.seen.items[index].kind ==
-                  (index < 2 ? mira::ContextItemKind::ToolCall
-                             : mira::ContextItemKind::ToolResult));
+            check(
+                manager.seen.items[index].kind ==
+                (index < 2 ? mira::ContextItemKind::ToolCall : mira::ContextItemKind::ToolResult));
         return transformed.value();
     };
     const auto prose_survived = [](const std::vector<mira::ModelInputItem> &replay) {
@@ -886,10 +886,9 @@ void mixed_text_and_batched_calls_collapse_atomically() {
     };
     {
         // Both call keys kept: the item survives with its prose and both calls.
-        const auto replay = replay_with({mira::ContextItemDisposition::Selected,
-                                         mira::ContextItemDisposition::Selected,
-                                         mira::ContextItemDisposition::Selected,
-                                         mira::ContextItemDisposition::Selected});
+        const auto replay = replay_with(
+            {mira::ContextItemDisposition::Selected, mira::ContextItemDisposition::Selected,
+             mira::ContextItemDisposition::Selected, mira::ContextItemDisposition::Selected});
         check(replay.size() == history.size());
         check(same_item(replay[1], history[1]));
         check(prose_survived(replay));
@@ -897,10 +896,9 @@ void mixed_text_and_batched_calls_collapse_atomically() {
     }
     {
         // One call key dropped: the whole batched item leaves, prose included.
-        const auto replay = replay_with({mira::ContextItemDisposition::Dropped,
-                                         mira::ContextItemDisposition::Selected,
-                                         mira::ContextItemDisposition::Selected,
-                                         mira::ContextItemDisposition::Selected});
+        const auto replay = replay_with(
+            {mira::ContextItemDisposition::Dropped, mira::ContextItemDisposition::Selected,
+             mira::ContextItemDisposition::Selected, mira::ContextItemDisposition::Selected});
         check(!prose_survived(replay));
         check(!replay_has_id(replay, "mix-a"));
         // The replay must still satisfy the provider tool protocol.
@@ -925,11 +923,10 @@ void batch_split_across_budget_breaks_pairing() {
     const std::string oversized(1600, 'b');
     std::vector<mira::ModelInputItem> history;
     history.emplace_back(text_item(mira::ModelRole::User, "goal"));
-    history.emplace_back(mixed_item("running two probes",
-                                    {{"split-a",
-                                      R"({"source":"display","fill":")" + modest + R"("})"},
-                                     {"split-b",
-                                      R"({"source":"window","fill":")" + oversized + R"("})"}}));
+    history.emplace_back(
+        mixed_item("running two probes",
+                   {{"split-a", R"({"source":"display","fill":")" + modest + R"("})"},
+                    {"split-b", R"({"source":"window","fill":")" + oversized + R"("})"}}));
     history.emplace_back(result_item("split-a", R"({"v":1,"receipt":")" + modest + R"("})"));
     history.emplace_back(result_item("split-b", R"({"v":2,"receipt":")" + oversized + R"("})"));
     history.emplace_back(text_item(mira::ModelRole::Assistant, "wrap-up note"));
@@ -957,12 +954,10 @@ void multi_part_mapping_estimates_sum_parts() {
             {16384, 1024});
         std::vector<mira::ModelInputItem> history;
         history.emplace_back(text_item(mira::ModelRole::User, "goal"));
-        history.emplace_back(mixed_item("running two probes",
-                                        {{"est-a",
-                                          R"({"source":"display","fill":")" + modest + R"("})"},
-                                         {"est-b",
-                                          R"({"source":"window","fill":")" + oversized +
-                                              R"("})"}}));
+        history.emplace_back(
+            mixed_item("running two probes",
+                       {{"est-a", R"({"source":"display","fill":")" + modest + R"("})"},
+                        {"est-b", R"({"source":"window","fill":")" + oversized + R"("})"}}));
         history.emplace_back(result_item("est-a", R"({"v":1,"receipt":")" + modest + R"("})"));
         history.emplace_back(result_item("est-b", R"({"v":2,"receipt":")" + oversized + R"("})"));
         const auto transformed = builder.transform(history, keys());
@@ -1301,8 +1296,7 @@ int main() {
                 std::cout << "batched-calls test " << name << ": PASS\n";
             } catch (const std::exception &failure) {
                 ++failed_batches;
-                std::cout << "batched-calls test " << name << ": FAIL - " << failure.what()
-                          << '\n';
+                std::cout << "batched-calls test " << name << ": FAIL - " << failure.what() << '\n';
             }
         }
         if (failed_batches != 0)

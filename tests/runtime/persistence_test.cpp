@@ -267,9 +267,7 @@ void scenario_settings_round_trip_all_fields() {
     }
 }
 
-
 // --- M10-08 (DEC-095): the basic_tools settings block ---------------------------
-
 
 // --- M10-08 fix regression: the persisted confirmation mode may select the
 // DEC-020 async confirmation hub ("ipc"); allow/deny keep their meaning.
@@ -284,8 +282,7 @@ void scenario_confirmation_ipc_mode_round_trip() {
     persistence::LocalSettings settings;
     settings.schema = persistence::kSettingsSchema;
     settings.confirmation = "ipc";
-    const auto round_trip =
-        persistence::decode_settings(persistence::encode_settings(settings));
+    const auto round_trip = persistence::decode_settings(persistence::encode_settings(settings));
     MIRAGE_CHECK(round_trip.ok);
     MIRAGE_CHECK(round_trip.settings.confirmation.value_or("?") == "ipc");
 
@@ -300,8 +297,7 @@ void scenario_confirmation_ipc_mode_round_trip() {
     // A bogus mode is refused with the updated message naming all three.
     const auto bogus = persistence::decode_settings(R"({"schema":1,"confirmation":"bogus"})");
     MIRAGE_CHECK(!bogus.ok);
-    MIRAGE_CHECK(bogus.error.find("must be \"allow\", \"deny\" or \"ipc\"") !=
-                 std::string::npos);
+    MIRAGE_CHECK(bogus.error.find("must be \"allow\", \"deny\" or \"ipc\"") != std::string::npos);
 }
 
 void scenario_basic_tools_settings_round_trip() {
@@ -319,8 +315,8 @@ void scenario_basic_tools_settings_round_trip() {
         MIRAGE_CHECK(tools.enabled);
         MIRAGE_CHECK(tools.exec_enabled);
         MIRAGE_CHECK(tools.workspace == "/home/user/工作 区");
-        MIRAGE_CHECK(tools.write_roots == std::vector<std::string>({"/home/user/work",
-                                                                    "/tmp/scratch"}));
+        MIRAGE_CHECK(tools.write_roots ==
+                     std::vector<std::string>({"/home/user/work", "/tmp/scratch"}));
     }
 
     // Encode writes only non-default members: an all-default block encodes

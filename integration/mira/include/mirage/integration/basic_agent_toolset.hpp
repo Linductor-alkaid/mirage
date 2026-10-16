@@ -66,11 +66,9 @@ class BasicToolSessionState {
 /// access — a read-only session never sees them at all.
 /// Registration failure throws; callers settle it as a failed turn.
 void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
-                                const DesktopToolContext &desktop,
-                                BasicToolSessionState &session,
+                                const DesktopToolContext &desktop, BasicToolSessionState &session,
                                 const BasicAgentToolsOptions &options,
                                 const mirage::desktop::CancelToken &cancel,
-                                const Decorator &decorate,
-                                bool full_access);
+                                const Decorator &decorate, bool full_access);
 
 } // namespace mirage::integration
