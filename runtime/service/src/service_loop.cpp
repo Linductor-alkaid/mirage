@@ -255,13 +255,12 @@ void ServiceLoop::drain_outbound() {
     }
 }
 
-#ifndef _WIN32
 void ServiceLoop::accept_ready() {
     for (;;) {
         std::string diagnostic;
         ipc::IpcStream stream = dependencies_.listener->accept(diagnostic);
         if (!stream.valid()) {
-            return; // EAGAIN: nothing pending; other errors surface as closed
+            return; // nothing pending; listener failures recycle with the accept loop
         }
         if (connections_.size() >= dependencies_.max_connections) {
             const std::string frame = error_payload("unavailable", "connection capacity exceeded");
@@ -283,6 +282,7 @@ void ServiceLoop::accept_ready() {
     }
 }
 
+#ifndef _WIN32
 void ServiceLoop::handle_wakeups(bool wake_ready, bool shutdown_ready) {
     // Both descriptors are drained only when poll reported them ready; a
     // registered shutdown fd (signal self-pipe) may legitimately be a
@@ -296,33 +296,6 @@ void ServiceLoop::handle_wakeups(bool wake_ready, bool shutdown_ready) {
         while (::read(shutdown_fd_, buffer, sizeof(buffer)) > 0) {
         }
         stop_serving_.store(true, std::memory_order_release);
-    }
-}
-#else
-void ServiceLoop::accept_ready() {
-    for (;;) {
-        std::string diagnostic;
-        ipc::IpcStream stream = dependencies_.listener->accept(diagnostic);
-        if (!stream.valid()) {
-            return; // nothing pending; recycle diagnostics are carried by the caller's logs
-        }
-        if (connections_.size() >= dependencies_.max_connections) {
-            const std::string frame = error_payload("unavailable", "connection capacity exceeded");
-            // Best-effort refusal, then the stream destructs and closes.
-            std::size_t sent = 0;
-            while (sent < frame.size()) {
-                const ipc::IoResult result =
-                    stream.write_some(frame.data() + sent, frame.size() - sent);
-                if (result.status != ipc::IoStatus::Ok) {
-                    break;
-                }
-                sent += result.bytes;
-            }
-            continue;
-        }
-        Connection connection;
-        connection.stream = std::move(stream);
-        connections_.emplace(next_connection_id_++, std::move(connection));
     }
 }
 #endif

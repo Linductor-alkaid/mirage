@@ -46,11 +46,6 @@ TaskIdentity identity_of(const std::string &task_id) {
     return identity;
 }
 
-bool terminal_progress(TaskProgress progress) {
-    return progress == TaskProgress::Completed || progress == TaskProgress::Failed ||
-           progress == TaskProgress::Cancelled;
-}
-
 /// The permission capability a scripted step exercises (DEC-010). The M1
 /// step set cannot express filesystem.write, so that capability is judged
 /// by the framework and tests, not by this driver.
@@ -74,20 +69,6 @@ auto post_host(ServiceCore &core,
 
 template <typename T> bool ready_within(std::future<T> &future, std::chrono::milliseconds budget) {
     return future.valid() && future.wait_for(budget) == std::future_status::ready;
-}
-
-/// Consumes a settled best-effort future, swallowing its exception: the
-/// observable task state lives in the pinned runtime, and settlement
-/// failures (for example, cancelling an already cancelled task) must not
-/// kill the driver.
-template <typename T> void consume(std::future<T> future) {
-    try {
-        if (future.valid()) {
-            (void)future.get();
-        }
-    } catch (const std::exception &) {
-    } catch (...) {
-    }
 }
 
 /// Publishes one settled-step turn (DEC-021) and — when the step reached the
@@ -353,7 +334,7 @@ void settle_failed(const std::shared_ptr<ServiceCore> &core, const std::string &
 void admit_completion(ServiceCore &core, const OperationTicket &ticket) {
     // Idempotent by pinned contract (stale/late tickets settle as NoOps), so
     // a timeout or rejection here never escalates into a task failure.
-    consume(
+    consume_best_effort(
         post_host(core, [&core, ticket] { return core.host.admit_operation_completion(ticket); }));
 }
 
@@ -475,7 +456,7 @@ void publish_task_updated_best_effort(const std::shared_ptr<ServiceCore> &core,
         if (!ready_within(posted, core->command_wait)) {
             return; // dropped: events are notifications, snapshots are truth
         }
-        consume(std::move(posted));
+        consume_best_effort(std::move(posted));
     } catch (const std::exception &) {
         // Rejected admission (teardown in progress) ends the publish path.
     } catch (...) {
@@ -490,7 +471,7 @@ void publish_permission_request_best_effort(const std::shared_ptr<ServiceCore> &
         if (!ready_within(posted, core->command_wait)) {
             return; // dropped: the hub's pending set stays the truth (DEC-020)
         }
-        consume(std::move(posted));
+        consume_best_effort(std::move(posted));
     } catch (const std::exception &) {
         // Rejected admission (teardown in progress) ends the publish path.
     } catch (...) {
@@ -520,7 +501,7 @@ void publish_session_event_best_effort(const std::shared_ptr<ServiceCore> &core,
         if (!ready_within(posted, core->command_wait)) {
             return; // dropped: session.list / session.history stay the truth
         }
-        consume(std::move(posted));
+        consume_best_effort(std::move(posted));
     } catch (const std::exception &) {
         // Rejected admission (teardown in progress) ends the publish path.
     } catch (...) {
