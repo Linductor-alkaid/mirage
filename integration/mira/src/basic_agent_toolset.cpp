@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -327,6 +328,7 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
     // pointers stay valid because the environment outlives the registry.
     const AtomPermissionGate gate = desktop.gate;
     const AuthorizeFn authorize = desktop.authorize;
+    auto *retention = desktop.output_retention;
 
     const auto register_tool = [&registry, &decorate](mira::BuiltinToolSpec spec,
                                                       mira::BuiltinToolHandler handler) {
@@ -344,12 +346,16 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
         mira::BuiltinToolSpec spec;
         spec.wire_name = "read";
         spec.description =
-            "Reads a bounded window of a UTF-8 text file with 1-based line numbers. Continue "
-            "with offset = next_offset of the previous result. Nothing is truncated silently: "
-            "eof and next_offset facts tell what remains.";
+            "Reads a bounded window of a UTF-8 text file, or of retained command output from a "
+            "previous exec in this session (output_ref). 1-based line numbers; continue with "
+            "offset = next_offset of the previous result. Nothing is truncated silently: eof "
+            "and next_offset facts tell what remains.";
         JsonValue::Object properties;
         properties.emplace_back(
             "path", string_schema("File path (absolute, or relative to the session workspace)"));
+        properties.emplace_back(
+            "output_ref",
+            string_schema("Retained output reference from a previous exec result (same session)"));
         properties.emplace_back(
             "offset", integer_schema(
                           0, 1000000000,
@@ -357,21 +363,19 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
         properties.emplace_back("limit", integer_schema(1, static_cast<std::int64_t>(
                                                              kReadWindowLines),
                                                         "Maximum lines to return"));
-        spec.parameters_schema = mira::JsonSchema{object_schema(std::move(properties), {"path"})};
+        spec.parameters_schema = mira::JsonSchema{object_schema(std::move(properties), {})};
         mira::BuiltinToolHandler handler =
-            [filesystem, &session, options, gate, authorize](
+            [filesystem, retention, &session, options, gate, authorize](
                 const JsonValue &arguments,
                 const mira::OperationContext &context) -> Result<JsonValue> {
             if (context.cancelled()) {
                 return basic_error(ErrorCode::Cancelled, "run cancelled before the tool ran");
             }
-            Error error;
-            const auto path = resolve_path(options, string_member(arguments, "path"), error);
-            if (!path) {
-                return error;
-            }
-            if (!authorized(gate, authorize, "filesystem.read", path->string(), context)) {
-                return permission_denied("filesystem.read");
+            const std::string path_argument = string_member(arguments, "path");
+            const std::string output_ref = string_member(arguments, "output_ref");
+            if (path_argument.empty() == output_ref.empty()) {
+                return basic_error(ErrorCode::InvalidArgument,
+                                   "provide exactly one of path or output_ref");
             }
             TextWindowLimits limits;
             limits.max_lines = kReadWindowLines;
@@ -386,6 +390,50 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
             std::uint64_t offset = 0;
             if (const auto requested = int_member(arguments, "offset")) {
                 offset = requested < 0 ? 0 : static_cast<std::uint64_t>(*requested);
+            }
+            const auto render_lines = [](const TextWindowOutcome &window) {
+                JsonValue::Array lines;
+                for (std::size_t index = 0; index < window.lines.size(); ++index) {
+                    JsonValue::Object line;
+                    line.emplace_back("number", json_int(static_cast<std::int64_t>(
+                                                                    window.first_line) +
+                                                         static_cast<std::int64_t>(index)));
+                    line.emplace_back("text", json_string(window.lines[index]));
+                    lines.push_back(JsonValue{std::move(line)});
+                }
+                JsonValue::Object result;
+                result.emplace_back("lines", JsonValue{std::move(lines)});
+                result.emplace_back("eof", json_bool(window.eof));
+                result.emplace_back(
+                    "next_offset", json_int(static_cast<std::int64_t>(window.next_offset)));
+                if (window.total_lines) {
+                    result.emplace_back("total_lines",
+                                        json_int(static_cast<std::int64_t>(*window.total_lines)));
+                }
+                return result;
+            };
+            if (!output_ref.empty()) {
+                if (retention == nullptr) {
+                    return basic_error(ErrorCode::InvalidArgument,
+                                       "unsupported_platform: output retention is not wired on "
+                                       "this session; retained refs cannot be read");
+                }
+                const TextWindowOutcome window =
+                    retention->read(context.session.to_string(), output_ref, offset, limits);
+                if (!window.ok) {
+                    return provider_failure(window.error);
+                }
+                JsonValue::Object result = render_lines(window);
+                result.emplace_back("output_ref", json_string(output_ref));
+                return JsonValue{std::move(result)};
+            }
+            Error error;
+            const auto path = resolve_path(options, path_argument, error);
+            if (!path) {
+                return error;
+            }
+            if (!authorized(gate, authorize, "filesystem.read", path->string(), context)) {
+                return permission_denied("filesystem.read");
             }
             const TextWindowOutcome window =
                 filesystem->read_text_window(*path, offset, limits, CancelToken{});
@@ -578,7 +626,7 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
         spec.parameters_schema =
             mira::JsonSchema{object_schema(std::move(properties), {"command"})};
         mira::BuiltinToolHandler handler =
-            [process, options, gate, authorize](
+            [process, retention, options, gate, authorize](
                 const JsonValue &arguments,
                 const mira::OperationContext &context) -> Result<JsonValue> {
             if (context.cancelled()) {
@@ -605,10 +653,29 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
             }
             limits.max_output_bytes = options.exec_preview_bytes;
             limits.max_command_bytes = 64u << 10;
+            // M10-06 (DEC-095): retention is admitted before any process is
+            // created; an exhausted budget refuses the execution instead of
+            // starting a command whose output could not be honored.
+            std::shared_ptr<BasicOutputStreams> streams;
+            if (retention != nullptr) {
+                std::string refusal;
+                streams = retention->open(context.session.to_string(), &refusal);
+                if (!streams) {
+                    return basic_error(
+                        ErrorCode::ResourceExhausted,
+                        refusal + ": output retention budgets are spent; read or expire "
+                                  "retained output before running more commands");
+                }
+            }
             ProcessRequest request;
             request.command = command;
             request.working_directory = workdir;
+            request.output_sink = streams.get();
             const ProcessOutcome outcome = process->execute_request(request, limits, CancelToken{});
+            BasicOutputStreamFacts facts;
+            if (streams) {
+                facts = streams->settle(); // terminal state fixes refs and expiry
+            }
             // Cancelled / timed-out commands still carry their output and
             // termination facts as a result (DEC-095 decision 5); only
             // spawn/reap/I-O failures become failed records.
@@ -639,6 +706,18 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
             result.emplace_back("stdout", json_string(std::move(standard_output)));
             result.emplace_back("stderr", json_string(std::move(standard_error)));
             result.emplace_back("output_truncated", json_bool(preview_truncated));
+            if (streams) {
+                result.emplace_back("stdout_ref", json_string(facts.stdout_ref));
+                result.emplace_back("stderr_ref", json_string(facts.stderr_ref));
+                result.emplace_back(
+                    "retained_stdout_bytes",
+                    json_int(static_cast<std::int64_t>(facts.stdout_bytes)));
+                result.emplace_back(
+                    "retained_stderr_bytes",
+                    json_int(static_cast<std::int64_t>(facts.stderr_bytes)));
+                result.emplace_back("retained_truncated",
+                                    json_bool(facts.stdout_truncated || facts.stderr_truncated));
+            }
             return JsonValue{std::move(result)};
         };
         register_tool(std::move(spec), std::move(handler));

@@ -6,6 +6,7 @@
 #include <mirage/desktop/desktop_environment.hpp>
 #include <mirage/desktop/overlay_surface.hpp>
 #include <mirage/desktop/visual_snapshot.hpp>
+#include <mirage/integration/basic_output_retention.hpp>
 #include <mirage/integration/environment_visual_pipeline.hpp>
 
 #include <cstddef>
@@ -144,6 +145,10 @@ struct DesktopToolContext {
     /// M10-07 (DEC-095): the basic agent tools group; see
     /// BasicAgentToolsOptions above.
     BasicAgentToolsOptions basic_tools;
+    /// M10-06 (DEC-095): runtime-owned bounded output retention. Null keeps
+    /// exec preview-only; when set, exec admits retention before spawn and
+    /// read resolves output_ref arguments through it.
+    BasicOutputRetention *output_retention = nullptr;
 };
 
 } // namespace mirage::integration
