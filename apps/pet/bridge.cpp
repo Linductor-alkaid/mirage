@@ -59,7 +59,8 @@ struct Bridge::Impl {
     std::uint64_t consumed_status = 0, consumed_preferences = 0; // UI-owned
     kairo::comm::LatestMailbox<runtime::persistence::AppPreferences> appearance{"pet-appearance"};
     runtime::persistence::LocalStateStore preference_store{
-        runtime::persistence::default_config_directory(), "preferences.json", 4096};
+        runtime::persistence::default_config_directory(), "preferences.json",
+        runtime::persistence::kMaxAppPreferencesBytes};
     void load_preferences() {
         const auto stored = preference_store.load();
         if (stored.status == runtime::persistence::LoadStatus::Loaded)

@@ -1,5 +1,6 @@
+#include "../common/environment.hpp"
+
 #include <chrono>
-#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <mirage/platform/frontend_process.hpp>
@@ -13,12 +14,12 @@ int main() {
         std::cerr << "mira_pet: " << exit_diagnostic << '\n';
         return 1;
     }
-    const char *endpoint = std::getenv("MIRAGE_PET_SOCKET");
-    if (!endpoint || !*endpoint) {
+    const auto endpoint = mirage::apps::environment_variable("MIRAGE_PET_SOCKET");
+    if (!endpoint || endpoint->empty()) {
         std::cerr << "mira_pet: tray-owned socket is required\n";
         return 1;
     }
-    mirage::runtime::ipc::IpcClient client(endpoint);
+    mirage::runtime::ipc::IpcClient client(*endpoint);
     const auto hello =
         client.call(mirage::runtime::ipc::HelloRequest{}, std::chrono::milliseconds{1500});
     const auto *identity = std::get_if<mirage::runtime::ipc::ServiceIdentity>(&hello.payload);

@@ -104,4 +104,4 @@ mirage_enable_warnings(mirage-native)
 # kairo via the shared consumer face (DEC-096): SYSTEM include + file-path
 # link, no hardcoded nested-pin paths.
 target_link_libraries(mirage-native PRIVATE Mirage::ipc Mirage::persistence
-    Mirage::kairo_consumer)
+    Mirage::platform Mirage::kairo_consumer)
