@@ -1,5 +1,7 @@
 # Mirage 实施总计划
 
+2026-10-16：[M7-23](m7-yolo-integration.md) 接入真实 YOLO 与 Mirador 修复，In Progress，DEC-097。
+
 > 状态：Planned
 > 版本：0.1
 > 负责人：Mirage 维护者

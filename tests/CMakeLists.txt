@@ -1533,3 +1533,23 @@ add_executable(m10_basic_tools_e2e manual/m10_basic_tools_e2e.cpp)
 target_compile_features(m10_basic_tools_e2e PRIVATE cxx_std_20)
 mirage_enable_warnings(m10_basic_tools_e2e)
 target_link_libraries(m10_basic_tools_e2e PRIVATE Mirage::ipc Mirage::conversation)
+
+if(MIRAGE_WITH_YOLO AND TARGET ppocr_pipeline_test)
+    target_compile_definitions(ppocr_pipeline_test PRIVATE MIRAGE_TEST_WITH_YOLO=1)
+endif()
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME yolo_bundle_test COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/integration/yolo_bundle_test.py" "${CMAKE_SOURCE_DIR}")
+    set_tests_properties(yolo_bundle_test PROPERTIES LABELS "integration;resources" TIMEOUT 30)
+endif()
+
+# Explicit evidence exporter; never captures the desktop in default CTest.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_WITH_PPOCR)
+    add_executable(mirador_visual_review EXCLUDE_FROM_ALL manual/mirador_visual_review.cpp)
+    target_include_directories(mirador_visual_review SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+    target_link_libraries(mirador_visual_review PRIVATE Mirage::platform
+        Mirage::integration_mirador mirador::fusion $<TARGET_FILE:kairo::kairo>)
+    mirage_enable_warnings(mirador_visual_review)
+endif()

@@ -58,3 +58,8 @@ if(MIRAGE_WITH_PPOCR)
     target_compile_definitions(mirage_integration_mirador PRIVATE MIRAGE_WITH_PPOCR=1)
     target_link_libraries(mirage_integration_mirador PRIVATE mirador_ocr_ppocr)
 endif()
+
+if(MIRAGE_WITH_YOLO)
+    target_compile_definitions(mirage_integration_mirador PRIVATE MIRAGE_WITH_YOLO=1)
+    target_link_libraries(mirage_integration_mirador PRIVATE mirador_detector_yolo)
+endif()

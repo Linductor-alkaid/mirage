@@ -40,3 +40,9 @@ target_link_libraries(mirage_ipc
 
 target_link_libraries(mirage_ipc PUBLIC Mirage::conversation)
 target_link_libraries(mirage_ipc PUBLIC Mirage::pet_state)
+
+# Private kairo communication implementation; public headers stay pinned-free.
+target_include_directories(mirage_ipc SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include"
+)
+target_link_libraries(mirage_ipc PRIVATE $<TARGET_FILE:kairo::kairo>)

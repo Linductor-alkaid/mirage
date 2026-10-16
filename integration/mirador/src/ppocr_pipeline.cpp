@@ -11,6 +11,9 @@
 #include <stdexcept>
 #ifdef MIRAGE_WITH_PPOCR
 #include <ppocr_backend.hpp>
+#ifdef MIRAGE_WITH_YOLO
+#include <yolo_backend.hpp>
+#endif
 #endif
 
 namespace mirage::integration {
@@ -93,6 +96,24 @@ load_templates(const Json &j, const std::filesystem::path &manifest, bool geomet
     }
     return assets;
 }
+#ifdef MIRAGE_WITH_YOLO
+class CountedDetector final : public mirador::DetectorBackend {
+  public:
+    explicit CountedDetector(mirador::integrations::YoloDetectorBackend backend)
+        : backend_(std::move(backend)) {}
+    mirador::BackendInfo info() const override { return backend_.info(); }
+    mirador::Result<std::vector<mirador::DetectionRegion>>
+    detect(const mirador::ImageView &image, const mirador::DetectionRequest &request,
+           const mirador::ExecutionContext &context) override {
+        ++calls;
+        return backend_.detect(image, request, context);
+    }
+    std::atomic<std::uint64_t> calls{0};
+
+  private:
+    mirador::integrations::YoloDetectorBackend backend_;
+};
+#endif
 class CountedOcr final : public mirador::OcrBackend {
   public:
     explicit CountedOcr(mirador::integrations::PpOcrBackend b) : backend_(std::move(b)) {}
@@ -118,6 +139,9 @@ struct PpOcrPipeline::Impl {
     std::filesystem::path resources;
 #ifdef MIRAGE_WITH_PPOCR
     std::unique_ptr<CountedOcr> backend;
+#ifdef MIRAGE_WITH_YOLO
+    std::unique_ptr<CountedDetector> detector;
+#endif
 #endif
     std::unique_ptr<VisualObservationPipeline> pipeline;
     ~Impl() {
@@ -126,6 +150,9 @@ struct PpOcrPipeline::Impl {
         pipeline.reset();
 #ifdef MIRAGE_WITH_PPOCR
         backend.reset();
+#ifdef MIRAGE_WITH_YOLO
+        detector.reset();
+#endif
 #endif
         std::error_code ignored;
         if (!resources.empty())
@@ -160,7 +187,7 @@ std::unique_ptr<PpOcrPipeline> PpOcrPipeline::create(kairo::Executor &executor,
             throw std::runtime_error("OCR manifest JSON invalid");
         const auto &j = decoded.value();
         keys(j, {"schema", "model_id", "artifacts", "det_side", "rec_width", "rec_height",
-                 "display_id", "geometry_marks", "templates", "roi_capture"});
+                 "display_id", "geometry_marks", "templates", "roi_capture", "detector"});
         if (number(j, "schema", 0, 1, 1) != 1)
             throw std::runtime_error("OCR manifest schema invalid");
         const auto *geometry = j.find("geometry_marks");
@@ -231,7 +258,9 @@ std::unique_ptr<PpOcrPipeline> PpOcrPipeline::create(kairo::Executor &executor,
         if (!registrations.register_ocr(registration, *p->backend).ok)
             throw std::runtime_error("OCR backend identity rejected");
         VisualObservationPipelineConfig config;
-        config.source_id = "mirage.desktop.ocr";
+        // Executor retains worker registrations after stop; each replacement
+        // pipeline owns a fresh source/session instead of reusing a dead worker.
+        config.source_id = "mirage.desktop.ocr." + mira::OperationId::generate().to_string();
         if (j.find("display_id"))
             config.display_id = text(j, "display_id");
         p->screen = &screen;
@@ -244,6 +273,80 @@ std::unique_ptr<PpOcrPipeline> PpOcrPipeline::create(kairo::Executor &executor,
         // Public Refresh avoids treating perceptual dHash equality as exact OCR identity.
         config.refresh_ocr = true;
         config.session.ocr_backend = p->backend.get();
+        if (const auto *detector = j.find("detector")) {
+#ifndef MIRAGE_WITH_YOLO
+            (void)detector;
+            throw std::runtime_error("YOLO unavailable: build with MIRAGE_WITH_YOLO=ON");
+#else
+            keys(*detector, {"model_id", "artifacts", "class_names", "input_side", "preprocessing",
+                             "confidence_milli"});
+            mirador::integrations::YoloDetectorOptions options;
+            options.identity = {text(*detector, "model_id"), p->revision};
+            if (options.identity.model_id.size() > 128)
+                throw std::runtime_error("YOLO model identity too large");
+            const auto *labels = detector->find("class_names");
+            if (!labels || !labels->as_array() || labels->as_array()->empty() ||
+                labels->as_array()->size() > 256)
+                throw std::runtime_error("YOLO class_names invalid");
+            for (const auto &label : *labels->as_array()) {
+                if (!label.as_string() || label.as_string()->empty() ||
+                    label.as_string()->size() > 64 || !desktop::is_valid_utf8(*label.as_string()))
+                    throw std::runtime_error("YOLO class label invalid");
+                options.class_names.push_back(*label.as_string());
+            }
+            options.num_classes = static_cast<std::int32_t>(options.class_names.size());
+            options.input_side =
+                static_cast<std::int32_t>(number(*detector, "input_side", 640, 64, 1024));
+            const auto profile = text(*detector, "preprocessing");
+            if (profile == "bilinear114") {
+                options.interpolation = mirador::integrations::YoloInterpolation::kBilinear;
+                options.pad_value = 114;
+            } else if (profile != "area0") {
+                throw std::runtime_error("YOLO preprocessing profile invalid");
+            }
+            const auto *files = detector->find("artifacts");
+            if (!files)
+                throw std::runtime_error("YOLO artifacts missing");
+            keys(*files, {"param", "bin"});
+            for (const auto *name : {"param", "bin"}) {
+                const auto *artifact = files->find(name);
+                if (!artifact)
+                    throw std::runtime_error("YOLO artifact missing");
+                keys(*artifact, {"path", "sha256", "bytes"});
+                const auto limit = std::string_view{name} == "bin" ? (128u << 20) : (2u << 20);
+                const auto size = number(*artifact, "bytes", 0, 1, limit);
+                const auto bytes = read(manifest.parent_path() / text(*artifact, "path"), limit);
+                if (bytes.size() != static_cast<std::size_t>(size) ||
+                    mira::digest_string(bytes).to_string() != text(*artifact, "sha256"))
+                    throw std::runtime_error("YOLO artifact digest/size mismatch");
+                const auto target = p->resources / (std::string("yolo_") + name);
+                std::ofstream file(target, std::ios::binary);
+                if (!file.write(bytes.data(), static_cast<std::streamsize>(bytes.size())))
+                    throw std::runtime_error("YOLO verified staging failed");
+            }
+            options.param_path = (p->resources / "yolo_param").string();
+            options.bin_path = (p->resources / "yolo_bin").string();
+            auto loaded = mirador::integrations::YoloDetectorBackend::create(options);
+            if (!loaded)
+                throw std::runtime_error("YOLO could not load verified resources");
+            p->detector = std::make_unique<CountedDetector>(loaded.take_value());
+            const auto info = p->detector->info();
+            if (!registrations
+                     .register_detector({info.name,
+                                         info.implementation_version,
+                                         info.model_id,
+                                         info.model_revision,
+                                         {"rgb8"}},
+                                        *p->detector)
+                     .ok)
+                throw std::runtime_error("YOLO backend identity rejected");
+            config.detector_marks = true;
+            config.detector_min_confidence =
+                static_cast<float>(number(*detector, "confidence_milli", 250, 1, 1000)) / 1000.F;
+            config.session.detector_backend = p->detector.get();
+#endif
+        }
+
         p->pipeline =
             std::make_unique<VisualObservationPipeline>(executor, screen, p->registry, config);
         if (!p->pipeline->start(error))
@@ -349,6 +452,13 @@ const std::string &PpOcrPipeline::model_revision() const { return impl_->revisio
 std::uint64_t PpOcrPipeline::backend_calls() const {
 #ifdef MIRAGE_WITH_PPOCR
     return impl_->backend->calls.load();
+#else
+    return 0;
+#endif
+}
+std::uint64_t PpOcrPipeline::detector_calls() const {
+#ifdef MIRAGE_WITH_YOLO
+    return impl_->detector ? impl_->detector->calls.load() : 0;
 #else
     return 0;
 #endif

@@ -46,3 +46,7 @@ OCR manifest schema 1 新增可选布尔值 `geometry_marks`，缺省 false。�
 [DEC-061](DEC-061-geometric-template-resources.md)承接，双模板/位置交换/不重绘负例
 见[模板验收](../compatibility/geometric-template-resources-20261010.md)。原始几何对象
 仍无身份或语义；仅当前唯一模板证据另附 ID。无闭合轮廓等其余门禁继续开放。
+
+2026-10-16 / M7-23：合入本轮实测调优，mark 的 min_length=16、
+deviation_tolerance=4；依据 [参数消融](../compatibility/mirador-tuning-and-capabilities-20261016.md)。
+更新上游细描边修复与可选语义检测不改变几何候选无交互语义的契约，见 DEC-097。

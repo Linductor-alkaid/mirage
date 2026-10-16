@@ -133,3 +133,59 @@ DPI 变换与彩色 UI/多行文本样本（M7-06 边界与 M7-07/M7-10 承接�
 Provider职责，记录版本/公共API/测试核对、最小复现、影响、期望语义、最小能力、延期影响、
 临时边界与移除条件、可验收结果、负责人、状态和按日期追加的上游回执/迁移记录。
 没有对应能力缺口时保留空台账；Open只表示待处理，上游关闭后仍须授权升级和复验。
+
+## MIRADOR-20261016-001：桌面质量参数与精细变化门控建议
+
+状态：Proposed；负责人：Mirage 维护者；处理方：Mirador 上游。
+上游：[issue #36](https://github.com/Linductor-alkaid/mirador/issues/36)（Open，已回读）。
+工作项：M7-21/M7-22；证据：[产品调优与其他能力复核](../compatibility/mirador-tuning-and-capabilities-20261016.md)。
+这是质量校准反馈，**不将已有参数能够解决的问题登记为缺少 API**；其中显式跳过
+dHash 提前返回属于待讨论的最小 API 扩展，不构成当前产品的阻塞。
+
+核对版本：pin 与反馈时上游 master 均为 `ae8cf87581c1ebe393a67374d9977a38354d0911`。
+已核对 segment detector/proposal、change detection、OCR backend、index、fusion、
+ObjectTracker 的公开头、对应 integration card 和相关测试。无模型、无平台最小
+复现：[2px 空心矩形](repro/mirador-outlined-rectangle.cpp)：默认 residual=1.5 时
+0 线段/0 提案；2.5/4 时 4 线段/1 提案。真实抗锯齿描边需 residual=4；只放宽
+residual 且 min_length=8 在复杂正文触发 1024 线段拒绝。72 个画面/参数组合已记录，
+没有扩大预算。Mirage 产品使用现有 min_length=16/residual=4 后矩形 2/4→4/4，
+正文碎片 5→0；短线段取舍见 DEC-060。不是采集、坐标、权限或后处理调用错误。
+
+全图 1000×680 中改动 16×16 像素，公开 `detect_change` 返回 similarity=1/kNone；
+即使 fingerprint threshold=1 仍提前返回，当前 API 没有强制 block diff 的选项。
+已知 ROI 裁剪后同 API 能检出，说明应用可使用目标局部复核；当前 Mirage 的新 OCR
+和动作像素守卫保持原纪律。期望上游考虑显式精细模式或更清晰的粗筛消费边界，
+避免下游将 kNone 当作精确等价。延期影响是通用局部变化漏检/额外复核开销，
+不允许为绕过此问题另建线程、队列或调度器。
+
+同时反馈已有配置经验：OCR rec_width=640 的长行收益/内存代价、实验跟踪
+PSR=5 对 NCC=1 真匹配的拒绝及 PSR=4 的小样本对照。它们均有现有配置入口，
+不请求新增应用业务 API。最小建议是 thin/antialiased stroke 的召回/噪声矩阵、
+有界 desktop profile 或检测改进、可选择的精细变化模式和阈值校准说明。
+验收需覆盖 1/2/3/4px、明暗/文字密集/小图标、预算与取消，汇报误候选、漏检、
+资源开销和 inner/outer 重复框。单一 UI patch 的跟踪结果不能转正实验 API。
+
+| 日期 | 跟进 |
+| --- | --- |
+| 2026-10-16 | 维护者授权调优并反馈；产品用现有参数完成复验，上游 #36 已创建并回读 Open。未修改 pinned 代码/指针；等待上游讨论，若需升级仍按独立授权/锁定/回归流程执行。 |
+
+## 登记规则
+
+新增编号`MIRADOR-YYYYMMDD-NNN`，不可复用。每条先排除API误用、平台限制与Mirage
+Provider职责，记录版本/公共API/测试核对、最小复现、影响、期望语义、最小能力、延期影响、
+临时边界与移除条件、可验收结果、负责人、状态和按日期追加的上游回执/迁移记录。
+没有对应能力缺口时保留空台账；Open只表示待处理，上游关闭后仍须授权升级和复验。
+
+## MIRADOR-20261016-002：YOLO 模型预处理配置
+
+状态：In Progress；负责人 Mirage/Mirador 维护者；工作项 M7-23 / DEC-097。
+
+公开接口核对：原 YoloDetectorOptions 固定 area/pad0；真实 UI 模型按 bilinear/pad114
+部署。相同 checkpoint 转 ONNX 后可检出 Python 下载按钮，而既有路径漏检，见
+[上游 issue #38](https://github.com/Linductor-alkaid/mirador/issues/38) 与 PR #39 真实验收。
+期望最小能力为显式插值/padding、实际整数变换及配置缓存隔离，保持旧默认。
+
+维护者已授权直接修复：上游 DEC-024 添加 adapter-only profile；本次 pin 包含修复、
+PR #37/#39。真实模型同输入对照、默认等价、坐标与故障验证见本次兼容性报告；
+PR 合并仍待评审。无应用侧图像重实现或新增并发设施。延期会继续漏按钮并使
+模型默认输入不匹配；验收要求真实权重、独立输入/推理/坐标和 Mirage mark 链路。

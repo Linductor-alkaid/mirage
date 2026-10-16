@@ -25,7 +25,7 @@ void add_float(std::string &s, float f) {
     std::memcpy(b, &f, sizeof(f));
     s.append(b, sizeof(f));
 }
-std::filesystem::path fixture(const std::filesystem::path &dir) {
+std::filesystem::path fixture(const std::filesystem::path &dir, bool detect_text = true) {
     std::filesystem::create_directories(dir);
     std::map<std::string, std::string> data;
     data["det_param"] = "7767517\n2 2\nInput data 0 1 x 0=32 1=32 2=3\nConvolution conv 1 1 x out "
@@ -33,7 +33,7 @@ std::filesystem::path fixture(const std::filesystem::path &dir) {
     data["det_bin"] = std::string(4, '\0');
     for (int n = 0; n < 3; ++n)
         add_float(data["det_bin"], 0);
-    add_float(data["det_bin"], .9F);
+    add_float(data["det_bin"], detect_text ? .9F : 0.F);
     data["rec_param"] = "7767517\n3 3\nInput data 0 1 x 0=16 1=16 2=3\nConvolution conv 1 1 x tmp "
                         "0=9 1=16 11=16 5=1 6=6912\nReshape reshape 1 1 tmp out 0=3 1=1 2=3\n";
     data["rec_bin"] = std::string(4, '\0');
@@ -59,6 +59,154 @@ std::filesystem::path fixture(const std::filesystem::path &dir) {
                                                {"rec_height", std::int64_t{16}}}}));
     return dir / "manifest.json";
 }
+
+void yolo_contract(kairo::Executor &executor, const std::filesystem::path &dir) {
+    using Pipeline = mirage::integration::PpOcrPipeline;
+    mirage::testing::FakeDesktopEnvironment env;
+    env.displays = {{"d1", {-25, 53, 64, 64}, true}};
+    auto manifest = fixture(dir, false);
+    // One image-independent known box: this tests actual runtime/decode/mapping,
+    // while real-model quality is a separate manual acceptance.
+    // A negative OCR map isolates detector coordinate recovery; real mixed
+    // OCR/detector containment fusion is checked with the reviewed UI corpus.
+    const std::string param = "7767517\n4 4\nInput data 0 1 x 0=64 1=64 2=3\n"
+                              "Pooling pool 1 1 x pooled 0=1 4=1\n"
+                              "Convolution conv 1 1 pooled tmp 0=6 1=1 5=1 6=18\n"
+                              "Reshape reshape 1 1 tmp out 0=6 1=1 2=1\n";
+    std::string bin(4 + 18 * 4, '\0');
+    for (float v : {32.F, 32.F, 16.F, 16.F, .9F, .8F})
+        add_float(bin, v);
+    put(dir / "yolo.param", param);
+    put(dir / "yolo.bin", bin);
+    Json::Object artifacts;
+    for (const auto &[name, bytes] :
+         std::map<std::string, std::string>{{"param", param}, {"bin", bin}})
+        artifacts.emplace_back(
+            name, Json{Json::Object{{"path", std::string("yolo.") + name},
+                                    {"sha256", mira::digest_string(bytes).to_string()},
+                                    {"bytes", static_cast<std::int64_t>(bytes.size())}}});
+    const Json detector{Json::Object{{"model_id", "synthetic-yolo-contract"},
+                                     {"artifacts", Json{artifacts}},
+                                     {"class_names", Json{Json::Array{Json{"icon"}}}},
+                                     {"input_side", std::int64_t{64}},
+                                     {"preprocessing", "bilinear114"},
+                                     {"confidence_milli", std::int64_t{250}}}};
+    auto write_manifest = [&](Json block, bool roi = false) {
+        fixture(dir, false);
+        std::ifstream file(manifest);
+        auto root = *mira::parse_json(std::string(std::istreambuf_iterator<char>(file), {}))
+                         .value()
+                         .as_object();
+        root.emplace_back("detector", std::move(block));
+        root.emplace_back("roi_capture", roi);
+        put(manifest, mira::to_json_string(Json{std::move(root)}));
+    };
+    write_manifest(detector);
+    std::string error;
+    auto pipeline = Pipeline::create(executor, *env.screen(), manifest, error);
+#ifndef MIRAGE_TEST_WITH_YOLO
+    MIRAGE_CHECK(!pipeline && error.find("YOLO unavailable") != std::string::npos);
+#else
+    if (!pipeline)
+        std::cerr << "YOLO pipeline setup failed: " << error << '\n';
+    MIRAGE_CHECK(pipeline);
+    if (!pipeline)
+        return;
+    const auto deadline = [] {
+        return std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    };
+    auto plain = pipeline->refresh(true, {}, deadline());
+    MIRAGE_CHECK(plain.analyzed && pipeline->detector_calls() == 0);
+    for (const auto &r : plain.publish.snapshot.regions)
+        MIRAGE_CHECK(r.source != mirage::desktop::VisualRegionSource::kDetector);
+    auto marked = pipeline->mark({}, {}, deadline());
+    MIRAGE_CHECK(marked.analyzed && pipeline->detector_calls() == 1);
+    int detectors = 0;
+    std::string detector_ref;
+    for (const auto &r : marked.publish.snapshot.regions) {
+        if (r.source != mirage::desktop::VisualRegionSource::kDetector)
+            continue;
+        ++detectors;
+        detector_ref = r.ref;
+        MIRAGE_CHECK(r.bounds.x == -1 && r.bounds.y == 77 && r.bounds.width == 16 &&
+                     r.bounds.height == 16);
+        const auto mark = std::find_if(marked.marks.begin(), marked.marks.end(),
+                                       [&](const auto &m) { return m.ref == r.ref; });
+        MIRAGE_CHECK(mark != marked.marks.end());
+        if (mark != marked.marks.end())
+            MIRAGE_CHECK(mark->anchor.x == 7 && mark->anchor.y == 85 && mark->selectable);
+        MIRAGE_CHECK(pipeline->registry().resolve(r.ref).has_value());
+    }
+    MIRAGE_CHECK(detectors == 1);
+    // Same size pixels, different desktop origin: no old global coordinate reuse.
+    env.displays.front().geometry.x = 101;
+    auto moved = pipeline->mark({}, {}, deadline());
+    MIRAGE_CHECK(moved.analyzed && pipeline->detector_calls() == 2);
+    for (const auto &r : moved.publish.snapshot.regions)
+        if (r.source == mirage::desktop::VisualRegionSource::kDetector)
+            MIRAGE_CHECK(r.bounds.x == 125);
+    mirage::desktop::CancelToken cancel;
+    cancel.request_cancel();
+    MIRAGE_CHECK(!pipeline->mark({}, cancel, deadline()).analyzed &&
+                 pipeline->registry().size() == 0);
+    MIRAGE_CHECK(!pipeline->registry().resolve(detector_ref));
+    MIRAGE_CHECK(!pipeline->mark({}, {}, std::chrono::steady_clock::now() - std::chrono::seconds(1))
+                      .analyzed);
+    pipeline->stop();
+    MIRAGE_CHECK(!pipeline->running() && pipeline->registry().size() == 0);
+    pipeline.reset();
+    // Explicit ROI capture maps local results to ROI origin, including negative x.
+    env.displays = {{"d1", {-100, 53, 128, 96}, true}};
+    write_manifest(detector, true);
+    pipeline = Pipeline::create(executor, *env.screen(), manifest, error);
+    MIRAGE_CHECK(pipeline);
+    if (pipeline) {
+        auto crop =
+            pipeline->mark(mirage::desktop::WindowGeometry{-80, 61, 32, 32}, {}, deadline());
+        MIRAGE_CHECK(crop.analyzed);
+        int found = 0;
+        for (const auto &r : crop.publish.snapshot.regions)
+            if (r.source == mirage::desktop::VisualRegionSource::kDetector) {
+                ++found;
+                MIRAGE_CHECK(r.bounds.x == -68 && r.bounds.y == 73 && r.bounds.width == 8 &&
+                             r.bounds.height == 8);
+            }
+        MIRAGE_CHECK(found == 1);
+        pipeline->stop();
+        pipeline.reset();
+    }
+    // A backend output mismatch must fail the mark, never publish OCR-only success.
+    auto wrong = *detector.as_object();
+    for (auto &[name, value] : wrong)
+        if (name == "class_names")
+            value = Json{Json::Array{Json{"icon"}, Json{"other"}}};
+    write_manifest(Json{std::move(wrong)});
+    pipeline = Pipeline::create(executor, *env.screen(), manifest, error);
+    MIRAGE_CHECK(pipeline);
+    if (pipeline) {
+        MIRAGE_CHECK(pipeline->refresh(true, {}, deadline()).analyzed);
+        auto failed = pipeline->mark({}, {}, deadline());
+        MIRAGE_CHECK(!failed.analyzed && !failed.analysis_error.code.empty() &&
+                     pipeline->registry().size() == 0);
+        pipeline->stop();
+        pipeline.reset();
+    }
+    for (const char *key :
+         {"preprocessing", "input_side", "class_names", "artifacts", "confidence_milli"}) {
+        auto block = *detector.as_object();
+        for (auto &[name, value] : block)
+            if (name == key)
+                value = Json{nullptr};
+        write_manifest(Json{std::move(block)});
+        MIRAGE_CHECK(!Pipeline::create(executor, *env.screen(), manifest, error));
+    }
+    write_manifest(detector);
+    put(dir / "yolo.bin", "corrupt");
+    MIRAGE_CHECK(!Pipeline::create(executor, *env.screen(), manifest, error) &&
+                 error.find("mismatch") != std::string::npos);
+#endif
+}
+
 void tool_contract(kairo::Executor &executor) {
     mirage::integration::DesktopToolContext context;
     context.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
@@ -639,6 +787,8 @@ int main(int argc, char **argv) {
                          error.find("budget") != std::string::npos);
         }
     }
+    if (argc == 1 && mirage::integration::PpOcrPipeline::supported())
+        yolo_contract(executor, dir / "yolo");
     executor.shutdown(true);
     bool rejected = false;
     try {

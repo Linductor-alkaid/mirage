@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "model_id": "OmniParser-v2-icon-ncnn-contract-v1",
+  "source": "https://huggingface.co/microsoft/OmniParser-v2.0/tree/f55d0750e5b94db2125ef0b45b0fa4a85ddc59b4/icon_detect",
+  "source_checkpoint_sha256": "dab3d4351ad00b035db829909a4db98354d5a90f6990e4ac00222a9a95d4bf57",
+  "license": "AGPL-3.0",
+  "conversion": "Mirador real-model prepare_real_assets.py; ultralytics 8.3.0, torch 2.1.2+cpu, opset12; pnnx20260526; transposed xywh/class rows plus objectness=1",
+  "artifacts": {
+    "param": {"path": "validated_ui.param", "sha256": "dbafbf5e5356415f59754d1fcbbae4fd600ff3fb8d592bf6a84dc5dbb7bcaaed", "bytes": 18910},
+    "bin": {"path": "validated_ui.bin", "sha256": "f68f7b96f4b3c20ae4e187cd5b6c6e04de517f0661d75f830b1071d14369b67b", "bytes": 80258064}
+  },
+  "class_names": ["icon"],
+  "input_side": 640,
+  "preprocessing": "bilinear114",
+  "confidence_milli": 250
+}

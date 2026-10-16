@@ -27,7 +27,9 @@ with tempfile.TemporaryDirectory(prefix='mirage-bundle-test-') as temporary:
     command = [sys.executable, str(repository / 'tools/prepare_vision_bundle.py'),
                '--source', str(inputs), '--output', str(output), '--lock', str(lock)]
     check(subprocess.run(command, capture_output=True, timeout=20).returncode == 0)
-    check((output / 'manifest.json').read_bytes() == (bundled / 'manifest.json').read_bytes())
+    expected_manifest = json.loads((bundled / 'manifest.json').read_text())
+    expected_manifest.pop('detector', None)  # Optional, independently locked YOLO bundle.
+    check(json.loads((output / 'manifest.json').read_text()) == expected_manifest)
     for name, expected in data['output_artifacts'].items():
         content = (output / name).read_bytes()
         check(len(content) == expected['bytes'] and hashlib.sha256(content).hexdigest() == expected['sha256'])

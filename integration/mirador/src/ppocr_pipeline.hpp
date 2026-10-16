@@ -36,6 +36,7 @@ class PpOcrPipeline final : public EnvironmentVisualPipeline {
     void stop();
     const std::string &model_revision() const;
     std::uint64_t backend_calls() const;
+    std::uint64_t detector_calls() const;
 
   private:
     EnvironmentVisualRefresh

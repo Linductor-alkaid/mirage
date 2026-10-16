@@ -81,6 +81,9 @@ class SessionClient {
     /// Query current health (thread-safe).
     Health health() const;
 
+    /// The last timeout diagnostic, if health() == SyncStale (thread-safe).
+    std::string last_timeout_reason() const;
+
     enum class RunExit {
         Stopped,        ///< stop() was requested by the owner
         ConnectionLost, ///< transport loss or protocol violation
@@ -102,8 +105,8 @@ class SessionClient {
     struct Pending {
         std::promise<Response> promise;
     };
-    /// One queued wire frame with its correlation id (REUSE-09: the outbox
-    /// rides the kairo comm MPSC channel instead of a hand-rolled queue).
+    /// One queued wire frame with its correlation id (DEC-094; REUSE-09: the
+    /// outbox rides the kairo comm MPSC channel instead of a hand-rolled queue).
     struct Outbound {
         std::uint64_t id = 0;
         std::string frame;
@@ -112,6 +115,8 @@ class SessionClient {
     /// public header stays pinned-free (DEC-096); defined in the .cpp where
     /// the kairo include is allowed.
     struct Outbox;
+    void fail_pending_locked(const std::string &code, const std::string &message);
+    void fail_call_locked(std::uint64_t id, const std::string &code, const std::string &message);
     /// Marks the session dead fail-closed and wakes run(); safe from any
     /// thread (the run loop performs the actual close).
     void close_fail_closed(const std::string &reason);
@@ -126,7 +131,7 @@ class SessionClient {
     std::string last_timeout_reason_;      ///< DEC-094: last timeout diagnostic
     bool stop_requested_ = false;
     std::uint64_t next_id_ = 1; ///< correlation ids, strictly increasing
-    /// Complete frames awaiting the wire (REUSE-09). Bounded RejectNewest:
+    /// Complete frames awaiting the wire (DEC-094; REUSE-09). Bounded RejectNewest:
     /// an over-capacity or closed submission is an explicit refused result,
     /// never silent queueing. Capacity stays tiny because DEC-012 keeps one
     /// outstanding request on the wire.

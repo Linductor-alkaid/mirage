@@ -6,6 +6,14 @@
 - 时间：2026-10-15
 
 > 2026-10-16 跟进：Phase 1 的机制补全已随[依赖复用整改](../plans/dependency-reuse-remediation.md) REUSE-09 落地——call() 超时接管同时墓碑化其排队帧（flush 时跳过、迟到响应按放弃 id 丢弃，不再触发 "unexpected id" 误杀会话）；outbox 迁 kairo::comm::MpscChannel。重连/恢复语义仍待评审，状态维持 Proposed。
+>
+> 2026-10-16 / CI 跟进（M7-23 分支合流）：复用维护分支已提交的 `bb3d083` / `b15d728`
+> 超时恢复修复，未纳入其他整改。请求通过 kairo MpscChannel 传递；总量准入 16
+> 覆盖 pending 与 abandoned，拒绝时返回 unavailable。超时帧在发送前跳过，已发送
+> 帧的迟到响应只释放单未决位置；真实未知 id 仍关闭连接。run() 不再与 call()
+> 竞争超时语义，排队帧跨 readiness slice 保留。新增活跃超时、迟到响应/事件、排队
+> 恢复、过载拒绝、停止与传输失败回归（另含 DEC-012 重叠提交跨 in-flight 窗口
+> 回归）。重连策略仍待评审，DEC 状态维持 Proposed。
 
 > 替代/被替代：本记录**扩展** [DEC-012](DEC-012-ipc-event-subscription-and-wire-schema.md)
 > 的单连接单未决请求纪律，不改变该纪律本身，但允许客户端在请求超时后选择性恢复连接。

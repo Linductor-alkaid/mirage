@@ -685,7 +685,8 @@ struct ScriptedPeer {
     };
     std::vector<Scripted> script; ///< registered by the test under the mutex
     bool stop_requested = false;
-    bool close_requested = false; ///< the reader thread performs the close
+    bool close_requested = false;  ///< the reader thread performs the close
+    bool close_on_request = false; ///< close while call() is still blocked
 
     explicit ScriptedPeer(const std::string &path) {
         std::string diagnostic;
@@ -753,6 +754,11 @@ struct ScriptedPeer {
             }
         }
         return true;
+    }
+
+    void close_on_next_request() {
+        std::lock_guard<std::mutex> guard(mutex);
+        close_on_request = true;
     }
 
     /// Snapshot of the observed request ids in arrival order (FIFO evidence).
@@ -883,6 +889,10 @@ struct ScriptedPeer {
                     requests.push_back(decoded.id);
                     journal.push_back("req:" + std::to_string(decoded.id));
                     requests_changed.notify_all();
+                    if (close_on_request) {
+                        peer.close();
+                        return;
+                    }
                 }
             } else if (read.status == mirage::testing::FrameRead::Status::Closed) {
                 return; // the client side went away (owner stop / destruction)
@@ -919,6 +929,7 @@ void scenario_run_loop_survives_a_live_timeout() {
     MIRAGE_CHECK(expired.error.message.find("timed out") != std::string::npos);
     MIRAGE_CHECK(session.client->health() == ipc::SessionClient::Health::SyncStale);
     MIRAGE_CHECK(session.client->connected());
+    MIRAGE_CHECK(session.client->last_timeout_reason().find("timed out") != std::string::npos);
 
     // The pre-fix sweep exited run() within one 10 ms slice of the deadline;
     // a quiet window with the loop still up (and the transport still
@@ -933,12 +944,9 @@ void scenario_run_loop_survives_a_live_timeout() {
     // single-outstanding pipeline; the next call round-trips and the success
     // clears SyncStale back to Healthy. Both answers are scripted because the
     // test thread is what issues the calls (call() blocks on its future).
-    peer.script_response(1, std::chrono::milliseconds{0});
-    // The wire still carries the orphan request until its late answer
-    // unblocks the pipeline, so let the scripted answer settle (fire +
-    // round trip) before submitting the next request — a deterministic
-    // completion guard, not a latency assertion.
-    std::this_thread::sleep_for(std::chrono::milliseconds{150});
+    // Submit the next call while the abandoned wire request is still
+    // unanswered. Its queued frame must survive multiple readiness slices.
+    peer.script_response(1, std::chrono::milliseconds{150});
     peer.script_response(2, std::chrono::milliseconds{0});
     std::future<ipc::Response> hello_future =
         session.client->call(ipc::HelloRequest{}, kCallBudget);
@@ -1045,13 +1053,15 @@ void scenario_midcall_transport_loss_fails_closed() {
     MIRAGE_CHECK(peer.accept_connection());
     peer.start_reader();
 
-    std::future<ipc::Response> stalled = session.client->call(ipc::HelloRequest{}, kCallBudget);
+    // call() itself waits for completion; schedule the EOF on the peer so
+    // the transport closes during that wait, rather than after its timeout.
+    peer.close_on_next_request();
+    const auto lost = session.client->call(ipc::HelloRequest{}, kCallBudget).get();
     MIRAGE_CHECK(peer.wait_for_request(1, kCallBudget));
-
-    peer.request_close();
-    const ipc::Response lost = stalled.get();
     MIRAGE_CHECK(!lost.ok);
     MIRAGE_CHECK(lost.error.code == "unavailable");
+    MIRAGE_CHECK(lost.error.message.find("closed") != std::string::npos);
+    MIRAGE_CHECK(lost.error.message.find("timed out") == std::string::npos);
 
     MIRAGE_CHECK(wait_for(kCallBudget, [&] { return session.run_finished.load(); }));
     MIRAGE_CHECK(session.exit == ipc::SessionClient::RunExit::ConnectionLost);
@@ -1189,6 +1199,34 @@ void scenario_repeated_overlapped_rounds_lose_no_frames() {
 
 // --- fail-closed paths -------------------------------------------------------
 
+// An unserviced session must reject overload instead of accumulating timed-out
+// calls indefinitely. Stopping it still completes the owner lifecycle.
+void scenario_outbound_budget_is_bounded() {
+    mirage::testing::TempDir dir;
+    ScriptedPeer peer((dir.root() / "budget.sock").string());
+    MIRAGE_CHECK(peer.valid());
+    Session session;
+    MIRAGE_CHECK(session.connect((dir.root() / "budget.sock").string()));
+    for (int index = 0; index < 16; ++index) {
+        const auto expired =
+            session.client->call(ipc::HelloRequest{}, std::chrono::milliseconds{2}).get();
+        MIRAGE_CHECK(!expired.ok);
+        MIRAGE_CHECK(expired.error.message.find("timed out") != std::string::npos);
+    }
+    const auto refused = session.client->call(ipc::HelloRequest{}, kCallBudget).get();
+    MIRAGE_CHECK(!refused.ok);
+    MIRAGE_CHECK(refused.error.code == "unavailable");
+    MIRAGE_CHECK(refused.error.message.find("budget exhausted") != std::string::npos);
+    session.client->stop();
+    session.start_run();
+    session.join_and_stop();
+    MIRAGE_CHECK(session.exit == ipc::SessionClient::RunExit::Stopped);
+    MIRAGE_CHECK(!session.client->connected());
+    const auto closed = session.client->call(ipc::HelloRequest{}, kCallBudget).get();
+    MIRAGE_CHECK(!closed.ok);
+    MIRAGE_CHECK(closed.error.code == "unavailable");
+}
+
 void scenario_service_shutdown_loses_the_session() {
     mirage::testing::TempDir dir;
     const mirage::runtime::ServiceConfig config = make_config(dir);
@@ -1249,6 +1287,7 @@ int main() {
                  scenario_late_response_and_events_keep_the_session);
     run_scenario("midcall_transport_loss_fails_closed",
                  scenario_midcall_transport_loss_fails_closed);
+    run_scenario("outbound_budget_is_bounded", scenario_outbound_budget_is_bounded);
     run_scenario("overlapped_call_frame_survives_in_flight_window",
                  scenario_overlapped_call_frame_survives_in_flight_window);
     run_scenario("repeated_overlapped_rounds_lose_no_frames",

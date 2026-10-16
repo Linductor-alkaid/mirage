@@ -21,6 +21,11 @@ option(MIRAGE_WITH_MIRA_MBEDTLS
     "Build Mira's pinned Mbed TLS channel adapter (needs third_party/mira/third_party/mbedtls)" OFF)
 option(MIRAGE_WITH_PPOCR "Build pinned Mirador PP-OCR/ncnn backend" ${MIRAGE_ENABLE_NATIVE_FRONTEND})
 
+option(MIRAGE_WITH_YOLO "Build optional verified YOLO detector for visual marks" ${MIRAGE_WITH_PPOCR})
+if(MIRAGE_WITH_YOLO AND NOT MIRAGE_WITH_PPOCR)
+    message(FATAL_ERROR "MIRAGE_WITH_YOLO requires MIRAGE_WITH_PPOCR for the product visual pipeline")
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

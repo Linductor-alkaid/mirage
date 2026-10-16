@@ -1,0 +1,181 @@
+{
+  "samples": {
+    "public-example": {
+      "image_geometry": [
+        37,
+        53,
+        1000,
+        680
+      ],
+      "regions": 18,
+      "marks": 18,
+      "detector_calls": 1,
+      "wall_seconds": 4.788221099996008
+    },
+    "public-python": {
+      "image_geometry": [
+        37,
+        53,
+        1000,
+        680
+      ],
+      "regions": 31,
+      "marks": 31,
+      "detector_calls": 1,
+      "wall_seconds": 2.578304581984412
+    },
+    "form-light": {
+      "image_geometry": [
+        37,
+        53,
+        1000,
+        680
+      ],
+      "regions": 13,
+      "marks": 13,
+      "detector_calls": 1,
+      "wall_seconds": 2.4261224980000407
+    },
+    "terminal-dark": {
+      "image_geometry": [
+        37,
+        53,
+        1000,
+        680
+      ],
+      "regions": 17,
+      "marks": 17,
+      "detector_calls": 1,
+      "wall_seconds": 3.963081741007045
+    },
+    "geometry": {
+      "image_geometry": [
+        37,
+        53,
+        1000,
+        680
+      ],
+      "regions": 10,
+      "marks": 10,
+      "detector_calls": 1,
+      "wall_seconds": 2.5287047699966934
+    },
+    "line-lengths": {
+      "image_geometry": [
+        37,
+        53,
+        1000,
+        680
+      ],
+      "regions": 8,
+      "marks": 8,
+      "detector_calls": 1,
+      "wall_seconds": 2.4661945789994206
+    },
+    "video-0": {
+      "image_geometry": [
+        37,
+        53,
+        1000,
+        680
+      ],
+      "regions": 4,
+      "marks": 4,
+      "detector_calls": 1,
+      "wall_seconds": 1.9415499739989173
+    },
+    "video-1": {
+      "image_geometry": [
+        37,
+        53,
+        1000,
+        680
+      ],
+      "regions": 4,
+      "marks": 4,
+      "detector_calls": 1,
+      "wall_seconds": 1.989294252009131
+    },
+    "video-2": {
+      "image_geometry": [
+        37,
+        53,
+        1000,
+        680
+      ],
+      "regions": 4,
+      "marks": 4,
+      "detector_calls": 1,
+      "wall_seconds": 1.965666328993393
+    },
+    "blank": {
+      "image_geometry": [
+        37,
+        53,
+        1000,
+        680
+      ],
+      "regions": 0,
+      "marks": 0,
+      "detector_calls": 1,
+      "wall_seconds": 1.8448983050184324
+    },
+    "host-crop": {
+      "image_geometry": [
+        37,
+        53,
+        1400,
+        680
+      ],
+      "regions": 18,
+      "marks": 18,
+      "detector_calls": 1,
+      "wall_seconds": 2.4767268639989197
+    }
+  },
+  "form_coordinates": [
+    {
+      "name": "name-input",
+      "ref": "@v6",
+      "iou": 0.8580350039777247,
+      "center_error_px": 0.5,
+      "anchor_inside_gt": true
+    },
+    {
+      "name": "submit",
+      "ref": "@v8",
+      "iou": 0.8428892062844318,
+      "center_error_px": 0.7071067811865476,
+      "anchor_inside_gt": true
+    },
+    {
+      "name": "cancel-disabled",
+      "ref": "@v9",
+      "iou": 0.8516169942929613,
+      "center_error_px": 1.0,
+      "anchor_inside_gt": true
+    },
+    {
+      "name": "save",
+      "ref": "@v13",
+      "iou": 0.918026418026418,
+      "center_error_px": 0.5,
+      "anchor_inside_gt": true
+    },
+    {
+      "name": "settings",
+      "ref": "@v11",
+      "iou": 0.8746973365617433,
+      "center_error_px": 0.7071067811865476,
+      "anchor_inside_gt": true
+    },
+    {
+      "name": "help",
+      "ref": "@v12",
+      "iou": 0.8518385003604902,
+      "center_error_px": 0.5,
+      "anchor_inside_gt": true
+    }
+  ],
+  "scope": "X11 1:1 pixel replay, origin (37,53), real OCR/YOLO/fusion/SoM; no desktop clicks"
+}
