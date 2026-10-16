@@ -1,4 +1,5 @@
 #include "desktop_image_supply.hpp"
+#include "tool_geometry.hpp"
 #include <algorithm>
 #include <cmath>
 #include <mirador/transform.hpp>
@@ -11,14 +12,6 @@ using Geometry = desktop::WindowGeometry;
 std::string field(const Json &v, const char *key) {
     const auto *p = v.find(key);
     return p && p->as_string() ? *p->as_string() : "";
-}
-bool same(const Geometry &a, const Geometry &b) {
-    return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;
-}
-bool contains(const Geometry &a, const Geometry &b) {
-    return b.width > 0 && b.height > 0 && b.x >= a.x && b.y >= a.y &&
-           std::int64_t{b.x} + b.width <= std::int64_t{a.x} + a.width &&
-           std::int64_t{b.y} + b.height <= std::int64_t{a.y} + a.height;
 }
 mira::Error failure(const std::string &code, bool effect = false, bool released = true) {
     mira::Error e;
@@ -37,12 +30,6 @@ mira::Error failure(const std::string &code, bool effect = false, bool released 
     return e;
 }
 Json string_schema() { return Json{Json::Object{{"type", "string"}, {"maxLength", 1024}}}; }
-bool valid_frame(const desktop::ImageFrame &f, std::size_t budget) {
-    return f.format == desktop::ImageFormat::Bgra8 && f.width > 0 && f.height > 0 &&
-           f.stride >= static_cast<std::size_t>(f.width) * 4 &&
-           f.stride <= budget / static_cast<std::size_t>(f.height) &&
-           f.pixels.size() == f.stride * static_cast<std::size_t>(f.height);
-}
 } // namespace
 
 void DesktopImageTurn::register_region_tool(mira::BuiltinToolRegistry &registry,
@@ -133,7 +120,7 @@ mira::Result<Json> DesktopImageTurn::click_region(const Json &args,
             return failure("invalid_argument");
         *value = static_cast<std::int32_t>(*v->as_integer());
     }
-    if (!contains({0, 0, source.image_width, source.image_height}, box))
+    if (!geometry_contains({0, 0, source.image_width, source.image_height}, box))
         return failure("invalid_argument");
     // Mirador owns the coordinate transform; rounding encloses the source pixel area.
     const auto transform = mirador::compose(
@@ -153,7 +140,7 @@ mira::Result<Json> DesktopImageTurn::click_region(const Json &args,
     const Geometry area{left, top,
                         static_cast<std::int32_t>(std::ceil(mapped.x + mapped.width)) - left,
                         static_cast<std::int32_t>(std::ceil(mapped.y + mapped.height)) - top};
-    if (!contains(source.area, area) ||
+    if (!geometry_contains(source.area, area) ||
         std::uint64_t{static_cast<unsigned>(area.width)} * static_cast<unsigned>(area.height) >
             desktop_image_bytes / 4)
         return failure("region_budget_exceeded");
@@ -162,11 +149,11 @@ mira::Result<Json> DesktopImageTurn::click_region(const Json &args,
     const auto display = field(args, "display_id");
     if ((context != "window" && context != "display") ||
         (context == "window" && (!source.front.found || id != source.front.window.id ||
-                                 !contains(source.front.window.geometry, area))) ||
+                                 !geometry_contains(source.front.window.geometry, area))) ||
         (context == "display" && (!id.empty() || display != source.display.id)) ||
         (!desktop_.capture_scope.empty() &&
          (!source.front.found || source.front.window.id != desktop_.capture_scope ||
-          !contains(source.front.window.geometry, area))))
+          !geometry_contains(source.front.window.geometry, area))))
         return failure("invalid_target_context");
     if (captures_ >= 4)
         return failure("capture_budget_exceeded");
@@ -193,14 +180,16 @@ mira::Result<Json> DesktopImageTurn::click_region(const Json &args,
             return false;
         const auto front = window->front_window(bounded);
         if (!front.ok || front.found != source.front.found ||
-            (front.found && (front.window.id != source.front.window.id ||
-                             front.window.title != source.front.window.title ||
-                             !same(front.window.geometry, source.front.window.geometry))))
+            (front.found &&
+             (front.window.id != source.front.window.id ||
+              front.window.title != source.front.window.title ||
+              !geometry_equals(front.window.geometry, source.front.window.geometry))))
             return false;
         const auto displays = screen->list_displays({}, bounded);
         if (!displays.ok ||
             std::none_of(displays.displays.begin(), displays.displays.end(), [&](const auto &d) {
-                return d.id == source.display.id && same(d.geometry, source.display.geometry) &&
+                return d.id == source.display.id &&
+                       geometry_equals(d.geometry, source.display.geometry) &&
                        d.primary == source.display.primary;
             }))
             return false;
@@ -214,8 +203,8 @@ mira::Result<Json> DesktopImageTurn::click_region(const Json &args,
     const auto fresh = screen->capture_roi(area, {}, bounded);
     if (!fresh.ok || fresh.cancelled || bounded.cancelled())
         return failure(bounded.cancelled() || fresh.cancelled ? "cancelled" : "capture_failed");
-    if (!valid_frame(source.frame, desktop_capture_bytes) ||
-        !valid_frame(fresh.frame, desktop_image_bytes) || fresh.frame.width != area.width ||
+    if (!valid_image_frame(source.frame, desktop_capture_bytes) ||
+        !valid_image_frame(fresh.frame, desktop_image_bytes) || fresh.frame.width != area.width ||
         fresh.frame.height != area.height)
         return failure("invalid_frame");
     for (std::int32_t row = 0; row < area.height; ++row) {
