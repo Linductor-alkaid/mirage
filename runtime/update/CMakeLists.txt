@@ -32,13 +32,11 @@ if(OPENSSL_FOUND)
         src/update_crypto_openssl.cpp
     )
     target_link_libraries(mirage_update PRIVATE OpenSSL::Crypto)
-    target_compile_definitions(mirage_update PRIVATE MIRAGE_UPDATE_HAS_ED25519=1)
     message(STATUS "Updater ed25519 verification enabled (OpenSSL)")
 else()
     target_sources(mirage_update PRIVATE
         src/update_crypto_stub.cpp
     )
-    target_compile_definitions(mirage_update PRIVATE MIRAGE_UPDATE_HAS_ED25519=0)
     message(STATUS "Updater ed25519 verification DISABLED: OpenSSL not found (fail closed)")
 endif()
 
