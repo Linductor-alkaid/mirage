@@ -1791,3 +1791,13 @@ set_tests_properties(basic_output_store_test PROPERTIES
     LABELS "unit;runtime"
     TIMEOUT 60
 )
+
+# M10-09 manual product probe: drives one real harness turn through a live
+# mirage-service so a configured model endpoint (e.g. the DeepSeek profile
+# in the user's settings) exercises exec/read/write/edit end to end. It
+# needs a running service, network and OS-credential access, so it is
+# built for manual runs and never registered with add_test.
+add_executable(m10_basic_tools_e2e manual/m10_basic_tools_e2e.cpp)
+target_compile_features(m10_basic_tools_e2e PRIVATE cxx_std_20)
+mirage_enable_warnings(m10_basic_tools_e2e)
+target_link_libraries(m10_basic_tools_e2e PRIVATE Mirage::ipc Mirage::conversation)
