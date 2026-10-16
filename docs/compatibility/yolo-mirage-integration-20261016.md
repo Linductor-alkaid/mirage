@@ -78,3 +78,7 @@ cmake --build --preset native-release --target mirage-native-product
 Detector 的 manifest、output 和 `--results-dir integrated-all`；再运行
 `tests/manual/yolo_product_review.py --root <output>`，验证坐标并生成画廊。
 CI、PR 评审和跨平台验收状态须分别记录，不由本机结果推断。
+
+PR 交付：[Mirage #98](https://github.com/Linductor-alkaid/mirage/pull/98)，目标分支
+`feat/m10-basic-agent-tools`。提交时 Mirage 8 项 CI 在运行，上游 #40 已有 13/14
+成功、静态检查仍运行；未将待完成的平台验证标为通过。具体后续状态以 PR checks 为准。

@@ -10,7 +10,8 @@
 - [x] 修复 YOLO 模型预处理选择；默认兼容、模型配置与缓存身份可区分。
 - [x] 产品 manifest 装配 detector，mark 中融合、编号与引用；离线包支持和供应链证据。
 - [x] 坐标、故障、生命周期、真实像素标注与 ASAN/UBSAN 验收。
-- [ ] 同步文档、创建 PR、记录实际 CI 状态。
+- [x] 同步文档、创建 PR、记录实际 CI 状态。
+- [ ] PR 的跨平台 CI 与评审收尾（维护者；按下述 PR checks 失败项补跑）。
 
 ## 验收边界
 
@@ -21,6 +22,10 @@
 ## 验证记录
 
 2026-10-16：实现和本机验收完成，见 [证据](../compatibility/yolo-mirage-integration-20261016.md)。
-Mirador PR #40；Mirage PR 准备中，保留 In Progress 以记录待评审/CI。
+Mirador [PR #40](https://github.com/Linductor-alkaid/mirador/pull/40)；
+Mirage [PR #98](https://github.com/Linductor-alkaid/mirage/pull/98)，保留 In Progress
+以记录待评审/CI。当前上游 13/14 checks 成功，clang-format/clang-tidy 仍在运行；
+Mirage 8 项 CI 已启动，未将其记为通过。负责人维护者；若失败，按对应 job 日志
+复现并修复，CI 完成后再更新工作项。
 Release 10/10、严格 ASAN/UBSAN 7/7、真实模型产品标注 11/11 采集与编号映射；
 表单最终框 6/6、IoU≥.8429、中心偏差≤1px。未把 11 图映射通过标成整体质量通过。
