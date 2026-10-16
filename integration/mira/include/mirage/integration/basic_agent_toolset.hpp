@@ -2,6 +2,7 @@
 
 #include <mira/tool_executor.hpp>
 
+#include <mirage/desktop/cancellation.hpp>
 #include <mirage/desktop/filesystem_provider.hpp>
 #include <mirage/integration/desktop_tool_context.hpp>
 
@@ -56,12 +57,15 @@ class BasicToolSessionState {
 /// Permission judgement rides the same gate seam as the desktop atoms
 /// (filesystem.read / filesystem.write / process.execute); the short ASCII
 /// names pass the pinned hosted-name check and the alias provider
-/// unchanged, so history and replay stay canonical.
+/// unchanged, so history and replay stay canonical. `cancel` is the
+/// owning turn's cancellation (M10-08): exec tears its process group down
+/// and file commits observe it at their pre-commit points.
 /// Registration failure throws; callers settle it as a failed turn.
 void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
                                 const DesktopToolContext &desktop,
                                 BasicToolSessionState &session,
                                 const BasicAgentToolsOptions &options,
+                                const mirage::desktop::CancelToken &cancel,
                                 const Decorator &decorate);
 
 } // namespace mirage::integration

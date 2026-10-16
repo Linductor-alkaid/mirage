@@ -315,6 +315,7 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
                                 const DesktopToolContext &desktop,
                                 BasicToolSessionState &session,
                                 const BasicAgentToolsOptions &options,
+                                const CancelToken &cancel,
                                 const Decorator &decorate) {
     if (!options.enabled || !desktop.environment) {
         return;
@@ -365,10 +366,10 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
                                                         "Maximum lines to return"));
         spec.parameters_schema = mira::JsonSchema{object_schema(std::move(properties), {})};
         mira::BuiltinToolHandler handler =
-            [filesystem, retention, &session, options, gate, authorize](
+            [filesystem, retention, &session, options, gate, authorize, cancel](
                 const JsonValue &arguments,
                 const mira::OperationContext &context) -> Result<JsonValue> {
-            if (context.cancelled()) {
+            if (context.cancelled() || cancel.cancelled()) {
                 return basic_error(ErrorCode::Cancelled, "run cancelled before the tool ran");
             }
             const std::string path_argument = string_member(arguments, "path");
@@ -436,7 +437,7 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
                 return permission_denied("filesystem.read");
             }
             const TextWindowOutcome window =
-                filesystem->read_text_window(*path, offset, limits, CancelToken{});
+                filesystem->read_text_window(*path, offset, limits, cancel);
             if (!window.ok) {
                 return provider_failure(window.error);
             }
@@ -485,10 +486,10 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
         spec.parameters_schema =
             mira::JsonSchema{object_schema(std::move(properties), {"path", "content"})};
         mira::BuiltinToolHandler handler =
-            [filesystem, &session, options, gate, authorize](
+            [filesystem, &session, options, gate, authorize, cancel](
                 const JsonValue &arguments,
                 const mira::OperationContext &context) -> Result<JsonValue> {
-            if (context.cancelled()) {
+            if (context.cancelled() || cancel.cancelled()) {
                 return basic_error(ErrorCode::Cancelled, "run cancelled before the tool ran");
             }
             Error error;
@@ -513,10 +514,9 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
             mirage::desktop::FileWriteOutcome outcome;
             if (observation && observation->full &&
                 observation->version.digest_available()) {
-                outcome = filesystem->replace_file(*path, content, *observation, limits,
-                                                   CancelToken{});
+                outcome = filesystem->replace_file(*path, content, *observation, limits, cancel);
             } else {
-                outcome = filesystem->create_file(*path, content, limits, CancelToken{});
+                outcome = filesystem->create_file(*path, content, limits, cancel);
                 if (!outcome.ok && outcome.error.code == "already_exists") {
                     return basic_error(
                         ErrorCode::InvalidArgument,
@@ -562,10 +562,10 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
         spec.parameters_schema = mira::JsonSchema{object_schema(
             std::move(properties), {"path", "old_string", "new_string"})};
         mira::BuiltinToolHandler handler =
-            [filesystem, &session, options, gate, authorize](
+            [filesystem, &session, options, gate, authorize, cancel](
                 const JsonValue &arguments,
                 const mira::OperationContext &context) -> Result<JsonValue> {
-            if (context.cancelled()) {
+            if (context.cancelled() || cancel.cancelled()) {
                 return basic_error(ErrorCode::Cancelled, "run cancelled before the tool ran");
             }
             Error error;
@@ -586,8 +586,7 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
             const FileEditOutcome outcome = filesystem->edit_file(
                 *path, string_member(arguments, "old_string"),
                 string_member(arguments, "new_string"),
-                bool_member(arguments, "replace_all", false), *observation, limits,
-                CancelToken{});
+                bool_member(arguments, "replace_all", false), *observation, limits, cancel);
             if (!outcome.ok) {
                 return provider_failure(outcome.error);
             }
@@ -626,10 +625,10 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
         spec.parameters_schema =
             mira::JsonSchema{object_schema(std::move(properties), {"command"})};
         mira::BuiltinToolHandler handler =
-            [process, retention, options, gate, authorize](
+            [process, retention, options, gate, authorize, cancel](
                 const JsonValue &arguments,
                 const mira::OperationContext &context) -> Result<JsonValue> {
-            if (context.cancelled()) {
+            if (context.cancelled() || cancel.cancelled()) {
                 return basic_error(ErrorCode::Cancelled, "run cancelled before the tool ran");
             }
             const std::string command = string_member(arguments, "command");
@@ -671,7 +670,9 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
             request.command = command;
             request.working_directory = workdir;
             request.output_sink = streams.get();
-            const ProcessOutcome outcome = process->execute_request(request, limits, CancelToken{});
+            // The owning turn's token: a cancelled run tears the whole
+            // process group down and the result carries the output so far.
+            const ProcessOutcome outcome = process->execute_request(request, limits, cancel);
             BasicOutputStreamFacts facts;
             if (streams) {
                 facts = streams->settle(); // terminal state fixes refs and expiry

@@ -960,7 +960,7 @@ DialogCompletion ModelLayer::complete_harness_turn(
     // (desktop.basic_tools), and registration is capability-honest.
     if (impl_->desktop.basic_tools.enabled) {
         register_basic_agent_tools(*registry, impl_->desktop, impl_->basic_state(session_key),
-                                   impl_->desktop.basic_tools, decorate);
+                                   impl_->desktop.basic_tools, cancel, decorate);
     }
     if (tools_allowed)
         verification.register_tool(*registry, decorate);
