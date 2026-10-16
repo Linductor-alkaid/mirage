@@ -52,9 +52,11 @@ mirador、状态机为 Mira::core 薄适配），但存在三类系统性缺口�
   Executor owner（CLI 更新命令/native/pet/tray-service 各自成立）；kairo 的
   include/link 一律经 `Mirage::kairo_consumer` facade（apps/native、apps/pet 全部
   硬编码嵌套 pin 路径已迁移）；mira 核心 API 只经正规 target 链接获取。
-- [ ] REUSE-09：`runtime/ipc` session_client 的 mutex+deque outbox 与 promise 应答
-  迁移到 `kairo::comm::MpscChannel`（逐条 FIFO 语义），或在核实 kairo 公开接口确不
-  承载后以 DEC 登记豁免；四方消费方（native/pet/cli/service）行为不变。
+- [x] REUSE-09：`runtime/ipc` session_client 的 mutex+deque outbox 迁移到
+  `kairo::comm::MpscChannel`（经前向声明的 Outbox 持有者隐藏，公共头保持
+  pinned-free，DEC-096）；并修复 DEC-094 Phase 1 半落地引入的缺陷链——超时接管
+  现在墓碑化排队帧（flush 跳过、迟到响应丢弃），不再以 "unexpected id" 误杀会话，
+  HEAD 基线可复现的 session_client_test 失败随之闭环。
 - [ ] REUSE-10：并发轮询灰区逐点收口：`confirmation_hub`（promise+切片轮询）、
   `task_driver` 暂停驻留轮询（DEC-030）、`screen_capture_backend` 15ms 帧轮询、
   `application_backend` terminate 轮询、`apps/cli` 无 Executor 进程轮询——能以
@@ -168,6 +170,27 @@ mirador、状态机为 Mira::core 薄适配），但存在三类系统性缺口�
   实跑通过；`mirage-boundary-check` 正向通过、负向用例失败/恢复确认；回归
   `ctest -R 'pet|update|ipc|runtime_service|native_agent'` 17/17。
 - 限制：ServiceConfig 面 pinned-free 化为后续项；负责人 Mirage 维护者。
+### 2026-10-16：REUSE-09（批次 4，独立验证通过）
+
+- 范围：session_client 出箱通道迁移 kairo::comm::MpscChannel + 孤儿帧缺陷修复。
+- 关键落地：
+  - 出箱通道：`MpscChannel<Outbound{id,frame}>`（容量 16、RejectNewest、命名），提交与
+    满载/关闭拒绝在提交线程同临界区兑现 "unavailable"；`finish_run` 关闭通道，后续提交
+    显式拒绝（规则 10）。公共头经前向声明持有者隐藏 pinned 类型（BoundaryCheck 通过）。
+  - 缺陷修复：`call()` 超时接管（DEC-094 Phase 1）此前留下孤儿帧——帧仍被发出、迟到响应
+    被判 "unexpected id" 误杀会话（session_client_test:594 失败根因，HEAD 基线可复现）。
+    现以 `abandoned_` 墓碑承载：flush 时跳过、迟到响应丢弃；新场景
+    `scenario_request_timeout_keeps_session_alive` 钉死"超时会话存活、新调用可续"语义。
+  - DEC-094 补 2026-10-16 跟进段（Phase 1 机制补全；重连语义仍 Proposed）。
+- 验证：Independent-Verification-Agent 三轮。第一轮发现主循环交付的两个编译缺陷
+  （构造括号嵌套 + make_unique 依赖被删除的移动构造；析构残留 outbox_.clear()），
+  其备好的补丁经主循环应用；第二轮 shadow 树语义验证 8/8 + 141 checks（含新场景）；
+  第三轮官方树闭环：增量构建 0 警告、`ctest -R 'ipc|session'` 8/8、
+  session_client_test 直跑 141 checks 0 failures（1.20s）、mirage-boundary-check
+  通过（60 头 0 违规、2 登记缝）。
+- 过程记录：验证 agent 初期以 cp -al 建 shadow 树时发生硬链接穿透并即时逐字节恢复
+  （主循环已核对仓库现状一致）；此后 shadow 一律独立 rsync 拷贝。
+- 限制：full reconnect/resume（DEC-094 后续阶段）不在本计划；负责人 Mirage 维护者。
 ## 退出条件
 
 1. 全部 REUSE 项勾选完成或记录 Blocked 原因与补跑条件。

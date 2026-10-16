@@ -30,6 +30,9 @@ mirage_enable_warnings(mirage_ipc)
 target_link_libraries(mirage_ipc
     PRIVATE
         Mira::core
+        # The session outbox rides the kairo comm channel (REUSE-09); the
+        # public header hides it behind a forward-declared holder (DEC-096).
+        Mirage::kairo_consumer
 )
 
 # The named pipe transport uses kernel base APIs only: no new import

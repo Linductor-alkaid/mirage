@@ -2,7 +2,10 @@
 
 #include <mirage/runtime/ipc/framing.hpp>
 
+#include <kairo/comm/channel.hpp>
+
 #include <algorithm>
+#include <deque>
 #include <utility>
 
 #ifdef _WIN32
@@ -50,7 +53,19 @@ bool wait_readable(const IpcStream &stream, std::chrono::milliseconds budget) {
 
 } // namespace
 
-SessionClient::SessionClient(std::string address) : address_(std::move(address)) {}
+// REUSE-09: the kairo comm channel behind the forward-declared header
+// holder; the public header stays pinned-free (DEC-096).
+struct SessionClient::Outbox {
+    kairo::comm::MpscChannel<Outbound> channel;
+};
+
+SessionClient::SessionClient(std::string address)
+    : address_(std::move(address)),
+      outbox_(new Outbox{kairo::comm::MpscChannel<Outbound>(
+          kairo::comm::ChannelOptions{.capacity = 16,
+                                      .drop_policy = kairo::comm::DropPolicy::RejectNewest,
+                                      .enable_stats = true,
+                                      .name = "mirage-ipc-session-outbox"})}) {}
 
 SessionClient::~SessionClient() {
     {
@@ -61,7 +76,6 @@ SessionClient::~SessionClient() {
         // resolves with "unavailable" (the surface of a dead connection).
         auto pending = std::move(pending_);
         pending_.clear();
-        outbox_.clear();
         for (auto &[id, entry] : pending) {
             Response failed;
             failed.ok = false;
@@ -69,6 +83,7 @@ SessionClient::~SessionClient() {
             entry.promise.set_value(std::move(failed));
         }
     }
+    outbox_->channel.close();
     stream_.close();
 }
 
@@ -121,8 +136,18 @@ std::future<Response> SessionClient::call(const Request &body, std::chrono::mill
             return future;
         }
         id = next_id_++;
-        pending_.emplace(id, Pending{std::move(promise), deadline});
-        outbox_.push_back(make_frame(encode_request(id, body)));
+        const auto inserted = pending_.emplace(id, Pending{std::move(promise), deadline});
+        // Submitted under the mutex so a concurrent fail-close can never
+        // interleave between the pending entry and its frame (REUSE-09).
+        if (!outbox_->channel.try_send(Outbound{id, make_frame(encode_request(id, body))})) {
+            auto node = pending_.extract(inserted.first);
+            Response refused;
+            refused.ok = false;
+            refused.error = {"unavailable",
+                             "session is closing; the outbound queue refused the call"};
+            node.mapped().promise.set_value(std::move(refused));
+            return future;
+        }
     }
     if (future.wait_until(deadline) == std::future_status::ready) {
         return future;
@@ -147,6 +172,11 @@ std::future<Response> SessionClient::call(const Request &body, std::chrono::mill
         last_timeout_reason_ = "request " + std::to_string(id) + " timed out after " +
                                std::to_string(timeout.count()) + " ms";
         health_ = Health::SyncStale;
+        // REUSE-09/DEC-094: the call no longer exists as an expectation, so
+        // its queued frame is tombstoned — flushed as skipped, and its late
+        // response is dropped instead of killing the session as an
+        // unexpected id.
+        abandoned_.insert(id);
         timed_out.error = {"unavailable", last_timeout_reason_};
         expired.promise.set_value(std::move(timed_out));
         // Do NOT set dead_ = true here (DEC-094 Phase 1)
@@ -184,14 +214,24 @@ SessionClient::RunExit SessionClient::run(std::string &diagnostic) {
     // Sends as much of the remainder + queued frames as the transport takes;
     // the queue only advances past a frame once its response arrived. Returns
     // false on a transport failure (diagnostic filled, session over).
-    const auto flush_writes = [&](std::deque<std::string> &outbox) -> bool {
+    const auto flush_writes = [&](std::deque<Outbound> &outbox) -> bool {
         for (;;) {
             if (write_offset >= write_remainder.size()) {
                 if (in_flight || outbox.empty()) {
                     return true;
                 }
-                write_remainder = std::move(outbox.front());
+                Outbound next = std::move(outbox.front());
                 outbox.pop_front();
+                {
+                    std::lock_guard<std::mutex> guard(mutex_);
+                    if (abandoned_.erase(next.id) > 0) {
+                        // DEC-094: the caller's deadline fired before this
+                        // frame reached the wire — the request no longer
+                        // exists on either side, so drop it.
+                        continue;
+                    }
+                }
+                write_remainder = std::move(next.frame);
                 write_offset = 0;
                 in_flight = true;
             }
@@ -219,7 +259,9 @@ SessionClient::RunExit SessionClient::run(std::string &diagnostic) {
         std::lock_guard<std::mutex> guard(mutex_);
         auto pending = std::move(pending_);
         pending_.clear();
-        outbox_.clear();
+        Outbound dropped;
+        while (outbox_->channel.try_receive(dropped)) {
+        }
         for (auto &[id, entry] : pending) {
             Response failed;
             failed.ok = false;
@@ -237,18 +279,26 @@ SessionClient::RunExit SessionClient::run(std::string &diagnostic) {
         if (dead_reason_.empty()) {
             dead_reason_ = diagnostic;
         }
+        outbox_->channel.close(); // further submissions refuse explicitly
     };
 
     for (;;) {
-        std::deque<std::string> outbox;
+        std::deque<Outbound> outbox;
         bool stop_requested = false;
+        bool alive = false;
         std::string dead_reason;
         {
             std::lock_guard<std::mutex> guard(mutex_);
             stop_requested = stop_requested_;
             dead_reason = dead_reason_;
-            if (!dead_ && !stop_requested_) {
-                outbox.swap(outbox_);
+            alive = !dead_ && !stop_requested_;
+        }
+        // REUSE-09: drain the comm outbox outside the mutex (lock-free
+        // receive); abandoned frames are filtered at flush time.
+        if (alive) {
+            Outbound item;
+            while (outbox_->channel.try_receive(item)) {
+                outbox.push_back(std::move(item));
             }
         }
         if (stop_requested) {
@@ -307,6 +357,15 @@ SessionClient::RunExit SessionClient::run(std::string &diagnostic) {
                         }
                     }
                     if (!known) {
+                        {
+                            std::lock_guard<std::mutex> guard(mutex_);
+                            // DEC-094: a late response to an abandoned (timed
+                            // out) request is dropped, not fatal — its caller
+                            // already resolved with the timeout.
+                            if (abandoned_.erase(decoded.response.id) > 0) {
+                                continue;
+                            }
+                        }
                         diagnostic = "service sent a response with unexpected id " +
                                      std::to_string(decoded.response.id);
                         close_fail_closed(diagnostic);

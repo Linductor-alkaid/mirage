@@ -2,13 +2,14 @@
 
 #include <chrono>
 #include <cstdint>
-#include <deque>
 #include <functional>
 #include <future>
 #include <map>
+#include <memory>
 #include <mirage/runtime/ipc/protocol.hpp>
 #include <mirage/runtime/ipc/stream.hpp>
 #include <mutex>
+#include <set>
 #include <string>
 
 namespace mirage::runtime::ipc {
@@ -103,7 +104,16 @@ class SessionClient {
         std::promise<Response> promise;
         std::chrono::steady_clock::time_point deadline;
     };
-
+    /// One queued wire frame with its correlation id (REUSE-09: the outbox
+    /// rides the kairo comm MPSC channel instead of a hand-rolled queue).
+    struct Outbound {
+        std::uint64_t id = 0;
+        std::string frame;
+    };
+    /// The comm channel lives behind a forward-declared holder so this
+    /// public header stays pinned-free (DEC-096); defined in the .cpp where
+    /// the kairo include is allowed.
+    struct Outbox;
     void fail_pending_locked(const std::string &code, const std::string &message);
     void fail_call_locked(std::uint64_t id, const std::string &code, const std::string &message);
     /// Marks the session dead fail-closed and wakes run(); safe from any
@@ -119,9 +129,19 @@ class SessionClient {
     Health health_ = Health::Disconnected; ///< DEC-094: current health
     std::string last_timeout_reason_;      ///< DEC-094: last timeout diagnostic
     bool stop_requested_ = false;
-    std::uint64_t next_id_ = 1;      ///< correlation ids, strictly increasing
-    std::deque<std::string> outbox_; ///< complete frames awaiting the wire
+    std::uint64_t next_id_ = 1; ///< correlation ids, strictly increasing
+    /// Complete frames awaiting the wire (REUSE-09). Bounded RejectNewest:
+    /// an over-capacity or closed submission is an explicit refused result,
+    /// never silent queueing. Capacity stays tiny because DEC-012 keeps one
+    /// outstanding request on the wire.
+    std::unique_ptr<Outbox> outbox_;
     std::map<std::uint64_t, Pending> pending_;
+    /// Calls whose caller-side deadline fired (DEC-094): their frames are
+    /// skipped at flush and their late responses are dropped instead of
+    /// killing the session as an unexpected id. Bounded by outstanding
+    /// abandoned calls; entries leave when the frame is skipped or the late
+    /// response arrives.
+    std::set<std::uint64_t> abandoned_;
     EventSink sink_;
     bool sink_set_ = false;
 };

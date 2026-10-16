@@ -558,18 +558,20 @@ void scenario_workflow_face_round_trip() {
     MIRAGE_CHECK(shutdown.ok);
 }
 
-// --- fail-closed paths -------------------------------------------------------
+// --- DEC-094 request-timeout semantics (REUSE-09 Phase 1) --------------------
 
-void scenario_timeout_closes_session_fail_closed() {
+void scenario_request_timeout_keeps_session_alive() {
     mirage::testing::TempDir dir;
     const mirage::runtime::ServiceConfig config = make_config(dir);
     ServiceProcess service(config);
     MIRAGE_CHECK(service.start(make_binding(dir)));
     service.run_async();
 
-    // Connected, but no run() loop yet: the request sits unserved, the call
-    // expires, and the frozen single-outstanding discipline closes the
-    // session fail-closed (no issue-after-silence).
+    // Connected, but no run() loop yet: the request sits in the outbox and
+    // the caller's 300 ms deadline fires. DEC-094 Phase 1: the call resolves
+    // "unavailable"/"timed out", the session goes SyncStale (the transport is
+    // not closed), and the queued frame is tombstoned — it must never reach
+    // the wire as an orphan.
     Session session;
     session.client = std::make_unique<ipc::SessionClient>(config.socket_path);
     std::string connect_error;
@@ -580,23 +582,36 @@ void scenario_timeout_closes_session_fail_closed() {
     MIRAGE_CHECK(!expired.ok);
     MIRAGE_CHECK(expired.error.code == "unavailable");
     MIRAGE_CHECK(expired.error.message.find("timed out") != std::string::npos);
+    MIRAGE_CHECK(session.client->health() == ipc::SessionClient::Health::SyncStale);
 
-    // The loop, once started, drains with the fail-closed close; run()
-    // reports the cause instead of serving the dead session.
+    // The run() loop starts AFTER the takeover: the tombstoned frame is
+    // skipped at flush, so the service never sees the abandoned request and
+    // no late response can arrive for it. The session survives the timeout
+    // and the single-outstanding discipline is not blocked by the orphaned
+    // frame: a fresh call within a normal budget round-trips normally (and
+    // its success clears SyncStale back to Healthy).
     session.loop = std::thread([&session] {
         std::string reason;
         session.exit = session.client->run(reason);
         session.diagnostic = std::move(reason);
     });
-    session.loop.join();
-    session.loop = {};
-    MIRAGE_CHECK(session.exit == ipc::SessionClient::RunExit::ConnectionLost);
-    MIRAGE_CHECK(session.diagnostic.find("timed out") != std::string::npos);
+
+    const ipc::Response hello = session.client->call(ipc::HelloRequest{}, kCallBudget).get();
+    MIRAGE_CHECK(hello.ok);
+    MIRAGE_CHECK(std::holds_alternative<ipc::ServiceIdentity>(hello.payload));
+    MIRAGE_CHECK(session.client->health() == ipc::SessionClient::Health::Healthy);
+
+    // Ending the session stays the owner's cooperative decision, not a
+    // protocol failure: stop() closes it cleanly with RunExit::Stopped.
+    session.join_and_stop();
+    MIRAGE_CHECK(session.exit == ipc::SessionClient::RunExit::Stopped);
 
     const ipc::Response shutdown =
         ipc::IpcClient(config.socket_path).call(ipc::ShutdownRequest{}, kCallBudget);
     MIRAGE_CHECK(shutdown.ok);
 }
+
+// --- fail-closed paths -------------------------------------------------------
 
 void scenario_service_shutdown_loses_the_session() {
     mirage::testing::TempDir dir;
@@ -651,7 +666,7 @@ int main() {
     run_scenario("hello_list_and_clean_stop", scenario_hello_list_and_clean_stop);
     run_scenario("overlapped_calls_serialize", scenario_overlapped_calls_serialize);
     run_scenario("events_flow_to_sink_until_terminal", scenario_events_flow_to_sink_until_terminal);
-    run_scenario("timeout_closes_session_fail_closed", scenario_timeout_closes_session_fail_closed);
+    run_scenario("request_timeout_keeps_session_alive", scenario_request_timeout_keeps_session_alive);
     run_scenario("service_shutdown_loses_the_session", scenario_service_shutdown_loses_the_session);
     run_scenario("connect_failure_is_bounded", scenario_connect_failure_is_bounded);
     run_scenario("workflow_face_round_trip", scenario_workflow_face_round_trip);

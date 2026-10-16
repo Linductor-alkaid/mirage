@@ -5,6 +5,8 @@
 - 负责：Mirage 维护者
 - 时间：2026-10-15
 
+> 2026-10-16 跟进：Phase 1 的机制补全已随[依赖复用整改](../plans/dependency-reuse-remediation.md) REUSE-09 落地——call() 超时接管同时墓碑化其排队帧（flush 时跳过、迟到响应按放弃 id 丢弃，不再触发 "unexpected id" 误杀会话）；outbox 迁 kairo::comm::MpscChannel。重连/恢复语义仍待评审，状态维持 Proposed。
+
 > 替代/被替代：本记录**扩展** [DEC-012](DEC-012-ipc-event-subscription-and-wire-schema.md)
 > 的单连接单未决请求纪律，不改变该纪律本身，但允许客户端在请求超时后选择性恢复连接。
 
