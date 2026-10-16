@@ -390,8 +390,13 @@ SettingsDecode decode_settings(std::string_view body) {
     const JsonValue *confirmation = member(document, "confirmation");
     if (confirmation != nullptr) {
         const std::string *text = confirmation->as_string();
-        if (text == nullptr || (*text != "allow" && *text != "deny")) {
-            result.error = "member 'confirmation' must be \"allow\" or \"deny\"";
+        // "ipc" selects the DEC-020 async confirmation hub so a persisted
+        // product configuration can enable the confirmation surface without
+        // a service flag; whether anything answers the requests stays with
+        // the connected clients (fail closed on the wait budget).
+        if (text == nullptr ||
+            (*text != "allow" && *text != "deny" && *text != "ipc")) {
+            result.error = "member 'confirmation' must be \"allow\", \"deny\" or \"ipc\"";
             return result;
         }
         settings.confirmation = *text;

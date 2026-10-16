@@ -270,6 +270,40 @@ void scenario_settings_round_trip_all_fields() {
 
 // --- M10-08 (DEC-095): the basic_tools settings block ---------------------------
 
+
+// --- M10-08 fix regression: the persisted confirmation mode may select the
+// DEC-020 async confirmation hub ("ipc"); allow/deny keep their meaning.
+
+void scenario_confirmation_ipc_mode_round_trip() {
+    namespace persistence = mirage::runtime::persistence;
+    // "ipc" decodes and round-trips through encode.
+    const auto decoded = persistence::decode_settings(R"({"schema":1,"confirmation":"ipc"})");
+    MIRAGE_CHECK(decoded.ok);
+    MIRAGE_CHECK(decoded.settings.confirmation.value_or("?") == "ipc");
+
+    persistence::LocalSettings settings;
+    settings.schema = persistence::kSettingsSchema;
+    settings.confirmation = "ipc";
+    const auto round_trip =
+        persistence::decode_settings(persistence::encode_settings(settings));
+    MIRAGE_CHECK(round_trip.ok);
+    MIRAGE_CHECK(round_trip.settings.confirmation.value_or("?") == "ipc");
+
+    // allow/deny keep working alongside the new value.
+    for (const char *mode : {"allow", "deny"}) {
+        const auto legacy = persistence::decode_settings(
+            std::string(R"({"schema":1,"confirmation":")") + mode + R"("})");
+        MIRAGE_CHECK(legacy.ok);
+        MIRAGE_CHECK(legacy.settings.confirmation.value_or("?") == mode);
+    }
+
+    // A bogus mode is refused with the updated message naming all three.
+    const auto bogus = persistence::decode_settings(R"({"schema":1,"confirmation":"bogus"})");
+    MIRAGE_CHECK(!bogus.ok);
+    MIRAGE_CHECK(bogus.error.find("must be \"allow\", \"deny\" or \"ipc\"") !=
+                 std::string::npos);
+}
+
 void scenario_basic_tools_settings_round_trip() {
     namespace persistence = mirage::runtime::persistence;
     // Full block: encode → decode identity, byte-exact strings preserved.
@@ -1002,6 +1036,7 @@ int main() {
     run_scenario("settings_strict_decode_rejections", scenario_settings_strict_decode_rejections);
     run_scenario("basic_tools_settings_round_trip", scenario_basic_tools_settings_round_trip);
     run_scenario("basic_tools_strict_decode", scenario_basic_tools_strict_decode);
+    run_scenario("confirmation_ipc_mode_round_trip", scenario_confirmation_ipc_mode_round_trip);
     run_scenario("session_state_round_trip", scenario_session_state_round_trip);
     run_scenario("session_state_strict_rejections", scenario_session_state_strict_rejections);
     run_scenario("settings_rejects_oversized_values", scenario_settings_rejects_oversized_values);
