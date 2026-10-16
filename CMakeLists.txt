@@ -38,6 +38,7 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(MirageDependencies)
 include(MirageWarnings)
+include(MirageTests)
 
 if(MIRAGE_ENABLE_CLANG_TIDY)
     find_program(MIRAGE_CLANG_TIDY_EXECUTABLE NAMES clang-tidy REQUIRED)

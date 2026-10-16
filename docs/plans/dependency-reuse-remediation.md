@@ -1,7 +1,8 @@
 # 依赖复用与边界整改计划（2026-10-16 全仓审查）
 
 > 状态：Completed（2026-10-16；遗留项以验证记录登记：ServiceConfig 配置面
-> pinned-free 化迁移、97 块测试 CMake 函数化、Windows/MinGW 编译面 CI 兜底）
+> pinned-free 化迁移、Windows/MinGW 编译面 CI 兜底；测试 CMake 函数化已于
+> 并行工作流停止后补完，见 2026-10-16 追加记录）
 > 日期：2026-10-16
 > 负责人：Mirage 维护者 / ZCode
 > 依据：2026-10-16 全仓复用审查（并发原语、能力路由、分层边界、内部重复、反馈台账五路审计）；
@@ -223,6 +224,25 @@ mirador、状态机为 Mira::core 薄适配），但存在三类系统性缺口�
 - 遗留登记：①ServiceConfig 配置面 pinned-free 化（DEC-096 迁移项）；
   ②tests/CMakeLists.txt 97 块函数化；③Windows/MinGW 编译面（REUSE-12 全部、
   update_fetcher Winsock 路径）待 CI 兜底。负责人：Mirage 维护者。
+### 2026-10-16：REUSE-13 追加（测试 CMake 函数化，遗留项②关闭）
+
+- 范围：并行工作流停止后，完成原登记为后续项的 `mirage_add_test()` 函数化。
+- 关键落地：
+  - `cmake/MirageTests.cmake` 新建（SOURCES/LIBS/LABELS/TIMEOUT/DEFINES/
+    INCLUDE_DIRS/TEST_PROPERTIES 关键字；无 LIBS/属性时条件省略），根 CMakeLists
+    `include(MirageTests)`。
+  - 机械化转换器只改写完全规范的目标组（规范面：add_executable + cxx_std_20 +
+    告警门禁 + 链接 + add_test(NAME/COMMAND 同名) + 仅 LABELS/TIMEOUT 的
+    set_tests_properties），组内含注释交错、条件定义、ENVIRONMENT/WORKING_DIRECTORY/
+    FIXTURES、非目标测试（python fixture）一律保留手工：58 个目标转换、42 个保留
+    （helper 无 add_test 目标、夹具、python fixture、M7-20 并行块等，保留理由逐一
+    成立）；并行工作流的 M7-20 块内容原样保留（转换器事故首轮曾复制该块与部分
+    手工组，已从 HEAD+块 重建工作树后以修复版转换器重跑，完整性校验通过：无重复
+    目标/调用、括号平衡、块计数 1）。
+  - 顺带补扫并行块外的最后一个手工 kairo 点（portal_screen_test → facade）。
+- 验证：主循环配置通过 + `ctest -N` 测试清单与转换前基线**逐名一致（89/89）**；
+  Independent-Verification-Agent 复验（记录见下）。
+- 限制：M7-20 块的 kairo 硬编码随并行工作流自行提交时处理；负责人 Mirage 维护者。
 ## 退出条件
 
 1. 全部 REUSE 项勾选完成或记录 Blocked 原因与补跑条件。
