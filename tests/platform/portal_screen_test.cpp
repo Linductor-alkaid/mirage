@@ -13,7 +13,7 @@
 
 int main(int argc, char **argv) {
     using namespace mirage;
-    const std::string mode = argc > 1 ? argv[1] : "success";
+    const std::string mode = argc > 1 ? argv[1] : "noscreencast";
 #ifdef MIRAGE_TEST_PIPEWIRE
     if (mode == "pixels") {
         using namespace platform::linux_backend;
@@ -153,48 +153,65 @@ int main(int argc, char **argv) {
         }
         const auto start = std::chrono::steady_clock::now();
         desktop::CancelToken cancel([&] {
-            return (mode == "cancel" || mode == "late" || mode == "cast_cancel" ||
-                    mode == "cast_late") &&
+            return (mode == "cast_cancel" || mode == "cast_late") &&
                    std::chrono::steady_clock::now() - start >= std::chrono::milliseconds(150);
         });
-        if (mode == "pre_cancel")
-            cancel.request_cancel();
-        if (mode != "tool" && mode != "tool_denied" && mode != "delayed_tool" && mode != "hires" &&
-            mode != "--probe-host-tool" && mode != "--probe-host-ocr") {
-            const auto out = screen->capture_desktop({mode == "budget" ? 8u : (32u << 20)}, cancel);
-            if (mode == "success" || mode == "early") {
-                MIRAGE_CHECK(out.ok && out.frame.width == 4 && out.frame.height == 2);
-                MIRAGE_CHECK(out.frame.stride == 16 && out.frame.pixels.size() == 32);
-                MIRAGE_CHECK(out.frame.pixels.size() >= 3 && out.frame.pixels.front() == 30 &&
-                             out.frame.pixels[2] == 10);
-            } else if (mode == "--probe-host") {
+        if (mode != "tool" && mode != "tool_denied" && mode != "--probe-host-tool" &&
+            mode != "--probe-host-ocr") {
+            if (mode == "budget") {
+                // The only budget gate in front of any bus access is the
+                // positive-pixel-budget check. Per-frame max_bytes enforcement
+                // lives in the ScreenCast stream path (covered by "pixels");
+                // an 8-byte budget must fail closed without a portal method.
+                const auto zero = screen->capture_desktop({0u}, {});
+                MIRAGE_CHECK(!zero.ok && zero.error.code == "invalid_argument");
+                const auto tiny = screen->capture_desktop({8u}, {});
+                MIRAGE_CHECK(!tiny.ok && tiny.error.code == "unsupported_capability");
+                return;
+            }
+            const auto out = screen->capture_desktop({32u << 20}, cancel);
+            if (mode == "noscreencast") {
+                // DEC-015 fail-closed: the portal object exposes no ScreenCast,
+                // so capture must fail closed with no second authorization.
+                MIRAGE_CHECK(!out.ok && out.error.code == "unsupported_capability");
+#ifdef MIRAGE_TEST_PIPEWIRE
+                MIRAGE_CHECK(out.error.message.find("does not provide ScreenCast") !=
+                             std::string::npos);
+#else
+                MIRAGE_CHECK(out.error.message.find("not compiled into this build") !=
+                             std::string::npos);
+#endif
+                return;
+            }
+            if (mode == "absent") {
+                // With PipeWire the private bus is alive but no portal service
+                // owns the name; without it the capability is rejected before
+                // any bus access.
+#ifdef MIRAGE_TEST_PIPEWIRE
+                MIRAGE_CHECK(!out.ok && out.error.code == "portal_unavailable");
+#else
+                MIRAGE_CHECK(!out.ok && out.error.code == "unsupported_capability");
+#endif
+                return;
+            }
+            MIRAGE_CHECK(!out.ok);
+            if (mode == "--probe-host") {
                 std::fprintf(stderr, "host Portal: ok=%d code=%s pixels=%dx%d\n", out.ok,
                              out.error.code.c_str(), out.frame.width, out.frame.height);
                 MIRAGE_CHECK(out.ok);
-            } else {
-                MIRAGE_CHECK(!out.ok);
-                const std::string expected =
-                    mode == "cast_cancel" || mode == "cast_late" ? "cancelled"
-                    : (mode == "cast_closed" || mode == "cast_closed_before_select")
-                        ? "portal_session_closed"
-                    : mode == "cast_user_cancel" ? "portal_user_cancelled"
-                    : mode == "cast_failed"      ? "portal_failed"
-                    : mode == "cast_remote"      ? "portal_remote_failed"
-                    : mode == "cast_denied"      ? "portal_permission_denied"
-                    : mode == "cast_timeout"     ? "portal_timeout"
-                    : mode.starts_with("cast_")  ? "portal_protocol_error"
-                    : mode == "cancel" || mode == "pre_cancel" || mode == "late" ? "cancelled"
-                    : mode == "deny"                                             ? "portal_failed"
-                    : mode == "user_cancel" ? "portal_user_cancelled"
-                    : mode == "wrong_path" || mode == "missing_uri" || mode == "malformed"
-                        ? "portal_protocol_error"
-                    : mode == "budget"        ? "capture_too_large"
-                    : mode == "timeout"       ? "portal_timeout"
-                    : mode == "method_denied" ? "portal_permission_denied"
-                    : mode == "absent"        ? "portal_unavailable"
-                                              : "invalid_portal_image";
-                MIRAGE_CHECK(out.error.code == expected);
+                return;
             }
+            const std::string expected =
+                mode == "cast_cancel" || mode == "cast_late" ? "cancelled"
+                : (mode == "cast_closed" || mode == "cast_closed_before_select")
+                    ? "portal_session_closed"
+                : mode == "cast_user_cancel" ? "portal_user_cancelled"
+                : mode == "cast_failed"      ? "portal_failed"
+                : mode == "cast_remote"      ? "portal_remote_failed"
+                : mode == "cast_denied"      ? "portal_permission_denied"
+                : mode == "cast_timeout"     ? "portal_timeout"
+                                             : "portal_protocol_error";
+            MIRAGE_CHECK(out.error.code == expected);
             return;
         }
         integration::DesktopToolContext tools;
@@ -245,6 +262,19 @@ int main(int argc, char **argv) {
             MIRAGE_CHECK(result && result.value().failed);
             return;
         }
+        if (mode == "tool") {
+            // The platform's fail-closed error must surface through the tool
+            // result so the model can explain it; no image is supplied.
+            MIRAGE_CHECK(result && result.value().failed);
+            const auto &summary = result.value().safe_error_summary;
+            MIRAGE_CHECK(summary.find("unsupported_capability") != std::string::npos);
+#ifdef MIRAGE_TEST_PIPEWIRE
+            MIRAGE_CHECK(summary.find("does not provide ScreenCast") != std::string::npos);
+#else
+            MIRAGE_CHECK(summary.find("not compiled into this build") != std::string::npos);
+#endif
+            return;
+        }
         MIRAGE_CHECK(result && !result.value().failed);
         if (!result || result.value().failed)
             return;
@@ -262,11 +292,6 @@ int main(int argc, char **argv) {
         MIRAGE_CHECK(!metadata.find("image_scope") && !metadata.find("origin_x") &&
                      !metadata.find("desktop_per_image_x_numerator"));
         MIRAGE_CHECK(metadata.find("received_at_ms") && !metadata.find("captured_at_ms"));
-        if (mode == "hires") {
-            MIRAGE_CHECK(metadata.find("width")->as_integer() == 1600);
-            MIRAGE_CHECK(metadata.find("height")->as_integer() == 1000);
-            MIRAGE_CHECK(metadata.find("source_width")->as_integer() == 3200);
-        }
         mira::AgentLoopSpec loop;
         loop.task_id = ctx.task;
         loop.session_id = ctx.session;

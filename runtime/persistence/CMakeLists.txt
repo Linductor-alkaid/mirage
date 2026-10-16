@@ -16,6 +16,10 @@ add_library(Mirage::persistence ALIAS mirage_runtime_persistence)
 target_include_directories(mirage_runtime_persistence
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    PRIVATE
+        # runtime/internal shared helpers (REUSE-12); Windows-only headers
+        # are included exclusively from the *_windows.cpp units.
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../internal>
 )
 target_compile_features(mirage_runtime_persistence PUBLIC cxx_std_20)
 mirage_enable_warnings(mirage_runtime_persistence)

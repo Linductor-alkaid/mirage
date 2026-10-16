@@ -25,12 +25,51 @@ class ConversationCapture {
         if (sink_)
             sink_(parts);
     }
+    struct CategoryUsage {
+        std::size_t tool = 0;     // input + output
+        std::size_t text = 0;     // kind=text
+        std::size_t thinking = 0; // kind=thinking
+    };
+    CategoryUsage categorize_budget() const {
+        CategoryUsage usage;
+        for (const auto &item : parts) {
+            if (item.kind == "tool") {
+                usage.tool += item.input.size() + item.output.size();
+            } else if (item.kind == "text") {
+                usage.text += item.text.size();
+            } else if (item.kind == "thinking") {
+                usage.thinking += item.text.size();
+            }
+        }
+        return usage;
+    }
     void bound(std::string &value, conversation::Part &part) {
-        std::size_t used = 0;
-        for (const auto &item : parts)
-            used += item.text.size() + item.input.size() + item.output.size();
-        const auto budget =
-            std::min(conversation::max_part_text, conversation::max_content_bytes - used);
+        // Calculate current usage including the part being bounded if it's already in parts.
+        CategoryUsage usage = categorize_budget();
+        // If this part is already in parts (e.g., when updating output after input was added),
+        // we need to account for its current content in the budget calculation.
+        // The categorize_budget() already includes it, so we're good.
+
+        std::size_t budget = conversation::max_part_text;
+        // DEC-093: apply per-category budget limits.
+        if (part.kind == "tool") {
+            // For tool parts, input and output share the tool budget.
+            // When bounding output, the input is already counted in usage.tool.
+            const auto remaining = usage.tool < conversation::max_tool_budget
+                                       ? conversation::max_tool_budget - usage.tool
+                                       : 0;
+            budget = std::min(budget, remaining);
+        } else if (part.kind == "text") {
+            const auto remaining = usage.text < conversation::max_text_budget
+                                       ? conversation::max_text_budget - usage.text
+                                       : 0;
+            budget = std::min(budget, remaining);
+        } else if (part.kind == "thinking") {
+            const auto remaining = usage.thinking < conversation::max_thinking_budget
+                                       ? conversation::max_thinking_budget - usage.thinking
+                                       : 0;
+            budget = std::min(budget, remaining);
+        }
         part.truncated = conversation::truncate_text(value, budget) || part.truncated;
     }
     void add(conversation::Part part) {
@@ -211,6 +250,9 @@ class ObservedProvider final : public mira::IModelProvider {
         request_guard;
     ConversationCapture *capture = nullptr; // scoped to the serialized caller task
     DialogModelActivitySink activity;
+    // Diagnostics sink for provider-reported usage (counts only, no
+    // content); invoked from record_usage_anchor's quality gate.
+    std::function<void(const mira::ModelUsage &)> usage_observer;
     // DEC-087: the declared context window of the active model. Absent = no
     // per-request preflight shrink (ZCode: resolveModelStepMaxOutputTokens
     // keeps the baseline when the window is unknown).
@@ -268,7 +310,29 @@ class ObservedProvider final : public mira::IModelProvider {
         return provider_->last_retry_after_hint();
     }
 
+    // DEC-088 capability 5: supply-time remaining-budget estimate for the
+    // session, anchored on the last provider-reported input (DEC-087). One
+    // turn of growth since that call is not subtracted, so callers must treat
+    // the value as an upper bound — the degradation bands absorb the lag.
+    // Nullopt without a declared window or without an anchor: degradation
+    // fails open and the image ships unchanged.
+    std::optional<std::int64_t> anchored_remaining(const std::string &session_key) const {
+        if (!context_window)
+            return std::nullopt;
+        std::lock_guard<std::mutex> guard(anchor_mutex_);
+        const auto anchor = anchors_.find(session_key);
+        if (anchor == anchors_.end())
+            return std::nullopt;
+        return static_cast<std::int64_t>(*context_window) -
+               static_cast<std::int64_t>(anchor->second.provider_input) -
+               static_cast<std::int64_t>(kContextReserveTokens);
+    }
+
   private:
+    // window − estimatedCurrentUsage − 1000; a non-positive estimate keeps
+    // the baseline (the local estimate is not provider-authoritative), and
+    // otherwise the wire bound is min(baseline, usable). The usage estimate
+    // anchors on the previous provider-reported input size (the pinned
     // ZCode preflight semantics (model-token-limits.ts): usable =
     // window − estimatedCurrentUsage − 1000; a non-positive estimate keeps
     // the baseline (the local estimate is not provider-authoritative), and
@@ -320,6 +384,8 @@ class ObservedProvider final : public mira::IModelProvider {
         anchors_.insert_or_assign(
             context.session.to_string(),
             UsageAnchor{*usage.input_tokens, mira::estimate_input_tokens(request)});
+        if (usage_observer)
+            usage_observer(usage);
     }
     struct UsageAnchor {
         std::uint64_t provider_input = 0;

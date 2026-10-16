@@ -1374,12 +1374,14 @@ void output_continuation_scenario() {
         MIRAGE_CHECK(result.tool_calls == 0);
         if (script->requests.size() == 3) {
             // The second request replays the first partial as an assistant
-            // TextPart and carries the exact continuation feedback.
+            // TextPart and carries the anchored continuation feedback (the
+            // pin 9e7b729 anchor: continue from the last 50 chars).
             MIRAGE_CHECK(assistant_partial(script->requests[1], 0) == "The window list shows");
             MIRAGE_CHECK(request_text_contains(script->requests[1],
                                                "Continue from: \"The window list shows\""));
             // The third request replays both partials in order plus the
-            // feedback again; no truncation-recovery wording ever appears.
+            // feedback anchored at the second cut; no truncation-recovery
+            // wording ever appears.
             MIRAGE_CHECK(assistant_partial(script->requests[2], 0) == "The window list shows");
             MIRAGE_CHECK(assistant_partial(script->requests[2], 1) == " two windows open");
             MIRAGE_CHECK(

@@ -14,6 +14,7 @@
 // "ok" member as a response — the two decode paths are mutually exclusive).
 
 #include "../support/ipc_io.hpp"
+#include "../support/scripted_model_provider.hpp"
 
 #include <mira/model_contracts.hpp>
 #include <mira/model_provider.hpp>
@@ -1617,83 +1618,9 @@ void scenario_session_close_publishes_closed_notification() {
 
 // --- session.chat dialog face (DEC-027) --------------------------------------
 
-/// Canned-reply provider for the dialog scene (DEC-027): the production
-/// socket provider denies private/loopback endpoints by design, so the
-/// hermetic ModelProviderOverride seam serves the gateway here.
-class CannedDialogProvider final : public mira::IModelProvider {
-  public:
-    [[nodiscard]] const mira::ModelProfile &profile() const override { return profile_; }
-    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
-                                            const mira::OperationContext &,
-                                            const mira::ProviderInferOptions &) override {
-        ++calls_;
-        mira::ModelResponse response;
-        response.contract_version = mira::SchemaVersion{1, 0};
-        response.request_id = request.request_id;
-        response.operation_id = request.operation_id;
-        response.profile_id = profile_.id;
-        response.requested_model = profile_.model_selector;
-        response.status = mira::ModelCompletionStatus::Completed;
-        mira::MessageOutput message;
-        message.role = mira::ModelRole::Assistant;
-        mira::OutputTextPart text;
-        text.text = "订阅回复正常。";
-        message.content.emplace_back(std::move(text));
-        response.output.emplace_back(std::move(message));
-        return response;
-    }
-
-    void bind_profile(const mira::ModelProfile &profile) { profile_ = profile; }
-
-  private:
-    mira::ModelProfile profile_;
-    std::atomic<int> calls_{0};
-};
-
-/// Gate-blocked provider for the close-during-turn scene (DEC-027): the
-/// inference holds until released (honoring the operation's cancellation
-/// probe, so an executor cancel ends the hold) and then reports the scripted
-/// status — the window in which session.close must cancel the driver and
-/// swallow the outcome.
-class GatedDialogProvider final : public mira::IModelProvider {
-  public:
-    [[nodiscard]] const mira::ModelProfile &profile() const override { return profile_; }
-    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
-                                            const mira::OperationContext &context,
-                                            const mira::ProviderInferOptions &) override {
-        ++calls_;
-        while (hold_.load() && !context.cancelled()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds{5});
-        }
-        mira::ModelResponse response;
-        response.contract_version = mira::SchemaVersion{1, 0};
-        response.request_id = request.request_id;
-        response.operation_id = request.operation_id;
-        response.profile_id = profile_.id;
-        response.requested_model = profile_.model_selector;
-        response.status = context.cancelled() ? mira::ModelCompletionStatus::Cancelled
-                                              : mira::ModelCompletionStatus::Completed;
-        if (response.status == mira::ModelCompletionStatus::Completed) {
-            mira::MessageOutput message;
-            message.role = mira::ModelRole::Assistant;
-            mira::OutputTextPart text;
-            text.text = "门控回复正常。";
-            message.content.emplace_back(std::move(text));
-            response.output.emplace_back(std::move(message));
-        }
-        return response;
-    }
-
-    void hold_open() { hold_.store(true); }
-    void release() { hold_.store(false); }
-    void bind_profile(const mira::ModelProfile &profile) { profile_ = profile; }
-
-  private:
-    mira::ModelProfile profile_;
-    std::atomic<int> calls_{0};
-    std::atomic<bool> hold_{false};
-};
-
+// The scripted/gated model-provider fakes for the dialog face scenes live in
+// tests/support/scripted_model_provider.hpp (REUSE-14: deduplicated from the
+// local copies that grew in this file and runtime_service_test.cpp).
 /// M5-06 (DEC-027): the dialog turn lifecycle rides the session.chat_updated
 /// stream. A subscribed connection sees the pending notification (published
 /// before the ack, DEC-012 decision 3 ordering precedent) with the user text
@@ -1706,7 +1633,7 @@ void scenario_session_chat_publishes_turn_lifecycle() {
     config.model.enabled = true;
     config.model.dialect = "openai.responses.v1";
     config.model.model_selector = "test-model";
-    auto provider = std::make_shared<CannedDialogProvider>();
+    auto provider = std::make_shared<mirage::testing::ScriptedModelProvider>("订阅回复正常。");
     const auto scripted = std::make_shared<mirage::integration::ModelProviderOverride>(
         [&provider](const mira::ModelProfile &profile) -> std::shared_ptr<mira::IModelProvider> {
             provider->bind_profile(profile);
@@ -1834,7 +1761,7 @@ void scenario_session_close_swallows_inflight_turn() {
     config.model.enabled = true;
     config.model.dialect = "openai.responses.v1";
     config.model.model_selector = "test-model";
-    auto provider = std::make_shared<GatedDialogProvider>();
+    auto provider = std::make_shared<mirage::testing::GatedModelProvider>();
     const auto scripted = std::make_shared<mirage::integration::ModelProviderOverride>(
         [&provider](const mira::ModelProfile &profile) -> std::shared_ptr<mira::IModelProvider> {
             provider->bind_profile(profile);

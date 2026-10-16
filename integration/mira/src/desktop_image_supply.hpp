@@ -7,6 +7,9 @@
 #include <optional>
 #include <string>
 
+#include <functional>
+#include <optional>
+
 namespace mirage::integration::detail {
 inline constexpr std::size_t desktop_image_bytes = 8u << 20;
 inline constexpr std::size_t desktop_capture_bytes = 32u << 20;
@@ -53,6 +56,12 @@ class DesktopImageTurn {
     DesktopImageTurn &operator=(const DesktopImageTurn &) = delete;
     void register_tool(mira::BuiltinToolRegistry &, const DesktopAtomToolset::Decorator &,
                        bool allow_mutations = true);
+    /// DEC-088 capability 5: supply-time context-budget signal, anchored on
+    /// the last provider-reported input of the session (DEC-087). A nullopt
+    /// return keeps the full image: no declared window, no anchor yet, or no
+    /// signal wired — degradation fails open.
+    using BudgetRemaining = std::function<std::optional<std::int64_t>()>;
+    void set_budget_remaining(BudgetRemaining provider);
     mira::Result<std::vector<mira::ModelInputItem>> supply(const mira::AgentLoopSpec &);
     /// DEC-088 capability 1: resolves the reuse identity of this request's
     /// supplied capture under the same owner/cancellation gate as supply();
@@ -138,5 +147,6 @@ class DesktopImageTurn {
     bool supplied_image_ = false;
     bool region_tool_enabled_ = false;
     std::optional<mira::Error> supply_error_;
+    BudgetRemaining budget_remaining_;
 };
 } // namespace mirage::integration::detail

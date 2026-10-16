@@ -4,6 +4,9 @@
 // main() per test binary, MIRAGE_CHECK records failures, finish() prints a
 // summary and returns the process exit code. No external test framework; if
 // the suite outgrows this, adopt one deliberately via a decision record.
+// Result unwrapping discipline (MIRA-20261013-001): Result::value() is only
+// legal on literals whose validity is already established; wire data is
+// always pattern-matched, never .value()'d.
 
 #include <cstdio>
 #include <string_view>

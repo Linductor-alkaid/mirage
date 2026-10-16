@@ -1,5 +1,6 @@
 #include "desktop_image_supply.hpp"
 #include "desktop_stability_guard.hpp"
+#include "tool_geometry.hpp"
 #include <algorithm>
 #include <stdexcept>
 
@@ -35,21 +36,6 @@ std::string field(const Json &value, const char *key) {
 std::int64_t number(const Json &value, const char *key) {
     const auto *v = value.find(key);
     return v && v->as_integer() ? *v->as_integer() : 0;
-}
-bool same(const Geometry &a, const Geometry &b) {
-    return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;
-}
-bool contains(const Geometry &outer, const Geometry &inner) {
-    return inner.width > 0 && inner.height > 0 && inner.x >= outer.x && inner.y >= outer.y &&
-           std::int64_t{inner.x} + inner.width <= std::int64_t{outer.x} + outer.width &&
-           std::int64_t{inner.y} + inner.height <= std::int64_t{outer.y} + outer.height;
-}
-bool valid_frame(const desktop::ImageFrame &frame) {
-    return frame.format == desktop::ImageFormat::Bgra8 && frame.width > 0 && frame.height > 0 &&
-           frame.width <= 65535 && frame.height <= 65535 &&
-           frame.stride >= static_cast<std::size_t>(frame.width) * 4 &&
-           frame.stride <= desktop_image_bytes / static_cast<std::size_t>(frame.height) &&
-           frame.pixels.size() == frame.stride * static_cast<std::size_t>(frame.height);
 }
 bool allowed(const DesktopToolContext &desktop, const std::string &capability,
              const std::string &resource, const desktop::CancelToken &cancel,
@@ -244,7 +230,7 @@ mira::Result<Json> DesktopImageTurn::mark(const Json &args, const mira::Operatio
         if (!front.ok || !front.found || front.window.id != desktop_.capture_scope)
             return error(mira::ErrorCode::InvalidArgument,
                          "mark capture scope window is not focused");
-        if (crop && !contains(front.window.geometry, *crop))
+        if (crop && !geometry_contains(front.window.geometry, *crop))
             return error(mira::ErrorCode::InvalidArgument,
                          "mark crop outside the capture scope window");
         area = crop.value_or(front.window.geometry);
@@ -280,24 +266,25 @@ mira::Result<Json> DesktopImageTurn::mark(const Json &args, const mira::Operatio
             failure.safe_message = "mark observation failed: invalid provider error code";
         return failure;
     }
-    if (!valid_frame(fresh.frame) || !valid_frame(fresh.marked_frame) || fresh.display_id.empty() ||
-        fresh.display_id.size() > 256 || fresh.publish.snapshot.scope_ref.empty() ||
-        fresh.publish.snapshot.scope_ref.size() > 128 ||
+    if (!valid_image_frame(fresh.frame, desktop_image_bytes, 65535) ||
+        !valid_image_frame(fresh.marked_frame, desktop_image_bytes, 65535) ||
+        fresh.display_id.empty() || fresh.display_id.size() > 256 ||
+        fresh.publish.snapshot.scope_ref.empty() || fresh.publish.snapshot.scope_ref.size() > 128 ||
         fresh.publish.snapshot.regions.size() != fresh.marks.size() || fresh.marks.size() > 128 ||
         fresh.frame.width != fresh.capture_roi.value_or(fresh.display_geometry).width ||
         fresh.frame.height != fresh.capture_roi.value_or(fresh.display_geometry).height ||
-        (fresh.capture_roi && !same(*fresh.capture_roi, fresh.image_geometry)) ||
+        (fresh.capture_roi && !geometry_equals(*fresh.capture_roi, fresh.image_geometry)) ||
         fresh.marked_frame.width != fresh.image_geometry.width ||
         fresh.marked_frame.height != fresh.image_geometry.height ||
-        !contains(fresh.display_geometry, fresh.image_geometry) ||
-        !same(fresh.image_geometry, area.value_or(fresh.display_geometry)))
+        !geometry_contains(fresh.display_geometry, fresh.image_geometry) ||
+        !geometry_equals(fresh.image_geometry, area.value_or(fresh.display_geometry)))
         return error(mira::ErrorCode::ResourceExhausted, "invalid or over-budget mark result");
     std::optional<desktop::WindowInfo> observed_window;
     if (front.ok && front.found && window) {
         const auto after = window->front_window(bounded);
         if (after.ok && after.found && after.window.id == front.window.id &&
             after.window.title == front.window.title &&
-            same(after.window.geometry, front.window.geometry))
+            geometry_equals(after.window.geometry, front.window.geometry))
             observed_window = after.window;
     }
     Json::Array mapping;
@@ -385,13 +372,14 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
     const auto &to_mark = marks_->marks[static_cast<std::size_t>(destination - 1)];
     const auto &to_region =
         marks_->publish.snapshot.regions[static_cast<std::size_t>(destination - 1)];
-    if (!mark.selectable || !contains(mark_window_->geometry, region.bounds) ||
-        !contains(marks_->image_geometry, {mark.anchor.x, mark.anchor.y, 1, 1}))
+    if (!mark.selectable || !geometry_contains(mark_window_->geometry, region.bounds) ||
+        !geometry_contains(marks_->image_geometry, {mark.anchor.x, mark.anchor.y, 1, 1}))
         return action_error({"invalid_argument", "target not fully visible in focused window"});
-    if (drag && (!to_mark.selectable || !contains(mark_window_->geometry, to_region.bounds) ||
-                 !contains(marks_->image_geometry, {to_mark.anchor.x, to_mark.anchor.y, 1, 1}) ||
-                 !desktop::valid_drag_path({mark.anchor.x, mark.anchor.y},
-                                           {to_mark.anchor.x, to_mark.anchor.y})))
+    if (drag &&
+        (!to_mark.selectable || !geometry_contains(mark_window_->geometry, to_region.bounds) ||
+         !geometry_contains(marks_->image_geometry, {to_mark.anchor.x, to_mark.anchor.y, 1, 1}) ||
+         !desktop::valid_drag_path({mark.anchor.x, mark.anchor.y},
+                                   {to_mark.anchor.x, to_mark.anchor.y})))
         return action_error({"invalid_argument", "invalid or over-budget drag destination"});
     if (captures_ >= 4)
         return action_error({"result_too_large", "visual revalidation capture budget exhausted"});
@@ -410,14 +398,14 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
     const auto stable_front = [&] {
         const auto f = window->front_window(bounded);
         return f.ok && f.found && f.window.id == id && f.window.title == mark_window_->title &&
-               same(f.window.geometry, mark_window_->geometry);
+               geometry_equals(f.window.geometry, mark_window_->geometry);
     };
     const auto stable_display = [&] {
         const auto list = screen->list_displays({}, bounded);
         return list.ok &&
                std::any_of(list.displays.begin(), list.displays.end(), [&](const auto &d) {
                    return d.id == marks_->display_id &&
-                          same(d.geometry, marks_->display_geometry) &&
+                          geometry_equals(d.geometry, marks_->display_geometry) &&
                           d.primary == marks_->display_primary;
                });
     };
@@ -431,8 +419,9 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
         return action_error({bounded.cancelled() || fresh.cancelled ? "cancelled" : "io_error",
                              "visual revalidation capture failed"});
     const auto &source = marks_->frame;
-    if (!valid_frame(fresh.frame) || fresh.frame.width != source.width ||
-        fresh.frame.height != source.height || !stable_display() || !stable_front())
+    if (!valid_image_frame(fresh.frame, desktop_image_bytes, 65535) ||
+        fresh.frame.width != source.width || fresh.frame.height != source.height ||
+        !stable_display() || !stable_front())
         return action_error({"stale_observation", "visual source pixels or geometry changed"});
     // M7-16 / DEC-082: re-verify the operated marks' region for stability
     // instead of whole-frame byte equality. Animation outside the target, or
@@ -456,9 +445,10 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
     bool entered = false;
     try {
         const auto perform = [&](const auto &active, const desktop::VisualRegionEntry *to) {
-            if (!same(active.bounds, region.bounds) ||
-                (drag && (!to || !same(to->bounds, to_region.bounds))) || !stable_front() ||
-                bounded.cancelled() || desktop_.actions->epoch() != dispatch_epoch ||
+            if (!geometry_equals(active.bounds, region.bounds) ||
+                (drag && (!to || !geometry_equals(to->bounds, to_region.bounds))) ||
+                !stable_front() || bounded.cancelled() ||
+                desktop_.actions->epoch() != dispatch_epoch ||
                 std::chrono::steady_clock::now() - captured_ >= std::chrono::seconds{5}) {
                 outcome.error = {"stale_observation", "visual target changed before injection"};
                 return;

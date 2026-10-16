@@ -1,4 +1,5 @@
 #include "desktop_action_verification.hpp"
+#include "tool_geometry.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -22,16 +23,6 @@ mira::Error error(mira::ErrorCode code, const char *message) {
     e.domain = "mirage.desktop.verification";
     e.safe_message = message;
     return e;
-}
-bool same(const mirage::desktop::WindowGeometry &a, const mirage::desktop::WindowGeometry &b) {
-    return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;
-}
-bool contains(const mirage::desktop::WindowGeometry &outer,
-              const mirage::desktop::WindowGeometry &inner) {
-    return outer.width > 0 && outer.height > 0 && inner.width > 0 && inner.height > 0 &&
-           inner.x >= outer.x && inner.y >= outer.y &&
-           std::int64_t{inner.x} + inner.width <= std::int64_t{outer.x} + outer.width &&
-           std::int64_t{inner.y} + inner.height <= std::int64_t{outer.y} + outer.height;
 }
 } // namespace
 
@@ -125,8 +116,8 @@ bool DesktopActionVerification::observe_text(
     visual_scopes_.push_back(read.snapshot.scope_ref);
     if ((!r.model_revision.empty() &&
          (r.model_revision != read.model_revision || r.display_id != read.display_id ||
-          !same(r.display_geometry, read.display_geometry))) ||
-        !contains(read.display_geometry, window))
+          !geometry_equals(r.display_geometry, read.display_geometry))) ||
+        !geometry_contains(read.display_geometry, window))
         return fail("visual_source_changed_or_clipped");
     JsonValue::Array facts;
     std::int64_t page_matches = 0, all_text_matches = 0;
@@ -141,10 +132,11 @@ bool DesktopActionVerification::observe_text(
             return fail("visual_evidence_invalid");
         refs.push_back(region.ref);
         if (region.source == mirage::desktop::VisualRegionSource::kOcr &&
-            region.confidence >= 0.8 && region.text == r.text && contains(window, region.bounds))
+            region.confidence >= 0.8 && region.text == r.text &&
+            geometry_contains(window, region.bounds))
             ++matching_nodes;
         if (region.source == mirage::desktop::VisualRegionSource::kOcr &&
-            contains(window, region.bounds)) {
+            geometry_contains(window, region.bounds)) {
             if (region.text == r.text)
                 ++all_text_matches;
             if (region.text == r.page_text) {
@@ -215,6 +207,18 @@ void DesktopActionVerification::observe(Record &r, const mira::OperationContext 
             auto proof = shared_observation_(r.kind, r.text, local);
             if (!proof || bounded.cancelled() || r.epoch != desktop_.actions->epoch()) {
                 r.reason = "shared_observation_failed";
+                if (!proof) {
+                    // The receipt is the only place the model can read why the
+                    // shared frame died; keep the underlying capture diagnostic
+                    // visible instead of dropping it.
+                    auto message = proof.error().safe_message;
+                    message.erase(std::find_if(message.begin(), message.end(),
+                                               [](char c) { return c == '\n' || c == '\r'; }),
+                                  message.end());
+                    if (message.size() > 160)
+                        message.resize(160);
+                    r.reason += ": " + message;
+                }
                 return;
             }
             const bool matched = flag(proof.value(), "matched");
@@ -279,7 +283,7 @@ void DesktopActionVerification::observe(Record &r, const mira::OperationContext 
                 return a.found == b.found &&
                        (!a.found ||
                         (a.window.id == b.window.id && a.window.title == b.window.title &&
-                         same(a.window.geometry, b.window.geometry)));
+                         geometry_equals(a.window.geometry, b.window.geometry)));
             };
             bool matched = r.kind == "foreground_changed"
                                ? !equal_front(before, r.initial_front)
@@ -292,7 +296,8 @@ void DesktopActionVerification::observe(Record &r, const mira::OperationContext 
                 if (!displays.ok || std::none_of(displays.displays.begin(), displays.displays.end(),
                                                  [&](const auto &d) {
                                                      return d.id == r.display_id &&
-                                                            same(d.geometry, r.display_geometry);
+                                                            geometry_equals(d.geometry,
+                                                                            r.display_geometry);
                                                  })) {
                     r.reason = "visual_source_changed_or_clipped";
                     return;
@@ -306,12 +311,13 @@ void DesktopActionVerification::observe(Record &r, const mira::OperationContext 
                     std::none_of(after_displays.displays.begin(), after_displays.displays.end(),
                                  [&](const auto &d) {
                                      return d.id == fixed_display &&
-                                            same(d.geometry, fixed_geometry);
+                                            geometry_equals(d.geometry, fixed_geometry);
                                  })) {
                     r.reason = "visual_source_changed_or_clipped";
                     return;
                 }
-                if (r.display_id != fixed_display || !same(r.display_geometry, fixed_geometry)) {
+                if (r.display_id != fixed_display ||
+                    !geometry_equals(r.display_geometry, fixed_geometry)) {
                     r.display_id = fixed_display;
                     r.display_geometry = fixed_geometry;
                     r.reason = "visual_source_changed_or_clipped";
@@ -386,7 +392,7 @@ void DesktopActionVerification::observe(Record &r, const mira::OperationContext 
         }
         const auto after = window->front_window(bounded);
         if (!after.ok || !after.found || after.window.id != r.window ||
-            !same(before.window.geometry, after.window.geometry) ||
+            !geometry_equals(before.window.geometry, after.window.geometry) ||
             before.window.title != after.window.title || bounded.cancelled() ||
             r.epoch != desktop_.actions->epoch()) {
             r.reason = "observation_changed_or_expired";

@@ -1,5 +1,5 @@
 #pragma once
-#include "../native/typography.hpp"
+#include "../common/typography.hpp"
 #include "bubble_presentation.hpp"
 #include <core/render/text.h>
 #include <eui_neo.h>

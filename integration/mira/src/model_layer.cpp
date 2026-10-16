@@ -1,3 +1,4 @@
+#include <mirage/integration/basic_agent_toolset.hpp>
 #include <mirage/integration/desktop_atom_toolset.hpp>
 #include <mirage/integration/model_layer.hpp>
 
@@ -16,12 +17,14 @@
 
 #include "conversation_capture.hpp"
 #include "desktop_action_verification.hpp"
+#include "desktop_context_builder.hpp"
 #include "desktop_image_supply.hpp"
 #include "desktop_ocr_tool.hpp"
 #include "model_layer_env.hpp"
 #include "tool_alias_provider.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <utility>
@@ -497,6 +500,7 @@ struct ModelLayer::Impl {
         // output-budget preflight in the provider decorator.
         if (config.context_window_tokens)
             observed->context_window = config.context_window_tokens;
+        observed->usage_observer = config.usage_observer;
         gateway->register_provider(observed);
         gateway->set_event_store(events, mira::RuntimeId::generate(), mira::SessionId::generate());
         return true;
@@ -602,6 +606,28 @@ struct ModelLayer::Impl {
     std::shared_ptr<mira::MemoryEventStore> events = std::make_shared<mira::MemoryEventStore>();
     /// DEC-085 repeated-failure guard; infer_mutex serializes all access.
     ToolFailureTracker failure_tracker;
+    /// M10-07 (DEC-095): per-session observation records of the basic agent
+    /// tools (exec/read/write/edit); infer_mutex serializes all access.
+    /// Bounded at 32 sessions (least recently seen evicted), mirroring the
+    /// failure tracker; eviction only forces a re-read.
+    BasicToolSessionState &basic_state(const std::string &session) {
+        basic_state_order_[session] = ++basic_state_clock_;
+        auto &state = basic_states_[session];
+        while (basic_states_.size() > 32) {
+            auto oldest = basic_state_order_.begin();
+            for (auto it = basic_state_order_.begin(); it != basic_state_order_.end(); ++it) {
+                if (it->second < oldest->second) {
+                    oldest = it;
+                }
+            }
+            basic_states_.erase(oldest->first);
+            basic_state_order_.erase(oldest);
+        }
+        return state;
+    }
+    std::map<std::string, BasicToolSessionState> basic_states_;
+    std::map<std::string, std::uint64_t> basic_state_order_;
+    std::uint64_t basic_state_clock_ = 0;
     bool running = false;
 };
 
@@ -929,6 +955,15 @@ DialogCompletion ModelLayer::complete_harness_turn(
     DesktopAtomToolset::register_harness_tools(*registry, impl_->desktop, tools_allowed, cancel,
                                                decorate);
     detail::register_ocr_tool(*registry, impl_->desktop, cancel, decorate);
+    // M10-07 (DEC-095): the four basic tools ride the same capture /
+    // verification decorator; enablement is the service's decision
+    // (desktop.basic_tools), and registration is capability-honest.
+    // `tools_allowed` carries the turn's session access mode (DEC-080):
+    // read rides every agent-capable mode, write/edit/exec need full access.
+    if (impl_->desktop.basic_tools.enabled) {
+        register_basic_agent_tools(*registry, impl_->desktop, impl_->basic_state(session_key),
+                                   impl_->desktop.basic_tools, cancel, decorate, tools_allowed);
+    }
     if (tools_allowed)
         verification.register_tool(*registry, decorate);
     std::unique_ptr<detail::DesktopImageTurn> image_turn;
@@ -944,6 +979,12 @@ DialogCompletion ModelLayer::complete_harness_turn(
             impl_->images ? impl_->images : std::make_shared<detail::DesktopImageSource>();
         image_turn = std::make_unique<detail::DesktopImageTurn>(
             source, impl_->desktop, turn_context, cancel, bool(impl_->images));
+        // DEC-088 capability 5: degrade the image supply from the anchored
+        // preflight signal of the same session; without a declared window or
+        // an anchor the reader yields nullopt and the image ships unchanged.
+        image_turn->set_budget_remaining([&observed = impl_->observed, session_key] {
+            return observed ? observed->anchored_remaining(session_key) : std::nullopt;
+        });
         image_turn->register_tool(*registry, decorate, tools_allowed);
         verification.set_shared_observation(
             [&image_turn](const auto &kind, const auto &text, const auto &ctx) {
@@ -968,6 +1009,7 @@ DialogCompletion ModelLayer::complete_harness_turn(
         }
     }
     mira::ConversationLoopConfig config;
+    config.limit_mode = mira::ConversationLimitMode::Finite;
     // DEC-085 follow-up budget model: the per-call output budget is what the
     // caller funds (thinking calls carry the raised floor) capped by the
     // profile limit the router actually admits — no artificial halving. A
@@ -1215,10 +1257,32 @@ DialogCompletion ModelLayer::complete_harness_turn(
         // DEC-088 capability 1: the persistent desktop source owns the
         // cross-dialog-turn reuse count; the pinned loop renders the note from
         // the third consecutive identical capture.
-        loop.set_model_input_identity([&image_turn](const mira::AgentLoopSpec &identity_spec) {
-            return image_turn ? image_turn->input_reuse_identity(identity_spec)
-                              : std::optional<mira::InputReuseMeta>{};
-        });
+        if (impl_->config.supply_input_reuse_identity) {
+            loop.set_model_input_identity([&image_turn](const mira::AgentLoopSpec &identity_spec) {
+                return image_turn ? image_turn->input_reuse_identity(identity_spec)
+                                  : std::optional<mira::InputReuseMeta>{};
+            });
+        }
+        // DEC-088 capability 2/3 (MIRA-20261014-006): compact the canonical
+        // tool-history replay through Mira's Layer 0 with the desktop
+        // watermarks. An undeclared window keeps the raw replay (fail-open);
+        // seam failures degrade inside the loop to the same raw replay. The
+        // compaction request reserves the per-call wire output (the same
+        // bound the DEC-087 preflight shrinks), not the whole-run envelope —
+        // the envelope would exceed any realistic window and every build
+        // would fail limits validation.
+        if (impl_->config.context_window_tokens != 0) {
+            auto counter = std::make_shared<mira::ConservativeTokenCounter>();
+            auto manager = std::make_shared<mira::StandardContextManager>(std::move(counter));
+            detail::DesktopContextBuilder builder(
+                std::move(manager),
+                {impl_->config.context_window_tokens, config.max_output_tokens_per_turn});
+            const detail::DesktopContextBuilder::RequestKeys keys{
+                spec.task_id, spec.session_id, spec.task_epoch, impl_->profile->id};
+            loop.set_history_transformer([builder = std::move(builder), keys](const auto &history) {
+                return builder.transform(history, keys);
+            });
+        }
         try {
             return loop.run(spec, turn_context);
         } catch (...) {
@@ -1265,7 +1329,14 @@ DialogCompletion ModelLayer::complete_harness_turn(
     completion.failed = !completion.ok && !completion.cancelled;
     completion.error = value.safe_summary;
     completion.model_steps = static_cast<std::uint32_t>(value.turns.size());
-    completion.tool_calls = value.tool_executions;
+    // PR#99 widened upstream cumulative diagnostics to uint64. Keep the
+    // existing finite-mode product contract; never wrap at this boundary.
+    // M9-03 must widen the product counters before opting into Continuous.
+    const auto legacy_count = [](std::uint64_t count) {
+        return static_cast<std::uint32_t>(
+            std::min(count, static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max())));
+    };
+    completion.tool_calls = legacy_count(value.tool_executions);
     if (completion.failed) {
         // DEC-085: the failure reason must be actionable — the spent budget
         // and the repeated tool failures name what actually blocked the task.
@@ -1273,9 +1344,13 @@ DialogCompletion ModelLayer::complete_harness_turn(
                             std::to_string(completion.tool_calls) + " 次工具调用）";
         annotate(completion.error);
     }
-    completion.supplied_input_items = value.supplied_input_items;
-    completion.supplied_input_dropped = value.supplied_input_dropped;
-    completion.supply_degradations = value.supply_degradations;
+    completion.supplied_input_items = legacy_count(value.supplied_input_items);
+    completion.supplied_input_dropped = legacy_count(value.supplied_input_dropped);
+    completion.supply_degradations = legacy_count(value.supply_degradations);
+    completion.supplied_input_reuse_annotations =
+        legacy_count(value.supplied_input_reuse_annotations);
+    completion.history_transforms = legacy_count(value.history_transforms);
+    completion.history_transform_degradations = legacy_count(value.history_transform_degradations);
     if ((image_turn || !verification.empty()) &&
         (value.supplied_input_dropped || value.supply_degradations)) {
         completion.ok = false;

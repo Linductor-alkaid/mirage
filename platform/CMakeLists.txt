@@ -25,6 +25,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         linux/src/host_environment.cpp
         linux/src/platform_linux.cpp
         linux/src/linux_desktop_environment.cpp
+        linux/src/linux_file_actions.cpp
         linux/src/credential_store.cpp
         linux/src/portal_screen_backend.cpp
         linux/src/portal_input.cpp
@@ -59,7 +60,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     if(X11_FOUND AND X11_Xtst_FOUND AND X11_Xrandr_FOUND AND X11_Xshape_FOUND)
         target_sources(mirage_platform PRIVATE linux/src/overlay_backend.cpp)
         target_link_libraries(mirage_platform PRIVATE ${X11_Xext_LIB})
-        target_compile_definitions(mirage_platform PRIVATE MIRAGE_LINUX_XOVERLAY=1)
         message(STATUS "Linux X11 overlay carrier enabled")
     else()
         target_sources(mirage_platform PRIVATE linux/src/overlay_backend_stub.cpp)
@@ -78,7 +78,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         # explicitly because the atspi-2.pc Requires omits it (upstream
         # packaging miss, noted in the M2-03 verification record).
         target_link_libraries(mirage_platform PRIVATE PkgConfig::ATSPI)
-        target_compile_definitions(mirage_platform PRIVATE MIRAGE_LINUX_ATSPI=1)
         message(STATUS "Linux AT-SPI2 backend enabled (${ATSPI_VERSION})")
     else()
         target_sources(mirage_platform PRIVATE linux/src/atspi_backend_stub.cpp)
@@ -98,7 +97,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             target_link_libraries(mirage_platform PRIVATE PNG::PNG)
             target_compile_definitions(mirage_platform PRIVATE MIRAGE_LINUX_PORTAL=1)
             set_property(TARGET mirage_platform PROPERTY MIRAGE_PORTAL_AVAILABLE TRUE)
-            pkg_check_modules(PIPEWIRE QUIET IMPORTED_TARGET libpipewire-0.3)
+            # GLOBAL: tests/ links the same target (portal_stream_retention_test);
+            # a directory-scoped import is invisible to the sibling directory.
+            pkg_check_modules(PIPEWIRE QUIET IMPORTED_TARGET GLOBAL libpipewire-0.3)
             set(MIRAGE_PIPEWIRE_SDK_ROOT "" CACHE PATH "Optional extracted distribution PipeWire development SDK")
             if(PIPEWIRE_FOUND)
                 target_link_libraries(mirage_platform PRIVATE PkgConfig::PIPEWIRE)
@@ -116,6 +117,17 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
                 target_compile_definitions(mirage_platform PRIVATE MIRAGE_LINUX_PIPEWIRE=1)
                 set_property(TARGET mirage_platform PROPERTY MIRAGE_PIPEWIRE_AVAILABLE TRUE)
                 message(STATUS "Linux Wayland ScreenCast/PipeWire capture enabled")
+            else()
+                # A portal build without PipeWire has no reusable authorized
+                # observation; portal_screen_backend fails capture closed rather
+                # than degrading silently, but the product must not ship that way
+                # by accident. Make the gap loud at configure time.
+                message(WARNING
+                    "Linux Wayland ScreenCast/PipeWire capture DISABLED: libpipewire-0.3 dev "
+                    "files not found and MIRAGE_PIPEWIRE_SDK_ROOT is empty. Wayland desktop "
+                    "observation will fail closed (unsupported_capability) instead of sharing "
+                    "the screen. Install libpipewire-0.3 and libspa-0.2 development files or "
+                    "point MIRAGE_PIPEWIRE_SDK_ROOT at an extracted SDK, then reconfigure.")
             endif()
         endif()
         target_sources(mirage_platform PRIVATE

@@ -1,103 +1,721 @@
-# 会话上下文压缩与输入去重：实施计划
+# 会话上下文压缩与输入去重：实施计划（修订版）
 
-> 日期：2026-10-14
+> 状态：Superseded（2026-10-15；后续实施与验收由 M9 跟踪）
+> 后继：[M9 持续任务与本地语义感知](m9-continuous-tasks-and-local-perception.md)，
+> 决策为 DEC-090/091。下文保留历史设计、fixture 结果和未执行项，不作为当前
+> 并行实施清单；请求级预算与真实会话门禁分别由 M9-04/12 承接。
+>
+> 日期：2026-10-14（初版）/ 2026-10-14（修订：集成 Mira Layer 0）
 > 决策依据：[DEC-088](../decisions/DEC-088-conversation-context-compaction-and-input-deduplication.md)
 > 负责人：Mira/Mirage 维护者
 > 目标：M9 多步任务稳定性（20+ 轮图片密集任务不因上下文耗尽失败）
 
-## 实施优先级与依赖
+## 修订说明
+
+**2026-10-14 验证发现**：Mira 已交付完整的五层上下文智能架构（M4-M21），但 Mirage
+当前未集成。修正实施路径为：
+
+1. **优先集成 Mira 已有能力**（Layer 0: StandardContextManager）
+2. **只对真正缺口补充实现**（输入去重标注、续写提示差异化）
+
+详见：`docs/analysis/context-management-capability-gap.md`。
+
+---
+
+## 实施优先级与依赖（修订版）
 
 ```
-Phase 1 (P0, 1周)        Phase 2 (P1, 2周)        Phase 3 (P2, 1周)
-┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
-│ 1. 图片复用标注  │ ───> │ 3. 工具历史压缩  │ ───> │ 5. 端到端验证    │
-│ 2. 续写提示优化  │      │ 4. 自动压缩阈值  │      │ 6. 性能调优      │
-│ 3. 图片降级策略  │      │                 │      │ 7. 文档更新      │
-└─────────────────┘      └─────────────────┘      └─────────────────┘
+Phase 1 (P0, 1周)              Phase 2 (P1, 3天)           Phase 3 (P2, 2天)
+┌─────────────────────────┐    ┌──────────────────┐       ┌─────────────────┐
+│ 1. 集成 Layer 0         │───>│ 4. 图片复用标注   │ ───>  │ 7. 端到端验证    │
+│    - ContextBuilder     │    │    (等PR#95)     │       │ 8. 性能调优      │
+│    - 水位配置           │    │                  │       │ 9. 文档更新      │
+│ 2. 续写提示差异化(并行)  │    │ 5. 图片降级(并行) │       │                 │
+│    (Mira PR)           │    │    (Mirage侧)    │       │                 │
+└─────────────────────────┘    └──────────────────┘       └─────────────────┘
+     ↓ 3天                          ↓ 3天                      ↓ 2天
+   Layer 0集成                   等待PR#95合并              真实任务验证
 ```
 
-## Phase 1：立即修复（P0，Day 1-5）
+**总工期**：3 周 → 1.5 周（集成已有能力，减少重复实现）
 
-### 1.1 图片复用标注（mira 本地）
+---
 
-**工作量**：2 天  
-**位置**：`third_party/mira/src/conversation_loop.cpp`
+## Phase 1：Mira 能力集成（P0，Day 1-5）
 
-**步骤**：
+### 1.1 集成 StandardContextManager（Mirage 侧）
 
-#### Step 1.1.1：扩展 ModelInputSupplier 接口（0.5 天）
+**工作量**：3 天  
+**位置**：`integration/mira/src/model_layer.cpp`
+
+#### Step 1.1.1：创建 DesktopContextBuilder（1 天）
 
 ```cpp
-// third_party/mira/include/mira/conversation_loop.hpp
+// integration/mira/src/desktop_context_builder.hpp
 
-struct InputReuseMeta {
-    std::string content_digest;   // SHA256 of supplied content
-    uint32_t reuse_count;         // 0=first time, 1+=reused N times
-    std::string semantic_label;   // Human-readable label
+#include <mira/context_manager.hpp>
+#include <mira/context_contracts.hpp>
+
+namespace mirage {
+
+class DesktopContextBuilder {
+public:
+    explicit DesktopContextBuilder(
+        std::shared_ptr<mira::IContextManager> context_manager)
+        : context_manager_(std::move(context_manager)) {}
+    
+    mira::ContextRequest build_context_request(
+        const DesktopTaskState& state);
+    
+private:
+    mira::ContextLimits make_desktop_limits(
+        const mira::ModelProfile& profile);
+    
+    std::vector<mira::ContextItem> make_goal_items(
+        const std::string& goal);
+    
+    std::vector<mira::ContextItem> make_observation_items(
+        const DesktopObservation& obs,
+        uint64_t task_epoch,
+        uint64_t env_epoch);
+    
+    std::vector<mira::ContextItem> make_tool_history_items(
+        const std::vector<std::pair<ToolCall, std::optional<ToolResult>>>& history);
+    
+    std::shared_ptr<mira::IContextManager> context_manager_;
 };
 
-struct SuppliedInput {
-    std::vector<ModelInputItem> items;
-    std::optional<InputReuseMeta> reuse_meta;
-};
+} // namespace mirage
+```
 
-using ModelInputSupplier = std::function<Result<SuppliedInput>(const AgentLoopSpec&)>;
+**实现**：
+
+```cpp
+// integration/mira/src/desktop_context_builder.cpp
+
+mira::ContextRequest DesktopContextBuilder::build_context_request(
+    const DesktopTaskState& state) {
+    
+    mira::ContextRequest request;
+    request.limits = make_desktop_limits(state.profile);
+    request.task_id = state.task_id;
+    request.session_id = state.session_id;
+    request.profile_id = state.profile.id;
+    
+    // P1: Goal (pinned，永不压缩)
+    auto goal_items = make_goal_items(state.goal);
+    request.items.insert(request.items.end(), 
+                        std::make_move_iterator(goal_items.begin()),
+                        std::make_move_iterator(goal_items.end()));
+    
+    // P2: CurrentObservation (当前截图)
+    if (state.current_observation) {
+        auto obs_items = make_observation_items(
+            *state.current_observation,
+            state.task_epoch,
+            state.environment_epoch);
+        request.items.insert(request.items.end(),
+                            std::make_move_iterator(obs_items.begin()),
+                            std::make_move_iterator(obs_items.end()));
+    }
+    
+    // P5: ToolHistory (可压缩)
+    auto tool_items = make_tool_history_items(state.tool_history);
+    request.items.insert(request.items.end(),
+                        std::make_move_iterator(tool_items.begin()),
+                        std::make_move_iterator(tool_items.end()));
+    
+    return request;
+}
+
+mira::ContextLimits DesktopContextBuilder::make_desktop_limits(
+    const mira::ModelProfile& profile) {
+    
+    mira::ContextLimits limits;
+    limits.context_window_tokens = profile.capabilities.limits.context_window;
+    limits.reserved_output_tokens = profile.capabilities.limits.max_output_tokens;
+    
+    // 桌面任务特化：更激进的压缩阈值
+    limits.trim_watermark = 0.45;        // 45% 触发裁剪
+    limits.checkpoint_watermark = 0.70;  // 70% 建议 checkpoint
+    limits.hard_watermark = 0.90;        // 90% 拒绝
+    
+    // 图片预算：桌面截图专用
+    limits.max_image_tokens = 10000;     // 1张1600px截图 + 余量
+    
+    return limits;
+}
+
+std::vector<mira::ContextItem> DesktopContextBuilder::make_goal_items(
+    const std::string& goal) {
+    
+    mira::ContextItem item;
+    item.id = mira::ContextItemId::generate();
+    item.kind = mira::ContextItemKind::Goal;
+    item.authority = mira::ContextAuthority::UserConstraint;
+    item.priority = mira::ContextPriority::Essential;
+    item.content.emplace_back(mira::TextPart{.text = goal});
+    item.pinned = true;  // 永不压缩
+    
+    return {std::move(item)};
+}
+
+std::vector<mira::ContextItem> DesktopContextBuilder::make_observation_items(
+    const DesktopObservation& obs,
+    uint64_t task_epoch,
+    uint64_t env_epoch) {
+    
+    mira::ContextItem item;
+    item.id = mira::ContextItemId::generate();
+    item.kind = mira::ContextItemKind::CurrentObservation;
+    item.priority = mira::ContextPriority::Important;
+    item.task_epoch = task_epoch;
+    item.environment_epoch = env_epoch;
+    
+    // 截图
+    if (obs.screenshot) {
+        item.content.emplace_back(mira::ImagePart{
+            .artifact_ref = obs.screenshot->artifact_id,
+            .media_type = "image/png"
+        });
+    }
+    
+    // UI Tree（如果有）
+    if (obs.ui_tree) {
+        item.content.emplace_back(mira::TextPart{
+            .text = serialize_ui_tree(*obs.ui_tree)
+        });
+    }
+    
+    return {std::move(item)};
+}
+
+std::vector<mira::ContextItem> DesktopContextBuilder::make_tool_history_items(
+    const std::vector<std::pair<ToolCall, std::optional<ToolResult>>>& history) {
+    
+    std::vector<mira::ContextItem> items;
+    
+    for (const auto& [call, result] : history) {
+        // ToolCall
+        mira::ContextItem call_item;
+        call_item.id = mira::ContextItemId::generate();
+        call_item.kind = mira::ContextItemKind::ToolCall;
+        call_item.priority = mira::ContextPriority::Background;
+        call_item.tool_call_key = call.id;
+        call_item.consumed = result.has_value();
+        call_item.sequence = call.sequence;
+        
+        // 序列化 ToolCall
+        call_item.content.emplace_back(mira::TextPart{
+            .text = serialize_tool_call(call)
+        });
+        
+        items.push_back(std::move(call_item));
+        
+        // ToolResult
+        if (result) {
+            mira::ContextItem result_item;
+            result_item.id = mira::ContextItemId::generate();
+            result_item.kind = mira::ContextItemKind::ToolResult;
+            result_item.priority = mira::ContextPriority::Background;
+            result_item.tool_call_key = call.id;
+            result_item.consumed = result->followed_by_model_turn;
+            result_item.replaceable_by_reference = true;  // ← 关键！
+            result_item.sequence = result->sequence;
+            
+            // 大截图走 payload，文本走 content
+            if (result->large_artifact) {
+                result_item.payload = result->large_artifact;
+            } else {
+                result_item.content.emplace_back(mira::TextPart{
+                    .text = result->output
+                });
+            }
+            
+            items.push_back(std::move(result_item));
+        }
+    }
+    
+    return items;
+}
 ```
 
 **修改文件**：
-- `mira/include/mira/conversation_loop.hpp`（接口定义）
-- `mira/src/conversation_loop.cpp`（实现）
+- 新增：`integration/mira/src/desktop_context_builder.hpp`
+- 新增：`integration/mira/src/desktop_context_builder.cpp`
+- 修改：`integration/mira/CMakeLists.txt`（添加编译单元）
 
-**兼容性**：
-- 保留既有 `std::function<Result<std::vector<ModelInputItem>>(...)>` 签名支持
-- 新签名通过 `std::variant` 或重载区分
-- 未提供 `reuse_meta` 时行为与现状完全一致
-
-#### Step 1.1.2：实现复用检测逻辑（0.5 天）
+#### Step 1.1.2：集成到 ModelLayer（1 天）
 
 ```cpp
-// third_party/mira/src/conversation_loop.cpp
+// integration/mira/src/model_layer.cpp
 
-class ConversationLoop::Impl {
-    struct ReuseTracker {
-        std::string last_digest;
-        uint32_t consecutive_count = 0;
+Result<AgentLoopResult> ModelLayer::run_agent_loop(...) {
+    // 1. 创建 ContextManager（使用 Mira 的 StandardContextManager）
+    auto context_manager = mira::create_standard_context_manager(
+        token_counter_,
+        artifact_store_);
+    
+    // 2. 创建 DesktopContextBuilder
+    DesktopContextBuilder context_builder(context_manager);
+    
+    // 3. 修改 supply_input 回调
+    auto supply_input = [&](const mira::AgentLoopSpec& spec) 
+        -> mira::Result<std::vector<mira::ModelInputItem>> {
         
-        void update(const std::string& current_digest) {
-            if (current_digest == last_digest && !current_digest.empty()) {
-                consecutive_count++;
-            } else {
-                consecutive_count = 0;
-                last_digest = current_digest;
-            }
+        // 3.1 构建 ContextRequest
+        DesktopTaskState task_state = build_task_state(spec);
+        auto request = context_builder.build_context_request(task_state);
+        
+        // 3.2 调用 ContextManager 压缩
+        auto prepared = context_manager->prepare(request);
+        if (!prepared) {
+            LOG(ERROR) << "Context preparation failed: " << prepared.error();
+            return prepared.error();
         }
+        
+        // 3.3 记录审计日志
+        log_context_audit(prepared.value().item_audit);
+        
+        // 3.4 转换为 ModelInputItem（Loop 内部契约）
+        return convert_to_model_input_items(prepared.value().input);
     };
     
-    ReuseTracker input_reuse_;
+    // 4. 启动 ConversationLoop
+    mira::ConversationLoop loop(*impl_->gateway, loop_config);
+    loop.set_tool_registry(registry);
+    loop.set_model_input_supplier(supply_input);
+    return loop.run(spec, turn_context);
+}
+
+// 转换函数：PreparedModelContext -> ModelInputItem
+std::vector<mira::ModelInputItem> convert_to_model_input_items(
+    const std::vector<mira::ModelInputPart>& prepared_input) {
     
-    // In build_request():
-    void inject_reuse_annotation(std::vector<ModelInputPart>& user_envelope,
-                                  const InputReuseMeta& meta) {
-        if (meta.reuse_count >= 2) {  // 第3次及以后标注
-            std::string note = std::format(
-                "[System note: The {} above is the same as in the previous {} turns. "
-                "No need to re-analyze unless the task explicitly requires it.]",
-                meta.semantic_label, meta.reuse_count
-            );
-            user_envelope.emplace_back(TextPart{.text = note});
-        }
+    std::vector<mira::ModelInputItem> items;
+    
+    // PreparedModelContext.input 已经是压缩后、按优先级排序的 Parts
+    // 需要转换为 ConversationLoop 期望的 ModelInputItem 格式
+    
+    // 简化版：假设 prepared_input 已经是正确的顺序
+    // 实际可能需要更复杂的转换逻辑
+    mira::ModelInputItem item;
+    item.role = mira::ModelRole::User;
+    item.content = prepared_input;
+    
+    items.push_back(std::move(item));
+    return items;
+}
+
+// 审计日志记录
+void log_context_audit(const std::vector<mira::ContextItemAudit>& audit) {
+    for (const auto& entry : audit) {
+        LOG(INFO) << "Context item " << entry.item_id 
+                  << ": " << to_string(entry.disposition)
+                  << " (reason: " << to_string(entry.reason) << ")";
     }
+}
+```
+
+**修改文件**：
+- `integration/mira/src/model_layer.cpp`（主要集成点）
+- `integration/mira/src/model_layer_impl.hpp`（添加成员变量）
+
+#### Step 1.1.3：编写单元测试（1 天）
+
+```cpp
+// tests/integration/context_builder_test.cpp
+
+TEST(DesktopContextBuilderTest, BuildsCorrectContextRequest) {
+    auto context_manager = create_mock_context_manager();
+    DesktopContextBuilder builder(context_manager);
+    
+    DesktopTaskState state = make_test_task_state();
+    auto request = builder.build_context_request(state);
+    
+    // 验证：Goal 是 P1 + pinned
+    auto goal_item = find_item_by_kind(request.items, 
+                                       mira::ContextItemKind::Goal);
+    ASSERT_TRUE(goal_item);
+    EXPECT_EQ(goal_item->priority, mira::ContextPriority::Essential);
+    EXPECT_TRUE(goal_item->pinned);
+    
+    // 验证：ToolResult 可被引用替换
+    auto tool_result = find_item_by_kind(request.items,
+                                         mira::ContextItemKind::ToolResult);
+    ASSERT_TRUE(tool_result);
+    EXPECT_TRUE(tool_result->replaceable_by_reference);
+}
+
+TEST(DesktopContextBuilderTest, DesktopLimitsAreCorrect) {
+    auto context_manager = create_mock_context_manager();
+    DesktopContextBuilder builder(context_manager);
+    
+    mira::ModelProfile profile = make_test_profile();
+    auto request = builder.build_context_request(make_test_state(profile));
+    
+    // 验证：桌面特化的水位
+    EXPECT_DOUBLE_EQ(request.limits.trim_watermark, 0.45);
+    EXPECT_DOUBLE_EQ(request.limits.checkpoint_watermark, 0.70);
+    EXPECT_DOUBLE_EQ(request.limits.hard_watermark, 0.90);
+    EXPECT_EQ(request.limits.max_image_tokens, 10000);
+}
+
+TEST(ContextIntegrationTest, CompactsToolHistoryAt15Turns) {
+    // 构建 15 轮工具历史
+    DesktopTaskState state = make_15_turn_task_state();
+    
+    auto context_manager = mira::create_standard_context_manager(...);
+    DesktopContextBuilder builder(context_manager);
+    
+    auto request = builder.build_context_request(state);
+    auto prepared = context_manager->prepare(request);
+    
+    ASSERT_TRUE(prepared);
+    
+    // 验证：有东西被压缩了
+    auto audit = prepared.value().item_audit;
+    size_t dropped = count_disposition(audit, 
+                                       mira::ContextItemDisposition::DroppedByWatermark);
+    size_t replaced = count_disposition(audit,
+                                        mira::ContextItemDisposition::SelectedByReference);
+    
+    EXPECT_GT(dropped + replaced, 0) << "No compaction happened";
+    
+    // 验证：input tokens 降低
+    size_t input_tokens = estimate_tokens(prepared.value().input);
+    size_t baseline_tokens = estimate_tokens_without_compaction(state);
+    
+    EXPECT_LT(input_tokens, baseline_tokens * 0.70) 
+        << "Expected at least 30% reduction";
+}
+```
+
+**修改文件**：
+- 新增：`tests/integration/context_builder_test.cpp`
+- 修改：`tests/integration/CMakeLists.txt`
+
+**验收标准**：
+- [ ] 编译通过
+- [ ] 单元测试全部通过
+- [ ] 15 轮任务 input tokens < 基线 70%
+
+---
+
+### 1.2 续写提示差异化（Mira 侧，可并行）——已交付
+
+**交付说明**：本节为计划期的实现草案；实际交付早于草案且未走独立台账登记
+（草案占用的编号 MIRA-20261014-007 已被计数器缺口
+[登记](../dependency_feedback/mira.md#mira-20261014-007)使用）。落地形态：
+
+- PR#93（合并 `1befa45`）：`IncompleteReason::MaxOutputTokens` 的有界续写按
+  响应结构区分三种反馈——部分文本截断（部分文本保留进 history 后继续）、
+  工具调用截断（废弃未执行调用，要求重发完整调用或改输出文本）、仅思考
+  截断（要求跳过冗长思考直接给出简洁文本）；续写预算耗尽以显式
+  output-limit 终态收口。
+- PR#95（合并 `9e7b729`）：部分文本分支增加截断锚点（末 50 字符
+  "Continue from: \"...\""），模型从精确尾部续写而非重推；Mirage 侧
+  `harness_desktop_tools_test` 按锚定格式断言。
+
+实现位于 `third_party/mira/src/model/conversation_loop.cpp`（有界续写分支），
+非草案假设的 `provider_continuation.cpp` 独立函数。
+
+**验收标准**：
+- [x] 单元测试通过（上游 `m3_conversation_loop_test` 覆盖三分支反馈与
+  预算耗尽终态）
+- [ ] 思考截断场景的续写成功率 ≥60%（真实会话指标，待真实 provider 环境；
+  负责人 Mirage 维护者）
+- [ ] 不再出现"继续思考 → 截断"循环（同上，待真实会话回归）
+
+---
+
+## Phase 2：等待上游与扩展（P1，Day 6-10）
+
+### 2.1 图片复用标注集成（等待 PR#95 合并）
+
+**工作量**：1 天  
+**前置**：Mira PR#95 合并
+
+#### Step 2.1.1：更新 pinned mira（0.5 天）
+
+```bash
+cd ~/mirage
+git submodule update --remote third_party/mira
+# 验证 PR#95 已合并
+git add third_party/mira
+git commit -m "deps(mira): update to include PR#95 (input reuse annotation)"
+```
+
+#### Step 2.1.2：Mirage 侧实现（0.5 天）
+
+```cpp
+// integration/mira/src/desktop_image_supply.cpp
+
+class DesktopImageTurn {
+public:
+    mira::SuppliedInput supply_with_reuse_meta(
+        const mira::AgentLoopSpec& spec) {
+        
+        mira::SuppliedInput input;
+        
+        // 图片内容
+        input.items = make_image_items(current_screenshot_);
+        
+        // 复用元数据（PR#95 新增）
+        if (current_screenshot_id_ == last_supplied_id_) {
+            input.reuse_meta = mira::InputReuseMeta{
+                .content_digest = current_screenshot_id_,
+                .reuse_count = ++consecutive_reuse_,
+                .semantic_label = "desktop-screenshot"
+            };
+        } else {
+            consecutive_reuse_ = 0;
+            last_supplied_id_ = current_screenshot_id_;
+        }
+        
+        return input;
+    }
+
+private:
+    std::string last_supplied_id_;
+    uint32_t consecutive_reuse_ = 0;
 };
 ```
 
-**关键点**：
-- 摘要算法：SHA256(所有 ImagePart 的 artifact_id 拼接)
-- 只标注 `reuse_count >= 2`（第 3 次及以后）
-- 提示作为 User envelope 最后一个 part（不进入 System role）
+**验收标准**：
+- [ ] 相同截图连续 3 轮，第 3 轮请求包含 reuse 提示
+- [ ] 对照实验：思考 token -10% ~ -20%
 
-#### Step 1.1.3：Mirage 侧集成（0.5 天）
+---
+
+### 2.2 图片降级策略（Mirage 侧，可并行）
+
+**工作量**：2 天  
+**位置**：`integration/mira/src/desktop_image_supply.cpp`
+
+#### Step 2.2.1：实现降级逻辑（1 天）
 
 ```cpp
+// integration/mira/src/desktop_image_supply.cpp
+
+mira::Result<std::vector<mira::ModelInputItem>>
+DesktopImageTurn::supply_with_budget_awareness(
+    const mira::AgentLoopSpec& spec,
+    int64_t preflight_remaining) {
+    
+    // 策略 1: 余量充足，正常供给
+    if (preflight_remaining > 20000) {
+        return supply_full_image(current_screenshot_);
+    }
+    
+    // 策略 2: 余量紧张，追加警告
+    if (preflight_remaining > 10000) {
+        auto items = supply_full_image(current_screenshot_);
+        items.value().push_back(make_budget_warning());
+        return items;
+    }
+    
+    // 策略 3: 余量极低，降级为文本
+    return supply_image_as_text_description(
+        current_screenshot_, 
+        last_ocr_summary_);
+}
+
+std::vector<mira::ModelInputItem> supply_image_as_text_description(
+    const Screenshot& screenshot,
+    const std::optional<std::string>& last_ocr) {
+    
+    mira::ModelInputItem item;
+    item.role = mira::ModelRole::User;
+    item.provenance.source = "mirage.image-supply.degraded.v1";
+    
+    std::string text = std::format(
+        "[Image degraded due to context limit] Screenshot from turn {}, "
+        "{}x{} pixels.",
+        current_turn_,
+        screenshot.width,
+        screenshot.height);
+    
+    if (last_ocr) {
+        text += " Previous OCR: " + *last_ocr;
+    }
+    
+    item.content.emplace_back(mira::TextPart{.text = std::move(text)});
+    return {std::move(item)};
+}
+```
+
+**注意**：需要 `preflight_remaining` 从 Mira 暴露。如果 Mira 未暴露，需先登记反馈台账。
+
+#### Step 2.2.2：单元测试（1 天）
+
+```cpp
+// tests/integration/image_degradation_test.cpp
+
+TEST(ImageDegradationTest, NormalSupplyWhenBudgetSufficient) {
+    DesktopImageTurn turn(screenshot);
+    auto items = turn.supply_with_budget_awareness(spec, 25000);
+    
+    ASSERT_TRUE(items);
+    EXPECT_EQ(count_image_parts(items.value()), 1);
+    EXPECT_EQ(count_warning_parts(items.value()), 0);
+}
+
+TEST(ImageDegradationTest, WarningWhenBudgetTight) {
+    DesktopImageTurn turn(screenshot);
+    auto items = turn.supply_with_budget_awareness(spec, 15000);
+    
+    ASSERT_TRUE(items);
+    EXPECT_EQ(count_image_parts(items.value()), 1);
+    EXPECT_EQ(count_warning_parts(items.value()), 1);
+}
+
+TEST(ImageDegradationTest, DegradationWhenBudgetLow) {
+    DesktopImageTurn turn(screenshot);
+    auto items = turn.supply_with_budget_awareness(spec, 8000);
+    
+    ASSERT_TRUE(items);
+    EXPECT_EQ(count_image_parts(items.value()), 0);
+    EXPECT_EQ(count_text_parts(items.value()), 1);
+    EXPECT_THAT(get_text_content(items.value()[0]),
+                HasSubstr("Image degraded"));
+}
+```
+
+**验收标准**：
+- [ ] 余量 15000：图片 + 警告
+- [ ] 余量 8000：降级为文本，任务继续
+
+---
+
+## Phase 3：验证与调优（P2，Day 11-12）
+
+### 3.1 端到端验证（1 天）
+
+#### Test 1：15 轮 Bilibili 视频查找任务
+
+```bash
+# 启动 Mirage
+./build/apps/native/mirage
+
+# 提交任务
+"在 Bilibili 上找到最近一周播放量最高的科技类视频"
+
+# 监控指标
+- Input tokens / 轮
+- 压缩触发次数
+- 任务成功/失败
+```
+
+**验收**：
+- [ ] 15 轮成功完成
+- [ ] 平均 input tokens < 基线 60%
+- [ ] 触发 trim（水位 > 45%）
+
+#### Test 2：30 轮图片密集任务
+
+```bash
+# 构造 30 轮循环任务
+"每次截图并分析窗口标题，持续 30 轮"
+
+# 监控指标
+- Input tokens 曲线
+- 压缩触发轮次
+- 是否超窗失败
+```
+
+**验收**：
+- [ ] 30 轮成功完成
+- [ ] 不因超窗失败
+- [ ] 第 30 轮利用率 < 60%
+
+### 3.2 性能调优（0.5 天）
+
+```cpp
+// 添加性能监控
+auto start = std::chrono::steady_clock::now();
+auto prepared = context_manager_->prepare(request);
+auto elapsed = std::chrono::steady_clock::now() - start;
+
+LOG(INFO) << "ContextManager::prepare took " 
+          << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count()
+          << " ms";
+
+// 目标：< 50ms/轮
+EXPECT_LT(elapsed, std::chrono::milliseconds(50));
+```
+
+**验收**：
+- [ ] ContextManager::prepare < 50ms/轮
+- [ ] 压缩决策确定性（相同 request → 相同 digest）
+
+### 3.3 文档更新（0.5 天）
+
+- [ ] 更新 DEC-088 状态：Proposed → Accepted
+- [ ] 更新本实施计划状态：完成 Phase 1-3
+- [ ] 更新 `docs/dependency_feedback/ledger.md`（关闭已解决条目）
+- [ ] 记录验收证据到 M9 计划
+
+---
+
+## 工作量汇总（修订版）
+
+| Phase | 工作项 | 工期 | 人力 |
+|-------|--------|------|------|
+| Phase 1 | Layer 0 集成 | 3 天 | 1人 |
+| Phase 1 | 续写提示（并行） | 2 天 | 1人 |
+| Phase 2 | 图片复用标注 | 1 天 | 1人 |
+| Phase 2 | 图片降级（并行） | 2 天 | 1人 |
+| Phase 3 | 验证调优 | 2 天 | 1人 |
+| **总计** |  | **10 天** | **1-2人** |
+
+**相比原计划**：3 周 → 1.5 周（减少 50% 工作量）
+
+---
+
+## 风险与缓解
+
+| 风险 | 影响 | 概率 | 缓解措施 |
+|------|------|------|---------|
+| Mira 能力不足以压缩桌面任务 | 高 | 低 | 登记 MIRA-20261014-006，实施 DesktopContextManager 装饰器 |
+| PR#95 延期 | 中 | 中 | Phase 2 可独立推进图片降级 |
+| preflight 余量未暴露 | 低 | 中 | 先登记反馈台账，临时方案：估算余量 |
+| 压缩性能不达标 | 中 | 低 | 优化 token 估算，启用 exact counter |
+
+---
+
+## 检查清单
+
+### 开始前
+- [ ] 阅读 `docs/analysis/context-management-capability-gap.md`
+- [ ] 确认 Mira API 文档：`third_party/mira/docs/api/context-memory.md`
+- [ ] 准备测试环境（真实模型 API）
+
+### Phase 1 完成
+- [x] DesktopContextBuilder 实现并测试（落地形态：只路由工具往返段经 Layer 0，
+  配对整对收缩、assistant 文本透传；上游缝 PR#96 交付后消费）
+- [x] Layer 0 集成到 ModelLayer（声明窗口时接线；`DialogCompletion` 计数透传）
+- [x] 单元测试全部通过（`desktop_context_builder_test` 1205 项断言；全量 82/82、
+  ASAN 干净）
+- [ ] 15 轮任务 input tokens < 基线 70%（真实会话，未执行；水位精度缺口
+  MIRA-20261014-007 已由上游 PR#97 修复并消费，压缩触发按真实载荷规模工作）
+
+### Phase 2 完成
+- [x] PR#95 合并并更新 pinned mira（9e7b729，授权消费）
+- [x] 图片复用标注集成（`reuse_identity` + `set_model_input_identity`）
+- [x] 图片降级策略实现（`anchored_remaining` 信号 + 三段阈值带）
+
+### Phase 3 完成
+- [ ] 真实任务回归通过
+- [ ] 性能指标达标
+- [ ] 文档更新完成
+
+---
+
+**修订记录**：
+- 2026-10-14：初版（自研微压缩 + 自动压缩）
+- 2026-10-14：修订版（集成 Mira Layer 0，减少重复实现）
+
 // mirage/integration/mira/src/desktop_image_supply.cpp
 
 class DesktopImageSupply {
@@ -838,6 +1456,16 @@ Result<std::vector<ModelInputCondition>> build_request_with_compaction() {
 
 ### 3.4 Mira 反馈台账登记
 
+> **【作废草稿，未执行】**（2026-10-16 注，[依赖复用整改](dependency-reuse-remediation.md)
+> REUSE-18）：本节的 `MIRA-20261014-003` 是未登记入台账的草稿编号，描述的"本地修改
+> `third_party/mira`"路径**从未实施**（违反 pinned 纪律的方案在评审阶段被否）。
+> 实际走上游缝交付：输入复用标注 = [MIRA-20261014-005](../dependency_feedback/mira.md#mira-20261014-005)
+> （PR#95）、工具历史压缩缝 = [MIRA-20261014-006](../dependency_feedback/mira.md#mira-20261014-006)
+> （PR#96）、token 计数修复 = [MIRA-20261014-007](../dependency_feedback/mira.md#mira-20261014-007)
+> （PR#97）。下方案文中引用的 `context-compaction-validation-20261014.md` 验收文档
+> 不存在；实际验收见
+> [历史压缩消费验证](../compatibility/context-history-compaction-20261014.md)。
+
 按工程规范，即使是本地修改，也要登记可追溯记录：
 
 ```bash
@@ -971,7 +1599,88 @@ Result<std::vector<ModelInputCondition>> build_request_with_compaction() {
   digest/count）与能力 5 图片降级（preflight 余量），再做真实会话对照验收
   （第 3 轮请求含复用提示、思考 token 下降 ≥10%）。能力 2/3（Phase 2）未实施。
 
-### 2026-10-14：pin 消费 9e7b729 与 Mirage 侧跨轮计数（能力 1 收口）
+### 2026-10-14：PR#95 合并消费，能力 1/5 Mirage 侧落地
+
+- 上游 [PR#95](https://github.com/Linductor-alkaid/mira/pull/95) 经授权合并
+  （`9e7b729`），Mirage pin 与 dependencies.lock.json 同步消费（mira Debug
+  107/107；消费审计
+  [mira-input-reuse-20261014](../supply-chain/mira-input-reuse-20261014.md)）。
+- 能力 1 集成：`DesktopImageTurn` 持有跨轮 digest/计数，`reuse_identity()` 经
+  `loop.set_model_input_identity` 接线；计数只由真实含图供给推进，退役/降级轮
+  暂停，digest 变化清零；`DialogCompletion.supplied_input_reuse_annotations`
+  透传循环计数。
+- 能力 5 实现：`ObservedProvider::anchored_remaining`（DEC-087 锚点，上界语义）
+  供给了预算信号；阈值带 >20000 正常 / ≤20000 图片+警告 / ≤10000 扣图文字描述，
+  无窗口或无锚点 fail-open。与本文 Step 2.2.1 草稿的接口差异：mira 未（也无需）
+  在 `AgentLoopSpec` 暴露 preflight 余量——preflight 锚点表本来就在 Mirage
+  ObservedProvider 内，供给回调直接读取，未登记额外反馈条目。
+- 验证（Independent-Verification-Agent 两轮）：`desktop_image_supply_test`
+  新增 85 条断言（复用身份链、降级三段阈值带含边界、anchored_remaining 单元、
+  脚本化 provider 端到端第 3 轮渲染 System note 且
+  `supplied_input_reuse_annotations == 1`），负向对照有效；Mirage Debug 全量
+  81/81、ASAN 995 checks 无报告；格式/公共头边界门禁通过。证据：
+  [context-reuse-degradation-20261014](../compatibility/context-reuse-degradation-20261014.md)。
+- 契约同步：pin 9e7b729 部分文本续写反馈改为锚点式，
+  `harness_desktop_tools_test` 两条断言同步（`Continue from: "…"`），复验通过。
+- 台账：MIRA-20261014-005 → Resolved（真实会话对照待真实 provider 环境补跑）；
+  新增 [MIRA-20261014-006](../dependency_feedback/mira.md#mira-20261014-006)：
+  ConversationLoop 工具历史回放无宿主压缩缝，Layer 0 无法接入（含渲染器
+  role_for 只保真 ToolCall 的约束证据）——能力 2/3（本计划 Phase 1 的 Layer 0
+  集成与桌面水位两项）被此缝阻塞，待上游缝 PR，Mirage 不建平行压缩。
+- 构建修复：系统 PipeWire 包切换后干净树测试目标断链
+  （`pkg_check_modules` 导入目标改为 GLOBAL，platform/CMakeLists.txt）。
+- 未执行：真实会话对照验收（15/30 轮 tokens 曲线、思考 token −10%~−20%）
+  需真实模型 API 与桌面环境；负责人 Mirage 维护者，补跑条件见证据文档。
+
+### 2026-10-14：能力 2/3 落地——上游历史压缩缝（PR#96）与 Mirage Layer 0 消费
+
+- 上游 [PR#96](https://github.com/Linductor-alkaid/mira/pull/96) 经授权合并
+  （`93e2eae`）：`ConversationLoop::set_history_transformer` 可选宿主历史压缩缝
+  （通用 history 变换形态，规避渲染器角色保真约束；协议契约、四类降级、
+  `HistoryTransformApplied/Degraded` 事件与结果计数、未接线逐字节不变）。
+  mira Debug 108/108、全部门禁、24 项 checks 绿后合并；pin 同步消费。审计：
+  [mira-history-compaction-20261014](../supply-chain/mira-history-compaction-20261014.md)。
+- Mirage 侧 `DesktopContextBuilder`：工具往返段 → Layer 0（consumed、
+  replaceable_by_reference=false、配对键、sequence）；桌面水位 0.45/0.70/0.90；
+  checkpoint 拆对按 audit 整对收缩；assistant 文本透传（Layer 0 出决策、原始
+  条目出渲染）。`model_layer.cpp` 声明窗口时接线，`DialogCompletion` 透传
+  `history_transforms / history_transform_degradations`。
+- 独立验证两轮：第一轮抓到高优先级接线缺陷（reserved 误用整 run 包络 ≥720896，
+  一切现实窗口下 limits 拒绝、压缩必然降级）——已修复为 per-call 输出基准并
+  复验 PASS。最终 1205 项断言：builder 映射/收缩/fail-open 逐字段断言、接线级
+  真实触发（15 轮 capture + 4096 窗口，早期配对整对消失、配对合法、观测值与
+  Layer 0 算术吻合）、余量窗口全量保留、微小窗口诚实降级；Mirage Debug 82/82、
+  ASAN 无报告。证据：
+  [context-history-compaction-20261014](../compatibility/context-history-compaction-20261014.md)。
+- 台账：MIRA-20261014-006 → Resolved；新登记
+  [MIRA-20261014-007](../dependency_feedback/mira.md#mira-20261014-007)（上游
+  ConservativeTokenCounter 不计工具载荷字节，水位系统性低估工具密集请求——
+  压缩触发偏晚，行为正确，待上游估算修复）。
+- 未执行：真实会话 token 验收（-30%~40%）待真实 provider 环境，且精度受
+  -007 影响。
+
+### 2026-10-14：上游计数器修复（PR#97）消费——压缩触发按真实载荷规模工作
+
+- 上游 [PR#97](https://github.com/Linductor-alkaid/mira/pull/97) 经授权合并
+  （`7391df7`）：`ConservativeTokenCounter::estimate_item` 计入全部回放载荷
+  字节（ToolCallPart.arguments 序列化、ToolResultPart 按 tool bridge wire
+  形态、ThinkingPart text+signature；沿用 bytes_per_token 密度与 margin
+  校准，`estimate_assembly_overhead` 不变）。mira Debug 108/108（新增 3 个
+  跨载荷规模估算用例）、全部门禁、24 项 checks 绿；API 文档
+  `docs/api/context-memory.md` 同步。pin 与 lock 同步消费，台账
+  MIRA-20261014-007 → Resolved。
+- Mirage 消费复验（Independent-Verification-Agent，PASS）：新增永久回归
+  `large_tool_receipts_drive_checkpoint_compaction`——5 对 8KiB 回执新估算
+  10585 token 越过 checkpoint 水位必然整对收缩，旧地板算术同夹具仅 240
+  token（1.67% 预算）零触发的反证以真实 `StandardContextManager` 取证；
+  既有接线级断言全部保持，本二进制 942 → 1004 项断言，Debug 82/82、
+  ASAN 无报告。证据：
+  [context-history-compaction-20261014](../compatibility/context-history-compaction-20261014.md)
+  复验章节。
+- 未执行：真实会话 token 验收待真实 provider 环境（精度缺口已闭合）。
+### 2026-10-14：bubbles 线（feat/m8-realtime-bubbles）——能力 1 改为桌面捕获馈送的跨轮计数（#92，经合并进入本分支）
+
+> 该条目记录并行线当时状态；其"能力 5/2/3 未实施"待办已由本文后继条目完成。本次合并统一采纳 `input_reuse_identity` 跨轮计数形态，本分支早先的 `reuse_identity()` turn 本地计数形态随合并移除。
 
 - 维护者授权合并上游 PR#95（merge 9e7b729）后，`chore(deps)` 采纳新 pin（子模块指针
   与 dependencies.lock.json 同步）。Mirage 侧 Step 1.1.3 落地：持久

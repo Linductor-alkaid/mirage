@@ -5,6 +5,8 @@
 #include <mirador/resize.hpp>
 #include <stdexcept>
 
+#include "tool_geometry.hpp"
+
 namespace mirage::integration::detail {
 namespace {
 using mira::ErrorCode;
@@ -21,9 +23,6 @@ std::string text(const JsonValue &value, const char *field) {
     const auto *item = value.find(field);
     return item && item->as_string() ? *item->as_string() : "";
 }
-bool same(const Geometry &a, const Geometry &b) {
-    return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;
-}
 mira::ArtifactRef reference(const mira::ArtifactDescriptor &value) {
     return {value.id, value.digest, value.byte_size, value.media_type, value.sensitivity};
 }
@@ -31,6 +30,43 @@ JsonValue string_field(const char *description) {
     return JsonValue{JsonValue::Object{
         {"type", "string"}, {"description", description}, {"maxLength", std::int64_t{256}}}};
 }
+
+/// Shared 1600px preview transform (M7-17): the longest side maps to 1600,
+/// area-resampled inside the image budget. False when the resampler refuses;
+/// on success `dst` carries the scaled pixels; fields beyond geometry,
+/// stride, format and pixels stay at their defaults.
+bool preview_downscale(const desktop::ImageFrame &frame, std::size_t budget_bytes,
+                       desktop::ImageFrame &dst) {
+    const auto longest = std::max(frame.width, frame.height);
+    const auto w = std::max(1, static_cast<int>(std::int64_t(frame.width) * 1600 / longest));
+    const auto h = std::max(1, static_cast<int>(std::int64_t(frame.height) * 1600 / longest));
+    mirador::ImageView view;
+    view.data = reinterpret_cast<const std::byte *>(frame.pixels.data());
+    view.width = frame.width;
+    view.height = frame.height;
+    view.row_stride_bytes = static_cast<std::int64_t>(frame.stride);
+    view.format = mirador::PixelFormat::kBgra8;
+    const auto resized = mirador::resize_area(view, w, h, budget_bytes);
+    if (!resized.ok())
+        return false;
+    const auto pixels = resized.value().view();
+    dst.format = desktop::ImageFormat::Bgra8;
+    dst.width = w;
+    dst.height = h;
+    dst.stride = static_cast<std::size_t>(pixels.row_stride_bytes);
+    dst.pixels.resize(dst.stride * std::size_t(h));
+    std::memcpy(dst.pixels.data(), pixels.data, dst.pixels.size());
+    return true;
+}
+
+// DEC-088 capability 5: supply-time degradation thresholds against the
+// anchored remaining budget (window − last provider-reported input − the
+// DEC-087 reserve). Above the warn bound the image ships unchanged; down to
+// the degrade bound it ships with a skip-analysis notice; below it the image
+// is withheld for a text description so the turn can still make progress.
+// The estimate lags one turn of growth, so the bands are deliberately wide.
+constexpr std::int64_t kImageBudgetWarnTokens = 20'000;
+constexpr std::int64_t kImageBudgetDegradeTokens = 10'000;
 } // namespace
 
 mira::Result<std::vector<std::byte>> DesktopImageSource::fetch(const mira::ArtifactRef &ref) {
@@ -65,7 +101,7 @@ mira::InputReuseMeta DesktopImageSource::record_input_reuse(const std::string &d
     } else {
         ++reuse_count_;
     }
-    return {digest, reuse_count_, "screenshot"};
+    return {digest, reuse_count_, "desktop screenshot"};
 }
 
 DesktopImageTurn::DesktopImageTurn(std::shared_ptr<DesktopImageSource> source,
@@ -414,9 +450,15 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
     const bool requested = interactive && interactive->as_boolean() && *interactive->as_boolean();
     const auto source_kind = text(args, "source");
     const bool region_source = source_kind == "roi" || source_kind == "window";
+    if (requested && region_source)
+        // Name the actual rule: region captures ride the session established by
+        // the first source=desktop capture, so an interaction flag there is a
+        // distinct mistake, not a generic malformed source.
+        return error(ErrorCode::InvalidArgument,
+                     "interaction=true is only valid with source=desktop; roi/window capture "
+                     "reuses the sharing session and takes no interaction flag");
     if ((source_kind != "desktop" && !region_source) || !args.as_object() ||
-        (interactive && (!interactive->as_boolean() || !native_input_enabled_)) ||
-        (requested && source_kind != "desktop"))
+        (interactive && (!interactive->as_boolean() || !native_input_enabled_)))
         return error(ErrorCode::InvalidArgument,
                      "native desktop capture requires source=desktop|roi|window");
     std::int64_t roi_x = 0, roi_y = 0, roi_width = 0, roi_height = 0;
@@ -529,10 +571,7 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
     if (desktop_.actions->epoch() != epoch)
         return error(ErrorCode::Cancelled, "native desktop image invalidated before publication");
     auto frame = out.frame;
-    if (frame.format != desktop::ImageFormat::Bgra8 || frame.width <= 0 || frame.height <= 0 ||
-        frame.stride < std::size_t(frame.width) * 4 ||
-        frame.stride > desktop_capture_bytes / std::size_t(frame.height) ||
-        frame.pixels.size() != frame.stride * std::size_t(frame.height))
+    if (!valid_image_frame(frame, desktop_capture_bytes))
         return error(ErrorCode::InvalidArgument, "invalid native desktop frame");
     // M7-18: region sources crop the fresh shared-monitor frame locally — no
     // extra authorization, no extra stream, one frame budget per capture.
@@ -596,24 +635,11 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
             kind_id.clear();
     }
     if (std::max(frame.width, frame.height) > 1600) {
-        mirador::ImageView view;
-        view.data = reinterpret_cast<const std::byte *>(frame.pixels.data());
-        view.width = frame.width;
-        view.height = frame.height;
-        view.row_stride_bytes = static_cast<std::int64_t>(frame.stride);
-        view.format = mirador::PixelFormat::kBgra8;
-        const auto longest = std::max(frame.width, frame.height);
-        const auto w = std::max(1, static_cast<int>(std::int64_t(frame.width) * 1600 / longest));
-        const auto h = std::max(1, static_cast<int>(std::int64_t(frame.height) * 1600 / longest));
-        const auto resized = mirador::resize_area(view, w, h, desktop_image_bytes);
-        if (!resized.ok())
+        desktop::ImageFrame scaled;
+        if (!preview_downscale(frame, desktop_image_bytes, scaled))
             return error(ErrorCode::PlatformError, "native desktop preview resize failed");
-        const auto pixels = resized.value().view();
-        frame.width = w;
-        frame.height = h;
-        frame.stride = static_cast<std::size_t>(pixels.row_stride_bytes);
-        frame.pixels.resize(frame.stride * std::size_t(h));
-        std::memcpy(frame.pixels.data(), pixels.data, frame.pixels.size());
+        scaled.source_sequence = frame.source_sequence;
+        frame = std::move(scaled);
     }
     return finish_native_publish(std::move(frame), out.frame, area, kind, kind_id,
                                  out.frame.source_sequence, epoch);
@@ -786,8 +812,9 @@ mira::Result<JsonValue> DesktopImageTurn::capture(const JsonValue &args,
     if (bounded.cancelled())
         return error(ErrorCode::Cancelled, "capture cancelled or expired before publication");
     const auto after = geometry();
-    if (!after || !same(before.value(), after.value()) || desktop_.actions->epoch() != epoch ||
-        outcome.frame.width != area.width || outcome.frame.height != area.height)
+    if (!after || !geometry_equals(before.value(), after.value()) ||
+        desktop_.actions->epoch() != epoch || outcome.frame.width != area.width ||
+        outcome.frame.height != area.height)
         return error(ErrorCode::InvalidArgument, "capture geometry or desktop epoch changed");
     const auto &frame = outcome.frame;
     const auto raw_budget = kind == "roi" ? desktop_image_bytes : desktop_capture_bytes;
@@ -816,20 +843,22 @@ mira::Result<JsonValue> DesktopImageTurn::capture(const JsonValue &args,
             front.ok && after_front.ok && front.found == after_front.found &&
             (!front.found || (front.window.id == after_front.window.id &&
                               front.window.title == after_front.window.title &&
-                              same(front.window.geometry, after_front.window.geometry)));
+                              geometry_equals(front.window.geometry, after_front.window.geometry)));
         auto *input = desktop_.environment->input();
         const bool display_stable =
             displays.ok && display != displays.displays.end() && source_displays.ok &&
             std::any_of(source_displays.displays.begin(), source_displays.displays.end(),
                         [&](const auto &d) {
-                            return d.id == display->id && same(d.geometry, display->geometry) &&
+                            return d.id == display->id &&
+                                   geometry_equals(d.geometry, display->geometry) &&
                                    d.primary == display->primary;
                         });
         const bool bounded_geometry = area.x >= -1048576 && area.x <= 1048576 &&
                                       area.y >= -1048576 && area.y <= 1048576 &&
                                       area.width <= 65535 && area.height <= 65535;
-        const bool source_focused = kind != "window" || (front.found && front.window.id == id &&
-                                                         same(front.window.geometry, area));
+        const bool source_focused =
+            kind != "window" ||
+            (front.found && front.window.id == id && geometry_equals(front.window.geometry, area));
         const bool actionable = region_tool_enabled_ && source_focused && bounded_geometry &&
                                 stable && display_stable && input &&
                                 input->complete_actions_supported() && !bounded.cancelled() &&
@@ -857,31 +886,16 @@ mira::Result<JsonValue> DesktopImageTurn::capture(const JsonValue &args,
     // origin/scale metadata keeps click_region mapping); small ROIs stay 1:1.
     if (std::max(frame.width, frame.height) <= 1600)
         return publish(frame);
+    // Loose source check (an over-allocated pixel buffer is fine here).
     if (frame.format != desktop::ImageFormat::Bgra8 ||
         frame.stride < std::size_t(frame.width) * 4 ||
         frame.stride > desktop_capture_bytes / std::size_t(frame.height) ||
         frame.pixels.size() < frame.stride * std::size_t(frame.height))
         return error(ErrorCode::InvalidArgument, "invalid preview source frame");
-    mirador::ImageView view;
-    view.data = reinterpret_cast<const std::byte *>(frame.pixels.data());
-    view.width = frame.width;
-    view.height = frame.height;
-    view.row_stride_bytes = static_cast<std::int64_t>(frame.stride);
-    view.format = mirador::PixelFormat::kBgra8;
-    const auto longest = std::max(frame.width, frame.height);
-    const auto w = std::max(1, static_cast<int>(std::int64_t(frame.width) * 1600 / longest));
-    const auto h = std::max(1, static_cast<int>(std::int64_t(frame.height) * 1600 / longest));
-    const auto resized = mirador::resize_area(view, w, h, desktop_image_bytes);
-    if (!resized.ok() || bounded.cancelled())
+    desktop::ImageFrame preview;
+    if (!preview_downscale(frame, desktop_image_bytes, preview))
         return error(bounded.cancelled() ? ErrorCode::Cancelled : ErrorCode::ResourceExhausted,
                      "preview resize failed or expired");
-    const auto pixels = resized.value().view();
-    desktop::ImageFrame preview;
-    preview.width = w;
-    preview.height = h;
-    preview.stride = static_cast<std::size_t>(pixels.row_stride_bytes);
-    preview.pixels.resize(preview.stride * std::size_t(h));
-    std::memcpy(preview.pixels.data(), pixels.data, preview.pixels.size());
     return publish(preview);
 }
 
@@ -984,14 +998,46 @@ DesktopImageTurn::supply(const mira::AgentLoopSpec &spec) {
             "before visually verifying a result.",
             mira::Sensitivity::Internal});
     } else {
-        expect_image_ = true;
-        item.content.emplace_back(mira::TextPart{
-            "Untrusted desktop image; coordinates and source: " + mira::to_json_string(metadata_),
-            mira::Sensitivity::Sensitive});
-        item.content.emplace_back(
-            mira::ImagePart{reference(*image_), mira::ImageDetail::Auto, "image/png"});
+        const auto remaining = budget_remaining_ ? budget_remaining_() : std::nullopt;
+        if (remaining && *remaining <= kImageBudgetDegradeTokens) {
+            // DEC-088 capability 5: the image would push the request into the
+            // hard preflight band, so withhold it and let the turn proceed on
+            // text. expect_image_ stays false: validate_request must not
+            // demand an image that was deliberately never attached.
+            std::string degraded =
+                "[Context budget low] The desktop screenshot was withheld this turn to preserve "
+                "the remaining context budget (" +
+                std::to_string(*remaining) +
+                " tokens). Earlier observations and tool results stay available; use the "
+                "semantic or OCR tools if you need details, and keep the reply concise.";
+            const auto *width = metadata_.find("width");
+            const auto *height = metadata_.find("height");
+            if (width && height && width->as_integer() && height->as_integer())
+                degraded += " Last image: " + std::to_string(*width->as_integer()) + "x" +
+                            std::to_string(*height->as_integer()) + " pixels.";
+            item.content.emplace_back(
+                mira::TextPart{std::move(degraded), mira::Sensitivity::Internal});
+        } else {
+            expect_image_ = true;
+            item.content.emplace_back(
+                mira::TextPart{"Untrusted desktop image; coordinates and source: " +
+                                   mira::to_json_string(metadata_),
+                               mira::Sensitivity::Sensitive});
+            item.content.emplace_back(
+                mira::ImagePart{reference(*image_), mira::ImageDetail::Auto, "image/png"});
+            if (remaining && *remaining <= kImageBudgetWarnTokens) {
+                item.content.emplace_back(mira::TextPart{
+                    "[Context budget low] Skip detailed image analysis if it is not essential; "
+                    "prefer direct text-based actions and a concise reply.",
+                    mira::Sensitivity::Internal});
+            }
+        }
     }
     return std::vector<mira::ModelInputItem>{std::move(item)};
+}
+
+void DesktopImageTurn::set_budget_remaining(BudgetRemaining provider) {
+    budget_remaining_ = std::move(provider);
 }
 
 std::optional<mira::InputReuseMeta>

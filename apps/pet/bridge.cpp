@@ -1,4 +1,5 @@
 #include "bridge.hpp"
+#include "../common/session_run_worker.hpp"
 #include <mirage/platform/frontend_process.hpp>
 
 #include <algorithm>
@@ -58,7 +59,8 @@ struct Bridge::Impl {
     std::uint64_t consumed_status = 0, consumed_preferences = 0; // UI-owned
     kairo::comm::LatestMailbox<runtime::persistence::AppPreferences> appearance{"pet-appearance"};
     runtime::persistence::LocalStateStore preference_store{
-        runtime::persistence::default_config_directory(), "preferences.json", 4096};
+        runtime::persistence::default_config_directory(), "preferences.json",
+        runtime::persistence::kMaxAppPreferencesBytes};
     void load_preferences() {
         const auto stored = preference_store.load();
         if (stored.status == runtime::persistence::LoadStatus::Loaded)
@@ -83,7 +85,10 @@ struct Bridge::Impl {
                              std::chrono::steady_clock::now().time_since_epoch())
                              .count();
         auto since = lost_since_ms.load();
-        if (!live.load() || stale.load()) {
+        // BUG-20261015-002: distinguish transport failure from sync staleness.
+        // Only !live (worker thread stopped) indicates actual owner loss, not stale
+        // (which just means the last poll failed — events may still be arriving).
+        if (!live.load()) {
             if (!since) {
                 (void)lost_since_ms.compare_exchange_strong(since, now);
                 since = lost_since_ms.load();
@@ -104,17 +109,26 @@ struct Bridge::Impl {
         });
         return animation_wake.valid();
     }
-    class SessionWorker final : public kairo::IBlockingIoWorker {
+    // REUSE-15: worker skeleton (cooperative wakeup, run episode) comes
+    // from the shared apps/common base.
+    class SessionWorker final : public mirage::apps::SessionRunWorker {
       public:
-        explicit SessionWorker(Impl &impl) : impl_(impl) {}
+        SessionWorker(Impl &impl, std::shared_ptr<ipc::SessionClient> client)
+            : mirage::apps::SessionRunWorker(std::move(client)), impl_(impl) {}
         void run(kairo::StopToken stop) override {
             std::string diagnostic;
-            (void)impl_.client->run(diagnostic);
+            const auto exit_reason = drive(diagnostic);
             impl_.live.store(false);
+
+            // DEC-094: consume and log the exit reason
+            if (exit_reason == ipc::SessionClient::RunExit::ConnectionLost) {
+                std::cerr << "mira_pet: IPC connection lost: " << diagnostic << '\n';
+            }
+            // RunExit::Stopped is normal shutdown, no warning needed
+
             if (!stop.stop_requested())
                 app::requestUpdate();
         }
-        void wakeup() noexcept override { impl_.client->stop(); }
 
       private:
         Impl &impl_;
@@ -145,7 +159,7 @@ bool Bridge::start(std::string &diagnostic) {
     kairo::BlockingWorkerSpec worker;
     worker.name = "mira-pet-ipc";
     worker.config.thread_name = "mira-pet-ipc";
-    worker.worker = std::make_unique<Impl::SessionWorker>(p);
+    worker.worker = std::make_unique<Impl::SessionWorker>(p, p.client);
     p.live.store(true);
     p.worker = p.executor.start_worker(std::move(worker));
     if (!p.worker.started()) {
@@ -165,24 +179,33 @@ bool Bridge::start(std::string &diagnostic) {
         return false;
     }
     p.publish(*status);
-    p.refresh = p.executor.submit_periodic(2000, [&p] {
+    // M8-05: Reduce polling frequency — events provide real-time updates, periodic
+    // status requests are only a fallback health check, not the primary source.
+    p.refresh = p.executor.submit_periodic(30000, [&p] {
         p.check_hidden_exit();
+        p.load_preferences();
+        // BUG-20261015-002 partial fix: status request timeout should not close
+        // the entire session while events are still arriving. This check ensures
+        // we only attempt sync when not already refreshing (prevents overlap).
         if (!p.live.load() || p.refreshing.exchange(true))
             return;
         struct Release {
             std::atomic_bool &flag;
             ~Release() { flag.store(false); }
         } release{p.refreshing};
-        p.load_preferences();
         ipc::Response response;
         try {
-            response = p.client->call(ipc::PetStatusRequest{}, 1500ms).get();
+            response = p.client->call(ipc::PetStatusRequest{}, 3000ms).get();
         } catch (const std::exception &error) {
+            // M8-05: sync failure != connection lost. Mark stale but do not propagate
+            // exception — the event stream may still be healthy. The worker thread
+            // monitors transport health independently.
             p.stale.store(true);
             if (p.visible.load())
                 app::requestUpdate();
-            std::cerr << "mira_pet: status refresh failed: " << error.what() << '\n';
-            throw; // keep the periodic failure visible to the Executor owner
+            std::cerr << "mira_pet: status sync failed (events may still be live): " << error.what()
+                      << '\n';
+            return; // do not throw — let events drive state if still arriving
         }
         if (const auto *snapshot = std::get_if<runtime::pet::Status>(&response.payload);
             response.ok && snapshot) {
@@ -250,7 +273,11 @@ void Bridge::set_bubble_expiry(std::uint64_t remaining_ms) {
         std::cerr << "mira_pet: bubble expiry timer admission failed\n";
     }
 }
-bool Bridge::connected() const { return impl_->live.load() && !impl_->stale.load(); }
+bool Bridge::connected() const {
+    // BUG-20261015-002: connected means transport is live, not sync-state fresh.
+    // The event stream may be healthy even if the last poll was stale.
+    return impl_->live.load();
+}
 ResourceLoader &Bridge::loader() { return impl_->resources; }
 void Bridge::set_animating(bool value) { impl_->animating.store(value); }
 void Bridge::set_visible(bool value) {

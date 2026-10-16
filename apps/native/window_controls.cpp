@@ -1,5 +1,7 @@
 #include "window_controls.hpp"
 
+#include <mirage/platform/frontend_process.hpp>
+
 #include <GLFW/glfw3.h>
 #include <algorithm>
 #include <cmath>
@@ -14,11 +16,7 @@
 #endif
 namespace mirage::native_ui {
 std::uint64_t process_id() {
-#ifdef _WIN32
-    return ::GetCurrentProcessId();
-#else
-    return static_cast<std::uint64_t>(::getpid());
-#endif
+    return static_cast<std::uint64_t>(mirage::platform::current_process_id());
 }
 } // namespace mirage::native_ui
 

@@ -1,10 +1,16 @@
 # DEC-088：会话上下文压缩与输入去重
 
-> 状态：Proposed
+> 状态：Superseded（2026-10-15，后继 DEC-090/091）
 > 日期：2026-10-14
 > 负责人：Mira/Mirage 维护者
 > 前置：DEC-087（输出预算与 preflight）、DEC-085（会话韧性）、DEC-053（图片供给缝）
-> 工作项：待分配（建议归入 M9 多步任务稳定性）
+> 工作项：后续统一由 M9-04/05/06/12 承接；既有交付证据保留
+
+本记录的后续策略由 [DEC-090](DEC-090-continuous-task-execution.md) 与
+[DEC-091](DEC-091-local-semantic-perception-and-action-loop.md) 替代，执行入口为
+[M9 计划](../plans/m9-continuous-tasks-and-local-perception.md)。已交付的 Layer 0、
+输入复用和图片降级继续保留；历史源码分析、样例和验收状态不改写为当前实现。
+压缩不能替代持续循环，新增默认文本观察也不等同于原先预算低时临时撤图。
 
 ## 问题陈述
 
@@ -54,10 +60,66 @@ ConversationLoop 的 tool-history 回放策略是**完整序列化所有工具�
 **根因**：
 续写提示词是通用的"从截断处继续"，模型不理解**应该切换到简洁模式**。
 
-## 决策
+## Mira 现有能力分析（2026-10-14 补充）
 
-在 **pinned mira** 的 `ConversationLoop` 层实现三级上下文管理，不在 Mirage 适配层
-临时绕过（避免与 mira 预算语义双轨并行）：
+验证发现 Mira 已交付完整的五层上下文智能架构（M4-M21），但 Mirage 当前**未集成**：
+
+### Layer 0：StandardContextManager（M4，已交付）
+- **P0-P5 优先级分区**：Essential/Important/Useful/Supplemental/Background
+- **三级水位**：trim (70%) / checkpoint (85%) / hard (95%)，自动裁剪低优先级项
+- **引用替换**：大载荷转 `ArtifactRef`，降低实际传输 token
+- **确定性装配**：相同 `ContextRequest` 产生相同 selection digest
+- **API**：`IContextManager::prepare(ContextRequest) -> PreparedModelContext`
+
+### Layer 1-3：检索、重排、固化（M17-M21，已交付）
+- **IContextRetriever**：Cold History 召回，三腿混合检索
+- **IContextReranker**：候选重排，token overlap F1 scoring
+- **ISemanticConsolidator**：ConversationCheckpoint 固化
+- **WorkingContext**：跨会话记忆快照，模型介导维护
+
+### ConversationLoop 的职责边界
+
+根据代码分析（`third_party/mira/src/model/conversation_loop.cpp:217`）：
+
+```cpp
+Result<ModelRequest> ConversationLoop::build_request(...) {
+    // 1. System 指令
+    // 2. User envelope (goal + feedback + supplied)
+    // 3. 直接拼接 history（完整线性回放）
+    request.input.insert(request.input.end(), history.begin(), history.end());
+    return request;
+}
+```
+
+**关键发现**：
+- ❌ ConversationLoop **不调用** ContextManager
+- ❌ 工具历史**线性拼接**，无压缩
+- ❌ 图片每轮**全量复制**，无引用替换
+- ✅ 提供 `ModelInputSupplier` 回调扩展点
+
+**结论**：ConversationLoop 是**轻量对话循环**，只管工具调度和轮次控制。上下文管理是
+**宿主职责**，需要 Mirage 在 `supply_input` 回调外部主动集成 ContextManager。
+
+详见：`docs/analysis/context-management-capability-gap.md`。
+
+---
+
+## 决策（修订版）
+
+基于上述分析，修正实施路径：**优先集成 Mira 已有能力**，只对真正缺口补充实现。
+
+### 能力分类
+
+| 能力 | DEC-088 原设计 | Mira 已有 | 实施路径 |
+|------|---------------|----------|---------|
+| 1. 输入去重标注 | ✅ 新增 | ❌ | **Mira 侧实现**（PR#95） |
+| 2. 工具历史压缩 | ✅ 微压缩 | ✅ P5 分区 + 水位 | **集成 Layer 0** |
+| 3. 自动压缩阈值 | ✅ 45% 触发 | ✅ 70%/85%/95% 水位 | **调整水位配置** |
+| 4. 续写提示差异化 | ✅ 截断类型适配 | ❌ | **Mira 侧实现** |
+| 5. 图片降级 | ✅ preflight 降级 | ✅ 引用替换 + 图片预算 | **配置 + 可选扩展** |
+
+在 **pinned mira** 实现能力 1、4（真正缺口）；在 **Mirage 集成层**正确使用 Layer 0
+（能力 2、3、5）：
 
 ### 1. 输入去重标注（Input Deduplication Annotation）
 
@@ -97,86 +159,147 @@ ConversationLoop 的 tool-history 回放策略是**完整序列化所有工具�
 - 模型在后续 turn 中不再输出"让我先分析屏幕内容"
 - 思考 token 降低 10-20%（通过对照实验验证）
 
-### 2. 工具历史的微压缩（Micro-Compaction）
+### 2. 集成 Mira Layer 0：工具历史自动压缩（利用已有能力）
 
-**目标**：即时摘要工具结果，保留决策连续性，降低上下文基线。
+**目标**：利用 Mira 的 `StandardContextManager` 实现工具历史压缩。
 
-**策略**：
-- **最近 2 轮**：完整保留 `ToolCallPart` + `ToolResultPart`
-- **第 3-5 轮**：保留 `ToolCallPart` + **摘要 ToolResultPart**
-  ```json
-  {
-    "call_id": "...",
-    "output": "[Compacted] screenshot succeeded, 3200x2000, artifact:abc123 (full result in turn N-3)",
-    "compacted": true,
-    "original_size": 1234
-  }
-  ```
-- **第 6+ 轮**：**折叠为单条文本**
-  ```
-  [Earlier tool executions: Turn 1-5: 3 screenshots succeeded, 2 clicks executed]
-  ```
+**Mira 已有能力**：
+- **P5 分区**：`ContextItemKind::ToolResult` 默认映射到 P5（Background）
+- **水位裁剪**：超过 trim 水位（默认 70%）时，自动裁剪低优先级项
+- **引用替换**：`replaceable_by_reference = true` 的 ToolResult 转为 `ArtifactRef`
+- **消费标记**：`consumed = true` 的 ToolResult 可被优先裁剪
 
-**实现位置**：
-`ConversationLoop::build_request()` 在序列化 tool-history 时：
-- 维护 per-turn 的工具执行摘要
-- 根据 turn 距离当前轮的偏移应用不同策略
-- 摘要长度上限 200 字符/工具
+**Mirage 集成实现**：
 
-**失败场景特殊处理**：
-同类工具连续失败 ≥3 次（DEC-085 已有计数器），后续轮次只保留：
-```
-[Tool blocked] screenshot failed 3x in turns N-2 to N (platform_not_supported), 
-subsequent calls rejected.
-```
+在 `integration/mira/src/model_layer.cpp` 创建 `DesktopContextBuilder`：
 
-**验收**：
-- 15 轮桌面任务，第 15 轮请求的 tool-history 长度 < 5 轮完整回放的 40%
-- 模型仍能引用早期轮次的关键动作（"你在 turn 3 打开了 Firefox"）
-- Micro-compact 开销 < 10ms/轮
-
-### 3. 自动压缩阈值（Auto-Compaction Threshold）
-
-**目标**：在达到上下文窗口 40-55% 时主动压缩，避免接近上限时的被动失败。
-
-**触发条件**：
 ```cpp
-bool should_compact = 
-    context_window > 0 &&  // 已声明窗口
-    (estimated_input_tokens / context_window) >= kAutoCompactThreshold;  // 默认 0.45
+class DesktopContextBuilder {
+public:
+    mira::ContextRequest build_context_request(
+        const DesktopTaskState& state) {
+        
+        mira::ContextRequest request;
+        request.limits = make_desktop_limits(state.profile);
+        request.task_id = state.task_id;
+        request.session_id = state.session_id;
+        
+        // P1: Goal (pinned，永不压缩)
+        request.items.push_back(mira::ContextItem{
+            .kind = mira::ContextItemKind::Goal,
+            .priority = mira::ContextPriority::Essential,
+            .content = {mira::TextPart{.text = state.goal}},
+            .pinned = true
+        });
+        
+        // P2: CurrentObservation (当前截图)
+        if (state.current_screenshot) {
+            request.items.push_back(mira::ContextItem{
+                .kind = mira::ContextItemKind::CurrentObservation,
+                .content = {state.current_screenshot},
+                .task_epoch = state.task_epoch,
+                .environment_epoch = state.environment_epoch
+            });
+        }
+        
+        // P5: ToolHistory (可压缩)
+        for (const auto& [call, result] : state.tool_history) {
+            // ToolCall
+            request.items.push_back(mira::ContextItem{
+                .kind = mira::ContextItemKind::ToolCall,
+                .content = make_tool_call_parts(call),
+                .tool_call_key = call.id,
+                .consumed = result.has_value(),
+                .sequence = call.sequence
+            });
+            
+            // ToolResult
+            if (result) {
+                request.items.push_back(mira::ContextItem{
+                    .kind = mira::ContextItemKind::ToolResult,
+                    .content = {mira::TextPart{.text = result->output}},
+                    .payload = result->large_artifact,  // 大截图走 payload
+                    .tool_call_key = call.id,
+                    .consumed = result->followed_by_model_turn,
+                    .replaceable_by_reference = true,  // ← 关键！允许引用替换
+                    .sequence = result->sequence
+                });
+            }
+        }
+        
+        return request;
+    }
+    
+private:
+    mira::ContextLimits make_desktop_limits(const mira::ModelProfile& profile) {
+        mira::ContextLimits limits;
+        limits.context_window_tokens = profile.capabilities.limits.context_window;
+        limits.reserved_output_tokens = profile.capabilities.limits.max_output_tokens;
+        
+        // 桌面任务特化：更激进的压缩阈值
+        limits.trim_watermark = 0.45;        // 从 70% 调到 45%
+        limits.checkpoint_watermark = 0.70;  // 从 85% 调到 70%
+        limits.hard_watermark = 0.90;        // 从 95% 调到 90%
+        
+        // 图片预算：桌面截图专用
+        limits.max_image_tokens = 10000;     // 1张1600px截图 + 余量
+        
+        return limits;
+    }
+};
 ```
 
-**压缩策略**：
-1. **保留区**（不压缩）：
-   - 最近 3 轮完整内容
-   - Goal 与最新的 recovery feedback
+在 `supply_input` 回调中：
 
-2. **摘要区**（深度压缩）：
-   - 第 4-10 轮：每轮压缩为 ≤300 字符摘要
-   - 第 11+ 轮：整体折叠为单段（≤500 字符）
-
-3. **摘要生成**：
-   - 优先保留：turn 结果（Answered/Failed）、关键工具名称、epoch 变化
-   - 丢弃：thinking 详细过程、工具参数细节、长错误栈
-   - 模板：
-     ```
-     [Turn N] User: {first_50_chars}... → {3 tools executed} → Assistant: {outcome_summary}
-     ```
-
-**实现**：
-- `ConversationLoop` 新增 `ContextCompactor` 接口（可选依赖，默认实现为上述策略）
-- 压缩后发布 `ContextCompacted` 事件（before/after token count, compacted_turns）
-- 压缩状态不持久化：每次 run() 基于当前 message history 重新计算
-
-**边界**：
-- 压缩只影响**本轮请求的序列化形式**，不修改 message history 存储
-- 下一轮仍从完整 history 重新压缩（幂等）
-- 压缩后无法利用 provider cache hit（trade-off：续航 > 缓存）
+```cpp
+auto supply_input = [&](const auto& spec) 
+    -> mira::Result<std::vector<mira::ModelInputItem>> {
+    
+    // 1. 构建 ContextRequest
+    auto request = context_builder.build_context_request(task_state);
+    
+    // 2. 调用 Mira ContextManager 压缩
+    auto prepared = context_manager_->prepare(request);
+    if (!prepared) return prepared.error();
+    
+    // 3. 记录审计日志
+    log_context_audit(prepared.value().item_audit);
+    
+    // 4. 转换为 ModelInputItem（Loop 内部契约）
+    return convert_to_model_input_items(prepared.value().input);
+};
+```
 
 **验收**：
-- 30 轮图片任务，第 20 轮触发 auto-compact
-- 压缩后 input_tokens 降至窗口 50% 以下
-- 任务成功完成，不因上下文耗尽失败
+- 15 轮桌面任务，`item_audit` 显示 `DroppedByWatermark` 和 `SelectedByReference`
+- Input tokens 相比基线 **-30% ~ -40%**
+- 任务成功率不降低
+
+### 3. 调整水位配置（利用已有能力）
+
+**目标**：根据桌面任务特点调整 Mira 的压缩水位。
+
+**Mira 默认水位**：
+- `trim_watermark = 0.70`（70% 触发裁剪）
+- `checkpoint_watermark = 0.85`（85% 建议 checkpoint）
+- `hard_watermark = 0.95`（95% 最低集合检查）
+
+**桌面任务调整**：
+```cpp
+limits.trim_watermark = 0.45;        // 45% 即触发，更激进
+limits.checkpoint_watermark = 0.70;  // 70% 建议固化
+limits.hard_watermark = 0.90;        // 90% 拒绝
+```
+
+**理由**：
+- 桌面任务图片密集，每轮 1600+ tokens
+- 早期触发压缩，避免后期被动失败
+- 对齐 DEC-088 原设计的 45% 阈值
+
+**验收**：
+- 10 轮任务触发 trim（水位 > 45%）
+- 压缩后利用率降至 < 60%
+- 30 轮任务不因超窗失败
 
 ### 4. 续写提示的差异化（Continuation Feedback Specialization）
 
@@ -212,88 +335,231 @@ Mira PR #93 已区分三类截断形态（部分文本 / 工具截断 / 仅思�
 - 思考截断后，模型在续写时直接输出简短文本，不再尝试继续思考
 - 续写成功率从当前 30% 提升至 60%+
 
-### 5. 极端收缩时的图片降级（Image Degradation on Extreme Preflight）
+### 5. 图片降级策略（配置 + 可选扩展）
 
-**目标**：preflight 余量 < 阈值时，自动降级图片为文本描述，避免必然截断。
+**目标**：preflight 余量 < 阈值时，自动降级图片，避免必然截断。
 
-**触发条件**：
+**Mira 已有能力**：
+- `ContextLimits::max_image_tokens`：图片预算上限
+- 引用替换：大图转 `ArtifactRef`
+- 水位拒绝：`MinimumSetTooLarge` 显式拒绝超窗请求
+
+**Mirage 扩展**（在 Mirage 集成层实现）：
+
 ```cpp
-int64_t remaining = context_window - estimated_input - 1000;
-if (remaining < kImageDegradationThreshold) {  // 默认 10000
-    degrade_images_to_text = true;
+// integration/mira/src/desktop_image_supply.cpp
+
+mira::Result<std::vector<mira::ModelInputItem>>
+DesktopImageTurn::supply_with_budget_awareness(
+    const mira::AgentLoopSpec& spec,
+    int64_t preflight_remaining) {
+    
+    // 策略 1: 余量充足，正常供给
+    if (preflight_remaining > 20000) {
+        return supply_full_image(current_screenshot_);
+    }
+    
+    // 策略 2: 余量紧张，追加警告
+    if (preflight_remaining > 10000) {
+        auto items = supply_full_image(current_screenshot_);
+        items.value().push_back(make_budget_warning(
+            "Context budget low. Skip detailed image analysis if not essential."));
+        return items;
+    }
+    
+    // 策略 3: 余量极低，降级为文本
+    return supply_image_as_text_description(
+        current_screenshot_, 
+        last_ocr_summary_);
+}
+
+std::vector<mira::ModelInputItem> supply_image_as_text_description(
+    const Screenshot& screenshot,
+    const std::optional<std::string>& last_ocr) {
+    
+    mira::ModelInputItem item;
+    item.role = mira::ModelRole::User;
+    item.provenance.source = "mirage.image-supply.degraded.v1";
+    
+    std::string text = "[Image degraded due to context limit] Screenshot from turn " +
+                       std::to_string(current_turn_) + ", " +
+                       std::to_string(screenshot.width) + "x" + 
+                       std::to_string(screenshot.height) + " pixels.";
+    
+    if (last_ocr) {
+        text += " Previous OCR: " + *last_ocr;
+    }
+    
+    item.content.emplace_back(mira::TextPart{.text = std::move(text)});
+    return {std::move(item)};
 }
 ```
 
-**降级策略**：
-- **余量 5000-10000**：保留图片，但在其后追加警告
-  ```
-  [Context budget low: if analysis is not essential, you may skip detailed 
-   image inspection]
-  ```
-
-- **余量 < 5000**：替换 `ImagePart` 为 `TextPart`
-  ```
-  [Image degraded due to context limit] Screenshot from turn N, 3200x2000 pixels.
-  Previous analysis: {last_ocr_summary_if_any}
-  ```
+**触发条件**：
+- 余量 > 20000：正常供给图片
+- 余量 10000-20000：图片 + 警告
+- 余量 < 10000：降级为文本描述
 
 **实现位置**：
-`ModelInputSupplier` 在 Mirage 侧实现（图片供给是下游职责），
-根据 `ObservedProvider` 传递的 preflight 余量决策。
+`integration/mira/src/desktop_image_supply.cpp`（Mirage 侧，图片供给是下游职责）
 
 **验收**：
-- 余量 8000 时，图片保留 + 警告
-- 余量 3000 时，图片降级为文本
+- 余量 15000 时，图片保留 + 警告
+- 余量 8000 时，图片降级为文本
 - 降级后任务仍可继续，不立即失败
 
-## 实施边界
+## 实施边界（修订版）
 
 1. **Mira 本地修改**（`third_party/mira`）：
-   - 能力 1/2/3/4 在 `ConversationLoop` 实现
-   - 修改前**必须**先在 `docs/executor_feedback/ledger.md` 登记（即使是 mira 本地，
-     也要保持可追溯；待上游合并时作为 PR 描述）
-   - 单元测试覆盖：压缩策略、reuse 标注、续写提示选择
+   - **能力 1**：输入去重标注（PR#95 已提交）
+   - **能力 4**：续写提示差异化
+   - 修改前**必须**先在 `docs/dependency_feedback/ledger.md` 登记反馈台账
+     （MIRA-20261014-005 已登记）
+   - 单元测试覆盖：reuse 标注、续写提示选择
 
 2. **Mirage 集成层**（`integration/mira`）：
-   - 能力 5 在 `desktop_image_supply.cpp` 实现
-   - 依赖 mira 的 preflight 余量暴露（可能需要 mira 侧扩展接口）
+   - **能力 2/3**：集成 Mira 的 `StandardContextManager`
+   - **能力 5**：图片降级策略（`desktop_image_supply.cpp`）
+   - 创建 `DesktopContextBuilder`，构建 `ContextRequest`
+   - 调整水位配置（`ContextLimits`）
 
 3. **不做的**：
-   - 不实现 LLM-based 摘要（成本高、延迟大）——只做规则式压缩
-   - 不持久化压缩状态——每次从完整 history 重新计算（幂等）
-   - 不在 Mirage 层实现通用压缩器——只做图片降级特化
+   - ❌ 不在 Mirage 侧重复实现工具历史压缩（Mira Layer 0 已有）
+   - ❌ 不实现 LLM-based 摘要（成本高、延迟大）——只做规则式压缩
+   - ❌ 不持久化压缩状态——每次从完整 history 重新计算（幂等）
 
-## 验收标准
+4. **如果 Mira 能力不足**：
+   - 登记 `MIRA-20261014-006`：ContextManager 缺少桌面特化能力
+   - 说明 Mira 通用策略与 Mirage 桌面场景的具体差异
+   - 评估是否需要 `DesktopContextManager` 装饰器
 
-### 短期验收（能力 1/4/5，1 周内）
+## 验收标准（修订版）
 
-1. **图片复用标注**：
-   - [ ] 相同截图连续 3 轮，第 3 轮请求包含 reuse 提示
-   - [ ] 对照实验：有/无标注的思考 token 差异 ≥10%
+### Phase 1：Mira 能力集成（1 周，P0）
 
-2. **续写提示差异化**：
-   - [ ] 思考截断场景，续写提示包含"concise plain-text"
-   - [ ] 续写成功率 ≥60%（当前基线 30%）
+1. **Layer 0 集成**：
+   - [x] `DesktopContextBuilder` 实现并测试（落地形态：只路由工具往返段经
+     Layer 0，配对孤侧收缩，assistant 文本透传——Layer 0 出决策、循环原始条目
+     出渲染；见消费验证文档）
+   - [x] 正确设置 `ContextItem` 属性（kind/priority/replaceable_by_reference）；
+     `replaceable_by_reference=false` 是有意收紧——引用标记会丢弃
+     ToolCallPart/ToolResultPart 破坏工具协议，收缩改由配对丢弃承担
+   - [x] 压缩事件与计数可见（loop 侧 `HistoryTransformApplied`/
+     `HistoryTransformDegraded` 事件 + `DialogCompletion.history_transforms`/
+     `history_transform_degradations` 透传）
+   - [ ] 15 轮桌面任务 input tokens **-30% ~ -40%**——需真实会话测量，未执行
 
-3. **图片降级**：
-   - [ ] 余量 8000：图片保留 + 警告
-   - [ ] 余量 3000：图片降级为文本，任务继续
+2. **水位配置调整**：
+   - [x] `trim_watermark = 0.45` 生效（fixture 断言小窗口下旧配对被收缩）
+   - [ ] 10 轮任务触发 trim（水位 > 45%）——真实会话，未执行
+   - [ ] 压缩后利用率降至 < 60%——真实会话，未执行
 
-### 中期验收（能力 2/3，2-3 周内）
+3. **续写提示差异化**（Mira PR，可并行）：
+   - [x] 思考截断场景，续写提示包含"concise plain-text"（PR#95 合并提交 9e7b729
+     交付三类分支；mira Debug 107/107 覆盖）
+   - [ ] 续写成功率 ≥60%（当前基线 30%）——需真实会话对照，未执行
 
-4. **工具历史微压缩**：
-   - [ ] 15 轮任务，第 15 轮 tool-history tokens < 完整回放的 40%
-   - [ ] 模型仍能引用 turn 3 的关键动作
-   - [ ] Micro-compact 开销 < 10ms/轮
+### Phase 2：图片复用标注（3 天，等待 PR#95 合并）
 
-5. **自动压缩阈值**：
-   - [ ] 30 轮图片任务，input_tokens 曲线在第 15 轮后趋平（压缩生效）
-   - [ ] 第 30 轮仍 < 窗口 60%
-   - [ ] 任务成功完成，不因上下文耗尽失败
+4. **输入去重标注集成**：
+   - [x] PR#95 合并后更新 Mirage 的 pinned mira（授权消费 9e7b729）
+   - [x] `DesktopImageTurn::supply_with_reuse_meta` 实现（落地形态：
+     `reuse_identity()` + `set_model_input_identity` 接线，语义同设计）
+   - [x] 相同截图连续 3 轮，第 3 轮请求包含 reuse 提示（脚本化 provider 端到端
+     fixture：仅第 4 请求/第 3 次同图供给渲染 Internal System note，计数可见）
+   - [ ] 对照实验：有/无标注的思考 token 差异 ≥10%（需真实模型，未执行）
 
-### 端到端验收（全能力，1 月内）
+### Phase 3：图片降级策略（2 天，可并行）
 
-6. **真实桌面任务**：
+5. **图片降级**：
+   - [x] `supply_with_budget_awareness` 实现（落地形态：`set_budget_remaining`
+     注入 `anchored_remaining` 信号，supply 内三段阈值分支）
+   - [x] 余量 15000：图片保留 + 警告（fixture 断言含 20000/15000/10001 边界带）
+   - [x] 余量 8000：图片降级为文本，任务继续（fixture 断言无 ImagePart、
+     `validate_request` 通过、后续轮次正常）
+
+### 端到端验收（全部能力，1 天）
+
+6. **真实任务回归**（未执行：需真实模型 API + 桌面环境；负责人 Mirage 维护者，
+   补跑条件见
+   [证据文档](../compatibility/context-reuse-degradation-20261014.md)）：
+   - [ ] Bilibili 视频查找任务（15 轮）成功，input tokens < 基线 60%
+   - [ ] 30 轮图片密集任务成功完成（不超窗失败）
+   - [ ] 任务成功率不降低（相比基线）
+   
+7. **性能指标**（未执行，同上）：
+   - [ ] ContextManager::prepare 开销 < 50ms/轮
+   - [ ] 压缩决策确定性（相同 request → 相同 selection digest）
+
+## Trade-offs 与接受的限制
+
+1. **压缩 vs Cache**：
+   - 压缩后前缀不匹配，无法利用 provider cache hit
+   - **接受理由**：长会话续航 > 单轮缓存节省（30 轮任务 vs 1-2 轮缓存收益）
+
+2. **规则 vs LLM**：
+   - 使用规则式压缩（水位 + 优先级），不使用 LLM-based 摘要
+   - **接受理由**：低延迟（< 50ms）、低成本、确定性；M10+ 再考虑 LLM 增强
+
+3. **幂等 vs 持久化**：
+   - 不持久化压缩状态，每次从完整 history 重新计算
+   - **接受理由**：简化状态管理、避免压缩漂移；计算开销可接受（< 50ms）
+
+4. **通用 vs 特化**：
+   - 优先使用 Mira 的通用 ContextManager，只在确认不足时增加桌面特化
+   - **接受理由**：避免与 Mira 预算语义双轨并行；如需特化，先反馈台账登记
+
+## 相关文档
+
+- **DEC-087**：输出预算与 preflight（输出侧已对齐）
+- **DEC-085**：会话韧性与工具失败计数
+- **DEC-053/055**：图片供给缝与去重
+- **验证报告**：`docs/analysis/context-management-capability-gap.md`
+- **Mira API 文档**：`third_party/mira/docs/api/context-memory.md`
+- **反馈台账**：`docs/dependency_feedback/ledger.md` (MIRA-20261014-005)
+
+## 上游交付状态
+
+- **PR#95**：输入复用标注（能力 1）+ 续写锚点差异化（能力 4）
+  - 状态：已合并（2026-10-14，全部 checks 通过后经授权 squash 合并）
+  - 合并提交：`9e7b729d0861577b470d45385bdd08301bd1226d`
+  - 地址：[mira PR#95](https://github.com/Linductor-alkaid/mira/pull/95)
+  - 能力 1 缝形态：可选 `ModelInputIdentityProvider` / `set_model_input_identity`
+    （宿主持有跨轮 digest/count，循环仅在 `reuse_count >= 2` 且供给含图时渲染
+    Internal 权限 note；无回调时请求逐字节不变），与原设计"扩展 Supplier 返回
+    结构"的差别见实施计划进展记录。
+  - 能力 4 缝形态： tolerated max_tokens 截断的三类恢复反馈（部分文本末 50 字符
+    锚点 / 工具调用截断已丢弃重试 / 仅思考截断简洁纯文本）。
+  - Mirage 已授权消费该 pin（见
+    [消费审计](../supply-chain/mira-input-reuse-20261014.md)）。
+- **能力 2/3**：Layer 0 集成与桌面水位
+  - 状态：缝已交付并消费。上游
+    [PR#96](https://github.com/Linductor-alkaid/mira/pull/96)（`set_history_transformer`
+    可选宿主历史压缩缝，通用 history 变换形态，规避渲染器角色保真约束）经授权
+    squash 合并为 `93e2eae`（24 项 checks 全绿），pin 已同步消费；Mirage 侧
+    `DesktopContextBuilder` 只路由工具往返段经 Layer 0（桌面水位 0.45/0.70/0.90、
+    配对孤侧收缩、assistant 文本透传），见
+    [消费审计](../supply-chain/mira-history-compaction-20261014.md)。
+    [MIRA-20261014-006](../dependency_feedback/mira.md#mira-20261014-006) 的缝缺口
+    由此闭合。
+- **PR#97**：能力 2/3 水位精度修复（消费验证发现的计数器缺口）
+  - 状态：已合并（2026-10-14，24 项 checks 通过后经授权 squash 合并）
+  - 合并提交：`7391df70036cbdb035dea5ebaec99c46cbabe5ae`
+  - 地址：[mira PR#97](https://github.com/Linductor-alkaid/mira/pull/97)
+  - 缝形态：`ConservativeTokenCounter::estimate_item` 计入全部回放载荷字节
+    （`ToolCallPart.arguments` 序列化、`ToolResultPart` 按 tool bridge wire
+    形态、`ThinkingPart` text+signature），桌面水位触发由真实载荷规模驱动；
+    [MIRA-20261014-007](../dependency_feedback/mira.md#mira-20261014-007)
+    由此闭合（消费复验见
+    [消费验证](../compatibility/context-history-compaction-20261014.md)）。
+
+---
+
+**状态**：Proposed  
+**日期**：2026-10-14（初版）/ 2026-10-14（修订：集成 Mira 已有能力）  
+**负责人**：Mira/Mirage 维护者  
+**修订记录**：
+- 2026-10-14：补充"Mira 现有能力分析"，修正能力 2/3/5 为集成已有能力
    - [ ] bilibili 视频查找任务（DEC-085 失败案例）成功完成
    - [ ] 20+ 轮多步任务稳定运行（M9 目标）
    - [ ] 平均 turn input tokens < 当前基线 50%

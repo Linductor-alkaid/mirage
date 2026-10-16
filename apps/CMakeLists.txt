@@ -12,6 +12,7 @@ target_link_libraries(mirage_cli
         Mirage::runtime_service
         Mirage::integration_mira
         Mirage::integration_mirador
+        Mirage::kairo_consumer
         Mirage::platform
         Mirage::update
         Mirage::persistence
@@ -51,6 +52,13 @@ add_subdirectory(native)
 option(MIRAGE_ENABLE_PET_PREVIEW "Build the local v5 mira_pet preview" OFF)
 option(MIRAGE_ENABLE_PET_ASSET_TESTS "Test approved v5 assets without building a UI" OFF)
 add_subdirectory(pet)
+
+# DEC-092: the documented product entry must build every tray-owned carrier,
+# rather than accidentally relying on a pet left in an old build directory.
+if(MIRAGE_ENABLE_NATIVE_FRONTEND AND TARGET mira_pet)
+    add_custom_target(mirage-native-product
+        DEPENDS mirage mirage-service mirage-tray mirage-native mira_pet)
+endif()
 
 if(MIRAGE_BUNDLE_VISION)
     target_compile_definitions(mirage_service_host PRIVATE MIRAGE_BUNDLED_VISION=1)

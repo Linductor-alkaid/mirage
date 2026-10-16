@@ -7,6 +7,10 @@
 
 namespace mirage::apps {
 
+// Apps-scope env face (REUSE-12): owned storage, narrow API, cross-platform.
+// Distinct from runtime/internal/win32_environment.hpp (wide name, Windows
+// only) and from integration/mira's widened reader; the layers cannot share
+// headers without inverting the dependency direction.
 // Return owned storage: callers may subsequently change the process environment.
 inline std::optional<std::string> environment_variable(const char *name) {
 #ifdef _WIN32
