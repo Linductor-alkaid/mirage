@@ -40,14 +40,18 @@ mirador、状态机为 Mira::core 薄适配），但存在三类系统性缺口�
 
 ### B. 分层与边界整改（P1/P2）
 
-- [ ] REUSE-06：runtime 公共头 pinned 泄漏整改：`runtime_service.hpp` /
-  `mira_host.hpp` 不再经 integration 公共头传递包含 `mira/*` 头；
-  `ServiceConfig` 中的 integration 适配层类型改为不暴露 pinned 传递闭包的形态。
-- [ ] REUSE-07：`cmake/BoundaryCheck.cmake` 增加传递闭包检查，能发现"公共头 include
-  integration 公共头 → 传递包含 pinned 头"的路径，堵住字面 grep 盲区。
-- [ ] REUSE-08：apps 直连 pinned 收口：`apps/native`、`apps/pet` 直接链接/包含
-  kairo、`mira/event_store.hpp` 的消费点，按"每进程唯一 Executor owner（DEC-037/045）"
-  形态收口到明确边界或以 DEC 明示组合根豁免，消除未记录的直接依赖。
+- [x] REUSE-06：runtime 公共头 pinned 泄漏整改：按 DEC-096 边界策略收口——
+  直接 include 维持禁止；经 integration 适配层的传递到达改为可测（BoundaryCheck
+  allowlist 显式登记 `runtime_service.hpp` / `mira_host.hpp` 两条缝）；
+  ServiceConfig 配置面 pinned-free 化（去 `mira::ModelUsage`/`IModelProvider` 内嵌）
+  登记为后续迁移项，不在本计划内实施。
+- [x] REUSE-07：`cmake/BoundaryCheck.cmake` 升级为传递闭包检查（沿 `mirage/...`
+  include 追踪进 desktop/runtime/platform/integration 树），登记缝之外的新到达
+  直接失败，堵住字面 grep 盲区。
+- [x] REUSE-08：apps 直连 pinned 收口：DEC-096 明示组合根形态——每进程唯一
+  Executor owner（CLI 更新命令/native/pet/tray-service 各自成立）；kairo 的
+  include/link 一律经 `Mirage::kairo_consumer` facade（apps/native、apps/pet 全部
+  硬编码嵌套 pin 路径已迁移）；mira 核心 API 只经正规 target 链接获取。
 - [ ] REUSE-09：`runtime/ipc` session_client 的 mutex+deque outbox 与 promise 应答
   迁移到 `kairo::comm::MpscChannel`（逐条 FIFO 语义），或在核实 kairo 公开接口确不
   承载后以 DEC 登记豁免；四方消费方（native/pet/cli/service）行为不变。
@@ -141,6 +145,29 @@ mirador、状态机为 Mira::core 薄适配），但存在三类系统性缺口�
   REUSE-09 工作项排查）。
 - 限制：Windows/MinGW 编译面待 CI；transport 慢服务器 deadline 路径无钉测；负责人
   Mirage 维护者。
+### 2026-10-16：REUSE-06/07/08（批次 3，独立验证通过）
+
+- 范围：公共头 pinned 边界策略（DEC-096）、BoundaryCheck 传递闭包检查、apps kairo
+  消费面统一到 `Mirage::kairo_consumer` facade。
+- 关键落地：
+  - DEC-096（Accepted）：直接 include 维持禁止；经 integration 适配层的类型引用是
+    合法边界；两条传递缝（runtime_service.hpp、mira_host.hpp）显式登记于
+    BoundaryCheck allowlist；apps 组合根每进程唯一 Executor owner + kairo 消费
+    经 facade；ServiceConfig 面 pinned-free 化登记为后续迁移项（不在本计划实施）。
+  - BoundaryCheck v2：沿 `mirage/...` include 递归解析进 desktop/runtime/platform/
+    integration 树；60 个公共头 0 违规、2 登记缝到达；负向用例（临时头注入
+    `mirage/integration/desktop_tool_context.hpp`）确认 FATAL 失败、移除后恢复；
+    违规报文包含根公共头与到达边。
+  - facade 迁移 6 处：apps/native、apps/pet（loader、mira_pet、两个 pet 测试）、
+    runtime/service（验证观察的残留张力一并收口，facade 即其既有纪律的 INTERFACE
+    化；该迁移属机械等价替换，随批次 4 全量构建复验）。
+  - runtime/service CMake 的 "pinned-free" 注释更正为 DEC-096 实际策略。
+- 验证：Independent-Verification-Agent——官方 debug 树配置+全量构建退出码 0、
+  warning/error 0；preset 未覆盖的 mirage-native/mira_pet/pet_frames_test 以临时
+  构建目录（NATIVE_FRONTEND+PET_PREVIEW 开关）补验构建 0 警告且 pet_frames_test
+  实跑通过；`mirage-boundary-check` 正向通过、负向用例失败/恢复确认；回归
+  `ctest -R 'pet|update|ipc|runtime_service|native_agent'` 17/17。
+- 限制：ServiceConfig 面 pinned-free 化为后续项；负责人 Mirage 维护者。
 ## 退出条件
 
 1. 全部 REUSE 项勾选完成或记录 Blocked 原因与补跑条件。

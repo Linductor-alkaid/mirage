@@ -101,5 +101,7 @@ target_include_directories(mirage-native SYSTEM PRIVATE
     "${CMAKE_SOURCE_DIR}/third_party/eui-neo/include")
 mirage_enable_warnings(mirage-native)
 
-target_link_libraries(mirage-native PRIVATE Mirage::ipc Mirage::persistence kairo)
-target_include_directories(mirage-native SYSTEM PRIVATE "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+# kairo via the shared consumer face (DEC-096): SYSTEM include + file-path
+# link, no hardcoded nested-pin paths.
+target_link_libraries(mirage-native PRIVATE Mirage::ipc Mirage::persistence
+    Mirage::kairo_consumer)
