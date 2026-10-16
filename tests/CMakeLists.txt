@@ -1456,7 +1456,10 @@ endif()
 
 # M10-07 (DEC-095): the exec/read/write/edit session toolset over the pinned
 # registry dispatch path and the real Linux desktop environment; the pinned
-# include dirs propagate from Mirage::integration_mira by design.
+# include dirs propagate from Mirage::integration_mira by design. The
+# environment fixture is the Linux platform backend, so the target only
+# exists where its public headers are on the platform include path.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 mirage_add_test(basic_agent_toolset_test
     SOURCES integration/basic_agent_toolset_test.cpp ${CMAKE_SOURCE_DIR}/runtime/service/src/basic_output_store.cpp
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/runtime/service/include
@@ -1464,6 +1467,7 @@ mirage_add_test(basic_agent_toolset_test
     LABELS "integration;runtime"
     TIMEOUT 120
     )
+endif()
 
 # M10-06 (DEC-095): the disk-backed retained-command-output store against a
 # per-run temp root with small budgets so every cap is deterministically

@@ -1097,9 +1097,8 @@ void scenario_overlapped_call_frame_survives_in_flight_window() {
     // Caller 1 goes in flight; the peer accepts the request and withholds
     // the answer (nothing is scripted for it yet).
     std::future<ipc::Response> first_future;
-    std::thread first_caller([&] {
-        first_future = session.client->call(ipc::HelloRequest{}, kCallBudget);
-    });
+    std::thread first_caller(
+        [&] { first_future = session.client->call(ipc::HelloRequest{}, kCallBudget); });
     MIRAGE_CHECK(peer.wait_for_request(1, kCallBudget));
 
     // Answer request 2 the moment its frame reaches the wire (fire_due's
@@ -1114,8 +1113,7 @@ void scenario_overlapped_call_frame_survives_in_flight_window() {
     std::future<ipc::Response> second_future;
     std::thread second_caller([&] {
         peer.script_response(1, std::chrono::milliseconds{400});
-        second_future =
-            session.client->call(ipc::HelloRequest{}, std::chrono::milliseconds{2000});
+        second_future = session.client->call(ipc::HelloRequest{}, std::chrono::milliseconds{2000});
     });
     first_caller.join();
     second_caller.join();

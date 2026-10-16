@@ -61,7 +61,7 @@ void test_tools_have_priority_over_thinking() {
         tool.status = "complete";
         tool.input = "{\"display_id\":\"0\"}";
         // Each tool has 9 KiB output (4 * 9 = 36 KiB < 40 KiB).
-        tool.output = std::string(9 * 1024, 'a' + i);
+        tool.output = std::string(9 * 1024, static_cast<char>('a' + i));
         parts.push_back(tool);
     }
 

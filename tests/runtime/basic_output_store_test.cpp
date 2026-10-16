@@ -20,7 +20,11 @@
 #include <system_error>
 #include <thread>
 
+#ifdef _WIN32
+#include <process.h>
+#else
 #include <unistd.h>
+#endif
 
 namespace {
 
@@ -28,11 +32,21 @@ namespace desktop = mirage::desktop;
 using mirage::runtime::BasicOutputStore;
 using mirage::runtime::BasicOutputStoreConfig;
 
+// Per-process temp-root disambiguation on either platform (the steady-clock
+// suffix below already separates concurrent runs within one process).
+std::uint64_t current_process_id() {
+#ifdef _WIN32
+    return ::_getpid();
+#else
+    return static_cast<std::uint64_t>(::getpid());
+#endif
+}
+
 class TempDir {
   public:
     explicit TempDir(std::string name)
         : root_(std::filesystem::temp_directory_path() /
-                ("mirage-m10-retention-" + name + "-" + std::to_string(::getpid()) + "-" +
+                ("mirage-m10-retention-" + name + "-" + std::to_string(current_process_id()) + "-" +
                  std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))) {}
     ~TempDir() {
         std::error_code ec;
