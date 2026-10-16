@@ -98,6 +98,19 @@ void print_usage(std::ostream &out) {
         << "  --socket PATH     IPC endpoint (default: XDG runtime dir)\n"
         << "  --read-root PATH  Filesystem path tasks may read (repeatable;\n"
         << "                    without one, filesystem reads are denied)\n"
+        << "  --enable-basic-tools\n"
+        << "                    Expose the exec/read/write/edit session tools\n"
+        << "                    (DEC-095). read honors --read-root; write/edit\n"
+        << "                    need --write-root; exec additionally needs\n"
+        << "                    --enable-exec and a workspace\n"
+        << "  --enable-exec      Enable the exec tool (implies\n"
+        << "                    --enable-basic-tools); commands run with the\n"
+        << "                    host user's permissions in the workspace — no\n"
+        << "                    sandbox\n"
+        << "  --workspace PATH   Session workspace directory (absolute);\n"
+        << "                    relative tool paths and exec resolve against it\n"
+        << "  --write-root PATH  Filesystem path tools may modify (repeatable;\n"
+        << "                    read roots never imply write authority)\n"
         << "  --perm RULE       Desktop permission rule (repeatable; RULE is\n"
         << "                    CAPABILITY=allow|confirm|deny with CAPABILITY\n"
         << "                    one of filesystem.read, filesystem.write,\n"
@@ -186,6 +199,11 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
 
     config.mirage_version = std::string(kVersion);
     std::vector<std::string> read_roots;
+    std::vector<std::string> write_roots;
+    std::optional<std::string> workspace;
+    bool basic_tools_enabled = false;
+    bool exec_enabled = false;
+    bool basic_tools_from_flags = false;
     std::vector<std::string> perm_flags;
     std::optional<std::string> flag_socket;
     std::optional<std::string> flag_confirm;
@@ -223,6 +241,27 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
         if (argument == "--read-root" && index + 1 < argc) {
             read_roots.emplace_back(argv[++index]);
             read_roots_from_flags = true;
+            continue;
+        }
+        if (argument == "--write-root" && index + 1 < argc) {
+            write_roots.emplace_back(argv[++index]);
+            basic_tools_from_flags = true;
+            continue;
+        }
+        if (argument == "--workspace" && index + 1 < argc) {
+            workspace = argv[++index];
+            basic_tools_from_flags = true;
+            continue;
+        }
+        if (argument == "--enable-basic-tools") {
+            basic_tools_enabled = true;
+            basic_tools_from_flags = true;
+            continue;
+        }
+        if (argument == "--enable-exec") {
+            exec_enabled = true;
+            basic_tools_enabled = true;
+            basic_tools_from_flags = true;
             continue;
         }
         if (argument == "--ocr-manifest" && index + 1 < argc) {
@@ -417,6 +456,15 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
             const auto &settings = decoded.settings;
             if (settings.vision && !ocr_from_flags)
                 config.ocr_manifest = settings.vision->ocr_manifest;
+            if (settings.basic_tools && !basic_tools_from_flags) {
+                basic_tools_enabled = settings.basic_tools->enabled;
+                exec_enabled = settings.basic_tools->exec_enabled;
+                workspace = settings.basic_tools->workspace;
+                if (!workspace->empty()) {
+                    basic_tools_from_flags = true; // a configured workspace counts as intent
+                }
+                write_roots = settings.basic_tools->write_roots;
+            }
             if (!settings.socket_path.empty()) {
                 config.socket_path = settings.socket_path;
             }
@@ -591,6 +639,15 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
         std::cerr << kProgramName << ": --read-root is a Linux backend surface\n";
         return 2;
     }
+    if (basic_tools_enabled || exec_enabled || !write_roots.empty() || workspace.has_value()) {
+        // M10-08: the Windows backend has no FilesystemProvider and no
+        // exec cwd support yet (M10-10); the flags would register nothing —
+        // refused loudly instead.
+        std::cerr << kProgramName
+                  << ": --enable-basic-tools/--enable-exec/--workspace/--write-root are Linux "
+                     "backend surfaces\n";
+        return 2;
+    }
     auto environment =
         std::make_shared<mirage::platform::windows_backend::WindowsDesktopEnvironment>();
     if (overlay_from_flags) {
@@ -605,12 +662,39 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
     for (const std::string &root : read_roots) {
         read_scope.emplace_back(root);
     }
+    std::vector<std::filesystem::path> write_scope;
+    write_scope.reserve(write_roots.size());
+    for (const std::string &root : write_roots) {
+        write_scope.emplace_back(root);
+    }
+    // M10-08 (DEC-095): read roots never imply write authority — the write
+    // scope is its own configuration surface.
     auto environment = std::make_shared<mirage::platform::linux_backend::LinuxDesktopEnvironment>(
         std::move(read_scope),
         mirage::platform::linux_backend::X11Options{product || !config.ocr_manifest.empty(), {}},
         mirage::platform::linux_backend::AtspiOptions{product},
         mirage::platform::linux_backend::ApplicationOptions{product},
-        mirage::platform::linux_backend::NotificationsOptions{product});
+        mirage::platform::linux_backend::NotificationsOptions{product},
+        mirage::platform::linux_backend::FilesystemWriteOptions{std::move(write_scope)});
+    if (basic_tools_enabled) {
+        config.basic_tools.enabled = true;
+        config.basic_tools.exec_enabled = exec_enabled;
+        if (workspace && !workspace->empty()) {
+            config.basic_tools.workspace = *workspace;
+        }
+        if (config.basic_tools.exec_enabled && config.basic_tools.workspace.empty()) {
+            std::cerr << kProgramName
+                      << ": --enable-exec requires a workspace (--workspace PATH or the "
+                         "settings file); exec is refused without one\n";
+            return 2;
+        }
+        // Retained command output lives under the state directory; the
+        // store clears it at construction (refs are runtime state).
+        if (config.basic_output_directory.empty()) {
+            config.basic_output_directory =
+                mirage::runtime::persistence::default_state_directory() / "basic-output";
+        }
+    }
     if (overlay_from_flags) {
         // M5-09 (DEC-029): the X11 shape overlay carrier. Null without an
         // X/XWayland connection (e.g. a Wayland-native session) — loud
