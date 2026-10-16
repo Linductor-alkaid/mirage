@@ -136,7 +136,7 @@ std::future<Response> SessionClient::call(const Request &body, std::chrono::mill
             return future;
         }
         id = next_id_++;
-        const auto inserted = pending_.emplace(id, Pending{std::move(promise), deadline});
+        const auto inserted = pending_.emplace(id, Pending{std::move(promise)});
         // Submitted under the mutex so a concurrent fail-close can never
         // interleave between the pending entry and its frame (REUSE-09).
         if (!outbox_->channel.try_send(Outbound{id, make_frame(encode_request(id, body))})) {
@@ -407,29 +407,9 @@ SessionClient::RunExit SessionClient::run(std::string &diagnostic) {
             return RunExit::ConnectionLost;
         }
 
-        // Deadline sweep: an expired request closes the session fail-closed
-        // (the discipline set in call()); run() exits on the next pass.
-        const auto now = std::chrono::steady_clock::now();
-        {
-            std::lock_guard<std::mutex> guard(mutex_);
-            for (auto it = pending_.begin(); it != pending_.end();) {
-                if (it->second.deadline <= now) {
-                    const std::uint64_t id = it->first;
-                    Response timed_out;
-                    timed_out.ok = false;
-                    timed_out.error = {"unavailable",
-                                       "timed out waiting for the response (session closed "
-                                       "fail-closed)"};
-                    it->second.promise.set_value(std::move(timed_out));
-                    it = pending_.erase(it);
-                    dead_ = true;
-                    dead_reason_ = "request " + std::to_string(id) + " timed out";
-                } else {
-                    ++it;
-                }
-            }
-        }
-
+        // DEC-094 Phase 1: run() exits on transport failure only. Request
+        // expiry is owned by call()'s deadline takeover — the entry is
+        // tombstoned into abandoned_ and the loop keeps servicing events.
         wait_readable(stream, kRunSlice);
     }
 }

@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <filesystem>
 #include <future>
@@ -57,6 +58,9 @@ struct Session {
     std::thread loop;
     ipc::SessionClient::RunExit exit = ipc::SessionClient::RunExit::Stopped;
     std::string diagnostic;
+    /// Set after run() returns (the DEC-094 scenarios observe the loop's
+    /// liveness from the calling thread without joining it).
+    std::atomic<bool> run_finished{false};
 
     Session() = default;
     Session(const Session &) = delete;
@@ -70,7 +74,9 @@ struct Session {
         }
     }
 
-    bool start(const std::string &address) {
+    /// Establishes the transport only; the run loop starts separately (the
+    /// DEC-094 scenarios interleave call()/run() phases).
+    bool connect(const std::string &address) {
         client = std::make_unique<ipc::SessionClient>(address);
         std::string connect_error;
         if (!client->connect(kConnectBudget, connect_error)) {
@@ -78,11 +84,23 @@ struct Session {
                          connect_error.c_str());
             return false;
         }
+        return true;
+    }
+
+    void start_run() {
         loop = std::thread([this] {
             std::string reason;
             exit = client->run(reason);
             diagnostic = std::move(reason);
+            run_finished.store(true, std::memory_order_release);
         });
+    }
+
+    bool start(const std::string &address) {
+        if (!connect(address)) {
+            return false;
+        }
+        start_run();
         return true;
     }
 
@@ -611,6 +629,414 @@ void scenario_request_timeout_keeps_session_alive() {
     MIRAGE_CHECK(shutdown.ok);
 }
 
+// --- DEC-094 scripted wire peer ----------------------------------------------
+//
+// The scenario above starts run() only after the timeout, so it never
+// exercises the sweep/takeover race on the live pending table. The scenarios
+// below run run() concurrently with call() against a peer that withholds and
+// replays answers on cue — control the real RuntimeService cannot offer. They
+// extend the protocol tests' transport fixtures (IpcListener plus the
+// poll-driven ipc_io.hpp helpers) with exactly that policy; no second
+// transport stack.
+
+/// Polls `predicate` until it holds or the budget elapses; returns the final
+/// predicate value (a liveness wait, not a latency assertion).
+template <typename Predicate>
+bool wait_for(std::chrono::milliseconds budget, Predicate predicate) {
+    const auto deadline = std::chrono::steady_clock::now() + budget;
+    for (;;) {
+        if (predicate()) {
+            return true;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{5});
+    }
+}
+
+/// A scriptable in-process service peer. The reader thread is the only user
+/// of the accepted connection: it receives and records requests and also
+/// performs the writes the test scripted (responses and events, each leaving
+/// the wire a planned delay after registration), so the test thread can stay
+/// blocked inside a call() while the peer answers behind its back. RAII: the
+/// destructor joins the reader before the streams destruct.
+struct ScriptedPeer {
+    ipc::IpcListener listener;
+    ipc::IpcStream peer;
+    std::thread reader;
+
+    std::mutex mutex;
+    std::condition_variable requests_changed;
+    std::vector<std::uint64_t> requests; ///< request ids in arrival order
+
+    /// One planned write: a hello-shaped response for `id`, or an event with
+    /// `seq` when is_event. The reader fires it once `due` has passed (and,
+    /// for responses, once the request itself reached the wire).
+    struct Scripted {
+        std::uint64_t id = 0;
+        std::uint64_t seq = 0;
+        bool is_event = false;
+        std::chrono::steady_clock::time_point due;
+    };
+    std::vector<Scripted> script; ///< registered by the test under the mutex
+    bool stop_requested = false;
+    bool close_requested = false; ///< the reader thread performs the close
+
+    explicit ScriptedPeer(const std::string &path) {
+        std::string diagnostic;
+        listener = ipc::IpcListener::bind(path, diagnostic);
+    }
+    ~ScriptedPeer() {
+        {
+            std::lock_guard<std::mutex> guard(mutex);
+            stop_requested = true;
+        }
+        if (reader.joinable()) {
+            reader.join(); // stops polling before the streams destruct
+        }
+    }
+    ScriptedPeer(const ScriptedPeer &) = delete;
+    ScriptedPeer &operator=(const ScriptedPeer &) = delete;
+
+    bool valid() const { return listener.valid(); }
+
+    /// Accepts the client's pending connection (the accept_pending shape of
+    /// the protocol tests).
+    bool accept_connection() {
+        const auto deadline = std::chrono::steady_clock::now() + kConnectBudget;
+        for (;;) {
+            std::string diagnostic;
+            peer = listener.accept(diagnostic);
+            if (peer.valid()) {
+                return true;
+            }
+            if (std::chrono::steady_clock::now() >= deadline ||
+                !mirage::testing::poll_fd(listener.handle(), POLLIN,
+                                          std::chrono::milliseconds{50})) {
+                return peer.valid();
+            }
+        }
+    }
+
+    void start_reader() { reader = std::thread([this] { read_loop(); }); }
+
+    /// Plans a hello-shaped response for request `id`, written by the reader
+    /// `delay` from now (use a long delay for a genuinely late answer).
+    void script_response(std::uint64_t id, std::chrono::milliseconds delay) {
+        std::lock_guard<std::mutex> guard(mutex);
+        script.push_back(
+            Scripted{id, 0, false, std::chrono::steady_clock::now() + delay});
+    }
+
+    /// Plans one host.status event, written by the reader `delay` from now.
+    void script_event(std::uint64_t seq, std::chrono::milliseconds delay) {
+        std::lock_guard<std::mutex> guard(mutex);
+        script.push_back(
+            Scripted{0, seq, true, std::chrono::steady_clock::now() + delay});
+    }
+
+    /// Waits until the peer observed request `id` on the wire.
+    bool wait_for_request(std::uint64_t id, std::chrono::milliseconds budget) {
+        const auto deadline = std::chrono::steady_clock::now() + budget;
+        std::unique_lock<std::mutex> lock(mutex);
+        const auto present = [&] {
+            return std::find(requests.begin(), requests.end(), id) != requests.end();
+        };
+        while (!present()) {
+            if (requests_changed.wait_until(lock, deadline) == std::cv_status::timeout) {
+                return present();
+            }
+        }
+        return true;
+    }
+
+    /// Asks the reader thread to close the transport (peer-side EOF for the
+    /// client); the close runs on the reader's own thread.
+    void request_close() {
+        std::lock_guard<std::mutex> guard(mutex);
+        close_requested = true;
+    }
+
+  private:
+    bool observed(std::uint64_t id) {
+        std::lock_guard<std::mutex> guard(mutex);
+        return std::find(requests.begin(), requests.end(), id) != requests.end();
+    }
+
+    /// Writes the whole buffer through the non-blocking stream (reader
+    /// thread only); false when the peer went away or the deadline elapsed.
+    bool write_all(const std::string &data) {
+        const auto deadline = std::chrono::steady_clock::now() + kCallBudget;
+        std::size_t sent = 0;
+        while (sent < data.size()) {
+            const auto now = std::chrono::steady_clock::now();
+            if (now >= deadline) {
+                return false;
+            }
+            const auto remaining =
+                std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
+            if (!mirage::testing::poll_fd(peer.handle(), POLLOUT, remaining)) {
+                return false;
+            }
+            const ipc::IoResult result = peer.write_some(data.data() + sent, data.size() - sent);
+            switch (result.status) {
+            case ipc::IoStatus::Ok:
+                sent += result.bytes;
+                break;
+            case ipc::IoStatus::WouldBlock:
+                break;
+            case ipc::IoStatus::Closed:
+            case ipc::IoStatus::Error:
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool write_hello_response(std::uint64_t id) {
+        ipc::Response response;
+        response.ok = true;
+        response.id = id;
+        ipc::ServiceIdentity identity;
+        identity.name = "scripted-peer";
+        identity.mirage_version = "0.4.0-test";
+        identity.protocol = ipc::kProtocolVersion;
+        response.payload = std::move(identity);
+        return write_all(ipc::make_frame(ipc::encode_response(response)));
+    }
+
+    bool write_host_status_event(std::uint64_t seq) {
+        return write_all(
+            ipc::make_frame(ipc::encode_event(ipc::Event{seq, ipc::HostStatusEvent{"running"}})));
+    }
+
+    /// Fires every scripted write whose moment came (responses also wait for
+    /// their request to reach the wire). Called on the reader thread only.
+    void fire_due(std::vector<Scripted> &pending) {
+        for (std::size_t index = 0; index < pending.size();) {
+            if (std::chrono::steady_clock::now() < pending[index].due) {
+                ++index;
+                continue;
+            }
+            if (!pending[index].is_event && !observed(pending[index].id)) {
+                ++index; // the request has not reached the wire yet
+                continue;
+            }
+            const bool sent = pending[index].is_event
+                                  ? write_host_status_event(pending[index].seq)
+                                  : write_hello_response(pending[index].id);
+            if (!sent) {
+                return;
+            }
+            pending.erase(pending.begin() + static_cast<std::ptrdiff_t>(index));
+        }
+    }
+
+    void read_loop() {
+        std::string buffer;
+        std::vector<Scripted> pending; // reader-local due list
+        for (;;) {
+            {
+                std::lock_guard<std::mutex> guard(mutex);
+                if (stop_requested) {
+                    return;
+                }
+                if (close_requested) {
+                    peer.close();
+                    return;
+                }
+                pending.insert(pending.end(), script.begin(), script.end());
+                script.clear();
+            }
+            fire_due(pending);
+            const mirage::testing::FrameRead read =
+                mirage::testing::read_frame(peer, buffer, std::chrono::milliseconds{20});
+            if (read.status == mirage::testing::FrameRead::Status::Message) {
+                const ipc::RequestDecode decoded = ipc::decode_request(read.message);
+                if (decoded.ok) {
+                    std::lock_guard<std::mutex> guard(mutex);
+                    requests.push_back(decoded.id);
+                    requests_changed.notify_all();
+                }
+            } else if (read.status == mirage::testing::FrameRead::Status::Closed) {
+                return; // the client side went away (owner stop / destruction)
+            }
+        }
+    }
+};
+
+// The core sweep/takeover race the pre-existing timeout scenario sidesteps:
+// with run() already servicing the session, a caller-side timeout must
+// resolve that one call and leave the loop up — the pre-fix deadline sweep
+// closed the whole session fail-closed from run()'s thread instead.
+void scenario_run_loop_survives_a_live_timeout() {
+    mirage::testing::TempDir dir;
+    const std::string socket = (dir.root() / "stale.sock").string();
+    ScriptedPeer peer(socket);
+    MIRAGE_CHECK(peer.valid());
+
+    Session session;
+    MIRAGE_CHECK(session.connect(socket));
+    session.start_run();
+    MIRAGE_CHECK(peer.accept_connection());
+    peer.start_reader();
+
+    // The request reaches the wire and the peer withholds its answer; the
+    // caller's short deadline fires while run() is live.
+    std::future<ipc::Response> expired_future =
+        session.client->call(ipc::HelloRequest{}, std::chrono::milliseconds{300});
+    MIRAGE_CHECK(peer.wait_for_request(1, kCallBudget));
+
+    const ipc::Response expired = expired_future.get();
+    MIRAGE_CHECK(!expired.ok);
+    MIRAGE_CHECK(expired.error.code == "unavailable");
+    MIRAGE_CHECK(expired.error.message.find("timed out") != std::string::npos);
+    MIRAGE_CHECK(session.client->health() == ipc::SessionClient::Health::SyncStale);
+    MIRAGE_CHECK(session.client->connected());
+    MIRAGE_CHECK(session.client->last_timeout_reason().find("timed out") != std::string::npos);
+
+    // The pre-fix sweep exited run() within one 10 ms slice of the deadline;
+    // a quiet window with the loop still up (and the transport still
+    // connected) is the regression evidence.
+    MIRAGE_CHECK(!wait_for(std::chrono::milliseconds{300},
+                           [&] { return session.run_finished.load(); }));
+    MIRAGE_CHECK(session.client->connected());
+    MIRAGE_CHECK(session.client->health() == ipc::SessionClient::Health::SyncStale);
+
+    // Recovery on the living session: the peer answers the abandoned request
+    // late (dropped, not an unexpected-id violation), which re-opens the
+    // single-outstanding pipeline; the next call round-trips and the success
+    // clears SyncStale back to Healthy. Both answers are scripted because the
+    // test thread is what issues the calls (call() blocks on its future).
+    peer.script_response(1, std::chrono::milliseconds{0});
+    // The wire still carries the orphan request until its late answer
+    // unblocks the pipeline, so let the scripted answer settle (fire +
+    // round trip) before submitting the next request — a deterministic
+    // completion guard, not a latency assertion.
+    std::this_thread::sleep_for(std::chrono::milliseconds{150});
+    peer.script_response(2, std::chrono::milliseconds{0});
+    std::future<ipc::Response> hello_future =
+        session.client->call(ipc::HelloRequest{}, kCallBudget);
+    MIRAGE_CHECK(peer.wait_for_request(2, kCallBudget));
+    const ipc::Response hello = hello_future.get();
+    if (!hello.ok) {
+        // Diagnostic only after the acquire edge on run_finished (the loop
+        // thread writes `diagnostic` before storing the flag).
+        const bool finished = session.run_finished.load();
+        std::fprintf(stderr,
+                     "[session_client_test] recovery call: %s: %s (run_finished=%d, loop='%s')\n",
+                     hello.error.code.c_str(), hello.error.message.c_str(), finished,
+                     finished ? session.diagnostic.c_str() : "<still running>");
+    }
+    MIRAGE_CHECK(hello.ok);
+    MIRAGE_CHECK(std::holds_alternative<ipc::ServiceIdentity>(hello.payload));
+    MIRAGE_CHECK(session.client->health() == ipc::SessionClient::Health::Healthy);
+
+    session.join_and_stop();
+    MIRAGE_CHECK(session.exit == ipc::SessionClient::RunExit::Stopped);
+}
+
+// A late answer to an already-abandoned request must be dropped instead of
+// killing the session as an unexpected response id, and the event stream must
+// keep reaching the sink on the surviving loop.
+void scenario_late_response_and_events_keep_the_session() {
+    mirage::testing::TempDir dir;
+    const std::string socket = (dir.root() / "late.sock").string();
+    ScriptedPeer peer(socket);
+    MIRAGE_CHECK(peer.valid());
+
+    Session session;
+    MIRAGE_CHECK(session.connect(socket));
+    std::mutex events_mutex;
+    std::vector<ipc::Event> events;
+    session.client->set_event_sink([&](const ipc::Event &event) {
+        std::lock_guard<std::mutex> guard(events_mutex);
+        events.push_back(event);
+    });
+    session.start_run();
+    MIRAGE_CHECK(peer.accept_connection());
+    peer.start_reader();
+
+    std::future<ipc::Response> expired_future =
+        session.client->call(ipc::HelloRequest{}, std::chrono::milliseconds{300});
+    MIRAGE_CHECK(peer.wait_for_request(1, kCallBudget));
+    const ipc::Response expired = expired_future.get();
+    MIRAGE_CHECK(!expired.ok);
+    MIRAGE_CHECK(expired.error.code == "unavailable");
+    MIRAGE_CHECK(session.client->health() == ipc::SessionClient::Health::SyncStale);
+
+    // The answer leaves the wire only after the caller gave up (scripted on
+    // the reader thread, since this thread just unblocked from call()).
+    peer.script_response(1, std::chrono::milliseconds{0});
+    peer.script_event(1, std::chrono::milliseconds{50});
+
+    // The session survives the late response (the pre-DEC-094 discipline
+    // treated it as an unexpected id and failed closed right here).
+    MIRAGE_CHECK(session.client->connected());
+    MIRAGE_CHECK(!session.run_finished.load());
+
+    // Events still flow to the sink on the surviving loop.
+    MIRAGE_CHECK(wait_for(kTaskBudget, [&] {
+        std::lock_guard<std::mutex> guard(events_mutex);
+        return !events.empty();
+    }));
+    {
+        std::lock_guard<std::mutex> guard(events_mutex);
+        MIRAGE_CHECK(events.size() == 1);
+        if (events.size() == 1) {
+            MIRAGE_CHECK(events.front().seq == 1);
+            MIRAGE_CHECK(std::holds_alternative<ipc::HostStatusEvent>(events.front().payload));
+        }
+    }
+    // A dropped late answer is not a success: SyncStale stands.
+    MIRAGE_CHECK(session.client->health() == ipc::SessionClient::Health::SyncStale);
+
+    // The session stays usable: a fresh call round-trips and clears SyncStale.
+    peer.script_response(2, std::chrono::milliseconds{0});
+    std::future<ipc::Response> hello_future =
+        session.client->call(ipc::HelloRequest{}, kCallBudget);
+    MIRAGE_CHECK(peer.wait_for_request(2, kCallBudget));
+    const ipc::Response hello = hello_future.get();
+    MIRAGE_CHECK(hello.ok);
+    MIRAGE_CHECK(session.client->health() == ipc::SessionClient::Health::Healthy);
+
+    session.join_and_stop();
+    MIRAGE_CHECK(session.exit == ipc::SessionClient::RunExit::Stopped);
+}
+
+// DEC-094 narrowed only the request-timeout path: a transport loss mid-call
+// still fails closed — the pending call resolves "unavailable" and run()
+// surfaces ConnectionLost (complements the service-shutdown scenario, which
+// has no call in flight when the peer goes away).
+void scenario_midcall_transport_loss_fails_closed() {
+    mirage::testing::TempDir dir;
+    const std::string socket = (dir.root() / "drop.sock").string();
+    ScriptedPeer peer(socket);
+    MIRAGE_CHECK(peer.valid());
+
+    Session session;
+    MIRAGE_CHECK(session.connect(socket));
+    session.start_run();
+    MIRAGE_CHECK(peer.accept_connection());
+    peer.start_reader();
+
+    std::future<ipc::Response> stalled = session.client->call(ipc::HelloRequest{}, kCallBudget);
+    MIRAGE_CHECK(peer.wait_for_request(1, kCallBudget));
+
+    peer.request_close();
+    const ipc::Response lost = stalled.get();
+    MIRAGE_CHECK(!lost.ok);
+    MIRAGE_CHECK(lost.error.code == "unavailable");
+
+    MIRAGE_CHECK(wait_for(kCallBudget, [&] { return session.run_finished.load(); }));
+    MIRAGE_CHECK(session.exit == ipc::SessionClient::RunExit::ConnectionLost);
+    MIRAGE_CHECK(session.client->health() == ipc::SessionClient::Health::Disconnected);
+    MIRAGE_CHECK(!session.client->connected());
+
+    session.join_and_stop();
+}
+
 // --- fail-closed paths -------------------------------------------------------
 
 void scenario_service_shutdown_loses_the_session() {
@@ -667,6 +1093,10 @@ int main() {
     run_scenario("overlapped_calls_serialize", scenario_overlapped_calls_serialize);
     run_scenario("events_flow_to_sink_until_terminal", scenario_events_flow_to_sink_until_terminal);
     run_scenario("request_timeout_keeps_session_alive", scenario_request_timeout_keeps_session_alive);
+    run_scenario("run_loop_survives_a_live_timeout", scenario_run_loop_survives_a_live_timeout);
+    run_scenario("late_response_and_events_keep_the_session",
+                 scenario_late_response_and_events_keep_the_session);
+    run_scenario("midcall_transport_loss_fails_closed", scenario_midcall_transport_loss_fails_closed);
     run_scenario("service_shutdown_loses_the_session", scenario_service_shutdown_loses_the_session);
     run_scenario("connect_failure_is_bounded", scenario_connect_failure_is_bounded);
     run_scenario("workflow_face_round_trip", scenario_workflow_face_round_trip);

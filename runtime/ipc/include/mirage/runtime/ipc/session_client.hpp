@@ -27,13 +27,15 @@ namespace mirage::runtime::ipc {
 ///   arrive on that worker's thread.
 /// - `call()` and `stop()` are thread-safe against all of the above.
 ///
-/// Failure discipline: the session fails closed. A transport loss, a framing
-/// or decode violation, an unexpected response id or a request that exhausts
-/// its timeout all close the session (run() returns, pending calls resolve
-/// with the same stable local error codes as IpcClient: "unavailable" for
-/// reachability and timeouts, "internal" for framing and decode violations).
-/// Recovery (reconnect, resubscribe, resync) is the owner's decision —
-/// snapshots remain the source of truth (DEC-012).
+/// Failure discipline (DEC-094): the session fails closed on transport loss,
+/// a framing or decode violation or an unexpected response id — those end
+/// run() and resolve pending calls with the stable local error codes shared
+/// with IpcClient: "unavailable" for reachability, "internal" for framing
+/// and decode violations. A single request timeout is NOT a transport
+/// failure: call() resolves that request and marks the session SyncStale
+/// while run() keeps servicing events. Recovery (reconnect, resubscribe,
+/// resync) is the owner's decision — snapshots remain the source of truth
+/// (DEC-012).
 class SessionClient {
   public:
     /// Session health (DEC-094): distinguishes transport failure from request
@@ -102,7 +104,6 @@ class SessionClient {
   private:
     struct Pending {
         std::promise<Response> promise;
-        std::chrono::steady_clock::time_point deadline;
     };
     /// One queued wire frame with its correlation id (REUSE-09: the outbox
     /// rides the kairo comm MPSC channel instead of a hand-rolled queue).
