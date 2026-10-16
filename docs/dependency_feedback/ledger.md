@@ -8,11 +8,13 @@
 
 ## 分依赖台账
 
-长程任务调查新增 [MIRA-20261015-001](mira.md#mira-20261015-001)：pinned
-ConversationLoop 的 model/tool 累计上限没有公开的“不设总次数限制”模式；增大数值
-仍会终止正常长任务，`max_turns=0` 也不表示持续运行。状态 Open；只登记本地
-API/源码与真实 16 步失败证据，未提交上游、未改依赖。方案见
-[持续任务与本地视觉闭环](../analysis/session-budget-and-native-pet-regression-20261015.md)。
+[MIRA-20261015-002](mira.md#mira-20261015-002)：持续循环公开能力由
+[Mira PR #99](https://github.com/Linductor-alkaid/mira/pull/99) 交付，24 项 checks
+全绿后授权合并，Linux pin 消费验收通过，公开能力缺口标记 Resolved；完整记录见
+[升级审计](../supply-chain/mira-continuous-loop-20261015.md)。产品持续模式接线
+属于后续 M9-03，不由这次 pin 更新自动启用。
+
+
 
 M8-11 新增 [MIRA-20261014-004](mira.md#mira-20261014-004)：公开正文预览不提供
 实时思考分类入口；已由 [Mira PR#94](https://github.com/Linductor-alkaid/mira/pull/94) 的独立公开 thinking sink 解决，授权消费合并提交22d9577并复验fixture，状态Resolved。PR已合并；供应商在线与平台验证单独记录。
