@@ -221,9 +221,13 @@ BlockingWorkerHandle 的 started 只是接纳，结果和回收分别观察；�
 - [x] `M10-05` **Completed**：Linux exec 的 cwd、输出 sink 和可解除等待生命周期。
   验收：退出码/EOF 独立、双流无死锁、进程组回收、取消/超时/shutdown 语义
   实测（linux_file_actions_test exec 场景，含空格/非 ASCII cwd 与输出留存）。
-- [ ] `M10-06` **Proposed**：Runtime 输出预算/有效期与 read(output_ref) 闭环。
-  验收：截断预览可续读至保留边界，跨会话/过期拒绝，磁盘满/配额不足可复现，内存/磁盘有上界。
-  （Provider 侧 sink seam 已交付并被测试，留存 store 未实现。）
+- [x] `M10-06` **Completed**：Runtime 输出预算/有效期与 read(output_ref) 闭环。
+  验收证据：basic_output_store_test（132 checks）覆盖截断预览续读至保留边界、
+  跨会话/过期/伪造引用统一 output_expired、配额准入启动前拒绝、清扫与孤儿句柄
+  归还配额、构造清理与 0600 权限；磁盘/内存上界由配置上界 + 实时核算钉住。
+  范围说明：默认冻结值（4 MiB/32 MiB/128 MiB/1 h）经小配置等价触达同一代码路径，
+  真实墙钟 1 h 未实测；RuntimeService 端到端接线为源码级核对（basic_output_directory
+  → harness 上下文），真实服务进程验证随 M10-08/09 补齐。
 - [x] `M10-07` **Completed**：四工具接入真实 ConversationLoop 路径（complete_harness_turn
   经 DEC-095 装饰器注册）；共享 handler 复用既有 CancelToken/deadline 桥；目录/权限
   按实际能力动态暴露。范围说明：产品开关 `DesktopToolContext::basic_tools` 默认
@@ -341,5 +345,16 @@ d8f90a3～6fc602b）：增量 A（契约）与增量 B 的 Linux 后端、会话
 - 全量回归：`ctest --preset debug` 88 项中 87 通过，唯一失败为 `session_client_test`
   ——经干净 HEAD 复现确认属分支基线已存在问题，与本次改动无关。
 - 未执行项：Windows（M10-10，本机无 MSVC/Windows 环境）、真实产品 E2E 与
-  UI/配置接线（M10-08/09）、输出留存 store（M10-06）。补跑条件分别为对应
-  平台环境、产品入口可用与 M10-06 实现。
+  UI/配置接线（M10-08/09）。补跑条件分别为对应平台环境与产品入口可用。
+
+2026-10-16 / M10-06（提交 7d823be～cf30e41）：Runtime 磁盘留存 store、integration
+seam 与 read(output_ref) 闭环交付。独立验证代理两轮验证：首轮报告字节配额泄漏
+（未 settle 句柄析构与过期清扫不归还配额，BUG-20261016-004），主循环修复（retain
+实时同步条目字节事实；句柄存活超窗后停止留存）并统一 skip 越界语义（流式路径与
+留存输出对齐内存路径的 invalid_argument 契约）后复验通过：basic_output_store_test
+132 checks、basic_agent_toolset_test 271 checks、linux_file_actions_test 450 checks、
+basic_contract_default_test 74 checks，debug/asan/ubsan/tsan 四 preset 全部
+0 failures，ASAN/UBSAN/TSAN 报告为 0；全量 debug 回归 88/89，唯一失败仍为
+`session_client_test`（分支基线已存在）。并行会话对
+`docs/design/continuous-digital-entity-evolution.md` 的修订与
+`docs/plans/m10-pre-work-checklist.md` 属另一工作流，未纳入本里程碑提交。
