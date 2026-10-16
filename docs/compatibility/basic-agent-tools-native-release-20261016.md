@@ -99,3 +99,7 @@ basic-output 留存目录（`tests/manual/m10_basic_tools_e2e_run.sh`）；用�
 发起真实模型 turn，模型实际调用 read 工具逐字读出工作区文件（tool part
 complete、版本指纹与分页窗口正确），turn ok——基础工具在产品内可达。
 设置文件修复前备份 `/tmp/service.json.backup-20261016`。
+
+同日第三次重建追加了会话访问模式门控（`read` 全代理模式、`write`/`edit`/
+`exec` 仅完全访问轮，证据见计划 M10-11 追加段），产品已再次原位更新重启，
+完全访问轮真实模型 read 回归通过。

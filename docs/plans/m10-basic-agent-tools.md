@@ -279,6 +279,13 @@ BlockingWorkerHandle 的 started 只是接纳，结果和回收分别观察；�
   `confirm` 规则恒为 fail-closed 拒绝；当前产品以 allow 规则运行（写域锁定工作区），
   待应答面交付后切换 confirm。剩余：Windows/MSVC 安装回归（依赖 M10-10，
   当前环境无 Windows）。
+  追加（2026-10-16 晚）：工具暴露绑定会话访问模式（维护者决策，DEC-080 逐轮
+  access）——`read` 在全部代理可用模式注册（完全访问/视觉），`write`/`edit`/`exec`
+  仅完全访问轮注册（`register_basic_agent_tools` 增 `full_access` 门控，模型层逐轮
+  传入 `tools_allowed`；chat_only 维持既有代理降级语义）。注册矩阵 294→309 检查
+  （false 时恰仅 read，含 exec_enabled+workspace 与只读文件系统交叉组合），全量
+  debug 89 项仅剩基线失败，asan 范围干净；本机产品已重建重启，完全访问轮真实模型
+  read 回归通过。
 - [ ] `M10-12` **Proposed**：按退出条件复核里程碑、清理遗留和提交评审。
   验收：计划/设计/决策/安全/协议/测试证据同步；所有适用门禁通过，MR 符合工程规范。
 
