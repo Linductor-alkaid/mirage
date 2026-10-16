@@ -27,8 +27,8 @@ struct FetchSession::Impl {
     explicit Impl(kairo::Executor &executor)
         : transport(executor, std::make_shared<mira::NullSecretResolver>(),
                     /*tls=*/nullptr,
-                    mira::adapters::net::SocketTransportConfig{
-                        .worker_name = "mirage-update-io"}) {}
+                    mira::adapters::net::SocketTransportConfig{.worker_name = "mirage-update-io"}) {
+    }
     ~Impl() {
         if (started) {
             transport.shutdown(); // settles queued exchanges, joins the workers
@@ -61,7 +61,7 @@ FetchResult FetchSession::get(const std::string &host, const std::string &path,
     mira::TransportLimits limits;
     limits.deadlines = mira::TransportDeadlines{}; // staged 5s/30s defaults bound every wait
     limits.max_response_bytes = budget;
-    limits.max_redirects = 0;             // DEC-032: channel redirects fail closed
+    limits.max_redirects = 0;              // DEC-032: channel redirects fail closed
     limits.allow_private_endpoints = true; // LAN/localhost mirrors; trust is the signed manifest
 
     std::string body;

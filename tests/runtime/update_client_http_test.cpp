@@ -208,8 +208,8 @@ class HttpServer {
             ::send(fd, head.data(), head.size(), 0);
             ::send(fd, route.body.data(), route.body.size(), 0);
         } else {
-            std::string head = "HTTP/1.1 " + std::to_string(route.status) +
-                               " Stub\r\nContent-Length: ";
+            std::string head =
+                "HTTP/1.1 " + std::to_string(route.status) + " Stub\r\nContent-Length: ";
             head += std::to_string(route.body.size()) + "\r\n";
             if (!route.location.empty()) {
                 head += "Location: " + route.location + "\r\n";
