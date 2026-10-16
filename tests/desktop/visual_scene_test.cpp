@@ -150,7 +150,7 @@ void rejection_is_atomic_and_input_bounded() {
     MIRAGE_CHECK(frame(s, 2, {a, b}, true).error.code == "scene_budget_exceeded");
     MIRAGE_CHECK(s.revision() == revision && s.retained_bytes() == retained);
     MIRAGE_CHECK(s.find(1)->object.bounds.x == 10);
-    b.text = std::string(1, '\x80');
+    b.text = "\x80";
     MIRAGE_CHECK(!frame(s, 2, {b}).ok);
     b = object(2);
     b.confidence = std::numeric_limits<double>::quiet_NaN();

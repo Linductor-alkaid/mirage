@@ -32,13 +32,12 @@ namespace desktop = mirage::desktop;
 using mirage::runtime::BasicOutputStore;
 using mirage::runtime::BasicOutputStoreConfig;
 
-// Per-process temp-root disambiguation on either platform (the steady-clock
-// suffix below already separates concurrent runs within one process).
-std::uint64_t current_process_id() {
+/// Uniqueness tag for per-run temp roots (Windows spells getpid _getpid).
+int test_pid() {
 #ifdef _WIN32
     return ::_getpid();
 #else
-    return static_cast<std::uint64_t>(::getpid());
+    return ::getpid();
 #endif
 }
 
@@ -46,7 +45,7 @@ class TempDir {
   public:
     explicit TempDir(std::string name)
         : root_(std::filesystem::temp_directory_path() /
-                ("mirage-m10-retention-" + name + "-" + std::to_string(current_process_id()) + "-" +
+                ("mirage-m10-retention-" + name + "-" + std::to_string(test_pid()) + "-" +
                  std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))) {}
     ~TempDir() {
         std::error_code ec;

@@ -1173,7 +1173,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_ENABLE_NATIVE_FRONTEND)
     target_include_directories(native_conversation_view_test PRIVATE ${CMAKE_SOURCE_DIR}/apps/native)
     target_include_directories(native_conversation_view_test SYSTEM PRIVATE
         ${CMAKE_SOURCE_DIR}/third_party/eui-neo ${CMAKE_SOURCE_DIR}/third_party/eui-neo/include)
-    target_link_libraries(native_conversation_view_test PRIVATE eui::neo Mirage::ipc Mirage::persistence Mirage::kairo_consumer)
+    target_link_libraries(native_conversation_view_test PRIVATE eui::neo Mirage::ipc Mirage::persistence
+        Mirage::platform Mirage::kairo_consumer)
     mirage_enable_warnings(native_conversation_view_test)
     add_test(NAME native_conversation_view_test COMMAND native_conversation_view_test)
     set_tests_properties(native_conversation_view_test PROPERTIES LABELS "integration;ui" TIMEOUT 30
@@ -1497,10 +1498,10 @@ endif()
 
 # M10-07 (DEC-095): the exec/read/write/edit session toolset over the pinned
 # registry dispatch path and the real Linux desktop environment; the pinned
-# include dirs propagate from Mirage::integration_mira by design. The
-# environment fixture is the Linux platform backend, so the target only
-# exists where its public headers are on the platform include path.
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+# include dirs propagate from Mirage::integration_mira by design.
+# POSIX-coupled: the scenarios drive the real Linux desktop environment
+# (LinuxDesktopEnvironment is only compiled on Linux).
+if(UNIX)
 mirage_add_test(basic_agent_toolset_test
     SOURCES integration/basic_agent_toolset_test.cpp ${CMAKE_SOURCE_DIR}/runtime/service/src/basic_output_store.cpp
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/runtime/service/include
