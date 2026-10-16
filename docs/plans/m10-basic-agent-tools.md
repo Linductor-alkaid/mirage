@@ -244,8 +244,17 @@ BlockingWorkerHandle 的 started 只是接纳，结果和回收分别观察；�
   范围说明：异步确认复用既有 filesystem.write/process.execute 门禁与规则；过程卡片
   经既有工具过程链路展示修改事实/退出状态/输出引用，专用"有界 diff"视图归产品 UI
   后续增强（事实字段已齐备）。
-- [ ] `M10-09` **Proposed**：Linux 发布候选完成端到端与消毒器验收。
-  验收：下表 Linux 门禁全部通过；未达项保留开放，不能以工具目录可见替代真实落盘。
+- [x] `M10-09` **Completed**：Linux 发布候选端到端与消毒器验收。
+  验收证据：真实产品 E2E 三场景（deepseek 经默认设置接入，隔离 socket/state，
+  `--enable-basic-tools --enable-exec --workspace --write-root` 产品旗标）在 debug 与
+  release 构建上全部通过——① read→edit→write→exec→read 全链，版本指纹变化与落盘
+  字节逐字节断言，exec 结果携带留存引用；② exec 运行中产品级取消（IPC CancelChat），
+  工具结果 terminated=cancelled 且无存活进程；③ turn 间外部修改 → stale_file 检测 →
+  模型重读 → 编辑落地且外部字节保留（多轮可修复失败）。消毒器矩阵：debug/asan/
+  ubsan/tsan 全量 89 项通过（tsan 经 setarch -R），release 全量 89 项通过（唯一失败
+  均为分支基线 session_client_test）。保留开放项（不阻塞本项）：提交点崩溃注入
+  （kill -9 半文件/临时文件残留检查）——负责人 Mirage 维护者，补跑条件为故障注入
+  用例并入 linux_file_actions_test。
   （单元/集成与四类消毒器证据已具备；真实产品 E2E 未执行。）
 - [ ] `M10-10` **Proposed**：交付 Windows FilesystemProvider 和 exec cwd/编码/输出接线。
   验收：MSVC 构建及真实 Windows 文件/进程/Job Object 矩阵通过；无 Bash/rg 时四工具仍可用。
@@ -365,6 +374,18 @@ basic_contract_default_test 74 checks，debug/asan/ubsan/tsan 四 preset 全部
 `session_client_test`（分支基线已存在）。并行会话对
 `docs/design/continuous-digital-entity-evolution.md` 的修订与
 `docs/plans/m10-pre-work-checklist.md` 属另一工作流，未纳入本里程碑提交。
+
+2026-10-16 / M10-09（提交 927d3cf）：真实产品 E2E 用已配置的 DeepSeek 端点
+（anthropic 方言）在隔离产品实例上执行。模型在单个 turn 内真实调度七次工具
+（read×2、edit、write、exec×3，其中一次主动 od 字节校验），版本指纹
+0a20f79…→bb8d46c…→3af5ad3… 与落盘字节一致；产品级取消场景中 exec 于
+exec-start 触发取消后整组回收（pgrep -x 无存活）；外部修改场景中 provider 拒绝
+stale 编辑（stale_file 事实进入模型上下文），模型重读后重试成功且外部追加行保留。
+另在首次场景中自然发生一次 exec 超时（find / 全盘扫描触顶 30 s 默认期限），
+timeout 事实与部分输出正确返回——产品级 timeout 证据。debug 与 release 构建
+三场景均通过；探针与驱动入 tests/manual/，驱动以 SCENARIOS 过滤并以精确字节
+断言落盘效果。最初一次"sleep 幸存"经查为驱动 pgrep -f 误匹配外层 shell 命令行
+文本（已改 pgrep -x），非产品回收缺陷。
 
 2026-10-16 / M10-08（提交 969009c～fc471ad）：配置持久化、产品入口与取消贯穿交付。
 独立验证代理一轮通过、无产品缺陷：persistence_test 353 checks（basic_tools 编解码
