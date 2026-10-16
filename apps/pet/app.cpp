@@ -1,4 +1,5 @@
-#include "../native/typography.hpp"
+#include "../common/environment.hpp"
+#include "../common/typography.hpp"
 #include "bridge.hpp"
 #include "bubble_view.hpp"
 #include "frames.hpp"
@@ -238,25 +239,25 @@ void compose_bubble(eui::Ui &ui) {
 
 namespace app {
 const DslAppConfig &dslAppConfig() {
-    static const DslAppConfig config = DslAppConfig{}
-                                           .title("Mira")
-                                           .appId("org.mirage.pet")
-                                           .pageId("mira-pet")
-                                           .windowSize(264, 322)
-                                           .fonts("assets/NotoSansSC-Regular.otf")
-                                           .decorated(false)
-                                           .resizable(false)
-                                           .transparent(true)
-                                           .alwaysOnTop(true)
-                                           .tray(false)
-                                           .clearColor({0, 0, 0, 0})
-                                           .fps(30)
-                                           .onStart([] {
-                                               const char *endpoint =
-                                                   std::getenv("MIRAGE_PET_SOCKET");
-                                               mirage::pet_ui::start(endpoint ? endpoint : "");
-                                           })
-                                           .onShutdown(mirage::pet_ui::stop);
+    static const DslAppConfig config =
+        DslAppConfig{}
+            .title("Mira")
+            .appId("org.mirage.pet")
+            .pageId("mira-pet")
+            .windowSize(264, 322)
+            .fonts("assets/NotoSansSC-Regular.otf")
+            .decorated(false)
+            .resizable(false)
+            .transparent(true)
+            .alwaysOnTop(true)
+            .tray(false)
+            .clearColor({0, 0, 0, 0})
+            .fps(30)
+            .onStart([] {
+                const auto endpoint = mirage::apps::environment_variable("MIRAGE_PET_SOCKET");
+                mirage::pet_ui::start(endpoint ? endpoint->c_str() : "");
+            })
+            .onShutdown(mirage::pet_ui::stop);
     return config;
 }
 void compose(eui::Ui &ui, const eui::Screen &screen) {

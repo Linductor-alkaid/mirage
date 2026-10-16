@@ -1,6 +1,6 @@
 #pragma once
 
-#include "typography.hpp"
+#include "../common/typography.hpp"
 #include <algorithm>
 #include <core/dsl.h>
 #include <core/render/text.h>

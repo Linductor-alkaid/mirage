@@ -4,52 +4,16 @@
 #include <filesystem>
 #include <mira/json.hpp>
 
+#include "json_document.hpp"
+
 namespace mirage::runtime::persistence {
 namespace {
 
+using json_doc::has_unknown_member;
+using json_doc::make_object;
+using json_doc::member;
+using json_doc::put;
 using mira::JsonValue;
-
-JsonValue make_object() { return JsonValue{JsonValue::Object{}}; }
-
-void put(JsonValue &object, std::string key, JsonValue value) {
-    object.set(std::move(key), std::move(value));
-}
-
-const JsonValue *member(const JsonValue &object, std::string_view key) {
-    const auto *entries = object.as_object();
-    if (entries == nullptr) {
-        return nullptr;
-    }
-    for (const auto &entry : *entries) {
-        if (entry.first == key) {
-            return &entry.second;
-        }
-    }
-    return nullptr;
-}
-
-/// True when the document carries a member the decoder does not know.
-/// Strictness is deliberate (DEC-011): a typoed key must fail loudly, not
-/// silently degrade to defaults.
-bool has_unknown_member(const JsonValue &object, std::initializer_list<std::string_view> known) {
-    const auto *entries = object.as_object();
-    if (entries == nullptr) {
-        return false;
-    }
-    for (const auto &entry : *entries) {
-        bool found = false;
-        for (const std::string_view name : known) {
-            if (entry.first == name) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            return true;
-        }
-    }
-    return false;
-}
 
 std::optional<std::string> string_member(const JsonValue &object, std::string_view key,
                                          std::size_t max_bytes) {

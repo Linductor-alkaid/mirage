@@ -1456,6 +1456,16 @@ Result<std::vector<ModelInputCondition>> build_request_with_compaction() {
 
 ### 3.4 Mira 反馈台账登记
 
+> **【作废草稿，未执行】**（2026-10-16 注，[依赖复用整改](dependency-reuse-remediation.md)
+> REUSE-18）：本节的 `MIRA-20261014-003` 是未登记入台账的草稿编号，描述的"本地修改
+> `third_party/mira`"路径**从未实施**（违反 pinned 纪律的方案在评审阶段被否）。
+> 实际走上游缝交付：输入复用标注 = [MIRA-20261014-005](../dependency_feedback/mira.md#mira-20261014-005)
+> （PR#95）、工具历史压缩缝 = [MIRA-20261014-006](../dependency_feedback/mira.md#mira-20261014-006)
+> （PR#96）、token 计数修复 = [MIRA-20261014-007](../dependency_feedback/mira.md#mira-20261014-007)
+> （PR#97）。下方案文中引用的 `context-compaction-validation-20261014.md` 验收文档
+> 不存在；实际验收见
+> [历史压缩消费验证](../compatibility/context-history-compaction-20261014.md)。
+
 按工程规范，即使是本地修改，也要登记可追溯记录：
 
 ```bash

@@ -1,7 +1,7 @@
 #pragma once
+#include "../common/typography.hpp"
 #include "control_metrics.hpp"
 #include "secret_edit.hpp"
-#include "typography.hpp"
 #include <components/input.h>
 
 namespace mirage::native_ui {

@@ -53,8 +53,8 @@ bool wait_readable(const IpcStream &stream, std::chrono::milliseconds budget) {
 
 } // namespace
 
-// DEC-094: the kairo comm channel behind the forward-declared header
-// holder; the public header stays pinned-free (RULE-01).
+// DEC-094 (REUSE-09): the kairo comm channel behind the forward-declared
+// header holder; the public header stays pinned-free (DEC-096).
 struct SessionClient::Outbox {
     kairo::comm::MpscChannel<Outbound> channel;
 };
@@ -109,11 +109,6 @@ SessionClient::Health SessionClient::health() const {
     return health_;
 }
 
-std::string SessionClient::last_timeout_reason() const {
-    std::lock_guard<std::mutex> guard(mutex_);
-    return last_timeout_reason_;
-}
-
 void SessionClient::set_event_sink(EventSink sink) {
     std::lock_guard<std::mutex> guard(mutex_);
     sink_ = std::move(sink);
@@ -146,7 +141,8 @@ std::future<Response> SessionClient::call(const Request &body, std::chrono::mill
         id = next_id_++;
         const auto inserted = pending_.emplace(id, Pending{std::move(promise)});
         // Submitted under the mutex so a concurrent fail-close can never
-        // interleave between the pending entry and its frame (DEC-094).
+        // interleave between the pending entry and its frame (DEC-094;
+        // REUSE-09).
         if (!outbox_->channel.try_send(Outbound{id, make_frame(encode_request(id, body))})) {
             auto node = pending_.extract(inserted.first);
             Response refused;
@@ -180,7 +176,7 @@ std::future<Response> SessionClient::call(const Request &body, std::chrono::mill
         last_timeout_reason_ = "request " + std::to_string(id) + " timed out after " +
                                std::to_string(timeout.count()) + " ms";
         health_ = Health::SyncStale;
-        // DEC-094: the call no longer exists as an expectation, so
+        // DEC-094 (REUSE-09): the call no longer exists as an expectation, so
         // its queued frame is tombstoned — flushed as skipped, and its late
         // response is dropped instead of killing the session as an
         // unexpected id.
@@ -294,7 +290,11 @@ SessionClient::RunExit SessionClient::run(std::string &diagnostic) {
         outbox_->channel.close(); // further submissions refuse explicitly
     };
 
-    std::deque<Outbound> outbox; // retain queued requests across readiness slices
+    // Frames checked out of the comm channel wait here across slices: while
+    // a request is in flight flush_writes consumes nothing, so a deque
+    // scoped to one slice would silently destroy queued calls that the
+    // overlapped-submission contract already accepted (DEC-094).
+    std::deque<Outbound> outbox;
     for (;;) {
         bool stop_requested = false;
         bool alive = false;
@@ -305,7 +305,7 @@ SessionClient::RunExit SessionClient::run(std::string &diagnostic) {
             dead_reason = dead_reason_;
             alive = !dead_ && !stop_requested_;
         }
-        // DEC-094: drain the comm outbox outside the mutex (lock-free
+        // DEC-094 (REUSE-09): drain the comm outbox outside the mutex (lock-free
         // receive); abandoned frames are filtered at flush time.
         if (alive) {
             Outbound item;

@@ -45,6 +45,7 @@
 #include <optional>
 #include <random>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -84,9 +85,44 @@ constexpr std::size_t kDialogTranscriptTurns = 20;
 /// of surfacing as errors (the drop-oldest discipline, DEC-012).
 constexpr std::size_t kOverlayEventQueueCapacity = 64;
 
-bool terminal_progress(TaskProgress progress) {
-    return progress == TaskProgress::Completed || progress == TaskProgress::Failed ||
-           progress == TaskProgress::Cancelled;
+using detail::consume_best_effort;
+using detail::terminal_progress;
+
+/// Projects the live permission policy into the wire/persistence rule map
+/// (DEC-010): every capability slot of the frozen vocabulary, keyed by its
+/// stable name.
+void project_permission_rules(const permission::PermissionPolicy &policy,
+                              std::map<std::string, std::string> &rules) {
+    for (std::size_t index = 0;
+         index < static_cast<std::size_t>(permission::Capability::NotificationPost) + 1; ++index) {
+        const auto capability = static_cast<permission::Capability>(index);
+        rules.insert_or_assign(permission::capability_name(capability),
+                               permission::rule_name(policy.rule_for(capability)));
+    }
+}
+
+/// Consumes finished background drivers with the given id prefix so their
+/// bounded slots free up. Caller holds `core.drivers_mutex`; settlement
+/// exceptions are recorded, never fatal (the task state lives in the pinned
+/// runtime and the registry).
+void reap_finished_drivers_locked(detail::ServiceCore &core, std::string_view prefix,
+                                  const char *failure_log = nullptr) {
+    for (auto it = core.drivers.begin(); it != core.drivers.end();) {
+        if (it->first.starts_with(prefix) && it->second.future.valid() &&
+            it->second.future.wait_for(std::chrono::milliseconds{0}) == std::future_status::ready) {
+            try {
+                it->second.future.get();
+            } catch (const std::exception &) {
+                if (failure_log != nullptr) {
+                    std::cerr << failure_log << '\n';
+                }
+            } catch (...) {
+            }
+            it = core.drivers.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 std::int64_t wall_now_ms() {
@@ -1123,19 +1159,6 @@ struct RuntimeService::Impl {
             }));
     }
 
-    /// Consumes a settled best-effort future, swallowing its exception (the
-    /// task_driver's discipline): admission rejections during teardown are
-    /// recorded nowhere — the click is dropped.
-    template <typename T> void consume_best_effort(std::future<T> future) {
-        try {
-            if (future.valid()) {
-                (void)future.get();
-            }
-        } catch (const std::exception &) {
-        } catch (...) {
-        }
-    }
-
     /// Loop thread: pushes the frame through the service's serial context so
     /// every request (and every host operation it performs) runs serialized
     /// on one thread, and waits for the bounded handler to finish.
@@ -2051,18 +2074,7 @@ struct RuntimeService::Impl {
         }
         {
             std::lock_guard lock(core->drivers_mutex);
-            for (auto it = core->drivers.begin(); it != core->drivers.end();) {
-                if (it->first.starts_with("catalog-") &&
-                    it->second.future.wait_for(std::chrono::milliseconds{0}) ==
-                        std::future_status::ready) {
-                    try {
-                        it->second.future.get();
-                    } catch (...) {
-                    }
-                    it = core->drivers.erase(it);
-                } else
-                    ++it;
-            }
+            reap_finished_drivers_locked(*core, "catalog-");
             if (std::count_if(core->drivers.begin(), core->drivers.end(), [](const auto &entry) {
                     return entry.first.starts_with("catalog-");
                 }) >= 2) {
@@ -2118,18 +2130,7 @@ struct RuntimeService::Impl {
         }
         {
             std::lock_guard lock(core->drivers_mutex);
-            for (auto it = core->drivers.begin(); it != core->drivers.end();) {
-                if (it->first.starts_with("desktop-authorization-") &&
-                    it->second.future.wait_for(std::chrono::milliseconds{0}) ==
-                        std::future_status::ready) {
-                    try {
-                        it->second.future.get();
-                    } catch (...) {
-                    }
-                    it = core->drivers.erase(it);
-                } else
-                    ++it;
-            }
+            reap_finished_drivers_locked(*core, "desktop-authorization-");
         }
         if (desktop_authorization_pending.load()) {
             fail(connection, correlation, "desktop_authorization_busy",
@@ -2504,19 +2505,7 @@ struct RuntimeService::Impl {
                              ipc::SessionChatRequest request) {
         { // Consume finished task outcomes before reusing bounded driver slots.
             std::lock_guard lock(core->drivers_mutex);
-            for (auto it = core->drivers.begin(); it != core->drivers.end();) {
-                if (it->first.starts_with("dialog-") && it->second.future.valid() &&
-                    it->second.future.wait_for(std::chrono::milliseconds{0}) ==
-                        std::future_status::ready) {
-                    try {
-                        it->second.future.get();
-                    } catch (...) {
-                        std::cerr << "mirage-service: model driver failed\n";
-                    }
-                    it = core->drivers.erase(it);
-                } else
-                    ++it;
-            }
+            reap_finished_drivers_locked(*core, "dialog-", "mirage-service: model driver failed");
         }
         if (core->model_layer == nullptr || !core->model_layer->running()) {
             fail(connection_id, correlation_id, "unavailable", "model layer is not configured");
@@ -2831,14 +2820,7 @@ struct RuntimeService::Impl {
     void handle_policy_get(std::uint64_t connection_id, std::uint64_t correlation_id) {
         ipc::PolicyView view;
         const permission::PermissionPolicy policy = core->permission->policy();
-        for (std::size_t index = 0;
-             index < policy.rules.size() &&
-             index < static_cast<std::size_t>(permission::Capability::NotificationPost) + 1;
-             ++index) {
-            const auto capability = static_cast<permission::Capability>(index);
-            view.rules.insert_or_assign(permission::capability_name(capability),
-                                        permission::rule_name(policy.rule_for(capability)));
-        }
+        project_permission_rules(policy, view.rules);
         view.read_roots = core->read_roots;
         respond(connection_id, correlation_id, std::move(view));
     }
@@ -2901,13 +2883,7 @@ struct RuntimeService::Impl {
             // Write-back disabled (tests): the live effect above still holds.
             ipc::PolicyView view;
             const permission::PermissionPolicy applied = core->permission->policy();
-            for (std::size_t index = 0;
-                 index < static_cast<std::size_t>(permission::Capability::NotificationPost) + 1;
-                 ++index) {
-                const auto capability = static_cast<permission::Capability>(index);
-                view.rules.insert_or_assign(permission::capability_name(capability),
-                                            permission::rule_name(applied.rule_for(capability)));
-            }
+            project_permission_rules(applied, view.rules);
             view.read_roots = core->read_roots;
             respond(connection_id, correlation_id, std::move(view));
             return;
@@ -2920,13 +2896,7 @@ struct RuntimeService::Impl {
         }
         ipc::PolicyView view;
         const permission::PermissionPolicy applied = core->permission->policy();
-        for (std::size_t index = 0;
-             index < static_cast<std::size_t>(permission::Capability::NotificationPost) + 1;
-             ++index) {
-            const auto capability = static_cast<permission::Capability>(index);
-            view.rules.insert_or_assign(permission::capability_name(capability),
-                                        permission::rule_name(applied.rule_for(capability)));
-        }
+        project_permission_rules(applied, view.rules);
         view.read_roots = core->read_roots;
         respond(connection_id, correlation_id, std::move(view));
     }
@@ -2953,14 +2923,7 @@ struct RuntimeService::Impl {
         }
         document.permission_rules.clear();
         const permission::PermissionPolicy applied = core->permission->policy();
-        for (std::size_t index = 0;
-             index < static_cast<std::size_t>(permission::Capability::NotificationPost) + 1;
-             ++index) {
-            const auto capability = static_cast<permission::Capability>(index);
-            document.permission_rules.insert_or_assign(
-                permission::capability_name(capability),
-                permission::rule_name(applied.rule_for(capability)));
-        }
+        project_permission_rules(applied, document.permission_rules);
         document.read_roots = read_roots;
         const auto saved = core->settings_store->save(persistence::encode_settings(document));
         if (!saved.ok) {

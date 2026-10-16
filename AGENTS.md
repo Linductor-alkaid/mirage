@@ -56,6 +56,9 @@ Mirage 的核心直接依赖为 pinned `mira` 与 `mirador`；UI 专用依赖 `e
    调度器、detached worker 或脱离 Executor 生命周期的 fire-and-forget 工作。平台 API
    要求线程亲和时（如 UI Automation / AT-SPI2 事件循环、Win32 消息循环），将其封装在
    Platform Backend 中，并通过 Executor 支持的外部事件循环或扩展边界协调。
+   测试脚手架豁免：`tests/` 中模拟平台线程亲和（GLib 主循环、Win32 消息循环/线程池
+   定时器）或注入取消/竞态的受控线程，允许直接使用 `std::thread`，但必须随 fixture
+   RAII join、生命周期对测试可见，且不得替代被测代码自身的 Executor 路径。
 3. 普通有限任务优先使用 `submit_auto()`，并保留、消费其 `future`。成功入队只表示
    admission，不等于执行成功；影响任务结果的异常不得被丢弃。
 4. 跨执行上下文通信按语义选用 `executor::comm` 组件：逐条 FIFO 用 `MpscChannel`，最新
@@ -70,8 +73,10 @@ Mirage 的核心直接依赖为 pinned `mira` 与 `mirador`；UI 专用依赖 `e
    使排队期与运行期取消进入 Executor 生命周期视图。长任务和循环必须定期检查取消状态，并
    保证等待、网络和平台动作具有可解除阻塞的路径。超时不是强制终止，queued soft timeout
    不覆盖运行中任务。
-7. Executor 必须由明确的外部 owner 初始化和关闭，每个进程的 owner 唯一。Mirage 中该
-   owner 是 Runtime Service（见设计文档第 12 节）。关闭顺序为：停止任务生产者，发出取消
+7. Executor 必须由明确的外部 owner 初始化和关闭，每个进程的 owner 唯一。Mirage 按进程
+   确定唯一 owner：主服务进程（含托盘载体，DEC-045）的 owner 是 Runtime Service（见设
+   计文档第 12 节）；pet、native 前端等独立 UI 进程在各自进程内持有唯一的进程级 owner
+   （DEC-030 EXEC-01、DEC-037）。关闭顺序为：停止任务生产者，发出取消
    或停止请求，回收 worker/实时路径，等待需要完成的有限任务，最后由非 worker 线程执行
    `shutdown(true)`。不得从 Executor worker 内完成自等待或最终 teardown。
 8. Runtime Service、Mira Host、Desktop Environment 和 Platform Backend 不得各自隐藏

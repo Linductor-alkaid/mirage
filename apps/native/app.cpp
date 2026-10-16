@@ -1,4 +1,5 @@
 #include "../common/environment.hpp"
+#include "../common/typography.hpp"
 #include "chat_model.hpp"
 #include "control_button.hpp"
 #include "conversation_preview.hpp"
@@ -9,7 +10,6 @@
 #include "runtime_bridge.hpp"
 #include "secret_input.hpp"
 #include "selection_adapter.hpp"
-#include "typography.hpp"
 #include "window_controls.hpp"
 #include <mirage/runtime/persistence/app_preferences.hpp>
 #include <mirage/runtime/persistence/paths.hpp>
