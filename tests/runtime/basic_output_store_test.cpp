@@ -262,7 +262,7 @@ void scenario_session_and_global_admission(const std::filesystem::path &dir_sess
         const std::string chunk(4u << 10, 'z');
         first->retain(true, chunk);
         first->retain(true, chunk);
-        first->settle();
+        (void)first->settle();
         std::string refusal;
         const auto refused = store->open("beef0a", &refusal);
         MIRAGE_CHECK(refused == nullptr);
@@ -284,7 +284,7 @@ void scenario_open_execution_admission_and_handle_release(const std::filesystem:
     MIRAGE_CHECK(refusal == "capacity_exceeded");
 
     // Settling one handle frees its admission slot.
-    first->settle();
+    (void)first->settle();
     auto fourth = store->open("cafe0b");
     MIRAGE_CHECK(fourth != nullptr);
 
@@ -432,7 +432,7 @@ void scenario_unsettled_handle_destructor_releases_everything(const std::filesys
     }
     MIRAGE_CHECK(again != nullptr);
     if (other != nullptr) {
-        other->settle();
+        (void)other->settle();
     }
     if (again != nullptr) {
         // Session quota released: the full budget fits again.
