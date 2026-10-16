@@ -12,6 +12,7 @@
 #include <mirage/desktop/tray_carrier.hpp>
 #include <mirage/desktop/visual_reference_registry.hpp>
 #include <mirage/integration/mira_adapter.hpp>
+#include <mirage/integration/desktop_tool_context.hpp>
 #include <mirage/integration/model_layer.hpp>
 #include <mirage/runtime/ipc/protocol.hpp>
 #include <mirage/runtime/mira_host.hpp>
@@ -158,6 +159,10 @@ struct ServiceConfig {
     /// output (basic agent tools). Empty keeps exec preview-only — the
     /// retention seam stays dark and `read` refuses output_ref arguments.
     std::filesystem::path basic_output_directory;
+    /// M10-08 (DEC-095): enablement and budgets of the basic agent tools.
+    /// The embedding decides (settings file / flags); default-off keeps the
+    /// product tool surface unchanged.
+    mirage::integration::BasicAgentToolsOptions basic_tools;
     /// When false, the session state document is neither persisted nor
     /// hydrated (tests).
     bool persist_session_state = true;

@@ -1598,6 +1598,84 @@ void scenario_session_chat_dialog_face() {
 /// reports the full DEC-010 rule set, policy.set applies it live (the next
 /// gated action obeys the new rule) and persists the merged document to the
 /// settings store; the document decodes back with the new rules.
+
+/// M10-08 (DEC-095) regression: policy.set's settings read-modify-write does
+/// not own the basic_tools block — a seeded block must survive a policy.set
+/// byte-for-byte while the permission rules and read roots update.
+void scenario_policy_set_preserves_basic_tools_block() {
+    namespace persistence = mirage::runtime::persistence;
+    mirage::testing::TempDir dir;
+    ServiceConfig config = make_config(dir);
+    config.read_roots = {"/home/user/work"};
+    config.settings_directory = dir.root() / "settings";
+
+    // Seed the document the product settings face would have written.
+    std::filesystem::create_directories(config.settings_directory);
+    persistence::LocalSettings seeded;
+    seeded.schema = persistence::kSettingsSchema;
+    seeded.basic_tools = persistence::BasicToolsSettings{
+        true, true, "/home/user/工作 区", {"/home/user/work", "/tmp/scratch"}};
+    {
+        persistence::LocalStateStore store(config.settings_directory,
+                                           config.settings_file_name,
+                                           persistence::kMaxSettingsFileBytes);
+        const auto saved = store.save(persistence::encode_settings(seeded));
+        MIRAGE_CHECK(saved.ok);
+        MIRAGE_CHECK(saved.error.empty());
+    }
+
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+
+    ipc::IpcClient client(config.socket_path);
+    const ipc::Response hello = client.call(ipc::HelloRequest{}, kCallBudget);
+    MIRAGE_CHECK(hello.ok);
+
+    // policy.set with full DEC-010 coverage; also moves the read roots.
+    const ipc::Response got = client.call(ipc::GetPolicyRequest{}, kCallBudget);
+    MIRAGE_CHECK(got.ok);
+    const auto *view = std::get_if<ipc::PolicyView>(&got.payload);
+    MIRAGE_CHECK(view != nullptr);
+    if (view == nullptr) {
+        service.request_shutdown();
+        MIRAGE_CHECK(service.run().clean);
+        return;
+    }
+    ipc::SetPolicyRequest set_policy;
+    set_policy.rules = view->rules;
+    set_policy.rules["clipboard.write"] = "deny";
+    set_policy.read_roots = {"/elsewhere"};
+    set_policy.has_read_roots = true;
+    const ipc::Response applied = client.call(set_policy, kCallBudget);
+    MIRAGE_CHECK(applied.ok);
+
+    // The persisted document carries the new policy and the untouched
+    // basic_tools block.
+    persistence::LocalStateStore store(config.settings_directory,
+                                       config.settings_file_name,
+                                       persistence::kMaxSettingsFileBytes);
+    const auto loaded = store.load();
+    MIRAGE_CHECK(loaded.status == persistence::LoadStatus::Loaded);
+    const auto decoded = persistence::decode_settings(loaded.body);
+    MIRAGE_CHECK(decoded.ok);
+    if (decoded.ok) {
+        MIRAGE_CHECK(decoded.settings.permission_rules.at("clipboard.write") == "deny");
+        MIRAGE_CHECK(decoded.settings.read_roots == std::vector<std::string>({"/elsewhere"}));
+        MIRAGE_CHECK(decoded.settings.basic_tools.has_value());
+        if (decoded.settings.basic_tools.has_value()) {
+            const auto &tools = *decoded.settings.basic_tools;
+            MIRAGE_CHECK(tools.enabled);
+            MIRAGE_CHECK(tools.exec_enabled);
+            MIRAGE_CHECK(tools.workspace == "/home/user/工作 区");
+            MIRAGE_CHECK(tools.write_roots == std::vector<std::string>({"/home/user/work",
+                                                                        "/tmp/scratch"}));
+        }
+    }
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
 void scenario_policy_face_get_set_persists() {
     mirage::testing::TempDir dir;
     ServiceConfig config = make_config(dir);
@@ -2550,6 +2628,8 @@ int main() {
     run_scenario("session_close_frees_dialog_registry_slot",
                  scenario_session_close_frees_dialog_registry_slot);
     run_scenario("policy_face_get_set_persists", scenario_policy_face_get_set_persists);
+    run_scenario("policy_set_preserves_basic_tools_block",
+                 scenario_policy_set_preserves_basic_tools_block);
     run_scenario("policy_set_live_effect_and_fail_closed_persist",
                  scenario_policy_set_live_effect_and_fail_closed_persist);
     run_scenario("session_state_corrupt_document_degrades_loudly",

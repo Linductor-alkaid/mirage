@@ -637,6 +637,7 @@ struct RuntimeService::Impl {
         desktop.environment = core->environment;
         desktop.actions = core->actions;
         desktop.output_retention = basic_outputs.get();
+        desktop.basic_tools = config.basic_tools;
         if (core->ocr_pipeline && core->ocr_pipeline->running()) {
             desktop.mark = [pipeline = core->ocr_pipeline.get()](
                                const auto &crop, const auto &cancel, const auto &deadline) {
