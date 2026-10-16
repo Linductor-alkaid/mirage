@@ -75,3 +75,27 @@ basic-output 留存目录（`tests/manual/m10_basic_tools_e2e_run.sh`）；用�
   消毒器在 debug/asan/ubsan/tsan preset 上已有 M10 全量证据）。
 - 操作说明已交付：`docs/examples/basic-agent-tools.md`（启用、权限、预算、
   错误恢复、留存清理、崩溃语义、验证步骤）。
+
+## 追加（同日）：产品体验暴露的配置装配缺陷与修复
+
+本机产品人工体验发现模型报"没有基础工具"。逐层定位到两个缺陷并当日修复：
+
+1. `apps/service/host.cpp`：设置应用存在 `--config` 与默认文件两条手写分支，
+   M10-08 只在 `--config` 分支应用了 `basic_tools` 块；产品托盘恰走默认分支
+   （读 `~/.config/mirage/service.json`），工具被静默丢弃——同文件内的
+   read_roots/permission 规则却生效，形成"读根有了、工具没有"的表象。
+   修复：默认分支补齐同语义应用块；并在启动输出新增
+   `basic tools: …` 状态行，使配置分叉无法再无声发生。
+2. `runtime/persistence/src/settings.cpp`：`confirmation` 字段拒绝 `"ipc"`，
+   持久化配置无法启用 DEC-020 确认枢纽。修复：decode 接受
+   `"allow"/"deny"/"ipc"`。
+
+伴随发现：原生 UI 未实现 `permission.respond` 应答面（M5-03 枢纽无产品消费者），
+产品里 `confirm` 规则恒 fail-closed。未在本次强行接 UI（应答面属 UI 增量，
+按规范另行立项）；用户配置以 allow 规则运行，写域由 write_root 锁定工作区。
+
+修复后验证（本机产品实例，托盘托管 Runtime，非隔离状态）：设置文件启用
+`basic_tools`（workspace=~/桌面/mirage-workspace）重启后，对产品 IPC 端点
+发起真实模型 turn，模型实际调用 read 工具逐字读出工作区文件（tool part
+complete、版本指纹与分页窗口正确），turn ok——基础工具在产品内可达。
+设置文件修复前备份 `/tmp/service.json.backup-20261016`。

@@ -269,7 +269,15 @@ BlockingWorkerHandle 的 started 只是接纳，结果和回收分别观察；�
   10/10（工作流/桌面/M9 历史压缩/宠物/tray），本机产品已更新供人工体验，证据见
   `docs/compatibility/basic-agent-tools-native-release-20261016.md`。同轮发现并修复
   E2E 驱动隔离缺陷（`--state-dir` 不覆盖 M5-08 会话存储，改注入 `XDG_STATE_HOME`，
-  并清理了测试对真实会话目录的历史污染）。剩余：Windows/MSVC 安装回归（依赖 M10-10，
+  并清理了测试对真实会话目录的历史污染）。
+  补充（2026-10-16 下午）：真实产品人工体验暴露两项配置装配缺陷并修复——① host.cpp
+  默认配置文件分支漏应用 `basic_tools` 块（`--config` 分支有、产品托盘恰走默认分支，
+  旗标 E2E 从未暴露），补齐并以启动诊断行暴露工具状态；② 持久化设置 `confirmation`
+  拒绝 `"ipc"`，无法启用 DEC-020 确认枢纽，schema 放开。修复后对本机产品实例（托盘
+  实测）真实模型验证通过：模型经 read 工具逐字读出工作区文件，turn ok。
+  开放项（产品 UI 后续增量）：原生 UI 尚无 `permission.respond` 应答面，产品里
+  `confirm` 规则恒为 fail-closed 拒绝；当前产品以 allow 规则运行（写域锁定工作区），
+  待应答面交付后切换 confirm。剩余：Windows/MSVC 安装回归（依赖 M10-10，
   当前环境无 Windows）。
 - [ ] `M10-12` **Proposed**：按退出条件复核里程碑、清理遗留和提交评审。
   验收：计划/设计/决策/安全/协议/测试证据同步；所有适用门禁通过，MR 符合工程规范。
