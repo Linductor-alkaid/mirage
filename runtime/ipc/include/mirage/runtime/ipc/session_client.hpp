@@ -81,6 +81,9 @@ class SessionClient {
     /// Query current health (thread-safe).
     Health health() const;
 
+    /// The last timeout diagnostic, if health() == SyncStale (thread-safe).
+    std::string last_timeout_reason() const;
+
     enum class RunExit {
         Stopped,        ///< stop() was requested by the owner
         ConnectionLost, ///< transport loss or protocol violation
