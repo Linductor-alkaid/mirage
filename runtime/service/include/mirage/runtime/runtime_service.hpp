@@ -154,6 +154,10 @@ struct ServiceConfig {
     /// the `session-state.json` document. Empty selects the DEC-011 default
     /// state directory (the recovery document's sibling).
     std::filesystem::path session_state_directory;
+    /// M10-06 (DEC-095): controlled storage root for retained command
+    /// output (basic agent tools). Empty keeps exec preview-only — the
+    /// retention seam stays dark and `read` refuses output_ref arguments.
+    std::filesystem::path basic_output_directory;
     /// When false, the session state document is neither persisted nor
     /// hydrated (tests).
     bool persist_session_state = true;

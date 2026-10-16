@@ -1,5 +1,7 @@
 #include <mirage/runtime/runtime_service.hpp>
 
+#include <mirage/runtime/basic_output_store.hpp>
+
 #include <mirage/desktop/observation_assembler.hpp>
 #include <mirage/integration/model_catalog.hpp>
 #include <mirage/integration/session_journal.hpp>
@@ -489,6 +491,9 @@ struct RuntimeService::Impl {
     // Serialized context only: UI window activation and exit prompt epochs.
     ipc::ProductState product;
     std::unique_ptr<detail::PetProcess> pet_process;
+    /// M10-06 (DEC-095): bounded retained-command-output store; null without
+    /// config.basic_output_directory (exec stays preview-only).
+    std::unique_ptr<BasicOutputStore> basic_outputs;
     pet::Projection pet_projection{make_turn_id()}; // serial context, one presentation only
     std::uint64_t published_pet_revision = 0;
     pet::BubbleProjection bubble_projection; // serial-context-only
@@ -505,6 +510,11 @@ struct RuntimeService::Impl {
                                                  : config.socket_path) {
         if (config.pet)
             pet_process = std::make_unique<detail::PetProcess>(core->executor, config.pet);
+        if (!config.basic_output_directory.empty()) {
+            BasicOutputStoreConfig store_config;
+            store_config.directory = config.basic_output_directory;
+            basic_outputs = std::make_unique<BasicOutputStore>(store_config);
+        }
         core->mirage_version = config.mirage_version;
         core->max_steps_per_task = config.max_steps_per_task;
         core->max_task_records = config.max_task_records;
@@ -626,6 +636,7 @@ struct RuntimeService::Impl {
         integration::DesktopToolContext desktop;
         desktop.environment = core->environment;
         desktop.actions = core->actions;
+        desktop.output_retention = basic_outputs.get();
         if (core->ocr_pipeline && core->ocr_pipeline->running()) {
             desktop.mark = [pipeline = core->ocr_pipeline.get()](
                                const auto &crop, const auto &cancel, const auto &deadline) {
