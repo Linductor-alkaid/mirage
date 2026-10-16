@@ -282,8 +282,12 @@ SessionClient::RunExit SessionClient::run(std::string &diagnostic) {
         outbox_->channel.close(); // further submissions refuse explicitly
     };
 
+    // Frames checked out of the comm channel wait here across slices: while
+    // a request is in flight flush_writes consumes nothing, so a deque
+    // scoped to one slice would silently destroy queued calls that the
+    // overlapped-submission contract already accepted.
+    std::deque<Outbound> outbox;
     for (;;) {
-        std::deque<Outbound> outbox;
         bool stop_requested = false;
         bool alive = false;
         std::string dead_reason;

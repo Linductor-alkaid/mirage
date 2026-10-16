@@ -669,6 +669,11 @@ struct ScriptedPeer {
     std::mutex mutex;
     std::condition_variable requests_changed;
     std::vector<std::uint64_t> requests; ///< request ids in arrival order
+    /// Wire journal in service order: "req:<id>" when a request frame
+    /// arrived, "resp:<id>" when a scripted answer left the peer. The
+    /// overlapped-submission regression reads the relative order (did the
+    /// peer serve the withheld answer before the queued frame showed up?).
+    std::vector<std::string> journal;
 
     /// One planned write: a hello-shaped response for `id`, or an event with
     /// `seq` when is_event. The reader fires it once `due` has passed (and,
@@ -751,6 +756,22 @@ struct ScriptedPeer {
         return true;
     }
 
+    /// Snapshot of the observed request ids in arrival order (FIFO evidence).
+    std::vector<std::uint64_t> observed_requests() {
+        std::lock_guard<std::mutex> guard(mutex);
+        return requests;
+    }
+
+    /// Position of `entry` in the wire journal; nullopt when never seen.
+    std::optional<std::size_t> journal_index(const std::string &entry) {
+        std::lock_guard<std::mutex> guard(mutex);
+        const auto found = std::find(journal.begin(), journal.end(), entry);
+        if (found == journal.end()) {
+            return std::nullopt;
+        }
+        return static_cast<std::size_t>(found - journal.begin());
+    }
+
     /// Asks the reader thread to close the transport (peer-side EOF for the
     /// client); the close runs on the reader's own thread.
     void request_close() {
@@ -803,7 +824,12 @@ struct ScriptedPeer {
         identity.mirage_version = "0.4.0-test";
         identity.protocol = ipc::kProtocolVersion;
         response.payload = std::move(identity);
-        return write_all(ipc::make_frame(ipc::encode_response(response)));
+        const bool sent = write_all(ipc::make_frame(ipc::encode_response(response)));
+        if (sent) {
+            std::lock_guard<std::mutex> guard(mutex);
+            journal.push_back("resp:" + std::to_string(id));
+        }
+        return sent;
     }
 
     bool write_host_status_event(std::uint64_t seq) {
@@ -857,6 +883,7 @@ struct ScriptedPeer {
                 if (decoded.ok) {
                     std::lock_guard<std::mutex> guard(mutex);
                     requests.push_back(decoded.id);
+                    journal.push_back("req:" + std::to_string(decoded.id));
                     requests_changed.notify_all();
                 }
             } else if (read.status == mirage::testing::FrameRead::Status::Closed) {
@@ -1037,6 +1064,136 @@ void scenario_midcall_transport_loss_fails_closed() {
     session.join_and_stop();
 }
 
+// --- overlapped submission across the in-flight window (DEC-012) -------------
+//
+// DEC-012 serializes the wire, not the callers: "callers may overlap freely"
+// (the call() contract). A frame submitted while another request is in
+// flight must survive inside the client until the window closes. Regression:
+// run() drained the comm channel into a deque scoped to one readiness
+// slice, and since flush_writes consumes nothing while in_flight, every
+// slice ended with the frame still queued — the slice-local deque destroyed
+// it silently, and the overlapped caller hung until its own timeout against
+// a channel that showed empty.
+
+void scenario_overlapped_call_frame_survives_in_flight_window() {
+    mirage::testing::TempDir dir;
+    const std::string socket = (dir.root() / "overlap.sock").string();
+    ScriptedPeer peer(socket);
+    MIRAGE_CHECK(peer.valid());
+
+    Session session;
+    MIRAGE_CHECK(session.connect(socket));
+    session.start_run();
+    MIRAGE_CHECK(peer.accept_connection());
+    peer.start_reader();
+
+    // Caller 1 goes in flight; the peer accepts the request and withholds
+    // the answer (nothing is scripted for it yet).
+    std::future<ipc::Response> first_future;
+    std::thread first_caller([&] {
+        first_future = session.client->call(ipc::HelloRequest{}, kCallBudget);
+    });
+    MIRAGE_CHECK(peer.wait_for_request(1, kCallBudget));
+
+    // Answer request 2 the moment its frame reaches the wire (fire_due's
+    // observed() gate holds the script until then).
+    peer.script_response(2, std::chrono::milliseconds{0});
+
+    // Caller 2 overlaps while request 1 is still unanswered. It arms the
+    // withheld answer for +400 ms right before submitting: dozens of run
+    // slices pass first, so on the broken client the drained frame died with
+    // its slice before the window ever opened. The scripted wire order is
+    // then response 1, (the surviving frame must follow), response 2.
+    std::future<ipc::Response> second_future;
+    std::thread second_caller([&] {
+        peer.script_response(1, std::chrono::milliseconds{400});
+        second_future = session.client->call(ipc::HelloRequest{},
+                                             std::chrono::milliseconds{2000});
+    });
+    first_caller.join();
+    second_caller.join();
+
+    const ipc::Response first = first_future.get();
+    MIRAGE_CHECK(first.ok);
+    MIRAGE_CHECK(first.id == 1);
+    const ipc::Response second = second_future.get();
+    if (!second.ok) {
+        std::fprintf(stderr,
+                     "[session_client_test] overlapped call resolved: %s: %s\n",
+                     second.error.code.c_str(), second.error.message.c_str());
+    }
+    MIRAGE_CHECK(second.ok); // the frame survived: no timeout takeover
+    MIRAGE_CHECK(second.id == 2); // responses correlate with their callers
+
+    // The peer served the withheld answer before the queued frame showed
+    // up: FIFO across the in-flight window, not a destroyed submission.
+    const std::optional<std::size_t> answered = peer.journal_index("resp:1");
+    const std::optional<std::size_t> replayed = peer.journal_index("req:2");
+    MIRAGE_CHECK(answered.has_value());
+    MIRAGE_CHECK(replayed.has_value());
+    MIRAGE_CHECK(!answered.has_value() || !replayed.has_value() ||
+                 *answered < *replayed);
+
+    session.join_and_stop();
+    MIRAGE_CHECK(session.exit == ipc::SessionClient::RunExit::Stopped);
+}
+
+// The same overlap eight rounds back to back: every round submits call 2
+// while call 1 is in flight, and no frame is lost across the sliding window.
+void scenario_repeated_overlapped_rounds_lose_no_frames() {
+    mirage::testing::TempDir dir;
+    const std::string socket = (dir.root() / "overlap-8.sock").string();
+    ScriptedPeer peer(socket);
+    MIRAGE_CHECK(peer.valid());
+
+    Session session;
+    MIRAGE_CHECK(session.connect(socket));
+    session.start_run();
+    MIRAGE_CHECK(peer.accept_connection());
+    peer.start_reader();
+
+    constexpr int kRounds = 8;
+    for (int round = 0; round < kRounds; ++round) {
+        const auto first_id = static_cast<std::uint64_t>(2 * round + 1);
+        const auto second_id = first_id + 1;
+
+        std::future<ipc::Response> first_future;
+        std::thread first_caller([&] {
+            first_future = session.client->call(ipc::HelloRequest{},
+                                                std::chrono::milliseconds{5000});
+        });
+        MIRAGE_CHECK(peer.wait_for_request(first_id, std::chrono::milliseconds{5000}));
+        peer.script_response(second_id, std::chrono::milliseconds{0});
+
+        std::future<ipc::Response> second_future;
+        std::thread second_caller([&] {
+            peer.script_response(first_id, std::chrono::milliseconds{400});
+            second_future = session.client->call(ipc::HelloRequest{},
+                                                 std::chrono::milliseconds{5000});
+        });
+        first_caller.join();
+        second_caller.join();
+
+        const ipc::Response first = first_future.get();
+        MIRAGE_CHECK(first.ok);
+        MIRAGE_CHECK(first.id == first_id);
+        const ipc::Response second = second_future.get();
+        MIRAGE_CHECK(second.ok);
+        MIRAGE_CHECK(second.id == second_id);
+    }
+
+    // Nothing was dropped along the way: all sixteen requests arrived, in
+    // issue order.
+    std::vector<std::uint64_t> expected;
+    for (int id = 1; id <= 2 * kRounds; ++id) {
+        expected.push_back(static_cast<std::uint64_t>(id));
+    }
+    MIRAGE_CHECK(peer.observed_requests() == expected);
+
+    session.join_and_stop();
+    MIRAGE_CHECK(session.exit == ipc::SessionClient::RunExit::Stopped);
+}
+
 // --- fail-closed paths -------------------------------------------------------
 
 void scenario_service_shutdown_loses_the_session() {
@@ -1097,6 +1254,10 @@ int main() {
     run_scenario("late_response_and_events_keep_the_session",
                  scenario_late_response_and_events_keep_the_session);
     run_scenario("midcall_transport_loss_fails_closed", scenario_midcall_transport_loss_fails_closed);
+    run_scenario("overlapped_call_frame_survives_in_flight_window",
+                 scenario_overlapped_call_frame_survives_in_flight_window);
+    run_scenario("repeated_overlapped_rounds_lose_no_frames",
+                 scenario_repeated_overlapped_rounds_lose_no_frames);
     run_scenario("service_shutdown_loses_the_session", scenario_service_shutdown_loses_the_session);
     run_scenario("connect_failure_is_bounded", scenario_connect_failure_is_bounded);
     run_scenario("workflow_face_round_trip", scenario_workflow_face_round_trip);
