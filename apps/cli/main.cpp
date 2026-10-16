@@ -1,5 +1,4 @@
 #include "../common/environment.hpp"
-#include <mirage/platform/frontend_process.hpp>
 #include <mirage/platform/platform_info.hpp>
 #include <mirage/runtime/ipc/client.hpp>
 #include <mirage/runtime/ipc/endpoint.hpp>
@@ -310,18 +309,35 @@ int command_service_start(int argc, char **argv) {
         return kExitUsage;
     }
     // Locate the sibling mirage-service binary next to this executable.
-    const auto self = mirage::platform::current_executable_path();
-    if (self.empty()) {
+#ifdef _WIN32
+    wchar_t self_wide[4096];
+    const DWORD self_length =
+        ::GetModuleFileNameW(nullptr, self_wide, static_cast<DWORD>(std::size(self_wide)));
+    if (self_length == 0 || self_length >= std::size(self_wide)) {
         std::cerr << kProgramName << ": cannot resolve the executable path\n";
         return kExitFailure;
     }
     std::filesystem::path service_path =
-        std::filesystem::path(self).parent_path() / "mirage-service.exe";
+        std::filesystem::path(self_wide).parent_path() / "mirage-service.exe";
     if (!std::filesystem::exists(service_path)) {
-        service_path = std::filesystem::path(self).parent_path() / "mirage-service";
+        service_path = std::filesystem::path(self_wide).parent_path() / "mirage-service";
     }
     const std::string service_binary = service_path.string();
     const std::string service_display = service_path.string();
+#else
+    char self_path[4096];
+    const ssize_t length = ::readlink("/proc/self/exe", self_path, sizeof(self_path) - 1);
+    if (length <= 0) {
+        std::cerr << kProgramName << ": cannot resolve the executable path\n";
+        return kExitFailure;
+    }
+    self_path[length] = '\0';
+    const std::string self{self_path};
+    const auto slash = self.rfind('/');
+    const std::string service_binary =
+        (slash == std::string::npos ? std::string(".") : self.substr(0, slash)) + "/mirage-service";
+    const std::string &service_display = service_binary;
+#endif
 
     const std::string socket = options.socket_path.empty()
                                    ? mirage::runtime::ipc::default_socket_path()
@@ -445,27 +461,44 @@ int command_service_start(int argc, char **argv) {
 // --- product start -----------------------------------------------------------
 
 /// Resolves a sibling product binary next to this executable (the same
-/// layout rule the service spawn uses). In a build tree the tray/native
-/// faces live one directory down (tray/, native/).
+/// layout rule the service spawn uses).
 std::optional<std::string> sibling_binary(const std::string &name) {
-    const auto self = mirage::platform::current_executable_path();
-    if (self.empty()) {
+#ifdef _WIN32
+    wchar_t self_wide[4096];
+    const DWORD self_length =
+        ::GetModuleFileNameW(nullptr, self_wide, static_cast<DWORD>(std::size(self_wide)));
+    if (self_length == 0 || self_length >= std::size(self_wide)) {
         return std::nullopt;
     }
-    const auto parent = std::filesystem::path(self).parent_path();
-    std::filesystem::path path = parent / (name + ".exe");
+    std::filesystem::path path = std::filesystem::path(self_wide).parent_path() / (name + ".exe");
     if (!std::filesystem::exists(path)) {
-        path = parent / name;
+        path = std::filesystem::path(self_wide).parent_path() / name;
     }
     if (!std::filesystem::exists(path)) {
-        const auto development =
-            parent.parent_path() / (name == "mirage-tray" ? "tray" : "native") / name;
+        return std::nullopt;
+    }
+    return path.string();
+#else
+    char self_path[4096];
+    const ssize_t length = ::readlink("/proc/self/exe", self_path, sizeof(self_path) - 1);
+    if (length <= 0) {
+        return std::nullopt;
+    }
+    self_path[length] = '\0';
+    const std::string self{self_path};
+    const auto slash = self.rfind('/');
+    const std::string path =
+        (slash == std::string::npos ? std::string(".") : self.substr(0, slash)) + "/" + name;
+    if (!std::filesystem::exists(path)) {
+        const auto development = std::filesystem::path(path).parent_path() /
+                                 (name == "mirage-tray" ? "tray" : "native") / name;
         if ((name == "mirage-native" || name == "mirage-tray") &&
             std::filesystem::exists(development))
             return development.string();
         return std::nullopt;
     }
-    return path.string();
+    return path;
+#endif
 }
 
 /// Detached product-face spawn: the child must outlive this short-lived
@@ -703,13 +736,6 @@ int command_start(int argc, char **argv) {
                          "frontend failure)\n";
             return kExitFailure;
         }
-        // Readiness polling (REUSE-10): this launcher process predates the
-        // per-process Executor owner model and stays a thin shell — it waits
-        // for a child carrier's readiness by bounded IPC probes and reaps
-        // the child with process-level signals, neither of which is an
-        // in-process Executor concern (DEC-096 composition-root note). The
-        // update verbs own this process's only Executor; the launch path
-        // intentionally does not.
         hello = probe.call(mirage::runtime::ipc::HelloRequest{}, std::chrono::milliseconds{500});
         const auto *identity = std::get_if<mirage::runtime::ipc::ServiceIdentity>(&hello.payload);
         if (hello.ok && identity && identity->tray.value_or(false)) {

@@ -13,6 +13,7 @@
 #include <mirage/integration/fake_visual_backend.hpp>
 #include <mirage/integration/mirador_service.hpp>
 #include <mirage/integration/visual_backend_registry.hpp>
+#include <mirage/integration/visual_execution_context.hpp>
 #include <mirage/integration/visual_frame.hpp>
 #include <mirage/integration/visual_session_host.hpp>
 
@@ -49,6 +50,7 @@ using mirage::integration::FakeDetectorBackend;
 using mirage::integration::FakeDetectorConfig;
 using mirage::integration::FakeOcrBackend;
 using mirage::integration::FakeOcrConfig;
+using mirage::integration::to_execution_context;
 using mirage::integration::to_mirador_frame;
 using mirage::integration::VisualAnalysisOutcome;
 using mirage::integration::VisualAnalysisRequest;
@@ -215,7 +217,28 @@ FakeDetectorBackend bgra_detector() {
     return FakeDetectorBackend(config);
 }
 
-// ---- A. to_mirador_frame -----------------------------------------------------------
+// ---- A. execution context ----------------------------------------------------------
+
+void execution_context_maps_cancellation_and_deadline() {
+    mirage::desktop::CancelToken token;
+    const mirador::ExecutionContext context = to_execution_context(token);
+    MIRAGE_CHECK(!mirador::is_cancelled(context));
+    MIRAGE_CHECK(!mirador::deadline_reached(context));
+    MIRAGE_CHECK(!context.deadline.has_value());
+
+    const auto past = std::chrono::steady_clock::now() - std::chrono::seconds{1};
+    const mirador::ExecutionContext dated = to_execution_context(token, past);
+    MIRAGE_CHECK(dated.deadline.has_value());
+    MIRAGE_CHECK(dated.deadline == past);
+    MIRAGE_CHECK(mirador::deadline_reached(dated));
+
+    token.request_cancel();
+    // The context captured the token by value; copies share one state.
+    MIRAGE_CHECK(mirador::is_cancelled(context));
+    MIRAGE_CHECK(mirador::is_cancelled(dated));
+}
+
+// ---- B. to_mirador_frame -----------------------------------------------------------
 
 void to_mirador_frame_wraps_a_valid_capture() {
     const desktop::ImageFrame capture =
@@ -892,6 +915,8 @@ template <typename Scenario> void run_scenario(const char *name, Scenario scenar
 } // namespace
 
 int main() {
+    run_scenario("execution_context_maps_cancellation_and_deadline",
+                 execution_context_maps_cancellation_and_deadline);
     run_scenario("to_mirador_frame_wraps_a_valid_capture", to_mirador_frame_wraps_a_valid_capture);
     run_scenario("to_mirador_frame_accepts_a_padded_stride",
                  to_mirador_frame_accepts_a_padded_stride);

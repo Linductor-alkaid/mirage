@@ -1,5 +1,4 @@
 #include "desktop_ocr_tool.hpp"
-#include "tool_geometry.hpp"
 #include <algorithm>
 #include <mira/event_store.hpp>
 
@@ -11,6 +10,11 @@ mira::Error failure(mira::ErrorCode code, const char *message) {
     e.domain = "mirage.desktop.ocr";
     e.safe_message = message;
     return e;
+}
+bool contains(const desktop::WindowGeometry &outer, const desktop::WindowGeometry &inner) {
+    return inner.width > 0 && inner.height > 0 && inner.x >= outer.x && inner.y >= outer.y &&
+           std::int64_t{inner.x} + inner.width <= std::int64_t{outer.x} + outer.width &&
+           std::int64_t{inner.y} + inner.height <= std::int64_t{outer.y} + outer.height;
 }
 } // namespace
 void register_ocr_tool(mira::BuiltinToolRegistry &registry, const DesktopToolContext &desktop,
@@ -95,7 +99,7 @@ void register_ocr_tool(mira::BuiltinToolRegistry &registry, const DesktopToolCon
         for (const auto &r : read.snapshot.regions) {
             if (r.text.size() > 1024 || !desktop::is_valid_utf8(r.text))
                 return failure(mira::ErrorCode::ResourceExhausted, "OCR text budget invalid");
-            if (scope_bounds && !geometry_contains(*scope_bounds, r.bounds))
+            if (scope_bounds && !contains(*scope_bounds, r.bounds))
                 continue;
             regions.emplace_back(Json::Object{{"ref", r.ref},
                                               {"text", r.text},

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../common/typography.hpp"
 #include "control_metrics.hpp"
+#include "typography.hpp"
 #include <cmath>
 #include <components/button.h>
 #include <eui_neo.h>

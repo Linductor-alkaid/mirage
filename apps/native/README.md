@@ -8,14 +8,10 @@ ZCode 的侧栏、阅读列和 composer，C++20 / GLFW / OpenGL，没有 Chromiu
 ```bash
 git submodule update --init --recursive
 cmake --preset native-release
-cmake --build --preset native-release --target mirage-native-product
+cmake --build --preset native-release --target mirage mirage-native mirage-tray
 # 统一入口启动托盘内的 Runtime，再由托盘启动独立前端
 ./build/native-release/apps/mirage start
 ```
-
-`mirage-native-product` 同时构建 launcher、service、tray、native 和 pet；native
-presets 显式开启 pet，不依赖旧 cache。已有托盘 owner 时启动入口会复用它，
-加载新二进制需在任务空闲时正常退出托盘再打开，不能只覆盖文件就认定升级完成。
 
 Debug 使用 native-debug。Linux 需要 OpenGL/Mesa、X11 开发包及常见 CJK 字体，
 例如 fonts-noto-cjk；当前通过 X11/XWayland 运行。依赖全部使用 pinned 仓库内
@@ -153,7 +149,7 @@ M3.1 Flash Preview 提供官方深度。服务投影可用选项；OpenAI兼容�
 
 ```bash
 cmake --preset native-release
-cmake --build --preset native-release --target mirage-native-product
+cmake --build --preset native-release --target mirage mirage-tray mirage-native
 ./build/native-release/apps/mirage start
 ```
 

@@ -2,9 +2,8 @@
 
 > 状态：Active
 > 负责人：Mirage维护者；处理方：Mirador上游
-> 更新日期：2026-10-16
-> 工作项：源头为 [M7-06](../plans/m7-visual-tools-and-input.md)；维护性收口见
-> [依赖复用整改计划](../plans/dependency-reuse-remediation.md)（REUSE-16）
+> 更新日期：2026-10-09
+> 工作项：[M7-06](../plans/m7-visual-tools-and-input.md)
 > 总入口：[依赖反馈](ledger.md)；维护规则：[工程规范9.4](../project/project-standards.md)
 
 ## 核对基线
@@ -27,9 +26,10 @@ M7-06 本轮核对 PP-OCR 公开后端、集成指南与 smoke；复现见下表
 
 ## MIRADOR-20261009-001
 
-状态 Resolved（本地）；上游 PR [mirador#35](https://github.com/Linductor-alkaid/mirador/pull/35)
-2026-10-09 经维护者授权合并（master `ae8cf87`），pin 已升级并完成独立复验（回执见
-003 条目末尾的共同合并段）。负责人 Mirage 维护者，处理方 Mirador。
+状态 Open；上游 PR [mirador#35](https://github.com/Linductor-alkaid/mirador/pull/35)
+已于 2026-10-09 创建并回读 Open、作者 Linductor-alkaid、head `0527166`（基于上游
+master `f0f6758`）；合并与授权升级 pin 前本条保持 Open。负责人 Mirage 维护者，
+处理方 Mirador。
 
 公开 API `resize_area` 对有效 Rgb8 2×1 全白输入（stride=6，预算 1024）重采样到
 3×1，输出 `128 255 255`；应为 `255 255 255`，恒定输入的面积加权平均应保持恒定。
@@ -74,8 +74,7 @@ alignment"，已回读 Open。以修复分支叠加态（pin 未动）复跑[四
 
 ## MIRADOR-20261009-002
 
-状态 Resolved（本地）；随 mirador#35 第 2 提交 `93c3bda` 经授权合并并随 pin
-`ae8cf87` 生效（回执见 003 条目末尾的共同合并段）。负责人 Mirage 维护者，
+状态 Open；随 mirador#35 第 2 提交 `93c3bda` 待评审合并。负责人 Mirage 维护者，
 处理方 Mirador。
 
 公开契约：`db_postprocess_aabb`/`recover_contour_boxes` 依赖
@@ -95,8 +94,8 @@ text_postprocess 10/10。已随 001 一并由 Independent-Verification-Agent 独
 
 ## MIRADOR-20261009-003
 
-状态 Resolved（本地）；随 mirador#35 第 3 提交 `668459b` 经授权合并并随 pin
-`ae8cf87` 生效。负责人 Mirage 维护者，处理方 Mirador。
+状态 Open；随 mirador#35 第 3 提交 `668459b` 待评审合并。负责人 Mirage 维护者，
+处理方 Mirador。
 
 公开契约：PP-OCR 参考后端定位为真实 PP-OCR 模型的参考承载（DEC-015），但其
 预处理偏离转换来源的参考部署（ncnn-android-ppocrv5 `ppocrv5.cpp`）：det 强制

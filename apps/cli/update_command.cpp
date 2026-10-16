@@ -6,8 +6,6 @@
 
 #include <mirage/runtime/update/update_client.hpp>
 
-#include <kairo/executor.hpp>
-
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -47,15 +45,6 @@ bool read_pubkey(const std::string &path, std::string &out) {
     return true;
 }
 
-// The update verbs own this ephemeral process's unique Executor (DEC-030
-// EXEC-01): the pinned fetch transport runs its blocking I/O on the
-// executor's workers, the session joins them on destruction, and the
-// explicit shutdown runs last on this non-worker thread (REUSE-01/08).
-struct UpdateExecutorLifetime {
-    kairo::Executor executor;
-    ~UpdateExecutorLifetime() { executor.shutdown(true); }
-};
-
 } // namespace
 
 int command_update_check(int argc, char **argv) {
@@ -80,10 +69,8 @@ int command_update_check(int argc, char **argv) {
     if (!read_pubkey(pubkey, anchor)) {
         return 1;
     }
-    UpdateExecutorLifetime lifetime;
-    mirage::runtime::update::FetchSession fetch(lifetime.executor);
     mirage::runtime::update::UpdateClient client(
-        mirage::runtime::update::UpdateTrustAnchor{std::move(anchor)}, fetch);
+        mirage::runtime::update::UpdateTrustAnchor{std::move(anchor)});
 
     const auto outcome = client.check(url);
     if (!outcome.ok) {
@@ -125,10 +112,8 @@ int command_update_apply(int argc, char **argv) {
     if (!read_pubkey(pubkey, anchor)) {
         return 1;
     }
-    UpdateExecutorLifetime lifetime;
-    mirage::runtime::update::FetchSession fetch(lifetime.executor);
     mirage::runtime::update::UpdateClient client(
-        mirage::runtime::update::UpdateTrustAnchor{std::move(anchor)}, fetch);
+        mirage::runtime::update::UpdateTrustAnchor{std::move(anchor)});
 
     const auto outcome = client.apply(url, target, staging);
     if (outcome.report.status == mirage::runtime::update::ApplyStatus::Applied) {

@@ -39,8 +39,8 @@ bool verify_signature(const UpdateTrustAnchor &anchor, const std::string &messag
 
 } // namespace
 
-UpdateClient::UpdateClient(UpdateTrustAnchor trust_anchor, FetchSession &fetch)
-    : trust_anchor_(std::move(trust_anchor)), fetch_(fetch) {}
+UpdateClient::UpdateClient(UpdateTrustAnchor trust_anchor)
+    : trust_anchor_(std::move(trust_anchor)) {}
 
 void UpdateClient::set_current_version(const std::string &version) { current_version_ = version; }
 
@@ -50,13 +50,13 @@ void UpdateClient::set_progress(const std::function<void(std::uint64_t)> &progre
 
 CheckOutcome UpdateClient::check(const std::string &base_url) {
     CheckOutcome outcome;
-    auto fetch = fetch_.get(base_url, kManifestPath, kManifestBudget, progress_);
+    auto fetch = http_get(base_url, kManifestPath, kManifestBudget, progress_);
     if (!fetch.ok) {
         outcome.diagnostic = fetch.diagnostic;
         return outcome;
     }
-    auto signature = fetch_.get(base_url, std::string(kManifestPath) + kSignatureSuffix,
-                                kManifestBudget, progress_);
+    auto signature = http_get(base_url, std::string(kManifestPath) + kSignatureSuffix,
+                              kManifestBudget, progress_);
     if (!signature.ok) {
         outcome.diagnostic = signature.diagnostic;
         return outcome;
@@ -82,14 +82,14 @@ ApplyOutcome UpdateClient::apply(const std::string &base_url, const std::string 
     ApplyOutcome outcome;
 
     // 1. manifest + signature + verify.
-    auto manifest_fetch = fetch_.get(base_url, kManifestPath, kManifestBudget, progress_);
+    auto manifest_fetch = http_get(base_url, kManifestPath, kManifestBudget, progress_);
     if (!manifest_fetch.ok) {
         outcome.report.diagnostic = "manifest fetch failed: " + manifest_fetch.diagnostic;
         outcome.staging_dir = staging_root;
         return outcome;
     }
-    auto signature_fetch = fetch_.get(base_url, std::string(kManifestPath) + kSignatureSuffix,
-                                      kManifestBudget, progress_);
+    auto signature_fetch = http_get(base_url, std::string(kManifestPath) + kSignatureSuffix,
+                                    kManifestBudget, progress_);
     if (!signature_fetch.ok) {
         outcome.report.diagnostic = "signature fetch failed: " + signature_fetch.diagnostic;
         outcome.staging_dir = staging_root;
@@ -125,7 +125,7 @@ ApplyOutcome UpdateClient::apply(const std::string &base_url, const std::string 
 
     // 3. download every listed file into staging (bounded, progress-fed).
     for (const auto &file : manifest->files) {
-        auto file_fetch = fetch_.get(base_url, "/" + file.name, file.size, progress_);
+        auto file_fetch = http_get(base_url, "/" + file.name, file.size, progress_);
         if (!file_fetch.ok) {
             outcome.report.diagnostic =
                 "fetch failed for " + file.name + ": " + file_fetch.diagnostic;

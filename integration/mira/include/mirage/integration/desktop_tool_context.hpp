@@ -1,16 +1,11 @@
 #pragma once
 
-#include <mira/tool_executor.hpp>
-
 #include <mirage/desktop/action_coordinator.hpp>
 #include <mirage/desktop/desktop_environment.hpp>
 #include <mirage/desktop/overlay_surface.hpp>
 #include <mirage/desktop/visual_snapshot.hpp>
-#include <mirage/integration/basic_output_retention.hpp>
 #include <mirage/integration/environment_visual_pipeline.hpp>
 
-#include <cstddef>
-#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
@@ -23,12 +18,6 @@ namespace mirage::integration {
 /// approves). Same shape as the runtime permission face's CancelProbe; kept
 /// a distinct alias because this layer does not include runtime headers.
 using AtomCancelProbe = std::function<bool()>;
-
-/// Shared handler decorator seam (M7-02): wraps one builtin handler with
-/// capture, verification and failure tracking. Declared here so the desktop
-/// atom toolset and the M10 basic agent toolset share one type.
-using Decorator =
-    std::function<mira::BuiltinToolHandler(const std::string &, mira::BuiltinToolHandler)>;
 /// RULE-05 seam between the atom execution path and the host's permission
 /// face (DEC-024): judged before an atom handler touches its provider.
 /// `capability` is a stable permission vocabulary name ("clipboard.write",
@@ -77,27 +66,6 @@ struct DesktopOcrResult {
 /// Service-owned desktop dependencies for a conversational model layer.
 /// The gate is shared with task/workflow execution; a missing gate denies
 /// mutations. Shared ownership keeps providers alive through model teardown.
-/// Enablement and budgets of the four basic agent tools (DEC-095 frozen
-/// values; centered config, boundary refusal). The service decides
-/// enablement — the model layer never flips it on by itself, and the default
-/// registers nothing, so existing products keep their exact tool surface.
-struct BasicAgentToolsOptions {
-    /// Product switch for the whole group (DEC-095 decision 6: never
-    /// implicitly enabled by directory or provider presence).
-    bool enabled = false;
-    /// Product switch for exec specifically (host-permission execution is
-    /// not implied by read/write enablement).
-    bool exec_enabled = false;
-    /// Stable per-session workspace directory; relative path/workdir
-    /// arguments resolve against it. Empty disables relative paths and exec.
-    std::filesystem::path workspace;
-    std::chrono::milliseconds exec_timeout_default{30000};
-    std::chrono::milliseconds exec_timeout_max{120000};
-    /// Model-facing output preview per stream (bytes); the frozen combined
-    /// budget is 50 KiB across both streams.
-    std::size_t exec_preview_bytes = 25u << 10;
-};
-
 struct DesktopToolContext {
     std::shared_ptr<mirage::desktop::DesktopEnvironment> environment;
     AtomPermissionGate gate;
@@ -142,13 +110,6 @@ struct DesktopToolContext {
         const std::function<void(const desktop::VisualRegionEntry &,
                                  const desktop::VisualRegionEntry &)> &)>
         with_visual_references;
-    /// M10-07 (DEC-095): the basic agent tools group; see
-    /// BasicAgentToolsOptions above.
-    BasicAgentToolsOptions basic_tools;
-    /// M10-06 (DEC-095): runtime-owned bounded output retention. Null keeps
-    /// exec preview-only; when set, exec admits retention before spawn and
-    /// read resolves output_ref arguments through it.
-    BasicOutputRetention *output_retention = nullptr;
 };
 
 } // namespace mirage::integration

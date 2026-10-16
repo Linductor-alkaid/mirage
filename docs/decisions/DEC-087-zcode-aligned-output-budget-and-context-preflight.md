@@ -9,11 +9,6 @@
 
 ## 选型
 
-2026-10-15 局部修订：[DEC-090](DEC-090-continuous-task-execution.md) 将固定轮数
-整轮包络改为适合持续任务的逐请求准入；[DEC-091](DEC-091-local-semantic-perception-and-action-loop.md)
-将文本观察作为默认供给方向。每调用输出声明、截断识别等继续有效。新接线由
-M9-02/03/04/06 跟踪，不能把本文历史 16 轮/22 倍数值作为新默认值。
-
 对齐 [ZCode](../../../ZCode/README.md) 的五层预算设计在 Mirage 架构内的可承载部分：
 
 1. **声明值优先**：`ModelLayerConfig.max_output_tokens` 语义改为"模型声明的每调用

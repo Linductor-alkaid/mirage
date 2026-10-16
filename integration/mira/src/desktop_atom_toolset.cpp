@@ -2,7 +2,6 @@
 
 #include "desktop_action_verification.hpp"
 #include "desktop_visual_knowledge.hpp"
-#include "tool_geometry.hpp"
 
 #include <mirage/desktop/accessibility_provider.hpp>
 #include <mirage/desktop/application_provider.hpp>
@@ -773,6 +772,11 @@ struct HarnessObservation {
     std::vector<std::string> windows, applications;
 };
 
+bool same_geometry(const mirage::desktop::WindowGeometry &a,
+                   const mirage::desktop::WindowGeometry &b) {
+    return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;
+}
+
 Error action_failure(const mirage::desktop::ProviderError &failure, bool effect = false,
                      bool released = true) {
     auto error = provider_error(failure);
@@ -891,7 +895,7 @@ AtomRegistration scoped_mutation(const std::string &name, const DesktopToolConte
             if (!front.ok)
                 return action_failure(front.error);
             if (!front.found || front.window.id != window_id ||
-                !detail::geometry_equals(front.window.geometry, observation->geometry) ||
+                !same_geometry(front.window.geometry, observation->geometry) ||
                 (observation->window_title && front.window.title != *observation->window_title))
                 return action_failure(
                     {"focus_changed", "focused window changed or moved; re-observe"});

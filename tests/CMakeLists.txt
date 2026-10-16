@@ -1,41 +1,31 @@
 # Test binaries follow the pinned mira house style: one plain main() per
 # binary using tests/support/test.hpp; labels drive CI selection (docs/
 # project/project-standards.md section 11).
-mirage_add_test(visual_scene_test
-    SOURCES desktop/visual_scene_test.cpp
-    LIBS Mirage::desktop
-    LABELS "unit;desktop;perception"
-    TIMEOUT 30
-    )
+add_executable(native_chat_model_test desktop/native_chat_model_test.cpp
+    ${CMAKE_SOURCE_DIR}/apps/native/chat_model.cpp ${CMAKE_SOURCE_DIR}/apps/native/attachment.cpp)
+target_include_directories(native_chat_model_test PRIVATE ${CMAKE_SOURCE_DIR}/apps/native)
+target_compile_features(native_chat_model_test PRIVATE cxx_std_20)
+target_link_libraries(native_chat_model_test PRIVATE Mirage::conversation)
+mirage_enable_warnings(native_chat_model_test)
+add_test(NAME native_chat_model_test COMMAND native_chat_model_test)
+set_tests_properties(native_chat_model_test PROPERTIES LABELS "unit;ui" TIMEOUT 30)
 
-mirage_add_test(visual_scene_mapping_test
-    SOURCES integration/visual_scene_mapping_test.cpp
-    LIBS Mirage::integration_mirador mirador::fusion
-    LABELS "integration;perception"
-    TIMEOUT 30
-    )
+add_executable(tool_alias_provider_test integration/tool_alias_provider_test.cpp)
+target_compile_features(tool_alias_provider_test PRIVATE cxx_std_20)
+target_link_libraries(tool_alias_provider_test PRIVATE Mirage::integration_mira Mira::core)
+mirage_enable_warnings(tool_alias_provider_test)
+add_test(NAME tool_alias_provider_test COMMAND tool_alias_provider_test)
+set_tests_properties(tool_alias_provider_test PROPERTIES LABELS "integration;runtime;protocol" TIMEOUT 30)
 
-mirage_add_test(native_chat_model_test
-    SOURCES desktop/native_chat_model_test.cpp ${CMAKE_SOURCE_DIR}/apps/native/chat_model.cpp ${CMAKE_SOURCE_DIR}/apps/native/attachment.cpp
-    INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/apps/native
-    LIBS Mirage::conversation
-    LABELS "unit;ui"
-    TIMEOUT 30
-    )
-
-mirage_add_test(tool_alias_provider_test
-    SOURCES integration/tool_alias_provider_test.cpp
-    LIBS Mirage::integration_mira Mira::core
-    LABELS "integration;runtime;protocol"
-    TIMEOUT 30
-    )
-
-mirage_add_test(credential_store_test
-    SOURCES platform/credential_store_test.cpp
-    LIBS Mirage::platform Mira::core Mirage::kairo_consumer
-    LABELS "unit;platform"
-    TIMEOUT 30
-    )
+add_executable(credential_store_test platform/credential_store_test.cpp)
+target_compile_features(credential_store_test PRIVATE cxx_std_20)
+mirage_enable_warnings(credential_store_test)
+target_link_libraries(credential_store_test PRIVATE Mirage::platform Mira::core)
+target_include_directories(credential_store_test SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+target_link_libraries(credential_store_test PRIVATE $<TARGET_FILE:kairo::kairo>)
+add_test(NAME credential_store_test COMMAND credential_store_test)
+set_tests_properties(credential_store_test PROPERTIES LABELS "unit;platform" TIMEOUT 30)
 
 # M7-10 host DPI declaration (DEC-086): pins the public contract and the
 # idempotence the runtime hosts' startup log line relies on, on both
@@ -51,12 +41,15 @@ add_executable(dependency_wiring_test smoke/dependency_wiring_test.cpp)
 # POSIX-coupled: the scripted providers sleep through <poll.h>; Windows keeps
 # its own platform validation instead of compiling these Linux-flow tests.
 if(UNIX)
-mirage_add_test(ppocr_pipeline_test
-    SOURCES integration/ppocr_pipeline_test.cpp
-    LIBS Mirage::integration_mirador Mirage::runtime_service Mira::core Mirage::kairo_consumer
-    LABELS "integration;runtime"
-    TIMEOUT 30
-    )
+    add_executable(ppocr_pipeline_test integration/ppocr_pipeline_test.cpp)
+    target_compile_features(ppocr_pipeline_test PRIVATE cxx_std_20)
+    mirage_enable_warnings(ppocr_pipeline_test)
+    target_link_libraries(ppocr_pipeline_test PRIVATE Mirage::integration_mirador
+        Mirage::runtime_service Mira::core $<TARGET_FILE:kairo::kairo>)
+    target_include_directories(ppocr_pipeline_test SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+    add_test(NAME ppocr_pipeline_test COMMAND ppocr_pipeline_test)
+    set_tests_properties(ppocr_pipeline_test PROPERTIES LABELS "integration;runtime" TIMEOUT 30)
 endif()
 target_compile_features(dependency_wiring_test PUBLIC cxx_std_20)
 mirage_enable_warnings(dependency_wiring_test)
@@ -82,12 +75,15 @@ mirage_enable_warnings(mira_host_test)
 # The workflow-surface scenario (M5-05) drives the pinned WorkflowRuntime on
 # its own Executor instance: SYSTEM headers plus a by-file-path link, same
 # form as the visual unit tests.
+target_include_directories(mira_host_test SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include"
+)
 target_link_libraries(mira_host_test
     PRIVATE
         Mirage::mira_host
         Mira::core
         Mira::simulator_adapter
-        Mirage::kairo_consumer
+        $<TARGET_FILE:kairo::kairo>
 )
 add_test(NAME mira_host_test COMMAND mira_host_test)
 set_tests_properties(mira_host_test PROPERTIES
@@ -106,39 +102,49 @@ set_tests_properties(desktop_observation_test PROPERTIES
     TIMEOUT 60
 )
 
-mirage_add_test(provider_contract_test
-    SOURCES desktop/provider_contract_test.cpp
-    LIBS Mirage::desktop
+add_executable(provider_contract_test desktop/provider_contract_test.cpp)
+target_compile_features(provider_contract_test PUBLIC cxx_std_20)
+mirage_enable_warnings(provider_contract_test)
+target_link_libraries(provider_contract_test PRIVATE Mirage::desktop)
+add_test(NAME provider_contract_test COMMAND provider_contract_test)
+set_tests_properties(provider_contract_test PROPERTIES
     LABELS "unit"
     TIMEOUT 60
-    )
+)
 
 # M2-06 on-demand observation assembly: DesktopEnvironment-only unit tests
 # against the fake and partial-provider stub environments.
-mirage_add_test(observation_assembler_test
-    SOURCES desktop/observation_assembler_test.cpp
-    LIBS Mirage::desktop
+add_executable(observation_assembler_test desktop/observation_assembler_test.cpp)
+target_compile_features(observation_assembler_test PUBLIC cxx_std_20)
+mirage_enable_warnings(observation_assembler_test)
+target_link_libraries(observation_assembler_test PRIVATE Mirage::desktop)
+add_test(NAME observation_assembler_test COMMAND observation_assembler_test)
+set_tests_properties(observation_assembler_test PROPERTIES
     LABELS "unit"
     TIMEOUT 60
-    )
+)
 
 # M5-09 Desktop Overlay frame contract (DEC-029): the budget vocabulary and
 # the UTF-8-boundary clamp cut are platform-neutral; platform-neutral unit.
-mirage_add_test(overlay_surface_test
-    SOURCES desktop/overlay_surface_test.cpp
-    LIBS Mirage::desktop
+add_executable(overlay_surface_test desktop/overlay_surface_test.cpp)
+target_compile_features(overlay_surface_test PUBLIC cxx_std_20)
+mirage_enable_warnings(overlay_surface_test)
+target_link_libraries(overlay_surface_test PRIVATE Mirage::desktop)
+add_test(NAME overlay_surface_test COMMAND overlay_surface_test)
+set_tests_properties(overlay_surface_test PROPERTIES
     LABELS "unit"
     TIMEOUT 60
-    )
+)
 
 # Product child ownership, including the pet's absent/reaped shutdown path.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-mirage_add_test(frontend_process_test
-    SOURCES platform/frontend_process_test.cpp
-    LIBS Mirage::platform Mirage::ipc Mirage::kairo_consumer
-    LABELS "unit;platform;lifecycle"
-    TIMEOUT 20
-    )
+    add_executable(frontend_process_test platform/frontend_process_test.cpp)
+    target_link_libraries(frontend_process_test PRIVATE Mirage::platform Mirage::ipc kairo)
+    target_include_directories(frontend_process_test SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+    mirage_enable_warnings(frontend_process_test)
+    add_test(NAME frontend_process_test COMMAND frontend_process_test)
+    set_tests_properties(frontend_process_test PROPERTIES LABELS "unit;platform;lifecycle" TIMEOUT 20)
 endif()
 
 # M2-02 Linux backend skeleton: private headless Xvfb (DEC-015).
@@ -149,22 +155,24 @@ if(PKG_CONFIG_FOUND)
     pkg_check_modules(ATSPI_TEST QUIET IMPORTED_TARGET atspi-2 gobject-2.0 gio-2.0)
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND X11_FOUND AND X11_Xtst_FOUND AND X11_Xrandr_FOUND)
-mirage_add_test(frontend_activation_test
-    SOURCES platform/frontend_activation_test.cpp
-    INCLUDE_DIRS ${X11_INCLUDE_DIR}
-    LIBS Mirage::platform ${X11_X11_LIB}
-    LABELS "integration;platform"
-    TIMEOUT 20
-    )
+    add_executable(frontend_activation_test platform/frontend_activation_test.cpp)
+    target_compile_features(frontend_activation_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(frontend_activation_test)
+    target_include_directories(frontend_activation_test PRIVATE ${X11_INCLUDE_DIR})
+    target_link_libraries(frontend_activation_test PRIVATE Mirage::platform ${X11_X11_LIB})
+    add_test(NAME frontend_activation_test COMMAND frontend_activation_test)
+    set_tests_properties(frontend_activation_test PROPERTIES LABELS "integration;platform" TIMEOUT 20)
 endif()
 
 if(X11_FOUND AND X11_Xtst_FOUND)
     add_executable(x11_pointer_actions_test platform/x11_pointer_actions_test.cpp)
     target_compile_features(x11_pointer_actions_test PUBLIC cxx_std_20)
+    target_include_directories(x11_pointer_actions_test SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
     mirage_enable_warnings(x11_pointer_actions_test)
     target_link_libraries(x11_pointer_actions_test PRIVATE
         Mirage::platform Mirage::desktop Mirage::integration_mira Mirage::integration_mirador
-        mirador::fusion Mirage::kairo_consumer ${X11_X11_LIB} ${X11_Xtst_LIB})
+        mirador::fusion kairo ${X11_X11_LIB} ${X11_Xtst_LIB})
     get_target_property(MIRAGE_X11_POINTER_HELPERS mirage_platform
                         MIRAGE_X11_DRAG_HELPERS_AVAILABLE)
     if(MIRAGE_X11_POINTER_HELPERS)
@@ -178,9 +186,11 @@ if(X11_FOUND AND X11_Xtst_FOUND)
     # process via system Python GI, never a product link/download dependency.
     add_executable(gtk_pointer_effects_test platform/gtk_pointer_effects_test.cpp)
     target_compile_features(gtk_pointer_effects_test PUBLIC cxx_std_20)
+    target_include_directories(gtk_pointer_effects_test SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
     mirage_enable_warnings(gtk_pointer_effects_test)
     target_link_libraries(gtk_pointer_effects_test PRIVATE Mirage::platform Mirage::desktop
-        Mirage::integration_mira Mirage::integration_mirador mirador::fusion Mira::core Mirage::kairo_consumer ${X11_X11_LIB} ${X11_Xtst_LIB})
+        Mirage::integration_mira Mirage::integration_mirador mirador::fusion Mira::core kairo ${X11_X11_LIB} ${X11_Xtst_LIB})
     get_target_property(MIRAGE_X11_DRAG_HELPERS_AVAILABLE mirage_platform
                         MIRAGE_X11_DRAG_HELPERS_AVAILABLE)
     if(MIRAGE_X11_DRAG_HELPERS_AVAILABLE)
@@ -239,11 +249,21 @@ endif()
 # nothing honest to exercise); the shape-extension condition mirrors
 # platform/CMakeLists.txt.
 if(X11_FOUND AND X11_Xtst_FOUND AND X11_Xrandr_FOUND AND X11_Xshape_FOUND)
-mirage_add_test(overlay_carrier_test
-    SOURCES platform/overlay_carrier_test.cpp
-    LIBS Mirage::platform Mirage::desktop ${X11_X11_LIB} ${X11_Xtst_LIB} ${X11_Xext_LIB}
-    LABELS "integration"
-    TIMEOUT 120
+    add_executable(overlay_carrier_test platform/overlay_carrier_test.cpp)
+    target_compile_features(overlay_carrier_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(overlay_carrier_test)
+    target_link_libraries(overlay_carrier_test
+        PRIVATE
+            Mirage::platform
+            Mirage::desktop
+            ${X11_X11_LIB}
+            ${X11_Xtst_LIB}
+            ${X11_Xext_LIB}
+    )
+    add_test(NAME overlay_carrier_test COMMAND overlay_carrier_test)
+    set_tests_properties(overlay_carrier_test PROPERTIES
+        LABELS "integration"
+        TIMEOUT 120
     )
 endif()
 
@@ -253,11 +273,20 @@ endif()
 # Win32 APIs exist; the MinGW cross builds compile and link it, the CI
 # windows job runs it.
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-mirage_add_test(win32_backend_test
-    SOURCES platform/win32_backend_test.cpp
-    LIBS Mirage::platform Mirage::desktop user32 gdi32
-    LABELS "integration;platform"
-    TIMEOUT 120
+    add_executable(win32_backend_test platform/win32_backend_test.cpp)
+    target_compile_features(win32_backend_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(win32_backend_test)
+    target_link_libraries(win32_backend_test
+        PRIVATE
+            Mirage::platform
+            Mirage::desktop
+            user32
+            gdi32
+    )
+    add_test(NAME win32_backend_test COMMAND win32_backend_test)
+    set_tests_properties(win32_backend_test PROPERTIES
+        LABELS "integration;platform"
+        TIMEOUT 120
     )
 
     # M7-10 tiered screen capture engine (DEC-086): drives the DXGI Desktop
@@ -411,11 +440,18 @@ mirage_add_test(win32_backend_test
     # acceptance scenarios note (never claim) balloon visibility, and a
     # session without a notification area skips them loudly instead of
     # failing (the DEC-018 verification plan records that possibility).
-mirage_add_test(win32_notification_test
-    SOURCES platform/win32_notification_test.cpp
-    LIBS Mirage::platform Mirage::desktop
-    LABELS "integration;platform"
-    TIMEOUT 120
+    add_executable(win32_notification_test platform/win32_notification_test.cpp)
+    target_compile_features(win32_notification_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(win32_notification_test)
+    target_link_libraries(win32_notification_test
+        PRIVATE
+            Mirage::platform
+            Mirage::desktop
+    )
+    add_test(NAME win32_notification_test COMMAND win32_notification_test)
+    set_tests_properties(win32_notification_test PROPERTIES
+        LABELS "integration;platform"
+        TIMEOUT 120
     )
 
     # M4-06 product processes on Windows: the real RuntimeService serving
@@ -423,11 +459,20 @@ mirage_add_test(win32_notification_test
     # milestone exit condition names), the shared golden-vector framing
     # identity, and the DEC-011 Windows store. Runs wherever the binary
     # runs; no interactive desktop needed.
-mirage_add_test(win32_product_process_test
-    SOURCES platform/win32_product_process_test.cpp
-    LIBS Mirage::runtime_service Mirage::persistence Mirage::platform Mirage::desktop
-    LABELS "integration;platform"
-    TIMEOUT 120
+    add_executable(win32_product_process_test platform/win32_product_process_test.cpp)
+    target_compile_features(win32_product_process_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(win32_product_process_test)
+    target_link_libraries(win32_product_process_test
+        PRIVATE
+            Mirage::runtime_service
+            Mirage::persistence
+            Mirage::platform
+            Mirage::desktop
+    )
+    add_test(NAME win32_product_process_test COMMAND win32_product_process_test)
+    set_tests_properties(win32_product_process_test PROPERTIES
+        LABELS "integration;platform"
+        TIMEOUT 120
     )
 
     # M4-07 end-to-end closed loop on the real interactive desktop: the
@@ -436,11 +481,19 @@ mirage_add_test(win32_product_process_test
     # Win32 + UIA frontends and a real fixture window (same DEC-017 decision
     # 9 discipline as the other win32 suites: runtime evidence needs a
     # desktop session; the MinGW cross build provides compile evidence).
-mirage_add_test(win32_observation_e2e_test
-    SOURCES integration/win32_observation_e2e_test.cpp
-    LIBS Mirage::integration_mira Mirage::platform Mirage::desktop
-    LABELS "integration"
-    TIMEOUT 120
+    add_executable(win32_observation_e2e_test integration/win32_observation_e2e_test.cpp)
+    target_compile_features(win32_observation_e2e_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(win32_observation_e2e_test)
+    target_link_libraries(win32_observation_e2e_test
+        PRIVATE
+            Mirage::integration_mira
+            Mirage::platform
+            Mirage::desktop
+    )
+    add_test(NAME win32_observation_e2e_test COMMAND win32_observation_e2e_test)
+    set_tests_properties(win32_observation_e2e_test PROPERTIES
+        LABELS "integration"
+        TIMEOUT 120
     )
 endif()
 
@@ -521,9 +574,14 @@ if(ATSPI_TEST_FOUND AND X11_FOUND)
             mirador::core
     )
     # The pipeline drives the pinned Executor directly (the per-source
-    # blocking worker); kairo enters through Mirage::kairo_consumer (DEC-096).
+    # blocking worker); headers are consumed as SYSTEM headers and the
+    # library is linked by file path (same consumption form as the visual
+    # unit tests).
+    target_include_directories(visual_observation_e2e_test SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include"
+    )
     target_link_libraries(visual_observation_e2e_test PRIVATE
-        Mirage::kairo_consumer
+        $<TARGET_FILE:kairo::kairo>
     )
     add_test(NAME visual_observation_e2e_test COMMAND visual_observation_e2e_test)
     set_tests_properties(visual_observation_e2e_test PROPERTIES
@@ -630,10 +688,13 @@ target_link_libraries(mira_binding_test
 )
 # The M3-05 wired-binding scenarios run the concrete VisualObservationPipeline
 # over the fake environment's screen provider; the pipeline drives the pinned
-# Executor directly (the per-source blocking worker) via Mirage::kairo_consumer
-# (DEC-096).
+# Executor directly (the per-source blocking worker), consumed as SYSTEM
+# headers and linked by file path (same form as the visual unit tests).
+target_include_directories(mira_binding_test SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include"
+)
 target_link_libraries(mira_binding_test PRIVATE
-    Mirage::kairo_consumer
+    $<TARGET_FILE:kairo::kairo>
 )
 add_test(NAME mira_binding_test COMMAND mira_binding_test)
 set_tests_properties(mira_binding_test PROPERTIES
@@ -643,34 +704,49 @@ set_tests_properties(mira_binding_test PROPERTIES
 endif()
 
 # DEC-093 categorized budget allocation (M9-14 / BUG-20261015-001)
-mirage_add_test(conversation_budget_test
-    SOURCES runtime/conversation_budget_test.cpp
-    LIBS Mirage::conversation
+add_executable(conversation_budget_test runtime/conversation_budget_test.cpp)
+target_compile_features(conversation_budget_test PRIVATE cxx_std_20)
+mirage_enable_warnings(conversation_budget_test)
+target_link_libraries(conversation_budget_test PRIVATE Mirage::conversation)
+add_test(NAME conversation_budget_test COMMAND conversation_budget_test)
+set_tests_properties(conversation_budget_test PROPERTIES
     LABELS "unit;conversation;protocol"
     TIMEOUT 30
-    )
+)
 
 # M5-04 session conversation journal (DEC-021): platform-neutral library
 # test over the pinned event store; the pinned include dirs propagate from
 # Mirage::integration_mira by design (the adapter is the pinned-facing
 # boundary).
-mirage_add_test(session_journal_test
-    SOURCES integration/session_journal_test.cpp
-    LIBS Mirage::integration_mira
+add_executable(session_journal_test integration/session_journal_test.cpp)
+target_compile_features(session_journal_test PUBLIC cxx_std_20)
+mirage_enable_warnings(session_journal_test)
+target_link_libraries(session_journal_test
+    PRIVATE
+        Mirage::integration_mira
+)
+add_test(NAME session_journal_test COMMAND session_journal_test)
+set_tests_properties(session_journal_test PROPERTIES
     LABELS "unit;integration"
     TIMEOUT 60
-    )
+)
 
 # M5-05 workflow event bridge (DEC-023): platform-neutral library test over
 # the pinned workflow event vocabulary; the pinned include dirs propagate
 # from Mirage::integration_mira by design (the adapter is the pinned-facing
 # boundary).
-mirage_add_test(workflow_event_bridge_test
-    SOURCES integration/workflow_event_bridge_test.cpp
-    LIBS Mirage::integration_mira
+add_executable(workflow_event_bridge_test integration/workflow_event_bridge_test.cpp)
+target_compile_features(workflow_event_bridge_test PUBLIC cxx_std_20)
+mirage_enable_warnings(workflow_event_bridge_test)
+target_link_libraries(workflow_event_bridge_test
+    PRIVATE
+        Mirage::integration_mira
+)
+add_test(NAME workflow_event_bridge_test COMMAND workflow_event_bridge_test)
+set_tests_properties(workflow_event_bridge_test PROPERTIES
     LABELS "unit;integration"
     TIMEOUT 60
-    )
+)
 
 # M5-05 desktop atom toolset (DEC-024): registry population, permission
 # gating and the ToolCall execution path over the fake desktop environment;
@@ -683,19 +759,24 @@ target_link_libraries(desktop_atom_toolset_test
         Mirage::integration_mira
 )
 add_test(NAME desktop_atom_toolset_test COMMAND desktop_atom_toolset_test)
-mirage_add_test(local_visual_workflow_test
-    SOURCES integration/local_visual_workflow_test.cpp
-    LIBS Mirage::integration_mira Mirage::kairo_consumer
-    LABELS "integration;runtime;security"
-    TIMEOUT 60
-    )
+add_executable(local_visual_workflow_test integration/local_visual_workflow_test.cpp)
+target_include_directories(local_visual_workflow_test SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+target_compile_features(local_visual_workflow_test PRIVATE cxx_std_20)
+mirage_enable_warnings(local_visual_workflow_test)
+target_link_libraries(local_visual_workflow_test PRIVATE Mirage::integration_mira kairo)
+add_test(NAME local_visual_workflow_test COMMAND local_visual_workflow_test)
+set_tests_properties(local_visual_workflow_test PROPERTIES TIMEOUT 60 LABELS "integration;runtime;security")
 
-mirage_add_test(local_semantic_workflow_test
-    SOURCES integration/local_semantic_workflow_test.cpp
-    LIBS Mirage::integration_mira Mirage::kairo_consumer
-    LABELS "unit;integration;runtime"
-    TIMEOUT 60
-    )
+add_executable(local_semantic_workflow_test integration/local_semantic_workflow_test.cpp)
+target_include_directories(local_semantic_workflow_test SYSTEM PRIVATE
+    ${PROJECT_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
+target_compile_features(local_semantic_workflow_test PRIVATE cxx_std_20)
+mirage_enable_warnings(local_semantic_workflow_test)
+target_link_libraries(local_semantic_workflow_test PRIVATE Mirage::integration_mira kairo)
+add_test(NAME local_semantic_workflow_test COMMAND local_semantic_workflow_test)
+set_tests_properties(local_semantic_workflow_test PROPERTIES
+    LABELS "unit;integration;runtime" TIMEOUT 60)
 set_tests_properties(desktop_atom_toolset_test PROPERTIES
     LABELS "unit;integration"
     TIMEOUT 60
@@ -704,23 +785,35 @@ set_tests_properties(desktop_atom_toolset_test PROPERTIES
 # POSIX-only: signal self-pipe fixtures.
 # 
 if(UNIX)
-mirage_add_test(desktop_provider_boundary_test
-    SOURCES integration/desktop_provider_boundary_test.cpp
-    LIBS Mirage::mira_host Mirage::integration_mira Mirage::platform Mirage::desktop
+add_executable(desktop_provider_boundary_test integration/desktop_provider_boundary_test.cpp)
+target_compile_features(desktop_provider_boundary_test PUBLIC cxx_std_20)
+mirage_enable_warnings(desktop_provider_boundary_test)
+target_link_libraries(desktop_provider_boundary_test
+    PRIVATE
+        Mirage::mira_host
+        Mirage::integration_mira
+        Mirage::platform
+        Mirage::desktop
+)
+add_test(NAME desktop_provider_boundary_test COMMAND desktop_provider_boundary_test)
+set_tests_properties(desktop_provider_boundary_test PROPERTIES
     LABELS "integration"
     TIMEOUT 120
-    )
+)
 endif()
 
 # POSIX-only: exercises the Unix-socket transport and a forked helper.
 #    # product-process round trip is win32_product_process_test.
 if(UNIX)
-mirage_add_test(ipc_protocol_test
-    SOURCES runtime/ipc_protocol_test.cpp
-    LIBS Mirage::ipc
+add_executable(ipc_protocol_test runtime/ipc_protocol_test.cpp)
+target_compile_features(ipc_protocol_test PUBLIC cxx_std_20)
+mirage_enable_warnings(ipc_protocol_test)
+target_link_libraries(ipc_protocol_test PRIVATE Mirage::ipc)
+add_test(NAME ipc_protocol_test COMMAND ipc_protocol_test)
+set_tests_properties(ipc_protocol_test PROPERTIES
     LABELS "unit;protocol"
     TIMEOUT 60
-    )
+)
 endif()
 
 add_executable(ipc_protocol_golden_test runtime/ipc_protocol_golden_test.cpp)
@@ -750,11 +843,18 @@ if(UNIX)
 # meaningless).
 find_package(OpenSSL QUIET)
 if(OPENSSL_FOUND)
-mirage_add_test(update_core_test
-    SOURCES runtime/update_core_test.cpp
-    LIBS Mirage::update Mirage::kairo_consumer OpenSSL::Crypto
-    LABELS "unit"
-    TIMEOUT 120
+    add_executable(update_core_test runtime/update_core_test.cpp)
+    target_compile_features(update_core_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(update_core_test)
+    target_link_libraries(update_core_test
+        PRIVATE
+            Mirage::update
+            OpenSSL::Crypto
+    )
+    add_test(NAME update_core_test COMMAND update_core_test)
+    set_tests_properties(update_core_test PROPERTIES
+        LABELS "unit"
+        TIMEOUT 120
     )
 else()
     message(STATUS "update_core_test disabled: OpenSSL not found")
@@ -767,20 +867,39 @@ endif()
 # server and the fetcher under test are the POSIX port (the Windows fetcher
 # port is compile-gated by the MinGW cross build); needs the crypto face.
 if(UNIX AND OPENSSL_FOUND)
-mirage_add_test(update_client_http_test
-    SOURCES runtime/update_client_http_test.cpp
-    LIBS Mirage::update Mirage::kairo_consumer OpenSSL::Crypto
-    LABELS "unit"
-    TIMEOUT 120
+    add_executable(update_client_http_test runtime/update_client_http_test.cpp)
+    target_compile_features(update_client_http_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(update_client_http_test)
+    target_link_libraries(update_client_http_test
+        PRIVATE
+            Mirage::update
+            OpenSSL::Crypto
+    )
+    add_test(NAME update_client_http_test COMMAND update_client_http_test)
+    set_tests_properties(update_client_http_test PROPERTIES
+        LABELS "unit"
+        TIMEOUT 120
     )
 endif()
 
-mirage_add_test(runtime_service_test
-    SOURCES runtime/runtime_service_test.cpp
-    LIBS Mirage::runtime_service Mirage::integration_mira Mirage::platform Mirage::desktop Mirage::ipc Mirage::persistence Mirage::permission
+add_executable(runtime_service_test runtime/runtime_service_test.cpp)
+target_compile_features(runtime_service_test PUBLIC cxx_std_20)
+mirage_enable_warnings(runtime_service_test)
+target_link_libraries(runtime_service_test
+    PRIVATE
+        Mirage::runtime_service
+        Mirage::integration_mira
+        Mirage::platform
+        Mirage::desktop
+        Mirage::ipc
+        Mirage::persistence
+        Mirage::permission
+)
+add_test(NAME runtime_service_test COMMAND runtime_service_test)
+set_tests_properties(runtime_service_test PROPERTIES
     LABELS "integration"
     TIMEOUT 300
-    )
+)
 endif()
 
 # M5-06 (DEC-026): the observation face end to end over Local IPC — a real
@@ -864,69 +983,116 @@ endif()
 # win32_product_process_test.
 # 
 if(UNIX)
-mirage_add_test(provider_hardening_test
-    SOURCES desktop/provider_hardening_test.cpp
-    LIBS Mirage::desktop Mirage::platform
+add_executable(provider_hardening_test desktop/provider_hardening_test.cpp)
+target_compile_features(provider_hardening_test PUBLIC cxx_std_20)
+mirage_enable_warnings(provider_hardening_test)
+target_link_libraries(provider_hardening_test
+    PRIVATE
+        Mirage::desktop
+        Mirage::platform
+)
+add_test(NAME provider_hardening_test COMMAND provider_hardening_test)
+set_tests_properties(provider_hardening_test PROPERTIES
     LABELS "unit"
     TIMEOUT 120
-    )
+)
 endif()
 
-mirage_add_test(permission_test
-    SOURCES runtime/permission_test.cpp
-    LIBS Mirage::permission
+add_executable(permission_test runtime/permission_test.cpp)
+target_compile_features(permission_test PUBLIC cxx_std_20)
+mirage_enable_warnings(permission_test)
+target_link_libraries(permission_test PRIVATE Mirage::permission)
+add_test(NAME permission_test COMMAND permission_test)
+set_tests_properties(permission_test PROPERTIES
     LABELS "unit"
     TIMEOUT 60
-    )
+)
 
 # M5-09 Desktop Overlay presenter (DEC-029): the service-internal
 # presentation path against a scripted carrier — composition, latest-state
 # dedup, budgets, the hub-probe confirmation revalidation and the
 # stop/failure paths. The presenter is an internal module (runtime/service/
 # src): the test reaches it through the source-tree include path, and the
-# kairo enters through Mirage::kairo_consumer (DEC-096): SYSTEM headers plus
-# the file-path link, the same form the service target consumes.
-mirage_add_test(overlay_presenter_test
-    SOURCES runtime/overlay_presenter_test.cpp
-    INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/runtime/service/src
-    LIBS Mirage::runtime_service Mirage::kairo_consumer
+# kairo headers enter as SYSTEM exactly like the service target consumes
+# them; the kairo library links by file path so its interface include
+# dirs do not leak.
+add_executable(overlay_presenter_test runtime/overlay_presenter_test.cpp)
+target_compile_features(overlay_presenter_test PUBLIC cxx_std_20)
+mirage_enable_warnings(overlay_presenter_test)
+target_include_directories(overlay_presenter_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/runtime/service/src
+)
+target_include_directories(overlay_presenter_test SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include"
+)
+target_link_libraries(overlay_presenter_test
+    PRIVATE
+        Mirage::runtime_service
+        $<TARGET_FILE:kairo::kairo>
+)
+add_test(NAME overlay_presenter_test COMMAND overlay_presenter_test)
+set_tests_properties(overlay_presenter_test PROPERTIES
     LABELS "unit"
     TIMEOUT 60
-    )
+)
 
 # POSIX-only: asserts the 0700/0600 store hardening; the Windows store is
 # covered by win32_product_process_test.
 # # covered by win32_product_process_test.
 if(UNIX)
-mirage_add_test(persistence_test
-    SOURCES runtime/persistence_test.cpp
-    LIBS Mirage::persistence
+add_executable(persistence_test runtime/persistence_test.cpp)
+target_compile_features(persistence_test PUBLIC cxx_std_20)
+mirage_enable_warnings(persistence_test)
+target_link_libraries(persistence_test PRIVATE Mirage::persistence)
+add_test(NAME persistence_test COMMAND persistence_test)
+set_tests_properties(persistence_test PROPERTIES
     LABELS "unit"
     TIMEOUT 60
-    )
+)
 endif()
 
 # POSIX-only: the ipc_io support header (poll-driven frame helpers) and the
 # Linux desktop environment fixtures couple it to the Unix transport.
 if(UNIX)
-mirage_add_test(recovery_service_test
-    SOURCES runtime/recovery_service_test.cpp
-    LIBS Mirage::runtime_service Mirage::integration_mira Mirage::platform Mirage::desktop Mirage::ipc Mirage::persistence
+add_executable(recovery_service_test runtime/recovery_service_test.cpp)
+target_compile_features(recovery_service_test PUBLIC cxx_std_20)
+mirage_enable_warnings(recovery_service_test)
+target_link_libraries(recovery_service_test
+    PRIVATE
+        Mirage::runtime_service
+        Mirage::integration_mira
+        Mirage::platform
+        Mirage::desktop
+        Mirage::ipc
+        Mirage::persistence
+)
+add_test(NAME recovery_service_test COMMAND recovery_service_test)
+set_tests_properties(recovery_service_test PROPERTIES
     LABELS "integration"
     TIMEOUT 300
-    )
+)
 endif()
 
 # POSIX-only: the ipc_io support header couples it to the Unix transport
 # (poll.h); the permission matrix itself is platform-neutral and covered by
 # permission_test on every platform.
 if(UNIX)
-mirage_add_test(task_permission_test
-    SOURCES runtime/task_permission_test.cpp
-    LIBS Mirage::runtime_service Mirage::integration_mira Mirage::platform Mirage::desktop Mirage::ipc
+add_executable(task_permission_test runtime/task_permission_test.cpp)
+target_compile_features(task_permission_test PUBLIC cxx_std_20)
+mirage_enable_warnings(task_permission_test)
+target_link_libraries(task_permission_test
+    PRIVATE
+        Mirage::runtime_service
+        Mirage::integration_mira
+        Mirage::platform
+        Mirage::desktop
+        Mirage::ipc
+)
+add_test(NAME task_permission_test COMMAND task_permission_test)
+set_tests_properties(task_permission_test PROPERTIES
     LABELS "integration"
     TIMEOUT 300
-    )
+)
 endif()
 
 # M5-03 permission async confirmation surface (DEC-020): the live-service
@@ -934,12 +1100,22 @@ endif()
 # task_permission_test; the Windows confirmation surface shares the hub unit
 # tests (permission_test) and the win32 named-pipe product process test.
 if(UNIX)
-mirage_add_test(permission_ipc_test
-    SOURCES runtime/permission_ipc_test.cpp
-    LIBS Mirage::runtime_service Mirage::integration_mira Mirage::platform Mirage::desktop Mirage::ipc
+add_executable(permission_ipc_test runtime/permission_ipc_test.cpp)
+target_compile_features(permission_ipc_test PUBLIC cxx_std_20)
+mirage_enable_warnings(permission_ipc_test)
+target_link_libraries(permission_ipc_test
+    PRIVATE
+        Mirage::runtime_service
+        Mirage::integration_mira
+        Mirage::platform
+        Mirage::desktop
+        Mirage::ipc
+)
+add_test(NAME permission_ipc_test COMMAND permission_ipc_test)
+set_tests_properties(permission_ipc_test PROPERTIES
     LABELS "integration"
     TIMEOUT 300
-    )
+)
 endif()
 
 # M5-09 Desktop Overlay service integration (DEC-029): the overlay pump on
@@ -949,23 +1125,43 @@ endif()
 # permission_ipc_test (the Windows product surface shares the presenter unit
 # tests and the win32 overlay frontend's own CI job).
 if(UNIX)
-mirage_add_test(overlay_service_test
-    SOURCES runtime/overlay_service_test.cpp
-    LIBS Mirage::runtime_service Mirage::integration_mira Mirage::platform Mirage::desktop Mirage::ipc
+add_executable(overlay_service_test runtime/overlay_service_test.cpp)
+target_compile_features(overlay_service_test PUBLIC cxx_std_20)
+mirage_enable_warnings(overlay_service_test)
+target_link_libraries(overlay_service_test
+    PRIVATE
+        Mirage::runtime_service
+        Mirage::integration_mira
+        Mirage::platform
+        Mirage::desktop
+        Mirage::ipc
+)
+add_test(NAME overlay_service_test COMMAND overlay_service_test)
+set_tests_properties(overlay_service_test PROPERTIES
     LABELS "integration"
     TIMEOUT 300
-    )
+)
 endif()
 
 # POSIX-only: signal-driven cancellation probes.
 # 
 if(UNIX)
-mirage_add_test(task_cancel_test
-    SOURCES runtime/task_cancel_test.cpp
-    LIBS Mirage::runtime_service Mirage::integration_mira Mirage::platform Mirage::desktop Mirage::ipc
+add_executable(task_cancel_test runtime/task_cancel_test.cpp)
+target_compile_features(task_cancel_test PUBLIC cxx_std_20)
+mirage_enable_warnings(task_cancel_test)
+target_link_libraries(task_cancel_test
+    PRIVATE
+        Mirage::runtime_service
+        Mirage::integration_mira
+        Mirage::platform
+        Mirage::desktop
+        Mirage::ipc
+)
+add_test(NAME task_cancel_test COMMAND task_cancel_test)
+set_tests_properties(task_cancel_test PROPERTIES
     LABELS "integration"
     TIMEOUT 300
-    )
+)
 endif()
 
 # M5-10 task pause/resume face (DEC-030): the pinned pause family over the
@@ -974,35 +1170,55 @@ endif()
 # transport coupling as task_cancel_test; codec coverage lives in the golden
 # vectors (v10) and ipc_protocol_test.
 if(UNIX)
-mirage_add_test(task_pause_test
-    SOURCES runtime/task_pause_test.cpp
-    LIBS Mirage::runtime_service Mirage::integration_mira Mirage::platform Mirage::desktop Mirage::ipc
+add_executable(task_pause_test runtime/task_pause_test.cpp)
+target_compile_features(task_pause_test PUBLIC cxx_std_20)
+mirage_enable_warnings(task_pause_test)
+target_link_libraries(task_pause_test
+    PRIVATE
+        Mirage::runtime_service
+        Mirage::integration_mira
+        Mirage::platform
+        Mirage::desktop
+        Mirage::ipc
+)
+add_test(NAME task_pause_test COMMAND task_pause_test)
+set_tests_properties(task_pause_test PROPERTIES
     LABELS "integration"
     TIMEOUT 300
-    )
+)
 endif()
 
 # M3-01 visual contract (DEC-016): VisualSnapshot render forms and the
 # VisualReferenceRegistry publication contract, including a concurrent
 # writer/reader atomicity scenario (a TSAN target).
-mirage_add_test(visual_contract_test
-    SOURCES desktop/visual_contract_test.cpp
-    LIBS Mirage::desktop
+add_executable(visual_contract_test desktop/visual_contract_test.cpp)
+target_compile_features(visual_contract_test PUBLIC cxx_std_20)
+mirage_enable_warnings(visual_contract_test)
+target_link_libraries(visual_contract_test PRIVATE Mirage::desktop)
+add_test(NAME visual_contract_test COMMAND visual_contract_test)
+set_tests_properties(visual_contract_test PROPERTIES
     LABELS "unit"
     TIMEOUT 60
-    )
+)
 
 # M3-01 fake visual backends (DEC-016 decision 5): the deterministic OCR /
 # detection stand-ins against the pinned mirador SPI obligations. mirador::core
 # is a PRIVATE dependency of mirage_integration_mirador, so the pinned include
 # dirs no longer propagate transitively; the test asserts mirador Status
 # semantics directly and needs them (same shape as dependency_wiring_test).
-mirage_add_test(fake_visual_backend_test
-    SOURCES integration/fake_visual_backend_test.cpp
-    LIBS Mirage::integration_mirador mirador::core
+add_executable(fake_visual_backend_test integration/fake_visual_backend_test.cpp)
+target_compile_features(fake_visual_backend_test PUBLIC cxx_std_20)
+mirage_enable_warnings(fake_visual_backend_test)
+target_link_libraries(fake_visual_backend_test
+    PRIVATE
+        Mirage::integration_mirador
+        mirador::core
+)
+add_test(NAME fake_visual_backend_test COMMAND fake_visual_backend_test)
+set_tests_properties(fake_visual_backend_test PROPERTIES
     LABELS "unit"
     TIMEOUT 60
-    )
+)
 
 # M3-02 mirador integration adapter (DEC-016 decisions 3/4/5): the execution
 # context and frame translations, the bounded backend registry and the
@@ -1020,9 +1236,13 @@ target_link_libraries(visual_session_test
         mirador::fusion
 )
 # The session adapter drives the pinned Executor directly (the per-source
-# blocking worker) through Mirage::kairo_consumer (DEC-096).
+# blocking worker); headers are consumed as SYSTEM headers and the library is
+# linked by file path (same consumption form as mirage_devbridge_core).
+target_include_directories(visual_session_test SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include"
+)
 target_link_libraries(visual_session_test PRIVATE
-    Mirage::kairo_consumer
+    $<TARGET_FILE:kairo::kairo>
 )
 add_test(NAME visual_session_test COMMAND visual_session_test)
 set_tests_properties(visual_session_test PROPERTIES
@@ -1034,12 +1254,15 @@ set_tests_properties(visual_session_test PROPERTIES
 # ring-by-ring target resolution with traceable degraded fall-through, the
 # pointer click sequence under cooperative cancellation, and fail-closed
 # behavior for unbound dependencies, against the fake desktop environment.
-mirage_add_test(element_target_executor_test
-    SOURCES desktop/element_target_executor_test.cpp
-    LIBS Mirage::desktop
+add_executable(element_target_executor_test desktop/element_target_executor_test.cpp)
+target_compile_features(element_target_executor_test PUBLIC cxx_std_20)
+mirage_enable_warnings(element_target_executor_test)
+target_link_libraries(element_target_executor_test PRIVATE Mirage::desktop)
+add_test(NAME element_target_executor_test COMMAND element_target_executor_test)
+set_tests_properties(element_target_executor_test PROPERTIES
     LABELS "unit"
     TIMEOUT 60
-    )
+)
 
 # M3-03 visual observation loop (DEC-016 decisions 2/3): the fusion ->
 # VisualSnapshot mapping, publish_visual_snapshot boundary semantics and the
@@ -1057,9 +1280,13 @@ target_link_libraries(visual_observation_loop_test
         mirador::core
 )
 # The session host drives the pinned Executor directly (the per-source
-# blocking worker) through Mirage::kairo_consumer (DEC-096).
+# blocking worker); headers are consumed as SYSTEM headers and the library is
+# linked by file path (same consumption form as visual_session_test).
+target_include_directories(visual_observation_loop_test SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include"
+)
 target_link_libraries(visual_observation_loop_test PRIVATE
-    Mirage::kairo_consumer
+    $<TARGET_FILE:kairo::kairo>
 )
 add_test(NAME visual_observation_loop_test COMMAND visual_observation_loop_test)
 set_tests_properties(visual_observation_loop_test PROPERTIES
@@ -1076,12 +1303,19 @@ set_tests_properties(visual_observation_loop_test PROPERTIES
 # dependency of mirage_integration_mirador, so the pinned include dirs no
 # longer propagate transitively; the test asserts mirador Status / geometry
 # semantics directly and needs them (same shape as visual_session_test).
-mirage_add_test(visual_template_index_test
-    SOURCES integration/visual_template_index_test.cpp
-    LIBS Mirage::integration_mirador mirador::fusion
+add_executable(visual_template_index_test integration/visual_template_index_test.cpp)
+target_compile_features(visual_template_index_test PUBLIC cxx_std_20)
+mirage_enable_warnings(visual_template_index_test)
+target_link_libraries(visual_template_index_test
+    PRIVATE
+        Mirage::integration_mirador
+        mirador::fusion
+)
+add_test(NAME visual_template_index_test COMMAND visual_template_index_test)
+set_tests_properties(visual_template_index_test PROPERTIES
     LABELS "unit"
     TIMEOUT 60
-    )
+)
 
 add_executable(visual_cache_geometry_test integration/visual_cache_geometry_test.cpp)
 target_compile_features(visual_cache_geometry_test PUBLIC cxx_std_20)
@@ -1092,9 +1326,13 @@ target_link_libraries(visual_cache_geometry_test
         mirador::fusion
 )
 # The session host drives the pinned Executor directly (the per-source
-# blocking worker) through Mirage::kairo_consumer (DEC-096).
+# blocking worker); headers are consumed as SYSTEM headers and the library is
+# linked by file path (same consumption form as visual_session_test).
+target_include_directories(visual_cache_geometry_test SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include"
+)
 target_link_libraries(visual_cache_geometry_test PRIVATE
-    Mirage::kairo_consumer
+    $<TARGET_FILE:kairo::kairo>
 )
 add_test(NAME visual_cache_geometry_test COMMAND visual_cache_geometry_test)
 set_tests_properties(visual_cache_geometry_test PROPERTIES
@@ -1139,8 +1377,10 @@ set_tests_properties(dependency_lock_gate_test PROPERTIES
 
 if(UNIX)
     add_executable(harness_desktop_tools_test runtime/harness_desktop_tools_test.cpp)
+    target_include_directories(harness_desktop_tools_test SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
     target_link_libraries(harness_desktop_tools_test PRIVATE Mirage::runtime_service
-        Mirage::ipc Mirage::persistence Mirage::integration_mira Mirage::kairo_consumer)
+        Mirage::ipc Mirage::persistence Mirage::integration_mira kairo)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND X11_FOUND AND X11_Xtst_FOUND AND X11_Xrandr_FOUND)
         target_compile_definitions(harness_desktop_tools_test PRIVATE MIRAGE_HARNESS_X11)
         target_include_directories(harness_desktop_tools_test PRIVATE ${X11_INCLUDE_DIR})
@@ -1154,8 +1394,10 @@ if(UNIX)
         ${CMAKE_SOURCE_DIR}/apps/native/runtime_bridge.cpp ${CMAKE_SOURCE_DIR}/apps/native/attachment.cpp)
     target_include_directories(native_agent_integration_test PRIVATE
         ${CMAKE_SOURCE_DIR}/apps/native)
+    target_include_directories(native_agent_integration_test SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
     target_link_libraries(native_agent_integration_test PRIVATE Mirage::runtime_service
-        Mirage::ipc Mirage::persistence Mirage::integration_mira Mirage::kairo_consumer)
+        Mirage::ipc Mirage::persistence Mirage::integration_mira kairo)
     mirage_enable_warnings(native_agent_integration_test)
     add_test(NAME native_agent_integration_test COMMAND native_agent_integration_test)
     # Includes escaped multi-MiB persistence/recovery; fully instrumented Debug
@@ -1172,9 +1414,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_ENABLE_NATIVE_FRONTEND)
     add_dependencies(native_conversation_view_test mirage-native)
     target_include_directories(native_conversation_view_test PRIVATE ${CMAKE_SOURCE_DIR}/apps/native)
     target_include_directories(native_conversation_view_test SYSTEM PRIVATE
-        ${CMAKE_SOURCE_DIR}/third_party/eui-neo ${CMAKE_SOURCE_DIR}/third_party/eui-neo/include)
-    target_link_libraries(native_conversation_view_test PRIVATE eui::neo Mirage::ipc Mirage::persistence
-        Mirage::platform Mirage::kairo_consumer)
+        ${CMAKE_SOURCE_DIR}/third_party/eui-neo ${CMAKE_SOURCE_DIR}/third_party/eui-neo/include
+        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
+    target_link_libraries(native_conversation_view_test PRIVATE eui::neo Mirage::ipc Mirage::persistence kairo)
     mirage_enable_warnings(native_conversation_view_test)
     add_test(NAME native_conversation_view_test COMMAND native_conversation_view_test)
     set_tests_properties(native_conversation_view_test PROPERTIES LABELS "integration;ui" TIMEOUT 30
@@ -1182,50 +1424,59 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_ENABLE_NATIVE_FRONTEND)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-mirage_add_test(tray_runtime_test
-    SOURCES runtime/tray_runtime_test.cpp
-    LIBS Mirage::kairo_consumer Mirage::runtime_service Mirage::integration_mira
-    LABELS "integration;runtime;lifecycle"
-    TIMEOUT 30
-    )
+    add_executable(tray_runtime_test runtime/tray_runtime_test.cpp)
+    target_compile_features(tray_runtime_test PRIVATE cxx_std_20)
+    target_include_directories(tray_runtime_test SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+    target_link_libraries(tray_runtime_test PRIVATE Mirage::runtime_service Mirage::integration_mira)
+    mirage_enable_warnings(tray_runtime_test)
+    add_test(NAME tray_runtime_test COMMAND tray_runtime_test)
+    set_tests_properties(tray_runtime_test PROPERTIES LABELS "integration;runtime;lifecycle" TIMEOUT 30)
 
     # M8-01: pet status projection (status.hpp contract: task/dialog state -> PetStatus).
-mirage_add_test(pet_status_test
-    SOURCES runtime/pet_status_test.cpp
-    LIBS Mirage::pet_state Mirage::ipc
-    LABELS "unit;pet"
-    TIMEOUT 10
-    )
+    add_executable(pet_status_test runtime/pet_status_test.cpp)
+    target_compile_features(pet_status_test PRIVATE cxx_std_20)
+    target_link_libraries(pet_status_test PRIVATE Mirage::pet_state Mirage::ipc)
+    mirage_enable_warnings(pet_status_test)
+    add_test(NAME pet_status_test COMMAND pet_status_test)
+    set_tests_properties(pet_status_test PROPERTIES LABELS "unit;pet" TIMEOUT 10)
 
     # M8-02/M8-03: pet animation player (animation.hpp: frame sequencing, loop seams, transition timing).
-mirage_add_test(pet_animation_test
-    SOURCES runtime/pet_animation_test.cpp
-    LIBS Mirage::pet_state
-    LABELS "unit;pet"
-    TIMEOUT 10
-    )
+    add_executable(pet_animation_test runtime/pet_animation_test.cpp)
+    target_compile_features(pet_animation_test PRIVATE cxx_std_20)
+    target_link_libraries(pet_animation_test PRIVATE Mirage::pet_state)
+    mirage_enable_warnings(pet_animation_test)
+    add_test(NAME pet_animation_test COMMAND pet_animation_test)
+    set_tests_properties(pet_animation_test PROPERTIES LABELS "unit;pet" TIMEOUT 10)
 
     # POSIX fixture waits; the product adapter itself remains portable.
-mirage_add_test(pet_projection_refresh_test
-    SOURCES runtime/pet_projection_refresh_test.cpp
-    LIBS Mirage::kairo_consumer
-    LABELS "unit;pet;lifecycle"
-    TIMEOUT 15
-    )
+    add_executable(pet_projection_refresh_test runtime/pet_projection_refresh_test.cpp)
+    target_compile_features(pet_projection_refresh_test PRIVATE cxx_std_20)
+    target_include_directories(pet_projection_refresh_test SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+    target_link_libraries(pet_projection_refresh_test PRIVATE kairo)
+    mirage_enable_warnings(pet_projection_refresh_test)
+    add_test(NAME pet_projection_refresh_test COMMAND pet_projection_refresh_test)
+    set_tests_properties(pet_projection_refresh_test PROPERTIES LABELS "unit;pet;lifecycle" TIMEOUT 15)
 
     # M8-01: end-to-end status projection (runtime_service dialog settlement -> IPC event -> pet status).
-mirage_add_test(pet_status_integration_test
-    SOURCES runtime/pet_status_integration_test.cpp
-    LIBS Mirage::kairo_consumer Mirage::runtime_service Mirage::integration_mira Mirage::pet_state
-    LABELS "integration;runtime;pet"
-    TIMEOUT 30
-    )
+    add_executable(pet_status_integration_test runtime/pet_status_integration_test.cpp)
+    target_compile_features(pet_status_integration_test PRIVATE cxx_std_20)
+    target_include_directories(pet_status_integration_test SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+    target_link_libraries(pet_status_integration_test PRIVATE
+        Mirage::runtime_service Mirage::integration_mira Mirage::pet_state)
+    mirage_enable_warnings(pet_status_integration_test)
+    add_test(NAME pet_status_integration_test COMMAND pet_status_integration_test)
+    set_tests_properties(pet_status_integration_test PROPERTIES LABELS "integration;runtime;pet" TIMEOUT 30)
 endif()
 
 add_executable(action_contract_test desktop/action_contract_test.cpp)
 target_compile_definitions(action_contract_test PRIVATE
     MIRAGE_ACTION_SCHEMA_GOLDEN="${CMAKE_CURRENT_SOURCE_DIR}/desktop/data/m7_desktop_tools_schema.json")
-target_link_libraries(action_contract_test PRIVATE Mirage::desktop Mirage::integration_mira Mirage::kairo_consumer)
+target_include_directories(action_contract_test SYSTEM PRIVATE
+    ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
+target_link_libraries(action_contract_test PRIVATE Mirage::desktop Mirage::integration_mira kairo)
 mirage_enable_warnings(action_contract_test)
 add_test(NAME action_contract_test COMMAND action_contract_test)
 set_tests_properties(action_contract_test PROPERTIES LABELS "integration;runtime" TIMEOUT 30)
@@ -1233,21 +1484,23 @@ set_tests_properties(action_contract_test PROPERTIES LABELS "integration;runtime
 # POSIX-coupled: the pretimeout scenario sleeps through <poll.h>; see the
 # ppocr_pipeline_test note above.
 if(UNIX)
-mirage_add_test(desktop_image_supply_test
-    SOURCES integration/desktop_image_supply_test.cpp
-    LIBS Mirage::integration_mira Mirage::persistence Mirage::kairo_consumer
-    LABELS "integration;runtime"
-    TIMEOUT 30
-    )
+    add_executable(desktop_image_supply_test integration/desktop_image_supply_test.cpp)
+    target_include_directories(desktop_image_supply_test SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
+    target_link_libraries(desktop_image_supply_test PRIVATE Mirage::integration_mira Mirage::persistence kairo)
+    mirage_enable_warnings(desktop_image_supply_test)
+    add_test(NAME desktop_image_supply_test COMMAND desktop_image_supply_test)
+    set_tests_properties(desktop_image_supply_test PROPERTIES LABELS "integration;runtime" TIMEOUT 30)
 
     # DEC-088 capability 2/3: DesktopContextBuilder compaction mapping and its
     # ConversationLoop seam wiring over the scripted-provider harness path.
-mirage_add_test(desktop_context_builder_test
-    SOURCES integration/desktop_context_builder_test.cpp
-    LIBS Mirage::integration_mira Mirage::kairo_consumer
-    LABELS "integration;runtime"
-    TIMEOUT 120
-    )
+    add_executable(desktop_context_builder_test integration/desktop_context_builder_test.cpp)
+    target_include_directories(desktop_context_builder_test SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
+    target_link_libraries(desktop_context_builder_test PRIVATE Mirage::integration_mira kairo)
+    mirage_enable_warnings(desktop_context_builder_test)
+    add_test(NAME desktop_context_builder_test COMMAND desktop_context_builder_test)
+    set_tests_properties(desktop_context_builder_test PROPERTIES LABELS "integration;runtime" TIMEOUT 120)
 endif()
 
 # M7-17: independent PNG round trip. The Python decoder re-runs the
@@ -1263,7 +1516,9 @@ if(UNIX AND MIRAGE_PNG_CHECK_PYTHON)
 endif()
 
 add_executable(post_action_verification_test integration/post_action_verification_test.cpp)
-target_link_libraries(post_action_verification_test PRIVATE Mirage::integration_mira Mirage::kairo_consumer)
+target_include_directories(post_action_verification_test SYSTEM PRIVATE
+    ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
+target_link_libraries(post_action_verification_test PRIVATE Mirage::integration_mira kairo)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND X11_FOUND AND X11_Xtst_FOUND AND X11_Xrandr_FOUND)
     target_compile_definitions(post_action_verification_test PRIVATE MIRAGE_POST_ACTION_X11)
     target_include_directories(post_action_verification_test PRIVATE ${X11_INCLUDE_DIR})
@@ -1273,39 +1528,48 @@ mirage_enable_warnings(post_action_verification_test)
 add_test(NAME post_action_verification_test COMMAND post_action_verification_test)
 set_tests_properties(post_action_verification_test PROPERTIES LABELS "integration;runtime;platform" TIMEOUT 30)
 
-mirage_add_test(visual_text_verification_test
-    SOURCES integration/visual_text_verification_test.cpp
-    LIBS Mirage::integration_mira Mirage::kairo_consumer
-    LABELS "integration;runtime;security"
-    TIMEOUT 30
-    )
+add_executable(visual_text_verification_test integration/visual_text_verification_test.cpp)
+target_include_directories(visual_text_verification_test SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+target_link_libraries(visual_text_verification_test PRIVATE Mirage::integration_mira kairo)
+mirage_enable_warnings(visual_text_verification_test)
+add_test(NAME visual_text_verification_test COMMAND visual_text_verification_test)
+set_tests_properties(visual_text_verification_test PROPERTIES LABELS "integration;runtime;security" TIMEOUT 30)
 
-mirage_add_test(visual_marks_test
-    SOURCES integration/visual_marks_test.cpp
-    LIBS Mirage::integration_mirador mirador::fusion Mirage::kairo_consumer
-    LABELS "integration;runtime;security"
-    TIMEOUT 30
-    )
+add_executable(visual_marks_test integration/visual_marks_test.cpp)
+target_include_directories(visual_marks_test SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+target_link_libraries(visual_marks_test PRIVATE Mirage::integration_mirador mirador::fusion kairo)
+mirage_enable_warnings(visual_marks_test)
+add_test(NAME visual_marks_test COMMAND visual_marks_test)
+set_tests_properties(visual_marks_test PROPERTIES LABELS "integration;runtime;security" TIMEOUT 30)
 
 # M7-16 / DEC-083: the target-region stability guard shared by the Wayland
 # shared-input and X11 numbered-pointer re-verification, as a header-only
 # unit over synthetic BGRA8 frames. The pinned mirador detection symbols are
 # consumed through the static Mirage::integration_mirador archive; mirador::core
 # re-exports the pinned include dirs (same shape as fake_visual_backend_test).
-mirage_add_test(desktop_stability_guard_test
-    SOURCES integration/desktop_stability_guard_test.cpp
-    LIBS Mirage::desktop Mirage::integration_mirador mirador::core
-    LABELS "unit;integration"
-    TIMEOUT 60
-    )
+add_executable(desktop_stability_guard_test integration/desktop_stability_guard_test.cpp)
+target_compile_features(desktop_stability_guard_test PUBLIC cxx_std_20)
+mirage_enable_warnings(desktop_stability_guard_test)
+target_link_libraries(desktop_stability_guard_test
+    PRIVATE
+        Mirage::desktop
+        Mirage::integration_mirador
+        mirador::core
+)
+add_test(NAME desktop_stability_guard_test COMMAND desktop_stability_guard_test)
+set_tests_properties(desktop_stability_guard_test PROPERTIES LABELS "unit;integration" TIMEOUT 60)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND X11_FOUND AND X11_Xtst_FOUND AND X11_Xrandr_FOUND)
-mirage_add_test(x11_visual_marks_test
-    SOURCES platform/x11_visual_marks_test.cpp
-    LIBS Mirage::platform Mirage::integration_mirador mirador::fusion Mirage::kairo_consumer ${X11_X11_LIB}
-    LABELS "integration;platform"
-    TIMEOUT 30
-    )
+    add_executable(x11_visual_marks_test platform/x11_visual_marks_test.cpp)
+    target_include_directories(x11_visual_marks_test SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+    target_link_libraries(x11_visual_marks_test PRIVATE Mirage::platform
+        Mirage::integration_mirador mirador::fusion kairo ${X11_X11_LIB})
+    mirage_enable_warnings(x11_visual_marks_test)
+    add_test(NAME x11_visual_marks_test COMMAND x11_visual_marks_test)
+    set_tests_properties(x11_visual_marks_test PROPERTIES LABELS "integration;platform" TIMEOUT 30)
 endif()
 
 if(MIRAGE_BUNDLE_VISION)
@@ -1343,7 +1607,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 add_executable(gui_fallback_test integration/gui_fallback_test.cpp)
-target_link_libraries(gui_fallback_test PRIVATE Mirage::integration_mira Mirage::kairo_consumer)
+target_include_directories(gui_fallback_test SYSTEM PRIVATE
+    ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
+target_link_libraries(gui_fallback_test PRIVATE Mirage::integration_mira kairo)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND X11_FOUND AND X11_Xtst_FOUND AND X11_Xrandr_FOUND)
     target_compile_definitions(gui_fallback_test PRIVATE MIRAGE_GUI_X11)
     target_include_directories(gui_fallback_test PRIVATE ${X11_INCLUDE_DIR})
@@ -1391,29 +1657,31 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-mirage_add_test(portal_input_test
-    SOURCES platform/portal_input_test.cpp
-    LIBS Mirage::platform Mirage::kairo_consumer
-    LABELS "platform;wayland"
-    TIMEOUT 30
-    )
+    add_executable(portal_input_test platform/portal_input_test.cpp)
+    target_link_libraries(portal_input_test PRIVATE Mirage::platform kairo)
+    target_include_directories(portal_input_test SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
+    mirage_enable_warnings(portal_input_test)
+    add_test(NAME portal_input_test COMMAND portal_input_test)
+    set_tests_properties(portal_input_test PROPERTIES LABELS "platform;wayland" TIMEOUT 30)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND _mirage_portal_available)
     find_package(PNG REQUIRED)
     add_executable(wayland_input_host_test platform/wayland_input_host_test.cpp)
-    target_link_libraries(wayland_input_host_test PRIVATE Mirage::platform Mirage::integration_mira Mirage::kairo_consumer PNG::PNG)
+    target_link_libraries(wayland_input_host_test PRIVATE Mirage::platform Mirage::integration_mira kairo PNG::PNG)
+    target_include_directories(wayland_input_host_test SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
     mirage_enable_warnings(wayland_input_host_test)
     # Manual system consent and a public native Wayland fixture required; no CTest.
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-mirage_add_test(portal_authorization_test
-    SOURCES platform/portal_authorization_test.cpp
-    LIBS Mirage::platform
-    LABELS "platform;wayland;security"
-    TIMEOUT 30
-    )
+    add_executable(portal_authorization_test platform/portal_authorization_test.cpp)
+    target_link_libraries(portal_authorization_test PRIVATE Mirage::platform)
+    mirage_enable_warnings(portal_authorization_test)
+    add_test(NAME portal_authorization_test COMMAND portal_authorization_test)
+    set_tests_properties(portal_authorization_test PROPERTIES LABELS "platform;wayland;security" TIMEOUT 30)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND _mirage_pipewire_available)
@@ -1434,12 +1702,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND _mirage_pipewire_available)
     set_tests_properties(portal_stream_retention_test PROPERTIES LABELS "platform;wayland;unit" TIMEOUT 30)
 endif()
 
-mirage_add_test(pet_bubble_test
-    SOURCES runtime/pet_bubble_test.cpp
-    LIBS Mirage::pet_state Mirage::ipc
-    LABELS "unit;runtime;pet;protocol"
-    TIMEOUT 10
-    )
+add_executable(pet_bubble_test runtime/pet_bubble_test.cpp)
+target_compile_features(pet_bubble_test PRIVATE cxx_std_20)
+target_link_libraries(pet_bubble_test PRIVATE Mirage::pet_state Mirage::ipc)
+mirage_enable_warnings(pet_bubble_test)
+add_test(NAME pet_bubble_test COMMAND pet_bubble_test)
+set_tests_properties(pet_bubble_test PROPERTIES LABELS "unit;runtime;pet;protocol" TIMEOUT 10)
 
 if(WIN32)
     add_executable(win32_tray_menu_test platform/win32_tray_menu_test.cpp)
@@ -1468,68 +1736,9 @@ endif()
 option(MIRAGE_BUILD_MANUAL_ACCEPTANCE "Build the opt-in live acceptance driver" OFF)
 if(MIRAGE_BUILD_MANUAL_ACCEPTANCE)
     add_executable(dec088_live_acceptance manual/dec088_live_acceptance.cpp)
+    target_include_directories(dec088_live_acceptance SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include)
     target_compile_features(dec088_live_acceptance PRIVATE cxx_std_20)
-    target_link_libraries(dec088_live_acceptance PRIVATE Mirage::integration_mira Mirage::kairo_consumer)
+    target_link_libraries(dec088_live_acceptance PRIVATE Mirage::integration_mira kairo)
     mirage_enable_warnings(dec088_live_acceptance)
 endif()
-
-# M10-03 (DEC-095): the additive FilesystemProvider / ProcessProvider
-# contracts default to fail-closed results; the legacy entry points and the
-# positional ProcessOutcome initializer shape stay untouched. Platform
-# headers kept out of the test (this is a pure desktop-layer unit).
-mirage_add_test(basic_contract_default_test
-    SOURCES desktop/basic_contract_default_test.cpp
-    LIBS Mirage::desktop
-    LABELS "unit;desktop"
-    TIMEOUT 30
-    )
-
-# M10-04/M10-05 (DEC-095): the Linux windowed file and exec surface against
-# real files in a per-run temp workspace. POSIX-only by nature (O_NOFOLLOW,
-# renameat2, /proc/self/fd, process groups).
-if(UNIX)
-mirage_add_test(linux_file_actions_test
-    SOURCES platform/linux_file_actions_test.cpp
-    LIBS Mirage::desktop Mirage::platform
-    LABELS "unit;platform"
-    TIMEOUT 120
-    )
-endif()
-
-# M10-07 (DEC-095): the exec/read/write/edit session toolset over the pinned
-# registry dispatch path and the real Linux desktop environment; the pinned
-# include dirs propagate from Mirage::integration_mira by design.
-# POSIX-coupled: the scenarios drive the real Linux desktop environment
-# (LinuxDesktopEnvironment is only compiled on Linux).
-if(UNIX)
-mirage_add_test(basic_agent_toolset_test
-    SOURCES integration/basic_agent_toolset_test.cpp ${CMAKE_SOURCE_DIR}/runtime/service/src/basic_output_store.cpp
-    INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/runtime/service/include
-    LIBS Mirage::integration_mira Mirage::desktop Mirage::platform
-    LABELS "integration;runtime"
-    TIMEOUT 120
-    )
-endif()
-
-# M10-06 (DEC-095): the disk-backed retained-command-output store against a
-# per-run temp root with small budgets so every cap is deterministically
-# reachable. The store implementation is compiled in directly (its only
-# non-header dependency is the pinned mira id vocabulary), keeping the
-# runtime service's executor surface out of this unit.
-mirage_add_test(basic_output_store_test
-    SOURCES runtime/basic_output_store_test.cpp ${CMAKE_SOURCE_DIR}/runtime/service/src/basic_output_store.cpp
-    INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/runtime/service/include
-    LIBS Mirage::integration_mira Mirage::desktop
-    LABELS "unit;runtime"
-    TIMEOUT 60
-    )
-
-# M10-09 manual product probe: drives one real harness turn through a live
-# mirage-service so a configured model endpoint (e.g. the DeepSeek profile
-# in the user's settings) exercises exec/read/write/edit end to end. It
-# needs a running service, network and OS-credential access, so it is
-# built for manual runs and never registered with add_test.
-add_executable(m10_basic_tools_e2e manual/m10_basic_tools_e2e.cpp)
-target_compile_features(m10_basic_tools_e2e PRIVATE cxx_std_20)
-mirage_enable_warnings(m10_basic_tools_e2e)
-target_link_libraries(m10_basic_tools_e2e PRIVATE Mirage::ipc Mirage::conversation)

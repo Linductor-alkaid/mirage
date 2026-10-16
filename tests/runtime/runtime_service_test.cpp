@@ -1,6 +1,5 @@
 #include "../support/fake_desktop_environment.hpp"
 #include "../support/ipc_io.hpp"
-#include "../support/scripted_model_provider.hpp"
 
 #include <mira/core_contracts.hpp>
 #include <mira/model_contracts.hpp>
@@ -1204,9 +1203,102 @@ void scenario_session_list_open_and_history_flow() {
 
 // --- session.chat dialog face (DEC-027) --------------------------------------
 
-// The scripted/gated model-provider fakes for the dialog face scenes live in
-// tests/support/scripted_model_provider.hpp (REUSE-14: deduplicated from the
-// local copies that grew in this file and event_subscription_test.cpp).
+/// A scripted pinned model provider for the dialog face scene (DEC-027):
+/// binds to the layer-assembled profile and answers every inference with a
+/// fixed assistant text — the same hermetic pattern the pinned M14/M15
+/// harnesses use (the production socket provider denies private/loopback
+/// endpoints by design, so a local origin can never serve this test).
+class ScriptedModelProvider final : public mira::IModelProvider {
+  public:
+    explicit ScriptedModelProvider(const mira::ModelProfile &profile) : profile_(profile) {}
+    [[nodiscard]] const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        ++calls_;
+        mira::ModelResponse response;
+        response.contract_version = mira::SchemaVersion{1, 0};
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.requested_model = profile_.model_selector;
+        response.status = mira::ModelCompletionStatus::Completed;
+        mira::MessageOutput message;
+        message.role = mira::ModelRole::Assistant;
+        mira::OutputTextPart text;
+        text.text = "桌面回复正常。";
+        message.content.emplace_back(std::move(text));
+        response.output.emplace_back(std::move(message));
+        return response;
+    }
+    [[nodiscard]] int calls() const { return calls_.load(); }
+
+  private:
+    mira::ModelProfile profile_;
+    std::atomic<int> calls_{0};
+};
+
+/// A gate-blocked scripted provider (DEC-027): an inference holds inside
+/// infer() until the test releases it — the window the in-flight latch and
+/// the pending history shape live in — and later inferences return a
+/// scripted outcome (the canned reply, or a Failed status), so the failure
+/// settlement path is reachable deterministically. The cancellation probe is
+/// honored so teardown is never blocked.
+class GatedModelProvider final : public mira::IModelProvider {
+  public:
+    GatedModelProvider() = default;
+    [[nodiscard]] const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &context,
+                                            const mira::ProviderInferOptions &) override {
+        ++calls_;
+        while (hold_.load() && !context.cancelled()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{5});
+        }
+        if (context.cancelled()) {
+            mira::ModelResponse cancelled;
+            cancelled.contract_version = mira::SchemaVersion{1, 0};
+            cancelled.request_id = request.request_id;
+            cancelled.operation_id = request.operation_id;
+            cancelled.profile_id = profile_.id;
+            cancelled.requested_model = profile_.model_selector;
+            cancelled.status = mira::ModelCompletionStatus::Cancelled;
+            return cancelled;
+        }
+        mira::ModelResponse response;
+        response.contract_version = mira::SchemaVersion{1, 0};
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.requested_model = profile_.model_selector;
+        if (fail_after_release_.load()) {
+            response.status = mira::ModelCompletionStatus::Failed;
+            return response;
+        }
+        response.status = mira::ModelCompletionStatus::Completed;
+        mira::MessageOutput message;
+        message.role = mira::ModelRole::Assistant;
+        mira::OutputTextPart text;
+        text.text = "门控回复正常。";
+        message.content.emplace_back(std::move(text));
+        response.output.emplace_back(std::move(message));
+        return response;
+    }
+
+    void hold_open() { hold_.store(true); }
+    void release() { hold_.store(false); }
+    void fail_subsequent() { fail_after_release_.store(true); }
+
+    /// Binds the layer-assembled profile (the override factory receives it).
+    void bind_profile(const mira::ModelProfile &profile) { profile_ = profile; }
+
+  private:
+    mira::ModelProfile profile_;
+    std::atomic<int> calls_{0};
+    std::atomic<bool> hold_{false};
+    std::atomic<bool> fail_after_release_{false};
+};
+
 /// The dialog latch and failure settlement (DEC-027): a second session.chat
 /// while one turn's model call is in flight is refused invalid_state, the
 /// pending turn's history entry carries neither reply nor error, a Failed
@@ -1219,7 +1311,7 @@ void scenario_session_chat_latch_and_failure() {
     config.model.enabled = true;
     config.model.dialect = "openai.responses.v1";
     config.model.model_selector = "test-model";
-    auto gated_provider = std::make_shared<mirage::testing::GatedModelProvider>();
+    auto gated_provider = std::make_shared<GatedModelProvider>();
     const auto scripted = std::make_shared<mirage::integration::ModelProviderOverride>(
         [&gated_provider](
             const mira::ModelProfile &profile) -> std::shared_ptr<mira::IModelProvider> {
@@ -1405,10 +1497,7 @@ void scenario_session_chat_dialog_face() {
     config.model.model_selector = "test-model";
     const auto scripted = std::make_shared<mirage::integration::ModelProviderOverride>(
         [](const mira::ModelProfile &profile) -> std::shared_ptr<mira::IModelProvider> {
-            auto provider =
-                std::make_shared<mirage::testing::ScriptedModelProvider>("桌面回复正常。");
-            provider->bind_profile(profile);
-            return provider;
+            return std::make_shared<ScriptedModelProvider>(profile);
         });
     config.model_provider_override = scripted;
     RuntimeService service(config);
@@ -1509,82 +1598,6 @@ void scenario_session_chat_dialog_face() {
 /// reports the full DEC-010 rule set, policy.set applies it live (the next
 /// gated action obeys the new rule) and persists the merged document to the
 /// settings store; the document decodes back with the new rules.
-
-/// M10-08 (DEC-095) regression: policy.set's settings read-modify-write does
-/// not own the basic_tools block — a seeded block must survive a policy.set
-/// byte-for-byte while the permission rules and read roots update.
-void scenario_policy_set_preserves_basic_tools_block() {
-    namespace persistence = mirage::runtime::persistence;
-    mirage::testing::TempDir dir;
-    ServiceConfig config = make_config(dir);
-    config.read_roots = {"/home/user/work"};
-    config.settings_directory = dir.root() / "settings";
-
-    // Seed the document the product settings face would have written.
-    std::filesystem::create_directories(config.settings_directory);
-    persistence::LocalSettings seeded;
-    seeded.schema = persistence::kSettingsSchema;
-    seeded.basic_tools = persistence::BasicToolsSettings{
-        true, true, "/home/user/工作 区", {"/home/user/work", "/tmp/scratch"}};
-    {
-        persistence::LocalStateStore store(config.settings_directory, config.settings_file_name,
-                                           persistence::kMaxSettingsFileBytes);
-        const auto saved = store.save(persistence::encode_settings(seeded));
-        MIRAGE_CHECK(saved.ok);
-        MIRAGE_CHECK(saved.error.empty());
-    }
-
-    RuntimeService service(config);
-    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
-
-    ipc::IpcClient client(config.socket_path);
-    const ipc::Response hello = client.call(ipc::HelloRequest{}, kCallBudget);
-    MIRAGE_CHECK(hello.ok);
-
-    // policy.set with full DEC-010 coverage; also moves the read roots.
-    const ipc::Response got = client.call(ipc::GetPolicyRequest{}, kCallBudget);
-    MIRAGE_CHECK(got.ok);
-    const auto *view = std::get_if<ipc::PolicyView>(&got.payload);
-    MIRAGE_CHECK(view != nullptr);
-    if (view == nullptr) {
-        service.request_shutdown();
-        MIRAGE_CHECK(service.run().clean);
-        return;
-    }
-    ipc::SetPolicyRequest set_policy;
-    set_policy.rules = view->rules;
-    set_policy.rules["clipboard.write"] = "deny";
-    set_policy.read_roots = {"/elsewhere"};
-    set_policy.has_read_roots = true;
-    const ipc::Response applied = client.call(set_policy, kCallBudget);
-    MIRAGE_CHECK(applied.ok);
-
-    // The persisted document carries the new policy and the untouched
-    // basic_tools block.
-    persistence::LocalStateStore store(config.settings_directory, config.settings_file_name,
-                                       persistence::kMaxSettingsFileBytes);
-    const auto loaded = store.load();
-    MIRAGE_CHECK(loaded.status == persistence::LoadStatus::Loaded);
-    const auto decoded = persistence::decode_settings(loaded.body);
-    MIRAGE_CHECK(decoded.ok);
-    if (decoded.ok) {
-        MIRAGE_CHECK(decoded.settings.permission_rules.at("clipboard.write") == "deny");
-        MIRAGE_CHECK(decoded.settings.read_roots == std::vector<std::string>({"/elsewhere"}));
-        MIRAGE_CHECK(decoded.settings.basic_tools.has_value());
-        if (decoded.settings.basic_tools.has_value()) {
-            const auto &tools = *decoded.settings.basic_tools;
-            MIRAGE_CHECK(tools.enabled);
-            MIRAGE_CHECK(tools.exec_enabled);
-            MIRAGE_CHECK(tools.workspace == "/home/user/工作 区");
-            MIRAGE_CHECK(tools.write_roots ==
-                         std::vector<std::string>({"/home/user/work", "/tmp/scratch"}));
-        }
-    }
-
-    service.request_shutdown();
-    MIRAGE_CHECK(service.run().clean);
-}
-
 void scenario_policy_face_get_set_persists() {
     mirage::testing::TempDir dir;
     ServiceConfig config = make_config(dir);
@@ -1681,10 +1694,7 @@ void scenario_session_state_round_trip_across_restart() {
     ServiceConfig config = make_local_config();
     const auto scripted = std::make_shared<mirage::integration::ModelProviderOverride>(
         [](const mira::ModelProfile &profile) -> std::shared_ptr<mira::IModelProvider> {
-            auto provider =
-                std::make_shared<mirage::testing::ScriptedModelProvider>("桌面回复正常。");
-            provider->bind_profile(profile);
-            return provider;
+            return std::make_shared<ScriptedModelProvider>(profile);
         });
     config.model_provider_override = scripted;
     RuntimeService service(config);
@@ -2047,10 +2057,7 @@ void scenario_session_close_frees_dialog_registry_slot() {
     config.model.model_selector = "test-model";
     const auto scripted = std::make_shared<mirage::integration::ModelProviderOverride>(
         [](const mira::ModelProfile &profile) -> std::shared_ptr<mira::IModelProvider> {
-            auto provider =
-                std::make_shared<mirage::testing::ScriptedModelProvider>("桌面回复正常。");
-            provider->bind_profile(profile);
-            return provider;
+            return std::make_shared<ScriptedModelProvider>(profile);
         });
     config.model_provider_override = scripted;
     RuntimeService service(config);
@@ -2543,8 +2550,6 @@ int main() {
     run_scenario("session_close_frees_dialog_registry_slot",
                  scenario_session_close_frees_dialog_registry_slot);
     run_scenario("policy_face_get_set_persists", scenario_policy_face_get_set_persists);
-    run_scenario("policy_set_preserves_basic_tools_block",
-                 scenario_policy_set_preserves_basic_tools_block);
     run_scenario("policy_set_live_effect_and_fail_closed_persist",
                  scenario_policy_set_live_effect_and_fail_closed_persist);
     run_scenario("session_state_corrupt_document_degrades_loudly",

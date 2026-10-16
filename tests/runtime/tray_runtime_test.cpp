@@ -519,26 +519,6 @@ int main() {
     pet_lifecycle();
     pet_controls();
     pet_faults();
-    {
-        mirage::testing::TempDir dir;
-        auto carrier = std::make_shared<Carrier>();
-        auto frontend = std::make_shared<Frontend>();
-        auto options = config(dir, carrier, frontend);
-        options.pet_expected = true;
-        options.open_frontend = false;
-        mirage::runtime::RuntimeService service(options);
-        MIRAGE_CHECK(service.start(binding()).ok);
-        ipc::IpcClient client(options.socket_path);
-        const auto product = state(client);
-        MIRAGE_CHECK(product.pet_pid == 0 && product.pet_state == "failed");
-        MIRAGE_CHECK(product.pet_diagnostic &&
-                     product.pet_diagnostic->find("mirage-native-product") != std::string::npos);
-        const auto start = client.call(ipc::ProductControlRequest{"pet_start"}, 2s);
-        MIRAGE_CHECK(!start.ok && start.error.message == product.pet_diagnostic);
-        MIRAGE_CHECK(client.call(ipc::PetStatusRequest{}, 2s).ok); // projection still works
-        MIRAGE_CHECK(client.call(ipc::ShutdownRequest{}, 2s).ok);
-        MIRAGE_CHECK(service.run().clean);
-    }
     active_exit();
     workflow_exit();
     slow_workflow_maintenance();

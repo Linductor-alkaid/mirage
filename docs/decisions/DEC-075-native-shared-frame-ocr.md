@@ -5,11 +5,6 @@
 > 负责人：Mirage 维护者
 > 工作项：M7-10 第三增量、M7-14；承接 DEC-057/073/074
 
-2026-10-15 局部修订：[DEC-090](DEC-090-continuous-task-execution.md) 不再以整个
-主任务累计帧数终止；[DEC-091](DEC-091-local-semantic-perception-and-action-loop.md)
-将观察取帧/分析复用与动作后强新鲜度分开。M9-03/06 跟踪实现，以下为历史契约
-与证据；权限、受管 worker、单次预算和动作后新证据要求继续有效。
-
 新用户记录已使用最新产品：application.open_uri 本地重验与进程局部验证成功，
 ScreenCast 连续供图成功；desktop.vision.ocr 两次失败。根因是 Runtime 的 OCR 回调
 仍使用只支持全局显示坐标的 list_displays/refresh 路径，原生 Portal 没有这类 ID。

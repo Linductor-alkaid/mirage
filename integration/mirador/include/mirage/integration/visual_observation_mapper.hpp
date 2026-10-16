@@ -3,7 +3,6 @@
 #include <mirador/semantic_snapshot.hpp>
 
 #include <mirage/desktop/visual_reference_registry.hpp>
-#include <mirage/desktop/visual_scene.hpp>
 #include <mirage/desktop/visual_snapshot.hpp>
 
 namespace mirage::integration {
@@ -32,14 +31,6 @@ namespace mirage::integration {
 ///
 /// `ref` and `scope_ref` stay empty: the registry assigns them at publish.
 desktop::VisualSnapshot to_visual_snapshot(const mirador::SemanticSnapshot &fusion);
-
-// DEC-091: retain the raw text/label separately for incremental scene state.
-// The caller supplies lifecycle/content versions after its identity checks;
-// a fusion stable_id alone never establishes a confirmed execution target.
-desktop::VisualSceneObject to_visual_scene_object(const mirador::VisualRegion &region,
-                                                  std::uint64_t incarnation,
-                                                  std::uint64_t content_revision,
-                                                  bool identity_confirmed = false);
 
 /// Maps and publishes in one step: `to_visual_snapshot` followed by
 /// `VisualReferenceRegistry::publish`, which renumbers the regions

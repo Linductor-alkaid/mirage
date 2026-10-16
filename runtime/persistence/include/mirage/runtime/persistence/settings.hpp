@@ -53,18 +53,6 @@ struct VisionSettings {
     std::string ocr_manifest; ///< DEC-066: absolute local path; empty disables OCR on restart.
 };
 
-/// M10-08 (DEC-095): basic agent tools group (exec/read/write/edit).
-/// `workspace` (absolute path) enables relative path resolution and exec;
-/// empty `write_roots` keep the write/edit surface dark even when the
-/// group is enabled — read roots never imply write authority. Changes
-/// take effect at the next start, like the vision block.
-struct BasicToolsSettings {
-    bool enabled = false;
-    bool exec_enabled = false;
-    std::string workspace;
-    std::vector<std::string> write_roots;
-};
-
 /// Bounded absolute manifest path, without control characters; empty disables OCR.
 bool valid_ocr_manifest_path(std::string_view path);
 
@@ -101,9 +89,8 @@ struct LocalSettings {
     /// Runtime configuration block (M5-08 Runtime Configuration 类目);
     /// nullopt keeps the built-in bounds.
     std::optional<RuntimeSettings> runtime;
-    std::optional<VisionSettings> vision;          ///< Resource changes take effect at next start.
-    std::optional<BasicToolsSettings> basic_tools; ///< M10-08 (DEC-095); next start.
-    bool remember_desktop_authorization = false;   ///< DEC-078; token stays in OS credential store.
+    std::optional<VisionSettings> vision;        ///< Resource changes take effect at next start.
+    bool remember_desktop_authorization = false; ///< DEC-078; token stays in OS credential store.
 };
 
 /// Serializes the document (compact JSON, schema field included).

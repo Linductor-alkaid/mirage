@@ -227,11 +227,4 @@ struct DialogRegistry {
 /// Stable name of a MiraHost task progress state for IPC payloads.
 const char *progress_name(TaskProgress progress);
 
-/// The frozen terminal trio (DEC-012): a task that reaches one of these
-/// states never re-enters the active set (idempotent terminal states).
-inline bool terminal_progress(TaskProgress progress) {
-    return progress == TaskProgress::Completed || progress == TaskProgress::Failed ||
-           progress == TaskProgress::Cancelled;
-}
-
 } // namespace mirage::runtime::detail

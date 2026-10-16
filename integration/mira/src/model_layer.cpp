@@ -1,4 +1,3 @@
-#include <mirage/integration/basic_agent_toolset.hpp>
 #include <mirage/integration/desktop_atom_toolset.hpp>
 #include <mirage/integration/model_layer.hpp>
 
@@ -24,7 +23,6 @@
 #include "tool_alias_provider.hpp"
 
 #include <algorithm>
-#include <limits>
 #include <map>
 #include <mutex>
 #include <utility>
@@ -606,28 +604,6 @@ struct ModelLayer::Impl {
     std::shared_ptr<mira::MemoryEventStore> events = std::make_shared<mira::MemoryEventStore>();
     /// DEC-085 repeated-failure guard; infer_mutex serializes all access.
     ToolFailureTracker failure_tracker;
-    /// M10-07 (DEC-095): per-session observation records of the basic agent
-    /// tools (exec/read/write/edit); infer_mutex serializes all access.
-    /// Bounded at 32 sessions (least recently seen evicted), mirroring the
-    /// failure tracker; eviction only forces a re-read.
-    BasicToolSessionState &basic_state(const std::string &session) {
-        basic_state_order_[session] = ++basic_state_clock_;
-        auto &state = basic_states_[session];
-        while (basic_states_.size() > 32) {
-            auto oldest = basic_state_order_.begin();
-            for (auto it = basic_state_order_.begin(); it != basic_state_order_.end(); ++it) {
-                if (it->second < oldest->second) {
-                    oldest = it;
-                }
-            }
-            basic_states_.erase(oldest->first);
-            basic_state_order_.erase(oldest);
-        }
-        return state;
-    }
-    std::map<std::string, BasicToolSessionState> basic_states_;
-    std::map<std::string, std::uint64_t> basic_state_order_;
-    std::uint64_t basic_state_clock_ = 0;
     bool running = false;
 };
 
@@ -955,15 +931,6 @@ DialogCompletion ModelLayer::complete_harness_turn(
     DesktopAtomToolset::register_harness_tools(*registry, impl_->desktop, tools_allowed, cancel,
                                                decorate);
     detail::register_ocr_tool(*registry, impl_->desktop, cancel, decorate);
-    // M10-07 (DEC-095): the four basic tools ride the same capture /
-    // verification decorator; enablement is the service's decision
-    // (desktop.basic_tools), and registration is capability-honest.
-    // `tools_allowed` carries the turn's session access mode (DEC-080):
-    // read rides every agent-capable mode, write/edit/exec need full access.
-    if (impl_->desktop.basic_tools.enabled) {
-        register_basic_agent_tools(*registry, impl_->desktop, impl_->basic_state(session_key),
-                                   impl_->desktop.basic_tools, cancel, decorate, tools_allowed);
-    }
     if (tools_allowed)
         verification.register_tool(*registry, decorate);
     std::unique_ptr<detail::DesktopImageTurn> image_turn;
@@ -1009,7 +976,6 @@ DialogCompletion ModelLayer::complete_harness_turn(
         }
     }
     mira::ConversationLoopConfig config;
-    config.limit_mode = mira::ConversationLimitMode::Finite;
     // DEC-085 follow-up budget model: the per-call output budget is what the
     // caller funds (thinking calls carry the raised floor) capped by the
     // profile limit the router actually admits — no artificial halving. A
@@ -1329,14 +1295,7 @@ DialogCompletion ModelLayer::complete_harness_turn(
     completion.failed = !completion.ok && !completion.cancelled;
     completion.error = value.safe_summary;
     completion.model_steps = static_cast<std::uint32_t>(value.turns.size());
-    // PR#99 widened upstream cumulative diagnostics to uint64. Keep the
-    // existing finite-mode product contract; never wrap at this boundary.
-    // M9-03 must widen the product counters before opting into Continuous.
-    const auto legacy_count = [](std::uint64_t count) {
-        return static_cast<std::uint32_t>(
-            std::min(count, static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max())));
-    };
-    completion.tool_calls = legacy_count(value.tool_executions);
+    completion.tool_calls = value.tool_executions;
     if (completion.failed) {
         // DEC-085: the failure reason must be actionable — the spent budget
         // and the repeated tool failures name what actually blocked the task.
@@ -1344,13 +1303,12 @@ DialogCompletion ModelLayer::complete_harness_turn(
                             std::to_string(completion.tool_calls) + " 次工具调用）";
         annotate(completion.error);
     }
-    completion.supplied_input_items = legacy_count(value.supplied_input_items);
-    completion.supplied_input_dropped = legacy_count(value.supplied_input_dropped);
-    completion.supply_degradations = legacy_count(value.supply_degradations);
-    completion.supplied_input_reuse_annotations =
-        legacy_count(value.supplied_input_reuse_annotations);
-    completion.history_transforms = legacy_count(value.history_transforms);
-    completion.history_transform_degradations = legacy_count(value.history_transform_degradations);
+    completion.supplied_input_items = value.supplied_input_items;
+    completion.supplied_input_dropped = value.supplied_input_dropped;
+    completion.supply_degradations = value.supply_degradations;
+    completion.supplied_input_reuse_annotations = value.supplied_input_reuse_annotations;
+    completion.history_transforms = value.history_transforms;
+    completion.history_transform_degradations = value.history_transform_degradations;
     if ((image_turn || !verification.empty()) &&
         (value.supplied_input_dropped || value.supply_degradations)) {
         completion.ok = false;
