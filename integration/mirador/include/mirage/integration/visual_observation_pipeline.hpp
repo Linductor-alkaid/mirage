@@ -38,6 +38,9 @@ struct VisualObservationPipelineConfig {
     bool analyze_change = true;
     bool run_ocr = false;
     bool run_detector = false;
+    /// DEC-097: optional model proposals only for explicit marked observations.
+    bool detector_marks = false;
+    float detector_min_confidence = 0.25F;
     /// Bypass approximate OCR result reuse through the backend's public Refresh
     /// policy; product OCR enables this for text freshness (DEC-057).
     bool refresh_ocr = false;

@@ -1,8 +1,8 @@
 {
   "schema_version": 3,
   "project": "mirage",
-  "updated": "2026-10-15",
-  "notes": "Schema v3 (DEC-037): native EUI frontend replaces retired npm/CEF. All dependency gitlinks and nested pins remain mandatory. artifacts is empty; no Chromium binary is acquired or packaged. M7-06 optional ncnn runtime is audited under pinned Mirador; no model artifacts are distributed.",
+  "updated": "2026-10-16",
+  "notes": "Schema v3 (DEC-037): native EUI frontend replaces retired npm/CEF. All dependency gitlinks and nested pins remain mandatory. artifacts is empty; no Chromium binary is acquired or packaged. M7-23 optional ncnn runtime is audited under pinned Mirador. No model weights enter Git; verified PP-OCR and explicitly selected offline YOLO bundles may accompany product packages.",
   "dependencies": [
     {
       "name": "mira",
@@ -53,11 +53,11 @@
       "name": "mirador",
       "source": "https://github.com/Linductor-alkaid/mirador.git",
       "path": "third_party/mirador",
-      "version": "v0.3.0-121",
-      "commit": "ae8cf87581c1ebe393a67374d9977a38354d0911",
+      "version": "v0.3.0-desktop-yolo",
+      "commit": "932d425fe114f0b5b3919cde2ef49ba5d2d5b0ac",
       "license": "MIT",
       "license_file": "third_party/mirador/LICENSE",
-      "notes": "fb0dc3f..ae8cf87（41 commits，v0.3.0-121，无新 tag）：上游 M7-10~M7-14（PR #30-#34：tracker backend SPI 冻结、NanoTrack ncnn 参考后端、D+ 基准列与 go/no-go 判定）+ PR #35 三项 OCR 链路修复（MIRADOR-20261009-001/002/003：resize_area 放大共享源像素权重按目标索引缓存、连通域 min_x/min_y 随洪泛更新、PP-OCR 参考预处理对齐 ppocrv5.cpp——det 限长缩放 + /32 画布 pad 114 + 阈值 0.3/0.6 + BGR，rec 保纵横比动态行宽）。include/ 增量（+569/-6）：新头 tracker_backend.hpp（Experimental tracker SPI）、object_tracker.hpp 池原语扩展；公开 image 行为修复：resize_area 放大逐位正确、db 后处理框边界完整。integrations/ocr_ppocr opt-in 头语义变更：det_side 为长边上限（不再放大）、rec_width 为行宽上限、det 后处理默认 0.3/0.6。嵌套 googletest（063de7e）与 integrations ncnn pin 不变",
+      "notes": "fb0dc3f..ae8cf87（41 commits，v0.3.0-121，无新 tag）：上游 M7-10~M7-14（PR #30-#34：tracker backend SPI 冻结、NanoTrack ncnn 参考后端、D+ 基准列与 go/no-go 判定）+ PR #35 三项 OCR 链路修复（MIRADOR-20261009-001/002/003：resize_area 放大共享源像素权重按目标索引缓存、连通域 min_x/min_y 随洪泛更新、PP-OCR 参考预处理对齐 ppocrv5.cpp——det 限长缩放 + /32 画布 pad 114 + 阈值 0.3/0.6 + BGR，rec 保纵横比动态行宽）。include/ 增量（+569/-6）：新头 tracker_backend.hpp（Experimental tracker SPI）、object_tracker.hpp 池原语扩展；公开 image 行为修复：resize_area 放大逐位正确、db 后处理框边界完整。integrations/ocr_ppocr opt-in 头语义变更：det_side 为长边上限（不再放大）、rec_width 为行宽上限、det 后处理默认 0.3/0.6。嵌套 googletest（063de7e）与 integrations ncnn pin 不变; M7-23 / DEC-097: maintainer-authorized branch pin includes PR#37 desktop perception fixes/performance, PR#39 real-model evaluation and DEC-024 explicit YOLO bilinear/padding profile (issue#38). Upstream PR review/merge is separate; no protected branch merge performed. Audit: docs/supply-chain/yolo-vision-20261016.md. Combined upstream PR#40: https://github.com/Linductor-alkaid/mirador/pull/40 (branch pin pending review, not merged master).",
       "consumption": "add_subdirectory；视觉后端契约经由别名 mirador::core 链接",
       "nested_pins": [
         {
@@ -77,7 +77,7 @@
           "version": "20260526",
           "commit": "e54f7b1f88434e1d844ea0551b880a1cfb079ce1",
           "license": "BSD-3-Clause",
-          "consumption": "Optional MIRAGE_WITH_PPOCR only; transitive Mirador integrations/deps.lock.json; default graph excludes runtime",
+          "consumption": "Optional MIRAGE_WITH_PPOCR/MIRAGE_WITH_YOLO; same pinned ncnn runtime",
           "audit_record": "docs/supply-chain/real-ocr-resources-20261009.md"
         }
       ]
@@ -109,6 +109,13 @@
       "lock_file": "packaging/vision/resources.lock.json",
       "audit": "docs/supply-chain/bundled-vision-20261011.md",
       "build_default": "Linux native product",
+      "runtime_download": false
+    },
+    {
+      "name": "omniparser-v2-icon-ncnn-contract-v1",
+      "lock_file": "packaging/vision/yolo.lock.json",
+      "audit": "docs/supply-chain/yolo-vision-20261016.md",
+      "build_default": "optional explicit offline MIRAGE_YOLO_MODEL_DIR",
       "runtime_download": false
     }
   ]

@@ -1,0 +1,280 @@
+{
+  "schema": 1,
+  "date": "2026-10-16",
+  "work_item": "M7-20",
+  "reviewer": "Codex visual inspection of raw/marked images and structured OCR; not a human sign-off",
+  "commit": "dbd99110a7bac6d48802f61192303a6c142d5da5",
+  "working_tree": "pre-existing unrelated edits; no commit created",
+  "mirador": "ae8cf87581c1ebe393a67374d9977a38354d0911",
+  "mira": "a29374aaf05b956cbd5ceeafc65bba4c6172675e",
+  "environment": {
+    "os": "Ubuntu 24.04.5 LTS",
+    "kernel": "7.0.0-38-generic",
+    "arch": "x86_64",
+    "compiler": "GCC 13.3.0",
+    "host": "Wayland",
+    "capture": "actual Portal + private Xvfb ROI",
+    "build": "native-release, PP-OCR ON"
+  },
+  "quality_passed": 5,
+  "quality_total": 11,
+  "capture_exact": 11,
+  "mapping_passed": 11,
+  "default_manifest_sha256": "7803492b0b5b21f9df5a9674f0e43dc7d8d574caaac11ee1daa09948b660f0b0",
+  "rec640_manifest_sha256": "64e0124d9ec32853be802391593f260eb2a39655bac73f287859e1f2e4630a75",
+  "artifact_root": "/home/linductor/mirage/build/mirador-visual-review-20261016",
+  "samples": [
+    {
+      "name": "public-example",
+      "label": "多语言公共网页",
+      "verdict": "Fail",
+      "review": "英文首行框定位正确，实际输出仅 Ti；后两行英文缺失。中文漏“勿”，产生意义反转；法语/俄语只剩零星末行，阿拉伯文未形成有效文字区。320→640 后英文三行恢复，其他语言仍有错字，不能宣称多语言通过。",
+      "capture_pixels_exact": true,
+      "mapping_checks": true,
+      "pixels": [
+        1000,
+        680
+      ],
+      "ocr_regions": 5,
+      "geometry_regions": 2,
+      "raw_sha256": "210f9b180d756cac3d72775dde72be1c1ecd9d675d3e7e2e69bf399ccd371685",
+      "marked_sha256": "7671b8cc2781cd130839ec7847408cd7a247e05936114bdd9fc6fcf09c5b86c0",
+      "report_sha256": "69104f5675797bb9c3f4007b9acfdf58e5e7715e5ddecf0868357a5e8bfd014d",
+      "rec640": {
+        "ocr_regions": 18,
+        "report_sha256": "ae17d303bd82c72fcf0d824ddf4d2c9ff87214685051ea80397a3ac0da390232"
+      }
+    },
+    {
+      "name": "public-python",
+      "label": "Python 公共下载页",
+      "verdict": "Fail",
+      "review": "标题 Download the latest source release 丢 e/r；两条说明行漏标，放大镜被识别成 0，标志中的商标符号被读成引号。大部分导航框位置正确。640 修复标题与底部 Guide 长行，但说明行仍残缺。",
+      "capture_pixels_exact": true,
+      "mapping_checks": true,
+      "pixels": [
+        1000,
+        680
+      ],
+      "ocr_regions": 27,
+      "geometry_regions": 0,
+      "raw_sha256": "039510c1e40e01ec42b7308a382abb1364df847b23fa23e3d8f0789b7e156743",
+      "marked_sha256": "8a9e50ee525cc65bf63f27c1a42aecad6794e57217d51d1e96197fca3ad2548c",
+      "report_sha256": "5428a6748455e3b4be576fc2182dc7753d98090fe6af257b4b0a0d65612598cc",
+      "rec640": {
+        "ocr_regions": 29,
+        "report_sha256": "653238698007af3446da3e1184016aa9f942e66c545f08c6a27435e280ab180a"
+      }
+    },
+    {
+      "name": "form-light",
+      "label": "中英表单与表格",
+      "verdict": "Pass",
+      "review": "21 个预定义文本目标全部检出，去除空白后 21/21 精确匹配，框覆盖正确、编号与表中区域一致。灰色禁用按钮仍会获得编号：selectable 只是区域可见，不表示可交互。",
+      "capture_pixels_exact": true,
+      "mapping_checks": true,
+      "pixels": [
+        1000,
+        680
+      ],
+      "ocr_regions": 21,
+      "geometry_regions": 0,
+      "raw_sha256": "521aa3383ee14c0c56631763b8cc6f046151c7ddbcc9991fc7059acca719a70f",
+      "marked_sha256": "20fbe08e6684b18cd0059d5304e658d57cd59e504af2c2574de6929357e68f18",
+      "report_sha256": "ec968f8405053ac89e1003829503d1313169753ee24fbc832173a654b0f784ff"
+    },
+    {
+      "name": "terminal-dark",
+      "label": "暗色代码与小字",
+      "verdict": "Fail",
+      "review": "17 条人工核对文本中 12 条精确匹配（忽略空白）；首个代码行只剩 a，report_error 丢字符，} 被读成 1，小字 retry_count 和文件路径错误。640 改善到 16/17，}→1 仍在。",
+      "capture_pixels_exact": true,
+      "mapping_checks": true,
+      "pixels": [
+        1000,
+        680
+      ],
+      "ocr_regions": 17,
+      "geometry_regions": 0,
+      "raw_sha256": "c322ab52113a843679721534abd43052c38835bce185067dc8581528e14ca06d",
+      "marked_sha256": "24fed0f9d5c3a76f08b7570269ac09b161a80ff6d41e6ac49cfa3ef88ffda89e",
+      "report_sha256": "dc0f6a66d4c920a3d6b1ce38244d9336d6b49be79c573145075948c8a1c78a34",
+      "rec640": {
+        "ocr_regions": 17,
+        "report_sha256": "b86b81577f23947fb407386e0862be650c7a24f6f7d6415cb90db16614813eec"
+      }
+    },
+    {
+      "name": "geometry",
+      "label": "几何轮廓",
+      "verdict": "Fail",
+      "review": "四个预设矩形只覆盖两个实心块，两个空心矩形漏标。圆、三角和开放折线未成为候选；这些非矩形不用于计算矩形召回。加号作为 OCR + 出现，框偏大且碰到三角；无语义按钮保证。",
+      "capture_pixels_exact": true,
+      "mapping_checks": true,
+      "pixels": [
+        1000,
+        680
+      ],
+      "ocr_regions": 3,
+      "geometry_regions": 2,
+      "raw_sha256": "4f7ad4e01b40a18a14a8e04a3863f9e8970d84867cb89fd2d14367628ccaf3e1",
+      "marked_sha256": "f4daf39b44fdb3234021b98e5a9d0ec40b537dae858fa38ee04d8c121607561d",
+      "report_sha256": "ae3b3ff4bf417dcd2462a2d4ac1431575ebd129d6e2e91695aec6468022f5dad"
+    },
+    {
+      "name": "video-0",
+      "label": "视频：准备",
+      "verdict": "Pass",
+      "review": "真实 H.264 编码后解码，Frame 001、Preparing task 准备任务、Target 1 与标题 4/4 正确；移动矩形和编号框对应。",
+      "capture_pixels_exact": true,
+      "mapping_checks": true,
+      "pixels": [
+        1000,
+        680
+      ],
+      "ocr_regions": 4,
+      "geometry_regions": 0,
+      "raw_sha256": "caaba0d8e1d0bb083648f1b95a6fef3b7b731e1102d9076ae14e7535cea444e0",
+      "marked_sha256": "eed07fbaa41d2231ce04598be60c0c3fa886d157717d15e0cfa280dc7dac2857",
+      "report_sha256": "11fc03ddecff135e3330dd34749ac426964a2e6956031abc888fee330fad6a8f"
+    },
+    {
+      "name": "video-1",
+      "label": "视频：执行",
+      "verdict": "Pass",
+      "review": "Frame 002、Running task 执行任务、Target 2 与标题 4/4 正确；目标相对前帧右移 210px，编号框跟随当前帧。",
+      "capture_pixels_exact": true,
+      "mapping_checks": true,
+      "pixels": [
+        1000,
+        680
+      ],
+      "ocr_regions": 4,
+      "geometry_regions": 0,
+      "raw_sha256": "cd5f70850413928590d5faa55f1ddd37a1ea7037c2ba3deae4408e203f326604",
+      "marked_sha256": "9cb88d4862510a74586e837f61833522846c1a1a762814535cdb351eedb1db08",
+      "report_sha256": "c1d5584547df52a4cbd395ce8003a10fe6bc3b275c5ad517b062ab64bb5872d0"
+    },
+    {
+      "name": "video-2",
+      "label": "视频：完成",
+      "verdict": "Pass",
+      "review": "Frame 003、Task completed 任务完成、Target 3 与标题 4/4 正确；继续右移 210px。每帧独立 session；不构成 tracker 或持续播放帧率验收。",
+      "capture_pixels_exact": true,
+      "mapping_checks": true,
+      "pixels": [
+        1000,
+        680
+      ],
+      "ocr_regions": 4,
+      "geometry_regions": 0,
+      "raw_sha256": "80fe916ad7717f95c108fb55056937224c627ed5ef3db67ce9be393fe2296362",
+      "marked_sha256": "4c768829b426eefe35a9e7651912e0c71bdff3f56c7ad01dbaca7f01e668057a",
+      "report_sha256": "fd32312a441d4bbb05c70aa4bd816fcb5480cc66ff0fd464a3436d06c1589dcf"
+    },
+    {
+      "name": "blank",
+      "label": "空白负例",
+      "verdict": "Pass",
+      "review": "白屏返回 0 区域/0 编号，原图与标注图像素相同。",
+      "capture_pixels_exact": true,
+      "mapping_checks": true,
+      "pixels": [
+        1000,
+        680
+      ],
+      "ocr_regions": 0,
+      "geometry_regions": 0,
+      "raw_sha256": "78d5876d3476114c7f79aa277b325972823a40c0cd421e143fa813eeda14f709",
+      "marked_sha256": "78d5876d3476114c7f79aa277b325972823a40c0cd421e143fa813eeda14f709",
+      "report_sha256": "a8ff2c705078c28ba10d7e2d6ca75a6c52cc98ad7662d4ef8da7581202a92e92"
+    },
+    {
+      "name": "host-crop",
+      "label": "当前 Wayland 桌面",
+      "verdict": "Fail",
+      "review": "Portal 实际采集 3200×2000；仅裁取本任务正文 1400×680 做像素局部回放。320 配置仅 6 个 OCR 区域，长正文严重缺失，目录图标被误读成 日，并出现 5 个文字碎片几何候选。640 增至 10 个 OCR 区域，长正文仍有丢字/错字。标题及部分短句定位正确。",
+      "capture_pixels_exact": true,
+      "mapping_checks": true,
+      "pixels": [
+        1400,
+        680
+      ],
+      "ocr_regions": 6,
+      "geometry_regions": 5,
+      "raw_sha256": "4d7640506bc1b66688400fc5d35b96b1102c50ac829414774754af92028b7da4",
+      "marked_sha256": "5e0d3980c7b620b43385323d99efa551197f8edba5170817588007e9c7f4eb22",
+      "report_sha256": "27071ba94aab8ba3994839dc3262e2d86ab9c832c9bbec260943e2333810cf31",
+      "rec640": {
+        "ocr_regions": 10,
+        "report_sha256": "7da9d147390b50ee59c29ab366b0afd9eacbdf56fbdae8cfaec89864583d6bf9"
+      }
+    },
+    {
+      "name": "line-lengths",
+      "label": "独立长行对照",
+      "verdict": "Fail",
+      "review": "8 个文本目标，320 仅 5/8 精确匹配：47 字符英文行无有效区域，39 字符代码行变 a，report_error 丢左括号。640 在同图同权重下 8/8 精确匹配。",
+      "capture_pixels_exact": true,
+      "mapping_checks": true,
+      "pixels": [
+        1000,
+        680
+      ],
+      "ocr_regions": 7,
+      "geometry_regions": 0,
+      "raw_sha256": "79945cb29fa8233262cabdfc87336ef54872aeb88b11dd1053f8a9730219ba2a",
+      "marked_sha256": "ba10d6fb08fab1f45c1d01f50041eaea6ec608ce7426d35f2cc4d3828b6ddadd",
+      "report_sha256": "64e119096cd4457eb1dbea0c115aac427d63b1b7f037f05118f8e3a8c39c0ce6",
+      "rec640": {
+        "ocr_regions": 8,
+        "report_sha256": "d62d02c86b0b3033c230fcc80e8cb928b1f6d7e9dcf5dda35310c50c1326f7d3"
+      }
+    }
+  ],
+  "limits": [
+    "Selected-scene qualitative review, not a representative benchmark.",
+    "No Windows, multi-monitor DPI or object detector/tracker quality claim.",
+    "Host pixels were cropped and replayed for the X11 production mark path; replay coordinates are not native Wayland input coordinates.",
+    "ASAN/UBSAN regression uses existing OCR-OFF visual mapping tests, not real OCR model inference."
+  ],
+  "geometry_diagnostic": [
+    {
+      "bounds": [
+        71,
+        187,
+        111,
+        81
+      ],
+      "closure_score": 1
+    },
+    {
+      "bounds": [
+        571,
+        357,
+        131,
+        56
+      ],
+      "closure_score": 1
+    }
+  ],
+  "regression": {
+    "release_ocr_and_marks": {
+      "targets": 2,
+      "passed": 2
+    },
+    "debug_mapping_and_portal_fixture": {
+      "targets": 4,
+      "passed": 4
+    },
+    "asan_ocr_off_mapping": {
+      "targets": 3,
+      "passed": 3
+    },
+    "ubsan_ocr_off_mapping": {
+      "targets": 3,
+      "passed": 3
+    }
+  },
+  "exporter_sha256": "bf1b6c9e1b8eab9ceadae515984ae35aad258e872e7bc23b687cdc7106eb6960"
+}

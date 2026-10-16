@@ -1438,3 +1438,11 @@ source_sequence 与 CaptureLimits.newer_than_sequence 区分静态读屏和动�
 名称与 ToolId 精确匹配，未知调用在形成提案前拒绝，不执行动作。宿主工具列表、
 说明和指名提示同步使用别名，随后追加的用户正文/历史以及参数、结果、思考签名
 不做改写。命名工具选择和结果关联保留 ToolId/call ID，经 pinned Mapper 编解码。
+
+### 视觉标注增量（2026-10-16，M7-23 / DEC-097）
+
+产品可从验证后的离线 manifest 装配 YOLO Detector，只在显式 mark 请求中调用；
+普通 OCR 保持读文字职责。复用 VisualSessionHost、进程 Executor 和既有
+Oriented→Display 变换、融合、SoM、临时引用。候选不产生交互语义，动作门禁不变。
+模型预处理随清单明确配置；资源摘要进入 revision，每实例 source/worker 身份
+允许停止后重建。资源与包选项、验收边界见 DEC-097 和本次兼容性记录。

@@ -1,5 +1,8 @@
 # M7：视觉工具与键鼠输入闭环
 
+
+2026-10-16：新增 [M7-23 YOLO 接入与感知修复](m7-yolo-integration.md)，In Progress；维护者授权，依据 DEC-097。
+
 > 状态：In Progress
 > 负责人：Mirage 维护者
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
@@ -1019,3 +1022,7 @@ DXGI 的像素断言在其不可用时以记录在案的条件跳过，待无 Id
 Wayland 授权/撤销与会话关闭继续按既有记录推进。本轮未修改 pinned 依赖、
 未调用在线模型；提交于 feat 分支，CI windows 门禁（MSVC 全树 + 测试）随
 MR 复验。
+
+2026-10-16 / M7-23：YOLO 与 Mirador 修复的产品接入和本机验收完成，见
+[接入验收](../compatibility/yolo-mirage-integration-20261016.md)。PR/CI 收尾，
+保持 M7 与本工作项 In Progress；无原生 Wayland/混合 DPI/Windows 点击通过声明。

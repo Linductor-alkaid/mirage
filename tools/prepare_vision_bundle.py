@@ -87,7 +87,7 @@ def main():
         artifacts[name] = {"path": name, "sha256": digest(data), "bytes": len(data)}
     manifest = {
         "schema": 1, "model_id": "PP-OCRv5-mobile-ncnn-mirador-contract-v1",
-        "det_side": 960, "rec_height": 48, "rec_width": 320, "artifacts": artifacts,
+        "det_side": 960, "rec_height": 48, "rec_width": 640, "artifacts": artifacts,
         "geometry_marks": True, "roi_capture": True,
     }
     (args.output / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")

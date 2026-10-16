@@ -133,3 +133,9 @@ M7-04/05 图片链路、三方言 fixture 与 MiniMax 在线两例已通过，�
 
 详见[Mirador 台账](mirador.md#mirador-20261009-001)与
 [公开复现](repro/README.md#mirador-常量缩放复现m7-06)。Open，待上游提交；未修改 pin。
+
+## MIRADOR-20261016-001 / 002：桌面感知质量与 YOLO 预处理
+
+见 [Mirador 台账](mirador.md)。001 已有 issue #36/PR #37；002 对应 issue #38，
+本轮维护者授权直接修复并通过分支 pin 接入 Mirage，M7-23 / DEC-097。
+上游 PR 评审、合并状态独立记录，不以本地分支 pin 冒充 master 已发布。
