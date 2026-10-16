@@ -63,8 +63,8 @@ TextWindowOutcome page_stream(const std::filesystem::path &path, std::uint64_t s
     std::string pending;
     std::vector<char> buffer(64u << 10);
     const auto scan_exceeded = [&] {
-        outcome.error =
-            provider_error("scan_budget_exceeded", "scan exceeded its budget; eof position unknown");
+        outcome.error = provider_error("scan_budget_exceeded",
+                                       "scan exceeded its budget; eof position unknown");
         return outcome;
     };
     while (line_index < skip_lines) {
@@ -74,9 +74,9 @@ TextWindowOutcome page_stream(const std::filesystem::path &path, std::uint64_t s
         stream.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
         const std::size_t received = static_cast<std::size_t>(stream.gcount());
         if (received == 0) {
-            outcome.error = provider_error(
-                "invalid_argument", "offset beyond end of retained output (scanned " +
-                                        std::to_string(line_index) + " complete lines)");
+            outcome.error = provider_error("invalid_argument",
+                                           "offset beyond end of retained output (scanned " +
+                                               std::to_string(line_index) + " complete lines)");
             return outcome;
         }
         scanned += received;
@@ -111,11 +111,11 @@ TextWindowOutcome page_stream(const std::filesystem::path &path, std::uint64_t s
                 break;
             }
             if (length > limits.max_bytes) {
-                outcome.error = provider_error(
-                    "line_too_long", "line " + std::to_string(line_index + 1) + " has " +
-                                         std::to_string(length) +
-                                         " bytes, beyond the window budget of " +
-                                         std::to_string(limits.max_bytes) + " bytes");
+                outcome.error = provider_error("line_too_long",
+                                               "line " + std::to_string(line_index + 1) + " has " +
+                                                   std::to_string(length) +
+                                                   " bytes, beyond the window budget of " +
+                                                   std::to_string(limits.max_bytes) + " bytes");
                 return outcome;
             }
             if (rendered + length > limits.max_bytes) {
@@ -162,9 +162,9 @@ TextWindowOutcome page_stream(const std::filesystem::path &path, std::uint64_t s
     // newline-terminated stream is a caller bug, not an empty window.
     if (outcome.eof && outcome.lines.empty() && skip_lines > 0) {
         outcome = TextWindowOutcome{};
-        outcome.error = provider_error(
-            "invalid_argument", "offset beyond end of retained output (scanned " +
-                                    std::to_string(line_index) + " complete lines)");
+        outcome.error =
+            provider_error("invalid_argument", "offset beyond end of retained output (scanned " +
+                                                   std::to_string(line_index) + " complete lines)");
         return outcome;
     }
     outcome.has_crlf = window_has_crlf;
@@ -180,8 +180,8 @@ struct BasicOutputStore::Impl {
         std::filesystem::path payload;
         bool standard_output = true;
         std::uint64_t bytes = 0;
-        bool truncated = false;    ///< per-stream cap reached
-        bool failed = false;       ///< quota/disk failure mid-flight
+        bool truncated = false; ///< per-stream cap reached
+        bool failed = false;    ///< quota/disk failure mid-flight
         bool settled = false;
         std::chrono::steady_clock::time_point expiry{};
     };
@@ -254,7 +254,8 @@ struct BasicOutputStore::Impl {
                 files[side].close();
             }
             impl->open_count[session] = std::max<std::size_t>(0, impl->open_count[session] - 1);
-            const auto expiry = std::chrono::steady_clock::now() + impl->config.retention_after_terminal;
+            const auto expiry =
+                std::chrono::steady_clock::now() + impl->config.retention_after_terminal;
             for (int side = 0; side < 2; ++side) {
                 const auto found = impl->entries.find(refs[side]);
                 if (found != impl->entries.end()) {
@@ -292,8 +293,9 @@ struct BasicOutputStore::Impl {
     };
 
     void release_locked(const Entry &entry) {
-        session_bytes[entry.session] =
-            entry.bytes > session_bytes[entry.session] ? 0 : session_bytes[entry.session] - entry.bytes;
+        session_bytes[entry.session] = entry.bytes > session_bytes[entry.session]
+                                           ? 0
+                                           : session_bytes[entry.session] - entry.bytes;
         global_bytes = entry.bytes > global_bytes ? 0 : global_bytes - entry.bytes;
         std::error_code ec;
         std::filesystem::remove(entry.payload, ec);
@@ -321,7 +323,8 @@ struct BasicOutputStore::Impl {
     std::uint64_t global_bytes = 0;
 };
 
-BasicOutputStore::BasicOutputStore(BasicOutputStoreConfig config) : impl_(std::make_unique<Impl>()) {
+BasicOutputStore::BasicOutputStore(BasicOutputStoreConfig config)
+    : impl_(std::make_unique<Impl>()) {
     impl_->config = std::move(config);
     // Refs are runtime state: nothing under the store directory survives a
     // restart readable. Best-effort cleanup; failures keep the bounded
@@ -389,10 +392,9 @@ BasicOutputStore::open(const std::string &session, std::string *refusal_code) {
         if (!streams->files[side]) {
             return refuse("io_error");
         }
-        std::filesystem::permissions(payload,
-                                     std::filesystem::perms::owner_read |
-                                         std::filesystem::perms::owner_write,
-                                     ec); // best-effort owner-only
+        std::filesystem::permissions(
+            payload, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+            ec); // best-effort owner-only
         Impl::Entry entry;
         entry.session = session;
         entry.payload = payload;
@@ -405,8 +407,7 @@ BasicOutputStore::open(const std::string &session, std::string *refusal_code) {
 }
 
 TextWindowOutcome BasicOutputStore::read(const std::string &session, const std::string &ref,
-                                         std::uint64_t skip_lines,
-                                         const TextWindowLimits &limits) {
+                                         std::uint64_t skip_lines, const TextWindowLimits &limits) {
     const std::lock_guard lock(impl_->mutex);
     impl_->sweep_locked(std::chrono::steady_clock::now());
     TextWindowOutcome outcome;
@@ -418,9 +419,9 @@ TextWindowOutcome BasicOutputStore::read(const std::string &session, const std::
     }
     const auto found = impl_->entries.find(ref);
     if (found == impl_->entries.end() || found->second.session != session) {
-        outcome.error = provider_error(
-            "output_expired",
-            "output reference is unknown, expired, or belongs to another session");
+        outcome.error =
+            provider_error("output_expired",
+                           "output reference is unknown, expired, or belongs to another session");
         return outcome;
     }
     return page_stream(found->second.payload, skip_lines, limits);

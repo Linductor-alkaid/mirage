@@ -50,7 +50,7 @@ class TempDir {
 BasicOutputStoreConfig functional_config(const std::filesystem::path &dir) {
     BasicOutputStoreConfig config;
     config.directory = dir;
-    config.max_stream_bytes = 64u << 10;  // deterministic cap reach
+    config.max_stream_bytes = 64u << 10; // deterministic cap reach
     config.retention_after_terminal = std::chrono::hours{1};
     return config;
 }

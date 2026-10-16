@@ -39,9 +39,9 @@ class SessionClient {
     /// timeout. SyncStale means the last request timed out but events may still
     /// be arriving; the caller decides whether to keep listening or reconnect.
     enum class Health {
-        Healthy,      ///< Connected, sync requests completing within deadline
-        SyncStale,    ///< Last request timed out; transport may still be working
-        Disconnected  ///< Transport closed, run() finished
+        Healthy,     ///< Connected, sync requests completing within deadline
+        SyncStale,   ///< Last request timed out; transport may still be working
+        Disconnected ///< Transport closed, run() finished
     };
 
     /// Receives decoded service events on the run() thread. Must not throw
@@ -114,8 +114,8 @@ class SessionClient {
     mutable std::mutex mutex_;
     IpcStream stream_; ///< handed from connect() to run() under the mutex
     bool connected_ = false;
-    bool dead_ = false;       ///< fail-closed: run() must exit, calls refuse
-    std::string dead_reason_; ///< why the session died (run()'s diagnostic)
+    bool dead_ = false;                    ///< fail-closed: run() must exit, calls refuse
+    std::string dead_reason_;              ///< why the session died (run()'s diagnostic)
     Health health_ = Health::Disconnected; ///< DEC-094: current health
     std::string last_timeout_reason_;      ///< DEC-094: last timeout diagnostic
     bool stop_requested_ = false;

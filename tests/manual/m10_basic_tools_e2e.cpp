@@ -37,8 +37,7 @@ int main(int argc, char **argv) {
     }
     const std::string socket = argv[1];
     const std::string task = argv[2];
-    const auto settle_budget =
-        std::chrono::seconds(argc > 3 ? std::atoi(argv[3]) : 600);
+    const auto settle_budget = std::chrono::seconds(argc > 3 ? std::atoi(argv[3]) : 600);
     // Optional product-level cancellation: "exec-start" cancels the moment
     // the running turn's parts show a started exec tool (the strongest
     // teardown evidence); a plain number cancels after a fixed delay.
@@ -70,23 +69,19 @@ int main(int argc, char **argv) {
         const auto history =
             client.call(mirage::runtime::ipc::ChatHistoryRequest{session, {}}, 10s);
         if (history.ok) {
-            const auto *view =
-                std::get_if<mirage::runtime::ipc::DialogHistory>(&history.payload);
+            const auto *view = std::get_if<mirage::runtime::ipc::DialogHistory>(&history.payload);
             if (!cancelled && view != nullptr && !view->turns.empty()) {
                 for (const auto &part : view->turns.back().parts) {
-                    if (part.kind == "tool" && part.name == "exec" &&
-                        part.status != "complete") {
+                    if (part.kind == "tool" && part.name == "exec" && part.status != "complete") {
                         const auto ack =
                             client.call(mirage::runtime::ipc::CancelChatRequest{session}, 10s);
-                        std::printf("cancel on exec-start accepted: %s\n",
-                                    ack.ok ? "yes" : "no");
+                        std::printf("cancel on exec-start accepted: %s\n", ack.ok ? "yes" : "no");
                         cancelled = true;
                         break;
                     }
                 }
             }
-            if (view != nullptr && !view->turns.empty() &&
-                view->turns.back().status != "pending") {
+            if (view != nullptr && !view->turns.empty() && view->turns.back().status != "pending") {
                 const auto &turn = view->turns.back();
                 std::printf("turn: %s\n", turn.status.c_str());
                 if (turn.status != "ok") {

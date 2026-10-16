@@ -260,10 +260,9 @@ SettingsDecode decode_settings(std::string_view body) {
         result.error = "settings document must be a JSON object";
         return result;
     }
-    if (has_unknown_member(document,
-                           {"schema", "socket", "read_roots", "permission", "confirmation", "model",
-                            "models", "runtime", "vision", "basic_tools",
-                            "remember_desktop_authorization"})) {
+    if (has_unknown_member(document, {"schema", "socket", "read_roots", "permission",
+                                      "confirmation", "model", "models", "runtime", "vision",
+                                      "basic_tools", "remember_desktop_authorization"})) {
         result.error = "settings document contains an unknown member";
         return result;
     }
@@ -287,8 +286,8 @@ SettingsDecode decode_settings(std::string_view body) {
     }
     if (const auto *tools_value = member(document, "basic_tools")) {
         if (!tools_value->is_object() ||
-            has_unknown_member(*tools_value, {"enabled", "exec_enabled", "workspace",
-                                              "write_roots"})) {
+            has_unknown_member(*tools_value,
+                               {"enabled", "exec_enabled", "workspace", "write_roots"})) {
             result.error = "basic_tools must be an object with enabled/exec_enabled/workspace/"
                            "write_roots members only";
             return result;
@@ -322,8 +321,8 @@ SettingsDecode decode_settings(std::string_view body) {
                 return result;
             }
             if (roots->as_array()->size() > kMaxReadRoots) {
-                result.error = "basic_tools.write_roots exceeds " +
-                               std::to_string(kMaxReadRoots) + " entries";
+                result.error =
+                    "basic_tools.write_roots exceeds " + std::to_string(kMaxReadRoots) + " entries";
                 return result;
             }
             for (const auto &root : *roots->as_array()) {
@@ -394,8 +393,7 @@ SettingsDecode decode_settings(std::string_view body) {
         // product configuration can enable the confirmation surface without
         // a service flag; whether anything answers the requests stays with
         // the connected clients (fail closed on the wait budget).
-        if (text == nullptr ||
-            (*text != "allow" && *text != "deny" && *text != "ipc")) {
+        if (text == nullptr || (*text != "allow" && *text != "deny" && *text != "ipc")) {
             result.error = "member 'confirmation' must be \"allow\", \"deny\" or \"ipc\"";
             return result;
         }

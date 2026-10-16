@@ -769,8 +769,7 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
         // driven and invisible at IPC level until a turn runs; state them
         // at startup so a silent config divergence cannot recur unnoticed.
         std::cout << "basic tools: read/write/edit exposed; exec "
-                  << (config.basic_tools.exec_enabled ? "enabled" : "off")
-                  << ", workspace "
+                  << (config.basic_tools.exec_enabled ? "enabled" : "off") << ", workspace "
                   << (workspace && !workspace->empty() ? *workspace : "(none)") << ", "
                   << write_roots.size() << " write root(s)\n";
     }

@@ -108,11 +108,11 @@ class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment
     /// constructor declares no roots and no desktop surface, so a
     /// default-constructed environment exposes no filesystem and no desktop
     /// surface at all (fail closed).
-    explicit LinuxDesktopEnvironment(
-        std::vector<std::filesystem::path> filesystem_read_roots = {}, X11Options x11_options = {},
-        AtspiOptions atspi_options = {}, ApplicationOptions application_options = {},
-        NotificationsOptions notifications_options = {},
-        FilesystemWriteOptions filesystem_write_options = {});
+    explicit LinuxDesktopEnvironment(std::vector<std::filesystem::path> filesystem_read_roots = {},
+                                     X11Options x11_options = {}, AtspiOptions atspi_options = {},
+                                     ApplicationOptions application_options = {},
+                                     NotificationsOptions notifications_options = {},
+                                     FilesystemWriteOptions filesystem_write_options = {});
 
     ~LinuxDesktopEnvironment() override;
 
@@ -165,19 +165,19 @@ class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment
                  const mirage::desktop::FileObservation &observation,
                  const mirage::desktop::FileModifyLimits &limits,
                  const mirage::desktop::CancelToken &cancel) override;
-    mirage::desktop::FileEditOutcome
-    edit_file(const std::filesystem::path &path, const std::string &old_string,
-              const std::string &new_string, bool replace_all,
-              const mirage::desktop::FileObservation &observation,
-              const mirage::desktop::FileModifyLimits &limits,
-              const mirage::desktop::CancelToken &cancel) override;
+    mirage::desktop::FileEditOutcome edit_file(const std::filesystem::path &path,
+                                               const std::string &old_string,
+                                               const std::string &new_string, bool replace_all,
+                                               const mirage::desktop::FileObservation &observation,
+                                               const mirage::desktop::FileModifyLimits &limits,
+                                               const mirage::desktop::CancelToken &cancel) override;
 
     [[nodiscard]] bool supports_working_directory() const override { return true; }
     [[nodiscard]] bool supports_output_retention() const override { return true; }
-    mirage::desktop::ProcessOutcome execute_request(const mirage::desktop::ProcessRequest &request,
-                                                    const mirage::desktop::ProcessLimits &limits,
-                                                    const mirage::desktop::CancelToken &cancel)
-        override;
+    mirage::desktop::ProcessOutcome
+    execute_request(const mirage::desktop::ProcessRequest &request,
+                    const mirage::desktop::ProcessLimits &limits,
+                    const mirage::desktop::CancelToken &cancel) override;
 
   private:
     mirage::desktop::PathScope read_scope_;

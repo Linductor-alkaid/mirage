@@ -58,7 +58,8 @@ bool valid_parts(const std::vector<Part> &parts) {
     std::unordered_set<std::string> ids;
     std::size_t tool_bytes = 0, text_bytes = 0, thinking_bytes = 0;
     for (const auto &part : parts) {
-        // DEC-093: tool parts can have larger input/output; non-tool text is capped at max_part_text.
+        // DEC-093: tool parts can have larger input/output; non-tool text is capped at
+        // max_part_text.
         std::size_t text_limit = (part.kind == "tool") ? max_tool_budget : max_part_text;
         std::size_t input_limit = (part.kind == "tool") ? max_tool_budget : max_part_text;
         std::size_t output_limit = (part.kind == "tool") ? max_tool_budget : max_part_text;
@@ -67,10 +68,8 @@ bool valid_parts(const std::vector<Part> &parts) {
             (part.kind != "thinking" && part.kind != "text" && part.kind != "tool") ||
             (part.status != "pending" && part.status != "running" && part.status != "complete" &&
              part.status != "failed" && part.status != "cancelled") ||
-            part.name.size() > 128 ||
-            part.text.size() > text_limit ||
-            part.input.size() > input_limit ||
-            part.output.size() > output_limit ||
+            part.name.size() > 128 || part.text.size() > text_limit ||
+            part.input.size() > input_limit || part.output.size() > output_limit ||
             (part.kind != "tool" && (part.status != "complete" || !part.name.empty() ||
                                      !part.input.empty() || !part.output.empty())) ||
             (part.kind == "tool" && (part.name.empty() || !part.text.empty())))

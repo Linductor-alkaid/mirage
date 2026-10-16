@@ -13,8 +13,8 @@ inline constexpr std::size_t max_parts = 96;
 inline constexpr std::size_t max_part_text = 16 * 1024;
 inline constexpr std::size_t max_content_bytes = 64 * 1024;
 // DEC-093: per-category budgets (sum = 64 KiB).
-inline constexpr std::size_t max_tool_budget = 40 * 1024;   // input + output
-inline constexpr std::size_t max_text_budget = 16 * 1024;   // final response
+inline constexpr std::size_t max_tool_budget = 40 * 1024;    // input + output
+inline constexpr std::size_t max_text_budget = 16 * 1024;    // final response
 inline constexpr std::size_t max_thinking_budget = 8 * 1024; // reasoning details
 struct Part {
     std::string id;

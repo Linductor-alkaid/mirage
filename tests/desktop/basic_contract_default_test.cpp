@@ -34,14 +34,13 @@ static_assert(desktop::FileReadLimits{}.max_bytes == 1u << 20);
 /// initializers keep their meaning with retained_truncated defaulted last.
 static_assert(std::is_aggregate_v<desktop::ProcessOutcome>);
 static_assert([] {
-    desktop::ProcessOutcome legacy_shape{false, false, false, false, false, -1, {}, {},
-                                               desktop::ProviderError{"io_error", "x"}};
+    desktop::ProcessOutcome legacy_shape{
+        false, false, false, false, false, -1, {}, {}, desktop::ProviderError{"io_error", "x"}};
     return !legacy_shape.ok && !legacy_shape.retained_truncated &&
            legacy_shape.error.code == "io_error";
 }());
 static_assert([] {
-    desktop::ProcessOutcome full{true,  true,  false, false, true,
-                                       0,    {},    {},    {},    false};
+    desktop::ProcessOutcome full{true, true, false, false, true, 0, {}, {}, {}, false};
     return full.ok && full.exited_normally && full.exit_code == 0 && !full.retained_truncated;
 }());
 
@@ -210,9 +209,8 @@ void scenario_filesystem_defaults_fail_closed() {
     MIRAGE_CHECK(replaced.error.code == "unsupported_platform");
     MIRAGE_CHECK(!replaced.applied);
 
-    const desktop::FileEditOutcome edited =
-        provider.edit_file("/tmp/whatever.txt", "old", "new", false, observation,
-                           desktop::FileModifyLimits{}, cancel);
+    const desktop::FileEditOutcome edited = provider.edit_file(
+        "/tmp/whatever.txt", "old", "new", false, observation, desktop::FileModifyLimits{}, cancel);
     MIRAGE_CHECK(!edited.ok);
     MIRAGE_CHECK(edited.error.code == "unsupported_platform");
     MIRAGE_CHECK(!edited.applied);
@@ -247,8 +245,7 @@ void scenario_process_defaults_fail_closed() {
     desktop::ProcessRequest with_cwd;
     with_cwd.command = "true";
     with_cwd.working_directory = std::filesystem::path{"/tmp"};
-    const desktop::ProcessOutcome cwd_outcome =
-        provider.execute_request(with_cwd, limits, cancel);
+    const desktop::ProcessOutcome cwd_outcome = provider.execute_request(with_cwd, limits, cancel);
     MIRAGE_CHECK(!cwd_outcome.ok);
     MIRAGE_CHECK(!cwd_outcome.timed_out);
     MIRAGE_CHECK(!cwd_outcome.cancelled);
@@ -276,8 +273,8 @@ void scenario_process_default_request_delegates_to_legacy() {
 
     desktop::ProcessRequest plain;
     plain.command = "echo delegated";
-    const desktop::ProcessOutcome outcome = provider.execute_request(
-        plain, desktop::ProcessLimits{}, desktop::CancelToken{});
+    const desktop::ProcessOutcome outcome =
+        provider.execute_request(plain, desktop::ProcessLimits{}, desktop::CancelToken{});
     MIRAGE_CHECK(outcome.ok);
     MIRAGE_CHECK(outcome.exited_normally);
     MIRAGE_CHECK(outcome.exit_code == 7);

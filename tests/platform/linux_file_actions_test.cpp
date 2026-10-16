@@ -21,13 +21,13 @@
 
 #include <atomic>
 #include <chrono>
-#include <functional>
-#include <random>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <memory>
+#include <random>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -37,8 +37,8 @@
 
 #include <signal.h>
 #include <sys/stat.h>
-#include <sys/wait.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 namespace {
@@ -92,10 +92,11 @@ std::string slurp(const std::filesystem::path &path) {
     return std::string(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
 }
 
-desktop::TextWindowOutcome
-read_window(linux_backend::LinuxDesktopEnvironment &env, const std::filesystem::path &path,
-            std::uint64_t skip = 0, std::size_t max_lines = 2000, std::size_t max_bytes = 50u << 10,
-            std::size_t max_scan_bytes = 16u << 20) {
+desktop::TextWindowOutcome read_window(linux_backend::LinuxDesktopEnvironment &env,
+                                       const std::filesystem::path &path, std::uint64_t skip = 0,
+                                       std::size_t max_lines = 2000,
+                                       std::size_t max_bytes = 50u << 10,
+                                       std::size_t max_scan_bytes = 16u << 20) {
     desktop::TextWindowLimits limits;
     limits.max_lines = max_lines;
     limits.max_bytes = max_bytes;
@@ -157,9 +158,8 @@ void scenario_capabilities_and_scope_isolation(const std::filesystem::path &root
         MIRAGE_CHECK(caps.windowed_read);
         MIRAGE_CHECK(!caps.write);
         MIRAGE_CHECK(!caps.edit);
-        const auto created =
-            env->create_file(root / "plain.txt", "x", desktop::FileModifyLimits{},
-                             desktop::CancelToken{});
+        const auto created = env->create_file(root / "plain.txt", "x", desktop::FileModifyLimits{},
+                                              desktop::CancelToken{});
         MIRAGE_CHECK(!created.ok);
         MIRAGE_CHECK(created.error.code == std::string("permission_denied"));
         MIRAGE_CHECK(slurp(root / "plain.txt") == "readable\n");
@@ -393,7 +393,8 @@ void scenario_window_text_facts(const std::filesystem::path &root,
         desktop::TextWindowLimits exact;
         exact.max_lines = 2000;
         exact.max_bytes = 5;
-        const auto collected = env.read_text_window(boundary_path, 0, exact, desktop::CancelToken{});
+        const auto collected =
+            env.read_text_window(boundary_path, 0, exact, desktop::CancelToken{});
         MIRAGE_CHECK(collected.ok);
         MIRAGE_CHECK(collected.lines.size() == 1);
         MIRAGE_CHECK(collected.lines[0] == "abcde");
@@ -528,8 +529,7 @@ void scenario_window_oversize_stream(const std::filesystem::path &root,
         scan_starved.max_lines = 1000000;
         scan_starved.max_bytes = 1u << 20;
         scan_starved.max_scan_bytes = 4;
-        const auto refused =
-            env.read_text_window(path, 0, scan_starved, desktop::CancelToken{});
+        const auto refused = env.read_text_window(path, 0, scan_starved, desktop::CancelToken{});
         MIRAGE_CHECK(!refused.ok);
         MIRAGE_CHECK(refused.error.code == std::string("scan_budget_exceeded"));
     }
@@ -546,7 +546,8 @@ void scenario_window_oversize_stream(const std::filesystem::path &root,
         MIRAGE_CHECK(window.ok);
         MIRAGE_CHECK(window.has_crlf);
         MIRAGE_CHECK(window.has_bom);
-        MIRAGE_CHECK(window.lines[0] == std::string("\xEF\xBB\xBF" "ab"));
+        MIRAGE_CHECK(window.lines[0] == std::string("\xEF\xBB\xBF"
+                                                    "ab"));
         MIRAGE_CHECK(!window.version.digest_available());
     }
 }
@@ -573,8 +574,8 @@ void scenario_create_matrix(const std::filesystem::path &root,
     MIRAGE_CHECK(window.version == created.version);
 
     // The create-if-absent refusal: an existing target is never overwritten.
-    const auto existing =
-        env.create_file(dir / "new.txt", "over!", desktop::FileModifyLimits{}, desktop::CancelToken{});
+    const auto existing = env.create_file(dir / "new.txt", "over!", desktop::FileModifyLimits{},
+                                          desktop::CancelToken{});
     MIRAGE_CHECK(!existing.ok);
     MIRAGE_CHECK(existing.error.code == std::string("already_exists"));
     MIRAGE_CHECK(slurp(dir / "new.txt") == "hello\n");
@@ -583,28 +584,26 @@ void scenario_create_matrix(const std::filesystem::path &root,
     // A symlink at the target path is an existing directory entry: refused
     // without following it, and the link is untouched.
     std::filesystem::create_symlink("new.txt", dir / "link.txt");
-    const auto over_link =
-        env.create_file(dir / "link.txt", "over!", desktop::FileModifyLimits{}, desktop::CancelToken{});
+    const auto over_link = env.create_file(dir / "link.txt", "over!", desktop::FileModifyLimits{},
+                                           desktop::CancelToken{});
     MIRAGE_CHECK(!over_link.ok);
     MIRAGE_CHECK(over_link.error.code == std::string("already_exists"));
     MIRAGE_CHECK(std::filesystem::is_symlink(dir / "link.txt"));
     MIRAGE_CHECK(slurp(dir / "new.txt") == "hello\n");
 
     // Parent directory must exist; it is never created implicitly.
-    const auto missing =
-        env.create_file(dir / "absent-dir" / "f.txt", "x", desktop::FileModifyLimits{},
-                        desktop::CancelToken{});
+    const auto missing = env.create_file(dir / "absent-dir" / "f.txt", "x",
+                                         desktop::FileModifyLimits{}, desktop::CancelToken{});
     MIRAGE_CHECK(!missing.ok);
     MIRAGE_CHECK(missing.error.code == std::string("not_found"));
 
     // Path hygiene.
-    const auto relative =
-        env.create_file(std::filesystem::path{"rel.txt"}, "x", desktop::FileModifyLimits{},
-                        desktop::CancelToken{});
+    const auto relative = env.create_file(std::filesystem::path{"rel.txt"}, "x",
+                                          desktop::FileModifyLimits{}, desktop::CancelToken{});
     MIRAGE_CHECK(!relative.ok);
     MIRAGE_CHECK(relative.error.code == std::string("invalid_argument"));
-    const auto dot_dot = env.create_file(dir / "..", "x", desktop::FileModifyLimits{},
-                                         desktop::CancelToken{});
+    const auto dot_dot =
+        env.create_file(dir / "..", "x", desktop::FileModifyLimits{}, desktop::CancelToken{});
     MIRAGE_CHECK(!dot_dot.ok);
     MIRAGE_CHECK(dot_dot.error.code == std::string("invalid_argument"));
     const auto empty = env.create_file(std::filesystem::path{}, "x", desktop::FileModifyLimits{},
@@ -614,9 +613,8 @@ void scenario_create_matrix(const std::filesystem::path &root,
     // A symbolic link inside the parent chain is rejected, not followed.
     std::filesystem::create_directories(dir / "real-dir");
     std::filesystem::create_directory_symlink(dir / "real-dir", dir / "link-dir");
-    const auto through_link =
-        env.create_file(dir / "link-dir" / "f.txt", "x", desktop::FileModifyLimits{},
-                        desktop::CancelToken{});
+    const auto through_link = env.create_file(dir / "link-dir" / "f.txt", "x",
+                                              desktop::FileModifyLimits{}, desktop::CancelToken{});
     MIRAGE_CHECK(!through_link.ok);
     MIRAGE_CHECK(through_link.error.code == std::string("invalid_argument"));
     MIRAGE_CHECK(!std::filesystem::exists(dir / "real-dir" / "f.txt"));
@@ -624,8 +622,7 @@ void scenario_create_matrix(const std::filesystem::path &root,
     // Content beyond the budget is refused before any side effect.
     desktop::FileModifyLimits tiny;
     tiny.max_content_bytes = 4;
-    const auto oversize =
-        env.create_file(dir / "big.txt", "12345", tiny, desktop::CancelToken{});
+    const auto oversize = env.create_file(dir / "big.txt", "12345", tiny, desktop::CancelToken{});
     MIRAGE_CHECK(!oversize.ok);
     MIRAGE_CHECK(oversize.error.code == std::string("file_too_large"));
     MIRAGE_CHECK(!std::filesystem::exists(dir / "big.txt"));
@@ -661,7 +658,7 @@ void scenario_replace_matrix(const std::filesystem::path &root,
     // Happy path: full observation authorizes the atomic replace; mode is
     // preserved through the same-directory temp commit.
     const auto before = read_window(env, path);
-MIRAGE_CHECK(before.ok);
+    MIRAGE_CHECK(before.ok);
     ::chmod(path.c_str(), 0640);
     const auto replaced = env.replace_file(path, "v2-much-longer\n", full_observation(before),
                                            desktop::FileModifyLimits{}, desktop::CancelToken{});
@@ -669,7 +666,7 @@ MIRAGE_CHECK(before.ok);
     MIRAGE_CHECK(replaced.applied);
     MIRAGE_CHECK(replaced.replaced);
     MIRAGE_CHECK(!replaced.created);
-    MIRAGE_CHECK(replaced.bytes_written == 15);  // "v2-much-longer\n" is 15 bytes
+    MIRAGE_CHECK(replaced.bytes_written == 15); // "v2-much-longer\n" is 15 bytes
     MIRAGE_CHECK(slurp(path) == "v2-much-longer\n");
     MIRAGE_CHECK(count_temp_files(dir) == 0);
     const auto after = read_window(env, path);
@@ -685,8 +682,8 @@ MIRAGE_CHECK(before.ok);
     partial.version = before.version;
     partial.full = false;
     partial.ranges.push_back({0, 3});
-    const auto not_full = env.replace_file(path, "x", partial, desktop::FileModifyLimits{},
-                                           desktop::CancelToken{});
+    const auto not_full =
+        env.replace_file(path, "x", partial, desktop::FileModifyLimits{}, desktop::CancelToken{});
     MIRAGE_CHECK(!not_full.ok);
     MIRAGE_CHECK(not_full.error.code == std::string("not_observed"));
     MIRAGE_CHECK(slurp(path) == "v2-much-longer\n");
@@ -703,7 +700,7 @@ MIRAGE_CHECK(before.ok);
 
     // Staleness: an external rewrite invalidates the old observation.
     const auto stale_window = read_window(env, path);
-MIRAGE_CHECK(stale_window.ok);
+    MIRAGE_CHECK(stale_window.ok);
     spew(path, "externally rewritten\n");
     const auto stale = env.replace_file(path, "x", full_observation(stale_window),
                                         desktop::FileModifyLimits{}, desktop::CancelToken{});
@@ -715,11 +712,11 @@ MIRAGE_CHECK(stale_window.ok);
     // A tampered digest fails the re-derivation even against an unchanged
     // file.
     const auto current = read_window(env, path);
-MIRAGE_CHECK(current.ok);
+    MIRAGE_CHECK(current.ok);
     desktop::FileObservation forged = full_observation(current);
     forged.version.content_digest = std::string(forged.version.content_digest.size(), '0');
-    const auto forged_outcome = env.replace_file(path, "x", forged, desktop::FileModifyLimits{},
-                                                 desktop::CancelToken{});
+    const auto forged_outcome =
+        env.replace_file(path, "x", forged, desktop::FileModifyLimits{}, desktop::CancelToken{});
     MIRAGE_CHECK(!forged_outcome.ok);
     MIRAGE_CHECK(forged_outcome.error.code == std::string("stale_file"));
 
@@ -727,10 +724,10 @@ MIRAGE_CHECK(current.ok);
     spew(path, "real content\n");
     std::filesystem::create_symlink("target.txt", dir / "alias.txt");
     const auto through = read_window(env, path);
-MIRAGE_CHECK(through.ok);
-    const auto link_replace = env.replace_file(dir / "alias.txt", "hijacked",
-                                               full_observation(through),
-                                               desktop::FileModifyLimits{}, desktop::CancelToken{});
+    MIRAGE_CHECK(through.ok);
+    const auto link_replace =
+        env.replace_file(dir / "alias.txt", "hijacked", full_observation(through),
+                         desktop::FileModifyLimits{}, desktop::CancelToken{});
     MIRAGE_CHECK(!link_replace.ok);
     MIRAGE_CHECK(link_replace.error.code == std::string("invalid_argument"));
     MIRAGE_CHECK(slurp(path) == "real content\n");
@@ -751,15 +748,15 @@ MIRAGE_CHECK(through.ok);
 
     // Oversize target and oversize content are refused with file_too_large.
     const auto current2 = read_window(env, path);
-MIRAGE_CHECK(current2.ok);
+    MIRAGE_CHECK(current2.ok);
     desktop::FileModifyLimits tiny;
     tiny.max_content_bytes = 4;
-    const auto oversize_target = env.replace_file(path, "x", full_observation(current2), tiny,
-                                                  desktop::CancelToken{});
+    const auto oversize_target =
+        env.replace_file(path, "x", full_observation(current2), tiny, desktop::CancelToken{});
     MIRAGE_CHECK(!oversize_target.ok);
     MIRAGE_CHECK(oversize_target.error.code == std::string("file_too_large"));
-    const auto oversize_content = env.replace_file(path, "12345", full_observation(current2), tiny,
-                                                   desktop::CancelToken{});
+    const auto oversize_content =
+        env.replace_file(path, "12345", full_observation(current2), tiny, desktop::CancelToken{});
     MIRAGE_CHECK(!oversize_content.ok);
     MIRAGE_CHECK(oversize_content.error.code == std::string("file_too_large"));
 
@@ -781,9 +778,9 @@ MIRAGE_CHECK(current2.ok);
     MIRAGE_CHECK(missing.error.code == std::string("not_found"));
 
     // Relative path.
-    const auto relative = env.replace_file(std::filesystem::path{"rel.txt"}, "x",
-                                           full_observation(current2), desktop::FileModifyLimits{},
-                                           desktop::CancelToken{});
+    const auto relative =
+        env.replace_file(std::filesystem::path{"rel.txt"}, "x", full_observation(current2),
+                         desktop::FileModifyLimits{}, desktop::CancelToken{});
     MIRAGE_CHECK(!relative.ok);
     MIRAGE_CHECK(relative.error.code == std::string("invalid_argument"));
 }
@@ -799,7 +796,7 @@ void scenario_edit_matrix(const std::filesystem::path &root,
     // Single unique match.
     spew(path, "hello world\n");
     const auto observed = read_window(env, path);
-MIRAGE_CHECK(observed.ok);
+    MIRAGE_CHECK(observed.ok);
     const auto edited = env.edit_file(path, "world", "there", false, full_observation(observed),
                                       desktop::FileModifyLimits{}, desktop::CancelToken{});
     MIRAGE_CHECK(edited.ok);
@@ -821,7 +818,7 @@ MIRAGE_CHECK(observed.ok);
     // Ambiguity without replace_all.
     spew(path, "dup dup\n");
     const auto dup = read_window(env, path);
-MIRAGE_CHECK(dup.ok);
+    MIRAGE_CHECK(dup.ok);
     const auto ambiguous = env.edit_file(path, "dup", "x", false, full_observation(dup),
                                          desktop::FileModifyLimits{}, desktop::CancelToken{});
     MIRAGE_CHECK(!ambiguous.ok);
@@ -837,7 +834,7 @@ MIRAGE_CHECK(dup.ok);
 
     // replace_all demands a full observation even when the match is unique.
     const auto after_all = read_window(env, path);
-MIRAGE_CHECK(after_all.ok);
+    MIRAGE_CHECK(after_all.ok);
     desktop::FileObservation partial;
     partial.version = after_all.version;
     partial.full = false;
@@ -871,7 +868,7 @@ MIRAGE_CHECK(after_all.ok);
 
     // Well-formed no-op: old == new reports applied=false and writes nothing.
     const auto state = read_window(env, path);
-MIRAGE_CHECK(state.ok);
+    MIRAGE_CHECK(state.ok);
     struct stat before_stat {};
     MIRAGE_CHECK(::stat(path.c_str(), &before_stat) == 0);
     const auto noop = env.edit_file(path, "ALPHA", "ALPHA", false, full_observation(state),
@@ -901,7 +898,7 @@ MIRAGE_CHECK(state.ok);
     // their original form.
     spew(path, "a\r\nb\r\n");
     const auto crlf = read_window(env, path);
-MIRAGE_CHECK(crlf.ok && crlf.has_crlf);
+    MIRAGE_CHECK(crlf.ok && crlf.has_crlf);
     const auto crlf_edit = env.edit_file(path, "a\nb", "x\ny", false, full_observation(crlf),
                                          desktop::FileModifyLimits{}, desktop::CancelToken{});
     MIRAGE_CHECK(crlf_edit.ok && crlf_edit.applied);
@@ -910,7 +907,7 @@ MIRAGE_CHECK(crlf.ok && crlf.has_crlf);
 
     // Stale observation, missing file, symlink and hardlink targets.
     const auto stale_window = read_window(env, path);
-MIRAGE_CHECK(stale_window.ok);
+    MIRAGE_CHECK(stale_window.ok);
     spew(path, "changed\n");
     const auto stale = env.edit_file(path, "x\ny", "z", false, full_observation(stale_window),
                                      desktop::FileModifyLimits{}, desktop::CancelToken{});
@@ -918,17 +915,17 @@ MIRAGE_CHECK(stale_window.ok);
     MIRAGE_CHECK(stale.error.code == std::string("stale_file"));
 
     const auto current = read_window(env, path);
-MIRAGE_CHECK(current.ok);
-    const auto missing = env.edit_file(dir / "absent.txt", "a", "b", false,
-                                       full_observation(current), desktop::FileModifyLimits{},
-                                       desktop::CancelToken{});
+    MIRAGE_CHECK(current.ok);
+    const auto missing =
+        env.edit_file(dir / "absent.txt", "a", "b", false, full_observation(current),
+                      desktop::FileModifyLimits{}, desktop::CancelToken{});
     MIRAGE_CHECK(!missing.ok);
     MIRAGE_CHECK(missing.error.code == std::string("not_found"));
 
     std::filesystem::create_symlink("code.txt", dir / "alias.txt");
-    const auto link_edit = env.edit_file(dir / "alias.txt", "changed", "evil", false,
-                                         full_observation(current), desktop::FileModifyLimits{},
-                                         desktop::CancelToken{});
+    const auto link_edit =
+        env.edit_file(dir / "alias.txt", "changed", "evil", false, full_observation(current),
+                      desktop::FileModifyLimits{}, desktop::CancelToken{});
     MIRAGE_CHECK(!link_edit.ok);
     MIRAGE_CHECK(link_edit.error.code == std::string("invalid_argument"));
     MIRAGE_CHECK(slurp(path) == "changed\n");
@@ -960,7 +957,7 @@ void scenario_concurrent_replace_reports_busy_without_queueing(
     for (int round = 0; round < 6; ++round) {
         spew(path, original);
         const auto window = read_window(env, path);
-MIRAGE_CHECK(window.ok);
+        MIRAGE_CHECK(window.ok);
         const auto observation = full_observation(window);
         std::atomic<bool> go{false};
         desktop::FileWriteOutcome outcome_a, outcome_b;
@@ -969,8 +966,8 @@ MIRAGE_CHECK(window.ok);
                 while (!go.load(std::memory_order_acquire)) {
                     std::this_thread::yield();
                 }
-                into = env.replace_file(path, payload, observation,
-                                        desktop::FileModifyLimits{}, desktop::CancelToken{});
+                into = env.replace_file(path, payload, observation, desktop::FileModifyLimits{},
+                                        desktop::CancelToken{});
             };
         };
         std::thread writer_a = std::thread(make_writer(payload_a, outcome_a));
@@ -997,8 +994,7 @@ MIRAGE_CHECK(window.ok);
             }
             // The committed content is exactly one writer's payload (atomic
             // visibility, no interleaved bytes).
-            const std::string &winner =
-                a_applied ? payload_a : payload_b;
+            const std::string &winner = a_applied ? payload_a : payload_b;
             MIRAGE_CHECK(slurp(path) == winner);
         } else {
             // Both failed closed: the file is untouched.
@@ -1006,8 +1002,7 @@ MIRAGE_CHECK(window.ok);
         }
         MIRAGE_CHECK(count_temp_files(dir) == 0);
     }
-    std::fprintf(stderr,
-                 "[linux_file_actions_test] lease race: %d busy, %d stale over 6 rounds\n",
+    std::fprintf(stderr, "[linux_file_actions_test] lease race: %d busy, %d stale over 6 rounds\n",
                  busy_reports, stale_reports);
 }
 
@@ -1179,7 +1174,8 @@ void scenario_exec_timeout_and_cancel(const std::filesystem::path &root,
     sleeper.command = "sleep 30";
     const auto start = clock_::now();
     const auto timed_out = env.execute_request(sleeper, limits, desktop::CancelToken{});
-    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(clock_::now() - start);
+    const auto elapsed =
+        std::chrono::duration_cast<std::chrono::milliseconds>(clock_::now() - start);
     MIRAGE_CHECK(!timed_out.ok);
     MIRAGE_CHECK(timed_out.timed_out);
     MIRAGE_CHECK(!timed_out.cancelled);
@@ -1288,7 +1284,6 @@ void scenario_legacy_execute_regression(const std::filesystem::path &root,
     MIRAGE_CHECK(std::string_view(service_cwd) == std::string_view(cwd_after));
 }
 
-
 // --- crash injection (SIGKILL at the commit point, M10 fault injection) -------------
 //
 // Contract under test (DEC-095): a process SIGKILLed at any stage of a file
@@ -1305,11 +1300,9 @@ enum class CrashOp { Create, Replace, Edit };
 /// parent's address space (the environment, contents and observation are all
 /// inherited) and _exits so no atexit/flush machinery of the parent runs.
 [[noreturn]] void run_crash_child(linux_backend::LinuxDesktopEnvironment &env, CrashOp op,
-                                  const std::filesystem::path &target,
-                                  const std::string &content,
+                                  const std::filesystem::path &target, const std::string &content,
                                   const desktop::FileObservation &observation,
-                                  const std::string &old_string,
-                                  const std::string &new_string) {
+                                  const std::string &old_string, const std::string &new_string) {
     const desktop::FileModifyLimits limits;
     switch (op) {
     case CrashOp::Create: {
@@ -1382,8 +1375,7 @@ bool residue_free_names(const std::filesystem::path &dir,
             ++residue;
             continue;
         }
-        std::fprintf(stderr,
-                     "[linux_file_actions_test] unexpected directory entry: %s\n",
+        std::fprintf(stderr, "[linux_file_actions_test] unexpected directory entry: %s\n",
                      name.c_str());
         return false; // an unknown name occupies the directory
     }
@@ -1398,8 +1390,8 @@ void scenario_crash_injection_commit_atomicity(const std::filesystem::path &root
     MIRAGE_CHECK(std::filesystem::create_directories(refs));
 
     const auto digest_via_read = [&env](const std::filesystem::path &path) {
-        const auto window = env.read_text_window(path, 0, desktop::TextWindowLimits{},
-                                                 desktop::CancelToken{});
+        const auto window =
+            env.read_text_window(path, 0, desktop::TextWindowLimits{}, desktop::CancelToken{});
         return window.ok ? window.version.content_digest : std::string{};
     };
     // Reference digests come from reading payload files through the same
@@ -1441,8 +1433,7 @@ void scenario_crash_injection_commit_atomicity(const std::filesystem::path &root
         base[at + text.size()] = '\n';
         return base;
     };
-    const std::string small_old =
-        "prefix\n" + std::string(200, 'a') + "\n" + marker + "\nsuffix\n";
+    const std::string small_old = "prefix\n" + std::string(200, 'a') + "\n" + marker + "\nsuffix\n";
     const std::string small_new =
         "replaced-prefix\n" + std::string(200, 'b') + "\n" + marker + "\nsuffix\n";
     const std::string large_old = with_marker(line_block('a'), 4096, marker);
@@ -1463,26 +1454,25 @@ void scenario_crash_injection_commit_atomicity(const std::filesystem::path &root
         const auto target = dir / (std::string(matrix.label) + "-target.txt");
         const std::string new_digest =
             digest_of_content(matrix.new_content, (std::string(matrix.label) + "-new.bin").c_str());
-        const std::string old_digest = matrix.op == CrashOp::Create
-                                           ? std::string{}
-                                           : digest_of_content(matrix.old_content,
-                                               (std::string(matrix.label) + "-old.bin").c_str());
+        const std::string old_digest =
+            matrix.op == CrashOp::Create
+                ? std::string{}
+                : digest_of_content(matrix.old_content,
+                                    (std::string(matrix.label) + "-old.bin").c_str());
         // The edit's committed bytes are the old content with the single
         // marker spliced (raw splice, one occurrence).
-        const std::string committed_new = matrix.op == CrashOp::Edit
-                                              ? [&] {
-                                                    std::string spliced = matrix.old_content;
-                                                    const auto at = spliced.find(matrix.old_string);
-                                                    spliced.replace(at, matrix.old_string.size(),
-                                                                    matrix.new_string);
-                                                    return spliced;
-                                                }()
-                                              : matrix.new_content;
-        const std::string committed_digest = matrix.op == CrashOp::Edit
-                                                 ? digest_of_content(committed_new,
-                                                     (std::string(matrix.label) +
-                                                      "-committed.bin").c_str())
-                                                 : new_digest;
+        const std::string committed_new = matrix.op == CrashOp::Edit ? [&] {
+            std::string spliced = matrix.old_content;
+            const auto at = spliced.find(matrix.old_string);
+            spliced.replace(at, matrix.old_string.size(), matrix.new_string);
+            return spliced;
+        }()
+                                                                     : matrix.new_content;
+        const std::string committed_digest =
+            matrix.op == CrashOp::Edit
+                ? digest_of_content(committed_new,
+                                    (std::string(matrix.label) + "-committed.bin").c_str())
+                : new_digest;
 
         // Calibration: one clean child run on a throwaway target in a
         // separate directory bounds the operation's wall time so the kill
@@ -1503,8 +1493,8 @@ void scenario_crash_injection_commit_atomicity(const std::filesystem::path &root
             }
             const auto started = clock_::now();
             const int status = run_child_to_completion([&] {
-                run_crash_child(env, matrix.op, calib_target, matrix.new_content,
-                                calib_observation, matrix.old_string, matrix.new_string);
+                run_crash_child(env, matrix.op, calib_target, matrix.new_content, calib_observation,
+                                matrix.old_string, matrix.new_string);
             });
             duration_us = std::max(
                 duration_us,
@@ -1575,9 +1565,8 @@ void scenario_crash_injection_commit_atomicity(const std::filesystem::path &root
 
             // Invariant 2: every directory entry is known or kill residue.
             std::size_t residue = 0;
-            MIRAGE_CHECK(residue_free_names(dir, {target.filename().string(),
-                                                  sibling.filename().string()},
-                                           residue));
+            MIRAGE_CHECK(residue_free_names(
+                dir, {target.filename().string(), sibling.filename().string()}, residue));
             residue_total += static_cast<int>(residue);
 
             // Invariant 3: the sibling is byte-identical.
@@ -1593,13 +1582,13 @@ void scenario_crash_injection_commit_atomicity(const std::filesystem::path &root
                     env.create_file(target, matrix.new_content, limits, desktop::CancelToken{});
                 MIRAGE_CHECK(retry.ok || retry.error.code == std::string("already_exists"));
             } else if (matrix.op == CrashOp::Replace) {
-                const auto retry = env.replace_file(target, matrix.new_content, observation,
-                                                    limits, desktop::CancelToken{});
+                const auto retry = env.replace_file(target, matrix.new_content, observation, limits,
+                                                    desktop::CancelToken{});
                 MIRAGE_CHECK(retry.ok || retry.error.code == std::string("stale_file"));
             } else {
-                const auto retry = env.edit_file(target, matrix.old_string, matrix.new_string,
-                                                 false, observation, limits,
-                                                 desktop::CancelToken{});
+                const auto retry =
+                    env.edit_file(target, matrix.old_string, matrix.new_string, false, observation,
+                                  limits, desktop::CancelToken{});
                 MIRAGE_CHECK(retry.ok || retry.error.code == std::string("stale_file"));
             }
             MIRAGE_CHECK(digest_via_read(target) == committed_digest);
