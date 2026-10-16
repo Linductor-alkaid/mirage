@@ -130,6 +130,15 @@
 
 ## 关联文档和工作项
 
+### 2026-10-14：隐藏独立通知承载图标
+
+BUG-20261014-005：M5/M6 产品主托盘已交付，原 M4 无菜单常驻图标造成重复托盘。
+通知承载继续保留原 `(hWnd, uID)` 与 NIM_ADD/MODIFY/DELETE 生命周期；注册时使用
+`NIF_STATE` / `NIS_HIDDEN` 隐藏图标，不改变通知受理/取消/预算契约，不增加消息泵或线程。
+本条替代决策 3 中“常驻可见面”的过渡默认值。系统是否展示通知仍由 Shell 决定。
+依据：[NOTIFYICONDATAW](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/ns-shellapi-notifyicondataw)。
+验证及真实通知呈现限制见 [Windows 呈现维护计划](../plans/maintenance-windows-presentation-20261014.md)。
+
 - 设计文档第 5、10、18 节；[DEC-006](DEC-006-ui-web-frontend-packaging.md)
   （M5 安装包 = AUMID 载体的交付方）、
   [DEC-009](DEC-009-provider-scope-budget-cancellation.md)（`RULE-07`）、

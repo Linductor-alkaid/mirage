@@ -8,6 +8,9 @@
 
 ## 当前状态
 
+Windows 安装后呈现问题按[维护计划](maintenance-windows-presentation-20261014.md)推进：
+图形启动入口、通知承载重复图标、托盘菜单尺寸与间歇黑角分别跟踪，未取证项保持开放。
+
 新增 [M10：基础 Agent 工具集](m10-basic-agent-tools.md)（Proposed）：按维护者要求，
 调研本地 ZCode / deepseek-harness、pi 固定提交与 OpenCode 官方文档，规划
 `exec` / `read` / `write` / `edit` 的 Provider 扩展、会话接入和 Linux/Windows 验收。

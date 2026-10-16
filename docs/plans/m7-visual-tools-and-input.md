@@ -54,9 +54,9 @@ M7-08 已闭合 Linux X11 动作后新观察与局部条件门禁；真实语义
 | M7-07 | In Progress | 已接同源 SoM/crop/编号图、按 scope 视觉点击与后观察首增量；模板消费复用既有 session；已补固定 OCR 后条件与实际 Xvfb Canvas 5/5，显式闭合几何编号与本地模板匹配已接，双模板/位置交换/不重绘已验；实际 MiniMax 编号选择 3/3；供给范围化（DEC-062 capture_scope）、4K 小窗口 ROI 预采集/同范围重验和 owner 局部 OCR 已验；真实 Xorg 人工离线 3/3、权限/焦点门禁 2/2，在线闭环 1/2、选号 2/2，引用过期负例安全拒绝，第三例未运行 | 标记与同源图对应；换代/同名旧编号拒绝；窗口移动/负原点/缩放；纯 Canvas 控件点击闭环；宿主遮挡/权限/坐标变换取证 | M7-03/05/06 |
 | M7-08 | Completed（Linux X11 局部条件） | 修改前固定窗口/语义条件，副作用后强制新观察和只读重验；宿主终态门禁、工具卡目标/状态/证据 | 真实 X11 激活/回显/落盘三类任务；假成功、前台/epoch 变化与不确定重发拒绝；固定 OCR 条件/Xvfb Canvas 已另验；真实语义表单/用户宿主另验 | M7-02/03；视觉场景加 M7-07 |
 | M7-09 | In Progress | DEC-064 Linux X11 编号滚动/完整拖拽与机械事件已验；GTK 原生滚动/分隔条及 XRes 下列表重排正负效果已验；宿主 Xorg 2× 四类分别取证，间歇拒绝原因/其他平台仍另验 | 最大距离/次数/时长；拖拽中取消释放；滚动后旧引用拒绝；双平台真实输入 | M7-03/08；[DEC-064](../decisions/DEC-064-bounded-scroll-and-drag.md)、[DEC-065](../decisions/DEC-065-x11-drag-helper-ownership.md) |
-| M7-10 | In Progress | DEC-073/074 原生共享复用；DEC-077 产品键鼠已接入；GNOME 英文状态动态画面点击/组合键/完整 ASCII URL 与 Enter/滚动/回图及接管 11/11；Windows 采集分层升级（DEC-086：DXGI→WGC→BitBlt）已交付并本机取证；静态画面、Unicode 传输、其他输入法、Windows UIPI/Unicode/多屏 DPI 与产品宿主 DPI 声明继续推进 | Windows UIPI/Unicode/多屏 DPI；Wayland 授权/拒绝/撤销/会话关闭；缺实现显式不可用 | 首增量证据；目标平台环境 |
+| M7-10 | In Progress | DEC-073/074 原生共享复用；DEC-077 产品键鼠已接入；GNOME 英文状态动态画面点击/组合键/完整 ASCII URL 与 Enter/滚动/回图及接管 11/11；Windows 采集分层升级（DEC-086：DXGI→WGC→BitBlt）已交付并本机取证；产品宿主 per-monitor DPI 声明已交付；Windows Unicode 文本传输与多屏输入落点已实机取证（win32_input_delivery_test，感知进程）；Windows UIPI（提升目标，需 UAC 配合）、其他输入法与静态画面继续推进 | Windows UIPI 提升目标；Wayland 授权/拒绝/撤销/会话关闭；缺实现显式不可用 | 首增量证据；目标平台环境 |
 | M7-11 | In Progress | DEC-067/069：语义与 OCR/模板知识均重新解析新目标，经既有动作/核验进入 workflow；会话选择/恢复和持久资产后续推进 | 语义首增量见[验收](../compatibility/local-semantic-workflow-20261011.md)；OCR/模板实际产品零模型与门禁见[第二增量](../compatibility/local-visual-workflow-20261011.md) | DEC-067/069 已冻结本地知识/新执行引用契约；现有 workflow，见[路线分析](../research/2026-10-10-local-grounding-and-m7-sequencing.md) |
-| M7-12 | Completed（Linux 产品启用预览） | 产品根启用 Linux Provider，启动清单转发、持久化视觉设置、原生桌面工具页与权限说明；DEC-066 | 带视觉 Release 产品检查 23/23、实际原生 MiniMax OCR/mark 完成；OCR OFF 恢复 11/11；[验收](../compatibility/product-desktop-vision-20261011.md) | M7-02/05/06/08；Linux Xorg 首范围 |
+| M7-12 | Completed（Linux 产品启用预览） | 产品根启用 Linux Provider，启动清单转发、持久化视觉设置、原生桌面工具页与权限说明；DEC-066；Windows 产品宿主已接线 opt-in 平台面（DEC-066 变更记录）：tray 进程六面全 on、非产品 service 默认保持 | 带视觉 Release 产品检查 23/23、实际原生 MiniMax OCR/mark 完成；OCR OFF 恢复 11/11；[验收](../compatibility/product-desktop-vision-20261011.md)；Windows tray 冒烟见 2026-10-14 记录 | M7-02/05/06/08；Linux Xorg 首范围 |
 | M7-13 | Completed（Linux 默认包） | DEC-068 固定已验 Mirador / ncnn / PP-OCRv5；原生默认加载与离线安装 | 源/产物锁定、默认实际 OCR、关闭恢复、坏包/缺失拒绝；两种分辨率产品各 25/25，见[验收](../compatibility/bundled-vision-and-tool-recovery-20261011.md) | 当前已验 Mirador / ncnn / PP-OCRv5 |
 | M7-14 | In Progress（最新会话复验） | DEC-068 首增量已验；DEC-070 第二增量本地修复已验，原在线任务及提交评审待闭合 | 512 字节 canonical 回执、字段诊断、拒绝→新观察→已验证纠正、旧失败卡片收尾、未知/不确定负例及 ROI；见[新验收](../compatibility/desktop-rejection-recovery-20261011.md)，[首增量证据](../compatibility/bundled-vision-and-tool-recovery-20261011.md)保留 | 用户会话脱敏诊断及现有工具契约 |
 | M7-15 | In Progress | DEC-072：快捷能力不可达的 GUI 路线、绑定截图区域点击与前台/显示局部条件 | 无应用/语义 Provider 的真实 X11 启动器→键盘网址→新证据；比例、像素/焦点/权限/取消与不确定负例；在线自主选路另验 | M7-03/04/05/08，复用 M7-06 OCR及 M7-11 本地知识 |
@@ -1019,3 +1019,111 @@ DXGI 的像素断言在其不可用时以记录在案的条件跳过，待无 Id
 Wayland 授权/撤销与会话关闭继续按既有记录推进。本轮未修改 pinned 依赖、
 未调用在线模型；提交于 feat 分支，CI windows 门禁（MSVC 全树 + 测试）随
 MR 复验。
+
+2026-10-14 / M7-10 宿主 DPI 声明增量（DEC-086 变更记录）：开放边界中的产品
+宿主 per-monitor DPI 感知交付。平台公共入口 `declare_host_dpi_awareness()`
+（Windows 优先 `SetProcessDpiAwarenessContext(PMv2)`，幂等并对已固定/无法
+提升的上下文如实报告 prior/unchanged；Linux 无进程级声明返回 unavailable），
+`run_service_host`（mirage-service 与产品 tray 共同宿主入口）在参数解析后、
+任何窗口创建前声明并输出实际生效模式。宿主感知使显示器/窗口枚举、采集像素
+与 SendInput 注入坐标统一于物理像素空间（无感知宿主的 GetSystemMetrics 虚拟
+化值与 `MOUSEEVENTF_VIRTUALDESK` 物理归一化在混合 DPI 下系统性错位），并按
+DEC-086 门禁解除缩放桌面上 GPU 采集层的禁用。实测修正两处 DPI API 语义并
+钉进实现：awareness 枚举无 v2 值（v1/v2 context 共报 PER_MONITOR_AWARE=2，
+"v2"只是 context 伪句柄 flavor）；`SetProcessDPIAware` 在现代入口已设置后仍
+返回 1，其返回值仅在无现代入口时可信。
+
+证据（真实 Windows 11 三屏混合 DPI：2560×1600@150% 左屏、2560×1440@100%
+主屏、1080×1920 右竖屏）：MSVC Debug 全树构建零错误（唯一失败
+overlay_surface_test C4127 为本地 19.44 既有问题，未触碰，CI 19.51 仲裁）；
+host_dpi_awareness_test 2 checks/0 failures（首调 per_monitor_v2、再调
+prior_per_monitor）；win32_capture_tier_test 193 checks/0 failures 连续三次
+（新增 exercise_all_displays 逐屏 Auto 采集物理几何取证，三屏尺寸与
+EnumDisplayMonitors 一致；四层级双色探针与跨屏拒绝回归不变）；
+win32_backend_test 回归通过；CI 白名单 16 项本地 16/16；mirage-service 命名
+管道往返（status/shutdown）退出 0，启动首行输出 host dpi awareness
+per-monitor v2 (declared)。
+
+开放边界：Windows UIPI/Unicode/多屏输入落点实机验收、静态画面取图、Unicode
+传输、其他输入法与无 IddCx 干扰环境强制 DXGI 补证按 M7-10 既有记录推进；
+Linux 宿主行为不变。本轮未修改 pinned 依赖、未调用在线模型；提交于 feat
+分支，CI windows 门禁（MSVC 全树 + 测试）随 MR 复验。
+
+2026-10-14 / M7-10 Windows 输入实机取证增量：DEC-017 决策 5 的 Unicode 文本
+传输与宿主感知后的注入坐标面在真实 Windows 桌面完成取证。新增
+`win32_input_delivery_test`（真实交互桌面，DEC-017 决策 9 纪律）：测试进程
+经 PR #88 公共入口声明宿主 per-monitor DPI 感知后——(1) Unicode 序列投递：
+两轮 UTF-8 文本（CJK、全角标点、emoji 代理对与 ASCII 交错）经
+`type_text` 以 KEYEVENTF_UNICODE 到达自聚焦 fixture，WM_CHAR 单元序列与
+预期 UTF-16 逐单元一致；(2) 多屏指针落点：产品 `list_displays` 三屏
+（2560×1600@150% / 2560×1440@100% / 1080×1920 竖屏）逐屏中心
+`pointer_move` 后独立 `pointer_position` 回读全部 ±2px 内；(3) 按钮投递：
+fixture 中心左键单击以 WM_LBUTTONDOWN 到达，客户坐标 ±2px（端到端归一化
+→注入→命中测试链）；(4) 修饰键异步状态零滞留。
+
+前台锁事实与处理：shell 启动的测试进程被 OS 拒绝 SetForegroundWindow
+（win32_backend_test 同样跳过其焦点场景，CI runner 因无前台存在而放行）；
+测试以 AttachThreadInput 自有窗口回退取得前台——对提升前台该回退按 UIPI
+自然失败并大声跳过，即该边界按产品所见方式的呈现。指针落点对注入的异步
+生效与其他应用的瞬时 ClipCursor 钳制做有界重试，持续 miss 时打印光标
+clip 矩形作为外部干扰的诊断证据；调试期一次此类失败已按该证据定位为
+外部钳制并归档，非 Provider 缺陷。UIPI 专项验收（提升目标 + UAC 配合）
+保持挂账，负责人 Mirage 维护者。
+
+证据：MSVC Debug 全树构建零错误（overlay_surface_test C4127 既有本地问题
+不变）；win32_input_delivery_test 25 checks/0 failures（本机直跑六连 +
+含 backend/tier 前置的 ctest 批次三轮）；win32_backend_test 回归 0
+failures；win32_capture_tier_test 193/0；CI 白名单 17 项本地 17/17。本轮
+无产品源码变更（仅新增测试、CMake 与 CI 白名单）及 M7 计划/记忆同步；
+未修改 pinned 依赖、未调用在线模型；提交于 feat 分支，CI windows 门禁随
+MR 复验。
+
+2026-10-14 / M7-12 Windows 产品面接线：DEC-066 的 Windows 侧落地。产品宿主
+此前以全默认构造 WindowsDesktopEnvironment，四个 opt-in 面（Win32 窗口/屏幕/
+输入、UIA 可访问性、应用、通知）全部处于关闭默认——桌面工具链在 Windows
+产品进程内实际不可达。接线沿 Linux 分支的 product 语义：Win32/UIA/
+Application/Notifications 四选项传 product，探测失败的访问器保持 null
+（fail closed，其余面存活）；无头开发 service 保持 DEC-066 原默认。产品
+进程新增一行启动能力日志，记录实际打开的访问器而非请求意图。
+
+取证（真实 Windows 11）：mirage-tray（product，--no-shell）进程输出
+desktop surfaces window=on screen=on input=on accessibility=on
+application=on notification=on，service status / shutdown 经命名管道退出
+0、进程干净退出；mirage-service（非产品）输出无该行、往返 0/0/0（无头
+默认不变）。Runtime 级 observe→activate→click→set_text→新观察闭环由
+win32_observation_e2e_test（CI runner 74 checks）继续承载。开放边界：原生
+「桌面工具」页与真实桌面任务/OCR 的 Windows 产品预览待后续增量（OCR 依赖
+M7-13 的 Windows 资源面）。本轮未修改 pinned 依赖、未调用在线模型；提交
+于 feat 分支，CI windows 门禁（MSVC 全树 + 测试 + 产品往返）随 MR 复验。
+
+2026-10-14 / M7-12 Windows 产品进程树与安装器取证：产品进程树首次在
+Windows 实机整体运行。`packaging/windows/stage-payload.ps1`（新增）从构建
+树组装产品载荷——四个产品进程与完整资产面（补齐此前 NSIS 脚本缺失的
+mira.ico/Phosphor 字体对/providers 目录）到一个目录，即 tray 运行时按
+可执行同级解析 native/pet 的正确聚合点。staged 载荷启动 mirage-tray
+（product，带 shell）：mirage-native 进程拉起且前台窗口 "Mirage · Agent"
+可见，产品运行时六面能力行全 on（PR #93 接线），service status / shutdown
+经命名管道退出 0，shutdown 后双进程全部干净退出。`mira_pet` 为第三进程的
+阻塞项：Windows 配置即失败（pet 预览经 pkg-config 找 libwebpdemux，本机
+无此设施），按 M8-08 单独承接，安装器暂不含 pet。
+
+安装器（DEC-031 Windows 侧补跑条件首证）：makensis 本机构建
+`mirage-installer.exe`；冒烟以测试期派生的 user 级变体执行（非提权 shell
+无法承载 admin 清单的 UAC，派生仅替换 RequestExecutionLevel 与
+HKLM→HKCU 冒烟键名，File/资产/快捷方式/卸载机制与正式脚本一致）：
+静默安装到独立目录后文件/注册表核验、安装目录内以 Release 载荷重复进程
+树冒烟、静默卸载后目录与注册表清理核验通过。HKLM 管理员路径与
+Authenticode 签名保持发布机边界（fail-closed 脚本未变）；Release 运行库（/MD）以
+用户机 VC++ Redistributable 为前提，安装器暂不捆绑 vc_redist，留待发布
+增量决策。本轮未修改 pinned 依赖、未调用在线模型；提交于 feat 分支。
+
+2026-10-14 / M7-12 Windows 正式安装取证：授权合并（#93 → master 893f706）
+后以 Release 载荷重建正式安装器（`out/packages/mirage-installer-0.1.0.exe`，
+sha-256 前缀 fe1db1620590703d），经 UAC 提权安装到 `C:\Program Files\Mirage`
+（四个产品进程 + uninstall.exe + assets）。已安装产品运行取证：tray/native
+双进程、六面能力行全 on、命名管道 status/shutdown 退出 0、干净退出；HKCU
+AUMID 与用户开始菜单 Mirage.lnk 就位。实机发现 makensis（32 位）构建的安装
+进程默认走 WOW64 注册表视图，首个正式安装的卸载项落在 WOW6432Node；mirage.nsi
+已修正（安装节 `SetRegView 64` 写卸载项，卸载节双视图清理以兼容修正前版本
+升级），本机经升级安装迁移至原生视图并清理旧键。未安装系统级依赖；Authenticode
+签名仍待发布机证书。

@@ -3939,10 +3939,8 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
     const float main_width = screen.width - sidebar;
     const float column_width = std::min(800.0f, main_width - 64);
     const float column_x = sidebar + (main_width - column_width) / 2;
-    // Rounded window chrome requires an alpha framebuffer; without one the
-    // corners would composite as black, so keep square edges in that case.
-    const bool rounded_window = window::transparent_framebuffer();
-    const float chrome_radius = rounded_window ? 12.0f : 0.0f;
+    const float chrome_radius = window::chrome_radius(s.render_scale);
+    const bool rounded_window = chrome_radius > 0;
     ui.stack("root")
         .size(screen.width, screen.height)
         .content([&] {
