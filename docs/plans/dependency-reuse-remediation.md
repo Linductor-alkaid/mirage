@@ -76,23 +76,23 @@ mirador、状态机为 Mira::core 薄适配），但存在三类系统性缺口�
 
 ### D. 台账与文档同步（P2/P3）
 
-- [ ] REUSE-16：台账状态收口：`ledger.md` Mirador 索引行与 MIRADOR-20261009-001 锚点
+- [x] REUSE-16：台账状态收口：`ledger.md` Mirador 索引行与 MIRADOR-20261009-001 锚点
   改为 Resolved（上游 PR#35 已合并、pin 已消费）；`mira.md` MIRA-20261014-005 尾部
   孤立单行表修正、MIRA-20261004-001 详情段状态收口、MIRA-20261005-001 状态收口；
   `ledger.md` 历史锚点中 MIRA-20261006-001/002（PR#80/81 已合并）、
   MIRA-20261008-001（PR#84 已合并）的过期上游状态同步。
-- [ ] REUSE-17：MIRA-20261013-001 补齐状态/负责人/上游链接字段，入 mira.md 汇总表与
+- [x] REUSE-17：MIRA-20261013-001 补齐状态/负责人/上游链接字段，入 mira.md 汇总表与
   ledger.md 索引，测试规范侧补引用。
-- [ ] REUSE-18：补登记被消费/延期但未入台账的上游能力：PR#91/92/93（DEC-085 系列）、
+- [x] REUSE-18：补登记被消费/延期但未入台账的上游能力：PR#91/92/93（DEC-085 系列）、
   PR#89 kairo 0.7.0 延期的 QoS/AdaptiveScheduler 触发条件；孤儿编号处置：
   MIRA-20261014-003（Superseded 计划文档草稿与悬空链接清理）、MIRA-20261016-001
   （m11 预备清单前瞻引用，按清单语义正式登记或标注待决策）。
-- [ ] REUSE-19：`dependencies.lock.json` notes 回写编号：PR#80/#81→MIRA-20261006-001/002、
+- [x] REUSE-19：`dependencies.lock.json` notes 回写编号：PR#80/#81→MIRA-20261006-001/002、
   PR#94→MIRA-20261014-004、PR#98→MIRA-20261015-001、PR#99→MIRA-20261015-002。
-- [ ] REUSE-20：`AGENTS.md` 措辞对齐：规则 7 Executor owner 改为与 DEC-030/037/045
+- [x] REUSE-20：`AGENTS.md` 措辞对齐：规则 7 Executor owner 改为与 DEC-030/037/045
   一致的"每进程唯一外部 owner"表述；为测试脚手架（fake 平台事件循环、竞态注入）的
   受控 `std::thread` 增加明示豁免条款。
-- [ ] REUSE-21：runtime 内平台源文件对（ipc/persistence/update 的
+- [x] REUSE-21：runtime 内平台源文件对（ipc/persistence/update 的
   `*_posix/_windows`、`stream.hpp` 条件编译）与"平台细节只在 platform/"的字面冲突，
   核对既有 DEC-007/M4-06 覆盖度，缺口处以决策/注释收口，不做大规模搬迁。
 
@@ -112,4 +112,24 @@ mirador、状态机为 Mira::core 薄适配），但存在三类系统性缺口�
 
 ## 验证记录
 
-（随各工作项完成追加；证据等级区分见工程规范第 7 节。）
+### 2026-10-16：REUSE-16..21（文档/台账批次）
+
+- 范围：台账状态收口与补登记、lock notes 编号回写、AGENTS.md 措辞对齐、孤儿编号清理。
+- 关键处置：
+  - 新增 MIRA-20261016-001（Proposed，M10 预备清单前瞻占位）、-002（DEC-085 系列追记，
+    Resolved）、-003（kairo 0.7.0 延期能力跟踪，Open）、-004（RGBA→PNG 编码缝，Open）；
+    MIRA-20261014-003 确认未登记且其"本地改 pinned"路径从未实施，已在
+    context-compaction-implementation.md §3.4 以作废草稿标注并修正悬空验收链接。
+  - MIRA-20261013-001 补状态/负责人/上游字段并入汇总表；测试侧引用随 REUSE-14/17
+    在 tests/support 落地（见代码批次验证记录）。
+  - 依据核对：上游 PR#79/80/81 合并状态引自 2026-10-08 master d5c7d06 复核记录
+    （mira.md 跟进表）；Mirador 三条收口依据 2026-10-09 授权合并回执（master ae8cf87）。
+- REUSE-21 结论：DEC-007 §平台载体（"两平台共享 runtime/ipc 的帧格式、协议与消息
+  语义，传输实现按平台分编译单元"）明文覆盖 runtime/ipc 平台源对与 stream.hpp 条件
+  编译；persistence 平台差异由 DEC-011/DEC-017 注释背书（paths_windows.cpp、
+  store_windows.cpp）；update fetcher 平台对随 REUSE-01 迁移 mira 传输后消除。既有
+  决策覆盖充分，不需要新 DEC。
+- 验证：JSON 经 `python3 -m json.tool` 等价校验通过；台账编号全仓 grep 无孤儿引用
+  （20261014-003 仅存于作废标注、20261016-001..004 均已登记）。文档变更无运行时影响，
+  不适用构建/测试证据；声明等级：源码与配置支持。
+- 限制：Windows/MSVC 侧无影响面；负责人 Mirage 维护者，无补跑项。

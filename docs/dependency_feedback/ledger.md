@@ -2,11 +2,21 @@
 
 > 状态：Active
 > 负责人：Mirage维护者
-> 更新日期：2026-10-15
+> 更新日期：2026-10-16
 > 维护规则：[工程规范9.4](../project/project-standards.md)
-> 本轮工作项：[M7-06](../plans/m7-visual-tools-and-input.md)；既有 M6 记录保留
+> 本轮工作项：[依赖复用整改](../plans/dependency-reuse-remediation.md)（REUSE-16/17/18
+> 台账一致性收口）；既有条目分别溯源至 M6、M7-06、M8/M9 各工作项
 
 ## 分依赖台账
+
+2026-10-16 台账一致性整改（[REUSE-16/17/18](../plans/dependency-reuse-remediation.md)）：
+修正索引与详情的过期状态（Mirador 三条、MIRA-20261005-001、20261014-005 孤儿表、
+20261004-001/002 与 20261006-001/002、20261008-001 的上游合并回执）；为
+MIRA-20261013-001 补齐状态/负责人字段；补登记 DEC-085 系列上游交付
+[MIRA-20261016-002](mira.md#mira-20261016-002)（追记，Resolved）、kairo 0.7.0 延期
+能力 [MIRA-20261016-003](mira.md#mira-20261016-003)（Open）、RGBA→PNG 编码缝
+[MIRA-20261016-004](mira.md#mira-20261016-004)（Open）；为 M10 预备清单预留的
+语义相似度确认登记 [MIRA-20261016-001](mira.md#mira-20261016-001)（Proposed 占位）。
 
 长程任务调查新增 [MIRA-20261015-002](mira.md#mira-20261015-002)：pinned
 ConversationLoop 的 model/tool 累计上限没有公开的“不设总次数限制”模式；增大数值
@@ -51,8 +61,8 @@ DEC-088 能力 4 新增 [MIRA-20261015-001](mira.md#mira-20261015-001)：部分�
 
 | 依赖 | 详细台账 | 已确认问题 | 说明 |
 | --- | --- | --- | --- |
-| Mira | [Mira台账](mira.md) | 既有状态见详细台账；M7新增4项：3项Resolved（Linux 合成图范围；Messages SSE 截断流 PR#87；网络阶段超时可重试 PR#88，均合并并消费复验）；1项 Open（MIRA-20261012-002：ProviderCircuit 开启后无时间恢复路径，测试以重建 ModelLayer 规避） | Runtime/模型/工具/workflow及随Mira交付的Executor；PR#86 已消费，三方言 fixture 与 MiniMax 截图工具在线 2/2 |
-| Mirador | [Mirador台账](mirador.md) | 1项 Open | M7-06：常量缩放失真；公开复现，待上游提交 |
+| Mira | [Mira台账](mira.md) | 既有状态见详细台账；Open 5 项：MIRA-20260922-001（MinGW 构建）、MIRA-20261008-002（-Wuseless-cast）、MIRA-20261012-002（ProviderCircuit cooldown）、MIRA-20261013-001（`Result::value()` 防线）、MIRA-20261016-003（kairo 0.7.0 延期能力跟踪）；另有 MIRA-20261016-004（PNG 编码缝）与 20261016-001（前瞻 Proposed）；MIRA-20261016-002 为追记 Resolved | Runtime/模型/工具/workflow及随Mira交付的Executor；PR#86 已消费，三方言 fixture 与 MiniMax 截图工具在线 2/2 |
+| Mirador | [Mirador台账](mirador.md) | 3 项均 Resolved（本地） | M7-06 常量缩放/连通域边界/PP-OCR 预处理三项随上游 PR#35 合并（master `ae8cf87`）并经授权升级 pin 复验收口；OCR 权重许可与真实桌面/DPI 样本等剩余项不随本组关闭，见 mirador.md 合并回执 |
 
 executor经pinned Mira传递引入，编号使用`MIRA-YYYYMMDD-NNN`，不直接向Executor提交。
 Mirador使用`MIRADOR-YYYYMMDD-NNN`。EUI是用户授权的UI依赖，其既有问题仍在
@@ -119,17 +129,19 @@ M7-04/05 图片链路、三方言 fixture 与 MiniMax 在线两例已通过，�
 
 ## MIRA-20261006-001：Messages协议
 
-公开API核对、影响和验收见[Mira台账](mira.md#mira-20261006-001anthropic-messages方言缺口)。本轮Resolved（Linux本地范围），[上游PR#80](https://github.com/Linductor-alkaid/mira/pull/80)已创建未合并；无临时调度设施。
+公开API核对、影响和验收见[Mira台账](mira.md#mira-20261006-001anthropic-messages方言缺口)。Resolved（Linux本地范围），[上游PR#80](https://github.com/Linductor-alkaid/mira/pull/80)已合并（2026-10-08 master d5c7d06 复核含 PR#79/80/81）；无临时调度设施。
 
 ## MIRA-20261006-002：Messages 思考控制与签名回填
 
-详见 [Mira 台账](mira.md#mira-20261006-002)。Linux 本地修复与授权 pin 复验完成；[上游 PR#81](https://github.com/Linductor-alkaid/mira/pull/81) 未合并。
+详见 [Mira 台账](mira.md#mira-20261006-002)。Linux 本地修复与授权 pin 复验完成；[上游 PR#81](https://github.com/Linductor-alkaid/mira/pull/81) 已合并（2026-10-08 master 复核）。
 
 ## MIRA-20261008-001：Responses / Chat Completions 方言丢弃思考输出
 
-详见 [Mira 台账](mira.md#mira-20261008-001)。两服务在线对照确认：Messages 方言思考内容端到端可见，Chat Completions 的 `reasoning_content` 只留摘要或被丢弃。Open；[上游 issue#83](https://github.com/Linductor-alkaid/mira/issues/83) 已提交。
+详见 [Mira 台账](mira.md#mira-20261008-001)。两服务在线对照确认：Messages 方言思考内容端到端可见，Chat Completions 的 `reasoning_content` 只留摘要或被丢弃。Resolved（PR#84 已合并并授权消费，2026-10-08 真机复验收口，详见 Mira 台账）。
 
 ## MIRADOR-20261009-001：常量缩放失真影响真实 OCR
 
 详见[Mirador 台账](mirador.md#mirador-20261009-001)与
-[公开复现](repro/README.md#mirador-常量缩放复现m7-06)。Open，待上游提交；未修改 pin。
+[公开复现](repro/README.md#mirador-常量缩放复现m7-06)。Resolved（本地）：
+上游 PR#35 经维护者授权合并（master `ae8cf87`），pin 已升级并完成独立复验；
+未本地修改 pin。
