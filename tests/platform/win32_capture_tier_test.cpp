@@ -17,6 +17,8 @@
 
 #include "../support/test.hpp"
 
+#include <mirage/platform/host_environment.hpp>
+
 #include "screen_capture_backend.hpp"
 
 #ifndef UNICODE
@@ -137,25 +139,18 @@ class FixtureWindow {
     HWND window_ = nullptr;
 };
 
-/// Per-monitor (or at least system) DPI awareness so the provider and
-/// physical spaces agree and the DEC-086 gate lets the GPU tiers through.
-/// Returns false when even the legacy entry is refused — the caller turns
-/// that into a loud failure, not a silent BitBlt-only run.
+/// The product runtime hosts declare their awareness through the public
+/// platform entry (M7-10), so this test does the same: the engine gate and
+/// the physical-geometry assertions below then run under exactly the mode
+/// the product runs under. Returns false only when the process awareness is
+/// fixed to a non-physical mode — the caller turns that into a loud
+/// failure, not a silent BitBlt-only run.
 bool declare_dpi_awareness() {
-    const HMODULE user32 = GetModuleHandleW(L"user32");
-    if (user32 == nullptr) {
-        return false;
-    }
-    using SetContextFn = BOOL(WINAPI *)(DPI_AWARENESS_CONTEXT);
-    const auto set_context =
-        reinterpret_cast<SetContextFn>(GetProcAddress(user32, "SetProcessDpiAwarenessContext"));
-    if (set_context != nullptr && set_context(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) != 0) {
-        return true;
-    }
-    using SetAwareFn = BOOL(WINAPI *)(void);
-    const auto set_aware =
-        reinterpret_cast<SetAwareFn>(GetProcAddress(user32, "SetProcessDPIAware"));
-    return set_aware != nullptr && set_aware() != 0;
+    const auto mode = mirage::platform::declare_host_dpi_awareness();
+    std::fprintf(stderr, "[host] dpi awareness mode %d\n", static_cast<int>(mode));
+    return mode == mirage::platform::DpiAwareness::per_monitor_v2 ||
+           mode == mirage::platform::DpiAwareness::prior_per_monitor ||
+           mode == mirage::platform::DpiAwareness::system;
 }
 
 /// The two tones must both be visible inside the frame (interior sampling
@@ -219,6 +214,54 @@ void check_frame_invariants(const mirage::desktop::ImageFrame &frame,
     MIRAGE_CHECK(frame.height == request.height);
     MIRAGE_CHECK(frame.stride == static_cast<std::size_t>(frame.width) * 4u);
     MIRAGE_CHECK(frame.pixels.size() == frame.stride * static_cast<std::size_t>(frame.height));
+}
+
+struct DisplayWitnessContext {
+    ScreenCaptureEngine *engine = nullptr;
+    int served = 0;
+};
+
+/// M7-10 multi-display witness: every real monitor's Auto capture must come
+/// back at the physical geometry EnumDisplayMonitors reports in this aware
+/// process — an unaware host would get the scaled-down size on scaled
+/// outputs, and the DEC-086 gate would have kept the GPU tiers off. Content
+/// on the other displays is arbitrary desktop pixels, so this asserts frame
+/// invariants and the physical dimensions only; pixel content is the
+/// fixture's job in exercise_tier.
+BOOL CALLBACK witness_display(HMONITOR monitor, HDC, LPRECT, LPARAM lparam) {
+    auto *context = reinterpret_cast<DisplayWitnessContext *>(lparam);
+    MONITORINFOEXW info{};
+    info.cbSize = sizeof(info);
+    if (::GetMonitorInfoW(monitor, &info) == 0) {
+        return TRUE; // a monitor that vanished mid-walk is not an error
+    }
+    const WindowGeometry rect{info.rcMonitor.left, info.rcMonitor.top,
+                              info.rcMonitor.right - info.rcMonitor.left,
+                              info.rcMonitor.bottom - info.rcMonitor.top};
+    std::fprintf(stderr, "[display %ls] physical (%d,%d) %dx%d primary=%d\n", info.szDevice, rect.x,
+                 rect.y, rect.width, rect.height,
+                 (info.dwFlags & MONITORINFOF_PRIMARY) != 0 ? 1 : 0);
+    CaptureLimits budget;
+    budget.max_bytes =
+        static_cast<std::size_t>(rect.width) * static_cast<std::size_t>(rect.height) * 4u;
+    const auto shot =
+        context->engine->capture_rect(rect, budget, CancelToken{}, ScreenCaptureEngine::Tier::Auto);
+    MIRAGE_CHECK(shot.ok);
+    if (!shot.ok) {
+        std::fprintf(stderr, "[display %ls] auto capture failed: %s / %s\n", info.szDevice,
+                     shot.error.code.c_str(), shot.error.message.c_str());
+        return TRUE;
+    }
+    check_frame_invariants(shot.frame, rect);
+    ++context->served;
+    return TRUE;
+}
+
+void exercise_all_displays(ScreenCaptureEngine &engine) {
+    DisplayWitnessContext context;
+    context.engine = &engine;
+    ::EnumDisplayMonitors(nullptr, nullptr, &witness_display, reinterpret_cast<LPARAM>(&context));
+    MIRAGE_CHECK(context.served >= 1);
 }
 
 /// The tier's whole scenario set on the real desktop: pixel output over the
@@ -380,6 +423,11 @@ int main() {
     exercise_tier(*engine, ScreenCaptureEngine::Tier::Dxgi, fixture, primary_rect);
     exercise_tier(*engine, ScreenCaptureEngine::Tier::GraphicsCapture, fixture, primary_rect);
     exercise_tier(*engine, ScreenCaptureEngine::Tier::BitBlt, fixture, primary_rect);
+
+    // M7-10 multi-display witness: every attached monitor must be served at
+    // its physical geometry through the Auto chain (mixed-DPI desktops are
+    // the point; the per-display evidence is on stderr).
+    exercise_all_displays(*engine);
 
     // A forced GPU tier over a rectangle reaching past the containing
     // monitor's bounds has no single-output representation and must refuse

@@ -1,4 +1,5 @@
 #include "tray_backend.hpp"
+#include "tray_menu.hpp"
 
 #include "win32_util.hpp"
 
@@ -30,8 +31,9 @@ constexpr UINT kIconCallbackMessage = WM_APP + 1;
 
 /// The tray state changed; the pump re-reads it and refreshes the tooltip.
 constexpr UINT kWakeupMessage = WM_APP + 2;
+constexpr UINT kMenuCommandMessage = WM_APP + 3;
 
-/// Menu command ids of the context menu (TrackPopupMenuEx returns the id).
+/// Command ids posted by the popup into the existing tray pump.
 enum : int {
     kMenuOpenShell = 3,
     kMenuPet = 4,
@@ -52,6 +54,7 @@ struct TrayPumpState {
     TrayCarrierContext context;
     TrayState state;     ///< newest loaded presentation state
     std::wstring status; ///< UTF-16 of state.status (tooltip budget clamped)
+    std::unique_ptr<TrayMenuPresentation> menu_presentation;
 };
 
 /// Shell_NotifyIcon tooltip budget: szTip is 128 wchar_t including the
@@ -72,45 +75,43 @@ LRESULT CALLBACK tray_window_proc(HWND window, UINT message, WPARAM wparam, LPAR
         return ::DefWindowProcW(window, message, wparam, lparam);
     }
     if (message == kIconCallbackMessage) {
-        // A click on the resident icon: show the context menu at the cursor
-        // (the TrackPopupMenu focus discipline: SetForegroundWindow first,
-        // or the menu never closes — the classic tray-menu requirement).
+        // The popup is modeless: state refresh, cancellation and shutdown keep
+        // advancing through the existing Executor-owned pump while it is open.
         if (LOWORD(lparam) == WM_RBUTTONUP || LOWORD(lparam) == WM_LBUTTONUP) {
-            HMENU menu = ::CreatePopupMenu();
-            if (menu == nullptr) {
-                return 0;
-            }
-            const auto append = [&](UINT flags, UINT_PTR id, const wchar_t *text) {
-                ::AppendMenuW(menu, flags, id, text);
-            };
-            append(MF_STRING | (state->state.can_open_shell ? MF_ENABLED : MF_GRAYED),
-                   kMenuOpenShell, L"打开应用");
-            if (!state->state.pet_label.empty()) {
-                const auto pet_label =
-                    win32_util::utf8_to_utf16(state->state.pet_label).value_or(L"桌宠");
-                append(MF_STRING | (state->state.can_toggle_pet ? MF_ENABLED : MF_GRAYED), kMenuPet,
-                       pet_label.c_str());
-            }
-            append(MF_STRING, kMenuQuit, L"退出应用");
-            ::SetForegroundWindow(window);
             POINT cursor{};
             ::GetCursorPos(&cursor);
-            // TrackPopupMenuEx returns BOOL (= int on both SDKs); with
-            // TPM_RETURNCMD the value is the chosen command id.
-            const int command =
-                ::TrackPopupMenuEx(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY, cursor.x,
-                                   cursor.y, window, nullptr);
-            ::DestroyMenu(menu);
-            ::PostMessageW(window, WM_NULL, 0, 0); // settle the foreground switch
-            if (command == kMenuPet && state->state.can_toggle_pet && state->context.on_action)
-                state->context.on_action(state->state.pet_running ? TrayAction::PetStop
-                                                                  : TrayAction::PetStart);
-            if (command == kMenuOpenShell || command == kMenuQuit) {
-                const TrayAction action =
-                    command == kMenuOpenShell ? TrayAction::OpenShell : TrayAction::Quit;
-                if (state->context.on_action) {
-                    state->context.on_action(action);
-                }
+            // Place the hidden owner on the invoking monitor before querying DPI.
+            ::SetWindowPos(window, nullptr, cursor.x, cursor.y, 0, 0,
+                           SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            using GetDpi = UINT(WINAPI *)(HWND);
+            const auto get_dpi = reinterpret_cast<GetDpi>(
+                ::GetProcAddress(::GetModuleHandleW(L"user32.dll"), "GetDpiForWindow"));
+            state->menu_presentation =
+                std::make_unique<TrayMenuPresentation>(get_dpi ? get_dpi(window) : 96);
+            auto &presentation = *state->menu_presentation;
+            bool ready =
+                presentation.append(kMenuOpenShell, L"打开应用", state->state.can_open_shell);
+            if (!state->state.pet_label.empty()) {
+                const auto label =
+                    win32_util::utf8_to_utf16(state->state.pet_label).value_or(L"桌宠");
+                ready = presentation.append(kMenuPet, label, state->state.can_toggle_pet) && ready;
+            }
+            ready = presentation.append(kMenuQuit, L"退出应用", true, true) && ready;
+            if (ready)
+                (void)presentation.show(window, cursor, kMenuCommandMessage);
+        }
+        return 0;
+    }
+    if (message == kMenuCommandMessage) {
+        const auto command = static_cast<int>(wparam);
+        if (command == kMenuPet && state->state.can_toggle_pet && state->context.on_action)
+            state->context.on_action(state->state.pet_running ? TrayAction::PetStop
+                                                              : TrayAction::PetStart);
+        if ((command == kMenuOpenShell && state->state.can_open_shell) || command == kMenuQuit) {
+            const TrayAction action =
+                command == kMenuOpenShell ? TrayAction::OpenShell : TrayAction::Quit;
+            if (state->context.on_action) {
+                state->context.on_action(action);
             }
         }
         return 0;
@@ -242,6 +243,8 @@ Win32TrayCarrier::run(const TrayCarrierContext &context,
                 newest.can_toggle_pet != pump.state.can_toggle_pet ||
                 newest.pet_running != pump.state.pet_running) {
                 pump.state = newest;
+                if (pump.menu_presentation)
+                    pump.menu_presentation->dismiss();
                 pump.status = win32_util::utf8_to_utf16(pump.state.status).value_or(std::wstring{});
                 refresh_tooltip(pump);
             }
@@ -252,6 +255,7 @@ Win32TrayCarrier::run(const TrayCarrierContext &context,
 
     // Teardown on the pump thread (thread affinity, DEC-018): remove the
     // icon before the callback window dies.
+    pump.menu_presentation.reset();
     callback_window_.store(nullptr, std::memory_order_release);
     if (pump.icon_added) {
         ::Shell_NotifyIconW(NIM_DELETE, &pump.icon);

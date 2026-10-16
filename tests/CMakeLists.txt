@@ -37,6 +37,16 @@ mirage_add_test(credential_store_test
     TIMEOUT 30
     )
 
+# M7-10 host DPI declaration (DEC-086): pins the public contract and the
+# idempotence the runtime hosts' startup log line relies on, on both
+# platforms (Windows lands per-monitor v2, Linux reports no declaration).
+add_executable(host_dpi_awareness_test platform/host_dpi_awareness_test.cpp)
+target_compile_features(host_dpi_awareness_test PRIVATE cxx_std_20)
+mirage_enable_warnings(host_dpi_awareness_test)
+target_link_libraries(host_dpi_awareness_test PRIVATE Mirage::platform)
+add_test(NAME host_dpi_awareness_test COMMAND host_dpi_awareness_test)
+set_tests_properties(host_dpi_awareness_test PROPERTIES LABELS "unit;platform" TIMEOUT 30)
+
 add_executable(dependency_wiring_test smoke/dependency_wiring_test.cpp)
 # POSIX-coupled: the scripted providers sleep through <poll.h>; Windows keeps
 # its own platform validation instead of compiling these Linux-flow tests.
@@ -277,6 +287,29 @@ mirage_add_test(win32_backend_test
     # waits on a slow desktop; 120s leaves a wide margin like the sibling
     # win32 tests.
     set_tests_properties(win32_capture_tier_test PROPERTIES
+        LABELS "integration;platform"
+        TIMEOUT 120
+    )
+
+    # M7-10 input delivery evidence (DEC-017 decision 5 / DEC-086 host mode):
+    # Unicode text transport, pointer landing on every attached display and
+    # real button delivery to its own fixture window, in a process that
+    # declared the runtime host's per-monitor DPI awareness through the same
+    # public entry the product hosts use. Delivery scenarios gate on focus /
+    # SendInput acceptance and degrade to loud notes (same discipline as
+    # win32_backend_test); the contract rejections stay with that test.
+    add_executable(win32_input_delivery_test platform/win32_input_delivery_test.cpp)
+    target_compile_features(win32_input_delivery_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(win32_input_delivery_test)
+    target_link_libraries(win32_input_delivery_test
+        PRIVATE
+            Mirage::platform
+            Mirage::desktop
+            user32
+            gdi32
+    )
+    add_test(NAME win32_input_delivery_test COMMAND win32_input_delivery_test)
+    set_tests_properties(win32_input_delivery_test PROPERTIES
         LABELS "integration;platform"
         TIMEOUT 120
     )
@@ -1406,6 +1439,14 @@ mirage_add_test(pet_bubble_test
     LABELS "unit;runtime;pet;protocol"
     TIMEOUT 10
     )
+
+if(WIN32)
+    add_executable(win32_tray_menu_test platform/win32_tray_menu_test.cpp)
+    target_compile_features(win32_tray_menu_test PRIVATE cxx_std_20)
+    target_link_libraries(win32_tray_menu_test PRIVATE Mirage::desktop user32 gdi32 dwmapi)
+    mirage_enable_warnings(win32_tray_menu_test)
+    add_test(NAME win32_tray_menu_test COMMAND win32_tray_menu_test)
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_ENABLE_PET_PREVIEW)
     add_executable(pet_bubble_view_test desktop/pet_bubble_view_test.cpp)

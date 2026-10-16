@@ -27,6 +27,26 @@ Workflow，存在活动时打开前端退出确认，取消保持工作，确认
 
 ## 影响与验证边界
 
+2026-10-14（BUG-20261014-004/006）：Windows 安装的开始菜单改用 GUI 子系统
+`mirage-launcher`，共享 CLI 控制面并自动调用 start；CLI `mirage.exe` 继续是控制台程序。
+启动失败通过图形错误框展示已有错误文本。托盘进程本身也链接 GUI 子系统；所有权和
+IPC 准入保持既有契约。Windows 菜单按维护者 2026-10-15 的 GPT 参考改为白色圆角弹层，
+基准字号 14 px、行高 40 px、宽度 300 px、文字水平留白 20 px，随调用所在显示器 DPI
+缩放；浅灰圆角悬停，退出项前使用淡色细分隔线。Windows 11 使用 DWM 圆角和阴影，
+Windows 10 使用轮廓/类阴影降级（目标机器尚未验证 Windows 10）。标准 BUTTON 保留
+可访问名称及禁用状态；上/下/Tab/Home/End 跳过禁用项，Enter/Space 激活，Escape 或
+点击外部关闭。弹层在既有 pump 上 modeless 运行，刷新状态和停止期间销毁，避免原生
+TrackPopupMenu 的嵌套等待阻断 shutdown。原动作仍经既有 Executor 派发，不创建线程/队列/调度器。
+验证见 [维护计划](../plans/maintenance-windows-presentation-20261014.md)。
+
+2026-10-15（BUG-20261014-007）：维护者安装修补版后仍复现黑角，核对安装 native hash
+与交付包一致。GLFW framebuffer alpha 授权和 PatBlt 初始化不足以保证目标显示路径
+透明。Windows 私有窗口适配以 12 logical px 的产品 region 保护四角，跟随尺寸/render
+scale，最大化清除，恢复重建；region 所有权交给 Windows，不新增线程或事件泵。
+该产品策略与 EUI 的通用透明问题分开，不宣称 #109 已解决。整数裁剪可能改变 DWM
+阴影或抗锯齿边缘；上游同一机器的冷启动/恢复/混合 DPI/缓存帧透明反复稳定后移除。
+供应链及上游证据见 [升级审计](../supply-chain/eui-windows-presentation-20261015.md)。
+
 此决策替代DEC-007/030中产品Tray仅作为独立Service客户端的部分；开发headless
 Service契约保留。M6-24历史三进程证据不作为新拓扑通过依据。Linux私有真实DBus/
 SNI/X11验收与故障注入在本机执行；Windows/Wayland/真实通知区呈现需维护者目标

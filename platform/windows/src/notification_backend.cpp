@@ -109,7 +109,11 @@ std::unique_ptr<NotificationBackend> NotificationBackend::open() {
     icon_data.cbSize = NOTIFYICONDATAW_V3_SIZE;
     icon_data.hWnd = window;
     icon_data.uID = 1; // the (hWnd, uID) pair is this backend's icon identity
-    icon_data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
+    // BUG-20261014-005: this is a notification carrier, not the product tray.
+    // Keep its shell identity for NIF_INFO while hiding the noninteractive icon.
+    icon_data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_STATE;
+    icon_data.dwState = NIS_HIDDEN;
+    icon_data.dwStateMask = NIS_HIDDEN;
     icon_data.uCallbackMessage = kCallbackMessage;
     // A shared stock icon as the bare carrier face (never destroyed — the
     // system owns stock icons); full tray interaction is M5 productization.

@@ -629,6 +629,17 @@ graph LR
 顺序结束 Runtime 与前端。托盘 SDK 回调只投递有界动作，业务经 Runtime Executor
 串行化；窗口子进程创建/回收位于 Platform Backend。系统信号或宿主失败直接安全收敛。
 
+Windows 安装的开始菜单入口使用 GUI 子系统 `mirage-launcher`，共享 `mirage start`
+控制面；CLI 保留控制台，托盘进程也使用 GUI 子系统（DEC-045）。通知 Provider 的独立
+Shell_NotifyIcon 承载以 NIS_HIDDEN 注册，常驻可见面只有产品主托盘（DEC-018）。原生
+菜单为现有 Win32 pump 上的白色圆角 modeless 弹层，标准按钮保留可访问名称和禁用状态，
+提供键盘导航、外部点击关闭、阴影和分组，字号、行高和留白按调用显示器 DPI 缩放。
+无边框窗口仍使用每像素 alpha；bundled GLFW 在 WM_PAINT 初始化 DWM 重定向表面，
+但该修补不能消除本机全部间歇黑角。私有 Windows 适配边界以与绘制一致的 12 logical px
+窗口 region 保护产品四角，resize/DPI 时更新，最大化时恢复矩形。该整数裁剪会改变部分
+系统阴影行为，不声明上游通用透明已解决；移除条件见升级审计。取证及新安装升级门禁见
+[Windows 呈现维护计划](../plans/maintenance-windows-presentation-20261014.md)。
+
 M8 规划新增由同一托盘 Runtime owner 持有的 `mira_pet` 独立子进程，作为主窗口之外的
 常驻状态显示面；不承载第二份 Mira。它经 Local IPC 消费真实阶段及终态，主窗口关闭
 后继续呈现，桌宠自身失败不取消 Agent。此拓扑扩展尚未实施，状态恢复、启动 bootstrap、
