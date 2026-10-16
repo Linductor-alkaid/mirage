@@ -252,14 +252,25 @@ BlockingWorkerHandle 的 started 只是接纳，结果和回收分别观察；�
   工具结果 terminated=cancelled 且无存活进程；③ turn 间外部修改 → stale_file 检测 →
   模型重读 → 编辑落地且外部字节保留（多轮可修复失败）。消毒器矩阵：debug/asan/
   ubsan/tsan 全量 89 项通过（tsan 经 setarch -R），release 全量 89 项通过（唯一失败
-  均为分支基线 session_client_test）。保留开放项（不阻塞本项）：提交点崩溃注入
-  （kill -9 半文件/临时文件残留检查）——负责人 Mirage 维护者，补跑条件为故障注入
-  用例并入 linux_file_actions_test。
-  （单元/集成与四类消毒器证据已具备；真实产品 E2E 未执行。）
+  均为分支基线 session_client_test）。开放项已闭合（2026-10-16）：提交点崩溃注入
+  用例并入 linux_file_actions_test——create/replace/edit × 大小两档 payload 共 6 矩阵
+  × 24 次 kill -9 迭代（延迟按校准的提交窗口采样，67 次运行中击杀并观测到真实
+  `.mirage-tmp-*.tmp` 残留），逐次断言目标恰为完整旧/新内容、残留仅临时文件、兄弟
+  文件不变、kill 后重试有界落地；检查数 450→1707，debug/asan/ubsan/tsan 全部通过
+  （注入只用 fork/kill/文件 API，无新增线程）。断电持久性仍不在契约内（DEC-095 v1
+  明示不 fsync，进程崩溃面与断电面分离）。
 - [ ] `M10-10` **Proposed**：交付 Windows FilesystemProvider 和 exec cwd/编码/输出接线。
   验收：MSVC 构建及真实 Windows 文件/进程/Job Object 矩阵通过；无 Bash/rg 时四工具仍可用。
-- [ ] `M10-11` **Proposed**：完成跨平台安装产品回归、兼容性记录、例子与操作说明。
+- [ ] `M10-11` **In Progress**：完成跨平台安装产品回归、兼容性记录、例子与操作说明。
   验收：干净配置真实产品执行四工具；工作流/桌面工具/M9 历史压缩回归，平台声明与证据一致。
+  进展（2026-10-16）：操作说明交付 `docs/examples/basic-agent-tools.md`（启用/权限/
+  预算/错误恢复/留存清理/崩溃语义/验证）；Linux 侧干净配置真实产品四工具 E2E 于
+  native-release 构建通过（deepseek，三场景，真实会话状态逐字节未动），目标回归集
+  10/10（工作流/桌面/M9 历史压缩/宠物/tray），本机产品已更新供人工体验，证据见
+  `docs/compatibility/basic-agent-tools-native-release-20261016.md`。同轮发现并修复
+  E2E 驱动隔离缺陷（`--state-dir` 不覆盖 M5-08 会话存储，改注入 `XDG_STATE_HOME`，
+  并清理了测试对真实会话目录的历史污染）。剩余：Windows/MSVC 安装回归（依赖 M10-10，
+  当前环境无 Windows）。
 - [ ] `M10-12` **Proposed**：按退出条件复核里程碑、清理遗留和提交评审。
   验收：计划/设计/决策/安全/协议/测试证据同步；所有适用门禁通过，MR 符合工程规范。
 
