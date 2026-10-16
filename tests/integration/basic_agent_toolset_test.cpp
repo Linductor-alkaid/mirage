@@ -222,7 +222,7 @@ void scenario_disabled_group_registers_nothing(const std::filesystem::path &root
     mira::BuiltinToolRegistry registry;
     integration::BasicToolSessionState session;
     integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
-                                            mirage::desktop::CancelToken{}, identity_decorator());
+                                            mirage::desktop::CancelToken{}, identity_decorator(), /*full_access=*/true);
     MIRAGE_CHECK(registry.size() == 0);
     MIRAGE_CHECK(registry.exposed_tools().empty());
 }
@@ -242,7 +242,7 @@ void scenario_provider_without_capabilities_registers_nothing() {
     mira::BuiltinToolRegistry registry;
     integration::BasicToolSessionState session;
     integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
-                                            mirage::desktop::CancelToken{}, identity_decorator());
+                                            mirage::desktop::CancelToken{}, identity_decorator(), /*full_access=*/true);
     MIRAGE_CHECK(registry.size() == 0);
     MIRAGE_CHECK(registry.exposed_tools().empty());
 }
@@ -257,7 +257,7 @@ void scenario_read_only_environment_registers_read_only(const std::filesystem::p
     mira::BuiltinToolRegistry registry;
     integration::BasicToolSessionState session;
     integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
-                                            mirage::desktop::CancelToken{}, identity_decorator());
+                                            mirage::desktop::CancelToken{}, identity_decorator(), /*full_access=*/true);
     const auto tools = registry.exposed_tools();
     MIRAGE_CHECK(tools.size() == 2);
     MIRAGE_CHECK(exposed_contains(registry, "read"));
@@ -273,7 +273,7 @@ void scenario_read_only_environment_registers_read_only(const std::filesystem::p
     context.basic_tools.exec_enabled = false;
     integration::BasicToolSessionState session_two;
     integration::register_basic_agent_tools(without_exec, context, session_two,
-                                            context.basic_tools, mirage::desktop::CancelToken{}, identity_decorator());
+                                            context.basic_tools, mirage::desktop::CancelToken{}, identity_decorator(), /*full_access=*/true);
     MIRAGE_CHECK(without_exec.size() == 1);
     MIRAGE_CHECK(exposed_contains(without_exec, "read"));
     MIRAGE_CHECK(!exposed_contains(without_exec, "exec"));
@@ -283,7 +283,7 @@ void scenario_read_only_environment_registers_read_only(const std::filesystem::p
     mira::BuiltinToolRegistry without_workspace;
     integration::BasicToolSessionState session_three;
     integration::register_basic_agent_tools(without_workspace, context, session_three,
-                                            context.basic_tools, mirage::desktop::CancelToken{}, identity_decorator());
+                                            context.basic_tools, mirage::desktop::CancelToken{}, identity_decorator(), /*full_access=*/true);
     MIRAGE_CHECK(without_workspace.size() == 1);
     MIRAGE_CHECK(!exposed_contains(without_workspace, "exec"));
 }
@@ -296,7 +296,7 @@ void scenario_full_environment_registers_four_tools(const std::filesystem::path 
     mira::BuiltinToolRegistry registry;
     integration::BasicToolSessionState session;
     integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
-                                            mirage::desktop::CancelToken{}, identity_decorator());
+                                            mirage::desktop::CancelToken{}, identity_decorator(), /*full_access=*/true);
     MIRAGE_CHECK(registry.size() == 4);
     const auto tools = registry.exposed_tools();
     MIRAGE_CHECK(tools.size() == 4);
@@ -325,7 +325,7 @@ void scenario_read_paths_and_facts(const std::filesystem::path &root) {
     mira::BuiltinToolRegistry registry;
     integration::BasicToolSessionState session;
     integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
-                                            mirage::desktop::CancelToken{}, identity_decorator());
+                                            mirage::desktop::CancelToken{}, identity_decorator(), /*full_access=*/true);
 
     const auto path = root / "notes.txt";
     spew(path, "alpha\nbeta\n");
@@ -399,7 +399,7 @@ void scenario_read_requires_workspace_for_relative_paths(const std::filesystem::
     mira::BuiltinToolRegistry registry;
     integration::BasicToolSessionState session;
     integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
-                                            mirage::desktop::CancelToken{}, identity_decorator());
+                                            mirage::desktop::CancelToken{}, identity_decorator(), /*full_access=*/true);
 
     const auto relative = run_tool(registry, "read", arguments({{"path", JsonValue{"notes.txt"}}}),
                                    "read without workspace");
@@ -427,7 +427,7 @@ void scenario_write_not_observed_discipline(const std::filesystem::path &root) {
     mira::BuiltinToolRegistry registry;
     integration::BasicToolSessionState session;
     integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
-                                            mirage::desktop::CancelToken{}, identity_decorator());
+                                            mirage::desktop::CancelToken{}, identity_decorator(), /*full_access=*/true);
 
     const auto path = root / "existing.txt";
     spew(path, "old content\n");
@@ -490,7 +490,7 @@ void scenario_edit_requires_prior_read(const std::filesystem::path &root) {
     mira::BuiltinToolRegistry registry;
     integration::BasicToolSessionState session;
     integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
-                                            mirage::desktop::CancelToken{}, identity_decorator());
+                                            mirage::desktop::CancelToken{}, identity_decorator(), /*full_access=*/true);
 
     const auto path = root / "code.txt";
     spew(path, "alpha beta\n");
@@ -538,7 +538,7 @@ void scenario_denied_gate_zero_side_effects(const std::filesystem::path &root) {
     mira::BuiltinToolRegistry registry;
     integration::BasicToolSessionState session;
     integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
-                                            mirage::desktop::CancelToken{}, identity_decorator());
+                                            mirage::desktop::CancelToken{}, identity_decorator(), /*full_access=*/true);
 
     const auto path = root / "guarded.txt";
     spew(path, "untouched\n");
@@ -594,7 +594,7 @@ void scenario_null_gate_denies_everything(const std::filesystem::path &root) {
     mira::BuiltinToolRegistry registry;
     integration::BasicToolSessionState session;
     integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
-                                            mirage::desktop::CancelToken{}, identity_decorator());
+                                            mirage::desktop::CancelToken{}, identity_decorator(), /*full_access=*/true);
 
     const auto path = root / "gateless.txt";
     spew(path, "stable\n");
@@ -628,7 +628,7 @@ void scenario_exec_tool_facts(const std::filesystem::path &root) {
     mira::BuiltinToolRegistry registry;
     integration::BasicToolSessionState session;
     integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
-                                            mirage::desktop::CancelToken{}, identity_decorator());
+                                            mirage::desktop::CancelToken{}, identity_decorator(), /*full_access=*/true);
 
     // pwd proves the workspace anchoring; the result carries the full fact
     // set.
@@ -702,7 +702,7 @@ void scenario_exec_tool_facts(const std::filesystem::path &root) {
     mira::BuiltinToolRegistry tight_registry;
     integration::BasicToolSessionState tight_session;
     integration::register_basic_agent_tools(tight_registry, context, tight_session,
-                                            context.basic_tools, mirage::desktop::CancelToken{}, identity_decorator());
+                                            context.basic_tools, mirage::desktop::CancelToken{}, identity_decorator(), /*full_access=*/true);
     const auto truncated = run_tool(
         tight_registry, "exec", arguments({{"command", JsonValue{"printf ABCDEFGHIJ"}}}),
         "exec truncated preview");
@@ -739,7 +739,7 @@ void scenario_pre_cancelled_token_refuses_all_tools(const std::filesystem::path 
     integration::BasicToolSessionState session;
     desktop::CancelToken cancel;
     integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
-                                            cancel, identity_decorator());
+                                            cancel, identity_decorator(), /*full_access=*/true);
 
     spew(root / "target.txt", "stable\n");
     const auto marker = root / "cancel-marker.txt";
@@ -783,7 +783,7 @@ void scenario_exec_midrun_cancel_returns_bounded_with_output(const std::filesyst
     integration::BasicToolSessionState session;
     desktop::CancelToken cancel;
     integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
-                                            cancel, identity_decorator());
+                                            cancel, identity_decorator(), /*full_access=*/true);
     const mira::SessionId session_id = mira::SessionId::generate();
 
     std::thread canceller([&cancel] {
@@ -807,6 +807,66 @@ void scenario_exec_midrun_cancel_returns_bounded_with_output(const std::filesyst
     MIRAGE_CHECK(int_member(outcome.result, "exit_code") == -1);
     MIRAGE_CHECK(string_member(outcome.result, "stdout") == "early-marker");
     MIRAGE_CHECK(elapsed.count() < 10000);
+}
+
+
+// --- M10: session access mode gates the state-changing tool surface ----------
+
+void scenario_access_mode_gates_state_changing_tools(const std::filesystem::path &root) {
+    // One capable context (filesystem read+write, exec enabled, workspace
+    // set): the access mode alone decides which tools surface.
+    auto environment = linux_env({root}, {root});
+    AuthLog auth;
+    auto context = recording_context(environment, auth);
+    context.basic_tools = enabled_options(root);
+
+    // Full access turn: all four tools register.
+    {
+        mira::BuiltinToolRegistry registry;
+        integration::BasicToolSessionState session;
+        integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
+                                                mirage::desktop::CancelToken{},
+                                                identity_decorator(), /*full_access=*/true);
+        MIRAGE_CHECK(registry.size() == 4);
+        MIRAGE_CHECK(exposed_contains(registry, "read"));
+        MIRAGE_CHECK(exposed_contains(registry, "write"));
+        MIRAGE_CHECK(exposed_contains(registry, "edit"));
+        MIRAGE_CHECK(exposed_contains(registry, "exec"));
+    }
+    // Non-full access turn (read_only / chat_only agent): only "read" rides;
+    // write/edit/exec are absent even though the capability, enablement and
+    // workspace would all permit them.
+    {
+        mira::BuiltinToolRegistry registry;
+        integration::BasicToolSessionState session;
+        integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
+                                                mirage::desktop::CancelToken{},
+                                                identity_decorator(), /*full_access=*/false);
+        MIRAGE_CHECK(registry.size() == 1);
+        MIRAGE_CHECK(exposed_contains(registry, "read"));
+        MIRAGE_CHECK(!exposed_contains(registry, "write"));
+        MIRAGE_CHECK(!exposed_contains(registry, "edit"));
+        MIRAGE_CHECK(!exposed_contains(registry, "exec"));
+    }
+    // Cross-check with a read-only filesystem (no write capability at all):
+    // a non-full turn still exposes exactly "read".
+    auto read_only_environment = linux_env({root}, {});
+    AuthLog read_only_auth;
+    auto read_only_context = recording_context(read_only_environment, read_only_auth);
+    read_only_context.basic_tools = enabled_options(root);
+    {
+        mira::BuiltinToolRegistry registry;
+        integration::BasicToolSessionState session;
+        integration::register_basic_agent_tools(registry, read_only_context, session,
+                                                read_only_context.basic_tools,
+                                                mirage::desktop::CancelToken{},
+                                                identity_decorator(), /*full_access=*/false);
+        MIRAGE_CHECK(registry.size() == 1);
+        MIRAGE_CHECK(exposed_contains(registry, "read"));
+        MIRAGE_CHECK(!exposed_contains(registry, "write"));
+        MIRAGE_CHECK(!exposed_contains(registry, "edit"));
+        MIRAGE_CHECK(!exposed_contains(registry, "exec"));
+    }
 }
 
 // --- session observation record ---------------------------------------------------
@@ -907,7 +967,7 @@ void scenario_exec_retention_and_output_ref_read(const std::filesystem::path &ro
     mira::BuiltinToolRegistry registry;
     integration::BasicToolSessionState session;
     integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
-                                            mirage::desktop::CancelToken{}, identity_decorator());
+                                            mirage::desktop::CancelToken{}, identity_decorator(), /*full_access=*/true);
     const mira::SessionId session_id = mira::SessionId::generate();
 
     const auto exec = run_tool_as(
@@ -1007,7 +1067,7 @@ void scenario_exec_retention_refusal_spawns_nothing(const std::filesystem::path 
     mira::BuiltinToolRegistry registry;
     integration::BasicToolSessionState session;
     integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
-                                            mirage::desktop::CancelToken{}, identity_decorator());
+                                            mirage::desktop::CancelToken{}, identity_decorator(), /*full_access=*/true);
     const mira::SessionId session_id = mira::SessionId::generate();
 
     // The first execution spends the 16-byte session budget (17 bytes).
@@ -1041,7 +1101,7 @@ void scenario_read_path_output_ref_mutual_exclusion(const std::filesystem::path 
     mira::BuiltinToolRegistry registry;
     integration::BasicToolSessionState session;
     integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
-                                            mirage::desktop::CancelToken{}, identity_decorator());
+                                            mirage::desktop::CancelToken{}, identity_decorator(), /*full_access=*/true);
 
     const auto both = run_tool(registry, "read",
                                arguments({{"path", JsonValue{"a.txt"}},
@@ -1061,7 +1121,7 @@ void scenario_read_path_output_ref_mutual_exclusion(const std::filesystem::path 
     auto bare_context = recording_context(bare_environment, bare_auth);
     bare_context.basic_tools = enabled_options(root);
     integration::register_basic_agent_tools(bare_registry, bare_context, bare_session,
-                                            bare_context.basic_tools, mirage::desktop::CancelToken{}, identity_decorator());
+                                            bare_context.basic_tools, mirage::desktop::CancelToken{}, identity_decorator(), /*full_access=*/true);
     const auto unretained =
         run_tool(bare_registry, "read", arguments({{"output_ref", JsonValue{"cafebabe"}}}),
                  "read output_ref without retention");
@@ -1095,6 +1155,7 @@ int main() {
     scenario_exec_retention_and_output_ref_read(workspace.root());
     scenario_exec_retention_refusal_spawns_nothing(workspace.root());
     scenario_read_path_output_ref_mutual_exclusion(workspace.root());
+    scenario_access_mode_gates_state_changing_tools(workspace.root());
     scenario_pre_cancelled_token_refuses_all_tools(workspace.root());
     scenario_exec_midrun_cancel_returns_bounded_with_output(workspace.root());
     return mirage::testing::finish("basic_agent_toolset_test");

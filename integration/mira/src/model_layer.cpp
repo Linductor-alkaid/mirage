@@ -958,9 +958,11 @@ DialogCompletion ModelLayer::complete_harness_turn(
     // M10-07 (DEC-095): the four basic tools ride the same capture /
     // verification decorator; enablement is the service's decision
     // (desktop.basic_tools), and registration is capability-honest.
+    // `tools_allowed` carries the turn's session access mode (DEC-080):
+    // read rides every agent-capable mode, write/edit/exec need full access.
     if (impl_->desktop.basic_tools.enabled) {
         register_basic_agent_tools(*registry, impl_->desktop, impl_->basic_state(session_key),
-                                   impl_->desktop.basic_tools, cancel, decorate);
+                                   impl_->desktop.basic_tools, cancel, decorate, tools_allowed);
     }
     if (tools_allowed)
         verification.register_tool(*registry, decorate);

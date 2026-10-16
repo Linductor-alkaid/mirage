@@ -316,7 +316,8 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
                                 BasicToolSessionState &session,
                                 const BasicAgentToolsOptions &options,
                                 const CancelToken &cancel,
-                                const Decorator &decorate) {
+                                const Decorator &decorate,
+                                const bool full_access) {
     if (!options.enabled || !desktop.environment) {
         return;
     }
@@ -471,7 +472,7 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
     }
 
     // -- write --------------------------------------------------------------
-    if (filesystem != nullptr && caps.write) {
+    if (full_access && filesystem != nullptr && caps.write) {
         mira::BuiltinToolSpec spec;
         spec.wire_name = "write";
         spec.has_side_effects = true;
@@ -542,7 +543,7 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
     }
 
     // -- edit ---------------------------------------------------------------
-    if (filesystem != nullptr && caps.edit) {
+    if (full_access && filesystem != nullptr && caps.edit) {
         mira::BuiltinToolSpec spec;
         spec.wire_name = "edit";
         spec.has_side_effects = true;
@@ -603,8 +604,8 @@ void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
     }
 
     // -- exec ---------------------------------------------------------------
-    if (process != nullptr && process->supports_working_directory() && options.exec_enabled &&
-        !options.workspace.empty()) {
+    if (full_access && process != nullptr && process->supports_working_directory() &&
+        options.exec_enabled && !options.workspace.empty()) {
         mira::BuiltinToolSpec spec;
         spec.wire_name = "exec";
         spec.has_side_effects = true;

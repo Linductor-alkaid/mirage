@@ -60,12 +60,17 @@ class BasicToolSessionState {
 /// unchanged, so history and replay stay canonical. `cancel` is the
 /// owning turn's cancellation (M10-08): exec tears its process group down
 /// and file commits observe it at their pre-commit points.
+/// `full_access` binds the toolset to the session access mode (DEC-080):
+/// `read` is exposed in every agent-capable mode, while the state-changing
+/// `write` / `edit` / `exec` are only exposed when the turn runs with full
+/// access — a read-only session never sees them at all.
 /// Registration failure throws; callers settle it as a failed turn.
 void register_basic_agent_tools(mira::BuiltinToolRegistry &registry,
                                 const DesktopToolContext &desktop,
                                 BasicToolSessionState &session,
                                 const BasicAgentToolsOptions &options,
                                 const mirage::desktop::CancelToken &cancel,
-                                const Decorator &decorate);
+                                const Decorator &decorate,
+                                bool full_access);
 
 } // namespace mirage::integration
