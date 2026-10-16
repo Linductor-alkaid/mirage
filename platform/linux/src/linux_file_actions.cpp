@@ -854,6 +854,16 @@ TextWindowOutcome window_from_stream(int fd, std::uint64_t skip_lines,
     if (outcome.eof) {
         outcome.total_lines = outcome.next_offset;
     }
+    // A continuation that lands exactly at eof of a newline-terminated file
+    // is the same stale-offset bug the in-memory path rejects (the eof
+    // window already carries next_offset for well-formed continuations).
+    if (outcome.eof && outcome.lines.empty() && skip_lines > 0) {
+        outcome = TextWindowOutcome{};
+        outcome.error = provider_error(
+            "invalid_argument", "offset beyond end of file (scanned " +
+                                    std::to_string(line_index) + " complete lines)");
+        return outcome;
+    }
     outcome.has_bom = skip_lines == 0 && window_start == 0 && !outcome.lines.empty() &&
                       outcome.lines.front().size() >= 3 &&
                       static_cast<unsigned char>(outcome.lines.front()[0]) == 0xEF &&
