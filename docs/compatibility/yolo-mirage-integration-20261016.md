@@ -1,9 +1,9 @@
 # YOLO 接入 Mirage 与感知修复验收（2026-10-16）
 
 M7-23 / DEC-097；维护者要求将更新、修复和 YOLO 接入 Mirage。
-Mirador 分支 pin `932d425fe114f0b5b3919cde2ef49ba5d2d5b0ac`，
+Mirador 合并提交 pin `cb45a10271c53d3b189bb33eef3f692d94feb562`，
 [上游 PR #40](https://github.com/Linductor-alkaid/mirador/pull/40) 组合 #37/#39 与
-模型预处理修复；本记录不表示 master 已合并或新版本已发布。
+模型预处理修复；上游 14/14 CI 成功后已合并 master，未创建新版本/tag。
 
 ## 交付行为
 
@@ -82,3 +82,22 @@ CI、PR 评审和跨平台验收状态须分别记录，不由本机结果推断
 PR 交付：[Mirage #98](https://github.com/Linductor-alkaid/mirage/pull/98)，目标分支
 `feat/m10-basic-agent-tools`。提交时 Mirage 8 项 CI 在运行，上游 #40 已有 13/14
 成功、静态检查仍运行；未将待完成的平台验证标为通过。具体后续状态以 PR checks 为准。
+
+## CI 修复复验
+
+原 Mirage run 38912335032 的五个 Linux preset 均失败于同两项回归：
+SessionClient 超时恢复半实施，以及旧几何期望。格式门禁另发现父分支遗留的
+25 文件格式不合规，按相同递归清单用 clang-format 18.1.8 修正。
+
+SessionClient 复用维护分支已提交的 bb3d083 / b15d728 相关修复，补齐晚到响应
+与过期排队帧处理；使用 kairo MpscChannel，总量预算 16，跨 readiness slice
+保留队列，停止/失败时原子关闭准入。脚本 peer 验证真实请求进行中的 EOF，
+明确排除先超时再断开造成的假覆盖。几何测试保留精确断言：外梯度
+`[7,7,33,25]`、context `[-1,-1,49,41]`、边界裁剪后检测框 `[0,0,48,40]`
+和全局框 `[100,0,48,40]`。
+
+Release 与严格 ASAN/UBSAN：上述两个回归与两个状态 fixture 各 4/4，
+SessionClient 230 checks、几何链路 221 checks，均通过且无 sanitizer 诊断。
+最终 Mirage PR 的跨平台 CI 结果以 #98 checks 为准，合并前必须全部成功。
+Mirador run 38909877501 为 14/14 成功，PR #40 合并提交 cb45a10 与测试头
+932d425 的 Git tree 完全一致。

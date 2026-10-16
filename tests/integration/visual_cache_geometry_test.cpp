@@ -357,7 +357,11 @@ void geometry_stage_proposes_the_painted_rectangle(kairo::Executor &executor) {
     MIRAGE_CHECK(first.geometry_proposals.size() == 1);
     if (first.geometry_proposals.size() == 1) {
         const mirador::GeometricRegionProposal &proposal = first.geometry_proposals[0];
-        MIRAGE_CHECK((proposal.tight_bounds == mirador::RectI{8, 8, 31, 23}));
+        // The corrected opposite-ridge detector encloses the outer gradient
+        // at x/y=7 and the painted exclusive right/bottom at 40/32.
+        // The independently painted rectangle is [8,8,32,24].
+        MIRAGE_CHECK((proposal.tight_bounds == mirador::RectI{7, 7, 33, 25}));
+        MIRAGE_CHECK((proposal.context_bounds == mirador::RectI{-1, -1, 49, 41}));
         MIRAGE_CHECK(proposal.closure_score > 0.0F);
         MIRAGE_CHECK(proposal.closure_score <= 1.0F);
         MIRAGE_CHECK(proposal.closure_score == 1.0F); // the outline closes
@@ -414,28 +418,26 @@ void detector_roi_from_geometry_runs_one_call_per_proposal(kairo::Executor &exec
     MIRAGE_CHECK(settle_within(future, result));
     MIRAGE_CHECK(result.outcome.kind == VisualAnalysisOutcome::Kind::kCompleted);
 
-    // One proposal supplies one detection request; the fake's full-view box
-    // comes back in the ROI's own pixels, recovered to the full-frame
-    // oriented coordinates of the proposal's context bounds.
+    // The known context ROI [-1,-1,49,41] crosses the frame edge. Pixel
+    // preparation clips it to [0,0,48,40]; the fake's full-view box must
+    // recover those executed pixels, not the unclipped proposal rectangle.
     MIRAGE_CHECK(result.geometry_proposals.size() == 1);
     MIRAGE_CHECK(detector.calls() == result.geometry_proposals.size());
     MIRAGE_CHECK(result.detections.size() == result.geometry_proposals.size());
     if (result.geometry_proposals.size() == 1 && result.detections.size() == 1) {
-        const mirador::GeometricRegionProposal &proposal = result.geometry_proposals[0];
-        MIRAGE_CHECK((result.detections[0].bounds ==
-                      mirador::RectF{static_cast<float>(proposal.context_bounds.x),
-                                     static_cast<float>(proposal.context_bounds.y),
-                                     static_cast<float>(proposal.context_bounds.width),
-                                     static_cast<float>(proposal.context_bounds.height)}));
+        MIRAGE_CHECK(
+            (result.geometry_proposals[0].context_bounds == mirador::RectI{-1, -1, 49, 41}));
+        MIRAGE_CHECK((result.detections[0].bounds == mirador::RectF{0, 0, 48, 40}));
     }
 
     // The fused detection region lands in kDisplay space.
     MIRAGE_CHECK(result.snapshot != nullptr);
+    MIRAGE_CHECK(result.snapshot != nullptr && result.snapshot->regions.size() == 1);
     if (result.snapshot != nullptr && result.snapshot->regions.size() == 1) {
         const mirador::VisualRegion &region = result.snapshot->regions[0];
         MIRAGE_CHECK(mirador::has_source(region.source_mask, mirador::RegionSource::kDetector));
         MIRAGE_CHECK(!mirador::has_source(region.source_mask, mirador::RegionSource::kTemplate));
-        MIRAGE_CHECK((region.bounds == mirador::RectF{100.0F, 0.0F, 47.0F, 39.0F}));
+        MIRAGE_CHECK((region.bounds == mirador::RectF{100.0F, 0.0F, 48.0F, 40.0F}));
     }
     host.stop();
 }

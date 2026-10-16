@@ -2,7 +2,7 @@
 
 M7-23 / DEC-097，维护者要求接入真实检测模型。复用 Mirador opt-in detector_yolo
 和既有 ncnn commit `e54f7b1f88434e1d844ea0551b880a1cfb079ce1`；无新增 runtime。
-Mirador 更新包含 PR #37/#39 与 issue #38 预处理配置修复，本次固定 SHA `932d425fe114f0b5b3919cde2ef49ba5d2d5b0ac`，见 [PR #40](https://github.com/Linductor-alkaid/mirador/pull/40)；为待评审分支 pin，未合并 master。
+Mirador 更新包含 PR #37/#39 与 issue #38 预处理配置修复，本次固定 SHA `cb45a10271c53d3b189bb33eef3f692d94feb562`，见 [PR #40](https://github.com/Linductor-alkaid/mirador/pull/40)；已在 14/14 CI 成功后合并 master；合并树与验证过的 932d425 完全一致。
 
 离线 UI 权重为 OmniParser v2 `icon_detect`，固定来源、原 checkpoint 与转换后的
 param/bin 大小及 SHA-256 见 `packaging/vision/yolo.lock.json`。来自 Mirador 已验证的
