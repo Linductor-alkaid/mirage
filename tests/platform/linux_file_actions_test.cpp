@@ -21,6 +21,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
+#include <random>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -35,6 +37,7 @@
 
 #include <signal.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -1285,6 +1288,357 @@ void scenario_legacy_execute_regression(const std::filesystem::path &root,
     MIRAGE_CHECK(std::string_view(service_cwd) == std::string_view(cwd_after));
 }
 
+
+// --- crash injection (SIGKILL at the commit point, M10 fault injection) -------------
+//
+// Contract under test (DEC-095): a process SIGKILLed at any stage of a file
+// commit must leave the target byte-identical to the OLD or the NEW content
+// — never a half-written mixture — and any residue must be a
+// ".mirage-tmp-*.tmp" temporary, never the target's name. Each forked child
+// is an independent product instance (the single-writer lease table is
+// per-process), so a kill is a faithful crash; the child _exits so no parent
+// cleanup or flush runs in it.
+
+enum class CrashOp { Create, Replace, Edit };
+
+/// The child body of one injected operation. Runs on the forked copy of the
+/// parent's address space (the environment, contents and observation are all
+/// inherited) and _exits so no atexit/flush machinery of the parent runs.
+[[noreturn]] void run_crash_child(linux_backend::LinuxDesktopEnvironment &env, CrashOp op,
+                                  const std::filesystem::path &target,
+                                  const std::string &content,
+                                  const desktop::FileObservation &observation,
+                                  const std::string &old_string,
+                                  const std::string &new_string) {
+    const desktop::FileModifyLimits limits;
+    switch (op) {
+    case CrashOp::Create: {
+        const auto outcome = env.create_file(target, content, limits, desktop::CancelToken{});
+        ::_exit(outcome.ok ? 0 : 3);
+    }
+    case CrashOp::Replace: {
+        const auto outcome =
+            env.replace_file(target, content, observation, limits, desktop::CancelToken{});
+        ::_exit(outcome.ok ? 0 : 3);
+    }
+    case CrashOp::Edit: {
+        const auto outcome = env.edit_file(target, old_string, new_string, false, observation,
+                                           limits, desktop::CancelToken{});
+        ::_exit(outcome.ok ? 0 : 3);
+    }
+    }
+    ::_exit(4);
+}
+
+/// One fork + staggered SIGKILL + waitpid. Returns the child status word.
+int kill_child_after(const std::function<void()> &body, long delay_us) {
+    const pid_t pid = ::fork();
+    MIRAGE_CHECK(pid >= 0);
+    if (pid == 0) {
+        body();
+        ::_exit(4);
+    }
+    if (delay_us > 0) {
+        std::this_thread::sleep_for(std::chrono::microseconds(delay_us));
+    }
+    // The child may already be gone: kill reports ESRCH and waitpid still
+    // reaps it, which the caller reads from the status word.
+    ::kill(pid, SIGKILL);
+    int status = 0;
+    const auto waited = ::waitpid(pid, &status, 0);
+    MIRAGE_CHECK(waited == pid);
+    return status;
+}
+
+/// Forks the body and waits for a normal exit — no kill. Calibration uses
+/// this to measure the operation's un-cut runtime.
+int run_child_to_completion(const std::function<void()> &body) {
+    const pid_t pid = ::fork();
+    MIRAGE_CHECK(pid >= 0);
+    if (pid == 0) {
+        body();
+        ::_exit(4);
+    }
+    int status = 0;
+    MIRAGE_CHECK(::waitpid(pid, &status, 0) == pid);
+    return status;
+}
+
+/// Everything allowed to exist in the injection directory: the target, the
+/// sibling, the calibration file — and nothing else but kill residue.
+bool residue_free_names(const std::filesystem::path &dir,
+                        std::initializer_list<std::string> allowed, std::size_t &residue) {
+    for (const auto &entry : std::filesystem::directory_iterator(dir)) {
+        const std::string name = entry.path().filename().string();
+        bool known = false;
+        for (const auto &ok : allowed) {
+            known = known || name == ok;
+        }
+        if (known) {
+            continue;
+        }
+        if (name.rfind(".mirage-tmp-", 0) == 0 && name.size() >= 4 &&
+            name.compare(name.size() - 4, 4, ".tmp") == 0) {
+            ++residue;
+            continue;
+        }
+        std::fprintf(stderr,
+                     "[linux_file_actions_test] unexpected directory entry: %s\n",
+                     name.c_str());
+        return false; // an unknown name occupies the directory
+    }
+    return true;
+}
+
+void scenario_crash_injection_commit_atomicity(const std::filesystem::path &root,
+                                               linux_backend::LinuxDesktopEnvironment &env) {
+    const auto dir = root / "crash-injection";
+    const auto refs = root / "crash-refs";
+    MIRAGE_CHECK(std::filesystem::create_directories(dir));
+    MIRAGE_CHECK(std::filesystem::create_directories(refs));
+
+    const auto digest_via_read = [&env](const std::filesystem::path &path) {
+        const auto window = env.read_text_window(path, 0, desktop::TextWindowLimits{},
+                                                 desktop::CancelToken{});
+        return window.ok ? window.version.content_digest : std::string{};
+    };
+    // Reference digests come from reading payload files through the same
+    // windowed-read surface, outside the injected directory.
+    const auto digest_of_content = [&](const std::string &content, const char *name) {
+        const auto ref = refs / name;
+        spew(ref, content);
+        return digest_via_read(ref);
+    };
+
+    const std::string sibling_bytes = "crash sibling stays untouched\n";
+    const auto sibling = dir / "sibling.txt";
+    spew(sibling, sibling_bytes);
+
+    struct Matrix {
+        CrashOp op;
+        const char *label;
+        std::string old_content;
+        std::string new_content;
+        std::string old_string;
+        std::string new_string;
+    };
+    // Small: a few hundred bytes. Large: 512 KiB so the write phase is wide
+    // enough to sample. Both printable UTF-8 (the reads validate text).
+    auto line_block = [](char fill) {
+        std::string block;
+        block.reserve(512u << 10);
+        for (std::size_t i = 0; i < (1u << 19) / 64; ++i) {
+            block.append(63, fill);
+            block.push_back('\n');
+        }
+        return block;
+    };
+    const std::string marker = "M10-EDIT-TARGET";
+    const std::string marker_new = "M10-EDIT-TARGET-REPLACED-WITH-A-LONGER-PAYLOAD";
+    auto with_marker = [&](std::string base, std::size_t line, const std::string &text) {
+        const std::size_t at = line * 64;
+        std::copy(text.begin(), text.end(), base.begin() + static_cast<long>(at));
+        base[at + text.size()] = '\n';
+        return base;
+    };
+    const std::string small_old =
+        "prefix\n" + std::string(200, 'a') + "\n" + marker + "\nsuffix\n";
+    const std::string small_new =
+        "replaced-prefix\n" + std::string(200, 'b') + "\n" + marker + "\nsuffix\n";
+    const std::string large_old = with_marker(line_block('a'), 4096, marker);
+    const std::string large_new = with_marker(line_block('b'), 4096, marker);
+
+    const Matrix matrices[] = {
+        {CrashOp::Create, "create-small", "", small_new, "", ""},
+        {CrashOp::Create, "create-large", "", large_new, "", ""},
+        {CrashOp::Replace, "replace-small", small_old, small_new, "", ""},
+        {CrashOp::Replace, "replace-large", large_old, large_new, "", ""},
+        {CrashOp::Edit, "edit-small", small_old, small_new, marker, marker_new},
+        {CrashOp::Edit, "edit-large", large_old, large_new, marker, marker_new},
+    };
+
+    int total_killed_running = 0;
+    int total_already_done = 0;
+    for (const auto &matrix : matrices) {
+        const auto target = dir / (std::string(matrix.label) + "-target.txt");
+        const std::string new_digest =
+            digest_of_content(matrix.new_content, (std::string(matrix.label) + "-new.bin").c_str());
+        const std::string old_digest = matrix.op == CrashOp::Create
+                                           ? std::string{}
+                                           : digest_of_content(matrix.old_content,
+                                               (std::string(matrix.label) + "-old.bin").c_str());
+        // The edit's committed bytes are the old content with the single
+        // marker spliced (raw splice, one occurrence).
+        const std::string committed_new = matrix.op == CrashOp::Edit
+                                              ? [&] {
+                                                    std::string spliced = matrix.old_content;
+                                                    const auto at = spliced.find(matrix.old_string);
+                                                    spliced.replace(at, matrix.old_string.size(),
+                                                                    matrix.new_string);
+                                                    return spliced;
+                                                }()
+                                              : matrix.new_content;
+        const std::string committed_digest = matrix.op == CrashOp::Edit
+                                                 ? digest_of_content(committed_new,
+                                                     (std::string(matrix.label) +
+                                                      "-committed.bin").c_str())
+                                                 : new_digest;
+
+        // Calibration: one clean child run on a throwaway target in a
+        // separate directory bounds the operation's wall time so the kill
+        // delays sample inside the commit window.
+        const auto calib_dir = root / "crash-calib";
+        std::filesystem::create_directories(calib_dir);
+        long duration_us = 0;
+        for (int run = 0; run < 2; ++run) {
+            const auto calib_target = calib_dir / "calib.bin";
+            std::error_code remove_ec;
+            std::filesystem::remove(calib_target, remove_ec);
+            if (matrix.op != CrashOp::Create) {
+                spew(calib_target, matrix.old_content);
+            }
+            desktop::FileObservation calib_observation;
+            if (matrix.op != CrashOp::Create) {
+                calib_observation = full_observation(read_window(env, calib_target));
+            }
+            const auto started = clock_::now();
+            const int status = run_child_to_completion([&] {
+                run_crash_child(env, matrix.op, calib_target, matrix.new_content,
+                                calib_observation, matrix.old_string, matrix.new_string);
+            });
+            duration_us = std::max(
+                duration_us,
+                std::chrono::duration_cast<std::chrono::microseconds>(clock_::now() - started)
+                    .count());
+            MIRAGE_CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+        }
+
+        constexpr int kIterations = 24;
+        std::mt19937 rng(0x5EEDC0DEu);
+        int killed_running = 0;
+        int already_done = 0;
+        int residue_total = 0;
+        for (int iteration = 0; iteration < kIterations; ++iteration) {
+            // Reset: the target holds the old bytes (create: nothing).
+            std::error_code remove_ec;
+            std::filesystem::remove(target, remove_ec);
+            if (matrix.op != CrashOp::Create) {
+                spew(target, matrix.old_content);
+            }
+            // The observation is taken in the parent, per iteration, before
+            // the fork; the child inherits it and a crash leaves the
+            // parent's copy untouched.
+            desktop::FileObservation observation;
+            if (matrix.op != CrashOp::Create) {
+                const auto window = read_window(env, target);
+                MIRAGE_CHECK(window.ok);
+                observation = full_observation(window);
+            }
+
+            // Staggered kill offsets: fixed fractions first (pre-write,
+            // mid-write, written-not-renamed), then uniform sampling across
+            // and past the calibrated window.
+            long delay_us = 0;
+            if (iteration < 4) {
+                constexpr long kFractions[] = {0, 30, 60, 90};
+                delay_us = duration_us * kFractions[iteration] / 100;
+            } else {
+                std::uniform_int_distribution<long long> spread(
+                    0, static_cast<long long>(duration_us * 13 / 10));
+                delay_us = static_cast<long>(spread(rng));
+            }
+
+            const int status = kill_child_after(
+                [&] {
+                    run_crash_child(env, matrix.op, target, matrix.new_content, observation,
+                                    matrix.old_string, matrix.new_string);
+                },
+                delay_us);
+            if (WIFSIGNALED(status)) {
+                ++killed_running;
+            } else {
+                ++already_done; // the child finished before the kill landed
+            }
+
+            // Invariant 1: the target is exactly the old or the committed
+            // content (create: absent or exactly new). For edit the
+            // committed content is the spliced marker replacement, not
+            // new_content. A half-write cannot digest to either side.
+            if (matrix.op == CrashOp::Create) {
+                if (std::filesystem::exists(target)) {
+                    MIRAGE_CHECK(digest_via_read(target) == committed_digest);
+                }
+            } else {
+                const std::string target_digest = digest_via_read(target);
+                MIRAGE_CHECK(target_digest == old_digest || target_digest == committed_digest);
+            }
+
+            // Invariant 2: every directory entry is known or kill residue.
+            std::size_t residue = 0;
+            MIRAGE_CHECK(residue_free_names(dir, {target.filename().string(),
+                                                  sibling.filename().string()},
+                                           residue));
+            residue_total += static_cast<int>(residue);
+
+            // Invariant 3: the sibling is byte-identical.
+            MIRAGE_CHECK(slurp(sibling) == sibling_bytes);
+
+            // Retry from the parent: lands or reports a structured error
+            // (create: already_exists when the child committed; replace/edit:
+            // stale_file), never hangs or crashes — and afterwards the target
+            // is exactly the new content.
+            const desktop::FileModifyLimits limits;
+            if (matrix.op == CrashOp::Create) {
+                const auto retry =
+                    env.create_file(target, matrix.new_content, limits, desktop::CancelToken{});
+                MIRAGE_CHECK(retry.ok || retry.error.code == std::string("already_exists"));
+            } else if (matrix.op == CrashOp::Replace) {
+                const auto retry = env.replace_file(target, matrix.new_content, observation,
+                                                    limits, desktop::CancelToken{});
+                MIRAGE_CHECK(retry.ok || retry.error.code == std::string("stale_file"));
+            } else {
+                const auto retry = env.edit_file(target, matrix.old_string, matrix.new_string,
+                                                 false, observation, limits,
+                                                 desktop::CancelToken{});
+                MIRAGE_CHECK(retry.ok || retry.error.code == std::string("stale_file"));
+            }
+            MIRAGE_CHECK(digest_via_read(target) == committed_digest);
+
+            // Remove the allowed kill residue so the next iteration starts
+            // from a clean directory (the contract permits it; nothing else
+            // may appear under the target's name).
+            for (const auto &entry : std::filesystem::directory_iterator(dir)) {
+                const std::string name = entry.path().filename().string();
+                if (name != target.filename().string() && name != sibling.filename().string()) {
+                    MIRAGE_CHECK(name.rfind(".mirage-tmp-", 0) == 0);
+                    std::error_code entry_ec;
+                    std::filesystem::remove(entry.path(), entry_ec);
+                }
+            }
+        }
+        total_killed_running += killed_running;
+        total_already_done += already_done;
+        std::fprintf(stderr,
+                     "[linux_file_actions_test] crash %s: %d killed mid-flight, %d already done, "
+                     "%d residue files over %d iterations\n",
+                     matrix.label, killed_running, already_done, residue_total, kIterations);
+        // The next matrix scans this directory with its own target name; a
+        // leftover target here would look like an unknown entry.
+        std::error_code matrix_ec;
+        std::filesystem::remove(target, matrix_ec);
+    }
+    std::fprintf(stderr,
+                 "[linux_file_actions_test] crash injection totals: %d killed mid-flight, "
+                 "%d already done\n",
+                 total_killed_running, total_already_done);
+    // Both phases must have been sampled at least once across the matrix:
+    // kills that always miss the running child would prove nothing.
+    MIRAGE_CHECK(total_killed_running > 0);
+    MIRAGE_CHECK(total_already_done > 0);
+    std::error_code cleanup_ec;
+    std::filesystem::remove_all(root / "crash-calib", cleanup_ec);
+}
+
 } // namespace
 
 int main() {
@@ -1305,6 +1659,7 @@ int main() {
         scenario_exec_retention_sink(workspace.root(), *env);
         scenario_legacy_execute_regression(workspace.root(), *env);
         scenario_concurrent_replace_reports_busy_without_queueing(workspace.root(), *env);
+        scenario_crash_injection_commit_atomicity(workspace.root(), *env);
     }
     return mirage::testing::finish("linux_file_actions_test");
 }
