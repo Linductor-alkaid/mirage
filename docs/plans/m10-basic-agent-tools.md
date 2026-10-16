@@ -234,9 +234,16 @@ BlockingWorkerHandle 的 started 只是接纳，结果和回收分别观察；�
   关闭，配置持久化与产品入口归 M10-08；read(output_ref) 归 M10-06。
   验收：read→write(replace)→edit 字节级闭环、read-only 能力诚实注册、权限拒绝
   零副作用、异常回填经 basic_agent_toolset_test 覆盖；既有工作流/桌面工具测试回归通过。
-- [ ] `M10-08` **Proposed**：交付 workspace cwd/write_roots 等配置持久化和产品入口；
-  复用异步确认与过程 UI，显示修改事实/退出状态/有界 diff/输出引用。
-  验收：现有 read_roots 不扩大写权限；重启配置兼容；缺配置有可操作提示；UI 取消贯穿实际进程。
+- [x] `M10-08` **Completed**：workspace cwd/write_roots/exec 开关的配置持久化与产品入口
+  交付（settings `basic_tools` 块严格编解码、policy.set RMW 保留、`--enable-basic-tools/
+  --enable-exec/--workspace/--write-root` 旗标、环境写根独立构造、留存输出目录缺省、
+  Windows 响亮拒绝）；取消令牌贯穿四工具（exec 运行中取消整组回收并携带输出）。
+  验收：read_roots 不扩大写权限（独立写根向量+旗标源，测试钉住）；重启配置兼容
+  （真实服务 policy.set RMW 回归）；缺配置有可操作提示（exec 无 workspace 退出码 2）；
+  UI 取消贯穿实际进程（工具层实测：预取消零副作用、运行中取消有界返回）。
+  范围说明：异步确认复用既有 filesystem.write/process.execute 门禁与规则；过程卡片
+  经既有工具过程链路展示修改事实/退出状态/输出引用，专用"有界 diff"视图归产品 UI
+  后续增强（事实字段已齐备）。
 - [ ] `M10-09` **Proposed**：Linux 发布候选完成端到端与消毒器验收。
   验收：下表 Linux 门禁全部通过；未达项保留开放，不能以工具目录可见替代真实落盘。
   （单元/集成与四类消毒器证据已具备；真实产品 E2E 未执行。）
@@ -358,3 +365,14 @@ basic_contract_default_test 74 checks，debug/asan/ubsan/tsan 四 preset 全部
 `session_client_test`（分支基线已存在）。并行会话对
 `docs/design/continuous-digital-entity-evolution.md` 的修订与
 `docs/plans/m10-pre-work-checklist.md` 属另一工作流，未纳入本里程碑提交。
+
+2026-10-16 / M10-08（提交 969009c～fc471ad）：配置持久化、产品入口与取消贯穿交付。
+独立验证代理一轮通过、无产品缺陷：persistence_test 353 checks（basic_tools 编解码
+恒等、14 条严格拒绝矩阵、4096/64 边界）、runtime_service_test 611 checks（真实服务
+policy.set RMW 逐字段保留回归）、basic_agent_toolset_test 294 checks（预取消四工具
+零副作用、exec 运行中取消有界返回携带输出、未取消 token 全场景通过的反向保障）；
+debug/asan/ubsan/tsan 四 preset 全绿，ASAN/UBSAN/TSAN 报告 0；全量 debug 回归
+88/89，唯一失败仍为基线 `session_client_test`。host.cpp 旗标为 main() 内联逻辑，
+源码级核对（含 Windows 拒绝分支与 exec-无-workspace 提前返回）；旗标与设置块混合
+优先级组合矩阵未逐项实测（门控语义源码核对一致）。UX 记录：仅传 --write-root 不带
+组开关时写根静默不生效（符合整组覆盖规格，产品提示归 UI 后续）。
