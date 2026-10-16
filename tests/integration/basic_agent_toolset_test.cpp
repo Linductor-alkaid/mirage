@@ -11,7 +11,10 @@
 #include "../support/test.hpp"
 
 #include <mirage/integration/basic_agent_toolset.hpp>
+#include <mirage/integration/basic_output_retention.hpp>
 #include <mirage/integration/desktop_tool_context.hpp>
+
+#include <mirage/runtime/basic_output_store.hpp>
 
 #include <mirage/platform/linux/linux_desktop_environment.hpp>
 
@@ -109,9 +112,9 @@ JsonValue arguments(std::initializer_list<std::pair<const char *, JsonValue>> me
 /// Dispatches one proposal through the registry the way the pinned workflow
 /// runtime does: identity comes from the exposed snapshot, the operation id
 /// is fresh (at-most-once dispatch), the arguments are schema-shaped.
-mira::Result<mira::ToolExecutionRecord> dispatch(mira::BuiltinToolRegistry &registry,
-                                                 const std::string &wire_name,
-                                                 JsonValue tool_arguments) {
+mira::Result<mira::ToolExecutionRecord>
+dispatch_as(mira::BuiltinToolRegistry &registry, const std::string &wire_name,
+            JsonValue tool_arguments, const mira::SessionId &session) {
     static int call_sequence = 0;
     const auto exposed = registry.exposed_tools();
     const auto tool =
@@ -132,7 +135,9 @@ mira::Result<mira::ToolExecutionRecord> dispatch(mira::BuiltinToolRegistry &regi
     proposal.arguments_digest = mira::canonical_json_digest(tool_arguments);
     proposal.operation_id = mira::OperationId::generate();
     proposal.has_side_effects = tool->has_side_effects;
-    return registry.execute(proposal, mira::make_control_context());
+    auto context = mira::make_control_context();
+    context.session = session; // retained refs bind to this identity
+    return registry.execute(proposal, context);
 }
 
 /// Prints a failed record's summary so a check failure stays actionable.
@@ -143,9 +148,10 @@ void report_failure(const char *what, const mira::ToolExecutionRecord &record) {
     }
 }
 
-mira::ToolExecutionRecord run_tool(mira::BuiltinToolRegistry &registry, const std::string &name,
-                                   JsonValue tool_arguments, const char *what) {
-    auto outcome = dispatch(registry, name, std::move(tool_arguments));
+mira::ToolExecutionRecord run_tool_as(mira::BuiltinToolRegistry &registry,
+                                      const std::string &name, JsonValue tool_arguments,
+                                      const char *what, const mira::SessionId &session) {
+    auto outcome = dispatch_as(registry, name, std::move(tool_arguments), session);
     MIRAGE_CHECK(outcome.has_value());
     if (!outcome.has_value()) {
         std::fprintf(stderr, "[basic_agent_toolset_test] %s dispatch error: %s\n", what,
@@ -154,6 +160,11 @@ mira::ToolExecutionRecord run_tool(mira::BuiltinToolRegistry &registry, const st
     }
     report_failure(what, outcome.value());
     return std::move(outcome).value();
+}
+
+mira::ToolExecutionRecord run_tool(mira::BuiltinToolRegistry &registry, const std::string &name,
+                                   JsonValue tool_arguments, const char *what) {
+    return run_tool_as(registry, name, std::move(tool_arguments), what, mira::SessionId{});
 }
 
 std::string string_member(const JsonValue &object, const char *key) {
@@ -781,6 +792,191 @@ void scenario_session_state_unit_semantics(const std::filesystem::path &root) {
     MIRAGE_CHECK(!session.observation_of(root / "lru-073.txt").has_value());
 }
 
+
+// --- M10-06: output retention loop --------------------------------------------------
+
+void scenario_exec_retention_and_output_ref_read(const std::filesystem::path &root) {
+    mirage::runtime::BasicOutputStoreConfig config;
+    config.directory = root / "retention-store";
+    mirage::runtime::BasicOutputStore store(config);
+
+    auto environment = linux_env({root}, {root});
+    AuthLog auth;
+    auto context = recording_context(environment, auth);
+    context.output_retention = &store;
+    context.basic_tools = enabled_options(root);
+    mira::BuiltinToolRegistry registry;
+    integration::BasicToolSessionState session;
+    integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
+                                            identity_decorator());
+    const mira::SessionId session_id = mira::SessionId::generate();
+
+    const auto exec = run_tool_as(
+        registry, "exec",
+        arguments({{"command", JsonValue{std::string("printf 'alpha-line\nbeta-line'; "
+                                                   "printf 'err-line\n' >&2")}}}),
+        "exec with retention", session_id);
+    MIRAGE_CHECK(!exec.failed);
+    MIRAGE_CHECK(string_member(exec.result, "stdout") == "alpha-line\nbeta-line");
+    const std::string stdout_ref = string_member(exec.result, "stdout_ref");
+    const std::string stderr_ref = string_member(exec.result, "stderr_ref");
+    MIRAGE_CHECK(!stdout_ref.empty());
+    MIRAGE_CHECK(!stderr_ref.empty());
+    MIRAGE_CHECK(stdout_ref != stderr_ref);
+    MIRAGE_CHECK(int_member(exec.result, "retained_stdout_bytes") == 20);
+    MIRAGE_CHECK(int_member(exec.result, "retained_stderr_bytes") == 9);
+    MIRAGE_CHECK(!bool_member(exec.result, "retained_truncated"));
+
+    // The retained stream pages like a file window, in the exec's session.
+    const auto read = run_tool_as(registry, "read",
+                                  arguments({{"output_ref", JsonValue{stdout_ref}}}),
+                                  "read output_ref", session_id);
+    MIRAGE_CHECK(!read.failed);
+    const auto *lines = read.result.find("lines");
+    MIRAGE_CHECK(lines != nullptr && lines->is_array());
+    if (lines != nullptr && lines->is_array()) {
+        const auto &array = *lines->as_array();
+        MIRAGE_CHECK(array.size() == 2);
+        MIRAGE_CHECK(int_member(array[0], "number") == 1);
+        MIRAGE_CHECK(string_member(array[0], "text") == "alpha-line");
+        MIRAGE_CHECK(string_member(array[1], "text") == "beta-line");
+    }
+    MIRAGE_CHECK(bool_member(read.result, "eof"));
+    MIRAGE_CHECK(int_member(read.result, "next_offset") == 2);
+    MIRAGE_CHECK(int_member(read.result, "total_lines") == 2);
+    MIRAGE_CHECK(string_member(read.result, "output_ref") == stdout_ref);
+    // No file facts: retained output has no path, size or version.
+    MIRAGE_CHECK(read.result.find("path") == nullptr);
+    MIRAGE_CHECK(read.result.find("file_size") == nullptr);
+    MIRAGE_CHECK(read.result.find("version") == nullptr);
+
+    // Continuation: the second line is the unterminated tail, so offset 1
+    // returns it and reports eof; offset 2 is past the last complete line.
+    const auto tail = run_tool_as(
+        registry, "read",
+        arguments({{"output_ref", JsonValue{stdout_ref}}, {"offset", JsonValue{std::int64_t{1}}}}),
+        "read output_ref continuation", session_id);
+    MIRAGE_CHECK(!tail.failed);
+    MIRAGE_CHECK(bool_member(tail.result, "eof"));
+    MIRAGE_CHECK(int_member(tail.result, "total_lines") == 2);
+    const auto *tail_lines = tail.result.find("lines");
+    MIRAGE_CHECK(tail_lines != nullptr && tail_lines->is_array());
+    if (tail_lines != nullptr && tail_lines->is_array()) {
+        const auto &array = *tail_lines->as_array();
+        MIRAGE_CHECK(array.size() == 1);
+        MIRAGE_CHECK(string_member(array[0], "text") == "beta-line");
+    }
+    const auto past = run_tool_as(
+        registry, "read",
+        arguments({{"output_ref", JsonValue{stdout_ref}}, {"offset", JsonValue{std::int64_t{2}}}}),
+        "read output_ref past the end", session_id);
+    MIRAGE_CHECK(past.failed);
+    MIRAGE_CHECK(past.safe_error_summary.find("invalid_argument") != std::string::npos);
+
+    // The error stream pages independently.
+    const auto err_read = run_tool_as(registry, "read",
+                                      arguments({{"output_ref", JsonValue{stderr_ref}}}),
+                                      "read stderr_ref", session_id);
+    MIRAGE_CHECK(!err_read.failed);
+    const auto *err_lines = err_read.result.find("lines");
+    MIRAGE_CHECK(err_lines != nullptr && err_lines->is_array());
+    if (err_lines != nullptr && err_lines->is_array()) {
+        const auto &array = *err_lines->as_array();
+        MIRAGE_CHECK(array.size() == 1);
+        MIRAGE_CHECK(string_member(array[0], "text") == "err-line");
+    }
+
+    // A ref from another session reads as expired, without leaking why.
+    const auto stranger = run_tool_as(registry, "read",
+                                      arguments({{"output_ref", JsonValue{stdout_ref}}}),
+                                      "read output_ref cross-session", mira::SessionId::generate());
+    MIRAGE_CHECK(stranger.failed);
+    MIRAGE_CHECK(stranger.safe_error_summary.find("output_expired") != std::string::npos);
+}
+
+void scenario_exec_retention_refusal_spawns_nothing(const std::filesystem::path &root) {
+    mirage::runtime::BasicOutputStoreConfig config;
+    config.directory = root / "retention-tiny";
+    config.max_session_bytes = 16;
+    mirage::runtime::BasicOutputStore store(config);
+
+    auto environment = linux_env({root}, {root});
+    AuthLog auth;
+    auto context = recording_context(environment, auth);
+    context.output_retention = &store;
+    context.basic_tools = enabled_options(root);
+    mira::BuiltinToolRegistry registry;
+    integration::BasicToolSessionState session;
+    integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
+                                            identity_decorator());
+    const mira::SessionId session_id = mira::SessionId::generate();
+
+    // The first execution spends the 16-byte session budget (17 bytes).
+    const auto first = run_tool_as(registry, "exec",
+                                   arguments({{"command", JsonValue{"printf 0123456789abcdef"}}}),
+                                   "exec within budget", session_id);
+    MIRAGE_CHECK(!first.failed);
+    MIRAGE_CHECK(int_member(first.result, "retained_stdout_bytes") == 16); // no newline
+
+    // The second execution is refused at admission; the command never runs.
+    const auto marker = root / "exec-denied-marker.txt";
+    const auto denied = run_tool_as(
+        registry, "exec",
+        arguments({{"command", JsonValue{"printf ran > " + marker.string()}}}),
+        "exec over budget", session_id);
+    MIRAGE_CHECK(denied.failed);
+    MIRAGE_CHECK(denied.safe_error_summary.find("capacity_exceeded") != std::string::npos);
+    MIRAGE_CHECK(!std::filesystem::exists(marker));
+}
+
+void scenario_read_path_output_ref_mutual_exclusion(const std::filesystem::path &root) {
+    // With retention wired: both or neither is invalid input.
+    mirage::runtime::BasicOutputStoreConfig config;
+    config.directory = root / "retention-mutex";
+    mirage::runtime::BasicOutputStore store(config);
+    auto environment = linux_env({root}, {root});
+    AuthLog auth;
+    auto context = recording_context(environment, auth);
+    context.output_retention = &store;
+    context.basic_tools = enabled_options(root);
+    mira::BuiltinToolRegistry registry;
+    integration::BasicToolSessionState session;
+    integration::register_basic_agent_tools(registry, context, session, context.basic_tools,
+                                            identity_decorator());
+
+    const auto both = run_tool(registry, "read",
+                               arguments({{"path", JsonValue{"a.txt"}},
+                                          {"output_ref", JsonValue{"cafebabe"}}}),
+                               "read with path and output_ref");
+    MIRAGE_CHECK(both.failed);
+    MIRAGE_CHECK(both.safe_error_summary.find("exactly one") != std::string::npos);
+    const auto neither = run_tool(registry, "read", arguments({}), "read with neither");
+    MIRAGE_CHECK(neither.failed);
+    MIRAGE_CHECK(neither.safe_error_summary.find("exactly one") != std::string::npos);
+
+    // Without retention: output_ref reads report the missing seam.
+    mira::BuiltinToolRegistry bare_registry;
+    integration::BasicToolSessionState bare_session;
+    auto bare_environment = linux_env({root}, {root});
+    AuthLog bare_auth;
+    auto bare_context = recording_context(bare_environment, bare_auth);
+    bare_context.basic_tools = enabled_options(root);
+    integration::register_basic_agent_tools(bare_registry, bare_context, bare_session,
+                                            bare_context.basic_tools, identity_decorator());
+    const auto unretained =
+        run_tool(bare_registry, "read", arguments({{"output_ref", JsonValue{"cafebabe"}}}),
+                 "read output_ref without retention");
+    MIRAGE_CHECK(unretained.failed);
+    MIRAGE_CHECK(unretained.safe_error_summary.find("unsupported_platform") != std::string::npos);
+    // Exec stays preview-only: the result carries no refs.
+    const auto plain_exec =
+        run_tool(bare_registry, "exec", arguments({{"command", JsonValue{"true"}}}),
+                 "exec without retention");
+    MIRAGE_CHECK(!plain_exec.failed);
+    MIRAGE_CHECK(plain_exec.result.find("stdout_ref") == nullptr);
+    MIRAGE_CHECK(plain_exec.result.find("retained_stdout_bytes") == nullptr);
+}
+
 } // namespace
 
 int main() {
@@ -797,5 +993,8 @@ int main() {
     scenario_null_gate_denies_everything(workspace.root());
     scenario_exec_tool_facts(workspace.root());
     scenario_session_state_unit_semantics(workspace.root());
+    scenario_exec_retention_and_output_ref_read(workspace.root());
+    scenario_exec_retention_refusal_spawns_nothing(workspace.root());
+    scenario_read_path_output_ref_mutual_exclusion(workspace.root());
     return mirage::testing::finish("basic_agent_toolset_test");
 }

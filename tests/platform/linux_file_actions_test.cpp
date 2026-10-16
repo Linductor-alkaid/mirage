@@ -512,6 +512,12 @@ void scenario_window_oversize_stream(const std::filesystem::path &root,
         MIRAGE_CHECK(tail.lines[1] == "0139999"); // %07zu zero padding
         MIRAGE_CHECK(tail.eof);
         MIRAGE_CHECK(tail.total_lines.value_or(0) == kLines);
+        // A stale continuation landing exactly at eof of a newline-terminated
+        // file follows the in-memory rule: invalid_argument, not an empty
+        // window (the eof window already carried next_offset).
+        const auto stale_offset = read_window(env, path, kLines);
+        MIRAGE_CHECK(!stale_offset.ok);
+        MIRAGE_CHECK(stale_offset.error.code == std::string("invalid_argument"));
         // Scan budget: a scan past its byte budget is refused, not
         // truncated. The line/byte budgets are set high enough that the
         // drain cannot stop first, so the byte budget itself trips.

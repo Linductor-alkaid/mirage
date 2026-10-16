@@ -1752,7 +1752,10 @@ endif()
 # M10-07 (DEC-095): the exec/read/write/edit session toolset over the pinned
 # registry dispatch path and the real Linux desktop environment; the pinned
 # include dirs propagate from Mirage::integration_mira by design.
-add_executable(basic_agent_toolset_test integration/basic_agent_toolset_test.cpp)
+add_executable(basic_agent_toolset_test integration/basic_agent_toolset_test.cpp
+    ${CMAKE_SOURCE_DIR}/runtime/service/src/basic_output_store.cpp)
+target_include_directories(basic_agent_toolset_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/runtime/service/include)
 target_compile_features(basic_agent_toolset_test PUBLIC cxx_std_20)
 mirage_enable_warnings(basic_agent_toolset_test)
 target_link_libraries(basic_agent_toolset_test
@@ -1765,4 +1768,26 @@ add_test(NAME basic_agent_toolset_test COMMAND basic_agent_toolset_test)
 set_tests_properties(basic_agent_toolset_test PROPERTIES
     LABELS "integration;runtime"
     TIMEOUT 120
+)
+
+# M10-06 (DEC-095): the disk-backed retained-command-output store against a
+# per-run temp root with small budgets so every cap is deterministically
+# reachable. The store implementation is compiled in directly (its only
+# non-header dependency is the pinned mira id vocabulary), keeping the
+# runtime service's executor surface out of this unit.
+add_executable(basic_output_store_test runtime/basic_output_store_test.cpp
+    ${CMAKE_SOURCE_DIR}/runtime/service/src/basic_output_store.cpp)
+target_include_directories(basic_output_store_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/runtime/service/include)
+target_compile_features(basic_output_store_test PUBLIC cxx_std_20)
+mirage_enable_warnings(basic_output_store_test)
+target_link_libraries(basic_output_store_test
+    PRIVATE
+        Mirage::integration_mira
+        Mirage::desktop
+)
+add_test(NAME basic_output_store_test COMMAND basic_output_store_test)
+set_tests_properties(basic_output_store_test PROPERTIES
+    LABELS "unit;runtime"
+    TIMEOUT 60
 )
