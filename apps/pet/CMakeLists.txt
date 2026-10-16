@@ -15,6 +15,10 @@ if(MIRAGE_BUILD_TESTS)
     add_executable(pet_resource_loader_test "${CMAKE_SOURCE_DIR}/tests/runtime/pet_resource_loader_test.cpp")
     target_link_libraries(pet_resource_loader_test PRIVATE mirage_pet_loader
         Mirage::kairo_consumer)
+    if(WIN32)
+        # kairo's timer-period test hook resolves timeBeginPeriod (winmm).
+        target_link_libraries(pet_resource_loader_test PRIVATE winmm)
+    endif()
     mirage_enable_warnings(pet_resource_loader_test)
     add_test(NAME pet_resource_loader_test COMMAND pet_resource_loader_test)
     set_tests_properties(pet_resource_loader_test PROPERTIES LABELS "unit;runtime;pet" TIMEOUT 30)

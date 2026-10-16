@@ -20,7 +20,11 @@
 #include <system_error>
 #include <thread>
 
+#ifdef _WIN32
+#include <process.h>
+#else
 #include <unistd.h>
+#endif
 
 namespace {
 
@@ -28,11 +32,20 @@ namespace desktop = mirage::desktop;
 using mirage::runtime::BasicOutputStore;
 using mirage::runtime::BasicOutputStoreConfig;
 
+/// Uniqueness tag for per-run temp roots (Windows spells getpid _getpid).
+int test_pid() {
+#ifdef _WIN32
+    return ::_getpid();
+#else
+    return ::getpid();
+#endif
+}
+
 class TempDir {
   public:
     explicit TempDir(std::string name)
         : root_(std::filesystem::temp_directory_path() /
-                ("mirage-m10-retention-" + name + "-" + std::to_string(::getpid()) + "-" +
+                ("mirage-m10-retention-" + name + "-" + std::to_string(test_pid()) + "-" +
                  std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))) {}
     ~TempDir() {
         std::error_code ec;
