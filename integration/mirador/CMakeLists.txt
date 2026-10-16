@@ -3,7 +3,6 @@ add_library(mirage_integration_mirador STATIC
     src/mirador_service.cpp
     src/ppocr_pipeline.cpp
     src/visual_backend_registry.cpp
-    src/visual_execution_context.cpp
     src/visual_frame.cpp
     src/visual_mark_renderer.cpp
     src/visual_observation_mapper.cpp

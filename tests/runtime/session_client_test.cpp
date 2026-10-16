@@ -921,7 +921,6 @@ void scenario_run_loop_survives_a_live_timeout() {
     MIRAGE_CHECK(expired.error.message.find("timed out") != std::string::npos);
     MIRAGE_CHECK(session.client->health() == ipc::SessionClient::Health::SyncStale);
     MIRAGE_CHECK(session.client->connected());
-    MIRAGE_CHECK(session.client->last_timeout_reason().find("timed out") != std::string::npos);
 
     // The pre-fix sweep exited run() within one 10 ms slice of the deadline;
     // a quiet window with the loop still up (and the transport still

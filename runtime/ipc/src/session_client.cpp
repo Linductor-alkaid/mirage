@@ -109,11 +109,6 @@ SessionClient::Health SessionClient::health() const {
     return health_;
 }
 
-std::string SessionClient::last_timeout_reason() const {
-    std::lock_guard<std::mutex> guard(mutex_);
-    return last_timeout_reason_;
-}
-
 void SessionClient::set_event_sink(EventSink sink) {
     std::lock_guard<std::mutex> guard(mutex_);
     sink_ = std::move(sink);
