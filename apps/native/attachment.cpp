@@ -9,11 +9,6 @@
 #endif
 namespace mirage::native_ui {
 namespace {
-// Local UTF-8 + control-character gate (REUSE-05): the native frontend is a
-// thin IPC client that does not link the desktop layer, so the shared
-// mirage::desktop::is_valid_utf8 is unreachable here; this copy also carries
-// the attachment printability policy (reject control bytes except \n\r\t).
-// Keep in sync with the desktop validator's RFC 3629 strictness.
 bool utf8_text(const std::string &text) {
     for (std::size_t i = 0; i < text.size();) {
         const auto first = static_cast<unsigned char>(text[i++]);

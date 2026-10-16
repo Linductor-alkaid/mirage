@@ -1,9 +1,5 @@
 #include "model_layer_env.hpp"
 
-// REUSE-12: this is the integration layer's own env face (narrow name widened
-// to the W surface); runtime modules share runtime/internal/win32_environment.hpp
-// instead, and the two cannot merge because runtime depends on integration,
-// not the reverse. Same toolchain rationale as that header.
 // The Win32 surface is included macro-neutral (DEC-017 decision 5); the
 // environment is read through the W surface because MSVC raises the CRT
 // getenv as a warnings-as-errors deprecation (C4996) that MinGW never sees

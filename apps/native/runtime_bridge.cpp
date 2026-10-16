@@ -1,5 +1,4 @@
 #include "runtime_bridge.hpp"
-#include "../common/session_run_worker.hpp"
 #include <atomic>
 #include <future>
 #include <kairo/comm.hpp>
@@ -31,13 +30,9 @@ struct RuntimeBridge::Impl {
             gap.store(true);
         wake(); // EUI documented atomic requestUiUpdate/platform wake boundary
     }
-    // REUSE-15: the worker skeleton (cooperative wakeup, run episode) is
-    // the shared apps/common base; only the per-app connect/report faces
-    // stay here.
-    class Worker final : public mirage::apps::SessionRunWorker {
+    class Worker final : public kairo::IBlockingIoWorker {
       public:
-        Worker(Impl &owner, std::shared_ptr<ipc::SessionClient> client)
-            : mirage::apps::SessionRunWorker(std::move(client)), owner_(owner) {}
+        explicit Worker(Impl &owner) : owner_(owner) {}
         void run(kairo::StopToken stop) override {
             std::string reason;
             if (!owner_.client->connect(std::chrono::milliseconds{500}, reason)) {
@@ -50,19 +45,19 @@ struct RuntimeBridge::Impl {
             }
             owner_.live.store(true);
             owner_.post({RuntimeMessage::Kind::Connected, {}, 0, {}, {}});
-            (void)drive(reason);
+            (void)owner_.client->run(reason);
             owner_.live.store(false);
             if (!stop.stop_requested())
                 owner_.post({RuntimeMessage::Kind::Lost, reason, 0, {}, {}});
         }
+        void wakeup() noexcept override { owner_.client->stop(); }
 
       private:
         Impl &owner_;
     };
-    class CatalogWorker final : public mirage::apps::SessionRunWorker {
+    class CatalogWorker final : public kairo::IBlockingIoWorker {
       public:
-        CatalogWorker(Impl &owner, std::shared_ptr<ipc::SessionClient> client)
-            : mirage::apps::SessionRunWorker(std::move(client)), owner_(owner) {}
+        explicit CatalogWorker(Impl &owner) : owner_(owner) {}
         void run(kairo::StopToken stop) override {
             std::string reason;
             if (!owner_.catalog_client->connect(std::chrono::milliseconds{500}, reason)) {
@@ -74,8 +69,9 @@ struct RuntimeBridge::Impl {
                 owner_.catalog_client->stop();
                 return;
             }
-            (void)drive(reason);
+            (void)owner_.catalog_client->run(reason);
         }
+        void wakeup() noexcept override { owner_.catalog_client->stop(); }
 
       private:
         Impl &owner_;
@@ -105,7 +101,7 @@ RuntimeBridge::RuntimeBridge(std::function<void()> wake_ui, std::string endpoint
     kairo::BlockingWorkerSpec spec;
     spec.name = "mirage-native-ipc";
     spec.config.thread_name = "mirage-native-ipc";
-    spec.worker = std::make_unique<Impl::Worker>(p, p.client);
+    spec.worker = std::make_unique<Impl::Worker>(p);
     p.worker = p.executor.start_worker(std::move(spec));
     if (!p.worker.started())
         p.post({RuntimeMessage::Kind::Lost,
@@ -116,7 +112,7 @@ RuntimeBridge::RuntimeBridge(std::function<void()> wake_ui, std::string endpoint
     kairo::BlockingWorkerSpec catalog_spec;
     catalog_spec.name = "mirage-native-catalog-ipc";
     catalog_spec.config.thread_name = "mirage-native-catalog-ipc";
-    catalog_spec.worker = std::make_unique<Impl::CatalogWorker>(p, p.catalog_client);
+    catalog_spec.worker = std::make_unique<Impl::CatalogWorker>(p);
     p.catalog_worker = p.executor.start_worker(std::move(catalog_spec));
     if (!p.catalog_worker.started())
         p.post({RuntimeMessage::Kind::Diagnostic,

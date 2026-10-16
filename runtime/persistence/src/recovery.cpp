@@ -4,15 +4,9 @@
 
 #include <ctime>
 
-#include "json_document.hpp"
-
 namespace mirage::runtime::persistence {
 namespace {
 
-using json_doc::has_unknown_member;
-using json_doc::make_object;
-using json_doc::member;
-using json_doc::put;
 using mira::JsonValue;
 
 constexpr std::string_view kProgressCompleted = "Completed";
@@ -41,6 +35,45 @@ bool known_step_status(std::string_view status) {
 bool known_permission(std::string_view permission) {
     return permission.empty() || permission == "allowed" || permission == "confirmed" ||
            permission == "denied" || permission == "confirmation_rejected";
+}
+
+JsonValue make_object() { return JsonValue{JsonValue::Object{}}; }
+
+void put(JsonValue &object, std::string key, JsonValue value) {
+    object.set(std::move(key), std::move(value));
+}
+
+const JsonValue *member(const JsonValue &object, std::string_view key) {
+    const auto *entries = object.as_object();
+    if (entries == nullptr) {
+        return nullptr;
+    }
+    for (const auto &entry : *entries) {
+        if (entry.first == key) {
+            return &entry.second;
+        }
+    }
+    return nullptr;
+}
+
+bool has_unknown_member(const JsonValue &object, std::initializer_list<std::string_view> known) {
+    const auto *entries = object.as_object();
+    if (entries == nullptr) {
+        return false;
+    }
+    for (const auto &entry : *entries) {
+        bool found = false;
+        for (const std::string_view name : known) {
+            if (entry.first == name) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /// Requires a string member within `max_bytes`; sets `error` and returns

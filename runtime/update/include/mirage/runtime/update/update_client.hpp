@@ -10,7 +10,6 @@
 #include <string>
 
 #include <mirage/runtime/update/update_apply.hpp>
-#include <mirage/runtime/update/update_fetcher.hpp>
 #include <mirage/runtime/update/update_manifest.hpp>
 
 namespace mirage::runtime::update {
@@ -47,9 +46,7 @@ struct ApplyOutcome {
 /// Authenticode 层由安装器自身承载).
 class UpdateClient {
   public:
-    /// `fetch` must outlive the client; one session serves the whole episode
-    /// (check = 2 exchanges, apply = 2 + one per listed file).
-    UpdateClient(UpdateTrustAnchor trust_anchor, FetchSession &fetch);
+    explicit UpdateClient(UpdateTrustAnchor trust_anchor);
 
     /// Fetch + verify the manifest only.
     CheckOutcome check(const std::string &base_url);
@@ -69,7 +66,6 @@ class UpdateClient {
 
   private:
     UpdateTrustAnchor trust_anchor_;
-    FetchSession &fetch_;
     std::string current_version_;
     std::function<void(std::uint64_t)> progress_;
 };

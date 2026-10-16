@@ -1,7 +1,5 @@
 #include <mirage/runtime/runtime_service.hpp>
 
-#include <mirage/runtime/basic_output_store.hpp>
-
 #include <mirage/desktop/observation_assembler.hpp>
 #include <mirage/integration/model_catalog.hpp>
 #include <mirage/integration/session_journal.hpp>
@@ -45,17 +43,12 @@
 #include <optional>
 #include <random>
 #include <string>
-#include <string_view>
 #include <utility>
 #include <variant>
 #include <vector>
 
 namespace mirage::runtime {
 namespace {
-
-constexpr const char *missing_pet_message =
-    "Desktop pet executable was not found at product startup; build mirage-native-product "
-    "and restart the tray.";
 
 namespace persistence = mirage::runtime::persistence;
 using detail::progress_name;
@@ -85,44 +78,9 @@ constexpr std::size_t kDialogTranscriptTurns = 20;
 /// of surfacing as errors (the drop-oldest discipline, DEC-012).
 constexpr std::size_t kOverlayEventQueueCapacity = 64;
 
-using detail::consume_best_effort;
-using detail::terminal_progress;
-
-/// Projects the live permission policy into the wire/persistence rule map
-/// (DEC-010): every capability slot of the frozen vocabulary, keyed by its
-/// stable name.
-void project_permission_rules(const permission::PermissionPolicy &policy,
-                              std::map<std::string, std::string> &rules) {
-    for (std::size_t index = 0;
-         index < static_cast<std::size_t>(permission::Capability::NotificationPost) + 1; ++index) {
-        const auto capability = static_cast<permission::Capability>(index);
-        rules.insert_or_assign(permission::capability_name(capability),
-                               permission::rule_name(policy.rule_for(capability)));
-    }
-}
-
-/// Consumes finished background drivers with the given id prefix so their
-/// bounded slots free up. Caller holds `core.drivers_mutex`; settlement
-/// exceptions are recorded, never fatal (the task state lives in the pinned
-/// runtime and the registry).
-void reap_finished_drivers_locked(detail::ServiceCore &core, std::string_view prefix,
-                                  const char *failure_log = nullptr) {
-    for (auto it = core.drivers.begin(); it != core.drivers.end();) {
-        if (it->first.starts_with(prefix) && it->second.future.valid() &&
-            it->second.future.wait_for(std::chrono::milliseconds{0}) == std::future_status::ready) {
-            try {
-                it->second.future.get();
-            } catch (const std::exception &) {
-                if (failure_log != nullptr) {
-                    std::cerr << failure_log << '\n';
-                }
-            } catch (...) {
-            }
-            it = core.drivers.erase(it);
-        } else {
-            ++it;
-        }
-    }
+bool terminal_progress(TaskProgress progress) {
+    return progress == TaskProgress::Completed || progress == TaskProgress::Failed ||
+           progress == TaskProgress::Cancelled;
 }
 
 std::int64_t wall_now_ms() {
@@ -527,9 +485,6 @@ struct RuntimeService::Impl {
     // Serialized context only: UI window activation and exit prompt epochs.
     ipc::ProductState product;
     std::unique_ptr<detail::PetProcess> pet_process;
-    /// M10-06 (DEC-095): bounded retained-command-output store; null without
-    /// config.basic_output_directory (exec stays preview-only).
-    std::unique_ptr<BasicOutputStore> basic_outputs;
     pet::Projection pet_projection{make_turn_id()}; // serial context, one presentation only
     std::uint64_t published_pet_revision = 0;
     pet::BubbleProjection bubble_projection; // serial-context-only
@@ -546,11 +501,6 @@ struct RuntimeService::Impl {
                                                  : config.socket_path) {
         if (config.pet)
             pet_process = std::make_unique<detail::PetProcess>(core->executor, config.pet);
-        if (!config.basic_output_directory.empty()) {
-            BasicOutputStoreConfig store_config;
-            store_config.directory = config.basic_output_directory;
-            basic_outputs = std::make_unique<BasicOutputStore>(store_config);
-        }
         core->mirage_version = config.mirage_version;
         core->max_steps_per_task = config.max_steps_per_task;
         core->max_task_records = config.max_task_records;
@@ -672,8 +622,6 @@ struct RuntimeService::Impl {
         integration::DesktopToolContext desktop;
         desktop.environment = core->environment;
         desktop.actions = core->actions;
-        desktop.output_retention = basic_outputs.get();
-        desktop.basic_tools = config.basic_tools;
         if (core->ocr_pipeline && core->ocr_pipeline->running()) {
             desktop.mark = [pipeline = core->ocr_pipeline.get()](
                                const auto &crop, const auto &cancel, const auto &deadline) {
@@ -969,10 +917,6 @@ struct RuntimeService::Impl {
             result.pet_pid = pet_process->pid();
             result.pet_state = pet_process->state();
             result.pet_diagnostic = pet_process->diagnostic();
-        } else if (config.pet_expected) {
-            result.pet_pid = 0;
-            result.pet_state = "failed";
-            result.pet_diagnostic = missing_pet_message;
         }
         if (result.frontend_pid == 0)
             product.frontend_ready = false;
@@ -1001,9 +945,7 @@ struct RuntimeService::Impl {
         if (request.action == "pet_start" || request.action == "pet_stop" ||
             request.action == "pet_ready") {
             if (product_stopping.load() || !pet_process) {
-                diagnostic = !product_stopping.load() && config.pet_expected && !pet_process
-                                 ? missing_pet_message
-                                 : "pet carrier is unavailable or owner is closing";
+                diagnostic = "pet carrier is unavailable or owner is closing";
                 return false;
             }
             if (request.action == "pet_ready")
@@ -1157,6 +1099,19 @@ struct RuntimeService::Impl {
             core->serial, [hub, request_id = click.request_id, approved = click.approved] {
                 (void)hub->resolve(request_id, approved);
             }));
+    }
+
+    /// Consumes a settled best-effort future, swallowing its exception (the
+    /// task_driver's discipline): admission rejections during teardown are
+    /// recorded nowhere — the click is dropped.
+    template <typename T> void consume_best_effort(std::future<T> future) {
+        try {
+            if (future.valid()) {
+                (void)future.get();
+            }
+        } catch (const std::exception &) {
+        } catch (...) {
+        }
     }
 
     /// Loop thread: pushes the frame through the service's serial context so
@@ -2074,7 +2029,18 @@ struct RuntimeService::Impl {
         }
         {
             std::lock_guard lock(core->drivers_mutex);
-            reap_finished_drivers_locked(*core, "catalog-");
+            for (auto it = core->drivers.begin(); it != core->drivers.end();) {
+                if (it->first.starts_with("catalog-") &&
+                    it->second.future.wait_for(std::chrono::milliseconds{0}) ==
+                        std::future_status::ready) {
+                    try {
+                        it->second.future.get();
+                    } catch (...) {
+                    }
+                    it = core->drivers.erase(it);
+                } else
+                    ++it;
+            }
             if (std::count_if(core->drivers.begin(), core->drivers.end(), [](const auto &entry) {
                     return entry.first.starts_with("catalog-");
                 }) >= 2) {
@@ -2130,7 +2096,18 @@ struct RuntimeService::Impl {
         }
         {
             std::lock_guard lock(core->drivers_mutex);
-            reap_finished_drivers_locked(*core, "desktop-authorization-");
+            for (auto it = core->drivers.begin(); it != core->drivers.end();) {
+                if (it->first.starts_with("desktop-authorization-") &&
+                    it->second.future.wait_for(std::chrono::milliseconds{0}) ==
+                        std::future_status::ready) {
+                    try {
+                        it->second.future.get();
+                    } catch (...) {
+                    }
+                    it = core->drivers.erase(it);
+                } else
+                    ++it;
+            }
         }
         if (desktop_authorization_pending.load()) {
             fail(connection, correlation, "desktop_authorization_busy",
@@ -2505,7 +2482,19 @@ struct RuntimeService::Impl {
                              ipc::SessionChatRequest request) {
         { // Consume finished task outcomes before reusing bounded driver slots.
             std::lock_guard lock(core->drivers_mutex);
-            reap_finished_drivers_locked(*core, "dialog-", "mirage-service: model driver failed");
+            for (auto it = core->drivers.begin(); it != core->drivers.end();) {
+                if (it->first.starts_with("dialog-") && it->second.future.valid() &&
+                    it->second.future.wait_for(std::chrono::milliseconds{0}) ==
+                        std::future_status::ready) {
+                    try {
+                        it->second.future.get();
+                    } catch (...) {
+                        std::cerr << "mirage-service: model driver failed\n";
+                    }
+                    it = core->drivers.erase(it);
+                } else
+                    ++it;
+            }
         }
         if (core->model_layer == nullptr || !core->model_layer->running()) {
             fail(connection_id, correlation_id, "unavailable", "model layer is not configured");
@@ -2820,7 +2809,14 @@ struct RuntimeService::Impl {
     void handle_policy_get(std::uint64_t connection_id, std::uint64_t correlation_id) {
         ipc::PolicyView view;
         const permission::PermissionPolicy policy = core->permission->policy();
-        project_permission_rules(policy, view.rules);
+        for (std::size_t index = 0;
+             index < policy.rules.size() &&
+             index < static_cast<std::size_t>(permission::Capability::NotificationPost) + 1;
+             ++index) {
+            const auto capability = static_cast<permission::Capability>(index);
+            view.rules.insert_or_assign(permission::capability_name(capability),
+                                        permission::rule_name(policy.rule_for(capability)));
+        }
         view.read_roots = core->read_roots;
         respond(connection_id, correlation_id, std::move(view));
     }
@@ -2883,7 +2879,13 @@ struct RuntimeService::Impl {
             // Write-back disabled (tests): the live effect above still holds.
             ipc::PolicyView view;
             const permission::PermissionPolicy applied = core->permission->policy();
-            project_permission_rules(applied, view.rules);
+            for (std::size_t index = 0;
+                 index < static_cast<std::size_t>(permission::Capability::NotificationPost) + 1;
+                 ++index) {
+                const auto capability = static_cast<permission::Capability>(index);
+                view.rules.insert_or_assign(permission::capability_name(capability),
+                                            permission::rule_name(applied.rule_for(capability)));
+            }
             view.read_roots = core->read_roots;
             respond(connection_id, correlation_id, std::move(view));
             return;
@@ -2896,7 +2898,13 @@ struct RuntimeService::Impl {
         }
         ipc::PolicyView view;
         const permission::PermissionPolicy applied = core->permission->policy();
-        project_permission_rules(applied, view.rules);
+        for (std::size_t index = 0;
+             index < static_cast<std::size_t>(permission::Capability::NotificationPost) + 1;
+             ++index) {
+            const auto capability = static_cast<permission::Capability>(index);
+            view.rules.insert_or_assign(permission::capability_name(capability),
+                                        permission::rule_name(applied.rule_for(capability)));
+        }
         view.read_roots = core->read_roots;
         respond(connection_id, correlation_id, std::move(view));
     }
@@ -2923,7 +2931,14 @@ struct RuntimeService::Impl {
         }
         document.permission_rules.clear();
         const permission::PermissionPolicy applied = core->permission->policy();
-        project_permission_rules(applied, document.permission_rules);
+        for (std::size_t index = 0;
+             index < static_cast<std::size_t>(permission::Capability::NotificationPost) + 1;
+             ++index) {
+            const auto capability = static_cast<permission::Capability>(index);
+            document.permission_rules.insert_or_assign(
+                permission::capability_name(capability),
+                permission::rule_name(applied.rule_for(capability)));
+        }
         document.read_roots = read_roots;
         const auto saved = core->settings_store->save(persistence::encode_settings(document));
         if (!saved.ok) {
@@ -4160,8 +4175,6 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                                 raw->pet_process->poll();
                                 raw->tray->set_pet_state(raw->pet_process->state(),
                                                          raw->pet_process->pid() != 0);
-                            } else if (raw->config.pet_expected) {
-                                raw->tray->set_pet_state("failed", false);
                             }
                         }
                         if (raw->product_stopping.load() || !raw->config.frontend)

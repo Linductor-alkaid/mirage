@@ -8,10 +8,6 @@
 
 ## 背景与决策
 
-2026-10-15 扩展：[DEC-091](DEC-091-local-semantic-perception-and-action-loop.md)
-将本地定位/一次动作/后条件能力复用到 native 会话，M9-05/09 跟踪；以下“仅
-workflow 注册”保留为历史交付边界，新 native 能力未实施前不宣称已暴露。
-
 语义目标首增量已可零模型执行；Canvas 和无 AT-SPI 的界面仍需本地视觉目标。
 追加仅 workflow 注册的 desktop.knowledge.visual_click，不暴露给原生模型会话。
 知识为 schema=1、精确 window_title、page_text、target_kind（ocr/template）、target、

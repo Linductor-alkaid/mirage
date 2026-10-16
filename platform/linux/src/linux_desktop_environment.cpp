@@ -84,10 +84,8 @@ mirage::desktop::FileReadOutcome read_stream(int fd, std::uintmax_t declared_siz
 LinuxDesktopEnvironment::LinuxDesktopEnvironment(std::vector<std::filesystem::path> read_roots,
                                                  X11Options x11_options, AtspiOptions atspi_options,
                                                  ApplicationOptions application_options,
-                                                 NotificationsOptions notifications_options,
-                                                 FilesystemWriteOptions filesystem_write_options)
-    : read_scope_(std::move(read_roots)), write_scope_(filesystem_write_options.roots),
-      file_leases_(std::make_unique<FileLeaseTable>()) {
+                                                 NotificationsOptions notifications_options)
+    : read_scope_(std::move(read_roots)) {
     const char *session = std::getenv("XDG_SESSION_TYPE");
     const char *wayland_display = std::getenv("WAYLAND_DISPLAY");
     // DEC-085: a Wayland session is recognized from either session marker.
@@ -245,13 +243,6 @@ mirage::desktop::ProcessOutcome
 LinuxDesktopEnvironment::execute(const std::string &command,
                                  const mirage::desktop::ProcessLimits &limits,
                                  const mirage::desktop::CancelToken &cancel) {
-    return execute_common(command, limits, cancel, -1, nullptr);
-}
-
-mirage::desktop::ProcessOutcome LinuxDesktopEnvironment::execute_common(
-    const std::string &command, const mirage::desktop::ProcessLimits &limits,
-    const mirage::desktop::CancelToken &cancel, int working_dir_fd,
-    mirage::desktop::ProcessOutputSink *output_sink) {
     using mirage::desktop::ProcessLimits;
     using mirage::desktop::ProcessOutcome;
     // Argument validation happens before any side effect: a refused command
@@ -317,13 +308,7 @@ mirage::desktop::ProcessOutcome LinuxDesktopEnvironment::execute_common(
     if (pid == 0) {
         // Child: own process group so the budget or cancellation kill reaches
         // the whole command tree; dup2 clears O_CLOEXEC on the duplicated ends.
-        // M10-05 (DEC-095): the explicit working directory is anchored on the
-        // open directory descriptor (fchdir in the child, before exec), so no
-        // `cd` rides the command line and the service cwd never changes.
         setpgid(0, 0);
-        if (working_dir_fd >= 0 && fchdir(working_dir_fd) != 0) {
-            _exit(126);
-        }
         dup2(stdout_pipe[1], STDOUT_FILENO);
         dup2(stderr_pipe[1], STDERR_FILENO);
         execl("/bin/sh", "sh", "-c", command.c_str(), static_cast<char *>(nullptr));
@@ -342,7 +327,6 @@ mirage::desktop::ProcessOutcome LinuxDesktopEnvironment::execute_common(
     std::string standard_output;
     std::string standard_error;
     bool output_truncated = false;
-    bool retained_truncated = false;
     bool timed_out = false;
     bool was_cancelled = false;
     bool child_exited = false;
@@ -416,16 +400,6 @@ mirage::desktop::ProcessOutcome LinuxDesktopEnvironment::execute_common(
             }
             const std::size_t room =
                 limits.max_output_bytes > sink.size() ? limits.max_output_bytes - sink.size() : 0;
-            // M10-06 seam (DEC-095): the retention sink mirrors every chunk
-            // regardless of the preview budget, so retention pressure never
-            // blocks the command or stops the drain; a failed retain marks
-            // retained_truncated and the command keeps running.
-            if (output_sink != nullptr) {
-                if (!output_sink->retain(
-                        index == 0, std::string_view(buffer, static_cast<std::size_t>(received)))) {
-                    retained_truncated = true;
-                }
-            }
             if (room == 0) {
                 output_truncated = true;
                 continue;
@@ -475,8 +449,7 @@ mirage::desktop::ProcessOutcome LinuxDesktopEnvironment::execute_common(
                 -1,
                 std::move(standard_output),
                 std::move(standard_error),
-                provider_error("cancelled", "command was cancelled before its budget expired"),
-                retained_truncated};
+                provider_error("cancelled", "command was cancelled before its budget expired")};
     }
     if (timed_out) {
         return {false,
@@ -487,8 +460,7 @@ mirage::desktop::ProcessOutcome LinuxDesktopEnvironment::execute_common(
                 -1,
                 std::move(standard_output),
                 std::move(standard_error),
-                provider_error("deadline_exceeded", "command exceeded its time budget"),
-                retained_truncated};
+                provider_error("deadline_exceeded", "command exceeded its time budget")};
     }
     if (!io_failure.empty()) {
         return {false,
@@ -499,8 +471,7 @@ mirage::desktop::ProcessOutcome LinuxDesktopEnvironment::execute_common(
                 -1,
                 std::move(standard_output),
                 std::move(standard_error),
-                provider_error("io_error", std::move(io_failure)),
-                retained_truncated};
+                provider_error("io_error", std::move(io_failure))};
     }
     if (!reaped) {
         return {false,
@@ -511,8 +482,7 @@ mirage::desktop::ProcessOutcome LinuxDesktopEnvironment::execute_common(
                 -1,
                 std::move(standard_output),
                 std::move(standard_error),
-                provider_error("io_error", "child could not be reaped"),
-                retained_truncated};
+                provider_error("io_error", "child could not be reaped")};
     }
     if (WIFSIGNALED(status)) {
         return {false,
@@ -524,8 +494,7 @@ mirage::desktop::ProcessOutcome LinuxDesktopEnvironment::execute_common(
                 std::move(standard_output),
                 std::move(standard_error),
                 provider_error("process_signalled", "command was terminated by signal " +
-                                                        std::to_string(WTERMSIG(status))),
-                retained_truncated};
+                                                        std::to_string(WTERMSIG(status)))};
     }
     if (!WIFEXITED(status)) {
         return {false,
@@ -541,7 +510,6 @@ mirage::desktop::ProcessOutcome LinuxDesktopEnvironment::execute_common(
     ProcessOutcome outcome;
     outcome.ok = true;
     outcome.output_truncated = output_truncated;
-    outcome.retained_truncated = retained_truncated;
     outcome.exited_normally = true;
     outcome.exit_code = WEXITSTATUS(status);
     outcome.standard_output = std::move(standard_output);

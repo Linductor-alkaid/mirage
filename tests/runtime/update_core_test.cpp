@@ -9,8 +9,6 @@
 #include <mirage/runtime/update/update_crypto.hpp>
 #include <mirage/runtime/update/update_manifest.hpp>
 
-#include <kairo/executor.hpp>
-
 #include <openssl/evp.h>
 
 #include <cstdio>
@@ -80,45 +78,6 @@ fs::path make_temp_dir(const char *name) {
 } // namespace
 
 int main() {
-
-    // --- sha256_hex: FIPS 180-4 known vectors (REUSE-02) --------------------
-    // The digest now rides mira::digest_bytes; these NIST vectors pin that
-    // the public face stayed byte-equivalent to the previous in-tree
-    // implementation, including binary bytes, embedded NULs and the empty
-    // input.
-    {
-        const std::string million_a(1'000'000, 'a');
-        struct Vector {
-            const std::string *input;
-            const char *digest;
-        };
-        const std::string empty_input;
-        const std::string abc = "abc";
-        const std::string nul_byte(std::string(1, '\0'));
-        const std::string a_nul_b = std::string("a\0b", 3);
-        const std::string bytes_0_255 = [] {
-            std::string all;
-            for (int b = 0; b < 256; ++b) {
-                all.push_back(static_cast<char>(b));
-            }
-            return all;
-        }();
-        const std::string ff_64(64, '\xff');
-        const std::string long_vector = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
-        const Vector vectors[] = {
-            {&empty_input, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
-            {&abc, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"},
-            {&long_vector, "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"},
-            {&nul_byte, "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d"},
-            {&a_nul_b, "59b271ae1bbcb1d31d41929817f4b16fb439eb4f31520b5ad1d5ce98920a7138"},
-            {&bytes_0_255, "40aff2e9d2d8922e47afd4648e6967497158785fbd1da870e7110266bf944880"},
-            {&ff_64, "8667e718294e9e0df1d30600ba3eeb201f764aad2dad72748643e4a285e1d1f7"},
-            {&million_a, "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"},
-        };
-        for (const auto &vector : vectors) {
-            MIRAGE_CHECK(mirage::runtime::update::sha256_hex(*vector.input) == vector.digest);
-        }
-    }
 
     // --- manifest decode ---------------------------------------------------
     mirage::runtime::update::DecodeError error;
@@ -246,19 +205,8 @@ int main() {
     MIRAGE_CHECK(read_file(base / "target" / "notes.txt") == "new-notes-body");
 
     // --- trust-anchor gate on the client face ------------------------------
-    // The client needs a FetchSession (the pinned transport runs on this
-    // process's Executor, DEC-030 EXEC-01). Declaration order shuts the
-    // executor down last, after the session joined its blocking workers.
-    // The short anchor is refused before any signature verification; the
-    // refused endpoint is a closed loopback port, so the fetch itself fails
-    // fast and the outcome stays fail-closed either way.
-    struct ExecutorLifetime {
-        kairo::Executor executor;
-        ~ExecutorLifetime() { executor.shutdown(true); }
-    } lifetime;
-    mirage::runtime::update::FetchSession fetch(lifetime.executor);
     mirage::runtime::update::UpdateClient short_anchor_client(
-        mirage::runtime::update::UpdateTrustAnchor{"short"}, fetch);
+        mirage::runtime::update::UpdateTrustAnchor{"short"});
     const auto refused_check = short_anchor_client.check("127.0.0.1:1");
     MIRAGE_CHECK(!refused_check.ok);
     const auto refused_apply = short_anchor_client.apply("127.0.0.1:1", (base / "target").string(),

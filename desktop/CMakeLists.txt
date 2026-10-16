@@ -7,7 +7,6 @@ add_library(mirage_desktop STATIC
     environment/src/tray_carrier.cpp
     environment/src/visual_snapshot.cpp
     observation/src/observation_assembler.cpp
-    observation/src/visual_scene.cpp
 )
 add_library(Mirage::desktop ALIAS mirage_desktop)
 

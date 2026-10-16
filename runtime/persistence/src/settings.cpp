@@ -4,16 +4,52 @@
 #include <filesystem>
 #include <mira/json.hpp>
 
-#include "json_document.hpp"
-
 namespace mirage::runtime::persistence {
 namespace {
 
-using json_doc::has_unknown_member;
-using json_doc::make_object;
-using json_doc::member;
-using json_doc::put;
 using mira::JsonValue;
+
+JsonValue make_object() { return JsonValue{JsonValue::Object{}}; }
+
+void put(JsonValue &object, std::string key, JsonValue value) {
+    object.set(std::move(key), std::move(value));
+}
+
+const JsonValue *member(const JsonValue &object, std::string_view key) {
+    const auto *entries = object.as_object();
+    if (entries == nullptr) {
+        return nullptr;
+    }
+    for (const auto &entry : *entries) {
+        if (entry.first == key) {
+            return &entry.second;
+        }
+    }
+    return nullptr;
+}
+
+/// True when the document carries a member the decoder does not know.
+/// Strictness is deliberate (DEC-011): a typoed key must fail loudly, not
+/// silently degrade to defaults.
+bool has_unknown_member(const JsonValue &object, std::initializer_list<std::string_view> known) {
+    const auto *entries = object.as_object();
+    if (entries == nullptr) {
+        return false;
+    }
+    for (const auto &entry : *entries) {
+        bool found = false;
+        for (const std::string_view name : known) {
+            if (entry.first == name) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            return true;
+        }
+    }
+    return false;
+}
 
 std::optional<std::string> string_member(const JsonValue &object, std::string_view key,
                                          std::size_t max_bytes) {
@@ -183,28 +219,6 @@ std::string encode_settings(const LocalSettings &settings) {
         put(vision, "ocr_manifest", settings.vision->ocr_manifest);
         put(object, "vision", std::move(vision));
     }
-    if (settings.basic_tools) {
-        const BasicToolsSettings &tools = *settings.basic_tools;
-        JsonValue block = make_object();
-        if (tools.enabled) {
-            put(block, "enabled", true);
-        }
-        if (tools.exec_enabled) {
-            put(block, "exec_enabled", true);
-        }
-        if (!tools.workspace.empty()) {
-            put(block, "workspace", tools.workspace);
-        }
-        if (!tools.write_roots.empty()) {
-            JsonValue::Array roots;
-            roots.reserve(tools.write_roots.size());
-            for (const std::string &root : tools.write_roots) {
-                roots.emplace_back(root);
-            }
-            put(block, "write_roots", JsonValue{std::move(roots)});
-        }
-        put(object, "basic_tools", std::move(block));
-    }
     return mira::to_json_string(object);
 }
 
@@ -224,9 +238,9 @@ SettingsDecode decode_settings(std::string_view body) {
         result.error = "settings document must be a JSON object";
         return result;
     }
-    if (has_unknown_member(document, {"schema", "socket", "read_roots", "permission",
-                                      "confirmation", "model", "models", "runtime", "vision",
-                                      "basic_tools", "remember_desktop_authorization"})) {
+    if (has_unknown_member(document,
+                           {"schema", "socket", "read_roots", "permission", "confirmation", "model",
+                            "models", "runtime", "vision", "remember_desktop_authorization"})) {
         result.error = "settings document contains an unknown member";
         return result;
     }
@@ -247,59 +261,6 @@ SettingsDecode decode_settings(std::string_view body) {
             return result;
         }
         settings.vision = VisionSettings{*path};
-    }
-    if (const auto *tools_value = member(document, "basic_tools")) {
-        if (!tools_value->is_object() ||
-            has_unknown_member(*tools_value,
-                               {"enabled", "exec_enabled", "workspace", "write_roots"})) {
-            result.error = "basic_tools must be an object with enabled/exec_enabled/workspace/"
-                           "write_roots members only";
-            return result;
-        }
-        BasicToolsSettings tools;
-        if (const auto *flag = member(*tools_value, "enabled")) {
-            const auto value = flag->as_boolean();
-            if (!value) {
-                result.error = "basic_tools.enabled must be boolean";
-                return result;
-            }
-            tools.enabled = *value;
-        }
-        if (const auto *flag = member(*tools_value, "exec_enabled")) {
-            const auto value = flag->as_boolean();
-            if (!value) {
-                result.error = "basic_tools.exec_enabled must be boolean";
-                return result;
-            }
-            tools.exec_enabled = *value;
-        }
-        if (const auto workspace = string_member(*tools_value, "workspace", kMaxPathBytes)) {
-            tools.workspace = *workspace;
-        } else if (member(*tools_value, "workspace") != nullptr) {
-            result.error = "basic_tools.workspace must be a bounded path string";
-            return result;
-        }
-        if (const auto *roots = member(*tools_value, "write_roots")) {
-            if (!roots->is_array()) {
-                result.error = "basic_tools.write_roots must be an array of strings";
-                return result;
-            }
-            if (roots->as_array()->size() > kMaxReadRoots) {
-                result.error =
-                    "basic_tools.write_roots exceeds " + std::to_string(kMaxReadRoots) + " entries";
-                return result;
-            }
-            for (const auto &root : *roots->as_array()) {
-                const auto *text = root.as_string();
-                if (text == nullptr || text->size() > kMaxPathBytes) {
-                    result.error = "basic_tools.write_roots entries must be strings of at most " +
-                                   std::to_string(kMaxPathBytes) + " bytes";
-                    return result;
-                }
-                tools.write_roots.push_back(*text);
-            }
-        }
-        settings.basic_tools = std::move(tools);
     }
     if (const JsonValue *schema = member(document, "schema")) {
         const auto version = schema->as_integer();
@@ -353,12 +314,8 @@ SettingsDecode decode_settings(std::string_view body) {
     const JsonValue *confirmation = member(document, "confirmation");
     if (confirmation != nullptr) {
         const std::string *text = confirmation->as_string();
-        // "ipc" selects the DEC-020 async confirmation hub so a persisted
-        // product configuration can enable the confirmation surface without
-        // a service flag; whether anything answers the requests stays with
-        // the connected clients (fail closed on the wait budget).
-        if (text == nullptr || (*text != "allow" && *text != "deny" && *text != "ipc")) {
-            result.error = "member 'confirmation' must be \"allow\", \"deny\" or \"ipc\"";
+        if (text == nullptr || (*text != "allow" && *text != "deny")) {
+            result.error = "member 'confirmation' must be \"allow\" or \"deny\"";
             return result;
         }
         settings.confirmation = *text;

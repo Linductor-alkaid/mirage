@@ -1,16 +1,10 @@
 # DEC-088：会话上下文压缩与输入去重
 
-> 状态：Superseded（2026-10-15，后继 DEC-090/091）
+> 状态：Proposed
 > 日期：2026-10-14
 > 负责人：Mira/Mirage 维护者
 > 前置：DEC-087（输出预算与 preflight）、DEC-085（会话韧性）、DEC-053（图片供给缝）
-> 工作项：后续统一由 M9-04/05/06/12 承接；既有交付证据保留
-
-本记录的后续策略由 [DEC-090](DEC-090-continuous-task-execution.md) 与
-[DEC-091](DEC-091-local-semantic-perception-and-action-loop.md) 替代，执行入口为
-[M9 计划](../plans/m9-continuous-tasks-and-local-perception.md)。已交付的 Layer 0、
-输入复用和图片降级继续保留；历史源码分析、样例和验收状态不改写为当前实现。
-压缩不能替代持续循环，新增默认文本观察也不等同于原先预算低时临时撤图。
+> 工作项：待分配（建议归入 M9 多步任务稳定性）
 
 ## 问题陈述
 

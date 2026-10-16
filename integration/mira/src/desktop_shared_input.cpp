@@ -1,6 +1,5 @@
 #include "desktop_image_supply.hpp"
 #include "desktop_stability_guard.hpp"
-#include "tool_geometry.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -29,6 +28,12 @@ mira::Error rejected(std::string code, bool effects = false, bool released = tru
         fields.emplace_back("refreshed_image_scope", refreshed_scope);
     e.safe_message = mira::to_json_string(Json{std::move(fields)});
     return e;
+}
+bool valid_frame(const desktop::ImageFrame &f) {
+    return f.format == desktop::ImageFormat::Bgra8 && f.width > 0 && f.height > 0 &&
+           f.stride >= std::size_t(f.width) * 4 &&
+           f.stride <= desktop_capture_bytes / std::size_t(f.height) &&
+           f.pixels.size() == f.stride * std::size_t(f.height);
 }
 } // namespace
 void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry,
@@ -187,7 +192,7 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         native_failed_ = true;
         return rejected("capture_failed");
     }
-    if (!fresh.ok || !valid_image_frame(fresh.frame, desktop_capture_bytes)) {
+    if (!fresh.ok || !valid_frame(fresh.frame)) {
         native_session_.reset();
         native_failed_ = true;
         if (fresh.error.code == "cancelled" && !cancel_.cancelled() &&
@@ -198,8 +203,7 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         return rejected(fresh.error.code.empty() ? "capture_failed" : fresh.error.code);
     }
     const auto &old = *native_input_frame_;
-    if (!valid_image_frame(old, desktop_capture_bytes) || old.width != fresh.frame.width ||
-        old.height != fresh.frame.height)
+    if (!valid_frame(old) || old.width != fresh.frame.width || old.height != fresh.frame.height)
         return rejected("shared_source_changed");
     // M7-18: image pixels map into shared-monitor pixels through the published
     // origin and per-image scale when present (ROI and window crops); full

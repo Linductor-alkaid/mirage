@@ -1,9 +1,9 @@
 add_library(mirage_pet_loader STATIC loader.cpp)
 target_compile_features(mirage_pet_loader PUBLIC cxx_std_20)
 target_include_directories(mirage_pet_loader PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-# kairo via the shared consumer face (DEC-096).
-target_link_libraries(mirage_pet_loader PUBLIC Mirage::pet_state
-    PRIVATE Mirage::kairo_consumer)
+target_include_directories(mirage_pet_loader SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+target_link_libraries(mirage_pet_loader PUBLIC Mirage::pet_state PRIVATE kairo)
 mirage_enable_warnings(mirage_pet_loader)
 
 if(MIRAGE_BUILD_TESTS)
@@ -13,12 +13,9 @@ if(MIRAGE_BUILD_TESTS)
     add_test(NAME pet_frame_presentation_test COMMAND pet_frame_presentation_test)
     set_tests_properties(pet_frame_presentation_test PROPERTIES LABELS "unit;runtime;pet" TIMEOUT 10)
     add_executable(pet_resource_loader_test "${CMAKE_SOURCE_DIR}/tests/runtime/pet_resource_loader_test.cpp")
-    target_link_libraries(pet_resource_loader_test PRIVATE mirage_pet_loader
-        Mirage::kairo_consumer)
-    if(WIN32)
-        # kairo's timer-period test hook resolves timeBeginPeriod (winmm).
-        target_link_libraries(pet_resource_loader_test PRIVATE winmm)
-    endif()
+    target_link_libraries(pet_resource_loader_test PRIVATE mirage_pet_loader kairo)
+    target_include_directories(pet_resource_loader_test SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
     mirage_enable_warnings(pet_resource_loader_test)
     add_test(NAME pet_resource_loader_test COMMAND pet_resource_loader_test)
     set_tests_properties(pet_resource_loader_test PROPERTIES LABELS "unit;runtime;pet" TIMEOUT 30)
@@ -79,8 +76,9 @@ mirage_enable_warnings(mirage_pet_frames)
 
 if(MIRAGE_BUILD_TESTS)
     add_executable(pet_frames_test "${CMAKE_SOURCE_DIR}/tests/runtime/pet_frames_test.cpp")
-    target_link_libraries(pet_frames_test PRIVATE mirage_pet_frames mirage_pet_loader
-        Mirage::kairo_consumer)
+    target_link_libraries(pet_frames_test PRIVATE mirage_pet_frames mirage_pet_loader kairo)
+    target_include_directories(pet_frames_test SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
     target_compile_features(pet_frames_test PRIVATE cxx_std_20)
     target_compile_definitions(pet_frames_test PRIVATE
         MIRAGE_PET_TEST_ASSETS="${MIRAGE_PET_ASSET_SOURCE_DIR}")
@@ -104,9 +102,10 @@ target_include_directories(mira_pet PRIVATE
     "${CMAKE_SOURCE_DIR}/platform/pet/include")
 target_include_directories(mira_pet SYSTEM PRIVATE
     "${CMAKE_SOURCE_DIR}/third_party/eui-neo"
-    "${CMAKE_SOURCE_DIR}/third_party/eui-neo/include")
+    "${CMAKE_SOURCE_DIR}/third_party/eui-neo/include"
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
 target_link_libraries(mira_pet PRIVATE mirage_pet_frames mirage_pet_loader Mirage::ipc
-    Mirage::platform Mirage::persistence Mirage::kairo_consumer)
+    Mirage::platform Mirage::persistence kairo)
 if(NOT WIN32)
     target_link_libraries(mira_pet PRIVATE ${X11_Xext_LIB})
 endif()
