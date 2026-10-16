@@ -736,6 +736,13 @@ int command_start(int argc, char **argv) {
                          "frontend failure)\n";
             return kExitFailure;
         }
+        // Readiness polling (REUSE-10): this launcher process predates the
+        // per-process Executor owner model and stays a thin shell — it waits
+        // for a child carrier's readiness by bounded IPC probes and reaps
+        // the child with process-level signals, neither of which is an
+        // in-process Executor concern (DEC-096 composition-root note). The
+        // update verbs own this process's only Executor; the launch path
+        // intentionally does not.
         hello = probe.call(mirage::runtime::ipc::HelloRequest{}, std::chrono::milliseconds{500});
         const auto *identity = std::get_if<mirage::runtime::ipc::ServiceIdentity>(&hello.payload);
         if (hello.ok && identity && identity->tray.value_or(false)) {

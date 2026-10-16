@@ -798,6 +798,10 @@ ApplicationLaunchOutcome ApplicationBackend::terminate(const std::string &applic
         ::kill(-pid, SIGTERM);
     }
 
+    // Bounded, cancel-aware polling (REUSE-10): a child process's exit has
+    // no awaitable notification here, so the terminate wait parks in
+    // WNOHANG/kill(pid,0) slices on the Executor blocking worker. The wait
+    // is unblocked by the cancel probe and the deadline, never by force.
     const auto deadline = std::chrono::steady_clock::now() + limits.timeout;
     for (;;) {
         bool alive = true;

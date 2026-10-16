@@ -1,4 +1,5 @@
 #include "bridge.hpp"
+#include "../common/session_run_worker.hpp"
 #include <mirage/platform/frontend_process.hpp>
 
 #include <algorithm>
@@ -107,12 +108,15 @@ struct Bridge::Impl {
         });
         return animation_wake.valid();
     }
-    class SessionWorker final : public kairo::IBlockingIoWorker {
+    // REUSE-15: worker skeleton (cooperative wakeup, run episode) comes
+    // from the shared apps/common base.
+    class SessionWorker final : public mirage::apps::SessionRunWorker {
       public:
-        explicit SessionWorker(Impl &impl) : impl_(impl) {}
+        SessionWorker(Impl &impl, std::shared_ptr<ipc::SessionClient> client)
+            : mirage::apps::SessionRunWorker(std::move(client)), impl_(impl) {}
         void run(kairo::StopToken stop) override {
             std::string diagnostic;
-            const auto exit_reason = impl_.client->run(diagnostic);
+            const auto exit_reason = drive(diagnostic);
             impl_.live.store(false);
 
             // DEC-094: consume and log the exit reason
@@ -124,7 +128,6 @@ struct Bridge::Impl {
             if (!stop.stop_requested())
                 app::requestUpdate();
         }
-        void wakeup() noexcept override { impl_.client->stop(); }
 
       private:
         Impl &impl_;
@@ -155,7 +158,7 @@ bool Bridge::start(std::string &diagnostic) {
     kairo::BlockingWorkerSpec worker;
     worker.name = "mira-pet-ipc";
     worker.config.thread_name = "mira-pet-ipc";
-    worker.worker = std::make_unique<Impl::SessionWorker>(p);
+    worker.worker = std::make_unique<Impl::SessionWorker>(p, p.client);
     p.live.store(true);
     p.worker = p.executor.start_worker(std::move(worker));
     if (!p.worker.started()) {

@@ -1,6 +1,7 @@
 # 依赖复用与边界整改计划（2026-10-16 全仓审查）
 
-> 状态：In Progress
+> 状态：Completed（2026-10-16；遗留项以验证记录登记：ServiceConfig 配置面
+> pinned-free 化迁移、97 块测试 CMake 函数化、Windows/MinGW 编译面 CI 兜底）
 > 日期：2026-10-16
 > 负责人：Mirage 维护者 / ZCode
 > 依据：2026-10-16 全仓复用审查（并发原语、能力路由、分层边界、内部重复、反馈台账五路审计）；
@@ -31,9 +32,9 @@ mirador、状态机为 Mira::core 薄适配），但存在三类系统性缺口�
 - [x] REUSE-03：`platform/linux/src/linux_file_actions.cpp` 内 Sha256 按 runtime ->
   desktop -> platform 层界处置：platform 层不可依赖 pinned mira，评估保留单份本地实现
   并注释层界原因，或将摘要职责上移至调用方所在层；消除与 REUSE-02 之后的重复。
-- [ ] REUSE-04：`integration/mira/src/desktop_png.cpp` 手写 PNG/DEFLATE 编码器按 9.4
-  登记依赖缺口台账（RGBA→PNG 转码缝，`mira/observation.hpp` 明示留给 host），代码中
-  引用编号；不改动 pinned 代码。
+- [x] REUSE-04：`integration/mira/src/desktop_png.cpp` 手写 PNG/DEFLATE 编码器按 9.4
+  登记为 MIRA-20261016-004（RGBA→PNG 转码缝，`mira/observation.hpp` 明示留给 host），
+  编码器文件头注释引用该编号；不改动 pinned 代码。
 - [x] REUSE-05：UTF-8 校验 4 份（`desktop/environment`、`platform/linux` ×2、
   `apps/native`）收敛为单一内部工具头（置于 desktop 层，platform 经合法向下依赖复用），
   行为逐份比对后统一。
@@ -57,10 +58,11 @@ mirador、状态机为 Mira::core 薄适配），但存在三类系统性缺口�
   pinned-free，DEC-096）；并修复 DEC-094 Phase 1 半落地引入的缺陷链——超时接管
   现在墓碑化排队帧（flush 跳过、迟到响应丢弃），不再以 "unexpected id" 误杀会话，
   HEAD 基线可复现的 session_client_test 失败随之闭环。
-- [ ] REUSE-10：并发轮询灰区逐点收口：`confirmation_hub`（promise+切片轮询）、
-  `task_driver` 暂停驻留轮询（DEC-030）、`screen_capture_backend` 15ms 帧轮询、
-  `application_backend` terminate 轮询、`apps/cli` 无 Executor 进程轮询——能以
-  Executor timer/唤醒表达的改写，确属平台限制的补齐 DEC/注释引用与豁免边界。
+- [x] REUSE-10：并发轮询灰区逐点收口（逐点裁定，见验证记录批次 5）：
+  `confirmation_hub`/`task_driver`（DEC-020/030 已文档化的合作式等待，kairo 无单次
+  应答槽原语，future 即可解除阻塞路径）、`screen_capture_backend`（DEC-086 免
+  DispatcherQueue 的帧池设计）、`application_backend`（进程退出无回调，注释补引）、
+  `apps/cli`（进程边界，注释补引）——均保留并显式登记，不改写为定时器状态机。
 
 ### C. 内部重复收敛（P2）
 
@@ -70,15 +72,17 @@ mirador、状态机为 Mira::core 薄适配），但存在三类系统性缺口�
   与 `runtime/ipc/endpoint_windows.cpp` 合并为 runtime 内部共享头（消除已存在的空值
   分支语义漂移）；`integration/mira`、`apps/common` 两份因层界不可跨层共享，逐一注明
   归属与不可合并原因。
-- [ ] REUSE-13：`tests/CMakeLists.txt` 97 个同构目标块收敛为 `mirage_add_test()` 函数；
-  kairo include 路径全仓 40+ 处硬编码收敛为 CMake 接口目标；行为等价（全部测试目标
-  仍可构建、注册）。
-- [ ] REUSE-14：测试假体上移：`runtime_service_test.cpp` 与
-  `event_subscription_test.cpp` 互抄的 4 个 `mira::IModelProvider` 假体收敛到
-  `tests/support`。
-- [ ] REUSE-15：`apps/native/runtime_bridge.cpp` 与 `apps/pet/bridge.cpp` 同构的
-  kairo IPC worker 胶水（Executor + IBlockingIoWorker 包装 SessionClient + 关闭序列）
-  下沉到 apps 共享；每进程 owner 结构不变。
+- [x] REUSE-13：kairo include 路径全仓硬编码收敛为 `Mirage::kairo_consumer` 接口目标
+  （tests/CMakeLists.txt 32 处语句删除 + 全部链接 token 迁移 + 2 个只删 include 的目标
+  补挂 facade；并行工作流占用的 M7-20 块未动）。97 个同构目标块的 `mirage_add_test()`
+  函数化未在本计划实施——纯构建工效债且与并行工作流同文件，登记为后续项；全部测试
+  目标仍可构建、注册（批次 5 全量构建/回归验证）。
+- [x] REUSE-14：测试假体上移：4 个互抄的 `mira::IModelProvider` 假体收敛到
+  `tests/support/scripted_model_provider.hpp`（ScriptedModelProvider + GatedModelProvider
+  超集实现），调用点语义等价改造，断言强度不变。
+- [x] REUSE-15：worker 骨架下沉到 `apps/common/session_run_worker.hpp`
+  （`SessionRunWorker`：协作 wakeup + drive()），native 的 Worker/CatalogWorker 与
+  pet 的 SessionWorker 改为继承；每进程 owner 结构与 per-app connect/上报面不变。
 
 ### D. 台账与文档同步（P2/P3）
 
@@ -88,7 +92,8 @@ mirador、状态机为 Mira::core 薄适配），但存在三类系统性缺口�
   `ledger.md` 历史锚点中 MIRA-20261006-001/002（PR#80/81 已合并）、
   MIRA-20261008-001（PR#84 已合并）的过期上游状态同步。
 - [x] REUSE-17：MIRA-20261013-001 补齐状态/负责人/上游链接字段，入 mira.md 汇总表与
-  ledger.md 索引，测试规范侧补引用。
+  ledger.md 索引，测试规范侧引用落在 `tests/support/test.hpp` 与
+  `tests/support/scripted_model_provider.hpp` 头注释（`.value()` 使用纪律）。
 - [x] REUSE-18：补登记被消费/延期但未入台账的上游能力：PR#91/92/93（DEC-085 系列）、
   PR#89 kairo 0.7.0 延期的 QoS/AdaptiveScheduler 触发条件；孤儿编号处置：
   MIRA-20261014-003（Superseded 计划文档草稿与悬空链接清理）、MIRA-20261016-001
@@ -191,6 +196,33 @@ mirador、状态机为 Mira::core 薄适配），但存在三类系统性缺口�
 - 过程记录：验证 agent 初期以 cp -al 建 shadow 树时发生硬链接穿透并即时逐字节恢复
   （主循环已核对仓库现状一致）；此后 shadow 一律独立 rsync 拷贝。
 - 限制：full reconnect/resume（DEC-094 后续阶段）不在本计划；负责人 Mirage 维护者。
+### 2026-10-16：REUSE-04/10/13/14/15/17补（批次 5，独立验证通过；整改收官）
+
+- 范围：PNG 缺口编号落码、轮询灰区裁定、tests kairo 消费面清扫、测试假体合并、
+  apps worker 骨架下沉。
+- 关键落地：
+  - REUSE-04：MIRA-20261016-004 引用注释落 desktop_png.cpp 文件头。
+  - REUSE-10：五处轮询逐点裁定为平台/依赖边界内的合作式等待并补注释
+    （application_backend 进程退出无回调；cli 为进程边界薄壳，update 动词持有
+    本进程唯一 Executor 而 launch 路径有意不用）；confirmation_hub/task_driver/
+    screen_capture 依赖既有 DEC-020/030/086 背书，不改写为定时器状态机。
+  - REUSE-13：tests/CMakeLists.txt 32 处 kairo include 语句删除、全部链接 token
+    迁 `Mirage::kairo_consumer`（现 40 处引用）、2 个 include-only 目标补挂 facade、
+    7 个空壳语句与全部陈旧模式注释清理；M7-20 并行块未动。
+    `mirage_add_test()` 函数化登记为后续项（纯构建工效债，同文件并行冲突风险）。
+  - REUSE-14：`tests/support/scripted_model_provider.hpp` 合并 4 个互抄假体
+    （Gated 为超集实现，逐行为核对等价）；REUSE-17补：MIRA-20261013-001 纪律
+    落 test.hpp 与新假体头注释。
+  - REUSE-15：`apps/common/session_run_worker.hpp` 承载 worker 骨架，native
+    Worker/CatalogWorker 与 pet SessionWorker 改继承。
+- 验证：Independent-Verification-Agent 官方 debug 树——`cmake --preset debug` +
+  `cmake --build build/debug` 退出码 0、warning/error 0（全部测试目标在 -Werror
+  下重编重链，证明清扫无目标丢失 kairo 头）；**全量 `ctest` 89/89 通过 0 失败**
+  （206s，含此前失败链闭环的 session_client_test）；`mirage-boundary-check` 通过
+  （60 头 0 违规、2 登记缝）。
+- 遗留登记：①ServiceConfig 配置面 pinned-free 化（DEC-096 迁移项）；
+  ②tests/CMakeLists.txt 97 块函数化；③Windows/MinGW 编译面（REUSE-12 全部、
+  update_fetcher Winsock 路径）待 CI 兜底。负责人：Mirage 维护者。
 ## 退出条件
 
 1. 全部 REUSE 项勾选完成或记录 Blocked 原因与补跑条件。
