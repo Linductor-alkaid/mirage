@@ -26,3 +26,8 @@ e54f7b1f88434e1d844ea0551b880a1cfb079ce1 (delivered via pinned Mirador).
 Mirador: MIT, ae8cf87581c1ebe393a67374d9977a38354d0911.
 Mirage resource preparation code is in tools/prepare_vision_bundle.py.
 No runtime download, Python, Paddle, ONNX or Android/OpenCV dependency.
+
+Optional UI detector (DEC-097): Microsoft OmniParser-v2.0 icon_detect.
+Only bundled when MIRAGE_YOLO_MODEL_DIR is supplied. AGPL-3.0 model source,
+conversion details, fixed hashes and license accompany it under yolo/ and
+notices/YOLO-*; packaging/vision/yolo.lock.json identifies the audited assets.

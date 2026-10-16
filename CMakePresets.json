@@ -58,8 +58,8 @@
         "CMAKE_CXX_FLAGS_INIT": "-fsanitize=thread -fno-omit-frame-pointer"
       }
     },
-    {"name": "native-debug", "inherits": "debug", "displayName": "Native UI Debug", "cacheVariables": {"MIRAGE_ENABLE_NATIVE_FRONTEND": "ON", "MIRAGE_WITH_PPOCR": "ON", "MIRAGE_BUNDLE_VISION": "ON"}},
-    {"name": "native-release", "inherits": "release", "displayName": "Native UI Release", "cacheVariables": {"MIRAGE_ENABLE_NATIVE_FRONTEND": "ON", "MIRAGE_WITH_PPOCR": "ON", "MIRAGE_BUNDLE_VISION": "ON"}},
+    {"name": "native-debug", "inherits": "debug", "displayName": "Native UI Debug", "cacheVariables": {"MIRAGE_ENABLE_NATIVE_FRONTEND": "ON", "MIRAGE_ENABLE_PET_PREVIEW": "ON", "MIRAGE_WITH_PPOCR": "ON", "MIRAGE_BUNDLE_VISION": "ON"}},
+    {"name": "native-release", "inherits": "release", "displayName": "Native UI Release", "cacheVariables": {"MIRAGE_ENABLE_NATIVE_FRONTEND": "ON", "MIRAGE_ENABLE_PET_PREVIEW": "ON", "MIRAGE_WITH_PPOCR": "ON", "MIRAGE_BUNDLE_VISION": "ON"}},
     {"name": "ocr-debug", "inherits": "debug", "displayName": "Opt-in PP-OCR Debug", "cacheVariables": {"MIRAGE_WITH_PPOCR": "ON"}},
     {"name": "native-vision-debug", "inherits": "native-debug", "displayName": "Native UI + PP-OCR Debug", "cacheVariables": {"MIRAGE_WITH_PPOCR": "ON"}},
     {"name": "native-vision-release", "inherits": "native-release", "displayName": "Native UI + PP-OCR Release", "cacheVariables": {"MIRAGE_WITH_PPOCR": "ON"}}

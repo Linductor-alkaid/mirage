@@ -262,11 +262,16 @@ EnvironmentVisualRefresh VisualObservationPipeline::refresh_impl(
     request.run_ocr = config_.run_ocr;
     request.ocr.cache_policy =
         config_.refresh_ocr ? mirador::CachePolicy::kRefresh : mirador::CachePolicy::kReadWrite;
-    request.run_detector = config_.run_detector;
+    request.run_detector = config_.run_detector || (marks && config_.detector_marks);
+    request.detector.min_confidence = config_.detector_min_confidence;
+    // Approximate dHash equality does not prove UI detections are fresh.
+    request.detector.cache_policy = mirador::CachePolicy::kRefresh;
     request.fuse = true;
     request.render_marks = marks;
     // Reuse the existing bounded Mirador geometry stage; no semantic detector.
     request.geometry.run = marks && config_.geometry_marks;
+    request.geometry.segment_detector.min_length = 16.0;
+    request.geometry.segment_detector.deviation_tolerance = 4.0;
     request.geometry.fuse_proposals = request.geometry.run;
     request.geometry.max_fused_area_fraction = 0.25;
     request.probe_geometry_templates =

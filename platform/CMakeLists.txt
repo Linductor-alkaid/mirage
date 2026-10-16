@@ -25,6 +25,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         linux/src/host_environment.cpp
         linux/src/platform_linux.cpp
         linux/src/linux_desktop_environment.cpp
+        linux/src/linux_file_actions.cpp
         linux/src/credential_store.cpp
         linux/src/portal_screen_backend.cpp
         linux/src/portal_input.cpp
@@ -59,7 +60,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     if(X11_FOUND AND X11_Xtst_FOUND AND X11_Xrandr_FOUND AND X11_Xshape_FOUND)
         target_sources(mirage_platform PRIVATE linux/src/overlay_backend.cpp)
         target_link_libraries(mirage_platform PRIVATE ${X11_Xext_LIB})
-        target_compile_definitions(mirage_platform PRIVATE MIRAGE_LINUX_XOVERLAY=1)
         message(STATUS "Linux X11 overlay carrier enabled")
     else()
         target_sources(mirage_platform PRIVATE linux/src/overlay_backend_stub.cpp)
@@ -78,7 +78,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         # explicitly because the atspi-2.pc Requires omits it (upstream
         # packaging miss, noted in the M2-03 verification record).
         target_link_libraries(mirage_platform PRIVATE PkgConfig::ATSPI)
-        target_compile_definitions(mirage_platform PRIVATE MIRAGE_LINUX_ATSPI=1)
         message(STATUS "Linux AT-SPI2 backend enabled (${ATSPI_VERSION})")
     else()
         target_sources(mirage_platform PRIVATE linux/src/atspi_backend_stub.cpp)

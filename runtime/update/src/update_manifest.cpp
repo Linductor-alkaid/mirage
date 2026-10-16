@@ -1,15 +1,20 @@
 #include <mirage/runtime/update/update_manifest.hpp>
 
-#include "sha256_internal.hpp"
+#include <mira/event_store.hpp>
 
 #include <mira/json.hpp>
 
 #include <algorithm>
 #include <cctype>
+#include <span>
 
 namespace mirage::runtime::update {
 
-std::string sha256_hex(const std::string &bytes) { return sha256_internal::hex(bytes); }
+// Digests ride the pinned mira implementation (REUSE-02): same Sha256Digest
+// face the journal and pet cache already consume, on every toolchain.
+std::string sha256_hex(const std::string &bytes) {
+    return mira::digest_bytes(std::as_bytes(std::span(bytes.data(), bytes.size()))).to_string();
+}
 
 namespace {
 

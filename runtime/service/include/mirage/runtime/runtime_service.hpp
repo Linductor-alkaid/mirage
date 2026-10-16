@@ -11,6 +11,7 @@
 #include <mirage/desktop/overlay_carrier.hpp>
 #include <mirage/desktop/tray_carrier.hpp>
 #include <mirage/desktop/visual_reference_registry.hpp>
+#include <mirage/integration/desktop_tool_context.hpp>
 #include <mirage/integration/mira_adapter.hpp>
 #include <mirage/integration/model_layer.hpp>
 #include <mirage/runtime/ipc/protocol.hpp>
@@ -45,6 +46,9 @@ struct ServiceConfig {
     std::shared_ptr<desktop::TrayCarrier> tray_carrier;
     std::shared_ptr<desktop::FrontendProcess> frontend;
     std::shared_ptr<desktop::FrontendProcess> pet;
+    /// DEC-092: native product expects a pet even when discovery failed.
+    /// Headless callers leave false; availability differs from status projection.
+    bool pet_expected = false;
     bool open_frontend = true;
     std::string tray_icon_path;
     /// DEC-038: finite platform save/remove, called only by the serialized
@@ -151,6 +155,14 @@ struct ServiceConfig {
     /// the `session-state.json` document. Empty selects the DEC-011 default
     /// state directory (the recovery document's sibling).
     std::filesystem::path session_state_directory;
+    /// M10-06 (DEC-095): controlled storage root for retained command
+    /// output (basic agent tools). Empty keeps exec preview-only — the
+    /// retention seam stays dark and `read` refuses output_ref arguments.
+    std::filesystem::path basic_output_directory;
+    /// M10-08 (DEC-095): enablement and budgets of the basic agent tools.
+    /// The embedding decides (settings file / flags); default-off keeps the
+    /// product tool surface unchanged.
+    mirage::integration::BasicAgentToolsOptions basic_tools;
     /// When false, the session state document is neither persisted nor
     /// hydrated (tests).
     bool persist_session_state = true;

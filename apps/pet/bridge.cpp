@@ -1,4 +1,5 @@
 #include "bridge.hpp"
+#include "../common/session_run_worker.hpp"
 #include <mirage/platform/frontend_process.hpp>
 
 #include <algorithm>
@@ -58,7 +59,8 @@ struct Bridge::Impl {
     std::uint64_t consumed_status = 0, consumed_preferences = 0; // UI-owned
     kairo::comm::LatestMailbox<runtime::persistence::AppPreferences> appearance{"pet-appearance"};
     runtime::persistence::LocalStateStore preference_store{
-        runtime::persistence::default_config_directory(), "preferences.json", 4096};
+        runtime::persistence::default_config_directory(), "preferences.json",
+        runtime::persistence::kMaxAppPreferencesBytes};
     void load_preferences() {
         const auto stored = preference_store.load();
         if (stored.status == runtime::persistence::LoadStatus::Loaded)
@@ -107,17 +109,26 @@ struct Bridge::Impl {
         });
         return animation_wake.valid();
     }
-    class SessionWorker final : public kairo::IBlockingIoWorker {
+    // REUSE-15: worker skeleton (cooperative wakeup, run episode) comes
+    // from the shared apps/common base.
+    class SessionWorker final : public mirage::apps::SessionRunWorker {
       public:
-        explicit SessionWorker(Impl &impl) : impl_(impl) {}
+        SessionWorker(Impl &impl, std::shared_ptr<ipc::SessionClient> client)
+            : mirage::apps::SessionRunWorker(std::move(client)), impl_(impl) {}
         void run(kairo::StopToken stop) override {
             std::string diagnostic;
-            (void)impl_.client->run(diagnostic);
+            const auto exit_reason = drive(diagnostic);
             impl_.live.store(false);
+
+            // DEC-094: consume and log the exit reason
+            if (exit_reason == ipc::SessionClient::RunExit::ConnectionLost) {
+                std::cerr << "mira_pet: IPC connection lost: " << diagnostic << '\n';
+            }
+            // RunExit::Stopped is normal shutdown, no warning needed
+
             if (!stop.stop_requested())
                 app::requestUpdate();
         }
-        void wakeup() noexcept override { impl_.client->stop(); }
 
       private:
         Impl &impl_;
@@ -148,7 +159,7 @@ bool Bridge::start(std::string &diagnostic) {
     kairo::BlockingWorkerSpec worker;
     worker.name = "mira-pet-ipc";
     worker.config.thread_name = "mira-pet-ipc";
-    worker.worker = std::make_unique<Impl::SessionWorker>(p);
+    worker.worker = std::make_unique<Impl::SessionWorker>(p, p.client);
     p.live.store(true);
     p.worker = p.executor.start_worker(std::move(worker));
     if (!p.worker.started()) {
@@ -182,7 +193,6 @@ bool Bridge::start(std::string &diagnostic) {
             std::atomic_bool &flag;
             ~Release() { flag.store(false); }
         } release{p.refreshing};
-        p.load_preferences();
         ipc::Response response;
         try {
             response = p.client->call(ipc::PetStatusRequest{}, 3000ms).get();

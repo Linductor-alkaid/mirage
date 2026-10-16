@@ -1,5 +1,10 @@
 # 会话上下文压缩与输入去重：实施计划（修订版）
 
+> 状态：Superseded（2026-10-15；后续实施与验收由 M9 跟踪）
+> 后继：[M9 持续任务与本地语义感知](m9-continuous-tasks-and-local-perception.md)，
+> 决策为 DEC-090/091。下文保留历史设计、fixture 结果和未执行项，不作为当前
+> 并行实施清单；请求级预算与真实会话门禁分别由 M9-04/12 承接。
+>
 > 日期：2026-10-14（初版）/ 2026-10-14（修订：集成 Mira Layer 0）
 > 决策依据：[DEC-088](../decisions/DEC-088-conversation-context-compaction-and-input-deduplication.md)
 > 负责人：Mira/Mirage 维护者
@@ -1450,6 +1455,16 @@ Result<std::vector<ModelInputCondition>> build_request_with_compaction() {
   - 记录新增接口（`IContextCompactor`）
 
 ### 3.4 Mira 反馈台账登记
+
+> **【作废草稿，未执行】**（2026-10-16 注，[依赖复用整改](dependency-reuse-remediation.md)
+> REUSE-18）：本节的 `MIRA-20261014-003` 是未登记入台账的草稿编号，描述的"本地修改
+> `third_party/mira`"路径**从未实施**（违反 pinned 纪律的方案在评审阶段被否）。
+> 实际走上游缝交付：输入复用标注 = [MIRA-20261014-005](../dependency_feedback/mira.md#mira-20261014-005)
+> （PR#95）、工具历史压缩缝 = [MIRA-20261014-006](../dependency_feedback/mira.md#mira-20261014-006)
+> （PR#96）、token 计数修复 = [MIRA-20261014-007](../dependency_feedback/mira.md#mira-20261014-007)
+> （PR#97）。下方案文中引用的 `context-compaction-validation-20261014.md` 验收文档
+> 不存在；实际验收见
+> [历史压缩消费验证](../compatibility/context-history-compaction-20261014.md)。
 
 按工程规范，即使是本地修改，也要登记可追溯记录：
 

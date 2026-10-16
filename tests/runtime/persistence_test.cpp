@@ -267,6 +267,152 @@ void scenario_settings_round_trip_all_fields() {
     }
 }
 
+// --- M10-08 (DEC-095): the basic_tools settings block ---------------------------
+
+// --- M10-08 fix regression: the persisted confirmation mode may select the
+// DEC-020 async confirmation hub ("ipc"); allow/deny keep their meaning.
+
+void scenario_confirmation_ipc_mode_round_trip() {
+    namespace persistence = mirage::runtime::persistence;
+    // "ipc" decodes and round-trips through encode.
+    const auto decoded = persistence::decode_settings(R"({"schema":1,"confirmation":"ipc"})");
+    MIRAGE_CHECK(decoded.ok);
+    MIRAGE_CHECK(decoded.settings.confirmation.value_or("?") == "ipc");
+
+    persistence::LocalSettings settings;
+    settings.schema = persistence::kSettingsSchema;
+    settings.confirmation = "ipc";
+    const auto round_trip = persistence::decode_settings(persistence::encode_settings(settings));
+    MIRAGE_CHECK(round_trip.ok);
+    MIRAGE_CHECK(round_trip.settings.confirmation.value_or("?") == "ipc");
+
+    // allow/deny keep working alongside the new value.
+    for (const char *mode : {"allow", "deny"}) {
+        const auto legacy = persistence::decode_settings(
+            std::string(R"({"schema":1,"confirmation":")") + mode + R"("})");
+        MIRAGE_CHECK(legacy.ok);
+        MIRAGE_CHECK(legacy.settings.confirmation.value_or("?") == mode);
+    }
+
+    // A bogus mode is refused with the updated message naming all three.
+    const auto bogus = persistence::decode_settings(R"({"schema":1,"confirmation":"bogus"})");
+    MIRAGE_CHECK(!bogus.ok);
+    MIRAGE_CHECK(bogus.error.find("must be \"allow\", \"deny\" or \"ipc\"") != std::string::npos);
+}
+
+void scenario_basic_tools_settings_round_trip() {
+    namespace persistence = mirage::runtime::persistence;
+    // Full block: encode → decode identity, byte-exact strings preserved.
+    persistence::LocalSettings settings;
+    settings.schema = persistence::kSettingsSchema;
+    settings.basic_tools = persistence::BasicToolsSettings{
+        true, true, "/home/user/工作 区", {"/home/user/work", "/tmp/scratch"}};
+    const auto decoded = persistence::decode_settings(persistence::encode_settings(settings));
+    MIRAGE_CHECK(decoded.ok);
+    MIRAGE_CHECK(decoded.settings.basic_tools.has_value());
+    if (decoded.settings.basic_tools.has_value()) {
+        const auto &tools = *decoded.settings.basic_tools;
+        MIRAGE_CHECK(tools.enabled);
+        MIRAGE_CHECK(tools.exec_enabled);
+        MIRAGE_CHECK(tools.workspace == "/home/user/工作 区");
+        MIRAGE_CHECK(tools.write_roots ==
+                     std::vector<std::string>({"/home/user/work", "/tmp/scratch"}));
+    }
+
+    // Encode writes only non-default members: an all-default block encodes
+    // as an empty object and decodes back to the default block.
+    persistence::LocalSettings defaults;
+    defaults.schema = persistence::kSettingsSchema;
+    defaults.basic_tools = persistence::BasicToolsSettings{};
+    const std::string body = persistence::encode_settings(defaults);
+    MIRAGE_CHECK(body.find("basic_tools") != std::string::npos);
+    MIRAGE_CHECK(body.find("\"enabled\"") == std::string::npos);
+    MIRAGE_CHECK(body.find("workspace") == std::string::npos);
+    MIRAGE_CHECK(body.find("write_roots") == std::string::npos);
+    const auto default_decode = persistence::decode_settings(body);
+    MIRAGE_CHECK(default_decode.ok);
+    MIRAGE_CHECK(default_decode.settings.basic_tools.has_value());
+    if (default_decode.settings.basic_tools.has_value()) {
+        const auto &tools = *default_decode.settings.basic_tools;
+        MIRAGE_CHECK(!tools.enabled);
+        MIRAGE_CHECK(!tools.exec_enabled);
+        MIRAGE_CHECK(tools.workspace.empty());
+        MIRAGE_CHECK(tools.write_roots.empty());
+    }
+
+    // A document without the block keeps the group dark (optional stays
+    // empty), and a blockless round trip stays blockless.
+    const auto absent = persistence::decode_settings(R"({"schema":1})");
+    MIRAGE_CHECK(absent.ok);
+    MIRAGE_CHECK(!absent.settings.basic_tools.has_value());
+    MIRAGE_CHECK(!persistence::decode_settings(persistence::encode_settings(absent.settings))
+                      .settings.basic_tools.has_value());
+
+    // Boundary shapes: the read-modify-write of policy persistence must
+    // carry an existing block through decode → mutate → encode untouched.
+    persistence::LocalSettings rmw = decoded.settings; // decoded carries the block
+    rmw.permission_rules.insert_or_assign("filesystem.read", "allow");
+    rmw.read_roots = {"/elsewhere"};
+    const auto rmw_decode = persistence::decode_settings(persistence::encode_settings(rmw));
+    MIRAGE_CHECK(rmw_decode.ok);
+    MIRAGE_CHECK(rmw_decode.settings.basic_tools.has_value());
+    if (rmw_decode.settings.basic_tools.has_value()) {
+        MIRAGE_CHECK(rmw_decode.settings.basic_tools->enabled);
+        MIRAGE_CHECK(rmw_decode.settings.basic_tools->workspace == "/home/user/工作 区");
+        MIRAGE_CHECK(rmw_decode.settings.basic_tools->write_roots.size() == 2);
+    }
+    MIRAGE_CHECK(rmw_decode.settings.read_roots == std::vector<std::string>({"/elsewhere"}));
+}
+
+void scenario_basic_tools_strict_decode() {
+    namespace persistence = mirage::runtime::persistence;
+    // Structural and type rejections.
+    const char *rejections[] = {
+        R"({"schema":1,"basic_tools":[]})",
+        R"({"schema":1,"basic_tools":"on"})",
+        R"({"schema":1,"basic_tools":{"enabled":true,"typo":1}})",
+        R"({"schema":1,"basic_tools":{"enabled":"yes"}})",
+        R"({"schema":1,"basic_tools":{"enabled":1}})",
+        R"({"schema":1,"basic_tools":{"exec_enabled":"true"}})",
+        R"({"schema":1,"basic_tools":{"exec_enabled":0}})",
+        R"({"schema":1,"basic_tools":{"workspace":7}})",
+        R"({"schema":1,"basic_tools":{"workspace":["/tmp"]}})",
+        R"({"schema":1,"basic_tools":{"write_roots":"/tmp"}})",
+        R"({"schema":1,"basic_tools":{"write_roots":[1]}})",
+        R"({"schema":1,"basic_tools":{"write_roots":["/tmp",true]}})",
+        R"({"schema":1,"basic_tools":{"write_roots":{"0":"/tmp"}}})",
+        // The known-member list gained basic_tools only, not everything.
+        R"({"schema":1,"basic_tools_x":{}})",
+    };
+    for (const char *body : rejections) {
+        MIRAGE_CHECK(!persistence::decode_settings(body).ok);
+    }
+
+    // Bounds: workspace and root entries respect kMaxPathBytes, the root
+    // array respects kMaxReadRoots; the boundary values themselves decode.
+    persistence::LocalSettings settings;
+    settings.schema = persistence::kSettingsSchema;
+    settings.basic_tools = persistence::BasicToolsSettings{};
+    settings.basic_tools->workspace = std::string(persistence::kMaxPathBytes, 'a');
+    MIRAGE_CHECK(persistence::decode_settings(persistence::encode_settings(settings)).ok);
+    settings.basic_tools->workspace = std::string(persistence::kMaxPathBytes + 1, 'a');
+    MIRAGE_CHECK(!persistence::decode_settings(persistence::encode_settings(settings)).ok);
+
+    settings.basic_tools->workspace.clear();
+    settings.basic_tools->write_roots = {std::string(persistence::kMaxPathBytes, 'b')};
+    MIRAGE_CHECK(persistence::decode_settings(persistence::encode_settings(settings)).ok);
+    settings.basic_tools->write_roots = {std::string(persistence::kMaxPathBytes + 1, 'b')};
+    MIRAGE_CHECK(!persistence::decode_settings(persistence::encode_settings(settings)).ok);
+
+    settings.basic_tools->write_roots.clear();
+    for (std::size_t i = 0; i < persistence::kMaxReadRoots; ++i) {
+        settings.basic_tools->write_roots.push_back("/root-" + std::to_string(i));
+    }
+    MIRAGE_CHECK(persistence::decode_settings(persistence::encode_settings(settings)).ok);
+    settings.basic_tools->write_roots.push_back("/one-too-many");
+    MIRAGE_CHECK(!persistence::decode_settings(persistence::encode_settings(settings)).ok);
+}
+
 void scenario_settings_empty_document_yields_defaults() {
     // A document without any override keeps every built-in default.
     const persistence::SettingsDecode decoded = persistence::decode_settings(R"({"schema":1})");
@@ -884,6 +1030,9 @@ int main() {
     run_scenario("settings_empty_document_yields_defaults",
                  scenario_settings_empty_document_yields_defaults);
     run_scenario("settings_strict_decode_rejections", scenario_settings_strict_decode_rejections);
+    run_scenario("basic_tools_settings_round_trip", scenario_basic_tools_settings_round_trip);
+    run_scenario("basic_tools_strict_decode", scenario_basic_tools_strict_decode);
+    run_scenario("confirmation_ipc_mode_round_trip", scenario_confirmation_ipc_mode_round_trip);
     run_scenario("session_state_round_trip", scenario_session_state_round_trip);
     run_scenario("session_state_strict_rejections", scenario_session_state_strict_rejections);
     run_scenario("settings_rejects_oversized_values", scenario_settings_rejects_oversized_values);

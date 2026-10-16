@@ -2,7 +2,10 @@
 
 #include <mirage/runtime/ipc/framing.hpp>
 
+#include <kairo/comm/channel.hpp>
+
 #include <algorithm>
+#include <deque>
 #include <utility>
 
 #ifdef _WIN32
@@ -50,7 +53,19 @@ bool wait_readable(const IpcStream &stream, std::chrono::milliseconds budget) {
 
 } // namespace
 
-SessionClient::SessionClient(std::string address) : address_(std::move(address)) {}
+// DEC-094 (REUSE-09): the kairo comm channel behind the forward-declared
+// header holder; the public header stays pinned-free (DEC-096).
+struct SessionClient::Outbox {
+    kairo::comm::MpscChannel<Outbound> channel;
+};
+
+SessionClient::SessionClient(std::string address)
+    : address_(std::move(address)),
+      outbox_(new Outbox{kairo::comm::MpscChannel<Outbound>(
+          kairo::comm::ChannelOptions{.capacity = 16,
+                                      .drop_policy = kairo::comm::DropPolicy::RejectNewest,
+                                      .enable_stats = true,
+                                      .name = "mirage-ipc-session-outbox"})}) {}
 
 SessionClient::~SessionClient() {
     {
@@ -61,7 +76,6 @@ SessionClient::~SessionClient() {
         // resolves with "unavailable" (the surface of a dead connection).
         auto pending = std::move(pending_);
         pending_.clear();
-        outbox_.clear();
         for (auto &[id, entry] : pending) {
             Response failed;
             failed.ok = false;
@@ -69,6 +83,7 @@ SessionClient::~SessionClient() {
             entry.promise.set_value(std::move(failed));
         }
     }
+    outbox_->channel.close();
     stream_.close();
 }
 
@@ -80,12 +95,23 @@ bool SessionClient::connect(std::chrono::milliseconds deadline, std::string &dia
     std::lock_guard<std::mutex> guard(mutex_);
     stream_ = std::move(stream);
     connected_ = true;
+    health_ = Health::Healthy; // DEC-094: start healthy
     return true;
 }
 
 bool SessionClient::connected() const {
     std::lock_guard<std::mutex> guard(mutex_);
     return connected_ && !dead_;
+}
+
+SessionClient::Health SessionClient::health() const {
+    std::lock_guard<std::mutex> guard(mutex_);
+    return health_;
+}
+
+std::string SessionClient::last_timeout_reason() const {
+    std::lock_guard<std::mutex> guard(mutex_);
+    return last_timeout_reason_;
 }
 
 void SessionClient::set_event_sink(EventSink sink) {
@@ -101,7 +127,7 @@ std::future<Response> SessionClient::call(const Request &body, std::chrono::mill
     std::uint64_t id = 0;
     {
         std::lock_guard<std::mutex> guard(mutex_);
-        if (!connected_ || dead_) {
+        if (!connected_ || dead_ || stop_requested_) {
             Response refused;
             refused.ok = false;
             refused.error = {"unavailable",
@@ -109,9 +135,28 @@ std::future<Response> SessionClient::call(const Request &body, std::chrono::mill
             promise.set_value(std::move(refused));
             return future;
         }
+        // Bound all admitted calls, including timed-out frames waiting behind
+        // the single wire request. A channel drain must not bypass its budget.
+        if (pending_.size() + abandoned_.size() >= 16) {
+            Response refused;
+            refused.error = {"unavailable", "session outbound budget exhausted"};
+            promise.set_value(std::move(refused));
+            return future;
+        }
         id = next_id_++;
-        pending_.emplace(id, Pending{std::move(promise), deadline});
-        outbox_.push_back(make_frame(encode_request(id, body)));
+        const auto inserted = pending_.emplace(id, Pending{std::move(promise)});
+        // Submitted under the mutex so a concurrent fail-close can never
+        // interleave between the pending entry and its frame (DEC-094;
+        // REUSE-09).
+        if (!outbox_->channel.try_send(Outbound{id, make_frame(encode_request(id, body))})) {
+            auto node = pending_.extract(inserted.first);
+            Response refused;
+            refused.ok = false;
+            refused.error = {"unavailable",
+                             "session is closing; the outbound queue refused the call"};
+            node.mapped().promise.set_value(std::move(refused));
+            return future;
+        }
     }
     if (future.wait_until(deadline) == std::future_status::ready) {
         return future;
@@ -128,15 +173,22 @@ std::future<Response> SessionClient::call(const Request &body, std::chrono::mill
         pending_.erase(entry);
         Response timed_out;
         timed_out.ok = false;
-        timed_out.error = {"unavailable",
-                           "timed out waiting for the response (session closed fail-closed)"};
+        // DEC-094: Request timeout != connection failure. Mark sync as stale
+        // but do not close the transport — events may still be arriving.
+        // The frozen single-outstanding discipline still holds (one unanswered
+        // request forbids the next), but the timeout removes this request from
+        // the "unanswered" set, so the next call can proceed if transport lives.
+        last_timeout_reason_ = "request " + std::to_string(id) + " timed out after " +
+                               std::to_string(timeout.count()) + " ms";
+        health_ = Health::SyncStale;
+        // DEC-094 (REUSE-09): the call no longer exists as an expectation, so
+        // its queued frame is tombstoned — flushed as skipped, and its late
+        // response is dropped instead of killing the session as an
+        // unexpected id.
+        abandoned_.insert(id);
+        timed_out.error = {"unavailable", last_timeout_reason_};
         expired.promise.set_value(std::move(timed_out));
-        // The frozen single-outstanding discipline forbids issuing the next
-        // request while one is unanswered, so the session ends here; the
-        // owner reconnects and resyncs from snapshots (DEC-012).
-        dead_ = true;
-        dead_reason_ = "request " + std::to_string(id) + " timed out after " +
-                       std::to_string(timeout.count()) + " ms";
+        // Do NOT set dead_ = true here (DEC-094 Phase 1)
     }
     return future;
 }
@@ -171,14 +223,24 @@ SessionClient::RunExit SessionClient::run(std::string &diagnostic) {
     // Sends as much of the remainder + queued frames as the transport takes;
     // the queue only advances past a frame once its response arrived. Returns
     // false on a transport failure (diagnostic filled, session over).
-    const auto flush_writes = [&](std::deque<std::string> &outbox) -> bool {
+    const auto flush_writes = [&](std::deque<Outbound> &outbox) -> bool {
         for (;;) {
             if (write_offset >= write_remainder.size()) {
                 if (in_flight || outbox.empty()) {
                     return true;
                 }
-                write_remainder = std::move(outbox.front());
+                Outbound next = std::move(outbox.front());
                 outbox.pop_front();
+                {
+                    std::lock_guard<std::mutex> guard(mutex_);
+                    if (abandoned_.erase(next.id) > 0) {
+                        // DEC-094: the caller's deadline fired before this
+                        // frame reached the wire — the request no longer
+                        // exists on either side, so drop it.
+                        continue;
+                    }
+                }
+                write_remainder = std::move(next.frame);
                 write_offset = 0;
                 in_flight = true;
             }
@@ -204,9 +266,15 @@ SessionClient::RunExit SessionClient::run(std::string &diagnostic) {
     // Resolves every queued and pending call with `code` and `diagnostic`.
     const auto fail_pending = [&](const std::string &code) {
         std::lock_guard<std::mutex> guard(mutex_);
+        // Close admission atomically with draining promises: no caller may
+        // enqueue between this drain and finish_run().
+        dead_ = true;
+        health_ = Health::Disconnected;
         auto pending = std::move(pending_);
         pending_.clear();
-        outbox_.clear();
+        Outbound dropped;
+        while (outbox_->channel.try_receive(dropped)) {
+        }
         for (auto &[id, entry] : pending) {
             Response failed;
             failed.ok = false;
@@ -220,21 +288,34 @@ SessionClient::RunExit SessionClient::run(std::string &diagnostic) {
     const auto finish_run = [&]() {
         std::lock_guard<std::mutex> guard(mutex_);
         dead_ = true;
+        health_ = Health::Disconnected; // DEC-094
         if (dead_reason_.empty()) {
             dead_reason_ = diagnostic;
         }
+        outbox_->channel.close(); // further submissions refuse explicitly
     };
 
+    // Frames checked out of the comm channel wait here across slices: while
+    // a request is in flight flush_writes consumes nothing, so a deque
+    // scoped to one slice would silently destroy queued calls that the
+    // overlapped-submission contract already accepted (DEC-094).
+    std::deque<Outbound> outbox;
     for (;;) {
-        std::deque<std::string> outbox;
         bool stop_requested = false;
+        bool alive = false;
         std::string dead_reason;
         {
             std::lock_guard<std::mutex> guard(mutex_);
             stop_requested = stop_requested_;
             dead_reason = dead_reason_;
-            if (!dead_ && !stop_requested_) {
-                outbox.swap(outbox_);
+            alive = !dead_ && !stop_requested_;
+        }
+        // DEC-094 (REUSE-09): drain the comm outbox outside the mutex (lock-free
+        // receive); abandoned frames are filtered at flush time.
+        if (alive) {
+            Outbound item;
+            while (outbox_->channel.try_receive(item)) {
+                outbox.push_back(std::move(item));
             }
         }
         if (stop_requested) {
@@ -286,9 +367,22 @@ SessionClient::RunExit SessionClient::run(std::string &diagnostic) {
                             entry->second.promise.set_value(decoded.response);
                             pending_.erase(entry);
                             known = true;
+                            // DEC-094: successful response clears SyncStale
+                            if (health_ == Health::SyncStale) {
+                                health_ = Health::Healthy;
+                            }
                         }
                     }
                     if (!known) {
+                        {
+                            std::lock_guard<std::mutex> guard(mutex_);
+                            // DEC-094: a late response to an abandoned (timed
+                            // out) request is dropped, not fatal — its caller
+                            // already resolved with the timeout.
+                            if (abandoned_.erase(decoded.response.id) > 0) {
+                                continue;
+                            }
+                        }
                         diagnostic = "service sent a response with unexpected id " +
                                      std::to_string(decoded.response.id);
                         close_fail_closed(diagnostic);
@@ -330,29 +424,9 @@ SessionClient::RunExit SessionClient::run(std::string &diagnostic) {
             return RunExit::ConnectionLost;
         }
 
-        // Deadline sweep: an expired request closes the session fail-closed
-        // (the discipline set in call()); run() exits on the next pass.
-        const auto now = std::chrono::steady_clock::now();
-        {
-            std::lock_guard<std::mutex> guard(mutex_);
-            for (auto it = pending_.begin(); it != pending_.end();) {
-                if (it->second.deadline <= now) {
-                    const std::uint64_t id = it->first;
-                    Response timed_out;
-                    timed_out.ok = false;
-                    timed_out.error = {"unavailable",
-                                       "timed out waiting for the response (session closed "
-                                       "fail-closed)"};
-                    it->second.promise.set_value(std::move(timed_out));
-                    it = pending_.erase(it);
-                    dead_ = true;
-                    dead_reason_ = "request " + std::to_string(id) + " timed out";
-                } else {
-                    ++it;
-                }
-            }
-        }
-
+        // DEC-094 Phase 1: run() exits on transport failure only. Request
+        // expiry is owned by call()'s deadline takeover — the entry is
+        // tombstoned into abandoned_ and the loop keeps servicing events.
         wait_readable(stream, kRunSlice);
     }
 }

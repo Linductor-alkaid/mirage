@@ -3,7 +3,6 @@ add_library(mirage_integration_mirador STATIC
     src/mirador_service.cpp
     src/ppocr_pipeline.cpp
     src/visual_backend_registry.cpp
-    src/visual_execution_context.cpp
     src/visual_frame.cpp
     src/visual_mark_renderer.cpp
     src/visual_observation_mapper.cpp
@@ -58,4 +57,9 @@ target_link_libraries(mirage_integration_mirador PRIVATE
 if(MIRAGE_WITH_PPOCR)
     target_compile_definitions(mirage_integration_mirador PRIVATE MIRAGE_WITH_PPOCR=1)
     target_link_libraries(mirage_integration_mirador PRIVATE mirador_ocr_ppocr)
+endif()
+
+if(MIRAGE_WITH_YOLO)
+    target_compile_definitions(mirage_integration_mirador PRIVATE MIRAGE_WITH_YOLO=1)
+    target_link_libraries(mirage_integration_mirador PRIVATE mirador_detector_yolo)
 endif()

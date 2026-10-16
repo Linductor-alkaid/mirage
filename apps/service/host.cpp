@@ -99,6 +99,19 @@ void print_usage(std::ostream &out) {
         << "  --socket PATH     IPC endpoint (default: XDG runtime dir)\n"
         << "  --read-root PATH  Filesystem path tasks may read (repeatable;\n"
         << "                    without one, filesystem reads are denied)\n"
+        << "  --enable-basic-tools\n"
+        << "                    Expose the exec/read/write/edit session tools\n"
+        << "                    (DEC-095). read honors --read-root; write/edit\n"
+        << "                    need --write-root; exec additionally needs\n"
+        << "                    --enable-exec and a workspace\n"
+        << "  --enable-exec      Enable the exec tool (implies\n"
+        << "                    --enable-basic-tools); commands run with the\n"
+        << "                    host user's permissions in the workspace — no\n"
+        << "                    sandbox\n"
+        << "  --workspace PATH   Session workspace directory (absolute);\n"
+        << "                    relative tool paths and exec resolve against it\n"
+        << "  --write-root PATH  Filesystem path tools may modify (repeatable;\n"
+        << "                    read roots never imply write authority)\n"
         << "  --perm RULE       Desktop permission rule (repeatable; RULE is\n"
         << "                    CAPABILITY=allow|confirm|deny with CAPABILITY\n"
         << "                    one of filesystem.read, filesystem.write,\n"
@@ -187,6 +200,11 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
 
     config.mirage_version = std::string(kVersion);
     std::vector<std::string> read_roots;
+    std::vector<std::string> write_roots;
+    std::optional<std::string> workspace;
+    bool basic_tools_enabled = false;
+    bool exec_enabled = false;
+    bool basic_tools_from_flags = false;
     std::vector<std::string> perm_flags;
     std::optional<std::string> flag_socket;
     std::optional<std::string> flag_confirm;
@@ -224,6 +242,27 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
         if (argument == "--read-root" && index + 1 < argc) {
             read_roots.emplace_back(argv[++index]);
             read_roots_from_flags = true;
+            continue;
+        }
+        if (argument == "--write-root" && index + 1 < argc) {
+            write_roots.emplace_back(argv[++index]);
+            basic_tools_from_flags = true;
+            continue;
+        }
+        if (argument == "--workspace" && index + 1 < argc) {
+            workspace = argv[++index];
+            basic_tools_from_flags = true;
+            continue;
+        }
+        if (argument == "--enable-basic-tools") {
+            basic_tools_enabled = true;
+            basic_tools_from_flags = true;
+            continue;
+        }
+        if (argument == "--enable-exec") {
+            exec_enabled = true;
+            basic_tools_enabled = true;
+            basic_tools_from_flags = true;
             continue;
         }
         if (argument == "--ocr-manifest" && index + 1 < argc) {
@@ -379,6 +418,7 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
         }
         shell_path = std::filesystem::absolute(shell_path).string();
         config.frontend = mirage::platform::make_frontend_process(shell_path);
+        config.pet_expected = true;
         auto pet_binary =
             std::filesystem::path(mirage::platform::current_executable_path()).parent_path();
 #ifdef _WIN32
@@ -402,9 +442,68 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
 #endif
         config.open_frontend = open_frontend;
     }
-    // M1-07 DEC-011 configuration: the settings file (when requested)
-    // provides the baseline, command-line flags override item by item. A
-    // settings file that exists but cannot be trusted fails closed.
+    // M1-07 DEC-011 configuration: the settings file (when requested, or the
+    // default document on first launch) provides the baseline, command-line
+    // flags override item by item. A settings file that exists but cannot be
+    // trusted fails closed. Both entry points share one application pass
+    // (REUSE-11) so the --config and default-document surfaces cannot drift;
+    // the guards below are the DEC-011 flag precedence, applied identically.
+    const auto apply_settings = [&](const mirage::runtime::persistence::LocalSettings &settings) {
+        if (settings.vision && !ocr_from_flags)
+            config.ocr_manifest = settings.vision->ocr_manifest;
+        if (settings.basic_tools && !basic_tools_from_flags) {
+            // M10-08 (DEC-095): the same basic-tools surface as --config
+            // on both entry paths; the harness E2E passes flags and never
+            // sees the divergence.
+            basic_tools_enabled = settings.basic_tools->enabled;
+            exec_enabled = settings.basic_tools->exec_enabled;
+            workspace = settings.basic_tools->workspace;
+            if (!workspace->empty()) {
+                basic_tools_from_flags = true; // a configured workspace counts as intent
+            }
+            write_roots = settings.basic_tools->write_roots;
+        }
+        if (!settings.socket_path.empty()) {
+            config.socket_path = settings.socket_path;
+        }
+        if (!settings.read_roots.empty() && !read_roots_from_flags) {
+            read_roots = settings.read_roots;
+        }
+        for (const auto &[capability, rule] : settings.permission_rules) {
+            const auto parsed = mirage::runtime::permission::capability_from_name(capability);
+            const auto parsed_rule = mirage::runtime::permission::rule_from_name(rule);
+            if (parsed && parsed_rule) {
+                config.permission_policy.rules[static_cast<std::size_t>(*parsed)] = *parsed_rule;
+            }
+        }
+        if (settings.confirmation) {
+            flag_confirm = *settings.confirmation;
+        }
+        if (settings.model.has_value() && !model_from_flags) {
+            config.model = mirage::integration::ModelLayerConfig{};
+            config.model.enabled =
+                settings.model->enabled && !settings.model->endpoint_origin.empty();
+            config.model.dialect = settings.model->dialect;
+            config.model.display_name = settings.model->display_name;
+            config.model.endpoint_origin = settings.model->endpoint_origin;
+            config.model.api_prefix = settings.model->api_prefix;
+            config.model.model_selector = settings.model->model_selector;
+            config.model.credential_env = settings.model->credential_env;
+            config.model.credential_ref = settings.model->credential_ref;
+            config.model.context_window_tokens = settings.model->context_window_tokens;
+            config.model.supports_reasoning = settings.model->supports_reasoning;
+            config.model.supports_images = settings.model->supports_images;
+            config.model_catalog_json = mirage::runtime::persistence::encode_settings(settings);
+        }
+        if (settings.runtime.has_value() && !runtime_from_flags) {
+            if (settings.runtime->event_queue_capacity > 0) {
+                config.event_queue_capacity = settings.runtime->event_queue_capacity;
+            }
+            if (settings.runtime->max_connections > 0) {
+                config.max_connections = settings.runtime->max_connections;
+            }
+        }
+    };
     if (config_file) {
         const std::filesystem::path parent = config_file->parent_path().empty()
                                                  ? std::filesystem::path(".")
@@ -430,55 +529,7 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
                           << "': " << decoded.error << '\n';
                 return 1;
             }
-            const auto &settings = decoded.settings;
-            if (settings.vision && !ocr_from_flags)
-                config.ocr_manifest = settings.vision->ocr_manifest;
-            if (!settings.socket_path.empty()) {
-                config.socket_path = settings.socket_path;
-            }
-            if (!settings.read_roots.empty() && !read_roots_from_flags) {
-                read_roots = settings.read_roots;
-            }
-            const auto apply_rule = [&](const std::string &text,
-                                        mirage::runtime::permission::Capability capability) {
-                const auto rule = mirage::runtime::permission::rule_from_name(text);
-                if (rule) {
-                    config.permission_policy.rules[static_cast<std::size_t>(capability)] = *rule;
-                }
-            };
-            for (const auto &[capability, rule] : settings.permission_rules) {
-                if (const auto parsed =
-                        mirage::runtime::permission::capability_from_name(capability)) {
-                    apply_rule(rule, *parsed);
-                }
-            }
-            if (settings.confirmation) {
-                flag_confirm = *settings.confirmation;
-            }
-            if (settings.model.has_value() && !model_from_flags) {
-                config.model = mirage::integration::ModelLayerConfig{};
-                config.model.enabled =
-                    settings.model->enabled && !settings.model->endpoint_origin.empty();
-                config.model.dialect = settings.model->dialect;
-                config.model.display_name = settings.model->display_name;
-                config.model.endpoint_origin = settings.model->endpoint_origin;
-                config.model.api_prefix = settings.model->api_prefix;
-                config.model.model_selector = settings.model->model_selector;
-                config.model.credential_env = settings.model->credential_env;
-                config.model.credential_ref = settings.model->credential_ref;
-                config.model.context_window_tokens = settings.model->context_window_tokens;
-                config.model.supports_reasoning = settings.model->supports_reasoning;
-                config.model.supports_images = settings.model->supports_images;
-                config.model_catalog_json = mirage::runtime::persistence::encode_settings(settings);
-            }
-            if (settings.runtime.has_value() && !runtime_from_flags) {
-                if (settings.runtime->event_queue_capacity > 0) {
-                    config.event_queue_capacity = settings.runtime->event_queue_capacity;
-                }
-                if (settings.runtime->max_connections > 0) {
-                    config.max_connections = settings.runtime->max_connections;
-                }
-            }
+            apply_settings(decoded.settings);
         }
     }
     // DEC-011 flip (M5-07): with no explicit --config, the default settings
@@ -508,55 +559,7 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
                               << default_file.string() << "': " << decoded.error << '\n';
                     return 1;
                 }
-                const auto &settings = decoded.settings;
-                if (settings.vision && !ocr_from_flags)
-                    config.ocr_manifest = settings.vision->ocr_manifest;
-                if (!settings.socket_path.empty()) {
-                    config.socket_path = settings.socket_path;
-                }
-                if (!settings.read_roots.empty() && !read_roots_from_flags) {
-                    read_roots = settings.read_roots;
-                }
-                for (const auto &[capability, rule] : settings.permission_rules) {
-                    if (const auto parsed =
-                            mirage::runtime::permission::capability_from_name(capability)) {
-                        if (const auto parsed_rule =
-                                mirage::runtime::permission::rule_from_name(rule)) {
-                            config.permission_policy.rules[static_cast<std::size_t>(*parsed)] =
-                                *parsed_rule;
-                        }
-                    }
-                }
-                if (settings.confirmation) {
-                    flag_confirm = *settings.confirmation;
-                }
-                if (settings.model.has_value()) {
-                    config.model = mirage::integration::ModelLayerConfig{};
-                    config.model.enabled =
-                        settings.model->enabled && !settings.model->endpoint_origin.empty();
-                    config.model.dialect = settings.model->dialect;
-                    config.model.display_name = settings.model->display_name;
-                    config.model.endpoint_origin = settings.model->endpoint_origin;
-                    config.model.api_prefix = settings.model->api_prefix;
-                    config.model.model_selector = settings.model->model_selector;
-                    config.model.credential_env = settings.model->credential_env;
-                    config.model.credential_ref = settings.model->credential_ref;
-                    config.model.context_window_tokens = settings.model->context_window_tokens;
-                    config.model.supports_reasoning = settings.model->supports_reasoning;
-                    config.model.supports_images = settings.model->supports_images;
-                    config.model_catalog_json =
-                        mirage::runtime::persistence::encode_settings(settings);
-                }
-                if (settings.runtime.has_value()) {
-                    if (settings.runtime->event_queue_capacity > 0) {
-                        config.event_queue_capacity = settings.runtime->event_queue_capacity;
-                    }
-                    if (settings.runtime->max_connections > 0) {
-                        config.max_connections = settings.runtime->max_connections;
-                    }
-                }
-                config.settings_directory = default_file.parent_path();
-                config.settings_file_name = default_file.filename().string();
+                apply_settings(decoded.settings);
             }
         }
     }
@@ -607,6 +610,15 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
         std::cerr << kProgramName << ": --read-root is a Linux backend surface\n";
         return 2;
     }
+    if (basic_tools_enabled || exec_enabled || !write_roots.empty() || workspace.has_value()) {
+        // M10-08: the Windows backend has no FilesystemProvider and no
+        // exec cwd support yet (M10-10); the flags would register nothing —
+        // refused loudly instead.
+        std::cerr << kProgramName
+                  << ": --enable-basic-tools/--enable-exec/--workspace/--write-root are Linux "
+                     "backend surfaces\n";
+        return 2;
+    }
     // M7-12 (DEC-066 Windows side): the product host opens the platform's
     // opt-in surfaces the same way the Linux branch passes `product` — the
     // Win32 window/screen/input and UIA accessibility surfaces ride the
@@ -643,12 +655,39 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
     for (const std::string &root : read_roots) {
         read_scope.emplace_back(root);
     }
+    std::vector<std::filesystem::path> write_scope;
+    write_scope.reserve(write_roots.size());
+    for (const std::string &root : write_roots) {
+        write_scope.emplace_back(root);
+    }
+    // M10-08 (DEC-095): read roots never imply write authority — the write
+    // scope is its own configuration surface.
     auto environment = std::make_shared<mirage::platform::linux_backend::LinuxDesktopEnvironment>(
         std::move(read_scope),
         mirage::platform::linux_backend::X11Options{product || !config.ocr_manifest.empty(), {}},
         mirage::platform::linux_backend::AtspiOptions{product},
         mirage::platform::linux_backend::ApplicationOptions{product},
-        mirage::platform::linux_backend::NotificationsOptions{product});
+        mirage::platform::linux_backend::NotificationsOptions{product},
+        mirage::platform::linux_backend::FilesystemWriteOptions{std::move(write_scope)});
+    if (basic_tools_enabled) {
+        config.basic_tools.enabled = true;
+        config.basic_tools.exec_enabled = exec_enabled;
+        if (workspace && !workspace->empty()) {
+            config.basic_tools.workspace = *workspace;
+        }
+        if (config.basic_tools.exec_enabled && config.basic_tools.workspace.empty()) {
+            std::cerr << kProgramName
+                      << ": --enable-exec requires a workspace (--workspace PATH or the "
+                         "settings file); exec is refused without one\n";
+            return 2;
+        }
+        // Retained command output lives under the state directory; the
+        // store clears it at construction (refs are runtime state).
+        if (config.basic_output_directory.empty()) {
+            config.basic_output_directory =
+                mirage::runtime::persistence::default_state_directory() / "basic-output";
+        }
+    }
     if (overlay_from_flags) {
         // M5-09 (DEC-029): the X11 shape overlay carrier. Null without an
         // X/XWayland connection (e.g. a Wayland-native session) — loud
@@ -705,6 +744,15 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
               << (config.overlay_carrier != nullptr ? (config.overlay_debug ? "debug" : "on")
                                                     : "off")
               << '\n';
+    if (config.basic_tools.enabled) {
+        // M10 operator diagnostics: the session tools are configuration
+        // driven and invisible at IPC level until a turn runs; state them
+        // at startup so a silent config divergence cannot recur unnoticed.
+        std::cout << "basic tools: read/write/edit exposed; exec "
+                  << (config.basic_tools.exec_enabled ? "enabled" : "off") << ", workspace "
+                  << (workspace && !workspace->empty() ? *workspace : "(none)") << ", "
+                  << write_roots.size() << " write root(s)\n";
+    }
     {
         const auto &rules = config.permission_policy.rules;
         std::cout << "permission policy:" << " filesystem.read="

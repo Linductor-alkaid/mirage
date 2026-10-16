@@ -1,6 +1,7 @@
 #include "desktop_visual_knowledge.hpp"
 #include "desktop_action_verification.hpp"
 #include "desktop_image_supply.hpp"
+#include "tool_geometry.hpp"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -20,11 +21,6 @@ mira::Error failure(const char *code, bool effects = false) {
     result.safe_message = mira::to_json_string(Json{Json::Object{
         {"code", code}, {"verified", false}, {"side_effect_may_have_occurred", effects}}});
     return result;
-}
-bool contains(const desktop::WindowGeometry &outer, const desktop::WindowGeometry &inner) {
-    return inner.width > 0 && inner.height > 0 && inner.x >= outer.x && inner.y >= outer.y &&
-           std::int64_t{inner.x} + inner.width <= std::int64_t{outer.x} + outer.width &&
-           std::int64_t{inner.y} + inner.height <= std::int64_t{outer.y} + outer.height;
 }
 } // namespace
 
@@ -126,7 +122,8 @@ mira::Result<Json> DesktopImageTurn::local_click(const Json &args,
             if (!std::isfinite(region.confidence) || region.confidence < 0 || region.confidence > 1)
                 return failure("visual_evidence_invalid");
             const bool ocr = region.source == desktop::VisualRegionSource::kOcr;
-            const bool visible = contains(box, region.bounds) && marks_->marks[n].selectable;
+            const bool visible =
+                geometry_contains(box, region.bounds) && marks_->marks[n].selectable;
             if (ocr && region.text == field(args, "expected_text"))
                 ++post;
             if (ocr && region.text == field(args, "page_text")) {

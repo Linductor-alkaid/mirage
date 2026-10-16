@@ -1,4 +1,11 @@
 #include "desktop_image_supply.hpp"
+
+// Hand-rolled RGBA→PNG encoder (fixed Huffman + LZ77, CRC-32, Adler-32,
+// row filters). Capability gap MIRA-20261016-004: the pinned mira
+// observation contract leaves the RGBA→PNG transcode to the host and neither
+// pinned dependency ships an encoder, so this lives inside the integration
+// adapter boundary until an upstream encoding capability is consumed.
+
 #include <algorithm>
 #include <array>
 #include <cstring>

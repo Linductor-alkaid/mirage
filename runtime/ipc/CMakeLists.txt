@@ -16,6 +16,10 @@ add_library(Mirage::ipc ALIAS mirage_ipc)
 target_include_directories(mirage_ipc
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    PRIVATE
+        # runtime/internal shared helpers (REUSE-12); Windows-only headers
+        # are included exclusively from the *_windows.cpp units.
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../internal>
 )
 target_compile_features(mirage_ipc PUBLIC cxx_std_20)
 mirage_enable_warnings(mirage_ipc)
@@ -26,6 +30,9 @@ mirage_enable_warnings(mirage_ipc)
 target_link_libraries(mirage_ipc
     PRIVATE
         Mira::core
+        # The session outbox rides the kairo comm channel (REUSE-09); the
+        # public header hides it behind a forward-declared holder (DEC-096).
+        Mirage::kairo_consumer
 )
 
 # The named pipe transport uses kernel base APIs only: no new import
@@ -33,3 +40,9 @@ target_link_libraries(mirage_ipc
 
 target_link_libraries(mirage_ipc PUBLIC Mirage::conversation)
 target_link_libraries(mirage_ipc PUBLIC Mirage::pet_state)
+
+# Private kairo communication implementation; public headers stay pinned-free.
+target_include_directories(mirage_ipc SYSTEM PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include"
+)
+target_link_libraries(mirage_ipc PRIVATE $<TARGET_FILE:kairo::kairo>)

@@ -1,3 +1,4 @@
+#include <mirage/integration/basic_agent_toolset.hpp>
 #include <mirage/integration/desktop_atom_toolset.hpp>
 #include <mirage/integration/model_layer.hpp>
 
@@ -605,6 +606,28 @@ struct ModelLayer::Impl {
     std::shared_ptr<mira::MemoryEventStore> events = std::make_shared<mira::MemoryEventStore>();
     /// DEC-085 repeated-failure guard; infer_mutex serializes all access.
     ToolFailureTracker failure_tracker;
+    /// M10-07 (DEC-095): per-session observation records of the basic agent
+    /// tools (exec/read/write/edit); infer_mutex serializes all access.
+    /// Bounded at 32 sessions (least recently seen evicted), mirroring the
+    /// failure tracker; eviction only forces a re-read.
+    BasicToolSessionState &basic_state(const std::string &session) {
+        basic_state_order_[session] = ++basic_state_clock_;
+        auto &state = basic_states_[session];
+        while (basic_states_.size() > 32) {
+            auto oldest = basic_state_order_.begin();
+            for (auto it = basic_state_order_.begin(); it != basic_state_order_.end(); ++it) {
+                if (it->second < oldest->second) {
+                    oldest = it;
+                }
+            }
+            basic_states_.erase(oldest->first);
+            basic_state_order_.erase(oldest);
+        }
+        return state;
+    }
+    std::map<std::string, BasicToolSessionState> basic_states_;
+    std::map<std::string, std::uint64_t> basic_state_order_;
+    std::uint64_t basic_state_clock_ = 0;
     bool running = false;
 };
 
@@ -932,6 +955,15 @@ DialogCompletion ModelLayer::complete_harness_turn(
     DesktopAtomToolset::register_harness_tools(*registry, impl_->desktop, tools_allowed, cancel,
                                                decorate);
     detail::register_ocr_tool(*registry, impl_->desktop, cancel, decorate);
+    // M10-07 (DEC-095): the four basic tools ride the same capture /
+    // verification decorator; enablement is the service's decision
+    // (desktop.basic_tools), and registration is capability-honest.
+    // `tools_allowed` carries the turn's session access mode (DEC-080):
+    // read rides every agent-capable mode, write/edit/exec need full access.
+    if (impl_->desktop.basic_tools.enabled) {
+        register_basic_agent_tools(*registry, impl_->desktop, impl_->basic_state(session_key),
+                                   impl_->desktop.basic_tools, cancel, decorate, tools_allowed);
+    }
     if (tools_allowed)
         verification.register_tool(*registry, decorate);
     std::unique_ptr<detail::DesktopImageTurn> image_turn;

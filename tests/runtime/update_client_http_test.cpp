@@ -10,8 +10,10 @@
 // (duplicate names, file budget, negative size, bad hex, non-array/empty
 // files, oversized fields).
 //
-// POSIX-only: the HTTP server and the fetcher under test are the POSIX
-// port (the Windows port is compile-gated by the MinGW cross build).
+// POSIX-only: the in-process HTTP server is the POSIX port. The fetcher
+// under test is the pinned mira socket transport (REUSE-01) driven through
+// FetchSession on this process's own Executor (DEC-030 EXEC-01), so the
+// test owns an ephemeral Executor lifetime like apps/cli/update_command.cpp.
 
 #include "../support/test.hpp"
 
@@ -19,6 +21,8 @@
 #include <mirage/runtime/update/update_client.hpp>
 #include <mirage/runtime/update/update_crypto.hpp>
 #include <mirage/runtime/update/update_manifest.hpp>
+
+#include <kairo/executor.hpp>
 
 #include <openssl/evp.h>
 
@@ -42,6 +46,17 @@ namespace fs = std::filesystem;
 namespace {
 
 namespace update = mirage::runtime::update;
+
+/// Mirrors apps/cli/update_command.cpp's UpdateExecutorLifetime: this test
+/// process is the unique Executor owner (AGENTS.md rule 7 / DEC-030 EXEC-01).
+/// The FetchSession starts the pinned transport's blocking workers on this
+/// executor and joins them on its own destruction, so member declaration
+/// order (session before lifetime) makes the executor shut down last on this
+/// non-worker thread.
+struct ExecutorLifetime {
+    kairo::Executor executor;
+    ~ExecutorLifetime() { executor.shutdown(true); }
+};
 
 std::string read_file(const fs::path &path) {
     std::ifstream in(path, std::ios::binary);
@@ -90,10 +105,16 @@ std::string sign_ed25519(const std::string &seed, const std::string &message) {
     return signature;
 }
 
-/// One canned route of the in-process channel.
+/// One canned route of the in-process channel. A constructor (not an
+/// aggregate) so the positional `{200, body}` call sites below stay free of
+/// -Wmissing-field-initializers under the -Werror warning gate.
 struct Route {
-    int status = 200; ///< 200 serves body; anything else serves a stub
-    std::string body; ///< the served bytes (status 200)
+    int status = 200;     ///< 200 serves body; anything else serves a stub
+    std::string body;     ///< the served bytes (status 200)
+    std::string location; ///< optional Location header (3xx responses)
+    Route() = default;
+    Route(int route_status, std::string route_body = {}, std::string route_location = {})
+        : status(route_status), body(std::move(route_body)), location(std::move(route_location)) {}
 };
 
 /// A minimal blocking HTTP/1.1 server on 127.0.0.1: serves per-path canned
@@ -187,12 +208,15 @@ class HttpServer {
             ::send(fd, head.data(), head.size(), 0);
             ::send(fd, route.body.data(), route.body.size(), 0);
         } else {
-            const std::string body = "nope";
-            const std::string head = "HTTP/1.1 " + std::to_string(route.status) +
-                                     " Stub\r\nContent-Length: " + std::to_string(body.size()) +
-                                     "\r\nConnection: close\r\n\r\n";
+            std::string head =
+                "HTTP/1.1 " + std::to_string(route.status) + " Stub\r\nContent-Length: ";
+            head += std::to_string(route.body.size()) + "\r\n";
+            if (!route.location.empty()) {
+                head += "Location: " + route.location + "\r\n";
+            }
+            head += "Connection: close\r\n\r\n";
             ::send(fd, head.data(), head.size(), 0);
-            ::send(fd, body.data(), body.size(), 0);
+            ::send(fd, route.body.data(), route.body.size(), 0);
         }
     }
 
@@ -365,15 +389,32 @@ int main() {
     anchor.public_key = key.public_key;
     const std::string channel = "127.0.0.1:" + std::to_string(server.port());
 
-    // check(): the signed manifest flows through the real HTTP path.
+    // The test process owns the ephemeral Executor (DEC-030 EXEC-01); the
+    // session's transport workers join on `fetch`'s destruction and the
+    // explicit shutdown runs last (declaration order, see ExecutorLifetime).
+    ExecutorLifetime executor_lifetime;
+    update::FetchSession fetch(executor_lifetime.executor);
+
+    // check(): the signed manifest flows through the real HTTP path; the
+    // progress callback reports the manifest transfer's cumulative bytes.
     {
-        update::UpdateClient client(anchor);
+        update::UpdateClient client(anchor, fetch);
+        std::atomic<std::uint64_t> max_progress{0};
+        client.set_progress([&max_progress](std::uint64_t received) {
+            auto previous = max_progress.load(std::memory_order_relaxed);
+            while (previous < received && !max_progress.compare_exchange_weak(
+                                              previous, received, std::memory_order_relaxed)) {
+            }
+        });
         const auto outcome = client.check(channel);
         MIRAGE_CHECK(outcome.ok);
         if (outcome.ok) {
             MIRAGE_CHECK(outcome.current_version == "0.3.0");
             MIRAGE_CHECK(outcome.manifest_size == manifest.size());
         }
+        // The manifest (the largest transfer of the check episode) was fully
+        // reported: the last cumulative progress equals its byte size.
+        MIRAGE_CHECK(max_progress.load() == manifest.size());
     }
 
     // apply(): full fetch → in-memory sha256 gate → staging → atomic switch.
@@ -383,7 +424,7 @@ int main() {
         fs::create_directories(target, cleanup);
         write_file(target / "notes.txt", "OLD notes");
 
-        update::UpdateClient client(anchor);
+        update::UpdateClient client(anchor, fetch);
         const auto outcome = client.apply(channel, target.string(), staging_root.string());
         MIRAGE_CHECK(outcome.report.status == update::ApplyStatus::Applied);
         MIRAGE_CHECK(outcome.report.applied.size() == 2);
@@ -393,7 +434,7 @@ int main() {
         MIRAGE_CHECK(outcome.staging_dir.find(staging_root.string()) == 0);
 
         // Re-apply over the switched state stays atomic and idempotent.
-        update::UpdateClient again(anchor);
+        update::UpdateClient again(anchor, fetch);
         const auto second = again.apply(channel, target.string(), staging_root.string());
         MIRAGE_CHECK(second.report.status == update::ApplyStatus::Applied);
         MIRAGE_CHECK(read_file(target / "app.exe") == body_a);
@@ -401,17 +442,18 @@ int main() {
 
     // Byte-budget overrun: the channel serves MORE bytes than the manifest
     // declares — the fetcher's budget refuses before anything is staged.
+    // (The pinned transport reports the overrun as a response-cap violation.)
     {
         server.set_route("/app.exe", {200, body_a + "overrun"});
         const fs::path target = base / "target-overrun";
         fs::create_directories(target, cleanup);
         write_file(target / "notes.txt", "sentinel");
 
-        update::UpdateClient client(anchor);
+        update::UpdateClient client(anchor, fetch);
         const auto outcome = client.apply(channel, target.string(), (base / "staging-o").string());
         MIRAGE_CHECK(outcome.report.status == update::ApplyStatus::Failed);
         MIRAGE_CHECK(outcome.report.diagnostic.find("byte budget") != std::string::npos ||
-                     outcome.report.diagnostic.find("exceeded") != std::string::npos);
+                     outcome.report.diagnostic.find("exceed") != std::string::npos);
         MIRAGE_CHECK(read_file(target / "notes.txt") == "sentinel");
         MIRAGE_CHECK(!fs::exists(target / "app.exe", cleanup));
         server.set_route("/app.exe", {200, body_a});
@@ -428,7 +470,7 @@ int main() {
         fs::create_directories(target, cleanup);
         write_file(target / "notes.txt", "sentinel");
 
-        update::UpdateClient client(anchor);
+        update::UpdateClient client(anchor, fetch);
         const auto outcome = client.apply(channel, target.string(), (base / "staging-t").string());
         MIRAGE_CHECK(outcome.report.status == update::ApplyStatus::Failed);
         MIRAGE_CHECK(outcome.report.diagnostic.find("sha256 mismatch for app.exe") !=
@@ -438,20 +480,26 @@ int main() {
         server.set_route("/app.exe", {200, body_a});
     }
 
-    // 3xx is not followed (fail closed).
+    // 3xx is not followed (fail closed, DEC-032). The redirect target serves
+    // a fully valid signed manifest — any redirect-following would flip the
+    // check to ok — so the only acceptable outcome is the pinned transport's
+    // redirect-limit refusal (max_redirects = 0 in the fetch session).
     {
-        server.set_route("/update-manifest.json", {302, ""});
-        update::UpdateClient client(anchor);
+        server.set_route("/moved", {200, manifest});
+        server.set_route("/update-manifest.json",
+                         {302, "", "http://127.0.0.1:" + std::to_string(server.port()) + "/moved"});
+        update::UpdateClient client(anchor, fetch);
         const auto outcome = client.check(channel);
         MIRAGE_CHECK(!outcome.ok);
-        MIRAGE_CHECK(outcome.diagnostic.find("redirects are not followed") != std::string::npos);
+        MIRAGE_CHECK(outcome.diagnostic.find("redirect chain exceeded the configured limit") !=
+                     std::string::npos);
         server.set_route("/update-manifest.json", {200, manifest});
     }
 
     // Non-200 is refused.
     {
         server.set_route("/update-manifest.json.sig", {404, ""});
-        update::UpdateClient client(anchor);
+        update::UpdateClient client(anchor, fetch);
         const auto outcome = client.check(channel);
         MIRAGE_CHECK(!outcome.ok);
         MIRAGE_CHECK(outcome.diagnostic.find("HTTP 404") != std::string::npos);
@@ -467,7 +515,7 @@ int main() {
     {
         const fs::path target = base / "target-rollback";
         fs::create_directories(target / "notes.txt", cleanup);
-        update::UpdateClient client(anchor);
+        update::UpdateClient client(anchor, fetch);
         const auto outcome = client.apply(channel, target.string(), (base / "staging-r").string());
         MIRAGE_CHECK(outcome.report.status == update::ApplyStatus::RolledBack);
         MIRAGE_CHECK(fs::is_directory(target / "notes.txt", cleanup));
@@ -486,7 +534,7 @@ int main() {
         write_file(target / "app.exe", "OLD app.exe content");
         fs::create_directories(target / "notes.txt", cleanup); // blocks its own switch
 
-        update::UpdateClient client(anchor);
+        update::UpdateClient client(anchor, fetch);
         const auto outcome = client.apply(channel, target.string(), (base / "staging-s").string());
         MIRAGE_CHECK(outcome.report.status == update::ApplyStatus::RolledBack);
         MIRAGE_CHECK(read_file(target / "app.exe") == "OLD app.exe content");

@@ -2,6 +2,7 @@
 
 #include <kairo/stop_token.hpp>
 
+#include <future>
 #include <memory>
 #include <string>
 
@@ -58,5 +59,19 @@ bool persist_session_state(const std::shared_ptr<ServiceCore> &core,
 /// stay the source of truth.
 void publish_session_event_best_effort(const std::shared_ptr<ServiceCore> &core,
                                        ipc::EventPayload event);
+
+/// Consumes a settled best-effort future, swallowing its exception: the
+/// observable task state lives in the pinned runtime, and settlement
+/// failures (for example, cancelling an already cancelled task) must not
+/// kill the caller (the shared driver/teardown discipline).
+template <typename T> void consume_best_effort(std::future<T> future) {
+    try {
+        if (future.valid()) {
+            (void)future.get();
+        }
+    } catch (const std::exception &) {
+    } catch (...) {
+    }
+}
 
 } // namespace mirage::runtime::detail

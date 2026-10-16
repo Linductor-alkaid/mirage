@@ -51,3 +51,19 @@ if(MIRAGE_BUNDLE_VISION)
     file(COPY "${CMAKE_SOURCE_DIR}/packaging/vision/notices/" DESTINATION "${MIRAGE_VISION_BUNDLE_DIR}/notices")
     file(COPY "${CMAKE_SOURCE_DIR}/packaging/vision/resources.lock.json" DESTINATION "${MIRAGE_VISION_BUNDLE_DIR}")
 endif()
+
+# DEC-097: callers explicitly supply the audited converted model directory.
+# Conversion/training frameworks are not product build or runtime dependencies.
+set(MIRAGE_YOLO_MODEL_DIR "" CACHE PATH "Offline directory containing locked converted UI detector assets")
+if(MIRAGE_YOLO_MODEL_DIR)
+    if(NOT MIRAGE_BUNDLE_VISION OR NOT MIRAGE_WITH_YOLO)
+        message(FATAL_ERROR "MIRAGE_YOLO_MODEL_DIR requires MIRAGE_BUNDLE_VISION and MIRAGE_WITH_YOLO")
+    endif()
+    execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/prepare_yolo_bundle.py"
+        --source "${MIRAGE_YOLO_MODEL_DIR}" --bundle "${MIRAGE_VISION_BUNDLE_DIR}"
+        --lock "${CMAKE_SOURCE_DIR}/packaging/vision/yolo.lock.json"
+        RESULT_VARIABLE _yolo_result ERROR_VARIABLE _yolo_error)
+    if(NOT _yolo_result EQUAL 0)
+        message(FATAL_ERROR "YOLO bundle preparation failed: ${_yolo_error}")
+    endif()
+endif()

@@ -2,35 +2,78 @@
 
 > 状态：Active
 > 负责人：Mirage维护者；处理方：Mira上游
-> 更新日期：2026-10-15
-> 工作项：[M6-10](../plans/m6-native-frontend.md)
+> 更新日期：2026-10-16
+> 工作项：台账维护性收口见[依赖复用整改计划](../plans/dependency-reuse-remediation.md)
+> （REUSE-16/17/18）；既有条目分别溯源至 M6-10、M7、M8/M9 各工作项。
 > 总入口：[依赖反馈](ledger.md)；维护规则：[工程规范9.4](../project/project-standards.md)
 
 ## MIRA-20261015-002
 
-主题：ConversationLoop 缺少不按累计模型轮次/工具次数终止的公开模式。
+主题：ConversationLoop 缺少不按累计步骤/工具次数终止的长程任务模式。
 
-- 编号修正：早期持续循环草稿与 UTF-8 续写项重用了 001；持续循环项改为唯一
-  002，保留既有 PR#98 / MIRA-20261015-001 的编号与验收记录。
+- 编号修正：并行工作将原未发布的持续循环反馈与已发布的 UTF-8 续写问题同编为
+  `MIRA-20261015-001`；本项改用唯一编号 `MIRA-20261015-002`，保留原续写反馈编号。
+- 状态：Resolved（公开能力与 Linux pin 消费范围）；负责人：Mirage 维护者；处理方：Mira 上游。
+- 上游：[PR #99](https://github.com/Linductor-alkaid/mira/pull/99)，2026-10-15
+  按维护者明确授权在 `/home/linductor/mira` 原开发仓库实现并提交；分支
+  `feat/continuous-conversation-loop`，首提交 `7e2b73e`。维护者确认 CI 全绿后明确
+  授权合并及 pin 更新，已 squash 合并为 `a29374aaf05b956cbd5ceeafc65bba4c6172675e`
+  （24/24 SUCCESS）；gitlink/lock 已更新，消费侧契约和 Linux 回归通过。
+  独立升级 [Mirage PR #97](https://github.com/Linductor-alkaid/mirage/pull/97) 已创建。
+- 关联：[长程任务与本地视觉闭环方案](../analysis/session-budget-and-native-pet-regression-20261015.md)、
+  [DEC-090](../decisions/DEC-090-continuous-task-execution.md)；实施工作项为
+  [M9-02/03](../plans/m9-continuous-tasks-and-local-perception.md)，维护者明确要求
+  正常长程任务不因模型步骤数停止。
+- 核对版本：pinned `7391df70036cbdb035dea5ebaec99c46cbabe5ae`。
+  已核对公开 `include/mira/conversation_loop.hpp`、`runtime.hpp`、
+  `task_checkpoint.hpp`、`docs/api/model-agent-loop.md`，以及现有循环实现和
+  Mirage 的 budget fixture。
+- 2026-10-15 开工复核：其他工作已消费 pin `560da5ec`，该版本仅修复续写锚点，
+  公开循环仍只有有限 max_turns/max_tool_executions，本项继续 Open；未在本项升级依赖。
+- 旧版本接口事实：`ConversationLoopConfig` 仅有有限整数 `max_turns` 和
+  `max_tool_executions`，没有 optional/unlimited 模式；`run` 只提供完整阻塞
+  调用，没有可持久化本次 loop history 的 step/resume 接口。`max_turns=0`
+  使循环零次执行；`max_tool_executions=0` 使首个非空工具批次超限，不是不限。
+  `build_request` 还由总轮次推导 max_requests/输出包络，单改宿主数值不足。
+- 实际证据：2026-10-15 09:56 +08:00 的本地会话记录显示
+  `turn budget exhausted before a final answer（16 个模型步骤、17 次工具调用）`。
+  Mirage 此处确实配置 16/32，说明宿主选型是直接触发因素；当前依赖接口没有
+  能满足新产品需求的显式无总次数上限配置。
+- 最小复现步骤：脚本 provider 前两次输出合法只读工具、第三次输出最终文本，
+  配置 max_turns=2，预期当前 loop 在第三次请求前返回 MaxTurns；再配置 0，
+  循环不发模型请求。工具上限同理用超过已配置批次数的合法调用复现。
+  初次调查未执行动态用例；后续上游 PR #99 新增并运行有限/零值兼容测试，
+  同时完成同一 task/epoch 的 1,025 模型轮 / 1,024 工具脚本；上游全量 Debug
+  109/109 通过。此结果针对 PR 分支，不代表 Mirage 当前 pin 已修复。
+- 应用职责排除：Mirage 负责持续任务的产品默认值、内存窗口、权限和无进展策略；
+  但将计数上限改为最大整数只是延迟终止，且放大/溢出预算包络。不断重启
+  ConversationLoop 会丢失其私有历史和未完成协议上下文，不能作为透明续行。
+  MiraRuntime 的 resume_task 与 TaskCheckpoint 也不等于恢复该局部 loop。
+- 最小期望能力：公开显式的无累计步骤/工具次数上限模式，保留有限配置兼容性；
+  每次请求准入、输出与操作期限保持有限，恢复/输出续写仍有明确上限；持续循环
+  可取消/可关闭，历史压缩缝继续可用。累计统计、事件和 history 存储必须适合
+  长程运行，不以整数最大值或无限包络伪装资源预算。
+- 可接受的替代交付：公开可推进并可恢复同一 loop 的协议/状态契约，由 pinned
+  Mira 承载调度与状态；须证明不重放已执行副作用、不复活已终态任务。
+- 影响及延期：只在 Mirage 提高 16/32 无法满足维护者要求；默认长任务仍可能
+  在任意正常进度处失败。Mirador 文本观察可减少消耗，但不能消除此停止条件。
+- 临时措施：无依赖绕行。可独立推进本地语义观察和 pet 交付，不能宣称主循环
+  问题已解决。后续上游改动/依赖消费仍按授权与审计流程执行。
+- 验收：有限模式兼容；无总次数限制模式下超过原模型/工具上限仍能完成；长程
+  compact/统计/内存有界；模型/工具异常、准入拒绝、输出续写耗尽、执行中取消、
+  deadline、shutdown 均有明确结果。测试负责人：Mirage/Mira 维护者；补跑条件：
+  上游契约及实现交付、获准消费后执行集成回归与真实长程任务。
 
-- 状态：Resolved（公开能力与 Linux pin 消费范围）；负责人：Mirage/Mira 维护者。
-- 证据：原 pin `560da5ec` 的公开配置仅有有限 max_turns/max_tool_executions，
-  `max_turns=0` 不表示不限。Mirage 的 16 模型轮/32 工具默认曾在正常长任务中
-  以 MaxTurns 结束；提高上限仍会截断，反复重建 loop 不能保留私有历史。
-- 上游：[PR #99](https://github.com/Linductor-alkaid/mira/pull/99)，24/24 checks
-  成功后按维护者授权 squash 合并至 `a29374aaf05b956cbd5ceeafc65bba4c6172675e`。
-- 最小能力：显式 Continuous、有限请求级预算、有界已提交历史和逐轮记录、
-  取消/期限/失败结算，累计诊断不回绕。Finite 和原零值语义保持兼容。
-- 消费：同步 gitlink/lock 到合并提交，保留显式 Finite 产品策略；上游诊断扩为
-  uint64 后，在旧产品字段边界饱和转换。具体审计、许可证和实际测试见
-  [升级审计](../supply-chain/mira-continuous-loop-20261015.md)。
-- 工作项：M9-02 的依赖消费子项。此项只解决公开能力缺口；M9-03 尚需替换
-  Mirage 的 16/32、最终轮收尾、请求包络和产品累计计数，不能因 pin 更新
-  宣称原长任务故障已修复。
-- 验收：消费侧链接新库运行同 task/epoch 的 1,025 轮/1,024 工具脚本，并验证
-  历史/记录存量、协议、恢复/续写段、取消与 shutdown；Mirage 全量回归及
-  Debug 82/82、当前工作区 84/84、ASAN/UBSAN 各 5/5 与完整 native 编译通过。
-  未验证平台以依赖升级 MR CI 与 M9 计划为准。
+- 上游交付进展（2026-10-15）：PR #99 / Mira DEC-056 提供显式
+  ConversationLimitMode::Continuous、Request scope（model contract 2.0）、提交式
+  HistoryTransformer、有界历史/逐轮窗口及饱和统计；工具执行走仅向同步向前循环
+  开放的私有入口，避免永久积累 operation 墓碑。取消/期限/失败仍结算，有限模式
+  保留。脚本 compactor 输入最多 5 条、提交历史最多 3 条、结果窗口 4 条，
+  注册表历史 operation 数为 0；这不是实机 RSS 或真实 provider 长任务保证。
+  上游最终实现 `23e3ff0` 已复验 Debug 109/109、ASAN+UBSAN 6/6、TSAN 6/6；
+  连续模式按连续故障/截断段限制恢复与续写，独立成功工具轮后重置，累计数仅统计。
+  远端 CI 与评审结果由 PR #99 跟踪；Mirage M9-02/03 待
+  PR 交付、依赖升级审计及接线回归，不能提前标为 Resolved。
 
 ## M6-10历史核对基线与当前状态
 
@@ -45,7 +88,7 @@
 
 | 编号 | 主题 | 类型/分级 | 状态 | 本轮证据 | 上游 |
 | --- | --- | --- | --- | --- | --- |
-| MIRA-20261015-002 | ConversationLoop 缺少不按累计步骤/工具次数终止的模式 | P1：长程任务循环能力缺口 | Resolved | a29374a 消费：1,025 轮/1,024 工具契约、Debug 82/82；产品持续策略另行接线 | [PR #99](https://github.com/Linductor-alkaid/mira/pull/99)，已合并 |
+| MIRA-20261015-002 | ConversationLoop 缺少不按累计步骤/工具次数终止的模式 | P1：长程任务循环能力缺口 | Resolved | a29374a 消费契约：1,025 轮/1,024 工具；干净 Debug 82/82，ASAN/UBSAN 各 5/5 | [Mira PR #99](https://github.com/Linductor-alkaid/mira/pull/99) 已合并；[升级 PR #97](https://github.com/Linductor-alkaid/mirage/pull/97) |
 | MIRA-20260922-001 | Executor MinGW POSIX native_handle转换 | 构建缺陷 | Open | 最小编译复现同类错误 | [#75](https://github.com/Linductor-alkaid/mira/issues/75)，已提交 |
 | MIRA-20260927-001 | 同digest草稿遮蔽已验证workflow记录 | 版本语义缺陷 | Resolved | 公共版本API离线复现 | [#74](https://github.com/Linductor-alkaid/mira/issues/74)，已提交 |
 | MIRA-20261004-001 | 无屏幕通用harness与规范工具回填入口 | P2：harness边界结构性缺口 | Resolved | 无屏幕环境在模型路由前失败；核对输入契约 | [#73](https://github.com/Linductor-alkaid/mira/issues/73)，已提交 |
@@ -56,8 +99,12 @@
 | MIRA-20261009-002 | Messages SSE 解析器对 max_tokens 截断流 fail-closed | P1：真实供应商截断流不可解码 | Resolved | 真实 MiniMax 抓流复现；PR#87 合并后 pin 消费 c75378b，mira 105/105 + Mirage 全量回归 + 真实抓流 4/4 解码为 Incomplete 终态 | [PR#87](https://github.com/Linductor-alkaid/mira/pull/87)，已合并 |
 | MIRA-20261012-001 | 网络阶段超时被标记不可重试，单次停滞判死整轮 | P2：传输错误分类与重试语义缺口 | Resolved | 真实会话复现（DeepSeek 单轮 turn 失败）；上游 CI 24/24 + 本地 mira 105/105；pin 消费 57c3062 后 mirage 71/71 全量 + 集成 356 checks 行为复验 | [PR#88](https://github.com/Linductor-alkaid/mira/pull/88)，已合并 |
 | MIRA-20261014-004 | 无公开实时思考分类预览入口 | P2：呈现能力缺口 | Resolved | 独立 thinking sink；三方言分片、取消重试与 Runtime/IPC fixture 复验 | [PR#94](https://github.com/Linductor-alkaid/mira/pull/94)，授权消费合并提交22d9577 |
-
-| MIRA-20261014-005 | ConversationLoop 供给缝无跨轮输入复用身份标注入口 | P2：多轮上下文成本缺口 | Open | pin 1befa45 公开头核对：supplier 仅逐轮 items，无身份元数据；DEC-088 记录的重复识图浪费 | [PR#95](https://github.com/Linductor-alkaid/mira/pull/95)，已提交待合并 |
+| MIRA-20261014-005 | ConversationLoop 供给缝无跨轮输入复用身份标注入口 | P2：多轮上下文成本缺口 | Resolved | PR#95 授权合并 9e7b729；Mirage 随 pin 消费跨轮计数并复验 fixture；真实会话对照待真实 provider 补跑 | [PR#95](https://github.com/Linductor-alkaid/mira/pull/95)，已合并 |
+| MIRA-20261013-001 | `Result<T>::value()` 对 error 态 UB 解引用 | P2：公开 API 防线缺口 | Open | 非法 JSON `.value()` 触发 SIGSEGV 且无符号栈（DEC-085 测试现场）；详见详细条目 | 未提交（待维护者评估） |
+| MIRA-20261016-001 | 语义相似度计算能力（M10 记忆系统前瞻确认） | P3：前瞻能力确认 | Proposed | [M10 预备清单](../plans/m11-pre-work-checklist.md)预留编号，待与 Mira 上游确认后定案 | 未提交 |
+| MIRA-20261016-002 | 会话循环对 provider error 与输出截断的韧性/续写语义（DEC-085 系列） | P1：真实会话整轮失败 | Resolved（追记） | PR#91（error 分类入恢复白名单）/PR#92（截断恢复反馈差异化）/PR#93（有界输出续写）均已授权合并并随 pin 消费复验；见 [DEC-085](../decisions/DEC-085-session-loop-resilience-and-tool-failure-handling.md) | [PR#91](https://github.com/Linductor-alkaid/mira/pull/91)/[92](https://github.com/Linductor-alkaid/mira/pull/92)/[93](https://github.com/Linductor-alkaid/mira/pull/93)，已合并 |
+| MIRA-20261016-003 | kairo 0.7.0 延期能力：QoS 标注与 AdaptiveScheduler 触发条件未到期 | P3：分层采用延期能力 | Open | 上游 DEC-054 分层采用；QoS/AdaptiveScheduler 延期并记录触发条件；见 [审计](../supply-chain/mira-kairo-070-20261013.md) | [PR#89](https://github.com/Linductor-alkaid/mira/pull/89) 已合并（延期部分未交付） |
+| MIRA-20261016-004 | 观察管线无 RGBA→PNG 转码缝，host 自理编码 | P2：多模态供给依赖自研编解码 | Open | `observation.hpp` 明示 host 负责 RGBA→PNG；Mirage 以 `desktop_png.cpp` 手写 DEFLATE/PNG 承载（integration 边界内） | 未提交 |
 
 <a id="mira-20261009-001"></a>
 
@@ -262,8 +309,9 @@ Mirage恢复设计。不把该现象直接登记为Mira缺陷，也不要求终�
   task/session/cancel，Executor 负责执行与排空。上游交付通用入口后移除该 adapter。
 - **验收**：没有屏幕 Provider 的环境中真实 provider fixture完成问答与两次推理的工具
   回填；非法提案、错误、取消、超时/预算、关闭不产生桌面副作用。
-- **状态/责任人**：Open；维护者与 Mira 上游。延期影响为保留此单一适配边界与受限
-  工具回填语义。不修改第三方代码；上游提交回执见索引与跟进记录。
+- **状态/责任人**：Resolved（见 M6-18 升级复验：PR#76 交付公开入口并授权消费，
+  harness 边界按上游入口收敛）；维护者与 Mira 上游。历史延期影响（保留单一适配
+  边界与受限工具回填语义）随上游交付解除；登记时状态为 Open 的记录保留不重写。
 
 <a id="mira-20261004-002"></a>
 
@@ -283,8 +331,9 @@ Mirage恢复设计。不把该现象直接登记为Mira缺陷，也不要求终�
   不降级HTTP或关闭验证。凭据不参与握手诊断。
 - **临时措施/移除条件**：无绕过；沿用 pinned TLS fail closed，真实可用的SiliconFlow用于
   当前harness验收。实现引用本编号，上游修复并经授权升级pin后补验MiniMax。
-- **状态/负责人**：Open；维护者与Mira上游。延期影响为MiniMax无法验收；未修改third_party，
-  上游提交回执见索引与跟进记录。测试原始证书在临时目录，仓库只记录非敏感诊断。
+- **状态/负责人**：Resolved（M6-18 复验：SNI 随 PR#76/0a099ba 消费链路验证通过，
+  "ClientHello SNI 均通过"）；维护者与Mira上游。登记时状态为 Open 的记录保留；
+  MiniMax 端点复验随后续在线验收另行记录。
 
 ## 跟进记录
 
@@ -302,7 +351,7 @@ Mirage恢复设计。不把该现象直接登记为Mira缺陷，也不要求终�
 
 ## MIRA-20261005-001：真实流式预览与Chat Completions SSE
 
-- 状态：Accepted；负责人：Mirage维护者；范围：M6-17/18、DEC-041。
+- 状态：Resolved（上游 PR#79 已合并、pin 消费链路复验通过）；负责人：Mirage维护者；范围：M6-17/18、DEC-041。
 - 核对：3716dbf的公开InferOptions/ProviderInferOptions无实时sink；take_last_preview仅在infer返回后可用；OpenAiCompatibleProvider流式入口仅Responses，ConversationLoop固定默认选项。
 - 复现：配置Chat模型并启用stream被Provider拒绝；Responses回调只供内部parser消费，UI在终态前没有公开文本事件。已排除Mirage的显示/连接配置问题。
 - 影响：无法真实增量输出；私自解析协议会重复Mira已有模型职责。
@@ -310,7 +359,7 @@ Mirage恢复设计。不把该现象直接登记为Mira缺陷，也不要求终�
 - 语义：预览不得进入历史、触发工具或作为成功依据；重试清空、取消停止投递、终态覆盖；断流失败。
 - 延期影响：保留等待状态直至最终回复，不模拟打字。2026-10-05维护者授权修复并要求上游PR。
 - 验收：分片中文、工具参数、预算/终态拒绝、实时回调、异常隔离/取消和下游晚到预览门禁。
-- 移除条件：同步上游修复提交与锁文件、完成集成验收；已提交[上游PR#79](https://github.com/Linductor-alkaid/mira/pull/79)，本地pin 0a099ba集成验证通过；上游尚未合并，保持Accepted。
+- 移除条件：同步上游修复提交与锁文件、完成集成验收；已提交[上游PR#79](https://github.com/Linductor-alkaid/mira/pull/79)，本地pin 0a099ba集成验证通过；2026-10-08 master 复核确认 PR#79 已合并（d5c7d06 含 PR#79/80/81），消费侧以 0a099ba 及后续 pin 持续承载流式预览，状态改 Resolved。
 
 
 ## M6-18升级复验
@@ -329,7 +378,7 @@ M6-19收尾回读：Mira PR#79的pull_request run37332976997在当前pin 0a099ba
 
 ## MIRA-20261006-001：Anthropic Messages方言缺口
 
-- 状态：Resolved（Linux本地验收范围）；负责人：Mirage维护者；[上游PR#80](https://github.com/Linductor-alkaid/mira/pull/80)已创建未合并。
+- 状态：Resolved（Linux本地验收范围）；负责人：Mirage维护者；[上游PR#80](https://github.com/Linductor-alkaid/mira/pull/80)已合并（2026-10-08 master d5c7d06 复核含 PR#79/80/81）。
 - 基线：0a099ba；公开model_profile.hpp仅有Responses/Chat Completions，model_dialect.hpp无Messages mapper；本机最新公开头亦无Anthropic能力。
 - 复现：protocol_dialect_from("anthropic.messages.v1")返回nullopt；ModelLayer拒绝配置，不存在可选公开映射器。不是URL或Key配置错误。
 - 影响：维护者要求的Messages与仅提供此协议的厂商无法接入；延期会使预设入口成为假功能。
@@ -350,14 +399,14 @@ M6-19收尾回读：Mira PR#79的pull_request run37332976997在当前pin 0a099ba
 - 最小能力：明确的 thinking mode；有界 thinking/redacted blocks；规范序列化及完整 assistant block 工具回填；保留不支持方言的显式拒绝。
 - 验收：同步与 SSE 内容/签名一致，工具请求回填顺序不变，非法模式/角色/越界/缺终态拒绝，真实 MiniMax 开关可用。延期则会话栏只能显示已确认可用能力。依赖修复按已有授权实施并提交上游 PR。
 
-- 获批修复：Mira fbc644be2fabfaa2f8257e579fbc1d368537224c；[上游 PR#81](https://github.com/Linductor-alkaid/mira/pull/81)，基于 Messages PR#80，尚未合并。Executor 与其他内嵌 pin 未变。
+- 获批修复：Mira fbc644be2fabfaa2f8257e579fbc1d368537224c；[上游 PR#81](https://github.com/Linductor-alkaid/mira/pull/81)，基于 Messages PR#80，已合并（2026-10-08 master d5c7d06 复核含 PR#79/80/81）。Executor 与其他内嵌 pin 未变。
 - 收敛：DEC-051 的 ThinkingMode / ThinkingPart、SSE 有界签名与 redacted 回填由 Mira 承载，Mirage 仅负责模型选项投影。7 项上游协议测试、Mirage 52 项 Release 回归与真实 MiniMax 开关/工具循环通过；[完整验收](../compatibility/session-thinking-20261007.md)。没有临时并发或协议实现。其他厂商在线/Windows 与当前 kairo 主干未复验，维护者取得目标环境后补跑。
 
 <a id="mira-20261008-001"></a>
 
 ## MIRA-20261008-001：Responses / Chat Completions 方言丢弃思考输出
 
-- 状态：Open；负责人：Linductor-alkaid；关联 Mirage M6-26 / DEC-046、MIRA-20261006-002。
+- 状态：Resolved（2026-10-08 收口，见下方复验收口段；chat-completions/Messages 真机 + Responses fixture 范围）；负责人：Linductor-alkaid；关联 Mirage M6-26 / DEC-046、MIRA-20261006-002。
 - 版本：pinned fbc644be2fabfaa2f8257e579fbc1d368537224c（2026-10-07）。已核对 `model_dialect.cpp`、`model_chat_sse.cpp`、`model_anthropic.cpp`/`model_anthropic_sse.cpp` 及 model_contracts 回放解码。
 - 复现：Anthropic Messages 方言把 `thinking` block 与 `thinking_delta` 映射为 `ThinkingPart`（model_anthropic.cpp:368、model_anthropic_sse.cpp:160）；Chat Completions 方言把非流式 `message.reasoning_content` 归入 `UnknownOutput` 且只留 payload digest（model_dialect.cpp:1109-1113），流式 `delta.reasoning_content` 在 `ChatCompletionsSseParser::reduce` 中被直接丢弃（model_chat_sse.cpp:104-106 只累积 content/refusal）；Responses 终态解码对 `reasoning` item 无分支，落入 UnknownOutput 摘要（model_dialect.cpp `decode_responses_terminal_body`）。已排除 Mirage 选型/配置问题：`reasoning_effort` 三方言均正常编码上线，MiniMax（Messages）思考内容端到端可见，Chat Completions 服务在带 `reasoning_effort` 请求下返回的思考文本无法到达 `ThinkingPart`。
 - 影响：仅在 Chat Completions / Responses 方言上提供思考输出的模型（DeepSeek-R1 系、经 Responses 代理的 reasoning 模型等）无法在会话过程展示"思考过程"；文本被静默降级为摘要，用户感知为"开启思考无效果"。
@@ -510,6 +559,8 @@ M6-19收尾回读：Mira PR#79的pull_request run37332976997在当前pin 0a099ba
 
 ## MIRA-20261013-001：`Result<T>::value()` 对 error 态未定义行为解引用
 
+- 状态：Open；日期：2026-10-13；负责人：Mirage 维护者，处理方：Mira 上游；上游：
+  未提交（待维护者评估提交时机与形态）。
 - 公开API核对：`include/mira/core_contracts.hpp` 的 `Result<T>::value()`（约 260-262 行）
   对 error 态（`value_` 为空 `std::optional`）直接 `return *value_;`，无断言、无防线；
   `error()` 同理返回空 optional 的解引用。属公开 API 形状，不是使用错误。
@@ -526,6 +577,93 @@ M6-19收尾回读：Mira PR#79的pull_request run37332976997在当前pin 0a099ba
 - 延期影响：Mirage 侧测试规范补充"`.value()` 只能用于字面量已验证合法的常量"
   约定并自查；产品代码不受影响（error 路径均检查）。
 - 验收：上游交付防线后，本条归档；Mirage 测试中的 `.value()` 惯用法按新语义复核。
+- Mirage 侧临时措施落地（2026-10-16）：测试支撑头以静态断言/注释约定固化
+  "`.value()` 只能用于字面量已验证合法的常量"，见 `tests/support` 引用本编号的说明。
+
+<a id="mira-20261016-001"></a>
+
+## MIRA-20261016-001：语义相似度计算能力（M10 记忆系统前瞻确认）
+
+- 状态：Proposed（前瞻登记，未提交上游）；日期：2026-10-16；负责人：Mirage 维护者。
+- 来源：[M10 预备清单](../plans/m11-pre-work-checklist.md)第 1.5 节"依赖能力确认"预留
+  本编号：需与 Mira 维护者确认 pinned mira 是否计划提供语义相似度计算（版本、API 形式），
+  若无则确认是否接受本反馈条目。编号按"一经引用不得复用"规则先行占位。
+- 预期需求：记忆系统（M10+）需要查询-记忆相关性评分；候选 fallback 为关键词 Jaccard
+  相似度（召回率待标注测试集验证）或本地 embedding 模型（M12 评估）。
+- 下一步：M10 预备清单"依赖能力确认"完成后，本条转 Open（登记正式缺口与最小能力）
+  或 Rejected（确认由宿主/其他承载方解决）；在此之前不向 Mira 上游提交、不引入
+  embedding 运行时。
+
+<a id="mira-20261016-002"></a>
+
+## MIRA-20261016-002：会话循环对 provider error 与输出截断的韧性/续写语义缺失（DEC-085 系列，追记）
+
+- 状态：Resolved（追记登记）；日期：2026-10-16（缺口与修复实际发生于 2026-10-13）；负责人：Mirage 维护者，处理方：Mira 上游。
+- 追记说明：三项上游交付在 DEC-085 实施期间经维护者授权合并并消费，但未按 9.4 登记
+  台账条目；本条为 2026-10-16 台账一致性整改（REUSE-18）的补登记，证据沿用既有审计
+  与兼容性记录，不新增声明。
+- 缺口（当时核对 pinned `57c3062`）：Messages SSE 解析器把 provider `error` 事件一律
+  判为协议违规（整轮失败，无恢复价值）；对容忍的 max_tokens 截断，恢复反馈不区分
+  形态（generic answer-with-text 复现同样截断并烧毁恢复预算）；截断续写只能整轮重
+  生成（部分文本丢弃、上下文重复计费）。
+- 上游交付（均已授权合并、Mirage 随 pin 消费并复验）：
+  - [PR#91](https://github.com/Linductor-alkaid/mira/pull/91)（merge `bb39738`，closes
+    upstream issue #90）：provider error 事件按 overloaded/rate-limit/timeout/transport
+    分类进循环恢复白名单（retryable），client 错误按自身 code fail-closed，未知类型
+    fail-closed；容忍尾随 ping 与 message_stop 后重复 message_stop，post-terminal
+    垃圾仍拒绝。
+  - [PR#92](https://github.com/Linductor-alkaid/mira/pull/92)（merge `5791d2d`）：被容忍
+    的 max_tokens 截断（Incomplete 无可用文本）的恢复反馈改为"只请求简洁纯文本"，
+    不再诱导工具调用与长思考。
+  - [PR#93](https://github.com/Linductor-alkaid/mira/pull/93)（merge `1befa45`）：
+    `max_output_continuations`（默认 2，独立于 recoveries）——部分文本截断保留为
+    assistant 轮并从切点继续，截断在工具调用中的回复丢弃不执行，纯思考截断请求
+    简洁纯文本；耗尽以显式输出上限摘要结算。
+- 验收证据：[DEC-085](../decisions/DEC-085-session-loop-resilience-and-tool-failure-handling.md)、
+  [会话韧性修复记录](../compatibility/session-resilience-fix-20261013.md)、
+  dependencies.lock.json notes（DEC-085 系列）。Mirage 侧消费为 ConversationLoop 恢复
+  预算与有界非流式重试的最后兜底层。
+
+<a id="mira-20261016-003"></a>
+
+## MIRA-20261016-003：kairo 0.7.0 延期能力（QoS 标注与 AdaptiveScheduler）触发条件跟踪
+
+- 状态：Open（分层采用延期，非缺陷）；日期：2026-10-16（实际升级发生于 2026-10-13/15）；负责人：Mirage 维护者。
+- 背景：kairo pin 经上游 [PR#89](https://github.com/Linductor-alkaid/mira/pull/89)
+  （merge `99461b3`）自 v0.6.0 升级至 v0.7.0（`32027c2`，additive release，零代码迁移，
+  上游 DEC-054）。按上游分层采用策略：`SchedulingMetrics`（`get_scheduling_metrics()`）
+  现已可用；**QoS 标注与 `AdaptiveScheduler` 注入延期**，由上游记录触发条件；
+  `FeedbackAggregator` 绑定 `wants_feedback()` 调度器；CPU/GPU 选择不适用。
+- 为什么登记：延期的能力是"未来条件触发后 Mirage 应跟进消费"的依赖能力项，此前仅有
+  供应链审计文档承接，无台账跟踪；按 9.4 补登记（REUSE-18）。
+- 跟进：触发条件与采用评估见
+  [kairo 0.7.0 升级审计](../supply-chain/mira-kairo-070-20261013.md)与 lock notes
+  （MNT-2026-10-14/15 段）；触发条件满足时由维护者评估 QoS 标注/AdaptiveScheduler
+  的授权消费，本条随之收口。
+- 影响：当前无行为缺口——Mirage 任务面继续以 tier-0（默认调度 + SchedulingMetrics）
+  运行；不预建 QoS/自适应调度消费代码。
+
+<a id="mira-20261016-004"></a>
+
+## MIRA-20261016-004：观察管线无 RGBA→PNG 转码缝，宿主需自维护 DEFLATE/PNG 编码器
+
+- 状态：Open（临时方案在合法 Adapter 边界内运行）；日期：2026-10-16；负责人：Mirage 维护者，处理方：Mira/Mirador 上游（待评估提交）。
+- 版本与核对：pinned mira `a29374a`。`include/mira/observation.hpp`（约 181 行）明示
+  "RGBA → PNG"转码由 host 负责；核对 mira/mirador 公开头与其 third_party（kairo、
+  mbedtls、sqlite、googletest），均不提供 PNG/DEFLATE 编码能力。已排除 API 选型与
+  配置问题：桌面截图工具需要把 RGBA 帧编码为 PNG artifact 供下一轮 ImagePart 供给
+  （M7-04/05 交付链），该步骤无承载方。
+- 影响：`integration/mira/src/desktop_png.cpp`（约 340 行）自研 PNG 编码器（固定
+  Huffman + LZ77 哈希链、Adler-32、CRC-32、行滤波）是仓库内最重的自维护编解码器，
+  承担压缩正确性与跨平台行为责任；无上游对齐基准。
+- 最小期望能力：mira 观察管线或 mirador 图像模块提供有界的 RGBA→PNG 编码（预算、
+  错误契约与既有 artifact 语义一致），或明示推荐的宿主侧最小实现契约。
+- 临时方案与边界：维持 `desktop_png.cpp` 于 integration/mira Adapter 边界内；不创建
+  线程/队列/调度器；编码经 Executor 管理的任务执行。移除条件：上游交付等价编码能力
+  并经授权消费、复验后删除自研实现。
+- 验收：替换后现有 PNG artifact/识图链路 fixture 与三方言供给回归不回退；编码输出
+  经独立解码器校验。未运行验证的负责人：Mirage 维护者；补跑条件：上游能力交付。
+- 关联：REUSE-04（[整改计划](../plans/dependency-reuse-remediation.md)）。
 
 <a id="mira-20261014-004"></a>
 
@@ -784,3 +922,16 @@ PASS——新增永久回归测试 `large_tool_receipts_drive_checkpoint_compact
   新增 `multibyte_anchor_stays_valid_utf8`（CJK 长文本切点落于码点内，断言锚点首字节
   非 continuation、尾部码点完好、续写到达 Answered）。mira Debug 108/108、门禁全过、
   24 项 checks 绿后授权合并；Mirage pin 随授权消费（gitlink + lock 同步）。
+
+
+2026-10-15：MIRA-20261015-002 上游 PR #99 已授权合并，Mirage pin 与锁文件
+升级至 a29374a；验收及许可证审计见
+[持续循环 pin 升级](../supply-chain/mira-continuous-loop-20261015.md)。本次明确保留
+Finite 产品行为，M9-03 仍需接线，不能把 pin 前滚等同于原长任务问题修复。
+
+
+2026-10-15：a29374a 消费验收完成：干净升级工作树 Debug 82/82，当前工作区
+84/84，ASAN/UBSAN 各 5/5；消费侧链接新库的持续循环契约与完整 native 产品
+构建通过。MIRA-20261015-002 标记 Resolved（公开能力范围），M9-02 完成；
+产品持续策略与 16/32 替换仍由 M9-03 实施。升级交付为
+[Mirage PR #97](https://github.com/Linductor-alkaid/mirage/pull/97)，审计记录含平台限制。

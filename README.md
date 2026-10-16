@@ -11,7 +11,7 @@ Mirage 是基于 [Mira](https://github.com/Linductor-alkaid/mira) 构建的 Linu
 
 已采用 EUI-NEO 原生前端；旧 TS/CEF 与 Web 调试桥已按 DEC-037 退役。构建并打开：
 `cmake --preset native-release`，
-`cmake --build --preset native-release --target mirage mirage-tray mirage-native`，
+`cmake --build --preset native-release --target mirage-native-product`，
 `./build/native-release/apps/mirage start`。
 托盘内嵌 Agent Runtime，持有独立前端子进程；窗口关闭保留任务，托盘退出有活动工作时
 要求确认。无在线托盘不能打开前端，Linux 需要 SNI 通知区宿主。模型设置与无屏幕通用

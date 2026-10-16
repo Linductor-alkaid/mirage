@@ -1,0 +1,2318 @@
+{
+  "schema": 1,
+  "date": "2026-10-16",
+  "work_items": [
+    "M7-21",
+    "M7-22"
+  ],
+  "artifact_root": "/home/linductor/mirage/build/mirador-visual-review-20261016",
+  "upstream": "https://github.com/Linductor-alkaid/mirador/issues/36",
+  "ledger": "MIRADOR-20261016-001",
+  "parameters": {
+    "rec_width": 640,
+    "min_length": 16,
+    "deviation_tolerance": 4
+  },
+  "baseline_quality": {
+    "passed": 5,
+    "total": 11
+  },
+  "product_quality": {
+    "passed": 7,
+    "total": 11
+  },
+  "reviews": {
+    "geometry": {
+      "product_verdict": "Pass",
+      "product_review": "四个预设矩形已全部恢复；额外三角是合法闭合几何。两行文字和加号识别正确。圆和开放折线不在矩形召回承诺内；加号 OCR 框仍较大，没有交互语义。",
+      "ocr": 3,
+      "geometry": 5,
+      "report_sha256": "9088abdd7c8f97c52aa8aa717be68fc4227600b982eb35357bb9ff4a9078f3e4"
+    },
+    "line-lengths": {
+      "product_verdict": "Pass",
+      "product_review": "产品默认 640：8/8 预定义文字精确匹配，原来缺失的英文和退化为 a 的代码行恢复。",
+      "ocr": 8,
+      "geometry": 0,
+      "report_sha256": "8eff9cecd8f676322e6c22508ae37029d108f1d079cbb601f8964a7f744913b1"
+    },
+    "host-crop": {
+      "product_verdict": "Fail",
+      "product_review": "正文 OCR 从 6 区增至 10 区、几何碎片从 5 区降至 0；长正文仍丢字/错字，图标误读仍在，因此未通过。",
+      "ocr": 10,
+      "geometry": 0,
+      "report_sha256": "13eefbba8f9199e46bec3cdf708a52c0a487e4954e7f797a06f8c0eeeec45a1c"
+    },
+    "public-example": {
+      "product_verdict": "Fail",
+      "product_review": "英文三行恢复、中文漏“勿”已恢复；Arabic/Cyrillic 仍大量错读，不通过整图多语言验收。",
+      "ocr": 18,
+      "geometry": 0,
+      "report_sha256": "56361132cf87d3a08c814b1e216fd7ee5fa9aa4e0aacf13b2e63af49312b4801"
+    },
+    "public-python": {
+      "product_verdict": "Fail",
+      "product_review": "标题和 Guide 长行恢复；两条说明行仍有错字、放大镜仍误读为 0，未通过。",
+      "ocr": 29,
+      "geometry": 0,
+      "report_sha256": "b52897fb89d4ebcf60c5da010d080ae14c598251b8e60b4dbddbae2ea6e97e74"
+    },
+    "terminal-dark": {
+      "product_verdict": "Fail",
+      "product_review": "精确匹配 16/17；代码、路径、小字恢复，但 } 仍读成 1，未通过。",
+      "ocr": 17,
+      "geometry": 0,
+      "report_sha256": "7cd48202648624c0e3a606c90f495af643a5696e1f181e76cb2d43058b63b5d0"
+    },
+    "form-light": {
+      "product_verdict": "Pass",
+      "product_review": "21/21 文本精确匹配，框与编号正确；禁用按钮仍有可见区域编号，不代表可点击。",
+      "ocr": 21,
+      "geometry": 0,
+      "report_sha256": "2bdc5a7ed5d6e874e34d6f2688fd080ee52b81459d81fb2d774bd1cfad0046f6"
+    },
+    "video-0": {
+      "product_verdict": "Pass",
+      "product_review": "解码视频当前帧 4/4 文字正确，目标位置和编号正确。",
+      "ocr": 4,
+      "geometry": 0,
+      "report_sha256": "bbaf2f76e6b551f7442f1b55287bd290e86b0b8dbd2f0973a64ccb69a8c2b6c4"
+    },
+    "video-1": {
+      "product_verdict": "Pass",
+      "product_review": "解码视频当前帧 4/4 文字正确，目标右移 210px 后框对应。",
+      "ocr": 4,
+      "geometry": 0,
+      "report_sha256": "42cb4c49a268e2450d1535bb4442bbcfbc0ba645a12c0602e09449fff9448ca3"
+    },
+    "video-2": {
+      "product_verdict": "Pass",
+      "product_review": "解码视频当前帧 4/4 文字正确，再次右移 210px 后框对应。",
+      "ocr": 4,
+      "geometry": 0,
+      "report_sha256": "c1fdacd7dc944ecc62de07cf5f19810a2cf8a2ba2df4b528e639e5734b6a4114"
+    },
+    "blank": {
+      "product_verdict": "Pass",
+      "product_review": "0 区域/0 编号；标注图与白屏原图像素相同。",
+      "ocr": 0,
+      "geometry": 0,
+      "report_sha256": "94d499e4bdccc06c4f7e6d091b0f26fffa4586a3a78c578e6bc9f3923efc7814"
+    }
+  },
+  "geometry_ablation": {
+    "cases": 72,
+    "explicit_refusals": 2
+  },
+  "capabilities": {
+    "change": [
+      {
+        "sample": "identical",
+        "strict": false,
+        "classification": 0,
+        "reason": 0,
+        "similarity": 1,
+        "area_ratio": 0,
+        "rois": []
+      },
+      {
+        "sample": "identical",
+        "strict": true,
+        "classification": 0,
+        "reason": 0,
+        "similarity": 1,
+        "area_ratio": 0,
+        "rois": []
+      },
+      {
+        "sample": "small-edit",
+        "strict": false,
+        "classification": 0,
+        "reason": 0,
+        "similarity": 1,
+        "area_ratio": 0,
+        "rois": []
+      },
+      {
+        "sample": "small-edit",
+        "strict": true,
+        "classification": 0,
+        "reason": 0,
+        "similarity": 1,
+        "area_ratio": 0,
+        "rois": []
+      },
+      {
+        "sample": "translation",
+        "strict": false,
+        "classification": 1,
+        "reason": 1,
+        "similarity": 0.921875,
+        "area_ratio": 0.390625,
+        "rois": [
+          [
+            0,
+            0,
+            750,
+            595
+          ]
+        ]
+      },
+      {
+        "sample": "translation",
+        "strict": true,
+        "classification": 2,
+        "reason": 1,
+        "similarity": 0.921875,
+        "area_ratio": 0.53515625,
+        "rois": [
+          [
+            0,
+            0,
+            1000,
+            680
+          ]
+        ]
+      },
+      {
+        "sample": "scene-replace",
+        "strict": false,
+        "classification": 2,
+        "reason": 1,
+        "similarity": 0.5,
+        "area_ratio": 1,
+        "rois": [
+          [
+            0,
+            0,
+            1000,
+            680
+          ]
+        ]
+      },
+      {
+        "sample": "scene-replace",
+        "strict": true,
+        "classification": 2,
+        "reason": 1,
+        "similarity": 0.5,
+        "area_ratio": 1,
+        "rois": [
+          [
+            0,
+            0,
+            1000,
+            680
+          ]
+        ]
+      }
+    ],
+    "small_edit_roi_classification": 1,
+    "shift": {
+      "dx": 15.625,
+      "dy": -10.625,
+      "confidence": 0.6069719195365906,
+      "expected_dx": 12,
+      "expected_dy": -8
+    },
+    "index": [
+      {
+        "sample": "same",
+        "hits": [
+          {
+            "id": 1001,
+            "tier": 0,
+            "similarity": 1
+          }
+        ]
+      },
+      {
+        "sample": "translated",
+        "hits": [
+          {
+            "id": 1001,
+            "tier": 0,
+            "similarity": 1
+          }
+        ]
+      },
+      {
+        "sample": "removed",
+        "hits": []
+      }
+    ],
+    "fusion": {
+      "regions": 1,
+      "source_mask": 18,
+      "same_id": true,
+      "old_generation_rejected": true
+    },
+    "experimental_tracker_psr5": [
+      {
+        "sample": "same",
+        "psr_threshold": 5,
+        "ok": true,
+        "milliseconds": 144.876418,
+        "dx": 0,
+        "dy": 0,
+        "ncc": 1,
+        "psr": 4.580167602546174,
+        "outcome": 0
+      },
+      {
+        "sample": "translated",
+        "psr_threshold": 5,
+        "ok": true,
+        "milliseconds": 140.205671,
+        "dx": 12,
+        "dy": -8,
+        "ncc": 1,
+        "psr": 4.759129884932088,
+        "outcome": 0
+      },
+      {
+        "sample": "removed",
+        "psr_threshold": 5,
+        "ok": true,
+        "milliseconds": 203.221224,
+        "dx": 0,
+        "dy": 0,
+        "ncc": 0,
+        "psr": 0,
+        "outcome": 0
+      },
+      {
+        "sample": "imposter",
+        "psr_threshold": 5,
+        "ok": true,
+        "milliseconds": 154.775714,
+        "dx": 7,
+        "dy": -8,
+        "ncc": 0.46424877030336253,
+        "psr": 2.0178271329514286,
+        "outcome": 0
+      }
+    ],
+    "tracker_cancel_psr5": true,
+    "experimental_tracker_psr4": [
+      {
+        "sample": "same",
+        "psr_threshold": 4,
+        "ok": true,
+        "milliseconds": 148.680093,
+        "dx": 0,
+        "dy": 0,
+        "ncc": 1,
+        "psr": 4.580167602546174,
+        "outcome": 2
+      },
+      {
+        "sample": "translated",
+        "psr_threshold": 4,
+        "ok": true,
+        "milliseconds": 142.74572,
+        "dx": 12,
+        "dy": -8,
+        "ncc": 1,
+        "psr": 4.759129884932088,
+        "outcome": 2
+      },
+      {
+        "sample": "removed",
+        "psr_threshold": 4,
+        "ok": true,
+        "milliseconds": 140.931839,
+        "dx": 0,
+        "dy": 0,
+        "ncc": 0,
+        "psr": 0,
+        "outcome": 0
+      },
+      {
+        "sample": "imposter",
+        "psr_threshold": 4,
+        "ok": true,
+        "milliseconds": 138.778049,
+        "dx": 7,
+        "dy": -8,
+        "ncc": 0.46424877030336253,
+        "psr": 2.0178271329514286,
+        "outcome": 0
+      }
+    ],
+    "tracker_cancel_psr4": true,
+    "index_budget": true
+  },
+  "real_ocr_cache": {
+    "runs": [
+      {
+        "stage": 0,
+        "backend_calls": 1,
+        "regions": 21,
+        "same_result": false,
+        "milliseconds": 3200.196041
+      },
+      {
+        "stage": 1,
+        "backend_calls": 1,
+        "regions": 21,
+        "same_result": true,
+        "milliseconds": 1.716821
+      },
+      {
+        "stage": 2,
+        "backend_calls": 2,
+        "regions": 21,
+        "same_result": false,
+        "milliseconds": 2224.121258
+      },
+      {
+        "stage": 3,
+        "backend_calls": 3,
+        "regions": 21,
+        "same_result": false,
+        "milliseconds": 1763.728399
+      },
+      {
+        "stage": 4,
+        "backend_calls": 4,
+        "regions": 9,
+        "same_result": false,
+        "milliseconds": 1069.063774
+      }
+    ],
+    "cancelled": true,
+    "timed_out": true,
+    "final_calls": 4
+  },
+  "product_execution": {
+    "samples": [
+      {
+        "name": "public-example",
+        "source": "https://example.com",
+        "truth": [
+          {
+            "text": "This domain is for use in documentation examples without needing permission. This is not a service; avoid relying on it for testing and monitoring purposes.",
+            "bounds": [
+              310.84375,
+              187,
+              378.296875,
+              22
+            ]
+          },
+          {
+            "text": "This domain is for use in documentation examples without needing permission. This is not a service; avoid relying on it for testing and monitoring purposes.",
+            "bounds": [
+              292.75,
+              212.59375,
+              414.484375,
+              22
+            ]
+          },
+          {
+            "text": "This domain is for use in documentation examples without needing permission. This is not a service; avoid relying on it for testing and monitoring purposes.",
+            "bounds": [
+              314.140625,
+              238.1875,
+              371.71875,
+              22
+            ]
+          },
+          {
+            "text": "هذا النطاق مُخصص للاستخدام في أمثلة التوثيق دون الحاجة إلى إذن. هذه ليست خدمة، يُرجى تجنب الاعتماد عليها لأغراض الاختبار والمراقبة.",
+            "bounds": [
+              299.53125,
+              279.78125,
+              400.9375,
+              19
+            ]
+          },
+          {
+            "text": "هذا النطاق مُخصص للاستخدام في أمثلة التوثيق دون الحاجة إلى إذن. هذه ليست خدمة، يُرجى تجنب الاعتماد عليها لأغراض الاختبار والمراقبة.",
+            "bounds": [
+              318.109375,
+              302.171875,
+              363.765625,
+              19
+            ]
+          },
+          {
+            "text": "该域名仅用于文档示例，无需获得许可。这并非一项服务，请勿将其用于测试和监控目的。",
+            "bounds": [
+              297,
+              338.5625,
+              406,
+              19
+            ]
+          },
+          {
+            "text": "该域名仅用于文档示例，无需获得许可。这并非一项服务，请勿将其用于测试和监控目的。",
+            "bounds": [
+              423,
+              360.953125,
+              154,
+              19
+            ]
+          },
+          {
+            "text": "L’usage de ce domaine est réservé à des exemples de documentation, sans autorisation préalable.  Il ne s’agit pas d’un service ; son utilisation à des fins de test ou de surveillance est à éviter.",
+            "bounds": [
+              325.6875,
+              397.34375,
+              348.609375,
+              19
+            ]
+          },
+          {
+            "text": "L’usage de ce domaine est réservé à des exemples de documentation, sans autorisation préalable.  Il ne s’agit pas d’un service ; son utilisation à des fins de test ou de surveillance est à éviter.",
+            "bounds": [
+              306.640625,
+              419.734375,
+              386.71875,
+              19
+            ]
+          },
+          {
+            "text": "L’usage de ce domaine est réservé à des exemples de documentation, sans autorisation préalable.  Il ne s’agit pas d’un service ; son utilisation à des fins de test ou de surveillance est à éviter.",
+            "bounds": [
+              332.0625,
+              442.125,
+              335.875,
+              19
+            ]
+          },
+          {
+            "text": "L’usage de ce domaine est réservé à des exemples de documentation, sans autorisation préalable.  Il ne s’agit pas d’un service ; son utilisation à des fins de test ou de surveillance est à éviter.",
+            "bounds": [
+              422.4375,
+              464.515625,
+              155.125,
+              19
+            ]
+          },
+          {
+            "text": "Данный домен предназначен для использования в примерах документации без необходимости получения предварительного разрешения. Это не сервис; не рекомендуется его использование для тестирования и мониторинга.",
+            "bounds": [
+              322.515625,
+              500.90625,
+              354.953125,
+              19
+            ]
+          },
+          {
+            "text": "Данный домен предназначен для использования в примерах документации без необходимости получения предварительного разрешения. Это не сервис; не рекомендуется его использование для тестирования и мониторинга.",
+            "bounds": [
+              305.796875,
+              523.296875,
+              388.40625,
+              19
+            ]
+          },
+          {
+            "text": "Данный домен предназначен для использования в примерах документации без необходимости получения предварительного разрешения. Это не сервис; не рекомендуется его использование для тестирования и мониторинга.",
+            "bounds": [
+              327.109375,
+              545.6875,
+              345.765625,
+              19
+            ]
+          },
+          {
+            "text": "Данный домен предназначен для использования в примерах документации без необходимости получения предварительного разрешения. Это не сервис; не рекомендуется его использование для тестирования и мониторинга.",
+            "bounds": [
+              310.453125,
+              568.078125,
+              379.09375,
+              19
+            ]
+          },
+          {
+            "text": "Данный домен предназначен для использования в примерах документации без необходимости получения предварительного разрешения. Это не сервис; не рекомендуется его использование для тестирования и мониторинга.",
+            "bounds": [
+              451.984375,
+              590.46875,
+              96.03125,
+              19
+            ]
+          },
+          {
+            "text": "Este dominio está destinado al uso en ejemplos de documentación sin necesidad de permiso. Esto no es un servicio; evitar utilizarlo para realizar pruebas o monitoreos.",
+            "bounds": [
+              333.84375,
+              626.859375,
+              332.296875,
+              19
+            ]
+          },
+          {
+            "text": "Este dominio está destinado al uso en ejemplos de documentación sin necesidad de permiso. Esto no es un servicio; evitar utilizarlo para realizar pruebas o monitoreos.",
+            "bounds": [
+              315.703125,
+              649.25,
+              368.578125,
+              19
+            ]
+          }
+        ],
+        "exit_code": 0,
+        "source_sha256": "078d5f1e17c54ebb3de8d93ee5dc4ac0a37ce57b69e86f60f453b7b339bbf5ae",
+        "process_wall_seconds": 2.004683937993832,
+        "process_max_rss_kib": 361732,
+        "capture_pixels_exact": true,
+        "raw_pixels_sha256": "d883a89b5b8ced2c73c46b9960706ad9f1492a9f578345fe3adeb97495b15674",
+        "region_count": 18,
+        "ocr_count": 18,
+        "geometry_count": 0,
+        "backend_calls": 1
+      },
+      {
+        "name": "public-python",
+        "source": "https://www.python.org/downloads/",
+        "truth": [
+          {
+            "text": "Skip to content",
+            "bounds": [
+              11,
+              12,
+              29.1875,
+              18
+            ]
+          },
+          {
+            "text": "Skip to content",
+            "bounds": [
+              11,
+              40,
+              13.921875,
+              18
+            ]
+          },
+          {
+            "text": "Skip to content",
+            "bounds": [
+              11,
+              68,
+              51.78125,
+              18
+            ]
+          },
+          {
+            "text": "Python",
+            "bounds": [
+              59.25,
+              16,
+              48.140625,
+              18
+            ]
+          },
+          {
+            "text": "PSF",
+            "bounds": [
+              237.34375,
+              16,
+              25.265625,
+              18
+            ]
+          },
+          {
+            "text": "Docs",
+            "bounds": [
+              400.4375,
+              16,
+              32.40625,
+              18
+            ]
+          },
+          {
+            "text": "PyPI",
+            "bounds": [
+              568.359375,
+              16,
+              29.859375,
+              18
+            ]
+          },
+          {
+            "text": "Jobs",
+            "bounds": [
+              734.03125,
+              16,
+              31.828125,
+              18
+            ]
+          },
+          {
+            "text": "Community",
+            "bounds": [
+              877.3125,
+              16,
+              78.578125,
+              18
+            ]
+          },
+          {
+            "text": "Donate",
+            "bounds": [
+              479.390625,
+              101.390625,
+              48.578125,
+              18
+            ]
+          },
+          {
+            "text": "Search This Site",
+            "bounds": [
+              551.15625,
+              131.96875,
+              45.78125,
+              18
+            ]
+          },
+          {
+            "text": "Search This Site",
+            "bounds": [
+              551.15625,
+              147.96875,
+              27.828125,
+              18
+            ]
+          },
+          {
+            "text": "Search This Site",
+            "bounds": [
+              551.15625,
+              163.96875,
+              25.625,
+              18
+            ]
+          },
+          {
+            "text": "GO",
+            "bounds": [
+              850.125,
+              98.375,
+              20.328125,
+              18
+            ]
+          },
+          {
+            "text": "Socialize",
+            "bounds": [
+              907.828125,
+              102.078125,
+              59.171875,
+              18
+            ]
+          },
+          {
+            "text": "About",
+            "bounds": [
+              88.625,
+              178.453125,
+              46.28125,
+              21
+            ]
+          },
+          {
+            "text": "Downloads",
+            "bounds": [
+              180.546875,
+              178.453125,
+              85.9375,
+              21
+            ]
+          },
+          {
+            "text": "Documentation",
+            "bounds": [
+              312.125,
+              178.453125,
+              119.953125,
+              21
+            ]
+          },
+          {
+            "text": "Community",
+            "bounds": [
+              477.71875,
+              178.453125,
+              90.03125,
+              21
+            ]
+          },
+          {
+            "text": "Success Stories",
+            "bounds": [
+              613.390625,
+              178.453125,
+              117.828125,
+              21
+            ]
+          },
+          {
+            "text": "News",
+            "bounds": [
+              776.859375,
+              178.453125,
+              41.53125,
+              21
+            ]
+          },
+          {
+            "text": "Events",
+            "bounds": [
+              864.03125,
+              178.453125,
+              51.328125,
+              21
+            ]
+          },
+          {
+            "text": "Download the latest source release",
+            "bounds": [
+              32,
+              245.65625,
+              424.703125,
+              32
+            ]
+          },
+          {
+            "text": "Download Python 3.15.0",
+            "bounds": [
+              45,
+              302.609375,
+              162.5625,
+              18
+            ]
+          },
+          {
+            "text": "Looking for Python with a different OS? Python for",
+            "bounds": [
+              32,
+              342.203125,
+              337.28125,
+              18
+            ]
+          },
+          {
+            "text": "Windows",
+            "bounds": [
+              369.28125,
+              342.203125,
+              60.90625,
+              18
+            ]
+          },
+          {
+            "text": ",",
+            "bounds": [
+              430.1875,
+              342.203125,
+              7.203125,
+              18
+            ]
+          },
+          {
+            "text": "Linux/Unix",
+            "bounds": [
+              437.390625,
+              342.203125,
+              71.9375,
+              18
+            ]
+          },
+          {
+            "text": ",",
+            "bounds": [
+              509.328125,
+              342.203125,
+              7.203125,
+              18
+            ]
+          },
+          {
+            "text": "macOS",
+            "bounds": [
+              516.53125,
+              342.203125,
+              47.734375,
+              18
+            ]
+          },
+          {
+            "text": ",",
+            "bounds": [
+              564.265625,
+              342.203125,
+              3.984375,
+              18
+            ]
+          },
+          {
+            "text": "Android",
+            "bounds": [
+              32,
+              368.203125,
+              53.09375,
+              18
+            ]
+          },
+          {
+            "text": ",",
+            "bounds": [
+              85.09375,
+              368.203125,
+              7.203125,
+              18
+            ]
+          },
+          {
+            "text": "iOS",
+            "bounds": [
+              92.296875,
+              368.203125,
+              22.9375,
+              18
+            ]
+          },
+          {
+            "text": ",",
+            "bounds": [
+              115.234375,
+              368.203125,
+              7.203125,
+              18
+            ]
+          },
+          {
+            "text": "other",
+            "bounds": [
+              122.4375,
+              368.203125,
+              36.3125,
+              18
+            ]
+          },
+          {
+            "text": "Want to help test development versions of Python 3.15?",
+            "bounds": [
+              32,
+              399.796875,
+              373.1875,
+              18
+            ]
+          },
+          {
+            "text": "Pre-releases",
+            "bounds": [
+              405.1875,
+              399.796875,
+              82.328125,
+              18
+            ]
+          },
+          {
+            "text": ",",
+            "bounds": [
+              487.515625,
+              399.796875,
+              7.203125,
+              18
+            ]
+          },
+          {
+            "text": "Docker images",
+            "bounds": [
+              494.71875,
+              399.796875,
+              46.921875,
+              18
+            ]
+          },
+          {
+            "text": "Docker images",
+            "bounds": [
+              32,
+              425.796875,
+              47.890625,
+              18
+            ]
+          },
+          {
+            "text": "Active Python releases",
+            "bounds": [
+              44,
+              557.59375,
+              204.640625,
+              24
+            ]
+          },
+          {
+            "text": "For more information visit the Python Developer's Guide",
+            "bounds": [
+              44,
+              591.1875,
+              374.734375,
+              18
+            ]
+          },
+          {
+            "text": ".",
+            "bounds": [
+              418.734375,
+              591.1875,
+              3.984375,
+              18
+            ]
+          },
+          {
+            "text": "",
+            "bounds": [
+              601.890625,
+              89.890625,
+              224,
+              37.1875
+            ],
+            "kind": "input"
+          }
+        ],
+        "exit_code": 0,
+        "source_sha256": "ac96a78322f779babd03b4885184c9a5fc48e23994aa54392a2e650f4f116b1f",
+        "process_wall_seconds": 2.3172283950116253,
+        "process_max_rss_kib": 367456,
+        "capture_pixels_exact": true,
+        "raw_pixels_sha256": "5747a01387df78faa00d6bee2f92ca90cab3c24f940952d8e9295704937fac98",
+        "region_count": 29,
+        "ocr_count": 29,
+        "geometry_count": 0,
+        "backend_calls": 1
+      },
+      {
+        "name": "form-light",
+        "source": "local browser-rendered fixture",
+        "truth": [
+          {
+            "text": "Mirage 视觉验收 / Review",
+            "bounds": [
+              32,
+              32,
+              358.421875,
+              44
+            ]
+          },
+          {
+            "text": "任务列表 · Task queue",
+            "bounds": [
+              32,
+              92,
+              214.3125,
+              29
+            ]
+          },
+          {
+            "text": "新建任务 New task",
+            "bounds": [
+              55,
+              156,
+              192.09375,
+              32
+            ]
+          },
+          {
+            "text": "名称 Name",
+            "bounds": [
+              55,
+              202,
+              99.8125,
+              29
+            ]
+          },
+          {
+            "text": "状态 Status: Ready",
+            "bounds": [
+              55,
+              328,
+              170.28125,
+              29
+            ]
+          },
+          {
+            "text": "提交 Submit",
+            "bounds": [
+              80,
+              388,
+              112.46875,
+              29
+            ]
+          },
+          {
+            "text": "取消 Cancel",
+            "bounds": [
+              254.46875,
+              388,
+              107.1875,
+              29
+            ]
+          },
+          {
+            "text": "运行状态",
+            "bounds": [
+              537,
+              156,
+              88.015625,
+              32
+            ]
+          },
+          {
+            "text": "任务",
+            "bounds": [
+              539,
+              214,
+              32.015625,
+              24
+            ]
+          },
+          {
+            "text": "进度",
+            "bounds": [
+              633.828125,
+              214,
+              32.015625,
+              24
+            ]
+          },
+          {
+            "text": "屏幕采集",
+            "bounds": [
+              539,
+              261,
+              64.015625,
+              24
+            ]
+          },
+          {
+            "text": "100%",
+            "bounds": [
+              633.828125,
+              261,
+              41.390625,
+              24
+            ]
+          },
+          {
+            "text": "OCR 识别",
+            "bounds": [
+              539,
+              308,
+              67.828125,
+              24
+            ]
+          },
+          {
+            "text": "85%",
+            "bounds": [
+              633.828125,
+              308,
+              32.5,
+              24
+            ]
+          },
+          {
+            "text": "small text: 0123456789 / 保存文件",
+            "bounds": [
+              537,
+              357,
+              215.78125,
+              20
+            ]
+          },
+          {
+            "text": "低对比度提示 Low contrast",
+            "bounds": [
+              537,
+              389,
+              244.171875,
+              29
+            ]
+          },
+          {
+            "text": "注意：编号只代表视觉区域，不保证控件可交互。",
+            "bounds": [
+              32,
+              471,
+              440,
+              29
+            ]
+          },
+          {
+            "text": "保存 Save",
+            "bounds": [
+              57,
+              531,
+              89.09375,
+              29
+            ]
+          },
+          {
+            "text": "设置 Settings",
+            "bounds": [
+              233.09375,
+              531,
+              120.25,
+              29
+            ]
+          },
+          {
+            "text": "帮助 Help",
+            "bounds": [
+              440.34375,
+              531,
+              88.203125,
+              29
+            ]
+          },
+          {
+            "text": "报告 report-2026.pdf",
+            "bounds": [
+              55,
+              253,
+              408,
+              53
+            ],
+            "kind": "input"
+          }
+        ],
+        "exit_code": 0,
+        "source_sha256": "5ffabef6883254375400d30d937ebad81cff5c54d95f467cfc8509aae53abecf",
+        "process_wall_seconds": 0.9599560119968373,
+        "process_max_rss_kib": 362240,
+        "capture_pixels_exact": true,
+        "raw_pixels_sha256": "58b5d6215ee7b7fbaff3f53312764030f313b712cbd135d8d0674b1983cb6c8b",
+        "region_count": 21,
+        "ocr_count": 21,
+        "geometry_count": 0,
+        "backend_calls": 1
+      },
+      {
+        "name": "terminal-dark",
+        "source": "local browser-rendered fixture",
+        "truth": [
+          {
+            "text": "Runtime diagnostics 运行诊断",
+            "bounds": [
+              32,
+              32,
+              429.03125,
+              44
+            ]
+          },
+          {
+            "text": "service.cpp",
+            "bounds": [
+              55,
+              115,
+              123.46875,
+              32
+            ]
+          },
+          {
+            "text": "auto result = executor.submit_auto(task);\nif (!result.get().ok) {\n    report_error(\"capture_failed\");\n}\n// Stop producers before shutdown\nexecutor.shutdown(true);",
+            "bounds": [
+              55,
+              167,
+              394.953125,
+              19
+            ]
+          },
+          {
+            "text": "auto result = executor.submit_auto(task);\nif (!result.get().ok) {\n    report_error(\"capture_failed\");\n}\n// Stop producers before shutdown\nexecutor.shutdown(true);",
+            "bounds": [
+              55,
+              195.796875,
+              221.5625,
+              19
+            ]
+          },
+          {
+            "text": "auto result = executor.submit_auto(task);\nif (!result.get().ok) {\n    report_error(\"capture_failed\");\n}\n// Stop producers before shutdown\nexecutor.shutdown(true);",
+            "bounds": [
+              55,
+              224.59375,
+              337.15625,
+              19
+            ]
+          },
+          {
+            "text": "auto result = executor.submit_auto(task);\nif (!result.get().ok) {\n    report_error(\"capture_failed\");\n}\n// Stop producers before shutdown\nexecutor.shutdown(true);",
+            "bounds": [
+              55,
+              253.390625,
+              9.640625,
+              19
+            ]
+          },
+          {
+            "text": "auto result = executor.submit_auto(task);\nif (!result.get().ok) {\n    report_error(\"capture_failed\");\n}\n// Stop producers before shutdown\nexecutor.shutdown(true);",
+            "bounds": [
+              55,
+              282.1875,
+              317.890625,
+              19
+            ]
+          },
+          {
+            "text": "auto result = executor.submit_auto(task);\nif (!result.get().ok) {\n    report_error(\"capture_failed\");\n}\n// Stop producers before shutdown\nexecutor.shutdown(true);",
+            "bounds": [
+              55,
+              310.984375,
+              231.1875,
+              19
+            ]
+          },
+          {
+            "text": "Session status",
+            "bounds": [
+              537,
+              115,
+              153.75,
+              32
+            ]
+          },
+          {
+            "text": "Task ID: M7-20",
+            "bounds": [
+              537,
+              161,
+              106.125,
+              24
+            ]
+          },
+          {
+            "text": "Capture: 1280 x 800",
+            "bounds": [
+              537,
+              197,
+              144.8125,
+              24
+            ]
+          },
+          {
+            "text": "Latency: 42 ms",
+            "bounds": [
+              537,
+              233,
+              110.171875,
+              24
+            ]
+          },
+          {
+            "text": "任务已完成 / Done",
+            "bounds": [
+              537,
+              269,
+              132.78125,
+              24
+            ]
+          },
+          {
+            "text": "低对比文字 low contrast text",
+            "bounds": [
+              537,
+              305,
+              207.078125,
+              24
+            ]
+          },
+          {
+            "text": "tiny 12px: Cancel / 保存 / retry_count=0",
+            "bounds": [
+              32,
+              386.78125,
+              217.484375,
+              17
+            ]
+          },
+          {
+            "text": "Warning: stale reference @v12",
+            "bounds": [
+              32,
+              415.78125,
+              335.453125,
+              35
+            ]
+          },
+          {
+            "text": "Path: /home/user/project/report.txt",
+            "bounds": [
+              32,
+              462.78125,
+              264.3125,
+              24
+            ]
+          }
+        ],
+        "exit_code": 0,
+        "source_sha256": "051b052c5f6b9c7b6621902622b646fd8905be85ec99145efbb3048fc1a1bac9",
+        "process_wall_seconds": 1.359967972006416,
+        "process_max_rss_kib": 362392,
+        "capture_pixels_exact": true,
+        "raw_pixels_sha256": "c80c77ae80a9126c4f67572e1621b1cc5132c4612563c086cf9765efd63d6c7b",
+        "region_count": 17,
+        "ocr_count": 17,
+        "geometry_count": 0,
+        "backend_calls": 1
+      },
+      {
+        "name": "geometry",
+        "source": "local browser-rendered fixture",
+        "truth": [
+          {
+            "text": "Geometry candidates / 几何候选",
+            "bounds": [
+              32,
+              32,
+              460.78125,
+              44
+            ]
+          },
+          {
+            "text": "Shapes have no semantic labels.",
+            "bounds": [
+              32,
+              92,
+              301.875,
+              29
+            ]
+          }
+        ],
+        "exit_code": 0,
+        "source_sha256": "43b0c41b1b7d83601d60a5dd03c9b06077f8e1ef8d496d0cb30b4933d201039e",
+        "process_wall_seconds": 0.5394888820010237,
+        "process_max_rss_kib": 349004,
+        "capture_pixels_exact": true,
+        "raw_pixels_sha256": "4bf819b9c2e69312bb642714bdf3ab3838d381c40e1507cb70cc7c463c7c6065",
+        "region_count": 8,
+        "ocr_count": 3,
+        "geometry_count": 5,
+        "backend_calls": 1
+      },
+      {
+        "name": "line-lengths",
+        "source": "local independent recognition controls",
+        "truth": [
+          {
+            "text": "Recognition line-length control",
+            "bounds": [
+              32,
+              32,
+              459.90625,
+              44
+            ]
+          },
+          {
+            "text": "Submit task",
+            "bounds": [
+              32,
+              106,
+              132.453125,
+              24
+            ]
+          },
+          {
+            "text": "The quick brown fox jumps",
+            "bounds": [
+              32,
+              160,
+              301.03125,
+              24
+            ]
+          },
+          {
+            "text": "This domain is for use in documentation examples",
+            "bounds": [
+              32,
+              214,
+              577.96875,
+              24
+            ]
+          },
+          {
+            "text": "auto result = executor.submit_auto(task);",
+            "bounds": [
+              32,
+              268,
+              493.6875,
+              24
+            ]
+          },
+          {
+            "text": "report_error(\"capture_failed\");",
+            "bounds": [
+              32,
+              322,
+              373.28125,
+              24
+            ]
+          },
+          {
+            "text": "/home/user/project/report.txt",
+            "bounds": [
+              32,
+              376,
+              349.203125,
+              24
+            ]
+          },
+          {
+            "text": "这是用于验证长文本识别质量的中文句子，请完整保留每一个字。",
+            "bounds": [
+              32,
+              434,
+              580,
+              24
+            ]
+          }
+        ],
+        "expected_lines": [
+          "Submit task",
+          "The quick brown fox jumps",
+          "This domain is for use in documentation examples",
+          "auto result = executor.submit_auto(task);",
+          "report_error(\"capture_failed\");",
+          "/home/user/project/report.txt",
+          "这是用于验证长文本识别质量的中文句子，请完整保留每一个字。"
+        ],
+        "exit_code": 0,
+        "source_sha256": "0479f8e73df319d622e6e4853ab68a6bb40aacc9a5e5d3a9c96bb68f6f0aafe7",
+        "process_wall_seconds": 0.8896401139936643,
+        "process_max_rss_kib": 372628,
+        "capture_pixels_exact": true,
+        "raw_pixels_sha256": "127a5c5b67aa0892fbecd53f26888f3b8d7714f77a03af996748d596b27ad539",
+        "region_count": 8,
+        "ocr_count": 8,
+        "geometry_count": 0,
+        "backend_calls": 1
+      },
+      {
+        "name": "video-0",
+        "source": "local generated video frame",
+        "truth": [
+          {
+            "text": "Video review / 动态画面",
+            "bounds": [
+              32,
+              32,
+              334.890625,
+              44
+            ]
+          },
+          {
+            "text": "Frame 001",
+            "bounds": [
+              32,
+              92,
+              96.46875,
+              29
+            ]
+          },
+          {
+            "text": "Preparing task 准备任务",
+            "bounds": [
+              32,
+              133,
+              219.046875,
+              29
+            ]
+          }
+        ],
+        "frame": 0,
+        "canvas_text": "Target 1",
+        "exit_code": 0,
+        "source_sha256": "3a2d961e35555e90a35b0f6a3d5dee3b6fcd404895488b2e8881b79c09b08276",
+        "process_wall_seconds": 0.5049031950038625,
+        "process_max_rss_kib": 338416,
+        "capture_pixels_exact": true,
+        "raw_pixels_sha256": "c6f9fe0436f5d4b6c08d922cc19b0609086eee7837b85556e76c694dc0286272",
+        "region_count": 4,
+        "ocr_count": 4,
+        "geometry_count": 0,
+        "backend_calls": 1
+      },
+      {
+        "name": "video-1",
+        "source": "local generated video frame",
+        "truth": [
+          {
+            "text": "Video review / 动态画面",
+            "bounds": [
+              32,
+              32,
+              334.890625,
+              44
+            ]
+          },
+          {
+            "text": "Frame 002",
+            "bounds": [
+              32,
+              92,
+              96.46875,
+              29
+            ]
+          },
+          {
+            "text": "Running task 执行任务",
+            "bounds": [
+              32,
+              133,
+              205.90625,
+              29
+            ]
+          }
+        ],
+        "frame": 1,
+        "canvas_text": "Target 2",
+        "exit_code": 0,
+        "source_sha256": "3775ce2a81d0e29deb259b7593b5942895848aee22e4b778b3d891ec2e945eac",
+        "process_wall_seconds": 0.5125744999968447,
+        "process_max_rss_kib": 338460,
+        "capture_pixels_exact": true,
+        "raw_pixels_sha256": "6c24e94aacbbf54392d328f9cd0cab75d51b42149ecc1a2823358c6024974f5d",
+        "region_count": 4,
+        "ocr_count": 4,
+        "geometry_count": 0,
+        "backend_calls": 1
+      },
+      {
+        "name": "video-2",
+        "source": "local generated video frame",
+        "truth": [
+          {
+            "text": "Video review / 动态画面",
+            "bounds": [
+              32,
+              32,
+              334.890625,
+              44
+            ]
+          },
+          {
+            "text": "Frame 003",
+            "bounds": [
+              32,
+              92,
+              96.46875,
+              29
+            ]
+          },
+          {
+            "text": "Task completed 任务完成",
+            "bounds": [
+              32,
+              133,
+              231,
+              29
+            ]
+          }
+        ],
+        "frame": 2,
+        "canvas_text": "Target 3",
+        "exit_code": 0,
+        "source_sha256": "5117fffa6feb49bf4dc00cc0ff514db4fbb187bd78988a1476dd34f96379b729",
+        "process_wall_seconds": 0.5318531340017216,
+        "process_max_rss_kib": 338120,
+        "capture_pixels_exact": true,
+        "raw_pixels_sha256": "e6f6599cbf26a3c63009f2b6d64ffb388733457da543f6469f6fd862a7b422ed",
+        "region_count": 4,
+        "ocr_count": 4,
+        "geometry_count": 0,
+        "backend_calls": 1
+      },
+      {
+        "name": "blank",
+        "source": "negative control: no text or objects",
+        "truth": [],
+        "exit_code": 0,
+        "source_sha256": "afd26c5ed818a7451fb8e5ae833dc9fc05c8c48ad95f8799fbffafc0e85154ad",
+        "process_wall_seconds": 0.4176522210036637,
+        "process_max_rss_kib": 337500,
+        "capture_pixels_exact": true,
+        "raw_pixels_sha256": "42265c1374ab4e787ca1121c3e48c652f854b17537196630d2e0af9f7b401f67",
+        "region_count": 0,
+        "ocr_count": 0,
+        "geometry_count": 0,
+        "backend_calls": 1
+      },
+      {
+        "name": "host-crop",
+        "source": "real Wayland Portal image, crop [1300,390,1400,680]; pixel-local X11 replay",
+        "exit_code": 0,
+        "source_sha256": "4d7640506bc1b66688400fc5d35b96b1102c50ac829414774754af92028b7da4",
+        "process_wall_seconds": 1.1732907959958538,
+        "process_max_rss_kib": 303640,
+        "capture_pixels_exact": true,
+        "raw_pixels_sha256": "021b97aac557d36f531c7c59bed49d3859898880b0fd0440d3676facdd611adf",
+        "region_count": 10,
+        "ocr_count": 10,
+        "geometry_count": 0,
+        "backend_calls": 1
+      }
+    ],
+    "quality_review": "pending",
+    "source": "Private Xvfb; GTK pixel display; actual Mirage ROI ScreenProvider; production PP-OCR + geometry + SoM"
+  },
+  "process_comparison": {
+    "perf320": [
+      {
+        "name": "form-light",
+        "source": "local browser-rendered fixture",
+        "truth": [
+          {
+            "text": "Mirage 视觉验收 / Review",
+            "bounds": [
+              32,
+              32,
+              358.421875,
+              44
+            ]
+          },
+          {
+            "text": "任务列表 · Task queue",
+            "bounds": [
+              32,
+              92,
+              214.3125,
+              29
+            ]
+          },
+          {
+            "text": "新建任务 New task",
+            "bounds": [
+              55,
+              156,
+              192.09375,
+              32
+            ]
+          },
+          {
+            "text": "名称 Name",
+            "bounds": [
+              55,
+              202,
+              99.8125,
+              29
+            ]
+          },
+          {
+            "text": "状态 Status: Ready",
+            "bounds": [
+              55,
+              328,
+              170.28125,
+              29
+            ]
+          },
+          {
+            "text": "提交 Submit",
+            "bounds": [
+              80,
+              388,
+              112.46875,
+              29
+            ]
+          },
+          {
+            "text": "取消 Cancel",
+            "bounds": [
+              254.46875,
+              388,
+              107.1875,
+              29
+            ]
+          },
+          {
+            "text": "运行状态",
+            "bounds": [
+              537,
+              156,
+              88.015625,
+              32
+            ]
+          },
+          {
+            "text": "任务",
+            "bounds": [
+              539,
+              214,
+              32.015625,
+              24
+            ]
+          },
+          {
+            "text": "进度",
+            "bounds": [
+              633.828125,
+              214,
+              32.015625,
+              24
+            ]
+          },
+          {
+            "text": "屏幕采集",
+            "bounds": [
+              539,
+              261,
+              64.015625,
+              24
+            ]
+          },
+          {
+            "text": "100%",
+            "bounds": [
+              633.828125,
+              261,
+              41.390625,
+              24
+            ]
+          },
+          {
+            "text": "OCR 识别",
+            "bounds": [
+              539,
+              308,
+              67.828125,
+              24
+            ]
+          },
+          {
+            "text": "85%",
+            "bounds": [
+              633.828125,
+              308,
+              32.5,
+              24
+            ]
+          },
+          {
+            "text": "small text: 0123456789 / 保存文件",
+            "bounds": [
+              537,
+              357,
+              215.78125,
+              20
+            ]
+          },
+          {
+            "text": "低对比度提示 Low contrast",
+            "bounds": [
+              537,
+              389,
+              244.171875,
+              29
+            ]
+          },
+          {
+            "text": "注意：编号只代表视觉区域，不保证控件可交互。",
+            "bounds": [
+              32,
+              471,
+              440,
+              29
+            ]
+          },
+          {
+            "text": "保存 Save",
+            "bounds": [
+              57,
+              531,
+              89.09375,
+              29
+            ]
+          },
+          {
+            "text": "设置 Settings",
+            "bounds": [
+              233.09375,
+              531,
+              120.25,
+              29
+            ]
+          },
+          {
+            "text": "帮助 Help",
+            "bounds": [
+              440.34375,
+              531,
+              88.203125,
+              29
+            ]
+          },
+          {
+            "text": "报告 report-2026.pdf",
+            "bounds": [
+              55,
+              253,
+              408,
+              53
+            ],
+            "kind": "input"
+          }
+        ],
+        "exit_code": 0,
+        "source_sha256": "5ffabef6883254375400d30d937ebad81cff5c54d95f467cfc8509aae53abecf",
+        "process_wall_seconds": 2.515901563994703,
+        "process_max_rss_kib": 337876,
+        "capture_pixels_exact": true,
+        "raw_pixels_sha256": "58b5d6215ee7b7fbaff3f53312764030f313b712cbd135d8d0674b1983cb6c8b",
+        "region_count": 21,
+        "ocr_count": 21,
+        "geometry_count": 0,
+        "backend_calls": 1
+      },
+      {
+        "name": "line-lengths",
+        "source": "local independent recognition controls",
+        "truth": [
+          {
+            "text": "Recognition line-length control",
+            "bounds": [
+              32,
+              32,
+              459.90625,
+              44
+            ]
+          },
+          {
+            "text": "Submit task",
+            "bounds": [
+              32,
+              106,
+              132.453125,
+              24
+            ]
+          },
+          {
+            "text": "The quick brown fox jumps",
+            "bounds": [
+              32,
+              160,
+              301.03125,
+              24
+            ]
+          },
+          {
+            "text": "This domain is for use in documentation examples",
+            "bounds": [
+              32,
+              214,
+              577.96875,
+              24
+            ]
+          },
+          {
+            "text": "auto result = executor.submit_auto(task);",
+            "bounds": [
+              32,
+              268,
+              493.6875,
+              24
+            ]
+          },
+          {
+            "text": "report_error(\"capture_failed\");",
+            "bounds": [
+              32,
+              322,
+              373.28125,
+              24
+            ]
+          },
+          {
+            "text": "/home/user/project/report.txt",
+            "bounds": [
+              32,
+              376,
+              349.203125,
+              24
+            ]
+          },
+          {
+            "text": "这是用于验证长文本识别质量的中文句子，请完整保留每一个字。",
+            "bounds": [
+              32,
+              434,
+              580,
+              24
+            ]
+          }
+        ],
+        "expected_lines": [
+          "Submit task",
+          "The quick brown fox jumps",
+          "This domain is for use in documentation examples",
+          "auto result = executor.submit_auto(task);",
+          "report_error(\"capture_failed\");",
+          "/home/user/project/report.txt",
+          "这是用于验证长文本识别质量的中文句子，请完整保留每一个字。"
+        ],
+        "exit_code": 0,
+        "source_sha256": "0479f8e73df319d622e6e4853ab68a6bb40aacc9a5e5d3a9c96bb68f6f0aafe7",
+        "process_wall_seconds": 0.8849265019962331,
+        "process_max_rss_kib": 337244,
+        "capture_pixels_exact": true,
+        "raw_pixels_sha256": "127a5c5b67aa0892fbecd53f26888f3b8d7714f77a03af996748d596b27ad539",
+        "region_count": 7,
+        "ocr_count": 7,
+        "geometry_count": 0,
+        "backend_calls": 1
+      },
+      {
+        "name": "host-crop",
+        "source": "real Wayland Portal image, crop [1300,390,1400,680]; pixel-local X11 replay",
+        "exit_code": 0,
+        "source_sha256": "4d7640506bc1b66688400fc5d35b96b1102c50ac829414774754af92028b7da4",
+        "process_wall_seconds": 0.7504284159949748,
+        "process_max_rss_kib": 270124,
+        "capture_pixels_exact": true,
+        "raw_pixels_sha256": "021b97aac557d36f531c7c59bed49d3859898880b0fd0440d3676facdd611adf",
+        "region_count": 11,
+        "ocr_count": 6,
+        "geometry_count": 5,
+        "backend_calls": 1
+      }
+    ],
+    "perf640": [
+      {
+        "name": "form-light",
+        "source": "local browser-rendered fixture",
+        "truth": [
+          {
+            "text": "Mirage 视觉验收 / Review",
+            "bounds": [
+              32,
+              32,
+              358.421875,
+              44
+            ]
+          },
+          {
+            "text": "任务列表 · Task queue",
+            "bounds": [
+              32,
+              92,
+              214.3125,
+              29
+            ]
+          },
+          {
+            "text": "新建任务 New task",
+            "bounds": [
+              55,
+              156,
+              192.09375,
+              32
+            ]
+          },
+          {
+            "text": "名称 Name",
+            "bounds": [
+              55,
+              202,
+              99.8125,
+              29
+            ]
+          },
+          {
+            "text": "状态 Status: Ready",
+            "bounds": [
+              55,
+              328,
+              170.28125,
+              29
+            ]
+          },
+          {
+            "text": "提交 Submit",
+            "bounds": [
+              80,
+              388,
+              112.46875,
+              29
+            ]
+          },
+          {
+            "text": "取消 Cancel",
+            "bounds": [
+              254.46875,
+              388,
+              107.1875,
+              29
+            ]
+          },
+          {
+            "text": "运行状态",
+            "bounds": [
+              537,
+              156,
+              88.015625,
+              32
+            ]
+          },
+          {
+            "text": "任务",
+            "bounds": [
+              539,
+              214,
+              32.015625,
+              24
+            ]
+          },
+          {
+            "text": "进度",
+            "bounds": [
+              633.828125,
+              214,
+              32.015625,
+              24
+            ]
+          },
+          {
+            "text": "屏幕采集",
+            "bounds": [
+              539,
+              261,
+              64.015625,
+              24
+            ]
+          },
+          {
+            "text": "100%",
+            "bounds": [
+              633.828125,
+              261,
+              41.390625,
+              24
+            ]
+          },
+          {
+            "text": "OCR 识别",
+            "bounds": [
+              539,
+              308,
+              67.828125,
+              24
+            ]
+          },
+          {
+            "text": "85%",
+            "bounds": [
+              633.828125,
+              308,
+              32.5,
+              24
+            ]
+          },
+          {
+            "text": "small text: 0123456789 / 保存文件",
+            "bounds": [
+              537,
+              357,
+              215.78125,
+              20
+            ]
+          },
+          {
+            "text": "低对比度提示 Low contrast",
+            "bounds": [
+              537,
+              389,
+              244.171875,
+              29
+            ]
+          },
+          {
+            "text": "注意：编号只代表视觉区域，不保证控件可交互。",
+            "bounds": [
+              32,
+              471,
+              440,
+              29
+            ]
+          },
+          {
+            "text": "保存 Save",
+            "bounds": [
+              57,
+              531,
+              89.09375,
+              29
+            ]
+          },
+          {
+            "text": "设置 Settings",
+            "bounds": [
+              233.09375,
+              531,
+              120.25,
+              29
+            ]
+          },
+          {
+            "text": "帮助 Help",
+            "bounds": [
+              440.34375,
+              531,
+              88.203125,
+              29
+            ]
+          },
+          {
+            "text": "报告 report-2026.pdf",
+            "bounds": [
+              55,
+              253,
+              408,
+              53
+            ],
+            "kind": "input"
+          }
+        ],
+        "exit_code": 0,
+        "source_sha256": "5ffabef6883254375400d30d937ebad81cff5c54d95f467cfc8509aae53abecf",
+        "process_wall_seconds": 1.2063276690023486,
+        "process_max_rss_kib": 361632,
+        "capture_pixels_exact": true,
+        "raw_pixels_sha256": "58b5d6215ee7b7fbaff3f53312764030f313b712cbd135d8d0674b1983cb6c8b",
+        "region_count": 21,
+        "ocr_count": 21,
+        "geometry_count": 0,
+        "backend_calls": 1
+      },
+      {
+        "name": "line-lengths",
+        "source": "local independent recognition controls",
+        "truth": [
+          {
+            "text": "Recognition line-length control",
+            "bounds": [
+              32,
+              32,
+              459.90625,
+              44
+            ]
+          },
+          {
+            "text": "Submit task",
+            "bounds": [
+              32,
+              106,
+              132.453125,
+              24
+            ]
+          },
+          {
+            "text": "The quick brown fox jumps",
+            "bounds": [
+              32,
+              160,
+              301.03125,
+              24
+            ]
+          },
+          {
+            "text": "This domain is for use in documentation examples",
+            "bounds": [
+              32,
+              214,
+              577.96875,
+              24
+            ]
+          },
+          {
+            "text": "auto result = executor.submit_auto(task);",
+            "bounds": [
+              32,
+              268,
+              493.6875,
+              24
+            ]
+          },
+          {
+            "text": "report_error(\"capture_failed\");",
+            "bounds": [
+              32,
+              322,
+              373.28125,
+              24
+            ]
+          },
+          {
+            "text": "/home/user/project/report.txt",
+            "bounds": [
+              32,
+              376,
+              349.203125,
+              24
+            ]
+          },
+          {
+            "text": "这是用于验证长文本识别质量的中文句子，请完整保留每一个字。",
+            "bounds": [
+              32,
+              434,
+              580,
+              24
+            ]
+          }
+        ],
+        "expected_lines": [
+          "Submit task",
+          "The quick brown fox jumps",
+          "This domain is for use in documentation examples",
+          "auto result = executor.submit_auto(task);",
+          "report_error(\"capture_failed\");",
+          "/home/user/project/report.txt",
+          "这是用于验证长文本识别质量的中文句子，请完整保留每一个字。"
+        ],
+        "exit_code": 0,
+        "source_sha256": "0479f8e73df319d622e6e4853ab68a6bb40aacc9a5e5d3a9c96bb68f6f0aafe7",
+        "process_wall_seconds": 1.3252592039934825,
+        "process_max_rss_kib": 372088,
+        "capture_pixels_exact": true,
+        "raw_pixels_sha256": "127a5c5b67aa0892fbecd53f26888f3b8d7714f77a03af996748d596b27ad539",
+        "region_count": 8,
+        "ocr_count": 8,
+        "geometry_count": 0,
+        "backend_calls": 1
+      },
+      {
+        "name": "host-crop",
+        "source": "real Wayland Portal image, crop [1300,390,1400,680]; pixel-local X11 replay",
+        "exit_code": 0,
+        "source_sha256": "4d7640506bc1b66688400fc5d35b96b1102c50ac829414774754af92028b7da4",
+        "process_wall_seconds": 1.021050709998235,
+        "process_max_rss_kib": 302704,
+        "capture_pixels_exact": true,
+        "raw_pixels_sha256": "021b97aac557d36f531c7c59bed49d3859898880b0fd0440d3676facdd611adf",
+        "region_count": 11,
+        "ocr_count": 10,
+        "geometry_count": 1,
+        "backend_calls": 1
+      }
+    ]
+  },
+  "validation": {
+    "native_release_targets": 3,
+    "asan_ocr_off_targets": 3,
+    "ubsan_ocr_off_targets": 3,
+    "service_build": true,
+    "thin_outline_regression": "Release/ASAN/UBSAN passed; fitted-edge tolerance documented"
+  },
+  "limits": [
+    "Single scene per patch tracker; experimental, not enabled in product.",
+    "Object detector and NanoTrack backend models not supplied; quality untested.",
+    "Timing/RSS are individual process observations, not a calibrated performance benchmark.",
+    "Windows/multi-monitor DPI/true model sanitizer not run."
+  ],
+  "final_head": "aa7b39b3aed4b3d75025621c5412cac6cb4ad1a2"
+}
