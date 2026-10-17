@@ -34,7 +34,7 @@ mira::Error rejected(std::string code, bool effects = false, bool released = tru
 } // namespace
 void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry,
                                              const DesktopAtomToolset::Decorator &decorate) {
-    for (const auto *operation : {"click", "key", "type_text", "scroll"}) {
+    for (const auto *operation : {"click", "key", "type_text", "scroll", "drag"}) {
         mira::BuiltinToolSpec spec;
         spec.wire_name = std::string("desktop.session.") + operation;
         spec.has_side_effects = true;
@@ -48,6 +48,10 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
                 ? "Send one key chord to the focused UI, such as ctrl+l or enter. "
             : std::string_view(operation) == "type_text"
                 ? "Type text into the focused field after confirming focus. "
+            : std::string_view(operation) == "drag"
+                ? "Complete button-selected linear drag between source rectangle center and "
+                  "destination_x/y/width/height rectangle center in the same shared image. "
+                  "16 segments, max 2048 desktop pixels, max one second. "
                 : "Scroll a visible UI region to reveal more content. ";
         spec.description =
             use +
@@ -61,7 +65,9 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
             "text_transport_unavailable before dispatch on this legacy Portal transport); scroll "
             "uses "
             "vertical_steps/horizontal_steps "
-            "(-20..20). No held keys. verify_kind=shared_frame_observed proves released input and "
+            "(default 0; positive right/down, negative left/up; total absolute steps 1..16). "
+            "click/drag use button=left/middle/right (default left). No held keys. "
+            "verify_kind=shared_frame_observed proves released input and "
             "fresh frame only, or shared_text_exists with expected_text checks same-stream OCR. "
             "Neither proves the full task nor focus identity; inspect the new image before "
             "continuing. "
@@ -71,21 +77,44 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
         Json::Object props;
         if (std::string_view(operation) == "click")
             props.emplace_back("click_count", click_count_schema());
-        for (const auto *key : {"image_scope", "key_name", "text", "button", "expected_text"})
+        if (std::string_view(operation) == "key")
+            props.emplace_back("key_name",
+                               Json{Json::Object{{"type", "string"}, {"maxLength", 4096}}});
+        if (std::string_view(operation) == "type_text")
+            props.emplace_back("text", Json{Json::Object{{"type", "string"}, {"maxLength", 4096}}});
+        for (const auto *key : {"image_scope", "expected_text"})
             props.emplace_back(key, Json{Json::Object{{"type", "string"}, {"maxLength", 4096}}});
+        if (std::string_view(operation) == "click" || std::string_view(operation) == "drag")
+            props.emplace_back("button", button_schema());
+        if (std::string_view(operation) == "drag")
+            for (const auto *key :
+                 {"destination_x", "destination_y", "destination_width", "destination_height"})
+                props.emplace_back(
+                    key,
+                    Json{Json::Object{{"type", "integer"}, {"minimum", 0}, {"maximum", 16384}}});
         props.emplace_back("verify_kind",
                            Json{Json::Object{{"type", "string"},
                                              {"enum", Json{Json::Array{"shared_frame_observed",
                                                                        "shared_text_exists"}}}}});
-        for (const auto *key : {"environment_epoch", "x", "y", "width", "height", "vertical_steps",
-                                "horizontal_steps"})
+        if (std::string_view(operation) == "scroll")
+            for (const auto *key : {"vertical_steps", "horizontal_steps"})
+                props.emplace_back(
+                    key,
+                    Json{Json::Object{
+                        {"type", "integer"}, {"minimum", -16}, {"maximum", 16}, {"default", 0}}});
+        for (const auto *key : {"environment_epoch", "x", "y", "width", "height"})
             props.emplace_back(key, Json{Json::Object{{"type", "integer"}}});
-        spec.parameters_schema = mira::JsonSchema{Json{
-            Json::Object{{"type", "object"},
-                         {"properties", Json{std::move(props)}},
-                         {"required", Json{Json::Array{"image_scope", "environment_epoch", "x", "y",
-                                                       "width", "height", "verify_kind"}}},
-                         {"additionalProperties", false}}}};
+        Json::Array required{"image_scope", "environment_epoch", "x", "y", "width",
+                             "height",      "verify_kind"};
+        if (std::string_view(operation) == "drag")
+            for (const auto *key :
+                 {"destination_x", "destination_y", "destination_width", "destination_height"})
+                required.emplace_back(key);
+        spec.parameters_schema =
+            mira::JsonSchema{Json{Json::Object{{"type", "object"},
+                                               {"properties", Json{std::move(props)}},
+                                               {"required", Json{std::move(required)}},
+                                               {"additionalProperties", false}}}};
         const std::string name = operation;
         mira::BuiltinToolHandler handler = [this, name](const auto &args, const auto &ctx) {
             return shared_input(name, args, ctx);
@@ -127,8 +156,14 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
          (!desktop_.ocr_image || field(args, "expected_text").empty())))
         return rejected("postcondition_unavailable");
     // Validate payloads BEFORE any fresh acquisition or permission UI.
+    const bool drag = operation == "drag";
     const auto clicks = pointer_click_count(args);
-    if (!clicks || (operation != "click" && args.find("click_count")))
+    const auto button = pointer_button(args);
+    if (!clicks || !button || (operation != "key" && args.find("key_name")) ||
+        (operation != "type_text" && args.find("text")) ||
+        (operation != "click" && args.find("click_count")) ||
+        (operation != "click" && !drag && args.find("button")) ||
+        (operation != "scroll" && (args.find("horizontal_steps") || args.find("vertical_steps"))))
         return rejected("invalid_argument");
     desktop::SharedInputAction action;
     action.click_count = *clicks;
@@ -136,10 +171,11 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
     action.kind = operation == "click"       ? Kind::Click
                   : operation == "key"       ? Kind::Key
                   : operation == "type_text" ? Kind::Text
+                  : drag                     ? Kind::Drag
                                              : Kind::Scroll;
-    action.value = operation == "click" ? field(args, "button")
-                   : operation == "key" ? field(args, "key_name")
-                                        : field(args, "text");
+    action.value = (operation == "click" || drag) ? *button
+                   : operation == "key"           ? field(args, "key_name")
+                                                  : field(args, "text");
     if (operation == "click" && action.value.empty())
         action.value = "left";
     if ((operation == "click" && action.value != "left" && action.value != "middle" &&
@@ -157,15 +193,28 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
             if (ch >= 128)
                 return rejected("text_transport_unavailable");
     if (operation == "scroll") {
-        const auto v = integer("vertical_steps"), horizontal = integer("horizontal_steps");
-        if ((!v && !horizontal) || (args.find("vertical_steps") && !v) ||
-            (args.find("horizontal_steps") && !horizontal) || v.value_or(0) < -20 ||
-            v.value_or(0) > 20 || horizontal.value_or(0) < -20 || horizontal.value_or(0) > 20 ||
-            (!v.value_or(0) && !horizontal.value_or(0)))
+        const auto v = wheel_steps(args, "vertical_steps"),
+                   horizontal = wheel_steps(args, "horizontal_steps");
+        if (!v || !horizontal || !desktop::valid_scroll_steps(*horizontal, *v))
             return rejected("invalid_argument");
-        action.vertical_steps = static_cast<int>(v.value_or(0));
-        action.horizontal_steps = static_cast<int>(horizontal.value_or(0));
+        action.vertical_steps = *v;
+        action.horizontal_steps = *horizontal;
     }
+    auto dx = x, dy = y, dw = w, dh = h;
+    if (drag) {
+        dx = integer("destination_x");
+        dy = integer("destination_y");
+        dw = integer("destination_width");
+        dh = integer("destination_height");
+        if (!dx || !dy || !dw || !dh || *dx < 0 || *dy < 0 || *dw <= 0 || *dh <= 0 || *dx > 16384 ||
+            *dy > 16384 || *dw > 16384 || *dh > 16384 || *dx + *dw > native_frame_->width ||
+            *dy + *dh > native_frame_->height)
+            return rejected("invalid_argument");
+    }
+    for (const auto *key :
+         {"destination_x", "destination_y", "destination_width", "destination_height"})
+        if (!drag && args.find(key))
+            return rejected("invalid_argument");
     const auto authority = native_authority_;
     const auto deadline =
         std::min(ctx.deadline.value_or(std::chrono::steady_clock::now() + std::chrono::seconds(5)),
@@ -235,10 +284,10 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
     const auto to_monitor_y = [&](std::int64_t image_y) {
         return origin_y + std::int64_t(double(image_y) * double(num_y) / double(den_y));
     };
-    const std::int64_t monitor_left = to_monitor_x(*x);
-    const std::int64_t monitor_top = to_monitor_y(*y);
-    const std::int64_t monitor_right = to_monitor_x(*x + *w);
-    const std::int64_t monitor_bottom = to_monitor_y(*y + *h);
+    const std::int64_t monitor_left = to_monitor_x(std::min(*x, *dx));
+    const std::int64_t monitor_top = to_monitor_y(std::min(*y, *dy));
+    const std::int64_t monitor_right = to_monitor_x(std::max(*x + *w, *dx + *dw));
+    const std::int64_t monitor_bottom = to_monitor_y(std::max(*y + *h, *dy + *dh));
     if (monitor_left < 0 || monitor_top < 0 || monitor_right > old.width ||
         monitor_bottom > old.height || monitor_right - monitor_left <= 0 ||
         monitor_bottom - monitor_top <= 0)
@@ -273,6 +322,13 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
     }
     action.x = double(to_monitor_x(*x + *w / 2));
     action.y = double(to_monitor_y(*y + *h / 2));
+    action.destination_x = double(to_monitor_x(*dx + *dw / 2));
+    action.destination_y = double(to_monitor_y(*dy + *dh / 2));
+    if (drag && !desktop::valid_drag_path(
+                    {static_cast<std::int32_t>(action.x), static_cast<std::int32_t>(action.y)},
+                    {static_cast<std::int32_t>(action.destination_x),
+                     static_cast<std::int32_t>(action.destination_y)}))
+        return rejected("invalid_argument");
     action.image_width = old.width;
     action.image_height = old.height;
     auto lease = desktop_.actions->try_begin(bounded, epoch_);

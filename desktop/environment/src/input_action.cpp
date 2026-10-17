@@ -30,6 +30,15 @@ InputOutcome InputProvider::drag_to(const PointerActionScope &, PointerPoint, Po
                                     const InputLimits &, const CancelToken &) {
     return {false, false, {"unsupported_platform", "bounded drag is unavailable"}};
 }
+InputOutcome InputProvider::drag_with_button(const PointerActionScope &scope, PointerPoint from,
+                                             PointerPoint to, const MouseButton &button,
+                                             const InputLimits &limits, const CancelToken &cancel) {
+    if (!valid_action_button(button))
+        return {false, false, {"invalid_argument", "invalid drag button"}};
+    if (button == "left")
+        return drag_to(scope, from, to, limits, cancel);
+    return {false, false, {"unsupported_platform", "selected drag button is unavailable"}};
+}
 InputOutcome InputProvider::key_chord(const KeySym &, const InputLimits &, const CancelToken &) {
     return {false, false, {"unsupported_platform", "complete key actions are unavailable"}};
 }

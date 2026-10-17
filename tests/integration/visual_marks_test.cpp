@@ -83,11 +83,20 @@ class FaultInput final : public d::InputProvider {
     int horizontal = 0, vertical = 0;
     std::function<void()> after_pointer;
     std::uint32_t last_click_count = 0;
+    std::string last_button;
+    d::InputOutcome drag_with_button(const d::PointerActionScope &scope, d::PointerPoint start,
+                                     d::PointerPoint finish, const d::MouseButton &button,
+                                     const d::InputLimits &limits,
+                                     const d::CancelToken &cancel) override {
+        last_button = button;
+        return drag_to(scope, start, finish, limits, cancel);
+    }
     d::InputOutcome click_sequence_at(std::int32_t x, std::int32_t y, const d::MouseButton &button,
                                       std::uint32_t count, const d::InputLimits &limits,
                                       const d::CancelToken &cancel) override {
         // Adapter fixture records forwarding; platform tests cover physical repetition.
         last_click_count = count;
+        last_button = button;
         return click_at(x, y, button, limits, cancel);
     }
     bool complete_actions_supported() const override { return mode != 4; }
@@ -277,7 +286,9 @@ void contracts(kairo::Executor &executor) {
         const auto marked = f.mark();
         auto args = f.target(marked.result);
         args.set("click_count", static_cast<std::int64_t>(count));
+        args.set("button", count % 2 ? "right" : "middle");
         check(!f.click(args).failed);
+        check(f.env->injector.last_button == (count % 2 ? "right" : "middle"));
         check(f.env->injector.calls == 1 && f.env->injector.last_click_count == count);
     }
     for (const auto count : {0u, d::max_click_count + 1}) {
@@ -1204,9 +1215,9 @@ void pointer_actions(kairo::Executor &executor) {
     for (const auto *operation : {"scroll", "drag"}) {
         const bool drag = std::string_view{operation} == "drag";
         const std::string name = std::string{"desktop.vision."} + operation;
-        for (const auto *mode :
-             {"good", "unchanged", "denied", "changed", "edge_animation", "uniform_drift",
-              "destination", "budget", "exception", "release", "io", "cancel", "takeover"}) {
+        for (const auto *mode : {"good", "right", "middle", "unchanged", "denied", "changed",
+                                 "edge_animation", "uniform_drift", "destination", "budget",
+                                 "exception", "release", "io", "cancel", "takeover"}) {
             Fixture f(executor, true, "source", "w1", false, false, true);
             detail::DesktopActionVerification verification(f.tools, f.ctx, f.cancel);
             mira::BuiltinToolRegistry registry;
@@ -1234,7 +1245,9 @@ void pointer_actions(kairo::Executor &executor) {
                 fields.emplace_back("vertical_steps", std::int64_t{3});
             }
             const std::string scenario = mode;
-            if (scenario == "good")
+            if (drag && (scenario == "right" || scenario == "middle"))
+                fields.emplace_back("button", scenario);
+            if (scenario == "good" || scenario == "right" || scenario == "middle")
                 f.env->injector.after_pointer = [&] { f.env->fake.windows[0].title = "After"; };
             if (scenario == "denied")
                 f.allow_input = false;
@@ -1285,8 +1298,10 @@ void pointer_actions(kairo::Executor &executor) {
                 f.tools.actions->takeover();
             const Json args{std::move(fields)};
             const auto action = invoke(registry, name, args, f.ctx);
-            const bool dispatched = scenario == "good" || scenario == "unchanged" ||
-                                    scenario == "edge_animation" || scenario == "uniform_drift";
+            const bool dispatched =
+                (scenario == "good" || scenario == "right" || scenario == "middle") ||
+                scenario == "unchanged" || scenario == "edge_animation" ||
+                scenario == "uniform_drift";
             const bool called = dispatched || scenario == "exception" || scenario == "release" ||
                                 scenario == "io" || scenario == "cancel";
             check(f.env->injector.calls == (called ? 1 : 0));
@@ -1302,15 +1317,19 @@ void pointer_actions(kairo::Executor &executor) {
                     registry, "desktop.action.verify",
                     Json{Json::Object{{"action_id", *action.result.find("action_id")}}}, f.ctx);
                 check(!verify.failed &&
-                      *verify.result.find("verified")->as_boolean() == (scenario == "good"));
+                      *verify.result.find("verified")->as_boolean() ==
+                          (scenario == "good" || scenario == "right" || scenario == "middle"));
             }
-            check(verification.settle() == (scenario == "good"));
+            if (drag && (scenario == "right" || scenario == "middle"))
+                check(f.env->injector.last_button == scenario);
+            check(verification.settle() ==
+                  (scenario == "good" || scenario == "right" || scenario == "middle"));
             if (scenario == "release" || scenario == "exception")
                 check(!f.tools.actions->input_released() && !f.tools.actions->resume());
             // Old generation/epoch cannot dispatch twice, even after a confirmed release.
             check(invoke(registry, name, args, f.ctx).failed);
             check(f.env->injector.calls == (called ? 1 : 0));
-            if (scenario == "good") {
+            if (scenario == "good" || scenario == "right" || scenario == "middle") {
                 const auto refreshed =
                     invoke(registry, "desktop.vision.mark", Json{Json::Object{}}, f.ctx);
                 check(!refreshed.failed && *refreshed.result.find("visual_scope")->as_string() !=

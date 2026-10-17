@@ -112,6 +112,32 @@ void normal_and_budgets() {
     MIRAGE_CHECK(input->scroll_at(f.scope, {90, 100}, 1, -1, {}, {}).ok);
     MIRAGE_CHECK(f.count(ButtonPress, 4) == 1 && f.count(ButtonPress, 7) == 1);
     f.reset();
+    for (const auto *button : {"left", "middle", "right"}) {
+        f.reset();
+        const auto code = std::string_view(button) == "left"     ? 1u
+                          : std::string_view(button) == "middle" ? 2u
+                                                                 : 3u;
+        const auto held = code == 1 ? Button1Mask : code == 2 ? Button2Mask : Button3Mask;
+        const auto dragged_button =
+            input->drag_with_button(f.scope, {90, 100}, {300, 180}, button, {}, {});
+        MIRAGE_CHECK(dragged_button.ok && dragged_button.input_released);
+        MIRAGE_CHECK(f.count(ButtonPress, code) == 1 && f.count(ButtonRelease, code) == 1);
+        bool motion = false;
+        for (const auto &event : f.events)
+            motion |= event.type == MotionNotify && (event.xmotion.state & held);
+        MIRAGE_CHECK(motion && !(f.mask() & held));
+        f.reset();
+        // Cancel after the selected button's actual down; cleanup must use that button.
+        mirage::desktop::CancelToken cancel([&] { return (f.mask() & held) != 0; });
+        const auto stopped =
+            input->drag_with_button(f.scope, {90, 100}, {300, 180}, button, {}, cancel);
+        MIRAGE_CHECK(!stopped.ok && stopped.cancelled && stopped.input_released);
+        MIRAGE_CHECK(f.count(ButtonPress, code) == 1 && f.count(ButtonRelease, code) == 1);
+        MIRAGE_CHECK(!(f.mask() & held));
+    }
+    f.reset();
+    MIRAGE_CHECK(!input->drag_with_button(f.scope, {90, 100}, {300, 180}, "invalid", {}, {}).ok);
+    MIRAGE_CHECK(f.count(ButtonPress) == 0);
     const auto dragged = input->drag_to(f.scope, {90, 100}, {300, 180}, {}, {});
     MIRAGE_CHECK(dragged.ok && dragged.input_released && dragged.side_effect_may_have_occurred);
     MIRAGE_CHECK(f.count(ButtonPress, 1) == 1 && f.count(ButtonRelease, 1) == 1);
