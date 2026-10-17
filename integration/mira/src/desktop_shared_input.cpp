@@ -1,5 +1,6 @@
 #include "desktop_image_supply.hpp"
 #include "desktop_stability_guard.hpp"
+#include "tool_click.hpp"
 #include "tool_geometry.hpp"
 #include <algorithm>
 #include <cmath>
@@ -41,6 +42,8 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
             std::string_view(operation) == "click"
                 ? "Click a visible control, or a clearly non-interactive area "
                   "of the intended window to focus it; no window API is needed. "
+                  "click_count sets consecutive clicks in one action (default 1); "
+                  "use 2 for double-click, 3 for triple-click. "
             : std::string_view(operation) == "key"
                 ? "Send one key chord to the focused UI, such as ctrl+l or enter. "
             : std::string_view(operation) == "type_text"
@@ -66,6 +69,8 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
             "image_scope in its receipt: retry against that scope without recapturing. "
             "Do not retry uncertain effects.";
         Json::Object props;
+        if (std::string_view(operation) == "click")
+            props.emplace_back("click_count", click_count_schema());
         for (const auto *key : {"image_scope", "key_name", "text", "button", "expected_text"})
             props.emplace_back(key, Json{Json::Object{{"type", "string"}, {"maxLength", 4096}}});
         props.emplace_back("verify_kind",
@@ -122,7 +127,11 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
          (!desktop_.ocr_image || field(args, "expected_text").empty())))
         return rejected("postcondition_unavailable");
     // Validate payloads BEFORE any fresh acquisition or permission UI.
+    const auto clicks = pointer_click_count(args);
+    if (!clicks || (operation != "click" && args.find("click_count")))
+        return rejected("invalid_argument");
     desktop::SharedInputAction action;
+    action.click_count = *clicks;
     using Kind = desktop::SharedInputAction::Kind;
     action.kind = operation == "click"       ? Kind::Click
                   : operation == "key"       ? Kind::Key

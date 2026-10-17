@@ -35,6 +35,60 @@ int main() {
         MIRAGE_CHECK(result.ok && result.input_released && events.size() == 3);
         MIRAGE_CHECK(events[0].x == 400 && events[0].y == 250);
         MIRAGE_CHECK(events[1].value == 272 && events[1].state == 1 && events[2].state == 0);
+        for (const auto clicks : {2u, 3u, 5u, desktop::max_click_count}) {
+            events.clear();
+            action.click_count = clicks;
+            result = dispatch_portal_input(context, action, {}, {});
+            MIRAGE_CHECK(result.ok && result.input_released && events.size() == 2 * clicks + 1);
+            for (std::size_t n = 1; n < events.size(); ++n)
+                MIRAGE_CHECK(events[n].value == 272 && events[n].state == (n % 2));
+        }
+        for (const auto invalid : {0u, desktop::max_click_count + 1, UINT32_MAX}) {
+            events.clear();
+            action.click_count = invalid;
+            result = dispatch_portal_input(context, action, {}, {});
+            MIRAGE_CHECK(!result.ok && !result.side_effect_may_have_occurred && events.empty());
+        }
+        action.click_count = desktop::max_click_count;
+        for (const auto interrupted_click : {3u, desktop::max_click_count}) {
+            for (int mode = 0; mode < 7; ++mode) {
+                events.clear();
+                desktop::CancelToken cancel;
+                desktop::InputLimits limits;
+                if (mode == 3)
+                    limits.timeout = std::chrono::milliseconds{1};
+                context.notify = [&](const auto &event) {
+                    events.push_back(event);
+                    if (events.size() == 2 * interrupted_click - 1 && mode == 5)
+                        cancel.request_cancel(); // stop between complete clicks
+                    if (events.size() == 2 * interrupted_click) {
+                        if (mode == 0)
+                            return false;
+                        if (mode == 1)
+                            cancel.request_cancel();
+                        if (mode == 2)
+                            throw std::runtime_error("sequence press");
+                        if (mode == 3)
+                            (void)::poll(nullptr, 0, 10);
+                        if (mode == 6)
+                            context.stopped = [] { return true; };
+                    }
+                    return !(mode == 4 && events.size() == 2 * interrupted_click + 1);
+                };
+                result = dispatch_portal_input(context, action, limits, cancel);
+                MIRAGE_CHECK(!result.ok && result.side_effect_may_have_occurred);
+                MIRAGE_CHECK(events.size() == (mode == 5 ? 2 * interrupted_click - 1
+                                                         : 2 * interrupted_click + 1) &&
+                             events.back().state == 0);
+                MIRAGE_CHECK(result.input_released == (mode != 4));
+                context.stopped = [] { return false; };
+            }
+        }
+        context.notify = [&](const auto &event) {
+            events.push_back(event);
+            return true;
+        };
+        action.click_count = 1;
         events.clear();
         action.kind = Kind::Key;
         action.value = "ctrl+shift+t";

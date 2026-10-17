@@ -37,4 +37,14 @@ InputOutcome InputProvider::click_at(std::int32_t, std::int32_t, const MouseButt
                                      const InputLimits &, const CancelToken &) {
     return {false, false, {"unsupported_platform", "complete pointer actions are unavailable"}};
 }
+InputOutcome InputProvider::click_sequence_at(std::int32_t x, std::int32_t y,
+                                              const MouseButton &button, std::uint32_t count,
+                                              const InputLimits &limits,
+                                              const CancelToken &cancel) {
+    if (!valid_click_count(count))
+        return {false, false, {"invalid_argument", "click count exceeds the action bound"}};
+    if (count == 1)
+        return click_at(x, y, button, limits, cancel);
+    return {false, false, {"unsupported_platform", "complete repeated click is unavailable"}};
+}
 } // namespace mirage::desktop

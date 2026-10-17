@@ -27,6 +27,12 @@ struct KeySym {
 /// "back", "forward").
 using MouseButton = std::string;
 
+/// Bound one uninterrupted pointer action; longer repetitions require fresh intent.
+inline constexpr std::uint32_t max_click_count = 32;
+constexpr bool valid_click_count(std::uint32_t count) {
+    return count >= 1 && count <= max_click_count;
+}
+
 /// Budget for one input action (RULE-07). Injection itself is fast; the
 /// timeout is cooperative: backends check it between platform steps; it does
 /// not forcibly interrupt a blocked platform round-trip or suppress cleanup.
@@ -99,6 +105,12 @@ class InputProvider {
                                    const CancelToken &cancel);
     virtual InputOutcome click_at(std::int32_t x, std::int32_t y, const MouseButton &button,
                                   const InputLimits &limits, const CancelToken &cancel);
+    /// DEC-099: one complete click sequence (count 1..max_click_count), same point and
+    /// ownership throughout. No observations or model calls between presses.
+    /// Default forwards count 1 only; unsupported repetitions fail before effects.
+    virtual InputOutcome click_sequence_at(std::int32_t x, std::int32_t y,
+                                           const MouseButton &button, std::uint32_t count,
+                                           const InputLimits &limits, const CancelToken &cancel);
 
     /// Presses or releases a key per the KeySym vocabulary. Combination
     /// names ("ctrl+c") inject the full chord.

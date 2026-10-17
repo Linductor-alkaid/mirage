@@ -22,6 +22,9 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
         return failed("portal_session_closed");
     if (limits.timeout.count() <= 0 || limits.timeout > std::chrono::seconds(5))
         return failed("invalid_argument");
+    if (!desktop::valid_click_count(action.click_count) ||
+        (action.kind != Kind::Click && action.click_count != 1))
+        return failed("invalid_argument");
     std::vector<int> keys;
     const auto append_character = [&](const std::string &text) {
         for (std::size_t i = 0; i < text.size();) {
@@ -149,8 +152,12 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
                          action.x * s.logical_width / s.frame_width,
                          action.y * s.logical_height / s.frame_height});
             if (ok && !stopped() && action.kind == Kind::Click) {
-                held_button = true;
-                ok = notify({PortalInputEvent::Kind::Button, button, 1u});
+                for (std::uint32_t index = 0;
+                     index < action.click_count && ok && released && !stopped(); ++index) {
+                    held_button = true;
+                    ok = notify({PortalInputEvent::Kind::Button, button, 1u});
+                    release(); // Each click completes even on cancellation/failed down.
+                }
             } else if (ok && !stopped() && action.kind == Kind::Scroll) {
                 for (unsigned axis = 0; axis < 2 && ok && !stopped(); ++axis) {
                     const int steps = axis ? action.horizontal_steps : action.vertical_steps;

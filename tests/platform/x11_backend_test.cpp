@@ -376,6 +376,41 @@ void input_injection_events(XvfbDisplay &server, TestClient &client) {
     MIRAGE_CHECK(input.pointer_move(5, 5, {}, cancel).cancelled);
     MIRAGE_CHECK(input.type_text("x", {}, cancel).cancelled);
     MIRAGE_CHECK(input.inject_key({"a"}, true, {}, cancel).cancelled);
+    MIRAGE_CHECK(input.click_sequence_at(50, 40, "left", 2, {}, cancel).cancelled);
+    for (const auto invalid : {0u, mirage::desktop::max_click_count + 1, UINT32_MAX}) {
+        const auto result = input.click_sequence_at(50, 40, "left", invalid, {}, {});
+        MIRAGE_CHECK(!result.ok && result.error.code == "invalid_argument" &&
+                     !result.side_effect_may_have_occurred);
+    }
+    for (const auto count : {1u, 2u, 3u, 5u, mirage::desktop::max_click_count}) {
+        const auto result = input.click_sequence_at(50, 40, "left", count, {}, {});
+        MIRAGE_CHECK(result.ok && result.input_released);
+        XSync(display, False);
+        std::vector<int> buttons;
+        std::vector<Time> presses;
+        while (XPending(display)) {
+            XNextEvent(display, &event);
+            if (event.type == ButtonPress || event.type == ButtonRelease) {
+                MIRAGE_CHECK(event.xbutton.button == Button1 && event.xbutton.x == 50 &&
+                             event.xbutton.y == 40);
+                buttons.push_back(event.type);
+                if (event.type == ButtonPress)
+                    presses.push_back(event.xbutton.time);
+            }
+        }
+        MIRAGE_CHECK(buttons.size() == 2 * count && presses.size() == count);
+        for (std::size_t n = 0; n < buttons.size(); ++n)
+            MIRAGE_CHECK(buttons[n] == (n % 2 ? ButtonRelease : ButtonPress));
+        if (count == 2)
+            MIRAGE_CHECK(presses.size() == 2 && presses[1] - presses[0] < 250);
+    }
+    // Physical ownership preflight covers the whole click sequence.
+    MIRAGE_CHECK(input.pointer_button("left", true).ok);
+    const auto busy =
+        input.click_sequence_at(50, 40, "left", mirage::desktop::max_click_count, {}, {});
+    MIRAGE_CHECK(!busy.ok && busy.error.code == "input_busy" &&
+                 !busy.side_effect_may_have_occurred);
+    MIRAGE_CHECK(input.pointer_button("left", false).ok);
 }
 
 /// Independent-verification additions: negative and boundary edges the base

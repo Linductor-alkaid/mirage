@@ -75,6 +75,14 @@ class FaultInput final : public d::InputProvider {
     d::InputProvider *delegate = nullptr;
     int calls = 0, mode = 0;
     std::function<void()> after;
+    std::uint32_t last_click_count = 0;
+    d::InputOutcome click_sequence_at(std::int32_t x, std::int32_t y, const d::MouseButton &button,
+                                      std::uint32_t count, const d::InputLimits &limits,
+                                      const d::CancelToken &cancel) override {
+        // Adapter fixture records forwarding; platform tests cover physical repetition.
+        last_click_count = count;
+        return click_at(x, y, button, limits, cancel);
+    }
     bool complete_actions_supported() const override { return true; }
     d::InputOutcome click_at(std::int32_t x, std::int32_t y, const d::MouseButton &b,
                              const d::InputLimits &l, const d::CancelToken &c) override {
@@ -222,6 +230,19 @@ struct Fixture {
     }
 };
 void contracts(kairo::Executor &executor) {
+    for (const auto count : {1u, 2u, 3u, 5u, d::max_click_count}) {
+        Fixture f;
+        auto args = f.args(f.capture());
+        args.set("click_count", static_cast<std::int64_t>(count));
+        check(!f.click(args).failed);
+        check(f.input.calls == 1 && f.input.last_click_count == count);
+    }
+    for (const auto count : {0u, d::max_click_count + 1}) {
+        Fixture f;
+        auto args = f.args(f.capture());
+        args.set("click_count", static_cast<std::int64_t>(count));
+        check(f.click(args).failed && f.input.calls == 0);
+    }
     for (const auto &mode :
          {"good",      "none",           "unseen",           "pixels",       "focus",
           "display",   "deny",           "takeover",         "cancel",       "throw",
