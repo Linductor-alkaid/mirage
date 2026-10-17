@@ -531,6 +531,40 @@ void geometric_marks(kairo::Executor &executor) {
     }
     host.stop();
 }
+// MIRADOR-20261016-001 / DEC-060: a 2px desktop outline must produce a
+// selectable whole-region mark; the old product profile returned no lines.
+void thin_outline_marks(kairo::Executor &executor) {
+    mirage::testing::FakeDesktopEnvironment env;
+    env.displays = {{"d1", {-200, -40, 300, 180}, true}};
+    bool visible = true;
+    env.capture_frame_edit = [&](auto &frame) {
+        for (int y = 0; y < frame.height; ++y)
+            for (int x = 0; x < frame.width; ++x) {
+                const bool inside = x >= 70 && x < 220 && y >= 50 && y < 130;
+                const bool edge = x < 72 || x >= 218 || y < 52 || y >= 128;
+                const auto value = static_cast<std::uint8_t>(visible && inside && edge ? 0 : 255);
+                const auto offset = static_cast<std::size_t>(y) * frame.stride + x * 4;
+                frame.pixels[offset] = frame.pixels[offset + 1] = frame.pixels[offset + 2] = value;
+            }
+    };
+    d::VisualReferenceRegistry registry;
+    i::VisualObservationPipelineConfig config;
+    config.source_id = "thin-outline-acceptance";
+    config.geometry_marks = true;
+    i::VisualObservationPipeline pipeline(executor, *env.screen(), registry, config);
+    std::string error;
+    check(pipeline.start(error));
+    const auto marked = pipeline.refresh_marked({}, {}, {});
+    check(marked.analyzed && marked.marks.size() == 1 && marked.marks.front().selectable);
+    const auto &bounds = marked.publish.snapshot.regions.front().bounds;
+    // Proposals bound fitted edge centers, not every outer ink pixel.
+    check(std::abs(bounds.x + 130) <= 2 && std::abs(bounds.y - 10) <= 2 &&
+          std::abs(bounds.width - 150) <= 4 && std::abs(bounds.height - 80) <= 4);
+    visible = false;
+    const auto removed = pipeline.refresh_marked({}, {}, {});
+    check(removed.analyzed && removed.marks.empty());
+    pipeline.stop();
+}
 void configured_template_marks(kairo::Executor &executor) {
     mirage::testing::FakeDesktopEnvironment env;
     env.displays = {{"d1", {-200, -40, 240, 140}, true}};
@@ -1284,6 +1318,7 @@ int main() {
         check(executor.initialize({}).ok);
         contracts(executor);
         geometric_marks(executor);
+        thin_outline_marks(executor);
         configured_template_marks(executor);
         template_marks(executor);
         model_loop(executor);

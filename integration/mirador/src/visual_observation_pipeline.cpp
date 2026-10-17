@@ -270,6 +270,8 @@ EnvironmentVisualRefresh VisualObservationPipeline::refresh_impl(
     request.render_marks = marks;
     // Reuse the existing bounded Mirador geometry stage; no semantic detector.
     request.geometry.run = marks && config_.geometry_marks;
+    // DEC-060: desktop outlines need a wider PCA residual band.
+    // Keep glyph-sized runs out of the bounded proposal pass; no new detector.
     request.geometry.segment_detector.min_length = 16.0;
     request.geometry.segment_detector.deviation_tolerance = 4.0;
     request.geometry.fuse_proposals = request.geometry.run;

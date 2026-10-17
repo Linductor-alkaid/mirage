@@ -87,6 +87,8 @@ def main():
         artifacts[name] = {"path": name, "sha256": digest(data), "bytes": len(data)}
     manifest = {
         "schema": 1, "model_id": "PP-OCRv5-mobile-ncnn-mirador-contract-v1",
+        # DEC-068: preserve desktop line detail at the same height.
+        # Width remains dynamic; 640 is a cap, not padding for every short line.
         "det_side": 960, "rec_height": 48, "rec_width": 640, "artifacts": artifacts,
         "geometry_marks": True, "roi_capture": True,
     }
