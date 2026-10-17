@@ -88,7 +88,7 @@
 
 | 编号 | 主题 | 类型/分级 | 状态 | 本轮证据 | 上游 |
 | --- | --- | --- | --- | --- | --- |
-| MIRA-20261015-002 | ConversationLoop 缺少不按累计步骤/工具次数终止的模式 | P1：长程任务循环能力缺口 | Resolved | a29374a 消费契约：1,025 轮/1,024 工具；干净 Debug 82/82，ASAN/UBSAN 各 5/5 | [Mira PR #99](https://github.com/Linductor-alkaid/mira/pull/99) 已合并；[升级 PR #97](https://github.com/Linductor-alkaid/mirage/pull/97) |
+| MIRA-20261015-002 | ConversationLoop 缺少不按累计步骤/工具次数终止的模式 | P1：长程任务循环能力缺口 | Resolved | a29374a 消费契约：1,025 轮/1,024 工具；干净 Debug 82/82，ASAN/UBSAN 各 5/5 | [Mira PR #99](https://github.com/Linductor-alkaid/mira/pull/99) 已合并；[升级 PR #97](https://github.com/Linductor-alkaid/mirage/pull/97)、[接线 PR #103](https://github.com/Linductor-alkaid/mirage/pull/103) |
 | MIRA-20260922-001 | Executor MinGW POSIX native_handle转换 | 构建缺陷 | Open | 最小编译复现同类错误 | [#75](https://github.com/Linductor-alkaid/mira/issues/75)，已提交 |
 | MIRA-20260927-001 | 同digest草稿遮蔽已验证workflow记录 | 版本语义缺陷 | Resolved | 公共版本API离线复现 | [#74](https://github.com/Linductor-alkaid/mira/issues/74)，已提交 |
 | MIRA-20261004-001 | 无屏幕通用harness与规范工具回填入口 | P2：harness边界结构性缺口 | Resolved | 无屏幕环境在模型路由前失败；核对输入契约 | [#73](https://github.com/Linductor-alkaid/mira/issues/73)，已提交 |
@@ -935,3 +935,11 @@ Finite 产品行为，M9-03 仍需接线，不能把 pin 前滚等同于原长�
 构建通过。MIRA-20261015-002 标记 Resolved（公开能力范围），M9-02 完成；
 产品持续策略与 16/32 替换仍由 M9-03 实施。升级交付为
 [Mirage PR #97](https://github.com/Linductor-alkaid/mirage/pull/97)，审计记录含平台限制。
+
+
+2026-10-17：Mirage 消费完成（M9-03）：harness 循环切换 Continuous，16/32 累计
+上限、15/16 轮收尾与 22 倍包络删除，动作/视觉/历史容量清理落地；产品接线交付为
+[Mirage PR #103](https://github.com/Linductor-alkaid/mirage/pull/103)。脚本验收
+261 模型步/260 工具（无窗口与大窗口）、40 动作归档、字节截断 2MiB 精确生效；
+debug 全量 91/91、asan 聚焦 9/9。原长任务问题（2026-10-15 09:56 会话）的
+产品侧修复至此关闭。

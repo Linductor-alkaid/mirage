@@ -1148,7 +1148,13 @@ if(UNIX)
     endif()
     mirage_enable_warnings(harness_desktop_tools_test)
     add_test(NAME harness_desktop_tools_test COMMAND harness_desktop_tools_test)
-    set_tests_properties(harness_desktop_tools_test PROPERTIES LABELS "integration;runtime" TIMEOUT 30)
+    # M9-03 Continuous acceptance adds three scripted long-run scenarios (261
+    # and 161 model rounds over a bounded committed replay, plus a 40-round
+    # large-receipt run whose byte-aware retention re-measures ~2 MiB of
+    # canonical JSON per turn); debug settles in ~28s but sanitizer
+    # instrumentation multiplies it, so the ceiling is widened to keep the
+    # sanitizer run bounded instead of the scenarios shortened.
+    set_tests_properties(harness_desktop_tools_test PROPERTIES LABELS "integration;runtime" TIMEOUT 300)
 
     add_executable(native_agent_integration_test runtime/native_agent_integration_test.cpp
         ${CMAKE_SOURCE_DIR}/apps/native/runtime_bridge.cpp ${CMAKE_SOURCE_DIR}/apps/native/attachment.cpp)

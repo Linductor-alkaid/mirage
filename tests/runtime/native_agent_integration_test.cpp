@@ -59,6 +59,18 @@ class Provider final : public mira::IModelProvider {
                     input_text += text->text + "\n";
         wire.publish(std::move(input_text));
         const int number = ++calls;
+        // M9-03 deterministic failure mode: once armed with an absolute call
+        // number, that call and every later one return an unrecoverable
+        // provider error (retryable=false), so the pinned Continuous loop
+        // settles Failed with "model call failed: ..." instead of draining a
+        // turn budget that no longer exists.
+        if (fail_on_call.load() > 0 && number >= fail_on_call.load()) {
+            mira::Error failure;
+            failure.code = mira::ErrorCode::Internal;
+            failure.retryable = false;
+            failure.safe_message = "scripted unrecoverable provider failure";
+            return failure;
+        }
         last_tools.store(static_cast<int>(request.tools.size()));
         last_output_tokens.store(request.generation.max_output_tokens.value_or(0));
         saw_high.store(request.generation.reasoning_effort == mira::ReasoningEffort::High);
@@ -170,6 +182,7 @@ class Provider final : public mira::IModelProvider {
     std::atomic_bool saw_high{false}, old_reply{false}, last_caller_cancelled{false};
     std::atomic_bool report_usage{true};
     std::atomic_int wait_duration{1}, remaining_tools{0};
+    std::atomic_int fail_on_call{0}; // 0 = disabled; absolute provider call number
     std::atomic_bool force_tool{false}, large_thinking{false};
     std::atomic_bool hold{false}, tool_first{true}, saw_image{false}, saw_tool_result{false},
         throw_now{false}, always_tool{false}, bad_tool{false};
@@ -295,7 +308,8 @@ int main(int argc, char **argv) {
             model.shutdown();
         }
         owner.shutdown(true);
-        std::printf("ok=%d steps=%u tools=%u\n", result.ok, result.model_steps, result.tool_calls);
+        std::printf("ok=%d steps=%lu tools=%lu\n", result.ok, result.model_steps,
+                    result.tool_calls);
         std::printf("%s\n", result.ok ? result.reply_text.c_str() : result.error.c_str());
         return result.ok ? 0 : 1;
     }
@@ -433,11 +447,12 @@ int main(int argc, char **argv) {
     config.socket_path = (dir.root() / "service.sock").string();
     config.settings_directory = dir.root() / "settings";
     config.model.request_deadline = 1s;
-    // Ceiling, not a timing assertion: the main fixture's budget paths (16/14
-    // model calls, the held-turn busy probes) only need the ceiling far above
-    // their own bounded work. 3s clipped them under ASAN load; 10s keeps a
-    // bounded ceiling with sanitizer headroom (dedicated timeout scenarios
-    // below configure their own shorter deadlines).
+    // Ceiling, not a timing assertion: the main fixture's budget paths (a
+    // scripted 17-call provider failure, the held-turn busy probes) only need
+    // the ceiling far above their own bounded work. 3s clipped them under
+    // ASAN load; 10s keeps a bounded ceiling with sanitizer headroom
+    // (dedicated timeout scenarios below configure their own shorter
+    // deadlines).
     config.model.harness_deadline = 10s;
     config.model.max_output_tokens = 512;
     config.persist_recovery_state = false;
@@ -854,18 +869,27 @@ int main(int argc, char **argv) {
         if (probe_turn && probe_turn->status == "ok")
             break;
     }
+    // M9-03: Continuous mode never drains a turn budget, so the budget path
+    // is bounded by a deterministic provider failure instead: 16 always-tool
+    // rounds execute (past the retired 16-turn finite cap), then call 17
+    // returns an unrecoverable error and the turn fails with the pinned
+    // "model call failed" summary.
     provider->always_tool.store(true);
+    provider->fail_on_call.store(provider->calls.load() + 17);
     const auto before_budget = provider->calls.load();
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "预算路径", true}, 2s).ok);
     turn = wait_turn(client, session);
-    if (!turn || turn->status != "failed" || turn->error.find("turn") == std::string::npos)
+    if (!turn || turn->status != "failed" ||
+        turn->error.find("model call failed") == std::string::npos)
         std::cerr << "budget-path diagnostic: status="
                   << (turn ? turn->status : std::string("missing"))
                   << " error=" << (turn ? turn->error : std::string("-"))
                   << " calls=" << (provider->calls.load() - before_budget) << "\n";
-    MIRAGE_CHECK(turn && turn->status == "failed" && turn->error.find("turn") != std::string::npos);
-    MIRAGE_CHECK(provider->calls.load() - before_budget == 16);
+    MIRAGE_CHECK(turn && turn->status == "failed" &&
+                 turn->error.find("model call failed") != std::string::npos);
+    MIRAGE_CHECK(provider->calls.load() - before_budget == 17);
     provider->always_tool.store(false);
+    provider->fail_on_call.store(0);
     provider->hold.store(true);
     const auto per_call_started = std::chrono::steady_clock::now();
     const auto per_call_count = provider->calls.load();
@@ -1449,11 +1473,12 @@ int main(int argc, char **argv) {
     // DEC-085 follow-up (DEC-087 alignment): the adaptive-thinking baseline
     // is 32768 (deepseek-flash reasons unconditionally and its reasoning
     // tokens count against max_tokens; 16384 cut mid-thinking three turns in
-    // a row) and every profile funds the declared whole-run envelope (22x
-    // the worst-case per-call budget: 16 turns + 2 recoveries + 3
-    // continuations + 1). This fixture declares a 32768-token context
-    // window, so the provider decorator's preflight shrinks the first wire
-    // call to window − estimated usage − 1000 (ZCode semantics; the old
+    // a row) and M9-03 (DEC-090, MIRA-20261015-002) makes every profile fund
+    // exactly one worst-case request: the profile limit is
+    // max(configured, 32768) = 32768 here — a Request-scope admission bound,
+    // with no whole-run envelope above it. This fixture declares a 32768-token
+    // context window, so the provider decorator's preflight shrinks the first
+    // wire call to window − estimated usage − 1000 (ZCode semantics; the old
     // static window/2 clamp is gone). The install is fresh (the m3
     // SetModelRequest above recreated the provider), so the anchor table is
     // empty and used is the pinned local estimate of the fixed fixture
@@ -1464,7 +1489,7 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(default_dialog && default_dialog->status == "ok" &&
                  provider->saw_adaptive.load() && provider->last_tools.load() == 0 &&
                  provider->last_output_tokens.load() == 31341 &&
-                 provider->profile_.capabilities.limits.max_output_tokens == 22 * 32768 &&
+                 provider->profile_.capabilities.limits.max_output_tokens == 32768 &&
                  default_dialog->reply_text == "Mira 已完成通用工具调用。" &&
                  std::any_of(default_dialog->parts.begin(), default_dialog->parts.end(),
                              [](const auto &part) { return part.kind == "thinking"; }));
@@ -1490,24 +1515,26 @@ int main(int argc, char **argv) {
     const auto thought_turn = wait_turn(client, session);
     MIRAGE_CHECK(thought_turn && thought_turn->status == "ok" && provider->saw_adaptive.load() &&
                  provider->calls.load() - adaptive_calls == 10);
+    // M9-03: Continuous mode never exhausts a turn budget, so the thinking
+    // budget path is bounded by a deterministic provider failure: 16
+    // always-tool rounds execute (past the retired 16-turn finite cap), then
+    // call 17 fails unrecoverably with the pinned "model call failed"
+    // summary. Each per-request wire budget stays at the Request-scope
+    // admission bound, so every call is admitted and the count is
+    // insensitive to the continuation depth.
     provider->always_tool.store(true);
+    provider->fail_on_call.store(provider->calls.load() + 17);
     const auto m3_budget_calls = provider->calls.load();
     MIRAGE_CHECK(
         client
             .call(ipc::SessionChatRequest{session, "思考轮次预算", true, "default", "adaptive"}, 2s)
             .ok);
     const auto m3_budget_turn = wait_turn(client, session);
-    // DEC-085 follow-up: turns, recoveries and continuations are declared
-    // bounds (16 + 2 + 3) no longer derived from the token envelope: 16
-    // tool-only turns exhaust the turn budget. The 22x profile funding
-    // covers the declared whole-run envelope at the worst-case per-call
-    // baseline, and the per-request wire budget (per-turn x (16 + 2 + 1))
-    // stays far below it, so every turn is admitted and the count is
-    // insensitive to the continuation depth.
     MIRAGE_CHECK(m3_budget_turn && m3_budget_turn->status == "failed" &&
-                 m3_budget_turn->error.find("turn") != std::string::npos &&
-                 provider->calls.load() - m3_budget_calls == 16);
+                 m3_budget_turn->error.find("model call failed") != std::string::npos &&
+                 provider->calls.load() - m3_budget_calls == 17);
     provider->always_tool.store(false);
+    provider->fail_on_call.store(0);
     MIRAGE_CHECK(
         client.call(ipc::SessionChatRequest{session, "关闭思考", true, "read_only", "none"}, 2s)
             .ok);
