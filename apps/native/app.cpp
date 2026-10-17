@@ -2906,6 +2906,47 @@ void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &mes
     }
 }
 
+// ScrollView's public height cache avoids constructing the entire history in
+// two measuring UIs on every keystroke. Keep an exact, length-delimited key:
+// message/part edits and expansion must invalidate it even without a revision
+// change. Oversized histories fall back to automatic measurement, not hashes.
+std::string conversation_measure_key(const LocalSession &session, const PageState &page,
+                                     float viewport_width, float viewport_height) {
+    constexpr std::size_t budget = 64 * 1024;
+    std::string key;
+    key.reserve(2048);
+    const auto append = [&](const std::string &value) {
+        if (value.size() > budget || key.size() + value.size() + 24 > budget)
+            return false;
+        key += std::to_string(value.size());
+        key += ':';
+        key += value;
+        return true;
+    };
+    if (!append(std::to_string(page.font_size_step)) ||
+        !append(std::to_string(page.code_font_size_step)) ||
+        !append(std::to_string(page.render_scale)) || !append(std::to_string(viewport_width)) ||
+        !append(std::to_string(viewport_height)) || !append(page.dark ? "dark" : "light") ||
+        !append(std::to_string(session.messages.size())))
+        return {};
+    for (const auto &message : session.messages) {
+        if (!append(std::to_string(message.id)) || !append(message.role) ||
+            !append(message.status) || !append(message.text) ||
+            !append(std::to_string(message.parts.size())))
+            return {};
+        for (const auto &part : message.parts)
+            if (!append(part.id) || !append(part.kind) || !append(part.status) ||
+                !append(part.text) || !append(part.input) || !append(part.output))
+                return {};
+        if (!append(std::to_string(message.expanded_parts.size())))
+            return {};
+        for (const auto &part : message.expanded_parts)
+            if (!append(part))
+                return {};
+    }
+    return key;
+}
+
 void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, const Palette &p,
                        const components::theme::ThemeColorTokens &tokens) {
     auto &s = state();
@@ -2928,7 +2969,10 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                : std::min(800.0f, main_width - (main_width >= 864 ? 96 : 48));
     const float x = sidebar + (main_width - column) / 2;
     const float input_height = std::clamp(
-        text_height(session.draft, column - 40, 14, ui_input_line_height(14)) + 24, 50.0f, 168.0f);
+        std::ceil(s.plain_text.height_up_to(session.draft, column - 40, 14,
+                                            ui_input_line_height(14), s.render_scale, 144)) +
+            24,
+        50.0f, 168.0f);
     const float refs_height =
         session.references.empty() && session.attachments.empty() ? 0.0f : 36.0f;
     const float edit_height = session.edit_turn_id.empty() ? 0.0f : 32.0f;
@@ -2971,6 +3015,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
         components::scrollView(ui, "thread." + std::to_string(session_id))
             .position(x, 72)
             .size(column, std::max(48.0f, y - 88))
+            .contentKey(conversation_measure_key(session, s, column, std::max(48.0f, y - 88)))
             .theme(tokens)
             .gap(14)
             .offset(session.follow_output ? 10000000.0f : session.scroll_offset)

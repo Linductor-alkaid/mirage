@@ -182,3 +182,22 @@ Linux 产品启用检查、原生 MiniMax OCR/编号图轮次与坏配置恢复�
 M7-11 的本地语义与 OCR/模板知识已能经同一 Runtime 的 workflow CLI/IPC 执行，无需
 模型逐次定位；默认视觉包直接提供 OCR。原生对话自动选择资产与恢复尚未接入，当前
 使用[视觉 workflow 示例](../../docs/examples/local-visual-workflow.md)。
+
+### 输入性能基准（M6-42）
+
+```bash
+cmake --build --preset native-release --target native_input_performance_test
+(cd build/native-release/apps/native && ../../tests/native_input_performance_test)
+(cd build/native-release/apps/native && ../../tests/native_input_performance_test --unbroken)
+```
+
+私有 Xvfb/XDG 环境，不连接模型；输出编辑、布局、更新、渲染完成及总耗时的
+p50/p95/max。覆盖 64/4096/16000 字节草稿、无历史/40轮历史，以及无换行长段。
+软件渲染测量不代表真实桌面 FPS，方法与限制见
+[验证记录](../../docs/compatibility/native-input-performance-20261017.md)。
+
+
+2026-10-17：输入性能优化消费EUI有界字形advance缓存，并让历史滚动区复用公开
+高度缓存；消息/工具/字体/视口变化精确失效，64KiB key超限安全回退。固定方法
+3轮A/B覆盖的12种场景p50/p95均改善；软件渲染统计不代表任意设备60fps。升级
+依据和四后端/许可证证据见[审计](../../docs/supply-chain/eui-text-performance-20261017.md)。
