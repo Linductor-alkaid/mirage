@@ -815,6 +815,8 @@ void scenario_session_state_round_trip() {
     ok_turn.status = "ok";
     ok_turn.user_text = "列出当前应用";
     ok_turn.reply_text = "当前有两个应用窗口。";
+    ok_turn.timings.inference = {2, 321};
+    ok_turn.timings.capture = {1, 0};
     ok_turn.sequence = 1;
     ok_turn.recorded_at_ms = 1700000001000;
     session.chat_turns.push_back(ok_turn);
@@ -837,6 +839,7 @@ void scenario_session_state_round_trip() {
         return;
     }
     MIRAGE_CHECK(decoded.state.sessions.size() == 1);
+    MIRAGE_CHECK(decoded.state.sessions.front().chat_turns.front().timings == ok_turn.timings);
     if (decoded.state.sessions.size() != 1) {
         return;
     }

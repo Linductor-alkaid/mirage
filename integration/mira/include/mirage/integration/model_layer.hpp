@@ -127,6 +127,7 @@ struct DialogCompletion {
     std::uint64_t context_window_tokens = 0;
     std::string usage_model;
     std::vector<conversation::Part> parts = {};
+    conversation::Timings timings = {};
     std::uint64_t supplied_input_items = 0;
     std::uint64_t supplied_input_dropped = 0;
     std::uint64_t supply_degradations = 0;
@@ -181,7 +182,8 @@ using DialogThinkingPreviewSink = DialogPreviewSink;
 
 /// Bounded full process snapshot on the caller task; consumers only validate/deliver.
 /// The service owns update sequences; final canonical parts are returned in completion.
-using DialogProcessSink = std::function<void(const std::vector<conversation::Part> &)>;
+using DialogProcessSink =
+    std::function<void(const std::vector<conversation::Part> &, const conversation::Timings &)>;
 // DEC-084: actual provider-call boundaries, independent of returned thinking text.
 // Called on the existing serialized infer task. Must be bounded and non-throwing.
 using DialogModelActivitySink = std::function<void(bool active)>;

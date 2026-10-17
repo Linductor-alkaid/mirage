@@ -535,6 +535,8 @@ int main(int argc, char **argv) {
         MIRAGE_CHECK(expired && expired->status == "failed" &&
                      expired->error.find("cancelled") != std::string::npos &&
                      deadline_provider->last_caller_cancelled.load());
+        MIRAGE_CHECK(expired && expired->timings.inference.calls >= 1 &&
+                     expired->timings.inference.duration_ms > 0);
         deadline_service.request_shutdown();
         MIRAGE_CHECK(deadline_service.run().clean);
     }
@@ -608,6 +610,7 @@ int main(int argc, char **argv) {
         MIRAGE_CHECK(fatal && fatal->status == "failed" &&
                      fatal->error.find("exchange stage deadline exceeded") != std::string::npos &&
                      recovery_provider->calls.load() - fatal_base == 1);
+        MIRAGE_CHECK(fatal && fatal->timings.inference.calls == 1);
         // The pinned circuit breaker counts consecutive provider failures
         // across turns; settle one clean turn so the post-write cases below
         // start from a circuit that still admits requests.
@@ -1698,7 +1701,7 @@ int main(int argc, char **argv) {
                 MIRAGE_CHECK(opened_budget.ok && opened_session);
                 if (opened_session) {
                     budget_session = opened_session->session_id;
-                    for (int i = 0; i < 12; ++i) {
+                    for (int i = 0; i < 24; ++i) {
                         MIRAGE_CHECK(
                             budget_client
                                 .call(ipc::SessionChatRequest{budget_session, "长过程容量验证",
@@ -1713,16 +1716,16 @@ int main(int argc, char **argv) {
                         MIRAGE_CHECK(result && result->status == "ok" && result->parts.size() == 4);
                         if (result && result->parts.size() == 4) {
                             MIRAGE_CHECK(mirage::conversation::valid_parts(result->parts));
-                            // DEC-093: one turn shares the 8 KiB thinking budget, so the
-                            // first part consumes it and the rest truncate to empty
-                            // instead of each keeping max_part_text.
-                            MIRAGE_CHECK(result->parts.front().truncated &&
-                                         result->parts.front().text.size() ==
-                                             mirage::conversation::max_thinking_budget);
-                            MIRAGE_CHECK(std::all_of(result->parts.begin() + 1, result->parts.end(),
-                                                     [](const auto &part) {
-                                                         return part.truncated && part.text.empty();
-                                                     }));
+                            // DEC-098: latest thinking stays readable within the same 8 KiB.
+                            MIRAGE_CHECK(result->parts.back().truncated &&
+                                         result->parts.back().text.size() <= 4096 &&
+                                         !result->parts.back().text.empty());
+                            MIRAGE_CHECK(std::all_of(
+                                result->parts.begin(), result->parts.end(), [](const auto &part) {
+                                    return part.omitted_for_display_budget && !part.text.empty();
+                                }));
+                            MIRAGE_CHECK(result->timings.inference.calls == 1 &&
+                                         result->timings.settlement.calls == 1);
                         }
                     }
                     const auto response =
@@ -1731,10 +1734,10 @@ int main(int argc, char **argv) {
                     MIRAGE_CHECK(response.ok && history &&
                                  ipc::encode_response(response).size() <= ipc::kMaxFrameBytes);
                     if (history) {
-                        // DEC-093 thinking budget keeps 12 turns (~0.6 MiB escaped)
+                        // DEC-098 keeps 24 compact turns (~0.6 MiB escaped)
                         // inside the 1 MiB IPC frame, so history replays whole.
-                        MIRAGE_CHECK(!history->truncated && history->turns.size() == 12 &&
-                                     history->turns.back().sequence == 12);
+                        MIRAGE_CHECK(!history->truncated && history->turns.size() == 24 &&
+                                     history->turns.back().sequence == 24);
                         MIRAGE_CHECK(std::is_sorted(history->turns.begin(), history->turns.end(),
                                                     [](const auto &left, const auto &right) {
                                                         return left.sequence < right.sequence;
@@ -1749,14 +1752,14 @@ int main(int argc, char **argv) {
                                                  "session-state.json",
                                                  persistence::kMaxSessionStateFileBytes);
         const auto loaded_budget = budget_disk.load();
-        // DEC-093 shrinks the persisted envelope from ~4.5 MiB (4x16 KiB thinking
-        // per turn, control chars JSON-escaped) to ~0.6 MiB (8 KiB per turn);
-        // still far above one turn, proving all 12 turns persisted.
+        // DEC-098 preserves about 4 KiB of recent thinking per turn. Use 24
+        // turns so the existing >512 KiB persistence boundary remains covered
+        // after JSON escaping, rather than weakening the capacity assertion.
         MIRAGE_CHECK(loaded_budget.status == persistence::LoadStatus::Loaded &&
                      loaded_budget.body.size() > 512 * 1024);
         const auto decoded_budget = persistence::decode_session_state(loaded_budget.body);
         MIRAGE_CHECK(decoded_budget.ok && decoded_budget.state.sessions.size() == 1 &&
-                     decoded_budget.state.sessions.front().chat_turns.size() == 12);
+                     decoded_budget.state.sessions.front().chat_turns.size() == 24);
         {
             mirage::runtime::RuntimeService restored_budget(budget_config);
             const auto started = restored_budget.start(binding);
@@ -1767,10 +1770,10 @@ int main(int argc, char **argv) {
                     budget_client.call(ipc::ChatHistoryRequest{budget_session, 40}, 8s);
                 const auto *history = std::get_if<ipc::DialogHistory>(&response.payload);
                 MIRAGE_CHECK(response.ok && history && !history->truncated &&
-                             history->turns.size() == 12 && history->turns.back().sequence == 12 &&
+                             history->turns.size() == 24 && history->turns.back().sequence == 24 &&
                              history->turns.back().parts.size() == 4 &&
-                             history->turns.back().parts.front().text.size() ==
-                                 mirage::conversation::max_thinking_budget);
+                             history->turns.back().parts.back().text.size() <= 4096 &&
+                             history->turns.back().timings.inference.calls == 1);
                 MIRAGE_CHECK(budget_client.call(ipc::DeleteSessionRequest{budget_session}, 8s).ok);
                 restored_budget.request_shutdown();
                 MIRAGE_CHECK(restored_budget.run().clean);

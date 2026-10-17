@@ -645,7 +645,7 @@ endif()
 # DEC-093 categorized budget allocation (M9-14 / BUG-20261015-001)
 mirage_add_test(conversation_budget_test
     SOURCES runtime/conversation_budget_test.cpp
-    LIBS Mirage::conversation
+    LIBS Mirage::conversation Mirage::integration_mira
     LABELS "unit;conversation;protocol"
     TIMEOUT 30
     )
@@ -1183,8 +1183,25 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_ENABLE_NATIVE_FRONTEND)
         Mirage::platform Mirage::kairo_consumer)
     mirage_enable_warnings(native_conversation_view_test)
     add_test(NAME native_conversation_view_test COMMAND native_conversation_view_test)
-    set_tests_properties(native_conversation_view_test PROPERTIES LABELS "integration;ui" TIMEOUT 30
+    # The physical-size oracle and full view also run under Debug sanitizers.
+    set_tests_properties(native_conversation_view_test PROPERTIES LABELS "integration;ui" TIMEOUT 120
         WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/apps/native")
+    add_executable(native_input_performance_test desktop/native_input_performance_test.cpp
+        ${CMAKE_SOURCE_DIR}/apps/native/chat_model.cpp
+        ${CMAKE_SOURCE_DIR}/apps/native/window_controls.cpp
+        ${CMAKE_SOURCE_DIR}/apps/native/runtime_bridge.cpp
+        ${CMAKE_SOURCE_DIR}/apps/native/attachment.cpp)
+    add_dependencies(native_input_performance_test mirage-native)
+    target_include_directories(native_input_performance_test PRIVATE ${CMAKE_SOURCE_DIR}/apps/native)
+    target_include_directories(native_input_performance_test SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/eui-neo ${CMAKE_SOURCE_DIR}/third_party/eui-neo/include)
+    target_link_libraries(native_input_performance_test PRIVATE eui::neo Mirage::ipc Mirage::persistence
+        Mirage::platform Mirage::kairo_consumer)
+    mirage_enable_warnings(native_input_performance_test)
+    add_test(NAME native_input_performance_test COMMAND native_input_performance_test)
+    set_tests_properties(native_input_performance_test PROPERTIES LABELS "integration;ui;performance"
+        TIMEOUT 120 WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/apps/native")
+
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

@@ -357,7 +357,10 @@ bool decode_context_usage(const mira::JsonValue &object, const std::string &stat
 }
 
 bool decode_process(const mira::JsonValue &object, std::vector<conversation::Part> &parts,
-                    std::uint64_t &sequence, std::string &error) {
+                    std::uint64_t &sequence, conversation::Timings &timings, std::string &error) {
+    if (const auto *value = member(object, "timings"))
+        if (!conversation::decode_timings(mira::to_json_string(*value), timings, error))
+            return false;
     if (const auto *value = member(object, "parts")) {
         if (!conversation::decode_parts(mira::to_json_string(*value), parts, error))
             return false;
@@ -373,7 +376,9 @@ bool decode_process(const mira::JsonValue &object, std::vector<conversation::Par
     return true;
 }
 void encode_process(mira::JsonValue &object, const std::vector<conversation::Part> &parts,
-                    std::uint64_t sequence) {
+                    std::uint64_t sequence, const conversation::Timings &timings) {
+    if (!timings.empty())
+        put(object, "timings", mira::parse_json(conversation::encode_timings(timings)).value());
     if (!parts.empty())
         put(object, "parts", mira::parse_json(conversation::encode_parts(parts)).value());
     if (sequence)
@@ -442,7 +447,7 @@ std::optional<DialogTurnEntry> decode_dialog_turn(const mira::JsonValue &value,
     }
     if (!decode_context_usage(value, turn.status, turn.context_usage, error))
         return std::nullopt;
-    if (!decode_process(value, turn.parts, turn.process_sequence, error))
+    if (!decode_process(value, turn.parts, turn.process_sequence, turn.timings, error))
         return std::nullopt;
     return turn;
 }
@@ -769,7 +774,7 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                     }
                     put(entry, "sequence", static_cast<std::int64_t>(turn.sequence));
                     put(entry, "recorded_at_ms", turn.recorded_at_ms);
-                    encode_process(entry, turn.parts, turn.process_sequence);
+                    encode_process(entry, turn.parts, turn.process_sequence, turn.timings);
                     if (turn.context_usage)
                         put(entry, "context_usage", encode_context_usage(*turn.context_usage));
                     turns.emplace_back(std::move(entry));
@@ -2699,7 +2704,7 @@ std::string encode_event(const Event &event) {
                 put(object, "failure_count", static_cast<std::int64_t>(value.failure_count));
             } else if constexpr (std::is_same_v<T, ChatTurnUpdatedEvent>) {
                 put(object, "event", kEventChatTurnUpdated);
-                encode_process(object, value.parts, value.process_sequence);
+                encode_process(object, value.parts, value.process_sequence, value.timings);
                 if (!value.replaces_turn_id.empty())
                     put(object, "replaces_turn_id", value.replaces_turn_id);
                 if (value.context_usage)
@@ -3051,7 +3056,7 @@ EventDecode decode_event(std::string_view payload) {
         }
         if (!decode_context_usage(object, chat.status, chat.context_usage, result.error))
             return result;
-        if (!decode_process(object, chat.parts, chat.process_sequence, result.error))
+        if (!decode_process(object, chat.parts, chat.process_sequence, chat.timings, result.error))
             return result;
         result.event.payload = std::move(chat);
     } else {

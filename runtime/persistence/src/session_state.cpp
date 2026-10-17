@@ -72,6 +72,9 @@ std::string encode_session_state(const SessionState &state) {
             put(turn_object, "sequence", JsonValue{static_cast<std::int64_t>(turn.sequence)});
             put(turn_object, "recorded_at_ms",
                 JsonValue{static_cast<std::int64_t>(turn.recorded_at_ms)});
+            if (!turn.timings.empty())
+                put(turn_object, "timings",
+                    mira::parse_json(conversation::encode_timings(turn.timings)).value());
             if (!turn.parts.empty())
                 put(turn_object, "parts",
                     mira::parse_json(conversation::encode_parts(turn.parts)).value());
@@ -247,13 +250,17 @@ SessionStateDecode decode_session_state(std::string_view body) {
                 if (!entry.is_object() ||
                     has_unknown_member(entry, {"turn_id", "status", "user_text", "reply_text",
                                                "error", "sequence", "recorded_at_ms", "parts",
-                                               "process_sequence"})) {
+                                               "process_sequence", "timings"})) {
                     result.error = "chat turns must carry only 'turn_id', 'status', 'user_text', "
                                    "'reply_text', 'error', 'sequence', 'recorded_at_ms', 'parts' "
                                    "and 'process_sequence'";
                     return result;
                 }
                 PersistedChatTurn turn;
+                if (const auto *field = member(entry, "timings"))
+                    if (!conversation::decode_timings(mira::to_json_string(*field), turn.timings,
+                                                      result.error))
+                        return result;
                 if (const auto *field = member(entry, "parts"))
                     if (!conversation::decode_parts(mira::to_json_string(*field), turn.parts,
                                                     result.error))
