@@ -8,7 +8,7 @@
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：M2/M3 桌面与视觉适配；M6 当前原生会话/托盘 Runtime owner
 > 建议发布点：桌面工具预览版（名称与 tag 由维护者另定）
-> 更新日期：2026-10-12
+> 更新日期：2026-10-18
 
 ## 目标
 
@@ -67,6 +67,7 @@ M7-08 已闭合 Linux X11 动作后新观察与局部条件门禁；真实语义
 | M7-17 | Completed（Linux） | 截图降耗：desktop_png 压缩 DEFLATE（fixed Huffman + LZ77 + 自适应滤波，不可压缩回退 stored，输出不劣于旧编码）、大 ROI 预览缩放（≤1600 保持 1:1）、工具描述更新 | 独立解码器扩展 fixed-Huffman 后全像素回读；多类内容压缩比；ROI 缩放断言与坐标映射；全量回归 | M7-04 |
 | M7-18 | In Progress（Portal fake 全过） | Wayland Portal ROI 捕获（共享帧本地裁剪）与窗口几何近似（AT-SPI WindowProvider 门面，遮挡内容包含、语义与 X11 framebuffer 裁剪一致）；Portal schema 放开三源；shared_input 坐标映射改 origin/scale 元数据驱动 | Portal fake ROI/窗口裁剪正确性与越界/未知窗口 fail-closed；授权计数不变；AT-SPI 不可用路径；真实 Wayland 会话另验 | M7-10（DEC-074/077） |
 | M7-19 | In Progress（拒绝回执链路已验） | 观察节奏：target_pixels_changed 拒绝即发布守卫新鲜帧并在回执附 refreshed_image_scope（拒绝→免重截重试）；CUA 式观察纪律写入桌面指引与工具描述 | 拒绝回执含新 scope 且下一次免重试；canonical 回执 ≤512B 语义保持；真实会话往返减少另验 | M7-14/16 |
+| M7-20 | In Progress | [DEC-099](../decisions/DEC-099-complete-double-click.md)：泛化 `click_count=1..32`，Linux X11/GTK 及 Portal 次数/释放边界已验，默认单击保持；[验证与运行实例](../compatibility/complete-double-click-20261018.md)；真实 Wayland/Windows 后续验收保持开放 | X11/GTK 实际单击/双击/三击/多次；Portal 顺序、取消/超时/失败释放；工具次数与目标/权限守卫 | M7-03/07/10/15 |
 
 2026-10-10 顺序调整：认可 M7-07 已验证的受控 X11 基础能力阶段，保留该项
 In Progress 与慢模型在线/完整权重 TSAN/其他平台等未完成范围。下一主线为

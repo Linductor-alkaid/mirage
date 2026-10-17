@@ -81,6 +81,7 @@ struct SharedInputAction {
     std::int32_t image_width = 0, image_height = 0;
     std::string value; // button, key chord or UTF-8 text
     std::int32_t vertical_steps = 0, horizontal_steps = 0;
+    std::uint32_t click_count = 1; // DEC-099: Click only, 1..max_click_count within one action.
 };
 
 /// One caller-owned observation session (DEC-074). Calls must be serialized;

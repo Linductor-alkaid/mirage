@@ -82,6 +82,14 @@ class FaultInput final : public d::InputProvider {
     d::PointerPoint from, to;
     int horizontal = 0, vertical = 0;
     std::function<void()> after_pointer;
+    std::uint32_t last_click_count = 0;
+    d::InputOutcome click_sequence_at(std::int32_t x, std::int32_t y, const d::MouseButton &button,
+                                      std::uint32_t count, const d::InputLimits &limits,
+                                      const d::CancelToken &cancel) override {
+        // Adapter fixture records forwarding; platform tests cover physical repetition.
+        last_click_count = count;
+        return click_at(x, y, button, limits, cancel);
+    }
     bool complete_actions_supported() const override { return mode != 4; }
     bool bounded_pointer_actions_supported() const override { return paths; }
     d::InputOutcome pointer_result(const d::CancelToken &cancel) {
@@ -264,6 +272,21 @@ struct Fixture {
     }
 };
 void contracts(kairo::Executor &executor) {
+    for (const auto count : {1u, 2u, 3u, 5u, d::max_click_count}) {
+        Fixture f(executor);
+        const auto marked = f.mark();
+        auto args = f.target(marked.result);
+        args.set("click_count", static_cast<std::int64_t>(count));
+        check(!f.click(args).failed);
+        check(f.env->injector.calls == 1 && f.env->injector.last_click_count == count);
+    }
+    for (const auto count : {0u, d::max_click_count + 1}) {
+        Fixture f(executor);
+        const auto marked = f.mark();
+        auto args = f.target(marked.result);
+        args.set("click_count", static_cast<std::int64_t>(count));
+        check(f.click(args).failed && f.env->injector.calls == 0);
+    }
     {
         Fixture f(executor);
         check(f.env->accessibility() == nullptr);

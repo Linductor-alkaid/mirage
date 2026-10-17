@@ -554,11 +554,55 @@ void handshake(kairo::Executor &executor, const char *python, const char *script
         effects(executor, python, script, helpers, true, false, fixture);
     }
 }
+void click_sequence_effects(const char *python, const char *script) {
+    mirage::testing::XvfbDisplay server(mirage::testing::find_xvfb(), "800x600x24");
+    mirage::platform::linux_backend::LinuxDesktopEnvironment env(
+        {}, {.enabled = true, .display = server.display_name()});
+    Display *client = XOpenDisplay(server.display_name().c_str());
+    if (!client)
+        throw std::runtime_error("click sequence X client unavailable");
+    struct Close {
+        Display *display;
+        ~Close() { XCloseDisplay(display); }
+    } close{client};
+    for (const auto count : {1u, 2u, 3u, 5u, d::max_click_count}) {
+        Application app(server.display_name(), python, script, "click-sequence");
+        const auto window = static_cast<Window>(number(app.initial, "window"));
+        XSetInputFocus(client, window, RevertToParent, CurrentTime);
+        XSync(client, False);
+        const auto front = env.window()->front_window({});
+        if (!front.ok || !front.found || front.window.id != std::to_string(window))
+            throw std::runtime_error("click sequence fixture focus mismatch");
+        const d::PointerActionScope scope{front.window.id, front.window.geometry};
+        const auto at = point(scope, app.initial.find("rows")->as_array()->front());
+        const auto result = env.input()->click_sequence_at(at.x, at.y, "left", count, {}, {});
+        MIRAGE_CHECK(result.ok && result.input_released);
+        Json state;
+        const auto end = std::chrono::steady_clock::now() + std::chrono::seconds{1};
+        do {
+            (void)::poll(nullptr, 0, 10);
+            state = app.state();
+        } while (number(*state.find("click_events"), "releases") < count &&
+                 std::chrono::steady_clock::now() < end);
+        MIRAGE_CHECK(number(*state.find("click_events"), "presses") == count);
+        MIRAGE_CHECK(number(*state.find("click_events"), "releases") == count);
+        if (count <= 2)
+            MIRAGE_CHECK(number(state, "row_activations") == (count == 2 ? 1 : 0));
+        if (count == 3)
+            MIRAGE_CHECK(number(*state.find("click_events"), "triples") == 1);
+        MIRAGE_CHECK(!(mask(client) & Button1Mask));
+        std::fprintf(stderr, "GTK click_count=%u presses=%.0f releases=%.0f row_activations=%.0f\n",
+                     count, number(*state.find("click_events"), "presses"),
+                     number(*state.find("click_events"), "releases"),
+                     number(state, "row_activations"));
+    }
+}
 } // namespace
 int main(int argc, char **argv) {
     if (argc != 3 && argc != 4)
         return 2;
     const std::string_view option = argc == 4 ? argv[3] : "";
+    const bool clicks_only = option == "--click-sequence-only" || option == "--double-click-only";
     const bool private_handshake = option == "--handshake" || option == "--scaled-handshake";
     const bool scaled = option == "--scaled" || option == "--scaled-handshake";
     const bool resource_extension = option != "--without-xres";
@@ -600,8 +644,8 @@ int main(int argc, char **argv) {
             std::fprintf(stderr, "%s\n", error.what());
             return 2;
         }
-    } else if (!option.empty() && option != "--strict" && option != "--without-xres" && !scaled &&
-               !private_handshake)
+    } else if (!option.empty() && !clicks_only && option != "--strict" &&
+               option != "--without-xres" && !scaled && !private_handshake)
         return 2;
 #ifdef MIRAGE_TEST_X11_DRAG_HELPERS
     const bool helpers = option != "--strict" && resource_extension;
@@ -618,7 +662,9 @@ int main(int argc, char **argv) {
     try {
         executor
             .submit_auto([&] {
-                if (private_handshake)
+                if (clicks_only)
+                    click_sequence_effects(argv[1], argv[2]);
+                else if (private_handshake)
                     handshake(executor, argv[1], argv[2], helpers, scaled);
                 else
                     effects(executor, argv[1], argv[2], helpers, resource_extension, scaled, host);

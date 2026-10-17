@@ -1,5 +1,6 @@
 #include "desktop_image_supply.hpp"
 #include "desktop_stability_guard.hpp"
+#include "tool_click.hpp"
 #include "tool_geometry.hpp"
 #include <algorithm>
 #include <stdexcept>
@@ -101,12 +102,14 @@ void DesktopImageTurn::register_mark_tools(mira::BuiltinToolRegistry &registry,
     click.has_side_effects = true;
     click.description =
         "Click a fully visible number from this turn's latest visual_scope, with "
+        "click_count consecutive clicks (default 1; 2=double-click, 3=triple-click) in one action, "
         "environment_epoch and focused window_id. Requires exact fresh pixels "
         "and unchanged window/display geometry; animation may be rejected. No "
         "raw coordinates. Fix verify_kind before clicking and inspect new "
         "postcondition evidence. visual_text_exists requires expected_text and fresh unique OCR "
         "inside the window at confidence >= 0.8; injection alone does not verify task success.";
     Json::Object target{{"visual_scope", string_schema()},
+                        {"click_count", click_count_schema()},
                         {"window_id", string_schema()},
                         {"mark", integer_schema(1, 128)},
                         {"environment_epoch", integer_schema(1, INT64_MAX)}};
@@ -332,6 +335,9 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
                                                   const mira::OperationContext &ctx,
                                                   const std::string &operation) {
     const bool drag = operation == "drag", scroll = operation == "scroll";
+    const auto clicks = pointer_click_count(args);
+    if (!clicks || ((drag || scroll) && args.find("click_count")))
+        return action_error({"invalid_argument", "invalid click_count or non-click operation"});
     const auto end =
         std::min(ctx.deadline.value_or(std::chrono::steady_clock::now() + std::chrono::seconds{1}),
                  std::chrono::steady_clock::now() + std::chrono::seconds{1});
@@ -478,7 +484,8 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
                     input->scroll_at(pointer_scope, from, static_cast<std::int32_t>(horizontal),
                                      static_cast<std::int32_t>(vertical), limits, bounded);
             else
-                outcome = input->click_at(from.x, from.y, "left", limits, bounded);
+                outcome =
+                    input->click_sequence_at(from.x, from.y, "left", *clicks, limits, bounded);
         };
         const auto resolved =
             drag ? desktop_.with_visual_references(

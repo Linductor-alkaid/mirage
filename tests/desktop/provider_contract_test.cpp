@@ -279,6 +279,13 @@ void input_provider_contract() {
     mirage::testing::FakeDesktopEnvironment env;
     mirage::desktop::InputProvider &provider = *env.input();
 
+    const auto before_double = env.input_log.size();
+    const auto unsupported_double = provider.click_sequence_at(10, 10, "left", 2, {}, {});
+    MIRAGE_CHECK(!unsupported_double.ok && !unsupported_double.side_effect_may_have_occurred &&
+                 unsupported_double.input_released && env.input_log.size() == before_double);
+    MIRAGE_CHECK(provider.click_sequence_at(10, 10, "left", 0, {}, {}).error.code ==
+                 "invalid_argument");
+
     const auto key = provider.inject_key({"enter"}, true);
     MIRAGE_CHECK(key.ok);
     MIRAGE_CHECK(env.input_log.back() == "down enter");

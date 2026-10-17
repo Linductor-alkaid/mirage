@@ -12,7 +12,7 @@ os.environ['NO_AT_BRIDGE'] = '1'
 import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('GdkX11', '3.0')
-from gi.repository import Gtk, GLib, GdkX11
+from gi.repository import Gtk, GLib, GdkX11, Gdk
 
 mode = sys.argv[1]
 operator_mode = len(sys.argv) == 3 and sys.argv[2] == "--operator"
@@ -66,10 +66,26 @@ box.pack_start(scroll, True, True, 0)
 window.show_all()
 window.present()
 trace = []
+row_activations = 0
+click_events = {'presses': 0, 'releases': 0, 'doubles': 0, 'triples': 0}
+
+
+def activated(*_):
+    global row_activations
+    row_activations += 1
+
+
+tree.connect('row-activated', activated)
 
 
 def record_event(_widget, event):
-    if len(trace) < 24:
+    for key, kind in [('presses', Gdk.EventType.BUTTON_PRESS),
+                      ('releases', Gdk.EventType.BUTTON_RELEASE),
+                      ('doubles', Gdk.EventType.DOUBLE_BUTTON_PRESS),
+                      ('triples', Gdk.EventType.TRIPLE_BUTTON_PRESS)]:
+        if event.type == kind:
+            click_events[key] += 1
+    if len(trace) < (12 if mode == 'click-sequence' else 24):
         trace.append({'type': str(event.type), 'x': round(event.x),
                       'y': round(event.y), 'time': event.time})
     return False
@@ -128,6 +144,7 @@ def state():
     handle = paned.get_handle_window()
     _, handle_x, handle_y = handle.get_origin()
     return {'window': window.get_window().get_xid(), 'rows': rows,
+            'row_activations': row_activations, 'click_events': click_events,
             'handle': {'x': (handle_x - window_x) * scale,
                        'y': (handle_y - window_y) * scale,
                        'width': handle.get_width() * scale,

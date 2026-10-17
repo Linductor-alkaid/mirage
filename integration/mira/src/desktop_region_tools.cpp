@@ -1,4 +1,5 @@
 #include "desktop_image_supply.hpp"
+#include "tool_click.hpp"
 #include "tool_geometry.hpp"
 #include <algorithm>
 #include <cmath>
@@ -47,6 +48,8 @@ void DesktopImageTurn::register_region_tool(mira::BuiltinToolRegistry &registry,
         "Click a visible GUI control or a clearly non-interactive area of the intended window "
         "to focus it when region_actionable=true; no OCR/marks are required. Use the latest "
         "supplied screen.capture image. x/y/width/height are IMAGE pixels. "
+        "click_count sets consecutive clicks within this one action (default 1); "
+        "2 is a double-click, 3 a triple-click. "
         "Requires image_scope and environment_epoch. target_context=window requires window_id; "
         "target_context=display requires display_id, permits desktop/panel/menu outside the "
         "foreground window. Before input, rechecks source geometry/focus and fresh region pixels. "
@@ -55,6 +58,7 @@ void DesktopImageTurn::register_region_tool(mira::BuiltinToolRegistry &registry,
         "foreground_title_equals needs expected_title; display_text_exists needs display_id and "
         "expected_text. Never use local progress as proof of the final task.";
     Json::Object props;
+    props.emplace_back("click_count", click_count_schema());
     for (const auto *key :
          {"image_scope", "target_context", "window_id", "display_id", "verify_kind",
           "expected_title", "expected_role", "expected_name", "expected_text"})
@@ -88,6 +92,9 @@ void DesktopImageTurn::register_region_tool(mira::BuiltinToolRegistry &registry,
 
 mira::Result<Json> DesktopImageTurn::click_region(const Json &args,
                                                   const mira::OperationContext &ctx) {
+    const auto clicks = pointer_click_count(args);
+    if (!clicks)
+        return failure("invalid_argument");
     const auto end =
         std::min(ctx.deadline.value_or(std::chrono::steady_clock::now() + std::chrono::seconds{1}),
                  std::chrono::steady_clock::now() + std::chrono::seconds{1});
@@ -229,8 +236,8 @@ mira::Result<Json> DesktopImageTurn::click_region(const Json &args,
         return failure("cancelled");
     desktop::InputOutcome outcome;
     try {
-        outcome = desktop_.environment->input()->click_at(
-            area.x + area.width / 2, area.y + area.height / 2, "left", limits, bounded);
+        outcome = desktop_.environment->input()->click_sequence_at(
+            area.x + area.width / 2, area.y + area.height / 2, "left", *clicks, limits, bounded);
     } catch (...) {
         lease.release_failed();
         return failure("provider_exception", true, false);

@@ -1000,10 +1000,15 @@ InputOutcome X11Backend::key_chord(const KeySym &key, const InputLimits &limits,
 
 InputOutcome X11Backend::click_at(std::int32_t x, std::int32_t y, const MouseButton &button,
                                   const InputLimits &limits, const CancelToken &cancel) {
+    return click_sequence_at(x, y, button, 1, limits, cancel);
+}
+InputOutcome X11Backend::click_sequence_at(std::int32_t x, std::int32_t y,
+                                           const MouseButton &button, std::uint32_t count,
+                                           const InputLimits &limits, const CancelToken &cancel) {
     std::lock_guard guard(mutex_);
     InputOutcome out;
     const auto code = mouse_button_code(button);
-    if (!code || limits.timeout.count() <= 0) {
+    if (!code || limits.timeout.count() <= 0 || !mirage::desktop::valid_click_count(count)) {
         out.error = error("invalid_argument", "invalid click");
         return out;
     }
@@ -1032,13 +1037,16 @@ InputOutcome X11Backend::click_at(std::int32_t x, std::int32_t y, const MouseBut
     const auto deadline = std::chrono::steady_clock::now() + limits.timeout;
     out.side_effect_may_have_occurred = true;
     bool sent = XTestFakeMotionEvent(display, -1, x, y, CurrentTime) != 0;
-    bool pressed = false;
-    if (sent && !cancel.cancelled() && std::chrono::steady_clock::now() < deadline) {
-        pressed = true;
+    bool released = true;
+    for (std::uint32_t index = 0; index < count && sent && released; ++index) {
+        if (cancel.cancelled() || std::chrono::steady_clock::now() >= deadline) {
+            sent = false;
+            break;
+        }
         sent = XTestFakeButtonEvent(display, code, True, CurrentTime) != 0;
-    } else
-        sent = false;
-    bool released = !pressed || XTestFakeButtonEvent(display, code, False, CurrentTime) != 0;
+        // Even a failed down is ambiguous. Always settle it before another press.
+        released = XTestFakeButtonEvent(display, code, False, CurrentTime) != 0;
+    }
     released = (XSync(display, False) != 0) && released;
     out.input_released = released;
     out.cancelled = cancel.cancelled();

@@ -87,6 +87,10 @@ class X11Backend final : public mirage::desktop::WindowProvider,
                                            const mirage::desktop::MouseButton &button,
                                            const mirage::desktop::InputLimits &limits,
                                            const mirage::desktop::CancelToken &cancel) override;
+    mirage::desktop::InputOutcome
+    click_sequence_at(std::int32_t x, std::int32_t y, const mirage::desktop::MouseButton &button,
+                      std::uint32_t count, const mirage::desktop::InputLimits &limits,
+                      const mirage::desktop::CancelToken &cancel) override;
     mirage::desktop::InputOutcome type_text(const std::string &text,
                                             const mirage::desktop::InputLimits &limits,
                                             const mirage::desktop::CancelToken &cancel) override;

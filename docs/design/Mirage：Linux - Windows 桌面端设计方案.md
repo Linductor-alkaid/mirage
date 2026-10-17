@@ -1183,6 +1183,16 @@ identity/布局不变，坐标变换来自 ROI 原点；无 crop 或默认关闭
 有界诊断投影，不记录思考内容、不另建任务监控。实际配置与样本限制见
 [模型视觉耗时取证](../compatibility/model-visual-latency-20261010.md)。
 
+## M7-20 完整点击序列（2026-10-18）
+
+按 [DEC-099](../decisions/DEC-099-complete-double-click.md)，共享、区域和编号点击
+增加可选 `click_count=1..32`（默认 1，2 为双击，3 为三击）。同一权限/目标守卫和单写者 lease 内完成
+指定数量的按下/释放，之后统一产生新观察；不在各次点击之间调用模型、采集或重复授权。
+InputProvider 的 `click_sequence_at` 缺省只转发单击，多次点击需后端显式实现；共享
+输入通过 `SharedInputAction.click_count` 传递。Linux X11/Portal 直接复用既有
+有界 Executor 调用，不新增调度设施。取消/失败仍释放已拥有按钮，部分成功不得
+自动重试；语义 Invoke 保持一次激活，不能等价替代物理双击。
+
 ## M7-09 有界滚动与完整拖拽首增量
 
 按 [DEC-064](../decisions/DEC-064-bounded-scroll-and-drag.md)，InputProvider 新增

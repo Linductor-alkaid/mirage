@@ -120,6 +120,7 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
     std::function<std::vector<std::uint8_t>()> session_pixels;
     // Screen coordinates the last dispatched session input carried.
     double last_action_x = -1, last_action_y = -1;
+    std::uint32_t last_click_count = 0;
     class NativeWindow final : public mirage::desktop::WindowProvider {
       public:
         explicit NativeWindow(NativeEnvironment &env) : env_(env) {}
@@ -185,6 +186,7 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
             ++env.inputs;
             env.last_action_x = action.x;
             env.last_action_y = action.y;
+            env.last_click_count = action.click_count;
             if (env.release_failed || env.uncertain_input || cancel.cancelled())
                 return {false,
                         cancel.cancelled(),
@@ -504,6 +506,25 @@ void shared_contracts(const std::string &mode) {
             };
         if (mode == "cancel")
             stop.request_cancel();
+        if (mode == "double")
+            args.set("click_count", 2);
+        if (mode == "triple")
+            args.set("click_count", 3);
+        if (mode == "repeat")
+            args.set("click_count", 5);
+        if (mode == "click_limit")
+            args.set("click_count", static_cast<std::int64_t>(mirage::desktop::max_click_count));
+        if (mode == "invalid_click_count")
+            args.set("click_count",
+                     static_cast<std::int64_t>(mirage::desktop::max_click_count) + 1);
+        if (mode == "zero_click_count")
+            args.set("click_count", 0);
+        if (mode == "negative_click_count")
+            args.set("click_count", -1);
+        if (mode == "fractional_click_count")
+            args.set("click_count", 1.5);
+        if (mode == "string_click_count")
+            args.set("click_count", "3");
         if (mode == "unicode")
             args.set("text", "fixture中文");
         auto result =
@@ -597,7 +618,19 @@ void shared_contracts(const std::string &mode) {
         // — the guard passes it and the input succeeds, so the post-action
         // verification settles with verified=true; only the structural
         // replacement in `changed` still rejects below.
-        const bool success = mode == "normal" || mode == "ocr" || mode == "uniform_drift";
+        const bool success = mode == "normal" || mode == "ocr" || mode == "uniform_drift" ||
+                             mode == "double" || mode == "triple" || mode == "repeat" ||
+                             mode == "click_limit";
+        if (mode == "double")
+            check(env->last_click_count == 2);
+        if (mode == "triple")
+            check(env->last_click_count == 3);
+        if (mode == "repeat")
+            check(env->last_click_count == 5);
+        if (mode == "click_limit")
+            check(env->last_click_count == mirage::desktop::max_click_count);
+        if (mode.ends_with("click_count"))
+            check(env->captures == 1 && env->inputs == 0);
         const bool dispatched = success || mode == "post_failure" || mode == "wrong_ocr" ||
                                 mode == "ocr_invalid" || mode == "repeated_source";
         if (dispatched && !success) {
@@ -2392,17 +2425,37 @@ int main() {
         check(static_cast<bool>(executor.initialize(config)));
         executor
             .submit_auto([] {
-                for (const auto &mode : {"normal",          "ocr",
-                                         "no_image",        "foreign",
-                                         "changed",         "uniform_drift",
-                                         "changed_refresh", "changed_refresh_lease",
-                                         "denied",          "release",
-                                         "uncertain",       "takeover",
-                                         "stale",           "initial_denied",
-                                         "epoch",           "invalid_crop",
-                                         "post_failure",    "wrong_ocr",
-                                         "ocr_invalid",     "unicode",
-                                         "pretimeout",      "repeated_source"})
+                for (const auto &mode : {"normal",
+                                         "ocr",
+                                         "double",
+                                         "triple",
+                                         "repeat",
+                                         "click_limit",
+                                         "invalid_click_count",
+                                         "zero_click_count",
+                                         "negative_click_count",
+                                         "fractional_click_count",
+                                         "string_click_count",
+                                         "no_image",
+                                         "foreign",
+                                         "changed",
+                                         "uniform_drift",
+                                         "changed_refresh",
+                                         "changed_refresh_lease",
+                                         "denied",
+                                         "release",
+                                         "uncertain",
+                                         "takeover",
+                                         "stale",
+                                         "initial_denied",
+                                         "epoch",
+                                         "invalid_crop",
+                                         "post_failure",
+                                         "wrong_ocr",
+                                         "ocr_invalid",
+                                         "unicode",
+                                         "pretimeout",
+                                         "repeated_source"})
                     shared_contracts(mode);
                 for (const auto &mode : {"reuse", "budget", "deny", "cancel", "takeover", "revoke",
                                          "throw", "foreign", "during_takeover", "first_failure"})

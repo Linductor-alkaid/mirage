@@ -200,6 +200,10 @@ if(X11_FOUND AND X11_Xtst_FOUND)
         add_test(NAME gtk_pointer_effects_test COMMAND gtk_pointer_effects_test
             "${MIRAGE_GTK_TEST_PYTHON}" "${CMAKE_CURRENT_SOURCE_DIR}/manual/gtk_pointer_fixture.py")
         set_tests_properties(gtk_pointer_effects_test PROPERTIES LABELS "integration;platform;manual" TIMEOUT 60)
+        add_test(NAME gtk_click_sequence_test COMMAND gtk_pointer_effects_test
+            "${MIRAGE_GTK_TEST_PYTHON}" "${CMAKE_CURRENT_SOURCE_DIR}/manual/gtk_pointer_fixture.py"
+            --click-sequence-only)
+        set_tests_properties(gtk_click_sequence_test PROPERTIES LABELS "integration;platform;manual" TIMEOUT 15)
         add_test(NAME gtk_pointer_scaled_test COMMAND gtk_pointer_effects_test
             "${MIRAGE_GTK_TEST_PYTHON}" "${CMAKE_CURRENT_SOURCE_DIR}/manual/gtk_pointer_fixture.py" --scaled)
         set_tests_properties(gtk_pointer_scaled_test PROPERTIES LABELS "integration;platform;manual" TIMEOUT 60)
