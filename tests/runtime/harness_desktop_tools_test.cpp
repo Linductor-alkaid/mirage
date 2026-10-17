@@ -2407,7 +2407,10 @@ void continuous_long_run_scenario() {
     integration::ModelLayer layer(owner, config, &provider, tools);
     auto context = mira::make_control_context();
     context.session = mira::SessionId::generate();
-    context.deadline = std::chrono::steady_clock::now() + 30s;
+    // Ceiling, not a timing assertion: sanitizer instrumentation multiplies
+    // the scripted rounds (TSAN reached only 212/261 inside 30s), so the
+    // long-run scenarios use the DEC-082 maximum harness deadline instead.
+    context.deadline = std::chrono::steady_clock::now() + 600s;
     mirage::desktop::CancelToken cancel;
     const auto result = owner
                             .submit_auto([&] {
@@ -2457,7 +2460,8 @@ void continuous_large_window_scenario() {
     integration::ModelLayer layer(owner, config, &provider, tools);
     auto context = mira::make_control_context();
     context.session = mira::SessionId::generate();
-    context.deadline = std::chrono::steady_clock::now() + 30s;
+    // Same sanitizer-load ceiling as the long-run probe above.
+    context.deadline = std::chrono::steady_clock::now() + 600s;
     mirage::desktop::CancelToken cancel;
     const auto result = owner
                             .submit_auto([&] {
@@ -2526,7 +2530,7 @@ void continuous_large_receipt_scenario() {
     integration::ModelLayer layer(owner, config, &provider, tools);
     auto context = mira::make_control_context();
     context.session = mira::SessionId::generate();
-    context.deadline = std::chrono::steady_clock::now() + 30s;
+    context.deadline = std::chrono::steady_clock::now() + 600s;
     mirage::desktop::CancelToken cancel;
     const auto result = owner
                             .submit_auto([&] {

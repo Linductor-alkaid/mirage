@@ -1,6 +1,7 @@
 #include "desktop_context_builder.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <map>
 #include <string>
 #include <vector>

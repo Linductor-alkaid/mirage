@@ -154,6 +154,9 @@ constexpr std::uint64_t kThinkingOutputFloor = 32768;
 /// output budget (model-token-limits.ts: the declared value is used
 /// verbatim; 32K is the default, not a global cap).
 constexpr std::uint64_t kDefaultMaxOutputTokens = 32000;
+/// M9-03: the host retention bound for the committed Continuous replay; the
+/// pinned max_history_items backstop holds at 254, so this never binds it.
+constexpr std::size_t kRetainedHistoryItems = 200;
 /// DEC-087: per-request preflight reserve — the shrink keeps this much of
 /// the declared context window free beyond the estimated current usage.
 constexpr std::uint64_t kContextReserveTokens = 1000;
@@ -1241,7 +1244,6 @@ DialogCompletion ModelLayer::complete_harness_turn(
         // claimed. Seam failures still degrade inside the loop to the raw
         // replay. The compaction request reserves the per-call wire output
         // (the same bound the DEC-087 preflight shrinks).
-        constexpr std::size_t kRetainedHistoryItems = 200;
         if (impl_->config.context_window_tokens != 0) {
             auto counter = std::make_shared<mira::ConservativeTokenCounter>();
             auto manager = std::make_shared<mira::StandardContextManager>(std::move(counter));

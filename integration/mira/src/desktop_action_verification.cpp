@@ -2,6 +2,7 @@
 #include "tool_geometry.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <mira/observation.hpp>
 #include <stdexcept>
