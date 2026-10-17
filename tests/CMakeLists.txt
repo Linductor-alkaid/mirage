@@ -1552,4 +1552,16 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_WITH_PPOCR)
     target_link_libraries(mirador_visual_review PRIVATE Mirage::platform
         Mirage::integration_mirador mirador::fusion $<TARGET_FILE:kairo::kairo>)
     mirage_enable_warnings(mirador_visual_review)
+    add_executable(mirador_capability_review EXCLUDE_FROM_ALL manual/mirador_capability_review.cpp)
+    target_include_directories(mirador_capability_review SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+    target_link_libraries(mirador_capability_review PRIVATE Mirage::integration_mirador
+        mirador::fusion mirador::geometry mirador::render mirador_ocr_ppocr
+        $<TARGET_FILE:kairo::kairo>)
+    mirage_enable_warnings(mirador_capability_review)
+    # MIRADOR-20261016-001 evidence: no-model repro of the thin outline recall.
+    add_executable(mirador_outline_repro EXCLUDE_FROM_ALL
+        ../docs/dependency_feedback/repro/mirador-outlined-rectangle.cpp)
+    target_link_libraries(mirador_outline_repro PRIVATE mirador::geometry)
+    mirage_enable_warnings(mirador_outline_repro)
 endif()
