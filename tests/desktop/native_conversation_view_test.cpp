@@ -64,6 +64,51 @@ int main(int argc, char **argv) {
     // Match the product's shipped icon face (dslAppConfig().fonts) so Phosphor
     // codepoints render exactly as they do in the application.
     core::TextPrimitive::setDefaultFontFiles(text_font(), "assets/Phosphor-Regular.ttf");
+    // M6-42: metrics-only sizing must preserve the drawable's geometry at
+    // physical font sizes, including wrapping and trailing empty paragraphs.
+    {
+        core::TextPrimitive atlas_owner;
+        MIRAGE_CHECK(atlas_owner.initialize());
+        PlainTextLayout measurements;
+        for (const std::string sample :
+             {"", "中文输入 English 123，标点。", "one\ntwo\n", "CRLF\r\n\r\n末行",
+              "\tTab  spaces  ", "office ffi e\xcc\x81 中文"})
+            for (const float scale : {1.0f, 1.25f, 2.0f})
+                for (const float size : {12.0f, 14.0f, 24.0f, 32.0f})
+                    for (const float width : {0.0f, 80.0f, 320.0f}) {
+                        const float line = ui_input_line_height(size);
+                        core::TextStyle style;
+                        style.text = sample;
+                        style.fontSize = ui_font_size(size) * scale;
+                        style.maxWidth = width * scale;
+                        style.wrap = width > 0;
+                        style.lineHeight = line * scale;
+                        core::TextPrimitive drawable;
+                        drawable.setStyle(style);
+                        const auto expected = drawable.measuredSize();
+                        const auto actual = measurements.measure(sample, width, size, line, scale);
+                        MIRAGE_CHECK(std::abs(actual.x * scale - expected.x) < 0.01f);
+                        MIRAGE_CHECK(std::abs(actual.y * scale - expected.y) < 0.01f);
+                        const auto cached = measurements.measure(sample, width, size, line, scale);
+                        MIRAGE_CHECK(cached.x == actual.x && cached.y == actual.y);
+                        for (const float limit : {24.0f, 60.0f, 144.0f})
+                            MIRAGE_CHECK(std::abs(measurements.height_up_to(sample, width, size,
+                                                                            line, scale, limit) -
+                                                  std::min(limit, actual.y)) < 0.01f);
+                    }
+        std::string long_draft;
+        for (int i = 0; i < 400; ++i)
+            long_draft += "中文 English\n";
+        for (const float scale : {1.0f, 1.25f, 2.0f}) {
+            const auto full =
+                measurements.measure(long_draft, 600, 14, ui_input_line_height(14), scale);
+            MIRAGE_CHECK(measurements.height_up_to(long_draft, 600, 14, ui_input_line_height(14),
+                                                   scale, 144) == std::min(144.0f, full.y));
+        }
+        // The oracle rasterizes many large fonts. Release its atlas before
+        // the actual view so screenshot coverage starts with a fresh budget.
+        atlas_owner.destroy();
+    }
     auto &page = state();
     page.runtime_notice = "合成测试会话 · 不连接模型";
     const auto session_id = page.chat.current().id;
@@ -72,6 +117,37 @@ int main(int argc, char **argv) {
         "## 实现结构\n\nMirage 提供 **原生界面**，Mira 负责 Agent 推理。\n\n- 窗口与状态栏分离\n- "
         "会话由服务管理\n\n可以先完善会话体验，再接入桌面工作流。",
         {}, {}, 1);
+    {
+        auto sample = page.chat.current();
+        const auto key = conversation_measure_key(sample, page, 800, 500);
+        MIRAGE_CHECK(!key.empty());
+        MIRAGE_CHECK(conversation_measure_key(sample, page, 799.75f, 500) != key);
+        sample.draft = "Typing does not change history height";
+        sample.scroll_offset = 80;
+        MIRAGE_CHECK(conversation_measure_key(sample, page, 800, 500) == key);
+        sample.messages.back().text += "\n新段落";
+        const auto edited = conversation_measure_key(sample, page, 800, 500);
+        MIRAGE_CHECK(edited != key);
+        sample.messages.back().status = "运行中";
+        const auto pending = conversation_measure_key(sample, page, 800, 500);
+        MIRAGE_CHECK(pending != edited);
+        sample.messages.back().parts.push_back({});
+        auto &part = sample.messages.back().parts.back();
+        part.id = "tool";
+        part.kind = "tool";
+        part.output = "short";
+        sample.messages.back().expanded_parts.push_back(part.id);
+        const auto expanded = conversation_measure_key(sample, page, 800, 500);
+        MIRAGE_CHECK(expanded != pending);
+        part.output += "\nmore output";
+        MIRAGE_CHECK(conversation_measure_key(sample, page, 800, 500) != expanded);
+        const auto before_font = conversation_measure_key(sample, page, 800, 500);
+        ++page.font_size_step;
+        MIRAGE_CHECK(conversation_measure_key(sample, page, 800, 500) != before_font);
+        --page.font_size_step;
+        part.output.assign(64 * 1024, 'x');
+        MIRAGE_CHECK(conversation_measure_key(sample, page, 800, 500).empty());
+    }
     page.chat.current().scroll_offset = 0;
     core::dsl::Runtime runtime;
     MIRAGE_CHECK(runtime.initialize(handle));
@@ -209,6 +285,12 @@ int main(int argc, char **argv) {
         timings.settlement = {1, 90};
         page.chat.apply_process(session_id, "first", parts, 1, false, true, timings);
         MIRAGE_CHECK(page.chat.current().messages.back().timings == timings);
+        const auto before_timing = conversation_measure_key(page.chat.current(), page, 800, 500);
+        auto &timed_message = page.chat.current().messages.back();
+        ++timed_message.timings.capture.calls;
+        MIRAGE_CHECK(conversation_measure_key(page.chat.current(), page, 800, 500) !=
+                     before_timing);
+        --timed_message.timings.capture.calls;
         frame();
         const auto root = "message." + std::to_string(assistant) + ".part.";
         MIRAGE_CHECK(!view->find(root + "thought.detail.body"));

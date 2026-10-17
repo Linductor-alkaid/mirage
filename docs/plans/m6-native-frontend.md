@@ -3,7 +3,7 @@
 > 状态：In Progress
 > 负责人：Mirage 维护者
 > 所属计划：[实施总计划](mirage-implementation-plan.md)
-> 更新日期：2026-10-12
+> 更新日期：2026-10-17
 > 决策：[DEC-033](../decisions/DEC-033-native-agent-frontend.md)
 > 前置：既有 M5 服务与 IPC；本轮交付不依赖完整 M5 发布验收。
 > 建议发布点：暂不新增发布标签。
@@ -18,6 +18,7 @@
 
 | 编号 | 状态 | 结果与验收 |
 | --- | --- | --- |
+| M6-42 | In Progress | 本机性能矩阵已交付：EUI最新dev基础的字形缓存PR#114四项CI全绿，pin63117f7保留Windows修复；纯尺寸/封顶测量与公开历史高度缓存，12场景配对p50/p95均改善；16KB单段/40轮51.64→16.98ms。Release5/5、ASAN/UBSAN各4/4，实机/Windows及上游评审保持开放；[证据](../compatibility/native-input-performance-20261017.md) |
 | M6-01 | In Progress | EUI dev 完整提交锁定、bundled 构建、原生无边框窗口与窗口控制；Linux 构建/运行已取证，Windows 保持待验收 |
 | M6-02 | Completed | Linux 首步窄侧栏与对话页，本地会话/草稿/未发送消息、主题、滚动、容量限制；截图、模型测试与键鼠交互取证通过 |
 | M6-03 | Completed | Linux 首步模型设置与通用 harness：真实 session.list/open/chat/history 与事件；Executor 管理请求、停止与断线，离线故障注入和真实SiliconFlow模型验收；Windows与后续扩展另验 |
@@ -670,3 +671,33 @@ Debug/ASAN/UBSAN 定向各 4/4。补齐 PP-OCR/X11 模拟 Provider 名称后追�
 同期 DEC-083 实现/夹具一致后重新构建全量。已更新本机四程序与桌面入口，保留已验
 旧 DEB。真实供应商/SSE/Windows/原任务门禁未扩大声明，见
 [统一适配验收](../compatibility/unified-tool-alias-20261012.md)。
+
+
+## 2026-10-17 / M6-42：输入性能定位
+
+已复现长草稿输入超帧预算，改用EUI公开尺寸测量与高度封顶后的完整段落前缀。
+测试矩阵、基线/优化后统计、首轮sanitizer超时和oracle atlas预算修正均记录于
+[验证记录](../compatibility/native-input-performance-20261017.md)。M6-42不关闭：
+单段字形测量/长历史仍超预算，EUI修复方案已登记且待明确授权；短草稿长历史需
+配对复验，真实compositor、物理高DPI与Windows由维护者取得目标环境后补跑。
+
+2026-10-17 / M6-42 第二阶段：维护者授权先切换 EUI 最新 dev，再修复和验证，确认
+通用场景确有性能收益后才提交 issue/PR。本轮最新 dev 为 ad7e9e7；既有 fork
+Windows 修复 bcfaa2e/f052729 在最终集成 pin 中保留，性能 PR 独立基于最新 dev。
+增加 EUI 公共文字测量的 FreeType 一致性 oracle 与短文/长文/高基数字形/emoji/
+大字号基准，配合 Mirage 输入全链路和四种窗口/渲染组合验收。
+
+
+2026-10-17 / M6-42最终本机取证：EUI四种后端独立36/36、安装消费者各1/1，PR#114
+四项远程CI全通过；最终pin63117f7保留旧Windows补丁，额外Windows-only测试明确
+skip。Mirage增加有预算的精确历史高度key，正文/工具/状态/展开/字号/几何失效检查
+与原生27703项回归通过；Release5/5、ASAN/UBSAN各4/4，四张截图逐字节相同。
+3轮交错A/B的12种输入场景p50/p95均改善，原始360条统计及限制见
+[完整记录](../compatibility/native-input-performance-20261017.md)。M6-42的真实用户
+compositor/物理高DPI/Windows验收由维护者取得目标环境后补跑，上游PR待评审；
+本轮不合并PR、不替换已安装应用或重启现有会话。
+
+2026-10-17 / M6-42本机更新：维护者授权提交、CI全绿后合入master。native-release
+前端和资源已重建并实际启动，exe摘要与新构建一致、窗口映射；定向6/6通过。
+CI新增性能用例构建/执行；本次PR仅含性能范围，保留同期pet工作树修改，详情见
+[启动与提交记录](../compatibility/native-input-performance-20261017.md)。
