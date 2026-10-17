@@ -236,3 +236,47 @@ ui_state单测、原生实际视口像素和Debug/Release/ASAN/UBSAN各2/2通过
   空表面；没有承诺全部平台/驱动绝对无黑帧。Windows/原生 Wayland 待维护者补验。
 - 无新增线程、队列、调度器或依赖；证据与复跑方式见
   [窗口呈现验收](../compatibility/native-frame-presentation-20261008.md)。
+
+## EUI-20261017-001：长文本输入重复加载相同字形轮廓
+
+- 状态：Accepted（已授权修复、集成并验证，待上游评审）；负责人：Mirage 维护者；工作项：M6-42；初始版本：bcfaa2ea。
+- 公开能力核对：`components/input.h` 提供 multiline/fontSize/value，
+  `core/render/text.h` 提供 measureTextMetrics/measureTextSize；没有可配置的
+  advance 缓存、测量预算或长段增量排版策略。输入模型已有硬段增量缓存，但
+  单个硬段内的编辑会重测整段及其软换行；这不是应用另建输入器的理由。
+- 复现：构建并在私有 Xvfb 运行 `native_input_performance_test --unbroken`；
+  16000 字节档位混排草稿、40 轮历史、连续输入“字”。并行构建期间诊断样本
+  total p50 72.18ms、p95 78.22ms，数据仅用于定位，最终无编译负载结果另记。
+- 采样：GDB 对基准主线程进行 18 次中断栈采样，多次命中
+  `InputModel::updateChangedParagraphs -> measureLines -> measureTextMetrics ->
+  shapeWithFallback -> FT_Load_Glyph -> cff_slot_load/cf2_interpT2CharString`；
+  应用的整段高度测量也命中同一 FreeType 路径。原始合成栈在
+  `/tmp/mirage-input-stacks.log`，不含真实对话。
+- 源码原因：`loadGlyphAdvance` 对每个字符调用 FT_Load_Glyph 以取得 advance，
+  即使同一 FontFace/物理字号/字形在当前段中反复出现；Noto Sans SC OTF 的
+  CFF 轮廓被反复解释。绘制 atlas 的位图缓存不能复用为该 advance 查询缓存。
+- 首轮建议（现已按末尾跟进实施）：在 EUI 字体测量层增加有界的 face/字号/glyph
+  advance 缓存，保持 Tab、combining mark、彩色 fallback 缩放及字体切换语义；
+  如仍不足，再考虑复用软行测量结果。字体 owner 销毁/配置变化必须使缓存失效。
+  不在 Mirage 复制字体实现，不以换字体、拆字符串或减少输入容量掩盖问题。
+- 验收：普通/大字号、CJK/Latin/emoji/组合字符/Tab advance 与原实现逐项一致；
+  重复字符大段输入前后 p50/p95 和 glyph load 次数对照；字体/缩放切换、长时间
+  随机字符下内存预算、IME/选区/撤销/滚动、ASAN/UBSAN 与现行后端构建矩阵。
+- 首轮影响/延期（修复前）：多段 composer 的应用层优化可独立交付；单段长文仍可能超过一帧
+  预算，不能宣称全面消除掉帧。移除条件：获明确授权的独立 EUI 修复验证并
+  同步 pin/锁文件后，复跑 Mirage 基准与交互回归。本次未修改 pinned 代码。
+- 证据：[输入性能验证](../compatibility/native-input-performance-20261017.md)。
+
+
+EUI-20261017-001 / 2026-10-17跟进：维护者授权先切最新dev ad7e9e7，再修复、验证
+通用收益后反馈。b59b6e9新增固定face的512槽advance/height缓存，72组两字体/两字号/
+6场景/3轮配对指纹逐位一致；普通测量约10–75倍加速，大量不同汉字基本持平，原始
+统计随上游[issue #113](https://github.com/sudoevolve/EUI-NEO/issues/113) /
+[PR #114](https://github.com/sudoevolve/EUI-NEO/pull/114)交付，四项远程CI全通过。
+Mirage pin63117f7保留既有Windows修复，消费缓存并接入公开contentKey；最终12种
+输入场景p50/p95均改善，16KB单段/40轮51.64→16.98ms（配对中位）。不宣称巨大
+不同字形工作集、任意历史或硬件GPU/Windows帧率。独立四后端各36/36+SDK1/1，
+最终集成额外Windows-only探针skip；Mirage Release5/5、ASAN/UBSAN各4/4。
+状态保持Accepted等待上游评审，不代维护者合并PR。见
+[升级审计](../supply-chain/eui-text-performance-20261017.md)与
+[最终输入矩阵](../compatibility/native-input-performance-20261017.md)。

@@ -739,3 +739,16 @@ native 产品聚合、默认 pet 与缺载体诊断已接入，Debug/ASAN/UBSAN 
 82/82、当前工作区 84/84，ASAN/UBSAN 各 5/5，持续契约与 native 产品编译通过。
 M9-03/04 与真实长任务验收保持开放；证据和平台限制见
 [pin 审计](../supply-chain/mira-continuous-loop-20261015.md)。
+
+
+2026-10-17 / M6-42：原生输入卡顿首轮分析与应用层优化，16KB多段/40轮样本
+输入路径中位72.54→21.56ms；Release、ASAN/UBSAN定向验证通过。单段长文本
+及历史开销未关闭，EUI-20261017-001待授权修复依赖，实机与Windows另验；
+方法、完整统计和限制见[性能记录](../compatibility/native-input-performance-20261017.md)。
+
+
+2026-10-17 / M6-42第二阶段完成本机修复与取证：先更新最新EUI dev，再完成有界
+字形测量缓存、通用场景重复验证后提交issue#113/PR#114（四项CI全绿），最终pin
+63117f7保留旧Windows修复；原生历史接入公开高度缓存，12种输入场景p50/p95均
+改善，单段16KB/40轮51.64→16.98ms。Release5/5、ASAN/UBSAN各4/4；实机、
+Windows及上游评审另验，详见[性能记录](../compatibility/native-input-performance-20261017.md)。

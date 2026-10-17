@@ -2,6 +2,7 @@
 
 #include "../common/typography.hpp"
 #include <algorithm>
+#include <cmath>
 #include <core/render/text.h>
 #include <deque>
 #include <utility>
@@ -11,6 +12,23 @@ namespace mirage::native_ui {
 // Physical font sizes matter: FreeType's quantization is not scale invariant.
 class PlainTextLayout {
   public:
+    // A growing composer only needs height up to its viewport cap. Each hard
+    // paragraph contributes at least one line, so later paragraphs cannot
+    // change a saturated result. Keep complete paragraphs for shaping.
+    float height_up_to(const std::string &value, float width, float size, float line, float scale,
+                       float limit) {
+        const auto paragraphs = static_cast<std::size_t>(std::ceil(limit / line));
+        std::size_t end = 0;
+        for (std::size_t i = 0; i < paragraphs; ++i) {
+            end = value.find('\n', end);
+            if (end == std::string::npos)
+                return std::min(limit, measure(value, width, size, line, scale).y);
+            if (i + 1 < paragraphs)
+                ++end;
+        }
+        return std::min(limit, measure(value.substr(0, end), width, size, line, scale).y);
+    }
+
     core::Vec2 measure(const std::string &value, float width, float size, float line, float scale) {
         scale = std::max(0.01f, scale);
         core::TextStyle style;
@@ -24,9 +42,11 @@ class PlainTextLayout {
                 entry.style.maxWidth == style.maxWidth &&
                 entry.style.lineHeight == style.lineHeight)
                 return {entry.pixels.x / scale, entry.pixels.y / scale};
-        core::TextPrimitive shaped;
-        shaped.setStyle(style);
-        const auto pixels = shaped.measuredSize();
+        // Measurement must not instantiate a drawable: measuredSize() on a
+        // fresh TextPrimitive loads/rasterizes glyphs and builds render lines.
+        // The public metrics-only API shares the renderer's shaping and size
+        // cache without doing that work on every edited draft.
+        const auto pixels = core::TextPrimitive::measureTextSize(style);
         if (value.size() <= max_bytes) {
             while (!entries_.empty() &&
                    (entries_.size() >= max_entries || bytes_ + value.size() > max_bytes)) {
