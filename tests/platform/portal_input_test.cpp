@@ -90,6 +90,78 @@ int main() {
         };
         action.click_count = 1;
         events.clear();
+        for (const auto *button : {"left", "middle", "right"}) {
+            action.kind = Kind::Click;
+            action.value = button;
+            events.clear();
+            result = dispatch_portal_input(context, action, {}, {});
+            const int code = action.value == "left" ? 272 : action.value == "middle" ? 274 : 273;
+            MIRAGE_CHECK(result.ok && events[1].value == code && events.back().value == code);
+            action.kind = Kind::Drag;
+            action.destination_x = 1200;
+            action.destination_y = 700;
+            events.clear();
+            result = dispatch_portal_input(context, action, {}, {});
+            MIRAGE_CHECK(result.ok && result.input_released && events.size() == 19);
+            MIRAGE_CHECK(events[1].value == code && events[1].state == 1 &&
+                         events.back().state == 0);
+            MIRAGE_CHECK(events[17].x == 600 && events[17].y == 350);
+            for (std::size_t n = 2; n < 18; ++n)
+                MIRAGE_CHECK(events[n].kind == PortalInputEvent::Kind::Motion);
+        }
+        for (int mode = 0; mode < 7; ++mode) {
+            events.clear();
+            desktop::CancelToken token;
+            desktop::InputLimits budget;
+            if (mode == 3)
+                budget.timeout = std::chrono::milliseconds(20);
+            context.notify = [&](const auto &event) {
+                events.push_back(event);
+                if (events.size() == 6) {
+                    if (mode == 0)
+                        return false;
+                    if (mode == 1)
+                        token.request_cancel();
+                    if (mode == 2)
+                        throw std::runtime_error("drag motion");
+                    if (mode == 3)
+                        (void)::poll(nullptr, 0, 30);
+                    if (mode == 6)
+                        context.stopped = [] { return true; };
+                }
+                return !(mode == 4 && event.kind == PortalInputEvent::Kind::Button && !event.state);
+            };
+            if (mode == 5)
+                token.request_cancel();
+            result = dispatch_portal_input(context, action, budget, token);
+            MIRAGE_CHECK(!result.ok && result.input_released == (mode != 4));
+            if (mode == 5)
+                MIRAGE_CHECK(events.empty() && !result.side_effect_may_have_occurred);
+            else
+                MIRAGE_CHECK(events.back().kind == PortalInputEvent::Kind::Button &&
+                             events.back().state == 0);
+            context.stopped = [] { return false; };
+        }
+        context.notify = [&](const auto &event) {
+            events.push_back(event);
+            return true;
+        };
+        for (const auto destination : {-1., 3200., 1e30}) {
+            events.clear();
+            action.destination_x = destination;
+            MIRAGE_CHECK(!dispatch_portal_input(context, action, {}, {}).ok && events.empty());
+        }
+        action.kind = Kind::Scroll;
+        action.vertical_steps = 16;
+        action.horizontal_steps = 1;
+        events.clear();
+        MIRAGE_CHECK(!dispatch_portal_input(context, action, {}, {}).ok && events.empty());
+        action.vertical_steps = 0;
+        action.horizontal_steps = -16;
+        MIRAGE_CHECK(dispatch_portal_input(context, action, {}, {}).ok &&
+                     events.back().value == -16);
+        action.vertical_steps = action.horizontal_steps = 0;
+        events.clear();
         action.kind = Kind::Key;
         action.value = "ctrl+shift+t";
         result = dispatch_portal_input(context, action, {}, {});

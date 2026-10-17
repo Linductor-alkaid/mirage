@@ -80,6 +80,12 @@ class X11Backend final : public mirage::desktop::WindowProvider,
                                           mirage::desktop::PointerPoint to,
                                           const mirage::desktop::InputLimits &,
                                           const mirage::desktop::CancelToken &) override;
+    mirage::desktop::InputOutcome drag_with_button(const mirage::desktop::PointerActionScope &,
+                                                   mirage::desktop::PointerPoint from,
+                                                   mirage::desktop::PointerPoint to,
+                                                   const mirage::desktop::MouseButton &button,
+                                                   const mirage::desktop::InputLimits &,
+                                                   const mirage::desktop::CancelToken &) override;
     mirage::desktop::InputOutcome key_chord(const mirage::desktop::KeySym &key,
                                             const mirage::desktop::InputLimits &limits,
                                             const mirage::desktop::CancelToken &cancel) override;
@@ -124,8 +130,8 @@ class X11Backend final : public mirage::desktop::WindowProvider,
     mirage::desktop::InputOutcome
     pointer_path_locked(const mirage::desktop::PointerActionScope &, mirage::desktop::PointerPoint,
                         mirage::desktop::PointerPoint, std::int32_t horizontal,
-                        std::int32_t vertical, bool drag, const mirage::desktop::InputLimits &,
-                        const mirage::desktop::CancelToken &);
+                        std::int32_t vertical, unsigned int drag_button,
+                        const mirage::desktop::InputLimits &, const mirage::desktop::CancelToken &);
 
     /// Answers pending clipboard events for the selection we own (requests,
     /// ownership loss, incremental transfer rounds). Called on entry of every

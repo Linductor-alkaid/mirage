@@ -76,6 +76,26 @@ class FaultInput final : public d::InputProvider {
     int calls = 0, mode = 0;
     std::function<void()> after;
     std::uint32_t last_click_count = 0;
+    std::string last_button;
+    d::PointerPoint last_from, last_to;
+    int horizontal = 0, vertical = 0;
+    bool bounded_pointer_actions_supported() const override { return true; }
+    d::InputOutcome scroll_at(const d::PointerActionScope &, d::PointerPoint from, std::int32_t h,
+                              std::int32_t v, const d::InputLimits &limits,
+                              const d::CancelToken &cancel) override {
+        last_from = from;
+        horizontal = h;
+        vertical = v;
+        return click_at(from.x, from.y, "left", limits, cancel);
+    }
+    d::InputOutcome drag_with_button(const d::PointerActionScope &, d::PointerPoint from,
+                                     d::PointerPoint to, const d::MouseButton &button,
+                                     const d::InputLimits &limits,
+                                     const d::CancelToken &cancel) override {
+        last_from = from;
+        last_to = to;
+        return click_at(from.x, from.y, button, limits, cancel);
+    }
     d::InputOutcome click_sequence_at(std::int32_t x, std::int32_t y, const d::MouseButton &button,
                                       std::uint32_t count, const d::InputLimits &limits,
                                       const d::CancelToken &cancel) override {
@@ -87,6 +107,7 @@ class FaultInput final : public d::InputProvider {
     d::InputOutcome click_at(std::int32_t x, std::int32_t y, const d::MouseButton &b,
                              const d::InputLimits &l, const d::CancelToken &c) override {
         ++calls;
+        last_button = b;
         if (mode == 1)
             throw std::runtime_error("injected pointer exception");
         auto out = delegate->click_at(x, y, b, l, c);
@@ -230,6 +251,68 @@ struct Fixture {
     }
 };
 void contracts(kairo::Executor &executor) {
+    for (const auto *operation : {"click", "scroll", "drag"}) {
+        for (const auto *button : {"left", "middle", "right"}) {
+            Fixture f;
+            auto args = f.args(f.capture(), true);
+            const std::string op = operation;
+            if (op != "scroll")
+                args.set("button", button);
+            if (op == "click")
+                args.set("click_count", 3);
+            if (op == "scroll")
+                args.set("vertical_steps", -16);
+            if (op == "drag") {
+                args.set("destination_x", 150);
+                args.set("destination_y", 150);
+                args.set("destination_width", 20);
+                args.set("destination_height", 20);
+            }
+            auto result = invoke(f.registry, "desktop.vision." + op + "_region", args, f.ctx);
+            check(!result.failed && f.input.calls == 1);
+            check(f.verifier->settle());
+            if (op != "scroll")
+                check(f.input.last_button == button);
+            if (op == "scroll")
+                check(f.input.vertical == -16 && f.input.horizontal == 0);
+            if (op == "drag")
+                check(f.input.last_to.x == 160 && f.input.last_to.y == 160);
+        }
+    }
+    for (const auto *operation : {"click", "scroll", "drag"}) {
+        for (const auto *mode :
+             {"button", "type", "budget", "destination", "deny", "changed", "release"}) {
+            Fixture f;
+            const std::string op = operation, fault = mode;
+            auto args = f.args(f.capture(), true);
+            if (op == "scroll")
+                args.set("vertical_steps", 1);
+            if (op == "drag") {
+                args.set("destination_x", 150);
+                args.set("destination_y", 150);
+                args.set("destination_width", 20);
+                args.set("destination_height", 20);
+            }
+            if (fault == "button")
+                args.set("button", "unknown");
+            if (fault == "type")
+                args.set("button", 3);
+            if (fault == "budget")
+                args.set("vertical_steps", 17);
+            if (fault == "destination")
+                args.set("destination_x", 500);
+            if (fault == "deny")
+                f.deny = true;
+            if (fault == "changed")
+                f.fake->set_pixel_value(1);
+            if (fault == "release")
+                f.input.mode = 1;
+            const auto result = invoke(f.registry, "desktop.vision." + op + "_region", args, f.ctx);
+            check(result.failed && f.input.calls == (fault == "release" ? 1 : 0));
+            if (fault == "release")
+                check(!f.tools.actions->input_released() && !f.verifier->settle());
+        }
+    }
     for (const auto count : {1u, 2u, 3u, 5u, d::max_click_count}) {
         Fixture f;
         auto args = f.args(f.capture());

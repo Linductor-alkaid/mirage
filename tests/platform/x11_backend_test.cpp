@@ -404,6 +404,24 @@ void input_injection_events(XvfbDisplay &server, TestClient &client) {
         if (count == 2)
             MIRAGE_CHECK(presses.size() == 2 && presses[1] - presses[0] < 250);
     }
+    for (const auto *button : {"left", "middle", "right"}) {
+        const auto code = std::string_view(button) == "left"     ? 1u
+                          : std::string_view(button) == "middle" ? 2u
+                                                                 : 3u;
+        const auto result = input.click_sequence_at(50, 40, button, 3, {}, {});
+        MIRAGE_CHECK(result.ok && result.input_released);
+        XSync(display, False);
+        unsigned presses = 0, releases = 0;
+        while (XPending(display)) {
+            XNextEvent(display, &event);
+            if (event.type == ButtonPress || event.type == ButtonRelease) {
+                MIRAGE_CHECK(event.xbutton.button == code);
+                presses += event.type == ButtonPress;
+                releases += event.type == ButtonRelease;
+            }
+        }
+        MIRAGE_CHECK(presses == 3 && releases == 3);
+    }
     // Physical ownership preflight covers the whole click sequence.
     MIRAGE_CHECK(input.pointer_button("left", true).ok);
     const auto busy =

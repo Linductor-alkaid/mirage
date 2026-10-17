@@ -93,11 +93,12 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
             if (ch >= 128)
                 return failed("text_transport_unavailable");
         append_character(action.value);
-    } else if (action.kind != Kind::Click && action.kind != Kind::Scroll) {
+    } else if (action.kind != Kind::Click && action.kind != Kind::Scroll &&
+               action.kind != Kind::Drag) {
         return failed("invalid_argument");
     }
     int button = 0;
-    if (action.kind == Kind::Click) {
+    if (action.kind == Kind::Click || action.kind == Kind::Drag) {
         if (action.value == "left")
             button = 272;
         else if (action.value == "right")
@@ -107,15 +108,23 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
         else
             return failed("invalid_argument");
     }
-    if (action.kind == Kind::Scroll && (std::abs(std::int64_t{action.vertical_steps}) > 20 ||
-                                        std::abs(std::int64_t{action.horizontal_steps}) > 20 ||
-                                        (!action.vertical_steps && !action.horizontal_steps)))
+    if (action.kind == Kind::Scroll &&
+        !desktop::valid_scroll_steps(action.horizontal_steps, action.vertical_steps))
         return failed("invalid_argument");
-    if (action.kind == Kind::Click || action.kind == Kind::Scroll) {
-        if (!std::isfinite(action.x) || !std::isfinite(action.y) || action.x < 0 || action.y < 0 ||
-            action.image_width != s.frame_width || action.image_height != s.frame_height ||
-            action.x >= s.frame_width || action.y >= s.frame_height || s.logical_width <= 0 ||
-            s.logical_height <= 0)
+    if (action.kind == Kind::Click || action.kind == Kind::Scroll || action.kind == Kind::Drag) {
+        const auto point_valid = [&](double x, double y) {
+            return std::isfinite(x) && std::isfinite(y) && x >= 0 && y >= 0 && x < s.frame_width &&
+                   y < s.frame_height;
+        };
+        if (!point_valid(action.x, action.y) || action.image_width != s.frame_width ||
+            action.image_height != s.frame_height || s.logical_width <= 0 || s.logical_height <= 0)
+            return failed("invalid_argument");
+        if (action.kind == Kind::Drag &&
+            (!point_valid(action.destination_x, action.destination_y) ||
+             !desktop::valid_drag_path(
+                 {static_cast<std::int32_t>(action.x), static_cast<std::int32_t>(action.y)},
+                 {static_cast<std::int32_t>(action.destination_x),
+                  static_cast<std::int32_t>(action.destination_y)})))
             return failed("invalid_argument");
     }
     const auto end = std::chrono::steady_clock::now() + limits.timeout;
@@ -147,7 +156,8 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
             released = key(held[--count], false) && released;
     };
     try {
-        if (action.kind == Kind::Click || action.kind == Kind::Scroll) {
+        if (action.kind == Kind::Click || action.kind == Kind::Scroll ||
+            action.kind == Kind::Drag) {
             ok = notify({PortalInputEvent::Kind::Motion, 0, 0,
                          action.x * s.logical_width / s.frame_width,
                          action.y * s.logical_height / s.frame_height});
@@ -157,6 +167,16 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
                     held_button = true;
                     ok = notify({PortalInputEvent::Kind::Button, button, 1u});
                     release(); // Each click completes even on cancellation/failed down.
+                }
+            } else if (ok && !stopped() && action.kind == Kind::Drag) {
+                held_button = true;
+                ok = notify({PortalInputEvent::Kind::Button, button, 1u});
+                for (int step = 1; step <= 16 && ok && !stopped(); ++step) {
+                    const double x = action.x + (action.destination_x - action.x) * step / 16;
+                    const double y = action.y + (action.destination_y - action.y) * step / 16;
+                    ok = notify({PortalInputEvent::Kind::Motion, 0, 0,
+                                 x * s.logical_width / s.frame_width,
+                                 y * s.logical_height / s.frame_height});
                 }
             } else if (ok && !stopped() && action.kind == Kind::Scroll) {
                 for (unsigned axis = 0; axis < 2 && ok && !stopped(); ++axis) {

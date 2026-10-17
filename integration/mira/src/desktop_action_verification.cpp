@@ -36,6 +36,7 @@ DesktopActionVerification::DesktopActionVerification(DesktopToolContext desktop,
       }) {}
 bool DesktopActionVerification::mutation(const std::string &name) {
     return name.starts_with("desktop.session.") || name == "desktop.vision.click_region" ||
+           name == "desktop.vision.scroll_region" || name == "desktop.vision.drag_region" ||
            name == "desktop.vision.click" || name == "desktop.vision.scroll" ||
            name == "desktop.vision.drag" || name == "desktop.window.activate" ||
            name == "desktop.input.click" || name == "desktop.input.key" ||
