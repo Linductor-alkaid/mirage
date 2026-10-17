@@ -23,7 +23,7 @@ class Provider final : public mira::IModelProvider {
   public:
     explicit Provider(mira::ModelProfile profile) : profile_(std::move(profile)) {}
     const mira::ModelProfile &profile() const override { return profile_; }
-    std::atomic_bool hold{true}, fail{false}, show_answer{false};
+    std::atomic_bool hold{true}, fail{false}, show_answer{false}, show_long_thought{false};
     mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
                                             const mira::OperationContext &context,
                                             const mira::ProviderInferOptions &options) override {
@@ -34,8 +34,15 @@ class Provider final : public mira::IModelProvider {
             options.thinking_preview_sink(request.request_id, {});
             options.thinking_preview_sink(request.request_id, {"正在检查当前配置", 0, false});
         }
-        bool answer_sent = false;
+        bool answer_sent = false, long_thought_sent = false;
         while (hold.load() && !context.cancelled_or_expired(mira::Timestamp::now())) {
+            if (show_long_thought.load() && !long_thought_sent) {
+                long_thought_sent = true;
+                if (options.thinking_preview_sink)
+                    options.thinking_preview_sink(
+                        request.request_id,
+                        {std::string(128, 'p') + " " + std::string(2047, 'x'), 0, false});
+            }
             if (show_answer.load() && !answer_sent) {
                 answer_sent = true;
                 if (options.preview_sink)
@@ -163,13 +170,34 @@ int main() {
                 pushed_thinking = pet_update->status.display_state == "thinking";
     }
     MIRAGE_CHECK(pushed_thinking);
-    opted.close();
     legacy.close();
     const auto active = wait_state(client, "thinking");
     MIRAGE_CHECK(active.active_count == 1 && active.source_kind == "turn" &&
                  active.session_id == session);
     MIRAGE_CHECK(active.bubble && active.bubble->kind == "thinking" &&
                  active.bubble->text == "正在检查当前配置");
+    // The real projection and event broadcast must deliver a decodable long
+    // thinking preview, then keep serving status and answer updates.
+    provider->show_long_thought.store(true);
+    bool pushed_long_thought = false, valid_events = true;
+    const auto long_deadline = std::chrono::steady_clock::now() + 1s;
+    while (!pushed_long_thought && std::chrono::steady_clock::now() < long_deadline) {
+        const auto frame = test::read_frame(opted, buffer, 100ms);
+        if (frame.status != test::FrameRead::Status::Message)
+            continue;
+        const auto update = ipc::decode_event(frame.message);
+        valid_events = valid_events && update.ok;
+        if (update.ok)
+            if (const auto *pet_update = std::get_if<ipc::PetUpdatedEvent>(&update.event.payload))
+                pushed_long_thought = pet_update->status.bubble &&
+                                      pet_update->status.bubble->truncated &&
+                                      pet_update->status.bubble->text == std::string(2047, 'x');
+    }
+    MIRAGE_CHECK(valid_events && pushed_long_thought);
+    opted.close();
+    const auto long_status = snapshot(client);
+    MIRAGE_CHECK(long_status.bubble && long_status.bubble->text == std::string(2047, 'x'));
+    provider->show_long_thought.store(false);
     provider->show_answer.store(true);
     auto answer_status = snapshot(client);
     const auto answer_deadline = std::chrono::steady_clock::now() + 2s;

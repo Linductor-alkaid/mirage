@@ -137,6 +137,9 @@ kind、content_origin、request_id、sequence、text、truncated、final、remai
 owner/source 从外层完整状态继承。无气泡时不写该字段，不写 kind=none；旧 wire 向量保持原字节。
 完整编码不超过 4KiB；转义扩张时沿 UTF-8 边界缩减思考行并标 truncated，字段与 golden
 见 [IPC 设计](mirage-ipc-protocol-v1.md#pet-bubbles)。
+2KiB 尾部截断及转义预算缩减之后仍须保持行规范化幂等：截断边界留下的前导分隔空格
+必须移除，使本地投影始终通过 `valid_bubble` 与 wire 解码校验，避免合法长思考流令
+桌宠连接按协议错误关闭（BUG-20261017-001）。
 
 每个活动 dialog turn 持有一对有界 LatestMailbox，规范结算释放原始预览；模型回调仅
 校验/投递和投递刷新标记，Runtime 既有 25ms Executor timer 在串行投影域生成短句。
