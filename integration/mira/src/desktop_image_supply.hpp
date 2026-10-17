@@ -103,8 +103,9 @@ class DesktopImageTurn {
                              bool);
     void register_region_tool(mira::BuiltinToolRegistry &, const DesktopAtomToolset::Decorator &,
                               bool);
-    mira::Result<mira::JsonValue> click_region(const mira::JsonValue &,
-                                               const mira::OperationContext &);
+    mira::Result<mira::JsonValue> pointer_region(const mira::JsonValue &,
+                                                 const mira::OperationContext &,
+                                                 const std::string &operation);
     mira::Result<mira::JsonValue> capture_desktop(const mira::JsonValue &,
                                                   const mira::OperationContext &);
     struct RegionSource {

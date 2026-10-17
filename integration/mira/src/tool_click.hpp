@@ -14,6 +14,30 @@ inline std::optional<std::uint32_t> pointer_click_count(const mira::JsonValue &a
         return std::nullopt;
     return static_cast<std::uint32_t>(*count);
 }
+inline std::optional<desktop::MouseButton> pointer_button(const mira::JsonValue &args) {
+    const auto *value = args.find("button");
+    if (!value)
+        return "left";
+    const auto *button = value->as_string();
+    if (!button || !desktop::valid_action_button(*button))
+        return std::nullopt;
+    return *button;
+}
+inline mira::JsonValue button_schema() {
+    return mira::JsonValue{mira::JsonValue::Object{
+        {"type", "string"},
+        {"enum", mira::JsonValue{mira::JsonValue::Array{"left", "middle", "right"}}},
+        {"default", "left"}}};
+}
+inline std::optional<std::int32_t> wheel_steps(const mira::JsonValue &args, const char *key) {
+    const auto *value = args.find(key);
+    if (!value)
+        return 0;
+    const auto count = value->as_integer();
+    if (!count || *count < -16 || *count > 16)
+        return std::nullopt;
+    return static_cast<std::int32_t>(*count);
+}
 inline mira::JsonValue click_count_schema() {
     return mira::JsonValue{mira::JsonValue::Object{
         {"type", "integer"},

@@ -1193,6 +1193,18 @@ InputProvider 的 `click_sequence_at` 缺省只转发单击，多次点击需后
 有界 Executor 调用，不新增调度设施。取消/失败仍释放已拥有按钮，部分成功不得
 自动重试；语义 Invoke 保持一次激活，不能等价替代物理双击。
 
+## M7-21 统一鼠标动作（2026-10-18）
+
+按 [DEC-100](../decisions/DEC-100-unified-pointer-actions.md)，编号、图片区域和共享输入
+均提供点击、滚动与完整拖动；点击/拖动使用相同的 button（left/middle/right，默认 left），
+滚动使用相同的双轴轮步（正数右/下，绝对值总和 1..16）。图片区域新增 scroll_region、
+drag_region，共享输入新增 drag，均经过同一权限、scope/epoch、新帧目标重验和动作后条件。
+InputProvider 的 drag_with_button 保留 drag_to 左键兼容；X11 用选定按钮的所有权位处理
+逐步检查与释放，Portal 在原有限动作中维护按下/释放账本。没有新增并发路径。
+X11 拖动仍绑定同一前台窗口，Portal 绑定同一授权 monitor；16 段线性路径最多 2048 源
+桌面像素、一秒协作期限。任意轨迹或跨窗口 X11 拖放需独立观察/权限契约，不把当前线性
+手势宣称为这些能力。Windows 完整动作与真实 Wayland 平台验收保持独立。
+
 ## M7-09 有界滚动与完整拖拽首增量
 
 按 [DEC-064](../decisions/DEC-064-bounded-scroll-and-drag.md)，InputProvider 新增

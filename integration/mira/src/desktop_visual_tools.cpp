@@ -102,17 +102,17 @@ void DesktopImageTurn::register_mark_tools(mira::BuiltinToolRegistry &registry,
     click.has_side_effects = true;
     click.description =
         "Click a fully visible number from this turn's latest visual_scope, with "
-        "click_count consecutive clicks (default 1; 2=double-click, 3=triple-click) in one action, "
+        "button=left/middle/right (default left), click_count consecutive clicks "
+        "(default 1; 2=double-click, 3=triple-click) in one action, "
         "environment_epoch and focused window_id. Requires exact fresh pixels "
         "and unchanged window/display geometry; animation may be rejected. No "
         "raw coordinates. Fix verify_kind before clicking and inspect new "
         "postcondition evidence. visual_text_exists requires expected_text and fresh unique OCR "
         "inside the window at confidence >= 0.8; injection alone does not verify task success.";
-    Json::Object target{{"visual_scope", string_schema()},
-                        {"click_count", click_count_schema()},
-                        {"window_id", string_schema()},
-                        {"mark", integer_schema(1, 128)},
-                        {"environment_epoch", integer_schema(1, INT64_MAX)}};
+    Json::Object target{
+        {"button", button_schema()},           {"visual_scope", string_schema()},
+        {"click_count", click_count_schema()}, {"window_id", string_schema()},
+        {"mark", integer_schema(1, 128)},      {"environment_epoch", integer_schema(1, INT64_MAX)}};
     for (const auto *key :
          {"verify_kind", "expected_title", "expected_role", "expected_name", "expected_text"})
         target.emplace_back(key, string_schema(1024));
@@ -140,7 +140,8 @@ void DesktopImageTurn::register_mark_tools(mira::BuiltinToolRegistry &registry,
         spec.has_side_effects = true;
         spec.description =
             drag
-                ? "Complete left drag between mark and destination_mark in the same fresh "
+                ? "Complete button-selected drag (button=left/middle/right, default left) between "
+                  "mark and destination_mark in the same fresh "
                   "visual_scope and focused window. Max 2048 pixels, 16 linear segments, 1 second. "
                   "No held-button continuation. Declare a postcondition and verify fresh evidence."
                 : "Discrete wheel steps at a fresh mark in the focused window. Positive "
@@ -156,12 +157,12 @@ void DesktopImageTurn::register_mark_tools(mira::BuiltinToolRegistry &registry,
              {"verify_kind", "expected_title", "expected_role", "expected_name", "expected_text"})
             props.emplace_back(key, string_schema(1024));
         if (drag) {
+            props.emplace_back("button", button_schema());
             props.emplace_back("destination_mark", integer_schema(1, 128));
             required.emplace_back("destination_mark");
         } else {
             for (const auto *key : {"horizontal_steps", "vertical_steps"}) {
                 props.emplace_back(key, integer_schema(-16, 16));
-                required.emplace_back(key);
             }
         }
         spec.parameters_schema =
@@ -336,7 +337,11 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
                                                   const std::string &operation) {
     const bool drag = operation == "drag", scroll = operation == "scroll";
     const auto clicks = pointer_click_count(args);
-    if (!clicks || ((drag || scroll) && args.find("click_count")))
+    const auto button = pointer_button(args);
+    const auto h = wheel_steps(args, "horizontal_steps"), v = wheel_steps(args, "vertical_steps");
+    if (!clicks || !button || !h || !v || (!drag && args.find("destination_mark")) ||
+        ((drag || scroll) && args.find("click_count")) || (scroll && args.find("button")) ||
+        (!scroll && (args.find("horizontal_steps") || args.find("vertical_steps"))))
         return action_error({"invalid_argument", "invalid click_count or non-click operation"});
     const auto end =
         std::min(ctx.deadline.value_or(std::chrono::steady_clock::now() + std::chrono::seconds{1}),
@@ -352,8 +357,8 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
     const auto scope = field(args, "visual_scope");
     const auto selected = number(args, "mark");
     const auto destination = drag ? number(args, "destination_mark") : selected;
-    const auto horizontal = number(args, "horizontal_steps");
-    const auto vertical = number(args, "vertical_steps");
+    const auto horizontal = *h;
+    const auto vertical = *v;
     if (scroll && (horizontal < -16 || horizontal > 16 || vertical < -16 || vertical > 16 ||
                    !desktop::valid_scroll_steps(static_cast<std::int32_t>(horizontal),
                                                 static_cast<std::int32_t>(vertical))))
@@ -477,15 +482,16 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
             const desktop::PointerActionScope pointer_scope{id, mark_window_->geometry};
             const desktop::PointerPoint from{mark.anchor.x, mark.anchor.y};
             if (drag)
-                outcome = input->drag_to(pointer_scope, from, {to_mark.anchor.x, to_mark.anchor.y},
-                                         limits, bounded);
+                outcome = input->drag_with_button(pointer_scope, from,
+                                                  {to_mark.anchor.x, to_mark.anchor.y}, *button,
+                                                  limits, bounded);
             else if (scroll)
                 outcome =
                     input->scroll_at(pointer_scope, from, static_cast<std::int32_t>(horizontal),
                                      static_cast<std::int32_t>(vertical), limits, bounded);
             else
                 outcome =
-                    input->click_sequence_at(from.x, from.y, "left", *clicks, limits, bounded);
+                    input->click_sequence_at(from.x, from.y, *button, *clicks, limits, bounded);
         };
         const auto resolved =
             drag ? desktop_.with_visual_references(

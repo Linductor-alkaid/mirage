@@ -121,6 +121,7 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
     // Screen coordinates the last dispatched session input carried.
     double last_action_x = -1, last_action_y = -1;
     std::uint32_t last_click_count = 0;
+    mirage::desktop::SharedInputAction last_input;
     class NativeWindow final : public mirage::desktop::WindowProvider {
       public:
         explicit NativeWindow(NativeEnvironment &env) : env_(env) {}
@@ -187,6 +188,7 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
             env.last_action_x = action.x;
             env.last_action_y = action.y;
             env.last_click_count = action.click_count;
+            env.last_input = action;
             if (env.release_failed || env.uncertain_input || cancel.cancelled())
                 return {false,
                         cancel.cancelled(),
@@ -527,9 +529,33 @@ void shared_contracts(const std::string &mode) {
             args.set("click_count", "3");
         if (mode == "unicode")
             args.set("text", "fixture中文");
-        auto result =
-            invoke(mode == "unicode" ? "desktop.session.type_text" : "desktop.session.click", args,
-                   action_ctx);
+        const bool drag = mode.starts_with("drag");
+        if (mode == "right" || mode == "middle")
+            args.set("button", mode);
+        if (drag) {
+            args.set("destination_x", 2);
+            args.set("destination_y", 1);
+            args.set("destination_width", 1);
+            args.set("destination_height", 1);
+            args.set("button", "right");
+        }
+        if (mode == "drag_invalid")
+            args.set("destination_x", 99);
+        if (mode == "invalid_button")
+            args.set("button", "bad");
+        if (mode == "button_type")
+            args.set("button", 3);
+        if (mode == "wheel")
+            args.set("horizontal_steps", -16);
+        if (mode == "wheel_budget") {
+            args.set("horizontal_steps", 16);
+            args.set("vertical_steps", 1);
+        }
+        auto result = invoke(mode == "unicode"           ? "desktop.session.type_text"
+                             : drag                      ? "desktop.session.drag"
+                             : mode.starts_with("wheel") ? "desktop.session.scroll"
+                                                         : "desktop.session.click",
+                             args, action_ctx);
         if (mode == "unicode") {
             check(result && result.value().failed &&
                   result.value().safe_error_summary.find("text_transport_unavailable") !=
@@ -620,7 +646,19 @@ void shared_contracts(const std::string &mode) {
         // replacement in `changed` still rejects below.
         const bool success = mode == "normal" || mode == "ocr" || mode == "uniform_drift" ||
                              mode == "double" || mode == "triple" || mode == "repeat" ||
-                             mode == "click_limit";
+                             mode == "click_limit" || mode == "right" || mode == "middle" ||
+                             mode == "drag" || mode == "wheel";
+        if (mode == "right" || mode == "middle")
+            check(env->last_input.value == mode);
+        if (mode == "drag")
+            check(env->last_input.kind == mirage::desktop::SharedInputAction::Kind::Drag &&
+                  env->last_input.value == "right" && env->last_input.destination_x == 2 &&
+                  env->last_input.destination_y == 1);
+        if (mode == "wheel")
+            check(env->last_input.horizontal_steps == -16 && env->last_input.vertical_steps == 0);
+        if (mode == "drag_invalid" || mode == "invalid_button" || mode == "button_type" ||
+            mode == "wheel_budget")
+            check(env->captures == 1 && env->inputs == 0);
         if (mode == "double")
             check(env->last_click_count == 2);
         if (mode == "triple")
@@ -2425,7 +2463,15 @@ int main() {
         check(static_cast<bool>(executor.initialize(config)));
         executor
             .submit_auto([] {
-                for (const auto &mode : {"normal",
+                for (const auto &mode : {"right",
+                                         "middle",
+                                         "drag",
+                                         "wheel",
+                                         "drag_invalid",
+                                         "invalid_button",
+                                         "button_type",
+                                         "wheel_budget",
+                                         "normal",
                                          "ocr",
                                          "double",
                                          "triple",

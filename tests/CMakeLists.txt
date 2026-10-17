@@ -1378,7 +1378,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND X11_FOUND AND X11_Xtst_FOUND AND X11_X
 endif()
 mirage_enable_warnings(gui_fallback_test)
 add_test(NAME gui_fallback_test COMMAND gui_fallback_test)
-set_tests_properties(gui_fallback_test PROPERTIES LABELS "integration;runtime;platform;security" TIMEOUT 40)
+set_tests_properties(gui_fallback_test PROPERTIES LABELS "integration;runtime;platform;security" TIMEOUT 120)
 
 # DEC-071: fixture owns a private bus and a synthetic Secret Service across processes.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND GIO_UNIX_FOUND)

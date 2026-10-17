@@ -75,13 +75,14 @@ struct DesktopAuthorizationView {
 /// DEC-077: stream-local complete input. Coordinates refer to a captured image,
 /// never to global desktop pixels. No held-press API is exposed.
 struct SharedInputAction {
-    enum class Kind { Click, Key, Text, Scroll };
+    enum class Kind { Click, Key, Text, Scroll, Drag };
     Kind kind = Kind::Click;
     double x = 0, y = 0;
     std::int32_t image_width = 0, image_height = 0;
     std::string value; // button, key chord or UTF-8 text
     std::int32_t vertical_steps = 0, horizontal_steps = 0;
     std::uint32_t click_count = 1; // DEC-099: Click only, 1..max_click_count within one action.
+    double destination_x = 0, destination_y = 0; // Drag endpoint in the same captured image.
 };
 
 /// One caller-owned observation session (DEC-074). Calls must be serialized;

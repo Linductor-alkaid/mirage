@@ -208,7 +208,14 @@ def command(source, condition):
         Gtk.main_quit()
         return False
     if request['op'] == 'repaint':
-        renderer.set_property('foreground', '#f00000')
+        # Change the operated splitter/corridor, rather than unrelated row text.
+        # DEC-083 deliberately permits changes outside the target region.
+        provider = Gtk.CssProvider()
+        provider.load_from_data(b'paned, paned > separator, paned > label { '
+                                b'background-color: #000000; background-image: none; '
+                                b'color: #ffffff; }')
+        Gtk.StyleContext.add_provider_for_screen(window.get_screen(), provider,
+                                                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         clock = window.get_frame_clock()
         def painted(_clock):
             clock.disconnect(handler)
@@ -217,7 +224,7 @@ def command(source, condition):
             payload['kind'] = 'state'
             print(json.dumps(payload), flush=True)
         handler = clock.connect('after-paint', painted)
-        tree.queue_draw()
+        window.queue_draw()
         return True
     if request['op'] != 'state':
         raise ValueError('unknown test command')

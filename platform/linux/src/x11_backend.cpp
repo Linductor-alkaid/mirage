@@ -1065,23 +1065,36 @@ InputOutcome X11Backend::scroll_at(const mirage::desktop::PointerActionScope &sc
                                    std::int32_t vertical, const InputLimits &limits,
                                    const CancelToken &cancel) {
     std::lock_guard guard(mutex_);
-    return pointer_path_locked(scope, at, at, horizontal, vertical, false, limits, cancel);
+    return pointer_path_locked(scope, at, at, horizontal, vertical, 0, limits, cancel);
 }
 
 InputOutcome X11Backend::drag_to(const mirage::desktop::PointerActionScope &scope,
                                  mirage::desktop::PointerPoint from,
                                  mirage::desktop::PointerPoint to, const InputLimits &limits,
                                  const CancelToken &cancel) {
+    return drag_with_button(scope, from, to, "left", limits, cancel);
+}
+InputOutcome X11Backend::drag_with_button(const mirage::desktop::PointerActionScope &scope,
+                                          mirage::desktop::PointerPoint from,
+                                          mirage::desktop::PointerPoint to,
+                                          const MouseButton &button, const InputLimits &limits,
+                                          const CancelToken &cancel) {
+    if (!mirage::desktop::valid_action_button(button))
+        return {false, false, {"invalid_argument", "invalid drag button"}};
     std::lock_guard guard(mutex_);
-    return pointer_path_locked(scope, from, to, 0, 0, true, limits, cancel);
+    return pointer_path_locked(scope, from, to, 0, 0, mouse_button_code(button), limits, cancel);
 }
 
 InputOutcome X11Backend::pointer_path_locked(const mirage::desktop::PointerActionScope &scope,
                                              mirage::desktop::PointerPoint from,
                                              mirage::desktop::PointerPoint to,
                                              std::int32_t horizontal, std::int32_t vertical,
-                                             bool drag, const InputLimits &limits,
+                                             unsigned int drag_button, const InputLimits &limits,
                                              const CancelToken &cancel) {
+    const bool drag = drag_button != 0;
+    const unsigned int drag_mask = drag_button == 1   ? Button1Mask
+                                   : drag_button == 2 ? Button2Mask
+                                                      : Button3Mask;
     InputOutcome out;
     if (!mirage::desktop::valid_pointer_scope(scope, from, limits) ||
         !mirage::desktop::valid_pointer_scope(scope, to, limits) ||
@@ -1187,7 +1200,7 @@ InputOutcome X11Backend::pointer_path_locked(const mirage::desktop::PointerActio
                 XFree(children);
             return hit != None && self(self, hit, depth + 1);
         };
-        return drag && owned == Button1 &&
+        return drag && owned == drag_button &&
                helpers.target_below(display, root, rx, ry,
                                     [&](Window branch) { return below(below, branch, 0); });
     };
@@ -1226,7 +1239,7 @@ InputOutcome X11Backend::pointer_path_locked(const mirage::desktop::PointerActio
             failure = "focus_changed";
         else if (!pointer(mask, check_owner))
             failure = "target_obscured";
-        else if (mask & (buttons & ~(owned == Button1 ? Button1Mask : 0u)))
+        else if (mask & (buttons & ~((drag && owned == drag_button) ? drag_mask : 0u)))
             failure = "input_busy";
         else if (mask & (ShiftMask | ControlMask | Mod1Mask | Mod4Mask))
             failure = "input_busy";
@@ -1235,14 +1248,14 @@ InputOutcome X11Backend::pointer_path_locked(const mirage::desktop::PointerActio
         return failure == nullptr;
     };
     const auto move = [&](mirage::desktop::PointerPoint point) {
-        if (!ready(owned == Button1))
+        if (!ready(drag && owned == drag_button))
             return false;
         out.side_effect_may_have_occurred = true;
         // DEC-064: XTEST's native delivery delay gives external toolkits time
         // to establish their drag session instead of coalescing the entire
         // gesture before release. This is one synchronous platform request,
         // not a private timer/task; cleanup release always has zero delay.
-        const unsigned long delivery_delay = drag && owned == Button1 ? 8UL : CurrentTime;
+        const unsigned long delivery_delay = drag && owned == drag_button ? 8UL : CurrentTime;
         if (!XTestFakeMotionEvent(display, -1, point.x, point.y, delivery_delay) ||
             !XSync(display, False)) {
             failure = "io_error";
@@ -1260,7 +1273,7 @@ InputOutcome X11Backend::pointer_path_locked(const mirage::desktop::PointerActio
     };
     if (move(from)) {
         if (drag) {
-            owned = Button1; // attempted down may have reached the server
+            owned = drag_button; // attempted down may have reached the server
             drag_press_attempted = true;
             if (!XTestFakeButtonEvent(display, owned, True, CurrentTime) || !XSync(display, False))
                 failure = "io_error";
@@ -1292,7 +1305,7 @@ InputOutcome X11Backend::pointer_path_locked(const mirage::desktop::PointerActio
     }
     release();
     unsigned int final_mask = 0;
-    if (drag_press_attempted && (!pointer(final_mask, false) || (final_mask & Button1Mask)))
+    if (drag_press_attempted && (!pointer(final_mask, false) || (final_mask & drag_mask)))
         released = false;
     if (!failure)
         (void)ready(false);

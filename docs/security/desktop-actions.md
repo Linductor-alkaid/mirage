@@ -371,3 +371,31 @@ display_text_exists 绑定显示器与唯一高置信度新 OCR。前两者允�
 非法次数在授权和输入前拒绝。取消、超时或失败阻止后续按下，已拥有按钮仍须释放；
 有不确定副作用时禁止重发整组，释放失败继续封锁输入。
 `desktop.input.click` 仍为一次语义激活。未实现完整序列的后端显式拒绝多次点击。
+
+## 统一鼠标动作（DEC-100）
+
+三条目标路径以相同参数提供 click / scroll / drag：编号使用
+`desktop.vision.click/scroll/drag`，图片矩形使用
+`desktop.vision.click_region/scroll_region/drag_region`，授权共享帧使用
+`desktop.session.click/scroll/drag`。
+
+click 和 drag 均可选择 `button=left/middle/right`（默认 left）；click 另有
+`click_count=1..32`（默认 1）。scroll 的 `horizontal_steps` 和 `vertical_steps`
+默认 0，正数右/下、负数左/上，两轴绝对值之和必须为 1..16。
+拖动的两端必须绑定同一观察：编号用 `destination_mark`，区域/共享用
+`destination_x/y/width/height` 图片矩形，按两端中心执行 16 段线性路径。
+距离最多 2048 源桌面像素，单次完整动作期限最多一秒（协作检查，不承诺阻塞 OS
+调用硬实时）。X11 两端需位于同一前台窗口，Portal 两端需位于同一授权 monitor。
+不能通过持续按住接口拼接跨工具手势；不确定副作用禁止整组重发。
+
+区域拖动在一次 guard capture 中重验两端及中间矩形，固定窗口/显示几何和焦点；
+共享拖动在同一来源流的新帧中重验两端及中间区域，保留原授权代数与流身份。
+它们与原编号动作共用动作后条件和收尾验证。失败释放仍封锁输入，不能把成功发送
+解释为拖放业务完成。Windows 的完整动作 opt-in 仍未交付，不从 Win32 原始按键 API
+推导模型工具已可用。
+
+例如，已取得有效目标和后条件后，三个 click 工具均可追加
+`"button":"right","click_count":1`；两个区域 drag 工具使用同样的
+`"button":"middle","destination_x":150,"destination_y":150,
+"destination_width":20,"destination_height":20` 字段。此处仅展示新增参数，
+调用仍必须提供各路径的 scope/epoch/目标与 verify_kind。

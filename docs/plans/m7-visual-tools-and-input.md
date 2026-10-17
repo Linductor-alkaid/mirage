@@ -69,6 +69,8 @@ M7-08 已闭合 Linux X11 动作后新观察与局部条件门禁；真实语义
 | M7-19 | In Progress（拒绝回执链路已验） | 观察节奏：target_pixels_changed 拒绝即发布守卫新鲜帧并在回执附 refreshed_image_scope（拒绝→免重截重试）；CUA 式观察纪律写入桌面指引与工具描述 | 拒绝回执含新 scope 且下一次免重试；canonical 回执 ≤512B 语义保持；真实会话往返减少另验 | M7-14/16 |
 | M7-20 | In Progress | [DEC-099](../decisions/DEC-099-complete-double-click.md)：泛化 `click_count=1..32`，Linux X11/GTK 及 Portal 次数/释放边界已验，默认单击保持；[验证与运行实例](../compatibility/complete-double-click-20261018.md)；真实 Wayland/Windows 后续验收保持开放 | X11/GTK 实际单击/双击/三击/多次；Portal 顺序、取消/超时/失败释放；工具次数与目标/权限守卫 | M7-03/07/10/15 |
 
+| M7-21 | In Progress（Linux/Portal 边界已验） | [DEC-100](../decisions/DEC-100-unified-pointer-actions.md)：统一按钮、轮步和完整拖动，已补齐区域滚动/拖动与共享拖动；[验证及运行环境限制](../compatibility/unified-pointer-actions-20261018.md) | X11/GTK 实际事件/控件效果，Portal 取消/超时/失败释放，三类目标工具参数与验证守卫；真实 Wayland/Windows 分平台补验 | M7-09/15/20 |
+
 2026-10-10 顺序调整：认可 M7-07 已验证的受控 X11 基础能力阶段，保留该项
 In Progress 与慢模型在线/完整权重 TSAN/其他平台等未完成范围。下一主线为
 M7-09，其 M7-03/08 前置已完成，不以在线模型逐次在五秒内返回作为准入条件。

@@ -26,6 +26,10 @@ struct KeySym {
 /// Mouse buttons in a stable vocabulary ("left", "middle", "right",
 /// "back", "forward").
 using MouseButton = std::string;
+/// Common complete actions support these buttons across target routes.
+inline bool valid_action_button(const MouseButton &button) {
+    return button == "left" || button == "middle" || button == "right";
+}
 
 /// Bound one uninterrupted pointer action; longer repetitions require fresh intent.
 inline constexpr std::uint32_t max_click_count = 32;
@@ -105,6 +109,11 @@ class InputProvider {
                                    const CancelToken &cancel);
     virtual InputOutcome click_at(std::int32_t x, std::int32_t y, const MouseButton &button,
                                   const InputLimits &limits, const CancelToken &cancel);
+    /// DEC-100: complete drag using a selected button; left-only legacy providers
+    /// reject other buttons before effects.
+    virtual InputOutcome drag_with_button(const PointerActionScope &, PointerPoint from,
+                                          PointerPoint to, const MouseButton &button,
+                                          const InputLimits &, const CancelToken &);
     /// DEC-099: one complete click sequence (count 1..max_click_count), same point and
     /// ownership throughout. No observations or model calls between presses.
     /// Default forwards count 1 only; unsupported repetitions fail before effects.
