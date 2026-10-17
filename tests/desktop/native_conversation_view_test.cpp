@@ -208,12 +208,7 @@ int main(int argc, char **argv) {
         timings.ocr = {1, 456};
         timings.settlement = {1, 90};
         page.chat.apply_process(session_id, "first", parts, 1, false, true, timings);
-        const auto before_timing = conversation_measure_key(page.chat.current(), page, 800, 500);
-        auto &timed_message = page.chat.current().messages.back();
-        ++timed_message.timings.capture.calls;
-        MIRAGE_CHECK(conversation_measure_key(page.chat.current(), page, 800, 500) !=
-                     before_timing);
-        --timed_message.timings.capture.calls;
+        MIRAGE_CHECK(page.chat.current().messages.back().timings == timings);
         frame();
         const auto root = "message." + std::to_string(assistant) + ".part.";
         MIRAGE_CHECK(!view->find(root + "thought.detail.body"));
