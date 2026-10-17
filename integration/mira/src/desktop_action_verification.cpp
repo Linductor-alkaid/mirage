@@ -41,6 +41,20 @@ bool DesktopActionVerification::mutation(const std::string &name) {
            name == "desktop.input.type_text" || name == "desktop.application.launch" ||
            name == "desktop.application.open_uri";
 }
+bool DesktopActionVerification::settled(const Record &record) {
+    return record.status == "verified" ||
+           (record.status == "rejected" && !record.dispatched && !record.uncertain);
+}
+bool DesktopActionVerification::archive_settled_locked() {
+    const auto oldest = std::find_if(records_.begin(), records_.end(), settled);
+    if (oldest == records_.end())
+        return false;
+    if (archived_.size() >= kMaxArchivedRecords)
+        archived_.erase(archived_.begin());
+    archived_.push_back(std::move(*oldest));
+    records_.erase(oldest);
+    return true;
+}
 JsonValue DesktopActionVerification::summary(const Record &r) const {
     return JsonValue{
         JsonValue::Object{{"action_id", r.id},
@@ -72,9 +86,15 @@ bool DesktopActionVerification::observe_text(
         r.reason = reason;
         return false;
     };
-    if (visual_observations_ >= 64)
+    const auto epoch = desktop_.actions ? desktop_.actions->epoch() : 0;
+    if (!visual_epoch_seen_ || visual_epoch_ != epoch) {
+        visual_epoch_seen_ = true;
+        visual_epoch_ = epoch;
+        visual_epoch_observations_ = 0;
+    }
+    if (visual_epoch_observations_ >= 64)
         return fail("visual_observation_budget_exceeded");
-    ++visual_observations_;
+    ++visual_epoch_observations_;
     if (!desktop_.ocr || !desktop_.environment->screen())
         return fail("visual_unavailable");
     const AtomCancelProbe cancelled = [&] { return bounded.cancelled(); };
@@ -114,6 +134,9 @@ bool DesktopActionVerification::observe_text(
         return fail("visual_evidence_invalid");
     last_backend_calls_ = read.backend_calls;
     visual_scopes_.push_back(read.snapshot.scope_ref);
+    if (visual_scopes_.size() > kMaxVisualScopes)
+        visual_scopes_.erase(visual_scopes_.begin(),
+                             visual_scopes_.end() - static_cast<std::ptrdiff_t>(kMaxVisualScopes));
     if ((!r.model_revision.empty() &&
          (r.model_revision != read.model_revision || r.display_id != read.display_id ||
           !geometry_equals(r.display_geometry, read.display_geometry))) ||
@@ -506,7 +529,14 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
            !records_.back().uncertain)))
         return error(mira::ErrorCode::InvalidArgument,
                      "verify the previous action; uncertain effects require human review");
-    if (records_.size() >= 32)
+    // M9-03: a Continuous run must not refuse its 33rd action. Settled
+    // records (verified, or a clean rejection without dispatched effects)
+    // archive out oldest-first; the cap only stays hard while every kept
+    // record still carries unconfirmed side effects — the fence above
+    // already blocks new dispatches in that state.
+    while (records_.size() >= kMaxRecords && archive_settled_locked()) {
+    }
+    if (records_.size() >= kMaxRecords)
         return error(mira::ErrorCode::ResourceExhausted, "desktop action budget exceeded");
     Record r;
     r.id = mira::OperationId::generate().to_string();
@@ -816,10 +846,13 @@ void DesktopActionVerification::project(std::vector<conversation::Part> &parts) 
         if (!parsed || !parsed.value().as_object())
             continue;
         const auto id = field(parsed.value(), "action_id");
-        const auto record = std::find_if(records_.begin(), records_.end(),
-                                         [&](const auto &r) { return r.id == id; });
-        if (record == records_.end())
-            continue;
+        const auto match = [&](const auto &candidate) { return candidate.id == id; };
+        auto record = std::find_if(records_.begin(), records_.end(), match);
+        if (record == records_.end()) {
+            record = std::find_if(archived_.begin(), archived_.end(), match);
+            if (record == archived_.end())
+                continue;
+        }
         auto object = *parsed.value().as_object();
         if (!parsed.value().find("verification"))
             object.emplace_back("verification", summary(*record));
@@ -878,14 +911,20 @@ mira::Result<void> DesktopActionVerification::validate_request(const mira::Model
                                 const auto parsed = mira::parse_json(result->safe_error_summary);
                                 const auto &receipt = parsed ? parsed.value() : result->result;
                                 const auto id = field(receipt, "action_id");
-                                const auto known = std::find_if(
-                                    records_.begin(), records_.end(), [&](const auto &r) {
-                                        return r.id == id && r.action == call->wire_name;
-                                    });
-                                if (known == records_.end() ||
-                                    !(known->status == "verified" ||
-                                      (known->status == "rejected" && !known->dispatched &&
-                                       !known->uncertain)))
+                                // Settled receipts stay resolvable after
+                                // archival (M9-03); archived records are
+                                // settled by construction. Unknown failures
+                                // never entered records_ and always fence.
+                                const auto known_settled = [&]() {
+                                    for (const auto &r : records_)
+                                        if (r.id == id && r.action == call->wire_name)
+                                            return settled(r);
+                                    for (const auto &r : archived_)
+                                        if (r.id == id && r.action == call->wire_name)
+                                            return settled(r);
+                                    return false;
+                                }();
+                                if (!known_settled)
                                     canonical_failure_ = true;
                             }
                         }

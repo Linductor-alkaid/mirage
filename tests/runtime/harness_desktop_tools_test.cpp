@@ -22,6 +22,11 @@ bool frame_message(const mirage::testing::FrameRead &read) {
 #include <mirage/runtime/persistence/settings.hpp>
 #include <mirage/runtime/runtime_service.hpp>
 
+// Unit-style M9-03 archive scenarios construct the verification helper the
+// ModelLayer owns internally; the relative path matches the integration
+// source tree that visual_text_verification_test.cpp already compiles.
+#include "../../integration/mira/src/desktop_action_verification.hpp"
+
 #ifdef MIRAGE_HARNESS_X11
 #include "../support/xvfb_display.hpp"
 #include <X11/Xlib.h>
@@ -73,10 +78,24 @@ class Script final : public mira::IModelProvider {
     /// executions, where no observation wrapper can see the change.
     mirage::desktop::ActionCoordinator *coordinator = nullptr;
     std::vector<std::size_t> advance_epoch_before_turn;
+    /// M9-03 deterministic failure mode: once this many model rounds have
+    /// been served (0 = never), the next infer call returns an unrecoverable
+    /// provider error. The Error default is retryable=false, so neither the
+    /// gateway supervisor nor the loop recovery path retries it and the
+    /// pinned Continuous loop settles Failed with "model call failed: ...".
+    std::size_t provider_error_after = 0;
+    std::string provider_error_message = "scripted unrecoverable provider failure";
     mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
                                             const mira::OperationContext &,
                                             const mira::ProviderInferOptions &) override {
         requests.push_back(request);
+        if (provider_error_after != 0 && requests.size() > provider_error_after) {
+            mira::Error error;
+            error.code = mira::ErrorCode::Internal;
+            error.retryable = false;
+            error.safe_message = provider_error_message;
+            return error;
+        }
         mira::ModelResponse response;
         response.request_id = request.request_id;
         response.operation_id = request.operation_id;
@@ -198,6 +217,26 @@ bool request_text_contains(const mira::ModelRequest &request, const std::string 
                 text && text->text.find(needle) != std::string::npos)
                 return true;
     return false;
+}
+
+// Simplified pinned `complete_protocol` check over one assembled request:
+// every replayed tool call is paired by a result with the same provider call
+// id and vice versa, so a retained history window never carries an orphaned
+// half round trip after the host's structural retention dropped old groups.
+bool paired_tool_round_trips(const mira::ModelRequest &request) {
+    std::vector<std::string> calls, results;
+    for (const auto &item : request.input)
+        for (const auto &part : item.content) {
+            if (const auto *call = std::get_if<mira::ToolCallPart>(&part))
+                calls.push_back(call->provider_call_id.value);
+            if (const auto *result = std::get_if<mira::ToolResultPart>(&part))
+                results.push_back(result->provider_call_id.value);
+        }
+    if (calls.size() != results.size())
+        return false;
+    std::sort(calls.begin(), calls.end());
+    std::sort(results.begin(), results.end());
+    return calls == results;
 }
 
 // DEC-085 failure-guard fixture: counts semantic_snapshot dispatches at the
@@ -527,9 +566,11 @@ void layer_scenario(const std::string &scenario) {
 }
 
 // DEC-085 session resilience: the repeated-failure guard (block after 3
-// deterministic failures, transient never blocks), the failure digest on a
-// failed turn, and graceful budget degradation (bounded notices, final-turn
-// tool closure) driven through the same harness + scripted-provider pattern.
+// deterministic failures, transient never blocks) and the failure digest on a
+// failed turn, driven through the same harness + scripted-provider pattern.
+// M9-03: Continuous mode has no turn budget to drain, so the former budget
+// scenarios end with a scripted unrecoverable provider error instead — which
+// also proves the loop keeps executing past the retired 16-turn finite cap.
 void resilience_scenario(const std::string &scenario) {
     kairo::Executor owner;
     kairo::ExecutorConfig executor_config;
@@ -541,21 +582,21 @@ void resilience_scenario(const std::string &scenario) {
     integration::ModelProviderOverride provider([&](const auto &profile) {
         script = std::make_shared<Script>(profile, true);
         // The scripted provider answers with text once its table is
-        // exhausted, so each table covers exactly the model turns the
-        // scenario needs: blocking runs answer after their 5 proposals, the
-        // failure-summary run keeps proposing across the whole max_turns=16
-        // budget, and the budget runs cover all 16 declared turns.
-        const std::size_t proposals = budget ? 16 : (scenario == "failure_summary" ? 16 : 5);
-        if (budget)
-            script->actions_override = std::vector<std::pair<std::string, std::string>>(
-                proposals,
-                scenario == "budget_counts"
-                    ? std::pair<std::string, std::string>{"desktop.accessibility.semantic_snapshot",
-                                                          R"({"window_id":"w3"})"}
-                    : std::pair<std::string, std::string>{"desktop.window.front", "{}"});
-        else
-            script->actions_override = std::vector<std::pair<std::string, std::string>>(
-                proposals, {"desktop.accessibility.semantic_snapshot", R"({"window_id":"w3"})"});
+        // exhausted, so each table covers exactly the tool rounds the
+        // scenario needs: the budget runs propose 16 rounds, every blocking
+        // run proposes 5 (three real failures, then canonical blocked
+        // receipts). Failure paths then fail the next call unrecoverably;
+        // the healthy blocking run just answers.
+        const bool fails = budget || scenario == "failure_summary";
+        const std::size_t proposals = budget ? 16 : 5;
+        script->actions_override = std::vector<std::pair<std::string, std::string>>(
+            proposals,
+            budget && scenario != "budget_counts"
+                ? std::pair<std::string, std::string>{"desktop.window.front", "{}"}
+                : std::pair<std::string, std::string>{"desktop.accessibility.semantic_snapshot",
+                                                      R"({"window_id":"w3"})"});
+        if (fails)
+            script->provider_error_after = proposals;
         return script;
     });
     if (scenario == "transient_not_blocked")
@@ -565,10 +606,8 @@ void resilience_scenario(const std::string &scenario) {
     integration::DesktopToolContext tools;
     tools.environment = desktop;
     tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
-    // DEC-085 final budget model: turn/recovery/continuation counts are
-    // declared bounds (16/2/2), so the default 512 per-call config spends
-    // 512 x 19 inside the profile envelope (21 x the thinking floor) and the
-    // budget notices ride turns 15 and 16 of that declared envelope.
+    // M9-03: Continuous mode keeps the loop alive without a turn envelope;
+    // the run length here is bounded only by the scripted provider error.
     auto config = model_config();
     integration::ModelLayer layer(owner, config, &provider, tools);
     auto context = mira::make_control_context();
@@ -606,42 +645,51 @@ void resilience_scenario(const std::string &scenario) {
                 !failed_result(*script, "call-" + std::to_string(call), "permanent_failure"));
         MIRAGE_CHECK(failed_result(*script, "call-5", "permission_denied"));
     } else if (scenario == "failure_summary") {
-        // The model never answers, the turn budget drains on refusals, and
-        // the failed completion carries the user-facing failure digest.
+        // The model never answers: three real failures block the tool, two
+        // further proposals draw canonical blocked receipts, and the scripted
+        // unrecoverable provider error settles the run with the user-facing
+        // failure digest.
         MIRAGE_CHECK(!result.ok && result.failed && !result.cancelled);
-        MIRAGE_CHECK(result.model_steps == 16);
-        MIRAGE_CHECK(script->requests.size() == 16);
+        MIRAGE_CHECK(result.model_steps == 6);
+        MIRAGE_CHECK(script->requests.size() == 6);
+        MIRAGE_CHECK(result.tool_calls == 5);
         MIRAGE_CHECK(desktop->accessibility_.calls == 3);
+        MIRAGE_CHECK(result.error.find("model call failed") != std::string::npos);
+        MIRAGE_CHECK(result.error.find("（6 个模型步骤、5 次工具调用）") != std::string::npos);
         MIRAGE_CHECK(result.error.find("工具失败摘要") != std::string::npos);
         MIRAGE_CHECK(result.error.find("连续失败 3 次") != std::string::npos);
         MIRAGE_CHECK(result.error.find("已阻止后续调用") != std::string::npos);
         MIRAGE_CHECK(result.error.find("unsupported_window") != std::string::npos);
     } else if (scenario == "budget_counts") {
-        // The whole declared turn budget spent on a blocked tool: the failed
-        // completion names the spent budget AND the blocked tool.
+        // Continuous mode: 16 rounds execute past the retired 16-turn finite
+        // cap — blocked receipts after the third real failure still count as
+        // executed tool calls — then the scripted error settles the run. The
+        // failed completion names the spent effort AND the blocked tool.
         std::fprintf(stderr, "budget_counts error: %s\n", result.error.c_str());
-        MIRAGE_CHECK(script->requests.size() == 16);
+        MIRAGE_CHECK(script->requests.size() == 17);
         MIRAGE_CHECK(!result.ok && result.failed && !result.cancelled);
-        MIRAGE_CHECK(result.model_steps == 16);
+        MIRAGE_CHECK(result.model_steps == 17);
+        MIRAGE_CHECK(result.tool_calls == 16);
         MIRAGE_CHECK(desktop->accessibility_.calls == 3);
-        MIRAGE_CHECK(result.error.find("16 个模型步骤") != std::string::npos);
+        MIRAGE_CHECK(result.error.find("model call failed") != std::string::npos);
+        MIRAGE_CHECK(result.error.find("17 个模型步骤") != std::string::npos);
         MIRAGE_CHECK(result.error.find("16 次工具调用") != std::string::npos);
         MIRAGE_CHECK(result.error.find("工具失败摘要") != std::string::npos);
+        MIRAGE_CHECK(result.error.find("连续失败 3 次") != std::string::npos);
         MIRAGE_CHECK(result.error.find("已阻止后续调用") != std::string::npos);
         MIRAGE_CHECK(result.error.find("unsupported_window") != std::string::npos);
     } else if (budget) {
-        // max_turns=16: no notice on turns 1-14, the "one turn remains"
-        // notice on turn 15, the FINAL notice on turn 16 whose tool proposal
-        // is refused, then the loop settles without an answer.
-        MIRAGE_CHECK(script->requests.size() == 16);
+        // Continuous mode with a healthy read-only tool: 16 window.front
+        // rounds execute completely — proving the loop runs past the retired
+        // 16-turn finite cap — and the scripted error settles the run. No
+        // budget notice is injected into any request and no tool proposal is
+        // ever refused by a final-turn closure.
+        MIRAGE_CHECK(script->requests.size() == 17);
         MIRAGE_CHECK(!result.ok && result.failed);
-        if (script->requests.size() == 16) {
-            MIRAGE_CHECK(!request_text_contains(script->requests[13], "SYSTEM BUDGET NOTICE"));
-            MIRAGE_CHECK(
-                request_text_contains(script->requests[14], "only one model turn remains"));
-            MIRAGE_CHECK(request_text_contains(
-                script->requests[15], "FINAL model turn of this task's budget (16 turns)"));
-        }
+        MIRAGE_CHECK(result.error.find("model call failed") != std::string::npos);
+        MIRAGE_CHECK(result.error.find("（17 个模型步骤、16 次工具调用）") != std::string::npos);
+        for (const auto &request : script->requests)
+            MIRAGE_CHECK(!request_text_contains(request, "SYSTEM BUDGET NOTICE"));
         bool refusal_seen = false;
         std::size_t front_complete = 0;
         for (const auto &part : result.parts)
@@ -651,8 +699,8 @@ void resilience_scenario(const std::string &scenario) {
                 if (part.output.find("final_turn_tools_closed") != std::string::npos)
                     refusal_seen = true;
             }
-        MIRAGE_CHECK(front_complete == 15);
-        MIRAGE_CHECK(refusal_seen);
+        MIRAGE_CHECK(front_complete == 16);
+        MIRAGE_CHECK(!refusal_seen);
         // A turn without tool failures must not grow a failure digest.
         MIRAGE_CHECK(result.error.find("工具失败摘要") == std::string::npos);
     }
@@ -1108,9 +1156,10 @@ void reasoning_scenario() {
         std::shared_ptr<Script> script;
         std::uint64_t profile_limit = 0;
         integration::ModelProviderOverride provider([&](const auto &profile) {
-            // DEC-085 final budget model: the Messages profile limit scales
-            // with the 32768 thinking floor, independent of the reasoning
-            // choice, and funds the declared whole-run envelope.
+            // M9-03 (DEC-090, MIRA-20261015-002): the profile limit funds
+            // exactly one worst-case request (Request-scope admission), so it
+            // is the per-call floor independent of the reasoning choice —
+            // not a scaled whole-run envelope.
             profile_limit = profile.capabilities.limits.max_output_tokens;
             script = std::make_shared<Script>(profile, true);
             return script;
@@ -1134,11 +1183,11 @@ void reasoning_scenario() {
         const bool valid = std::string{reasoning} != "low";
         MIRAGE_CHECK(result.ok == valid && result.failed == !valid);
         MIRAGE_CHECK(script && script->requests.size() == (valid ? 2u : 0u));
-        // 22 * 32768 = 720896: the profile limit is the router's per-call
-        // admission bound and funds the declared whole-run envelope (16 turns
-        // + 2 recoveries + 3 continuations + 1) at the unchanged 32768
-        // per-call wire budget — the budget is no longer halved.
-        MIRAGE_CHECK(profile_limit == 720896u);
+        // max(512, 32768) = 32768: the profile limit is the router's
+        // Request-scope admission bound — one worst-case call at the thinking
+        // floor — with no whole-run envelope above it (M9-03). The per-request
+        // wire budget below stays the declared per-call baseline.
+        MIRAGE_CHECK(profile_limit == 32768u);
         for (const auto &request : script->requests) {
             MIRAGE_CHECK(request.generation.thinking == (std::string{reasoning} == "none"
                                                              ? mira::ThinkingMode::Disabled
@@ -1156,12 +1205,14 @@ void reasoning_scenario() {
 // call floors its per-request output budget at 32768 even when the configured
 // value is a larger-but-under-floor 8192 (the old floor), the wire budget is
 // the full floor (no profile/2 halving; the fixture declares no context
-// window, so the per-request preflight does not shrink), and the 720896
-// profile envelope funds the declared whole-run spend: 32768 x (16 turns +
-// 2 recoveries + 3 continuations + 1).
+// window, so the per-request preflight does not shrink), and M9-03 (DEC-090,
+// MIRA-20261015-002) makes the profile limit a Request-scope admission bound:
+// max(8192, 32768) = 32768 funds exactly one worst-case call, with no
+// whole-run envelope above it.
 void thinking_budget_scenario() {
     // (a) floor domination: config 8192 + adaptive -> 32768 on the wire
-    // (the old floor returned 8192 here) and the 720896 profile envelope.
+    // (the old floor returned 8192 here) and the 32768 Request-scope
+    // profile limit.
     {
         kairo::Executor owner;
         MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
@@ -1190,7 +1241,7 @@ void thinking_budget_scenario() {
                 })
                 .get();
         MIRAGE_CHECK(result.ok);
-        MIRAGE_CHECK(profile_limit == 720896u);
+        MIRAGE_CHECK(profile_limit == 32768u);
         MIRAGE_CHECK(script && script->requests.size() == 2u);
         for (const auto &request : script->requests) {
             MIRAGE_CHECK(request.generation.thinking == mira::ThinkingMode::Adaptive);
@@ -1199,11 +1250,11 @@ void thinking_budget_scenario() {
         layer.shutdown();
         owner.shutdown(true);
     }
-    // (b) envelope turn count: with the default 512 config and adaptive
-    // thinking the loop offers 16 model turns — 15 accepted read-only
-    // proposals, the penultimate request carries the one-turn warning, and
-    // the 16th carries the FINAL notice naming 16 turns; the script then
-    // answers with text, so the run settles Answered inside the budget.
+    // (b) no whole-run envelope (M9-03): with the default 512 config and
+    // adaptive thinking the Continuous loop serves 15 accepted read-only
+    // proposals and settles Answered on the 16th call's text — the same
+    // deterministic shape the finite cap used to produce, now reached by the
+    // scripted table alone, and never by a budget notice or tool closure.
     {
         kairo::Executor owner;
         MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
@@ -1233,18 +1284,9 @@ void thinking_budget_scenario() {
         MIRAGE_CHECK(result.ok);
         MIRAGE_CHECK(script && script->requests.size() == 16u);
         MIRAGE_CHECK(result.tool_calls == 15u);
-        if (script->requests.size() == 16u) {
-            // Assembling request N marks turns_used = N: request 15 (index
-            // 14) warns one turn remains, request 16 (index 15) is final.
-            MIRAGE_CHECK(request_text_contains(script->requests[14], "only one model turn "
-                                                                     "remains"));
-            MIRAGE_CHECK(request_text_contains(script->requests[15],
-                                               "FINAL model turn of this task's budget (16 "
-                                               "turns)"));
-            MIRAGE_CHECK(!request_text_contains(script->requests[14],
-                                                "FINAL model turn of this task's budget"));
-            MIRAGE_CHECK(!request_text_contains(script->requests[13], "SYSTEM BUDGET NOTICE"));
-        }
+        // M9-03: no budget notice ever rides a request, in Continuous mode.
+        for (const auto &request : script->requests)
+            MIRAGE_CHECK(!request_text_contains(request, "SYSTEM BUDGET NOTICE"));
         layer.shutdown();
         owner.shutdown(true);
     }
@@ -2274,6 +2316,407 @@ void service_tool_error_scenario() {
     MIRAGE_CHECK(service.run().clean);
 }
 
+// M9-03 episode-reset fixture: each call replays the scripted reply kind in
+// order. An "empty" reply carries no usable text, so the pinned loop spends
+// one recovery on it ("no usable answer text; recovering"); a "tool" round
+// executes and — in Continuous mode — resets the consecutive-failure episode
+// budgets; an "answer" settles the run. Empty replies are used instead of
+// provider errors because a retryable error would additionally traverse the
+// gateway supervisor's own retry table, and a non-retryable one would end the
+// run instead of consuming loop recovery.
+class EpisodeScript final : public mira::IModelProvider {
+  public:
+    explicit EpisodeScript(const mira::ModelProfile &profile) : profile_(profile) {}
+    const mira::ModelProfile &profile() const override { return profile_; }
+    std::vector<mira::ModelRequest> requests;
+    std::vector<std::string> replies; // "empty", "tool" or "answer" per call
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        requests.push_back(request);
+        mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.status = mira::ModelCompletionStatus::Completed;
+        const auto step = requests.size() - 1;
+        if (step < replies.size() && replies[step] == "tool") {
+            const auto wire = mirage::testing::fixture_tool_name("desktop.window.front");
+            const auto tool =
+                std::find_if(request.tools.begin(), request.tools.end(),
+                             [&](const auto &entry) { return entry.wire_name == wire; });
+            if (tool == request.tools.end()) {
+                mira::Error error;
+                error.code = mira::ErrorCode::UnsupportedCapability;
+                error.safe_message = "fixture tool missing: desktop.window.front";
+                return error;
+            }
+            mira::ToolCallOutput call;
+            call.provider_call_id.value = "episode-call-" + std::to_string(step + 1);
+            call.tool_id = tool->tool_id;
+            call.provider_name = tool->wire_name;
+            call.arguments = mira::JsonValue{mira::JsonValue::Object{}};
+            call.arguments_digest = mira::digest_string(mira::to_json_string(call.arguments));
+            response.output.emplace_back(std::move(call));
+            return response;
+        }
+        mira::MessageOutput message;
+        if (step >= replies.size() || replies[step] == "answer") {
+            mira::OutputTextPart text;
+            text.text = "episode settled";
+            message.content.emplace_back(std::move(text));
+        } // "empty": a completed response with no usable content at all.
+        response.output.emplace_back(std::move(message));
+        return response;
+    }
+
+  private:
+    mira::ModelProfile profile_;
+};
+
+// M9-03 acceptance: Continuous mode runs a genuinely long task — 260 read-only
+// tool rounds and the 261st call settling with the final text answer — in the
+// no-window fixture shape that used to hit the retired "history capacity
+// exhausted after compaction" cliff at round 66. The host now installs its
+// history transformer unconditionally and clamps the committed replay to a
+// bounded group suffix, so the loop's item bound (254) is a structural
+// backstop no healthy run reaches. The run must complete ok with true
+// cumulative counters (total_turns, not the bounded retained window), no
+// retired budget machinery anywhere on the wire, and every request must carry
+// complete call/result round trips after whole-group drops.
+void continuous_long_run_scenario() {
+    kairo::Executor owner;
+    kairo::ExecutorConfig executor_config;
+    executor_config.min_threads = executor_config.max_threads = 2;
+    MIRAGE_CHECK(static_cast<bool>(owner.initialize(executor_config)));
+    auto desktop = environment();
+    std::shared_ptr<Script> script;
+    integration::ModelProviderOverride provider([&](const auto &profile) {
+        script = std::make_shared<Script>(profile, true);
+        script->actions_override =
+            std::vector<std::pair<std::string, std::string>>(260, {"desktop.window.front", "{}"});
+        return script;
+    });
+    integration::DesktopToolContext tools;
+    tools.environment = desktop;
+    tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    // No declared context window: this is exactly the shape whose raw replay
+    // exhausted the old 128-item bound. The unconditional structural clamp is
+    // what must keep the run alive here.
+    const auto config = model_config();
+    integration::ModelLayer layer(owner, config, &provider, tools);
+    auto context = mira::make_control_context();
+    context.session = mira::SessionId::generate();
+    context.deadline = std::chrono::steady_clock::now() + 30s;
+    mirage::desktop::CancelToken cancel;
+    const auto result = owner
+                            .submit_auto([&] {
+                                return layer.complete_harness_turn(
+                                    {}, "long read-only probe", context, "", false, {}, {}, cancel);
+                            })
+                            .get();
+    if (!result.ok)
+        std::fprintf(stderr, "continuous long run: %s\n", result.error.c_str());
+    MIRAGE_CHECK(result.ok && !result.failed && !result.cancelled);
+    MIRAGE_CHECK(script && script->requests.size() == 261);
+    MIRAGE_CHECK(result.model_steps == 261);
+    MIRAGE_CHECK(result.tool_calls == 260);
+    for (const auto &request : script->requests) {
+        MIRAGE_CHECK(!request_text_contains(request, "SYSTEM BUDGET NOTICE"));
+        MIRAGE_CHECK(!request_text_contains(request, "final_turn_tools_closed"));
+        MIRAGE_CHECK(paired_tool_round_trips(request));
+    }
+    layer.shutdown();
+    owner.shutdown(true);
+}
+
+// M9-03 regression for the same cliff under a declared production-scale
+// window: Layer 0's token watermarks never fire on 160 tiny read-only tool
+// rounds (their token cost stays far below the checkpoint watermark), so the
+// structural group clamp is what bounds the committed replay. The run must
+// settle ok with cumulative counters intact and complete round trips on the
+// wire — no "history capacity exhausted after compaction" at any point.
+void continuous_large_window_scenario() {
+    kairo::Executor owner;
+    kairo::ExecutorConfig executor_config;
+    executor_config.min_threads = executor_config.max_threads = 2;
+    MIRAGE_CHECK(static_cast<bool>(owner.initialize(executor_config)));
+    auto desktop = environment();
+    std::shared_ptr<Script> script;
+    integration::ModelProviderOverride provider([&](const auto &profile) {
+        script = std::make_shared<Script>(profile, true);
+        script->actions_override =
+            std::vector<std::pair<std::string, std::string>>(160, {"desktop.window.front", "{}"});
+        return script;
+    });
+    integration::DesktopToolContext tools;
+    tools.environment = desktop;
+    tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    auto config = model_config();
+    config.context_window_tokens = 32768; // the native fixture's production shape
+    integration::ModelLayer layer(owner, config, &provider, tools);
+    auto context = mira::make_control_context();
+    context.session = mira::SessionId::generate();
+    context.deadline = std::chrono::steady_clock::now() + 30s;
+    mirage::desktop::CancelToken cancel;
+    const auto result = owner
+                            .submit_auto([&] {
+                                return layer.complete_harness_turn(
+                                    {}, "large window probe", context, "", false, {}, {}, cancel);
+                            })
+                            .get();
+    if (!result.ok)
+        std::fprintf(stderr, "continuous large window: %s\n", result.error.c_str());
+    MIRAGE_CHECK(result.ok && !result.failed && !result.cancelled);
+    MIRAGE_CHECK(script && script->requests.size() == 161);
+    MIRAGE_CHECK(result.model_steps == 161);
+    MIRAGE_CHECK(result.tool_calls == 160);
+    for (const auto &request : script->requests)
+        MIRAGE_CHECK(paired_tool_round_trips(request));
+    layer.shutdown();
+    owner.shutdown(true);
+}
+
+// M9-03 byte-cliff regression: a tool receipt near the harness's 64 KiB result
+// cap makes the retained history's byte dimension exceed the declared
+// max_history_bytes (2 MiB) after ~32 rounds — long before the item bound —
+// so the byte-aware structural clamp is what must keep dropping the oldest
+// whole groups. 40 such rounds total ~2.6 MiB of cumulative receipts; the run
+// must settle ok at 41 model steps (never "history capacity exhausted"), the
+// wire requests must carry strictly fewer retained receipts than were ever
+// executed (proving the clamp actually fired) while still keeping a
+// meaningful suffix, and every request must stay protocol-complete.
+void continuous_large_receipt_scenario() {
+    kairo::Executor owner;
+    kairo::ExecutorConfig executor_config;
+    executor_config.min_threads = executor_config.max_threads = 2;
+    MIRAGE_CHECK(static_cast<bool>(owner.initialize(executor_config)));
+    // A 40-round script of semantic_snapshot calls whose rendered tree sits
+    // above the harness tool's 64 KiB result cap (800 nodes x ~100-byte names
+    // render ~90 KiB, truncated to 64 KiB with an explicit flag).
+    constexpr int kRounds = 40;
+    auto desktop = std::make_shared<Environment>();
+    // w2 must hold the focus: the harness snapshot tool re-checks the
+    // foreground window after the capture and rejects a mismatch as
+    // stale_observation before any receipt is produced.
+    desktop->windows = {{"w1", "First", {0, 0, 200, 100}, false},
+                        {"w2", "Target", {200, 0, 200, 100}, true}};
+    mirage::desktop::SemanticSnapshot big;
+    big.application = "fixture";
+    big.window_title = "Target";
+    for (int node = 0; node < 800; ++node) {
+        mirage::desktop::SemanticNode entry;
+        entry.ref = "@e" + std::to_string(node);
+        entry.role = "button";
+        entry.name = std::string(100, static_cast<char>('a' + node % 26));
+        big.nodes.push_back(std::move(entry));
+    }
+    desktop->snapshots["w2"] = std::move(big);
+    std::shared_ptr<Script> script;
+    integration::ModelProviderOverride provider([&](const auto &profile) {
+        script = std::make_shared<Script>(profile, true);
+        script->actions_override = std::vector<std::pair<std::string, std::string>>(
+            kRounds, {"desktop.accessibility.semantic_snapshot", R"({"window_id":"w2"})"});
+        return script;
+    });
+    integration::DesktopToolContext tools;
+    tools.environment = desktop;
+    tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    const auto config = model_config(); // no declared window: clamp-only shape
+    integration::ModelLayer layer(owner, config, &provider, tools);
+    auto context = mira::make_control_context();
+    context.session = mira::SessionId::generate();
+    context.deadline = std::chrono::steady_clock::now() + 30s;
+    mirage::desktop::CancelToken cancel;
+    const auto result = owner
+                            .submit_auto([&] {
+                                return layer.complete_harness_turn(
+                                    {}, "large receipt probe", context, "", false, {}, {}, cancel);
+                            })
+                            .get();
+    if (!result.ok)
+        std::fprintf(stderr, "continuous large receipt: %s\n", result.error.c_str());
+    MIRAGE_CHECK(result.ok && !result.failed && !result.cancelled);
+    MIRAGE_CHECK(script && script->requests.size() == kRounds + 1u);
+    MIRAGE_CHECK(result.model_steps == kRounds + 1u);
+    MIRAGE_CHECK(result.tool_calls == kRounds);
+    // The clamp fired: no request replays every executed receipt (a 40-receipt
+    // history measures ~2.6 MiB against the 2 MiB bound), yet a meaningful
+    // suffix survives the bound (not a degenerate near-empty retention).
+    std::size_t max_receipts = 0;
+    std::size_t max_request_bytes = 0;
+    for (const auto &request : script->requests) {
+        MIRAGE_CHECK(paired_tool_round_trips(request));
+        std::size_t receipts = 0;
+        for (const auto &item : request.input)
+            for (const auto &part : item.content)
+                if (std::holds_alternative<mira::ToolResultPart>(part))
+                    ++receipts;
+        max_receipts = std::max(max_receipts, receipts);
+        // Same pinned codec the loop uses for retained_history_bytes.
+        max_request_bytes = std::max(
+            max_request_bytes,
+            mira::to_json_string(*mira::model_request_to_json(request).find("input")).size());
+    }
+    MIRAGE_CHECK(max_receipts < static_cast<std::size_t>(kRounds));
+    MIRAGE_CHECK(max_receipts >= 8);
+    // The wire stays bounded: the widest request input — the retained history
+    // plus the loop's request envelope — sits at the pinned history bound,
+    // never above it plus small prompt headroom.
+    MIRAGE_CHECK(max_request_bytes < 2u * 1024u * 1024u + 256u * 1024u);
+    std::fprintf(stderr, "large receipt diagnostic: max_receipts=%zu max_request_bytes=%zu\n",
+                 max_receipts, max_request_bytes);
+    layer.shutdown();
+    owner.shutdown(true);
+}
+
+// M9-03 acceptance: a successful tool round resets the consecutive-failure
+// episode budgets. Sequence [empty, empty, tool, empty, empty, answer]: the
+// first two empty replies spend the recovery budget (2), the tool round
+// reopens it, the next two empty replies spend it again, and the answer still
+// settles ok. Provider calls == 6 is the whole proof: without the per-episode
+// reset the second empty pair would exhaust the lifetime recovery budget and
+// fail the run at the fourth call.
+void episode_reset_scenario() {
+    kairo::Executor owner;
+    kairo::ExecutorConfig executor_config;
+    executor_config.min_threads = executor_config.max_threads = 2;
+    MIRAGE_CHECK(static_cast<bool>(owner.initialize(executor_config)));
+    std::shared_ptr<EpisodeScript> script;
+    integration::ModelProviderOverride provider([&](const auto &profile) {
+        script = std::make_shared<EpisodeScript>(profile);
+        script->replies = {"empty", "empty", "tool", "empty", "empty", "answer"};
+        return script;
+    });
+    integration::DesktopToolContext tools;
+    tools.environment = environment();
+    tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    integration::ModelLayer layer(owner, model_config(), &provider, tools);
+    auto context = mira::make_control_context();
+    context.session = mira::SessionId::generate();
+    context.deadline = std::chrono::steady_clock::now() + 30s;
+    mirage::desktop::CancelToken cancel;
+    const auto result = owner
+                            .submit_auto([&] {
+                                return layer.complete_harness_turn(
+                                    {}, "episode reset probe", context, "", false, {}, {}, cancel);
+                            })
+                            .get();
+    MIRAGE_CHECK(result.ok && !result.failed && !result.cancelled);
+    MIRAGE_CHECK(script && script->requests.size() == 6);
+    MIRAGE_CHECK(result.model_steps == 6);
+    MIRAGE_CHECK(result.tool_calls == 1);
+    layer.shutdown();
+    owner.shutdown(true);
+}
+
+// M9-03 acceptance: the desktop action record window archives settled records
+// instead of refusing the 33rd action. (a) 40 pre-dispatch rejections — each
+// settled on arrival — never hit the retired hard "desktop action budget
+// exceeded" refusal, and a verified correction afterwards still settles the
+// turn. (b) a rejected receipt that has already archived out of the active
+// window still resolves through validate_request, so replaying the canonical
+// history does not fence the run; an unknown receipt still does.
+void action_archive_scenario() {
+    auto desktop = environment();
+    integration::DesktopToolContext tools;
+    tools.environment = desktop;
+    tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    auto ctx = mira::make_control_context();
+    ctx.task = mira::TaskId::generate();
+    ctx.session = mira::SessionId::generate();
+    ctx.task_epoch = 3;
+    ctx.deadline = std::chrono::steady_clock::now() + 30s;
+    mirage::desktop::CancelToken cancel;
+    const mira::BuiltinToolHandler dispatch = [](const auto &,
+                                                 const auto &) -> mira::Result<mira::JsonValue> {
+        return mira::JsonValue{mira::JsonValue::Object{
+            {"status", "dispatched"}, {"input_released", true}, {"verified", false}}};
+    };
+    // Invalid UTF-8 in a postcondition field rejects before any dispatch, so
+    // every record arrives settled (rejected, no dispatched side effects).
+    const auto bad_args = [](const char *text) {
+        return mira::JsonValue{mira::JsonValue::Object{
+            {"window_id", "w1"}, {"verify_kind", "visual_text_exists"}, {"expected_text", text}}};
+    };
+    const mira::JsonValue activate_args{
+        mira::JsonValue::Object{{"window_id", "w1"}, {"verify_kind", "window_focused"}}};
+    // (a) 40 settled rejections ride the active window into the archive.
+    {
+        integration::detail::DesktopActionVerification verify(tools, ctx, cancel);
+        std::string first_receipt;
+        for (int round = 1; round <= 40; ++round) {
+            const auto result =
+                verify.execute("desktop.input.type_text", bad_args("\xff"), ctx, dispatch);
+            MIRAGE_CHECK(!result);
+            MIRAGE_CHECK(result.error().code == mira::ErrorCode::InvalidArgument);
+            const auto &receipt = result.error().safe_message;
+            MIRAGE_CHECK(receipt.find("action_id") != std::string::npos);
+            MIRAGE_CHECK(receipt.find("desktop action budget exceeded") == std::string::npos);
+            if (round == 1)
+                first_receipt = receipt;
+        }
+        MIRAGE_CHECK(!verify.empty());
+        // A rejected receipt is settled, so a verified correction continues
+        // and the turn still settles.
+        const auto fixed = verify.execute("desktop.window.activate", activate_args, ctx, dispatch);
+        MIRAGE_CHECK(fixed.has_value());
+        const auto *status = fixed.value().find("verification");
+        MIRAGE_CHECK(status && status->find("status") && status->find("status")->as_string() &&
+                     *status->find("status")->as_string() == "verified");
+        MIRAGE_CHECK(verify.settle());
+        MIRAGE_CHECK(!first_receipt.empty());
+    }
+    // (b) archived receipts stay resolvable for canonical-history validation.
+    {
+        integration::detail::DesktopActionVerification verify(tools, ctx, cancel);
+        const auto rejected =
+            verify.execute("desktop.input.type_text", bad_args("\xff"), ctx, dispatch);
+        MIRAGE_CHECK(!rejected);
+        const std::string receipt = rejected.error().safe_message;
+        const auto fixed = verify.execute("desktop.window.activate", activate_args, ctx, dispatch);
+        MIRAGE_CHECK(fixed.has_value());
+        // 33 further verified activations push the rejection and the first
+        // correction out of the 32-slot active window into the archive.
+        for (int round = 0; round < 33; ++round)
+            MIRAGE_CHECK(verify.execute("desktop.window.activate", activate_args, ctx, dispatch)
+                             .has_value());
+        const auto replay = [&](const std::string &error_summary) {
+            mira::ModelRequest request;
+            request.task_id = ctx.task;
+            request.task_epoch = ctx.task_epoch;
+            mira::ModelInputItem call_item;
+            call_item.role = mira::ModelRole::Assistant;
+            mira::ToolCallPart call;
+            call.provider_call_id.value = "replayed-rejection";
+            call.wire_name = "desktop.input.type_text";
+            call.arguments = bad_args("\xff");
+            call.arguments_digest = mira::canonical_json_digest(call.arguments);
+            call_item.content.emplace_back(std::move(call));
+            mira::ModelInputItem result_item;
+            mira::ToolResultPart result;
+            result.provider_call_id.value = "replayed-rejection";
+            result.failed = true;
+            result.safe_error_summary = error_summary;
+            result_item.content.emplace_back(std::move(result));
+            request.input.push_back(std::move(call_item));
+            request.input.push_back(std::move(result_item));
+            return verify.validate_request(request, ctx);
+        };
+        // An unknown failure receipt never entered the records and must fence.
+        const std::string id_marker = "\"action_id\":\"";
+        std::string unknown = receipt;
+        const auto id_field = unknown.find(id_marker);
+        MIRAGE_CHECK(id_field != std::string::npos);
+        unknown.insert(id_field + id_marker.size(), "unknown-");
+        MIRAGE_CHECK(replay(unknown).has_value());
+        MIRAGE_CHECK(!verify.settle()); // canonical_failure_ latched by the unknown receipt
+        // The archived rejection resolves: no canonical fence, run not blocked.
+        MIRAGE_CHECK(replay(receipt).has_value());
+        MIRAGE_CHECK(verify.settle());
+    }
+}
+
 } // namespace
 
 int main() {
@@ -2283,6 +2726,11 @@ int main() {
     registration_scenario();
     reasoning_scenario();
     thinking_budget_scenario();
+    continuous_long_run_scenario();
+    continuous_large_window_scenario();
+    continuous_large_receipt_scenario();
+    episode_reset_scenario();
+    action_archive_scenario();
     output_continuation_scenario();
     preflight_budget_scenario();
     for (const auto *scenario : {"block_permanent", "transient_not_blocked", "failure_summary",

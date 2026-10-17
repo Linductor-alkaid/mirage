@@ -46,4 +46,20 @@ class DesktopContextBuilder final {
     Limits limits_;
 };
 
+/// M9-03 structural retention for the committed Continuous replay: while the
+/// history exceeds either bound, drop the oldest whole groups — a group opens
+/// at an item carrying a tool call and spans its paired results (plus any
+/// trailing assistant continuation text) — so call/result pairing and the
+/// latest-round tail stay provider-valid and loop-validated. `max_items`
+/// bounds the item count; `max_bytes` bounds the retained replay's canonical
+/// input JSON size, measured per group with the pinned request codec (the
+/// per-group sum upper-bounds the array the loop measures, so meeting it
+/// here means the loop bound can never fire). Items are returned verbatim;
+/// this is a structural bound, never a rendering or token decision. The
+/// pinned loop validates the result and degrades to the raw replay on any
+/// violation.
+[[nodiscard]] std::vector<mira::ModelInputItem>
+retain_recent_groups(const std::vector<mira::ModelInputItem> &history, std::size_t max_items,
+                     std::size_t max_bytes);
+
 } // namespace mirage::integration::detail

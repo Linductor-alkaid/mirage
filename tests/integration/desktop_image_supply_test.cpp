@@ -2002,18 +2002,19 @@ int live() {
             .get();
     model.shutdown();
     executor.shutdown(true);
-    std::cout << mira::to_json_string(mira::JsonValue{mira::JsonValue::Object{
-                     {"ok", result.ok},
-                     {"cancelled", result.cancelled},
-                     {"answer", result.reply_text},
-                     {"error", result.error},
-                     {"captures", static_cast<std::int64_t>(env->capture_calls)},
-                     {"model_steps", std::int64_t{result.model_steps}},
-                     {"tool_calls", std::int64_t{result.tool_calls}},
-                     {"supplied_input_items", std::int64_t{result.supplied_input_items}},
-                     {"supplied_input_dropped", std::int64_t{result.supplied_input_dropped}},
-                     {"supply_degradations", std::int64_t{result.supply_degradations}}}})
-              << '\n';
+    std::cout
+        << mira::to_json_string(mira::JsonValue{mira::JsonValue::Object{
+               {"ok", result.ok},
+               {"cancelled", result.cancelled},
+               {"answer", result.reply_text},
+               {"error", result.error},
+               {"captures", static_cast<std::int64_t>(env->capture_calls)},
+               {"model_steps", static_cast<std::int64_t>(result.model_steps)},
+               {"tool_calls", static_cast<std::int64_t>(result.tool_calls)},
+               {"supplied_input_items", static_cast<std::int64_t>(result.supplied_input_items)},
+               {"supplied_input_dropped", static_cast<std::int64_t>(result.supplied_input_dropped)},
+               {"supply_degradations", static_cast<std::int64_t>(result.supply_degradations)}}})
+        << '\n';
     return result.ok ? 0 : 1;
 }
 // DEC-085 capability honesty fixture: delegates every provider to the fake

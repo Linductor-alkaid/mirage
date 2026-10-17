@@ -55,13 +55,23 @@ LLM 可按需标定视觉对象；未受变化影响的对象保留已关联语�
   （24/24 SUCCESS），gitlink/lock 更新至 a29374a；消费侧持续契约、有限兼容、
   准入/取消/shutdown/有界历史、Debug 82/82、consumer ASAN/UBSAN 各 5/5 及
   native 编译通过。升级独立交付为 Mirage PR #97，审计见
-  [pin 升级记录](../supply-chain/mira-continuous-loop-20261015.md)。产品仍显式
-  Finite，M9-03 尚未接线；Windows/原生 Wayland/真实模型范围按审计保留。
-- [ ] `M9-03` **Planned**（依赖 01/02）：持续任务接线与容量清理。删除 15/16 轮
-  收尾，替换 16/32 及其他累计终止点和固定 22 倍包络；已结算记录归档，未确认
-  副作用保持。明确停止/阻塞/恢复结果与摘要，保持同一 ID、取消和终态幂等。
-  验收：至少 256 模型步骤、超过 128 工具及旧动作/帧上限的脚本任务正常结束；
-  源码审计无替代计数停止，长时存量不线性无界增长，迟到结果不复活任务。
+  [pin 升级记录](../supply-chain/mira-continuous-loop-20261015.md)。产品已随
+  M9-03 切换 Continuous；Windows/原生 Wayland/真实模型范围按审计保留。
+- [x] `M9-03` **Completed**（持续接线与容量清理，Linux 脚本验收）：harness 循环
+  切换 pinned `ConversationLimitMode::Continuous`；删除 15/16 轮收尾通知与
+  final-turn 工具关闭，16/32 累计上限及 22 倍整轮包络移除（profile 退为单次
+  最坏调用基线，每请求 Request-scope 准入）；恢复/续写改为连续失败 episode
+  预算，有效工具轮重置。容量清理：动作记录 32 条活跃窗口 + 128 条已结算归档
+  （未确认副作用永不归档，请求校验/投影回退解析）；视觉证据预算按环境 epoch
+  重开（64/epoch）；视觉范围窗口限 8；完成计数加宽 uint64（`total_turns`
+  全量）。提交历史由宿主 `retain_recent_groups` 结构性保留（200 条/2MiB，
+  整组前截断，pinned 校验配对与尾部；无窗口形态不再 fail-open 直通），
+  pinned 254 条/2MiB 退为纯结构兜底——验证代理发现并已封堵条目与字节两个
+  替代计数悬崖（无窗口 66 轮、大回执 32 轮）。脚本验收：261 步/260 工具
+  （无窗口与大窗口形态）、40 动作归档、episode 重置、字节截断在 2MiB 精确
+  生效均正常结束；debug 全量 91/91、asan 聚焦 9/9 无 sanitizer 报告、
+  format/boundary 通过。无进展判定表仍属 M9-01；真实 provider 长任务与
+  平台验收由 M9-12 收口；DEC-088 请求级全量压缩仍为 M9-04。
 - [ ] `M9-04` **Planned**（依赖 01；可与 02 并行）：请求级上下文管理。纳入全部
   固定输入/供给/schema/历史/输出余量，保护目标/约束/最近完整工具组和待核验
   动作；覆盖 thinking + 多工具组合、reactive compact、压缩后 usage 校准和
@@ -210,7 +220,7 @@ track 模板和语义标定，不只限制 mailbox 长度。语义状态在可�
 
 | 项目 | 当前状态 | 负责人和解除/处置条件 |
 | --- | --- | --- |
-| Mira 持续循环依赖消费 | Linux pin 消费已完成；产品接线待 M9-03 | Mirage 维护者；依赖升级 PR #97 待评审，真实平台及长任务由 M9-12 验收 |
+| Mira 持续循环依赖消费 | pin 消费与产品接线均已完成（M9-03） | Mirage 维护者；真实平台及长任务由 M9-12 验收 |
 | 模型别名窗口未知 | 尚未验证 | Mirage 维护者；明确元数据来源/用户配置及未知模式，不猜窗口 |
 | ObjectTracker Experimental | 接入前置风险 | Mirage 维护者；私有适配、能力回退与相似目标负例取证 |
 | 微小文字与缓存新鲜度 | 必验正确性风险 | Mirage 维护者；关键 ROI 强制新识别及源帧水位验证 |
@@ -252,3 +262,13 @@ M9-02 仍等待上游交付和依赖消费，M9-03 尚未接线；不把 PR 创�
 消费侧 1,025 轮契约和 native 构建见 pin 审计；独立升级 MR 为
 [Mirage PR #97](https://github.com/Linductor-alkaid/mirage/pull/97)。该项解除上游
 公开能力阻塞，不改变本地 Finite 配置；M9-03/04 及整个 M9 继续开放。
+
+2026-10-17：M9-03 实施与验收完成（Linux 脚本范围，分支
+`feat/m9-03-continuous-task-loop`）。harness 循环切换 Continuous，15/16 轮收尾、
+final-turn 关闭、16/32 累计上限与 22 倍包络删除；动作记录活跃窗口/归档、
+per-epoch 视觉预算、计数 uint64 加宽、宿主结构性历史保留（200 条/2MiB）落地；
+验证方独立更新/新增测试并复验（发现条目与字节两个替代悬崖，产品侧封堵后
+复验通过）。证据：脚本任务 261 模型步/260 工具（无窗口与大窗口）、40 动作
+归档、episode 重置、字节截断 2MiB 精确生效；debug 全量 91/91、asan 聚焦 9/9
+（无 sanitizer 报告）、format/boundary 检查通过。未执行：真实 provider 长任务、
+非 Linux 平台、TSAN 专项与无进展判定表（M9-01/12 范围）。

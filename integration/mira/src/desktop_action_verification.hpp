@@ -26,7 +26,7 @@ class DesktopActionVerification {
                                           const mira::OperationContext &);
     mira::Result<void> validate_request(const mira::ModelRequest &, const mira::OperationContext &);
     void project(std::vector<conversation::Part> &) const;
-    bool empty() const { return records_.empty(); }
+    bool empty() const { return records_.empty() && archived_.empty(); }
     bool ocr_failed() const { return ocr_failed_; }
 
   private:
@@ -55,16 +55,41 @@ class DesktopActionVerification {
                       const mira::OperationContext &, std::int64_t &matching_nodes,
                       std::string &visual_digest);
     mira::JsonValue summary(const Record &) const;
+    static bool settled(const Record &record);
+    // Oldest-first archival of settled records so a Continuous run never
+    // refuses its 33rd action (M9-03); returns false only when every kept
+    // record still carries unconfirmed side effects.
+    bool archive_settled_locked();
     SharedObservation shared_observation_;
     DesktopToolContext desktop_;
     mira::OperationContext owner_;
     mirage::desktop::CancelToken cancel_;
+    // M9-03 active-window capacity (DEC-090): `records_` keeps the recent
+    // action window; settled records (verified, or a clean rejection with no
+    // dispatched effects) archive out of the front instead of refusing new
+    // actions. Unconfirmed side effects never archive. `archived_` still
+    // resolves receipts for request validation and UI projection; its oldest
+    // entries drop only well past the point where the compacted canonical
+    // history has stopped replaying them.
+    static constexpr std::size_t kMaxRecords = 32;
+    static constexpr std::size_t kMaxArchivedRecords = 128;
     std::vector<Record> records_;
+    std::vector<Record> archived_;
     bool fenced_ = false;
     bool canonical_failure_ = false;
     bool ocr_failed_ = false;
-    std::size_t visual_observations_ = 0;
+    // Host-side visual evidence budget, per environment epoch (M9-03): a new
+    // `desktop.actions` epoch reopens the budget the same way the failure
+    // tracker's per-epoch retry budget does, so long tasks keep verifying
+    // while same-epoch OCR churn still settles with a bounded receipt.
+    std::uint64_t visual_epoch_ = 0;
+    bool visual_epoch_seen_ = false;
+    std::uint32_t visual_epoch_observations_ = 0;
     std::uint64_t last_backend_calls_ = 0;
+    // Recent visual scopes for the freshness check; a bounded window instead
+    // of an unbounded per-run list (M9-03). Captures mint fresh scope refs,
+    // so only replayed ancient evidence can re-enter the window.
+    static constexpr std::size_t kMaxVisualScopes = 8;
     std::vector<std::string> visual_scopes_;
 };
 } // namespace mirage::integration::detail

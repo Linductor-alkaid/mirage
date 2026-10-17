@@ -226,6 +226,18 @@ void revalidation() {
     auto limited = reread(args, f.ctx);
     check(limited &&
           field(limited.value().result, "reason") == "visual_observation_budget_exceeded");
+    // M9-03: the visual evidence budget is per environment epoch, matching
+    // the failure tracker's per-epoch retry budget. Advancing the coordinator
+    // epoch (takeover + resume) reopens it: the recheck no longer reports
+    // budget exhaustion — the fresh observation fails on the record's stale
+    // epoch instead, proving observe got past a budget gate a run-total
+    // budget would have kept closed.
+    f.desktop.actions->takeover();
+    check(f.desktop.actions->resume());
+    auto reopened = reread(args, f.ctx);
+    check(reopened && !reopened.value().failed &&
+          field(reopened.value().result, "reason") != "visual_observation_budget_exceeded");
+    check(field(reopened.value().result, "reason") == "environment_changed");
 }
 void invalid_conditions() {
     for (int mode = 0; mode < 6; ++mode) {

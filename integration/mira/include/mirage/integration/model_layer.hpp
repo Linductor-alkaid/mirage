@@ -112,30 +112,32 @@ struct ToolFailure {
 
 /// Outcome of one dialog inference (DEC-027). `ok` carries `reply_text`;
 /// `failed` marks a settled turn with a stable `error` reason (safe for UI);
-/// `cancelled` mirrors the caller's cancellation probe.
+/// `cancelled` mirrors the caller's cancellation probe. Cumulative run
+/// counters are uint64 (M9-03): a Continuous desktop task has no
+/// accumulated step or tool cutoff, so the counts never saturate.
 struct DialogCompletion {
     bool ok = false;
     bool failed = false;
     bool cancelled = false;
     std::string error;
     std::string reply_text;
-    std::uint32_t model_steps = 0;
-    std::uint32_t tool_calls = 0;
+    std::uint64_t model_steps = 0;
+    std::uint64_t tool_calls = 0;
     std::optional<std::uint64_t> input_tokens; // final successful request, provider reported
     std::uint64_t context_window_tokens = 0;
     std::string usage_model;
     std::vector<conversation::Part> parts = {};
-    std::uint32_t supplied_input_items = 0;
-    std::uint32_t supplied_input_dropped = 0;
-    std::uint32_t supply_degradations = 0;
+    std::uint64_t supplied_input_items = 0;
+    std::uint64_t supplied_input_dropped = 0;
+    std::uint64_t supply_degradations = 0;
     /// DEC-088: requests that carried the input-reuse annotation (third
     /// consecutive identical image supply); zero without an identity seam.
-    std::uint32_t supplied_input_reuse_annotations = 0;
+    std::uint64_t supplied_input_reuse_annotations = 0;
     /// DEC-088 capability 2/3: requests whose tool-history replay came from
     /// the Layer 0 compaction seam and requests where the seam degraded to
     /// the raw replay; zero without a declared context window.
-    std::uint32_t history_transforms = 0;
-    std::uint32_t history_transform_degradations = 0;
+    std::uint64_t history_transforms = 0;
+    std::uint64_t history_transform_degradations = 0;
     /// DEC-085: classified tool failures of this session (bounded by the
     /// tracker's per-session tool budget); the runtime service projects them
     /// onto `session.tool_error` events.

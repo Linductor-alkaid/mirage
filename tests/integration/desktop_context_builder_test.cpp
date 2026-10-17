@@ -1053,8 +1053,9 @@ class CompactionScript final : public mira::IModelProvider {
 // the Layer 0 input budget. With a declared window the seam still resolves
 // once per assembled request with a non-empty history (the completion counters
 // report every application), but the small replay sits far below the trim
-// watermark, so the whole tool-history replay reaches the wire. Without a
-// declared window no transform fires at all and the replay stays complete.
+// watermark, so the whole tool-history replay reaches the wire. M9-03: the
+// seam is unconditional — an undeclared window runs the structural group
+// clamp alone, and this small replay stays complete under it.
 void harness_compaction(kairo::Executor &executor, bool declare_window) {
     integration::DesktopToolContext tools;
     auto env = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
@@ -1130,8 +1131,12 @@ void harness_compaction(kairo::Executor &executor, bool declare_window) {
         }
         check(result.supplied_input_reuse_annotations >= 1); // identical captures annotate
     } else {
-        // Undeclared window: no transform fires and the replay stays whole.
-        check(result.history_transforms == 0);
+        // M9-03: the host transformer is unconditional, so an undeclared
+        // window still resolves the seam once per assembled request — the
+        // structural group clamp runs alone (bounded local retention, a
+        // count/byte bound rather than token compaction). The 12-pair replay
+        // sits far below both clamp bounds, so it stays whole.
+        check(result.history_transforms == rounds);
         check(result.history_transform_degradations == 0);
         const auto &last = script->requests.back();
         const auto calls = call_ids(last);

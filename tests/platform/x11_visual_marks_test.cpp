@@ -1042,35 +1042,38 @@ void real_canvas(const std::string &manifest, const std::string &before, const s
                 std::cout << "EVIDENCE " << part.name << " " << part.output << '\n';
         }
         if (live) {
-            std::cout
-                << "LIVE "
-                << mira::to_json_string(Json{Json::Object{
-                       {"ok", result.ok},
-                       {"failed", result.failed},
-                       {"cancelled", result.cancelled},
-                       {"error", result.error},
-                       {"reasoning", reasoning},
-                       {"timings", Json{std::move(timing_evidence)}},
-                       {"answer", result.reply_text},
-                       {"pressed", pressed},
-                       {"released", released},
-                       {"presses", static_cast<std::int64_t>(presses)},
-                       {"releases", static_cast<std::int64_t>(releases)},
-                       {"wrong_presses", static_cast<std::int64_t>(wrong_presses)},
-                       {"elapsed_ms", elapsed},
-                       {"click_age_ms", click_age_ms},
-                       {"model_steps", std::int64_t{result.model_steps}},
-                       {"tool_calls", std::int64_t{result.tool_calls}},
-                       {"supplied_input_items", std::int64_t{result.supplied_input_items}},
-                       {"supplied_input_dropped", std::int64_t{result.supplied_input_dropped}},
-                       {"supply_degradations", std::int64_t{result.supply_degradations}},
-                       {"backend_calls", static_cast<std::int64_t>(pipeline->backend_calls())},
-                       {"display", host.empty() ? "private-xvfb" : host},
-                       {"capture_scope", canvas_id},
-                       {"origin", Json{Json::Object{{"x", std::int64_t{placed_x}},
-                                                    {"y", std::int64_t{placed_y}}}}},
-                       {"tools", std::move(tool_evidence)}}})
-                << '\n';
+            std::cout << "LIVE "
+                      << mira::to_json_string(Json{Json::Object{
+                             {"ok", result.ok},
+                             {"failed", result.failed},
+                             {"cancelled", result.cancelled},
+                             {"error", result.error},
+                             {"reasoning", reasoning},
+                             {"timings", Json{std::move(timing_evidence)}},
+                             {"answer", result.reply_text},
+                             {"pressed", pressed},
+                             {"released", released},
+                             {"presses", static_cast<std::int64_t>(presses)},
+                             {"releases", static_cast<std::int64_t>(releases)},
+                             {"wrong_presses", static_cast<std::int64_t>(wrong_presses)},
+                             {"elapsed_ms", elapsed},
+                             {"click_age_ms", click_age_ms},
+                             {"model_steps", static_cast<std::int64_t>(result.model_steps)},
+                             {"tool_calls", static_cast<std::int64_t>(result.tool_calls)},
+                             {"supplied_input_items",
+                              static_cast<std::int64_t>(result.supplied_input_items)},
+                             {"supplied_input_dropped",
+                              static_cast<std::int64_t>(result.supplied_input_dropped)},
+                             {"supply_degradations",
+                              static_cast<std::int64_t>(result.supply_degradations)},
+                             {"backend_calls",
+                              static_cast<std::int64_t>(pipeline->backend_calls())},
+                             {"display", host.empty() ? "private-xvfb" : host},
+                             {"capture_scope", canvas_id},
+                             {"origin", Json{Json::Object{{"x", std::int64_t{placed_x}},
+                                                          {"y", std::int64_t{placed_y}}}}},
+                             {"tools", std::move(tool_evidence)}}})
+                      << '\n';
         }
         std::cout << "CANVAS update=" << update << " ok=" << result.ok << " pressed=" << pressed
                   << " released=" << released << (script ? " images=" : " supplied_items=")
