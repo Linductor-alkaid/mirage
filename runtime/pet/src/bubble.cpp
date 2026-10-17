@@ -78,6 +78,11 @@ std::string bubble_line(std::string_view text, std::size_t bound) {
             result.erase(0, begin);
         }
     }
+    // BUG-20261017-001: the bounded suffix can begin at a separator.
+    // Keep normalization idempotent: valid_bubble re-normalizes the line,
+    // and rejecting a locally generated preview disconnects the pet.
+    if (!result.empty() && result.front() == ' ')
+        result.erase(0, result.find_first_not_of(' '));
     return result;
 }
 bool valid_bubble(const Bubble &b) {

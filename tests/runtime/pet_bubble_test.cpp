@@ -69,6 +69,27 @@ int main() {
     MIRAGE_CHECK(decoded.ok);
     MIRAGE_CHECK(std::get<mirage::runtime::ipc::PetUpdatedEvent>(decoded.event.payload).status ==
                  status);
+    // BUG-20261017-001: truncating a long preview at a word boundary must
+    // not publish a leading space that valid_bubble rejects and that kills
+    // the pet's entire IPC session. Exercise every streaming prefix.
+    const std::string long_thought = std::string(128, 'p') + " " + std::string(2047, 'x');
+    pet::BubbleProjection long_projection;
+    status.display_state = "thinking";
+    bool valid_prefixes = true;
+    for (std::size_t length = 1; length <= long_thought.size(); ++length) {
+        pet::Preview preview{"long-request", long_thought.substr(0, length), length, false};
+        status.bubble = long_projection.update(status, true, {}, &preview, nullptr, now);
+        const auto event = mirage::runtime::ipc::encode_event(
+            {length, mirage::runtime::ipc::PetUpdatedEvent{status}});
+        valid_prefixes = valid_prefixes && pet::valid_status(status) &&
+                         mirage::runtime::ipc::decode_event(event).ok;
+    }
+    MIRAGE_CHECK(valid_prefixes);
+    MIRAGE_CHECK(status.bubble && status.bubble->text == std::string(2047, 'x') &&
+                 status.bubble->truncated);
+    MIRAGE_CHECK(pet::bubble_line("a bcd", 4) == "bcd");
+    MIRAGE_CHECK(pet::bubble_line("a 中文", 7) == "中文");
+    MIRAGE_CHECK(pet::bubble_line("a b", 0).empty());
     auto malformed = encoded;
     const auto position = malformed.find("\"remaining_ms\":0");
     MIRAGE_CHECK(position != std::string::npos);
