@@ -1,6 +1,7 @@
 #include "../support/test.hpp"
 #include "chat_model.hpp"
 #include "conversation_preview.hpp"
+#include "process_summary.hpp"
 #include "secret_edit.hpp"
 #include "text_selection.hpp"
 #include <chrono>
@@ -15,6 +16,24 @@
 int main() {
     using mirage::native_ui::ChatModel;
     // DEC-079: history projection must not move storage, drafts or current selection.
+    {
+        ChatModel timed;
+        const auto id = timed.current().id;
+        timed.apply_turn(id, "timed", "pending", "fixture", {}, {});
+        mirage::conversation::Timings values;
+        values.inference = {2, 1234};
+        values.capture = {3, 0};
+        values.ocr = {1, 456};
+        values.settlement = {1, 50};
+        timed.apply_process(id, "timed", {}, 1, true, true, values);
+        MIRAGE_CHECK(timed.current().messages.back().timings == values);
+        const auto lines = mirage::native_ui::process_timing_lines(values);
+        MIRAGE_CHECK(lines.size() == 5 && lines.front().find("1.2 秒") != std::string::npos);
+        MIRAGE_CHECK(mirage::native_ui::process_timing_lines({}).empty());
+        mirage::conversation::Part hidden;
+        hidden.truncated = true;
+        MIRAGE_CHECK(!mirage::native_ui::thinking_detail(hidden).empty());
+    }
     ChatModel ordered;
     const auto older = ordered.current().id;
     ordered.bind_remote(older, "a");

@@ -1,4 +1,5 @@
 #pragma once
+#include "phase_timing.hpp"
 #include <kairo/comm/mailbox.hpp>
 #include <mira/conversation_loop.hpp>
 #include <mira/model_dialect.hpp>
@@ -62,6 +63,7 @@ class DesktopImageTurn {
     /// signal wired — degradation fails open.
     using BudgetRemaining = std::function<std::optional<std::int64_t>()>;
     void set_budget_remaining(BudgetRemaining provider);
+    void set_timings(conversation::Timings *timings) { timings_ = timings; }
     mira::Result<std::vector<mira::ModelInputItem>> supply(const mira::AgentLoopSpec &);
     /// DEC-088 capability 1: resolves the reuse identity of this request's
     /// supplied capture under the same owner/cancellation gate as supply();
@@ -148,5 +150,6 @@ class DesktopImageTurn {
     bool region_tool_enabled_ = false;
     std::optional<mira::Error> supply_error_;
     BudgetRemaining budget_remaining_;
+    conversation::Timings *timings_ = nullptr;
 };
 } // namespace mirage::integration::detail

@@ -488,7 +488,7 @@ void layer_scenario(const std::string &scenario) {
         context.deadline = std::chrono::steady_clock::now() + (scenario == "expired" ? 1s : 3s);
         return layer.complete_harness_turn(
             {}, "use the desktop", context, "", !read_only, {},
-            [&](const auto &parts) {
+            [&](const auto &parts, const auto &) {
                 for (const auto &part : parts)
                     if (part.kind == "tool")
                         tool_states.push_back(part.status);

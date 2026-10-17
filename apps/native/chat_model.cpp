@@ -372,7 +372,8 @@ void ChatModel::apply_turn(std::uint64_t id, const std::string &turn, const std:
 
 void ChatModel::apply_process(std::uint64_t id, const std::string &turn,
                               const std::vector<conversation::Part> &parts, std::uint64_t sequence,
-                              bool pending, bool live_update) {
+                              bool pending, bool live_update,
+                              const conversation::Timings &timings) {
     auto *session = find(id);
     if (!session || !sequence || !conversation::valid_parts(parts))
         return;
@@ -387,6 +388,7 @@ void ChatModel::apply_process(std::uint64_t id, const std::string &turn,
                                parts.end(), [](const auto &part) { return part.kind == "tool"; }))
         message->text.clear(); // completed tool-producing response supersedes its ephemeral preview
     message->parts = parts;
+    message->timings = timings;
     message->process_sequence = sequence;
     if (live_update)
         touch(*session);

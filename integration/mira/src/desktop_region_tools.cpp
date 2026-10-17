@@ -200,7 +200,8 @@ mira::Result<Json> DesktopImageTurn::click_region(const Json &args,
     if (!stable())
         return failure(bounded.cancelled() ? "cancelled" : "stale_observation");
     ++captures_;
-    const auto fresh = screen->capture_roi(area, {}, bounded);
+    const auto fresh = measure_phase(timings_ ? &timings_->capture : nullptr,
+                                     [&] { return screen->capture_roi(area, {}, bounded); });
     if (!fresh.ok || fresh.cancelled || bounded.cancelled())
         return failure(bounded.cancelled() || fresh.cancelled ? "cancelled" : "capture_failed");
     if (!valid_image_frame(source.frame, desktop_capture_bytes) ||

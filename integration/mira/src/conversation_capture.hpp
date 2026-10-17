@@ -1,4 +1,5 @@
 #pragma once
+#include "phase_timing.hpp"
 #include <algorithm>
 #include <map>
 #include <mutex>
@@ -21,9 +22,10 @@ class ConversationCapture {
   public:
     explicit ConversationCapture(DialogProcessSink sink) : sink_(std::move(sink)) {}
     std::vector<conversation::Part> parts;
+    conversation::Timings timings;
     void publish() const {
         if (sink_)
-            sink_(parts);
+            sink_(parts, timings);
     }
     struct CategoryUsage {
         std::size_t tool = 0;     // input + output
@@ -73,23 +75,53 @@ class ConversationCapture {
         part.truncated = conversation::truncate_text(value, budget) || part.truncated;
     }
     void add(conversation::Part part) {
-        if (parts.size() == conversation::max_parts) {
-            parts.back().truncated = true;
-            return;
+        constexpr std::string_view omitted = "（展示预算省略）";
+        if (part.kind == "thinking") {
+            constexpr std::size_t limit = 4096;
+            if (part.text.size() > limit) {
+                constexpr std::string_view gap = "\n…（中间思考因展示预算省略）…\n";
+                auto head = part.text;
+                conversation::truncate_text(head, 2048);
+                auto begin = part.text.size() - (limit - head.size() - gap.size());
+                while (begin < part.text.size() &&
+                       (static_cast<unsigned char>(part.text[begin]) & 0xc0U) == 0x80U)
+                    ++begin;
+                part.text = head + std::string(gap) + part.text.substr(begin);
+                part.truncated = part.omitted_for_display_budget = true;
+            }
+            auto used = categorize_budget().thinking;
+            for (auto &old : parts) {
+                if (used + part.text.size() <= conversation::max_thinking_budget)
+                    break;
+                if (old.kind != "thinking" || old.text.size() <= omitted.size())
+                    continue;
+                used -= old.text.size();
+                old.text = omitted;
+                old.truncated = old.omitted_for_display_budget = true;
+                used += old.text.size();
+            }
         }
-        // One display field per producer operation; no opaque signatures/raw payloads.
+        if (parts.size() == conversation::max_parts) {
+            auto victim = std::find_if(parts.begin(), parts.end(),
+                                       [](const auto &item) { return item.kind == "thinking"; });
+            if (victim == parts.end())
+                victim = std::find_if(parts.begin(), parts.end(), [](const auto &item) {
+                    return item.status != "running" && item.status != "pending";
+                });
+            if (victim == parts.end()) {
+                parts.back().truncated = true;
+                return;
+            }
+            parts.erase(victim);
+        }
         bound(part.text, part);
         bound(part.input, part);
         parts.push_back(std::move(part));
     }
     void response(const mira::ModelRequest &request, const mira::ModelResponse &response) {
-        const auto previous = parts.size();
         const auto prefix = request.request_id.to_string() + ".";
         // A retried request replaces its display attempt, retaining stable row identities.
-        const bool replaced = std::erase_if(parts, [&](const auto &part) {
-                                  return part.id.starts_with(prefix);
-                              }) != 0;
-        const bool was_truncated = !parts.empty() && parts.back().truncated;
+        std::erase_if(parts, [&](const auto &part) { return part.id.starts_with(prefix); });
         const bool tools =
             std::any_of(response.output.begin(), response.output.end(), [](const auto &item) {
                 return std::holds_alternative<mira::ToolCallOutput>(item);
@@ -181,9 +213,7 @@ class ConversationCapture {
                 }
             }
         }
-        if (replaced || parts.size() != previous ||
-            (!parts.empty() && parts.back().truncated != was_truncated))
-            publish();
+        publish();
     }
     conversation::Part *start_tool(const std::string &name) {
         auto found = std::find_if(parts.begin(), parts.end(), [&](const auto &part) {
@@ -287,6 +317,7 @@ class ObservedProvider final : public mira::IModelProvider {
                 mira::ModelRequest wire_request = request;
                 if (auto wire = resolve_wire_budget(request, context))
                     wire_request.generation.max_output_tokens = wire;
+                PhaseTimingScope timing(capture ? &capture->timings.inference : nullptr);
                 return provider_->infer(wire_request, context, options);
             } catch (...) {
                 mira::Error error;
@@ -300,6 +331,8 @@ class ObservedProvider final : public mira::IModelProvider {
         if (capture && result && result.value().status == mira::ModelCompletionStatus::Completed &&
             !context.cancelled_or_expired(mira::Timestamp::now()))
             capture->response(request, result.value());
+        else if (capture)
+            capture->publish();
         return result;
     }
     const mira::TransportTrace &last_trace() const override { return provider_->last_trace(); }

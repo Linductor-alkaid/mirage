@@ -1,10 +1,62 @@
+#include "../../integration/mira/src/conversation_capture.hpp"
 #include "../support/test.hpp"
 #include <cstdio>
 #include <mirage/conversation.hpp>
+#include <stdexcept>
+#include <thread>
 
 // DEC-093: categorized budget allocation verification.
 namespace mirage::conversation {
 namespace {
+
+void test_recent_thinking_and_timing() {
+    integration::detail::ConversationCapture capture({});
+    for (int i = 0; i < 12; ++i) {
+        Part part;
+        part.id = "thinking-" + std::to_string(i);
+        part.kind = "thinking";
+        part.text = "开始 " + std::string(10000, 'x') + " 最新结论" + std::to_string(i);
+        capture.add(std::move(part));
+    }
+    MIRAGE_CHECK(valid_parts(capture.parts));
+    MIRAGE_CHECK(std::all_of(capture.parts.begin(), capture.parts.end(),
+                             [](const auto &part) { return !part.text.empty(); }));
+    MIRAGE_CHECK(capture.parts.back().text.ends_with("最新结论11"));
+    MIRAGE_CHECK(capture.parts.front().omitted_for_display_budget);
+    for (int i = 0; i < 100; ++i) {
+        Part part;
+        part.id = "tool-" + std::to_string(i);
+        part.kind = "tool";
+        part.name = "fixture";
+        capture.add(std::move(part));
+    }
+    MIRAGE_CHECK(capture.parts.size() == max_parts && capture.parts.back().id == "tool-99");
+    MIRAGE_CHECK(valid_parts(capture.parts));
+    Part omitted;
+    omitted.id = "omitted";
+    omitted.kind = "thinking";
+    omitted.truncated = omitted.omitted_for_display_budget = true;
+    std::vector<Part> decoded;
+    std::string error;
+    MIRAGE_CHECK(decode_parts(encode_parts({omitted}), decoded, error) &&
+                 decoded.front() == omitted);
+    Timings measured;
+    try {
+        integration::detail::PhaseTimingScope scope(&measured.inference);
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        throw std::runtime_error("fixture failure");
+    } catch (const std::runtime_error &) {
+    }
+    MIRAGE_CHECK(measured.inference.calls == 1 && measured.inference.duration_ms >= 5);
+    measured.capture = {3, 27};
+    measured.ocr = {2, 78};
+    measured.settlement = {1, 12};
+    Timings restored;
+    MIRAGE_CHECK(decode_timings(encode_timings(measured), restored, error) && restored == measured);
+    MIRAGE_CHECK(!decode_timings(R"({"ocr":{"calls":-1,"duration_ms":3}})", restored, error));
+    MIRAGE_CHECK(!decode_timings(R"({"ocr":{"calls":1,"duration_ms":-3}})", restored, error));
+    MIRAGE_CHECK(!decode_timings(R"({"other":{"calls":1,"duration_ms":3}})", restored, error));
+}
 
 void test_category_budgets() {
     // Verify the budget constants match DEC-093.
@@ -177,6 +229,7 @@ int main() {
 
     std::printf("[TEST] Category budgets\n");
     test_category_budgets();
+    test_recent_thinking_and_timing();
 
     std::printf("[TEST] Thinking does not block tools\n");
     test_thinking_does_not_block_tools();

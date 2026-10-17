@@ -46,6 +46,7 @@ struct PersistedChatTurn {
     std::int64_t recorded_at_ms = 0; // DEC-079: canonical record time, updated at settlement.
     std::vector<conversation::Part> parts = {};
     std::uint64_t process_sequence = 0;
+    conversation::Timings timings = {};
 };
 
 /// One persisted session: registry identity plus the conversation and

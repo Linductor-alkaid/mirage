@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <limits>
 #include <mira/json.hpp>
 #include <mirage/conversation.hpp>
 #include <unordered_set>
@@ -42,6 +43,17 @@ std::optional<DesktopEvidence> desktop_evidence(const Part &part) {
           view.evidence_id.empty())))
         return std::nullopt;
     view.shared_desktop = shared;
+    view.scope = field("evidence_scope", 64);
+    if (view.scope.empty()) {
+        if (condition == "shared_frame_observed")
+            view.scope = "fresh_frame";
+        else if (condition == "shared_text_exists")
+            view.scope = "text_presence";
+        else if (condition == "application_running")
+            view.scope = "process_presence";
+        else if (condition == "window_focused")
+            view.scope = "focus_identity";
+    }
     return view;
 }
 bool truncate_text(std::string &text, std::size_t limit) {
@@ -111,6 +123,8 @@ std::string encode_parts(const std::vector<Part> &parts) {
         if (!part.output.empty())
             object.emplace_back("output", part.output);
         object.emplace_back("truncated", part.truncated);
+        if (part.omitted_for_display_budget)
+            object.emplace_back("omitted_for_display_budget", true);
         array.emplace_back(std::move(object));
     }
     return mira::to_json_string(mira::JsonValue{std::move(array)});
@@ -130,13 +144,16 @@ bool decode_parts(std::string_view json, std::vector<Part> &parts, std::string &
         Part part;
         bool id = false, kind = false, status = false;
         for (const auto &[key, field] : *value.as_object()) {
-            if (key == "truncated") {
+            if (key == "truncated" || key == "omitted_for_display_budget") {
                 const auto flag = field.as_boolean();
                 if (!flag) {
                     error = "invalid part truncation flag";
                     return false;
                 }
-                part.truncated = *flag;
+                if (key == "truncated")
+                    part.truncated = *flag;
+                else
+                    part.omitted_for_display_budget = *flag;
                 continue;
             }
             const auto *text = field.as_string();
@@ -177,6 +194,49 @@ bool decode_parts(std::string_view json, std::vector<Part> &parts, std::string &
         return false;
     }
     parts = std::move(result);
+    return true;
+}
+std::string encode_timings(const Timings &value) {
+    mira::JsonValue::Object object;
+    for (const auto &[name, phase] : {std::pair{"inference", value.inference},
+                                      {"capture", value.capture},
+                                      {"ocr", value.ocr},
+                                      {"settlement", value.settlement}}) {
+        if (phase.calls)
+            object.emplace_back(
+                name, mira::JsonValue{mira::JsonValue::Object{
+                          {"calls", static_cast<std::int64_t>(phase.calls)},
+                          {"duration_ms", static_cast<std::int64_t>(phase.duration_ms)}}});
+    }
+    return mira::to_json_string(mira::JsonValue{std::move(object)});
+}
+bool decode_timings(std::string_view json, Timings &out, std::string &error) {
+    const auto parsed = mira::parse_json(json);
+    if (!parsed || !parsed.value().as_object()) {
+        error = "invalid process timings";
+        return false;
+    }
+    Timings value;
+    for (const auto &[name, phase] : *parsed.value().as_object()) {
+        auto *target = name == "inference"    ? &value.inference
+                       : name == "capture"    ? &value.capture
+                       : name == "ocr"        ? &value.ocr
+                       : name == "settlement" ? &value.settlement
+                                              : nullptr;
+        if (!target || !phase.as_object() || phase.as_object()->size() != 2) {
+            error = "invalid process timing phase";
+            return false;
+        }
+        const auto *calls = phase.find("calls"), *duration = phase.find("duration_ms");
+        if (!calls || !duration || !calls->as_integer() || *calls->as_integer() <= 0 ||
+            !duration->as_integer() || *duration->as_integer() < 0) {
+            error = "invalid process timing counters";
+            return false;
+        }
+        target->calls = static_cast<std::uint64_t>(*calls->as_integer());
+        target->duration_ms = static_cast<std::uint64_t>(*duration->as_integer());
+    }
+    out = value;
     return true;
 }
 } // namespace mirage::conversation

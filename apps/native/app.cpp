@@ -6,6 +6,7 @@
 #include "icons.hpp"
 #include "markdown_adapter.hpp"
 #include "plain_text_layout.hpp"
+#include "process_summary.hpp"
 #include "provider_presets.hpp"
 #include "runtime_bridge.hpp"
 #include "secret_input.hpp"
@@ -1070,7 +1071,7 @@ void drain_runtime() {
                                           native_usage(turn.context_usage), turn.sequence, {},
                                           turn.recorded_at_ms);
                         s.chat.apply_process(session->id, turn.turn_id, turn.parts,
-                                             turn.process_sequence, false, false);
+                                             turn.process_sequence, false, false, turn.timings);
                     }
                 }
             } else if (std::holds_alternative<ipc::DialogTurnAccepted>(payload) &&
@@ -1097,7 +1098,8 @@ void drain_runtime() {
                                           native_usage(turn->context_usage), turn->sequence,
                                           turn->replaces_turn_id);
                         s.chat.apply_process(session.id, turn->turn_id, turn->parts,
-                                             turn->process_sequence, turn->status == "pending");
+                                             turn->process_sequence, turn->status == "pending",
+                                             true, turn->timings);
                         s.runtime_notice = turn->status == "pending" ? "Mira 正在运行…"
                                            : turn->status == "ok"    ? "Mira 已回复"
                                                                      : display_error(turn->error);
@@ -2743,7 +2745,7 @@ bool part_expanded(const LocalMessage &message, const conversation::Part &part) 
 }
 std::string process_detail(const conversation::Part &part) {
     if (part.kind != "tool")
-        return part.text;
+        return thinking_detail(part);
     return "参数\n" + (part.input.empty() ? "无" : part.input) + "\n\n结果\n" +
            (part.output.empty() ? (part.status == "running"   ? "正在执行…"
                                    : part.status == "pending" ? "等待执行"
@@ -2786,6 +2788,11 @@ void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &mes
                     std::uint64_t session, float width, float y, const Palette &p,
                     const components::theme::ThemeColorTokens &tokens,
                     const components::MarkdownStyle &markdown) {
+    for (const auto &line : process_timing_lines(message.timings)) {
+        text(ui, key + ".timing." + std::to_string(static_cast<int>(y)), line, 4, y, width - 8, 20,
+             12, p.muted);
+        y += 20;
+    }
     for (const auto &part : message.parts) {
         const auto id = key + ".part." + part.id;
         const auto height = process_part_height(message, part, width, markdown);
@@ -2813,7 +2820,7 @@ void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &mes
                                                              : " · 窗口 " + evidence->window_id)
                             : " · 应用进程 " + evidence->application_id)
                      : "") +
-                (part.truncated ? "（已截断）" : "");
+                ((part.truncated || part.omitted_for_display_budget) ? "（展示已省略）" : "");
             auto style = button_style(p);
             const bool failed = part.status == "failed";
             const auto fail_label = failed ? tool_failure_label(part) : std::string{};
@@ -2838,7 +2845,11 @@ void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &mes
                 .build();
             const std::string status =
                 evidence ? (evidence->status == "verified"
-                                ? (evidence->shared_desktop ? "局部已核验" : "已核验")
+                                ? (evidence->scope == "fresh_frame"        ? "已取得新帧"
+                                   : evidence->scope == "process_presence" ? "进程运行中"
+                                   : evidence->scope == "focus_identity"   ? "焦点已核验"
+                                   : evidence->shared_desktop              ? "文本已核验"
+                                                                           : "已核验")
                             : evidence->status == "uncertain" ? "不确定"
                             : evidence->status == "rejected"  ? "已拒绝"
                                                               : "未验证")
@@ -3031,7 +3042,10 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                         static_cast<unsigned long long>(std::max(0.0f, elapsed) * 10);
                     const std::string elapsed_label =
                         std::to_string(tenths / 10) + "." + std::to_string(tenths % 10) + " 秒";
-                    float process_height = 0;
+                    float process_height =
+                        user ? 0.0f
+                             : static_cast<float>(process_timing_lines(message.timings).size()) *
+                                   20.0f;
                     if (!user)
                         for (const auto &part : message.parts)
                             process_height += process_part_height(message, part, width, markdown);
