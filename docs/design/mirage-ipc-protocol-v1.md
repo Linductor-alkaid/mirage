@@ -1009,3 +1009,37 @@ remaining_ms 是服务计算的相对期限；客户端单调期限只允许缩�
 运输回调仅有界投递；Runtime 25ms 投影刷新与 Topic 消费，不再依赖动画首轮结算。
 正文概括为保守抽取，无法生成完整短句则 status_hint，不按前N字符虚构完成。
 Golden meta.version=21 增加思考/最终对话状态与 capability 三个向量；既有向量字节保持。
+
+### 2026-10-17：过程省略原因与阶段耗时（DEC-098）
+
+`parts[]` 可选 `omitted_for_display_budget: true` 明确展示裁剪；不表示模型输出被供应商
+截断。省略后仍保留可读提示或首尾摘要，分类总量继续遵守 DEC-093。
+
+`session.chat_updated` 和 `session.chat.history` 的 turn 增加可选 `timings` 对象；
+同一 `process_sequence` 中的 parts 与 timings 是一致的完整快照。允许的键为
+`inference`、`capture`、`ocr`、`settlement`，每项 `{calls: 正整数, duration_ms: 非负整数}`；
+均受 JSON 有符号 64 位整数上限约束。缺项表示未计量，不推断为零；已执行但小于
+毫秒分辨率的调用可报告 duration_ms=0。终态仍保持幂等并持久化这些指标；旧历史
+缺失字段保持未知。发布载荷需要配套更新 native decoder；旧版严格 parts decoder
+不认识新的省略原因字段，产品更新必须统一重启服务和前端。
+
+inference 是公开 provider 调用的累计用时（含失败、取消和内部网络等待）；capture
+是平台实际取帧调用（含授权后首帧等待、输入前检查和后条件取帧）；ocr 是既有 OCR
+适配器调用；settlement 是最终只读核验。原生共享桌面 OCR 的取帧与识别分别计量；
+传统整体 OCR 适配器的 OCR 计时包含其内部取帧，未单独暴露的平台阶段仍为未知。
+收尾包含的取帧/OCR 会同时计入对应项，各项不可简单相加为总时长，不代表 CPU 时间。
+
+动作 `verification` 增加 `evidence_scope` 与 `proves_arbitrary_goal:false`：
+
+| scope | 证明范围 |
+| --- | --- |
+| fresh_frame | 已释放输入并取得新共享帧，不能据此认定焦点/导航成功 |
+| focus_identity | 指定窗口确为当前焦点，不能证明页面加载/播放 |
+| foreground_title | 前台窗口标题满足预先声明条件 |
+| process_presence | 应用进程存在，不能证明页面已打开 |
+| ui_progress | 前台发生变化，不能证明业务结果 |
+| semantic_presence / text_presence | 预先声明的语义节点/文本存在 |
+| unknown | 无可归类的证明，不提升为目标完成 |
+
+这些字段说明原条件的含义，不授予额外输入权限，也不改变不确定副作用、取消或
+最终收尾验证门禁。模型应按本次用户目标说明实际证据，已核验条件不要求机械重复。

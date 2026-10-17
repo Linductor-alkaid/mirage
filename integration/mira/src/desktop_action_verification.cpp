@@ -57,26 +57,38 @@ bool DesktopActionVerification::archive_settled_locked() {
     return true;
 }
 JsonValue DesktopActionVerification::summary(const Record &r) const {
-    return JsonValue{
-        JsonValue::Object{{"action_id", r.id},
-                          {"action", r.action},
-                          {"window_id", r.window},
-                          {"application_id", r.application_id},
-                          {"status", r.status},
-                          {"reason", r.reason},
-                          {"verify_kind", r.kind},
-                          {"verified", r.status == "verified"},
-                          {"dispatched", r.dispatched},
-                          {"side_effect_may_have_occurred", r.uncertain},
-                          {"condition_digest", r.condition_digest.to_string()},
-                          {"evidence_id", r.evidence},
-                          {"observed_digest", r.observed_digest},
-                          {"captured_at_ms", r.captured_at_ms},
-                          {"visual_scope", r.visual_scope},
-                          {"display_id", r.display_id},
-                          {"model_revision", r.model_revision},
-                          {"ocr_backend_calls", static_cast<std::int64_t>(r.backend_calls)},
-                          {"environment_epoch", static_cast<std::int64_t>(r.epoch)}}};
+    return JsonValue{JsonValue::Object{
+        {"action_id", r.id},
+        {"action", r.action},
+        {"window_id", r.window},
+        {"application_id", r.application_id},
+        {"status", r.status},
+        {"reason", r.reason},
+        {"verify_kind", r.kind},
+        {"evidence_scope", r.kind == "shared_frame_observed" ? "fresh_frame"
+                           : r.kind == "application_running" ? "process_presence"
+                           : r.kind == "window_focused"      ? "focus_identity"
+                           : r.kind == "foreground_changed"  ? "ui_progress"
+                           : r.kind == "window_title_equals" || r.kind == "foreground_title_equals"
+                               ? "foreground_title"
+                           : r.kind == "semantic_node_exists" ? "semantic_presence"
+                           : r.kind == "shared_text_exists" || r.kind == "visual_text_exists" ||
+                                   r.kind == "display_text_exists"
+                               ? "text_presence"
+                               : "unknown"},
+        {"proves_arbitrary_goal", false},
+        {"verified", r.status == "verified"},
+        {"dispatched", r.dispatched},
+        {"side_effect_may_have_occurred", r.uncertain},
+        {"condition_digest", r.condition_digest.to_string()},
+        {"evidence_id", r.evidence},
+        {"observed_digest", r.observed_digest},
+        {"captured_at_ms", r.captured_at_ms},
+        {"visual_scope", r.visual_scope},
+        {"display_id", r.display_id},
+        {"model_revision", r.model_revision},
+        {"ocr_backend_calls", static_cast<std::int64_t>(r.backend_calls)},
+        {"environment_epoch", static_cast<std::int64_t>(r.epoch)}}};
 }
 
 bool DesktopActionVerification::observe_text(
@@ -778,8 +790,11 @@ void DesktopActionVerification::register_tool(mira::BuiltinToolRegistry &registr
         return;
     mira::BuiltinToolSpec spec;
     spec.wire_name = "desktop.action.verify";
-    spec.description = "Read fresh evidence for the latest action_id and its fixed postcondition. "
-                       "No input is repeated. Verify before another mutation or declaring success.";
+    spec.description =
+        "Read fresh evidence for the latest action_id and its fixed postcondition. "
+        "No input is repeated. Use when the returned condition is unverified or fresh "
+        "reconfirmation is needed; a verified receipt needs no reflexive repeat. "
+        "The fixed condition does not establish an arbitrary user goal.";
     JsonValue::Object properties;
     properties.emplace_back(
         "action_id",

@@ -107,3 +107,11 @@ BUG-20261015-001 证实长思考占满 64 KiB 后，后续工具结果被无差�
 - [BUG-20261015-001 调查](../analysis/native-session-truncation-pet-ime-20261015.md)
 - [DEC-049：会话过程投影与折叠渲染](DEC-049-conversation-process-rendering.md)
 - [M9 计划：持续任务与本地语义感知闭环](../plans/m9-continuous-tasks-and-local-perception.md)
+
+## 2026-10-17：第二阶段近期思考展示（DEC-098）
+
+本轮落实思考优先近期内容：每个长段最多 4KiB 的 UTF-8 首尾摘要，明确中间省略；
+8KiB 总预算不足时，从最早思考起替换为省略提示。96 段耗尽时优先移除最早思考，
+再移除已结算旧活动，保留正在执行的工具。`omitted_for_display_budget` 以布尔可选
+字段落地；不引入未实现的省略枚举。旧空截断段也明确解释展示预算，不冒充供应商
+生成失败。工具40KiB、正文16KiB不变；工具/正文自身的完整摘要与淘汰门禁继续开放。

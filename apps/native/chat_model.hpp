@@ -24,6 +24,7 @@ struct LocalMessage {
     bool preview_truncated = false;
     std::vector<conversation::Part> parts = {};
     std::uint64_t process_sequence = 0;
+    conversation::Timings timings = {};
     std::vector<std::string> expanded_parts = {};
 };
 
@@ -109,7 +110,8 @@ class ChatModel {
                     std::optional<std::int64_t> recorded_at_ms = {});
     void apply_process(std::uint64_t session, const std::string &turn,
                        const std::vector<conversation::Part> &parts, std::uint64_t sequence,
-                       bool pending = false, bool live_update = true);
+                       bool pending = false, bool live_update = true,
+                       const conversation::Timings &timings = {});
     void toggle_part(std::uint64_t session, std::uint64_t message, const std::string &part);
     void apply_preview(std::uint64_t id, const std::string &turn, const std::string &request,
                        std::uint64_t sequence, const std::string &text, bool truncated);

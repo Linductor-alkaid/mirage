@@ -380,6 +380,8 @@ void shared_contracts(const std::string &mode) {
     {
         detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, ctx,
                                       stop);
+        mirage::conversation::Timings measured;
+        turn.set_timings(&measured);
         verification.set_shared_observation(
             [&](const auto &kind, const auto &expected, const auto &owner) {
                 return turn.observe_shared(kind, expected, owner);
@@ -615,7 +617,15 @@ void shared_contracts(const std::string &mode) {
         check(env->inputs == (success || mode == "release" || mode == "uncertain" ? 1 : 0));
         if (success) {
             check(result.value().result.find("verified")->as_boolean() == true);
+            const auto *proof = result.value().result.find("verification");
+            check(proof && proof->find("evidence_scope") &&
+                  *proof->find("evidence_scope")->as_string() ==
+                      (mode == "ocr" ? "text_presence" : "fresh_frame"));
+            const auto before = measured.capture.calls;
+            check(before == 3 && measured.ocr.calls == (mode == "ocr" ? 1u : 0u));
             check(verification.settle());
+            check(measured.capture.calls == before + 1 &&
+                  measured.ocr.calls == (mode == "ocr" ? 2u : 0u));
         }
         if (mode == "release")
             check(!tools.actions->input_released() && tools.actions->authority_epoch() == 0);

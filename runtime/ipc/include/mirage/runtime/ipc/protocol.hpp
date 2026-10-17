@@ -617,6 +617,7 @@ struct DialogTurnEntry {
     std::optional<ContextUsage> context_usage;
     std::vector<conversation::Part> parts = {};
     std::uint64_t process_sequence = 0;
+    conversation::Timings timings = {};
 };
 
 /// One session's dialog thread as reported by session.chat.history
@@ -1025,6 +1026,7 @@ struct ChatTurnUpdatedEvent {
     std::string replaces_turn_id = {};
     std::vector<conversation::Part> parts = {};
     std::uint64_t process_sequence = 0;
+    conversation::Timings timings = {};
 };
 
 // DEC-041: ephemeral bounded FULL snapshot, never history/usage/tool authority.

@@ -933,7 +933,7 @@ void real_canvas(const std::string &manifest, const std::string &before, const s
         std::int64_t mark_started_ms = -1, mark_ready_ms = -1;
         // Diagnostic projection of the existing serialized process events;
         // no new task monitor, clock source, thread or model thinking trace.
-        const auto process = [&](const auto &parts) {
+        const auto process = [&](const auto &parts, const auto &) {
             const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
                                  std::chrono::steady_clock::now() - started)
                                  .count();

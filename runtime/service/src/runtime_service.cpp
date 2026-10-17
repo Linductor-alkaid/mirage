@@ -212,11 +212,13 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
             if (record.turn_id == turn_id) {
                 if (record.status != "pending")
                     return; // terminal settlement is idempotent
+                event.timings = completion.timings.empty() ? record.timings : completion.timings;
                 event.parts = completion.parts.empty() ? record.parts : completion.parts;
                 for (auto &part : event.parts)
                     if (part.status == "pending" || part.status == "running")
                         part.status = completion.cancelled ? "cancelled" : "failed";
                 record.parts = event.parts;
+                record.timings = event.timings;
                 if (!event.parts.empty() || record.process_sequence)
                     ++record.process_sequence;
                 event.process_sequence = record.process_sequence;
@@ -307,7 +309,7 @@ void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::stri
             refresh_pet();
         };
     integration::DialogProcessSink process = [core, session_id, turn_id, stop,
-                                              refresh_pet](const auto &parts) {
+                                              refresh_pet](const auto &parts, const auto &timings) {
         if (stop.stop_requested() || !conversation::valid_parts(parts))
             return;
         ipc::ChatTurnUpdatedEvent event;
@@ -324,6 +326,7 @@ void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::stri
             if (record == log.turns.end() || record->status != "pending")
                 return;
             record->parts = parts;
+            record->timings = timings;
             const auto previous_phase = record->pet_tool_phase;
             record->pet_tool_phase.clear();
             for (const auto &part : parts) {
@@ -340,6 +343,7 @@ void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::stri
             event.sequence = record->sequence;
             event.replaces_turn_id = record->replaces_turn_id;
             event.parts = parts;
+            event.timings = timings;
             event.process_sequence = ++record->process_sequence;
         }
         core->events.publish_chat_turn(std::move(event));
@@ -453,6 +457,7 @@ bool persist_session_state(const std::shared_ptr<ServiceCore> &core,
                     turn.user_text = record.user_text;
                     turn.reply_text = record.reply_text;
                     turn.parts = record.parts;
+                    turn.timings = record.timings;
                     turn.process_sequence = record.process_sequence;
                     turn.error = record.error;
                     turn.sequence = record.sequence;
@@ -2790,6 +2795,7 @@ struct RuntimeService::Impl {
                 entry.recorded_at_ms = record.recorded_at_ms;
                 entry.context_usage = record.context_usage;
                 entry.parts = record.parts;
+                entry.timings = record.timings;
                 entry.process_sequence = record.process_sequence;
                 ipc::DialogHistory sample;
                 sample.session_id = history.session_id;
@@ -3945,6 +3951,7 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                             record.user_text = turn.user_text;
                             record.reply_text = turn.reply_text;
                             record.parts = turn.parts;
+                            record.timings = turn.timings;
                             record.process_sequence = turn.process_sequence;
                             record.error = turn.error;
                             record.sequence = turn.sequence;

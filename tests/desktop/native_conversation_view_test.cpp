@@ -278,13 +278,34 @@ int main(int argc, char **argv) {
             {"call", "tool", "running", "", "wait", "{\"duration_ms\":1000}"}};
         page.chat.current().follow_output = false;
         page.chat.current().scroll_offset = 0;
-        page.chat.apply_process(session_id, "first", parts, 1);
+        mirage::conversation::Timings timings;
+        timings.inference = {2, 1234};
+        timings.capture = {3, 200};
+        timings.ocr = {1, 456};
+        timings.settlement = {1, 90};
+        page.chat.apply_process(session_id, "first", parts, 1, false, true, timings);
+        MIRAGE_CHECK(page.chat.current().messages.back().timings == timings);
+        const auto before_timing = conversation_measure_key(page.chat.current(), page, 800, 500);
+        auto &timed_message = page.chat.current().messages.back();
+        ++timed_message.timings.capture.calls;
+        MIRAGE_CHECK(conversation_measure_key(page.chat.current(), page, 800, 500) !=
+                     before_timing);
+        --timed_message.timings.capture.calls;
         frame();
         const auto root = "message." + std::to_string(assistant) + ".part.";
         MIRAGE_CHECK(!view->find(root + "thought.detail.body"));
         MIRAGE_CHECK(!view->find(root + "call.detail.body"));
         MIRAGE_CHECK(element(root + "call.status")->text == "执行中");
         capture("process-collapsed-light");
+        page.dark = true;
+        width = 760;
+        height = 620;
+        frame();
+        capture("process-timings-minimum-dark");
+        page.dark = false;
+        width = 1180;
+        height = 800;
+        frame();
         const auto before = element("message." + std::to_string(assistant) + ".select")->frame.y;
         auto bounds = element(root + "thought.toggle.bg")->frame;
         core::queuePointerButton(handle, bounds.x + 30, bounds.y + 14, core::PointerButton::Left,

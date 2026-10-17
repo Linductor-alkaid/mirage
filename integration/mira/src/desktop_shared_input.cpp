@@ -181,7 +181,9 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
     ++captures_;
     desktop::CaptureOutcome fresh;
     try {
-        fresh = native_session_->capture({desktop_capture_bytes}, bounded);
+        fresh = measure_phase(timings_ ? &timings_->capture : nullptr, [&] {
+            return native_session_->capture({desktop_capture_bytes}, bounded);
+        });
     } catch (...) {
         native_session_.reset();
         native_failed_ = true;
@@ -310,7 +312,9 @@ mira::Result<Json> DesktopImageTurn::observe_shared(const std::string &kind,
             return cancel_.cancelled() || ctx.cancelled_or_expired(mira::Timestamp::now()) ||
                    desktop_.actions->authority_epoch() != authority;
         });
-        auto read = desktop_.ocr_image(*native_frame_, bounded, ctx.deadline);
+        auto read = measure_phase(timings_ ? &timings_->ocr : nullptr, [&] {
+            return desktop_.ocr_image(*native_frame_, bounded, ctx.deadline);
+        });
         if (!read.ok || read.cancelled || bounded.cancelled() || read.regions.size() > 128)
             return rejected("shared_ocr_failed");
         for (const auto &region : read.regions) {

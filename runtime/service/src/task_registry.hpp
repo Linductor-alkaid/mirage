@@ -195,6 +195,7 @@ struct DialogTurnRecord {
     std::int64_t recorded_at_ms = 0;
     std::vector<conversation::Part> parts = {};
     std::uint64_t process_sequence = 0;
+    conversation::Timings timings = {};
 };
 
 /// One session's dialog thread (DEC-027): the bounded turn log plus the

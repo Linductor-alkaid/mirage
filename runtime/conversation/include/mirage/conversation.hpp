@@ -25,13 +25,29 @@ struct Part {
     std::string input = {};
     std::string output = {};
     bool truncated = false;
+    bool omitted_for_display_budget = false;
     friend bool operator==(const Part &, const Part &) = default;
 };
+// DEC-098: counts include failed/cancelled calls; missing counters mean unmeasured.
+struct PhaseTiming {
+    std::uint64_t calls = 0, duration_ms = 0;
+    friend bool operator==(const PhaseTiming &, const PhaseTiming &) = default;
+};
+struct Timings {
+    PhaseTiming inference, capture, ocr, settlement;
+    bool empty() const {
+        return !inference.calls && !capture.calls && !ocr.calls && !settlement.calls;
+    }
+    friend bool operator==(const Timings &, const Timings &) = default;
+};
+std::string encode_timings(const Timings &);
+bool decode_timings(std::string_view, Timings &, std::string &error);
 struct DesktopEvidence {
     std::string status, window_id, evidence_id;
     std::string application_id;
     std::string display_id = {};
     bool shared_desktop = false;
+    std::string scope = {};
 };
 // Read-only display projection of DEC-056 metadata; does not confer tool authority.
 std::optional<DesktopEvidence> desktop_evidence(const Part &);

@@ -645,7 +645,7 @@ endif()
 # DEC-093 categorized budget allocation (M9-14 / BUG-20261015-001)
 mirage_add_test(conversation_budget_test
     SOURCES runtime/conversation_budget_test.cpp
-    LIBS Mirage::conversation
+    LIBS Mirage::conversation Mirage::integration_mira
     LABELS "unit;conversation;protocol"
     TIMEOUT 30
     )

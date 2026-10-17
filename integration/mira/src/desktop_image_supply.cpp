@@ -360,7 +360,8 @@ mira::Result<JsonValue> DesktopImageTurn::native_ocr(const JsonValue &args,
                    actions->epoch() != epoch || actions->authority_epoch() != authority ||
                    std::chrono::steady_clock::now() >= end;
         });
-    auto read = desktop_.ocr_image(*native_frame_, bounded, end);
+    auto read = measure_phase(timings_ ? &timings_->ocr : nullptr,
+                              [&] { return desktop_.ocr_image(*native_frame_, bounded, end); });
     if (cancel_.cancelled() || desktop_.actions->authority_epoch() != authority) {
         native_session_.reset();
         native_failed_ = true;
@@ -552,9 +553,10 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
     const desktop::CancelToken active([this, authority] {
         return cancel_.cancelled() || desktop_.actions->authority_epoch() != authority;
     });
-    const auto out = native_session_
-                         ? native_session_->capture(limits, active)
-                         : desktop_.environment->screen()->capture_desktop(limits, active);
+    const auto out = measure_phase(timings_ ? &timings_->capture : nullptr, [&] {
+        return native_session_ ? native_session_->capture(limits, active)
+                               : desktop_.environment->screen()->capture_desktop(limits, active);
+    });
     if (out.ok && limits.newer_than_sequence &&
         out.frame.source_sequence <= limits.newer_than_sequence) {
         native_session_.reset();
@@ -796,9 +798,11 @@ mira::Result<JsonValue> DesktopImageTurn::capture(const JsonValue &args,
     ++captures_;
     desktop::CaptureLimits limits;
     limits.max_bytes = kind == "roi" ? desktop_image_bytes : desktop_capture_bytes;
-    const auto outcome = kind == "window"    ? screen.capture_window(id, limits, bounded)
-                         : kind == "display" ? screen.capture_display(id, limits, bounded)
-                                             : screen.capture_roi(area, limits, bounded);
+    const auto outcome = measure_phase(timings_ ? &timings_->capture : nullptr, [&] {
+        return kind == "window"    ? screen.capture_window(id, limits, bounded)
+               : kind == "display" ? screen.capture_display(id, limits, bounded)
+                                   : screen.capture_roi(area, limits, bounded);
+    });
     if (!outcome.ok || outcome.cancelled) {
         if (!outcome.cancelled && capability != mirage::desktop::ScreenCapability::Full)
             return error(ErrorCode::UnsupportedCapability,
