@@ -1,6 +1,7 @@
 #include "desktop_context_builder.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <map>
 #include <string>
 #include <vector>
@@ -168,5 +169,58 @@ DesktopContextBuilder::transform(const std::vector<mira::ModelInputItem> &histor
         }
     }
     return replay;
+}
+
+std::vector<mira::ModelInputItem>
+retain_recent_groups(const std::vector<mira::ModelInputItem> &history, std::size_t max_items,
+                     std::size_t max_bytes) {
+    if (history.size() <= max_items && (max_bytes == 0 || history.empty())) {
+        return history;
+    }
+    // Group starts: an item carrying a tool call opens a group; results and
+    // trailing continuation text extend it. The first item always opens one.
+    std::vector<std::size_t> starts;
+    for (std::size_t index = 0; index < history.size(); ++index) {
+        const auto carries_call = std::any_of(
+            history[index].content.begin(), history[index].content.end(),
+            [](const auto &part) { return std::holds_alternative<mira::ToolCallPart>(part); });
+        if (carries_call || starts.empty()) {
+            starts.push_back(index);
+        }
+    }
+    // Per-group canonical input bytes under the pinned request codec; the
+    // sum over retained groups upper-bounds the array serialization the loop
+    // measures against max_history_bytes.
+    std::vector<std::size_t> group_bytes(starts.size(), 0);
+    if (max_bytes != 0) {
+        for (std::size_t group = 0; group < starts.size(); ++group) {
+            const auto group_end = group + 1 == starts.size() ? history.size() : starts[group + 1];
+            mira::ModelRequest probe;
+            probe.input.assign(history.begin() + static_cast<std::ptrdiff_t>(starts[group]),
+                               history.begin() + static_cast<std::ptrdiff_t>(group_end));
+            group_bytes[group] =
+                mira::to_json_string(*mira::model_request_to_json(probe).find("input")).size();
+        }
+    }
+    // Keep the longest group suffix that fits both bounds; the newest group
+    // alone always fits the item bound (a per-turn batch is capped far below
+    // it). A single group beyond the byte bound cannot exist for bounded
+    // tool receipts — if one ever did, keeping it is the honest fail-loud
+    // state: the loop re-measures exactly and settles with its explicit
+    // capacity summary instead of a silent crop.
+    std::size_t begin = starts.size();
+    std::size_t count = 0;
+    std::size_t bytes = 0;
+    while (begin > 0) {
+        const auto group_end = begin == starts.size() ? history.size() : starts[begin];
+        const auto group_size = group_end - starts[begin - 1];
+        if (count + group_size > max_items || bytes + group_bytes[begin - 1] > max_bytes) {
+            break;
+        }
+        count += group_size;
+        bytes += group_bytes[begin - 1];
+        --begin;
+    }
+    return {history.begin() + static_cast<std::ptrdiff_t>(starts[begin]), history.end()};
 }
 } // namespace mirage::integration::detail

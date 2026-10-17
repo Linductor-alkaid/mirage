@@ -154,6 +154,9 @@ constexpr std::uint64_t kThinkingOutputFloor = 32768;
 /// output budget (model-token-limits.ts: the declared value is used
 /// verbatim; 32K is the default, not a global cap).
 constexpr std::uint64_t kDefaultMaxOutputTokens = 32000;
+/// M9-03: the host retention bound for the committed Continuous replay; the
+/// pinned max_history_items backstop holds at 254, so this never binds it.
+constexpr std::size_t kRetainedHistoryItems = 200;
 /// DEC-087: per-request preflight reserve — the shrink keeps this much of
 /// the declared context window free beyond the estimated current usage.
 constexpr std::uint64_t kContextReserveTokens = 1000;
@@ -530,17 +533,15 @@ struct ModelLayer::Impl {
             record.capabilities.generation.reasoning_effort = mira::ParamMapping::OmitIfUnset;
         if (config.dialect == "anthropic.messages.v1")
             record.capabilities.generation.thinking = mira::ParamMapping::OmitIfUnset;
-        // DEC-087: the profile limit funds the loop's declared whole-run
-        // envelope (16 model turns + 2 recoveries + 3 continuations + the
-        // admitting call) at the worst-case per-call baseline — the router
-        // admits each request's envelope against this limit, so every
-        // profile must carry it, not only thinking-class ones. The previous
-        // per-dialect 17x/21x scaling left default profiles unable to route
-        // any model call.
-        record.capabilities.limits.max_output_tokens =
-            22 * std::max<std::uint64_t>(config.max_output_tokens != 0 ? config.max_output_tokens
-                                                                       : kDefaultMaxOutputTokens,
-                                         kThinkingOutputFloor);
+        // M9-03 (DEC-090, MIRA-20261015-002): the Continuous loop declares a
+        // Request-scope budget per assembled request, so the profile limit
+        // funds exactly one worst-case call — the per-call baseline with the
+        // thinking floor — instead of the retired 22x whole-run envelope.
+        // Every profile must carry it (the router admits each request
+        // against this limit), not only thinking-class ones.
+        record.capabilities.limits.max_output_tokens = std::max<std::uint64_t>(
+            config.max_output_tokens != 0 ? config.max_output_tokens : kDefaultMaxOutputTokens,
+            kThinkingOutputFloor);
         // DEC-082: baseline_output_budget still bounds each wire call; the
         // provider decorator shrinks it per request against the declared
         // context window (DEC-087 preflight).
@@ -884,7 +885,6 @@ DialogCompletion ModelLayer::complete_harness_turn(
     const auto screen_capability = impl_->desktop.environment
                                        ? impl_->desktop.environment->screen_capability()
                                        : mirage::desktop::ScreenCapability::Unavailable;
-    bool final_turn = false;
     bool tools_attempted = false;
     auto finish = [&] {
         capture.settle(completion.cancelled);
@@ -898,31 +898,15 @@ DialogCompletion ModelLayer::complete_harness_turn(
     auto registry = std::make_shared<mira::BuiltinToolRegistry>();
     const DesktopAtomToolset::Decorator decorate =
         [&capture, &verification, &tracker = impl_->failure_tracker, session_key, screen_capability,
-         &final_turn, &tools_attempted, &desktop_context = impl_->desktop](
-            const std::string &name, mira::BuiltinToolHandler handler) {
+         &tools_attempted, &desktop_context = impl_->desktop](const std::string &name,
+                                                              mira::BuiltinToolHandler handler) {
             return [name, handler = std::move(handler), &capture, &verification, &tracker,
-                    session_key, screen_capability, &final_turn, &tools_attempted,
-                    &desktop_context](const auto &arguments,
-                                      const auto &ctx) -> mira::Result<mira::JsonValue> {
+                    session_key, screen_capability, &tools_attempted, &desktop_context](
+                       const auto &arguments, const auto &ctx) -> mira::Result<mira::JsonValue> {
                 tools_attempted = true;
                 bool refused = false;
                 auto *part = capture.start_tool(name);
                 auto result = [&]() -> mira::Result<mira::JsonValue> {
-                    // DEC-085: once the turn budget is spent, tools close so
-                    // the model must settle with a text answer instead of
-                    // burning the remaining context on refused actions.
-                    if (final_turn) {
-                        refused = true;
-                        mira::Error closed;
-                        closed.code = mira::ErrorCode::UnsupportedCapability;
-                        closed.domain = "mirage.tool";
-                        closed.safe_message =
-                            "final_turn_tools_closed: the model turn budget is spent; tools are "
-                            "closed for this final turn. Produce the final text answer now, "
-                            "summarizing what was attempted and what blocked the task in the "
-                            "user's language.";
-                        return closed;
-                    }
                     if (auto blocked = tracker.blocked_message(session_key, name)) {
                         refused = true;
                         mira::Error blocked_error;
@@ -1009,40 +993,50 @@ DialogCompletion ModelLayer::complete_harness_turn(
         }
     }
     mira::ConversationLoopConfig config;
-    config.limit_mode = mira::ConversationLimitMode::Finite;
+    // M9-03 (DEC-090, MIRA-20261015-002): normal desktop tasks no longer
+    // stop at an accumulated model-step or tool-call count. Continuous mode
+    // keeps every per-request bound finite — per-call output, per-call
+    // deadline, per-episode recovery/continuation budgets, per-turn tool
+    // batch capacity, bounded retained history — while the run itself ends
+    // only on a terminal answer, cancellation, the task's declared deadline
+    // (DEC-082), an unrecoverable failure, or a no-progress episode.
+    config.limit_mode = mira::ConversationLimitMode::Continuous;
     // DEC-085 follow-up budget model: the per-call output budget is what the
     // caller funds (thinking calls carry the raised floor) capped by the
     // profile limit the router actually admits — no artificial halving. A
     // desktop task's thinking channel plus tool arguments legitimately
     // exceed half of a single-response limit, and the shortfall decoded as
-    // tolerated max_tokens cutoffs that recovery could not fix. Whole-run
-    // output spend is bounded by the declared turn/recovery/continuation
-    // counts instead; the profile limit stays the per-call admission truth.
-    // DEC-087: the provider decorator additionally shrinks each wire call
-    // against the declared context window (ZCode preflight semantics), so
-    // the loop-level bound stays the declared baseline.
+    // tolerated max_tokens cutoffs that recovery could not fix. DEC-087:
+    // the provider decorator additionally shrinks each wire call against
+    // the declared context window (ZCode preflight semantics).
     const auto budget = impl_->profile->capabilities.limits.max_output_tokens;
     config.max_output_tokens_per_turn =
         std::min(baseline_output_budget(impl_->config, reasoning), budget);
     // MIRA-20261012-001: the conversation turn is a read-only resend from the
     // desktop side, so transient network failures recover through the
     // upstream bounded recovery budget. Truncated replies settle through the
-    // loop's separate bounded output-continuation budget. Both are declared
-    // bounds, independent of the per-call output size.
+    // loop's separate bounded output-continuation budget. In Continuous mode
+    // both budgets are per consecutive failure episode: a valid tool round
+    // reopens them, so a healthy long task never drains them, while a
+    // failing streak still settles with an explicit summary.
     config.max_recoveries = 2;
     // DEC-087: the continuation budget matches the ZCode recovery depth (3).
     config.max_output_continuations = 3;
-    const auto max_turns_value = std::uint32_t{16};
-    config.max_turns = max_turns_value;
-    config.max_tool_executions = 32;
+    // Continuous active bounds (declared explicitly): bounded retained state
+    // instead of accumulated counters. The host history transformer keeps the
+    // committed replay at 200 items, so the pinned item bound holds at its
+    // contract maximum (254) as a pure structural backstop — it never bounds
+    // a healthy run, and per-request input stays bounded by the DEC-087
+    // window preflight when a window is declared.
+    config.max_history_items = 254;
+    config.max_history_bytes = 2 * 1024 * 1024;
+    config.max_retained_turns = 64;
+    config.max_tools_per_turn = 32;
     config.model_call_deadline = impl_->config.request_deadline;
     config.reasoning_effort = reasoning_value(reasoning);
     config.thinking = thinking_value(impl_->config, reasoning);
-    // DEC-085 budget-aware supply seam: resolved exactly once per assembled
-    // request, so the invocation count is the current model turn number. As
-    // the budget runs out, bounded notices ask the model to wrap up, and the
-    // final turn's tool proposals are refused by the decorator above.
-    std::uint32_t turns_used = 0;
+    // DEC-053 supply seam: resolved exactly once per assembled request; the
+    // host re-offers verification evidence and fresh desktop images per turn.
     auto supply_input =
         [&](const auto &specification) -> mira::Result<std::vector<mira::ModelInputItem>> {
         auto items = verification.supply(specification);
@@ -1054,30 +1048,6 @@ DialogCompletion ModelLayer::complete_harness_turn(
                 return images.error();
             for (auto &item : images.value())
                 items.value().push_back(std::move(item));
-        }
-        ++turns_used;
-        final_turn = max_turns_value > 0 && turns_used >= max_turns_value;
-        std::string notice;
-        if (final_turn) {
-            notice = "SYSTEM BUDGET NOTICE: this is the FINAL model turn of this task's budget (" +
-                     std::to_string(max_turns_value) +
-                     " turns). Tool calls are closed from here. Produce the final text answer now: "
-                     "summarize what you attempted and explain what prevented completion, in the "
-                     "user's language.";
-        } else if (max_turns_value >= 4 && turns_used + 1 == max_turns_value) {
-            notice = "SYSTEM BUDGET NOTICE: only one model turn remains after this one. Wrap up: "
-                     "avoid speculative tool retries and prepare the final answer for the user.";
-        }
-        if (!notice.empty()) {
-            mira::ModelInputItem item;
-            item.role = mira::ModelRole::User;
-            item.provenance.source = "mirage.harness.budget.v1";
-            item.authority = mira::Sensitivity::Internal;
-            mira::TextPart text;
-            text.text = std::move(notice);
-            text.sensitivity = mira::Sensitivity::Internal;
-            item.content.emplace_back(std::move(text));
-            items.value().push_back(std::move(item));
         }
         return items;
     };
@@ -1263,14 +1233,17 @@ DialogCompletion ModelLayer::complete_harness_turn(
                                   : std::optional<mira::InputReuseMeta>{};
             });
         }
-        // DEC-088 capability 2/3 (MIRA-20261014-006): compact the canonical
-        // tool-history replay through Mira's Layer 0 with the desktop
-        // watermarks. An undeclared window keeps the raw replay (fail-open);
-        // seam failures degrade inside the loop to the same raw replay. The
-        // compaction request reserves the per-call wire output (the same
-        // bound the DEC-087 preflight shrinks), not the whole-run envelope —
-        // the envelope would exceed any realistic window and every build
-        // would fail limits validation.
+        // M9-03: Continuous mode commits the transformed replay, so the host
+        // owns a bounded retained history and the loop's max_history_items /
+        // max_history_bytes stay structural backstops instead of
+        // run-terminating counts. With a declared window, Mira's Layer 0
+        // compact decisions (DEC-088 desktop watermarks) apply and the
+        // structural clamp follows; without one, the clamp alone keeps a
+        // bounded local retention (the analysis-sanctioned fallback) — an
+        // item/byte bound, not token compaction, and no window knowledge is
+        // claimed. Seam failures still degrade inside the loop to the raw
+        // replay. The compaction request reserves the per-call wire output
+        // (the same bound the DEC-087 preflight shrinks).
         if (impl_->config.context_window_tokens != 0) {
             auto counter = std::make_shared<mira::ConservativeTokenCounter>();
             auto manager = std::make_shared<mira::StandardContextManager>(std::move(counter));
@@ -1279,8 +1252,20 @@ DialogCompletion ModelLayer::complete_harness_turn(
                 {impl_->config.context_window_tokens, config.max_output_tokens_per_turn});
             const detail::DesktopContextBuilder::RequestKeys keys{
                 spec.task_id, spec.session_id, spec.task_epoch, impl_->profile->id};
-            loop.set_history_transformer([builder = std::move(builder), keys](const auto &history) {
-                return builder.transform(history, keys);
+            loop.set_history_transformer(
+                [builder = std::move(builder), keys, bytes = config.max_history_bytes](
+                    const auto &history) -> mira::Result<std::vector<mira::ModelInputItem>> {
+                    auto replay = builder.transform(history, keys);
+                    if (!replay) {
+                        return replay;
+                    }
+                    return detail::retain_recent_groups(replay.value(), kRetainedHistoryItems,
+                                                        bytes);
+                });
+        } else {
+            loop.set_history_transformer([bytes = config.max_history_bytes](const auto &history) {
+                return mira::Result<std::vector<mira::ModelInputItem>>(
+                    detail::retain_recent_groups(history, kRetainedHistoryItems, bytes));
             });
         }
         try {
@@ -1328,15 +1313,11 @@ DialogCompletion ModelLayer::complete_harness_turn(
     completion.ok = !completion.cancelled && value.outcome == mira::ConversationOutcome::Answered;
     completion.failed = !completion.ok && !completion.cancelled;
     completion.error = value.safe_summary;
-    completion.model_steps = static_cast<std::uint32_t>(value.turns.size());
-    // PR#99 widened upstream cumulative diagnostics to uint64. Keep the
-    // existing finite-mode product contract; never wrap at this boundary.
-    // M9-03 must widen the product counters before opting into Continuous.
-    const auto legacy_count = [](std::uint64_t count) {
-        return static_cast<std::uint32_t>(
-            std::min(count, static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max())));
-    };
-    completion.tool_calls = legacy_count(value.tool_executions);
+    // M9-03: the product counters are uint64 end to end. `total_turns` is the
+    // true cumulative model-step count; the retained `turns` window is
+    // bounded and no longer equals it in Continuous mode.
+    completion.model_steps = value.total_turns;
+    completion.tool_calls = value.tool_executions;
     if (completion.failed) {
         // DEC-085: the failure reason must be actionable — the spent budget
         // and the repeated tool failures name what actually blocked the task.
@@ -1344,13 +1325,12 @@ DialogCompletion ModelLayer::complete_harness_turn(
                             std::to_string(completion.tool_calls) + " 次工具调用）";
         annotate(completion.error);
     }
-    completion.supplied_input_items = legacy_count(value.supplied_input_items);
-    completion.supplied_input_dropped = legacy_count(value.supplied_input_dropped);
-    completion.supply_degradations = legacy_count(value.supply_degradations);
-    completion.supplied_input_reuse_annotations =
-        legacy_count(value.supplied_input_reuse_annotations);
-    completion.history_transforms = legacy_count(value.history_transforms);
-    completion.history_transform_degradations = legacy_count(value.history_transform_degradations);
+    completion.supplied_input_items = value.supplied_input_items;
+    completion.supplied_input_dropped = value.supplied_input_dropped;
+    completion.supply_degradations = value.supply_degradations;
+    completion.supplied_input_reuse_annotations = value.supplied_input_reuse_annotations;
+    completion.history_transforms = value.history_transforms;
+    completion.history_transform_degradations = value.history_transform_degradations;
     if ((image_turn || !verification.empty()) &&
         (value.supplied_input_dropped || value.supply_degradations)) {
         completion.ok = false;
