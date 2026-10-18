@@ -42,6 +42,18 @@ std::string encode_session_state(const SessionState &state) {
         put(session_object, "id", JsonValue{session.id});
         put(session_object, "created_at_ms",
             JsonValue{static_cast<std::int64_t>(session.created_at_ms)});
+        if (session.context_usage_sequence)
+            put(session_object, "context_usage_sequence",
+                JsonValue{static_cast<std::int64_t>(session.context_usage_sequence)});
+        if (session.context_usage) {
+            auto usage = make_object();
+            put(usage, "input_tokens",
+                JsonValue{static_cast<std::int64_t>(session.context_usage->input_tokens)});
+            put(usage, "window_tokens",
+                JsonValue{static_cast<std::int64_t>(session.context_usage->window_tokens)});
+            put(usage, "model", JsonValue{session.context_usage->model});
+            put(session_object, "context_usage", std::move(usage));
+        }
         JsonValue::Array journal;
         journal.reserve(session.journal.size());
         for (const PersistedJournalEntry &entry : session.journal) {
@@ -131,12 +143,39 @@ SessionStateDecode decode_session_state(std::string_view body) {
     }
     for (const JsonValue &session_value : *sessions) {
         if (!session_value.is_object() ||
-            has_unknown_member(session_value, {"id", "created_at_ms", "journal", "chat_turns"})) {
+            has_unknown_member(session_value, {"id", "created_at_ms", "journal", "chat_turns",
+                                               "context_usage", "context_usage_sequence"})) {
             result.error = "session entries must carry only 'id', 'created_at_ms', 'journal' "
-                           "and 'chat_turns'";
+                           "'chat_turns', 'context_usage' and 'context_usage_sequence'";
             return result;
         }
         PersistedSession session;
+        if (const auto *field = member(session_value, "context_usage_sequence")) {
+            const auto sequence = field->as_integer();
+            if (!sequence || *sequence < 0) {
+                result.error = "invalid context_usage_sequence";
+                return result;
+            }
+            session.context_usage_sequence = static_cast<std::uint64_t>(*sequence);
+        }
+        if (const auto *usage = member(session_value, "context_usage")) {
+            const auto *input = member(*usage, "input_tokens");
+            const auto *window = member(*usage, "window_tokens");
+            const auto *model = member(*usage, "model");
+            const auto tokens = input ? input->as_integer() : std::nullopt;
+            const auto budget = window ? window->as_integer() : std::nullopt;
+            const auto *name = model ? model->as_string() : nullptr;
+            if (!usage->is_object() ||
+                has_unknown_member(*usage, {"input_tokens", "window_tokens", "model"}) ||
+                !session.context_usage_sequence || !tokens || *tokens < 0 || *tokens > 2000000000 ||
+                !budget || (*budget != 0 && (*budget < 2048 || *budget > 2000000)) || !name ||
+                name->empty() || name->size() > 1024) {
+                result.error = "invalid context_usage";
+                return result;
+            }
+            session.context_usage = PersistedContextUsage{
+                static_cast<std::uint64_t>(*tokens), static_cast<std::uint64_t>(*budget), *name};
+        }
         if (const auto *id = member(session_value, "id"); id != nullptr) {
             if (const auto text = bounded_string(*id, result.error)) {
                 session.id = *text;

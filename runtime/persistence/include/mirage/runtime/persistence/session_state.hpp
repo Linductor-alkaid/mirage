@@ -49,6 +49,13 @@ struct PersistedChatTurn {
     conversation::Timings timings = {};
 };
 
+/// DEC-036: provider-reported input usage of the session's last successful request.
+struct PersistedContextUsage {
+    std::uint64_t input_tokens = 0;
+    std::uint64_t window_tokens = 0;
+    std::string model;
+};
+
 /// One persisted session: registry identity plus the conversation and
 /// dialog state the service rehydrates at start.
 struct PersistedSession {
@@ -56,6 +63,9 @@ struct PersistedSession {
     std::int64_t created_at_ms = 0;
     std::vector<PersistedJournalEntry> journal;
     std::vector<PersistedChatTurn> chat_turns;
+    std::optional<PersistedContextUsage> context_usage = {};
+    // Also advances when a successful request has no usage, or a turn is replaced.
+    std::uint64_t context_usage_sequence = 0;
 };
 
 /// The whole session state document.

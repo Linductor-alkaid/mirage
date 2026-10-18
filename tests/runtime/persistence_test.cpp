@@ -806,6 +806,8 @@ void scenario_session_state_round_trip() {
     persistence::PersistedSession session;
     session.id = "5a4b3c2d1e0f4938576a5b4c3d2e1f0a";
     session.created_at_ms = 1700000000000;
+    session.context_usage = persistence::PersistedContextUsage{8192, 32768, "fixture-model"};
+    session.context_usage_sequence = 1;
     session.journal.push_back(
         persistence::PersistedJournalEntry{"user", "task-0001", "帮我读取日志", {}, 0});
     session.journal.push_back(
@@ -846,6 +848,10 @@ void scenario_session_state_round_trip() {
     const persistence::PersistedSession &back = decoded.state.sessions[0];
     MIRAGE_CHECK(back.id == session.id);
     MIRAGE_CHECK(back.created_at_ms == session.created_at_ms);
+    MIRAGE_CHECK(back.context_usage_sequence == 1 && back.context_usage &&
+                 back.context_usage->input_tokens == 8192 &&
+                 back.context_usage->window_tokens == 32768 &&
+                 back.context_usage->model == "fixture-model");
     MIRAGE_CHECK(back.journal.size() == 2);
     if (back.journal.size() == 2) {
         MIRAGE_CHECK(back.journal[0].kind == "user");
@@ -867,6 +873,44 @@ void scenario_session_state_round_trip() {
         MIRAGE_CHECK(back.chat_turns[1].error == "model layer request failed: timeout");
         MIRAGE_CHECK(back.chat_turns[1].sequence == 2);
     }
+}
+
+void scenario_session_context_usage_validation() {
+    persistence::SessionState state;
+    persistence::PersistedSession session;
+    session.id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    state.sessions.push_back(session);
+    auto decode = [&] {
+        return persistence::decode_session_state(persistence::encode_session_state(state));
+    };
+    const auto legacy = decode();
+    MIRAGE_CHECK(legacy.ok && !legacy.state.sessions.front().context_usage &&
+                 legacy.state.sessions.front().context_usage_sequence == 0);
+    auto &saved = state.sessions.front();
+    saved.context_usage_sequence = 3;
+    auto missing = decode();
+    MIRAGE_CHECK(missing.ok && !missing.state.sessions.front().context_usage &&
+                 missing.state.sessions.front().context_usage_sequence == 3);
+    saved.context_usage = persistence::PersistedContextUsage{0, 0, "model"};
+    MIRAGE_CHECK(decode().ok); // Real zero and an unknown window remain distinct from no usage.
+    for (auto invalid : {persistence::PersistedContextUsage{2000000001, 32768, "model"},
+                         persistence::PersistedContextUsage{1, 2047, "model"},
+                         persistence::PersistedContextUsage{1, 2000001, "model"},
+                         persistence::PersistedContextUsage{1, 32768, ""},
+                         persistence::PersistedContextUsage{1, 32768, std::string(1025, 'x')}}) {
+        saved.context_usage = std::move(invalid);
+        MIRAGE_CHECK(!decode().ok);
+    }
+    const auto prefix = R"({"schema":1,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",)";
+    for (
+        const std::string field :
+        {R"("context_usage_sequence":-1)", R"("context_usage_sequence":"1")",
+         R"("context_usage_sequence":1,"context_usage":null)",
+         R"("context_usage_sequence":1,"context_usage":{"input_tokens":-1,"window_tokens":32768,"model":"m"})",
+         R"("context_usage_sequence":1,"context_usage":{"input_tokens":1.5,"window_tokens":32768,"model":"m"})",
+         R"("context_usage_sequence":1,"context_usage":{"input_tokens":1,"window_tokens":32768,"model":"m","extra":0})",
+         R"("context_usage":{"input_tokens":1,"window_tokens":32768,"model":"m"})"})
+        MIRAGE_CHECK(!persistence::decode_session_state(prefix + field + "}]}").ok);
 }
 
 /// M5-08: the session state decode is strict — unknown members, unknown
@@ -1037,6 +1081,7 @@ int main() {
     run_scenario("basic_tools_strict_decode", scenario_basic_tools_strict_decode);
     run_scenario("confirmation_ipc_mode_round_trip", scenario_confirmation_ipc_mode_round_trip);
     run_scenario("session_state_round_trip", scenario_session_state_round_trip);
+    run_scenario("session_context_usage_validation", scenario_session_context_usage_validation);
     run_scenario("session_state_strict_rejections", scenario_session_state_strict_rejections);
     run_scenario("settings_rejects_oversized_values", scenario_settings_rejects_oversized_values);
     run_scenario("recovery_round_trip", scenario_recovery_round_trip);

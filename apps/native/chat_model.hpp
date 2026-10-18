@@ -95,8 +95,10 @@ class ChatModel {
     bool edit_last_input(std::uint64_t message_id);
     void cancel_edit();
     void reconcile_turns(std::uint64_t id, const std::vector<std::string> &turns,
-                         std::uint64_t newest_sequence);
+                         std::uint64_t newest_sequence, bool preserve_usage = false);
     void remove_reference(std::uint64_t message_id);
+    void apply_context_usage(std::uint64_t id, std::optional<ContextUsage> usage,
+                             std::uint64_t sequence, std::uint64_t newest_sequence);
     bool attach(std::uint64_t session_id, TextAttachment attachment,
                 std::optional<std::uint64_t> generation = {});
     void remove_attachment(std::uint64_t id);

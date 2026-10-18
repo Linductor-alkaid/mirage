@@ -374,6 +374,39 @@ int main() {
     using mirage::native_ui::context_percent;
     using mirage::native_ui::context_ratio;
     using mirage::native_ui::ContextUsage;
+    {
+        ChatModel restored_usage;
+        const auto id = restored_usage.current().id;
+        // A limited history can contain only failures; its session snapshot still carries usage.
+        restored_usage.apply_turn(id, "failed", "failed", "question", {}, "cancelled", {}, 10);
+        restored_usage.apply_context_usage(id, ContextUsage{8192, 32768, "saved"}, 2, 10);
+        MIRAGE_CHECK(context_ratio(restored_usage.current().context_usage) == .25);
+        restored_usage.create_session();
+        MIRAGE_CHECK(!restored_usage.current().context_usage);
+        restored_usage.select_session(id);
+        MIRAGE_CHECK(context_ratio(restored_usage.current().context_usage) == .25);
+        // A history response captured before settlement must not erase the live terminal usage.
+        restored_usage.apply_turn(id, "live", "pending", "next", {}, {}, {}, 11);
+        restored_usage.apply_turn(id, "live", "ok", "next", "reply", {},
+                                  ContextUsage{16384, 32768, "new"}, 11);
+        restored_usage.reconcile_turns(id, {"failed", "live"}, 11, true);
+        restored_usage.apply_turn(id, "live", "pending", "next", {}, {}, {}, 11);
+        restored_usage.apply_context_usage(id, ContextUsage{8192, 32768, "saved"}, 2, 11);
+        MIRAGE_CHECK(context_ratio(restored_usage.current().context_usage) == .5);
+        restored_usage.apply_context_usage(id, {}, 12,
+                                           10); // Older history, even with a larger usage seq.
+        MIRAGE_CHECK(context_ratio(restored_usage.current().context_usage) == .5);
+        restored_usage.apply_turn(id, "missing", "pending", "edit", {}, {}, {}, 0, "live");
+        restored_usage.apply_context_usage(id, ContextUsage{16384, 32768, "new"}, 11, 11);
+        MIRAGE_CHECK(!restored_usage.current().context_usage);
+        restored_usage.apply_turn(id, "missing", "pending", "edit", {}, {}, {}, 12, "live");
+        restored_usage.apply_turn(id, "missing", "ok", "next", "reply", {}, {}, 12);
+        restored_usage.apply_context_usage(id, {}, 12, 12);
+        MIRAGE_CHECK(!restored_usage.current().context_usage &&
+                     restored_usage.current().usage_sequence == 12);
+        restored_usage.apply_context_usage(id, ContextUsage{8192, 32768, "saved"}, 2, 12);
+        MIRAGE_CHECK(!restored_usage.current().context_usage);
+    }
     ChatModel usage;
     const auto usage_session = usage.current().id;
     MIRAGE_CHECK(!context_ratio(usage.current().context_usage));

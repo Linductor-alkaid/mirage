@@ -760,6 +760,11 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                     put(object, "replaces_turn_id", value.replaces_turn_id);
             } else if constexpr (std::is_same_v<T, DialogHistory>) {
                 put(object, "session_id", value.session_id);
+                if (value.context_usage_sequence)
+                    put(object, "context_usage_sequence",
+                        static_cast<std::int64_t>(*value.context_usage_sequence));
+                if (value.context_usage)
+                    put(object, "context_usage", encode_context_usage(*value.context_usage));
                 mira::JsonValue::Array turns;
                 for (const auto &turn : value.turns) {
                     auto entry = make_object();
@@ -2227,6 +2232,20 @@ ResponseDecode decode_response(std::string_view payload) {
         DialogHistory history;
         history.session_id = std::move(*session_id);
         history.truncated = *truncated;
+        if (const auto *field = member(object, "context_usage_sequence")) {
+            const auto sequence = field->as_integer();
+            if (!sequence || *sequence < 0) {
+                result.error = "invalid context_usage_sequence";
+                return result;
+            }
+            history.context_usage_sequence = static_cast<std::uint64_t>(*sequence);
+        }
+        if (!decode_context_usage(object, "ok", history.context_usage, result.error))
+            return result;
+        if (history.context_usage && history.context_usage_sequence.value_or(0) == 0) {
+            result.error = "context_usage requires a positive context_usage_sequence";
+            return result;
+        }
         for (const auto &entry : *turns->as_array()) {
             std::string turn_error;
             auto turn = decode_dialog_turn(entry, turn_error);

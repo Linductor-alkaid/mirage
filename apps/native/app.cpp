@@ -1064,7 +1064,8 @@ void drain_runtime() {
                         ids.push_back(turn.turn_id);
                         newest = std::max(newest, turn.sequence);
                     }
-                    s.chat.reconcile_turns(session->id, ids, newest);
+                    s.chat.reconcile_turns(session->id, ids, newest,
+                                           snapshot->context_usage_sequence.has_value());
                     for (const auto &turn : snapshot->turns) {
                         s.chat.apply_turn(session->id, turn.turn_id, turn.status, turn.user_text,
                                           turn.reply_text, display_error(turn.error),
@@ -1073,6 +1074,10 @@ void drain_runtime() {
                         s.chat.apply_process(session->id, turn.turn_id, turn.parts,
                                              turn.process_sequence, false, false, turn.timings);
                     }
+                    if (snapshot->context_usage_sequence)
+                        s.chat.apply_context_usage(session->id,
+                                                   native_usage(snapshot->context_usage),
+                                                   *snapshot->context_usage_sequence, newest);
                 }
             } else if (std::holds_alternative<ipc::DialogTurnAccepted>(payload) &&
                        message.tag == "send") {

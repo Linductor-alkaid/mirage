@@ -556,7 +556,7 @@ Enter 发送、Shift+Enter 换行、Ctrl+Enter 保留发送兼容；composition 
 
 上下文圆环采用 24×24 SVG 视框、半径 10、描边 4，原生显示为 20×20px；用 SVG 路径弧绘制占用，避免依赖 dash-array 支持。点击或经 EUI 键盘操作展开宽 `min(320px, column)`、高 224px 的详情，浅色使用 surface、深色使用 dark-composer，按上下文工具的 `column - 156 - model_width` 锚点定位并钳制到 composer 可用宽度；与 composer 间隔 8px、顶部至少 68px。标题与百分比在顶部，下一行展示带千位分隔的“输入 / 窗口 Token”；下方是 6px 高、3px 圆角的比例条，以及来源、模型、本次引用数三行。未知时显示灰色空环、“未知”与“Token 用量尚不可用 / 等待模型返回 Token 用量”；已有输入但分母未知时显示“输入 / 未知 Token”，提示到模型设置填写窗口预算。真实零用量配合已知分母显示 0%；原始 Token 数和百分比可以超过 100%，仅圆环与进度条图形钳制到 100%。
 
-分子仅来自 Mira ModelResponse.usage 的 Exact / ProviderReported input_tokens，按最近一次成功请求显示“上次请求 · 模型输入用量”；工具循环取最终回复调用的输入，不累计各次调用，不计输出 Token，不从草稿或 bytes 估算。失败/取消保留前一次成功值；新成功轮次缺少用量则回到未知；迟到的旧序列不能覆盖较新的用量。服务重启后的旧历史不持久化用量，显示未知。截图中的 391 / 128,000 Token = 0.3% 来自真实请求与显式测试预算，128,000 不是自动发现的供应商窗口。
+分子仅来自 Mira ModelResponse.usage 的 Exact / ProviderReported input_tokens，按最近一次成功请求显示“上次请求 · 模型输入用量”；工具循环取最终回复调用的输入，不累计各次调用，不计输出 Token，不从草稿或 bytes 估算。失败/取消保留前一次成功值；新成功轮次缺少用量则回到未知；迟到的旧序列不能覆盖较新的用量。会话级快照经历史顶层字段回填并持久化，切换、重连和服务重启后仍可查看，不依赖最近40轮是否包含成功请求；旧文件无快照时显示未知。截图中的 391 / 128,000 Token = 0.3% 来自真实请求与显式测试预算，128,000 不是自动发现的供应商窗口。
 
 模型 popover 高 `min(352px, 56px + 36px × 配置数)`，动作/权限 popover 高 132px，思考 popover 按服务端选项数确定高度；各面板按对应工具的横向锚点定位（附件/引用 8px、权限 48px、上下文 `column - 156 - model_width`、模型 `column - 124 - model_width`、思考 `column - 120px`），再钳制到 composer 边界；共用 12px 圆角、1px 边界，透明 dismiss 层 z=20、面板 z=21，位于 composer 上方且顶部不小于 68px。
 

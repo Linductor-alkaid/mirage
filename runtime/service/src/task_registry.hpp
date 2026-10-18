@@ -206,6 +206,8 @@ struct DialogTurnRecord {
 /// oldest-drop trimming.
 struct SessionDialogLog {
     std::vector<DialogTurnRecord> turns;
+    std::optional<ipc::ContextUsage> context_usage;
+    std::uint64_t context_usage_sequence = 0;
     std::uint64_t next_sequence = 1;
     std::uint64_t total_recorded = 0;
     /// Non-empty while one turn's model call is in flight (the accepted
