@@ -17,8 +17,8 @@
 #include <mirage/runtime/ipc/protocol.hpp>
 #include <mirage/runtime/ipc/stream.hpp>
 #include <mirage/runtime/permission/permission.hpp>
-#include <mirage/runtime/persistence/settings.hpp>
 #include <mirage/runtime/persistence/session_state.hpp>
+#include <mirage/runtime/persistence/settings.hpp>
 #include <mirage/runtime/persistence/store.hpp>
 #include <mirage/runtime/runtime_service.hpp>
 

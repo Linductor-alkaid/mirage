@@ -3910,11 +3910,11 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         if (!decoded.error.empty())
             std::cerr << "mirage-service: session state load: " << decoded.error << '\n';
         if (decoded.ok) {
-            const auto history_count = static_cast<std::size_t>(std::count_if(
-                decoded.state.sessions.begin(), decoded.state.sessions.end(),
-                [](const auto &session) {
-                    return !session.journal.empty() || !session.chat_turns.empty();
-                }));
+            const auto history_count = static_cast<std::size_t>(
+                std::count_if(decoded.state.sessions.begin(), decoded.state.sessions.end(),
+                              [](const auto &session) {
+                                  return !session.journal.empty() || !session.chat_turns.empty();
+                              }));
             if (impl_->core->sessions.capacity != 0 &&
                 history_count >= impl_->core->sessions.capacity) {
                 outcome.error = {"unavailable",
@@ -3933,9 +3933,9 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                 if (session.journal.empty() && session.chat_turns.empty())
                     continue;
                 // Reserve the primary equipment slot before restoring histories.
-                const auto admitted = impl_->core->sessions.capacity == 0 ||
-                                      impl_->core->sessions.created_at_ms.size() + 1 <
-                                          impl_->core->sessions.capacity;
+                const auto admitted =
+                    impl_->core->sessions.capacity == 0 ||
+                    impl_->core->sessions.created_at_ms.size() + 1 < impl_->core->sessions.capacity;
                 if (!admitted) {
                     break;
                 }
@@ -3951,8 +3951,8 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                 impl_->core->journal_raw.emplace(session.id, session.journal);
                 for (const auto &entry : session.journal) {
                     if (entry.kind == "user") {
-                        (void)impl_->core->journal->append_user_message(
-                            session.id, entry.task_id, entry.text);
+                        (void)impl_->core->journal->append_user_message(session.id, entry.task_id,
+                                                                        entry.text);
                     } else {
                         (void)impl_->core->journal->append_outcome(session.id, entry.task_id,
                                                                    entry.outcome, entry.steps);
@@ -3988,8 +3988,7 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                 }
             }
             if (!decoded.state.sessions.empty()) {
-                std::cerr << "mirage-service: hydrated " << restored_count
-                          << " session(s) from "
+                std::cerr << "mirage-service: hydrated " << restored_count << " session(s) from "
                           << (session_directory / "sessions").string() << '\n';
             }
         }
