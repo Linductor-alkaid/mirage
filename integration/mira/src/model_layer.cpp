@@ -21,6 +21,7 @@
 #include "desktop_image_supply.hpp"
 #include "desktop_ocr_tool.hpp"
 #include "model_layer_env.hpp"
+#include "pet_exclusion.hpp"
 #include "tool_alias_provider.hpp"
 
 #include <algorithm>
@@ -912,10 +913,10 @@ DialogCompletion ModelLayer::complete_harness_turn(
     auto registry = std::make_shared<mira::BuiltinToolRegistry>();
     const DesktopAtomToolset::Decorator decorate =
         [&capture, &verification, &tracker = impl_->failure_tracker, session_key, screen_capability,
-         &tools_attempted, &desktop_context = turn_desktop](const std::string &name,
-                                                            mira::BuiltinToolHandler handler) {
+         &tools_attempted, &desktop_context = turn_desktop,
+         cancel](const std::string &name, mira::BuiltinToolHandler handler) {
             return [name, handler = std::move(handler), &capture, &verification, &tracker,
-                    session_key, screen_capability, &tools_attempted, &desktop_context](
+                    session_key, screen_capability, &tools_attempted, &desktop_context, cancel](
                        const auto &arguments, const auto &ctx) -> mira::Result<mira::JsonValue> {
                 tools_attempted = true;
                 bool refused = false;
@@ -930,9 +931,14 @@ DialogCompletion ModelLayer::complete_harness_turn(
                         return blocked_error;
                     }
                     try {
-                        return detail::DesktopActionVerification::mutation(name)
-                                   ? verification.execute(name, arguments, ctx, handler)
-                                   : handler(arguments, ctx);
+                        auto execute = [&verification, &name, &handler](const auto &args,
+                                                                        const auto &operation) {
+                            return detail::DesktopActionVerification::mutation(name)
+                                       ? verification.execute(name, args, operation, handler)
+                                       : handler(args, operation);
+                        };
+                        return detail::exclude_pet_during(
+                            name, execute, desktop_context.exclude_pet, cancel)(arguments, ctx);
                     } catch (...) {
                         mira::Error error;
                         error.code = mira::ErrorCode::PlatformError;

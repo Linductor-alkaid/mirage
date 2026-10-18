@@ -57,7 +57,7 @@ jobs:
           fetch-depth: 0
       - name: Install ccache and X11 test prerequisites
         run: sudo apt-get update && sudo apt-get install -y ccache libx11-dev libxtst-dev
-          libxrandr-dev xvfb at-spi2-core dbus
+          libxrandr-dev libxres-dev xvfb at-spi2-core dbus
       - name: ccache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -169,7 +169,7 @@ jobs:
         with:
           submodules: recursive
       - name: Install native UI build prerequisites
-        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libx11-dev libxtst-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libcurl4-openssl-dev libwebp-dev xvfb
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libx11-dev libxtst-dev libxrandr-dev libxres-dev libxinerama-dev libxcursor-dev libxi-dev libcurl4-openssl-dev libwebp-dev xvfb
       - name: Configure native frontend
         run: cmake --preset native-debug -DMIRAGE_FETCH_DEPENDENCIES=OFF
       - name: Build native UI and harness tests
@@ -178,9 +178,9 @@ jobs:
           native_chat_model_test native_agent_integration_test native_conversation_view_test
           native_input_performance_test
           pet_animation_test pet_frames_test pet_resource_loader_test pet_status_integration_test
-          pet_projection_refresh_test
+          pet_projection_refresh_test pet_exclusion_test pet_exclusion_tools_test pet_observation_test
       - name: Verify native state and IPC
         run: >-
           ctest --test-dir build/native-debug
-          -R '^(native_chat_model_test|native_agent_integration_test|native_conversation_view_test|native_input_performance_test|pet_animation_test|pet_frames_test|pet_resource_loader_test|pet_status_integration_test|pet_projection_refresh_test)$'
+          -R '^(native_chat_model_test|native_agent_integration_test|native_conversation_view_test|native_input_performance_test|pet_animation_test|pet_frames_test|pet_resource_loader_test|pet_status_integration_test|pet_projection_refresh_test|pet_exclusion_test|pet_exclusion_tools_test|pet_observation_test)$'
           --output-on-failure

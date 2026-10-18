@@ -100,7 +100,7 @@
 | `workflow.run` | `workflow_id`（string，非空），`digest`（可选 string，非空；缺省取 head），`parameters`（可选 object），`policy`（可选封闭策略名，§6.5；M5-05 落地） | `{"run_id"}`（§6.5） | `not_found`（未知工作流）、`unavailable`（运行注册表饱和，§6.5）、`pinned_runtime`（准入 / 提交拒绝，透传） |
 | `workflow.cancel` | `run_id`（string，非空，M5-05 落地） | `{"run_id","state"}`（§6.5） | `pinned_runtime`（透传；幂等取消含终态重申） |
 | `workflow.get` | `workflow_id`（string，非空，M5-06 落地，DEC-026） | `{"workflow_id","digest","definition"}`（§6.6） | `not_found`（未知工作流） |
-| `desktop.observe` | `semantic`（可选 boolean，缺省 true）、`visual`（可选 boolean，缺省 false；M5-06 落地，DEC-026；编码端恒写出两成员） | `ObservationView`（§6.6） | `unavailable`（环境未绑定或被请求组件不可交付，fail closed） |
+| `desktop.observe` | `semantic`（可选 boolean，缺省 true）、`visual`（可选 boolean，缺省 false；M5-06 落地，DEC-026；编码端恒写出两成员） | `ObservationView`（§6.6） | `unavailable`（环境未绑定、组件不可交付或桌宠排除/恢复失败，fail closed）、`permission_denied`（视觉捕获权限拒绝） |
 
 协议层（`decode_request`）只约束参数的存在与类型（如 `task.submit` 缺 `goal` 即
 `protocol_error`）；空值等语义校验发生在服务层，产出表中 `invalid_argument` 等稳定错误。
@@ -363,6 +363,14 @@ save / publish 内容；pinned 库仅存版本记录、无定义正文读取 API
 请求不点亮视觉面）；请求即必须——被请求组件不可交付（环境未绑定、视觉注册表
 未接线或无已发布代次、捕获失败）时整个请求以 `unavailable` 失败并命名组件原因，
 不返回静默残缺的观察。响应是时点捕获；快照是唯一事实源，无事件流、无回补。
+
+按 [DEC-103](../decisions/DEC-103-pet-desktop-exclusion.md)，配置受管桌宠 owner 时，
+帧/语义/视觉观察共用整窗排除租约，结束核验并恢复后才回复。视觉请求必须在排除后
+经已运行的视觉管线新采集；仅有历史视觉注册表时返回 `unavailable`
+（`pet_observation_requires_fresh_visual`），包括桌宠当前未启动的情况。没有配置 pet
+owner 的嵌入仍兼容注册表投影。五秒预算覆盖权限、采集与组装；取消/超时和 provider
+异常仍执行恢复，恢复失败不得返回成功。响应绑定本次采集的确切视觉代次；组装/恢复
+期间桌面 epoch 或视觉代次变化时拒绝返回。wire 字段、版本和既有错误词表保持不变。
 
 ### 6.7 对话面载荷（session.chat.* 载荷，M5-06，DEC-027）
 

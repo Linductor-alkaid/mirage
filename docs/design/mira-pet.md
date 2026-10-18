@@ -258,9 +258,11 @@ Executor 排空。此边界避免已公布终态的旧任务在等待投影时�
   可按住拖动；拖动范围限制在工作区。窗口与角色布局按实际 framebuffer 尺寸计算，
   避免 HiDPI 下裁切。窗口设置 EWMH `SKIP_TASKBAR`/`SKIP_PAGER`，不作为独立 Dock
   应用显示。Windows 和原生 Wayland 另行验收。
-- 提供手动移开和自动避让。Runtime 的目标/输入租约与桌宠占位冲突时，先请求移至不
-  重叠安全区域并取得新几何确认，再重新观察/解析；无安全区域时有界隐藏，动作释放后
-  恢复。移动/隐藏失败拒绝冲突动作，不绕过已有焦点或遮挡守卫。文字说明短暂避让。
+- 提供手动移开和自动避让。首增量按 [DEC-103](../decisions/DEC-103-pet-desktop-exclusion.md)
+  使用工具期间整窗隐藏，不在旧截图上推算安全位置：进入工具前核验并清空 bounding
+  shape，覆盖前后观察、输入与核验，最后一份租约释放才恢复。无桌宠时也持有进程
+  启动门禁，防止调用期间新启动/替代进程重新遮挡。失败明确拒绝，不绕过焦点或遮挡
+  守卫；按区域选择安全停靠位置与几何版本协议仍为后续优化。
 - 截图中角色可能形成假目标、OCR 文本或像素变化。仅从 owner 核验的桌宠身份识别产品
   窗口，按平台可用能力排除或在采集前避让/隐藏并刷新证据；不抹除实际被挡的底层像素，
   不按名称、宽泛 PID 规则或白名单放宽第三方遮挡判定。与现有 Overlay 同场景回归。
@@ -270,6 +272,33 @@ Executor 排空。此边界避免已公布终态的旧任务在等待投影时�
 
 “始终顶层”为正常桌面场景验收目标；系统锁屏、安全桌面及 compositor 不授予的层级
 不靠抢焦、提权或忙循环强行实现。能力不满足时桌宠诊断可见，平台工作项保持未完成。
+
+### 6.1 M8-06 的 Linux X11 首增量
+
+FrontendProcess 提供不暴露平台类型的 PresentationExclusion / PresentationLease。
+Runtime 在既有 serial owner 上准入并消费 future；执行工具的有限任务保留租约。
+平台独立 X 连接与互斥锁仅管理资源所有权，至多 16 份重叠租约，不增加调度器或队列。
+XRes 1.2 的 client PID、_NET_WM_PID 与 _MIRAGE_PET_SURFACE=1 三者共同核验唯一
+窗口；只有实际受管且 ready 的 pet 可以排除。启动中、停止中、能力不足或歧义拒绝。
+
+空 ShapeBounding 保留窗口位置/映射/焦点，并裁掉字符、气泡及输入区域。新内容、
+ShapeInput 更新和窗口尺寸改变不能突破空 bounding；短时隐藏期间渲染仍消费最新
+状态，恢复后不重播文字。最后释放恢复原始默认/自定义 bounding shape，并核对结果；
+异常析构兜底，显式释放失败进入工具错误。未启动时的租约仍阻止并行创建新进程。
+
+会话 decorator 包住 DesktopActionVerification 全过程，workflow 注册同时保护桌面
+atoms 与本地视觉 knowledge；exec/read/write/edit 等非桌面工具不触发本策略。
+直接 IPC `desktop.observe` 同样在既有 serial owner 准入租约，所有观察组件结束后
+核验并恢复，再发送响应。视觉请求在排除后重新采集，返回该次确切代次；配置 pet
+owner 却只有缓存注册表时明确拒绝。五秒预算覆盖权限/采集/组装，取消、异常、
+epoch 或视觉代次变化均拒绝成功，清理仍执行，见
+[观察入口证据](../compatibility/mira-pet-observation-20261018.md)。
+Portal/Wayland、Windows、compositor 重绘完成证明与隐藏节能尚待独立实施/验证，
+不将 XSync 或空 shape 当作跨平台干净帧保证。
+
+另将隐藏退出/owner 失联检查从 30 秒 IPC 同步拆出到 200 ms kairo timer：保留
+TimerHandle，准入拒绝使启动失败，关闭先取消 timer，再收回 IPC worker/加载任务，
+最后在 UI owner 执行 shutdown(true)。该周期允许抖动，不声明实时保证。
 
 ## 7. 进程生命周期与 Executor
 

@@ -8,6 +8,8 @@ p = argparse.ArgumentParser()
 p.add_argument('--record', type=Path, required=True)
 p.add_argument('--advertise-compositor', action='store_true',
                help='Own the compositor selection for framebuffer tests; does not compose root pixels')
+p.add_argument('--automatic-composite', action='store_true',
+               help='Use X server automatic redirection for root-capture fixtures; not a desktop compositor')
 args = p.parse_args()
 d = display.Display()
 root = d.screen().root
@@ -18,7 +20,7 @@ atom = {name: d.intern_atom(name) for name in ['WM_STATE', 'WM_CHANGE_STATE', '_
 check = root.create_window(0, 0, 1, 1, 0, X.CopyFromParent)
 if args.advertise_compositor:
     from Xlib.ext import composite
-    root.composite_redirect_subwindows(composite.RedirectManual)
+    root.composite_redirect_subwindows(composite.RedirectAutomatic if args.automatic_composite else composite.RedirectManual)
     check.set_selection_owner(d.intern_atom('_NET_WM_CM_S0'), X.CurrentTime)
 root.change_property(atom['_NET_SUPPORTING_WM_CHECK'], Xatom.WINDOW, 32, [check.id])
 check.change_property(atom['_NET_SUPPORTING_WM_CHECK'], Xatom.WINDOW, 32, [check.id])

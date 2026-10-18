@@ -22,6 +22,7 @@
 #include <mira/model_contracts.hpp>
 #include <stop_token>
 
+#include "desktop_observer.hpp"
 #include "overlay_presenter.hpp"
 #include "pet_process.hpp"
 #include "pet_projection_refresh.hpp"
@@ -688,6 +689,14 @@ struct RuntimeService::Impl {
         integration::DesktopToolContext desktop;
         desktop.environment = core->environment;
         desktop.actions = core->actions;
+        if (pet_process) {
+            desktop.exclude_pet = [this](const desktop::CancelToken &cancel) {
+                return core->executor
+                    .submit_on(core->serial,
+                               [this, cancel] { return pet_process->exclude_presentation(cancel); })
+                    .get();
+            };
+        }
         desktop.output_retention = basic_outputs.get();
         desktop.basic_tools = config.basic_tools;
         if (core->ocr_pipeline && core->ocr_pipeline->running()) {
@@ -3272,79 +3281,29 @@ struct RuntimeService::Impl {
             fail(connection_id, correlation_id, "unavailable", "no desktop environment bound");
             return;
         }
-        if (request.visual && core->ocr_pipeline) {
+        detail::DesktopObservationSource source{*core->environment};
+        source.registry = core->visual_registry;
+        source.pipeline = core->ocr_pipeline.get();
+        source.actions = core->actions.get();
+        source.authorize_visual = [permission =
+                                       core->permission](const desktop::CancelToken &cancel) {
             permission::PermissionRequest gate;
             gate.capability = permission::Capability::ScreenCapture;
             gate.resource = "ocr:configured-display";
-            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
-            const desktop::CancelToken bounded(
-                [deadline] { return std::chrono::steady_clock::now() >= deadline; });
-            const auto epoch = core->actions->epoch();
-            if (!core->permission->authorize(gate, [bounded] { return bounded.cancelled(); })
-                     .allowed) {
-                fail(connection_id, correlation_id, "permission_denied", "OCR capture denied");
-                return;
-            }
-            const auto fresh = core->ocr_pipeline->refresh(true, bounded, deadline);
-            if (!fresh.captured || !fresh.analyzed || bounded.cancelled() ||
-                core->actions->epoch() != epoch) {
-                std::string detail = "OCR capture or analysis failed";
-                if (bounded.cancelled() || fresh.capture_cancelled || fresh.analysis_cancelled)
-                    detail += ": cancelled_or_expired";
-                else if (core->actions->epoch() != epoch)
-                    detail += ": desktop_epoch_changed";
-                else {
-                    const auto &error = fresh.captured ? fresh.analysis_error : fresh.capture_error;
-                    if (!error.code.empty())
-                        detail += ": " + error.code;
-                    if (!error.message.empty()) {
-                        std::size_t bytes = std::min<std::size_t>(512, error.message.size());
-                        while (bytes > 0 && bytes < error.message.size() &&
-                               (static_cast<unsigned char>(error.message[bytes]) & 0xc0) == 0x80)
-                            --bytes;
-                        detail += ": " + error.message.substr(0, bytes);
-                    }
-                }
-                fail(connection_id, correlation_id, "unavailable", std::move(detail));
-                return;
-            }
+            return permission->authorize(gate, [cancel] { return cancel.cancelled(); }).allowed;
+        };
+        if (pet_process) {
+            // This handler already owns serial. Re-entering its submit/get
+            // callback would self-wait; admit directly on the same owner.
+            source.exclude_pet = [this](const desktop::CancelToken &cancel) {
+                return pet_process->exclude_presentation(cancel);
+            };
         }
-        mirage::desktop::ObservationComponents components;
-        components.active_window = true;
-        components.pointer_state = true;
-        components.environment_state = true;
-        components.semantic_snapshot = request.semantic;
-        components.visual_snapshot = request.visual;
-        mirage::desktop::ObservationAssembler assembler(*core->environment, core->visual_registry);
-        const mirage::desktop::ObservationAssemblyLimits limits;
-        const auto outcome = assembler.assemble(components, limits, mirage::desktop::CancelToken{});
-        if (outcome.cancelled) {
-            // No cancellation path feeds this capture today; the stable
-            // shape stays explicit instead of pretending success.
-            fail(connection_id, correlation_id, "unavailable", "observation was cancelled");
-            return;
-        }
+        const auto outcome = detail::read_desktop_observation(
+            source, request.semantic, request.visual, {},
+            std::chrono::steady_clock::now() + std::chrono::seconds{5});
         if (!outcome.ok) {
-            const mirage::desktop::ObservationComponentResult *failed = nullptr;
-            if (outcome.semantic_snapshot.requested && !outcome.semantic_snapshot.captured) {
-                failed = &outcome.semantic_snapshot;
-            } else if (outcome.visual_snapshot.requested && !outcome.visual_snapshot.captured) {
-                failed = &outcome.visual_snapshot;
-            } else if (outcome.active_window.requested && !outcome.active_window.captured) {
-                failed = &outcome.active_window;
-            } else if (outcome.pointer_state.requested && !outcome.pointer_state.captured) {
-                failed = &outcome.pointer_state;
-            } else if (outcome.environment_state.requested && !outcome.environment_state.captured) {
-                failed = &outcome.environment_state;
-            }
-            std::string detail = "observation unavailable";
-            if (failed != nullptr && !failed->error.code.empty()) {
-                detail += ": " + failed->error.code;
-                if (!failed->error.message.empty()) {
-                    detail += ": " + failed->error.message;
-                }
-            }
-            fail(connection_id, correlation_id, "unavailable", std::move(detail));
+            fail(connection_id, correlation_id, outcome.error.code, outcome.error.message);
             return;
         }
         respond(connection_id, correlation_id, project_observation(outcome.observation, request));

@@ -105,6 +105,7 @@ class OwnedFrontend final : public desktop::FrontendProcess {
         }
         pid_ = child;
 #endif
+        exclusion_.reset();
         return true;
     }
     std::int64_t pid() override {
@@ -125,6 +126,14 @@ class OwnedFrontend final : public desktop::FrontendProcess {
         }
 #endif
         return static_cast<std::int64_t>(pid_);
+    }
+    desktop::PresentationExclusion
+    exclude_presentation(const desktop::CancelToken &cancel) override {
+        if (activate_existing_ || !pid())
+            return {{}, {"pet_exclusion_unavailable", "no owned pet process"}};
+        if (!exclusion_)
+            exclusion_ = detail::make_pet_excluder(pid_);
+        return exclusion_->acquire(cancel);
     }
     bool stop(std::string &diagnostic) override {
         // BUG-20261013-003: pid() also reaps an exited child. Never signal a zero PID: on POSIX
@@ -176,6 +185,7 @@ class OwnedFrontend final : public desktop::FrontendProcess {
     }
 
   private:
+    std::shared_ptr<desktop::PresentationExcluder> exclusion_;
     std::string binary_;
     bool activate_existing_ = true;
     std::string socket_environment_;

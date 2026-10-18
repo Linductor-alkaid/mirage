@@ -148,6 +148,10 @@ bool prepare(std::optional<Position> saved_position, std::function<void(Position
         return false;
     }
     const auto xid = glfwGetX11Window(window);
+    const unsigned long surface_protocol = 1;
+    XChangeProperty(display, xid, XInternAtom(display, "_MIRAGE_PET_SURFACE", False), XA_CARDINAL,
+                    32, PropModeReplace, reinterpret_cast<const unsigned char *>(&surface_protocol),
+                    1);
     XShapeCombineRectangles(display, xid, ShapeInput, 0, 0, nullptr, 0, ShapeSet, Unsorted);
     const Atom wm_state = XInternAtom(display, "_NET_WM_STATE", False);
     const Atom hidden_from_dock[] = {XInternAtom(display, "_NET_WM_STATE_SKIP_TASKBAR", False),

@@ -190,3 +190,10 @@ ASAN/UBSAN、跨上下文/关闭 TSAN 及故障注入由 M8-11/07 取证；其�
 物理 DPI/多屏、桌面 compositor alpha、整组目标/OCR 避让及其他平台未执行，
 负责人为 Mirage 维护者；补跑条件分别为在线模型配置、对应目标桌面和 M8-06/10 实施。
 这些开放门禁不因 fixture 通过而勾选。
+
+
+2026-10-18：M8-06 按 [DEC-103](../decisions/DEC-103-pet-desktop-exclusion.md) 接入
+Linux X11 整窗 bounding shape 排除，角色、气泡、尾部与阴影共用同一呈现租约。
+输入穿透不参与视觉排除判据。原生进程排除及新帧不显现已用隔离 fixture 取证；
+真实气泡内容/Overlay/目标输入闭环、compositor、多屏/DPI 与其他平台仍开放，见
+[实施证据](../compatibility/mira-pet-desktop-exclusion-20261018.md)。

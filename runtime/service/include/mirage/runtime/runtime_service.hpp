@@ -128,7 +128,9 @@ struct ServiceConfig {
     /// every run() of this service. Null keeps the visual component dark:
     /// a desktop.observe request asking for it fails closed with the stable
     /// `unavailable` error (DEC-016 decision 2 — the surface is never
-    /// claimed that is not wired).
+    /// claimed that is not wired). A configured pet owner additionally requires
+    /// a fresh visual pipeline capture; a cached generation alone cannot prove
+    /// exclusion preceded capture (DEC-103).
     mirage::desktop::VisualReferenceRegistry *visual_registry = nullptr;
     /// DEC-057: explicit local PP-OCR artifact manifest. Empty disables OCR;
     /// unavailable build/resources fail start instead of claiming perception.

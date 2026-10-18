@@ -5,6 +5,7 @@
 #include <mirage/desktop/action_coordinator.hpp>
 #include <mirage/desktop/desktop_environment.hpp>
 #include <mirage/desktop/overlay_surface.hpp>
+#include <mirage/desktop/presentation_exclusion.hpp>
 #include <mirage/desktop/visual_snapshot.hpp>
 #include <mirage/integration/basic_output_retention.hpp>
 #include <mirage/integration/environment_visual_pipeline.hpp>
@@ -101,6 +102,10 @@ struct BasicAgentToolsOptions {
 struct DesktopToolContext {
     std::shared_ptr<mirage::desktop::DesktopEnvironment> environment;
     AtomPermissionGate gate;
+    // DEC-103: serialized product owner admits a scoped surface exclusion.
+    // Null means this embedding has no pet; a configured carrier must refuse
+    // failures explicitly. The finite tool task retains and releases the lease.
+    std::function<desktop::PresentationExclusion(const desktop::CancelToken &)> exclude_pet;
     /// Context-aware service gate; preferred over gate when present. IDs
     /// come from the current tool operation, without exposing pinned types.
     std::function<bool(const std::string &, const std::string &, const AtomCancelProbe &,

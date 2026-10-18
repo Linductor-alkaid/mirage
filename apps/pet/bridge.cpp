@@ -32,6 +32,7 @@ struct Bridge::Impl {
     kairo::comm::LatestMailbox<runtime::pet::Status> inbox{"mira-pet-status"};
     kairo::WorkerHandle worker;
     kairo::TimerHandle refresh;
+    kairo::TimerHandle control_wake;
     kairo::TimerHandle animation_wake;
     std::array<kairo::TimerSubmission<void>, 3>
         bubble_expiries; // UI-owned, bounded handle/future retention
@@ -179,10 +180,16 @@ bool Bridge::start(std::string &diagnostic) {
         return false;
     }
     p.publish(*status);
+    // M8-06 / DEC-103: hidden windows have no frame callbacks. Exit/owner
+    // loss must not wait for the slow status-sync interval (or an IPC call).
+    p.control_wake = p.executor.submit_periodic(200, [&p] { p.check_hidden_exit(); });
+    if (!p.control_wake.valid()) {
+        diagnostic = "mira_pet control timer admission failed";
+        return false;
+    }
     // M8-05: Reduce polling frequency — events provide real-time updates, periodic
     // status requests are only a fallback health check, not the primary source.
     p.refresh = p.executor.submit_periodic(30000, [&p] {
-        p.check_hidden_exit();
         p.load_preferences();
         // BUG-20261015-002 partial fix: status request timeout should not close
         // the entire session while events are still arriving. This check ensures
@@ -303,6 +310,8 @@ void Bridge::shutdown() {
     if (p.animation_wake.valid())
         (void)p.animation_wake.cancel();
     p.cancel_bubble_timers();
+    if (p.control_wake.valid())
+        (void)p.control_wake.cancel();
     if (p.refresh.valid())
         (void)p.refresh.cancel();
     p.client->stop();

@@ -1393,6 +1393,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND GIO_UNIX_FOUND)
     endif()
 endif()
 
+# Direct IPC fixture uses the same POSIX socket / private XDG topology.
+if(UNIX)
+    mirage_add_test(pet_observation_test
+        SOURCES runtime/pet_observation_test.cpp
+        LIBS Mirage::runtime_service
+        LABELS "integration;runtime;pet"
+        TIMEOUT 60)
+endif()
+
 # DEC-070: legacy Runtime fixtures may leave a persistence directory implicit.
 # Give each test its own XDG stores, reset/cleaned by CTest fixtures. Separate
 # build directories own separate stores; sanitizer environments are preserved.
@@ -1592,3 +1601,18 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_WITH_PPOCR)
     target_link_libraries(mirador_outline_repro PRIVATE mirador::geometry)
     mirage_enable_warnings(mirador_outline_repro)
 endif()
+
+# DEC-103: actual server pixels / input and server-attested pet identity.
+get_target_property(MIRAGE_PET_EXCLUSION_AVAILABLE mirage_platform MIRAGE_PET_EXCLUSION_AVAILABLE)
+if(MIRAGE_PET_EXCLUSION_AVAILABLE)
+    mirage_add_test(pet_exclusion_test
+        SOURCES platform/pet_exclusion_test.cpp
+        LIBS Mirage::platform Mirage::kairo_consumer ${X11_X11_LIB} ${X11_Xext_LIB}
+        LABELS "integration;platform;pet"
+        TIMEOUT 30)
+endif()
+mirage_add_test(pet_exclusion_tools_test
+    SOURCES integration/pet_exclusion_tools_test.cpp
+    LIBS Mirage::integration_mira
+    LABELS "integration;pet"
+    TIMEOUT 20)
