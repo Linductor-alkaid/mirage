@@ -1165,9 +1165,9 @@ void native_session_poison_discipline() {
             run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
         check(established && !established.value().failed);
         check(env->created == created_base + 1 && env->closed == closed_base);
-        const auto malformed = run_capture(
-            registry, ctx,
-            R"({"source":"roi","x":0,"y":0,"width":2,"height":1,"interaction":true})");
+        const auto malformed =
+            run_capture(registry, ctx,
+                        R"({"source":"roi","x":0,"y":0,"width":2,"height":1,"interaction":true})");
         check(malformed && malformed.value().failed);
         check(malformed.value().safe_error_summary.find(
                   "interaction=true is only valid with source=desktop") != std::string::npos);
@@ -1184,8 +1184,8 @@ void native_session_poison_discipline() {
         check(env->created == created_base + 1 && env->closed == closed_base);
         // (b) A fail-closed ROI bounds rejection (raised after the fresh frame
         // was captured) likewise leaves the session reusable.
-        const auto outside = run_capture(
-            registry, ctx, R"({"source":"roi","x":100,"y":100,"width":4,"height":4})");
+        const auto outside =
+            run_capture(registry, ctx, R"({"source":"roi","x":100,"y":100,"width":4,"height":4})");
         check(outside && outside.value().failed &&
               outside.value().safe_error_summary.find("outside the shared monitor") !=
                   std::string::npos);
@@ -1238,13 +1238,11 @@ void native_session_poison_discipline() {
         detail::DesktopImageTurn turn(source, tools, ctx, stop);
         mira::BuiltinToolRegistry registry;
         turn.register_tool(registry, {}, true);
-        const auto first =
-            run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
+        const auto first = run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
         check(first && !first.value().failed);
         mirage::desktop::ActionCoordinator::Lease lease;
         env->during = [&] { lease = tools.actions->try_begin({}); };
-        const auto raced =
-            run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
+        const auto raced = run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
         env->during = {};
         check(bool(lease)); // the epoch bump really happened mid-capture
         check(!raced && raced.error().code == mira::ErrorCode::Cancelled);
