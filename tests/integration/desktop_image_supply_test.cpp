@@ -839,9 +839,10 @@ void native_region_sources() {
         check(capture_tool != observation_exposed.end());
         source_enum(capture_tool->parameters_schema.root);
     }
-    // Any capture failure (including expected InvalidArgument rejections)
-    // makes the handler retire the session for the whole task, so positives
-    // run in one turn and every negative scenario gets its own turn.
+    // Session retirement follows the sharing path, not the tool result: only
+    // authorization, stream, and input-transport failures poison the task's
+    // session (DEC-074). Argument validation and frame-budget rejections leave
+    // an established session reusable, so negatives no longer need isolation.
     const auto run_capture = [](mira::BuiltinToolRegistry &registry,
                                 const mira::OperationContext &owner, const JsonValue &args) {
         const auto exposed = registry.exposed_tools();
@@ -1106,6 +1107,202 @@ void native_region_sources() {
             std::cerr << deferred_failure << '\n';
         }
     }
+}
+
+// 2026-10-18 incident regression (DEC-074 scope): the capture wrapper used to
+// retire the task's sharing session on ANY error result, so a pure argument
+// validation mistake destroyed a healthy authorized session and every later
+// capture/OCR returned "native sharing ended or failed". Session liveness now
+// belongs to the failure sites: only real sharing-path failures poison, while
+// argument, budget, and staleness rejections leave the session reusable.
+void native_session_poison_discipline() {
+    auto env = std::make_shared<NativeEnvironment>();
+    env->interactive = true;
+    env->frame_width = 8;
+    env->frame_height = 4;
+    env->session_pixels = [&] {
+        std::vector<std::uint8_t> pixels(std::size_t(env->frame_width) *
+                                         std::size_t(env->frame_height) * 4);
+        for (std::size_t i = 0; i < pixels.size(); i += 4)
+            pixels[i] = pixels[i + 1] = pixels[i + 2] = pixels[i + 3] = std::uint8_t{7};
+        return pixels;
+    };
+    auto tools = desktop();
+    tools.environment = env;
+    tools.gate = [](const auto &, const auto &, const auto &cancel) { return !cancel(); };
+    auto source = std::make_shared<detail::DesktopImageSource>();
+    auto ctx = context();
+    mirage::desktop::CancelToken stop;
+    const auto run_capture = [](mira::BuiltinToolRegistry &registry,
+                                const mira::OperationContext &owner, const char *json) {
+        const auto exposed = registry.exposed_tools();
+        const auto tool = std::find_if(exposed.begin(), exposed.end(), [](const auto &spec) {
+            return spec.wire_name == "desktop.screen.capture";
+        });
+        check(tool != exposed.end());
+        mira::ToolProposal call;
+        call.tool_id = tool->tool_id;
+        call.tool_version = tool->version;
+        call.wire_name = tool->wire_name;
+        call.operation_id = mira::OperationId::generate();
+        call.provider_call_id.value = "poison-discipline";
+        call.arguments = mira::parse_json(json).value();
+        call.arguments_digest = mira::canonical_json_digest(call.arguments);
+        return registry.execute(call, owner);
+    };
+    {
+        // (a) Core regression: the incident's exact argument mistake
+        // (interaction=true on source=roi) must not retire the established
+        // session, and a correct capture must succeed right after. Under the
+        // pre-fix wrapper this rejection reset the session, so `recovered`
+        // answered "native sharing ended or failed" and `closed` jumped to 1.
+        const auto created_base = env->created, closed_base = env->closed,
+                   captures_base = env->captures;
+        detail::DesktopImageTurn turn(source, tools, ctx, stop);
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, true);
+        const auto established =
+            run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
+        check(established && !established.value().failed);
+        check(env->created == created_base + 1 && env->closed == closed_base);
+        const auto malformed =
+            run_capture(registry, ctx,
+                        R"({"source":"roi","x":0,"y":0,"width":2,"height":1,"interaction":true})");
+        check(malformed && malformed.value().failed);
+        check(malformed.value().safe_error_summary.find(
+                  "interaction=true is only valid with source=desktop") != std::string::npos);
+        // The healthy session survived the argument rejection: no provider
+        // session was created or closed, and no platform capture ran.
+        check(env->created == created_base + 1 && env->closed == closed_base &&
+              env->captures == captures_base + 1);
+        const auto recovered =
+            run_capture(registry, ctx, R"({"source":"roi","x":2,"y":1,"width":4,"height":2})");
+        check(recovered && !recovered.value().failed);
+        check(*recovered.value().result.find("source")->as_string() == std::string("roi"));
+        check(*recovered.value().result.find("width")->as_integer() == 4 &&
+              *recovered.value().result.find("height")->as_integer() == 2);
+        check(env->created == created_base + 1 && env->closed == closed_base);
+        // (b) A fail-closed ROI bounds rejection (raised after the fresh frame
+        // was captured) likewise leaves the session reusable.
+        const auto outside =
+            run_capture(registry, ctx, R"({"source":"roi","x":100,"y":100,"width":4,"height":4})");
+        check(outside && outside.value().failed &&
+              outside.value().safe_error_summary.find("outside the shared monitor") !=
+                  std::string::npos);
+        check(env->created == created_base + 1 && env->closed == closed_base);
+        const auto after_bounds =
+            run_capture(registry, ctx, R"({"source":"roi","x":0,"y":0,"width":2,"height":1})");
+        check(after_bounds && !after_bounds.value().failed);
+        check(env->created == created_base + 1 && env->closed == closed_base);
+        // Another malformed shape (missing ROI field) still does not poison.
+        const auto missing =
+            run_capture(registry, ctx, R"({"source":"roi","x":0,"y":0,"width":2})");
+        check(missing && missing.value().failed &&
+              missing.value().safe_error_summary.find("source=roi requires only") !=
+                  std::string::npos);
+        const auto still_alive =
+            run_capture(registry, ctx, R"({"source":"roi","x":2,"y":1,"width":4,"height":2})");
+        check(still_alive && !still_alive.value().failed);
+        check(env->created == created_base + 1 && env->closed == closed_base);
+    }
+    {
+        // (c) Preservation: a platform capture failure still poisons the
+        // session fail-closed; later captures answer with the canonical
+        // no-reauthorization receipt and never touch the provider again.
+        const auto created_base = env->created, closed_base = env->closed,
+                   captures_base = env->captures;
+        detail::DesktopImageTurn turn(source, tools, ctx, stop);
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, true);
+        env->fail = true;
+        const auto failed =
+            run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
+        check(failed && failed.value().failed &&
+              failed.value().safe_error_summary.find("fixture_failed") != std::string::npos);
+        check(env->created == created_base + 1 && env->closed == closed_base + 1);
+        env->fail = false;
+        const auto blocked =
+            run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
+        check(blocked && blocked.value().failed &&
+              blocked.value().safe_error_summary.find("native sharing ended or failed") !=
+                  std::string::npos);
+        check(env->created == created_base + 1 && env->closed == closed_base + 1 &&
+              env->captures == captures_base + 1);
+    }
+    {
+        // (d) Wrapper path: a pre-publication epoch race (the environment
+        // epoch changes while the frame is captured) returns Cancelled and
+        // must NOT poison; the next capture succeeds on the same session.
+        const auto created_base = env->created, closed_base = env->closed,
+                   captures_base = env->captures;
+        detail::DesktopImageTurn turn(source, tools, ctx, stop);
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, true);
+        const auto first = run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
+        check(first && !first.value().failed);
+        mirage::desktop::ActionCoordinator::Lease lease;
+        env->during = [&] { lease = tools.actions->try_begin({}); };
+        const auto raced = run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
+        env->during = {};
+        check(bool(lease)); // the epoch bump really happened mid-capture
+        check(!raced && raced.error().code == mira::ErrorCode::Cancelled);
+        check(env->created == created_base + 1 && env->closed == closed_base);
+        const auto recovered =
+            run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
+        check(recovered && !recovered.value().failed);
+        check(env->created == created_base + 1 && env->closed == closed_base &&
+              env->captures == captures_base + 3);
+    }
+    {
+        // (e) OCR path: native_ocr's internal capture hitting the same
+        // pre-publication epoch race passes the Cancelled error through
+        // without poisoning, so OCR and capture stay usable on the session.
+        const auto created_base = env->created, closed_base = env->closed;
+        tools.ocr_image = [&](const auto &image, const auto &, const auto &) {
+            integration::ImageOcrOutcome out;
+            out.ok = true;
+            out.model_revision = "poison-fixture";
+            out.regions = {{"fixture", 0.9, 0, 0, 3, 1}};
+            check(image.width == 8 && image.height == 4);
+            return out;
+        };
+        detail::DesktopImageTurn turn(source, tools, ctx, stop);
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, false);
+        const auto run_ocr = [&](const mira::OperationContext &owner) {
+            const auto exposed = registry.exposed_tools();
+            const auto tool = std::find_if(exposed.begin(), exposed.end(), [](const auto &spec) {
+                return spec.wire_name == "desktop.vision.ocr";
+            });
+            check(tool != exposed.end());
+            mira::ToolProposal call;
+            call.tool_id = tool->tool_id;
+            call.tool_version = tool->version;
+            call.wire_name = tool->wire_name;
+            call.operation_id = mira::OperationId::generate();
+            call.provider_call_id.value = "poison-ocr";
+            call.arguments = mira::parse_json("{}").value();
+            call.arguments_digest = mira::canonical_json_digest(call.arguments);
+            return registry.execute(call, owner);
+        };
+        const auto good = run_ocr(ctx);
+        check(good && !good.value().failed && good.value().result.find("image_artifact_id"));
+        check(env->created == created_base + 1 && env->closed == closed_base);
+        mirage::desktop::ActionCoordinator::Lease lease;
+        env->during = [&] { lease = tools.actions->try_begin({}); };
+        const auto raced = run_ocr(ctx);
+        env->during = {};
+        check(bool(lease));
+        check(!raced && raced.error().code == mira::ErrorCode::Cancelled);
+        // The session survived the OCR staleness passthrough.
+        check(env->created == created_base + 1 && env->closed == closed_base);
+        const auto next = run_ocr(ctx);
+        check(next && !next.value().failed && next.value().result.find("image_artifact_id"));
+        const auto capture_after = run_capture(registry, ctx, R"({"source":"desktop"})");
+        check(capture_after && !capture_after.value().failed);
+        check(env->created == created_base + 1 && env->closed == closed_base);
+    }
+    check(env->created == env->closed);
 }
 
 // DEC-088 capability 1: the persistent desktop source counts consecutively
@@ -2557,6 +2754,7 @@ int main() {
         rejected_layer.shutdown();
         png_content_matrix();
         native_region_sources();
+        native_session_poison_discipline();
         input_reuse_identity();
         capability_receipts();
         // Publish the fixture manifest for the independent Python decoder

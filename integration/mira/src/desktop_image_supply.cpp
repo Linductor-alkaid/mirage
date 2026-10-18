@@ -250,6 +250,8 @@ void DesktopImageTurn::register_tool(mira::BuiltinToolRegistry &registry,
             "of one region; source=window takes source_id from desktop.window.list and crops that "
             "window's rectangle (approximated from window geometry; overlapping content "
             "included). "
+            "roi and window captures reuse the established sharing session and never take an "
+            "interaction flag; only source=desktop does. "
             "Only input_actionable=true permits desktop.session tools. No global/window "
             "coordinates. "
             "At most 32 captures in an interactive task, eight in a read-only task.";
@@ -271,13 +273,16 @@ void DesktopImageTurn::register_tool(mira::BuiltinToolRegistry &registry,
     }
     mira::BuiltinToolHandler handler = [this](const auto &args, const auto &ctx) {
         try {
-            auto result = capture(args, ctx);
-            if (!result && ctx.task == owner_.task && ctx.session == owner_.session &&
-                ctx.task_epoch == owner_.task_epoch && native_session_) {
-                native_session_.reset();
-                native_failed_ = true;
-            }
-            return result;
+            // Session liveness is decided at each failure site: capture_desktop
+            // and shared_input poison native_session_ themselves when the
+            // sharing path (authorization, stream, input transport) actually
+            // broke, and deliberately leave it intact for model-caused
+            // validation errors, frame-budget exhaustion, and staleness races
+            // that never touched the session. Poisoning here on any error
+            // result destroyed a healthy authorized session over a single
+            // malformed argument (2026-10-18 incident), so the wrapper only
+            // guards against exceptions escaping the handler.
+            return capture(args, ctx);
         } catch (...) {
             native_session_.reset();
             native_failed_ = true;
@@ -343,11 +348,11 @@ mira::Result<JsonValue> DesktopImageTurn::native_ocr(const JsonValue &args,
         ctx.task_epoch != owner_.task_epoch)
         return error(ErrorCode::InvalidArgument, "native OCR owner mismatch");
     auto captured = capture(JsonValue{JsonValue::Object{{"source", "desktop"}}}, ctx);
-    if (!captured) {
-        native_session_.reset();
-        native_failed_ = true;
+    if (!captured)
+        // capture_desktop already poisons the session on its own fatal paths;
+        // an argument, staleness, or budget rejection here must not tear down
+        // a healthy shared session.
         return captured.error();
-    }
     if (!native_frame_)
         return error(ErrorCode::PlatformError, "native OCR source frame unavailable");
     const auto epoch = epoch_, authority = native_authority_;
