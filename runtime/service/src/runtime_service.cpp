@@ -192,8 +192,9 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
         event.reply_text = completion.reply_text;
         event.has_reply = true;
         if (completion.input_tokens)
-            event.context_usage = ipc::ContextUsage{
-                *completion.input_tokens, completion.context_window_tokens, completion.usage_model};
+            event.context_usage =
+                ipc::ContextUsage{*completion.input_tokens, completion.context_window_tokens,
+                                  completion.usage_model, completion.input_tokens_estimated};
     } else {
         status = "failed";
         event.error =
@@ -412,8 +413,8 @@ namespace detail {
 
 /// Worker-thread-safe session state persist (M5-08, DEC-021 backlog ①):
 /// snapshots the session registry, dialog threads and the raw journal appends
-/// into the state document. File IO on the calling thread matches the
-/// recovery persist precedent; failures are recorded on stderr once per
+/// into individual session documents (DEC-101). File IO on the calling thread
+/// matches the recovery persist precedent; failures are recorded on stderr once per
 /// change of reason and never propagate.
 bool persist_session_state(const std::shared_ptr<ServiceCore> &core,
                            const std::string &omit_session, bool keep_identity,
@@ -422,7 +423,7 @@ bool persist_session_state(const std::shared_ptr<ServiceCore> &core,
         return true;
     }
     // Serializes concurrent persist entry (serial context, task drivers,
-    // dialog settle): the store's temp file name carries only the pid, so
+    // dialog settle): the stores' temp file names carry only the pid, so
     // unsynchronized saves would collide on O_EXCL and skip a snapshot.
     std::unique_lock state_lock(core->session_state_mutex, std::defer_lock);
     if (!caller_holds_state_lock)
@@ -456,7 +457,7 @@ bool persist_session_state(const std::shared_ptr<ServiceCore> &core,
                 if (log.context_usage)
                     session.context_usage = persistence::PersistedContextUsage{
                         log.context_usage->input_tokens, log.context_usage->window_tokens,
-                        log.context_usage->model};
+                        log.context_usage->model, log.context_usage->estimated};
                 for (const auto &record : dialogs->second.turns) {
                     if (record.status == "pending") {
                         continue; // in-flight turns are not persisted
@@ -480,7 +481,7 @@ bool persist_session_state(const std::shared_ptr<ServiceCore> &core,
                 state.sessions.push_back(std::move(session));
         }
     }
-    const auto saved = core->session_state_store->save(persistence::encode_session_state(state));
+    const auto saved = core->session_state_store->save(state);
     if (!saved.ok) {
         std::lock_guard report_lock(report_mutex);
         if (last_error != saved.error) {
@@ -3882,16 +3883,14 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                     decoded.settings.remember_desktop_authorization);
         }
     }
-    // M5-08 session state store (DEC-021 backlog ①): the conversation and
-    // dialog thread write-back document lives in the state directory.
+    // DEC-101: each session history has its own atomic JSON document.
+    // SessionStateStore also reads the legacy aggregate during migration.
     if (impl_->config.persist_session_state) {
         const std::filesystem::path session_directory =
             impl_->config.session_state_directory.empty() ? persistence::default_state_directory()
                                                           : impl_->config.session_state_directory;
         impl_->core->session_state_store =
-            std::make_unique<mirage::runtime::persistence::LocalStateStore>(
-                session_directory, "session-state.json",
-                mirage::runtime::persistence::kMaxSessionStateFileBytes);
+            std::make_unique<mirage::runtime::persistence::SessionStateStore>(session_directory);
     }
 
     impl_->core->model_available.store(impl_->core->model_layer &&
@@ -3907,90 +3906,90 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         const std::filesystem::path session_directory =
             impl_->config.session_state_directory.empty() ? persistence::default_state_directory()
                                                           : impl_->config.session_state_directory;
-        const auto loaded = impl_->core->session_state_store->load();
-        if (loaded.status == persistence::LoadStatus::Loaded) {
-            const auto decoded = persistence::decode_session_state(loaded.body);
-            if (!decoded.ok) {
-                std::cerr << "mirage-service: session state file '"
-                          << (session_directory / "session-state.json").string()
-                          << "' is invalid: " << decoded.error << "\n";
-            } else {
-                const auto history_count = static_cast<std::size_t>(std::count_if(
-                    decoded.state.sessions.begin(), decoded.state.sessions.end(),
-                    [](const auto &session) {
-                        return !session.journal.empty() || !session.chat_turns.empty();
-                    }));
-                if (history_count >= impl_->core->sessions.capacity) {
-                    outcome.error = {"unavailable",
-                                     "saved conversation history exceeds configured session "
-                                     "capacity; increase the configured limit before restarting"};
-                    if (impl_->core->model_layer)
-                        impl_->core->model_layer->shutdown();
-                    if (impl_->core->ocr_pipeline)
-                        impl_->core->ocr_pipeline->stop();
-                    impl_->core->executor.shutdown(true);
-                    impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
-                    return outcome; // Never partially restore and overwrite nonempty history.
+        const auto decoded = impl_->core->session_state_store->load();
+        if (!decoded.error.empty())
+            std::cerr << "mirage-service: session state load: " << decoded.error << '\n';
+        if (decoded.ok) {
+            const auto history_count = static_cast<std::size_t>(
+                std::count_if(decoded.state.sessions.begin(), decoded.state.sessions.end(),
+                              [](const auto &session) {
+                                  return !session.journal.empty() || !session.chat_turns.empty();
+                              }));
+            if (impl_->core->sessions.capacity != 0 &&
+                history_count >= impl_->core->sessions.capacity) {
+                outcome.error = {"unavailable",
+                                 "saved conversation history exceeds configured session "
+                                 "capacity; increase the configured limit before restarting"};
+                if (impl_->core->model_layer)
+                    impl_->core->model_layer->shutdown();
+                if (impl_->core->ocr_pipeline)
+                    impl_->core->ocr_pipeline->stop();
+                impl_->core->executor.shutdown(true);
+                impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
+                return outcome; // Never partially restore and overwrite nonempty history.
+            }
+            std::size_t restored_count = 0;
+            for (const auto &session : decoded.state.sessions) {
+                if (session.journal.empty() && session.chat_turns.empty())
+                    continue;
+                // Reserve the primary equipment slot before restoring histories.
+                const auto admitted =
+                    impl_->core->sessions.capacity == 0 ||
+                    impl_->core->sessions.created_at_ms.size() + 1 < impl_->core->sessions.capacity;
+                if (!admitted) {
+                    break;
                 }
-                std::size_t restored_count = 0;
-                for (const auto &session : decoded.state.sessions) {
-                    if (session.journal.empty() && session.chat_turns.empty())
-                        continue;
-                    // Reserve the primary equipment slot before restoring histories.
-                    const auto admitted = impl_->core->sessions.created_at_ms.size() + 1 <
-                                          impl_->core->sessions.capacity;
-                    if (!admitted) {
-                        break;
-                    }
-                    impl_->core->sessions.created_at_ms.emplace(session.id, session.created_at_ms);
-                    ++restored_count;
-                    // The pinned counterpart is gone with the previous era:
-                    // history is product state. Native session.chat lazily
-                    // reopens a pinned harness target (DEC-039); desktop
-                    // task.submit still has no recovered pinned session.
-                    impl_->core->hydrated_sessions.insert(session.id);
-                    for (const auto &entry : session.journal) {
-                        if (entry.kind == "user") {
-                            (void)impl_->core->journal->append_user_message(
-                                session.id, entry.task_id, entry.text);
-                        } else {
-                            (void)impl_->core->journal->append_outcome(session.id, entry.task_id,
-                                                                       entry.outcome, entry.steps);
-                        }
-                    }
-                    if (!session.chat_turns.empty()) {
-                        std::lock_guard lock(impl_->core->dialogs.mutex);
-                        auto &log = impl_->core->dialogs.sessions[session.id];
-                        log.context_usage_sequence = session.context_usage_sequence;
-                        if (session.context_usage)
-                            log.context_usage = ipc::ContextUsage{
-                                session.context_usage->input_tokens,
-                                session.context_usage->window_tokens, session.context_usage->model};
-                        std::uint64_t next_sequence = session.context_usage_sequence + 1;
-                        for (const auto &turn : session.chat_turns) {
-                            detail::DialogTurnRecord record;
-                            record.turn_id = turn.turn_id;
-                            record.status = turn.status;
-                            record.user_text = turn.user_text;
-                            record.reply_text = turn.reply_text;
-                            record.parts = turn.parts;
-                            record.timings = turn.timings;
-                            record.process_sequence = turn.process_sequence;
-                            record.error = turn.error;
-                            record.sequence = turn.sequence;
-                            record.recorded_at_ms = turn.recorded_at_ms;
-                            next_sequence = std::max(next_sequence, turn.sequence + 1);
-                            log.turns.push_back(std::move(record));
-                        }
-                        log.next_sequence = next_sequence;
-                        log.total_recorded = log.turns.size();
+                impl_->core->sessions.created_at_ms.emplace(session.id, session.created_at_ms);
+                ++restored_count;
+                // The pinned counterpart is gone with the previous era:
+                // history is product state. Native session.chat lazily
+                // reopens a pinned harness target (DEC-039); desktop
+                // task.submit still has no recovered pinned session.
+                impl_->core->hydrated_sessions.insert(session.id);
+                // Preserve the raw inputs used by the next persistence snapshot,
+                // including journal-only histories restored from legacy files.
+                impl_->core->journal_raw.emplace(session.id, session.journal);
+                for (const auto &entry : session.journal) {
+                    if (entry.kind == "user") {
+                        (void)impl_->core->journal->append_user_message(session.id, entry.task_id,
+                                                                        entry.text);
+                    } else {
+                        (void)impl_->core->journal->append_outcome(session.id, entry.task_id,
+                                                                   entry.outcome, entry.steps);
                     }
                 }
-                if (!decoded.state.sessions.empty()) {
-                    std::cerr << "mirage-service: hydrated " << restored_count
-                              << " session(s) from "
-                              << (session_directory / "session-state.json").string() << '\n';
+                if (!session.chat_turns.empty()) {
+                    std::lock_guard lock(impl_->core->dialogs.mutex);
+                    auto &log = impl_->core->dialogs.sessions[session.id];
+                    log.context_usage_sequence = session.context_usage_sequence;
+                    if (session.context_usage)
+                        log.context_usage = ipc::ContextUsage{session.context_usage->input_tokens,
+                                                              session.context_usage->window_tokens,
+                                                              session.context_usage->model,
+                                                              session.context_usage->estimated};
+                    std::uint64_t next_sequence = session.context_usage_sequence + 1;
+                    for (const auto &turn : session.chat_turns) {
+                        detail::DialogTurnRecord record;
+                        record.turn_id = turn.turn_id;
+                        record.status = turn.status;
+                        record.user_text = turn.user_text;
+                        record.reply_text = turn.reply_text;
+                        record.parts = turn.parts;
+                        record.timings = turn.timings;
+                        record.process_sequence = turn.process_sequence;
+                        record.error = turn.error;
+                        record.sequence = turn.sequence;
+                        record.recorded_at_ms = turn.recorded_at_ms;
+                        next_sequence = std::max(next_sequence, turn.sequence + 1);
+                        log.turns.push_back(std::move(record));
+                    }
+                    log.next_sequence = next_sequence;
+                    log.total_recorded = log.turns.size();
                 }
+            }
+            if (!decoded.state.sessions.empty()) {
+                std::cerr << "mirage-service: hydrated " << restored_count << " session(s) from "
+                          << (session_directory / "sessions").string() << '\n';
             }
         }
     }

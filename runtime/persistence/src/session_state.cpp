@@ -52,6 +52,8 @@ std::string encode_session_state(const SessionState &state) {
             put(usage, "window_tokens",
                 JsonValue{static_cast<std::int64_t>(session.context_usage->window_tokens)});
             put(usage, "model", JsonValue{session.context_usage->model});
+            if (session.context_usage->estimated)
+                put(usage, "estimated", JsonValue{true});
             put(session_object, "context_usage", std::move(usage));
         }
         JsonValue::Array journal;
@@ -136,11 +138,6 @@ SessionStateDecode decode_session_state(std::string_view body) {
         return result;
     }
     const auto *sessions = sessions_value->as_array();
-    if (sessions->size() > kMaxSessionStateSessions) {
-        result.error =
-            "member 'sessions' exceeds " + std::to_string(kMaxSessionStateSessions) + " entries";
-        return result;
-    }
     for (const JsonValue &session_value : *sessions) {
         if (!session_value.is_object() ||
             has_unknown_member(session_value, {"id", "created_at_ms", "journal", "chat_turns",
@@ -166,7 +163,8 @@ SessionStateDecode decode_session_state(std::string_view body) {
             const auto budget = window ? window->as_integer() : std::nullopt;
             const auto *name = model ? model->as_string() : nullptr;
             if (!usage->is_object() ||
-                has_unknown_member(*usage, {"input_tokens", "window_tokens", "model"}) ||
+                has_unknown_member(*usage,
+                                   {"input_tokens", "window_tokens", "model", "estimated"}) ||
                 !session.context_usage_sequence || !tokens || *tokens < 0 || *tokens > 2000000000 ||
                 !budget || (*budget != 0 && (*budget < 2048 || *budget > 2000000)) || !name ||
                 name->empty() || name->size() > 1024) {
@@ -175,6 +173,14 @@ SessionStateDecode decode_session_state(std::string_view body) {
             }
             session.context_usage = PersistedContextUsage{
                 static_cast<std::uint64_t>(*tokens), static_cast<std::uint64_t>(*budget), *name};
+            if (const auto *estimated = member(*usage, "estimated")) {
+                const auto flag = estimated->as_boolean();
+                if (!flag) {
+                    result.error = "invalid context_usage estimated flag";
+                    return result;
+                }
+                session.context_usage->estimated = *flag;
+            }
         }
         if (const auto *id = member(session_value, "id"); id != nullptr) {
             if (const auto text = bounded_string(*id, result.error)) {

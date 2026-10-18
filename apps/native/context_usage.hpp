@@ -12,6 +12,7 @@ struct ContextUsage {
     std::uint64_t input_tokens = 0;
     std::uint64_t window_tokens = 0;
     std::string model;
+    bool estimated = false;
 };
 inline std::optional<double> context_ratio(const std::optional<ContextUsage> &usage) {
     if (!usage || !usage->window_tokens)

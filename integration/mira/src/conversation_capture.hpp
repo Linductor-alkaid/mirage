@@ -23,6 +23,7 @@ class ConversationCapture {
     explicit ConversationCapture(DialogProcessSink sink) : sink_(std::move(sink)) {}
     std::vector<conversation::Part> parts;
     conversation::Timings timings;
+    std::optional<std::uint64_t> last_input_estimate;
     void publish() const {
         if (sink_)
             sink_(parts, timings);
@@ -329,9 +330,12 @@ class ObservedProvider final : public mira::IModelProvider {
         }();
         record_usage_anchor(context, request, result);
         if (capture && result && result.value().status == mira::ModelCompletionStatus::Completed &&
-            !context.cancelled_or_expired(mira::Timestamp::now()))
+            !context.cancelled_or_expired(mira::Timestamp::now())) {
+            // DEC-102: the actual request includes system, tools and transformed
+            // replay; capture one final-call estimate without changing ModelUsage.
+            capture->last_input_estimate = mira::estimate_input_tokens(request);
             capture->response(request, result.value());
-        else if (capture)
+        } else if (capture)
             capture->publish();
         return result;
     }

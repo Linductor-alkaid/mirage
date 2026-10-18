@@ -124,3 +124,71 @@ Mirage，因此无需终止用户任务。未发送模型任务、未修改模�
 `/tmp/mirage-context-native-release-start.log` 和
 `/tmp/mirage-context-native-release-running.json`。
 本轮仅验证启动与窗口映射；带真实新用量的重启恢复手动验收仍待维护者操作。
+
+
+## 2026-10-18：M6-45 无供应商用量时显示本地估算
+
+依据 [DEC-102](../decisions/DEC-102-estimated-context-usage.md)。维护者要求参考
+`~/ZCode`，已核对本机 29628c9a 的 runtime/methods/context-usage.ts、
+bootstrap/zcode-protocol/session-mapper.ts 和 UI contextUsage.tsx：ZCode 有标明
+estimated 的本地分类快照，界面占比主要来自运行期投影或持久化消息用量。本轮参考
+其来源分离，未照搬 ZCode 的 input+output 统计口径。
+
+### 实现与边界
+
+`ObservedProvider` 将实际成功请求交给 pinned Mira 的 `estimate_input_tokens`，
+`ConversationCapture` 只保留最近调用的估算。成功结算优先使用有效 Exact /
+ProviderReported，包括0；缺失、不完整或低质量报告改用该请求估算。工具循环取
+最终回答调用，不累计请求，不计输出。Mira的估算器采用既有粗略口径，工具 schema、
+图片及供应商额外开销可能有偏差，不是 tokenizer 精确计数或计费值。
+
+`estimated` 布尔来源标记贯通 integration completion、IPC事件/历史、会话快照、
+逐会话JSON与原生界面。true时数字和比例加“约 ”，来源显示“上次请求 · 本地估算”；
+未知窗口仍显示输入Token，比例和分母未知。未发请求、旧文件缺数据时仍显示未知，
+下一次成功请求生成估算。失败/取消保留旧值，编辑替换及迟到事件保护保持。
+未修改 ModelResponse.usage、预算对账、真实用量锚点或依赖源码；未新增并发设施。
+真实报告的旧wire字符串不变，新解码器兼容缺标记的旧数据。服务与前端须同步更新，
+旧前端不能识别“估算”来源，不承诺混用新旧程序的展示语义兼容。
+
+### 验证
+
+Ubuntu 24.04.5 x86_64、GCC13.3.0，Mira a29374aa、Mirador cb45a102、EUI63117f77。
+在维护者现有 `feat/session-file-storage` 工作树上增量修改，保留M6-44的逐会话存储工作。
+
+```bash
+cmake --build --preset native-release --target native_agent_integration_test persistence_test ipc_protocol_test ipc_protocol_golden_test native_chat_model_test native_conversation_view_test mirage-native-product -j 4
+ctest --preset native-release -R '^(native_agent_integration_test|persistence_test|ipc_protocol_test|ipc_protocol_golden_test|native_chat_model_test)$'
+(cd build/native-release/apps/native && ../../tests/native_conversation_view_test /tmp/mirage-context-estimate-view)
+cmake --build --preset asan --target native_agent_integration_test persistence_test ipc_protocol_test ipc_protocol_golden_test native_chat_model_test -j 3
+ASAN_OPTIONS=detect_leaks=1 ctest --preset asan -R '^(native_agent_integration_test|persistence_test|ipc_protocol_test|ipc_protocol_golden_test|native_chat_model_test)$'
+cmake --build --preset ubsan --target native_agent_integration_test persistence_test ipc_protocol_test ipc_protocol_golden_test native_chat_model_test -j 3
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ctest --preset ubsan -R '^(native_agent_integration_test|persistence_test|ipc_protocol_test|ipc_protocol_golden_test|native_chat_model_test)$'
+cmake --build --preset tsan --target native_agent_integration_test persistence_test native_chat_model_test -j 2
+TSAN_OPTIONS=halt_on_error=1 setarch x86_64 -R ctest --preset tsan -R '^(native_agent_integration_test|persistence_test|native_chat_model_test)$'
+```
+
+- Native Release产品与定向测试构建成功，CTest7/7（含setup/cleanup）通过。
+- 原生渲染测试28,457 checks、0 failures，1180×800 / 860×620、明暗四组估算
+  截图已检查；25% / 8192为明确标注的合成测试数据。未知预算和真实0标签断言通过。
+- ASAN（含leak）、UBSAN各7/7，TSAN5/5（均含fixture），无sanitizer报告。
+- 普通对话与Agent路径、最终工具请求估算、真实报告优先、真实0、Estimated/Partial/
+  Missing质量及缺输入字段均覆盖；来源经过本地IPC、独立文件存盘与服务重启恢复。
+- Golden v23验证估算来源与非法布尔类型，旧向量不变；旧文件缺标记按真实报告解析。
+- 设计detector对改动目标输出[]；该工具将原生平台误识别为web，因此只作为辅助检查，
+  实际展示以原生渲染断言和截图为准。未修改平台声明或整体视觉系统。
+
+本机截图/合成测试日志保存在 `/tmp/mirage-context-estimate-view/`、
+`/tmp/mirage-context-estimate-view.log` 与 `/tmp/mirage-context-estimate-detector.json`，
+可用上述命令重新生成。未提交真实用户会话或凭据。Windows及真实供应商无usage响应
+未执行；负责人Mirage维护者，补跑条件为目标机native构建与指定供应商用例。无真实
+供应商数据时仅声明模拟覆盖，不将本地估算作为精确值。
+
+
+M6-45本机更新：按同会话已授权的native-release更新要求，完整产品目标重建后，
+确认托盘active_work=0、无退出确认、前端已关闭，通过product.control quit有序退出，
+再以 `mirage start --no-shell --shell /home/linductor/mirage/build/native-release/apps/native/mirage-native --tray /home/linductor/mirage/build/native-release/apps/tray/mirage-tray`
+启动。保留会话窗口关闭状态，无活动任务被取消、无模型请求发出。
+Runtime running，托盘PID974212，其 `/proc/<pid>/exe` 与新构建文件一致，SHA-256
+`f7e00af2ad940ce64d57b6b6188bb42a52b1e2d0e9d756ab01adf62e8ad23c2f`。
+启动与运行映像证据：`/tmp/mirage-context-estimate-native-start.log`、
+`/tmp/mirage-context-estimate-native-running.json`。未创建commit/MR，保留原工作树。

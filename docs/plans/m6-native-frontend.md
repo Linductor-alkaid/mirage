@@ -18,6 +18,8 @@
 
 | 编号 | 状态 | 结果与验收 |
 | --- | --- | --- |
+| M6-45 | Completed（Linux本地） | DEC-102：缺有效供应商用量时复用Mira请求输入估算并标注来源，随会话保存；Release7/7、原生28,457 checks、ASAN/UBSAN各7/7、TSAN5/5（含fixture）；Windows及真实供应商缺usage待补跑，[证据](../compatibility/native-context-usage-20261004.md#2026-10-18m6-45-无供应商用量时显示本地估算) |
+| M6-44 | In Progress | DEC-101 Linux 数据路径与原生缓存验证通过：默认不限个数、逐会话 JSON、旧格式迁移、坏文件隔离、删除/失败回滚；Release/ASAN/UBSAN 五类测试、TSAN 三类测试通过。真实 Wayland 桌面8会话19轮迁移/退出重开、服务39会话准入通过；Windows待补跑，[证据](../compatibility/session-files-20261018.md)。 |
 | M6-43 | Completed（Linux 数据路径） | 按 DEC-036 保存会话自身的上下文用量快照，历史截断、切换、重连及服务重启后可读取；Release9/9、ASAN/UBSAN各7/7、TSAN5/5（含fixture）；实机与Windows待补跑，[证据](../compatibility/native-context-usage-20261004.md#2026-10-18m6-43-会话自身保存用量快照) |
 | M6-42 | In Progress | 本机性能矩阵已交付：EUI最新dev基础的字形缓存PR#114四项CI全绿，pin63117f7保留Windows修复；纯尺寸/封顶测量与公开历史高度缓存，12场景配对p50/p95均改善；16KB单段/40轮51.64→16.98ms。Release5/5、ASAN/UBSAN各4/4，实机/Windows及上游评审保持开放；[证据](../compatibility/native-input-performance-20261017.md) |
 | M6-01 | In Progress | EUI dev 完整提交锁定、bundled 构建、原生无边框窗口与窗口控制；Linux 构建/运行已取证，Windows 保持待验收 |
@@ -711,3 +713,27 @@ Native Release前端/service构建通过；Release定向7项+fixture 9/9，ASAN/
 各5项+fixture 7/7，TSAN 3项+fixture 5/5。无第三方改动及新增并发设施。
 实机GUI与Windows本轮未执行，负责人维护者，补跑条件和完整命令见
 [上下文存储验收](../compatibility/native-context-usage-20261004.md#2026-10-18m6-43-会话自身保存用量快照)。
+
+
+2026-10-18 / M6-44：按维护者要求取消默认会话数量限制，逐会话 JSON 原子存储，
+兼容旧文件迁移与坏文件隔离。80 个旧会话恢复并再新建 30 个会话；总历史超旧全局
+8 MiB、迁移中断重试、删除/编辑失败回滚及有序关闭通过。修复旧纯任务日志恢复时
+未重建 journal_raw 导致再次保存丢失的缺陷。原生切换释放旧线程高度/布局缓存。
+Release/ASAN/UBSAN 五类相关测试通过，TSAN 在 setarch -R 下三类通过；首次
+失败与实际命令见[验收记录](../compatibility/session-files-20261018.md)。Windows
+与真实桌面验收由维护者取得对应环境后补跑，M6-44 保持 In Progress；未重启现有应用。
+
+
+2026-10-18 / M6-44真实桌面补验：维护者授权重启，完整 mirage-native-product 构建后
+启动桌面入口，临时30个空会话使服务达到39项，关闭测试会话后无残留。真实8会话19轮
+迁移至8个JSON，并与安全备份逐对象精确相等；正常退出托盘/前端后再次打开，历史与
+窗口均恢复，运行映像摘要与新构建一致。保持新窗口打开；Windows仍待维护者取得目标
+环境后补跑，[完整证据](../compatibility/session-files-20261018.md#2026-10-18真实-wayland-桌面启动与重启补验)。
+
+
+2026-10-18 / M6-45：参考本机ZCode的本地估算快照与来源区分，按DEC-102补齐无
+usage时的输入估算。复用Mira公开请求估算，不改ModelUsage或预算语义；来源随事件、
+历史和逐会话文件保存，原生显示“约 / 本地估算”。Release7/7，原生渲染28,457
+checks无失败，ASAN/UBSAN各7/7、TSAN5/5。真实报告优先与零值、低质量降级、
+工具最终请求、普通对话、重启及未知窗口均有覆盖。Windows与真实供应商无usage实测
+未执行，负责人维护者，条件及命令见[验收记录](../compatibility/native-context-usage-20261004.md#2026-10-18m6-45-无供应商用量时显示本地估算)。

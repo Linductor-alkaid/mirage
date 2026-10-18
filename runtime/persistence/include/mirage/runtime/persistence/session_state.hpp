@@ -1,5 +1,6 @@
 #pragma once
 #include <mirage/conversation.hpp>
+#include <mirage/runtime/persistence/store.hpp>
 
 #include <cstdint>
 #include <optional>
@@ -13,10 +14,8 @@ namespace mirage::runtime::persistence {
 /// settings document. Decoders reject unknown schema versions.
 inline constexpr int kSessionStateSchema = 1;
 
-/// Decode-side bounds (RULE-07): the document holds at most the service's
-/// session capacity per session list and a bounded number of turns per
-/// dialog thread; entries beyond the budget fail the decode loudly.
-inline constexpr std::size_t kMaxSessionStateSessions = 64;
+/// DEC-101: no fixed session count limit. Bounds apply independently to
+/// each session file and its history; legacy aggregate files remain capped.
 inline constexpr std::size_t kMaxSessionStateTurnsPerSession = 256;
 inline constexpr std::size_t kMaxSessionStateEntriesPerSession = 1024;
 inline constexpr std::size_t kMaxSessionStateTextBytes = 16 * 1024;
@@ -54,6 +53,7 @@ struct PersistedContextUsage {
     std::uint64_t input_tokens = 0;
     std::uint64_t window_tokens = 0;
     std::string model;
+    bool estimated = false;
 };
 
 /// One persisted session: registry identity plus the conversation and
@@ -68,7 +68,7 @@ struct PersistedSession {
     std::uint64_t context_usage_sequence = 0;
 };
 
-/// The whole session state document.
+/// An in-memory snapshot, also used by the legacy schema 1 codec.
 struct SessionState {
     int schema = kSessionStateSchema;
     std::vector<PersistedSession> sessions;
@@ -86,5 +86,19 @@ struct SessionStateDecode {
 /// Strict decode: unknown members, wrong types, oversized texts and unknown
 /// schema versions are rejected with a stable reason (DEC-011 item 2).
 SessionStateDecode decode_session_state(std::string_view body);
+
+/// DEC-101: one atomic JSON file per session; callers serialize load/save.
+/// Legacy session-state.json migrates on the first successful save. Deleted
+/// sessions become empty tombstones. Corrupt files are retained and diagnosed.
+/// load() may return ok=true with error diagnostics for quarantined files.
+class SessionStateStore {
+  public:
+    explicit SessionStateStore(std::filesystem::path directory);
+    SessionStateDecode load() const;
+    SaveResult save(const SessionState &state) const;
+
+  private:
+    std::filesystem::path directory_;
+};
 
 } // namespace mirage::runtime::persistence

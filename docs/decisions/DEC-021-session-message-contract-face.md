@@ -198,3 +198,6 @@
 旧驱动不得在该通知后继续等待同一串行域，否则两 worker 配置可能占满普通池，
 使新驱动 begin_operation 的有界等待失败。wire、取消契约、序号与背压策略不变。
 验收见 [任务终态通知](../compatibility/task-terminal-notification-20261008.md)。
+
+2026-10-18：[DEC-101](DEC-101-session-files-and-unlimited-count.md) 局部替代默认会话
+数量与合并文件约定：默认不限制个数，每会话独立 JSON，非零显式服务容量仍生效。

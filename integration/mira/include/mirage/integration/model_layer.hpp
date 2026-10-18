@@ -123,7 +123,8 @@ struct DialogCompletion {
     std::string reply_text;
     std::uint64_t model_steps = 0;
     std::uint64_t tool_calls = 0;
-    std::optional<std::uint64_t> input_tokens; // final successful request, provider reported
+    std::optional<std::uint64_t> input_tokens; // final successful request's input usage
+    bool input_tokens_estimated = false;       // DEC-102: local request estimate, display only
     std::uint64_t context_window_tokens = 0;
     std::string usage_model;
     std::vector<conversation::Part> parts = {};

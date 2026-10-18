@@ -12,6 +12,7 @@
 #include <kairo/executor.hpp>
 #include <map>
 #include <mira/json.hpp>
+#include <mira/model_budget.hpp>
 #include <mira/model_digest.hpp>
 #include <mira/model_provider.hpp>
 #include <mira/model_tool.hpp>
@@ -59,6 +60,7 @@ class Provider final : public mira::IModelProvider {
                     input_text += text->text + "\n";
         wire.publish(std::move(input_text));
         const int number = ++calls;
+        last_input_estimate.store(mira::estimate_input_tokens(request));
         // M9-03 deterministic failure mode: once armed with an absolute call
         // number, that call and every later one return an unrecoverable
         // provider error (retryable=false), so the pinned Continuous loop
@@ -109,8 +111,10 @@ class Provider final : public mira::IModelProvider {
         reply.profile_id = profile_.id;
         reply.requested_model = profile_.model_selector;
         if (report_usage.load()) {
-            reply.usage.quality = mira::UsageQuality::ProviderReported;
-            reply.usage.input_tokens = static_cast<std::uint64_t>(number * 1234);
+            reply.usage.quality = usage_quality.load();
+            if (!omit_input_usage.load())
+                reply.usage.input_tokens =
+                    zero_input_usage.load() ? 0 : static_cast<std::uint64_t>(number * 1234);
             reply.usage.output_tokens = 100;
         }
         reply.status = context.cancelled_or_expired(mira::Timestamp::now())
@@ -181,6 +185,9 @@ class Provider final : public mira::IModelProvider {
     std::atomic<std::uint64_t> last_output_tokens{0};
     std::atomic_bool saw_high{false}, old_reply{false}, last_caller_cancelled{false};
     std::atomic_bool report_usage{true};
+    std::atomic<mira::UsageQuality> usage_quality{mira::UsageQuality::ProviderReported};
+    std::atomic_bool zero_input_usage{false}, omit_input_usage{false};
+    std::atomic<std::uint64_t> last_input_estimate{0};
     std::atomic_int wait_duration{1}, remaining_tools{0};
     std::atomic_int fail_on_call{0}; // 0 = disabled; absolute provider call number
     std::atomic_bool force_tool{false}, large_thinking{false};
@@ -724,7 +731,8 @@ int main(int argc, char **argv) {
                      std::min<std::chrono::milliseconds>(config.model.request_deadline, 60s) &&
                  provider->profile_.deadlines.tls == std::chrono::milliseconds{20'000} &&
                  provider->profile_.deadlines.write == std::chrono::milliseconds{30'000});
-    MIRAGE_CHECK(turn && turn->context_usage && turn->context_usage->input_tokens == 2468);
+    MIRAGE_CHECK(turn && turn->context_usage && turn->context_usage->input_tokens == 2468 &&
+                 !turn->context_usage->estimated);
     MIRAGE_CHECK(turn && turn->context_usage && turn->context_usage->window_tokens == 32768);
     if (turn) {
         ipc::ChatTurnUpdatedEvent update;
@@ -763,7 +771,11 @@ int main(int argc, char **argv) {
     provider->report_usage.store(false);
     MIRAGE_CHECK(client.call(ipc::SessionChatRequest{session, "缺失Token用量", true}, 2s).ok);
     const auto missing_usage = wait_turn(client, session);
-    MIRAGE_CHECK(missing_usage && missing_usage->status == "ok" && !missing_usage->context_usage);
+    MIRAGE_CHECK(missing_usage && missing_usage->status == "ok" && missing_usage->context_usage &&
+                 missing_usage->context_usage->estimated &&
+                 missing_usage->context_usage->input_tokens ==
+                     provider->last_input_estimate.load() &&
+                 missing_usage->context_usage->input_tokens > 0);
     // DEC-039: replace the last settled pair, preserving earlier context.
     provider->old_reply.store(false);
     const auto obsolete = missing_usage->turn_id;
@@ -1445,11 +1457,8 @@ int main(int argc, char **argv) {
     const auto primary_history = client.call(ipc::ChatHistoryRequest{primary_session, 40}, 2s);
     MIRAGE_CHECK(primary_history.ok &&
                  std::get<ipc::DialogHistory>(primary_history.payload).turns.empty());
-    const auto persisted_sessions = persistence::decode_session_state(
-        persistence::LocalStateStore(config.session_state_directory, "session-state.json",
-                                     persistence::kMaxSessionStateFileBytes)
-            .load()
-            .body);
+    const auto persisted_sessions =
+        persistence::SessionStateStore(config.session_state_directory).load();
     MIRAGE_CHECK(persisted_sessions.ok &&
                  std::none_of(persisted_sessions.state.sessions.begin(),
                               persisted_sessions.state.sessions.end(),
@@ -1564,10 +1573,8 @@ int main(int argc, char **argv) {
     service.request_shutdown();
     MIRAGE_CHECK(service.run().clean);
     // DEC-046 regression: old releases persisted empty primary sessions at every restart.
-    persistence::LocalStateStore recovered_disk(config.session_state_directory,
-                                                "session-state.json",
-                                                persistence::kMaxSessionStateFileBytes);
-    auto ghost_recovery = persistence::decode_session_state(recovered_disk.load().body);
+    persistence::SessionStateStore recovered_disk(config.session_state_directory);
+    auto ghost_recovery = recovered_disk.load();
     MIRAGE_CHECK(ghost_recovery.ok);
     for (int i = 0; i < 16; ++i) {
         persistence::PersistedSession ghost;
@@ -1575,7 +1582,7 @@ int main(int argc, char **argv) {
         ghost.created_at_ms = i + 1;
         ghost_recovery.state.sessions.push_back(std::move(ghost));
     }
-    MIRAGE_CHECK(recovered_disk.save(persistence::encode_session_state(ghost_recovery.state)).ok);
+    MIRAGE_CHECK(recovered_disk.save(ghost_recovery.state).ok);
     {
         mirage::runtime::RuntimeService restarted(config);
         MIRAGE_CHECK(restarted.start(binding).ok);
@@ -1640,7 +1647,7 @@ int main(int argc, char **argv) {
         MIRAGE_CHECK(restarted.run().clean);
     }
     for (int restart = 0; restart < 3; ++restart) {
-        const auto before = persistence::decode_session_state(recovered_disk.load().body);
+        const auto before = recovered_disk.load();
         MIRAGE_CHECK(before.ok);
         mirage::runtime::RuntimeService restarted(config);
         MIRAGE_CHECK(restarted.start(binding).ok);
@@ -1652,7 +1659,7 @@ int main(int argc, char **argv) {
         MIRAGE_CHECK(reopened_draft.ok);
         restarted.request_shutdown();
         MIRAGE_CHECK(restarted.run().clean);
-        const auto after = persistence::decode_session_state(recovered_disk.load().body);
+        const auto after = recovered_disk.load();
         MIRAGE_CHECK(after.ok && after.state.sessions.size() == before.state.sessions.size());
     }
     mirage::native_ui::RuntimeBridge unavailable([] {}, (dir.root() / "absent.sock").string());
@@ -1748,16 +1755,14 @@ int main(int argc, char **argv) {
                 MIRAGE_CHECK(budget_service.run().clean);
             }
         }
-        persistence::LocalStateStore budget_disk(budget_config.session_state_directory,
-                                                 "session-state.json",
-                                                 persistence::kMaxSessionStateFileBytes);
+        persistence::SessionStateStore budget_disk(budget_config.session_state_directory);
         const auto loaded_budget = budget_disk.load();
         // DEC-098 preserves about 4 KiB of recent thinking per turn. Use 24
         // turns so the existing >512 KiB persistence boundary remains covered
         // after JSON escaping, rather than weakening the capacity assertion.
-        MIRAGE_CHECK(loaded_budget.status == persistence::LoadStatus::Loaded &&
-                     loaded_budget.body.size() > 512 * 1024);
-        const auto decoded_budget = persistence::decode_session_state(loaded_budget.body);
+        MIRAGE_CHECK(loaded_budget.ok &&
+                     persistence::encode_session_state(loaded_budget.state).size() > 512 * 1024);
+        const auto &decoded_budget = loaded_budget;
         MIRAGE_CHECK(decoded_budget.ok && decoded_budget.state.sessions.size() == 1 &&
                      decoded_budget.state.sessions.front().chat_turns.size() == 24);
         {
@@ -1842,10 +1847,8 @@ int main(int argc, char **argv) {
             usage_service.request_shutdown();
             MIRAGE_CHECK(usage_service.run().clean);
         }
-        persistence::LocalStateStore usage_disk(usage_config.session_state_directory,
-                                                "session-state.json",
-                                                persistence::kMaxSessionStateFileBytes);
-        const auto usage_saved = persistence::decode_session_state(usage_disk.load().body);
+        persistence::SessionStateStore usage_disk(usage_config.session_state_directory);
+        const auto usage_saved = usage_disk.load();
         MIRAGE_CHECK(usage_saved.ok && usage_saved.state.sessions.size() == 1 &&
                      usage_saved.state.sessions.front().context_usage &&
                      usage_saved.state.sessions.front().context_usage->input_tokens ==
@@ -1866,18 +1869,25 @@ int main(int argc, char **argv) {
                          usage_history.context_usage->model == "usage-fixture" &&
                          usage_history.context_usage_sequence == usage_sequence);
             usage_provider->report_usage.store(false);
+            usage_provider->tool_first.store(true);
             MIRAGE_CHECK(
                 usage_client
                     .call(ipc::SessionChatRequest{usage_session, "新请求缺少用量", true}, 2s)
                     .ok);
             const auto usage_missing = wait_turn(usage_client, usage_session);
             MIRAGE_CHECK(usage_missing && usage_missing->status == "ok" &&
-                         !usage_missing->context_usage);
+                         usage_missing->context_usage && usage_missing->context_usage->estimated &&
+                         usage_missing->context_usage->input_tokens ==
+                             usage_provider->last_input_estimate.load() &&
+                         usage_provider->calls.load() == 2);
+            if (usage_missing && usage_missing->context_usage)
+                saved_tokens = usage_missing->context_usage->input_tokens;
             const auto usage_unknown =
                 usage_client.call(ipc::ChatHistoryRequest{usage_session, 1}, 2s);
             MIRAGE_CHECK(
                 usage_unknown.ok &&
-                !std::get<ipc::DialogHistory>(usage_unknown.payload).context_usage &&
+                std::get<ipc::DialogHistory>(usage_unknown.payload).context_usage &&
+                std::get<ipc::DialogHistory>(usage_unknown.payload).context_usage->estimated &&
                 std::get<ipc::DialogHistory>(usage_unknown.payload).context_usage_sequence ==
                     usage_missing->sequence);
             usage_sequence = usage_missing->sequence;
@@ -1891,8 +1901,44 @@ int main(int argc, char **argv) {
             const auto usage_response =
                 usage_client.call(ipc::ChatHistoryRequest{usage_session, 1}, 2s);
             const auto &usage_history = std::get<ipc::DialogHistory>(usage_response.payload);
-            MIRAGE_CHECK(usage_response.ok && !usage_history.context_usage &&
+            MIRAGE_CHECK(usage_response.ok && usage_history.context_usage &&
+                         usage_history.context_usage->estimated &&
+                         usage_history.context_usage->input_tokens == saved_tokens &&
                          usage_history.context_usage_sequence == usage_sequence);
+            for (const auto quality : {mira::UsageQuality::Estimated, mira::UsageQuality::Partial,
+                                       mira::UsageQuality::Missing}) {
+                usage_provider->usage_quality.store(quality);
+                MIRAGE_CHECK(
+                    usage_client
+                        .call(ipc::SessionChatRequest{usage_session, "不完整用量降级", true}, 2s)
+                        .ok);
+                const auto quality_turn = wait_turn(usage_client, usage_session);
+                MIRAGE_CHECK(quality_turn && quality_turn->status == "ok" &&
+                             quality_turn->context_usage &&
+                             quality_turn->context_usage->estimated &&
+                             quality_turn->context_usage->input_tokens ==
+                                 usage_provider->last_input_estimate.load());
+            }
+            usage_provider->usage_quality.store(mira::UsageQuality::Exact);
+            usage_provider->zero_input_usage.store(true);
+            MIRAGE_CHECK(
+                usage_client.call(ipc::SessionChatRequest{usage_session, "真实零用量", true}, 2s)
+                    .ok);
+            const auto zero_turn = wait_turn(usage_client, usage_session);
+            MIRAGE_CHECK(zero_turn && zero_turn->status == "ok" && zero_turn->context_usage &&
+                         !zero_turn->context_usage->estimated &&
+                         zero_turn->context_usage->input_tokens == 0);
+            usage_provider->omit_input_usage.store(true);
+            // Also cover the plain dialog path, independent of the harness loop.
+            MIRAGE_CHECK(
+                usage_client
+                    .call(ipc::SessionChatRequest{usage_session, "无输入字段的普通对话", false}, 2s)
+                    .ok);
+            const auto plain_turn = wait_turn(usage_client, usage_session);
+            MIRAGE_CHECK(plain_turn && plain_turn->status == "ok" && plain_turn->context_usage &&
+                         plain_turn->context_usage->estimated &&
+                         plain_turn->context_usage->input_tokens ==
+                             usage_provider->last_input_estimate.load());
             restarted_unknown.request_shutdown();
             MIRAGE_CHECK(restarted_unknown.run().clean);
         }

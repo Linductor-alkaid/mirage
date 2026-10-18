@@ -1101,7 +1101,8 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
             history.context_usage = ipc::ContextUsage{
                 static_cast<std::uint64_t>(vector_integer(*usage, "input_tokens")),
                 static_cast<std::uint64_t>(vector_integer(*usage, "window_tokens")),
-                vector_string(*usage, "model")};
+                vector_string(*usage, "model"),
+                usage->find("estimated") ? vector_boolean(*usage, "estimated") : false};
         const auto *turns = vector_member(value, "turns").as_array();
         MIRAGE_CHECK(turns != nullptr);
         if (turns != nullptr) {
@@ -1475,6 +1476,8 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                 MIRAGE_CHECK(actual_value.context_usage.has_value() ==
                              expected_value.context_usage.has_value());
                 if (actual_value.context_usage && expected_value.context_usage) {
+                    MIRAGE_CHECK(actual_value.context_usage->estimated ==
+                                 expected_value.context_usage->estimated);
                     MIRAGE_CHECK(actual_value.context_usage->input_tokens ==
                                  expected_value.context_usage->input_tokens);
                     MIRAGE_CHECK(actual_value.context_usage->window_tokens ==

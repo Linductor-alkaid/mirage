@@ -273,6 +273,56 @@ int main(int argc, char **argv) {
         return found;
     };
     {
+        const auto estimate_saved_usage = page.chat.current().context_usage;
+        const auto estimate_saved_popup = page.popup;
+        const auto estimate_saved_width = width;
+        const auto estimate_saved_height = height;
+        const auto estimate_saved_dark = page.dark;
+        for (const int estimate_viewport : {1180, 860}) {
+            width = estimate_viewport;
+            height = estimate_viewport == 1180 ? 800 : 620;
+            glfwSetWindowSize(window, width, height);
+            for (const bool estimate_dark : {false, true}) {
+                page.dark = estimate_dark;
+                page.popup = PageState::Popup::Context;
+                page.chat.current().context_usage =
+                    native_usage(ipc::ContextUsage{8192, 32768, "estimate-fixture", true});
+                frame();
+                MIRAGE_CHECK(element("composer.popup.context.percent")->text == "约 25%");
+                MIRAGE_CHECK(element("composer.popup.context.tokens")->text ==
+                             "约 8,192 / 32,768 Token");
+                MIRAGE_CHECK(element("composer.popup.context.source")->text ==
+                             "上次请求 · 本地估算");
+                const auto estimate_bounds = element("composer.popup")->frame;
+                MIRAGE_CHECK(estimate_bounds.x >= 0 && estimate_bounds.y >= 0 &&
+                             estimate_bounds.x + estimate_bounds.width <= width &&
+                             estimate_bounds.y + estimate_bounds.height <= height);
+                capture("context-estimated-" + std::to_string(estimate_viewport) +
+                        (estimate_dark ? "-dark" : "-light"));
+                page.chat.current().context_usage->window_tokens = 0;
+                frame();
+                MIRAGE_CHECK(element("composer.popup.context.percent")->text == "未知");
+                MIRAGE_CHECK(element("composer.popup.context.tokens")->text ==
+                             "约 8,192 / 未知 Token");
+                MIRAGE_CHECK(element("composer.popup.context.source")->text ==
+                             "本地估算 · 窗口预算未知");
+                page.chat.current().context_usage =
+                    native_usage(ipc::ContextUsage{0, 32768, "provider-fixture", false});
+                frame();
+                MIRAGE_CHECK(element("composer.popup.context.percent")->text == "0%");
+                MIRAGE_CHECK(element("composer.popup.context.source")->text ==
+                             "上次请求 · 模型输入用量");
+            }
+        }
+        page.chat.current().context_usage = estimate_saved_usage;
+        page.popup = estimate_saved_popup;
+        width = estimate_saved_width;
+        height = estimate_saved_height;
+        page.dark = estimate_saved_dark;
+        glfwSetWindowSize(window, width, height);
+        frame();
+    }
+    {
         std::vector<mirage::conversation::Part> parts{
             {"thought", "thinking", "complete", "先检查当前状态，再执行工具。"},
             {"call", "tool", "running", "", "wait", "{\"duration_ms\":1000}"}};
@@ -466,11 +516,15 @@ int main(int argc, char **argv) {
     frame();
     MIRAGE_CHECK(element(session_key + ".delete.visibility")->opacity == 0);
 
+    const auto previous_thread_cache = "thread." + std::to_string(session_id) + ".sentinel";
+    view->state<int>(previous_thread_cache) = 42;
     const auto history_count = page.chat.history_count();
     MIRAGE_CHECK(page.chat.new_draft());
     frame();
     MIRAGE_CHECK(element("thread.title")->text == "新对话" &&
                  page.chat.history_count() == history_count);
+    MIRAGE_CHECK(view->state<int>(previous_thread_cache) == 0);
+    MIRAGE_CHECK(page.thread_cache_session == page.chat.current().id);
     capture("title-new-draft");
     const auto second_session = page.chat.current().id;
     page.chat.apply_turn(second_session, "second", "ok", "另一段合成会话", "合成回复", {}, {}, 1);

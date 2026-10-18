@@ -106,15 +106,14 @@ struct TaskRegistry {
 /// primary session opened at start() and the ones admitted through
 /// session.open — with its registration wall-clock time. Service-memory
 /// state; the pinned runtime stays the session-state authority (session.list
-/// projects live views). Bounded by `capacity`; admission refuses at the
-/// bound instead of growing without bound (RULE-07). All access happens
-/// under `mutex`.
+/// projects live views). Nonzero `capacity` opts into a count limit (DEC-101).
+/// All access happens under `mutex`.
 struct SessionRegistry {
     std::mutex mutex;
     std::map<std::string, std::int64_t> created_at_ms;
-    std::size_t capacity = 16;
+    std::size_t capacity = 0; // DEC-101: zero means no session count limit.
 
-    bool full() const { return created_at_ms.size() >= capacity; }
+    bool full() const { return capacity != 0 && created_at_ms.size() >= capacity; }
     bool contains(const std::string &id) const { return created_at_ms.count(id) != 0; }
 };
 
@@ -216,15 +215,15 @@ struct SessionDialogLog {
     std::size_t max_turns = 200;
 };
 
-/// Dialog registry (DEC-027): per-session threads, bounded by `capacity`
-/// (sessions) and each log by its per-session turn bound with oldest-drop
+/// Dialog registry (DEC-027/101): nonzero `capacity` opts into a session
+/// count limit; each log has a per-session turn bound with oldest-drop
 /// trimming. All access happens under `mutex`.
 struct DialogRegistry {
     std::mutex mutex;
     std::map<std::string, SessionDialogLog> sessions;
-    std::size_t capacity = 16;
+    std::size_t capacity = 0; // DEC-101: zero means no session count limit.
 
-    bool full() const { return sessions.size() >= capacity; }
+    bool full() const { return capacity != 0 && sessions.size() >= capacity; }
 };
 
 /// Stable name of a MiraHost task progress state for IPC payloads.
