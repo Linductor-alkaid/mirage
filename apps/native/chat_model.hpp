@@ -69,11 +69,11 @@ struct LocalSession {
     std::uint64_t activity_order = 0;
 };
 
-// UI-thread-only, bounded preview state. IDs are never reused, and switching
-// sessions preserves drafts. This is not a parallel Runtime task state model.
+// UI-thread-only preview state with bounded per-session messages. IDs are never
+// reused, and switching sessions preserves drafts. This is not a parallel
+// Runtime task state model.
 class ChatModel {
   public:
-    static constexpr std::size_t max_sessions = 24;
     static constexpr std::size_t max_messages = 80;
     static constexpr std::size_t max_text_bytes = 16 * 1024;
 

@@ -1322,7 +1322,20 @@ void scenario_session_context_usage() {
         MIRAGE_CHECK(snapshot.turns.empty() && snapshot.context_usage_sequence == 7 &&
                      snapshot.context_usage && snapshot.context_usage->input_tokens == 8192 &&
                      snapshot.context_usage->window_tokens == 32768 &&
-                     snapshot.context_usage->model == "fixture");
+                     snapshot.context_usage->model == "fixture" &&
+                     !snapshot.context_usage->estimated);
+    }
+    history.context_usage->estimated = true;
+    const auto estimated = round_trip();
+    MIRAGE_CHECK(estimated.ok &&
+                 std::get<ipc::DialogHistory>(estimated.response.payload).context_usage->estimated);
+    response.payload = history;
+    auto invalid_estimate = ipc::encode_response(response);
+    const auto estimate_at = invalid_estimate.find("\"estimated\":true");
+    MIRAGE_CHECK(estimate_at != std::string::npos);
+    if (estimate_at != std::string::npos) {
+        invalid_estimate.replace(estimate_at, 16, "\"estimated\":\"true\"");
+        MIRAGE_CHECK(!ipc::decode_response(invalid_estimate).ok);
     }
     history.context_usage_sequence.reset();
     MIRAGE_CHECK(!round_trip().ok);

@@ -1,6 +1,7 @@
 add_library(mirage_runtime_persistence STATIC
     src/recovery.cpp
     src/session_state.cpp
+    src/session_store.cpp
     src/settings.cpp
     src/app_preferences.cpp
     # The DEC-011 store and its default paths are platform-selected

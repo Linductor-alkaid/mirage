@@ -73,10 +73,9 @@ struct ServiceConfig {
     std::size_t max_connections = 16;
     std::size_t max_steps_per_task = 64;
     std::size_t max_task_records = 256;
-    /// Session registry capacity (DEC-021): session.open fails closed with
-    /// the stable `unavailable` error at the bound instead of growing
-    /// without bound. The primary session counts against it.
-    std::size_t max_sessions = 25;
+    /// DEC-101: zero removes the session count limit. Nonzero values opt in
+    /// to an explicit capacity, including the primary session.
+    std::size_t max_sessions = 0;
     /// Upper bound for one session.history response; larger requested limits
     /// are clamped to it.
     std::size_t max_history_entries = 200;
@@ -152,8 +151,8 @@ struct ServiceConfig {
     /// document (tests).
     bool persist_settings = true;
     /// Session state persistence (M5-08, DEC-021 backlog ①): directory of
-    /// the `session-state.json` document. Empty selects the DEC-011 default
-    /// state directory (the recovery document's sibling).
+    /// the per-session `sessions/<id>.json` documents (DEC-101). Empty selects
+    /// the DEC-011 default state directory (the recovery document's sibling).
     std::filesystem::path session_state_directory;
     /// M10-06 (DEC-095): controlled storage root for retained command
     /// output (basic agent tools). Empty keeps exec preview-only — the

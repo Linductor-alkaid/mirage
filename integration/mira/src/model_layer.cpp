@@ -378,14 +378,18 @@ class ToolFailureTracker final {
 } // namespace
 
 void capture_context_usage(DialogCompletion &completion, const mira::ModelResponse &response,
-                           const ModelLayerConfig &config) {
-    if (response.usage.quality == mira::UsageQuality::Exact ||
-        response.usage.quality == mira::UsageQuality::ProviderReported) {
-        if (response.usage.input_tokens && *response.usage.input_tokens <= 2000000000)
-            completion.input_tokens = response.usage.input_tokens;
-        completion.context_window_tokens = config.context_window_tokens;
-        completion.usage_model = config.model_selector;
+                           const ModelLayerConfig &config,
+                           std::optional<std::uint64_t> request_estimate) {
+    if ((response.usage.quality == mira::UsageQuality::Exact ||
+         response.usage.quality == mira::UsageQuality::ProviderReported) &&
+        response.usage.input_tokens && *response.usage.input_tokens <= 2000000000) {
+        completion.input_tokens = response.usage.input_tokens;
+    } else if (request_estimate && *request_estimate <= 2000000000) {
+        completion.input_tokens = request_estimate;
+        completion.input_tokens_estimated = true;
     }
+    completion.context_window_tokens = config.context_window_tokens;
+    completion.usage_model = config.model_selector;
 }
 
 bool ModelLayerConfig::valid(std::string &error) const {
@@ -847,7 +851,7 @@ DialogCompletion ModelLayer::complete_dialog_turn(
         completion.error = "model returned no reply text";
         return finish();
     }
-    capture_context_usage(completion, response, impl_->config);
+    capture_context_usage(completion, response, impl_->config, capture.last_input_estimate);
     completion.ok = true;
     completion.reply_text = std::move(reply);
     return finish();
@@ -1404,7 +1408,7 @@ DialogCompletion ModelLayer::complete_harness_turn(
                           value.answer;
             mira::ModelResponse response;
             response.usage = value.last_usage;
-            capture_context_usage(completion, response, impl_->config);
+            capture_context_usage(completion, response, impl_->config, capture.last_input_estimate);
         }
     }
     return finish();

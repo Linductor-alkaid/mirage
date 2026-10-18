@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 22,
+    "version": 23,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
     "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted), DEC-038 (Accepted), DEC-039 (Accepted), DEC-045 (Accepted), DEC-051 (Accepted), DEC-066 (Accepted), DEC-080 (Accepted), DEC-084 (M8-01 first increment), DEC-089 (Accepted)",
@@ -32,7 +32,8 @@
       "v20 (M8-05): independent pet_start/pet_stop and owned pet_ready bootstrap; optional product pet_state/pet_diagnostic lifecycle, old vectors unchanged.",
       "v21 (DEC-085): session.tool_error carries one classified tool failure of a settled harness turn (stable error_code vocabulary); additive, legacy subscribers do not receive the new event.",
       "v21 (M8-11): optional hello.pet_bubbles and volatile pet bubble payload; old vectors keep byte-identical canonical strings. Thinking and final answer snapshots use independent model-request identity and a bounded relative hold duration.",
-      "v22 (M6-43 / DEC-036): optional session-level context_usage_sequence/context_usage survives history truncation and service restart; legacy wire strings unchanged."
+      "v22 (M6-43 / DEC-036): optional session-level context_usage_sequence/context_usage survives history truncation and service restart; legacy wire strings unchanged.",
+      "v23 (M6-45 / DEC-102): context_usage.estimated marks a local estimate of the final successful input request; absent means provider-reported. Legacy strings are unchanged."
     ]
   },
   "requests": [
@@ -2222,6 +2223,29 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":35,\"ok\":true,\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"context_usage_sequence\":0,\"turns\":[],\"truncated\":true}"
+    },
+    {
+      "name": "session-context-estimated",
+      "response": {
+        "id": 35,
+        "ok": true,
+        "payload": {
+          "kind": "session-chat-history",
+          "value": {
+            "session_id": "5a4b3c2d1e0f4938576a5b4c3d2e1f0a",
+            "context_usage_sequence": 1,
+            "context_usage": {
+              "input_tokens": 8192,
+              "window_tokens": 32768,
+              "model": "fixture",
+              "estimated": true
+            },
+            "turns": [],
+            "truncated": true
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":35,\"ok\":true,\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"context_usage_sequence\":1,\"context_usage\":{\"input_tokens\":8192,\"window_tokens\":32768,\"model\":\"fixture\",\"estimated\":true},\"turns\":[],\"truncated\":true}"
     }
   ],
   "response_failures": [
@@ -2539,6 +2563,21 @@
       "name": "session-context-negative-input",
       "payload": "{\"v\":1,\"id\":35,\"ok\":true,\"session_id\":\"s\",\"turns\":[],\"truncated\":false,\"context_usage_sequence\":1,\"context_usage\":{\"input_tokens\":-1,\"window_tokens\":32768,\"model\":\"fixture\"}}",
       "error": "invalid context_usage on dialog turn"
+    },
+    {
+      "name": "session-context-estimate-type-true",
+      "payload": "{\"v\":1,\"id\":35,\"ok\":true,\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"context_usage_sequence\":1,\"context_usage\":{\"input_tokens\":8192,\"window_tokens\":32768,\"model\":\"fixture\",\"estimated\":\"true\"},\"turns\":[],\"truncated\":true}",
+      "error": "invalid context_usage estimated flag"
+    },
+    {
+      "name": "session-context-estimate-type-1",
+      "payload": "{\"v\":1,\"id\":35,\"ok\":true,\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"context_usage_sequence\":1,\"context_usage\":{\"input_tokens\":8192,\"window_tokens\":32768,\"model\":\"fixture\",\"estimated\":1},\"turns\":[],\"truncated\":true}",
+      "error": "invalid context_usage estimated flag"
+    },
+    {
+      "name": "session-context-estimate-type-None",
+      "payload": "{\"v\":1,\"id\":35,\"ok\":true,\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"context_usage_sequence\":1,\"context_usage\":{\"input_tokens\":8192,\"window_tokens\":32768,\"model\":\"fixture\",\"estimated\":null},\"turns\":[],\"truncated\":true}",
+      "error": "invalid context_usage estimated flag"
     }
   ],
   "events": [

@@ -18,6 +18,7 @@
 #include <mirage/runtime/ipc/stream.hpp>
 #include <mirage/runtime/permission/permission.hpp>
 #include <mirage/runtime/persistence/settings.hpp>
+#include <mirage/runtime/persistence/session_state.hpp>
 #include <mirage/runtime/persistence/store.hpp>
 #include <mirage/runtime/runtime_service.hpp>
 
@@ -30,6 +31,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -1667,6 +1669,51 @@ void scenario_policy_face_get_set_persists() {
 /// dialog thread), the rebuilt dialog thread continues its sequence, and a
 /// closed session stays closed across the restart (the close must re-persist
 /// the snapshot — regression for the round-1 persist-point finding).
+void scenario_session_count_unlimited_and_legacy_restore() {
+    namespace persistence = mirage::runtime::persistence;
+    mirage::testing::TempDir dir;
+    auto config = make_config(dir);
+    MIRAGE_CHECK(config.max_sessions == 0);
+    persistence::SessionState state;
+    for (unsigned int i = 0; i < 80; ++i) {
+        char id[33];
+        std::snprintf(id, sizeof(id), "%032x", i + 1);
+        persistence::PersistedSession session;
+        session.id = id;
+        session.journal.push_back({"user", "", "历史消息", {}, 0});
+        state.sessions.push_back(std::move(session));
+    }
+    persistence::LocalStateStore legacy(config.session_state_directory, "session-state.json",
+                                        persistence::kMaxSessionStateFileBytes);
+    const auto original = persistence::encode_session_state(state);
+    MIRAGE_CHECK(legacy.save(original).ok);
+    // Explicit opt-in limits still fail closed without rewriting saved history.
+    auto limited = config;
+    limited.max_sessions = 25;
+    RuntimeService rejected(limited);
+    MIRAGE_CHECK(!rejected.start(make_binding(dir)).ok && legacy.load().body == original);
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+    ipc::IpcClient client(config.socket_path);
+    const auto restored = client.call(ipc::ListSessionsRequest{}, kCallBudget);
+    MIRAGE_CHECK(restored.ok && std::get<ipc::SessionList>(restored.payload).sessions.size() == 81);
+    for (int i = 0; i < 30; ++i)
+        MIRAGE_CHECK(client.call(ipc::OpenSessionRequest{}, kCallBudget).ok);
+    const auto listed = client.call(ipc::ListSessionsRequest{}, kCallBudget);
+    MIRAGE_CHECK(listed.ok && std::get<ipc::SessionList>(listed.payload).sessions.size() == 111);
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+    const auto persisted = persistence::SessionStateStore(config.session_state_directory).load();
+    MIRAGE_CHECK(persisted.ok && persisted.state.sessions.size() == 80);
+    RuntimeService restarted(config);
+    MIRAGE_CHECK(restarted.start(make_binding(dir)).ok);
+    ipc::IpcClient second(config.socket_path);
+    const auto again = second.call(ipc::ListSessionsRequest{}, kCallBudget);
+    MIRAGE_CHECK(again.ok && std::get<ipc::SessionList>(again.payload).sessions.size() == 81);
+    restarted.request_shutdown();
+    MIRAGE_CHECK(restarted.run().clean);
+}
+
 void scenario_session_state_round_trip_across_restart() {
     mirage::testing::TempDir dir;
     auto make_local_config = [&dir]() {
@@ -2549,6 +2596,8 @@ int main() {
                  scenario_policy_set_live_effect_and_fail_closed_persist);
     run_scenario("session_state_corrupt_document_degrades_loudly",
                  scenario_session_state_corrupt_document_degrades_loudly);
+    run_scenario("session_count_unlimited_and_legacy_restore",
+                 scenario_session_count_unlimited_and_legacy_restore);
     run_scenario("session_state_round_trip_across_restart",
                  scenario_session_state_round_trip_across_restart);
     run_scenario("session_chat_latch_and_failure", scenario_session_chat_latch_and_failure);

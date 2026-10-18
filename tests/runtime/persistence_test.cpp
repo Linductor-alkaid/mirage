@@ -893,6 +893,11 @@ void scenario_session_context_usage_validation() {
                  missing.state.sessions.front().context_usage_sequence == 3);
     saved.context_usage = persistence::PersistedContextUsage{0, 0, "model"};
     MIRAGE_CHECK(decode().ok); // Real zero and an unknown window remain distinct from no usage.
+    MIRAGE_CHECK(!decode().state.sessions.front().context_usage->estimated);
+    saved.context_usage = persistence::PersistedContextUsage{8192, 32768, "model", true};
+    const auto estimated = decode();
+    MIRAGE_CHECK(estimated.ok && estimated.state.sessions.front().context_usage->estimated &&
+                 estimated.state.sessions.front().context_usage->input_tokens == 8192);
     for (auto invalid : {persistence::PersistedContextUsage{2000000001, 32768, "model"},
                          persistence::PersistedContextUsage{1, 2047, "model"},
                          persistence::PersistedContextUsage{1, 2000001, "model"},
@@ -906,6 +911,8 @@ void scenario_session_context_usage_validation() {
         const std::string field :
         {R"("context_usage_sequence":-1)", R"("context_usage_sequence":"1")",
          R"("context_usage_sequence":1,"context_usage":null)",
+         R"("context_usage_sequence":1,"context_usage":{"input_tokens":1,"window_tokens":32768,"model":"m","estimated":"true"})",
+         R"("context_usage_sequence":1,"context_usage":{"input_tokens":1,"window_tokens":32768,"model":"m","estimated":1})",
          R"("context_usage_sequence":1,"context_usage":{"input_tokens":-1,"window_tokens":32768,"model":"m"})",
          R"("context_usage_sequence":1,"context_usage":{"input_tokens":1.5,"window_tokens":32768,"model":"m"})",
          R"("context_usage_sequence":1,"context_usage":{"input_tokens":1,"window_tokens":32768,"model":"m","extra":0})",
@@ -916,6 +923,142 @@ void scenario_session_context_usage_validation() {
 /// M5-08: the session state decode is strict — unknown members, unknown
 /// schema, non-settled turns, out-of-vocabulary journal kinds and
 /// out-of-bound texts fail loudly with a stable reason.
+persistence::PersistedSession session_fixture(unsigned int index) {
+    char id[33];
+    std::snprintf(id, sizeof(id), "%032x", index + 1);
+    persistence::PersistedSession session;
+    session.id = id;
+    session.created_at_ms = index + 100;
+    session.journal.push_back({"user", "task", "saved message", {}, 0});
+    return session;
+}
+
+void scenario_session_files_count_and_isolation() {
+    TempDir dir;
+    persistence::SessionStateStore store(dir.root());
+    MIRAGE_CHECK(store.load().ok && store.load().state.sessions.empty());
+    persistence::SessionState state;
+    for (unsigned int i = 0; i < 80; ++i)
+        state.sessions.push_back(session_fixture(i));
+    MIRAGE_CHECK(persistence::decode_session_state(persistence::encode_session_state(state)).ok);
+    MIRAGE_CHECK(store.save(state).ok);
+    const auto restored = store.load();
+    MIRAGE_CHECK(restored.ok && restored.error.empty() && restored.state.sessions.size() == 80);
+    for (const auto &session : state.sessions) {
+        persistence::LocalStateStore file(dir.root() / "sessions", session.id + ".json",
+                                          persistence::kMaxSessionStateFileBytes);
+        const auto decoded = persistence::decode_session_state(file.load().body);
+        MIRAGE_CHECK(decoded.ok && decoded.state.sessions.size() == 1 &&
+                     decoded.state.sessions.front().id == session.id);
+        MIRAGE_CHECK(file_mode(file.file_path()) == 0600);
+    }
+    MIRAGE_CHECK(file_mode(dir.root() / "sessions") == 0700);
+    const auto first_path = dir.root() / "sessions" / (state.sessions.front().id + ".json");
+    const auto stamp = std::filesystem::last_write_time(first_path) - std::chrono::hours{1};
+    std::filesystem::last_write_time(first_path, stamp);
+    MIRAGE_CHECK(store.save(state).ok);
+    MIRAGE_CHECK(std::filesystem::last_write_time(first_path) == stamp);
+    // A failed update preserves the previous per-session document.
+    const auto blocker = first_path.string() + ".tmp." + std::to_string(::getpid());
+    write_text_file(blocker, "reserved");
+    state.sessions.front().journal.front().text = "new text";
+    MIRAGE_CHECK(!store.save(state).ok);
+    MIRAGE_CHECK(store.load().state.sessions.front().journal.front().text == "saved message");
+    std::filesystem::remove(blocker);
+    MIRAGE_CHECK(store.save(state).ok);
+    state.sessions.erase(state.sessions.begin());
+    write_text_file(blocker, "reserved");
+    MIRAGE_CHECK(!store.save(state).ok);
+    MIRAGE_CHECK(store.load().state.sessions.size() == 80);
+    std::filesystem::remove(blocker);
+    MIRAGE_CHECK(store.save(state).ok);
+    MIRAGE_CHECK(persistence::SessionStateStore(dir.root()).load().state.sessions.size() == 79);
+    // A corrupt session is isolated and retained, including during subsequent saves.
+    const auto damaged = dir.root() / "sessions" / (state.sessions.front().id + ".json");
+    write_text_file(damaged, "{broken");
+    auto healthy = store.load();
+    MIRAGE_CHECK(healthy.ok && !healthy.error.empty() && healthy.state.sessions.size() == 78);
+    MIRAGE_CHECK(store.save(healthy.state).ok);
+    persistence::LocalStateStore damaged_file(damaged.parent_path(), damaged.filename().string(),
+                                              persistence::kMaxSessionStateFileBytes);
+    MIRAGE_CHECK(damaged_file.load().body == "{broken");
+    // A valid document under the wrong identity is also quarantined.
+    MIRAGE_CHECK(damaged_file
+                     .save(persistence::encode_session_state(
+                         {persistence::kSessionStateSchema, {session_fixture(100)}}))
+                     .ok);
+    MIRAGE_CHECK(store.load().error.find("identity disagree") != std::string::npos);
+    std::filesystem::remove(damaged);
+    std::filesystem::create_symlink(first_path, damaged);
+    MIRAGE_CHECK(store.load().error.find("regular file") != std::string::npos);
+    MIRAGE_CHECK(store.save(healthy.state).ok && std::filesystem::is_symlink(damaged));
+    write_text_file(dir.root() / "sessions" / "foreign.json", "{}");
+    write_text_file(dir.root() / "sessions" / (state.sessions.back().id + ".json.tmp.1"), "{");
+    MIRAGE_CHECK(store.load().state.sessions.size() == 78);
+    auto invalid = healthy.state;
+    invalid.sessions.front().id = "../escape";
+    MIRAGE_CHECK(!store.save(invalid).ok);
+    invalid = healthy.state;
+    invalid.sessions.push_back(invalid.sessions.front());
+    MIRAGE_CHECK(!store.save(invalid).ok);
+}
+
+void scenario_session_files_migration_retry() {
+    TempDir dir;
+    persistence::LocalStateStore legacy(dir.root(), "session-state.json",
+                                        persistence::kMaxSessionStateFileBytes);
+    persistence::SessionState original;
+    original.sessions = {session_fixture(1), session_fixture(2)};
+    const auto body = persistence::encode_session_state(original);
+    MIRAGE_CHECK(legacy.save(body).ok);
+    persistence::SessionStateStore store(dir.root());
+    MIRAGE_CHECK(store.load().state.sessions.size() == 2);
+    // Stage files, but fail the final format switch: restart still reads legacy.
+    const auto blocker = legacy.file_path().string() + ".tmp." + std::to_string(::getpid());
+    write_text_file(blocker, "reserved");
+    auto edited = original;
+    edited.sessions.front().journal.front().text = "edited during migration";
+    MIRAGE_CHECK(!store.save(edited).ok && legacy.load().body == body);
+    const auto restarted = persistence::SessionStateStore(dir.root()).load();
+    MIRAGE_CHECK(restarted.ok &&
+                 restarted.state.sessions.front().journal.front().text == "saved message");
+    std::filesystem::remove(blocker);
+    // A staged session omitted on retry must not resurrect after format switch.
+    original.sessions.erase(original.sessions.begin());
+    MIRAGE_CHECK(store.save(original).ok);
+    const auto migrated = persistence::SessionStateStore(dir.root()).load();
+    MIRAGE_CHECK(migrated.ok && migrated.state.sessions.size() == 1 &&
+                 migrated.state.sessions.front().id == original.sessions.front().id);
+    MIRAGE_CHECK(!persistence::decode_session_state(legacy.load().body).ok);
+    // A malformed legacy file is preserved; ordinary saves cannot overwrite it.
+    TempDir broken;
+    persistence::LocalStateStore bad(broken.root(), "session-state.json", 1024);
+    MIRAGE_CHECK(bad.save("{").ok);
+    persistence::SessionStateStore bad_store(broken.root());
+    MIRAGE_CHECK(!bad_store.load().ok && !bad_store.save({}).ok && bad.load().body == "{");
+}
+
+void scenario_session_files_independent_byte_budget() {
+    TempDir dir;
+    persistence::SessionState state;
+    for (unsigned int i = 0; i < 3; ++i) {
+        auto session = session_fixture(i);
+        session.journal.assign(200, {"user", "task", std::string(16 * 1024, 'x'), {}, 0});
+        state.sessions.push_back(std::move(session));
+    }
+    MIRAGE_CHECK(persistence::encode_session_state(state).size() >
+                 persistence::kMaxSessionStateFileBytes);
+    persistence::SessionStateStore store(dir.root());
+    MIRAGE_CHECK(store.save(state).ok);
+    const auto loaded = store.load();
+    MIRAGE_CHECK(loaded.ok && loaded.error.empty() && loaded.state.sessions.size() == 3 &&
+                 loaded.state.sessions.back().journal.size() == 200);
+    state.sessions.back().journal.assign(600, state.sessions.back().journal.front());
+    MIRAGE_CHECK(!store.save(state).ok);
+    const auto retained = store.load();
+    MIRAGE_CHECK(retained.ok && retained.state.sessions.back().journal.size() == 200);
+}
+
 void scenario_session_state_strict_rejections() {
     struct Case {
         const char *body;
@@ -1080,6 +1223,10 @@ int main() {
     run_scenario("basic_tools_settings_round_trip", scenario_basic_tools_settings_round_trip);
     run_scenario("basic_tools_strict_decode", scenario_basic_tools_strict_decode);
     run_scenario("confirmation_ipc_mode_round_trip", scenario_confirmation_ipc_mode_round_trip);
+    run_scenario("session_files_count_and_isolation", scenario_session_files_count_and_isolation);
+    run_scenario("session_files_migration_retry", scenario_session_files_migration_retry);
+    run_scenario("session_files_independent_byte_budget",
+                 scenario_session_files_independent_byte_budget);
     run_scenario("session_state_round_trip", scenario_session_state_round_trip);
     run_scenario("session_context_usage_validation", scenario_session_context_usage_validation);
     run_scenario("session_state_strict_rejections", scenario_session_state_strict_rejections);

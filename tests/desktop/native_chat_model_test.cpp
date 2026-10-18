@@ -294,10 +294,10 @@ int main() {
     MIRAGE_CHECK(model.current().id == second);
     MIRAGE_CHECK(model.current().draft == "第二个会话");
     MIRAGE_CHECK(!model.clear_session(99999));
-    for (std::size_t i = 2; i < ChatModel::max_sessions; ++i)
+    for (std::size_t i = 2; i < 100; ++i)
         MIRAGE_CHECK(model.create_session());
-    MIRAGE_CHECK(!model.create_session());
-    MIRAGE_CHECK(model.sessions().size() == ChatModel::max_sessions);
+    MIRAGE_CHECK(model.create_session());
+    MIRAGE_CHECK(model.sessions().size() == 101);
     ChatModel unicode;
     unicode.set_draft("一二三四五六七八九十一二三四五六七八九十");
     unicode.submit();

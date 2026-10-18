@@ -596,6 +596,7 @@ struct ContextUsage {
     std::uint64_t input_tokens = 0;
     std::uint64_t window_tokens = 0; // 0 unknown
     std::string model;
+    bool estimated = false; // DEC-102: local request estimate; omitted on the wire when false
 };
 
 struct DialogTurnEntry {

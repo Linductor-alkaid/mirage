@@ -334,6 +334,8 @@ mira::JsonValue encode_context_usage(const ContextUsage &usage) {
     put(object, "input_tokens", static_cast<std::int64_t>(usage.input_tokens));
     put(object, "window_tokens", static_cast<std::int64_t>(usage.window_tokens));
     put(object, "model", usage.model);
+    if (usage.estimated)
+        put(object, "estimated", true);
     return object;
 }
 
@@ -353,6 +355,14 @@ bool decode_context_usage(const mira::JsonValue &object, const std::string &stat
     }
     usage = ContextUsage{static_cast<std::uint64_t>(*input), static_cast<std::uint64_t>(*window),
                          *model};
+    if (const auto *estimated = member(*value, "estimated")) {
+        const auto flag = estimated->as_boolean();
+        if (!flag) {
+            error = "invalid context_usage estimated flag";
+            return false;
+        }
+        usage->estimated = *flag;
+    }
     return true;
 }
 

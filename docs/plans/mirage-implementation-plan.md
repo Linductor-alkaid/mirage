@@ -758,3 +758,21 @@ Windows及上游评审另验，详见[性能记录](../compatibility/native-inpu
 历史截断仍可读取，失败/取消、未知与旧事件语义有界；Native Release构建和定向回归、
 ASAN/UBSAN/TSAN通过。实机与Windows补跑保持开放，见
 [M6工作项](m6-native-frontend.md)及[验收记录](../compatibility/native-context-usage-20261004.md#2026-10-18m6-43-会话自身保存用量快照)。
+
+2026-10-18 / M6-44：按维护者要求取消原生及服务的默认会话数量限制，逐会话 JSON
+存储与旧文件迁移由 [DEC-101](../decisions/DEC-101-session-files-and-unlimited-count.md)
+约束。Linux 实现、迁移/回滚和原生缓存回归通过，Release/ASAN/UBSAN 五类测试及
+TSAN 三类测试通过；Windows 与真实桌面保持开放，见 [M6](m6-native-frontend.md)
+和[验收记录](../compatibility/session-files-20261018.md)。
+
+
+2026-10-18 / M6-44实机补验：完整产品重新构建、启动并正常退出重开；用户8会话19轮
+迁移后逐对象比对与备份一致，真实服务39会话准入通过且测试会话已清理，窗口与运行
+映像验证通过。Linux真实桌面缺口关闭，Windows仍开放，见
+[验收记录](../compatibility/session-files-20261018.md#2026-10-18真实-wayland-桌面启动与重启补验)。
+
+
+2026-10-18 / M6-45：按DEC-102补齐缺供应商usage时的请求输入估算，来源明确标注并
+随会话保存；Native Release产品已重建。Release定向、原生渲染与ASAN/UBSAN/TSAN
+通过，Windows和真实供应商缺usage仍待补跑，详见[M6计划](m6-native-frontend.md)与
+[上下文验收](../compatibility/native-context-usage-20261004.md#2026-10-18m6-45-无供应商用量时显示本地估算)。

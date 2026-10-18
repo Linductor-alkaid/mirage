@@ -31,10 +31,6 @@ std::string title_from(const std::string &text) {
 ChatModel::ChatModel() { create_session(); }
 
 bool ChatModel::create_session() {
-    if (sessions_.size() >= max_sessions) {
-        notice_ = "最多保留 24 个会话。请删除旧会话后重试。";
-        return false;
-    }
     sessions_.push_back(
         LocalSession{next_session_++, "新对话", {}, {}, 0, {}, false, false, {}, {}, {}, {}, 0});
     selected_ = sessions_.size() - 1;

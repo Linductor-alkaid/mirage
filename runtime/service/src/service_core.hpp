@@ -112,14 +112,14 @@ struct ServiceCore {
     /// Session state store (M5-08, DEC-021 backlog ①): the conversation
     /// journal, dialog threads and session registry persist here across
     /// restarts. Null when disabled (tests).
-    std::unique_ptr<mirage::runtime::persistence::LocalStateStore> session_state_store;
+    std::unique_ptr<mirage::runtime::persistence::SessionStateStore> session_state_store;
     /// Hydrated session ids (M5-08): sessions restored from the state
     /// document whose pinned counterpart is gone. History stays product state;
     /// native dialog can reopen a target below (DEC-039), while desktop task
     /// submission does not restore the previous pinned session.
     std::set<std::string> hydrated_sessions;
     // DEC-039: serial-context-only, lazily reopened native harness sessions.
-    // At most one target per capacity-bounded product session; never persisted.
+    // At most one target per product session; never persisted.
     std::map<std::string, std::string> harness_sessions;
     /// Raw journal append inputs (DEC-021 hydration surface): shadow the
     /// journal's appends with the raw inputs so the persisted document can
@@ -141,9 +141,8 @@ struct ServiceCore {
     std::string mirage_version;
     std::size_t max_steps_per_task = 64;
     std::size_t max_task_records = 256;
-    /// Session registry capacity (DEC-021): session.open fails closed at the
-    /// bound instead of growing without bound.
-    std::size_t max_sessions = 16;
+    /// Optional session count limit (DEC-101); zero disables the limit.
+    std::size_t max_sessions = 0; // DEC-101: unlimited unless explicitly configured.
     /// Upper bound for one session.history response, regardless of the
     /// requested limit.
     std::size_t max_history_entries = 200;

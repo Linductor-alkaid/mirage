@@ -945,7 +945,10 @@ pinned-free；保存走"临时文件 + fsync + 原子重命名"，目录 `0700`�
 并受明确字节预算约束（settings 64 KiB、recovery 4 MiB）。其余条目
 （Workspace Bindings、UI Layout 等）随对应里程碑落地。
 
-会话历史另由 `session-state.json`（schema 1、8 MiB 上限）保存。M6-43 / DEC-036
+会话历史按 DEC-101 分别保存到 `sessions/<id>.json`（schema 1、每文件 8 MiB），
+默认不限制会话个数。旧 `session-state.json` 在逐文件迁移完成后原子改为 schema 2
+格式标记；删除写入空数组墓碑，损坏文件隔离保留且不覆盖。单文件原子性沿用本地
+存储，不承诺跨会话事务。M6-43 / DEC-036
 在会话内增加可选 `context_usage` 与 `context_usage_sequence`，持有最近成功模型请求的
 输入 Token、当时窗口预算及模型 ID；成功缺用量和编辑替换推进序列并清空值，失败/取消
 保留旧值。该快照独立于有界轮次历史，复用结算、替换及停机保存路径和现有锁所有权，
@@ -1486,3 +1489,12 @@ source_sequence 与 CaptureLimits.newer_than_sequence 区分静态读屏和动�
 Oriented→Display 变换、融合、SoM、临时引用。候选不产生交互语义，动作门禁不变。
 模型预处理随清单明确配置；资源摘要进入 revision，每实例 source/worker 身份
 允许停止后重建。资源与包选项、验收边界见 DEC-097 和本次兼容性记录。
+
+
+## 会话上下文用量降级（DEC-102 / M6-45）
+
+在现有 integration ObservedProvider / ConversationCapture 中保留最近成功调用的
+Mira公开请求输入估算，不改变ModelResponse.usage。结算时优先供应商有效报告，
+缺失时以估算回填；`estimated` 来源标记随事件、历史与逐会话快照保存。原生界面明确
+标注估算，未知窗口仍不显示百分比。该路径不新增Executor任务或共享状态所有者，
+失败/取消与迟到事件语义沿DEC-036。详情见[DEC-102](../decisions/DEC-102-estimated-context-usage.md)。

@@ -167,6 +167,7 @@ struct PageState {
     std::uint64_t hovered_message = 0;
     std::uint64_t hovered_session = 0;
     std::vector<std::uint64_t> selection_cache_ids;
+    std::uint64_t thread_cache_session = 0;
     bool dark = false;
     bool reduced_motion = false;
     int font_size_step = 1;      // 0=小(12EM), 1=默认(14EM), 2=大(16EM); see font_size_em()
@@ -1682,7 +1683,7 @@ void appearance_page(eui::Ui &ui, float x, float width, const Palette &p) {
 std::optional<ContextUsage> native_usage(const std::optional<ipc::ContextUsage> &usage) {
     if (!usage)
         return {};
-    return ContextUsage{usage->input_tokens, usage->window_tokens, usage->model};
+    return ContextUsage{usage->input_tokens, usage->window_tokens, usage->model, usage->estimated};
 }
 void apply_model(bool enabled) {
     auto &v = state();
@@ -2970,6 +2971,13 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                        const components::theme::ThemeColorTokens &tokens) {
     auto &s = state();
     auto &session = s.chat.current();
+    // DEC-101: retain height/layout state only for the visible thread. Scroll
+    // offsets live in ChatModel, so the cache cannot grow with session count.
+    if (s.thread_cache_session != session.id) {
+        if (s.thread_cache_session)
+            ui.releaseStateScope("thread." + std::to_string(s.thread_cache_session));
+        s.thread_cache_session = session.id;
+    }
     for (const auto cached : s.selection_cache_ids)
         if (std::none_of(session.messages.begin(), session.messages.end(),
                          [cached](const auto &message) { return message.id == cached; }))
@@ -3846,18 +3854,21 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                         })
                         .build();
                 } else {
+                    const auto &usage = session.context_usage;
+                    const bool estimated = usage && usage->estimated;
                     text(ui, "composer.popup.context.title", "上下文", 16, 12, popup_width - 32, 28,
                          16, p.text, 500);
                     text(ui, "composer.popup.context.percent",
-                         usage_ratio ? context_percent(*usage_ratio) : "未知", popup_width - 96, 12,
-                         80, 28, 16, p.text, 500);
-                    const auto &usage = session.context_usage;
+                         usage_ratio ? (estimated ? "约 " : "") + context_percent(*usage_ratio)
+                                     : "未知",
+                         popup_width - 96, 12, 80, 28, 16, p.text, 500);
                     const auto summary =
-                        usage ? token_number(usage->input_tokens) + " / " +
-                                    (usage->window_tokens ? token_number(usage->window_tokens)
-                                                          : "未知") +
-                                    " Token"
-                              : "Token 用量尚不可用";
+                        usage
+                            ? (estimated ? "约 " : "") + token_number(usage->input_tokens) + " / " +
+                                  (usage->window_tokens ? token_number(usage->window_tokens)
+                                                        : "未知") +
+                                  " Token"
+                            : "Token 用量尚不可用";
                     text(ui, "composer.popup.context.tokens", summary, 16, 48, popup_width - 32, 28,
                          14, p.text);
                     ui.rect("composer.popup.context.track")
@@ -3875,9 +3886,11 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                             .radius(3)
                             .color(p.muted)
                             .build();
-                    const auto note = usage_ratio ? "上次请求 · 模型输入用量"
-                                      : usage     ? "请在模型设置中填写窗口预算"
-                                                  : "等待模型返回 Token 用量";
+                    const auto note = estimated     ? (usage_ratio ? "上次请求 · 本地估算"
+                                                                   : "本地估算 · 窗口预算未知")
+                                      : usage_ratio ? "上次请求 · 模型输入用量"
+                                      : usage       ? "请在模型设置中填写窗口预算"
+                                                    : "等待模型返回 Token 用量";
                     text(ui, "composer.popup.context.source", note, 16, 106, popup_width - 32, 24,
                          13, p.muted);
                     text(ui, "composer.popup.context.model",
