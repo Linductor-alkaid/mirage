@@ -945,6 +945,13 @@ pinned-free；保存走"临时文件 + fsync + 原子重命名"，目录 `0700`�
 并受明确字节预算约束（settings 64 KiB、recovery 4 MiB）。其余条目
 （Workspace Bindings、UI Layout 等）随对应里程碑落地。
 
+会话历史另由 `session-state.json`（schema 1、8 MiB 上限）保存。M6-43 / DEC-036
+在会话内增加可选 `context_usage` 与 `context_usage_sequence`，持有最近成功模型请求的
+输入 Token、当时窗口预算及模型 ID；成功缺用量和编辑替换推进序列并清空值，失败/取消
+保留旧值。该快照独立于有界轮次历史，复用结算、替换及停机保存路径和现有锁所有权，
+不新增任务或通信队列。重启后通过 `session.chat.history` 顶层快照恢复到原生 UI；
+协议边界与旧文件兼容行为见 [IPC 契约 DEC-036](mirage-ipc-protocol-v1.md#dec-036可选上下文用量投影m6-06)。
+
 ## 17. 推荐代码结构
 
 Mirage 的仓库可以围绕产品集成与桌面能力组织：

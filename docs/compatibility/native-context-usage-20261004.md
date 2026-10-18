@@ -49,3 +49,78 @@ UI点击入口和Escape关闭、主题和尺寸变化均实机执行。native DE
 Windows未执行（无目标环境）；负责人Mirage维护者，条件为Windows EUI dev构建及GUI
 真机验证比例/弹层/保存。实际IME无新增验证；本轮无新的异步或shutdown任务路径。
 未创建commit/MR，保留既有脏工作树。
+
+
+## 2026-10-18：M6-43 会话自身保存用量快照
+
+本轮替代上文“重启旧历史暂不保存用量”的限制；历史验收记录保留。
+依据更新后的 [DEC-036](../decisions/DEC-036-context-usage-presentation.md)。
+工作树基于 `0cd719c`，分支 `fix/session-context-usage`；Ubuntu 24.04.5 x86_64、
+GCC 13.3.0，Mira a29374aa、Mirador cb45a102、EUI 63117f77，依赖 pin 未变。
+
+会话拥有独立的 `context_usage` / `context_usage_sequence`，成功结算后经现有保存路径
+写入 `session-state.json`，服务启动恢复。历史响应在顶层传回快照，最近40轮不包含成功
+请求时仍能读取。失败/取消和普通 pending 保留上次成功值，成功缺用量清空旧值；编辑
+替换清空并推进序列，接纳回复尚无序列时 UI 也阻止旧值回流。同轮 pending 的迟到历史
+不能清除已结算事件的新用量。窗口预算与模型 ID 固定为该次请求的配置。
+
+复用 Mira ModelResponse.usage 的 Exact / ProviderReported 字段；MiraRuntime 的
+SessionSnapshot 不提供这类展示元数据，故由 Mirage 产品会话保存，不重建 Token 估算
+或 Agent 状态机。不新增异步任务、线程、队列或锁；快照受现有 dialogs.mutex 保护，
+存盘沿原有持久化 owner、字节上限及原子替换路径。
+
+### 实际验证
+
+```bash
+cmake --build --preset native-release --target persistence_test ipc_protocol_test ipc_protocol_golden_test native_chat_model_test native_agent_integration_test mirage-native mirage-service -j 4
+cmake --build --preset native-release --target runtime_service_test session_client_test -j 2
+ctest --preset native-release -R '^(persistence_test|ipc_protocol_test|ipc_protocol_golden_test|native_chat_model_test|native_agent_integration_test|runtime_service_test|session_client_test)$'
+cmake --build --preset asan --target persistence_test ipc_protocol_test ipc_protocol_golden_test native_chat_model_test native_agent_integration_test -j 3
+ASAN_OPTIONS=detect_leaks=1 ctest --preset asan -R '^(persistence_test|ipc_protocol_test|ipc_protocol_golden_test|native_chat_model_test|native_agent_integration_test)$'
+cmake --build --preset ubsan --target persistence_test ipc_protocol_test ipc_protocol_golden_test native_chat_model_test native_agent_integration_test -j 3
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ctest --preset ubsan -R '^(persistence_test|ipc_protocol_test|ipc_protocol_golden_test|native_chat_model_test|native_agent_integration_test)$'
+cmake --build --preset tsan --target persistence_test native_chat_model_test native_agent_integration_test -j 2
+TSAN_OPTIONS=halt_on_error=1 setarch x86_64 -R ctest --preset tsan -R '^(persistence_test|native_chat_model_test|native_agent_integration_test)$'
+```
+
+- Native Release：前端、service 及上述测试构建通过；定向7项与隔离fixture合计9/9通过。
+- ASAN（含 leak）与 UBSAN：各定向5项与fixture合计7/7通过，无 sanitizer 报告。
+- TSAN（halt_on_error，关闭 ASLR）：定向3项与fixture合计5/5通过，无 race 报告。
+- 首次 Release 编译发现新增测试变量触发 `-Wshadow`，已更名修复并重跑；最后的
+  接纳回复序列保护修改后，Release、ASAN、UBSAN 的模型目标均已重建并完成上述复跑。
+- 服务夹具执行真实本地 IPC、模型模拟返回、原子存盘与两次 RuntimeService 重启：
+  仅返回失败轮次的 `limit=1` 历史仍携带早先用量；另一空会话不串值；重启保留
+  input/window/model/sequence；后续成功缺用量及再次重启保持未知。
+- 模型测试覆盖会话切换、同轮结算后迟到 pending 历史、旧序列、无序列编辑接纳与显式
+  未知的保护。存储与协议覆盖缺字段兼容、零用量/未知预算、非法范围/类型及 golden v22。
+- 既有失败注入主动占用 session-state 临时文件，预期产生一次 persist failed 日志；
+  测试仍以0 failures结算，不能将该日志误判为未处理异常。
+- `git diff --check` 通过；公开头未引入第三方类型；第三方源码、pin 和锁文件未修改。
+
+### 验证范围与补跑
+
+本轮不改变圆环/详情的视觉布局，未新增实机截图、真实供应商请求或 Windows 验证；
+自动化证明 Linux 数据和恢复路径，原圆环视觉证据沿用上文。负责人为 Mirage 维护者：
+需要在 native 构建的实机中发送请求、关闭并重开服务、切换会话并检查圆环详情；Windows
+需在目标机先构建再执行相同流程。旧文件未保存的数据无法补算；默认显示未知，下一次
+成功请求返回用量后开始保存。未安装到用户系统、未创建 commit/MR。
+
+
+## 2026-10-18：更新并启动 native-release
+
+维护者要求“更新native-release”。执行完整产品目标，而非只重建前端：
+
+```bash
+cmake --build --preset native-release --target mirage-native-product -j 4
+./build/native-release/apps/mirage start --shell /home/linductor/mirage/build/native-release/apps/native/mirage-native --tray /home/linductor/mirage/build/native-release/apps/tray/mirage-tray
+./build/native-release/apps/mirage service status
+```
+
+构建与启动均成功，Runtime host status=running，托盘 PID945171、前端 PID945190。
+运行映像经 `/proc/<pid>/exe` 校验与本次构建路径/文件一致；前端 SHA-256：
+`23ec41baf0eefd211577346e35b0188b18afdb64ad9e28c32fe7063f7b8f7994`。
+既有桌面入口已经指向 native-release，未改写入口或安装系统 DEB；本轮启动前无运行中
+Mirage，因此无需终止用户任务。未发送模型任务、未修改模型配置。启动及映像证据位于
+`/tmp/mirage-context-native-release-start.log` 和
+`/tmp/mirage-context-native-release-running.json`。
+本轮仅验证启动与窗口映射；带真实新用量的重启恢复手动验收仍待维护者操作。

@@ -1094,6 +1094,14 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
         ipc::DialogHistory history;
         history.session_id = vector_string(value, "session_id");
         history.truncated = vector_boolean(value, "truncated");
+        if (value.find("context_usage_sequence"))
+            history.context_usage_sequence =
+                static_cast<std::uint64_t>(vector_integer(value, "context_usage_sequence"));
+        if (const auto *usage = value.find("context_usage"))
+            history.context_usage = ipc::ContextUsage{
+                static_cast<std::uint64_t>(vector_integer(*usage, "input_tokens")),
+                static_cast<std::uint64_t>(vector_integer(*usage, "window_tokens")),
+                vector_string(*usage, "model")};
         const auto *turns = vector_member(value, "turns").as_array();
         MIRAGE_CHECK(turns != nullptr);
         if (turns != nullptr) {
@@ -1462,6 +1470,18 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                 check_string_equal(name, "dialog session_id", actual_value.session_id,
                                    expected_value.session_id);
                 MIRAGE_CHECK(actual_value.truncated == expected_value.truncated);
+                MIRAGE_CHECK(actual_value.context_usage_sequence ==
+                             expected_value.context_usage_sequence);
+                MIRAGE_CHECK(actual_value.context_usage.has_value() ==
+                             expected_value.context_usage.has_value());
+                if (actual_value.context_usage && expected_value.context_usage) {
+                    MIRAGE_CHECK(actual_value.context_usage->input_tokens ==
+                                 expected_value.context_usage->input_tokens);
+                    MIRAGE_CHECK(actual_value.context_usage->window_tokens ==
+                                 expected_value.context_usage->window_tokens);
+                    check_string_equal(name, "context model", actual_value.context_usage->model,
+                                       expected_value.context_usage->model);
+                }
                 MIRAGE_CHECK(actual_value.turns.size() == expected_value.turns.size());
                 const std::size_t turn_count =
                     std::min(actual_value.turns.size(), expected_value.turns.size());

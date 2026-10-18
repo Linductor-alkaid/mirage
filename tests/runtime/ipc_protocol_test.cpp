@@ -1300,7 +1300,50 @@ void scenario_vision_configuration() {
     MIRAGE_CHECK(!ipc::decode_response(ipc::encode_response(response)).ok);
 }
 
+void scenario_session_context_usage() {
+    ipc::Response response;
+    response.id = 1;
+    response.ok = true;
+    ipc::DialogHistory history;
+    history.session_id = "session";
+    auto round_trip = [&] {
+        response.payload = history;
+        return ipc::decode_response(ipc::encode_response(response));
+    };
+    auto legacy = round_trip();
+    MIRAGE_CHECK(legacy.ok &&
+                 !std::get<ipc::DialogHistory>(legacy.response.payload).context_usage_sequence);
+    history.context_usage_sequence = 7;
+    history.context_usage = ipc::ContextUsage{8192, 32768, "fixture"};
+    const auto restored = round_trip();
+    MIRAGE_CHECK(restored.ok);
+    if (restored.ok) {
+        const auto &snapshot = std::get<ipc::DialogHistory>(restored.response.payload);
+        MIRAGE_CHECK(snapshot.turns.empty() && snapshot.context_usage_sequence == 7 &&
+                     snapshot.context_usage && snapshot.context_usage->input_tokens == 8192 &&
+                     snapshot.context_usage->window_tokens == 32768 &&
+                     snapshot.context_usage->model == "fixture");
+    }
+    history.context_usage_sequence.reset();
+    MIRAGE_CHECK(!round_trip().ok);
+    history.context_usage_sequence = 0;
+    MIRAGE_CHECK(!round_trip().ok);
+    history.context_usage.reset();
+    MIRAGE_CHECK(round_trip().ok);
+    history.context_usage_sequence = 8;
+    const auto unknown = round_trip();
+    MIRAGE_CHECK(
+        unknown.ok && !std::get<ipc::DialogHistory>(unknown.response.payload).context_usage &&
+        std::get<ipc::DialogHistory>(unknown.response.payload).context_usage_sequence == 8);
+    history.context_usage_sequence = static_cast<std::uint64_t>(-1);
+    MIRAGE_CHECK(!round_trip().ok);
+    history.context_usage_sequence = 9;
+    history.context_usage = ipc::ContextUsage{2000000001, 32768, "fixture"};
+    MIRAGE_CHECK(!round_trip().ok);
+}
+
 int main() {
+    scenario_session_context_usage();
     scenario_vision_configuration();
     run_scenario("chat_preview", scenario_chat_preview);
     run_scenario("framing_round_trip", scenario_framing_round_trip);

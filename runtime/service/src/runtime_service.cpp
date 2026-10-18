@@ -234,6 +234,10 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
                 record.recorded_at_ms = wall_now_ms(); // DEC-079: last canonical record update.
                 record.reply_text = event.reply_text;
                 record.context_usage = event.context_usage;
+                if (completion.ok) {
+                    log.context_usage = event.context_usage;
+                    log.context_usage_sequence = record.sequence;
+                }
                 record.error = event.error;
                 event.status = status;
                 event.user_text = record.user_text;
@@ -447,6 +451,12 @@ bool persist_session_state(const std::shared_ptr<ServiceCore> &core,
             }
             const auto dialogs = core->dialogs.sessions.find(session_id);
             if (dialogs != core->dialogs.sessions.end() && session_id != omit_session) {
+                const auto &log = dialogs->second;
+                session.context_usage_sequence = log.context_usage_sequence;
+                if (log.context_usage)
+                    session.context_usage = persistence::PersistedContextUsage{
+                        log.context_usage->input_tokens, log.context_usage->window_tokens,
+                        log.context_usage->model};
                 for (const auto &record : dialogs->second.turns) {
                     if (record.status == "pending") {
                         continue; // in-flight turns are not persisted
@@ -2638,6 +2648,10 @@ struct RuntimeService::Impl {
             record.status = "pending";
             record.user_text = request.text;
             record.sequence = log.next_sequence++;
+            if (previous_log) {
+                log.context_usage.reset();
+                log.context_usage_sequence = record.sequence;
+            }
             record.recorded_at_ms = wall_now_ms();
             log.in_flight_turn_id = record.turn_id;
             log.turns.push_back(record);
@@ -2770,6 +2784,8 @@ struct RuntimeService::Impl {
                 return;
             }
             auto &log = found->second;
+            history.context_usage = log.context_usage;
+            history.context_usage_sequence = log.context_usage_sequence;
             const std::size_t count = std::min(requested, log.turns.size());
             history.turns.reserve(count);
             auto encoded_size = [correlation_id](const ipc::DialogHistory &snapshot) {
@@ -2799,6 +2815,8 @@ struct RuntimeService::Impl {
                 entry.process_sequence = record.process_sequence;
                 ipc::DialogHistory sample;
                 sample.session_id = history.session_id;
+                sample.context_usage = history.context_usage;
+                sample.context_usage_sequence = history.context_usage_sequence;
                 sample.turns.push_back(entry);
                 const auto entry_bytes =
                     encoded_size(sample) - envelope_bytes + (history.turns.empty() ? 0 : 1);
@@ -3943,7 +3961,12 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
                     if (!session.chat_turns.empty()) {
                         std::lock_guard lock(impl_->core->dialogs.mutex);
                         auto &log = impl_->core->dialogs.sessions[session.id];
-                        std::uint64_t next_sequence = 1;
+                        log.context_usage_sequence = session.context_usage_sequence;
+                        if (session.context_usage)
+                            log.context_usage = ipc::ContextUsage{
+                                session.context_usage->input_tokens,
+                                session.context_usage->window_tokens, session.context_usage->model};
+                        std::uint64_t next_sequence = session.context_usage_sequence + 1;
                         for (const auto &turn : session.chat_turns) {
                             detail::DialogTurnRecord record;
                             record.turn_id = turn.turn_id;

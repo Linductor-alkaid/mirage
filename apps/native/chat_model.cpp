@@ -212,20 +212,31 @@ void ChatModel::cancel_edit() {
     session.edit_turn_id.clear();
 }
 void ChatModel::reconcile_turns(std::uint64_t id, const std::vector<std::string> &turns,
-                                std::uint64_t newest_sequence) {
+                                std::uint64_t newest_sequence, bool preserve_usage) {
     auto *session = find(id);
     if (!session || newest_sequence < session->latest_sequence)
         return;
     std::erase_if(session->messages, [&](const auto &message) {
         return std::find(turns.begin(), turns.end(), message.turn_id) == turns.end();
     });
-    session->context_usage.reset();
-    session->usage_sequence = 0;
+    if (!preserve_usage) {
+        session->context_usage.reset();
+        session->usage_sequence = 0;
+    }
 }
 void ChatModel::remove_reference(std::uint64_t message_id) {
     std::erase_if(current().references,
                   [message_id](const auto &r) { return r.message_id == message_id; });
     notice_.clear();
+}
+void ChatModel::apply_context_usage(std::uint64_t id, std::optional<ContextUsage> usage,
+                                    std::uint64_t sequence, std::uint64_t newest_sequence) {
+    auto *session = find(id);
+    if (!session || newest_sequence < session->latest_sequence ||
+        sequence < session->usage_sequence)
+        return;
+    session->context_usage = std::move(usage);
+    session->usage_sequence = sequence;
 }
 bool ChatModel::attach(std::uint64_t session_id, TextAttachment attachment,
                        std::optional<std::uint64_t> generation) {
@@ -318,7 +329,9 @@ void ChatModel::apply_turn(std::uint64_t id, const std::string &turn, const std:
             session->retired_turns.push_back(replaces);
         }
         session->context_usage.reset();
-        session->usage_sequence = sequence;
+        // The acceptance reply has no sequence; fence out the replaced turn's
+        // snapshot until its sequenced pending event/history arrives.
+        session->usage_sequence = sequence ? sequence : session->latest_sequence + 1;
     }
     if (session->messages.empty())
         session->title = title_from(user);

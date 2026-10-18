@@ -1780,6 +1780,123 @@ int main(int argc, char **argv) {
             }
         }
     }
+    // DEC-036 / M6-43: a session owns its usage snapshot independently of the returned turns.
+    {
+        mirage::testing::TempDir usage_dir;
+        auto usage_config = config;
+        usage_config.socket_path = (usage_dir.root() / "service.sock").string();
+        usage_config.settings_directory = usage_dir.root() / "settings";
+        usage_config.session_state_directory = usage_dir.root() / "state";
+        usage_config.persist_settings = false;
+        usage_config.model.enabled = true;
+        usage_config.model.endpoint_origin = "https://fixture.example";
+        usage_config.model.model_selector = "usage-fixture";
+        usage_config.model.context_window_tokens = 32768;
+        std::shared_ptr<Provider> usage_provider;
+        usage_config.model_provider_override = std::make_shared<integration::ModelProviderOverride>(
+            [&usage_provider](const mira::ModelProfile &profile) {
+                usage_provider = std::make_shared<Provider>(profile);
+                usage_provider->tool_first.store(false);
+                return usage_provider;
+            });
+        std::string usage_session;
+        std::uint64_t usage_sequence = 0, saved_tokens = 0;
+        {
+            mirage::runtime::RuntimeService usage_service(usage_config);
+            MIRAGE_CHECK(usage_service.start(binding).ok);
+            ipc::IpcClient usage_client(usage_config.socket_path);
+            const auto usage_opened = usage_client.call(ipc::OpenSessionRequest{}, 2s);
+            MIRAGE_CHECK(usage_opened.ok);
+            usage_session = std::get<ipc::SessionOpened>(usage_opened.payload).session_id;
+            MIRAGE_CHECK(
+                usage_client.call(ipc::SessionChatRequest{usage_session, "记录用量", true}, 2s).ok);
+            const auto usage_success = wait_turn(usage_client, usage_session);
+            MIRAGE_CHECK(usage_success && usage_success->status == "ok" &&
+                         usage_success->context_usage);
+            if (usage_success && usage_success->context_usage) {
+                saved_tokens = usage_success->context_usage->input_tokens;
+                usage_sequence = usage_success->sequence;
+            }
+            usage_provider->fail_on_call.store(usage_provider->calls.load() + 1);
+            MIRAGE_CHECK(
+                usage_client
+                    .call(ipc::SessionChatRequest{usage_session, "失败仍保留用量", true}, 2s)
+                    .ok);
+            const auto usage_failure = wait_turn(usage_client, usage_session);
+            MIRAGE_CHECK(usage_failure && usage_failure->status == "failed");
+            const auto usage_response =
+                usage_client.call(ipc::ChatHistoryRequest{usage_session, 1}, 2s);
+            const auto &usage_history = std::get<ipc::DialogHistory>(usage_response.payload);
+            MIRAGE_CHECK(
+                usage_response.ok && usage_history.truncated && usage_history.turns.size() == 1 &&
+                usage_history.turns.front().status == "failed" && usage_history.context_usage &&
+                usage_history.context_usage->input_tokens == saved_tokens &&
+                usage_history.context_usage_sequence == usage_sequence);
+            const auto usage_other = usage_client.call(ipc::OpenSessionRequest{}, 2s);
+            const auto usage_empty = usage_client.call(
+                ipc::ChatHistoryRequest{
+                    std::get<ipc::SessionOpened>(usage_other.payload).session_id, 1},
+                2s);
+            MIRAGE_CHECK(usage_empty.ok &&
+                         !std::get<ipc::DialogHistory>(usage_empty.payload).context_usage);
+            usage_service.request_shutdown();
+            MIRAGE_CHECK(usage_service.run().clean);
+        }
+        persistence::LocalStateStore usage_disk(usage_config.session_state_directory,
+                                                "session-state.json",
+                                                persistence::kMaxSessionStateFileBytes);
+        const auto usage_saved = persistence::decode_session_state(usage_disk.load().body);
+        MIRAGE_CHECK(usage_saved.ok && usage_saved.state.sessions.size() == 1 &&
+                     usage_saved.state.sessions.front().context_usage &&
+                     usage_saved.state.sessions.front().context_usage->input_tokens ==
+                         saved_tokens &&
+                     usage_saved.state.sessions.front().context_usage->window_tokens == 32768 &&
+                     usage_saved.state.sessions.front().context_usage->model == "usage-fixture");
+        {
+            mirage::runtime::RuntimeService restarted_usage(usage_config);
+            MIRAGE_CHECK(restarted_usage.start(binding).ok);
+            ipc::IpcClient usage_client(usage_config.socket_path);
+            const auto usage_response =
+                usage_client.call(ipc::ChatHistoryRequest{usage_session, 1}, 2s);
+            const auto &usage_history = std::get<ipc::DialogHistory>(usage_response.payload);
+            MIRAGE_CHECK(usage_response.ok && usage_history.turns.size() == 1 &&
+                         usage_history.context_usage &&
+                         usage_history.context_usage->input_tokens == saved_tokens &&
+                         usage_history.context_usage->window_tokens == 32768 &&
+                         usage_history.context_usage->model == "usage-fixture" &&
+                         usage_history.context_usage_sequence == usage_sequence);
+            usage_provider->report_usage.store(false);
+            MIRAGE_CHECK(
+                usage_client
+                    .call(ipc::SessionChatRequest{usage_session, "新请求缺少用量", true}, 2s)
+                    .ok);
+            const auto usage_missing = wait_turn(usage_client, usage_session);
+            MIRAGE_CHECK(usage_missing && usage_missing->status == "ok" &&
+                         !usage_missing->context_usage);
+            const auto usage_unknown =
+                usage_client.call(ipc::ChatHistoryRequest{usage_session, 1}, 2s);
+            MIRAGE_CHECK(
+                usage_unknown.ok &&
+                !std::get<ipc::DialogHistory>(usage_unknown.payload).context_usage &&
+                std::get<ipc::DialogHistory>(usage_unknown.payload).context_usage_sequence ==
+                    usage_missing->sequence);
+            usage_sequence = usage_missing->sequence;
+            restarted_usage.request_shutdown();
+            MIRAGE_CHECK(restarted_usage.run().clean);
+        }
+        {
+            mirage::runtime::RuntimeService restarted_unknown(usage_config);
+            MIRAGE_CHECK(restarted_unknown.start(binding).ok);
+            ipc::IpcClient usage_client(usage_config.socket_path);
+            const auto usage_response =
+                usage_client.call(ipc::ChatHistoryRequest{usage_session, 1}, 2s);
+            const auto &usage_history = std::get<ipc::DialogHistory>(usage_response.payload);
+            MIRAGE_CHECK(usage_response.ok && !usage_history.context_usage &&
+                         usage_history.context_usage_sequence == usage_sequence);
+            restarted_unknown.request_shutdown();
+            MIRAGE_CHECK(restarted_unknown.run().clean);
+        }
+    }
     // Force the finite model driver admission path to refuse before model work starts.
     kairo::Executor limited;
     kairo::ExecutorConfig small;

@@ -3,7 +3,7 @@
 > 状态：In Progress
 > 负责人：Mirage 维护者
 > 所属计划：[实施总计划](mirage-implementation-plan.md)
-> 更新日期：2026-10-17
+> 更新日期：2026-10-18
 > 决策：[DEC-033](../decisions/DEC-033-native-agent-frontend.md)
 > 前置：既有 M5 服务与 IPC；本轮交付不依赖完整 M5 发布验收。
 > 建议发布点：暂不新增发布标签。
@@ -18,6 +18,7 @@
 
 | 编号 | 状态 | 结果与验收 |
 | --- | --- | --- |
+| M6-43 | Completed（Linux 数据路径） | 按 DEC-036 保存会话自身的上下文用量快照，历史截断、切换、重连及服务重启后可读取；Release9/9、ASAN/UBSAN各7/7、TSAN5/5（含fixture）；实机与Windows待补跑，[证据](../compatibility/native-context-usage-20261004.md#2026-10-18m6-43-会话自身保存用量快照) |
 | M6-42 | In Progress | 本机性能矩阵已交付：EUI最新dev基础的字形缓存PR#114四项CI全绿，pin63117f7保留Windows修复；纯尺寸/封顶测量与公开历史高度缓存，12场景配对p50/p95均改善；16KB单段/40轮51.64→16.98ms。Release5/5、ASAN/UBSAN各4/4，实机/Windows及上游评审保持开放；[证据](../compatibility/native-input-performance-20261017.md) |
 | M6-01 | In Progress | EUI dev 完整提交锁定、bundled 构建、原生无边框窗口与窗口控制；Linux 构建/运行已取证，Windows 保持待验收 |
 | M6-02 | Completed | Linux 首步窄侧栏与对话页，本地会话/草稿/未发送消息、主题、滚动、容量限制；截图、模型测试与键鼠交互取证通过 |
@@ -701,3 +702,12 @@ compositor/物理高DPI/Windows验收由维护者取得目标环境后补跑，�
 前端和资源已重建并实际启动，exe摘要与新构建一致、窗口映射；定向6/6通过。
 CI新增性能用例构建/执行；本次PR仅含性能范围，保留同期pet工作树修改，详情见
 [启动与提交记录](../compatibility/native-input-performance-20261017.md)。
+
+
+2026-10-18 / M6-43 Linux数据路径完成：按维护者要求补齐会话自身的上下文占用存储，
+更新DEC-036、持久化/IPC契约及产品/原生设计。快照独立于最近40轮历史，成功缺用量
+清空并存盘；失败/取消保留旧值；编辑接纳与迟到历史不会恢复已失效用量。
+Native Release前端/service构建通过；Release定向7项+fixture 9/9，ASAN/UBSAN
+各5项+fixture 7/7，TSAN 3项+fixture 5/5。无第三方改动及新增并发设施。
+实机GUI与Windows本轮未执行，负责人维护者，补跑条件和完整命令见
+[上下文存储验收](../compatibility/native-context-usage-20261004.md#2026-10-18m6-43-会话自身保存用量快照)。

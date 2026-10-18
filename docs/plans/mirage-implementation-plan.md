@@ -6,7 +6,7 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-10-16（新增 M10 基础 Agent 工具集提案；既有里程碑状态保留）
+> 更新日期：2026-10-18（M6-43 会话上下文快照补齐；既有里程碑状态保留）
 
 ## 当前状态
 
@@ -752,3 +752,9 @@ M9-03/04 与真实长任务验收保持开放；证据和平台限制见
 63117f7保留旧Windows修复；原生历史接入公开高度缓存，12种输入场景p50/p95均
 改善，单段16KB/40轮51.64→16.98ms。Release5/5、ASAN/UBSAN各4/4；实机、
 Windows及上游评审另验，详见[性能记录](../compatibility/native-input-performance-20261017.md)。
+
+
+2026-10-18 / M6-43：会话上下文用量快照保存及重启恢复的Linux数据路径完成，
+历史截断仍可读取，失败/取消、未知与旧事件语义有界；Native Release构建和定向回归、
+ASAN/UBSAN/TSAN通过。实机与Windows补跑保持开放，见
+[M6工作项](m6-native-frontend.md)及[验收记录](../compatibility/native-context-usage-20261004.md#2026-10-18m6-43-会话自身保存用量快照)。

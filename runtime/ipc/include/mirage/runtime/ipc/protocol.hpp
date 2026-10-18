@@ -628,6 +628,10 @@ struct DialogHistory {
     std::string session_id;
     std::vector<DialogTurnEntry> turns;
     bool truncated = false;
+    // DEC-036: session snapshot independent of the returned turn range. Missing
+    // sequence denotes an older server; zero denotes no successful request yet.
+    std::optional<ContextUsage> context_usage = {};
+    std::optional<std::uint64_t> context_usage_sequence = {};
 };
 
 /// One conversation entry as reported by session.history (DEC-021).
