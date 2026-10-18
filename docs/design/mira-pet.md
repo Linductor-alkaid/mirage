@@ -299,7 +299,7 @@ owner 却只有缓存注册表时明确拒绝。五秒预算覆盖权限/采集/
 epoch 或视觉代次变化均拒绝成功，清理仍执行，见
 [观察入口证据](../compatibility/mira-pet-observation-20261018.md)。
 隐藏暂停的实现与隔离取证见[第三增量记录](../compatibility/mira-pet-hidden-presentation-20261018.md)。
-Portal/Wayland、Windows、compositor 重绘完成证明与硬件能耗仍待独立实施/验证，
+Windows、compositor 重绘完成证明与硬件能耗仍待独立实施/验证，
 不将 XSync 或空 shape 当作跨平台干净帧保证。
 
 另将隐藏退出/owner 失联检查从 30 秒 IPC 同步拆出到 200 ms kairo timer：保留
@@ -364,6 +364,36 @@ Runtime 串行控制状态，菜单通过 LatestMailbox 消费完整状态。具
 提示仍保留到新活动/安全状态；播放器完成不是新任务完成事件，也不会触发窗口退出。
 状态相同且 source/owner 不变时不重播，下一任务身份可重新播放；接管/取消可以立即
 打断，不为播放完整性延迟业务控制。本增量没有改变 IPC 或 Mira 的任务结算。
+
+## M8-06：GNOME Wayland 会话增量（DEC-105）
+
+当前 pet 仍是 XWayland 窗口。GNOME Wayland 会话通过严格所有权核验后撤下
+UTILITY pet，等待服务端 unmapped、WM_STATE WithdrawnState 和窗口管理器列表移除
+的共同确认。已隐藏窗口保持原状态；最后一个租约恢复原几何、置顶等 WM hints，
+不请求激活。GTK/其他窗口、主 UI 和 Overlay 不在白名单中。
+
+Host 显式共享 Platform PresentationContext，记录隐藏确认后的单调时钟水位。
+Portal 既有授权 stream 在新水位出现时重新激活、丢弃旧缓存；只接纳具有合法
+源 PTS、晚于水位的完整帧，不以收到帧的时刻或本地 sequence 代替源时间。
+缺时间戳、失败与超时向调用方可见，不降级到 XWayland 根截图。
+
+pet 的 UI owner 同时检查真实 map_state，处理撤下时没有 iconify 回调的情况，
+沿用既有隐藏暂停和 200ms 控制检查；没有增加线程、timer 或 wire 字段。
+GNOME 默认行为的正向实机证据、其他 compositor 与纯原生 Wayland pet 保持独立
+门禁，见 [DEC-105](../decisions/DEC-105-wayland-pet-exclusion.md) 和
+[验证记录](../compatibility/wayland-pet-exclusion-20261018.md)。
+
+## M8-06：避让能力降级（DEC-106）
+
+避让是可选平台能力：平台在修改任何窗口前判定支持情况，未知 Wayland
+compositor、无可识别 XWayland WM 或未编译对应 backend 时返回显式未排除的被动
+租约（`excluded()==false`），不发隐藏/移动/恢复请求并清除过期帧水位；截图、OCR
+等视觉 Provider 照常可用，桌宠保持可见。工具对象结果附加
+`pet_presentation={excluded:false,reason:unsupported_compositor,pixels_may_include_pet:true}`，
+直接 desktop.observe 在 `environment_state` 注明未排除，模型不得把这类截图当作
+已去除桌宠的干净帧。只有预先探测的能力不支持才降级；已支持 backend 上的身份
+校验失败、撤下失败、超时、取消、帧水位失败与恢复失败仍返回原错误。键鼠沿用
+原有遮挡和权限检查，见 [DEC-106](../decisions/DEC-106-optional-pet-exclusion.md)。
 
 ## 2026-10-13 增量：角色独立呈现与首轮播放
 

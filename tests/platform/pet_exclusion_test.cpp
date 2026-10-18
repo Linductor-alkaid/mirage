@@ -201,9 +201,18 @@ int main(int argc, char **argv) {
         MIRAGE_CHECK(!first.lease->verify({}).code.empty());
         MIRAGE_CHECK(first.lease->release().code.empty());
     }
+    // DEC-106: an unadapted Wayland session is an explicit passive fallback,
+    // not an error. The excluder here has no PresentationContext, so no
+    // watermark is asserted; wayland_pet_exclusion_test covers that.
     ::setenv("XDG_SESSION_TYPE", "wayland", 1);
-    refused = control->acquire({});
-    MIRAGE_CHECK(!refused.lease && !refused.error.code.empty());
+    auto passive = control->acquire({});
+    MIRAGE_CHECK(passive.lease && passive.error.code.empty() && !passive.lease->excluded());
+    if (passive.lease) {
+        MIRAGE_CHECK(passive.lease->verify({}).code.empty());
+        MIRAGE_CHECK(passive.lease->release().code.empty());
+        MIRAGE_CHECK(passive.lease->release().code.empty());
+        MIRAGE_CHECK(!passive.lease->verify({}).code.empty());
+    }
     ::setenv("XDG_SESSION_TYPE", "x11", 1);
     XDestroyWindow(display, target);
     XCloseDisplay(display);

@@ -17,6 +17,15 @@ struct FrameBuffer {
     spa_data plane{};
     spa_buffer buffer{};
     pw_buffer source{};
+    spa_meta_header header{};
+    spa_meta meta{};
+    void timestamp(std::int64_t pts, std::uint32_t flags = 0) {
+        header.pts = pts;
+        header.flags = flags;
+        meta = {SPA_META_Header, sizeof(header), &header};
+        buffer.n_metas = 1;
+        buffer.metas = &meta;
+    }
     explicit FrameBuffer(std::uint8_t value) {
         pixels.fill(value);
         chunk.size = 16;
@@ -111,6 +120,51 @@ int main() {
         MIRAGE_CHECK(!read_stream_frame(capture, {16}, {}).ok);
     }
     MIRAGE_CHECK(wire.recycled == 3 && wire.destroyed == 1);
+    wire = {};
+    {
+        // DEC-105: source time, not consumer receipt or local sequence,
+        // establishes whether pixels were made after the pet disappeared.
+        Capture capture;
+        capture.loop = pw_main_loop_new(nullptr);
+        capture.stream = reinterpret_cast<pw_stream *>(std::uintptr_t{1});
+        spa_list_init(&capture.listener.link);
+        capture.formatted = true;
+        capture.format.format = SPA_VIDEO_FORMAT_BGRA;
+        capture.format.size = {2, 2};
+        capture.state = PW_STREAM_STATE_STREAMING;
+        FrameBuffer frame(42);
+        auto offer = [&] {
+            wire.ready = {&frame.source, nullptr, nullptr, nullptr};
+            wire.index = 0;
+            process(&capture);
+        };
+        int ticks = 0;
+        desktop::CancelToken bounded([&] { return ++ticks >= 4; });
+        offer();
+        MIRAGE_CHECK(read_stream_frame(capture, {16}, {}, 10).error.code ==
+                     "pet_capture_fence_unavailable");
+        frame.timestamp(10);
+        offer();
+        ticks = 0;
+        MIRAGE_CHECK(read_stream_frame(capture, {16}, bounded, 10).cancelled);
+        MIRAGE_CHECK(!capture.latest && wire.recycled == 2);
+        frame.timestamp(11);
+        offer();
+        const auto fresh = read_stream_frame(capture, {16}, {}, 10);
+        MIRAGE_CHECK(fresh.ok && fresh.frame.pixels.front() == 42 && capture.latest_pts_ns == 11 &&
+                     wire.recycled == 3);
+        ticks = 0;
+        MIRAGE_CHECK(read_stream_frame(capture, {16}, bounded, 11).cancelled);
+        frame.timestamp(12, SPA_META_HEADER_FLAG_CORRUPTED);
+        offer();
+        MIRAGE_CHECK(read_stream_frame(capture, {16}, {}, 10).error.code ==
+                     "pet_capture_fence_unavailable");
+        frame.timestamp(INT64_MAX);
+        offer();
+        MIRAGE_CHECK(read_stream_frame(capture, {16}, {}, 10).error.code ==
+                     "pet_capture_fence_unavailable");
+        MIRAGE_CHECK(wire.recycled == 5 && !capture.pending);
+    }
     active_wire = nullptr;
     pw_deinit();
     return testing::finish("portal_stream_retention_test");

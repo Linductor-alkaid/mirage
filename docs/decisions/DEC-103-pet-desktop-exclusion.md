@@ -38,7 +38,10 @@ UI 呈现暂停契约停止渲染，状态仍只保留最新快照。
 该实现接入 conversational harness、workflow desktop atoms 和直接 IPC desktop.observe；
 普通主窗口、第三方遮挡和 Overlay 不进入排除白名单。原生 Wayland/Portal、Windows
 及 compositor 重绘确认属于独立后续门禁。Wayland 环境拒绝本排除能力，不将
-XWayland shape 当作 Portal 已获得干净新帧的证据。
+XWayland shape 当作 Portal 已获得干净新帧的证据。2026-10-18 后续按
+[DEC-105](DEC-105-wayland-pet-exclusion.md) 增加 GNOME Wayland / XWayland pet
+撤下与 Portal 源帧时间水位，独立保留真实 compositor 验收；其他 Wayland 组合按
+[DEC-106](DEC-106-optional-pet-exclusion.md) 显式降级为未排除被动租约，不再报错阻断。
 
 ### 直接 IPC 观察（2026-10-18 第二增量）
 

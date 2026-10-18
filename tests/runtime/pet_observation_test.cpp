@@ -28,13 +28,17 @@ enum class Fault {
 };
 struct State {
     std::atomic_bool hidden{false}, violation{false}, expect_hidden{true}, provider_throws{false};
+    std::atomic_bool passive{false};
     std::atomic_int admitted{0}, restored{0}, fronts{0}, captures{0}, authorizations{0};
     std::atomic<Fault> fault{Fault::None};
     std::function<void()> on_release; // pure synchronous helper fixtures only
 };
 class Lease final : public desktop::PresentationLease {
   public:
-    explicit Lease(State &state) : state_(state) { state_.hidden = true; }
+    explicit Lease(State &state) : state_(state), excluded_(!state.passive.load()) {
+        state_.hidden = excluded_;
+    }
+    bool excluded() const override { return excluded_; }
     ~Lease() override {
         try {
             (void)release();
@@ -69,6 +73,7 @@ class Lease final : public desktop::PresentationLease {
 
   private:
     State &state_;
+    bool excluded_;
     int verified_ = 0;
     bool done_ = false;
 };
@@ -149,7 +154,7 @@ class Pipeline final : public mirage::integration::EnvironmentVisualPipeline {
     refresh(bool analyze, const desktop::CancelToken &cancel,
             const std::optional<std::chrono::steady_clock::time_point> &deadline) override {
         ++state_.captures;
-        if (!state_.hidden || !analyze || !deadline || cancel.cancelled())
+        if ((state_.expect_hidden && !state_.hidden) || !analyze || !deadline || cancel.cancelled())
             state_.violation = true;
         if (on_capture)
             on_capture();
@@ -296,6 +301,20 @@ void helper_cases() {
     state.on_release = {};
     result = read();
     MIRAGE_CHECK(result.ok && !state.hidden && !state.violation);
+    // DEC-106: a really excluded lease must not carry the passive notice.
+    MIRAGE_CHECK(result.observation.environment_state.find("pet_presentation") ==
+                 std::string::npos);
+    state.passive = true;
+    state.expect_hidden = false;
+    const auto before_passive = state.captures.load();
+    result = read();
+    MIRAGE_CHECK(result.ok && !state.hidden && !state.violation &&
+                 state.captures == before_passive + 1);
+    MIRAGE_CHECK(result.observation.environment_state.find("pet_presentation=not_excluded") !=
+                     std::string::npos &&
+                 !result.observation.visual_snapshot_ref.empty());
+    allowed = false;
+    MIRAGE_CHECK(!read().ok && !state.hidden && state.captures == before_passive + 1);
 }
 class Tray final : public desktop::TrayCarrier {
   public:
@@ -391,7 +410,17 @@ void ipc_cases() {
     MIRAGE_CHECK(stopped);
     MIRAGE_CHECK(client.call(ipc::ProductControlRequest{"pet_start", 0, 0, 0}, 3s).ok);
     MIRAGE_CHECK(client.call(ipc::ProductControlRequest{"pet_ready", 0, 0, 777}, 3s).ok);
-    MIRAGE_CHECK(client.call(ipc::DesktopObserveRequest{}, 3s).ok && !state.hidden);
+    response = client.call(ipc::DesktopObserveRequest{}, 3s);
+    MIRAGE_CHECK(response.ok && !state.hidden);
+    if (const auto *view = std::get_if<ipc::ObservationView>(&response.payload))
+        MIRAGE_CHECK(view->environment_state.find("pet_presentation") == std::string::npos);
+    state.passive = true;
+    state.expect_hidden = false;
+    response = client.call(ipc::DesktopObserveRequest{true, false}, 3s);
+    MIRAGE_CHECK(response.ok && !state.hidden && !state.violation);
+    if (const auto *view = std::get_if<ipc::ObservationView>(&response.payload))
+        MIRAGE_CHECK(view->environment_state.find("pet_presentation=not_excluded") !=
+                     std::string::npos);
     service.request_shutdown();
     MIRAGE_CHECK(service.run().clean);
 }

@@ -9,10 +9,14 @@ using namespace mirage;
 struct State {
     int acquired = 0, released = 0, verifies = 0, calls = 0;
     bool hidden = false, fail_acquire = false, fail_verify = false, fail_restore = false;
+    bool passive = false;
 };
 class Lease final : public desktop::PresentationLease {
   public:
-    explicit Lease(State &state) : state_(state) { state_.hidden = true; }
+    explicit Lease(State &state) : state_(state), excluded_(!state.passive) {
+        state_.hidden = excluded_;
+    }
+    bool excluded() const override { return excluded_; }
     ~Lease() override { (void)release(); }
     desktop::ProviderError verify(const desktop::CancelToken &cancel) override {
         ++state_.verifies;
@@ -33,6 +37,7 @@ class Lease final : public desktop::PresentationLease {
 
   private:
     State &state_;
+    bool excluded_;
     bool released_ = false;
 };
 integration::detail::PetExclusion acquire(State &state) {
@@ -155,5 +160,25 @@ int main() {
     record = execute(*registry, "desktop.window.list");
     MIRAGE_CHECK(record && !record.value().failed && !state.hidden);
     MIRAGE_CHECK(state.acquired == state.released + 2); // two refused admissions
+    state.passive = true;
+    for (const auto *name : {"desktop.screen.capture", "desktop.vision.ocr"}) {
+        auto observed = exclude_pet_during(name, plain, acquire(state))(args, context);
+        MIRAGE_CHECK(observed && !state.hidden);
+        if (observed) {
+            const auto *notice = observed.value().find("pet_presentation");
+            const auto *excluded = notice ? notice->find("excluded") : nullptr;
+            const auto *reason = notice ? notice->find("reason") : nullptr;
+            MIRAGE_CHECK(excluded && excluded->as_boolean() == false && reason &&
+                         reason->as_string() && *reason->as_string() == "unsupported_compositor");
+            const auto *pixels = notice ? notice->find("pixels_may_include_pet") : nullptr;
+            MIRAGE_CHECK(pixels && pixels->as_boolean() == true);
+        }
+    }
+    record = execute(*registry, "desktop.window.list");
+    MIRAGE_CHECK(record && !record.value().failed && !state.hidden &&
+                 record.value().result.find("pet_presentation"));
+    state.fail_acquire = true;
+    MIRAGE_CHECK(
+        !exclude_pet_during("desktop.screen.capture", plain, acquire(state))(args, context));
     return testing::finish("pet_exclusion_tools_test");
 }

@@ -787,3 +787,53 @@ owner 失联退出 5.456 秒。首两轮未满足节能门禁，随后恢复就�
 保留在[实施证据](../compatibility/mira-pet-hidden-presentation-20261018.md)。
 这些不是硬件能耗或真实 compositor 结论；完整气泡/Overlay 输入/接管、其他平台、
 几何迁移和安装许可继续由 Mirage 维护者按相应工作项验证，M8-06 和 M8 保持 In Progress。
+
+### 2026-10-18：CU 真实桌面验收未执行
+
+按维护者要求检查当前 CU 会话：仅提供浏览器控制，原生 computer API 禁用，
+无应用窗口清单及 `listWindows` 能力，未能取得 Linux 原生桌面。代码基线 `dcb9113`；
+本次没有执行真实桌面动作或取得 compositor 证据，不能将 Xvfb 结果转记为实桌面通过。
+负责人为 Mirage 维护者；接通目标桌面的原生 CU 窗口/截图/输入能力后按
+[补跑条件](../compatibility/mira-pet-hidden-presentation-20261018.md#cu-真实桌面验收尝试2026-10-18)
+继续。M8-06 与真实桌面退出条件保持未完成。
+
+### 2026-10-18：维护者 Wayland 会话负向诊断
+
+只读核对维护者最新两轮：所有桌面入口均被 pet_exclusion_unavailable 的 verified
+X11 前置检查拦截，未进入 Portal 授权/输入派发。截图达到同会话三次相同确定失败后
+被封锁。说明当前 X11 整窗策略会阻断带桌宠的 Wayland 使用；需要真正的 Wayland
+隐藏及新帧确认，不能把本机具有 DISPLAY 当作 Portal 干净帧证据。M8-06 继续 In Progress。
+同时发现宿主失败丢弃模型最终解释、UI 再覆盖正文的问题，按 M6-46 / DEC-104 修复，
+见[分析与证据](../compatibility/native-failed-output-retention-20261018.md)。未重试用户通信任务。
+
+### 2026-10-18：GNOME Wayland / XWayland pet 适配
+
+维护者要求实现 Wayland 避让。按 [DEC-105](../decisions/DEC-105-wayland-pet-exclusion.md)
+增加 GNOME 的 UTILITY pet 撤下/WM 确认/原状态恢复和 Portal 源帧时间水位，保留
+XRes/受管 PID/唯一标记核验。Host 显式共享平台资源上下文，不新增业务调度设施或
+依赖；pet UI 检查 unmapped 状态并沿用隐藏暂停。验证记录见
+[Wayland 增量证据](../compatibility/wayland-pet-exclusion-20261018.md)。
+Native 全量 102/102，ASAN/UBSAN/TSAN 专项各 7/7（含 fixture），私有真实
+pet/tray 的 unmap 生命周期 33/33；可见/隐藏 CPU 20.00%/2.33%，正常隐藏退出
+0.216 秒、owner 失联退出 5.281 秒。静态边界、格式和脚本语法通过。
+首步只覆盖当前 GNOME Wayland 会话的 XWayland pet，其他 compositor 与纯原生
+Wayland pet 不在已交付范围。真实 compositor、授权新帧与维护者重新启动实测仍待
+补验；负责人为 Mirage 维护者，M8-06 和 M8 保持 In Progress。
+
+### 2026-10-18：避让按能力降级（DEC-106）
+
+维护者要求不支持的合成器保留视觉能力、不强行隐藏桌宠。按
+[DEC-106](../decisions/DEC-106-optional-pet-exclusion.md) 把避让改为能力降级：
+未知 Wayland compositor、无可识别 XWayland WM 或未编译 backend 时返回显式未排除
+的被动租约（`excluded()==false`），不发隐藏请求并清除过期帧水位，截图/OCR 照常、
+桌宠保持可见；工具对象结果附加 `pet_presentation={excluded:false,
+reason:unsupported_compositor,pixels_may_include_pet:true}`，desktop.observe 在
+`environment_state` 注明未排除。只有预先探测的能力不支持才降级；已支持路径的
+身份失败、撤下失败、超时、取消与恢复失败仍报原错误，键鼠沿用既有遮挡与权限
+检查。本轮修复非 X11 构建被动路径不清除水位的偏差，并把 pet_exclusion_test 的
+旧 Wayland 拒绝断言更新为被动语义。独立验证：Native 全量 102/102；
+wayland_pet_exclusion_test（44 checks）、pet_exclusion_tools_test（37）、
+pet_exclusion_test（83）、pet_observation_test（75，含未排除负向断言）在
+ASAN/UBSAN/TSAN 抽查通过；非 X11 独立编译检查 8/8（含水位 456→0）。
+真实 compositor 门禁继续开放，M8-06 保持 In Progress，证据见
+[Wayland 增量证据](../compatibility/wayland-pet-exclusion-20261018.md)。

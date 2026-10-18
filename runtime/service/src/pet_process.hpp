@@ -162,6 +162,7 @@ class PetProcess final {
             if (!error.code.empty())
                 std::cerr << "mira_pet: " << error.code << ": " << error.message << '\n';
         }
+        bool excluded() const override { return lease_ ? lease_->excluded() : true; }
         desktop::ProviderError verify(const desktop::CancelToken &cancel) override {
             if (!ownership_)
                 return {"pet_exclusion_failed", "pet exclusion was released"};

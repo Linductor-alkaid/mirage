@@ -14,6 +14,12 @@ M6-46 按 [DEC-104](../decisions/DEC-104-failed-turn-output-retention.md) 修复
 覆盖模型正文；沿用 Part 承载及失败状态，验证见
 [实施记录](../compatibility/native-failed-output-retention-20261018.md)。
 
+M8-06 按 [DEC-105](../decisions/DEC-105-wayland-pet-exclusion.md) 接入 GNOME Wayland
+会话中 XWayland pet 的撤下/恢复与 Portal 源帧水位；并按
+[DEC-106](../decisions/DEC-106-optional-pet-exclusion.md) 把避让改为能力降级，
+不支持的 compositor 保留截图/OCR 并显式标注未排除。真实 compositor 门禁仍开放，
+见[验证记录](../compatibility/wayland-pet-exclusion-20261018.md)。
+
 Windows 安装后呈现问题按[维护计划](maintenance-windows-presentation-20261014.md)推进：
 图形启动入口、通知承载重复图标、托盘菜单尺寸与间歇黑角分别跟踪，未取证项保持开放。
 

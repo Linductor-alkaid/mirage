@@ -1623,6 +1623,11 @@ if(MIRAGE_PET_EXCLUSION_AVAILABLE)
         LIBS Mirage::platform Mirage::kairo_consumer ${X11_X11_LIB} ${X11_Xext_LIB}
         LABELS "integration;platform;pet"
         TIMEOUT 30)
+    mirage_add_test(wayland_pet_exclusion_test
+        SOURCES platform/wayland_pet_exclusion_test.cpp
+        LIBS Mirage::platform Mirage::kairo_consumer ${X11_X11_LIB}
+        LABELS "integration;platform;pet;wayland"
+        TIMEOUT 30)
 endif()
 mirage_add_test(pet_exclusion_tools_test
     SOURCES integration/pet_exclusion_tools_test.cpp

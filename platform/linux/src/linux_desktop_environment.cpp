@@ -85,7 +85,8 @@ LinuxDesktopEnvironment::LinuxDesktopEnvironment(std::vector<std::filesystem::pa
                                                  X11Options x11_options, AtspiOptions atspi_options,
                                                  ApplicationOptions application_options,
                                                  NotificationsOptions notifications_options,
-                                                 FilesystemWriteOptions filesystem_write_options)
+                                                 FilesystemWriteOptions filesystem_write_options,
+                                                 std::shared_ptr<PresentationContext> presentation)
     : read_scope_(std::move(read_roots)), write_scope_(filesystem_write_options.roots),
       file_leases_(std::make_unique<FileLeaseTable>()) {
     const char *session = std::getenv("XDG_SESSION_TYPE");
@@ -104,7 +105,7 @@ LinuxDesktopEnvironment::LinuxDesktopEnvironment(std::vector<std::filesystem::pa
         // Auto-selected session on Wayland: prefer the Portal observation
         // path. An explicit display opts out of this selection entirely
         // (tests and deliberate X11 forcing keep pure X11 semantics).
-        portal_screen_ = PortalScreenBackend::open();
+        portal_screen_ = PortalScreenBackend::open(std::move(presentation));
     }
     if (native_wayland) {
         // Pure Wayland (no $DISPLAY): Portal only, exactly as before.

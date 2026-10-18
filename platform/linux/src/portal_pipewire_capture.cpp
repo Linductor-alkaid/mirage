@@ -4,7 +4,10 @@
 #include <optional>
 #include <pipewire/pipewire.h>
 #include <poll.h>
+#include <spa/buffer/meta.h>
+#include <spa/param/buffers.h>
 #include <spa/param/video/format-utils.h>
+#include <time.h>
 #include <unistd.h>
 
 namespace mirage::platform::linux_backend {
@@ -25,6 +28,7 @@ struct Capture {
     pw_buffer *pending = nullptr;
     std::uint64_t source_sequence = 0;
     std::optional<desktop::ImageFrame> latest;
+    std::int64_t latest_pts_ns = 0;
     ~Capture() {
         if (pending && stream)
             pw_stream_queue_buffer(stream, pending);
@@ -171,6 +175,7 @@ desktop::CaptureOutcome copy_portal_pixels(std::span<const std::uint8_t> pixels,
 struct PortalPipeWireStream::Impl {
     Capture capture;
     bool connected = false;
+    std::int64_t applied_fence_ns = 0;
 };
 PortalPipeWireStream::PortalPipeWireStream(int fd, std::uint32_t node)
     : impl_(std::make_unique<Impl>()) {
@@ -210,27 +215,58 @@ PortalPipeWireStream::PortalPipeWireStream(int fd, std::uint32_t node)
     std::uint8_t storage[1024];
     auto builder = SPA_POD_BUILDER_INIT(storage, sizeof(storage));
     const spa_rectangle min{1, 1}, max{16384, 16384}, preferred{1920, 1080};
-    const spa_pod *params[] = {static_cast<const spa_pod *>(spa_pod_builder_add_object(
-        &builder, SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat, SPA_FORMAT_mediaType,
-        SPA_POD_Id(SPA_MEDIA_TYPE_video), SPA_FORMAT_mediaSubtype,
-        SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw), SPA_FORMAT_VIDEO_format,
-        SPA_POD_CHOICE_ENUM_Id(4, SPA_VIDEO_FORMAT_BGRA, SPA_VIDEO_FORMAT_BGRx,
-                               SPA_VIDEO_FORMAT_RGBA, SPA_VIDEO_FORMAT_RGBx),
-        SPA_FORMAT_VIDEO_size, SPA_POD_CHOICE_RANGE_Rectangle(&preferred, &min, &max)))};
+    const spa_pod *params[] = {
+        static_cast<const spa_pod *>(spa_pod_builder_add_object(
+            &builder, SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat, SPA_FORMAT_mediaType,
+            SPA_POD_Id(SPA_MEDIA_TYPE_video), SPA_FORMAT_mediaSubtype,
+            SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw), SPA_FORMAT_VIDEO_format,
+            SPA_POD_CHOICE_ENUM_Id(4, SPA_VIDEO_FORMAT_BGRA, SPA_VIDEO_FORMAT_BGRx,
+                                   SPA_VIDEO_FORMAT_RGBA, SPA_VIDEO_FORMAT_RGBx),
+            SPA_FORMAT_VIDEO_size, SPA_POD_CHOICE_RANGE_Rectangle(&preferred, &min, &max))),
+        static_cast<const spa_pod *>(
+            spa_pod_builder_add_object(&builder, SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta,
+                                       SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Header),
+                                       SPA_PARAM_META_size, SPA_POD_Int(sizeof(spa_meta_header))))};
     const auto flags =
         static_cast<pw_stream_flags>(PW_STREAM_FLAG_AUTOCONNECT | PW_STREAM_FLAG_MAP_BUFFERS);
-    if (pw_stream_connect(capture.stream, PW_DIRECTION_INPUT, node, flags, params, 1) < 0)
+    if (pw_stream_connect(capture.stream, PW_DIRECTION_INPUT, node, flags, params, 2) < 0)
         return;
     impl_->connected = true;
 }
 PortalPipeWireStream::~PortalPipeWireStream() = default;
 namespace {
 desktop::CaptureOutcome read_stream_frame(Capture &capture, const desktop::CaptureLimits &limits,
-                                          const desktop::CancelToken &cancel) {
+                                          const desktop::CancelToken &cancel,
+                                          std::int64_t not_before_ns = 0) {
     while (!capture.error && !cancel.cancelled()) {
         if (pw_loop_iterate(pw_main_loop_get_loop(capture.loop), 0) < 0)
             return failure("pipewire_unavailable", "ScreenCast loop stopped");
         if (capture.pending && capture.formatted) {
+            const auto *header =
+                capture.pending->buffer
+                    ? static_cast<const spa_meta_header *>(spa_buffer_find_meta_data(
+                          capture.pending->buffer, SPA_META_Header, sizeof(spa_meta_header)))
+                    : nullptr;
+            const auto pts = header ? header->pts : 0;
+            timespec now{};
+            if (not_before_ns &&
+                (!header || pts <= 0 ||
+                 (header->flags & (SPA_META_HEADER_FLAG_CORRUPTED | SPA_META_HEADER_FLAG_GAP)) ||
+                 clock_gettime(CLOCK_MONOTONIC, &now) != 0 ||
+                 pts > now.tv_sec * INT64_C(1000000000) + now.tv_nsec)) {
+                pw_stream_queue_buffer(capture.stream, capture.pending);
+                capture.pending = nullptr;
+                return failure(
+                    "pet_capture_fence_unavailable",
+                    "ScreenCast needs a valid monotonic source timestamp after pet hiding");
+            }
+            if (not_before_ns && pts <= not_before_ns) {
+                // Late delivery is not fresh evidence. Never relabel queued
+                // pre-hide pixels with their local receipt time or sequence.
+                pw_stream_queue_buffer(capture.stream, capture.pending);
+                capture.pending = nullptr;
+                continue;
+            }
             auto frame = copy_frame(capture, limits, cancel);
             pw_stream_queue_buffer(capture.stream, capture.pending);
             capture.pending = nullptr;
@@ -238,9 +274,11 @@ desktop::CaptureOutcome read_stream_frame(Capture &capture, const desktop::Captu
                 return frame;
             frame.frame.source_sequence = capture.source_sequence;
             capture.latest = std::move(frame.frame);
+            capture.latest_pts_ns = pts;
         }
         if (capture.latest && capture.state == PW_STREAM_STATE_STREAMING &&
-            capture.latest->source_sequence > limits.newer_than_sequence) {
+            capture.latest->source_sequence > limits.newer_than_sequence &&
+            (!not_before_ns || capture.latest_pts_ns > not_before_ns)) {
             if (capture.latest->pixels.size() > std::min(limits.max_bytes, std::size_t{32u << 20}))
                 return failure("capture_too_large", "ScreenCast frame exceeds its pixel budget");
             // Own ONE <=32 MiB source frame, returning the PipeWire buffer
@@ -262,10 +300,21 @@ desktop::CaptureOutcome read_stream_frame(Capture &capture, const desktop::Captu
 } // namespace
 
 desktop::CaptureOutcome PortalPipeWireStream::capture(const desktop::CaptureLimits &limits,
-                                                      const desktop::CancelToken &cancel) {
+                                                      const desktop::CancelToken &cancel,
+                                                      std::int64_t not_before_ns) {
     if (!impl_->connected)
         return failure("pipewire_unavailable", "ScreenCast consumer connection failed");
-    return read_stream_frame(impl_->capture, limits, cancel);
+    if (not_before_ns && not_before_ns != impl_->applied_fence_ns) {
+        impl_->capture.latest.reset();
+        impl_->capture.latest_pts_ns = 0;
+        // Preserve the authorized connection, but request a new producer
+        // activation so an idle damage-driven desktop can provide fresh pixels.
+        if (pw_stream_set_active(impl_->capture.stream, false) < 0 ||
+            pw_stream_set_active(impl_->capture.stream, true) < 0)
+            return failure("pet_capture_fence_unavailable", "ScreenCast refresh activation failed");
+        impl_->applied_fence_ns = not_before_ns;
+    }
+    return read_stream_frame(impl_->capture, limits, cancel, not_before_ns);
 }
 desktop::CaptureOutcome capture_pipewire_frame(int fd, std::uint32_t node,
                                                const desktop::CaptureLimits &limits,

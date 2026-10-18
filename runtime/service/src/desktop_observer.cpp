@@ -89,6 +89,9 @@ DesktopObservationRead read_desktop_observation(const DesktopObservationSource &
             if (source.actions && source.actions->epoch() != epoch)
                 return unavailable("observation unavailable: desktop_epoch_changed");
             auto observation = assembled.observation;
+            if (exclusion.lease && !exclusion.lease->excluded())
+                observation.environment_state +=
+                    "; pet_presentation=not_excluded; pet_exclusion=unsupported_compositor";
             if (fresh_visual) {
                 if (source.pipeline->registry().current().scope_ref != fresh_visual->scope_ref)
                     return unavailable("visual: visual_snapshot_changed");

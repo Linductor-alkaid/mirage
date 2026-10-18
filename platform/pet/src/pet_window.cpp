@@ -154,6 +154,11 @@ bool prepare(std::optional<Position> saved_position, std::function<void(Position
     XChangeProperty(display, xid, XInternAtom(display, "_MIRAGE_PET_SURFACE", False), XA_CARDINAL,
                     32, PropModeReplace, reinterpret_cast<const unsigned char *>(&surface_protocol),
                     1);
+    // DEC-105: a non-focus utility, excluded from GNOME's normal-window
+    // minimize/map animations. Identity is still server-attested by the owner.
+    const Atom type = XInternAtom(display, "_NET_WM_WINDOW_TYPE_UTILITY", False);
+    XChangeProperty(display, xid, XInternAtom(display, "_NET_WM_WINDOW_TYPE", False), XA_ATOM, 32,
+                    PropModeReplace, reinterpret_cast<const unsigned char *>(&type), 1);
     XShapeCombineRectangles(display, xid, ShapeInput, 0, 0, nullptr, 0, ShapeSet, Unsorted);
     const Atom wm_state = XInternAtom(display, "_NET_WM_STATE", False);
     const Atom hidden_from_dock[] = {XInternAtom(display, "_NET_WM_STATE_SKIP_TASKBAR", False),
@@ -303,7 +308,7 @@ void update_hit_region(std::span<const std::uint8_t> rgba, const Layout &layout)
 }
 namespace {
 void report_visibility() {
-    bool visible = !hidden.load();
+    bool visible = glfwGetWindowAttrib(observed_window, GLFW_ICONIFIED) != GLFW_TRUE;
 #ifndef _WIN32
     if (visible) {
         // This is GLFW's connection, used exclusively by its UI owner.
@@ -312,12 +317,15 @@ void report_visibility() {
         unsigned int width = 0, height = 0, cw = 0, ch = 0;
         const bool ok = XShapeQueryExtents(glfwGetX11Display(), observed_xid, &bounding, &x, &y,
                                            &width, &height, &clip, &cx, &cy, &cw, &ch);
-        visible = ok && (!bounding || (width && height));
+        XWindowAttributes attributes{};
+        visible = ok && XGetWindowAttributes(glfwGetX11Display(), observed_xid, &attributes) &&
+                  attributes.map_state == IsViewable && (!bounding || (width && height));
         if (!ok && !visibility_failed)
             std::cerr << "mira_pet: presentation visibility query failed\n";
         visibility_failed = !ok;
     }
 #endif
+    hidden.store(!visible);
     if (presented != visible) {
         presented = visible;
         if (visibility_sink)

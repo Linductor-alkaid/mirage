@@ -1,4 +1,5 @@
 #include "frontend_activation.hpp"
+#include "presentation_context.hpp"
 #include <chrono>
 #include <cwchar>
 #include <filesystem>
@@ -23,9 +24,11 @@ namespace {
 class OwnedFrontend final : public desktop::FrontendProcess {
   public:
     explicit OwnedFrontend(std::string binary, bool activate_existing = true,
-                           std::string socket_environment = "MIRAGE_NATIVE_SOCKET")
+                           std::string socket_environment = "MIRAGE_NATIVE_SOCKET",
+                           std::shared_ptr<PresentationContext> presentation = {})
         : binary_(std::move(binary)), activate_existing_(activate_existing),
-          socket_environment_(std::move(socket_environment)) {}
+          socket_environment_(std::move(socket_environment)),
+          presentation_(std::move(presentation)) {}
     ~OwnedFrontend() override {
         std::string diagnostic;
         (void)stop(diagnostic);
@@ -132,7 +135,7 @@ class OwnedFrontend final : public desktop::FrontendProcess {
         if (activate_existing_ || !pid())
             return {{}, {"pet_exclusion_unavailable", "no owned pet process"}};
         if (!exclusion_)
-            exclusion_ = detail::make_pet_excluder(pid_);
+            exclusion_ = detail::make_pet_excluder(pid_, presentation_);
         return exclusion_->acquire(cancel);
     }
     bool stop(std::string &diagnostic) override {
@@ -189,6 +192,7 @@ class OwnedFrontend final : public desktop::FrontendProcess {
     std::string binary_;
     bool activate_existing_ = true;
     std::string socket_environment_;
+    std::shared_ptr<PresentationContext> presentation_;
 #ifdef _WIN32
     HANDLE handle_ = nullptr;
     DWORD pid_ = 0;
@@ -227,7 +231,12 @@ std::string current_executable_path() {
 std::shared_ptr<desktop::FrontendProcess> make_frontend_process(std::string binary) {
     return std::make_shared<OwnedFrontend>(std::move(binary));
 }
-std::shared_ptr<desktop::FrontendProcess> make_pet_process(std::string binary) {
-    return std::make_shared<OwnedFrontend>(std::move(binary), false, "MIRAGE_PET_SOCKET");
+std::shared_ptr<PresentationContext> make_presentation_context() {
+    return std::make_shared<PresentationContext>();
+}
+std::shared_ptr<desktop::FrontendProcess>
+make_pet_process(std::string binary, std::shared_ptr<PresentationContext> presentation) {
+    return std::make_shared<OwnedFrontend>(std::move(binary), false, "MIRAGE_PET_SOCKET",
+                                           std::move(presentation));
 }
 } // namespace mirage::platform

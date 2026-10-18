@@ -36,6 +36,7 @@ def session(args):
     from PIL import Image, ImageChops, ImageDraw, ImageFont
     children, wire = [], None
     result = dict(scope='Xvfb + ICCCM/compositor-selection fixture; real RGBA framebuffer and relocated processes; optional X server automatic root composition; no desktop compositor or model-provider requests; optional local OCR',
+                  hidden_mode='unmapped' if args.withdrawal else 'shape/iconify',
                   checks=[], metrics={}, limitations=['hardware GPU budget', 'desktop compositor alpha',
                     'fullscreen', 'multi-monitor/DPI', 'seven loop visual seam acceptance'])
 
@@ -333,7 +334,15 @@ def session(args):
                         check(scenario + ' admits a mapped exclusion', exit_probe.stdout.readline().strip() == 'hidden' and
                               window.get_attributes().map_state == X.IsViewable)
                     else:
-                        minimize(d, window)
+                        if args.withdrawal:
+                            # DEC-105 UI path: an unmapped window need not
+                            # generate GLFW's iconify callback. This peer only
+                            # tests the pet's own pause/restore/exit lifecycle.
+                            window.unmap(); d.sync()
+                            await_value(lambda: window.get_attributes().map_state,
+                                        lambda value: value == X.IsUnmapped)
+                        else:
+                            minimize(d, window)
                     time.sleep(.5)
                     started, before = time.monotonic(), cpu(pet.pid)
                     time.sleep(3)
@@ -411,6 +420,7 @@ def main():
     parser.add_argument('--session', action='store_true')
     parser.add_argument('--exclusion-probe', type=Path)
     parser.add_argument('--observe-exclusion', action='store_true')
+    parser.add_argument('--withdrawal', action='store_true')
     args = parser.parse_args()
     args.build, args.output = args.build.resolve(), args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
@@ -437,7 +447,8 @@ def main():
             completed = subprocess.run(['dbus-run-session', '--', sys.executable, str(Path(__file__).resolve()),
                 '--build', str(args.build), '--output', str(args.output), '--session',
                 *(['--exclusion-probe', str(args.exclusion_probe.resolve())] if args.exclusion_probe else []),
-                *(['--observe-exclusion'] if args.observe_exclusion else [])], env=env, timeout=150)
+                *(['--observe-exclusion'] if args.observe_exclusion else []),
+                *(['--withdrawal'] if args.withdrawal else [])], env=env, timeout=150)
             assert completed.returncode == 0
         finally:
             os.close(read_fd); xvfb.terminate(); xvfb.wait(timeout=5)

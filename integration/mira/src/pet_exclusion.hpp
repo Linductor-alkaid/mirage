@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <mirage/integration/desktop_tool_context.hpp>
 
 namespace mirage::integration::detail {
@@ -39,6 +40,7 @@ inline mira::BuiltinToolHandler exclude_pet_during(const std::string &name,
             exclusion = acquire(active);
             if (!exclusion.error.code.empty())
                 return failure(exclusion.error);
+            const bool excluded = !exclusion.lease || exclusion.lease->excluded();
             if (exclusion.lease) {
                 const auto error = exclusion.lease->verify(active);
                 if (!error.code.empty()) {
@@ -57,6 +59,16 @@ inline mira::BuiltinToolHandler exclude_pet_during(const std::string &name,
                     return failure(restored, true);
                 if (!verified.code.empty())
                     return failure(verified, true);
+            }
+            if (result && !excluded) {
+                if (const auto *object = result.value().as_object()) {
+                    auto fields = *object;
+                    std::erase_if(fields, [](const auto &field) { return field.first == "pet_presentation"; });
+                    fields.emplace_back("pet_presentation", mira::JsonValue{mira::JsonValue::Object{
+                        {"excluded", false}, {"reason", "unsupported_compositor"},
+                        {"pixels_may_include_pet", true}}});
+                    result = mira::JsonValue{std::move(fields)};
+                }
             }
             return result;
         } catch (...) {

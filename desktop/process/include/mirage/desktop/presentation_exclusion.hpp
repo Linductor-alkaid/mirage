@@ -10,6 +10,8 @@ namespace mirage::desktop {
 class PresentationLease {
   public:
     virtual ~PresentationLease() = default;
+    // DEC-106: false is an explicit capability fallback, not a hidden surface.
+    virtual bool excluded() const { return true; }
     virtual ProviderError verify(const CancelToken &) = 0;
     virtual ProviderError release() = 0;
 };
