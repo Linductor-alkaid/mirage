@@ -26,6 +26,7 @@ struct LocalMessage {
     std::uint64_t process_sequence = 0;
     conversation::Timings timings = {};
     std::vector<std::string> expanded_parts = {};
+    std::string error = {}; // host failure detail, never model-authored text
 };
 
 struct ContextReference {

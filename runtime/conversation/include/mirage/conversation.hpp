@@ -16,6 +16,7 @@ inline constexpr std::size_t max_content_bytes = 64 * 1024;
 inline constexpr std::size_t max_tool_budget = 40 * 1024;    // input + output
 inline constexpr std::size_t max_text_budget = 16 * 1024;    // final response
 inline constexpr std::size_t max_thinking_budget = 8 * 1024; // reasoning details
+inline constexpr std::string_view terminal_reply_id = "terminal.reply";
 struct Part {
     std::string id;
     std::string kind;                // thinking / text / tool
@@ -52,6 +53,9 @@ struct DesktopEvidence {
 // Read-only display projection of DEC-056 metadata; does not confer tool authority.
 std::optional<DesktopEvidence> desktop_evidence(const Part &);
 bool valid_parts(const std::vector<Part> &parts);
+// DEC-104: retain a generated answer even when task verification failed. Call
+// after settling parts; bounded final text takes priority over earlier text.
+void retain_terminal_reply(std::vector<Part> &parts, std::string_view reply);
 // JSON is hidden behind product types; both IPC and persistence use this codec.
 std::string encode_parts(const std::vector<Part> &parts);
 bool decode_parts(std::string_view json, std::vector<Part> &parts, std::string &error);

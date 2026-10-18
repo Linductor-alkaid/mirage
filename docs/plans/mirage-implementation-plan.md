@@ -6,9 +6,13 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-10-18（M6-43 会话上下文快照补齐；M8-06 排除与隐藏暂停增量；既有里程碑状态保留）
+> 更新日期：2026-10-18（M6-46 失败正文保留；M6-43 会话上下文快照补齐；M8-06 排除与隐藏暂停增量；既有里程碑状态保留）
 
 ## 当前状态
+
+M6-46 按 [DEC-104](../decisions/DEC-104-failed-turn-output-retention.md) 修复宿主失败
+覆盖模型正文；沿用 Part 承载及失败状态，验证见
+[实施记录](../compatibility/native-failed-output-retention-20261018.md)。
 
 Windows 安装后呈现问题按[维护计划](maintenance-windows-presentation-20261014.md)推进：
 图形启动入口、通知承载重复图标、托盘菜单尺寸与间歇黑角分别跟踪，未取证项保持开放。

@@ -111,7 +111,9 @@ struct ToolFailure {
 };
 
 /// Outcome of one dialog inference (DEC-027). `ok` carries `reply_text`;
-/// `failed` marks a settled turn with a stable `error` reason (safe for UI);
+/// `failed` marks a settled turn with a stable `error` reason (safe for UI).
+/// DEC-104: reply_text may also carry generated text after failed verification;
+/// its bounded terminal text Part remains display evidence, not proof of success.
 /// `cancelled` mirrors the caller's cancellation probe. Cumulative run
 /// counters are uint64 (M9-03): a Continuous desktop task has no
 /// accumulated step or tool cutoff, so the counts never saturate.

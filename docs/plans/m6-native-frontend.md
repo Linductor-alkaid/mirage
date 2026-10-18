@@ -18,6 +18,7 @@
 
 | 编号 | 状态 | 结果与验收 |
 | --- | --- | --- |
+| M6-46 | In Progress | DEC-104：失败轮次保留已生成正文，错误单列；Native全量101/101、ASAN/UBSAN/TSAN各6/6（含fixture）、原生28,636 checks通过；维护者重启实例与Windows待补验，[证据](../compatibility/native-failed-output-retention-20261018.md)。 |
 | M6-45 | Completed（Linux本地） | DEC-102：缺有效供应商用量时复用Mira请求输入估算并标注来源，随会话保存；Release7/7、原生28,457 checks、ASAN/UBSAN各7/7、TSAN5/5（含fixture）；Windows及真实供应商缺usage待补跑，[证据](../compatibility/native-context-usage-20261004.md#2026-10-18m6-45-无供应商用量时显示本地估算) |
 | M6-44 | In Progress | DEC-101 Linux 数据路径与原生缓存验证通过：默认不限个数、逐会话 JSON、旧格式迁移、坏文件隔离、删除/失败回滚；Release/ASAN/UBSAN 五类测试、TSAN 三类测试通过。真实 Wayland 桌面8会话19轮迁移/退出重开、服务39会话准入通过；Windows待补跑，[证据](../compatibility/session-files-20261018.md)。 |
 | M6-43 | Completed（Linux 数据路径） | 按 DEC-036 保存会话自身的上下文用量快照，历史截断、切换、重连及服务重启后可读取；Release9/9、ASAN/UBSAN各7/7、TSAN5/5（含fixture）；实机与Windows待补跑，[证据](../compatibility/native-context-usage-20261004.md#2026-10-18m6-43-会话自身保存用量快照) |

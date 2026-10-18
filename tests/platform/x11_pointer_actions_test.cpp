@@ -539,7 +539,15 @@ void composed_loop(kairo::Executor &executor) {
                 std::fprintf(stderr, "composed %s changed=%d: %s\n", operation, changed,
                              completion.error.c_str());
             MIRAGE_CHECK(completion.ok == changed && completion.failed != changed);
-            MIRAGE_CHECK(changed || completion.reply_text.empty());
+            if (!changed) {
+                MIRAGE_CHECK(!completion.error.empty() && !completion.reply_text.empty());
+                const auto final = std::find_if(
+                    completion.parts.begin(), completion.parts.end(), [](const auto &part) {
+                        return part.id == mirage::conversation::terminal_reply_id;
+                    });
+                MIRAGE_CHECK(final != completion.parts.end() && final->kind == "text" &&
+                             final->text == completion.reply_text);
+            }
             MIRAGE_CHECK(script->requests == 4 && script->images == 1 &&
                          completion.tool_calls == 3);
             MIRAGE_CHECK(!completion.supplied_input_dropped && !completion.supply_degradations);

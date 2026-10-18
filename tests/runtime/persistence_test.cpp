@@ -827,6 +827,7 @@ void scenario_session_state_round_trip() {
     failed_turn.status = "failed";
     failed_turn.user_text = "第二个问题";
     failed_turn.error = "model layer request failed: timeout";
+    mirage::conversation::retain_terminal_reply(failed_turn.parts, "已收到的模型答复：尚未验证");
     failed_turn.sequence = 2;
     failed_turn.recorded_at_ms = 1700000002000;
     session.chat_turns.push_back(failed_turn);
@@ -872,6 +873,8 @@ void scenario_session_state_round_trip() {
         MIRAGE_CHECK(back.chat_turns[1].status == "failed");
         MIRAGE_CHECK(back.chat_turns[1].error == "model layer request failed: timeout");
         MIRAGE_CHECK(back.chat_turns[1].sequence == 2);
+        MIRAGE_CHECK(back.chat_turns[1].parts == failed_turn.parts);
+        MIRAGE_CHECK(back.chat_turns[1].parts.back().text == "已收到的模型答复：尚未验证");
     }
 }
 

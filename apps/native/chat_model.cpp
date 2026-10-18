@@ -351,9 +351,9 @@ void ChatModel::apply_turn(std::uint64_t id, const std::string &turn, const std:
     const auto display_status = status == "pending" ? "运行中"
                                 : status == "ok"    ? "已回复"
                                                     : "已停止或失败";
-    const bool changed =
-        new_turn || answer.status != display_status ||
-        (status != "pending" && answer.text != (status == "ok" ? reply_for_display(reply) : error));
+    const bool changed = new_turn || answer.status != display_status ||
+                         (status == "ok" && answer.text != reply_for_display(reply)) ||
+                         (status == "failed" && answer.error != error);
     if (recorded_at_ms || (newest && changed))
         touch(*session, recorded_at_ms);
     if (status == "ok" && sequence >= session->usage_sequence) {
@@ -366,8 +366,12 @@ void ChatModel::apply_turn(std::uint64_t id, const std::string &turn, const std:
         answer.duration = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - *answer.started);
     answer.status = display_status;
-    if (status != "pending")
-        answer.text = status == "ok" ? reply_for_display(reply) : error;
+    if (status == "ok") {
+        answer.text = reply_for_display(reply);
+        answer.error.clear();
+    } else if (status == "failed") {
+        answer.error = error;
+    }
     session->running =
         std::any_of(session->messages.begin(), session->messages.end(), [](const auto &message) {
             return message.role == "Mira" && message.status == "运行中";
@@ -397,6 +401,16 @@ void ChatModel::apply_process(std::uint64_t id, const std::string &turn,
                                parts.end(), [](const auto &part) { return part.kind == "tool"; }))
         message->text.clear(); // completed tool-producing response supersedes its ephemeral preview
     message->parts = parts;
+    if (const auto final = std::find_if(parts.begin(), parts.end(),
+                                        [](const auto &part) {
+                                            return part.id == conversation::terminal_reply_id &&
+                                                   part.kind == "text";
+                                        });
+        final != parts.end()) {
+        message->text = final->text;
+        std::erase_if(message->parts,
+                      [](const auto &part) { return part.id == conversation::terminal_reply_id; });
+    }
     message->timings = timings;
     message->process_sequence = sequence;
     if (live_update)

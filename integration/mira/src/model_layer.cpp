@@ -908,6 +908,8 @@ DialogCompletion ModelLayer::complete_harness_turn(
         // DEC-085: the classified tool failures ride the completion for the
         // runtime service's `session.tool_error` projection.
         completion.tool_failures = impl_->failure_tracker.failures(session_key);
+        if (!completion.ok && !completion.reply_text.empty())
+            conversation::retain_terminal_reply(completion.parts, completion.reply_text);
         return completion;
     };
     auto registry = std::make_shared<mira::BuiltinToolRegistry>();
@@ -1401,6 +1403,10 @@ DialogCompletion ModelLayer::complete_harness_turn(
         completion.cancelled = true;
         completion.error = "桌面任务已取消。";
     }
+    // The model's answer remains evidence even if host verification rejected
+    // task success. Only successful answers receive the verification preface.
+    if (!completion.cancelled && !value.answer.empty() && value.answer.size() <= 64 * 1024)
+        completion.reply_text = value.answer;
     if (completion.ok) {
         if (value.answer.size() > 64 * 1024 || value.answer.empty()) {
             completion.ok = false;

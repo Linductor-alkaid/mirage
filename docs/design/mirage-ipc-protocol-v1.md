@@ -397,6 +397,13 @@ owner 的嵌入仍兼容注册表投影。五秒预算覆盖权限、采集与�
 `session.chat_updated` 是通知（DEC-012 一致性模型沿用）。语义（模型层装
 配、凭据边界、测试承载）见 [DEC-027](../decisions/DEC-027-dialog-mode-model-layer.md)。
 
+失败轮次的正文保留（[DEC-104](../decisions/DEC-104-failed-turn-output-retention.md)）：
+`failed` 仍仅以 `error` 表达轮次失败，`reply_text` 的既有 ok-only 约束不变。
+若模型已生成最终答复、随后宿主核验失败，正文作为现有 `parts` 的 text 项传输，
+保留 id 为 `terminal.reply`；complete 表示文本生成完成，不表示任务成功。沿用
+正文分类 16KiB、总量和 UTF-8 截断约束，`truncated` 显式标记。新 UI 将该项作为
+正文，并将错误独立呈现；旧 UI 仍可按普通 text Part 显示。无新字段或版本变化。
+
 ### 6.8 权限策略面载荷（policy.* 载荷，M5-07，DEC-028）
 
 `policy.get` / `policy.set` 成功载荷同形：`{"rules":{...},"read_roots":[...]}`。

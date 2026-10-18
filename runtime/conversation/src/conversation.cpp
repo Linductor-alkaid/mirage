@@ -64,6 +64,34 @@ bool truncate_text(std::string &text, std::size_t limit) {
     text.resize(limit);
     return true;
 }
+void retain_terminal_reply(std::vector<Part> &parts, std::string_view reply) {
+    if (reply.empty())
+        return;
+    Part final;
+    final.id = terminal_reply_id;
+    final.kind = "text";
+    const auto bytes = std::min(reply.size(), max_text_budget);
+    final.text.assign(reply.substr(0, bytes));
+    while (!final.text.empty() && final.text.size() < reply.size() &&
+           (static_cast<unsigned char>(reply[final.text.size()]) & 0xc0U) == 0x80U)
+        final.text.pop_back();
+    final.truncated = final.text.size() != reply.size();
+    std::erase_if(parts, [](const auto &part) { return part.id == terminal_reply_id; });
+    std::size_t remaining = max_text_budget - final.text.size();
+    for (auto &part : parts) {
+        if (part.kind != "text")
+            continue;
+        if (truncate_text(part.text, remaining))
+            part.truncated = part.omitted_for_display_budget = true;
+        remaining -= part.text.size();
+    }
+    if (parts.size() >= max_parts) {
+        auto victim = std::find_if(parts.begin(), parts.end(),
+                                   [](const auto &part) { return part.kind == "thinking"; });
+        parts.erase(victim == parts.end() ? parts.begin() : victim);
+    }
+    parts.push_back(std::move(final));
+}
 bool valid_parts(const std::vector<Part> &parts) {
     if (parts.size() > max_parts)
         return false;

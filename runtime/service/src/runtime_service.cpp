@@ -219,6 +219,8 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
                 for (auto &part : event.parts)
                     if (part.status == "pending" || part.status == "running")
                         part.status = completion.cancelled ? "cancelled" : "failed";
+                if (!completion.ok && !completion.cancelled && !completion.reply_text.empty())
+                    conversation::retain_terminal_reply(event.parts, completion.reply_text);
                 record.parts = event.parts;
                 record.timings = event.timings;
                 if (!event.parts.empty() || record.process_sequence)

@@ -2105,6 +2105,15 @@ void service_scenario(bool replacement, bool deny_input, bool uri_handoff = fals
             if (turn.status != "ok")
                 std::fprintf(stderr, "service turn: %s\n", turn.error.c_str());
             MIRAGE_CHECK(turn.status == (deny_input ? "failed" : "ok"));
+            if (deny_input) {
+                const auto reply =
+                    std::find_if(turn.parts.begin(), turn.parts.end(), [](const auto &part) {
+                        return part.id == mirage::conversation::terminal_reply_id;
+                    });
+                MIRAGE_CHECK(!turn.error.empty() && !turn.has_reply);
+                MIRAGE_CHECK(reply != turn.parts.end() &&
+                             reply->text == "observed; not business verified");
+            }
             MIRAGE_CHECK(std::count_if(turn.parts.begin(), turn.parts.end(), [](const auto &part) {
                              return part.kind == "tool" && part.status == "complete";
                          }) == (uri_handoff ? (deny_input ? 3 : 5) : (deny_input ? 6 : 9)));

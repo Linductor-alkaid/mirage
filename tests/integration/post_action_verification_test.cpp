@@ -221,7 +221,18 @@ void scenario(kairo::Executor &executor, const std::string &mode) {
     }
     check(result.ok == passed);
     check(passed || result.failed || result.cancelled);
-    check(passed || result.reply_text.find("TASK SUCCESS") == std::string::npos);
+    if (result.failed) {
+        // DEC-104: a model claim stays visible but never grants task success.
+        check(!result.error.empty() && result.reply_text == "TASK SUCCESS!");
+        const auto final =
+            std::find_if(result.parts.begin(), result.parts.end(), [](const auto &p) {
+                return p.id == mirage::conversation::terminal_reply_id;
+            });
+        check(final != result.parts.end() && final->kind == "text" &&
+              final->text == result.reply_text);
+    } else if (result.cancelled) {
+        check(result.reply_text.empty());
+    }
     check(env->input_log.size() ==
           (mode == "denied" || mode == "rejected_then_corrected" ? 0u : 1u));
     if (mode == "rejected_then_corrected") {
