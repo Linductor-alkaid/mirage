@@ -1402,6 +1402,19 @@ if(UNIX)
         TIMEOUT 60)
 endif()
 
+# Compile the actual pet Bridge with only its window wakeup boundary replaced.
+# This runs the IPC/Executor lifecycle in non-native sanitizer presets too.
+if(UNIX)
+    mirage_add_test(pet_bridge_lifecycle_test
+        SOURCES runtime/pet_bridge_lifecycle_test.cpp ${CMAKE_SOURCE_DIR}/apps/pet/bridge.cpp
+        LIBS Mirage::runtime_service Mirage::platform Mirage::ipc Mirage::persistence Mirage::kairo_consumer mirage_pet_loader
+        LABELS "integration;runtime;pet;lifecycle"
+        TIMEOUT 30)
+    target_include_directories(pet_bridge_lifecycle_test PRIVATE
+        ${CMAKE_SOURCE_DIR}/tests/support/pet_bridge_ui
+        ${CMAKE_SOURCE_DIR}/platform/pet/include)
+endif()
+
 # DEC-070: legacy Runtime fixtures may leave a persistence directory implicit.
 # Give each test its own XDG stores, reset/cleaned by CTest fixtures. Separate
 # build directories own separate stores; sanitizer environments are preserved.

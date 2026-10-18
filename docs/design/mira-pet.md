@@ -217,8 +217,12 @@ GPU import Adapter 已移除，历史对比见台账与升级审计。解码器�
 
 UI 主线程持有播放器、RGBA 引用与 GPU 资源，kairo timer 负责唤醒。Linux X11
 最小化回调链保留 EUI 原回调，停止动画 timer、取消当前加载并清除 UI 帧；IPC 健康
-探测继续运行，恢复后重新加载最新状态并从首帧推进。其他隐藏形式由 M8-06 的
-避让接口接入后单独验证。GPU 占用与真实 compositor 效果仍保留门禁。
+探测继续运行，恢复后重新加载最新状态并从首帧推进。M8-06 第三增量将空
+ShapeBounding 接入同一路径：UI owner 采样本窗 shape，既有 200 ms 控制 timer 在
+暂停期间请求低频检查；不从 worker 调用 GLFW 连接，不承诺采样硬期限。暂停时
+移除 EUI ImageStream 元素绑定、释放解码帧和清空气泡，避免常驻 onFrame/stream
+强制持续渲染；恢复前先保持透明，资源就绪后恢复角色与拖动区。GPU 占用与真实
+compositor 效果仍保留门禁。
 
 启动/退出当前使用 v5 enter/exit 确认动作。启动 once 播完
 仍未 ready 时保留末帧姿态；ready 到达后转入待机或活动动画，播完不
@@ -282,8 +286,9 @@ XRes 1.2 的 client PID、_NET_WM_PID 与 _MIRAGE_PET_SURFACE=1 三者共同核�
 窗口；只有实际受管且 ready 的 pet 可以排除。启动中、停止中、能力不足或歧义拒绝。
 
 空 ShapeBounding 保留窗口位置/映射/焦点，并裁掉字符、气泡及输入区域。新内容、
-ShapeInput 更新和窗口尺寸改变不能突破空 bounding；短时隐藏期间渲染仍消费最新
-状态，恢复后不重播文字。最后释放恢复原始默认/自定义 bounding shape，并核对结果；
+ShapeInput 更新和窗口尺寸改变不能突破空 bounding。UI 采样发现隐藏后暂停呈现，
+状态经 LatestMailbox 保留最新值，恢复时重读并扣除气泡本地滞留时间，过期内容不重播。
+最后释放恢复原始默认/自定义 bounding shape，并核对结果；
 异常析构兜底，显式释放失败进入工具错误。未启动时的租约仍阻止并行创建新进程。
 
 会话 decorator 包住 DesktopActionVerification 全过程，workflow 注册同时保护桌面
@@ -293,7 +298,8 @@ atoms 与本地视觉 knowledge；exec/read/write/edit 等非桌面工具不触�
 owner 却只有缓存注册表时明确拒绝。五秒预算覆盖权限/采集/组装，取消、异常、
 epoch 或视觉代次变化均拒绝成功，清理仍执行，见
 [观察入口证据](../compatibility/mira-pet-observation-20261018.md)。
-Portal/Wayland、Windows、compositor 重绘完成证明与隐藏节能尚待独立实施/验证，
+隐藏暂停的实现与隔离取证见[第三增量记录](../compatibility/mira-pet-hidden-presentation-20261018.md)。
+Portal/Wayland、Windows、compositor 重绘完成证明与硬件能耗仍待独立实施/验证，
 不将 XSync 或空 shape 当作跨平台干净帧保证。
 
 另将隐藏退出/owner 失联检查从 30 秒 IPC 同步拆出到 200 ms kairo timer：保留

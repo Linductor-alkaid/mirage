@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
         struct pollfd input {
             STDIN_FILENO, POLLIN, 0
         };
-        const bool released = ::poll(&input, 1, 5000) > 0 && (input.revents & POLLIN);
+        const bool released = ::poll(&input, 1, 12000) > 0 && (input.revents & POLLIN);
         const auto verified = lease.lease->verify({});
         const auto restored = lease.lease->release();
         return released && verified.code.empty() && restored.code.empty() ? 0 : 4;

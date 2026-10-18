@@ -32,8 +32,8 @@ Linux X11 采用空 ShapeBounding，覆盖窗口内角色、气泡、尾部和�
 持有原 bounding shape，重叠调用引用计数，最后释放才恢复；每次进入与释放核验
 身份/形状，失败向工具返回明确错误。异常由 RAII 收敛；排除租约不新建 worker、队列或 timer。
 同轮隐藏退出修复单独拆出 200 ms kairo control timer，与 30 秒 IPC 同步解耦。
-渲染在短时排除期间继续消费最新状态，保证新文字不能突破服务端 shape、恢复时
-不重播隐藏期间的陈旧内容；隐藏期节能和长等待暂停另行优化，不宣称已经完成。
+首增量在短时排除期间继续渲染，以服务端 shape 阻止新文字显现；第三增量按下述
+UI 呈现暂停契约停止渲染，状态仍只保留最新快照。
 
 该实现接入 conversational harness、workflow desktop atoms 和直接 IPC desktop.observe；
 普通主窗口、第三方遮挡和 Overlay 不进入排除白名单。原生 Wayland/Portal、Windows
@@ -51,6 +51,23 @@ XWayland shape 当作 Portal 已获得干净新帧的证据。
 不配置 pet 的嵌入保留 registry-only 兼容路径。响应使用本次 refresh 返回的精确视觉
 代次；若组装期间 epoch 或 registry 代次变化，明确拒绝，不替换成别的 producer 结果。
 wire 形状和错误码集合保持兼容，仍使用 unavailable / permission_denied，详情给出原因。
+
+### 隐藏期间暂停呈现（2026-10-18 第三增量）
+
+Linux pet 在 UI owner 上读取自身 ShapeBounding，把空 bounding 与最小化统一为
+呈现暂停；不从 Executor worker 操作 GLFW 的 X 连接。既有 200 ms control timer 在
+暂停期间请求低频 UI 检查，恢复后重新采样，保留独立退出/owner 失联处理。
+不新增 timer、worker、队列或 IPC 字段，不承诺 200 ms 硬期限；短于采样周期的排除
+仍只依赖服务端 shape 保证像素隐藏。
+
+暂停停止 33 ms 动画 timer、取消资源解码并消费其 future，释放解码数组，清除气泡和
+旧图；同时移除 EUI ImageStream 元素绑定，避免其公开契约要求的持续渲染。状态推进
+随 compose 请求执行，不保留常驻 onFrame。空图期间仅做控制检查，不推进角色或
+滚动动画；恢复从最新状态重新加载。
+状态经既有 LatestMailbox 传递并附本进程接收时刻，恢复重读最新值；最终气泡的
+remaining_ms 扣除本地滞留时间，已过期则丢弃，不能把旧快照当作新五秒展示。
+恢复前已完成暂停清图的窗口先保持透明，等待新状态/新图，不重播旧文字。
+真实 compositor 的瞬时绘制与无缝恢复仍保留目标环境门禁。
 
 ## 备选方案
 

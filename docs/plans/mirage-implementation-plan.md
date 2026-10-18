@@ -6,7 +6,7 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-10-18（M6-43 会话上下文快照补齐；M8-06 桌面工具与直接观察排除增量；既有里程碑状态保留）
+> 更新日期：2026-10-18（M6-43 会话上下文快照补齐；M8-06 排除与隐藏暂停增量；既有里程碑状态保留）
 
 ## 当前状态
 
@@ -67,6 +67,8 @@ M8-06 转 In Progress：按 [DEC-103](../decisions/DEC-103-pet-desktop-exclusion
 进程 38/38；[实施证据](../compatibility/mira-pet-desktop-exclusion-20261018.md)
 记录首增量及开放门禁；第二增量补齐直接 IPC 观察的排除、全程预算与新鲜视觉
 代次检查，见[观察入口证据](../compatibility/mira-pet-observation-20261018.md)。
+第三增量补齐空 shape 期间的解码/呈现暂停与最终气泡剩余时间扣减，复用现有
+控制 timer，见[隐藏暂停记录](../compatibility/mira-pet-hidden-presentation-20261018.md)。
 真实 compositor/其他平台仍待补跑。M8-01～05 的持续使用
 稳定反馈作为现场进展保留，不据此替代尚未执行的平台、性能和完整输入闭环验收。
 

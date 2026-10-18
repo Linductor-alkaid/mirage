@@ -23,6 +23,7 @@ class Bridge {
     ResourceLoader &loader();
     void set_animating(bool value);
     void set_visible(bool value);
+    bool visible() const;
     void shutdown();
 
   private:

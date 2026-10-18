@@ -50,6 +50,22 @@ void clear_image(State &model) {
     // Submit the transparent replacement on the next visible UI tick.
     model.presentation.clear();
 }
+bool submit_pixels(State &model, FramePresentation::Pixels pixels) {
+    const auto region_pixels = pixels;
+    eui::ImageFrame image_frame{};
+    image_frame.pixels = std::move(pixels);
+    image_frame.width = image_frame.height = 512;
+    image_frame.stride = 512 * 4;
+    image_frame.format = eui::ImagePixelFormat::RGBA8;
+    image_frame.sequence = ++model.frame_sequence;
+    if (model.images->submit(std::move(image_frame))) {
+        platform::pet_window::update_hit_region(*region_pixels, model.layout);
+        return true;
+    }
+    model.asset_failed = true;
+    std::cerr << "mira_pet: RGBA ImageStream admission failed\n";
+    return false;
+}
 } // namespace
 
 void start(const std::string &endpoint) {
@@ -114,11 +130,30 @@ void tick() {
         model.presentation.suspend();
         model.asset_attempt = nullptr;
         model.player.reset();
+        model.bubble = {};
+        model.have_status = false;
         clear_image(model);
         if (visible)
             app::requestUpdate();
     });
     const auto now = Clock::now();
+    if (!model.bridge->visible()) {
+        // Drain the cancelled generation without accepting another decode.
+        LoadUpdate discarded;
+        (void)model.bridge->loader().poll(discarded, now);
+        if (auto pixels = model.presentation.next({}, {}, true))
+            (void)submit_pixels(model, std::move(pixels));
+        if (!model.bridge->connected()) {
+            if (model.lost_at == Clock::time_point{})
+                model.lost_at = now;
+        } else {
+            model.lost_at = {};
+        }
+        if (platform::pet_window::exit_requested() ||
+            (model.lost_at != Clock::time_point{} && now - model.lost_at >= 5s))
+            platform::pet_window::request_close();
+        return;
+    }
     runtime::persistence::AppPreferences preferences;
     if (model.bridge->preferences(preferences))
         model.preferences = std::move(preferences);
@@ -191,26 +226,10 @@ void tick() {
     if (model.decoded.clip == frame.clip)
         model.player.asset_ready(now);
     frame = model.player.frame(now);
-    const auto submit = [&](std::shared_ptr<const std::vector<std::uint8_t>> pixels) {
-        const auto region_pixels = pixels;
-        eui::ImageFrame image_frame{};
-        image_frame.pixels = std::move(pixels);
-        image_frame.width = image_frame.height = 512;
-        image_frame.stride = 512 * 4;
-        image_frame.format = eui::ImagePixelFormat::RGBA8;
-        image_frame.sequence = ++model.frame_sequence;
-        if (model.images->submit(std::move(image_frame))) {
-            platform::pet_window::update_hit_region(*region_pixels, model.layout);
-            return true;
-        }
-        model.asset_failed = true;
-        std::cerr << "mira_pet: RGBA ImageStream admission failed\n";
-        return false;
-    };
     const bool safe_fallback =
         frame.static_fallback || model.asset_failed || owner_changed || display == "exiting";
     if (auto pixels = model.presentation.next(frame, model.decoded, safe_fallback)) {
-        if (!submit(std::move(pixels))) {
+        if (!submit_pixels(model, std::move(pixels))) {
             model.decoded = {};
             model.player.asset_failed(now);
             clear_image(model);
@@ -229,9 +248,11 @@ void tick() {
 }
 std::shared_ptr<eui::ImageStream> images() { return state().images; }
 void set_layout(platform::pet_window::Layout layout) { state().layout = layout; }
+bool presented() { return state().bridge && state().bridge->visible(); }
 void compose_bubble(eui::Ui &ui) {
     auto &model = state();
-    if (!model.bridge || !model.bridge->connected() || model.exit_at != Clock::time_point{})
+    if (!model.bridge || !model.bridge->visible() || !model.bridge->connected() ||
+        model.exit_at != Clock::time_point{})
         return;
     compose_bubble_view(ui, model.bubble, model.layout, model.preferences, Clock::now());
 }
@@ -263,16 +284,22 @@ const DslAppConfig &dslAppConfig() {
 void compose(eui::Ui &ui, const eui::Screen &screen) {
     const auto layout = mirage::platform::pet_window::layout(screen.width, screen.height);
     mirage::pet_ui::set_layout(layout);
+    // Bridge timers/events request UI updates. An unconditional onFrame
+    // callback would keep EUI rendering even after the animation timer stops.
+    mirage::pet_ui::tick();
     ui.stack("pet.root")
         .size(screen.width, screen.height)
         .content([&] {
+            // EUI's public ImageStream contract keeps bound elements active.
+            // Remove the binding while paused so only control wakes remain.
+            if (!mirage::pet_ui::presented())
+                return;
             ui.image("pet.animation")
                 .position(layout.image_x, layout.image_y)
                 .size(layout.image_side, layout.image_side)
                 .stream(mirage::pet_ui::images())
                 .contain()
                 .hitTestMode(eui::dsl::HitTestMode::None)
-                .onFrame([](float) { mirage::pet_ui::tick(); })
                 .build();
             mirage::pet_ui::compose_bubble(ui);
         })

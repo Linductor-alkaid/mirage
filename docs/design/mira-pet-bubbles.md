@@ -145,7 +145,9 @@ owner/source 从外层完整状态继承。无气泡时不写该字段，不写 
 校验/投递和投递刷新标记，Runtime 既有 25ms Executor timer 在串行投影域生成短句。
 没有新压缩 worker/队列，压缩工作本身为有界单步。Topic 向订阅者广播完整状态，桌宠
 LatestMailbox 只消费较新快照。滚动以单调时钟计算，复用 33ms Executor 动画 timer；
-隐藏时停止渲染唤醒。终态期限使用一次延时任务，至多保留三组 TimerSubmission 句柄/future，
+隐藏时停止动画/滚动唤醒并移除 ImageStream 绑定，仅保留 200ms 控制检查用于
+恢复与退出；状态快照附本进程接收时刻，重读时扣除最终气泡已滞留时间，避免复活过期
+短句，不把时间戳写入 wire。终态期限使用一次延时任务，至多保留三组 TimerSubmission 句柄/future，
 取消结果消费、拒绝与异常有诊断，shutdown 排空。静止泡本身不要求持续唤醒，但角色动画
 仍按其既有需求更新，不宣称硬实时性。
 

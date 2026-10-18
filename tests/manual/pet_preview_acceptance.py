@@ -73,12 +73,17 @@ def session(args):
             shutil.copytree(args.build / 'apps/pet/assets', folder / 'assets')
             check('relocated payload has nine local assets', len(list((folder / 'assets/pet').glob('*.webp'))) == 9)
             d = display.Display()
-            for abrupt in [False, True]:
+            scenarios = ['normal', 'owner_lost'] + (['shape_owner_lost', 'shape_shutdown'] if args.exclusion_probe else [])
+            for scenario in scenarios:
+                abrupt = scenario != 'normal'
+                shape_hidden = scenario.startswith('shape_')
+                owner_lost = scenario.endswith('owner_lost')
+                exit_probe = None
                 position_file = Path(env['XDG_STATE_HOME']) / 'mirage/pet-window-position.txt'
                 if abrupt:
                     position_file.write_text('2147483647 -2147483648\n')
-                endpoint = str(Path(env['XDG_RUNTIME_DIR']) / ('pet-lost.sock' if abrupt else 'pet-normal.sock'))
-                with (args.output / ('lost.log' if abrupt else 'normal.log')).open('w') as log:
+                endpoint = str(Path(env['XDG_RUNTIME_DIR']) / f'pet-{scenario}.sock')
+                with (args.output / f'{scenario}.log').open('w') as log:
                     tray = subprocess.Popen([str(folder / 'mirage-tray'), '--socket', endpoint,
                         '--state-dir', str(folder / 'state'), '--no-recovery', '--no-shell',
                         *(['--ocr-manifest', str(args.build / 'share/mirage/vision/ppocrv5-mobile-v1/manifest.json')]
@@ -131,6 +136,10 @@ def session(args):
                         check('pet window reserves bubbles without reducing the 240px character canvas',
                               geometry.width == 264 and geometry.height == 322)
                         if args.exclusion_probe:
+                            started, before = time.monotonic(), cpu(pet.pid)
+                            time.sleep(1)
+                            visible_cpu = 100 * (cpu(pet.pid) - before) / (time.monotonic() - started)
+                            result['metrics']['before_exclusion_cpu_percent_one_core'] = round(visible_cpu, 2)
                             original_focus = d.get_input_focus().focus
                             probe = subprocess.Popen([str(args.exclusion_probe), '--probe-pid', str(pet.pid)],
                                 env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -141,17 +150,34 @@ def session(args):
                                 check('native pet server ownership admits exclusion', probe.stdout.readline().strip() == 'hidden')
                                 check('native character and bubble full bounding region is empty',
                                       len(shape.get_rectangles(window, shape.SK.Bounding).rectangles) == 0)
-                                time.sleep(.4)  # real rendering/shape-input updates continue
+                                time.sleep(.7)  # UI owner observes shape and drains the cancelled decode
                                 check('native new frames cannot escape the empty bounding region',
                                       len(shape.get_rectangles(window, shape.SK.Bounding).rectangles) == 0)
                                 check('excluded pet remains mapped and does not steal focus',
                                       window.get_attributes().map_state == X.IsViewable and
                                       d.get_input_focus().focus == original_focus)
+                                raw = window.get_image(0, 0, geometry.width, geometry.height, X.ZPixmap, 0xffffffff)
+                                suspended = Image.frombytes('RGBA', (geometry.width, geometry.height), raw.data, 'raw', 'BGRA')
+                                suspended.save(args.output / 'pet-shape-suspended.png')
+                                check('shape suspension clears the retained character and bubble framebuffer',
+                                      suspended.getchannel('A').getbbox() is None)
+                                started, before = time.monotonic(), cpu(pet.pid)
+                                time.sleep(3)
+                                paused_cpu = 100 * (cpu(pet.pid) - before) / (time.monotonic() - started)
+                                result['metrics']['shape_suspended_cpu_percent_one_core'] = round(paused_cpu, 2)
+                                check('shape suspension reduces native CPU while retaining control checks',
+                                      paused_cpu < max(3, visible_cpu * .5))
                             finally:
                                 probe.stdin.write('release\n'); probe.stdin.flush()
                                 probe.wait(timeout=6)
                             check('native exclusion restores cleanly', probe.returncode == 0)
                             await_value(lambda: shape.get_rectangles(window, shape.SK.Bounding).rectangles, bool)
+                            def restored_alpha():
+                                raw = window.get_image(0, 0, geometry.width, geometry.height, X.ZPixmap, 0xffffffff)
+                                return Image.frombytes('RGBA', (geometry.width, geometry.height), raw.data, 'raw', 'BGRA').getchannel('A').getbbox()
+                            await_value(restored_alpha, bool, budget=6)
+                            await_value(lambda: shape.get_rectangles(window, shape.SK.Input).rectangles, bool, budget=6)
+                            check('native restore reloads a visible character and drag region', bool(restored_alpha()))
                             restored = window.get_geometry()
                             check('native restore preserves character anchor and window geometry',
                                   (restored.x, restored.y, restored.width, restored.height) ==
@@ -248,6 +274,9 @@ def session(args):
                                     prior_focus.set_input_focus(X.RevertToParent, X.CurrentTime)
                                 d.sync()
                                 wire.call('policy.set', rules=prior_policy['rules'], read_roots=prior_policy['read_roots'])
+                        # Exclusion restoration precedes the UI's sampled resume;
+                        # input remains empty until the current character is ready.
+                        await_value(lambda: shape.get_rectangles(window, shape.SK.Input).rectangles, bool, budget=6)
                         wm_state = window.get_full_property(d.intern_atom('_NET_WM_STATE'), X.AnyPropertyType)
                         atoms = set(wm_state.value) if wm_state is not None else set()
                         check('pet is excluded from the dock and pager',
@@ -281,17 +310,30 @@ def session(args):
                                   after.x == before.x - 36 and after.y == before.y - 28)
                             stored = await_value(lambda: position_file.read_text() if position_file.exists() else '', bool)
                             check('dragged position is persisted', stored.strip() == f'{after.x + 12} {after.y + 70}')
+                        previous = window.get_image(0, 0, geometry.width, geometry.height, X.ZPixmap, 0xffffffff)
+                        previous = Image.frombytes('RGBA', image.size, previous.data, 'raw', 'BGRA')
                         time.sleep(.7)
                         following = window.get_image(0, 0, geometry.width, geometry.height, X.ZPixmap, 0xffffffff)
                         following = Image.frombytes('RGBA', image.size, following.data, 'raw', 'BGRA')
-                        motion = ImageChops.difference(image.crop((0, 0, geometry.width, 220)).convert('RGB'),
+                        motion = ImageChops.difference(previous.crop((0, 0, geometry.width, 220)).convert('RGB'),
                                                       following.crop((0, 0, geometry.width, 220)).convert('RGB'))
+                        previous.save(args.output / 'restored-animation-before.png')
+                        following.save(args.output / 'restored-animation-after.png')
                         check('same idle state advances actual rendered frames', motion.getbbox() is not None)
                         started, before = time.monotonic(), cpu(pet.pid)
                         time.sleep(3)
                         result['metrics']['visible_cpu_percent_one_core'] = round(100 * (cpu(pet.pid) - before) / (time.monotonic() - started), 2)
                         result['metrics']['rss_status'] = [line for line in Path(f'/proc/{pet.pid}/status').read_text().splitlines() if line.startswith(('VmRSS:', 'VmHWM:'))]
-                    minimize(d, window)
+                    if shape_hidden:
+                        assert args.exclusion_probe, 'shape lifecycle cases need --exclusion-probe'
+                        exit_probe = subprocess.Popen([str(args.exclusion_probe), '--probe-pid', str(pet.pid)],
+                            env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                        children.append(exit_probe)
+                        assert select.select([exit_probe.stdout], [], [], 5)[0]
+                        check(scenario + ' admits a mapped exclusion', exit_probe.stdout.readline().strip() == 'hidden' and
+                              window.get_attributes().map_state == X.IsViewable)
+                    else:
+                        minimize(d, window)
                     time.sleep(.5)
                     started, before = time.monotonic(), cpu(pet.pid)
                     time.sleep(3)
@@ -336,7 +378,7 @@ def session(args):
                         check('explicit recovery after crash completes readiness', pet.pid > 0)
                         minimize(d, window)
                     started = time.monotonic()
-                    if abrupt:
+                    if owner_lost:
                         tray.kill(); tray.wait(timeout=5)
                         wire.sock.close(); wire = None
                         pet.wait(timeout=12)
@@ -347,7 +389,13 @@ def session(args):
                         tray.wait(timeout=10)
                         check('hidden graceful exit stays within owner budget', tray.returncode == 0 and time.monotonic() - started < 6)
                         check('hidden pet is reaped and socket removed', not Path(f'/proc/{pet.pid}').exists() and not Path(endpoint).exists())
-                    result['metrics']['hidden_owner_loss_seconds' if abrupt else 'hidden_shutdown_seconds'] = round(time.monotonic() - started, 3)
+                    metric = ('shape_' if shape_hidden else '') + ('hidden_owner_loss_seconds' if owner_lost else 'hidden_shutdown_seconds')
+                    result['metrics'][metric] = round(time.monotonic() - started, 3)
+                    if exit_probe:
+                        exit_probe.stdin.write('release\n'); exit_probe.stdin.flush()
+                        exit_probe.wait(timeout=3)
+                        check(scenario + ' leaves no live surface for its former lease', exit_probe.returncode == 4)
+
             d.close()
         (args.output / 'pet-results.json').write_text(json.dumps(result, indent=2) + '\n')
     finally:

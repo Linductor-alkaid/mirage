@@ -127,3 +127,10 @@ M8-06 仍为 **In Progress**。本轮关闭直接 IPC 观察入口的实现与�
 | 按目标自动迁移、几何版本与隐藏节能 | 本轮使用整窗短时隐藏；需后续可见性/几何契约与功耗、恢复测试 | Mirage 维护者 |
 | native/EUI 实进程 sanitizer | 本轮三种 sanitizer 覆盖 Runtime、IPC 和假 pipeline；完整原生 sanitizer 构建及实进程脚本另行执行 | Mirage 维护者 |
 | 远端 CI、MR、安装/升级/卸载和许可 | 本轮未提交/推送，CI 测试清单已加入新测试；发布与 M8-08 门禁另行执行 | Mirage 维护者 |
+
+
+## 后续增量
+
+前两轮排除及观察变更已提交为 `20c9c7f`；同日第三增量接入 X11 隐藏暂停和气泡
+本地剩余时间扣减，见[新增证据](mira-pet-hidden-presentation-20261018.md)。上表保留
+第二增量结束时的状态，硬件功耗/原生窗口 sanitizer/真实 compositor 等门禁仍开放。

@@ -171,7 +171,10 @@ v5 替换了 enter/exit；其余七态主文件与 v3 摘要一致。
   第二增量将直接 IPC `desktop.observe` 接入同一租约；视觉请求排除后重新采集，
   返回前核验代次/epoch 并恢复，缓存不能替代排除证明，见
   [观察入口证据](../compatibility/mira-pet-observation-20261018.md)。
-  按区域自动迁移、隐藏节能、真实 compositor 重绘与整组气泡/Overlay
+  第三增量交付 X11 隐藏暂停：复用 UI 可见性入口与控制 timer，暂停解码/动画并
+  移除 stream 绑定；恢复重读状态并扣除气泡滞留时间。私有原生 66/66，
+  Release 全量 101/101，详见[隐藏暂停证据](../compatibility/mira-pet-hidden-presentation-20261018.md)。
+  按区域自动迁移、真实 compositor 重绘与整组气泡/Overlay
   输入闭环、多屏/DPI、Wayland/Windows 仍开放，负责人为 Mirage 维护者。
 - [ ] `M8-07` **Planned**：形成 Linux v5 九态预览的产品门禁。沿现有真实会话执行
   思考 → 看 → 鼠标/键入 → 看/核验 → 成功，以及工具可恢复失败、最终失败、暂停/
@@ -769,3 +772,18 @@ Release 全量 99/99；最终补充运行期预算用例后重建并定向 8/8�
 
 M8-06 与 M8 保持 In Progress；真实 compositor、整组气泡/Overlay 输入与接管、
 自动迁移/几何协议/隐藏节能、多屏 DPI 和其他平台由 Mirage 维护者按目标环境补跑。
+
+
+### 2026-10-18：提交前两增量并推进 M8-06 隐藏暂停
+
+按维护者要求，前两轮变更提交为 `20c9c7f`。第三增量把空 bounding shape 接入既有
+可见性暂停，在 UI owner 采样，不新增并发设施或 wire 字段。取消解码/动画及气泡
+唤醒，移除 EUI stream 绑定，恢复时重读最新状态并扣除最终气泡本地滞留时间。
+
+Release 全量 101/101，ASAN/UBSAN/TSAN 各 6/6（包括实际 Bridge 源码生命周期和
+两个隔离 fixture）。原生私有 tray/pet/OCR 脚本 66/66，shape 隐藏时 CPU 从同机
+18.99% 降到 1.67%，恢复连续动画/拖动通过；仍映射但空 shape 的正常关闭 0.370 秒、
+owner 失联退出 5.456 秒。首两轮未满足节能门禁，随后恢复就绪与帧比较夹具失败均
+保留在[实施证据](../compatibility/mira-pet-hidden-presentation-20261018.md)。
+这些不是硬件能耗或真实 compositor 结论；完整气泡/Overlay 输入/接管、其他平台、
+几何迁移和安装许可继续由 Mirage 维护者按相应工作项验证，M8-06 和 M8 保持 In Progress。

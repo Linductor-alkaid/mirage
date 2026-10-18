@@ -1,0 +1,783 @@
+{
+  "work_item": "M8-06",
+  "decision": "DEC-103",
+  "date": "2026-10-18",
+  "base_commit": "20c9c7f",
+  "branch": "feat/pet-desktop-exclusion",
+  "scope": "Private Xvfb/DBus/minimal WM, X server automatic composition, local PP-OCR; no desktop compositor or online model-provider request",
+  "attempts": [
+    {
+      "attempt": "first",
+      "status": "failed",
+      "reason": "Animation timer stopped and frame cleared, but unconditional EUI callbacks/binding kept rendering active",
+      "passed": 14,
+      "checks": 15,
+      "result": {
+        "scope": "Xvfb + ICCCM/compositor-selection fixture; real RGBA framebuffer and relocated processes; optional X server automatic root composition; no desktop compositor or model-provider requests; optional local OCR",
+        "checks": [
+          {
+            "name": "relocated payload has nine local assets",
+            "passed": true
+          },
+          {
+            "name": "tray starts in private session",
+            "passed": true
+          },
+          {
+            "name": "owned pet completes explicit readiness bootstrap",
+            "passed": true
+          },
+          {
+            "name": "separate pet is owned by tray",
+            "passed": true
+          },
+          {
+            "name": "actual window framebuffer contains transparent and visible pixels",
+            "passed": true
+          },
+          {
+            "name": "actual framebuffer preserves transparent corner",
+            "passed": true
+          },
+          {
+            "name": "character region renders visible pixels",
+            "passed": true
+          },
+          {
+            "name": "full character reaches the lower image region",
+            "passed": true
+          },
+          {
+            "name": "pet window reserves bubbles without reducing the 240px character canvas",
+            "passed": true
+          },
+          {
+            "name": "native pet server ownership admits exclusion",
+            "passed": true
+          },
+          {
+            "name": "native character and bubble full bounding region is empty",
+            "passed": true
+          },
+          {
+            "name": "native new frames cannot escape the empty bounding region",
+            "passed": true
+          },
+          {
+            "name": "excluded pet remains mapped and does not steal focus",
+            "passed": true
+          },
+          {
+            "name": "shape suspension clears the retained character and bubble framebuffer",
+            "passed": true
+          },
+          {
+            "name": "shape suspension reduces native CPU while retaining control checks",
+            "passed": false
+          }
+        ],
+        "metrics": {
+          "before_exclusion_cpu_percent_one_core": 25.99,
+          "shape_suspended_cpu_percent_one_core": 25.0
+        },
+        "limitations": [
+          "hardware GPU budget",
+          "desktop compositor alpha",
+          "fullscreen",
+          "multi-monitor/DPI",
+          "seven loop visual seam acceptance"
+        ]
+      }
+    },
+    {
+      "attempt": "second",
+      "status": "failed",
+      "reason": "Removed unconditional onFrame; bound ImageStream still required continuous rendering",
+      "passed": 14,
+      "checks": 15,
+      "result": {
+        "scope": "Xvfb + ICCCM/compositor-selection fixture; real RGBA framebuffer and relocated processes; optional X server automatic root composition; no desktop compositor or model-provider requests; optional local OCR",
+        "checks": [
+          {
+            "name": "relocated payload has nine local assets",
+            "passed": true
+          },
+          {
+            "name": "tray starts in private session",
+            "passed": true
+          },
+          {
+            "name": "owned pet completes explicit readiness bootstrap",
+            "passed": true
+          },
+          {
+            "name": "separate pet is owned by tray",
+            "passed": true
+          },
+          {
+            "name": "actual window framebuffer contains transparent and visible pixels",
+            "passed": true
+          },
+          {
+            "name": "actual framebuffer preserves transparent corner",
+            "passed": true
+          },
+          {
+            "name": "character region renders visible pixels",
+            "passed": true
+          },
+          {
+            "name": "full character reaches the lower image region",
+            "passed": true
+          },
+          {
+            "name": "pet window reserves bubbles without reducing the 240px character canvas",
+            "passed": true
+          },
+          {
+            "name": "native pet server ownership admits exclusion",
+            "passed": true
+          },
+          {
+            "name": "native character and bubble full bounding region is empty",
+            "passed": true
+          },
+          {
+            "name": "native new frames cannot escape the empty bounding region",
+            "passed": true
+          },
+          {
+            "name": "excluded pet remains mapped and does not steal focus",
+            "passed": true
+          },
+          {
+            "name": "shape suspension clears the retained character and bubble framebuffer",
+            "passed": true
+          },
+          {
+            "name": "shape suspension reduces native CPU while retaining control checks",
+            "passed": false
+          }
+        ],
+        "metrics": {
+          "before_exclusion_cpu_percent_one_core": 18.99,
+          "shape_suspended_cpu_percent_one_core": 10.66
+        },
+        "limitations": [
+          "hardware GPU budget",
+          "desktop compositor alpha",
+          "fullscreen",
+          "multi-monitor/DPI",
+          "seven loop visual seam acceptance"
+        ]
+      }
+    },
+    {
+      "attempt": "third",
+      "status": "failed",
+      "reason": "Binding suspension reduced CPU; fixture sampled drag input before asynchronous character reload completed",
+      "passed": 30,
+      "checks": 31,
+      "result": {
+        "scope": "Xvfb + ICCCM/compositor-selection fixture; real RGBA framebuffer and relocated processes; optional X server automatic root composition; no desktop compositor or model-provider requests; optional local OCR",
+        "checks": [
+          {
+            "name": "relocated payload has nine local assets",
+            "passed": true
+          },
+          {
+            "name": "tray starts in private session",
+            "passed": true
+          },
+          {
+            "name": "owned pet completes explicit readiness bootstrap",
+            "passed": true
+          },
+          {
+            "name": "separate pet is owned by tray",
+            "passed": true
+          },
+          {
+            "name": "actual window framebuffer contains transparent and visible pixels",
+            "passed": true
+          },
+          {
+            "name": "actual framebuffer preserves transparent corner",
+            "passed": true
+          },
+          {
+            "name": "character region renders visible pixels",
+            "passed": true
+          },
+          {
+            "name": "full character reaches the lower image region",
+            "passed": true
+          },
+          {
+            "name": "pet window reserves bubbles without reducing the 240px character canvas",
+            "passed": true
+          },
+          {
+            "name": "native pet server ownership admits exclusion",
+            "passed": true
+          },
+          {
+            "name": "native character and bubble full bounding region is empty",
+            "passed": true
+          },
+          {
+            "name": "native new frames cannot escape the empty bounding region",
+            "passed": true
+          },
+          {
+            "name": "excluded pet remains mapped and does not steal focus",
+            "passed": true
+          },
+          {
+            "name": "shape suspension clears the retained character and bubble framebuffer",
+            "passed": true
+          },
+          {
+            "name": "shape suspension reduces native CPU while retaining control checks",
+            "passed": true
+          },
+          {
+            "name": "native exclusion restores cleanly",
+            "passed": true
+          },
+          {
+            "name": "native restore reloads a visible character and drag region",
+            "passed": true
+          },
+          {
+            "name": "native restore preserves character anchor and window geometry",
+            "passed": true
+          },
+          {
+            "name": "direct observation uses the real local OCR pipeline",
+            "passed": true
+          },
+          {
+            "name": "public target 0 is covered before observation",
+            "passed": true
+          },
+          {
+            "name": "IPC capture 0 exposes exact underlying pixels",
+            "passed": true
+          },
+          {
+            "name": "IPC observation 0 recognizes the current public text",
+            "passed": true
+          },
+          {
+            "name": "IPC observation 0 restores pet before replying without moving or focusing it",
+            "passed": true
+          },
+          {
+            "name": "public target 1 is covered before observation",
+            "passed": true
+          },
+          {
+            "name": "IPC capture 1 exposes exact underlying pixels",
+            "passed": true
+          },
+          {
+            "name": "IPC observation 1 recognizes the current public text",
+            "passed": true
+          },
+          {
+            "name": "IPC observation 1 restores pet before replying without moving or focusing it",
+            "passed": true
+          },
+          {
+            "name": "pet is excluded from the dock and pager",
+            "passed": true
+          },
+          {
+            "name": "transparent corner remains input-through",
+            "passed": true
+          },
+          {
+            "name": "entire bubble and tail reserve remains input-through",
+            "passed": true
+          },
+          {
+            "name": "visible character has a drag region",
+            "passed": false
+          }
+        ],
+        "metrics": {
+          "before_exclusion_cpu_percent_one_core": 19.99,
+          "shape_suspended_cpu_percent_one_core": 2.67
+        },
+        "limitations": [
+          "hardware GPU budget",
+          "desktop compositor alpha",
+          "fullscreen",
+          "multi-monitor/DPI",
+          "seven loop visual seam acceptance"
+        ]
+      }
+    },
+    {
+      "attempt": "fourth",
+      "status": "failed",
+      "reason": "Input recovery passed; fixture compared animation across reset against a pre-exclusion frame",
+      "passed": 34,
+      "checks": 35,
+      "result": {
+        "scope": "Xvfb + ICCCM/compositor-selection fixture; real RGBA framebuffer and relocated processes; optional X server automatic root composition; no desktop compositor or model-provider requests; optional local OCR",
+        "checks": [
+          {
+            "name": "relocated payload has nine local assets",
+            "passed": true
+          },
+          {
+            "name": "tray starts in private session",
+            "passed": true
+          },
+          {
+            "name": "owned pet completes explicit readiness bootstrap",
+            "passed": true
+          },
+          {
+            "name": "separate pet is owned by tray",
+            "passed": true
+          },
+          {
+            "name": "actual window framebuffer contains transparent and visible pixels",
+            "passed": true
+          },
+          {
+            "name": "actual framebuffer preserves transparent corner",
+            "passed": true
+          },
+          {
+            "name": "character region renders visible pixels",
+            "passed": true
+          },
+          {
+            "name": "full character reaches the lower image region",
+            "passed": true
+          },
+          {
+            "name": "pet window reserves bubbles without reducing the 240px character canvas",
+            "passed": true
+          },
+          {
+            "name": "native pet server ownership admits exclusion",
+            "passed": true
+          },
+          {
+            "name": "native character and bubble full bounding region is empty",
+            "passed": true
+          },
+          {
+            "name": "native new frames cannot escape the empty bounding region",
+            "passed": true
+          },
+          {
+            "name": "excluded pet remains mapped and does not steal focus",
+            "passed": true
+          },
+          {
+            "name": "shape suspension clears the retained character and bubble framebuffer",
+            "passed": true
+          },
+          {
+            "name": "shape suspension reduces native CPU while retaining control checks",
+            "passed": true
+          },
+          {
+            "name": "native exclusion restores cleanly",
+            "passed": true
+          },
+          {
+            "name": "native restore reloads a visible character and drag region",
+            "passed": true
+          },
+          {
+            "name": "native restore preserves character anchor and window geometry",
+            "passed": true
+          },
+          {
+            "name": "direct observation uses the real local OCR pipeline",
+            "passed": true
+          },
+          {
+            "name": "public target 0 is covered before observation",
+            "passed": true
+          },
+          {
+            "name": "IPC capture 0 exposes exact underlying pixels",
+            "passed": true
+          },
+          {
+            "name": "IPC observation 0 recognizes the current public text",
+            "passed": true
+          },
+          {
+            "name": "IPC observation 0 restores pet before replying without moving or focusing it",
+            "passed": true
+          },
+          {
+            "name": "public target 1 is covered before observation",
+            "passed": true
+          },
+          {
+            "name": "IPC capture 1 exposes exact underlying pixels",
+            "passed": true
+          },
+          {
+            "name": "IPC observation 1 recognizes the current public text",
+            "passed": true
+          },
+          {
+            "name": "IPC observation 1 restores pet before replying without moving or focusing it",
+            "passed": true
+          },
+          {
+            "name": "pet is excluded from the dock and pager",
+            "passed": true
+          },
+          {
+            "name": "transparent corner remains input-through",
+            "passed": true
+          },
+          {
+            "name": "entire bubble and tail reserve remains input-through",
+            "passed": true
+          },
+          {
+            "name": "visible character has a drag region",
+            "passed": true
+          },
+          {
+            "name": "visible drag point targets the actual pet",
+            "passed": true
+          },
+          {
+            "name": "dragging visible character moves its window",
+            "passed": true
+          },
+          {
+            "name": "dragged position is persisted",
+            "passed": true
+          },
+          {
+            "name": "same idle state advances actual rendered frames",
+            "passed": false
+          }
+        ],
+        "metrics": {
+          "before_exclusion_cpu_percent_one_core": 20.99,
+          "shape_suspended_cpu_percent_one_core": 2.33
+        },
+        "limitations": [
+          "hardware GPU budget",
+          "desktop compositor alpha",
+          "fullscreen",
+          "multi-monitor/DPI",
+          "seven loop visual seam acceptance"
+        ]
+      }
+    },
+    {
+      "attempt": "fifth",
+      "status": "passed",
+      "reason": "Final script uses consecutive post-resume animation frames and verifies mapped-exclusion shutdown/owner loss",
+      "passed": 66,
+      "checks": 66,
+      "result": {
+        "scope": "Xvfb + ICCCM/compositor-selection fixture; real RGBA framebuffer and relocated processes; optional X server automatic root composition; no desktop compositor or model-provider requests; optional local OCR",
+        "checks": [
+          {
+            "name": "relocated payload has nine local assets",
+            "passed": true
+          },
+          {
+            "name": "tray starts in private session",
+            "passed": true
+          },
+          {
+            "name": "owned pet completes explicit readiness bootstrap",
+            "passed": true
+          },
+          {
+            "name": "separate pet is owned by tray",
+            "passed": true
+          },
+          {
+            "name": "actual window framebuffer contains transparent and visible pixels",
+            "passed": true
+          },
+          {
+            "name": "actual framebuffer preserves transparent corner",
+            "passed": true
+          },
+          {
+            "name": "character region renders visible pixels",
+            "passed": true
+          },
+          {
+            "name": "full character reaches the lower image region",
+            "passed": true
+          },
+          {
+            "name": "pet window reserves bubbles without reducing the 240px character canvas",
+            "passed": true
+          },
+          {
+            "name": "native pet server ownership admits exclusion",
+            "passed": true
+          },
+          {
+            "name": "native character and bubble full bounding region is empty",
+            "passed": true
+          },
+          {
+            "name": "native new frames cannot escape the empty bounding region",
+            "passed": true
+          },
+          {
+            "name": "excluded pet remains mapped and does not steal focus",
+            "passed": true
+          },
+          {
+            "name": "shape suspension clears the retained character and bubble framebuffer",
+            "passed": true
+          },
+          {
+            "name": "shape suspension reduces native CPU while retaining control checks",
+            "passed": true
+          },
+          {
+            "name": "native exclusion restores cleanly",
+            "passed": true
+          },
+          {
+            "name": "native restore reloads a visible character and drag region",
+            "passed": true
+          },
+          {
+            "name": "native restore preserves character anchor and window geometry",
+            "passed": true
+          },
+          {
+            "name": "direct observation uses the real local OCR pipeline",
+            "passed": true
+          },
+          {
+            "name": "public target 0 is covered before observation",
+            "passed": true
+          },
+          {
+            "name": "IPC capture 0 exposes exact underlying pixels",
+            "passed": true
+          },
+          {
+            "name": "IPC observation 0 recognizes the current public text",
+            "passed": true
+          },
+          {
+            "name": "IPC observation 0 restores pet before replying without moving or focusing it",
+            "passed": true
+          },
+          {
+            "name": "public target 1 is covered before observation",
+            "passed": true
+          },
+          {
+            "name": "IPC capture 1 exposes exact underlying pixels",
+            "passed": true
+          },
+          {
+            "name": "IPC observation 1 recognizes the current public text",
+            "passed": true
+          },
+          {
+            "name": "IPC observation 1 restores pet before replying without moving or focusing it",
+            "passed": true
+          },
+          {
+            "name": "pet is excluded from the dock and pager",
+            "passed": true
+          },
+          {
+            "name": "transparent corner remains input-through",
+            "passed": true
+          },
+          {
+            "name": "entire bubble and tail reserve remains input-through",
+            "passed": true
+          },
+          {
+            "name": "visible character has a drag region",
+            "passed": true
+          },
+          {
+            "name": "visible drag point targets the actual pet",
+            "passed": true
+          },
+          {
+            "name": "dragging visible character moves its window",
+            "passed": true
+          },
+          {
+            "name": "dragged position is persisted",
+            "passed": true
+          },
+          {
+            "name": "same idle state advances actual rendered frames",
+            "passed": true
+          },
+          {
+            "name": "restored pet stays owned and does not restart process",
+            "passed": true
+          },
+          {
+            "name": "independent repeated start reuses owned process",
+            "passed": true
+          },
+          {
+            "name": "independent stop admits promptly",
+            "passed": true
+          },
+          {
+            "name": "Agent runtime remains available while pet stops",
+            "passed": true
+          },
+          {
+            "name": "independent stop reaps only pet",
+            "passed": true
+          },
+          {
+            "name": "independent restart creates a new owned process",
+            "passed": true
+          },
+          {
+            "name": "restarted pet restores last dragged position",
+            "passed": true
+          },
+          {
+            "name": "pet crash exposes a diagnostic and preserves tray",
+            "passed": true
+          },
+          {
+            "name": "explicit recovery after crash completes readiness",
+            "passed": true
+          },
+          {
+            "name": "hidden graceful exit stays within owner budget",
+            "passed": true
+          },
+          {
+            "name": "hidden pet is reaped and socket removed",
+            "passed": true
+          },
+          {
+            "name": "tray starts in private session",
+            "passed": true
+          },
+          {
+            "name": "owned pet completes explicit readiness bootstrap",
+            "passed": true
+          },
+          {
+            "name": "separate pet is owned by tray",
+            "passed": true
+          },
+          {
+            "name": "offscreen saved position is clamped into the current workarea",
+            "passed": true
+          },
+          {
+            "name": "hidden pet exits after unexpected owner loss",
+            "passed": true
+          },
+          {
+            "name": "tray starts in private session",
+            "passed": true
+          },
+          {
+            "name": "owned pet completes explicit readiness bootstrap",
+            "passed": true
+          },
+          {
+            "name": "separate pet is owned by tray",
+            "passed": true
+          },
+          {
+            "name": "offscreen saved position is clamped into the current workarea",
+            "passed": true
+          },
+          {
+            "name": "shape_owner_lost admits a mapped exclusion",
+            "passed": true
+          },
+          {
+            "name": "hidden pet exits after unexpected owner loss",
+            "passed": true
+          },
+          {
+            "name": "shape_owner_lost leaves no live surface for its former lease",
+            "passed": true
+          },
+          {
+            "name": "tray starts in private session",
+            "passed": true
+          },
+          {
+            "name": "owned pet completes explicit readiness bootstrap",
+            "passed": true
+          },
+          {
+            "name": "separate pet is owned by tray",
+            "passed": true
+          },
+          {
+            "name": "offscreen saved position is clamped into the current workarea",
+            "passed": true
+          },
+          {
+            "name": "shape_shutdown admits a mapped exclusion",
+            "passed": true
+          },
+          {
+            "name": "hidden graceful exit stays within owner budget",
+            "passed": true
+          },
+          {
+            "name": "hidden pet is reaped and socket removed",
+            "passed": true
+          },
+          {
+            "name": "shape_shutdown leaves no live surface for its former lease",
+            "passed": true
+          }
+        ],
+        "metrics": {
+          "before_exclusion_cpu_percent_one_core": 18.99,
+          "shape_suspended_cpu_percent_one_core": 1.67,
+          "visible_cpu_percent_one_core": 20.66,
+          "rss_status": [
+            "VmHWM:\t  224024 kB",
+            "VmRSS:\t  176292 kB"
+          ],
+          "hidden_cpu_percent_one_core": 0.67,
+          "hidden_shutdown_seconds": 0.27,
+          "hidden_owner_loss_seconds": 5.184,
+          "shape_hidden_owner_loss_seconds": 5.456,
+          "shape_hidden_shutdown_seconds": 0.37
+        },
+        "limitations": [
+          "hardware GPU budget",
+          "desktop compositor alpha",
+          "fullscreen",
+          "multi-monitor/DPI",
+          "seven loop visual seam acceptance"
+        ]
+      }
+    }
+  ]
+}
