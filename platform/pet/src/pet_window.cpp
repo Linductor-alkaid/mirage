@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <atomic>
 #include <eui/window.h>
+#include <iostream>
 #include <limits>
 #include <vector>
 #ifndef _WIN32
@@ -22,7 +23,8 @@ GLFWwindowiconifyfun previous_iconify = nullptr;
 std::function<void(bool)> visibility_sink;   // UI-thread owned
 std::function<void(Position)> position_sink; // UI-thread owned
 std::atomic_bool hidden{false}, exit_relayed{false};
-bool bubble_below = false; // UI-owned; fixed during a drag
+bool presented = true, visibility_failed = false; // UI-owned
+bool bubble_below = false;                        // UI-owned; fixed during a drag
 constexpr int bubble_reserve = 58;
 constexpr int bubble_gutter = 12;
 #ifndef _WIN32
@@ -148,6 +150,15 @@ bool prepare(std::optional<Position> saved_position, std::function<void(Position
         return false;
     }
     const auto xid = glfwGetX11Window(window);
+    const unsigned long surface_protocol = 1;
+    XChangeProperty(display, xid, XInternAtom(display, "_MIRAGE_PET_SURFACE", False), XA_CARDINAL,
+                    32, PropModeReplace, reinterpret_cast<const unsigned char *>(&surface_protocol),
+                    1);
+    // DEC-105: a non-focus utility, excluded from GNOME's normal-window
+    // minimize/map animations. Identity is still server-attested by the owner.
+    const Atom type = XInternAtom(display, "_NET_WM_WINDOW_TYPE_UTILITY", False);
+    XChangeProperty(display, xid, XInternAtom(display, "_NET_WM_WINDOW_TYPE", False), XA_ATOM, 32,
+                    PropModeReplace, reinterpret_cast<const unsigned char *>(&type), 1);
     XShapeCombineRectangles(display, xid, ShapeInput, 0, 0, nullptr, 0, ShapeSet, Unsorted);
     const Atom wm_state = XInternAtom(display, "_NET_WM_STATE", False);
     const Atom hidden_from_dock[] = {XInternAtom(display, "_NET_WM_STATE_SKIP_TASKBAR", False),
@@ -295,24 +306,52 @@ void update_hit_region(std::span<const std::uint8_t> rgba, const Layout &layout)
     (void)layout;
 #endif
 }
-void watch_visibility(std::function<void(bool)> sink) {
-    if (observed_window)
-        return;
-    observed_window = glfwGetCurrentContext();
-    if (!observed_window)
-        return;
+namespace {
+void report_visibility() {
+    bool visible = glfwGetWindowAttrib(observed_window, GLFW_ICONIFIED) != GLFW_TRUE;
 #ifndef _WIN32
-    observed_xid = glfwGetX11Window(observed_window);
+    if (visible) {
+        // This is GLFW's connection, used exclusively by its UI owner.
+        Bool bounding = False, clip = False;
+        int x = 0, y = 0, cx = 0, cy = 0;
+        unsigned int width = 0, height = 0, cw = 0, ch = 0;
+        const bool ok = XShapeQueryExtents(glfwGetX11Display(), observed_xid, &bounding, &x, &y,
+                                           &width, &height, &clip, &cx, &cy, &cw, &ch);
+        XWindowAttributes attributes{};
+        visible = ok && XGetWindowAttributes(glfwGetX11Display(), observed_xid, &attributes) &&
+                  attributes.map_state == IsViewable && (!bounding || (width && height));
+        if (!ok && !visibility_failed)
+            std::cerr << "mira_pet: presentation visibility query failed\n";
+        visibility_failed = !ok;
+    }
 #endif
-    visibility_sink = std::move(sink);
-    previous_iconify =
-        glfwSetWindowIconifyCallback(observed_window, [](GLFWwindow *window, int value) {
-            if (previous_iconify)
-                previous_iconify(window, value);
-            hidden.store(value == GLFW_TRUE);
-            if (visibility_sink)
-                visibility_sink(value != GLFW_TRUE);
-        });
+    hidden.store(!visible);
+    if (presented != visible) {
+        presented = visible;
+        if (visibility_sink)
+            visibility_sink(visible);
+    }
+}
+} // namespace
+void watch_visibility(std::function<void(bool)> sink) {
+    if (!observed_window) {
+        observed_window = glfwGetCurrentContext();
+        if (!observed_window)
+            return;
+#ifndef _WIN32
+        observed_xid = glfwGetX11Window(observed_window);
+#endif
+        visibility_sink = std::move(sink);
+        hidden.store(glfwGetWindowAttrib(observed_window, GLFW_ICONIFIED) == GLFW_TRUE);
+        previous_iconify =
+            glfwSetWindowIconifyCallback(observed_window, [](GLFWwindow *window, int value) {
+                if (previous_iconify)
+                    previous_iconify(window, value);
+                hidden.store(value == GLFW_TRUE);
+                report_visibility();
+            });
+    }
+    report_visibility();
 }
 void release_visibility() {
     // Called after the Bridge timers/workers have joined, before window teardown.

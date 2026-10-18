@@ -54,7 +54,9 @@ class DesktopAtomToolset final {
     static std::shared_ptr<DesktopAtomToolset>
     build(mirage::desktop::DesktopEnvironment *environment, AtomPermissionGate gate,
           const AtomOverlayFeed &feed = {},
-          std::shared_ptr<mirage::desktop::ActionCoordinator> actions = {});
+          std::shared_ptr<mirage::desktop::ActionCoordinator> actions = {},
+          std::function<desktop::PresentationExclusion(const desktop::CancelToken &)> exclude_pet =
+              {});
 
     /// DEC-069: same provider atoms plus workflow-only OCR/template knowledge when
     /// the external context supplies the running vision and complete action path.

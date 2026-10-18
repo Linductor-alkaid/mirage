@@ -21,6 +21,7 @@
 #include "desktop_image_supply.hpp"
 #include "desktop_ocr_tool.hpp"
 #include "model_layer_env.hpp"
+#include "pet_exclusion.hpp"
 #include "tool_alias_provider.hpp"
 
 #include <algorithm>
@@ -907,15 +908,17 @@ DialogCompletion ModelLayer::complete_harness_turn(
         // DEC-085: the classified tool failures ride the completion for the
         // runtime service's `session.tool_error` projection.
         completion.tool_failures = impl_->failure_tracker.failures(session_key);
+        if (!completion.ok && !completion.reply_text.empty())
+            conversation::retain_terminal_reply(completion.parts, completion.reply_text);
         return completion;
     };
     auto registry = std::make_shared<mira::BuiltinToolRegistry>();
     const DesktopAtomToolset::Decorator decorate =
         [&capture, &verification, &tracker = impl_->failure_tracker, session_key, screen_capability,
-         &tools_attempted, &desktop_context = turn_desktop](const std::string &name,
-                                                            mira::BuiltinToolHandler handler) {
+         &tools_attempted, &desktop_context = turn_desktop,
+         cancel](const std::string &name, mira::BuiltinToolHandler handler) {
             return [name, handler = std::move(handler), &capture, &verification, &tracker,
-                    session_key, screen_capability, &tools_attempted, &desktop_context](
+                    session_key, screen_capability, &tools_attempted, &desktop_context, cancel](
                        const auto &arguments, const auto &ctx) -> mira::Result<mira::JsonValue> {
                 tools_attempted = true;
                 bool refused = false;
@@ -930,9 +933,14 @@ DialogCompletion ModelLayer::complete_harness_turn(
                         return blocked_error;
                     }
                     try {
-                        return detail::DesktopActionVerification::mutation(name)
-                                   ? verification.execute(name, arguments, ctx, handler)
-                                   : handler(arguments, ctx);
+                        auto execute = [&verification, &name, &handler](const auto &args,
+                                                                        const auto &operation) {
+                            return detail::DesktopActionVerification::mutation(name)
+                                       ? verification.execute(name, args, operation, handler)
+                                       : handler(args, operation);
+                        };
+                        return detail::exclude_pet_during(
+                            name, execute, desktop_context.exclude_pet, cancel)(arguments, ctx);
                     } catch (...) {
                         mira::Error error;
                         error.code = mira::ErrorCode::PlatformError;
@@ -1395,6 +1403,10 @@ DialogCompletion ModelLayer::complete_harness_turn(
         completion.cancelled = true;
         completion.error = "桌面任务已取消。";
     }
+    // The model's answer remains evidence even if host verification rejected
+    // task success. Only successful answers receive the verification preface.
+    if (!completion.cancelled && !value.answer.empty() && value.answer.size() <= 64 * 1024)
+        completion.reply_text = value.answer;
     if (completion.ok) {
         if (value.answer.size() > 64 * 1024 || value.answer.empty()) {
             completion.ok = false;

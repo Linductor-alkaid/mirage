@@ -11,6 +11,7 @@ import os
 import select
 import shutil
 import subprocess
+import struct
 import sys
 import tempfile
 import time
@@ -32,9 +33,10 @@ def await_value(probe, predicate, budget=10):
 def session(args):
     from Xlib import display, X, Xutil, protocol, error
     from Xlib.ext import shape, xtest
-    from PIL import Image, ImageChops
+    from PIL import Image, ImageChops, ImageDraw, ImageFont
     children, wire = [], None
-    result = dict(scope='Xvfb + ICCCM/compositor-selection fixture; real RGBA framebuffer and relocated processes; root is not composited; no inference',
+    result = dict(scope='Xvfb + ICCCM/compositor-selection fixture; real RGBA framebuffer and relocated processes; optional X server automatic root composition; no desktop compositor or model-provider requests; optional local OCR',
+                  hidden_mode='unmapped' if args.withdrawal else 'shape/iconify',
                   checks=[], metrics={}, limitations=['hardware GPU budget', 'desktop compositor alpha',
                     'fullscreen', 'multi-monitor/DPI', 'seven loop visual seam acceptance'])
 
@@ -62,7 +64,8 @@ def session(args):
         wm_record = args.output / 'wm.json'
         wm_record.unlink(missing_ok=True)
         children.append(subprocess.Popen([sys.executable, str(Path(__file__).with_name('x11_wm_fixture.py')),
-            '--record', str(wm_record), '--advertise-compositor'], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            '--record', str(wm_record), '--advertise-compositor',
+            *(['--automatic-composite'] if args.observe_exclusion else [])], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
         await_value(wm_record.exists, bool)
         with tempfile.TemporaryDirectory(prefix='mirage-pet-relocated-') as temporary:
             folder = Path(temporary)
@@ -71,12 +74,17 @@ def session(args):
             shutil.copytree(args.build / 'apps/pet/assets', folder / 'assets')
             check('relocated payload has nine local assets', len(list((folder / 'assets/pet').glob('*.webp'))) == 9)
             d = display.Display()
-            for abrupt in [False, True]:
+            scenarios = ['normal', 'owner_lost'] + (['shape_owner_lost', 'shape_shutdown'] if args.exclusion_probe else [])
+            for scenario in scenarios:
+                abrupt = scenario != 'normal'
+                shape_hidden = scenario.startswith('shape_')
+                owner_lost = scenario.endswith('owner_lost')
+                exit_probe = None
                 position_file = Path(env['XDG_STATE_HOME']) / 'mirage/pet-window-position.txt'
                 if abrupt:
                     position_file.write_text('2147483647 -2147483648\n')
-                endpoint = str(Path(env['XDG_RUNTIME_DIR']) / ('pet-lost.sock' if abrupt else 'pet-normal.sock'))
-                with (args.output / ('lost.log' if abrupt else 'normal.log')).open('w') as log:
+                endpoint = str(Path(env['XDG_RUNTIME_DIR']) / f'pet-{scenario}.sock')
+                with (args.output / f'{scenario}.log').open('w') as log:
                     tray = subprocess.Popen([str(folder / 'mirage-tray'), '--socket', endpoint,
                         '--state-dir', str(folder / 'state'), '--no-recovery', '--no-shell',
                         *(['--ocr-manifest', str(args.build / 'share/mirage/vision/ppocrv5-mobile-v1/manifest.json')]
@@ -128,6 +136,148 @@ def session(args):
                         check('full character reaches the lower image region', sum(feet.histogram()[1:]) > 200)
                         check('pet window reserves bubbles without reducing the 240px character canvas',
                               geometry.width == 264 and geometry.height == 322)
+                        if args.exclusion_probe:
+                            started, before = time.monotonic(), cpu(pet.pid)
+                            time.sleep(1)
+                            visible_cpu = 100 * (cpu(pet.pid) - before) / (time.monotonic() - started)
+                            result['metrics']['before_exclusion_cpu_percent_one_core'] = round(visible_cpu, 2)
+                            original_focus = d.get_input_focus().focus
+                            probe = subprocess.Popen([str(args.exclusion_probe), '--probe-pid', str(pet.pid)],
+                                env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True)
+                            children.append(probe)
+                            try:
+                                assert select.select([probe.stdout], [], [], 5)[0]
+                                check('native pet server ownership admits exclusion', probe.stdout.readline().strip() == 'hidden')
+                                check('native character and bubble full bounding region is empty',
+                                      len(shape.get_rectangles(window, shape.SK.Bounding).rectangles) == 0)
+                                time.sleep(.7)  # UI owner observes shape and drains the cancelled decode
+                                check('native new frames cannot escape the empty bounding region',
+                                      len(shape.get_rectangles(window, shape.SK.Bounding).rectangles) == 0)
+                                check('excluded pet remains mapped and does not steal focus',
+                                      window.get_attributes().map_state == X.IsViewable and
+                                      d.get_input_focus().focus == original_focus)
+                                raw = window.get_image(0, 0, geometry.width, geometry.height, X.ZPixmap, 0xffffffff)
+                                suspended = Image.frombytes('RGBA', (geometry.width, geometry.height), raw.data, 'raw', 'BGRA')
+                                suspended.save(args.output / 'pet-shape-suspended.png')
+                                check('shape suspension clears the retained character and bubble framebuffer',
+                                      suspended.getchannel('A').getbbox() is None)
+                                started, before = time.monotonic(), cpu(pet.pid)
+                                time.sleep(3)
+                                paused_cpu = 100 * (cpu(pet.pid) - before) / (time.monotonic() - started)
+                                result['metrics']['shape_suspended_cpu_percent_one_core'] = round(paused_cpu, 2)
+                                check('shape suspension reduces native CPU while retaining control checks',
+                                      paused_cpu < max(3, visible_cpu * .5))
+                            finally:
+                                probe.stdin.write('release\n'); probe.stdin.flush()
+                                probe.wait(timeout=6)
+                            check('native exclusion restores cleanly', probe.returncode == 0)
+                            await_value(lambda: shape.get_rectangles(window, shape.SK.Bounding).rectangles, bool)
+                            def restored_alpha():
+                                raw = window.get_image(0, 0, geometry.width, geometry.height, X.ZPixmap, 0xffffffff)
+                                return Image.frombytes('RGBA', (geometry.width, geometry.height), raw.data, 'raw', 'BGRA').getchannel('A').getbbox()
+                            await_value(restored_alpha, bool, budget=6)
+                            await_value(lambda: shape.get_rectangles(window, shape.SK.Input).rectangles, bool, budget=6)
+                            check('native restore reloads a visible character and drag region', bool(restored_alpha()))
+                            restored = window.get_geometry()
+                            check('native restore preserves character anchor and window geometry',
+                                  (restored.x, restored.y, restored.width, restored.height) ==
+                                  (geometry.x, geometry.y, geometry.width, geometry.height))
+                        if args.observe_exclusion:
+                            check('direct observation uses the real local OCR pipeline',
+                                  wire.call('vision.get').get('vision_running', False))
+                            root = d.screen().root
+                            prior_focus = d.get_input_focus().focus
+                            active_atom = d.intern_atom('_NET_ACTIVE_WINDOW')
+                            prior_active = root.get_full_property(active_atom, X.AnyPropertyType)
+                            prior_policy = wire.call('policy.get')
+                            rules = dict(prior_policy['rules'])
+                            rules['screen.capture'] = 'allow'
+                            wire.call('policy.set', rules=rules, read_roots=prior_policy['read_roots'])
+                            # A server-side background pixmap repaints newly exposed
+                            # pixels synchronously; obscured put_image is clipped.
+                            tile = root.create_pixmap(geometry.width, geometry.height, d.screen().root_depth)
+                            gc = tile.create_gc()
+                            canvas = root.create_window(geometry.x, geometry.y, geometry.width, geometry.height,
+                                0, d.screen().root_depth, X.InputOutput, X.CopyFromParent,
+                                background_pixmap=tile.id, override_redirect=False)
+                            canvas.set_wm_name('M8 Public Observation Evidence')
+                            canvas.map(); d.sync()
+                            await_value(lambda: canvas.get_attributes().map_state, lambda value: value == X.IsViewable)
+                            # The minimal WM implements absolute stacking only.
+                            window.configure(stack_mode=X.Above); d.sync()
+                            await_value(lambda: root.query_tree().children.index(canvas) <
+                                                root.query_tree().children.index(window), bool)
+                            canvas.set_input_focus(X.RevertToParent, X.CurrentTime)
+                            root.change_property(active_atom, d.intern_atom('WINDOW'), 32, [canvas.id])
+                            font = ImageFont.truetype(str(folder / 'assets/NotoSansSC-Regular.otf'), 40)
+                            previous_ref = None
+                            try:
+                                for index, text in enumerate(['任务已保存', '测试已完成']):
+                                    sample = Image.new('RGB', (geometry.width, geometry.height), 'white')
+                                    ImageDraw.Draw(sample).text((32, 125), text, fill='black', font=font)
+                                    for y in range(0, geometry.height, 128):
+                                        strip = sample.crop((0, y, geometry.width, min(y + 128, geometry.height)))
+                                        tile.put_image(gc, 0, y, strip.width, strip.height, X.ZPixmap,
+                                            d.screen().root_depth, 0, strip.tobytes('raw', 'BGRX'))
+                                    canvas.clear_area(0, 0, geometry.width, geometry.height)
+                                    d.sync()
+                                    check(f'public target {index} is covered before observation',
+                                          len(shape.get_rectangles(window, shape.SK.Bounding).rectangles) > 0 and
+                                          root.query_tree().children.index(canvas) < root.query_tree().children.index(window))
+                                    wire.seq += 1
+                                    payload = json.dumps(dict(v=1, id=wire.seq, op='desktop.observe',
+                                                              semantic=False, visual=True)).encode()
+                                    wire.sock.sendall(struct.pack('<I', len(payload)) + payload)
+                                    deadline, sampled = time.monotonic() + 5, False
+                                    while True:
+                                        if not sampled and not shape.get_rectangles(window, shape.SK.Bounding).rectangles:
+                                            raw = root.get_image(geometry.x, geometry.y, geometry.width,
+                                                                 geometry.height, X.ZPixmap, 0xffffffff)
+                                            exposed = Image.frombytes('RGB', sample.size, raw.data, 'raw', 'BGRX')
+                                            sample.save(args.output / f'observe-expected-{index}.png')
+                                            exposed.save(args.output / f'observe-exposed-{index}.png')
+                                            check(f'IPC capture {index} exposes exact underlying pixels',
+                                                  ImageChops.difference(sample, exposed).getbbox() is None)
+                                            sampled = True
+                                        assert time.monotonic() < deadline, 'direct observation deadline'
+                                        if not select.select([wire.sock], [], [], .002)[0]:
+                                            continue
+                                        observation = wire.receive(max(.001, deadline - time.monotonic()))
+                                        if observation.get('id') == wire.seq:
+                                            break
+                                        assert len(wire.events) < 128
+                                        wire.events.append(observation)
+                                    (args.output / f'observe-{index}.json').write_text(
+                                        json.dumps(observation, ensure_ascii=False, indent=2) + '\n')
+                                    check(f'IPC observation {index} recognizes the current public text',
+                                          sampled and observation.get('ok') and
+                                          observation.get('active_window') == 'M8 Public Observation Evidence' and
+                                          bool(observation.get('visual_snapshot_ref')) and
+                                          observation.get('visual_snapshot_ref') != previous_ref and
+                                          any(r.get('source') == 'ocr' and text in r.get('text', '')
+                                              for r in observation.get('visual_regions', [])))
+                                    previous_ref = observation.get('visual_snapshot_ref')
+                                    restored = window.get_geometry()
+                                    check(f'IPC observation {index} restores pet before replying without moving or focusing it',
+                                          len(shape.get_rectangles(window, shape.SK.Bounding).rectangles) > 0 and
+                                          window.get_attributes().map_state == X.IsViewable and
+                                          d.get_input_focus().focus == canvas and
+                                          (restored.x, restored.y, restored.width, restored.height) ==
+                                          (geometry.x, geometry.y, geometry.width, geometry.height))
+                            finally:
+                                canvas.destroy(); gc.free(); tile.free()
+                                if prior_active is not None:
+                                    root.change_property(active_atom, prior_active.property_type, 32, prior_active.value)
+                                else:
+                                    root.delete_property(active_atom)
+                                if hasattr(prior_focus, 'set_input_focus'):
+                                    prior_focus.set_input_focus(X.RevertToParent, X.CurrentTime)
+                                d.sync()
+                                wire.call('policy.set', rules=prior_policy['rules'], read_roots=prior_policy['read_roots'])
+                        # Exclusion restoration precedes the UI's sampled resume;
+                        # input remains empty until the current character is ready.
+                        await_value(lambda: shape.get_rectangles(window, shape.SK.Input).rectangles, bool, budget=6)
                         wm_state = window.get_full_property(d.intern_atom('_NET_WM_STATE'), X.AnyPropertyType)
                         atoms = set(wm_state.value) if wm_state is not None else set()
                         check('pet is excluded from the dock and pager',
@@ -140,7 +290,8 @@ def session(args):
                         check('transparent corner remains input-through', not hit(0, 0))
                         check('entire bubble and tail reserve remains input-through',
                               not any(hit(x, y) for x in range(12, 252) for y in range(0, 70)))
-                        body = next((r for r in input_rectangles if r.y < 215 and r.width >= 20), None)
+                        body = max((r for r in input_rectangles if 70 <= r.y < 215 and r.width >= 20),
+                                   key=lambda r: r.width * r.height, default=None)
                         check('visible character has a drag region', body is not None)
                         if body:
                             before = window.get_geometry()
@@ -148,6 +299,7 @@ def session(args):
                             py = before.y + body.y + body.height // 2
                             xtest.fake_input(d, X.MotionNotify, x=px, y=py); d.sync()
                             time.sleep(.1)
+                            check('visible drag point targets the actual pet', d.screen().root.query_pointer().child == window)
                             xtest.fake_input(d, X.ButtonPress, detail=1); d.sync()
                             time.sleep(.1)
                             xtest.fake_input(d, X.MotionNotify, x=px - 36, y=py - 28); d.sync()
@@ -159,17 +311,38 @@ def session(args):
                                   after.x == before.x - 36 and after.y == before.y - 28)
                             stored = await_value(lambda: position_file.read_text() if position_file.exists() else '', bool)
                             check('dragged position is persisted', stored.strip() == f'{after.x + 12} {after.y + 70}')
+                        previous = window.get_image(0, 0, geometry.width, geometry.height, X.ZPixmap, 0xffffffff)
+                        previous = Image.frombytes('RGBA', image.size, previous.data, 'raw', 'BGRA')
                         time.sleep(.7)
                         following = window.get_image(0, 0, geometry.width, geometry.height, X.ZPixmap, 0xffffffff)
                         following = Image.frombytes('RGBA', image.size, following.data, 'raw', 'BGRA')
-                        motion = ImageChops.difference(image.crop((0, 0, geometry.width, 220)).convert('RGB'),
+                        motion = ImageChops.difference(previous.crop((0, 0, geometry.width, 220)).convert('RGB'),
                                                       following.crop((0, 0, geometry.width, 220)).convert('RGB'))
+                        previous.save(args.output / 'restored-animation-before.png')
+                        following.save(args.output / 'restored-animation-after.png')
                         check('same idle state advances actual rendered frames', motion.getbbox() is not None)
                         started, before = time.monotonic(), cpu(pet.pid)
                         time.sleep(3)
                         result['metrics']['visible_cpu_percent_one_core'] = round(100 * (cpu(pet.pid) - before) / (time.monotonic() - started), 2)
                         result['metrics']['rss_status'] = [line for line in Path(f'/proc/{pet.pid}/status').read_text().splitlines() if line.startswith(('VmRSS:', 'VmHWM:'))]
-                    minimize(d, window)
+                    if shape_hidden:
+                        assert args.exclusion_probe, 'shape lifecycle cases need --exclusion-probe'
+                        exit_probe = subprocess.Popen([str(args.exclusion_probe), '--probe-pid', str(pet.pid)],
+                            env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                        children.append(exit_probe)
+                        assert select.select([exit_probe.stdout], [], [], 5)[0]
+                        check(scenario + ' admits a mapped exclusion', exit_probe.stdout.readline().strip() == 'hidden' and
+                              window.get_attributes().map_state == X.IsViewable)
+                    else:
+                        if args.withdrawal:
+                            # DEC-105 UI path: an unmapped window need not
+                            # generate GLFW's iconify callback. This peer only
+                            # tests the pet's own pause/restore/exit lifecycle.
+                            window.unmap(); d.sync()
+                            await_value(lambda: window.get_attributes().map_state,
+                                        lambda value: value == X.IsUnmapped)
+                        else:
+                            minimize(d, window)
                     time.sleep(.5)
                     started, before = time.monotonic(), cpu(pet.pid)
                     time.sleep(3)
@@ -214,7 +387,7 @@ def session(args):
                         check('explicit recovery after crash completes readiness', pet.pid > 0)
                         minimize(d, window)
                     started = time.monotonic()
-                    if abrupt:
+                    if owner_lost:
                         tray.kill(); tray.wait(timeout=5)
                         wire.sock.close(); wire = None
                         pet.wait(timeout=12)
@@ -225,7 +398,13 @@ def session(args):
                         tray.wait(timeout=10)
                         check('hidden graceful exit stays within owner budget', tray.returncode == 0 and time.monotonic() - started < 6)
                         check('hidden pet is reaped and socket removed', not Path(f'/proc/{pet.pid}').exists() and not Path(endpoint).exists())
-                    result['metrics']['hidden_owner_loss_seconds' if abrupt else 'hidden_shutdown_seconds'] = round(time.monotonic() - started, 3)
+                    metric = ('shape_' if shape_hidden else '') + ('hidden_owner_loss_seconds' if owner_lost else 'hidden_shutdown_seconds')
+                    result['metrics'][metric] = round(time.monotonic() - started, 3)
+                    if exit_probe:
+                        exit_probe.stdin.write('release\n'); exit_probe.stdin.flush()
+                        exit_probe.wait(timeout=3)
+                        check(scenario + ' leaves no live surface for its former lease', exit_probe.returncode == 4)
+
             d.close()
         (args.output / 'pet-results.json').write_text(json.dumps(result, indent=2) + '\n')
     finally:
@@ -239,6 +418,9 @@ def main():
     parser.add_argument('--build', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--session', action='store_true')
+    parser.add_argument('--exclusion-probe', type=Path)
+    parser.add_argument('--observe-exclusion', action='store_true')
+    parser.add_argument('--withdrawal', action='store_true')
     args = parser.parse_args()
     args.build, args.output = args.build.resolve(), args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
@@ -263,7 +445,10 @@ def main():
             assert select.select([read_fd], [], [], 5)[0]
             env['DISPLAY'] = ':' + os.read(read_fd, 32).decode().strip()
             completed = subprocess.run(['dbus-run-session', '--', sys.executable, str(Path(__file__).resolve()),
-                '--build', str(args.build), '--output', str(args.output), '--session'], env=env, timeout=150)
+                '--build', str(args.build), '--output', str(args.output), '--session',
+                *(['--exclusion-probe', str(args.exclusion_probe.resolve())] if args.exclusion_probe else []),
+                *(['--observe-exclusion'] if args.observe_exclusion else []),
+                *(['--withdrawal'] if args.withdrawal else [])], env=env, timeout=150)
             assert completed.returncode == 0
         finally:
             os.close(read_fd); xvfb.terminate(); xvfb.wait(timeout=5)

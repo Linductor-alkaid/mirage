@@ -1,0 +1,155 @@
+{
+  "scope": "Xvfb + ICCCM/compositor-selection fixture; real RGBA framebuffer and relocated processes; optional X server automatic root composition; no desktop compositor or model-provider requests; optional local OCR",
+  "hidden_mode": "unmapped",
+  "checks": [
+    {
+      "name": "relocated payload has nine local assets",
+      "passed": true
+    },
+    {
+      "name": "tray starts in private session",
+      "passed": true
+    },
+    {
+      "name": "owned pet completes explicit readiness bootstrap",
+      "passed": true
+    },
+    {
+      "name": "separate pet is owned by tray",
+      "passed": true
+    },
+    {
+      "name": "actual window framebuffer contains transparent and visible pixels",
+      "passed": true
+    },
+    {
+      "name": "actual framebuffer preserves transparent corner",
+      "passed": true
+    },
+    {
+      "name": "character region renders visible pixels",
+      "passed": true
+    },
+    {
+      "name": "full character reaches the lower image region",
+      "passed": true
+    },
+    {
+      "name": "pet window reserves bubbles without reducing the 240px character canvas",
+      "passed": true
+    },
+    {
+      "name": "pet is excluded from the dock and pager",
+      "passed": true
+    },
+    {
+      "name": "transparent corner remains input-through",
+      "passed": true
+    },
+    {
+      "name": "entire bubble and tail reserve remains input-through",
+      "passed": true
+    },
+    {
+      "name": "visible character has a drag region",
+      "passed": true
+    },
+    {
+      "name": "visible drag point targets the actual pet",
+      "passed": true
+    },
+    {
+      "name": "dragging visible character moves its window",
+      "passed": true
+    },
+    {
+      "name": "dragged position is persisted",
+      "passed": true
+    },
+    {
+      "name": "same idle state advances actual rendered frames",
+      "passed": true
+    },
+    {
+      "name": "restored pet stays owned and does not restart process",
+      "passed": true
+    },
+    {
+      "name": "independent repeated start reuses owned process",
+      "passed": true
+    },
+    {
+      "name": "independent stop admits promptly",
+      "passed": true
+    },
+    {
+      "name": "Agent runtime remains available while pet stops",
+      "passed": true
+    },
+    {
+      "name": "independent stop reaps only pet",
+      "passed": true
+    },
+    {
+      "name": "independent restart creates a new owned process",
+      "passed": true
+    },
+    {
+      "name": "restarted pet restores last dragged position",
+      "passed": true
+    },
+    {
+      "name": "pet crash exposes a diagnostic and preserves tray",
+      "passed": true
+    },
+    {
+      "name": "explicit recovery after crash completes readiness",
+      "passed": true
+    },
+    {
+      "name": "hidden graceful exit stays within owner budget",
+      "passed": true
+    },
+    {
+      "name": "hidden pet is reaped and socket removed",
+      "passed": true
+    },
+    {
+      "name": "tray starts in private session",
+      "passed": true
+    },
+    {
+      "name": "owned pet completes explicit readiness bootstrap",
+      "passed": true
+    },
+    {
+      "name": "separate pet is owned by tray",
+      "passed": true
+    },
+    {
+      "name": "offscreen saved position is clamped into the current workarea",
+      "passed": true
+    },
+    {
+      "name": "hidden pet exits after unexpected owner loss",
+      "passed": true
+    }
+  ],
+  "metrics": {
+    "visible_cpu_percent_one_core": 20.0,
+    "rss_status": [
+      "VmHWM:\t  172308 kB",
+      "VmRSS:\t  169660 kB"
+    ],
+    "hidden_cpu_percent_one_core": 2.33,
+    "hidden_shutdown_seconds": 0.216,
+    "hidden_owner_loss_seconds": 5.281
+  },
+  "limitations": [
+    "hardware GPU budget",
+    "desktop compositor alpha",
+    "fullscreen",
+    "multi-monitor/DPI",
+    "seven loop visual seam acceptance"
+  ]
+}

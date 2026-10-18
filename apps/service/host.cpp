@@ -193,6 +193,7 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
     std::string shell_path;
     bool open_frontend = true;
     mirage::runtime::ServiceConfig config;
+    auto presentation = mirage::platform::make_presentation_context();
     config.credential_write = [](const std::string &reference, const std::string &value) {
         const auto result = mirage::platform::write_credential(reference, value);
         return mirage::runtime::CredentialWriteResult{result.ok, result.error};
@@ -431,8 +432,8 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
             pet_binary = pet_binary.parent_path().parent_path() / "pet" / "mira_pet";
 #endif
         if (std::filesystem::is_regular_file(pet_binary))
-            config.pet =
-                mirage::platform::make_pet_process(std::filesystem::absolute(pet_binary).string());
+            config.pet = mirage::platform::make_pet_process(
+                std::filesystem::absolute(pet_binary).string(), presentation);
 #ifdef _WIN32
         config.tray_icon_path =
             (std::filesystem::path(shell_path).parent_path() / "assets/mira.ico").string();
@@ -668,7 +669,8 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
         mirage::platform::linux_backend::AtspiOptions{product},
         mirage::platform::linux_backend::ApplicationOptions{product},
         mirage::platform::linux_backend::NotificationsOptions{product},
-        mirage::platform::linux_backend::FilesystemWriteOptions{std::move(write_scope)});
+        mirage::platform::linux_backend::FilesystemWriteOptions{std::move(write_scope)},
+        presentation);
     if (basic_tools_enabled) {
         config.basic_tools.enabled = true;
         config.basic_tools.exec_enabled = exec_enabled;

@@ -2948,7 +2948,7 @@ std::string conversation_measure_key(const LocalSession &session, const PageStat
         return {};
     for (const auto &message : session.messages) {
         if (!append(std::to_string(message.id)) || !append(message.role) ||
-            !append(message.status) || !append(message.text) ||
+            !append(message.status) || !append(message.text) || !append(message.error) ||
             !append(std::to_string(message.parts.size())) ||
             !append(conversation::encode_timings(message.timings)))
             return {};
@@ -3077,11 +3077,10 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                     }
                     const float body_width = user ? bubble_width - 24 : width - 16;
                     const float body_height =
-                        pending && message.text.empty() ? 0
-                        : user || failed
-                            ? text_height(message.text, body_width, 14, 22)
-                            : std::max(22.0f, components::MarkdownBuilder::estimateHeight(
-                                                  message.text, body_width, markdown));
+                        message.text.empty() ? 0
+                        : user               ? text_height(message.text, body_width, 14, 22)
+                               : std::max(22.0f, components::MarkdownBuilder::estimateHeight(
+                                                     message.text, body_width, markdown));
                     const bool tool_running = std::any_of(
                         message.parts.begin(), message.parts.end(), [](const auto &part) {
                             return part.kind == "tool" && part.status == "running";
@@ -3112,8 +3111,13 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                             process_height += process_part_height(message, part, width, markdown);
                     const float process_y = pending || failed ? 28.0f : 0.0f;
                     const float body_y = user ? 8.0f : process_y + process_height;
+                    const std::string failure = failed && !message.error.empty()
+                                                    ? "失败原因：" + message.error
+                                                    : std::string{};
+                    const float failure_height =
+                        failure.empty() ? 0.0f : text_height(failure, body_width, 12, 20) + 8;
                     const float row_height =
-                        body_height + body_y + (user ? 8 : 0) + (pending ? 4 : 28);
+                        body_height + body_y + failure_height + (user ? 8 : 0) + (pending ? 4 : 28);
                     list.stack(key)
                         .size(width, row_height)
                         .content([&] {
@@ -3155,7 +3159,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                             if (!user)
                                 render_process(list, key, message, session_id, width, process_y, p,
                                                tokens, markdown);
-                            if (user || failed)
+                            if (user)
                                 list.text(key + ".body")
                                     .position(left + (user ? 12 : 0), body_y)
                                     .size(body_width, body_height)
@@ -3178,6 +3182,18 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                 if (auto *view = list.find(key + ".markdown"))
                                     compact_markdown_cjk(*view, message.text);
                             }
+                            if (!failure.empty())
+                                list.text(key + ".failure")
+                                    .position(0, body_y + body_height + 8)
+                                    .size(body_width, failure_height - 8)
+                                    .maxWidth(body_width)
+                                    .text(failure)
+                                    .fontSize(ui_font_size(12))
+                                    .lineHeight(20)
+                                    .wrap()
+                                    .color(p.muted)
+                                    .hitTestMode(eui::dsl::HitTestMode::None)
+                                    .build();
                             if (!pending) {
                                 const auto id = message.id;
                                 auto &cache = list.state<SelectionCache>(key + ".text.geometry");
@@ -3198,8 +3214,8 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                             page.hovered_message = 0;
                                     })
                                     .onPress([rendered, id, session_id, width = body_width, &list,
-                                              key, plain = user || failed](const auto &event,
-                                                                           const auto &bounds) {
+                                              key,
+                                              plain = user](const auto &event, const auto &bounds) {
                                         *rendered = {};
                                         if (const auto *body =
                                                 list.find(key + (plain ? ".body" : ".markdown")))

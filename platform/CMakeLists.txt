@@ -5,7 +5,7 @@
 # The backend implements the desktop provider interfaces (adapter depends on
 # the desktop core interfaces, DEC-008); the product call direction stays
 # runtime -> desktop interfaces.
-add_library(mirage_platform STATIC common/src/frontend_process.cpp)
+add_library(mirage_platform STATIC common/src/frontend_process.cpp common/src/pet_exclusion.cpp)
 add_library(Mirage::platform ALIAS mirage_platform)
 
 target_include_directories(mirage_platform
@@ -53,6 +53,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     else()
         target_sources(mirage_platform PRIVATE linux/src/x11_backend_stub.cpp)
         message(STATUS "Linux X11 backend disabled: X11/Xtst/Xrandr dev packages not found")
+    endif()
+    if(X11_FOUND AND X11_Xshape_FOUND AND X11_XRes_FOUND)
+        target_compile_definitions(mirage_platform PRIVATE MIRAGE_PET_X11_EXCLUSION=1)
+        target_include_directories(mirage_platform SYSTEM PRIVATE ${X11_XRes_INCLUDE_PATH})
+        target_link_libraries(mirage_platform PRIVATE ${X11_Xext_LIB} ${X11_XRes_LIB})
+        set_property(TARGET mirage_platform PROPERTY MIRAGE_PET_EXCLUSION_AVAILABLE TRUE)
     endif()
     # The X11 overlay carrier (M5-09, DEC-029) rides the same optionality
     # discipline and additionally needs the shape extension (Xext): absent

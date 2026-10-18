@@ -1,6 +1,7 @@
 #include "desktop_visual_knowledge.hpp"
 #include "desktop_action_verification.hpp"
 #include "desktop_image_supply.hpp"
+#include "pet_exclusion.hpp"
 #include "tool_geometry.hpp"
 #include <algorithm>
 #include <cmath>
@@ -56,15 +57,18 @@ void register_local_visual_knowledge(mira::BuiltinToolRegistry &registry,
                                            {"additionalProperties", false}}}};
     const auto registered = registry.register_tool(
         std::move(spec),
-        [desktop](const Json &args, const mira::OperationContext &ctx) -> mira::Result<Json> {
-            try {
-                auto source = std::make_shared<DesktopImageSource>();
-                DesktopImageTurn turn(source, desktop, ctx, {});
-                return turn.local_click(args, ctx);
-            } catch (...) {
-                return failure("knowledge_initialization_failed");
-            }
-        });
+        exclude_pet_during(
+            "desktop.knowledge.visual_click",
+            [desktop](const Json &args, const mira::OperationContext &ctx) -> mira::Result<Json> {
+                try {
+                    auto source = std::make_shared<DesktopImageSource>();
+                    DesktopImageTurn turn(source, desktop, ctx, {});
+                    return turn.local_click(args, ctx);
+                } catch (...) {
+                    return failure("knowledge_initialization_failed");
+                }
+            },
+            desktop.exclude_pet));
     if (!registered)
         throw std::logic_error("local visual knowledge registration rejected");
 }

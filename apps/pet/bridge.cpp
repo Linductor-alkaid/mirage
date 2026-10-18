@@ -1,5 +1,6 @@
 #include "bridge.hpp"
 #include "../common/session_run_worker.hpp"
+#include "status_delivery.hpp"
 #include <mirage/platform/frontend_process.hpp>
 
 #include <algorithm>
@@ -29,9 +30,10 @@ struct Bridge::Impl {
                                  return decode_clip("assets/pet", clip, out, diagnostic, cancelled);
                              }};
     std::shared_ptr<ipc::SessionClient> client;
-    kairo::comm::LatestMailbox<runtime::pet::Status> inbox{"mira-pet-status"};
+    kairo::comm::LatestMailbox<StatusDelivery> inbox{"mira-pet-status"};
     kairo::WorkerHandle worker;
     kairo::TimerHandle refresh;
+    kairo::TimerHandle control_wake;
     kairo::TimerHandle animation_wake;
     std::array<kairo::TimerSubmission<void>, 3>
         bubble_expiries; // UI-owned, bounded handle/future retention
@@ -76,7 +78,7 @@ struct Bridge::Impl {
     bool stopping = false;
 
     void publish(const runtime::pet::Status &status) {
-        inbox.publish(status);
+        inbox.publish({status, StatusDelivery::Clock::now()});
         if (visible.load())
             app::requestUpdate();
     }
@@ -179,10 +181,22 @@ bool Bridge::start(std::string &diagnostic) {
         return false;
     }
     p.publish(*status);
+    // M8-06 / DEC-103: hidden windows have no frame callbacks. Exit/owner
+    // loss must not wait for the slow status-sync interval (or an IPC call).
+    p.control_wake = p.executor.submit_periodic(200, [&p] {
+        p.check_hidden_exit();
+        // A shape-excluded window is still mapped. Its UI owner samples the
+        // actual shape again on this slow control wake, without animation.
+        if (!p.visible.load())
+            app::requestUpdate();
+    });
+    if (!p.control_wake.valid()) {
+        diagnostic = "mira_pet control timer admission failed";
+        return false;
+    }
     // M8-05: Reduce polling frequency — events provide real-time updates, periodic
     // status requests are only a fallback health check, not the primary source.
     p.refresh = p.executor.submit_periodic(30000, [&p] {
-        p.check_hidden_exit();
         p.load_preferences();
         // BUG-20261015-002 partial fix: status request timeout should not close
         // the entire session while events are still arriving. This check ensures
@@ -239,10 +253,13 @@ bool Bridge::latest(runtime::pet::Status &out) {
     auto &p = *impl_;
     p.consume_bubble_timers();
     std::uint64_t sequence = 0;
+    StatusDelivery delivery;
     const bool fresh = p.live.load() && !p.stale.load() &&
-                       p.inbox.try_load_newer_than(p.consumed_status, out, sequence);
-    if (fresh)
+                       p.inbox.try_load_newer_than(p.consumed_status, delivery, sequence);
+    if (fresh) {
         p.consumed_status = sequence;
+        out = delivery.at(StatusDelivery::Clock::now());
+    }
     return fresh;
 }
 bool Bridge::preferences(runtime::persistence::AppPreferences &out) {
@@ -280,6 +297,7 @@ bool Bridge::connected() const {
 }
 ResourceLoader &Bridge::loader() { return impl_->resources; }
 void Bridge::set_animating(bool value) { impl_->animating.store(value); }
+bool Bridge::visible() const { return impl_->visible.load(); }
 void Bridge::set_visible(bool value) {
     auto &p = *impl_;
     if (p.stopping || p.visible.exchange(value) == value)
@@ -288,6 +306,8 @@ void Bridge::set_visible(bool value) {
         (void)p.animation_wake.cancel();
     p.cancel_bubble_timers();
     p.animation_wake = {};
+    if (value)
+        p.consumed_status = 0; // Re-read the latest receipt, with its actual age.
     if (value && !p.arm_animation()) {
         p.stale.store(true);
         std::cerr << "mira_pet: restored animation timer admission failed\n";
@@ -303,6 +323,8 @@ void Bridge::shutdown() {
     if (p.animation_wake.valid())
         (void)p.animation_wake.cancel();
     p.cancel_bubble_timers();
+    if (p.control_wake.valid())
+        (void)p.control_wake.cancel();
     if (p.refresh.valid())
         (void)p.refresh.cancel();
     p.client->stop();

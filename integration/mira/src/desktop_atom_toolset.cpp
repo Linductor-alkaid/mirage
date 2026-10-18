@@ -1,3 +1,4 @@
+#include "pet_exclusion.hpp"
 #include <mirage/integration/desktop_atom_toolset.hpp>
 
 #include "desktop_action_verification.hpp"
@@ -1239,7 +1240,8 @@ struct DesktopAtomToolset::Impl final {
 std::shared_ptr<DesktopAtomToolset>
 DesktopAtomToolset::build(mirage::desktop::DesktopEnvironment *environment, AtomPermissionGate gate,
                           const AtomOverlayFeed &feed,
-                          std::shared_ptr<mirage::desktop::ActionCoordinator> actions) {
+                          std::shared_ptr<mirage::desktop::ActionCoordinator> actions,
+                          detail::PetExclusion exclude_pet) {
     auto toolset = std::shared_ptr<DesktopAtomToolset>(new DesktopAtomToolset());
     toolset->impl_ = std::make_unique<Impl>();
     if (environment == nullptr) {
@@ -1250,8 +1252,10 @@ DesktopAtomToolset::build(mirage::desktop::DesktopEnvironment *environment, Atom
     // fail closed on the pinned side (schema subset, wire-name collisions),
     // so a rejected atom aborts the build instead of silently shrinking the
     // catalog.
-    const auto register_atom = [&registry =
-                                    *toolset->impl_->registry](AtomRegistration &&candidate) {
+    const auto register_atom = [&registry = *toolset->impl_->registry,
+                                exclude_pet](AtomRegistration &&candidate) {
+        candidate.handler = detail::exclude_pet_during(candidate.spec.wire_name,
+                                                       std::move(candidate.handler), exclude_pet);
         const auto registered =
             registry.register_tool(std::move(candidate.spec), std::move(candidate.handler));
         if (!registered) {
@@ -1311,7 +1315,8 @@ DesktopAtomToolset::build(mirage::desktop::DesktopEnvironment *environment, Atom
 }
 
 std::shared_ptr<DesktopAtomToolset> DesktopAtomToolset::build(const DesktopToolContext &desktop) {
-    auto tools = build(desktop.environment.get(), desktop.gate, desktop.overlay, desktop.actions);
+    auto tools = build(desktop.environment.get(), desktop.gate, desktop.overlay, desktop.actions,
+                       desktop.exclude_pet);
     detail::register_local_visual_knowledge(*tools->registry(), desktop);
     return tools;
 }

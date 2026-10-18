@@ -5,7 +5,7 @@
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：M1 Runtime/IPC、M6 的 DEC-045 owner 拓扑、M7 桌面工具与动作执行缝；不要求关闭这些里程碑的全部开放门禁
 > 建议发布点：Linux X11 v5 九态桌宠预览版（标签未定；启动/退出使用 v5 已确认动作）；最终动作与其他平台分别验收
-> 更新日期：2026-10-17
+> 更新日期：2026-10-18
 
 ## 目标
 
@@ -142,6 +142,10 @@ v5 替换了 enter/exit；其余七态主文件与 v3 摘要一致。
   已修复行规范化幂等并补流式前缀、UTF-8 边界及真实 Runtime 推送/快照回归；
   现场日志缺失与复现范围见[修复证据](../compatibility/pet-long-thinking-exit-20261017.md)。
   该缺陷修复不关闭已有隐藏退出、重连与跨平台验收门禁。
+  2026-10-18 M8-06 联动复现并修复隐藏退出检查依赖 30 秒状态同步的问题；
+  拆出 200 ms control timer 后隔离实进程 38/38，隐藏正常关闭 0.367 秒、owner
+  失联退出 5.282 秒，见[新增证据](../compatibility/mira-pet-desktop-exclusion-20261018.md)。
+  本次仅关闭该隔离场景的期限回归，重连、现场输入释放及其他平台门禁仍开放。
 - [ ] `M8-11` **In Progress**（执行顺序在 M8-06 前）：交付头顶思考/对话气泡。思考行
   高度一行、外宽等于角色画布，连续横向滚动，新片段不逐 token 重置；回答仅显示
   一句简短核心概括，保留否定/不确定/未验证。气泡跟随当前模型请求，不等待动画
@@ -153,11 +157,25 @@ v5 替换了 enter/exit；其余七态主文件与 v3 摘要一致。
   的公开能力缺口已由 Mira PR#94 head 消费解决；Linux实现、Runtime/IPC fixture和原生渲染
   已通过。负责人：Mirage维护者；在线供应商、实桌面/物理DPI/多屏与其他平台仍开放，
   证据见 [实施记录](../compatibility/mira-pet-bubbles-runtime-20261014.md)。
-- [ ] `M8-06` **Planned**（前置 M8-11 的呈现与几何契约）：闭合桌宠与桌面输入/感知的冲突。身份严格核验、目标占位
+- [ ] `M8-06` **In Progress**（前置 M8-11 的呈现与几何契约）：闭合桌宠与桌面输入/感知的冲突。身份严格核验、目标占位
   自动避让或有界隐藏、几何确认后重观察，与 Overlay 和既有安全守卫共存。验收：
   角色、气泡、尾部及阴影覆盖点击/拖拽/键入目标及截图/OCR 时不误点、不误识别、不放宽外来遮挡；
   气泡点击穿透不作为视觉避让证据，隐藏期间新文字不重新显现，气泡几何变化重新确认；
   避让失败与不可用区域明确拒绝，人工接管及时停动作并恢复可见状态。
+  2026-10-18 首增量按 [DEC-103](../decisions/DEC-103-pet-desktop-exclusion.md) 接入
+  会话与 workflow 桌面工具：受管 PID + XRes 服务端身份 + 桌宠协议标记核验，
+  整窗空 bounding shape 排除，工具观察/输入/核验结束后最后一份租约恢复。
+  没有桌宠时也持有启动门禁，防止动作中途新进程出现；拒绝/取消/异常明确结算。
+  已加入真实像素/输入、原生进程和故障回归；详情及未运行门禁见
+  [实施证据](../compatibility/mira-pet-desktop-exclusion-20261018.md)。
+  第二增量将直接 IPC `desktop.observe` 接入同一租约；视觉请求排除后重新采集，
+  返回前核验代次/epoch 并恢复，缓存不能替代排除证明，见
+  [观察入口证据](../compatibility/mira-pet-observation-20261018.md)。
+  第三增量交付 X11 隐藏暂停：复用 UI 可见性入口与控制 timer，暂停解码/动画并
+  移除 stream 绑定；恢复重读状态并扣除气泡滞留时间。私有原生 66/66，
+  Release 全量 101/101，详见[隐藏暂停证据](../compatibility/mira-pet-hidden-presentation-20261018.md)。
+  按区域自动迁移、真实 compositor 重绘与整组气泡/Overlay
+  输入闭环、多屏/DPI、Wayland/Windows 仍开放，负责人为 Mirage 维护者。
 - [ ] `M8-07` **Planned**：形成 Linux v5 九态预览的产品门禁。沿现有真实会话执行
   思考 → 看 → 鼠标/键入 → 看/核验 → 成功，以及工具可恢复失败、最终失败、暂停/
   确认、取消、接管；保留背景主窗口与桌宠同场景视频/截图及事件摘要。验收：核心
@@ -718,3 +736,104 @@ Debug、ASAN/UBSAN 与搬迁私有桌面 32/32 通过，范围和限制见
 [首增量记录](../compatibility/m9-incremental-scene-and-pet-build-20261015.md)。
 没有部署/重启用户 native-release，版本差异诊断、真实桌面、正式安装/许可及
 其他平台仍待相关工作项取证，不据本地构建关闭 M8-12 或 M8-08。
+
+
+### 2026-10-18：优先推进 M8-06 桌面工具整窗排除
+
+维护者反馈前五项在持续使用中基本稳定，后续开发转向 M8-06，保留原平台和性能门禁。
+建立 DEC-103、受管进程呈现租约和 Linux X11 实现；会话工具的前置/后置核验与 workflow
+桌面 atoms 同步接入。服务端 XRes 身份核验、唯一窗口、容量、形状确认、重叠租约及
+最后释放恢复均有明确结果，不放宽外来遮挡守卫、不修改 pinned 依赖。
+
+隔离原生进程首跑 31/32，重现既有隐藏正常退出六秒门禁失败；定位到 30 秒状态同步
+同时承担隐藏退出检查。拆出 200 ms 受管 control timer，状态同步保持 30 秒，
+修复后隔离原生进程 38/38，隐藏正常退出 0.367 秒、宿主失联退出 5.282 秒。
+最终 Release 全量 98/98，ASAN/UBSAN/TSAN 专项各 6/6（含两个隔离 fixture），
+公开头边界/格式检查通过。扩大 Runtime 用例中的 fixture 配置失败已修正并完整复跑，
+记录中保留首次失败，不放宽产品 owner 准入。这些是隔离 fixture 结果，不代替
+真实桌面/在线任务或跨平台保证。完整命令、构建、
+sanitizer 与剩余补跑条件见[实施证据](../compatibility/mira-pet-desktop-exclusion-20261018.md)。
+M8-06 及 M8 整体保持 In Progress，M8-07/08/10 仍按各自产品/安装/平台门禁推进。
+
+
+### 2026-10-18：M8-06 直接 IPC 观察接入整窗排除
+
+`desktop.observe` 在既有 serial owner 直接准入租约，观察结束核验并恢复后才回复。
+有 pet owner 的视觉请求排除后重新采集，缺少新鲜来源则明确拒绝；保留无 pet 嵌入的
+注册表兼容路径。五秒协作预算、确切视觉代次、组装/恢复期间 epoch 与代次变化、
+异常/取消及恢复失败均有回归，没有新增调度设施或修改 pinned 依赖。
+
+Release 全量 99/99；最终补充运行期预算用例后重建并定向 8/8，ASAN/UBSAN/TSAN
+各 5/5（3 个业务测试及 2 个隔离 fixture）。真实 tray/pet + 本地 PP-OCR 在私有 Xvfb
+中 48/48，连续两次识别桌宠下方更新的公开文字、逐像素核对新暴露画布，并验证
+回复前恢复、焦点与位置保持；原拖动/启停/崩溃/隐藏关闭继续回归。测试夹具的根窗口
+合成、动画拖动取点和受管画布设置失败均保留在
+[实施证据](../compatibility/mira-pet-observation-20261018.md)，未放宽产品守卫。
+
+M8-06 与 M8 保持 In Progress；真实 compositor、整组气泡/Overlay 输入与接管、
+自动迁移/几何协议/隐藏节能、多屏 DPI 和其他平台由 Mirage 维护者按目标环境补跑。
+
+
+### 2026-10-18：提交前两增量并推进 M8-06 隐藏暂停
+
+按维护者要求，前两轮变更提交为 `20c9c7f`。第三增量把空 bounding shape 接入既有
+可见性暂停，在 UI owner 采样，不新增并发设施或 wire 字段。取消解码/动画及气泡
+唤醒，移除 EUI stream 绑定，恢复时重读最新状态并扣除最终气泡本地滞留时间。
+
+Release 全量 101/101，ASAN/UBSAN/TSAN 各 6/6（包括实际 Bridge 源码生命周期和
+两个隔离 fixture）。原生私有 tray/pet/OCR 脚本 66/66，shape 隐藏时 CPU 从同机
+18.99% 降到 1.67%，恢复连续动画/拖动通过；仍映射但空 shape 的正常关闭 0.370 秒、
+owner 失联退出 5.456 秒。首两轮未满足节能门禁，随后恢复就绪与帧比较夹具失败均
+保留在[实施证据](../compatibility/mira-pet-hidden-presentation-20261018.md)。
+这些不是硬件能耗或真实 compositor 结论；完整气泡/Overlay 输入/接管、其他平台、
+几何迁移和安装许可继续由 Mirage 维护者按相应工作项验证，M8-06 和 M8 保持 In Progress。
+
+### 2026-10-18：CU 真实桌面验收未执行
+
+按维护者要求检查当前 CU 会话：仅提供浏览器控制，原生 computer API 禁用，
+无应用窗口清单及 `listWindows` 能力，未能取得 Linux 原生桌面。代码基线 `dcb9113`；
+本次没有执行真实桌面动作或取得 compositor 证据，不能将 Xvfb 结果转记为实桌面通过。
+负责人为 Mirage 维护者；接通目标桌面的原生 CU 窗口/截图/输入能力后按
+[补跑条件](../compatibility/mira-pet-hidden-presentation-20261018.md#cu-真实桌面验收尝试2026-10-18)
+继续。M8-06 与真实桌面退出条件保持未完成。
+
+### 2026-10-18：维护者 Wayland 会话负向诊断
+
+只读核对维护者最新两轮：所有桌面入口均被 pet_exclusion_unavailable 的 verified
+X11 前置检查拦截，未进入 Portal 授权/输入派发。截图达到同会话三次相同确定失败后
+被封锁。说明当前 X11 整窗策略会阻断带桌宠的 Wayland 使用；需要真正的 Wayland
+隐藏及新帧确认，不能把本机具有 DISPLAY 当作 Portal 干净帧证据。M8-06 继续 In Progress。
+同时发现宿主失败丢弃模型最终解释、UI 再覆盖正文的问题，按 M6-46 / DEC-104 修复，
+见[分析与证据](../compatibility/native-failed-output-retention-20261018.md)。未重试用户通信任务。
+
+### 2026-10-18：GNOME Wayland / XWayland pet 适配
+
+维护者要求实现 Wayland 避让。按 [DEC-105](../decisions/DEC-105-wayland-pet-exclusion.md)
+增加 GNOME 的 UTILITY pet 撤下/WM 确认/原状态恢复和 Portal 源帧时间水位，保留
+XRes/受管 PID/唯一标记核验。Host 显式共享平台资源上下文，不新增业务调度设施或
+依赖；pet UI 检查 unmapped 状态并沿用隐藏暂停。验证记录见
+[Wayland 增量证据](../compatibility/wayland-pet-exclusion-20261018.md)。
+Native 全量 102/102，ASAN/UBSAN/TSAN 专项各 7/7（含 fixture），私有真实
+pet/tray 的 unmap 生命周期 33/33；可见/隐藏 CPU 20.00%/2.33%，正常隐藏退出
+0.216 秒、owner 失联退出 5.281 秒。静态边界、格式和脚本语法通过。
+首步只覆盖当前 GNOME Wayland 会话的 XWayland pet，其他 compositor 与纯原生
+Wayland pet 不在已交付范围。真实 compositor、授权新帧与维护者重新启动实测仍待
+补验；负责人为 Mirage 维护者，M8-06 和 M8 保持 In Progress。
+
+### 2026-10-18：避让按能力降级（DEC-106）
+
+维护者要求不支持的合成器保留视觉能力、不强行隐藏桌宠。按
+[DEC-106](../decisions/DEC-106-optional-pet-exclusion.md) 把避让改为能力降级：
+未知 Wayland compositor、无可识别 XWayland WM 或未编译 backend 时返回显式未排除
+的被动租约（`excluded()==false`），不发隐藏请求并清除过期帧水位，截图/OCR 照常、
+桌宠保持可见；工具对象结果附加 `pet_presentation={excluded:false,
+reason:unsupported_compositor,pixels_may_include_pet:true}`，desktop.observe 在
+`environment_state` 注明未排除。只有预先探测的能力不支持才降级；已支持路径的
+身份失败、撤下失败、超时、取消与恢复失败仍报原错误，键鼠沿用既有遮挡与权限
+检查。本轮修复非 X11 构建被动路径不清除水位的偏差，并把 pet_exclusion_test 的
+旧 Wayland 拒绝断言更新为被动语义。独立验证：Native 全量 102/102；
+wayland_pet_exclusion_test（44 checks）、pet_exclusion_tools_test（37）、
+pet_exclusion_test（83）、pet_observation_test（75，含未排除负向断言）在
+ASAN/UBSAN/TSAN 抽查通过；非 X11 独立编译检查 8/8（含水位 456→0）。
+真实 compositor 门禁继续开放，M8-06 保持 In Progress，证据见
+[Wayland 增量证据](../compatibility/wayland-pet-exclusion-20261018.md)。

@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <future>
+#include <iostream>
 #include <kairo/executor.hpp>
 #include <memory>
 #include <mirage/desktop/frontend_process.hpp>
@@ -26,6 +27,10 @@ class PetProcess final {
         }
         if (pid_ && (state_ == "starting" || state_ == "running"))
             return true;
+        if (surface_ownership_.use_count() > 1) {
+            diagnostic = "pet is yielding to a desktop operation; retry after it settles";
+            return false;
+        }
         if (pid_) {
             diagnostic = "pet still owns a live process; stop it before restarting";
             return false;
@@ -60,6 +65,29 @@ class PetProcess final {
         }
         state_ = "running";
         return true;
+    }
+    desktop::PresentationExclusion exclude_presentation(const desktop::CancelToken &cancel) {
+        if (cancel.cancelled())
+            return {{}, {"cancelled", "pet exclusion cancelled"}};
+        if (closing_ || stop_.valid())
+            return {{}, {"pet_exclusion_unavailable", "pet owner is stopping"}};
+        poll();
+        desktop::PresentationExclusion exclusion;
+        if (pid_) {
+            if (state_ != "running")
+                return {{},
+                        {"pet_exclusion_unavailable", "pet is not ready for surface exclusion"}};
+            exclusion = process_->exclude_presentation(cancel);
+            if (!exclusion.error.code.empty())
+                return exclusion;
+            if (!exclusion.lease)
+                return {{}, {"pet_exclusion_failed", "owned pet returned no exclusion lease"}};
+        }
+        // Even absent pets need an ownership lease: a concurrent Start must
+        // not introduce a new visible generation during this tool operation.
+        exclusion.lease =
+            std::make_unique<SurfaceLease>(std::move(exclusion.lease), surface_ownership_);
+        return exclusion;
     }
     bool stop(std::string &diagnostic) {
         poll();
@@ -123,6 +151,48 @@ class PetProcess final {
     }
 
   private:
+    struct SurfaceOwnership {};
+    class SurfaceLease final : public desktop::PresentationLease {
+      public:
+        SurfaceLease(std::unique_ptr<desktop::PresentationLease> lease,
+                     std::shared_ptr<const SurfaceOwnership> ownership)
+            : lease_(std::move(lease)), ownership_(std::move(ownership)) {}
+        ~SurfaceLease() override {
+            const auto error = release();
+            if (!error.code.empty())
+                std::cerr << "mira_pet: " << error.code << ": " << error.message << '\n';
+        }
+        bool excluded() const override { return lease_ ? lease_->excluded() : true; }
+        desktop::ProviderError verify(const desktop::CancelToken &cancel) override {
+            if (!ownership_)
+                return {"pet_exclusion_failed", "pet exclusion was released"};
+            if (cancel.cancelled())
+                return {"cancelled", "pet exclusion cancelled"};
+            return lease_ ? lease_->verify(cancel) : desktop::ProviderError{};
+        }
+        desktop::ProviderError release() override {
+            if (!ownership_)
+                return {};
+            desktop::ProviderError result;
+            try {
+                if (lease_)
+                    result = lease_->release();
+            } catch (...) {
+                result = {"pet_restore_failed", "pet exclusion cleanup threw"};
+            }
+            lease_.reset();
+            ownership_.reset();
+            return result;
+        }
+
+      private:
+        std::unique_ptr<desktop::PresentationLease> lease_;
+        std::shared_ptr<const SurfaceOwnership> ownership_;
+    };
+    // Serial admits new leases and Start; returned tokens only release their
+    // own references on tool workers. This is resource ownership, no queue.
+    std::shared_ptr<const SurfaceOwnership> surface_ownership_ =
+        std::make_shared<SurfaceOwnership>();
     bool admit_stop(bool bootstrap_failed, std::string &diagnostic) {
         try {
             stop_ = executor_.submit_auto([process = process_] {

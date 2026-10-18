@@ -3,6 +3,9 @@
 #include <memory>
 #include <mirage/desktop/screen_provider.hpp>
 
+namespace mirage::platform {
+struct PresentationContext;
+}
 namespace mirage::platform::linux_backend {
 
 /// DEC-073: finite synchronous Portal request, driven by the caller's Executor
@@ -10,9 +13,11 @@ namespace mirage::platform::linux_backend {
 class PortalAuthorization;
 class PortalScreenBackend final : public desktop::ScreenProvider {
   public:
-    explicit PortalScreenBackend(std::shared_ptr<PortalAuthorization> authorization = {});
+    explicit PortalScreenBackend(std::shared_ptr<PortalAuthorization> authorization = {},
+                                 std::shared_ptr<PresentationContext> presentation = {});
     ~PortalScreenBackend() override;
-    static std::unique_ptr<PortalScreenBackend> open();
+    static std::unique_ptr<PortalScreenBackend>
+    open(std::shared_ptr<PresentationContext> presentation = {});
     bool desktop_observation_only() const override { return true; }
     std::unique_ptr<desktop::DesktopCaptureSession> create_desktop_capture_session() override;
     bool desktop_interaction_supported() const override;
@@ -35,5 +40,6 @@ class PortalScreenBackend final : public desktop::ScreenProvider {
 
   private:
     std::shared_ptr<PortalAuthorization> authorization_;
+    std::shared_ptr<PresentationContext> presentation_;
 };
 } // namespace mirage::platform::linux_backend

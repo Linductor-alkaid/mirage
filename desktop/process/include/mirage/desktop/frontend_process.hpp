@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <mirage/desktop/presentation_exclusion.hpp>
 #include <string>
 
 namespace mirage::desktop {
@@ -15,5 +16,11 @@ class FrontendProcess {
     virtual bool open(const std::string &endpoint, std::string &diagnostic) = 0;
     virtual std::int64_t pid() = 0;                 // reaps an exited child; zero means absent
     virtual bool stop(std::string &diagnostic) = 0; // bounded, idempotent
+    // Serialized owner admission; returned lease owns its platform resources
+    // independently of this process handle. Default fails closed for carriers
+    // that do not implement exclusion.
+    virtual PresentationExclusion exclude_presentation(const CancelToken &) {
+        return {{}, {"pet_exclusion_unavailable", "pet surface exclusion is unavailable"}};
+    }
 };
 } // namespace mirage::desktop

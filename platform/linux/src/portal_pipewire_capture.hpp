@@ -20,7 +20,8 @@ class PortalPipeWireStream {
   public:
     PortalPipeWireStream(int fd, std::uint32_t node);
     ~PortalPipeWireStream();
-    desktop::CaptureOutcome capture(const desktop::CaptureLimits &, const desktop::CancelToken &);
+    desktop::CaptureOutcome capture(const desktop::CaptureLimits &, const desktop::CancelToken &,
+                                    std::int64_t not_before_ns = 0);
 
   private:
     struct Impl;

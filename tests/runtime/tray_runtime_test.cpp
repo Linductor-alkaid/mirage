@@ -67,7 +67,7 @@ class Frontend final : public desktop::FrontendProcess {
     bool fail_open = false, throw_open = false, fail_stop = false;
     kairo::comm::PhaseGate *stop_gate = nullptr;
     std::int64_t spawned_pid = 777;
-    int opened = 0, stopped = 0;
+    int opened = 0, stopped = 0, exclusions = 0;
     std::int64_t current = 0;
     bool open(const std::string &, std::string &diagnostic) override {
         if (throw_open)
@@ -83,6 +83,10 @@ class Frontend final : public desktop::FrontendProcess {
         return true;
     }
     std::int64_t pid() override { return current; }
+    desktop::PresentationExclusion exclude_presentation(const desktop::CancelToken &) override {
+        ++exclusions;
+        return {{}, {"fixture_exclusion", "fixture backend reached"}};
+    }
     bool stop(std::string &diagnostic) override {
         if (stop_gate)
             (void)stop_gate->wait_for(1, 5s);
@@ -260,6 +264,17 @@ void pet_faults() {
     MIRAGE_CHECK(executor.initialize(config));
     auto process = std::make_shared<Frontend>();
     Pet pet(executor, process);
+    auto absent_exclusion = pet.exclude_presentation({});
+    MIRAGE_CHECK(absent_exclusion.error.code.empty() && absent_exclusion.lease &&
+                 process->exclusions == 0);
+    std::string start_diagnostic;
+    MIRAGE_CHECK(!pet.start("fixture", start_diagnostic));
+    MIRAGE_CHECK(start_diagnostic.find("yielding") != std::string::npos);
+    if (absent_exclusion.lease)
+        MIRAGE_CHECK(absent_exclusion.lease->release().code.empty());
+    desktop::CancelToken cancelled_exclusion;
+    cancelled_exclusion.request_cancel();
+    MIRAGE_CHECK(pet.exclude_presentation(cancelled_exclusion).error.code == "cancelled");
     std::string diagnostic;
     process->fail_open = true;
     MIRAGE_CHECK(!pet.start("fixture", diagnostic) && pet.state() == "failed");
@@ -270,6 +285,8 @@ void pet_faults() {
     process->throw_open = false;
     const auto now = Pet::Clock::now();
     MIRAGE_CHECK(pet.start("fixture", diagnostic, now));
+    MIRAGE_CHECK(pet.exclude_presentation({}).error.code == "pet_exclusion_unavailable" &&
+                 process->exclusions == 0);
     // No ready: injected clock expires bootstrap without a ten-second test sleep.
     pet.poll(now + 10s);
     const auto wait_settle = [&] {
@@ -284,6 +301,8 @@ void pet_faults() {
                  pet.diagnostic().find("readiness") != std::string::npos);
     MIRAGE_CHECK(pet.start("fixture", diagnostic));
     MIRAGE_CHECK(pet.ready(777, diagnostic));
+    MIRAGE_CHECK(pet.exclude_presentation({}).error.code == "fixture_exclusion" &&
+                 process->exclusions == 1);
     process->current = 0; // no worker active: simulate the owned process crash
     pet.poll();
     MIRAGE_CHECK(pet.state() == "failed" &&
@@ -299,6 +318,8 @@ void pet_faults() {
     // Shutdown racing a retained stop: external owner consumes it first.
     MIRAGE_CHECK(pet.stop(diagnostic));
     pet.begin_shutdown();
+    MIRAGE_CHECK(pet.exclude_presentation({}).error.code == "pet_exclusion_unavailable" &&
+                 process->exclusions == 1);
     MIRAGE_CHECK(!pet.start("fixture", diagnostic));
     MIRAGE_CHECK(pet.finish_shutdown(diagnostic));
     executor.shutdown(true);

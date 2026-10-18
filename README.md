@@ -66,6 +66,15 @@ X11 Backend 测试（M2-02 起）需要本机有 Xvfb：`sudo apt install xvfb`�
 `$MIRAGE_XVFB` → `$PATH` → `~/.local/mirage-sysroot/usr/bin/Xvfb`；缺失时
 `x11_backend_test` 响亮失败而非跳过，[DEC-015](docs/decisions/DEC-015-linux-backend-dependencies-and-event-loop.md)）。
 
+Linux 桌宠与桌面工具的整窗避让（M8-06，
+[DEC-103](docs/decisions/DEC-103-pet-desktop-exclusion.md)）需要 `libxres-dev`、
+`libxext-dev` 和支持 X-Resource 1.2 / Shape 的 X server。缺少这些能力时，运行中的
+桌宠会使相关桌面工具明确拒绝，不能以标题或 PID 白名单绕过；未启动桌宠的嵌入不受影响。
+本增量仅验证 X11，原生 Wayland/Portal 和 Windows 保留独立门禁；这些环境如需使用
+桌面工具，可先从托盘停止桌宠，避免呈现排除能力缺席导致拒绝。
+直接 IPC `desktop.observe` 也执行排除与恢复；配置 pet owner 的视觉请求需要启用
+本地 OCR 管线，在排除后新采集，仅有缓存视觉注册表时明确拒绝。
+
 Windows Backend 编译门禁（M4-01 起，[DEC-017](docs/decisions/DEC-017-windows-backend-toolchain-and-event-loop.md)）：
 在 Linux 主机上用 MinGW-w64 交叉构建平台子集——无 root 时按用户前缀引导
 （`apt-get download g++-mingw-w64-x86-64` 及其依赖 + `dpkg -x` 到

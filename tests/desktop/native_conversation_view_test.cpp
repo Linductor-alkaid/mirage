@@ -441,6 +441,40 @@ int main(int argc, char **argv) {
         page.dark = false;
         frame();
     }
+    {
+        page.chat.apply_turn(session_id, "failed-answer", "pending", "公开失败测试", {}, {});
+        page.chat.apply_preview(session_id, "failed-answer", "request", 1, "已经收到的正文", false);
+        page.chat.apply_turn(session_id, "failed-answer", "failed", "公开失败测试", {},
+                             "当前平台桌宠避让不可用");
+        std::vector<mirage::conversation::Part> failed_parts;
+        mirage::conversation::retain_terminal_reply(
+            failed_parts, "**未执行操作**。当前桌面观察不可用，无法核对目标。");
+        page.chat.apply_process(session_id, "failed-answer", failed_parts, 1, false);
+        const auto row = "message." + std::to_string(page.chat.current().messages.back().id);
+        page.dark = false;
+        frame();
+        MIRAGE_CHECK(element(row + ".markdown") && element(row + ".failure"));
+        MIRAGE_CHECK(element(row + ".failure")->text.find("当前平台桌宠避让不可用") !=
+                     std::string::npos);
+        MIRAGE_CHECK(element(row + ".failure")->frame.y >=
+                     element(row + ".markdown")->frame.y +
+                         element(row + ".markdown")->frame.height);
+        capture("failed-answer-retained-light");
+        page.dark = true;
+        width = 640;
+        height = 560;
+        frame();
+        capture("failed-answer-retained-small-dark");
+        page.chat.apply_turn(session_id, "failed-answer", "failed", "公开失败测试", {},
+                             "更新后的失败原因，包含更长的诊断说明以验证高度缓存刷新");
+        frame();
+        MIRAGE_CHECK(element(row + ".failure")->text.find("更新后的失败原因") != std::string::npos);
+        page.chat.reconcile_turns(session_id, {"first"}, 100);
+        page.dark = false;
+        width = 1180;
+        height = 800;
+        frame();
+    }
     const auto key = "message." + std::to_string(user);
     const auto original_user_text = page.chat.current().messages.front().text;
     std::string long_cjk;

@@ -227,6 +227,30 @@ int main() {
 
     std::printf("=== DEC-093 Categorized Budget Allocation Test ===\n");
 
+    {
+        std::vector<Part> retained;
+        for (std::size_t i = 0; i < max_parts; ++i) {
+            Part part;
+            part.id = "step-" + std::to_string(i);
+            part.kind = i ? "tool" : "text";
+            part.name = i ? "fixture" : "";
+            part.text = i ? "" : std::string(max_text_budget, 'x');
+            retained.push_back(std::move(part));
+        }
+        retain_terminal_reply(retained, std::string(max_text_budget - 1, 'y') + "中文");
+        MIRAGE_CHECK(valid_parts(retained) && retained.size() == max_parts);
+        MIRAGE_CHECK(retained.back().id == terminal_reply_id && retained.back().truncated);
+        MIRAGE_CHECK(retained.back().text.size() == max_text_budget - 1);
+        retain_terminal_reply(retained, "模型已说明限制");
+        MIRAGE_CHECK(valid_parts(retained) && retained.size() == max_parts);
+        MIRAGE_CHECK(std::count_if(retained.begin(), retained.end(), [](const auto &part) {
+                         return part.id == terminal_reply_id;
+                     }) == 1);
+        std::vector<Part> restored;
+        std::string error;
+        MIRAGE_CHECK(decode_parts(encode_parts(retained), restored, error) && restored == retained);
+    }
+
     std::printf("[TEST] Category budgets\n");
     test_category_budgets();
     test_recent_thinking_and_timing();

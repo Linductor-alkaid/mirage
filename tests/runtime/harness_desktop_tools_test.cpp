@@ -419,6 +419,31 @@ class CaptureFailingEnvironment final : public mirage::desktop::DesktopEnvironme
     mirage::desktop::ScreenCapability capability_ = mirage::desktop::ScreenCapability::PortalOnly;
 };
 
+class PetSurfaceLease final : public mirage::desktop::PresentationLease {
+  public:
+    PetSurfaceLease(bool &hidden, int &released) : hidden_(hidden), released_(released) {
+        hidden_ = true;
+    }
+    ~PetSurfaceLease() override { (void)release(); }
+    mirage::desktop::ProviderError verify(const mirage::desktop::CancelToken &) override {
+        MIRAGE_CHECK(hidden_);
+        return {};
+    }
+    mirage::desktop::ProviderError release() override {
+        if (!done_) {
+            hidden_ = false;
+            ++released_;
+            done_ = true;
+        }
+        return {};
+    }
+
+  private:
+    bool &hidden_;
+    int &released_;
+    bool done_ = false;
+};
+
 void layer_scenario(const std::string &scenario) {
     kairo::Executor owner;
     kairo::ExecutorConfig config;
@@ -438,10 +463,21 @@ void layer_scenario(const std::string &scenario) {
     auto context = mira::make_control_context();
     tools.environment = desktop;
     tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    bool pet_hidden = false;
+    int pet_acquired = 0, pet_released = 0;
+    if (scenario == "normal") {
+        tools.exclude_pet = [&](const auto &) -> mirage::desktop::PresentationExclusion {
+            MIRAGE_CHECK(!pet_hidden);
+            ++pet_acquired;
+            return {std::make_unique<PetSurfaceLease>(pet_hidden, pet_released), {}};
+        };
+    }
     std::vector<std::string> capabilities;
     tools.gate = [&](const std::string &capability, const std::string &resource,
                      const integration::AtomCancelProbe &probe) {
         capabilities.push_back(capability);
+        if (scenario == "normal")
+            MIRAGE_CHECK(pet_hidden);
         MIRAGE_CHECK(resource == "w2" || (scenario == "focus_changed" && resource == "w1"));
         if (capability == "input.inject") {
             if (scenario == "epoch_during_gate") {
@@ -544,6 +580,7 @@ void layer_scenario(const std::string &scenario) {
         MIRAGE_CHECK(result.tool_calls == (read_only ? 1u : 9u));
     }
     if (scenario == "normal") {
+        MIRAGE_CHECK(pet_acquired == 9 && pet_released == 9 && !pet_hidden);
         for (const auto &part : result.parts)
             if (part.name == "desktop.input.type_text") {
                 MIRAGE_CHECK(part.input.find("probe") == std::string::npos);
@@ -558,6 +595,7 @@ void layer_scenario(const std::string &scenario) {
                                 })
                                 .get();
         MIRAGE_CHECK(second.ok && second.tool_calls == 9 && desktop->input_log.size() == 6);
+        MIRAGE_CHECK(pet_acquired == 18 && pet_released == 18 && !pet_hidden);
         MIRAGE_CHECK(script->requests[0].tools.front().tool_id !=
                      script->requests[10].tools.front().tool_id);
     }
@@ -1962,6 +2000,32 @@ void x11_scenario() {
 }
 #endif
 
+// A configured but stopped product exercises Runtime's real serial admission
+// callback (and the absent-pet startup lease) without creating a UI process.
+class DormantTray final : public mirage::desktop::TrayCarrier {
+  public:
+    RunReport run(const mirage::desktop::TrayCarrierContext &context,
+                  const std::function<bool()> &stop) override {
+        if (context.on_ready)
+            context.on_ready();
+        while (!stop())
+            (void)::poll(nullptr, 0, 5);
+        return {true, {}};
+    }
+    void wakeup() override {}
+};
+class DormantPet final : public mirage::desktop::FrontendProcess {
+  public:
+    bool open(const std::string &, std::string &) override { return false; }
+    std::int64_t pid() override { return 0; }
+    bool stop(std::string &) override { return true; }
+    mirage::desktop::PresentationExclusion
+    exclude_presentation(const mirage::desktop::CancelToken &) override {
+        MIRAGE_CHECK(false); // absent carriers must never touch a platform surface
+        return {{}, {"fixture", "unexpected dormant surface access"}};
+    }
+};
+
 void service_scenario(bool replacement, bool deny_input, bool uri_handoff = false) {
     mirage::testing::TempDir temp;
     auto desktop = environment();
@@ -1979,6 +2043,11 @@ void service_scenario(bool replacement, bool deny_input, bool uri_handoff = fals
     config.persist_session_state = false;
     config.persist_settings = false;
     config.model = model_config();
+    if (!replacement && !deny_input && !uri_handoff) {
+        config.pet = std::make_shared<DormantPet>();
+        config.tray_carrier = std::make_shared<DormantTray>();
+        config.open_frontend = false;
+    }
     if (replacement)
         config.model.enabled = false;
     if (deny_input)
@@ -2004,7 +2073,12 @@ void service_scenario(bool replacement, bool deny_input, bool uri_handoff = fals
         return script;
     });
     mirage::runtime::RuntimeService service(config);
-    MIRAGE_CHECK(service.start(binding).ok);
+    const auto started = service.start(binding);
+    MIRAGE_CHECK(started.ok);
+    if (!started.ok) {
+        std::fprintf(stderr, "service fixture start: %s\n", started.error.message.c_str());
+        return;
+    }
     ipc::IpcClient client(config.socket_path);
     if (replacement) {
         mirage::runtime::persistence::LocalSettings settings;
@@ -2031,6 +2105,15 @@ void service_scenario(bool replacement, bool deny_input, bool uri_handoff = fals
             if (turn.status != "ok")
                 std::fprintf(stderr, "service turn: %s\n", turn.error.c_str());
             MIRAGE_CHECK(turn.status == (deny_input ? "failed" : "ok"));
+            if (deny_input) {
+                const auto reply =
+                    std::find_if(turn.parts.begin(), turn.parts.end(), [](const auto &part) {
+                        return part.id == mirage::conversation::terminal_reply_id;
+                    });
+                MIRAGE_CHECK(!turn.error.empty() && !turn.has_reply);
+                MIRAGE_CHECK(reply != turn.parts.end() &&
+                             reply->text == "observed; not business verified");
+            }
             MIRAGE_CHECK(std::count_if(turn.parts.begin(), turn.parts.end(), [](const auto &part) {
                              return part.kind == "tool" && part.status == "complete";
                          }) == (uri_handoff ? (deny_input ? 3 : 5) : (deny_input ? 6 : 9)));

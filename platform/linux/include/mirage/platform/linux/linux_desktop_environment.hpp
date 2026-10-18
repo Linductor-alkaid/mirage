@@ -17,6 +17,9 @@
 #include <mirage/desktop/process_provider.hpp>
 #include <mirage/desktop/tray_carrier.hpp>
 
+namespace mirage::platform {
+struct PresentationContext;
+}
 namespace mirage::platform::linux_backend {
 
 class X11Backend;          // private in src/: no X11 types may appear here (RULE-01)
@@ -112,7 +115,8 @@ class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment
                                      X11Options x11_options = {}, AtspiOptions atspi_options = {},
                                      ApplicationOptions application_options = {},
                                      NotificationsOptions notifications_options = {},
-                                     FilesystemWriteOptions filesystem_write_options = {});
+                                     FilesystemWriteOptions filesystem_write_options = {},
+                                     std::shared_ptr<PresentationContext> presentation = {});
 
     ~LinuxDesktopEnvironment() override;
 

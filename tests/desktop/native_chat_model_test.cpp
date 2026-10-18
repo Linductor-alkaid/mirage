@@ -171,8 +171,24 @@ int main() {
     streaming.apply_preview(stream_session, "cancel", "c", 1, "部分结果", true);
     streaming.apply_turn(stream_session, "cancel", "failed", "取消", {}, "已取消");
     streaming.apply_preview(stream_session, "cancel", "c", 2, "迟到", false);
-    MIRAGE_CHECK(streaming.current().messages.back().text == "已取消" &&
+    MIRAGE_CHECK(streaming.current().messages.back().text == "部分结果" &&
+                 streaming.current().messages.back().error == "已取消" &&
                  !streaming.current().running);
+    std::vector<mirage::conversation::Part> retained;
+    mirage::conversation::retain_terminal_reply(retained, "**无法完成**：桌面观察不可用。");
+    streaming.apply_process(stream_session, "cancel", retained, 1, false);
+    MIRAGE_CHECK(streaming.current().messages.back().text == "**无法完成**：桌面观察不可用。");
+    MIRAGE_CHECK(streaming.current().messages.back().error == "已取消");
+    MIRAGE_CHECK(streaming.current().messages.back().parts.empty());
+    streaming.apply_turn(stream_session, "cancel", "failed", "取消", {}, "已取消");
+    MIRAGE_CHECK(streaming.current().messages.back().text == "**无法完成**：桌面观察不可用。");
+    ChatModel hydrated_failure;
+    const auto hydrated_id = hydrated_failure.current().id;
+    hydrated_failure.apply_turn(hydrated_id, "failure", "failed", "测试", {}, "核验失败");
+    hydrated_failure.apply_process(hydrated_id, "failure", retained, 1, false, false);
+    MIRAGE_CHECK(hydrated_failure.current().messages.back().text ==
+                 streaming.current().messages.back().text);
+    MIRAGE_CHECK(hydrated_failure.current().messages.back().error == "核验失败");
     ChatModel revised;
     const auto revision_session = revised.current().id;
     revised.apply_turn(revision_session, "base", "ok", "更早输入", "更早回答", {}, {}, 1);
@@ -315,7 +331,8 @@ int main() {
     live.apply_turn(live_id, "turn-1", "ok", "问题", "回答", {});
     MIRAGE_CHECK(live.current().running && live.current().draft == "编辑中的草稿");
     live.apply_turn(live_id, "turn-2", "failed", "新问题", {}, "已取消");
-    MIRAGE_CHECK(!live.current().running && live.current().messages.back().text == "已取消");
+    MIRAGE_CHECK(!live.current().running && live.current().messages.back().text.empty() &&
+                 live.current().messages.back().error == "已取消");
     live.apply_turn(live_id, "format", "ok", "格式", "\n  缩进\n\n第二段\n", {});
     MIRAGE_CHECK(live.current().messages.back().text == "  缩进\n\n第二段");
     for (int i = 3; i <= 50; ++i)

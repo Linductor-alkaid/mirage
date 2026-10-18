@@ -28,7 +28,8 @@ bool prepare(std::optional<Position> saved_position, std::function<void(Position
 Layout layout(float screen_width, float screen_height);
 void update_hit_region(std::span<const std::uint8_t> rgba, const Layout &layout);
 // Install after the runner's callbacks, on its UI thread. Chain its iconify
-// callback, and report suspension/restoration without exposing OS types.
+// callback, and sample the actual bounding shape on subsequent UI checks.
+// Reports iconification/exclusion suspension and restoration without OS types.
 void watch_visibility(std::function<void(bool)> sink);
 void release_visibility();
 // A hidden window skips UI frame callbacks. The IPC/timer owner may relay its

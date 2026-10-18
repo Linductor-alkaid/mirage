@@ -6,9 +6,19 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-10-18（M6-43 会话上下文快照补齐；既有里程碑状态保留）
+> 更新日期：2026-10-18（M6-46 失败正文保留；M6-43 会话上下文快照补齐；M8-06 排除与隐藏暂停增量；既有里程碑状态保留）
 
 ## 当前状态
+
+M6-46 按 [DEC-104](../decisions/DEC-104-failed-turn-output-retention.md) 修复宿主失败
+覆盖模型正文；沿用 Part 承载及失败状态，验证见
+[实施记录](../compatibility/native-failed-output-retention-20261018.md)。
+
+M8-06 按 [DEC-105](../decisions/DEC-105-wayland-pet-exclusion.md) 接入 GNOME Wayland
+会话中 XWayland pet 的撤下/恢复与 Portal 源帧水位；并按
+[DEC-106](../decisions/DEC-106-optional-pet-exclusion.md) 把避让改为能力降级，
+不支持的 compositor 保留截图/OCR 并显式标注未排除。真实 compositor 门禁仍开放，
+见[验证记录](../compatibility/wayland-pet-exclusion-20261018.md)。
 
 Windows 安装后呈现问题按[维护计划](maintenance-windows-presentation-20261014.md)推进：
 图形启动入口、通知承载重复图标、托盘菜单尺寸与间歇黑角分别跟踪，未取证项保持开放。
@@ -60,6 +70,17 @@ M8-06 前新增 M8-11：思考气泡用一行连续横向滚动体现进行状�
 [DEC-089](../decisions/DEC-089-mira-pet-bubbles.md)。Runtime/IPC/Linux 原生实现已交付并通过 fixture；真实思考入口已消费Mira PR#94合并提交22d9577，
 MIRA-20261014-004在公开API范围解决；本机Release已更新，MiniMax公开算术在线10/10。
 证据见 [实施记录](../compatibility/mira-pet-bubbles-runtime-20261014.md)；角色与气泡整组视觉占位纳入 M8-06，原编号和开放门禁保留。
+
+M8-06 转 In Progress：按 [DEC-103](../decisions/DEC-103-pet-desktop-exclusion.md)
+交付 Linux X11 桌面工具整窗排除，覆盖角色和气泡全部呈现；观察、输入与核验共用
+租约，不放宽外来遮挡。同步修复隐藏退出检查依赖慢速状态同步的回归，隔离原生
+进程 38/38；[实施证据](../compatibility/mira-pet-desktop-exclusion-20261018.md)
+记录首增量及开放门禁；第二增量补齐直接 IPC 观察的排除、全程预算与新鲜视觉
+代次检查，见[观察入口证据](../compatibility/mira-pet-observation-20261018.md)。
+第三增量补齐空 shape 期间的解码/呈现暂停与最终气泡剩余时间扣减，复用现有
+控制 timer，见[隐藏暂停记录](../compatibility/mira-pet-hidden-presentation-20261018.md)。
+真实 compositor/其他平台仍待补跑。M8-01～05 的持续使用
+稳定反馈作为现场进展保留，不据此替代尚未执行的平台、性能和完整输入闭环验收。
 
 下一阶段新增 [M7：视觉工具与键鼠输入闭环](m7-visual-tools-and-input.md)
 （In Progress，M7-01～06、08 Linux 首交付 Completed）。当前原生会话已接结构化观察、安全完整输入、标准 PNG/每请求图片、可选真实 OCR、
