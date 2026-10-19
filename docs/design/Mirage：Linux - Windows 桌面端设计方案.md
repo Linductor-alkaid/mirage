@@ -22,6 +22,15 @@ DEC-091 同日补充：连续帧按最后已提交基线增量处理，限制像
 对象的语义标定，保留未受变化影响的绑定；目标身份和语义依赖变化分别处理，
 不将模型标注升级为平台事实或动作后证据。由 M9-05/07/08/13 冻结和实施。
 
+2026-10-19：[DEC-109](../decisions/DEC-109-continuous-perception-attention-and-pet-coexistence.md)
+（Proposed）补充可见 pet 与持续采集共存、任务驱动注意策略、状态/通知基线分离及
+目标局部输入重验，新增 M9-17/18/19；与 Mirador #41 协同。未实施或验证的平台能力
+不作保证，现行采集呈现默认值及动作证据约束继续生效。
+
+机器感知画质按任务可用性取最低档：低清整屏巡检/概览、任务相关局部跟踪、按需
+清晰证据 ROI；模型理解与 OCR/YOLO/Tracker、动作正确性和 CPU/内存联合验收，
+具体档位按 DEC-109 和 M9-06/07/08/12 冻结，不降低 pet 素材呈现质量。
+
 Mirage 是基于 Mira 构建的 Linux / Windows 桌面端产品，为 Mira 提供完整的 PC 运行环境、桌面交互能力与产品界面，使通用 Agent 能够进入用户真实的桌面工作环境执行任务。
 
 Mirage 直接使用 Mira 提供的 Agent Harness Core，包括 Agent 运行、上下文、记忆、Tool/MCP、Workflow、Subagent、行为组织与相关 Agent 基础能力，并负责将这些能力与 Linux / Windows 本地环境连接起来。在视觉层面，Mirage 使用 Mirador 提供的轻量视觉基础设施，对桌面截图和局部图像执行 OCR、目标检测、几何结构分析、视觉 Cache 等处理。

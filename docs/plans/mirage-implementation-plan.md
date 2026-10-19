@@ -47,6 +47,17 @@ DEC-091 同日补充连续帧性能/内存预算、按已提交基线增量更�
 M9-13 负责 LLM 对 OCR/detector/闭合/track 对象的来源可追溯标定，M9-07/12
 验证整条链路资源与慢消费者场景，未变化部分不重复识别/标定。
 
+2026-10-19：[DEC-109](../decisions/DEC-109-continuous-perception-attention-and-pet-coexistence.md)
+（Proposed）细化 M9 的 pet 可见共存（17）、任务注意策略/选择性通知（18）、目标
+局部输入门控（19），与 Mirador #41 协同；采集、识别、发布分频，语义绑定由 Mirage
+持有并复用 Mirador 视觉状态。新增工作项均未实施，现行 DEC-107/108 默认值与
+未通过的平台门禁保留，不能以方案讨论宣称每帧整屏无遮挡或硬实时。
+
+同日补充：M9-06/07/08 以模型理解、OCR/YOLO/Tracker 及动作正确性为质量下限，
+采用低清巡检/概览、按需清晰 ROI 与有界轻量跟踪，降低 CPU/内存；
+[调研记录](../research/2026-10-19-lightweight-tracking-and-adaptive-perception.md)核对微型无人机
+与现有 Mirador 能力。实际档位/收益待 12 实测，不改变 pet 素材质量或依赖 pin。
+
 最新 Native 会话的过程展示容量饥饿、输入法干扰和执行/失败期间用量缺失分别登记
 M9-14/15/16（Proposed）；
 桌宠状态请求延迟退出及重启入场回归归 M8-03/05/12。

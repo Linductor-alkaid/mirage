@@ -186,6 +186,11 @@ Mirage 标定表，不覆盖原始类别。没有适合的公开扩展时保留�
 
 ## 分层、兼容性与冻结
 
+2026-10-19：[DEC-109](DEC-109-continuous-perception-attention-and-pet-coexistence.md)
+提出 pet 可见共存、识别前任务注意策略、选择性通知及目标局部动作门控，关联
+Mirador #41 和 M9-17/18/19。该细化仍为 Proposed，不能以其放宽现行权限、epoch、
+新鲜度或动作后证据要求；通用视觉缓存与 Mirage 语义绑定的归属继续按本决策。
+
 第 7 节的语义标定与资源增量契约同属本决策；它们是待实施设计，不代表 pinned
 Mirador 已提供通用 LLM 标定持久化接口。
 

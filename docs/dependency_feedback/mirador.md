@@ -229,3 +229,54 @@ rec 维持单线程避免负优化）；不改 pinned 代码、不加并发设�
 （PP-OCR: per-line serial rec cannot meet interactive budgets on dense desktop
 frames），含测量表、根因定位、最小能力诉求与验收建议；处理进展随该 issue 跟踪，
 合并前本条维持 Open。
+
+## MIRADOR-20261019-001
+
+连续感知与任务注意策略的公开契约。
+
+状态：Proposed（公开契约诉求，非已确认算法缺陷）；负责人 Mirage 维护者，处理方
+Mirador 上游；工作项 M9-07/13/18，方案见
+[DEC-109](../decisions/DEC-109-continuous-perception-attention-and-pet-coexistence.md)。
+上游已有讨论：[issue #41 补充](https://github.com/Linductor-alkaid/mirador/issues/41#issuecomment-6258623068)
+（2026-10-19 回读，issue Open）；本轮未新增 issue/comment，不代表上游已承诺 API。
+直接 PP-OCR 性能问题仍归 MIRADOR-20261018-001，两个交付层次独立推进。
+
+核对版本 `cb45a10271c53d3b189bb33eef3f692d94feb562`，公开
+`perception_session.hpp`、`change_detection.hpp`、`fusion.hpp`、`object_tracker.hpp`、
+`ocr_backend.hpp`、PP-OCR opt-in 头及 session/caching card；检查
+`tests/fusion/perception_session_test.cpp`、`session_fuse_test.cpp`、
+`stable_id_tracker_test.cpp` 与 `tests/image/change_detection_test.cpp` 对应契约用例
+（源码核对，未执行依赖测试）。
+
+可复核的边界：已有 ROI OCR/detector、请求参数/模型身份隔离的结果缓存、融合与稳定 ID，
+不缺这些原语；
+`fingerprint_early_exit=false` 也已提供，不能继续称为缺 API。但 `analyze_change`
+相对上次分析输入推进签名，`fuse` 发布快照，现有公开接口未统一定义跳帧下的已确认/
+已发布基线、区域 pending、任务注意配置与选择性事件。当前 OCR 返回
+`Result<vector<TextRegion>>`，不能从空行区分未识别/缓存/预算截断；该部分与 #41
+直接 partial-result 诉求协同。M9 连续场景还需明确以下组合行为，而非拼装调用即
+可假定存在：焦点切换无需新像素即可查询状态，预算先用于相关候选，静音变化仍
+更新内部状态，迟到结果不覆盖新内容。
+
+最小验收复现序列（契约测试待上游/消费实现补齐）：帧 A 同时有目标和背景动画，
+B 仅目标文字改变，C 仅背景改变且 B 的 OCR 尚未完成；合并/跳帧后仍需处理目标
+变化。静音背景再切焦背景，应返回当前覆盖/年龄及未识别状态；不能漏报 B，也
+不能凭旧缓存宣布 C 全部已确认。实现需覆盖策略切换和过期异步结果的版本冲突。
+
+期望最小能力：在现有原语上提供同步、无调度器的连续协调契约，支持宿主传入
+实体/锚定 ROI/文本类别焦点、任务权重和预算，输出来源可追溯的实体增量、识别
+覆盖/新鲜度、已确认与待处理状态、可选择通知及基线 reset。任务重要性独立于
+视觉置信度；外围保留预算与结构变化提示，不自行解释任务意义。具体接口命名由
+上游评审，不预设必须新增某个 class，也不要求 Mirador 持有产品永久语义。
+
+职责排除：屏幕采集、pet 排除/移动、任务规划、模型请求、产品语义绑定、输入权限
+和通知/任务调度属于 Mirage/Mira；不是本反馈要求下沉的能力。延期影响：M9-18
+完整通用连续协调验收暂不能完成；Mirage 仍可先交付共享帧、现有 ROI/cache 消费、
+语义协议和 pet 平台探针，不应在应用复制第二套视觉稳定化/跟踪算法。
+
+临时边界：私有 Adapter 仅消费已有 ROI/cache/change，产品语义保留在 VisualScene；
+未识别区域标 unknown/pending，需完整结果时走受限新识别/图像回退。不修改
+pinned 依赖，不新增线程/队列/调度器。移除条件：上游契约经评审交付、获准升级
+pin 并通过消费侧验收。验收包含上述 A/B/C、微小文字/弹窗、焦点切换、策略过期、
+ID 复用、partial/迟到、资源上限和取消；以实际 backend 调用及漏事件验证收益，
+不能只测返回数据变少。
