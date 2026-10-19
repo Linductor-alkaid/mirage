@@ -441,9 +441,9 @@ void contracts(kairo::Executor &executor) {
     }
     {
         Fixture f(executor);
-        for (int k = 0; k < 4; ++k)
+        for (int k = 0; k < 12; ++k)
             check(!f.mark().failed);
-        check(f.mark().failed && f.mark_calls == 4);
+        check(f.mark_calls == 12);
         f.pipeline->stop();
         check(!f.pipeline->refresh_marked({}, {}, {}).analyzed);
     }

@@ -1,6 +1,9 @@
 #include "../../runtime/service/src/pet_process.hpp"
 #include "../support/ipc_io.hpp"
 #include <atomic>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <kairo/comm/channel.hpp>
 #include <kairo/comm/phase_gate.hpp>
@@ -11,8 +14,12 @@
 #include <mirage/integration/model_layer.hpp>
 #include <mirage/runtime/ipc/client.hpp>
 #include <mirage/runtime/runtime_service.hpp>
+#include <optional>
 #include <poll.h>
+#include <sstream>
 #include <stdexcept>
+#include <thread>
+#include <unistd.h>
 
 namespace ipc = mirage::runtime::ipc;
 namespace desktop = mirage::desktop;
@@ -482,6 +489,80 @@ void slow_workflow_maintenance() {
     MIRAGE_CHECK(service.run().clean);
 }
 
+// Scheduler CPU time (utime + stime, /proc/<pid>/stat fields 14/15) of the
+// named ActionWorker thread(s), in milliseconds. Returns nullopt when the
+// thread is absent. pthread_setname_np truncates "mirage-tray-actions" to 15
+// characters, so the /proc/<tid>/comm match uses the truncated prefix.
+std::optional<double> action_thread_cpu_ms() {
+    std::error_code ec;
+    std::optional<double> total;
+    for (const auto &entry :
+         std::filesystem::directory_iterator(std::filesystem::path("/proc/self/task"), ec)) {
+        std::ifstream comm(entry.path() / "comm");
+        std::string name;
+        std::getline(comm, name);
+        if (name.rfind("mirage-tray-act", 0) != 0)
+            continue;
+        std::ifstream stat(entry.path() / "stat");
+        const std::string content{std::istreambuf_iterator<char>(stat),
+                                  std::istreambuf_iterator<char>()};
+        const auto close = content.rfind(')');
+        if (close == std::string::npos)
+            continue;
+        std::istringstream fields(content.substr(close + 1));
+        std::string skipped;
+        for (int field = 3; field != 14; ++field) // state (3) .. cmajflt (13)
+            (void)(fields >> skipped);
+        long long utime = 0, stime = 0;
+        if (!(fields >> utime >> stime))
+            continue;
+        total = total.value_or(0) + static_cast<double>(utime + stime) * 1000.0 /
+                                        static_cast<double>(::sysconf(_SC_CLK_TCK));
+    }
+    return total;
+}
+
+// Idle ActionWorker must park: kairo's MpscChannel::receive_for is a
+// yield-poll adapter, and polling it from the blocking worker burned a full
+// core for the service lifetime in production. The tray now parks on the
+// presenter sleep mutex; this case fails if the idle thread accumulates
+// measurable CPU again, and checks a dispatched action is still consumed.
+void action_worker_parks_while_idle() {
+    mirage::testing::TempDir dir;
+    auto carrier = std::make_shared<Carrier>();
+    auto frontend = std::make_shared<Frontend>();
+    auto options = config(dir, carrier, frontend);
+    mirage::runtime::RuntimeService service(options);
+    MIRAGE_CHECK(service.start(binding()).ok);
+    ipc::IpcClient client(options.socket_path);
+    // The worker registers during start(); wait for the named thread before
+    // sampling so the window below cannot miss it.
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (!action_thread_cpu_ms() && std::chrono::steady_clock::now() < deadline)
+        (void)::poll(nullptr, 0, 5);
+    const auto busy = action_thread_cpu_ms();
+    MIRAGE_CHECK(busy);
+    std::this_thread::sleep_for(2s); // tray idle: no actions dispatched
+    const auto parked = action_thread_cpu_ms();
+    MIRAGE_CHECK(parked);
+    const auto idle_cpu_ms = busy && parked ? *parked - *busy : -1.0;
+    std::fprintf(stderr, "[tray_runtime_test] idle ActionWorker cpu: %.1f ms over 2000 ms wall\n",
+                 idle_cpu_ms);
+    // Parked is near zero; the pre-fix yield-poll spin burned roughly the wall
+    // clock (>=1000 ms over this window). 200 ms tolerates scheduler noise.
+    MIRAGE_CHECK(idle_cpu_ms >= 0 && idle_cpu_ms <= 200);
+    // Responsiveness: a tray click still reaches the parked worker and acts.
+    const auto before = state(client);
+    MIRAGE_CHECK(carrier->commands.try_send(desktop::TrayAction::OpenShell));
+    const auto consumed = std::chrono::steady_clock::now() + 2s;
+    while (state(client).window_epoch == before.window_epoch &&
+           std::chrono::steady_clock::now() < consumed)
+        (void)::poll(nullptr, 0, 5);
+    MIRAGE_CHECK(state(client).window_epoch > before.window_epoch);
+    MIRAGE_CHECK(client.call(ipc::ShutdownRequest{}, 2s).ok);
+    MIRAGE_CHECK(service.run().clean);
+}
+
 void failures() {
     for (int mode = 0; mode != 5; ++mode) {
         mirage::testing::TempDir dir;
@@ -563,6 +644,7 @@ int main() {
     active_exit();
     workflow_exit();
     slow_workflow_maintenance();
+    action_worker_parks_while_idle();
     failures();
     return mirage::testing::finish("tray_runtime_test");
 }

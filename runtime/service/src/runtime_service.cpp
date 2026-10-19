@@ -690,6 +690,7 @@ struct RuntimeService::Impl {
     integration::DesktopToolContext harness_desktop_context() const {
         integration::DesktopToolContext desktop;
         desktop.environment = core->environment;
+        desktop.reuse_recent_observation = true;
         desktop.actions = core->actions;
         if (pet_process) {
             desktop.exclude_pet = [this](const desktop::CancelToken &cancel) {
@@ -702,9 +703,10 @@ struct RuntimeService::Impl {
         desktop.output_retention = basic_outputs.get();
         desktop.basic_tools = config.basic_tools;
         if (core->ocr_pipeline && core->ocr_pipeline->running()) {
-            desktop.mark = [pipeline = core->ocr_pipeline.get()](
+            desktop.mark = [pipeline = core->ocr_pipeline.get(),
+                            presentation = desktop.exclude_pet](
                                const auto &crop, const auto &cancel, const auto &deadline) {
-                return pipeline->mark(crop, cancel, deadline);
+                return pipeline->mark(crop, cancel, deadline, presentation);
             };
             desktop.with_visual_reference =
                 [pipeline = core->ocr_pipeline.get()](const auto &scope, const auto &ref,
@@ -720,10 +722,11 @@ struct RuntimeService::Impl {
                                     const auto &image, const auto &cancel, const auto &deadline) {
                 return pipeline->read_image_ocr(image, cancel, deadline);
             };
-            desktop.ocr = [pipeline = core->ocr_pipeline.get()](const auto &cancel,
-                                                                const auto &deadline) {
+            desktop.ocr = [pipeline = core->ocr_pipeline.get(), presentation = desktop.exclude_pet](
+                              const auto &cancel, const auto &deadline) {
                 const auto begin = std::chrono::steady_clock::now();
-                const auto fresh = pipeline->refresh(true, cancel, deadline);
+                const auto fresh =
+                    pipeline->refresh_presented(true, cancel, deadline, presentation);
                 integration::DesktopOcrResult result;
                 result.ok = fresh.captured && fresh.analyzed;
                 result.cancelled = fresh.capture_cancelled || fresh.analysis_cancelled;

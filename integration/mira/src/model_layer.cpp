@@ -933,14 +933,12 @@ DialogCompletion ModelLayer::complete_harness_turn(
                         return blocked_error;
                     }
                     try {
-                        auto execute = [&verification, &name, &handler](const auto &args,
-                                                                        const auto &operation) {
-                            return detail::DesktopActionVerification::mutation(name)
-                                       ? verification.execute(name, args, operation, handler)
-                                       : handler(args, operation);
-                        };
-                        return detail::exclude_pet_during(
-                            name, execute, desktop_context.exclude_pet, cancel)(arguments, ctx);
+                        // The dispatch lease ends before postcondition capture/OCR.
+                        auto dispatch = detail::exclude_pet_during(
+                            name, handler, desktop_context.exclude_pet, cancel);
+                        return detail::DesktopActionVerification::mutation(name)
+                                   ? verification.execute(name, arguments, ctx, dispatch)
+                                   : dispatch(arguments, ctx);
                     } catch (...) {
                         mira::Error error;
                         error.code = mira::ErrorCode::PlatformError;
@@ -1232,12 +1230,19 @@ DialogCompletion ModelLayer::complete_harness_turn(
             "non-interactive part of the intended window to focus it. Capture source=desktop "
             "with interaction=true on the first capture; use the latest "
             "image_scope and environment_epoch with IMAGE pixel bounds and verify_kind. "
-            "Every capture or OCR refresh retires the preceding image_scope. When OCR returns "
+            "Successful actions include observation.image_scope and environment_epoch for the next "
+            "step, and their verification image is already supplied: do not recapture it. "
+            "A capture may reuse recent pixels without extending their original age. "
+            "A fresh capture or OCR refresh replaces the preceding image_scope. When OCR returns "
             "input_actionable=true, use its new image_scope, not a prior screenshot scope. "
             "A stale scope rejection has no dispatched effects; refresh once before correcting. "
             "A target_pixels_changed rejection already supplies a fresh image with a new "
             "image_scope in its receipt: read it and retry without another capture. "
-            "shared_frame_observed only confirms observation, not focus or page navigation. "
+            "scene_change=none means no significant visual progress: change approach or explain "
+            "the obstacle instead of repeating clicks, full-screen captures or expensive OCR. "
+            "OCR analysis timeout alone does not require a new screenshot; inspect the supplied "
+            "image directly. shared_frame_observed only confirms observation, not focus or page "
+            "navigation. "
             "Use shared_text_exists with expected_text for an observable page condition. "
             "Observe with intent, not by reflex: capture after an action whose outcome you cannot "
             "predict or when verification failed, not between certain steps; prefer small ROI or "

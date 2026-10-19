@@ -60,7 +60,8 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
             "the target rectangle in IMAGE pixels, revalidated from fresh stream pixels before "
             "input. Every capture or OCR refresh replaces the previous image_scope; use the "
             "latest actionable image, including for key and type_text. "
-            "click/scroll use rectangle center. key uses key_name (e.g. ctrl+l, enter); type_text "
+            "click/scroll use rectangle center. key uses canonical lowercase key_name (e.g. "
+            "ctrl+l, alt+f2, enter; meta+ for Super chords); type_text "
             "uses text (printable ASCII, <=4096 bytes, no controls; arbitrary UTF-8 returns "
             "text_transport_unavailable before dispatch on this legacy Portal transport); scroll "
             "uses "
@@ -69,7 +70,9 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
             "click/drag use button=left/middle/right (default left). No held keys. "
             "verify_kind=shared_frame_observed proves released input and "
             "fresh frame only, or shared_text_exists with expected_text checks same-stream OCR. "
-            "Neither proves the full task nor focus identity; inspect the new image before "
+            "Each successful receipt includes observation.image_scope and environment_epoch for "
+            "the next action; do not take a separate screenshot. Neither proves the full task nor "
+            "focus identity; inspect the new image before "
             "continuing. "
             "A target_pixels_changed rejection already supplies the fresh frame with a new "
             "image_scope in its receipt: retry against that scope without recapturing. "
@@ -234,13 +237,11 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         return rejected("permission_denied");
     if (bounded.cancelled())
         return rejected("cancelled");
-    if (captures_ >= 31)
-        return rejected("shared_frame_budget_exhausted"); // reserve postcondition frame
-    ++captures_;
     desktop::CaptureOutcome fresh;
     try {
         fresh = measure_phase(timings_ ? &timings_->capture : nullptr, [&] {
-            return native_session_->capture({desktop_capture_bytes}, bounded);
+            return native_session_->capture_presented({desktop_capture_bytes}, bounded,
+                                                      desktop_.exclude_pet);
         });
     } catch (...) {
         native_session_.reset();
@@ -313,6 +314,16 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
                     fresh.frame, fresh.frame,
                     desktop::WindowGeometry{0, 0, fresh.frame.width, fresh.frame.height}, "desktop",
                     "", fresh.frame.source_sequence, epoch_)) {
+                native_capture_args_ =
+                    Json{Json::Object{{"source", "desktop"}, {"interaction", true}}};
+                native_capture_key_ =
+                    mira::canonical_json_digest(Json{Json::Object{{"source", "desktop"}}})
+                        .to_string();
+                if (fresh.presentation_excluded == false)
+                    metadata_.set("pet_presentation",
+                                  Json{Json::Object{{"excluded", false},
+                                                    {"reason", "unsupported_compositor"},
+                                                    {"pixels_may_include_pet", true}}});
                 const auto *scope = metadata_.find("image_scope");
                 if (scope && scope->as_string())
                     refreshed = *scope->as_string();
@@ -396,6 +407,7 @@ mira::Result<Json> DesktopImageTurn::observe_shared(const std::string &kind,
             return region.text == expected && region.confidence >= 0.8;
         });
     }
-    return Json{Json::Object{{"matched", matched}, {"digest", image_->digest.to_string()}}};
+    return Json{Json::Object{
+        {"matched", matched}, {"digest", image_->digest.to_string()}, {"observation", metadata_}}};
 }
 } // namespace mirage::integration::detail

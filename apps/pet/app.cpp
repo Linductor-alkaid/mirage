@@ -124,25 +124,28 @@ void tick() {
         return;
     platform::pet_window::watch_visibility([&model](bool visible) {
         model.bridge->set_visible(visible);
-        model.bridge->set_animating(false);
-        model.bridge->loader().cancel();
-        model.decoded = {};
-        model.presentation.suspend();
-        model.asset_attempt = nullptr;
-        model.player.reset();
-        model.bubble = {};
-        model.have_status = false;
-        clear_image(model);
-        if (visible)
-            app::requestUpdate();
+        if (!visible) {
+            model.bridge->set_animating(false);
+            model.bridge->loader().cancel();
+            // Keep the single bounded decoded clip and last ImageStream frame.
+            // Capture withdrawal must not turn into a decode-length blank on
+            // restoration. Hidden windows still stop animation and bubble wakes.
+            if (!model.decoded.clip)
+                model.asset_attempt = nullptr;
+            model.bubble = {};
+            return;
+        }
+        // Rebind/re-upload the retained frame in the restored UI scope. A
+        // changed status can select a different clip through the ordinary path.
+        model.presentation.restart();
+        model.asset_attempt = model.decoded.clip;
+        app::requestUpdate();
     });
     const auto now = Clock::now();
     if (!model.bridge->visible()) {
         // Drain the cancelled generation without accepting another decode.
         LoadUpdate discarded;
         (void)model.bridge->loader().poll(discarded, now);
-        if (auto pixels = model.presentation.next({}, {}, true))
-            (void)submit_pixels(model, std::move(pixels));
         if (!model.bridge->connected()) {
             if (model.lost_at == Clock::time_point{})
                 model.lost_at = now;

@@ -287,7 +287,7 @@ desktop::CaptureOutcome read_stream_frame(Capture &capture, const desktop::Captu
             // callers require a later source sequence, never this cached frame.
             return {true, false, *capture.latest, {}};
         }
-        (void)::poll(nullptr, 0, 25);
+        (void)::poll(nullptr, 0, not_before_ns ? 1 : 25);
     }
     auto stopped = cancel.cancelled()
                        ? failure("cancelled", "ScreenCast cancelled or deadline reached")

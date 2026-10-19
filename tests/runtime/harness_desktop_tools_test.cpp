@@ -580,7 +580,7 @@ void layer_scenario(const std::string &scenario) {
         MIRAGE_CHECK(result.tool_calls == (read_only ? 1u : 9u));
     }
     if (scenario == "normal") {
-        MIRAGE_CHECK(pet_acquired == 9 && pet_released == 9 && !pet_hidden);
+        MIRAGE_CHECK(pet_acquired == 4 && pet_released == 4 && !pet_hidden);
         for (const auto &part : result.parts)
             if (part.name == "desktop.input.type_text") {
                 MIRAGE_CHECK(part.input.find("probe") == std::string::npos);
@@ -595,7 +595,7 @@ void layer_scenario(const std::string &scenario) {
                                 })
                                 .get();
         MIRAGE_CHECK(second.ok && second.tool_calls == 9 && desktop->input_log.size() == 6);
-        MIRAGE_CHECK(pet_acquired == 18 && pet_released == 18 && !pet_hidden);
+        MIRAGE_CHECK(pet_acquired == 8 && pet_released == 8 && !pet_hidden);
         MIRAGE_CHECK(script->requests[0].tools.front().tool_id !=
                      script->requests[10].tools.front().tool_id);
     }

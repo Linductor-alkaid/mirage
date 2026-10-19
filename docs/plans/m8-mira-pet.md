@@ -837,3 +837,12 @@ pet_exclusion_test（83）、pet_observation_test（75，含未排除负向断�
 ASAN/UBSAN/TSAN 抽查通过；非 X11 独立编译检查 8/8（含水位 456→0）。
 真实 compositor 门禁继续开放，M8-06 保持 In Progress，证据见
 [Wayland 增量证据](../compatibility/wayland-pet-exclusion-20261018.md)。
+
+
+### 2026-10-18：M8-06：取帧呈现边界与即时恢复
+
+按维护者反馈实施。排除从整工具缩到实际采集/输入派发，Portal 授权和协商阶段保持可见；pet 保留唯一一份有界解码动画，恢复不再清空后重新加载。窗口/语义只读操作不撤下桌宠。
+依据为[DEC-107](../decisions/DEC-107-capture-cadence-and-presentation.md) 和[修复证据](../compatibility/observation-efficiency-20261018.md)。新增长任务与缓存/恢复回归；Native 全量 102/102、最后时间戳增量定向 11/11，
+ASAN/UBSAN/TSAN 专项各 7/7，私有原生产品 + PP-OCR 66/66，详见证据记录。
+真实 GNOME 单帧观感、在线任务和其他平台未验，由 Mirage 维护者重启新版并按记录补跑；
+相关工作项及里程碑仍为 In Progress。

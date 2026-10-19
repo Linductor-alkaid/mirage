@@ -1136,3 +1136,12 @@ AUMID 与用户开始菜单 Mirage.lnk 就位。实机发现 makensis（32 位�
 2026-10-16 / M7-23：YOLO 与 Mirador 修复的产品接入和本机验收完成，见
 [接入验收](../compatibility/yolo-mirage-integration-20261016.md)。PR/CI 收尾，
 保持 M7 与本工作项 In Progress；无原生 Wayland/混合 DPI/Windows 点击通过声明。
+
+
+### 2026-10-18：M7-10 / M7-14 / M7-19：最新重试观察节奏修复
+
+按维护者反馈实施。删除累计 4/8/32 帧额度；动作验证帧返回下一步 scope，近期图像可复用，历史规划意图与新鲜证明分开。OCR 支持复用 ROI，失败提示不诱导重截，同像素分析失败不重复调用。
+依据为[DEC-107](../decisions/DEC-107-capture-cadence-and-presentation.md) 和[修复证据](../compatibility/observation-efficiency-20261018.md)。新增长任务与缓存/恢复回归；Native 全量 102/102、最后时间戳增量定向 11/11，
+ASAN/UBSAN/TSAN 专项各 7/7，私有原生产品 + PP-OCR 66/66，详见证据记录。
+真实 GNOME 单帧观感、在线任务和其他平台未验，由 Mirage 维护者重启新版并按记录补跑；
+相关工作项及里程碑仍为 In Progress。

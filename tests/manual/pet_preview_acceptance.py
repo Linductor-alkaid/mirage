@@ -169,6 +169,7 @@ def session(args):
                                 check('shape suspension reduces native CPU while retaining control checks',
                                       paused_cpu < max(3, visible_cpu * .5))
                             finally:
+                                restore_started = time.monotonic()
                                 probe.stdin.write('release\n'); probe.stdin.flush()
                                 probe.wait(timeout=6)
                             check('native exclusion restores cleanly', probe.returncode == 0)
@@ -178,7 +179,8 @@ def session(args):
                                 return Image.frombytes('RGBA', (geometry.width, geometry.height), raw.data, 'raw', 'BGRA').getchannel('A').getbbox()
                             await_value(restored_alpha, bool, budget=6)
                             await_value(lambda: shape.get_rectangles(window, shape.SK.Input).rectangles, bool, budget=6)
-                            check('native restore reloads a visible character and drag region', bool(restored_alpha()))
+                            result['metrics']['capture_restore_visible_ms'] = round(1000 * (time.monotonic() - restore_started), 2)
+                            check('native restore presents the retained character and drag region', bool(restored_alpha()))
                             restored = window.get_geometry()
                             check('native restore preserves character anchor and window geometry',
                                   (restored.x, restored.y, restored.width, restored.height) ==

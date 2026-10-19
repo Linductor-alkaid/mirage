@@ -1377,14 +1377,16 @@ image_scope、可执行 VisualReference 或 ROI/SoM。授权等待不计入五�
 
 DesktopImageTurn 通过纯 std 的 DesktopCaptureSession 持有本轮 Platform 私有共享；
 ScreenProvider 默认不支持，创建不弹授权。ScreenCast 成功后保留专属总线、Session
-和 node，每次重新取得 PipeWire remote 与新帧，每帧销毁 stream/core/context/loop；
-没有后台 worker 或循环。任务对象持有 DesktopToolContext 的
+和 node，复用任务内单个 PipeWire consumer，调用方在有限循环内推进取帧；
+没有后台 worker 或循环，任务结束关闭 consumer/session。任务对象持有 DesktopToolContext 的
 环境 owner，先析构会话，再释放环境；会话禁止跨任务共享或并发调用。
 
-每轮最多八帧，每次重新检查权限；首授权失败不重复，后续失败、取消或授权代际失效
+按 [DEC-107](../decisions/DEC-107-capture-cadence-and-presentation.md) 不设任务累计帧数上限，
+每次重新检查权限；首授权失败不重复，后续共享路径失败、取消或授权代际失效
 关闭会话。ActionCoordinator 的 environment epoch 淘汰旧图，authority_epoch 则只在
-接管/恢复/释放失败变化，fenced 时为零；普通动作后允许读取新图。旧图五秒期限与
-输入引用安全边界不变，系统共享最长 30 秒，后续单帧最长五秒。
+接管/恢复/释放失败变化，fenced 时为零；普通动作后允许读取新图。新鲜证据五秒期限与
+输入引用安全边界不变；已供给的交互规划意图可在原 60 秒本地重验窗口内保留历史预览，
+不作为新鲜完成证据。系统首次授权最长 30 秒，后续单帧最长五秒。
 
 application.list 候选绑定最新 scope/session/task/environment_epoch，最多 60 秒；
 派发前及权限等待后调用已有 ApplicationProvider 本地重新枚举，精确核对同一安装 ID。
@@ -1432,8 +1434,11 @@ Linux Portal 后端私有地映射为 Start 返回 size 的流内 compositor 坐
 
 Mira DesktopImageTurn 拥有会话，授权同任务 source=desktop 的 screen.capture / input.inject；
 通过图像已供给证明、task/session/epoch/authority、60 秒意图和动作前目标矩形重验（逐像素承诺由 [DEC-083](../decisions/DEC-083-target-region-stability-reverification.md) 修订为主体稳定判定）
-保护输入。普通动作保留共享但淘汰旧图；接管/取消/失败关闭会话。32 帧预算包含
-前置重验和后置取图；只读八帧不变。当前 Portal 文本最多 4096 字节 printable ASCII，
+保护输入。普通动作保留共享但淘汰旧图；接管/取消/共享路径失败关闭会话。
+DEC-107 删除前置重验、后置取图及只读截图的累计帧数额度，仍保留单帧内存、单次时间和
+权限/取消边界。成功动作直接返回后置观察的 image_scope，后续输入不必额外重截。
+桌宠租约仅覆盖实际采集/输入派发，授权/编码/OCR 不隐藏；平台限制和验证见 DEC-107。
+当前 Portal 文本最多 4096 字节 printable ASCII，
 禁止控制字符；非 ASCII 返回 text_transport_unavailable，无部分输入。按键通知不证明
 输入法/应用已消费文字。会话复用单个 PipeWire consumer、最多一张 pending buffer；
 私有循环由调用者推进，consumer 在 Portal session 前关闭，静态画面超时仍显式失败。

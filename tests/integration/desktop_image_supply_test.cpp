@@ -304,10 +304,9 @@ void native_session(const std::string &mode) {
         check(env->closed == 0);
         const auto first_id = *first.value().result.find("artifact_id")->as_string();
         if (mode == "budget") {
-            for (int n = 1; n < 8; ++n)
+            for (int n = 1; n < 80; ++n)
                 check(!invoke(ctx).value().failed);
-            check(rejected(ctx));
-            check(env->captures == 8 && env->created == 1 && permissions == 8);
+            check(env->captures == 80 && env->created == 1 && permissions == 80);
         } else if (mode == "reuse") {
             auto lease = tools.actions->try_begin({});
             check(static_cast<bool>(lease));
@@ -587,7 +586,10 @@ void shared_contracts(const std::string &mode) {
             // The model reads refreshed_image_scope from the embedded error
             // JSON inside the canonical receipt's message field.
             std::string refreshed;
-            if (receipt && receipt.value().find("message") &&
+            if (receipt && receipt.value().find("refreshed_image_scope") &&
+                receipt.value().find("refreshed_image_scope")->as_string())
+                refreshed = *receipt.value().find("refreshed_image_scope")->as_string();
+            if (refreshed.empty() && receipt && receipt.value().find("message") &&
                 receipt.value().find("message")->as_string()) {
                 const auto *embedded = receipt.value().find("message")->as_string();
                 if (const auto inner = mira::parse_json(*embedded);
@@ -704,6 +706,208 @@ void shared_contracts(const std::string &mode) {
             check(!verification.settle());
     }
     check(env->created == env->closed);
+}
+
+// DEC-107: repeated observations stay bounded in storage and do not hide again;
+// action receipts alone drive a task past the former 32-frame ceiling.
+void native_observation_efficiency() {
+    auto env = std::make_shared<NativeEnvironment>();
+    env->interactive = true;
+    env->frame_width = 64;
+    env->frame_height = 32;
+    env->session_pixels = [] { return std::vector<std::uint8_t>(64 * 32 * 4, 7); };
+    auto tools = desktop();
+    tools.environment = env;
+    tools.reuse_recent_observation = true;
+    bool hidden = false, allowed = true, fail_ocr = false;
+    int admitted = 0, restored = 0, ocr_calls = 0;
+    struct Lease final : mirage::desktop::PresentationLease {
+        bool &hidden;
+        int &restored;
+        bool released = false;
+        Lease(bool &value, int &count) : hidden(value), restored(count) { hidden = true; }
+        ~Lease() override { (void)release(); }
+        mirage::desktop::ProviderError verify(const mirage::desktop::CancelToken &cancel) override {
+            check(hidden);
+            return cancel.cancelled() ? mirage::desktop::ProviderError{"cancelled", "fixture"}
+                                      : mirage::desktop::ProviderError{};
+        }
+        mirage::desktop::ProviderError release() override {
+            if (!released) {
+                released = true;
+                hidden = false;
+                ++restored;
+            }
+            return {};
+        }
+    };
+    tools.exclude_pet = [&](const auto &) -> mirage::desktop::PresentationExclusion {
+        ++admitted;
+        return {std::make_unique<Lease>(hidden, restored), {}};
+    };
+    env->during = [&] { check(hidden); };
+    tools.gate = [&](const auto &, const auto &, const auto &cancel) {
+        return allowed && !cancel();
+    };
+    tools.ocr_image = [&](const auto &, const auto &, const auto &) {
+        check(!hidden);
+        ++ocr_calls;
+        integration::ImageOcrOutcome out;
+        out.ok = !fail_ocr;
+        if (fail_ocr)
+            out.error = {"deadline_exceeded", "fixture analysis timeout"};
+        return out;
+    };
+    auto ctx = context();
+    auto source = std::make_shared<detail::DesktopImageSource>();
+    mira::AgentLoopSpec spec;
+    spec.task_id = ctx.task;
+    spec.session_id = ctx.session;
+    spec.task_epoch = ctx.task_epoch;
+    {
+        detail::DesktopImageTurn turn(source, tools, ctx, {});
+        detail::DesktopActionVerification verification(tools, ctx, {});
+        verification.set_shared_observation(
+            [&](const auto &kind, const auto &text, const auto &owner) {
+                return turn.observe_shared(kind, text, owner);
+            });
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry,
+                           [&](const auto &name, auto handler) -> mira::BuiltinToolHandler {
+                               return [&, name, handler](const auto &args, const auto &owner) {
+                                   return detail::DesktopActionVerification::mutation(name)
+                                              ? verification.execute(name, args, owner, handler)
+                                              : handler(args, owner);
+                               };
+                           });
+        const auto invoke = [&](const std::string &name, const JsonValue &args) {
+            const auto exposed = registry.exposed_tools();
+            const auto found = std::find_if(exposed.begin(), exposed.end(), [&](const auto &tool) {
+                return tool.wire_name == name;
+            });
+            check(found != exposed.end());
+            mira::ToolProposal call;
+            call.tool_id = found->tool_id;
+            call.tool_version = found->version;
+            call.wire_name = name;
+            call.has_side_effects = found->has_side_effects;
+            call.operation_id = mira::OperationId::generate();
+            call.provider_call_id.value = "observation-efficiency";
+            call.arguments = args;
+            call.arguments_digest = mira::canonical_json_digest(args);
+            return registry.execute(call, ctx);
+        };
+        const JsonValue capture_args{
+            JsonValue::Object{{"source", "desktop"}, {"interaction", true}}};
+        auto captured = invoke("desktop.screen.capture", capture_args);
+        check(captured && !captured.value().failed && !hidden && admitted == restored);
+        auto metadata = captured.value().result;
+        const auto initial_time = *metadata.find("received_at_ms")->as_integer();
+        for (int i = 0; i < 80; ++i) {
+            auto reused = invoke("desktop.screen.capture", capture_args);
+            check(reused && !reused.value().failed);
+            check(reused.value().result.find("reused_capture")->as_boolean() == true);
+            check(*reused.value().result.find("received_at_ms")->as_integer() == initial_time);
+        }
+        check(env->captures == 1 && admitted == 1 && restored == 1 && !hidden);
+        auto ocr = invoke("desktop.vision.ocr", JsonValue{JsonValue::Object{}});
+        check(ocr && !ocr.value().failed && ocr_calls == 1 && env->captures == 1 && !hidden);
+        fail_ocr = true;
+        for (int i = 0; i < 3; ++i) {
+            auto failed = invoke("desktop.vision.ocr", JsonValue{JsonValue::Object{}});
+            check(failed && failed.value().failed);
+        }
+        check(ocr_calls == 2 && env->captures == 1 && admitted == 1 && !hidden);
+        fail_ocr = false;
+        for (int i = 0; i < 40; ++i) {
+            auto supplied = turn.supply(spec);
+            check(supplied && supplied.value().size() == 1);
+            mira::ModelRequest request;
+            request.task_id = ctx.task;
+            request.task_epoch = ctx.task_epoch;
+            request.input = supplied.value();
+            check(bool(turn.validate_request(request, ctx)));
+            JsonValue args{
+                JsonValue::Object{{"image_scope", *metadata.find("image_scope")},
+                                  {"environment_epoch", *metadata.find("environment_epoch")},
+                                  {"x", 0},
+                                  {"y", 0},
+                                  {"width", 2},
+                                  {"height", 1},
+                                  {"verify_kind", "shared_frame_observed"}}};
+            auto clicked = invoke("desktop.session.click", args);
+            if (!clicked)
+                std::cerr << "efficiency registry error " << i << ": "
+                          << clicked.error().safe_message << '\n';
+            if (clicked && clicked.value().failed)
+                std::cerr << "efficiency round " << i << ": " << clicked.value().safe_error_summary
+                          << '\n';
+            check(clicked && !clicked.value().failed);
+            check(clicked.value().result.find("verified")->as_boolean() == true);
+            const auto *observation = clicked.value().result.find("observation");
+            check(observation && observation->find("image_scope"));
+            check(
+                clicked.value().result.find("verification")->find("captured_at_ms")->as_integer() ==
+                observation->find("received_at_ms")->as_integer());
+            check(*observation->find("image_scope")->as_string() !=
+                  *metadata.find("image_scope")->as_string());
+            check(*observation->find("scene_change")->as_string() == "none");
+            metadata = *observation;
+            check(!hidden && admitted == restored);
+        }
+        check(env->inputs == 40 && env->captures == 81 && env->created == 1);
+        auto roi =
+            invoke("desktop.screen.capture",
+                   JsonValue{JsonValue::Object{
+                       {"source", "roi"}, {"x", 8}, {"y", 8}, {"width", 16}, {"height", 8}}});
+        check(roi && !roi.value().failed && env->captures == 82);
+        const auto before_ocr = ocr_calls;
+        auto regional_ocr = invoke("desktop.vision.ocr", JsonValue{JsonValue::Object{}});
+        check(regional_ocr && !regional_ocr.value().failed && ocr_calls == before_ocr + 1);
+        check(*regional_ocr.value().result.find("source_kind")->as_string() == "roi");
+        check(*regional_ocr.value().result.find("width")->as_integer() == 16 &&
+              *regional_ocr.value().result.find("height")->as_integer() == 8);
+        check(env->captures == 82 && !hidden && admitted == restored);
+        // A cached frame cannot bypass a withdrawn permission.
+        allowed = false;
+        auto denied = invoke("desktop.screen.capture", capture_args);
+        check(denied && denied.value().failed && env->closed == 1 && !hidden);
+    }
+    check(admitted == restored && env->created == env->closed);
+    allowed = true;
+    env->during = {};
+    {
+        // Expired freshness is distinct from the existing 60s target-intent
+        // window: preserve the preview for reasoning, never label it fresh.
+        detail::DesktopImageTurn turn(source, tools, ctx, {}, true, std::chrono::seconds{5},
+                                      std::chrono::milliseconds{0});
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {});
+        const auto exposed = registry.exposed_tools();
+        const auto found = std::find_if(exposed.begin(), exposed.end(), [](const auto &tool) {
+            return tool.wire_name == "desktop.screen.capture";
+        });
+        check(found != exposed.end());
+        mira::ToolProposal call;
+        call.tool_id = found->tool_id;
+        call.tool_version = found->version;
+        call.wire_name = found->wire_name;
+        call.provider_call_id.value = "historical-intent";
+        call.operation_id = mira::OperationId::generate();
+        call.arguments = JsonValue{JsonValue::Object{{"source", "desktop"}, {"interaction", true}}};
+        call.arguments_digest = mira::canonical_json_digest(call.arguments);
+        auto captured = registry.execute(call, ctx);
+        check(captured && !captured.value().failed);
+        auto supplied = turn.supply(spec);
+        check(supplied && supplied.value().size() == 1);
+        bool historical = false, image = false;
+        for (const auto &part : supplied.value().front().content) {
+            if (const auto *text = std::get_if<mira::TextPart>(&part))
+                historical |= text->text.find("Historical desktop image") != std::string::npos;
+            image |= std::holds_alternative<mira::ImagePart>(part);
+        }
+        check(historical && image && !hidden && admitted == restored);
+    }
 }
 
 // M7-17: the compression content matrix. Each case is encoded here — with the
@@ -2169,9 +2373,11 @@ void contracts(kairo::Executor &executor) {
                   static_cast<bool>(source->fetch(
                       std::get<mira::ImagePart>(inputs.value().front().content.back()).source)));
         }
-        auto rejected = capture_once(turn, ctx);
-        check(rejected && rejected.value().failed);
-        check(turn.supply(valid_spec).value().empty());
+        for (int i = 4; i < 40; ++i) {
+            auto continued = capture_once(turn, ctx);
+            check(continued && !continued.value().failed);
+        }
+        check(!turn.supply(valid_spec).value().empty());
     }
     { // Verify ordinary image expiry separately from failed replacement retirement.
         detail::DesktopImageTurn turn(source, tools, ctx, {});
@@ -2755,6 +2961,7 @@ int main() {
         png_content_matrix();
         native_region_sources();
         native_session_poison_discipline();
+        native_observation_efficiency();
         input_reuse_identity();
         capability_receipts();
         // Publish the fixture manifest for the independent Python decoder

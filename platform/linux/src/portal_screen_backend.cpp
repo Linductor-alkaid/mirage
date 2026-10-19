@@ -247,7 +247,8 @@ struct ContextScope {
 desktop::CaptureOutcome capture_cast_frame(CastSession &state, const desktop::CaptureLimits &limits,
                                            const desktop::CancelToken &cancel,
                                            std::chrono::steady_clock::time_point deadline,
-                                           std::int64_t not_before_ns = 0) {
+                                           std::shared_ptr<PresentationContext> presentation = {},
+                                           const desktop::CapturePresentation &acquire = {}) {
     ContextScope context(state.context);
     const desktop::CancelToken bounded([&] {
         (void)g_main_context_iteration(state.context, FALSE);
@@ -270,7 +271,10 @@ desktop::CaptureOutcome capture_cast_frame(CastSession &state, const desktop::Ca
         return rejected("cancelled");
     if (state.stream) {
         stage = "stream";
-        auto frame = state.stream->capture(limits, bounded, not_before_ns);
+        auto frame = desktop::capture_with_presentation(acquire, bounded, [&] {
+            return state.stream->capture(limits, bounded,
+                                         presentation ? presentation->not_before_ns.load() : 0);
+        });
         if (!frame.ok || bounded.cancelled())
             return rejected(frame.error.code, frame.error.message);
         state.frame_width = frame.frame.width;
@@ -305,7 +309,17 @@ desktop::CaptureOutcome capture_cast_frame(CastSession &state, const desktop::Ca
         return rejected("portal_remote_failed");
     stage = "stream";
     state.stream = std::make_unique<PortalPipeWireStream>(fd, state.node);
-    auto frame = state.stream->capture(limits, bounded, not_before_ns);
+    // Negotiate/prime the stream while the pet is visible. These pixels are
+    // never published; the subsequent capture applies the post-hide fence.
+    if (acquire) {
+        const auto primed = state.stream->capture(limits, bounded);
+        if (!primed.ok || bounded.cancelled())
+            return rejected(primed.error.code, primed.error.message);
+    }
+    auto frame = desktop::capture_with_presentation(acquire, bounded, [&] {
+        return state.stream->capture(limits, bounded,
+                                     presentation ? presentation->not_before_ns.load() : 0);
+    });
     if (!frame.ok || bounded.cancelled())
         return rejected(frame.error.code, frame.error.message);
     // A live stream changing pixel extent invalidates input rather than silently
@@ -320,7 +334,8 @@ screencast(Connection connection, const char *sender, const std::string &identit
            std::chrono::steady_clock::time_point deadline, std::unique_ptr<CastSession> *retained,
            bool interaction = false, PortalAuthorization *authorization = nullptr,
            const std::string &restore_token = {}, bool authorization_only = false,
-           std::int64_t not_before_ns = 0) {
+           std::shared_ptr<PresentationContext> presentation = {},
+           const desktop::CapturePresentation &acquire = {}) {
     auto state = std::make_unique<CastSession>();
     state->connection = std::move(connection);
     state->sender = sender;
@@ -442,7 +457,7 @@ screencast(Connection connection, const char *sender, const std::string &identit
     }
     auto frame = capture_cast_frame(*state, limits, cancel,
                                     std::chrono::steady_clock::now() + std::chrono::seconds(5),
-                                    not_before_ns);
+                                    presentation, acquire);
     if (frame.ok && retained)
         *retained = std::move(state);
     return frame;
@@ -528,6 +543,7 @@ struct NativeObservation {
     bool authorization_only = false;
     std::shared_ptr<PortalAuthorization> authorization;
     std::shared_ptr<PresentationContext> presentation;
+    desktop::CapturePresentation acquire;
 #ifdef MIRAGE_LINUX_PIPEWIRE
     std::unique_ptr<CastSession> cast;
 #endif
@@ -542,12 +558,10 @@ desktop::CaptureOutcome capture_portal(const desktop::CaptureLimits &limits,
         return failure("invalid_argument", "Portal capture requires a positive pixel budget");
 #ifdef MIRAGE_LINUX_PORTAL
 #ifdef MIRAGE_LINUX_PIPEWIRE
-    const auto not_before_ns =
-        retained && retained->presentation ? retained->presentation->not_before_ns.load() : 0;
     if (retained && retained->cast) {
         auto frame = capture_cast_frame(*retained->cast, limits, cancel,
                                         std::chrono::steady_clock::now() + std::chrono::seconds(5),
-                                        not_before_ns);
+                                        retained->presentation, retained->acquire);
         if (!frame.ok)
             retained->cast.reset();
         return frame;
@@ -637,7 +651,9 @@ desktop::CaptureOutcome capture_portal(const desktop::CaptureLimits &limits,
             return screencast(std::move(connection), sender, identity, limits, cancel, deadline,
                               retained ? &retained->cast : nullptr, remote,
                               authorization && remote ? authorization : nullptr, restore_token,
-                              retained && retained->authorization_only, not_before_ns);
+                              retained && retained->authorization_only,
+                              retained ? retained->presentation : nullptr,
+                              retained ? retained->acquire : desktop::CapturePresentation{});
         return failure("portal_protocol_error",
                        "ScreenCast capability returned an invalid version");
     }
@@ -740,6 +756,17 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
             state_.cast.reset();
 #endif
         return out;
+    }
+    desktop::CaptureOutcome
+    capture_presented(const desktop::CaptureLimits &limits, const desktop::CancelToken &cancel,
+                      const desktop::CapturePresentation &acquire) override {
+        // Serialized task owner; no callback survives this finite invocation.
+        state_.acquire = acquire;
+        struct Reset {
+            desktop::CapturePresentation &value;
+            ~Reset() { value = {}; }
+        } reset{state_.acquire};
+        return capture(limits, cancel);
     }
     bool reusable() const override {
 #ifdef MIRAGE_LINUX_PIPEWIRE

@@ -75,6 +75,11 @@ int main() {
     presentation.clear();
     MIRAGE_CHECK(presentation.next({look.clip, 1}, look, false) == look.rgba_frames[1]);
     MIRAGE_CHECK(!presentation.next({look.clip, 1}, look, false));
+    // DEC-107: temporary capture withdrawal preserves the decoded frame.
+    // Restore only invalidates upload identity; no transparent/decode gap.
+    presentation.restart();
+    MIRAGE_CHECK(presentation.next({look.clip, 1}, look, false) == look.rgba_frames[1]);
+    MIRAGE_CHECK(!presentation.next({look.clip, 1}, look, false));
     ui::FramePresentation cold;
     MIRAGE_CHECK(cold.next({look.clip, 0}, {}, true)); // no cached neutral: clear safely
     MIRAGE_CHECK(!cold.next({look.clip, 0}, {}, true));

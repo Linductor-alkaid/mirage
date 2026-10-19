@@ -123,6 +123,11 @@ class DesktopImageTurn {
     mira::Result<mira::JsonValue> native_ocr(const mira::JsonValue &,
                                              const mira::OperationContext &);
     void clear();
+    std::chrono::milliseconds planning_image_age() const {
+        // A supplied native target intent already supports local revalidation
+        // for 60 seconds (DEC-081). It is not fresh completion evidence.
+        return native_input_frame_ ? std::chrono::seconds{60} : image_max_age_;
+    }
     std::shared_ptr<DesktopImageSource> source_;
     DesktopImageSource::Store store_;
     DesktopToolContext desktop_;
@@ -142,10 +147,15 @@ class DesktopImageTurn {
     bool supply_images_ = true;
     std::chrono::milliseconds acquire_budget_ = std::chrono::seconds{5};
     std::chrono::milliseconds image_max_age_ = std::chrono::seconds{5};
-    std::size_t captures_ = 0;
+    bool native_started_ = false;
+    std::string native_capture_key_;
+    mira::JsonValue native_capture_args_;
     std::unique_ptr<desktop::DesktopCaptureSession> native_session_;
     std::uint64_t native_authority_ = 0;
     bool native_failed_ = false;
+    std::string ocr_failed_digest_;
+    std::uint64_t ocr_failed_epoch_ = 0;
+    std::optional<mira::Error> ocr_failed_result_;
     bool expect_image_ = false;
     bool supplied_image_ = false;
     bool region_tool_enabled_ = false;

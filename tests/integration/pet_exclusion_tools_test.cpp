@@ -80,7 +80,7 @@ int main() {
         MIRAGE_CHECK(state.hidden);
         return args;
     };
-    auto tool = exclude_pet_during("desktop.screen.capture", handler, acquire(state));
+    auto tool = exclude_pet_during("desktop.input.click", handler, acquire(state));
     MIRAGE_CHECK(tool(args, context));
     MIRAGE_CHECK(state.acquired == 1 && state.released == 1 && state.verifies == 2 &&
                  !state.hidden);
@@ -126,7 +126,7 @@ int main() {
     MIRAGE_CHECK(state.acquired == admitted); // queued/pre-dispatch cancellation
     auto expired = context;
     expired.deadline = std::chrono::steady_clock::now() - std::chrono::milliseconds{1};
-    tool = exclude_pet_during("desktop.vision.ocr", handler, acquire(state));
+    tool = exclude_pet_during("desktop.input.click", handler, acquire(state));
     MIRAGE_CHECK(!tool(args, expired) && state.acquired == admitted);
     // Non-desktop work and no-pet embeddings do not acquire a surface lease.
     auto plain = [&](const auto &, const auto &) -> mira::Result<mira::JsonValue> {
@@ -141,44 +141,55 @@ int main() {
         throw std::runtime_error("Executor admission rejected");
     };
     const auto before_calls = state.calls;
-    result = exclude_pet_during("desktop.window.front", handler, rejected)(args, context);
+    result = exclude_pet_during("desktop.input.click", handler, rejected)(args, context);
     MIRAGE_CHECK(!result && result.error().code == mira::ErrorCode::PlatformError);
     MIRAGE_CHECK(state.calls == before_calls);
-    // Workflow registration actually installs the exclusion, including the
-    // observation atoms (not just input), without changing their tool schema.
+    // Read-only tools never withdraw the pet, even if exclusion is unavailable.
     integration::DesktopToolContext desktop;
     desktop.environment = std::make_shared<testing::FakeDesktopEnvironment>();
     desktop.exclude_pet = acquire(state);
     auto registry = integration::DesktopAtomToolset::build(desktop)->registry();
     state.fail_acquire = true;
+    const auto reads_before = state.acquired;
     auto record = execute(*registry, "desktop.window.list");
-    MIRAGE_CHECK(record && record.value().failed);
-    if (record)
-        MIRAGE_CHECK(record.value().safe_error_summary.find("pet_exclusion_unavailable") !=
-                     std::string::npos);
+    MIRAGE_CHECK(record && !record.value().failed && state.acquired == reads_before);
+    for (const auto *name : {"desktop.screen.capture", "desktop.vision.ocr", "desktop.window.list",
+                             "desktop.accessibility.snapshot"})
+        MIRAGE_CHECK(exclude_pet_during(name, plain, acquire(state))(args, context));
+    MIRAGE_CHECK(state.acquired == reads_before);
     state.fail_acquire = false;
-    record = execute(*registry, "desktop.window.list");
-    MIRAGE_CHECK(record && !record.value().failed && !state.hidden);
-    MIRAGE_CHECK(state.acquired == state.released + 2); // two refused admissions
-    state.passive = true;
-    for (const auto *name : {"desktop.screen.capture", "desktop.vision.ocr"}) {
-        auto observed = exclude_pet_during(name, plain, acquire(state))(args, context);
-        MIRAGE_CHECK(observed && !state.hidden);
-        if (observed) {
-            const auto *notice = observed.value().find("pet_presentation");
-            const auto *excluded = notice ? notice->find("excluded") : nullptr;
-            const auto *reason = notice ? notice->find("reason") : nullptr;
-            MIRAGE_CHECK(excluded && excluded->as_boolean() == false && reason &&
-                         reason->as_string() && *reason->as_string() == "unsupported_compositor");
-            const auto *pixels = notice ? notice->find("pixels_may_include_pet") : nullptr;
-            MIRAGE_CHECK(pixels && pixels->as_boolean() == true);
-        }
+    // The pixel boundary restores before analysis and carries fallback evidence.
+    for (bool passive : {false, true}) {
+        state.passive = passive;
+        auto frame = desktop::capture_with_presentation(acquire(state), {}, [&] {
+            MIRAGE_CHECK(state.hidden == !passive);
+            desktop::CaptureOutcome out;
+            out.ok = true;
+            return out;
+        });
+        MIRAGE_CHECK(frame.ok && frame.presentation_excluded == !passive && !state.hidden);
     }
-    record = execute(*registry, "desktop.window.list");
-    MIRAGE_CHECK(record && !record.value().failed && !state.hidden &&
-                 record.value().result.find("pet_presentation"));
-    state.fail_acquire = true;
-    MIRAGE_CHECK(
-        !exclude_pet_during("desktop.screen.capture", plain, acquire(state))(args, context));
+    state.passive = false;
+    auto frame =
+        desktop::capture_with_presentation(acquire(state), {}, [&]() -> desktop::CaptureOutcome {
+            MIRAGE_CHECK(state.hidden);
+            throw std::runtime_error("capture exception");
+        });
+    MIRAGE_CHECK(!frame.ok && !state.hidden);
+    state.fail_restore = true;
+    frame = desktop::capture_with_presentation(acquire(state), {}, [] {
+        desktop::CaptureOutcome out;
+        out.ok = true;
+        return out;
+    });
+    MIRAGE_CHECK(!frame.ok && frame.error.code == "pet_restore_failed" && !state.hidden);
+    state.fail_restore = false;
+    state.fail_verify = true;
+    bool captured = false;
+    frame = desktop::capture_with_presentation(acquire(state), {}, [&] {
+        captured = true;
+        return desktop::CaptureOutcome{};
+    });
+    MIRAGE_CHECK(!frame.ok && !captured && !state.hidden);
     return testing::finish("pet_exclusion_tools_test");
 }

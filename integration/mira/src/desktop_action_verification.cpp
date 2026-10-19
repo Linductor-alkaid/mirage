@@ -259,11 +259,19 @@ void DesktopActionVerification::observe(Record &r, const mira::OperationContext 
                 return;
             }
             const bool matched = flag(proof.value(), "matched");
+            if (const auto *observation = proof.value().find("observation"))
+                r.observation = *observation;
             r.evidence = mira::ObservationId::generate().to_string();
             r.observed_digest = field(proof.value(), "digest");
             r.captured_at_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                    std::chrono::system_clock::now().time_since_epoch())
                                    .count();
+            // Reusing a recent postcondition must not mint a newer capture
+            // timestamp for its pixels. Custom observation adapters without
+            // capture metadata retain the existing receipt-time fallback.
+            if (const auto *received = r.observation.find("received_at_ms");
+                received && received->as_integer())
+                r.captured_at_ms = *received->as_integer();
             r.status = matched && !r.observed_digest.empty() ? "verified" : "unverified";
             r.reason = !matched                            ? "condition_not_matched"
                        : r.kind == "shared_frame_observed" ? "fresh_shared_frame_only"
@@ -735,7 +743,8 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
         r.uncertain = r.uncertain || !effects || !effects->as_boolean() || *effects->as_boolean() ||
                       !flag(parsed.value(), "input_released");
         r.status = r.uncertain ? "uncertain" : "rejected";
-        r.reason = "action_failed";
+        const auto code = parsed ? field(parsed.value(), "error_code") : "";
+        r.reason = code.empty() ? "action_failed" : "action_failed: " + code;
     }
     fenced_ = fenced_ || r.uncertain;
     r.epoch = desktop_.actions ? desktop_.actions->epoch() : 0;
@@ -754,6 +763,8 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
                 value = JsonValue{record.status == "verified"};
         object.emplace_back("action_id", record.id);
         object.emplace_back("verification", summary(record));
+        if (record.observation.as_object())
+            object.emplace_back("observation", record.observation);
         return JsonValue{std::move(object)};
     }
     auto failure = result.error();

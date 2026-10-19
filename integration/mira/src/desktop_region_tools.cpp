@@ -234,8 +234,6 @@ mira::Result<Json> DesktopImageTurn::pointer_region(const Json &args,
          (!source.front.found || source.front.window.id != desktop_.capture_scope ||
           !geometry_contains(source.front.window.geometry, area))))
         return failure("invalid_target_context");
-    if (captures_ >= 4)
-        return failure("capture_budget_exceeded");
     const auto authorize = [&](const std::string &capability, const std::string &resource) {
         const AtomCancelProbe probe = [&] { return bounded.cancelled(); };
         return desktop_.authorize
@@ -278,7 +276,6 @@ mira::Result<Json> DesktopImageTurn::pointer_region(const Json &args,
     };
     if (!stable())
         return failure(bounded.cancelled() ? "cancelled" : "stale_observation");
-    ++captures_;
     const auto fresh = measure_phase(timings_ ? &timings_->capture : nullptr,
                                      [&] { return screen->capture_roi(area, {}, bounded); });
     if (!fresh.ok || fresh.cancelled || bounded.cancelled())

@@ -2,7 +2,7 @@
 
 > 状态：Active
 > 负责人：Mirage维护者
-> 更新日期：2026-10-16
+> 更新日期：2026-10-19
 > 维护规则：[工程规范9.4](../project/project-standards.md)
 > 本轮工作项：[依赖复用整改](../plans/dependency-reuse-remediation.md)（REUSE-16/17/18
 > 台账一致性收口）；既有条目分别溯源至 M6、M7-06、M8/M9 各工作项
@@ -151,3 +151,13 @@ M7-04/05 图片链路、三方言 fixture 与 MiniMax 在线两例已通过，�
 见 [Mirador 台账](mirador.md)。001 已有 issue #36/PR #37；002 对应 issue #38，
 本轮维护者授权直接修复并通过分支 pin 接入 Mirage，M7-23 / DEC-097。
 上游 PR 评审、合并状态独立记录，不以本地分支 pin 冒充 master 已发布。
+
+## MIRADOR-20261018-001：PP-OCR rec 逐框串行，密集帧超交互预算
+
+新增 [MIRADOR-20261018-001](mirador.md#mirador-20261018-001)（Open）：pinned
+`PpOcrBackend` rec 阶段逐框串行、无批处理/截断/部分结果，密集桌面帧（512 候选）
+无法进入 DEC-076 冻结的 5 秒 OCR 预算；生产会话连续 `native_ocr_expired` 与本地
+基准（359 框 ≈12.9s，rec 占 98%，多线程 rec 在默认调度下反而劣化 1.6–1.8×）为证。
+Mirage 侧临时边界为 det 四线程、rec 单线程；上游能力交付前，密集整屏 OCR 依赖
+DEC-107 的"分析未完成"反馈与 ROI 小图绕行。2026-10-19 已提报上游
+[mirador#41](https://github.com/Linductor-alkaid/mirador/issues/41)，进展随 issue 跟踪。

@@ -214,16 +214,12 @@ mira::Result<Json> DesktopImageTurn::mark(const Json &args, const mira::Operatio
             return error(mira::ErrorCode::InvalidArgument, "invalid crop extents");
         crop = area;
     }
-    if (captures_ >= 4)
-        return error(mira::ErrorCode::ResourceExhausted,
-                     "desktop capture count exceeds 4 per turn");
     if (!allowed(desktop_, "screen.capture", "mark:configured-display", bounded, ctx))
         return error(bounded.cancelled() ? mira::ErrorCode::Cancelled
                                          : mira::ErrorCode::PermissionDenied,
                      "mark capture denied");
     if (bounded.cancelled())
         return error(mira::ErrorCode::Cancelled, "mark cancelled during authorization");
-    ++captures_;
     const auto epoch = desktop_.actions->epoch();
     auto *window = desktop_.environment->window();
     const auto front = window ? window->front_window(bounded) : desktop::WindowQueryOutcome{};
@@ -392,8 +388,6 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
          !desktop::valid_drag_path({mark.anchor.x, mark.anchor.y},
                                    {to_mark.anchor.x, to_mark.anchor.y})))
         return action_error({"invalid_argument", "invalid or over-budget drag destination"});
-    if (captures_ >= 4)
-        return action_error({"result_too_large", "visual revalidation capture budget exhausted"});
     if (!allowed(desktop_, "input.inject", id, bounded, ctx) ||
         !allowed(desktop_, "screen.capture", "display:" + marks_->display_id, bounded, ctx))
         return action_error({bounded.cancelled() ? "cancelled" : "permission_denied",
@@ -422,7 +416,6 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
     };
     if (!stable_front() || !stable_display())
         return action_error({"stale_observation", "window or display moved"});
-    ++captures_;
     const auto fresh = marks_->capture_roi
                            ? screen->capture_roi(*marks_->capture_roi, {}, bounded)
                            : screen->capture_display(marks_->display_id, {}, bounded);

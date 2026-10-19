@@ -5,11 +5,11 @@
 namespace mirage::integration::detail {
 using PetExclusion = decltype(DesktopToolContext::exclude_pet);
 inline bool needs_pet_exclusion(const std::string &name) {
-    return name.starts_with("desktop.window.") || name.starts_with("desktop.input.") ||
-           name.starts_with("desktop.accessibility.") || name.starts_with("desktop.screen.") ||
-           name.starts_with("desktop.vision.") || name.starts_with("desktop.session.") ||
-           name.starts_with("desktop.knowledge.") || name.starts_with("desktop.action.") ||
-           name.starts_with("desktop.application.");
+    return name.starts_with("desktop.input.") || name.starts_with("desktop.session.") ||
+           name == "desktop.window.activate" || name == "desktop.vision.click" ||
+           name == "desktop.vision.scroll" || name == "desktop.vision.drag" ||
+           name == "desktop.vision.click_region" || name == "desktop.vision.scroll_region" ||
+           name == "desktop.vision.drag_region";
 }
 inline mira::BuiltinToolHandler exclude_pet_during(const std::string &name,
                                                    mira::BuiltinToolHandler handler,

@@ -99,6 +99,11 @@ class VisualObservationPipeline final : public EnvironmentVisualPipeline {
     refresh(bool analyze, const desktop::CancelToken &cancel,
             const std::optional<std::chrono::steady_clock::time_point> &deadline) override;
 
+    EnvironmentVisualRefresh
+    refresh_presented(bool analyze, const desktop::CancelToken &cancel,
+                      const std::optional<std::chrono::steady_clock::time_point> &deadline,
+                      const desktop::CapturePresentation &presentation) override;
+
     /// Analyze an already-authorized <=8 MiB preview on the existing worker,
     /// without display enumeration or registry publication (DEC-075).
     ImageOcrOutcome read_image_ocr(const desktop::ImageFrame &, const desktop::CancelToken &,
@@ -107,17 +112,20 @@ class VisualObservationPipeline final : public EnvironmentVisualPipeline {
     EnvironmentVisualRefresh
     refresh_marked(const std::optional<desktop::WindowGeometry> &crop,
                    const desktop::CancelToken &cancel,
-                   const std::optional<std::chrono::steady_clock::time_point> &deadline);
+                   const std::optional<std::chrono::steady_clock::time_point> &deadline,
+                   const desktop::CapturePresentation &presentation = {});
     /// Owner-selected ROI observation; never falls back to a display.
     EnvironmentVisualRefresh
     refresh_region(const desktop::WindowGeometry &, bool analyze, const desktop::CancelToken &,
-                   const std::optional<std::chrono::steady_clock::time_point> &deadline);
+                   const std::optional<std::chrono::steady_clock::time_point> &deadline,
+                   const desktop::CapturePresentation &presentation = {});
 
   private:
     EnvironmentVisualRefresh
     refresh_impl(bool analyze, bool marks, const std::optional<desktop::WindowGeometry> &crop,
                  const desktop::CancelToken &cancel,
-                 const std::optional<std::chrono::steady_clock::time_point> &deadline);
+                 const std::optional<std::chrono::steady_clock::time_point> &deadline,
+                 const desktop::CapturePresentation &presentation = {});
     kairo::Executor &executor_;
     desktop::ScreenProvider &screen_;
     desktop::VisualReferenceRegistry &registry_;

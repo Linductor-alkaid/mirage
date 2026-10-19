@@ -25,6 +25,7 @@ struct VisualMark {
 
 struct EnvironmentVisualRefresh {
     /// Capture stage (ScreenProvider capture of the display or explicit ROI).
+    std::optional<bool> presentation_excluded = std::nullopt;
     bool captured = false;
     bool capture_cancelled = false;
     desktop::ProviderError capture_error; ///< meaningful when !captured && !capture_cancelled
@@ -104,6 +105,19 @@ class EnvironmentVisualPipeline {
     virtual EnvironmentVisualRefresh
     refresh(bool analyze, const desktop::CancelToken &cancel,
             const std::optional<std::chrono::steady_clock::time_point> &deadline) = 0;
+    /// DEC-107: owner-selected exclusion is scoped to acquisition, before analysis.
+    /// Custom pipelines must implement this boundary when an owner is supplied.
+    virtual EnvironmentVisualRefresh
+    refresh_presented(bool analyze, const desktop::CancelToken &cancel,
+                      const std::optional<std::chrono::steady_clock::time_point> &deadline,
+                      const desktop::CapturePresentation &presentation) {
+        if (!presentation)
+            return refresh(analyze, cancel, deadline);
+        EnvironmentVisualRefresh failed;
+        failed.capture_error = {"unsupported_capability",
+                                "capture presentation boundary unavailable"};
+        return failed;
+    }
 };
 
 } // namespace mirage::integration

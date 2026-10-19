@@ -43,15 +43,23 @@ EnvironmentVisualRefresh VisualObservationPipeline::refresh(
     const std::optional<std::chrono::steady_clock::time_point> &deadline) {
     return refresh_impl(analyze, false, std::nullopt, cancel, deadline);
 }
+EnvironmentVisualRefresh VisualObservationPipeline::refresh_presented(
+    bool analyze, const desktop::CancelToken &cancel,
+    const std::optional<std::chrono::steady_clock::time_point> &deadline,
+    const desktop::CapturePresentation &presentation) {
+    return refresh_impl(analyze, false, std::nullopt, cancel, deadline, presentation);
+}
 EnvironmentVisualRefresh VisualObservationPipeline::refresh_marked(
     const std::optional<desktop::WindowGeometry> &crop, const desktop::CancelToken &cancel,
-    const std::optional<std::chrono::steady_clock::time_point> &deadline) {
-    return refresh_impl(true, true, crop, cancel, deadline);
+    const std::optional<std::chrono::steady_clock::time_point> &deadline,
+    const desktop::CapturePresentation &presentation) {
+    return refresh_impl(true, true, crop, cancel, deadline, presentation);
 }
 EnvironmentVisualRefresh VisualObservationPipeline::refresh_region(
     const desktop::WindowGeometry &area, bool analyze, const desktop::CancelToken &cancel,
-    const std::optional<std::chrono::steady_clock::time_point> &deadline) {
-    return refresh_impl(analyze, false, area, cancel, deadline);
+    const std::optional<std::chrono::steady_clock::time_point> &deadline,
+    const desktop::CapturePresentation &presentation) {
+    return refresh_impl(analyze, false, area, cancel, deadline, presentation);
 }
 ImageOcrOutcome VisualObservationPipeline::read_image_ocr(
     const desktop::ImageFrame &image, const desktop::CancelToken &cancel,
@@ -147,7 +155,8 @@ ImageOcrOutcome VisualObservationPipeline::read_image_ocr(
 EnvironmentVisualRefresh VisualObservationPipeline::refresh_impl(
     bool analyze, bool marks, const std::optional<desktop::WindowGeometry> &crop,
     const desktop::CancelToken &cancel,
-    const std::optional<std::chrono::steady_clock::time_point> &deadline) {
+    const std::optional<std::chrono::steady_clock::time_point> &deadline,
+    const desktop::CapturePresentation &presentation) {
     EnvironmentVisualRefresh refresh;
     if (cancel.cancelled()) {
         refresh.capture_cancelled = true;
@@ -213,9 +222,11 @@ EnvironmentVisualRefresh VisualObservationPipeline::refresh_impl(
     const bool regional = crop && (!marks || config_.roi_capture);
     if (regional)
         refresh.capture_roi = area;
-    const auto capture = regional
-                             ? screen_.capture_roi(area, config_.capture_limits, cancel)
-                             : screen_.capture_display(target->id, config_.capture_limits, cancel);
+    const auto capture = desktop::capture_with_presentation(presentation, cancel, [&] {
+        return regional ? screen_.capture_roi(area, config_.capture_limits, cancel)
+                        : screen_.capture_display(target->id, config_.capture_limits, cancel);
+    });
+    refresh.presentation_excluded = capture.presentation_excluded;
     if (cancel.cancelled() || capture.cancelled) {
         refresh.capture_cancelled = true;
         return refresh;

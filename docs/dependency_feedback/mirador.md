@@ -2,7 +2,7 @@
 
 > 状态：Active
 > 负责人：Mirage维护者；处理方：Mirador上游
-> 更新日期：2026-10-16
+> 更新日期：2026-10-19
 > 工作项：源头为 [M7-06](../plans/m7-visual-tools-and-input.md)；维护性收口见
 > [依赖复用整改计划](../plans/dependency-reuse-remediation.md)（REUSE-16）
 > 总入口：[依赖反馈](ledger.md)；维护规则：[工程规范9.4](../project/project-standards.md)
@@ -24,6 +24,8 @@ M7-06 本轮核对 PP-OCR 公开后端、集成指南与 smoke；复现见下表
 | MIRADOR-20261009-002 | 连通域 min_x/min_y 不随洪泛更新，组件/文本框边界截断 | Resolved（本地） | fb0dc3f；回归用例即复现 | [mirador#35](https://github.com/Linductor-alkaid/mirador/pull/35) 第 2 提交，随 pin ae8cf87 生效 | Mirage 维护者 |
 
 | MIRADOR-20261009-003 | PP-OCR 参考预处理偏离参考部署，真实模型 0/4 | Resolved（本地） | fb0dc3f；四语料公开复现 | [mirador#35](https://github.com/Linductor-alkaid/mirador/pull/35) 第 3 提交，随 pin ae8cf87 生效 | Mirage 维护者 |
+
+| MIRADOR-20261018-001 | PP-OCR rec 逐框串行且无批处理/截断，密集桌面帧无法进入交互预算 | Open | pinned `cb45a102`；生产会话 + 本地基准（见下） | [mirador#41](https://github.com/Linductor-alkaid/mirador/issues/41) 已提报 | Mirage 维护者 |
 
 ## MIRADOR-20261009-001
 
@@ -189,3 +191,41 @@ Provider职责，记录版本/公共API/测试核对、最小复现、影响、�
 PR #37/#39。真实模型同输入对照、默认等价、坐标与故障验证见本次兼容性报告；
 PR 合并仍待评审。无应用侧图像重实现或新增并发设施。延期会继续漏按钮并使
 模型默认输入不匹配；验收要求真实权重、独立输入/推理/坐标和 Mirage mark 链路。
+
+## MIRADOR-20261018-001：PP-OCR rec 逐框串行且无批处理/截断，密集桌面帧无法进入交互预算
+
+状态：Open；负责人 Mirage 维护者，处理方 Mirador 上游；工作项 M8-06 / DEC-107。
+
+公开接口核对：`PpOcrBackend::recognize`
+（`third_party/mirador/integrations/ocr_ppocr/ppocr_backend.cpp:401`）对 det 产出的
+每个候选框串行调用一次 rec，无批处理、无按分数的 top-K 截断、无 deadline 内部分数
+产出（rec 循环仅在框间检查 `is_cancelled`，超时即整体返回 kCancelled 并丢弃已完成
+行）。已排除 API 误用与 Mirage 职责：线程数、det_side、max_boxes 均为调用方选项并
+已按生产设置（det_side=960、max_boxes=512）；DEC-076 的 512 候选是 Mirage 侧策略。
+
+影响与证据：生产会话 `ab2c8dd3…`（2026-10-18 23:08，interactive Portal 路径）中
+`desktop.vision.ocr` 连续 3 次 `native_ocr_expired`（timings：3 次调用恰好
+15,000ms），整轮以"桌面视觉读取失败或被拒绝"失败。本地基准（打包
+PP-OCRv5-mobile，1600×1000 密集合成帧，det 359 框，max_boxes=512）：
+num_threads=1 时 det+rec ≈12.9s（约 35ms/框），det 仅占约 2%；rec 阶段
+num_threads=4 在默认 libgomp 调度下反而劣化 1.6–1.8×（单行 rec 46.6→91–96ms，
+fork/join 开销主导小张量）；512 框最坏情况估算 16–33s，任何线程配置都无法进入
+Mirage 交互路径的 5 秒 OCR 预算（DEC-076 冻结）。同机降频状态，绝对值偏保守，
+对比结论方向不变。
+
+期望最小能力（任一即可显著缓解）：rec 批处理（多行一次前向）、按分数或阅读序的
+top-K rec 截断选项、或 deadline 到达时返回已完成行的部分结果（新增显式状态而非
+kCancelled）。延期影响：文本密集桌面（QQ/浏览器多窗口）的整屏 OCR 持续超时，
+模型被迫退化为纯图像判断或触发 DEC-107 的"分析未完成"反馈路径；ROI 小图观测
+可绕过但增加交互次数。
+
+临时边界：Mirage 侧仅保留 det 四线程加速（`integration/mirador/src/ppocr_pipeline.cpp`，
+rec 维持单线程避免负优化）；不改 pinned 代码、不加并发设施。移除条件：上游提供
+上述任一能力并经 Mirage pin 消费复验。可验收结果：512 框密集帧在 5 秒预算内
+完成 rec 或返回可用的部分文本。
+
+上游回执：2026-10-19 以台账证据提报
+[mirador#41](https://github.com/Linductor-alkaid/mirador/issues/41)
+（PP-OCR: per-line serial rec cannot meet interactive budgets on dense desktop
+frames），含测量表、根因定位、最小能力诉求与验收建议；处理进展随该 issue 跟踪，
+合并前本条维持 Open。

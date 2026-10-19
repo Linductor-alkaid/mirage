@@ -2,13 +2,16 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include <mirage/desktop/cancellation.hpp>
 #include <mirage/desktop/geometry.hpp>
 #include <mirage/desktop/input_provider.hpp>
+#include <mirage/desktop/presentation_exclusion.hpp>
 #include <mirage/desktop/provider_error.hpp>
 
 namespace mirage::desktop {
@@ -61,7 +64,53 @@ struct CaptureOutcome {
     bool cancelled = false;
     ImageFrame frame;    ///< meaningful only when ok
     ProviderError error; ///< meaningful only when ok is false
+    /// DEC-107: set only when a presentation owner took part in this capture.
+    std::optional<bool> presentation_excluded = std::nullopt;
 };
+
+using CapturePresentation = std::function<PresentationExclusion(const CancelToken &)>;
+
+/// Finite capture boundary: restore before encoding, analysis or publication.
+/// No scheduling or ownership of the caller's execution context lives here.
+template <class Capture>
+CaptureOutcome capture_with_presentation(const CapturePresentation &acquire,
+                                         const CancelToken &cancel, Capture &&capture) {
+    if (!acquire)
+        return capture();
+    PresentationExclusion exclusion;
+    CaptureOutcome result;
+    try {
+        if (cancel.cancelled())
+            return {false, true, {}, {"cancelled", "capture presentation cancelled"}};
+        exclusion = acquire(cancel);
+        if (!exclusion.error.code.empty())
+            return {false, exclusion.error.code == "cancelled", {}, exclusion.error};
+        if (!exclusion.lease)
+            return {false, false, {}, {"pet_exclusion_failed", "capture owner returned no lease"}};
+        const auto verified = exclusion.lease->verify(cancel);
+        if (!verified.code.empty())
+            result = {false, verified.code == "cancelled", {}, verified};
+        else {
+            result = capture();
+            result.presentation_excluded = exclusion.lease->excluded();
+            const auto after = exclusion.lease->verify({});
+            if (!after.code.empty())
+                result = {false, false, {}, after};
+        }
+    } catch (...) {
+        result = {false, false, {}, {"capture_failed", "capture or presentation provider threw"}};
+    }
+    if (exclusion.lease) {
+        try {
+            const auto restored = exclusion.lease->release();
+            if (!restored.code.empty())
+                return {false, false, {}, restored};
+        } catch (...) {
+            return {false, false, {}, {"pet_restore_failed", "capture presentation cleanup threw"}};
+        }
+    }
+    return result;
+}
 
 /// DEC-078: application preference and recoverable grant, never a live input lease.
 struct DesktopAuthorizationView {
@@ -92,6 +141,13 @@ class DesktopCaptureSession {
   public:
     virtual ~DesktopCaptureSession() = default;
     virtual CaptureOutcome capture(const CaptureLimits &, const CancelToken &) = 0;
+    /// Backends with authorization/connection setup defer the lease until
+    /// pixels can be acquired. The default brackets only the capture call.
+    virtual CaptureOutcome capture_presented(const CaptureLimits &limits, const CancelToken &cancel,
+                                             const CapturePresentation &presentation) {
+        return capture_with_presentation(presentation, cancel,
+                                         [&] { return capture(limits, cancel); });
+    }
     virtual bool reusable() const { return false; }
     virtual bool input_supported() const { return false; }
     virtual InputOutcome input(const SharedInputAction &, const InputLimits &,

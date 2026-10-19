@@ -281,9 +281,10 @@ DEC-074 已验证 GNOME 一次授权后的连续观察及接管关闭；应用�
 [任务内共享验收](docs/compatibility/task-scoped-wayland-observation-20261011.md)。
 
 DEC-075 将默认 PP-OCR/ncnn 接到当前任务的新共享图像，首次请求一次系统共享，
-后续与截图共用八帧预算；无需显示器或窗口 ID。文本框采用预览图像像素，不能用于点击。
+后续与截图共用任务共享、无累计帧数上限，近期 ROI/窗口预览可直接用于 OCR；无需显示器或窗口 ID。文本框采用预览图像像素，不能用于点击。
 被 Mirage 遮挡时需用户移开或最小化窗口，再重新观察。见
-[原生图像 OCR 验收](docs/compatibility/native-shared-frame-ocr-20261011.md)。
+[原生图像 OCR 验收](docs/compatibility/native-shared-frame-ocr-20261011.md) 和
+[观察节奏与桌宠恢复增量](docs/compatibility/observation-efficiency-20261018.md)。
 
 DEC-076：密集文字的原生 OCR 返回完整区域前缀，`truncated=true` 表示未覆盖全部
 文字，不能据此断言页面没有某段文字；仍保持 16 KiB 总预算。共享流超时关闭会话，

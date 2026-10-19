@@ -101,7 +101,7 @@ class Environment final : public desktop::DesktopEnvironment {
         desktop::WindowQueryOutcome front_window(const desktop::CancelToken &cancel) override {
             auto &state = environment_.state;
             ++state.fronts;
-            if (state.expect_hidden && !state.hidden)
+            if (state.hidden)
                 state.violation = true;
             if (state.provider_throws)
                 throw std::runtime_error("fixture provider exception");
@@ -153,18 +153,36 @@ class Pipeline final : public mirage::integration::EnvironmentVisualPipeline {
     mirage::integration::EnvironmentVisualRefresh
     refresh(bool analyze, const desktop::CancelToken &cancel,
             const std::optional<std::chrono::steady_clock::time_point> &deadline) override {
-        ++state_.captures;
-        if ((state_.expect_hidden && !state_.hidden) || !analyze || !deadline || cancel.cancelled())
-            state_.violation = true;
-        if (on_capture)
-            on_capture();
-        if (throws)
-            throw std::runtime_error("fixture capture exception");
+        return refresh_presented(analyze, cancel, deadline, {});
+    }
+    mirage::integration::EnvironmentVisualRefresh
+    refresh_presented(bool analyze, const desktop::CancelToken &cancel,
+                      const std::optional<std::chrono::steady_clock::time_point> &deadline,
+                      const desktop::CapturePresentation &presentation) override {
+        const auto captured = desktop::capture_with_presentation(presentation, cancel, [&] {
+            ++state_.captures;
+            if ((state_.expect_hidden && !state_.hidden) || !analyze || !deadline ||
+                cancel.cancelled())
+                state_.violation = true;
+            if (on_capture)
+                on_capture();
+            if (throws)
+                throw std::runtime_error("fixture capture exception");
+            desktop::CaptureOutcome result;
+            result.ok = !fails;
+            if (fails)
+                result.error = {"capture_failed", "fixture"};
+            return result;
+        });
         mirage::integration::EnvironmentVisualRefresh result;
-        if (fails) {
-            result.capture_error = {"capture_failed", "fixture"};
+        result.presentation_excluded = captured.presentation_excluded;
+        if (!captured.ok) {
+            result.capture_error = captured.error;
             return result;
         }
+        // Analysis and publication run with the pet already visible.
+        if (state_.hidden)
+            state_.violation = true;
         result.captured = result.analyzed = true;
         result.publish = publish("fresh unobstructed target");
         last_scope = result.publish.snapshot.scope_ref;
@@ -291,8 +309,7 @@ void helper_cases() {
     environment.windows.on_front = {};
     state.on_release = [&] { (void)pipeline.publish("replacement during restoration"); };
     result = read();
-    MIRAGE_CHECK(!result.ok &&
-                 result.error.message.find("visual_snapshot_changed") != std::string::npos);
+    MIRAGE_CHECK(result.ok && result.observation.visual_snapshot_ref == pipeline.last_scope);
     state.on_release = [&] { actions.takeover(); };
     result = read();
     MIRAGE_CHECK(!result.ok &&
@@ -373,7 +390,7 @@ void ipc_cases() {
     MIRAGE_CHECK(client.call(ipc::ProductControlRequest{"pet_ready", 0, 0, 777}, 3s).ok);
     auto response = client.call(ipc::DesktopObserveRequest{true, false}, 3s);
     MIRAGE_CHECK(response.ok && std::holds_alternative<ipc::ObservationView>(response.payload));
-    MIRAGE_CHECK(state.admitted == 1 && state.restored == 1 && !state.hidden && !state.violation);
+    MIRAGE_CHECK(state.admitted == 0 && state.restored == 0 && !state.hidden && !state.violation);
     if (const auto *view = std::get_if<ipc::ObservationView>(&response.payload)) {
         MIRAGE_CHECK(view->active_window == "Fixture target" && view->semantic.has_value());
         MIRAGE_CHECK(!view->visual_snapshot_ref.has_value());
@@ -386,7 +403,7 @@ void ipc_cases() {
     for (const auto fault : {Fault::Admission, Fault::Before, Fault::After, Fault::Restore}) {
         state.fault = fault;
         response = client.call(ipc::DesktopObserveRequest{false, false}, 3s);
-        MIRAGE_CHECK(!response.ok && response.error.code == "unavailable" && !state.hidden);
+        MIRAGE_CHECK(response.ok && state.admitted == before && !state.hidden);
         MIRAGE_CHECK(client.call(ipc::HelloRequest{}, 3s).ok);
     }
     state.fault = Fault::None;
@@ -419,7 +436,7 @@ void ipc_cases() {
     response = client.call(ipc::DesktopObserveRequest{true, false}, 3s);
     MIRAGE_CHECK(response.ok && !state.hidden && !state.violation);
     if (const auto *view = std::get_if<ipc::ObservationView>(&response.payload))
-        MIRAGE_CHECK(view->environment_state.find("pet_presentation=not_excluded") !=
+        MIRAGE_CHECK(view->environment_state.find("pet_presentation=not_excluded") ==
                      std::string::npos);
     service.request_shutdown();
     MIRAGE_CHECK(service.run().clean);

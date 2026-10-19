@@ -797,3 +797,13 @@ TSAN 三类测试通过；Windows 与真实桌面保持开放，见 [M6](m6-nati
 随会话保存；Native Release产品已重建。Release定向、原生渲染与ASAN/UBSAN/TSAN
 通过，Windows和真实供应商缺usage仍待补跑，详见[M6计划](m6-native-frontend.md)与
 [上下文验收](../compatibility/native-context-usage-20261004.md#2026-10-18m6-45-无供应商用量时显示本地估算)。
+
+
+## 2026-10-18：M7 / M8 观察节奏与桌宠恢复
+
+维护者最新重试出现累计帧耗尽、重复截图和桌宠长时间消失。按
+[DEC-107](../decisions/DEC-107-capture-cadence-and-presentation.md) 删除累计截图额度，
+复用近期/区域观察与动作验证回执，保留历史规划意图及独立的新鲜帧守卫；桌宠取帧后恢复，
+隐藏不再清空解码动画。计划归属 M7-10/14/19、M8-06，
+[验证和限制](../compatibility/observation-efficiency-20261018.md) 记录实际测试与补跑条件。
+M7/M8 的真实桌面、在线业务与其他平台门禁保持开放，负责人为 Mirage 维护者。

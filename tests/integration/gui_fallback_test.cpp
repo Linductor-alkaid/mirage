@@ -389,12 +389,12 @@ void contracts(kairo::Executor &executor) {
             f.fake->failures.capture_error = true;
         if (m == "count") {
             Json latest;
-            for (int n = 0; n < 3; ++n)
+            for (int n = 0; n < 40; ++n)
                 latest = f.capture();
             args = f.args(latest);
         }
         const auto result = f.click(args);
-        if (m == "good" || m == "none" || m == "window" || m == "unrelated") {
+        if (m == "good" || m == "none" || m == "window" || m == "unrelated" || m == "count") {
             check(!result.failed && f.input.calls == 1);
             check(result.result.find("verified")->as_boolean().value_or(false));
             check(f.verifier->settle());

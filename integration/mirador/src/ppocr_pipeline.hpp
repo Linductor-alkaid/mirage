@@ -24,13 +24,19 @@ class PpOcrPipeline final : public EnvironmentVisualPipeline {
     EnvironmentVisualRefresh
     refresh(bool analyze, const desktop::CancelToken &,
             const std::optional<std::chrono::steady_clock::time_point> &deadline) override;
+    EnvironmentVisualRefresh
+    refresh_presented(bool analyze, const desktop::CancelToken &cancel,
+                      const std::optional<std::chrono::steady_clock::time_point> &deadline,
+                      const desktop::CapturePresentation &presentation) override;
     EnvironmentVisualRefresh mark(const std::optional<desktop::WindowGeometry> &,
                                   const desktop::CancelToken &,
-                                  const std::optional<std::chrono::steady_clock::time_point> &);
+                                  const std::optional<std::chrono::steady_clock::time_point> &,
+                                  const desktop::CapturePresentation &presentation = {});
     /// DEC-063: owner-selected range with global OCR coordinates.
     EnvironmentVisualRefresh
     refresh_region(const desktop::WindowGeometry &, const desktop::CancelToken &,
-                   const std::optional<std::chrono::steady_clock::time_point> &);
+                   const std::optional<std::chrono::steady_clock::time_point> &,
+                   const desktop::CapturePresentation &presentation = {});
     ImageOcrOutcome read_image_ocr(const desktop::ImageFrame &, const desktop::CancelToken &,
                                    const std::optional<std::chrono::steady_clock::time_point> &);
     void stop();
@@ -42,7 +48,8 @@ class PpOcrPipeline final : public EnvironmentVisualPipeline {
     EnvironmentVisualRefresh
     refresh_impl(bool, bool, const std::optional<desktop::WindowGeometry> &,
                  const desktop::CancelToken &,
-                 const std::optional<std::chrono::steady_clock::time_point> &);
+                 const std::optional<std::chrono::steady_clock::time_point> &,
+                 const desktop::CapturePresentation &presentation = {});
     struct Impl;
     explicit PpOcrPipeline(std::unique_ptr<Impl>);
     std::unique_ptr<Impl> impl_;

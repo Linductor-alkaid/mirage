@@ -40,6 +40,7 @@ class DesktopActionVerification {
         std::uint64_t backend_calls = 0;
         std::string status = "unverified", reason = "condition_missing", evidence;
         std::string observed_digest;
+        mira::JsonValue observation;
         std::int64_t captured_at_ms = 0;
         std::uint64_t epoch = 0;
         bool dispatched = false, uncertain = false, input_released = false;
