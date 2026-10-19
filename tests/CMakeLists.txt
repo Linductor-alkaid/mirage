@@ -235,6 +235,27 @@ if(X11_FOUND AND X11_Xtst_FOUND)
         LABELS "integration"
         TIMEOUT 120
     )
+
+    # DEC-110 / M7-26 smooth pointer travel: real X11 event-level evidence on
+    # a private headless Xvfb (corridor sampling through an independent Xlib
+    # connection, landing tolerance, wall-clock budget, mid-travel cancel,
+    # negative budget matrix, click-after-travel). Same precondition as
+    # x11_backend_test.
+    add_executable(x11_smooth_move_test platform/x11_smooth_move_test.cpp)
+    target_compile_features(x11_smooth_move_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(x11_smooth_move_test)
+    target_link_libraries(x11_smooth_move_test
+        PRIVATE
+            Mirage::platform
+            Mirage::desktop
+            ${X11_X11_LIB}
+            ${X11_Xtst_LIB}
+    )
+    add_test(NAME x11_smooth_move_test COMMAND x11_smooth_move_test)
+    set_tests_properties(x11_smooth_move_test PROPERTIES
+        LABELS "integration;platform"
+        TIMEOUT 60
+    )
 endif()
 
 # M5-09 X11 shape overlay carrier (DEC-029): exercised against a private
@@ -1275,6 +1296,26 @@ target_link_libraries(input_session_contract_test PRIVATE Mirage::desktop Mirage
 mirage_enable_warnings(input_session_contract_test)
 add_test(NAME input_session_contract_test COMMAND input_session_contract_test)
 set_tests_properties(input_session_contract_test PROPERTIES LABELS "unit;desktop" TIMEOUT 30)
+
+# DEC-110 / M7-26 smooth pointer travel: the platform-neutral default
+# implementation contract (budget validation through the shared timing
+# validator, unsupported until a backend opts in).
+mirage_add_test(smooth_move_contract_test
+    SOURCES desktop/smooth_move_contract_test.cpp
+    LIBS Mirage::desktop
+    LABELS "unit;desktop"
+    TIMEOUT 30
+    )
+
+# DEC-110 / M7-26 smooth pointer travel tool surface: the glide_ms opt-in of
+# desktop.vision.click / desktop.vision.click_region over the fake desktop
+# environment (gate order, honest failure receipts, deadline cap extension).
+mirage_add_test(visual_glide_tools_test
+    SOURCES integration/visual_glide_tools_test.cpp
+    LIBS Mirage::integration_mirador mirador::fusion Mirage::kairo_consumer
+    LABELS "integration;runtime;security"
+    TIMEOUT 60
+    )
 
 # POSIX-coupled: the pretimeout scenario sleeps through <poll.h>; see the
 # ppocr_pipeline_test note above.

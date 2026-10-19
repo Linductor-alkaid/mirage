@@ -122,6 +122,24 @@ class InputProvider {
                                            const MouseButton &button, std::uint32_t count,
                                            const InputLimits &limits, const CancelToken &cancel);
 
+    /// DEC-110 (M7-26): separate opt-in — timed pointer travel from the
+    /// read-back current position to (x, y) along the reproducible
+    /// minimum-jerk baseline (default_move_profile). Arrival is a click's
+    /// precondition, never its substitute: hover side effects on the way are
+    /// real, the endpoint needs the caller's usual freshness re-verification,
+    /// and a failed/behind-schedule/cancelled travel must be followed by a
+    /// click only after a new observation. Backends pace segments locally
+    /// (cooperative cancellation between segments), stop instead of
+    /// replaying a backlog when delivery falls behind, and never teleport.
+    /// `duration` must satisfy the frozen smooth-move budgets; `path_points`
+    /// 0 selects default_path_points. `limits.timeout` must cover the whole
+    /// travel. Callers must not invoke this while a button they own is held.
+    virtual bool timed_pointer_actions_supported() const { return false; }
+    virtual InputOutcome smooth_move_to(std::int32_t x, std::int32_t y,
+                                        std::chrono::milliseconds duration,
+                                        std::uint32_t path_points, const InputLimits &limits,
+                                        const CancelToken &cancel);
+
     /// Presses or releases a key per the KeySym vocabulary. Combination
     /// names ("ctrl+c") inject the full chord.
     virtual InputOutcome inject_key(const KeySym &key, bool pressed, const InputLimits &limits,

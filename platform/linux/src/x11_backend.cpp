@@ -1,15 +1,18 @@
 #include "x11_backend.hpp"
+#include <mirage/desktop/input_session.hpp>
 #include <mirage/desktop/visual_snapshot.hpp>
 
 #include <algorithm>
 #include <cctype>
 #include <cerrno>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <iterator>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <poll.h>
@@ -1057,6 +1060,97 @@ InputOutcome X11Backend::click_sequence_at(std::int32_t x, std::int32_t y,
                           : std::chrono::steady_clock::now() >= deadline ? "timeout"
                                                                          : "io_error",
                           "click action did not complete; do not retry uncertain input");
+    return out;
+}
+
+InputOutcome X11Backend::smooth_move_to(std::int32_t x, std::int32_t y,
+                                        std::chrono::milliseconds duration,
+                                        std::uint32_t path_points, const InputLimits &limits,
+                                        const CancelToken &cancel) {
+    std::lock_guard guard(mutex_);
+    pump_clipboard_locked();
+    InputOutcome out;
+    if (cancel.cancelled()) {
+        out.cancelled = true;
+        out.error = error("cancelled", "pointer travel cancelled");
+        return out;
+    }
+    if (const auto timing = mirage::desktop::validate_smooth_move_timing(duration, path_points)) {
+        out.error = *timing;
+        return out;
+    }
+    if (limits.timeout < duration) {
+        out.error = error("invalid_argument", "timeout must cover the whole travel");
+        return out;
+    }
+    Display *display = connection_->display;
+    Window root{}, child{};
+    int rx{}, ry{}, wx{}, wy{};
+    unsigned int mask{};
+    if (!XQueryPointer(display, XDefaultRootWindow(display), &root, &child, &rx, &ry, &wx, &wy,
+                       &mask)) {
+        out.error = error("io_error", "pointer state unavailable");
+        return out;
+    }
+    const std::int64_t dx = std::int64_t{x} - rx, dy = std::int64_t{y} - ry;
+    if (dx == 0 && dy == 0) {
+        out.ok = true;
+        return out;
+    }
+    // DEC-110 section 2: local pacing on the reproducible minimum-jerk
+    // baseline. Segments never run faster than the 4 ms cadence floor, and a
+    // delivery more than 250 ms behind its schedule stops the travel instead
+    // of replaying a backlog; every remaining decision (cancel, lag, timeout)
+    // happens between segments.
+    const auto kMinSegment = std::chrono::milliseconds{4};
+    const auto kMaxLag = std::chrono::milliseconds{250};
+    std::uint32_t segments =
+        path_points != 0 ? path_points
+                         : std::uint32_t{mirage::desktop::input_session_budget::default_path_points};
+    const std::int64_t max_fitting = std::max<std::int64_t>(
+        1, duration.count() / std::int64_t{kMinSegment.count()});
+    segments = std::min<std::uint64_t>(segments, static_cast<std::uint64_t>(max_fitting));
+    const auto started = std::chrono::steady_clock::now();
+    const auto deadline = started + limits.timeout;
+    out.side_effect_may_have_occurred = true;
+    for (std::uint32_t index = 1; index <= segments; ++index) {
+        if (cancel.cancelled()) {
+            out.cancelled = true;
+            out.error =
+                error("cancelled", "pointer travel cancelled; remaining path not replayed");
+            return out;
+        }
+        const auto scheduled = started + std::chrono::duration_cast<std::chrono::milliseconds>(
+                                              duration * (static_cast<double>(index) / segments));
+        std::this_thread::sleep_until(scheduled);
+        const auto now = std::chrono::steady_clock::now();
+        if (now > scheduled + kMaxLag || now >= deadline) {
+            out.error = error(now >= deadline ? "timeout" : "deadline_exceeded",
+                              "pointer travel fell behind; remaining path not replayed");
+            return out;
+        }
+        const double u = static_cast<double>(index) / segments;
+        const double eased = u * u * u * (10.0 + u * (-15.0 + 6.0 * u));
+        const auto px = std::lround(static_cast<double>(rx) + eased * static_cast<double>(dx));
+        const auto py = std::lround(static_cast<double>(ry) + eased * static_cast<double>(dy));
+        if (XTestFakeMotionEvent(display, -1, static_cast<int>(px), static_cast<int>(py),
+                                 CurrentTime) == 0) {
+            out.error = error("io_error", "pointer travel failed on the X server");
+            return out;
+        }
+        // Xlib buffers requests client-side; without a per-segment flush the
+        // whole trajectory reaches the server at the final XSync and the
+        // desktop sees one teleport, not travel. XFlush pushes the output
+        // buffer without a round trip, keeping the local schedule honest.
+        if (XFlush(display) == 0) {
+            out.error = error("io_error", "pointer travel failed on the X server");
+            return out;
+        }
+    }
+    out.ok = XSync(display, False) != 0;
+    if (!out.ok) {
+        out.error = error("io_error", "pointer travel failed on the X server");
+    }
     return out;
 }
 

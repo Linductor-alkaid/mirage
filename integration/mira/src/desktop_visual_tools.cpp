@@ -98,13 +98,17 @@ void DesktopImageTurn::register_mark_tools(mira::BuiltinToolRegistry &registry,
         return;
     mira::BuiltinToolSpec click;
     click.wire_name = "desktop.vision.click";
-    click.version = {1, 1, 0};
+    click.version = {1, 2, 0};
     click.has_side_effects = true;
     click.description =
         "Click a fully visible number from this turn's latest visual_scope, with "
         "button=left/middle/right (default left), click_count consecutive clicks "
         "(default 1; 2=double-click, 3=triple-click) in one action, "
-        "environment_epoch and focused window_id. Requires exact fresh pixels "
+        "environment_epoch and focused window_id. Optional glide_ms (50-2000) "
+        "travels the pointer from its current position to the mark along a timed "
+        "smooth path before pressing; hover effects on the way are real, the "
+        "arrival still needs this action's fresh-pixel checks, and absent "
+        "glide_ms keeps the direct click. Requires exact fresh pixels "
         "and unchanged window/display geometry; animation may be rejected. No "
         "raw coordinates. Fix verify_kind before clicking and inspect new "
         "postcondition evidence. visual_text_exists requires expected_text and fresh unique OCR "
@@ -112,7 +116,8 @@ void DesktopImageTurn::register_mark_tools(mira::BuiltinToolRegistry &registry,
     Json::Object target{
         {"button", button_schema()},           {"visual_scope", string_schema()},
         {"click_count", click_count_schema()}, {"window_id", string_schema()},
-        {"mark", integer_schema(1, 128)},      {"environment_epoch", integer_schema(1, INT64_MAX)}};
+        {"mark", integer_schema(1, 128)},      {"environment_epoch", integer_schema(1, INT64_MAX)},
+        {"glide_ms", integer_schema(50, 2000)}};
     for (const auto *key :
          {"verify_kind", "expected_title", "expected_role", "expected_name", "expected_text"})
         target.emplace_back(key, string_schema(1024));
@@ -335,13 +340,20 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
     const auto clicks = pointer_click_count(args);
     const auto button = pointer_button(args);
     const auto h = wheel_steps(args, "horizontal_steps"), v = wheel_steps(args, "vertical_steps");
+    const auto glide_ms = number(args, "glide_ms");
     if (!clicks || !button || !h || !v || (!drag && args.find("destination_mark")) ||
         ((drag || scroll) && args.find("click_count")) || (scroll && args.find("button")) ||
-        (!scroll && (args.find("horizontal_steps") || args.find("vertical_steps"))))
+        (!scroll && (args.find("horizontal_steps") || args.find("vertical_steps"))) ||
+        (operation != "click" && args.find("glide_ms")) ||
+        (args.find("glide_ms") && (glide_ms < 50 || glide_ms > 2000)))
         return action_error({"invalid_argument", "invalid click_count or non-click operation"});
+    // A glide extends this one action's wall-clock cap by its travel time;
+    // without glide_ms the historical one-second cap is untouched.
+    const auto cap = std::chrono::milliseconds{
+        args.find("glide_ms") ? glide_ms + 1000 : 1000};
     const auto end =
-        std::min(ctx.deadline.value_or(std::chrono::steady_clock::now() + std::chrono::seconds{1}),
-                 std::chrono::steady_clock::now() + std::chrono::seconds{1});
+        std::min(ctx.deadline.value_or(std::chrono::steady_clock::now() + cap),
+                 std::chrono::steady_clock::now() + cap);
     const desktop::CancelToken bounded([this, ctx, end] {
         return cancel_.cancelled() || ctx.cancelled_or_expired(mira::Timestamp::now()) ||
                std::chrono::steady_clock::now() >= end;
@@ -482,9 +494,31 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
                 outcome =
                     input->scroll_at(pointer_scope, from, static_cast<std::int32_t>(horizontal),
                                      static_cast<std::int32_t>(vertical), limits, bounded);
-            else
+            else {
+                // DEC-110 (M7-26): opt-in timed travel before the press. A
+                // failed travel leaves the pointer between positions and the
+                // click never happens; the receipt reports it honestly.
+                if (args.find("glide_ms")) {
+                    if (!input->timed_pointer_actions_supported()) {
+                        outcome.error = {"unsupported_platform",
+                                         "timed pointer travel is not declared"};
+                        return;
+                    }
+                    const std::chrono::milliseconds glide{glide_ms};
+                    desktop::InputLimits move_limits = limits;
+                    move_limits.timeout = std::min(limits.timeout, glide + std::chrono::milliseconds{500});
+                    if (move_limits.timeout < glide) {
+                        outcome.cancelled = true;
+                        outcome.error = {"cancelled", "visual input deadline expired"};
+                        return;
+                    }
+                    outcome = input->smooth_move_to(from.x, from.y, glide, 0, move_limits, bounded);
+                    if (!outcome.ok)
+                        return;
+                }
                 outcome =
                     input->click_sequence_at(from.x, from.y, *button, *clicks, limits, bounded);
+            }
         };
         const auto resolved =
             drag ? desktop_.with_visual_references(

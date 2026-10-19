@@ -55,6 +55,9 @@ void DesktopImageTurn::register_region_tool(mira::BuiltinToolRegistry &registry,
             "(region_actionable=true). Requires image_scope, environment_epoch and target_context. "
             "click accepts button=left/middle/right (default left) and click_count=1..32 (default "
             "1); "
+            "optional glide_ms (50-2000) travels the pointer from its current position to the "
+            "rectangle center along a timed smooth path before pressing (hover effects on the way "
+            "are real; absent keeps the direct click); "
             "scroll accepts horizontal_steps/vertical_steps (default 0), positive right/down, "
             "total "
             "absolute steps 1..16. drag accepts button and destination_x/y/width/height rectangle; "
@@ -68,8 +71,12 @@ void DesktopImageTurn::register_region_tool(mira::BuiltinToolRegistry &registry,
             "Declare verify_kind before input; foreground_changed proves UI progress only. "
             "Inspect fresh postcondition evidence before reporting task success.";
         Json::Object props;
-        if (click)
+        if (click) {
             props.emplace_back("click_count", click_count_schema());
+            props.emplace_back("glide_ms", Json{Json::Object{{"type", "integer"},
+                                                             {"minimum", 50},
+                                                             {"maximum", 2000}}});
+        }
         if (click || drag)
             props.emplace_back("button", button_schema());
         if (std::string_view(operation) == "scroll")
@@ -131,18 +138,25 @@ mira::Result<Json> DesktopImageTurn::pointer_region(const Json &args,
     const auto button = pointer_button(args);
     const auto horizontal = wheel_steps(args, "horizontal_steps");
     const auto vertical = wheel_steps(args, "vertical_steps");
+    const auto glide_value = args.find("glide_ms");
+    const auto glide_ms = glide_value && glide_value->as_integer() ? *glide_value->as_integer() : 0;
     if (!clicks || !button || !horizontal || !vertical ||
         ((drag || scroll) && args.find("click_count")) || (scroll && args.find("button")) ||
         (!scroll && (args.find("horizontal_steps") || args.find("vertical_steps"))) ||
+        (operation != "click" && glide_value) ||
+        (glide_value && (glide_ms < 50 || glide_ms > 2000)) ||
         (scroll && !desktop::valid_scroll_steps(*horizontal, *vertical)))
         return failure("invalid_argument");
     for (const auto *key :
          {"destination_x", "destination_y", "destination_width", "destination_height"})
         if (!drag && args.find(key))
             return failure("invalid_argument");
+    // A glide extends this one action's wall-clock cap by its travel time;
+    // without glide_ms the historical one-second cap is untouched.
+    const auto cap = std::chrono::milliseconds{glide_value ? glide_ms + 1000 : 1000};
     const auto end =
-        std::min(ctx.deadline.value_or(std::chrono::steady_clock::now() + std::chrono::seconds{1}),
-                 std::chrono::steady_clock::now() + std::chrono::seconds{1});
+        std::min(ctx.deadline.value_or(std::chrono::steady_clock::now() + cap),
+                 std::chrono::steady_clock::now() + cap);
     const desktop::CancelToken bounded([this, ctx, end] {
         return cancel_.cancelled() || ctx.cancelled_or_expired(mira::Timestamp::now()) ||
                std::chrono::steady_clock::now() >= end;
@@ -312,8 +326,30 @@ mira::Result<Json> DesktopImageTurn::pointer_region(const Json &args,
             outcome = input->drag_with_button(scope, from, to, *button, limits, bounded);
         else if (scroll)
             outcome = input->scroll_at(scope, from, *horizontal, *vertical, limits, bounded);
-        else
+        else {
+            // DEC-110 (M7-26): opt-in timed travel before the press. A failed
+            // travel leaves the pointer between positions and the click never
+            // happens; the receipt reports it honestly.
+            if (glide_value) {
+                if (!input->timed_pointer_actions_supported()) {
+                    outcome.error = {"unsupported_platform",
+                                     "timed pointer travel is not declared"};
+                    return failure(outcome.error.code, false);
+                }
+                const std::chrono::milliseconds glide{glide_ms};
+                desktop::InputLimits move_limits = limits;
+                move_limits.timeout =
+                    std::min(limits.timeout, glide + std::chrono::milliseconds{500});
+                if (move_limits.timeout < glide)
+                    return failure("cancelled", false);
+                const auto travel =
+                    input->smooth_move_to(from.x, from.y, glide, 0, move_limits, bounded);
+                if (!travel.ok)
+                    return failure(travel.error.code, travel.side_effect_may_have_occurred,
+                                   travel.input_released);
+            }
             outcome = input->click_sequence_at(from.x, from.y, *button, *clicks, limits, bounded);
+        }
     } catch (...) {
         lease.release_failed();
         return failure("provider_exception", true, false);

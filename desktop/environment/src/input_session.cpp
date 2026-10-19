@@ -302,16 +302,26 @@ std::optional<ProviderError> validate_input_session_command(
         if (!context.capabilities.has(InputCapability::smooth_move)) {
             return ProviderError{"unsupported_platform", "smooth move is not declared"};
         }
-        if (command.duration < input_session_budget::min_move_duration) {
-            return ProviderError{"invalid_argument",
-                                 "move duration is below the frozen minimum"};
+        if (const auto timing = validate_smooth_move_timing(command.duration, command.path_points)) {
+            return timing;
         }
-        if (command.duration > input_session_budget::max_move_duration) {
-            return ProviderError{"result_too_large", "move duration exceeds the action bound"};
-        }
-        if (command.path_points > input_session_budget::max_path_points) {
-            return ProviderError{"result_too_large", "path point budget is exhausted"};
-        }
+    }
+    return std::nullopt;
+}
+
+std::optional<ProviderError> validate_smooth_move_timing(std::chrono::milliseconds duration,
+                                                         std::uint32_t path_points) {
+    if (duration.count() < 0) {
+        return ProviderError{"invalid_argument", "negative move duration is not a timing"};
+    }
+    if (duration < input_session_budget::min_move_duration) {
+        return ProviderError{"invalid_argument", "move duration is below the frozen minimum"};
+    }
+    if (duration > input_session_budget::max_move_duration) {
+        return ProviderError{"result_too_large", "move duration exceeds the action bound"};
+    }
+    if (path_points > input_session_budget::max_path_points) {
+        return ProviderError{"result_too_large", "path point budget is exhausted"};
     }
     return std::nullopt;
 }

@@ -251,6 +251,14 @@ struct InputSessionCommandContext {
 std::optional<ProviderError> validate_input_session_command(const InputSessionCommand &,
                                                             const InputSessionCommandContext &);
 
+/// Validates smooth-move timing against the frozen M7-25 budgets: duration
+/// inside [min_move_duration, max_move_duration] and path_points within
+/// max_path_points (0 selects default_path_points). Shared by the provider
+/// default, backends and tool validation so the frozen bounds cannot
+/// diverge between layers.
+std::optional<ProviderError> validate_smooth_move_timing(std::chrono::milliseconds duration,
+                                                         std::uint32_t path_points);
+
 /// Receipt classes (DEC-110 section 3): admission, delivery, controlled
 /// holding, confirmed release and "cannot confirm" are distinguished. The
 /// legacy `InputOutcome::input_released=false` keeps meaning failure

@@ -33,7 +33,7 @@
 | 编号 | 状态 | 结果与验收 | 前置与冻结点 |
 | --- | --- | --- | --- |
 | M7-25 | In Progress（契约冻结稿待评审） | 已交付平台中立契约层 `input_session.hpp/.cpp`（能力位、会话键词表、预算数值、状态机、版本化回执）与 golden/负向矩阵 `m7_input_session_contract.json`，`input_session_contract_test` 对账通过（1224 检查项）；维护者评审通过后本项标 Completed | DEC-110 评审；冻结摘要见 DEC-110"M7-25 契约冻结稿"；评审意见可直接调整数值并升 budget_version |
-| M7-26 | Proposed | 平滑移动、定时按压、独立修饰键和组合交叠；真实事件轨迹/时间、点击/拖动/hover、hold/repeat、落后停止与取消清理证据 | M7-25；逐后端能力 opt-in |
+| M7-26 | In Progress（X11 首增量） | Provider 层 opt-in `smooth_move_to`（minimum-jerk 基线、冻结预算复用、段间协作取消/落后停止）与 X11 真实实现（每段 XFlush 实时投递）；`desktop.vision.click`/`click_region` 的 `glide_ms` opt-in 参数（默认关闭，不带参数行为不变）；真实 Xvfb 轨迹/时间/取消证据与工具正负矩阵另记；定时按压、独立修饰键、组合交叠与 Portal/Windows 路径继续推进 | M7-25 冻结契约；逐后端能力 opt-in |
 | M7-27 | Proposed | 同一 owner 跨工具观察保持输入；Alt-Tab 正反向及持键显示瞬态界面；模型失联、拒绝、超时、撤权、接管、shutdown、迟到命令与释放失败封锁 | M7-25/26；普通持键与等待决策预算分别验证 |
 | M7-28 | Proposed | IME/布局/模式/预编辑与候选状态的部分可观测投影；单独 Shift、候选提交、切窗焦点和最终文本验收，缺状态显式 unknown | M7-25/26，跨轮候选场景接 M7-27；与 M9-15 前端 IME 干扰区分 |
 | M7-29 | Proposed | Linux uinput / Windows VHF 的部署选型与受控原型；过滤 fixture、权限/报告容量/断连释放及实际受影响应用对比，分别形成采用或不采用的证据 | 公共动作契约接 M7-25；原型前冻结平台、依赖/驱动来源、部署和恢复方案；集成验收接 M7-26/27 |
@@ -98,3 +98,19 @@ lease、键状态、任务/timer 句柄与清理结果。有限推进消费 futu
 第一轮发现并修复两处冻结稿缺陷（`input_session_outcome_name` 缺定义；golden 8 行
 命令用例缺注入源能力位），复验确认修复未引入语义偏差。未接线 Runtime/Provider、
 未注册工具、未执行真实输入或平台验收；M7-25 完成待维护者评审。
+
+2026-10-19：M7-26 X11 首增量。Provider 层新增 opt-in `smooth_move_to`
+（minimum-jerk 基线，复用 M7-25 冻结预算，段间协作取消/落后停止/超时）；
+X11Backend 真实实现（XQueryPointer 起点、零距离短路、4ms 节奏下限、250ms 落后
+停止、每段 XTestFakeMotionEvent + XFlush 实时投递）；`desktop.vision.click` 与
+`desktop.vision.click_region` 新增可选 `glide_ms`（50–2000，默认不带=原行为不变，
+带参数时该动作墙钟上限扩为 glide+1000ms，旅行失败不点击并如实回报）。
+独立验证代理产出真实 Xvfb 事件级证据：600ms/400px/40 段旅行期间服务端采样到
+minimum-jerk S 形中间位置（202→598）、实际耗时 600ms、150ms 取消停在 (241,300)
+与理论 eased 值精确吻合（8 轮零 flake）；负面矩阵（49/2001ms、65 点、timeout
+不覆盖）全部无副作用拒绝；工具层 128 项正负检查（默认零 move 调用、脚本失败
+不点击、能力缺席 unsupported_platform）；`smooth_move_contract_test` 37 项。
+debug 全量 99/99 通过，ASan 无报告。过程中验证代理抓出 Xlib 输出缓冲缺陷
+（缺每段 flush 时服务端只见瞬移、取消声称未发生的副作用），已修复并复验。
+落后停止分支在 Xvfb 单机不可注入延迟、未直接演练；真实合成器/XWayland 节奏、
+定时按压/独立修饰键/组合交叠、Portal/Windows 路径继续推进。

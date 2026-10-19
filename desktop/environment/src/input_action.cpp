@@ -1,4 +1,5 @@
 #include <mirage/desktop/input_provider.hpp>
+#include <mirage/desktop/input_session.hpp>
 namespace mirage::desktop {
 bool valid_pointer_scope(const PointerActionScope &scope, PointerPoint p,
                          const InputLimits &limits) {
@@ -55,5 +56,14 @@ InputOutcome InputProvider::click_sequence_at(std::int32_t x, std::int32_t y,
     if (count == 1)
         return click_at(x, y, button, limits, cancel);
     return {false, false, {"unsupported_platform", "complete repeated click is unavailable"}};
+}
+
+InputOutcome InputProvider::smooth_move_to(std::int32_t, std::int32_t,
+                                           std::chrono::milliseconds duration,
+                                           std::uint32_t path_points, const InputLimits &,
+                                           const CancelToken &) {
+    if (const auto timing = validate_smooth_move_timing(duration, path_points))
+        return {false, false, *timing};
+    return {false, false, {"unsupported_platform", "timed pointer travel is unavailable"}};
 }
 } // namespace mirage::desktop
