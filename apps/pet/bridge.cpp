@@ -73,6 +73,7 @@ struct Bridge::Impl {
             std::cerr << "mira_pet: appearance read failed: " << stored.error << '\n';
     }
     std::atomic_bool live{false}, stale{false}, refreshing{false}, animating{false}, visible{true};
+    std::int64_t animation_interval_ms = 33; // UI-owned; Executor owns the actual timer
     std::atomic_uint64_t event_seq{0};
     std::atomic_int64_t lost_since_ms{0};
     bool stopping = false;
@@ -104,7 +105,7 @@ struct Bridge::Impl {
             std::cerr << "mira_pet: " << diagnostic << '\n';
     }
     bool arm_animation() {
-        animation_wake = executor.submit_periodic(33, [this] {
+        animation_wake = executor.submit_periodic(animation_interval_ms, [this] {
             if (visible.load() && (animating.load() || !live.load() || stale.load() ||
                                    platform::pet_window::exit_requested()))
                 app::requestUpdate();
@@ -187,7 +188,8 @@ bool Bridge::start(std::string &diagnostic) {
         p.check_hidden_exit();
         // A shape-excluded window is still mapped. Its UI owner samples the
         // actual shape again on this slow control wake, without animation.
-        if (!p.visible.load())
+        if (!p.visible.load() || !p.live.load() || p.stale.load() ||
+            platform::pet_window::exit_requested())
             app::requestUpdate();
     });
     if (!p.control_wake.valid()) {
@@ -296,7 +298,21 @@ bool Bridge::connected() const {
     return impl_->live.load();
 }
 ResourceLoader &Bridge::loader() { return impl_->resources; }
-void Bridge::set_animating(bool value) { impl_->animating.store(value); }
+void Bridge::set_animating(bool value, std::chrono::milliseconds interval) {
+    auto &p = *impl_;
+    const auto ms = std::clamp<std::int64_t>(interval.count(), 33, 1000);
+    const bool changed_state = p.animating.exchange(value) != value;
+    if (p.animation_interval_ms == ms && !changed_state)
+        return;
+    p.animation_interval_ms = ms;
+    if (p.animation_wake.valid())
+        (void)p.animation_wake.cancel();
+    p.animation_wake = {};
+    if (value && p.visible.load() && !p.stopping && !p.arm_animation()) {
+        p.stale.store(true);
+        std::cerr << "mira_pet: animation cadence timer admission failed\n";
+    }
+}
 bool Bridge::visible() const { return impl_->visible.load(); }
 void Bridge::set_visible(bool value) {
     auto &p = *impl_;
@@ -308,7 +324,7 @@ void Bridge::set_visible(bool value) {
     p.animation_wake = {};
     if (value)
         p.consumed_status = 0; // Re-read the latest receipt, with its actual age.
-    if (value && !p.arm_animation()) {
+    if (value && p.animating.load() && !p.arm_animation()) {
         p.stale.store(true);
         std::cerr << "mira_pet: restored animation timer admission failed\n";
     }

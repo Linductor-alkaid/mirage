@@ -385,8 +385,12 @@ mira::Result<JsonValue> DesktopImageTurn::native_ocr(const JsonValue &args,
                    actions->epoch() != epoch || actions->authority_epoch() != authority ||
                    std::chrono::steady_clock::now() >= end;
         });
-    auto read = measure_phase(timings_ ? &timings_->ocr : nullptr,
-                              [&] { return desktop_.ocr_image(*native_frame_, bounded, end); });
+    const bool reused = desktop_.reuse_recent_observation && ocr_success_ &&
+                        ocr_success_digest_ == digest && ocr_success_epoch_ == epoch &&
+                        ocr_success_authority_ == authority;
+    auto read = reused ? *ocr_success_ : measure_phase(timings_ ? &timings_->ocr : nullptr, [&] {
+        return desktop_.ocr_image(*native_frame_, bounded, end);
+    });
     if (cancel_.cancelled() || desktop_.actions->authority_epoch() != authority) {
         native_session_.reset();
         native_failed_ = true;
@@ -426,6 +430,12 @@ mira::Result<JsonValue> DesktopImageTurn::native_ocr(const JsonValue &args,
                                                {"y", r.y},
                                                {"width", r.width},
                                                {"height", r.height}});
+    }
+    if (!reused && desktop_.reuse_recent_observation) {
+        ocr_success_digest_ = digest;
+        ocr_success_epoch_ = epoch;
+        ocr_success_authority_ = authority;
+        ocr_success_ = read;
     }
     JsonValue result{JsonValue::Object{
         {"schema", std::int64_t(2)},

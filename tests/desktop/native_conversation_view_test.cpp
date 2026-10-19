@@ -1859,6 +1859,41 @@ const auto model = "Mirage";
         page.settings = false;
         frame();
     }
+    // M6-47: retain exact row geometry while keeping distant history out of
+    // the drawable/control tree. A scroll callback must reveal the next rows.
+    {
+        page.settings = page.about = false;
+        page.confirm_exit = false;
+        page.popup = PageState::Popup::None;
+        page.selection.clear();
+        page.chat.create_session();
+        const auto history_id = page.chat.current().id;
+        for (int i = 0; i < 40; ++i)
+            page.chat.apply_turn(history_id, "virtual-" + std::to_string(i), "ok", "历史输入",
+                                 "## 历史回复\n\n正文保持原始高度与滚动位置。", {}, {}, i + 1);
+        width = 1180;
+        height = 800;
+        dpi_scale = 1;
+        frame();
+        const auto thread = "thread." + std::to_string(history_id);
+        const auto first = "message." + std::to_string(page.chat.current().messages.front().id);
+        const auto last = "message." + std::to_string(page.chat.current().messages.back().id);
+        MIRAGE_CHECK(view->find(first) && !view->find(first + ".body"));
+        MIRAGE_CHECK(view->find(last + ".markdown"));
+        const auto extent = element(thread)->scrollMaxOffset;
+        MIRAGE_CHECK(extent > 3000);
+        element(thread)->onScrollOffsetChanged(0);
+        frame();
+        MIRAGE_CHECK(view->find(first + ".body") && !view->find(last + ".markdown"));
+        MIRAGE_CHECK(std::abs(element(thread)->scrollMaxOffset - extent) < .5f);
+        element(thread)->onScrollOffsetChanged(extent / 2);
+        frame();
+        MIRAGE_CHECK(!view->find(first + ".body") && !view->find(last + ".markdown"));
+        MIRAGE_CHECK(std::abs(element(thread)->scrollOffset - extent / 2) < .5f);
+        element(thread)->onScrollOffsetChanged(extent);
+        frame();
+        MIRAGE_CHECK(view->find(last + ".markdown") && page.chat.current().follow_output);
+    }
     width = 1180;
     height = 800;
     glfwPollEvents();

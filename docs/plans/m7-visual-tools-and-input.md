@@ -8,7 +8,7 @@
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：M2/M3 桌面与视觉适配；M6 当前原生会话/托盘 Runtime owner
 > 建议发布点：桌面工具预览版（名称与 tag 由维护者另定）
-> 更新日期：2026-10-18
+> 更新日期：2026-10-19
 
 ## 目标
 
@@ -40,6 +40,9 @@
 - pinned mirador/kairo 集成指南；沿用已交付管线和 Runtime owner。
 
 ## 工作项
+
+- [ ] `M7-24` **In Progress**：DEC-108，同轮次、授权/epoch/精确 PNG 身份一致时复用
+  成功 OCR；保留权限、取消、新帧和坐标边界。见[性能维护计划](maintenance-performance-20261019.md)。
 
 M7-01/03 本轮按 DEC-054 闭合 Linux X11 的契约和完整输入，M7-02 随之补齐
 click/key 的结构化 fixture。后续 M7-04/05 已闭合 Linux PNG 与合成图片在线识图。
@@ -1145,3 +1148,10 @@ AUMID 与用户开始菜单 Mirage.lnk 就位。实机发现 makensis（32 位�
 ASAN/UBSAN/TSAN 专项各 7/7，私有原生产品 + PP-OCR 66/66，详见证据记录。
 真实 GNOME 单帧观感、在线任务和其他平台未验，由 Mirage 维护者重启新版并按记录补跑；
 相关工作项及里程碑仍为 In Progress。
+
+
+### 2026-10-19：M7-24 性能增量
+
+同轮精确 PNG/epoch/authority 一致时复用成功 OCR，41 次请求仅一次分析；新 epoch、ROI、失败与撤权回归通过。
+详见[性能记录](../benchmarks/native-runtime-pet-20261019.md)和
+[维护计划](maintenance-performance-20261019.md)。

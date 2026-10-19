@@ -812,13 +812,12 @@ void native_observation_efficiency() {
         check(env->captures == 1 && admitted == 1 && restored == 1 && !hidden);
         auto ocr = invoke("desktop.vision.ocr", JsonValue{JsonValue::Object{}});
         check(ocr && !ocr.value().failed && ocr_calls == 1 && env->captures == 1 && !hidden);
-        fail_ocr = true;
-        for (int i = 0; i < 3; ++i) {
-            auto failed = invoke("desktop.vision.ocr", JsonValue{JsonValue::Object{}});
-            check(failed && failed.value().failed);
+        // Same exact authorized pixels: successful analysis is not repeated.
+        for (int i = 0; i < 40; ++i) {
+            auto reused = invoke("desktop.vision.ocr", JsonValue{JsonValue::Object{}});
+            check(reused && !reused.value().failed && ocr_calls == 1);
+            check(*reused.value().result.find("received_at_ms")->as_integer() == initial_time);
         }
-        check(ocr_calls == 2 && env->captures == 1 && admitted == 1 && !hidden);
-        fail_ocr = false;
         for (int i = 0; i < 40; ++i) {
             auto supplied = turn.supply(spec);
             check(supplied && supplied.value().size() == 1);
@@ -853,6 +852,13 @@ void native_observation_efficiency() {
                   *metadata.find("image_scope")->as_string());
             check(*observation->find("scene_change")->as_string() == "none");
             metadata = *observation;
+            if (i == 0) {
+                const auto before_ocr = ocr_calls;
+                auto fresh = invoke("desktop.vision.ocr", JsonValue{JsonValue::Object{}});
+                check(fresh && !fresh.value().failed && ocr_calls == before_ocr + 1);
+                auto reused = invoke("desktop.vision.ocr", JsonValue{JsonValue::Object{}});
+                check(reused && !reused.value().failed && ocr_calls == before_ocr + 1);
+            }
             check(!hidden && admitted == restored);
         }
         check(env->inputs == 40 && env->captures == 81 && env->created == 1);
@@ -868,7 +874,20 @@ void native_observation_efficiency() {
         check(*regional_ocr.value().result.find("width")->as_integer() == 16 &&
               *regional_ocr.value().result.find("height")->as_integer() == 8);
         check(env->captures == 82 && !hidden && admitted == restored);
-        // A cached frame cannot bypass a withdrawn permission.
+        fail_ocr = true;
+        auto new_roi =
+            invoke("desktop.screen.capture",
+                   JsonValue{JsonValue::Object{
+                       {"source", "roi"}, {"x", 8}, {"y", 8}, {"width", 15}, {"height", 8}}});
+        check(new_roi && !new_roi.value().failed);
+        const auto before_failure = ocr_calls;
+        for (int i = 0; i < 3; ++i) {
+            auto failed = invoke("desktop.vision.ocr", JsonValue{JsonValue::Object{}});
+            check(failed && failed.value().failed);
+        }
+        check(ocr_calls == before_failure + 1 && env->captures == 83);
+        fail_ocr = false;
+        // Neither a successful result nor a failed analysis can bypass permission.
         allowed = false;
         auto denied = invoke("desktop.screen.capture", capture_args);
         check(denied && denied.value().failed && env->closed == 1 && !hidden);

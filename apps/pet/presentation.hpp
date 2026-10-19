@@ -4,7 +4,7 @@
 
 namespace mirage::pet_ui {
 
-// UI-owned frame publication. A null result retains the current ImageStream
+// UI-owned frame publication. A null result retains the current GPU
 // frame/texture; it never inserts idle between ordinary animation clips.
 class FramePresentation {
   public:
@@ -31,8 +31,11 @@ class FramePresentation {
             uploaded_index_ = frame.index;
             clear_needed_ = fallback_visible_ = false;
             if (frame.clip->state == "rest" && decoded.rgba_frames.size() > 8)
-                neutral_ = decoded.rgba_frames[8];
-            return decoded.rgba_frames[frame.index];
+                if (!neutral_ || neutral_clip_ != decoded.clip) {
+                    neutral_ = decoded.pixels(8);
+                    neutral_clip_ = decoded.clip;
+                }
+            return decoded.pixels(frame.index);
         }
         if (clear_needed_ || (safe_fallback && !fallback_visible_)) {
             const bool clear = clear_needed_;
@@ -51,6 +54,7 @@ class FramePresentation {
 
   private:
     Pixels neutral_;
+    const runtime::pet::Clip *neutral_clip_ = nullptr;
     const runtime::pet::Clip *uploaded_clip_ = nullptr;
     int uploaded_index_ = -1;
     bool clear_needed_ = true;

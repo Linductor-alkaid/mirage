@@ -1174,6 +1174,13 @@ if(UNIX)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_ENABLE_NATIVE_FRONTEND)
+    add_executable(pet_texture_test desktop/pet_texture_test.cpp)
+    target_include_directories(pet_texture_test SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/eui-neo ${CMAKE_SOURCE_DIR}/third_party/eui-neo/include)
+    target_link_libraries(pet_texture_test PRIVATE eui::neo Mirage::ipc Mirage::platform)
+    mirage_enable_warnings(pet_texture_test)
+    add_test(NAME pet_texture_test COMMAND pet_texture_test)
+    set_tests_properties(pet_texture_test PROPERTIES LABELS "integration;ui;pet" TIMEOUT 30)
     add_executable(native_conversation_view_test desktop/native_conversation_view_test.cpp
         ${CMAKE_SOURCE_DIR}/apps/native/chat_model.cpp
         ${CMAKE_SOURCE_DIR}/apps/native/window_controls.cpp
@@ -1266,6 +1273,11 @@ mirage_add_test(desktop_image_supply_test
     LABELS "integration;runtime"
     TIMEOUT 30
     )
+if(CMAKE_CXX_FLAGS MATCHES "fsanitize=thread")
+    # The full PNG/content matrix is much slower under instrumentation; this
+    # only bounds the test process, never the production acquisition deadline.
+    set_tests_properties(desktop_image_supply_test PROPERTIES TIMEOUT 120)
+endif()
 
     # DEC-088 capability 2/3: DesktopContextBuilder compaction mapping and its
     # ConversationLoop seam wiring over the scripted-provider harness path.

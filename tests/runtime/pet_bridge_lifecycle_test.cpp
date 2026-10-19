@@ -103,6 +103,21 @@ int main() {
     bridge.set_animating(true);
     const auto before = wakeups.load();
     MIRAGE_CHECK(await([&] { return wakeups >= before + 4; }));
+    // Source cadence replaces the fast timer; repeated identical UI updates
+    // must neither restart/starve it nor retain the old 33 ms wake stream.
+    bridge.set_animating(true, 167ms);
+    const auto slow = wakeups.load();
+    for (int i = 0; i < 6; ++i) {
+        bridge.set_animating(true, 167ms);
+        (void)::poll(nullptr, 0, 100);
+    }
+    MIRAGE_CHECK(wakeups - slow >= 2 && wakeups - slow <= 8);
+    bridge.set_animating(false, 167ms);
+    (void)::poll(nullptr, 0, 50); // drain an already admitted callback
+    const auto static_frame = wakeups.load();
+    (void)::poll(nullptr, 0, 350);
+    MIRAGE_CHECK(wakeups - static_frame <= 2); // no visible animation wake stream
+    bridge.set_animating(true);
     auto &loader = bridge.loader();
     (void)loader.request(*runtime::pet::clip_for_display("thinking"),
                          ui::ResourceLoader::Clock::now());

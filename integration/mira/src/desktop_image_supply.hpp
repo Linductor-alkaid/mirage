@@ -156,6 +156,9 @@ class DesktopImageTurn {
     std::string ocr_failed_digest_;
     std::uint64_t ocr_failed_epoch_ = 0;
     std::optional<mira::Error> ocr_failed_result_;
+    std::string ocr_success_digest_;
+    std::uint64_t ocr_success_epoch_ = 0, ocr_success_authority_ = 0;
+    std::optional<ImageOcrOutcome> ocr_success_;
     bool expect_image_ = false;
     bool supplied_image_ = false;
     bool region_tool_enabled_ = false;

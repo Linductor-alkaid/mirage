@@ -107,6 +107,7 @@ bool decode_clip(const std::filesystem::path &asset_root, const runtime::pet::Cl
     DecodedClip candidate;
     candidate.clip = &clip;
     candidate.rgba_frames.reserve(clip.frame_count);
+    candidate.crops.reserve(clip.frame_count);
     int previous_timestamp = 0;
     while (WebPAnimDecoderHasMoreFrames(decoder.get())) {
         if (stop())
@@ -120,8 +121,31 @@ bool decode_clip(const std::filesystem::path &asset_root, const runtime::pet::Cl
             return false;
         }
         previous_timestamp = timestamp;
-        candidate.rgba_frames.push_back(
-            std::make_shared<const std::vector<std::uint8_t>>(pixels, pixels + kFrameBytes));
+        std::size_t left = kWidth, top = kHeight, right = 0, bottom = 0;
+        for (std::size_t y = 0; y < kHeight; ++y) {
+            if (stop())
+                return false;
+            for (std::size_t x = 0; x < kWidth; ++x) {
+                const auto *pixel = pixels + (y * kWidth + x) * 4;
+                if (pixel[0] || pixel[1] || pixel[2] || pixel[3]) {
+                    left = std::min(left, x);
+                    top = std::min(top, y);
+                    right = std::max(right, x + 1);
+                    bottom = std::max(bottom, y + 1);
+                }
+            }
+        }
+        if (right == 0)
+            left = top = 0;
+        const auto width = right - left, height = bottom - top;
+        auto packed = std::make_shared<std::vector<std::uint8_t>>(width * height * 4);
+        for (std::size_t y = 0; y < height; ++y)
+            std::copy_n(pixels + ((top + y) * kWidth + left) * 4, width * 4,
+                        packed->data() + y * width * 4);
+        candidate.crops.push_back(
+            {static_cast<std::uint16_t>(left), static_cast<std::uint16_t>(top),
+             static_cast<std::uint16_t>(width), static_cast<std::uint16_t>(height)});
+        candidate.rgba_frames.push_back(std::move(packed));
     }
     if (stop())
         return false;
