@@ -1307,6 +1307,17 @@ mirage_add_test(smooth_move_contract_test
     TIMEOUT 30
     )
 
+# DEC-110 / M7-26 smooth pointer travel: the shared platform-neutral schedule
+# generator consumed by both the X11 backend and the Portal glide path
+# (zero distance, segment budget with the 4 ms cadence floor, minimum-jerk
+# easing, exact landing).
+mirage_add_test(smooth_move_schedule_test
+    SOURCES desktop/smooth_move_schedule_test.cpp
+    LIBS Mirage::desktop
+    LABELS "unit;desktop"
+    TIMEOUT 30
+    )
+
 # DEC-110 / M7-26 smooth pointer travel tool surface: the glide_ms opt-in of
 # desktop.vision.click / desktop.vision.click_region over the fake desktop
 # environment (gate order, honest failure receipts, deadline cap extension).

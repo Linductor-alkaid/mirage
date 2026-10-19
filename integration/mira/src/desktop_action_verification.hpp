@@ -10,6 +10,11 @@ class DesktopActionVerification {
     DesktopActionVerification(DesktopToolContext desktop, mira::OperationContext owner,
                               mirage::desktop::CancelToken cancel);
     static bool mutation(const std::string &name);
+    /// DEC-056 settlement input: a successful desktop observation (capture,
+    /// OCR, listing) completed after the current trailing record. It lets a
+    /// trailing clean no-effect rejection settle on fresh evidence instead of
+    /// failing a turn whose goal an earlier verified action already met.
+    void note_observation();
     mira::Result<mira::JsonValue> execute(const std::string &, const mira::JsonValue &,
                                           const mira::OperationContext &,
                                           const mira::BuiltinToolHandler &);
@@ -78,6 +83,9 @@ class DesktopActionVerification {
     std::vector<Record> archived_;
     bool fenced_ = false;
     bool canonical_failure_ = false;
+    // Set by note_observation while records_.back() is a clean no-effect
+    // rejection; cleared by the next execute() (any new mutation attempt).
+    bool observation_after_rejection_ = false;
     bool ocr_failed_ = false;
     // Host-side visual evidence budget, per environment epoch (M9-03): a new
     // `desktop.actions` epoch reopens the budget the same way the failure

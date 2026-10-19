@@ -533,10 +533,19 @@ std::string DesktopActionVerification::failure_receipt(const Record &r, std::str
     return encoded;
 }
 
-mira::Result<JsonValue>
+void DesktopActionVerification::note_observation() {
+    if (!records_.empty() && records_.back().status == "rejected" &&
+        !records_.back().dispatched && !records_.back().uncertain)
+        observation_after_rejection_ = true;
+}
+
+mira::Result<mira::JsonValue>
 DesktopActionVerification::execute(const std::string &name, const JsonValue &args,
                                    const mira::OperationContext &ctx,
                                    const mira::BuiltinToolHandler &handler) {
+    // Any new mutation attempt supersedes "the model observed after the
+    // trailing rejection"; the appended record owns the evidence question.
+    observation_after_rejection_ = false;
     if (ctx.task != owner_.task || ctx.session != owner_.session ||
         ctx.task_epoch != owner_.task_epoch)
         return error(mira::ErrorCode::InvalidArgument, "desktop verification owner mismatch");
@@ -846,6 +855,11 @@ DesktopActionVerification::supply(const mira::AgentLoopSpec &spec) const {
     return std::vector<mira::ModelInputItem>{std::move(item)};
 }
 bool DesktopActionVerification::no_effect_rejection() const {
+    // A fresh desktop observation after the trailing rejection means the
+    // model answered from current evidence, not from the rejected action
+    // (DEC-056 revision: the rejection itself proved no side effect).
+    if (observation_after_rejection_)
+        return false;
     return !canonical_failure_ && !ocr_failed_ && !fenced_ && !records_.empty() &&
            records_.back().status == "rejected" &&
            std::all_of(records_.begin(), records_.end(), [](const auto &r) {
@@ -856,8 +870,13 @@ bool DesktopActionVerification::no_effect_rejection() const {
 bool DesktopActionVerification::settle() {
     if (!records_.empty())
         observe(records_.back(), owner_);
+    const bool trailing_clean_rejection =
+        !records_.empty() && observation_after_rejection_ &&
+        records_.back().status == "rejected" && !records_.back().dispatched &&
+        !records_.back().uncertain;
     return !canonical_failure_ && !ocr_failed_ && !fenced_ &&
-           (records_.empty() || records_.back().status == "verified") &&
+           (records_.empty() || records_.back().status == "verified" ||
+            trailing_clean_rejection) &&
            std::all_of(records_.begin(), records_.end(), [](const auto &r) {
                return r.status == "verified" ||
                       (r.status == "rejected" && !r.dispatched && !r.uncertain);

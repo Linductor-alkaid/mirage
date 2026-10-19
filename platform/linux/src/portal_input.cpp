@@ -1,7 +1,10 @@
 #include "portal_input.hpp"
+#include <mirage/desktop/input_session.hpp>
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
+#include <thread>
 #include <vector>
 namespace mirage::platform::linux_backend {
 // Notify calls are finite on the caller's Executor task. A failed press is
@@ -111,6 +114,12 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
     if (action.kind == Kind::Scroll &&
         !desktop::valid_scroll_steps(action.horizontal_steps, action.vertical_steps))
         return failed("invalid_argument");
+    if (action.glide_ms != 0 &&
+        (action.kind != Kind::Click ||
+         desktop::validate_smooth_move_timing(std::chrono::milliseconds(action.glide_ms), 0)))
+        return failed("invalid_argument");
+    if (action.glide_ms != 0 && !s.has_pointer_origin)
+        return failed("pointer_origin_unknown");
     if (action.kind == Kind::Click || action.kind == Kind::Scroll || action.kind == Kind::Drag) {
         const auto point_valid = [&](double x, double y) {
             return std::isfinite(x) && std::isfinite(y) && x >= 0 && y >= 0 && x < s.frame_width &&
@@ -147,6 +156,51 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
     auto key = [&](int symbol, bool pressed) {
         return notify({PortalInputEvent::Kind::Key, symbol, pressed ? 1u : 0u});
     };
+    // DEC-110 (M7-26): record the same-origin pointer position after every
+    // accepted motion so a later glide has a trusted start.
+    auto note_pointer = [&](double x, double y) {
+        s.pointer_known = true;
+        s.pointer_x = x;
+        s.pointer_y = y;
+    };
+    // Timed travel on the frozen minimum-jerk schedule. Every notify is a
+    // synchronous Portal call (no client-side buffering to flush); a delivery
+    // more than 250 ms behind its schedule stops the travel instead of
+    // replaying a backlog, mirroring the X11 path.
+    auto travel = [&](double from_x, double from_y, double to_x, double to_y) {
+        const std::chrono::milliseconds glide{action.glide_ms};
+        const auto schedule = desktop::build_smooth_move_schedule(
+            {static_cast<std::int32_t>(std::llround(from_x)),
+             static_cast<std::int32_t>(std::llround(from_y))},
+            {static_cast<std::int32_t>(std::llround(to_x)),
+             static_cast<std::int32_t>(std::llround(to_y))},
+            glide, 0);
+        const auto started = std::chrono::steady_clock::now();
+        const auto kMaxLag = std::chrono::milliseconds{250};
+        for (const auto &sample : schedule) {
+            if (cancel.cancelled() || s.stopped())
+                return false;
+            const auto scheduled = started + sample.at;
+            std::this_thread::sleep_until(scheduled);
+            const auto now = std::chrono::steady_clock::now();
+            if (now > scheduled + kMaxLag || now >= started + limits.timeout)
+                return false;
+            // The schedule is built in logical coordinates (from/to above are
+            // the same space the plain Motion dispatch sends), so samples go
+            // to the compositor as-is — no further frame-to-logical scaling.
+            if (!notify({PortalInputEvent::Kind::Motion, 0, 0,
+                         static_cast<double>(sample.x), static_cast<double>(sample.y)}))
+                return false;
+            note_pointer(static_cast<double>(sample.x), static_cast<double>(sample.y));
+        }
+        // Land on the exact logical target; the schedule rounds to pixels.
+        if (to_x != std::llround(to_x) || to_y != std::llround(to_y)) {
+            if (!notify({PortalInputEvent::Kind::Motion, 0, 0, to_x, to_y}))
+                return false;
+            note_pointer(to_x, to_y);
+        }
+        return true;
+    };
     auto release = [&] {
         if (held_button) {
             released = notify({PortalInputEvent::Kind::Button, button, 0u}) && released;
@@ -158,9 +212,15 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
     try {
         if (action.kind == Kind::Click || action.kind == Kind::Scroll ||
             action.kind == Kind::Drag) {
-            ok = notify({PortalInputEvent::Kind::Motion, 0, 0,
-                         action.x * s.logical_width / s.frame_width,
-                         action.y * s.logical_height / s.frame_height});
+            const double target_x = action.x * s.logical_width / s.frame_width;
+            const double target_y = action.y * s.logical_height / s.frame_height;
+            if (action.kind == Kind::Click && action.glide_ms != 0) {
+                ok = travel(s.pointer_origin_x, s.pointer_origin_y, target_x, target_y);
+            } else {
+                ok = notify({PortalInputEvent::Kind::Motion, 0, 0, target_x, target_y});
+                if (ok)
+                    note_pointer(target_x, target_y);
+            }
             if (ok && !stopped() && action.kind == Kind::Click) {
                 for (std::uint32_t index = 0;
                      index < action.click_count && ok && released && !stopped(); ++index) {
@@ -177,6 +237,9 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
                     ok = notify({PortalInputEvent::Kind::Motion, 0, 0,
                                  x * s.logical_width / s.frame_width,
                                  y * s.logical_height / s.frame_height});
+                    if (ok)
+                        note_pointer(x * s.logical_width / s.frame_width,
+                                     y * s.logical_height / s.frame_height);
                 }
             } else if (ok && !stopped() && action.kind == Kind::Scroll) {
                 for (unsigned axis = 0; axis < 2 && ok && !stopped(); ++axis) {

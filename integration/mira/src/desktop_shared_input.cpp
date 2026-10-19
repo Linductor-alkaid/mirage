@@ -43,7 +43,11 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
                 ? "Click a visible control, or a clearly non-interactive area "
                   "of the intended window to focus it; no window API is needed. "
                   "click_count sets consecutive clicks in one action (default 1); "
-                  "use 2 for double-click, 3 for triple-click. "
+                  "use 2 for double-click, 3 for triple-click. Optional glide_ms "
+                  "(50-2000) travels the pointer from its previous dispatched "
+                  "position along a timed smooth path before pressing; the first "
+                  "glide of a session may be refused with pointer_origin_unknown "
+                  "(fall back to a direct click). "
             : std::string_view(operation) == "key"
                 ? "Send one key chord to the focused UI, such as ctrl+l or enter. "
             : std::string_view(operation) == "type_text"
@@ -78,8 +82,12 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
             "image_scope in its receipt: retry against that scope without recapturing. "
             "Do not retry uncertain effects.";
         Json::Object props;
-        if (std::string_view(operation) == "click")
+        if (std::string_view(operation) == "click") {
             props.emplace_back("click_count", click_count_schema());
+            props.emplace_back("glide_ms", Json{Json::Object{{"type", "integer"},
+                                                             {"minimum", 50},
+                                                             {"maximum", 2000}}});
+        }
         if (std::string_view(operation) == "key")
             props.emplace_back("key_name",
                                Json{Json::Object{{"type", "string"}, {"maxLength", 4096}}});
@@ -165,8 +173,14 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
     if (!clicks || !button || (operation != "key" && args.find("key_name")) ||
         (operation != "type_text" && args.find("text")) ||
         (operation != "click" && args.find("click_count")) ||
+        (operation != "click" && args.find("glide_ms")) ||
         (operation != "click" && !drag && args.find("button")) ||
         (operation != "scroll" && (args.find("horizontal_steps") || args.find("vertical_steps"))))
+        return rejected("invalid_argument");
+    const auto glide_value = args.find("glide_ms");
+    if (glide_value &&
+        (!glide_value->as_integer() || *glide_value->as_integer() < 50 ||
+         *glide_value->as_integer() > 2000))
         return rejected("invalid_argument");
     desktop::SharedInputAction action;
     action.click_count = *clicks;
@@ -203,6 +217,8 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         action.vertical_steps = *v;
         action.horizontal_steps = *horizontal;
     }
+    if (glide_value)
+        action.glide_ms = static_cast<std::uint32_t>(*glide_value->as_integer());
     auto dx = x, dy = y, dw = w, dh = h;
     if (drag) {
         dx = integer("destination_x");

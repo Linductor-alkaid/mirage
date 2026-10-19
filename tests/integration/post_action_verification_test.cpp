@@ -176,6 +176,18 @@ void scenario(kairo::Executor &executor, const std::string &mode) {
                                                          {"expected_role", ""},
                                                          {"expected_name", ""},
                                                          {"expected_text", ""}}}};
+        // DEC-056 revision: the model's action is cleanly rejected before any
+        // dispatch, it re-observes the desktop and answers from that fresh
+        // evidence — the turn settles instead of failing on the trailing
+        // rejection (the maintainer-reported false failure).
+        if (mode == "rejected_then_answer")
+            script->steps = {
+                {"desktop.window.list", Json{Json::Object{}}},
+                {"desktop.window.activate",
+                 Json::Object{{"window_id", "w2"},
+                              {"verify_kind", "window_focused"},
+                              {"expected_title", "private-invalid-title"}}},
+                {"desktop.window.list", Json{Json::Object{}}}};
         if (mode == "delayed" || mode == "visual_good")
             script->steps.emplace_back("desktop.action.verify", Json{Json::Object{}});
         if (mode == "foreign")
@@ -212,7 +224,7 @@ void scenario(kairo::Executor &executor, const std::string &mode) {
                             })
                             .get();
     const bool passed = mode == "good" || mode == "delayed" || mode == "visual_good" ||
-                        mode == "rejected_then_corrected";
+                        mode == "rejected_then_corrected" || mode == "rejected_then_answer";
     if (result.ok != passed) {
         std::cerr << mode << ": " << result.error << '\n';
         for (const auto &part : result.parts)
@@ -234,7 +246,27 @@ void scenario(kairo::Executor &executor, const std::string &mode) {
         check(result.reply_text.empty());
     }
     check(env->input_log.size() ==
-          (mode == "denied" || mode == "rejected_then_corrected" ? 0u : 1u));
+          (mode == "denied" || mode == "rejected_then_corrected" || mode == "rejected_then_answer"
+               ? 0u
+               : 1u));
+    if (mode == "rejected_then_answer") {
+        // The refused activation never dispatched, and the fresh observation
+        // after it lets the trailing clean rejection settle the turn.
+        check(!env->windows[1].focused);
+        const auto refused =
+            std::find_if(result.parts.begin(), result.parts.end(), [](const auto &p) {
+                return p.name == "desktop.window.activate" && p.status == "failed";
+            });
+        check(refused != result.parts.end());
+        const auto evidence = mirage::conversation::desktop_evidence(*refused);
+        check(evidence && evidence->status == "rejected");
+        const auto listed = std::find_if(result.parts.begin(), result.parts.end(),
+                                         [](const auto &p) {
+                                             return p.name == "desktop.window.list" &&
+                                                    p.status == "complete";
+                                         });
+        check(listed != result.parts.end());
+    }
     if (mode == "rejected_then_corrected") {
         check(env->windows[1].focused);
         const auto failed =
@@ -771,6 +803,87 @@ void evidence_contracts() {
     check(!unproven.settle());
 }
 
+// DEC-056 revision: a trailing clean no-effect rejection settles only when a
+// successful desktop observation was recorded after it; any new mutation
+// attempt re-arms the requirement, and rejections with dispatched or
+// uncertain side effects never settle on observations.
+void observation_settlement() {
+    auto env = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    env->windows = {{"w1", "Target", {0, 0, 100, 100}, true}};
+    i::DesktopToolContext tools;
+    tools.environment = env;
+    tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    const auto ctx = context();
+    const Json click_args{
+        Json::Object{{"window_id", "w1"}, {"verify_kind", "shared_frame_observed"}}};
+    const auto shared_proof =
+        [](const std::string &, const std::string &,
+           const mira::OperationContext &) -> mira::Result<Json> {
+        return Json{Json::Object{{"matched", true}, {"digest", "fixture-digest"}}};
+    };
+    // The provider-side shape of the reported defect: the shared click is
+    // refused cleanly (no dispatch, no uncertainty), like the
+    // target_pixels_changed guard rejection.
+    const mira::BuiltinToolHandler clean_rejection =
+        [](const auto &, const auto &) -> mira::Result<Json> {
+        mira::Error e;
+        e.code = mira::ErrorCode::PlatformError;
+        e.safe_message = R"({"error_code":"target_pixels_changed",)"
+                         R"("side_effect_may_have_occurred":false,"input_released":true})";
+        return e;
+    };
+    i::detail::DesktopActionVerification verifier(tools, ctx, {});
+    verifier.set_shared_observation(shared_proof);
+    // Old semantics without a follow-up observation: no settlement, the
+    // trailing record stays a no-effect rejection.
+    check(!verifier.execute("desktop.session.click", click_args, ctx, clean_rejection));
+    check(!verifier.settle() && verifier.no_effect_rejection());
+    // One successful desktop observation after the rejection settles the turn
+    // and the record stops qualifying as an unanswered rejection.
+    verifier.note_observation();
+    check(verifier.settle() && !verifier.no_effect_rejection());
+    // Any new mutation attempt (here: another clean rejection) clears the
+    // observation evidence; fresh observation is required again.
+    check(!verifier.execute("desktop.session.click", click_args, ctx, clean_rejection));
+    check(!verifier.settle() && verifier.no_effect_rejection());
+    verifier.note_observation();
+    check(verifier.settle() && !verifier.no_effect_rejection());
+    // A handler refusal without dispatched effects is the same clean
+    // rejection class and follows the same settlement rule.
+    i::detail::DesktopActionVerification refused(tools, ctx, {});
+    refused.set_shared_observation(shared_proof);
+    const mira::BuiltinToolHandler handler_refusal =
+        [](const auto &, const auto &) -> mira::Result<Json> {
+        return Json{Json::Object{{"status", "refused"},
+                                 {"verified", false},
+                                 {"side_effect_may_have_occurred", false},
+                                 {"input_released", true}}};
+    };
+    const auto refusal = refused.execute("desktop.session.click", click_args, ctx, handler_refusal);
+    check(refusal && refusal.value().find("verified") &&
+          refusal.value().find("verified")->as_boolean().value_or(true) == false);
+    check(!refused.settle() && refused.no_effect_rejection());
+    refused.note_observation();
+    check(refused.settle() && !refused.no_effect_rejection());
+    // Dispatched/uncertain side effects keep the turn unsettled no matter how
+    // many observations follow.
+    i::detail::DesktopActionVerification uncertain(tools, ctx, {});
+    uncertain.set_shared_observation(shared_proof);
+    const mira::BuiltinToolHandler dispatched_failure =
+        [](const auto &, const auto &) -> mira::Result<Json> {
+        mira::Error e;
+        e.code = mira::ErrorCode::PlatformError;
+        e.safe_message = R"({"error_code":"fixture",)"
+                         R"("side_effect_may_have_occurred":true,"input_released":true})";
+        return e;
+    };
+    check(!uncertain.execute("desktop.session.click", click_args, ctx, dispatched_failure));
+    for (int observations = 0; observations < 3; ++observations) {
+        uncertain.note_observation();
+        check(!uncertain.settle() && !uncertain.no_effect_rejection());
+    }
+}
+
 #ifdef MIRAGE_POST_ACTION_X11
 void real_tasks(kairo::Executor &executor) {
     check(XInitThreads() != 0);
@@ -925,7 +1038,7 @@ int main() {
         for (const auto &mode :
              {"good", "delayed", "missing", "false_success", "focus", "epoch", "cancel", "denied",
               "foreign", "retry", "visual_good", "visual_wrong", "visual_duplicate",
-              "visual_denied", "rejected_then_corrected"})
+              "visual_denied", "rejected_then_corrected", "rejected_then_answer"})
             scenario(executor, mode);
         for (const auto &mode : {"good",
                                  "running",
@@ -953,6 +1066,7 @@ int main() {
             application_scenario(executor, mode);
         contracts(executor);
         evidence_contracts();
+        observation_settlement();
 #ifdef MIRAGE_POST_ACTION_X11
         real_tasks(executor);
 #endif

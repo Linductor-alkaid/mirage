@@ -550,10 +550,22 @@ void shared_contracts(const std::string &mode) {
             args.set("horizontal_steps", 16);
             args.set("vertical_steps", 1);
         }
+        // DEC-110 (M7-26): the glide_ms opt-in of desktop.session.click.
+        if (mode == "glide")
+            args.set("glide_ms", 300);
+        if (mode == "glide_low")
+            args.set("glide_ms", 49);
+        if (mode == "glide_high")
+            args.set("glide_ms", 2001);
+        if (mode == "glide_string")
+            args.set("glide_ms", "300");
+        if (mode == "glide_scroll")
+            args.set("glide_ms", 300);
         auto result = invoke(mode == "unicode"           ? "desktop.session.type_text"
                              : drag                      ? "desktop.session.drag"
-                             : mode.starts_with("wheel") ? "desktop.session.scroll"
-                                                         : "desktop.session.click",
+                             : (mode.starts_with("wheel") || mode == "glide_scroll")
+                                 ? "desktop.session.scroll"
+                                 : "desktop.session.click",
                              args, action_ctx);
         if (mode == "unicode") {
             check(result && result.value().failed &&
@@ -649,9 +661,25 @@ void shared_contracts(const std::string &mode) {
         const bool success = mode == "normal" || mode == "ocr" || mode == "uniform_drift" ||
                              mode == "double" || mode == "triple" || mode == "repeat" ||
                              mode == "click_limit" || mode == "right" || mode == "middle" ||
-                             mode == "drag" || mode == "wheel";
+                             mode == "drag" || mode == "wheel" || mode == "glide";
         if (mode == "right" || mode == "middle")
             check(env->last_input.value == mode);
+        if (mode == "glide")
+            check(env->last_input.glide_ms == 300 &&
+                  env->last_input.kind == mirage::desktop::SharedInputAction::Kind::Click);
+        if (mode == "normal")
+            check(env->last_input.glide_ms == 0);
+        if (mode == "glide_low" || mode == "glide_high" || mode == "glide_string" ||
+            mode == "glide_scroll") {
+            // Out-of-budget, wrongly-typed or non-click glide arguments refuse
+            // before the fresh guard capture and any session input (the pinned
+            // registry schema gate names glide_ms: minimum/maximum, type and
+            // additionalProperties; the handler's own invalid_argument check
+            // stays as defense in depth beneath it).
+            check(env->captures == 1 && env->inputs == 0);
+            check(result && result.value().failed &&
+                  result.value().safe_error_summary.find("glide_ms") != std::string::npos);
+        }
         if (mode == "drag")
             check(env->last_input.kind == mirage::desktop::SharedInputAction::Kind::Drag &&
                   env->last_input.value == "right" && env->last_input.destination_x == 2 &&
@@ -2893,6 +2921,11 @@ int main() {
                                          "invalid_button",
                                          "button_type",
                                          "wheel_budget",
+                                         "glide",
+                                         "glide_low",
+                                         "glide_high",
+                                         "glide_string",
+                                         "glide_scroll",
                                          "normal",
                                          "ocr",
                                          "double",

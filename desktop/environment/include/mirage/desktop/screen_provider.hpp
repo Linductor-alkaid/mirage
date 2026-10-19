@@ -132,6 +132,12 @@ struct SharedInputAction {
     std::int32_t vertical_steps = 0, horizontal_steps = 0;
     std::uint32_t click_count = 1; // DEC-099: Click only, 1..max_click_count within one action.
     double destination_x = 0, destination_y = 0; // Drag endpoint in the same captured image.
+    /// DEC-110 (M7-26): Click-only opt-in timed travel to (x, y) along the
+    /// frozen minimum-jerk baseline before the press; 0 keeps the direct
+    /// dispatch. Needs a known pointer origin (platform read-back or this
+    /// session's own last dispatched position); unknown origins refuse the
+    /// action before any effect instead of teleporting.
+    std::uint32_t glide_ms = 0;
 };
 
 /// One caller-owned observation session (DEC-074). Calls must be serialized;

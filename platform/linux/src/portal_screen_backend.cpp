@@ -228,6 +228,10 @@ struct CastSession {
     guint32 node = 0, devices = 0;
     int logical_width = 0, logical_height = 0, frame_width = 0, frame_height = 0;
     bool interaction = false;
+    // DEC-110 (M7-26): this session's own last dispatched pointer position —
+    // the same-origin glide start. Portal exposes no absolute pointer query.
+    bool pointer_known = false;
+    double pointer_x = 0, pointer_y = 0;
     std::unique_ptr<PortalPipeWireStream> stream;
     ~CastSession() {
         stream.reset();
@@ -467,8 +471,15 @@ desktop::InputOutcome shared_input(CastSession &s, const desktop::SharedInputAct
                                    const desktop::InputLimits &limits,
                                    const desktop::CancelToken &cancel) {
     ContextScope context(s.context);
-    PortalInputContext input{
-        s.devices, s.logical_width, s.logical_height, s.frame_width, s.frame_height, {}, {}};
+    PortalInputContext input;
+    input.devices = s.devices;
+    input.logical_width = s.logical_width;
+    input.logical_height = s.logical_height;
+    input.frame_width = s.frame_width;
+    input.frame_height = s.frame_height;
+    input.has_pointer_origin = s.pointer_known;
+    input.pointer_origin_x = s.pointer_x;
+    input.pointer_origin_y = s.pointer_y;
     input.stopped = [&] {
         (void)g_main_context_iteration(s.context, FALSE);
         return s.closed || g_dbus_connection_is_closed(s.connection.get());
@@ -502,6 +513,11 @@ desktop::InputOutcome shared_input(CastSession &s, const desktop::SharedInputAct
         return accepted;
     };
     auto out = dispatch_portal_input(input, action, limits, cancel);
+    // Keep the same-origin glide start current even for partial travels: the
+    // pointer physically sits at the last accepted motion, not at the target.
+    s.pointer_known = input.pointer_known;
+    s.pointer_x = input.pointer_x;
+    s.pointer_y = input.pointer_y;
     if (!out.ok && out.side_effect_may_have_occurred)
         s.closed = true;
     return out;

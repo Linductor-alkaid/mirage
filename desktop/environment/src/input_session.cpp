@@ -1,6 +1,8 @@
 #include <mirage/desktop/input_session.hpp>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <utility>
 
 namespace mirage::desktop {
@@ -324,6 +326,32 @@ std::optional<ProviderError> validate_smooth_move_timing(std::chrono::millisecon
         return ProviderError{"result_too_large", "path point budget is exhausted"};
     }
     return std::nullopt;
+}
+
+std::vector<SmoothMoveSample> build_smooth_move_schedule(PointerPoint from, PointerPoint to,
+                                                         std::chrono::milliseconds duration,
+                                                         std::uint32_t path_points) {
+    if (from.x == to.x && from.y == to.y)
+        return {};
+    const std::int64_t dx = std::int64_t{to.x} - from.x, dy = std::int64_t{to.y} - from.y;
+    std::uint64_t segments = path_points != 0 ? path_points
+                                              : input_session_budget::default_path_points;
+    const std::int64_t max_fitting = std::max<std::int64_t>(1, duration.count() / 4);
+    segments = std::min<std::uint64_t>(segments, static_cast<std::uint64_t>(max_fitting));
+    std::vector<SmoothMoveSample> samples;
+    samples.reserve(segments);
+    for (std::uint32_t index = 1; index <= segments; ++index) {
+        const double u = static_cast<double>(index) / segments;
+        const double eased = u * u * u * (10.0 + u * (-15.0 + 6.0 * u));
+        SmoothMoveSample sample;
+        sample.at = std::chrono::milliseconds(std::llround(duration.count() * u));
+        sample.x = from.x + static_cast<std::int32_t>(std::llround(eased * static_cast<double>(dx)));
+        sample.y = from.y + static_cast<std::int32_t>(std::llround(eased * static_cast<double>(dy)));
+        samples.push_back(sample);
+    }
+    samples.back().x = to.x;
+    samples.back().y = to.y;
+    return samples;
 }
 
 } // namespace mirage::desktop

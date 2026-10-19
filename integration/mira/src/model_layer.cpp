@@ -951,6 +951,12 @@ DialogCompletion ModelLayer::complete_harness_turn(
                                    desktop_context.actions ? desktop_context.actions->epoch() : 0,
                                    name, classify_tool_failure(result.error(), screen_capability),
                                    result.error());
+                // DEC-056 settlement evidence: a successful desktop
+                // observation after the trailing action record lets a clean
+                // no-effect rejection settle instead of failing the turn.
+                if (result && !refused && name.starts_with("desktop.") &&
+                    !detail::DesktopActionVerification::mutation(name))
+                    verification.note_observation();
                 capture.finish_tool(part, result,
                                     [&verification](auto &parts) { verification.project(parts); });
                 return result;

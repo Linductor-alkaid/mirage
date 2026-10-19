@@ -33,7 +33,7 @@
 | 编号 | 状态 | 结果与验收 | 前置与冻结点 |
 | --- | --- | --- | --- |
 | M7-25 | In Progress（契约冻结稿待评审） | 已交付平台中立契约层 `input_session.hpp/.cpp`（能力位、会话键词表、预算数值、状态机、版本化回执）与 golden/负向矩阵 `m7_input_session_contract.json`，`input_session_contract_test` 对账通过（1224 检查项）；维护者评审通过后本项标 Completed | DEC-110 评审；冻结摘要见 DEC-110"M7-25 契约冻结稿"；评审意见可直接调整数值并升 budget_version |
-| M7-26 | In Progress（X11 首增量） | Provider 层 opt-in `smooth_move_to`（minimum-jerk 基线、冻结预算复用、段间协作取消/落后停止）与 X11 真实实现（每段 XFlush 实时投递）；`desktop.vision.click`/`click_region` 的 `glide_ms` opt-in 参数（默认关闭，不带参数行为不变）；真实 Xvfb 轨迹/时间/取消证据与工具正负矩阵另记；定时按压、独立修饰键、组合交叠与 Portal/Windows 路径继续推进 | M7-25 冻结契约；逐后端能力 opt-in |
+| M7-26 | In Progress（X11/Portal 首增量） | Provider 层 opt-in `smooth_move_to`（minimum-jerk 基线、冻结预算复用、段间协作取消/落后停止）与 X11 真实实现（每段 XFlush 实时投递）；共享 minimum-jerk 调度生成器；`desktop.vision.click`/`click_region`/`desktop.session.click`（Portal，会话同源起点，未知起点前置拒绝）的 `glide_ms` opt-in 参数（默认关闭，不带参数行为不变）；真实 Xvfb 轨迹/时间/取消证据与工具正负矩阵另记；定时按压、独立修饰键、组合交叠与 Windows 路径继续推进 | M7-25 冻结契约；逐后端能力 opt-in |
 | M7-27 | Proposed | 同一 owner 跨工具观察保持输入；Alt-Tab 正反向及持键显示瞬态界面；模型失联、拒绝、超时、撤权、接管、shutdown、迟到命令与释放失败封锁 | M7-25/26；普通持键与等待决策预算分别验证 |
 | M7-28 | Proposed | IME/布局/模式/预编辑与候选状态的部分可观测投影；单独 Shift、候选提交、切窗焦点和最终文本验收，缺状态显式 unknown | M7-25/26，跨轮候选场景接 M7-27；与 M9-15 前端 IME 干扰区分 |
 | M7-29 | Proposed | Linux uinput / Windows VHF 的部署选型与受控原型；过滤 fixture、权限/报告容量/断连释放及实际受影响应用对比，分别形成采用或不采用的证据 | 公共动作契约接 M7-25；原型前冻结平台、依赖/驱动来源、部署和恢复方案；集成验收接 M7-26/27 |
@@ -114,3 +114,18 @@ debug 全量 99/99 通过，ASan 无报告。过程中验证代理抓出 Xlib �
 （缺每段 flush 时服务端只见瞬移、取消声称未发生的副作用），已修复并复验。
 落后停止分支在 Xvfb 单机不可注入延迟、未直接演练；真实合成器/XWayland 节奏、
 定时按压/独立修饰键/组合交叠、Portal/Windows 路径继续推进。
+
+2026-10-19：维护者实测两个问题修复（会话取证：点击走 `desktop.session.click`
+Portal 共享路径，且目标已被先前 verified 动作达成后仍被判失败）。其一，glide 接入
+共享路径：`SharedInputAction.glide_ms`（仅 Click）、`build_smooth_move_schedule`
+共享最小 jerk 调度生成器（X11 同步下沉复用）、Portal 派发按样本节奏 notify（同步
+DBus 调用天然无缓冲问题）、会话自记录指针位置作为同源起点（Portal 无绝对回读，
+未知起点以 `pointer_origin_unknown` 前置拒绝而非瞬移）、`desktop.session.click`
+schema 新增可选 `glide_ms`（50–2000，非 click/越界拒绝）。验证代理抓出并修复
+2x 缩放会话下样本被二次缩放的缺陷（HiDPI 会点到一半位置）；脚本桩证据：逐样本
+命中逻辑坐标、末 motion 精确落点、取消无 button、pointer 出参回写。其二，DEC-056
+结算修订：尾部干净无副作用拒绝 + 拒绝后成功桌面观察 + 作答 → 回合 ok（新增
+note_observation 通路）；端到端复现维护者场景并通过；harness 层/service 级 7 个
+旧契约场景按新契约更新期望，throwing（uncertain）/cancelled/expired 不变。debug
+全量 100/100、native-release 108/108，ASan 无报告。真 Portal 实机 glide（混合
+DPI）待维护者下一次会话实测。

@@ -259,6 +259,24 @@ std::optional<ProviderError> validate_input_session_command(const InputSessionCo
 std::optional<ProviderError> validate_smooth_move_timing(std::chrono::milliseconds duration,
                                                          std::uint32_t path_points);
 
+/// One sampled point of the frozen smooth-move schedule: `at` is the offset
+/// from travel start, (x, y) the eased position.
+struct SmoothMoveSample {
+    std::chrono::milliseconds at{0};
+    std::int32_t x = 0, y = 0;
+};
+
+/// Builds the reproducible minimum_jerk_v1 schedule (DEC-110 section 2) from
+/// `from` to `to`: effective segments = min(requested-or-default, duration
+/// over the 4 ms cadence floor, max_path_points), positions follow the
+/// minimum-jerk easing, and the final sample is exactly `to`. Returns an
+/// empty vector when from == to (nothing to travel). Callers must validate
+/// duration/points first (validate_smooth_move_timing); pacing, cancellation
+/// and lag handling stay with the caller because they are transport-bound.
+std::vector<SmoothMoveSample> build_smooth_move_schedule(PointerPoint from, PointerPoint to,
+                                                         std::chrono::milliseconds duration,
+                                                         std::uint32_t path_points);
+
 /// Receipt classes (DEC-110 section 3): admission, delivery, controlled
 /// holding, confirmed release and "cannot confirm" are distinguished. The
 /// legacy `InputOutcome::input_released=false` keeps meaning failure
