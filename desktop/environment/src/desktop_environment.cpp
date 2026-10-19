@@ -38,6 +38,10 @@ bool is_named_key(std::string_view name) {
 
 } // namespace
 
+bool is_base_key_symbol(std::string_view name) {
+    return !name.empty() && is_named_key(name);
+}
+
 bool is_valid_key_name(const std::string &name) { return parse_key_chord(name).has_value(); }
 
 std::optional<KeyChord> parse_key_chord(const std::string &name) {

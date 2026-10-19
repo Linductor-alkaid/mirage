@@ -1264,6 +1264,18 @@ mirage_enable_warnings(action_contract_test)
 add_test(NAME action_contract_test COMMAND action_contract_test)
 set_tests_properties(action_contract_test PROPERTIES LABELS "integration;runtime" TIMEOUT 30)
 
+# DEC-110 / M7-25 input session contract: platform-neutral golden
+# reconciliation (capabilities, budgets, states/events, full transition
+# matrix, key vocabulary, command matrix) plus the legacy chord-vocabulary
+# regression that shares the base-key table.
+add_executable(input_session_contract_test desktop/input_session_contract_test.cpp)
+target_compile_definitions(input_session_contract_test PRIVATE
+    MIRAGE_INPUT_SESSION_CONTRACT_GOLDEN="${CMAKE_CURRENT_SOURCE_DIR}/desktop/data/m7_input_session_contract.json")
+target_link_libraries(input_session_contract_test PRIVATE Mirage::desktop Mirage::integration_mira Mirage::kairo_consumer)
+mirage_enable_warnings(input_session_contract_test)
+add_test(NAME input_session_contract_test COMMAND input_session_contract_test)
+set_tests_properties(input_session_contract_test PROPERTIES LABELS "unit;desktop" TIMEOUT 30)
+
 # POSIX-coupled: the pretimeout scenario sleeps through <poll.h>; see the
 # ppocr_pipeline_test note above.
 if(UNIX)

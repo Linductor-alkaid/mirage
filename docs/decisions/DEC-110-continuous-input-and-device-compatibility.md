@@ -1,10 +1,12 @@
 # DEC-110：连续键鼠动作、持键观察与设备输入兼容性
 
-> 状态：Proposed（维护者要求构造决策；契约、预算和后端选型待冻结）
+> 状态：Proposed（M7-25 契约与预算冻结稿已交付待评审；平台选型分别在 M7-29/30 原型前冻结，质量门槛在 M7-31 执行前冻结）
 > 日期：2026-10-19
 > 负责人：Mirage 维护者
 > 冻结里程碑：M7-25；平台选型分别在 M7-29/30 原型前冻结，质量门槛在 M7-31 执行前冻结
 > 替代/被替代：无；拟扩展 DEC-052/054/064/077/100，与 DEC-091/109 协同
+> 修订：2026-10-19 新增"M7-25 契约冻结稿"一节（能力位、会话键词表、预算数值、
+> 状态机、版本化回执），代码与 golden 对账已验证；评审通过前本节仍为冻结稿。
 
 ## 背景与问题
 
@@ -162,6 +164,61 @@ Runtime Service 保持进程内唯一 Executor owner，Task/动作会话显式�
 realtime/low-latency 路径，先核对 pinned 公开能力、平台条件并单独验收。关闭顺序为
 停止动作生产者/准入 → 取消并释放 → 唤醒/回收 I/O worker → 结算有限任务与句柄 →
 外部非 worker owner `shutdown(true)`；清理失败保留封锁和失败事实。
+
+## M7-25 契约冻结稿（待评审）
+
+平台中立契约落在 `desktop/environment/include/mirage/desktop/input_session.hpp`（实现
+`input_session.cpp`），机器可读冻结稿与完整状态/负向矩阵为
+`tests/desktop/data/m7_input_session_contract.json`，由 `input_session_contract_test`
+与代码逐项对账。以下为冻结内容摘要；数值调整须升 `budget_version` 并同步 golden。
+
+### 能力位（声明顺序即位序）
+
+`software_injection`、`smooth_move`、`timed_press`、`independent_modifiers`、
+`cross_observation_hold`、`hold_capture`、`key_repeat`、`ime_state`、`ime_control`、
+`kernel_virtual_device`、`external_hid`。后端在会话准入时声明固定集合；任何命令都要
+求至少一个注入源位（software_injection / kernel_virtual_device / external_hid），
+能力缺席在副作用前拒绝。
+
+### 会话键词表
+
+- base 键复用 InputProvider KeySym 基词表（可打印字符、命名键、f1..f12）。
+- 裸修饰符 `ctrl`/`alt`/`shift`/`meta`：逻辑修饰键；平台区分左右时后端映射到左侧
+  物理键并在回执/文档如实标注。
+- 带边修饰符 `ctrlleft`/`ctrlright`、`altleft`/`altright`、`shiftleft`/`shiftright`、
+  `metaleft`/`metaright`：显式物理键位；不区分左右的后端必须拒绝。
+- 组合前缀（`ctrl+c` 等）不是会话键名：会话以独立 down/up/tap 命令序列表达组合，
+  旧工具的完整 chord 词表与语义不变（`parse_key_chord("shift")` 仍拒绝）。
+
+### 预算数值（budget_version = 1）
+
+| 预算 | 冻结值 | 依据 |
+| --- | --- | --- |
+| 单会话最大持有键/按钮数 | 4 | Alt-Tab、Shift+Tab、鼠标按住类任务的实际组合上限 |
+| 单会话最大命令数 | 64 | 有界存量；超过须显式重新准入 |
+| 平滑移动轨迹点数 | 上限 64，默认 32 | 覆盖全桌面跨度的采样下限，同时限制在途事件 |
+| 平滑移动时长 | 50–2000 ms | 下限防瞬移冒充平滑；上限约束 hover 副作用暴露窗口 |
+| 单次定时按压 dwell | ≤ 1500 ms | 完整动作在一次命令内结束；更长按住须走会话预算 |
+| 无指令期限（含反馈等待） | 15 s | 覆盖截图+OCR+模型决策的典型往返；重复观察不续期 |
+| 会话总时长 | 60 s | Alt-Tab/蓄力类任务的保守上界；只可显式重新准入 |
+
+默认平滑配置为 `minimum_jerk_v1`（可复现 minimum-jerk 加减速，无随机抖动/过冲）。
+
+### 状态机与回执
+
+状态 `ready → executing ⇄ awaiting_feedback → releasing → released`，释放或状态确认
+失败进入 `fenced`；完整 6×8 状态×事件矩阵（含全部拒绝项）以 golden 为准。回执
+`version = 1`，区分 `admitted/delivered/holding/released/uncertain`，携带状态版本、
+命令序号、budget_version、剩余命令数与无指令预算、持有投影、副作用与
+`release_confirmed`（仅在 released 置位；正常持有不复用旧 `input_released` 语义）。
+
+### 迁移
+
+旧工具（`desktop.input.key`/`click`/`type_text` 等）保持已验完整动作语义与回执；
+持键回执为版本化新形态，旧客户端不订阅、不消费。会话 begin/advance/observe/release
+是逻辑操作，本轮不注册新工具名；工具暴露在 M7-26/27 接线时按本冻结 schema 与
+golden 执行。取消/超时/接管/撤权/设备断连/shutdown 从任一活动态进入 releasing，
+终态幂等。
 
 ## 依赖与备选方案
 

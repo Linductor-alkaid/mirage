@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include <mirage/desktop/cancellation.hpp>
 #include <mirage/desktop/desktop_observation.hpp>
@@ -188,6 +189,12 @@ std::optional<KeyChord> parse_key_chord(const std::string &name);
 /// implementations must reject invalid names with "invalid_argument" before
 /// any injection.
 bool is_valid_key_name(const std::string &name);
+
+/// True when `name` is one base key of the KeySym vocabulary (a printable
+/// character or a named key, without modifier prefixes). Shared so the
+/// session-layer vocabulary (input_session.hpp) extends exactly this table
+/// instead of duplicating it.
+bool is_base_key_symbol(std::string_view name);
 
 /// Returns true when `text` is well-formed UTF-8 (type_text contract).
 bool is_valid_utf8(const std::string &text);

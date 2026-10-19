@@ -32,7 +32,7 @@
 
 | 编号 | 状态 | 结果与验收 | 前置与冻结点 |
 | --- | --- | --- | --- |
-| M7-25 | Proposed | 冻结 InputProvider 能力、时序/键词表、会话状态与租约、版本化回执、权限、任务 owner、预算和迁移方案；schema/golden 及状态/负向矩阵可评审 | DEC-110 评审；本项结束前冻结数值预算和新默认值 |
+| M7-25 | In Progress（契约冻结稿待评审） | 已交付平台中立契约层 `input_session.hpp/.cpp`（能力位、会话键词表、预算数值、状态机、版本化回执）与 golden/负向矩阵 `m7_input_session_contract.json`，`input_session_contract_test` 对账通过（1224 检查项）；维护者评审通过后本项标 Completed | DEC-110 评审；冻结摘要见 DEC-110"M7-25 契约冻结稿"；评审意见可直接调整数值并升 budget_version |
 | M7-26 | Proposed | 平滑移动、定时按压、独立修饰键和组合交叠；真实事件轨迹/时间、点击/拖动/hover、hold/repeat、落后停止与取消清理证据 | M7-25；逐后端能力 opt-in |
 | M7-27 | Proposed | 同一 owner 跨工具观察保持输入；Alt-Tab 正反向及持键显示瞬态界面；模型失联、拒绝、超时、撤权、接管、shutdown、迟到命令与释放失败封锁 | M7-25/26；普通持键与等待决策预算分别验证 |
 | M7-28 | Proposed | IME/布局/模式/预编辑与候选状态的部分可观测投影；单独 Shift、候选提交、切窗焦点和最终文本验收，缺状态显式 unknown | M7-25/26，跨轮候选场景接 M7-27；与 M9-15 前端 IME 干扰区分 |
@@ -60,7 +60,7 @@ lease、键状态、任务/timer 句柄与清理结果。有限推进消费 futu
 
 | 项目 | 处置/解除条件 | 负责人 |
 | --- | --- | --- |
-| 持键回执与现行 input_released 语义冲突 | M7-25 冻结版本化状态，旧客户端不接新持键回执 | Mirage 维护者 |
+| 持键回执与现行 input_released 语义冲突 | M7-25 冻结稿已定版本化回执 v1：`holding` 独立表达正常持有，`release_confirmed` 仅在 released 置位，旧客户端不接新持键回执；待评审 | Mirage 维护者 |
 | 焦点切换与物理输入竞争 | 明确允许的转换、接管与封锁，受控和真实桌面验证 | Mirage 维护者 |
 | 模型等待期间预算耗尽 | 不无限续期，释放并回报真实副作用，慢模型/失联故障注入 | Mirage 维护者 |
 | 未知具体过滤应用 | 先用有规则 fixture；真实应用清单与环境到位前兼容性收益保持未验证 | Mirage 维护者 |
@@ -88,3 +88,13 @@ lease、键状态、任务/timer 句柄与清理结果。有限推进消费 futu
 2026-10-19：依据维护者讨论新增 DEC-110 与 M7-25～31 Proposed 项，同步 M7、
 总计划、主设计提案索引及调研。仅检查本轮文档差异、编号、链接和空白；未改变
 产品或 pin，未执行构建、模型/桌面输入、设备/驱动原型或平台验收。
+
+2026-10-19：M7-25 契约冻结稿交付。`desktop/environment` 新增平台中立契约层
+（`input_session.hpp`/`input_session.cpp`，纯类型与纯函数，无并发路径）与 golden
+`tests/desktop/data/m7_input_session_contract.json`；独立验证代理编写
+`input_session_contract_test`（1240 检查项：golden 全量对账、48 条状态×事件矩阵、
+键词表往返、30 条命令正负矩阵、旧 chord 词表回归、回执默认值），debug 与 ASan
+均通过（0 失败、无 sanitizer 报告），既有 action/provider/basic_contract 回归通过。
+第一轮发现并修复两处冻结稿缺陷（`input_session_outcome_name` 缺定义；golden 8 行
+命令用例缺注入源能力位），复验确认修复未引入语义偏差。未接线 Runtime/Provider、
+未注册工具、未执行真实输入或平台验收；M7-25 完成待维护者评审。
