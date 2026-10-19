@@ -52,6 +52,7 @@ struct DesktopEvidence {
 };
 // Read-only display projection of DEC-056 metadata; does not confer tool authority.
 std::optional<DesktopEvidence> desktop_evidence(const Part &);
+// Includes strict JSON/UTF-8 validity, as well as structural and display budgets.
 bool valid_parts(const std::vector<Part> &parts);
 // DEC-104: retain a generated answer even when task verification failed. Call
 // after settling parts; bounded final text takes priority over earlier text.

@@ -1566,7 +1566,7 @@ if(UNIX)
 mirage_add_test(basic_agent_toolset_test
     SOURCES integration/basic_agent_toolset_test.cpp ${CMAKE_SOURCE_DIR}/runtime/service/src/basic_output_store.cpp
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/runtime/service/include
-    LIBS Mirage::integration_mira Mirage::desktop Mirage::platform
+    LIBS Mirage::integration_mira Mirage::desktop Mirage::platform Mirage::ipc Mirage::persistence
     LABELS "integration;runtime"
     TIMEOUT 120
     )

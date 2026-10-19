@@ -133,7 +133,9 @@ bool valid_parts(const std::vector<Part> &parts) {
     // Total budget must not exceed max_content_bytes.
     if (tool_bytes + text_bytes + thinking_bytes > max_content_bytes)
         return false;
-    return true;
+    // Strings in JsonValue can hold arbitrary process/provider bytes. Structural
+    // budgets alone do not guarantee that IPC/persistence can parse the result.
+    return mira::parse_json(encode_parts(parts)).has_value();
 }
 std::string encode_parts(const std::vector<Part> &parts) {
     mira::JsonValue::Array array;

@@ -6,6 +6,7 @@
 // pinned error vocabulary. Handlers never throw and never touch the OS
 // directly (integration does not call OS file APIs).
 
+#include <mirage/desktop/input_provider.hpp>
 #include <mirage/integration/basic_agent_toolset.hpp>
 
 #include <mira/json.hpp>
@@ -230,6 +231,21 @@ std::string trim_preview(std::string content, std::size_t max_bytes, bool &trunc
             break;
         }
         ++pos;
+    }
+    // ProcessProvider captures bytes; its cap may already have split the last
+    // codepoint. Keep a complete UTF-8 prefix, including when our own cap cut it.
+    // Binary/malformed streams stay in retention, never enter model/UI JSON.
+    if (!desktop::is_valid_utf8(content)) {
+        if (truncated) {
+            const auto size = content.size();
+            for (std::size_t removed = 1; removed <= 3 && removed <= size; ++removed) {
+                auto prefix = content.substr(0, size - removed);
+                if (desktop::is_valid_utf8(prefix))
+                    return prefix;
+            }
+        }
+        truncated = true;
+        return std::string{"[non-UTF-8 output omitted]"}.substr(0, max_bytes);
     }
     return content;
 }

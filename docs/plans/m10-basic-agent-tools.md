@@ -423,3 +423,14 @@ debug/asan/ubsan/tsan 四 preset 全绿，ASAN/UBSAN/TSAN 报告 0；全量 debu
 源码级核对（含 Windows 拒绝分支与 exec-无-workspace 提前返回）；旗标与设置块混合
 优先级组合矩阵未逐项实测（门控语义源码核对一致）。UX 记录：仅传 --write-root 不带
 组开关时写根静默不生效（符合整组覆盖规格，产品提示归 UI 后续）。
+
+
+### 2026-10-19：M10-07/08 任务事件退出修复
+
+exec 输出可能在字符中间触及字节预算，或本身包含非 UTF-8 字节；修复预览映射及
+过程投影的编码校验，防止无效 parts 破坏所有事件订阅者与会话历史。
+依据 DEC-095/049，实施状态和测试证据见
+[维护记录](maintenance-ui-exit-20261019.md)。不关闭 M10 的其他平台门禁。
+
+本次 Linux 维护子项已完成：Release 103/103，ASAN/UBSAN 各 6/6（含 fixture），
+真实 GNOME/XWayland 重开与状态同步存活 8/8；原失败会话恢复可读。详见上述维护记录。

@@ -215,7 +215,12 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
                 if (record.status != "pending")
                     return; // terminal settlement is idempotent
                 event.timings = completion.timings.empty() ? record.timings : completion.timings;
-                event.parts = completion.parts.empty() ? record.parts : completion.parts;
+                const bool invalid_parts = !conversation::valid_parts(completion.parts);
+                if (invalid_parts)
+                    std::cerr << "mirage-service: invalid terminal process projection; retaining "
+                                 "last valid snapshot\n";
+                event.parts =
+                    completion.parts.empty() || invalid_parts ? record.parts : completion.parts;
                 for (auto &part : event.parts)
                     if (part.status == "pending" || part.status == "running")
                         part.status = completion.cancelled ? "cancelled" : "failed";

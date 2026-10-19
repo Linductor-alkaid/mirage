@@ -21,3 +21,14 @@ Mirage 复用 pinned IModelProvider 的规范 ThinkingPart/MessageOutput/ToolCal
 旧轮省略以history.truncated显式标记，最新单轮也无法容纳时明确拒绝。
 会话文件预算由512KiB扩大至固定8MiB，JSON解码使用同一上限；仍严格限制每会话/轮/字段，
 不无限增大或吞掉存储失败。容量验收包含大于默认JSON4MiB文档限制的真实历史恢复。
+
+
+## 2026-10-19：过程编码校验修正
+
+`valid_parts` 除结构和容量外还通过 pinned Mira JSON 公开编解码验证 UTF-8，
+不再把任意字符串字节视为可广播的过程记录。终态 completion 提供无效 parts 时，
+Runtime 保留最后一次通过校验的快照并输出不含内容的诊断，再按原终态规则结算工具。
+不会把 parse_json 的失败值嵌入 IPC 或持久化为 `parts: {}`。schema 不变，严格解码
+仍拒绝损坏历史；既有损坏文件须备份后明确修复，不能伪造已丢失的工具内容。
+
+依据与验证见[任务事件退出维护记录](../plans/maintenance-ui-exit-20261019.md)。
