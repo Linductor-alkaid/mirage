@@ -67,5 +67,9 @@ X11 支持 ASCII/现有键盘映射及换行；中文缺映射时整批在派发
 真实 X11 点击/组合键/换行、中文整体拒绝与物理按下状态；Debug/Release、ASAN/UBSAN、
 TSAN 和既有回归。实现状态与实际证据追加到 [M7](../plans/m7-visual-tools-and-input.md)。
 
+2026-10-19：跨观察持键及设备层输入的后续扩展见
+[DEC-110](DEC-110-continuous-input-and-device-compatibility.md)（Proposed）。本记录的
+单次完整动作与释放失败语义继续生效，新会话须独立版本化，不能直接开放无主 down/up。
+
 关联：[DEC-052](DEC-052-visual-tools-and-input.md)、[DEC-053](DEC-053-conversation-desktop-tool-registration.md)、
 [兼容性证据](../compatibility/scoped-complete-input-20261009.md)。

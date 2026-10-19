@@ -8,6 +8,11 @@
 > 本地基线：Mirage HEAD `741fa00` 加现有工作树；Mira `a29374a`、Mirador `cb45a10`
 > 范围：公开研究、官方平台文档与当前源码只读核对；未运行真实输入或修改依赖
 
+2026-10-19 后续：按维护者要求构造
+[DEC-110](../decisions/DEC-110-continuous-input-and-device-compatibility.md)（Proposed），
+新增 [M7-25～31](../plans/m7-continuous-input-and-device-compatibility.md)跟踪契约、动作、
+持键、IME 和设备兼容性；本调研不作为上述实现或平台验收完成的证据。
+
 ## 1. 结论
 
 用户提出的能力有充分研究和平台机制可参考。应分别处理四个问题：鼠标轨迹与时序、

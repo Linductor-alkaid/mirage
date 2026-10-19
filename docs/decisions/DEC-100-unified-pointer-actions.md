@@ -32,3 +32,8 @@ X11 编号/区域滚动与拖动仍限同一前台窗口，窗口、焦点、遮
 公共结构/虚函数变化须配套重编译。Windows 未交付完整动作 opt-in，本轮不声明 Windows
 实现或实测完成。以 Linux X11 实际事件、GTK 控件效果、Portal 注入边界、三类工具
 参数/权限/观察/后条件测试验证；真实 Wayland 和 Windows 由维护者在目标平台补验。
+
+2026-10-19：连续轨迹、持键观察与设备输入兼容性的候选扩展见
+[DEC-110](DEC-110-continuous-input-and-device-compatibility.md)（Proposed），实施跟踪为
+[M7-25～31](../plans/m7-continuous-input-and-device-compatibility.md)。本记录既有
+完整动作预算和已验平台范围保持，新轨迹与时序需另行 opt-in 和验收。

@@ -10,6 +10,12 @@
 
 ## 当前状态
 
+2026-10-19：[DEC-110](../decisions/DEC-110-continuous-input-and-device-compatibility.md)
+（Proposed）与 [M7-25～31 专项计划](m7-continuous-input-and-device-compatibility.md)
+提出连续键鼠动作、跨观察持键、IME 状态及设备层输入兼容性。虚拟设备/外接 HID
+针对应用过滤软件输入的需求，与动作能力并行评估；本轮仅构造决策与计划，未改变
+产品默认值、依赖或平台验收状态。
+
 M10-07/08 的工具预览编码与任务事件退出问题按
 [维护记录](maintenance-ui-exit-20261019.md)修复，沿用 DEC-049/095 的契约与预算。
 
@@ -489,6 +495,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 
 | 编号 | 主题 | 暂定默认值 | 负责人 | 最迟冻结 |
 | --- | --- | --- | --- | --- |
+| DEC-110 | 连续输入与设备兼容性 | Proposed：有时序动作与受控持键会话；IME 状态反馈；内核虚拟设备/外接 HID 分别验证应用兼容性，具体预算、schema 与后端选型待冻结 | Mirage 维护者 | M7-25；设备原型前 M7-29/30，任务阈值执行前 M7-31 |
 | DEC-095 | 基础 Agent 工具集 | Proposed：四工具/alias、观察与提交点、预算、权限迁移和平台边界见提案 | Mirage 维护者 | M10-02 |
 | DEC-090 | 持续任务与有界资源 | 方向 Accepted；无进展判定、公开循环 API/准入及存量在实施前冻结 | Mira/Mirage 维护者 | M9-01～04 |
 | DEC-091 | 文本观察与本地闭环 | 方向 Accepted；观察/引用/增量字段、连续帧资源预算、对象语义标定/继承、跟踪及动作/等待 schema 待冻结 | Mirage 维护者 | M9-05/07/08/09/10/13 |

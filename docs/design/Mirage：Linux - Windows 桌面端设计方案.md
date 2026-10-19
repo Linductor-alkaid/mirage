@@ -249,6 +249,23 @@ activate(element_ref)
 
 这样 Mira 的 Workflow 和 Agent 行为可以尽可能保持平台无关。
 
+### 5.1 连续输入与设备兼容性提案
+
+[DEC-110](../decisions/DEC-110-continuous-input-and-device-compatibility.md)（2026-10-19，
+Proposed）拟扩展 InputProvider：提供从当前位置出发的平滑移动、定时按压、独立
+修饰键及由 Task 所有的跨观察持键会话。Runtime 保持单写者，持键期间可取图并
+继续决策；取消、接管、失联、撤权与关闭必须释放并报告结果。正常受控持有与
+释放失败分开表达，具体 schema、预算与旧客户端兼容在 M7-25 冻结。
+
+设备层输入为提高应用兼容性的独立需求：针对过滤软件注入或依赖设备输入的应用，
+并行评估 Linux uinput / Windows VHF 与外接 USB HID。平台设备/驱动/协议留在
+Backend，共享动作语义与所有权；按具体应用、版本和环境验证接收与业务效果。
+活动会话不热切换设备，未知副作用不自动换后端重发。输入法状态与候选选择独立
+建模，设备输入不代替焦点、布局和文本回显验证。
+
+后续实施与验收见 [M7-25～31](../plans/m7-continuous-input-and-device-compatibility.md)。
+本节为提案索引，DEC-054/100 的现有完整动作及当前授权/释放契约继续生效。
+
 ## 6. Desktop Observation
 
 Mirage 向 Mira 提供的桌面状态应表示为结构化 `DesktopObservation`。

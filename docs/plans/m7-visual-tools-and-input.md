@@ -27,6 +27,11 @@
 
 ## 设计与决策依据
 
+- [DEC-110](../decisions/DEC-110-continuous-input-and-device-compatibility.md)（Proposed）
+  规划连续动作、持键观察、IME 与设备输入兼容性；
+  [M7-25～31 专项计划](m7-continuous-input-and-device-compatibility.md)承载后续契约与验收，
+  不改变现有完整动作默认值或已验平台范围。
+
 - [DEC-068](../decisions/DEC-068-bundled-vision-and-recoverable-tool-rejection.md) 冻结默认视觉包与可证明无副作用的工具拒绝恢复。
 
 - [能力调研](../research/2026-10-09-visual-tools-and-input-capability-review.md)。
@@ -40,6 +45,11 @@
 - pinned mirador/kairo 集成指南；沿用已交付管线和 Runtime owner。
 
 ## 工作项
+
+- [ ] `M7-25`～`M7-31` **Proposed**：连续动作/跨观察输入会话、IME、虚拟设备与
+  外接 HID 兼容性，以及实际模型/平台验收；稳定编号、前置、冻结点和退出条件见
+  [专项计划](m7-continuous-input-and-device-compatibility.md)。设备兼容性与动作能力
+  并行评估，各平台未验证项保持开放。
 
 - [ ] `M7-24` **In Progress**：DEC-108，同轮次、授权/epoch/精确 PNG 身份一致时复用
   成功 OCR；保留权限、取消、新帧和坐标边界。见[性能维护计划](maintenance-performance-20261019.md)。
@@ -1155,3 +1165,9 @@ ASAN/UBSAN/TSAN 专项各 7/7，私有原生产品 + PP-OCR 66/66，详见证据
 同轮精确 PNG/epoch/authority 一致时复用成功 OCR，41 次请求仅一次分析；新 epoch、ROI、失败与撤权回归通过。
 详见[性能记录](../benchmarks/native-runtime-pet-20261019.md)和
 [维护计划](maintenance-performance-20261019.md)。
+
+### 2026-10-19：M7-25～31 连续输入与设备兼容性提案
+
+维护者要求构造决策。新增 DEC-110 与专项计划，覆盖自然时序、持键取图/决策、
+输入法状态和过滤软件注入场景的设备输入路线；仅完成文档核对，未实施、未安装
+驱动/硬件、未执行真实输入验收。工作项为 Proposed，负责人和补跑条件见专项计划。
