@@ -6,9 +6,23 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-10-20（DEC-111 跨平台目标文本验证决策；既有里程碑状态保留）
+> 更新日期：2026-10-20（DEC-111 文本验证与 DEC-109 低资源连续感知补充；既有里程碑状态保留）
 
 ## 当前状态
+
+2026-10-20：按维护者要求补充 DEC-091/109：高频轻量观测、变化触发结构更新、
+低频按需 VLM；Mirador 管通用视觉状态，Mira 管任务注意/理解策略，Mirage 管
+采集、调度、产品绑定与动作反馈。当前快照加有界事件日志，先做增量基线、稳定
+身份与事件，再扩展语义解释；MiniCPM-o 4.5 仅参考视觉 token 压缩与时分复用机制，
+不纳入模型后端选型。长期视觉记忆另行立项。
+研究核对见[映射记录](../research/2026-10-20-event-driven-incremental-visual-perception.md)，
+M9-05/07/08/11/12/13/18 验收范围同步，原有未完成状态与平台门禁保留。
+
+端侧低负载补充：首先接通现有变化结果对 OCR/检测的实际门控，减少重复采集/
+拷贝/编码；无消费者停止生产、静态退避、阶段按需选择。基础方案不新增常驻
+编码器、本地 VLM 或推理 GPU 要求，时间分组不另起周期循环。M9-01/07/11/12
+按低端参考设备预登记并验收全产品资源与交互门槛，见
+[资源门禁](../design/m9-resource-and-progress-policy.md)，不能用 token 节省代替。
 
 2026-10-20：[DEC-111](../decisions/DEC-111-target-text-value-verification.md) 已接受
 跨平台目标文本验证方案：系统无障碍读值首选，受控复制可选，局部视觉回退；值条件
@@ -505,7 +519,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | DEC-110 | 连续输入与设备兼容性 | Proposed：M7-25 契约与预算冻结稿已交付待评审（能力位、会话键词表、状态机、版本化回执）；时序动作与受控持键接线、IME 状态反馈、内核虚拟设备/外接 HID 兼容性验证待后续工作项 | Mirage 维护者 | M7-25 评审；设备原型前 M7-29/30，任务阈值执行前 M7-31 |
 | DEC-095 | 基础 Agent 工具集 | Proposed：四工具/alias、观察与提交点、预算、权限迁移和平台边界见提案 | Mirage 维护者 | M10-02 |
 | DEC-090 | 持续任务与有界资源 | 方向 Accepted；无进展判定、公开循环 API/准入及存量在实施前冻结 | Mira/Mirage 维护者 | M9-01～04 |
-| DEC-091 | 文本观察与本地闭环 | 方向 Accepted；观察/引用/增量字段、连续帧资源预算、对象语义标定/继承、跟踪及动作/等待 schema 待冻结 | Mirage 维护者 | M9-05/07/08/09/10/13 |
+| DEC-091 | 文本观察与本地闭环 | 方向 Accepted；增量状态/事件驱动理解/按需 VLM，观察与事件契约、连续帧预算、语义绑定/跟踪及动作/等待 schema 待冻结（DEC-109 细化） | Mirage 维护者 | M9-05/07/08/09/10/13/18 |
 | DEC-092 | Native pet 完整交付 | 默认携带/自动启动 Accepted；聚合目标、布局、能力/版本诊断在实施前冻结；显式偏好另属 M8-08 | Mirage 维护者 | M8-12/08 |
 | DEC-002 | Mira TLS 通道适配器 | 已定案（[DEC-002](../decisions/DEC-002-build-test-baseline.md) 变更记录）：`MIRA_WITH_MBEDTLS=OFF` 于 M2 复核冻结（运行面无模型网关/TLS 传输，mbedtls pinned 子模块在位可随时重开）；接入真实模型网关且通道要求 Mbed TLS 时按记录触发条件重开 | Mirage 维护者 | M2（已冻结） |
 | DEC-004 | Mira Host 状态集 | 已定案（[DEC-004](../decisions/DEC-004-mira-host-status-set.md)）：五态 `Stopped/Starting/Running/Stopping/Failed`，M1 冻结并写入设计文档第 11.1 节 | Mirage 维护者 | M1（已冻结） |

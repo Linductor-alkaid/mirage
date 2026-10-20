@@ -37,6 +37,18 @@ Mirage 保留并通过增量观察复用；标定不是每帧描述。其归属�
 
 ### 2. 感知按变化和目标需求调度
 
+2026-10-20 补充：连续帧采用轻量级增量视觉状态、事件驱动语义理解与按需 VLM
+分层；Mirador 承载通用视觉融合、跨帧身份、空间关系和差分，Mira 提供任务注意
+与升级策略，Mirage 承载采集、kairo 调度、产品绑定及动作反馈关联。先交付状态、
+身份与事件，再扩展高级语义及另行立项的长期视觉记忆。具体待冻结契约和研究
+边界见 [DEC-109 第 0/8 节](DEC-109-continuous-perception-attention-and-pet-coexistence.md)。
+MiniCPM-o 4.5 仅用于参考视觉 token 压缩与时分复用机制；不纳入后端选型，
+不引入常驻 Video-LLM 或每帧描述路径。
+
+端侧低负载优先：先复用现有帧、视觉 worker、VisualScene 与模型供给，接通变化
+结果对昂贵阶段的门控，不新增常驻神经编码器或推理 GPU 要求。时间组织在消费
+时装配，不要求周期唤醒模型；资源与质量按 DEC-109 的产品门禁联合验收。
+
 Platform Backend 承载授权采集。Runtime 组织一个图像源一个串行 perception
 owner，复用现有 kairo blocking worker；共享帧用 LatestMailbox 合并，快照发布
 复用 DoubleBuffer/Topic 等公开原语。无任务/订阅需求时暂停感知，关闭时先停止
