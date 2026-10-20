@@ -399,3 +399,20 @@ click 和 drag 均可选择 `button=left/middle/right`（默认 left）；click 
 `"button":"middle","destination_x":150,"destination_y":150,
 "destination_width":20,"destination_height":20` 字段。此处仅展示新增参数，
 调用仍必须提供各路径的 scope/epoch/目标与 verify_kind。
+
+## 目标文本值与复制验证（DEC-111，待实现）
+
+[DEC-111](../decisions/DEC-111-target-text-value-verification.md) 冻结后续平台中立的
+`text_value_equals`：动作前绑定同一目标、完整预期值、比较规则及允许的取证方法。
+无障碍读值首选；可靠实际值不等不能被 OCR 放行，读取不可用和视觉未匹配不能冒充
+派发失败。无确定性读取时在动作前选择视觉路径，不把模型读图投影成精确值成功。
+既有固定条件／不确定执行围栏和历史回执不因文档更新而改变。
+
+受控复制默认关闭；只有目标／焦点、新复制来源、多格式剪贴板及选区的有界恢复
+均可证明时才可选。复制、恢复是事前声明复合操作内的真实副作用，使用现有权限与
+输入 owner；只读 action.verify 不允许发送探测按键。用户／其他程序写入后不覆盖
+新剪贴板；恢复失败和来源不明显式记录。受保护输入不读值、不复制，普通事件／历史
+不增加文本值或原剪贴板正文。当前纯文本 ClipboardProvider 不满足多格式恢复条件。
+
+新路径由 [M7-32～34](../plans/m7-target-text-verification.md) 实施和分平台验收；
+本次决策未交付这些能力，不扩大现有输入或剪贴板权限。

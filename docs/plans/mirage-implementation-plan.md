@@ -6,9 +6,15 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-10-19（M6-46 失败正文保留；M6-43 会话上下文快照补齐；M8-06 排除与隐藏暂停增量；既有里程碑状态保留）
+> 更新日期：2026-10-20（DEC-111 跨平台目标文本验证决策；既有里程碑状态保留）
 
 ## 当前状态
+
+2026-10-20：[DEC-111](../decisions/DEC-111-target-text-value-verification.md) 已接受
+跨平台目标文本验证方案：系统无障碍读值首选，受控复制可选，局部视觉回退；值条件
+与图像观察分别声明，OCR 未命中不能等同派发失败。
+[M7-32～34](m7-target-text-verification.md) 为 Planned；本次仅文档，直接读值、
+复制事务、默认选路及各平台验收尚未交付，不改变已有门禁与完成声明。
 
 2026-10-19：[DEC-110](../decisions/DEC-110-continuous-input-and-device-compatibility.md)
 （Proposed）与 [M7-25～31 专项计划](m7-continuous-input-and-device-compatibility.md)

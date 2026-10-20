@@ -90,3 +90,13 @@ desktop.* 工具）都重新支撑回答；失败后的成功观察之前的不�
 视觉失败且无后续观察仍然回合失败。同轮为 `pointer_origin_unknown` 拒绝引入 canonical
 回执顶层 `hint` 字段（failure_receipt 新参，truncate 160，>512 降级只替换
 message/error_code，hint 存活）。其余契约继续有效。
+
+## 2026-10-20 目标文本验证设计扩展（待实现）
+
+[DEC-111](DEC-111-target-text-value-verification.md) 接受新增 `text_value_equals`
+固定值条件：绑定同一控件，优先系统无障碍读取，事前获准的受控复制可验证同一条件。
+可靠实际值不等不能用较弱 OCR 覆盖；读取不可用与 OCR 未匹配不推导为派发失败。
+无确定性读取时在动作前选择视觉观察条件，禁止事后把固定值条件降低为新帧条件。
+`action.verify` 保持只读，不派发复制按键。原 OCR 存在条件和既有未验证动作不自动
+迁移；当前实现仍遵循原契约，新能力由 [M7-32～34](../plans/m7-target-text-verification.md)
+独立实施和验收。

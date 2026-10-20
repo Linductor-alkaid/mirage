@@ -8,7 +8,7 @@
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：M2/M3 桌面与视觉适配；M6 当前原生会话/托盘 Runtime owner
 > 建议发布点：桌面工具预览版（名称与 tag 由维护者另定）
-> 更新日期：2026-10-19
+> 更新日期：2026-10-20
 
 ## 目标
 
@@ -26,6 +26,10 @@
 取证，不以 X11 结果代替其他平台。完整图片附件管理不是桌面截图工具的前置。
 
 ## 设计与决策依据
+
+- [DEC-111](../decisions/DEC-111-target-text-value-verification.md)（Accepted）冻结
+  目标实际文本读取首选、受控复制可选、局部视觉回退及固定条件恢复边界；
+  [M7-32～34 专项计划](m7-target-text-verification.md)为 Planned，尚未交付实现。
 
 - [DEC-110](../decisions/DEC-110-continuous-input-and-device-compatibility.md)（Proposed）
   规划连续动作、持键观察、IME 与设备输入兼容性；
@@ -45,6 +49,10 @@
 - pinned mirador/kairo 集成指南；沿用已交付管线和 Runtime owner。
 
 ## 工作项
+
+- [ ] `M7-32`～`M7-34` **Planned**：目标文本读取／固定值条件、受控复制事务、
+  默认选路及真实平台验收，分别按[专项计划](m7-target-text-verification.md)推进。
+  原 M7-08 Linux X11 局部条件历史验收保持；新增值契约不标记为已实现。
 
 - [ ] `M7-25` **In Progress（冻结稿待评审）**：连续动作/跨观察输入会话的契约层与
   golden 状态/负向矩阵已交付并通过独立对账测试（见专项计划验证记录）；`M7-26`
