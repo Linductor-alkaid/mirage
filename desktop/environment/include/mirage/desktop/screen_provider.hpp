@@ -124,7 +124,7 @@ struct DesktopAuthorizationView {
 /// DEC-077: stream-local complete input. Coordinates refer to a captured image,
 /// never to global desktop pixels. No held-press API is exposed.
 struct SharedInputAction {
-    enum class Kind { Click, Key, Text, Scroll, Drag };
+    enum class Kind { Click, Key, Text, Scroll, Drag, Move };
     Kind kind = Kind::Click;
     double x = 0, y = 0;
     std::int32_t image_width = 0, image_height = 0;
@@ -138,6 +138,20 @@ struct SharedInputAction {
     /// session's own last dispatched position); unknown origins refuse the
     /// action before any effect instead of teleporting.
     std::uint32_t glide_ms = 0;
+    /// Internal Move step: automatic approach before a click, within the
+    /// same action lease. Not exposed as a separate model tool.
+    std::int32_t target_width = 0;
+};
+
+/// Read-only pointer snapshot in this capture session's FRAME pixels.
+/// A successful query belongs to the stated source frame, never global coords
+/// or another session's last injected position.
+struct SharedPointerQueryOutcome {
+    bool ok = false, cancelled = false;
+    PointerPoint position;
+    std::int32_t image_width = 0, image_height = 0;
+    std::uint64_t source_sequence = 0;
+    ProviderError error;
 };
 
 /// One caller-owned observation session (DEC-074). Calls must be serialized;
@@ -146,6 +160,11 @@ struct SharedInputAction {
 class DesktopCaptureSession {
   public:
     virtual ~DesktopCaptureSession() = default;
+    /// Read already-acquired stream metadata; no authorization UI or input.
+    virtual SharedPointerQueryOutcome pointer_position(const CancelToken &) {
+        return {false, false, {}, 0, 0, 0,
+                {"pointer_origin_unknown", "Shared cursor metadata is unavailable"}};
+    }
     virtual CaptureOutcome capture(const CaptureLimits &, const CancelToken &) = 0;
     /// Backends with authorization/connection setup defer the lease until
     /// pixels can be acquired. The default brackets only the capture call.

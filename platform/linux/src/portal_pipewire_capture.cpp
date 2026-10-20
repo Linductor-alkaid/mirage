@@ -28,6 +28,7 @@ struct Capture {
     pw_buffer *pending = nullptr;
     std::uint64_t source_sequence = 0;
     std::optional<desktop::ImageFrame> latest;
+    std::optional<desktop::PointerPoint> cursor;
     std::int64_t latest_pts_ns = 0;
     ~Capture() {
         if (pending && stream)
@@ -58,13 +59,38 @@ void param_changed(void *data, std::uint32_t id, const spa_pod *param) {
         return;
     // A format change invalidates the previously retained frame before parsing.
     capture.latest.reset();
+    capture.cursor.reset();
     if (capture.pending) {
         pw_stream_queue_buffer(capture.stream, capture.pending);
         capture.pending = nullptr;
     }
     capture.formatted =
         SPA_POD_SIZE(param) <= 4096 && spa_format_video_raw_parse(param, &capture.format) >= 0;
-    if (!capture.formatted)
+    if (!capture.formatted) {
+        capture.error = true;
+        return;
+    }
+    // pw_stream_connect advertises formats. Complete buffer negotiation on
+    // EVERY Format event, requesting the required buffer metadata through
+    // pw_stream_update_params as specified by the PipeWire stream API.
+    std::uint8_t storage[512];
+    auto builder = SPA_POD_BUILDER_INIT(storage, sizeof(storage));
+    // Mutter 46 advertises a fixed 384x384 sprite. A 256px ceiling silently
+    // prevents Cursor metadata intersection even though video still succeeds.
+    const auto cursor_size = [](int side) {
+        return static_cast<int>(sizeof(spa_meta_cursor) + sizeof(spa_meta_bitmap)) +
+               side * side * 4;
+    };
+    const spa_pod *params[] = {
+        static_cast<const spa_pod *>(
+            spa_pod_builder_add_object(&builder, SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta,
+                                       SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Header),
+                                       SPA_PARAM_META_size, SPA_POD_Int(sizeof(spa_meta_header)))),
+        static_cast<const spa_pod *>(spa_pod_builder_add_object(
+            &builder, SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta, SPA_PARAM_META_type,
+            SPA_POD_Id(SPA_META_Cursor), SPA_PARAM_META_size,
+            SPA_POD_CHOICE_RANGE_Int(cursor_size(64), cursor_size(1), cursor_size(512))))};
+    if (pw_stream_update_params(capture.stream, params, 2) < 0)
         capture.error = true;
 }
 void process(void *data) {
@@ -79,6 +105,16 @@ void process(void *data) {
             break;
         if (capture.pending)
             pw_stream_queue_buffer(capture.stream, capture.pending);
+        const auto *cursor = next->buffer
+                                 ? static_cast<const spa_meta_cursor *>(spa_buffer_find_meta_data(
+                                       next->buffer, SPA_META_Cursor, sizeof(spa_meta_cursor)))
+                                 : nullptr;
+        if (!cursor)
+            capture.cursor.reset();
+        else if (spa_meta_cursor_is_valid(cursor))
+            capture.cursor = decode_portal_cursor(
+                {reinterpret_cast<const std::uint8_t *>(cursor), sizeof(*cursor)},
+                capture.format.size.width, capture.format.size.height);
         capture.pending = next;
         if (capture.source_sequence == UINT64_MAX) {
             capture.error = true;
@@ -131,6 +167,18 @@ using pipewire_detail::failure;
 using pipewire_detail::param_changed;
 using pipewire_detail::process;
 using pipewire_detail::state_changed;
+
+std::optional<desktop::PointerPoint> decode_portal_cursor(std::span<const std::uint8_t> bytes,
+                                                          std::int32_t width, std::int32_t height) {
+    if (bytes.size() < sizeof(spa_meta_cursor) || width <= 0 || height <= 0)
+        return std::nullopt;
+    spa_meta_cursor meta{};
+    std::memcpy(&meta, bytes.data(), sizeof(meta));
+    if (!spa_meta_cursor_is_valid(&meta) || meta.position.x < 0 || meta.position.y < 0 ||
+        meta.position.x >= width || meta.position.y >= height)
+        return std::nullopt;
+    return desktop::PointerPoint{meta.position.x, meta.position.y};
+}
 
 desktop::CaptureOutcome copy_portal_pixels(std::span<const std::uint8_t> pixels,
                                            std::uint32_t width, std::uint32_t height,
@@ -215,25 +263,23 @@ PortalPipeWireStream::PortalPipeWireStream(int fd, std::uint32_t node)
     std::uint8_t storage[1024];
     auto builder = SPA_POD_BUILDER_INIT(storage, sizeof(storage));
     const spa_rectangle min{1, 1}, max{16384, 16384}, preferred{1920, 1080};
-    const spa_pod *params[] = {
-        static_cast<const spa_pod *>(spa_pod_builder_add_object(
-            &builder, SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat, SPA_FORMAT_mediaType,
-            SPA_POD_Id(SPA_MEDIA_TYPE_video), SPA_FORMAT_mediaSubtype,
-            SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw), SPA_FORMAT_VIDEO_format,
-            SPA_POD_CHOICE_ENUM_Id(4, SPA_VIDEO_FORMAT_BGRA, SPA_VIDEO_FORMAT_BGRx,
-                                   SPA_VIDEO_FORMAT_RGBA, SPA_VIDEO_FORMAT_RGBx),
-            SPA_FORMAT_VIDEO_size, SPA_POD_CHOICE_RANGE_Rectangle(&preferred, &min, &max))),
-        static_cast<const spa_pod *>(
-            spa_pod_builder_add_object(&builder, SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta,
-                                       SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Header),
-                                       SPA_PARAM_META_size, SPA_POD_Int(sizeof(spa_meta_header))))};
+    const spa_pod *params[] = {static_cast<const spa_pod *>(spa_pod_builder_add_object(
+        &builder, SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat, SPA_FORMAT_mediaType,
+        SPA_POD_Id(SPA_MEDIA_TYPE_video), SPA_FORMAT_mediaSubtype,
+        SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw), SPA_FORMAT_VIDEO_format,
+        SPA_POD_CHOICE_ENUM_Id(4, SPA_VIDEO_FORMAT_BGRA, SPA_VIDEO_FORMAT_BGRx,
+                               SPA_VIDEO_FORMAT_RGBA, SPA_VIDEO_FORMAT_RGBx),
+        SPA_FORMAT_VIDEO_size, SPA_POD_CHOICE_RANGE_Rectangle(&preferred, &min, &max)))};
     const auto flags =
         static_cast<pw_stream_flags>(PW_STREAM_FLAG_AUTOCONNECT | PW_STREAM_FLAG_MAP_BUFFERS);
-    if (pw_stream_connect(capture.stream, PW_DIRECTION_INPUT, node, flags, params, 2) < 0)
+    if (pw_stream_connect(capture.stream, PW_DIRECTION_INPUT, node, flags, params, 1) < 0)
         return;
     impl_->connected = true;
 }
 PortalPipeWireStream::~PortalPipeWireStream() = default;
+std::optional<desktop::PointerPoint> PortalPipeWireStream::cursor_position() const {
+    return impl_->capture.cursor;
+}
 namespace {
 desktop::CaptureOutcome read_stream_frame(Capture &capture, const desktop::CaptureLimits &limits,
                                           const desktop::CancelToken &cancel,

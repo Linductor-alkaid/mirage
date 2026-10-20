@@ -140,6 +140,13 @@ class InputProvider {
                                         std::uint32_t path_points, const InputLimits &limits,
                                         const CancelToken &cancel);
 
+    /// Locally timed approach for model-facing physical clicks (DEC-110).
+    /// Queries the current position, plans distance/target-width timing, and
+    /// completes smooth_move_to before returning. No teleport fallback.
+    /// The caller owns the lease and must revalidate the target before pressing.
+    virtual InputOutcome approach_target(PointerPoint target, std::int32_t target_width,
+                                         const InputLimits &, const CancelToken &);
+
     /// Presses or releases a key per the KeySym vocabulary. Combination
     /// names ("ctrl+c") inject the full chord.
     virtual InputOutcome inject_key(const KeySym &key, bool pressed, const InputLimits &limits,

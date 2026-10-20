@@ -805,6 +805,12 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
         explicit FakeInput(FakeDesktopEnvironment &env) : env_(env) {}
 
         bool complete_actions_supported() const override { return true; }
+        bool timed_pointer_actions_supported() const override { return true; }
+        mirage::desktop::InputOutcome smooth_move_to(std::int32_t x, std::int32_t y,
+            std::chrono::milliseconds, std::uint32_t, const mirage::desktop::InputLimits &limits,
+            const mirage::desktop::CancelToken &cancel) override {
+            return pointer_move(x, y, limits, cancel);
+        }
         mirage::desktop::InputOutcome
         key_chord(const mirage::desktop::KeySym &key, const mirage::desktop::InputLimits &limits,
                   const mirage::desktop::CancelToken &cancel) override {

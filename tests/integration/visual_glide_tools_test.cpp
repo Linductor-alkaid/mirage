@@ -2,13 +2,16 @@
 #include "../support/fake_desktop_environment.hpp"
 #include "../support/test.hpp"
 
-#include <kairo/executor.hpp>
-#include <mira/model_digest.hpp>
-#include <mirage/integration/fake_visual_backend.hpp>
-#include <mirage/integration/visual_observation_pipeline.hpp>
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <kairo/executor.hpp>
+#include <mira/model_digest.hpp>
+#include <mirage/desktop/input_session.hpp>
+#include <mirage/integration/fake_visual_backend.hpp>
+#include <mirage/integration/visual_observation_pipeline.hpp>
 #include <source_location>
 #include <stdexcept>
 #include <vector>
@@ -26,11 +29,9 @@
 #define MIRAGE_TSAN_SLOW 0
 #endif
 
-// DEC-110 / M7-26 first increment: the desktop.vision.click /
-// desktop.vision.click_region glide_ms opt-in over the fake desktop
-// environment. A scripted InputProvider records every smooth_move_to and
-// click dispatch so the tool-layer gate order (validation -> support probe ->
-// travel -> click) and the honest failure receipts are observable.
+// DEC-110 / M7-26: model-facing clicks use local automatic approaches.
+// Record travel/press order and ensure changed targets, cancellation, legacy
+// timing arguments and stale tool versions never dispatch a click.
 namespace d = mirage::desktop;
 namespace i = mirage::integration;
 namespace detail = i::detail;
@@ -52,12 +53,12 @@ mira::OperationContext owner() {
     return ctx;
 }
 mira::ToolExecutionRecord invoke(mira::BuiltinToolRegistry &registry, const std::string &name,
-                                 const Json &args, const mira::OperationContext &ctx) {
+                                 const Json &args, const mira::OperationContext &ctx, bool legacy_version = false) {
     for (const auto &spec : registry.exposed_tools())
         if (spec.wire_name == name) {
             mira::ToolProposal proposal;
             proposal.tool_id = spec.tool_id;
-            proposal.tool_version = spec.version;
+            proposal.tool_version = legacy_version ? mira::SemanticVersion{3,0,0} : spec.version;
             proposal.wire_name = name;
             proposal.has_side_effects = spec.has_side_effects;
             proposal.operation_id = mira::OperationId::generate();
@@ -97,6 +98,7 @@ class GlideInput final : public d::InputProvider {
     d::InputProvider *delegate = nullptr;
     bool timed_supported = true;
     bool move_fails = false;
+    std::function<void()> after_move;
     d::ProviderError move_error{"deadline_exceeded", "scripted travel failure"};
     struct Move {
         std::int32_t x = 0, y = 0;
@@ -113,8 +115,7 @@ class GlideInput final : public d::InputProvider {
     bool timed_pointer_actions_supported() const override { return timed_supported; }
     d::InputOutcome smooth_move_to(std::int32_t x, std::int32_t y,
                                    std::chrono::milliseconds duration, std::uint32_t points,
-                                   const d::InputLimits &limits,
-                                   const d::CancelToken &) override {
+                                   const d::InputLimits &limits, const d::CancelToken &) override {
         moves.push_back({x, y, duration, limits.timeout, points});
         d::InputOutcome out;
         if (move_fails) {
@@ -122,7 +123,10 @@ class GlideInput final : public d::InputProvider {
             out.side_effect_may_have_occurred = true;
             return out;
         }
+        if (after_move)
+            after_move();
         out.ok = true;
+        out.side_effect_may_have_occurred = true;
         return out;
     }
     d::InputOutcome click_sequence_at(std::int32_t x, std::int32_t y, const d::MouseButton &button,
@@ -134,8 +138,7 @@ class GlideInput final : public d::InputProvider {
         return delegate->click_at(x, y, button, limits, cancel);
     }
     d::InputOutcome click_at(std::int32_t x, std::int32_t y, const d::MouseButton &button,
-                             const d::InputLimits &limits,
-                             const d::CancelToken &cancel) override {
+                             const d::InputLimits &limits, const d::CancelToken &cancel) override {
         return delegate->click_at(x, y, button, limits, cancel);
     }
     d::InputOutcome inject_key(const d::KeySym &key, bool pressed, const d::InputLimits &limits,
@@ -207,8 +210,8 @@ struct MarkFixture {
         cfg.run_ocr = true;
         cfg.refresh_ocr = true;
         cfg.session.ocr_backend = ocr.get();
-        pipeline = std::make_unique<i::VisualObservationPipeline>(executor, *env->screen(), visual,
-                                                                  cfg);
+        pipeline =
+            std::make_unique<i::VisualObservationPipeline>(executor, *env->screen(), visual, cfg);
         std::string failure;
         check(pipeline->start(failure));
         tools.environment = env;
@@ -290,15 +293,16 @@ struct RegionFixture {
         return result.result;
     }
     Json args(const Json &meta, bool window = false) {
-        return Json{Json::Object{{"image_scope", *meta.find("image_scope")},
-                                 {"environment_epoch", *meta.find("environment_epoch")},
-                                 {"target_context", window ? "window" : "display"},
-                                 {window ? "window_id" : "display_id", window ? "w1" : "d1"},
-                                 {"x", window ? 110 : 20},
-                                 {"y", window ? 110 : 20},
-                                 {"width", 20},
-                                 {"height", 20},
-                                 {"verify_kind", window ? "window_focused" : "foreground_changed"}}};
+        return Json{
+            Json::Object{{"image_scope", *meta.find("image_scope")},
+                         {"environment_epoch", *meta.find("environment_epoch")},
+                         {"target_context", window ? "window" : "display"},
+                         {window ? "window_id" : "display_id", window ? "w1" : "d1"},
+                         {"x", window ? 110 : 20},
+                         {"y", window ? 110 : 20},
+                         {"width", 20},
+                         {"height", 20},
+                         {"verify_kind", window ? "window_focused" : "foreground_changed"}}};
     }
     mira::ToolExecutionRecord click(const Json &a) {
         return invoke(registry, "desktop.vision.click_region", a, ctx);
@@ -306,237 +310,97 @@ struct RegionFixture {
 };
 
 void click_glide_matrix(kairo::Executor &executor) {
-    // Regression: absent glide_ms keeps the direct click — zero travel calls
-    // even when the backend would support one.
-    {
+    for (int mode = 0; mode < 7; ++mode) {
         MarkFixture f(executor);
         const auto marked = f.mark();
         check(!marked.failed);
-        check(!f.click(f.target(marked.result)).failed);
-        check(f.env->glide.moves.empty() && f.env->glide.click_calls == 1);
-        check(f.env->fake->input_log ==
-              std::vector<std::string>{"move -160,-10", "press left", "release left"});
-    }
-    {
-        MarkFixture f(executor);
-        f.env->glide.timed_supported = false;
-        const auto marked = f.mark();
-        check(!marked.failed);
-        check(!f.click(f.target(marked.result)).failed);
-        check(f.env->glide.moves.empty() && f.env->glide.click_calls == 1);
-    }
-    // glide_ms=300 with support: exactly one travel to the mark anchor with
-    // the requested duration and the default path budget, then one click.
-    {
-        MarkFixture f(executor);
-        const auto marked = f.mark();
-        check(!marked.failed);
-        Json args = f.target(marked.result);
-        args.set("glide_ms", std::int64_t{300});
-        check(!f.click(args).failed);
-        check(f.env->glide.moves.size() == 1 && f.env->glide.click_calls == 1);
-        const auto &move = f.env->glide.moves.front();
-        check(move.x == -160 && move.y == -10);
-        check(move.duration == std::chrono::milliseconds{300});
-        check(move.points == 0);
-        check(move.timeout >= std::chrono::milliseconds{300} &&
-              move.timeout <= std::chrono::milliseconds{800});
-        check(f.env->glide.last_button == "left" && f.env->glide.last_click_count == 1);
-        check(f.env->fake->pointer.x == -160 && f.env->fake->pointer.y == -10);
-    }
-    // Scripted travel failure: the click never happens and the receipt
-    // reports the travel's error code with its side-effect flag honestly.
-    {
-        MarkFixture f(executor);
-        const auto marked = f.mark();
-        check(!marked.failed);
-        f.env->glide.move_fails = true;
-        Json args = f.target(marked.result);
-        args.set("glide_ms", std::int64_t{300});
-        expect_honest_receipt(f.click(args), "deadline_exceeded", true);
-        check(f.env->glide.moves.size() == 1 && f.env->glide.click_calls == 0);
-    }
-    // glide_ms on a provider without the timed opt-in: unsupported_platform
-    // and no provider effect at all.
-    {
-        MarkFixture f(executor);
-        f.env->glide.timed_supported = false;
-        const auto marked = f.mark();
-        check(!marked.failed);
-        Json args = f.target(marked.result);
-        args.set("glide_ms", std::int64_t{300});
-        expect_honest_receipt(f.click(args), "unsupported_platform", false);
-        check(f.env->glide.moves.empty() && f.env->glide.click_calls == 0);
-    }
-    // Out-of-budget glide values are refused before any provider call.
-    for (const auto glide : {std::int64_t{49}, std::int64_t{2001}}) {
-        MarkFixture f(executor);
-        const auto marked = f.mark();
-        check(!marked.failed);
-        Json args = f.target(marked.result);
-        args.set("glide_ms", glide);
-        check(f.click(args).failed);
-        check(f.env->glide.moves.empty() && f.env->glide.click_calls == 0);
-    }
-    // Non-click operations never accept glide_ms.
-    {
-        MarkFixture f(executor);
-        const auto marked = f.mark();
-        check(!marked.failed);
-        Json args = f.target(marked.result);
-        args.set("destination_mark", std::int64_t{1});
-        args.set("glide_ms", std::int64_t{300});
-        check(invoke(f.registry, "desktop.vision.drag", args, f.ctx).failed);
-        check(f.env->glide.moves.empty() && f.env->glide.click_calls == 0);
-    }
-    {
-        MarkFixture f(executor);
-        const auto marked = f.mark();
-        check(!marked.failed);
-        Json args = f.target(marked.result);
-        args.set("horizontal_steps", std::int64_t{1});
-        args.set("vertical_steps", std::int64_t{1});
-        args.set("glide_ms", std::int64_t{300});
-        check(invoke(f.registry, "desktop.vision.scroll", args, f.ctx).failed);
-        check(f.env->glide.moves.empty() && f.env->glide.click_calls == 0);
-    }
-    // Deadline term: a 1500 ms glide passes the extended wall-clock cap and
-    // dispatches; the travel budget handed to the provider covers the glide.
-    {
-        MarkFixture f(executor);
-        const auto marked = f.mark();
-        check(!marked.failed);
-        Json args = f.target(marked.result);
-        args.set("glide_ms", std::int64_t{1500});
-        check(!f.click(args).failed);
-        check(f.env->glide.moves.size() == 1 && f.env->glide.click_calls == 1);
-        const auto &move = f.env->glide.moves.front();
-        check(move.duration == std::chrono::milliseconds{1500});
-        check(move.timeout >= std::chrono::milliseconds{1500} &&
-              move.timeout <= std::chrono::milliseconds{2000});
-    }
-    // Contract surface: the click tool moved to v1.2.0 with glide_ms declared.
-    {
-        MarkFixture f(executor);
+        auto args = f.target(marked.result);
+        if (mode == 1)
+            f.env->glide.timed_supported = false;
+        if (mode == 2)
+            f.env->glide.move_fails = true;
+        if (mode == 3)
+            f.env->glide.after_move = [&] { f.env->fake->windows[0].title = "hover changed"; };
+        if (mode == 4)
+            f.env->glide.after_move = [&] { f.cancel.request_cancel(); };
+        if (mode == 5)
+            args.set("glide_ms", 300);
+        if (mode == 6) {
+            args.set("button", "right");
+            args.set("click_count", 3);
+        }
+        if (mode == 0) {
+            const auto old = invoke(f.registry, "desktop.vision.click", args, f.ctx, true);
+            check(old.failed && f.env->glide.moves.empty() && f.env->glide.click_calls == 0);
+        }
+        const auto result = f.click(args);
+        const bool success = mode == 0 || mode == 6;
+        check(result.failed != success);
+        if (mode == 2)
+            expect_honest_receipt(result, "deadline_exceeded", true);
+        check(f.env->glide.click_calls == (success ? 1 : 0));
+        if (success) {
+            check(f.env->glide.moves.size() == 1);
+            const auto &move = f.env->glide.moves[0];
+            check(move.x == -160 && move.y == -10 && move.duration.count() >= 120 &&
+                  move.duration.count() <= 650 && move.points == 0);
+            if (mode == 6)
+                check(f.env->glide.last_click_count == 3 && f.env->glide.last_button == "right");
+        }
+        if (mode == 1 || mode == 5)
+            check(f.env->glide.moves.empty());
         const auto &exposed = f.registry.exposed_tools();
         const auto found = std::find_if(exposed.begin(), exposed.end(), [](const auto &tool) {
             return tool.wire_name == "desktop.vision.click";
         });
-        check(found != exposed.end() && found->version == mira::SemanticVersion{1, 2, 0});
-        check(found->parameters_schema.root.find("properties") &&
-              found->parameters_schema.root.find("properties")->find("glide_ms"));
+        check(found != exposed.end() && found->version == mira::SemanticVersion{4, 0, 0});
+        check(!found->parameters_schema.root.find("properties")->find("glide_ms"));
     }
 }
-
 void region_glide_matrix() {
-    // Regression: absent glide_ms keeps the direct region click.
-    {
+    for (int mode = 0; mode < 8; ++mode) {
         RegionFixture f;
-        check(!f.click(f.args(f.capture())).failed);
-        check(f.env->glide.moves.empty() && f.env->glide.click_calls == 1);
-    }
-    {
-        RegionFixture f;
-        f.env->glide.timed_supported = false;
-        check(!f.click(f.args(f.capture())).failed);
-        check(f.env->glide.moves.empty() && f.env->glide.click_calls == 1);
-    }
-    // glide_ms=300 (display context): one travel to the rectangle center,
-    // then one click.
-    {
-        RegionFixture f;
-        Json args = f.args(f.capture());
-        args.set("glide_ms", std::int64_t{300});
-        check(!f.click(args).failed);
-        check(f.env->glide.moves.size() == 1 && f.env->glide.click_calls == 1);
-        const auto &move = f.env->glide.moves.front();
-        check(move.x == 30 && move.y == 30);
-        check(move.duration == std::chrono::milliseconds{300} && move.points == 0);
-        check(move.timeout >= std::chrono::milliseconds{300} &&
-              move.timeout <= std::chrono::milliseconds{800});
-    }
-    // Same over a window-context rectangle centered at (120,120).
-    {
-        RegionFixture f;
-        Json args = f.args(f.capture(), true);
-        args.set("glide_ms", std::int64_t{300});
-        check(!f.click(args).failed);
-        check(f.env->glide.moves.size() == 1 && f.env->glide.click_calls == 1);
-        const auto &move = f.env->glide.moves.front();
-        check(move.x == 120 && move.y == 120);
-    }
-    // Scripted travel failure: no click, honest receipt.
-    {
-        RegionFixture f;
-        Json args = f.args(f.capture());
-        args.set("glide_ms", std::int64_t{300});
-        f.env->glide.move_fails = true;
-        expect_honest_receipt(f.click(args), "deadline_exceeded", true);
-        check(f.env->glide.moves.size() == 1 && f.env->glide.click_calls == 0);
-    }
-    // Unsupported timed travel: unsupported_platform, zero effects.
-    {
-        RegionFixture f;
-        f.env->glide.timed_supported = false;
-        Json args = f.args(f.capture());
-        args.set("glide_ms", std::int64_t{300});
-        expect_honest_receipt(f.click(args), "unsupported_platform", false);
-        check(f.env->glide.moves.empty() && f.env->glide.click_calls == 0);
-    }
-    // Out-of-budget glide values never reach the provider.
-    for (const auto glide : {std::int64_t{49}, std::int64_t{2001}}) {
-        RegionFixture f;
-        Json args = f.args(f.capture());
-        args.set("glide_ms", glide);
-        check(f.click(args).failed);
-        check(f.env->glide.moves.empty() && f.env->glide.click_calls == 0);
-    }
-    // Non-click region operations never accept glide_ms.
-    {
-        RegionFixture f;
-        Json args = f.args(f.capture(), true);
-        args.set("vertical_steps", std::int64_t{1});
-        args.set("glide_ms", std::int64_t{300});
-        check(invoke(f.registry, "desktop.vision.scroll_region", args, f.ctx).failed);
-        check(f.env->glide.moves.empty() && f.env->glide.click_calls == 0);
-    }
-    {
-        RegionFixture f;
-        Json args = f.args(f.capture(), true);
-        args.set("destination_x", std::int64_t{150});
-        args.set("destination_y", std::int64_t{150});
-        args.set("destination_width", std::int64_t{20});
-        args.set("destination_height", std::int64_t{20});
-        args.set("glide_ms", std::int64_t{300});
-        check(invoke(f.registry, "desktop.vision.drag_region", args, f.ctx).failed);
-        check(f.env->glide.moves.empty() && f.env->glide.click_calls == 0);
-    }
-    // Deadline term: a 1500 ms glide passes the extended wall-clock cap.
-    {
-        RegionFixture f;
-        Json args = f.args(f.capture());
-        args.set("glide_ms", std::int64_t{1500});
-        check(!f.click(args).failed);
-        check(f.env->glide.moves.size() == 1 && f.env->glide.click_calls == 1);
-        const auto &move = f.env->glide.moves.front();
-        check(move.duration == std::chrono::milliseconds{1500});
-        check(move.timeout >= std::chrono::milliseconds{1500} &&
-              move.timeout <= std::chrono::milliseconds{2000});
-    }
-    // The region click declares glide_ms only for the click operation.
-    {
-        RegionFixture f;
+        auto args = f.args(f.capture());
+        if (mode == 1)
+            f.env->glide.timed_supported = false;
+        if (mode == 2)
+            f.env->glide.move_fails = true;
+        if (mode == 3)
+            f.env->glide.after_move = [&] { f.fake->windows[0].title = "hover changed"; };
+        if (mode == 4)
+            f.env->glide.after_move = [&] { f.cancel.request_cancel(); };
+        if (mode == 5)
+            args.set("glide_ms", 300);
+        if (mode == 6) {
+            args.set("button", "middle");
+            args.set("click_count", 2);
+        }
+        if (mode == 7)
+            f.fake->pointer = {30, 30}; // no empty travel at the target
+        if (mode == 0) {
+            const auto old = invoke(f.registry, "desktop.vision.click_region", args, f.ctx, true);
+            check(old.failed && f.env->glide.moves.empty() && f.env->glide.click_calls == 0);
+        }
+        const auto result = f.click(args);
+        const bool success = mode == 0 || mode == 6 || mode == 7;
+        check(result.failed != success);
+        if (mode == 2)
+            expect_honest_receipt(result, "deadline_exceeded", true);
+        check(f.env->glide.click_calls == (success ? 1 : 0));
+        if (success && mode != 7) {
+            check(f.env->glide.moves.size() == 1);
+            const auto &move = f.env->glide.moves[0];
+            check(move.x == 30 && move.y == 30 && move.duration.count() >= 120 &&
+                  move.duration.count() <= 650);
+        }
+        if (mode == 1 || mode == 5 || mode == 7)
+            check(f.env->glide.moves.empty());
         const auto &exposed = f.registry.exposed_tools();
         const auto found = std::find_if(exposed.begin(), exposed.end(), [](const auto &tool) {
             return tool.wire_name == "desktop.vision.click_region";
         });
-        check(found != exposed.end() && found->parameters_schema.root.find("properties") &&
-              found->parameters_schema.root.find("properties")->find("glide_ms"));
-        const auto scroll = std::find_if(exposed.begin(), exposed.end(), [](const auto &tool) {
-            return tool.wire_name == "desktop.vision.scroll_region";
-        });
-        check(scroll != exposed.end() && scroll->parameters_schema.root.find("properties") &&
-              !scroll->parameters_schema.root.find("properties")->find("glide_ms"));
+        check(found != exposed.end() && found->version == mira::SemanticVersion{4, 0, 0});
+        check(!found->parameters_schema.root.find("properties")->find("glide_ms"));
     }
 }
 
@@ -544,6 +408,21 @@ void region_glide_matrix() {
 
 int main() {
     try {
+        std::ifstream golden_file(std::filesystem::path{__FILE__}.parent_path() /
+                                  "data/automatic-pointer-motion-v1.json");
+        const std::string golden_source{std::istreambuf_iterator<char>{golden_file}, {}};
+        const auto golden = mira::parse_json(golden_source);
+        check(bool(golden));
+        check(golden.value().find("policy_version")->as_integer() ==
+              d::pointer_motion_policy::version);
+        check(golden.value().find("action_timeout_ms")->as_integer() ==
+              d::pointer_motion_policy::action_timeout.count());
+        for (const auto &item : *golden.value().find("cases")->as_array()) {
+            const auto to = static_cast<std::int32_t>(*item.find("distance")->as_integer());
+            const auto width = static_cast<std::int32_t>(*item.find("width")->as_integer());
+            check(d::automatic_pointer_duration({0, 0}, {to, 0}, width).count() ==
+                  *item.find("duration_ms")->as_integer());
+        }
         kairo::Executor executor;
         kairo::ExecutorConfig options;
         options.min_threads = options.max_threads = 3;

@@ -1,0 +1,9 @@
+{
+  "policy_version": 2,
+  "mutation_tool_major": 3,
+  "verify_tool_major": 2,
+  "max_dependencies": 8,
+  "feedback_max_age_ms": 5000,
+  "no_condition_status": "not_requested",
+  "completed_execution": "completed"
+}

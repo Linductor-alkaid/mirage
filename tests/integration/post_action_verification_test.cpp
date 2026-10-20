@@ -155,7 +155,7 @@ void scenario(kairo::Executor &executor, const std::string &mode) {
         if (mode.starts_with("visual_")) {
             args.emplace_back("verify_kind", "visual_text_exists");
             args.emplace_back("expected_text", "Task saved");
-        } else if (mode != "missing") {
+        } else if (mode != "missing" && mode != "execution_only_observed") {
             args.emplace_back("verify_kind", "window_title_equals");
             args.emplace_back("expected_title", "After");
         }
@@ -188,11 +188,13 @@ void scenario(kairo::Executor &executor, const std::string &mode) {
                               {"verify_kind", "window_focused"},
                               {"expected_title", "private-invalid-title"}}},
                 {"desktop.window.list", Json{Json::Object{}}}};
-        if (mode == "delayed" || mode == "visual_good")
+        if (mode == "good" || mode == "delayed" || mode == "visual_good" || mode == "foreign")
             script->steps.emplace_back("desktop.action.verify", Json{Json::Object{}});
         if (mode == "foreign")
             script->steps.emplace_back("desktop.action.verify",
                                        Json{Json::Object{{"action_id", "foreign"}}});
+        if (mode == "execution_only_observed")
+            script->steps.emplace_back("desktop.window.front", Json{Json::Object{}});
         if (mode == "retry") {
             script->steps.emplace_back("desktop.window.front", Json{Json::Object{}});
             script->steps.emplace_back("desktop.input.type_text",
@@ -224,7 +226,8 @@ void scenario(kairo::Executor &executor, const std::string &mode) {
                             })
                             .get();
     const bool passed = mode == "good" || mode == "delayed" || mode == "visual_good" ||
-                        mode == "rejected_then_corrected" || mode == "rejected_then_answer";
+                        mode == "rejected_then_corrected" || mode == "rejected_then_answer" || mode == "foreign" ||
+                        mode == "execution_only_observed";
     if (result.ok != passed) {
         std::cerr << mode << ": " << result.error << '\n';
         for (const auto &part : result.parts)
@@ -248,7 +251,7 @@ void scenario(kairo::Executor &executor, const std::string &mode) {
     check(env->input_log.size() ==
           (mode == "denied" || mode == "rejected_then_corrected" || mode == "rejected_then_answer"
                ? 0u
-               : 1u));
+               : mode == "retry" ? 2u : 1u));
     if (mode == "rejected_then_answer") {
         // The refused activation never dispatched, and the fresh observation
         // after it lets the trailing clean rejection settle the turn.
@@ -287,7 +290,10 @@ void scenario(kairo::Executor &executor, const std::string &mode) {
             check(part.input.find("Task saved") == std::string::npos);
             if (passed) {
                 auto view = mirage::conversation::desktop_evidence(part);
-                check(view && view->status == "verified" && !view->evidence_id.empty());
+                if (mode == "execution_only_observed")
+                    check(view && view->status == "not_requested" && view->evidence_id.empty());
+                else
+                    check(view && view->status == "verified" && !view->evidence_id.empty());
             }
         }
     layer.shutdown();
@@ -430,7 +436,7 @@ void application_scenario(kairo::Executor &executor, const std::string &mode) {
             if (part.name == "desktop.application.open_uri" && part.status == "failed") {
                 ++uncertain_parts;
                 check(part.output.find("application_running_confirmed") != std::string::npos);
-                check(part.output.find("effect_uncertain") == std::string::npos);
+                check(part.output.find("\"reason\":\"effect_uncertain\"") == std::string::npos);
             }
         }
         check(uncertain_parts == 2);
@@ -494,6 +500,10 @@ void contracts(kairo::Executor &executor) {
           field(verified.value().result, "status") == "verified");
     check(verifier.settle());
     env->snapshots["w1"].nodes.push_back(node);
+    // Settlement reuses the valid prior proof; only an explicit recheck
+    // observes the changed tree and invalidates the fixed condition.
+    check(verifier.settle());
+    check(static_cast<bool>(verifier.recheck(field(first.value(), "action_id"), ctx)));
     check(!verifier.settle());
     auto foreign = ctx;
     foreign.session = mira::SessionId::generate();
@@ -665,6 +675,7 @@ void contracts(kairo::Executor &executor) {
     history.content.emplace_back(failed);
     request.input.push_back(history);
     env->snapshots["w1"].nodes.pop_back();
+    check(static_cast<bool>(verifier.recheck(field(first.value(), "action_id"), ctx)));
     check(verifier.settle());
     check(static_cast<bool>(verifier.validate_request(request, ctx)));
     check(!verifier.settle());
@@ -1162,9 +1173,9 @@ void ocr_ordered_rules() {
         check(!unknown_mutation.ocr_failed() && !unknown_mutation.settle());
     }
     {
-        // A failed desktop.action.verify is a mutation-class failure: its
-        // unknown receipt keeps the canonical fence up; the later successful
-        // observation still clears only the vision question.
+        // A failed read-only verification request cannot create unknown
+        // input effects. The later observation repairs the evidence question;
+        // actual pending conditions and mutation uncertainty stay in records_.
         i::detail::DesktopActionVerification verify_failure(tools, ctx, {});
         const auto request =
             scanned({{"desktop.vision.ocr", true, "OCR capture or analysis failed"},
@@ -1176,7 +1187,7 @@ void ocr_ordered_rules() {
                       R"("reason":"action_failed"})"},
                      {"desktop.window.list", false, ""}});
         check(static_cast<bool>(verify_failure.validate_request(request, ctx)));
-        check(!verify_failure.ocr_failed() && !verify_failure.settle());
+        check(!verify_failure.ocr_failed() && verify_failure.settle());
     }
 }
 
@@ -1383,7 +1394,7 @@ int main() {
         options.min_threads = options.max_threads = 3;
         check(static_cast<bool>(executor.initialize(options)));
         for (const auto &mode :
-             {"good", "delayed", "missing", "false_success", "focus", "epoch", "cancel", "denied",
+             {"good", "delayed", "missing", "execution_only_observed", "false_success", "focus", "epoch", "cancel", "denied",
               "foreign", "retry", "visual_good", "visual_wrong", "visual_duplicate",
               "visual_denied", "rejected_then_corrected", "rejected_then_answer"})
             scenario(executor, mode);

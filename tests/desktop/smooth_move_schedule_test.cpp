@@ -152,6 +152,15 @@ void minimum_jerk_easing() {
 } // namespace
 
 int main() {
+    MIRAGE_CHECK(d::automatic_pointer_duration({4, 5}, {4, 5}).count() == 0);
+    MIRAGE_CHECK(d::automatic_pointer_duration({0, 0}, {100, 0}, 10) >
+                 d::automatic_pointer_duration({0, 0}, {100, 0}, 100));
+    MIRAGE_CHECK(d::automatic_pointer_duration({0, 0}, {100, 0}, 20) <
+                 d::automatic_pointer_duration({0, 0}, {1000, 0}, 20));
+    MIRAGE_CHECK(d::automatic_pointer_duration({INT32_MIN, INT32_MIN}, {INT32_MAX, INT32_MAX}) ==
+                 d::pointer_motion_policy::max_duration);
+    MIRAGE_CHECK(d::automatic_pointer_duration({0, 0}, {1, 0}, INT32_MAX) >=
+                 d::pointer_motion_policy::min_duration);
     zero_distance_is_empty();
     segment_budget();
     landing_and_timing();

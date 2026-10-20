@@ -37,3 +37,14 @@ X11 编号/区域滚动与拖动仍限同一前台窗口，窗口、焦点、遮
 [DEC-110](DEC-110-continuous-input-and-device-compatibility.md)（Proposed），实施跟踪为
 [M7-25～31](../plans/m7-continuous-input-and-device-compatibility.md)。本记录既有
 完整动作预算和已验平台范围保持，新轨迹与时序需另行 opt-in 和验收。
+
+2026-10-20：维护者补充 DEC-110 的目标默认覆盖所有键鼠动作，由本地自动规划
+自然时序，模型无需提供时间；普通点击完整移动、按压及释放后才返回动作结果或
+进入后置验证。现行 opt-in 为迁移阶段，M7-25/26 须修订工具兼容和总预算并验收
+新默认，不能以省略 `glide_ms` 时直接定位的现状关闭该目标；本记录的历史验收保留。
+
+
+2026-10-20 后续迁移：DEC-110 的自动接近点击子集把 vision.click、click_region、
+session.click 升至 4.0.0；默认本地计时移动并到达重验，移除模型 glide_ms，完整点击
+结算后才返回/验证。本文其余滚动/拖动等历史范围不因此宣称完成自然时序迁移。
+详见[受限验证](../compatibility/automatic-pointer-approach-20261020.md)。

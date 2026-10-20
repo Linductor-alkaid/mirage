@@ -18,8 +18,9 @@ Mirage 是基于 [Mira](https://github.com/Linductor-alkaid/mira) 构建的 Linu
 harness 已接入。Linux 会话已接结构化桌面工具；模型设置开启“识图”后，可逐次授权
 display/window/ROI 截图并将 PNG 送入下一轮模型输入，见
 [M7 验收范围](docs/compatibility/desktop-image-supply-20261009.md)。
-桌面修改后强制新观察，按动作前声明的窗口/语义/OCR 文本后条件核验；未验证或不确定结果
-不能进入成功终态。Linux X11 的激活、文本回显与提交落盘已取证，见
+普通键鼠返回执行事实，在状态依赖和任务边界观察；业务条件可选，显式必需条件未满足或
+执行/释放不确定时不能进入成功终态。物理点击默认本地平滑接近并到达重验，无模型时间参数，
+范围与平台限制见 [DEC-110](docs/decisions/DEC-110-continuous-input-and-device-compatibility.md)。Linux X11 的激活、文本回显与提交落盘已取证，见
 [动作后核验](docs/compatibility/post-action-verification-20261009.md)。
 真实 OCR/SoM 已交付 Linux 首增量；在线模型选号、宿主与 Windows/安装包验收继续推进，见
 [原生前端说明](apps/native/README.md) 与 [DEC-045](docs/decisions/DEC-045-tray-runtime-owner.md)。

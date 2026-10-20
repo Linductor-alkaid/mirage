@@ -1,8 +1,10 @@
+#include "desktop_action_verification.hpp"
 #include "desktop_image_supply.hpp"
 #include "desktop_stability_guard.hpp"
 #include "tool_click.hpp"
 #include "tool_geometry.hpp"
 #include <algorithm>
+#include <mirage/desktop/input_session.hpp>
 #include <stdexcept>
 
 namespace mirage::integration::detail {
@@ -98,26 +100,24 @@ void DesktopImageTurn::register_mark_tools(mira::BuiltinToolRegistry &registry,
         return;
     mira::BuiltinToolSpec click;
     click.wire_name = "desktop.vision.click";
-    click.version = {1, 2, 0};
+    click.version = {4, 0, 0};
     click.has_side_effects = true;
     click.description =
         "Click a fully visible number from this turn's latest visual_scope, with "
         "button=left/middle/right (default left), click_count consecutive clicks "
         "(default 1; 2=double-click, 3=triple-click) in one action, "
-        "environment_epoch and focused window_id. Optional glide_ms (50-2000) "
-        "travels the pointer from its current position to the mark along a timed "
-        "smooth path before pressing; hover effects on the way are real, the "
-        "arrival still needs this action's fresh-pixel checks, and absent "
-        "glide_ms keeps the direct click. Requires exact fresh pixels "
+        "environment_epoch and focused window_id. Automatically approaches the mark with a "
+        "locally timed minimum-jerk path, then rechecks arrival before pressing; hover effects "
+        "are real. No model timing parameter. Requires fresh target pixels "
         "and unchanged window/display geometry; animation may be rejected. No "
-        "raw coordinates. Fix verify_kind before clicking and inspect new "
+        "raw coordinates. Optionally fix verify_kind before clicking for local "
         "postcondition evidence. visual_text_exists requires expected_text and fresh unique OCR "
         "inside the window at confidence >= 0.8; injection alone does not verify task success.";
     Json::Object target{
         {"button", button_schema()},           {"visual_scope", string_schema()},
         {"click_count", click_count_schema()}, {"window_id", string_schema()},
         {"mark", integer_schema(1, 128)},      {"environment_epoch", integer_schema(1, INT64_MAX)},
-        {"glide_ms", integer_schema(50, 2000)}};
+    };
     for (const auto *key :
          {"verify_kind", "expected_title", "expected_role", "expected_name", "expected_text"})
         target.emplace_back(key, string_schema(1024));
@@ -129,8 +129,10 @@ void DesktopImageTurn::register_mark_tools(mira::BuiltinToolRegistry &registry,
     mira::BuiltinToolHandler act = [this](const auto &args, const auto &ctx) {
         return click_mark(args, ctx);
     };
-    if (decorate)
+    if (decorate) {
+        DesktopActionVerification::configure_policy(click);
         act = decorate(click.wire_name, std::move(act));
+    }
     if (!registry.register_tool(std::move(click), std::move(act)))
         throw std::logic_error("visual click registration rejected");
     if (!input->bounded_pointer_actions_supported())
@@ -148,11 +150,11 @@ void DesktopImageTurn::register_mark_tools(mira::BuiltinToolRegistry &registry,
                 ? "Complete button-selected drag (button=left/middle/right, default left) between "
                   "mark and destination_mark in the same fresh "
                   "visual_scope and focused window. Max 2048 pixels, 16 linear segments, 1 second. "
-                  "No held-button continuation. Declare a postcondition and verify fresh evidence."
+                  "No held-button continuation. A fixed postcondition is optional."
                 : "Discrete wheel steps at a fresh mark in the focused window. Positive "
                   "horizontal_steps/vertical_steps means right/down, negative left/up. Total "
-                  "absolute steps 1..16, max 1 second. No pixel-distance guarantee. Declare a "
-                  "postcondition and verify fresh evidence.";
+                  "absolute steps 1..16, max 1 second. No pixel-distance guarantee. A fixed "
+                  "postcondition is optional.";
         Json::Object props{{"visual_scope", string_schema()},
                            {"window_id", string_schema()},
                            {"mark", integer_schema(1, 128)},
@@ -179,8 +181,10 @@ void DesktopImageTurn::register_mark_tools(mira::BuiltinToolRegistry &registry,
             [this, operation = std::string{operation}](const auto &args, const auto &ctx) {
                 return pointer_mark(args, ctx, operation);
             };
-        if (decorate)
+        if (decorate) {
+            DesktopActionVerification::configure_policy(spec);
             handler = decorate(spec.wire_name, std::move(handler));
+        }
         if (!registry.register_tool(std::move(spec), std::move(handler)))
             throw std::logic_error("visual pointer registration rejected");
     }
@@ -340,20 +344,15 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
     const auto clicks = pointer_click_count(args);
     const auto button = pointer_button(args);
     const auto h = wheel_steps(args, "horizontal_steps"), v = wheel_steps(args, "vertical_steps");
-    const auto glide_ms = number(args, "glide_ms");
     if (!clicks || !button || !h || !v || (!drag && args.find("destination_mark")) ||
         ((drag || scroll) && args.find("click_count")) || (scroll && args.find("button")) ||
         (!scroll && (args.find("horizontal_steps") || args.find("vertical_steps"))) ||
-        (operation != "click" && args.find("glide_ms")) ||
-        (args.find("glide_ms") && (glide_ms < 50 || glide_ms > 2000)))
+        args.find("glide_ms"))
         return action_error({"invalid_argument", "invalid click_count or non-click operation"});
-    // A glide extends this one action's wall-clock cap by its travel time;
-    // without glide_ms the historical one-second cap is untouched.
-    const auto cap = std::chrono::milliseconds{
-        args.find("glide_ms") ? glide_ms + 1000 : 1000};
-    const auto end =
-        std::min(ctx.deadline.value_or(std::chrono::steady_clock::now() + cap),
-                 std::chrono::steady_clock::now() + cap);
+    const auto cap = operation == "click" ? desktop::pointer_motion_policy::action_timeout
+                                          : std::chrono::milliseconds{1000};
+    const auto end = std::min(ctx.deadline.value_or(std::chrono::steady_clock::now() + cap),
+                              std::chrono::steady_clock::now() + cap);
     const desktop::CancelToken bounded([this, ctx, end] {
         return cancel_.cancelled() || ctx.cancelled_or_expired(mira::Timestamp::now()) ||
                std::chrono::steady_clock::now() >= end;
@@ -495,29 +494,31 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
                     input->scroll_at(pointer_scope, from, static_cast<std::int32_t>(horizontal),
                                      static_cast<std::int32_t>(vertical), limits, bounded);
             else {
-                // DEC-110 (M7-26): opt-in timed travel before the press. A
-                // failed travel leaves the pointer between positions and the
-                // click never happens; the receipt reports it honestly.
-                if (args.find("glide_ms")) {
-                    if (!input->timed_pointer_actions_supported()) {
-                        outcome.error = {"unsupported_platform",
-                                         "timed pointer travel is not declared"};
-                        return;
-                    }
-                    const std::chrono::milliseconds glide{glide_ms};
-                    desktop::InputLimits move_limits = limits;
-                    move_limits.timeout = std::min(limits.timeout, glide + std::chrono::milliseconds{500});
-                    if (move_limits.timeout < glide) {
-                        outcome.cancelled = true;
-                        outcome.error = {"cancelled", "visual input deadline expired"};
-                        return;
-                    }
-                    outcome = input->smooth_move_to(from.x, from.y, glide, 0, move_limits, bounded);
-                    if (!outcome.ok)
-                        return;
+                outcome = input->approach_target(
+                    from, std::min(region.bounds.width, region.bounds.height), limits, bounded);
+                if (!outcome.ok)
+                    return;
+                const bool moved = outcome.side_effect_may_have_occurred;
+                const auto arrived = marks_->capture_roi
+                                         ? screen->capture_roi(*marks_->capture_roi, {}, bounded)
+                                         : screen->capture_display(marks_->display_id, {}, bounded);
+                if (!arrived.ok || !valid_image_frame(arrived.frame, desktop_image_bytes, 65535) ||
+                    arrived.frame.width != source.width || arrived.frame.height != source.height ||
+                    !stable_display() || !stable_front() || bounded.cancelled() ||
+                    desktop_.actions->epoch() != dispatch_epoch ||
+                    assess_target_stability(source, arrived.frame, target) ==
+                        TargetStability::kChanged) {
+                    outcome.ok = false;
+                    outcome.error = {bounded.cancelled() ? "cancelled" : "arrival_target_changed",
+                                     "visual target changed during approach"};
+                    return;
                 }
+                limits.timeout = std::min(std::chrono::milliseconds{1000},
+                                          std::chrono::duration_cast<std::chrono::milliseconds>(
+                                              end - std::chrono::steady_clock::now()));
                 outcome =
                     input->click_sequence_at(from.x, from.y, *button, *clicks, limits, bounded);
+                outcome.side_effect_may_have_occurred |= moved;
             }
         };
         const auto resolved =

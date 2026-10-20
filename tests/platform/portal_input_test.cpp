@@ -270,6 +270,25 @@ int main() {
         action.image_width = 3200;
         action.image_height = 2000;
         action.click_count = 1;
+        // Internal approach completes its local trajectory without pressing.
+        action.kind = Kind::Move;
+        action.target_width = 40;
+        action.glide_ms = 0;
+        events.clear();
+        const auto began = std::chrono::steady_clock::now();
+        result = dispatch_portal_input(context, action, {}, {});
+        const auto automatic = desktop::automatic_pointer_duration({100,100}, {400,250}, 20);
+        MIRAGE_CHECK(result.ok && result.input_released && events.size() > 8);
+        MIRAGE_CHECK(std::chrono::steady_clock::now() - began >= automatic);
+        for (const auto &event : events)
+            MIRAGE_CHECK(event.kind == PortalInputEvent::Kind::Motion);
+        MIRAGE_CHECK(events.back().x == 400 && events.back().y == 250);
+        context.has_pointer_origin = false;
+        events.clear();
+        result = dispatch_portal_input(context, action, {}, {});
+        MIRAGE_CHECK(!result.ok && !result.side_effect_may_have_occurred && events.empty());
+        context.has_pointer_origin = true;
+        action.kind = Kind::Click;
         action.glide_ms = 100;
         events.clear();
         result = dispatch_portal_input(context, action, {}, {});
@@ -299,8 +318,8 @@ int main() {
                      !result.side_effect_may_have_occurred && events.empty());
         // The refusal travels into the model's rejection receipt: it names
         // the bounded recovery instead of leaving a bare code to guess at.
-        MIRAGE_CHECK(result.error.message.find("direct click") != std::string::npos);
-        MIRAGE_CHECK(result.error.message.find("glide") != std::string::npos);
+        MIRAGE_CHECK(result.error.message.find("direct click") == std::string::npos);
+        MIRAGE_CHECK(result.error.message.find("cursor") != std::string::npos);
         context.has_pointer_origin = true;
         // The frozen timing bounds refuse before any effect; the boundary
         // value 50 is accepted.
@@ -465,7 +484,7 @@ int main() {
             events.clear();
             auto out = dispatch_portal_input(session_a, action, {}, {});
             MIRAGE_CHECK(!out.ok && out.error.code == "pointer_origin_unknown" && events.empty());
-            MIRAGE_CHECK(out.error.message.find("direct click") != std::string::npos);
+            MIRAGE_CHECK(out.error.message.find("direct click") == std::string::npos);
             store(session_a);
             MIRAGE_CHECK(!origin.known);
             // A direct click dispatches and writes the origin into the state.

@@ -328,6 +328,20 @@ std::optional<ProviderError> validate_smooth_move_timing(std::chrono::millisecon
     return std::nullopt;
 }
 
+std::chrono::milliseconds automatic_pointer_duration(PointerPoint from, PointerPoint to,
+                                                     std::int32_t target_width) {
+    const double dx = double(to.x) - from.x, dy = double(to.y) - from.y;
+    const double distance = std::hypot(dx, dy);
+    if (distance == 0)
+        return std::chrono::milliseconds{0};
+    const auto width =
+        std::max(8, target_width > 0 ? target_width : pointer_motion_policy::default_target_width);
+    const auto ms =
+        static_cast<std::int64_t>(std::ceil(120 + 90 * std::log2(1 + distance / width)));
+    return std::clamp(std::chrono::milliseconds{ms}, pointer_motion_policy::min_duration,
+                      pointer_motion_policy::max_duration);
+}
+
 std::vector<SmoothMoveSample> build_smooth_move_schedule(PointerPoint from, PointerPoint to,
                                                          std::chrono::milliseconds duration,
                                                          std::uint32_t path_points) {

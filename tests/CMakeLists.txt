@@ -1366,6 +1366,10 @@ if(UNIX AND MIRAGE_PNG_CHECK_PYTHON)
 endif()
 
 add_executable(post_action_verification_test integration/post_action_verification_test.cpp)
+mirage_add_test(desktop_action_policy_test
+    SOURCES integration/desktop_action_policy_test.cpp
+    LIBS Mirage::integration_mira Mirage::kairo_consumer
+    LABELS "integration;runtime;security")
 target_link_libraries(post_action_verification_test PRIVATE Mirage::integration_mira Mirage::kairo_consumer)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND X11_FOUND AND X11_Xtst_FOUND AND X11_Xrandr_FOUND)
     target_compile_definitions(post_action_verification_test PRIVATE MIRAGE_POST_ACTION_X11)
@@ -1421,6 +1425,11 @@ endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     get_target_property(_mirage_portal_available mirage_platform MIRAGE_PORTAL_AVAILABLE)
     if(_mirage_portal_available)
+        # Manual opt-in diagnostic, excluded from ctest and default builds.
+        add_executable(portal_cursor_probe EXCLUDE_FROM_ALL manual/portal_cursor_probe.cpp)
+        target_compile_features(portal_cursor_probe PRIVATE cxx_std_20)
+        mirage_enable_warnings(portal_cursor_probe)
+        target_link_libraries(portal_cursor_probe PRIVATE Mirage::platform Mirage::kairo_consumer)
         add_executable(portal_screen_test platform/portal_screen_test.cpp)
         target_compile_features(portal_screen_test PRIVATE cxx_std_20)
         mirage_enable_warnings(portal_screen_test)
@@ -1553,7 +1562,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND _mirage_pipewire_available)
     endif()
     target_link_options(portal_stream_retention_test PRIVATE
         -Wl,--wrap=pw_stream_dequeue_buffer -Wl,--wrap=pw_stream_queue_buffer
-        -Wl,--wrap=pw_stream_destroy)
+        -Wl,--wrap=pw_stream_destroy -Wl,--wrap=pw_stream_update_params)
     mirage_enable_warnings(portal_stream_retention_test)
     add_test(NAME portal_stream_retention_test COMMAND portal_stream_retention_test)
     set_tests_properties(portal_stream_retention_test PROPERTIES LABELS "platform;wayland;unit" TIMEOUT 30)

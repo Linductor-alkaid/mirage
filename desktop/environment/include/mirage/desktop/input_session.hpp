@@ -259,6 +259,20 @@ std::optional<ProviderError> validate_input_session_command(const InputSessionCo
 std::optional<ProviderError> validate_smooth_move_timing(std::chrono::milliseconds duration,
                                                          std::uint32_t path_points);
 
+/// Automatic approach policy, independent of the held-session budget table.
+/// Model-facing click tools expose intent only; backends receive this local plan.
+namespace pointer_motion_policy {
+inline constexpr std::uint32_t version = 1;
+inline constexpr std::chrono::milliseconds min_duration{120}, max_duration{650};
+inline constexpr std::chrono::milliseconds action_timeout{3000};
+inline constexpr std::int32_t default_target_width = 32;
+} // namespace pointer_motion_policy
+/// Deterministic distance/width policy: ceil(120 + 90*log2(1 + distance/width)),
+/// clamped to [120,650] ms; width defaults to 32 and is floored at 8 pixels.
+/// Zero distance returns zero (no motion). No random jitter or model timing.
+std::chrono::milliseconds automatic_pointer_duration(PointerPoint from, PointerPoint to,
+                                                     std::int32_t target_width = 0);
+
 /// One sampled point of the frozen smooth-move schedule: `at` is the offset
 /// from travel start, (x, y) the eased position.
 struct SmoothMoveSample {

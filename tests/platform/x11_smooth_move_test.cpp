@@ -2,6 +2,7 @@
 #include "../support/xvfb_display.hpp"
 
 #include <mirage/platform/linux/linux_desktop_environment.hpp>
+#include <mirage/desktop/input_session.hpp>
 
 // Xlib macros follow the pinned C++ headers (same include discipline as the
 // other platform fixtures).
@@ -66,7 +67,7 @@ class Fixture {
 /// Full travel: sample the pointer from the independent connection while the
 /// backend paces the minimum-jerk path, then verify corridor, landing and
 /// wall-clock budget with the concrete numbers on stderr.
-void travel_trajectory() {
+void travel_trajectory(bool automatic = false) {
     Fixture f;
     auto *input = f.env.input();
     const d::PointerPoint start{200, 300}, target{600, 300};
@@ -88,8 +89,10 @@ void travel_trajectory() {
         }
     });
     const auto began = std::chrono::steady_clock::now();
-    const auto out =
-        input->smooth_move_to(target.x, target.y, std::chrono::milliseconds{600}, 40, {}, {});
+    const auto planned = automatic ? d::automatic_pointer_duration(start, target, 32)
+                                   : std::chrono::milliseconds{600};
+    const auto out = automatic ? input->approach_target(target, 32, {}, {})
+                              : input->smooth_move_to(target.x, target.y, planned, 40, {}, {});
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - began);
     done.store(true, std::memory_order_release);
@@ -148,9 +151,9 @@ void travel_trajectory() {
     MIRAGE_CHECK(position.ok && std::abs(position.position.x - target.x) <= 2 &&
                  std::abs(position.position.y - target.y) <= 2);
     // Wall clock covers the paced travel with margin on both sides.
-    std::fprintf(stderr, "travel elapsed=%lldms (budget [550,1100])\n",
-                 static_cast<long long>(elapsed.count()));
-    MIRAGE_CHECK(elapsed.count() >= 600 - 50 && elapsed.count() <= 600 + 500);
+    std::fprintf(stderr, "travel automatic=%d elapsed=%lldms planned=%lldms\n", automatic,
+                 static_cast<long long>(elapsed.count()), static_cast<long long>(planned.count()));
+    MIRAGE_CHECK(elapsed.count() >= planned.count() - 50 && elapsed.count() <= planned.count() + 500);
 }
 
 /// Same start and target: the backend reports success immediately and never
@@ -282,6 +285,7 @@ int main() {
     }
     try {
         travel_trajectory();
+        travel_trajectory(true);
         zero_distance();
         rejection_matrix();
         cancellation_mid_travel();

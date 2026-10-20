@@ -5,15 +5,18 @@
 > 所属计划：[实施总计划](mirage-implementation-plan.md) / [M7](m7-visual-tools-and-input.md)
 > 前置：M7-03/09/10/21 已交付能力；未完成的平台门禁继续保留
 > 建议发布点：连续输入与设备兼容性预览，具体发布名由维护者另定
-> 更新日期：2026-10-19
+> 更新日期：2026-10-20
 
 ## 目标与范围
 
-使 Agent 能执行平滑鼠标运动、定时按压、持续组合键，并在持键期间观察和决策；
+使所有键鼠动作默认由本地自动执行自然时序，模型只表达动作意图，无需提供时间；
+普通点击完成移动、按下及释放后，才返回动作结果或进入后置验证。支持定时按压、
+持续组合键，并在显式受控持键会话期间观察和决策；
 通过输入法状态与实际目标回显闭合文本输入。设备层适配与动作能力并行评估，验证
 对过滤软件注入或依赖设备输入的应用是否具有实际兼容性收益。
 
-本专项不改变现有已验完整动作默认值，不引入独立 Agent 循环、线程/调度体系或
+默认行为迁移按 M7-25/26 冻结和验收，当前 opt-in 不代表已交付新默认。
+本专项不引入独立 Agent 循环、线程/调度体系或
 修改 pinned 依赖，不以文档授权驱动安装和硬件部署。兼容性分 OS、后端、应用和
 版本取证，不承诺全部程序支持、来源不可识别或硬实时。连续感知不是首增量前置，
 受权的按需截图可用于持键观察。
@@ -27,18 +30,33 @@
 
 ## 工作项
 
-所有新项初始为 Proposed、未实施，不重新关闭 M7 已完成的历史范围。公共契约与
+各项当前进度见下表，不重新关闭 M7 已完成的历史范围。公共契约与
 预算先冻结，再进入相应实现；设备过滤复现与部署选型可在 M7-25 同期只读核对。
 
 | 编号 | 状态 | 结果与验收 | 前置与冻结点 |
 | --- | --- | --- | --- |
-| M7-25 | In Progress（契约冻结稿待评审） | 已交付平台中立契约层 `input_session.hpp/.cpp`（能力位、会话键词表、预算数值、状态机、版本化回执）与 golden/负向矩阵 `m7_input_session_contract.json`，`input_session_contract_test` 对账通过（1224 检查项）；维护者评审通过后本项标 Completed | DEC-110 评审；冻结摘要见 DEC-110"M7-25 契约冻结稿"；评审意见可直接调整数值并升 budget_version |
-| M7-26 | In Progress（X11/Portal 首增量） | Provider 层 opt-in `smooth_move_to`（minimum-jerk 基线、冻结预算复用、段间协作取消/落后停止）与 X11 真实实现（每段 XFlush 实时投递）；共享 minimum-jerk 调度生成器；`desktop.vision.click`/`click_region`/`desktop.session.click`（Portal，会话同源起点，未知起点前置拒绝）的 `glide_ms` opt-in 参数（默认关闭，不带参数行为不变）；真实 Xvfb 轨迹/时间/取消证据与工具正负矩阵另记；定时按压、独立修饰键、组合交叠与 Windows 路径继续推进 | M7-25 冻结契约；逐后端能力 opt-in |
+| M7-25 | In Progress（契约冻结稿待修订/评审） | 已交付平台中立契约层 `input_session.hpp/.cpp` 与 golden/负向矩阵，对账证据见验证记录；新增待交付：所有键鼠动作默认自动规划时序、无模型时间参数的工具契约、普通动作结果/后置验证不得早于执行与释放完成、各类默认时序及总动作预算和兼容迁移；同步代码/golden 后评审 | DEC-110 第 2 节 2026-10-20 维护者要求；当前预算 v1 保留至修订，数值调整升 budget_version |
+| M7-26 | In Progress（X11/Portal 点击默认接近） | 原 opt-in minimum-jerk 与 X11/Portal 路径已交付；2026-10-20 三条物理点击工具迁移为 4.0.0，默认本地计算距离/宽度时长，不暴露 glide_ms；同一 lease 内接近→到达重验→点击释放，Portal 使用同流 Cursor 元数据。契约及验证见下方实施记录。滚动/拖动、按压/间隔、独立修饰键、组合交叠和 Windows 继续推进 | M7-25 点击子集契约；逐后端能力与限制取证 |
 | M7-27 | Proposed | 同一 owner 跨工具观察保持输入；Alt-Tab 正反向及持键显示瞬态界面；模型失联、拒绝、超时、撤权、接管、shutdown、迟到命令与释放失败封锁 | M7-25/26；普通持键与等待决策预算分别验证 |
 | M7-28 | Proposed | IME/布局/模式/预编辑与候选状态的部分可观测投影；单独 Shift、候选提交、切窗焦点和最终文本验收，缺状态显式 unknown | M7-25/26，跨轮候选场景接 M7-27；与 M9-15 前端 IME 干扰区分 |
 | M7-29 | Proposed | Linux uinput / Windows VHF 的部署选型与受控原型；过滤 fixture、权限/报告容量/断连释放及实际受影响应用对比，分别形成采用或不采用的证据 | 公共动作契约接 M7-25；原型前冻结平台、依赖/驱动来源、部署和恢复方案；集成验收接 M7-26/27 |
 | M7-30 | Proposed | 外接 USB HID 的协议/设备/固件选型与原型；相对坐标校准、按键报告、ACK 语义、链路中断释放及目标应用效果；明确硬件部署边界 | 公共动作契约接 M7-25；原型前冻结供应链、硬件和协议；集成验收接 M7-26/27，不等待 M7-29 全平台完成 |
 | M7-31 | Proposed | 实际工具下模型自主完成连续动作/持键/IME/过滤应用任务；分平台资源、生命周期、sanitizer 和既有输入回归，提交可复现验收与产品能力清单 | 按已选 M7-26～30 增量验收；执行前冻结任务、阈值与应用/版本清单，未选/未验路径保留开放 |
+
+M7-26 新增默认迁移范围（In Progress，尚未交付）：以本地自动时序替代模型传
+`glide_ms` 才平滑的启用条件；覆盖移动、单击/右键/多击、拖动、滚动、按键、组合键
+和逐键文本输入，以及语义目标转 Pointer Action、视觉编号/区域、共享会话等入口。
+同一动作 lease 内完成轨迹与按压/释放再结算；后置验证不得在途中启动。模型工具
+以不暴露通用时间入口为目标，内部 Provider 可接收本地规划出的具体时长。不能因
+模型省略时间、后端能力不足或起点未知而静默切回瞬移。旧 `glide_ms` 兼容与预算
+随 M7-25 修订，真实平台、跨入口和取消/完成顺序证据并入 M7-26/31。
+
+2026-10-20 维护者接受的验证策略按 [DEC-056](../decisions/DEC-056-post-action-verification.md)
+实施：M7-25 还须冻结执行/观察/业务条件分离的回执、动作组及条件依赖/恢复契约和
+版本兼容；M7-26 取消普通输入默认 `verify_kind`/逐动作业务硬门禁，组末/依赖处按需
+观察，迁移 `execute`/`observe`/`settle` 与工具说明；M7-31 验证其实际调用数、任务
+结果及保留的输入安全围栏。v2 门控子集的契约/golden 与会话接线已完成，见下方
+实施记录；默认自然时序、新动作组接口和未验平台仍保持开放。
 
 动作链为 M7-25 → M7-26 → M7-27；IME 与设备路线按各自前置推进，M7-31 分增量
 验收。每项只有在已声明的结果及全部适用门禁通过后才标 Completed；多个平台范围
@@ -70,6 +88,13 @@ lease、键状态、任务/timer 句柄与清理结果。有限推进消费 futu
 ## 测试与退出条件
 
 - [ ] M7-25 的公开契约、数值预算、默认值与迁移文档冻结，依赖公开能力核对完成。
+- [ ] 所有适用键鼠入口不传通用时间参数仍有实际自然时序；模型慢响应不阻塞已准入
+  轨迹。记录事件时刻，证明成功动作结果及后置观察/验证均在完整动作最后释放之后，
+  工具最终返回遵循所选验证契约；持键 `holding` 与最终释放验证单独验收。
+- [ ] 普通动作不带 verify_kind 可返回实际执行结果并继续；有界动作组统一观察、首个
+  失败停止并报告前缀；条件失败只阻止依赖步骤，合规恢复不降低原条件。普通业务
+  未知、已知部分失败及执行/释放 uncertain 分别验收；终态复用有效证据，证据不足
+  不假成功。与旧门禁对照记录假成功/假失败、错误输入、调用数及端到端时延。
 - [ ] 时序/轨迹及 hold/repeat 有真实事件和控件效果证据；各后端能力声明与实测一致。
 - [ ] 持键观察、正反选窗、临时界面截图、IME 候选和切窗文本接收端闭环通过。
 - [ ] 正常、异常、提交拒绝、执行中取消、超时、shutdown；另含晚到、重复、物理
@@ -79,8 +104,9 @@ lease、键状态、任务/timer 句柄与清理结果。有限推进消费 futu
 - [ ] 模型自主任务与脚本测试分开报告，完成率/错误输入/时延/存量门槛预登记并实测。
 - [ ] 主设计、决策、M7/总计划、安全文档、示例、schema/golden 和兼容性证据同步。
 
-未执行项的共同原因是本轮仅构造决策、实现与环境选型尚未开始；负责人 Mirage
-维护者。补跑条件为对应工作项接线完成，具备目标平台会话、模型、IME、受影响应用
+上述整体门禁尚未全部执行；已完成的限定增量见下方记录。默认自动时序迁移、完整
+键鼠覆盖及相应平台/模型/设备验收仍待实现或环境到位；负责人 Mirage 维护者。
+补跑条件为对应工作项接线完成，具备目标平台会话、模型、IME、受影响应用
 及所选驱动/硬件。不能以某平台、fixture 或静态检查代替这些门禁。
 
 ## 验证记录
@@ -145,3 +171,146 @@ canonical 回执新增顶层 `hint` 字段（走 refreshed_image_scope 同路径
 post_action 764 项；debug 全量 100/100、native-release 108/108，ASan 无报告。
 真 Portal 环境的 PortalPointerState 注入管线仍只有间接覆盖（portal_screen_fixture
 无法驱动两次真实派发），待维护者下一次会话实测 glide 连击。
+
+2026-10-20：M7-25/26/31 默认自然输入要求补充（`docs/dec110-natural-input` 工作树，
+未提交）。依据维护者本轮要求与 DEC-110 第 2 节，明确全量键鼠默认本地自然时序、
+常规工具无需模型时间参数，以及普通完整动作执行/释放后才返回动作结果或进入
+后置验证；受控持键的 `holding` 单独结算。同步 DEC-110、DEC-100 迁移补充、主设计、
+本专项、M7 与总计划；M7-25 保持 In Progress，新增契约/golden 修订及默认迁移待交付。
+已核对 Mira `environment.hpp`、现行视觉/区域/共享工具 `glide_ms` 路径，以及 pinned
+kairo 集成指南的 by-requirement/scheduling 和公开 timer/cancellable 接口；沿用
+既有 Executor 生命周期，不新增调度设施或依赖反馈项。
+
+验证：Linux 7.0.0-38-generic x86_64，纯文档工作树；`git diff --check` 通过。
+Python 3 标准库逐文件检查 6 份变更 Markdown 的相对文件链接、单一一级标题、标题
+层级和代码围栏：428 个本地文件链接，0 错误；引用契约/工具文件存在且与上述差距
+描述一致。未改代码、schema/golden 或依赖，未执行构建、sanitizer、真实输入或模型
+验收；原因是本次仅修订要求。负责人 Mirage 维护者；补跑条件为 M7-25/26 实现接线
+完成并具备目标后端/桌面与模型环境，新增门禁保持未勾选。
+
+2026-10-20：按维护者要求调研 CU 项目的键鼠验证粒度，关联 M7-25/26/31，
+交付[执行与验证门控调研](../research/2026-10-20-computer-use-action-verification.md)。
+覆盖 10 个代表性项目/工具栈，8 个公开仓库以 `git ls-remote` 获取提交并逐文件下载
+核对一致；厂商官方指南核对动作组、动作后截图与最终结果检查。源码显示 Mirage
+当前逐动作固定后条件门禁强于基础截图反馈循环，建议改为按依赖/动作组/任务边界
+验收，但不据此假设程序化输入不会失败。建议保持 Proposed，DEC-056 现行契约及
+代码未变；若采纳，M7-25 需先修订状态/回执/恢复语义，M7-26/31 对照实验再验收益。
+
+验证环境为 Linux x86_64，HEAD `d09fa8d` 加本轮文档工作树；`git diff --check` 通过，
+相对链接、标题层级与代码围栏已核对。未运行外部项目、模型/桌面测试、性能基准或
+sanitizer，原因是只读调研及文档变更；负责人 Mirage 维护者，补跑条件为新策略确认
+并实现、目标后端/应用及对照实验环境具备。原有工作项状态和未验平台门禁保持开放。
+
+2026-10-20：维护者批准更新决策，DEC-056 新增 Accepted 的执行/反馈/业务验收分层
+修订：普通输入默认无逐动作业务门禁，动作组及状态依赖处观察，终态可复用有效证据；
+显式条件约束依赖步骤，恢复不降格原条件；已知失败与执行/释放 uncertain 分开处置。
+DEC-059/068 增加部分替代说明，DEC-109/110/111、主设计、安全契约、文本验证专项、
+M7/总计划与调研状态同步。DEC-109/110 的其他候选能力仍 Proposed，M7-25/26/31
+及 M7-32～34 保持原未完成状态；未改 schema/golden、代码或依赖。
+
+验证：Linux x86_64，HEAD `d09fa8d` 加 `docs/dec110-natural-input` 未提交工作树；
+`git diff --check` 通过。Python 3 标准库检查当前 14 份变更 Markdown：506 个本地
+文件链接存在，单一一级标题、标题层级与代码围栏 0 错误；差异复核确认历史证据保留，
+已接受策略与待冻结字段/实现边界分开。未执行构建、sanitizer、平台输入或新门控测试，
+原因是本次仅决策/文档更新；负责人 Mirage 维护者，补跑条件为 M7-25 契约及
+M7-26 接线完成、目标后端/应用/模型具备。新增自动化与平台验收门禁未勾选。
+
+### 2026-10-20：M7-25/26/31 分层门控 v2 首增量
+
+- 范围：按 DEC-056 Accepted 修订完成普通输入无默认业务条件、可选 depends_on、
+  执行/条件/观察分离回执及无采集结算。区域/共享 verify_kind 改为可选，未请求时
+  不后采集/OCR；独立恢复不删除原条件。未知执行副作用与释放失败仍封锁，较早
+  进程运行证明不能清除较新键鼠 uncertainty。
+- 契约：修改工具 3.0.0、verify 2.0.0、verification.policy_version=2；最多 8 个唯一
+  条件依赖，当前 authority/动作 epoch/5 秒本地有效期，32 活动/128 归档记录。
+  新鲜度在供给模型请求时判断，条件绑定仅由该请求下一次修改尝试消费；原目标/
+  焦点/像素守卫继续检查，派发入口不采集新图。
+  保留外层输入 schema=2，input_session_budget v1 未改。golden 为
+  `tests/integration/data/desktop_action_policy_v2.json`，细节见 DEC-056 首增量契约。
+- 状态：本首增量源码与下述验证已交付；M7-25/26 继续 In Progress，M7-31 整体
+  保持 Proposed。新动作组、默认自然时序及未验平台不关闭，精确值仍由 M7-32～34 交付。
+- 测试：新增 desktop_action_policy_test，757 项检查覆盖无条件输入/100 次归档、
+  条件依赖/恢复、过期/epoch/authority、取消/未知输入/释放失败、进程证明不抵消未释放、
+  较早证明不解新围栏、慢模型消费、单次条件绑定及原派发检查、
+  schema/golden 和过程投影。模型任务提示同步取消逐动作必选条件，区分按需依赖与恢复。
+  完整会话新增无条件输入→新观察→终态；共享脚本桩证明
+  默认不后采集，settle 不增 capture/OCR。原 OCR 的授权/来源/预算负例改为显式重验
+  或依赖操作，未删除原守卫。原生过程卡 execution_only 显示“已执行”。
+
+环境：Linux 7.0.0-38-generic x86_64，GCC 13.3.0、CMake 3.28.3，HEAD `d09fa8d` 加
+`feat/desktop-input-policy` 未提交工作树；Mira `a29374a`、kairo `32027c2`、Mirador
+`cb45a10`、eui-neo `63117f7`，pin 未变。debug 为 native/OCR OFF；asan/ubsan 为
+native ON、OCR OFF；native-release 前端编译使用其现有产品配置。未新建生产异步
+路径、线程、队列或 owner；新增到期测试用 Executor timer、消费 future 并在外部 shutdown。
+
+实际执行：
+
+```bash
+cmake --build --preset debug -j 4
+ctest --preset debug --output-on-failure -j 4
+cmake --build --preset debug -j 4 --target desktop_action_policy_test
+ctest --preset debug -R '^desktop_action_policy_test$' --output-on-failure
+```
+
+全量 101/101 通过；策略矩阵（含 5 秒到期、慢模型及释放失败）757 项/0 失败。完整会话
+实际完成 4 个私有 X11 任务：激活、文本回显、提交落盘、拒绝后恢复。初轮旧测试的
+自动结算采集/全局业务围栏断言按已接受的新契约调整，负例转为显式重验/依赖后通过。
+
+ASan/UBSan 分别执行以下同参命令，preset 占位依次为 asan、ubsan：
+
+```bash
+cmake --build --preset <preset> -j 2 --target desktop_action_policy_test post_action_verification_test desktop_image_supply_test visual_marks_test gui_fallback_test visual_text_verification_test
+ctest --preset <preset> -R '^(desktop_action_policy|post_action_verification|desktop_image_supply|visual_marks|gui_fallback|visual_text_verification)_test$' --output-on-failure -j 2
+```
+
+每种 sanitizer 合计 6 个不同相关用例通过，无 sanitizer 报告；夹具 setup/cleanup 另计。
+
+```bash
+cmake --build --preset tsan -j 2 --target desktop_action_policy_test post_action_verification_test
+setarch x86_64 -R ctest --preset tsan -R '^(desktop_action_policy|post_action_verification)_test$' --output-on-failure -j 2
+cmake --build --preset native-release -j 2 --target mirage-native
+```
+
+TSan 定向 2/2 通过，无 race 报告；直接运行原命令曾在 main 前因
+`unexpected memory mapping` 失败，采用上述仅对测试进程关闭 ASLR 的命令后通过，
+不改系统设置。native-release 前端编译通过。文档、golden JSON 与 `git diff --check`
+已检查，变更仅在自研源码/测试/文档内。
+
+限制：未安装/重启产品；在线模型/真实 GNOME Portal 的新策略验收、Windows 构建/
+实机及端到端耗时/成功率对照未执行，脚本桩及 X11 证据不能替代。负责人 Mirage
+维护者，补跑条件为对应 OS/授权会话、应用/模型就绪并预登记任务/阈值。当前
+glide_ms 仍 opt-in；新跨工具动作组、部分执行前缀及精确文本取证继续按各工作项
+推进，不以本次门控测试通过宣称已交付这些能力。
+
+
+### 2026-10-20：M7-25/26 自动接近点击与 native-release
+
+按维护者继续实施要求，将视觉编号、图片区域、Portal 共享点击切到本地默认自动接近，
+不依赖模型回传时间；工具 4.0.0 不再接收 glide_ms。独立 motion policy v1 及 golden、
+Portal 同源起点、到达守卫、完整结果边界与限制见 DEC-110 文末。
+
+本增量验证记录：[自动接近点击验收](../compatibility/automatic-pointer-approach-20261020.md)。
+M7-25/26 仍 In Progress；默认滚动/拖动/键盘自然时序、完整动作组/部分前缀和 Windows
+等原未完成范围不关闭；native-release 构建状态按该记录填写，不把编译当作实机模型验收。
+
+限定结果：Debug 101/101；ASan/UBSan 各 10 个不同相关用例、TSan 5 个不同用例通过；
+native-release 完整 product 及 10 个不同相关 release 用例通过。无运行中产品实例，
+未启动应用或做真实桌面输入；精确命令、负例修正与实测限制见该验收记录。
+
+
+### 2026-10-20：M7-26 最新会话起点拒绝修复
+
+最新会话的两次共享点击在派发前报 pointer_origin_unknown，随后键盘因 epoch
+已推进而报 interactive_image_required。真实 GNOME 只读探测复现：视频正常，
+Cursor 元数据缺失。修正 Format 后协商与 Cursor 容量后，同流有效起点/图像尺寸/
+来源序号检查通过；没有发送桌面输入。
+
+增加租约前起点预检，未知起点的无副作用拒绝保留原 epoch，允许仍有效的图像引用
+用于独立键盘操作；不削弱移动后/释放失败围栏。回归与 native-release 更新结果见
+[验收记录的故障修复增量](../compatibility/automatic-pointer-approach-20261020.md#最新会话故障修复增量)。
+真实模型完整点击及手感验收仍开放，M7-26/31 未关闭。
+
+
+本修复回归：Debug 101/101；ASan/UBSan/TSan 各 3 个相关用例（含夹具各 5/5）通过；
+native-release 完整 product 及 5 个相关用例（含夹具 7/7）通过。没有运行中产品实例，
+未启动/重启产品；真实 GNOME 证据限定为只读 Cursor 起点，不发送点击/键盘。

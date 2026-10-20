@@ -2858,6 +2858,7 @@ void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &mes
                                                                            : "已核验")
                             : evidence->status == "uncertain" ? "不确定"
                             : evidence->status == "rejected"  ? "已拒绝"
+                            : evidence->status == "not_requested" ? "已执行"
                                                               : "未验证")
                 : (part.name == "desktop.window.activate" ||
                    part.name.starts_with("desktop.input.")) &&

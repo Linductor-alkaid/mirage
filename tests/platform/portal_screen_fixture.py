@@ -27,6 +27,7 @@ def serve(directory):
                    GLib.VariantType('(u)'), Gio.DBusCallFlags.NONE, 1000, None)
     cast = Gio.DBusNodeInfo.new_for_xml('''<node><interface name="org.freedesktop.portal.ScreenCast">
       <property name="version" type="u" access="read"/>
+      <property name="AvailableCursorModes" type="u" access="read"/>
       <method name="CreateSession"><arg type="a{sv}" direction="in"/><arg type="o" direction="out"/></method>
       <method name="SelectSources"><arg type="o" direction="in"/><arg type="a{sv}" direction="in"/><arg type="o" direction="out"/></method>
       <method name="Start"><arg type="o" direction="in"/><arg type="s" direction="in"/><arg type="a{sv}" direction="in"/><arg type="o" direction="out"/></method>
@@ -47,7 +48,7 @@ def serve(directory):
             state['mode'] = params.unpack()[0]
             if state['mode'].startswith(('cast_', 'rd_')) and not state['cast_object']:
                 state['cast_object'] = conn.register_object('/org/freedesktop/portal/desktop',
-                    cast.interfaces[0], method, lambda *args: GLib.Variant('u', 5), None)
+                    cast.interfaces[0], method, lambda *args: GLib.Variant('u', 7 if args[-1] == 'AvailableCursorModes' else 5), None)
             if state['mode'].startswith('rd_') and not state.get('remote_object'):
                 state['remote_object'] = conn.register_object('/org/freedesktop/portal/desktop',
                     remote.interfaces[0], method, lambda *args: GLib.Variant('u', 1 if state['mode'] == 'rd_persist_v1' else 2), None)
@@ -88,6 +89,8 @@ def serve(directory):
                 conn.register_object(session, cast.interfaces[1], method, None, None)
             if name == 'SelectSources':
                 assert options['types'] == 1 and options['multiple'] is False
+                if state['mode'].startswith('rd_'):
+                    assert options.get('cursor_mode') == 4
                 assert 'restore_token' not in options and 'persist_mode' not in options
             if mode == 'cast_denied' and name == 'Start':
                 invocation.return_dbus_error('org.freedesktop.DBus.Error.AccessDenied', 'synthetic denial')

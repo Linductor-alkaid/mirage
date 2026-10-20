@@ -227,6 +227,8 @@ struct CastSession {
     guint subscription = 0;
     guint32 node = 0, devices = 0;
     int logical_width = 0, logical_height = 0, frame_width = 0, frame_height = 0;
+    std::optional<desktop::PointerPoint> observed_pointer;
+    std::uint64_t observed_pointer_sequence = 0;
     bool interaction = false;
     std::unique_ptr<PortalPipeWireStream> stream;
     ~CastSession() {
@@ -277,6 +279,8 @@ desktop::CaptureOutcome capture_cast_frame(CastSession &state, const desktop::Ca
         });
         if (!frame.ok || bounded.cancelled())
             return rejected(frame.error.code, frame.error.message);
+        state.observed_pointer = state.stream->cursor_position();
+        state.observed_pointer_sequence = frame.frame.source_sequence;
         state.frame_width = frame.frame.width;
         state.frame_height = frame.frame.height;
         return frame;
@@ -324,6 +328,8 @@ desktop::CaptureOutcome capture_cast_frame(CastSession &state, const desktop::Ca
         return rejected(frame.error.code, frame.error.message);
     // A live stream changing pixel extent invalidates input rather than silently
     // applying an old image's coordinate transform.
+    state.observed_pointer = state.stream->cursor_position();
+    state.observed_pointer_sequence = frame.frame.source_sequence;
     state.frame_width = frame.frame.width;
     state.frame_height = frame.frame.height;
     return frame;
@@ -408,6 +414,17 @@ screencast(Connection connection, const char *sender, const std::string &identit
     g_variant_builder_init(&options, G_VARIANT_TYPE_VARDICT);
     g_variant_builder_add(&options, "{sv}", "types", g_variant_new_uint32(1));
     g_variant_builder_add(&options, "{sv}", "multiple", g_variant_new_boolean(FALSE));
+    if (interaction) {
+        const auto modes = call(state->connection.get(), root, "org.freedesktop.DBus.Properties", "Get",
+            g_variant_new("(ss)", screencast_interface, "AvailableCursorModes"), G_VARIANT_TYPE("(v)"));
+        GVariant *boxed = nullptr;
+        if (modes)
+            g_variant_get(modes.get(), "(v)", &boxed);
+        Variant available(boxed);
+        if (available && g_variant_is_of_type(available.get(), G_VARIANT_TYPE_UINT32) &&
+            (g_variant_get_uint32(available.get()) & 4u))
+            g_variant_builder_add(&options, "{sv}", "cursor_mode", g_variant_new_uint32(4));
+    }
     auto selected = session_request(state->connection.get(), state->sender.c_str(), identity,
                                     "SelectSources", state->path, options, state->context, bounded);
     if (!selected.values)
@@ -479,6 +496,15 @@ desktop::InputOutcome shared_input(CastSession &s, const desktop::SharedInputAct
         input.has_pointer_origin = pointer.known;
         input.pointer_origin_x = pointer.x;
         input.pointer_origin_y = pointer.y;
+    }
+    if (action.kind == desktop::SharedInputAction::Kind::Move) {
+        // An old injection from another cast/source is not a pointer query.
+        // Automatic approach uses only the current authorized stream's cursor.
+        input.has_pointer_origin = s.observed_pointer.has_value();
+        if (s.observed_pointer) {
+            input.pointer_origin_x = double(s.observed_pointer->x) * s.logical_width / s.frame_width;
+            input.pointer_origin_y = double(s.observed_pointer->y) * s.logical_height / s.frame_height;
+        }
     }
     input.stopped = [&] {
         (void)g_main_context_iteration(s.context, FALSE);
@@ -737,6 +763,20 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
 #else
         return false;
 #endif
+    }
+    desktop::SharedPointerQueryOutcome pointer_position(const desktop::CancelToken &cancel) override {
+#ifdef MIRAGE_LINUX_PIPEWIRE
+        if (cancel.cancelled() || revoked())
+            return {false, true, {}, 0, 0, 0, {"cancelled", "Shared cursor query cancelled"}};
+        if (state_.cast && !state_.cast->closed && state_.cast->observed_pointer)
+            return {true, false, *state_.cast->observed_pointer,
+                    state_.cast->frame_width, state_.cast->frame_height,
+                    state_.cast->observed_pointer_sequence, {}};
+#else
+        (void)cancel;
+#endif
+        return {false, false, {}, 0, 0, 0,
+                {"pointer_origin_unknown", "No cursor metadata in the current authorized stream"}};
     }
     desktop::InputOutcome input(const desktop::SharedInputAction &action,
                                 const desktop::InputLimits &limits,

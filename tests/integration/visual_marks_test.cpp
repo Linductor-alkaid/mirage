@@ -99,6 +99,12 @@ class FaultInput final : public d::InputProvider {
         last_button = button;
         return click_at(x, y, button, limits, cancel);
     }
+    bool timed_pointer_actions_supported() const override { return true; }
+    d::InputOutcome smooth_move_to(std::int32_t x, std::int32_t y,
+                                   std::chrono::milliseconds duration, std::uint32_t points,
+                                   const d::InputLimits &limits, const d::CancelToken &cancel) override {
+        return delegate->smooth_move_to(x, y, duration, points, limits, cancel);
+    }
     bool complete_actions_supported() const override { return mode != 4; }
     bool bounded_pointer_actions_supported() const override { return paths; }
     d::InputOutcome pointer_result(const d::CancelToken &cancel) {
@@ -182,7 +188,9 @@ class FaultInput final : public d::InputProvider {
                                    const d::CancelToken &) override {
         return {};
     }
-    d::PointerQueryOutcome pointer_position(const d::CancelToken &) override { return {}; }
+    d::PointerQueryOutcome pointer_position(const d::CancelToken &cancel) override {
+        return delegate->pointer_position(cancel);
+    }
 };
 class Environment final : public d::DesktopEnvironment {
   public:
@@ -319,7 +327,7 @@ void contracts(kairo::Executor &executor) {
         check(!clicked.failed && !*clicked.result.find("verified")->as_boolean());
         check(f.env->fake.pointer.x == -160 && f.env->fake.pointer.y == -10);
         check(f.env->fake.input_log ==
-              std::vector<std::string>{"move -160,-10", "press left", "release left"});
+              std::vector<std::string>{"move -160,-10", "move -160,-10", "press left", "release left"});
         check(f.click(f.target(marked.result)).failed && f.env->injector.calls == 1);
         auto retired = f.turn->supply(spec);
         check(retired && !f.source->fetch(image.source));
@@ -1038,7 +1046,7 @@ void long_visual_condition(kairo::Executor &executor) {
     auto clicked = invoke(registry, "desktop.vision.click", Json{std::move(args)}, f.ctx);
     check(!clicked.failed && clicked.result.find("verified")->as_boolean().value_or(false));
     check(verification.settle());
-    check(f.env->injector.calls == 1 && f.ocr->calls() == 3);
+    check(f.env->injector.calls == 1 && f.ocr->calls() == 2);
 }
 // DEC-062: a configured capture scope pins every supplied image to the
 // focused scope window; crops may only narrow it and clicks must name it.

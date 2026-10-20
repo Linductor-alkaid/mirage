@@ -40,6 +40,12 @@ struct Environment final : d::DesktopEnvironment, d::InputProvider {
     d::PointerQueryOutcome pointer_position(const d::CancelToken &c) override {
         return fake.input()->pointer_position(c);
     }
+    bool timed_pointer_actions_supported() const override { return true; }
+    d::InputOutcome smooth_move_to(std::int32_t x, std::int32_t y,
+                                   std::chrono::milliseconds duration, std::uint32_t points,
+                                   const d::InputLimits &limits, const d::CancelToken &cancel) override {
+        return fake.input()->smooth_move_to(x, y, duration, points, limits, cancel);
+    }
     bool complete_actions_supported() const override { return complete; }
     d::InputOutcome click_at(std::int32_t x, std::int32_t y, const d::MouseButton &,
                              const d::InputLimits &, const d::CancelToken &) override {

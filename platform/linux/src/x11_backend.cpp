@@ -1092,6 +1092,10 @@ InputOutcome X11Backend::smooth_move_to(std::int32_t x, std::int32_t y,
         out.error = error("io_error", "pointer state unavailable");
         return out;
     }
+    if (mask & (Button1Mask | Button2Mask | Button3Mask | Button4Mask | Button5Mask)) {
+        out.error = error("input_busy", "pointer approach refuses physically held buttons");
+        return out;
+    }
     // DEC-110 section 2: local pacing on the reproducible minimum-jerk
     // baseline built by the shared frozen schedule generator. A delivery
     // more than 250 ms behind its schedule stops the travel instead of
@@ -1117,6 +1121,11 @@ InputOutcome X11Backend::smooth_move_to(std::int32_t x, std::int32_t y,
         const auto scheduled = started + sample.at;
         std::this_thread::sleep_until(scheduled);
         const auto now = std::chrono::steady_clock::now();
+        if (cancel.cancelled()) {
+            out.cancelled = true;
+            out.error = error("cancelled", "pointer travel cancelled; remaining path not replayed");
+            return out;
+        }
         if (now > scheduled + kMaxLag || now >= deadline) {
             out.error = error(now >= deadline ? "timeout" : "deadline_exceeded",
                               "pointer travel fell behind; remaining path not replayed");

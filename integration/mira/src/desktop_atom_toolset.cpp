@@ -802,14 +802,14 @@ AtomRegistration scoped_mutation(const std::string &name, const DesktopToolConte
     registration.spec.description =
         use +
         "Complete desktop action bound to the latest observation. "
-        "Declare verify_kind before dispatch: foreground_changed (UI progress only), "
+        "Optional verify_kind declares a fixed condition: foreground_changed (UI progress only), "
         "foreground_title_equals (expected_title), display_text_exists (display_id/expected_text), "
         "window_focused, window_title_equals "
         "(expected_title), "
         "semantic_node_exists (expected_role/expected_name), or visual_text_exists (expected_text; "
         "fresh OCR, one exact text inside the focused window, confidence >= 0.8). Without a "
-        "condition input remains "
-        "unverified. Re-observe after dispatch. Never retry uncertain side effects automatically.";
+        "condition, input returns execution facts without a business gate. Observe at state "
+        "dependencies and before claiming task completion. Never retry uncertain side effects automatically.";
     registration.spec.has_side_effects = true;
     JsonValue::Object properties{
         {"window_id", string_schema("Observed target window")},
@@ -1394,8 +1394,10 @@ void DesktopAtomToolset::register_harness_tools(mira::BuiltinToolRegistry &regis
                 return JsonValue{std::move(object)};
             };
         }
-        if (decorate)
+        if (decorate) {
+            detail::DesktopActionVerification::configure_policy(candidate.spec);
             candidate.handler = decorate(candidate.spec.wire_name, std::move(candidate.handler));
+        }
         auto result =
             registry.register_tool(std::move(candidate.spec), std::move(candidate.handler));
         if (!result)

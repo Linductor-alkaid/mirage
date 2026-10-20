@@ -954,8 +954,7 @@ DialogCompletion ModelLayer::complete_harness_turn(
                 // DEC-056 settlement evidence: a successful desktop
                 // observation after the trailing action record lets a clean
                 // no-effect rejection settle instead of failing the turn.
-                if (result && !refused && name.starts_with("desktop.") &&
-                    !detail::DesktopActionVerification::mutation(name))
+                if (result && !refused && detail::DesktopActionVerification::observation(name))
                     verification.note_observation();
                 capture.finish_tool(part, result,
                                     [&verification](auto &parts) { verification.project(parts); });
@@ -1102,6 +1101,10 @@ DialogCompletion ModelLayer::complete_harness_turn(
         "Calls separated by observation or reasoning do not form a double/triple-click. "
         "desktop.input.click is one semantic activation; use a visual/shared tool for physical "
         "multi-clicks. "
+        "Physical clicks automatically approach the target with local smooth timing, then recheck "
+        "the target before pressing. Do not supply glide_ms or other movement durations. A missing "
+        "cursor origin or unsupported smooth backend requires fresh observation or another exposed "
+        "tool; do not attempt a direct-click bootstrap. "
         "Physical click/drag tools accept button=left/middle/right (default left). "
         "Scroll uses horizontal_steps/vertical_steps, positive right/down, negative left/up, "
         "total absolute steps at most 16. Use vision.scroll_region/drag_region for visible "
@@ -1109,14 +1112,20 @@ DialogCompletion ModelLayer::complete_harness_turn(
         "destination_x/y/width/height. "
         "Use only exposed tools and respect their window/monitor scope; never emulate a held "
         "button across tool calls. "
-        "After a desktop mutation, inspect fresh evidence before reporting its result. "
+        "Ordinary input returns execution facts without a default business condition. "
+        "Observe at state dependencies and inspect post-input evidence before claiming task success. "
         "A fresh image already attached to the action evidence or next model request satisfies "
         "this observation step; reuse it while valid instead of issuing another capture by reflex. "
         "After waiting for system sharing authorization, refresh any expired observations. "
         "A successful native ScreenCast session may capture fresh frames after actions in this "
         "task without another sharing dialog; do not retry failed authorization. "
         "Dispatched input and a text answer do not prove task completion. "
-        "Declare an exact verify_kind and expected fields before each mutation. "
+        "verify_kind is optional for ordinary keyboard and mouse input. When a local condition "
+        "is needed, fix verify_kind and its expected fields before that action. Use depends_on "
+        "only for later input that requires a verified fixed condition from a retained action_id. "
+        "An unmet business condition permits independent recovery through the usual input guards, "
+        "but still prevents a success claim until satisfied; never weaken the original condition. "
+        "not_requested means execution only, not verified business success. "
         "For window_focused omit expected_* fields. Each other verify_kind uses only its "
         "corresponding fields: expected_title, expected_role/name, or expected_text. "
         "Use desktop.action.verify with the returned action_id when the receipt is unverified "
@@ -1427,7 +1436,7 @@ DialogCompletion ModelLayer::complete_harness_turn(
             completion.reply_text =
                 verification.empty()
                     ? value.answer
-                    : "已核对本轮声明的动作后条件；这不代表任意业务目标均已完成。\n\n" +
+                    : "输入执行与结果观察已记录；任务结论依据下述反馈，执行完成不等于业务验证成功。\n\n" +
                           value.answer;
             mira::ModelResponse response;
             response.usage = value.last_usage;

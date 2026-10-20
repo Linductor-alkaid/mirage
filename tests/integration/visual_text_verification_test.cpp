@@ -150,11 +150,13 @@ void scenarios() {
             check(!field(evidence, "evidence_id").empty());
             check(field(evidence, "visual_scope") == "@vs1");
             check(verify.settle());
-            check(f.calls == 2);
+            check(f.calls == 1);
         } else {
             check(field(evidence, "status") == "unverified");
             check(!verify.settle());
-            check(!verify.execute("desktop.vision.click", f.args(), f.ctx, f.handler()));
+            auto dependent = f.args();
+            dependent.set("depends_on", Json::Array{*result.value().find("action_id")});
+            check(!verify.execute("desktop.vision.click", dependent, f.ctx, f.handler()));
         }
         check(f.inputs == 1);
         check(mira::to_json_string(evidence).find("Task saved") == std::string::npos);
@@ -165,7 +167,8 @@ void revalidation() {
          {"scope", "calls", "model", "display", "geometry", "text", "permission"}) {
         Fixture f;
         i::detail::DesktopActionVerification verify(f.desktop, f.ctx, {});
-        check(static_cast<bool>(verify.execute("desktop.input.key", f.args(), f.ctx, f.handler())));
+        const auto first = verify.execute("desktop.input.key", f.args(), f.ctx, f.handler());
+        check(static_cast<bool>(first));
         f.edit = [&](auto &r) {
             if (mode == "scope")
                 r.snapshot.scope_ref = "@vs1";
@@ -182,6 +185,8 @@ void revalidation() {
         };
         if (mode == "permission")
             f.allow = false;
+        check(verify.settle()); // No automatic OCR at settlement.
+        check(static_cast<bool>(verify.recheck(field(first.value(), "action_id"), f.ctx)));
         check(!verify.settle());
         check(f.inputs == 1);
     }
@@ -219,25 +224,28 @@ void revalidation() {
     expired.deadline = std::chrono::steady_clock::now() - std::chrono::seconds{1};
     check(!reread(args, expired));
     check(f.inputs == 1 && f.calls == 3);
-    for (int n = 3; n < 64; ++n)
-        check(verify.settle());
-    check(!verify.settle());
+    for (int n = 3; n < 64; ++n) {
+        const auto proof = reread(args, f.ctx);
+        check(proof && field(proof.value().result, "status") == "verified");
+    }
+    check(verify.settle());
     check(f.calls == 64 && f.inputs == 1);
     auto limited = reread(args, f.ctx);
     check(limited &&
           field(limited.value().result, "reason") == "visual_observation_budget_exceeded");
-    // M9-03: the visual evidence budget is per environment epoch, matching
-    // the failure tracker's per-epoch retry budget. Advancing the coordinator
-    // epoch (takeover + resume) reopens it: the recheck no longer reports
-    // budget exhaustion — the fresh observation fails on the record's stale
-    // epoch instead, proving observe got past a budget gate a run-total
-    // budget would have kept closed.
+    check(!verify.settle());
+    // A takeover/resume is an authority barrier. A retired proof cannot be
+    // revived by starting a new evidence budget; a new action must admit.
     f.desktop.actions->takeover();
     check(f.desktop.actions->resume());
     auto reopened = reread(args, f.ctx);
-    check(reopened && !reopened.value().failed &&
-          field(reopened.value().result, "reason") != "visual_observation_budget_exceeded");
-    check(field(reopened.value().result, "reason") == "environment_changed");
+    check(reopened && reopened.value().failed &&
+          reopened.value().safe_error_summary.find("authority changed") != std::string::npos);
+    check(f.calls == 64);
+    i::detail::DesktopActionVerification fresh(f.desktop, f.ctx, {});
+    const auto admitted = fresh.execute("desktop.input.key", f.args(), f.ctx, f.handler());
+    check(admitted && field(*admitted.value().find("verification"), "status") == "verified");
+    check(f.calls == 65 && f.inputs == 2);
 }
 void invalid_conditions() {
     for (int mode = 0; mode < 6; ++mode) {
@@ -277,7 +285,7 @@ void local_scope() {
     auto result = verify.execute("desktop.input.key", f.args(), f.ctx, f.handler());
     check(result && field(*result.value().find("verification"), "status") == "verified");
     check(verify.settle());
-    check(f.calls == 2 && f.inputs == 1);
+    check(f.calls == 1 && f.inputs == 1);
 }
 } // namespace
 int main() {

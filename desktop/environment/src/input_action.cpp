@@ -58,6 +58,24 @@ InputOutcome InputProvider::click_sequence_at(std::int32_t x, std::int32_t y,
     return {false, false, {"unsupported_platform", "complete repeated click is unavailable"}};
 }
 
+InputOutcome InputProvider::approach_target(PointerPoint target, std::int32_t target_width,
+                                            const InputLimits &limits, const CancelToken &cancel) {
+    if (cancel.cancelled())
+        return {false, true, {"cancelled", "pointer approach cancelled"}};
+    if (!timed_pointer_actions_supported())
+        return {false, false, {"unsupported_platform", "automatic pointer travel is unavailable"}};
+    const auto origin = pointer_position(cancel);
+    if (!origin.ok)
+        return {false, origin.cancelled, origin.error};
+    const auto duration =
+        automatic_pointer_duration({origin.position.x, origin.position.y}, target, target_width);
+    if (limits.timeout < duration || limits.timeout.count() <= 0)
+        return {false, false, {"input_timeout", "pointer approach exceeds remaining action time"}};
+    if (duration.count() == 0)
+        return {true, false, {}, false, true};
+    return smooth_move_to(target.x, target.y, duration, 0, limits, cancel);
+}
+
 InputOutcome InputProvider::smooth_move_to(std::int32_t, std::int32_t,
                                            std::chrono::milliseconds duration,
                                            std::uint32_t path_points, const InputLimits &,

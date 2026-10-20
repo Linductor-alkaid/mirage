@@ -1,3 +1,4 @@
+#include "desktop_action_verification.hpp"
 #include "desktop_image_supply.hpp"
 #include "desktop_stability_guard.hpp"
 #include "tool_click.hpp"
@@ -5,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <mirage/desktop/input_session.hpp>
 #include <stdexcept>
 #include <string_view>
 
@@ -37,17 +39,19 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
     for (const auto *operation : {"click", "key", "type_text", "scroll", "drag"}) {
         mira::BuiltinToolSpec spec;
         spec.wire_name = std::string("desktop.session.") + operation;
+        if (std::string_view(operation) == "click")
+            spec.version = {4, 0, 0};
         spec.has_side_effects = true;
         const std::string use =
             std::string_view(operation) == "click"
                 ? "Click a visible control, or a clearly non-interactive area "
                   "of the intended window to focus it; no window API is needed. "
                   "click_count sets consecutive clicks in one action (default 1); "
-                  "use 2 for double-click, 3 for triple-click. Optional glide_ms "
-                  "(50-2000) travels the pointer from its previous dispatched "
-                  "position along a timed smooth path before pressing; the first "
-                  "glide of a session may be refused with pointer_origin_unknown "
-                  "(fall back to a direct click). "
+                  "use 2 for double-click, 3 for triple-click. Automatically approaches the target "
+                  "along a locally timed minimum-jerk path, then checks fresh target pixels before "
+                  "pressing. No model timing parameter. Requires a fresh same-stream cursor "
+                  "origin; "
+                  "pointer_origin_unknown refuses without clicking. "
             : std::string_view(operation) == "key"
                 ? "Send one key chord to the focused UI, such as ctrl+l or enter. "
             : std::string_view(operation) == "type_text"
@@ -74,19 +78,16 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
             "click/drag use button=left/middle/right (default left). No held keys. "
             "verify_kind=shared_frame_observed proves released input and "
             "fresh frame only, or shared_text_exists with expected_text checks same-stream OCR. "
-            "Each successful receipt includes observation.image_scope and environment_epoch for "
-            "the next action; do not take a separate screenshot. Neither proves the full task nor "
-            "focus identity; inspect the new image before "
-            "continuing. "
+            "verify_kind is optional. Without it, no post-action frame or OCR is captured; "
+            "the receipt reports execution only. Capture at the next state dependency or "
+            "task boundary to obtain a fresh actionable image_scope. Requested evidence "
+            "does not prove the full task or focus identity. "
             "A target_pixels_changed rejection already supplies the fresh frame with a new "
             "image_scope in its receipt: retry against that scope without recapturing. "
             "Do not retry uncertain effects.";
         Json::Object props;
         if (std::string_view(operation) == "click") {
             props.emplace_back("click_count", click_count_schema());
-            props.emplace_back("glide_ms", Json{Json::Object{{"type", "integer"},
-                                                             {"minimum", 50},
-                                                             {"maximum", 2000}}});
         }
         if (std::string_view(operation) == "key")
             props.emplace_back("key_name",
@@ -115,8 +116,7 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
                         {"type", "integer"}, {"minimum", -16}, {"maximum", 16}, {"default", 0}}});
         for (const auto *key : {"environment_epoch", "x", "y", "width", "height"})
             props.emplace_back(key, Json{Json::Object{{"type", "integer"}}});
-        Json::Array required{"image_scope", "environment_epoch", "x", "y", "width",
-                             "height",      "verify_kind"};
+        Json::Array required{"image_scope", "environment_epoch", "x", "y", "width", "height"};
         if (std::string_view(operation) == "drag")
             for (const auto *key :
                  {"destination_x", "destination_y", "destination_width", "destination_height"})
@@ -130,8 +130,10 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
         mira::BuiltinToolHandler handler = [this, name](const auto &args, const auto &ctx) {
             return shared_input(name, args, ctx);
         };
-        if (decorate)
+        if (decorate) {
+            DesktopActionVerification::configure_policy(spec);
             handler = decorate(spec.wire_name, std::move(handler));
+        }
         if (!registry.register_tool(std::move(spec), std::move(handler)))
             throw std::runtime_error("shared input tool registration failed");
     }
@@ -162,7 +164,7 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         std::chrono::steady_clock::now() - captured_ >= std::chrono::seconds(60))
         return rejected("stale_or_invalid_target");
     const auto kind = field(args, "verify_kind");
-    if ((kind != "shared_frame_observed" && kind != "shared_text_exists") ||
+    if ((!kind.empty() && kind != "shared_frame_observed" && kind != "shared_text_exists") ||
         (kind == "shared_text_exists" &&
          (!desktop_.ocr_image || field(args, "expected_text").empty())))
         return rejected("postcondition_unavailable");
@@ -172,15 +174,9 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
     const auto button = pointer_button(args);
     if (!clicks || !button || (operation != "key" && args.find("key_name")) ||
         (operation != "type_text" && args.find("text")) ||
-        (operation != "click" && args.find("click_count")) ||
-        (operation != "click" && args.find("glide_ms")) ||
+        (operation != "click" && args.find("click_count")) || args.find("glide_ms") ||
         (operation != "click" && !drag && args.find("button")) ||
         (operation != "scroll" && (args.find("horizontal_steps") || args.find("vertical_steps"))))
-        return rejected("invalid_argument");
-    const auto glide_value = args.find("glide_ms");
-    if (glide_value &&
-        (!glide_value->as_integer() || *glide_value->as_integer() < 50 ||
-         *glide_value->as_integer() > 2000))
         return rejected("invalid_argument");
     desktop::SharedInputAction action;
     action.click_count = *clicks;
@@ -217,8 +213,6 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         action.vertical_steps = *v;
         action.horizontal_steps = *horizontal;
     }
-    if (glide_value)
-        action.glide_ms = static_cast<std::uint32_t>(*glide_value->as_integer());
     auto dx = x, dy = y, dw = w, dh = h;
     if (drag) {
         dx = integer("destination_x");
@@ -358,6 +352,22 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         return rejected("invalid_argument");
     action.image_width = old.width;
     action.image_height = old.height;
+    if (operation == "click") {
+        // Availability is a read-only preflight. Do not retire the current
+        // image/epoch merely because the stream lacks cursor metadata.
+        try {
+            const auto origin = native_session_->pointer_position(bounded);
+            if (!origin.ok)
+                return rejected(origin.cancelled ? "cancelled" : "pointer_origin_unknown");
+            if (origin.image_width != fresh.frame.width || origin.image_height != fresh.frame.height ||
+                origin.source_sequence != fresh.frame.source_sequence || origin.position.x < 0 ||
+                origin.position.y < 0 || origin.position.x >= origin.image_width ||
+                origin.position.y >= origin.image_height)
+                return rejected("pointer_origin_unknown");
+        } catch (...) {
+            return rejected("pointer_query_failed");
+        }
+    }
     auto lease = desktop_.actions->try_begin(bounded, epoch_);
     if (!lease)
         return rejected(lease.error().code);
@@ -365,7 +375,40 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
     limits.max_text_bytes = 4096;
     desktop::InputOutcome out;
     try {
+        bool moved = false;
+        if (operation == "click") {
+            auto approach = action;
+            approach.kind = Kind::Move;
+            approach.click_count = 1;
+            approach.target_width =
+                static_cast<std::int32_t>(std::min(to_monitor_x(*x + *w) - to_monitor_x(*x),
+                                                   to_monitor_y(*y + *h) - to_monitor_y(*y)));
+            const auto travel = native_session_->input(approach, limits, bounded);
+            if (!travel.input_released)
+                lease.release_failed();
+            if (!travel.ok)
+                return rejected(travel.error.code, travel.side_effect_may_have_occurred,
+                                travel.input_released);
+            moved = travel.side_effect_may_have_occurred;
+            if (moved) {
+                const auto arrived = measure_phase(timings_ ? &timings_->capture : nullptr, [&] {
+                    return native_session_->capture_presented(
+                        {desktop_capture_bytes, fresh.frame.source_sequence}, bounded,
+                        desktop_.exclude_pet);
+                });
+                if (!arrived.ok || !valid_image_frame(arrived.frame, desktop_capture_bytes) ||
+                    arrived.frame.width != old.width || arrived.frame.height != old.height ||
+                    arrived.frame.source_sequence <= fresh.frame.source_sequence ||
+                    bounded.cancelled() ||
+                    assess_target_stability(old, arrived.frame, {left, top, right, bottom}) ==
+                        TargetStability::kChanged)
+                    return rejected(bounded.cancelled() ? "cancelled" : "arrival_target_changed",
+                                    moved);
+                fresh = arrived;
+            }
+        }
         out = native_session_->input(action, limits, bounded);
+        out.side_effect_may_have_occurred |= moved;
     } catch (...) {
         out = {false, false, {"provider_exception", "Input failed"}, true, false};
     }
@@ -378,17 +421,6 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         }
         auto failure =
             rejected(out.error.code, out.side_effect_may_have_occurred, out.input_released);
-        if (out.error.code == "pointer_origin_unknown") {
-            // Bounded recovery guidance for the model; the desktop is untouched.
-            auto parsed = mira::parse_json(failure.safe_message);
-            if (parsed && parsed.value().as_object()) {
-                auto object = *parsed.value().as_object();
-                object.emplace_back(
-                    "hint", Json{"dispatch a direct click without glide_ms first; the pointer "
-                                 "position is then known and glide works"});
-                failure.safe_message = mira::to_json_string(Json{std::move(object)});
-            }
-        }
         return failure;
     }
     // DEC-081: only a later source frame can verify this dispatched action.

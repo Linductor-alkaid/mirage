@@ -89,13 +89,13 @@ integration::DesktopToolContext desktop() {
 class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
                                 public mirage::desktop::ScreenProvider {
   public:
-    int created = 0, captures = 0, closed = 0, inputs = 0;
+    int created = 0, captures = 0, closed = 0, inputs = 0, moves = 0;
     bool interactive = false, pixels_changed = false, release_failed = false,
          uncertain_input = false;
     bool fail = false, revoke = false, throw_capture = false, repeated_source_after_input = false;
-    // 2026-10-20: a scripted session that refuses glide travel the way the
-    // Portal backend does before any origin was ever dispatched.
-    bool glide_origin_unknown = false;
+    // Automatic approach refuses when same-stream cursor metadata is unavailable.
+    bool glide_origin_unknown = false, arrival_changed = false;
+    std::string cursor_fault;
     // M7-16 / DEC-083: `pixels_changed` paints a position-dependent structural
     // pattern (a replaced subject whose frame fingerprint and block diffs both
     // move), while `drift` only shifts brightness uniformly (the subject stays
@@ -180,13 +180,35 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
     struct Session final : mirage::desktop::DesktopCaptureSession {
         NativeEnvironment &env;
         bool live = false, input_mode = false;
+        std::uint64_t frame_sequence = 0;
         explicit Session(NativeEnvironment &v, bool input = false) : env(v), input_mode(input) {
             ++env.created;
         }
         bool input_supported() const override { return input_mode && live; }
+        mirage::desktop::SharedPointerQueryOutcome pointer_position(
+            const mirage::desktop::CancelToken &cancel) override {
+            if (cancel.cancelled())
+                return {false, true, {}, 0, 0, 0, {"cancelled", "fixture"}};
+            if (env.glide_origin_unknown)
+                return {};
+            if (env.cursor_fault == "pointer_query_throws")
+                throw std::runtime_error("cursor query failure");
+            return {true, false, {env.cursor_fault == "pointer_out_of_bounds" ? -1 : 0, 0},
+                    env.frame_width + (env.cursor_fault == "pointer_extent_mismatch" ? 1 : 0),
+                    env.frame_height,
+                    frame_sequence - (env.cursor_fault == "pointer_sequence_mismatch" ? 1 : 0), {}};
+        }
         mirage::desktop::InputOutcome input(const mirage::desktop::SharedInputAction &action,
                                             const mirage::desktop::InputLimits &,
                                             const mirage::desktop::CancelToken &cancel) override {
+            if (action.kind == mirage::desktop::SharedInputAction::Kind::Move) {
+                ++env.moves;
+                if (env.glide_origin_unknown)
+                    return {false, false, {"pointer_origin_unknown", "fresh cursor metadata missing"}, false, true};
+                if (env.arrival_changed)
+                    env.pixels_changed = true;
+                return {true, false, {}, true, true};
+            }
             ++env.inputs;
             env.last_action_x = action.x;
             env.last_action_y = action.y;
@@ -235,13 +257,13 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
                     ? env.shared_pixels()
                     : std::vector<std::uint8_t>(std::size_t(width) * std::size_t(height) * 4,
                                                 static_cast<std::uint8_t>(env.captures));
+            frame_sequence = static_cast<std::uint64_t>(env.repeated_source_after_input && env.inputs
+                                                    ? env.captures - 1 : env.captures);
             return {true,
                     false,
                     {mirage::desktop::ImageFormat::Bgra8, width, height, std::size_t(width) * 4,
                      std::move(pixels),
-                     static_cast<std::uint64_t>(env.repeated_source_after_input && env.inputs
-                                                    ? env.captures - 1
-                                                    : env.captures)},
+                     frame_sequence},
                     {}};
         }
     };
@@ -469,6 +491,13 @@ void shared_contracts(const std::string &mode) {
                                 : "shared_frame_observed"}}};
         if (mode == "ocr" || mode == "wrong_ocr" || mode == "ocr_invalid")
             args.set("expected_text", "fixture");
+        if (mode == "execution_only") {
+            auto fields = *args.as_object();
+            fields.erase(std::remove_if(fields.begin(), fields.end(),
+                                       [](const auto &entry) { return entry.first == "verify_kind"; }),
+                         fields.end());
+            args = JsonValue{std::move(fields)};
+        }
         if (mode != "no_image") {
             mira::AgentLoopSpec spec;
             spec.task_id = ctx.task;
@@ -563,8 +592,6 @@ void shared_contracts(const std::string &mode) {
             args.set("vertical_steps", 1);
         }
         // DEC-110 (M7-26): the glide_ms opt-in of desktop.session.click.
-        if (mode == "glide")
-            args.set("glide_ms", 300);
         if (mode == "glide_low")
             args.set("glide_ms", 49);
         if (mode == "glide_high")
@@ -575,10 +602,13 @@ void shared_contracts(const std::string &mode) {
             args.set("glide_ms", 300);
         // 2026-10-20: the session refuses glide travel before any dispatched
         // origin exists (the Portal backend's first-glide shape).
-        if (mode == "glide_origin_unknown") {
-            args.set("glide_ms", 300);
+        if (mode == "glide_origin_unknown")
             env->glide_origin_unknown = true;
-        }
+        if (mode == "arrival_changed")
+            env->arrival_changed = true;
+        if (mode.starts_with("pointer_"))
+            env->cursor_fault = mode;
+        const auto epoch_before_input = tools.actions->epoch();
         auto result = invoke(mode == "unicode"           ? "desktop.session.type_text"
                              : drag                      ? "desktop.session.drag"
                              : (mode.starts_with("wheel") || mode == "glide_scroll")
@@ -595,52 +625,21 @@ void shared_contracts(const std::string &mode) {
             check(result && result.value().failed &&
                   result.value().safe_error_summary.find("input_pre_capture_timeout") !=
                       std::string::npos);
-        if (mode == "glide_origin_unknown") {
-            // The scripted session refuses glide travel exactly like the
-            // Portal backend before any dispatched origin: no effect, input
-            // released, session alive. The rejection receipt must carry the
-            // bounded recovery guidance next to the error code.
-            check(result && result.value().failed);
-            check(env->inputs == 1 && env->captures == 2 && env->created == 1);
-            const auto &summary = result.value().safe_error_summary;
-            const auto receipt = mira::parse_json(summary);
-            check(receipt && receipt.value().as_object());
-            std::string error_code, hint;
-            const auto read_receipt = [&](const JsonValue &object) {
-                if (const auto *code = object.find("error_code"); code && code->as_string())
-                    error_code = *code->as_string();
-                if (const auto *value = object.find("hint"); value && value->as_string())
-                    hint = *value->as_string();
-            };
-            read_receipt(receipt.value());
-            // DesktopActionVerification lifts the shared-input hint into a
-            // top-level canonical receipt field (the refreshed_image_scope
-            // pattern); the embedded shared-input JSON rides in message.
-            if (hint.empty())
-                if (const auto *message = receipt.value().find("message");
-                    message && message->as_string())
-                    if (const auto embedded = mira::parse_json(*message->as_string()))
-                        read_receipt(embedded.value());
-            check(error_code == "pointer_origin_unknown");
-            // Full guidance, not a truncated fragment: the bounded recovery
-            // tells the model both the fallback action and the outcome.
-            check(hint.find("direct click") != std::string::npos);
-            check(hint.find("glide works") != std::string::npos);
-            std::cerr << "glide_origin_unknown receipt: " << summary << "\n";
-            // This receipt deterministically exceeds the pinned 512-byte
-            // summary cap, so the downgrade that swaps the embedded message
-            // for the short pointer text has fired while the hint survives at
-            // top level. Tolerant form: if a future change brings the receipt
-            // back under the cap, the embedded JSON reappears and carries the
-            // guidance again — both shapes keep it visible.
-            if (const auto *message = receipt.value().find("message");
-                message && message->as_string()) {
-                const std::string text = *message->as_string();
-                check(text.find("Desktop action failed") != std::string::npos ||
-                      text.find("error_code") != std::string::npos);
-                if (text.find("Desktop action failed") == std::string::npos)
-                    check(text.find("\"hint\"") != std::string::npos);
-            }
+        if (mode == "arrival_changed") {
+            check(result && result.value().failed && env->moves == 1 && env->inputs == 0);
+            check(result.value().safe_error_summary.find("arrival_target_changed") != std::string::npos);
+            check(!verification.settle());
+            return;
+        }
+        if (mode == "glide_origin_unknown" || mode.starts_with("pointer_")) {
+            check(result && result.value().failed && env->moves == 0 && env->inputs == 0);
+            check(tools.actions->epoch() == epoch_before_input);
+            check(result.value().safe_error_summary.find(mode == "pointer_query_throws" ? "pointer_query_failed" : "pointer_origin_unknown") != std::string::npos);
+            check(result.value().safe_error_summary.find("direct click") == std::string::npos);
+            auto key = args;
+            key.set("key_name", "escape");
+            const auto fallback = invoke("desktop.session.key", key, ctx);
+            check(fallback && !fallback.value().failed && env->inputs == 1);
             return;
         }
         if (mode == "uncertain")
@@ -721,7 +720,7 @@ void shared_contracts(const std::string &mode) {
             check(env->inputs == 1);
             // Only the retry's own guard frame and its postcondition
             // observation ran; no separate recapture call happened.
-            check(env->captures == 4 && env->created == 1);
+            check(env->captures == 5 && env->created == 1);
             check(retry.value().result.find("verified")->as_boolean() == true);
             check(verification.settle());
             return;
@@ -730,6 +729,21 @@ void shared_contracts(const std::string &mode) {
         // — the guard passes it and the input succeeds, so the post-action
         // verification settles with verified=true; only the structural
         // replacement in `changed` still rejects below.
+        if (mode == "execution_only") {
+            check(result && !result.value().failed && env->inputs == 1);
+            check(result.value().result.find("verified")->as_boolean() == false);
+            const auto *proof = result.value().result.find("verification");
+            check(proof && *proof->find("status")->as_string() == "not_requested");
+            check(env->captures == 3 && measured.ocr.calls == 0);
+            check(!verification.settle());
+            auto feedback = invoke("desktop.screen.capture", JsonValue{JsonValue::Object{
+                {"source", "desktop"}, {"interaction", true}}}, ctx);
+            check(feedback && !feedback.value().failed);
+            verification.note_observation();
+            const auto captures = env->captures;
+            check(verification.settle() && env->captures == captures && measured.ocr.calls == 0);
+            return;
+        }
         const bool success = mode == "normal" || mode == "ocr" || mode == "uniform_drift" ||
                              mode == "double" || mode == "triple" || mode == "repeat" ||
                              mode == "click_limit" || mode == "right" || mode == "middle" ||
@@ -737,7 +751,7 @@ void shared_contracts(const std::string &mode) {
         if (mode == "right" || mode == "middle")
             check(env->last_input.value == mode);
         if (mode == "glide")
-            check(env->last_input.glide_ms == 300 &&
+            check(env->moves == 1 && env->last_input.glide_ms == 0 &&
                   env->last_input.kind == mirage::desktop::SharedInputAction::Kind::Click);
         if (mode == "normal")
             check(env->last_input.glide_ms == 0);
@@ -795,10 +809,10 @@ void shared_contracts(const std::string &mode) {
                   *proof->find("evidence_scope")->as_string() ==
                       (mode == "ocr" ? "text_presence" : "fresh_frame"));
             const auto before = measured.capture.calls;
-            check(before == 3 && measured.ocr.calls == (mode == "ocr" ? 1u : 0u));
+            check(before == (mode == "drag" || mode == "wheel" ? 3u : 4u) && measured.ocr.calls == (mode == "ocr" ? 1u : 0u));
             check(verification.settle());
-            check(measured.capture.calls == before + 1 &&
-                  measured.ocr.calls == (mode == "ocr" ? 2u : 0u));
+            check(measured.capture.calls == before &&
+                  measured.ocr.calls == (mode == "ocr" ? 1u : 0u));
         }
         if (mode == "release")
             check(!tools.actions->input_released() && tools.actions->authority_epoch() == 0);
@@ -961,19 +975,19 @@ void native_observation_efficiency() {
             }
             check(!hidden && admitted == restored);
         }
-        check(env->inputs == 40 && env->captures == 81 && env->created == 1);
+        check(env->inputs == 40 && env->captures == 121 && env->created == 1);
         auto roi =
             invoke("desktop.screen.capture",
                    JsonValue{JsonValue::Object{
                        {"source", "roi"}, {"x", 8}, {"y", 8}, {"width", 16}, {"height", 8}}});
-        check(roi && !roi.value().failed && env->captures == 82);
+        check(roi && !roi.value().failed && env->captures == 122);
         const auto before_ocr = ocr_calls;
         auto regional_ocr = invoke("desktop.vision.ocr", JsonValue{JsonValue::Object{}});
         check(regional_ocr && !regional_ocr.value().failed && ocr_calls == before_ocr + 1);
         check(*regional_ocr.value().result.find("source_kind")->as_string() == "roi");
         check(*regional_ocr.value().result.find("width")->as_integer() == 16 &&
               *regional_ocr.value().result.find("height")->as_integer() == 8);
-        check(env->captures == 82 && !hidden && admitted == restored);
+        check(env->captures == 122 && !hidden && admitted == restored);
         fail_ocr = true;
         auto new_roi =
             invoke("desktop.screen.capture",
@@ -985,7 +999,7 @@ void native_observation_efficiency() {
             auto failed = invoke("desktop.vision.ocr", JsonValue{JsonValue::Object{}});
             check(failed && failed.value().failed);
         }
-        check(ocr_calls == before_failure + 1 && env->captures == 83);
+        check(ocr_calls == before_failure + 1 && env->captures == 123);
         fail_ocr = false;
         // Neither a successful result nor a failed analysis can bypass permission.
         allowed = false;
@@ -1423,7 +1437,7 @@ void native_region_sources() {
             check(env->last_action_x >= 2.0 && env->last_action_x <= 6.0 &&
                   env->last_action_y >= 1.0 && env->last_action_y <= 3.0);
             // Only the click's own guard frame; no extra recapture.
-            check(env->captures == captures_before_click + 1);
+            check(env->captures == captures_before_click + 2);
         } catch (const std::exception &failure) {
             deferred_failure += std::string("\nM7-18 C5 ROI-supplied session click failed: ") +
                                 failure.what() + " | receipt: " + receipt;
@@ -2999,7 +3013,13 @@ int main() {
                                          "glide_string",
                                          "glide_scroll",
                                          "glide_origin_unknown",
+                                         "pointer_out_of_bounds",
+                                         "pointer_extent_mismatch",
+                                         "pointer_sequence_mismatch",
+                                         "pointer_query_throws",
+                                         "arrival_changed",
                                          "normal",
+                                         "execution_only",
                                          "ocr",
                                          "double",
                                          "triple",

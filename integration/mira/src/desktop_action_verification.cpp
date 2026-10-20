@@ -6,6 +6,7 @@
 #include <limits>
 #include <mira/observation.hpp>
 #include <stdexcept>
+#include <utility>
 
 namespace mirage::integration::detail {
 namespace {
@@ -44,8 +45,41 @@ bool DesktopActionVerification::mutation(const std::string &name) {
            name == "desktop.application.open_uri";
 }
 bool DesktopActionVerification::settled(const Record &record) {
-    return record.status == "verified" ||
+    return record.status == "verified" || record.status == "not_requested" ||
            (record.status == "rejected" && !record.dispatched && !record.uncertain);
+}
+bool DesktopActionVerification::observation(const std::string &name) {
+    return name == "desktop.screen.capture" || name == "desktop.window.front" ||
+           name == "desktop.window.list" || name == "desktop.accessibility.semantic_snapshot" ||
+           name == "desktop.vision.ocr" || name == "desktop.vision.mark";
+}
+void DesktopActionVerification::configure_policy(mira::BuiltinToolSpec &spec) {
+    if (!mutation(spec.wire_name))
+        return;
+    if (spec.version.major < 3)
+        spec.version = {3, 0, 0};
+    auto *properties = spec.parameters_schema.root.find("properties");
+    if (properties)
+        properties->set(
+            "depends_on",
+            JsonValue{JsonValue::Object{
+                {"type", "array"},
+                {"maxItems", 8},
+
+                {"items", JsonValue{JsonValue::Object{
+                              {"type", "string"}, {"minLength", 1}, {"maxLength", 128}}}}}});
+    spec.description +=
+        " Business verification is optional for ordinary input. depends_on optionally lists "
+        "up to 8 action_id values whose fixed conditions must be verified in the current "
+        "desktop epoch before this action. Omit it for independent recovery; this does not "
+        "erase unmet conditions or bypass input safety. Execution is not task success.";
+}
+DesktopActionVerification::Record *DesktopActionVerification::find_record(const std::string &id) {
+    for (auto *records : {&records_, &archived_})
+        for (auto &r : *records)
+            if (r.id == id)
+                return &r;
+    return nullptr;
 }
 bool DesktopActionVerification::archive_settled_locked() {
     const auto oldest = std::find_if(records_.begin(), records_.end(), settled);
@@ -58,18 +92,30 @@ bool DesktopActionVerification::archive_settled_locked() {
     return true;
 }
 JsonValue DesktopActionVerification::summary(const Record &r) const {
+    JsonValue::Array dependencies;
+    for (const auto &id : r.dependencies)
+        dependencies.emplace_back(id);
     return JsonValue{JsonValue::Object{
         {"action_id", r.id},
         {"action", r.action},
         {"window_id", r.window},
         {"application_id", r.application_id},
         {"status", r.status},
+        {"policy_version", 2},
+        {"execution_status", r.dispatched && r.input_released && !r.uncertain ? "completed"
+                             : r.uncertain                                    ? "uncertain"
+                                                                              : "rejected"},
+        {"input_released", r.input_released},
+        {"condition_requested", !r.kind.empty()},
+        {"depends_on", JsonValue{std::move(dependencies)}},
+        {"observation_status", r.evidence.empty() ? "unavailable" : "available"},
         {"reason", r.reason},
         {"verify_kind", r.kind},
-        {"evidence_scope", r.kind == "shared_frame_observed" ? "fresh_frame"
-                           : r.kind == "application_running" ? "process_presence"
-                           : r.kind == "window_focused"      ? "focus_identity"
-                           : r.kind == "foreground_changed"  ? "ui_progress"
+        {"evidence_scope", r.kind.empty()                      ? "execution_only"
+                           : r.kind == "shared_frame_observed" ? "fresh_frame"
+                           : r.kind == "application_running"   ? "process_presence"
+                           : r.kind == "window_focused"        ? "focus_identity"
+                           : r.kind == "foreground_changed"    ? "ui_progress"
                            : r.kind == "window_title_equals" || r.kind == "foreground_title_equals"
                                ? "foreground_title"
                            : r.kind == "semantic_node_exists" ? "semantic_presence"
@@ -80,7 +126,8 @@ JsonValue DesktopActionVerification::summary(const Record &r) const {
         {"proves_arbitrary_goal", false},
         {"verified", r.status == "verified"},
         {"dispatched", r.dispatched},
-        {"side_effect_may_have_occurred", r.uncertain},
+        {"side_effect_may_have_occurred", r.dispatched || r.uncertain},
+        {"effect_uncertain", r.uncertain},
         {"condition_digest", r.condition_digest.to_string()},
         {"evidence_id", r.evidence},
         {"observed_digest", r.observed_digest},
@@ -209,6 +256,17 @@ bool DesktopActionVerification::observe_text(
 void DesktopActionVerification::observe(Record &r, const mira::OperationContext &ctx) {
     if (!r.dispatched && !r.uncertain)
         return;
+    if (!r.input_released) {
+        r.status = "uncertain";
+        r.reason = "input_release_unconfirmed";
+        return;
+    }
+    if (r.kind.empty()) {
+        r.status = r.uncertain ? "uncertain" : "not_requested";
+        r.reason = r.uncertain ? "effect_uncertain" : "condition_not_requested";
+        return;
+    }
+    r.observed_at = std::chrono::steady_clock::now();
     r.status = r.uncertain ? "uncertain" : "unverified";
     r.evidence.clear();
     r.observed_digest.clear();
@@ -542,8 +600,11 @@ std::string DesktopActionVerification::failure_receipt(const Record &r, std::str
 }
 
 void DesktopActionVerification::note_observation() {
-    if (!records_.empty() && records_.back().status == "rejected" &&
-        !records_.back().dispatched && !records_.back().uncertain)
+    observation_at_ = std::chrono::steady_clock::now();
+    observation_epoch_ = desktop_.actions ? desktop_.actions->epoch() : 0;
+    observation_authority_ = desktop_.actions ? desktop_.actions->authority_epoch() : 0;
+    if (!records_.empty() && records_.back().status == "rejected" && !records_.back().dispatched &&
+        !records_.back().uncertain)
         observation_after_rejection_ = true;
 }
 
@@ -554,6 +615,9 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
     // Any new mutation attempt supersedes "the model observed after the
     // trailing rejection"; the appended record owns the evidence question.
     observation_after_rejection_ = false;
+    observation_at_ = {};
+    request_feedback_valid_ = false;
+    const auto request_conditions = std::exchange(request_conditions_, {});
     if (ctx.task != owner_.task || ctx.session != owner_.session ||
         ctx.task_epoch != owner_.task_epoch)
         return error(mira::ErrorCode::InvalidArgument, "desktop verification owner mismatch");
@@ -562,10 +626,7 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
     if (fenced_ && desktop_.actions && !desktop_.actions->input_released())
         return error(mira::ErrorCode::InvalidArgument,
                      "input_release_failed: human review required");
-    if (canonical_failure_ || fenced_ ||
-        (!records_.empty() && records_.back().status != "verified" &&
-         !(records_.back().status == "rejected" && !records_.back().dispatched &&
-           !records_.back().uncertain)))
+    if (canonical_failure_ || fenced_)
         return error(mira::ErrorCode::InvalidArgument,
                      "verify the previous action; uncertain effects require human review");
     // M9-03: a Continuous run must not refuse its 33rd action. Settled
@@ -588,6 +649,7 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
     const bool application_action =
         name == "desktop.application.launch" || name == "desktop.application.open_uri";
     r.application_id = application_action ? field(args, "application_id") : "";
+    r.authority = desktop_.actions ? desktop_.actions->authority_epoch() : 0;
     r.kind = field(args, "verify_kind");
     r.title = field(args, "expected_title");
     r.role = field(args, "expected_role");
@@ -613,6 +675,36 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
     const auto valid_text = [](const std::string &s) {
         return s.size() <= 1024 && mirage::desktop::is_valid_utf8(s);
     };
+    if (const auto *dependencies = args.find("depends_on")) {
+        if (!dependencies->as_array() || dependencies->as_array()->size() > 8)
+            return reject_before_dispatch("depends_on must contain at most 8 action ids.",
+                                          "depends_on");
+        for (const auto &id : *dependencies->as_array()) {
+            if (!id.as_string() || id.as_string()->empty() || id.as_string()->size() > 128 ||
+                std::find(r.dependencies.begin(), r.dependencies.end(), *id.as_string()) !=
+                    r.dependencies.end())
+                return reject_before_dispatch("Invalid or duplicate dependency.", "depends_on");
+            auto *dependency = find_record(*id.as_string());
+            if (!dependency || dependency->kind.empty() || dependency->status != "verified" ||
+                dependency->authority != r.authority || !r.authority ||
+                dependency->epoch != desktop_.actions->epoch())
+                return reject_before_dispatch("Dependency condition needs fresh verification.",
+                                              "depends_on");
+            // Bind freshness to this request's consumption, so model latency
+            // does not force repeated verify round trips. No recapture here:
+            // it would invalidate the model's visual targets. The handler's
+            // current focus/target/pixel checks still precede actual input.
+            const bool consumed = request_feedback_epoch_ == dependency->epoch &&
+                                  request_feedback_authority_ == dependency->authority &&
+                                  std::find(request_conditions.begin(), request_conditions.end(),
+                                            *id.as_string()) != request_conditions.end();
+            if (!consumed && std::chrono::steady_clock::now() - dependency->observed_at >
+                                 std::chrono::seconds{5})
+                return reject_before_dispatch("Dependency condition needs fresh verification.",
+                                              "depends_on");
+            r.dependencies.push_back(*id.as_string());
+        }
+    }
     for (const auto *key :
          {"verify_kind", "expected_title", "expected_role", "expected_name", "expected_text"})
         if (const auto *value = args.find(key); value && !value->as_string())
@@ -637,8 +729,9 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
         if (!valid_text(field(args, key)))
             return reject_before_dispatch("Postcondition field exceeds its UTF-8/1024-byte limit.",
                                           key);
-    if (shared_action && (!shared_observation_ ||
-                          !(r.kind == "shared_frame_observed" || r.kind == "shared_text_exists")))
+    if (shared_action && !r.kind.empty() &&
+        (!shared_observation_ ||
+         !(r.kind == "shared_frame_observed" || r.kind == "shared_text_exists")))
         return reject_before_dispatch(
             "Shared input requires shared_frame_observed or shared_text_exists.", "verify_kind");
     if (!(r.kind.empty() ||
@@ -651,8 +744,9 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
           r.kind == "display_text_exists"))
         return reject_before_dispatch("Unsupported verify_kind; choose a declared condition.",
                                       "verify_kind");
-    if (display_region && !(r.kind == "foreground_changed" || r.kind == "foreground_title_equals" ||
-                            r.kind == "display_text_exists"))
+    if (display_region && !r.kind.empty() &&
+        !(r.kind == "foreground_changed" || r.kind == "foreground_title_equals" ||
+          r.kind == "display_text_exists"))
         return reject_before_dispatch(
             "Display actions need an explicit foreground/display condition.", "verify_kind");
     for (const auto &[key, used] :
@@ -766,9 +860,9 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
     fenced_ = fenced_ || r.uncertain;
     r.epoch = desktop_.actions ? desktop_.actions->epoch() : 0;
     observe(r, ctx);
-    // At most one uncertain record can exist at a time (a new mutation needs
-    // records_.back() verified or cleanly rejected), so machine evidence on
-    // the newest record is exactly the fence's release condition (DEC-086).
+    // Only the newly admitted action can introduce an unresolved execution
+    // uncertainty. DEC-086 may confirm its application-running condition;
+    // ordinary missing/mismatched business evidence never owns this fence.
     if (r.status == "verified")
         fenced_ = false;
     records_.push_back(std::move(r));
@@ -804,14 +898,31 @@ mira::Result<JsonValue> DesktopActionVerification::recheck(const std::string &ac
     if (cancel_.cancelled() || ctx.cancelled_or_expired(mira::Timestamp::now()))
         return error(mira::ErrorCode::Cancelled, "desktop verification cancelled");
     if (ctx.task != owner_.task || ctx.session != owner_.session ||
-        ctx.task_epoch != owner_.task_epoch || records_.empty() || action_id != records_.back().id)
+        ctx.task_epoch != owner_.task_epoch)
         return error(mira::ErrorCode::InvalidArgument, "foreign or retired action identity");
-    observe(records_.back(), ctx);
+    Record *record = nullptr;
+    for (auto *records : {&records_, &archived_})
+        for (auto &candidate : *records)
+            if (candidate.id == action_id)
+                record = &candidate;
+    if (!record)
+        return error(mira::ErrorCode::InvalidArgument, "foreign or retired action identity");
+    if (!desktop_.actions || !record->authority ||
+        desktop_.actions->authority_epoch() != record->authority)
+        return error(mira::ErrorCode::InvalidArgument, "verification authority changed");
+    // Re-observe the same fixed target after an independent recovery. Normal
+    // action epochs advance; takeover/release failures change authority and
+    // cannot be repaired by rebasing an old receipt.
+    if (!record->uncertain && record->input_released)
+        record->epoch = desktop_.actions->epoch();
+    observe(*record, ctx);
     // DEC-086: fresh machine evidence on the pending action releases the
     // mutation fence; the next gate check re-examines the record anyway.
-    if (records_.back().status == "verified")
-        fenced_ = false;
-    return summary(records_.back());
+    if (record->status == "verified" && record->kind == "application_running")
+        fenced_ = std::any_of(records_.begin(), records_.end(), [](const auto &candidate) {
+            return candidate.uncertain && candidate.status != "verified";
+        });
+    return summary(*record);
 }
 
 void DesktopActionVerification::register_tool(mira::BuiltinToolRegistry &registry,
@@ -820,8 +931,10 @@ void DesktopActionVerification::register_tool(mira::BuiltinToolRegistry &registr
         return;
     mira::BuiltinToolSpec spec;
     spec.wire_name = "desktop.action.verify";
+    spec.version = {2, 0, 0};
     spec.description =
-        "Read fresh evidence for the latest action_id and its fixed postcondition. "
+        "Read fresh evidence for a retained action_id and its fixed postcondition under "
+        "the same authority. This can recheck a condition after independent recovery. "
         "No input is repeated. Use when the returned condition is unverified or fresh "
         "reconfirmation is needed; a verified receipt needs no reflexive repeat. "
         "The fixed condition does not establish an arbitrary user goal.";
@@ -872,22 +985,40 @@ bool DesktopActionVerification::no_effect_rejection() const {
     return !canonical_failure_ && !ocr_failed_ && !fenced_ && !records_.empty() &&
            records_.back().status == "rejected" &&
            std::all_of(records_.begin(), records_.end(), [](const auto &r) {
-               return r.status == "verified" ||
+               return r.status == "verified" || r.status == "not_requested" ||
                       (r.status == "rejected" && !r.dispatched && !r.uncertain && r.input_released);
            });
 }
+bool DesktopActionVerification::fresh_feedback() const {
+    const auto now = std::chrono::steady_clock::now();
+    const auto epoch = desktop_.actions ? desktop_.actions->epoch() : 0;
+    const auto authority = desktop_.actions ? desktop_.actions->authority_epoch() : 0;
+    const bool fresh_feedback = authority && observation_authority_ == authority &&
+                                observation_epoch_ == epoch &&
+                                observation_at_ != std::chrono::steady_clock::time_point{} &&
+                                now - observation_at_ <= std::chrono::seconds{5};
+    const bool fresh_condition =
+        authority && std::any_of(records_.begin(), records_.end(), [&](const auto &r) {
+            return r.authority == authority && r.epoch == epoch && r.status == "verified" &&
+                   now - r.observed_at <= std::chrono::seconds{5};
+        });
+    return fresh_condition || fresh_feedback;
+}
 bool DesktopActionVerification::settle() {
-    if (!records_.empty())
-        observe(records_.back(), owner_);
-    const bool trailing_clean_rejection =
-        !records_.empty() && observation_after_rejection_ &&
-        records_.back().status == "rejected" && !records_.back().dispatched &&
-        !records_.back().uncertain;
+    if (cancel_.cancelled() || (desktop_.actions && !desktop_.actions->input_released()))
+        return false;
+    const bool consumed_feedback =
+        request_feedback_valid_ && desktop_.actions && request_feedback_authority_ != 0 &&
+        request_feedback_authority_ == desktop_.actions->authority_epoch() &&
+        request_feedback_epoch_ == desktop_.actions->epoch();
+    const bool trailing_clean_rejection = !records_.empty() && observation_after_rejection_ &&
+                                          records_.back().status == "rejected" &&
+                                          !records_.back().dispatched && !records_.back().uncertain;
     return !canonical_failure_ && !ocr_failed_ && !fenced_ &&
-           (records_.empty() || records_.back().status == "verified" ||
-            trailing_clean_rejection) &&
+           (records_.empty() || fresh_feedback() || consumed_feedback) &&
+           (records_.empty() || records_.back().status != "rejected" || trailing_clean_rejection) &&
            std::all_of(records_.begin(), records_.end(), [](const auto &r) {
-               return r.status == "verified" ||
+               return r.status == "verified" || r.status == "not_requested" ||
                       (r.status == "rejected" && !r.dispatched && !r.uncertain);
            });
 }
@@ -939,6 +1070,23 @@ mira::Result<void> DesktopActionVerification::validate_request(const mira::Model
         ctx.task_epoch != owner_.task_epoch)
         return error(mira::ErrorCode::InvalidArgument,
                      "desktop verification request owner mismatch");
+    // Evidence must be fresh when supplied to this model request. Time spent
+    // inferring does not invalidate an already-observed task result; input,
+    // authority changes, unmet conditions and cancellation still fence it.
+    request_feedback_valid_ = fresh_feedback();
+    request_feedback_epoch_ = desktop_.actions ? desktop_.actions->epoch() : 0;
+    request_feedback_authority_ = desktop_.actions ? desktop_.actions->authority_epoch() : 0;
+    request_conditions_.clear();
+    const auto collect_conditions = [&](const auto &records) {
+        for (const auto &record : records)
+            if (!record.kind.empty() && record.status == "verified" && record.authority != 0 &&
+                record.authority == request_feedback_authority_ &&
+                record.epoch == request_feedback_epoch_ &&
+                std::chrono::steady_clock::now() - record.observed_at <= std::chrono::seconds{5})
+                request_conditions_.push_back(record.id);
+    };
+    collect_conditions(records_);
+    collect_conditions(archived_);
     // Canonical history is authoritative even when the UI projection has hit its budget.
     // Re-derived per request against the current record states (DEC-086): a
     // failed mutation receipt stays disqualifying only while its record is
@@ -964,31 +1112,31 @@ mira::Result<void> DesktopActionVerification::validate_request(const mira::Model
                                 // another vision pass or a capture/listing —
                                 // replaces it. It never alters a mutation fence.
                                 ocr_failed_ = result->failed;
-                            else if (mutation(call->wire_name) ||
-                                     call->wire_name == "desktop.action.verify") {
+                            else if (mutation(call->wire_name)) {
                                 if (result->failed) {
-                                // Trust only this turn's own no-effect receipt. Unknown or
-                                // unverified failures remain fenced even outside UI projection.
-                                const auto parsed = mira::parse_json(result->safe_error_summary);
-                                const auto &receipt = parsed ? parsed.value() : result->result;
-                                const auto id = field(receipt, "action_id");
-                                // Settled receipts stay resolvable after
-                                // archival (M9-03); archived records are
-                                // settled by construction. Unknown failures
-                                // never entered records_ and always fence.
-                                const auto known_settled = [&]() {
-                                    for (const auto &r : records_)
-                                        if (r.id == id && r.action == call->wire_name)
-                                            return settled(r);
-                                    for (const auto &r : archived_)
-                                        if (r.id == id && r.action == call->wire_name)
-                                            return settled(r);
-                                    return false;
-                                }();
-                                if (!known_settled)
-                                    canonical_failure_ = true;
+                                    // Trust only this turn's own no-effect receipt. Unknown or
+                                    // unverified failures remain fenced even outside UI projection.
+                                    const auto parsed =
+                                        mira::parse_json(result->safe_error_summary);
+                                    const auto &receipt = parsed ? parsed.value() : result->result;
+                                    const auto id = field(receipt, "action_id");
+                                    // Settled receipts stay resolvable after
+                                    // archival (M9-03); archived records are
+                                    // settled by construction. Unknown failures
+                                    // never entered records_ and always fence.
+                                    const auto known_settled = [&]() {
+                                        for (const auto &r : records_)
+                                            if (r.id == id && r.action == call->wire_name)
+                                                return settled(r);
+                                        for (const auto &r : archived_)
+                                            if (r.id == id && r.action == call->wire_name)
+                                                return settled(r);
+                                        return false;
+                                    }();
+                                    if (!known_settled)
+                                        canonical_failure_ = true;
                                 }
-                            } else if (!result->failed) {
+                            } else if (!result->failed && observation(call->wire_name)) {
                                 // Successful read-only desktop evidence after a
                                 // failed vision read grounds the answer afresh.
                                 ocr_failed_ = false;

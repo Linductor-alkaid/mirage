@@ -27,6 +27,11 @@
 
 ## 设计与决策依据
 
+- [DEC-056](../decisions/DEC-056-post-action-verification.md) 2026-10-20 分层修订已接受：
+  普通键鼠执行完成后可返回，默认不要求逐动作业务证明；动作组、状态依赖及任务边界
+  按需观察。M7-25/26/31 的分层门控 v2 首增量已接入源码；新动作组/自然时序继续推进，
+  M7-32～34 按需提供精确值证据，未完成平台验收仍保留。
+
 - [DEC-111](../decisions/DEC-111-target-text-value-verification.md)（Accepted）冻结
   目标实际文本读取首选、受控复制可选、局部视觉回退及固定条件恢复边界；
   [M7-32～34 专项计划](m7-target-text-verification.md)为 Planned，尚未交付实现。
@@ -34,7 +39,8 @@
 - [DEC-110](../decisions/DEC-110-continuous-input-and-device-compatibility.md)（Proposed）
   规划连续动作、持键观察、IME 与设备输入兼容性；
   [M7-25～31 专项计划](m7-continuous-input-and-device-compatibility.md)承载后续契约与验收，
-  不改变现有完整动作默认值或已验平台范围。
+  2026-10-20 补充所有键鼠动作默认采用本地自动自然时序、无模型时间参数和完整执行
+  后再返回/验证的要求；当前 opt-in 尚未迁移为新默认，已验平台范围保留。
 
 - [DEC-068](../decisions/DEC-068-bundled-vision-and-recoverable-tool-rejection.md) 冻结默认视觉包与可证明无副作用的工具拒绝恢复。
 
@@ -62,6 +68,10 @@
   冻结点和退出条件见
   [专项计划](m7-continuous-input-and-device-compatibility.md)。设备兼容性与动作能力
   并行评估，各平台未验证项保持开放。
+  2026-10-20：M7-25 冻结稿需补默认自动时序、完整动作完成边界与兼容迁移；M7-26
+  需迁移全部适用键鼠入口，M7-31 追加无时间参数、返回/后置验证顺序的真实事件验收。
+  同日已接受 DEC-056 分层策略，追加默认无业务条件、动作组/条件依赖和终态证据复用
+  的回执及恢复验收；原执行/释放 uncertain 围栏保留。
 
 - [ ] `M7-24` **In Progress**：DEC-108，同轮次、授权/epoch/精确 PNG 身份一致时复用
   成功 OCR；保留权限、取消、新帧和坐标边界。见[性能维护计划](maintenance-performance-20261019.md)。
