@@ -808,7 +808,7 @@ class FakeDesktopEnvironment final : public mirage::desktop::DesktopEnvironment 
         bool timed_pointer_actions_supported() const override { return true; }
         mirage::desktop::InputOutcome smooth_move_to(std::int32_t x, std::int32_t y,
             std::chrono::milliseconds, std::uint32_t, const mirage::desktop::InputLimits &limits,
-            const mirage::desktop::CancelToken &cancel) override {
+            const mirage::desktop::CancelToken &cancel, std::optional<mirage::desktop::PointerMotionVariation> = std::nullopt) override {
             return pointer_move(x, y, limits, cancel);
         }
         mirage::desktop::InputOutcome

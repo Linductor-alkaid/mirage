@@ -1063,10 +1063,11 @@ InputOutcome X11Backend::click_sequence_at(std::int32_t x, std::int32_t y,
     return out;
 }
 
-InputOutcome X11Backend::smooth_move_to(std::int32_t x, std::int32_t y,
-                                        std::chrono::milliseconds duration,
-                                        std::uint32_t path_points, const InputLimits &limits,
-                                        const CancelToken &cancel) {
+InputOutcome
+X11Backend::smooth_move_to(std::int32_t x, std::int32_t y, std::chrono::milliseconds duration,
+                           std::uint32_t path_points, const InputLimits &limits,
+                           const CancelToken &cancel,
+                           std::optional<mirage::desktop::PointerMotionVariation> variation) {
     std::lock_guard guard(mutex_);
     pump_clipboard_locked();
     InputOutcome out;
@@ -1096,14 +1097,19 @@ InputOutcome X11Backend::smooth_move_to(std::int32_t x, std::int32_t y,
         out.error = error("input_busy", "pointer approach refuses physically held buttons");
         return out;
     }
+    if (variation && (x < 0 || y < 0 || x >= DisplayWidth(display, DefaultScreen(display)) ||
+                      y >= DisplayHeight(display, DefaultScreen(display)))) {
+        out.error = error("invalid_argument", "natural pointer target is outside the desktop");
+        return out;
+    }
     // DEC-110 section 2: local pacing on the reproducible minimum-jerk
     // baseline built by the shared frozen schedule generator. A delivery
     // more than 250 ms behind its schedule stops the travel instead of
     // replaying a backlog; every remaining decision (cancel, lag, timeout)
     // happens between segments.
     const auto kMaxLag = std::chrono::milliseconds{250};
-    const auto schedule =
-        mirage::desktop::build_smooth_move_schedule({rx, ry}, {x, y}, duration, path_points);
+    const auto schedule = mirage::desktop::build_smooth_move_schedule({rx, ry}, {x, y}, duration,
+                                                                      path_points, variation);
     if (schedule.empty()) {
         out.ok = true;
         return out;
@@ -1114,8 +1120,7 @@ InputOutcome X11Backend::smooth_move_to(std::int32_t x, std::int32_t y,
     for (const auto &sample : schedule) {
         if (cancel.cancelled()) {
             out.cancelled = true;
-            out.error =
-                error("cancelled", "pointer travel cancelled; remaining path not replayed");
+            out.error = error("cancelled", "pointer travel cancelled; remaining path not replayed");
             return out;
         }
         const auto scheduled = started + sample.at;
@@ -1131,7 +1136,13 @@ InputOutcome X11Backend::smooth_move_to(std::int32_t x, std::int32_t y,
                               "pointer travel fell behind; remaining path not replayed");
             return out;
         }
-        if (XTestFakeMotionEvent(display, -1, sample.x, sample.y, CurrentTime) == 0) {
+        const auto px =
+            variation ? std::clamp(sample.x, 0, DisplayWidth(display, DefaultScreen(display)) - 1)
+                      : sample.x;
+        const auto py =
+            variation ? std::clamp(sample.y, 0, DisplayHeight(display, DefaultScreen(display)) - 1)
+                      : sample.y;
+        if (XTestFakeMotionEvent(display, -1, px, py, CurrentTime) == 0) {
             out.error = error("io_error", "pointer travel failed on the X server");
             return out;
         }

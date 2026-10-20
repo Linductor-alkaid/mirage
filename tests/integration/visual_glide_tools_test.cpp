@@ -113,9 +113,12 @@ class GlideInput final : public d::InputProvider {
     bool complete_actions_supported() const override { return true; }
     bool bounded_pointer_actions_supported() const override { return true; }
     bool timed_pointer_actions_supported() const override { return timed_supported; }
-    d::InputOutcome smooth_move_to(std::int32_t x, std::int32_t y,
-                                   std::chrono::milliseconds duration, std::uint32_t points,
-                                   const d::InputLimits &limits, const d::CancelToken &) override {
+    std::optional<d::PointerMotionVariation> last_variation;
+    d::InputOutcome
+    smooth_move_to(std::int32_t x, std::int32_t y, std::chrono::milliseconds duration,
+                   std::uint32_t points, const d::InputLimits &limits, const d::CancelToken &,
+                   std::optional<d::PointerMotionVariation> variation = std::nullopt) override {
+        last_variation = variation;
         moves.push_back({x, y, duration, limits.timeout, points});
         d::InputOutcome out;
         if (move_fails) {
@@ -341,6 +344,7 @@ void click_glide_matrix(kairo::Executor &executor) {
         check(f.env->glide.click_calls == (success ? 1 : 0));
         if (success) {
             check(f.env->glide.moves.size() == 1);
+            check(f.env->glide.last_variation.has_value());
             const auto &move = f.env->glide.moves[0];
             check(move.x == -160 && move.y == -10 && move.duration.count() >= 120 &&
                   move.duration.count() <= 650 && move.points == 0);
@@ -409,7 +413,7 @@ void region_glide_matrix() {
 int main() {
     try {
         std::ifstream golden_file(std::filesystem::path{__FILE__}.parent_path() /
-                                  "data/automatic-pointer-motion-v1.json");
+                                  "data/automatic-pointer-motion-v2.json");
         const std::string golden_source{std::istreambuf_iterator<char>{golden_file}, {}};
         const auto golden = mira::parse_json(golden_source);
         check(bool(golden));

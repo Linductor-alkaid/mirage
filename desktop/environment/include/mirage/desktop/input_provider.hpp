@@ -74,6 +74,11 @@ struct PointerActionScope {
 struct PointerPoint {
     std::int32_t x = 0, y = 0;
 };
+/// Host-only parameters for reproducible natural approach; never model input.
+struct PointerMotionVariation {
+    std::uint64_t seed = 0;
+    std::int32_t target_width = 0;
+};
 
 /// Common, overflow-safe preflight for bounded complete pointer paths.
 bool valid_pointer_scope(const PointerActionScope &, PointerPoint, const InputLimits &);
@@ -133,16 +138,17 @@ class InputProvider {
     /// replaying a backlog when delivery falls behind, and never teleport.
     /// `duration` must satisfy the frozen smooth-move budgets; `path_points`
     /// 0 selects default_path_points. `limits.timeout` must cover the whole
-    /// travel. Callers must not invoke this while a button they own is held.
+    /// travel. Host-only variation enables bounded curves/corrections; absent
+    /// variation preserves the deterministic baseline. Never call with held buttons.
     virtual bool timed_pointer_actions_supported() const { return false; }
-    virtual InputOutcome smooth_move_to(std::int32_t x, std::int32_t y,
-                                        std::chrono::milliseconds duration,
-                                        std::uint32_t path_points, const InputLimits &limits,
-                                        const CancelToken &cancel);
+    virtual InputOutcome
+    smooth_move_to(std::int32_t x, std::int32_t y, std::chrono::milliseconds duration,
+                   std::uint32_t path_points, const InputLimits &limits, const CancelToken &cancel,
+                   std::optional<PointerMotionVariation> variation = std::nullopt);
 
     /// Locally timed approach for model-facing physical clicks (DEC-110).
     /// Queries the current position, plans distance/target-width timing, and
-    /// completes smooth_move_to before returning. No teleport fallback.
+    /// completes varied smooth_move_to before returning. No teleport fallback.
     /// The caller owns the lease and must revalidate the target before pressing.
     virtual InputOutcome approach_target(PointerPoint target, std::int32_t target_width,
                                          const InputLimits &, const CancelToken &);

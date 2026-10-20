@@ -98,10 +98,11 @@ class X11Backend final : public mirage::desktop::WindowProvider,
                       std::uint32_t count, const mirage::desktop::InputLimits &limits,
                       const mirage::desktop::CancelToken &cancel) override;
     bool timed_pointer_actions_supported() const override { return true; }
-    mirage::desktop::InputOutcome
-    smooth_move_to(std::int32_t x, std::int32_t y, std::chrono::milliseconds duration,
-                   std::uint32_t path_points, const mirage::desktop::InputLimits &limits,
-                   const mirage::desktop::CancelToken &cancel) override;
+    mirage::desktop::InputOutcome smooth_move_to(
+        std::int32_t x, std::int32_t y, std::chrono::milliseconds duration,
+        std::uint32_t path_points, const mirage::desktop::InputLimits &limits,
+        const mirage::desktop::CancelToken &cancel,
+        std::optional<mirage::desktop::PointerMotionVariation> variation = std::nullopt) override;
     mirage::desktop::InputOutcome type_text(const std::string &text,
                                             const mirage::desktop::InputLimits &limits,
                                             const mirage::desktop::CancelToken &cancel) override;

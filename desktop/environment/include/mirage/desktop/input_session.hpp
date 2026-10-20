@@ -262,7 +262,7 @@ std::optional<ProviderError> validate_smooth_move_timing(std::chrono::millisecon
 /// Automatic approach policy, independent of the held-session budget table.
 /// Model-facing click tools expose intent only; backends receive this local plan.
 namespace pointer_motion_policy {
-inline constexpr std::uint32_t version = 1;
+inline constexpr std::uint32_t version = 2;
 inline constexpr std::chrono::milliseconds min_duration{120}, max_duration{650};
 inline constexpr std::chrono::milliseconds action_timeout{3000};
 inline constexpr std::int32_t default_target_width = 32;
@@ -272,6 +272,11 @@ inline constexpr std::int32_t default_target_width = 32;
 /// Zero distance returns zero (no motion). No random jitter or model timing.
 std::chrono::milliseconds automatic_pointer_duration(PointerPoint from, PointerPoint to,
                                                      std::int32_t target_width = 0);
+/// A fresh local seed per operation; exceptions must become pre-effect provider errors.
+PointerMotionVariation make_pointer_motion_variation(std::int32_t target_width);
+/// Nominal distance/width duration with seeded +/-12% variation, inside the same bounds.
+std::chrono::milliseconds varied_pointer_duration(PointerPoint from, PointerPoint to,
+                                                  const PointerMotionVariation &variation);
 
 /// One sampled point of the frozen smooth-move schedule: `at` is the offset
 /// from travel start, (x, y) the eased position.
@@ -287,9 +292,11 @@ struct SmoothMoveSample {
 /// empty vector when from == to (nothing to travel). Callers must validate
 /// duration/points first (validate_smooth_move_timing); pacing, cancellation
 /// and lag handling stay with the caller because they are transport-bound.
-std::vector<SmoothMoveSample> build_smooth_move_schedule(PointerPoint from, PointerPoint to,
-                                                         std::chrono::milliseconds duration,
-                                                         std::uint32_t path_points);
+/// A host-only variation adds bounded lateral bend and terminal correction/overshoot.
+std::vector<SmoothMoveSample>
+build_smooth_move_schedule(PointerPoint from, PointerPoint to, std::chrono::milliseconds duration,
+                           std::uint32_t path_points,
+                           std::optional<PointerMotionVariation> variation = std::nullopt);
 
 /// Receipt classes (DEC-110 section 3): admission, delivery, controlled
 /// holding, confirmed release and "cannot confirm" are distinguished. The

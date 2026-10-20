@@ -102,8 +102,8 @@ class FaultInput final : public d::InputProvider {
     bool timed_pointer_actions_supported() const override { return true; }
     d::InputOutcome smooth_move_to(std::int32_t x, std::int32_t y,
                                    std::chrono::milliseconds duration, std::uint32_t points,
-                                   const d::InputLimits &limits, const d::CancelToken &cancel) override {
-        return delegate->smooth_move_to(x, y, duration, points, limits, cancel);
+                                   const d::InputLimits &limits, const d::CancelToken &cancel, std::optional<d::PointerMotionVariation> variation = std::nullopt) override {
+        return delegate->smooth_move_to(x, y, duration, points, limits, cancel, variation);
     }
     bool complete_actions_supported() const override { return mode != 4; }
     bool bounded_pointer_actions_supported() const override { return paths; }

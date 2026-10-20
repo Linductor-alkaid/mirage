@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <random>
+#include <numbers>
 #include <utility>
 
 namespace mirage::desktop {
@@ -342,16 +344,70 @@ std::chrono::milliseconds automatic_pointer_duration(PointerPoint from, PointerP
                       pointer_motion_policy::max_duration);
 }
 
-std::vector<SmoothMoveSample> build_smooth_move_schedule(PointerPoint from, PointerPoint to,
-                                                         std::chrono::milliseconds duration,
-                                                         std::uint32_t path_points) {
+PointerMotionVariation make_pointer_motion_variation(std::int32_t target_width) {
+    std::random_device random;
+    const auto seed = (std::uint64_t{random()} << 32) ^ std::uint64_t{random()};
+    return {seed, target_width};
+}
+namespace {
+// Standard engine + explicitly mapped high bits gives seed replay without
+// implementation-specific uniform_real_distribution behavior or shared RNG state.
+double unit_random(std::mt19937_64 &random) {
+    return double(random() >> 11) * (1.0 / 9007199254740992.0);
+}
+double terminal_bump(double u) {
+    if (u <= 0.8)
+        return 0;
+    const double v = (u - 0.8) / 0.2;
+    // Zero velocity and acceleration at both ends of the correction window.
+    return 64 * v * v * v * (1 - v) * (1 - v) * (1 - v);
+}
+} // namespace
+
+std::chrono::milliseconds varied_pointer_duration(PointerPoint from, PointerPoint to,
+                                                  const PointerMotionVariation &variation) {
+    const auto nominal = automatic_pointer_duration(from, to, variation.target_width);
+    if (nominal.count() == 0)
+        return nominal;
+    std::mt19937_64 random(variation.seed);
+    const auto varied = std::chrono::milliseconds{static_cast<std::int64_t>(
+        std::ceil(nominal.count() * (0.88 + 0.24 * unit_random(random))))};
+    return std::clamp(varied, pointer_motion_policy::min_duration,
+                      pointer_motion_policy::max_duration);
+}
+
+std::vector<SmoothMoveSample>
+build_smooth_move_schedule(PointerPoint from, PointerPoint to, std::chrono::milliseconds duration,
+                           std::uint32_t path_points,
+                           std::optional<PointerMotionVariation> variation) {
     if (from.x == to.x && from.y == to.y)
         return {};
     const std::int64_t dx = std::int64_t{to.x} - from.x, dy = std::int64_t{to.y} - from.y;
-    std::uint64_t segments = path_points != 0 ? path_points
-                                              : input_session_budget::default_path_points;
+    std::uint64_t segments =
+        path_points != 0 ? path_points : input_session_budget::default_path_points;
     const std::int64_t max_fitting = std::max<std::int64_t>(1, duration.count() / 4);
-    segments = std::min<std::uint64_t>(segments, static_cast<std::uint64_t>(max_fitting));
+    segments = std::min<std::uint64_t>(
+        {segments, static_cast<std::uint64_t>(max_fitting), input_session_budget::max_path_points});
+    const double distance = std::hypot(double(dx), double(dy));
+    double bend = 0, correction = 0, overshoot = 0;
+    if (variation) {
+        std::mt19937_64 random(variation->seed);
+        (void)unit_random(random); // First draw determines the duration variation.
+        const double width =
+            std::max(1, variation->target_width > 0 ? variation->target_width
+                                                    : pointer_motion_policy::default_target_width);
+        const double sign = unit_random(random) < 0.5 ? -1 : 1;
+        bend = sign * (0.35 + 0.65 * unit_random(random)) * std::min({24.0, 0.08 * distance, 0.75 * width});
+        correction =
+            (2 * unit_random(random) - 1) * std::min({3.0, 0.10 * width, 0.015 * distance});
+        if (unit_random(random) < 0.35)
+            overshoot =
+                (0.5 + 0.5 * unit_random(random)) * std::min({3.0, 0.10 * width, 0.01 * distance});
+    }
+    const auto pixel = [](double coordinate) {
+        return static_cast<std::int32_t>(
+            std::llround(std::clamp(coordinate, double(INT32_MIN), double(INT32_MAX))));
+    };
     std::vector<SmoothMoveSample> samples;
     samples.reserve(segments);
     for (std::uint32_t index = 1; index <= segments; ++index) {
@@ -359,8 +415,22 @@ std::vector<SmoothMoveSample> build_smooth_move_schedule(PointerPoint from, Poin
         const double eased = u * u * u * (10.0 + u * (-15.0 + 6.0 * u));
         SmoothMoveSample sample;
         sample.at = std::chrono::milliseconds(std::llround(duration.count() * u));
-        sample.x = from.x + static_cast<std::int32_t>(std::llround(eased * static_cast<double>(dx)));
-        sample.y = from.y + static_cast<std::int32_t>(std::llround(eased * static_cast<double>(dy)));
+        const double bump = terminal_bump(u);
+        const double lateral = bend * std::sin(std::numbers::pi * eased) + correction * bump;
+        const double forward = overshoot * bump;
+        if (!variation) {
+            // Preserve minimum_jerk_v1's rounding, including negative-coordinate
+            // half-pixel ties, while doing the intermediate addition in int64.
+            sample.x = static_cast<std::int32_t>(std::clamp<std::int64_t>(
+                std::int64_t{from.x} + std::llround(eased * double(dx)), INT32_MIN, INT32_MAX));
+            sample.y = static_cast<std::int32_t>(std::clamp<std::int64_t>(
+                std::int64_t{from.y} + std::llround(eased * double(dy)), INT32_MIN, INT32_MAX));
+        } else {
+            sample.x = pixel(double(from.x) + eased * double(dx) +
+                             (forward * double(dx) - lateral * double(dy)) / distance);
+            sample.y = pixel(double(from.y) + eased * double(dy) +
+                             (forward * double(dy) + lateral * double(dx)) / distance);
+        }
         samples.push_back(sample);
     }
     samples.back().x = to.x;

@@ -1,8 +1,8 @@
 #include "../support/test.hpp"
 #include "../support/xvfb_display.hpp"
 
-#include <mirage/platform/linux/linux_desktop_environment.hpp>
 #include <mirage/desktop/input_session.hpp>
+#include <mirage/platform/linux/linux_desktop_environment.hpp>
 
 // Xlib macros follow the pinned C++ headers (same include discipline as the
 // other platform fixtures).
@@ -92,7 +92,7 @@ void travel_trajectory(bool automatic = false) {
     const auto planned = automatic ? d::automatic_pointer_duration(start, target, 32)
                                    : std::chrono::milliseconds{600};
     const auto out = automatic ? input->approach_target(target, 32, {}, {})
-                              : input->smooth_move_to(target.x, target.y, planned, 40, {}, {});
+                               : input->smooth_move_to(target.x, target.y, planned, 40, {}, {});
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - began);
     done.store(true, std::memory_order_release);
@@ -106,8 +106,8 @@ void travel_trajectory(bool automatic = false) {
     // minimum-jerk baseline is monotone and the X server only advances.
     bool corridor = true, monotone = true;
     for (std::size_t index = 0; index < samples.size(); ++index) {
-        if (samples[index].x < start.x - 2 || samples[index].x > target.x + 2 ||
-            std::abs(samples[index].y - start.y) > 2) {
+        if (samples[index].x < start.x - 2 || samples[index].x > target.x + (automatic ? 4 : 2) ||
+            std::abs(samples[index].y - start.y) > (automatic ? 28 : 2)) {
             corridor = false;
             std::fprintf(stderr, "off-corridor sample %zu: (%d,%d)\n", index, samples[index].x,
                          samples[index].y);
@@ -120,26 +120,28 @@ void travel_trajectory(bool automatic = false) {
         }
     }
     MIRAGE_CHECK(corridor);
-    MIRAGE_CHECK(monotone);
+    MIRAGE_CHECK(automatic || monotone);
+    if (automatic)
+        MIRAGE_CHECK(std::any_of(samples.begin(), samples.end(),
+                                 [&](const auto &s) { return std::abs(s.y - start.y) > 2; }));
     // The timed path must be observable on the server WHILE it runs: at
     // least one independent observation strictly between the endpoints. A
     // travel that only lands on the target at its final XSync is a teleport
     // with no real hover effects, not a paced minimum-jerk path.
-    const bool mid_flight_seen =
-        std::any_of(samples.begin(), samples.end(), [&](const Sample &s) {
-            return s.x > start.x + 2 && s.x < target.x - 2;
-        });
+    const bool mid_flight_seen = std::any_of(samples.begin(), samples.end(), [&](const Sample &s) {
+        return s.x > start.x + 2 && s.x < target.x - 2;
+    });
     if (!mid_flight_seen) {
-        std::fprintf(stderr,
-                     "no intermediate position observed on the X server during the travel "
-                     "(segments buffered client-side until the final XSync)\n");
+        std::fprintf(stderr, "no intermediate position observed on the X server during the travel "
+                             "(segments buffered client-side until the final XSync)\n");
     }
     MIRAGE_CHECK(mid_flight_seen);
     // Trajectory evidence (requirement: the sampled sequence is reported).
     std::fprintf(stderr, "travel samples=%zu:", samples.size());
     for (std::size_t index = 0; index < samples.size(); ++index) {
-        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                            samples[index].at - began).count();
+        const auto ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(samples[index].at - began)
+                .count();
         std::fprintf(stderr, " %lldms:(%d,%d)", static_cast<long long>(ms), samples[index].x,
                      samples[index].y);
     }
@@ -153,7 +155,30 @@ void travel_trajectory(bool automatic = false) {
     // Wall clock covers the paced travel with margin on both sides.
     std::fprintf(stderr, "travel automatic=%d elapsed=%lldms planned=%lldms\n", automatic,
                  static_cast<long long>(elapsed.count()), static_cast<long long>(planned.count()));
-    MIRAGE_CHECK(elapsed.count() >= planned.count() - 50 && elapsed.count() <= planned.count() + 500);
+    MIRAGE_CHECK(
+        elapsed.count() >= (automatic ? planned.count() * 88 / 100 : planned.count()) - 50 &&
+        elapsed.count() <= (automatic ? planned.count() * 112 / 100 + 1 : planned.count()) + 500);
+}
+
+void natural_screen_edge() {
+    Fixture f;
+    auto *input = f.env.input();
+    MIRAGE_CHECK(input->pointer_move(0, 300).ok);
+    unsigned observed = 0;
+    d::CancelToken observer([&] {
+        int x = 0, y = 0;
+        MIRAGE_CHECK(f.query(x, y) && x >= 0 && x < 800 && y >= 0 && y < 600);
+        ++observed;
+        return false;
+    });
+    const auto out = input->smooth_move_to(0, 599, std::chrono::milliseconds{200}, 32, {}, observer,
+                                           d::PointerMotionVariation{0, 8});
+    MIRAGE_CHECK(out.ok && observed > 8);
+    int x = -1, y = -1;
+    MIRAGE_CHECK(f.query(x, y) && x == 0 && y == 599);
+    const auto invalid = input->smooth_move_to(800, 0, std::chrono::milliseconds{200}, 32, {}, {},
+                                               d::PointerMotionVariation{0, 8});
+    MIRAGE_CHECK(!invalid.ok && !invalid.side_effect_may_have_occurred);
 }
 
 /// Same start and target: the backend reports success immediately and never
@@ -184,8 +209,7 @@ void rejection_matrix() {
     int before_x = -1, before_y = -1;
     MIRAGE_CHECK(f.query(before_x, before_y));
 
-    const auto too_fast =
-        input->smooth_move_to(500, 300, std::chrono::milliseconds{49}, 0, {}, {});
+    const auto too_fast = input->smooth_move_to(500, 300, std::chrono::milliseconds{49}, 0, {}, {});
     MIRAGE_CHECK(!too_fast.ok && too_fast.error.code == "invalid_argument" &&
                  !too_fast.side_effect_may_have_occurred);
     const auto too_slow =
@@ -225,7 +249,7 @@ void rejection_matrix() {
 /// A cancel requested ~150 ms into a 600 ms travel stops between segments:
 /// cancelled outcome, real hover side effects already sent, pointer left
 /// strictly between start and target (no backlog replay).
-void cancellation_mid_travel() {
+void cancellation_mid_travel(bool automatic = false) {
     Fixture f;
     auto *input = f.env.input();
     MIRAGE_CHECK(input->pointer_move(200, 300).ok);
@@ -237,7 +261,8 @@ void cancellation_mid_travel() {
         return stop.cancelled();
     }};
     const auto out =
-        input->smooth_move_to(600, 300, std::chrono::milliseconds{600}, 40, {}, probe);
+        automatic ? input->approach_target({600, 300}, 32, {}, probe)
+                  : input->smooth_move_to(600, 300, std::chrono::milliseconds{600}, 40, {}, probe);
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - began);
     MIRAGE_CHECK(!out.ok && out.cancelled);
@@ -253,7 +278,7 @@ void cancellation_mid_travel() {
     // real time has already advanced the pointer past the start when it
     // stops short of the target; the remaining path is never replayed.
     MIRAGE_CHECK(x > 205 && x < 595);
-    MIRAGE_CHECK(std::abs(y - 300) <= 2);
+    MIRAGE_CHECK(std::abs(y - 300) <= (automatic ? 28 : 2));
 }
 
 /// Arrival is a click precondition, not a substitute: after a real travel
@@ -261,8 +286,7 @@ void cancellation_mid_travel() {
 void click_after_travel() {
     Fixture f;
     auto *input = f.env.input();
-    const auto travel =
-        input->smooth_move_to(600, 300, std::chrono::milliseconds{600}, 40, {}, {});
+    const auto travel = input->smooth_move_to(600, 300, std::chrono::milliseconds{600}, 40, {}, {});
     MIRAGE_CHECK(travel.ok && travel.side_effect_may_have_occurred);
     const auto clicked = input->click_sequence_at(600, 300, "left", 1, {}, {});
     MIRAGE_CHECK(clicked.ok && clicked.input_released);
@@ -286,9 +310,11 @@ int main() {
     try {
         travel_trajectory();
         travel_trajectory(true);
+        natural_screen_edge();
         zero_distance();
         rejection_matrix();
         cancellation_mid_travel();
+        cancellation_mid_travel(true);
         click_after_travel();
     } catch (const std::exception &error) {
         std::fprintf(stderr, "smooth move fixture: %s\n", error.what());

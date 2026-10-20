@@ -67,19 +67,29 @@ InputOutcome InputProvider::approach_target(PointerPoint target, std::int32_t ta
     const auto origin = pointer_position(cancel);
     if (!origin.ok)
         return {false, origin.cancelled, origin.error};
-    const auto duration =
-        automatic_pointer_duration({origin.position.x, origin.position.y}, target, target_width);
+    if (limits.timeout.count() <= 0)
+        return {false, false, {"input_timeout", "pointer approach has no remaining time"}};
+    if (origin.position.x == target.x && origin.position.y == target.y)
+        return {true, false, {}, false, true};
+    PointerMotionVariation variation;
+    std::chrono::milliseconds duration;
+    try {
+        variation = make_pointer_motion_variation(target_width);
+        duration =
+            varied_pointer_duration({origin.position.x, origin.position.y}, target, variation);
+    } catch (...) {
+        return {false, false, {"pointer_plan_failed", "could not prepare pointer approach"}};
+    }
     if (limits.timeout < duration || limits.timeout.count() <= 0)
         return {false, false, {"input_timeout", "pointer approach exceeds remaining action time"}};
-    if (duration.count() == 0)
-        return {true, false, {}, false, true};
-    return smooth_move_to(target.x, target.y, duration, 0, limits, cancel);
+    return smooth_move_to(target.x, target.y, duration, 0, limits, cancel, variation);
 }
 
 InputOutcome InputProvider::smooth_move_to(std::int32_t, std::int32_t,
                                            std::chrono::milliseconds duration,
                                            std::uint32_t path_points, const InputLimits &,
-                                           const CancelToken &) {
+                                           const CancelToken &,
+                                           std::optional<PointerMotionVariation>) {
     if (const auto timing = validate_smooth_move_timing(duration, path_points))
         return {false, false, *timing};
     return {false, false, {"unsupported_platform", "timed pointer travel is unavailable"}};

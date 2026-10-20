@@ -279,10 +279,30 @@ int main() {
         result = dispatch_portal_input(context, action, {}, {});
         const auto automatic = desktop::automatic_pointer_duration({100,100}, {400,250}, 20);
         MIRAGE_CHECK(result.ok && result.input_released && events.size() > 8);
-        MIRAGE_CHECK(std::chrono::steady_clock::now() - began >= automatic);
+        MIRAGE_CHECK(std::chrono::steady_clock::now() - began >= automatic * 88 / 100);
         for (const auto &event : events)
             MIRAGE_CHECK(event.kind == PortalInputEvent::Kind::Motion);
         MIRAGE_CHECK(events.back().x == 400 && events.back().y == 250);
+        MIRAGE_CHECK(std::any_of(events.begin(), events.end(), [](const auto &event) {
+            return std::abs(300 * (event.y - 100) - 150 * (event.x - 100)) > 600;
+        }));
+        // A narrow edge target must remain inside the authorized stream even
+        // when a seeded bend or terminal overshoot would leave its pixel bounds.
+        action.x = 0;
+        action.y = 1998;
+        action.target_width = 1;
+        context.pointer_origin_x = 0;
+        context.pointer_origin_y = 100;
+        events.clear();
+        result = dispatch_portal_input(context, action, {}, {});
+        MIRAGE_CHECK(result.ok && events.back().x == 0 && events.back().y == 999);
+        for (const auto &event : events)
+            MIRAGE_CHECK(event.kind == PortalInputEvent::Kind::Motion && event.x >= 0 &&
+                         event.x < 1600 && event.y >= 0 && event.y < 1000);
+        action.x = 800;
+        action.y = 500;
+        context.pointer_origin_x = 100;
+        context.pointer_origin_y = 100;
         context.has_pointer_origin = false;
         events.clear();
         result = dispatch_portal_input(context, action, {}, {});

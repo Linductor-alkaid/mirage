@@ -184,26 +184,21 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
     auto travel = [&](double from_x, double from_y, double to_x, double to_y) {
         if (from_x == to_x && from_y == to_y)
             return true;
-        const auto glide =
-            action.kind == Kind::Move
-                ? desktop::automatic_pointer_duration(
-                      {static_cast<std::int32_t>(std::llround(from_x)),
-                       static_cast<std::int32_t>(std::llround(from_y))},
-                      {static_cast<std::int32_t>(std::llround(to_x)),
-                       static_cast<std::int32_t>(std::llround(to_y))},
-                      action.target_width > 0
-                          ? static_cast<std::int32_t>(double(action.target_width) *
-                                                      s.logical_width / s.frame_width)
-                          : 0)
-                : std::chrono::milliseconds{action.glide_ms};
+        const desktop::PointerPoint from{static_cast<std::int32_t>(std::llround(from_x)),
+                                         static_cast<std::int32_t>(std::llround(from_y))};
+        const desktop::PointerPoint to{static_cast<std::int32_t>(std::llround(to_x)),
+                                       static_cast<std::int32_t>(std::llround(to_y))};
+        std::optional<desktop::PointerMotionVariation> variation;
+        if (action.kind == Kind::Move)
+            variation = desktop::make_pointer_motion_variation(
+                action.target_width > 0 ? static_cast<std::int32_t>(double(action.target_width) *
+                                                                    s.logical_width / s.frame_width)
+                                        : 0);
+        const auto glide = variation ? desktop::varied_pointer_duration(from, to, *variation)
+                                     : std::chrono::milliseconds{action.glide_ms};
         if (glide > limits.timeout)
             return false;
-        const auto schedule =
-            desktop::build_smooth_move_schedule({static_cast<std::int32_t>(std::llround(from_x)),
-                                                 static_cast<std::int32_t>(std::llround(from_y))},
-                                                {static_cast<std::int32_t>(std::llround(to_x)),
-                                                 static_cast<std::int32_t>(std::llround(to_y))},
-                                                glide, 0);
+        const auto schedule = desktop::build_smooth_move_schedule(from, to, glide, 0, variation);
         const auto started = std::chrono::steady_clock::now();
         const auto kMaxLag = std::chrono::milliseconds{250};
         for (const auto &sample : schedule) {
@@ -217,10 +212,15 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
             // The schedule is built in logical coordinates (from/to above are
             // the same space the plain Motion dispatch sends), so samples go
             // to the compositor as-is — no further frame-to-logical scaling.
-            if (!notify({PortalInputEvent::Kind::Motion, 0, 0, static_cast<double>(sample.x),
-                         static_cast<double>(sample.y)}))
+            const double px = variation
+                                  ? std::clamp(double(sample.x), 0.0, double(s.logical_width) - 1.0)
+                                  : double(sample.x);
+            const double py =
+                variation ? std::clamp(double(sample.y), 0.0, double(s.logical_height) - 1.0)
+                          : double(sample.y);
+            if (!notify({PortalInputEvent::Kind::Motion, 0, 0, px, py}))
                 return false;
-            note_pointer(static_cast<double>(sample.x), static_cast<double>(sample.y));
+            note_pointer(px, py);
         }
         // Land on the exact logical target; the schedule rounds to pixels.
         if (to_x != std::llround(to_x) || to_y != std::llround(to_y)) {
