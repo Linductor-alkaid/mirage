@@ -2,7 +2,7 @@
 
 > 状态：Active
 > 负责人：Mirage维护者；处理方：Mirador上游
-> 更新日期：2026-10-19
+> 更新日期：2026-10-20
 > 工作项：源头为 [M7-06](../plans/m7-visual-tools-and-input.md)；维护性收口见
 > [依赖复用整改计划](../plans/dependency-reuse-remediation.md)（REUSE-16）
 > 总入口：[依赖反馈](ledger.md)；维护规则：[工程规范9.4](../project/project-standards.md)
@@ -238,7 +238,9 @@ frames），含测量表、根因定位、最小能力诉求与验收建议；�
 Mirador 上游；工作项 M9-07/13/18，方案见
 [DEC-109](../decisions/DEC-109-continuous-perception-attention-and-pet-coexistence.md)。
 上游已有讨论：[issue #41 补充](https://github.com/Linductor-alkaid/mirador/issues/41#issuecomment-6258623068)
-（2026-10-19 回读，issue Open）；本轮未新增 issue/comment，不代表上游已承诺 API。
+（2026-10-19 回读，issue Open）；2026-10-20 台账补充已回读为
+[后续评论](https://github.com/Linductor-alkaid/mirador/issues/41#issuecomment-6285521869)，
+不代表上游已承诺 API。
 直接 PP-OCR 性能问题仍归 MIRADOR-20261018-001，两个交付层次独立推进。
 
 核对版本 `cb45a10271c53d3b189bb33eef3f692d94feb562`，公开
@@ -293,8 +295,8 @@ ObjectTracker 原语继续复用，不能将已有能力统称为缺失；完整
 和动作反馈关联属于 Mirage/Mira；不要求 Mirador 持有视频历史或常驻模型。
 研究映射及现有 API 边界见
 [研究记录](../research/2026-10-20-event-driven-incremental-visual-perception.md)，
-工作项 M9-05/07/08/18。仅补充本地诉求和验收方向，未新增上游 issue/comment、
-修改 pin 或执行运行验证，不代表上游已接受接口承诺。
+工作项 M9-05/07/08/18。仅补充本地诉求和验收方向，未修改 pin 或执行运行验证，
+不代表上游已接受接口承诺；本补充已同日回读上游（见条目头部回执链接）。
 
 同日范围澄清：MiniCPM-o 4.5 只作为视觉 token 压缩和时分复用机制的研究参考。
 Mirador 仍负责通用视觉状态与证据筛选；模型内学习式重采样不下沉为通用视觉库
