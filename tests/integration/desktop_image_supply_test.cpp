@@ -93,6 +93,9 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
     bool interactive = false, pixels_changed = false, release_failed = false,
          uncertain_input = false;
     bool fail = false, revoke = false, throw_capture = false, repeated_source_after_input = false;
+    // 2026-10-20: a scripted session that refuses glide travel the way the
+    // Portal backend does before any origin was ever dispatched.
+    bool glide_origin_unknown = false;
     // M7-16 / DEC-083: `pixels_changed` paints a position-dependent structural
     // pattern (a replaced subject whose frame fingerprint and block diffs both
     // move), while `drift` only shifts brightness uniformly (the subject stays
@@ -189,6 +192,15 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
             env.last_action_y = action.y;
             env.last_click_count = action.click_count;
             env.last_input = action;
+            if (env.glide_origin_unknown && action.glide_ms != 0)
+                // Same shape as the Portal backend's refusal: no effect, the
+                // input is released, the session stays usable.
+                return {false,
+                        false,
+                        {"pointer_origin_unknown",
+                         "no dispatched pointer position is known yet"},
+                        false,
+                        true};
             if (env.release_failed || env.uncertain_input || cancel.cancelled())
                 return {false,
                         cancel.cancelled(),
@@ -561,6 +573,12 @@ void shared_contracts(const std::string &mode) {
             args.set("glide_ms", "300");
         if (mode == "glide_scroll")
             args.set("glide_ms", 300);
+        // 2026-10-20: the session refuses glide travel before any dispatched
+        // origin exists (the Portal backend's first-glide shape).
+        if (mode == "glide_origin_unknown") {
+            args.set("glide_ms", 300);
+            env->glide_origin_unknown = true;
+        }
         auto result = invoke(mode == "unicode"           ? "desktop.session.type_text"
                              : drag                      ? "desktop.session.drag"
                              : (mode.starts_with("wheel") || mode == "glide_scroll")
@@ -577,6 +595,60 @@ void shared_contracts(const std::string &mode) {
             check(result && result.value().failed &&
                   result.value().safe_error_summary.find("input_pre_capture_timeout") !=
                       std::string::npos);
+        if (mode == "glide_origin_unknown") {
+            // The scripted session refuses glide travel exactly like the
+            // Portal backend before any dispatched origin: no effect, input
+            // released, session alive. The rejection receipt must carry the
+            // bounded recovery guidance next to the error code.
+            check(result && result.value().failed);
+            check(env->inputs == 1 && env->captures == 2 && env->created == 1);
+            const auto &summary = result.value().safe_error_summary;
+            const auto receipt = mira::parse_json(summary);
+            check(receipt && receipt.value().as_object());
+            std::string error_code, hint;
+            const auto read_receipt = [&](const JsonValue &object) {
+                if (const auto *code = object.find("error_code"); code && code->as_string())
+                    error_code = *code->as_string();
+                if (const auto *value = object.find("hint"); value && value->as_string())
+                    hint = *value->as_string();
+            };
+            read_receipt(receipt.value());
+            // DesktopActionVerification lifts the shared-input hint into a
+            // top-level canonical receipt field (the refreshed_image_scope
+            // pattern); the embedded shared-input JSON rides in message.
+            if (hint.empty())
+                if (const auto *message = receipt.value().find("message");
+                    message && message->as_string())
+                    if (const auto embedded = mira::parse_json(*message->as_string()))
+                        read_receipt(embedded.value());
+            check(error_code == "pointer_origin_unknown");
+            // Full guidance, not a truncated fragment: the bounded recovery
+            // tells the model both the fallback action and the outcome.
+            check(hint.find("direct click") != std::string::npos);
+            check(hint.find("glide works") != std::string::npos);
+            std::cerr << "glide_origin_unknown receipt: " << summary << "\n";
+            // This receipt deterministically exceeds the pinned 512-byte
+            // summary cap, so the downgrade that swaps the embedded message
+            // for the short pointer text has fired while the hint survives at
+            // top level. Tolerant form: if a future change brings the receipt
+            // back under the cap, the embedded JSON reappears and carries the
+            // guidance again — both shapes keep it visible.
+            if (const auto *message = receipt.value().find("message");
+                message && message->as_string()) {
+                const std::string text = *message->as_string();
+                check(text.find("Desktop action failed") != std::string::npos ||
+                      text.find("error_code") != std::string::npos);
+                if (text.find("Desktop action failed") == std::string::npos)
+                    check(text.find("\"hint\"") != std::string::npos);
+            }
+            return;
+        }
+        if (mode == "uncertain")
+            // Only pointer_origin_unknown carries the recovery hint; every
+            // other error code's receipt stays hint-free (top level and any
+            // embedded message alike).
+            check(result && result.value().failed &&
+                  result.value().safe_error_summary.find("\"hint\"") == std::string::npos);
         if (mode == "changed_refresh" || mode == "changed_refresh_lease") {
             // M7-19: the structural rejection publishes the guard's fresh
             // frame and its receipt carries the new image_scope, so the model
@@ -2926,6 +2998,7 @@ int main() {
                                          "glide_high",
                                          "glide_string",
                                          "glide_scroll",
+                                         "glide_origin_unknown",
                                          "normal",
                                          "ocr",
                                          "double",

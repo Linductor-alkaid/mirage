@@ -129,3 +129,19 @@ note_observation 通路）；端到端复现维护者场景并通过；harness �
 旧契约场景按新契约更新期望，throwing（uncertain）/cancelled/expired 不变。debug
 全量 100/100、native-release 108/108，ASan 无报告。真 Portal 实机 glide（混合
 DPI）待维护者下一次会话实测。
+
+2026-10-20：维护者第二次会话取证修复。其一，glide 起点持久化：会话记录显示模型确实
+传了 glide_ms 但两次 `pointer_origin_unknown`——起点原本活在 CastSession，普通
+capture churn/回合边界即丢（回执里 observation_only=true 佐证 cast 中途重建）。起点
+状态提升为后端级 `PortalPointerState`（进程生命周期，跨 cast 重建与回合边界），任务内
+任何一次已派发点击/拖拽后 glide 即可用；`pointer_origin_unknown` 的派发 message 与
+canonical 回执新增顶层 `hint` 字段（走 refreshed_image_scope 同路径，512 降级后仍
+存活——验证代理抓出内嵌 JSON 方案恰好 513 字节触发降级吞掉指引的缺陷，已改为顶层
+字段并有确定性降级测试）。其二，DEC-056 再修订：`validate_request` 对 OCR/mark 失败
+改为有序重推导——失败视觉读取之后的任何成功桌面观察（vision/capture/listing）都重新
+支撑回答；维护者 turn-1（OCR 超时但点击已 verified、模型以 exec+观察作答被误判
+"桌面视觉读取失败"）的端到端复现场景转为 ok，失败后无观察、最后视觉失败等旧保护保留。
+独立验证：OCR 矩阵 5 场景 + 单元矩阵、hint 完整性与降级存活、portal_input 404 项、
+post_action 764 项；debug 全量 100/100、native-release 108/108，ASan 无报告。
+真 Portal 环境的 PortalPointerState 注入管线仍只有间接覆盖（portal_screen_fixture
+无法驱动两次真实派发），待维护者下一次会话实测 glide 连击。

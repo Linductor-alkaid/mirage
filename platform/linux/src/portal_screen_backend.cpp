@@ -228,10 +228,6 @@ struct CastSession {
     guint32 node = 0, devices = 0;
     int logical_width = 0, logical_height = 0, frame_width = 0, frame_height = 0;
     bool interaction = false;
-    // DEC-110 (M7-26): this session's own last dispatched pointer position —
-    // the same-origin glide start. Portal exposes no absolute pointer query.
-    bool pointer_known = false;
-    double pointer_x = 0, pointer_y = 0;
     std::unique_ptr<PortalPipeWireStream> stream;
     ~CastSession() {
         stream.reset();
@@ -469,7 +465,8 @@ screencast(Connection connection, const char *sender, const std::string &identit
 
 desktop::InputOutcome shared_input(CastSession &s, const desktop::SharedInputAction &action,
                                    const desktop::InputLimits &limits,
-                                   const desktop::CancelToken &cancel) {
+                                   const desktop::CancelToken &cancel,
+                                   PortalPointerState &pointer) {
     ContextScope context(s.context);
     PortalInputContext input;
     input.devices = s.devices;
@@ -477,9 +474,12 @@ desktop::InputOutcome shared_input(CastSession &s, const desktop::SharedInputAct
     input.logical_height = s.logical_height;
     input.frame_width = s.frame_width;
     input.frame_height = s.frame_height;
-    input.has_pointer_origin = s.pointer_known;
-    input.pointer_origin_x = s.pointer_x;
-    input.pointer_origin_y = s.pointer_y;
+    {
+        const std::lock_guard guard(pointer.mutex);
+        input.has_pointer_origin = pointer.known;
+        input.pointer_origin_x = pointer.x;
+        input.pointer_origin_y = pointer.y;
+    }
     input.stopped = [&] {
         (void)g_main_context_iteration(s.context, FALSE);
         return s.closed || g_dbus_connection_is_closed(s.connection.get());
@@ -515,9 +515,14 @@ desktop::InputOutcome shared_input(CastSession &s, const desktop::SharedInputAct
     auto out = dispatch_portal_input(input, action, limits, cancel);
     // Keep the same-origin glide start current even for partial travels: the
     // pointer physically sits at the last accepted motion, not at the target.
-    s.pointer_known = input.pointer_known;
-    s.pointer_x = input.pointer_x;
-    s.pointer_y = input.pointer_y;
+    // The state lives on the backend, so cast recreation and turn boundaries
+    // do not forget it.
+    {
+        const std::lock_guard guard(pointer.mutex);
+        pointer.known = input.pointer_known;
+        pointer.x = input.pointer_x;
+        pointer.y = input.pointer_y;
+    }
     if (!out.ok && out.side_effect_may_have_occurred)
         s.closed = true;
     return out;
@@ -531,7 +536,8 @@ PortalScreenBackend::PortalScreenBackend(std::shared_ptr<PortalAuthorization> au
                                          std::shared_ptr<PresentationContext> presentation)
     : authorization_(authorization ? std::move(authorization)
                                    : std::make_shared<PortalAuthorization>()),
-      presentation_(std::move(presentation)) {
+      presentation_(std::move(presentation)),
+      pointer_state_(std::make_shared<PortalPointerState>()) {
 #ifdef MIRAGE_LINUX_PIPEWIRE
     pw_init(nullptr, nullptr);
 #endif
@@ -559,6 +565,7 @@ struct NativeObservation {
     bool authorization_only = false;
     std::shared_ptr<PortalAuthorization> authorization;
     std::shared_ptr<PresentationContext> presentation;
+    std::shared_ptr<PortalPointerState> pointer;
     desktop::CapturePresentation acquire;
 #ifdef MIRAGE_LINUX_PIPEWIRE
     std::unique_ptr<CastSession> cast;
@@ -712,10 +719,12 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
   public:
     explicit PortalObservation(bool interaction = false,
                                std::shared_ptr<PortalAuthorization> authorization = {},
-                               std::shared_ptr<PresentationContext> presentation = {}) {
+                               std::shared_ptr<PresentationContext> presentation = {},
+                               std::shared_ptr<PortalPointerState> pointer = {}) {
         state_.interaction = interaction;
         state_.authorization = std::move(authorization);
         state_.presentation = std::move(presentation);
+        state_.pointer = std::move(pointer);
         generation_ = state_.authorization ? state_.authorization->generation() : 0;
     }
     bool revoked() const {
@@ -743,7 +752,7 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
         }
         if (input_supported()) {
             const desktop::CancelToken bounded([&] { return cancel.cancelled() || revoked(); });
-            auto out = shared_input(*state_.cast, action, limits, bounded);
+            auto out = shared_input(*state_.cast, action, limits, bounded, *state_.pointer);
             if (out.side_effect_may_have_occurred && !out.ok) {
                 failed_ = true;
                 state_.cast.reset();
@@ -800,7 +809,8 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
 } // namespace
 std::unique_ptr<desktop::DesktopCaptureSession>
 PortalScreenBackend::create_desktop_capture_session() {
-    return std::make_unique<PortalObservation>(false, authorization_, presentation_);
+    return std::make_unique<PortalObservation>(false, authorization_, presentation_,
+                                               pointer_state_);
 }
 bool PortalScreenBackend::desktop_interaction_supported() const {
 #ifdef MIRAGE_LINUX_PIPEWIRE
@@ -812,7 +822,8 @@ bool PortalScreenBackend::desktop_interaction_supported() const {
 std::unique_ptr<desktop::DesktopCaptureSession>
 PortalScreenBackend::create_desktop_interaction_session() {
     return desktop_interaction_supported()
-               ? std::make_unique<PortalObservation>(true, authorization_, presentation_)
+               ? std::make_unique<PortalObservation>(true, authorization_, presentation_,
+                                                     pointer_state_)
                : nullptr;
 }
 void PortalScreenBackend::configure_desktop_authorization(bool remember) {

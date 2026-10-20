@@ -119,7 +119,15 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
          desktop::validate_smooth_move_timing(std::chrono::milliseconds(action.glide_ms), 0)))
         return failed("invalid_argument");
     if (action.glide_ms != 0 && !s.has_pointer_origin)
-        return failed("pointer_origin_unknown");
+        // The message travels into the model's rejection receipt: tell it the
+        // bounded recovery instead of leaving a bare code to guess at.
+        return {false,
+                false,
+                {"pointer_origin_unknown",
+                 "no dispatched pointer position is known yet; dispatch a direct "
+                 "click without glide_ms first, then glide from there"},
+                false,
+                true};
     if (action.kind == Kind::Click || action.kind == Kind::Scroll || action.kind == Kind::Drag) {
         const auto point_valid = [&](double x, double y) {
             return std::isfinite(x) && std::isfinite(y) && x >= 0 && y >= 0 && x < s.frame_width &&

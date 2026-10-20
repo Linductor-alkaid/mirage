@@ -54,7 +54,8 @@ class DesktopActionVerification {
     void observe(Record &, const mira::OperationContext &);
     static std::string failure_receipt(const Record &, std::string message,
                                        const std::string &field = {}, std::string code = {},
-                                       const std::string &refreshed_scope = {});
+                                       const std::string &refreshed_scope = {},
+                                       const std::string &hint = {});
     bool observe_text(Record &, const mirage::desktop::WindowGeometry &,
                       const mirage::desktop::CancelToken &,
                       std::chrono::steady_clock::time_point deadline,

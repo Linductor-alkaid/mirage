@@ -884,6 +884,353 @@ void observation_settlement() {
     }
 }
 
+// 2026-10-20 revision (maintainer morning session): one failed OCR read must
+// not poison an otherwise successful answer. validate_request() re-derives
+// the vision failure in history order: any successful fresh desktop
+// observation AFTER the failed read (another vision pass, a capture, a
+// listing — also across an intermediate mutation) re-grounds the answer,
+// while a failed read with no later successful observation keeps failing the
+// turn with the same "桌面视觉读取失败" settlement text.
+void ocr_turn_scenario(kairo::Executor &executor, const std::string &mode) {
+    auto env = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    env->windows = {{"w1", "Before", {0, 0, 100, 100}, true},
+                    {"w2", "Other", {200, 0, 100, 100}, false}};
+    i::DesktopToolContext tools;
+    tools.environment = env;
+    tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    tools.gate = [&](const auto &, const auto &, const auto &) { return true; };
+    int ocr_calls = 0;
+    const int fail_at = mode == "ocr_ok_then_fail" ? 2 : 1;
+    tools.ocr = [&](const auto &, const auto &) {
+        i::DesktopOcrResult read;
+        read.capture_begin = std::chrono::steady_clock::now();
+        ++ocr_calls;
+        read.backend_calls = static_cast<std::uint64_t>(ocr_calls);
+        read.display_id = "d1";
+        read.display_geometry = {0, 0, 400, 200};
+        read.model_revision = "fixture";
+        read.snapshot.scope_ref = "@vs" + std::to_string(ocr_calls);
+        read.snapshot.regions = {{"@v1",
+                                  mirage::desktop::VisualRegionSource::kOcr,
+                                  {10, 10, 50, 20},
+                                  "Before",
+                                  {},
+                                  0.98}};
+        read.capture_end = std::chrono::steady_clock::now();
+        if (ocr_calls == fail_at) {
+            // The maintainer's shape: the vision read times out.
+            read.ok = false;
+            read.error = {"timeout", "fixture analysis timeout"};
+            read.snapshot.regions.clear();
+        }
+        return read;
+    };
+    std::shared_ptr<Script> script;
+    i::ModelProviderOverride provider([&](const auto &profile) {
+        script = std::make_shared<Script>(profile);
+        if (mode == "ocr_fail_then_list")
+            script->steps = {{"desktop.vision.ocr", Json{Json::Object{}}},
+                             {"desktop.window.list", Json{Json::Object{}}}};
+        else if (mode == "ocr_fail_answer")
+            script->steps = {{"desktop.vision.ocr", Json{Json::Object{}}}};
+        else if (mode == "ocr_rejection_then_list")
+            script->steps = {{"desktop.window.list", Json{Json::Object{}}},
+                             {"desktop.vision.ocr", Json{Json::Object{}}},
+                             {"desktop.window.activate",
+                              Json::Object{{"window_id", "w2"},
+                                           {"verify_kind", "window_focused"},
+                                           {"expected_title", "private-invalid-title"}}},
+                             {"desktop.window.list", Json{Json::Object{}}}};
+        else if (mode == "list_then_ocr_fail")
+            script->steps = {{"desktop.window.list", Json{Json::Object{}}},
+                             {"desktop.vision.ocr", Json{Json::Object{}}}};
+        else if (mode == "ocr_ok_then_fail")
+            script->steps = {{"desktop.vision.ocr", Json{Json::Object{}}},
+                             {"desktop.vision.ocr", Json{Json::Object{}}}};
+        return script;
+    });
+    i::ModelLayer layer(executor, config(), &provider, tools);
+    const auto ctx = context();
+    mirage::desktop::CancelToken cancel;
+    const auto result = executor
+                            .submit_auto([&] {
+                                return layer.complete_harness_turn("", "read the desktop", ctx, "",
+                                                                   true, {}, {}, cancel);
+                            })
+                            .get();
+    const bool passed = mode == "ocr_fail_then_list" || mode == "ocr_rejection_then_list";
+    if (result.ok != passed)
+        std::cerr << "ocr " << mode << ": " << result.error << '\n';
+    check(result.ok == passed);
+    check(passed || result.failed);
+    if (passed) {
+        // The successful observation after the failed read re-grounded the
+        // answer: the poisoned-evidence settlement text stays absent.
+        check(result.error.find("桌面视觉读取失败") == std::string::npos);
+        // A turn with an action record (the clean rejection variant) answers
+        // under the host verification preface; the model's claim rides both.
+        check(result.reply_text.find("TASK SUCCESS!") != std::string::npos);
+    } else {
+        if (result.error.find("桌面视觉读取失败") == std::string::npos)
+            std::cerr << "ocr " << mode << " settlement text: " << result.error << '\n';
+        // Old semantics without a follow-up successful observation: the turn
+        // still fails on the vision evidence.
+        check(result.error.find("桌面视觉读取失败") != std::string::npos);
+    }
+    const auto ocr_part = std::find_if(result.parts.begin(), result.parts.end(),
+                                       [](const auto &p) {
+                                           return p.name == "desktop.vision.ocr" &&
+                                                  p.status == "failed";
+                                       });
+    check(ocr_part != result.parts.end());
+    check(ocr_calls == fail_at);
+    if (mode == "ocr_fail_then_list") {
+        check(std::any_of(result.parts.begin(), result.parts.end(), [](const auto &p) {
+            return p.name == "desktop.window.list" && p.status == "complete";
+        }));
+    }
+    if (mode == "ocr_rejection_then_list") {
+        // The intermediate mutation is a clean pre-dispatch rejection; the
+        // trailing successful observation after it settles the turn.
+        check(env->input_log.empty());
+        check(!env->windows[1].focused);
+        const auto refused = std::find_if(result.parts.begin(), result.parts.end(),
+                                          [](const auto &p) {
+                                              return p.name == "desktop.window.activate" &&
+                                                     p.status == "failed";
+                                          });
+        check(refused != result.parts.end());
+        const auto evidence = mirage::conversation::desktop_evidence(*refused);
+        check(evidence && evidence->status == "rejected");
+        check(std::any_of(result.parts.begin(), result.parts.end(), [](const auto &p) {
+            return p.name == "desktop.window.list" && p.status == "complete";
+        }));
+    }
+    std::cout << "ocr " << mode << ": ok=" << (result.ok ? "true" : "false") << " error=["
+              << result.error << "]\n";
+    layer.shutdown();
+}
+
+// Unit-level ordering matrix of the same rule, directly against
+// validate_request(): only a successful read-only desktop observation that
+// appears AFTER the failed vision read clears ocr_failed_; failed
+// observations and mutation/verify failures never clear it, and a failed
+// mutation receipt keeps its own canonical fence independent of the vision
+// question.
+void ocr_ordered_rules() {
+    auto env = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    env->windows = {{"w1", "Target", {0, 0, 100, 100}, true}};
+    i::DesktopToolContext tools;
+    tools.environment = env;
+    tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    const auto ctx = context();
+    struct Step {
+        std::string wire;
+        bool failed = false;
+        std::string receipt;
+    };
+    const auto scanned = [&](std::vector<Step> steps) {
+        mira::ModelRequest request;
+        request.task_id = ctx.task;
+        request.task_epoch = ctx.task_epoch;
+        int index = 0;
+        for (auto &step : steps) {
+            mira::ModelInputItem item;
+            mira::ToolCallPart call;
+            call.provider_call_id.value = "ordered-" + std::to_string(index);
+            call.wire_name = step.wire;
+            item.content.emplace_back(call);
+            mira::ToolResultPart result;
+            result.provider_call_id = call.provider_call_id;
+            result.failed = step.failed;
+            if (step.failed)
+                result.safe_error_summary = step.receipt;
+            else
+                result.result =
+                    Json{Json::Object{{"observation_scope", "ordered-scope-" + std::to_string(index)},
+                                      {"environment_epoch", Json{std::int64_t{3}}}}};
+            item.content.emplace_back(result);
+            request.input.push_back(item);
+            ++index;
+        }
+        return request;
+    };
+    const auto ocr_fail = [&](std::vector<Step> tail) {
+        tail.insert(tail.begin(), {"desktop.vision.ocr", true, "OCR capture or analysis failed"});
+        return tail;
+    };
+    {
+        // Failed read with nothing after it keeps failing the turn.
+        i::detail::DesktopActionVerification nothing_after(tools, ctx, {});
+        auto request = scanned(ocr_fail({}));
+        check(static_cast<bool>(nothing_after.validate_request(request, ctx)));
+        check(nothing_after.ocr_failed() && !nothing_after.settle());
+    }
+    {
+        // The maintainer's turn-1 shape: a failed OCR, then a successful
+        // desktop observation (a listing) grounds the answer afresh.
+        i::detail::DesktopActionVerification verifier(tools, ctx, {});
+        auto request = scanned(ocr_fail({{"desktop.window.list", false, ""}}));
+        check(static_cast<bool>(verifier.validate_request(request, ctx)));
+        check(!verifier.ocr_failed() && verifier.settle());
+    }
+    {
+        // Order-sensitive: a successful observation BEFORE the failed read
+        // does not clear it.
+        i::detail::DesktopActionVerification stale_observation(tools, ctx, {});
+        auto request = scanned({{"desktop.window.list", false, ""},
+                                {"desktop.vision.ocr", true, "OCR capture or analysis failed"}});
+        check(static_cast<bool>(stale_observation.validate_request(request, ctx)));
+        check(stale_observation.ocr_failed() && !stale_observation.settle());
+    }
+    {
+        // A failed observation after the failed read grounds nothing.
+        i::detail::DesktopActionVerification failed_listing(tools, ctx, {});
+        auto request = scanned(ocr_fail({{"desktop.window.list", true, "listing failed"}}));
+        check(static_cast<bool>(failed_listing.validate_request(request, ctx)));
+        check(failed_listing.ocr_failed() && !failed_listing.settle());
+    }
+    // Any successful read-only desktop.* evidence clears: another vision
+    // pass, a capture, a front query, a semantic snapshot.
+    for (const auto *grounding : {"desktop.vision.ocr", "desktop.vision.mark",
+                                  "desktop.screen.capture", "desktop.window.front",
+                                  "desktop.accessibility.semantic_snapshot"}) {
+        i::detail::DesktopActionVerification fresh(tools, ctx, {});
+        const auto request = scanned(ocr_fail({{grounding, false, ""}}));
+        check(static_cast<bool>(fresh.validate_request(request, ctx)));
+        check(!fresh.ocr_failed() && fresh.settle());
+    }
+    {
+        // The last vision attempt decides: ok-then-fail fails, fail-then-ok
+        // passes.
+        i::detail::DesktopActionVerification last_fails(tools, ctx, {});
+        const auto request =
+            scanned({{"desktop.vision.ocr", false, ""},
+                     {"desktop.vision.ocr", true, "OCR capture or analysis failed"}});
+        check(static_cast<bool>(last_fails.validate_request(request, ctx)));
+        check(last_fails.ocr_failed() && !last_fails.settle());
+    }
+    {
+        i::detail::DesktopActionVerification last_passes(tools, ctx, {});
+        const auto request = scanned({{"desktop.vision.mark", true, "mark failed"},
+                                      {"desktop.vision.ocr", false, ""}});
+        check(static_cast<bool>(last_passes.validate_request(request, ctx)));
+        check(!last_passes.ocr_failed() && last_passes.settle());
+    }
+    {
+        // A mutation in between neither clears nor re-fails the vision
+        // question; only the later successful observation does.
+        const mira::BuiltinToolHandler clean_rejection =
+            [](const auto &, const auto &) -> mira::Result<Json> {
+            mira::Error e;
+            e.code = mira::ErrorCode::PlatformError;
+            e.safe_message = R"({"error_code":"target_pixels_changed",)"
+                             R"("side_effect_may_have_occurred":false,"input_released":true})";
+            return e;
+        };
+        i::detail::DesktopActionVerification through_mutation(tools, ctx, {});
+        const Json activate_args{
+            Json::Object{{"window_id", "w1"}, {"verify_kind", "window_focused"}}};
+        const auto rejected = through_mutation.execute("desktop.window.activate", activate_args,
+                                                       ctx, clean_rejection);
+        check(!rejected && !through_mutation.settle());
+        const auto request =
+            scanned(ocr_fail({{"desktop.window.activate", true, rejected.error().safe_message},
+                              {"desktop.window.list", false, ""}}));
+        check(static_cast<bool>(through_mutation.validate_request(request, ctx)));
+        check(!through_mutation.ocr_failed());
+        // The clean rejection still needs its own post-rejection observation
+        // for settlement; the scan clearing the vision failure does not
+        // substitute for it.
+        check(!through_mutation.settle());
+        through_mutation.note_observation();
+        check(through_mutation.settle());
+    }
+    {
+        // A mutation failure the records never saw stays fenced regardless of
+        // the vision recovery, and it never clears the vision question.
+        i::detail::DesktopActionVerification unknown_mutation(tools, ctx, {});
+        const auto request =
+            scanned(ocr_fail({{"desktop.window.activate",
+                               true,
+                               R"({"schema":2,"status":"uncertain","verified":false,)"
+                               R"("dispatched":true,"side_effect_may_have_occurred":true,)"
+                               R"("input_released":true,"action_id":"unknown-id",)"
+                               R"("reason":"action_failed"})"},
+                              {"desktop.window.list", false, ""}}));
+        check(static_cast<bool>(unknown_mutation.validate_request(request, ctx)));
+        check(!unknown_mutation.ocr_failed() && !unknown_mutation.settle());
+    }
+    {
+        // A failed desktop.action.verify is a mutation-class failure: its
+        // unknown receipt keeps the canonical fence up; the later successful
+        // observation still clears only the vision question.
+        i::detail::DesktopActionVerification verify_failure(tools, ctx, {});
+        const auto request =
+            scanned({{"desktop.vision.ocr", true, "OCR capture or analysis failed"},
+                     {"desktop.action.verify",
+                      true,
+                      R"({"schema":2,"status":"unverified","verified":false,)"
+                      R"("dispatched":true,"side_effect_may_have_occurred":false,)"
+                      R"("input_released":true,"action_id":"ghost-id",)"
+                      R"("reason":"action_failed"})"},
+                     {"desktop.window.list", false, ""}});
+        check(static_cast<bool>(verify_failure.validate_request(request, ctx)));
+        check(!verify_failure.ocr_failed() && !verify_failure.settle());
+    }
+}
+
+// 2026-10-20 re-verification: the canonical rejection receipt carries the
+// shared-input recovery hint as a top-level field, so it survives the >512
+// safe_error_summary downgrade that swaps the embedded provider message for
+// the short pointer text.
+void rejection_hint_downgrade() {
+    auto env = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    env->windows = {{"w1", "Target", {0, 0, 100, 100}, true}};
+    i::DesktopToolContext tools;
+    tools.environment = env;
+    tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    const auto ctx = context();
+    i::detail::DesktopActionVerification verifier(tools, ctx, {});
+    // A provider rejection whose embedded receipt is padded far past any
+    // budget: the >512 downgrade must fire deterministically while the hint
+    // stays.
+    const auto oversized_with_hint = [&](const auto &,
+                                         const auto &) -> mira::Result<Json> {
+        mira::Error e;
+        e.code = mira::ErrorCode::PlatformError;
+        Json::Object shared{{"error_code", "pointer_origin_unknown"},
+                            {"side_effect_may_have_occurred", false},
+                            {"input_released", true},
+                            {"verified", false},
+                            {"hint", "dispatch a direct click without glide_ms first; the "
+                                     "pointer position is then known and glide works"},
+                            {"padding", std::string(600, 'x')}};
+        e.safe_message = mira::to_json_string(Json{std::move(shared)});
+        return e;
+    };
+    const auto rejected = verifier.execute(
+        "desktop.window.activate",
+        Json{Json::Object{{"window_id", "w1"}, {"verify_kind", "window_focused"}}}, ctx,
+        oversized_with_hint);
+    check(!rejected);
+    const auto receipt = mira::parse_json(rejected.error().safe_message);
+    check(receipt && receipt.value().as_object());
+    const auto field_text = [&](const char *key) {
+        const auto *value = receipt.value().find(key);
+        return value && value->as_string() ? std::string(*value->as_string()) : std::string{};
+    };
+    check(field_text("error_code") == "pointer_origin_unknown");
+    const auto hint = field_text("hint");
+    check(hint.find("direct click") != std::string::npos &&
+          hint.find("glide works") != std::string::npos);
+    // The downgrade did fire: the generic pointer text replaced the oversized
+    // embedded message, and the hint is still on top of the receipt.
+    check(field_text("message").find("Desktop action failed") != std::string::npos);
+    // The receipt itself stays within the pinned budget.
+    check(rejected.error().safe_message.size() <= 512);
+}
+
 #ifdef MIRAGE_POST_ACTION_X11
 void real_tasks(kairo::Executor &executor) {
     check(XInitThreads() != 0);
@@ -1067,6 +1414,12 @@ int main() {
         contracts(executor);
         evidence_contracts();
         observation_settlement();
+        for (const auto &mode : {"ocr_fail_then_list", "ocr_fail_answer",
+                                 "ocr_rejection_then_list", "list_then_ocr_fail",
+                                 "ocr_ok_then_fail"})
+            ocr_turn_scenario(executor, mode);
+        ocr_ordered_rules();
+        rejection_hint_downgrade();
 #ifdef MIRAGE_POST_ACTION_X11
         real_tasks(executor);
 #endif

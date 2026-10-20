@@ -79,3 +79,14 @@ target_pixels_changed 干净拒绝，模型重新观察确认后作答）暴露"
 证据上。新 mutation 尝试会清零该观察标记；带已派发副作用或不确定的拒绝、
 canonical_failure、OCR 失败与围栏路径一律照旧。维护者如希望权限拒绝（permission
 denied）仍保持回合失败，可在此基础上再收窄。其余契约继续有效。
+
+## 2026-10-20 部分更新
+
+第二轮实测（OCR 工具一次超时失败，但后续点击 verified 且模型以新观察作答）暴露
+`ocr_failed_` 规则过窄：原实现只认"之后再一次 OCR/mark 成功"才解除毒化。本轮改为
+有序重推导：`validate_request` 按历史顺序扫描，失败视觉读取之后任何成功的桌面观察
+（vision.ocr/mark、screen.capture、window.list/front、semantic_snapshot 等只读
+desktop.* 工具）都重新支撑回答；失败后的成功观察之前的不算（顺序敏感），最后一次
+视觉失败且无后续观察仍然回合失败。同轮为 `pointer_origin_unknown` 拒绝引入 canonical
+回执顶层 `hint` 字段（failure_receipt 新参，truncate 160，>512 降级只替换
+message/error_code，hint 存活）。其余契约继续有效。

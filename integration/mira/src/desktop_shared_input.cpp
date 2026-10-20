@@ -376,7 +376,20 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
             native_session_.reset();
             native_failed_ = true;
         }
-        return rejected(out.error.code, out.side_effect_may_have_occurred, out.input_released);
+        auto failure =
+            rejected(out.error.code, out.side_effect_may_have_occurred, out.input_released);
+        if (out.error.code == "pointer_origin_unknown") {
+            // Bounded recovery guidance for the model; the desktop is untouched.
+            auto parsed = mira::parse_json(failure.safe_message);
+            if (parsed && parsed.value().as_object()) {
+                auto object = *parsed.value().as_object();
+                object.emplace_back(
+                    "hint", Json{"dispatch a direct click without glide_ms first; the pointer "
+                                 "position is then known and glide works"});
+                failure.safe_message = mira::to_json_string(Json{std::move(object)});
+            }
+        }
+        return failure;
     }
     // DEC-081: only a later source frame can verify this dispatched action.
     native_newer_than_sequence_ = fresh.frame.source_sequence;

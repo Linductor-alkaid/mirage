@@ -297,6 +297,10 @@ int main() {
         result = dispatch_portal_input(context, action, {}, {});
         MIRAGE_CHECK(!result.ok && result.error.code == "pointer_origin_unknown" &&
                      !result.side_effect_may_have_occurred && events.empty());
+        // The refusal travels into the model's rejection receipt: it names
+        // the bounded recovery instead of leaving a bare code to guess at.
+        MIRAGE_CHECK(result.error.message.find("direct click") != std::string::npos);
+        MIRAGE_CHECK(result.error.message.find("glide") != std::string::npos);
         context.has_pointer_origin = true;
         // The frozen timing bounds refuse before any effect; the boundary
         // value 50 is accepted.
@@ -406,6 +410,123 @@ int main() {
         MIRAGE_CHECK(result.ok && events.size() == 19);
         MIRAGE_CHECK(context.pointer_known && context.pointer_x == 600 &&
                      context.pointer_y == 350);
+        // 2026-10-20: the pointer origin now lives on the PortalScreenBackend
+        // (PortalPointerState, process lifetime) instead of a CastSession, so
+        // cast recreation and turn boundaries stop forgetting it. The backend
+        // persists exactly the dispatch out-params (pointer_known/x/y) and
+        // reloads them into the next session's PortalInputContext as
+        // has_pointer_origin/pointer_origin_*; this block exercises that
+        // cross-context contract through the same dispatch entry the real
+        // PortalObservation::input path uses. (Driving two real portal
+        // sessions needs a live cast with a PipeWire stream; no scripted
+        // fixture exists for that, so the shared_input() plumbing itself is
+        // covered only by the fixture-driven portal_screen suite.)
+        {
+            struct PersistedOrigin {
+                bool known = false;
+                double x = 0, y = 0;
+            } origin;
+            const auto load = [&](PortalInputContext &fresh) {
+                fresh.devices = 3;
+                fresh.logical_width = 1600;
+                fresh.logical_height = 1000;
+                fresh.frame_width = 3200;
+                fresh.frame_height = 2000;
+                fresh.has_pointer_origin = origin.known;
+                fresh.pointer_origin_x = origin.x;
+                fresh.pointer_origin_y = origin.y;
+                fresh.pointer_known = false;
+                fresh.pointer_x = fresh.pointer_y = 0;
+                fresh.stopped = [] { return false; };
+            };
+            const auto store = [&](const PortalInputContext &used) {
+                origin.known = used.pointer_known;
+                origin.x = used.pointer_x;
+                origin.y = used.pointer_y;
+            };
+            const auto swallow = [&](const PortalInputEvent &event) {
+                events.push_back(event);
+                return true;
+            };
+            action.kind = Kind::Click;
+            action.value = "left";
+            action.image_width = 3200;
+            action.image_height = 2000;
+            action.click_count = 1;
+            // Session A on a brand-new backend state: the first glide is
+            // refused before any effect and the persisted origin stays
+            // unknown.
+            PortalInputContext session_a;
+            load(session_a);
+            session_a.notify = swallow;
+            action.x = 800;
+            action.y = 500;
+            action.glide_ms = 120;
+            events.clear();
+            auto out = dispatch_portal_input(session_a, action, {}, {});
+            MIRAGE_CHECK(!out.ok && out.error.code == "pointer_origin_unknown" && events.empty());
+            MIRAGE_CHECK(out.error.message.find("direct click") != std::string::npos);
+            store(session_a);
+            MIRAGE_CHECK(!origin.known);
+            // A direct click dispatches and writes the origin into the state.
+            action.glide_ms = 0;
+            out = dispatch_portal_input(session_a, action, {}, {});
+            MIRAGE_CHECK(out.ok && out.input_released && events.size() == 3);
+            store(session_a);
+            MIRAGE_CHECK(origin.known && origin.x == 400 && origin.y == 250);
+            // Session A dies; session B rebuilds from the same backend state
+            // and the glide now works, travelling from the persisted origin.
+            PortalInputContext session_b;
+            load(session_b);
+            session_b.notify = swallow;
+            action.x = 1600;
+            action.y = 1000;
+            action.glide_ms = 120;
+            events.clear();
+            const auto rebuilt_schedule = desktop::build_smooth_move_schedule(
+                {400, 250}, {800, 500}, std::chrono::milliseconds{120}, 0);
+            out = dispatch_portal_input(session_b, action, {}, {});
+            MIRAGE_CHECK(out.ok && out.input_released && !rebuilt_schedule.empty());
+            std::size_t rebuilt_motions = 0;
+            while (rebuilt_motions < events.size() &&
+                   events[rebuilt_motions].kind == PortalInputEvent::Kind::Motion)
+                ++rebuilt_motions;
+            MIRAGE_CHECK(rebuilt_motions == rebuilt_schedule.size() &&
+                         events.size() == rebuilt_motions + 2);
+            for (std::size_t n = 0; n < rebuilt_motions; ++n)
+                MIRAGE_CHECK(events[n].x == rebuilt_schedule[n].x &&
+                             events[n].y == rebuilt_schedule[n].y);
+            MIRAGE_CHECK(events[rebuilt_motions].kind == PortalInputEvent::Kind::Button &&
+                         events[rebuilt_motions].value == 272 &&
+                         events[rebuilt_motions].state == 1 &&
+                         events[rebuilt_motions + 1].state == 0);
+            store(session_b);
+            MIRAGE_CHECK(origin.known && origin.x == 800 && origin.y == 500);
+            // A third session chains from the latest position without any
+            // direct click in between.
+            PortalInputContext session_c;
+            load(session_c);
+            session_c.notify = swallow;
+            action.x = 800;
+            action.y = 500;
+            events.clear();
+            const auto chained_schedule = desktop::build_smooth_move_schedule(
+                {800, 500}, {400, 250}, std::chrono::milliseconds{120}, 0);
+            out = dispatch_portal_input(session_c, action, {}, {});
+            MIRAGE_CHECK(out.ok && !chained_schedule.empty());
+            std::size_t chained_motions = 0;
+            while (chained_motions < events.size() &&
+                   events[chained_motions].kind == PortalInputEvent::Kind::Motion)
+                ++chained_motions;
+            MIRAGE_CHECK(chained_motions == chained_schedule.size());
+            for (std::size_t n = 0; n < chained_motions; ++n)
+                MIRAGE_CHECK(events[n].x == chained_schedule[n].x &&
+                             events[n].y == chained_schedule[n].y);
+            MIRAGE_CHECK(events[chained_motions - 1].x == 400 &&
+                         events[chained_motions - 1].y == 250);
+            store(session_c);
+            MIRAGE_CHECK(origin.known && origin.x == 400 && origin.y == 250);
+        }
     });
     work.get();
     executor.shutdown(true);

@@ -496,7 +496,8 @@ void DesktopActionVerification::observe(Record &r, const mira::OperationContext 
 std::string DesktopActionVerification::failure_receipt(const Record &r, std::string message,
                                                        const std::string &invalid_field,
                                                        std::string code,
-                                                       const std::string &refreshed_scope) {
+                                                       const std::string &refreshed_scope,
+                                                       const std::string &hint) {
     // Pinned ToolExecutor caps safe_error_summary at 512 bytes. Keep the
     // canonical receipt valid; the UI and action.verify get the full record.
     // 256 leaves room for the shared-input rejection's embedded observation
@@ -519,6 +520,13 @@ std::string DesktopActionVerification::failure_receipt(const Record &r, std::str
         receipt.set("error_code", code);
     if (!refreshed_scope.empty())
         receipt.set("refreshed_image_scope", refreshed_scope);
+    // Recovery guidance rides as a top-level field (the refreshed_image_scope
+    // pattern): the >512 fallback replaces only message/error_code, so the
+    // hint survives the downgrade that would swallow an embedded JSON copy.
+    std::string bounded_hint = hint;
+    conversation::truncate_text(bounded_hint, 160);
+    if (!bounded_hint.empty())
+        receipt.set("hint", bounded_hint);
     auto encoded = mira::to_json_string(receipt);
     if (encoded.size() > 512) {
         // Escaping control characters can expand even a short provider error.
@@ -784,9 +792,10 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
         provider_receipt ? field(provider_receipt.value(), "error_code") : "";
     const auto provider_refreshed_scope =
         provider_receipt ? field(provider_receipt.value(), "refreshed_image_scope") : "";
+    const auto provider_hint = provider_receipt ? field(provider_receipt.value(), "hint") : "";
     failure.safe_message =
         failure_receipt(record, provider_message.empty() ? failure.safe_message : provider_message,
-                        {}, provider_code, provider_refreshed_scope);
+                        {}, provider_code, provider_refreshed_scope, provider_hint);
     return failure;
 }
 
@@ -937,22 +946,27 @@ mira::Result<void> DesktopActionVerification::validate_request(const mira::Model
     // acceptance settle() applies. Unknown failures never enter records_ and
     // always fail the check, so a hidden failure still fences the turn.
     canonical_failure_ = false;
+    ocr_failed_ = false;
     for (const auto &item : request.input)
         for (const auto &part : item.content)
             if (const auto *call = std::get_if<mira::ToolCallPart>(&part);
                 call && (mutation(call->wire_name) || call->wire_name == "desktop.action.verify" ||
-                         call->wire_name == "desktop.vision.ocr" ||
-                         call->wire_name == "desktop.vision.mark"))
+                         call->wire_name.starts_with("desktop.")))
                 for (const auto &result_item : request.input)
                     for (const auto &result_part : result_item.content)
                         if (const auto *result = std::get_if<mira::ToolResultPart>(&result_part);
                             result && result->provider_call_id == call->provider_call_id) {
                             if (call->wire_name == "desktop.vision.ocr" ||
                                 call->wire_name == "desktop.vision.mark")
-                                // Later successful fresh vision replaces a failed read-only
-                                // attempt; it does not alter any mutation fence.
+                                // 2026-10-20 revision: a failed read-only vision
+                                // attempt poisons the evidence only until ANY
+                                // later successful fresh desktop observation —
+                                // another vision pass or a capture/listing —
+                                // replaces it. It never alters a mutation fence.
                                 ocr_failed_ = result->failed;
-                            else if (result->failed) {
+                            else if (mutation(call->wire_name) ||
+                                     call->wire_name == "desktop.action.verify") {
+                                if (result->failed) {
                                 // Trust only this turn's own no-effect receipt. Unknown or
                                 // unverified failures remain fenced even outside UI projection.
                                 const auto parsed = mira::parse_json(result->safe_error_summary);
@@ -973,6 +987,11 @@ mira::Result<void> DesktopActionVerification::validate_request(const mira::Model
                                 }();
                                 if (!known_settled)
                                     canonical_failure_ = true;
+                                }
+                            } else if (!result->failed) {
+                                // Successful read-only desktop evidence after a
+                                // failed vision read grounds the answer afresh.
+                                ocr_failed_ = false;
                             }
                         }
     return {};
