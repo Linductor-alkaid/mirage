@@ -332,3 +332,15 @@ M7-25/26/31 仍开放，真实模型/手感及未实现平台不因本次轨迹�
 通过，无 sanitizer/race 报告；native-release 完整 product 及 8 个相关用例（含夹具
 10/10）通过。固定种子与旧基线合计 18559 检查通过。真实 GNOME/其他 compositor
 模型点击、手感/人类数据校准仍开放；未启动或重启产品，未进行真实桌面输入。
+
+### 2026-10-20：M7-26 Cursor-only 缓冲误关闭共享流修复
+
+最新会话末轮两次点击均已执行并释放，第二次后置观察报 invalid_stream_frame，随后
+截图/OCR 因共享关闭连续失败。Mutter 46.2 源码与隔离复现显示 Cursor-only 缓冲使用
+size=0 / CORRUPTED，旧 consumer 把它视作映射故障，且会丢弃此前待消费的完整帧。
+现仅消费其元数据并归还缓冲；有效像素来源序号/时间戳不因鼠标更新提升，新帧与桌宠
+隐藏围栏继续生效。没有新增并发或依赖变更。复现、回归及 native-release 证据见
+[自动接近验收的共享流修复增量](../compatibility/automatic-pointer-approach-20261020.md#cursor-only-缓冲误关闭共享流修复)。
+native-release 完整 product 更新，最终 Portal 回归 5/5（含 2 夹具），新增缓冲矩阵
+55/55，ASan/UBSan 各 1/1；真实 GNOME 只读画面/起点检查通过，未发送真实输入。
+本次不关闭 M7-26/31 的真实模型及完整键鼠覆盖门禁。

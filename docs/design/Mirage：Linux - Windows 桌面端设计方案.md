@@ -318,6 +318,8 @@ Portal 起点从当前授权流 Cursor metadata 回读；不可得时拒绝，�
 DesktopCaptureSession::pointer_position 只读已采集帧的起点/尺寸/来源序号；共享点击
 在输入租约前检查一致性，无副作用的起点拒绝不推进 epoch。PipeWire 按 Format
 完成元数据协商，Cursor 容量覆盖 Mutter 46 固定 384×384，保持 512×512 有界上限。
+Cursor-only 的空/损坏像素缓冲仅消费元数据，不覆盖有效像素或推进画面新鲜度；在
+既有期限/取消范围内等待有效像素，不把这类更新误判为共享流不可用。
 策略与 native-release 验证见[自动接近点击验收](../compatibility/automatic-pointer-approach-20261020.md)。
 其他键鼠自然时序与动作组仍未交付。
 

@@ -27,6 +27,7 @@ struct Capture {
     pw_stream_state state = PW_STREAM_STATE_UNCONNECTED;
     pw_buffer *pending = nullptr;
     std::uint64_t source_sequence = 0;
+    std::uint64_t discarded_pixel_buffers = 0;
     std::optional<desktop::ImageFrame> latest;
     std::optional<desktop::PointerPoint> cursor;
     std::int64_t latest_pts_ns = 0;
@@ -103,8 +104,6 @@ void process(void *data) {
         auto *next = pw_stream_dequeue_buffer(capture.stream);
         if (!next)
             break;
-        if (capture.pending)
-            pw_stream_queue_buffer(capture.stream, capture.pending);
         const auto *cursor = next->buffer
                                  ? static_cast<const spa_meta_cursor *>(spa_buffer_find_meta_data(
                                        next->buffer, SPA_META_Cursor, sizeof(spa_meta_cursor)))
@@ -115,6 +114,23 @@ void process(void *data) {
             capture.cursor = decode_portal_cursor(
                 {reinterpret_cast<const std::uint8_t *>(cursor), sizeof(*cursor)},
                 capture.format.size.width, capture.format.size.height);
+        const auto *buffer = next->buffer;
+        if (buffer && buffer->n_datas == 1 && buffer->datas && buffer->datas[0].chunk) {
+            const auto &chunk = *buffer->datas[0].chunk;
+            if (!chunk.size || (chunk.flags & SPA_CHUNK_FLAG_CORRUPTED)) {
+                // Mutter's cursor-only updates carry size=0 + CORRUPTED.
+                // Consume metadata, but do not evict pending pixels, close the
+                // stream, or promote retained pixels to a fresh observation.
+                // A dropped corrupt image likewise waits for valid pixels
+                // within the existing caller cancellation/deadline budget.
+                pw_stream_queue_buffer(capture.stream, next);
+                if (capture.discarded_pixel_buffers != UINT64_MAX)
+                    ++capture.discarded_pixel_buffers;
+                continue;
+            }
+        }
+        if (capture.pending)
+            pw_stream_queue_buffer(capture.stream, capture.pending);
         capture.pending = next;
         if (capture.source_sequence == UINT64_MAX) {
             capture.error = true;
@@ -143,10 +159,16 @@ desktop::CaptureOutcome copy_frame(const Capture &capture, const desktop::Captur
         return failure("invalid_stream_frame", "ScreenCast frame has an unsupported plane layout");
     const auto &plane = buffer->datas[0];
     if (!plane.data || !plane.chunk ||
-        (plane.type != SPA_DATA_MemPtr && plane.type != SPA_DATA_MemFd) ||
-        (plane.chunk->flags & SPA_CHUNK_FLAG_CORRUPTED))
-        return failure("invalid_stream_frame",
-                       "ScreenCast frame is not mapped readable CPU memory");
+        (plane.type != SPA_DATA_MemPtr && plane.type != SPA_DATA_MemFd)) {
+        auto out =
+            failure("invalid_stream_frame", "ScreenCast frame is not mapped readable CPU memory");
+        out.error.message += "; data_type=" + std::to_string(plane.type) +
+                             "; mapped=" + std::to_string(plane.data != nullptr) +
+                             "; chunk_present=" + std::to_string(plane.chunk != nullptr);
+        return out;
+    }
+    if (plane.chunk->flags & SPA_CHUNK_FLAG_CORRUPTED)
+        return failure("invalid_stream_frame", "ScreenCast frame contains corrupt pixel data");
     const auto &chunk = *plane.chunk;
     const auto row = std::uint64_t{width} * 4;
     const auto extent = chunk.stride > 0 ? std::uint64_t{height - 1} * chunk.stride + row : 0;
@@ -338,9 +360,11 @@ desktop::CaptureOutcome read_stream_frame(Capture &capture, const desktop::Captu
     auto stopped = cancel.cancelled()
                        ? failure("cancelled", "ScreenCast cancelled or deadline reached")
                        : failure("pipewire_unavailable", "ScreenCast stream closed before a frame");
-    stopped.error.message += "; stream_state=" + std::to_string(static_cast<int>(capture.state)) +
-                             "; formatted=" + std::to_string(capture.formatted) +
-                             "; buffer_ready=" + std::to_string(capture.pending != nullptr);
+    stopped.error.message +=
+        "; stream_state=" + std::to_string(static_cast<int>(capture.state)) +
+        "; formatted=" + std::to_string(capture.formatted) +
+        "; buffer_ready=" + std::to_string(capture.pending != nullptr) +
+        "; discarded_pixel_buffers=" + std::to_string(capture.discarded_pixel_buffers);
     return stopped;
 }
 } // namespace

@@ -5,6 +5,9 @@
 > 工作项：M7-25/26/31；[DEC-110](../decisions/DEC-110-continuous-input-and-device-compatibility.md)
 > 基线：HEAD d09fa8d + feat/desktop-input-policy 工作树，包含前一增量 DEC-056 v2
 
+后续增量基线与执行结果见各节；2026-10-20 Cursor-only 修复基于 HEAD 6a4e6ab
+加自然轨迹 v2 工作树，不改写前述历史验证记录。
+
 ## 实现范围
 
 三条物理点击工具 vision.click / vision.click_region / session.click 为 4.0.0，
@@ -165,3 +168,52 @@ third_party 未变。
 
 完整模型点击与手感仍由 Mirage 维护者在
 GNOME 授权、测试应用及模型就绪后按 M7-31 补跑；没有将只读探测标作完整验收。
+
+## Cursor-only 缓冲误关闭共享流修复
+
+2026-10-20，HEAD 6a4e6ab + 自然轨迹 v2 工作树。最新持久会话 e544a96b…（15:58）
+末轮两次 session.click 均 dispatched=true / execution_status=completed /
+input_released=true。第二次的 shared_frame_observed 为 unverified，reason 是
+shared_observation_failed / invalid_stream_frame / not mapped readable CPU memory；
+之后 screenshot/OCR 报 native sharing ended，最终回合因视觉读取失败而失败。
+此前一轮 target_pixels_changed 为无派发拒绝，更新观察后的重试已成功，不属于此故障。
+
+旧错误文案把映射、内存类型、chunk 损坏混为一类，持久回执没有保存具体标志，不能
+仅凭该文案认定 DMA-BUF 故障。[Mutter 46.2 生产端源码](https://github.com/GNOME/mutter/blob/46.2/src/backends/meta-screen-cast-stream-src.c#L868-L921)
+显示 cursor-only 更新设置 chunk.size=0 / SPA_CHUNK_FLAG_CORRUPTED；完整像素失败
+也可使用同一标记。隔离测试复现前者恰好触发上述旧错误，且有完整帧在前、鼠标元数据
+在后时，旧 drain 逻辑会先丢弃完整帧。此为源码及复现支持的故障归因，未记录实机会话
+原始 PipeWire 缓冲，不能声称已捕获当时的 chunk 标志。
+
+修复仅位于 Platform 的有限调用循环：读取鼠标元数据后归还空/损坏像素缓冲，不退役
+共享流、不覆盖 pending 完整像素；不推进像素来源序号或源 PTS。真正的新像素到来后
+按原帧限制与源时间围栏发布，仅有鼠标更新时在原取消/期限内等待，不把缓存算作点击后
+新帧。非空映射、类型和布局错误继续显式失败；错误增加非敏感的 data_type / mapped /
+chunk_present，等待退出附 discarded_pixel_buffers 累计数。没有新增线程、调度器、
+循环 owner、权限提示策略或依赖修改。
+
+测试环境沿用 Linux 7.0.0-38-generic x86_64 / GCC 13.3 / PipeWire 1.0.5。
+新增顺序回归：首次仅元数据、有像素后跟元数据、保留像素与原 PTS、仅鼠标不能越过
+新帧/隐藏围栏、空缓冲、损坏非空像素、后续完整帧恢复、真实非空映射/类型/布局失败
+及缓冲归还。修复前 55 项检查中 9 项失败，修复后 55/55。
+
+```bash
+cmake --build --preset native-release -j 4 --target portal_stream_retention_test mirage-native-product portal_screen_test portal_input_test portal_cursor_probe
+ctest --preset native-release -R '^(portal_stream_retention_test|portal_input_test|portal_screen_fixture)$' --output-on-failure -j 3
+cmake --preset <asan或ubsan> -DMIRAGE_FETCH_DEPENDENCIES=OFF -DMIRAGE_WITH_PPOCR=OFF -DMIRAGE_WITH_YOLO=OFF -DMIRAGE_ENABLE_NATIVE_FRONTEND=OFF -DMIRAGE_ENABLE_PET_PREVIEW=OFF -DMIRAGE_BUNDLE_VISION=OFF
+cmake --build --preset <asan或ubsan> -j 3 --target portal_stream_retention_test
+ctest --preset <asan或ubsan> -R '^portal_stream_retention_test$' --output-on-failure
+build/native-release/tests/portal_cursor_probe
+clang-format --dry-run --Werror platform/linux/src/portal_pipewire_capture.cpp tests/platform/portal_stream_retention_test.cpp
+git diff --check
+```
+
+ASan / UBSan 各 1/1 通过，无报告；native-release 完整 product 已重新链接。
+真实 GNOME 授权流只读探测再次通过 capture_ok=1 / cursor_available=1 /
+extent_matches=1 / sequence_matches=1；没有发送真实鼠标/键盘输入。隔离 Portal
+回归第一轮及最终产物回归均 5/5（3 用例 + 2 夹具）通过。两份变更 C++ 文件的
+clang-format、git diff --check 及四份受影响文档的 125 个本地链接/代码围栏检查通过。
+本次没有新增跨上下文状态或生命周期；未重跑全量 Debug、TSan 或真实模型任务。
+负责人 Mirage 维护者；完整平台/模型补跑条件仍为 M7-31 的授权、应用与模型就绪。
+开始排查时产品进程已退出，本次未启动或重启产品；下次启动使用更新后的产物，已关闭
+的旧任务共享不会在原任务内自动重新授权。

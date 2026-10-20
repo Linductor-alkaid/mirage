@@ -377,6 +377,11 @@ pw_stream_update_params 完成 Header/Cursor 缓冲元数据协商；Cursor 允�
 RGBA 加固定头的有界容量，覆盖 Mutter 46 的固定 384×384 分配。只请求 256×256
 会使视频仍可用而 Cursor 协商无交集，不能把截图成功视作起点已就绪。
 
+同日后续共享流修复：Cursor-only 缓冲（Mutter 46 使用零像素长度及 CORRUPTED
+chunk 标记）只更新元数据并归还，不退役共享流、不覆盖待消费的有效像素，也不推进
+像素 source_sequence 或源时间戳。空/损坏像素在现有调用期限与取消范围内等待有效帧；
+仅有鼠标更新不能通过点击后的新帧/隐藏桌宠时间围栏。实际非空映射或布局错误仍失败。
+
 DesktopCaptureSession::pointer_position 只读当前已采集帧的起点、尺寸和来源序号，
 不触发授权 UI 或输入；共享点击在获取 action lease 前检查它与刚采集帧一致。
 缺失、越界、错来源/尺寸或查询异常在无副作用阶段拒绝，不推进输入 epoch，原图

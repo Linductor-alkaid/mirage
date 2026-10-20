@@ -204,6 +204,100 @@ int main() {
     }
     wire = {};
     {
+        // Mutter 46.2 emits cursor-only buffers with size=0 and CORRUPTED.
+        // Such metadata must neither replace pending pixels nor advance their
+        // freshness watermark/source time, including when drained in one batch.
+        Capture capture;
+        capture.loop = pw_main_loop_new(nullptr);
+        capture.stream = reinterpret_cast<pw_stream *>(std::uintptr_t{1});
+        spa_list_init(&capture.listener.link);
+        capture.formatted = true;
+        capture.format.format = SPA_VIDEO_FORMAT_BGRA;
+        capture.format.size = {2, 2};
+        capture.state = PW_STREAM_STATE_STREAMING;
+        FrameBuffer pixels(51), metadata(99);
+        pixels.timestamp(11);
+        metadata.timestamp(12);
+        spa_meta_cursor cursor{};
+        cursor.id = 1;
+        cursor.position = {1, 1};
+        std::array<spa_meta, 2> metas{metadata.meta,
+                                      spa_meta{SPA_META_Cursor, sizeof(cursor), &cursor}};
+        metadata.buffer.metas = metas.data();
+        metadata.buffer.n_metas = metas.size();
+        metadata.chunk.size = 0;
+        metadata.chunk.flags = SPA_CHUNK_FLAG_CORRUPTED;
+        auto offer = [&](pw_buffer *first, pw_buffer *second = nullptr) {
+            wire.ready = {first, second, nullptr, nullptr};
+            wire.index = 0;
+            process(&capture);
+        };
+        int ticks = 0;
+        desktop::CancelToken bounded([&] { return ++ticks >= 4; });
+        offer(&metadata.source);
+        MIRAGE_CHECK(capture.cursor && capture.cursor->x == 1);
+        MIRAGE_CHECK(!capture.pending && capture.source_sequence == 0 && wire.recycled == 1);
+        const auto only_metadata = read_stream_frame(capture, {16}, bounded, 10);
+        MIRAGE_CHECK(only_metadata.cancelled &&
+                     only_metadata.error.message.find("discarded_pixel_buffers=1") !=
+                         std::string::npos);
+        MIRAGE_CHECK(!capture.error && !capture.latest);
+
+        offer(&pixels.source, &metadata.source);
+        MIRAGE_CHECK(capture.pending == &pixels.source && capture.source_sequence == 1);
+        const auto first = read_stream_frame(capture, {16}, {}, 10);
+        MIRAGE_CHECK(first.ok && first.frame.pixels.front() == 51 &&
+                     first.frame.source_sequence == 1 && capture.latest_pts_ns == 11);
+        MIRAGE_CHECK(wire.recycled == 3);
+        offer(&metadata.source);
+        const auto retained = read_stream_frame(capture, {16}, {});
+        MIRAGE_CHECK(retained.ok && retained.frame.pixels == first.frame.pixels &&
+                     retained.frame.source_sequence == 1 && capture.latest_pts_ns == 11);
+        ticks = 0;
+        MIRAGE_CHECK(read_stream_frame(capture, {16, 1}, bounded).cancelled);
+        ticks = 0;
+        MIRAGE_CHECK(read_stream_frame(capture, {16}, bounded, 11).cancelled);
+        MIRAGE_CHECK(!capture.error && !capture.pending && wire.recycled == 4);
+
+        // Empty unflagged buffers and corrupt nonempty pixels are also not
+        // publishable. A later valid pixel frame on this stream still works.
+        metadata.chunk.flags = 0;
+        offer(&metadata.source);
+        MIRAGE_CHECK(!capture.pending && capture.source_sequence == 1);
+        metadata.chunk.size = 16;
+        metadata.chunk.flags = SPA_CHUNK_FLAG_CORRUPTED;
+        offer(&metadata.source);
+        ticks = 0;
+        MIRAGE_CHECK(read_stream_frame(capture, {16, 1}, bounded).cancelled);
+        MIRAGE_CHECK(!capture.error && capture.latest->source_sequence == 1);
+        pixels.timestamp(13);
+        pixels.pixels.fill(73);
+        offer(&metadata.source, &pixels.source);
+        const auto fresh = read_stream_frame(capture, {16, 1}, {}, 12);
+        MIRAGE_CHECK(fresh.ok && fresh.frame.pixels.front() == 73 &&
+                     fresh.frame.source_sequence == 2 && capture.latest_pts_ns == 13);
+        MIRAGE_CHECK(wire.recycled == 8 && !capture.pending);
+
+        // Actual nonempty mapping/layout failures remain explicit failures.
+        pixels.plane.data = nullptr;
+        offer(&pixels.source);
+        const auto unmapped = read_stream_frame(capture, {16, 2}, {});
+        MIRAGE_CHECK(unmapped.error.code == "invalid_stream_frame" &&
+                     unmapped.error.message.find("mapped=0") != std::string::npos);
+        pixels.plane.data = pixels.pixels.data();
+        pixels.plane.type = SPA_DATA_DmaBuf;
+        offer(&pixels.source);
+        const auto dmabuf = read_stream_frame(capture, {16, 2}, {});
+        MIRAGE_CHECK(dmabuf.error.code == "invalid_stream_frame" &&
+                     dmabuf.error.message.find("data_type=3") != std::string::npos);
+        pixels.plane.type = SPA_DATA_MemPtr;
+        pixels.buffer.n_datas = 0;
+        offer(&pixels.source);
+        MIRAGE_CHECK(read_stream_frame(capture, {16, 2}, {}).error.code == "invalid_stream_frame");
+        MIRAGE_CHECK(wire.recycled == 11 && !capture.pending);
+    }
+    wire = {};
+    {
         Capture capture;
         capture.stream = reinterpret_cast<pw_stream *>(std::uintptr_t{1});
         spa_list_init(&capture.listener.link);
