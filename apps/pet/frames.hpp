@@ -26,7 +26,8 @@ struct DecodedClip {
         if (crops.empty())
             return rgba_frames[index];
         const auto &crop = crops.at(index);
-        auto canvas = std::make_shared<std::vector<std::uint8_t>>(512u * 512u * 4u, 0);
+        auto canvas =
+            std::make_shared<std::vector<std::uint8_t>>(512u * 512u * 4u, std::uint8_t{0});
         const auto &packed = *rgba_frames[index];
         for (std::size_t y = 0; y < crop.height; ++y)
             std::copy_n(packed.data() + y * crop.width * 4, crop.width * 4,
