@@ -60,6 +60,19 @@ struct ImageTextRegion {
     std::string text;
     double confidence = 0, x = 0, y = 0, width = 0, height = 0;
 };
+
+/// M8-07 (upstream DEC-025): budgeted OCR run diagnostics, mirroring the
+/// mirador report without exposing pinned mirador types (DEC-003). A partial
+/// report is a caller-side fact — the regions list stays consumable, but
+/// `partial` must gate any downstream decision that assumes whole-screen
+/// coverage; `det_limit_hit` separately reports detection-side truncation.
+struct ImageOcrDiagnostics {
+    bool partial = false;
+    /// "completed" | "rec_line_limit" | "soft_budget"
+    std::string stop_reason;
+    std::uint64_t detected = 0, recognized = 0, deferred = 0;
+    bool det_limit_hit = false;
+};
 struct ImageOcrOutcome {
     bool ok = false, cancelled = false;
     desktop::ProviderError error;
@@ -67,8 +80,13 @@ struct ImageOcrOutcome {
     std::string model_revision;
     std::uint64_t backend_calls = 0;
     /// DEC-076: count before the native adapter's 128-region prefix.
-    /// Zero means the producer supplied its entire regions vector.
+    /// Zero means the producer supplied its entire regions vector. On the
+    /// M8-07 budgeted path this counts the recognized (text-bearing) lines
+    /// only; the budgeted diagnostics carry detected/deferred separately.
     std::uint64_t total_region_count = 0;
+    /// M8-07: set when the run executed through the budgeted entry;
+    /// nullopt keeps the legacy all-or-nothing shape.
+    std::optional<ImageOcrDiagnostics> diagnostics;
 };
 
 /// Pinned-free visual observation surface the MiraEnvironmentBinding drives

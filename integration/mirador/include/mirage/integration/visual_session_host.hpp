@@ -18,6 +18,7 @@
 #include <mirador/geometric_proposal.hpp>
 #include <mirador/line_detector.hpp>
 #include <mirador/ocr_backend.hpp>
+#include <mirador/ocr_batch.hpp>
 #include <mirador/segment_growing_line_detector.hpp>
 #include <mirador/status.hpp>
 #include <mirador/visual_index.hpp>
@@ -151,6 +152,22 @@ struct VisualAnalysisRequest {
     /// Required nonzero for background admission. The trusted caller advances
     /// this when stage parameters, target/placement or authority change.
     std::uint64_t analysis_policy_revision = 0;
+    /// M8-07 (upstream DEC-025): run the OCR stage through the budgeted
+    /// entry (`run_ocr_budgeted` + the configured `budgeted_ocr_backend`)
+    /// instead of the all-or-nothing `run_ocr` path. Recognized lines land
+    /// in `result.text` as before; per-line completion states, stop reason
+    /// and deferred geometry surface in `result.ocr_batch`. Budget fields
+    /// mirror the mirador request; the frozen reference is K=64 with a
+    /// 500 ms finalize reserve under the caller's hard deadline.
+    struct OcrBudget {
+        std::int32_t max_rec_lines = 64;
+        mirador::OcrSelectionStrategy selection = mirador::OcrSelectionStrategy::kReadingOrder;
+        std::optional<std::chrono::steady_clock::duration> soft_budget;
+        std::optional<std::chrono::steady_clock::duration> finalize_reserve;
+        std::vector<mirador::OcrPriorityEntry> priorities;
+        mirador::CoordinateSpaceId priority_space = mirador::CoordinateSpaceId::kOriented;
+    };
+    std::optional<OcrBudget> ocr_budget;
 };
 
 /// Terminal state of one analysis request. Every admitted request settles
@@ -183,6 +200,24 @@ struct VisualAnalysisResult {
     std::optional<mirador::ChangeReport> admission_change;
     std::uint64_t admission_baseline_sequence = 0;
     std::vector<mirador::TextRegion> text;
+    /// M8-07 (upstream DEC-025): budgeted OCR report diagnostics, set when
+    /// the OCR stage ran through `ocr_budget`. `text` then carries exactly
+    /// the kRecognized lines (each with its text and rec confidence);
+    /// `deferred_bounds` keeps every deferred line's det geometry queryable
+    /// in `geometry_space`. A kPartial report is a caller-side fact, never
+    /// an authorization to act on the screen.
+    struct OcrBatchDiagnostics {
+        mirador::OcrBatchCompletion completion = mirador::OcrBatchCompletion::kComplete;
+        mirador::OcrBatchStopReason stop_reason = mirador::OcrBatchStopReason::kCompleted;
+        std::int32_t detected = 0;
+        std::int32_t recognized = 0;
+        std::int32_t deferred = 0;
+        std::int32_t det_limit = 0;
+        bool det_limit_hit = false;
+        mirador::CoordinateSpaceId geometry_space = mirador::CoordinateSpaceId::kOriented;
+        std::vector<mirador::RectF> deferred_bounds;
+    };
+    std::optional<OcrBatchDiagnostics> ocr_batch;
     std::vector<mirador::DetectionRegion> detections;
     /// Accepted template probes in detection then geometry order; raw hits
     /// remain diagnostic when fusion conflicts suppress the published identity.
@@ -235,6 +270,13 @@ struct VisualSessionConfig {
     /// backend objects alive for the host's lifetime.
     mirador::OcrBackend *ocr_backend = nullptr;
     mirador::DetectorBackend *detector_backend = nullptr;
+    /// M8-07 (upstream DEC-025): budgeted OCR backend for requests that opt
+    /// in through `VisualAnalysisRequest::ocr_budget`. Separate SPI — the
+    /// static_assert in mirador keeps it non-derivable from `OcrBackend`.
+    /// Null makes every budgeted request fail with kBackendUnavailable
+    /// (fail-closed, never a silent legacy fallback). Non-owning; the
+    /// caller keeps the backend alive for the host's lifetime.
+    mirador::BudgetedOcrBackend *budgeted_ocr_backend = nullptr;
 };
 
 /// Serial, per-image-source visual analysis host (plan item `M3-02`, DEC-016

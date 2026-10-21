@@ -12,6 +12,7 @@
 #include <thread>
 #ifdef MIRAGE_WITH_PPOCR
 #include <ppocr_backend.hpp>
+#include <ppocr_budgeted.hpp>
 #ifdef MIRAGE_WITH_YOLO
 #include <yolo_backend.hpp>
 #endif
@@ -130,6 +131,24 @@ class CountedOcr final : public mirador::OcrBackend {
   private:
     mirador::integrations::PpOcrBackend backend_;
 };
+/// M8-07 (upstream DEC-025): budgeted companion of `CountedOcr`; separate
+/// SPI, so it wraps the budgeted backend rather than deriving from it.
+class CountedBudgetedOcr final : public mirador::BudgetedOcrBackend {
+  public:
+    explicit CountedBudgetedOcr(mirador::integrations::PpOcrBudgetedBackend b)
+        : backend_(std::move(b)) {}
+    mirador::BackendInfo info() const override { return backend_.info(); }
+    mirador::Result<mirador::OcrBatchResult>
+    recognize_budgeted(const mirador::ImageView &image, const mirador::OcrBatchRequest &request,
+                       const mirador::ExecutionContext &context) override {
+        ++calls;
+        return backend_.recognize_budgeted(image, request, context);
+    }
+    std::atomic<std::uint64_t> calls{0};
+
+  private:
+    mirador::integrations::PpOcrBudgetedBackend backend_;
+};
 #endif
 } // namespace
 struct PpOcrPipeline::Impl {
@@ -140,6 +159,7 @@ struct PpOcrPipeline::Impl {
     std::filesystem::path resources;
 #ifdef MIRAGE_WITH_PPOCR
     std::unique_ptr<CountedOcr> backend;
+    std::unique_ptr<CountedBudgetedOcr> budgeted;
 #ifdef MIRAGE_WITH_YOLO
     std::unique_ptr<CountedDetector> detector;
 #endif
@@ -151,6 +171,7 @@ struct PpOcrPipeline::Impl {
         pipeline.reset();
 #ifdef MIRAGE_WITH_PPOCR
         backend.reset();
+        budgeted.reset();
 #ifdef MIRAGE_WITH_YOLO
         detector.reset();
 #endif
@@ -257,6 +278,20 @@ std::unique_ptr<PpOcrPipeline> PpOcrPipeline::create(kairo::Executor &executor,
         if (!backend)
             throw std::runtime_error("OCR backend could not load verified resources");
         p->backend = std::make_unique<CountedOcr>(std::move(backend).take_value());
+        // M8-07 (upstream DEC-025): the interactive image-OCR path requires
+        // budgeted execution, so a budgeted backend that cannot load fails
+        // pipeline creation instead of silently downgrading to the
+        // all-or-nothing path. The unit bound is the M8-06 frozen reference
+        // (longest measured rec line x1.6 margin); the det stage config,
+        // including its DEC-076 candidate cap, is shared verbatim.
+        mirador::integrations::PpOcrBudgetedOptions budgeted_options;
+        budgeted_options.det = det;
+        budgeted_options.rec = rec;
+        budgeted_options.rec_unit_upper_bound = std::chrono::milliseconds{100};
+        auto budgeted = mirador::integrations::PpOcrBudgetedBackend::create(budgeted_options);
+        if (!budgeted)
+            throw std::runtime_error("OCR budgeted backend could not load verified resources");
+        p->budgeted = std::make_unique<CountedBudgetedOcr>(std::move(budgeted).take_value());
         const auto identity = p->backend->info();
         VisualBackendRegistry registrations;
         const VisualBackendIdentity registration{identity.name,
@@ -282,6 +317,7 @@ std::unique_ptr<PpOcrPipeline> PpOcrPipeline::create(kairo::Executor &executor,
         // Public Refresh avoids treating perceptual dHash equality as exact OCR identity.
         config.refresh_ocr = true;
         config.session.ocr_backend = p->backend.get();
+        config.session.budgeted_ocr_backend = p->budgeted.get();
         if (const auto *detector = j.find("detector")) {
 #ifndef MIRAGE_WITH_YOLO
             (void)detector;
@@ -456,8 +492,15 @@ ImageOcrOutcome PpOcrPipeline::read_image_ocr(
     const std::optional<std::chrono::steady_clock::time_point> &deadline) {
     if (!running())
         return {
-            false, cancel.cancelled(), {"unavailable", "image OCR pipeline is not running"}, {}, {},
-            0};
+            false,
+            cancel.cancelled(),
+            {"unavailable", "image OCR pipeline is not running"},
+            {},
+            {},
+            0,
+            0,
+            std::nullopt,
+        };
     auto result = impl_->pipeline->read_image_ocr(image, cancel, deadline);
     result.model_revision = model_revision();
     result.backend_calls = backend_calls();
@@ -471,7 +514,9 @@ void PpOcrPipeline::stop() {
 const std::string &PpOcrPipeline::model_revision() const { return impl_->revision; }
 std::uint64_t PpOcrPipeline::backend_calls() const {
 #ifdef MIRAGE_WITH_PPOCR
-    return impl_->backend->calls.load();
+    // M8-07: a budgeted image-OCR run is an OCR backend call like any other;
+    // the DEC-076 diagnostic counts both execution paths.
+    return impl_->backend->calls.load() + impl_->budgeted->calls.load();
 #else
     return 0;
 #endif

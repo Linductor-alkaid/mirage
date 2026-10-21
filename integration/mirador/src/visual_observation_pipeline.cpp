@@ -76,7 +76,8 @@ ImageOcrOutcome VisualObservationPipeline::read_image_ocr(
                      "image OCR cancelled or expired"};
         return out;
     }
-    if (!session_.running() || !config_.run_ocr || !config_.session.ocr_backend) {
+    if (!session_.running() || !config_.run_ocr ||
+        (!config_.session.ocr_backend && !config_.session.budgeted_ocr_backend)) {
         out.error = {"unavailable", "image OCR pipeline is not running"};
         return out;
     }
@@ -107,6 +108,18 @@ ImageOcrOutcome VisualObservationPipeline::read_image_ocr(
     request.fuse = false; // No global transform, snapshot or actionable refs.
     request.deadline = end;
     request.external_cancel = bounded;
+    // M8-07 (upstream DEC-025): when the budgeted backend is configured, the
+    // interactive image-OCR path runs budgeted under the DEC-076 five-second
+    // deadline — frozen reference selection (K=64) plus the 500 ms finalize
+    // reserve. A near-deadline stop then returns a partial report with
+    // per-line completion states instead of losing the whole analysis to a
+    // hard timeout; a tripped deadline or cancellation still fails the call
+    // explicitly (kTimedOut/kCancelled). Legacy-only configurations keep the
+    // all-or-nothing path unchanged (opt-in, never a forced upgrade).
+    if (config_.session.budgeted_ocr_backend) {
+        request.ocr_budget = VisualAnalysisRequest::OcrBudget{};
+        request.ocr_budget->finalize_reserve = std::chrono::milliseconds{500};
+    }
     auto future = session_.submit(std::move(request));
     if (future.wait_until(end) != std::future_status::ready) {
         out.error = {"deadline_exceeded", "image OCR did not settle within its bound"};
@@ -148,6 +161,26 @@ ImageOcrOutcome VisualObservationPipeline::read_image_ocr(
             out.regions.push_back({r.utf8_text, r.confidence, b.x, b.y, b.width, b.height});
     }
     out.total_region_count = result.text.size();
+    if (result.ocr_batch) {
+        ImageOcrDiagnostics diagnostics;
+        diagnostics.partial = result.ocr_batch->completion == mirador::OcrBatchCompletion::kPartial;
+        switch (result.ocr_batch->stop_reason) {
+        case mirador::OcrBatchStopReason::kCompleted:
+            diagnostics.stop_reason = "completed";
+            break;
+        case mirador::OcrBatchStopReason::kRecLineLimit:
+            diagnostics.stop_reason = "rec_line_limit";
+            break;
+        case mirador::OcrBatchStopReason::kSoftBudget:
+            diagnostics.stop_reason = "soft_budget";
+            break;
+        }
+        diagnostics.detected = static_cast<std::uint64_t>(result.ocr_batch->detected);
+        diagnostics.recognized = static_cast<std::uint64_t>(result.ocr_batch->recognized);
+        diagnostics.deferred = static_cast<std::uint64_t>(result.ocr_batch->deferred);
+        diagnostics.det_limit_hit = result.ocr_batch->det_limit_hit;
+        out.diagnostics = std::move(diagnostics);
+    }
     out.ok = true;
     return out;
 }
