@@ -26,16 +26,16 @@ class DesktopImageSource final : public mira::IArtifactSource {
     mira::Result<std::vector<std::byte>> fetch(const mira::ArtifactRef &) override;
     // DEC-088 capability 1: identity of consecutively re-offered desktop
     // captures. The ModelLayer's source outlives single harness turns, so the
-    // consecutive count survives across dialog turns; the pinned loop renders
-    // the annotation, this only counts. A different digest or desktop epoch
-    // restarts the count at zero (first supply).
-    mira::InputReuseMeta record_input_reuse(const std::string &digest, std::uint64_t desktop_epoch);
+    // count survives host reconstruction for the same task; the pinned loop
+    // renders the annotation. Content or task/authority/source mapping changes
+    // reset it; ordinary action epochs do not erase visual no-progress facts.
+    mira::InputReuseMeta record_input_reuse(const std::string &digest, const std::string &scope);
 
   private:
     kairo::comm::LatestMailbox<Store> current_;
     mutable std::mutex reuse_mutex_;
     std::string reuse_digest_;
-    std::uint64_t reuse_epoch_ = 0;
+    std::string reuse_scope_;
     std::uint32_t reuse_count_ = 0;
 };
 

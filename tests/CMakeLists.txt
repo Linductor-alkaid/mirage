@@ -1733,3 +1733,10 @@ mirage_add_test(target_text_value_test
     LABELS "unit;desktop"
     TIMEOUT 30
     )
+
+mirage_add_test(action_recovery_facts_test
+    SOURCES integration/action_recovery_facts_test.cpp
+    LIBS Mirage::integration_mira Mirage::kairo_consumer
+    LABELS "integration;runtime;security"
+    TIMEOUT 30
+    )

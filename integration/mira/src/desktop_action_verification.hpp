@@ -56,6 +56,9 @@ class DesktopActionVerification {
         std::vector<std::string> dependencies;
         bool dispatched = false, uncertain = false, input_released = false;
         mira::Sha256Digest condition_digest;
+        // Historical recovery facts only; never current dispatch authority.
+        // Digest excludes volatile image scope/epoch; no input plaintext copied.
+        std::string attempt_identity, failure_code, failure_field, recovery_hint;
     };
     void observe(Record &, const mira::OperationContext &);
     static std::string failure_receipt(const Record &, std::string message,
@@ -68,6 +71,7 @@ class DesktopActionVerification {
                       const mira::OperationContext &, std::int64_t &matching_nodes,
                       std::string &visual_digest);
     mira::JsonValue summary(const Record &) const;
+    mira::JsonValue recovery_facts() const;
     static bool settled(const Record &record);
     Record *find_record(const std::string &);
     bool fresh_feedback() const;

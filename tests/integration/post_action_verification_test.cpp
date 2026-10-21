@@ -1206,24 +1206,23 @@ void rejection_hint_downgrade() {
     // A provider rejection whose embedded receipt is padded far past any
     // budget: the >512 downgrade must fire deterministically while the hint
     // stays.
-    const auto oversized_with_hint = [&](const auto &,
-                                         const auto &) -> mira::Result<Json> {
+    const auto oversized_with_hint = [&](const auto &, const auto &) -> mira::Result<Json> {
         mira::Error e;
         e.code = mira::ErrorCode::PlatformError;
         Json::Object shared{{"error_code", "pointer_origin_unknown"},
                             {"side_effect_may_have_occurred", false},
                             {"input_released", true},
                             {"verified", false},
-                            {"hint", "dispatch a direct click without glide_ms first; the "
-                                     "pointer position is then known and glide works"},
+                            {"hint", "refresh authorized observation for cursor metadata; "
+                                     "never bootstrap with a direct click"},
                             {"padding", std::string(600, 'x')}};
         e.safe_message = mira::to_json_string(Json{std::move(shared)});
         return e;
     };
-    const auto rejected = verifier.execute(
-        "desktop.window.activate",
-        Json{Json::Object{{"window_id", "w1"}, {"verify_kind", "window_focused"}}}, ctx,
-        oversized_with_hint);
+    const auto rejected =
+        verifier.execute("desktop.window.activate",
+                         Json{Json::Object{{"window_id", "w1"}, {"verify_kind", "window_focused"}}},
+                         ctx, oversized_with_hint);
     check(!rejected);
     const auto receipt = mira::parse_json(rejected.error().safe_message);
     check(receipt && receipt.value().as_object());
@@ -1233,11 +1232,11 @@ void rejection_hint_downgrade() {
     };
     check(field_text("error_code") == "pointer_origin_unknown");
     const auto hint = field_text("hint");
-    check(hint.find("direct click") != std::string::npos &&
-          hint.find("glide works") != std::string::npos);
+    check(hint.find("cursor metadata") != std::string::npos &&
+          hint.find("never bootstrap") != std::string::npos);
     // The downgrade did fire: the generic pointer text replaced the oversized
     // embedded message, and the hint is still on top of the receipt.
-    check(field_text("message").find("Desktop action failed") != std::string::npos);
+    check(field_text("message").find("action_id") != std::string::npos);
     // The receipt itself stays within the pinned budget.
     check(rejected.error().safe_message.size() <= 512);
 }

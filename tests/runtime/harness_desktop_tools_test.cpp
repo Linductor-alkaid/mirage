@@ -823,6 +823,63 @@ void epoch_reset_scenario() {
     owner.shutdown(true);
 }
 
+// Correctable parameters are not a lost tool capability. A repeated bad
+// key is retained as a recovery lesson, then a valid key still executes.
+// A later SSE failure must not restart the already executed tool history.
+void recoverable_argument_scenario(bool stream_error) {
+    kairo::Executor owner;
+    kairo::ExecutorConfig config;
+    config.min_threads = config.max_threads = 2;
+    MIRAGE_CHECK(static_cast<bool>(owner.initialize(config)));
+    auto desktop = environment();
+    std::shared_ptr<Script> script;
+    integration::ModelProviderOverride provider([&](const auto &profile) {
+        script = std::make_shared<Script>(profile, false);
+        script->actions_override = {
+            {"desktop.window.front", "{}"},
+            {"desktop.input.key", R"({"window_id":"w1","key":"not-a-key"})"},
+            {"desktop.input.key", R"({"window_id":"w1","key":"not-a-key"})"},
+            {"desktop.input.key", R"({"window_id":"w1","key":"not-a-key"})"},
+            {"desktop.input.key", R"({"window_id":"w1","key":"shift"})"}};
+        if (stream_error) {
+            script->provider_error_after = 5;
+            script->provider_error_message = "invalid Messages SSE lifecycle or budget";
+        }
+        return script;
+    });
+    integration::DesktopToolContext tools;
+    tools.environment = desktop;
+    tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    tools.gate = [](const auto &, const auto &, const auto &) { return true; };
+    integration::ModelLayer layer(owner, model_config(), &provider, tools);
+    auto ctx = mira::make_control_context();
+    ctx.session = mira::SessionId::generate();
+    ctx.deadline = std::chrono::steady_clock::now() + 30s;
+    const auto result =
+        owner
+            .submit_auto([&] {
+                return layer.complete_harness_turn({}, "recover from invalid key", ctx, "", true,
+                                                   [](const auto &, const auto &, bool) {}, {}, {});
+            })
+            .get();
+    MIRAGE_CHECK(script && script->requests.size() == 6);
+    MIRAGE_CHECK(result.tool_calls == 5);
+    MIRAGE_CHECK(result.ok == !stream_error && result.failed == stream_error);
+    MIRAGE_CHECK(desktop->input_log == std::vector<std::string>({"down shift", "up shift"}));
+    for (int n = 2; n <= 4; ++n)
+        MIRAGE_CHECK(failed_result(*script, "call-" + std::to_string(n), "invalid_argument"));
+    MIRAGE_CHECK(!failed_result(*script, "call-5", "permanent_failure"));
+    MIRAGE_CHECK(
+        request_text_contains(script->requests[4], "Untrusted host action recovery facts"));
+    MIRAGE_CHECK(request_text_contains(script->requests[4], "\"same_attempt_failures\":3"));
+    MIRAGE_CHECK(request_text_contains(script->requests[4], "correct_arguments_not_recapture"));
+    if (stream_error)
+        MIRAGE_CHECK(result.error.find("invalid Messages SSE lifecycle or budget") !=
+                     std::string::npos);
+    layer.shutdown();
+    owner.shutdown(true);
+}
+
 // DEC-085 structured tool failures: with a non-Full declared capture
 // capability, an UnsupportedCapability failure classifies as
 // platform_limitation and the settled completion carries exactly one
@@ -1947,10 +2004,15 @@ void x11_scenario() {
         MIRAGE_CHECK(keys_released());
         probes = 0;
         limits.timeout = 1ms;
+        const auto refused_key = input->key_chord({"ctrl+shift+t"}, limits, {});
+        MIRAGE_CHECK(!refused_key.ok && refused_key.error.code == "input_timeout" &&
+                     !refused_key.side_effect_may_have_occurred && refused_key.input_released);
+        MIRAGE_CHECK(keys_released());
+        limits.timeout = 1s;
         const auto timed_key =
             input->key_chord({"ctrl+shift+t"}, limits, mirage::desktop::CancelToken{[&] {
                                  if (++probes == 3)
-                                     (void)::poll(nullptr, 0, 5);
+                                     (void)::poll(nullptr, 0, 1100); // after a real modifier down
                                  return false;
                              }});
         MIRAGE_CHECK(!timed_key.ok && timed_key.error.code == "timeout" &&
@@ -2830,6 +2892,8 @@ int main() {
                                  "budget_final_turn", "budget_counts"})
         resilience_scenario(scenario);
     epoch_reset_scenario();
+    recoverable_argument_scenario(false);
+    recoverable_argument_scenario(true);
     tool_failure_record_scenario();
     tool_failure_stale_count_probe();
     portal_timeout_scenario();

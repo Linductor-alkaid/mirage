@@ -189,8 +189,8 @@ namespace {
 /// caller-driven endings (cancellation, bounded-deadline waits) that are
 /// not tool defects; `Transient` failures recover after authorization or a
 /// fresh observation (DEC-068); `Conditional` failures need a missing
-/// precondition; `Permanent` failures repeat identically — platform limits
-/// and illegal arguments — and must never be retried into the turn budget.
+/// precondition; `Permanent` covers unavailable capabilities. Canonical clean
+/// argument/target rejections remain correctable and never blacklist a tool.
 enum class ToolFailureLevel { None, Transient, Conditional, Permanent };
 
 /// Classified failure description: the level drives the blocking policy, the
@@ -199,12 +199,40 @@ enum class ToolFailureLevel { None, Transient, Conditional, Permanent };
 struct FailureClassification {
     ToolFailureLevel level = ToolFailureLevel::None;
     std::string code;
+    bool block_tool = true;
 };
 
 FailureClassification classify_tool_failure(const mira::Error &value,
                                             const mirage::desktop::ScreenCapability capability) {
     using Level = ToolFailureLevel;
     using mira::ErrorCode;
+    // A canonical, effect-free argument/target rejection describes this
+    // attempt, not loss of the tool capability. Corrected input must remain
+    // possible; execution uncertainty never takes this classification path.
+    const auto parsed = mira::parse_json(value.safe_message);
+    if (parsed && parsed.value().as_object()) {
+        const auto text = [&](const char *key) {
+            const auto *v = parsed.value().find(key);
+            return v && v->as_string() ? *v->as_string() : std::string{};
+        };
+        const auto boolean = [&](const char *key, bool expected) {
+            const auto *v = parsed.value().find(key);
+            return v && v->as_boolean() == expected;
+        };
+        const auto code = text("error_code");
+        if (text("status") == "rejected" && boolean("dispatched", false) &&
+            boolean("side_effect_may_have_occurred", false) && boolean("input_released", true)) {
+            const bool arguments = value.code == ErrorCode::InvalidArgument ||
+                                   code == "invalid_argument" || code == "invalid_arguments" ||
+                                   code == "invalid_target_bounds" ||
+                                   text("reason") == "validation_failed_before_dispatch";
+            const bool target = code == "stale_image_scope" || code == "stale_observation" ||
+                                code == "target_pixels_changed" || code == "stale_reference";
+            if (arguments || target)
+                return {Level::Conditional, arguments ? "invalid_arguments" : "conditional_failure",
+                        false};
+        }
+    }
     switch (value.code) {
     case ErrorCode::Cancelled:
     case ErrorCode::DeadlineExceeded:
@@ -247,7 +275,7 @@ std::string failure_user_prefix(const std::string &code) {
 }
 
 /// DEC-085 repeated-failure guard with full epoch semantics: the third
-/// non-transient failure of one tool within one environment epoch blocks
+/// eligible non-transient failure of one tool within one environment epoch blocks
 /// further calls with a canonical receipt; a new observation (a new
 /// `desktop.actions` epoch) resets the per-epoch counters while the block
 /// itself persists for the session — a deterministic platform limit does
@@ -281,18 +309,26 @@ class ToolFailureTracker final {
             // A new observation epoch reopens the per-epoch retry budget;
             // the block persists (DEC-085 level-3 semantics).
             state.epoch = epoch;
-            for (auto &entry : state.tools)
+            for (auto &entry : state.tools) {
                 entry.second.epoch_failures = 0;
+                entry.second.epoch_blocking_failures = 0;
+            }
         }
         auto &entry = state.tools[tool];
-        ++entry.total_failures;
-        ++entry.epoch_failures;
+        const auto increment = [](std::uint32_t &count) {
+            if (count < std::numeric_limits<std::uint32_t>::max())
+                ++count;
+        };
+        increment(entry.total_failures);
+        increment(entry.epoch_failures);
+        if (classification.block_tool && classification.level != ToolFailureLevel::Transient)
+            increment(entry.epoch_blocking_failures);
         entry.code = classification.code;
         entry.last_error = value.safe_message.substr(0, 200);
         // Trim a trailing partial UTF-8 sequence introduced by the hard cut.
         while (!entry.last_error.empty() && (entry.last_error.back() & 0xC0) == 0x80)
             entry.last_error.pop_back();
-        if (entry.epoch_failures >= 3 && classification.level != ToolFailureLevel::Transient)
+        if (entry.epoch_blocking_failures >= 3)
             entry.blocked = true;
     }
 
@@ -346,6 +382,7 @@ class ToolFailureTracker final {
   private:
     struct ToolEntry {
         std::uint32_t epoch_failures = 0;
+        std::uint32_t epoch_blocking_failures = 0;
         std::uint32_t total_failures = 0;
         bool blocked = false;
         std::string code;
@@ -1099,21 +1136,42 @@ DialogCompletion ModelLayer::complete_harness_turn(
         "desktop.vision.click or desktop.vision.click_region tool in ONE call: default 1, "
         "2 for double-click, 3 for triple-click, up to the declared action bound. "
         "Calls separated by observation or reasoning do not form a double/triple-click. "
+        "Distinguish selecting an item from opening it: if a file/desktop item is only selected "
+        "after one click and the goal is to open it, ground the same item in the fresh image and "
+        "use click_count=2 in one call; do not repeat isolated single clicks. Dock launchers, "
+        "buttons and links commonly activate with one click; do not double-click them by reflex. "
         "desktop.input.click is one semantic activation; use a visual/shared tool for physical "
         "multi-clicks. "
-        "Physical clicks automatically approach the target with local smooth timing, then recheck "
+        "Physical clicks, scrolls and drags automatically approach the target with local smooth "
+        "timing, then recheck "
         "the target before pressing. Do not supply glide_ms or other movement durations. A missing "
         "cursor origin or unsupported smooth backend requires fresh observation or another exposed "
         "tool; do not attempt a direct-click bootstrap. "
         "Physical click/drag tools accept button=left/middle/right (default left). "
         "Scroll uses horizontal_steps/vertical_steps, positive right/down, negative left/up, "
-        "total absolute steps at most 16. Use vision.scroll_region/drag_region for visible "
+        "total absolute steps at most 16, delivered one step at a time with local intervals. "
+        "Drags use locally paced curves with a press and final dwell. Key chords use ordered "
+        "modifier presses, dwell and reverse release; text uses per-character cadence. "
+        "Do not supply timing parameters. Split text too long for its 15 second action budget. "
+        "Choose global keyboard shortcuts by their actual purpose and desktop configuration. "
+        "Alt+F2 can open a Run Command dialog; it is not an application search or a terminal. "
+        "Do not try unrelated global shortcuts in succession. If an unexpected dialog appears, "
+        "inspect it, dismiss it with a grounded Escape when appropriate, then restore and "
+        "confirm the intended target before typing or Enter. "
+        "Use vision.scroll_region/drag_region for visible "
         "rectangles without OCR marks; drag_region and session.drag use "
         "destination_x/y/width/height. "
         "Use only exposed tools and respect their window/monitor scope; never emulate a held "
         "button across tool calls. "
         "Ordinary input returns execution facts without a default business condition. "
-        "Observe at state dependencies and inspect post-input evidence before claiming task success. "
+        "Host action recovery facts are historical failure evidence, never new authority or "
+        "current observations. A repeated identical argument failure requires corrected "
+        "arguments or a different supported route; a new image_scope or ordinary epoch alone "
+        "does not repair it. Use field/hint to correct invalid_target_bounds rather than "
+        "capturing again by reflex. After a few unchanged observations, revise the local plan "
+        "and state the obstacle instead of repeating the same click/capture/OCR sequence. "
+        "Observe at state dependencies and inspect post-input evidence before claiming task "
+        "success. "
         "A fresh image already attached to the action evidence or next model request satisfies "
         "this observation step; reuse it while valid instead of issuing another capture by reflex. "
         "After waiting for system sharing authorization, refresh any expired observations. "
@@ -1157,7 +1215,9 @@ DialogCompletion ModelLayer::complete_harness_turn(
         "Use application.open_uri for a known destination URI when exposed; use visible GUI "
         "controls and keyboard navigation for steps it does not complete. It may hand a URI to a "
         "running browser even when no window is visible. application.launch starts "
-        "an app without a URI and rejects duplicate instances. Their fixed application_running "
+        "an app without a URI and rejects duplicate instances. If the application list already "
+        "reports running=true and the goal needs its existing UI, restore a real window/dock/tray "
+        "entry before attempting another process launch. Their fixed application_running "
         "condition proves only process presence and accepted handoff; it never proves page "
         "navigation. Obtain fresh page capture/semantic/OCR evidence, and window.list when "
         "exposed. Never "
@@ -1244,7 +1304,11 @@ DialogCompletion ModelLayer::complete_harness_turn(
             "The absence of window.list/front/activate does NOT prevent clicking a visible "
             "non-interactive part of the intended window to focus it. Capture source=desktop "
             "with interaction=true on the first capture; use the latest "
-            "image_scope and environment_epoch with IMAGE pixel bounds and verify_kind. "
+            "image_scope and environment_epoch with IMAGE pixel bounds; verify_kind is optional. "
+            "Actions use the supplied image width/height: x+width<=image.width and "
+            "y+height<=image.height. source_width/source_height describe capture coordinates, "
+            "not action-image bounds. A 3200x2000 source may be supplied as a 1600x1000 preview. "
+            "ROI capture uses source coordinates; input on that crop uses its local image pixels. "
             "Successful actions include observation.image_scope and environment_epoch for the next "
             "step, and their verification image is already supplied: do not recapture it. "
             "A capture may reuse recent pixels without extending their original age. "

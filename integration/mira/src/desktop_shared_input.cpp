@@ -19,7 +19,8 @@ std::string field(const Json &v, const char *key) {
     return p && p->as_string() ? *p->as_string() : "";
 }
 mira::Error rejected(std::string code, bool effects = false, bool released = true,
-                     const std::string &refreshed_scope = {}) {
+                     const std::string &refreshed_scope = {}, const std::string &invalid_field = {},
+                     const std::string &hint = {}, const std::string &message = {}) {
     mira::Error e;
     e.code = code == "cancelled"           ? mira::ErrorCode::Cancelled
              : code == "permission_denied" ? mira::ErrorCode::PermissionDenied
@@ -31,6 +32,12 @@ mira::Error rejected(std::string code, bool effects = false, bool released = tru
                         {"verified", false}};
     if (!refreshed_scope.empty())
         fields.emplace_back("refreshed_image_scope", refreshed_scope);
+    if (!invalid_field.empty())
+        fields.emplace_back("field", invalid_field);
+    if (!hint.empty())
+        fields.emplace_back("hint", hint);
+    if (!message.empty())
+        fields.emplace_back("message", message);
     e.safe_message = mira::to_json_string(Json{std::move(fields)});
     return e;
 }
@@ -47,7 +54,9 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
                 ? "Click a visible control, or a clearly non-interactive area "
                   "of the intended window to focus it; no window API is needed. "
                   "click_count sets consecutive clicks in one action (default 1); "
-                  "use 2 for double-click, 3 for triple-click. Automatically approaches the target "
+                  "use 2 to OPEN an item that a single click only selects, 3 for triple-click. "
+                  "Do not approximate a double-click with separate tool calls. "
+                  "Automatically approaches the target "
                   "along a locally timed minimum-jerk path, then checks fresh target pixels before "
                   "pressing. No model timing parameter. Requires a fresh same-stream cursor "
                   "origin; "
@@ -66,7 +75,9 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
             "Wayland complete input on a system-authorized interactive shared monitor. "
             "Requires latest supplied image_scope and environment_epoch; x/y/width/height identify "
             "the target rectangle in IMAGE pixels, revalidated from fresh stream pixels before "
-            "input. Every capture or OCR refresh replaces the previous image_scope; use the "
+            "input. Rectangle must fit the supplied image: x+width<=image width, "
+            "y+height<=image height; source dimensions are not action-image bounds. "
+            "Every capture or OCR refresh replaces the previous image_scope; use the "
             "latest actionable image, including for key and type_text. "
             "click/scroll use rectangle center. key uses canonical lowercase key_name (e.g. "
             "ctrl+l, enter, shift; bare ctrl/alt/shift/meta tap and release; meta+ for "
@@ -161,12 +172,27 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
     };
     const auto epoch = integer("environment_epoch"), x = integer("x"), y = integer("y"),
                w = integer("width"), h = integer("height");
-    if (!epoch || *epoch <= 0 || static_cast<std::uint64_t>(*epoch) != epoch_ ||
-        epoch_ != desktop_.actions->epoch() || !x || !y || !w || !h || *x < 0 || *y < 0 ||
-        *w <= 0 || *h <= 0 || *x > 16384 || *y > 16384 || *w > 16384 || *h > 16384 ||
-        !native_frame_ || *x + *w > native_frame_->width || *y + *h > native_frame_->height ||
+    if (!epoch || *epoch <= 0)
+        return rejected("invalid_argument", false, true, {}, "environment_epoch");
+    if (static_cast<std::uint64_t>(*epoch) != epoch_ || epoch_ != desktop_.actions->epoch() ||
         std::chrono::steady_clock::now() - captured_ >= std::chrono::seconds(60))
-        return rejected("stale_or_invalid_target");
+        return rejected("stale_observation", false, true, {}, "environment_epoch",
+                        "Use the latest supplied image scope and epoch; refresh only if expired.");
+    if (!native_frame_)
+        return rejected("interactive_image_required");
+    if (!x || !y || !w || !h || *x < 0 || *y < 0 || *w <= 0 || *h <= 0 || *x > 16384 ||
+        *y > 16384 || *w > 16384 || *h > 16384)
+        return rejected("invalid_argument", false, true, {}, "target",
+                        "Use nonnegative x/y and positive width/height in current IMAGE pixels.");
+    const auto invalid_bounds = [&](const char *field_name) {
+        return rejected("invalid_target_bounds", false, true, {}, field_name,
+                        "Fit rectangle in current " + std::to_string(native_frame_->width) + "x" +
+                            std::to_string(native_frame_->height) +
+                            " IMAGE pixels. Correct coordinates; recapture alone will not help.",
+                        "Target rectangle exceeds supplied image.");
+    };
+    if (*x + *w > native_frame_->width || *y + *h > native_frame_->height)
+        return invalid_bounds("target");
     const auto kind = field(args, "verify_kind");
     if ((!kind.empty() && kind != "shared_frame_observed" && kind != "shared_text_exists") ||
         (kind == "shared_text_exists" &&
@@ -224,9 +250,10 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         dw = integer("destination_width");
         dh = integer("destination_height");
         if (!dx || !dy || !dw || !dh || *dx < 0 || *dy < 0 || *dw <= 0 || *dh <= 0 || *dx > 16384 ||
-            *dy > 16384 || *dw > 16384 || *dh > 16384 || *dx + *dw > native_frame_->width ||
-            *dy + *dh > native_frame_->height)
-            return rejected("invalid_argument");
+            *dy > 16384 || *dw > 16384 || *dh > 16384)
+            return rejected("invalid_argument", false, true, {}, "destination");
+        if (*dx + *dw > native_frame_->width || *dy + *dh > native_frame_->height)
+            return invalid_bounds("destination");
     }
     for (const auto *key :
          {"destination_x", "destination_y", "destination_width", "destination_height"})

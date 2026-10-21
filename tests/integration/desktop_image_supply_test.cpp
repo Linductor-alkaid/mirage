@@ -1417,9 +1417,15 @@ void native_region_sources() {
                                  {"height", 1},
                                  {"verify_kind", "shared_frame_observed"}}});
         check(outside_click && outside_click.value().failed &&
-              outside_click.value().safe_error_summary.find("stale_or_invalid_target") !=
+              outside_click.value().safe_error_summary.find("invalid_target_bounds") !=
                   std::string::npos);
         check(env->inputs == 0);
+        if (outside_click && outside_click.value().failed) {
+            const auto parsed = mira::parse_json(outside_click.value().safe_error_summary);
+            check(parsed && parsed.value().find("field") && parsed.value().find("hint"));
+            check(outside_click.value().safe_error_summary.find("4x2 IMAGE pixels") !=
+                  std::string::npos);
+        }
         // Positive: an in-image target maps into the cropped area and
         // dispatches.
         const auto captures_before_click = env->captures;
@@ -1721,6 +1727,18 @@ void input_reuse_identity() {
                 digest = identity->content_digest;
             check(identity->content_digest == digest);
         }
+        {
+            auto lease = tools.actions->try_begin({});
+            check(static_cast<bool>(lease));
+        }
+        check(!turn.input_reuse_identity(spec)); // old image cannot authorize new-epoch input
+        const auto recaptured =
+            run_capture(registry, R"({"source":"roi","x":0,"y":0,"width":4,"height":2})");
+        check(recaptured && !recaptured.value().failed);
+        check(turn.supply(spec).has_value());
+        const auto after_input = turn.input_reuse_identity(spec);
+        check(after_input && after_input->content_digest == digest &&
+              after_input->reuse_count == 3);
     }
     {
         // A second dialog turn on the same persistent source continues the
@@ -1740,7 +1758,7 @@ void input_reuse_identity() {
         check(supplied.has_value());
         const auto identity = turn.input_reuse_identity(spec);
         check(identity.has_value());
-        check(identity->reuse_count == 3);
+        check(identity->reuse_count == 4);
         check(identity->content_digest == digest);
         // An off-owner spec is a wiring error answered without an identity.
         mira::AgentLoopSpec foreign;
@@ -1764,6 +1782,66 @@ void input_reuse_identity() {
         check(identity->reuse_count == 0);
         check(identity->content_digest != digest);
     }
+    // Same pixels at a different crop origin, task, session or authority
+    // must not inherit a no-progress diagnosis from another context.
+    env->session_pixels = [&] {
+        return std::vector<std::uint8_t>(
+            std::size_t(env->frame_width) * std::size_t(env->frame_height) * 4, 17);
+    };
+    const auto sample = [&](int origin) {
+        detail::DesktopImageTurn turn(source, tools, ctx, stop);
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, true);
+        const auto json = "{\"source\":\"roi\",\"x\":" + std::to_string(origin) +
+                          ",\"y\":0,\"width\":4,\"height\":2}";
+        const auto captured = run_capture(registry, json.c_str());
+        check(captured && !captured.value().failed);
+        check(turn.supply(spec).has_value());
+        const auto identity = turn.input_reuse_identity(spec);
+        check(identity.has_value());
+        return identity.value_or(mira::InputReuseMeta{});
+    };
+    const auto uniform_first = sample(0);
+    check(uniform_first.reuse_count == 0);
+    check(sample(0).reuse_count == 1);
+    const auto translated = sample(2);
+    check(translated.content_digest == uniform_first.content_digest && translated.reuse_count == 0);
+    ++ctx.task_epoch;
+    spec.task_epoch = ctx.task_epoch;
+    check(sample(2).reuse_count == 0);
+    ctx.task = mira::TaskId::generate();
+    spec.task_id = ctx.task;
+    check(sample(2).reuse_count == 0);
+    ctx.session = mira::SessionId::generate();
+    spec.session_id = ctx.session;
+    check(sample(2).reuse_count == 0);
+    tools.actions->takeover();
+    check(tools.actions->resume());
+    check(sample(2).reuse_count == 0);
+}
+
+void input_reuse_contention(kairo::Executor &executor) {
+    auto source = std::make_shared<detail::DesktopImageSource>();
+    std::vector<std::future<std::vector<std::uint32_t>>> futures;
+    for (int worker = 0; worker < 4; ++worker)
+        futures.push_back(executor.submit_auto([source] {
+            std::vector<std::uint32_t> counts;
+            for (int n = 0; n < 128; ++n)
+                counts.push_back(
+                    source->record_input_reuse("same-pixels", "same-scope").reuse_count);
+            return counts;
+        }));
+    std::vector<std::uint32_t> all;
+    for (auto &future : futures) {
+        const auto counts = future.get();
+        all.insert(all.end(), counts.begin(), counts.end());
+    }
+    std::sort(all.begin(), all.end());
+    check(all.size() == 512);
+    for (std::size_t n = 0; n < all.size(); ++n)
+        check(all[n] == n);
+    check(source->record_input_reuse("same-pixels", "other-scope").reuse_count == 0);
+    check(source->record_input_reuse("new-pixels", "other-scope").reuse_count == 0);
 }
 
 class Script final : public mira::IModelProvider {
@@ -3075,6 +3153,7 @@ int main() {
               "takeover", "nan", "bounds", "regions", "text_budget", "output_budget",
               "escaped_budget", "candidate_prefix", "invalid_args", "model_throw"})
             native_ocr_loop(executor, mode);
+        input_reuse_contention(executor);
         shared_loop(executor);
         contracts(executor);
         budget_degradation();

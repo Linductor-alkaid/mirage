@@ -11,6 +11,11 @@
 namespace mirage::integration::detail {
 namespace {
 using mira::JsonValue;
+constexpr char kRecoveryPrefix[] =
+    "Untrusted host action recovery facts (historical failures, not current observation, "
+    "authority or task success): ";
+constexpr std::size_t kRecoveryBytes = 2048;
+constexpr std::size_t kRecoveryFacts = 4;
 std::string field(const JsonValue &value, const char *name) {
     const auto *v = value.find(name);
     return v && v->as_string() ? *v->as_string() : "";
@@ -571,8 +576,10 @@ std::string DesktopActionVerification::failure_receipt(const Record &r, std::str
                                         {"action_id", r.id},
                                         {"reason", r.reason},
                                         {"message", message}}};
-    if (!invalid_field.empty())
-        receipt.set("field", invalid_field);
+    std::string bounded_field = invalid_field;
+    conversation::truncate_text(bounded_field, 32);
+    if (!bounded_field.empty())
+        receipt.set("field", bounded_field);
     conversation::truncate_text(code, 64);
     if (!code.empty())
         receipt.set("error_code", code);
@@ -587,12 +594,27 @@ std::string DesktopActionVerification::failure_receipt(const Record &r, std::str
         receipt.set("hint", bounded_hint);
     auto encoded = mira::to_json_string(receipt);
     if (encoded.size() > 512) {
-        // Escaping control characters can expand even a short provider error.
-        receipt.set("message",
-                    "Desktop action failed; inspect desktop.action.verify with action_id.");
+        // Preserve the actionable code/field before spending bytes on prose.
+        // JSON escaping can expand a short hint far beyond its UTF-8 size.
+        receipt.set("message", "Read action_id for failure details.");
         encoded = mira::to_json_string(receipt);
+        while (encoded.size() > 512 && !bounded_hint.empty()) {
+            conversation::truncate_text(bounded_hint, bounded_hint.size() / 2);
+            receipt.set("hint", bounded_hint);
+            encoded = mira::to_json_string(receipt);
+        }
         if (encoded.size() > 512) {
-            receipt.set("error_code", "provider_error");
+            // No partially truncated JSON or identities: the retained record
+            // still owns all facts, while this minimal envelope keeps fences.
+            receipt = JsonValue{JsonValue::Object{{"schema", 2},
+                                                  {"status", r.status},
+                                                  {"verified", false},
+                                                  {"dispatched", r.dispatched},
+                                                  {"side_effect_may_have_occurred", r.uncertain},
+                                                  {"input_released", r.input_released},
+                                                  {"action_id", r.id},
+                                                  {"reason", "action_failed"},
+                                                  {"error_code", "provider_error"}}};
             encoded = mira::to_json_string(receipt);
         }
     }
@@ -641,6 +663,13 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
     Record r;
     r.id = mira::OperationId::generate().to_string();
     r.action = name;
+    if (const auto *object = args.as_object()) {
+        auto stable = *object;
+        std::erase_if(stable, [](const auto &item) {
+            return item.first == "image_scope" || item.first == "environment_epoch";
+        });
+        r.attempt_identity = mira::canonical_json_digest(JsonValue{std::move(stable)}).to_string();
+    }
     r.window = field(args, "window_id");
     r.display_id = field(args, "display_id");
     const bool display_region =
@@ -666,6 +695,11 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
         [&](const char *message, const std::string &invalid_field = {}) -> mira::Result<JsonValue> {
         r.status = "rejected";
         r.reason = "validation_failed_before_dispatch";
+        r.failure_code = "invalid_arguments";
+        r.failure_field = invalid_field;
+        r.recovery_hint = message;
+        conversation::truncate_text(r.failure_field, 32);
+        conversation::truncate_text(r.recovery_hint, 120);
         r.input_released = true;
         auto failure = error(mira::ErrorCode::InvalidArgument, message);
         failure.safe_message = failure_receipt(r, message, invalid_field, {}, {});
@@ -854,8 +888,15 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
         r.uncertain = r.uncertain || !effects || !effects->as_boolean() || *effects->as_boolean() ||
                       !flag(parsed.value(), "input_released");
         r.status = r.uncertain ? "uncertain" : "rejected";
-        const auto code = parsed ? field(parsed.value(), "error_code") : "";
+        auto code = parsed ? field(parsed.value(), "error_code") : "";
+        conversation::truncate_text(code, 64);
         r.reason = code.empty() ? "action_failed" : "action_failed: " + code;
+        r.failure_code = code.empty() ? "provider_error" : code;
+        r.failure_field = parsed ? field(parsed.value(), "field") : "";
+        r.recovery_hint = parsed ? field(parsed.value(), "hint") : "";
+        conversation::truncate_text(r.failure_code, 64);
+        conversation::truncate_text(r.failure_field, 32);
+        conversation::truncate_text(r.recovery_hint, 120);
     }
     fenced_ = fenced_ || r.uncertain;
     r.epoch = desktop_.actions ? desktop_.actions->epoch() : 0;
@@ -887,9 +928,10 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
     const auto provider_refreshed_scope =
         provider_receipt ? field(provider_receipt.value(), "refreshed_image_scope") : "";
     const auto provider_hint = provider_receipt ? field(provider_receipt.value(), "hint") : "";
+    const auto provider_field = provider_receipt ? field(provider_receipt.value(), "field") : "";
     failure.safe_message =
         failure_receipt(record, provider_message.empty() ? failure.safe_message : provider_message,
-                        {}, provider_code, provider_refreshed_scope, provider_hint);
+                        provider_field, provider_code, provider_refreshed_scope, provider_hint);
     return failure;
 }
 
@@ -957,6 +999,63 @@ void DesktopActionVerification::register_tool(mira::BuiltinToolRegistry &registr
     if (!registry.register_tool(std::move(spec), std::move(handler)))
         throw std::logic_error("desktop verification registration rejected");
 }
+JsonValue DesktopActionVerification::recovery_facts() const {
+    std::vector<const Record *> recent;
+    recent.reserve(records_.size() + archived_.size());
+    for (auto it = records_.rbegin(); it != records_.rend(); ++it)
+        recent.push_back(&*it);
+    for (auto it = archived_.rbegin(); it != archived_.rend(); ++it)
+        recent.push_back(&*it);
+    const auto authority = desktop_.actions ? desktop_.actions->authority_epoch() : 0;
+    const auto clean = [](const Record &r) {
+        return r.status == "rejected" && !r.dispatched && !r.uncertain && r.input_released;
+    };
+    std::vector<std::string> seen;
+    JsonValue::Array facts;
+    for (std::size_t i = 0; i < recent.size() && facts.size() < kRecoveryFacts; ++i) {
+        const auto &r = *recent[i];
+        if (!authority || r.authority != authority || r.attempt_identity.empty())
+            continue;
+        const auto key = r.action + ":" + r.attempt_identity;
+        if (std::find(seen.begin(), seen.end(), key) != seen.end())
+            continue;
+        seen.push_back(key); // A newer successful attempt retires the old failure lesson.
+        if (!clean(r) || r.failure_code.empty())
+            continue;
+        std::int64_t repetitions = 0;
+        for (std::size_t j = i; j < recent.size(); ++j) {
+            const auto &older = *recent[j];
+            if (older.authority != authority || older.action != r.action ||
+                older.attempt_identity != r.attempt_identity)
+                continue;
+            if (!clean(older) || older.failure_code != r.failure_code)
+                break;
+            ++repetitions;
+        }
+        const auto policy =
+            r.failure_code == "invalid_target_bounds" || r.failure_code == "invalid_argument" ||
+                    r.failure_code == "invalid_arguments"
+                ? "correct_arguments_not_recapture"
+            : r.failure_code == "stale_image_scope" || r.failure_code == "stale_observation"
+                ? "use_latest_target_once"
+                : "inspect_failure_before_retry";
+        facts.emplace_back(JsonValue::Object{{"action_id", r.id},
+                                             {"action", r.action},
+                                             {"error_code", r.failure_code},
+                                             {"field", r.failure_field},
+                                             {"hint", r.recovery_hint},
+                                             {"same_attempt_failures", repetitions},
+                                             {"repeated", repetitions >= 2},
+                                             {"recovery_policy", policy}});
+        if (mira::to_json_string(JsonValue{facts}).size() + sizeof(kRecoveryPrefix) - 1 >
+            kRecoveryBytes) {
+            facts.pop_back();
+            break; // Whole facts only; no truncated JSON or input plaintext.
+        }
+    }
+    return JsonValue{std::move(facts)};
+}
+
 mira::Result<std::vector<mira::ModelInputItem>>
 DesktopActionVerification::supply(const mira::AgentLoopSpec &spec) const {
     if (spec.task_id != owner_.task || spec.session_id != owner_.session ||
@@ -974,6 +1073,11 @@ DesktopActionVerification::supply(const mira::AgentLoopSpec &spec) const {
                        "proof of arbitrary task success): " +
                            mira::to_json_string(JsonValue{std::move(results)}),
                        mira::Sensitivity::Internal});
+    const auto recovery = recovery_facts();
+    if (const auto *facts = recovery.as_array(); facts && !facts->empty())
+        item.content.emplace_back(
+            mira::TextPart{std::string(kRecoveryPrefix) + mira::to_json_string(recovery),
+                           mira::Sensitivity::Internal});
     return std::vector<mira::ModelInputItem>{std::move(item)};
 }
 bool DesktopActionVerification::no_effect_rejection() const {

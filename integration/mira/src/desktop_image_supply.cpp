@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <mirador/change_detection.hpp>
 #include <mirador/resize.hpp>
 #include <stdexcept>
@@ -93,13 +94,13 @@ mira::Result<std::vector<std::byte>> DesktopImageSource::fetch(const mira::Artif
 }
 
 mira::InputReuseMeta DesktopImageSource::record_input_reuse(const std::string &digest,
-                                                            std::uint64_t desktop_epoch) {
+                                                            const std::string &scope) {
     const std::lock_guard lock(reuse_mutex_);
-    if (desktop_epoch != reuse_epoch_ || digest != reuse_digest_) {
+    if (scope != reuse_scope_ || digest != reuse_digest_) {
         reuse_digest_ = digest;
-        reuse_epoch_ = desktop_epoch;
+        reuse_scope_ = scope;
         reuse_count_ = 0;
-    } else {
+    } else if (reuse_count_ < std::numeric_limits<std::uint32_t>::max()) {
         ++reuse_count_;
     }
     return {digest, reuse_count_, "desktop screenshot"};
@@ -1162,10 +1163,25 @@ DesktopImageTurn::input_reuse_identity(const mira::AgentLoopSpec &spec) const {
     // image aged out offered no image to annotate.
     if (!supply_images_ || !image_ || !expect_image_)
         return std::nullopt;
-    // Content digest, not artifact id: a recapture of identical pixels is the
-    // same sight for the model (DEC-055 reuses the artifact for it), while a
-    // new artifact of changed content restarts the count.
-    return source_->record_input_reuse(image_->digest.to_string(), desktop_.actions->epoch());
+    if (!desktop_.actions || !desktop_.actions->authority_epoch() ||
+        epoch_ != desktop_.actions->epoch())
+        return std::nullopt;
+    JsonValue::Object scope{
+        {"session", owner_.session.to_string()},
+        {"task", owner_.task.to_string()},
+        {"task_epoch", static_cast<std::int64_t>(owner_.task_epoch)},
+        {"authority", static_cast<std::int64_t>(desktop_.actions->authority_epoch())}};
+    for (const char *key :
+         {"source", "source_id", "width", "height", "source_width", "source_height", "origin_x",
+          "origin_y", "desktop_per_image_x_numerator", "desktop_per_image_x_denominator",
+          "desktop_per_image_y_numerator", "desktop_per_image_y_denominator"})
+        if (const auto *value = metadata_.find(key))
+            scope.emplace_back(key, *value);
+    // This diagnoses identical visual input, not stale authority: ordinary
+    // actions may advance epoch without changing a single observed pixel.
+    return source_->record_input_reuse(
+        image_->digest.to_string(),
+        mira::canonical_json_digest(JsonValue{std::move(scope)}).to_string());
 }
 
 mira::Result<void> DesktopImageTurn::validate_request(const mira::ModelRequest &request,
