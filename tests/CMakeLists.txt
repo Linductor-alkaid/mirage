@@ -1726,3 +1726,10 @@ mirage_add_test(pet_exclusion_tools_test
     LIBS Mirage::integration_mira
     LABELS "integration;pet"
     TIMEOUT 20)
+
+mirage_add_test(target_text_value_test
+    SOURCES desktop/target_text_value_test.cpp
+    LIBS Mirage::desktop
+    LABELS "unit;desktop"
+    TIMEOUT 30
+    )

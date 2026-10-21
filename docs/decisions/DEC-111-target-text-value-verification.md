@@ -1,6 +1,6 @@
 # DEC-111：跨平台目标文本值验证与分层取证
 
-> 状态：Accepted（维护者授权选择跨平台方案并形成决策；实现尚未交付）
+> 状态：Accepted（平台无关读值契约开始实现；平台与工具接线尚未交付）
 > 日期：2026-10-20
 > 负责人：Mirage 维护者
 > 冻结里程碑：M7
@@ -173,7 +173,8 @@ ROI/期限接口；目标输入框读取与剪贴板事务属于 Mirage 平台�
 确定性读值路径避免图像识别计算，预期减少误识别与往返；这是选型依据，不是已测得
 的延迟或准确率保证。主要风险是控件身份映射、应用文本暴露质量、IME 提交时机与
 剪贴板恢复竞态。按目标能力声明和结果分级处理，不能以平台名称或系统 API 存在替代
-应用实测。本次仅交付决策、设计与计划同步，当前产品行为保持待实现状态。
+应用实测。最初决策只交付设计与计划同步；随后 M7-32 平台无关契约进度见文末，
+真实平台和模型工具行为仍待接线。
 
 ## 验证方式
 
@@ -215,3 +216,15 @@ M7-32～34 分别验证契约／直接读取、受控复制、实际模型与视
   [UIA Edit：Name 与实际 Value、Text 模式及受保护字段](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-supporteditcontroltype)、
   [Portal Clipboard：会话授权、所有权事件与 SelectionRead](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.Clipboard.html)。
   API 文档不构成本机实现／应用支持的证明。
+
+
+## M7-32 首个实施边界（2026-10-20）
+
+新增同步 `AccessibilityProvider::read_text_value` SPI，默认显式不支持。请求仅接受
+带 scope 的确切 reference；不允许语义名称、坐标或提示回退。结果必须回传同一
+scope/ref、本次调用内的单调采集区间、完整且已提交的有效 UTF-8 正文及来源。
+纯比较器只做一次读取，不发送输入、不调用 OCR、不轮询或降格条件；每次重验
+重新读取，返回 matched/mismatched/verification_unavailable 及脱敏元数据。
+正文和期望值各最多 4096 字节，总预算最多五秒，服从更短的调用方预算和取消。
+此 SPI 是平台实现的准入契约；不能以默认方法存在声明当前 AT-SPI/UIA 已支持。
+M7-32 保持 In Progress，M7-33/34 与任务及权限换代围栏接线继续开放。

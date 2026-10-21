@@ -47,8 +47,9 @@ M9-05/07/08/11/12/13/18 验收范围同步，原有未完成状态与平台门�
 2026-10-20：[DEC-111](../decisions/DEC-111-target-text-value-verification.md) 已接受
 跨平台目标文本验证方案：系统无障碍读值首选，受控复制可选，局部视觉回退；值条件
 与图像观察分别声明，OCR 未命中不能等同派发失败。
-[M7-32～34](m7-target-text-verification.md) 为 Planned；本次仅文档，直接读值、
-复制事务、默认选路及各平台验收尚未交付，不改变已有门禁与完成声明。
+[M7-32](m7-target-text-verification.md) 已进入 In Progress，交付平台中立读值 SPI
+与一次只读精确比较器；Provider 默认不支持，尚无平台/工具接线。M7-33/34 继续
+Planned；复制事务、默认选路及各平台验收尚未交付，不改变已有门禁与完成声明。
 
 2026-10-19：[DEC-110](../decisions/DEC-110-continuous-input-and-device-compatibility.md)
 （Proposed）与 [M7-25～31 专项计划](m7-continuous-input-and-device-compatibility.md)

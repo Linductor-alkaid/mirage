@@ -7,6 +7,7 @@
 #include <mirage/desktop/input_provider.hpp>
 #include <mirage/desktop/provider_error.hpp>
 #include <mirage/desktop/semantic_snapshot.hpp>
+#include <mirage/desktop/target_text_value.hpp>
 
 namespace mirage::desktop {
 
@@ -28,6 +29,15 @@ class AccessibilityProvider {
   public:
     virtual ~AccessibilityProvider() = default;
     virtual bool scoped_references_supported() const { return false; }
+
+    /// DEC-111: independent opt-in, not implied by set_text or tree support.
+    virtual bool text_value_read_supported() const { return false; }
+    virtual TextValueReadOutcome read_text_value(const ElementTarget &, const TextValueReadLimits &,
+                                                 const CancelToken &) {
+        TextValueReadOutcome result;
+        result.error = {"text_value_read_unsupported", "complete target text read is unavailable"};
+        return result;
+    }
 
     /// Generates the SemanticSnapshot for one window (by WindowProvider id).
     /// Fails closed with stable ProviderError codes: unknown window

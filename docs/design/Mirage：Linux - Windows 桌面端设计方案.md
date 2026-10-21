@@ -7,15 +7,17 @@
 
 ## 1. 项目概述
 
-2026-10-20 决策增量（已接受，待实现）：
+2026-10-20 决策增量（已接受，首个契约增量实施中）：
 [DEC-111](../decisions/DEC-111-target-text-value-verification.md) 采用平台中立的目标
 文本值验证：通过 AccessibilityProvider 按需读取同一控件的实际值，受控复制作为
 默认关闭的可选增强，局部图像／OCR 作为视觉回退。实际值、视觉存在和新帧观察的
 证明范围分开，不事后弱化固定条件，不从 OCR 未匹配推导输入派发失败。
 目标身份、完整替换／插入语义、IME 已提交状态、权限、取消和恢复规则见决策；
 `action.verify` 保持只读。Platform Backend 封装 AT-SPI／UIA／Portal，公开接口不
-暴露平台类型。当前 Provider 尚缺读值及完整复制事务，
-[M7-32～34](../plans/m7-target-text-verification.md) 均为 Planned；不声明新增能力已交付。
+暴露平台类型。Provider 已加入独立 opt-in 的完整读值 SPI 和一次只读精确比较器，
+默认明确不支持；M7-32 为 In Progress，AT-SPI/UIA 身份绑定、工具条件与任务/授权/
+epoch 接线尚待交付。完整复制事务与选路验收 M7-33/34 保持 Planned，见
+[M7-32～34](../plans/m7-target-text-verification.md)。
 
 2026-10-15 决策增量（设计方向已接受，实现待交付）：
 [DEC-090](../decisions/DEC-090-continuous-task-execution.md) 定义主任务不按累计
